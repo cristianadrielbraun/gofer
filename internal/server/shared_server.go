@@ -136,6 +136,7 @@ func RunShared() {
 
 	mux := http.NewServeMux()
 	h := handler.New(db, accountStore, syncer, blobStore, authManager, vapidPublicKey, mailCredentials)
+	h.SetTestPushSender(notificationService.SendTestPush)
 
 	go func() {
 		log.Printf("boot: background threading worker started")

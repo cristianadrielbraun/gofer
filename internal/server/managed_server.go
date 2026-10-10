@@ -128,6 +128,7 @@ func newManagedApplication(parent context.Context, path string, maxOpen int) (re
 		return nil, err
 	}
 	app.mailbox = handler.New(s.central, centralAccounts, syncer, blobs, app.auth, publicKey, app.flows)
+	app.mailbox.SetTestPushSender(app.notifications.SendTestPush)
 	mux := http.NewServeMux()
 	if err := app.mailbox.RegisterUserStorageRoutes(ctx, mux, s.routing, handler.UserStorageOptions{
 		Accounts: accounts, IMAP: app.imap, Credentials: app.credentials,

@@ -4201,6 +4201,38 @@ document.addEventListener("DOMContentLoaded", function () {
         updateDesktopNotificationControls()
       })
     })
+    document.addEventListener("click", function (e) {
+      var button = e.target && e.target.closest ? e.target.closest("[data-desktop-notifications-test]") : null
+      if (!button || button.disabled) return
+      button.disabled = true
+      button.setAttribute("data-busy", "")
+      sendTestNotification().then(function () {
+        showGoferToast({
+          id: "desktop-notifications-test-toast",
+          title: "Test notification sent",
+          description: "It should appear in a moment. If it does not, check your system's notification settings.",
+          variant: "success",
+          icon: "success",
+          position: "bottom-right",
+          duration: 5000,
+          dismissible: true,
+        })
+      }).catch(function (err) {
+        showGoferToast({
+          id: "desktop-notifications-test-toast",
+          title: "Test notification failed",
+          description: err && err.message ? err.message : "Could not send the test notification.",
+          variant: "warning",
+          icon: "warning",
+          position: "bottom-right",
+          duration: 7000,
+          dismissible: true,
+        })
+      }).finally(function () {
+        button.removeAttribute("data-busy")
+        setNotificationActiveMethod(_notificationActiveMethod)
+      })
+    })
     document.addEventListener("htmx:afterSwap", function () {
       updateDesktopNotificationControls()
       setNotificationActiveMethod(_notificationActiveMethod)
@@ -4235,6 +4267,53 @@ document.addEventListener("DOMContentLoaded", function () {
     else if (_notificationActiveMethod === "browser_tab") label = "Browser tab"
     var nodes = document.querySelectorAll("[data-notification-active-method]")
     for (var i = 0; i < nodes.length; i++) nodes[i].textContent = "Active method: " + label
+    var testable = _notificationActiveMethod === "web_push" || _notificationActiveMethod === "browser_tab"
+    var tests = document.querySelectorAll("[data-desktop-notifications-test]")
+    for (var j = 0; j < tests.length; j++) {
+      if (!tests[j].hasAttribute("data-busy")) tests[j].disabled = !testable
+    }
+  }
+
+  // Sends a test notification through the active method. Web Push goes through the
+  // server and the push service to this browser's subscription, like new mail does;
+  // browser-tab notifications are shown by the page itself.
+  function sendTestNotification() {
+    if (_notificationActiveMethod === "web_push") {
+      if (!("serviceWorker" in navigator)) return Promise.reject(new Error("This browser does not support Web Push."))
+      return navigator.serviceWorker.getRegistration("/sw.js").then(function (registration) {
+        return registration ? registration.pushManager.getSubscription() : null
+      }).then(function (subscription) {
+        if (!subscription) throw new Error("This browser has no push subscription. Turn notifications off and on again to register it.")
+        return fetch("/api/push/test", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ endpoint: subscription.endpoint }),
+        })
+      }).then(function (res) {
+        if (res.ok) return
+        return res.text().then(function (message) {
+          throw new Error((message || "").trim() || "Could not send the test notification.")
+        })
+      })
+    }
+    if (_notificationActiveMethod === "browser_tab") {
+      if (!browserNotificationsSupported() || Notification.permission !== "granted") {
+        return Promise.reject(new Error("Notification permission was not granted."))
+      }
+      var notification = new Notification("Gofer", {
+        body: "Test notification. Desktop notifications are working.",
+        tag: "gofer-test-notification",
+        icon: "/assets/logo.png",
+        badge: "/assets/logo.png",
+      })
+      notification.onclick = function () {
+        window.focus()
+        notification.close()
+      }
+      setTimeout(function () { notification.close() }, 12000)
+      return Promise.resolve()
+    }
+    return Promise.reject(new Error("Turn on desktop notifications first."))
   }
 
   function requestNotificationPermission(prompt) {

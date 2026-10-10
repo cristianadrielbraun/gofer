@@ -3,6 +3,7 @@ package notifications
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -408,5 +409,49 @@ func TestUserStorageContactBackfillWorkerKeepsOwnersSeparate(t *testing.T) {
 	var centralContacts int
 	if err := f.system.Read().QueryRow(`SELECT COUNT(*) FROM contact_profiles`).Scan(&centralContacts); err != nil || centralContacts != 0 {
 		t.Fatalf("backfill wrote central contacts: rows=%d err=%v", centralContacts, err)
+	}
+}
+
+func TestUserStorageTestPushReachesOnlyTheAskingBrowser(t *testing.T) {
+	f := newUserStorageFixture(t)
+	f.subscribe(t, "alice", "https://push.example/alice")
+	f.subscribe(t, "bob", "https://push.example/bob")
+	var delivered []string
+	var payload map[string]any
+	f.service.sendNotification = func(_ context.Context, body []byte, sub *webpush.Subscription, _ *webpush.Options) (*http.Response, error) {
+		delivered = append(delivered, sub.Endpoint)
+		_ = json.Unmarshal(body, &payload)
+		return pushResponse(http.StatusCreated), nil
+	}
+	if err := f.service.SendTestPush(t.Context(), "alice", "https://push.example/alice"); err != nil {
+		t.Fatal(err)
+	}
+	if len(delivered) != 1 || delivered[0] != "https://push.example/alice" || payload["tag"] != "gofer-test-notification" {
+		t.Fatalf("test push went to %v with %v", delivered, payload)
+	}
+	// Another user's browser, or one that never subscribed, gets nothing.
+	for _, endpoint := range []string{"https://push.example/bob", "https://push.example/unknown", ""} {
+		if err := f.service.SendTestPush(t.Context(), "alice", endpoint); !errors.Is(err, storage.ErrNoWebPushSubscription) {
+			t.Fatalf("endpoint %q: err = %v", endpoint, err)
+		}
+	}
+	if len(delivered) != 1 {
+		t.Fatalf("unexpected deliveries: %v", delivered)
+	}
+
+	// An expired subscription is removed and reported as not set up.
+	f.service.sendNotification = func(_ context.Context, _ []byte, _ *webpush.Subscription, _ *webpush.Options) (*http.Response, error) {
+		return pushResponse(http.StatusGone), nil
+	}
+	if err := f.service.SendTestPush(t.Context(), "alice", "https://push.example/alice"); !errors.Is(err, storage.ErrNoWebPushSubscription) {
+		t.Fatalf("expired subscription: err = %v", err)
+	}
+	if subs, err := f.system.ListWebPushSubscriptions(t.Context(), "alice"); err != nil || len(subs) != 0 {
+		t.Fatalf("expired subscription kept: %v %v", subs, err)
+	}
+
+	// Without a sender configured the route answers that Web Push is not set up.
+	if rec := f.request("alice", http.MethodPost, "/api/push/test", `{"endpoint":"https://push.example/alice"}`); rec.Code != http.StatusConflict {
+		t.Fatalf("test push route: %d %s", rec.Code, rec.Body.String())
 	}
 }

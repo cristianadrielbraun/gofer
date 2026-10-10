@@ -293,3 +293,66 @@ type jsonNumber interface {
 
 // Wait joins notification workers after their lifecycle contexts are canceled.
 func (s *Service) Wait() { s.workers.Wait() }
+
+// SendTestPush sends a test notification to one of the user's Web Push subscriptions,
+// the one belonging to the browser that asked for it, through the same path as new-mail
+// notifications.
+func (s *Service) SendTestPush(ctx context.Context, userID, endpoint string) error {
+	if s == nil || s.db == nil || s.vapidPublicKey == "" || s.vapidPrivateKey == "" {
+		return storage.ErrNoWebPushSubscription
+	}
+	endpoint = strings.TrimSpace(endpoint)
+	subs, err := s.db.ListWebPushSubscriptions(ctx, userID)
+	if err != nil {
+		return err
+	}
+	var target *storage.WebPushSubscription
+	for i := range subs {
+		if endpoint != "" && subs[i].Endpoint == endpoint {
+			target = &subs[i]
+			break
+		}
+	}
+	if target == nil {
+		return storage.ErrNoWebPushSubscription
+	}
+
+	payload, err := json.Marshal(map[string]any{
+		"title": "Gofer",
+		"body":  "Test notification. Desktop notifications are working.",
+		"tag":   "gofer-test-notification",
+		"url":   "/settings/advanced",
+	})
+	if err != nil {
+		return err
+	}
+	pushCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	resp, err := s.sendNotification(pushCtx, payload, &webpush.Subscription{
+		Endpoint: target.Endpoint,
+		Keys:     webpush.Keys{Auth: target.Auth, P256dh: target.P256DH},
+	}, &webpush.Options{
+		Subscriber:      s.vapidSubject,
+		VAPIDPublicKey:  s.vapidPublicKey,
+		VAPIDPrivateKey: s.vapidPrivateKey,
+		TTL:             60,
+		Topic:           "gofer-test",
+		Urgency:         webpush.UrgencyHigh,
+	})
+	if resp != nil {
+		resp.Body.Close()
+	}
+	if err != nil {
+		_ = s.db.SetWebPushSubscriptionErrorIfCurrent(ctx, *target, err.Error())
+		return err
+	}
+	if resp.StatusCode == http.StatusGone || resp.StatusCode == http.StatusNotFound {
+		_ = s.db.DeleteWebPushSubscriptionIfCurrent(ctx, *target)
+		return storage.ErrNoWebPushSubscription
+	}
+	if resp.StatusCode >= 400 {
+		_ = s.db.SetWebPushSubscriptionErrorIfCurrent(ctx, *target, resp.Status)
+		return errors.New("the push service rejected the notification: " + resp.Status)
+	}
+	return nil
+}

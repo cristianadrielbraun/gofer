@@ -63,7 +63,8 @@ constrain every private lookup or mutation to that user:
 - Account OAuth: `/api/accounts/oauth2/authorize`,
   `/auth/google/mailbox/callback`, and `/auth/microsoft/mailbox/callback` use a
   single-use flow bound to the current user, session, and provider.
-- Settings, signatures, UI preferences, and Web Push subscriptions.
+- Settings, signatures, UI preferences, Web Push subscriptions, and test
+  notifications sent to the requesting browser's own subscription.
 - Compose, staged compose attachments, drafts, outgoing sends, and mail
   operations.
 - `GET /api/events`, whose EventBus messages require explicit account, user,

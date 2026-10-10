@@ -114,6 +114,7 @@ type Handler struct {
 	calendarSendResponse       func(context.Context, storage.CalendarSource, storage.CalendarEvent, calendarResponseTarget, string) (calendarResponseResult, error)
 	googleTranslator           *translation.GoogleWebConnector
 	vapidPublicKey             string
+	testPush                   func(ctx context.Context, userID, endpoint string) error
 	outgoingWake               chan struct{}
 	outgoingNow                func() time.Time
 	outgoingRandom             func() float64
@@ -215,6 +216,12 @@ func (h *Handler) mailCredentials() *mailauth.Service {
 		return h.mailboxAuth
 	}
 	return nil
+}
+
+// SetTestPushSender sets how a test notification is pushed to a user's browser. Call
+// it before registering routes.
+func (h *Handler) SetTestPushSender(send func(ctx context.Context, userID, endpoint string) error) {
+	h.testPush = send
 }
 
 func (h *Handler) StartAccountDeletionCleanup(ctx context.Context) {
@@ -467,6 +474,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/push/vapid-public-key", h.handlePushVAPIDPublicKey)
 	mux.HandleFunc("POST /api/push/subscription", h.handleSavePushSubscription)
 	mux.HandleFunc("DELETE /api/push/subscription", h.handleDeletePushSubscription)
+	mux.HandleFunc("POST /api/push/test", h.handleTestPush)
 	mux.HandleFunc("GET /api/settings/contacts/suppressed", h.handleSuppressedContactsSettings)
 	mux.HandleFunc("POST /api/settings/contacts/accounts/sync", h.handleSyncAccountContacts)
 	mux.HandleFunc("POST /api/settings/contacts/providers/gmail/sync", h.handleSyncGmailContacts)
@@ -3617,6 +3625,28 @@ func (h *Handler) handleDeletePushSubscription(w http.ResponseWriter, r *http.Re
 		}
 	}
 
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+}
+
+func (h *Handler) handleTestPush(w http.ResponseWriter, r *http.Request) {
+	var req pushSubscriptionDeleteRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	if h.testPush == nil {
+		http.Error(w, "Web Push is not set up for this browser.", http.StatusConflict)
+		return
+	}
+	if err := h.testPush(r.Context(), h.userID(r.Context()), req.Endpoint); err != nil {
+		if errors.Is(err, storage.ErrNoWebPushSubscription) {
+			http.Error(w, "Web Push is not set up for this browser. Turn notifications off and on again to register it.", http.StatusConflict)
+			return
+		}
+		http.Error(w, "Could not send the test notification: "+err.Error(), http.StatusBadGateway)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]bool{"ok": true})
 }

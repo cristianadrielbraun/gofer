@@ -3,10 +3,15 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
 )
+
+// ErrNoWebPushSubscription reports that Web Push is not configured, or that a browser's
+// subscription is not registered for the user.
+var ErrNoWebPushSubscription = errors.New("web push is not set up for this browser")
 
 type WebPushSubscription struct {
 	Endpoint  string

@@ -66,7 +66,7 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 	routed := &Handler{db: h.db, auth: h.auth, syncer: h.syncer, userStorage: routing,
 		blobStore: h.blobStore,
 		userIMAP:  option.IMAP, userCredentials: option.Credentials, userAccounts: option.Accounts, userAccountHooks: option.Hooks, userStorageContext: ctx, userDeletions: make(map[string]*userAccountDeletionJob),
-		vapidPublicKey: h.vapidPublicKey, userBackfillQueue: make(chan userContactBackfillJob, 32),
+		vapidPublicKey: h.vapidPublicKey, testPush: h.testPush, userBackfillQueue: make(chan userContactBackfillJob, 32),
 		googleTranslator:         h.googleTranslator,
 		remoteResourceDownloader: h.remoteResourceDownloader,
 		providerAvatarHTTPClient: h.providerAvatarHTTPClient,
@@ -190,6 +190,7 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 	// registration stays central; notification preferences are stored per user.
 	private("POST /api/push/subscription", routed.handleSavePushSubscription)
 	private("DELETE /api/push/subscription", routed.handleDeletePushSubscription)
+	private("POST /api/push/test", routed.handleTestPush)
 	private("GET /api/contacts/search", routed.handleContactSearch)
 	private("GET /api/contacts/export", routed.handleExportContacts)
 	private("GET /api/contacts/{id}/export", routed.handleExportContact)
