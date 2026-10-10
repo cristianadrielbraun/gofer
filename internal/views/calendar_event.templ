@@ -42,7 +42,7 @@ templ CalendarEventDialog(details CalendarEventDetails, location *time.Location)
 										@icon.ChevronDown(icon.Props{Class: "size-3.5 text-muted-foreground"})
 									}
 								}
-								@popover.Content(popover.ContentProps{Placement: popover.PlacementBottomEnd, Class: "w-44 p-1"}) {
+								@popover.Content(popover.ContentProps{Placement: popover.PlacementBottomEnd, Class: "mobile-sheet w-44 p-1"}) {
 									@CalendarEventEditAction(details, "This event", "occurrence", true)
 									@CalendarEventEditAction(details, "Entire series", "series", true)
 								}
@@ -74,7 +74,7 @@ templ CalendarEventDialog(details CalendarEventDetails, location *time.Location)
 									@icon.Trash2(icon.Props{Class: "size-4"})
 								}
 							}
-							@popover.Content(popover.ContentProps{ID: "calendar-event-delete-confirmation-content", Placement: popover.PlacementBottomEnd, Class: "w-80 p-4", Attributes: templ.Attributes{"role": "dialog", "aria-labelledby": "calendar-event-delete-title", "aria-describedby": "calendar-event-delete-description"}}) {
+							@popover.Content(popover.ContentProps{ID: "calendar-event-delete-confirmation-content", Placement: popover.PlacementBottomEnd, Class: "mobile-sheet w-80 p-4", Attributes: templ.Attributes{"role": "dialog", "aria-labelledby": "calendar-event-delete-title", "aria-describedby": "calendar-event-delete-description"}}) {
 								<div id="calendar-event-delete-confirmation-body">
 									{{ confirmation := details }}
 									if details.HasOccurrence {

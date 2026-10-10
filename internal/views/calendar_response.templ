@@ -32,7 +32,7 @@ templ CalendarResponseForm(data CalendarResponseData) {
 							@icon.ChevronDown(icon.Props{Class: "size-3.5 text-muted-foreground"})
 						}
 					}
-					@dropdown.Content(dropdown.ContentProps{Placement: dropdown.PlacementTopStart, Class: "w-44", Attributes: templ.Attributes{"role": "menu", "aria-label": "Respond to invitation"}}) {
+					@dropdown.Content(dropdown.ContentProps{Placement: dropdown.PlacementTopStart, Class: "mobile-sheet w-44", Attributes: templ.Attributes{"role": "menu", "aria-label": "Respond to invitation"}}) {
 						for _, status := range []string{"accepted", "tentative", "declined"} {
 							@dropdown.Item(dropdown.ItemProps{Disabled: !data.Ready, Class: "justify-start gap-2 aria-[current=true]:bg-accent aria-[current=true]:text-accent-foreground", Attributes: templ.Attributes{"type": "submit", "name": "response", "value": status, "data-calendar-response-choice": status, "aria-current": strconv.FormatBool(data.Status == status)}}) {
 								@CalendarResponseIcon(status)

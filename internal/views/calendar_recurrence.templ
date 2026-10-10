@@ -27,7 +27,7 @@ templ CalendarRecurrenceFields(data CalendarCreateData) {
 					@selectbox.Trigger(selectbox.TriggerProps{ID: "calendar-create-repeat-frequency", Name: "repeat_frequency", DisableClear: true, Attributes: templ.Attributes{"value": frequency}}) {
 						@selectbox.Value(selectbox.ValueProps{Placeholder: "Does not repeat"})
 					}
-					@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+					@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
 						@selectbox.Group() {
 							for _, option := range [][2]string{{"none", "Does not repeat"}, {"daily", "Daily"}, {"weekly", "Weekly"}, {"monthly", "Monthly"}, {"yearly", "Yearly"}} {
 								@selectbox.Item(selectbox.ItemProps{Value: option[0], Selected: option[0] == frequency, Disabled: data.EditSeries && option[0] == "none"}) {
@@ -56,7 +56,7 @@ templ CalendarRecurrenceFields(data CalendarCreateData) {
 						@selectbox.Trigger(selectbox.TriggerProps{ID: "calendar-create-repeat-end", Name: "repeat_end", DisableClear: true, Attributes: templ.Attributes{"value": ending}}) {
 							@selectbox.Value(selectbox.ValueProps{Placeholder: "Never ends"})
 						}
-						@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+						@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
 							@selectbox.Group() {
 								for _, option := range [][2]string{{"never", "Never ends"}, {"until", "Ends on a date"}, {"count", "Ends after"}} {
 									@selectbox.Item(selectbox.ItemProps{Value: option[0], Selected: option[0] == ending}) {

@@ -79,7 +79,7 @@ templ CalendarCreateDialog(data CalendarCreateData) {
 											@selectbox.Value(selectbox.ValueProps{Placeholder: "Choose a calendar"})
 										}
 									}
-									@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+									@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
 										@selectbox.Group() {
 											for _, source := range data.Sources {
 												@selectbox.Item(selectbox.ItemProps{Value: source.ID, Selected: source.ID == data.SourceID, Disabled: !source.Writable, Class: "pr-7", Attributes: templ.Attributes{"data-calendar-source-writable": strconv.FormatBool(source.Writable), "data-calendar-source-authorized": strconv.FormatBool(source.Authorized), "data-calendar-source-provider": source.Provider}}) {
@@ -113,7 +113,7 @@ templ CalendarCreateDialog(data CalendarCreateData) {
 											@selectbox.Trigger(selectbox.TriggerProps{ID: "calendar-create-timezone", Name: "timezone", DisableClear: true, Attributes: templ.Attributes{"value": data.TimeZone}}) {
 												@selectbox.Value(selectbox.ValueProps{Placeholder: "Choose a time zone"})
 											}
-											@selectbox.Content(selectbox.ContentProps{SearchPlaceholder: "Search time zones…"}) {
+											@selectbox.Content(selectbox.ContentProps{SearchPlaceholder: "Search time zones…", Class: "mobile-sheet"}) {
 												@selectbox.Group(selectbox.GroupProps{ID: "calendar-create-timezones"}) {
 													@selectbox.Item(selectbox.ItemProps{Value: data.TimeZone, Selected: data.TimeZone != ""}) {
 														{ data.TimeZone }

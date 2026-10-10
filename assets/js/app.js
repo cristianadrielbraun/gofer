@@ -8176,8 +8176,10 @@ function showCalendarContentPending(event) {
   _calendarContentRequest = detail.xhr
   detail.xhr.goferCalendarContentPending = true
   // Capture the real outgoing grid before installing the empty loading grid.
+  var outgoingPills = null
   if (typeof detail.xhr.goferCalendarNavigationDirection === "number") {
     prepareCalendarNavigation({ detail: { xhr: detail.xhr, target: detail.target, shouldSwap: true } })
+    if (_calendarWeekSlide) outgoingPills = captureCalendarPills(calendar)
   }
   var monthGrid = loading.querySelector("[data-calendar-month-grid]")
   if (monthGrid) {
@@ -8201,6 +8203,26 @@ function showCalendarContentPending(event) {
     }
     day.querySelectorAll("span").forEach(function (span) { if (span.textContent === "Today") span.remove() })
   })
+  // The incoming week's dates are known from the link, so its headers can slide in
+  // with them before the response arrives.
+  if (view === "week") {
+    var weekDate = (url.searchParams.get("date") || calendar.dataset.calendarTodayDate).split("-").map(Number)
+    var weekStart = new Date(Date.UTC(weekDate[0], weekDate[1] - 1, weekDate[2]))
+    weekStart.setUTCDate(weekStart.getUTCDate() - (weekStart.getUTCDay() + 6) % 7)
+    var weekDays = []
+    loading.querySelectorAll("[data-calendar-week-header] [data-calendar-day]").forEach(function (day, index) {
+      var date = new Date(weekStart.getTime() + index * 86400000)
+      weekDays.push(date.toISOString().slice(0, 10))
+      var number = day.querySelector("span.inline-flex")
+      if (number) number.textContent = String(date.getUTCDate())
+    })
+    // Small screens show one day; mark the one the loaded week will show, so the
+    // highlight does not jump when it arrives.
+    var phoneDay = Math.max(0, weekDays.indexOf(calendar.dataset.calendarTodayDate))
+    ;["[data-calendar-week-header] [data-calendar-day]", "[data-calendar-all-day-column]", "[data-calendar-timed-column]"].forEach(function (selector) {
+      loading.querySelectorAll(selector).forEach(function (node, index) { node.toggleAttribute("data-calendar-phone-day", index === phoneDay) })
+    })
+  }
   var timezone = loading.querySelector("[data-calendar-week-timezone]")
   if (timezone) timezone.textContent = ""
   // Keep the actual header node: the Month/Week indicator continues its slide
@@ -8220,6 +8242,15 @@ function showCalendarContentPending(event) {
   if (label) agenda.querySelector("[data-calendar-agenda-context]").textContent = label
   document.getElementById("app-shell").setAttribute("data-hx-history", "false")
   initializeCalendarViewport()
+  var slide = detail.xhr.goferCalendarNavigationSnapshot
+  if (slide && slide.header) {
+    delete detail.xhr.goferCalendarNavigationSnapshot
+    detail.xhr.goferCalendarWeekSlide = true
+    animateCalendarWeekSlide(calendar, slide, detail.xhr.goferCalendarNavigationDirection)
+    if (outgoingPills && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) outgoingPills.pills.forEach(function (pill, key) {
+      if (key.indexOf('["timed"') === 0) fadeOutCalendarPill(calendar, "exit:" + key, pill, pill.opacity)
+    })
+  }
 }
 
 function handleCalendarContentResult(event) {
@@ -8246,9 +8277,15 @@ var _calendarWeekScrollState = null
 var _calendarWeekZoom = 0
 var _calendarViewportObserver = null
 var _calendarViewportPane = null
-var _calendarLayoutFrame = null
+var _calendarViewportSurface = null
 var _calendarNavigationRequest = null
 var _calendarNavigationTransition = null
+// Moving between weeks slides only the day headers; the events in the hour grid fade
+// out during the slide and fade back in once it ends.
+var CALENDAR_WEEK_SLIDE_MS = 480
+var _calendarWeekSlide = null
+// Matches the indicator's duration-200 transition.
+var CALENDAR_VIEW_INDICATOR_MS = 200
 
 function setCalendarViewSwitch(view) {
   var group = document.querySelector("[data-calendar-view-nav]")
@@ -8261,7 +8298,11 @@ function setCalendarViewSwitch(view) {
     link.setAttribute("aria-current", active ? "page" : "false")
   })
   var indicator = group.querySelector("[data-calendar-view-indicator]")
-  if (indicator) indicator.style.transform = view === "week" ? "translateX(calc(100% + 2px))" : "translateX(0)"
+  if (!indicator) return
+  indicator.style.transform = view === "week" ? "translateX(calc(100% + 2px))" : "translateX(0)"
+  // Start the slide now. Otherwise the browser may only notice the change after the
+  // new view has been swapped in, and the indicator lands without sliding.
+  void window.getComputedStyle(indicator).transform
 }
 
 document.body.addEventListener("htmx:beforeRequest", function (event) {
@@ -8269,6 +8310,7 @@ document.body.addEventListener("htmx:beforeRequest", function (event) {
   if (!trigger || !trigger.hasAttribute("data-calendar-view-switch")) return
   _calendarViewSwitchRequest = event.detail.xhr
   _calendarViewSwitchRequest.goferCalendarViewSwitch = trigger.dataset.calendarViewSwitch
+  _calendarViewSwitchRequest.goferCalendarViewSwitchStart = performance.now()
   setCalendarViewSwitch(trigger.dataset.calendarViewSwitch)
 })
 
@@ -8295,16 +8337,17 @@ document.body.addEventListener("htmx:beforeSwap", function (event) {
 document.body.addEventListener("htmx:afterSwap", function (event) {
   var xhr = event.detail && event.detail.xhr
   if (!xhr || xhr !== _calendarViewSwitchRequest) return
-  // Continue the slide on the new tabs even when the response is immediate.
-  var indicator = document.querySelector("[data-calendar-view-indicator]")
-  if (indicator && xhr.goferCalendarViewTransform) {
-    indicator.style.transition = "none"
-    indicator.style.transform = xhr.goferCalendarViewTransform
-    void indicator.offsetWidth
-    indicator.style.transition = ""
-  }
   _calendarViewSwitchRequest = null
   setCalendarViewSwitch(xhr.goferCalendarViewSwitch)
+  // The tabs were replaced with the new view. Carry on the indicator's slide from
+  // where the old one had got to, for the rest of its time, rather than restarting.
+  var indicator = document.querySelector("[data-calendar-view-indicator]")
+  var remaining = CALENDAR_VIEW_INDICATOR_MS - (performance.now() - xhr.goferCalendarViewSwitchStart)
+  if (!indicator || !indicator.animate || !xhr.goferCalendarViewTransform || remaining <= 0 ||
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches) return
+  indicator.style.transition = "none"
+  var slide = indicator.animate([{ transform: xhr.goferCalendarViewTransform }, { transform: indicator.style.transform }], { duration: remaining, easing: "ease-out" })
+  slide.onfinish = slide.oncancel = function () { indicator.style.transition = "" }
 })
 
 function _calendarAgendaEventMatchesDay(event, day) {
@@ -8317,14 +8360,6 @@ function _calendarAgendaEventMatchesDay(event, day) {
   var dayStart = Date.parse(day.calendarDayStart)
   var dayEnd = Date.parse(day.calendarDayEnd)
   return start < dayEnd && (end > dayStart || (start === end && start >= dayStart))
-}
-
-function _calendarAgendaEventIsUpcoming(event, today) {
-  if (event.calendarEventAllDay === "true") {
-    return !event.calendarEventEndDate || event.calendarEventEndDate > today
-  }
-  var end = Date.parse(event.calendarEventEnd)
-  return isNaN(end) || end >= Date.now()
 }
 
 // Session overrides also protect optimistic choices from an older HTMX cache
@@ -8349,7 +8384,7 @@ function initializeCalendarVisibility() {
     var sync = row && row.querySelector("[data-calendar-source-sync]")
     if (sync) sync.style.visibility = state && state.saving ? "hidden" : ""
   })
-  document.querySelectorAll("#calendar-main [data-calendar-week-all-day], #calendar-main [data-calendar-week-event]").forEach(function (node) {
+  document.querySelectorAll("#calendar-main [data-calendar-week-all-day], #calendar-main [data-calendar-week-event], #calendar-main [data-calendar-day-dot]").forEach(function (node) {
     if (node.dataset.calendarPillExit) return
     node.hidden = !_calendarSourceIsVisible(node)
   })
@@ -8424,12 +8459,12 @@ function initializeCalendarDaySelection() {
   })
   var visible = 0
   agenda.querySelectorAll("[data-calendar-agenda-event]").forEach(function (event) {
-    var show = _calendarSourceIsVisible(event) && (selected ? _calendarAgendaEventMatchesDay(event.dataset, selected.dataset) :
-      _calendarAgendaEventIsUpcoming(event.dataset, calendar.dataset.calendarTodayDate))
+    // Without a selected day the agenda lists every event in the open month or week.
+    var show = _calendarSourceIsVisible(event) && (!selected || _calendarAgendaEventMatchesDay(event.dataset, selected.dataset))
     event.hidden = !show
     if (show) visible++
   })
-  agenda.querySelector("#calendar-agenda-heading").textContent = selected ? selected.dataset.calendarDayTitle : "Upcoming"
+  agenda.querySelector("#calendar-agenda-heading").textContent = selected ? selected.dataset.calendarDayTitle : "All events"
   agenda.querySelector("[data-calendar-agenda-context]").textContent = selected ?
     visible + (visible === 1 ? " event" : " events") : calendar.dataset.calendarMonthLabel
   agenda.querySelector("[data-calendar-agenda-clear]").hidden = !selected
@@ -8437,12 +8472,11 @@ function initializeCalendarDaySelection() {
   agenda.querySelector("[data-calendar-agenda-empty]").hidden = visible !== 0
   var sources = Array.from(document.querySelectorAll("[data-calendar-visibility]"))
   var allHidden = sources.length > 0 && sources.every(function (input) { return !_calendarSourceIsVisible(input) })
-  agenda.querySelector("[data-calendar-agenda-empty-title]").textContent = allHidden ? "All calendars are hidden" : selected ? "No events for this day" : "No upcoming events"
+  agenda.querySelector("[data-calendar-agenda-empty-title]").textContent = allHidden ? "All calendars are hidden" : selected ? "No events for this day" : "No events"
   agenda.querySelector("[data-calendar-agenda-empty-detail]").textContent = allHidden ?
-    "Show a calendar in the sidebar to see its events. Hidden calendars continue syncing." : selected ?
-    "Choose another date to browse your cached calendar events." :
-    "Events from Google, Microsoft, or CalDAV will appear here after your selected calendars are synchronized."
-  agenda.querySelector("[data-calendar-agenda-providers]").hidden = !!selected || allHidden
+    "Show a calendar in the sidebar to see its events." : selected ?
+    "Nothing is scheduled on this day." :
+    calendar.dataset.calendarView === "week" ? "Nothing is scheduled this week." : "Nothing is scheduled this month."
   // Switch views around the selected date rather than an unrelated week.
   var focusDate = selected ? selected.dataset.calendarDay : calendar.dataset.calendarDate
   calendar.querySelectorAll("[data-calendar-view-switch]").forEach(function (link) {
@@ -8454,13 +8488,163 @@ function initializeCalendarDaySelection() {
     link.setAttribute("hx-push-url", url)
     if (window.htmx) window.htmx.process(link)
   })
-  // Desktop keeps the two panes; small screens use the agenda as the day view.
-  var mainPane = calendar.closest("#mail-list")
-  mainPane.classList.toggle("hidden", !!selected)
-  mainPane.classList.toggle("flex", !selected)
-  agenda.classList.toggle("hidden", !selected)
-  agenda.classList.toggle("flex", !!selected)
+  markCalendarPhoneDay(calendar, selected)
   initializeCalendarViewport()
+}
+
+// The day a small screen shows in the week view: the selected day, else today when
+// it is in the week, else the first day.
+function markCalendarPhoneDay(calendar, selected) {
+  var grid = calendar.querySelector("[data-calendar-week-grid]")
+  if (!grid) return
+  var date = selected ? selected.dataset.calendarDay : ""
+  if (!date) {
+    var today = calendar.dataset.calendarTodayDate
+    var days = Array.from(grid.querySelectorAll("[data-calendar-week-header] [data-calendar-day]")).map(function (day) { return day.dataset.calendarDay })
+    date = days.indexOf(today) >= 0 ? today : days[0] || ""
+  }
+  grid.querySelectorAll("[data-calendar-week-header] [data-calendar-day], [data-calendar-all-day-column], [data-calendar-timed-column]").forEach(function (node) {
+    var nodeDate = node.dataset.calendarDay || node.dataset.calendarAllDayColumn || node.dataset.calendarTimedColumn
+    node.toggleAttribute("data-calendar-phone-day", nodeDate === date)
+  })
+}
+
+// Small screens: the month view's agenda is a sheet over the calendar. It rests
+// under the month grid, and dragging its header (or tapping the handle) moves it up
+// over the calendar or back down. Its position survives moving between months.
+var _calendarSheetExpanded = false
+var _calendarSheetDrag = null
+
+function calendarSheetElement() {
+  var calendar = document.getElementById("calendar-main")
+  var agenda = document.querySelector("#main-content > [data-calendar-agenda]")
+  var phone = !window.matchMedia("(min-width: 1024px)").matches
+  return phone && calendar && agenda && calendar.dataset.calendarView !== "week" ? agenda : null
+}
+
+function calendarSheetRestingTop(agenda) {
+  var pane = agenda.parentElement.querySelector("#mail-list")
+  return pane ? pane.offsetHeight : 0
+}
+
+function positionCalendarSheet() {
+  var agenda = document.querySelector("#main-content > [data-calendar-agenda]")
+  var sheet = calendarSheetElement()
+  if (agenda && !sheet) {
+    agenda.removeAttribute("data-calendar-sheet")
+    agenda.style.top = ""
+  }
+  if (!sheet || _calendarSheetDrag) return
+  var top = _calendarSheetExpanded ? 0 : calendarSheetRestingTop(sheet)
+  if (!sheet.hasAttribute("data-calendar-sheet")) {
+    // Place a new sheet without animating it in from the top.
+    sheet.setAttribute("data-calendar-sheet-dragging", "")
+    sheet.setAttribute("data-calendar-sheet", "")
+    sheet.style.top = top + "px"
+    void sheet.offsetTop
+    sheet.removeAttribute("data-calendar-sheet-dragging")
+  } else {
+    sheet.style.top = top + "px"
+  }
+  sheet.setAttribute("data-calendar-sheet", _calendarSheetExpanded ? "expanded" : "collapsed")
+}
+
+function setCalendarSheetExpanded(expanded) {
+  _calendarSheetExpanded = !!expanded
+  positionCalendarSheet()
+}
+
+document.addEventListener("pointerdown", function (event) {
+  var sheet = calendarSheetElement()
+  var header = sheet && event.target.closest && event.target.closest("[data-calendar-agenda-header]")
+  if (!header || !sheet.contains(header) || (event.target.closest("button, a") && !event.target.closest("[data-calendar-sheet-handle]"))) return
+  _calendarSheetDrag = {
+    pointer: event.pointerId, startY: event.clientY, startTop: sheet.offsetTop, maxTop: calendarSheetRestingTop(sheet),
+    lastY: event.clientY, lastTime: event.timeStamp, velocity: 0, moved: false, handle: !!event.target.closest("[data-calendar-sheet-handle]"),
+  }
+  sheet.setAttribute("data-calendar-sheet-dragging", "")
+  header.setPointerCapture(event.pointerId)
+})
+
+document.addEventListener("pointermove", function (event) {
+  var drag = _calendarSheetDrag
+  var sheet = drag && calendarSheetElement()
+  if (!sheet || event.pointerId !== drag.pointer) return
+  var delta = event.clientY - drag.startY
+  if (Math.abs(delta) > 4) drag.moved = true
+  if (event.timeStamp > drag.lastTime) drag.velocity = (event.clientY - drag.lastY) / (event.timeStamp - drag.lastTime)
+  drag.lastY = event.clientY
+  drag.lastTime = event.timeStamp
+  sheet.style.top = Math.max(0, Math.min(drag.maxTop, drag.startTop + delta)) + "px"
+})
+
+function endCalendarSheetDrag(event) {
+  var drag = _calendarSheetDrag
+  if (!drag || event.pointerId !== drag.pointer) return
+  _calendarSheetDrag = null
+  var sheet = calendarSheetElement()
+  if (!sheet) return
+  sheet.removeAttribute("data-calendar-sheet-dragging")
+  if (!drag.moved) {
+    if (drag.handle) setCalendarSheetExpanded(!_calendarSheetExpanded)
+    else positionCalendarSheet()
+    return
+  }
+  // A flick decides the direction; otherwise the sheet settles where it is closer.
+  var expanded = Math.abs(drag.velocity) > 0.4 ? drag.velocity < 0 : sheet.offsetTop < drag.maxTop / 2
+  setCalendarSheetExpanded(expanded)
+}
+document.addEventListener("pointerup", endCalendarSheetDrag)
+document.addEventListener("pointercancel", endCalendarSheetDrag)
+window.addEventListener("resize", positionCalendarSheet)
+// htmx restores the agenda's style attribute while a swap settles, which would drop
+// the sheet's position; set it again once the swap has settled.
+document.body.addEventListener("htmx:afterSettle", positionCalendarSheet)
+
+// Small screens show one day of the week at a time. Picking another day slides the
+// hour column sideways, the new day coming in from the side it lies on.
+var CALENDAR_PHONE_DAY_SLIDE_MS = 320
+var _calendarPhoneDaySlide = null
+
+function finishCalendarPhoneDaySlide() {
+  var slide = _calendarPhoneDaySlide
+  if (!slide) return
+  _calendarPhoneDaySlide = null
+  slide.animations.forEach(function (animation) { animation.cancel() })
+  slide.leaving.forEach(function (node) { node.removeAttribute("data-calendar-phone-day-leaving") })
+  // The old day's events are hidden now; forget them so they do not fade out later.
+  var calendar = document.getElementById("calendar-main")
+  if (calendar && !calendar.hasAttribute("data-calendar-loading")) _calendarPillSnapshot = captureCalendarPills(calendar)
+}
+
+function slideCalendarPhoneDay(calendar, fromDate, toDate) {
+  finishCalendarPhoneDaySlide()
+  var grid = calendar.querySelector("[data-calendar-week-grid]")
+  if (!grid || !fromDate || fromDate === toDate || window.matchMedia("(min-width: 1024px)").matches ||
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches) return
+  var column = function (date) {
+    return Array.from(grid.querySelectorAll('[data-calendar-timed-column="' + date + '"], [data-calendar-all-day-column="' + date + '"]'))
+  }
+  var leaving = column(fromDate), entering = column(toDate)
+  // Measure the hour column: the all-day row is hidden on days without all-day events.
+  var timed = grid.querySelector('[data-calendar-timed-column="' + toDate + '"]')
+  if (!timed || !timed.offsetWidth || !timed.animate) return
+  // The day change itself would cross-fade the events; the slide carries them instead.
+  clearCalendarPillFades()
+  leaving.forEach(function (node) { node.setAttribute("data-calendar-phone-day-leaving", "") })
+  var distance = (toDate > fromDate ? 1 : -1) * timed.offsetWidth
+  var timing = { duration: CALENDAR_PHONE_DAY_SLIDE_MS, easing: "cubic-bezier(0.32, 0.72, 0.24, 1)" }
+  var slide = { leaving: leaving, animations: [] }
+  leaving.forEach(function (node) {
+    slide.animations.push(node.animate([{ transform: "translateX(0)" }, { transform: "translateX(" + -distance + "px)" }], timing))
+  })
+  entering.forEach(function (node) {
+    slide.animations.push(node.animate([{ transform: "translateX(" + distance + "px)" }, { transform: "translateX(0)" }], timing))
+  })
+  _calendarPhoneDaySlide = slide
+  slide.animations[slide.animations.length - 1].onfinish = function () {
+    if (_calendarPhoneDaySlide === slide) finishCalendarPhoneDaySlide()
+  }
 }
 
 document.addEventListener("click", function (event) {
@@ -8469,10 +8653,12 @@ document.addEventListener("click", function (event) {
   if (trigger && calendar) {
     var scroller = calendar.querySelector("[data-calendar-week-scroll]")
     if (scroller && scroller.clientHeight) _calendarWeekScrollState = { period: calendar.dataset.calendarPeriod, zoom: _calendarWeekZoom, top: scroller.scrollTop, left: scroller.scrollLeft }
+    var shownDay = calendar.querySelector("[data-calendar-week-header] [data-calendar-day][data-calendar-phone-day]")
     _calendarSelectedDay = { period: calendar.dataset.calendarPeriod, date: trigger.dataset.calendarSelectDay }
     initializeCalendarDaySelection()
+    if (shownDay) slideCalendarPhoneDay(calendar, shownDay.dataset.calendarDay, trigger.dataset.calendarSelectDay)
     document.getElementById("calendar-agenda-list").scrollTop = 0
-    if (window.matchMedia("(max-width: 1023px)").matches) document.getElementById("calendar-agenda-heading").focus({ preventScroll: true })
+    if (window.matchMedia("(max-width: 1023px)").matches && calendar.dataset.calendarView !== "week") document.getElementById("calendar-agenda-heading").focus({ preventScroll: true })
     return
   }
   if (calendar && event.target.closest && event.target.closest("[data-calendar-agenda-clear]")) {
@@ -8555,8 +8741,9 @@ function _calendarWeekBlockLayout(periods, axis) {
   return blocks
 }
 
+// As many events as fit in the day; when some do not, room is kept for "+N more".
 function _calendarMonthVisibleCount(total, available, itemHeight, overflowHeight, gap) {
-  var visible = Math.min(total, 3, Math.max(0, Math.floor((available + gap) / (itemHeight + gap))))
+  var visible = Math.min(total, Math.max(0, Math.floor((available + gap) / (itemHeight + gap))))
   if (total > visible) visible = Math.min(visible, Math.max(0, Math.floor((available - overflowHeight) / (itemHeight + gap))))
   return visible
 }
@@ -8878,13 +9065,64 @@ function fadeCalendarPill(key, node, from, to, ghost) {
   }
 }
 
+// Fades out an inert copy of a pill that left the view, where the pill used to be.
+function fadeOutCalendarPill(calendar, key, pill, opacity) {
+  var ghost = pill.node.cloneNode(true)
+  // Keep visual data attributes for theme/RSVP styles, but no IDs or HTMX
+  // actions. The exit copy never participates in layout or user interaction.
+  ;[ghost].concat(Array.from(ghost.querySelectorAll("*"))).forEach(function (node) {
+    Array.from(node.attributes).forEach(function (attr) {
+      if (attr.name === "id" || /^(?:data-)?hx-/.test(attr.name) || /^on/i.test(attr.name)) node.removeAttribute(attr.name)
+    })
+  })
+  ghost.removeAttribute("data-calendar-event-hover")
+  ghost.dataset.calendarPillExit = "true"
+  ghost.hidden = false
+  ghost.inert = true
+  ghost.setAttribute("aria-hidden", "true")
+  Object.assign(ghost.style, { position: "absolute", display: "flex", pointerEvents: "none", margin: "0",
+    top: pill.top + "px", left: pill.left + "px", width: pill.width + "px", height: pill.height + "px", zIndex: "30", clipPath: pill.clipPath })
+  ghost.style.setProperty("--calendar-day-padding", pill.dayPadding)
+  calendar.appendChild(ghost)
+  fadeCalendarPill(key, ghost, opacity, 0, true)
+}
+
+// Week to week: the new week's events stay hidden until the headers finish sliding,
+// then fade in. All-day events ride along with the sliding headers instead.
+function holdCalendarWeekPills(current, delay) {
+  current.pills.forEach(function (pill, key) {
+    if (key.indexOf('["timed"') !== 0) return
+    finishCalendarPillFade(key)
+    if (delay <= 0) { fadeCalendarPill(key, pill.node, 0, pill.opacity, false); return }
+    var wait = { node: pill.node, ghost: false, animation: pill.node.animate([{ opacity: 0 }, { opacity: 0 }], { duration: delay, fill: "both" }) }
+    _calendarPillFades.set(key, wait)
+    wait.animation.onfinish = function () {
+      if (_calendarPillFades.get(key) !== wait) return
+      finishCalendarPillFade(key)
+      fadeCalendarPill(key, pill.node, 0, pill.opacity, false)
+    }
+  })
+}
+
 function animateCalendarPills(calendar) {
   if (!calendar || calendar.hasAttribute("data-calendar-loading")) {
-    clearCalendarPillFades()
+    if (!_calendarWeekSlide) clearCalendarPillFades()
     _calendarPillSnapshot = null
     return
   }
   var current = captureCalendarPills(calendar), previous = _calendarPillSnapshot
+  if (_calendarWeekSlide && current.view === "week") {
+    var slide = _calendarWeekSlide
+    _calendarWeekSlide = null
+    _calendarPillSnapshot = current
+    // The fading copies of the old week's events belonged to the replaced grid.
+    _calendarPillFades.forEach(function (fade) {
+      if (fade.ghost && fade.node.parentElement !== calendar) calendar.appendChild(fade.node)
+    })
+    if ((window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) || !calendar.animate) return
+    holdCalendarWeekPills(current, Math.max(0, (slide.endsAt || 0) - performance.now()))
+    return
+  }
   var samePeriod = previous && previous.period === current.period && previous.view === current.view
   _calendarPillSnapshot = current
   if (!samePeriod) clearCalendarPillFades()
@@ -8902,24 +9140,7 @@ function animateCalendarPills(calendar) {
     var fade = _calendarPillFades.get(key)
     var opacity = fade ? window.getComputedStyle(fade.node).opacity || pill.opacity : pill.opacity
     finishCalendarPillFade(key)
-    var ghost = pill.node.cloneNode(true)
-    // Keep visual data attributes for theme/RSVP styles, but no IDs or HTMX
-    // actions. The exit copy never participates in layout or user interaction.
-    ;[ghost].concat(Array.from(ghost.querySelectorAll("*"))).forEach(function (node) {
-      Array.from(node.attributes).forEach(function (attr) {
-        if (attr.name === "id" || /^(?:data-)?hx-/.test(attr.name) || /^on/i.test(attr.name)) node.removeAttribute(attr.name)
-      })
-    })
-    ghost.removeAttribute("data-calendar-event-hover")
-    ghost.dataset.calendarPillExit = "true"
-    ghost.hidden = false
-    ghost.inert = true
-    ghost.setAttribute("aria-hidden", "true")
-    Object.assign(ghost.style, { position: "absolute", display: "flex", pointerEvents: "none", margin: "0",
-      top: pill.top + "px", left: pill.left + "px", width: pill.width + "px", height: pill.height + "px", zIndex: "30", clipPath: pill.clipPath })
-    ghost.style.setProperty("--calendar-day-padding", pill.dayPadding)
-    calendar.appendChild(ghost)
-    fadeCalendarPill(key, ghost, opacity, 0, true)
+    fadeOutCalendarPill(calendar, key, pill, opacity)
   })
   current.pills.forEach(function (pill, key) {
     var before = samePeriod && previous.pills.get(key)
@@ -8940,26 +9161,26 @@ function initializeCalendarViewport() {
   var calendar = document.getElementById("calendar-main")
   rememberCalendarPillGeometry(calendar)
   var pane = calendar && calendar.closest("#mail-list")
-  if (_calendarViewportPane !== pane) {
+  // The scroller is replaced on every week change, and its size also changes inside
+  // an unchanged pane, for example when the footer's status line wraps differently.
+  var surface = calendar && calendar.querySelector("[data-calendar-surface]")
+  if (_calendarViewportPane !== pane || _calendarViewportSurface !== surface) {
     if (_calendarViewportObserver) _calendarViewportObserver.disconnect()
     _calendarViewportPane = pane
+    _calendarViewportSurface = surface
     if (pane && window.ResizeObserver) {
-      _calendarViewportObserver = new ResizeObserver(function () {
-        if (_calendarLayoutFrame) cancelAnimationFrame(_calendarLayoutFrame)
-        _calendarLayoutFrame = requestAnimationFrame(function () {
-          _calendarLayoutFrame = null
-          initializeCalendarViewport()
-        })
-      })
+      // Lay out again before the frame is painted. Waiting for the next frame shows
+      // one frame of the grid sized for the old space.
+      _calendarViewportObserver = new ResizeObserver(function () { initializeCalendarViewport() })
       _calendarViewportObserver.observe(pane)
-      var scroller = pane.querySelector("[data-calendar-week-scroll]")
-      if (scroller) _calendarViewportObserver.observe(scroller)
+      if (surface) _calendarViewportObserver.observe(surface)
     }
   }
   if (!calendar) { animateCalendarPills(null); return }
   layoutCalendarMonth(calendar)
   initializeCalendarWeekScroll()
   animateCalendarPills(calendar)
+  positionCalendarSheet()
 }
 
 document.addEventListener("scroll", function (event) {
@@ -8999,9 +9220,24 @@ function prepareCalendarNavigation(event) {
     detail.shouldSwap = false
     return
   }
+  if (xhr.goferCalendarWeekSlide) {
+    if (detail.shouldSwap === false) return
+    var sliding = _calendarNavigationTransition
+    if (sliding && sliding.weekSlide) {
+      xhr.goferCalendarWeekSlideContinue = {
+        snapshot: sliding.snapshot, distance: sliding.distance, endsAt: sliding.endsAt,
+        incoming: window.getComputedStyle(sliding.surface).transform,
+        outgoing: window.getComputedStyle(sliding.snapshot).transform,
+      }
+      _calendarNavigationTransition = null
+      sliding.incoming.cancel()
+      sliding.outgoing.cancel()
+    }
+    return
+  }
   if (detail.shouldSwap === false || !detail.target || detail.target.id !== "main-content") return
   var active = _calendarNavigationTransition
-  if (!navigation && active) {
+  if (!navigation && active && !active.weekSlide) {
     // A quick background refresh must not cut the period transition short.
     var incoming = window.getComputedStyle(active.surface)
     var outgoing = window.getComputedStyle(active.snapshot)
@@ -9015,7 +9251,32 @@ function prepareCalendarNavigation(event) {
   }
   finishCalendarNavigationTransition()
   if (navigation && xhr.goferCalendarNavigationSnapshot) return
+  _calendarWeekSlide = null
   if (!navigation || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return
+  var currentCalendar = document.getElementById("calendar-main")
+  var weekHeader = currentCalendar && currentCalendar.querySelector("[data-calendar-week-header]")
+  if (weekHeader && !xhr.goferCalendarNavigationCrossover && weekHeader.animate) {
+    var headerCopy = weekHeader.cloneNode(true)
+    var originals = [weekHeader].concat(Array.from(weekHeader.querySelectorAll("*")))
+    ;[headerCopy].concat(Array.from(headerCopy.querySelectorAll("*"))).forEach(function (element, index) {
+      // Styles keyed to the calendar's data attributes (the small-screen day strip,
+      // the chosen day) no longer match once those go, so the copy keeps them inline.
+      var style = window.getComputedStyle(originals[index])
+      element.style.display = style.display
+      element.style.gridTemplateColumns = style.gridTemplateColumns
+      element.style.backgroundColor = style.backgroundColor
+      element.style.boxShadow = style.boxShadow
+      Array.from(element.attributes).forEach(function (attribute) {
+        if (attribute.name === "id" || /^(data-calendar-|(?:data-)?hx-)/.test(attribute.name)) element.removeAttribute(attribute.name)
+      })
+    })
+    headerCopy.inert = true
+    headerCopy.setAttribute("aria-hidden", "true")
+    headerCopy.setAttribute("data-calendar-navigation-overlay", "")
+    _calendarWeekSlide = { direction: xhr.goferCalendarNavigationDirection }
+    xhr.goferCalendarNavigationSnapshot = { header: headerCopy, bounds: weekHeader.getBoundingClientRect() }
+    return
+  }
   var surface = document.querySelector("#calendar-main [data-calendar-surface]")
   if (!surface || !surface.clientHeight || !surface.animate) return
   var snapshot = surface.cloneNode(true)
@@ -9039,12 +9300,22 @@ function animateCalendarNavigation(event) {
   var xhr = event.detail && event.detail.xhr
   if (!xhr || (typeof xhr.goferCalendarNavigationDirection === "number" && xhr !== _calendarNavigationRequest)) return
   if (xhr === _calendarNavigationRequest) _calendarNavigationRequest = null
+  var continued = xhr.goferCalendarWeekSlideContinue
+  if (continued) {
+    delete xhr.goferCalendarWeekSlideContinue
+    continueCalendarWeekSlide(continued)
+    return
+  }
   var saved = xhr.goferCalendarNavigationSnapshot
   if (!saved) return
   delete xhr.goferCalendarNavigationSnapshot
   var calendar = document.getElementById("calendar-main")
   var surface = calendar && calendar.querySelector("[data-calendar-surface]")
   if (!saved || !surface || !surface.animate || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return
+  if (saved.header) {
+    animateCalendarWeekSlide(calendar, saved, xhr.goferCalendarNavigationDirection)
+    return
+  }
   var crossover = saved.crossover || xhr.goferCalendarNavigationCrossover
   var bounds = saved.bounds || surface.getBoundingClientRect()
   var parent = calendar.getBoundingClientRect()
@@ -9069,6 +9340,55 @@ function animateCalendarNavigation(event) {
     crossover: crossover, bounds: saved.bounds,
     incoming: surface.animate(incoming, timing),
     outgoing: snapshot.animate(outgoing, timing),
+  }
+  _calendarNavigationTransition = transition
+  transition.incoming.onfinish = function () {
+    if (_calendarNavigationTransition === transition) finishCalendarNavigationTransition()
+  }
+}
+
+// The old week's headers slide out while the new ones slide in from the side the
+// user is moving towards. The hour grid below stays where it is.
+function animateCalendarWeekSlide(calendar, saved, direction) {
+  var header = calendar.querySelector("[data-calendar-week-header]")
+  if (!header || !header.animate) { _calendarWeekSlide = null; return }
+  var parent = calendar.getBoundingClientRect()
+  var bounds = saved.bounds
+  var copy = saved.header
+  Object.assign(copy.style, {
+    position: "absolute", top: (bounds.top - parent.top) + "px", left: (bounds.left - parent.left) + "px",
+    width: bounds.width + "px", height: bounds.height + "px", margin: "0", overflow: "hidden",
+    pointerEvents: "none", zIndex: "30", backgroundColor: "var(--color-card)",
+  })
+  calendar.appendChild(copy)
+  var distance = direction * bounds.width
+  var timing = { duration: CALENDAR_WEEK_SLIDE_MS, easing: "cubic-bezier(0.32, 0.72, 0.24, 1)" }
+  var endsAt = performance.now() + timing.duration
+  if (_calendarWeekSlide) _calendarWeekSlide.endsAt = endsAt
+  startCalendarWeekSlideTransition(header, copy, distance, endsAt,
+    [{ transform: "translateX(" + distance + "px)" }, { transform: "translateX(0)" }],
+    [{ transform: "translateX(0)" }, { transform: "translateX(" + -distance + "px)" }], timing)
+}
+
+// The response replaced the headers mid-slide: the new ones carry on from where the
+// loading ones were, and the outgoing copy keeps moving out.
+function continueCalendarWeekSlide(continued) {
+  var calendar = document.getElementById("calendar-main")
+  var header = calendar && calendar.querySelector("[data-calendar-week-header]")
+  var remaining = continued.endsAt - performance.now()
+  if (!header || !header.animate || remaining <= 0) { continued.snapshot.remove(); return }
+  calendar.appendChild(continued.snapshot)
+  var timing = { duration: remaining, easing: "ease-out" }
+  startCalendarWeekSlideTransition(header, continued.snapshot, continued.distance, continued.endsAt,
+    [{ transform: continued.incoming === "none" ? "translateX(0)" : continued.incoming }, { transform: "translateX(0)" }],
+    [{ transform: continued.outgoing === "none" ? "translateX(0)" : continued.outgoing }, { transform: "translateX(" + -continued.distance + "px)" }], timing)
+}
+
+function startCalendarWeekSlideTransition(header, copy, distance, endsAt, incoming, outgoing, timing) {
+  var transition = {
+    weekSlide: true, snapshot: copy, surface: header, duration: timing.duration, distance: distance, endsAt: endsAt,
+    incoming: header.animate(incoming, timing),
+    outgoing: copy.animate(outgoing, timing),
   }
   _calendarNavigationTransition = transition
   transition.incoming.onfinish = function () {

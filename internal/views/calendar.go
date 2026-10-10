@@ -199,22 +199,32 @@ func calendarEventsForDay(day CalendarDay, events []CalendarEvent) []CalendarEve
 	return result
 }
 
-func calendarAgendaEvents(month CalendarMonthData) []CalendarEvent {
-	now := time.Now().In(month.Month.Location())
+// calendarDaySourceDots returns the first event of each calendar that has events on
+// the day, in order. Small screens mark busy days with one dot per calendar.
+func calendarDaySourceDots(events []CalendarEvent) []CalendarEvent {
+	seen := make(map[string]bool, len(events))
 	var result []CalendarEvent
-	for _, event := range month.Events {
-		if !event.SourceHidden && calendarAgendaEventIsUpcoming(event, now) {
-			result = append(result, event)
+	for _, event := range events {
+		if seen[event.SourceID] {
+			continue
 		}
+		seen[event.SourceID] = true
+		result = append(result, event)
 	}
 	return result
 }
 
-func calendarAgendaEventIsUpcoming(event CalendarEvent, now time.Time) bool {
-	if event.AllDay {
-		return strings.TrimSpace(event.EndDate) == "" || event.EndDate > now.Format("2006-01-02")
+// calendarAgendaEvents lists every event in the open view, past ones included: the
+// month grid with its leading and trailing days, or the week. The view's events are
+// already loaded for exactly those days.
+func calendarAgendaEvents(month CalendarMonthData) []CalendarEvent {
+	var result []CalendarEvent
+	for _, event := range month.Events {
+		if !event.SourceHidden {
+			result = append(result, event)
+		}
 	}
-	return event.EndAt == nil || !event.EndAt.Before(now.UTC())
+	return result
 }
 
 func calendarEventTimestamp(at *time.Time) string {

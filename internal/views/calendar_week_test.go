@@ -138,7 +138,7 @@ func TestCalendarWeekRendersAllDayRowTimelineAndDetails(t *testing.T) {
 		`data-calendar-week-scroll`, `data-calendar-week-grid`, `data-calendar-all-day-row`,
 		`data-calendar-timed-column="2026-10-04"`, `aria-label="Next week"`, `aria-label="Previous week"`,
 		`data-calendar-view-switch="month"`, `data-calendar-view-switch="week"`,
-		`data-calendar-select-day="2026-09-28"`, `Back to week`,
+		`data-calendar-select-day="2026-09-28"`, `data-calendar-all-day-column="2026-09-28"`, `data-calendar-day-dot`,
 		`top:576.00px;height:64.00px`, `09:00–10:00`, `hx-get="/api/calendar/events/Planning"`,
 		`&#34;view&#34;:&#34;week&#34;`, `&#34;date&#34;:&#34;2026-10-01&#34;`,
 	} {

@@ -224,7 +224,7 @@ func CalendarEventDialog(details CalendarEventDetails, location *time.Location) 
 								}
 								return nil
 							})
-							templ_7745c5c3_Err = popover.Content(popover.ContentProps{Placement: popover.PlacementBottomEnd, Class: "w-44 p-1"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var11), templ_7745c5c3_Buffer)
+							templ_7745c5c3_Err = popover.Content(popover.ContentProps{Placement: popover.PlacementBottomEnd, Class: "mobile-sheet w-44 p-1"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var11), templ_7745c5c3_Buffer)
 							if templ_7745c5c3_Err != nil {
 								return templ_7745c5c3_Err
 							}
@@ -345,7 +345,7 @@ func CalendarEventDialog(details CalendarEventDetails, location *time.Location) 
 							}
 							return nil
 						})
-						templ_7745c5c3_Err = popover.Content(popover.ContentProps{ID: "calendar-event-delete-confirmation-content", Placement: popover.PlacementBottomEnd, Class: "w-80 p-4", Attributes: templ.Attributes{"role": "dialog", "aria-labelledby": "calendar-event-delete-title", "aria-describedby": "calendar-event-delete-description"}}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var15), templ_7745c5c3_Buffer)
+						templ_7745c5c3_Err = popover.Content(popover.ContentProps{ID: "calendar-event-delete-confirmation-content", Placement: popover.PlacementBottomEnd, Class: "mobile-sheet w-80 p-4", Attributes: templ.Attributes{"role": "dialog", "aria-labelledby": "calendar-event-delete-title", "aria-describedby": "calendar-event-delete-description"}}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var15), templ_7745c5c3_Buffer)
 						if templ_7745c5c3_Err != nil {
 							return templ_7745c5c3_Err
 						}

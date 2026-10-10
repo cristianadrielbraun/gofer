@@ -50,8 +50,9 @@
   window.addEventListener("popstate", function () { setOpen(false) })
   desktop.addEventListener("change", function (event) { if (event.matches) setOpen(false) })
 
-  // The top bar names the open mail folder. The list rewrites its own heading from
-  // several places, so the bar mirrors that heading instead of being told directly.
+  // The top bar names the open mail folder, contact list, settings page or calendar
+  // period. Those headings are rewritten from several places, so the bar mirrors the
+  // heading instead of being told directly.
   var titleFrame = 0
   function syncTitle() {
     titleFrame = 0
@@ -59,7 +60,7 @@
     var bar = document.querySelector("[data-mobile-topbar]")
     if (!bar) return
     var heading = document.querySelector("#main-content #mail-folder-name, #main-content [data-contacts-title]")
-    var page = heading || document.querySelector("#main-content [data-settings-title]")
+    var page = heading || document.querySelector("#main-content [data-settings-title], #main-content [data-calendar-title]")
     var name = page ? page.textContent.trim() : ""
     var slot = bar.querySelector("[data-mobile-topbar-title]")
     if (!slot) return

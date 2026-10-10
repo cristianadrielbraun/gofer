@@ -58,7 +58,7 @@ type CalendarTeamsData struct {
 // footer stay put while the body scrolls inside the viewport. Let content grow
 // naturally up to the screen height instead of imposing a fixed desktop cap.
 func calendarDialogClass(width string) string {
-	return "w-[calc(100vw_-_2rem)] max-w-[calc(100vw_-_2rem)] " + width +
+	return "calendar-dialog w-[calc(100vw_-_2rem)] max-w-[calc(100vw_-_2rem)] " + width +
 		" max-h-[calc(100dvh-2rem)] [&_[data-tui-dialog-panel]]:flex [&_[data-tui-dialog-panel]]:max-h-[calc(100dvh-2rem)]" +
 		" [&_[data-tui-dialog-panel]]:min-h-0 [&_[data-tui-dialog-panel]]:flex-col [&_[data-tui-dialog-panel]]:gap-0 [&_[data-tui-dialog-panel]]:p-0"
 }

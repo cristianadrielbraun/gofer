@@ -21,6 +21,45 @@ func TestCalendarAgendaHasNoEightEventLimit(t *testing.T) {
 	}
 }
 
+func TestCalendarAgendaListsEveryEventInTheView(t *testing.T) {
+	// Today is mid-month; one event is earlier this month and one is on a leading day
+	// from the previous month that the grid shows. Both are listed, not just what is
+	// still to come.
+	today := time.Date(2026, time.October, 10, 12, 0, 0, 0, time.UTC)
+	month := NewCalendarMonthData(today)
+	earlier := time.Date(2026, time.October, 2, 9, 0, 0, 0, time.UTC)
+	leading := time.Date(2026, time.September, 29, 9, 0, 0, 0, time.UTC)
+	for _, at := range []time.Time{earlier, leading} {
+		start, end := at, at.Add(time.Hour)
+		month.Events = append(month.Events, CalendarEvent{ID: at.Format("0102"), Summary: "Earlier", StartAt: &start, EndAt: &end})
+	}
+	if got := len(calendarAgendaEvents(month)); got != 2 {
+		t.Fatalf("agenda events = %d, want both events in the view", got)
+	}
+	var output bytes.Buffer
+	if err := CalendarPage(month, nil).Render(t.Context(), &output); err != nil {
+		t.Fatal(err)
+	}
+	html := output.String()
+	listed := 0
+	for _, part := range strings.Split(html, "<button")[1:] {
+		tag := part[:strings.Index(part, ">")]
+		if !strings.Contains(tag, "data-calendar-agenda-event") {
+			continue
+		}
+		if strings.Contains(" "+tag+" ", " hidden ") {
+			t.Fatalf("an event in the view was hidden from the agenda: <button%s>", tag)
+		}
+		listed++
+	}
+	if listed != 2 {
+		t.Fatalf("agenda rows = %d, want 2", listed)
+	}
+	if !strings.Contains(html, ">All events</h2>") {
+		t.Fatal("agenda heading should name all events in the view")
+	}
+}
+
 func TestCalendarDaySelectionIncludesPastEventsAndOverflow(t *testing.T) {
 	prague, err := time.LoadLocation("Europe/Prague")
 	if err != nil {
@@ -42,7 +81,7 @@ func TestCalendarDaySelectionIncludesPastEventsAndOverflow(t *testing.T) {
 		`data-calendar-select-day="2020-10-25"`, `data-calendar-day-overflow`, `+9 more`,
 		`data-calendar-day-start="2020-10-25T00:00:00+02:00"`, `data-calendar-day-end="2020-10-26T00:00:00+01:00"`,
 		`aria-controls="calendar-agenda-list"`, `aria-pressed="false"`,
-		`data-calendar-day-selected="false"`, `data-calendar-agenda-clear`, `Back to month`,
+		`data-calendar-day-selected="false"`, `data-calendar-agenda-clear`, `data-calendar-day-dot`,
 		`id="calendar-agenda-heading"`, `data-calendar-today-date=`, `data-calendar-agenda-empty`,
 		`data-calendar-event-start=`, `data-calendar-event-end=`,
 	} {

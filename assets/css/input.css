@@ -5650,3 +5650,379 @@ body.mail-list-column-resizing {
     min-height: 2.5rem;
   }
 }
+
+/* === SMALL SCREENS: CALENDAR ===
+   The top bar names the month or week, and the controls share one row below it.
+   The month view is a compact grid that marks busy days with one dot per calendar,
+   with the selected day's events (or what is coming up) listed underneath. The week
+   view turns its day headers into a strip to pick a day, and shows that day's hours
+   at full width. */
+
+.calendar-day-dots {
+  display: none;
+}
+
+@media (max-width: 1023.98px) {
+  #main-content:has(> [data-calendar-agenda]) {
+    flex-direction: column;
+  }
+
+  #calendar-main > header {
+    padding: 0.5rem 0.75rem;
+  }
+
+  #calendar-main > header > h1 {
+    display: none;
+  }
+
+  #calendar-main > header > div {
+    width: 100%;
+  }
+
+  #calendar-main > header > div > a,
+  #calendar-main > header > div > div {
+    height: 2.25rem;
+  }
+
+  #calendar-main > header > div > div > a {
+    width: 2.5rem;
+  }
+
+  #calendar-main [data-calendar-view-nav] {
+    flex: 1 1 auto;
+    width: auto;
+    height: 2.25rem;
+  }
+
+  #calendar-main [data-calendar-view-nav] > a {
+    font-size: 0.8125rem;
+  }
+
+  /* The legend is for the desktop chips; the sync status stays. */
+  #calendar-main [data-calendar-layout-footer] {
+    padding: 0.375rem 0.75rem;
+  }
+
+  #calendar-main [data-calendar-layout-footer] > [role="group"] {
+    display: none;
+  }
+
+  .calendar-day-dots {
+    display: flex;
+    min-height: 0.375rem;
+    justify-content: center;
+    gap: 0.1875rem;
+  }
+
+  .calendar-day-dot {
+    width: 0.375rem;
+    height: 0.375rem;
+    border-radius: 9999px;
+  }
+
+  .calendar-day-dot[hidden] {
+    display: none;
+  }
+
+  /* Month: the grid takes the height it needs and the agenda the rest. */
+  #main-content > #mail-list:has([data-calendar-month-grid]) {
+    flex: none;
+  }
+
+  #main-content > [data-calendar-agenda] {
+    min-height: 0;
+  }
+
+  /* The week view shows one day at a time and has no agenda. */
+  #main-content:has([data-calendar-view="week"]) > [data-calendar-agenda] {
+    display: none;
+  }
+
+  #calendar-main [data-calendar-surface]:has(> [data-calendar-month-grid]) {
+    flex: none;
+    padding: 0.5rem 0.75rem;
+  }
+
+  #calendar-main [data-calendar-month-grid] [data-calendar-day] {
+    min-height: 3.25rem;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.375rem 0.125rem;
+  }
+
+  #calendar-main [data-calendar-month-grid] [data-calendar-day] > .relative.flex {
+    justify-content: center;
+  }
+
+  #calendar-main [data-calendar-month-events] {
+    display: none !important;
+  }
+
+  [data-calendar-agenda] > div > header {
+    padding: 0.625rem 1rem;
+  }
+
+  [data-calendar-agenda] > div > header > div:first-of-type > p {
+    display: none;
+  }
+
+  [data-calendar-agenda] > div > header > div:first-of-type {
+    justify-content: flex-end;
+  }
+
+  [data-calendar-agenda] > div > header > div:first-of-type:has(> [data-calendar-agenda-clear][hidden]) {
+    display: none;
+  }
+
+  [data-calendar-agenda] #calendar-agenda-heading {
+    font-size: 1rem;
+  }
+
+  [data-calendar-agenda] #calendar-agenda-list {
+    padding: 0.75rem;
+  }
+
+  [data-calendar-agenda] [data-calendar-agenda-empty] {
+    padding: 1.5rem 1rem;
+  }
+
+  /* Agenda cards drop their icon tile so the title has the width. */
+  [data-calendar-agenda] [data-calendar-agenda-event] {
+    padding: 0.625rem 0.75rem;
+  }
+
+  [data-calendar-agenda] [data-calendar-agenda-event] > div > div:first-child {
+    display: none;
+  }
+
+  /* Week: the day headers become a strip to pick the day. */
+  #calendar-main > div:has(> [data-calendar-week-scale-status]) {
+    padding: 0.375rem 0.75rem;
+  }
+
+  #calendar-main [data-calendar-week-scroll] {
+    overflow-x: hidden;
+  }
+
+  #calendar-main [data-calendar-week-grid] {
+    min-width: 0;
+    border-inline: 0;
+  }
+
+  #calendar-main [data-calendar-week-header] > div:first-child {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+  }
+
+  #calendar-main [data-calendar-week-header] > div:first-child > [data-calendar-week-timezone] {
+    display: none;
+  }
+
+  #calendar-main [data-calendar-week-header] [data-calendar-day] {
+    border-right: 0;
+  }
+
+  #calendar-main [data-calendar-week-header] [data-calendar-day] > button {
+    gap: 0.25rem;
+    padding: 0.5rem 0 0.375rem;
+  }
+
+  #calendar-main [data-calendar-week-header] [data-calendar-day][data-calendar-phone-day] > button {
+    background: color-mix(in oklab, var(--primary) 12%, transparent);
+    box-shadow: inset 0 -2px 0 var(--primary);
+  }
+
+  #calendar-main [data-calendar-all-day-row],
+  #calendar-main [data-calendar-week-timeline] {
+    grid-template-columns: 3rem minmax(0, 1fr);
+  }
+
+  #calendar-main [data-calendar-all-day-column]:not([data-calendar-phone-day]),
+  #calendar-main [data-calendar-timed-column]:not([data-calendar-phone-day]) {
+    display: none;
+  }
+
+  #calendar-main [data-calendar-all-day-row]:not(:has([data-calendar-phone-day] [data-calendar-week-all-day]:not([hidden]))) {
+    display: none;
+  }
+
+  #calendar-main [data-calendar-week-timeline] [data-calendar-week-event] {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
+  }
+
+  /* One day is shown at a time, so an all-day event that started on an earlier day
+     still shows its title here rather than leaving it on that first day. */
+  #calendar-main [data-calendar-week-all-day][data-calendar-continues-before] > .invisible {
+    visibility: visible;
+  }
+}
+
+/* === SMALL SCREENS: CALENDAR DIALOGS ===
+   Event details and the new or edit event form fill the screen and slide up from the
+   bottom. Their header, scrolling body and footer keep their own layout. */
+
+@media (max-width: 1023.98px) {
+  .calendar-dialog {
+    top: 0;
+    left: 0;
+    width: 100%;
+    max-width: none;
+    height: 100dvh;
+    max-height: none;
+    border: 0;
+    border-radius: 0;
+    translate: 0 100%;
+    scale: none;
+    opacity: 1;
+    transition: translate 0.24s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  .calendar-dialog[data-tui-dialog-open="true"] {
+    translate: 0 0;
+  }
+
+  .calendar-dialog > [data-tui-dialog-panel] {
+    height: 100%;
+    max-height: none !important;
+  }
+
+  .calendar-dialog > [data-tui-dialog-panel] > header {
+    padding: calc(0.75rem + env(safe-area-inset-top)) 0.5rem 0.75rem 1rem;
+  }
+
+  .calendar-dialog > [data-tui-dialog-panel] > header [data-tui-dialog-close],
+  .calendar-dialog > [data-tui-dialog-panel] > header [data-calendar-delete-trigger] {
+    width: 2.75rem;
+    height: 2.75rem;
+  }
+
+  .calendar-dialog > [data-tui-dialog-panel] > header [data-tui-dialog-close] svg,
+  .calendar-dialog > [data-tui-dialog-panel] > header [data-calendar-delete-trigger] svg {
+    width: 1.25rem;
+    height: 1.25rem;
+  }
+
+  .calendar-dialog > [data-tui-dialog-panel] > :is(div, form) > div,
+  .calendar-dialog > [data-tui-dialog-panel] > div {
+    padding-inline: 1rem;
+  }
+
+  .calendar-dialog > [data-tui-dialog-panel] > footer,
+  .calendar-dialog form > footer {
+    padding: 0.75rem 1rem calc(0.75rem + env(safe-area-inset-bottom));
+  }
+
+  .calendar-dialog form > footer > button {
+    flex: 1 1 0;
+    height: 2.75rem;
+  }
+
+  /* Starts and Ends: the label above, the date and time side by side under it. */
+  .calendar-dialog .flex.min-w-0.items-center.gap-2:has(> [data-calendar-create-time]) {
+    flex-wrap: wrap;
+    gap: 0.25rem 0.375rem;
+  }
+
+  .calendar-dialog .flex.min-w-0.items-center.gap-2:has(> [data-calendar-create-time]) > label {
+    width: 100%;
+    font-size: 0.75rem;
+  }
+
+  .calendar-dialog [data-calendar-create-time] {
+    width: 5.875rem;
+  }
+
+  .calendar-dialog :is([data-tui-datepicker], [data-calendar-create-time] button) {
+    overflow: hidden;
+    gap: 0.375rem;
+    padding-inline: 0.625rem;
+  }
+}
+
+/* === SMALL SCREENS: WEEK DAY SLIDE ===
+   While the week view slides from one day to another, the outgoing day stays visible
+   in the same cell as the incoming one. The hour labels sit above both, so the days
+   pass underneath them. */
+
+@media (max-width: 1023.98px) {
+  /* Clip the passing days without changing how the rows scroll. */
+  #calendar-main [data-calendar-week-timeline],
+  #calendar-main [data-calendar-all-day-row] {
+    clip-path: inset(0);
+  }
+
+  /* The all-day row scrolls vertically when it is full; the passing days must not
+     give it a horizontal scrollbar. */
+  #calendar-main [data-calendar-all-day-row] {
+    overflow-x: hidden;
+  }
+
+  #calendar-main :is([data-calendar-timed-column], [data-calendar-all-day-column]):is([data-calendar-phone-day], [data-calendar-phone-day-leaving]) {
+    display: block;
+    grid-row: 1;
+    grid-column: 2;
+  }
+
+  #calendar-main [data-calendar-all-day-column]:is([data-calendar-phone-day], [data-calendar-phone-day-leaving]) {
+    display: grid;
+  }
+
+  #calendar-main [data-calendar-week-timeline] > :first-child,
+  #calendar-main [data-calendar-all-day-row] > :first-child {
+    position: relative;
+    z-index: 15;
+    background: var(--background);
+  }
+}
+
+/* === SMALL SCREENS: AGENDA SHEET ===
+   In the month view the agenda is a sheet laid over the calendar. It rests just
+   under the month grid; dragging its header up covers the calendar and dragging it
+   down uncovers it again. The script sets its top edge. */
+
+.calendar-sheet-handle {
+  display: none;
+}
+
+@media (max-width: 1023.98px) {
+  #main-content:has(> [data-calendar-agenda][data-calendar-sheet]) {
+    position: relative;
+  }
+
+  #main-content > [data-calendar-agenda][data-calendar-sheet] {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 25;
+    border-top: 1px solid var(--border);
+    border-radius: calc(var(--radius) * 2) calc(var(--radius) * 2) 0 0;
+    box-shadow: 0 -0.5rem 1.5rem rgb(0 0 0 / 0.12);
+    transition: top 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  #main-content > [data-calendar-agenda][data-calendar-sheet][data-calendar-sheet-dragging] {
+    transition: none;
+  }
+
+  [data-calendar-sheet] [data-calendar-agenda-header] {
+    padding-top: 0;
+    touch-action: none;
+    cursor: grab;
+  }
+
+  [data-calendar-sheet] .calendar-sheet-handle {
+    display: flex;
+    width: 100%;
+    height: 1.5rem;
+    align-items: center;
+    justify-content: center;
+  }
+
+  [data-calendar-sheet] .calendar-sheet-handle > span {
+    width: 2.5rem;
+    height: 0.3125rem;
+    border-radius: 9999px;
+    background: color-mix(in oklab, var(--muted-foreground) 45%, transparent);
+  }
+}

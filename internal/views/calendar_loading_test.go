@@ -30,7 +30,7 @@ func TestCalendarLoadingUsesEmptyMonthAndWeekLayout(t *testing.T) {
 					t.Errorf("%s loading grid missing %s", data.View, hook)
 				}
 			}
-			for _, unsafe := range []string{"calendar-skeleton", "data-calendar-loading-events", "data-calendar-loading-agenda-event", `data-calendar-week-event="loading"`, "data-calendar-auto-sync", "data-calendar-event-trigger", "No upcoming events", "Ready for calendar connections", "Calendar events are up to date"} {
+			for _, unsafe := range []string{"calendar-skeleton", "data-calendar-loading-events", "data-calendar-loading-agenda-event", `data-calendar-week-event="loading"`, "data-calendar-auto-sync", "data-calendar-event-trigger", "data-calendar-agenda-empty-title", "Ready for calendar connections", "Calendar events are up to date"} {
 				if strings.Contains(html, unsafe) {
 					t.Errorf("%s loading grid has a placeholder, premature result, or active request: %s", data.View, unsafe)
 				}

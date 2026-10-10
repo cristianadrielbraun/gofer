@@ -61,13 +61,16 @@ func TestCalendarMainRendersNavigationAndAgendaState(t *testing.T) {
 		`September 2026`,
 		`aria-label="Previous month"`,
 		`aria-label="Next month"`,
-		`No upcoming events`,
-		`Google Calendar`,
-		`Microsoft Calendar`,
+		`No events`,
+		`Nothing is scheduled this month.`,
 	} {
 		if !strings.Contains(html, expected) {
 			t.Fatalf("calendar page missing %q: %s", expected, html)
 		}
+	}
+	// The empty agenda is a short message, not a list of calendar providers.
+	if strings.Contains(html, "data-calendar-agenda-providers") || strings.Contains(html, "Google Calendar") {
+		t.Fatal("empty agenda still lists calendar providers")
 	}
 }
 

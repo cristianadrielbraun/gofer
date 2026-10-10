@@ -267,7 +267,7 @@ func CalendarResponseForm(data CalendarResponseData) templ.Component {
 				}
 				return nil
 			})
-			templ_7745c5c3_Err = dropdown.Content(dropdown.ContentProps{Placement: dropdown.PlacementTopStart, Class: "w-44", Attributes: templ.Attributes{"role": "menu", "aria-label": "Respond to invitation"}}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var12), templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = dropdown.Content(dropdown.ContentProps{Placement: dropdown.PlacementTopStart, Class: "mobile-sheet w-44", Attributes: templ.Attributes{"role": "menu", "aria-label": "Respond to invitation"}}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var12), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
