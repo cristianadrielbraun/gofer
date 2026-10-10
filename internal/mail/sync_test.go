@@ -347,6 +347,28 @@ func TestSyncFolderMessagesDoesNotCompleteAfterBatchCallbackError(t *testing.T) 
 	}
 }
 
+func TestFullFolderSyncCompletesWithErrorStatusAfterFailure(t *testing.T) {
+	orchestrator, _, events := newFolderMessageSyncTestOrchestrator(t)
+	// A folder missing from the database fails before the IMAP client is used.
+	folder := storage.FolderSyncInfo{ID: "acc_missing", AccountID: "acc", RemoteID: "Missing", Role: ""}
+	if err := orchestrator.fullFolderSync(context.Background(), nil, "acc", "imap", folder, 1, 1, 0); err == nil {
+		t.Fatal("fullFolderSync() error = nil, want missing folder failure")
+	}
+
+	var completion *Event
+	for _, event := range drainSyncEvents(events) {
+		if event.Type == EventSyncComplete {
+			completion = &event
+		}
+	}
+	if completion == nil {
+		t.Fatal("failed folder sync did not publish completion, so open lists keep showing it as syncing")
+	}
+	if status, _ := completion.Payload["status"].(string); status != "error" {
+		t.Fatalf("completion status = %q, want error", status)
+	}
+}
+
 func TestAccountLifecycleBaselinesBeforeIDLEAndRestartsWatchers(t *testing.T) {
 	ctx := context.Background()
 	db := newLabelSyncTestDB(t)

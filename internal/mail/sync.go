@@ -1367,21 +1367,24 @@ func (o *SyncOrchestrator) fullFolderSync(ctx context.Context, client *imap.Clie
 		Payload:    startPayload,
 	})
 	defer func() {
-		if syncErr != nil {
-			o.recordFolderSyncError(ctx, folder.ID, syncErr)
-			return
-		}
-		if ctx.Err() != nil {
-			return
-		}
 		completePayload := map[string]any{
 			"account_folders_total": folderTotal,
 			"account_folders_done":  folderIndex,
+			"status":                "complete",
+		}
+		if syncErr != nil {
+			o.recordFolderSyncError(ctx, folder.ID, syncErr)
+			completePayload["status"] = "error"
+			completePayload["error"] = syncErr.Error()
+		}
+		if ctx.Err() != nil {
+			completePayload["status"] = "cancelled"
 		}
 		if idleExcluded > 0 {
 			completePayload["idle_folders_excluded"] = idleExcluded
 		}
-		completePayload = o.folderSyncProgressPayload(ctx, accountID, folderName, accountProvider, completePayload)
+		// Failed and cancelled folders still complete so open lists stop showing them as syncing.
+		completePayload = o.folderSyncProgressPayload(context.WithoutCancel(ctx), accountID, folderName, accountProvider, completePayload)
 		o.publishEvent(Event{
 			Type:       EventSyncComplete,
 			AccountID:  accountID,

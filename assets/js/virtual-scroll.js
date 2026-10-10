@@ -43,6 +43,12 @@ class VirtualMailList {
     this.activeFetches = new Set()
     this.newEmailCount = 0
     this.syncState = { active: false, current: 0, total: 0 }
+    this.syncBannerDelay = 3000
+    this.syncBannerMinVisible = 800
+    this.syncBannerLargeRemaining = 1000
+    this.syncBannerShowTimer = null
+    this.syncBannerHideTimer = null
+    this.syncBannerShownAt = 0
     this.filters = this.readFiltersFromURL()
     this.sidebarTag = this.readSidebarTagFromURL()
     this.refreshInFlight = null
@@ -2367,14 +2373,31 @@ class VirtualMailList {
       if (body) body.appendChild(row)
       else list.appendChild(row)
       rowCreated = true
+      this.syncBannerShownAt = 0
     }
 
-    if (!this.syncState || !this.syncState.active) {
+    var hide = function () {
+      this.syncBannerHideTimer = null
+      this.syncBannerShownAt = 0
       row.classList.add("pointer-events-none", "translate-y-6", "scale-[0.98]", "opacity-0")
       row.classList.remove("translate-y-0", "scale-100", "opacity-100")
       row.setAttribute("aria-hidden", "true")
+    }.bind(this)
+    if (!this.syncState || !this.syncState.active) {
+      clearTimeout(this.syncBannerShowTimer)
+      this.syncBannerShowTimer = null
+      if (this.syncBannerHideTimer) return
+      // A banner that just appeared stays briefly so it never blinks out.
+      var visibleFor = this.syncBannerShownAt ? Date.now() - this.syncBannerShownAt : Infinity
+      if (visibleFor < this.syncBannerMinVisible) {
+        this.syncBannerHideTimer = setTimeout(hide, this.syncBannerMinVisible - visibleFor)
+      } else {
+        hide()
+      }
       return
     }
+    clearTimeout(this.syncBannerHideTimer)
+    this.syncBannerHideTimer = null
     var cur = this.syncState.current || 0
     var total = this.syncState.total || 0
     var text = document.getElementById("mail-sync-text")
@@ -2398,14 +2421,33 @@ class VirtualMailList {
         bar.style.transform = ""
       }
     }
+    if (this.syncBannerShownAt) return
     var show = function () {
-      if (!this.syncState || !this.syncState.active) return
+      this.syncBannerShowTimer = null
+      if (!this.syncState || !this.syncState.active || !row.isConnected) return
+      this.syncBannerShownAt = Date.now()
       row.classList.remove("pointer-events-none", "translate-y-6", "scale-[0.98]", "opacity-0")
       row.classList.add("translate-y-0", "scale-100", "opacity-100")
       row.setAttribute("aria-hidden", "false")
     }.bind(this)
-    if (rowCreated) window.requestAnimationFrame(show)
-    else show()
+    if (this.syncIsLargeDownload()) {
+      clearTimeout(this.syncBannerShowTimer)
+      this.syncBannerShowTimer = null
+      if (rowCreated) window.requestAnimationFrame(show)
+      else show()
+      return
+    }
+    // Most syncs are quick refreshes that finish before this delay, so they never show the banner.
+    if (!this.syncBannerShowTimer) this.syncBannerShowTimer = setTimeout(show, this.syncBannerDelay)
+  }
+
+  // A real message download with many messages left is worth showing without waiting.
+  syncIsLargeDownload() {
+    var state = this.syncState || {}
+    if (state.refreshOnly || state.totalEstimated) return false
+    var current = Number(state.current) || 0
+    var total = Number(state.total) || 0
+    return current > 0 && total - current >= this.syncBannerLargeRemaining
   }
 
   onNewEmail() {
