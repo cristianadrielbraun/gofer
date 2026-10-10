@@ -131,10 +131,14 @@ var initResizeHandles;
     document.addEventListener("touchend", onUp);
   }
 
+  // The sidebar's bounds depend on the viewport, so a phone would clamp the
+  // saved width down to the minimum. Phones show the drawer at its own width.
+  var phoneQuery = window.matchMedia("(max-width: 1023.98px)");
+
   initResizeHandles = function () {
     document.querySelectorAll(".resize-handle").forEach(function (h) {
       var name = h.dataset.panel;
-      if (typeof GoferSettings !== "undefined") {
+      if (typeof GoferSettings !== "undefined" && !(name === "sidebar" && phoneQuery.matches)) {
         var saved = GoferSettings.get(settingKey(name));
         if (saved) {
           var b = getBounds(name);
@@ -154,4 +158,8 @@ var initResizeHandles;
   };
 
   initResizeHandles();
+
+  phoneQuery.addEventListener("change", function (e) {
+    if (!e.matches) initResizeHandles();
+  });
 })();
