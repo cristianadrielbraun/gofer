@@ -44,8 +44,10 @@ function forwarded(el){return RULE.test(text(el).slice(0,200))}
 function usable(el,header){if(!header&&forwarded(el))return false;if(!any(siblings(el,'previousSibling'),true))return false;if(header)return true;var next=siblings(el,'nextSibling');for(var i=0;i<next.length;i++)if(!quoted(next[i]))return false;return true}
 function collapse(el,nodes){var hidden=[];nodes.forEach(function(n){if(n.nodeType===3){if(!/\S/.test(n.nodeValue))return;var s=document.createElement('span');n.parentNode.insertBefore(s,n);s.appendChild(n);n=s}if(n.nodeType!==1||ignored(n))return;hidden.push(n)});if(!hidden.length)return;
 var wrap=document.createElement('div');wrap.setAttribute('data-gofer-quote-toggle','');wrap.style.cssText='margin:10px 0;line-height:1';
-var b=document.createElement('button');b.type='button';b.textContent='•••';b.title='Show quoted text';b.setAttribute('aria-expanded','false');
-b.style.cssText='font:700 11px/1 sans-serif;letter-spacing:2px;padding:3px 8px 4px;border-radius:6px;border:1px solid currentColor;background:transparent;color:inherit;opacity:.5;cursor:pointer';
+var b=document.createElement('button');b.type='button';b.title='Show quoted text';b.setAttribute('aria-expanded','false');
+// Drawn dots, unlike a text ellipsis, sit in the exact middle of the button.
+b.innerHTML='<svg width="16" height="4" viewBox="0 0 16 4" aria-hidden="true" style="display:block"><circle cx="2" cy="2" r="1.75" fill="currentColor"/><circle cx="8" cy="2" r="1.75" fill="currentColor"/><circle cx="14" cy="2" r="1.75" fill="currentColor"/></svg>';
+b.style.cssText='display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;height:18px;padding:0 8px;margin:0;border-radius:6px;border:1px solid currentColor;background:transparent;color:inherit;opacity:.5;cursor:pointer';
 wrap.appendChild(b);el.parentNode.insertBefore(wrap,el);
 function set(open){hidden.forEach(function(n){if(open)n.style.removeProperty('display');else n.style.setProperty('display','none','important')});b.setAttribute('aria-expanded',open?'true':'false');b.title=open?'Hide quoted text':'Show quoted text'}
 b.addEventListener('click',function(){set(b.getAttribute('aria-expanded')!=='true')});set(false)}

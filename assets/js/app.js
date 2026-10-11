@@ -1025,11 +1025,12 @@ document.addEventListener("DOMContentLoaded", function () {
       var enabled = translationEnabled()
       var scope = root || document
       if (!scope.querySelectorAll) scope = document
-      if (scope.matches && scope.matches("[data-email-translation-shell]")) {
+      // The row stays for the body style tabs; only the translate control hides.
+      if (scope.matches && scope.matches("[data-email-translation-control]")) {
         scope.classList.toggle("hidden", !enabled)
       }
-      var shells = scope.querySelectorAll("[data-email-translation-shell]")
-      for (var i = 0; i < shells.length; i++) shells[i].classList.toggle("hidden", !enabled)
+      var controls = scope.querySelectorAll("[data-email-translation-control]")
+      for (var i = 0; i < controls.length; i++) controls[i].classList.toggle("hidden", !enabled)
       var icons = scope.querySelectorAll("[data-translate-email-icon-shell]")
       for (var k = 0; k < icons.length; k++) icons[k].classList.toggle("hidden", !enabled)
 
@@ -6482,11 +6483,11 @@ document.addEventListener("DOMContentLoaded", function () {
                 (subject
                   ? '<h1 class="text-xl font-bold tracking-tight text-ink min-w-0" style="font-family: var(--font-serif)">' + subject + '</h1>'
                   : '<div class="h-6 w-2/3 rounded bg-ink/5 animate-pulse"></div>') +
-                '<div class="hidden lg:block h-9 w-60 shrink-0 rounded-lg bg-ink/[0.04] animate-pulse"></div>' +
               '</div>' +
               '<div class="h-px bg-gradient-to-r from-transparent via-ink/10 to-transparent my-6"></div>' +
-              '<div class="mb-3 flex justify-end">' +
-                '<div class="h-8 w-40 rounded-md border border-ink/10 bg-ink/[0.04] animate-pulse"></div>' +
+              '<div class="mb-3 flex justify-end lg:justify-between">' +
+                '<div class="hidden lg:block h-7 w-48 shrink-0 rounded-lg bg-ink/[0.04] animate-pulse"></div>' +
+                '<div class="h-7 w-32 rounded-md border border-ink/10 bg-ink/[0.04] animate-pulse"></div>' +
               '</div>' +
               '<div class="space-y-3 py-2">' +
                 '<div class="h-4 w-full rounded bg-ink/5 animate-pulse"></div>' +

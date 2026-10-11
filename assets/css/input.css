@@ -2788,6 +2788,12 @@ body.mail-list-column-resizing {
   padding: var(--mail-frame-pad);
 }
 
+/* Email bodies are drawn on flat --paper, so the reader's sheets drop the paper
+   gradient; otherwise the card around a body reads a shade darker than the body. */
+.mail-view-frame .surface-paper {
+  background: var(--paper);
+}
+
 .mail-view-thread-scroll {
   margin: 0 calc(-1 * var(--mail-frame-pad)) calc(-1 * var(--mail-frame-pad));
   padding: var(--mail-frame-pad);
@@ -2836,7 +2842,7 @@ body.mail-list-column-resizing {
     gap: 0.75rem;
   }
 
-  .mail-view-subject-row [data-email-body-style-toggle] {
+  [data-email-translation-shell] [data-email-body-style-toggle] {
     max-width: 100%;
     overflow-x: auto;
   }
@@ -3504,6 +3510,11 @@ body.mail-list-column-resizing {
     border-radius: 0;
   }
 
+  /* Without the frame's gap and shadows, a line keeps the thread toolbar apart from the messages. */
+  #mail-view[data-mail-reader] .mail-view-thread-toolbar {
+    border-bottom: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
+  }
+
   #mail-view[data-mail-reader] .mail-view-toolbar {
     flex-direction: row;
     flex-wrap: nowrap;
@@ -3560,7 +3571,6 @@ body.mail-list-column-resizing {
     margin: 0 0 1.25rem;
   }
 
-  #mail-view[data-mail-reader] .mail-view-subject-row [data-email-body-style-toggle],
   #mail-view[data-mail-reader] .mail-view-address,
   #mail-view[data-mail-reader] .mail-view-current-marker,
   #mail-view[data-mail-reader] summary > span:has(> [data-thread-show-exclusive], > [data-thread-hide-others]) {
@@ -3594,6 +3604,35 @@ body.mail-list-column-resizing {
 
   #mail-view[data-mail-reader] .mail-view-message-actions .email-translation-language-trigger {
     min-width: 1.5rem;
+  }
+
+  /* A thread message's reply buttons don't fit beside its other actions, so they
+     take a full row of their own, with their labels. */
+  #mail-view[data-mail-reader] .mail-view-message-actions:has(.mail-view-thread-quick-reply) {
+    flex-wrap: wrap;
+    row-gap: 0.5rem;
+  }
+
+  #mail-view[data-mail-reader] .mail-view-thread-quick-reply {
+    flex: 1 0 100%;
+    gap: 0.5rem;
+  }
+
+  #mail-view[data-mail-reader] .mail-view-thread-quick-reply button {
+    flex: 1 1 0;
+    min-width: 0;
+    width: auto;
+    height: 2rem;
+    padding-inline: 0.5rem;
+  }
+
+  #mail-view[data-mail-reader] .mail-view-thread-quick-reply button svg {
+    width: 0.875rem;
+    height: 0.875rem;
+  }
+
+  #mail-view[data-mail-reader] .mail-view-thread-quick-reply-label {
+    display: inline;
   }
 
   /* Translation lives in the message's small controls instead. */
