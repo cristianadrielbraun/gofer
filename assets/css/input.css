@@ -1411,6 +1411,11 @@ html[data-theme="classic"] .mail-list-search-input-wrap {
   display: inline;
 }
 
+/* The account chip starts with the account's marker unless the option is off. */
+[data-mail-account-no-marker] .mail-list-card-account-marker {
+  display: none;
+}
+
 /* A card field's options, opened from its ⚙ in the layout editor. */
 .mail-card-layout-options {
   position: fixed;
@@ -1539,9 +1544,9 @@ html[data-theme="classic"] .mail-list-search-input-wrap {
 }
 
 .mail-list-item {
-  height: 6.25rem;
-  min-height: 6.25rem;
-  max-height: 6.25rem;
+  height: 6.5rem;
+  min-height: 6.5rem;
+  max-height: 6.5rem;
   padding: 3px 0;
 }
 
@@ -1668,6 +1673,17 @@ html[data-theme="classic"] .mail-list-search-input-wrap {
   color: var(--color-muted-foreground);
 }
 
+/* Read card text is black (the theme's text color in dark mode), so the
+   sender, date and subject of a card just opened turn that, not muted. */
+.mail-list-item[data-mail-read-optimistic] > a.mail-list-card :is([data-mail-card-field="from"], [data-mail-card-field="date"], [data-mail-card-field="subject"]) {
+  font-weight: 400;
+  color: #000000;
+}
+
+.dark .mail-list-item[data-mail-read-optimistic] > a.mail-list-card :is([data-mail-card-field="from"], [data-mail-card-field="date"], [data-mail-card-field="subject"]) {
+  color: var(--color-foreground);
+}
+
 [data-view-mode="table"] {
   padding-top: 0;
 }
@@ -1689,15 +1705,16 @@ html[data-theme="classic"] .mail-list-search-input-wrap {
 .mail-list-card {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
-  grid-template-rows: minmax(1.25rem, auto) minmax(2rem, 1fr) minmax(1.25rem, auto);
+  grid-template-rows: minmax(1.25rem, auto) minmax(1rem, 1fr) minmax(1rem, 1fr) minmax(1.25rem, auto);
   grid-template-areas:
     "railTop header meta"
     "railMiddle body status"
+    "railMiddle bodyBottom status"
     "railBottom footer corner";
   column-gap: 0.75rem;
   row-gap: 0.0625rem;
   align-items: stretch;
-  min-height: 5.875rem;
+  min-height: 6.125rem;
   min-width: 0;
   padding-block: 0.5rem;
 }
@@ -1710,6 +1727,13 @@ html[data-theme="classic"] .mail-list-search-input-wrap {
 }
 
 .mail-list-card-zone:empty {
+  display: none;
+}
+
+/* A side zone holding only placeholders for icons this email lacks (no
+   thread, no attachment, already read) is empty for this card, so the
+   center stretches over it like over a zone the layout leaves empty. */
+.mail-list-card:not(.mail-card-layout-preview-card) > .mail-list-card-zone:not(:has(> :not(.mail-list-card-empty-icon-slot))) {
   display: none;
 }
 
@@ -1740,28 +1764,35 @@ html[data-theme="classic"] .mail-list-search-input-wrap {
   align-items: baseline;
 }
 
-.mail-list-card:not(.mail-card-layout-preview-card)[data-mail-card-empty-right-rows~="meta"] .mail-list-card-zone-header,
+.mail-list-card:not(.mail-card-layout-preview-card):not(:has(> .mail-list-card-zone-meta > :not(.mail-list-card-empty-icon-slot))) .mail-list-card-zone-header,
 .mail-card-layout-preview-card:has(> .mail-list-card-zone-meta:empty:not([data-mail-card-layout-slot-state="accepts"])) .mail-list-card-zone-header {
   grid-column-end: 4;
 }
 
 /* Likewise over the left rail's slot on this row when it is empty. */
-.mail-list-card:not(.mail-card-layout-preview-card)[data-mail-card-empty-left-rows~="railTop"] .mail-list-card-zone-header,
+.mail-list-card:not(.mail-card-layout-preview-card):not(:has(> .mail-list-card-zone-rail-top > :not(.mail-list-card-empty-icon-slot))) .mail-list-card-zone-header,
 .mail-card-layout-preview-card:has(> .mail-list-card-zone-rail-top:empty:not([data-mail-card-layout-slot-state="accepts"])) .mail-list-card-zone-header {
   grid-column-start: 1;
 }
 
 .mail-list-card-zone-header [data-mail-card-field="from"],
 .mail-list-card-zone-header [data-mail-card-field="to"],
+.mail-list-card-zone-header [data-mail-card-field="cc"],
 .mail-list-card-zone-body [data-mail-card-field="subject"],
 .mail-list-card-zone-body [data-mail-card-field="to"],
+.mail-list-card-zone-body [data-mail-card-field="cc"],
 .mail-list-card-zone-body [data-mail-card-field="preview"],
+.mail-list-card-zone-body-bottom [data-mail-card-field="subject"],
+.mail-list-card-zone-body-bottom [data-mail-card-field="to"],
+.mail-list-card-zone-body-bottom [data-mail-card-field="cc"],
+.mail-list-card-zone-body-bottom [data-mail-card-field="preview"],
 .mail-list-card-zone-footer [data-mail-card-field="preview"] {
   min-width: 0;
 }
 
 .mail-list-card-zone-header [data-mail-card-field="from"],
 .mail-list-card-zone-header [data-mail-card-field="to"],
+.mail-list-card-zone-header [data-mail-card-field="cc"],
 .mail-list-card-zone-header [data-mail-card-field="date"] {
   line-height: 1.15;
 }
@@ -1780,22 +1811,32 @@ html[data-theme="classic"] .mail-list-search-input-wrap {
   justify-content: flex-end;
 }
 
+/* The middle is two lines of up to two fields each, laid out like the header. */
 .mail-list-card-zone-body {
   grid-area: body;
-  flex-direction: column;
-  align-items: flex-start;
-  justify-content: center;
-  gap: 0.0625rem;
+  align-items: baseline;
 }
 
-.mail-list-card:not(.mail-card-layout-preview-card)[data-mail-card-empty-right-rows~="status"] .mail-list-card-zone-body,
-.mail-card-layout-preview-card:has(> .mail-list-card-zone-status:empty:not([data-mail-card-layout-slot-state="accepts"])) .mail-list-card-zone-body {
+.mail-list-card-zone-body-bottom {
+  grid-area: bodyBottom;
+  align-items: baseline;
+}
+
+/* A middle line alone takes both middle rows, so it stays centered. */
+.mail-list-card:not(.mail-card-layout-preview-card, .contact-card):not(:has(> .mail-list-card-zone-body-bottom > [data-mail-card-field])) > .mail-list-card-zone-body,
+.mail-list-card:not(.mail-card-layout-preview-card, .contact-card):not(:has(> .mail-list-card-zone-body > [data-mail-card-field])) > .mail-list-card-zone-body-bottom {
+  grid-row: body-start / bodyBottom-end;
+  align-items: center;
+}
+
+.mail-list-card:not(.mail-card-layout-preview-card):not(:has(> .mail-list-card-zone-status > :not(.mail-list-card-empty-icon-slot))) :is(.mail-list-card-zone-body, .mail-list-card-zone-body-bottom),
+.mail-card-layout-preview-card:has(> .mail-list-card-zone-status:empty:not([data-mail-card-layout-slot-state="accepts"])) :is(.mail-list-card-zone-body, .mail-list-card-zone-body-bottom) {
   grid-column-end: 4;
 }
 
 /* Likewise over the left rail's slot on this row when it is empty. */
-.mail-list-card:not(.mail-card-layout-preview-card)[data-mail-card-empty-left-rows~="railMiddle"] .mail-list-card-zone-body,
-.mail-card-layout-preview-card:has(> .mail-list-card-zone-rail-middle:empty:not([data-mail-card-layout-slot-state="accepts"])) .mail-list-card-zone-body {
+.mail-list-card:not(.mail-card-layout-preview-card):not(:has(> .mail-list-card-zone-rail-middle > :not(.mail-list-card-empty-icon-slot))) :is(.mail-list-card-zone-body, .mail-list-card-zone-body-bottom),
+.mail-card-layout-preview-card:has(> .mail-list-card-zone-rail-middle:empty:not([data-mail-card-layout-slot-state="accepts"])) :is(.mail-list-card-zone-body, .mail-list-card-zone-body-bottom) {
   grid-column-start: 1;
 }
 
@@ -1836,13 +1877,13 @@ html[data-theme="classic"] .mail-list-search-input-wrap {
   gap: 0.5rem;
 }
 
-/* Field widths follow one rule wherever a field sits. Header and footer are
-   single lines and the body has one field per line; nothing wraps.
+/* Field widths follow one rule wherever a field sits. Every center zone is a
+   single line; nothing wraps.
    Fill fields (sender, recipient, subject, preview) take the space that is
    left and cut off with "…"; two on a line split it. Fit fields (date,
    account, labels and the icons) are as wide as their content and only
    shrink once the fill fields have nothing left to give. */
-.mail-list-card :is(.mail-list-card-zone-header, .mail-list-card-zone-footer) > :is([data-mail-card-field="from"], [data-mail-card-field="to"], [data-mail-card-field="subject"], [data-mail-card-field="preview"]) {
+.mail-list-card :is(.mail-list-card-zone-header, .mail-list-card-zone-body, .mail-list-card-zone-body-bottom, .mail-list-card-zone-footer) > :is([data-mail-card-field="from"], [data-mail-card-field="to"], [data-mail-card-field="cc"], [data-mail-card-field="subject"], [data-mail-card-field="preview"]) {
   flex: 1 1 0;
   min-width: 0;
   overflow: hidden;
@@ -1850,15 +1891,7 @@ html[data-theme="classic"] .mail-list-search-input-wrap {
   white-space: nowrap;
 }
 
-.mail-list-card .mail-list-card-zone-body > :is([data-mail-card-field="from"], [data-mail-card-field="to"], [data-mail-card-field="subject"], [data-mail-card-field="preview"]) {
-  align-self: stretch;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.mail-list-card :is(.mail-list-card-zone-header, .mail-list-card-zone-body, .mail-list-card-zone-footer) > :is([data-mail-card-field="account"], [data-mail-card-field="labels"]) {
+.mail-list-card :is(.mail-list-card-zone-header, .mail-list-card-zone-body, .mail-list-card-zone-body-bottom, .mail-list-card-zone-footer) > :is([data-mail-card-field="account"], [data-mail-card-field="labels"]) {
   flex: 0 1 auto;
   min-width: 0;
   max-width: 100%;
@@ -1884,13 +1917,13 @@ html[data-theme="classic"] .mail-list-search-input-wrap {
   display: none;
 }
 
-.mail-list-card:not(.mail-card-layout-preview-card)[data-mail-card-empty-right-rows~="corner"] .mail-list-card-zone-footer,
+.mail-list-card:not(.mail-card-layout-preview-card):not(:has(> .mail-list-card-zone-corner > :not(.mail-list-card-empty-icon-slot))) .mail-list-card-zone-footer,
 .mail-card-layout-preview-card:has(> .mail-list-card-zone-corner:empty:not([data-mail-card-layout-slot-state="accepts"])) .mail-list-card-zone-footer {
   grid-column-end: 4;
 }
 
 /* Likewise over the left rail's slot on this row when it is empty. */
-.mail-list-card:not(.mail-card-layout-preview-card)[data-mail-card-empty-left-rows~="railBottom"] .mail-list-card-zone-footer,
+.mail-list-card:not(.mail-card-layout-preview-card):not(:has(> .mail-list-card-zone-rail-bottom > :not(.mail-list-card-empty-icon-slot))) .mail-list-card-zone-footer,
 .mail-card-layout-preview-card:has(> .mail-list-card-zone-rail-bottom:empty:not([data-mail-card-layout-slot-state="accepts"])) .mail-list-card-zone-footer {
   grid-column-start: 1;
 }
@@ -1914,10 +1947,8 @@ html[data-theme="classic"] .mail-list-search-input-wrap {
   align-items: center;
 }
 
-/* The body is a column: fields start at the left, one per line. */
-.mail-card-layout-preview-card .mail-list-card-zone-body[data-mail-card-layout-zone-items] {
-  align-items: flex-start;
-  justify-content: center;
+.mail-card-layout-preview-card :is(.mail-list-card-zone-body, .mail-list-card-zone-body-bottom)[data-mail-card-layout-zone-items] {
+  align-items: center;
 }
 
 .mail-list-card-empty-icon-slot {
@@ -2118,6 +2149,12 @@ html[data-theme="classic"] .mail-list-search-input-wrap {
   padding-inline: 0.25rem;
   /* A light accent tint marks fields as the things you drag. */
   background: color-mix(in srgb, var(--color-primary) 9%, var(--color-card));
+}
+
+/* The flex box drops the space between "To" and the address that a real
+   card shows. */
+.mail-card-layout-preview-card .mail-card-layout-preview-token:is([data-mail-card-field="to"], [data-mail-card-field="cc"]) {
+  column-gap: 0.25em;
 }
 
 .mail-card-layout-preview-card .mail-card-layout-preview-token:is([data-mail-card-field="avatar"], [data-mail-card-field="accountMarker"], [data-mail-card-field="attachment"], [data-mail-card-field="starred"], [data-mail-card-field="unread"], [data-mail-card-field="thread"]) {
@@ -2362,7 +2399,8 @@ html[data-theme="classic"] .mail-list-search-input-wrap {
 
 #mail-list-scroll:not([data-mail-card-fields]) [data-mail-card-field="account"],
 #mail-list-scroll:not([data-mail-card-fields]) [data-mail-card-field="accountMarker"],
-#mail-list-scroll:not([data-mail-card-fields]) [data-mail-card-field="to"] {
+#mail-list-scroll:not([data-mail-card-fields]) [data-mail-card-field="to"],
+#mail-list-scroll:not([data-mail-card-fields]) [data-mail-card-field="cc"] {
   display: none !important;
 }
 
@@ -2372,6 +2410,7 @@ html[data-theme="classic"] .mail-list-search-input-wrap {
 #mail-list-scroll[data-mail-card-hidden~="account"] [data-mail-card-field="account"],
 #mail-list-scroll[data-mail-card-hidden~="accountMarker"] [data-mail-card-field="accountMarker"],
 #mail-list-scroll[data-mail-card-hidden~="to"] [data-mail-card-field="to"],
+#mail-list-scroll[data-mail-card-hidden~="cc"] [data-mail-card-field="cc"],
 #mail-list-scroll[data-mail-card-hidden~="date"] [data-mail-card-field="date"],
 #mail-list-scroll[data-mail-card-hidden~="subject"] [data-mail-card-field="subject"],
 #mail-list-scroll[data-mail-card-hidden~="preview"] [data-mail-card-field="preview"],
@@ -2450,9 +2489,9 @@ body.mail-list-column-resizing {
 }
 
 .mail-list-thread-main {
-  height: 6.25rem;
-  min-height: 6.25rem;
-  max-height: 6.25rem;
+  height: 6.5rem;
+  min-height: 6.5rem;
+  max-height: 6.5rem;
   overflow: hidden;
 }
 
@@ -2683,9 +2722,9 @@ body.mail-list-column-resizing {
   align-items: start;
   column-gap: 0.75rem;
   row-gap: 0.125rem;
-  height: 6.25rem;
-  min-height: 6.25rem;
-  max-height: 6.25rem;
+  height: 6.5rem;
+  min-height: 6.5rem;
+  max-height: 6.5rem;
   padding-block: 0.5rem;
 }
 
@@ -3002,6 +3041,13 @@ body.mail-list-column-resizing {
 
 .envelope:hover {
   border-color: color-mix(in srgb, var(--color-foreground) 20%, transparent);
+}
+
+/* Unread cards are outlined in the accent color. Minimal, whose accent is its
+   text color, outlines them its own way (themes/minimal.css). */
+.mail-list-item[data-is-read="false"]:not([data-mail-selected]) > a.mail-list-card.envelope,
+.mail-list-item[data-is-read="false"]:not([data-mail-selected]) > a.mail-list-card.envelope:hover {
+  border-color: var(--color-primary);
 }
 
 [data-theme="classic"]:not(.dark) .envelope:hover,
@@ -4316,6 +4362,7 @@ body.mail-list-column-resizing {
 
   #mail-list[data-mail-list-view] .mail-list-card .mail-list-card-empty-icon-slot,
   #mail-list[data-mail-list-view] .mail-list-card [data-mail-card-field="to"],
+  #mail-list[data-mail-list-view] .mail-list-card [data-mail-card-field="cc"],
   #mail-list[data-mail-list-view] .mail-list-card [data-mail-card-field="account"],
   #mail-list[data-mail-list-view] .mail-list-card [data-mail-card-field="labels"] > * + *,
   #mail-list[data-mail-list-view] .mail-list-card .mail-sender-address {

@@ -6444,9 +6444,13 @@ func (db *DB) scanEmailRows(ctx context.Context, rows *sql.Rows) ([]models.Email
 		}
 		labelsMap, _ := db.batchGetLabels(ctx, msgIDs)
 		toMap, _ := db.batchGetRecipients(ctx, msgIDs, "to")
+		ccMap, _ := db.batchGetRecipients(ctx, msgIDs, "cc")
+		attachmentCounts, _ := db.batchCountAttachments(ctx, msgIDs)
 		for i := range items {
 			items[i].email.Labels = labelsMap[items[i].msgID]
 			items[i].email.To = toMap[items[i].msgID]
+			items[i].email.CC = ccMap[items[i].msgID]
+			items[i].email.AttachmentCount = attachmentCounts[items[i].msgID]
 		}
 	}
 
@@ -6630,6 +6634,39 @@ func (db *DB) getMessageLabels(ctx context.Context, messageID int64) ([]models.L
 	return labels, nil
 }
 
+// batchCountAttachments counts each message's attachments, leaving out inline
+// images, which the message shows in its body rather than as files.
+func (db *DB) batchCountAttachments(ctx context.Context, msgIDs []int64) (map[int64]int, error) {
+	placeholders := make([]string, len(msgIDs))
+	args := make([]any, len(msgIDs))
+	for i, id := range msgIDs {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+	query := fmt.Sprintf(
+		`SELECT message_id, COUNT(*)
+		 FROM attachments
+		 WHERE message_id IN (%s) AND COALESCE(inline, 0) = 0
+		 GROUP BY message_id`, strings.Join(placeholders, ","))
+
+	rows, err := db.Read().QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make(map[int64]int)
+	for rows.Next() {
+		var msgID int64
+		var count int
+		if err := rows.Scan(&msgID, &count); err != nil {
+			return nil, err
+		}
+		result[msgID] = count
+	}
+	return result, rows.Err()
+}
+
 func (db *DB) batchGetRecipients(ctx context.Context, msgIDs []int64, kind string) (map[int64][]models.Contact, error) {
 	placeholders := make([]string, len(msgIDs))
 	args := make([]any, 0, len(msgIDs)+1)
@@ -6803,9 +6840,13 @@ func (db *DB) SearchMessages(ctx context.Context, userID string, query string, l
 		}
 		labelsMap, _ := db.batchGetLabels(ctx, msgIDs)
 		toMap, _ := db.batchGetRecipients(ctx, msgIDs, "to")
+		ccMap, _ := db.batchGetRecipients(ctx, msgIDs, "cc")
+		attachmentCounts, _ := db.batchCountAttachments(ctx, msgIDs)
 		for i := range items {
 			items[i].email.Labels = labelsMap[items[i].msgID]
 			items[i].email.To = toMap[items[i].msgID]
+			items[i].email.CC = ccMap[items[i].msgID]
+			items[i].email.AttachmentCount = attachmentCounts[items[i].msgID]
 		}
 	}
 
@@ -8656,9 +8697,10 @@ func defaultUISettings() map[string]string {
 		"translation_target_language":       "en",
 		"desktop_notifications":             "false",
 		"notification_mode":                 "auto",
-		"mail_card_fields":                  "avatar,thread,from,attachment,date,unread,subject,preview,labels,starred",
-		"mail_card_layout":                  "railTop:avatar|header:from,date|meta:attachment,unread|railMiddle:|body:subject|status:|railBottom:thread|footer:preview,labels|corner:starred|hidden:account,accountMarker,to",
+		"mail_card_fields":                  "avatar,thread,from,account,to,attachment,date,subject,preview,labels,starred",
+		"mail_card_layout":                  "railTop:avatar|header:account,from,date|meta:attachment|railMiddle:|body:to|bodyBottom:subject|status:|railBottom:thread|footer:preview,labels|corner:starred|hidden:accountMarker,unread,cc",
 		"mail_card_date_time":               "false",
+		"mail_card_account_marker":          "true",
 		"mail_table_columns":                "accountMarker,starred,attachment,thread,from,to,subject,date",
 		"mail_table_column_widths":          "0.8,0.8,0.8,1,3,3,5,2",
 		"sidebar_account_collapsed":         "{}",

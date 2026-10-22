@@ -78,6 +78,8 @@ type Email struct {
 	IsRead            bool
 	IsStarred         bool
 	HasAttachment     bool
+	// AttachmentCount counts this message's attachments, not inline images.
+	AttachmentCount   int
 	Labels            []Label
 	IsSelected        bool
 	ThreadCount       int

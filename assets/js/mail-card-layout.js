@@ -3,9 +3,9 @@
   window.__goferMailCardLayoutDialogReady = true
 
   function setupMailCardLayoutDialog() {
-    var fieldIds = ["avatar", "thread", "from", "account", "accountMarker", "to", "date", "subject", "preview", "labels", "attachment", "starred", "unread"]
-    var zones = ["railTop", "header", "meta", "railMiddle", "body", "status", "railBottom", "footer", "corner", "hidden"]
-    var visibleZones = ["railTop", "header", "meta", "railMiddle", "body", "status", "railBottom", "footer", "corner"]
+    var fieldIds = ["avatar", "thread", "from", "account", "accountMarker", "to", "cc", "date", "subject", "preview", "labels", "attachment", "starred", "unread"]
+    var zones = ["railTop", "header", "meta", "railMiddle", "body", "bodyBottom", "status", "railBottom", "footer", "corner", "hidden"]
+    var visibleZones = ["railTop", "header", "meta", "railMiddle", "body", "bodyBottom", "status", "railBottom", "footer", "corner"]
     var iconFields = {
       avatar: true,
       thread: true,
@@ -15,10 +15,11 @@
       unread: true,
     }
     var sideZones = ["railTop", "railMiddle", "railBottom", "meta", "status", "corner"]
-    var centerZones = ["header", "body", "footer"]
+    var centerZones = ["header", "body", "bodyBottom", "footer"]
     // Matches MAIL_CARD_SIDE_ZONE_MAX in ui-settings.js.
     var sideZoneMax = {
       body: 2,
+      bodyBottom: 2,
       railTop: 1,
       railMiddle: 1,
       railBottom: 1,
@@ -33,6 +34,7 @@
       account: "Account",
       accountMarker: "Account marker",
       to: "Recipient",
+      cc: "CC",
       date: "Date",
       subject: "Subject",
       preview: "Preview",
@@ -42,7 +44,9 @@
       unread: "Unread dot",
     }
     // Fields with their own options, opened from a ⚙ on the field's token.
-    var fieldsWithOptions = { date: true }
+    var fieldsWithOptions = { date: true, account: true }
+    // Options that are on unless turned off.
+    var optionsOnByDefault = { mail_card_account_marker: true }
     // Lucide's settings icon, named with data-lucide so themes that replace icons
     // (Express) replace this one too.
     var GEAR_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-lucide="settings"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915" /> <circle cx="12" cy="12" r="3" /></svg>'
@@ -58,12 +62,13 @@
         header: ["from", "date"],
         meta: ["attachment", "unread"],
         railMiddle: [],
-        body: ["subject"],
+        body: [],
+        bodyBottom: ["subject"],
         status: [],
         railBottom: ["thread"],
         footer: ["preview", "labels"],
         corner: ["starred"],
-        hidden: ["account", "accountMarker", "to"],
+        hidden: ["account", "accountMarker", "to", "cc"],
       }
     }
 
@@ -71,15 +76,16 @@
       if (typeof window.getDefaultMailCardLayout === "function") return window.getDefaultMailCardLayout()
       return {
         railTop: ["avatar"],
-        header: ["from", "date"],
-        meta: ["attachment", "unread"],
+        header: ["account", "from", "date"],
+        meta: ["attachment"],
         railMiddle: [],
-        body: ["subject"],
+        body: ["to"],
+        bodyBottom: ["subject"],
         status: [],
         railBottom: ["thread"],
         footer: ["preview", "labels"],
         corner: ["starred"],
-        hidden: ["account", "accountMarker", "to"],
+        hidden: ["accountMarker", "unread", "cc"],
       }
     }
 
@@ -96,14 +102,6 @@
     function serializeLayout(layout) {
       if (typeof window.serializeMailCardLayout === "function") return window.serializeMailCardLayout(layout)
       return zones.map(function (zone) { return zone + ":" + ((layout[zone] || []).join(",")) }).join("|")
-    }
-
-    function emptyRightRows(layout) {
-      var rows = []
-      if (!((layout.meta || []).length)) rows.push("meta")
-      if (!((layout.status || []).length)) rows.push("status")
-      if (!((layout.corner || []).length)) rows.push("corner")
-      return rows.join(" ")
     }
 
     function dialogRoot(target) {
@@ -353,10 +351,11 @@
       var inputs = dialog ? dialog.querySelectorAll("[data-mail-card-option]") : []
       for (var i = 0; i < inputs.length; i++) {
         var value = window.GoferSettings ? GoferSettings.get(inputs[i].dataset.mailCardOption) : null
-        inputs[i].checked = value === "true"
+        inputs[i].checked = optionsOnByDefault[inputs[i].dataset.mailCardOption] ? value !== "false" : value === "true"
       }
       var previewCard = preview(dialog)
       if (previewCard) previewCard.toggleAttribute("data-mail-date-time", !!(window.GoferSettings && GoferSettings.get("mail_card_date_time") === "true"))
+      if (previewCard) previewCard.toggleAttribute("data-mail-account-no-marker", !!(window.GoferSettings && GoferSettings.get("mail_card_account_marker") === "false"))
     }
 
     function closeFieldOptions(dialog) {
@@ -465,9 +464,6 @@
     function applyLayoutToPreview(dialog, layout) {
       var card = preview(dialog)
       if (!card) return
-      var emptyRows = emptyRightRows(layout)
-      if (emptyRows) card.dataset.mailCardEmptyRightRows = emptyRows
-      else delete card.dataset.mailCardEmptyRightRows
       for (var z = 0; z < zones.length; z++) {
         var zone = zones[z]
         var target = previewZone(dialog, zone)

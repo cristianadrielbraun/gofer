@@ -8,7 +8,7 @@ function listRemPx(rem) {
 // Mail card rows are shorter on small screens, where they use a fixed phone layout
 // (see the small-screen mail list styles).
 function mailCardRowRem() {
-  return window.matchMedia("(max-width: 1023.98px)").matches ? 5.25 : 6.25
+  return window.matchMedia("(max-width: 1023.98px)").matches ? 5.25 : 6.5
 }
 
 // Contact rows use one 4rem phone layout on small screens, in either view.
@@ -16,6 +16,50 @@ function contactRowRem(viewMode) {
   if (window.matchMedia("(max-width: 1023.98px)").matches) return 4
   // Cards are two lines beside the avatar (.contact-card in input.css).
   return viewMode === "table" ? 2.75 : 3.875
+}
+
+// Slides entering rows into place from JavaScript, one whole pixel at a time.
+// A CSS transition, a fade or a scale leaves the row on its own layer at
+// fractional positions, where Chrome draws its text blurry until it settles.
+// Whole-pixel offsets set frame by frame keep the text sharp all the way.
+function slideRowsInWholePixels(nodes, duration, offsetY, delay, stagger) {
+  if (!nodes.length) return
+  var rows = []
+  for (var i = 0; i < nodes.length; i++) {
+    var node = nodes[i]
+    var base = node.style.transform || ""
+    node.style.transition = "none"
+    node.style.transform = base + " translateY(" + Math.round(offsetY) + "px)"
+    // Reads back the browser's spelling, to notice when the list moves the row.
+    rows.push({ node: node, base: base, last: node.style.transform, delay: delay + Math.min(120, i * stagger), done: false })
+  }
+  var start = null
+  function frame(now) {
+    if (start === null) start = now
+    var pending = false
+    for (var j = 0; j < rows.length; j++) {
+      var row = rows[j]
+      if (row.done) continue
+      // The list positioned the row again (a scroll or re-render); leave it there.
+      if (row.node.style.transform !== row.last) {
+        row.done = true
+        row.node.style.transition = ""
+        continue
+      }
+      var t = Math.min(1, Math.max(0, (now - start - row.delay) / duration))
+      var y = Math.round(offsetY * Math.pow(1 - t, 3))
+      row.node.style.transform = y === 0 ? row.base : row.base + " translateY(" + y + "px)"
+      row.last = row.node.style.transform
+      if (t >= 1) {
+        row.done = true
+        row.node.style.transition = ""
+      } else {
+        pending = true
+      }
+    }
+    if (pending) requestAnimationFrame(frame)
+  }
+  requestAnimationFrame(frame)
 }
 
 class VirtualMailList {
@@ -425,7 +469,8 @@ class VirtualMailList {
       shell.style.position = "absolute"
       shell.style.left = "0"
       shell.style.right = "0"
-      shell.style.willChange = "transform"
+      // No will-change: a row on its own compositor layer loses subpixel text
+      // smoothing in Chrome, and bold or colored text looked blurry.
       shell.hidden = true
       this.itemsContainer.appendChild(shell)
       this.rowPool.push(shell)
@@ -783,27 +828,7 @@ class VirtualMailList {
   }
 
   animateEnteringRows(nodes, duration, ease, offsetY, delay, stagger) {
-    delay = delay || 0
-    stagger = stagger || 0
-    // Every row takes its starting style before one reflow commits them all.
-    // A reflow per row made the browser lay out the page once per row.
-    var bases = []
-    for (var i = 0; i < nodes.length; i++) {
-      var node = nodes[i]
-      bases.push(node.style.transform || "")
-      node.style.transition = "none"
-      node.style.opacity = "0"
-      node.style.transform = bases[i] + " translateY(" + offsetY + "px) scale(0.985)"
-    }
-    if (nodes.length) nodes[0].offsetHeight
-    for (var j = 0; j < nodes.length; j++) {
-      var row = nodes[j]
-      var itemDelay = delay + Math.min(120, j * stagger)
-      row.style.transition = "transform " + duration + "ms " + ease + " " + itemDelay + "ms, opacity " + duration + "ms ease-out " + itemDelay + "ms"
-      row.style.opacity = "1"
-      row.style.transform = bases[j]
-      this.cleanupTransition(row, duration + itemDelay)
-    }
+    slideRowsInWholePixels(nodes, duration, offsetY, delay || 0, stagger || 0)
   }
 
   animateExitingRows(before, afterIds, duration, ease, offsetY, stagger) {
@@ -829,7 +854,7 @@ class VirtualMailList {
       overlay.appendChild(clone)
       clone.offsetHeight
       clone.style.opacity = "0"
-      clone.style.transform = "translateY(" + offsetY + "px) scale(0.985)"
+      clone.style.transform = "translateY(" + offsetY + "px)"
       setTimeout(function () { clone.remove() }, duration + delay + 40)
     }, this)
     if (overlay) {
@@ -948,8 +973,10 @@ class VirtualMailList {
       '<div data-mail-card-field="unread" class="inline-flex size-4 shrink-0 items-center justify-center"><span class="size-2 rounded-full bg-muted animate-pulse"></span></div>' +
       "</div>" +
       '<div class="mail-list-card-zone mail-list-card-zone-body" data-mail-card-zone="body">' +
-      '<div data-mail-card-field="subject" class="h-3.5 w-56 max-w-[58%] rounded bg-muted animate-pulse"></div>' +
       '<div data-mail-card-field="to" class="h-3 w-36 max-w-[46%] rounded bg-muted animate-pulse"></div>' +
+      "</div>" +
+      '<div class="mail-list-card-zone mail-list-card-zone-body-bottom" data-mail-card-zone="bodyBottom">' +
+      '<div data-mail-card-field="subject" class="h-3.5 w-56 max-w-[58%] rounded bg-muted animate-pulse"></div>' +
       "</div>" +
       '<div class="mail-list-card-zone mail-list-card-zone-footer" data-mail-card-zone="footer">' +
       '<div data-mail-card-field="preview" class="h-3 w-72 max-w-[70%] rounded bg-muted animate-pulse"></div>' +
@@ -1668,7 +1695,6 @@ class VirtualMailList {
     this.itemsContainer.style.transition = "opacity 220ms ease-out, transform 220ms ease-out, filter 220ms ease-out"
     if (pending) {
       this.itemsContainer.style.opacity = "0.72"
-      this.itemsContainer.style.transform = "scale(0.998)"
       this.itemsContainer.style.filter = "saturate(0.96)"
       return
     }
@@ -2834,7 +2860,8 @@ class VirtualContactsList {
       shell.style.position = "absolute"
       shell.style.left = "0"
       shell.style.right = "0"
-      shell.style.willChange = "transform"
+      // No will-change: a row on its own compositor layer loses subpixel text
+      // smoothing in Chrome, and bold or colored text looked blurry.
       shell.hidden = true
       this.itemsContainer.appendChild(shell)
       this.rowPool.push(shell)
@@ -3434,27 +3461,7 @@ class VirtualContactsList {
   }
 
   animateEnteringRows(nodes, duration, ease, offsetY, delay, stagger) {
-    delay = delay || 0
-    stagger = stagger || 0
-    // Every row takes its starting style before one reflow commits them all.
-    // A reflow per row made the browser lay out the page once per row.
-    var bases = []
-    for (var i = 0; i < nodes.length; i++) {
-      var node = nodes[i]
-      bases.push(node.style.transform || "")
-      node.style.transition = "none"
-      node.style.opacity = "0"
-      node.style.transform = bases[i] + " translateY(" + offsetY + "px) scale(0.985)"
-    }
-    if (nodes.length) nodes[0].offsetHeight
-    for (var j = 0; j < nodes.length; j++) {
-      var row = nodes[j]
-      var itemDelay = delay + Math.min(120, j * stagger)
-      row.style.transition = "transform " + duration + "ms " + ease + " " + itemDelay + "ms, opacity " + duration + "ms ease-out " + itemDelay + "ms"
-      row.style.opacity = "1"
-      row.style.transform = bases[j]
-      this.cleanupTransition(row, duration + itemDelay)
-    }
+    slideRowsInWholePixels(nodes, duration, offsetY, delay || 0, stagger || 0)
   }
 
   animateExitingRows(before, afterIds, duration, ease, offsetY, stagger) {
@@ -3480,7 +3487,7 @@ class VirtualContactsList {
       overlay.appendChild(clone)
       clone.offsetHeight
       clone.style.opacity = "0"
-      clone.style.transform = "translateY(" + offsetY + "px) scale(0.985)"
+      clone.style.transform = "translateY(" + offsetY + "px)"
       setTimeout(function () { clone.remove() }, duration + delay + 40)
     }, this)
     if (overlay) setTimeout(function () { if (overlay.parentNode) overlay.remove() }, duration + Math.min(140, Math.max(0, exitIndex - 1) * stagger) + 80)

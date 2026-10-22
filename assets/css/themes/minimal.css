@@ -134,6 +134,15 @@
   border-color: color-mix(in srgb, var(--foreground) 20%, transparent);
 }
 
+/* The accent here is the text color, so unread cards can't stand out by color.
+   They take the page background (lighter than a card in light mode, darker in
+   dark) and an outline in the text color instead. */
+[data-theme="minimal"] .mail-list-item[data-is-read="false"]:not([data-mail-selected]) > a.mail-list-card.envelope,
+[data-theme="minimal"] .mail-list-item[data-is-read="false"]:not([data-mail-selected]) > a.mail-list-card.envelope:hover {
+  background: var(--background);
+  border-color: var(--foreground);
+}
+
 [data-theme="minimal"] .envelope-active {
   border: 1px solid var(--border);
   background: color-mix(in srgb, var(--foreground) 7%, var(--background));
