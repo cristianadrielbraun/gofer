@@ -1733,7 +1733,7 @@ html[data-theme="classic"] .mail-list-search-input-wrap {
 /* A side zone holding only placeholders for icons this email lacks (no
    thread, no attachment, already read) is empty for this card, so the
    center stretches over it like over a zone the layout leaves empty. */
-.mail-list-card:not(.mail-card-layout-preview-card) > .mail-list-card-zone:not(:has(> :not(.mail-list-card-empty-icon-slot))) {
+.mail-list-card:not(.mail-card-layout-preview-card, .contact-card) > .mail-list-card-zone:not(:has(> :not(.mail-list-card-empty-icon-slot))) {
   display: none;
 }
 
@@ -1764,13 +1764,13 @@ html[data-theme="classic"] .mail-list-search-input-wrap {
   align-items: baseline;
 }
 
-.mail-list-card:not(.mail-card-layout-preview-card):not(:has(> .mail-list-card-zone-meta > :not(.mail-list-card-empty-icon-slot))) .mail-list-card-zone-header,
+.mail-list-card:not(.mail-card-layout-preview-card, .contact-card):not(:has(> .mail-list-card-zone-meta > :not(.mail-list-card-empty-icon-slot))) .mail-list-card-zone-header,
 .mail-card-layout-preview-card:has(> .mail-list-card-zone-meta:empty:not([data-mail-card-layout-slot-state="accepts"])) .mail-list-card-zone-header {
   grid-column-end: 4;
 }
 
 /* Likewise over the left rail's slot on this row when it is empty. */
-.mail-list-card:not(.mail-card-layout-preview-card):not(:has(> .mail-list-card-zone-rail-top > :not(.mail-list-card-empty-icon-slot))) .mail-list-card-zone-header,
+.mail-list-card:not(.mail-card-layout-preview-card, .contact-card):not(:has(> .mail-list-card-zone-rail-top > :not(.mail-list-card-empty-icon-slot))) .mail-list-card-zone-header,
 .mail-card-layout-preview-card:has(> .mail-list-card-zone-rail-top:empty:not([data-mail-card-layout-slot-state="accepts"])) .mail-list-card-zone-header {
   grid-column-start: 1;
 }
@@ -1829,13 +1829,13 @@ html[data-theme="classic"] .mail-list-search-input-wrap {
   align-items: center;
 }
 
-.mail-list-card:not(.mail-card-layout-preview-card):not(:has(> .mail-list-card-zone-status > :not(.mail-list-card-empty-icon-slot))) :is(.mail-list-card-zone-body, .mail-list-card-zone-body-bottom),
+.mail-list-card:not(.mail-card-layout-preview-card, .contact-card):not(:has(> .mail-list-card-zone-status > :not(.mail-list-card-empty-icon-slot))) :is(.mail-list-card-zone-body, .mail-list-card-zone-body-bottom),
 .mail-card-layout-preview-card:has(> .mail-list-card-zone-status:empty:not([data-mail-card-layout-slot-state="accepts"])) :is(.mail-list-card-zone-body, .mail-list-card-zone-body-bottom) {
   grid-column-end: 4;
 }
 
 /* Likewise over the left rail's slot on this row when it is empty. */
-.mail-list-card:not(.mail-card-layout-preview-card):not(:has(> .mail-list-card-zone-rail-middle > :not(.mail-list-card-empty-icon-slot))) :is(.mail-list-card-zone-body, .mail-list-card-zone-body-bottom),
+.mail-list-card:not(.mail-card-layout-preview-card, .contact-card):not(:has(> .mail-list-card-zone-rail-middle > :not(.mail-list-card-empty-icon-slot))) :is(.mail-list-card-zone-body, .mail-list-card-zone-body-bottom),
 .mail-card-layout-preview-card:has(> .mail-list-card-zone-rail-middle:empty:not([data-mail-card-layout-slot-state="accepts"])) :is(.mail-list-card-zone-body, .mail-list-card-zone-body-bottom) {
   grid-column-start: 1;
 }
@@ -1883,8 +1883,19 @@ html[data-theme="classic"] .mail-list-search-input-wrap {
    left and cut off with "…"; two on a line split it. Fit fields (date,
    account, labels and the icons) are as wide as their content and only
    shrink once the fill fields have nothing left to give. */
-.mail-list-card :is(.mail-list-card-zone-header, .mail-list-card-zone-body, .mail-list-card-zone-body-bottom, .mail-list-card-zone-footer) > :is([data-mail-card-field="from"], [data-mail-card-field="to"], [data-mail-card-field="cc"], [data-mail-card-field="subject"], [data-mail-card-field="preview"]) {
+.mail-list-card :is(.mail-list-card-zone-header, .mail-list-card-zone-footer) > :is([data-mail-card-field="from"], [data-mail-card-field="to"], [data-mail-card-field="cc"], [data-mail-card-field="subject"], [data-mail-card-field="preview"]),
+.mail-list-card:not(.contact-card) :is(.mail-list-card-zone-body, .mail-list-card-zone-body-bottom) > :is([data-mail-card-field="from"], [data-mail-card-field="to"], [data-mail-card-field="cc"], [data-mail-card-field="subject"], [data-mail-card-field="preview"]) {
   flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Contact cards reuse the card zones but lay out their second line themselves:
+   the address takes the space, the source and date sit at the end. */
+.contact-card .mail-list-card-zone-body > :is([data-mail-card-field="from"], [data-mail-card-field="to"], [data-mail-card-field="subject"], [data-mail-card-field="preview"]) {
+  align-self: stretch;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1917,13 +1928,13 @@ html[data-theme="classic"] .mail-list-search-input-wrap {
   display: none;
 }
 
-.mail-list-card:not(.mail-card-layout-preview-card):not(:has(> .mail-list-card-zone-corner > :not(.mail-list-card-empty-icon-slot))) .mail-list-card-zone-footer,
+.mail-list-card:not(.mail-card-layout-preview-card, .contact-card):not(:has(> .mail-list-card-zone-corner > :not(.mail-list-card-empty-icon-slot))) .mail-list-card-zone-footer,
 .mail-card-layout-preview-card:has(> .mail-list-card-zone-corner:empty:not([data-mail-card-layout-slot-state="accepts"])) .mail-list-card-zone-footer {
   grid-column-end: 4;
 }
 
 /* Likewise over the left rail's slot on this row when it is empty. */
-.mail-list-card:not(.mail-card-layout-preview-card):not(:has(> .mail-list-card-zone-rail-bottom > :not(.mail-list-card-empty-icon-slot))) .mail-list-card-zone-footer,
+.mail-list-card:not(.mail-card-layout-preview-card, .contact-card):not(:has(> .mail-list-card-zone-rail-bottom > :not(.mail-list-card-empty-icon-slot))) .mail-list-card-zone-footer,
 .mail-card-layout-preview-card:has(> .mail-list-card-zone-rail-bottom:empty:not([data-mail-card-layout-slot-state="accepts"])) .mail-list-card-zone-footer {
   grid-column-start: 1;
 }
