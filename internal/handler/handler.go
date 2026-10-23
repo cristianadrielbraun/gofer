@@ -2346,7 +2346,7 @@ func (h *Handler) loadMailWindow(ctx context.Context, userID, folderID string, f
 
 	var page *models.EmailPage
 	if selectedEmailID != "" && !emailFiltersActive(filters) {
-		page, err = h.db.GetEmailsAroundEmailForUser(ctx, userID, folderID, selectedEmailID, limit)
+		page, err = h.db.GetEmailsAroundEmailForUser(ctx, userID, folderID, selectedEmailID, limit, filters)
 		if err != nil {
 			return mailWindow{}, err
 		}
@@ -2417,7 +2417,7 @@ func (h *Handler) handleMailItems(w http.ResponseWriter, r *http.Request) {
 		filters := applyEmailSortDefaults(parseEmailFilters(r), r, settings)
 		var page *models.EmailPage
 		if around := r.URL.Query().Get("around"); around != "" && !emailFiltersActive(filters) {
-			page, err = h.db.GetEmailsAroundEmailForUser(ctx, userID, folderID, around, limit)
+			page, err = h.db.GetEmailsAroundEmailForUser(ctx, userID, folderID, around, limit, filters)
 		} else if startStr := r.URL.Query().Get("start"); startStr != "" {
 			start, parseErr := strconv.Atoi(startStr)
 			if parseErr != nil || start < 0 {
@@ -2425,7 +2425,7 @@ func (h *Handler) handleMailItems(w http.ResponseWriter, r *http.Request) {
 			}
 			page, err = h.db.GetEmailsRangeFilteredForUserWithTotal(ctx, userID, folderID, start, limit, filters, knownTotal)
 		} else if cursor := r.URL.Query().Get("after"); cursor != "" && !emailFiltersActive(filters) {
-			page, err = h.db.GetEmailsAfterCursorForUser(ctx, userID, folderID, cursor, limit)
+			page, err = h.db.GetEmailsAfterCursorForUser(ctx, userID, folderID, cursor, limit, filters)
 		} else {
 			page, err = h.db.GetEmailsRangeFilteredForUser(ctx, userID, folderID, 0, limit, filters)
 		}

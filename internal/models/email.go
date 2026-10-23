@@ -287,6 +287,9 @@ type EmailFilters struct {
 	Before          string
 	SortBy          string
 	SortOrder       string
+	// ByMessage lists each message on its own row instead of each
+	// conversation once. It is how the list is shown, not a filter.
+	ByMessage bool
 }
 
 type ThreadItem struct {

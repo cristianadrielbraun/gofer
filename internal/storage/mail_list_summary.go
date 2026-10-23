@@ -14,6 +14,8 @@ import (
 // up to date as mail changes. Its rows are read through the alias s.
 type mailListSource struct {
 	table string
+	// live is added to every scope to leave out rows the list never shows.
+	live string
 	// key names a row within its folder, and keyOf gives the key of the
 	// row listing the message bound to its ?.
 	key, keyOf string
@@ -63,9 +65,42 @@ var conversationListSource = mailListSource{
 	},
 }
 
+// messageListSource lists each message once per folder it is in, from
+// message_folder_state. Removed folder entries are kept there until they are
+// reconciled, so live leaves them out.
+var messageListSource = mailListSource{
+	table:       "message_folder_state",
+	live:        " AND s.is_deleted = 0",
+	key:         "s.message_id",
+	keyOf:       "?",
+	head:        "s.message_id",
+	last:        "s.message_date",
+	count:       "1",
+	read:        "s.is_read",
+	starred:     "s.is_starred",
+	attachments: "s.message_has_attachments",
+	account:     "(SELECT account_id FROM folders WHERE id = s.folder_id)",
+	// A search keeps the messages that match.
+	matching: func(match, _ string) (string, []any) {
+		return ` AND s.message_id IN (SELECT rowid FROM message_search WHERE message_search MATCH ?)`, []any{match}
+	},
+}
+
 // mailListSourceFor is the source of a list with the given filters.
-func mailListSourceFor(models.EmailFilters) *mailListSource {
+func mailListSourceFor(filters models.EmailFilters) *mailListSource {
+	if filters.ByMessage {
+		return &messageListSource
+	}
 	return &conversationListSource
+}
+
+// listRowKeySQL is the key the general list query groups the messages m by
+// into list rows: their conversation, or each message on its own.
+func listRowKeySQL(filters models.EmailFilters) string {
+	if filters.ByMessage {
+		return "m.id"
+	}
+	return "COALESCE(NULLIF(m.thread_id, ''), printf('msg:%d', m.id))"
 }
 
 // A mailListScope is the rows of one list in its source: the joins and
@@ -117,6 +152,7 @@ func (db *DB) summaryListScope(ctx context.Context, userID, folderID string, fil
 		scope.where = `WHERE s.folder_id = ?`
 		scope.args = []any{folderID}
 	}
+	scope.where += src.live
 	if filters.Unread {
 		scope.where += ` AND ` + src.read + ` = 0`
 	} else if filters.Read {
