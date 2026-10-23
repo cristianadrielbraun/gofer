@@ -166,6 +166,8 @@ CREATE TABLE IF NOT EXISTS message_folder_state (
     is_archived INTEGER NOT NULL DEFAULT 0,
     synced_at DATETIME,
     remote_message_id TEXT,
+    message_date DATETIME,
+    message_has_attachments INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (message_id, folder_id)
 );
 
@@ -436,9 +438,6 @@ CREATE TABLE IF NOT EXISTS folder_thread_dirty (
     PRIMARY KEY (folder_id, thread_key)
 ) WITHOUT ROWID;
 
-CREATE INDEX IF NOT EXISTS idx_folder_state_folder_unread
-ON message_folder_state(folder_id, is_deleted, is_read);
-
 -- Covers the filters answered from summaries (unread, starred, attachments,
 -- conversations, account), so their counts read only this index.
 CREATE INDEX IF NOT EXISTS idx_folder_thread_state_flags
@@ -510,6 +509,45 @@ BEGIN
       AND NOT EXISTS(SELECT 1 FROM folder_thread_dirty w WHERE w.folder_id = mfs.folder_id AND w.thread_key = '*')
     ON CONFLICT DO NOTHING;
 END;
+
+-- Message-by-message folder lists (see folder_message_list.go).
+CREATE TRIGGER IF NOT EXISTS message_folder_state_copy_message_insert
+AFTER INSERT ON message_folder_state
+BEGIN
+    UPDATE message_folder_state
+    SET (message_date, message_has_attachments) =
+        (SELECT m.date_received, COALESCE(m.has_attachments, 0) FROM messages m WHERE m.id = NEW.message_id)
+    WHERE message_id = NEW.message_id AND folder_id = NEW.folder_id
+      AND EXISTS(SELECT 1 FROM messages m WHERE m.id = NEW.message_id);
+END;
+
+CREATE TRIGGER IF NOT EXISTS message_folder_state_copy_message_update
+AFTER UPDATE OF message_id ON message_folder_state
+WHEN OLD.message_id IS NOT NEW.message_id
+BEGIN
+    UPDATE message_folder_state
+    SET (message_date, message_has_attachments) =
+        (SELECT m.date_received, COALESCE(m.has_attachments, 0) FROM messages m WHERE m.id = NEW.message_id)
+    WHERE message_id = NEW.message_id AND folder_id = NEW.folder_id
+      AND EXISTS(SELECT 1 FROM messages m WHERE m.id = NEW.message_id);
+END;
+
+CREATE TRIGGER IF NOT EXISTS message_folder_state_follow_message
+AFTER UPDATE OF date_received, has_attachments ON messages
+WHEN OLD.date_received IS NOT NEW.date_received OR OLD.has_attachments IS NOT NEW.has_attachments
+BEGIN
+    UPDATE message_folder_state
+    SET message_date = NEW.date_received, message_has_attachments = COALESCE(NEW.has_attachments, 0)
+    WHERE message_id = NEW.id;
+END;
+
+CREATE INDEX IF NOT EXISTS idx_message_folder_state_list
+ON message_folder_state(folder_id, is_deleted, message_date DESC, message_id DESC);
+
+-- Covers the filters a message list answers from its folder states (unread,
+-- starred, attachments), so their counts read only this index.
+CREATE INDEX IF NOT EXISTS idx_message_folder_state_flags
+ON message_folder_state(folder_id, is_deleted, is_read, is_starred, message_has_attachments);
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_folder_uid
 ON message_folder_state(folder_id, remote_uid);
@@ -1682,4 +1720,4 @@ CREATE TABLE IF NOT EXISTS calendar_invitation_messages (
 );
 
 -- Schema version marker for fresh installs
-INSERT OR REPLACE INTO schema_version (version) VALUES (124);
+INSERT OR REPLACE INTO schema_version (version) VALUES (125);

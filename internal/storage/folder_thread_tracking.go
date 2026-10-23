@@ -24,9 +24,6 @@ CREATE TABLE IF NOT EXISTS folder_thread_dirty (
     PRIMARY KEY (folder_id, thread_key)
 ) WITHOUT ROWID;
 
-CREATE INDEX IF NOT EXISTS idx_folder_state_folder_unread
-ON message_folder_state(folder_id, is_deleted, is_read);
-
 -- Covers the filters answered from summaries (unread, starred, attachments,
 -- conversations, account), so their counts read only this index.
 CREATE INDEX IF NOT EXISTS idx_folder_thread_state_flags
