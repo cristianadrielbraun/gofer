@@ -303,6 +303,8 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 			private("POST /api/accounts/oauth2/authorize", routed.handleUserAccountOAuthAuthorize)
 			private("GET /auth/google/mailbox/callback", func(w http.ResponseWriter, r *http.Request) { routed.handleUserAccountOAuthCallback(w, r, "gmail") })
 			private("GET /auth/microsoft/mailbox/callback", func(w http.ResponseWriter, r *http.Request) { routed.handleUserAccountOAuthCallback(w, r, "outlook") })
+			private("GET "+microsoftDeviceSignInPath, routed.handleUserMicrosoftDeviceSignInPage)
+			private("POST "+microsoftDeviceSignInPath, routed.handleUserMicrosoftDeviceSignInPoll)
 		}
 	}
 	if option.IMAP != nil {

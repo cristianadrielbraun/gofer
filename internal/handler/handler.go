@@ -29,6 +29,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/store"
 	"github.com/cristianadrielbraun/gofer/internal/translation"
 	"github.com/cristianadrielbraun/gofer/internal/views"
+	"golang.org/x/oauth2"
 	"html"
 	"html/template"
 	"io"
@@ -418,6 +419,8 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 
 	mux.HandleFunc("GET /auth/google/mailbox/callback", h.handleGoogleAccountCallback)
 	mux.HandleFunc("GET /auth/microsoft/mailbox/callback", h.handleMicrosoftAccountCallback)
+	mux.HandleFunc("GET "+microsoftDeviceSignInPath, h.handleMicrosoftDeviceSignInPage)
+	mux.HandleFunc("POST "+microsoftDeviceSignInPath, h.handleMicrosoftDeviceSignInPoll)
 	mux.HandleFunc("POST /api/accounts/oauth2/authorize", h.handleAccountOAuthAuthorize)
 
 	mux.HandleFunc("GET /", h.handleIndex)
@@ -7049,6 +7052,15 @@ func (h *Handler) handleAccountOAuthAuthorize(w http.ResponseWriter, r *http.Req
 	case providers.ProviderGmail:
 		authorizeURL = h.mailCredentials().GoogleAccountOAuthURL(state)
 	case providers.ProviderOutlook:
+		if h.mailCredentials().UsesMicrosoftDeviceCode() {
+			if _, err := h.mailCredentials().StartMicrosoftDeviceSignIn(r.Context(), state, user.ID, auth.GetSessionToken(r)); err != nil {
+				log.Printf("account oauth authorize: %v", err)
+				http.Redirect(w, r, "/settings/accounts?error=oauth_device_failed", http.StatusSeeOther)
+				return
+			}
+			authorizeURL = microsoftDeviceSignInLocation(state)
+			break
+		}
 		authorizeURL = h.mailCredentials().MicrosoftAccountOAuthURL(state)
 	}
 	http.Redirect(w, r, authorizeURL, http.StatusSeeOther)
@@ -7149,7 +7161,6 @@ func (h *Handler) handleMicrosoftAccountCallback(w http.ResponseWriter, r *http.
 	if !ok {
 		return
 	}
-	formData := flow.FormData
 
 	token, err := h.mailCredentials().ExchangeMicrosoftAccountCode(r.Context(), code)
 	if err != nil {
@@ -7157,12 +7168,17 @@ func (h *Handler) handleMicrosoftAccountCallback(w http.ResponseWriter, r *http.
 		http.Redirect(w, r, "/settings/accounts?error=oauth_exchange_failed", http.StatusSeeOther)
 		return
 	}
+	http.Redirect(w, r, h.finishMicrosoftAccount(r.Context(), flow, token), http.StatusSeeOther)
+}
 
-	info, err := h.mailCredentials().GetMicrosoftAccountInfo(r.Context(), token)
+// finishMicrosoftAccount saves the Outlook mailbox a consumed flow authorized
+// and returns where to send the browser.
+func (h *Handler) finishMicrosoftAccount(ctx context.Context, flow *mailauth.AccountOAuthFlow, token *oauth2.Token) string {
+	formData := flow.FormData
+	info, err := h.mailCredentials().GetMicrosoftAccountInfo(ctx, token)
 	if err != nil {
 		log.Printf("microsoft callback: userinfo failed: %v", err)
-		http.Redirect(w, r, "/settings/accounts?error=oauth_userinfo_failed", http.StatusSeeOther)
-		return
+		return "/settings/accounts?error=oauth_userinfo_failed"
 	}
 
 	outlookEmail := info.EmailAddress()
@@ -7170,8 +7186,7 @@ func (h *Handler) handleMicrosoftAccountCallback(w http.ResponseWriter, r *http.
 	authorizedEmail := strings.TrimSpace(strings.ToLower(outlookEmail))
 	if requestedEmail != "" && authorizedEmail != "" && requestedEmail != authorizedEmail {
 		log.Printf("microsoft callback: requested email %q does not match authorized microsoft account %q", formData["email_address"], outlookEmail)
-		http.Redirect(w, r, "/settings/accounts?error=oauth_email_mismatch", http.StatusSeeOther)
-		return
+		return "/settings/accounts?error=oauth_email_mismatch"
 	}
 	displayName := strings.TrimSpace(formData["display_name"])
 	if displayName == "" {
@@ -7186,11 +7201,10 @@ func (h *Handler) handleMicrosoftAccountCallback(w http.ResponseWriter, r *http.
 	req.Password = "_oauth2_"
 
 	userID := flow.UserID
-	accountID, err := h.createOrUpdateOAuthMailAccount(r.Context(), userID, req)
+	accountID, err := h.createOrUpdateOAuthMailAccount(ctx, userID, req)
 	if err != nil {
 		log.Printf("microsoft callback: create account failed: %v", err)
-		http.Redirect(w, r, "/settings/accounts?error=create_failed", http.StatusSeeOther)
-		return
+		return "/settings/accounts?error=create_failed"
 	}
 
 	var expiresAt *time.Time
@@ -7200,10 +7214,10 @@ func (h *Handler) handleMicrosoftAccountCallback(w http.ResponseWriter, r *http.
 	}
 
 	scopes, _ := token.Extra("scope").(string)
-	err = h.mailCredentials().UpsertOAuthAccount(r.Context(), accountID, providers.OAuthMicrosoft, providerAccountID, token.AccessToken, token.RefreshToken, token.TokenType, expiresAt, scopes)
+	err = h.mailCredentials().UpsertOAuthAccount(ctx, accountID, providers.OAuthMicrosoft, providerAccountID, token.AccessToken, token.RefreshToken, token.TokenType, expiresAt, scopes)
 	if err != nil {
 		log.Printf("warning: failed to store microsoft oauth tokens for account %s: %v", accountID, err)
-	} else if _, _, err := h.resolveImportedLogin(r.Context(), userID, accountID, storage.ImportedLoginSignIn); err != nil {
+	} else if _, _, err := h.resolveImportedLogin(ctx, userID, accountID, storage.ImportedLoginSignIn); err != nil {
 		log.Printf("microsoft callback: turn on imported services for %s: %v", accountID, err)
 	}
 
@@ -7216,7 +7230,7 @@ func (h *Handler) handleMicrosoftAccountCallback(w http.ResponseWriter, r *http.
 			log.Printf("contacts sync %s after outlook connect: %v", accountID, err)
 		}
 	}()
-	http.Redirect(w, r, accountOAuthSuccessRedirect(formData), http.StatusSeeOther)
+	return accountOAuthSuccessRedirect(formData)
 }
 
 func accountOAuthFlowAction(action string) string {

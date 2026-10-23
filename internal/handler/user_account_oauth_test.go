@@ -45,6 +45,11 @@ func (t userOAuthTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 
 func newUserOAuthFixture(t *testing.T, block func(http.ResponseWriter, *http.Request) bool) *userOAuthFixture {
 	t.Helper()
+	return newUserOAuthFixtureWithConfig(t, block, nil)
+}
+
+func newUserOAuthFixtureWithConfig(t *testing.T, block func(http.ResponseWriter, *http.Request) bool, configure func(*mailauth.Config)) *userOAuthFixture {
+	t.Helper()
 	db, err := storage.New(filepath.Join(t.TempDir(), "system.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -108,6 +113,9 @@ func newUserOAuthFixture(t *testing.T, block func(http.ResponseWriter, *http.Req
 	address, _ := url.Parse(server.URL)
 	f.client = &http.Client{Transport: userOAuthTransport{address}}
 	cfg := &mailauth.Config{BaseURL: "https://gofer.test", GoogleClient: &oauth2.Config{ClientID: "client", ClientSecret: "secret", Endpoint: oauth2.Endpoint{AuthURL: "https://authorize.test/google", TokenURL: server.URL + "/token", AuthStyle: oauth2.AuthStyleInParams}}, MicrosoftClient: &oauth2.Config{ClientID: "client", Endpoint: oauth2.Endpoint{AuthURL: "https://authorize.test/microsoft", TokenURL: server.URL + "/token", AuthStyle: oauth2.AuthStyleInParams}}}
+	if configure != nil {
+		configure(cfg)
+	}
 	credentials, err := mailauth.NewUserCredentials(ctx, cfg, routing, testMailboxCredentialKey)
 	if err != nil {
 		t.Fatal(err)
