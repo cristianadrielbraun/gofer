@@ -5757,17 +5757,51 @@ body.mail-list-column-resizing {
   }
 }
 
-/* The account card being dragged to a new place lifts above the others. */
+/* With a single account there is nothing to reorder. Accounts being
+   deleted don't count, since they can't be moved. */
+[data-account-order-list]:not(:has(> [data-settings-account-card][data-account-deleting="false"] ~ [data-settings-account-card][data-account-deleting="false"])) [data-account-order-handle] {
+  display: none;
+}
+
+[data-account-order-list][data-account-order-active] {
+  position: relative;
+  cursor: grabbing;
+  user-select: none;
+}
+
+/* Where the dragged card lands when it's let go. */
+[data-account-order-placeholder] {
+  position: absolute;
+  left: 0;
+  right: 0;
+  margin: 0;
+  border: 1.5px dashed color-mix(in srgb, var(--ring) 55%, transparent);
+  border-radius: var(--radius-lg, 0.5rem);
+  background-color: color-mix(in srgb, var(--ring) 6%, transparent);
+  pointer-events: none;
+  transition: top 200ms ease-out;
+}
+
+/* The account card being dragged floats above the others under the pointer. */
 [data-settings-account-card][data-account-order-dragging] {
   position: relative;
   z-index: 10;
   transition: none;
 }
 
+[data-settings-account-card] > .settings-account-card {
+  transition: border-color 150ms ease, box-shadow 150ms ease, background-color 150ms ease;
+}
+
 [data-settings-account-card][data-account-order-dragging] > .settings-account-card {
-  border-color: var(--ring);
+  border-color: color-mix(in srgb, var(--ring) 70%, transparent);
   background-color: var(--card);
-  box-shadow: 0 10px 24px -8px rgb(0 0 0 / 0.25);
+  box-shadow: 0 14px 28px -14px rgb(0 0 0 / 0.5), 0 4px 10px -6px rgb(0 0 0 / 0.3);
+}
+
+[data-settings-account-card][data-account-order-dragging] [data-account-order-handle] {
+  color: var(--foreground);
+  background-color: var(--accent);
 }
 
 @media (max-width: 1023.98px) {

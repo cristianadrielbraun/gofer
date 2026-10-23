@@ -1723,7 +1723,7 @@ templ SettingsAccountOrderHandle(account models.Account) {
 	<button
 		type="button"
 		data-account-order-handle
-		class="-ml-1.5 mt-0.5 hidden shrink-0 cursor-grab touch-none rounded p-0.5 text-muted-foreground/70 transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing"
+		class="-ml-1.5 flex h-5 shrink-0 cursor-grab touch-none items-center rounded px-0.5 text-muted-foreground/70 transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing"
 		aria-label={ fmt.Sprintf("Reorder %s. Drag, or use the arrow keys", account.Name) }
 		title="Drag to reorder"
 	>

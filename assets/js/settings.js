@@ -569,8 +569,6 @@ function syncAccountOrderControls() {
   document.querySelectorAll("[data-account-order-list]").forEach(function (list) {
     var cards = accountOrderCards(list)
     cards.forEach(function (card, i) {
-      var handle = card.querySelector("[data-account-order-handle]")
-      if (handle) handle.classList.toggle("hidden", cards.length < 2)
       var up = document.querySelector('[data-account-actions-menu="' + cssEscapeSettings(card.getAttribute("data-account-id")) + '"] [data-account-move="up"]')
       var down = document.querySelector('[data-account-actions-menu="' + cssEscapeSettings(card.getAttribute("data-account-id")) + '"] [data-account-move="down"]')
       if (up) up.disabled = i === 0
@@ -684,7 +682,27 @@ function setupAccountOrder() {
     handle.setPointerCapture(e.pointerId)
     drag = { list: list, card: card, handle: handle, pointerId: e.pointerId, previous: accountOrderIDs(list), grabY: e.clientY - card.getBoundingClientRect().top }
     card.setAttribute("data-account-order-dragging", "")
+    list.setAttribute("data-account-order-active", "")
+    drag.placeholder = document.createElement("div")
+    drag.placeholder.setAttribute("data-account-order-placeholder", "")
+    drag.placeholder.setAttribute("aria-hidden", "true")
+    followAccountDrag(e.clientY)
+    list.appendChild(drag.placeholder)
   })
+
+  // The grabbed card floats under the pointer, a little larger, while an
+  // outline shows the place in the list where it would drop.
+  function accountCardTop(list, card) {
+    return card.offsetParent === list ? card.offsetTop : card.offsetTop - list.offsetTop
+  }
+
+  function followAccountDrag(clientY) {
+    var y = clientY - drag.list.getBoundingClientRect().top - drag.grabY
+    var top = accountCardTop(drag.list, drag.card)
+    drag.card.style.transform = "translateY(" + (y - top) + "px) scale(1.01)"
+    drag.placeholder.style.top = top + "px"
+    drag.placeholder.style.height = drag.card.offsetHeight + "px"
+  }
 
   document.addEventListener("pointermove", function (e) {
     if (!drag || e.pointerId !== drag.pointerId) return
@@ -692,19 +710,28 @@ function setupAccountOrder() {
     // pointer doesn't shift while they move.
     var cards = accountOrderCards(drag.list)
     var others = cards.filter(function (c) { return c !== drag.card })
-    var y = e.clientY - drag.list.getBoundingClientRect().top
-    var top = function (c) { return c.offsetParent === drag.list ? c.offsetTop : c.offsetTop - drag.list.offsetTop }
+    // A card makes way once the floating card's leading edge passes its middle.
+    var at = cards.indexOf(drag.card)
+    var floatTop = e.clientY - drag.list.getBoundingClientRect().top - drag.grabY
+    var floatBottom = floatTop + drag.card.offsetHeight
     var to = 0
-    while (to < others.length && top(others[to]) + others[to].offsetHeight / 2 < y) to++
-    if (to === cards.indexOf(drag.card)) return
-    moveAccountCard(drag.list, drag.card, others[to] || null)
+    others.forEach(function (other, k) {
+      var middle = accountCardTop(drag.list, other) + other.offsetHeight / 2
+      if (k < at ? floatTop >= middle : floatBottom > middle) to++
+    })
+    if (to !== at) moveAccountCard(drag.list, drag.card, others[to] || null)
+    followAccountDrag(e.clientY)
   })
 
   function endDrag(e) {
     if (!drag || e.pointerId !== drag.pointerId) return
     var done = drag
     drag = null
+    // Back in the card's own transition, it settles into its place.
     done.card.removeAttribute("data-account-order-dragging")
+    done.list.removeAttribute("data-account-order-active")
+    done.placeholder.remove()
+    done.card.style.transform = ""
     if (done.handle.hasPointerCapture(e.pointerId)) done.handle.releasePointerCapture(e.pointerId)
     saveAccountOrder(done.list, done.previous)
   }
