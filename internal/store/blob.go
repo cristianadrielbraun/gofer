@@ -5,10 +5,13 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -372,4 +375,53 @@ func sanitizeFilename(name string) string {
 		return ""
 	}
 	return clean
+}
+
+// MessageFileSizes adds up the files kept for each of an account's messages,
+// by local message ID: bodies, the raw message, attachments and saved remote
+// images, in every version. An account without files gives an empty map.
+func (s *BlobStore) MessageFileSizes(accountID string) (map[int64]int64, error) {
+	accountID = strings.TrimSpace(accountID)
+	if accountID == "" || accountID == "." || accountID == ".." || strings.ContainsAny(accountID, `/\`) {
+		return nil, fmt.Errorf("invalid account blob owner")
+	}
+	root := filepath.Join(s.basePath, accountID, "messages")
+	entries, err := os.ReadDir(root)
+	if errors.Is(err, fs.ErrNotExist) {
+		return map[int64]int64{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	sizes := make(map[int64]int64, len(entries))
+	for _, entry := range entries {
+		id, err := strconv.ParseInt(entry.Name(), 10, 64)
+		if err != nil || !entry.IsDir() {
+			continue
+		}
+		var total int64
+		err = filepath.WalkDir(filepath.Join(root, entry.Name()), func(_ string, d fs.DirEntry, err error) error {
+			// A message removed meanwhile just counts what was left.
+			if errors.Is(err, fs.ErrNotExist) {
+				return nil
+			}
+			if err != nil || !d.Type().IsRegular() {
+				return err
+			}
+			info, err := d.Info()
+			if errors.Is(err, fs.ErrNotExist) {
+				return nil
+			}
+			if err != nil {
+				return err
+			}
+			total += info.Size()
+			return nil
+		})
+		if err != nil {
+			return nil, err
+		}
+		sizes[id] = total
+	}
+	return sizes, nil
 }

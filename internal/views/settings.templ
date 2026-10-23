@@ -1472,6 +1472,9 @@ templ SettingsAccountCard(account models.Account) {
 					</span>
 				</div>
 			</div>
+			if account.EmailSyncEnabled && !account.IsDeleting {
+				@SettingsAccountMailboxSize(account)
+			}
 		</div>
 		if !account.IsDeleting {
 			@SettingsAccountConnectionTestDialog(account)

@@ -282,6 +282,7 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 	private("GET /settings/sync", func(w http.ResponseWriter, r *http.Request) { routed.handleUserSyncSettingsView(w, r, "sync") })
 	private("GET /settings/contacts", func(w http.ResponseWriter, r *http.Request) { routed.handleUserSyncSettingsView(w, r, "contacts") })
 	private("GET /api/accounts/{id}/deletion-status", routed.handleUserAccountDeletionStatus)
+	private("GET /api/accounts/{id}/mailbox-size", routed.handleMailboxSize)
 	if option.Accounts != nil {
 		routed.registerUserSignatures(private)
 		routed.registerProfileTransferRoutes(private)

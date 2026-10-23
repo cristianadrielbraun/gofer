@@ -2,6 +2,8 @@ package store
 
 import (
 	"bytes"
+	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -70,5 +72,57 @@ func TestDeleteAccountRejectsPathsOutsideAnAccountDirectory(t *testing.T) {
 	}
 	if _, err := os.Stat(marker); err != nil {
 		t.Fatalf("account path rejection removed base marker: %v", err)
+	}
+}
+
+func TestMessageFileSizesAddUpEachMessage(t *testing.T) {
+	store := NewBlobStore(t.TempDir())
+	ctx := t.Context()
+	if _, err := store.StoreBodyHTML(ctx, "acc", 7, []byte("<p>Lunch on Friday?</p>")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.StoreAttachment(ctx, "acc", 7, 1, "menu.txt", bytes.NewBufferString("soup, bread")); err != nil {
+		t.Fatal(err)
+	}
+	version, err := store.NewMessageVersion()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := version.StoreBodyText(ctx, "acc", 9, []byte("Site photos attached")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.StoreBodyText(ctx, "other", 7, []byte("not this account")); err != nil {
+		t.Fatal(err)
+	}
+
+	sizes, err := store.MessageFileSizes("acc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	size := func(id int64) int64 {
+		t.Helper()
+		var total int64
+		err := filepath.WalkDir(filepath.Join(store.basePath, "acc", "messages", fmt.Sprint(id)), func(_ string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() {
+				return err
+			}
+			info, err := d.Info()
+			total += info.Size()
+			return err
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return total
+	}
+	if len(sizes) != 2 || sizes[7] != size(7) || sizes[9] != size(9) || sizes[7] == 0 || sizes[9] == 0 {
+		t.Fatalf("sizes = %v, want 7: %d, 9: %d", sizes, size(7), size(9))
+	}
+
+	if sizes, err := store.MessageFileSizes("nobody"); err != nil || len(sizes) != 0 {
+		t.Fatalf("account without files = %v, %v", sizes, err)
+	}
+	if _, err := store.MessageFileSizes(".."); err == nil {
+		t.Fatal("MessageFileSizes(\"..\") read outside the blob directory")
 	}
 }

@@ -72,6 +72,9 @@ templ SidebarContextMenu() {
 			@sidebarContextItem("sync-account", "Sync this account", "") {
 				@icon.RefreshCw(icon.Props{Class: "size-4"})
 			}
+			@sidebarContextItem("mailbox-size", "Mailbox size", "") {
+				@icon.ChartBar(icon.Props{Class: "size-4"})
+			}
 		}
 	}
 }

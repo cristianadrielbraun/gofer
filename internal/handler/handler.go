@@ -508,6 +508,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/accounts/{id}/test", h.handleTestAccount)
 	mux.HandleFunc("DELETE /api/accounts/{id}", h.handleDeleteAccount)
 	mux.HandleFunc("GET /api/accounts/{id}/deletion-status", h.handleAccountDeletionStatus)
+	mux.HandleFunc("GET /api/accounts/{id}/mailbox-size", h.handleMailboxSize)
 	mux.HandleFunc("GET /settings", h.handleSettings)
 	mux.HandleFunc("GET /settings/{tab}", h.handleSettingsTab)
 	mux.HandleFunc("POST /api/settings/about/update-check", h.handleAboutUpdateCheck)

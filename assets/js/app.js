@@ -2107,6 +2107,8 @@ document.addEventListener("DOMContentLoaded", function () {
         window.tui.popover.close("sidebar-context-menu")
         placePointPopover(root, e.clientX, e.clientY)
         window.tui.popover.open("sidebar-context-menu")
+        // Sizes load while the menu is open, so the dialog opens filled.
+        if (target.accountID && window.goferPrefetchMailboxSize) window.goferPrefetchMailboxSize(target.accountID)
       })
 
       document.addEventListener("pointerdown", function (e) {
@@ -2820,7 +2822,8 @@ document.addEventListener("DOMContentLoaded", function () {
         if (role === "scheduled") return null
         var path = (link.getAttribute("hx-get") || "").split("?")[0].replace(/^\/folder\//, "")
         var name = link.querySelector(".flex-1")
-        return { kind: "folder", folderID: decodeURIComponent(path), role: role, name: name ? name.textContent.trim() : "this folder" }
+        // Unified folders belong to no single account.
+        return { kind: "folder", folderID: decodeURIComponent(path), accountID: link.dataset.mailDropAccount || "", role: role, name: name ? name.textContent.trim() : "this folder" }
       }
       var toggle = el.closest("[data-sidebar-account-toggle]")
       var accountID = toggle && toggle.getAttribute("data-sidebar-account-toggle")
@@ -2840,6 +2843,7 @@ document.addEventListener("DOMContentLoaded", function () {
         "spam-to-trash": target.kind === "folder" && target.role === "spam",
         // A paused account has no sync button to press.
         "sync-account": target.kind === "account" && !!sidebarAccountSyncButton(target.accountID),
+        "mailbox-size": !!target.accountID,
       }
       var any = false
       var items = root.querySelectorAll("[data-sidebar-context-action]")
@@ -2867,7 +2871,7 @@ document.addEventListener("DOMContentLoaded", function () {
         // The sync menu's own button, so progress and errors show as usual.
         var button = sidebarAccountSyncButton(target.accountID)
         if (button) button.click()
-      }
+      } else if (action === "mailbox-size") window.goferOpenMailboxSize(target.accountID, target.kind === "folder" ? target.folderID : "")
     }
 
     var markAllReadBusy = false

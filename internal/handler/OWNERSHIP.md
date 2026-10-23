@@ -79,7 +79,7 @@ constrain every private lookup or mutation to that user:
   from or mutate the authenticated user's calendar sources; event/source
   lookups must remain user-scoped.
 - Accounts: account discovery/creation/edit/service/color/test/deletion,
-  account contact settings, signatures, and `/api/mail/sync*`.
+  mailbox size, account contact settings, signatures, and `/api/mail/sync*`.
   `GET /api/accounts/server-check` and `POST /api/accounts/test` take mail
   server settings typed into the add-account wizard before any account exists;
   they read only instance mail-security policy, save nothing, and reach servers

@@ -326,6 +326,129 @@
     })
   }
 
+  // The mailbox size dialog (mailbox_size.templ) shows an account's size on
+  // the mail server, marking folderID when given. Details are kept once
+  // loaded: settings cards bring them with their summary and the sidebar's
+  // menu loads them while it's open, so the dialog opens filled. Opening
+  // still checks for newer sizes and swaps them in only if they differ.
+  var mailboxSizeRequest = 0
+  var mailboxSizeKept = {}
+  var mailboxSizeLoads = {}
+  var mailboxSizeFreshMs = 10000
+
+  // Serialized as the browser would, so copies compare equal.
+  function mailboxSizeHTML(html) {
+    var template = document.createElement("template")
+    template.innerHTML = html
+    return template.innerHTML
+  }
+
+  function keptMailboxSize(accountID) {
+    if (mailboxSizeKept[accountID]) return mailboxSizeKept[accountID]
+    var template = document.querySelector('template[data-mailbox-size-prefetched="' + CSS.escape(accountID) + '"]')
+    return template ? { html: template.innerHTML, at: 0 } : null
+  }
+
+  function loadMailboxSize(accountID) {
+    if (mailboxSizeLoads[accountID]) return mailboxSizeLoads[accountID]
+    var load = fetch("/api/accounts/" + encodeURIComponent(accountID) + "/mailbox-size", { headers: { Accept: "text/html" } })
+      .then(function (response) {
+        if (!response.ok) throw new Error("mailbox size: " + response.status)
+        return response.text()
+      })
+      .then(function (html) {
+        var kept = { html: mailboxSizeHTML(html), at: Date.now() }
+        mailboxSizeKept[accountID] = kept
+        return kept
+      })
+    mailboxSizeLoads[accountID] = load
+    var forget = function () { delete mailboxSizeLoads[accountID] }
+    load.then(forget, forget)
+    return load
+  }
+
+  window.goferPrefetchMailboxSize = function (accountID) {
+    if (accountID) loadMailboxSize(accountID).catch(function () {})
+  }
+
+  function showMailboxSize(root, html, folderID) {
+    var body = root.querySelector("[data-mailbox-size-body]")
+    var list = body.querySelector("ul")
+    var scrollTop = list ? list.scrollTop : 0
+    body.innerHTML = html
+    var details = body.querySelector("[data-mailbox-size-details]")
+    root.querySelector("[data-mailbox-size-account-name]").textContent = details ? details.getAttribute("data-account-name") : ""
+    var marked = folderID && body.querySelector('[data-mailbox-size-folder="' + CSS.escape(folderID) + '"]')
+    if (marked) {
+      marked.setAttribute("data-mailbox-size-marked", "")
+      marked.scrollIntoView({ block: "nearest" })
+    } else if ((list = body.querySelector("ul"))) {
+      list.scrollTop = scrollTop
+    }
+  }
+
+  window.goferOpenMailboxSize = function (accountID, folderID) {
+    var root = document.getElementById("mailbox-size-dialog")
+    if (!root || !accountID || !window.tui || !window.tui.dialog) return
+    var body = root.querySelector("[data-mailbox-size-body]")
+    body.style.transition = ""
+    body.style.height = ""
+    body.style.overflow = ""
+    var kept = keptMailboxSize(accountID)
+    var shown = kept ? kept.html : ""
+    if (kept) {
+      body.innerHTML = ""
+      showMailboxSize(root, shown, folderID)
+    } else {
+      body.innerHTML = root.querySelector("[data-mailbox-size-loading]").innerHTML
+      // Keeps the name's line while it loads.
+      root.querySelector("[data-mailbox-size-account-name]").textContent = "\u00a0"
+    }
+    window.tui.dialog.open("mailbox-size-dialog")
+    // Sizes loaded a moment ago, as the menu does, are current enough.
+    if (kept && Date.now() - kept.at < mailboxSizeFreshMs) return
+    var request = ++mailboxSizeRequest
+    loadMailboxSize(accountID)
+      .then(function (fresh) {
+        if (request !== mailboxSizeRequest || fresh.html === shown) return
+        resizeMailboxSizeBody(body, function () { showMailboxSize(root, fresh.html, folderID) })
+      })
+      .catch(function (err) {
+        if (request !== mailboxSizeRequest) return
+        console.warn(err)
+        // Sizes already shown stay; they're only a little out of date.
+        if (shown) return
+        resizeMailboxSizeBody(body, function () { body.innerHTML = root.querySelector("[data-mailbox-size-error]").innerHTML })
+      })
+  }
+  // Swaps the dialog's content, easing its height from the old to the new.
+  function resizeMailboxSizeBody(body, swap) {
+    var from = body.offsetHeight
+    body.style.transition = ""
+    body.style.height = ""
+    swap()
+    var to = body.offsetHeight
+    if (from === to || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return
+    body.style.overflow = "hidden"
+    body.style.height = from + "px"
+    void body.offsetHeight
+    body.style.transition = "height 200ms ease-out"
+    body.style.height = to + "px"
+    body.addEventListener("transitionend", function done(event) {
+      if (event.target !== body) return
+      body.removeEventListener("transitionend", done)
+      body.style.transition = ""
+      body.style.height = ""
+      body.style.overflow = ""
+    })
+  }
+  document.addEventListener("click", function (event) {
+    var control = event.target.closest && event.target.closest("[data-mailbox-size-account]")
+    if (!control) return
+    event.preventDefault()
+    window.goferOpenMailboxSize(control.getAttribute("data-mailbox-size-account"), "")
+  })
+
   // A form with data-confirm asks first. The question's first sentence is the
   // title; data-confirm-action names the button, and data-confirm-destructive
   // makes it red.
