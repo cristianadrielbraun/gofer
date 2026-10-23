@@ -94,6 +94,26 @@ func TestLoadConfigUsesDeviceCodeWithoutMicrosoftSecret(t *testing.T) {
 	}
 }
 
+func TestLoadConfigDefaultsToBuiltInMicrosoftClient(t *testing.T) {
+	t.Setenv("MICROSOFT_OAUTH_CLIENT_ID", "")
+	// A leftover secret must not be sent with Gofer's public client.
+	t.Setenv("MICROSOFT_OAUTH_CLIENT_SECRET", "operator-secret")
+	t.Setenv("MICROSOFT_OAUTH_TENANT", "")
+
+	cfg := LoadConfig("http://192.168.1.20:8090", true)
+	if cfg.MicrosoftClient == nil || cfg.MicrosoftClient.ClientID != BuiltInMicrosoftClientID || cfg.MicrosoftClient.ClientSecret != "" || !cfg.MicrosoftDeviceCode {
+		t.Fatalf("built-in Microsoft config = %#v", cfg.MicrosoftClient)
+	}
+	if !strings.Contains(cfg.MicrosoftClient.Endpoint.DeviceAuthURL, "/common/") {
+		t.Fatalf("built-in tenant endpoint = %q", cfg.MicrosoftClient.Endpoint.DeviceAuthURL)
+	}
+
+	t.Setenv("MICROSOFT_OAUTH_CLIENT_ID", "OFF")
+	if cfg := LoadConfig("https://gofer.example", true); cfg.MicrosoftClient != nil {
+		t.Fatalf("turned-off Microsoft config = %#v", cfg.MicrosoftClient)
+	}
+}
+
 func TestMicrosoftDeviceSignInWaitsThenReturnsGrant(t *testing.T) {
 	server := newMicrosoftDeviceServer(t, "authorization_pending", "slow_down", "success")
 	m := newMicrosoftDeviceService(server)

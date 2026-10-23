@@ -30,6 +30,11 @@ type Config struct {
 	MicrosoftDeviceCode bool
 }
 
+// BuiltInMicrosoftClientID is Gofer's verified, multi-tenant public client for
+// connecting Outlook mailboxes. It has no secret and signs in with a device
+// code, so any install can use it without its own app registration.
+const BuiltInMicrosoftClientID = "96916deb-19ec-4f42-b428-445e04b4334c"
+
 func LoadConfig(baseURL string, authenticationEnabled bool) *Config {
 	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
 	if baseURL == "" {
@@ -51,6 +56,13 @@ func LoadConfig(baseURL string, authenticationEnabled bool) *Config {
 
 	microsoftClientID := strings.TrimSpace(os.Getenv("MICROSOFT_OAUTH_CLIENT_ID"))
 	microsoftClientSecret := strings.TrimSpace(os.Getenv("MICROSOFT_OAUTH_CLIENT_SECRET"))
+	switch {
+	case strings.EqualFold(microsoftClientID, "off"):
+		microsoftClientID = ""
+	case microsoftClientID == "":
+		// A secret belongs to the operator's own registration, never Gofer's.
+		microsoftClientID, microsoftClientSecret = BuiltInMicrosoftClientID, ""
+	}
 	if microsoftClientID != "" {
 		cfg.MicrosoftDeviceCode = microsoftClientSecret == ""
 		cfg.MicrosoftClient = &oauth2.Config{
