@@ -986,7 +986,7 @@ templ SettingsAccountsTab(accounts []models.Account) {
 		if len(accounts) == 0 {
 			@SettingsNoAccounts()
 		} else {
-			<div class="space-y-3">
+			<div class="space-y-3" data-account-order-list>
 				for _, a := range accounts {
 					@SettingsAccountCard(a)
 				}
@@ -1365,6 +1365,9 @@ templ SettingsAccountCard(account models.Account) {
 		<div class="settings-account-card settings-item rounded-lg border border-border/60 bg-background/40 p-4">
 			<div class="flex items-start justify-between gap-3">
 				<div class="flex min-w-0 items-start gap-3">
+					if !account.IsDeleting {
+						@SettingsAccountOrderHandle(account)
+					}
 					@AccountColorPopover(account)
 					<div class="min-w-0">
 						<div class="flex min-w-0 items-center gap-1.5">
@@ -1714,6 +1717,40 @@ templ SettingsAccountConnectionTestDialog(account models.Account) {
 	}
 }
 
+// SettingsAccountOrderHandle drags the account's card to a new place in the
+// list. Focused, the arrow keys move it up and down.
+templ SettingsAccountOrderHandle(account models.Account) {
+	<button
+		type="button"
+		data-account-order-handle
+		class="-ml-1.5 mt-0.5 hidden shrink-0 cursor-grab touch-none rounded p-0.5 text-muted-foreground/70 transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing"
+		aria-label={ fmt.Sprintf("Reorder %s. Drag, or use the arrow keys", account.Name) }
+		title="Drag to reorder"
+	>
+		@icon.GripVertical(icon.Props{Class: "size-4"})
+	</button>
+}
+
+// SettingsAccountMoveItem moves the account's card one place up or down.
+// The page turns it off for the first or last account.
+templ SettingsAccountMoveItem(direction string) {
+	@dropdown.Item(dropdown.ItemProps{
+		Class: "justify-start gap-2 disabled:pointer-events-none disabled:opacity-50",
+		Attributes: templ.Attributes{
+			"type":              "button",
+			"data-account-move": direction,
+		},
+	}) {
+		if direction == "up" {
+			@icon.ArrowUp(icon.Props{Class: "size-3.5"})
+			Move up
+		} else {
+			@icon.ArrowDown(icon.Props{Class: "size-3.5"})
+			Move down
+		}
+	}
+}
+
 templ SettingsAccountActionsMenu(account models.Account) {
 	@dropdown.Dropdown(dropdown.Props{ID: fmt.Sprintf("account-actions-menu-%s", account.ID)}) {
 		@dropdown.Trigger() {
@@ -1773,6 +1810,9 @@ templ SettingsAccountActionsMenu(account models.Account) {
 			} else if account.Provider == "outlook" {
 				@OutlookReauthForm(account)
 			}
+			@dropdown.Separator()
+			@SettingsAccountMoveItem("up")
+			@SettingsAccountMoveItem("down")
 			@dropdown.Separator()
 			@dialog.Trigger(dialog.TriggerProps{For: fmt.Sprintf("delete-account-%s", account.ID)}) {
 				@dropdown.Item(dropdown.ItemProps{

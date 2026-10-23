@@ -5757,6 +5757,19 @@ body.mail-list-column-resizing {
   }
 }
 
+/* The account card being dragged to a new place lifts above the others. */
+[data-settings-account-card][data-account-order-dragging] {
+  position: relative;
+  z-index: 10;
+  transition: none;
+}
+
+[data-settings-account-card][data-account-order-dragging] > .settings-account-card {
+  border-color: var(--ring);
+  background-color: var(--card);
+  box-shadow: 0 10px 24px -8px rgb(0 0 0 / 0.25);
+}
+
 @media (max-width: 1023.98px) {
   /* A card heading with a count badge keeps the badge beside the title and lets the
      description below use the full width. */
