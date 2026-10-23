@@ -84,7 +84,9 @@ else
   sed -i.bak -E "s/^version: .*/version: $chart_version/; s/^appVersion: .*/appVersion: \"$APP_VERSION\"/" "$CHART"
   rm -f "$CHART.bak"
   git --no-pager diff -- "$CHART"
-  read -r -p "Commit this, then push master and the signed $VERSION tag? [y/N] " answer
+  # Without a terminal to answer, read fails; that counts as no.
+  answer=""
+  read -r -p "Commit this, then push master and the signed $VERSION tag? [y/N] " answer || true
   [[ "$answer" == [yY] ]] || { git checkout -- "$CHART"; fail "stopped before pushing anything"; }
 
   git commit --quiet -m "Release $VERSION" -- "$CHART"
