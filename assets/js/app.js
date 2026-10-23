@@ -18694,7 +18694,7 @@ function applyEmailBodyTheme(targetFrame) {
   var loader = document.querySelector('[data-email-body-loading="' + iframe.dataset.emailId + '"]')
   if (loader) loader.classList.remove("hidden")
   var baseTheme = getEmailBodyBaseTheme()
-  var bodyMode = iframe.dataset.bodyMode || (iframe.dataset.forceScheme === "opposite" ? oppositeEmailBodyTheme(baseTheme) : baseTheme)
+  var bodyMode = iframe.dataset.bodyMode || (iframe.dataset.forceScheme === "opposite" ? oppositeEmailBodyTheme(baseTheme) : defaultEmailBodyMode())
   var original = bodyMode === "original"
   var theme = bodyMode === "dark" || bodyMode === "light" ? bodyMode : baseTheme
   var palette = readEmailBodyPalette(theme)
@@ -18781,6 +18781,15 @@ function getEmailBodyBaseTheme() {
   return document.documentElement.classList.contains("dark") ? "dark" : "light"
 }
 
+// defaultEmailBodyMode is how a message body looks until it is switched in
+// the reading pane: the Appearance setting, or the app's color mode when it
+// follows the theme.
+function defaultEmailBodyMode() {
+  var style = window.GoferSettings ? GoferSettings.get("email_body_style") : ""
+  if (style === "dark" || style === "light" || style === "original") return style
+  return getEmailBodyBaseTheme()
+}
+
 function oppositeEmailBodyTheme(theme) {
   return theme === "dark" ? "light" : "dark"
 }
@@ -18841,12 +18850,12 @@ function setEmailBodyModeById(emailId, mode) {
 function setEmailBodyModeOnFrame(frame, mode) {
   if (!frame) return
   delete frame.dataset.forceScheme
-  frame.dataset.bodyMode = mode === "dark" || mode === "light" || mode === "original" ? mode : getEmailBodyBaseTheme()
+  frame.dataset.bodyMode = mode === "dark" || mode === "light" || mode === "original" ? mode : defaultEmailBodyMode()
 }
 
 function advanceEmailBodyMode(frame) {
   var baseTheme = getEmailBodyBaseTheme()
-  var mode = frame.dataset.bodyMode || (frame.dataset.forceScheme === "opposite" ? oppositeEmailBodyTheme(baseTheme) : baseTheme)
+  var mode = frame.dataset.bodyMode || (frame.dataset.forceScheme === "opposite" ? oppositeEmailBodyTheme(baseTheme) : defaultEmailBodyMode())
   delete frame.dataset.forceScheme
   if (mode === "dark") {
     frame.dataset.bodyMode = "light"
@@ -18867,7 +18876,7 @@ function toggleEmailBodySchemeById(emailId) {
 function updateEmailBodySchemeButton(iframe, baseTheme, theme, bodyMode) {
   if (!iframe) return
   var emailId = iframe.dataset.emailId
-  var mode = bodyMode || iframe.dataset.bodyMode || (iframe.dataset.forceScheme === "opposite" ? oppositeEmailBodyTheme(baseTheme) : baseTheme)
+  var mode = bodyMode || iframe.dataset.bodyMode || (iframe.dataset.forceScheme === "opposite" ? oppositeEmailBodyTheme(baseTheme) : defaultEmailBodyMode())
   if (mode !== "dark" && mode !== "light" && mode !== "original") mode = baseTheme
   if (emailId) {
     var cycleButtons = document.querySelectorAll('[data-email-body-mode-cycle="' + emailId + '"]')

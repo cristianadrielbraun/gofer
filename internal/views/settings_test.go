@@ -950,3 +950,25 @@ func TestSettingsAccountCardCanBeReordered(t *testing.T) {
 		t.Fatalf("account being deleted can be moved:\n%s", html)
 	}
 }
+
+// The Appearance page offers how message bodies look, showing the saved
+// choice and following the theme until one is made.
+func TestSettingsAppearanceShowsTheMessageStyle(t *testing.T) {
+	for _, tt := range []struct{ saved, label, selected string }{
+		{"", "Follow theme", "theme"},
+		{"original", "Original", "original"},
+		{"sepia", "Follow theme", "theme"},
+	} {
+		var out bytes.Buffer
+		if err := SettingsAppearanceTab(map[string]string{"email_body_style": tt.saved}).Render(context.Background(), &out); err != nil {
+			t.Fatalf("SettingsAppearanceTab.Render() error = %v", err)
+		}
+		html := out.String()
+		picker := html[strings.Index(html, "data-email-body-style-picker"):]
+		for _, want := range []string{`name="email_body_style"`, tt.label, `data-tui-selectbox-value="` + tt.selected + `" data-tui-selectbox-selected="true"`} {
+			if !strings.Contains(picker, want) {
+				t.Fatalf("saved %q: message style picker lacks %q:\n%.1500s", tt.saved, want, picker)
+			}
+		}
+	}
+}

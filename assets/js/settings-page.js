@@ -80,6 +80,10 @@
     if (mailListNavigation && typeof GoferSettings !== 'undefined') {
       GoferSettings.set('mail_list_navigation', mailListNavigation.value);
     }
+    var emailBodyStyle = e.target.closest('input[name="email_body_style"]');
+    if (emailBodyStyle && typeof GoferSettings !== 'undefined') {
+      GoferSettings.set('email_body_style', emailBodyStyle.value);
+    }
     var threadOrder = e.target.closest('input[name="thread_order"]');
     if (threadOrder && typeof GoferSettings !== 'undefined') {
       GoferSettings.set('thread_order', threadOrder.value);

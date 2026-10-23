@@ -1034,6 +1034,29 @@ func threadOrderSettingLabel(value string) string {
 	return "Newest first"
 }
 
+// EmailBodyStyle is how message bodies look until one is switched in the
+// reading pane: "theme" follows the app's color mode, "dark" and "light"
+// recolor the message, and "original" shows it as sent.
+func EmailBodyStyle(settings map[string]string) string {
+	switch value := uiSettingGet(settings, "email_body_style", "theme"); value {
+	case "dark", "light", "original":
+		return value
+	}
+	return "theme"
+}
+
+func emailBodyStyleSettingLabel(value string) string {
+	switch value {
+	case "dark":
+		return "Dark"
+	case "light":
+		return "Light"
+	case "original":
+		return "Original"
+	}
+	return "Follow theme"
+}
+
 func accountColorStyle(color string) string {
 	return "background-color: " + accountColorValue(color)
 }

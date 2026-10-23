@@ -514,6 +514,34 @@ templ SettingsAppearanceTab(uiSettings map[string]string) {
 			</div>
 			<div class="settings-card bg-card rounded-lg border p-6 space-y-5">
 				<div>
+					<h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-1">Messages</h3>
+					<p class="text-xs text-muted-foreground">Choose how message bodies look when you open them. You can still switch a single message in the reading pane.</p>
+				</div>
+				{{ bodyStyle := EmailBodyStyle(uiSettings) }}
+				<div class="settings-row border-t border-border/60 pt-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+					<div class="min-w-0">
+						<h4 class="text-sm font-medium text-foreground">Message style</h4>
+						<p class="text-xs text-muted-foreground mt-1">Follow theme matches the color mode. Dark and Light recolor every message; Original shows it as the sender made it.</p>
+					</div>
+					<div class="w-full sm:w-44 shrink-0" data-email-body-style-picker>
+						@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
+							@selectbox.Trigger(selectbox.TriggerProps{Name: "email_body_style", Class: "bg-background", DisableClear: true}) {
+								@selectbox.Value(selectbox.ValueProps{Placeholder: "Follow theme"}) {
+									{ emailBodyStyleSettingLabel(bodyStyle) }
+								}
+							}
+							@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
+								@selectbox.Item(selectbox.ItemProps{Value: "theme", Selected: bodyStyle == "theme"}) { Follow theme }
+								@selectbox.Item(selectbox.ItemProps{Value: "dark", Selected: bodyStyle == "dark"}) { Dark }
+								@selectbox.Item(selectbox.ItemProps{Value: "light", Selected: bodyStyle == "light"}) { Light }
+								@selectbox.Item(selectbox.ItemProps{Value: "original", Selected: bodyStyle == "original"}) { Original }
+							}
+						}
+					</div>
+				</div>
+			</div>
+			<div class="settings-card bg-card rounded-lg border p-6 space-y-5">
+				<div>
 					<h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-1">Pane layout</h3>
 					<p class="text-xs text-muted-foreground">Choose whether each list and its detail pane sit beside each other or stack vertically. Small screens always show one pane at a time.</p>
 				</div>
