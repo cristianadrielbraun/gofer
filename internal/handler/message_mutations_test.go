@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -457,6 +458,47 @@ func TestDeleteThreadOnlyQueuesMessagesFromTheViewedTrashFolder(t *testing.T) {
 	_ = db.Read().QueryRow(`SELECT is_deleted FROM message_folder_state WHERE message_id = ? AND folder_id = 'victim-inbox'`, inboxID).Scan(&inboxDeleted)
 	if trashDeletes != 1 || inboxDeletes != 0 || inboxDeleted != 0 {
 		t.Fatalf("folder-scoped delete trash_ops=%d inbox_ops=%d inbox_deleted=%d", trashDeletes, inboxDeletes, inboxDeleted)
+	}
+}
+
+func TestDeleteWithoutTrashFolderSaysWhy(t *testing.T) {
+	h, db := newAccountOwnershipTestHandler(t)
+	h.syncer = mailpkg.NewSyncOrchestrator(db, nil, nil, nil)
+	if err := db.UpsertFolders(t.Context(), []storage.UpsertFolderInput{
+		{ID: "victim-inbox", AccountID: "victim-account", RemoteID: "INBOX", Name: "Inbox", Role: "inbox", Selectable: true},
+	}); err != nil {
+		t.Fatalf("UpsertFolders() error = %v", err)
+	}
+	if err := db.UpsertSyncMessages(t.Context(), []storage.SyncMessage{
+		{AccountID: "victim-account", FolderID: "victim-inbox", RemoteUID: 7, MessageID: "<no-trash@example.com>", Subject: "Hello", FromEmail: "sender@example.com", DateSent: time.Now()},
+	}); err != nil {
+		t.Fatalf("UpsertSyncMessages() error = %v", err)
+	}
+	messageID, _ := db.GetMessageLocalIDByInternetIDInternal(t.Context(), "victim-account", "<no-trash@example.com>")
+	id := strconv.FormatInt(messageID, 10)
+	asOwner := func(req *http.Request) *http.Request {
+		return req.WithContext(auth.ContextWithUser(req.Context(), &auth.User{ID: "owner", Username: "owner"}))
+	}
+
+	req := asOwner(httptest.NewRequest(http.MethodDelete, "/api/messages/"+id+"?folder_id=victim-inbox", nil))
+	req.SetPathValue("id", id)
+	recorder := httptest.NewRecorder()
+	h.handleDeleteMessage(recorder, req)
+	if recorder.Code != http.StatusBadRequest || strings.TrimSpace(recorder.Body.String()) != "This account has no Trash folder." {
+		t.Fatalf("single delete status=%d body=%q", recorder.Code, recorder.Body.String())
+	}
+
+	body := `{"targets":[{"id":"` + id + `"}],"folder_id":"victim-inbox"}`
+	req = asOwner(httptest.NewRequest(http.MethodPost, "/api/messages/delete", strings.NewReader(body)))
+	req.Header.Set("Content-Type", "application/json")
+	recorder = httptest.NewRecorder()
+	h.handleDeleteMessages(recorder, req)
+	var got map[string]int
+	if err := json.Unmarshal(recorder.Body.Bytes(), &got); err != nil || recorder.Code != http.StatusOK {
+		t.Fatalf("bulk delete status=%d body=%s err=%v", recorder.Code, recorder.Body.String(), err)
+	}
+	if got["updated"] != 0 || got["no_trash"] != 1 {
+		t.Fatalf("bulk delete answered %v, want updated 0 and no_trash 1", got)
 	}
 }
 

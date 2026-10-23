@@ -232,6 +232,8 @@ func (c *Client) ListFolders(ctx context.Context) ([]FolderInfo, error) {
 		return nil, fmt.Errorf("client is closed")
 	}
 
+	namespaces := c.personalNamespaces()
+
 	cmd := c.client.List("", "%", nil)
 	defer cmd.Close()
 
@@ -244,7 +246,7 @@ func (c *Client) ListFolders(ctx context.Context) ([]FolderInfo, error) {
 		if data.Mailbox == "" || !isExistingMailbox(data.Attrs) {
 			continue
 		}
-		role := detectFolderRole(data.Mailbox, data.Attrs)
+		role := detectFolderRole(data.Mailbox, data.Delim, data.Attrs, namespaces)
 		folders = append(folders, FolderInfo{
 			Name:       data.Mailbox,
 			Delimiter:  data.Delim,
@@ -292,7 +294,7 @@ func (c *Client) ListFolders(ctx context.Context) ([]FolderInfo, error) {
 			}
 		}
 		seen[strings.ToUpper(data.Mailbox)] = true
-		role := detectFolderRole(data.Mailbox, data.Attrs)
+		role := detectFolderRole(data.Mailbox, data.Delim, data.Attrs, namespaces)
 		folders = append(folders, FolderInfo{
 			Name:       data.Mailbox,
 			Delimiter:  data.Delim,
@@ -304,6 +306,23 @@ func (c *Client) ListFolders(ctx context.Context) ([]FolderInfo, error) {
 	}
 
 	return folders, subCmd.Close()
+}
+
+// personalNamespaces returns the prefixes of the user's own folders, or nil
+// when the server cannot say. The caller holds c.mu.
+func (c *Client) personalNamespaces() []string {
+	if !c.client.Caps().Has(imap.CapNamespace) {
+		return nil
+	}
+	data, err := c.client.Namespace().Wait()
+	if err != nil {
+		return nil
+	}
+	prefixes := make([]string, 0, len(data.Personal))
+	for _, ns := range data.Personal {
+		prefixes = append(prefixes, ns.Prefix)
+	}
+	return prefixes
 }
 
 func isSelectableMailbox(attrs []imap.MailboxAttr) bool {

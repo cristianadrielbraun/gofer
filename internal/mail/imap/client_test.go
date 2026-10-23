@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	goimap "github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapclient"
 
 	"github.com/cristianadrielbraun/gofer/internal/models"
@@ -169,6 +170,42 @@ func TestContextClientCancellationInterruptsConnectionSetup(t *testing.T) {
 				}
 			case <-time.After(2 * time.Second):
 				t.Fatal("cancellation did not interrupt connection setup")
+			}
+		})
+	}
+}
+
+func TestListFoldersUsesServerNamespaceForRoles(t *testing.T) {
+	tests := []struct {
+		name string
+		caps goimap.CapSet
+		want string
+	}{
+		// go-imap's server reports an empty personal prefix, so INBOX/Trash
+		// is a folder inside the inbox.
+		{name: "NAMESPACE", caps: goimap.CapSet{goimap.CapIMAP4rev1: {}, goimap.CapNamespace: {}}, want: "custom"},
+		{name: "no NAMESPACE", caps: goimap.CapSet{goimap.CapIMAP4rev1: {}}, want: "trash"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg, recorder := startRecordedIMAPServerWithMailboxes(t, tt.caps, []string{"INBOX", "INBOX/Trash"})
+			client, err := NewClient(context.Background(), cfg, "secret")
+			if err != nil {
+				t.Fatalf("NewClient() error = %v", err)
+			}
+			defer client.Close()
+			folders, err := client.ListFolders(context.Background())
+			if err != nil {
+				t.Fatalf("ListFolders() error = %v", err)
+			}
+			var got string
+			for _, folder := range folders {
+				if folder.Name == "INBOX/Trash" {
+					got = folder.Role
+				}
+			}
+			if got != tt.want {
+				t.Fatalf("INBOX/Trash role = %q, want %q; client sent:\n%s", got, tt.want, recorder.String())
 			}
 		})
 	}

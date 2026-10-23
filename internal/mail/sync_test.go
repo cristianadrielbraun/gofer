@@ -1000,3 +1000,31 @@ func TestPollingIMAPFoldersForAutomaticSyncExcludesIdleRemoteNames(t *testing.T)
 		t.Fatalf("polling folders = %#v, want [Gmail]/Sent Mail, Archive, and Projects", got)
 	}
 }
+
+func TestIMAPFolderInputsNestFoldersByName(t *testing.T) {
+	folders := []imap.FolderInfo{
+		{Name: "INBOX", Delimiter: '.', Role: "inbox", Selectable: true},
+		{Name: "INBOX.Trash", Delimiter: '.', Role: "trash", Selectable: true},
+		{Name: "INBOX.Receipts", Delimiter: '.', Role: "custom", Selectable: true},
+		{Name: "Work.2024", Delimiter: '.', Role: "custom", Selectable: true},
+	}
+
+	inputs, err := imapFolderInputs("acc", folders)
+	if err != nil {
+		t.Fatalf("imapFolderInputs() error = %v", err)
+	}
+
+	byRemote := make(map[string]storage.UpsertFolderInput, len(inputs))
+	for _, input := range inputs {
+		byRemote[input.RemoteID] = input
+	}
+	if trash := byRemote["INBOX.Trash"]; trash.ParentID != "" || trash.Name != "Trash" {
+		t.Fatalf("INBOX.Trash = %#v, want top-level Trash", trash)
+	}
+	if receipts := byRemote["INBOX.Receipts"]; receipts.ParentID != byRemote["INBOX"].ID || receipts.Name != "Receipts" {
+		t.Fatalf("INBOX.Receipts = %#v, want Receipts under inbox %q", receipts, byRemote["INBOX"].ID)
+	}
+	if orphan := byRemote["Work.2024"]; orphan.ParentID != "" || orphan.Name != "Work.2024" {
+		t.Fatalf("Work.2024 = %#v, want its full name at the top, as Work is not listed", orphan)
+	}
+}

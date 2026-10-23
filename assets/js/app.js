@@ -1814,7 +1814,8 @@ document.addEventListener("DOMContentLoaded", function () {
         selectedMailIds.delete(emailId)
         var path = action === "archive" ? "/api/messages/archive" : "/api/messages/delete"
         var extra = action === "delete" ? { folder_id: currentMailListFolderID() } : null
-        sendBulkMessageAction(path, targets, extra).then(function () {
+        sendBulkMessageAction(path, targets, extra).then(function (totals) {
+          if (action === "delete") showMailDeleteSkippedToast(totals.no_trash)
           if (virtualMailList && typeof virtualMailList.refreshCurrentFolder === "function") {
             virtualMailList.refreshCurrentFolder({ noAnimation: true }).catch(function () {})
           }
@@ -3473,12 +3474,22 @@ document.addEventListener("DOMContentLoaded", function () {
     // goes out in chunks, one after another.
     var MAIL_BULK_CHUNK_SIZE = 200
 
+    // sendBulkMessageAction resolves to the counts the chunks answered with,
+    // added up, such as { updated: 3, no_trash: 1 } for a delete.
     function sendBulkMessageAction(path, targets, extra) {
+      var totals = {}
       var run = Promise.resolve()
       for (var start = 0; start < targets.length; start += MAIL_BULK_CHUNK_SIZE) {
-        run = run.then(postBulkMessageChunk.bind(null, path, targets.slice(start, start + MAIL_BULK_CHUNK_SIZE), extra))
+        run = run.then(postBulkMessageChunk.bind(null, path, targets.slice(start, start + MAIL_BULK_CHUNK_SIZE), extra)).then(function (response) {
+          if (!response.ok) return
+          return response.json().then(function (data) {
+            for (var key in data) {
+              if (typeof data[key] === "number") totals[key] = (totals[key] || 0) + data[key]
+            }
+          }, function () {})
+        })
       }
-      return run
+      return run.then(function () { return totals })
     }
 
     function postBulkMessageChunk(path, targets, extra) {
@@ -3550,7 +3561,8 @@ document.addEventListener("DOMContentLoaded", function () {
         var extra = starring ? { state: action === "star" ? "starred" : "unstarred" } : null
         if (action === "delete") extra = { folder_id: currentMailListFolderID() }
         if (action === "spam" || action === "not-spam" || action === "unarchive") extra = { folder_id: currentMailListFolderID() }
-        sendBulkMessageAction(path, targets, extra).then(function () {
+        sendBulkMessageAction(path, targets, extra).then(function (totals) {
+          if (action === "delete") showMailDeleteSkippedToast(totals.no_trash)
           if (virtualMailList && typeof virtualMailList.refreshCurrentFolder === "function") {
             virtualMailList.refreshCurrentFolder({ noAnimation: starring }).catch(function () {})
           }
@@ -17777,14 +17789,35 @@ function restoreOptimisticMailRemoval(emailId, vml) {
   if (window.htmx) htmx.ajax("GET", mailViewRequestURL(emailId), { target: "#mail-view", swap: "innerHTML" })
 }
 
+// A failed delete puts the message back and says why. The server answers
+// in plain text, such as "This account has no Trash folder."
+function failMailDelete(emailId, vml, err) {
+  restoreOptimisticMailRemoval(emailId, vml)
+  var reason = err && err.reason ? err.reason : "Try again in a moment."
+  showGoferToast({ id: "mail-delete-error", title: "Couldn't delete the email", description: reason, variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
+}
+
+function mailDeleteResponseError(response) {
+  return response.text().catch(function () { return "" }).then(function (text) {
+    var err = new Error("delete failed")
+    err.reason = text.trim()
+    throw err
+  })
+}
+
+function showMailDeleteSkippedToast(count) {
+  if (!count) return
+  showGoferToast({ id: "mail-delete-error", title: Number(count).toLocaleString() + (count === 1 ? " email wasn't" : " emails weren't") + " deleted", description: "Mail from an account without a Trash folder stays where it is.", variant: "warning", icon: "warning", position: "bottom-right", duration: 8000, dismissible: true })
+}
+
 function deleteMessage(emailId) {
   var vml = beginOptimisticMailRemoval(emailId)
   fetch("/api/messages/" + encodeURIComponent(emailId) + mailDeleteFolderQuery(), { method: "DELETE" })
     .then(function (response) {
-      if (!response.ok) throw new Error("delete failed")
+      if (!response.ok) return mailDeleteResponseError(response)
       finishOptimisticMailRemoval(vml)
     })
-    .catch(function () { restoreOptimisticMailRemoval(emailId, vml) })
+    .catch(function (err) { failMailDelete(emailId, vml, err) })
 }
 
 function archiveThread(emailId) {
@@ -17809,10 +17842,10 @@ function deleteThread(emailId) {
   var vml = beginOptimisticMailRemoval(emailId)
   fetch("/api/messages/" + encodeURIComponent(emailId) + "/thread" + mailDeleteFolderQuery(), { method: "DELETE" })
     .then(function (response) {
-      if (!response.ok) throw new Error("delete thread failed")
+      if (!response.ok) return mailDeleteResponseError(response)
       finishOptimisticMailRemoval(vml)
     })
-    .catch(function () { restoreOptimisticMailRemoval(emailId, vml) })
+    .catch(function (err) { failMailDelete(emailId, vml, err) })
 }
 
 function markSpam(emailId) {

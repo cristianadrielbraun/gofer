@@ -6317,6 +6317,7 @@ func (h *Handler) handleDeleteMessages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	updated := 0
+	noTrash := 0
 
 	for _, target := range targets {
 		currentInfo := target.Infos[0].MessageMutationInfo
@@ -6328,6 +6329,7 @@ func (h *Handler) handleDeleteMessages(w http.ResponseWriter, r *http.Request) {
 		} else {
 			trashFolderID, _, err := h.db.GetFolderIDByRole(ctx, currentInfo.AccountID, "trash")
 			if err != nil || trashFolderID == "" {
+				noTrash++
 				continue
 			}
 			if err := h.queueMessageMoves(ctx, target.Infos, trashFolderID); err != nil {
@@ -6342,7 +6344,7 @@ func (h *Handler) handleDeleteMessages(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]int{"updated": updated})
+	json.NewEncoder(w).Encode(map[string]int{"updated": updated, "no_trash": noTrash})
 }
 
 // handleMoveMessages moves messages to a folder. The destination is either one
@@ -6618,7 +6620,7 @@ func (h *Handler) handleDeleteThread(w http.ResponseWriter, r *http.Request) {
 	} else {
 		trashFolderID, _, err := h.db.GetFolderIDByRole(ctx, currentInfo.AccountID, "trash")
 		if err != nil || trashFolderID == "" {
-			http.Error(w, "no trash folder found", http.StatusBadRequest)
+			http.Error(w, "This account has no Trash folder.", http.StatusBadRequest)
 			return
 		}
 		if err := h.queueMessageMoves(ctx, infos, trashFolderID); err != nil {
@@ -6653,7 +6655,7 @@ func (h *Handler) handleDeleteMessage(w http.ResponseWriter, r *http.Request) {
 	} else {
 		trashFolderID, _, err := h.db.GetFolderIDByRole(ctx, info.AccountID, "trash")
 		if err != nil || trashFolderID == "" {
-			http.Error(w, "no trash folder found", http.StatusBadRequest)
+			http.Error(w, "This account has no Trash folder.", http.StatusBadRequest)
 			return
 		}
 

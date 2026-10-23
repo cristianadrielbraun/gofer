@@ -6,7 +6,10 @@ import (
 	"github.com/emersion/go-imap/v2"
 )
 
-func detectFolderRole(name string, attrs []imap.MailboxAttr) string {
+// detectFolderRole names a folder's purpose from its special-use attributes,
+// or else from its name. Some servers keep every folder under a personal
+// namespace prefix such as "INBOX.", so the name is matched without it.
+func detectFolderRole(name string, delim rune, attrs []imap.MailboxAttr, namespaces []string) string {
 	for _, attr := range attrs {
 		switch attr {
 		case imap.MailboxAttrSent:
@@ -29,7 +32,34 @@ func detectFolderRole(name string, attrs []imap.MailboxAttr) string {
 		return "inbox"
 	}
 
-	return detectRoleByName(upper)
+	role := detectRoleByName(strings.ToUpper(trimNamespacePrefix(name, delim, namespaces)))
+	if role == "inbox" {
+		// Only INBOX itself is the inbox; "INBOX.Inbox" is a folder in it.
+		return "custom"
+	}
+	return role
+}
+
+// trimNamespacePrefix removes the personal namespace prefix from a folder
+// name. A nil list means the server could not report its namespaces; then an
+// "INBOX" prefix is assumed, the usual one on servers that have a prefix.
+func trimNamespacePrefix(name string, delim rune, namespaces []string) string {
+	if namespaces == nil {
+		if delim == 0 {
+			return name
+		}
+		namespaces = []string{"INBOX" + string(delim)}
+	}
+	for _, prefix := range namespaces {
+		if prefix == "" || len(name) <= len(prefix) {
+			continue
+		}
+		// INBOX is case-insensitive, and so is the prefix built on it.
+		if strings.EqualFold(name[:len(prefix)], prefix) {
+			return name[len(prefix):]
+		}
+	}
+	return name
 }
 
 func detectRoleByName(upper string) string {

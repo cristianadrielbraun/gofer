@@ -61,10 +61,17 @@ func relayHidingCaps(dst io.Writer, src io.Reader, hidden []goimap.Cap) {
 
 func startRecordedIMAPServer(t *testing.T, caps goimap.CapSet, hidden ...goimap.Cap) (*models.AccountConfig, *commandRecorder) {
 	t.Helper()
+	return startRecordedIMAPServerWithMailboxes(t, caps, []string{"INBOX"}, hidden...)
+}
+
+func startRecordedIMAPServerWithMailboxes(t *testing.T, caps goimap.CapSet, mailboxes []string, hidden ...goimap.Cap) (*models.AccountConfig, *commandRecorder) {
+	t.Helper()
 	mem := imapmemserver.New()
 	user := imapmemserver.NewUser("user@example.com", "secret")
-	if err := user.Create("INBOX", nil); err != nil {
-		t.Fatalf("create INBOX: %v", err)
+	for _, mailbox := range mailboxes {
+		if err := user.Create(mailbox, nil); err != nil {
+			t.Fatalf("create %s: %v", mailbox, err)
+		}
 	}
 	mem.AddUser(user)
 	server := imapserver.New(&imapserver.Options{

@@ -2308,45 +2308,9 @@ func (o *SyncOrchestrator) syncAccount(ctx context.Context, accountID string, in
 		return err
 	}
 
-	var folderInputs []storage.UpsertFolderInput
-	sortOrder := map[string]int{"inbox": 0, "starred": 1, "sent": 2, "drafts": 3, "archive": 4, "junk": 5, "trash": 6}
-	knownFolders := make(map[string]bool, len(folders))
-	for _, f := range folders {
-		knownFolders[f.Name] = true
-	}
-
-	for i, f := range folders {
-		folderID := folderIDFromRemote(accountID, f.Name)
-		if folderID == "" {
-			return fmt.Errorf("IMAP folder has no stable remote identity (name=%q)", f.Name)
-		}
-		role := f.Role
-		order, ok := sortOrder[role]
-		if !ok {
-			order = 100 + i
-		}
-
-		parentID := ""
-		if f.Delimiter != 0 && containsDelimiter(f.Name, f.Delimiter) {
-			if delimiterIndex := strings.LastIndex(f.Name, string(f.Delimiter)); delimiterIndex > 0 {
-				parentName := f.Name[:delimiterIndex]
-				if knownFolders[parentName] {
-					parentID = folderIDFromRemote(accountID, parentName)
-				}
-			}
-		}
-
-		folderInputs = append(folderInputs, storage.UpsertFolderInput{
-			ID:         folderID,
-			AccountID:  accountID,
-			ParentID:   parentID,
-			RemoteID:   f.Name,
-			Name:       displayName(f.Name, role),
-			Icon:       imap.RoleIcon(role),
-			Role:       role,
-			Selectable: f.Selectable,
-			SortOrder:  order,
-		})
+	folderInputs, err := imapFolderInputs(accountID, folders)
+	if err != nil {
+		return err
 	}
 	if len(folderInputs) > 0 {
 		if err := o.imapRepository().UpsertFolders(ctx, folderInputs); err != nil {
@@ -2667,6 +2631,56 @@ func (o *SyncOrchestrator) reconcileAndRefresh(ctx context.Context, client *imap
 
 func folderIDFromRemote(accountID, remoteName string) string {
 	return storage.FolderIDForIdentity(accountID, "imap", remoteName)
+}
+
+// imapFolderInputs turns an IMAP folder listing into the folder rows to save.
+func imapFolderInputs(accountID string, folders []imap.FolderInfo) ([]storage.UpsertFolderInput, error) {
+	folderInputs := make([]storage.UpsertFolderInput, 0, len(folders))
+	sortOrder := map[string]int{"inbox": 0, "starred": 1, "sent": 2, "drafts": 3, "archive": 4, "junk": 5, "trash": 6}
+	knownFolders := make(map[string]bool, len(folders))
+	for _, f := range folders {
+		knownFolders[f.Name] = true
+	}
+
+	for i, f := range folders {
+		folderID := folderIDFromRemote(accountID, f.Name)
+		if folderID == "" {
+			return nil, fmt.Errorf("IMAP folder has no stable remote identity (name=%q)", f.Name)
+		}
+		role := f.Role
+		order, ok := sortOrder[role]
+		if !ok {
+			order = 100 + i
+		}
+
+		parentID := ""
+		name := displayName(f.Name, role)
+		// Special folders stay at the top even when the server keeps them
+		// under INBOX, as "INBOX.Trash".
+		if role == "custom" && f.Delimiter != 0 && containsDelimiter(f.Name, f.Delimiter) {
+			if delimiterIndex := strings.LastIndex(f.Name, string(f.Delimiter)); delimiterIndex > 0 {
+				parentName := f.Name[:delimiterIndex]
+				if knownFolders[parentName] {
+					parentID = folderIDFromRemote(accountID, parentName)
+					// Shown under its parent, the folder needs only its own name.
+					name = f.Name[delimiterIndex+len(string(f.Delimiter)):]
+				}
+			}
+		}
+
+		folderInputs = append(folderInputs, storage.UpsertFolderInput{
+			ID:         folderID,
+			AccountID:  accountID,
+			ParentID:   parentID,
+			RemoteID:   f.Name,
+			Name:       name,
+			Icon:       imap.RoleIcon(role),
+			Role:       role,
+			Selectable: f.Selectable,
+			SortOrder:  order,
+		})
+	}
+	return folderInputs, nil
 }
 
 func containsDelimiter(name string, delim rune) bool {

@@ -47,11 +47,39 @@ func TestLabelsFromFlagsKeepsPredefinedKeywordLabels(t *testing.T) {
 }
 
 func TestDetectFolderRoleDoesNotTreatGmailImportantAsStarred(t *testing.T) {
-	if got := detectFolderRole("[Gmail]/Important", nil); got != "custom" {
+	if got := detectFolderRole("[Gmail]/Important", '/', nil, []string{""}); got != "custom" {
 		t.Fatalf("detectFolderRole([Gmail]/Important) = %q, want custom", got)
 	}
-	if got := detectFolderRole("Important", nil); got != "custom" {
+	if got := detectFolderRole("Important", '/', nil, []string{""}); got != "custom" {
 		t.Fatalf("detectFolderRole(Important) = %q, want custom", got)
+	}
+}
+
+func TestDetectFolderRoleIgnoresNamespacePrefix(t *testing.T) {
+	tests := []struct {
+		name       string
+		folder     string
+		delim      rune
+		namespaces []string
+		want       string
+	}{
+		{name: "reported prefix", folder: "INBOX.Trash", delim: '.', namespaces: []string{"INBOX."}, want: "trash"},
+		{name: "reported prefix in other case", folder: "inbox.Sent", delim: '.', namespaces: []string{"INBOX."}, want: "sent"},
+		{name: "assumed prefix without NAMESPACE", folder: "INBOX.Junk", delim: '.', want: "junk"},
+		{name: "assumed prefix with slash", folder: "INBOX/Drafts", delim: '/', want: "drafts"},
+		{name: "empty reported prefix keeps subfolder", folder: "INBOX.Trash", delim: '.', namespaces: []string{""}, want: "custom"},
+		{name: "other reported prefix", folder: "Mail/Trash", delim: '/', namespaces: []string{"Mail/"}, want: "trash"},
+		{name: "unprefixed folder", folder: "Trash", delim: '.', namespaces: []string{"INBOX."}, want: "trash"},
+		{name: "inbox itself", folder: "INBOX", delim: '.', namespaces: []string{"INBOX."}, want: "inbox"},
+		{name: "folder named inbox inside inbox", folder: "INBOX.Inbox", delim: '.', namespaces: []string{"INBOX."}, want: "custom"},
+		{name: "custom folder", folder: "INBOX.Receipts", delim: '.', namespaces: []string{"INBOX."}, want: "custom"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := detectFolderRole(tt.folder, tt.delim, nil, tt.namespaces); got != tt.want {
+				t.Fatalf("detectFolderRole(%q) = %q, want %q", tt.folder, got, tt.want)
+			}
+		})
 	}
 }
 
