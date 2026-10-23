@@ -14,13 +14,13 @@ func TestSavedSortDefaultsApplyOnlyWhenURLDoesNotOverrideThem(t *testing.T) {
 	}
 
 	mailDefaultRequest := httptest.NewRequest("GET", "/folder/inbox", nil)
-	mailDefaults := applyEmailSortDefaults(parseEmailFilters(mailDefaultRequest), mailDefaultRequest, settings)
+	mailDefaults := applyEmailListSettings(parseEmailFilters(mailDefaultRequest), mailDefaultRequest, settings)
 	if mailDefaults.SortBy != "sender" || mailDefaults.SortOrder != "asc" {
 		t.Fatalf("mail saved sort = %q/%q, want sender/asc", mailDefaults.SortBy, mailDefaults.SortOrder)
 	}
 
 	mailOverrideRequest := httptest.NewRequest("GET", "/folder/inbox?sort_by=date&sort_order=desc", nil)
-	mailOverride := applyEmailSortDefaults(parseEmailFilters(mailOverrideRequest), mailOverrideRequest, settings)
+	mailOverride := applyEmailListSettings(parseEmailFilters(mailOverrideRequest), mailOverrideRequest, settings)
 	if mailOverride.SortBy != "date" || mailOverride.SortOrder != "desc" {
 		t.Fatalf("mail URL sort = %q/%q, want date/desc", mailOverride.SortBy, mailOverride.SortOrder)
 	}

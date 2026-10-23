@@ -277,14 +277,30 @@ templ SettingsComposeDisplayTab(uiSettings map[string]string, signatureData []mo
 					}
 				</div>
 			</div>
-			<div class="settings-row border-t border-border/60 pt-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+			<div class="settings-row border-t border-border/60 pt-5 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+				<div class="min-w-0">
+					<span id="group-conversations-label" class="text-sm font-medium text-foreground">Group by conversation (threads)</span>
+					<p class="text-xs text-muted-foreground mt-1">Show a conversation's messages together, as one row in the list. Turn off to list every message on its own.</p>
+				</div>
+				<div class="w-full sm:w-44 shrink-0">
+					@settingsSwitchBox("Enabled") {
+						@switchcomp.Switch(switchcomp.Props{
+							ID:      "group-conversations",
+							Name:    "group_conversations",
+							Checked: GroupConversations(uiSettings),
+							Attributes: templ.Attributes{"aria-labelledby": "group-conversations-label", "data-group-conversations-setting": ""},
+						})
+					}
+				</div>
+			</div>
+			<div data-setting-depends-on="group-conversations" class={ "settings-row flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between transition-opacity", templ.KV("opacity-50", !GroupConversations(uiSettings)) }>
 				<div class="min-w-0">
 					<h4 class="text-sm font-medium text-foreground">Thread order</h4>
 					<p class="text-xs text-muted-foreground mt-1">Choose whether a thread's newest or oldest message comes first in the reading pane.</p>
 				</div>
 				<div class="w-full sm:w-44 shrink-0" data-thread-order-picker>
 					@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
-						@selectbox.Trigger(selectbox.TriggerProps{Name: "thread_order", Class: "bg-background", DisableClear: true}) {
+						@selectbox.Trigger(selectbox.TriggerProps{Name: "thread_order", Class: "bg-background", DisableClear: true, Disabled: !GroupConversations(uiSettings)}) {
 							@selectbox.Value(selectbox.ValueProps{Placeholder: "Newest first"}) {
 								{ threadOrderSettingLabel(uiSettingGet(uiSettings, "thread_order", "newest")) }
 							}

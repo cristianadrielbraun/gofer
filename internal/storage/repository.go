@@ -8600,6 +8600,7 @@ func defaultUISettings() map[string]string {
 		"unified_folder_spam_enabled":       "true",
 		"unified_folder_trash_enabled":      "true",
 		"auto_mark_read_after":              "0",
+		"group_conversations":               "true",
 		"thread_order":                      "newest",
 		"email_body_style":                  "theme",
 		"translation_button_enabled":        "true",

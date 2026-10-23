@@ -5057,6 +5057,12 @@ document.addEventListener("DOMContentLoaded", function () {
       setBooleanFilterControl(name, value)
     }
 
+    // listsConversations reports whether the list groups mail into
+    // conversations, the only lists where filtering by them means anything.
+    function listsConversations() {
+      return !window.GoferSettings || GoferSettings.get("group_conversations") !== "false"
+    }
+
     function applyKeywordToken(key, value) {
       key = (key || "").toLowerCase().replace(/_/g, "-")
       value = (value || "").trim()
@@ -5086,7 +5092,7 @@ document.addEventListener("DOMContentLoaded", function () {
       if (key === "has") {
         if (value === "attachment" || value === "attachments") setFilterTriState("attachments", "yes")
         else if (value === "tag" || value === "tags") setQuickBoolean("has_tags", true)
-        else if (value === "thread" || value === "threads") setQuickBoolean("threads_only", true)
+        else if ((value === "thread" || value === "threads") && listsConversations()) setQuickBoolean("threads_only", true)
         else return false
         return true
       }
@@ -5115,7 +5121,7 @@ document.addEventListener("DOMContentLoaded", function () {
           if (lower === "read") { setFilterTriState("status", "read"); continue }
           if (lower === "starred") { setQuickBoolean("starred", true); continue }
           if (lower === "attachments") { setFilterTriState("attachments", "yes"); continue }
-          if (lower === "threads") { setQuickBoolean("threads_only", true); continue }
+          if (lower === "threads" && listsConversations()) { setQuickBoolean("threads_only", true); continue }
         }
         plain.push(token)
       }
