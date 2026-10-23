@@ -920,3 +920,33 @@ func TestOutlookPushControlStates(t *testing.T) {
 		t.Fatalf("control with scheduled checks = %s", checks)
 	}
 }
+
+// An account card can be moved by its handle or its menu, except while the
+// account is being deleted.
+func TestSettingsAccountCardCanBeReordered(t *testing.T) {
+	account := models.Account{ID: "acc-home", Name: "Home", Email: "home@example.com", Provider: "imap"}
+	var out bytes.Buffer
+	if err := SettingsAccountCard(account).Render(context.Background(), &out); err != nil {
+		t.Fatalf("SettingsAccountCard.Render() error = %v", err)
+	}
+	html := out.String()
+	for _, want := range []string{
+		`data-account-order-handle`,
+		`aria-label="Reorder Home. Drag, or use the arrow keys"`,
+		`data-account-move="up"`,
+		`data-account-move="down"`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("account card lacks %q:\n%s", want, html)
+		}
+	}
+
+	account.IsDeleting = true
+	out.Reset()
+	if err := SettingsAccountCard(account).Render(context.Background(), &out); err != nil {
+		t.Fatalf("SettingsAccountCard.Render() error = %v", err)
+	}
+	if html := out.String(); strings.Contains(html, `data-account-order-handle`) || strings.Contains(html, `data-account-move=`) {
+		t.Fatalf("account being deleted can be moved:\n%s", html)
+	}
+}

@@ -743,14 +743,16 @@ func (s *AccountStore) createAccountWithID(ctx context.Context, userID, id strin
 		  imap_host, imap_port, imap_tls_mode,
 		  smtp_host, smtp_port, smtp_tls_mode,
 		  username, encrypted_password, auth_method,
-		  smtp_username, encrypted_smtp_password, jmap_session_url, email_sync_enabled)
-		 SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?`
+		  smtp_username, encrypted_smtp_password, jmap_session_url, email_sync_enabled, sort_order)
+		 SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+		        (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM accounts WHERE user_id = ?)`
 	args := []any{
 		id, userID, req.Provider, req.ProviderAccountID, req.EmailAddress, req.DisplayName, color, initials,
 		req.IMAPHost, req.IMAPPort, req.IMAPTLSMode,
 		req.SMTPHost, req.SMTPPort, req.SMTPTLSMode,
 		req.Username, encrypted, req.AuthMethod,
-		req.SmtpUsername, encryptedSmtpPw, req.JMAPSessionURL, boolInt(!req.EmailSyncDisabled)}
+		req.SmtpUsername, encryptedSmtpPw, req.JMAPSessionURL, boolInt(!req.EmailSyncDisabled),
+		userID}
 	if !purgeDeleting {
 		// The single local writer makes this check/insert atomic for concurrent
 		// UUID reservations. The same email may belong to different user stores.

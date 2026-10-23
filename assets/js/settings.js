@@ -3,6 +3,7 @@ document.addEventListener("DOMContentLoaded", function () {
   setupSettingsSidebar()
   setupModePickers()
   setupAccountColorPickers()
+  setupAccountOrder()
   setupAccountSignaturesDialog(document)
   setupEmailLinkHandler()
 })
@@ -549,6 +550,196 @@ function saveAccountColor(picker, rawColor, source) {
   }).finally(function () {
     setAccountColorSaving(picker, false)
   })
+}
+
+// Accounts are put in order on the Accounts page by dragging a card's handle,
+// with the arrow keys on a focused handle, or with Move up and Move down in
+// its menu. Accounts being deleted keep their place and can't be moved.
+function accountOrderCards(list) {
+  return Array.prototype.filter.call(list.querySelectorAll("[data-settings-account-card]"), function (card) {
+    return card.parentNode === list && card.getAttribute("data-account-deleting") !== "true"
+  })
+}
+
+function accountOrderIDs(list) {
+  return accountOrderCards(list).map(function (card) { return card.getAttribute("data-account-id") })
+}
+
+function syncAccountOrderControls() {
+  document.querySelectorAll("[data-account-order-list]").forEach(function (list) {
+    var cards = accountOrderCards(list)
+    cards.forEach(function (card, i) {
+      var up = document.querySelector('[data-account-actions-menu="' + cssEscapeSettings(card.getAttribute("data-account-id")) + '"] [data-account-move="up"]')
+      var down = document.querySelector('[data-account-actions-menu="' + cssEscapeSettings(card.getAttribute("data-account-id")) + '"] [data-account-move="down"]')
+      if (up) up.disabled = i === 0
+      if (down) down.disabled = i === cards.length - 1
+    })
+  })
+}
+
+function cssEscapeSettings(value) {
+  return window.CSS && CSS.escape ? CSS.escape(value) : String(value).replace(/["\\]/g, "\\$&")
+}
+
+// moveAccountCard puts card before ref (or last among the accounts when ref
+// is null), sliding the cards that make room from where they were.
+function moveAccountCard(list, card, ref) {
+  var cards = Array.prototype.slice.call(list.querySelectorAll("[data-settings-account-card]"))
+  var before = cards.map(function (c) { return c.getBoundingClientRect().top })
+  if (ref) {
+    list.insertBefore(card, ref)
+  } else {
+    var movable = accountOrderCards(list).filter(function (c) { return c !== card })
+    var last = movable[movable.length - 1]
+    list.insertBefore(card, last ? last.nextSibling : null)
+  }
+  cards.forEach(function (c, i) {
+    if (c === card && card.hasAttribute("data-account-order-dragging")) return
+    var dy = before[i] - c.getBoundingClientRect().top
+    if (!dy) return
+    c.style.transition = "none"
+    c.style.transform = "translateY(" + dy + "px)"
+    c.getBoundingClientRect()
+    c.style.transition = ""
+    c.style.transform = ""
+  })
+}
+
+function moveAccountCardBy(card, step) {
+  var list = card && card.closest("[data-account-order-list]")
+  if (!list) return
+  var cards = accountOrderCards(list)
+  var at = cards.indexOf(card)
+  var to = at + step
+  if (at < 0 || to < 0 || to >= cards.length) return
+  var previous = accountOrderIDs(list)
+  moveAccountCard(list, card, step < 0 ? cards[to] : cards[to + 1] || null)
+  saveAccountOrder(list, previous)
+}
+
+function restoreAccountOrder(list, ids) {
+  var cards = accountOrderCards(list)
+  ids.forEach(function (id) {
+    var card = cards.filter(function (c) { return c.getAttribute("data-account-id") === id })[0]
+    if (card) moveAccountCard(list, card, null)
+  })
+}
+
+function saveAccountOrder(list, previous) {
+  var ids = accountOrderIDs(list)
+  syncAccountOrderControls()
+  if (ids.join("\n") === previous.join("\n")) return
+  var body = new URLSearchParams()
+  ids.forEach(function (id) { body.append("account_id", id) })
+  fetch("/api/accounts/order", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: body.toString()
+  }).then(function (res) {
+    if (res.ok) return
+    if (res.status === 409) {
+      showGoferToast({ title: "Your accounts changed", description: "The list was reloaded. Put the accounts in order again.", variant: "error", icon: "error", duration: 6000 })
+      if (window.htmx) window.htmx.ajax("GET", "/settings/accounts", { target: "#settings-content", select: "#settings-content", swap: "outerHTML" })
+      return
+    }
+    throw new Error("save account order: " + res.status)
+  }).catch(function () {
+    restoreAccountOrder(list, previous)
+    syncAccountOrderControls()
+    showGoferToast({ title: "Could not save the account order", description: "Check your connection and try again.", variant: "error", icon: "error", duration: 6000 })
+  })
+}
+
+function setupAccountOrder() {
+  if (setupAccountOrder.ready) return
+  setupAccountOrder.ready = true
+  var drag = null
+
+  document.addEventListener("click", function (e) {
+    var item = e.target.closest && e.target.closest("[data-account-move]")
+    if (!item || item.disabled) return
+    var menu = item.closest("[data-account-actions-menu]")
+    var id = menu && menu.getAttribute("data-account-actions-menu")
+    var card = id && document.querySelector('[data-settings-account-card][data-account-id="' + cssEscapeSettings(id) + '"]')
+    if (card) moveAccountCardBy(card, item.getAttribute("data-account-move") === "up" ? -1 : 1)
+  })
+
+  document.addEventListener("keydown", function (e) {
+    var handle = e.target.closest && e.target.closest("[data-account-order-handle]")
+    if (!handle || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return
+    e.preventDefault()
+    moveAccountCardBy(handle.closest("[data-settings-account-card]"), e.key === "ArrowUp" ? -1 : 1)
+    handle.focus()
+  })
+
+  document.addEventListener("pointerdown", function (e) {
+    var handle = e.target.closest && e.target.closest("[data-account-order-handle]")
+    if (!handle || e.button !== 0) return
+    var card = handle.closest("[data-settings-account-card]")
+    var list = card && card.closest("[data-account-order-list]")
+    if (!list) return
+    e.preventDefault()
+    handle.setPointerCapture(e.pointerId)
+    drag = { list: list, card: card, handle: handle, pointerId: e.pointerId, previous: accountOrderIDs(list), grabY: e.clientY - card.getBoundingClientRect().top }
+    card.setAttribute("data-account-order-dragging", "")
+    list.setAttribute("data-account-order-active", "")
+    drag.placeholder = document.createElement("div")
+    drag.placeholder.setAttribute("data-account-order-placeholder", "")
+    drag.placeholder.setAttribute("aria-hidden", "true")
+    followAccountDrag(e.clientY)
+    list.appendChild(drag.placeholder)
+  })
+
+  // The grabbed card floats under the pointer, a little larger, while an
+  // outline shows the place in the list where it would drop.
+  function accountCardTop(list, card) {
+    return card.offsetParent === list ? card.offsetTop : card.offsetTop - list.offsetTop
+  }
+
+  function followAccountDrag(clientY) {
+    var y = clientY - drag.list.getBoundingClientRect().top - drag.grabY
+    var top = accountCardTop(drag.list, drag.card)
+    drag.card.style.transform = "translateY(" + (y - top) + "px) scale(1.01)"
+    drag.placeholder.style.top = top + "px"
+    drag.placeholder.style.height = drag.card.offsetHeight + "px"
+  }
+
+  document.addEventListener("pointermove", function (e) {
+    if (!drag || e.pointerId !== drag.pointerId) return
+    // Offsets ignore the slide of cards making room, so the place under the
+    // pointer doesn't shift while they move.
+    var cards = accountOrderCards(drag.list)
+    var others = cards.filter(function (c) { return c !== drag.card })
+    // A card makes way once the floating card's leading edge passes its middle.
+    var at = cards.indexOf(drag.card)
+    var floatTop = e.clientY - drag.list.getBoundingClientRect().top - drag.grabY
+    var floatBottom = floatTop + drag.card.offsetHeight
+    var to = 0
+    others.forEach(function (other, k) {
+      var middle = accountCardTop(drag.list, other) + other.offsetHeight / 2
+      if (k < at ? floatTop >= middle : floatBottom > middle) to++
+    })
+    if (to !== at) moveAccountCard(drag.list, drag.card, others[to] || null)
+    followAccountDrag(e.clientY)
+  })
+
+  function endDrag(e) {
+    if (!drag || e.pointerId !== drag.pointerId) return
+    var done = drag
+    drag = null
+    // Back in the card's own transition, it settles into its place.
+    done.card.removeAttribute("data-account-order-dragging")
+    done.list.removeAttribute("data-account-order-active")
+    done.placeholder.remove()
+    done.card.style.transform = ""
+    if (done.handle.hasPointerCapture(e.pointerId)) done.handle.releasePointerCapture(e.pointerId)
+    saveAccountOrder(done.list, done.previous)
+  }
+  document.addEventListener("pointerup", endDrag)
+  document.addEventListener("pointercancel", endDrag)
+
+  syncAccountOrderControls()
+  document.body.addEventListener("htmx:afterSettle", syncAccountOrderControls)
 }
 
 function sanitizeSignatureStyle(style) {

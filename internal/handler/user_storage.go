@@ -264,6 +264,7 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 	private("GET /api/sidebar/mail", routed.handleMailSidebar)
 	private("GET /api/sidebar/accounts/{id}", routed.handleSidebarAccount)
 	private("GET /api/accounts", routed.handleUserAccounts)
+	private("POST /api/accounts/order", routed.handleAccountOrder)
 	private("POST /api/accounts/discover", routed.handleDiscoverAccount)
 	private("GET /api/accounts/server-check", routed.handleAccountServerCheck)
 	private("POST /api/accounts/test", routed.handleTestNewAccount)
