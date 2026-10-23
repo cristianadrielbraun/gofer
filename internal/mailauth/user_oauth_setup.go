@@ -102,26 +102,36 @@ func (s *UserCredentials) ExchangeMailboxCode(ctx context.Context, provider, cod
 		return nil, nil, err
 	}
 	var token *oauth2.Token
-	var req *models.CreateAccountRequest
 	var err error
 	switch provider {
 	case providers.ProviderGmail:
 		token, err = s.codec.ExchangeAccountCode(ctx, code)
-		if err == nil {
-			var info *GoogleAccountInfo
-			info, err = s.codec.GetGoogleAccountInfo(ctx, token)
-			if err == nil {
-				req = providers.GmailAccountRequest(info.Email, info.Name, info.Sub)
-			}
-		}
 	case providers.ProviderOutlook:
 		token, err = s.codec.ExchangeMicrosoftAccountCode(ctx, code)
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	return s.MailboxGrant(ctx, provider, token)
+}
+
+// MailboxGrant identifies the mailbox a provider token belongs to, whether
+// the token came from a redirect code or a device sign-in.
+func (s *UserCredentials) MailboxGrant(ctx context.Context, provider string, token *oauth2.Token) (*models.CreateAccountRequest, *oauth2.Token, error) {
+	var req *models.CreateAccountRequest
+	var err error
+	switch provider {
+	case providers.ProviderGmail:
+		var info *GoogleAccountInfo
+		info, err = s.codec.GetGoogleAccountInfo(ctx, token)
 		if err == nil {
-			var info *MicrosoftAccountInfo
-			info, err = s.codec.GetMicrosoftAccountInfo(ctx, token)
-			if err == nil {
-				req = providers.OutlookAccountRequest(info.EmailAddress(), info.Name, info.ProviderAccountID())
-			}
+			req = providers.GmailAccountRequest(info.Email, info.Name, info.Sub)
+		}
+	case providers.ProviderOutlook:
+		var info *MicrosoftAccountInfo
+		info, err = s.codec.GetMicrosoftAccountInfo(ctx, token)
+		if err == nil {
+			req = providers.OutlookAccountRequest(info.EmailAddress(), info.Name, info.ProviderAccountID())
 		}
 	}
 	if err != nil {
@@ -134,4 +144,32 @@ func (s *UserCredentials) ExchangeMailboxCode(ctx context.Context, provider, cod
 		req.DisplayName = req.EmailAddress
 	}
 	return req, token, nil
+}
+
+func (s *UserCredentials) UsesMicrosoftDeviceCode() bool {
+	return s != nil && s.codec.UsesMicrosoftDeviceCode()
+}
+
+func (s *UserCredentials) StartMicrosoftDeviceSignIn(ctx context.Context, state, owner, session string) (*MicrosoftDeviceSignIn, error) {
+	if err := s.routing.ValidateUser(ctx, owner); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(session) == "" {
+		return nil, errors.New("authenticated session required")
+	}
+	return s.codec.StartMicrosoftDeviceSignIn(ctx, state, owner, session)
+}
+
+func (s *UserCredentials) MicrosoftDeviceSignIn(ctx context.Context, state, owner, session string) (*MicrosoftDeviceSignIn, error) {
+	if err := s.routing.ValidateUser(ctx, owner); err != nil {
+		return nil, err
+	}
+	return s.codec.MicrosoftDeviceSignIn(ctx, state, owner, session)
+}
+
+func (s *UserCredentials) PollMicrosoftDeviceSignIn(ctx context.Context, state, owner, session string) (*oauth2.Token, error) {
+	if err := s.routing.ValidateUser(ctx, owner); err != nil {
+		return nil, err
+	}
+	return s.codec.PollMicrosoftDeviceSignIn(ctx, state, owner, session)
 }

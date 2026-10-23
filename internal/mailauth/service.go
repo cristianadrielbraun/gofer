@@ -24,7 +24,16 @@ type Config struct {
 	BaseURL         string
 	GoogleClient    *oauth2.Config
 	MicrosoftClient *oauth2.Config
+	// MicrosoftDeviceCode connects Outlook with a device code instead of a
+	// redirect. It is used when no client secret is configured, because a
+	// secret-free registration is a public client.
+	MicrosoftDeviceCode bool
 }
+
+// BuiltInMicrosoftClientID is Gofer's verified, multi-tenant public client for
+// connecting Outlook mailboxes. It has no secret and signs in with a device
+// code, so any install can use it without its own app registration.
+const BuiltInMicrosoftClientID = "96916deb-19ec-4f42-b428-445e04b4334c"
 
 func LoadConfig(baseURL string, authenticationEnabled bool) *Config {
 	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
@@ -47,7 +56,15 @@ func LoadConfig(baseURL string, authenticationEnabled bool) *Config {
 
 	microsoftClientID := strings.TrimSpace(os.Getenv("MICROSOFT_OAUTH_CLIENT_ID"))
 	microsoftClientSecret := strings.TrimSpace(os.Getenv("MICROSOFT_OAUTH_CLIENT_SECRET"))
-	if microsoftClientID != "" && microsoftClientSecret != "" {
+	switch {
+	case strings.EqualFold(microsoftClientID, "off"):
+		microsoftClientID = ""
+	case microsoftClientID == "":
+		// A secret belongs to the operator's own registration, never Gofer's.
+		microsoftClientID, microsoftClientSecret = BuiltInMicrosoftClientID, ""
+	}
+	if microsoftClientID != "" {
+		cfg.MicrosoftDeviceCode = microsoftClientSecret == ""
 		cfg.MicrosoftClient = &oauth2.Config{
 			ClientID:     microsoftClientID,
 			ClientSecret: microsoftClientSecret,
@@ -66,7 +83,7 @@ func microsoftEndpoint(tenant string) oauth2.Endpoint {
 		tenant = "common"
 	}
 	base := "https://login.microsoftonline.com/" + tenant + "/oauth2/v2.0"
-	return oauth2.Endpoint{AuthURL: base + "/authorize", TokenURL: base + "/token"}
+	return oauth2.Endpoint{AuthURL: base + "/authorize", TokenURL: base + "/token", DeviceAuthURL: base + "/devicecode"}
 }
 
 type Service struct {
@@ -74,6 +91,8 @@ type Service struct {
 	config         *Config
 	db             *storage.DB
 	credentialKey  []byte
+	deviceMu       sync.Mutex
+	deviceFlows    map[string]*microsoftDeviceFlow
 }
 
 // Manager remains an alias while callers migrate to the service terminology.

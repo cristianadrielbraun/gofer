@@ -11,8 +11,10 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/auth"
 	"github.com/cristianadrielbraun/gofer/internal/config"
 	"github.com/cristianadrielbraun/gofer/internal/mailauth"
+	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
+	"golang.org/x/oauth2"
 )
 
 func (h *Handler) handleUserAccountOAuthAuthorize(w http.ResponseWriter, r *http.Request) {
@@ -50,6 +52,15 @@ func (h *Handler) handleUserAccountOAuthAuthorize(w http.ResponseWriter, r *http
 		http.Error(w, "could not start account authorization", 503)
 		return
 	}
+	if provider == providers.ProviderOutlook && h.userCredentials.UsesMicrosoftDeviceCode() {
+		if _, err := h.userCredentials.StartMicrosoftDeviceSignIn(r.Context(), state, owner, auth.GetSessionToken(r)); err != nil {
+			log.Printf("routed mailbox OAuth authorize: %v", err)
+			http.Redirect(w, r, "/settings/accounts?error=oauth_device_failed", http.StatusSeeOther)
+			return
+		}
+		http.Redirect(w, r, microsoftDeviceSignInLocation(state), http.StatusSeeOther)
+		return
+	}
 	location, err := h.userCredentials.AccountAuthorizationURL(provider, state)
 	if err != nil {
 		http.Error(w, "mailbox OAuth provider is not configured", 400)
@@ -77,11 +88,21 @@ func (h *Handler) handleUserAccountOAuthCallback(w http.ResponseWriter, r *http.
 		http.Redirect(w, r, "/settings/accounts?error=oauth_no_code", http.StatusSeeOther)
 		return
 	}
+	location := h.finishUserAccountOAuth(w, r.Context(), owner, provider, flow, func(ctx context.Context) (*models.CreateAccountRequest, *oauth2.Token, error) {
+		return h.userCredentials.ExchangeMailboxCode(ctx, provider, code)
+	})
+	http.Redirect(w, r, location, http.StatusSeeOther)
+}
+
+// finishUserAccountOAuth saves the mailbox a consumed flow authorized and
+// returns where to send the browser. grant obtains the provider token and the
+// mailbox identity it belongs to.
+func (h *Handler) finishUserAccountOAuth(w http.ResponseWriter, ctx context.Context, owner, provider string, flow *mailauth.AccountOAuthFlow, grant func(context.Context) (*models.CreateAccountRequest, *oauth2.Token, error)) string {
 	failure := "create_failed"
-	err = h.userCredentials.WithMailboxSetup(r.Context(), owner, func(ctx context.Context) error {
+	err := h.userCredentials.WithMailboxSetup(ctx, owner, func(ctx context.Context) error {
 		complete := func() error {
 			failure = "oauth_exchange_failed"
-			req, token, err := h.userCredentials.ExchangeMailboxCode(ctx, provider, code)
+			req, token, err := grant(ctx)
 			if err != nil {
 				return err
 			}
@@ -159,8 +180,7 @@ func (h *Handler) handleUserAccountOAuthCallback(w http.ResponseWriter, r *http.
 	})
 	if err != nil {
 		log.Printf("routed mailbox OAuth callback: %v", err)
-		http.Redirect(w, r, "/settings/accounts?error="+failure, http.StatusSeeOther)
-		return
+		return "/settings/accounts?error=" + failure
 	}
-	http.Redirect(w, r, accountOAuthSuccessRedirect(flow.FormData), http.StatusSeeOther)
+	return accountOAuthSuccessRedirect(flow.FormData)
 }

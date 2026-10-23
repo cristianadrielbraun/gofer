@@ -41,7 +41,9 @@ func TestLoadConfigDoesNotReuseApplicationLoginCredentialsForMailboxAccess(t *te
 	t.Setenv("GOFER_GOOGLE_LOGIN_CLIENT_SECRET", "login-secret")
 	t.Setenv("GOOGLE_OAUTH_CLIENT_ID", "")
 	t.Setenv("GOOGLE_OAUTH_CLIENT_SECRET", "")
-	t.Setenv("MICROSOFT_OAUTH_CLIENT_ID", "")
+	t.Setenv("GOFER_MICROSOFT_LOGIN_CLIENT_ID", "microsoft-login-client")
+	t.Setenv("GOFER_MICROSOFT_LOGIN_CLIENT_SECRET", "microsoft-login-secret")
+	t.Setenv("MICROSOFT_OAUTH_CLIENT_ID", "off")
 	t.Setenv("MICROSOFT_OAUTH_CLIENT_SECRET", "")
 
 	cfg := LoadConfig("https://gofer.example", true)

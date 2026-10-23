@@ -1,0 +1,83 @@
+package views
+
+import (
+	"strconv"
+	"time"
+
+	"github.com/cristianadrielbraun/gofer/components/button"
+	"github.com/cristianadrielbraun/gofer/components/copybutton"
+	"github.com/cristianadrielbraun/gofer/components/icon"
+	"github.com/cristianadrielbraun/gofer/internal/assetver"
+)
+
+type MicrosoftDeviceSignInData struct {
+	UserCode        string
+	VerificationURI string
+	State           string
+	PollPath        string
+	PollCSRF        string
+	PollInterval    time.Duration
+	ExpiresAt       time.Time
+}
+
+templ MicrosoftDeviceSignInPage(data MicrosoftDeviceSignInData) {
+	<!DOCTYPE html>
+	<html lang="en" class="dark" data-theme="classic">
+		<head>
+			<meta charset="UTF-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+			<title>Gofer - Connect Outlook</title>
+			@AppIcon()
+			<link rel="stylesheet" href={ assetver.URL("/assets/css/output.css") }/>
+			@copybutton.Script()
+			<script src={ assetver.URL("/assets/js/microsoft-device-signin.js") } defer></script>
+		</head>
+		<body class="bg-background text-foreground antialiased surface-desk">
+			<main class="min-h-screen flex items-center justify-center p-4">
+				<div
+					id="microsoft-device-signin"
+					class="w-full max-w-sm space-y-6"
+					data-poll-path={ data.PollPath }
+					data-poll-csrf={ data.PollCSRF }
+					data-state={ data.State }
+					data-interval-ms={ strconv.FormatInt(data.PollInterval.Milliseconds(), 10) }
+					data-expires-at-ms={ strconv.FormatInt(data.ExpiresAt.UnixMilli(), 10) }
+				>
+					<div class="flex items-start gap-3">
+						@AccountProviderIcon("outlook", "size-6 shrink-0 mt-1")
+						<div>
+							<h1 class="text-2xl font-bold">Connect Outlook</h1>
+							<p class="mt-2 text-sm text-muted-foreground">Sign in at Microsoft with the code below. This page continues on its own when you finish.</p>
+						</div>
+					</div>
+					<ol class="space-y-5">
+						<li class="space-y-2">
+							<p class="text-sm font-semibold">1. Copy your code</p>
+							<div class="relative flex items-center justify-center rounded-lg border border-border bg-accent/50 px-12 py-4">
+								<span id="microsoft-device-code" class="font-mono text-2xl font-semibold tracking-[0.35em] pl-[0.35em] select-all">{ data.UserCode }</span>
+								<div class="absolute right-2 top-1/2 -translate-y-1/2">
+									@copybutton.CopyButton(copybutton.Props{TargetID: "microsoft-device-code", Attrs: templ.Attributes{"aria-label": "Copy code"}})
+								</div>
+							</div>
+						</li>
+						<li class="space-y-2">
+							<p class="text-sm font-semibold">2. Paste it at Microsoft</p>
+							@button.Button(button.Props{Href: data.VerificationURI, Target: "_blank", FullWidth: true, Attributes: templ.Attributes{"rel": "noopener noreferrer", "data-device-signin-open": true}}) {
+								Copy code and open Microsoft
+								@icon.ExternalLink(icon.Props{Class: "size-4"})
+							}
+							<p class="text-xs text-muted-foreground break-words">Or go to { data.VerificationURI } on any device.</p>
+						</li>
+					</ol>
+					<p id="microsoft-device-status" role="status" aria-live="polite" class="flex items-center gap-2 text-sm text-muted-foreground">
+						@icon.LoaderCircle(icon.Props{Class: "size-4 animate-spin"})
+						<span data-status-text>Waiting for you to finish signing in…</span>
+					</p>
+					@button.Button(button.Props{Href: "/settings/accounts", Variant: button.VariantOutline, FullWidth: true}) {
+						Cancel
+					}
+				</div>
+			</main>
+		</body>
+	</html>
+}

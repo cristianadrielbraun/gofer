@@ -5596,6 +5596,8 @@ document.addEventListener("DOMContentLoaded", function () {
       oauth_session_mismatch: "Finish authorization in the same browser session that started it.",
       oauth_no_code: "The provider did not complete authorization. Please try again.",
       oauth_exchange_failed: "Gofer could not complete authorization with the provider. Please try again.",
+      oauth_device_failed: "Gofer could not start Microsoft sign-in. Please try again.",
+      oauth_device_declined: "Sign-in was cancelled at Microsoft. Start connecting the account again.",
       oauth_userinfo_failed: "Gofer could not identify the authorized mailbox. Please try again.",
       oauth_email_mismatch: "The authorized email address differs from the mailbox you chose. Choose the matching account and try again.",
       oauth_identity_mismatch: "The authorized provider account differs from this mailbox. Reconnect using its original provider account.",
