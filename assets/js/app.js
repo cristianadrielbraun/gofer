@@ -8075,14 +8075,17 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 
   function markRead(emailId, trigger) {
-    fetch("/api/messages/" + emailId + "/read?state=read", { method: "POST" })
+    var row = trigger && trigger.closest ? trigger.closest(".mail-list-item") : null
+    // A thread counts as read only once all its messages are, so opening one
+    // marks the whole thread read, not just the message that was opened.
+    var thread = (row && row.dataset.hasThread === "true") || !!document.querySelector('#mail-view [data-read-thread="' + emailId + '"]')
+    fetch("/api/messages/" + emailId + (thread ? "/thread/read" : "/read") + "?state=read", { method: "POST" })
       .then(function (r) { return r.json() })
       .then(function (data) {
         if (!data.is_read) return
-        var readButtons = document.querySelectorAll('[data-read-email="' + emailId + '"]')
+        var readButtons = document.querySelectorAll(thread ? '#mail-view [data-read-email], #mail-view [data-read-thread]' : '[data-read-email="' + emailId + '"]')
         for (var i = 0; i < readButtons.length; i++) setReadButtonIcon(readButtons[i], true)
         syncThreadReadButtons()
-        var row = trigger && trigger.closest ? trigger.closest(".mail-list-item") : null
         if (row) {
           var link = row.querySelector("a")
           if (link) {
