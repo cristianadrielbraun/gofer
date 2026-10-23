@@ -65,7 +65,7 @@ func TestUserFileCleanupScopesAndRetainsWholeVersions(t *testing.T) {
 		t.Fatal(err)
 	}
 	ageCleanupTree(t, base)
-	result, err := s.CleanupUserFiles(t.Context(), "alice", []string{"alice-account"}, map[string]bool{retained: true, retainedUpload: true}, 24*time.Hour)
+	result, err := s.CleanupUserFiles(t.Context(), "alice", []string{"alice-account"}, map[string]bool{retained: true, retainedUpload: true}, nil, 24*time.Hour)
 	if err != nil || result.Uploads != 1 || result.Versions != 1 {
 		t.Fatalf("cleanup: %+v %v", result, err)
 	}
@@ -114,7 +114,7 @@ func TestUserFileCleanupKeepsFreshDescendantsAndSymlinks(t *testing.T) {
 	if err := os.Chtimes(filepath.Dir(linkedRaw), old, old); err != nil {
 		t.Fatal(err)
 	}
-	result, err := s.CleanupUserFiles(t.Context(), "alice", []string{"account", "symlink-account"}, nil, 24*time.Hour)
+	result, err := s.CleanupUserFiles(t.Context(), "alice", []string{"account", "symlink-account"}, nil, nil, 24*time.Hour)
 	if err != nil || result.Versions != 0 {
 		t.Fatalf("cleanup: %+v %v", result, err)
 	}
@@ -125,7 +125,7 @@ func TestUserFileCleanupKeepsFreshDescendantsAndSymlinks(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if _, err := s.CleanupUserFiles(ctx, "alice", []string{"account"}, nil, time.Hour); !errors.Is(err, context.Canceled) {
+	if _, err := s.CleanupUserFiles(ctx, "alice", []string{"account"}, nil, nil, time.Hour); !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled cleanup: %v", err)
 	}
 }
@@ -354,5 +354,65 @@ func TestUserFileRemovalWaitsForCleanupAndOtherRemoval(t *testing.T) {
 	if end, err := s.BeginUserFileRemoval(t.Context(), ""); err == nil {
 		end()
 		t.Fatal("invalid owner admitted")
+	}
+}
+
+func TestMessageFileCleanupRemovesMessagesNoLongerKept(t *testing.T) {
+	base := t.TempDir()
+	s := NewBlobStore(base)
+	ctx := t.Context()
+	store := func(account string, id int64) string {
+		t.Helper()
+		path, err := s.StoreBodyText(ctx, account, id, []byte("Lunch on Friday?"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return filepath.Dir(path)
+	}
+	live := store("account", 1)
+	gone := store("account", 2)
+	recent := store("account", 3)
+	sendPath, err := s.StoreAttachment(ctx, "account", 4, 1, "menu.txt", strings.NewReader("soup"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	unsent := filepath.Dir(filepath.Dir(sendPath))
+	version, _ := s.NewMessageVersion()
+	if _, err := version.StoreRaw(ctx, "account", 5, []byte("Site photos")); err != nil {
+		t.Fatal(err)
+	}
+	goneVersioned := filepath.Join(base, "account", "messages", "5")
+	unlisted := store("unlisted", 6)
+	oldVersion, _ := s.NewMessageVersion()
+	stalePath, err := oldVersion.StoreRaw(ctx, "account", 7, []byte("first copy"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ageCleanupTree(t, base)
+	if err := os.WriteFile(filepath.Join(recent, "body.html"), []byte("<p>new</p>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// A message gone from the database but written to again keeps its
+	// directory; its old versions still go.
+	newVersion, _ := s.NewMessageVersion()
+	freshPath, err := newVersion.StoreRaw(ctx, "account", 7, []byte("second copy"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := s.CleanupMessageFiles(ctx, []string{"account", "unlisted"}, map[string]bool{sendPath: true},
+		map[string]map[int64]bool{"account": {1: true}}, 24*time.Hour)
+	if err != nil || result.Messages != 2 || result.Versions != 1 {
+		t.Fatalf("cleanup: %+v %v", result, err)
+	}
+	for _, dir := range []string{live, recent, unsent, unlisted, freshPath} {
+		if _, err := os.Stat(dir); err != nil {
+			t.Fatalf("%s was removed: %v", dir, err)
+		}
+	}
+	for _, dir := range []string{gone, goneVersioned, filepath.Dir(stalePath)} {
+		if _, err := os.Stat(dir); !os.IsNotExist(err) {
+			t.Fatalf("%s was kept: %v", dir, err)
+		}
 	}
 }

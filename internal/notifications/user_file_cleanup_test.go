@@ -191,7 +191,7 @@ func TestUserFileCleanupSnapshotBlocksPublicationAndRejectsBadPayload(t *testing
 		entered, resume := make(chan struct{}), make(chan struct{})
 		cleanupDone := make(chan error, 1)
 		go func() {
-			cleanupDone <- db.WithUserBlobReferences(t.Context(), "alice", func(ids []string, keep map[string]bool) error { close(entered); <-resume; return nil })
+			cleanupDone <- db.WithUserBlobReferences(t.Context(), "alice", func(storage.BlobReferences) error { close(entered); <-resume; return nil })
 		}()
 		select {
 		case <-entered:
@@ -222,13 +222,13 @@ func TestUserFileCleanupSnapshotBlocksPublicationAndRejectsBadPayload(t *testing
 				return err
 			}
 			called := false
-			err := db.WithUserBlobReferences(t.Context(), "alice", func([]string, map[string]bool) error { called = true; return nil })
+			err := db.WithUserBlobReferences(t.Context(), "alice", func(storage.BlobReferences) error { called = true; return nil })
 			if err == nil || called {
 				return fmt.Errorf("bad snapshot accepted: %q %v", payload, err)
 			}
 		}
 		called := false
-		if err := db.WithUserBlobReferences(t.Context(), "bob", func([]string, map[string]bool) error { called = true; return nil }); !errors.Is(err, storage.ErrUserStoreIdentity) || called {
+		if err := db.WithUserBlobReferences(t.Context(), "bob", func(storage.BlobReferences) error { called = true; return nil }); !errors.Is(err, storage.ErrUserStoreIdentity) || called {
 			return fmt.Errorf("wrong owner snapshot accepted: %v", err)
 		}
 		return nil

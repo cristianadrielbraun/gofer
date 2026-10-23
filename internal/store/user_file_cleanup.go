@@ -191,15 +191,18 @@ func (s *BlobStore) TryUserFileCleanup(owner string) (release func(), acquired b
 }
 
 type UserFileCleanupResult struct {
-	Uploads, Versions int
-	Skipped           bool
+	// Messages counts message directories removed whole: ones of messages
+	// no longer in the database.
+	Uploads, Versions, Messages int
+	Skipped                     bool
 }
 
 // CleanupUserFiles must run under TryUserFileCleanup and a current, complete
 // reference snapshot protected from publication. It visits only supplied owned
-// account directories and the selected owner's uploads. Legacy message files,
-// unknown directories and symlinks are left untouched.
-func (s *BlobStore) CleanupUserFiles(ctx context.Context, owner string, accounts []string, keep map[string]bool, olderThan time.Duration) (result UserFileCleanupResult, err error) {
+// account directories and the selected owner's uploads. messages lists each
+// account's messages still in the database; see CleanupMessageFiles. Unknown
+// directories and symlinks are left untouched.
+func (s *BlobStore) CleanupUserFiles(ctx context.Context, owner string, accounts []string, keep map[string]bool, messages map[string]map[int64]bool, olderThan time.Duration) (result UserFileCleanupResult, err error) {
 	if err := ctx.Err(); err != nil {
 		return result, err
 	}
@@ -210,36 +213,13 @@ func (s *BlobStore) CleanupUserFiles(ctx context.Context, owner string, accounts
 	if err != nil {
 		return result, err
 	}
-	for _, id := range accounts {
-		if id == "" || id == "." || id == ".." || id == "avatars" || strings.HasPrefix(id, "_") || strings.ContainsAny(id, `/\`) {
-			return result, fmt.Errorf("invalid account blob owner")
-		}
-	}
-	base, err := filepath.Abs(s.basePath)
+	refs, err := s.fileReferences(accounts, keep)
 	if err != nil {
 		return result, err
 	}
 	cutoff := time.Now().Add(-olderThan)
-	retainedDirs := make(map[string]bool)
-	normalized := make(map[string]bool)
-	for path, retained := range keep {
-		if retained && path != "" {
-			abs, err := filepath.Abs(path)
-			if err != nil {
-				return result, err
-			}
-			normalized[blobPathKey(abs)] = true
-			for dir := filepath.Dir(abs); dir != base; dir = filepath.Dir(dir) {
-				rel, err := filepath.Rel(base, dir)
-				if err != nil || !filepath.IsLocal(rel) || rel == "." {
-					break
-				}
-				retainedDirs[blobPathKey(dir)] = true
-			}
-		}
-	}
-	compose := filepath.Join(base, "_compose", ownerKey)
-	if realDirectory(base, "_compose", ownerKey) {
+	compose := filepath.Join(refs.base, "_compose", ownerKey)
+	if realDirectory(refs.base, "_compose", ownerKey) {
 		entries, err := os.ReadDir(compose)
 		if err != nil {
 			return result, err
@@ -256,7 +236,7 @@ func (s *BlobStore) CleanupUserFiles(ctx context.Context, owner string, accounts
 			if err != nil {
 				return result, err
 			}
-			if !info.Mode().IsRegular() || !info.ModTime().Before(cutoff) || normalized[blobPathKey(path)] {
+			if !info.Mode().IsRegular() || !info.ModTime().Before(cutoff) || refs.paths[blobPathKey(path)] {
 				continue
 			}
 			if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
@@ -265,75 +245,161 @@ func (s *BlobStore) CleanupUserFiles(ctx context.Context, owner string, accounts
 			result.Uploads++
 		}
 	}
+	return result, s.cleanupMessageFiles(ctx, accounts, refs, messages, cutoff, &result)
+}
+
+// CleanupMessageFiles removes message files nothing refers to any more, on
+// an installation with one shared database. The caller holds the database's
+// writer while it runs, so no message is published meanwhile.
+//
+// A version directory goes once no kept path is inside it. A message's whole
+// directory, including files saved straight into it, goes once no kept path
+// is inside it and messages says the account no longer has the message. An
+// account missing from messages keeps such directories. Nothing changed
+// within olderThan is removed, so files still being published stay.
+func (s *BlobStore) CleanupMessageFiles(ctx context.Context, accounts []string, keep map[string]bool, messages map[string]map[int64]bool, olderThan time.Duration) (result UserFileCleanupResult, err error) {
+	if err := ctx.Err(); err != nil {
+		return result, err
+	}
+	if olderThan <= 0 {
+		return result, errors.New("file retention must be positive")
+	}
+	refs, err := s.fileReferences(accounts, keep)
+	if err != nil {
+		return result, err
+	}
+	return result, s.cleanupMessageFiles(ctx, accounts, refs, messages, time.Now().Add(-olderThan), &result)
+}
+
+type fileReferences struct {
+	base string
+	// paths are the kept files; dirs every directory holding one.
+	paths, dirs map[string]bool
+}
+
+func (s *BlobStore) fileReferences(accounts []string, keep map[string]bool) (refs fileReferences, err error) {
 	for _, id := range accounts {
-		if !realDirectory(base, id, "messages") {
+		if id == "" || id == "." || id == ".." || id == "avatars" || strings.HasPrefix(id, "_") || strings.ContainsAny(id, `/\`) {
+			return refs, fmt.Errorf("invalid account blob owner")
+		}
+	}
+	refs.base, err = filepath.Abs(s.basePath)
+	if err != nil {
+		return refs, err
+	}
+	refs.paths = make(map[string]bool)
+	refs.dirs = make(map[string]bool)
+	for path, retained := range keep {
+		if retained && path != "" {
+			abs, err := filepath.Abs(path)
+			if err != nil {
+				return refs, err
+			}
+			refs.paths[blobPathKey(abs)] = true
+			for dir := filepath.Dir(abs); dir != refs.base; dir = filepath.Dir(dir) {
+				rel, err := filepath.Rel(refs.base, dir)
+				if err != nil || !filepath.IsLocal(rel) || rel == "." {
+					break
+				}
+				refs.dirs[blobPathKey(dir)] = true
+			}
+		}
+	}
+	return refs, nil
+}
+
+func (s *BlobStore) cleanupMessageFiles(ctx context.Context, accounts []string, refs fileReferences, messages map[string]map[int64]bool, cutoff time.Time, result *UserFileCleanupResult) error {
+	for _, id := range accounts {
+		if !realDirectory(refs.base, id, "messages") {
 			continue
 		}
-		root := filepath.Join(base, id, "messages")
-		messages, err := os.ReadDir(root)
+		live, known := messages[id]
+		root := filepath.Join(refs.base, id, "messages")
+		entries, err := os.ReadDir(root)
 		if err != nil {
-			return result, err
+			return err
 		}
-		for _, msg := range messages {
+		for _, msg := range entries {
 			if err := ctx.Err(); err != nil {
-				return result, err
+				return err
 			}
 			localID, parseErr := strconv.ParseInt(msg.Name(), 10, 64)
 			if parseErr != nil || localID <= 0 || strconv.FormatInt(localID, 10) != msg.Name() || !realDirectory(root, msg.Name()) {
 				continue
 			}
-			versions, err := os.ReadDir(filepath.Join(root, msg.Name()))
+			dir := filepath.Join(root, msg.Name())
+			if known && !live[localID] && !refs.dirs[blobPathKey(dir)] {
+				old, err := unchangedSince(ctx, dir, cutoff)
+				if err != nil {
+					return err
+				}
+				if old {
+					if err := os.RemoveAll(dir); err != nil {
+						return err
+					}
+					result.Messages++
+					continue
+				}
+				// Recent changes keep the directory; its old versions still go.
+			}
+			versions, err := os.ReadDir(dir)
 			if err != nil {
-				return result, err
+				return err
 			}
 			for _, version := range versions {
 				if err := ctx.Err(); err != nil {
-					return result, err
+					return err
 				}
 				if !version.IsDir() || version.Type()&os.ModeSymlink != 0 || !versionName(version.Name()) {
 					continue
 				}
-				path := filepath.Join(root, msg.Name(), version.Name())
-				if retainedDirs[blobPathKey(path)] {
+				path := filepath.Join(dir, version.Name())
+				if refs.dirs[blobPathKey(path)] {
 					continue
 				}
-				old := true
-				// Include every descendant's age: adding a new attachment changes
-				// its directory but may leave the version root's mtime unchanged.
-				err := filepath.WalkDir(path, func(p string, entry os.DirEntry, walkErr error) error {
-					if walkErr != nil {
-						return walkErr
-					}
-					if err := ctx.Err(); err != nil {
-						return err
-					}
-					if entry.Type()&os.ModeSymlink != 0 {
-						old = false
-						return filepath.SkipAll
-					}
-					info, err := entry.Info()
-					if err != nil {
-						return err
-					}
-					if !info.ModTime().Before(cutoff) {
-						old = false
-						return filepath.SkipAll
-					}
-					return nil
-				})
+				old, err := unchangedSince(ctx, path, cutoff)
 				if err != nil {
-					return result, err
+					return err
 				}
 				if old {
 					if err := os.RemoveAll(path); err != nil {
-						return result, err
+						return err
 					}
 					result.Versions++
 				}
 			}
 		}
 	}
-	return result, nil
+	return nil
+}
+
+// unchangedSince reports whether nothing under path changed after cutoff.
+// Every descendant counts: adding a new attachment changes its directory but
+// may leave the root's mtime unchanged. A symlink anywhere keeps the tree.
+func unchangedSince(ctx context.Context, path string, cutoff time.Time) (bool, error) {
+	old := true
+	err := filepath.WalkDir(path, func(p string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			old = false
+			return filepath.SkipAll
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if !info.ModTime().Before(cutoff) {
+			old = false
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	return old, err
 }
 
 func versionName(name string) bool {

@@ -33,11 +33,11 @@ func (s *UserIMAP) CleanupUserFiles(ctx context.Context, owner string) (result s
 	opened := false
 	err = s.Routing().WithExistingUser(work, owner, func(db *storage.DB) error {
 		opened = true
-		return db.WithUserBlobReferences(work, owner, func(ids []string, keep map[string]bool) error {
+		return db.WithUserBlobReferences(work, owner, func(refs storage.BlobReferences) error {
 			// A local account row alone cannot authorize filesystem traversal.
 			// Central ownership/deletion state remains authoritative.
 			var active []string
-			for _, id := range ids {
+			for _, id := range refs.Accounts {
 				state, err := s.Routing().AccountStateForUser(work, owner, id)
 				if err != nil {
 					return err
@@ -47,7 +47,7 @@ func (s *UserIMAP) CleanupUserFiles(ctx context.Context, owner string) (result s
 				}
 			}
 			var err error
-			result, err = s.blobs.CleanupUserFiles(work, owner, active, keep, userFileRetention)
+			result, err = s.blobs.CleanupUserFiles(work, owner, active, refs.Paths, refs.Messages, userFileRetention)
 			return err
 		})
 	})
@@ -60,7 +60,7 @@ func (s *UserIMAP) CleanupUserFiles(ctx context.Context, owner string) (result s
 			return result, storage.ErrAccountRoute
 		}
 		if err == nil {
-			result, err = s.blobs.CleanupUserFiles(work, owner, nil, nil, userFileRetention)
+			result, err = s.blobs.CleanupUserFiles(work, owner, nil, nil, nil, userFileRetention)
 		}
 	}
 	return result, err
