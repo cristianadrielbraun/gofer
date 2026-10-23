@@ -103,7 +103,7 @@ func TestSummaryListsLeaveOtherFiltersToGeneralQuery(t *testing.T) {
 	}
 	db := newFolderThreadTestDB(t)
 	for _, folder := range []string{"starred", "scheduled", "starred-acct"} {
-		_, _, ok, err := db.summaryListScope(context.Background(), "reader", folder, models.EmailFilters{Unread: true})
+		_, ok, err := db.summaryListScope(context.Background(), "reader", folder, models.EmailFilters{Unread: true})
 		if err != nil || ok {
 			t.Errorf("%s served from summaries: %v", folder, err)
 		}

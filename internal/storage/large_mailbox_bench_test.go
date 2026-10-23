@@ -43,7 +43,7 @@ func BenchmarkLargeMailbox(b *testing.B) {
 	if err := db.RefreshFolderThreadState(ctx, inbox); err != nil {
 		b.Fatal(err)
 	}
-	threads, err := db.getFolderThreadStateCount(ctx, inbox)
+	threads, err := db.GetFolderEmailCount(ctx, inbox)
 	if err != nil {
 		b.Fatal(err)
 	}

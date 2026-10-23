@@ -4,96 +4,151 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 
 	"github.com/cristianadrielbraun/gofer/internal/models"
 )
 
-// summaryListScope answers a mail list from folder_thread_state when every
-// active filter and the sort order only need what that table already keeps
-// per conversation: read, starred and attachment state, size, account and the
-// head message. Such lists then cost the same as the unfiltered list instead
-// of grouping every message in the folder. It reports false for anything
-// else (search, sender, dates, tags, the Starred and Scheduled views), which
-// keep the general query.
-//
-// The returned scope is the joins and WHERE clause after
-// "FROM folder_thread_state fts JOIN messages m ... JOIN accounts a ...".
-func (db *DB) summaryListScope(ctx context.Context, userID, folderID string, filters models.EmailFilters) (string, []any, bool, error) {
-	if !summaryFiltersOnly(filters) || isStarredFolder(folderID) || folderID == "scheduled" {
-		return "", nil, false, nil
-	}
-	var where string
-	var args []any
-	if isUnifiedFolderID(folderID) {
-		if userID == "" {
-			return "", nil, false, nil
-		}
-		if err := db.ensureFolderThreadStateForUserRole(ctx, userID, folderID); err != nil {
-			return "", nil, false, err
-		}
-		rolePredicate, roleArgs := unifiedFolderRolePredicate("f", folderID)
-		accountFilter, accountArgs, err := db.unifiedFolderAccountFilter(ctx, userID, folderID, "owner")
-		if err != nil {
-			return "", nil, false, err
-		}
-		where = `JOIN folders f ON fts.folder_id = f.id
-			JOIN accounts owner ON f.account_id = owner.id
-			WHERE owner.user_id = ? AND ` + rolePredicate + accountFilter
-		args = append([]any{userID}, roleArgs...)
-		args = append(args, accountArgs...)
-	} else {
-		if err := db.ensureFolderThreadState(ctx, folderID); err != nil {
-			return "", nil, false, err
-		}
-		where = `WHERE fts.folder_id = ?`
-		args = []any{folderID}
-	}
-	if filters.Unread {
-		where += ` AND fts.thread_is_read = 0`
-	} else if filters.Read {
-		where += ` AND fts.thread_is_read = 1`
-	}
-	if filters.Starred {
-		where += ` AND fts.thread_is_starred = 1`
-	}
-	if filters.Attachments {
-		where += ` AND fts.thread_has_attachments = 1`
-	} else if filters.NoAttach {
-		where += ` AND fts.thread_has_attachments = 0`
-	}
-	if filters.ThreadsOnly {
-		where += ` AND fts.thread_count > 1`
-	} else if filters.NoThreads {
-		where += ` AND fts.thread_count = 1`
-	}
-	if filters.AccountID != "" {
-		where += ` AND fts.account_id = ?`
-		args = append(args, filters.AccountID)
-	}
+// A mailListSource is a table holding one row per mail list row in each
+// folder, with everything the list shows and filters on for that row, kept
+// up to date as mail changes. Its rows are read through the alias s.
+type mailListSource struct {
+	table string
+	// key names a row within its folder, and keyOf gives the key of the
+	// row listing the message bound to its ?.
+	key, keyOf string
+	// head is the message the row shows, last when the row last changed
+	// and count how many messages it stands for.
+	head, last, count string
+	// read, starred and attachments are the row's flags as listed.
+	read, starred, attachments string
+	account                    string
+	// summarized means the table is summaries that must be brought up to
+	// date before reading.
+	summarized bool
+	// matching keeps the rows with a full-text match for a folder's list,
+	// or for a unified list when folderID is a role.
+	matching func(match, folderID string) (string, []any)
+}
+
+// conversationListSource lists each conversation once, from
+// folder_thread_state.
+var conversationListSource = mailListSource{
+	table:       "folder_thread_state",
+	key:         "s.thread_key",
+	keyOf:       "(SELECT COALESCE(NULLIF(thread_id, ''), printf('msg:%d', id)) FROM messages WHERE id = ?)",
+	head:        "s.head_message_id",
+	last:        "s.last_message_at",
+	count:       "s.thread_count",
+	read:        "s.thread_is_read",
+	starred:     "s.thread_is_starred",
+	attachments: "s.thread_has_attachments",
+	account:     "s.account_id",
+	summarized:  true,
 	// A search keeps the conversations with a matching message anywhere,
 	// as the full list query does. A folder belongs to one account, so its
 	// list compares conversation keys alone, which SQLite looks up directly;
 	// a unified list compares account and key. The alias is not m, so the
 	// page is still chosen from the summary index before joining messages.
-	if match := searchMatchQuery(filters); match != "" {
+	matching: func(match, folderID string) (string, []any) {
 		// CROSS JOIN keeps the search first: otherwise SQLite may walk the
 		// account's messages and search once per message.
 		hits := `FROM message_search CROSS JOIN messages hit ON hit.id = message_search.rowid WHERE message_search MATCH ?`
 		key := `COALESCE(NULLIF(hit.thread_id, ''), printf('msg:%d', hit.id))`
 		if isUnifiedFolderID(folderID) {
-			where += ` AND (fts.account_id, fts.thread_key) IN (SELECT hit.account_id, ` + key + ` ` + hits + `)`
-			args = append(args, match)
-		} else {
-			where += ` AND fts.thread_key IN (SELECT ` + key + ` ` + hits + `
-				AND hit.account_id = (SELECT account_id FROM folders WHERE id = ?))`
-			args = append(args, match, folderID)
+			return ` AND (s.account_id, s.thread_key) IN (SELECT hit.account_id, ` + key + ` ` + hits + `)`, []any{match}
 		}
+		return ` AND s.thread_key IN (SELECT ` + key + ` ` + hits + `
+			AND hit.account_id = (SELECT account_id FROM folders WHERE id = ?))`, []any{match, folderID}
+	},
+}
+
+// mailListSourceFor is the source of a list with the given filters.
+func mailListSourceFor(models.EmailFilters) *mailListSource {
+	return &conversationListSource
+}
+
+// A mailListScope is the rows of one list in its source: the joins and
+// WHERE clause after "FROM <source table> s".
+type mailListScope struct {
+	src   *mailListSource
+	where string
+	args  []any
+}
+
+// summaryListScope answers a mail list from its source table when every
+// active filter and the sort order only need what that table already keeps
+// per row: read, starred and attachment state, size, account and the head
+// message. Such lists then cost the same as the unfiltered list instead of
+// grouping every message in the folder. It reports false for anything else
+// (search, sender, dates, tags, the Starred and Scheduled views), which keep
+// the general query.
+func (db *DB) summaryListScope(ctx context.Context, userID, folderID string, filters models.EmailFilters) (mailListScope, bool, error) {
+	if !summaryFiltersOnly(filters) || isStarredFolder(folderID) || folderID == "scheduled" {
+		return mailListScope{}, false, nil
 	}
-	return where, args, true, nil
+	src := mailListSourceFor(filters)
+	scope := mailListScope{src: src}
+	if isUnifiedFolderID(folderID) {
+		if userID == "" {
+			return mailListScope{}, false, nil
+		}
+		if src.summarized {
+			if err := db.ensureFolderThreadStateForUserRole(ctx, userID, folderID); err != nil {
+				return mailListScope{}, false, err
+			}
+		}
+		rolePredicate, roleArgs := unifiedFolderRolePredicate("f", folderID)
+		accountFilter, accountArgs, err := db.unifiedFolderAccountFilter(ctx, userID, folderID, "owner")
+		if err != nil {
+			return mailListScope{}, false, err
+		}
+		scope.where = `JOIN folders f ON s.folder_id = f.id
+			JOIN accounts owner ON f.account_id = owner.id
+			WHERE owner.user_id = ? AND ` + rolePredicate + accountFilter
+		scope.args = append([]any{userID}, roleArgs...)
+		scope.args = append(scope.args, accountArgs...)
+	} else {
+		if src.summarized {
+			if err := db.ensureFolderThreadState(ctx, folderID); err != nil {
+				return mailListScope{}, false, err
+			}
+		}
+		scope.where = `WHERE s.folder_id = ?`
+		scope.args = []any{folderID}
+	}
+	if filters.Unread {
+		scope.where += ` AND ` + src.read + ` = 0`
+	} else if filters.Read {
+		scope.where += ` AND ` + src.read + ` = 1`
+	}
+	if filters.Starred {
+		scope.where += ` AND ` + src.starred + ` = 1`
+	}
+	if filters.Attachments {
+		scope.where += ` AND ` + src.attachments + ` = 1`
+	} else if filters.NoAttach {
+		scope.where += ` AND ` + src.attachments + ` = 0`
+	}
+	if filters.ThreadsOnly {
+		scope.where += ` AND ` + src.count + ` > 1`
+	} else if filters.NoThreads {
+		scope.where += ` AND ` + src.count + ` = 1`
+	}
+	if filters.AccountID != "" {
+		scope.where += ` AND ` + src.account + ` = ?`
+		scope.args = append(scope.args, filters.AccountID)
+	}
+	if match := searchMatchQuery(filters); match != "" {
+		where, args := src.matching(match, folderID)
+		scope.where += where
+		scope.args = append(scope.args, args...)
+	}
+	return scope, true, nil
 }
 
 // summaryFiltersOnly reports whether the filters use nothing beyond the
-// per-conversation summary, a full-text search and a supported sort.
+// per-row summary, a full-text search and a supported sort.
 func summaryFiltersOnly(filters models.EmailFilters) bool {
 	flags := filters
 	flags.Unread, flags.Read, flags.Starred = false, false, false
@@ -111,9 +166,9 @@ func summaryFiltersOnly(filters models.EmailFilters) bool {
 	return false
 }
 
-// summaryOrderSQL is emailOrderSQL for lists read from folder_thread_state,
-// where the conversation's newest message is m.
-func summaryOrderSQL(filters models.EmailFilters) string {
+// order is emailOrderSQL for lists read from the source, where the row's
+// head message is m.
+func (scope mailListScope) order(filters models.EmailFilters) string {
 	direction := "DESC"
 	if filters.SortOrder == "asc" {
 		direction = "ASC"
@@ -124,30 +179,31 @@ func summaryOrderSQL(filters models.EmailFilters) string {
 	case "subject":
 		return "LOWER(COALESCE(m.subject, '')) " + direction + ", m.date_received DESC, m.id DESC"
 	default:
-		return "fts.last_message_at " + direction + ", fts.head_message_id " + direction
+		return scope.src.last + " " + direction + ", " + scope.src.head + " " + direction
 	}
 }
 
-func (db *DB) countSummaryList(ctx context.Context, where string, args []any) (int, error) {
+func (db *DB) countSummaryList(ctx context.Context, scope mailListScope) (int, error) {
 	var count int
-	err := db.Read().QueryRowContext(ctx, `SELECT COUNT(*) FROM folder_thread_state fts `+where, args...).Scan(&count)
+	err := db.Read().QueryRowContext(ctx, `SELECT COUNT(*) FROM `+scope.src.table+` s `+scope.where, scope.args...).Scan(&count)
 	return count, err
 }
 
 // summaryEmailPage loads one page of a summary-backed list. A negative
-// knownTotal is counted here.
-func (db *DB) summaryEmailPage(ctx context.Context, where string, args []any, filters models.EmailFilters, start, limit, knownTotal int) (*models.EmailPage, error) {
+// knownTotal is counted here, and so is an unfiltered list's, which mail
+// arriving makes stale and costs a single index count.
+func (db *DB) summaryEmailPage(ctx context.Context, scope mailListScope, filters models.EmailFilters, start, limit, knownTotal int) (*models.EmailPage, error) {
 	total := knownTotal
-	if total < 0 {
+	if total < 0 || emailFiltersEmpty(filters) {
 		var err error
-		if total, err = db.countSummaryList(ctx, where, args); err != nil {
+		if total, err = db.countSummaryList(ctx, scope); err != nil {
 			return nil, err
 		}
 	}
 	if start >= total {
 		return &models.EmailPage{TotalCount: total, DisplayTotalCount: total, WindowStart: start, WindowEnd: start}, nil
 	}
-	emails, err := db.listEmailsFromFolderThreadStateOrdered(ctx, where, args, summaryOrderSQL(filters), start, limit)
+	emails, err := db.listSummaryEmails(ctx, scope, scope.order(filters), start, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -166,31 +222,65 @@ func (db *DB) summaryEmailPage(ctx context.Context, where string, args []any, fi
 	return page, nil
 }
 
-// summaryPosition returns how many rows come before the conversation of
-// messageID in a summary-backed list in its default order, by counting index
-// entries rather than grouping the folder's messages. A message the list does
-// not show is reported at position 0.
-func (db *DB) summaryPosition(ctx context.Context, where string, args []any, messageID int64) (int, error) {
+func (db *DB) listSummaryEmails(ctx context.Context, scope mailListScope, order string, offset, limit int) ([]models.Email, error) {
+	src := scope.src
+	from := `FROM ` + src.table + ` s
+		JOIN messages m ON ` + src.head + ` = m.id
+		JOIN accounts a ON m.account_id = a.id
+		` + scope.where + `
+		ORDER BY ` + order + `
+		LIMIT ? OFFSET ?`
+	if !referencesMessageOrAccount.MatchString(scope.where + " " + order) {
+		// Choose the page from the source's index alone, then join only its
+		// rows: OFFSET would otherwise join every skipped row first.
+		from = `FROM ` + src.table + ` s
+		JOIN messages m ON ` + src.head + ` = m.id
+		JOIN accounts a ON m.account_id = a.id
+		WHERE s.rowid IN (SELECT s.rowid FROM ` + src.table + ` s ` + scope.where + `
+			ORDER BY ` + order + ` LIMIT ? OFFSET ?)
+		ORDER BY ` + order
+	}
+	query := `SELECT m.id, m.account_id, a.color AS account_color, m.subject, m.from_name, m.from_email,
+		       m.date_received, m.snippet, m.has_attachments, m.body_text_path, m.body_html_path,
+		       ` + src.attachments + `, s.folder_id, ` + src.read + `, ` + src.starred + `,
+		       m.thread_id, ` + src.count + `
+		` + from
+	args := append(append([]any{}, scope.args...), limit, offset)
+	rows, err := db.Read().QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list emails: %w", err)
+	}
+	defer rows.Close()
+	return db.scanEmailRows(ctx, rows)
+}
+
+// summaryPosition returns how many rows come before the row of messageID in
+// a summary-backed list in its default order, by counting index entries
+// rather than grouping the folder's messages. A message the list does not
+// show is reported at position 0.
+func (db *DB) summaryPosition(ctx context.Context, scope mailListScope, messageID int64) (int, error) {
+	src := scope.src
 	var last sql.NullString
 	var head int64
-	err := db.Read().QueryRowContext(ctx, `SELECT CAST(fts.last_message_at AS TEXT), fts.head_message_id
-		FROM folder_thread_state fts `+where+`
-		  AND fts.thread_key = (SELECT COALESCE(NULLIF(thread_id, ''), printf('msg:%d', id)) FROM messages WHERE id = ?)
-		ORDER BY fts.last_message_at DESC, fts.head_message_id DESC
-		LIMIT 1`, append(append([]any{}, args...), messageID)...).Scan(&last, &head)
+	err := db.Read().QueryRowContext(ctx, `SELECT CAST(`+src.last+` AS TEXT), `+src.head+`
+		FROM `+src.table+` s `+scope.where+`
+		  AND `+src.key+` = `+src.keyOf+`
+		ORDER BY `+src.last+` DESC, `+src.head+` DESC
+		LIMIT 1`, append(append([]any{}, scope.args...), messageID)...).Scan(&last, &head)
 	if errors.Is(err, sql.ErrNoRows) {
 		return 0, nil
 	}
 	if err != nil {
 		return 0, err
 	}
-	// Rows before it in "last_message_at DESC, head_message_id DESC" order,
-	// where a missing date sorts last.
-	before := ` AND (fts.last_message_at, fts.head_message_id) > (?, ?)`
+	// Rows before it in "last DESC, head DESC" order, where a missing date
+	// sorts last.
+	before := mailListScope{src: src, where: scope.where + ` AND (` + src.last + `, ` + src.head + `) > (?, ?)`}
 	beforeArgs := []any{last.String, head}
 	if !last.Valid {
-		before = ` AND (fts.last_message_at IS NOT NULL OR fts.head_message_id > ?)`
+		before.where = scope.where + ` AND (` + src.last + ` IS NOT NULL OR ` + src.head + ` > ?)`
 		beforeArgs = []any{head}
 	}
-	return db.countSummaryList(ctx, where+before, append(append([]any{}, args...), beforeArgs...))
+	before.args = append(append([]any{}, scope.args...), beforeArgs...)
+	return db.countSummaryList(ctx, before)
 }
