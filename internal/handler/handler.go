@@ -669,7 +669,7 @@ func (h *Handler) handleIndex(w http.ResponseWriter, r *http.Request) {
 			return nil, err
 		}
 		settings := h.db.GetUISettings(ctx, userID)
-		filters := applyEmailSortDefaults(parseEmailFilters(r), r, settings)
+		filters := applyEmailListSettings(parseEmailFilters(r), r, settings)
 		emailID := r.URL.Query().Get("email")
 		count := h.scheduledSidebarCount(ctx, userID)
 		if r.Header.Get("HX-Request") == "true" && r.Header.Get("HX-Target") == "mail-list" {
@@ -700,7 +700,7 @@ func (h *Handler) handleFolderWithEmail(w http.ResponseWriter, r *http.Request) 
 			return nil, err
 		}
 		settings := h.db.GetUISettings(ctx, userID)
-		return views.Layout(accounts, folderID, nil, nil, -1, -1, settings, nil, r.PathValue("email"), h.scheduledSidebarCount(ctx, userID), applyEmailSortDefaults(parseEmailFilters(r), r, settings)), nil
+		return views.Layout(accounts, folderID, nil, nil, -1, -1, settings, nil, r.PathValue("email"), h.scheduledSidebarCount(ctx, userID), applyEmailListSettings(parseEmailFilters(r), r, settings)), nil
 	})
 }
 
@@ -736,7 +736,8 @@ func (h *Handler) handleEmailPartial(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		var thread []models.ThreadItem
-		if r.URL.Query().Get("single") != "1" {
+		settings := h.db.GetUISettings(ctx, userID)
+		if r.URL.Query().Get("single") != "1" && views.GroupConversations(settings) {
 			thread, err = h.db.GetThreadMessagesForUser(ctx, email.AccountID, email.ThreadID, userID)
 			if err != nil {
 				return nil, err
@@ -750,7 +751,7 @@ func (h *Handler) handleEmailPartial(w http.ResponseWriter, r *http.Request) {
 			if repaired {
 				thread, _ = h.db.GetThreadMessagesForUser(ctx, email.AccountID, email.ThreadID, userID)
 			}
-			if views.ThreadNewestFirst(h.db.GetUISettings(ctx, userID)) {
+			if views.ThreadNewestFirst(settings) {
 				slices.Reverse(thread)
 			}
 		}
@@ -2278,7 +2279,7 @@ func (h *Handler) handleFolderPartial(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return nil, err
 		}
-		filters := applyEmailSortDefaults(parseEmailFilters(r), r, settings)
+		filters := applyEmailListSettings(parseEmailFilters(r), r, settings)
 		if r.Header.Get("HX-Request") != "true" {
 			return views.Layout(accounts, folderID, nil, nil, -1, -1, settings, nil, "", h.scheduledSidebarCount(ctx, userID), filters), nil
 		}
@@ -2307,7 +2308,7 @@ func (h *Handler) handleFolderFull(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return nil, err
 		}
-		filters := applyEmailSortDefaults(parseEmailFilters(r), r, settings)
+		filters := applyEmailListSettings(parseEmailFilters(r), r, settings)
 		selected := r.URL.Query().Get("selected")
 		window, err := h.loadMailWindow(ctx, userID, folderID, filters, selected, 50)
 		if err != nil {
@@ -2346,7 +2347,7 @@ func (h *Handler) loadMailWindow(ctx context.Context, userID, folderID string, f
 
 	var page *models.EmailPage
 	if selectedEmailID != "" && !emailFiltersActive(filters) {
-		page, err = h.db.GetEmailsAroundEmailForUser(ctx, userID, folderID, selectedEmailID, limit)
+		page, err = h.db.GetEmailsAroundEmailForUser(ctx, userID, folderID, selectedEmailID, limit, filters)
 		if err != nil {
 			return mailWindow{}, err
 		}
@@ -2370,7 +2371,10 @@ func (h *Handler) loadMailWindow(ctx context.Context, userID, folderID string, f
 		}
 	}
 	if selectedEmailID != "" {
-		window.selectedEmail = &models.Email{ID: h.visibleMailListSelectionID(ctx, userID, window.emails, selectedEmailID)}
+		window.selectedEmail = &models.Email{ID: selectedEmailID}
+		if !filters.ByMessage {
+			window.selectedEmail.ID = h.visibleMailListSelectionID(ctx, userID, window.emails, selectedEmailID)
+		}
 	}
 	return window, nil
 }
@@ -2414,10 +2418,10 @@ func (h *Handler) handleMailItems(w http.ResponseWriter, r *http.Request) {
 		}
 		settings := h.db.GetUISettings(ctx, userID)
 		ctx = storage.WithTimezone(ctx, settings["timezone"])
-		filters := applyEmailSortDefaults(parseEmailFilters(r), r, settings)
+		filters := applyEmailListSettings(parseEmailFilters(r), r, settings)
 		var page *models.EmailPage
 		if around := r.URL.Query().Get("around"); around != "" && !emailFiltersActive(filters) {
-			page, err = h.db.GetEmailsAroundEmailForUser(ctx, userID, folderID, around, limit)
+			page, err = h.db.GetEmailsAroundEmailForUser(ctx, userID, folderID, around, limit, filters)
 		} else if startStr := r.URL.Query().Get("start"); startStr != "" {
 			start, parseErr := strconv.Atoi(startStr)
 			if parseErr != nil || start < 0 {
@@ -2425,7 +2429,7 @@ func (h *Handler) handleMailItems(w http.ResponseWriter, r *http.Request) {
 			}
 			page, err = h.db.GetEmailsRangeFilteredForUserWithTotal(ctx, userID, folderID, start, limit, filters, knownTotal)
 		} else if cursor := r.URL.Query().Get("after"); cursor != "" && !emailFiltersActive(filters) {
-			page, err = h.db.GetEmailsAfterCursorForUser(ctx, userID, folderID, cursor, limit)
+			page, err = h.db.GetEmailsAfterCursorForUser(ctx, userID, folderID, cursor, limit, filters)
 		} else {
 			page, err = h.db.GetEmailsRangeFilteredForUser(ctx, userID, folderID, 0, limit, filters)
 		}
@@ -2480,7 +2484,7 @@ func (h *Handler) handleMailItemIDs(w http.ResponseWriter, r *http.Request) {
 		}
 		settings := db.GetUISettings(ctx, userID)
 		listCtx := storage.WithTimezone(ctx, settings["timezone"])
-		filters := applyEmailSortDefaults(parseEmailFilters(r), r, settings)
+		filters := applyEmailListSettings(parseEmailFilters(r), r, settings)
 		total := -1
 		for start := 0; ; start += pageSize {
 			page, err := db.GetEmailsRangeFilteredForUserWithTotal(listCtx, userID, folderID, start, pageSize, filters, total)
@@ -2631,13 +2635,21 @@ func parseFilterSizeMB(value string) int64 {
 	return int64(mb * 1024 * 1024)
 }
 
-func applyEmailSortDefaults(filters models.EmailFilters, r *http.Request, settings map[string]string) models.EmailFilters {
+// applyEmailListSettings fills in how the user's settings show mail lists:
+// the sort order the request leaves out, and whether rows are conversations
+// or single messages.
+func applyEmailListSettings(filters models.EmailFilters, r *http.Request, settings map[string]string) models.EmailFilters {
 	query := r.URL.Query()
 	if !query.Has("sort_by") {
 		filters.SortBy = normalizeEmailSortBy(settings["mail_list_sort_by"])
 	}
 	if !query.Has("sort_order") {
 		filters.SortOrder = normalizeSortOrder(settings["mail_list_sort_order"])
+	}
+	filters.ByMessage = !views.GroupConversations(settings)
+	if filters.ByMessage {
+		// Every row is a single message, so none is a conversation.
+		filters.ThreadsOnly, filters.NoThreads = false, false
 	}
 	return filters
 }
@@ -4759,7 +4771,7 @@ func (h *Handler) handleMailSidebar(w http.ResponseWriter, r *http.Request) {
 			return nil, err
 		}
 		settings := h.db.GetUISettings(ctx, userID)
-		return views.MailSidebarBody(accounts, strings.TrimSpace(r.URL.Query().Get("active_folder")), settings, h.scheduledSidebarCount(ctx, userID), applyEmailSortDefaults(parseEmailFilters(r), r, settings)), nil
+		return views.MailSidebarBody(accounts, strings.TrimSpace(r.URL.Query().Get("active_folder")), settings, h.scheduledSidebarCount(ctx, userID), applyEmailListSettings(parseEmailFilters(r), r, settings)), nil
 	})
 }
 
@@ -4781,7 +4793,7 @@ func (h *Handler) handleSidebarAccount(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			settings := h.db.GetUISettings(ctx, userID)
-			return views.SidebarAccountSection(account, strings.TrimSpace(r.URL.Query().Get("active_folder")), settings, applyEmailSortDefaults(parseEmailFilters(r), r, settings)), nil
+			return views.SidebarAccountSection(account, strings.TrimSpace(r.URL.Query().Get("active_folder")), settings, applyEmailListSettings(parseEmailFilters(r), r, settings)), nil
 		}
 		return nil, sql.ErrNoRows
 	})

@@ -24,8 +24,9 @@ func listedEmails(emails []models.Email) []listedEmail {
 	return out
 }
 
-// Lists answered from folder_thread_state must match the general query that
-// groups every message, for every filter and sort the summary supports.
+// Lists answered from their source table must match the general query that
+// groups every message into list rows, for every filter and sort the source
+// supports, both by conversation and message by message.
 func TestSummaryListsMatchGeneralQuery(t *testing.T) {
 	db := newSummaryListFixture(t)
 	ctx := context.Background()
@@ -42,6 +43,8 @@ func TestSummaryListsMatchGeneralQuery(t *testing.T) {
 			{Query: "nothing-matches-this"}, {Query: "!!"}, {Query: "collision"},
 		} {
 			f.SortBy, f.SortOrder = sort[0], sort[1]
+			cases = append(cases, f)
+			f.ByMessage = true
 			cases = append(cases, f)
 		}
 	}
@@ -103,7 +106,7 @@ func TestSummaryListsLeaveOtherFiltersToGeneralQuery(t *testing.T) {
 	}
 	db := newFolderThreadTestDB(t)
 	for _, folder := range []string{"starred", "scheduled", "starred-acct"} {
-		_, _, ok, err := db.summaryListScope(context.Background(), "reader", folder, models.EmailFilters{Unread: true})
+		_, ok, err := db.summaryListScope(context.Background(), "reader", folder, models.EmailFilters{Unread: true})
 		if err != nil || ok {
 			t.Errorf("%s served from summaries: %v", folder, err)
 		}
@@ -163,18 +166,27 @@ func newSummaryListFixture(t *testing.T) *DB {
 	return db
 }
 
-// Positions found through the summary index must match where the
-// conversation actually appears in the list.
+// Positions found through the source index must match where the
+// message's row actually appears in the list.
 func TestSummaryPositionMatchesListOrder(t *testing.T) {
 	db := newSummaryListFixture(t)
 	ctx := context.Background()
-	for _, folder := range []string{"box-inbox", "box-archive", "inbox", "archive"} {
+	for _, tt := range []struct {
+		folder  string
+		filters models.EmailFilters
+	}{
+		{"box-inbox", models.EmailFilters{}}, {"box-archive", models.EmailFilters{}},
+		{"inbox", models.EmailFilters{}}, {"archive", models.EmailFilters{}},
+		{"box-inbox", models.EmailFilters{ByMessage: true}}, {"box-archive", models.EmailFilters{ByMessage: true}},
+		{"inbox", models.EmailFilters{ByMessage: true}}, {"archive", models.EmailFilters{ByMessage: true}},
+	} {
+		folder := tt.folder
 		var page *models.EmailPage
 		var err error
 		if isUnifiedFolderID(folder) {
-			page, err = db.GetEmailsRangeForUser(ctx, "reader", folder, 0, 1000)
+			page, err = db.GetEmailsRangeFilteredForUser(ctx, "reader", folder, 0, 1000, tt.filters)
 		} else {
-			page, err = db.GetEmailsRange(ctx, folder, 0, 1000)
+			page, err = db.GetEmailsRangeFiltered(ctx, folder, 0, 1000, tt.filters)
 		}
 		if err != nil {
 			t.Fatal(err)
@@ -182,16 +194,18 @@ func TestSummaryPositionMatchesListOrder(t *testing.T) {
 		rowOf := make(map[string]int)
 		for i := len(page.Emails) - 1; i >= 0; i-- {
 			key := page.Emails[i].ThreadID
-			if key == "" {
+			if key == "" || tt.filters.ByMessage {
 				key = "msg:" + page.Emails[i].ID
 			}
 			rowOf[key] = i
 		}
 		found := 0
 		for id := int64(1); id <= 400; id++ {
-			var key string
-			if err := db.Read().QueryRow(`SELECT COALESCE(NULLIF(thread_id, ''), printf('msg:%d', id)) FROM messages WHERE id = ?`, id).Scan(&key); err != nil {
-				t.Fatal(err)
+			key := fmt.Sprintf("msg:%d", id)
+			if !tt.filters.ByMessage {
+				if err := db.Read().QueryRow(`SELECT COALESCE(NULLIF(thread_id, ''), printf('msg:%d', id)) FROM messages WHERE id = ?`, id).Scan(&key); err != nil {
+					t.Fatal(err)
+				}
 			}
 			want, listed := rowOf[key]
 			if listed {
@@ -200,15 +214,15 @@ func TestSummaryPositionMatchesListOrder(t *testing.T) {
 			emailID := fmt.Sprint(id)
 			var got int
 			if isUnifiedFolderID(folder) {
-				got, err = db.findEmailPositionForUser(ctx, "reader", folder, emailID)
+				got, err = db.findEmailPositionForUser(ctx, "reader", folder, emailID, tt.filters)
 			} else {
-				got, err = db.findEmailPosition(ctx, folder, emailID)
+				got, err = db.findEmailPosition(ctx, folder, emailID, tt.filters)
 			}
 			if err != nil {
 				t.Fatal(err)
 			}
 			if got != want {
-				t.Fatalf("%s message %d: position %d, list shows it at %d (listed %v)", folder, id, got, want, listed)
+				t.Fatalf("%s %+v message %d: position %d, list shows it at %d (listed %v)", folder, tt.filters, id, got, want, listed)
 			}
 		}
 		if found < 50 {

@@ -707,7 +707,7 @@ func TestOutlookProviderUnreadCountPreservedWhileImportIncomplete(t *testing.T) 
 		t.Fatalf("page totals with stale known_total local=%d display=%d, want local total/display 24", staleKnownTotalPage.TotalCount, staleKnownTotalPage.DisplayTotalCount)
 	}
 
-	nextPage, err := db.GetEmailsAfterCursorForUser(ctx, "default", "inbox", page.Emails[len(page.Emails)-1].ID, 50)
+	nextPage, err := db.GetEmailsAfterCursorForUser(ctx, "default", "inbox", page.Emails[len(page.Emails)-1].ID, 50, models.EmailFilters{})
 	if err != nil {
 		t.Fatalf("GetEmailsAfterCursorForUser() error = %v", err)
 	}

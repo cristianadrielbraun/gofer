@@ -107,6 +107,13 @@ func copyUserStorageMigrationRows(ctx context.Context, sourcePath string, destin
 					return err
 				}
 			}
+			// Folder states copied from before they kept their message's
+			// date may have been copied before their messages.
+			if table.Name == "message_folder_state" && !migrationHasColumn(table, "message_date") {
+				if _, err := tx.ExecContext(ctx, folderMessageListBackfillSQL); err != nil {
+					return err
+				}
+			}
 		}
 		// Verify after every insertion/transform, so a later trigger cannot
 		// silently alter a table that already passed comparison.

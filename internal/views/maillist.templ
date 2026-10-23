@@ -189,7 +189,7 @@ templ MailListHeader(accounts []models.Account, activeFolder string, totalCount 
 					/>
 				</div>
 				<div class="mail-list-search-actions">
-					@MailFiltersPopover(accounts)
+					@MailFiltersPopover(accounts, !filters.ByMessage)
 				</div>
 			</div>
 			<div data-mail-active-filter-pills class="mail-active-filter-strip hidden" aria-label="Active filters"></div>
@@ -639,7 +639,9 @@ templ MailSelectAllBanner() {
 	</div>
 }
 
-templ MailFiltersPopover(accounts []models.Account) {
+// MailFiltersPopover offers filtering by conversation only while the list
+// groups mail into conversations.
+templ MailFiltersPopover(accounts []models.Account, conversations bool) {
 	@popover.Root(popover.RootProps{ID: "mail-filters-popover", Class: "inline-flex"}) {
 		@popover.Trigger() {
 			<button type="button" aria-label="Filters" data-mail-filter-button class="mail-list-advanced-filter-button relative inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 text-xs font-semibold text-foreground hover:bg-accent data-[active=true]:bg-accent data-[active=true]:text-foreground">
@@ -857,10 +859,12 @@ templ MailFiltersPopover(accounts []models.Account) {
 										<div class="text-[11px] font-medium text-muted-foreground">Tags</div>
 										@MailFilterTriState("tags", "no", "No", "yes", "Yes")
 									</div>
-									<div class="space-y-1">
-										<div class="text-[11px] font-medium text-muted-foreground">Threads</div>
-										@MailFilterTriState("threads", "no", "No", "yes", "Yes")
-									</div>
+									if conversations {
+										<div class="space-y-1">
+											<div class="text-[11px] font-medium text-muted-foreground">Threads</div>
+											@MailFilterTriState("threads", "no", "No", "yes", "Yes")
+										</div>
+									}
 								</div>
 							</section>
 						</div>

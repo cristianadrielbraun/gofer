@@ -972,3 +972,32 @@ func TestSettingsAppearanceShowsTheMessageStyle(t *testing.T) {
 		}
 	}
 }
+
+// Mail settings offer grouping mail by conversation, on until turned off,
+// and the thread order only matters while it is on.
+func TestSettingsMailOffersConversationGrouping(t *testing.T) {
+	for _, tt := range []struct {
+		saved   string
+		grouped bool
+	}{{"", true}, {"true", true}, {"false", false}} {
+		var out bytes.Buffer
+		if err := SettingsComposeDisplayTab(map[string]string{"group_conversations": tt.saved}, nil).Render(context.Background(), &out); err != nil {
+			t.Fatalf("SettingsComposeDisplayTab.Render() error = %v", err)
+		}
+		html := out.String()
+		start := strings.Index(html, `id="group-conversations"`)
+		if start < 0 {
+			t.Fatalf("saved %q: no conversation grouping switch", tt.saved)
+		}
+		toggle := html[strings.LastIndex(html[:start], "<input"):]
+		toggle = toggle[:strings.Index(toggle, ">")]
+		if strings.Contains(toggle, "checked") != tt.grouped {
+			t.Fatalf("saved %q: switch %s, want checked %v", tt.saved, toggle, tt.grouped)
+		}
+		row := html[strings.LastIndex(html[:strings.Index(html, `data-setting-depends-on="group-conversations"`)], "<div"):]
+		row = row[:strings.Index(row, ">")]
+		if faded := strings.Contains(row, "opacity-50"); faded == tt.grouped {
+			t.Fatalf("saved %q: thread order row %s faded %v, want %v", tt.saved, row, faded, !tt.grouped)
+		}
+	}
+}

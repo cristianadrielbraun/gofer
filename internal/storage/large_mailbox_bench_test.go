@@ -43,7 +43,7 @@ func BenchmarkLargeMailbox(b *testing.B) {
 	if err := db.RefreshFolderThreadState(ctx, inbox); err != nil {
 		b.Fatal(err)
 	}
-	threads, err := db.getFolderThreadStateCount(ctx, inbox)
+	threads, err := db.GetFolderEmailCount(ctx, inbox)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -84,10 +84,37 @@ func BenchmarkLargeMailbox(b *testing.B) {
 		return db.GetEmailsRange(ctx, inbox, threads/2, 50)
 	}))
 	measure("ScrollAfterCursor", page(func() (*models.EmailPage, error) {
-		return db.GetEmailsAfterCursor(ctx, inbox, middle, 50)
+		return db.GetEmailsAfterCursor(ctx, inbox, middle, 50, models.EmailFilters{})
 	}))
 	measure("OpenMessageInList", page(func() (*models.EmailPage, error) {
-		return db.GetEmailsAroundEmail(ctx, inbox, middle, 50)
+		return db.GetEmailsAroundEmail(ctx, inbox, middle, 50, models.EmailFilters{})
+	}))
+	// The same, listing each message on its own.
+	byMessage := models.EmailFilters{ByMessage: true}
+	inboxMessages, err := db.GetFolderEmailCountFiltered(ctx, inbox, byMessage)
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.Logf("inbox has %d messages", inboxMessages)
+	measure("ByMessage/OpenFolder", page(func() (*models.EmailPage, error) {
+		return db.GetEmailsRangeFiltered(ctx, inbox, 0, 50, byMessage)
+	}))
+	measure("ByMessage/ScrollDeepPage", page(func() (*models.EmailPage, error) {
+		return db.GetEmailsRangeFiltered(ctx, inbox, inboxMessages/2, 50, byMessage)
+	}))
+	measure("ByMessage/ScrollAfterCursor", page(func() (*models.EmailPage, error) {
+		return db.GetEmailsAfterCursor(ctx, inbox, middle, 50, byMessage)
+	}))
+	measure("ByMessage/OpenMessageInList", page(func() (*models.EmailPage, error) {
+		return db.GetEmailsAroundEmail(ctx, inbox, middle, 50, byMessage)
+	}))
+	measure("ByMessage/FilterUnread", page(func() (*models.EmailPage, error) {
+		filters := models.EmailFilters{Unread: true, ByMessage: true}
+		total, err := db.GetFolderEmailCountFiltered(ctx, inbox, filters)
+		if err != nil {
+			return nil, err
+		}
+		return db.GetEmailsRangeFilteredWithTotal(ctx, inbox, 0, 50, filters, total)
 	}))
 	// The list handler counts first, then loads the page.
 	measure("FilterUnread", page(func() (*models.EmailPage, error) {

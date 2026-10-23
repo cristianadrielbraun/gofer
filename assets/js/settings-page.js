@@ -84,6 +84,10 @@
     if (emailBodyStyle && typeof GoferSettings !== 'undefined') {
       GoferSettings.set('email_body_style', emailBodyStyle.value);
     }
+    var groupConversations = e.target.closest('[data-group-conversations-setting]');
+    if (groupConversations && typeof GoferSettings !== 'undefined') {
+      GoferSettings.set('group_conversations', groupConversations.checked ? 'true' : 'false');
+    }
     var threadOrder = e.target.closest('input[name="thread_order"]');
     if (threadOrder && typeof GoferSettings !== 'undefined') {
       GoferSettings.set('thread_order', threadOrder.value);

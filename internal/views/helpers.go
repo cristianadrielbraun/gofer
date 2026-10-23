@@ -1021,6 +1021,12 @@ func autoMarkReadSettingLabel(value string) string {
 	}
 }
 
+// GroupConversations reports whether mail lists show each conversation
+// once, opening into all its messages, rather than each message on its own.
+func GroupConversations(settings map[string]string) bool {
+	return uiSettingGet(settings, "group_conversations", "true") != "false"
+}
+
 // ThreadNewestFirst reports whether the reading pane lists a thread's messages
 // newest first, like the message list, rather than in reading order.
 func ThreadNewestFirst(settings map[string]string) bool {

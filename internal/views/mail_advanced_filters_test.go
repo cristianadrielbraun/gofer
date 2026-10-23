@@ -12,7 +12,7 @@ import (
 func TestMailFiltersPopoverRendersWithCompactSidebarSections(t *testing.T) {
 	var out bytes.Buffer
 	accounts := []models.Account{{ID: "account-1", Email: "person@example.com"}}
-	if err := MailFiltersPopover(accounts).Render(context.Background(), &out); err != nil {
+	if err := MailFiltersPopover(accounts, true).Render(context.Background(), &out); err != nil {
 		t.Fatalf("MailFiltersPopover.Render() error = %v", err)
 	}
 
@@ -76,5 +76,19 @@ func TestMailFiltersPopoverRendersWithCompactSidebarSections(t *testing.T) {
 	}
 	if strings.Contains(html, "sm:grid-cols-2") || strings.Contains(html, "sm:grid-cols-3") || strings.Contains(html, "grid-cols-2 gap-3") {
 		t.Error("filter controls should use one column inside the detail panel")
+	}
+}
+
+// Filtering by conversation is offered only while the list groups mail
+// into conversations.
+func TestMailFiltersPopoverOffersThreadsOnlyForConversations(t *testing.T) {
+	for _, conversations := range []bool{true, false} {
+		var out bytes.Buffer
+		if err := MailFiltersPopover(nil, conversations).Render(context.Background(), &out); err != nil {
+			t.Fatalf("MailFiltersPopover.Render() error = %v", err)
+		}
+		if got := strings.Contains(out.String(), `data-mail-tristate="threads"`); got != conversations {
+			t.Fatalf("conversations %v: threads filter offered %v", conversations, got)
+		}
 	}
 }
