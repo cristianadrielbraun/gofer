@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -806,5 +807,38 @@ func TestJMAPAccountsNeedTheExperimentFlag(t *testing.T) {
 	err = store.UpdateAccount(ctx, account.ID, &models.CreateAccountRequest{Provider: "jmap", JMAPSessionURL: "https://mail.example.test/.well-known/jmap"})
 	if !errors.Is(err, providers.ErrJMAPDisabled) {
 		t.Fatalf("UpdateAccount() error = %v, want ErrJMAPDisabled", err)
+	}
+}
+
+// A new account goes after the ones the owner already put in order.
+func TestCreateAccountGoesLast(t *testing.T) {
+	ctx := context.Background()
+	db, store := newAccountStoreTestStore(t)
+	seedAccountStoreTestUser(t, ctx, db)
+	var ids []string
+	for _, email := range []string{"zoe@example.com", "adam@example.com"} {
+		account, err := store.CreateAccount(ctx, "default", secureAccountStoreTestRequest(email))
+		if err != nil {
+			t.Fatalf("CreateAccount(%s) error = %v", email, err)
+		}
+		ids = append(ids, account.ID)
+	}
+	if err := db.SetAccountOrder(ctx, "default", []string{ids[1], ids[0]}); err != nil {
+		t.Fatal(err)
+	}
+	added, err := store.CreateAccount(ctx, "default", secureAccountStoreTestRequest("bea@example.com"))
+	if err != nil {
+		t.Fatalf("CreateAccount() error = %v", err)
+	}
+	accounts, err := db.GetAccounts(ctx, "default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, account := range accounts {
+		got = append(got, account.ID)
+	}
+	if want := []string{ids[1], ids[0], added.ID}; !slices.Equal(got, want) {
+		t.Fatalf("accounts = %v, want %v", got, want)
 	}
 }

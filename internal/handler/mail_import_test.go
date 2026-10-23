@@ -132,7 +132,7 @@ func TestMailImportOfAGoferExport(t *testing.T) {
 		t.Fatalf("sources = %+v, %+v", inbox, archive)
 	}
 
-	req := ownerRequest(httptest.NewRequest(http.MethodGet, "/api/mail/imports/"+job.ID+"/review", nil))
+	req := ownerRequest(httptest.NewRequest(http.MethodGet, "/api/mail/imports/"+job.ID+"/review?account="+f.account.ID, nil))
 	req.SetPathValue("id", job.ID)
 	review := httptest.NewRecorder()
 	f.h.handleReviewMailImport(review, req)

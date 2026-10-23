@@ -34,7 +34,8 @@ CREATE TABLE IF NOT EXISTS accounts (
     email_sync_error_at DATETIME,
     is_deleting INTEGER NOT NULL DEFAULT 0,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    sort_order INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_accounts_user ON accounts(user_id);
@@ -1681,4 +1682,4 @@ CREATE TABLE IF NOT EXISTS calendar_invitation_messages (
 );
 
 -- Schema version marker for fresh installs
-INSERT OR REPLACE INTO schema_version (version) VALUES (123);
+INSERT OR REPLACE INTO schema_version (version) VALUES (124);

@@ -4795,7 +4795,7 @@ func (db *DB) GetAccounts(ctx context.Context, userID string) ([]models.Account,
 		 FROM accounts a
 		 LEFT JOIN account_contact_sync_configs acc ON acc.account_id = a.id AND acc.user_id = a.user_id
 		 WHERE a.user_id = ? AND COALESCE(a.is_deleting, 0) = 0
-		 ORDER BY a.id`, userID)
+		 ORDER BY a.sort_order, a.id`, userID)
 	if err != nil {
 		return nil, fmt.Errorf("query accounts: %w", err)
 	}
@@ -4853,7 +4853,7 @@ func (db *DB) GetAccountsIncludingDeleting(ctx context.Context, userID string) (
 		 FROM accounts a
 		 LEFT JOIN account_contact_sync_configs acc ON acc.account_id = a.id AND acc.user_id = a.user_id
 		 WHERE a.user_id = ?
-		 ORDER BY a.id`, userID)
+		 ORDER BY a.sort_order, a.id`, userID)
 	if err != nil {
 		return nil, fmt.Errorf("query accounts: %w", err)
 	}
