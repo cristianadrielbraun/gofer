@@ -101,3 +101,17 @@ func TestSettingsJMAPSyncUsesAccountWideUpdates(t *testing.T) {
 		})
 	}
 }
+
+func TestConnectionTestResultsShowWarning(t *testing.T) {
+	var out bytes.Buffer
+	results := []models.ConnectionTestResult{{Success: true, Service: "jmap", Message: "Connected", Warning: "Sending won't work: this login can't send mail."}}
+	if err := ConnectionTestResults(results, "", "add").Render(t.Context(), &out); err != nil {
+		t.Fatal(err)
+	}
+	html := out.String()
+	// The result keeps its success box; the warning gets its own box below.
+	success, warning := strings.Index(html, "bg-emerald-500/10"), strings.Index(html, "data-connection-test-warning")
+	if success < 0 || warning < success || !strings.Contains(html[warning:], "this login can&#39;t send mail") {
+		t.Fatalf("warning not shown below the success box: %s", html)
+	}
+}

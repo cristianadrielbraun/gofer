@@ -56,8 +56,8 @@ func SendJMAPMessage(ctx context.Context, cfg *models.AccountConfig, password, f
 	if account == "" {
 		return "", notSent(errors.New("the JMAP server offers no mail account for this login"), false)
 	}
-	if _, ok := session.Capabilities[jmap.CapabilitySubmission]; !ok {
-		return "", notSent(errors.New("the JMAP server does not offer sending"), false)
+	if !jmapCanSend(session) {
+		return "", notSent(ErrJMAPCannotSend, false)
 	}
 	identities, err := client.GetIdentities(ctx, session, account)
 	if err != nil {

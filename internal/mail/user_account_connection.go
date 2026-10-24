@@ -9,6 +9,7 @@ import (
 
 	"github.com/cristianadrielbraun/gofer/internal/config"
 	"github.com/cristianadrielbraun/gofer/internal/mail/imap"
+	"github.com/cristianadrielbraun/gofer/internal/mail/jmap"
 	smtpclient "github.com/cristianadrielbraun/gofer/internal/mail/smtp"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
@@ -59,7 +60,7 @@ func (s *UserIMAP) TestAccount(ctx context.Context, owner, id string) ([]models.
 			}
 			return ctx.Err()
 		}
-		var jmapAccountID string
+		var jmapSession *jmap.Session
 		probe := func(service, message, success string, test func() error) {
 			result := models.ConnectionTestResult{Service: service, Message: message}
 			err := RetryConnectionTest(ctx, 250*time.Millisecond, func() error {
@@ -80,14 +81,15 @@ func (s *UserIMAP) TestAccount(ctx context.Context, owner, id string) ([]models.
 			results = append(results, models.ConnectionTestResult{Service: "jmap", Error: providers.ErrJMAPDisabled.Error()})
 		} else if scope.config.Provider == providers.ProviderJMAP {
 			probe("jmap", scope.config.JMAPSessionURL, "", func() error {
-				accountID, err := TestJMAPConnection(ctx, scope.config, scope.password)
+				session, err := TestJMAPConnection(ctx, scope.config, scope.password)
 				if err == nil {
-					jmapAccountID = accountID
+					jmapSession = session
 				}
 				return err
 			})
 			if n := len(results); n > 0 && results[n-1].Success {
-				results[n-1].Message = fmt.Sprintf("Connected to %s (mail account %s)", scope.config.JMAPSessionURL, jmapAccountID)
+				results[n-1].Message = fmt.Sprintf("Connected to %s (mail account %s)", scope.config.JMAPSessionURL, jmapSession.PrimaryAccount(jmap.CapabilityMail))
+				results[n-1].Warning = JMAPSendingWarning(jmapSession)
 			}
 		} else if scope.tokens == nil {
 			probe("imap", fmt.Sprintf("%s:%d (%s)", scope.config.IMAPHost, scope.config.IMAPPort, scope.config.IMAPTLSMode), "Connection successful", func() error { return imap.TestConnection(ctx, scope.config, scope.password) })

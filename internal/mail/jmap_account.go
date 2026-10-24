@@ -126,32 +126,59 @@ func closeRequestBody(req *http.Request) {
 }
 
 // TestJMAPConnection fetches a JMAP account's session and checks that it
-// offers a mail account, which it returns.
-func TestJMAPConnection(ctx context.Context, cfg *models.AccountConfig, password string) (string, error) {
+// offers a mail account.
+func TestJMAPConnection(ctx context.Context, cfg *models.AccountConfig, password string) (*jmap.Session, error) {
 	client, err := newJMAPAccountClient(cfg, password)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	session, err := client.Session(ctx, cfg.JMAPSessionURL)
 	if err != nil {
-		return "", jmapLoginError(err)
+		return nil, jmapLoginError(err)
 	}
-	accountID := session.PrimaryAccount(jmap.CapabilityMail)
-	if accountID == "" {
-		return "", errors.New("the JMAP server offers no mail account for this login")
+	if session.PrimaryAccount(jmap.CapabilityMail) == "" {
+		return nil, errors.New("the JMAP server offers no mail account for this login")
 	}
-	return accountID, nil
+	return session, nil
+}
+
+// ErrJMAPCannotSend means the login reads mail but the server does not let it
+// send, as with an API token made without the submission permission.
+var ErrJMAPCannotSend = errors.New("the JMAP server doesn't let this login send mail; if you signed in with an API token, create one that also has the email submission permission")
+
+// jmapCanSend reports whether the session lets its primary mail account send.
+// The account's own capabilities are checked when the server lists them.
+func jmapCanSend(session *jmap.Session) bool {
+	if _, ok := session.Capabilities[jmap.CapabilitySubmission]; !ok {
+		return false
+	}
+	account := session.Accounts[session.PrimaryAccount(jmap.CapabilityMail)]
+	if len(account.AccountCapabilities) == 0 {
+		return true
+	}
+	_, ok := account.AccountCapabilities[jmap.CapabilitySubmission]
+	return ok
+}
+
+// JMAPSendingWarning is the connection test warning for a session that cannot
+// send mail, or "" when it can.
+func JMAPSendingWarning(session *jmap.Session) string {
+	if jmapCanSend(session) {
+		return ""
+	}
+	return "Sending won't work: the JMAP server doesn't let this login send mail. If you signed in with an API token, create one that also has the Email submission permission."
 }
 
 // JMAPConnectionTestResult is TestJMAPConnection as a connection test result.
 func JMAPConnectionTestResult(ctx context.Context, cfg *models.AccountConfig, password string) models.ConnectionTestResult {
 	result := models.ConnectionTestResult{Service: "jmap", Message: cfg.JMAPSessionURL}
-	accountID, err := TestJMAPConnection(ctx, cfg, password)
+	session, err := TestJMAPConnection(ctx, cfg, password)
 	if err != nil {
 		result.Error = err.Error()
 		return result
 	}
 	result.Success = true
-	result.Message = fmt.Sprintf("Connected to %s (mail account %s)", cfg.JMAPSessionURL, accountID)
+	result.Message = fmt.Sprintf("Connected to %s (mail account %s)", cfg.JMAPSessionURL, session.PrimaryAccount(jmap.CapabilityMail))
+	result.Warning = JMAPSendingWarning(session)
 	return result
 }

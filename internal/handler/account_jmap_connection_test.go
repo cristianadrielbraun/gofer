@@ -75,6 +75,10 @@ func TestNewJMAPAccountConnectionTestDiscoversTheSession(t *testing.T) {
 	if got, want := rec.Header().Get(jmapSessionURLHeader), server.URL+"/.well-known/jmap"; got != want {
 		t.Fatalf("session URL header = %q, want %q", got, want)
 	}
+	// The session offers no submission, so the test passes with a warning.
+	if !strings.Contains(rec.Body.String(), "let this login send mail") {
+		t.Fatalf("no sending warning: %s", rec.Body.String())
+	}
 
 	rec = postNewAccountTest(h, jmapAccountTestForm(address, "wrong"))
 	if rec.Header().Get(accountConnectionTestResultHeader) != "failed" || !strings.Contains(rec.Body.String(), "rejected the username or password") {

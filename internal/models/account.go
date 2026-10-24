@@ -35,6 +35,9 @@ type ConnectionTestResult struct {
 	Service string `json:"service"`
 	Message string `json:"message"`
 	Error   string `json:"error,omitempty"`
+	// Warning is a problem a successful connection still has, such as a
+	// login that can read mail but not send it.
+	Warning string `json:"warning,omitempty"`
 }
 
 type EditAccountData struct {

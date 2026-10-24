@@ -14,10 +14,18 @@ function accountTestDialog(event) {
   return dialogID ? document.getElementById(dialogID) : null
 }
 
-function setAccountTestService(section, state, status, detail) {
+// setAccountTestService shows a service's state on its card. A warning, for a
+// connection that works with a problem, goes in its own box under the card.
+function setAccountTestService(section, state, status, detail, warning) {
   if (!section) return
 
   section.dataset.state = state
+  var warningBox = section.nextElementSibling
+  if (warningBox && warningBox.hasAttribute("data-account-test-service-warning")) {
+    var warningText = warningBox.querySelector("[data-account-test-service-warning-text]")
+    if (warningText) warningText.textContent = warning || ""
+    warningBox.classList.toggle("hidden", !warning)
+  }
   var statusEl = section.querySelector("[data-account-test-service-status]")
   var detailEl = section.querySelector("[data-account-test-service-detail]")
   if (statusEl) statusEl.textContent = status
@@ -74,7 +82,7 @@ function handleAccountTestResult(event) {
       } else if (!result) {
         setAccountTestService(section, "error", "No result returned", "The service check did not report a status.")
       } else if (result.success) {
-        setAccountTestService(section, "success", result.message || "Connection successful", "")
+        setAccountTestService(section, "success", result.message || "Connection successful", "", result.warning)
       } else {
         setAccountTestService(section, "error", result.error || "Connection failed", result.message || "")
       }

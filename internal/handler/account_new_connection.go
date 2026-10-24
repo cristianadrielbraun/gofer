@@ -181,6 +181,7 @@ func (h *Handler) writeJMAPAccountTest(ctx context.Context, w http.ResponseWrite
 			w.Header().Set(jmapSessionURLHeader, sessionURL)
 			result.Success = true
 			result.Message = fmt.Sprintf("Connected to %s (mail account %s)", sessionURL, session.PrimaryAccount(jmap.CapabilityMail))
+			result.Warning = mail.JMAPSendingWarning(session)
 		}
 	}
 	if err != nil {

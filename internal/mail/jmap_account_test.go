@@ -2,6 +2,7 @@ package mail
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -124,5 +125,30 @@ func TestJMAPAccountClientRefusesRedirectToOtherEndpoint(t *testing.T) {
 func TestJMAPAccountClientRejectsOtherProviders(t *testing.T) {
 	if _, err := newJMAPAccountClient(&models.AccountConfig{Provider: "imap"}, "secret"); err == nil {
 		t.Fatal("built a JMAP client for an IMAP account")
+	}
+}
+
+func TestJMAPSendingWarning(t *testing.T) {
+	capability := map[string]json.RawMessage{jmap.CapabilityMail: nil, jmap.CapabilitySubmission: nil}
+	mailOnly := map[string]json.RawMessage{jmap.CapabilityMail: nil}
+	for _, tc := range []struct {
+		name        string
+		session     map[string]json.RawMessage
+		account     map[string]json.RawMessage
+		wantWarning bool
+	}{
+		{"can send", capability, capability, false},
+		{"account capabilities not listed", capability, nil, false},
+		{"server without sending", mailOnly, mailOnly, true},
+		{"account without sending", capability, mailOnly, true},
+	} {
+		session := &jmap.Session{
+			Capabilities:    tc.session,
+			Accounts:        map[string]jmap.Account{"a1": {AccountCapabilities: tc.account}},
+			PrimaryAccounts: map[string]string{jmap.CapabilityMail: "a1"},
+		}
+		if got := JMAPSendingWarning(session); (got != "") != tc.wantWarning {
+			t.Errorf("%s: warning = %q, want warning %v", tc.name, got, tc.wantWarning)
+		}
 	}
 }

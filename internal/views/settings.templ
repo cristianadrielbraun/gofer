@@ -1736,6 +1736,12 @@ templ SettingsAccountConnectionTestDialog(account models.Account) {
 								<p class="mt-0.5 hidden break-words text-xs text-muted-foreground" data-account-test-service-detail></p>
 							</div>
 						</div>
+						<div class="hidden" data-account-test-service-warning={ service.ID }>
+							<div class="flex items-start gap-3 rounded-lg border border-amber-500/25 bg-amber-500/10 p-3">
+								@icon.TriangleAlert(icon.Props{Class: "size-5 shrink-0 text-amber-700 dark:text-amber-300"})
+								<p class="min-w-0 flex-1 break-words text-xs leading-relaxed text-amber-800 dark:text-amber-200" data-account-test-service-warning-text></p>
+							</div>
+						</div>
 					}
 				</div>
 			</div>
@@ -4573,6 +4579,14 @@ templ ConnectionTestResults(results []models.ConnectionTestResult, accountID str
 				</div>
 			}
 		</div>
+		for _, r := range results {
+			if r.Success && r.Warning != "" {
+				<div class="flex items-start gap-3 p-3 rounded-lg border bg-amber-500/10 border-amber-500/25" data-connection-test-warning>
+					@icon.TriangleAlert(icon.Props{Class: "size-5 shrink-0 text-amber-700 dark:text-amber-300"})
+					<p class="flex-1 min-w-0 text-xs leading-relaxed text-amber-800 dark:text-amber-200">{ r.Warning }</p>
+				</div>
+			}
+		}
 		if wizardType == "" {
 			<button
 				class="w-full inline-flex items-center justify-center gap-1.5 text-sm font-medium px-4 py-2 rounded-lg border border-border hover:bg-accent transition-colors"
