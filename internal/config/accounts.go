@@ -466,6 +466,11 @@ func (s *AccountStore) saveContactSyncConfig(ctx context.Context, userID, accoun
 			addressbook_url = excluded.addressbook_url,
 			username = excluded.username,
 			encrypted_password = excluded.encrypted_password,
+			-- A JMAP state covers the whole account, so it is only good for the
+			-- books it was taken with; start over after any JMAP save, and
+			-- after switching provider.
+			last_sync_token = CASE WHEN excluded.provider = 'jmap' OR account_contact_sync_configs.provider != excluded.provider
+				THEN '' ELSE account_contact_sync_configs.last_sync_token END,
 			last_error = '',
 			updated_at = CURRENT_TIMESTAMP`,
 		accountID, userID, provider, boolInt(cfg.Enabled), strings.TrimSpace(cfg.BaseURL), strings.TrimSpace(cfg.AddressBookURL), strings.TrimSpace(cfg.Username), encrypted)

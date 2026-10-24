@@ -24,6 +24,7 @@
     "archiveThread",
     "calendarDescriptionExec",
     "calendarDescriptionSelection",
+    "chooseContactProtocol",
     "closeComposeSchedulePopover",
     "closeMobileContactView",
     "closeMobileMailView",

@@ -51,6 +51,10 @@ func (h *Handler) handleUserSaveAccountContactSync(w http.ResponseWriter, r *htt
 		return
 	}
 	owner, id := h.userID(r.Context()), r.PathValue("id")
+	if jmapContactSetupRequested(r) {
+		h.saveUserJMAPContactSync(w, r, owner, id)
+		return
+	}
 	cfg := contactTestConfig(r, owner, id)
 	password := r.FormValue("password")
 	cfg.Enabled = cfg.BaseURL != "" || len(cfg.AddressBooks) > 0 || cfg.Username != "" || password != ""
@@ -168,6 +172,10 @@ func (h *Handler) handleUserDiscoverAccountContactSync(w http.ResponseWriter, r 
 		return
 	}
 	owner, id := h.userID(r.Context()), r.PathValue("id")
+	if jmapContactSetupRequested(r) {
+		h.discoverUserJMAPContactBooks(w, r, owner, id)
+		return
+	}
 	streaming := strings.Contains(r.Header.Get("Accept"), "application/x-ndjson")
 	streamed := false
 	err := h.userIMAP.RunAccountService(r.Context(), owner, id, mail.AccountServiceContacts, cardDAVDiscoveryOverallTimeout, func(ctx context.Context) error {

@@ -16,7 +16,7 @@ func (s *UserAccountStore) StartContactPull(ctx context.Context, snapshot *Accou
 		return nil, err
 	}
 	cfg := snapshot.ContactConfig()
-	if !cfg.Enabled || (cfg.Provider != "gmail" && cfg.Provider != "outlook" && cfg.Provider != "carddav") {
+	if !cfg.Enabled || (cfg.Provider != "gmail" && cfg.Provider != "outlook" && cfg.Provider != "carddav" && cfg.Provider != "jmap") {
 		return nil, storage.ErrContactPublication
 	}
 	err = s.WithAccountForUser(ctx, snapshot.owner, snapshot.id, func(_ *AccountStore, db *storage.DB) error {
