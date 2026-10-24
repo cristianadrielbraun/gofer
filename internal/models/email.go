@@ -191,10 +191,13 @@ type CalendarSyncConfig struct {
 	CalDAVUsername              string
 	CalDAVHasPassword           bool
 	CalDAVUseAccountCredentials bool
-	Enabled                     bool
-	SourceCount                 int
-	SelectedSourceCount         int
-	Sources                     []CalendarSource
+	// Protocol is "jmap" when a JMAP account's calendars come over its own
+	// JMAP connection, and "caldav" for an IMAP or JMAP account using CalDAV.
+	Protocol            string
+	Enabled             bool
+	SourceCount         int
+	SelectedSourceCount int
+	Sources             []CalendarSource
 }
 
 type ContactAddressBook struct {

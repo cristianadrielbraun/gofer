@@ -784,6 +784,35 @@ func TestCalendarSyncSettingsRenderSelectableSources(t *testing.T) {
 	}
 }
 
+// A JMAP account chooses between JMAP and CalDAV calendars, starting on JMAP
+// unless its calendars already come from CalDAV; an IMAP account has only
+// CalDAV.
+func TestCalendarSyncSettingsOfferJMAPToJMAPAccounts(t *testing.T) {
+	render := func(data models.EditAccountData) string {
+		t.Helper()
+		var out bytes.Buffer
+		if err := CalendarSyncSettings(data).Render(context.Background(), &out); err != nil {
+			t.Fatal(err)
+		}
+		return out.String()
+	}
+	fresh := render(models.EditAccountData{AccountID: "a1", Provider: "jmap", EmailAddress: "lena@example.test"})
+	for _, want := range []string{`name="calendar_protocol" value="jmap"`, "Sync calendars over", `value="jmap" checked`, `data-calendar-protocol="caldav"`, "Calendars come from the same JMAP server"} {
+		if !strings.Contains(fresh, want) {
+			t.Errorf("new JMAP account form missing %q", want)
+		}
+	}
+	onCalDAV := render(models.EditAccountData{AccountID: "a1", Provider: "jmap", EmailAddress: "lena@example.test",
+		CalendarSync: models.CalendarSyncConfig{Protocol: "caldav", CalDAVBaseURL: "https://dav.example.test/", SourceCount: 1, Sources: []models.CalendarSource{{ID: "s1", Name: "Home"}}}})
+	if !strings.Contains(onCalDAV, `name="calendar_protocol" value="caldav"`) || !strings.Contains(onCalDAV, `value="caldav" checked`) {
+		t.Errorf("JMAP account on CalDAV doesn't start on CalDAV")
+	}
+	imap := render(models.EditAccountData{AccountID: "a2", Provider: "imap", EmailAddress: "sam@example.test"})
+	if strings.Contains(imap, "calendar_protocol") || !strings.Contains(imap, `name="caldav_url"`) {
+		t.Errorf("IMAP account form offers JMAP or lacks CalDAV")
+	}
+}
+
 func TestConnectionTestResultsUseProviderLayoutAndStatusColors(t *testing.T) {
 	results := []models.ConnectionTestResult{{Service: "gmail", Message: "Gmail API mail access successful", Success: true}}
 	var successOut bytes.Buffer

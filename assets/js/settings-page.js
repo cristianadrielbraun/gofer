@@ -1343,23 +1343,29 @@ function chooseContactProtocol(radio) {
   var form = radio && radio.closest ? radio.closest('form') : null;
   if (form && radio.checked) applyContactProtocol(form, radio.value);
 }
-function applyContactProtocol(form, protocol) {
-  var field = form.querySelector('[data-contact-protocol-field]');
+// applyProtocolChoice shows the form's sections for the chosen protocol,
+// marked data-<kind>-protocol, and disables the inputs of the others so they
+// aren't sent; kind is "contact" or "calendar".
+function applyProtocolChoice(form, kind, protocol) {
+  var field = form.querySelector('[data-' + kind + '-protocol-field]');
   if (field) field.value = protocol;
-  form.querySelectorAll('[data-contact-protocol]').forEach(function(section) {
-    var show = section.dataset.contactProtocol === protocol;
+  form.querySelectorAll('[data-' + kind + '-protocol]').forEach(function(section) {
+    var show = section.getAttribute('data-' + kind + '-protocol') === protocol;
     section.classList.toggle('hidden', !show);
     if (section.tagName === 'SPAN') section.classList.toggle('contents', show);
     section.querySelectorAll('input, select, textarea, button').forEach(function(input) {
       if (!show && !input.disabled) {
         input.disabled = true;
-        input.dataset.contactProtocolDisabled = '1';
-      } else if (show && input.dataset.contactProtocolDisabled) {
+        input.dataset.protocolDisabled = '1';
+      } else if (show && input.dataset.protocolDisabled) {
         input.disabled = false;
-        delete input.dataset.contactProtocolDisabled;
+        delete input.dataset.protocolDisabled;
       }
     });
   });
+}
+function applyContactProtocol(form, protocol) {
+  applyProtocolChoice(form, 'contact', protocol);
   var status = form.querySelector('[id$="-contact-sync-status-' + (form.dataset.accountId || '') + '"]');
   if (status && form.dataset.contactProtocolShown && form.dataset.contactProtocolShown !== protocol) status.textContent = '';
   form.dataset.contactProtocolShown = protocol;
@@ -1370,8 +1376,21 @@ function syncContactProtocols(root) {
     if (form) applyContactProtocol(form, field.value);
   });
 }
-document.addEventListener('DOMContentLoaded', function() { syncContactProtocols(document); });
-document.body.addEventListener('htmx:afterSwap', function(event) { syncContactProtocols(event.target || document); });
+// chooseCalendarProtocol switches a JMAP account's calendar form between
+// JMAP and CalDAV.
+function chooseCalendarProtocol(radio) {
+  var form = radio && radio.closest ? radio.closest('form') : null;
+  if (form && radio.checked) applyProtocolChoice(form, 'calendar', radio.value);
+}
+function syncProtocolChoices(root) {
+  syncContactProtocols(root);
+  (root || document).querySelectorAll('[data-calendar-protocol-field]').forEach(function(field) {
+    var form = field.closest('form');
+    if (form) applyProtocolChoice(form, 'calendar', field.value);
+  });
+}
+document.addEventListener('DOMContentLoaded', function() { syncProtocolChoices(document); });
+document.body.addEventListener('htmx:afterSwap', function(event) { syncProtocolChoices(event.target || document); });
 function discoverCardDAV(accountID, fieldsID, statusID, autodiscover) {
   var fields = document.getElementById(fieldsID);
   var status = document.getElementById(statusID);
