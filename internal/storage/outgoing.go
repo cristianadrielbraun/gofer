@@ -173,6 +173,21 @@ func (db *DB) QueueOutgoingSend(ctx context.Context, input QueueOutgoingSendInpu
 	return db.GetOutgoingSend(ctx, input.ID)
 }
 
+// A finished send drops its message. A calendar invitation or cancellation
+// keeps its recipients and the event it was about, so Calendar can show that
+// it was sent; retention deletes it like any other finished send.
+const outgoingCalendarReceiptSQL = `(CASE WHEN json_valid(message_json) THEN json_type(message_json,'$.calendar_notification') END) = 'object'`
+
+const outgoingSentClearSQL = `envelope_recipients = CASE WHEN ` + outgoingCalendarReceiptSQL + ` THEN envelope_recipients ELSE '[]' END,
+	mime_data = NULL,
+	message_json = CASE WHEN ` + outgoingCalendarReceiptSQL + ` THEN json_object('calendar_notification', json_object(
+		'UserID', json_extract(message_json,'$.calendar_notification.UserID'),
+		'SourceID', json_extract(message_json,'$.calendar_notification.SourceID'),
+		'ResourceID', json_extract(message_json,'$.calendar_notification.ResourceID'),
+		'Method', json_extract(message_json,'$.calendar_notification.Method'),
+		'Calendar', json_extract(message_json,'$.calendar_notification.Calendar'),
+		'Deleted', json(CASE WHEN json_extract(message_json,'$.calendar_notification.Deleted') THEN 'true' ELSE 'false' END))) ELSE '' END`
+
 func (db *DB) CancelOutgoingSendForMessage(ctx context.Context, messageID int64) error {
 	if messageID <= 0 {
 		return nil
@@ -370,7 +385,7 @@ func (db *DB) CompleteOutgoingSend(ctx context.Context, id, sentMessageID string
 			SET status = ?, sent_message_id = ?, last_error = '', locked_at = NULL,
 				sent_copy_status = ?, sent_copy_attempt_count = 0, sent_copy_last_error = '',
 				sent_copy_locked_at = NULL, sent_copy_next_attempt_at = CURRENT_TIMESTAMP,
-				envelope_recipients = '[]', mime_data = NULL, message_json = '', updated_at = CURRENT_TIMESTAMP
+				`+outgoingSentClearSQL+`, updated_at = CURRENT_TIMESTAMP
 			WHERE id = ? AND status = ?`
 	}
 	result, err := db.Write().ExecContext(ctx, query, OutgoingSendSent, sentMessageID, sentCopyStatus, id, OutgoingSendSending)
@@ -461,7 +476,7 @@ func (db *DB) CompleteSentCopy(ctx context.Context, id string, uid, uidValidity 
 		UPDATE outgoing_sends
 		SET sent_copy_status = ?, sent_copy_last_error = '', sent_copy_locked_at = NULL,
 			sent_copy_uid = ?, sent_copy_uid_validity = ?,
-			envelope_recipients = '[]', mime_data = NULL, message_json = '', updated_at = CURRENT_TIMESTAMP
+			`+outgoingSentClearSQL+`, updated_at = CURRENT_TIMESTAMP
 		WHERE id = ? AND status = ? AND sent_copy_status = ?`,
 		SentCopyComplete, uid, uidValidity, id, OutgoingSendSent, SentCopyCopying)
 	if err != nil {

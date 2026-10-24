@@ -78,7 +78,7 @@ func (db *DB) pruneDurableMailJobs(ctx context.Context, now time.Time, batch int
 				 AND os.locked_at IS NULL
 				 AND os.sent_copy_locked_at IS NULL
 				 AND (os.mime_data IS NULL OR length(os.mime_data) = 0)
-				 AND length(COALESCE(os.message_json, '')) = 0)
+				 AND (length(COALESCE(os.message_json, '')) = 0 OR `+outgoingCalendarReceiptSQL+`))
 				OR
 				(os.status = ?
 				 AND os.updated_at < ?
