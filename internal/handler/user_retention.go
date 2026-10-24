@@ -110,6 +110,7 @@ func (h *Handler) runUserMailRetentionAt(ctx context.Context, now time.Time, tim
 				total.IMAPDraftOperations += pruned.IMAPDraftOperations
 				total.LabelMutations += pruned.LabelMutations
 				total.FolderStates += pruned.FolderStates
+				total.Messages += pruned.Messages
 				if err != nil {
 					// Concurrent removal closes this owner's maintenance admission.
 					if !errors.Is(err, storage.ErrUserStoreOwner) {

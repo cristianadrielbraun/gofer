@@ -71,6 +71,7 @@ func (h *Handler) runMailRetentionAt(ctx context.Context, now time.Time) {
 		total.IMAPDraftOperations += pruned.IMAPDraftOperations
 		total.LabelMutations += pruned.LabelMutations
 		total.FolderStates += pruned.FolderStates
+		total.Messages += pruned.Messages
 		if pruned.Total() == 0 {
 			break
 		}
@@ -110,6 +111,7 @@ func (h *Handler) recordMailRetention(now time.Time, total storage.DurableJobPru
 			IMAPDraftOperations: total.IMAPDraftOperations,
 			LabelMutations:      total.LabelMutations,
 			FolderStates:        total.FolderStates,
+			Messages:            total.Messages,
 		},
 		LastError: lastError,
 	}

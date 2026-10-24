@@ -109,6 +109,9 @@ func TestPruneDurableMailJobsRemovesOldDeletedFolderStates(t *testing.T) {
 	if _, err := db.Write().Exec(`UPDATE message_folder_state SET deleted_at = CASE WHEN message_id = 2 THEN ? ELSE ? END WHERE is_deleted = 1`, recent, old); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := db.Write().Exec(`UPDATE messages SET created_at = ?`, old); err != nil {
+		t.Fatal(err)
+	}
 
 	result, err := db.PruneDurableMailJobs(t.Context(), now, RetentionBatchSize)
 	if err != nil {
@@ -133,9 +136,63 @@ func TestPruneDurableMailJobsRemovesOldDeletedFolderStates(t *testing.T) {
 	if want := []int64{2, 3, 4, 5, 6, 7}; !slices.Equal(kept, want) {
 		t.Fatalf("kept folder states of messages %v, want %v", kept, want)
 	}
-	// The message row itself stays; only its folder state goes.
-	var messages int
-	if err := db.Read().QueryRow(`SELECT COUNT(*) FROM messages WHERE id = 1`).Scan(&messages); err != nil || messages != 1 {
-		t.Fatalf("message 1 rows = %d, %v", messages, err)
+	// Message 1 is left in no folder, so the same pass removes it.
+	if result.Messages != 1 {
+		t.Fatalf("pruned %d messages, want 1", result.Messages)
+	}
+}
+
+// Messages left in no folder are removed with their search entries, except
+// ones that are new or that something still refers to.
+func TestPruneDurableMailJobsRemovesFolderlessMessages(t *testing.T) {
+	db := newFolderThreadTestDB(t)
+	now := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
+	old := now.Add(-48 * time.Hour).Format("2006-01-02 15:04:05")
+	recent := now.Add(-time.Hour).Format("2006-01-02 15:04:05")
+	if _, err := db.Write().Exec(`
+		INSERT INTO messages(id, account_id, subject) VALUES
+			(1, 'acct', 'Picnic plans'), (2, 'acct', ''), (3, 'acct', ''), (4, 'acct', ''), (5, 'acct', ''), (6, 'acct', ''), (7, 'acct', '');
+		INSERT INTO message_folder_state(message_id, folder_id) VALUES (2, 'box-inbox');
+		INSERT INTO message_mutations(id, account_id, message_id, provider_type, kind, target_value, status)
+			VALUES ('mut-4', 'acct', 4, 'imap', 'read', 1, 'applied');
+		INSERT INTO outgoing_sends(id, account_id, transport, envelope_from, send_after, message_id)
+			VALUES ('send-5', 'acct', 'smtp', 'ana@example.test', CURRENT_TIMESTAMP, 5);
+		INSERT INTO imap_draft_states(account_id, draft_key, local_message_id, folder_remote_name)
+			VALUES ('acct', 'draft-6', 6, 'Drafts');
+		INSERT INTO label_mutation_queue(account_id, message_id, provider_type, operation, label_name)
+			VALUES ('acct', 7, 'gmail', 'add', 'Receipts');
+		INSERT INTO message_search(rowid, account_id, thread_key, subject) VALUES (1, 'acct', 'msg:1', 'Picnic plans');`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Write().Exec(`UPDATE messages SET created_at = CASE WHEN id = 3 THEN ? ELSE ? END`, recent, old); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := db.PruneDurableMailJobs(t.Context(), now, RetentionBatchSize)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Messages != 1 {
+		t.Fatalf("pruned %d messages, want 1", result.Messages)
+	}
+	rows, err := db.Read().Query(`SELECT id FROM messages ORDER BY id`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var kept []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		kept = append(kept, id)
+	}
+	if want := []int64{2, 3, 4, 5, 6, 7}; !slices.Equal(kept, want) {
+		t.Fatalf("kept messages %v, want %v", kept, want)
+	}
+	var search int
+	if err := db.Read().QueryRow(`SELECT COUNT(*) FROM message_search WHERE rowid = 1`).Scan(&search); err != nil || search != 0 {
+		t.Fatalf("search rows of removed message = %d, %v", search, err)
 	}
 }

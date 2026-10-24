@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"strings"
 	"time"
 )
 
@@ -11,6 +12,10 @@ const (
 	// deleted is kept before the retention pass removes it.
 	DeletedFolderStateRetentionPeriod = 30 * 24 * time.Hour
 	deletedFolderStateBatchSize       = 1000
+	// Messages created this recently stay, in case their folder state is
+	// still being written.
+	folderlessMessageMinAge    = 24 * time.Hour
+	folderlessMessageBatchSize = 500
 )
 
 // message_folder_state.deleted_at is when a folder state was marked deleted,
@@ -116,4 +121,56 @@ func pruneDeletedFolderStatesTx(ctx context.Context, tx *sql.Tx, cutoff time.Tim
 	}
 	n, err := result.RowsAffected()
 	return int(n), err
+}
+
+// pruneFolderlessMessagesTx removes up to batch messages that are in no folder
+// at all, such as ones whose marked states were let go, and drops them from
+// search. Messages with queued or applied changes, a local draft or a send
+// stay, and so do messages created within the last day.
+func (db *DB) pruneFolderlessMessagesTx(ctx context.Context, tx *sql.Tx, now time.Time, batch int) (int, error) {
+	rows, err := tx.QueryContext(ctx, `
+		SELECT m.id
+		FROM messages m
+		WHERE m.created_at < ?
+		  AND NOT EXISTS (SELECT 1 FROM message_folder_state mfs WHERE mfs.message_id = m.id)
+		  AND NOT EXISTS (SELECT 1 FROM message_mutations mm WHERE mm.message_id = m.id)
+		  AND NOT EXISTS (SELECT 1 FROM label_mutation_queue lmq WHERE lmq.message_id = m.id)
+		  AND NOT EXISTS (SELECT 1 FROM imap_draft_states ids WHERE ids.local_message_id = m.id)
+		  AND NOT EXISTS (SELECT 1 FROM outgoing_sends os WHERE os.message_id = m.id)
+		ORDER BY m.id
+		LIMIT ?`, now.Add(-folderlessMessageMinAge).UTC().Format("2006-01-02 15:04:05"), batch)
+	if err != nil {
+		return 0, err
+	}
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Close(); err != nil {
+		return 0, err
+	}
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		args[i] = id
+	}
+	result, err := tx.ExecContext(ctx, `DELETE FROM messages WHERE id IN (?`+strings.Repeat(",?", len(ids)-1)+`)`, args...)
+	if err != nil {
+		return 0, err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	if err := db.reindexMessagesSearchTx(ctx, tx, ids); err != nil {
+		return 0, err
+	}
+	return int(n), nil
 }
