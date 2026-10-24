@@ -491,6 +491,17 @@ func (h *Handler) handleDiscoverAccountCalendars(w http.ResponseWriter, r *http.
 			statusError = true
 			break
 		}
+		if data.Provider == providers.ProviderJMAP && calendarDiscoveryProtocol(r, storage.CalendarSourceProviderCalDAV) == storage.CalendarSourceProviderJMAP {
+			count, discoverErr := h.discoverJMAPCalendarSources(ctx, userID, accountID)
+			if discoverErr != nil {
+				statusMessage = "Calendar discovery failed: " + discoverErr.Error()
+				statusError = true
+				break
+			}
+			statusMessage = fmt.Sprintf("Discovered %d JMAP calendar(s). The default calendar is selected.", count)
+			discoverySucceeded = true
+			break
+		}
 		autodiscover := r.FormValue("autodiscover") == "1"
 		useAccountCredentials := r.FormValue("use_account_credentials") == "1"
 		baseURL := strings.TrimSpace(r.FormValue("caldav_url"))

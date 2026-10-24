@@ -22,6 +22,9 @@ import (
 )
 
 func calendarSourceWritable(source storage.CalendarSource) bool {
+	if source.Provider == storage.CalendarSourceProviderJMAP {
+		return false // Gofer only reads JMAP calendars so far.
+	}
 	role := strings.ToLower(strings.TrimSpace(source.AccessRole))
 	if source.Provider == storage.CalendarSourceProviderCalDAV && (role == "" || role == "unknown") {
 		return true // Older CalDAV discoveries omitted privileges; PUT still enforces server access.

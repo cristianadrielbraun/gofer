@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/mail/jmap"
 	"github.com/cristianadrielbraun/gofer/internal/models"
@@ -75,4 +76,107 @@ func jmapCalendarsSession(ctx context.Context, cfg *models.AccountConfig, passwo
 		return nil, nil, "", ErrJMAPNoCalendars
 	}
 	return client, session, account, nil
+}
+
+// jmapCalendarPageSize is how many events are fetched per request when the
+// server sets no lower limit.
+const jmapCalendarPageSize = 500
+
+// JMAPCalendarEvents are the events of one calendar that take place in a
+// time range: each series once, unexpanded, as the server stores it. State
+// is the account's event state from before they were read, so a change made
+// while they are read is seen by the next check.
+type JMAPCalendarEvents struct {
+	Events []jmap.CalendarEvent
+	State  string
+}
+
+// PullJMAPCalendarEvents fetches the events of a calendar that overlap
+// [start, end), series included when an occurrence does.
+func PullJMAPCalendarEvents(ctx context.Context, cfg *models.AccountConfig, password, calendarID string, start, end time.Time) (*JMAPCalendarEvents, error) {
+	client, session, account, err := jmapCalendarsSession(ctx, cfg, password)
+	if err != nil {
+		return nil, err
+	}
+	current, err := client.GetCalendarEvents(ctx, session, account, []string{})
+	if err != nil {
+		return nil, err
+	}
+	out := &JMAPCalendarEvents{State: current.State}
+	limit := jmapCalendarPageSize
+	if most := session.Core.MaxObjectsInGet; most > 0 && most < limit {
+		limit = most
+	}
+	filter := jmap.CalendarEventFilter{InCalendar: calendarID, After: start.UTC().Format(time.RFC3339), Before: end.UTC().Format(time.RFC3339)}
+	for position := 0; ; {
+		query, err := client.QueryCalendarEvents(ctx, session, account, filter, position, limit)
+		if err != nil {
+			return nil, err
+		}
+		if len(query.IDs) > 0 {
+			events, err := client.GetCalendarEvents(ctx, session, account, query.IDs)
+			if err != nil {
+				return nil, err
+			}
+			out.Events = append(out.Events, events.List...)
+		}
+		position += len(query.IDs)
+		// A server that leaves out the total is read until a page is empty.
+		if len(query.IDs) == 0 || (query.Total > 0 && position >= query.Total) {
+			return out, nil
+		}
+	}
+}
+
+// JMAPCalendarState is the account's calendar event state, which changes
+// whenever any of its events does.
+func JMAPCalendarState(ctx context.Context, cfg *models.AccountConfig, password string) (string, error) {
+	client, session, account, err := jmapCalendarsSession(ctx, cfg, password)
+	if err != nil {
+		return "", err
+	}
+	current, err := client.GetCalendarEvents(ctx, session, account, []string{})
+	if err != nil {
+		return "", err
+	}
+	return current.State, nil
+}
+
+// CreateJMAPCalendarEvent saves a new event in a calendar and gives its id.
+func CreateJMAPCalendarEvent(ctx context.Context, cfg *models.AccountConfig, password, calendarID string, event jmap.CalendarEvent) (string, error) {
+	client, session, account, err := jmapCalendarsSession(ctx, cfg, password)
+	if err != nil {
+		return "", err
+	}
+	event["calendarIds"] = map[string]any{calendarID: true}
+	delete(event, "id")
+	result, err := client.SetCalendarEvents(ctx, session, jmap.CalendarEventSet{AccountID: account, Create: map[string]jmap.CalendarEvent{"new": event}})
+	if err != nil {
+		return "", err
+	}
+	if failure, ok := result.NotCreated["new"]; ok {
+		return "", &failure
+	}
+	id := result.Created["new"].ID()
+	if id == "" {
+		return "", errors.New("CalendarEvent/set: the server gave the new event no id")
+	}
+	return id, nil
+}
+
+// DeleteJMAPCalendarEvent destroys an event. One already gone counts as
+// deleted.
+func DeleteJMAPCalendarEvent(ctx context.Context, cfg *models.AccountConfig, password, id string) error {
+	client, session, account, err := jmapCalendarsSession(ctx, cfg, password)
+	if err != nil {
+		return err
+	}
+	result, err := client.SetCalendarEvents(ctx, session, jmap.CalendarEventSet{AccountID: account, Destroy: []string{id}})
+	if err != nil {
+		return err
+	}
+	if failure, ok := result.NotDestroyed[id]; ok && failure.Type != "notFound" {
+		return &failure
+	}
+	return nil
 }

@@ -368,11 +368,18 @@ func (h *Handler) handleUserDiscoverCalendars(w http.ResponseWriter, r *http.Req
 		if err != nil {
 			return err
 		}
+		if protocol := calendarDiscoveryProtocol(r, snapshot.Provider()); protocol != snapshot.Provider() {
+			if snapshot, err = snapshot.WithProvider(protocol); err != nil {
+				return err
+			}
+		}
 		request := &userCalendarRequest{h: h, snapshot: snapshot}
 		var sources []storage.CalendarSource
 		var dav *config.DiscoveredCalDAVSettings
 		if snapshot.Provider() == storage.CalendarSourceProviderCalDAV {
 			sources, dav, err = request.discoverDAV(ctx, r)
+		} else if snapshot.Provider() == storage.CalendarSourceProviderJMAP {
+			sources, err = request.discoverJMAP(ctx)
 		} else if h.userCredentials == nil {
 			err = errors.New("Mailbox OAuth is not configured for this Gofer instance.")
 		} else {
@@ -409,6 +416,8 @@ func (h *Handler) handleUserDiscoverCalendars(w http.ResponseWriter, r *http.Req
 			label = "Microsoft calendar source(s)"
 		} else if snapshot.Provider() == storage.CalendarSourceProviderCalDAV {
 			label = "CalDAV calendar(s)"
+		} else if snapshot.Provider() == storage.CalendarSourceProviderJMAP {
+			label = "JMAP calendar(s)"
 		}
 		message = fmt.Sprintf("Discovered %d %s. The primary calendar is selected by default.", len(sources), label)
 		return nil

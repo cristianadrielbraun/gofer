@@ -85,6 +85,18 @@ func (m *calendarChangeMarks) forget(owner string, selected []storage.CalendarSo
 	}
 }
 
+// changeTag is the change tag of the request's CalDAV or JMAP calendar.
+func (p *userCalendarRequest) changeTag(ctx context.Context, source storage.CalendarSource) (string, error) {
+	if source.Provider == storage.CalendarSourceProviderJMAP {
+		cfg, password, err := p.jmapConnection(ctx)
+		if err != nil {
+			return "", err
+		}
+		return jmapCalendarChangeTag(ctx, cfg, password)
+	}
+	return p.calDAVChangeTag(ctx, source)
+}
+
 // calDAVChangeTag is the change tag of the request's CalDAV calendar.
 func (p *userCalendarRequest) calDAVChangeTag(ctx context.Context, source storage.CalendarSource) (string, error) {
 	username, password, err := p.calDAVCredentials(source)
@@ -120,9 +132,9 @@ func calDAVCalendarChangeTag(ctx context.Context, calendarURL, username, passwor
 }
 
 // calendarChanged asks the provider whether anything in the calendar changed
-// since mark. getJSON reads from Google or Outlook, davTag reads a CalDAV
-// calendar's change tag.
-func calendarChanged(source storage.CalendarSource, mark calendarChangeMark, getJSON func(endpoint string, out any) error, davTag func() (string, error)) (changed bool, tag string, err error) {
+// since mark. getJSON reads from Google or Outlook, changeTag reads a CalDAV
+// or JMAP calendar's change tag.
+func calendarChanged(source storage.CalendarSource, mark calendarChangeMark, getJSON func(endpoint string, out any) error, changeTag func() (string, error)) (changed bool, tag string, err error) {
 	since := mark.since.Add(-calendarChangeSkew).UTC().Format(time.RFC3339)
 	switch source.Provider {
 	case "gmail":
@@ -135,8 +147,8 @@ func calendarChanged(source storage.CalendarSource, mark calendarChangeMark, get
 		var page struct{ Value []struct{ ID string } }
 		err := getJSON(outlookGraphBaseURL+"/me/calendars/"+url.PathEscape(source.RemoteID)+"/events?"+values.Encode(), &page)
 		return len(page.Value) > 0, "", err
-	case storage.CalendarSourceProviderCalDAV:
-		tag, err := davTag()
+	case storage.CalendarSourceProviderCalDAV, storage.CalendarSourceProviderJMAP:
+		tag, err := changeTag()
 		// A server without change tags is only refreshed on its schedule.
 		return err == nil && tag != "" && tag != mark.tag, tag, err
 	}
@@ -201,13 +213,13 @@ func (h *Handler) userCalendarSourceChanged(ctx context.Context, source storage.
 			return storage.ErrCalendarSourceChanged
 		}
 		p := &userCalendarRequest{h: h, source: snapshot}
-		if source.Provider != storage.CalendarSourceProviderCalDAV && h.userCredentials == nil {
+		if calendarProviderUsesOAuth(source.Provider) && h.userCredentials == nil {
 			return errors.New("mailbox OAuth is not configured")
 		}
-		if source.Provider != storage.CalendarSourceProviderCalDAV {
+		if calendarProviderUsesOAuth(source.Provider) {
 			p.credentials = h.userCredentials.CalendarAccount(source.UserID, source.AccountID, false)
 		}
-		changed, _, err = calendarChanged(current, mark, func(endpoint string, out any) error { return p.getJSON(ctx, endpoint, out) }, func() (string, error) { return p.calDAVChangeTag(ctx, current) })
+		changed, _, err = calendarChanged(current, mark, func(endpoint string, out any) error { return p.getJSON(ctx, endpoint, out) }, func() (string, error) { return p.changeTag(ctx, current) })
 		return err
 	})
 	return changed, err

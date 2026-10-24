@@ -219,8 +219,9 @@ func writeJMAPContactBooks(w http.ResponseWriter, r *http.Request, books []jmap.
 	_ = encoder.Encode(map[string]any{"type": "done", "address_books": jmapFormAddressBooks(books)})
 }
 
-// jmapContactAccount is a shared-store JMAP account's connection and password.
-func (h *Handler) jmapContactAccount(ctx context.Context, accountID string) (*models.AccountConfig, string, error) {
+// jmapAccountConnection is a shared-store JMAP account's connection and
+// password, which its contacts and calendars use too.
+func (h *Handler) jmapAccountConnection(ctx context.Context, accountID string) (*models.AccountConfig, string, error) {
 	if !providers.JMAPEnabled() {
 		return nil, "", providers.ErrJMAPDisabled
 	}
@@ -238,7 +239,7 @@ func (h *Handler) jmapContactAccount(ctx context.Context, accountID string) (*mo
 func (h *Handler) discoverJMAPContactBooks(w http.ResponseWriter, r *http.Request, accountID string) {
 	ctx, cancel := context.WithTimeout(r.Context(), cardDAVDiscoveryOverallTimeout)
 	defer cancel()
-	cfg, password, err := h.jmapContactAccount(ctx, accountID)
+	cfg, password, err := h.jmapAccountConnection(ctx, accountID)
 	var books []jmap.AddressBook
 	if err == nil {
 		books, err = mail.JMAPAddressBooks(ctx, cfg, password)
@@ -252,7 +253,7 @@ func (h *Handler) saveJMAPContactSync(w http.ResponseWriter, r *http.Request, us
 	ctx := r.Context()
 	cfg := models.ContactSyncConfig{AccountID: accountID, UserID: userID, Provider: providers.ProviderJMAP}
 	if len(contactSyncAddressBooksFromForm(r, "")) > 0 {
-		mailCfg, password, err := h.jmapContactAccount(ctx, accountID)
+		mailCfg, password, err := h.jmapAccountConnection(ctx, accountID)
 		var available []jmap.AddressBook
 		if err == nil {
 			available, err = mail.JMAPAddressBooks(ctx, mailCfg, password)
@@ -419,7 +420,7 @@ func (h *Handler) pushContactToJMAPAccount(ctx context.Context, userID string, c
 	if cfg.Provider != providers.ProviderJMAP || !cfg.Enabled {
 		return errors.New("contacts over JMAP are not set up for this account")
 	}
-	mailCfg, password, err := h.jmapContactAccount(ctx, accountID)
+	mailCfg, password, err := h.jmapAccountConnection(ctx, accountID)
 	if err != nil {
 		return err
 	}
@@ -468,7 +469,7 @@ func (h *Handler) pushContactToJMAPAccount(ctx context.Context, userID string, c
 // deleteJMAPContact destroys a shared-store contact's card on its JMAP
 // account.
 func (h *Handler) deleteJMAPContact(ctx context.Context, source storage.ContactSource) error {
-	cfg, password, err := h.jmapContactAccount(ctx, source.AccountID)
+	cfg, password, err := h.jmapAccountConnection(ctx, source.AccountID)
 	if err != nil {
 		return err
 	}
