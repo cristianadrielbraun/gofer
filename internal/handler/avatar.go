@@ -39,6 +39,8 @@ const (
 	avatarWarmupProviderDelay   = 250 * time.Millisecond
 	avatarWarmupAttemptWindow   = 7 * 24 * time.Hour
 	avatarWarmupAttemptLimit    = 12
+	avatarLogPruneBatchSize     = 10000
+	avatarLogPruneBatches       = 50
 	avatarMissingTTL            = 24 * time.Hour
 	avatarFoundTTL              = 7 * 24 * time.Hour
 	// A sender that keeps having no picture is looked up less and less often:
@@ -100,6 +102,7 @@ func (h *Handler) StartAvatarBackfill(ctx context.Context) {
 		h.avatarWarmupMu.Unlock()
 		go func() {
 			defer h.avatarWorkers.Done()
+			h.pruneAvatarAttemptLogs(ctx)
 			h.startAvatarBackfill(ctx, false)
 
 			ticker := time.NewTicker(15 * time.Minute)
@@ -110,11 +113,35 @@ func (h *Handler) StartAvatarBackfill(ctx context.Context) {
 				case <-ctx.Done():
 					return
 				case <-ticker.C:
+					h.pruneAvatarAttemptLogs(ctx)
 					h.startAvatarBackfill(ctx, false)
 				}
 			}
 		}()
 	})
+}
+
+// pruneAvatarAttemptLogs removes lookup log rows past their retention, a
+// bounded amount per run so a large backlog goes over a few runs.
+func (h *Handler) pruneAvatarAttemptLogs(ctx context.Context) {
+	before := time.Now().Add(-storage.AvatarAttemptLogRetention)
+	total := 0
+	for range avatarLogPruneBatches {
+		n, err := h.db.PruneAvatarAttemptLogs(ctx, before, avatarLogPruneBatchSize)
+		if err != nil {
+			if ctx.Err() == nil {
+				log.Printf("avatar: prune lookup log: %v", err)
+			}
+			break
+		}
+		total += n
+		if n < avatarLogPruneBatchSize {
+			break
+		}
+	}
+	if total > 0 {
+		log.Printf("avatar: removed %d old lookup log rows", total)
+	}
 }
 
 func (h *Handler) startAvatarWarmupWorkers(parent context.Context) {
