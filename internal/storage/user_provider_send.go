@@ -105,7 +105,7 @@ func (db *DB) CompleteUserProviderSentCache(ctx context.Context, send OutgoingSe
 		}
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE outgoing_sends SET sent_copy_status='complete',sent_copy_last_error='',sent_copy_locked_at=NULL,
-		envelope_recipients='[]',mime_data=NULL,message_json='',updated_at=CURRENT_TIMESTAMP WHERE id=?`, send.ID); err != nil {
+		`+outgoingSentClearSQL+`,updated_at=CURRENT_TIMESTAMP WHERE id=?`, send.ID); err != nil {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM gofer_provider_send_receipts WHERE send_id=?`, send.ID); err != nil {

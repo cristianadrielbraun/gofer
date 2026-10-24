@@ -473,6 +473,10 @@ func calendarAccountProviderLabel(account models.Account) string {
 		return "Google"
 	case "outlook":
 		return "Microsoft"
+	case "imap":
+		return "IMAP"
+	case "jmap":
+		return "JMAP"
 	default:
 		provider := strings.TrimSpace(account.Provider)
 		if provider == "" {

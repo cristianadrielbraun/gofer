@@ -139,3 +139,40 @@ func TestCalendarGoogleOnlineUpdateRetainsMetadataAtomically(t *testing.T) {
 		t.Fatalf("saved=%#v err=%v", saved, err)
 	}
 }
+
+// A CalDAV meeting edit stores the confirmed organizer and guests with the new
+// version, as Google and Microsoft updates do.
+func TestCalendarCalDAVMeetingUpdateKeepsGuests(t *testing.T) {
+	db, err := New(filepath.Join(t.TempDir(), "caldav.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Write().Exec(`INSERT INTO users(id,username,username_normalized) VALUES('owner','owner','owner'); INSERT INTO accounts(id,user_id,provider,email_address) VALUES('account','owner','imap','owner@example.com')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.ReplaceCalendarSources(t.Context(), "owner", "account", CalendarSourceProviderCalDAV, []CalendarSource{{ID: "source", RemoteID: "/cal/", IsSelected: true}}); err != nil {
+		t.Fatal(err)
+	}
+	start := time.Date(2026, 10, 2, 9, 0, 0, 0, time.UTC)
+	end := start.Add(time.Hour)
+	original := CalendarEvent{ID: "event", RemoteID: "/cal/event.ics", ETag: `"v1"`, ICalUID: "uid", Summary: "Planning", StartAt: &start, EndAt: &end, AttendeesJSON: `[]`, OnlineMeetingJSON: `{}`}
+	if err := db.ReplaceCalendarEvents(t.Context(), "owner", "source", []CalendarEvent{original}, start.Add(-time.Hour), end.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	existing, err := db.GetCalendarEvent(t.Context(), "owner", "event")
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated := existing
+	updated.ETag, updated.Summary = `"v2"`, "Planning meeting"
+	updated.ResponseStatus, updated.OrganizerName, updated.OrganizerEmail = "organizer", "Owner", "owner@example.com"
+	updated.AttendeesJSON = `[{"email":"guest@example.com","status":"NEEDS-ACTION"}]`
+	if err := db.CompleteCalendarOnlineUpdate(t.Context(), existing, updated); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := db.GetCalendarEvent(t.Context(), "owner", "event")
+	if err != nil || saved.ETag != updated.ETag || saved.Summary != updated.Summary || saved.OrganizerEmail != updated.OrganizerEmail || saved.AttendeesJSON != updated.AttendeesJSON {
+		t.Fatalf("saved=%#v err=%v", saved, err)
+	}
+}

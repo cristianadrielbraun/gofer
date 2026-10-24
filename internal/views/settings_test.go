@@ -773,7 +773,7 @@ func TestCalendarSyncSettingsRenderSelectableSources(t *testing.T) {
 		`data-calendar-source-form`,
 		`name="source_id"`,
 		`/api/accounts/calendar-account/calendar/sources`,
-		"Your choices are saved when you click Next.",
+		"Your choices are saved when you click Done.",
 		"max-h-56",
 		"overflow-y-auto",
 		"p-3 text-xs",
