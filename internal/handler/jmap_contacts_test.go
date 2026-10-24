@@ -20,13 +20,83 @@ import (
 
 // jmapContactsTestServer serves a JMAP account with two address books to
 // any username with the password. Cards are JSON keyed by id; changes is
-// what ContactCard/changes reports next.
+// what ContactCard/changes reports next. ContactCard/set changes the cards
+// and is recorded in sets.
 type jmapContactsTestServer struct {
 	password string
 	mu       sync.Mutex
 	state    string
 	cards    map[string]string
 	changes  map[string]any
+	sets     []jmapContactsTestSet
+	created  int
+}
+
+type jmapContactsTestSet struct {
+	Create  map[string]map[string]any `json:"create"`
+	Update  map[string]map[string]any `json:"update"`
+	Destroy []string                  `json:"destroy"`
+}
+
+// card is a stored card as a map, or nil.
+func (f *jmapContactsTestServer) card(id string) map[string]any {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var card map[string]any
+	if raw, ok := f.cards[id]; ok {
+		_ = json.Unmarshal([]byte(raw), &card)
+	}
+	return card
+}
+
+func (f *jmapContactsTestServer) apply(set jmapContactsTestSet) map[string]any {
+	f.sets = append(f.sets, set)
+	if f.cards == nil {
+		f.cards = map[string]string{}
+	}
+	created, notUpdated, notDestroyed := map[string]any{}, map[string]any{}, map[string]any{}
+	for creation, card := range set.Create {
+		f.created++
+		id := "n" + strconv.Itoa(f.created)
+		card["id"] = id
+		raw, _ := json.Marshal(card)
+		f.cards[id] = string(raw)
+		created[creation] = map[string]any{"id": id}
+	}
+	for id, patch := range set.Update {
+		raw, ok := f.cards[id]
+		if !ok {
+			notUpdated[id] = map[string]any{"type": "notFound"}
+			continue
+		}
+		var card map[string]any
+		_ = json.Unmarshal([]byte(raw), &card)
+		for path, value := range patch {
+			property, key, nested := strings.Cut(path, "/")
+			switch {
+			case nested:
+				inner, _ := card[property].(map[string]any)
+				if inner == nil {
+					inner = map[string]any{}
+				}
+				inner[key] = value
+				card[property] = inner
+			case value == nil:
+				delete(card, property)
+			default:
+				card[property] = value
+			}
+		}
+		updated, _ := json.Marshal(card)
+		f.cards[id] = string(updated)
+	}
+	for _, id := range set.Destroy {
+		if _, ok := f.cards[id]; !ok {
+			notDestroyed[id] = map[string]any{"type": "notFound"}
+		}
+		delete(f.cards, id)
+	}
+	return map[string]any{"accountId": "a1", "newState": "s-set", "created": created, "notUpdated": notUpdated, "notDestroyed": notDestroyed}
 }
 
 func (f *jmapContactsTestServer) set(state string, cards map[string]string, changes map[string]any) {
@@ -62,7 +132,8 @@ func (f *jmapContactsTestServer) handler() http.Handler {
 		_ = json.NewDecoder(r.Body).Decode(&request)
 		var name string
 		var args struct {
-			IDs *[]string `json:"ids"`
+			IDs    *[]string         `json:"ids"`
+			Filter map[string]string `json:"filter"`
 		}
 		_ = json.Unmarshal(request.MethodCalls[0][0], &name)
 		_ = json.Unmarshal(request.MethodCalls[0][1], &args)
@@ -85,13 +156,23 @@ func (f *jmapContactsTestServer) handler() http.Handler {
 			answer = map[string]any{"accountId": "a1", "state": f.state, "list": list, "notFound": []string{}}
 		case "ContactCard/query":
 			ids := make([]string, 0, len(f.cards))
-			for id := range f.cards {
-				ids = append(ids, id)
+			for id, raw := range f.cards {
+				var card struct {
+					UID string `json:"uid"`
+				}
+				_ = json.Unmarshal([]byte(raw), &card)
+				if uid, ok := args.Filter["uid"]; !ok || card.UID == uid {
+					ids = append(ids, id)
+				}
 			}
 			sort.Strings(ids)
 			answer = map[string]any{"accountId": "a1", "ids": ids, "position": 0, "total": len(ids)}
 		case "ContactCard/changes":
 			answer = f.changes
+		case "ContactCard/set":
+			var set jmapContactsTestSet
+			_ = json.Unmarshal(request.MethodCalls[0][1], &set)
+			answer = f.apply(set)
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"methodResponses": []any{[]any{name, answer, "0"}}, "sessionState": "s"})
 	})
@@ -229,5 +310,126 @@ func TestUserJMAPContactPullPublishesToTheOwnersStore(t *testing.T) {
 		return nil
 	}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestJMAPContactPushAndDeleteForTheSharedStore(t *testing.T) {
+	t.Setenv("GOFER_JMAP_EXPERIMENT", "true")
+	h, db := newAccountOwnershipTestHandler(t)
+	fake := &jmapContactsTestServer{password: "saved-secret"}
+	fake.set("s1", map[string]string{}, nil)
+	server, host, port := fake.start(t)
+	if err := db.AddPlaintextTransportException(t.Context(), "http", host, port, "administrator"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AddPrivateTargetException(t.Context(), "http", host, port, "administrator"); err != nil {
+		t.Fatal(err)
+	}
+	account, err := h.accountStore.CreateAccount(t.Context(), "owner", &models.CreateAccountRequest{
+		Provider: "jmap", EmailAddress: "lena@example.test", DisplayName: "Lena",
+		JMAPSessionURL: server.URL + "/.well-known/jmap", Username: "lena@example.test", Password: "saved-secret",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.accountStore.SaveContactSyncConfig(t.Context(), "owner", account.ID, models.ContactSyncConfig{Enabled: true, Provider: "jmap",
+		AddressBooks: []models.ContactAddressBook{{URL: "B1", Name: "Personal", Default: true}, {URL: "B2", Name: "Team"}}}, ""); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := db.SaveContact(t.Context(), "owner", models.Contact{Name: "Anton Brisk", Email: "anton@example.test", GoferSyncEnabled: true, SaveTargets: []string{"account:" + account.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	contact, err := db.GetContact(t.Context(), "owner", saved.ID)
+	if err != nil || contact == nil {
+		t.Fatal(contact, err)
+	}
+	if err := h.syncContactToAccountTargets(t.Context(), "owner", *contact, nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	source, err := db.GetContactSource(t.Context(), "owner", contact.ID, "jmap", account.ID)
+	if err != nil || source == nil || source.RemoteID != "n1" {
+		t.Fatalf("source = %+v, %v", source, err)
+	}
+	card := fake.card("n1")
+	if books, _ := card["addressBookIds"].(map[string]any); books["B1"] != true || len(books) != 1 || card["uid"] == "" {
+		t.Fatalf("new card = %+v, want it in the default book with a uid", card)
+	}
+
+	contact.Phone, contact.PhoneLabel = "+1 555 0100", "mobile"
+	if err := h.syncContactToAccountTargets(t.Context(), "owner", *contact, nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	if last := fake.sets[len(fake.sets)-1]; len(last.Update["n1"]) != 1 || last.Update["n1"]["phones"] == nil {
+		t.Fatalf("update = %+v, want phones only", last)
+	}
+
+	if err := h.deleteContactFromAccounts(t.Context(), "owner", *contact); err != nil {
+		t.Fatal(err)
+	}
+	if fake.card("n1") != nil {
+		t.Fatal("the card is still on the server")
+	}
+	if source, err := db.GetContactSource(t.Context(), "owner", contact.ID, "jmap", account.ID); err != nil || source != nil {
+		t.Fatalf("source after delete = %+v, %v", source, err)
+	}
+}
+
+func TestUserJMAPContactPushUpdatesAndDeletes(t *testing.T) {
+	fake := &jmapContactsTestServer{password: "synthetic"}
+	fake.set("s1", map[string]string{}, nil)
+	f := newUserContactPushFixture(t, "jmap", fake.handler())
+	alice := f.accounts["alice"]
+	id := seedUserContactPush(t, f, "alice", "jmap")
+	if n, err := f.h.ProcessUserContactSyncOperations(t.Context(), "alice", 1); err != nil || n != 1 {
+		t.Fatal("owned job", n, err)
+	}
+	remote := func() *storage.ContactSource {
+		t.Helper()
+		var source *storage.ContactSource
+		if err := f.h.userAccounts.WithUser(t.Context(), "alice", func(_ *config.AccountStore, db *storage.DB) error {
+			var err error
+			source, err = db.GetContactSource(t.Context(), "alice", id, "jmap", alice.ID)
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return source
+	}
+	if source := remote(); source == nil || source.RemoteID != "n1" || source.AddressBookID != "alice-book" {
+		t.Fatalf("source = %+v", source)
+	}
+	card := fake.card("n1")
+	if name, _ := card["name"].(map[string]any); name["full"] != "alice" || card["addressBookIds"].(map[string]any)["B1"] != true {
+		t.Fatalf("card = %+v", card)
+	}
+
+	// Saving the same details again sends nothing; a change sends only it.
+	sets := len(fake.sets)
+	seedUserContactPush(t, f, "alice", "jmap")
+	if n, err := f.h.ProcessUserContactSyncOperations(t.Context(), "alice", 1); err != nil || n != 1 || len(fake.sets) != sets {
+		t.Fatalf("unchanged push = %d, %v, %d sets", n, err, len(fake.sets)-sets)
+	}
+	if err := f.h.userAccounts.WithUser(t.Context(), "alice", func(_ *config.AccountStore, db *storage.DB) error {
+		if _, err := db.SaveContact(t.Context(), "alice", models.Contact{ID: id, Email: "same@example.com", Name: "alice", Phone: "alice", PhoneLabel: "work", Title: "Archivist", GoferSyncEnabled: true, SaveTargets: []string{"account:" + alice.ID}}); err != nil {
+			return err
+		}
+		_, err := db.EnqueueContactSyncOperation(t.Context(), "alice", models.Contact{ID: id, Email: "stale@example.com"}, nil)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := f.h.ProcessUserContactSyncOperations(t.Context(), "alice", 1); err != nil || n != 1 {
+		t.Fatal("owned update", n, err)
+	}
+	if last := fake.sets[len(fake.sets)-1]; len(last.Update["n1"]) != 1 || last.Update["n1"]["titles"] == nil {
+		t.Fatalf("update = %+v, want titles only", last)
+	}
+
+	if _, err := f.h.deleteUserContact(t.Context(), "alice", id); err != nil {
+		t.Fatal(err)
+	}
+	if fake.card("n1") != nil || remote() != nil {
+		t.Fatal("the delete left the card behind")
 	}
 }

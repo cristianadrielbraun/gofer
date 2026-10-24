@@ -156,7 +156,7 @@ func (db *DB) SnapshotUserContactPreview(ctx context.Context, owner, id string, 
 		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(NULLIF(cfg.provider,''),a.provider) FROM accounts a LEFT JOIN account_contact_sync_configs cfg ON cfg.account_id=a.id AND cfg.user_id=a.user_id WHERE a.user_id=? AND a.id=?`, owner, selection.AccountID).Scan(&provider); err != nil {
 			return nil, err
 		}
-		if provider != selection.Provider || (provider != "gmail" && provider != "outlook" && provider != "carddav") {
+		if provider != selection.Provider || (provider != "gmail" && provider != "outlook" && provider != "carddav" && provider != "jmap") {
 			return nil, ErrContactSetupInvalid
 		}
 		binding, err := contactSetupBindingTx(ctx, tx, owner, selection)

@@ -158,6 +158,30 @@ func (c *Client) QueryContactCards(ctx context.Context, session *Session, accoun
 	return &result, nil
 }
 
+// FindContactCards runs ContactCard/query for the ids of the cards with the
+// given uid, which a well-behaved server keeps to one per address book.
+func (c *Client) FindContactCards(ctx context.Context, session *Session, accountID, uid string) ([]string, error) {
+	args := struct {
+		AccountID string            `json:"accountId"`
+		Filter    map[string]string `json:"filter"`
+	}{accountID, map[string]string{"uid": uid}}
+	responses, err := c.Call(ctx, session, []string{CapabilityContacts},
+		Invocation{Name: "ContactCard/query", Args: args, CallID: "0"})
+	if err != nil {
+		return nil, err
+	}
+	var result QueryResponse
+	if err := responses.Get("0", &result); err != nil {
+		return nil, fmt.Errorf("ContactCard/query: %w", err)
+	}
+	return result.IDs, nil
+}
+
+// AddressBookPatch puts a card in an address book, leaving it in any others.
+func AddressBookPatch(book string) PatchObject {
+	return PatchObject{"addressBookIds/" + escapePointer(book): true}
+}
+
 // GetContactCardChanges runs ContactCard/changes. Keep calling with NewState
 // while HasMoreChanges is true.
 func (c *Client) GetContactCardChanges(ctx context.Context, session *Session, accountID, sinceState string, maxChanges int) (*ChangesResponse, error) {

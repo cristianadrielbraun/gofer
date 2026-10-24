@@ -15,6 +15,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
+	"github.com/google/uuid"
 )
 
 var errJMAPContactBooksMissing = errors.New("no JMAP address book is selected for this account")
@@ -366,4 +367,110 @@ func (h *Handler) saveUserJMAPContactSync(w http.ResponseWriter, r *http.Request
 		return
 	}
 	htmlContactSyncSaved(w, id, cfg)
+}
+
+// jmapContactUID names the card Gofer makes for a contact in one address
+// book, the same on every try, so a retry finds a card whose creation reply
+// was lost.
+func jmapContactUID(owner, account, book, contact string) string {
+	return "urn:uuid:" + uuid.NewSHA1(uuid.NameSpaceURL, []byte(owner+"\x00"+account+"\x00"+book+"\x00"+contact)).String()
+}
+
+// pushJMAP writes a contact to its card in one JMAP address book for the
+// per-user stores.
+func (p *userContactPull) pushJMAP(ctx context.Context, contact models.Contact, book models.ContactAddressBook, source *storage.ContactSource) (string, error) {
+	account, err := p.snapshot.JMAPConfig(ctx)
+	if err != nil {
+		return "", err
+	}
+	password, err := p.snapshot.MailboxPassword()
+	if err != nil {
+		return "", err
+	}
+	remoteID := ""
+	if source != nil {
+		remoteID = strings.TrimSpace(source.RemoteID)
+	}
+	if remoteID != "" {
+		if err := p.h.userAccounts.ValidateContactSyncRemote(ctx, p.destination, remoteID); err != nil {
+			return "", err
+		}
+		p.remoteAlias = remoteID
+	}
+	if err := p.ready(ctx); err != nil {
+		return "", err
+	}
+	uid := jmapContactUID(p.snapshot.OwnerID(), p.snapshot.AccountID(), book.ID, contact.ID)
+	id, err := mail.PushJMAPContact(ctx, account, password, book.URL, remoteID, uid, contact)
+	if err != nil {
+		return "", p.recordRetry(ctx, err)
+	}
+	return id, nil
+}
+
+// pushContactToJMAPAccount writes a contact to a JMAP account for the shared
+// store, as pushContactToCardDAVAccount does: into the books it was saved to,
+// else the books it already has cards in, else the default book.
+func (h *Handler) pushContactToJMAPAccount(ctx context.Context, userID string, contact models.Contact, accountID string) error {
+	cfg, err := h.accountStore.GetContactSyncConfig(ctx, userID, accountID)
+	if err != nil {
+		return err
+	}
+	if cfg.Provider != providers.ProviderJMAP || !cfg.Enabled {
+		return errors.New("contacts over JMAP are not set up for this account")
+	}
+	mailCfg, password, err := h.jmapContactAccount(ctx, accountID)
+	if err != nil {
+		return err
+	}
+	sources, err := h.db.GetContactSources(ctx, userID, contact.ID, providers.ProviderJMAP)
+	if err != nil {
+		return err
+	}
+	byBook := make(map[string]*storage.ContactSource)
+	for i := range sources {
+		if sources[i].AccountID == accountID && sources[i].RemoteID != "" {
+			byBook[sources[i].AddressBookID] = &sources[i]
+		}
+	}
+	books := cardDAVTargetBooks(cfg, contact.SaveTargets)
+	if len(books) == 0 {
+		for _, book := range cfg.AddressBooks {
+			if byBook[book.ID] != nil {
+				books = append(books, book)
+			}
+		}
+	}
+	if len(books) == 0 {
+		if _, book := cardDAVConfigForSource(cfg, nil); book.URL != "" {
+			books = []models.ContactAddressBook{book}
+		}
+	}
+	if len(books) == 0 {
+		return errJMAPContactBooksMissing
+	}
+	for _, book := range books {
+		remoteID := ""
+		if source := byBook[book.ID]; source != nil {
+			remoteID = source.RemoteID
+		}
+		id, err := mail.PushJMAPContact(ctx, mailCfg, password, book.URL, remoteID, jmapContactUID(userID, accountID, book.ID, contact.ID), contact)
+		if err != nil {
+			return err
+		}
+		if err := h.upsertContactSourceAndSnapshot(ctx, userID, contact, storage.ContactSource{ContactID: contact.ID, UserID: userID, Provider: providers.ProviderJMAP, AccountID: accountID, AddressBookID: book.ID, RemoteID: id}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// deleteJMAPContact destroys a shared-store contact's card on its JMAP
+// account.
+func (h *Handler) deleteJMAPContact(ctx context.Context, source storage.ContactSource) error {
+	cfg, password, err := h.jmapContactAccount(ctx, source.AccountID)
+	if err != nil {
+		return err
+	}
+	return mail.DeleteJMAPContact(ctx, cfg, password, source.RemoteID)
 }

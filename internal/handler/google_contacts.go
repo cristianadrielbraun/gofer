@@ -520,6 +520,10 @@ func (h *Handler) syncContactToAccountTargets(ctx context.Context, userID string
 			if err := h.pushContactToCardDAVAccount(ctx, userID, contact, accountID); err != nil {
 				return err
 			}
+		case providers.ProviderJMAP:
+			if err := h.pushContactToJMAPAccount(ctx, userID, contact, accountID); err != nil {
+				return err
+			}
 		default:
 			return fmt.Errorf("contact sync is not configured for this account")
 		}
@@ -817,7 +821,10 @@ func (h *Handler) deleteContactFromAccounts(ctx context.Context, userID string, 
 	if err := h.deleteContactSourcesFromProvider(ctx, userID, contact, providers.ProviderOutlook); err != nil {
 		return err
 	}
-	return h.deleteContactSourcesFromProvider(ctx, userID, contact, providers.ProviderCardDAV)
+	if err := h.deleteContactSourcesFromProvider(ctx, userID, contact, providers.ProviderCardDAV); err != nil {
+		return err
+	}
+	return h.deleteContactSourcesFromProvider(ctx, userID, contact, providers.ProviderJMAP)
 }
 
 func (h *Handler) deleteContactSourcesFromProvider(ctx context.Context, userID string, contact models.Contact, provider string) error {
@@ -855,8 +862,13 @@ func (h *Handler) deleteContactSourcesFromProvider(ctx context.Context, userID s
 					return err
 				}
 			}
-		case providers.ProviderCardDAV:
-			if err := h.deleteCardDAVContact(ctx, userID, source); err != nil {
+		case providers.ProviderCardDAV, providers.ProviderJMAP:
+			if provider == providers.ProviderJMAP {
+				err = h.deleteJMAPContact(ctx, source)
+			} else {
+				err = h.deleteCardDAVContact(ctx, userID, source)
+			}
+			if err != nil {
 				return err
 			}
 			if err := h.db.DeleteContactSourceByRemoteID(ctx, userID, provider, source.AccountID, source.RemoteID); err != nil {
