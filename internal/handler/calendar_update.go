@@ -316,11 +316,18 @@ func (h *Handler) updateCalendarProviderEvent(ctx context.Context, source storag
 			}
 			return updateCalDAVCalendarOccurrence(ctx, source, credentials.username, credentials.password, event, &draft)
 		}
-		if len(draft.Guests) > 0 || event.OrganizerEmail != "" || calendarUpdateHasDetails(json.RawMessage(event.AttendeesJSON)) {
+		if calendarCalDAVMeetingUpdate(event, draft) {
 			return h.updateCalDAVMeeting(ctx, source, credentials, event, draft)
 		}
 		return updateCalDAVCalendarEventScope(ctx, source, credentials.username, credentials.password, event, draft, series)
 	}
+}
+
+// calendarCalDAVMeetingUpdate reports whether a CalDAV edit goes through the
+// meeting path, which confirms the organizer and guest list along with the
+// editable fields.
+func calendarCalDAVMeetingUpdate(event storage.CalendarEvent, draft calendar.EventDraft) bool {
+	return len(draft.Guests) > 0 || event.OrganizerEmail != "" || calendarUpdateHasDetails(json.RawMessage(event.AttendeesJSON))
 }
 
 func (h *Handler) calendarUpdateCredentials(ctx context.Context, source storage.CalendarSource) calendarCredentials {
@@ -490,6 +497,8 @@ func (h *Handler) handleUpdateCalendarEvent(w http.ResponseWriter, r *http.Reque
 		err = h.db.CompleteCalendarOnlineUpdate(ctx, event, stored)
 	} else if source.Provider == providers.ProviderOutlook && (calendarStoredOutlookOnline(event) || calendarUpdateHasDetails(remote.OnlineMeeting)) {
 		err = h.db.CompleteCalendarOutlookOnlineUpdate(ctx, event, stored)
+	} else if source.Provider == storage.CalendarSourceProviderCalDAV && calendarCalDAVMeetingUpdate(event, draft) {
+		err = h.db.CompleteCalendarOnlineUpdate(ctx, event, stored)
 	} else {
 		err = h.db.CompleteCalendarUpdate(ctx, userID, event.ID, source.ID, version, stored)
 	}

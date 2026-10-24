@@ -456,3 +456,32 @@ func TestCalendarMutationInvalidResultDoesNotWaitForWriter(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// Adding guests to a CalDAV event publishes the confirmed organizer and guest
+// list with the new version, not after the next sync.
+func TestUserCalendarCalDAVMeetingPublicationKeepsGuests(t *testing.T) {
+	_, _, accounts, _ := newCalendarControlFixture(t)
+	seedCalendarSyncEvents(t, accounts)
+	snapshot, err := accounts.SnapshotCalendarEvent(t.Context(), "alice", "same-event")
+	if err != nil {
+		t.Fatal(err)
+	}
+	event := calendarMutationResult(snapshot)
+	event.ICalUID, event.OrganizerName, event.OrganizerEmail = "confirmed-uid", "Alice", "alice@example.com"
+	event.ResponseStatus, event.AttendeesJSON, event.OnlineMeetingJSON = "organizer", `[{"email":"guest@example.com","status":"NEEDS-ACTION"}]`, `{}`
+	if err := accounts.PublishCalendarEvent(t.Context(), snapshot, storage.CalendarPublishOnlineUpdate, event); err != nil {
+		t.Fatal(err)
+	}
+	if err := accounts.WithUser(t.Context(), "alice", func(_ *AccountStore, db *storage.DB) error {
+		saved, err := db.GetCalendarEvent(t.Context(), "alice", "same-event")
+		if err != nil {
+			return err
+		}
+		if saved.ETag != event.ETag || saved.Summary != event.Summary || saved.OrganizerEmail != event.OrganizerEmail || saved.ResponseStatus != "organizer" || saved.AttendeesJSON != event.AttendeesJSON {
+			t.Fatalf("saved=%#v", saved)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}

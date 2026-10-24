@@ -147,6 +147,9 @@ func (h *Handler) handleUserUpdateCalendarEvent(w http.ResponseWriter, r *http.R
 				// publication as conferences. An editable-fields-only update
 				// would attach the new version to the previous guest list.
 				kind = storage.CalendarPublishOnlineUpdate
+			case source.Provider == storage.CalendarSourceProviderCalDAV && calendarCalDAVMeetingUpdate(event, draft):
+				// The meeting path confirmed the organizer and guests too.
+				kind = storage.CalendarPublishOnlineUpdate
 			case source.Provider == "gmail" && (calendarStoredGoogleMeet(original) || calendarGoogleMeetJSON(remote.OnlineMeeting)):
 				kind = storage.CalendarPublishOnlineUpdate
 			case source.Provider == "outlook" && (calendarStoredOutlookOnline(original) || calendarUpdateHasDetails(remote.OnlineMeeting)):
