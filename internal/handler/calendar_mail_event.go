@@ -456,6 +456,7 @@ func (h *Handler) applyMailInvitation(ctx context.Context, accountID string, inv
 	if credentials.err != nil {
 		return credentials.err
 	}
+	ctx = withJMAPCalendarDAV(ctx, source, credentials)
 	_, err = applyCalDAVInvitation(ctx, source, credentials, invitation, existing)
 	return err
 }

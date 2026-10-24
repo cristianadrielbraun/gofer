@@ -18,7 +18,7 @@ func (p *userCalendarRequest) publishEvent(ctx context.Context, kind storage.Cal
 		return err
 	}
 	var guards []func() error
-	if p.provider() != storage.CalendarSourceProviderCalDAV {
+	if calendarProviderUsesOAuth(p.provider()) {
 		if p.authorization == nil {
 			return mailauth.ErrMailboxAuthorizationChanged
 		}

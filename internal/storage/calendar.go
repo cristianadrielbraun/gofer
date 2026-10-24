@@ -134,7 +134,8 @@ func replaceCalendarSourcesTx(ctx context.Context, tx *sql.Tx, userID, accountID
 		}
 		return fmt.Errorf("verify calendar account: %w", err)
 	}
-	if accountProvider != provider && !(provider == CalendarSourceProviderCalDAV && (accountProvider == "imap" || accountProvider == "jmap")) {
+	if accountProvider != provider && !(provider == CalendarSourceProviderCalDAV && (accountProvider == "imap" || accountProvider == "jmap")) &&
+		!(provider == CalendarSourceProviderJMAP && accountProvider == "jmap") {
 		return sql.ErrNoRows
 	}
 
@@ -199,11 +200,13 @@ func replaceCalendarSourcesTx(ctx context.Context, tx *sql.Tx, userID, accountID
 		}
 	}
 
+	// A mail-server account uses CalDAV or JMAP calendars, not both, so
+	// switching drops the calendars of the other.
 	markMissingQuery := `
 		UPDATE calendar_sources
 		SET is_deleted = 1, is_selected = 0, updated_at = CURRENT_TIMESTAMP
-		WHERE user_id = ? AND account_id = ? AND provider = ?`
-	markMissingArgs := []any{userID, accountID, provider}
+		WHERE user_id = ? AND account_id = ? AND (provider = ? OR (? AND provider IN ('caldav', 'jmap')))`
+	markMissingArgs := []any{userID, accountID, provider, CalendarSourceMailServer(provider)}
 	if len(remoteIDs) > 0 {
 		placeholders := strings.TrimSuffix(strings.Repeat("?,", len(remoteIDs)), ",")
 		markMissingQuery += ` AND remote_id NOT IN (` + placeholders + `)`

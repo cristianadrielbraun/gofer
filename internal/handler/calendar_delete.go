@@ -47,6 +47,7 @@ func (h *Handler) deleteCalendarProviderEvent(ctx context.Context, source storag
 	if credentials.err != nil {
 		return "", calendarCreateAuthError{credentials.err}
 	}
+	ctx = withJMAPCalendarDAV(ctx, source, credentials)
 	switch source.Provider {
 	case providers.ProviderGmail:
 		return "", deleteGoogleCalendarEventScope(ctx, credentials.token, source.RemoteID, event, series, occurrence)

@@ -17,7 +17,7 @@ import (
 // in a cached event read. The owned credential facade opens its own short lease
 // after the view data's lease is released.
 func (h *Handler) userCalendarWriteAuthorized(ctx context.Context, source storage.CalendarSource) bool {
-	if source.Provider == storage.CalendarSourceProviderCalDAV {
+	if storage.CalendarSourceMailServer(source.Provider) {
 		return h.userAccounts != nil
 	}
 	return h.userCredentials != nil && h.userCredentials.CalendarWriteAuthorizedForUser(ctx, source.UserID, source.AccountID, source.Provider)
@@ -45,7 +45,7 @@ func userCalendarDetailAccess(details *views.CalendarEventDetails, event storage
 	calendarEventDetailActions(details, event)
 	if authorized && calendarResponseRestriction(event, source) == "" && event.ResponseStatus != "organizer" && (event.ResponseStatus != "" || len(details.Attendees) > 0) {
 		data := calendarResponseData(event)
-		if source.Provider == storage.CalendarSourceProviderCalDAV {
+		if storage.CalendarSourceMailServer(source.Provider) {
 			data.Ready = false
 		}
 		details.Response = &data

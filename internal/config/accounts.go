@@ -230,7 +230,13 @@ func (s *AccountStore) GetCalendarSyncConfig(ctx context.Context, userID, accoun
 	if err != nil {
 		return cfg, err
 	}
+	if cfg.Provider == "imap" || cfg.Provider == "jmap" {
+		cfg.Protocol = storage.CalendarSourceProviderCalDAV
+	}
 	for _, source := range sources {
+		if source.Provider == storage.CalendarSourceProviderJMAP {
+			cfg.Protocol = storage.CalendarSourceProviderJMAP
+		}
 		cfg.Sources = append(cfg.Sources, models.CalendarSource{
 			ID:          source.ID,
 			RemoteID:    source.RemoteID,

@@ -81,6 +81,19 @@ func (p *userCalendarRequest) fetchEvents(ctx context.Context, query calendar.Ev
 		}
 		ctx = context.WithValue(ctx, calendarDiscoveryDAVGuardKey{}, calendarDiscoveryDAVCallbacks{ready: p.ready, failure: p.recordRetry})
 		return listCalDAVCalendarEvents(ctx, source, username, password, query)
+	case storage.CalendarSourceProviderJMAP:
+		cfg, password, err := p.jmapConnection(ctx)
+		if err != nil {
+			return calendar.EventPage{}, err
+		}
+		if err := p.ready(ctx); err != nil {
+			return calendar.EventPage{}, err
+		}
+		page, err := listJMAPCalendarEvents(ctx, source, cfg, password, query)
+		if err != nil {
+			return calendar.EventPage{}, p.recordRetry(ctx, err)
+		}
+		return page, nil
 	default:
 		return calendar.EventPage{}, errors.New("calendar provider is not supported")
 	}
@@ -160,8 +173,8 @@ func (h *Handler) performUserCalendarSourceSync(parent context.Context, source s
 		// What the calendar was like as the download began, for the quick
 		// checks that follow; a change during the download is seen by them.
 		began, tag := time.Now(), ""
-		if source.Provider == storage.CalendarSourceProviderCalDAV {
-			tag, _ = request.calDAVChangeTag(fetchCtx, claim.Source())
+		if source.Provider == storage.CalendarSourceProviderCalDAV || source.Provider == storage.CalendarSourceProviderJMAP {
+			tag, _ = request.changeTag(fetchCtx, claim.Source())
 		}
 		page, fetchErr := request.fetchEvents(fetchCtx, calendar.EventQuery{WindowStart: start, WindowEnd: end, IncludeDeleted: true})
 		if fetchErr == nil {

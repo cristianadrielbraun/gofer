@@ -1413,7 +1413,7 @@ CREATE TABLE IF NOT EXISTS calendar_sources (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-    provider TEXT NOT NULL CHECK (provider IN ('gmail', 'outlook', 'caldav')),
+    provider TEXT NOT NULL CHECK (provider IN ('gmail', 'outlook', 'caldav', 'jmap')),
     remote_id TEXT NOT NULL,
     name TEXT NOT NULL DEFAULT '',
     description TEXT NOT NULL DEFAULT '',
@@ -1742,4 +1742,4 @@ CREATE TABLE IF NOT EXISTS calendar_invitation_messages (
 );
 
 -- Schema version marker for fresh installs
-INSERT OR REPLACE INTO schema_version (version) VALUES (126);
+INSERT OR REPLACE INTO schema_version (version) VALUES (127);

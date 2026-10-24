@@ -244,7 +244,7 @@ func calendarInvitationResource(invitation mailInvitation) *ical.Calendar {
 // empty), or updates or removes the event it is for. It returns the
 // resource written.
 func applyCalDAVInvitation(ctx context.Context, source storage.CalendarSource, credentials calendarCredentials, invitation mailInvitation, existing storage.CalendarEvent) (string, error) {
-	if source.Provider != storage.CalendarSourceProviderCalDAV || !calendarSourceWritable(source) {
+	if !storage.CalendarSourceMailServer(source.Provider) || !calendarSourceWritable(source) {
 		return "", calendarInvitationRefusal("choose a writable CalDAV calendar")
 	}
 	if _, err := resolveCalDAVHref(credentials.baseURL, source.RemoteID); err != nil {
@@ -381,7 +381,7 @@ func mailCalendarInvitationOffer(item mailCalendarEvent, candidates []storage.Ca
 	}
 	var writable []storage.CalendarSource
 	for _, source := range sources {
-		if source.AccountID == accountID && source.Provider == storage.CalendarSourceProviderCalDAV && calendarSourceWritable(source) {
+		if source.AccountID == accountID && storage.CalendarSourceMailServer(source.Provider) && calendarSourceWritable(source) {
 			writable = append(writable, source)
 		}
 	}
@@ -390,7 +390,7 @@ func mailCalendarInvitationOffer(item mailCalendarEvent, candidates []storage.Ca
 		if event.IsDeleted {
 			continue
 		}
-		if event.SourceProvider != storage.CalendarSourceProviderCalDAV || calendarCachedOrganizer(event) {
+		if !storage.CalendarSourceMailServer(event.SourceProvider) || calendarCachedOrganizer(event) {
 			return nil
 		}
 		existing = append(existing, event)
@@ -460,7 +460,7 @@ func mailCalendarInvitationTarget(candidates []storage.CalendarEvent, sources []
 		if event.IsDeleted {
 			continue
 		}
-		if event.SourceProvider != storage.CalendarSourceProviderCalDAV || calendarCachedOrganizer(event) {
+		if !storage.CalendarSourceMailServer(event.SourceProvider) || calendarCachedOrganizer(event) {
 			return storage.CalendarSource{}, existing, calendarInvitationRefusal("this event isn't one Gofer can add from email")
 		}
 		resource := event.SeriesRemoteID
@@ -483,7 +483,7 @@ func mailCalendarInvitationTarget(candidates []storage.CalendarEvent, sources []
 		sourceID = existing.SourceID
 	}
 	for _, source := range sources {
-		if source.ID == sourceID && source.AccountID == accountID && source.Provider == storage.CalendarSourceProviderCalDAV && calendarSourceWritable(source) {
+		if source.ID == sourceID && source.AccountID == accountID && storage.CalendarSourceMailServer(source.Provider) && calendarSourceWritable(source) {
 			return source, existing, nil
 		}
 	}

@@ -191,7 +191,7 @@ func (h *Handler) beforeCalendarNotificationSend(ctx context.Context, send stora
 			}
 		}
 	}
-	if source.ID == "" || source.Provider != storage.CalendarSourceProviderCalDAV || source.AccountID != send.AccountID || !calendarSourceWritable(source) {
+	if source.ID == "" || !storage.CalendarSourceMailServer(source.Provider) || source.AccountID != send.AccountID || !calendarSourceWritable(source) {
 		return unlock, fmt.Errorf("meeting notification access changed")
 	}
 	var account models.Account
@@ -240,6 +240,7 @@ func (h *Handler) beforeCalendarNotificationSend(ctx context.Context, send stora
 	if credentials.err != nil {
 		return unlock, credentials.err
 	}
+	ctx = withJMAPCalendarDAV(ctx, source, credentials)
 	if _, err := resolveCalDAVHref(credentials.baseURL, source.RemoteID); err != nil {
 		return unlock, err
 	}

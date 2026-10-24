@@ -119,7 +119,7 @@ func queueCalendarReplyTx(ctx context.Context, tx *sql.Tx, job CalendarReplyJob,
 	if err := tx.QueryRowContext(ctx, `SELECT source.account_id FROM calendar_sources source
 		JOIN accounts account ON account.id = source.account_id AND account.user_id = source.user_id
 		WHERE source.id = ? AND source.user_id = ? AND source.is_selected = 1 AND source.is_deleted = 0
-		AND source.provider = 'caldav' AND COALESCE(account.is_deleting,0) = 0`, job.SourceID, job.UserID).Scan(&accountID); err != nil {
+		AND source.provider IN ('caldav','jmap') AND COALESCE(account.is_deleting,0) = 0`, job.SourceID, job.UserID).Scan(&accountID); err != nil {
 		return err
 	}
 	if accountID != input.AccountID {

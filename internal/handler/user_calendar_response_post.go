@@ -61,7 +61,7 @@ func (h *Handler) handleUserCalendarResponse(w http.ResponseWriter, r *http.Requ
 			if err := p.responseAccess(operation); err != nil {
 				return err
 			}
-			if source.Provider == storage.CalendarSourceProviderCalDAV {
+			if storage.CalendarSourceMailServer(source.Provider) {
 				err := h.userAccounts.WithAccountForUser(operation, source.UserID, source.AccountID, func(_ *config.AccountStore, db *storage.DB) error {
 					_, err := db.UnresolvedCalendarReply(operation, source.UserID, source.ID, calendarReplyResource(event))
 					return err
@@ -127,7 +127,7 @@ func (h *Handler) handleUserCalendarResponse(w http.ResponseWriter, r *http.Requ
 				return userCalendarResponseFailure{http.StatusBadGateway, "The provider's response could not be confirmed. Refresh and reopen the invitation before trying again.", true, false}
 			}
 			refreshPending = result.Pending
-			if !result.Pending && scope != "series" && source.Provider != storage.CalendarSourceProviderCalDAV {
+			if !result.Pending && scope != "series" && !storage.CalendarSourceMailServer(source.Provider) {
 				if err := p.publishEvent(operation, storage.CalendarPublishResponse, calendarStorageEvent(source.UserID, source.ID, result.Event)); err != nil {
 					refreshPending = true
 				}
@@ -143,7 +143,7 @@ func (h *Handler) handleUserCalendarResponse(w http.ResponseWriter, r *http.Requ
 			if err := h.userIMAP.QueueAccount(ctx, source.AccountID); err != nil {
 				refreshPending = true
 			}
-		} else if scope == "series" || refreshPending || source.Provider == storage.CalendarSourceProviderCalDAV {
+		} else if scope == "series" || refreshPending || storage.CalendarSourceMailServer(source.Provider) {
 			refreshPending = !h.refreshUserCalendarEditedSeries(ctx, source, event)
 		}
 		h.userIMAP.Events().Publish(mail.Event{Type: mail.EventCalendarChanged, UserID: source.UserID, AccountID: source.AccountID, Payload: map[string]any{"source_id": source.ID, "event_id": event.ID}})

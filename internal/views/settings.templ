@@ -3954,6 +3954,41 @@ templ ICloudContactsNotice() {
 	<div class="rounded-lg border border-border bg-background/50 p-3 text-xs text-muted-foreground leading-relaxed">iCloud contacts use this account's Apple Account email and app-specific password. If contact sync reports a sign-in problem, create a new app-specific password and enter it under Email, in Sign in.</div>
 }
 
+// calendarSyncUsesJMAP reports whether a JMAP account's calendar form starts
+// on JMAP: always, unless its calendars already come from CalDAV.
+func calendarSyncUsesJMAP(data models.EditAccountData) bool {
+	return editAccountIsJMAP(data) && !(data.CalendarSync.Protocol == "caldav" && data.CalendarSync.SourceCount > 0)
+}
+
+func calendarProtocol(useJMAP bool) string {
+	if useJMAP {
+		return providers.ProviderJMAP
+	}
+	return "caldav"
+}
+
+// JMAPCalendarProtocolChoice lets a JMAP account read its calendars over
+// JMAP, with the mail login, or from a CalDAV server instead. The hidden
+// calendar_protocol field carries the choice; the CalDAV fields sit in
+// data-calendar-protocol="caldav".
+templ JMAPCalendarProtocolChoice(useJMAP bool) {
+	<input type="hidden" name="calendar_protocol" value={ calendarProtocol(useJMAP) } data-calendar-protocol-field/>
+	<div class="sm:col-span-2 space-y-2">
+		<label class="text-xs font-medium text-muted-foreground block">Sync calendars over</label>
+		<div class="flex flex-wrap gap-4">
+			<label class="inline-flex items-center gap-2 text-sm cursor-pointer">
+				@radio.Radio(radio.Props{Name: "calendar_protocol_choice", Value: providers.ProviderJMAP, Checked: useJMAP, Attributes: templ.Attributes{"data-on-change": onAction("chooseCalendarProtocol", actionElement)}})
+				JMAP
+			</label>
+			<label class="inline-flex items-center gap-2 text-sm cursor-pointer">
+				@radio.Radio(radio.Props{Name: "calendar_protocol_choice", Value: "caldav", Checked: !useJMAP, Attributes: templ.Attributes{"data-on-change": onAction("chooseCalendarProtocol", actionElement)}})
+				CalDAV
+			</label>
+		</div>
+	</div>
+	<p class={ "sm:col-span-2 text-xs leading-relaxed text-muted-foreground", templ.KV("hidden", !useJMAP) } data-calendar-protocol="jmap">Calendars come from the same JMAP server as your mail, with the same login. Gofer sends meeting invitations and replies by email from this account. If the server doesn't offer calendars over JMAP, choose CalDAV.</p>
+}
+
 templ CalendarSyncSettings(data models.EditAccountData) {
 	@CalendarSyncSettingsPanel(data, "", false)
 }
@@ -4034,7 +4069,12 @@ templ CalendarSyncSettingsPanel(data models.EditAccountData, message string, isE
 			</form>
 		} else if data.Provider == "imap" || editAccountIsJMAP(data) {
 			<form id={ fmt.Sprintf("account-calendar-discovery-form-%s", data.AccountID) } method="POST" action={ fmt.Sprintf("/api/accounts/%s/calendar/discover", data.AccountID) } data-calendar-discovery-form hx-post={ fmt.Sprintf("/api/accounts/%s/calendar/discover", data.AccountID) } hx-target={ fmt.Sprintf("#account-calendar-sync-panel-%s", data.AccountID) } hx-swap="outerHTML" data-on-htmx-before-request='["handleCalendarDiscoveryStart","$event"]' data-on-htmx-after-request='["handleCalendarDiscoveryResult","$event"]' class="space-y-3">
+				{{ useJMAP := calendarSyncUsesJMAP(data) }}
 				<div class="grid gap-3 sm:grid-cols-2">
+					if editAccountIsJMAP(data) {
+						@JMAPCalendarProtocolChoice(useJMAP)
+					}
+					<div class={ "sm:col-span-2 grid gap-3 sm:grid-cols-2", templ.KV("hidden", useJMAP) } data-calendar-protocol="caldav">
 					<div class="sm:col-span-2">
 						<div class="mb-1.5 flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
 							<label class="text-xs font-medium text-muted-foreground">Base URL</label>
@@ -4064,6 +4104,7 @@ templ CalendarSyncSettingsPanel(data models.EditAccountData, message string, isE
 							<label class="mb-1.5 block text-xs font-medium text-muted-foreground">Password or app password</label>
 							@input.Input(input.Props{Name: "password", Type: input.TypePassword, Placeholder: calDAVPasswordPlaceholder(data.CalendarSync), Disabled: data.CalendarSync.CalDAVUseAccountCredentials, Attributes: reconnectRequiredAttrs(reconnectCalendar, editAccountNeeds(data, reconnectCalendar))})
 						</div>
+					</div>
 					</div>
 				</div>
 				<div class="flex flex-wrap justify-end gap-2">

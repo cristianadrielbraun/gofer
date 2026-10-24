@@ -730,3 +730,58 @@ func TestCardDAVConfigFallsBackToTheMailboxPassword(t *testing.T) {
 		t.Fatalf("CardDAV password = %q, %v; want the contacts password", password, err)
 	}
 }
+
+// Calendars read over JMAP come back as JMAP calendars, selected once the
+// mailbox login is entered, with no CalDAV setup of their own.
+func TestProfileJMAPCalendarsRoundTrip(t *testing.T) {
+	t.Setenv("GOFER_JMAP_EXPERIMENT", "true")
+	ctx := t.Context()
+	source := newProfileTestHandler(t)
+	created, err := source.accountStore.CreateAccount(ctx, "default", &models.CreateAccountRequest{
+		Provider: "jmap", EmailAddress: "sam@jmap.example.test", DisplayName: "Sam Rivera",
+		JMAPSessionURL: "https://jmap.example.test/.well-known/jmap", Username: "sam@jmap.example.test", Password: "jmap-secret-value", AuthMethod: "plain",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	home, team := jmapCalendarDAVCollection("home"), jmapCalendarDAVCollection("team")
+	if err := source.db.ReplaceCalendarSources(ctx, "default", created.ID, storage.CalendarSourceProviderJMAP, []storage.CalendarSource{
+		{RemoteID: home, Name: "Home", IsPrimary: true, IsSelected: true, AccessRole: "writer"},
+		{RemoteID: team, Name: "Team", AccessRole: "reader"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	data := exportProfileForTest(t, source, false)
+	if !strings.Contains(string(data), `"protocol":"jmap"`) || strings.Contains(string(data), "caldav_base_url") {
+		t.Fatalf("exported profile = %s", data)
+	}
+
+	target := newProfileTestHandler(t)
+	file, err := parseProfile(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := target.importProfile(ctx, "default", file, profileImportOptions{Accounts: map[string]bool{file.Accounts[0].Ref: true}}); err != nil {
+		t.Fatal(err)
+	}
+	accounts, err := target.db.GetAccounts(ctx, "default")
+	if err != nil || len(accounts) != 1 {
+		t.Fatalf("imported accounts = %+v, %v", accounts, err)
+	}
+	id := accounts[0].ID
+	if _, _, err := target.resolveImportedLogin(ctx, "default", id, storage.ImportedLoginMail); err != nil {
+		t.Fatal(err)
+	}
+	sources, err := target.db.ListCalendarSourcesForAccount(ctx, "default", id)
+	if err != nil || len(sources) != 2 {
+		t.Fatalf("imported calendars = %+v, %v", sources, err)
+	}
+	for _, s := range sources {
+		if s.Provider != "jmap" || s.IsSelected != (s.RemoteID == home) {
+			t.Fatalf("imported calendar = %+v", s)
+		}
+	}
+	if cfg, err := target.accountStore.GetCalendarSyncConfig(ctx, "default", id); err != nil || cfg.Protocol != "jmap" || cfg.CalDAVBaseURL != "" {
+		t.Fatalf("imported calendar setup = %+v, %v", cfg, err)
+	}
+}

@@ -19,6 +19,18 @@ func (s *UserCalendarDiscoverySnapshot) Sources() []storage.CalendarSource {
 }
 func (s *UserCalendarDiscoverySnapshot) Provider() string { return s.discovery.Provider() }
 
+// WithProvider is the snapshot publishing the account's calendars as
+// provider: a JMAP account's come from CalDAV or from JMAP.
+func (s *UserCalendarDiscoverySnapshot) WithProvider(provider string) (*UserCalendarDiscoverySnapshot, error) {
+	discovery, err := s.discovery.WithProvider(provider)
+	if err != nil {
+		return nil, err
+	}
+	next := *s
+	next.discovery = discovery
+	return &next, nil
+}
+
 func (s *UserAccountStore) SnapshotCalendarDiscovery(ctx context.Context, owner, id string) (*UserCalendarDiscoverySnapshot, error) {
 	snapshot := &UserCalendarDiscoverySnapshot{repository: s}
 	err := s.WithAccountForUser(ctx, owner, id, func(_ *AccountStore, db *storage.DB) error {

@@ -28,7 +28,7 @@ func (h *Handler) handleUserCalendarDeliveryRetry(w http.ResponseWriter, r *http
 		if err != nil {
 			return err
 		}
-		if !calendarDeliveryAvailable(event.Event()) || event.Source().Provider != storage.CalendarSourceProviderCalDAV {
+		if !calendarDeliveryAvailable(event.Event()) || !storage.CalendarSourceMailServer(event.Source().Provider) {
 			return sql.ErrNoRows
 		}
 		err = h.userIMAP.RunAccountService(ctx, owner, event.Service().AccountID(), mail.AccountServiceCalendar, 30*time.Second, func(operation context.Context) error {

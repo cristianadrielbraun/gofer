@@ -25,14 +25,14 @@ type UserCalendarIncomingResponseClaim struct {
 func calendarIncomingEventUniqueTx(ctx context.Context, tx *sql.Tx, event *UserCalendarEventSnapshot) error {
 	e := event.Event()
 	var n int
-	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM calendar_events e JOIN calendar_sources s ON s.id=e.source_id AND s.user_id=e.user_id WHERE e.user_id=? AND s.account_id=? AND s.provider='caldav' AND s.is_selected=1 AND s.is_deleted=0 AND e.is_deleted=0 AND e.ical_uid=? AND e.series_remote_id<>?`, e.UserID, event.Source().AccountID, e.ICalUID, e.SeriesRemoteID).Scan(&n); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM calendar_events e JOIN calendar_sources s ON s.id=e.source_id AND s.user_id=e.user_id WHERE e.user_id=? AND s.account_id=? AND s.provider IN ('caldav','jmap') AND s.is_selected=1 AND s.is_deleted=0 AND e.is_deleted=0 AND e.ical_uid=? AND e.series_remote_id<>?`, e.UserID, event.Source().AccountID, e.ICalUID, e.SeriesRemoteID).Scan(&n); err != nil {
 		return err
 	}
 	if n != 0 {
 		return ErrCalendarIncomingChanged
 	}
 	if e.SeriesRemoteID == "" {
-		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM calendar_events e JOIN calendar_sources s ON s.id=e.source_id AND s.user_id=e.user_id WHERE e.user_id=? AND s.account_id=? AND s.provider='caldav' AND s.is_selected=1 AND s.is_deleted=0 AND e.is_deleted=0 AND e.ical_uid=?`, e.UserID, event.Source().AccountID, e.ICalUID).Scan(&n); err != nil {
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM calendar_events e JOIN calendar_sources s ON s.id=e.source_id AND s.user_id=e.user_id WHERE e.user_id=? AND s.account_id=? AND s.provider IN ('caldav','jmap') AND s.is_selected=1 AND s.is_deleted=0 AND e.is_deleted=0 AND e.ical_uid=?`, e.UserID, event.Source().AccountID, e.ICalUID).Scan(&n); err != nil {
 			return err
 		}
 		if n != 1 {
@@ -97,7 +97,7 @@ func (db *DB) ReserveUserCalendarIncomingResponse(ctx context.Context, m *UserCa
 	}
 	e, source := event.Event(), event.Source()
 	single := e.SeriesRemoteID == "" && !calendarPublicationHasRecurrence(e.RecurrenceJSON)
-	if source.Provider != CalendarSourceProviderCalDAV || source.UserID != m.candidate.UserID || source.AccountID != m.candidate.AccountID || (single && date != "") || (!single && e.SeriesRemoteID == "") || e.ICalUID == "" || e.AccountEmail == "" || !strings.EqualFold(e.OrganizerEmail, e.AccountEmail) || m.receipt.Event != e.ID || m.receipt.UID != e.ICalUID || m.receipt.Attendee != m.candidate.From || m.receipt.Reason != "processing" || m.receipt.State != "retry" {
+	if !CalendarSourceMailServer(source.Provider) || source.UserID != m.candidate.UserID || source.AccountID != m.candidate.AccountID || (single && date != "") || (!single && e.SeriesRemoteID == "") || e.ICalUID == "" || e.AccountEmail == "" || !strings.EqualFold(e.OrganizerEmail, e.AccountEmail) || m.receipt.Event != e.ID || m.receipt.UID != e.ICalUID || m.receipt.Attendee != m.candidate.From || m.receipt.Reason != "processing" || m.receipt.State != "retry" {
 		return nil, ErrCalendarIncomingChanged
 	}
 	role := strings.ToLower(strings.TrimSpace(source.AccessRole))

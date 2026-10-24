@@ -12,7 +12,7 @@ import (
 )
 
 func calendarDeliveryAvailable(e storage.CalendarEvent) bool {
-	return e.AccountEmail != "" && strings.EqualFold(e.OrganizerEmail, e.AccountEmail) && (e.SourceProvider == storage.CalendarSourceProviderCalDAV || len(calendarEventParticipants(e.AttendeesJSON)) > 0)
+	return e.AccountEmail != "" && strings.EqualFold(e.OrganizerEmail, e.AccountEmail) && (storage.CalendarSourceMailServer(e.SourceProvider) || len(calendarEventParticipants(e.AttendeesJSON)) > 0)
 }
 
 func calendarNotificationBelongsToEvent(d storage.CalendarNotificationDelivery, e storage.CalendarEvent) bool {
@@ -26,7 +26,7 @@ func calendarNotificationBelongsToEvent(d storage.CalendarNotificationDelivery, 
 
 func (h *Handler) calendarDeliveryData(ctx context.Context, e storage.CalendarEvent) (views.CalendarDeliveryData, error) {
 	data := views.CalendarDeliveryData{EventID: e.ID, EmptyNote: "No email-delivery record. Your calendar server may handle invitations directly."}
-	if e.SourceProvider != storage.CalendarSourceProviderCalDAV {
+	if !storage.CalendarSourceMailServer(e.SourceProvider) {
 		provider := "your calendar provider"
 		if e.SourceProvider == "gmail" {
 			provider = "Google Calendar"

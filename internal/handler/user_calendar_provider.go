@@ -22,6 +22,12 @@ func calendarProviderDo(client *http.Client, req *http.Request) (*http.Response,
 	if request, ok := req.Context().Value(userCalendarProviderKey{}).(*userCalendarRequest); ok {
 		return request.doProvider(client, req)
 	}
+	if req.URL != nil && req.URL.Host == jmapCalendarDAVHost {
+		if dav := jmapCalendarDAVFor(req); dav != nil {
+			return dav.roundTrip(req)
+		}
+		return jmapCalendarDAVMissing(req)
+	}
 	return client.Do(req)
 }
 
@@ -33,7 +39,10 @@ func (p *userCalendarRequest) actionContext(ctx context.Context, write bool) (co
 	if err := p.ready(ctx); err != nil {
 		return nil, err
 	}
-	if p.provider() != storage.CalendarSourceProviderCalDAV {
+	if err := p.readJMAPLogin(ctx); err != nil {
+		return nil, err
+	}
+	if calendarProviderUsesOAuth(p.provider()) {
 		if p.h.userCredentials == nil {
 			return nil, errors.New("mailbox OAuth is not configured")
 		}
@@ -49,6 +58,7 @@ func (p *userCalendarRequest) actionContext(ctx context.Context, write bool) (co
 	if err := p.ready(ctx); err != nil {
 		return nil, err
 	}
+	ctx = withJMAPCalendarDAV(ctx, p.actionSource(), p.jmapLogin)
 	return context.WithValue(ctx, userCalendarProviderKey{}, p), nil
 }
 
@@ -113,6 +123,20 @@ func (p *userCalendarRequest) providerEndpoint(req *http.Request) error {
 		return denied
 	}
 	if !p.write && req.Method != http.MethodGet && req.Method != http.MethodHead && req.Method != "OPTIONS" && req.Method != "PROPFIND" && req.Method != "REPORT" {
+		return denied
+	}
+	if source.Provider == storage.CalendarSourceProviderJMAP {
+		calendarID, collection, ok := jmapCalendarDAVParse(source.RemoteID)
+		requested, name, inside := jmapCalendarDAVParse(u.String())
+		if !ok || collection != "" || !inside || requested != calendarID {
+			return denied
+		}
+		switch {
+		case name == "" && (req.Method == "REPORT" || req.Method == "OPTIONS"):
+			return nil
+		case name != "" && (req.Method == http.MethodGet || req.Method == http.MethodPut || req.Method == http.MethodDelete):
+			return nil
+		}
 		return denied
 	}
 	if source.Provider == storage.CalendarSourceProviderCalDAV {
@@ -209,7 +233,9 @@ func (p *userCalendarRequest) doProvider(client *http.Client, original *http.Req
 			return nil, err
 		}
 		copy := req.Clone(req.Context())
-		if p.provider() != storage.CalendarSourceProviderCalDAV {
+		if p.provider() == storage.CalendarSourceProviderJMAP {
+			// jmapCalendarDAV signs in itself.
+		} else if calendarProviderUsesOAuth(p.provider()) {
 			if p.authorization == nil || p.token == "" {
 				return nil, errors.New("calendar dispatch requires scoped authorization")
 			}
@@ -236,7 +262,17 @@ func (p *userCalendarRequest) doProvider(client *http.Client, original *http.Req
 			p.responseAttempt.started(copy)
 		}
 		p.writeAttempt.started(copy)
-		response, err := bounded.Do(copy)
+		var response *http.Response
+		var err error
+		if p.provider() == storage.CalendarSourceProviderJMAP {
+			dav := jmapCalendarDAVFor(copy)
+			if dav == nil {
+				return jmapCalendarDAVMissing(copy)
+			}
+			response, err = dav.roundTrip(copy)
+		} else {
+			response, err = bounded.Do(copy)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -260,7 +296,7 @@ func (p *userCalendarRequest) doProvider(client *http.Client, original *http.Req
 		return response, nil
 	}
 	response, err := dispatch(original)
-	if err != nil || response.StatusCode != http.StatusUnauthorized || p.provider() == storage.CalendarSourceProviderCalDAV || p.credentials == nil || (original.Body != nil && original.Body != http.NoBody && original.GetBody == nil) {
+	if err != nil || response.StatusCode != http.StatusUnauthorized || !calendarProviderUsesOAuth(p.provider()) || p.credentials == nil || (original.Body != nil && original.Body != http.NoBody && original.GetBody == nil) {
 		return response, err
 	}
 	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4096))

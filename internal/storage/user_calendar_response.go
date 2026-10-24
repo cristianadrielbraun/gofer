@@ -70,7 +70,7 @@ func calendarResponseClaimTarget(snapshot *UserCalendarEventSnapshot, scope, ver
 	}
 	role := strings.ToLower(strings.TrimSpace(snapshot.source.AccessRole))
 	provider := snapshot.source.Provider
-	if (provider != "gmail" && provider != "outlook" && provider != CalendarSourceProviderCalDAV) || (role != "owner" && role != "writer" && !(provider == CalendarSourceProviderCalDAV && (role == "" || role == "unknown"))) || snapshot.event.IsDeleted || snapshot.event.Status == "cancelled" {
+	if (provider != "gmail" && provider != "outlook" && !CalendarSourceMailServer(provider)) || (role != "owner" && role != "writer" && !(CalendarSourceMailServer(provider) && (role == "" || role == "unknown"))) || snapshot.event.IsDeleted || snapshot.event.Status == "cancelled" {
 		return "", ErrCalendarEventChanged
 	}
 	event := snapshot.event

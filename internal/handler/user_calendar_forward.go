@@ -43,7 +43,7 @@ func (h *Handler) handleUserCalendarForward(w http.ResponseWriter, r *http.Reque
 			if err := p.responseAccess(operation); err != nil {
 				return calendarForwardFailure{http.StatusForbidden, "Forwarding is unavailable for this event."}
 			}
-			if source.Provider == storage.CalendarSourceProviderCalDAV && !p.service().SendsEmail() {
+			if storage.CalendarSourceMailServer(source.Provider) && !p.service().SendsEmail() {
 				return calendarForwardFailure{http.StatusBadRequest, "Forwarding sends the invitation by email. Configure SMTP for this account first."}
 			}
 			target, err := p.readResponseTarget(operation, calendarForwardScope(event))

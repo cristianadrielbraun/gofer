@@ -105,6 +105,9 @@ type profileAddressBook struct {
 }
 
 type profileCalendarSync struct {
+	// Protocol is "jmap" for calendars read over a JMAP account's own
+	// connection; otherwise they come from CalDAV or the provider.
+	Protocol                    string            `json:"protocol,omitempty"`
 	CalDAVBaseURL               string            `json:"caldav_base_url,omitempty"`
 	CalDAVUsername              string            `json:"caldav_username,omitempty"`
 	CalDAVUseAccountCredentials bool              `json:"caldav_use_account_credentials,omitempty"`
@@ -295,6 +298,9 @@ func exportProfileAccount(ctx context.Context, store *config.AccountStore, db *s
 	}
 	if strings.TrimSpace(calendar.CalDAVBaseURL) != "" || len(sources) > 0 {
 		exported.Calendar = &profileCalendarSync{CalDAVBaseURL: calendar.CalDAVBaseURL, CalDAVUsername: calendar.CalDAVUsername, CalDAVUseAccountCredentials: calendar.CalDAVUseAccountCredentials}
+		if calendar.Protocol == storage.CalendarSourceProviderJMAP {
+			exported.Calendar = &profileCalendarSync{Protocol: storage.CalendarSourceProviderJMAP}
+		}
 		for _, source := range sources {
 			exported.Calendar.Calendars = append(exported.Calendar.Calendars, profileCalendar{
 				RemoteID: source.RemoteID, Name: source.Name, Description: source.Description, TimeZone: source.TimeZone,
@@ -674,11 +680,21 @@ func importProfileSignatures(ctx context.Context, db *storage.DB, owner string, 
 	return added, nil
 }
 
-func profileCalendarProvider(provider string) string {
-	if provider == providers.ProviderIMAP || provider == providers.ProviderJMAP {
+// profileCalendarProvider is the provider an account's calendars from a
+// profile are read with: a mail-server account's come from CalDAV, or for a
+// JMAP account from JMAP when the profile says so.
+func profileCalendarProvider(account profileAccount) string {
+	if profileCalendarsOverJMAP(account) {
+		return storage.CalendarSourceProviderJMAP
+	}
+	if account.Provider == providers.ProviderIMAP || account.Provider == providers.ProviderJMAP {
 		return storage.CalendarSourceProviderCalDAV
 	}
-	return provider
+	return account.Provider
+}
+
+func profileCalendarsOverJMAP(account profileAccount) bool {
+	return account.Provider == providers.ProviderJMAP && account.Calendar != nil && account.Calendar.Protocol == storage.CalendarSourceProviderJMAP
 }
 
 // importProfileAccount creates an account from the profile with every service
@@ -787,7 +803,7 @@ func profileImportPending(account profileAccount) storage.ImportedAccountPending
 			pending.Needs = append(pending.Needs, storage.ImportedLoginContacts)
 		}
 	}
-	if len(pending.Calendars) > 0 && !account.Calendar.CalDAVUseAccountCredentials && strings.TrimSpace(account.Calendar.CalDAVBaseURL) != "" {
+	if len(pending.Calendars) > 0 && !profileCalendarsOverJMAP(account) && !account.Calendar.CalDAVUseAccountCredentials && strings.TrimSpace(account.Calendar.CalDAVBaseURL) != "" {
 		pending.CalendarLogin = storage.ImportedLoginCalendar
 		pending.Needs = append(pending.Needs, storage.ImportedLoginCalendar)
 	}
@@ -841,7 +857,7 @@ func importProfileAccountServices(ctx context.Context, store *config.AccountStor
 	if calendar == nil {
 		return nil
 	}
-	if (account.Provider == providers.ProviderIMAP || account.Provider == providers.ProviderJMAP) && strings.TrimSpace(calendar.CalDAVBaseURL) != "" {
+	if (account.Provider == providers.ProviderIMAP || account.Provider == providers.ProviderJMAP) && !profileCalendarsOverJMAP(account) && strings.TrimSpace(calendar.CalDAVBaseURL) != "" {
 		if err := store.SaveCalDAVConfig(ctx, owner, id, calendar.CalDAVBaseURL, calendar.CalDAVUsername, "", calendar.CalDAVUseAccountCredentials); err != nil {
 			return err
 		}
@@ -853,7 +869,7 @@ func importProfileAccountServices(ctx context.Context, store *config.AccountStor
 			Color: source.Color, AccessRole: source.AccessRole, IsPrimary: source.Primary, IsHidden: source.Hidden,
 		})
 	}
-	return db.AddImportedCalendarSources(ctx, owner, id, profileCalendarProvider(account.Provider), sources)
+	return db.AddImportedCalendarSources(ctx, owner, id, profileCalendarProvider(account), sources)
 }
 
 // resolveProfileRefs puts account IDs back in place of their placeholders.
@@ -1308,7 +1324,7 @@ func (h *Handler) replaceProfileAccountServices(ctx context.Context, owner, id s
 	if calendar == nil {
 		calendar = &profileCalendarSync{}
 	}
-	if !builtin && strings.TrimSpace(calendar.CalDAVBaseURL) != "" {
+	if !builtin && !profileCalendarsOverJMAP(account) && strings.TrimSpace(calendar.CalDAVBaseURL) != "" {
 		if h.userAccounts != nil {
 			snapshot, err := h.userAccounts.SnapshotServices(ctx, owner, id)
 			if err != nil {
@@ -1345,7 +1361,7 @@ func (h *Handler) replaceProfileAccountServices(ctx context.Context, owner, id s
 				missing = append(missing, storage.CalendarSource{RemoteID: source.RemoteID, Name: source.Name, Description: source.Description, TimeZone: source.TimeZone, Color: source.Color, AccessRole: source.AccessRole, IsPrimary: source.Primary, IsHidden: source.Hidden})
 			}
 		}
-		if err := db.AddImportedCalendarSources(ctx, owner, id, profileCalendarProvider(account.Provider), missing); err != nil {
+		if err := db.AddImportedCalendarSources(ctx, owner, id, profileCalendarProvider(account), missing); err != nil {
 			return err
 		}
 		if sources, err = db.ListCalendarSourcesForAccount(ctx, owner, id); err != nil {

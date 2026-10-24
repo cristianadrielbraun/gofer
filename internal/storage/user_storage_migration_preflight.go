@@ -131,7 +131,7 @@ func InspectUserStorageMigration(ctx context.Context, sourcePath string) (UserSt
 }
 
 func migrationSharedVersionSupported(version int) bool {
-	return version >= 105 && version <= 126
+	return version >= 105 && version <= 127
 }
 
 // These recognized shared schemas differ only in the explicitly handled push

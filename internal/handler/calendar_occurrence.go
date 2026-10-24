@@ -82,7 +82,7 @@ func (remote outlookCalendarUpdateEvent) occurrenceRestriction(seriesID string) 
 // A CalDAV server lists a series' dates in UTC, without the series' own time
 // zone. Editing one date shows it in the series' zone, read from the series.
 func calendarOccurrenceNeedsSeriesZone(event storage.CalendarEvent, source storage.CalendarSource) bool {
-	return source.Provider == storage.CalendarSourceProviderCalDAV && !event.AllDay && (event.StartTimeZone == "" || event.StartTimeZone == "UTC")
+	return storage.CalendarSourceMailServer(source.Provider) && !event.AllDay && (event.StartTimeZone == "" || event.StartTimeZone == "UTC")
 }
 
 func calendarOccurrenceUseSeriesZone(event *storage.CalendarEvent, master storage.CalendarEvent) {

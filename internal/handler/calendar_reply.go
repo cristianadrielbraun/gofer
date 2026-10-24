@@ -228,6 +228,7 @@ func (h *Handler) finishCalendarReply(parent context.Context, job storage.Calend
 			if credentials.err != nil {
 				return
 			}
+			ctx := withJMAPCalendarDAV(ctx, source, credentials)
 			endpoint, endpointErr := calDAVResponseEndpoint(source, job.ResourceID)
 			if _, err := resolveCalDAVHref(credentials.baseURL, source.RemoteID); err != nil {
 				endpointErr = err

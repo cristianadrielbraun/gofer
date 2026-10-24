@@ -9,11 +9,13 @@ import (
 	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/calendar"
+	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
 
 type calendarCredentials struct {
+	jmap     *models.AccountConfig
 	token    string
 	baseURL  string
 	username string
@@ -84,6 +86,8 @@ func (h *Handler) fetchCalendarSource(ctx context.Context, source storage.Calend
 			return calendar.EventPage{}, err
 		}
 		return listCalDAVCalendarEvents(ctx, source, credential.username, credential.password, query)
+	case storage.CalendarSourceProviderJMAP:
+		return listJMAPCalendarEvents(ctx, source, credential.jmap, credential.password, query)
 	default:
 		return calendar.EventPage{}, fmt.Errorf("this calendar provider is not supported")
 	}
@@ -101,15 +105,19 @@ func (h *Handler) calendarCredentialsCached(ctx context.Context, source storage.
 	return credential
 }
 
-// calendarSourceChangeTag is a CalDAV calendar's change tag, empty for other
-// calendars or when it can't be read.
+// calendarSourceChangeTag is a CalDAV or JMAP calendar's change tag, empty
+// for other calendars or when it can't be read.
 func (h *Handler) calendarSourceChangeTag(ctx context.Context, source storage.CalendarSource, credentials map[string]calendarCredentials) string {
-	if source.Provider != storage.CalendarSourceProviderCalDAV || h.calendarFetchEvents != nil {
+	if (source.Provider != storage.CalendarSourceProviderCalDAV && source.Provider != storage.CalendarSourceProviderJMAP) || h.calendarFetchEvents != nil {
 		return ""
 	}
 	credential := h.calendarCredentialsCached(ctx, source, credentials)
 	if credential.err != nil {
 		return ""
+	}
+	if source.Provider == storage.CalendarSourceProviderJMAP {
+		tag, _ := jmapCalendarChangeTag(ctx, credential.jmap, credential.password)
+		return tag
 	}
 	if _, err := resolveCalDAVHref(credential.baseURL, source.RemoteID); err != nil {
 		return ""
@@ -136,6 +144,9 @@ func (h *Handler) calendarSourceChanged(ctx context.Context, source storage.Cale
 	changed, _, err := calendarChanged(source, mark, func(endpoint string, out any) error {
 		return calendarCreateJSON(ctx, http.MethodGet, endpoint, credential.token, nil, out)
 	}, func() (string, error) {
+		if source.Provider == storage.CalendarSourceProviderJMAP {
+			return jmapCalendarChangeTag(ctx, credential.jmap, credential.password)
+		}
 		return calDAVCalendarChangeTag(ctx, source.RemoteID, credential.username, credential.password)
 	})
 	return changed, err
@@ -188,6 +199,9 @@ func (h *Handler) calendarCredentialsForSource(ctx context.Context, userID strin
 		if result.err == nil && (strings.TrimSpace(result.username) == "" || result.password == "") {
 			result.err = fmt.Errorf("complete Calendar authentication in account setup")
 		}
+	case storage.CalendarSourceProviderJMAP:
+		result.jmap, result.password, result.err = h.jmapAccountConnection(ctx, source.AccountID)
+		result.baseURL, result.username = jmapCalendarDAVOrigin, "jmap"
 	default:
 		result.err = fmt.Errorf("this calendar provider is not supported")
 	}

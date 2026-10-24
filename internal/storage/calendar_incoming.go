@@ -79,7 +79,7 @@ func (db *DB) ListCalendarIncomingMessages(ctx context.Context, limit int) ([]Ca
  JOIN accounts a ON a.id=s.account_id AND a.user_id=s.user_id AND e.user_id=a.user_id
  JOIN json_each(CASE WHEN json_valid(e.attendees_json) THEN e.attendees_json ELSE '[]' END) guest
  WHERE a.is_deleting=0 AND a.email_sync_enabled=1
- AND s.provider='caldav' AND s.is_selected=1 AND s.is_deleted=0 AND e.is_deleted=0
+ AND s.provider IN ('caldav','jmap') AND s.is_selected=1 AND s.is_deleted=0 AND e.is_deleted=0
  AND e.series_remote_id='' AND lower(e.organizer_email)=lower(a.email_address)
  ) SELECT m.id,invited.user_id,invited.account_id,lower(m.from_email)
  FROM invited JOIN messages m ON m.account_id=invited.account_id AND lower(m.from_email)=invited.email
@@ -124,7 +124,7 @@ func (db *DB) FinishCalendarIncomingDelivery(ctx context.Context, m CalendarInco
 // associated with the date it names (date, as cached), or else with a date the
 // guest is invited to.
 func (db *DB) FindCalendarIncomingEvent(ctx context.Context, userID, accountID, uid, date, attendee string) (CalendarEvent, error) {
-	rows, err := db.Read().QueryContext(ctx, calendarEventSelect+` AND account.id=? AND source.provider='caldav' AND event.ical_uid=? AND event.is_deleted=0 ORDER BY event.id`, userID, accountID, uid)
+	rows, err := db.Read().QueryContext(ctx, calendarEventSelect+` AND account.id=? AND source.provider IN ('caldav','jmap') AND event.ical_uid=? AND event.is_deleted=0 ORDER BY event.id`, userID, accountID, uid)
 	if err != nil {
 		return CalendarEvent{}, err
 	}
@@ -208,7 +208,7 @@ func (db *DB) ReserveCalendarIncomingResponse(ctx context.Context, e CalendarEve
 	defer tx.Rollback()
 	_, err = tx.ExecContext(ctx, `INSERT INTO calendar_incoming_responses(user_id,source_id,ical_uid,attendee,sequence,stamp,response)
  SELECT s.user_id,s.id,?,?,?,?,? FROM calendar_sources s JOIN accounts a ON a.id=s.account_id AND a.user_id=s.user_id
- WHERE s.id=? AND s.user_id=? AND s.provider='caldav' AND s.is_selected=1 AND s.is_deleted=0 AND a.is_deleting=0
+ WHERE s.id=? AND s.user_id=? AND s.provider IN ('caldav','jmap') AND s.is_selected=1 AND s.is_deleted=0 AND a.is_deleting=0
  ON CONFLICT(source_id,ical_uid,attendee) DO UPDATE SET sequence=excluded.sequence,stamp=excluded.stamp,response=excluded.response,updated_at=CURRENT_TIMESTAMP
  WHERE calendar_incoming_responses.sequence<excluded.sequence OR (calendar_incoming_responses.sequence=excluded.sequence AND calendar_incoming_responses.stamp<excluded.stamp)`, e.ICalUID, attendee, sequence, value, response, e.SourceID, e.UserID)
 	if err != nil {

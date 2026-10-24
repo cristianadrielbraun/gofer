@@ -15,15 +15,41 @@ var ErrCalendarDiscoveryInvalid = errors.New("invalid discovered calendar source
 
 // The immutable catalog excludes visibility and worker timestamps: discovery
 // preserves display preferences and does not replace synchronization progress.
+// provider is how the account's calendars are read now; publishing as another
+// provider (switching a JMAP account between CalDAV and JMAP calendars)
+// sets target.
 type CalendarDiscoverySnapshot struct {
 	owner, account, provider string
+	target                   string
+	jmapAccount              bool
 	catalog                  []CalendarSource
 	state                    [32]byte
 }
 
 func (s *CalendarDiscoverySnapshot) OwnerID() string   { return s.owner }
 func (s *CalendarDiscoverySnapshot) AccountID() string { return s.account }
-func (s *CalendarDiscoverySnapshot) Provider() string  { return s.provider }
+
+// Provider is the provider discovery publishes the account's calendars as.
+func (s *CalendarDiscoverySnapshot) Provider() string {
+	if s.target != "" {
+		return s.target
+	}
+	return s.provider
+}
+
+// WithProvider is the snapshot publishing as provider instead: a JMAP
+// account's calendars can come from CalDAV or from JMAP.
+func (s *CalendarDiscoverySnapshot) WithProvider(provider string) (*CalendarDiscoverySnapshot, error) {
+	if provider == s.Provider() {
+		return s, nil
+	}
+	if !s.jmapAccount || !CalendarSourceMailServer(provider) {
+		return nil, ErrAccountRoute
+	}
+	next := *s
+	next.target = provider
+	return &next, nil
+}
 func (s *CalendarDiscoverySnapshot) Sources() []CalendarSource {
 	return append([]CalendarSource(nil), s.catalog...)
 }
@@ -37,10 +63,21 @@ func calendarDiscoverySnapshotTx(ctx context.Context, tx *sql.Tx, owner, account
 		return nil, err
 	}
 	if snapshot.provider == "imap" || snapshot.provider == "jmap" {
-		// Their calendars come from a CalDAV server.
+		// Their calendars come from a CalDAV server, or for a JMAP account
+		// from JMAP once its calendars are JMAP ones.
+		snapshot.jmapAccount = snapshot.provider == "jmap"
 		snapshot.provider = CalendarSourceProviderCalDAV
+		if snapshot.jmapAccount {
+			var live int
+			if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM calendar_sources WHERE user_id=? AND account_id=? AND provider=? AND is_deleted=0)`, owner, account, CalendarSourceProviderJMAP).Scan(&live); err != nil {
+				return nil, err
+			}
+			if live == 1 {
+				snapshot.provider = CalendarSourceProviderJMAP
+			}
+		}
 	}
-	if snapshot.provider != "gmail" && snapshot.provider != "outlook" && snapshot.provider != CalendarSourceProviderCalDAV {
+	if snapshot.provider != "gmail" && snapshot.provider != "outlook" && !CalendarSourceMailServer(snapshot.provider) {
 		return nil, ErrAccountRoute
 	}
 	rows, err := tx.QueryContext(ctx, `SELECT id,user_id,account_id,provider,remote_id,name,description,timezone,color,access_role,is_primary,is_selected,is_deleted
@@ -56,7 +93,7 @@ func calendarDiscoverySnapshotTx(ctx context.Context, tx *sql.Tx, owner, account
 			&source.Name, &source.Description, &source.TimeZone, &source.Color, &source.AccessRole, &primary, &selected, &deleted); err != nil {
 			return nil, err
 		}
-		if source.Provider != snapshot.provider {
+		if source.Provider != snapshot.provider && !(snapshot.jmapAccount && CalendarSourceMailServer(source.Provider)) {
 			return nil, ErrCalendarDiscoveryChanged
 		}
 		source.IsPrimary, source.IsSelected, source.IsDeleted = primary == 1, selected == 1, deleted == 1
@@ -126,6 +163,7 @@ func (db *DB) PublishUserCalendarDiscovery(ctx context.Context, snapshot *Calend
 	if snapshot == nil || snapshot.owner == "" || snapshot.account == "" || snapshot.provider == "" || guard == nil {
 		return nil, ErrCalendarDiscoveryChanged
 	}
+	provider := snapshot.Provider()
 	inputs := append([]CalendarSource(nil), sources...)
 	for i := range inputs {
 		if strings.TrimSpace(inputs[i].RemoteID) == "" {
@@ -134,7 +172,7 @@ func (db *DB) PublishUserCalendarDiscovery(ctx context.Context, snapshot *Calend
 		// Local identity is resolved from the stored account/remote pair or
 		// generated internally. Provider/browser fields cannot pick a local ID.
 		inputs[i].ID = ""
-		inputs[i].UserID, inputs[i].AccountID, inputs[i].Provider = snapshot.owner, snapshot.account, snapshot.provider
+		inputs[i].UserID, inputs[i].AccountID, inputs[i].Provider = snapshot.owner, snapshot.account, provider
 	}
 	tx, err := db.Write().BeginTx(ctx, nil)
 	if err != nil {
@@ -149,7 +187,7 @@ func (db *DB) PublishUserCalendarDiscovery(ctx context.Context, snapshot *Calend
 			return nil, err
 		}
 	}
-	if err := replaceCalendarSourcesTx(ctx, tx, snapshot.owner, snapshot.account, snapshot.provider, inputs); err != nil {
+	if err := replaceCalendarSourcesTx(ctx, tx, snapshot.owner, snapshot.account, provider, inputs); err != nil {
 		return nil, err
 	}
 	// The publication has intentionally changed service state. Central
@@ -199,7 +237,7 @@ func calendarDiscoveryResult(previous, next *CalendarDiscoverySnapshot, inputs [
 		input.Color = strings.TrimSpace(input.Color)
 		input.AccessRole = strings.TrimSpace(input.AccessRole)
 		// Only provider metadata and default selection affect reconciliation.
-		value := CalendarSource{UserID: previous.owner, AccountID: previous.account, Provider: previous.provider,
+		value := CalendarSource{UserID: previous.owner, AccountID: previous.account, Provider: previous.Provider(),
 			RemoteID: input.RemoteID, Name: input.Name, Description: input.Description, TimeZone: input.TimeZone,
 			Color: input.Color, AccessRole: input.AccessRole, IsPrimary: input.IsPrimary, IsSelected: input.IsSelected}
 		if old, exists := original[input.RemoteID]; exists {

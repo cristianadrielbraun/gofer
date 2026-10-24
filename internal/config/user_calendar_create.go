@@ -25,7 +25,7 @@ func (s *UserAccountStore) calendarCreateGuard(ctx context.Context, source *User
 	if err != nil {
 		return nil, err
 	}
-	if !calendarCreateSourceWritable(source.Source()) || (source.Source().Provider != storage.CalendarSourceProviderCalDAV && len(extra) != 1) {
+	if !calendarCreateSourceWritable(source.Source()) || (!storage.CalendarSourceMailServer(source.Source().Provider) && len(extra) != 1) {
 		return nil, storage.ErrCalendarSourceChanged
 	}
 	return guard, nil
@@ -88,7 +88,7 @@ func calendarCreateSourceWritable(source storage.CalendarSource) bool {
 	switch source.Provider {
 	case storage.CalendarSourceProviderCalDAV:
 		return role == "" || role == "unknown" || role == "owner" || role == "writer"
-	case "gmail", "outlook":
+	case "gmail", "outlook", storage.CalendarSourceProviderJMAP:
 		return role == "owner" || role == "writer"
 	default:
 		return false

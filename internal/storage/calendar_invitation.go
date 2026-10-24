@@ -84,7 +84,7 @@ func (db *DB) ListCalendarInvitationMessages(ctx context.Context, userID, accoun
  AND (seen.message_id IS NULL OR seen.state='retry')
  AND substr(m.date_received,1,19)>=strftime('%Y-%m-%d %H:%M:%S','now','`+CalendarInvitationWindow+`')
  AND m.size_bytes<=? AND lower(m.from_email)<>lower(a.email_address)
- AND EXISTS (SELECT 1 FROM calendar_sources s WHERE s.account_id=a.id AND s.user_id=a.user_id AND s.provider='caldav' AND s.is_selected=1 AND s.is_deleted=0)
+ AND EXISTS (SELECT 1 FROM calendar_sources s WHERE s.account_id=a.id AND s.user_id=a.user_id AND s.provider IN ('caldav','jmap') AND s.is_selected=1 AND s.is_deleted=0)
  AND EXISTS (SELECT 1 FROM message_folder_state ms JOIN folders f ON f.id=ms.folder_id AND f.account_id=a.id
    WHERE ms.message_id=m.id AND ms.is_deleted=0 AND ms.is_draft=0 AND f.role NOT IN ('sent','trash','junk','spam','drafts'))
  ORDER BY substr(m.date_received,1,19),m.id LIMIT ?`, userID, userID, accountID, accountID, maxSize, limit)

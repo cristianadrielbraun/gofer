@@ -45,7 +45,7 @@ func (p *userCalendarRequest) queueNotification(ctx context.Context, source stor
 		return err
 	}
 	original := p.actionSource()
-	if source.ID != original.ID || source.UserID != original.UserID || source.AccountID != original.AccountID || source.RemoteID != original.RemoteID || source.Provider != original.Provider || !calendarSourceWritable(original) || original.Provider != storage.CalendarSourceProviderCalDAV {
+	if source.ID != original.ID || source.UserID != original.UserID || source.AccountID != original.AccountID || source.RemoteID != original.RemoteID || source.Provider != original.Provider || !calendarSourceWritable(original) || !storage.CalendarSourceMailServer(original.Provider) {
 		return storage.ErrCalendarSourceChanged
 	}
 	identity := p.service().Identity()

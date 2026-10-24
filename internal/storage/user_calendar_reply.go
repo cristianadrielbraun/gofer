@@ -48,7 +48,7 @@ func calendarClaimReplyResource(claim *UserCalendarResponseClaim) (string, error
 // Both rows and the original reservation are validated after the writer wait
 // and again after inserts. A trigger cannot silently retarget a deliverable reply.
 func (db *DB) QueueUserCalendarReply(ctx context.Context, claim *UserCalendarResponseClaim, job CalendarReplyJob, input QueueOutgoingSendInput, guard func(*sql.Tx, string) error) (string, error) {
-	if claim == nil || claim.snapshot == nil || claim.id == "" || guard == nil || claim.snapshot.source.Provider != CalendarSourceProviderCalDAV {
+	if claim == nil || claim.snapshot == nil || claim.id == "" || guard == nil || !CalendarSourceMailServer(claim.snapshot.source.Provider) {
 		return "", ErrCalendarEventChanged
 	}
 	input.EnvelopeRecipients = append([]string(nil), input.EnvelopeRecipients...)
@@ -132,7 +132,7 @@ func (db *DB) ValidateUserCalendarReplyProof(ctx context.Context, job CalendarRe
 
 func validateUserCalendarReplyProofTx(ctx context.Context, tx *sql.Tx, job CalendarReplyJob, claim CalendarResponseClaimIdentity, source *UserCalendarSourceSnapshot, event *UserCalendarEventSnapshot, expected OutgoingSend, sendState [32]byte, guard func(*sql.Tx, string) error) error {
 
-	if source == nil || claim.ID == "" || guard == nil || job.UserID != source.source.UserID || job.SourceID != source.source.ID || source.source.Provider != CalendarSourceProviderCalDAV || claim.RemoteID != job.RemoteID || claim.Version != job.Version || claim.Response != job.Response {
+	if source == nil || claim.ID == "" || guard == nil || job.UserID != source.source.UserID || job.SourceID != source.source.ID || !CalendarSourceMailServer(source.source.Provider) || claim.RemoteID != job.RemoteID || claim.Version != job.Version || claim.Response != job.Response {
 		return ErrCalendarEventChanged
 	}
 	if event != nil {

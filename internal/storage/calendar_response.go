@@ -49,7 +49,7 @@ func (db *DB) BeginCalendarResponse(ctx context.Context, userID, sourceID, remot
 		SELECT source.user_id, source.id, ?, ?, ? FROM calendar_sources source
 		JOIN accounts account ON account.id = source.account_id AND account.user_id = source.user_id
 		WHERE source.user_id = ? AND source.id = ? AND source.is_selected = 1 AND source.is_deleted = 0
-		AND source.provider IN ('gmail', 'outlook', 'caldav') AND COALESCE(account.is_deleting, 0) = 0
+		AND source.provider IN ('gmail', 'outlook', 'caldav', 'jmap') AND COALESCE(account.is_deleting, 0) = 0
 		ON CONFLICT DO NOTHING`, remoteID, version, response, userID, sourceID)
 	if err != nil {
 		return err
@@ -82,7 +82,7 @@ func (db *DB) CompleteCalendarIncomingResponse(ctx context.Context, existing Cal
 func calendarResponseValues(existing, event CalendarEvent, organizer bool) (calendarMutationValues, error) {
 	validResponse := event.ResponseStatus == "accepted" || event.ResponseStatus == "tentative" || event.ResponseStatus == "declined"
 	if organizer {
-		validResponse = existing.SourceProvider == CalendarSourceProviderCalDAV && event.ResponseStatus == "organizer" && existing.AccountEmail != "" && strings.EqualFold(event.OrganizerEmail, existing.AccountEmail) && event.ICalUID == existing.ICalUID
+		validResponse = CalendarSourceMailServer(existing.SourceProvider) && event.ResponseStatus == "organizer" && existing.AccountEmail != "" && strings.EqualFold(event.OrganizerEmail, existing.AccountEmail) && event.ICalUID == existing.ICalUID
 	}
 	if event.RemoteID != existing.RemoteID || event.SeriesRemoteID != existing.SeriesRemoteID || event.ETag == "" || event.IsDeleted || event.Status == "cancelled" || !json.Valid([]byte(event.AttendeesJSON)) ||
 		!validResponse {
