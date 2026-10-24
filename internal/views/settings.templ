@@ -940,6 +940,8 @@ switch account.ContactSyncProvider {
 		return "Outlook"
 	case "carddav":
 		return "CardDAV"
+	case "jmap":
+		return "JMAP"
 	default:
 		return "Contacts"
 	}
@@ -1980,6 +1982,8 @@ func accountProviderName(provider string) string {
 		return "Outlook"
 	case providers.MailServiceICloud:
 		return "iCloud"
+	case providers.ProviderJMAP:
+		return "JMAP"
 	default:
 		return "IMAP"
 	}

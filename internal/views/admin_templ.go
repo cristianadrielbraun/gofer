@@ -8182,6 +8182,8 @@ func adminContactSyncProviderLabel(provider string) string {
 		return "Outlook"
 	case "carddav":
 		return "CardDAV"
+	case "jmap":
+		return "JMAP"
 	case "":
 		return "Unknown"
 	default:
@@ -8312,7 +8314,7 @@ func AdminLabelsPage(status models.LabelAdminStatus) templ.Component {
 		var templ_7745c5c3_Var366 templ.SafeURL
 		templ_7745c5c3_Var366, templ_7745c5c3_Err = templ.JoinURLErrs(adminScopeURL("/api/admin/labels/status", status.Scope))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2342, Col: 71}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2344, Col: 71}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var366))
 		if templ_7745c5c3_Err != nil {
@@ -8383,7 +8385,7 @@ func AdminLabelsPage(status models.LabelAdminStatus) templ.Component {
 		var templ_7745c5c3_Var369 string
 		templ_7745c5c3_Var369, templ_7745c5c3_Err = templ.JoinStringErrs(adminLabelCoverageText(status.Totals.MessagesWithLabels, status.Totals.TotalMessages))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2360, Col: 154}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2362, Col: 154}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var369))
 		if templ_7745c5c3_Err != nil {
@@ -8396,7 +8398,7 @@ func AdminLabelsPage(status models.LabelAdminStatus) templ.Component {
 		var templ_7745c5c3_Var370 string
 		templ_7745c5c3_Var370, templ_7745c5c3_Err = templruntime.SanitizeStyleAttributeValues(fmt.Sprintf("width:%d%%", adminPercent(status.Totals.MessagesWithLabels, status.Totals.TotalMessages)))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2363, Col: 159}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2365, Col: 159}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var370))
 		if templ_7745c5c3_Err != nil {
@@ -8507,7 +8509,7 @@ func AdminLabelsPage(status models.LabelAdminStatus) templ.Component {
 		var templ_7745c5c3_Var377 string
 		templ_7745c5c3_Var377, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d account(s)", len(status.Accounts)))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2389, Col: 128}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2391, Col: 128}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var377))
 		if templ_7745c5c3_Err != nil {
@@ -8574,7 +8576,7 @@ func AdminLabelAccountCard(account models.LabelAccountSyncStatus) templ.Componen
 		var templ_7745c5c3_Var379 string
 		templ_7745c5c3_Var379, templ_7745c5c3_Err = templ.JoinStringErrs(account.AccountName)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2410, Col: 81}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2412, Col: 81}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var379))
 		if templ_7745c5c3_Err != nil {
@@ -8587,7 +8589,7 @@ func AdminLabelAccountCard(account models.LabelAccountSyncStatus) templ.Componen
 		var templ_7745c5c3_Var380 string
 		templ_7745c5c3_Var380, templ_7745c5c3_Err = templ.JoinStringErrs(account.AccountEmail)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2411, Col: 97}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2413, Col: 97}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var380))
 		if templ_7745c5c3_Err != nil {
@@ -8605,7 +8607,7 @@ func AdminLabelAccountCard(account models.LabelAccountSyncStatus) templ.Componen
 			var templ_7745c5c3_Var381 string
 			templ_7745c5c3_Var381, templ_7745c5c3_Err = templ.JoinStringErrs(account.OwnerUsername)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2413, Col: 110}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2415, Col: 110}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var381))
 			if templ_7745c5c3_Err != nil {
@@ -8623,7 +8625,7 @@ func AdminLabelAccountCard(account models.LabelAccountSyncStatus) templ.Componen
 		var templ_7745c5c3_Var382 string
 		templ_7745c5c3_Var382, templ_7745c5c3_Err = templ.JoinStringErrs(adminLabelProviderLabel(account.LabelProvider))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2415, Col: 143}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2417, Col: 143}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var382))
 		if templ_7745c5c3_Err != nil {
@@ -8658,7 +8660,7 @@ func AdminLabelAccountCard(account models.LabelAccountSyncStatus) templ.Componen
 		var templ_7745c5c3_Var385 string
 		templ_7745c5c3_Var385, templ_7745c5c3_Err = templ.JoinStringErrs(adminLabelSyncLabel(account))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2417, Col: 151}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2419, Col: 151}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var385))
 		if templ_7745c5c3_Err != nil {
@@ -8671,7 +8673,7 @@ func AdminLabelAccountCard(account models.LabelAccountSyncStatus) templ.Componen
 		var templ_7745c5c3_Var386 string
 		templ_7745c5c3_Var386, templ_7745c5c3_Err = templ.JoinStringErrs(adminLabelCoverageText(account.MessagesWithLabels, account.TotalMessages))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2422, Col: 139}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2424, Col: 139}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var386))
 		if templ_7745c5c3_Err != nil {
@@ -8684,7 +8686,7 @@ func AdminLabelAccountCard(account models.LabelAccountSyncStatus) templ.Componen
 		var templ_7745c5c3_Var387 string
 		templ_7745c5c3_Var387, templ_7745c5c3_Err = templruntime.SanitizeStyleAttributeValues(fmt.Sprintf("width:%d%%", adminPercent(account.MessagesWithLabels, account.TotalMessages)))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2425, Col: 144}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2427, Col: 144}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var387))
 		if templ_7745c5c3_Err != nil {
@@ -8738,7 +8740,7 @@ func AdminLabelAccountCard(account models.LabelAccountSyncStatus) templ.Componen
 			var templ_7745c5c3_Var388 string
 			templ_7745c5c3_Var388, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d/%d folders", account.OutlookGraph.GraphBackedFolders, account.OutlookGraph.LocalFolders))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2442, Col: 175}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2444, Col: 175}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var388))
 			if templ_7745c5c3_Err != nil {
@@ -8793,7 +8795,7 @@ func AdminLabelAccountCard(account models.LabelAccountSyncStatus) templ.Componen
 			var templ_7745c5c3_Var389 string
 			templ_7745c5c3_Var389, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d/%d folders", account.GmailAPI.GmailBackedFolders, account.GmailAPI.LocalFolders))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2460, Col: 167}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2462, Col: 167}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var389))
 			if templ_7745c5c3_Err != nil {
@@ -8894,7 +8896,7 @@ func AdminLabelAccountCard(account models.LabelAccountSyncStatus) templ.Componen
 				var templ_7745c5c3_Var390 string
 				templ_7745c5c3_Var390, templ_7745c5c3_Err = templ.JoinStringErrs(label.Name)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2496, Col: 81}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2498, Col: 81}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var390))
 				if templ_7745c5c3_Err != nil {
@@ -8907,7 +8909,7 @@ func AdminLabelAccountCard(account models.LabelAccountSyncStatus) templ.Componen
 				var templ_7745c5c3_Var391 string
 				templ_7745c5c3_Var391, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", label.Count))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2497, Col: 98}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2499, Col: 98}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var391))
 				if templ_7745c5c3_Err != nil {
@@ -8920,7 +8922,7 @@ func AdminLabelAccountCard(account models.LabelAccountSyncStatus) templ.Componen
 				var templ_7745c5c3_Var392 string
 				templ_7745c5c3_Var392, templ_7745c5c3_Err = templruntime.SanitizeStyleAttributeValues(fmt.Sprintf("width:%d%%", adminPercent(label.Count, account.MessagesWithLabels)))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2500, Col: 142}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2502, Col: 142}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var392))
 				if templ_7745c5c3_Err != nil {
@@ -8933,7 +8935,7 @@ func AdminLabelAccountCard(account models.LabelAccountSyncStatus) templ.Componen
 				var templ_7745c5c3_Var393 string
 				templ_7745c5c3_Var393, templ_7745c5c3_Err = templ.JoinStringErrs(adminLabelProviderLabel(label.ProviderType))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2502, Col: 146}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2504, Col: 146}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var393))
 				if templ_7745c5c3_Err != nil {
@@ -8961,7 +8963,7 @@ func AdminLabelAccountCard(account models.LabelAccountSyncStatus) templ.Componen
 			var templ_7745c5c3_Var394 string
 			templ_7745c5c3_Var394, templ_7745c5c3_Err = templ.JoinStringErrs(account.Sync.LastError)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2510, Col: 156}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2512, Col: 156}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var394))
 			if templ_7745c5c3_Err != nil {
@@ -8980,7 +8982,7 @@ func AdminLabelAccountCard(account models.LabelAccountSyncStatus) templ.Componen
 			var templ_7745c5c3_Var395 string
 			templ_7745c5c3_Var395, templ_7745c5c3_Err = templ.JoinStringErrs(account.LatestMutationError)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2513, Col: 169}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2515, Col: 169}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var395))
 			if templ_7745c5c3_Err != nil {
@@ -9035,7 +9037,7 @@ func AdminContactsPage(status models.ContactAdminStatus) templ.Component {
 		var templ_7745c5c3_Var397 templ.SafeURL
 		templ_7745c5c3_Var397, templ_7745c5c3_Err = templ.JoinURLErrs(adminScopeURL("/admin/contacts/backfill", status.Scope))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2529, Col: 90}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2531, Col: 90}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var397))
 		if templ_7745c5c3_Err != nil {
@@ -9193,7 +9195,7 @@ func AdminContactsPage(status models.ContactAdminStatus) templ.Component {
 				var templ_7745c5c3_Var405 string
 				templ_7745c5c3_Var405, templ_7745c5c3_Err = templ.JoinStringErrs(adminContactRunDescription(status.Backfill))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2554, Col: 129}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2556, Col: 129}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var405))
 				if templ_7745c5c3_Err != nil {
@@ -9232,7 +9234,7 @@ func AdminContactsPage(status models.ContactAdminStatus) templ.Component {
 				var templ_7745c5c3_Var408 string
 				templ_7745c5c3_Var408, templ_7745c5c3_Err = templ.JoinStringErrs(adminContactRunLabel(status.Backfill))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2565, Col: 48}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2567, Col: 48}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var408))
 				if templ_7745c5c3_Err != nil {
@@ -9245,7 +9247,7 @@ func AdminContactsPage(status models.ContactAdminStatus) templ.Component {
 				var templ_7745c5c3_Var409 string
 				templ_7745c5c3_Var409, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d of %d processed", status.Backfill.Processed, status.Backfill.Total))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2569, Col: 169}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2571, Col: 169}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var409))
 				if templ_7745c5c3_Err != nil {
@@ -9258,7 +9260,7 @@ func AdminContactsPage(status models.ContactAdminStatus) templ.Component {
 				var templ_7745c5c3_Var410 string
 				templ_7745c5c3_Var410, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d%%", adminPercent(status.Backfill.Processed, status.Backfill.Total)))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2570, Col: 187}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2572, Col: 187}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var410))
 				if templ_7745c5c3_Err != nil {
@@ -9271,7 +9273,7 @@ func AdminContactsPage(status models.ContactAdminStatus) templ.Component {
 				var templ_7745c5c3_Var411 string
 				templ_7745c5c3_Var411, templ_7745c5c3_Err = templruntime.SanitizeStyleAttributeValues(fmt.Sprintf("width:%d%%", adminPercent(status.Backfill.Processed, status.Backfill.Total)))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2573, Col: 175}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2575, Col: 175}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var411))
 				if templ_7745c5c3_Err != nil {
@@ -9431,7 +9433,7 @@ func AdminContactsPage(status models.ContactAdminStatus) templ.Component {
 				var templ_7745c5c3_Var417 string
 				templ_7745c5c3_Var417, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d recent events", len(status.RecentEvents)))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2626, Col: 151}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2628, Col: 151}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var417))
 				if templ_7745c5c3_Err != nil {
@@ -9506,7 +9508,7 @@ func AdminContactSyncCard(sync models.ContactSyncStatus) templ.Component {
 		var templ_7745c5c3_Var419 string
 		templ_7745c5c3_Var419, templ_7745c5c3_Err = templ.JoinStringErrs(sync.AccountName)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2659, Col: 78}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2661, Col: 78}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var419))
 		if templ_7745c5c3_Err != nil {
@@ -9519,7 +9521,7 @@ func AdminContactSyncCard(sync models.ContactSyncStatus) templ.Component {
 		var templ_7745c5c3_Var420 string
 		templ_7745c5c3_Var420, templ_7745c5c3_Err = templ.JoinStringErrs(sync.AccountEmail)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2660, Col: 94}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2662, Col: 94}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var420))
 		if templ_7745c5c3_Err != nil {
@@ -9537,7 +9539,7 @@ func AdminContactSyncCard(sync models.ContactSyncStatus) templ.Component {
 			var templ_7745c5c3_Var421 string
 			templ_7745c5c3_Var421, templ_7745c5c3_Err = templ.JoinStringErrs(sync.OwnerUsername)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2662, Col: 107}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2664, Col: 107}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var421))
 			if templ_7745c5c3_Err != nil {
@@ -9577,7 +9579,7 @@ func AdminContactSyncCard(sync models.ContactSyncStatus) templ.Component {
 		var templ_7745c5c3_Var424 string
 		templ_7745c5c3_Var424, templ_7745c5c3_Err = templ.JoinStringErrs(adminContactSyncLabel(sync))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2665, Col: 149}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2667, Col: 149}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var424))
 		if templ_7745c5c3_Err != nil {
@@ -9615,7 +9617,7 @@ func AdminContactSyncCard(sync models.ContactSyncStatus) templ.Component {
 			var templ_7745c5c3_Var425 string
 			templ_7745c5c3_Var425, templ_7745c5c3_Err = templ.JoinStringErrs(sync.LastError)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2674, Col: 148}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2676, Col: 148}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var425))
 			if templ_7745c5c3_Err != nil {
@@ -9662,7 +9664,7 @@ func AdminContactEventRow(event models.ContactActivityEvent) templ.Component {
 		var templ_7745c5c3_Var427 string
 		templ_7745c5c3_Var427, templ_7745c5c3_Err = templ.JoinStringErrs(adminTime(event.CreatedAt))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2681, Col: 85}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2683, Col: 85}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var427))
 		if templ_7745c5c3_Err != nil {
@@ -9676,7 +9678,7 @@ func AdminContactEventRow(event models.ContactActivityEvent) templ.Component {
 			var templ_7745c5c3_Var428 string
 			templ_7745c5c3_Var428, templ_7745c5c3_Err = templ.JoinStringErrs(event.Username)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2685, Col: 21}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2687, Col: 21}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var428))
 			if templ_7745c5c3_Err != nil {
@@ -9696,7 +9698,7 @@ func AdminContactEventRow(event models.ContactActivityEvent) templ.Component {
 			var templ_7745c5c3_Var429 string
 			templ_7745c5c3_Var429, templ_7745c5c3_Err = templ.JoinStringErrs(event.Email)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2692, Col: 18}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2694, Col: 18}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var429))
 			if templ_7745c5c3_Err != nil {
@@ -9737,7 +9739,7 @@ func AdminContactEventRow(event models.ContactActivityEvent) templ.Component {
 		var templ_7745c5c3_Var432 string
 		templ_7745c5c3_Var432, templ_7745c5c3_Err = templ.JoinStringErrs(adminContactEventLabel(event.Type))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2698, Col: 160}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2700, Col: 160}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var432))
 		if templ_7745c5c3_Err != nil {
@@ -9750,7 +9752,7 @@ func AdminContactEventRow(event models.ContactActivityEvent) templ.Component {
 		var templ_7745c5c3_Var433 string
 		templ_7745c5c3_Var433, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", event.Count))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2699, Col: 98}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2701, Col: 98}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var433))
 		if templ_7745c5c3_Err != nil {
@@ -9763,7 +9765,7 @@ func AdminContactEventRow(event models.ContactActivityEvent) templ.Component {
 		var templ_7745c5c3_Var434 string
 		templ_7745c5c3_Var434, templ_7745c5c3_Err = templ.JoinStringErrs(event.Message)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2700, Col: 77}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2702, Col: 77}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var434))
 		if templ_7745c5c3_Err != nil {
@@ -9812,7 +9814,7 @@ func AdminAttemptRow(attempt models.AvatarAttemptLog, errorMode bool) templ.Comp
 		var templ_7745c5c3_Var436 string
 		templ_7745c5c3_Var436, templ_7745c5c3_Err = templ.JoinStringErrs(adminAttemptID(attempt))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2712, Col: 139}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2714, Col: 139}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var436))
 		if templ_7745c5c3_Err != nil {
@@ -9825,7 +9827,7 @@ func AdminAttemptRow(attempt models.AvatarAttemptLog, errorMode bool) templ.Comp
 		var templ_7745c5c3_Var437 string
 		templ_7745c5c3_Var437, templ_7745c5c3_Err = templ.JoinStringErrs(attempt.Provider)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2714, Col: 104}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2716, Col: 104}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var437))
 		if templ_7745c5c3_Err != nil {
@@ -9860,7 +9862,7 @@ func AdminAttemptRow(attempt models.AvatarAttemptLog, errorMode bool) templ.Comp
 		var templ_7745c5c3_Var440 string
 		templ_7745c5c3_Var440, templ_7745c5c3_Err = templ.JoinStringErrs(attempt.Status)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2715, Col: 141}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2717, Col: 141}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var440))
 		if templ_7745c5c3_Err != nil {
@@ -9873,7 +9875,7 @@ func AdminAttemptRow(attempt models.AvatarAttemptLog, errorMode bool) templ.Comp
 		var templ_7745c5c3_Var441 string
 		templ_7745c5c3_Var441, templ_7745c5c3_Err = templ.JoinStringErrs(adminAttemptEmail(attempt.Email))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2718, Col: 87}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2720, Col: 87}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var441))
 		if templ_7745c5c3_Err != nil {
@@ -9891,7 +9893,7 @@ func AdminAttemptRow(attempt models.AvatarAttemptLog, errorMode bool) templ.Comp
 			var templ_7745c5c3_Var442 string
 			templ_7745c5c3_Var442, templ_7745c5c3_Err = templ.JoinStringErrs(adminAttemptMessage(attempt.Message))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2720, Col: 124}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2722, Col: 124}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var442))
 			if templ_7745c5c3_Err != nil {
@@ -9909,7 +9911,7 @@ func AdminAttemptRow(attempt models.AvatarAttemptLog, errorMode bool) templ.Comp
 			var templ_7745c5c3_Var443 string
 			templ_7745c5c3_Var443, templ_7745c5c3_Err = templ.JoinStringErrs(attempt.Message)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2722, Col: 80}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2724, Col: 80}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var443))
 			if templ_7745c5c3_Err != nil {
@@ -9927,7 +9929,7 @@ func AdminAttemptRow(attempt models.AvatarAttemptLog, errorMode bool) templ.Comp
 		var templ_7745c5c3_Var444 string
 		templ_7745c5c3_Var444, templ_7745c5c3_Err = templ.JoinStringErrs(adminTime(attempt.CreatedAt))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2725, Col: 101}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2727, Col: 101}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var444))
 		if templ_7745c5c3_Err != nil {
@@ -9969,7 +9971,7 @@ func AdminMetric(key string, label string, value int) templ.Component {
 		var templ_7745c5c3_Var446 string
 		templ_7745c5c3_Var446, templ_7745c5c3_Err = templ.JoinStringErrs(key)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2730, Col: 127}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2732, Col: 127}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var446))
 		if templ_7745c5c3_Err != nil {
@@ -9982,7 +9984,7 @@ func AdminMetric(key string, label string, value int) templ.Component {
 		var templ_7745c5c3_Var447 string
 		templ_7745c5c3_Var447, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2731, Col: 95}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2733, Col: 95}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var447))
 		if templ_7745c5c3_Err != nil {
@@ -9995,7 +9997,7 @@ func AdminMetric(key string, label string, value int) templ.Component {
 		var templ_7745c5c3_Var448 string
 		templ_7745c5c3_Var448, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", value))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2732, Col: 117}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2734, Col: 117}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var448))
 		if templ_7745c5c3_Err != nil {
@@ -10037,7 +10039,7 @@ func AdminCompactMetric(key string, label string, value int) templ.Component {
 		var templ_7745c5c3_Var450 string
 		templ_7745c5c3_Var450, templ_7745c5c3_Err = templ.JoinStringErrs(key)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2737, Col: 129}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2739, Col: 129}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var450))
 		if templ_7745c5c3_Err != nil {
@@ -10050,7 +10052,7 @@ func AdminCompactMetric(key string, label string, value int) templ.Component {
 		var templ_7745c5c3_Var451 string
 		templ_7745c5c3_Var451, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2738, Col: 52}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2740, Col: 52}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var451))
 		if templ_7745c5c3_Err != nil {
@@ -10063,7 +10065,7 @@ func AdminCompactMetric(key string, label string, value int) templ.Component {
 		var templ_7745c5c3_Var452 string
 		templ_7745c5c3_Var452, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", value))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2739, Col: 116}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2741, Col: 116}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var452))
 		if templ_7745c5c3_Err != nil {
@@ -10105,7 +10107,7 @@ func AdminCompactDetail(key string, label string, value string) templ.Component 
 		var templ_7745c5c3_Var454 string
 		templ_7745c5c3_Var454, templ_7745c5c3_Err = templ.JoinStringErrs(key)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2744, Col: 129}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2746, Col: 129}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var454))
 		if templ_7745c5c3_Err != nil {
@@ -10118,7 +10120,7 @@ func AdminCompactDetail(key string, label string, value string) templ.Component 
 		var templ_7745c5c3_Var455 string
 		templ_7745c5c3_Var455, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2745, Col: 52}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2747, Col: 52}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var455))
 		if templ_7745c5c3_Err != nil {
@@ -10131,7 +10133,7 @@ func AdminCompactDetail(key string, label string, value string) templ.Component 
 		var templ_7745c5c3_Var456 string
 		templ_7745c5c3_Var456, templ_7745c5c3_Err = templ.JoinStringErrs(value)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2746, Col: 113}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2748, Col: 113}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var456))
 		if templ_7745c5c3_Err != nil {
@@ -10173,7 +10175,7 @@ func AdminErrorDetail(key string, label string, value string) templ.Component {
 		var templ_7745c5c3_Var458 string
 		templ_7745c5c3_Var458, templ_7745c5c3_Err = templ.JoinStringErrs(key)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2751, Col: 47}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2753, Col: 47}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var458))
 		if templ_7745c5c3_Err != nil {
@@ -10186,7 +10188,7 @@ func AdminErrorDetail(key string, label string, value string) templ.Component {
 		var templ_7745c5c3_Var459 string
 		templ_7745c5c3_Var459, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2752, Col: 52}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2754, Col: 52}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var459))
 		if templ_7745c5c3_Err != nil {
@@ -10199,7 +10201,7 @@ func AdminErrorDetail(key string, label string, value string) templ.Component {
 		var templ_7745c5c3_Var460 string
 		templ_7745c5c3_Var460, templ_7745c5c3_Err = templ.JoinStringErrs(value)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2753, Col: 109}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2755, Col: 109}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var460))
 		if templ_7745c5c3_Err != nil {
@@ -10241,7 +10243,7 @@ func AdminInlineMetric(key string, label string, value int) templ.Component {
 		var templ_7745c5c3_Var462 string
 		templ_7745c5c3_Var462, templ_7745c5c3_Err = templ.JoinStringErrs(key)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2758, Col: 122}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2760, Col: 122}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var462))
 		if templ_7745c5c3_Err != nil {
@@ -10254,7 +10256,7 @@ func AdminInlineMetric(key string, label string, value int) templ.Component {
 		var templ_7745c5c3_Var463 string
 		templ_7745c5c3_Var463, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2759, Col: 95}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2761, Col: 95}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var463))
 		if templ_7745c5c3_Err != nil {
@@ -10267,7 +10269,7 @@ func AdminInlineMetric(key string, label string, value int) templ.Component {
 		var templ_7745c5c3_Var464 string
 		templ_7745c5c3_Var464, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", value))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2760, Col: 112}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2762, Col: 112}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var464))
 		if templ_7745c5c3_Err != nil {
@@ -10309,7 +10311,7 @@ func AdminInlineDetail(key string, label string, value string) templ.Component {
 		var templ_7745c5c3_Var466 string
 		templ_7745c5c3_Var466, templ_7745c5c3_Err = templ.JoinStringErrs(key)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2765, Col: 86}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2767, Col: 86}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var466))
 		if templ_7745c5c3_Err != nil {
@@ -10322,7 +10324,7 @@ func AdminInlineDetail(key string, label string, value string) templ.Component {
 		var templ_7745c5c3_Var467 string
 		templ_7745c5c3_Var467, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2766, Col: 45}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2768, Col: 45}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var467))
 		if templ_7745c5c3_Err != nil {
@@ -10335,7 +10337,7 @@ func AdminInlineDetail(key string, label string, value string) templ.Component {
 		var templ_7745c5c3_Var468 string
 		templ_7745c5c3_Var468, templ_7745c5c3_Err = templ.JoinStringErrs(value)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2767, Col: 95}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2769, Col: 95}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var468))
 		if templ_7745c5c3_Err != nil {
@@ -10377,7 +10379,7 @@ func AdminProviderUsageRow(provider models.AvatarProviderStats, totalFound int) 
 		var templ_7745c5c3_Var470 string
 		templ_7745c5c3_Var470, templ_7745c5c3_Err = templ.JoinStringErrs(adminProviderLabel(provider.Provider))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2775, Col: 95}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2777, Col: 95}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var470))
 		if templ_7745c5c3_Err != nil {
@@ -10390,7 +10392,7 @@ func AdminProviderUsageRow(provider models.AvatarProviderStats, totalFound int) 
 		var templ_7745c5c3_Var471 string
 		templ_7745c5c3_Var471, templ_7745c5c3_Err = templ.JoinStringErrs(adminProviderRole(provider.Provider))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2776, Col: 85}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2778, Col: 85}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var471))
 		if templ_7745c5c3_Err != nil {
@@ -10403,7 +10405,7 @@ func AdminProviderUsageRow(provider models.AvatarProviderStats, totalFound int) 
 		var templ_7745c5c3_Var472 string
 		templ_7745c5c3_Var472, templ_7745c5c3_Err = templ.JoinStringErrs(adminProviderMetricKey(provider.Provider, "in_use"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2778, Col: 158}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2780, Col: 158}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var472))
 		if templ_7745c5c3_Err != nil {
@@ -10416,7 +10418,7 @@ func AdminProviderUsageRow(provider models.AvatarProviderStats, totalFound int) 
 		var templ_7745c5c3_Var473 string
 		templ_7745c5c3_Var473, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", provider.InUse))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2778, Col: 226}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2780, Col: 226}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var473))
 		if templ_7745c5c3_Err != nil {
@@ -10429,7 +10431,7 @@ func AdminProviderUsageRow(provider models.AvatarProviderStats, totalFound int) 
 		var templ_7745c5c3_Var474 string
 		templ_7745c5c3_Var474, templ_7745c5c3_Err = templruntime.SanitizeStyleAttributeValues(fmt.Sprintf("width:%d%%", adminProviderPercent(provider.InUse, totalFound)))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2781, Col: 131}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2783, Col: 131}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var474))
 		if templ_7745c5c3_Err != nil {
@@ -10471,7 +10473,7 @@ func AdminRunProviderCard(provider models.AvatarProviderStats) templ.Component {
 		var templ_7745c5c3_Var476 string
 		templ_7745c5c3_Var476, templ_7745c5c3_Err = templ.JoinStringErrs(adminProviderLabel(provider.Provider))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2789, Col: 110}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2791, Col: 110}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var476))
 		if templ_7745c5c3_Err != nil {
@@ -10537,7 +10539,7 @@ func AdminProviderCard(provider models.AvatarProviderStats) templ.Component {
 		var templ_7745c5c3_Var478 string
 		templ_7745c5c3_Var478, templ_7745c5c3_Err = templ.JoinStringErrs(adminProviderLabel(provider.Provider))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2805, Col: 140}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2807, Col: 140}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var478))
 		if templ_7745c5c3_Err != nil {
@@ -10550,7 +10552,7 @@ func AdminProviderCard(provider models.AvatarProviderStats) templ.Component {
 		var templ_7745c5c3_Var479 string
 		templ_7745c5c3_Var479, templ_7745c5c3_Err = templ.JoinStringErrs(adminProviderRole(provider.Provider))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2806, Col: 104}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2808, Col: 104}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var479))
 		if templ_7745c5c3_Err != nil {
@@ -10563,7 +10565,7 @@ func AdminProviderCard(provider models.AvatarProviderStats) templ.Component {
 		var templ_7745c5c3_Var480 string
 		templ_7745c5c3_Var480, templ_7745c5c3_Err = templ.JoinStringErrs(provider.Provider)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2808, Col: 166}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2810, Col: 166}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var480))
 		if templ_7745c5c3_Err != nil {
@@ -10604,7 +10606,7 @@ func AdminProviderCard(provider models.AvatarProviderStats) templ.Component {
 		var templ_7745c5c3_Var481 string
 		templ_7745c5c3_Var481, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d%%", adminProviderPercent(provider.Found, provider.Checked)))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2821, Col: 138}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2823, Col: 138}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var481))
 		if templ_7745c5c3_Err != nil {
@@ -10617,7 +10619,7 @@ func AdminProviderCard(provider models.AvatarProviderStats) templ.Component {
 		var templ_7745c5c3_Var482 string
 		templ_7745c5c3_Var482, templ_7745c5c3_Err = templruntime.SanitizeStyleAttributeValues(fmt.Sprintf("width:%d%%", adminProviderPercent(provider.Found, provider.Checked)))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2824, Col: 142}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2826, Col: 142}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var482))
 		if templ_7745c5c3_Err != nil {
@@ -10630,7 +10632,7 @@ func AdminProviderCard(provider models.AvatarProviderStats) templ.Component {
 		var templ_7745c5c3_Var483 string
 		templ_7745c5c3_Var483, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d total lookup outcomes", adminProviderAttemptTotal(provider)))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2826, Col: 133}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2828, Col: 133}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var483))
 		if templ_7745c5c3_Err != nil {
@@ -10672,7 +10674,7 @@ func AdminDetail(key string, label string, value string) templ.Component {
 		var templ_7745c5c3_Var485 string
 		templ_7745c5c3_Var485, templ_7745c5c3_Err = templ.JoinStringErrs(key)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2832, Col: 104}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2834, Col: 104}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var485))
 		if templ_7745c5c3_Err != nil {
@@ -10685,7 +10687,7 @@ func AdminDetail(key string, label string, value string) templ.Component {
 		var templ_7745c5c3_Var486 string
 		templ_7745c5c3_Var486, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2833, Col: 95}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2835, Col: 95}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var486))
 		if templ_7745c5c3_Err != nil {
@@ -10698,7 +10700,7 @@ func AdminDetail(key string, label string, value string) templ.Component {
 		var templ_7745c5c3_Var487 string
 		templ_7745c5c3_Var487, templ_7745c5c3_Err = templ.JoinStringErrs(value)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2834, Col: 96}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2836, Col: 96}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var487))
 		if templ_7745c5c3_Err != nil {
@@ -10794,7 +10796,7 @@ func AdminMailHealthCard(label string, value int, warning bool, danger bool) tem
 		var templ_7745c5c3_Var491 string
 		templ_7745c5c3_Var491, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2879, Col: 95}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2881, Col: 95}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var491))
 		if templ_7745c5c3_Err != nil {
@@ -10833,7 +10835,7 @@ func AdminMailHealthCard(label string, value int, warning bool, danger bool) tem
 		var templ_7745c5c3_Var494 string
 		templ_7745c5c3_Var494, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", value))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2887, Col: 29}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2889, Col: 29}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var494))
 		if templ_7745c5c3_Err != nil {
@@ -10883,7 +10885,7 @@ func AdminMailOperationsPage(status models.MailOperationsAdminStatus) templ.Comp
 		var templ_7745c5c3_Var496 string
 		templ_7745c5c3_Var496, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", status.Total))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2905, Col: 105}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2907, Col: 105}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var496))
 		if templ_7745c5c3_Err != nil {
@@ -10946,7 +10948,7 @@ func AdminMailOperationsPage(status models.MailOperationsAdminStatus) templ.Comp
 		var templ_7745c5c3_Var501 string
 		templ_7745c5c3_Var501, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", status.ActionRequired))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2921, Col: 49}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2923, Col: 49}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var501))
 		if templ_7745c5c3_Err != nil {
@@ -10986,7 +10988,7 @@ func AdminMailOperationsPage(status models.MailOperationsAdminStatus) templ.Comp
 			var templ_7745c5c3_Var504 string
 			templ_7745c5c3_Var504, templ_7745c5c3_Err = templ.JoinStringErrs(adminTime(status.Retention.LastRunAt))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2931, Col: 110}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2933, Col: 110}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var504))
 			if templ_7745c5c3_Err != nil {
@@ -11036,7 +11038,7 @@ func AdminMailOperationsPage(status models.MailOperationsAdminStatus) templ.Comp
 				var templ_7745c5c3_Var505 string
 				templ_7745c5c3_Var505, templ_7745c5c3_Err = templ.JoinStringErrs(status.Retention.LastError)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2943, Col: 160}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2945, Col: 160}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var505))
 				if templ_7745c5c3_Err != nil {
@@ -11124,7 +11126,7 @@ func AdminMailOperationsPage(status models.MailOperationsAdminStatus) templ.Comp
 				var templ_7745c5c3_Var508 string
 				templ_7745c5c3_Var508, templ_7745c5c3_Err = templ.JoinStringErrs(adminMailHealthKindLabel(item.Kind))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2969, Col: 84}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2971, Col: 84}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var508))
 				if templ_7745c5c3_Err != nil {
@@ -11137,7 +11139,7 @@ func AdminMailOperationsPage(status models.MailOperationsAdminStatus) templ.Comp
 				var templ_7745c5c3_Var509 string
 				templ_7745c5c3_Var509, templ_7745c5c3_Err = templ.JoinStringErrs(adminMailHealthStateLabel(item.State))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2969, Col: 129}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2971, Col: 129}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var509))
 				if templ_7745c5c3_Err != nil {
@@ -11150,7 +11152,7 @@ func AdminMailOperationsPage(status models.MailOperationsAdminStatus) templ.Comp
 				var templ_7745c5c3_Var510 string
 				templ_7745c5c3_Var510, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", item.Count))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2970, Col: 99}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2972, Col: 99}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var510))
 				if templ_7745c5c3_Err != nil {
@@ -11178,7 +11180,7 @@ func AdminMailOperationsPage(status models.MailOperationsAdminStatus) templ.Comp
 			var templ_7745c5c3_Var511 string
 			templ_7745c5c3_Var511, templ_7745c5c3_Err = templ.JoinStringErrs(adminMailHealthStateLabel(item.State))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2981, Col: 95}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2983, Col: 95}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var511))
 			if templ_7745c5c3_Err != nil {
@@ -11191,7 +11193,7 @@ func AdminMailOperationsPage(status models.MailOperationsAdminStatus) templ.Comp
 			var templ_7745c5c3_Var512 string
 			templ_7745c5c3_Var512, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", item.Count))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2982, Col: 98}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2984, Col: 98}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var512))
 			if templ_7745c5c3_Err != nil {
@@ -11210,7 +11212,7 @@ func AdminMailOperationsPage(status models.MailOperationsAdminStatus) templ.Comp
 			var templ_7745c5c3_Var513 string
 			templ_7745c5c3_Var513, templ_7745c5c3_Err = templ.JoinStringErrs(adminMailHealthStateLabel(item.State))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2987, Col: 100}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2989, Col: 100}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var513))
 			if templ_7745c5c3_Err != nil {
@@ -11223,7 +11225,7 @@ func AdminMailOperationsPage(status models.MailOperationsAdminStatus) templ.Comp
 			var templ_7745c5c3_Var514 string
 			templ_7745c5c3_Var514, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", item.Count))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2988, Col: 98}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2990, Col: 98}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var514))
 			if templ_7745c5c3_Err != nil {
@@ -11247,7 +11249,7 @@ func AdminMailOperationsPage(status models.MailOperationsAdminStatus) templ.Comp
 		var templ_7745c5c3_Var515 string
 		templ_7745c5c3_Var515, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d configured · %d healthy · %d fallback", status.Health.IDLE.Configured, status.Health.IDLE.Healthy, status.Health.IDLE.Fallback))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 2999, Col: 312}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 3001, Col: 312}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var515))
 		if templ_7745c5c3_Err != nil {
@@ -11260,7 +11262,7 @@ func AdminMailOperationsPage(status models.MailOperationsAdminStatus) templ.Comp
 		var templ_7745c5c3_Var516 string
 		templ_7745c5c3_Var516, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d complete · %d partial · %d failed", status.Health.FolderSync.Complete, status.Health.FolderSync.Partial, status.Health.FolderSync.Failed))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 3000, Col: 329}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 3002, Col: 329}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var516))
 		if templ_7745c5c3_Err != nil {
@@ -11273,7 +11275,7 @@ func AdminMailOperationsPage(status models.MailOperationsAdminStatus) templ.Comp
 		var templ_7745c5c3_Var517 string
 		templ_7745c5c3_Var517, templ_7745c5c3_Err = templ.JoinStringErrs(adminMailPendingAge(status.Health.OldestPendingAt))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 3001, Col: 214}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 3003, Col: 214}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var517))
 		if templ_7745c5c3_Err != nil {
@@ -11286,7 +11288,7 @@ func AdminMailOperationsPage(status models.MailOperationsAdminStatus) templ.Comp
 		var templ_7745c5c3_Var518 string
 		templ_7745c5c3_Var518, templ_7745c5c3_Err = templ.JoinStringErrs(adminTime(status.Health.NextRetryAt))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 3002, Col: 196}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 3004, Col: 196}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var518))
 		if templ_7745c5c3_Err != nil {
@@ -11332,7 +11334,7 @@ func AdminMailOperationsPage(status models.MailOperationsAdminStatus) templ.Comp
 			var templ_7745c5c3_Var519 string
 			templ_7745c5c3_Var519, templ_7745c5c3_Err = templ.JoinStringErrs(adminSMTPProfileDuration(status.Health.SMTPProfile.AvgConnectAuthMs))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 3022, Col: 249}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 3024, Col: 249}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var519))
 			if templ_7745c5c3_Err != nil {
@@ -11345,7 +11347,7 @@ func AdminMailOperationsPage(status models.MailOperationsAdminStatus) templ.Comp
 			var templ_7745c5c3_Var520 string
 			templ_7745c5c3_Var520, templ_7745c5c3_Err = templ.JoinStringErrs(adminSMTPProfileDuration(status.Health.SMTPProfile.AvgDataMs))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 3023, Col: 244}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 3025, Col: 244}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var520))
 			if templ_7745c5c3_Err != nil {
@@ -11358,7 +11360,7 @@ func AdminMailOperationsPage(status models.MailOperationsAdminStatus) templ.Comp
 			var templ_7745c5c3_Var521 string
 			templ_7745c5c3_Var521, templ_7745c5c3_Err = templ.JoinStringErrs(adminSMTPProfileDuration(status.Health.SMTPProfile.AvgTotalMs))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 3024, Col: 234}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 3026, Col: 234}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var521))
 			if templ_7745c5c3_Err != nil {
@@ -11371,7 +11373,7 @@ func AdminMailOperationsPage(status models.MailOperationsAdminStatus) templ.Comp
 			var templ_7745c5c3_Var522 string
 			templ_7745c5c3_Var522, templ_7745c5c3_Err = templ.JoinStringErrs(adminSMTPProfileDuration(status.Health.SMTPProfile.AvgQueueWaitMs))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 3025, Col: 243}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 3027, Col: 243}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var522))
 			if templ_7745c5c3_Err != nil {
@@ -11426,7 +11428,7 @@ func AdminMailOperationsPage(status models.MailOperationsAdminStatus) templ.Comp
 				var templ_7745c5c3_Var525 string
 				templ_7745c5c3_Var525, templ_7745c5c3_Err = templ.JoinStringErrs(mailOperationTypeLabel(item.Type))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 3040, Col: 97}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 3042, Col: 97}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var525))
 				if templ_7745c5c3_Err != nil {
@@ -11439,7 +11441,7 @@ func AdminMailOperationsPage(status models.MailOperationsAdminStatus) templ.Comp
 				var templ_7745c5c3_Var526 string
 				templ_7745c5c3_Var526, templ_7745c5c3_Err = templ.JoinStringErrs(item.Provider)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 3041, Col: 80}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 3043, Col: 80}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var526))
 				if templ_7745c5c3_Err != nil {
@@ -11452,7 +11454,7 @@ func AdminMailOperationsPage(status models.MailOperationsAdminStatus) templ.Comp
 				var templ_7745c5c3_Var527 string
 				templ_7745c5c3_Var527, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d total", item.Total))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 3044, Col: 53}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 3046, Col: 53}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var527))
 				if templ_7745c5c3_Err != nil {
@@ -11470,7 +11472,7 @@ func AdminMailOperationsPage(status models.MailOperationsAdminStatus) templ.Comp
 					var templ_7745c5c3_Var528 string
 					templ_7745c5c3_Var528, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d need attention", item.ActionRequired))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 3046, Col: 136}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 3048, Col: 136}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var528))
 					if templ_7745c5c3_Err != nil {
@@ -11535,7 +11537,7 @@ func AdminMailOperationsPage(status models.MailOperationsAdminStatus) templ.Comp
 				var templ_7745c5c3_Var531 string
 				templ_7745c5c3_Var531, templ_7745c5c3_Err = templ.JoinStringErrs(item.AccountLabel)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 3063, Col: 90}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 3065, Col: 90}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var531))
 				if templ_7745c5c3_Err != nil {
@@ -11548,7 +11550,7 @@ func AdminMailOperationsPage(status models.MailOperationsAdminStatus) templ.Comp
 				var templ_7745c5c3_Var532 string
 				templ_7745c5c3_Var532, templ_7745c5c3_Err = templ.JoinStringErrs(item.Provider)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 3064, Col: 80}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 3066, Col: 80}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var532))
 				if templ_7745c5c3_Err != nil {
@@ -11561,7 +11563,7 @@ func AdminMailOperationsPage(status models.MailOperationsAdminStatus) templ.Comp
 				var templ_7745c5c3_Var533 string
 				templ_7745c5c3_Var533, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d total", item.Total))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 3067, Col: 53}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 3069, Col: 53}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var533))
 				if templ_7745c5c3_Err != nil {
@@ -11579,7 +11581,7 @@ func AdminMailOperationsPage(status models.MailOperationsAdminStatus) templ.Comp
 					var templ_7745c5c3_Var534 string
 					templ_7745c5c3_Var534, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d need attention", item.ActionRequired))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 3069, Col: 136}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 3071, Col: 136}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var534))
 					if templ_7745c5c3_Err != nil {
@@ -11755,7 +11757,7 @@ func AdminUserRequiredPasswordChangeAction(user AdminUserData, stepUpRequired bo
 							var templ_7745c5c3_Var543 string
 							templ_7745c5c3_Var543, templ_7745c5c3_Err = templ.JoinStringErrs(adminUserUsername(user.Username))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 3102, Col: 70}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 3104, Col: 70}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var543))
 							if templ_7745c5c3_Err != nil {
@@ -11810,7 +11812,7 @@ func AdminUserRequiredPasswordChangeAction(user AdminUserData, stepUpRequired bo
 					var templ_7745c5c3_Var545 templ.SafeURL
 					templ_7745c5c3_Var545, templ_7745c5c3_Err = templ.JoinURLErrs(user.RequiredChangePath)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 3108, Col: 56}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 3110, Col: 56}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var545))
 					if templ_7745c5c3_Err != nil {
@@ -11823,7 +11825,7 @@ func AdminUserRequiredPasswordChangeAction(user AdminUserData, stepUpRequired bo
 					var templ_7745c5c3_Var546 string
 					templ_7745c5c3_Var546, templ_7745c5c3_Err = templ.JoinStringErrs(user.RequiredChangeCSRFToken)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 3109, Col: 75}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 3111, Col: 75}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var546))
 					if templ_7745c5c3_Err != nil {
@@ -12027,7 +12029,7 @@ func adminSecurityProtocolSelect(protocols []string) templ.Component {
 						var templ_7745c5c3_Var556 string
 						templ_7745c5c3_Var556, templ_7745c5c3_Err = templ.JoinStringErrs(strings.ToUpper(protocol))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 3136, Col: 32}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin.templ`, Line: 3138, Col: 32}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var556))
 						if templ_7745c5c3_Err != nil {

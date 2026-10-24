@@ -89,7 +89,10 @@ type profileAccount struct {
 }
 
 type profileContactSync struct {
-	Enabled      bool                 `json:"enabled"`
+	Enabled bool `json:"enabled"`
+	// Protocol is "jmap" for contacts synced over a JMAP account's own
+	// connection; otherwise they use CardDAV.
+	Protocol     string               `json:"protocol,omitempty"`
 	BaseURL      string               `json:"base_url,omitempty"`
 	Username     string               `json:"username,omitempty"`
 	AddressBooks []profileAddressBook `json:"address_books,omitempty"`
@@ -277,6 +280,9 @@ func exportProfileAccount(ctx context.Context, store *config.AccountStore, db *s
 	contacts := data.ContactSync
 	if contacts.Enabled || strings.TrimSpace(contacts.BaseURL) != "" {
 		exported.Contacts = &profileContactSync{Enabled: contacts.Enabled, BaseURL: contacts.BaseURL, Username: contacts.Username}
+		if contacts.Provider == providers.ProviderJMAP {
+			exported.Contacts = &profileContactSync{Enabled: contacts.Enabled, Protocol: providers.ProviderJMAP}
+		}
 		for _, book := range contacts.AddressBooks {
 			exported.Contacts.AddressBooks = append(exported.Contacts.AddressBooks, profileAddressBook{URL: book.URL, Name: book.Name, Default: book.Default})
 		}
@@ -788,6 +794,30 @@ func profileImportPending(account profileAccount) storage.ImportedAccountPending
 	return pending
 }
 
+// profileContactConfig is the contact setup a profile gives a mail-server
+// account: over its JMAP connection, or CardDAV. ok is false when it has none.
+func profileContactConfig(account profileAccount, enabled bool) (cfg models.ContactSyncConfig, ok bool) {
+	contacts := account.Contacts
+	if contacts == nil {
+		return cfg, false
+	}
+	switch {
+	case contacts.Protocol == providers.ProviderJMAP:
+		if account.Provider != providers.ProviderJMAP || len(contacts.AddressBooks) == 0 {
+			return cfg, false
+		}
+		cfg = models.ContactSyncConfig{Provider: providers.ProviderJMAP, Enabled: enabled}
+	case strings.TrimSpace(contacts.BaseURL) != "":
+		cfg = models.ContactSyncConfig{Provider: providers.ProviderCardDAV, Enabled: enabled, BaseURL: contacts.BaseURL, Username: contacts.Username}
+	default:
+		return cfg, false
+	}
+	for _, book := range contacts.AddressBooks {
+		cfg.AddressBooks = append(cfg.AddressBooks, models.ContactAddressBook{URL: book.URL, Name: book.Name, Default: book.Default, Selected: true})
+	}
+	return cfg, true
+}
+
 func importProfileAccountServices(ctx context.Context, store *config.AccountStore, db *storage.DB, owner, id string, account profileAccount) error {
 	builtin := account.Provider == providers.ProviderGmail || account.Provider == providers.ProviderOutlook
 	if contacts := account.Contacts; contacts != nil {
@@ -795,11 +825,7 @@ func importProfileAccountServices(ctx context.Context, store *config.AccountStor
 			if err := store.SetContactSyncEnabled(ctx, owner, id, false); err != nil {
 				return err
 			}
-		} else if strings.TrimSpace(contacts.BaseURL) != "" {
-			cfg := models.ContactSyncConfig{Provider: "carddav", BaseURL: contacts.BaseURL, Username: contacts.Username}
-			for _, book := range contacts.AddressBooks {
-				cfg.AddressBooks = append(cfg.AddressBooks, models.ContactAddressBook{URL: book.URL, Name: book.Name, Default: book.Default, Selected: true})
-			}
+		} else if cfg, ok := profileContactConfig(account, false); ok {
 			if err := store.SaveContactSyncConfig(ctx, owner, id, cfg, ""); err != nil {
 				return err
 			}
@@ -1254,11 +1280,7 @@ func (h *Handler) replaceProfileAccountServices(ctx context.Context, owner, id s
 	builtin := account.Provider == providers.ProviderGmail || account.Provider == providers.ProviderOutlook
 	contacts := account.Contacts
 	contactsOn := contacts != nil && contacts.Enabled
-	if !builtin && contacts != nil && strings.TrimSpace(contacts.BaseURL) != "" {
-		cfg := models.ContactSyncConfig{Provider: "carddav", Enabled: contactsOn, BaseURL: contacts.BaseURL, Username: contacts.Username}
-		for _, book := range contacts.AddressBooks {
-			cfg.AddressBooks = append(cfg.AddressBooks, models.ContactAddressBook{URL: book.URL, Name: book.Name, Default: book.Default, Selected: true})
-		}
+	if cfg, ok := profileContactConfig(account, contactsOn); !builtin && ok {
 		if h.userAccounts != nil {
 			snapshot, err := h.userAccounts.SnapshotServices(ctx, owner, id)
 			if err != nil {
