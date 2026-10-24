@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -84,6 +85,78 @@ func TestSessionReturnsHTTPError(t *testing.T) {
 	var httpErr *HTTPError
 	if !errors.As(err, &httpErr) || httpErr.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("err = %v, want HTTPError 401", err)
+	}
+}
+
+// A server that takes only bearer tokens refuses the username and password
+// with a Bearer challenge; the client then sends the token and keeps using it.
+func TestSessionSwitchesToTokenWhenServerAsksForBearer(t *testing.T) {
+	var basicTries int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer tok-1" {
+			if _, _, ok := r.BasicAuth(); ok {
+				basicTries++
+			}
+			w.Header().Set("WWW-Authenticate", `Bearer resource_metadata="https://example.test/meta"`)
+			http.Error(w, "not bearer", http.StatusUnauthorized)
+			return
+		}
+		_, _ = w.Write([]byte(testSessionJSON))
+	}))
+	defer server.Close()
+
+	client := &Client{HTTP: server.Client(), Auth: BasicAuth("robin@example.test", "tok-1"), TokenAuth: BearerAuth("tok-1")}
+	if _, err := client.Session(context.Background(), server.URL+"/jmap/session"); err != nil {
+		t.Fatalf("Session: %v", err)
+	}
+	if _, err := client.Session(context.Background(), server.URL+"/jmap/session"); err != nil {
+		t.Fatalf("second Session: %v", err)
+	}
+	if basicTries != 1 {
+		t.Fatalf("username and password sent %d times, want 1", basicTries)
+	}
+}
+
+// Without a Bearer-only challenge the token is never sent.
+func TestSessionKeepsPasswordWhenServerOffersBasic(t *testing.T) {
+	var bearerTries int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") {
+			bearerTries++
+		}
+		w.Header().Add("WWW-Authenticate", `Bearer realm="mail"`)
+		w.Header().Add("WWW-Authenticate", `Basic realm="mail", charset="UTF-8"`)
+		http.Error(w, "bad credentials", http.StatusUnauthorized)
+	}))
+	defer server.Close()
+
+	client := &Client{HTTP: server.Client(), Auth: BasicAuth("robin@example.test", "wrong"), TokenAuth: BearerAuth("wrong")}
+	_, err := client.Session(context.Background(), server.URL+"/jmap/session")
+	var httpErr *HTTPError
+	if !errors.As(err, &httpErr) || httpErr.WantsBearerOnly() {
+		t.Fatalf("err = %v, want a 401 that also offers Basic", err)
+	}
+	if bearerTries != 0 {
+		t.Fatalf("token sent %d times", bearerTries)
+	}
+}
+
+func TestWantsBearerOnly(t *testing.T) {
+	for _, tc := range []struct {
+		status    int
+		challenge []string
+		want      bool
+	}{
+		{http.StatusUnauthorized, []string{`Bearer resource_metadata="https://example.test/meta"`}, true},
+		{http.StatusUnauthorized, []string{`Bearer realm="a", error="invalid_token"`}, true},
+		{http.StatusUnauthorized, []string{`Bearer realm="a", Basic realm="a"`}, false},
+		{http.StatusUnauthorized, []string{`Basic realm="a"`}, false},
+		{http.StatusUnauthorized, nil, false},
+		{http.StatusForbidden, []string{`Bearer`}, false},
+	} {
+		if got := (&HTTPError{StatusCode: tc.status, Challenge: tc.challenge}).WantsBearerOnly(); got != tc.want {
+			t.Errorf("%d %q: got %v, want %v", tc.status, tc.challenge, got, tc.want)
+		}
 	}
 }
 

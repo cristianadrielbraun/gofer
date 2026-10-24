@@ -162,7 +162,7 @@ func (c *Client) Call(ctx context.Context, session *Session, using []string, cal
 
 func newHTTPError(resp *http.Response) *HTTPError {
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBytes))
-	httpErr := &HTTPError{StatusCode: resp.StatusCode, Body: strings.TrimSpace(string(raw))}
+	httpErr := &HTTPError{StatusCode: resp.StatusCode, Body: strings.TrimSpace(string(raw)), Challenge: resp.Header.Values("WWW-Authenticate")}
 	// Request-level errors are RFC 7807 problem details, e.g.
 	// {"type": "urn:ietf:params:jmap:error:limit", "limit": "maxCallsInRequest"}.
 	var problem struct {

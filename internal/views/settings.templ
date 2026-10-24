@@ -2744,13 +2744,14 @@ templ AddAccountDialog() {
 										<p data-add-mode="jmap" class="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">Leave blank to use the email address.</p>
 								</div>
 								<div class="col-span-2">
-									<label class="text-xs font-medium text-muted-foreground mb-1.5 block"><span data-add-mode="generic jmap">Password</span><span data-add-mode="icloud">App-specific password</span></label>
+									<label class="text-xs font-medium text-muted-foreground mb-1.5 block"><span data-add-mode="generic">Password</span><span data-add-mode="jmap">Password or API token</span><span data-add-mode="icloud">App-specific password</span></label>
 									@input.Input(input.Props{
 										Name:        "password",
 										Type:        input.TypePassword,
 										Placeholder: "••••••••",
 										Required:    true,
 									})
+									<p data-add-mode="jmap" class="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">If your provider gives out API tokens for JMAP, paste one here instead of your password.</p>
 								</div>
 								<div data-add-mode="generic" class="col-span-2">
 									<label class="text-xs font-medium text-muted-foreground mb-1.5 block">Method</label>
@@ -3236,7 +3237,7 @@ templ JMAPSignInPanel(sessionURL string, username string, passwordPlaceholder st
 			})
 		</div>
 		<div class="col-span-2">
-			<label class="text-xs font-medium text-muted-foreground mb-1.5 block">Password</label>
+			<label class="text-xs font-medium text-muted-foreground mb-1.5 block">Password or API token</label>
 			@input.Input(input.Props{
 				Name:        "password",
 				Type:        input.TypePassword,
@@ -3244,6 +3245,7 @@ templ JMAPSignInPanel(sessionURL string, username string, passwordPlaceholder st
 				Required:    passwordRequired,
 				Attributes:  reconnectRequiredAttrs(reconnectMail, passwordRequired),
 			})
+			<p class="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">If your provider gives out API tokens for JMAP, paste one here instead of your password.</p>
 		</div>
 	</div>
 }

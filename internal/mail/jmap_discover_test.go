@@ -100,6 +100,47 @@ func TestDiscoverJMAPSessionStopsAtRejectedLogin(t *testing.T) {
 	}
 }
 
+// jmapTokenServer answers session requests only with the bearer token
+// "tok-1", challenging everything else the way Fastmail does.
+func jmapTokenServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer tok-1" {
+			w.Header().Set("WWW-Authenticate", `Bearer resource_metadata="https://example.test/meta"`)
+			http.Error(w, "Invalid Authorization header, not bearer", http.StatusUnauthorized)
+			return
+		}
+		_, _ = io.WriteString(w, `{"capabilities": {"urn:ietf:params:jmap:core": {}, "urn:ietf:params:jmap:mail": {}},
+			"accounts": {"a1": {"name": "robin@example.test"}}, "primaryAccounts": {"urn:ietf:params:jmap:mail": "a1"},
+			"username": "robin@example.test", "apiUrl": "/jmap/api/", "state": "s1"}`)
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
+
+func TestDiscoverJMAPSessionUsesPasswordAsTokenWhenServerAsks(t *testing.T) {
+	server := jmapTokenServer(t)
+	found, _, err := DiscoverJMAPSession(context.Background(), []string{server.URL + "/jmap/session"}, "robin@example.test", "tok-1", allowJMAP(true, true))
+	if err != nil || found != server.URL+"/jmap/session" {
+		t.Fatalf("found %q, %v", found, err)
+	}
+}
+
+func TestDiscoverJMAPSessionAsksForTokenWhenPasswordIsRefused(t *testing.T) {
+	server := jmapTokenServer(t)
+	_, _, err := DiscoverJMAPSession(context.Background(), []string{server.URL + "/jmap/session"}, "robin@example.test", "secret", allowJMAP(true, true))
+	if !errors.Is(err, ErrJMAPTokenRejected) || !strings.Contains(err.Error(), "server said: Invalid Authorization header, not bearer") {
+		t.Fatalf("err = %v, want ErrJMAPTokenRejected with the server's reason", err)
+	}
+}
+
+func TestDiscoverJMAPSessionTrimsPastedToken(t *testing.T) {
+	server := jmapTokenServer(t)
+	if _, _, err := DiscoverJMAPSession(context.Background(), []string{server.URL + "/jmap/session"}, "robin@example.test", " tok-1\n", allowJMAP(true, true)); err != nil {
+		t.Fatalf("DiscoverJMAPSession: %v", err)
+	}
+}
+
 func TestDiscoverJMAPSessionSkipsServerWithoutMail(t *testing.T) {
 	noMail := jmapMailServer(t, false, nil)
 	withMail := jmapMailServer(t, true, nil)

@@ -6,6 +6,7 @@ package jmap
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -37,6 +38,10 @@ func BearerAuth(token string) Auth {
 type Client struct {
 	HTTP *http.Client
 	Auth Auth
+	// TokenAuth, when set, is tried once when the session endpoint refuses
+	// Auth and asks only for a bearer token, as Fastmail does; if the session
+	// then loads, it replaces Auth for this client.
+	TokenAuth Auth
 
 	// StallTimeout gives up a request that sends or receives nothing for
 	// this long; zero means DefaultStallTimeout.
@@ -83,6 +88,34 @@ type HTTPError struct {
 	Body       string
 	Type       string
 	Limit      string
+	// Challenge holds the response's WWW-Authenticate headers.
+	Challenge []string
+}
+
+// WantsBearerOnly reports whether the server refused the login and offered
+// only bearer token authentication in its challenge.
+func (e *HTTPError) WantsBearerOnly() bool {
+	if e.StatusCode != http.StatusUnauthorized {
+		return false
+	}
+	var bearer bool
+	for _, header := range e.Challenge {
+		for _, part := range strings.Split(header, ",") {
+			// A challenge starts with its scheme; the other parts are
+			// name=value parameters.
+			scheme, _, _ := strings.Cut(strings.TrimSpace(part), " ")
+			if scheme == "" || strings.Contains(scheme, "=") {
+				continue
+			}
+			switch strings.ToLower(scheme) {
+			case "bearer":
+				bearer = true
+			case "basic":
+				return false
+			}
+		}
+	}
+	return bearer
 }
 
 func (e *HTTPError) Error() string {
@@ -100,13 +133,24 @@ func (s *Session) PrimaryAccount(capability string) string {
 // Session fetches the session object. sessionURL is usually
 // https://host/.well-known/jmap; redirects are followed.
 func (c *Client) Session(ctx context.Context, sessionURL string) (*Session, error) {
+	session, err := c.session(ctx, sessionURL, c.Auth)
+	var httpErr *HTTPError
+	if c.TokenAuth != nil && errors.As(err, &httpErr) && httpErr.WantsBearerOnly() {
+		if session, err = c.session(ctx, sessionURL, c.TokenAuth); err == nil {
+			c.Auth, c.TokenAuth = c.TokenAuth, nil
+		}
+	}
+	return session, err
+}
+
+func (c *Client) session(ctx context.Context, sessionURL string, auth Auth) (*Session, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, sessionURL, nil)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/json")
-	if c.Auth != nil {
-		c.Auth(req)
+	if auth != nil {
+		auth(req)
 	}
 	resp, err := c.do(req)
 	if err != nil {

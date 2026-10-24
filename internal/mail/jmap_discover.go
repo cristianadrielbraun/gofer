@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
 	"strings"
 	"time"
 
@@ -45,6 +44,10 @@ func (e *JMAPDiscoveryError) Error() string {
 // or password.
 var ErrJMAPLoginRejected = errors.New("the JMAP server rejected the username or password")
 
+// ErrJMAPTokenRejected means a JMAP server accepts only API tokens and
+// refused the one entered as the password, or the password was not a token.
+var ErrJMAPTokenRejected = errors.New("the JMAP server needs an API token instead of the password: create one in your mail provider's settings and enter it as the password")
+
 // DiscoverJMAPSession tries the candidate session URLs in order with the
 // account's credentials and returns the first that is a JMAP server with a
 // mail account. A plain HTTP candidate is contacted only where policy approves
@@ -83,10 +86,9 @@ func DiscoverJMAPSession(ctx context.Context, candidates []string, username, pas
 		probeCtx, cancel := context.WithTimeout(ctx, jmapProbeTimeout)
 		session, err := client.Session(probeCtx, candidate)
 		cancel()
-		var httpErr *jmap.HTTPError
-		switch {
-		case errors.As(err, &httpErr) && (httpErr.StatusCode == http.StatusUnauthorized || httpErr.StatusCode == http.StatusForbidden):
-			return "", nil, fmt.Errorf("%s: %w", candidate, ErrJMAPLoginRejected)
+		switch loginErr := jmapLoginError(err); {
+		case errors.Is(loginErr, ErrJMAPLoginRejected) || errors.Is(loginErr, ErrJMAPTokenRejected):
+			return "", nil, fmt.Errorf("%s: %w", candidate, loginErr)
 		case netguard.IsBlocked(err):
 			failed.Attempts = append(failed.Attempts, JMAPAttempt{candidate, fmt.Sprintf("on a private network: needs a %s private target exception for %s:%d", strings.ToUpper(endpoint.Scheme), endpoint.Host, endpoint.Port)})
 			continue

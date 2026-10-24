@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/cristianadrielbraun/gofer/internal/mail/jmap"
 	"github.com/cristianadrielbraun/gofer/internal/models"
@@ -50,7 +51,51 @@ func newJMAPAccountClient(cfg *models.AccountConfig, password string) (*jmap.Cli
 			return nil
 		},
 	}
-	return &jmap.Client{HTTP: client, Auth: jmap.BasicAuth(cfg.Username, password)}, nil
+	return jmapPasswordClient(client, cfg.JMAPSessionURL, cfg.Username, password), nil
+}
+
+// jmapTokenServers holds the session URLs whose server asked for a bearer
+// token instead of a username and password, so later clients send the token
+// right away.
+var jmapTokenServers sync.Map
+
+// jmapPasswordClient logs in with the username and password, or, on a server
+// that accepts only bearer tokens (Fastmail's API tokens), with the password
+// as the token. Tokens never contain spaces, so the ones a paste leaves around
+// it are dropped.
+func jmapPasswordClient(httpClient *http.Client, sessionURL, username, password string) *jmap.Client {
+	token := jmap.BearerAuth(strings.TrimSpace(password))
+	if _, ok := jmapTokenServers.Load(sessionURL); ok {
+		return &jmap.Client{HTTP: httpClient, Auth: token}
+	}
+	return &jmap.Client{HTTP: httpClient, Auth: jmap.BasicAuth(username, password), TokenAuth: func(req *http.Request) {
+		jmapTokenServers.Store(sessionURL, struct{}{})
+		token(req)
+	}}
+}
+
+// jmapLoginError turns a refused session request into ErrJMAPLoginRejected,
+// or ErrJMAPTokenRejected when the server takes only API tokens, adding the
+// server's reason when it gave a short one. Other errors come back unchanged.
+func jmapLoginError(err error) error {
+	var httpErr *jmap.HTTPError
+	var rejected error
+	switch {
+	case !errors.As(err, &httpErr):
+		return err
+	case httpErr.WantsBearerOnly():
+		rejected = ErrJMAPTokenRejected
+	case httpErr.StatusCode == http.StatusUnauthorized || httpErr.StatusCode == http.StatusForbidden:
+		rejected = ErrJMAPLoginRejected
+	default:
+		return err
+	}
+	// Only a short plain text body reads as a reason; skip HTML pages.
+	reason, _, _ := strings.Cut(httpErr.Body, "\n")
+	if reason = strings.TrimSpace(reason); reason == "" || len(reason) > 200 || strings.HasPrefix(reason, "<") {
+		return rejected
+	}
+	return fmt.Errorf("%w (server said: %s)", rejected, reason)
 }
 
 // jmapPlaintextGuard refuses every request, including each redirect, that
@@ -88,12 +133,8 @@ func TestJMAPConnection(ctx context.Context, cfg *models.AccountConfig, password
 		return "", err
 	}
 	session, err := client.Session(ctx, cfg.JMAPSessionURL)
-	var httpErr *jmap.HTTPError
-	if errors.As(err, &httpErr) && (httpErr.StatusCode == http.StatusUnauthorized || httpErr.StatusCode == http.StatusForbidden) {
-		return "", ErrJMAPLoginRejected
-	}
 	if err != nil {
-		return "", err
+		return "", jmapLoginError(err)
 	}
 	accountID := session.PrimaryAccount(jmap.CapabilityMail)
 	if accountID == "" {
