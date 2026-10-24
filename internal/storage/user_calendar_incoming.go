@@ -275,7 +275,7 @@ func (db *DB) BeginUserCalendarIncomingDelivery(ctx context.Context, s *UserCale
 	e := event.Event()
 	source := event.Source()
 	c := s.candidate
-	if source.Provider != CalendarSourceProviderCalDAV || source.AccountID != c.AccountID || e.UserID != c.UserID || source.UserID != c.UserID || e.ICalUID == "" || e.AccountEmail == "" || !strings.EqualFold(e.OrganizerEmail, e.AccountEmail) {
+	if !CalendarSourceMailServer(source.Provider) || source.AccountID != c.AccountID || e.UserID != c.UserID || source.UserID != c.UserID || e.ICalUID == "" || e.AccountEmail == "" || !strings.EqualFold(e.OrganizerEmail, e.AccountEmail) {
 		return nil, ErrCalendarIncomingChanged
 	}
 	var guests []struct{ Email string }
@@ -303,7 +303,7 @@ func (db *DB) BeginUserCalendarIncomingDelivery(ctx context.Context, s *UserCale
 		return nil, err
 	}
 	var count int
-	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM calendar_events e JOIN calendar_sources source ON source.id=e.source_id AND source.user_id=e.user_id WHERE e.user_id=? AND source.account_id=? AND source.provider='caldav' AND source.is_selected=1 AND source.is_deleted=0 AND e.is_deleted=0 AND e.ical_uid=? AND e.series_remote_id=''`, c.UserID, c.AccountID, e.ICalUID).Scan(&count); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM calendar_events e JOIN calendar_sources source ON source.id=e.source_id AND source.user_id=e.user_id WHERE e.user_id=? AND source.account_id=? AND source.provider IN ('caldav','jmap') AND source.is_selected=1 AND source.is_deleted=0 AND e.is_deleted=0 AND e.ical_uid=? AND e.series_remote_id=''`, c.UserID, c.AccountID, e.ICalUID).Scan(&count); err != nil {
 		return nil, err
 	}
 	if count != 1 {
@@ -327,7 +327,7 @@ func (db *DB) BeginUserCalendarIncomingDelivery(ctx context.Context, s *UserCale
 	}
 	// Recheck ambiguity after triggers; source/event fingerprint alone cannot
 	// detect an additional matching UID under another selected source.
-	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM calendar_events e JOIN calendar_sources source ON source.id=e.source_id AND source.user_id=e.user_id WHERE e.user_id=? AND source.account_id=? AND source.provider='caldav' AND source.is_selected=1 AND source.is_deleted=0 AND e.is_deleted=0 AND e.ical_uid=? AND e.series_remote_id=''`, c.UserID, c.AccountID, e.ICalUID).Scan(&count); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM calendar_events e JOIN calendar_sources source ON source.id=e.source_id AND source.user_id=e.user_id WHERE e.user_id=? AND source.account_id=? AND source.provider IN ('caldav','jmap') AND source.is_selected=1 AND source.is_deleted=0 AND e.is_deleted=0 AND e.ical_uid=? AND e.series_remote_id=''`, c.UserID, c.AccountID, e.ICalUID).Scan(&count); err != nil {
 		return nil, err
 	}
 	if count != 1 {
@@ -345,7 +345,7 @@ const calendarIncomingCandidatesSQL = `WITH invited AS (
  JOIN accounts a ON a.id=s.account_id AND a.user_id=s.user_id
  JOIN json_each(CASE WHEN json_valid(e.attendees_json) THEN e.attendees_json ELSE '[]' END) guest
  WHERE a.id=? AND a.user_id=? AND a.is_deleting=0 AND a.email_sync_enabled=1
- AND s.provider='caldav' AND s.is_selected=1 AND s.is_deleted=0 AND e.is_deleted=0
+ AND s.provider IN ('caldav','jmap') AND s.is_selected=1 AND s.is_deleted=0 AND e.is_deleted=0
  AND e.series_remote_id='' AND lower(e.organizer_email)=lower(a.email_address)
  ) SELECT m.id,invited.user_id,invited.account_id,lower(m.from_email)
  FROM invited JOIN messages m ON m.account_id=invited.account_id AND lower(m.from_email)=invited.email

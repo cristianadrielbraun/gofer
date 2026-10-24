@@ -281,7 +281,7 @@ func (c *JMAPCalendarConnection) Delete(ctx context.Context, id string) (bool, e
 // jmapEventServerProperties are set by the server or name where an event
 // is kept, never sent back in a patch.
 var jmapEventServerProperties = map[string]bool{
-	"id": true, "@type": true, "uid": true, "calendarIds": true, "iCalendar": true,
+	"id": true, "@type": true, "uid": true, "calendarIds": true,
 	"isDraft": true, "isOrigin": true, "baseEventId": true, "utcStart": true, "utcEnd": true,
 	"blobId": true, "isRecurrenceExpanded": true,
 }
@@ -289,7 +289,8 @@ var jmapEventServerProperties = map[string]bool{
 // JMAPEventPatch is what to change on the server to turn an event read as
 // before into after, both as the server read them from iCalendar. Only the
 // properties that differ are replaced, so ones Gofer's iCalendar doesn't
-// carry stay on the server as they are.
+// carry stay on the server as they are. That includes iCalendar, the
+// details the server keeps aside, such as Gofer's own X- properties.
 func JMAPEventPatch(before, after jmap.CalendarEvent) jmap.PatchObject {
 	patch := jmap.PatchObject{}
 	for key, value := range after {

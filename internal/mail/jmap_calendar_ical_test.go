@@ -212,6 +212,25 @@ func TestJMAPEventCalendarKeepsTheSeriesZoneForAMovedOccurrence(t *testing.T) {
 	}
 }
 
+// Who sends a meeting's messages comes back on its organizer and guests,
+// whether given as scheduleAgent or kept aside by the server.
+func TestJMAPEventCalendarKeepsScheduleAgent(t *testing.T) {
+	events := icsEvents(t, decodeJMAPEvent(t, `{"@type": "Event", "uid": "review@example.test", "title": "Review", "start": "2026-12-01T10:00:00", "timeZone": "Etc/UTC",
+	  "organizerCalendarAddress": "mailto:hana@example.test",
+	  "participants": {
+	    "o": {"@type": "Participant", "calendarAddress": "mailto:hana@example.test", "roles": {"owner": true}},
+	    "g": {"@type": "Participant", "calendarAddress": "mailto:ana@example.test", "scheduleAgent": "client", "participationStatus": "needs-action"}
+	  },
+	  "iCalendar": {"convertedProperties": {"participants/o/calendarAddress": {"parameters": {"schedule-agent": "CLIENT"}}}}}`))
+	props := events[0].Props
+	if got := props.Get("ORGANIZER").Params.Get("SCHEDULE-AGENT"); got != "CLIENT" {
+		t.Errorf("organizer SCHEDULE-AGENT = %q", got)
+	}
+	if guests := props.Values("ATTENDEE"); len(guests) != 1 || guests[0].Params.Get("SCHEDULE-AGENT") != "CLIENT" {
+		t.Errorf("guests = %+v", guests)
+	}
+}
+
 func TestJMAPEventCalendarRefusesWhatItCannotWrite(t *testing.T) {
 	for name, raw := range map[string]string{
 		"task":        `{"@type": "Task", "uid": "t@example.test", "start": "2026-01-01T00:00:00"}`,

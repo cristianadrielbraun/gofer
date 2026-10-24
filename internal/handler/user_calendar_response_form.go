@@ -63,7 +63,7 @@ func (p *userCalendarRequest) readResponseTarget(ctx context.Context, scope stri
 		return calendarResponseTarget{}, err
 	}
 	var target calendarResponseTarget
-	if source.Provider == storage.CalendarSourceProviderCalDAV {
+	if storage.CalendarSourceMailServer(source.Provider) {
 		target, err = readCalDAVResponseTarget(operation, source, event, scope, credentials.username, credentials.password, p.service().Identity().EmailAddress)
 		if err == nil && target.CalDAV != nil && !target.CalDAV.ServerScheduling && !p.service().SendsEmail() {
 			return calendarResponseTarget{}, calendarReplyConfigurationError("This server needs replies by email. Configure SMTP for this account before responding.")
@@ -143,7 +143,7 @@ func (h *Handler) handleUserCalendarResponseForm(w http.ResponseWriter, r *http.
 				return err
 			}
 		}
-		if source.Provider == storage.CalendarSourceProviderCalDAV {
+		if storage.CalendarSourceMailServer(source.Provider) {
 			var job storage.CalendarReplyJob
 			err = h.userAccounts.WithAccountForUser(ctx, source.UserID, source.AccountID, func(_ *config.AccountStore, db *storage.DB) error {
 				var err error

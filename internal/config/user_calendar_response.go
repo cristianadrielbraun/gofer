@@ -18,7 +18,7 @@ func (s *UserAccountStore) calendarResponseGuard(ctx context.Context, snapshot *
 	if err != nil {
 		return nil, err
 	}
-	if snapshot.Source().Provider != storage.CalendarSourceProviderCalDAV && len(extra) != 1 {
+	if !storage.CalendarSourceMailServer(snapshot.Source().Provider) && len(extra) != 1 {
 		return nil, storage.ErrCalendarEventChanged
 	}
 	return guard, nil

@@ -15,7 +15,7 @@ func (p *userCalendarRequest) responseWriteGuards(ctx context.Context) ([]func()
 	if err := p.validate(ctx); err != nil {
 		return nil, err
 	}
-	if p.provider() == storage.CalendarSourceProviderCalDAV {
+	if storage.CalendarSourceMailServer(p.provider()) {
 		return nil, nil
 	}
 	if p.authorization == nil || p.h.userCredentials == nil {

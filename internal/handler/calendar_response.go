@@ -38,7 +38,7 @@ func calendarResponseRestriction(event storage.CalendarEvent, source storage.Cal
 	if event.IsDeleted || event.Status == "cancelled" {
 		return "this invitation is no longer active"
 	}
-	if source.Provider != providers.ProviderGmail && source.Provider != providers.ProviderOutlook && source.Provider != storage.CalendarSourceProviderCalDAV {
+	if source.Provider != providers.ProviderGmail && source.Provider != providers.ProviderOutlook && !storage.CalendarSourceMailServer(source.Provider) {
 		return "this calendar provider does not support invitation responses"
 	}
 	if !calendarSourceWritable(source) {
@@ -74,11 +74,12 @@ func (h *Handler) readCalendarResponse(ctx context.Context, source storage.Calen
 	if h.calendarReadResponse != nil {
 		return h.calendarReadResponse(ctx, source, event, scope)
 	}
-	if source.Provider == storage.CalendarSourceProviderCalDAV {
+	if storage.CalendarSourceMailServer(source.Provider) {
 		credentials := h.calendarCredentialsForSource(ctx, source.UserID, source)
 		if credentials.err != nil {
 			return calendarResponseTarget{}, credentials.err
 		}
+		ctx = withJMAPCalendarDAV(ctx, source, credentials)
 		if _, err := resolveCalDAVHref(credentials.baseURL, source.RemoteID); err != nil {
 			return calendarResponseTarget{}, err
 		}
@@ -155,7 +156,7 @@ func (h *Handler) handleCalendarResponseForm(w http.ResponseWriter, r *http.Requ
 			return
 		}
 	}
-	if source.Provider == storage.CalendarSourceProviderCalDAV {
+	if storage.CalendarSourceMailServer(source.Provider) {
 		job, err := h.db.UnresolvedCalendarReply(ctx, event.UserID, source.ID, calendarReplyResource(event))
 		if err == nil {
 			h.renderCalendarReply(w, r, job, "")
@@ -245,7 +246,7 @@ func (h *Handler) handleCalendarResponse(w http.ResponseWriter, r *http.Request)
 		calendarUpdateFailure(w, http.StatusForbidden, "Responding is unavailable. Check this account's Calendar write access.", false, false)
 		return
 	}
-	if source.Provider == storage.CalendarSourceProviderCalDAV {
+	if storage.CalendarSourceMailServer(source.Provider) {
 		_, pendingErr := h.db.UnresolvedCalendarReply(ctx, event.UserID, source.ID, calendarReplyResource(event))
 		if !errors.Is(pendingErr, sql.ErrNoRows) {
 			calendarUpdateFailure(w, http.StatusConflict, "An email reply is already being processed. Reopen this invitation to check delivery before responding again.", true, true)
@@ -313,12 +314,12 @@ func (h *Handler) handleCalendarResponse(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	refreshPending := result.Pending
-	if !result.Pending && scope != "series" && source.Provider != storage.CalendarSourceProviderCalDAV {
+	if !result.Pending && scope != "series" && !storage.CalendarSourceMailServer(source.Provider) {
 		if err := h.db.CompleteCalendarResponse(ctx, event, calendarStorageEvent(userID, source.ID, result.Event)); err != nil {
 			refreshPending = true
 		}
 	}
-	if result.Delivery != "email" && (scope == "series" || refreshPending || source.Provider == storage.CalendarSourceProviderCalDAV) {
+	if result.Delivery != "email" && (scope == "series" || refreshPending || storage.CalendarSourceMailServer(source.Provider)) {
 		refreshPending = !h.refreshCalendarEditedSeries(ctx, source, event)
 	}
 	if h.syncer != nil {

@@ -115,8 +115,8 @@ func jscalendarVEvent(event map[string]any, recurrenceID, recurrenceZone string)
 	if created, err := time.Parse(time.RFC3339, jscalendarString(event, "created")); err == nil {
 		props.SetDateTime(ical.PropCreated, created.UTC())
 	}
-	if sequence, ok := event["sequence"].(float64); ok && sequence > 0 {
-		props.SetText(ical.PropSequence, strconv.Itoa(int(sequence)))
+	if sequence, ok := event["sequence"].(float64); ok && sequence >= 0 {
+		props.Set(&ical.Prop{Name: ical.PropSequence, Params: ical.Params{}, Value: strconv.Itoa(int(sequence))})
 	}
 
 	zone := jscalendarZone(event)
@@ -178,7 +178,7 @@ func jscalendarVEvent(event map[string]any, recurrenceID, recurrenceZone string)
 		props.SetText(ical.PropClass, "CONFIDENTIAL")
 	}
 	if priority, ok := event["priority"].(float64); ok && priority > 0 {
-		props.SetText(ical.PropPriority, strconv.Itoa(int(priority)))
+		props.Set(&ical.Prop{Name: ical.PropPriority, Params: ical.Params{}, Value: strconv.Itoa(int(priority))})
 	}
 	if keywords, _ := event["keywords"].(map[string]any); len(keywords) > 0 {
 		categories := ical.NewProp(ical.PropCategories)
@@ -229,7 +229,7 @@ func jscalendarParticipants(props ical.Props, event map[string]any) {
 			organizer = jscalendarString(replyTo, "imip")
 		}
 	}
-	var organizerName string
+	var organizerName, organizerID string
 	for _, id := range slices.Sorted(maps.Keys(participants)) {
 		participant, _ := participants[id].(map[string]any)
 		address := jscalendarParticipantAddress(participant)
@@ -237,6 +237,7 @@ func jscalendarParticipants(props ical.Props, event map[string]any) {
 		if address != "" && (strings.EqualFold(address, organizer) || (organizer == "" && jscalendarBool(roles, "owner"))) {
 			organizer = address
 			organizerName = jscalendarString(participant, "name")
+			organizerID = id
 		}
 	}
 	if organizer != "" {
@@ -244,6 +245,9 @@ func jscalendarParticipants(props ical.Props, event map[string]any) {
 		prop.Value = organizer
 		if organizerName != "" {
 			prop.Params.Set(ical.ParamCommonName, organizerName)
+		}
+		if organizerID != "" {
+			jscalendarParticipantParams(prop, event, organizerID)
 		}
 		props.Set(prop)
 	}
@@ -285,7 +289,40 @@ func jscalendarParticipants(props ical.Props, event map[string]any) {
 		if jscalendarBool(participant, "expectReply") {
 			prop.Params.Set(ical.ParamRSVP, "TRUE")
 		}
+		jscalendarParticipantParams(prop, event, id)
 		props.Add(prop)
+	}
+}
+
+// jscalendarParticipantParams adds the iCalendar parameters a participant's
+// address had: who sends its scheduling messages (scheduleAgent, or as a
+// server kept it aside), and any others the server kept for it.
+func jscalendarParticipantParams(prop *ical.Prop, event map[string]any, id string) {
+	participants, _ := event["participants"].(map[string]any)
+	participant, _ := participants[id].(map[string]any)
+	switch agent := strings.ToUpper(jscalendarString(participant, "scheduleAgent")); agent {
+	case "CLIENT", "NONE":
+		prop.Params.Set("SCHEDULE-AGENT", agent)
+	}
+	kept, _ := event["iCalendar"].(map[string]any)
+	converted, _ := kept["convertedProperties"].(map[string]any)
+	entry, _ := converted["participants/"+strings.NewReplacer("~", "~0", "/", "~1").Replace(id)+"/calendarAddress"].(map[string]any)
+	params, _ := entry["parameters"].(map[string]any)
+	for _, key := range slices.Sorted(maps.Keys(params)) {
+		name := strings.ToUpper(key)
+		if prop.Params.Get(name) != "" {
+			continue
+		}
+		switch value := params[key].(type) {
+		case string:
+			prop.Params.Set(name, value)
+		case []any:
+			for _, one := range value {
+				if text, ok := one.(string); ok {
+					prop.Params.Add(name, text)
+				}
+			}
+		}
 	}
 }
 

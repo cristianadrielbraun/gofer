@@ -12,7 +12,7 @@ import (
 // original reservation. It only renews the private validated configuration
 // proof, after native preflight, and makes this exact attempt eligible again.
 func (db *DB) RequeueUserCalendarReply(ctx context.Context, control *UserCalendarReplyControlSnapshot, event *UserCalendarEventSnapshot, original CalendarResponseClaimIdentity, payload string, confirmed bool, guard func(*sql.Tx, string) error) error {
-	if control == nil || event == nil || original.ID == "" || !json.Valid([]byte(payload)) || control.job.State != "pending" || control.job.UserID != event.event.UserID || control.job.SourceID != event.source.ID || control.send.AccountID != event.source.AccountID || event.source.Provider != CalendarSourceProviderCalDAV || original.RemoteID != control.job.RemoteID || original.Version != control.job.Version || original.Response != control.job.Response {
+	if control == nil || event == nil || original.ID == "" || !json.Valid([]byte(payload)) || control.job.State != "pending" || control.job.UserID != event.event.UserID || control.job.SourceID != event.source.ID || control.send.AccountID != event.source.AccountID || !CalendarSourceMailServer(event.source.Provider) || original.RemoteID != control.job.RemoteID || original.Version != control.job.Version || original.Response != control.job.Response {
 		return ErrCalendarEventChanged
 	}
 	if (confirmed && control.send.Status != OutgoingSendAmbiguous) || (!confirmed && control.send.Status != OutgoingSendFailed) {

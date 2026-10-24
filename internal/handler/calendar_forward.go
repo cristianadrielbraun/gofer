@@ -34,7 +34,7 @@ type calendarForwardFailure struct {
 func (f calendarForwardFailure) Error() string { return f.message }
 
 func calendarForwardProvider(provider string) bool {
-	return provider == providers.ProviderOutlook || provider == providers.ProviderGmail || provider == storage.CalendarSourceProviderCalDAV
+	return provider == providers.ProviderOutlook || provider == providers.ProviderGmail || storage.CalendarSourceMailServer(provider)
 }
 
 // The whole meeting is forwarded: a series, when it repeats.
@@ -90,7 +90,7 @@ func (h *Handler) forwardCalendarInvitation(ctx context.Context, source storage.
 	switch {
 	case source.Provider == providers.ProviderOutlook && target.Outlook != nil:
 		return "provider", forwardOutlookInvitation(ctx, target, recipients, comment)
-	case source.Provider == storage.CalendarSourceProviderCalDAV && target.CalDAV != nil:
+	case storage.CalendarSourceMailServer(source.Provider) && target.CalDAV != nil:
 		return "email", h.emailCalendarForward(ctx, source, target.CalDAV.Calendar, h.calendarSourceEmailTransport(ctx, source), target.Event.Summary, recipients, comment, queue)
 	case source.Provider == providers.ProviderGmail && target.Google != nil:
 		var exceptions []googleCalendarUpdateEvent
@@ -306,7 +306,7 @@ func (h *Handler) handleCalendarForward(w http.ResponseWriter, r *http.Request) 
 		calendarUpdateFailure(w, http.StatusForbidden, "Forwarding is unavailable for this event.", false, false)
 		return
 	}
-	if source.Provider == storage.CalendarSourceProviderCalDAV {
+	if storage.CalendarSourceMailServer(source.Provider) {
 		if cfg, err := h.accountStore.GetConfig(ctx, source.AccountID); err != nil || !accountSendsEmail(cfg) {
 			calendarUpdateFailure(w, http.StatusBadRequest, "Forwarding sends the invitation by email. Configure SMTP for this account first.", false, false)
 			return

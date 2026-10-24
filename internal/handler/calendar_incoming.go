@@ -138,7 +138,7 @@ func (h *Handler) applyCalendarIncomingReply(ctx context.Context, candidate stor
 	}
 	found := false
 	for _, s := range sources {
-		if s.ID == source.ID && s.AccountID == candidate.AccountID && s.Provider == storage.CalendarSourceProviderCalDAV && calendarSourceWritable(s) {
+		if s.ID == source.ID && s.AccountID == candidate.AccountID && storage.CalendarSourceMailServer(s.Provider) && calendarSourceWritable(s) {
 			source, found = s, true
 			break
 		}
@@ -157,6 +157,7 @@ func (h *Handler) applyCalendarIncomingReply(ctx context.Context, candidate stor
 	if credentials.err != nil {
 		return credentials.err
 	}
+	ctx = withJMAPCalendarDAV(ctx, source, credentials)
 	err = applyCalendarIncomingCalDAV(ctx, source, existing, reply, credentials,
 		func(ctx context.Context) (bool, error) {
 			// A series' date is reserved apart from the whole series.

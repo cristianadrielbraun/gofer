@@ -338,3 +338,44 @@ func TestJMAPCalendarDAVNeverLeavesGofer(t *testing.T) {
 		}
 	}
 }
+
+// A meeting's invitations name its event by the request it was created
+// for; later, the event is found by the UID Gofer gave it.
+func TestJMAPCalendarDAVFindsGoferEventsByRequestName(t *testing.T) {
+	request := "5b3c9a1e-2f4d-4c8a-9e1f-0a2b3c4d5e6f"
+	store := &memCalendarStore{events: map[string]jmap.CalendarEvent{
+		"ev9": {"id": "ev9", "@type": "Event", "uid": request + "@gofer", "title": "Review", "start": "2026-12-01T10:00:00", "timeZone": "Etc/UTC", "duration": "PT1H", "calendarIds": map[string]any{"c1": true}},
+	}}
+	ctx, source := newMemCalendarDAV(store)
+	get := func(name string) int {
+		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, source.RemoteID+name+".ics", nil)
+		response, err := calendarProviderDo(http.DefaultClient, req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return response.StatusCode
+	}
+	if status := get(request); status != http.StatusOK {
+		t.Errorf("by request name = %d", status)
+	}
+	if status := get("ev9"); status != http.StatusOK {
+		t.Errorf("by JMAP id = %d", status)
+	}
+	if status := get("not-a-request"); status != http.StatusNotFound {
+		t.Errorf("unknown name = %d", status)
+	}
+	// Asked whether it schedules meetings itself, the calendar says no, so
+	// Gofer sends invitations and replies by email.
+	req, _ := http.NewRequestWithContext(ctx, "OPTIONS", source.RemoteID, nil)
+	if response, err := calendarProviderDo(http.DefaultClient, req); err != nil || response.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("OPTIONS = %+v, %v", response, err)
+	}
+}
+
+func TestJMAPCalendarDAVReadsSequenceAsANumber(t *testing.T) {
+	data := []byte("BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Test//EN\r\nBEGIN:VEVENT\r\nUID:a@example.test\r\nDTSTAMP:20261001T000000Z\r\nDTSTART:20261002T070000Z\r\nSEQUENCE;VALUE=TEXT:3\r\nPRIORITY;VALUE=TEXT:5\r\nSUMMARY;VALUE=TEXT:Keep\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n")
+	out := string(jmapCalendarDAVIntegers(data))
+	if !strings.Contains(out, "SEQUENCE:3") || !strings.Contains(out, "PRIORITY:5") || !strings.Contains(out, "SUMMARY;VALUE=TEXT:Keep") {
+		t.Fatalf("normalized:\n%s", out)
+	}
+}

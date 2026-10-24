@@ -43,6 +43,7 @@ func (p *userCalendarRequest) createContext(ctx context.Context) (context.Contex
 	if err := p.validate(ctx); err != nil {
 		return nil, err
 	}
+	ctx = withJMAPCalendarDAV(ctx, p.source.Source(), p.jmapLogin)
 	return context.WithValue(ctx, userCalendarProviderKey{}, p), nil
 }
 func (p *userCalendarRequest) prepareCreateDispatch(ctx context.Context) error {

@@ -44,7 +44,7 @@ func (s *UserAccountStore) PrepareCalendarReplyRetry(ctx context.Context, contro
 	if err != nil {
 		return nil, err
 	}
-	if identity != proof.SourceIdentity || source.Source().AccountID != proof.Account || source.Source().Provider != storage.CalendarSourceProviderCalDAV ||
+	if identity != proof.SourceIdentity || source.Source().AccountID != proof.Account || !storage.CalendarSourceMailServer(source.Source().Provider) ||
 		(proof.CalendarPrincipal != [32]byte{} && principal != proof.CalendarPrincipal) ||
 		(proof.CalendarPrincipal == [32]byte{} && calendar != proof.CalendarIdentity) {
 		return nil, ErrAccountServicesChanged

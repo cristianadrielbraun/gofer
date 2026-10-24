@@ -58,6 +58,7 @@ func (p *userCalendarRequest) actionContext(ctx context.Context, write bool) (co
 	if err := p.ready(ctx); err != nil {
 		return nil, err
 	}
+	ctx = withJMAPCalendarDAV(ctx, p.actionSource(), p.jmapLogin)
 	return context.WithValue(ctx, userCalendarProviderKey{}, p), nil
 }
 
@@ -131,7 +132,7 @@ func (p *userCalendarRequest) providerEndpoint(req *http.Request) error {
 			return denied
 		}
 		switch {
-		case name == "" && req.Method == "REPORT":
+		case name == "" && (req.Method == "REPORT" || req.Method == "OPTIONS"):
 			return nil
 		case name != "" && (req.Method == http.MethodGet || req.Method == http.MethodPut || req.Method == http.MethodDelete):
 			return nil

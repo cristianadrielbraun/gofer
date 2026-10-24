@@ -46,7 +46,7 @@ func (db *DB) ListCalendarNotificationDeliveries(ctx context.Context, userID, ev
  JOIN calendar_sources s ON s.account_id=a.id AND s.user_id=a.user_id
  JOIN calendar_events e ON e.source_id=s.id AND e.user_id=a.user_id
  WHERE a.user_id=? AND e.id=? AND a.is_deleting=0 AND s.is_selected=1 AND s.is_deleted=0 AND e.is_deleted=0
- AND s.provider='caldav' AND lower(e.organizer_email)=lower(a.email_address)
+ AND s.provider IN ('caldav','jmap') AND lower(e.organizer_email)=lower(a.email_address)
  AND lower(os.envelope_from)=lower(a.email_address)
  AND json_extract(CASE WHEN json_valid(os.message_json) THEN os.message_json ELSE '{}' END,'$.calendar_notification.UserID')=a.user_id
  AND json_extract(CASE WHEN json_valid(os.message_json) THEN os.message_json ELSE '{}' END,'$.calendar_notification.SourceID')=s.id
@@ -79,7 +79,7 @@ func (db *DB) ListCalendarIncomingDeliveries(ctx context.Context, userID, eventI
  JOIN accounts a ON a.id=m.account_id JOIN calendar_events e ON e.id=receipt.event_id AND e.user_id=a.user_id
  JOIN calendar_sources s ON s.id=e.source_id AND s.account_id=a.id AND s.user_id=a.user_id
  WHERE a.user_id=? AND e.id=? AND receipt.ical_uid=e.ical_uid AND a.is_deleting=0 AND e.is_deleted=0
- AND s.is_selected=1 AND s.is_deleted=0 AND s.provider='caldav' AND lower(e.organizer_email)=lower(a.email_address)
+ AND s.is_selected=1 AND s.is_deleted=0 AND s.provider IN ('caldav','jmap') AND lower(e.organizer_email)=lower(a.email_address)
  AND receipt.message_id=(SELECT max(newer.message_id) FROM calendar_incoming_messages newer
  WHERE newer.event_id=receipt.event_id AND newer.ical_uid=receipt.ical_uid AND newer.attendee=receipt.attendee)
  ORDER BY receipt.message_id DESC LIMIT 30`, userID, eventID)

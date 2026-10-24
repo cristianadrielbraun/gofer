@@ -151,7 +151,7 @@ func (h *Handler) userAccountHasCalDAVCalendar(ctx context.Context, owner, accou
 	_ = h.userAccounts.WithAccountForUser(ctx, owner, account, func(_ *config.AccountStore, db *storage.DB) error {
 		sources, err := db.ListSelectedCalendarSources(ctx, owner)
 		for _, source := range sources {
-			found = found || (source.AccountID == account && source.Provider == storage.CalendarSourceProviderCalDAV)
+			found = found || (source.AccountID == account && storage.CalendarSourceMailServer(source.Provider))
 		}
 		return err
 	})

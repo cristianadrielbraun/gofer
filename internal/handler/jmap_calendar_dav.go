@@ -20,6 +20,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 	ical "github.com/emersion/go-ical"
+	"github.com/google/uuid"
 )
 
 // A JMAP calendar is written through the CalDAV code: its calendar and event
@@ -152,6 +153,30 @@ func (d *jmapCalendarDAV) eventID(name string) string {
 	return name
 }
 
+// resolve finds the event a resource name stands for: one this write
+// created, the event with that JMAP id, or one Gofer created under that
+// name earlier. Gofer names a new event's resource after its request id, a
+// UUID, and gives it the UID "<request id>@gofer"; a meeting's invitations
+// are queued under that name before the event, and its JMAP id, exists.
+func (d *jmapCalendarDAV) resolve(ctx context.Context, connection jmapCalendarStore, name string) (string, jmap.CalendarEvent, error) {
+	id := d.eventID(name)
+	event, err := connection.Event(ctx, id)
+	if err != nil || event != nil || id != name {
+		return id, event, err
+	}
+	if request, err := uuid.Parse(name); err != nil || request.String() != name {
+		return id, nil, nil
+	}
+	event, err = connection.ByUID(ctx, d.calendarID, name+"@gofer")
+	if err != nil || event == nil {
+		return id, nil, err
+	}
+	d.mu.Lock()
+	d.created[name] = event.ID()
+	d.mu.Unlock()
+	return event.ID(), event, nil
+}
+
 // canonical gives a resource URL its event's JMAP id, for an event created
 // under the name CalDAV chose.
 func (d *jmapCalendarDAV) canonical(raw string) string {
@@ -184,8 +209,7 @@ func (d *jmapCalendarDAV) roundTrip(req *http.Request) (*http.Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	id := d.eventID(name)
-	current, err := connection.Event(ctx, id)
+	id, current, err := d.resolve(ctx, connection, name)
 	if err != nil {
 		return nil, err
 	}
@@ -270,7 +294,7 @@ func (d *jmapCalendarDAV) put(req *http.Request, connection jmapCalendarStore, n
 	if len(data) > calDAVResponseLimit {
 		return jmapCalendarDAVStatus(req, http.StatusRequestEntityTooLarge, ""), nil
 	}
-	wanted, err := connection.FromICS(ctx, data)
+	wanted, err := connection.FromICS(ctx, jmapCalendarDAVIntegers(data))
 	if err != nil {
 		return nil, err
 	}
@@ -349,7 +373,7 @@ func jmapCalendarDAVKept(patch jmap.PatchObject, saved jmap.CalendarEvent) bool 
 		return false
 	}
 	for key, value := range patch {
-		if key == "updated" {
+		if key == "updated" || key == "iCalendar" {
 			continue
 		}
 		if stored, ok := saved[key]; value == nil && ok || value != nil && !reflect.DeepEqual(jmapCalendarDAVComparable(stored), jmapCalendarDAVComparable(value)) {
@@ -402,7 +426,7 @@ func (d *jmapCalendarDAV) report(req *http.Request) (*http.Response, error) {
 		}
 		var event jmap.CalendarEvent
 		if ok && calendarID == d.calendarID && name != "" {
-			if event, err = connection.Event(req.Context(), d.eventID(name)); err != nil {
+			if _, event, err = d.resolve(req.Context(), connection, name); err != nil {
 				return nil, err
 			}
 		}
@@ -459,6 +483,40 @@ func (d *jmapCalendarDAV) createdBefore(req *http.Request, connection jmapCalend
 		return nil, nil
 	}
 	return connection.ByUID(req.Context(), d.calendarID, uid)
+}
+
+// jmapCalendarDAVIntegers drops a TEXT value type from the properties that
+// are numbers, as Gofer's CalDAV code writes SEQUENCE; a JMAP server would
+// keep such a value aside instead of reading it as the event's.
+func jmapCalendarDAVIntegers(data []byte) []byte {
+	cal, err := calendarUpdateDecodeICS(data)
+	if err != nil {
+		return data
+	}
+	changed := false
+	var walk func(*ical.Component)
+	walk = func(component *ical.Component) {
+		for _, name := range []string{ical.PropSequence, ical.PropPriority} {
+			for i := range component.Props[name] {
+				if strings.EqualFold(component.Props[name][i].Params.Get(ical.ParamValue), string(ical.ValueText)) {
+					delete(component.Props[name][i].Params, ical.ParamValue)
+					changed = true
+				}
+			}
+		}
+		for _, child := range component.Children {
+			walk(child)
+		}
+	}
+	walk(cal.Component)
+	if !changed {
+		return data
+	}
+	var out bytes.Buffer
+	if err := ical.NewEncoder(&out).Encode(cal); err != nil {
+		return data
+	}
+	return out.Bytes()
 }
 
 // jmapCalendarDAVComparable is a property value without the parts

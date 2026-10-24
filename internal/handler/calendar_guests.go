@@ -145,7 +145,7 @@ func calendarMeetingCheckSelfGuest(draft calendar.EventDraft, organizer string) 
 }
 
 func calendarCachedOrganizer(event storage.CalendarEvent) bool {
-	if event.SourceProvider == storage.CalendarSourceProviderCalDAV {
+	if storage.CalendarSourceMailServer(event.SourceProvider) {
 		return calendarReplyAddress("mailto:"+event.AccountEmail) != "" && strings.EqualFold(event.AccountEmail, event.OrganizerEmail)
 	}
 	return event.ResponseStatus == "organizer"

@@ -64,7 +64,7 @@ func calendarReplyAuthority(claim *UserCalendarResponseClaim) userCalendarReplyA
 }
 
 func (s *UserAccountStore) QueueCalendarReply(ctx context.Context, claim *UserCalendarResponseClaim, job storage.CalendarReplyJob, input storage.QueueOutgoingSendInput) (string, error) {
-	if claim == nil || claim.repository != s || claim.event == nil || claim.claim == nil || claim.event.Source().Provider != storage.CalendarSourceProviderCalDAV {
+	if claim == nil || claim.repository != s || claim.event == nil || claim.claim == nil || !storage.CalendarSourceMailServer(claim.event.Source().Provider) {
 		return "", storage.ErrCalendarEventChanged
 	}
 	snapshot := claim.event
@@ -251,7 +251,7 @@ func (s *UserAccountStore) RestoreCalendarReply(ctx context.Context, owner, id s
 	if err != nil {
 		return nil, err
 	}
-	if source.Source().AccountID != proof.Account || source.Source().Provider != storage.CalendarSourceProviderCalDAV || sourceIdentity != proof.SourceIdentity || calendarIdentity != proof.CalendarIdentity ||
+	if source.Source().AccountID != proof.Account || !storage.CalendarSourceMailServer(source.Source().Provider) || sourceIdentity != proof.SourceIdentity || calendarIdentity != proof.CalendarIdentity ||
 		(beforeEmail && (source.source.Fingerprint() != proof.SourceState || source.service.connection != proof.Connection || source.service.calendar != proof.Calendar || source.service.smtp != proof.SMTP)) {
 		return nil, ErrAccountServicesChanged
 	}

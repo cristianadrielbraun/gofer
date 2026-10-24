@@ -14,7 +14,7 @@ func (db *DB) QueueUserCalendarNotification(ctx context.Context, source *UserCal
 	if len(event) > 1 || (len(event) == 1 && (event[0] == nil || source == nil || event[0].source.ID != source.source.ID || event[0].source.UserID != source.source.UserID || event[0].source.AccountID != source.source.AccountID)) {
 		return OutgoingSend{}, ErrCalendarSourceChanged
 	}
-	if source == nil || source.source.Provider != CalendarSourceProviderCalDAV || guard == nil || input.ID == "" || input.AccountID != source.source.AccountID || !calendarEmailTransport(input.Transport) || input.EnvelopeFrom == "" || len(input.EnvelopeRecipients) == 0 || len(input.MIMEData) == 0 || !json.Valid(input.MessageJSON) || input.MessageID != 0 || input.DraftID != "" || input.IsScheduled || !input.SendAfter.IsZero() {
+	if source == nil || !CalendarSourceMailServer(source.source.Provider) || guard == nil || input.ID == "" || input.AccountID != source.source.AccountID || !calendarEmailTransport(input.Transport) || input.EnvelopeFrom == "" || len(input.EnvelopeRecipients) == 0 || len(input.MIMEData) == 0 || !json.Valid(input.MessageJSON) || input.MessageID != 0 || input.DraftID != "" || input.IsScheduled || !input.SendAfter.IsZero() {
 		return OutgoingSend{}, ErrCalendarSourceChanged
 	}
 	input.MIMEData = append([]byte(nil), input.MIMEData...)
@@ -118,7 +118,7 @@ func (db *DB) ValidateUserCalendarNotificationAttempt(ctx context.Context, owner
 }
 
 func (db *DB) ValidateUserCalendarNotificationSource(ctx context.Context, source *UserCalendarSourceSnapshot, send OutgoingSend, state [32]byte, guard func(*sql.Tx, string) error) error {
-	if source == nil || source.source.Provider != CalendarSourceProviderCalDAV || send.Status != OutgoingSendSending {
+	if source == nil || !CalendarSourceMailServer(source.source.Provider) || send.Status != OutgoingSendSending {
 		return ErrCalendarSourceChanged
 	}
 	tx, err := db.Read().BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
@@ -139,7 +139,7 @@ func (db *DB) RetryUserCalendarNotification(ctx context.Context, source *UserCal
 	if len(event) > 1 || (len(event) == 1 && (event[0] == nil || source == nil || event[0].source.ID != source.source.ID || event[0].source.UserID != source.source.UserID || event[0].source.AccountID != source.source.AccountID)) {
 		return OutgoingSend{}, ErrCalendarEventChanged
 	}
-	if source == nil || source.source.Provider != CalendarSourceProviderCalDAV || send.AccountID != source.source.AccountID || !json.Valid(messageJSON) {
+	if source == nil || !CalendarSourceMailServer(source.source.Provider) || send.AccountID != source.source.AccountID || !json.Valid(messageJSON) {
 		return OutgoingSend{}, ErrCalendarSourceChanged
 	}
 	switch send.Status {
