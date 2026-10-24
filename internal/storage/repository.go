@@ -1592,6 +1592,19 @@ func (db *DB) UpsertSyncMessages(ctx context.Context, msgs []SyncMessage) error 
 			messageIDNorm = mailmessage.NormalizeMessageID(fmt.Sprintf("<%s-%d@sync.gofer>", m.FolderID, m.RemoteUID))
 			m.MessageID = "<" + messageIDNorm + ">"
 		}
+		// IMAP reads Message-IDs without angle brackets, while messages Gofer
+		// saves itself, such as the copy of a sent message, keep them. Use
+		// the saved form so the server's copy is found instead of added.
+		if !strings.HasPrefix(m.MessageID, "<") {
+			var saved string
+			err := tx.QueryRowContext(ctx, `SELECT internet_message_id FROM messages WHERE account_id = ? AND internet_message_id = ?`,
+				m.AccountID, "<"+m.MessageID+">").Scan(&saved)
+			if err == nil {
+				m.MessageID = saved
+			} else if !errors.Is(err, sql.ErrNoRows) {
+				return fmt.Errorf("query saved message identity: %w", err)
+			}
+		}
 		inReplyTo := ""
 		if ids := mailmessage.ParseMessageIDs(m.InReplyTo); len(ids) > 0 {
 			inReplyTo = ids[0]
