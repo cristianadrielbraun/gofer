@@ -22,10 +22,11 @@ type DurableJobPruneResult struct {
 	MessageMutations    int
 	IMAPDraftOperations int
 	LabelMutations      int
+	FolderStates        int
 }
 
 func (r DurableJobPruneResult) Total() int {
-	return r.OutgoingSends + r.MessageMutations + r.IMAPDraftOperations + r.LabelMutations
+	return r.OutgoingSends + r.MessageMutations + r.IMAPDraftOperations + r.LabelMutations + r.FolderStates
 }
 
 // PruneDurableMailJobs removes only terminal rows whose provider work is
@@ -107,6 +108,11 @@ func (db *DB) pruneDurableMailJobs(ctx context.Context, now time.Time, batch int
 		return DurableJobPruneResult{}, err
 	}
 	pruneResult := DurableJobPruneResult{OutgoingSends: int(deleted)}
+
+	pruneResult.FolderStates, err = pruneDeletedFolderStatesTx(ctx, tx, now.Add(-DeletedFolderStateRetentionPeriod), deletedFolderStateBatchSize)
+	if err != nil {
+		return DurableJobPruneResult{}, err
+	}
 
 	if guard != nil {
 		if err := guard(tx); err != nil {

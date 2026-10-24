@@ -68,6 +68,7 @@ type MailRetentionPruneCounts struct {
 	MessageMutations    int `json:"message_mutations"`
 	IMAPDraftOperations int `json:"imap_draft_operations"`
 	LabelMutations      int `json:"label_mutations"`
+	FolderStates        int `json:"folder_states"`
 }
 
 type MailRetentionDiagnostics struct {

@@ -1,6 +1,17 @@
 package storage
 
-import "database/sql"
+import (
+	"context"
+	"database/sql"
+	"time"
+)
+
+const (
+	// DeletedFolderStateRetentionPeriod is how long a folder state marked
+	// deleted is kept before the retention pass removes it.
+	DeletedFolderStateRetentionPeriod = 30 * 24 * time.Hour
+	deletedFolderStateBatchSize       = 1000
+)
 
 // message_folder_state.deleted_at is when a folder state was marked deleted,
 // so marked states can be let go once they are old. Triggers keep it in step
@@ -79,4 +90,30 @@ func migrateV125ToV126(db *sql.DB) error {
 		return err
 	}
 	return tx.Commit()
+}
+
+// pruneDeletedFolderStatesTx removes up to batch folder states marked deleted
+// before cutoff. States still holding a server UID stay, and so do states of
+// messages with queued or applied changes or a local draft, because those
+// read the marked states.
+func pruneDeletedFolderStatesTx(ctx context.Context, tx *sql.Tx, cutoff time.Time, batch int) (int, error) {
+	result, err := tx.ExecContext(ctx, `
+		DELETE FROM message_folder_state
+		WHERE rowid IN (
+			SELECT mfs.rowid
+			FROM message_folder_state mfs
+			WHERE mfs.is_deleted = 1
+			  AND mfs.deleted_at < ?
+			  AND mfs.remote_uid IS NULL
+			  AND NOT EXISTS (SELECT 1 FROM message_mutations mm WHERE mm.message_id = mfs.message_id)
+			  AND NOT EXISTS (SELECT 1 FROM label_mutation_queue lmq WHERE lmq.message_id = mfs.message_id)
+			  AND NOT EXISTS (SELECT 1 FROM imap_draft_states ids WHERE ids.local_message_id = mfs.message_id)
+			ORDER BY mfs.deleted_at
+			LIMIT ?
+		)`, cutoff.UTC().Format("2006-01-02 15:04:05"), batch)
+	if err != nil {
+		return 0, err
+	}
+	n, err := result.RowsAffected()
+	return int(n), err
 }
