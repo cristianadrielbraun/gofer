@@ -22,9 +22,6 @@ import (
 )
 
 func calendarSourceWritable(source storage.CalendarSource) bool {
-	if source.Provider == storage.CalendarSourceProviderJMAP {
-		return false // Gofer only reads JMAP calendars so far.
-	}
 	role := strings.ToLower(strings.TrimSpace(source.AccessRole))
 	if source.Provider == storage.CalendarSourceProviderCalDAV && (role == "" || role == "unknown") {
 		return true // Older CalDAV discoveries omitted privileges; PUT still enforces server access.
@@ -33,7 +30,7 @@ func calendarSourceWritable(source storage.CalendarSource) bool {
 }
 
 func (h *Handler) calendarWriteAuthorized(ctx context.Context, source storage.CalendarSource) bool {
-	if source.Provider == storage.CalendarSourceProviderCalDAV {
+	if storage.CalendarSourceMailServer(source.Provider) {
 		return h.accountStore != nil || h.calendarCreateEvent != nil
 	}
 	if h.calendarCreateEvent != nil {
@@ -380,14 +377,19 @@ func (h *Handler) createCalendarProviderEvent(ctx context.Context, source storag
 			return remote, nil
 		}
 		return createOutlookCalendarEvent(ctx, credentials.token, source.RemoteID, draft)
-	case storage.CalendarSourceProviderCalDAV:
+	case storage.CalendarSourceProviderCalDAV, storage.CalendarSourceProviderJMAP:
 		if _, err := resolveCalDAVHref(credentials.baseURL, source.RemoteID); err != nil {
 			return calendar.RemoteEvent{}, err
 		}
+		ctx = withJMAPCalendarDAV(ctx, source, credentials)
+		var remote calendar.RemoteEvent
+		var err error
 		if len(draft.Guests) > 0 {
-			return h.createCalDAVMeeting(ctx, source, credentials, draft)
+			remote, err = h.createCalDAVMeeting(ctx, source, credentials, draft)
+		} else {
+			remote, err = createCalDAVCalendarEvent(ctx, source, credentials.username, credentials.password, draft)
 		}
-		return createCalDAVCalendarEvent(ctx, source, credentials.username, credentials.password, draft)
+		return jmapCalendarDAVCanonical(ctx, remote), err
 	}
 	return calendar.RemoteEvent{}, calendarCreateProviderError{http.StatusBadRequest}
 }

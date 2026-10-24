@@ -45,7 +45,7 @@ func JMAPEventCalendar(event jmap.CalendarEvent) (*ical.Calendar, error) {
 	cal := ical.NewCalendar()
 	cal.Props.SetText(ical.PropProductID, "-//Gofer//JMAP Calendars//EN")
 	cal.Props.SetText(ical.PropVersion, "2.0")
-	master, err := jscalendarVEvent(event, "")
+	master, err := jscalendarVEvent(event, "", "")
 	if err != nil {
 		return nil, err
 	}
@@ -86,7 +86,7 @@ func JMAPEventCalendar(event jmap.CalendarEvent) (*ical.Calendar, error) {
 		if _, moved := occurrence["start"]; !moved || patch["start"] == nil {
 			occurrence["start"] = key
 		}
-		child, err := jscalendarVEvent(occurrence, key)
+		child, err := jscalendarVEvent(occurrence, key, zone)
 		if err != nil {
 			return nil, fmt.Errorf("JMAP event occurrence %q: %w", key, err)
 		}
@@ -96,8 +96,9 @@ func JMAPEventCalendar(event jmap.CalendarEvent) (*ical.Calendar, error) {
 }
 
 // jscalendarVEvent writes one VEVENT. recurrenceID is set for a changed
-// occurrence of a series, which then carries no repeat rule.
-func jscalendarVEvent(event map[string]any, recurrenceID string) (*ical.Component, error) {
+// occurrence of a series, which then carries no repeat rule; it is a time
+// in the series' zone, recurrenceZone, whatever zone the occurrence moved to.
+func jscalendarVEvent(event map[string]any, recurrenceID, recurrenceZone string) (*ical.Component, error) {
 	vevent := ical.NewComponent(ical.CompEvent)
 	props := vevent.Props
 	uid := jscalendarString(event, "uid")
@@ -130,7 +131,7 @@ func jscalendarVEvent(event map[string]any, recurrenceID string) (*ical.Componen
 		return nil, fmt.Errorf("JMAP event start %q: %w", start, err)
 	}
 	if recurrenceID != "" {
-		props.Set(jscalendarDateProp(ical.PropRecurrenceID, recurrenceID, zone, allDay))
+		props.Set(jscalendarDateProp(ical.PropRecurrenceID, recurrenceID, recurrenceZone, allDay))
 	}
 	props.Set(jscalendarDateProp(ical.PropDateTimeStart, start, zone, allDay))
 	days, elapsed, err := jscalendarDuration(jscalendarString(event, "duration"))

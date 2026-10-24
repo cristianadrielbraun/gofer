@@ -263,7 +263,8 @@ func readCalendarProviderSeriesWithCredentials(ctx context.Context, source stora
 		if err == nil {
 			event, err = calendarOutlookSeriesEvent(remote)
 		}
-	case storage.CalendarSourceProviderCalDAV:
+	case storage.CalendarSourceProviderCalDAV, storage.CalendarSourceProviderJMAP:
+		ctx = withJMAPCalendarDAV(ctx, source, credentials)
 		endpoint, endpointErr := calendarUpdateCalDAVEndpoint(source, storage.CalendarEvent{RemoteID: id})
 		if endpointErr != nil {
 			return storage.CalendarEvent{}, endpointErr

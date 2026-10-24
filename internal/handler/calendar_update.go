@@ -70,7 +70,7 @@ func calendarEventMutationRestriction(event storage.CalendarEvent, source storag
 	if source.Provider != providers.ProviderOutlook && !calendarUpdateValidETag(event.ETag, false) {
 		return "This provider must supply a strong event version before safe editing is available."
 	}
-	if source.Provider == storage.CalendarSourceProviderCalDAV && (event.OrganizerName != "" || event.OrganizerEmail != "") && !calendarCachedOrganizer(event) {
+	if storage.CalendarSourceMailServer(source.Provider) && (event.OrganizerName != "" || event.OrganizerEmail != "") && !calendarCachedOrganizer(event) {
 		return "Invitations cannot be edited in Gofer yet."
 	}
 	return ""
@@ -301,6 +301,7 @@ func (h *Handler) updateCalendarProviderEvent(ctx context.Context, source storag
 	if credentials.err != nil {
 		return calendar.RemoteEvent{}, calendarCreateAuthError{credentials.err}
 	}
+	ctx = withJMAPCalendarDAV(ctx, source, credentials)
 	switch source.Provider {
 	case providers.ProviderGmail:
 		return updateGoogleCalendarEventScope(ctx, credentials.token, source.RemoteID, event, draft, series, occurrence)
@@ -339,7 +340,7 @@ func (h *Handler) calendarUpdateCredentials(ctx context.Context, source storage.
 		credentials.token, credentials.err = h.mailCredentials().GetGoogleCalendarWriteTokenForAccount(ctx, source.AccountID)
 	case providers.ProviderOutlook:
 		credentials.token, credentials.err = h.mailCredentials().GetMicrosoftGraphCalendarWriteTokenForAccount(ctx, source.AccountID)
-	case storage.CalendarSourceProviderCalDAV:
+	case storage.CalendarSourceProviderCalDAV, storage.CalendarSourceProviderJMAP:
 		credentials = h.calendarCredentialsForSource(ctx, source.UserID, source)
 	default:
 		credentials.err = errCalendarUpdateUnsupported

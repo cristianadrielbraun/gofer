@@ -11,9 +11,10 @@ import (
 // connection (JMAP for Calendars) instead of CalDAV.
 const CalendarSourceProviderJMAP = "jmap"
 
-// calendarSourceMailServer reports whether calendars of this provider belong
-// to a mail-server account (IMAP or JMAP), which uses one of them at a time.
-func calendarSourceMailServer(provider string) bool {
+// CalendarSourceMailServer reports whether calendars of this provider belong
+// to a mail-server account (IMAP or JMAP), which uses one of them at a time
+// and signs in with a password rather than OAuth.
+func CalendarSourceMailServer(provider string) bool {
 	return provider == CalendarSourceProviderCalDAV || provider == CalendarSourceProviderJMAP
 }
 

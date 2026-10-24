@@ -212,7 +212,7 @@ func calendarSourcesAllHidden(sources []storage.CalendarSource) bool {
 
 func calendarViewEvent(event storage.CalendarEvent) views.CalendarEvent {
 	response := event.ResponseStatus
-	if response == "" && event.SourceProvider == storage.CalendarSourceProviderCalDAV {
+	if response == "" && storage.CalendarSourceMailServer(event.SourceProvider) {
 		response = calendarCachedCalDAVResponse(event)
 	}
 	return views.CalendarEvent{

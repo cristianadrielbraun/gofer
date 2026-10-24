@@ -43,7 +43,7 @@ func (s *CalendarDiscoverySnapshot) WithProvider(provider string) (*CalendarDisc
 	if provider == s.Provider() {
 		return s, nil
 	}
-	if !s.jmapAccount || !calendarSourceMailServer(provider) {
+	if !s.jmapAccount || !CalendarSourceMailServer(provider) {
 		return nil, ErrAccountRoute
 	}
 	next := *s
@@ -77,7 +77,7 @@ func calendarDiscoverySnapshotTx(ctx context.Context, tx *sql.Tx, owner, account
 			}
 		}
 	}
-	if snapshot.provider != "gmail" && snapshot.provider != "outlook" && !calendarSourceMailServer(snapshot.provider) {
+	if snapshot.provider != "gmail" && snapshot.provider != "outlook" && !CalendarSourceMailServer(snapshot.provider) {
 		return nil, ErrAccountRoute
 	}
 	rows, err := tx.QueryContext(ctx, `SELECT id,user_id,account_id,provider,remote_id,name,description,timezone,color,access_role,is_primary,is_selected,is_deleted
@@ -93,7 +93,7 @@ func calendarDiscoverySnapshotTx(ctx context.Context, tx *sql.Tx, owner, account
 			&source.Name, &source.Description, &source.TimeZone, &source.Color, &source.AccessRole, &primary, &selected, &deleted); err != nil {
 			return nil, err
 		}
-		if source.Provider != snapshot.provider && !(snapshot.jmapAccount && calendarSourceMailServer(source.Provider)) {
+		if source.Provider != snapshot.provider && !(snapshot.jmapAccount && CalendarSourceMailServer(source.Provider)) {
 			return nil, ErrCalendarDiscoveryChanged
 		}
 		source.IsPrimary, source.IsSelected, source.IsDeleted = primary == 1, selected == 1, deleted == 1

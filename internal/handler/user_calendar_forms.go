@@ -65,6 +65,12 @@ func (p *userCalendarRequest) mutationAccess(ctx context.Context, deleting bool)
 // boundary independently validates them and the selected source at each HTTP.
 func (p *userCalendarRequest) actionCredentials() (calendarCredentials, error) {
 	credentials := calendarCredentials{token: p.token}
+	if p.provider() == storage.CalendarSourceProviderJMAP {
+		if p.jmapLogin.jmap == nil {
+			return credentials, errors.New("the JMAP calendar's sign-in was not read")
+		}
+		return p.jmapLogin, nil
+	}
 	if p.provider() != storage.CalendarSourceProviderCalDAV {
 		return credentials, nil
 	}

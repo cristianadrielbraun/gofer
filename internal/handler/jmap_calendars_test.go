@@ -52,7 +52,8 @@ func TestJMAPCalendarEventPageExpandsSeries(t *testing.T) {
 		`{"id": "d1", "@type": "Event", "uid": "trip@example.test", "title": "Trip", "start": "2026-11-20T00:00:00", "showWithoutTime": true, "duration": "P3D"}`)
 	start := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
 	end := time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC)
-	page, err := jmapCalendarEventPage(events, start, end, time.UTC)
+	collection := jmapCalendarDAVCollection("c1")
+	page, err := jmapCalendarEventPage(events, collection, start, end, time.UTC)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,33 +64,34 @@ func TestJMAPCalendarEventPageExpandsSeries(t *testing.T) {
 		ids = append(ids, event.RemoteID)
 	}
 	slices.Sort(ids)
-	key := func(at string) string { return "s1#recurrence=" + url.QueryEscape(at) }
-	want := []string{"d1", "e1", key("2026-10-26T08:00:00Z"), key("2026-11-09T08:00:00Z"), key("2026-11-16T08:00:00Z"), key("2026-11-23T08:00:00Z"), key("2026-11-30T08:00:00Z")}
+	series := jmapCalendarDAVResource(collection, "s1")
+	key := func(at string) string { return series + "#recurrence=" + url.QueryEscape(at) }
+	want := []string{collection + "d1.ics", collection + "e1.ics", key("2026-10-26T08:00:00Z"), key("2026-11-09T08:00:00Z"), key("2026-11-16T08:00:00Z"), key("2026-11-23T08:00:00Z"), key("2026-11-30T08:00:00Z")}
 	slices.Sort(want)
 	if !slices.Equal(ids, want) {
 		t.Fatalf("events = %v\nwant %v", ids, want)
 	}
 	moved := byID[key("2026-11-09T08:00:00Z")]
-	if moved.Summary != "Planning (moved)" || moved.StartAt.Format(time.RFC3339) != "2026-11-09T10:00:00Z" || moved.EndAt.Format(time.RFC3339) != "2026-11-09T11:00:00Z" || moved.SeriesRemoteID != "s1" {
+	if moved.Summary != "Planning (moved)" || moved.StartAt.Format(time.RFC3339) != "2026-11-09T10:00:00Z" || moved.EndAt.Format(time.RFC3339) != "2026-11-09T11:00:00Z" || moved.SeriesRemoteID != series {
 		t.Errorf("moved occurrence = %+v", moved)
 	}
 	first := byID[key("2026-10-26T08:00:00Z")]
-	if first.Summary != "Planning" || first.StartTimeZone != "Europe/Prague" || first.ReminderMinutes == nil || *first.ReminderMinutes != 10 || first.SeriesRemoteID != "s1" {
+	if first.Summary != "Planning" || first.StartTimeZone != "Europe/Prague" || first.ReminderMinutes == nil || *first.ReminderMinutes != 10 || first.SeriesRemoteID != series {
 		t.Errorf("first occurrence = %+v", first)
 	}
 	// After the change from summer time the meeting is still at 9:00 there.
 	if later := byID[key("2026-11-16T08:00:00Z")]; later.StartAt.Format(time.RFC3339) != "2026-11-16T08:00:00Z" {
 		t.Errorf("occurrence after the clock change = %+v", later)
 	}
-	if trip := byID["d1"]; !trip.AllDay || trip.StartDate != "2026-11-20" || trip.EndDate != "2026-11-23" {
+	if trip := byID[collection+"d1.ics"]; !trip.AllDay || trip.StartDate != "2026-11-20" || trip.EndDate != "2026-11-23" {
 		t.Errorf("all-day event = %+v", trip)
 	}
-	if first.ETag == "" || first.ETag != moved.ETag || first.ETag == byID["e1"].ETag {
-		t.Errorf("etags = %q %q %q", first.ETag, moved.ETag, byID["e1"].ETag)
+	if first.ETag == "" || first.ETag != moved.ETag || first.ETag == byID[collection+"e1.ics"].ETag {
+		t.Errorf("etags = %q %q %q", first.ETag, moved.ETag, byID[collection+"e1.ics"].ETag)
 	}
 
 	// A window that starts during an occurrence still holds it.
-	page, err = jmapCalendarEventPage(events, time.Date(2026, 11, 16, 8, 30, 0, 0, time.UTC), time.Date(2026, 11, 17, 0, 0, 0, 0, time.UTC), time.UTC)
+	page, err = jmapCalendarEventPage(events, collection, time.Date(2026, 11, 16, 8, 30, 0, 0, time.UTC), time.Date(2026, 11, 17, 0, 0, 0, 0, time.UTC), time.UTC)
 	if err != nil || len(page.Events) != 1 || page.Events[0].RemoteID != key("2026-11-16T08:00:00Z") {
 		t.Fatalf("partial window = %+v, %v", page.Events, err)
 	}
@@ -98,13 +100,13 @@ func TestJMAPCalendarEventPageExpandsSeries(t *testing.T) {
 func TestJMAPCalendarEventPageExpandsAllDaySeries(t *testing.T) {
 	events := jmapTestEvents(t, `{"id": "b1", "@type": "Event", "uid": "bins@example.test", "title": "Bins out", "start": "2026-11-03T00:00:00", "showWithoutTime": true,
 	  "recurrenceRule": {"frequency": "weekly", "count": 3}}`)
-	page, err := jmapCalendarEventPage(events, time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC), time.UTC)
+	page, err := jmapCalendarEventPage(events, jmapCalendarDAVCollection("c1"), time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC), time.UTC)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var dates []string
 	for _, event := range page.Events {
-		if !event.AllDay || event.SeriesRemoteID != "b1" {
+		if !event.AllDay || event.SeriesRemoteID != jmapCalendarDAVResource(jmapCalendarDAVCollection("c1"), "b1") {
 			t.Errorf("occurrence = %+v", event)
 		}
 		dates = append(dates, event.StartDate+"/"+event.EndDate)
@@ -124,8 +126,8 @@ func TestJMAPCalendarSourcesKeepRightsAndDefault(t *testing.T) {
 	if len(sources) != 2 || sources[0].AccessRole != "reader" || sources[0].IsSelected || sources[1].AccessRole != "writer" || !sources[1].IsPrimary || !sources[1].IsSelected || sources[1].Provider != "jmap" || sources[1].TimeZone != "Europe/Prague" {
 		t.Fatalf("sources = %+v", sources)
 	}
-	if calendarSourceWritable(sources[1]) {
-		t.Error("JMAP calendars are read-only for now")
+	if !calendarSourceWritable(sources[1]) || calendarSourceWritable(sources[0]) {
+		t.Error("only the calendar the user may write to is writable")
 	}
 }
 
@@ -242,7 +244,7 @@ func TestJMAPCalendarDiscoveryAndSyncForTheSharedStore(t *testing.T) {
 		t.Fatalf("sources = %+v, %v", sources, err)
 	}
 	for _, source := range sources {
-		if source.Provider != "jmap" || source.IsSelected != (source.RemoteID == "c1") {
+		if source.Provider != "jmap" || source.IsSelected != (source.RemoteID == jmapCalendarDAVCollection("c1")) {
 			t.Fatalf("source = %+v", source)
 		}
 	}
@@ -269,7 +271,7 @@ func TestJMAPCalendarDiscoveryAndSyncForTheSharedStore(t *testing.T) {
 	// The quick check asks the account's event state.
 	credentials := map[string]calendarCredentials{}
 	selected := sources[0]
-	if selected.RemoteID != "c1" {
+	if selected.RemoteID != jmapCalendarDAVCollection("c1") {
 		selected = sources[1]
 	}
 	if tag := h.calendarSourceChangeTag(t.Context(), selected, credentials); tag != "jmap:s1" {
@@ -329,7 +331,7 @@ func TestJMAPCalendarLiveExpansion(t *testing.T) {
 	if err != nil || len(parsed) != 1 {
 		t.Fatalf("parse = %+v, %v", parsed, err)
 	}
-	created, err := mail.CreateJMAPCalendarEvent(ctx, cfg, password, source.RemoteID, parsed[0])
+	created, err := mail.CreateJMAPCalendarEvent(ctx, cfg, password, jmapLiveCalendarID(t, source), parsed[0])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -341,7 +343,7 @@ func TestJMAPCalendarLiveExpansion(t *testing.T) {
 	}
 	var got []string
 	for _, event := range page.Events {
-		if event.SeriesRemoteID == created {
+		if event.SeriesRemoteID == jmapCalendarDAVResource(source.RemoteID, created) {
 			got = append(got, event.StartAt.UTC().Format(time.RFC3339)+" "+event.Summary)
 		}
 	}

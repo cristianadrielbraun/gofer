@@ -25,7 +25,10 @@ func (p *userCalendarRequest) createContext(ctx context.Context) (context.Contex
 	if err := p.validate(ctx); err != nil {
 		return nil, err
 	}
-	if p.provider() != storage.CalendarSourceProviderCalDAV {
+	if err := p.readJMAPLogin(ctx); err != nil {
+		return nil, err
+	}
+	if calendarProviderUsesOAuth(p.provider()) {
 		if p.h.userCredentials == nil {
 			return nil, mailauth.ErrMailboxAuthorizationChanged
 		}
@@ -46,7 +49,7 @@ func (p *userCalendarRequest) prepareCreateDispatch(ctx context.Context) error {
 	if err := p.ready(ctx); err != nil {
 		return err
 	}
-	if p.provider() != storage.CalendarSourceProviderCalDAV {
+	if calendarProviderUsesOAuth(p.provider()) {
 		authorization, err := p.h.userCredentials.EnsureServiceAuthorization(ctx, p.authorization)
 		if err != nil {
 			return p.recordRetry(ctx, err)

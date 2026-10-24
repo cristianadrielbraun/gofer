@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/mail/jmap"
@@ -179,4 +180,127 @@ func DeleteJMAPCalendarEvent(ctx context.Context, cfg *models.AccountConfig, pas
 		return &failure
 	}
 	return nil
+}
+
+// JMAPCalendarConnection is one JMAP session for a series of calendar
+// writes, so each step doesn't open the session again.
+type JMAPCalendarConnection struct {
+	client  *jmap.Client
+	session *jmap.Session
+	account string
+}
+
+// OpenJMAPCalendars opens a JMAP session for calendar writes.
+func OpenJMAPCalendars(ctx context.Context, cfg *models.AccountConfig, password string) (*JMAPCalendarConnection, error) {
+	client, session, account, err := jmapCalendarsSession(ctx, cfg, password)
+	if err != nil {
+		return nil, err
+	}
+	return &JMAPCalendarConnection{client: client, session: session, account: account}, nil
+}
+
+// Event fetches one event, or nil when the server has no such event.
+func (c *JMAPCalendarConnection) Event(ctx context.Context, id string) (jmap.CalendarEvent, error) {
+	events, err := c.client.GetCalendarEvents(ctx, c.session, c.account, []string{id})
+	if err != nil {
+		return nil, err
+	}
+	for _, event := range events.List {
+		if event.ID() == id {
+			return event, nil
+		}
+	}
+	return nil, nil
+}
+
+// ByUID finds the event with a uid in a calendar, or nil. A server may
+// index a new event for search a moment after saving it.
+func (c *JMAPCalendarConnection) ByUID(ctx context.Context, calendarID, uid string) (jmap.CalendarEvent, error) {
+	query, err := c.client.QueryCalendarEvents(ctx, c.session, c.account, jmap.CalendarEventFilter{InCalendar: calendarID, UID: uid}, 0, 2)
+	if err != nil || len(query.IDs) == 0 {
+		return nil, err
+	}
+	return c.Event(ctx, query.IDs[0])
+}
+
+// FromICS has the server read iCalendar data into events.
+func (c *JMAPCalendarConnection) FromICS(ctx context.Context, data []byte) ([]jmap.CalendarEvent, error) {
+	return jmapParseICS(ctx, c.client, c.session, c.account, data)
+}
+
+// Create saves a new event in a calendar and gives its id.
+func (c *JMAPCalendarConnection) Create(ctx context.Context, calendarID string, event jmap.CalendarEvent) (string, error) {
+	event["calendarIds"] = map[string]any{calendarID: true}
+	delete(event, "id")
+	result, err := c.client.SetCalendarEvents(ctx, c.session, jmap.CalendarEventSet{AccountID: c.account, Create: map[string]jmap.CalendarEvent{"new": event}})
+	if err != nil {
+		return "", err
+	}
+	if failure, ok := result.NotCreated["new"]; ok {
+		return "", &failure
+	}
+	id := result.Created["new"].ID()
+	if id == "" {
+		return "", errors.New("CalendarEvent/set: the server gave the new event no id")
+	}
+	return id, nil
+}
+
+// Update applies a patch to an event. It reports false when the event is
+// gone.
+func (c *JMAPCalendarConnection) Update(ctx context.Context, id string, patch jmap.PatchObject) (bool, error) {
+	result, err := c.client.SetCalendarEvents(ctx, c.session, jmap.CalendarEventSet{AccountID: c.account, Update: map[string]jmap.PatchObject{id: patch}})
+	if err != nil {
+		return false, err
+	}
+	if failure, ok := result.NotUpdated[id]; ok {
+		if failure.Type == "notFound" {
+			return false, nil
+		}
+		return false, &failure
+	}
+	return true, nil
+}
+
+// Delete destroys an event. It reports false when the event was already
+// gone.
+func (c *JMAPCalendarConnection) Delete(ctx context.Context, id string) (bool, error) {
+	result, err := c.client.SetCalendarEvents(ctx, c.session, jmap.CalendarEventSet{AccountID: c.account, Destroy: []string{id}})
+	if err != nil {
+		return false, err
+	}
+	if failure, ok := result.NotDestroyed[id]; ok {
+		if failure.Type == "notFound" {
+			return false, nil
+		}
+		return false, &failure
+	}
+	return true, nil
+}
+
+// jmapEventServerProperties are set by the server or name where an event
+// is kept, never sent back in a patch.
+var jmapEventServerProperties = map[string]bool{
+	"id": true, "@type": true, "uid": true, "calendarIds": true, "iCalendar": true,
+	"isDraft": true, "isOrigin": true, "baseEventId": true, "utcStart": true, "utcEnd": true,
+	"blobId": true, "isRecurrenceExpanded": true,
+}
+
+// JMAPEventPatch is what to change on the server to turn an event read as
+// before into after, both as the server read them from iCalendar. Only the
+// properties that differ are replaced, so ones Gofer's iCalendar doesn't
+// carry stay on the server as they are.
+func JMAPEventPatch(before, after jmap.CalendarEvent) jmap.PatchObject {
+	patch := jmap.PatchObject{}
+	for key, value := range after {
+		if !jmapEventServerProperties[key] && !reflect.DeepEqual(before[key], value) {
+			patch[key] = value
+		}
+	}
+	for key := range before {
+		if _, kept := after[key]; !kept && !jmapEventServerProperties[key] {
+			patch[key] = nil
+		}
+	}
+	return patch
 }

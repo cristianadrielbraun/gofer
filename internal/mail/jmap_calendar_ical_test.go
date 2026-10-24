@@ -197,6 +197,21 @@ func TestJMAPEventCalendarWritesAllDayAndFloatingEvents(t *testing.T) {
 	}
 }
 
+// An occurrence moved into another zone still names, in the series' zone,
+// the occurrence it replaces.
+func TestJMAPEventCalendarKeepsTheSeriesZoneForAMovedOccurrence(t *testing.T) {
+	events := icsEvents(t, decodeJMAPEvent(t, `{"@type": "Event", "uid": "standup@example.test", "title": "Standup",
+	  "start": "2026-12-07T10:00:00", "timeZone": "Europe/Prague", "duration": "PT1H", "recurrenceRule": {"frequency": "daily", "count": 3},
+	  "recurrenceOverrides": {"2026-12-08T10:00:00": {"start": "2026-12-08T11:00:00", "timeZone": "Etc/UTC"}}}`))
+	moved := events[1].Props
+	if rid := moved.Get("RECURRENCE-ID"); rid.Value != "20261208T100000" || rid.Params.Get("TZID") != "Europe/Prague" {
+		t.Errorf("RECURRENCE-ID = %+v", rid)
+	}
+	if propValue(moved, "DTSTART") != "20261208T110000Z" {
+		t.Errorf("DTSTART = %q", propValue(moved, "DTSTART"))
+	}
+}
+
 func TestJMAPEventCalendarRefusesWhatItCannotWrite(t *testing.T) {
 	for name, raw := range map[string]string{
 		"task":        `{"@type": "Task", "uid": "t@example.test", "start": "2026-01-01T00:00:00"}`,

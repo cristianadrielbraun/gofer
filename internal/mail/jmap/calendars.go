@@ -49,12 +49,14 @@ func (e CalendarEvent) ID() string {
 	return id
 }
 
-// CalendarEventFilter limits CalendarEvent/query to events in a calendar
-// and overlapping a time range (UTC, RFC 3339); empty fields don't limit.
+// CalendarEventFilter limits CalendarEvent/query to events in a calendar,
+// overlapping a time range (UTC, RFC 3339), or with a uid; empty fields
+// don't limit.
 type CalendarEventFilter struct {
 	InCalendar string `json:"inCalendar,omitempty"`
 	After      string `json:"after,omitempty"`
 	Before     string `json:"before,omitempty"`
+	UID        string `json:"uid,omitempty"`
 }
 
 // GetCalendars runs Calendar/get for every calendar.
@@ -76,20 +78,43 @@ func (c *Client) GetCalendars(ctx context.Context, session *Session, accountID s
 }
 
 // GetCalendarEvents runs CalendarEvent/get. An empty ids still answers with
-// the current state.
+// the current state. Each event also gets its iCalendar property: the
+// iCalendar details the server kept without a JSCalendar form, which some
+// servers send only when asked for by name. A server without it leaves it
+// out.
 func (c *Client) GetCalendarEvents(ctx context.Context, session *Session, accountID string, ids []string) (*GetResponse[CalendarEvent], error) {
-	args := struct {
-		AccountID string   `json:"accountId"`
-		IDs       []string `json:"ids"`
-	}{accountID, ids}
-	responses, err := c.Call(ctx, session, []string{CapabilityCalendars},
-		Invocation{Name: "CalendarEvent/get", Args: args, CallID: "0"})
+	type getArgs struct {
+		AccountID  string   `json:"accountId"`
+		IDs        []string `json:"ids"`
+		Properties []string `json:"properties,omitempty"`
+	}
+	calls := []Invocation{{Name: "CalendarEvent/get", Args: getArgs{accountID, ids, nil}, CallID: "0"}}
+	if len(ids) > 0 {
+		calls = append(calls, Invocation{Name: "CalendarEvent/get", Args: getArgs{accountID, ids, []string{"id", "iCalendar"}}, CallID: "1"})
+	}
+	responses, err := c.Call(ctx, session, []string{CapabilityCalendars}, calls...)
 	if err != nil {
 		return nil, err
 	}
 	var result GetResponse[CalendarEvent]
 	if err := responses.Get("0", &result); err != nil {
 		return nil, fmt.Errorf("CalendarEvent/get: %w", err)
+	}
+	var kept GetResponse[CalendarEvent]
+	if len(ids) > 0 && responses.Get("1", &kept) == nil {
+		byID := make(map[string]any, len(kept.List))
+		for _, event := range kept.List {
+			if value, ok := event["iCalendar"]; ok && value != nil {
+				byID[event.ID()] = value
+			}
+		}
+		for _, event := range result.List {
+			if value, ok := byID[event.ID()]; ok {
+				if _, present := event["iCalendar"]; !present {
+					event["iCalendar"] = value
+				}
+			}
+		}
 	}
 	return &result, nil
 }

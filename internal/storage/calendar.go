@@ -206,7 +206,7 @@ func replaceCalendarSourcesTx(ctx context.Context, tx *sql.Tx, userID, accountID
 		UPDATE calendar_sources
 		SET is_deleted = 1, is_selected = 0, updated_at = CURRENT_TIMESTAMP
 		WHERE user_id = ? AND account_id = ? AND (provider = ? OR (? AND provider IN ('caldav', 'jmap')))`
-	markMissingArgs := []any{userID, accountID, provider, calendarSourceMailServer(provider)}
+	markMissingArgs := []any{userID, accountID, provider, CalendarSourceMailServer(provider)}
 	if len(remoteIDs) > 0 {
 		placeholders := strings.TrimSuffix(strings.Repeat("?,", len(remoteIDs)), ",")
 		markMissingQuery += ` AND remote_id NOT IN (` + placeholders + `)`

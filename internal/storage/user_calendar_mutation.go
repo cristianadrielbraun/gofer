@@ -190,7 +190,7 @@ func (db *DB) publishUserCalendarEvent(ctx context.Context, snapshot *UserCalend
 		return ErrCalendarEventChanged
 	}
 	var siblings map[string]calendarPublicationRecord
-	if (kind == CalendarPublishOccurrenceUpdate || kind == CalendarPublishOccurrenceDelete) && snapshot.source.Provider == CalendarSourceProviderCalDAV {
+	if (kind == CalendarPublishOccurrenceUpdate || kind == CalendarPublishOccurrenceDelete) && CalendarSourceMailServer(snapshot.source.Provider) {
 		siblings, err = calendarPublicationRecordsTx(ctx, tx, existing.UserID, existing.SourceID, ` AND event.series_remote_id=? AND event.ical_uid=?`, existing.SeriesRemoteID, existing.ICalUID)
 		if err != nil {
 			return err
@@ -230,7 +230,7 @@ func (db *DB) publishUserCalendarEvent(ctx context.Context, snapshot *UserCalend
 		row.event.IsDeleted, row.event.Status = true, "cancelled"
 		// Legacy DAV occurrence deletion advances the selected resource ETag
 		// together with its siblings; Graph/Google keep the deleted version.
-		if occurrence != nil && snapshot.source.Provider == CalendarSourceProviderCalDAV {
+		if occurrence != nil && CalendarSourceMailServer(snapshot.source.Provider) {
 			row.event.ETag = event.ETag
 		}
 		expected[existing.ID] = row

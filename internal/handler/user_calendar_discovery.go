@@ -39,6 +39,7 @@ func calendarDiscoveryPageURL(collection, next string) (string, error) {
 
 type userCalendarRequest struct {
 	h                *Handler
+	jmapLogin        calendarCredentials
 	snapshot         *config.UserCalendarDiscoverySnapshot
 	claim            *config.UserCalendarSyncClaim
 	event            *config.UserCalendarEventSnapshot
@@ -138,7 +139,7 @@ func (p *userCalendarRequest) validate(ctx context.Context) error {
 		}
 	}
 	if p.create != nil {
-		if p.source == nil || !p.write || p.create.Source() != p.source || (p.provider() != storage.CalendarSourceProviderCalDAV && p.authorization == nil) {
+		if p.source == nil || !p.write || p.create.Source() != p.source || (calendarProviderUsesOAuth(p.provider()) && p.authorization == nil) {
 			return storage.ErrCalendarCreateConflict
 		}
 		if err := p.h.userAccounts.ValidateCalendarCreate(ctx, p.create, guards...); err != nil {
@@ -177,7 +178,7 @@ func (p *userCalendarRequest) validate(ctx context.Context) error {
 		}
 	}
 	if p.response != nil {
-		if p.event == nil || !p.write || p.response.Event() != p.event || (p.provider() != storage.CalendarSourceProviderCalDAV && p.authorization == nil) {
+		if p.event == nil || !p.write || p.response.Event() != p.event || (calendarProviderUsesOAuth(p.provider()) && p.authorization == nil) {
 			return storage.ErrCalendarEventChanged
 		}
 		if err := p.h.userAccounts.ValidateCalendarResponse(ctx, p.response, guards...); err != nil {

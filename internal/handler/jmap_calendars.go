@@ -27,7 +27,11 @@ func listJMAPCalendarEvents(ctx context.Context, source storage.CalendarSource, 
 	if query.WindowStart.IsZero() || query.WindowEnd.IsZero() || !query.WindowEnd.After(query.WindowStart) {
 		return calendar.EventPage{}, fmt.Errorf("JMAP event window is invalid")
 	}
-	pulled, err := mail.PullJMAPCalendarEvents(ctx, cfg, password, source.RemoteID, query.WindowStart, query.WindowEnd)
+	calendarID, name, ok := jmapCalendarDAVParse(source.RemoteID)
+	if !ok || name != "" {
+		return calendar.EventPage{}, fmt.Errorf("JMAP calendar has no valid id")
+	}
+	pulled, err := mail.PullJMAPCalendarEvents(ctx, cfg, password, calendarID, query.WindowStart, query.WindowEnd)
 	if err != nil {
 		return calendar.EventPage{}, err
 	}
@@ -37,7 +41,7 @@ func listJMAPCalendarEvents(ctx context.Context, source storage.CalendarSource, 
 			return calendar.EventPage{}, fmt.Errorf("load calendar timezone: %w", err)
 		}
 	}
-	return jmapCalendarEventPage(pulled.Events, query.WindowStart, query.WindowEnd, location)
+	return jmapCalendarEventPage(pulled.Events, source.RemoteID, query.WindowStart, query.WindowEnd, location)
 }
 
 // jmapCalendarChangeTag is the change tag of a JMAP calendar: the account's
@@ -51,9 +55,10 @@ func jmapCalendarChangeTag(ctx context.Context, cfg *models.AccountConfig, passw
 }
 
 // jmapCalendarEventPage turns JMAP events into the window's events and
-// occurrences, with the ids CalDAV occurrences get: the event's id, and for
-// an occurrence its id with "#recurrence=" and the original start.
-func jmapCalendarEventPage(events []jmap.CalendarEvent, start, end time.Time, location *time.Location) (calendar.EventPage, error) {
+// occurrences, with the ids CalDAV ones get: the event's resource URL in the
+// collection, and for an occurrence that with "#recurrence=" and the
+// original start.
+func jmapCalendarEventPage(events []jmap.CalendarEvent, collection string, start, end time.Time, location *time.Location) (calendar.EventPage, error) {
 	page := calendar.EventPage{}
 	seen := make(map[string]bool)
 	for _, event := range events {
@@ -61,7 +66,7 @@ func jmapCalendarEventPage(events []jmap.CalendarEvent, start, end time.Time, lo
 		if id == "" {
 			return calendar.EventPage{}, fmt.Errorf("JMAP returned an event without an id")
 		}
-		remote, err := jmapCalendarOccurrences(event, start, end, location)
+		remote, err := jmapCalendarOccurrences(event, jmapCalendarDAVResource(collection, id), start, end, location)
 		if err != nil {
 			return calendar.EventPage{}, fmt.Errorf("read JMAP event %s: %w", id, err)
 		}
@@ -82,8 +87,29 @@ func jmapCalendarEventPage(events []jmap.CalendarEvent, start, end time.Time, lo
 // jmapCalendarOccurrences reads one JMAP event: the event itself, or the
 // occurrences of a series that overlap the window. A changed occurrence is
 // read from its own VEVENT, wherever it was moved to.
-func jmapCalendarOccurrences(event jmap.CalendarEvent, start, end time.Time, location *time.Location) ([]calendar.RemoteEvent, error) {
-	id, etag := event.ID(), jmapCalendarEventETag(event)
+func jmapCalendarOccurrences(event jmap.CalendarEvent, id string, start, end time.Time, location *time.Location) ([]calendar.RemoteEvent, error) {
+	expanded, err := jmapCalendarExpand(event, id, start, end, location)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]calendar.RemoteEvent, 0, len(expanded))
+	for _, occurrence := range expanded {
+		out = append(out, occurrence.remote)
+	}
+	return out, nil
+}
+
+// jmapOccurrence is an event or occurrence as an iCalendar VEVENT, and as
+// Gofer reads it.
+type jmapOccurrence struct {
+	component *ical.Component
+	remote    calendar.RemoteEvent
+}
+
+// jmapCalendarExpand is jmapCalendarOccurrences with each one's VEVENT, as
+// a CalDAV server's expanded calendar data has them.
+func jmapCalendarExpand(event jmap.CalendarEvent, id string, start, end time.Time, location *time.Location) ([]jmapOccurrence, error) {
+	etag := jmapCalendarEventETag(event)
 	cal, err := mail.JMAPEventCalendar(event)
 	if err != nil {
 		return nil, err
@@ -102,7 +128,7 @@ func jmapCalendarOccurrences(event jmap.CalendarEvent, start, end time.Time, loc
 		if err != nil || !overlaps(remote) {
 			return nil, err
 		}
-		return []calendar.RemoteEvent{remote}, nil
+		return []jmapOccurrence{{master.Component, remote}}, nil
 	}
 
 	startProp := master.Props.Get(ical.PropDateTimeStart)
@@ -136,7 +162,7 @@ func jmapCalendarOccurrences(event jmap.CalendarEvent, start, end time.Time, loc
 		return nil, err
 	}
 
-	var out []calendar.RemoteEvent
+	var out []jmapOccurrence
 	changed := make(map[string]bool)
 	for _, component := range components[1:] {
 		key, err := calendarRecurrenceKey(component.Props.Get(ical.PropRecurrenceID), zone)
@@ -149,7 +175,7 @@ func jmapCalendarOccurrences(event jmap.CalendarEvent, start, end time.Time, loc
 			return nil, err
 		}
 		if overlaps(remote) || (remote.Deleted && remote.StartAt == nil && remote.StartDate == "") {
-			out = append(out, remote)
+			out = append(out, jmapOccurrence{component.Component, remote})
 		}
 	}
 	// An occurrence that began up to its length before the window still
@@ -178,7 +204,7 @@ func jmapCalendarOccurrences(event jmap.CalendarEvent, start, end time.Time, loc
 			return nil, err
 		}
 		if overlaps(remote) {
-			out = append(out, remote)
+			out = append(out, jmapOccurrence{occurrence, remote})
 		}
 	}
 	return out, nil
@@ -231,7 +257,7 @@ func jmapCalendarSources(userID, accountID string, calendars []jmap.Calendar) []
 		primary := c.IsDefault || (!hasDefault && i == 0)
 		sources = append(sources, storage.CalendarSource{
 			UserID: userID, AccountID: accountID, Provider: storage.CalendarSourceProviderJMAP,
-			RemoteID: c.ID, Name: c.Name, Description: c.Description, TimeZone: jmapCalendarZone(c.TimeZone),
+			RemoteID: jmapCalendarDAVCollection(c.ID), Name: c.Name, Description: c.Description, TimeZone: jmapCalendarZone(c.TimeZone),
 			Color: c.Color, AccessRole: role, IsPrimary: primary, IsSelected: primary,
 		})
 	}
@@ -253,7 +279,7 @@ func jmapCalendarZone(zone string) string {
 // with the account's OAuth authorization: Google and Outlook. CalDAV and JMAP
 // calendars use a password.
 func calendarProviderUsesOAuth(provider string) bool {
-	return provider != storage.CalendarSourceProviderCalDAV && provider != storage.CalendarSourceProviderJMAP
+	return !storage.CalendarSourceMailServer(provider)
 }
 
 // jmapConnection is the JMAP connection and password of the request's
@@ -321,4 +347,18 @@ func (h *Handler) discoverJMAPCalendarSources(ctx context.Context, userID, accou
 		return 0, fmt.Errorf("store discovered JMAP calendars: %w", err)
 	}
 	return len(sources), nil
+}
+
+// readJMAPLogin reads the JMAP sign-in of a JMAP calendar's account for an
+// action on it, which the CalDAV code then uses through jmapCalendarDAV.
+func (p *userCalendarRequest) readJMAPLogin(ctx context.Context) error {
+	if p.provider() != storage.CalendarSourceProviderJMAP {
+		return nil
+	}
+	cfg, password, err := p.jmapConnection(ctx)
+	if err != nil {
+		return err
+	}
+	p.jmapLogin = calendarCredentials{jmap: cfg, password: password, baseURL: jmapCalendarDAVOrigin, username: "jmap"}
+	return nil
 }

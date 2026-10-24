@@ -16,7 +16,7 @@ func (s *UserAccountStore) PublishCalendarEvent(ctx context.Context, snapshot *U
 	if err != nil {
 		return err
 	}
-	if snapshot.Source().Provider != storage.CalendarSourceProviderCalDAV && len(extra) != 1 {
+	if !storage.CalendarSourceMailServer(snapshot.Source().Provider) && len(extra) != 1 {
 		return storage.ErrCalendarEventChanged
 	}
 	event = copyCalendarProviderEvent(event)

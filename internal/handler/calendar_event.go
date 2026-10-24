@@ -68,7 +68,7 @@ func (h *Handler) sharedCalendarEventDetails(ctx context.Context, userID, eventI
 	if event.ResponseStatus != "organizer" && (event.ResponseStatus != "" || len(details.Attendees) > 0) {
 		if source, err := h.calendarResponseAccess(ctx, event); err == nil {
 			data := calendarResponseData(event)
-			if source.Provider == "caldav" {
+			if storage.CalendarSourceMailServer(source.Provider) {
 				data.Ready = false
 			}
 			details.Response = &data
