@@ -6,10 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -232,6 +234,17 @@ func newUserContactPushFixture(t *testing.T, provider string, api http.Handler) 
 			t.Fatal(err)
 		}
 	}
+	if provider == "jmap" {
+		t.Setenv("GOFER_JMAP_EXPERIMENT", "true")
+		host, port, _ := net.SplitHostPort(target.Host)
+		portNumber, _ := strconv.Atoi(port)
+		if err := f.system.AddPlaintextTransportException(t.Context(), "http", host, portNumber, "administrator"); err != nil {
+			t.Fatal(err)
+		}
+		if err := f.system.AddPrivateTargetException(t.Context(), "http", host, portNumber, "administrator"); err != nil {
+			t.Fatal(err)
+		}
+	}
 	stores, err := storage.NewUserStores(f.system, storage.UserStoreOptions{MaxOpen: 1})
 	if err != nil {
 		t.Fatal(err)
@@ -275,6 +288,9 @@ func newUserContactPushFixture(t *testing.T, provider string, api http.Handler) 
 		if provider == "carddav" {
 			req = &models.CreateAccountRequest{Provider: "imap", EmailAddress: owner + "@example.com", DisplayName: owner, IMAPHost: "imap.example.com", SMTPHost: "smtp.example.com", Username: owner, Password: "synthetic"}
 		}
+		if provider == "jmap" {
+			req = &models.CreateAccountRequest{Provider: "jmap", EmailAddress: owner + "@example.com", DisplayName: owner, JMAPSessionURL: f.server.URL + "/.well-known/jmap", Username: owner, Password: "synthetic"}
+		}
 		account, err := accounts.CreateAccount(ctx, owner, req)
 		if err != nil {
 			t.Fatal(err)
@@ -287,11 +303,14 @@ func newUserContactPushFixture(t *testing.T, provider string, api http.Handler) 
 			if provider == "carddav" {
 				return local.SaveContactSyncConfig(ctx, owner, account.ID, models.ContactSyncConfig{Enabled: true, Provider: "carddav", Username: owner, BaseURL: f.server.URL, AddressBooks: []models.ContactAddressBook{{ID: owner + "-book", URL: f.server.URL + "/books/" + owner + "/", Default: true}}}, owner+"-password")
 			}
+			if provider == "jmap" {
+				return local.SaveContactSyncConfig(ctx, owner, account.ID, models.ContactSyncConfig{Enabled: true, Provider: "jmap", AddressBooks: []models.ContactAddressBook{{ID: owner + "-book", URL: "B1", Name: "Personal", Default: true}}}, "")
+			}
 			return nil
 		}); err != nil {
 			t.Fatal(err)
 		}
-		if provider != "carddav" {
+		if provider != "carddav" && provider != "jmap" {
 			expires := time.Now().Add(time.Hour)
 			if err := credentials.UpsertForUser(ctx, owner, account.ID, oauthProvider, "subject", owner+"-access", owner+"-refresh", "Bearer", &expires, "https://www.googleapis.com/auth/contacts https://graph.microsoft.com/Contacts.ReadWrite"); err != nil {
 				t.Fatal(err)

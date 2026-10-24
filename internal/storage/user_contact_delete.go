@@ -75,11 +75,11 @@ func (db *DB) SnapshotUserContactDelete(ctx context.Context, owner, id string, g
 			continue
 		}
 		switch card.Provider {
-		case "gmail", "outlook", "carddav":
+		case "gmail", "outlook", "carddav", "jmap":
 			s.sources = append(s.sources, card)
 		}
 	}
-	rank := map[string]int{"gmail": 0, "outlook": 1, "carddav": 2}
+	rank := map[string]int{"gmail": 0, "outlook": 1, "carddav": 2, "jmap": 3}
 	sort.Slice(s.sources, func(i, j int) bool {
 		a, b := s.sources[i], s.sources[j]
 		if a.Provider != b.Provider {

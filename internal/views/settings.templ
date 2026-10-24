@@ -940,6 +940,8 @@ switch account.ContactSyncProvider {
 		return "Outlook"
 	case "carddav":
 		return "CardDAV"
+	case "jmap":
+		return "JMAP"
 	default:
 		return "Contacts"
 	}
@@ -1980,6 +1982,8 @@ func accountProviderName(provider string) string {
 		return "Outlook"
 	case providers.MailServiceICloud:
 		return "iCloud"
+	case providers.ProviderJMAP:
+		return "JMAP"
 	default:
 		return "IMAP"
 	}
@@ -3775,6 +3779,10 @@ templ ContactSyncSettings(data models.EditAccountData) {
 	{{ isBuiltinOAuthContactSync := data.Provider == "gmail" || data.Provider == "outlook" }}
 	{{ isICloud := editAccountIsICloud(data) }}
 	{{ providerName := accountProviderName(data.Provider) }}
+	{{ isJMAP := data.Provider == providers.ProviderJMAP && !isICloud }}
+	{{ useJMAP := isJMAP && contactSyncUsesJMAP(data) }}
+	{{ fieldsID := fmt.Sprintf("account-contact-sync-fields-%s", data.AccountID) }}
+	{{ statusID := fmt.Sprintf("account-contact-sync-status-%s", data.AccountID) }}
 	<div class="space-y-3">
 		<div class="account-wizard-sticky-header flex items-start justify-between gap-4">
 			<div class="min-w-0">
@@ -3802,6 +3810,10 @@ templ ContactSyncSettings(data models.EditAccountData) {
 						</div>
 						@ICloudContactFields()
 					} else {
+					if isJMAP {
+						@JMAPContactProtocolChoice(data.AccountID, fieldsID, statusID, useJMAP)
+					}
+					<div class={ "sm:col-span-2 grid gap-3 sm:grid-cols-2", templ.KV("hidden", useJMAP) } data-contact-protocol="carddav">
 					<div class="sm:col-span-2">
 						<div class="mb-1.5 flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
 							<label class="text-xs font-medium text-muted-foreground">Base URL</label>
@@ -3829,8 +3841,9 @@ templ ContactSyncSettings(data models.EditAccountData) {
 							@input.Input(input.Props{Name: "password", Type: input.TypePassword, Placeholder: contactSyncPasswordPlaceholder(data.ContactSync), Disabled: sameCardDAVAuth, Attributes: reconnectRequiredAttrs(reconnectContacts, editAccountNeeds(data, reconnectContacts))})
 						</div>
 					</div>
+					</div>
 					}
-					if len(data.ContactSync.AddressBooks) > 1 {
+					if len(data.ContactSync.AddressBooks) > 1 || (useJMAP && data.ContactSync.Provider == providers.ProviderJMAP && len(data.ContactSync.AddressBooks) > 0) {
 						<div class="sm:col-span-2 rounded-lg border border-border bg-background/45 p-3" data-carddav-addressbook-section>
 							<div class="text-xs font-semibold text-foreground">Selected address books</div>
 							<p class="mt-1 text-[11px] leading-relaxed text-muted-foreground">Select one or more address books to sync. The default is used for new contacts.</p>
@@ -3844,7 +3857,9 @@ templ ContactSyncSettings(data models.EditAccountData) {
 										<input type="hidden" name="addressbook_name" value={ book.Name }/>
 										<div class="min-w-0 flex-1">
 											<div class="font-semibold text-foreground">{ contactAddressBookName(book) }</div>
-											<div class="mt-0.5 truncate text-muted-foreground">{ book.URL }</div>
+											if data.ContactSync.Provider != providers.ProviderJMAP {
+												<div class="mt-0.5 truncate text-muted-foreground">{ book.URL }</div>
+											}
 											<label class="mt-2 inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
 												if book.Default || (!contactSyncHasDefaultBook(data.ContactSync.AddressBooks) && i == 0) {
 													@radio.Radio(radio.Props{Name: "default_addressbook_url", Value: book.URL, Checked: true})
@@ -3877,12 +3892,54 @@ templ ContactSyncSettings(data models.EditAccountData) {
 					if isICloud {
 						@CardDAVDiscoverAddressBooksButton(data.AccountID, fmt.Sprintf("account-contact-sync-fields-%s", data.AccountID), fmt.Sprintf("account-contact-sync-status-%s", data.AccountID), providers.ICloudCardDAVURL)
 					} else {
-						@CardDAVDiscoverAddressBooksButton(data.AccountID, fmt.Sprintf("account-contact-sync-fields-%s", data.AccountID), fmt.Sprintf("account-contact-sync-status-%s", data.AccountID), data.ContactSync.BaseURL)
-						@CardDAVManualAddressBookButton(fmt.Sprintf("account-contact-sync-fields-%s", data.AccountID), data.ContactSync.BaseURL)
+						<span class={ templ.KV("contents", !useJMAP), templ.KV("hidden", useJMAP) } data-contact-protocol="carddav">
+							@CardDAVDiscoverAddressBooksButton(data.AccountID, fmt.Sprintf("account-contact-sync-fields-%s", data.AccountID), fmt.Sprintf("account-contact-sync-status-%s", data.AccountID), data.ContactSync.BaseURL)
+							@CardDAVManualAddressBookButton(fmt.Sprintf("account-contact-sync-fields-%s", data.AccountID), data.ContactSync.BaseURL)
+						</span>
 					}
 				</div>
 			</form>
 		}
+	</div>
+}
+
+// contactSyncUsesJMAP reports whether a JMAP account's contacts form starts
+// on JMAP: always, unless the account already syncs contacts over CardDAV.
+func contactSyncUsesJMAP(data models.EditAccountData) bool {
+	return data.Provider == providers.ProviderJMAP && !(data.ContactSync.Provider == providers.ProviderCardDAV && data.ContactSync.Enabled)
+}
+
+func contactProtocol(useJMAP bool) string {
+	if useJMAP {
+		return providers.ProviderJMAP
+	}
+	return providers.ProviderCardDAV
+}
+
+// JMAPContactProtocolChoice lets a JMAP account sync contacts over JMAP, with
+// the mail login, or over CardDAV instead. The hidden provider field carries
+// the choice; the CardDAV fields sit in data-contact-protocol="carddav".
+templ JMAPContactProtocolChoice(accountID string, fieldsID string, statusID string, useJMAP bool) {
+	<input type="hidden" name="provider" value={ contactProtocol(useJMAP) } data-contact-protocol-field/>
+	<div class="sm:col-span-2 space-y-2">
+		<label class="text-xs font-medium text-muted-foreground block">Sync contacts over</label>
+		<div class="flex flex-wrap gap-4">
+			<label class="inline-flex items-center gap-2 text-sm cursor-pointer">
+				@radio.Radio(radio.Props{Name: "contact_protocol", Value: providers.ProviderJMAP, Checked: useJMAP, Attributes: templ.Attributes{"data-on-change": onAction("chooseContactProtocol", actionElement)}})
+				JMAP
+			</label>
+			<label class="inline-flex items-center gap-2 text-sm cursor-pointer">
+				@radio.Radio(radio.Props{Name: "contact_protocol", Value: providers.ProviderCardDAV, Checked: !useJMAP, Attributes: templ.Attributes{"data-on-change": onAction("chooseContactProtocol", actionElement)}})
+				CardDAV
+			</label>
+		</div>
+	</div>
+	<div class={ "sm:col-span-2 space-y-3", templ.KV("hidden", !useJMAP) } data-contact-protocol="jmap">
+		<p class="text-xs leading-relaxed text-muted-foreground">Contacts come from the same JMAP server as your mail, with the same login. If you signed in with an API token, it needs the contacts permission.</p>
+		<button type="button" data-carddav-discover data-account-id={ accountID } data-fields-id={ fieldsID } data-status-id={ statusID } class="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-xs font-semibold text-foreground hover:bg-accent">
+			@icon.Search(icon.Props{Class: "size-3.5"})
+			Find address books
+		</button>
 	</div>
 }
 
@@ -4216,6 +4273,7 @@ templ CardDAVManualAddressBookButton(fieldsID string, baseURL string) {
 
 templ AddAccountPostCreateStep(data models.EditAccountData) {
 	{{ accountID := data.AccountID }}
+	{{ isJMAP := data.Provider == providers.ProviderJMAP && !editAccountIsICloud(data) }}
 	<div id="add-wizard-footer-step-4" data-wizard-footer-step="4" data-active="false" hx-swap-oob="outerHTML" class="hidden flex-wrap justify-end gap-2">
 		<button type="submit" form={ fmt.Sprintf("add-contact-sync-form-%s", accountID) } class="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors">
 			Next
@@ -4251,7 +4309,11 @@ templ AddAccountPostCreateStep(data models.EditAccountData) {
 						@icon.BookUser(icon.Props{Class: "size-4 text-muted-foreground"})
 						Contact sync
 					</h4>
-					<p class="mt-1 text-xs leading-relaxed text-muted-foreground">Enable this only if the account has a CardDAV address book.</p>
+					if isJMAP {
+						<p class="mt-1 text-xs leading-relaxed text-muted-foreground">Sync this account's address books over JMAP, or over CardDAV if you prefer.</p>
+					} else {
+						<p class="mt-1 text-xs leading-relaxed text-muted-foreground">Enable this only if the account has a CardDAV address book.</p>
+					}
 				</div>
 				<span class="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">Optional</span>
 			</div>
@@ -4263,6 +4325,10 @@ templ AddAccountPostCreateStep(data models.EditAccountData) {
 						</div>
 						@ICloudContactFields()
 					} else {
+					if isJMAP {
+						@JMAPContactProtocolChoice(accountID, fmt.Sprintf("add-contact-sync-fields-%s", accountID), fmt.Sprintf("add-contact-sync-status-%s", accountID), true)
+					}
+					<div class={ "sm:col-span-2 grid gap-3 sm:grid-cols-2", templ.KV("hidden", isJMAP) } data-contact-protocol="carddav">
 					<div class="sm:col-span-2">
 						<div class="mb-1.5 flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
 							<label class="text-xs font-medium text-muted-foreground">Base URL</label>
@@ -4290,6 +4356,7 @@ templ AddAccountPostCreateStep(data models.EditAccountData) {
 							@input.Input(input.Props{Name: "password", Type: input.TypePassword, Placeholder: "Same as incoming mail", Disabled: true})
 						</div>
 					</div>
+					</div>
 					}
 					<div class="hidden sm:col-span-2 rounded-md border border-border bg-background/35 px-3 py-2" data-carddav-addressbook-section data-carddav-manual-addressbook>
 						<label class="mb-1.5 block text-xs font-medium text-muted-foreground">Exact address book URL</label>
@@ -4303,8 +4370,10 @@ templ AddAccountPostCreateStep(data models.EditAccountData) {
 				if editAccountIsICloud(data) {
 					@CardDAVDiscoverAddressBooksButton(accountID, fmt.Sprintf("add-contact-sync-fields-%s", accountID), fmt.Sprintf("add-contact-sync-status-%s", accountID), providers.ICloudCardDAVURL)
 				} else {
-					@CardDAVDiscoverAddressBooksButton(accountID, fmt.Sprintf("add-contact-sync-fields-%s", accountID), fmt.Sprintf("add-contact-sync-status-%s", accountID), "")
-					@CardDAVManualAddressBookButton(fmt.Sprintf("add-contact-sync-fields-%s", accountID), "")
+					<span class={ templ.KV("contents", !isJMAP), templ.KV("hidden", isJMAP) } data-contact-protocol="carddav">
+						@CardDAVDiscoverAddressBooksButton(accountID, fmt.Sprintf("add-contact-sync-fields-%s", accountID), fmt.Sprintf("add-contact-sync-status-%s", accountID), "")
+						@CardDAVManualAddressBookButton(fmt.Sprintf("add-contact-sync-fields-%s", accountID), "")
+					</span>
 				}
 			</div>
 		</form>

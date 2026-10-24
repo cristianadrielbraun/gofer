@@ -50,7 +50,7 @@ type changesArgs struct {
 // HasMoreChanges is true.
 func (c *Client) GetMailboxChanges(ctx context.Context, session *Session, accountID, sinceState string, maxChanges int) (*MailboxChangesResponse, error) {
 	var result MailboxChangesResponse
-	if err := c.getChanges(ctx, session, "Mailbox/changes", changesArgs{accountID, sinceState, maxChanges}, &result); err != nil {
+	if err := c.getChanges(ctx, session, CapabilityMail, "Mailbox/changes", changesArgs{accountID, sinceState, maxChanges}, &result); err != nil {
 		return nil, err
 	}
 	return &result, nil
@@ -61,14 +61,14 @@ func (c *Client) GetMailboxChanges(ctx context.Context, session *Session, accoun
 // Email can change.
 func (c *Client) GetEmailChanges(ctx context.Context, session *Session, accountID, sinceState string, maxChanges int) (*ChangesResponse, error) {
 	var result ChangesResponse
-	if err := c.getChanges(ctx, session, "Email/changes", changesArgs{accountID, sinceState, maxChanges}, &result); err != nil {
+	if err := c.getChanges(ctx, session, CapabilityMail, "Email/changes", changesArgs{accountID, sinceState, maxChanges}, &result); err != nil {
 		return nil, err
 	}
 	return &result, nil
 }
 
-func (c *Client) getChanges(ctx context.Context, session *Session, method string, args changesArgs, out any) error {
-	responses, err := c.Call(ctx, session, []string{CapabilityMail},
+func (c *Client) getChanges(ctx context.Context, session *Session, capability, method string, args changesArgs, out any) error {
+	responses, err := c.Call(ctx, session, []string{capability},
 		Invocation{Name: method, Args: args, CallID: "0"})
 	if err != nil {
 		return err

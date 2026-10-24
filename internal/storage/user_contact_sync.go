@@ -253,7 +253,7 @@ func contactSyncProfileStateTx(ctx context.Context, tx *sql.Tx, c *ContactSyncCl
  LEFT JOIN account_contact_sync_configs cfg ON cfg.account_id=a.id AND cfg.user_id=a.user_id
  WHERE a.id=? AND a.user_id=? AND COALESCE(a.is_deleting,0)=0 AND
  ((a.provider IN ('gmail','outlook') AND COALESCE(cfg.enabled,1)=1 AND ?='') OR
- (a.provider NOT IN ('gmail','outlook') AND cfg.provider='carddav' AND cfg.enabled=1
+ (a.provider NOT IN ('gmail','outlook') AND cfg.provider IN ('carddav','jmap') AND cfg.enabled=1
  AND (?='' OR EXISTS(SELECT 1 FROM account_contact_address_books b WHERE b.user_id=a.user_id AND b.account_id=a.id AND b.id=?)))))`, target.AccountID, c.owner, target.AddressBookID, target.AddressBookID, target.AddressBookID).Scan(&eligible); err != nil {
 			return nil, err
 		}
@@ -410,7 +410,8 @@ func contactSyncDestinationTx(ctx context.Context, tx *sql.Tx, p *ContactSyncPro
 	if err := checkContactSyncProfileTx(ctx, tx, p); err != nil {
 		return nil, err
 	}
-	if account == "" || account == p.claim.excluded || (provider != "gmail" && provider != "outlook" && provider != "carddav") || (provider != "carddav" && book != "") {
+	bookScoped := provider == "carddav" || provider == "jmap"
+	if account == "" || account == p.claim.excluded || (!bookScoped && provider != "gmail" && provider != "outlook") || (!bookScoped && book != "") || (provider == "jmap" && book == "") {
 		return nil, ErrContactPublication
 	}
 	owner := p.claim.owner
@@ -419,15 +420,16 @@ func contactSyncDestinationTx(ctx context.Context, tx *sql.Tx, p *ContactSyncPro
  LEFT JOIN account_contact_sync_configs c ON c.account_id=a.id AND c.user_id=a.user_id
  WHERE a.id=? AND a.user_id=? AND COALESCE(a.is_deleting,0)=0
  AND ((a.provider IN ('gmail','outlook') AND a.provider=? AND COALESCE(c.enabled,1)=1)
- OR (a.provider NOT IN ('gmail','outlook') AND ?='carddav' AND c.provider='carddav' AND c.enabled=1))
- AND EXISTS(SELECT 1 FROM contact_sync_memberships m WHERE m.user_id=a.user_id AND m.profile_id=? AND m.account_id=a.id AND m.enabled=1 AND (m.address_book_id='' OR m.address_book_id=?)))`, account, owner, provider, provider, p.claim.profile, book).Scan(&valid); err != nil {
+ OR (a.provider NOT IN ('gmail','outlook') AND ? IN ('carddav','jmap') AND c.provider=? AND c.enabled=1))
+ AND EXISTS(SELECT 1 FROM contact_sync_memberships m WHERE m.user_id=a.user_id AND m.profile_id=? AND m.account_id=a.id AND m.enabled=1 AND (m.address_book_id='' OR m.address_book_id=?)))`, account, owner, provider, provider, provider, p.claim.profile, book).Scan(&valid); err != nil {
 		return nil, err
 	}
 	if valid != 1 {
 		return nil, ErrContactPublication
 	}
 	d := &ContactSyncDestination{profile: p, account: account, provider: provider, book: book}
-	if provider == "carddav" {
+	// A JMAP book keeps its JMAP id where a CardDAV book keeps its URL.
+	if bookScoped {
 		if book == "" {
 			err := tx.QueryRowContext(ctx, `SELECT addressbook_url FROM account_contact_sync_configs WHERE user_id=? AND account_id=? AND NOT EXISTS(SELECT 1 FROM account_contact_address_books WHERE user_id=? AND account_id=?)`, owner, account, owner, account).Scan(&d.bookURL)
 			if errors.Is(err, sql.ErrNoRows) {

@@ -623,6 +623,10 @@ func TestProfileJMAPAccountRoundTrip(t *testing.T) {
 	if err := source.accountStore.SaveCalDAVConfig(ctx, "default", created.ID, "https://jmap.example.test/dav/cal/", "", "", true); err != nil {
 		t.Fatalf("save CalDAV: %v", err)
 	}
+	if err := source.accountStore.SaveContactSyncConfig(ctx, "default", created.ID, models.ContactSyncConfig{Provider: "jmap", Enabled: true,
+		AddressBooks: []models.ContactAddressBook{{URL: "B1", Name: "Personal", Default: true}}}, ""); err != nil {
+		t.Fatalf("save JMAP contacts: %v", err)
+	}
 	data := exportProfileForTest(t, source, false)
 	if strings.Contains(string(data), "jmap-secret-value") || !strings.Contains(string(data), `"jmap_session_url":"`+sessionURL+`"`) {
 		t.Fatalf("exported profile = %s", data)
@@ -652,6 +656,17 @@ func TestProfileJMAPAccountRoundTrip(t *testing.T) {
 	}
 	if calendar, err := target.accountStore.GetCalendarSyncConfig(ctx, "default", id); err != nil || calendar.CalDAVBaseURL != "https://jmap.example.test/dav/cal/" {
 		t.Fatalf("imported CalDAV = %+v, %v", calendar, err)
+	}
+	// Contacts over JMAP come back off, and start with the mailbox login.
+	if contacts, err := target.accountStore.GetContactSyncConfig(ctx, "default", id); err != nil || contacts.Provider != "jmap" || contacts.Enabled ||
+		len(contacts.AddressBooks) != 1 || contacts.AddressBooks[0].URL != "B1" || !contacts.AddressBooks[0].Default {
+		t.Fatalf("imported contacts = %+v, %v", contacts, err)
+	}
+	if _, _, err := target.resolveImportedLogin(ctx, "default", id, storage.ImportedLoginMail); err != nil {
+		t.Fatal(err)
+	}
+	if contacts, err := target.accountStore.GetContactSyncConfig(ctx, "default", id); err != nil || !contacts.Enabled {
+		t.Fatalf("contacts after the mailbox login = %+v, %v", contacts, err)
 	}
 
 	// Replacing the account from the profile keeps it a JMAP account, and

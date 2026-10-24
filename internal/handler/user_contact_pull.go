@@ -103,6 +103,8 @@ func (h *Handler) SyncUserContactAccount(ctx context.Context, owner, id string) 
 			}
 		case providers.ProviderCardDAV:
 			imported, pullErr = pull.dav(ctx)
+		case providers.ProviderJMAP:
+			imported, pullErr = pull.jmap(ctx)
 		default:
 			pullErr = errors.New("contact sync is not configured for this account")
 		}

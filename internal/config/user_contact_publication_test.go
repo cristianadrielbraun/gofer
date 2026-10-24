@@ -427,3 +427,65 @@ func TestUserContactBookPublicationLegacyCursorAndScope(t *testing.T) {
 		t.Fatal("rejected book result changed cursor")
 	}
 }
+
+func TestUserJMAPContactPublicationImportsRemovesAndKeepsState(t *testing.T) {
+	_, _, accounts, owners := newServiceAccountFixture(t)
+	id := owners["alice"].ID
+	snapshot := serviceSnapshotFor(t, accounts, "alice", id)
+	if _, _, err := accounts.PublishInboundJMAPContacts(t.Context(), snapshot, storage.InboundJMAPContactPage{SyncToken: "s0"}); !errors.Is(err, storage.ErrContactPublication) {
+		t.Fatal("JMAP page accepted for a CardDAV account", err)
+	}
+
+	if err := accounts.WithAccountForUser(t.Context(), "alice", id, func(local *AccountStore, db *storage.DB) error {
+		if _, err := db.Write().Exec(`UPDATE account_contact_sync_configs SET last_sync_token='carddav-cursor' WHERE account_id=?`, id); err != nil {
+			return err
+		}
+		return local.SaveContactSyncConfig(t.Context(), "alice", id, models.ContactSyncConfig{Provider: "jmap", Enabled: true,
+			AddressBooks: []models.ContactAddressBook{{ID: "home-book", Name: "Personal", URL: "B1", Default: true}}}, "")
+	}); err != nil {
+		t.Fatal(err)
+	}
+	snapshot = serviceSnapshotFor(t, accounts, "alice", id)
+	if cfg := snapshot.ContactConfig(); cfg.Provider != "jmap" || cfg.LastSyncToken != "" || len(cfg.AddressBooks) != 1 || cfg.AddressBooks[0].URL != "B1" {
+		t.Fatalf("saved JMAP config = %+v, want the CardDAV cursor dropped", cfg)
+	}
+
+	card := func(remote, email string) storage.InboundContact {
+		return storage.InboundContact{Contact: models.Contact{Name: "Card " + remote, Email: email}, RemoteID: remote, AddressBookID: "home-book"}
+	}
+	results, next, err := accounts.PublishInboundJMAPContacts(t.Context(), snapshot, storage.InboundJMAPContactPage{
+		Contacts: []storage.InboundContact{card("c1", "rosa@example.test"), card("c2", "teo@example.test")}, Full: true, SyncToken: "s1"})
+	if err != nil || len(results) != 2 || next.ContactConfig().LastSyncToken != "s1" {
+		t.Fatal("first pull", results, err)
+	}
+	if _, _, err := accounts.PublishInboundJMAPContacts(t.Context(), snapshot, storage.InboundJMAPContactPage{SyncToken: "stale"}); !errors.Is(err, ErrAccountServicesChanged) {
+		t.Fatal("old snapshot overwrote the JMAP state", err)
+	}
+	if _, _, err := accounts.PublishInboundJMAPContacts(t.Context(), next, storage.InboundJMAPContactPage{
+		Contacts: []storage.InboundContact{{Contact: models.Contact{Email: "nobook@example.test"}, RemoteID: "c9"}}, SyncToken: "s9"}); !errors.Is(err, storage.ErrContactPublication) {
+		t.Fatal("card without an address book accepted", err)
+	}
+	_, next, err = accounts.PublishInboundJMAPContacts(t.Context(), next, storage.InboundJMAPContactPage{
+		Contacts: []storage.InboundContact{card("c3", "lu@example.test")}, DeletedRemoteIDs: []string{"c2"}, SyncToken: "s2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, next, err = accounts.PublishInboundJMAPContacts(t.Context(), next, storage.InboundJMAPContactPage{Full: true, SeenRemoteIDs: []string{"c3"}, SyncToken: "s3"})
+	if err != nil || next.ContactConfig().LastSyncToken != "s3" {
+		t.Fatal("full pull", err)
+	}
+	if err := accounts.WithAccountForUser(t.Context(), "alice", id, func(_ *AccountStore, db *storage.DB) error {
+		for remote, exists := range map[string]bool{"c1": false, "c2": false, "c3": true} {
+			source, err := db.GetContactSourceByRemoteID(t.Context(), "alice", "jmap", id, remote)
+			if err != nil {
+				return err
+			}
+			if (source != nil) != exists || (source != nil && source.AddressBookID != "home-book") {
+				t.Fatal("wrong JMAP card", remote, source)
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -12,6 +12,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/config"
 	"github.com/cristianadrielbraun/gofer/internal/mail"
 	"github.com/cristianadrielbraun/gofer/internal/models"
+	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
 
@@ -85,6 +86,11 @@ func validateUserContactDeleteSource(snapshot *config.UserContactDeleteSnapshot,
 		if book.URL != "" && storage.ContactRemoteInAddressBook(book.URL, card.RemoteID) {
 			return nil
 		}
+	case "jmap":
+		// A JMAP card id is opaque; it belongs to the account it came from.
+		if service.ContactConfig().Provider == providers.ProviderJMAP {
+			return nil
+		}
 	}
 	return storage.ErrAccountRoute
 }
@@ -98,6 +104,23 @@ func (h *Handler) deleteUserContactSource(ctx context.Context, snapshot *config.
 		return storage.ErrAccountRoute
 	}
 	pull := &userContactPull{h: h, snapshot: service, deletion: snapshot}
+	if card.Provider == "jmap" {
+		if err := validateUserContactDeleteSource(snapshot, cardID); err != nil {
+			return err
+		}
+		account, err := service.JMAPConfig(ctx)
+		if err != nil {
+			return err
+		}
+		password, err := service.MailboxPassword()
+		if err != nil {
+			return err
+		}
+		if err := pull.ready(ctx); err != nil {
+			return err
+		}
+		return pull.recordRetry(ctx, mail.DeleteJMAPContact(ctx, account, password, card.RemoteID))
+	}
 	if card.Provider == "carddav" {
 		cfg := service.ContactConfig()
 		source := &storage.ContactSource{ContactID: card.ProfileID, UserID: card.UserID, Provider: card.Provider, AccountID: card.AccountID, AddressBookID: card.AddressBookID, RemoteID: card.RemoteID, Etag: card.Etag}

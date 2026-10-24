@@ -123,7 +123,7 @@ func contactEditTargetsQuery(ctx context.Context, query contactProfileQuery, own
 		err := query.QueryRowContext(ctx, `SELECT a.id FROM accounts a LEFT JOIN account_contact_sync_configs cfg ON cfg.account_id=a.id AND cfg.user_id=a.user_id
  WHERE a.user_id=? AND COALESCE(a.is_deleting,0)=0
  AND ((?<>'' AND a.id=?) OR (?<>'' AND EXISTS(SELECT 1 FROM account_contact_address_books b WHERE b.user_id=a.user_id AND b.account_id=a.id AND b.id=?)))
- AND ((a.provider IN ('gmail','outlook') AND COALESCE(cfg.enabled,1)=1) OR (a.provider NOT IN ('gmail','outlook') AND cfg.provider='carddav' AND cfg.enabled=1))`, owner, account, account, book, book).Scan(&id)
+ AND ((a.provider IN ('gmail','outlook') AND COALESCE(cfg.enabled,1)=1) OR (a.provider NOT IN ('gmail','outlook') AND cfg.provider IN ('carddav','jmap') AND cfg.enabled=1))`, owner, account, account, book, book).Scan(&id)
 		if errors.Is(err, sql.ErrNoRows) {
 			continue
 		}

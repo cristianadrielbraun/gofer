@@ -113,15 +113,16 @@ func (h *Handler) pushUserContactAccount(ctx context.Context, profile *config.Us
 		return storage.ErrContactPublication
 	}
 	var books []models.ContactAddressBook
-	if cfg.Provider == providers.ProviderCardDAV {
+	if cfg.Provider == providers.ProviderCardDAV || cfg.Provider == providers.ProviderJMAP {
 		books = cardDAVTargetBooks(cfg, profile.Contact().SaveTargets)
 		if len(books) == 0 {
-			// Account-wide DAV membership preserves the existing copies in
-			// selected books; an entirely new copy uses the default book.
+			// Account-wide CardDAV or JMAP membership preserves the existing
+			// copies in selected books; an entirely new copy uses the default
+			// book.
 			var sources []storage.ContactSource
 			if err := h.userAccounts.WithAccountForUser(ctx, owner, account, func(_ *config.AccountStore, db *storage.DB) error {
 				var err error
-				sources, err = db.GetContactSources(ctx, owner, profile.Contact().ID, providers.ProviderCardDAV)
+				sources, err = db.GetContactSources(ctx, owner, profile.Contact().ID, cfg.Provider)
 				return err
 			}); err != nil {
 				return err
@@ -132,7 +133,7 @@ func (h *Handler) pushUserContactAccount(ctx context.Context, profile *config.Us
 					continue
 				}
 				for _, book := range cfg.AddressBooks {
-					if source.AddressBookID == book.ID || (source.AddressBookID == "" && strings.HasPrefix(source.RemoteID, strings.TrimRight(book.URL, "/")+"/")) {
+					if source.AddressBookID == book.ID || (source.AddressBookID == "" && cfg.Provider == providers.ProviderCardDAV && strings.HasPrefix(source.RemoteID, strings.TrimRight(book.URL, "/")+"/")) {
 						selected[book.ID] = true
 					}
 				}
@@ -148,6 +149,9 @@ func (h *Handler) pushUserContactAccount(ctx context.Context, profile *config.Us
 					books = []models.ContactAddressBook{book}
 				}
 			}
+		}
+		if len(books) == 0 && cfg.Provider == providers.ProviderJMAP {
+			return errJMAPContactBooksMissing
 		}
 		if len(books) == 0 {
 			return errors.New("CardDAV address book is not configured for this account")
@@ -175,6 +179,8 @@ func (h *Handler) pushUserContactAccount(ctx context.Context, profile *config.Us
 			remoteID, etag, err = client.pushOutlook(ctx, profile.Contact(), destination.Source())
 		case providers.ProviderCardDAV:
 			remoteID, etag, err = client.pushDAV(ctx, profile.Contact(), book, destination.Source())
+		case providers.ProviderJMAP:
+			remoteID, err = client.pushJMAP(ctx, profile.Contact(), book, destination.Source())
 		default:
 			err = errors.New("contact sync is not configured for this account")
 		}

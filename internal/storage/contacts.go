@@ -818,8 +818,8 @@ func (db *DB) hydrateContactAddressBooksForList(ctx context.Context, userID stri
 		JOIN accounts a ON a.id = ab.account_id
 		WHERE cc.user_id = ?
 		  AND cc.profile_id IN (`+sqlPlaceholders(len(ids))+`)
-		  AND cc.kind = 'provider' AND cc.provider = 'carddav' AND cc.is_deleted = 0
-		  AND (cc.address_book_id = ab.id OR (cc.address_book_id = '' AND cc.remote_id LIKE ab.url || '%'))
+		  AND cc.kind = 'provider' AND cc.provider IN ('carddav', 'jmap') AND cc.is_deleted = 0
+		  AND (cc.address_book_id = ab.id OR (cc.provider = 'carddav' AND cc.address_book_id = '' AND cc.remote_id LIKE ab.url || '%'))
 		ORDER BY cc.profile_id, a.email_address COLLATE NOCASE, ab.is_default DESC, ab.name COLLATE NOCASE, ab.url`, args...)
 	if err != nil {
 		return err
@@ -1065,8 +1065,8 @@ func (db *DB) hydrateContactAddressBooks(ctx context.Context, userID string, con
 		JOIN accounts a ON a.id = ab.account_id
 		WHERE cc.user_id = ?
 		  AND cc.profile_id = ?
-		  AND cc.kind = 'provider' AND cc.provider = 'carddav' AND cc.is_deleted = 0
-		  AND (cc.address_book_id = ab.id OR (cc.address_book_id = '' AND cc.remote_id LIKE ab.url || '%'))
+		  AND cc.kind = 'provider' AND cc.provider IN ('carddav', 'jmap') AND cc.is_deleted = 0
+		  AND (cc.address_book_id = ab.id OR (cc.provider = 'carddav' AND cc.address_book_id = '' AND cc.remote_id LIKE ab.url || '%'))
 		ORDER BY a.email_address COLLATE NOCASE, ab.is_default DESC, ab.name COLLATE NOCASE, ab.url`, userID, contact.ID)
 	if err != nil {
 		return err

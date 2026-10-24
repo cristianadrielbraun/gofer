@@ -1335,6 +1335,43 @@ function toggleCardDAVAuth(checkbox) {
     input.disabled = checkbox.checked;
   });
 }
+// chooseContactProtocol switches a JMAP account's contacts form between JMAP
+// and CardDAV. The other protocol's fields are hidden and disabled so they
+// are neither sent nor required; fields that were already disabled, such as
+// the CardDAV login while it follows the mail login, are left as they were.
+function chooseContactProtocol(radio) {
+  var form = radio && radio.closest ? radio.closest('form') : null;
+  if (form && radio.checked) applyContactProtocol(form, radio.value);
+}
+function applyContactProtocol(form, protocol) {
+  var field = form.querySelector('[data-contact-protocol-field]');
+  if (field) field.value = protocol;
+  form.querySelectorAll('[data-contact-protocol]').forEach(function(section) {
+    var show = section.dataset.contactProtocol === protocol;
+    section.classList.toggle('hidden', !show);
+    if (section.tagName === 'SPAN') section.classList.toggle('contents', show);
+    section.querySelectorAll('input, select, textarea, button').forEach(function(input) {
+      if (!show && !input.disabled) {
+        input.disabled = true;
+        input.dataset.contactProtocolDisabled = '1';
+      } else if (show && input.dataset.contactProtocolDisabled) {
+        input.disabled = false;
+        delete input.dataset.contactProtocolDisabled;
+      }
+    });
+  });
+  var status = form.querySelector('[id$="-contact-sync-status-' + (form.dataset.accountId || '') + '"]');
+  if (status && form.dataset.contactProtocolShown && form.dataset.contactProtocolShown !== protocol) status.textContent = '';
+  form.dataset.contactProtocolShown = protocol;
+}
+function syncContactProtocols(root) {
+  (root || document).querySelectorAll('[data-contact-protocol-field]').forEach(function(field) {
+    var form = field.closest('form');
+    if (form) applyContactProtocol(form, field.value);
+  });
+}
+document.addEventListener('DOMContentLoaded', function() { syncContactProtocols(document); });
+document.body.addEventListener('htmx:afterSwap', function(event) { syncContactProtocols(event.target || document); });
 function discoverCardDAV(accountID, fieldsID, statusID, autodiscover) {
   var fields = document.getElementById(fieldsID);
   var status = document.getElementById(statusID);
@@ -1347,9 +1384,10 @@ function discoverCardDAV(accountID, fieldsID, statusID, autodiscover) {
     body.append(input.name, input.value || '');
   });
   if (autodiscover) body.append('autodiscover', '1');
+  var overJMAP = body.get('provider') === 'jmap';
   function renderDiscoveryProgress(completed, total, endpoint) {
     var percent = total > 0 ? Math.max(0, Math.min(100, Math.round((completed / total) * 100))) : 0;
-    var label = total > 0 ? 'Testing ' + Math.min(completed + 1, total) + ' of ' + total + ' CardDAV checks' : 'Preparing CardDAV discovery...';
+    var label = total > 0 ? 'Testing ' + Math.min(completed + 1, total) + ' of ' + total + ' CardDAV checks' : (overJMAP ? 'Looking up JMAP address books...' : 'Preparing CardDAV discovery...');
     var safeEndpoint = endpoint ? endpoint.replace(/[&<>"]/g, function(ch) { return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]); }) : '';
     status.innerHTML = '<div class="rounded-lg border border-border bg-background/60 p-3 text-xs text-muted-foreground"><div class="flex items-center justify-between gap-3"><span class="font-medium text-foreground">' + label + '</span><span class="tabular-nums">' + completed + '/' + (total || '?') + '</span></div><div class="mt-2 h-1.5 overflow-hidden rounded-md bg-muted"><div class="h-full rounded-md bg-primary transition-all" style="width:' + percent + '%"></div></div>' + (safeEndpoint ? '<div class="mt-2 truncate">' + safeEndpoint + '</div>' : '') + '</div>';
   }
@@ -1410,7 +1448,7 @@ function discoverCardDAV(accountID, fieldsID, statusID, autodiscover) {
     if (!books.length) {
       var empty = document.createElement('div');
       empty.className = 'rounded-md border border-border bg-background/60 px-3 py-2 text-xs text-muted-foreground';
-      empty.textContent = 'No CardDAV address books were found.';
+      empty.textContent = overJMAP ? 'The JMAP server has no address books for this login.' : 'No CardDAV address books were found.';
       status.appendChild(empty);
       return;
     }
@@ -1464,7 +1502,7 @@ function discoverCardDAV(accountID, fieldsID, statusID, autodiscover) {
       name.textContent = book.name || 'Address book';
       var url = document.createElement('div');
       url.className = 'mt-0.5 truncate text-muted-foreground';
-      url.textContent = book.url || '';
+      url.textContent = overJMAP ? '' : (book.url || '');
       var defaultWrap = document.createElement('label');
       defaultWrap.className = 'mt-2 inline-flex items-center gap-1.5 text-[11px] text-muted-foreground';
       var radio = document.createElement('input');

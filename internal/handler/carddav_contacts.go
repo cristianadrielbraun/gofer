@@ -151,6 +151,10 @@ func (h *Handler) handleSaveAccountContactSync(w http.ResponseWriter, r *http.Re
 		htmlStatus(w, http.StatusBadRequest, "Invalid contact sync settings.")
 		return
 	}
+	if jmapContactSetupRequested(r) {
+		h.saveJMAPContactSync(w, r, userID, accountID)
+		return
+	}
 
 	cfg := models.ContactSyncConfig{
 		AccountID:      accountID,
@@ -409,6 +413,10 @@ func (h *Handler) handleDiscoverAccountContactSync(w http.ResponseWriter, r *htt
 	}
 	if err := r.ParseForm(); err != nil {
 		writeJSONError(w, http.StatusBadRequest, "invalid discovery request")
+		return
+	}
+	if jmapContactSetupRequested(r) {
+		h.discoverJMAPContactBooks(w, r, accountID)
 		return
 	}
 

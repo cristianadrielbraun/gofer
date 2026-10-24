@@ -37,7 +37,7 @@ func (db *DB) publishInboundContacts(ctx context.Context, owner, account, provid
 	if owner == "" || account == "" || guard == nil {
 		return nil, ErrContactPublication
 	}
-	if provider != "gmail" && provider != "outlook" && provider != "carddav" {
+	if provider != "gmail" && provider != "outlook" && provider != "carddav" && provider != "jmap" {
 		return nil, ErrContactPublication
 	}
 	tx, err := db.Write().BeginTx(ctx, nil)
@@ -55,7 +55,7 @@ func (db *DB) publishInboundContacts(ctx context.Context, owner, account, provid
  WHERE a.id=? AND a.user_id=? AND COALESCE(a.is_deleting,0)=0
  AND u.status='active' AND u.deletion_pending=0
  AND ((a.provider IN ('gmail','outlook') AND a.provider=? AND COALESCE(c.enabled,1)=1)
- OR (a.provider NOT IN ('gmail','outlook') AND ?='carddav' AND c.provider='carddav' AND c.enabled=1)))`, account, owner, provider, provider).Scan(&valid); err != nil {
+ OR (a.provider NOT IN ('gmail','outlook') AND ? IN ('carddav','jmap') AND c.provider=? AND c.enabled=1)))`, account, owner, provider, provider, provider).Scan(&valid); err != nil {
 		return nil, err
 	}
 	if valid != 1 {
@@ -232,15 +232,89 @@ func (db *DB) PublishInboundContactBook(ctx context.Context, owner, account stri
 	})
 }
 
+// InboundJMAPContactPage is one JMAP contacts pull. Each contact's
+// AddressBookID is the Gofer id of its synced book. Full means the whole
+// account was listed, so cards not in SeenRemoteIDs are gone; SyncToken is the
+// JMAP state the next pull starts from.
+type InboundJMAPContactPage struct {
+	Contacts                        []InboundContact
+	DeletedRemoteIDs, SeenRemoteIDs []string
+	Full                            bool
+	SyncToken                       string
+}
+
+// PublishInboundJMAPContacts commits a JMAP pull like PublishInboundContactBook
+// does a DAV book: imports, removals and the account's JMAP state together.
+func (db *DB) PublishInboundJMAPContacts(ctx context.Context, owner, account string, page InboundJMAPContactPage, guard, checkpoint func(*sql.Tx) error) ([]InboundContactResult, error) {
+	if checkpoint == nil || strings.TrimSpace(page.SyncToken) == "" {
+		return nil, ErrContactPublication
+	}
+	deleted := make(map[string]bool, len(page.DeletedRemoteIDs))
+	for _, remote := range page.DeletedRemoteIDs {
+		deleted[strings.TrimSpace(remote)] = true
+	}
+	seen := make(map[string]bool, len(page.SeenRemoteIDs)+len(page.Contacts))
+	for _, remote := range page.SeenRemoteIDs {
+		seen[strings.TrimSpace(remote)] = true
+	}
+	for _, input := range page.Contacts {
+		remote := strings.TrimSpace(input.RemoteID)
+		if remote == "" || deleted[remote] {
+			return nil, ErrContactPublication
+		}
+		seen[remote] = true
+	}
+	return db.publishInboundContacts(ctx, owner, account, "jmap", page.Contacts, guard, func(tx *sql.Tx) error {
+		rows, err := tx.QueryContext(ctx, `SELECT id,remote_id FROM contact_cards WHERE user_id=? AND account_id=? AND provider='jmap' AND kind='provider'`, owner, account)
+		if err != nil {
+			return err
+		}
+		var remove []string
+		for rows.Next() {
+			var id, remote string
+			if err := rows.Scan(&id, &remote); err != nil {
+				rows.Close()
+				return err
+			}
+			if deleted[remote] || (page.Full && !seen[remote]) {
+				remove = append(remove, id)
+			}
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return err
+		}
+		for _, id := range remove {
+			if _, err := tx.ExecContext(ctx, `DELETE FROM contact_cards WHERE id=? AND user_id=? AND account_id=?`, id, owner, account); err != nil {
+				return err
+			}
+		}
+		result, err := tx.ExecContext(ctx, `UPDATE account_contact_sync_configs SET last_sync_token=?,last_success_at=CURRENT_TIMESTAMP,last_error='',updated_at=CURRENT_TIMESTAMP
+ WHERE user_id=? AND account_id=? AND provider='jmap' AND enabled=1`, strings.TrimSpace(page.SyncToken), owner, account)
+		if err != nil {
+			return err
+		}
+		if n, err := result.RowsAffected(); err != nil || n != 1 {
+			return errors.Join(err, ErrContactPublication)
+		}
+		return checkpoint(tx)
+	})
+}
+
 func inboundContactBookTx(ctx context.Context, tx *sql.Tx, owner, account, provider, book string) error {
-	if provider != "carddav" {
+	if provider != "carddav" && provider != "jmap" {
 		if book != "" {
 			return ErrContactPublication
 		}
 		return nil
 	}
 	var valid int
-	// Old single-book configurations have no address-book row or stable ID.
+	// Old single-book CardDAV configurations have no address-book row or
+	// stable ID; JMAP ones always do.
+	if book == "" && provider == "jmap" {
+		return ErrContactPublication
+	}
 	if book == "" {
 		if err := tx.QueryRowContext(ctx, `SELECT NOT EXISTS(SELECT 1 FROM account_contact_address_books WHERE user_id=? AND account_id=?)`, owner, account).Scan(&valid); err != nil {
 			return err
@@ -285,7 +359,7 @@ func inboundContactFanoutTx(ctx context.Context, tx *sql.Tx, owner, profile, exc
  LEFT JOIN account_contact_sync_configs c ON c.account_id=a.id AND c.user_id=a.user_id
  WHERE m.user_id=? AND m.profile_id=? AND m.enabled=1 AND a.id!=? AND COALESCE(a.is_deleting,0)=0
  AND ((a.provider IN ('gmail','outlook') AND COALESCE(c.enabled,1)=1)
- OR (a.provider NOT IN ('gmail','outlook') AND c.provider='carddav' AND c.enabled=1))
+ OR (a.provider NOT IN ('gmail','outlook') AND c.provider IN ('carddav','jmap') AND c.enabled=1))
  AND (m.address_book_id='' OR EXISTS(SELECT 1 FROM account_contact_address_books b
  WHERE b.id=m.address_book_id AND b.account_id=a.id AND b.user_id=m.user_id)))`, owner, profile, excluded).Scan(&needed)
 	return needed == 1, err
