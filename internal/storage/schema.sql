@@ -168,6 +168,7 @@ CREATE TABLE IF NOT EXISTS message_folder_state (
     remote_message_id TEXT,
     message_date DATETIME,
     message_has_attachments INTEGER NOT NULL DEFAULT 0,
+    deleted_at DATETIME,
     PRIMARY KEY (message_id, folder_id)
 );
 
@@ -543,6 +544,27 @@ END;
 
 CREATE INDEX IF NOT EXISTS idx_message_folder_state_list
 ON message_folder_state(folder_id, is_deleted, message_date DESC, message_id DESC);
+
+-- When folder states were marked deleted (folder_state_deleted_at.go).
+CREATE TRIGGER IF NOT EXISTS message_folder_state_deleted_at_insert
+AFTER INSERT ON message_folder_state
+WHEN NEW.is_deleted = 1 AND NEW.deleted_at IS NULL
+BEGIN
+    UPDATE message_folder_state SET deleted_at = CURRENT_TIMESTAMP
+    WHERE message_id = NEW.message_id AND folder_id = NEW.folder_id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS message_folder_state_deleted_at_update
+AFTER UPDATE OF is_deleted ON message_folder_state
+WHEN OLD.is_deleted IS NOT NEW.is_deleted
+BEGIN
+    UPDATE message_folder_state
+    SET deleted_at = CASE WHEN NEW.is_deleted = 1 THEN CURRENT_TIMESTAMP END
+    WHERE message_id = NEW.message_id AND folder_id = NEW.folder_id;
+END;
+
+CREATE INDEX IF NOT EXISTS idx_message_folder_state_deleted_at
+ON message_folder_state(deleted_at) WHERE is_deleted = 1;
 
 -- Covers the filters a message list answers from its folder states (unread,
 -- starred, attachments), so their counts read only this index.
@@ -1720,4 +1742,4 @@ CREATE TABLE IF NOT EXISTS calendar_invitation_messages (
 );
 
 -- Schema version marker for fresh installs
-INSERT OR REPLACE INTO schema_version (version) VALUES (125);
+INSERT OR REPLACE INTO schema_version (version) VALUES (126);

@@ -2935,6 +2935,9 @@ templ AdminMailOperationsPage(status models.MailOperationsAdminStatus) {
 							@AdminCompactMetric("retention_message_mutations", "Mutations pruned", status.Retention.LastPruned.MessageMutations)
 							@AdminCompactMetric("retention_imap_drafts", "Draft ops pruned", status.Retention.LastPruned.IMAPDraftOperations)
 							@AdminCompactMetric("retention_label_mutations", "Label ops pruned", status.Retention.LastPruned.LabelMutations)
+							@AdminCompactMetric("retention_folder_states", "Deleted folder entries pruned", status.Retention.LastPruned.FolderStates)
+							@AdminCompactMetric("retention_messages", "Messages in no folder pruned", status.Retention.LastPruned.Messages)
+							@AdminCompactMetric("retention_threads", "Empty threads pruned", status.Retention.LastPruned.Threads)
 						</div>
 						if status.Retention.LastError != "" {
 							<div class="mt-3 rounded-md border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">{ status.Retention.LastError }</div>

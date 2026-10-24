@@ -32,13 +32,13 @@ func TestUserBlobReferencesRetainRetryableDeliveryAndSentCopies(t *testing.T) {
 				t.Fatal(err)
 			}
 			called := false
-			if err := db.WithUserBlobReferences(t.Context(), "alice", func(accounts []string, keep map[string]bool) error {
+			if err := db.WithUserBlobReferences(t.Context(), "alice", func(refs BlobReferences) error {
 				called = true
-				if len(accounts) != 1 || accounts[0] != "account" {
-					t.Fatalf("account snapshot: %v", accounts)
+				if len(refs.Accounts) != 1 || refs.Accounts[0] != "account" {
+					t.Fatalf("account snapshot: %v", refs.Accounts)
 				}
-				if keep["/retained/version/attachment.txt"] != state.keep {
-					t.Fatalf("retained files: %v, want keep=%v", keep, state.keep)
+				if refs.Paths["/retained/version/attachment.txt"] != state.keep {
+					t.Fatalf("retained files: %v, want keep=%v", refs.Paths, state.keep)
 				}
 				return nil
 			}); err != nil {
@@ -51,7 +51,7 @@ func TestUserBlobReferencesRetainRetryableDeliveryAndSentCopies(t *testing.T) {
 	}
 	// The shared central DB cannot be used with an incomplete owner keep-set.
 	called := false
-	if err := system.WithUserBlobReferences(t.Context(), "alice", func([]string, map[string]bool) error { called = true; return nil }); err == nil || called {
+	if err := system.WithUserBlobReferences(t.Context(), "alice", func(BlobReferences) error { called = true; return nil }); err == nil || called {
 		t.Fatalf("shared DB cleanup accepted: %v", err)
 	}
 }
@@ -82,5 +82,33 @@ func TestWithExistingUserMissingFileDoesNotEvictCachedStore(t *testing.T) {
 		return nil
 	}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestBlobReferencesCoverEverySharedAccount(t *testing.T) {
+	db := newContactsTestDB(t)
+	if _, err := db.Write().Exec(`INSERT INTO accounts(id,user_id,email_address,is_deleting) VALUES
+		('ana','default','ana@example.com',0), ('rosa','default','rosa@example.com',0), ('leaving','default','old@example.com',1)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Write().Exec(`INSERT INTO messages(id,account_id,body_text_path) VALUES
+		(1,'ana','/blobs/ana/messages/1/body.txt'), (2,'rosa',NULL), (3,'leaving','/blobs/leaving/messages/3/body.txt')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Write().Exec(`INSERT INTO attachments(message_id,storage_path) VALUES(2,'/blobs/rosa/messages/2/attachments/1-menu.txt')`); err != nil {
+		t.Fatal(err)
+	}
+	var refs BlobReferences
+	if err := db.WithBlobReferences(t.Context(), func(r BlobReferences) error { refs = r; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if len(refs.Accounts) != 2 || refs.Accounts[0] != "ana" || refs.Accounts[1] != "rosa" {
+		t.Fatalf("accounts = %v", refs.Accounts)
+	}
+	if !refs.Messages["ana"][1] || !refs.Messages["rosa"][2] || len(refs.Messages["ana"]) != 1 || refs.Messages["leaving"] != nil {
+		t.Fatalf("messages = %v", refs.Messages)
+	}
+	if !refs.Paths["/blobs/ana/messages/1/body.txt"] || !refs.Paths["/blobs/rosa/messages/2/attachments/1-menu.txt"] {
+		t.Fatalf("paths = %v", refs.Paths)
 	}
 }

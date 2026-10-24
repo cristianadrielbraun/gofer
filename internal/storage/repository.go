@@ -404,9 +404,26 @@ func (db *DB) reconcileMessageThreadTx(ctx context.Context, tx *sql.Tx, msgID in
 	if _, err := tx.ExecContext(ctx, `DELETE FROM unresolved_references WHERE child_message_id = ?`, msgID); err != nil {
 		return err
 	}
+	var current sql.NullString
+	if err := tx.QueryRowContext(ctx, `SELECT thread_id FROM messages WHERE id = ?`, msgID).Scan(&current); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
 	link := db.findMessageThreadTx(ctx, tx, msgID, accountID, inReplyTo, normalizedSubject, subject, refs, sentAt, func() map[string]bool {
 		return db.messageParticipantsTx(ctx, tx, msgID, accountID)
 	})
+	// A message that starts a conversation keeps the thread it started, so
+	// syncing it again does not move the conversation to a new thread.
+	if link.newThread && current.String != "" {
+		var own bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM threads WHERE id = ? AND root_message_id = ?)
+			OR NOT EXISTS(SELECT 1 FROM messages WHERE account_id = ? AND thread_id = ? AND id != ?)`,
+			current.String, msgID, accountID, current.String, msgID).Scan(&own); err != nil {
+			return err
+		}
+		if own {
+			link = messageThreadLink{threadID: current.String}
+		}
+	}
 	var parentValue any
 	if link.parentID.Valid {
 		parentValue = link.parentID.Int64
@@ -415,6 +432,11 @@ func (db *DB) reconcileMessageThreadTx(ctx context.Context, tx *sql.Tx, msgID in
 		`UPDATE messages SET thread_id = ?, thread_parent_id = ?, message_id_normalized = ?, normalized_subject = ?, in_reply_to = ?, "references" = ? WHERE id = ?`,
 		link.threadID, parentValue, messageID, normalizedSubject, inReplyTo, refsRaw, msgID); err != nil {
 		return err
+	}
+	if current.String != "" && current.String != link.threadID {
+		if err := db.threadTotalsChangedTx(ctx, tx, pending, accountID, current.String); err != nil {
+			return err
+		}
 	}
 	return db.linkMessageThreadTx(ctx, tx, msgID, accountID, messageID, normalizedSubject, subject, refs, sentAt, link, pending)
 }
@@ -702,6 +724,11 @@ func (db *DB) updateThreadAggregatesTx(ctx context.Context, tx *sql.Tx, accountI
 		`SELECT subject, normalized_subject, id, date_received
 		 FROM messages WHERE account_id = ? AND thread_id = ? ORDER BY date_received ASC, id ASC LIMIT 1`, accountID, threadID,
 	).Scan(&subject, &normalizedSubject, &rootID, new(sqliteNullTime))
+	if errors.Is(err, sql.ErrNoRows) {
+		// Its last message moved to another conversation or was removed.
+		_, err = tx.ExecContext(ctx, `DELETE FROM threads WHERE id = ? AND account_id = ?`, threadID, accountID)
+		return err
+	}
 	if err != nil {
 		return nil
 	}

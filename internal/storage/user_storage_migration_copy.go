@@ -114,6 +114,13 @@ func copyUserStorageMigrationRows(ctx context.Context, sourcePath string, destin
 					return err
 				}
 			}
+			// Folder states copied from before deleted_at count as marked
+			// at the copy, as migrateV125ToV126 does.
+			if table.Name == "message_folder_state" && !migrationHasColumn(table, "deleted_at") {
+				if _, err := tx.ExecContext(ctx, `UPDATE message_folder_state SET deleted_at = CURRENT_TIMESTAMP WHERE is_deleted = 1 AND deleted_at IS NULL`); err != nil {
+					return err
+				}
+			}
 		}
 		// Verify after every insertion/transform, so a later trigger cannot
 		// silently alter a table that already passed comparison.

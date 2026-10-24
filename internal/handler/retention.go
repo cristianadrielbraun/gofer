@@ -12,6 +12,8 @@ import (
 const (
 	mailRetentionInterval      = 6 * time.Hour
 	mailRetentionMaxBatchesRun = 10
+	// Files changed this recently stay, so ones still being published do.
+	messageFileRetention = 24 * time.Hour
 )
 
 // StartMailRetentionWorker keeps the durable queue bounded for the lifetime
@@ -68,12 +70,36 @@ func (h *Handler) runMailRetentionAt(ctx context.Context, now time.Time) {
 		total.MessageMutations += pruned.MessageMutations
 		total.IMAPDraftOperations += pruned.IMAPDraftOperations
 		total.LabelMutations += pruned.LabelMutations
+		total.FolderStates += pruned.FolderStates
+		total.Messages += pruned.Messages
+		total.Threads += pruned.Threads
 		if pruned.Total() == 0 {
 			break
 		}
 	}
+	h.cleanupMessageFiles(ctx)
 
 	h.recordMailRetention(now, total, lastError)
+}
+
+// cleanupMessageFiles removes downloaded files nothing refers to any more, as
+// managed installations do for each user (mail.UserIMAP.CleanupUserFiles).
+func (h *Handler) cleanupMessageFiles(ctx context.Context) {
+	if h.blobStore == nil {
+		return
+	}
+	work, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	err := h.db.WithBlobReferences(work, func(refs storage.BlobReferences) error {
+		result, err := h.blobStore.CleanupMessageFiles(work, refs.Accounts, refs.Paths, refs.Messages, messageFileRetention)
+		if result.Versions+result.Messages > 0 {
+			log.Printf("mail-retention: removed files of %d messages and %d old versions", result.Messages, result.Versions)
+		}
+		return err
+	})
+	if err != nil && ctx.Err() == nil {
+		log.Printf("mail-retention: clean up message files: %v", err)
+	}
 }
 
 func (h *Handler) recordMailRetention(now time.Time, total storage.DurableJobPruneResult, lastError string) {
@@ -85,6 +111,9 @@ func (h *Handler) recordMailRetention(now time.Time, total storage.DurableJobPru
 			MessageMutations:    total.MessageMutations,
 			IMAPDraftOperations: total.IMAPDraftOperations,
 			LabelMutations:      total.LabelMutations,
+			FolderStates:        total.FolderStates,
+			Messages:            total.Messages,
+			Threads:             total.Threads,
 		},
 		LastError: lastError,
 	}
