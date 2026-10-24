@@ -23,7 +23,7 @@ func TestValidateAllowsProviderKeywordIDs(t *testing.T) {
 }
 
 func TestIsStatusCoversJMAPSpellings(t *testing.T) {
-	for _, status := range []string{"\\Seen", "$seen", "$Flagged", "$draft", "$answered", "$Junk"} {
+	for _, status := range []string{"\\Seen", "$seen", "$Flagged", "$draft", "$answered", "$Junk", "$IsTrusted", "$X-ME-Annot-2"} {
 		if !IsStatus(status) {
 			t.Errorf("IsStatus(%q) = false", status)
 		}
