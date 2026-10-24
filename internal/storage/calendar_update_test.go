@@ -140,18 +140,24 @@ func TestCalendarGoogleOnlineUpdateRetainsMetadataAtomically(t *testing.T) {
 	}
 }
 
-// A CalDAV meeting edit stores the confirmed organizer and guests with the new
-// version, as Google and Microsoft updates do.
+// A CalDAV or JMAP meeting edit stores the confirmed organizer and guests with
+// the new version, as Google and Microsoft updates do.
 func TestCalendarCalDAVMeetingUpdateKeepsGuests(t *testing.T) {
-	db, err := New(filepath.Join(t.TempDir(), "caldav.db"))
+	for _, provider := range []string{CalendarSourceProviderCalDAV, CalendarSourceProviderJMAP} {
+		t.Run(provider, func(t *testing.T) { testCalendarMeetingUpdateKeepsGuests(t, provider) })
+	}
+}
+
+func testCalendarMeetingUpdateKeepsGuests(t *testing.T, provider string) {
+	db, err := New(filepath.Join(t.TempDir(), "calendar.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	if _, err := db.Write().Exec(`INSERT INTO users(id,username,username_normalized) VALUES('owner','owner','owner'); INSERT INTO accounts(id,user_id,provider,email_address) VALUES('account','owner','imap','owner@example.com')`); err != nil {
+	if _, err := db.Write().Exec(`INSERT INTO users(id,username,username_normalized) VALUES('owner','owner','owner'); INSERT INTO accounts(id,user_id,provider,email_address) VALUES('account','owner',?,'owner@example.com')`, map[string]string{CalendarSourceProviderCalDAV: "imap", CalendarSourceProviderJMAP: "jmap"}[provider]); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.ReplaceCalendarSources(t.Context(), "owner", "account", CalendarSourceProviderCalDAV, []CalendarSource{{ID: "source", RemoteID: "/cal/", IsSelected: true}}); err != nil {
+	if err := db.ReplaceCalendarSources(t.Context(), "owner", "account", provider, []CalendarSource{{ID: "source", RemoteID: "/cal/", IsSelected: true}}); err != nil {
 		t.Fatal(err)
 	}
 	start := time.Date(2026, 10, 2, 9, 0, 0, 0, time.UTC)

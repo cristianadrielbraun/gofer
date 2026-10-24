@@ -498,7 +498,7 @@ func (h *Handler) handleUpdateCalendarEvent(w http.ResponseWriter, r *http.Reque
 		err = h.db.CompleteCalendarOnlineUpdate(ctx, event, stored)
 	} else if source.Provider == providers.ProviderOutlook && (calendarStoredOutlookOnline(event) || calendarUpdateHasDetails(remote.OnlineMeeting)) {
 		err = h.db.CompleteCalendarOutlookOnlineUpdate(ctx, event, stored)
-	} else if source.Provider == storage.CalendarSourceProviderCalDAV && calendarCalDAVMeetingUpdate(event, draft) {
+	} else if storage.CalendarSourceMailServer(source.Provider) && calendarCalDAVMeetingUpdate(event, draft) {
 		err = h.db.CompleteCalendarOnlineUpdate(ctx, event, stored)
 	} else {
 		err = h.db.CompleteCalendarUpdate(ctx, userID, event.ID, source.ID, version, stored)

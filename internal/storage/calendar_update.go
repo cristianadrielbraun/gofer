@@ -27,9 +27,9 @@ func (db *DB) CompleteCalendarOutlookOnlineUpdate(ctx context.Context, existing 
 }
 
 // Atomically retain conferencing and guest metadata with the confirmed version.
-// CalDAV meetings use it for their guest list and organizer.
+// CalDAV and JMAP meetings use it for their guest list and organizer.
 func (db *DB) CompleteCalendarOnlineUpdate(ctx context.Context, existing CalendarEvent, event CalendarEvent) error {
-	if (existing.SourceProvider != "outlook" && existing.SourceProvider != "gmail" && existing.SourceProvider != CalendarSourceProviderCalDAV) || event.ResponseStatus != "organizer" || event.ICalUID == "" || (existing.ICalUID != "" && existing.ICalUID != event.ICalUID) || !json.Valid([]byte(event.AttendeesJSON)) || !json.Valid([]byte(event.OnlineMeetingJSON)) {
+	if (existing.SourceProvider != "outlook" && existing.SourceProvider != "gmail" && !CalendarSourceMailServer(existing.SourceProvider)) || event.ResponseStatus != "organizer" || event.ICalUID == "" || (existing.ICalUID != "" && existing.ICalUID != event.ICalUID) || !json.Valid([]byte(event.AttendeesJSON)) || !json.Valid([]byte(event.OnlineMeetingJSON)) {
 		return ErrCalendarUpdateConflict
 	}
 	event.SourceProvider = existing.SourceProvider

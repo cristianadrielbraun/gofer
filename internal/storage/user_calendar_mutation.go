@@ -106,7 +106,7 @@ func calendarPublicationEditable(existing, event CalendarEvent, recurrence strin
 }
 
 func calendarPublicationOnline(existing, event CalendarEvent) bool {
-	return (existing.SourceProvider == "gmail" || existing.SourceProvider == "outlook" || existing.SourceProvider == CalendarSourceProviderCalDAV) && event.ResponseStatus == "organizer" && event.ICalUID != "" &&
+	return (existing.SourceProvider == "gmail" || existing.SourceProvider == "outlook" || CalendarSourceMailServer(existing.SourceProvider)) && event.ResponseStatus == "organizer" && event.ICalUID != "" &&
 		(existing.ICalUID == "" || existing.ICalUID == event.ICalUID) && json.Valid([]byte(event.AttendeesJSON)) && json.Valid([]byte(event.OnlineMeetingJSON))
 }
 

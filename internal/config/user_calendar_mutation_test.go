@@ -457,11 +457,29 @@ func TestCalendarMutationInvalidResultDoesNotWaitForWriter(t *testing.T) {
 	}
 }
 
-// Adding guests to a CalDAV event publishes the confirmed organizer and guest
+// Adding guests to a CalDAV or JMAP event publishes the confirmed organizer and guest
 // list with the new version, not after the next sync.
 func TestUserCalendarCalDAVMeetingPublicationKeepsGuests(t *testing.T) {
+	for _, provider := range []string{storage.CalendarSourceProviderCalDAV, storage.CalendarSourceProviderJMAP} {
+		t.Run(provider, func(t *testing.T) { testUserCalendarMeetingPublicationKeepsGuests(t, provider) })
+	}
+}
+
+func testUserCalendarMeetingPublicationKeepsGuests(t *testing.T, provider string) {
 	_, _, accounts, _ := newCalendarControlFixture(t)
 	seedCalendarSyncEvents(t, accounts)
+	if err := accounts.WithUser(t.Context(), "alice", func(_ *AccountStore, db *storage.DB) error {
+		if provider == storage.CalendarSourceProviderJMAP {
+			// JMAP calendars belong to JMAP accounts.
+			if _, err := db.Write().Exec(`UPDATE accounts SET provider='jmap'`); err != nil {
+				return err
+			}
+		}
+		_, err := db.Write().Exec(`UPDATE calendar_sources SET provider=?`, provider)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
 	snapshot, err := accounts.SnapshotCalendarEvent(t.Context(), "alice", "same-event")
 	if err != nil {
 		t.Fatal(err)
