@@ -16,6 +16,7 @@ const (
 	// still being written.
 	folderlessMessageMinAge    = 24 * time.Hour
 	folderlessMessageBatchSize = 500
+	emptyThreadBatchSize       = 20000
 )
 
 // message_folder_state.deleted_at is when a folder state was marked deleted,
@@ -129,7 +130,7 @@ func pruneDeletedFolderStatesTx(ctx context.Context, tx *sql.Tx, cutoff time.Tim
 // stay, and so do messages created within the last day.
 func (db *DB) pruneFolderlessMessagesTx(ctx context.Context, tx *sql.Tx, now time.Time, batch int) (int, error) {
 	rows, err := tx.QueryContext(ctx, `
-		SELECT m.id
+		SELECT m.id, m.account_id, COALESCE(m.thread_id, '')
 		FROM messages m
 		WHERE m.created_at < ?
 		  AND NOT EXISTS (SELECT 1 FROM message_folder_state mfs WHERE mfs.message_id = m.id)
@@ -143,13 +144,18 @@ func (db *DB) pruneFolderlessMessagesTx(ctx context.Context, tx *sql.Tx, now tim
 		return 0, err
 	}
 	var ids []int64
+	threads := make(pendingThreadTotals)
 	for rows.Next() {
 		var id int64
-		if err := rows.Scan(&id); err != nil {
+		var thread threadRef
+		if err := rows.Scan(&id, &thread.accountID, &thread.threadID); err != nil {
 			rows.Close()
 			return 0, err
 		}
 		ids = append(ids, id)
+		if thread.threadID != "" {
+			threads[thread] = struct{}{}
+		}
 	}
 	if err := rows.Close(); err != nil {
 		return 0, err
@@ -172,5 +178,26 @@ func (db *DB) pruneFolderlessMessagesTx(ctx context.Context, tx *sql.Tx, now tim
 	if err := db.reindexMessagesSearchTx(ctx, tx, ids); err != nil {
 		return 0, err
 	}
+	if err := db.flushThreadTotalsTx(ctx, tx, threads); err != nil {
+		return 0, err
+	}
 	return int(n), nil
+}
+
+// pruneEmptyThreadsTx removes up to batch threads no message belongs to any
+// more. Earlier versions left one behind each time a conversation was synced
+// again, and whenever a thread lost its last message.
+func pruneEmptyThreadsTx(ctx context.Context, tx *sql.Tx, batch int) (int, error) {
+	result, err := tx.ExecContext(ctx, `
+		DELETE FROM threads
+		WHERE rowid IN (
+			SELECT t.rowid FROM threads t
+			WHERE NOT EXISTS (SELECT 1 FROM messages m WHERE m.account_id = t.account_id AND m.thread_id = t.id)
+			LIMIT ?
+		)`, batch)
+	if err != nil {
+		return 0, err
+	}
+	n, err := result.RowsAffected()
+	return int(n), err
 }
