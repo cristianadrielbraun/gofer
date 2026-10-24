@@ -4099,7 +4099,7 @@ templ CalendarSyncSettingsPanel(data models.EditAccountData, message string, isE
 					<div class="text-xs font-semibold text-foreground">Selected calendars</div>
 					<span class="shrink-0 rounded-md bg-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">{ fmt.Sprintf("%d of %d selected", data.CalendarSync.SelectedSourceCount, data.CalendarSync.SourceCount) }</span>
 				</div>
-				<p class="mt-1 text-[11px] leading-relaxed text-muted-foreground">Select calendars to sync. Your choices are saved when you click Next.</p>
+				<p class="mt-1 text-[11px] leading-relaxed text-muted-foreground">Select calendars to sync. Your choices are saved when you click Done.</p>
 				<form
 					method="POST"
 					action={ fmt.Sprintf("/api/accounts/%s/calendar/sources", data.AccountID) }
