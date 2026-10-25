@@ -1,8 +1,8 @@
 // Package themebuilder makes a whole color palette, for light and dark mode,
-// from one color. The lightness of every role is fixed here, so contrast is
-// the same whatever the color; the color gives the palette its hue and how
-// colorful it is. Text that still falls short of WCAG AA is nudged until it
-// passes.
+// from a primary color, an optional secondary color and a background tone.
+// The lightness of every role is fixed here, so contrast is the same whatever
+// the colors; they give the palette its hues and how colorful it is. Text that
+// still falls short of WCAG AA is nudged until it passes.
 package themebuilder
 
 import (
@@ -12,8 +12,14 @@ import (
 
 // Options are what the builder asks for.
 type Options struct {
-	// Seed is the theme's color, as #rrggbb.
+	// Seed is the primary color, as #rrggbb.
 	Seed string
+	// Secondary is the color of secondary buttons, chips and hovered items, as
+	// #rrggbb. Empty follows the primary color.
+	Secondary string
+	// Tone is where backgrounds, cards, borders and text get their hue:
+	// "primary", "secondary" or "neutral" for greys. Empty is "primary".
+	Tone string
 	// Sidebar is "light" or "dark" in light mode. Dark mode always has a dark
 	// sidebar.
 	Sidebar string
@@ -28,64 +34,87 @@ const minUIContrast = 3.0
 // Palette is every color a theme defines: mode, then variable, then #rrggbb.
 type Palette map[string]map[string]string
 
-// Generate makes the palette for the options, or false if the seed is not a
-// #rrggbb color or the sidebar is unknown.
+// Generate makes the palette for the options, or false if a color is not
+// #rrggbb or the tone or sidebar is unknown.
 func Generate(opts Options) (Palette, bool) {
-	seed, ok := parseHex(strings.ToLower(strings.TrimSpace(opts.Seed)))
+	primary, ok := parseHex(strings.ToLower(strings.TrimSpace(opts.Seed)))
 	if !ok || (opts.Sidebar != "light" && opts.Sidebar != "dark") {
 		return nil, false
 	}
-	b := newBuilder(seed)
+	secondary := primary
+	if raw := strings.TrimSpace(opts.Secondary); raw != "" {
+		if secondary, ok = parseHex(strings.ToLower(raw)); !ok {
+			return nil, false
+		}
+	}
+	b := builder{primary: newSource(primary), secondary: newSource(secondary)}
+	switch opts.Tone {
+	case "", "primary":
+		b.surface = b.primary
+	case "secondary":
+		b.surface = b.secondary
+	case "neutral":
+		b.surface = source{}
+	default:
+		return nil, false
+	}
 	return Palette{
 		"light": b.light(opts.Sidebar == "dark"),
 		"dark":  b.dark(),
 	}, true
 }
 
-type builder struct {
-	seed lch
-	// chroma is how colorful the seed is, capped so a vivid seed doesn't give
-	// loud surfaces. A grey seed has none, and gives a grey palette.
+// source is a color roles take their hue from.
+type source struct {
+	color lch
+	// chroma is how colorful the color is, capped so a vivid one doesn't give
+	// loud surfaces. A grey has none, and gives greys.
 	chroma float64
 }
 
-func newBuilder(seed rgb) builder {
-	c := toLCH(seed)
-	chroma := math.Min(c.c, 0.2)
+func newSource(c rgb) source {
+	color := toLCH(c)
+	chroma := math.Min(color.c, 0.2)
 	if chroma < 0.02 {
 		chroma = 0
 	}
-	return builder{seed: c, chroma: chroma}
+	return source{color: color, chroma: chroma}
 }
 
-// tone is a neutral of the seed's hue: the share of the seed's chroma it keeps
-// sets how tinted it is.
-func (b builder) tone(l, share float64) lch {
-	return lch{l, b.chroma * share, b.seed.h}
+// tone is a muted color of the source's hue: the share of its chroma it keeps
+// sets how colorful it is.
+func (s source) tone(l, share float64) lch {
+	return lch{l, s.chroma * share, s.color.h}
 }
 
-// accent is the seed itself, with its lightness kept inside [minL, maxL].
-func (b builder) accent(minL, maxL float64) lch {
-	c := b.seed
+// fill is the source color itself, with its lightness kept in [minL, maxL].
+func (s source) fill(minL, maxL float64) lch {
+	c := s.color
 	c.l = math.Max(minL, math.Min(maxL, c.l))
 	return c
 }
 
-// hue is a fixed-hue color, such as red for destructive actions, with some of
-// the seed's chroma so it sits with the rest.
+type builder struct {
+	// primary colors main buttons, links and selection; secondary colors
+	// secondary buttons, chips and hovered items; surface colors backgrounds,
+	// cards, borders and text.
+	primary, secondary, surface source
+}
+
+// hue is a fixed-hue color, such as red for destructive actions.
 func hue(l, c, degrees float64) lch {
 	return lch{l, c, degrees * math.Pi / 180}
 }
 
 func (b builder) light(darkSidebar bool) map[string]string {
 	p := map[string]string{}
-	background := b.tone(0.965, 0.10)
-	card := b.tone(0.99, 0.05)
-	muted := b.tone(0.93, 0.12)
-	secondary := b.tone(0.91, 0.18)
-	accent := b.tone(0.935, 0.25)
-	paper := b.tone(0.995, 0.03)
-	text := b.tone(0.22, 0.10)
+	background := b.surface.tone(0.965, 0.10)
+	card := b.surface.tone(0.99, 0.05)
+	muted := b.surface.tone(0.93, 0.12)
+	secondary := b.secondary.tone(0.91, 0.30)
+	accent := b.secondary.tone(0.935, 0.30)
+	paper := b.surface.tone(0.995, 0.03)
+	text := b.surface.tone(0.22, 0.10)
 
 	set(p, "background", background)
 	set(p, "card", card)
@@ -93,38 +122,40 @@ func (b builder) light(darkSidebar bool) map[string]string {
 	set(p, "muted", muted)
 	set(p, "secondary", secondary)
 	set(p, "accent", accent)
-	set(p, "border", b.tone(0.84, 0.14))
-	set(p, "input", b.tone(0.78, 0.14))
+	set(p, "border", b.surface.tone(0.84, 0.14))
+	set(p, "input", b.surface.tone(0.78, 0.14))
 	set(p, "paper", paper)
 
-	for _, name := range []string{"foreground", "card-foreground", "popover-foreground", "secondary-foreground", "accent-foreground", "paper-foreground"} {
+	for _, name := range []string{"foreground", "card-foreground", "popover-foreground", "paper-foreground"} {
 		set(p, name, text)
 	}
-	set(p, "ink", b.tone(0.18, 0.12))
-	set(p, "muted-foreground", readable(b.tone(0.48, 0.10), MinTextContrast, background, card, muted))
+	set(p, "secondary-foreground", readable(text, MinTextContrast, secondary))
+	set(p, "accent-foreground", readable(text, MinTextContrast, accent))
+	set(p, "ink", b.surface.tone(0.18, 0.12))
+	set(p, "muted-foreground", readable(b.surface.tone(0.48, 0.10), MinTextContrast, background, card, muted))
 
-	primary := readable(b.accent(0.40, 0.55), minUIContrast, background, card)
-	primary, onPrimary := withText(primary, text, b.tone(0.995, 0.02))
+	primary := readable(b.primary.fill(0.40, 0.55), minUIContrast, background, card)
+	primary, onPrimary := withText(primary, text, b.surface.tone(0.995, 0.02))
 	set(p, "primary", primary)
 	p["primary-foreground"] = onPrimary
 	set(p, "ring", primary)
-	set(p, "copper", readable(b.accent(0.30, 0.50), MinTextContrast, paper, card))
+	set(p, "copper", readable(b.primary.fill(0.30, 0.50), MinTextContrast, paper, card))
 
 	set(p, "destructive", readable(hue(0.52, 0.19, 27), MinTextContrast, background, card))
 	set(p, "success", readable(hue(0.50, 0.12, 145), MinTextContrast, background, card))
-	set(p, "brass", b.tone(0.62, 0.5))
+	set(p, "brass", b.primary.tone(0.62, 0.5))
 
 	if darkSidebar {
-		b.darkSidebar(p, b.tone(0.25, 0.25), b.tone(0.31, 0.30), b.tone(0.33, 0.25))
+		b.darkSidebar(p, b.surface.tone(0.25, 0.25), b.secondary.tone(0.31, 0.35), b.surface.tone(0.33, 0.25))
 	} else {
-		sidebar := b.tone(0.955, 0.14)
-		sidebarAccent := b.tone(0.91, 0.22)
+		sidebar := b.surface.tone(0.955, 0.14)
+		sidebarAccent := b.secondary.tone(0.91, 0.30)
 		set(p, "sidebar", sidebar)
-		set(p, "sidebar-foreground", readable(b.tone(0.38, 0.12), MinTextContrast, sidebar, sidebarAccent))
+		set(p, "sidebar-foreground", readable(b.surface.tone(0.38, 0.12), MinTextContrast, sidebar, sidebarAccent))
 		set(p, "sidebar-accent", sidebarAccent)
-		set(p, "sidebar-accent-foreground", text)
-		set(p, "sidebar-border", b.tone(0.88, 0.14))
-		sidebarPrimary, onSidebarPrimary := withText(b.accent(0.40, 0.55), text, b.tone(0.995, 0.02))
+		set(p, "sidebar-accent-foreground", readable(text, MinTextContrast, sidebarAccent))
+		set(p, "sidebar-border", b.surface.tone(0.88, 0.14))
+		sidebarPrimary, onSidebarPrimary := withText(b.primary.fill(0.40, 0.55), text, b.surface.tone(0.995, 0.02))
 		set(p, "sidebar-primary", sidebarPrimary)
 		p["sidebar-primary-foreground"] = onSidebarPrimary
 		set(p, "sidebar-ring", sidebarPrimary)
@@ -134,14 +165,14 @@ func (b builder) light(darkSidebar bool) map[string]string {
 
 func (b builder) dark() map[string]string {
 	p := map[string]string{}
-	background := b.tone(0.18, 0.12)
-	card := b.tone(0.215, 0.12)
-	popover := b.tone(0.235, 0.12)
-	muted := b.tone(0.245, 0.12)
-	secondary := b.tone(0.275, 0.18)
-	accent := b.tone(0.285, 0.22)
-	paper := b.tone(0.225, 0.08)
-	text := b.tone(0.93, 0.06)
+	background := b.surface.tone(0.18, 0.12)
+	card := b.surface.tone(0.215, 0.12)
+	popover := b.surface.tone(0.235, 0.12)
+	muted := b.surface.tone(0.245, 0.12)
+	secondary := b.secondary.tone(0.275, 0.30)
+	accent := b.secondary.tone(0.285, 0.30)
+	paper := b.surface.tone(0.225, 0.08)
+	text := b.surface.tone(0.93, 0.06)
 
 	set(p, "background", background)
 	set(p, "card", card)
@@ -149,29 +180,31 @@ func (b builder) dark() map[string]string {
 	set(p, "muted", muted)
 	set(p, "secondary", secondary)
 	set(p, "accent", accent)
-	set(p, "border", b.tone(0.36, 0.14))
-	set(p, "input", b.tone(0.40, 0.14))
+	set(p, "border", b.surface.tone(0.36, 0.14))
+	set(p, "input", b.surface.tone(0.40, 0.14))
 	set(p, "paper", paper)
 
-	for _, name := range []string{"foreground", "card-foreground", "popover-foreground", "secondary-foreground", "accent-foreground"} {
+	for _, name := range []string{"foreground", "card-foreground", "popover-foreground"} {
 		set(p, name, text)
 	}
-	set(p, "paper-foreground", b.tone(0.90, 0.06))
-	set(p, "ink", b.tone(0.90, 0.08))
-	set(p, "muted-foreground", readable(b.tone(0.72, 0.08), MinTextContrast, background, card, popover, muted))
+	set(p, "secondary-foreground", readable(text, MinTextContrast, secondary))
+	set(p, "accent-foreground", readable(text, MinTextContrast, accent))
+	set(p, "paper-foreground", b.surface.tone(0.90, 0.06))
+	set(p, "ink", b.surface.tone(0.90, 0.08))
+	set(p, "muted-foreground", readable(b.surface.tone(0.72, 0.08), MinTextContrast, background, card, popover, muted))
 
-	primary := readable(b.accent(0.68, 0.80), minUIContrast, background, card)
-	primary, onPrimary := withText(primary, b.tone(0.18, 0.10), text)
+	primary := readable(b.primary.fill(0.68, 0.80), minUIContrast, background, card)
+	primary, onPrimary := withText(primary, b.surface.tone(0.18, 0.10), text)
 	set(p, "primary", primary)
 	p["primary-foreground"] = onPrimary
 	set(p, "ring", primary)
-	set(p, "copper", readable(b.accent(0.70, 0.82), MinTextContrast, paper, card))
+	set(p, "copper", readable(b.primary.fill(0.70, 0.82), MinTextContrast, paper, card))
 
 	set(p, "destructive", readable(hue(0.68, 0.17, 25), MinTextContrast, background, card))
 	set(p, "success", readable(hue(0.72, 0.12, 145), MinTextContrast, background, card))
-	set(p, "brass", b.tone(0.70, 0.5))
+	set(p, "brass", b.primary.tone(0.70, 0.5))
 
-	b.darkSidebar(p, b.tone(0.15, 0.14), b.tone(0.22, 0.18), b.tone(0.27, 0.14))
+	b.darkSidebar(p, b.surface.tone(0.15, 0.14), b.secondary.tone(0.22, 0.30), b.surface.tone(0.27, 0.14))
 	return p
 }
 
@@ -179,12 +212,12 @@ func (b builder) dark() map[string]string {
 // dark mode.
 func (b builder) darkSidebar(p map[string]string, sidebar, sidebarAccent, border lch) {
 	set(p, "sidebar", sidebar)
-	set(p, "sidebar-foreground", readable(b.tone(0.80, 0.16), MinTextContrast, sidebar, sidebarAccent))
+	set(p, "sidebar-foreground", readable(b.surface.tone(0.80, 0.16), MinTextContrast, sidebar, sidebarAccent))
 	set(p, "sidebar-accent", sidebarAccent)
-	set(p, "sidebar-accent-foreground", readable(b.tone(0.92, 0.08), MinTextContrast, sidebarAccent))
+	set(p, "sidebar-accent-foreground", readable(b.surface.tone(0.92, 0.08), MinTextContrast, sidebarAccent))
 	set(p, "sidebar-border", border)
-	sidebarPrimary := readable(b.accent(0.70, 0.82), minUIContrast, sidebar)
-	sidebarPrimary, onSidebarPrimary := withText(sidebarPrimary, b.tone(0.18, 0.10), b.tone(0.995, 0.02))
+	sidebarPrimary := readable(b.primary.fill(0.70, 0.82), minUIContrast, sidebar)
+	sidebarPrimary, onSidebarPrimary := withText(sidebarPrimary, b.surface.tone(0.18, 0.10), b.surface.tone(0.995, 0.02))
 	set(p, "sidebar-primary", sidebarPrimary)
 	p["sidebar-primary-foreground"] = onSidebarPrimary
 	set(p, "sidebar-ring", sidebarPrimary)

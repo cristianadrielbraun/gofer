@@ -26,7 +26,11 @@ var radii = map[string]string{
 
 // Theme is what the builder saves.
 type Theme struct {
-	Seed    string `json:"seed"`
+	Seed string `json:"seed"`
+	// Secondary is empty to follow Seed.
+	Secondary string `json:"secondary,omitempty"`
+	// Tone is "primary", "secondary" or "neutral".
+	Tone    string `json:"tone"`
 	Sidebar string `json:"sidebar"`
 	// Depth is "raised", with Classic's shadows and bevels, or "flat".
 	Depth   string `json:"depth"`
@@ -62,6 +66,17 @@ func Parse(raw string) (Theme, bool) {
 	}
 	t.Seed = strings.ToLower(strings.TrimSpace(t.Seed))
 	if _, ok := parseHex(t.Seed); !ok {
+		return Theme{}, false
+	}
+	t.Secondary = strings.ToLower(strings.TrimSpace(t.Secondary))
+	if _, ok := parseHex(t.Secondary); t.Secondary != "" && !ok {
+		return Theme{}, false
+	}
+	// Themes saved before the tone existed took it from the primary color.
+	if t.Tone == "" {
+		t.Tone = "primary"
+	}
+	if t.Tone != "primary" && t.Tone != "secondary" && t.Tone != "neutral" {
 		return Theme{}, false
 	}
 	if t.Sidebar != "light" && t.Sidebar != "dark" {
@@ -104,7 +119,7 @@ func (t Theme) LookAttributes() map[string]string {
 // with data-theme="custom", so the color editor can read the colors the theme
 // ships with; hand edits from themecolors use stronger selectors and win.
 func (t Theme) CSS() string {
-	palette, ok := Generate(Options{Seed: t.Seed, Sidebar: t.Sidebar})
+	palette, ok := Generate(Options{Seed: t.Seed, Secondary: t.Secondary, Tone: t.Tone, Sidebar: t.Sidebar})
 	if !ok {
 		return ""
 	}

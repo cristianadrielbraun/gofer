@@ -2,6 +2,7 @@ package themebuilder
 
 import (
 	"fmt"
+	"math"
 	"strings"
 	"testing"
 
@@ -75,26 +76,77 @@ var uiPairs = [][2]string{
 	{"primary", "background"}, {"primary", "card"}, {"sidebar-primary", "sidebar"},
 }
 
+// Secondary colors to pair with every seed: none, clashing, pale and grey.
+var testSecondaries = []string{"", "#ff0000", "#fff7cc", "#0a246a", "#808080"}
+
 func TestGenerateKeepsContrastForAnySeed(t *testing.T) {
 	for _, seed := range testSeeds {
-		for _, sidebar := range []string{"light", "dark"} {
-			palette, ok := Generate(Options{Seed: seed, Sidebar: sidebar})
-			if !ok {
-				t.Fatalf("Generate refused %s", seed)
-			}
-			for _, mode := range themecolors.Modes {
-				check := func(pairs [][2]string, min float64) {
-					for _, pair := range pairs {
-						if got := contrastOf(palette[mode][pair[0]], palette[mode][pair[1]]); got < min-0.005 {
-							t.Errorf("seed %s, %s sidebar, %s: %s on %s = %.2f, want %.1f", seed, sidebar, mode, pair[0], pair[1], got, min)
-						}
-					}
+		for _, secondary := range testSecondaries {
+			for _, tone := range []string{"primary", "secondary", "neutral"} {
+				for _, sidebar := range []string{"light", "dark"} {
+					checkContrast(t, Options{Seed: seed, Secondary: secondary, Tone: tone, Sidebar: sidebar})
 				}
-				check(textPairs, MinTextContrast)
-				check(uiPairs, minUIContrast)
 			}
 		}
 	}
+}
+
+func checkContrast(t *testing.T, opts Options) {
+	t.Helper()
+	palette, ok := Generate(opts)
+	if !ok {
+		t.Fatalf("Generate refused %+v", opts)
+	}
+	for _, mode := range themecolors.Modes {
+				check := func(pairs [][2]string, min float64) {
+					for _, pair := range pairs {
+				if got := contrastOf(palette[mode][pair[0]], palette[mode][pair[1]]); got < min-0.005 {
+					t.Errorf("%+v, %s: %s on %s = %.2f, want %.1f", opts, mode, pair[0], pair[1], got, min)
+				}
+			}
+		}
+		check(textPairs, MinTextContrast)
+		check(uiPairs, minUIContrast)
+	}
+}
+
+func TestSecondaryAndToneChooseHues(t *testing.T) {
+	green := toLCH(mustRGB(t, "#16a34a")).h
+	orange := toLCH(mustRGB(t, "#ea580c")).h
+	palette, ok := Generate(Options{Seed: "#16a34a", Secondary: "#ea580c", Tone: "neutral", Sidebar: "light"})
+	if !ok {
+		t.Fatal("Generate refused valid options")
+	}
+	light := palette["light"]
+	if h := toLCH(mustRGB(t, light["secondary"])).h; math.Abs(h-orange) > 0.3 {
+		t.Errorf("secondary hue %.2f, want orange %.2f", h, orange)
+	}
+	if h := toLCH(mustRGB(t, light["primary"])).h; math.Abs(h-green) > 0.3 {
+		t.Errorf("primary hue %.2f, want green %.2f", h, green)
+	}
+	if c := toLCH(mustRGB(t, light["background"])).c; c > 0.005 {
+		t.Errorf("neutral tone gave background chroma %.3f", c)
+	}
+
+	byOrange, _ := Generate(Options{Seed: "#16a34a", Secondary: "#ea580c", Tone: "secondary", Sidebar: "light"})
+	if h := toLCH(mustRGB(t, byOrange["light"]["background"])).h; math.Abs(h-orange) > 0.3 {
+		t.Errorf("secondary tone gave background hue %.2f, want %.2f", h, orange)
+	}
+	if _, ok := Generate(Options{Seed: "#16a34a", Tone: "loud", Sidebar: "light"}); ok {
+		t.Error("unknown tone accepted")
+	}
+	if _, ok := Generate(Options{Seed: "#16a34a", Secondary: "orange", Sidebar: "light"}); ok {
+		t.Error("bad secondary accepted")
+	}
+}
+
+func mustRGB(t *testing.T, hex string) rgb {
+	t.Helper()
+	c, ok := parseHex(hex)
+	if !ok {
+		t.Fatalf("bad hex %q", hex)
+	}
+	return c
 }
 
 func TestGreySeedGivesGreyPalette(t *testing.T) {
@@ -143,7 +195,7 @@ func TestParseTheme(t *testing.T) {
 	if !ok {
 		t.Fatal("Parse refused a valid theme")
 	}
-	if got := theme.Encode(); got != `{"seed":"#16a34a","sidebar":"dark","depth":"flat","corners":"square"}` {
+	if got := theme.Encode(); got != `{"seed":"#16a34a","tone":"primary","sidebar":"dark","depth":"flat","corners":"square"}` {
 		t.Fatalf("Encode = %s", got)
 	}
 	attrs := theme.LookAttributes()
@@ -156,6 +208,8 @@ func TestParseTheme(t *testing.T) {
 		`{"seed":"#16a34a","sidebar":"left","depth":"flat","corners":"square"}`,
 		`{"seed":"#16a34a","sidebar":"dark","depth":"bevel","corners":"square"}`,
 		`{"seed":"#16a34a","sidebar":"dark","depth":"flat","corners":"9px"}`,
+		`{"seed":"#16a34a","secondary":"sand","sidebar":"dark","depth":"flat","corners":"square"}`,
+		`{"seed":"#16a34a","tone":"loud","sidebar":"dark","depth":"flat","corners":"square"}`,
 	} {
 		if _, ok := Parse(raw); ok {
 			t.Errorf("Parse(%q) accepted", raw)

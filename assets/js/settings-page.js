@@ -429,7 +429,7 @@
 (function() {
   var BUILDER_ID = 'custom-theme-dialog';
   var DELETE_ID = 'custom-theme-delete-dialog';
-  var FIELDS = ['sidebar', 'depth', 'corners'];
+  var FIELDS = ['tone', 'sidebar', 'depth', 'corners'];
   var editing = null;
   var before = null;
   var saved = false;
@@ -462,21 +462,36 @@
   // The saved theme, or a new one that starts with the selected style's look.
   function startingTheme() {
     var theme = savedTheme();
-    if (theme) return { seed: theme.seed, sidebar: theme.sidebar, depth: theme.depth, corners: theme.corners };
+    if (theme) {
+      return {
+        seed: theme.seed,
+        secondary: theme.secondary || '',
+        tone: theme.tone || 'primary',
+        sidebar: theme.sidebar,
+        depth: theme.depth,
+        corners: theme.corners,
+      };
+    }
     var minimal = document.documentElement.getAttribute('data-theme') === 'minimal';
     return {
       seed: '#2563eb',
+      secondary: '',
+      tone: 'primary',
       sidebar: minimal ? 'light' : 'dark',
       depth: minimal ? 'flat' : 'raised',
       corners: minimal ? 'square' : 'medium',
     };
   }
 
-  // The seed and sidebar decide the palette, so changing either replaces it
-  // and clears hand-edited colors.
+  // The colors, tone and sidebar decide the palette, so changing any of them
+  // replaces it and clears hand-edited colors.
   function colorsChanged() {
     var theme = savedTheme();
-    return !!theme && !!editing && (theme.seed !== editing.seed || theme.sidebar !== editing.sidebar);
+    if (!theme || !editing) return false;
+    return theme.seed !== editing.seed ||
+      (theme.secondary || '') !== editing.secondary ||
+      (theme.tone || 'primary') !== editing.tone ||
+      theme.sidebar !== editing.sidebar;
   }
 
   function block(selector, attribute) {
@@ -518,6 +533,18 @@
     if (picker) picker.value = editing.seed;
     var value = root.querySelector('[data-custom-theme-seed-value]');
     if (value) value.textContent = editing.seed;
+    // An empty secondary follows the primary color.
+    root.querySelectorAll('[data-custom-theme-secondary-option]').forEach(function(swatch) {
+      var active = swatch.getAttribute('data-custom-theme-secondary-option') === editing.secondary;
+      swatch.setAttribute('data-account-color-active', active ? 'true' : 'false');
+      swatch.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
+    var secondaryPicker = root.querySelector('[data-custom-theme-secondary]');
+    if (secondaryPicker) secondaryPicker.value = editing.secondary || editing.seed;
+    var secondaryValue = root.querySelector('[data-custom-theme-secondary-value]');
+    if (secondaryValue) secondaryValue.textContent = editing.secondary || 'Same as primary';
+    var secondaryMatch = root.querySelector('[data-custom-theme-secondary-match]');
+    if (secondaryMatch) secondaryMatch.classList.toggle('hidden', !editing.secondary);
     root.querySelectorAll('[data-custom-theme-field]').forEach(function(input) {
       input.checked = editing[input.getAttribute('data-custom-theme-field')] === input.value;
     });
@@ -526,8 +553,8 @@
       var count = colorsChanged() ? handEditCount() : 0;
       warning.classList.toggle('hidden', count === 0);
       warning.textContent = count === 1
-        ? 'A new color or sidebar makes a new palette, so saving clears the 1 color you edited by hand.'
-        : 'A new color or sidebar makes a new palette, so saving clears the ' + count + ' colors you edited by hand.';
+        ? 'New colors, tone or sidebar make a new palette, so saving clears the 1 color you edited by hand.'
+        : 'New colors, tone or sidebar make a new palette, so saving clears the ' + count + ' colors you edited by hand.';
     }
   }
 
@@ -661,14 +688,25 @@
       deleteTheme();
       return;
     }
+    if (e.target.closest('[data-custom-theme-secondary-match]')) {
+      update({ secondary: '' });
+      return;
+    }
     var swatch = e.target.closest('[data-custom-theme-seed-option]');
-    if (swatch) update({ seed: swatch.getAttribute('data-custom-theme-seed-option') });
+    if (swatch) {
+      update({ seed: swatch.getAttribute('data-custom-theme-seed-option') });
+      return;
+    }
+    var secondarySwatch = e.target.closest('[data-custom-theme-secondary-option]');
+    if (secondarySwatch) update({ secondary: secondarySwatch.getAttribute('data-custom-theme-secondary-option') });
   });
 
   document.addEventListener('input', function(e) {
-    if (!e.target.matches || !e.target.matches('[data-custom-theme-seed]')) return;
-    var seed = hexColor(e.target.value);
-    if (seed) update({ seed: seed });
+    if (!e.target.matches) return;
+    var color = hexColor(e.target.value);
+    if (!color) return;
+    if (e.target.matches('[data-custom-theme-seed]')) update({ seed: color });
+    else if (e.target.matches('[data-custom-theme-secondary]')) update({ secondary: color });
   });
 
   document.addEventListener('change', function(e) {

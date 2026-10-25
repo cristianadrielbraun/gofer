@@ -2263,30 +2263,33 @@ templ CustomThemeDialog() {
 		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-lg"}) {
 			@dialog.Header() {
 				@dialog.Title() { Theme builder }
-				@dialog.Description() { Pick a color and Gofer makes the rest of the theme from it, for light and dark mode. The page shows it as you go. }
+				@dialog.Description() { Pick your colors and Gofer makes the rest of the theme from them, for light and dark mode. The page shows it as you go. }
 			}
-			<div class="space-y-5" data-custom-theme-builder>
+			<div class="max-h-[60vh] space-y-5 overflow-y-auto pr-1" data-custom-theme-builder>
 				<fieldset class="space-y-2">
-					<legend class="mb-1.5 text-xs font-medium text-muted-foreground">Color</legend>
-					<div class="grid grid-cols-10 gap-2">
-						for _, preset := range themebuilder.Presets {
-							<button
-								type="button"
-								class="account-color-swatch size-7 rounded-full transition-transform hover:scale-110 focus-visible:outline-none"
-								style={ accountColorStyle(preset.Color) }
-								data-custom-theme-seed-option={ preset.Color }
-								data-account-color-active="false"
-								aria-label={ preset.Name }
-								aria-pressed="false"
-							></button>
-						}
-					</div>
+					<legend class="mb-1.5 text-xs font-medium text-muted-foreground">Primary color</legend>
+					@customThemeSwatches("data-custom-theme-seed-option")
 					<div class="flex items-center gap-2 rounded-md border border-border/70 bg-background/50 px-2.5 py-2">
 						<label for="custom-theme-seed" class="text-xs font-medium text-muted-foreground">Other color</label>
 						<input id="custom-theme-seed" type="color" value="#2563eb" class="h-7 w-9 cursor-pointer rounded border border-border bg-transparent p-0.5" data-custom-theme-seed/>
 						<span class="ml-auto font-mono text-xs text-muted-foreground" data-custom-theme-seed-value></span>
 					</div>
+					<p class="text-xs text-muted-foreground">Main buttons, links and selection.</p>
 				</fieldset>
+				<fieldset class="space-y-2">
+					<legend class="mb-1.5 text-xs font-medium text-muted-foreground">Secondary color</legend>
+					@customThemeSwatches("data-custom-theme-secondary-option")
+					<div class="flex items-center gap-2 rounded-md border border-border/70 bg-background/50 px-2.5 py-2">
+						<label for="custom-theme-secondary" class="text-xs font-medium text-muted-foreground">Other color</label>
+						<input id="custom-theme-secondary" type="color" value="#2563eb" class="h-7 w-9 cursor-pointer rounded border border-border bg-transparent p-0.5" data-custom-theme-secondary/>
+						<span class="text-xs text-muted-foreground" data-custom-theme-secondary-value></span>
+						@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeSm, Class: "ml-auto h-7 px-2 text-xs", Attributes: templ.Attributes{"data-custom-theme-secondary-match": ""}}) {
+							Same as primary
+						}
+					</div>
+					<p class="text-xs text-muted-foreground">Secondary buttons, chips and hovered items.</p>
+				</fieldset>
+				@customThemeChoice("Backgrounds and text", "tone", []customThemeOption{{"primary", "From primary"}, {"secondary", "From secondary"}, {"neutral", "Neutral grey"}})
 				@customThemeChoice("Sidebar in light mode", "sidebar", []customThemeOption{{"dark", "Dark"}, {"light", "Light"}})
 				@customThemeChoice("Buttons and surfaces", "depth", []customThemeOption{{"raised", "Raised"}, {"flat", "Flat"}})
 				@customThemeChoice("Corners", "corners", []customThemeOption{{"square", "Square"}, {"small", "Small"}, {"medium", "Medium"}, {"large", "Large"}})
@@ -2304,6 +2307,23 @@ templ CustomThemeDialog() {
 			}
 		}
 	}
+}
+
+// customThemeSwatches are the suggested colors, each marked with attribute.
+templ customThemeSwatches(attribute string) {
+	<div class="grid grid-cols-10 gap-2">
+		for _, preset := range themebuilder.Presets {
+			<button
+				type="button"
+				class="account-color-swatch size-7 rounded-full transition-transform hover:scale-110 focus-visible:outline-none"
+				style={ accountColorStyle(preset.Color) }
+				{ templ.Attributes{attribute: preset.Color}... }
+				data-account-color-active="false"
+				aria-label={ preset.Name }
+				aria-pressed="false"
+			></button>
+		}
+	</div>
 }
 
 templ customThemeChoice(legend string, field string, options []customThemeOption) {

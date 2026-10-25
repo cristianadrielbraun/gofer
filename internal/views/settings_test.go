@@ -1015,6 +1015,11 @@ func TestAppearanceTabCustomThemeCard(t *testing.T) {
 	if !strings.Contains(html, `id="custom-theme-dialog"`) || !strings.Contains(html, `data-custom-theme-build`) {
 		t.Fatal("theme builder missing")
 	}
+	for _, want := range []string{`data-custom-theme-seed-option="#16a34a"`, `data-custom-theme-secondary-option="#16a34a"`, `name="custom_theme_tone" value="neutral"`} {
+		if !strings.Contains(html, want) {
+			t.Errorf("theme builder lacks %s", want)
+		}
+	}
 	html = render(map[string]string{"theme_style": "custom", "custom_theme": `{"seed":"#16a34a","sidebar":"dark","depth":"raised","corners":"medium"}`})
 	if strings.Contains(html, `relative flex hidden" data-theme-card="custom"`) {
 		t.Fatal("built Custom theme is hidden")
