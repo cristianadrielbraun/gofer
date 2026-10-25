@@ -356,7 +356,9 @@ templ accountIdentitySendThrough(data models.AccountIdentitiesData) {
 				Another SMTP server
 			</label>
 		</div>
-		if !data.AccountSendsAnyAddress {
+		if !data.AccountSendsAnyAddress && data.Account.Provider == "jmap" {
+			<p class="text-xs text-muted-foreground" data-identity-send-through-jmap>This JMAP server sends only from the addresses it lists, and lists none covering a whole domain (such as *@example.com), so an address added here goes out through another SMTP server. A copy is still saved in this account's Sent folder. If you add a whole-domain identity on the server, press Refresh from JMAP to send through the account's server instead.</p>
+		} else if !data.AccountSendsAnyAddress {
 			<p class="text-xs text-muted-foreground">{ accountProviderName(data.Account.Provider) } sends only from addresses it lists, so an address added here goes out through another SMTP server. A copy is still saved in this account's Sent folder.</p>
 		}
 		<div class={ "grid gap-3 rounded-md border border-border/60 p-3 sm:grid-cols-2", templ.KV("hidden", !own) } data-identity-smtp-fields>

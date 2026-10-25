@@ -237,7 +237,7 @@ func TestIdentitiesDialogFollowsWhatTheProviderAllows(t *testing.T) {
 	if _, err := db.Write().Exec(`UPDATE accounts SET provider = 'jmap' WHERE id = 'victim-account'`); err != nil {
 		t.Fatal(err)
 	}
-	if body := addForm(); accountChoice(body) == "" {
+	if body := addForm(); accountChoice(body) == "" || !strings.Contains(body, "lists none covering a whole domain") || !strings.Contains(body, "press Refresh from JMAP") {
 		t.Fatalf("JMAP form without domains = %q", body)
 	}
 	if body := list(); !strings.Contains(body, "The server does not list this address") {
