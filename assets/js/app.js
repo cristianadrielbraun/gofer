@@ -11980,6 +11980,17 @@ function transitionCalendarEditDialog(details, editor, from) {
   initializeCalendarCreateForm()
   var to = details.getBoundingClientRect()
   details.style.transitionProperty = transition
+  return flipDialogResize(details, from, to, function () {
+    var input = details.querySelector("#calendar-create-summary")
+    if (input) input.focus({preventScroll: true})
+  })
+}
+
+// flipDialogResize moves an open dialog's frame smoothly from its old bounds,
+// from, to the bounds its new content gives it, to. The content stays hidden
+// while the frame resizes, then fades in, and onShown runs. It returns the
+// animation, or nothing when there is nothing to animate.
+function flipDialogResize(details, from, to, onShown) {
   if (!from || !details.animate || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return
   if (from.width <= 0 || from.height <= 0 || to.width <= 0 || to.height <= 0) return
   if (Math.abs(from.width - to.width) < 0.5 && Math.abs(from.height - to.height) < 0.5) return
@@ -11994,30 +12005,30 @@ function transitionCalendarEditDialog(details, editor, from) {
     panel.inert = true
   }
   // FLIP the empty frame from its old visual bounds to the already-laid-out
-  // editor. Scale stays on the compositor; width/height would reflow the entire
-  // form on every frame even with visibility:hidden. Individual scale also
-  // preserves templUI's separate translate used to center the native dialog.
+  // content. Scale stays on the compositor; width/height would reflow the
+  // entire content on every frame even with visibility:hidden. Individual
+  // scale also preserves templUI's separate translate used to center the
+  // native dialog.
   var willChange = details.style.willChange
   details.style.willChange = "scale"
   var resize = details.animate([
     { scale: (from.width / to.width) + " " + (from.height / to.height) },
     { scale: "1 1" },
   ], { duration: 220, easing: "ease" }) // Match the templUI tabs indicator cadence.
-  function focusSummary() {
-    if (!details.isConnected || !details.open || details.hasAttribute("data-tui-dialog-closing") || (panel && (!panel.isConnected || panel.inert))) return
-    var input = details.querySelector("#calendar-create-summary")
-    if (input) input.focus({preventScroll: true})
+  function shown() {
+    if (!onShown || !details.isConnected || !details.open || details.hasAttribute("data-tui-dialog-closing") || (panel && (!panel.isConnected || panel.inert))) return
+    onShown()
   }
   function revealContent(fade) {
     details.style.willChange = willChange
-    if (!panel) { focusSummary(); return }
+    if (!panel) { shown(); return }
     panel.style.opacity = opacity
     panel.inert = inert
     if (!panel.isConnected || !details.isConnected || !details.open || details.hasAttribute("data-tui-dialog-closing")) return
     if (fade && panel.animate) {
       var reveal = panel.animate([{ opacity: 0 }, { opacity: opacity || "1" }], { duration: 160, easing: "ease" })
-      reveal.onfinish = focusSummary
-    } else focusSummary()
+      reveal.onfinish = shown
+    } else shown()
   }
   resize.onfinish = function () { revealContent(true) }
   resize.oncancel = function () { revealContent(false) }

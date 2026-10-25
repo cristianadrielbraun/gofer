@@ -57,8 +57,19 @@ func identityDetail(signatures []models.Signature, identity models.Identity) str
 	return "Replies to " + identity.ReplyTo + " · " + signature
 }
 
+// AccountIdentitiesPanel shows either the account's identities or, while one
+// is added or edited, only the form.
 templ AccountIdentitiesPanel(data models.AccountIdentitiesData) {
 	<div id="account-identities-panel" class="min-w-0 space-y-4" data-account-identities-panel data-account-id={ data.Account.ID }>
+		if data.Adding || data.Editing.ID != "" {
+			@accountIdentityForm(data)
+		} else {
+			@accountIdentitiesList(data)
+		}
+	</div>
+}
+
+templ accountIdentitiesList(data models.AccountIdentitiesData) {
 		<div class="rounded-lg border border-border bg-background/60">
 			<div class="flex items-center gap-3 border-b border-border/60 p-3">
 				<div class="account-color-marker size-4 shrink-0" style={ accountColorStyle(data.Account.Color) } data-account-marker={ data.Account.ID }></div>
@@ -94,12 +105,26 @@ templ AccountIdentitiesPanel(data models.AccountIdentitiesData) {
 				</ul>
 			}
 		</div>
-		if data.Editing.ID != "" || data.CanAddIdentities {
-			@accountIdentityForm(data)
+		if data.Error != "" {
+			<p class="text-xs text-destructive" role="alert" data-account-identity-error>{ data.Error }</p>
+		}
+		if data.CanAddIdentities {
+			<div class="flex justify-end">
+				<button
+					type="button"
+					class="btn-skeuo inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold"
+					hx-get={ accountIdentitiesPath(data.Account.ID, "/panel?add=1") }
+					hx-target="#account-identities-panel"
+					hx-swap="outerHTML"
+					data-account-identity-add
+				>
+					@icon.Plus(icon.Props{Class: "size-3.5"})
+					Add identity
+				</button>
+			</div>
 		} else {
 			@accountIdentityAddingUnavailable(data)
 		}
-	</div>
 }
 
 // accountIdentityAddingUnavailable takes the place of the add form for an
@@ -216,25 +241,25 @@ templ accountIdentityForm(data models.AccountIdentitiesData) {
 		hx-swap="outerHTML"
 		data-account-identity-form
 	>
-		<div class="flex items-center justify-between gap-3">
-			<h3 class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+		<div class="flex min-w-0 items-center gap-2">
+			<button
+				type="button"
+				class="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+				aria-label="Back to the identities"
+				hx-get={ accountIdentitiesPath(data.Account.ID, "/panel") }
+				hx-target="#account-identities-panel"
+				hx-swap="outerHTML"
+				data-account-identity-back
+			>
+				@icon.ArrowLeft(icon.Props{Class: "size-4"})
+			</button>
+			<h3 class="min-w-0 truncate text-xs font-semibold uppercase tracking-wider text-muted-foreground">
 				if editing.ID == "" {
 					Add an identity
 				} else {
 					Edit { editing.Email }
 				}
 			</h3>
-			if editing.ID != "" {
-				<button
-					type="button"
-					class="text-xs text-muted-foreground hover:text-foreground"
-					hx-get={ accountIdentitiesPath(data.Account.ID, "/panel") }
-					hx-target="#account-identities-panel"
-					hx-swap="outerHTML"
-				>
-					Cancel
-				</button>
-			}
 		</div>
 		if !fromProvider && len(data.CatchAllDomains) > 0 {
 			<p class="text-xs text-muted-foreground" data-account-identity-catch-all>The server lets this account send from any address at { strings.Join(data.CatchAllDomains, ", ") }, so identities at { identityDomainsWord(data.CatchAllDomains) } can send through the account's server.</p>

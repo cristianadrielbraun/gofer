@@ -326,11 +326,43 @@ document.addEventListener("htmx:xhr:progress", function (event) {
 })
 
 // An identity's SMTP server fields show while "Another SMTP server" is chosen.
+// They open and close smoothly, and the dialog grows and shrinks with them.
 function toggleIdentitySMTP(input) {
   var fieldset = input && input.closest ? input.closest("[data-identity-send-through]") : null
   var fields = fieldset ? fieldset.querySelector("[data-identity-smtp-fields]") : null
   if (!fields) return
-  fields.classList.toggle("hidden", !(input.checked && input.value === "smtp"))
+  var show = input.checked && input.value === "smtp"
+  if (fields._sendThroughAnimation) {
+    // A change of mind midway: the earlier animation no longer decides.
+    var earlier = fields._sendThroughAnimation
+    fields._sendThroughAnimation = null
+    earlier.cancel()
+    fields.style.overflow = ""
+  }
+  if (show === !fields.classList.contains("hidden")) return
+  fields.classList.remove("hidden")
+  if (!fields.animate || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    fields.classList.toggle("hidden", !show)
+    return
+  }
+  var style = getComputedStyle(fields)
+  var open = {
+    height: fields.offsetHeight + "px", opacity: 1,
+    marginTop: style.marginTop, paddingTop: style.paddingTop, paddingBottom: style.paddingBottom,
+    borderTopWidth: style.borderTopWidth, borderBottomWidth: style.borderBottomWidth,
+  }
+  var closed = { height: "0px", opacity: 0, marginTop: "0px", paddingTop: "0px", paddingBottom: "0px", borderTopWidth: "0px", borderBottomWidth: "0px" }
+  fields.style.overflow = "hidden"
+  var animation = fields.animate(show ? [closed, open] : [open, closed], { duration: 220, easing: "ease" })
+  fields._sendThroughAnimation = animation
+  function settle() {
+    if (fields._sendThroughAnimation !== animation) return
+    fields._sendThroughAnimation = null
+    fields.style.overflow = ""
+    fields.classList.toggle("hidden", !show)
+  }
+  animation.onfinish = settle
+  animation.oncancel = settle
 }
 
 function toggleUnencryptedTransportWarning(input) {
@@ -1468,6 +1500,34 @@ document.addEventListener("htmx:afterSettle", function (e) {
   if (e.target && e.target.querySelector && e.target.querySelector("#account-identities-dialog") && window.tui && window.tui.dialog) {
     setTimeout(function () { window.tui.dialog.open("account-identities-dialog") }, 20)
   }
+})
+
+// Switching the identities dialog between its list and its form resizes the
+// dialog smoothly, as the calendar's dialog does, rather than jumping.
+document.body.addEventListener("htmx:beforeSwap", function (e) {
+  var target = e.detail && e.detail.target
+  var xhr = e.detail && e.detail.xhr
+  if (!xhr || !target || target.id !== "account-identities-panel" || !e.detail.shouldSwap) return
+  var content = target.closest("[data-tui-dialog-content]")
+  if (content) xhr.goferIdentitiesBounds = content.getBoundingClientRect()
+})
+
+document.body.addEventListener("htmx:afterSwap", function (e) {
+  var xhr = e.detail && e.detail.xhr
+  if (!xhr || !xhr.goferIdentitiesBounds || typeof flipDialogResize !== "function") return
+  var from = xhr.goferIdentitiesBounds
+  xhr.goferIdentitiesBounds = null
+  var content = document.querySelector("#account-identities-dialog [data-tui-dialog-content]")
+  if (!content) return
+  // Measure the new size without templUI's transition-all in flight.
+  var transition = content.style.transitionProperty
+  content.style.transitionProperty = "none"
+  var to = content.getBoundingClientRect()
+  content.style.transitionProperty = transition
+  flipDialogResize(content, from, to, function () {
+    var field = content.querySelector("[data-account-identity-form] input:not([type=hidden]):not([readonly])")
+    if (field) field.focus({ preventScroll: true })
+  })
 })
 
 // htmx leaves the page as it was when a request fails, so the About page's

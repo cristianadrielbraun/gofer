@@ -231,6 +231,8 @@ type AccountIdentitiesData struct {
 	Unusable               map[string]bool
 	// SMTPTest is the outcome of testing the form's SMTP server.
 	SMTPTest *ConnectionTestResult
+	// Adding shows the form for a new identity in place of the list.
+	Adding bool
 }
 
 type AccountSignatureData struct {

@@ -85,6 +85,7 @@ func (h *Handler) handleAccountIdentitiesPanel(w http.ResponseWriter, r *http.Re
 	if !ok {
 		return
 	}
+	data.Adding = r.URL.Query().Get("add") != "" && data.CanAddIdentities
 	if id := strings.TrimSpace(r.URL.Query().Get("edit")); id != "" {
 		index := slices.IndexFunc(data.Identities, func(identity models.Identity) bool { return identity.ID == id })
 		if index < 0 {
@@ -158,6 +159,7 @@ func (h *Handler) handleSaveAccountIdentity(w http.ResponseWriter, r *http.Reque
 			data.Error = saveErr.Error()
 		}
 		data.Editing = identity
+		data.Adding = identity.ID == ""
 		if identity.ID != "" {
 			if index := slices.IndexFunc(data.Identities, func(i models.Identity) bool { return i.ID == identity.ID }); index >= 0 {
 				data.Editing.Source = data.Identities[index].Source

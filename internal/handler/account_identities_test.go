@@ -184,9 +184,15 @@ func TestRefreshAccountIdentities(t *testing.T) {
 func TestIdentitiesDialogFollowsWhatTheProviderAllows(t *testing.T) {
 	h, db := newAccountOwnershipTestHandler(t)
 	account := map[string]string{"id": "victim-account"}
-	manage := func() string {
+	// list is the dialog as it opens; addForm the form its Add identity
+	// button shows.
+	list := func() string {
 		t.Helper()
 		return identityRequest(t, h, h.handleManageAccountIdentities, http.MethodGet, "/api/accounts/victim-account/identities/manage", account, nil, true).Body.String()
+	}
+	addForm := func() string {
+		t.Helper()
+		return identityRequest(t, h, h.handleAccountIdentitiesPanel, http.MethodGet, "/api/accounts/victim-account/identities/panel?add=1", account, nil, true).Body.String()
 	}
 	// accountChoice is the radio for the account's server, as " disabled"
 	// when it is and "" when it isn't.
@@ -199,8 +205,12 @@ func TestIdentitiesDialogFollowsWhatTheProviderAllows(t *testing.T) {
 		end := strings.Index(body[at:], ">")
 		return regexp.MustCompile(`\sdisabled[\s/>]`).FindString(body[at : at+end+1])
 	}
-	body := manage()
-	if !strings.Contains(body, "data-account-identity-form") || !strings.Contains(body, "data-identity-send-through") || accountChoice(body) != "" {
+	body := list()
+	if !strings.Contains(body, "data-account-identity-add") || strings.Contains(body, "data-account-identity-form") {
+		t.Fatalf("dialog opens on = %q", body)
+	}
+	body = addForm()
+	if !strings.Contains(body, "data-account-identity-form") || !strings.Contains(body, "data-identity-send-through") || accountChoice(body) != "" || strings.Contains(body, "data-account-identity-add") {
 		t.Fatal("IMAP account cannot add identities through either server")
 	}
 
@@ -212,12 +222,14 @@ func TestIdentitiesDialogFollowsWhatTheProviderAllows(t *testing.T) {
 	if _, err := db.Write().Exec(`INSERT INTO account_identities (id, account_id, email) VALUES ('idn-old', 'victim-account', 'old@example.com')`); err != nil {
 		t.Fatal(err)
 	}
-	body = manage()
-	if !strings.Contains(body, "data-account-identity-form") || accountChoice(body) == "" || !strings.Contains(body, "Gmail sends only from addresses it lists") || !strings.Contains(body, "Gmail sends this as owner@example.com") {
-		t.Fatalf("Gmail dialog = %q", body)
+	if body := list(); !strings.Contains(body, "Gmail sends this as owner@example.com") || !strings.Contains(body, "data-account-identity-add") {
+		t.Fatalf("Gmail list = %q", body)
+	}
+	if body := addForm(); accountChoice(body) == "" || !strings.Contains(body, "Gmail sends only from addresses it lists") {
+		t.Fatalf("Gmail form = %q", body)
 	}
 	rec := identityRequest(t, h, h.handleSaveAccountIdentity, http.MethodPost, "/api/accounts/victim-account/identities", account, url.Values{"email": {"new@example.com"}, "send_through": {"account"}}, true)
-	if !strings.Contains(rec.Body.String(), "does not let this account send as new@example.com") {
+	if !strings.Contains(rec.Body.String(), "does not let this account send as new@example.com") || !strings.Contains(rec.Body.String(), "data-account-identity-form") {
 		t.Fatalf("Gmail add through the account = %q", rec.Body.String())
 	}
 
@@ -225,21 +237,27 @@ func TestIdentitiesDialogFollowsWhatTheProviderAllows(t *testing.T) {
 	if _, err := db.Write().Exec(`UPDATE accounts SET provider = 'jmap' WHERE id = 'victim-account'`); err != nil {
 		t.Fatal(err)
 	}
-	if body := manage(); accountChoice(body) == "" || !strings.Contains(body, "The server does not list this address") {
-		t.Fatalf("JMAP dialog without domains = %q", body)
+	if body := addForm(); accountChoice(body) == "" {
+		t.Fatalf("JMAP form without domains = %q", body)
+	}
+	if body := list(); !strings.Contains(body, "The server does not list this address") {
+		t.Fatalf("JMAP list without domains = %q", body)
 	}
 	if err := db.ReplaceProviderIdentities(t.Context(), "victim-account", []models.Identity{{ProviderIdentityID: "all", Email: "*@example.com"}}); err != nil {
 		t.Fatal(err)
 	}
-	if body := manage(); accountChoice(body) != "" || !strings.Contains(body, "any address at example.com") || strings.Contains(body, "data-account-identity-unusable") {
-		t.Fatalf("JMAP dialog with a domain = %q", body)
+	if body := addForm(); accountChoice(body) != "" || !strings.Contains(body, "any address at example.com") {
+		t.Fatalf("JMAP form with a domain = %q", body)
+	}
+	if body := list(); strings.Contains(body, "data-account-identity-unusable") {
+		t.Fatalf("JMAP list with a domain = %q", body)
 	}
 
 	// Outlook: no server of an identity's own.
 	if _, err := db.Write().Exec(`UPDATE accounts SET provider = 'outlook' WHERE id = 'victim-account'`); err != nil {
 		t.Fatal(err)
 	}
-	if body := manage(); strings.Contains(body, "data-identity-send-through") {
+	if body := addForm(); strings.Contains(body, "data-identity-send-through") {
 		t.Fatal("Outlook account offers an identity's own server")
 	}
 }
