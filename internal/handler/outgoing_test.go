@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -120,10 +121,32 @@ func TestHandleComposePersistsMIMEBeforeReturningAccepted(t *testing.T) {
 	}
 }
 
+// gmailOutgoingFake is a fake Gmail API. It keeps the last MIME sent and the
+// messages filed without sending.
+type gmailOutgoingFake struct {
+	mu        sync.Mutex
+	delivered []byte
+	filed     []gmailFiledCopy
+	// loseFileAnswer files the next message but answers 502, as a gateway
+	// timing out after Gmail stored it.
+	loseFileAnswer bool
+}
+
+type gmailFiledCopy struct {
+	raw    string
+	labels []string
+}
+
+func (f *gmailOutgoingFake) filedCopies() []gmailFiledCopy {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]gmailFiledCopy(nil), f.filed...)
+}
+
 // newGmailOutgoingTestHandler is a handler with a Gmail account "acc"
-// (user@example.com) whose sends go to a fake Gmail API. The API keeps the
-// last MIME sent, and reports the sent message as from gmailFrom.
-func newGmailOutgoingTestHandler(t *testing.T, gmailFrom string) (*Handler, *storage.DB, *[]byte) {
+// (user@example.com) whose mail goes to a fake Gmail API, which reports a
+// sent message as from gmailFrom.
+func newGmailOutgoingTestHandler(t *testing.T, gmailFrom string) (*Handler, *storage.DB, *gmailOutgoingFake) {
 	t.Helper()
 	ctx := context.Background()
 	db, err := storage.New(filepath.Join(t.TempDir(), "gofer.db"))
@@ -153,11 +176,41 @@ func newGmailOutgoingTestHandler(t *testing.T, gmailFrom string) (*Handler, *sto
 	}
 	h := New(db, accountStore, mailpkg.NewSyncOrchestrator(db, accountStore, nil, nil), store.NewBlobStore(filepath.Join(t.TempDir(), "blobs")), auth.NewManager(&auth.Config{}, db), "", mailCredentials)
 
-	delivered := new([]byte)
+	fake := &gmailOutgoingFake{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if r.Method == http.MethodGet && r.URL.Path == "/users/me/messages/gmail-sent-id" {
 			_, _ = fmt.Fprintf(w, `{"id":"gmail-sent-id","payload":{"headers":[{"name":"From","value":%q}]}}`, gmailFrom)
+			return
+		}
+		fake.mu.Lock()
+		defer fake.mu.Unlock()
+		if r.Method == http.MethodGet && r.URL.Path == "/users/me/messages" {
+			// A search by Message-ID among the filed messages.
+			id := strings.TrimSuffix(strings.TrimPrefix(r.URL.Query().Get("q"), "rfc822msgid:<"), ">")
+			found := []map[string]string{}
+			for i, filed := range fake.filed {
+				if strings.Contains(strings.ToLower(filed.raw), strings.ToLower("Message-ID: <"+id+">")) {
+					found = append(found, map[string]string{"id": fmt.Sprintf("gmail-filed-%d", i+1)})
+				}
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"messages": found})
+			return
+		}
+		if r.Method == http.MethodPost && r.URL.Path == "/users/me/messages" {
+			var payload struct {
+				Raw      string   `json:"raw"`
+				LabelIDs []string `json:"labelIds"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&payload)
+			raw, _ := base64.RawURLEncoding.DecodeString(payload.Raw)
+			fake.filed = append(fake.filed, gmailFiledCopy{raw: string(raw), labels: payload.LabelIDs})
+			if fake.loseFileAnswer {
+				fake.loseFileAnswer = false
+				http.Error(w, "bad gateway", http.StatusBadGateway)
+				return
+			}
+			_, _ = fmt.Fprintf(w, `{"id":"gmail-filed-%d"}`, len(fake.filed))
 			return
 		}
 		if r.Method != http.MethodPost || r.URL.Path != "/users/me/messages/send" {
@@ -173,19 +226,19 @@ func newGmailOutgoingTestHandler(t *testing.T, gmailFrom string) (*Handler, *sto
 		if err != nil {
 			t.Errorf("decode MIME: %v", err)
 		}
-		*delivered = raw
+		fake.delivered = raw
 		_, _ = w.Write([]byte(`{"id":"gmail-sent-id"}`))
 	}))
 	t.Cleanup(server.Close)
 	previousBase := gmailAPIBaseURL
 	gmailAPIBaseURL = server.URL
 	t.Cleanup(func() { gmailAPIBaseURL = previousBase })
-	return h, db, delivered
+	return h, db, fake
 }
 
 func TestOutgoingWorkerDeliversStoredGmailSnapshot(t *testing.T) {
 	ctx := context.Background()
-	h, db, delivered := newGmailOutgoingTestHandler(t, "user@example.com")
+	h, db, fake := newGmailOutgoingTestHandler(t, "user@example.com")
 	events := h.syncer.Events().Subscribe()
 	defer h.syncer.Events().Unsubscribe(events)
 
@@ -203,8 +256,8 @@ func TestOutgoingWorkerDeliversStoredGmailSnapshot(t *testing.T) {
 
 	h.runDueOutgoingSends(ctx)
 
-	if !strings.Contains(string(*delivered), "Subject: Stored snapshot") || !strings.Contains(string(*delivered), "Original body") || strings.Contains(string(*delivered), "Changed after queueing") {
-		t.Fatalf("delivered MIME = %q", string(*delivered))
+	if !strings.Contains(string(fake.delivered), "Subject: Stored snapshot") || !strings.Contains(string(fake.delivered), "Original body") || strings.Contains(string(fake.delivered), "Changed after queueing") {
+		t.Fatalf("delivered MIME = %q", string(fake.delivered))
 	}
 	completed, err := db.GetOutgoingSend(ctx, queued.ID)
 	if err != nil || completed.Status != storage.OutgoingSendSent || completed.SentMessageID != "<durable@example.com>" || completed.SentCopyStatus != storage.SentCopyNotRequired {

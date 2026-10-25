@@ -51,6 +51,9 @@ type providerActionAPI struct {
 	draftStatus, deleteDraftStatus int
 	// sentFrom is the From Gmail reports for a message it sent.
 	sentFrom string
+	// filed, once set, keeps the messages Gmail files without sending, per
+	// owner, and answers searches for them.
+	filed map[string][]string
 }
 
 func (a *providerActionAPI) unblock() { a.releaseOnce.Do(func() { close(a.release) }) }
@@ -119,6 +122,25 @@ func (a *providerActionAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if a.serveDraftLocked(w, r, owner, wire, payload) {
+		return
+	}
+	if a.filed != nil && r.URL.Path == "/users/me/messages" {
+		if r.Method == "POST" {
+			var encoded string
+			_ = json.Unmarshal(payload["raw"], &encoded)
+			raw, _ := base64.RawURLEncoding.DecodeString(encoded)
+			a.filed[owner] = append(a.filed[owner], string(raw))
+			_ = json.NewEncoder(w).Encode(map[string]string{"id": fmt.Sprintf("filed-%d", len(a.filed[owner]))})
+			return
+		}
+		id := strings.TrimPrefix(r.URL.Query().Get("q"), "rfc822msgid:")
+		found := []map[string]string{}
+		for i, raw := range a.filed[owner] {
+			if strings.Contains(strings.ToLower(raw), strings.ToLower("Message-Id: "+id)) {
+				found = append(found, map[string]string{"id": fmt.Sprintf("filed-%d", i+1)})
+			}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"messages": found})
 		return
 	}
 	switch {

@@ -411,9 +411,7 @@ func (h *Handler) deliverOutgoingSend(parent context.Context, send storage.Outgo
 	if send.Transport == storage.OutgoingTransportJMAP {
 		h.cacheJMAPSentMessageID(parent, send.AccountID, msg, providerMessageID)
 	}
-	// Through an identity's own server, only an IMAP account's Sent takes
-	// a copy so far.
-	needsSentCopy := send.Transport == storage.OutgoingTransportSMTP && (!snapshot.IdentitySMTP || cfg.Provider == providers.ProviderIMAP)
+	needsSentCopy := send.Transport == storage.OutgoingTransportSMTP
 	if err := h.db.CompleteOutgoingSend(parent, send.ID, msg.MessageID, needsSentCopy); err != nil {
 		log.Printf("outgoing-send: complete %s: %v", send.ID, err)
 		return
@@ -465,6 +463,11 @@ func (h *Handler) reconcileSentCopy(parent context.Context, send storage.Outgoin
 	cfg, err := h.accountStore.GetConfig(parent, send.AccountID)
 	if err != nil {
 		h.finishSentCopy(send, storage.SentCopyFailed, fmt.Errorf("account not found"))
+		return
+	}
+	if cfg.Provider != providers.ProviderIMAP {
+		// Sent through an identity's own server; the provider files it.
+		h.fileProviderSentCopy(parent, send, cfg, folderID)
 		return
 	}
 	password, err := h.resolvePassword(parent, cfg, send.AccountID)
@@ -528,6 +531,48 @@ func (h *Handler) reconcileSentCopy(parent context.Context, send storage.Outgoin
 		}
 	}
 	h.completeSentCopy(parent, send, folderID, uid, result.UIDValidity)
+}
+
+// fileProviderSentCopy files a message sent through an identity's own server
+// in a Gmail or JMAP account's Sent, and links the local Sent copy to it.
+func (h *Handler) fileProviderSentCopy(ctx context.Context, send storage.OutgoingSend, cfg *models.AccountConfig, folderID string) {
+	var snapshot outgoingMessageSnapshot
+	if err := json.Unmarshal(send.MessageJSON, &snapshot); err != nil {
+		h.finishSentCopy(send, storage.SentCopyFailed, fmt.Errorf("decode Sent copy message: %w", err))
+		return
+	}
+	var providerID string
+	var err error
+	switch cfg.Provider {
+	case providers.ProviderGmail:
+		var token string
+		if h.mailCredentials() == nil {
+			err = errors.New("google oauth not configured")
+		} else if token, err = h.mailCredentials().GetOAuthTokenForAccount(ctx, send.AccountID); err == nil {
+			request := func(ctx context.Context, method, endpoint string, body, out any) error {
+				return doGoogleJSON(ctx, method, endpoint, token, body, out)
+			}
+			providerID, err = mailpkg.FileGmailSentCopy(ctx, gmailAPIBaseURL, request, send.MIMEData, snapshot.MessageID)
+		}
+	case providers.ProviderJMAP:
+		var password string
+		if password, err = h.accountStore.DecryptPassword(ctx, send.AccountID); err == nil {
+			providerID, err = mailpkg.FileJMAPSentCopy(ctx, cfg, password, send.MIMEData, snapshot.MessageID, snapshot.Date)
+		}
+	default:
+		err = fmt.Errorf("Gofer can't keep a Sent copy in a %s account", cfg.Provider)
+	}
+	if err != nil {
+		// Filing looks for an earlier copy first, so trying again is safe.
+		h.finishSentCopy(send, storage.SentCopyAmbiguous, err)
+		return
+	}
+	if localID, err := h.db.GetMessageLocalIDByInternetIDInternal(ctx, send.AccountID, snapshot.MessageID); err == nil && localID > 0 {
+		if err := h.db.SetMessageProviderMessageID(ctx, localID, providerID); err != nil {
+			log.Printf("outgoing-send: link Sent copy account=%s message=%d: %v", send.AccountID, localID, err)
+		}
+	}
+	h.completeSentCopy(ctx, send, folderID, 0, 0)
 }
 
 func (h *Handler) completeSentCopy(ctx context.Context, send storage.OutgoingSend, folderID string, uid, uidValidity uint32) {

@@ -166,6 +166,9 @@ func TestUserIdentitySendsThroughItsOwnServer(t *testing.T) {
 
 func TestUserGmailIdentitySendsThroughItsOwnServer(t *testing.T) {
 	f, api := newProviderSendFixture(t, "gmail")
+	api.mu.Lock()
+	api.filed = map[string][]string{}
+	api.mu.Unlock()
 	port, senders := recordingSMTPSenders(t)
 	if err := f.system.AddPlaintextTransportException(t.Context(), "smtp", "127.0.0.1", port, "administrator"); err != nil {
 		t.Fatal(err)
@@ -188,12 +191,31 @@ func TestUserGmailIdentitySendsThroughItsOwnServer(t *testing.T) {
 	}); err != nil || shop.ID == "" {
 		t.Fatalf("identity = %+v, %v", shop, err)
 	}
-	rec := f.request("alice", "POST", "/compose", url.Values{"account_id": {alice}, "identity_id": {shop.ID}, "to": {"recipient@example.test"}, "subject": {"From the shop"}, "body": {"Hello"}}.Encode())
-	if rec.Code != 202 {
-		t.Fatalf("compose = %d %s", rec.Code, rec.Body.String())
-	}
-	waitUserIMAP(t, func() bool { return len(senders()) == 1 })
-	if got := senders(); got[0] != "<alice-shop@example.com>" || api.acceptedCount("alice") != 0 {
+	sent := f.compose(t, "alice", "/compose", url.Values{"account_id": {alice}, "identity_id": {shop.ID}, "to": {"recipient@example.test"}, "subject": {"From the shop"}, "body": {"Hello"}})
+	waitUserIMAP(t, func() bool {
+		return f.sendStatus(t, "alice", sent["send_id"].(string)).SentCopyStatus == storage.SentCopyComplete
+	})
+	if got := senders(); len(got) != 1 || got[0] != "<alice-shop@example.com>" || api.acceptedCount("alice") != 0 {
 		t.Fatalf("own server senders = %q, Gmail sends = %d", got, api.acceptedCount("alice"))
+	}
+	// Gmail filed the copy without sending it, and the local Sent copy is
+	// linked to it.
+	api.mu.Lock()
+	filed := append([]string(nil), api.filed["alice"]...)
+	api.mu.Unlock()
+	if len(filed) != 1 || !strings.Contains(filed[0], "Subject: From the shop") {
+		t.Fatalf("filed = %q", filed)
+	}
+	if err := f.routing.WithUser(t.Context(), "alice", func(db *storage.DB) error {
+		var remote string
+		if err := db.Read().QueryRow(`SELECT COALESCE(s.remote_message_id,'') FROM message_folder_state s JOIN folders f ON f.id=s.folder_id JOIN messages m ON m.id=s.message_id WHERE f.role='sent' AND m.subject='From the shop'`).Scan(&remote); err != nil {
+			return err
+		}
+		if remote != "filed-1" {
+			t.Fatalf("local Sent copy linked to %q", remote)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
 	}
 }

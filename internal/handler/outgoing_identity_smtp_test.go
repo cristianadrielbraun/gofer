@@ -140,7 +140,7 @@ func queueAsIdentity(t *testing.T, h *Handler, accountID string, identity models
 
 func TestGmailIdentitySendsThroughItsOwnServer(t *testing.T) {
 	ctx := context.Background()
-	h, db, gmailDelivered := newGmailOutgoingTestHandler(t, "user@example.com")
+	h, db, gmail := newGmailOutgoingTestHandler(t, "user@example.com")
 	server := newRecordingSMTPServer(t)
 	identity := ownSMTPIdentity(t, h, "default", "acc", server)
 
@@ -154,12 +154,39 @@ func TestGmailIdentitySendsThroughItsOwnServer(t *testing.T) {
 	if len(sent) != 1 || sent[0].login != "shop-login:shop-secret" || sent[0].from != "<shop@example.org>" || !strings.Contains(sent[0].data, `From: "Shop" <shop@example.org>`) {
 		t.Fatalf("own server got %+v", sent)
 	}
-	if len(*gmailDelivered) != 0 {
+	if len(gmail.delivered) != 0 {
 		t.Fatal("Gmail was asked to send it too")
 	}
 	completed, err := db.GetOutgoingSend(ctx, queued.ID)
-	if err != nil || completed.Status != storage.OutgoingSendSent || completed.SentCopyStatus != storage.SentCopyNotRequired {
+	if err != nil || completed.Status != storage.OutgoingSendSent || completed.SentCopyStatus != storage.SentCopyPending {
 		t.Fatalf("completed = %+v, %v", completed, err)
+	}
+
+	// Gmail files the copy in Sent without sending it. Its first answer is
+	// lost; the retry finds the copy rather than filing a second one, and
+	// the local copy is linked to it.
+	gmail.mu.Lock()
+	gmail.loseFileAnswer = true
+	gmail.mu.Unlock()
+	h.runDueSentCopies(ctx)
+	if completed, _ = db.GetOutgoingSend(ctx, queued.ID); completed.SentCopyStatus != storage.SentCopyAmbiguous {
+		t.Fatalf("Sent copy after a lost answer = %s", completed.SentCopyStatus)
+	}
+	if _, err := db.Write().Exec(`UPDATE outgoing_sends SET sent_copy_next_attempt_at = CURRENT_TIMESTAMP WHERE id = ?`, queued.ID); err != nil {
+		t.Fatal(err)
+	}
+	h.runDueSentCopies(ctx)
+	filed := gmail.filedCopies()
+	if len(filed) != 1 || !strings.Contains(filed[0].raw, "Subject: From the shop") || len(filed[0].labels) != 1 || filed[0].labels[0] != "SENT" {
+		t.Fatalf("filed = %+v", filed)
+	}
+	completed, _ = db.GetOutgoingSend(ctx, queued.ID)
+	if completed.SentCopyStatus != storage.SentCopyComplete {
+		t.Fatalf("Sent copy = %s %q", completed.SentCopyStatus, completed.SentCopyLastError)
+	}
+	var providerID string
+	if err := db.Read().QueryRow(`SELECT COALESCE(s.remote_message_id, '') FROM message_folder_state s JOIN messages m ON m.id = s.message_id WHERE m.internet_message_id = ?`, "<From-the-shop@example.org>").Scan(&providerID); err != nil || providerID != "gmail-filed-1" {
+		t.Fatalf("local Sent copy linked to %q, %v", providerID, err)
 	}
 }
 
