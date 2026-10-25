@@ -131,7 +131,7 @@ func InspectUserStorageMigration(ctx context.Context, sourcePath string) (UserSt
 }
 
 func migrationSharedVersionSupported(version int) bool {
-	return version >= 105 && version <= 127
+	return version >= 105 && version <= 128
 }
 
 // These recognized shared schemas differ only in the explicitly handled push
@@ -493,6 +493,9 @@ func requireSharedMigrationTables(ctx context.Context, present map[string]bool, 
 			}
 			if name == "message_folder_copies" && version < 120 {
 				continue // Added empty by migrateV119ToV120.
+			}
+			if name == "account_identities" && version < 128 {
+				continue // Added empty by migrateV127ToV128.
 			}
 			if name == "message_label_copies" && version < 121 {
 				continue // Added empty by migrateV120ToV121.

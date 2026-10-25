@@ -60,6 +60,8 @@ func seedV85MailboxOAuthSchema(t *testing.T, path, accounts, credentials string)
 		-- The auth-only fixture omits mail payloads, but later calendar-reply
 		-- migrations reference the outgoing queue that already existed in v85.
 		CREATE TABLE outgoing_sends (id TEXT PRIMARY KEY);
+		-- Signatures existed since v15; account identities reference them.
+		CREATE TABLE signatures (id TEXT PRIMARY KEY);
 	` + accounts + credentials); err != nil {
 		_ = db.Close()
 		t.Fatalf("seed v85 mailbox OAuth schema: %v", err)

@@ -159,6 +159,26 @@ type Signature struct {
 	UpdatedAt string `json:"updated_at,omitempty"`
 }
 
+// Identity is a further From address an account sends as. The account's own
+// address is not an Identity. Provider identities come from the provider and
+// only their signature is set in Gofer; manual ones are wholly the user's.
+type Identity struct {
+	ID                 string `json:"id"`
+	AccountID          string `json:"account_id"`
+	Name               string `json:"name"`
+	Email              string `json:"email"`
+	ReplyTo            string `json:"reply_to,omitempty"`
+	SignatureID        string `json:"signature_id,omitempty"`
+	Source             string `json:"source"`
+	ProviderIdentityID string `json:"provider_identity_id,omitempty"`
+	SortOrder          int    `json:"sort_order"`
+}
+
+const (
+	IdentitySourceManual   = "manual"
+	IdentitySourceProvider = "provider"
+)
+
 type AccountSignatureSettings struct {
 	AccountID          string `json:"account_id"`
 	NewSignatureID     string `json:"new_signature_id"`
