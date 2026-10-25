@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/cristianadrielbraun/gofer/internal/mail"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 	"github.com/cristianadrielbraun/gofer/internal/views"
@@ -39,7 +40,10 @@ func (h *Handler) loadAccountIdentitiesData(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "failed to load signatures", http.StatusInternalServerError)
 		return models.AccountIdentitiesData{}, false
 	}
-	return models.AccountIdentitiesData{Account: *account, Identities: identities, Signatures: signatures}, true
+	return models.AccountIdentitiesData{
+		Account: *account, Identities: identities, Signatures: signatures,
+		ProviderListsIdentities: mail.ProviderListsIdentities(account.Provider),
+	}, true
 }
 
 // handleManageAccountIdentities renders the identities dialog of an account.
@@ -185,4 +189,51 @@ func (h *Handler) handleMoveAccountIdentity(w http.ResponseWriter, r *http.Reque
 		}
 	}
 	h.renderAccountIdentitiesPanel(w, r, data)
+}
+
+// handleRefreshAccountIdentities asks the account's provider again for the
+// addresses it may send from, then shows the dialog's list.
+func (h *Handler) handleRefreshAccountIdentities(w http.ResponseWriter, r *http.Request) {
+	accountID := r.PathValue("id")
+	if !h.requireOwnedAccount(w, r, accountID) {
+		return
+	}
+	var err error
+	if h.syncer == nil {
+		err = errors.New("mail sync is not running")
+	} else {
+		err = h.syncer.RefreshProviderIdentities(r.Context(), accountID)
+	}
+	h.refreshedAccountIdentitiesPanel(err)(w, r)
+}
+
+// handleUserRefreshAccountIdentities is handleRefreshAccountIdentities for an
+// owner whose mail lives in their own store.
+func (h *Handler) handleUserRefreshAccountIdentities(w http.ResponseWriter, r *http.Request) {
+	err := h.userIMAP.RefreshProviderIdentities(r.Context(), h.userID(r.Context()), r.PathValue("id"))
+	if errors.Is(err, storage.ErrAccountRoute) || errors.Is(err, sql.ErrNoRows) {
+		http.NotFound(w, r)
+		return
+	}
+	h.userSignatureHandler(func(h *Handler) http.HandlerFunc { return h.refreshedAccountIdentitiesPanel(err) })(w, r)
+}
+
+// refreshedAccountIdentitiesPanel shows the identities after asking the
+// provider, with why that failed if it did.
+func (h *Handler) refreshedAccountIdentitiesPanel(refreshErr error) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		data, ok := h.loadAccountIdentitiesData(w, r)
+		if !ok {
+			return
+		}
+		switch {
+		case refreshErr == nil:
+		case errors.Is(refreshErr, mail.ErrProviderIdentitiesUnsupported):
+			data.RefreshError = "This provider does not list the addresses it can send from."
+		default:
+			log.Printf("refresh identities account=%s: %v", data.Account.ID, refreshErr)
+			data.RefreshError = "The provider could not be asked for its addresses. Try again later."
+		}
+		h.renderAccountIdentitiesPanel(w, r, data)
+	}
 }

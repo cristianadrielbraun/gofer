@@ -2248,7 +2248,7 @@ func (o *SyncOrchestrator) SyncAccount(ctx context.Context, accountID string) bo
 	return true
 }
 
-func (o *SyncOrchestrator) syncAccount(ctx context.Context, accountID string, includeIDLEFolders bool) error {
+func (o *SyncOrchestrator) syncAccount(ctx context.Context, accountID string, includeIDLEFolders bool) (err error) {
 	// Syncing yields to what the reader is doing on the same mailbox.
 	ctx = providerquota.Background(ctx)
 	if o.imapScope == nil && !o.db.IsEmailSyncEnabled(ctx, accountID) {
@@ -2258,6 +2258,12 @@ func (o *SyncOrchestrator) syncAccount(ctx context.Context, accountID string, in
 	if err != nil {
 		return err
 	}
+	// The addresses the account may send from follow a sync that worked.
+	defer func() {
+		if err == nil {
+			o.syncProviderIdentities(ctx, accountID, cfg)
+		}
+	}()
 	if cfg.Provider == providers.ProviderJMAP {
 		if !providers.JMAPEnabled() {
 			// Paused while JMAP is turned off, with no error: the account

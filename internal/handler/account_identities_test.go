@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	mailpkg "github.com/cristianadrielbraun/gofer/internal/mail"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 )
 
@@ -142,5 +143,31 @@ func TestAccountIdentityRoutesRejectForeignAccounts(t *testing.T) {
 	}
 	if list, _ := db.ListAccountIdentities(ctx, "attacker", "attacker-account"); len(list) != 0 {
 		t.Fatalf("attacker gained identities = %+v", list)
+	}
+}
+
+func TestRefreshAccountIdentities(t *testing.T) {
+	h, db := newAccountOwnershipTestHandler(t)
+	account := map[string]string{"id": "victim-account"}
+	// An IMAP account offers no refresh, and asking anyway says why.
+	rec := identityRequest(t, h, h.handleManageAccountIdentities, http.MethodGet, "/api/accounts/victim-account/identities/manage", account, nil, true)
+	if strings.Contains(rec.Body.String(), "data-account-identities-refresh") {
+		t.Fatal("IMAP account offers a provider refresh")
+	}
+	h.syncer = mailpkg.NewSyncOrchestrator(db, h.accountStore, h.blobStore, nil)
+	rec = identityRequest(t, h, h.handleRefreshAccountIdentities, http.MethodPost, "/api/accounts/victim-account/identities/refresh", account, nil, true)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "does not list the addresses") {
+		t.Fatalf("refresh IMAP = %d %q", rec.Code, rec.Body.String())
+	}
+	if rec := identityRequest(t, h, h.handleRefreshAccountIdentities, http.MethodPost, "/api/accounts/victim-account/identities/refresh", account, nil, false); rec.Code != http.StatusNotFound {
+		t.Fatalf("refresh another user's account = %d", rec.Code)
+	}
+
+	if _, err := db.Write().Exec(`UPDATE accounts SET provider = 'gmail' WHERE id = 'victim-account'`); err != nil {
+		t.Fatal(err)
+	}
+	rec = identityRequest(t, h, h.handleManageAccountIdentities, http.MethodGet, "/api/accounts/victim-account/identities/manage", account, nil, true)
+	if !strings.Contains(rec.Body.String(), "Refresh from Gmail") {
+		t.Fatal("Gmail account offers no provider refresh")
 	}
 }

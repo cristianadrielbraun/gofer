@@ -200,6 +200,11 @@ type AccountIdentitiesData struct {
 	Signatures []Signature
 	Editing    Identity
 	Error      string
+	// ProviderListsIdentities is set when the account's provider can be
+	// asked for the addresses it may send from.
+	ProviderListsIdentities bool
+	// RefreshError says why asking the provider failed.
+	RefreshError string
 }
 
 type AccountSignatureData struct {

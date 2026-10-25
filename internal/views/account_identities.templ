@@ -57,7 +57,24 @@ templ AccountIdentitiesPanel(data models.AccountIdentitiesData) {
 					<p class="truncate text-sm font-medium">{ data.Account.Name } &lt;{ data.Account.Email }&gt;</p>
 					<p class="text-xs text-muted-foreground">The account's own address, set in Edit.</p>
 				</div>
+				if data.ProviderListsIdentities {
+					<button
+						type="button"
+						class="inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+						hx-post={ accountIdentitiesPath(data.Account.ID, "/refresh") }
+						hx-target="#account-identities-panel"
+						hx-swap="outerHTML"
+						hx-disabled-elt="this"
+						data-account-identities-refresh
+					>
+						@icon.RefreshCw(icon.Props{Class: "size-3.5"})
+						Refresh from { accountProviderName(data.Account.Provider) }
+					</button>
+				}
 			</div>
+			if data.RefreshError != "" {
+				<p class="border-b border-border/60 px-3 py-2 text-xs text-destructive" role="alert" data-account-identities-refresh-error>{ data.RefreshError }</p>
+			}
 			if len(data.Identities) == 0 {
 				<p class="p-4 text-center text-sm text-muted-foreground">No further identities yet.</p>
 			} else {

@@ -131,6 +131,7 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 				pattern != "POST /api/accounts/test" &&
 				pattern != "POST /api/accounts/{id}/test-changes" &&
 				pattern != "POST /api/accounts/{id}/test" &&
+				pattern != "POST /api/accounts/{id}/identities/refresh" &&
 				pattern != "POST /api/mail/sync/accounts/{id}/repair" &&
 				pattern != "GET /api/mail-operations" &&
 				pattern != "GET /settings/operations/content" &&
@@ -371,6 +372,7 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 		// Retain the earlier opt-in URL while the application uses /services.
 		private("POST /api/accounts/{id}/service", routed.handleUserEmailService)
 		private("POST /api/accounts/{id}/test", routed.handleUserTestAccount)
+		private("POST /api/accounts/{id}/identities/refresh", routed.handleUserRefreshAccountIdentities)
 		private("POST /api/mail/sync/accounts/{id}/repair", routed.handleUserRepairMailAccount)
 		private("POST /api/mail/sync", routed.handleUserManualSync)
 		private("POST /api/mail/sync/accounts/{id}", routed.handleUserManualSync)

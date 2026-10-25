@@ -332,12 +332,37 @@ func (db *DB) SetAccountIdentityOrderGuarded(ctx context.Context, userID, accoun
 // ones its provider reported, matched by ProviderIdentityID. Identities that
 // are gone are removed; signatures chosen in Gofer are kept; new ones go
 // last. Manual identities are untouched.
+//
+// Reported addresses Gofer cannot send as an identity are left out: the
+// account's own address, whole-domain ones such as *@example.com, ones that
+// are not an address, and ones a manual identity already has.
 func (db *DB) ReplaceProviderIdentities(ctx context.Context, accountID string, reported []models.Identity) error {
 	tx, err := db.Write().BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
+	var accountEmail string
+	if err := tx.QueryRowContext(ctx, `SELECT email_address FROM accounts WHERE id = ?`, accountID).Scan(&accountEmail); err != nil {
+		return err
+	}
+	taken := map[string]bool{strings.ToLower(strings.TrimSpace(accountEmail)): true}
+	rows, err := tx.QueryContext(ctx, `SELECT email FROM account_identities WHERE account_id = ? AND source = 'manual'`, accountID)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var email string
+		if err := rows.Scan(&email); err != nil {
+			rows.Close()
+			return err
+		}
+		taken[strings.ToLower(email)] = true
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
 	keep := make([]any, 0, len(reported)+1)
 	keep = append(keep, accountID)
 	placeholders := make([]string, 0, len(reported))
@@ -348,8 +373,15 @@ func (db *DB) ReplaceProviderIdentities(ctx context.Context, accountID string, r
 		}
 		email, replyTo, err := NormalizeIdentityAddresses(identity.Email, identity.ReplyTo)
 		if err != nil {
-			return err
+			// A bad Reply-To alone does not cost the address.
+			if email, replyTo, err = NormalizeIdentityAddresses(identity.Email, ""); err != nil {
+				continue
+			}
 		}
+		if taken[strings.ToLower(email)] {
+			continue
+		}
+		taken[strings.ToLower(email)] = true
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO account_identities (id, account_id, name, email, reply_to, source, provider_identity_id, sort_order)
 			VALUES (?, ?, ?, ?, ?, 'provider', ?, (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM account_identities WHERE account_id = ?))

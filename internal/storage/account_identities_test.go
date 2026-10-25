@@ -146,15 +146,15 @@ func TestReplaceProviderIdentities(t *testing.T) {
 	if err != nil {
 		t.Fatalf("save manual: %v", err)
 	}
+	// The account's own address, a whole domain, a non-address and one a
+	// manual identity has are left out.
 	if err := db.ReplaceProviderIdentities(ctx, "home", []models.Identity{
 		{ProviderIdentityID: "p1", Name: "Ana", Email: "hello@example.net"},
-		{ProviderIdentityID: "p2", Email: "*@example.org"},
-	}); err == nil {
-		t.Fatal("wildcard address accepted")
-	}
-	if err := db.ReplaceProviderIdentities(ctx, "home", []models.Identity{
-		{ProviderIdentityID: "p1", Name: "Ana", Email: "hello@example.net"},
-		{ProviderIdentityID: "p2", Email: "news@example.net"},
+		{ProviderIdentityID: "p2", Email: "news@example.net", ReplyTo: "not an address"},
+		{ProviderIdentityID: "own", Email: "ANA@example.net"},
+		{ProviderIdentityID: "domain", Email: "*@example.org"},
+		{ProviderIdentityID: "bad", Email: "nobody"},
+		{ProviderIdentityID: "dup", Email: "Old@example.net"},
 	}); err != nil {
 		t.Fatalf("first replace: %v", err)
 	}
