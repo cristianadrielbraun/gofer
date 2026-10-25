@@ -131,7 +131,7 @@ func InspectUserStorageMigration(ctx context.Context, sourcePath string) (UserSt
 }
 
 func migrationSharedVersionSupported(version int) bool {
-	return version >= 105 && version <= 128
+	return version >= 105 && version <= 129
 }
 
 // These recognized shared schemas differ only in the explicitly handled push
@@ -430,6 +430,8 @@ func migrationSourceColumns(ctx context.Context, tx *sql.Tx, table *UserStorageM
 		missing = []string{"deleted_at"}
 	} else if table.Name == "contact_profiles" && version < 123 {
 		missing = []string{"trashed_at"}
+	} else if table.Name == "account_identities" && version < 129 {
+		missing = []string{"smtp_host", "smtp_port", "smtp_tls_mode", "smtp_username", "encrypted_smtp_password"}
 	}
 	for _, name := range missing {
 		if actual[name] {

@@ -24,6 +24,9 @@ const (
 	passwordKindSMTP    = "smtp"
 	passwordKindCardDAV = "carddav"
 	passwordKindCalDAV  = "caldav"
+	// An identity's own SMTP password is bound to the identity as well:
+	// passwordKindIdentitySMTP + ":" + its id.
+	passwordKindIdentitySMTP = "identity-smtp"
 
 	// passwordsUpgradedMarker is written to the database header (SQLite's
 	// application_id, otherwise unused by Gofer) once old-format passwords have
@@ -104,10 +107,19 @@ var storedPasswordQueries = []struct {
 	{"account_caldav_configs", "encrypted_password", passwordKindCalDAV, `SELECT user_id, account_id, encrypted_password FROM account_caldav_configs WHERE encrypted_password IS NOT NULL`},
 }
 
+func identitySMTPPasswordKind(identityID string) string {
+	return passwordKindIdentitySMTP + ":" + identityID
+}
+
 func listStoredPasswords(ctx context.Context, q interface {
 	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
 }) ([]storedPassword, error) {
 	var out []storedPassword
+	identities, err := listIdentitySMTPPasswords(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+	out = append(out, identities...)
 	for _, source := range storedPasswordQueries {
 		rows, err := q.QueryContext(ctx, source.query)
 		if err != nil {
@@ -132,6 +144,70 @@ func listStoredPasswords(ctx context.Context, q interface {
 		}
 	}
 	return out, nil
+}
+
+// listIdentitySMTPPasswords lists identities' own SMTP passwords. Databases
+// from before schema 129 have none.
+func listIdentitySMTPPasswords(ctx context.Context, q interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+}) ([]storedPassword, error) {
+	present, err := q.QueryContext(ctx, `SELECT 1 FROM pragma_table_info('account_identities') WHERE name = 'encrypted_smtp_password'`)
+	if err != nil {
+		return nil, err
+	}
+	hasColumn := present.Next()
+	present.Close()
+	if !hasColumn {
+		return nil, nil
+	}
+	rows, err := q.QueryContext(ctx, `
+		SELECT a.user_id, i.account_id, i.id, i.encrypted_smtp_password
+		FROM account_identities i JOIN accounts a ON a.id = i.account_id
+		WHERE i.encrypted_smtp_password IS NOT NULL`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []storedPassword
+	for rows.Next() {
+		p := storedPassword{table: "account_identities", column: "encrypted_smtp_password"}
+		var userID sql.NullString
+		var identityID string
+		if err := rows.Scan(&userID, &p.accountID, &identityID, &p.payload); err != nil {
+			return nil, err
+		}
+		p.userID, p.kind = userID.String, identitySMTPPasswordKind(identityID)
+		if len(p.payload) > 0 {
+			out = append(out, p)
+		}
+	}
+	return out, rows.Err()
+}
+
+// SetIdentitySMTPPassword stores the password of a manual identity's own
+// SMTP server, bound to that identity; an empty password removes it.
+func (s *AccountStore) SetIdentitySMTPPassword(ctx context.Context, userID, accountID, identityID, password string, guard func(*sql.Tx) error) error {
+	var encrypted []byte
+	if password != "" {
+		var err error
+		if encrypted, err = s.encryptPassword(userID, accountID, identitySMTPPasswordKind(identityID), password); err != nil {
+			return err
+		}
+	}
+	return s.db.SetAccountIdentitySMTPPasswordGuarded(ctx, userID, accountID, identityID, encrypted, guard)
+}
+
+// DecryptIdentitySMTPPassword returns the password of an identity's own SMTP
+// server, or "" when none is stored.
+func (s *AccountStore) DecryptIdentitySMTPPassword(ctx context.Context, accountID, identityID string) (string, error) {
+	userID, encrypted, err := s.db.AccountIdentitySMTPPassword(ctx, accountID, identityID)
+	if err != nil {
+		return "", fmt.Errorf("query identity smtp password: %w", err)
+	}
+	if encrypted == nil {
+		return "", nil
+	}
+	return s.decryptPassword(userID, accountID, identitySMTPPasswordKind(identityID), encrypted)
 }
 
 // SecurePasswords rewrites passwords stored in the old format so they are bound
@@ -173,6 +249,9 @@ func (s *AccountStore) SecurePasswords(ctx context.Context) error {
 		if err != nil {
 			log.Printf("stored %s password for account %s can't be read with the current key", p.kind, p.accountID)
 			continue
+		}
+		if p.table == "account_identities" {
+			continue // Never stored in the old format.
 		}
 		upgraded, err := s.encryptPassword(p.userID, p.accountID, p.kind, plaintext)
 		if err != nil {

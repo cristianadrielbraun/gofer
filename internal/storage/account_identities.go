@@ -97,6 +97,11 @@ const accountIdentitiesTableSQL = `
 		sort_order INTEGER NOT NULL DEFAULT 0,
 		created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		smtp_host TEXT NOT NULL DEFAULT '',
+		smtp_port INTEGER NOT NULL DEFAULT 0,
+		smtp_tls_mode TEXT NOT NULL DEFAULT '',
+		smtp_username TEXT NOT NULL DEFAULT '',
+		encrypted_smtp_password BLOB,
 		CHECK ((source = 'provider') = (provider_identity_id != ''))
 	);
 	CREATE INDEX IF NOT EXISTS idx_account_identities_account
@@ -128,11 +133,13 @@ func migrateV127ToV128(db *sql.DB) error {
 	return tx.Commit()
 }
 
-const accountIdentityColumns = `i.id, i.account_id, i.name, i.email, i.reply_to, COALESCE(i.signature_id, ''), i.source, i.provider_identity_id, i.sort_order`
+const accountIdentityColumns = `i.id, i.account_id, i.name, i.email, i.reply_to, COALESCE(i.signature_id, ''), i.source, i.provider_identity_id, i.sort_order,
+	i.smtp_host, i.smtp_port, i.smtp_tls_mode, i.smtp_username, i.encrypted_smtp_password IS NOT NULL`
 
 func scanAccountIdentity(scan func(...any) error) (models.Identity, error) {
 	var identity models.Identity
-	err := scan(&identity.ID, &identity.AccountID, &identity.Name, &identity.Email, &identity.ReplyTo, &identity.SignatureID, &identity.Source, &identity.ProviderIdentityID, &identity.SortOrder)
+	err := scan(&identity.ID, &identity.AccountID, &identity.Name, &identity.Email, &identity.ReplyTo, &identity.SignatureID, &identity.Source, &identity.ProviderIdentityID, &identity.SortOrder,
+		&identity.SMTPHost, &identity.SMTPPort, &identity.SMTPTLSMode, &identity.SMTPUsername, &identity.HasSMTPPassword)
 	return identity, err
 }
 
@@ -245,6 +252,9 @@ func (db *DB) SaveAccountIdentityGuarded(ctx context.Context, userID string, ide
 		return models.Identity{}, err
 	}
 	identity.Email, identity.ReplyTo = email, replyTo
+	if err := NormalizeIdentitySMTP(&identity); err != nil {
+		return models.Identity{}, err
+	}
 
 	tx, err := db.Write().BeginTx(ctx, nil)
 	if err != nil {
@@ -272,16 +282,26 @@ func (db *DB) SaveAccountIdentityGuarded(ctx context.Context, userID string, ide
 		}
 	}
 	signature := sql.NullString{String: identity.SignatureID, Valid: identity.SignatureID != ""}
+	if identity.HasOwnSMTP() {
+		if err := checkIdentitySMTPAllowed(ctx, tx, identity.AccountID); err != nil {
+			return models.Identity{}, err
+		}
+	}
 
 	if identity.ID == "" {
-		if err := checkManualIdentityAddress(ctx, tx, identity.AccountID, identity.Email); err != nil {
-			return models.Identity{}, err
+		// An address sent through its own server needs no say from the
+		// account's provider.
+		if !identity.HasOwnSMTP() {
+			if err := checkManualIdentityAddress(ctx, tx, identity.AccountID, identity.Email); err != nil {
+				return models.Identity{}, err
+			}
 		}
 		identity.ID = "idn_" + strings.ReplaceAll(uuid.NewString(), "-", "")
 		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO account_identities (id, account_id, name, email, reply_to, signature_id, source, sort_order)
-			VALUES (?, ?, ?, ?, ?, ?, 'manual', (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM account_identities WHERE account_id = ?))`,
-			identity.ID, identity.AccountID, identity.Name, identity.Email, identity.ReplyTo, signature, identity.AccountID); err != nil {
+			INSERT INTO account_identities (id, account_id, name, email, reply_to, signature_id, source, sort_order, smtp_host, smtp_port, smtp_tls_mode, smtp_username)
+			VALUES (?, ?, ?, ?, ?, ?, 'manual', (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM account_identities WHERE account_id = ?), ?, ?, ?, ?)`,
+			identity.ID, identity.AccountID, identity.Name, identity.Email, identity.ReplyTo, signature, identity.AccountID,
+			identity.SMTPHost, identity.SMTPPort, identity.SMTPTLSMode, identity.SMTPUsername); err != nil {
 			return models.Identity{}, fmt.Errorf("save identity: %w", err)
 		}
 	} else {
@@ -294,16 +314,27 @@ func (db *DB) SaveAccountIdentityGuarded(ctx context.Context, userID string, ide
 			if identity.Name != current.Name || !strings.EqualFold(identity.Email, current.Email) || identity.ReplyTo != current.ReplyTo {
 				return models.Identity{}, ErrProviderIdentity
 			}
+			if identity.HasOwnSMTP() {
+				return models.Identity{}, ErrIdentitySMTPNotSupported
+			}
 			identity.Name, identity.Email, identity.ReplyTo = current.Name, current.Email, current.ReplyTo
-		} else if !strings.EqualFold(identity.Email, current.Email) {
+		} else if !identity.HasOwnSMTP() && (!strings.EqualFold(identity.Email, current.Email) || current.HasOwnSMTP()) {
 			if err := checkManualIdentityAddress(ctx, tx, identity.AccountID, identity.Email); err != nil {
 				return models.Identity{}, err
 			}
 		}
+		// A stored password only ever goes to the server and login it was
+		// given for.
+		keepPassword := identity.HasOwnSMTP() && strings.EqualFold(identity.SMTPHost, current.SMTPHost) && identity.SMTPUsername == current.SMTPUsername
 		if _, err := tx.ExecContext(ctx, `
-			UPDATE account_identities SET name = ?, email = ?, reply_to = ?, signature_id = ?, updated_at = CURRENT_TIMESTAMP
+			UPDATE account_identities SET name = ?, email = ?, reply_to = ?, signature_id = ?,
+				smtp_host = ?, smtp_port = ?, smtp_tls_mode = ?, smtp_username = ?,
+				encrypted_smtp_password = CASE WHEN ? THEN encrypted_smtp_password END,
+				updated_at = CURRENT_TIMESTAMP
 			WHERE id = ? AND account_id = ?`,
-			identity.Name, identity.Email, identity.ReplyTo, signature, identity.ID, identity.AccountID); err != nil {
+			identity.Name, identity.Email, identity.ReplyTo, signature,
+			identity.SMTPHost, identity.SMTPPort, identity.SMTPTLSMode, identity.SMTPUsername, keepPassword,
+			identity.ID, identity.AccountID); err != nil {
 			return models.Identity{}, fmt.Errorf("save identity: %w", err)
 		}
 	}

@@ -1097,6 +1097,11 @@ CREATE TABLE IF NOT EXISTS account_identities (
     sort_order INTEGER NOT NULL DEFAULT 0,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    smtp_host TEXT NOT NULL DEFAULT '',
+    smtp_port INTEGER NOT NULL DEFAULT 0,
+    smtp_tls_mode TEXT NOT NULL DEFAULT '',
+    smtp_username TEXT NOT NULL DEFAULT '',
+    encrypted_smtp_password BLOB,
     CHECK ((source = 'provider') = (provider_identity_id != ''))
 );
 
@@ -1766,4 +1771,4 @@ CREATE TABLE IF NOT EXISTS calendar_invitation_messages (
 );
 
 -- Schema version marker for fresh installs
-INSERT OR REPLACE INTO schema_version (version) VALUES (128);
+INSERT OR REPLACE INTO schema_version (version) VALUES (129);

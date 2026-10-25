@@ -97,6 +97,16 @@ type profileIdentity struct {
 	Email     string `json:"email"`
 	ReplyTo   string `json:"reply_to,omitempty"`
 	Signature string `json:"signature,omitempty"`
+	// SMTP is the identity's own server, without its password: an imported
+	// identity needs the password entered again.
+	SMTP *profileIdentitySMTP `json:"smtp,omitempty"`
+}
+
+type profileIdentitySMTP struct {
+	Host     string `json:"host"`
+	Port     int    `json:"port"`
+	TLSMode  string `json:"tls_mode"`
+	Username string `json:"username,omitempty"`
 }
 
 type profileContactSync struct {
@@ -326,7 +336,11 @@ func exportProfileAccount(ctx context.Context, store *config.AccountStore, db *s
 	}
 	for _, identity := range identities {
 		if identity.Source == models.IdentitySourceManual {
-			exported.Identities = append(exported.Identities, profileIdentity{Name: identity.Name, Email: identity.Email, ReplyTo: identity.ReplyTo, Signature: signatureRefs[identity.SignatureID]})
+			item := profileIdentity{Name: identity.Name, Email: identity.Email, ReplyTo: identity.ReplyTo, Signature: signatureRefs[identity.SignatureID]}
+			if identity.HasOwnSMTP() {
+				item.SMTP = &profileIdentitySMTP{Host: identity.SMTPHost, Port: identity.SMTPPort, TLSMode: identity.SMTPTLSMode, Username: identity.SMTPUsername}
+			}
+			exported.Identities = append(exported.Identities, item)
 		}
 	}
 
@@ -1319,9 +1333,17 @@ func importProfileIdentities(ctx context.Context, db *storage.DB, owner, account
 			log.Printf("profile import: skipping identity of account %s: %v", accountID, err)
 			continue
 		}
-		saved, err := db.SaveAccountIdentityGuarded(ctx, owner, models.Identity{AccountID: accountID, Name: imported.Name, Email: imported.Email, ReplyTo: imported.ReplyTo, SignatureID: signatureIDs[imported.Signature]}, nil)
-		if errors.Is(err, storage.ErrIdentityAddressNotAllowed) {
-			log.Printf("profile import: skipping identity of account %s: its provider does not send as %s", accountID, imported.Email)
+		identity := models.Identity{AccountID: accountID, Name: imported.Name, Email: imported.Email, ReplyTo: imported.ReplyTo, SignatureID: signatureIDs[imported.Signature]}
+		if imported.SMTP != nil {
+			identity.SMTPHost, identity.SMTPPort, identity.SMTPTLSMode, identity.SMTPUsername = imported.SMTP.Host, imported.SMTP.Port, imported.SMTP.TLSMode, imported.SMTP.Username
+			if err := storage.NormalizeIdentitySMTP(&identity); err != nil {
+				log.Printf("profile import: skipping identity of account %s: %v", accountID, err)
+				continue
+			}
+		}
+		saved, err := db.SaveAccountIdentityGuarded(ctx, owner, identity, nil)
+		if errors.Is(err, storage.ErrIdentityAddressNotAllowed) || errors.Is(err, storage.ErrIdentitySMTPNotSupported) {
+			log.Printf("profile import: skipping identity of account %s: it can't send as %s", accountID, imported.Email)
 			continue
 		}
 		if err != nil {

@@ -172,7 +172,19 @@ type Identity struct {
 	Source             string `json:"source"`
 	ProviderIdentityID string `json:"provider_identity_id,omitempty"`
 	SortOrder          int    `json:"sort_order"`
+	// SMTPHost is set for an identity that sends through its own SMTP server
+	// rather than the account's way of sending.
+	SMTPHost     string `json:"smtp_host,omitempty"`
+	SMTPPort     int    `json:"smtp_port,omitempty"`
+	SMTPTLSMode  string `json:"smtp_tls_mode,omitempty"`
+	SMTPUsername string `json:"smtp_username,omitempty"`
+	// HasSMTPPassword says a password for that server is stored; the
+	// password itself never leaves the account store.
+	HasSMTPPassword bool `json:"has_smtp_password,omitempty"`
 }
+
+// HasOwnSMTP reports whether the identity sends through its own server.
+func (i Identity) HasOwnSMTP() bool { return i.SMTPHost != "" }
 
 const (
 	IdentitySourceManual   = "manual"
