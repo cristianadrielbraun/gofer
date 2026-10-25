@@ -5,6 +5,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/buildinfo"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
+	"github.com/cristianadrielbraun/gofer/internal/themecolors"
 	"slices"
 	"strconv"
 	"strings"
@@ -428,7 +429,8 @@ templ SettingsAppearanceTab(uiSettings map[string]string) {
 					</div>
 				</div>
 				<div class="grid grid-cols-2 sm:grid-cols-3 gap-4 max-w-2xl" data-theme-picker>
-					<label class="relative flex flex-col rounded-lg border-2 p-3 cursor-pointer transition-all duration-200 text-left hover:shadow-md group border-border has-[:checked]:border-primary has-[:checked]:ring-2 has-[:checked]:ring-primary/20">
+					<div class="group/theme relative flex" data-theme-card="classic">
+					<label class="relative flex flex-1 flex-col rounded-lg border-2 p-3 cursor-pointer transition-all duration-200 text-left hover:shadow-md group border-border has-[:checked]:border-primary has-[:checked]:ring-2 has-[:checked]:ring-primary/20">
 						@radio.Radio(radio.Props{Name: "theme_style", Value: "classic", Checked: uiSettingGet(uiSettings, "theme_style", "classic") == "classic", Class: "absolute right-2.5 bottom-2.5 z-10"})
 						<div data-theme="classic" data-theme-preview class={ "overflow-hidden h-36 mb-2 flex", templ.KV("dark", uiSettingGet(uiSettings, "theme", "dark") == "dark") } style="background:var(--background); border-radius:12px">
 							<div class="w-1/4 p-2 flex flex-col gap-1.5" style="background:var(--sidebar)">
@@ -459,8 +461,11 @@ templ SettingsAppearanceTab(uiSettings map[string]string) {
 						<span class="text-sm font-medium text-foreground leading-tight">Classic</span>
 						<span class="text-xs text-muted-foreground">Warm tones, soft rounded</span>
 					</label>
+					@ThemeColorsCardActions(uiSettings, "classic")
+					</div>
 
-					<label class="relative flex flex-col rounded-lg border-2 p-3 cursor-pointer transition-all duration-200 text-left hover:shadow-md group border-border has-[:checked]:border-primary has-[:checked]:ring-2 has-[:checked]:ring-primary/20">
+					<div class="group/theme relative flex" data-theme-card="minimal">
+					<label class="relative flex flex-1 flex-col rounded-lg border-2 p-3 cursor-pointer transition-all duration-200 text-left hover:shadow-md group border-border has-[:checked]:border-primary has-[:checked]:ring-2 has-[:checked]:ring-primary/20">
 						@radio.Radio(radio.Props{Name: "theme_style", Value: "minimal", Checked: uiSettingGet(uiSettings, "theme_style", "classic") == "minimal", Class: "absolute right-2.5 bottom-2.5 z-10"})
 						<div data-theme="minimal" data-theme-preview class={ "overflow-hidden h-36 mb-2 flex", templ.KV("dark", uiSettingGet(uiSettings, "theme", "dark") == "dark") } style="background:var(--background); border-radius:0">
 							<div class="w-1/4 p-2 flex flex-col gap-1.5" style="background:var(--sidebar); border-right:1px solid var(--sidebar-border)">
@@ -491,6 +496,8 @@ templ SettingsAppearanceTab(uiSettings map[string]string) {
 						<span class="text-sm font-medium text-foreground leading-tight">Minimal</span>
 						<span class="text-xs text-muted-foreground">Clean, flat, sharp edges</span>
 					</label>
+					@ThemeColorsCardActions(uiSettings, "minimal")
+					</div>
 
 					<label class="relative flex flex-col rounded-lg border-2 p-3 cursor-pointer transition-all duration-200 text-left hover:shadow-md group border-border has-[:checked]:border-primary has-[:checked]:ring-2 has-[:checked]:ring-primary/20">
 						@radio.Radio(radio.Props{Name: "theme_style", Value: "express", Checked: uiSettingGet(uiSettings, "theme_style", "classic") == "express", Class: "absolute right-2.5 bottom-2.5 z-10"})
@@ -527,6 +534,8 @@ templ SettingsAppearanceTab(uiSettings map[string]string) {
 						<span class="text-xs text-muted-foreground">Bevelled silver, navy highlights</span>
 					</label>
 				</div>
+				@ThemeColorsDialog()
+				@ThemeColorsDiscardDialog()
 			</div>
 			<div class="settings-card bg-card rounded-lg border p-6 space-y-5">
 				<div>
@@ -2076,6 +2085,128 @@ templ AccountColorPopover(account models.Account) {
 				</div>
 			}
 		}
+}
+
+// ThemeColorsCardActions sit on a style's card: a pencil to change its colors
+// while it is selected, and a trash once it has changes to discard.
+templ ThemeColorsCardActions(uiSettings map[string]string, style string) {
+	<div class="absolute right-2 top-2 z-20 flex gap-1">
+		<span class="hidden group-has-[:checked]/theme:inline-flex">
+			@tooltip.Tooltip() {
+				@tooltip.Trigger(tooltip.TriggerProps{Class: "inline-flex"}) {
+					<button type="button" class="inline-flex size-7 items-center justify-center rounded-md border border-border bg-background/90 text-muted-foreground shadow-sm transition-colors hover:bg-accent hover:text-foreground" data-theme-colors-edit={ style } aria-label={ "Edit " + themeStyleLabel(style) + " colors" }>
+						@icon.Pencil(icon.Props{Class: "size-3.5"})
+					</button>
+				}
+				@tooltip.Content(tooltip.ContentProps{Position: tooltip.PositionBottom}) {
+					Edit colors
+				}
+			}
+		</span>
+		<span class={ templ.KV("hidden", !themeColorsChanged(uiSettings, style)) } data-theme-colors-discard-wrap={ style }>
+			@tooltip.Tooltip() {
+				@tooltip.Trigger(tooltip.TriggerProps{Class: "inline-flex"}) {
+					<button type="button" class="inline-flex size-7 items-center justify-center rounded-md border border-border bg-background/90 text-destructive shadow-sm transition-colors hover:bg-destructive/10" data-theme-colors-discard={ style } aria-label={ "Discard " + themeStyleLabel(style) + " color changes" }>
+						@icon.Trash2(icon.Props{Class: "size-3.5"})
+					</button>
+				}
+				@tooltip.Content(tooltip.ContentProps{Position: tooltip.PositionBottom}) {
+					Discard color changes
+				}
+			}
+		</span>
+	</div>
+}
+
+// ThemeColorsDialog changes the selected style's colors. settings-page.js
+// fills it when it opens and previews every change on the page.
+templ ThemeColorsDialog() {
+	@dialog.Dialog(dialog.Props{ID: "theme-colors-dialog"}) {
+		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-2xl"}) {
+			@dialog.Header() {
+				@dialog.Title() {
+					<span data-theme-colors-title>Edit colors</span>
+				}
+				@dialog.Description() { The page shows your changes as you make them. Light and dark mode each have their own colors. }
+			}
+			<div class="flex flex-wrap items-center justify-between gap-3">
+				<div class="inline-flex rounded-lg border border-border bg-background p-0.5 gap-0.5">
+					for _, mode := range []string{"light", "dark"} {
+						<button type="button" class="inline-flex items-center px-3 py-1.5 rounded-md text-xs font-medium text-muted-foreground transition-colors hover:text-foreground data-[active=true]:bg-muted data-[active=true]:text-foreground data-[active=true]:shadow-sm" data-theme-colors-mode={ mode }>
+							if mode == "light" {
+								Light
+							} else {
+								Dark
+							}
+						</button>
+					}
+				</div>
+				<span class="text-xs text-muted-foreground" data-theme-colors-count></span>
+			</div>
+			<div class="max-h-[55vh] space-y-5 overflow-y-auto pr-1" data-theme-colors-editor>
+				for _, group := range themecolors.Groups {
+					<section>
+						<h4 class="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ group.Label }</h4>
+						<div class="grid gap-x-4 gap-y-1 sm:grid-cols-2">
+							for _, v := range group.Variables {
+								<div class="flex items-center gap-2.5 rounded-md px-1.5 py-1 data-[changed=true]:bg-accent/60" data-theme-colors-row={ v.Name }>
+									<input id={ "theme-color-" + v.Name } type="color" class="h-8 w-10 shrink-0 cursor-pointer rounded border border-border bg-transparent p-0.5" data-theme-colors-input={ v.Name }/>
+									<div class="min-w-0 flex-1">
+										<label for={ "theme-color-" + v.Name } class="block truncate text-sm text-foreground">{ v.Label }</label>
+										if v.Hint != "" {
+											<p class="truncate text-xs text-muted-foreground">{ v.Hint }</p>
+										}
+									</div>
+									<span class="font-mono text-xs text-muted-foreground" data-theme-colors-value></span>
+									<button type="button" class="invisible inline-flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground" data-theme-colors-reset={ v.Name } aria-label={ "Reset " + v.Label }>
+										@icon.RotateCcw(icon.Props{Class: "size-3.5"})
+									</button>
+								</div>
+							}
+						</div>
+					</section>
+				}
+			</div>
+			@dialog.Footer() {
+				@button.Button(button.Props{Variant: button.VariantGhost, Class: "sm:mr-auto", Attributes: templ.Attributes{"data-theme-colors-reset-all": ""}}) {
+					@icon.RotateCcw(icon.Props{Class: "size-4"})
+					Reset all
+				}
+				@dialog.Close() {
+					@button.Button(button.Props{Variant: button.VariantOutline}) {
+						Cancel
+					}
+				}
+				@button.Button(button.Props{Attributes: templ.Attributes{"data-theme-colors-save": ""}}) {
+					Save colors
+				}
+			}
+		}
+	}
+}
+
+templ ThemeColorsDiscardDialog() {
+	@dialog.Dialog(dialog.Props{ID: "theme-colors-discard-dialog"}) {
+		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-md"}) {
+			@dialog.Header() {
+				@dialog.Title() { Discard color changes? }
+				@dialog.Description() {
+					<span data-theme-colors-discard-text>The style goes back to the colors it ships with.</span>
+				}
+			}
+			@dialog.Footer() {
+				@dialog.Close() {
+					@button.Button(button.Props{Variant: button.VariantOutline}) {
+						Cancel
+					}
+				}
+				@button.Button(button.Props{Variant: button.VariantDestructive, Attributes: templ.Attributes{"data-theme-colors-discard-confirm": ""}}) {
+					@icon.Trash2(icon.Props{Class: "size-4"})
+					Discard changes
+				}
+			}
+		}
+	}
 }
 
 templ AccountSignaturesSettings(accounts []models.AccountSignatureData) {

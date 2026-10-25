@@ -28,6 +28,7 @@ templ CalendarLayout(accounts []models.Account, month CalendarMonthData, uiSetti
 			@FontFaces()
 			@SavedPanelSizeStyle()
 			<link rel="stylesheet" href={ assetver.URL("/assets/css/output.css") }/>
+			@ThemeColorsStyle(uiSettings)
 			@dialog.Script()
 			@dropdown.Script()
 			@popover.Script()

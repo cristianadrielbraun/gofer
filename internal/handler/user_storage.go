@@ -192,6 +192,7 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 	private("GET /api/provider-avatar", routed.handleProviderAvatarImage)
 	private("POST /api/avatars/warmup", routed.handleAvatarWarmup)
 	private("PATCH /api/settings/ui", routed.handleSaveUISettings)
+	private("POST /api/settings/theme-colors.css", routed.handleThemeColorsCSS)
 	private("GET /api/push/vapid-public-key", routed.handlePushVAPIDPublicKey)
 	// Browser endpoints need one owner across the entire installation. Their
 	// registration stays central; notification preferences are stored per user.

@@ -163,6 +163,264 @@
   });
 })();
 
+// Style colors. A style's changed colors are saved as theme_colors_<style>,
+// and every edit is previewed on the page with CSS from the server. Closing
+// the editor without saving puts the page back as it was.
+(function() {
+  var EDITOR_ID = 'theme-colors-dialog';
+  var DISCARD_ID = 'theme-colors-discard-dialog';
+  var style = null;
+  var editing = null;
+  var mode = 'light';
+  var before = null;
+  var saved = false;
+  var previewSeq = 0;
+  var previewTimer = null;
+  var discardStyle = null;
+  var defaultsCache = {};
+
+  function hexColor(value) {
+    value = (value || '').trim().toLowerCase();
+    return /^#[0-9a-f]{6}$/.test(value) ? value : '';
+  }
+
+  function settingKey(name) {
+    return 'theme_colors_' + name;
+  }
+
+  function styleLabel(name) {
+    return name === 'minimal' ? 'Minimal' : 'Classic';
+  }
+
+  function savedOverrides(name) {
+    try {
+      var parsed = JSON.parse(GoferSettings.get(settingKey(name)) || '{}') || {};
+      return { light: Object.assign({}, parsed.light), dark: Object.assign({}, parsed.dark) };
+    } catch (_) {
+      return { light: {}, dark: {} };
+    }
+  }
+
+  function changedCount(overrides) {
+    return Object.keys(overrides.light).length + Object.keys(overrides.dark).length;
+  }
+
+  function encode(overrides) {
+    if (!changedCount(overrides)) return '';
+    var out = {};
+    if (Object.keys(overrides.light).length) out.light = overrides.light;
+    if (Object.keys(overrides.dark).length) out.dark = overrides.dark;
+    return JSON.stringify(out);
+  }
+
+  function editorRoot() {
+    return document.getElementById(EDITOR_ID);
+  }
+
+  function variableNames() {
+    var root = editorRoot();
+    if (!root) return [];
+    return Array.prototype.map.call(root.querySelectorAll('[data-theme-colors-row]'), function(row) {
+      return row.getAttribute('data-theme-colors-row');
+    });
+  }
+
+  // The colors a style ships with. The probe has none of the attributes the
+  // saved changes apply to, so it reads the stylesheet alone.
+  function shippedColors(name, colorMode) {
+    var cacheKey = name + ':' + colorMode;
+    if (defaultsCache[cacheKey]) return defaultsCache[cacheKey];
+    var probe = document.createElement('div');
+    probe.setAttribute('data-theme', name);
+    if (colorMode === 'dark') probe.className = 'dark';
+    probe.style.display = 'none';
+    document.body.appendChild(probe);
+    var styles = getComputedStyle(probe);
+    var colors = {};
+    variableNames().forEach(function(variable) {
+      colors[variable] = hexColor(styles.getPropertyValue('--' + variable));
+    });
+    probe.remove();
+    defaultsCache[cacheKey] = colors;
+    return colors;
+  }
+
+  function styleBlock(name) {
+    var block = document.querySelector('style[data-theme-colors="' + name + '"]');
+    if (!block) {
+      block = document.createElement('style');
+      block.setAttribute('data-theme-colors', name);
+      document.head.appendChild(block);
+    }
+    return block;
+  }
+
+  function render() {
+    var root = editorRoot();
+    if (!root || !editing) return;
+    var shipped = shippedColors(style, mode);
+    var changes = editing[mode];
+    root.querySelectorAll('[data-theme-colors-row]').forEach(function(row) {
+      var name = row.getAttribute('data-theme-colors-row');
+      var value = changes[name] || shipped[name] || '#000000';
+      var input = row.querySelector('[data-theme-colors-input]');
+      if (input) input.value = value;
+      var label = row.querySelector('[data-theme-colors-value]');
+      if (label) label.textContent = value;
+      var changed = !!changes[name];
+      row.setAttribute('data-changed', changed ? 'true' : 'false');
+      var reset = row.querySelector('[data-theme-colors-reset]');
+      if (reset) reset.classList.toggle('invisible', !changed);
+    });
+    root.querySelectorAll('[data-theme-colors-mode]').forEach(function(button) {
+      button.setAttribute('data-active', button.getAttribute('data-theme-colors-mode') === mode ? 'true' : 'false');
+    });
+    var count = root.querySelector('[data-theme-colors-count]');
+    if (count) {
+      var n = changedCount(editing);
+      count.textContent = n === 0 ? 'No colors changed' : n === 1 ? '1 color changed' : n + ' colors changed';
+    }
+  }
+
+  function preview() {
+    if (previewTimer) clearTimeout(previewTimer);
+    previewTimer = setTimeout(function() {
+      previewTimer = null;
+      var seq = ++previewSeq;
+      var name = style;
+      fetch('/api/settings/theme-colors.css', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ style: name, overrides: JSON.parse(encode(editing) || '{}') }),
+      })
+        .then(function(res) { return res.ok ? res.text() : Promise.reject(res.status); })
+        .then(function(css) {
+          if (seq === previewSeq) styleBlock(name).textContent = css;
+        })
+        .catch(function() {});
+    }, 60);
+  }
+
+  // The page shows the mode being edited, and goes back to the saved mode
+  // when the editor closes.
+  function showMode(colorMode) {
+    mode = colorMode;
+    document.documentElement.classList.toggle('dark', mode === 'dark');
+    render();
+  }
+
+  function finish() {
+    if (previewTimer) clearTimeout(previewTimer);
+    previewTimer = null;
+    previewSeq++;
+    if (before) {
+      if (!saved) styleBlock(before.style).textContent = before.css;
+      document.documentElement.classList.toggle('dark', before.dark);
+    }
+    before = null;
+    editing = null;
+    style = null;
+  }
+
+  function watchClose(root) {
+    var content = root.querySelector('[data-tui-dialog-content]');
+    if (!content || content.dataset.themeColorsWatch) return;
+    content.dataset.themeColorsWatch = 'true';
+    content.addEventListener('close', finish);
+  }
+
+  function open(name) {
+    var root = editorRoot();
+    if (!root || typeof GoferSettings === 'undefined' || !window.tui || !window.tui.dialog) return;
+    var html = document.documentElement;
+    style = name;
+    editing = savedOverrides(name);
+    saved = false;
+    before = { style: name, css: styleBlock(name).textContent, dark: html.classList.contains('dark') };
+    mode = before.dark ? 'dark' : 'light';
+    var title = root.querySelector('[data-theme-colors-title]');
+    if (title) title.textContent = 'Edit ' + styleLabel(name) + ' colors';
+    watchClose(root);
+    render();
+    window.tui.dialog.open(EDITOR_ID);
+  }
+
+  function showDiscard(name, changed) {
+    var wrap = document.querySelector('[data-theme-colors-discard-wrap="' + name + '"]');
+    if (wrap) wrap.classList.toggle('hidden', !changed);
+  }
+
+  function save() {
+    if (!editing) return;
+    var name = style;
+    var value = encode(editing);
+    saved = true;
+    GoferSettings.set(settingKey(name), value);
+    showDiscard(name, !!value);
+    window.tui.dialog.close(EDITOR_ID);
+  }
+
+  function setColor(name, value) {
+    if (!editing) return;
+    if (value && value !== shippedColors(style, mode)[name]) {
+      editing[mode][name] = value;
+    } else {
+      delete editing[mode][name];
+    }
+    render();
+    preview();
+  }
+
+  document.addEventListener('click', function(e) {
+    var edit = e.target.closest('[data-theme-colors-edit]');
+    if (edit) {
+      open(edit.getAttribute('data-theme-colors-edit'));
+      return;
+    }
+    var modeButton = e.target.closest('[data-theme-colors-mode]');
+    if (modeButton && editing) {
+      showMode(modeButton.getAttribute('data-theme-colors-mode'));
+      return;
+    }
+    var reset = e.target.closest('[data-theme-colors-reset]');
+    if (reset) {
+      setColor(reset.getAttribute('data-theme-colors-reset'), '');
+      return;
+    }
+    if (e.target.closest('[data-theme-colors-reset-all]') && editing) {
+      editing = { light: {}, dark: {} };
+      render();
+      preview();
+      return;
+    }
+    if (e.target.closest('[data-theme-colors-save]')) {
+      save();
+      return;
+    }
+    var discard = e.target.closest('[data-theme-colors-discard]');
+    if (discard && window.tui && window.tui.dialog) {
+      discardStyle = discard.getAttribute('data-theme-colors-discard');
+      var text = document.querySelector('[data-theme-colors-discard-text]');
+      if (text) text.textContent = styleLabel(discardStyle) + ' goes back to the colors it ships with, in light and dark mode.';
+      window.tui.dialog.open(DISCARD_ID);
+      return;
+    }
+    if (e.target.closest('[data-theme-colors-discard-confirm]') && discardStyle) {
+      GoferSettings.set(settingKey(discardStyle), '');
+      styleBlock(discardStyle).textContent = '';
+      showDiscard(discardStyle, false);
+      discardStyle = null;
+      window.tui.dialog.close(DISCARD_ID);
+    }
+  });
+
+  document.addEventListener('input', function(e) {
+    if (!e.target.matches || !e.target.matches('[data-theme-colors-input]')) return;
+    var value = hexColor(e.target.value);
+    if (value) setColor(e.target.getAttribute('data-theme-colors-input'), value);
+  });
+})();
+
 // Regional tab
 (function() {
   function timezoneLabel(timezone) {

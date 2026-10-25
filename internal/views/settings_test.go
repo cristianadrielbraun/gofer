@@ -910,6 +910,59 @@ func TestThemeClassKeepsExpressLight(t *testing.T) {
 	}
 }
 
+func TestAppearanceTabThemeColorActions(t *testing.T) {
+	render := func(settings map[string]string) string {
+		t.Helper()
+		var out bytes.Buffer
+		if err := SettingsAppearanceTab(settings).Render(context.Background(), &out); err != nil {
+			t.Fatal(err)
+		}
+		return out.String()
+	}
+	discardHidden := func(html, style string) bool {
+		return strings.Contains(html, `<span class="hidden" data-theme-colors-discard-wrap="`+style+`">`)
+	}
+
+	html := render(map[string]string{"theme_style": "classic"})
+	for _, style := range []string{"classic", "minimal"} {
+		if !strings.Contains(html, `data-theme-colors-edit="`+style+`"`) {
+			t.Errorf("%s card has no edit button", style)
+		}
+		if !discardHidden(html, style) {
+			t.Errorf("%s discard should be hidden without changes", style)
+		}
+	}
+	if strings.Contains(html, `data-theme-colors-edit="express"`) {
+		t.Fatal("Express should not be editable")
+	}
+	if !strings.Contains(html, `data-theme-colors-row="primary"`) || !strings.Contains(html, `data-theme-colors-row="sidebar-ring"`) {
+		t.Fatal("editor rows missing")
+	}
+
+	html = render(map[string]string{"theme_style": "classic", "theme_colors_minimal": `{"dark":{"primary":"#1d4ed8"}}`})
+	if discardHidden(html, "minimal") {
+		t.Fatal("minimal has changes but no discard button")
+	}
+	if !discardHidden(html, "classic") {
+		t.Fatal("classic has no changes but shows discard")
+	}
+}
+
+func TestThemeColorsStyleWritesEachStyle(t *testing.T) {
+	settings := map[string]string{"theme_colors_classic": `{"light":{"primary":"#1d4ed8"}}`, "theme_colors_minimal": `{"light":{"primary":"bad"}}`}
+	var out bytes.Buffer
+	if err := ThemeColorsStyle(settings).Render(context.Background(), &out); err != nil {
+		t.Fatal(err)
+	}
+	html := out.String()
+	if !strings.Contains(html, `<style data-theme-colors="classic">:is(html,[data-theme-preview],[data-theme-probe])[data-theme="classic"]:not(.dark){--primary:#1d4ed8;}`) {
+		t.Fatalf("classic block missing: %s", html)
+	}
+	if !strings.Contains(html, `<style data-theme-colors="minimal"></style>`) {
+		t.Fatalf("invalid minimal changes should leave an empty block: %s", html)
+	}
+}
+
 func TestOutlookPushControlStates(t *testing.T) {
 	render := func(push models.OutlookPushSettings) string {
 		t.Helper()

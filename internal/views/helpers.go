@@ -12,6 +12,7 @@ import (
 
 	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
+	"github.com/cristianadrielbraun/gofer/internal/themecolors"
 
 	"github.com/a-h/templ"
 )
@@ -655,6 +656,28 @@ func themeClass(settings map[string]string) string {
 
 func themeStyle(settings map[string]string) string {
 	return uiSettingGet(settings, "theme_style", "classic")
+}
+
+// themeStyleLabel is a style's name as Settings shows it.
+func themeStyleLabel(style string) string {
+	switch style {
+	case "minimal":
+		return "Minimal"
+	case "express":
+		return "Express"
+	default:
+		return "Classic"
+	}
+}
+
+// themeColorsCSS is a style's changed colors as CSS, or "" if it has none.
+func themeColorsCSS(settings map[string]string, style string) string {
+	return themecolors.FromSettings(settings, style).CSS(style)
+}
+
+// themeColorsChanged reports whether a style has changed colors to discard.
+func themeColorsChanged(settings map[string]string, style string) bool {
+	return !themecolors.FromSettings(settings, style).Empty()
 }
 
 func senderDisplay(contact models.Contact, mode string) string {
