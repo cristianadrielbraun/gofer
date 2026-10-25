@@ -79,12 +79,32 @@ var GoferSettings;
   }
 
   // The look that goes with each style: flat surfaces and square controls
-  // for Minimal. Mirrors themeLookAttributes in internal/views/helpers.go.
+  // for Minimal, and what the Custom theme was built with. Mirrors
+  // themeLookAttributes in internal/views/helpers.go.
   var STYLE_LOOKS = { minimal: { depth: "flat", corners: "square" } };
+
+  function customTheme() {
+    try {
+      return JSON.parse(_cache.custom_theme || "null");
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function styleLook(style) {
+    if (style !== "custom") return STYLE_LOOKS[style] || {};
+    var theme = customTheme() || {};
+    return {
+      depth: theme.depth === "flat" ? "flat" : "",
+      corners: theme.corners === "square" ? "square" : "",
+    };
+  }
 
   function applyThemeStyle(style) {
     var html = document.documentElement;
-    var look = STYLE_LOOKS[style] || {};
+    // Custom falls back to Classic when no theme is saved.
+    if (style === "custom" && !customTheme()) style = "classic";
+    var look = styleLook(style);
     html.setAttribute("data-theme", style || "classic");
     if (look.depth) html.setAttribute("data-depth", look.depth);
     else html.removeAttribute("data-depth");

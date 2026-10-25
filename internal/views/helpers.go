@@ -12,6 +12,7 @@ import (
 
 	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
+	"github.com/cristianadrielbraun/gofer/internal/themebuilder"
 	"github.com/cristianadrielbraun/gofer/internal/themecolors"
 
 	"github.com/a-h/templ"
@@ -654,8 +655,31 @@ func themeClass(settings map[string]string) string {
 	return ""
 }
 
+// themeStyle is the style the page is drawn with. The Custom theme falls back
+// to Classic when none is saved.
 func themeStyle(settings map[string]string) string {
-	return uiSettingGet(settings, "theme_style", "classic")
+	style := uiSettingGet(settings, "theme_style", "classic")
+	if style == themebuilder.StyleName && !customThemeSaved(settings) {
+		return "classic"
+	}
+	return style
+}
+
+// customThemeSaved reports whether a Custom theme exists to choose.
+func customThemeSaved(settings map[string]string) bool {
+	_, ok := themebuilder.FromSettings(settings)
+	return ok
+}
+
+// customThemeCSS is the Custom theme's palette and corners, or "" if there is
+// none. It is written even while another style is shown, so switching to
+// Custom needs no reload.
+func customThemeCSS(settings map[string]string) string {
+	theme, ok := themebuilder.FromSettings(settings)
+	if !ok {
+		return ""
+	}
+	return theme.CSS()
 }
 
 // themeStyleLabel is a style's name as Settings shows it.
@@ -665,19 +689,35 @@ func themeStyleLabel(style string) string {
 		return "Minimal"
 	case "express":
 		return "Express"
+	case themebuilder.StyleName:
+		return "Custom"
 	default:
 		return "Classic"
 	}
 }
 
 // themeLookAttributes are the page's look: data-depth="flat" for the flat
-// look and data-corners="square" for square controls. Classic and Express
-// have neither.
+// look and data-corners="square" for square controls. Minimal has both, a
+// Custom theme what it was built with, and Classic and Express neither.
 func themeLookAttributes(settings map[string]string) templ.Attributes {
-	if themeStyle(settings) == "minimal" {
+	switch themeStyle(settings) {
+	case "minimal":
 		return templ.Attributes{"data-depth": "flat", "data-corners": "square"}
+	case themebuilder.StyleName:
+		theme, _ := themebuilder.FromSettings(settings)
+		attrs := templ.Attributes{}
+		for name, value := range theme.LookAttributes() {
+			attrs[name] = value
+		}
+		return attrs
 	}
 	return templ.Attributes{}
+}
+
+// customThemeOption is one choice in the theme builder.
+type customThemeOption struct {
+	Value string
+	Label string
 }
 
 // themeColorsCSS is a style's changed colors as CSS, or "" if it has none.

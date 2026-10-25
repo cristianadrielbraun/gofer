@@ -2,6 +2,7 @@ package themebuilder
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/cristianadrielbraun/gofer/internal/themecolors"
@@ -135,4 +136,42 @@ func countEditorColors() int {
 		n += len(group.Variables)
 	}
 	return n
+}
+
+func TestParseTheme(t *testing.T) {
+	theme, ok := Parse(`{"seed":"#16A34A","sidebar":"dark","depth":"flat","corners":"square"}`)
+	if !ok {
+		t.Fatal("Parse refused a valid theme")
+	}
+	if got := theme.Encode(); got != `{"seed":"#16a34a","sidebar":"dark","depth":"flat","corners":"square"}` {
+		t.Fatalf("Encode = %s", got)
+	}
+	attrs := theme.LookAttributes()
+	if attrs["data-depth"] != "flat" || attrs["data-corners"] != "square" {
+		t.Fatalf("LookAttributes = %v", attrs)
+	}
+	for _, raw := range []string{
+		``,
+		`{"seed":"green","sidebar":"dark","depth":"flat","corners":"square"}`,
+		`{"seed":"#16a34a","sidebar":"left","depth":"flat","corners":"square"}`,
+		`{"seed":"#16a34a","sidebar":"dark","depth":"bevel","corners":"square"}`,
+		`{"seed":"#16a34a","sidebar":"dark","depth":"flat","corners":"9px"}`,
+	} {
+		if _, ok := Parse(raw); ok {
+			t.Errorf("Parse(%q) accepted", raw)
+		}
+	}
+}
+
+func TestThemeCSS(t *testing.T) {
+	theme, _ := Parse(`{"seed":"#16a34a","sidebar":"light","depth":"raised","corners":"large"}`)
+	if attrs := theme.LookAttributes(); len(attrs) != 0 {
+		t.Fatalf("raised, round theme has look attributes %v", attrs)
+	}
+	css := theme.CSS()
+	for _, want := range []string{`[data-theme="custom"]{--radius:1rem;}`, `[data-theme="custom"]:not(.dark){--accent:`, `[data-theme="custom"].dark{--accent:`} {
+		if !strings.Contains(css, want) {
+			t.Errorf("CSS lacks %s", want)
+		}
+	}
 }

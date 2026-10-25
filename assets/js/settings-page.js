@@ -189,6 +189,7 @@
   }
 
   function styleLabel(name) {
+    if (name === 'custom') return 'Custom';
     return name === 'minimal' ? 'Minimal' : 'Classic';
   }
 
@@ -226,10 +227,11 @@
   }
 
   // The colors a style ships with. The probe has none of the attributes the
-  // saved changes apply to, so it reads the stylesheet alone.
+  // saved changes apply to, so it reads the stylesheet alone. The Custom
+  // theme's colors change when it is rebuilt, so they are not cached.
   function shippedColors(name, colorMode) {
     var cacheKey = name + ':' + colorMode;
-    if (defaultsCache[cacheKey]) return defaultsCache[cacheKey];
+    if (name !== 'custom' && defaultsCache[cacheKey]) return defaultsCache[cacheKey];
     var probe = document.createElement('div');
     probe.setAttribute('data-theme', name);
     if (colorMode === 'dark') probe.className = 'dark';
@@ -418,6 +420,264 @@
     if (!e.target.matches || !e.target.matches('[data-theme-colors-input]')) return;
     var value = hexColor(e.target.value);
     if (value) setColor(e.target.getAttribute('data-theme-colors-input'), value);
+  });
+})();
+
+// Theme builder. The Custom theme is saved as its builder choices in
+// custom_theme, and the server makes its palette from them. Every change is
+// previewed on the page; closing without saving puts the page back.
+(function() {
+  var BUILDER_ID = 'custom-theme-dialog';
+  var DELETE_ID = 'custom-theme-delete-dialog';
+  var FIELDS = ['sidebar', 'depth', 'corners'];
+  var editing = null;
+  var before = null;
+  var saved = false;
+  var previewSeq = 0;
+  var previewTimer = null;
+
+  function hexColor(value) {
+    value = (value || '').trim().toLowerCase();
+    return /^#[0-9a-f]{6}$/.test(value) ? value : '';
+  }
+
+  function savedTheme() {
+    try {
+      var theme = JSON.parse(GoferSettings.get('custom_theme') || 'null');
+      return theme && theme.seed ? theme : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function handEditCount() {
+    try {
+      var edits = JSON.parse(GoferSettings.get('theme_colors_custom') || '{}') || {};
+      return Object.keys(edits.light || {}).length + Object.keys(edits.dark || {}).length;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  // The saved theme, or a new one that starts with the selected style's look.
+  function startingTheme() {
+    var theme = savedTheme();
+    if (theme) return { seed: theme.seed, sidebar: theme.sidebar, depth: theme.depth, corners: theme.corners };
+    var minimal = document.documentElement.getAttribute('data-theme') === 'minimal';
+    return {
+      seed: '#2563eb',
+      sidebar: minimal ? 'light' : 'dark',
+      depth: minimal ? 'flat' : 'raised',
+      corners: minimal ? 'square' : 'medium',
+    };
+  }
+
+  // The seed and sidebar decide the palette, so changing either replaces it
+  // and clears hand-edited colors.
+  function colorsChanged() {
+    var theme = savedTheme();
+    return !!theme && !!editing && (theme.seed !== editing.seed || theme.sidebar !== editing.sidebar);
+  }
+
+  function block(selector, attribute) {
+    var el = document.querySelector(selector);
+    if (!el) {
+      el = document.createElement('style');
+      el.setAttribute(attribute.name, attribute.value);
+      document.head.appendChild(el);
+    }
+    return el;
+  }
+
+  function paletteBlock() {
+    return block('style[data-custom-theme]', { name: 'data-custom-theme', value: '' });
+  }
+
+  function handEditsBlock() {
+    return block('style[data-theme-colors="custom"]', { name: 'data-theme-colors', value: 'custom' });
+  }
+
+  function setLook(theme) {
+    var html = document.documentElement;
+    html.setAttribute('data-theme', 'custom');
+    if (theme.depth === 'flat') html.setAttribute('data-depth', 'flat');
+    else html.removeAttribute('data-depth');
+    if (theme.corners === 'square') html.setAttribute('data-corners', 'square');
+    else html.removeAttribute('data-corners');
+  }
+
+  function render() {
+    var root = document.getElementById(BUILDER_ID);
+    if (!root || !editing) return;
+    root.querySelectorAll('[data-custom-theme-seed-option]').forEach(function(swatch) {
+      var active = swatch.getAttribute('data-custom-theme-seed-option') === editing.seed;
+      swatch.setAttribute('data-account-color-active', active ? 'true' : 'false');
+      swatch.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
+    var picker = root.querySelector('[data-custom-theme-seed]');
+    if (picker) picker.value = editing.seed;
+    var value = root.querySelector('[data-custom-theme-seed-value]');
+    if (value) value.textContent = editing.seed;
+    root.querySelectorAll('[data-custom-theme-field]').forEach(function(input) {
+      input.checked = editing[input.getAttribute('data-custom-theme-field')] === input.value;
+    });
+    var warning = root.querySelector('[data-custom-theme-reset-warning]');
+    if (warning) {
+      var count = colorsChanged() ? handEditCount() : 0;
+      warning.classList.toggle('hidden', count === 0);
+      warning.textContent = count === 1
+        ? 'A new color or sidebar makes a new palette, so saving clears the 1 color you edited by hand.'
+        : 'A new color or sidebar makes a new palette, so saving clears the ' + count + ' colors you edited by hand.';
+    }
+  }
+
+  function preview() {
+    if (previewTimer) clearTimeout(previewTimer);
+    previewTimer = setTimeout(function() {
+      previewTimer = null;
+      var seq = ++previewSeq;
+      var theme = Object.assign({}, editing);
+      fetch('/api/settings/custom-theme.css', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(theme),
+      })
+        .then(function(res) { return res.ok ? res.text() : Promise.reject(res.status); })
+        .then(function(css) {
+          if (seq !== previewSeq || !before) return;
+          paletteBlock().textContent = css;
+          // Hand edits were made for the saved palette; a new one shows without them.
+          handEditsBlock().textContent = colorsChanged() ? '' : before.handEdits;
+          setLook(theme);
+        })
+        .catch(function() {});
+    }, 60);
+  }
+
+  function restore() {
+    if (previewTimer) clearTimeout(previewTimer);
+    previewTimer = null;
+    previewSeq++;
+    if (!before) return;
+    var html = document.documentElement;
+    paletteBlock().textContent = before.palette;
+    handEditsBlock().textContent = before.handEdits;
+    html.setAttribute('data-theme', before.theme);
+    ['data-depth', 'data-corners'].forEach(function(name) {
+      if (before[name] === null) html.removeAttribute(name);
+      else html.setAttribute(name, before[name]);
+    });
+    before = null;
+  }
+
+  function watchClose(root) {
+    var content = root.querySelector('[data-tui-dialog-content]');
+    if (!content || content.dataset.customThemeWatch) return;
+    content.dataset.customThemeWatch = 'true';
+    content.addEventListener('close', function() {
+      if (!saved) restore();
+      before = null;
+      editing = null;
+    });
+  }
+
+  function open() {
+    var root = document.getElementById(BUILDER_ID);
+    if (!root || typeof GoferSettings === 'undefined' || !window.tui || !window.tui.dialog) return;
+    var html = document.documentElement;
+    before = {
+      theme: html.getAttribute('data-theme') || 'classic',
+      'data-depth': html.getAttribute('data-depth'),
+      'data-corners': html.getAttribute('data-corners'),
+      palette: paletteBlock().textContent,
+      handEdits: handEditsBlock().textContent,
+    };
+    saved = false;
+    editing = startingTheme();
+    watchClose(root);
+    render();
+    preview();
+    window.tui.dialog.open(BUILDER_ID);
+  }
+
+  function selectStyle(style) {
+    document.querySelectorAll('input[name="theme_style"]').forEach(function(radio) {
+      radio.checked = radio.value === style;
+    });
+  }
+
+  function save() {
+    if (!editing) return;
+    if (colorsChanged() && handEditCount() > 0) {
+      GoferSettings.set('theme_colors_custom', '');
+      handEditsBlock().textContent = '';
+    }
+    saved = true;
+    before = null;
+    GoferSettings.set('custom_theme', JSON.stringify(editing));
+    GoferSettings.set('theme_style', 'custom');
+    var card = document.querySelector('[data-theme-card="custom"]');
+    if (card) card.classList.remove('hidden');
+    selectStyle('custom');
+    window.tui.dialog.close(BUILDER_ID);
+  }
+
+  function deleteTheme() {
+    var wasSelected = GoferSettings.get('theme_style') === 'custom';
+    GoferSettings.set('custom_theme', '');
+    GoferSettings.set('theme_colors_custom', '');
+    paletteBlock().textContent = '';
+    handEditsBlock().textContent = '';
+    if (wasSelected) {
+      GoferSettings.set('theme_style', 'classic');
+      selectStyle('classic');
+    }
+    var card = document.querySelector('[data-theme-card="custom"]');
+    if (card) card.classList.add('hidden');
+    window.tui.dialog.close(DELETE_ID);
+  }
+
+  function update(change) {
+    if (!editing) return;
+    Object.keys(change).forEach(function(key) { editing[key] = change[key]; });
+    render();
+    preview();
+  }
+
+  document.addEventListener('click', function(e) {
+    if (e.target.closest('[data-custom-theme-build]')) {
+      open();
+      return;
+    }
+    if (e.target.closest('[data-custom-theme-save]')) {
+      save();
+      return;
+    }
+    if (e.target.closest('[data-custom-theme-delete]') && window.tui && window.tui.dialog) {
+      window.tui.dialog.open(DELETE_ID);
+      return;
+    }
+    if (e.target.closest('[data-custom-theme-delete-confirm]')) {
+      deleteTheme();
+      return;
+    }
+    var swatch = e.target.closest('[data-custom-theme-seed-option]');
+    if (swatch) update({ seed: swatch.getAttribute('data-custom-theme-seed-option') });
+  });
+
+  document.addEventListener('input', function(e) {
+    if (!e.target.matches || !e.target.matches('[data-custom-theme-seed]')) return;
+    var seed = hexColor(e.target.value);
+    if (seed) update({ seed: seed });
+  });
+
+  document.addEventListener('change', function(e) {
+    if (!e.target.matches || !e.target.matches('[data-custom-theme-field]')) return;
+    var field = e.target.getAttribute('data-custom-theme-field');
+    if (FIELDS.indexOf(field) < 0) return;
+    var change = {};
+    change[field] = e.target.value;
+    update(change);
   });
 })();
 

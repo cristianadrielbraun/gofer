@@ -374,6 +374,8 @@ templ ResizeHandle(panel string) {
 // so the Settings editor can replace one while previewing. The values come
 // from themecolors.Parse, which only lets known names and hex colors through.
 templ ThemeColorsStyle(uiSettings map[string]string) {
+	// The Custom theme's palette comes first, so its hand edits win.
+	@templ.Raw(`<style data-custom-theme>` + customThemeCSS(uiSettings) + `</style>`)
 	for _, style := range themecolors.Styles {
 		@templ.Raw(`<style data-theme-colors="` + style + `">` + themeColorsCSS(uiSettings, style) + `</style>`)
 	}

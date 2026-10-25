@@ -14,9 +14,13 @@ import (
 // such as theme_colors_classic.
 const SettingPrefix = "theme_colors_"
 
-// Styles are the styles whose colors can be changed. Express is left out:
-// its bevelled look comes from its own variables.
-var Styles = []string{"classic", "minimal"}
+// BuiltinStyles are the shipped styles whose colors can be changed. Express
+// is left out: its bevelled look comes from its own variables.
+var BuiltinStyles = []string{"classic", "minimal"}
+
+// Styles are every style whose colors can be changed: the built-in ones and
+// the Custom theme, whose colors come from the theme builder.
+var Styles = append(append([]string{}, BuiltinStyles...), "custom")
 
 // Modes are the color modes each style has its own colors for.
 var Modes = []string{"light", "dark"}

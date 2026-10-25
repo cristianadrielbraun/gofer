@@ -26,6 +26,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/providerquota"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
+	"github.com/cristianadrielbraun/gofer/internal/themebuilder"
 	"github.com/cristianadrielbraun/gofer/internal/themecolors"
 	"github.com/cristianadrielbraun/gofer/internal/store"
 	"github.com/cristianadrielbraun/gofer/internal/translation"
@@ -544,6 +545,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	})
 	mux.HandleFunc("PATCH /api/settings/ui", h.handleSaveUISettings)
 	mux.HandleFunc("POST /api/settings/theme-colors.css", h.handleThemeColorsCSS)
+	mux.HandleFunc("POST /api/settings/custom-theme.css", h.handleCustomThemeCSS)
 	mux.HandleFunc("GET /api/push/vapid-public-key", h.handlePushVAPIDPublicKey)
 	mux.HandleFunc("POST /api/push/subscription", h.handleSavePushSubscription)
 	mux.HandleFunc("DELETE /api/push/subscription", h.handleDeletePushSubscription)
@@ -3981,6 +3983,7 @@ func (h *Handler) handleSaveUISettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	normalizeThemeColorSettings(updates)
+	normalizeCustomThemeSetting(updates)
 
 	userID := h.userID(r.Context())
 	if err := h.withUserDB(r.Context(), userID, func(db *storage.DB) error {
@@ -4009,6 +4012,39 @@ func normalizeThemeColorSettings(updates map[string]string) {
 		}
 		updates[key] = overrides.Encode()
 	}
+}
+
+// normalizeCustomThemeSetting stores the Custom theme's builder choices in
+// their canonical form and drops ones that do not parse. An empty value is
+// kept: it deletes the theme.
+func normalizeCustomThemeSetting(updates map[string]string) {
+	raw, ok := updates[themebuilder.SettingKey]
+	if !ok || strings.TrimSpace(raw) == "" {
+		return
+	}
+	if theme, valid := themebuilder.Parse(raw); valid {
+		updates[themebuilder.SettingKey] = theme.Encode()
+		return
+	}
+	delete(updates, themebuilder.SettingKey)
+}
+
+// handleCustomThemeCSS is the stylesheet for a Custom theme being built, so
+// Settings can preview it before it is saved.
+func (h *Handler) handleCustomThemeCSS(w http.ResponseWriter, r *http.Request) {
+	raw, err := io.ReadAll(io.LimitReader(r.Body, 4<<10))
+	if err != nil {
+		http.Error(w, "invalid theme", http.StatusBadRequest)
+		return
+	}
+	theme, ok := themebuilder.Parse(string(raw))
+	if !ok {
+		http.Error(w, "invalid theme", http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "text/css; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	io.WriteString(w, theme.CSS())
 }
 
 type themeColorsPreview struct {

@@ -64,3 +64,37 @@ func TestThemeColorsCSSPreview(t *testing.T) {
 		}
 	}
 }
+
+func TestNormalizeCustomThemeSetting(t *testing.T) {
+	updates := map[string]string{"custom_theme": `{"seed":"#16A34A","sidebar":"dark","depth":"flat","corners":"small"}`}
+	normalizeCustomThemeSetting(updates)
+	if got := updates["custom_theme"]; got != `{"seed":"#16a34a","sidebar":"dark","depth":"flat","corners":"small"}` {
+		t.Fatalf("stored as %q", got)
+	}
+	updates = map[string]string{"custom_theme": `{"seed":"green"}`}
+	normalizeCustomThemeSetting(updates)
+	if _, ok := updates["custom_theme"]; ok {
+		t.Fatal("invalid theme was kept")
+	}
+	updates = map[string]string{"custom_theme": ""}
+	normalizeCustomThemeSetting(updates)
+	if v, ok := updates["custom_theme"]; !ok || v != "" {
+		t.Fatal("an empty value should stay so it deletes the theme")
+	}
+}
+
+func TestCustomThemeCSSPreview(t *testing.T) {
+	h := &Handler{}
+	post := func(body string) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		h.handleCustomThemeCSS(rec, httptest.NewRequest("POST", "/api/settings/custom-theme.css", strings.NewReader(body)))
+		return rec
+	}
+	rec := post(`{"seed":"#16a34a","sidebar":"light","depth":"raised","corners":"large"}`)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `[data-theme="custom"]{--radius:1rem;}`) {
+		t.Fatalf("status %d, body %s", rec.Code, rec.Body.String())
+	}
+	if rec := post(`{"seed":"#16a34a","sidebar":"light","depth":"raised","corners":"9px"}`); rec.Code != http.StatusBadRequest {
+		t.Fatalf("bad corners: status %d", rec.Code)
+	}
+}

@@ -60,7 +60,7 @@ func TestCSSKeepsModesApart(t *testing.T) {
 // The editor lists every color the editable styles define, and only those.
 func TestGroupsCoverThemeColors(t *testing.T) {
 	defined := regexp.MustCompile(`--([a-z-]+):\s*#[0-9a-fA-F]{6}\s*;`)
-	for _, style := range Styles {
+	for _, style := range BuiltinStyles {
 		data, err := os.ReadFile("../../assets/css/themes/" + style + ".css")
 		if err != nil {
 			t.Fatal(err)
