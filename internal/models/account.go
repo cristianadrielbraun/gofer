@@ -205,6 +205,13 @@ type AccountIdentitiesData struct {
 	ProviderListsIdentities bool
 	// RefreshError says why asking the provider failed.
 	RefreshError string
+	// CatchAllDomains are the domains the provider lets the account send
+	// from at any address.
+	CatchAllDomains []string
+	// CanAddIdentities is set when the provider sends as addresses added by
+	// hand; Unusable names the manual identities it would not send as.
+	CanAddIdentities bool
+	Unusable         map[string]bool
 }
 
 type AccountSignatureData struct {

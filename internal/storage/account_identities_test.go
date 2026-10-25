@@ -142,6 +142,11 @@ func TestAccountIdentitySignatureAndAccountRemoval(t *testing.T) {
 func TestReplaceProviderIdentities(t *testing.T) {
 	ctx := context.Background()
 	db := newIdentitiesTestDB(t)
+	// The JMAP account may add addresses by hand once its server reports a
+	// whole-domain identity.
+	if err := db.ReplaceProviderIdentities(ctx, "home", []models.Identity{{ProviderIdentityID: "domain", Email: "*@example.net"}}); err != nil {
+		t.Fatalf("report domain: %v", err)
+	}
 	manual, err := db.SaveAccountIdentityGuarded(ctx, "default", models.Identity{AccountID: "home", Email: "old@example.net"}, nil)
 	if err != nil {
 		t.Fatalf("save manual: %v", err)
@@ -194,5 +199,65 @@ func TestReplaceProviderIdentities(t *testing.T) {
 	list, _ = db.ListAccountIdentities(ctx, "default", "home")
 	if len(list) != 1 || list[0].ID != manual.ID {
 		t.Fatalf("after empty replace = %+v", list)
+	}
+}
+
+func TestManualIdentityAddressesFollowTheProvider(t *testing.T) {
+	ctx := context.Background()
+	db := newIdentitiesTestDB(t)
+	if _, err := db.Write().Exec(`INSERT INTO accounts (id, user_id, email_address, provider) VALUES ('mail', 'default', 'ana@example.org', 'gmail')`); err != nil {
+		t.Fatal(err)
+	}
+	add := func(account, email string) (models.Identity, error) {
+		return db.SaveAccountIdentityGuarded(ctx, "default", models.Identity{AccountID: account, Email: email}, nil)
+	}
+	if _, err := add("work", "sales@example.com"); err != nil {
+		t.Fatalf("IMAP account: %v", err)
+	}
+	if _, err := add("mail", "sales@example.org"); !errors.Is(err, ErrIdentityAddressNotAllowed) {
+		t.Fatalf("Gmail account err = %v", err)
+	}
+	if _, err := add("home", "sales@example.net"); !errors.Is(err, ErrIdentityAddressNotAllowed) {
+		t.Fatalf("JMAP account without a whole-domain identity err = %v", err)
+	}
+
+	if err := db.ReplaceProviderIdentities(ctx, "home", []models.Identity{
+		{ProviderIdentityID: "a", Email: "*@Example.net"},
+		{ProviderIdentityID: "b", Email: "*@shop.example.net"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if domains, _ := db.CatchAllIdentityDomains(ctx, "default", "home"); len(domains) != 2 || domains[0] != "example.net" || domains[1] != "shop.example.net" {
+		t.Fatalf("domains = %v", domains)
+	}
+	if domains, _ := db.CatchAllIdentityDomains(ctx, "intruder", "home"); len(domains) != 0 {
+		t.Fatalf("another user's domains = %v", domains)
+	}
+	sales, err := add("home", "sales@EXAMPLE.net")
+	if err != nil {
+		t.Fatalf("JMAP address in a reported domain: %v", err)
+	}
+	if _, err := add("home", "sales@example.com"); !errors.Is(err, ErrIdentityAddressNotAllowed) {
+		t.Fatalf("JMAP address outside the domains err = %v", err)
+	}
+	sales.Email = "sales@example.com"
+	if _, err := db.SaveAccountIdentityGuarded(ctx, "default", sales, nil); !errors.Is(err, ErrIdentityAddressNotAllowed) {
+		t.Fatalf("readdress outside the domains err = %v", err)
+	}
+
+	// Once the server stops reporting the domain, the identity stays but no
+	// more can be added; renaming it keeps its address and still works.
+	if err := db.ReplaceProviderIdentities(ctx, "home", nil); err != nil {
+		t.Fatal(err)
+	}
+	if domains, _ := db.CatchAllIdentityDomains(ctx, "default", "home"); len(domains) != 0 {
+		t.Fatalf("domains after the server dropped them = %v", domains)
+	}
+	if _, err := add("home", "help@example.net"); !errors.Is(err, ErrIdentityAddressNotAllowed) {
+		t.Fatalf("add after domains dropped err = %v", err)
+	}
+	sales.Email, sales.Name = "sales@example.net", "Sales"
+	if _, err := db.SaveAccountIdentityGuarded(ctx, "default", sales, nil); err != nil {
+		t.Fatalf("rename kept identity: %v", err)
 	}
 }

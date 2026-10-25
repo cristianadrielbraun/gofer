@@ -2,6 +2,7 @@ package views
 
 import (
 	"fmt"
+	"strings"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 
 	"github.com/cristianadrielbraun/gofer/components/badge"
@@ -27,6 +28,13 @@ templ AccountIdentitiesDialog(data models.AccountIdentitiesData) {
 			@AccountIdentitiesPanel(data)
 		}
 	}
+}
+
+func identityDomainsWord(domains []string) string {
+	if len(domains) == 1 {
+		return "that domain"
+	}
+	return "those domains"
 }
 
 func accountIdentitiesPath(accountID string, rest string) string {
@@ -85,8 +93,37 @@ templ AccountIdentitiesPanel(data models.AccountIdentitiesData) {
 				</ul>
 			}
 		</div>
-		@accountIdentityForm(data)
+		if data.Editing.ID != "" || data.CanAddIdentities {
+			@accountIdentityForm(data)
+		} else {
+			@accountIdentityAddingUnavailable(data)
+		}
 	</div>
+}
+
+// accountIdentityAddingUnavailable takes the place of the add form for an
+// account whose provider sends only from addresses it lists.
+templ accountIdentityAddingUnavailable(data models.AccountIdentitiesData) {
+	<div class="rounded-lg border border-border bg-background/60 p-4 space-y-1.5" data-account-identity-adding-unavailable>
+		<h3 class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Add an identity</h3>
+		if data.Account.Provider == "gmail" {
+			<p class="text-sm text-muted-foreground">Gmail sends only from the addresses set up in Gmail, so they can't be added here. In Gmail, add the address under Settings → Accounts and Import → Send mail as and verify it, then press Refresh from Gmail.</p>
+		} else {
+			<p class="text-sm text-muted-foreground">This JMAP server lets the account send only from the addresses it lists, and lists none that covers a whole domain, so further addresses can't be added here. Add the address on the server, then press Refresh from JMAP.</p>
+		}
+		if data.Error != "" {
+			<p class="text-xs text-destructive" role="alert" data-account-identity-error>{ data.Error }</p>
+		}
+	</div>
+}
+
+// identityUnusableNote says why the provider will not send as a manual
+// identity.
+func identityUnusableNote(data models.AccountIdentitiesData) string {
+	if data.Account.Provider == "gmail" {
+		return "Gmail sends this as " + data.Account.Email + " until the address is set up in Gmail."
+	}
+	return "The server does not list this address, so sending as it is refused."
 }
 
 templ accountIdentityRow(data models.AccountIdentitiesData, identity models.Identity, first bool, last bool) {
@@ -107,6 +144,9 @@ templ accountIdentityRow(data models.AccountIdentitiesData, identity models.Iden
 				}
 			</div>
 			<p class="truncate text-xs text-muted-foreground">{ identityDetail(data.Signatures, identity) }</p>
+			if data.Unusable[identity.ID] {
+				<p class="text-xs text-destructive" data-account-identity-unusable>{ identityUnusableNote(data) }</p>
+			}
 		</div>
 		<div class="flex shrink-0 items-center gap-1">
 			<button
@@ -189,6 +229,9 @@ templ accountIdentityForm(data models.AccountIdentitiesData) {
 				</button>
 			}
 		</div>
+		if !fromProvider && len(data.CatchAllDomains) > 0 {
+			<p class="text-xs text-muted-foreground" data-account-identity-catch-all>The server lets this account send from any address at { strings.Join(data.CatchAllDomains, ", ") }, so identities at { identityDomainsWord(data.CatchAllDomains) } can be added here.</p>
+		}
 		if fromProvider {
 			<p class="text-xs text-muted-foreground">This identity comes from { accountProviderName(data.Account.Provider) }; change its name and addresses there. Its signature is set here.</p>
 		}

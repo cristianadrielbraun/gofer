@@ -1299,7 +1299,8 @@ func (h *Handler) replaceProfileAccount(ctx context.Context, owner, id string, a
 
 // importProfileIdentities adds a profile's identities to an account. Ones the
 // account already has with the same name and address are left as they are,
-// and ones that are not valid addresses are skipped.
+// and ones that are not valid addresses, or that the account's provider
+// would not send as, are skipped.
 func importProfileIdentities(ctx context.Context, db *storage.DB, owner, accountID string, identities []profileIdentity, signatureIDs map[string]string) error {
 	if len(identities) == 0 {
 		return nil
@@ -1319,6 +1320,10 @@ func importProfileIdentities(ctx context.Context, db *storage.DB, owner, account
 			continue
 		}
 		saved, err := db.SaveAccountIdentityGuarded(ctx, owner, models.Identity{AccountID: accountID, Name: imported.Name, Email: imported.Email, ReplyTo: imported.ReplyTo, SignatureID: signatureIDs[imported.Signature]}, nil)
+		if errors.Is(err, storage.ErrIdentityAddressNotAllowed) {
+			log.Printf("profile import: skipping identity of account %s: its provider does not send as %s", accountID, imported.Email)
+			continue
+		}
 		if err != nil {
 			return fmt.Errorf("import identity: %w", err)
 		}

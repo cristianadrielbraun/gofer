@@ -10,6 +10,7 @@ import (
 
 	"github.com/cristianadrielbraun/gofer/internal/mail"
 	"github.com/cristianadrielbraun/gofer/internal/models"
+	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 	"github.com/cristianadrielbraun/gofer/internal/views"
 )
@@ -40,10 +41,24 @@ func (h *Handler) loadAccountIdentitiesData(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "failed to load signatures", http.StatusInternalServerError)
 		return models.AccountIdentitiesData{}, false
 	}
-	return models.AccountIdentitiesData{
+	domains, err := h.db.CatchAllIdentityDomains(ctx, userID, accountID)
+	if err != nil {
+		http.Error(w, "failed to load identities", http.StatusInternalServerError)
+		return models.AccountIdentitiesData{}, false
+	}
+	data := models.AccountIdentitiesData{
 		Account: *account, Identities: identities, Signatures: signatures,
 		ProviderListsIdentities: mail.ProviderListsIdentities(account.Provider),
-	}, true
+		CatchAllDomains:         domains,
+		CanAddIdentities:        account.Provider != providers.ProviderGmail && (account.Provider != providers.ProviderJMAP || len(domains) > 0),
+		Unusable:                map[string]bool{},
+	}
+	for _, identity := range identities {
+		if identity.Source == models.IdentitySourceManual && !storage.IdentityAddressAllowed(account.Provider, domains, identity.Email) {
+			data.Unusable[identity.ID] = true
+		}
+	}
+	return data, true
 }
 
 // handleManageAccountIdentities renders the identities dialog of an account.
@@ -123,6 +138,8 @@ func (h *Handler) handleSaveAccountIdentity(w http.ResponseWriter, r *http.Reque
 	if saveErr != nil {
 		if errors.Is(saveErr, storage.ErrProviderIdentity) {
 			data.Error = "Only the signature of an identity from the provider can be changed here."
+		} else if errors.Is(saveErr, storage.ErrIdentityAddressNotAllowed) {
+			data.Error = "The provider does not let this account send as " + strings.TrimSpace(identity.Email) + "."
 		} else {
 			data.Error = saveErr.Error()
 		}

@@ -6,15 +6,82 @@ import (
 	"errors"
 	"fmt"
 	netmail "net/mail"
+	"slices"
 	"strings"
 
 	"github.com/cristianadrielbraun/gofer/internal/models"
+	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/google/uuid"
 )
 
 // ErrProviderIdentity is a change only the provider may make, such as deleting
 // or readdressing an identity it reported.
 var ErrProviderIdentity = errors.New("this identity is managed by the provider")
+
+// ErrIdentityAddressNotAllowed is an address added by hand that the
+// account's provider would not send as: any address on Gmail, which sends
+// only from its own send-as list, and on JMAP one outside the domains the
+// server reported a whole-domain identity for.
+var ErrIdentityAddressNotAllowed = errors.New("the provider does not let this account send as that address")
+
+// The whole-domain identities a provider reported are kept as a sync state
+// of the account: domains, space-separated, in the cursor.
+const (
+	identityStateProvider = "identities"
+	identityStateScope    = "catch_all_domains"
+)
+
+type queryRower interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
+
+func catchAllIdentityDomains(ctx context.Context, q queryRower, accountID string) ([]string, error) {
+	var cursor string
+	err := q.QueryRowContext(ctx, `SELECT cursor FROM label_sync_state WHERE account_id = ? AND provider_type = ? AND scope = ?`,
+		accountID, identityStateProvider, identityStateScope).Scan(&cursor)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	return strings.Fields(cursor), err
+}
+
+// CatchAllIdentityDomains returns the domains the provider of one of the
+// owner's accounts lets it send from at any address.
+func (db *DB) CatchAllIdentityDomains(ctx context.Context, userID, accountID string) ([]string, error) {
+	var owned int
+	if err := db.Read().QueryRowContext(ctx, `SELECT COUNT(*) FROM accounts WHERE user_id = ? AND id = ?`, userID, accountID).Scan(&owned); err != nil || owned == 0 {
+		return nil, err
+	}
+	return catchAllIdentityDomains(ctx, db.Read(), accountID)
+}
+
+// IdentityAddressAllowed reports whether an account of provider whose
+// provider reported domains as whole-domain identities can send as email.
+func IdentityAddressAllowed(provider string, domains []string, email string) bool {
+	switch provider {
+	case providers.ProviderGmail:
+		return false
+	case providers.ProviderJMAP:
+		at := strings.LastIndex(email, "@")
+		return at >= 0 && slices.ContainsFunc(domains, func(domain string) bool { return strings.EqualFold(domain, email[at+1:]) })
+	}
+	return true
+}
+
+func checkManualIdentityAddress(ctx context.Context, tx *sql.Tx, accountID, email string) error {
+	var provider string
+	if err := tx.QueryRowContext(ctx, `SELECT provider FROM accounts WHERE id = ?`, accountID).Scan(&provider); err != nil {
+		return err
+	}
+	domains, err := catchAllIdentityDomains(ctx, tx, accountID)
+	if err != nil {
+		return err
+	}
+	if !IdentityAddressAllowed(provider, domains, email) {
+		return ErrIdentityAddressNotAllowed
+	}
+	return nil
+}
 
 // accountIdentitiesTableSQL matches the table in schema.sql.
 const accountIdentitiesTableSQL = `
@@ -207,6 +274,9 @@ func (db *DB) SaveAccountIdentityGuarded(ctx context.Context, userID string, ide
 	signature := sql.NullString{String: identity.SignatureID, Valid: identity.SignatureID != ""}
 
 	if identity.ID == "" {
+		if err := checkManualIdentityAddress(ctx, tx, identity.AccountID, identity.Email); err != nil {
+			return models.Identity{}, err
+		}
 		identity.ID = "idn_" + strings.ReplaceAll(uuid.NewString(), "-", "")
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO account_identities (id, account_id, name, email, reply_to, signature_id, source, sort_order)
@@ -225,6 +295,10 @@ func (db *DB) SaveAccountIdentityGuarded(ctx context.Context, userID string, ide
 				return models.Identity{}, ErrProviderIdentity
 			}
 			identity.Name, identity.Email, identity.ReplyTo = current.Name, current.Email, current.ReplyTo
+		} else if !strings.EqualFold(identity.Email, current.Email) {
+			if err := checkManualIdentityAddress(ctx, tx, identity.AccountID, identity.Email); err != nil {
+				return models.Identity{}, err
+			}
 		}
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE account_identities SET name = ?, email = ?, reply_to = ?, signature_id = ?, updated_at = CURRENT_TIMESTAMP
@@ -362,6 +436,26 @@ func (db *DB) ReplaceProviderIdentities(ctx context.Context, accountID string, r
 	rows.Close()
 	if err := rows.Err(); err != nil {
 		return err
+	}
+	var domains []string
+	for _, identity := range reported {
+		if domain, ok := strings.CutPrefix(strings.ToLower(strings.TrimSpace(identity.Email)), "*@"); ok && domain != "" && !strings.ContainsAny(domain, "@ \t") && !slices.Contains(domains, domain) {
+			domains = append(domains, domain)
+		}
+	}
+	slices.Sort(domains)
+	if len(domains) == 0 {
+		_, err = tx.ExecContext(ctx, `DELETE FROM label_sync_state WHERE account_id = ? AND provider_type = ? AND scope = ?`, accountID, identityStateProvider, identityStateScope)
+	} else {
+		_, err = tx.ExecContext(ctx, `
+			INSERT INTO label_sync_state (account_id, provider_type, scope, cursor, last_success_at, updated_at)
+			VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+			ON CONFLICT(account_id, provider_type, scope) DO UPDATE SET
+				cursor = excluded.cursor, last_success_at = excluded.last_success_at, updated_at = excluded.updated_at`,
+			accountID, identityStateProvider, identityStateScope, strings.Join(domains, " "))
+	}
+	if err != nil {
+		return fmt.Errorf("save whole-domain identities: %w", err)
 	}
 	keep := make([]any, 0, len(reported)+1)
 	keep = append(keep, accountID)

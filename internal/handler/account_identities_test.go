@@ -171,3 +171,53 @@ func TestRefreshAccountIdentities(t *testing.T) {
 		t.Fatal("Gmail account offers no provider refresh")
 	}
 }
+
+func TestIdentitiesDialogFollowsWhatTheProviderAllows(t *testing.T) {
+	h, db := newAccountOwnershipTestHandler(t)
+	account := map[string]string{"id": "victim-account"}
+	manage := func() string {
+		t.Helper()
+		return identityRequest(t, h, h.handleManageAccountIdentities, http.MethodGet, "/api/accounts/victim-account/identities/manage", account, nil, true).Body.String()
+	}
+	if body := manage(); !strings.Contains(body, "data-account-identity-form") || strings.Contains(body, "data-account-identity-adding-unavailable") {
+		t.Fatal("IMAP account cannot add identities")
+	}
+
+	// Gmail: no form, how to add one in Gmail instead, and an identity added
+	// earlier is marked as going out as the account.
+	if _, err := db.Write().Exec(`UPDATE accounts SET provider = 'gmail' WHERE id = 'victim-account'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Write().Exec(`INSERT INTO account_identities (id, account_id, email) VALUES ('idn-old', 'victim-account', 'old@example.com')`); err != nil {
+		t.Fatal(err)
+	}
+	body := manage()
+	if strings.Contains(body, "data-account-identity-form") || !strings.Contains(body, "Send mail as") || !strings.Contains(body, "Gmail sends this as owner@example.com") {
+		t.Fatalf("Gmail dialog = %q", body)
+	}
+	// Its signature can still be edited.
+	rec := identityRequest(t, h, h.handleAccountIdentitiesPanel, http.MethodGet, "/api/accounts/victim-account/identities/panel?edit=idn-old", account, nil, true)
+	if !strings.Contains(rec.Body.String(), "data-account-identity-form") {
+		t.Fatal("Gmail identity cannot be edited")
+	}
+	rec = identityRequest(t, h, h.handleSaveAccountIdentity, http.MethodPost, "/api/accounts/victim-account/identities", account, url.Values{"email": {"new@example.com"}}, true)
+	if !strings.Contains(rec.Body.String(), "does not let this account send as new@example.com") {
+		t.Fatalf("Gmail add = %q", rec.Body.String())
+	}
+
+	// JMAP: why nothing can be added, until the server reports a whole domain.
+	if _, err := db.Write().Exec(`UPDATE accounts SET provider = 'jmap' WHERE id = 'victim-account'`); err != nil {
+		t.Fatal(err)
+	}
+	if body := manage(); strings.Contains(body, "data-account-identity-form") || !strings.Contains(body, "lists none that covers a whole domain") ||
+		!strings.Contains(body, "The server does not list this address") {
+		t.Fatalf("JMAP dialog without domains = %q", body)
+	}
+	if err := db.ReplaceProviderIdentities(t.Context(), "victim-account", []models.Identity{{ProviderIdentityID: "all", Email: "*@example.com"}}); err != nil {
+		t.Fatal(err)
+	}
+	if body := manage(); !strings.Contains(body, "data-account-identity-form") || !strings.Contains(body, "any address at example.com") ||
+		strings.Contains(body, "data-account-identity-unusable") {
+		t.Fatalf("JMAP dialog with a domain = %q", body)
+	}
+}
