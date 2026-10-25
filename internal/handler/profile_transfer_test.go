@@ -93,6 +93,12 @@ func seedProfileSource(t *testing.T, h *Handler) (imapID, outlookID string) {
 	}); err != nil {
 		t.Fatalf("save signature settings: %v", err)
 	}
+	if _, err := h.db.SaveAccountIdentityGuarded(ctx, "default", models.Identity{AccountID: imap.ID, Name: "Robin Sales", Email: "sales@example.test", ReplyTo: "team@example.test", SignatureID: signature.ID}, nil); err != nil {
+		t.Fatalf("save identity: %v", err)
+	}
+	if err := h.db.ReplaceProviderIdentities(ctx, imap.ID, []models.Identity{{ProviderIdentityID: "p1", Email: "provider-only@example.test"}}); err != nil {
+		t.Fatalf("save provider identity: %v", err)
+	}
 
 	if err := h.db.SetUISettings(ctx, "default", map[string]string{
 		"theme":                     "light",
@@ -146,6 +152,9 @@ func TestProfileExportLeavesOutCredentialsAndAccountIDs(t *testing.T) {
 	}
 	if !strings.Contains(data, "Jordan Sample") {
 		t.Fatalf("export is missing the Gofer contact")
+	}
+	if !strings.Contains(data, "sales@example.test") || strings.Contains(data, "provider-only@example.test") {
+		t.Fatalf("export should carry manual identities only: %s", data)
 	}
 	if strings.Contains(string(exportProfileForTest(t, source, false)), "Jordan Sample") {
 		t.Fatalf("export without contacts still has them")
@@ -224,6 +233,10 @@ func TestProfileImportAddsAccountsWaitingForReconnect(t *testing.T) {
 	}
 	if len(edit.Signatures) != 1 || edit.SignatureSettings.NewSignatureID != edit.Signatures[0].ID || !edit.SignatureSettings.NewEnabled {
 		t.Fatalf("signatures = %+v, settings = %+v", edit.Signatures, edit.SignatureSettings)
+	}
+	identities, err := target.db.ListAccountIdentities(ctx, "default", account.ID)
+	if err != nil || len(identities) != 1 || identities[0].Name != "Robin Sales" || identities[0].Email != "sales@example.test" || identities[0].ReplyTo != "<team@example.test>" || identities[0].SignatureID != edit.Signatures[0].ID || identities[0].Source != models.IdentitySourceManual {
+		t.Fatalf("imported identities = %+v, %v", identities, err)
 	}
 
 	ui := target.db.GetUISettings(ctx, "default")
@@ -321,6 +334,9 @@ func TestProfileImportTwiceAddsNothingNew(t *testing.T) {
 	contacts, _ := target.db.ListContactsForExport(t.Context(), "default")
 	if len(accounts) != 1 || len(signatures) != 1 || len(contacts) != 1 {
 		t.Fatalf("after two imports: %d accounts, %d signatures, %d contacts", len(accounts), len(signatures), len(contacts))
+	}
+	if identities, _ := target.db.ListAccountIdentities(t.Context(), "default", accounts[0].ID); len(identities) != 1 {
+		t.Fatalf("after two imports: identities = %+v", identities)
 	}
 }
 

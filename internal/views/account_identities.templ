@@ -1,0 +1,224 @@
+package views
+
+import (
+	"fmt"
+	"github.com/cristianadrielbraun/gofer/internal/models"
+
+	"github.com/cristianadrielbraun/gofer/components/badge"
+	"github.com/cristianadrielbraun/gofer/components/dialog"
+	"github.com/cristianadrielbraun/gofer/components/icon"
+	"github.com/cristianadrielbraun/gofer/components/input"
+	"github.com/cristianadrielbraun/gofer/components/selectbox"
+)
+
+// AccountIdentitiesDialog lists the further From addresses of one account and
+// edits them. Every change swaps AccountIdentitiesPanel.
+templ AccountIdentitiesDialog(data models.AccountIdentitiesData) {
+	@dialog.Dialog(dialog.Props{ID: "account-identities-dialog"}) {
+		@dialog.Content(dialog.ContentProps{Class: "mobile-page-dialog sm:max-w-2xl"}) {
+			@dialog.Header() {
+				@dialog.Title() {
+					Identities
+				}
+				@dialog.Description() {
+					Further addresses { data.Account.Email } can send as. Compose offers them under the account.
+				}
+			}
+			@AccountIdentitiesPanel(data)
+		}
+	}
+}
+
+func accountIdentitiesPath(accountID string, rest string) string {
+	return fmt.Sprintf("/api/accounts/%s/identities%s", accountID, rest)
+}
+
+// identityDetail says where replies to an identity go and which signature it
+// uses.
+func identityDetail(signatures []models.Signature, identity models.Identity) string {
+	signature := "Uses the account's signature"
+	for _, sig := range signatures {
+		if sig.ID == identity.SignatureID {
+			signature = "Signature: " + sig.Name
+		}
+	}
+	if identity.ReplyTo == "" {
+		return signature
+	}
+	return "Replies to " + identity.ReplyTo + " · " + signature
+}
+
+templ AccountIdentitiesPanel(data models.AccountIdentitiesData) {
+	<div id="account-identities-panel" class="min-w-0 space-y-4" data-account-identities-panel data-account-id={ data.Account.ID }>
+		<div class="rounded-lg border border-border bg-background/60">
+			<div class="flex items-center gap-3 border-b border-border/60 p-3">
+				<div class="account-color-marker size-4 shrink-0" style={ accountColorStyle(data.Account.Color) } data-account-marker={ data.Account.ID }></div>
+				<div class="min-w-0 flex-1">
+					<p class="truncate text-sm font-medium">{ data.Account.Name } &lt;{ data.Account.Email }&gt;</p>
+					<p class="text-xs text-muted-foreground">The account's own address, set in Edit.</p>
+				</div>
+			</div>
+			if len(data.Identities) == 0 {
+				<p class="p-4 text-center text-sm text-muted-foreground">No further identities yet.</p>
+			} else {
+				<ul class="divide-y divide-border/60">
+					for i, identity := range data.Identities {
+						@accountIdentityRow(data, identity, i == 0, i == len(data.Identities)-1)
+					}
+				</ul>
+			}
+		</div>
+		@accountIdentityForm(data)
+	</div>
+}
+
+templ accountIdentityRow(data models.AccountIdentitiesData, identity models.Identity, first bool, last bool) {
+	<li class={ "flex items-center gap-3 p-3", templ.KV("bg-accent/40", identity.ID == data.Editing.ID) } data-account-identity={ identity.ID }>
+		<div class="min-w-0 flex-1">
+			<div class="flex min-w-0 items-center gap-2">
+				<p class="min-w-0 truncate text-sm font-medium">
+					if identity.Name != "" {
+						{ identity.Name } &lt;{ identity.Email }&gt;
+					} else {
+						{ identity.Email }
+					}
+				</p>
+				if identity.Source == models.IdentitySourceProvider {
+					@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: "shrink-0 text-[10px]"}) {
+						From { accountProviderName(data.Account.Provider) }
+					}
+				}
+			</div>
+			<p class="truncate text-xs text-muted-foreground">{ identityDetail(data.Signatures, identity) }</p>
+		</div>
+		<div class="flex shrink-0 items-center gap-1">
+			<button
+				type="button"
+				class="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+				aria-label={ fmt.Sprintf("Move %s up", identity.Email) }
+				disabled?={ first }
+				hx-post={ accountIdentitiesPath(data.Account.ID, "/"+identity.ID+"/move") }
+				hx-vals='{"direction":"up"}'
+				hx-target="#account-identities-panel"
+				hx-swap="outerHTML"
+			>
+				@icon.ArrowUp(icon.Props{Class: "size-3.5"})
+			</button>
+			<button
+				type="button"
+				class="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+				aria-label={ fmt.Sprintf("Move %s down", identity.Email) }
+				disabled?={ last }
+				hx-post={ accountIdentitiesPath(data.Account.ID, "/"+identity.ID+"/move") }
+				hx-vals='{"direction":"down"}'
+				hx-target="#account-identities-panel"
+				hx-swap="outerHTML"
+			>
+				@icon.ArrowDown(icon.Props{Class: "size-3.5"})
+			</button>
+			<button
+				type="button"
+				class="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+				aria-label={ fmt.Sprintf("Edit %s", identity.Email) }
+				hx-get={ accountIdentitiesPath(data.Account.ID, "/panel?edit="+identity.ID) }
+				hx-target="#account-identities-panel"
+				hx-swap="outerHTML"
+			>
+				@icon.Pencil(icon.Props{Class: "size-3.5"})
+			</button>
+			if identity.Source != models.IdentitySourceProvider {
+				<button
+					type="button"
+					class="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+					aria-label={ fmt.Sprintf("Delete %s", identity.Email) }
+					hx-delete={ accountIdentitiesPath(data.Account.ID, "/"+identity.ID) }
+					hx-target="#account-identities-panel"
+					hx-swap="outerHTML"
+				>
+					@icon.Trash2(icon.Props{Class: "size-3.5"})
+				</button>
+			}
+		</div>
+	</li>
+}
+
+templ accountIdentityForm(data models.AccountIdentitiesData) {
+	{{ editing := data.Editing }}
+	{{ fromProvider := editing.Source == models.IdentitySourceProvider }}
+	<form
+		class="rounded-lg border border-border bg-background/60 p-4 space-y-3"
+		hx-post={ accountIdentitiesPath(data.Account.ID, "") }
+		hx-target="#account-identities-panel"
+		hx-swap="outerHTML"
+		data-account-identity-form
+	>
+		<div class="flex items-center justify-between gap-3">
+			<h3 class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+				if editing.ID == "" {
+					Add an identity
+				} else {
+					Edit { editing.Email }
+				}
+			</h3>
+			if editing.ID != "" {
+				<button
+					type="button"
+					class="text-xs text-muted-foreground hover:text-foreground"
+					hx-get={ accountIdentitiesPath(data.Account.ID, "/panel") }
+					hx-target="#account-identities-panel"
+					hx-swap="outerHTML"
+				>
+					Cancel
+				</button>
+			}
+		</div>
+		if fromProvider {
+			<p class="text-xs text-muted-foreground">This identity comes from { accountProviderName(data.Account.Provider) }; change its name and addresses there. Its signature is set here.</p>
+		}
+		<input type="hidden" name="id" value={ editing.ID }/>
+		<div class="grid gap-3 sm:grid-cols-2">
+			<div>
+				<label class="mb-1.5 block text-xs font-medium text-muted-foreground" for="account-identity-name">Name</label>
+				@input.Input(input.Props{ID: "account-identity-name", Name: "name", Type: input.TypeText, Value: editing.Name, Placeholder: data.Account.Name, Readonly: fromProvider})
+			</div>
+			<div>
+				<label class="mb-1.5 block text-xs font-medium text-muted-foreground" for="account-identity-email">Email address</label>
+				@input.Input(input.Props{ID: "account-identity-email", Name: "email", Type: input.TypeEmail, Value: editing.Email, Placeholder: "sales@example.com", Required: true, Readonly: fromProvider})
+			</div>
+			<div>
+				<label class="mb-1.5 block text-xs font-medium text-muted-foreground" for="account-identity-reply-to">Reply-To <span class="font-normal">(optional)</span></label>
+				@input.Input(input.Props{ID: "account-identity-reply-to", Name: "reply_to", Type: input.TypeText, Value: editing.ReplyTo, Placeholder: "Replies go to the From address", Readonly: fromProvider})
+			</div>
+			<div>
+				<label class="mb-1.5 block text-xs font-medium text-muted-foreground">Signature</label>
+				@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
+					@selectbox.Trigger(selectbox.TriggerProps{Name: "signature_id", Class: "bg-background", DisableClear: true}) {
+						@selectbox.Value(selectbox.ValueProps{Placeholder: "Use the account's signature"})
+					}
+					@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
+						@selectbox.Item(selectbox.ItemProps{Value: "", Selected: editing.SignatureID == ""}) { Use the account's signature }
+						for _, sig := range data.Signatures {
+							@selectbox.Item(selectbox.ItemProps{Value: sig.ID, Selected: sig.ID == editing.SignatureID}) { { sig.Name } }
+						}
+					}
+				}
+			</div>
+		</div>
+		<div class="flex items-center justify-between gap-3">
+			if data.Error != "" {
+				<p class="text-xs text-destructive" role="alert" data-account-identity-error>{ data.Error }</p>
+			} else {
+				<p class="text-xs text-muted-foreground">Your provider must let this account send as the address, or it may refuse or rewrite it.</p>
+			}
+			<button type="submit" class="btn-skeuo inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold">
+				if editing.ID == "" {
+					@icon.Plus(icon.Props{Class: "size-3.5"})
+					Add
+				} else {
+					@icon.Save(icon.Props{Class: "size-3.5"})
+					Save
+				}
+			</button>
+		</div>
+	</form>
+}

@@ -1845,6 +1845,18 @@ templ SettingsAccountActionsMenu(account models.Account) {
 					Test
 				}
 			}
+			@dropdown.Item(dropdown.ItemProps{
+				Class: "justify-start gap-2",
+				Attributes: templ.Attributes{
+					"type":      "button",
+					"hx-get":    fmt.Sprintf("/api/accounts/%s/identities/manage", account.ID),
+					"hx-target": "#edit-account-container",
+					"hx-swap":   "innerHTML",
+				},
+			}) {
+				@icon.AtSign(icon.Props{Class: "size-3.5"})
+				Identities
+			}
 			if account.Provider == "gmail" {
 				@GmailReauthForm(account)
 				if account.EmailSyncEnabled {

@@ -1454,6 +1454,14 @@ document.addEventListener("htmx:afterSettle", function (e) {
   }
 })
 
+// Opens an account's identities dialog once it has been loaded. Changes made
+// in it swap only its panel, so it stays open.
+document.addEventListener("htmx:afterSettle", function (e) {
+  if (e.target && e.target.querySelector && e.target.querySelector("#account-identities-dialog") && window.tui && window.tui.dialog) {
+    setTimeout(function () { window.tui.dialog.open("account-identities-dialog") }, 20)
+  }
+})
+
 // htmx leaves the page as it was when a request fails, so the About page's
 // update check says so itself.
 function showAboutUpdateCheckFailure(e) {

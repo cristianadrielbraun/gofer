@@ -191,6 +191,17 @@ type AccountSignatureSettings struct {
 	ForwardPlacement   string `json:"forward_placement"`
 }
 
+// AccountIdentitiesData is what the identities dialog of one account shows:
+// its identities, the signatures they may use, and the identity in the form,
+// which is empty when adding one. Error says why the last change failed.
+type AccountIdentitiesData struct {
+	Account    Account
+	Identities []Identity
+	Signatures []Signature
+	Editing    Identity
+	Error      string
+}
+
 type AccountSignatureData struct {
 	Account    Account
 	Signatures []Signature

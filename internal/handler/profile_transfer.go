@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -86,6 +87,16 @@ type profileAccount struct {
 	Contacts        *profileContactSync       `json:"contacts,omitempty"`
 	Calendar        *profileCalendarSync      `json:"calendar,omitempty"`
 	Signatures      *profileAccountSignatures `json:"signatures,omitempty"`
+	// Identities are the account's manual identities. Provider identities
+	// come back from the provider once the account is reconnected.
+	Identities []profileIdentity `json:"identities,omitempty"`
+}
+
+type profileIdentity struct {
+	Name      string `json:"name,omitempty"`
+	Email     string `json:"email"`
+	ReplyTo   string `json:"reply_to,omitempty"`
+	Signature string `json:"signature,omitempty"`
 }
 
 type profileContactSync struct {
@@ -306,6 +317,16 @@ func exportProfileAccount(ctx context.Context, store *config.AccountStore, db *s
 				RemoteID: source.RemoteID, Name: source.Name, Description: source.Description, TimeZone: source.TimeZone,
 				Color: source.Color, AccessRole: source.AccessRole, Primary: source.IsPrimary, Selected: source.IsSelected, Hidden: source.IsHidden,
 			})
+		}
+	}
+
+	identities, err := db.ListAccountIdentities(ctx, owner, account.ID)
+	if err != nil {
+		return profileAccount{}, fmt.Errorf("list identities: %w", err)
+	}
+	for _, identity := range identities {
+		if identity.Source == models.IdentitySourceManual {
+			exported.Identities = append(exported.Identities, profileIdentity{Name: identity.Name, Email: identity.Email, ReplyTo: identity.ReplyTo, Signature: signatureRefs[identity.SignatureID]})
 		}
 	}
 
@@ -758,6 +779,9 @@ func (h *Handler) importProfileAccount(ctx context.Context, owner string, accoun
 			if err := db.SaveAccountSignatureSettings(ctx, owner, profileSignatureSettings(id, account.Signatures, signatureIDs)); err != nil {
 				return err
 			}
+		}
+		if err := importProfileIdentities(ctx, db, owner, id, account.Identities, signatureIDs); err != nil {
+			return err
 		}
 		return db.SetImportedAccountPending(ctx, owner, id, pending)
 	})
@@ -1234,6 +1258,9 @@ func (h *Handler) replaceProfileAccount(ctx context.Context, owner, id string, a
 		if err := db.SaveAccountSignatureSettings(ctx, owner, profileSignatureSettings(id, account.Signatures, signatureIDs)); err != nil {
 			return err
 		}
+		if err := importProfileIdentities(ctx, db, owner, id, account.Identities, signatureIDs); err != nil {
+			return err
+		}
 		if err := db.SetProviderPushEnabled(ctx, owner, id, !account.ScheduledChecks); err != nil {
 			return err
 		}
@@ -1266,6 +1293,36 @@ func (h *Handler) replaceProfileAccount(ctx context.Context, owner, id string, a
 		h.syncer.RestartAccount(id)
 	} else {
 		h.syncer.StopAccount(id)
+	}
+	return nil
+}
+
+// importProfileIdentities adds a profile's identities to an account. Ones the
+// account already has with the same name and address are left as they are,
+// and ones that are not valid addresses are skipped.
+func importProfileIdentities(ctx context.Context, db *storage.DB, owner, accountID string, identities []profileIdentity, signatureIDs map[string]string) error {
+	if len(identities) == 0 {
+		return nil
+	}
+	existing, err := db.ListAccountIdentities(ctx, owner, accountID)
+	if err != nil {
+		return err
+	}
+	for _, imported := range identities {
+		if slices.ContainsFunc(existing, func(identity models.Identity) bool {
+			return strings.EqualFold(identity.Email, strings.TrimSpace(imported.Email)) && identity.Name == strings.TrimSpace(imported.Name)
+		}) {
+			continue
+		}
+		if _, _, err := storage.NormalizeIdentityAddresses(imported.Email, imported.ReplyTo); err != nil {
+			log.Printf("profile import: skipping identity of account %s: %v", accountID, err)
+			continue
+		}
+		saved, err := db.SaveAccountIdentityGuarded(ctx, owner, models.Identity{AccountID: accountID, Name: imported.Name, Email: imported.Email, ReplyTo: imported.ReplyTo, SignatureID: signatureIDs[imported.Signature]}, nil)
+		if err != nil {
+			return fmt.Errorf("import identity: %w", err)
+		}
+		existing = append(existing, saved)
 	}
 	return nil
 }
