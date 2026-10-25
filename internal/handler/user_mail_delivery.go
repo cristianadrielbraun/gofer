@@ -151,13 +151,16 @@ func (s *userMailDeliveryScope) send(ctx context.Context) (bool, error) {
 	if json.Unmarshal(send.MessageJSON, &calendarSnapshot) == nil && calendarSnapshot.CalendarNotification != nil {
 		return s.sendCalendarNotification(ctx, send)
 	}
+	var snapshot outgoingMessageSnapshot
+	if json.Unmarshal(send.MessageJSON, &snapshot) == nil && snapshot.IdentitySMTP && send.Transport == storage.OutgoingTransportSMTP {
+		return s.sendIdentitySMTP(ctx, send, snapshot)
+	}
 	if s.cfg.Provider == providers.ProviderJMAP {
 		return s.sendJMAP(ctx, send)
 	}
 	if s.cfg.Provider != "imap" {
 		return s.sendProvider(ctx, send)
 	}
-	var snapshot outgoingMessageSnapshot
 	err := json.Unmarshal(send.MessageJSON, &snapshot)
 	result := models.SendFailed
 	if err == nil && (send.Transport != storage.OutgoingTransportSMTP || snapshot.MessageID == "" || snapshot.CalendarReply != "" || snapshot.CalendarNotification != nil) {
@@ -168,6 +171,41 @@ func (s *userMailDeliveryScope) send(ctx context.Context) (bool, error) {
 		result, err, _ = smtpclient.SendRawMessageWithTiming(work, s.cfg, s.smtpPassword, send.EnvelopeFrom, send.EnvelopeRecipients, send.MIMEData)
 		cancel()
 	}
+	return s.finishSMTP(ctx, send, snapshot.MessageID, result, err, true)
+}
+
+// sendIdentitySMTP sends a message through the own SMTP server of the
+// identity it is sent as. The server and password are read under the
+// account's lease and used after it.
+func (s *userMailDeliveryScope) sendIdentitySMTP(ctx context.Context, send storage.OutgoingSend, snapshot outgoingMessageSnapshot) (bool, error) {
+	var cfg *models.AccountConfig
+	var password string
+	var routeErr error
+	if err := s.runner.h.userAccounts.WithAccountForUser(ctx, s.owner, s.id, func(accounts *config.AccountStore, db *storage.DB) error {
+		identities, err := db.ListAccountIdentitiesInternal(ctx, s.id)
+		if err != nil {
+			return err
+		}
+		cfg, password, routeErr = identitySMTPRoute(ctx, accounts, identities, snapshot.IdentityID)
+		return nil
+	}); err != nil {
+		return false, err
+	}
+	result, err := models.SendFailed, routeErr
+	if err == nil && snapshot.MessageID == "" {
+		err = errors.New("unsupported routed outgoing message")
+	}
+	if err == nil {
+		work, cancel := context.WithTimeout(ctx, 2*time.Minute)
+		result, err, _ = smtpclient.SendRawMessageWithTiming(work, cfg, password, send.EnvelopeFrom, send.EnvelopeRecipients, send.MIMEData)
+		cancel()
+	}
+	// Only an IMAP account's Sent takes a copy so far.
+	return s.finishSMTP(ctx, send, snapshot.MessageID, result, err, s.cfg.Provider == "imap")
+}
+
+// finishSMTP records how an SMTP delivery went and tells the browser.
+func (s *userMailDeliveryScope) finishSMTP(ctx context.Context, send storage.OutgoingSend, messageID string, result models.SendResult, err error, sentCopy bool) (bool, error) {
 	if ctx.Err() != nil {
 		return false, ctx.Err()
 	} // Leave the claim for recovery, never silently resend.
@@ -190,7 +228,7 @@ func (s *userMailDeliveryScope) send(ctx context.Context) (bool, error) {
 	finalErr := s.call(ctx, func(db *storage.DB) error {
 		switch status {
 		case storage.OutgoingSendSent:
-			return db.CompleteOutgoingSend(ctx, send.ID, snapshot.MessageID, true)
+			return db.CompleteOutgoingSend(ctx, send.ID, messageID, sentCopy)
 		case storage.OutgoingSendPending:
 			return db.FinishOutgoingSendWithRetry(ctx, send.ID, errText, nextAttempt)
 		default:

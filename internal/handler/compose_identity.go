@@ -5,8 +5,10 @@ import (
 	"database/sql"
 	"errors"
 	"net/mail"
+	"slices"
 	"strings"
 
+	"github.com/cristianadrielbraun/gofer/internal/config"
 	"github.com/cristianadrielbraun/gofer/internal/mail/message"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 )
@@ -20,6 +22,8 @@ type composeSender struct {
 	Email      string
 	ReplyTo    []*mail.Address
 	IdentityID string
+	// OwnSMTP is set for an identity that sends through its own server.
+	OwnSMTP bool
 }
 
 func accountComposeSender(account *models.Account) composeSender {
@@ -27,7 +31,7 @@ func accountComposeSender(account *models.Account) composeSender {
 }
 
 func identityComposeSender(identity models.Identity) composeSender {
-	sender := composeSender{Name: identity.Name, Email: identity.Email, IdentityID: identity.ID}
+	sender := composeSender{Name: identity.Name, Email: identity.Email, IdentityID: identity.ID, OwnSMTP: identity.HasOwnSMTP()}
 	if identity.ReplyTo != "" {
 		// Stored lists were checked when saved; a bad one sends without Reply-To.
 		sender.ReplyTo, _ = message.ParseAddressList(identity.ReplyTo)
@@ -37,6 +41,7 @@ func identityComposeSender(identity models.Identity) composeSender {
 
 func (s composeSender) apply(msg *message.OutgoingMessage) {
 	msg.FromName, msg.FromEmail, msg.ReplyTo = s.Name, s.Email, s.ReplyTo
+	msg.IdentityID, msg.IdentitySMTP = s.IdentityID, s.OwnSMTP
 }
 
 // composeSenderFor returns who a compose form sends as: the account, or the
@@ -132,4 +137,33 @@ func ownAddresses(account *models.Account, identities []models.Identity) []strin
 		add(identity.Email)
 	}
 	return addresses
+}
+
+// errIdentitySMTPUnavailable is a message queued to go through an identity's
+// own server when that server can't be used: it is never sent the account's
+// way instead, where the From would likely be refused or rewritten.
+var errIdentitySMTPUnavailable = errors.New("This identity's SMTP server is no longer set up, so the message wasn't sent.")
+
+var errIdentitySMTPNoPassword = errors.New("This identity's SMTP server has no password stored, so the message wasn't sent. Enter it in the account's Identities and send again.")
+
+// identitySMTPRoute is the server and password a message sent as identityID
+// goes out through.
+func identitySMTPRoute(ctx context.Context, accounts *config.AccountStore, identities []models.Identity, identityID string) (*models.AccountConfig, string, error) {
+	index := slices.IndexFunc(identities, func(identity models.Identity) bool { return identity.ID == identityID })
+	if index < 0 || !identities[index].HasOwnSMTP() {
+		return nil, "", errIdentitySMTPUnavailable
+	}
+	identity := identities[index]
+	password, err := accounts.DecryptIdentitySMTPPassword(ctx, identity.AccountID, identity.ID)
+	if err != nil {
+		return nil, "", err
+	}
+	if password == "" {
+		return nil, "", errIdentitySMTPNoPassword
+	}
+	cfg, err := accounts.IdentitySMTPConfig(ctx, identity)
+	if err != nil {
+		return nil, "", err
+	}
+	return cfg, password, nil
 }

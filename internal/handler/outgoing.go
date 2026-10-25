@@ -56,6 +56,9 @@ type outgoingMessageSnapshot struct {
 	MessageID            string                        `json:"message_id"`
 	Date                 time.Time                     `json:"date"`
 	Attachments          []outgoingAttachmentSnapshot  `json:"attachments,omitempty"`
+	IdentityID           string                        `json:"identity_id,omitempty"`
+	// IdentitySMTP sends the message through the identity's own server.
+	IdentitySMTP bool `json:"identity_smtp,omitempty"`
 }
 
 type sentCopyIMAPClient interface {
@@ -87,6 +90,8 @@ func snapshotOutgoingMessage(msg *message.OutgoingMessage) outgoingMessageSnapsh
 		MessageID:            msg.MessageID,
 		Date:                 msg.Date,
 		Attachments:          snapshotOutgoingAttachments(msg.Attachments),
+		IdentityID:           msg.IdentityID,
+		IdentitySMTP:         msg.IdentitySMTP,
 	}
 }
 
@@ -109,6 +114,8 @@ func (snapshot outgoingMessageSnapshot) outgoingMessage() *message.OutgoingMessa
 		MessageID:            snapshot.MessageID,
 		Date:                 snapshot.Date,
 		Attachments:          restoreOutgoingAttachments(snapshot.Attachments),
+		IdentityID:           snapshot.IdentityID,
+		IdentitySMTP:         snapshot.IdentitySMTP,
 	}
 }
 
@@ -195,6 +202,10 @@ func (h *Handler) queueOutgoingMessage(ctx context.Context, accountID string, lo
 		return storage.OutgoingSend{}, fmt.Errorf("account not found")
 	}
 	transport := outgoingTransportForConfig(cfg)
+	if msg.IdentitySMTP {
+		// The identity's own server sends it, whatever the account's provider.
+		transport = storage.OutgoingTransportSMTP
+	}
 	if transport == storage.OutgoingTransportJMAP && !providers.JMAPEnabled() {
 		return storage.OutgoingSend{}, providers.ErrJMAPDisabled
 	}
@@ -366,7 +377,11 @@ func (h *Handler) deliverOutgoingSend(parent context.Context, send storage.Outgo
 	case storage.OutgoingTransportJMAP:
 		providerMessageID, err = h.sendJMAPOutgoingRaw(sendCtx, cfg, send)
 	case storage.OutgoingTransportSMTP:
-		err = h.sendSMTPOutgoingRaw(sendCtx, cfg, send)
+		if snapshot.IdentitySMTP {
+			err = h.sendIdentitySMTPOutgoingRaw(sendCtx, send, snapshot.IdentityID)
+		} else {
+			err = h.sendSMTPOutgoingRaw(sendCtx, cfg, send)
+		}
 	default:
 		err = fmt.Errorf("unsupported outgoing transport %q", send.Transport)
 	}
@@ -396,7 +411,9 @@ func (h *Handler) deliverOutgoingSend(parent context.Context, send storage.Outgo
 	if send.Transport == storage.OutgoingTransportJMAP {
 		h.cacheJMAPSentMessageID(parent, send.AccountID, msg, providerMessageID)
 	}
-	needsSentCopy := send.Transport == storage.OutgoingTransportSMTP
+	// Through an identity's own server, only an IMAP account's Sent takes
+	// a copy so far.
+	needsSentCopy := send.Transport == storage.OutgoingTransportSMTP && (!snapshot.IdentitySMTP || cfg.Provider == providers.ProviderIMAP)
 	if err := h.db.CompleteOutgoingSend(parent, send.ID, msg.MessageID, needsSentCopy); err != nil {
 		log.Printf("outgoing-send: complete %s: %v", send.ID, err)
 		return
@@ -617,6 +634,26 @@ func (h *Handler) sendSMTPOutgoingRaw(ctx context.Context, cfg *models.AccountCo
 			smtpPassword = decrypted
 		}
 	}
+	return h.deliverSMTPOutgoing(ctx, cfg, smtpPassword, send, startedAt, queueWait)
+}
+
+// sendIdentitySMTPOutgoingRaw sends a queued message through the own SMTP
+// server of the identity it is sent as, with the server and password the
+// identity has now.
+func (h *Handler) sendIdentitySMTPOutgoingRaw(ctx context.Context, send storage.OutgoingSend, identityID string) error {
+	startedAt := time.Now()
+	identities, err := h.db.ListAccountIdentitiesInternal(ctx, send.AccountID)
+	if err != nil {
+		return markOutgoingSendRetryable(err)
+	}
+	cfg, password, err := identitySMTPRoute(ctx, h.accountStore, identities, identityID)
+	if err != nil {
+		return err
+	}
+	return h.deliverSMTPOutgoing(ctx, cfg, password, send, startedAt, 0)
+}
+
+func (h *Handler) deliverSMTPOutgoing(ctx context.Context, cfg *models.AccountConfig, smtpPassword string, send storage.OutgoingSend, startedAt time.Time, queueWait time.Duration) error {
 	result, err, timing := smtpclient.SendRawMessageWithTiming(ctx, cfg, smtpPassword, send.EnvelopeFrom, send.EnvelopeRecipients, send.MIMEData)
 	timing.Total = time.Since(startedAt)
 	timing.QueueWait = queueWait
