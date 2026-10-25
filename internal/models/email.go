@@ -29,6 +29,8 @@ type Account struct {
 	ReconnectNeeds      []string
 	ContactAddressBooks []ContactAddressBook
 	CalendarSources     []AccountCalendarSource
+	// Identities are the further addresses the account sends as.
+	Identities []Identity
 	Folders             []Folder
 	Labels              []Label
 }

@@ -41,6 +41,7 @@ type outgoingAttachmentSnapshot struct {
 type outgoingMessageSnapshot struct {
 	FromName             string                        `json:"from_name,omitempty"`
 	FromEmail            string                        `json:"from_email"`
+	ReplyTo              []outgoingAddressSnapshot     `json:"reply_to,omitempty"`
 	To                   []outgoingAddressSnapshot     `json:"to"`
 	CC                   []outgoingAddressSnapshot     `json:"cc,omitempty"`
 	BCC                  []outgoingAddressSnapshot     `json:"bcc,omitempty"`
@@ -71,6 +72,7 @@ func snapshotOutgoingMessage(msg *message.OutgoingMessage) outgoingMessageSnapsh
 	return outgoingMessageSnapshot{
 		FromName:             msg.FromName,
 		FromEmail:            msg.FromEmail,
+		ReplyTo:              snapshotOutgoingAddresses(msg.ReplyTo),
 		To:                   snapshotOutgoingAddresses(msg.To),
 		CC:                   snapshotOutgoingAddresses(msg.CC),
 		BCC:                  snapshotOutgoingAddresses(msg.Bcc),
@@ -92,6 +94,7 @@ func (snapshot outgoingMessageSnapshot) outgoingMessage() *message.OutgoingMessa
 	return &message.OutgoingMessage{
 		FromName:             snapshot.FromName,
 		FromEmail:            snapshot.FromEmail,
+		ReplyTo:              restoreOutgoingAddresses(snapshot.ReplyTo),
 		To:                   restoreOutgoingAddresses(snapshot.To),
 		CC:                   restoreOutgoingAddresses(snapshot.CC),
 		Bcc:                  restoreOutgoingAddresses(snapshot.BCC),
@@ -833,16 +836,25 @@ func (h *Handler) outgoingMessageFromDraft(ctx context.Context, localMessageID i
 		htmlBody = "<html><body>" + htmlBody + "</body></html>"
 	}
 	inReplyTo, references := h.validComposeThreadHeaders(ctx, email.AccountID, email.Subject, email.InReplyTo, email.References)
-	fromName, fromEmail := email.From.Name, email.From.Email
+	// A draft is sent as the identity its From names, if the account still
+	// has it, and otherwise as the account.
+	sender := composeSender{Name: email.From.Name, Email: email.From.Email}
 	if account, err := h.accountStore.GetAccountByID(ctx, email.AccountID); err == nil && account != nil {
-		fromName, fromEmail = account.Name, account.Email
+		sender = accountComposeSender(account)
+		if identities, err := h.db.ListAccountIdentitiesInternal(ctx, email.AccountID); err != nil {
+			return nil, err
+		} else if identity, ok := matchSenderIdentity(account, identities, email.From.Name, email.From.Email); ok {
+			sender = identityComposeSender(identity)
+		}
 	}
-	return &message.OutgoingMessage{
-		FromName: fromName, FromEmail: fromEmail, To: to, CC: cc, Bcc: bcc,
+	msg := &message.OutgoingMessage{
+		To: to, CC: cc, Bcc: bcc,
 		Subject: email.Subject, TextBody: email.TextBody, HTMLBody: htmlBody,
 		InReplyTo: inReplyTo, References: references, MessageID: message.NewMessageID(),
 		Date: time.Now().UTC(), Attachments: outgoingAttachmentsFromStored(email.Attachments),
-	}, nil
+	}
+	sender.apply(msg)
+	return msg, nil
 }
 
 func (h *Handler) refreshPendingOutgoingSend(ctx context.Context, saved composeDraftSaveResult) error {

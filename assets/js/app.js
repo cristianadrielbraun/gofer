@@ -14112,26 +14112,32 @@ function _updateComposeBtn(disabled) {
   }
 }
 
+// selectComposeAccount sends as the account or identity of a From menu item.
 function selectComposeAccount(el, fromPane) {
   var accountId = el.dataset.accountId
-  var email = el.dataset.accountEmail
-  var name = el.dataset.accountName
+  var identityId = el.dataset.identityId || ""
+  var email = identityId ? el.dataset.identityEmail : el.dataset.accountEmail
+  var name = identityId ? el.dataset.identityName : el.dataset.accountName
   if (!accountId || !email) return
   var prefix = fromPane ? "compose-pane-" : "compose-"
   var idField = document.getElementById(prefix + "account-id")
+  var identityField = document.getElementById(prefix + "identity-id")
   var display = document.getElementById(prefix + "from-display")
   if (idField) idField.value = accountId
+  if (identityField) identityField.value = identityId
   if (display) display.textContent = (name ? name + " <" : "") + email + (name ? ">" : "")
-  syncComposeAccountItems(fromPane ? "pane" : "dialog", accountId)
+  syncComposeAccountItems(fromPane ? "pane" : "dialog", accountId, identityId)
   _markComposeDirty(document.getElementById(prefix + "form"))
   applyDefaultComposeSignature(document.getElementById(prefix + "form"), true)
 }
 
-function syncComposeAccountItems(scope, accountId) {
+function syncComposeAccountItems(scope, accountId, identityId) {
   if (!scope || !accountId) return
+  identityId = identityId || ""
   var items = document.querySelectorAll('[data-compose-account-scope="' + scope + '"][data-compose-account-item]')
   for (var i = 0; i < items.length; i++) {
-    items[i].dataset.composeAccountSelected = items[i].dataset.accountId === accountId ? "true" : "false"
+    var selected = items[i].dataset.accountId === accountId && (items[i].dataset.identityId || "") === identityId
+    items[i].dataset.composeAccountSelected = selected ? "true" : "false"
   }
 }
 
@@ -14184,10 +14190,15 @@ function setComposeMode(form, mode) {
   if (field) field.value = mode || "new"
 }
 
+function composeIdentityID(form) {
+  var identity = form && form.querySelector('input[name="identity_id"]')
+  return (identity && identity.value) || ""
+}
+
 function composeSignatureCacheKey(form) {
   var account = form && form.querySelector('input[name="account_id"]')
   if (!account || !account.value) return ""
-  return account.value + "::" + composeModeForForm(form)
+  return account.value + "::" + composeIdentityID(form) + "::" + composeModeForForm(form)
 }
 
 function loadComposeSignatures(form, refresh) {
@@ -14197,6 +14208,7 @@ function loadComposeSignatures(form, refresh) {
   if (!refresh && _composeSignatureCache[key]) return Promise.resolve(_composeSignatureCache[key])
   var params = new URLSearchParams()
   params.set("mode", composeModeForForm(form))
+  if (composeIdentityID(form)) params.set("identity", composeIdentityID(form))
   return fetch("/api/accounts/" + encodeURIComponent(account.value) + "/signatures?" + params.toString())
     .then(function (r) { if (!r.ok) throw new Error("Failed to load signatures"); return r.json() })
     .then(function (data) { _composeSignatureCache[key] = data; return data })
@@ -16460,6 +16472,7 @@ function syncComposeInlineImageInputs(form) {
 function _composeValsFromDraft(draft) {
   return {
     account_id: draft.account_id || "",
+    identity_id: draft.identity_id || "",
     draft_id: draft.draft_id || "",
     to: draft.to || "",
     cc: draft.cc || "",
@@ -17166,21 +17179,32 @@ function composeAccountEmail(accountId) {
   return ""
 }
 
-function setComposeAccount(form, accountId) {
+// setComposeAccount sends as the account, or as its identity identityId when
+// the From menu still offers it.
+function setComposeAccount(form, accountId, identityId) {
   if (!form || !accountId) return
   var pane = form.id === "compose-pane-form"
   var prefix = pane ? "compose-pane-" : "compose-"
+  var scope = pane ? "pane" : "dialog"
+  var identityItem = identityId ? document.querySelector('[data-compose-account-scope="' + scope + '"][data-account-id="' + CSS.escape(accountId) + '"][data-identity-id="' + CSS.escape(identityId) + '"]') : null
+  if (!identityItem) identityId = ""
   var idField = document.getElementById(prefix + "account-id")
   if (idField) idField.value = accountId
-  syncComposeAccountItems(pane ? "pane" : "dialog", accountId)
-  var options = document.querySelectorAll("[data-account-id]")
+  var identityField = document.getElementById(prefix + "identity-id")
+  if (identityField) identityField.value = identityId
+  syncComposeAccountItems(scope, accountId, identityId)
+  var display = document.getElementById(prefix + "from-display")
+  if (identityItem) {
+    if (display) display.textContent = (identityItem.dataset.identityName ? identityItem.dataset.identityName + " <" : "") + identityItem.dataset.identityEmail + (identityItem.dataset.identityName ? ">" : "")
+    return
+  }
+  var options = document.querySelectorAll("[data-account-id][data-account-email]")
   for (var i = 0; i < options.length; i++) {
     if (options[i].dataset.accountId !== accountId) continue
-    var display = document.getElementById(prefix + "from-display")
-    if (display && options[i].dataset.accountEmail) {
+    if (display) {
       var name = options[i].dataset.accountName || ""
       var email = options[i].dataset.accountEmail
-      display.innerHTML = (name ? name + " &lt;" : "") + email + (name ? "&gt;" : "")
+      display.textContent = (name ? name + " <" : "") + email + (name ? ">" : "")
     }
     return
   }
@@ -17314,7 +17338,7 @@ function writeComposePrefill(form, vals, prefix, mode) {
   setComposeMode(form, mode === "forward" ? "forward" : (mode === "new" ? "new" : "reply"))
   setComposeKind(form, mode)
   _showComposeOptionalFields(form, vals)
-  setComposeAccount(form, vals.account_id)
+  setComposeAccount(form, vals.account_id, vals.identity_id)
   applyDefaultComposeSignature(form, true)
   focusComposePrefill(form, mode)
 }
@@ -19068,9 +19092,9 @@ function _writeComposeFormValues(form, vals, prefix) {
     var display = document.getElementById(prefix + "from-display")
     if (display) display.innerHTML = vals._fromDisplay
   } else if (vals.account_id) {
-    setComposeAccount(form, vals.account_id)
+    setComposeAccount(form, vals.account_id, vals.identity_id)
   }
-  if (vals.account_id) syncComposeAccountItems(form.id === "compose-pane-form" ? "pane" : "dialog", vals.account_id)
+  if (vals.account_id) syncComposeAccountItems(form.id === "compose-pane-form" ? "pane" : "dialog", vals.account_id, vals.identity_id)
   _setComposeEditorValue(form, vals.body || "", vals.html_body || "", vals.inline_images || [])
   renderComposeAttachments(form, vals.attachments || [])
   form.dataset.composeUploadsPending = "0"

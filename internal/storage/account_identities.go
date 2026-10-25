@@ -108,6 +108,31 @@ func (db *DB) ListUserIdentities(ctx context.Context, userID string) ([]models.I
 		ORDER BY a.sort_order, a.created_at, a.id, i.sort_order, i.created_at, i.id`, userID)
 }
 
+// ListAccountIdentitiesInternal returns an account's identities for work that
+// already holds the account, such as sending, without an owner check.
+func (db *DB) ListAccountIdentitiesInternal(ctx context.Context, accountID string) ([]models.Identity, error) {
+	return queryAccountIdentities(ctx, db.Read(), `
+		SELECT `+accountIdentityColumns+`
+		FROM account_identities i
+		WHERE i.account_id = ?
+		ORDER BY i.sort_order, i.created_at, i.id`, accountID)
+}
+
+func (db *DB) attachAccountIdentities(ctx context.Context, userID string, accounts []models.Account) error {
+	identities, err := db.ListUserIdentities(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("list identities: %w", err)
+	}
+	for i := range accounts {
+		for _, identity := range identities {
+			if identity.AccountID == accounts[i].ID {
+				accounts[i].Identities = append(accounts[i].Identities, identity)
+			}
+		}
+	}
+	return nil
+}
+
 // GetAccountIdentity returns one identity of one of the owner's accounts, or
 // sql.ErrNoRows.
 func (db *DB) GetAccountIdentity(ctx context.Context, userID, accountID, identityID string) (models.Identity, error) {

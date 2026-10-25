@@ -56,6 +56,7 @@ templ ComposeDialog(accounts []models.Account) {
 				@ComposeDropChoice("compose-drop-choice")
 				@ComposeMobileBar()
 				<input type="hidden" name="account_id" id="compose-account-id" value={ composeDefaultAccountID(accounts) }/>
+				<input type="hidden" name="identity_id" id="compose-identity-id" value=""/>
 				<input type="hidden" name="draft_id" id="compose-draft-id" value=""/>
 				<input type="hidden" name="compose_mode" id="compose-mode" value="new"/>
 				<input type="hidden" name="in_reply_to" id="compose-in-reply-to" value=""/>
@@ -86,6 +87,7 @@ templ ComposeDialog(accounts []models.Account) {
 									}) {
 										<span class="truncate select-item-text">{ acc.Name } &lt;{ acc.Email }&gt;</span>
 									}
+									@composeIdentityItems(acc, "dialog")
 								}
 							}
 						}
@@ -499,6 +501,35 @@ templ ComposeField(label string, name string, placeholder string) {
 	</div>
 }
 
+// composeIdentityItems lists an account's identities in a From menu, under
+// the account's own item.
+templ composeIdentityItems(acc models.Account, scope string) {
+	for _, identity := range acc.Identities {
+		@dropdown.Item(dropdown.ItemProps{
+			Class: "compose-from-item select-item group relative justify-start gap-1.5 pl-6 pr-8 font-light outline-none transition-colors duration-150",
+			Attributes: templ.Attributes{
+				"data-compose-account-item":     "",
+				"data-compose-account-scope":    scope,
+				"data-compose-account-selected": "false",
+				"data-account-id":               acc.ID,
+				"data-identity-id":              identity.ID,
+				"data-identity-email":           identity.Email,
+				"data-identity-name":            identity.Name,
+				"data-on-click":                 onAction("selectComposeAccount", actionElement, scope == "pane"),
+			},
+		}) {
+			@icon.CornerDownRight(icon.Props{Class: "size-3 shrink-0 text-muted-foreground"})
+			<span class="truncate select-item-text">
+				if identity.Name != "" {
+					{ identity.Name } &lt;{ identity.Email }&gt;
+				} else {
+					{ identity.Email }
+				}
+			</span>
+		}
+	}
+}
+
 templ ComposePane(accounts []models.Account) {
 	<div class="flex flex-col h-full p-2" data-compose-pane>
 		<div class="surface-paper rounded-md flex flex-col h-full overflow-hidden">
@@ -549,6 +580,7 @@ templ ComposePane(accounts []models.Account) {
 					<div id="compose-pane-form" class="flex flex-1 min-h-0 flex-col gap-3">
 						@ComposeDropChoice("compose-pane-drop-choice")
 						<input type="hidden" name="account_id" id="compose-pane-account-id" value={ composeDefaultAccountID(accounts) }/>
+						<input type="hidden" name="identity_id" id="compose-pane-identity-id" value=""/>
 						<input type="hidden" name="draft_id" id="compose-pane-draft-id" value=""/>
 						<input type="hidden" name="compose_mode" id="compose-pane-mode" value="new"/>
 						<input type="hidden" name="in_reply_to" id="compose-pane-in-reply-to" value=""/>
@@ -579,6 +611,7 @@ templ ComposePane(accounts []models.Account) {
 										}) {
 											<span class="truncate select-item-text">{ acc.Name } &lt;{ acc.Email }&gt;</span>
 										}
+										@composeIdentityItems(acc, "pane")
 									}
 								}
 							}

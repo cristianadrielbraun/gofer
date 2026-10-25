@@ -19,12 +19,15 @@ import (
 type OutgoingMessage struct {
 	FromName  string
 	FromEmail string
-	To        []*mail.Address
-	CC        []*mail.Address
-	Bcc       []*mail.Address
-	Subject   string
-	TextBody  string
-	HTMLBody  string
+	// ReplyTo is where replies should go when that is not From, as set by
+	// the identity the message is sent as.
+	ReplyTo  []*mail.Address
+	To       []*mail.Address
+	CC       []*mail.Address
+	Bcc      []*mail.Address
+	Subject  string
+	TextBody string
+	HTMLBody string
 	// CalendarReply is a generated iTIP REPLY, never an arbitrary compose field.
 	CalendarReply        string
 	CalendarNotification *CalendarNotification
@@ -129,6 +132,9 @@ func outgoingMIMEHeader(msg *OutgoingMessage, includeBcc bool, extraHeaders map[
 	header.SetAddressList("From", []*mail.Address{{Name: msg.FromName, Address: msg.FromEmail}})
 	header.SetAddressList("To", msg.To)
 	header.SetAddressList("Cc", msg.CC)
+	if len(msg.ReplyTo) > 0 {
+		header.SetAddressList("Reply-To", msg.ReplyTo)
+	}
 	if includeBcc {
 		header.SetAddressList("Bcc", msg.Bcc)
 	}
