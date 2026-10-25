@@ -509,6 +509,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/accounts/{id}/identities/{identity}", h.handleDeleteAccountIdentity)
 	mux.HandleFunc("POST /api/accounts/{id}/identities/{identity}/move", h.handleMoveAccountIdentity)
 	mux.HandleFunc("POST /api/accounts/{id}/identities/refresh", h.handleRefreshAccountIdentities)
+	mux.HandleFunc("POST /api/accounts/{id}/identities/smtp-test", h.handleTestIdentitySMTP)
 	mux.HandleFunc("POST /api/signatures", h.handleSaveSignature)
 	mux.HandleFunc("DELETE /api/signatures/{id}", h.handleDeleteSignature)
 	mux.HandleFunc("POST /api/accounts/{id}/test", h.handleTestAccount)

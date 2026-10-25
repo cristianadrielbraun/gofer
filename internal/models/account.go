@@ -220,10 +220,17 @@ type AccountIdentitiesData struct {
 	// CatchAllDomains are the domains the provider lets the account send
 	// from at any address.
 	CatchAllDomains []string
-	// CanAddIdentities is set when the provider sends as addresses added by
-	// hand; Unusable names the manual identities it would not send as.
-	CanAddIdentities bool
-	Unusable         map[string]bool
+	// CanAddIdentities is set when identities can be added by hand: the
+	// account's way of sending takes further addresses
+	// (AccountSendsAnyAddress), or an identity can have its own SMTP server
+	// (CanUseOwnSMTP). Unusable names the manual identities the account's
+	// way of sending would not send as.
+	CanAddIdentities       bool
+	AccountSendsAnyAddress bool
+	CanUseOwnSMTP          bool
+	Unusable               map[string]bool
+	// SMTPTest is the outcome of testing the form's SMTP server.
+	SMTPTest *ConnectionTestResult
 }
 
 type AccountSignatureData struct {

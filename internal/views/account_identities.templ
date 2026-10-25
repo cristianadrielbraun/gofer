@@ -9,6 +9,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/components/dialog"
 	"github.com/cristianadrielbraun/gofer/components/icon"
 	"github.com/cristianadrielbraun/gofer/components/input"
+	"github.com/cristianadrielbraun/gofer/components/radio"
 	"github.com/cristianadrielbraun/gofer/components/selectbox"
 )
 
@@ -144,6 +145,12 @@ templ accountIdentityRow(data models.AccountIdentitiesData, identity models.Iden
 				}
 			</div>
 			<p class="truncate text-xs text-muted-foreground">{ identityDetail(data.Signatures, identity) }</p>
+			if identity.HasOwnSMTP() {
+				<p class="truncate text-xs text-muted-foreground" data-account-identity-smtp>Sends through { identity.SMTPHost }</p>
+				if !identity.HasSMTPPassword {
+					<p class="text-xs text-destructive" data-account-identity-needs-password>Needs the SMTP server's password before it can send.</p>
+				}
+			}
 			if data.Unusable[identity.ID] {
 				<p class="text-xs text-destructive" data-account-identity-unusable>{ identityUnusableNote(data) }</p>
 			}
@@ -230,7 +237,7 @@ templ accountIdentityForm(data models.AccountIdentitiesData) {
 			}
 		</div>
 		if !fromProvider && len(data.CatchAllDomains) > 0 {
-			<p class="text-xs text-muted-foreground" data-account-identity-catch-all>The server lets this account send from any address at { strings.Join(data.CatchAllDomains, ", ") }, so identities at { identityDomainsWord(data.CatchAllDomains) } can be added here.</p>
+			<p class="text-xs text-muted-foreground" data-account-identity-catch-all>The server lets this account send from any address at { strings.Join(data.CatchAllDomains, ", ") }, so identities at { identityDomainsWord(data.CatchAllDomains) } can send through the account's server.</p>
 		}
 		if fromProvider {
 			<p class="text-xs text-muted-foreground">This identity comes from { accountProviderName(data.Account.Provider) }; change its name and addresses there. Its signature is set here.</p>
@@ -264,11 +271,14 @@ templ accountIdentityForm(data models.AccountIdentitiesData) {
 				}
 			</div>
 		</div>
+		if !fromProvider && data.CanUseOwnSMTP {
+			@accountIdentitySendThrough(data)
+		}
 		<div class="flex items-center justify-between gap-3">
 			if data.Error != "" {
 				<p class="text-xs text-destructive" role="alert" data-account-identity-error>{ data.Error }</p>
 			} else {
-				<p class="text-xs text-muted-foreground">Your provider must let this account send as the address, or it may refuse or rewrite it.</p>
+				<p class="text-xs text-muted-foreground">The server that sends must let you send as the address, or it may refuse or rewrite it.</p>
 			}
 			<button type="submit" class="btn-skeuo inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold">
 				if editing.ID == "" {
@@ -281,4 +291,123 @@ templ accountIdentityForm(data models.AccountIdentitiesData) {
 			</button>
 		</div>
 	</form>
+}
+
+// identityUsesOwnSMTP says whether the form starts on "Another SMTP server":
+// the identity has one, or the account's way of sending wouldn't take the
+// address.
+func identityUsesOwnSMTP(data models.AccountIdentitiesData) bool {
+	return data.Editing.HasOwnSMTP() || !data.AccountSendsAnyAddress || data.Unusable[data.Editing.ID]
+}
+
+func identitySMTPPortValue(identity models.Identity) string {
+	if identity.SMTPPort == 0 {
+		return "465"
+	}
+	return fmt.Sprint(identity.SMTPPort)
+}
+
+func identitySMTPTLSMode(identity models.Identity) string {
+	if identity.SMTPTLSMode == "" {
+		return "tls"
+	}
+	return identity.SMTPTLSMode
+}
+
+// accountIdentitySendThrough chooses how an identity's mail goes out: the
+// account's way, or an SMTP server of its own.
+templ accountIdentitySendThrough(data models.AccountIdentitiesData) {
+	{{ editing := data.Editing }}
+	{{ own := identityUsesOwnSMTP(data) }}
+	<fieldset class="space-y-2" data-identity-send-through>
+		<legend class="mb-1.5 text-xs font-medium text-muted-foreground">Send through</legend>
+		<div class="flex flex-wrap gap-x-5 gap-y-2">
+			<label class={ "flex items-center gap-2 text-sm", templ.KV("opacity-50", !data.AccountSendsAnyAddress) }>
+				@radio.Radio(radio.Props{Name: "send_through", Value: "account", Checked: !own, Disabled: !data.AccountSendsAnyAddress, Attributes: templ.Attributes{"data-on-change": onAction("toggleIdentitySMTP", actionElement)}})
+				The account's server
+			</label>
+			<label class="flex items-center gap-2 text-sm">
+				@radio.Radio(radio.Props{Name: "send_through", Value: "smtp", Checked: own, Attributes: templ.Attributes{"data-on-change": onAction("toggleIdentitySMTP", actionElement)}})
+				Another SMTP server
+			</label>
+		</div>
+		if !data.AccountSendsAnyAddress {
+			<p class="text-xs text-muted-foreground">{ accountProviderName(data.Account.Provider) } sends only from addresses it lists, so an address added here goes out through another SMTP server. A copy is still saved in this account's Sent folder.</p>
+		}
+		<div class={ "grid gap-3 rounded-md border border-border/60 p-3 sm:grid-cols-2", templ.KV("hidden", !own) } data-identity-smtp-fields>
+			<div class="sm:col-span-2">
+				<label class="mb-1.5 block text-xs font-medium text-muted-foreground" for="account-identity-smtp-host">SMTP server</label>
+				@input.Input(input.Props{ID: "account-identity-smtp-host", Name: "smtp_host", Type: input.TypeText, Value: editing.SMTPHost, Placeholder: "smtp.example.com"})
+				<div data-server-check="smtp" class="mt-1.5 hidden space-y-1" aria-live="polite"></div>
+			</div>
+			<div>
+				<label class="mb-1.5 block text-xs font-medium text-muted-foreground" for="account-identity-smtp-port">Port</label>
+				@input.Input(input.Props{ID: "account-identity-smtp-port", Name: "smtp_port", Type: input.TypeNumber, Value: identitySMTPPortValue(editing), Placeholder: "465"})
+			</div>
+			<div>
+				<label class="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+					<span>Encryption</span>
+					@UnencryptedTransportWarning("identity-smtp-unencrypted-warning", identitySMTPTLSMode(editing) == "plaintext")
+				</label>
+				@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
+					@selectbox.Trigger(selectbox.TriggerProps{Name: "smtp_tls_mode", Class: "bg-background", DisableClear: true, Attributes: templ.Attributes{"data-on-change": onAction("toggleUnencryptedTransportWarning", actionElement)}}) {
+						@selectbox.Value(selectbox.ValueProps{Placeholder: "TLS"})
+					}
+					@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
+						@selectbox.Item(selectbox.ItemProps{Value: "tls", Selected: identitySMTPTLSMode(editing) == "tls"}) { TLS }
+						@selectbox.Item(selectbox.ItemProps{Value: "starttls", Selected: identitySMTPTLSMode(editing) == "starttls"}) { STARTTLS }
+						@selectbox.Item(selectbox.ItemProps{Value: "plaintext", Selected: identitySMTPTLSMode(editing) == "plaintext"}) { Unencrypted (admin exception) }
+					}
+				}
+			</div>
+			<div>
+				<label class="mb-1.5 block text-xs font-medium text-muted-foreground" for="account-identity-smtp-username">Username</label>
+				@input.Input(input.Props{ID: "account-identity-smtp-username", Name: "smtp_username", Type: input.TypeText, Value: editing.SMTPUsername, Placeholder: "The identity's address", Attributes: templ.Attributes{"autocomplete": "off"}})
+			</div>
+			<div>
+				<label class="mb-1.5 block text-xs font-medium text-muted-foreground" for="account-identity-smtp-password">Password</label>
+				if editing.HasSMTPPassword {
+					@input.Input(input.Props{ID: "account-identity-smtp-password", Name: "smtp_password", Type: input.TypePassword, Placeholder: "Saved; type to replace", Attributes: templ.Attributes{"autocomplete": "new-password"}})
+				} else {
+					@input.Input(input.Props{ID: "account-identity-smtp-password", Name: "smtp_password", Type: input.TypePassword, Placeholder: "••••••••", Attributes: templ.Attributes{"autocomplete": "new-password"}})
+				}
+			</div>
+			<div class="flex items-center gap-3 sm:col-span-2">
+				<button
+					type="button"
+					class="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs hover:bg-accent"
+					hx-post={ accountIdentitiesPath(data.Account.ID, "/smtp-test") }
+					hx-include="closest form"
+					hx-target="#account-identity-smtp-test"
+					hx-swap="innerHTML"
+					hx-disabled-elt="this"
+					data-account-identity-smtp-test
+				>
+					@icon.PlugZap(icon.Props{Class: "size-3.5"})
+					Test
+				</button>
+				<div id="account-identity-smtp-test" class="min-w-0 flex-1" aria-live="polite">
+					if data.SMTPTest != nil {
+						@AccountIdentitySMTPTestResult(*data.SMTPTest)
+					}
+				</div>
+			</div>
+		</div>
+	</fieldset>
+}
+
+// AccountIdentitySMTPTestResult says how testing an identity's SMTP server
+// went.
+templ AccountIdentitySMTPTestResult(result models.ConnectionTestResult) {
+	if result.Success {
+		<p class="flex items-center gap-1.5 text-xs text-emerald-700 dark:text-emerald-300" data-account-identity-smtp-test-result="ok">
+			@icon.CircleCheck(icon.Props{Class: "size-3.5 shrink-0"})
+			{ result.Message }
+		</p>
+	} else {
+		<p class="flex items-start gap-1.5 text-xs text-destructive" role="alert" data-account-identity-smtp-test-result="error">
+			@icon.CircleX(icon.Props{Class: "mt-0.5 size-3.5 shrink-0"})
+			<span class="min-w-0 break-words">{ result.Error }</span>
+		</p>
+	}
 }

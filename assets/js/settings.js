@@ -325,6 +325,14 @@ document.addEventListener("htmx:xhr:progress", function (event) {
   status.textContent = percent < 100 ? "Uploading… " + percent + "%" : "Reading the messages…"
 })
 
+// An identity's SMTP server fields show while "Another SMTP server" is chosen.
+function toggleIdentitySMTP(input) {
+  var fieldset = input && input.closest ? input.closest("[data-identity-send-through]") : null
+  var fields = fieldset ? fieldset.querySelector("[data-identity-smtp-fields]") : null
+  if (!fields) return
+  fields.classList.toggle("hidden", !(input.checked && input.value === "smtp"))
+}
+
 function toggleUnencryptedTransportWarning(input) {
   if (!input || !input.closest) return
   var field = input.closest(".select-container")
