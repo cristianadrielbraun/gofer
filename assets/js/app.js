@@ -17262,8 +17262,14 @@ function composeValuesFromSource(source, mode) {
   var ownEmail = composeAccountEmail(source.account_id)
   var exclude = {}
   if (ownEmail) exclude[ownEmail] = true
+  // The source lists the account's identity addresses too; a reply-all
+  // leaves out every one of them.
+  ;(source.own_emails || []).forEach(function (email) {
+    if (email) exclude[String(email).toLowerCase()] = true
+  })
   var vals = {
     account_id: source.account_id || "",
+    identity_id: source.identity_id || "",
     draft_id: "",
     to: "",
     cc: "",

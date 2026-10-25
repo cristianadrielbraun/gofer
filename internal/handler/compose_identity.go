@@ -79,3 +79,57 @@ func matchSenderIdentity(account *models.Account, identities []models.Identity, 
 	}
 	return models.Identity{}, false
 }
+
+// replyIdentity finds the identity a reply to email goes out as. A message
+// sent from one of the account's identities is answered as that identity;
+// otherwise the first of the account's addresses in To, then Cc, decides, and
+// the account's own address there means replying as the account.
+func replyIdentity(account *models.Account, identities []models.Identity, email *models.Email) (models.Identity, bool) {
+	if account == nil || email == nil || len(identities) == 0 {
+		return models.Identity{}, false
+	}
+	if identity, ok := matchSenderIdentity(account, identities, email.From.Name, email.From.Email); ok {
+		return identity, true
+	}
+	if strings.EqualFold(strings.TrimSpace(email.From.Email), account.Email) {
+		return models.Identity{}, false
+	}
+	for _, recipients := range [][]models.Contact{email.To, email.CC} {
+		for _, recipient := range recipients {
+			address := strings.TrimSpace(recipient.Email)
+			if address == "" {
+				continue
+			}
+			if strings.EqualFold(address, account.Email) {
+				return models.Identity{}, false
+			}
+			for _, identity := range identities {
+				if strings.EqualFold(identity.Email, address) {
+					return identity, true
+				}
+			}
+		}
+	}
+	return models.Identity{}, false
+}
+
+// ownAddresses lists the account's address and its identities' addresses,
+// lowercased, for leaving them out of a reply-all.
+func ownAddresses(account *models.Account, identities []models.Identity) []string {
+	seen := map[string]bool{}
+	addresses := []string{}
+	add := func(address string) {
+		address = strings.ToLower(strings.TrimSpace(address))
+		if address != "" && !seen[address] {
+			seen[address] = true
+			addresses = append(addresses, address)
+		}
+	}
+	if account != nil {
+		add(account.Email)
+	}
+	for _, identity := range identities {
+		add(identity.Email)
+	}
+	return addresses
+}

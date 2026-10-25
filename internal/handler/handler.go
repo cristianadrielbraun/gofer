@@ -5467,9 +5467,23 @@ func (h *Handler) handleComposeSource(w http.ResponseWriter, r *http.Request) {
 	if htmlBody == "" {
 		htmlBody = email.HTMLBody
 	}
+	identityID := ""
+	ownEmails := []string{}
+	if account, err := h.ownedAccount(r.Context(), email.AccountID); err == nil && account != nil {
+		identities, err := h.db.ListAccountIdentities(r.Context(), userID, email.AccountID)
+		if err != nil {
+			identities = nil
+		}
+		if identity, ok := replyIdentity(account, identities, email); ok {
+			identityID = identity.ID
+		}
+		ownEmails = ownAddresses(account, identities)
+	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
 		"account_id":  email.AccountID,
+		"identity_id": identityID,
+		"own_emails":  ownEmails,
 		"message_id":  email.InternetMessageID,
 		"references":  email.References,
 		"subject":     email.Subject,

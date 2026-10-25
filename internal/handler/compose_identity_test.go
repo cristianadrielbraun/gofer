@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -246,5 +247,71 @@ func TestMatchSenderIdentity(t *testing.T) {
 		if identity.ID != test.want || ok != (test.want != "") {
 			t.Errorf("%q <%s> = %q, %t; want %q", test.name, test.email, identity.ID, ok, test.want)
 		}
+	}
+}
+
+func TestComposeSourceRepliesAsAddressedIdentity(t *testing.T) {
+	h, db := newAccountOwnershipTestHandler(t)
+	identity := seedSalesIdentity(t, db)
+	if _, err := db.SaveAccountIdentityGuarded(t.Context(), "owner", models.Identity{AccountID: "victim-account", Name: "Owner Help", Email: "help@example.com"}, nil); err != nil {
+		t.Fatalf("save identity: %v", err)
+	}
+	if _, err := db.Write().Exec(`INSERT INTO folders (id, account_id, remote_id, name, role) VALUES ('victim-inbox', 'victim-account', 'INBOX', 'Inbox', 'inbox')`); err != nil {
+		t.Fatalf("insert folder: %v", err)
+	}
+	bodyPath := filepath.Join(t.TempDir(), "body.txt")
+	if err := os.WriteFile(bodyPath, []byte("Hello"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	type recipient struct{ kind, email string }
+	seed := func(id int64, from string, recipients ...recipient) {
+		t.Helper()
+		if _, err := db.Write().Exec(`INSERT INTO messages (id, account_id, internet_message_id, thread_id, subject, from_email, body_text_path) VALUES (?, 'victim-account', ?, ?, 'Order', ?, ?)`, id, "<m"+strconv.FormatInt(id, 10)+"@example.com>", "t"+strconv.FormatInt(id, 10), from, bodyPath); err != nil {
+			t.Fatalf("insert message: %v", err)
+		}
+		if _, err := db.Write().Exec(`INSERT INTO message_folder_state (message_id, folder_id, remote_uid) VALUES (?, 'victim-inbox', ?)`, id, id); err != nil {
+			t.Fatalf("insert folder state: %v", err)
+		}
+		for _, r := range recipients {
+			if _, err := db.Write().Exec(`INSERT INTO message_recipients (message_id, kind, email) VALUES (?, ?, ?)`, id, r.kind, r.email); err != nil {
+				t.Fatalf("insert recipient: %v", err)
+			}
+		}
+	}
+	seed(1, "buyer@example.com", recipient{"to", "colleague@example.com"}, recipient{"to", "SALES@example.com"})
+	seed(2, "buyer@example.com", recipient{"to", "owner@example.com"}, recipient{"cc", "sales@example.com"})
+	seed(3, "buyer@example.com", recipient{"to", "colleague@example.com"}, recipient{"cc", "sales@example.com"})
+	seed(4, "sales@example.com", recipient{"to", "buyer@example.com"})
+	seed(5, "buyer@example.com", recipient{"to", "list@example.com"})
+
+	source := func(id int64) map[string]any {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, "/api/compose/source?email_id="+strconv.FormatInt(id, 10), nil)
+		rec := httptest.NewRecorder()
+		h.handleComposeSource(rec, ownerRequest(req))
+		var out map[string]any
+		if err := json.NewDecoder(rec.Body).Decode(&out); err != nil {
+			t.Fatalf("decode source %d: %d %q", id, rec.Code, rec.Body.String())
+		}
+		return out
+	}
+	for _, tc := range []struct {
+		id       int64
+		identity string
+		why      string
+	}{
+		{1, identity.ID, "sent to the identity"},
+		{2, "", "the account's own address comes first"},
+		{3, identity.ID, "identity only in Cc"},
+		{4, identity.ID, "sent from the identity"},
+		{5, "", "none of the account's addresses"},
+	} {
+		if got := source(tc.id)["identity_id"]; got != tc.identity {
+			t.Errorf("message %d (%s): identity = %v, want %q", tc.id, tc.why, got, tc.identity)
+		}
+	}
+	own, _ := source(1)["own_emails"].([]any)
+	if len(own) != 3 || own[0] != "owner@example.com" || own[1] != "sales@example.com" || own[2] != "help@example.com" {
+		t.Fatalf("own_emails = %v", own)
 	}
 }
