@@ -670,6 +670,16 @@ func themeStyleLabel(style string) string {
 	}
 }
 
+// themeLookAttributes are the page's look: data-depth="flat" for the flat
+// look and data-corners="square" for square controls. Classic and Express
+// have neither.
+func themeLookAttributes(settings map[string]string) templ.Attributes {
+	if themeStyle(settings) == "minimal" {
+		return templ.Attributes{"data-depth": "flat", "data-corners": "square"}
+	}
+	return templ.Attributes{}
+}
+
 // themeColorsCSS is a style's changed colors as CSS, or "" if it has none.
 func themeColorsCSS(settings map[string]string, style string) string {
 	return themecolors.FromSettings(settings, style).CSS(style)

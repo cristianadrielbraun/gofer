@@ -963,6 +963,26 @@ func TestThemeColorsStyleWritesEachStyle(t *testing.T) {
 	}
 }
 
+func TestThemeLookAttributes(t *testing.T) {
+	for _, tc := range []struct {
+		style  string
+		depth  string
+		corner string
+	}{
+		{"minimal", "flat", "square"},
+		{"classic", "", ""},
+		{"express", "", ""},
+	} {
+		attrs := themeLookAttributes(map[string]string{"theme_style": tc.style})
+		if got, _ := attrs["data-depth"].(string); got != tc.depth {
+			t.Errorf("%s data-depth = %q, want %q", tc.style, got, tc.depth)
+		}
+		if got, _ := attrs["data-corners"].(string); got != tc.corner {
+			t.Errorf("%s data-corners = %q, want %q", tc.style, got, tc.corner)
+		}
+	}
+}
+
 func TestOutlookPushControlStates(t *testing.T) {
 	render := func(push models.OutlookPushSettings) string {
 		t.Helper()

@@ -78,9 +78,18 @@ var GoferSettings;
     }
   }
 
+  // The look that goes with each style: flat surfaces and square controls
+  // for Minimal. Mirrors themeLookAttributes in internal/views/helpers.go.
+  var STYLE_LOOKS = { minimal: { depth: "flat", corners: "square" } };
+
   function applyThemeStyle(style) {
     var html = document.documentElement;
+    var look = STYLE_LOOKS[style] || {};
     html.setAttribute("data-theme", style || "classic");
+    if (look.depth) html.setAttribute("data-depth", look.depth);
+    else html.removeAttribute("data-depth");
+    if (look.corners) html.setAttribute("data-corners", look.corners);
+    else html.removeAttribute("data-corners");
     applyTheme(_cache.theme || "dark");
   }
 
