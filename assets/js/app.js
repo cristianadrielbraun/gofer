@@ -14141,6 +14141,22 @@ function syncComposeAccountItems(scope, accountId, identityId) {
   }
 }
 
+// The From menu fits its longest choice and may grow to the end of its row,
+// so long names and addresses fit. Popovers sit in the top layer, where CSS
+// can't size them by the row.
+document.addEventListener("beforetoggle", function (event) {
+  var menu = event.target
+  if (event.newState !== "open" || !menu.classList || !menu.classList.contains("compose-from-menu")) return
+  var row = menu.closest("[data-compose-from-row]")
+  var trigger = row && row.querySelector(".compose-from-trigger")
+  if (!trigger) return
+  var box = trigger.getBoundingClientRect()
+  var room = Math.min(row.getBoundingClientRect().right - box.left, window.innerWidth - box.left - 10)
+  menu.style.width = "max-content"
+  menu.style.minWidth = Math.min(box.width, room) + "px"
+  menu.style.maxWidth = Math.max(room, 0) + "px"
+}, true)
+
 function resetComposeForm(fromPane, skipCleanup) {
   var prefix = fromPane ? "compose-pane-" : "compose-"
   var form = document.getElementById(prefix + "form")
