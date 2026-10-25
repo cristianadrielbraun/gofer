@@ -41,6 +41,7 @@ type outgoingAttachmentSnapshot struct {
 type outgoingMessageSnapshot struct {
 	FromName             string                        `json:"from_name,omitempty"`
 	FromEmail            string                        `json:"from_email"`
+	ReplyTo              []outgoingAddressSnapshot     `json:"reply_to,omitempty"`
 	To                   []outgoingAddressSnapshot     `json:"to"`
 	CC                   []outgoingAddressSnapshot     `json:"cc,omitempty"`
 	BCC                  []outgoingAddressSnapshot     `json:"bcc,omitempty"`
@@ -55,6 +56,9 @@ type outgoingMessageSnapshot struct {
 	MessageID            string                        `json:"message_id"`
 	Date                 time.Time                     `json:"date"`
 	Attachments          []outgoingAttachmentSnapshot  `json:"attachments,omitempty"`
+	IdentityID           string                        `json:"identity_id,omitempty"`
+	// IdentitySMTP sends the message through the identity's own server.
+	IdentitySMTP bool `json:"identity_smtp,omitempty"`
 }
 
 type sentCopyIMAPClient interface {
@@ -71,6 +75,7 @@ func snapshotOutgoingMessage(msg *message.OutgoingMessage) outgoingMessageSnapsh
 	return outgoingMessageSnapshot{
 		FromName:             msg.FromName,
 		FromEmail:            msg.FromEmail,
+		ReplyTo:              snapshotOutgoingAddresses(msg.ReplyTo),
 		To:                   snapshotOutgoingAddresses(msg.To),
 		CC:                   snapshotOutgoingAddresses(msg.CC),
 		BCC:                  snapshotOutgoingAddresses(msg.Bcc),
@@ -85,6 +90,8 @@ func snapshotOutgoingMessage(msg *message.OutgoingMessage) outgoingMessageSnapsh
 		MessageID:            msg.MessageID,
 		Date:                 msg.Date,
 		Attachments:          snapshotOutgoingAttachments(msg.Attachments),
+		IdentityID:           msg.IdentityID,
+		IdentitySMTP:         msg.IdentitySMTP,
 	}
 }
 
@@ -92,6 +99,7 @@ func (snapshot outgoingMessageSnapshot) outgoingMessage() *message.OutgoingMessa
 	return &message.OutgoingMessage{
 		FromName:             snapshot.FromName,
 		FromEmail:            snapshot.FromEmail,
+		ReplyTo:              restoreOutgoingAddresses(snapshot.ReplyTo),
 		To:                   restoreOutgoingAddresses(snapshot.To),
 		CC:                   restoreOutgoingAddresses(snapshot.CC),
 		Bcc:                  restoreOutgoingAddresses(snapshot.BCC),
@@ -106,6 +114,8 @@ func (snapshot outgoingMessageSnapshot) outgoingMessage() *message.OutgoingMessa
 		MessageID:            snapshot.MessageID,
 		Date:                 snapshot.Date,
 		Attachments:          restoreOutgoingAttachments(snapshot.Attachments),
+		IdentityID:           snapshot.IdentityID,
+		IdentitySMTP:         snapshot.IdentitySMTP,
 	}
 }
 
@@ -192,6 +202,10 @@ func (h *Handler) queueOutgoingMessage(ctx context.Context, accountID string, lo
 		return storage.OutgoingSend{}, fmt.Errorf("account not found")
 	}
 	transport := outgoingTransportForConfig(cfg)
+	if msg.IdentitySMTP {
+		// The identity's own server sends it, whatever the account's provider.
+		transport = storage.OutgoingTransportSMTP
+	}
 	if transport == storage.OutgoingTransportJMAP && !providers.JMAPEnabled() {
 		return storage.OutgoingSend{}, providers.ErrJMAPDisabled
 	}
@@ -363,7 +377,11 @@ func (h *Handler) deliverOutgoingSend(parent context.Context, send storage.Outgo
 	case storage.OutgoingTransportJMAP:
 		providerMessageID, err = h.sendJMAPOutgoingRaw(sendCtx, cfg, send)
 	case storage.OutgoingTransportSMTP:
-		err = h.sendSMTPOutgoingRaw(sendCtx, cfg, send)
+		if snapshot.IdentitySMTP {
+			err = h.sendIdentitySMTPOutgoingRaw(sendCtx, send, snapshot.IdentityID)
+		} else {
+			err = h.sendSMTPOutgoingRaw(sendCtx, cfg, send)
+		}
 	default:
 		err = fmt.Errorf("unsupported outgoing transport %q", send.Transport)
 	}
@@ -399,7 +417,19 @@ func (h *Handler) deliverOutgoingSend(parent context.Context, send storage.Outgo
 		return
 	}
 	h.cleanupDeliveredDraft(parent, send)
-	h.publishOutgoingResult(send, "sent", "")
+	var extra map[string]any
+	if send.Transport == storage.OutgoingTransportGmail {
+		if warning := mailpkg.GmailFromWarning(send.MIMEData, h.gmailSentFrom(sendCtx, providerToken, providerMessageID)); warning != "" {
+			extra = map[string]any{"from_warning": warning}
+			// The alias is likely gone from Gmail: take it out of the From menu.
+			if h.syncer != nil {
+				if err := h.syncer.RefreshProviderIdentities(parent, send.AccountID); err != nil {
+					log.Printf("outgoing-send: refresh identities %s after a changed From: %v", send.AccountID, err)
+				}
+			}
+		}
+	}
+	h.publishOutgoingResultWithPayload(send, "sent", "", extra)
 }
 
 func (h *Handler) runDueSentCopies(ctx context.Context) {
@@ -433,6 +463,11 @@ func (h *Handler) reconcileSentCopy(parent context.Context, send storage.Outgoin
 	cfg, err := h.accountStore.GetConfig(parent, send.AccountID)
 	if err != nil {
 		h.finishSentCopy(send, storage.SentCopyFailed, fmt.Errorf("account not found"))
+		return
+	}
+	if cfg.Provider != providers.ProviderIMAP {
+		// Sent through an identity's own server; the provider files it.
+		h.fileProviderSentCopy(parent, send, cfg, folderID)
 		return
 	}
 	password, err := h.resolvePassword(parent, cfg, send.AccountID)
@@ -496,6 +531,48 @@ func (h *Handler) reconcileSentCopy(parent context.Context, send storage.Outgoin
 		}
 	}
 	h.completeSentCopy(parent, send, folderID, uid, result.UIDValidity)
+}
+
+// fileProviderSentCopy files a message sent through an identity's own server
+// in a Gmail or JMAP account's Sent, and links the local Sent copy to it.
+func (h *Handler) fileProviderSentCopy(ctx context.Context, send storage.OutgoingSend, cfg *models.AccountConfig, folderID string) {
+	var snapshot outgoingMessageSnapshot
+	if err := json.Unmarshal(send.MessageJSON, &snapshot); err != nil {
+		h.finishSentCopy(send, storage.SentCopyFailed, fmt.Errorf("decode Sent copy message: %w", err))
+		return
+	}
+	var providerID string
+	var err error
+	switch cfg.Provider {
+	case providers.ProviderGmail:
+		var token string
+		if h.mailCredentials() == nil {
+			err = errors.New("google oauth not configured")
+		} else if token, err = h.mailCredentials().GetOAuthTokenForAccount(ctx, send.AccountID); err == nil {
+			request := func(ctx context.Context, method, endpoint string, body, out any) error {
+				return doGoogleJSON(ctx, method, endpoint, token, body, out)
+			}
+			providerID, err = mailpkg.FileGmailSentCopy(ctx, gmailAPIBaseURL, request, send.MIMEData, snapshot.MessageID)
+		}
+	case providers.ProviderJMAP:
+		var password string
+		if password, err = h.accountStore.DecryptPassword(ctx, send.AccountID); err == nil {
+			providerID, err = mailpkg.FileJMAPSentCopy(ctx, cfg, password, send.MIMEData, snapshot.MessageID, snapshot.Date)
+		}
+	default:
+		err = fmt.Errorf("Gofer can't keep a Sent copy in a %s account", cfg.Provider)
+	}
+	if err != nil {
+		// Filing looks for an earlier copy first, so trying again is safe.
+		h.finishSentCopy(send, storage.SentCopyAmbiguous, err)
+		return
+	}
+	if localID, err := h.db.GetMessageLocalIDByInternetIDInternal(ctx, send.AccountID, snapshot.MessageID); err == nil && localID > 0 {
+		if err := h.db.SetMessageProviderMessageID(ctx, localID, providerID); err != nil {
+			log.Printf("outgoing-send: link Sent copy account=%s message=%d: %v", send.AccountID, localID, err)
+		}
+	}
+	h.completeSentCopy(ctx, send, folderID, 0, 0)
 }
 
 func (h *Handler) completeSentCopy(ctx context.Context, send storage.OutgoingSend, folderID string, uid, uidValidity uint32) {
@@ -602,6 +679,26 @@ func (h *Handler) sendSMTPOutgoingRaw(ctx context.Context, cfg *models.AccountCo
 			smtpPassword = decrypted
 		}
 	}
+	return h.deliverSMTPOutgoing(ctx, cfg, smtpPassword, send, startedAt, queueWait)
+}
+
+// sendIdentitySMTPOutgoingRaw sends a queued message through the own SMTP
+// server of the identity it is sent as, with the server and password the
+// identity has now.
+func (h *Handler) sendIdentitySMTPOutgoingRaw(ctx context.Context, send storage.OutgoingSend, identityID string) error {
+	startedAt := time.Now()
+	identities, err := h.db.ListAccountIdentitiesInternal(ctx, send.AccountID)
+	if err != nil {
+		return markOutgoingSendRetryable(err)
+	}
+	cfg, password, err := identitySMTPRoute(ctx, h.accountStore, identities, identityID)
+	if err != nil {
+		return err
+	}
+	return h.deliverSMTPOutgoing(ctx, cfg, password, send, startedAt, 0)
+}
+
+func (h *Handler) deliverSMTPOutgoing(ctx context.Context, cfg *models.AccountConfig, smtpPassword string, send storage.OutgoingSend, startedAt time.Time, queueWait time.Duration) error {
 	result, err, timing := smtpclient.SendRawMessageWithTiming(ctx, cfg, smtpPassword, send.EnvelopeFrom, send.EnvelopeRecipients, send.MIMEData)
 	timing.Total = time.Since(startedAt)
 	timing.QueueWait = queueWait
@@ -833,16 +930,25 @@ func (h *Handler) outgoingMessageFromDraft(ctx context.Context, localMessageID i
 		htmlBody = "<html><body>" + htmlBody + "</body></html>"
 	}
 	inReplyTo, references := h.validComposeThreadHeaders(ctx, email.AccountID, email.Subject, email.InReplyTo, email.References)
-	fromName, fromEmail := email.From.Name, email.From.Email
+	// A draft is sent as the identity its From names, if the account still
+	// has it, and otherwise as the account.
+	sender := composeSender{Name: email.From.Name, Email: email.From.Email}
 	if account, err := h.accountStore.GetAccountByID(ctx, email.AccountID); err == nil && account != nil {
-		fromName, fromEmail = account.Name, account.Email
+		sender = accountComposeSender(account)
+		if identities, err := h.db.ListAccountIdentitiesInternal(ctx, email.AccountID); err != nil {
+			return nil, err
+		} else if identity, ok := matchSenderIdentity(account, identities, email.From.Name, email.From.Email); ok {
+			sender = identityComposeSender(identity)
+		}
 	}
-	return &message.OutgoingMessage{
-		FromName: fromName, FromEmail: fromEmail, To: to, CC: cc, Bcc: bcc,
+	msg := &message.OutgoingMessage{
+		To: to, CC: cc, Bcc: bcc,
 		Subject: email.Subject, TextBody: email.TextBody, HTMLBody: htmlBody,
 		InReplyTo: inReplyTo, References: references, MessageID: message.NewMessageID(),
 		Date: time.Now().UTC(), Attachments: outgoingAttachmentsFromStored(email.Attachments),
-	}, nil
+	}
+	sender.apply(msg)
+	return msg, nil
 }
 
 func (h *Handler) refreshPendingOutgoingSend(ctx context.Context, saved composeDraftSaveResult) error {

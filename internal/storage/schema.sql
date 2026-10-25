@@ -1082,6 +1082,35 @@ CREATE TABLE IF NOT EXISTS account_signature_settings (
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Further From addresses an account sends as. The account's own address is
+-- not listed here. Provider identities are refreshed from the provider; manual
+-- ones are only changed by the user.
+CREATE TABLE IF NOT EXISTS account_identities (
+    id TEXT PRIMARY KEY,
+    account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    name TEXT NOT NULL DEFAULT '',
+    email TEXT NOT NULL CHECK (email != ''),
+    reply_to TEXT NOT NULL DEFAULT '',
+    signature_id TEXT REFERENCES signatures(id) ON DELETE SET NULL,
+    source TEXT NOT NULL DEFAULT 'manual' CHECK (source IN ('manual', 'provider')),
+    provider_identity_id TEXT NOT NULL DEFAULT '',
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    smtp_host TEXT NOT NULL DEFAULT '',
+    smtp_port INTEGER NOT NULL DEFAULT 0,
+    smtp_tls_mode TEXT NOT NULL DEFAULT '',
+    smtp_username TEXT NOT NULL DEFAULT '',
+    encrypted_smtp_password BLOB,
+    CHECK ((source = 'provider') = (provider_identity_id != ''))
+);
+
+CREATE INDEX IF NOT EXISTS idx_account_identities_account
+    ON account_identities(account_id, sort_order);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_account_identities_provider
+    ON account_identities(account_id, provider_identity_id) WHERE source = 'provider';
+
 CREATE TABLE IF NOT EXISTS sender_avatars (
     email_hash TEXT PRIMARY KEY,
     email TEXT NOT NULL DEFAULT '',
@@ -1742,4 +1771,4 @@ CREATE TABLE IF NOT EXISTS calendar_invitation_messages (
 );
 
 -- Schema version marker for fresh installs
-INSERT OR REPLACE INTO schema_version (version) VALUES (127);
+INSERT OR REPLACE INTO schema_version (version) VALUES (129);

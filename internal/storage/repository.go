@@ -4874,6 +4874,9 @@ func (db *DB) GetAccounts(ctx context.Context, userID string) ([]models.Account,
 		return nil, err
 	}
 	db.attachImportedAccountsPending(ctx, userID, accounts)
+	if err := db.attachAccountIdentities(ctx, userID, accounts); err != nil {
+		return nil, err
+	}
 
 	return accounts, nil
 }

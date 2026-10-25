@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -119,7 +121,33 @@ func TestHandleComposePersistsMIMEBeforeReturningAccepted(t *testing.T) {
 	}
 }
 
-func TestOutgoingWorkerDeliversStoredGmailSnapshot(t *testing.T) {
+// gmailOutgoingFake is a fake Gmail API. It keeps the last MIME sent and the
+// messages filed without sending.
+type gmailOutgoingFake struct {
+	mu        sync.Mutex
+	delivered []byte
+	filed     []gmailFiledCopy
+	// loseFileAnswer files the next message but answers 502, as a gateway
+	// timing out after Gmail stored it.
+	loseFileAnswer bool
+}
+
+type gmailFiledCopy struct {
+	raw    string
+	labels []string
+}
+
+func (f *gmailOutgoingFake) filedCopies() []gmailFiledCopy {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]gmailFiledCopy(nil), f.filed...)
+}
+
+// newGmailOutgoingTestHandler is a handler with a Gmail account "acc"
+// (user@example.com) whose mail goes to a fake Gmail API, which reports a
+// sent message as from gmailFrom.
+func newGmailOutgoingTestHandler(t *testing.T, gmailFrom string) (*Handler, *storage.DB, *gmailOutgoingFake) {
+	t.Helper()
 	ctx := context.Background()
 	db, err := storage.New(filepath.Join(t.TempDir(), "gofer.db"))
 	if err != nil {
@@ -148,26 +176,71 @@ func TestOutgoingWorkerDeliversStoredGmailSnapshot(t *testing.T) {
 	}
 	h := New(db, accountStore, mailpkg.NewSyncOrchestrator(db, accountStore, nil, nil), store.NewBlobStore(filepath.Join(t.TempDir(), "blobs")), auth.NewManager(&auth.Config{}, db), "", mailCredentials)
 
-	var delivered []byte
+	fake := &gmailOutgoingFake{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodGet && r.URL.Path == "/users/me/messages/gmail-sent-id" {
+			_, _ = fmt.Fprintf(w, `{"id":"gmail-sent-id","payload":{"headers":[{"name":"From","value":%q}]}}`, gmailFrom)
+			return
+		}
+		fake.mu.Lock()
+		defer fake.mu.Unlock()
+		if r.Method == http.MethodGet && r.URL.Path == "/users/me/messages" {
+			// A search by Message-ID among the filed messages.
+			id := strings.TrimSuffix(strings.TrimPrefix(r.URL.Query().Get("q"), "rfc822msgid:<"), ">")
+			found := []map[string]string{}
+			for i, filed := range fake.filed {
+				if strings.Contains(strings.ToLower(filed.raw), strings.ToLower("Message-ID: <"+id+">")) {
+					found = append(found, map[string]string{"id": fmt.Sprintf("gmail-filed-%d", i+1)})
+				}
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"messages": found})
+			return
+		}
+		if r.Method == http.MethodPost && r.URL.Path == "/users/me/messages" {
+			var payload struct {
+				Raw      string   `json:"raw"`
+				LabelIDs []string `json:"labelIds"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&payload)
+			raw, _ := base64.RawURLEncoding.DecodeString(payload.Raw)
+			fake.filed = append(fake.filed, gmailFiledCopy{raw: string(raw), labels: payload.LabelIDs})
+			if fake.loseFileAnswer {
+				fake.loseFileAnswer = false
+				http.Error(w, "bad gateway", http.StatusBadGateway)
+				return
+			}
+			_, _ = fmt.Fprintf(w, `{"id":"gmail-filed-%d"}`, len(fake.filed))
+			return
+		}
 		if r.Method != http.MethodPost || r.URL.Path != "/users/me/messages/send" {
-			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+			http.NotFound(w, r)
+			return
 		}
 		var payload map[string]string
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-			t.Fatalf("decode request: %v", err)
+			t.Errorf("decode request: %v", err)
 		}
-		delivered, err = base64.RawURLEncoding.DecodeString(payload["raw"])
+		raw, err := base64.RawURLEncoding.DecodeString(payload["raw"])
 		if err != nil {
-			t.Fatalf("decode MIME: %v", err)
+			t.Errorf("decode MIME: %v", err)
 		}
-		w.Header().Set("Content-Type", "application/json")
+		fake.delivered = raw
 		_, _ = w.Write([]byte(`{"id":"gmail-sent-id"}`))
 	}))
-	defer server.Close()
+	t.Cleanup(server.Close)
 	previousBase := gmailAPIBaseURL
 	gmailAPIBaseURL = server.URL
 	t.Cleanup(func() { gmailAPIBaseURL = previousBase })
+	return h, db, fake
+}
+
+func TestOutgoingWorkerDeliversStoredGmailSnapshot(t *testing.T) {
+	ctx := context.Background()
+	h, db, fake := newGmailOutgoingTestHandler(t, "user@example.com")
+	events := h.syncer.Events().Subscribe()
+	defer h.syncer.Events().Unsubscribe(events)
 
 	to, _ := message.ParseAddressList("recipient@example.com")
 	msg := &message.OutgoingMessage{
@@ -183,8 +256,8 @@ func TestOutgoingWorkerDeliversStoredGmailSnapshot(t *testing.T) {
 
 	h.runDueOutgoingSends(ctx)
 
-	if !strings.Contains(string(delivered), "Subject: Stored snapshot") || !strings.Contains(string(delivered), "Original body") || strings.Contains(string(delivered), "Changed after queueing") {
-		t.Fatalf("delivered MIME = %q", string(delivered))
+	if !strings.Contains(string(fake.delivered), "Subject: Stored snapshot") || !strings.Contains(string(fake.delivered), "Original body") || strings.Contains(string(fake.delivered), "Changed after queueing") {
+		t.Fatalf("delivered MIME = %q", string(fake.delivered))
 	}
 	completed, err := db.GetOutgoingSend(ctx, queued.ID)
 	if err != nil || completed.Status != storage.OutgoingSendSent || completed.SentMessageID != "<durable@example.com>" || completed.SentCopyStatus != storage.SentCopyNotRequired {
@@ -193,6 +266,56 @@ func TestOutgoingWorkerDeliversStoredGmailSnapshot(t *testing.T) {
 	localID, err := db.GetMessageLocalIDByInternetIDInternal(ctx, "acc", "<durable@example.com>")
 	if err != nil || localID == 0 {
 		t.Fatalf("sent message local id = %d, %v", localID, err)
+	}
+	if event := sentResultEvent(t, events); event.Payload["from_warning"] != nil {
+		t.Fatalf("send result warns of a changed From: %v", event.Payload)
+	}
+}
+
+// sentResultEvent waits for the next send-result event.
+func sentResultEvent(t *testing.T, events chan mailpkg.Event) mailpkg.Event {
+	t.Helper()
+	timeout := time.After(5 * time.Second)
+	for {
+		select {
+		case event := <-events:
+			if event.Type == mailpkg.EventSendResult {
+				return event
+			}
+		case <-timeout:
+			t.Fatal("no send result")
+		}
+	}
+}
+
+func TestOutgoingWorkerWarnsWhenGmailChangesFrom(t *testing.T) {
+	ctx := context.Background()
+	h, _, _ := newGmailOutgoingTestHandler(t, "User <user@example.com>")
+	events := h.syncer.Events().Subscribe()
+	defer h.syncer.Events().Unsubscribe(events)
+	to, _ := message.ParseAddressList("recipient@example.com")
+	msg := &message.OutgoingMessage{
+		FromName: "Shop", FromEmail: "shop@example.com", To: to, Subject: "From the shop", TextBody: "Hello",
+		MessageID: "<shop@example.com>", Date: time.Now().UTC(),
+	}
+	if _, err := h.queueOutgoingMessage(ctx, "acc", 0, "", msg, time.Now().Add(-time.Second), false); err != nil {
+		t.Fatalf("queueOutgoingMessage() error = %v", err)
+	}
+	h.runDueOutgoingSends(ctx)
+	event := sentResultEvent(t, events)
+	if event.Status != "sent" || event.Payload["from_warning"] != "Gmail sent this as user@example.com: shop@example.com isn't a verified send-as address in Gmail." {
+		t.Fatalf("send result = %s %v", event.Status, event.Payload)
+	}
+}
+
+func TestOutlookSendAsRefusalIsExplained(t *testing.T) {
+	for _, refusal := range []string{
+		`outlook graph API status 403: {"error":{"code":"ErrorSendAsDenied","message":"The user account which was used to submit this request does not have the right to send mail on behalf of the specified sending account."}}`,
+		`554 5.2.252 SendAsDenied; user@example.com not allowed to send as shop@example.com`,
+	} {
+		if got := sanitizeOutgoingErrorText(refusal); got != sendAsDeniedText {
+			t.Errorf("sanitizeOutgoingErrorText(%q) = %q", refusal, got)
+		}
 	}
 }
 
@@ -226,6 +349,11 @@ func TestOutgoingWorkerRetriesTemporaryGmailFailureWithSameSnapshot(t *testing.T
 	var attempts int
 	var delivered [][]byte
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			// The From check after a send; nothing to compare here.
+			http.NotFound(w, r)
+			return
+		}
 		attempts++
 		var payload map[string]string
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {

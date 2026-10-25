@@ -5854,6 +5854,9 @@ document.addEventListener("DOMContentLoaded", function () {
 
       if (data.status === "sent") {
         showSendStatus("sent", "Message sent")
+        if (data.from_warning) {
+          showGoferToast({ id: "compose-from-warning-" + (data.send_id || ""), title: "Sent from another address", description: data.from_warning, variant: "warning", position: "bottom-right", duration: 15000, dismissible: true })
+        }
         handleComposeSendResult("sent", data)
       } else if (data.status === "retrying") {
         var retrySeconds = Math.max(1, Number(data.retry_in_seconds) || 60)
@@ -11977,6 +11980,17 @@ function transitionCalendarEditDialog(details, editor, from) {
   initializeCalendarCreateForm()
   var to = details.getBoundingClientRect()
   details.style.transitionProperty = transition
+  return flipDialogResize(details, from, to, function () {
+    var input = details.querySelector("#calendar-create-summary")
+    if (input) input.focus({preventScroll: true})
+  })
+}
+
+// flipDialogResize moves an open dialog's frame smoothly from its old bounds,
+// from, to the bounds its new content gives it, to. The content stays hidden
+// while the frame resizes, then fades in, and onShown runs. It returns the
+// animation, or nothing when there is nothing to animate.
+function flipDialogResize(details, from, to, onShown) {
   if (!from || !details.animate || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return
   if (from.width <= 0 || from.height <= 0 || to.width <= 0 || to.height <= 0) return
   if (Math.abs(from.width - to.width) < 0.5 && Math.abs(from.height - to.height) < 0.5) return
@@ -11991,30 +12005,30 @@ function transitionCalendarEditDialog(details, editor, from) {
     panel.inert = true
   }
   // FLIP the empty frame from its old visual bounds to the already-laid-out
-  // editor. Scale stays on the compositor; width/height would reflow the entire
-  // form on every frame even with visibility:hidden. Individual scale also
-  // preserves templUI's separate translate used to center the native dialog.
+  // content. Scale stays on the compositor; width/height would reflow the
+  // entire content on every frame even with visibility:hidden. Individual
+  // scale also preserves templUI's separate translate used to center the
+  // native dialog.
   var willChange = details.style.willChange
   details.style.willChange = "scale"
   var resize = details.animate([
     { scale: (from.width / to.width) + " " + (from.height / to.height) },
     { scale: "1 1" },
   ], { duration: 220, easing: "ease" }) // Match the templUI tabs indicator cadence.
-  function focusSummary() {
-    if (!details.isConnected || !details.open || details.hasAttribute("data-tui-dialog-closing") || (panel && (!panel.isConnected || panel.inert))) return
-    var input = details.querySelector("#calendar-create-summary")
-    if (input) input.focus({preventScroll: true})
+  function shown() {
+    if (!onShown || !details.isConnected || !details.open || details.hasAttribute("data-tui-dialog-closing") || (panel && (!panel.isConnected || panel.inert))) return
+    onShown()
   }
   function revealContent(fade) {
     details.style.willChange = willChange
-    if (!panel) { focusSummary(); return }
+    if (!panel) { shown(); return }
     panel.style.opacity = opacity
     panel.inert = inert
     if (!panel.isConnected || !details.isConnected || !details.open || details.hasAttribute("data-tui-dialog-closing")) return
     if (fade && panel.animate) {
       var reveal = panel.animate([{ opacity: 0 }, { opacity: opacity || "1" }], { duration: 160, easing: "ease" })
-      reveal.onfinish = focusSummary
-    } else focusSummary()
+      reveal.onfinish = shown
+    } else shown()
   }
   resize.onfinish = function () { revealContent(true) }
   resize.oncancel = function () { revealContent(false) }
@@ -14112,28 +14126,50 @@ function _updateComposeBtn(disabled) {
   }
 }
 
+// selectComposeAccount sends as the account or identity of a From menu item.
 function selectComposeAccount(el, fromPane) {
   var accountId = el.dataset.accountId
-  var email = el.dataset.accountEmail
-  var name = el.dataset.accountName
+  var identityId = el.dataset.identityId || ""
+  var email = identityId ? el.dataset.identityEmail : el.dataset.accountEmail
+  var name = identityId ? el.dataset.identityName : el.dataset.accountName
   if (!accountId || !email) return
   var prefix = fromPane ? "compose-pane-" : "compose-"
   var idField = document.getElementById(prefix + "account-id")
+  var identityField = document.getElementById(prefix + "identity-id")
   var display = document.getElementById(prefix + "from-display")
   if (idField) idField.value = accountId
+  if (identityField) identityField.value = identityId
   if (display) display.textContent = (name ? name + " <" : "") + email + (name ? ">" : "")
-  syncComposeAccountItems(fromPane ? "pane" : "dialog", accountId)
+  syncComposeAccountItems(fromPane ? "pane" : "dialog", accountId, identityId)
   _markComposeDirty(document.getElementById(prefix + "form"))
   applyDefaultComposeSignature(document.getElementById(prefix + "form"), true)
 }
 
-function syncComposeAccountItems(scope, accountId) {
+function syncComposeAccountItems(scope, accountId, identityId) {
   if (!scope || !accountId) return
+  identityId = identityId || ""
   var items = document.querySelectorAll('[data-compose-account-scope="' + scope + '"][data-compose-account-item]')
   for (var i = 0; i < items.length; i++) {
-    items[i].dataset.composeAccountSelected = items[i].dataset.accountId === accountId ? "true" : "false"
+    var selected = items[i].dataset.accountId === accountId && (items[i].dataset.identityId || "") === identityId
+    items[i].dataset.composeAccountSelected = selected ? "true" : "false"
   }
 }
+
+// The From menu fits its longest choice and may grow to the end of its row,
+// so long names and addresses fit. Popovers sit in the top layer, where CSS
+// can't size them by the row.
+document.addEventListener("beforetoggle", function (event) {
+  var menu = event.target
+  if (event.newState !== "open" || !menu.classList || !menu.classList.contains("compose-from-menu")) return
+  var row = menu.closest("[data-compose-from-row]")
+  var trigger = row && row.querySelector(".compose-from-trigger")
+  if (!trigger) return
+  var box = trigger.getBoundingClientRect()
+  var room = Math.min(row.getBoundingClientRect().right - box.left, window.innerWidth - box.left - 10)
+  menu.style.width = "max-content"
+  menu.style.minWidth = Math.min(box.width, room) + "px"
+  menu.style.maxWidth = Math.max(room, 0) + "px"
+}, true)
 
 function resetComposeForm(fromPane, skipCleanup) {
   var prefix = fromPane ? "compose-pane-" : "compose-"
@@ -14184,10 +14220,15 @@ function setComposeMode(form, mode) {
   if (field) field.value = mode || "new"
 }
 
+function composeIdentityID(form) {
+  var identity = form && form.querySelector('input[name="identity_id"]')
+  return (identity && identity.value) || ""
+}
+
 function composeSignatureCacheKey(form) {
   var account = form && form.querySelector('input[name="account_id"]')
   if (!account || !account.value) return ""
-  return account.value + "::" + composeModeForForm(form)
+  return account.value + "::" + composeIdentityID(form) + "::" + composeModeForForm(form)
 }
 
 function loadComposeSignatures(form, refresh) {
@@ -14197,6 +14238,7 @@ function loadComposeSignatures(form, refresh) {
   if (!refresh && _composeSignatureCache[key]) return Promise.resolve(_composeSignatureCache[key])
   var params = new URLSearchParams()
   params.set("mode", composeModeForForm(form))
+  if (composeIdentityID(form)) params.set("identity", composeIdentityID(form))
   return fetch("/api/accounts/" + encodeURIComponent(account.value) + "/signatures?" + params.toString())
     .then(function (r) { if (!r.ok) throw new Error("Failed to load signatures"); return r.json() })
     .then(function (data) { _composeSignatureCache[key] = data; return data })
@@ -16460,6 +16502,7 @@ function syncComposeInlineImageInputs(form) {
 function _composeValsFromDraft(draft) {
   return {
     account_id: draft.account_id || "",
+    identity_id: draft.identity_id || "",
     draft_id: draft.draft_id || "",
     to: draft.to || "",
     cc: draft.cc || "",
@@ -17166,21 +17209,32 @@ function composeAccountEmail(accountId) {
   return ""
 }
 
-function setComposeAccount(form, accountId) {
+// setComposeAccount sends as the account, or as its identity identityId when
+// the From menu still offers it.
+function setComposeAccount(form, accountId, identityId) {
   if (!form || !accountId) return
   var pane = form.id === "compose-pane-form"
   var prefix = pane ? "compose-pane-" : "compose-"
+  var scope = pane ? "pane" : "dialog"
+  var identityItem = identityId ? document.querySelector('[data-compose-account-scope="' + scope + '"][data-account-id="' + CSS.escape(accountId) + '"][data-identity-id="' + CSS.escape(identityId) + '"]') : null
+  if (!identityItem) identityId = ""
   var idField = document.getElementById(prefix + "account-id")
   if (idField) idField.value = accountId
-  syncComposeAccountItems(pane ? "pane" : "dialog", accountId)
-  var options = document.querySelectorAll("[data-account-id]")
+  var identityField = document.getElementById(prefix + "identity-id")
+  if (identityField) identityField.value = identityId
+  syncComposeAccountItems(scope, accountId, identityId)
+  var display = document.getElementById(prefix + "from-display")
+  if (identityItem) {
+    if (display) display.textContent = (identityItem.dataset.identityName ? identityItem.dataset.identityName + " <" : "") + identityItem.dataset.identityEmail + (identityItem.dataset.identityName ? ">" : "")
+    return
+  }
+  var options = document.querySelectorAll("[data-account-id][data-account-email]")
   for (var i = 0; i < options.length; i++) {
     if (options[i].dataset.accountId !== accountId) continue
-    var display = document.getElementById(prefix + "from-display")
-    if (display && options[i].dataset.accountEmail) {
+    if (display) {
       var name = options[i].dataset.accountName || ""
       var email = options[i].dataset.accountEmail
-      display.innerHTML = (name ? name + " &lt;" : "") + email + (name ? "&gt;" : "")
+      display.textContent = (name ? name + " <" : "") + email + (name ? ">" : "")
     }
     return
   }
@@ -17238,8 +17292,14 @@ function composeValuesFromSource(source, mode) {
   var ownEmail = composeAccountEmail(source.account_id)
   var exclude = {}
   if (ownEmail) exclude[ownEmail] = true
+  // The source lists the account's identity addresses too; a reply-all
+  // leaves out every one of them.
+  ;(source.own_emails || []).forEach(function (email) {
+    if (email) exclude[String(email).toLowerCase()] = true
+  })
   var vals = {
     account_id: source.account_id || "",
+    identity_id: source.identity_id || "",
     draft_id: "",
     to: "",
     cc: "",
@@ -17314,7 +17374,7 @@ function writeComposePrefill(form, vals, prefix, mode) {
   setComposeMode(form, mode === "forward" ? "forward" : (mode === "new" ? "new" : "reply"))
   setComposeKind(form, mode)
   _showComposeOptionalFields(form, vals)
-  setComposeAccount(form, vals.account_id)
+  setComposeAccount(form, vals.account_id, vals.identity_id)
   applyDefaultComposeSignature(form, true)
   focusComposePrefill(form, mode)
 }
@@ -19068,9 +19128,9 @@ function _writeComposeFormValues(form, vals, prefix) {
     var display = document.getElementById(prefix + "from-display")
     if (display) display.innerHTML = vals._fromDisplay
   } else if (vals.account_id) {
-    setComposeAccount(form, vals.account_id)
+    setComposeAccount(form, vals.account_id, vals.identity_id)
   }
-  if (vals.account_id) syncComposeAccountItems(form.id === "compose-pane-form" ? "pane" : "dialog", vals.account_id)
+  if (vals.account_id) syncComposeAccountItems(form.id === "compose-pane-form" ? "pane" : "dialog", vals.account_id, vals.identity_id)
   _setComposeEditorValue(form, vals.body || "", vals.html_body || "", vals.inline_images || [])
   renderComposeAttachments(form, vals.attachments || [])
   form.dataset.composeUploadsPending = "0"

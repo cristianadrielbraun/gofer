@@ -159,6 +159,38 @@ type Signature struct {
 	UpdatedAt string `json:"updated_at,omitempty"`
 }
 
+// Identity is a further From address an account sends as. The account's own
+// address is not an Identity. Provider identities come from the provider and
+// only their signature is set in Gofer; manual ones are wholly the user's.
+type Identity struct {
+	ID                 string `json:"id"`
+	AccountID          string `json:"account_id"`
+	Name               string `json:"name"`
+	Email              string `json:"email"`
+	ReplyTo            string `json:"reply_to,omitempty"`
+	SignatureID        string `json:"signature_id,omitempty"`
+	Source             string `json:"source"`
+	ProviderIdentityID string `json:"provider_identity_id,omitempty"`
+	SortOrder          int    `json:"sort_order"`
+	// SMTPHost is set for an identity that sends through its own SMTP server
+	// rather than the account's way of sending.
+	SMTPHost     string `json:"smtp_host,omitempty"`
+	SMTPPort     int    `json:"smtp_port,omitempty"`
+	SMTPTLSMode  string `json:"smtp_tls_mode,omitempty"`
+	SMTPUsername string `json:"smtp_username,omitempty"`
+	// HasSMTPPassword says a password for that server is stored; the
+	// password itself never leaves the account store.
+	HasSMTPPassword bool `json:"has_smtp_password,omitempty"`
+}
+
+// HasOwnSMTP reports whether the identity sends through its own server.
+func (i Identity) HasOwnSMTP() bool { return i.SMTPHost != "" }
+
+const (
+	IdentitySourceManual   = "manual"
+	IdentitySourceProvider = "provider"
+)
+
 type AccountSignatureSettings struct {
 	AccountID          string `json:"account_id"`
 	NewSignatureID     string `json:"new_signature_id"`
@@ -169,6 +201,38 @@ type AccountSignatureSettings struct {
 	ForwardEnabled     bool   `json:"forward_enabled"`
 	ReplyPlacement     string `json:"reply_placement"`
 	ForwardPlacement   string `json:"forward_placement"`
+}
+
+// AccountIdentitiesData is what the identities dialog of one account shows:
+// its identities, the signatures they may use, and the identity in the form,
+// which is empty when adding one. Error says why the last change failed.
+type AccountIdentitiesData struct {
+	Account    Account
+	Identities []Identity
+	Signatures []Signature
+	Editing    Identity
+	Error      string
+	// ProviderListsIdentities is set when the account's provider can be
+	// asked for the addresses it may send from.
+	ProviderListsIdentities bool
+	// RefreshError says why asking the provider failed.
+	RefreshError string
+	// CatchAllDomains are the domains the provider lets the account send
+	// from at any address.
+	CatchAllDomains []string
+	// CanAddIdentities is set when identities can be added by hand: the
+	// account's way of sending takes further addresses
+	// (AccountSendsAnyAddress), or an identity can have its own SMTP server
+	// (CanUseOwnSMTP). Unusable names the manual identities the account's
+	// way of sending would not send as.
+	CanAddIdentities       bool
+	AccountSendsAnyAddress bool
+	CanUseOwnSMTP          bool
+	Unusable               map[string]bool
+	// SMTPTest is the outcome of testing the form's SMTP server.
+	SMTPTest *ConnectionTestResult
+	// Adding shows the form for a new identity in place of the list.
+	Adding bool
 }
 
 type AccountSignatureData struct {

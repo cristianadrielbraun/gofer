@@ -60,6 +60,9 @@ func (s *userMailDeliveryScope) sendProvider(ctx context.Context, send storage.O
 		return false, errors.Join(err, finalErr)
 	}
 	payload := map[string]any{"send_id": send.ID}
+	if status == storage.OutgoingSendSent && result.FromWarning != "" {
+		payload["from_warning"] = result.FromWarning
+	}
 	eventStatus := status
 	if status == storage.OutgoingSendPending {
 		eventStatus = "retrying"

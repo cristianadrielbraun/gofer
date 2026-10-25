@@ -483,3 +483,26 @@ func TestUserProviderSendMailboxChangeRejectsLateAcceptance(t *testing.T) {
 		})
 	}
 }
+
+func TestUserGmailSendWarnsWhenGmailChangesFrom(t *testing.T) {
+	f, api := newProviderSendFixture(t, "gmail")
+	api.mu.Lock()
+	api.sentFrom = "Someone Else <other@example.test>"
+	api.mu.Unlock()
+	events := openUserEventStream(t, f, "alice")
+	f.queueProviderMessage(t, "alice")
+	var warning any
+	awaitUserEvent(t, events, func(event map[string]any) bool {
+		if event["type"] != string(mail.EventSendResult) || event["status"] != "sent" {
+			return false
+		}
+		warning = event["from_warning"]
+		if payload, ok := event["payload"].(map[string]any); ok && warning == nil {
+			warning = payload["from_warning"]
+		}
+		return true
+	})
+	if text, _ := warning.(string); !strings.HasPrefix(text, "Gmail sent this as other@example.test: ") {
+		t.Fatalf("send result warning = %v", warning)
+	}
+}

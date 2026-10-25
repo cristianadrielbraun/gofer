@@ -503,6 +503,13 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/accounts/{id}/signatures", h.handleAccountSignatures)
 	mux.HandleFunc("GET /api/accounts/{id}/signatures/manage", h.handleManageAccountSignatures)
 	mux.HandleFunc("POST /api/accounts/{id}/signature-settings", h.handleSaveAccountSignatureSettings)
+	mux.HandleFunc("GET /api/accounts/{id}/identities/manage", h.handleManageAccountIdentities)
+	mux.HandleFunc("GET /api/accounts/{id}/identities/panel", h.handleAccountIdentitiesPanel)
+	mux.HandleFunc("POST /api/accounts/{id}/identities", h.handleSaveAccountIdentity)
+	mux.HandleFunc("DELETE /api/accounts/{id}/identities/{identity}", h.handleDeleteAccountIdentity)
+	mux.HandleFunc("POST /api/accounts/{id}/identities/{identity}/move", h.handleMoveAccountIdentity)
+	mux.HandleFunc("POST /api/accounts/{id}/identities/refresh", h.handleRefreshAccountIdentities)
+	mux.HandleFunc("POST /api/accounts/{id}/identities/smtp-test", h.handleTestIdentitySMTP)
 	mux.HandleFunc("POST /api/signatures", h.handleSaveSignature)
 	mux.HandleFunc("DELETE /api/signatures/{id}", h.handleDeleteSignature)
 	mux.HandleFunc("POST /api/accounts/{id}/test", h.handleTestAccount)
@@ -3053,6 +3060,24 @@ func (h *Handler) handleAccountSignatures(w http.ResponseWriter, r *http.Request
 	if sig, ok, err := h.db.GetComposeSignature(ctx, userID, accountID, mode); err == nil && ok {
 		defaultSignature = sig
 	}
+	// An identity with a signature of its own uses it in place of the
+	// account's, whatever the account would insert.
+	if identityID := strings.TrimSpace(r.URL.Query().Get("identity")); identityID != "" {
+		identity, err := h.db.GetAccountIdentity(ctx, userID, accountID, identityID)
+		if errors.Is(err, sql.ErrNoRows) {
+			http.Error(w, "identity not found", http.StatusNotFound)
+			return
+		}
+		if err != nil {
+			http.Error(w, "failed to load identity", http.StatusInternalServerError)
+			return
+		}
+		if identity.SignatureID != "" {
+			if sig, err := h.db.GetSignature(ctx, userID, identity.SignatureID); err == nil {
+				defaultSignature = &sig
+			}
+		}
+	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
 		"signatures":        signatures,
@@ -5066,6 +5091,14 @@ func (h *Handler) saveComposeDraftFromForm(ctx context.Context, r *http.Request)
 		return composeDraftSaveResult{}, &composeRequestError{status: http.StatusNotFound, message: "account not found"}
 	}
 
+	sender, err := h.composeSenderFor(ctx, account, r.FormValue("identity_id"))
+	if errors.Is(err, errComposeIdentityNotFound) {
+		return composeDraftSaveResult{}, &composeRequestError{status: http.StatusNotFound, message: "identity not found"}
+	}
+	if err != nil {
+		return composeDraftSaveResult{}, &composeRequestError{status: http.StatusInternalServerError, message: "failed to load identity"}
+	}
+
 	draftFolderID, draftFolderRemoteName, err := h.db.GetFolderIDByRole(ctx, accountID, "drafts")
 	if err != nil || draftFolderID == "" {
 		return composeDraftSaveResult{}, &composeRequestError{status: http.StatusBadRequest, message: "drafts folder not available"}
@@ -5097,8 +5130,8 @@ func (h *Handler) saveComposeDraftFromForm(ctx context.Context, r *http.Request)
 		InReplyTo:         r.FormValue("in_reply_to"),
 		References:        r.FormValue("references"),
 		Subject:           subject,
-		FromName:          account.Name,
-		FromEmail:         account.Email,
+		FromName:          sender.Name,
+		FromEmail:         sender.Email,
 		Snippet:           snippet,
 		ToRecipients:      parseDraftRecipients(r.FormValue("to")),
 		CCRecipients:      parseDraftRecipients(r.FormValue("cc")),
@@ -5126,8 +5159,6 @@ func (h *Handler) saveComposeDraftFromForm(ctx context.Context, r *http.Request)
 	ccAddrs, _ := message.ParseAddressList(r.FormValue("cc"))
 	bccAddrs, _ := message.ParseAddressList(r.FormValue("bcc"))
 	providerDraft := &message.OutgoingMessage{
-		FromName:    account.Name,
-		FromEmail:   account.Email,
 		To:          toAddrs,
 		CC:          ccAddrs,
 		Bcc:         bccAddrs,
@@ -5140,6 +5171,7 @@ func (h *Handler) saveComposeDraftFromForm(ctx context.Context, r *http.Request)
 		Date:        time.Now().UTC(),
 		Attachments: outgoingAttachments,
 	}
+	sender.apply(providerDraft)
 	switch strings.TrimSpace(account.Provider) {
 	case providers.ProviderOutlook:
 		if err := h.saveOutlookGraphDraft(ctx, accountID, msgID, providerDraft); err != nil {
@@ -5437,9 +5469,23 @@ func (h *Handler) handleComposeSource(w http.ResponseWriter, r *http.Request) {
 	if htmlBody == "" {
 		htmlBody = email.HTMLBody
 	}
+	identityID := ""
+	ownEmails := []string{}
+	if account, err := h.ownedAccount(r.Context(), email.AccountID); err == nil && account != nil {
+		identities, err := h.db.ListAccountIdentities(r.Context(), userID, email.AccountID)
+		if err != nil {
+			identities = nil
+		}
+		if identity, ok := replyIdentity(account, identities, email); ok {
+			identityID = identity.ID
+		}
+		ownEmails = ownAddresses(account, identities)
+	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
 		"account_id":  email.AccountID,
+		"identity_id": identityID,
+		"own_emails":  ownEmails,
 		"message_id":  email.InternetMessageID,
 		"references":  email.References,
 		"subject":     email.Subject,
@@ -5488,9 +5534,18 @@ func (h *Handler) handleGetDraft(w http.ResponseWriter, r *http.Request) {
 		attachments = append(attachments, draftAttachment{ID: att.ID, Filename: att.Filename, ContentType: att.ContentType, Size: att.SizeBytes, Existing: true})
 		attachments[len(attachments)-1].PreviewURL = attachmentPreviewURL(att.ID, att.ContentType, att.Filename)
 	}
+	identityID := ""
+	if account, err := h.ownedAccount(r.Context(), email.AccountID); err == nil && account != nil {
+		if identities, err := h.db.ListAccountIdentities(r.Context(), h.userID(r.Context()), email.AccountID); err == nil {
+			if identity, ok := matchSenderIdentity(account, identities, email.From.Name, email.From.Email); ok {
+				identityID = identity.ID
+			}
+		}
+	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
 		"account_id":    email.AccountID,
+		"identity_id":   identityID,
 		"draft_id":      email.InternetMessageID,
 		"to":            contactsToAddressList(email.To),
 		"cc":            contactsToAddressList(email.CC),
@@ -5615,10 +5670,17 @@ func (h *Handler) handleCompose(w http.ResponseWriter, r *http.Request) {
 		htmlBody = "<html><body><pre style=\"white-space:pre-wrap;font-family:sans-serif\">" + template.HTMLEscapeString(body) + "</pre></body></html>"
 	}
 	inReplyTo, references := h.validComposeThreadHeaders(ctx, accountID, r.FormValue("subject"), r.FormValue("in_reply_to"), r.FormValue("references"))
+	sender, err := h.composeSenderFor(ctx, account, r.FormValue("identity_id"))
+	if errors.Is(err, errComposeIdentityNotFound) {
+		writeComposeJSONError(w, http.StatusNotFound, "identity not found")
+		return
+	}
+	if err != nil {
+		writeComposeJSONError(w, http.StatusInternalServerError, "failed to load identity")
+		return
+	}
 
 	msg := &message.OutgoingMessage{
-		FromName:    account.Name,
-		FromEmail:   account.Email,
 		To:          toAddrs,
 		CC:          ccAddrs,
 		Bcc:         bccAddrs,
@@ -5631,6 +5693,7 @@ func (h *Handler) handleCompose(w http.ResponseWriter, r *http.Request) {
 		Date:        time.Now().UTC(),
 		Attachments: attachments,
 	}
+	sender.apply(msg)
 	draftID := strings.TrimSpace(r.FormValue("draft_id"))
 
 	var localDraftMessageID int64

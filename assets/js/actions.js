@@ -122,6 +122,7 @@
     "toggleCardDAVAuth",
     "toggleComposeAttachments",
     "toggleEmailBodySchemeById",
+    "toggleIdentitySMTP",
     "toggleRead",
     "toggleSmtpAuth",
     "toggleStar",

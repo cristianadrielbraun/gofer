@@ -93,6 +93,19 @@ func seedProfileSource(t *testing.T, h *Handler) (imapID, outlookID string) {
 	}); err != nil {
 		t.Fatalf("save signature settings: %v", err)
 	}
+	if _, err := h.db.SaveAccountIdentityGuarded(ctx, "default", models.Identity{AccountID: imap.ID, Name: "Robin Sales", Email: "sales@example.test", ReplyTo: "team@example.test", SignatureID: signature.ID}, nil); err != nil {
+		t.Fatalf("save identity: %v", err)
+	}
+	shop, err := h.db.SaveAccountIdentityGuarded(ctx, "default", models.Identity{AccountID: imap.ID, Name: "Robin's Shop", Email: "shop@example.test", SMTPHost: "smtp.shop.example.test", SMTPPort: 587, SMTPTLSMode: "starttls", SMTPUsername: "robin-shop"}, nil)
+	if err != nil {
+		t.Fatalf("save identity with its own server: %v", err)
+	}
+	if err := h.accountStore.SetIdentitySMTPPassword(ctx, "default", imap.ID, shop.ID, "shop-smtp-secret", nil); err != nil {
+		t.Fatalf("set identity password: %v", err)
+	}
+	if err := h.db.ReplaceProviderIdentities(ctx, imap.ID, []models.Identity{{ProviderIdentityID: "p1", Email: "provider-only@example.test"}}); err != nil {
+		t.Fatalf("save provider identity: %v", err)
+	}
 
 	if err := h.db.SetUISettings(ctx, "default", map[string]string{
 		"theme":                     "light",
@@ -146,6 +159,12 @@ func TestProfileExportLeavesOutCredentialsAndAccountIDs(t *testing.T) {
 	}
 	if !strings.Contains(data, "Jordan Sample") {
 		t.Fatalf("export is missing the Gofer contact")
+	}
+	if !strings.Contains(data, "sales@example.test") || strings.Contains(data, "provider-only@example.test") {
+		t.Fatalf("export should carry manual identities only: %s", data)
+	}
+	if !strings.Contains(data, "smtp.shop.example.test") || strings.Contains(data, "shop-smtp-secret") {
+		t.Fatalf("export should carry an identity's server but not its password: %s", data)
 	}
 	if strings.Contains(string(exportProfileForTest(t, source, false)), "Jordan Sample") {
 		t.Fatalf("export without contacts still has them")
@@ -224,6 +243,14 @@ func TestProfileImportAddsAccountsWaitingForReconnect(t *testing.T) {
 	}
 	if len(edit.Signatures) != 1 || edit.SignatureSettings.NewSignatureID != edit.Signatures[0].ID || !edit.SignatureSettings.NewEnabled {
 		t.Fatalf("signatures = %+v, settings = %+v", edit.Signatures, edit.SignatureSettings)
+	}
+	identities, err := target.db.ListAccountIdentities(ctx, "default", account.ID)
+	if err != nil || len(identities) != 2 || identities[0].Name != "Robin Sales" || identities[0].Email != "sales@example.test" || identities[0].ReplyTo != "<team@example.test>" || identities[0].SignatureID != edit.Signatures[0].ID || identities[0].Source != models.IdentitySourceManual {
+		t.Fatalf("imported identities = %+v, %v", identities, err)
+	}
+	// The identity's server comes along; its password is entered again.
+	if shop := identities[1]; shop.Email != "shop@example.test" || shop.SMTPHost != "smtp.shop.example.test" || shop.SMTPPort != 587 || shop.SMTPTLSMode != "starttls" || shop.SMTPUsername != "robin-shop" || shop.HasSMTPPassword {
+		t.Fatalf("imported identity with its own server = %+v", shop)
 	}
 
 	ui := target.db.GetUISettings(ctx, "default")
@@ -321,6 +348,9 @@ func TestProfileImportTwiceAddsNothingNew(t *testing.T) {
 	contacts, _ := target.db.ListContactsForExport(t.Context(), "default")
 	if len(accounts) != 1 || len(signatures) != 1 || len(contacts) != 1 {
 		t.Fatalf("after two imports: %d accounts, %d signatures, %d contacts", len(accounts), len(signatures), len(contacts))
+	}
+	if identities, _ := target.db.ListAccountIdentities(t.Context(), "default", accounts[0].ID); len(identities) != 2 {
+		t.Fatalf("after two imports: identities = %+v", identities)
 	}
 }
 

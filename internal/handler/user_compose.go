@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -103,6 +104,13 @@ func (h *Handler) saveUserComposeDraft(ctx context.Context, r *http.Request) (co
 	if err != nil {
 		return fail(404, "account not found")
 	}
+	sender, err := h.composeSenderFor(ctx, account, r.FormValue("identity_id"))
+	if errors.Is(err, errComposeIdentityNotFound) {
+		return fail(404, "identity not found")
+	}
+	if err != nil {
+		return fail(500, "failed to load identity")
+	}
 	folder, remote, err := h.db.GetFolderIDByRole(ctx, accountID, "drafts")
 	if err != nil || folder == "" || remote == "" {
 		return fail(400, "drafts folder not available")
@@ -125,7 +133,8 @@ func (h *Handler) saveUserComposeDraft(ctx context.Context, r *http.Request) (co
 	to, _ := message.ParseAddressList(r.FormValue("to"))
 	cc, _ := message.ParseAddressList(r.FormValue("cc"))
 	bcc, _ := message.ParseAddressList(r.FormValue("bcc"))
-	msg := &message.OutgoingMessage{FromName: account.Name, FromEmail: account.Email, To: to, CC: cc, Bcc: bcc, Subject: r.FormValue("subject"), TextBody: body, HTMLBody: html, InReplyTo: r.FormValue("in_reply_to"), References: r.FormValue("references"), MessageID: draftID, Date: time.Now().UTC(), Attachments: attachments}
+	msg := &message.OutgoingMessage{To: to, CC: cc, Bcc: bcc, Subject: r.FormValue("subject"), TextBody: body, HTMLBody: html, InReplyTo: r.FormValue("in_reply_to"), References: r.FormValue("references"), MessageID: draftID, Date: time.Now().UTC(), Attachments: attachments}
+	sender.apply(msg)
 	reply, references := h.validComposeThreadHeaders(ctx, accountID, msg.Subject, msg.InReplyTo, msg.References)
 	var pending *storage.OutgoingSend
 	if localID, e := h.db.GetMessageLocalIDByInternetIDInternal(ctx, accountID, draftID); e == nil && localID > 0 {

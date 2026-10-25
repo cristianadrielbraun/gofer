@@ -76,7 +76,14 @@ func sanitizeProviderErrorBody(value string) string {
 	return value
 }
 
+// sendAsDeniedText replaces a provider's refusal to send as the From
+// address, which Outlook words as SendAsDenied both in Graph and over SMTP.
+const sendAsDeniedText = "The provider doesn't let this account send as the From address. On Outlook, an admin has to grant the account Send As permission for it."
+
 func sanitizeOutgoingErrorText(value string) string {
+	if strings.Contains(strings.ToLower(value), "sendasdenied") {
+		return sendAsDeniedText
+	}
 	return sanitizeProviderErrorBody(value)
 }
 

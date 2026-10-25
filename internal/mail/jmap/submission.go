@@ -56,9 +56,10 @@ func (c *Client) UploadBlob(ctx context.Context, session *Session, accountID, co
 // Identity is an address the account may send from (RFC 8621 section 6). An
 // email of "*@example.test" allows any address at that domain.
 type Identity struct {
-	ID    string `json:"id"`
-	Name  string `json:"name"`
-	Email string `json:"email"`
+	ID      string         `json:"id"`
+	Name    string         `json:"name"`
+	Email   string         `json:"email"`
+	ReplyTo []EmailAddress `json:"replyTo"`
 }
 
 // GetIdentities runs Identity/get for every identity of the account.

@@ -11,8 +11,9 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
 
-// Only these six local signature operations use the adapter. Provider services
-// and network clients are absent from the request-local handler.
+// Only these local signature and identity operations use the adapter.
+// Provider services and network clients are absent from the request-local
+// handler.
 func (h *Handler) registerUserSignatures(private func(string, http.HandlerFunc)) {
 	for _, route := range []struct {
 		pattern string
@@ -24,6 +25,11 @@ func (h *Handler) registerUserSignatures(private func(string, http.HandlerFunc))
 		{"POST /api/signatures", func(h *Handler) http.HandlerFunc { return h.handleSaveSignature }},
 		{"DELETE /api/signatures/{id}", func(h *Handler) http.HandlerFunc { return h.handleDeleteSignature }},
 		{"POST /api/accounts/{id}/signature-settings", func(h *Handler) http.HandlerFunc { return h.handleSaveAccountSignatureSettings }},
+		{"GET /api/accounts/{id}/identities/manage", func(h *Handler) http.HandlerFunc { return h.handleManageAccountIdentities }},
+		{"GET /api/accounts/{id}/identities/panel", func(h *Handler) http.HandlerFunc { return h.handleAccountIdentitiesPanel }},
+		{"POST /api/accounts/{id}/identities", func(h *Handler) http.HandlerFunc { return h.handleSaveAccountIdentity }},
+		{"DELETE /api/accounts/{id}/identities/{identity}", func(h *Handler) http.HandlerFunc { return h.handleDeleteAccountIdentity }},
+		{"POST /api/accounts/{id}/identities/{identity}/move", func(h *Handler) http.HandlerFunc { return h.handleMoveAccountIdentity }},
 	} {
 		private(route.pattern, h.userSignatureHandler(route.handler))
 	}

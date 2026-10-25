@@ -287,3 +287,34 @@ func hasBareLF(raw []byte) bool {
 	}
 	return false
 }
+
+func TestBuildMIMEMessageWritesReplyToOnlyWhenSet(t *testing.T) {
+	to, _ := ParseAddressList("to@example.com")
+	replyTo, _ := ParseAddressList("Sales Team <team@example.com>")
+	msg := &OutgoingMessage{FromName: "Ana Sales", FromEmail: "sales@example.com", ReplyTo: replyTo, To: to, Subject: "Hello", TextBody: "Body", MessageID: "<reply-to@example.com>"}
+	for name, build := range map[string]func(*OutgoingMessage) ([]byte, error){
+		"smtp":  BuildMIMEMessage,
+		"graph": BuildMIMEMessageForGraph,
+		"jmap":  BuildMIMEMessageForJMAP,
+		"draft": func(m *OutgoingMessage) ([]byte, error) { return BuildMIMEMessageForIMAPDraft(m, "revision") },
+	} {
+		raw, err := build(msg)
+		if err != nil {
+			t.Fatalf("%s: build error = %v", name, err)
+		}
+		reader := readBuiltMail(t, raw)
+		from, _ := reader.Header.AddressList("From")
+		got, _ := reader.Header.AddressList("Reply-To")
+		if len(from) != 1 || from[0].Address != "sales@example.com" || from[0].Name != "Ana Sales" || len(got) != 1 || got[0].Address != "team@example.com" || got[0].Name != "Sales Team" {
+			t.Fatalf("%s: From = %v, Reply-To = %v", name, from, got)
+		}
+	}
+	msg.ReplyTo = nil
+	raw, err := BuildMIMEMessage(msg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if readBuiltMail(t, raw).Header.Get("Reply-To") != "" {
+		t.Fatalf("Reply-To written without one: %s", raw)
+	}
+}

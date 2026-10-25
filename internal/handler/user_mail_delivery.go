@@ -151,13 +151,16 @@ func (s *userMailDeliveryScope) send(ctx context.Context) (bool, error) {
 	if json.Unmarshal(send.MessageJSON, &calendarSnapshot) == nil && calendarSnapshot.CalendarNotification != nil {
 		return s.sendCalendarNotification(ctx, send)
 	}
+	var snapshot outgoingMessageSnapshot
+	if json.Unmarshal(send.MessageJSON, &snapshot) == nil && snapshot.IdentitySMTP && send.Transport == storage.OutgoingTransportSMTP {
+		return s.sendIdentitySMTP(ctx, send, snapshot)
+	}
 	if s.cfg.Provider == providers.ProviderJMAP {
 		return s.sendJMAP(ctx, send)
 	}
 	if s.cfg.Provider != "imap" {
 		return s.sendProvider(ctx, send)
 	}
-	var snapshot outgoingMessageSnapshot
 	err := json.Unmarshal(send.MessageJSON, &snapshot)
 	result := models.SendFailed
 	if err == nil && (send.Transport != storage.OutgoingTransportSMTP || snapshot.MessageID == "" || snapshot.CalendarReply != "" || snapshot.CalendarNotification != nil) {
@@ -168,6 +171,40 @@ func (s *userMailDeliveryScope) send(ctx context.Context) (bool, error) {
 		result, err, _ = smtpclient.SendRawMessageWithTiming(work, s.cfg, s.smtpPassword, send.EnvelopeFrom, send.EnvelopeRecipients, send.MIMEData)
 		cancel()
 	}
+	return s.finishSMTP(ctx, send, snapshot.MessageID, result, err, true)
+}
+
+// sendIdentitySMTP sends a message through the own SMTP server of the
+// identity it is sent as. The server and password are read under the
+// account's lease and used after it.
+func (s *userMailDeliveryScope) sendIdentitySMTP(ctx context.Context, send storage.OutgoingSend, snapshot outgoingMessageSnapshot) (bool, error) {
+	var cfg *models.AccountConfig
+	var password string
+	var routeErr error
+	if err := s.runner.h.userAccounts.WithAccountForUser(ctx, s.owner, s.id, func(accounts *config.AccountStore, db *storage.DB) error {
+		identities, err := db.ListAccountIdentitiesInternal(ctx, s.id)
+		if err != nil {
+			return err
+		}
+		cfg, password, routeErr = identitySMTPRoute(ctx, accounts, identities, snapshot.IdentityID)
+		return nil
+	}); err != nil {
+		return false, err
+	}
+	result, err := models.SendFailed, routeErr
+	if err == nil && snapshot.MessageID == "" {
+		err = errors.New("unsupported routed outgoing message")
+	}
+	if err == nil {
+		work, cancel := context.WithTimeout(ctx, 2*time.Minute)
+		result, err, _ = smtpclient.SendRawMessageWithTiming(work, cfg, password, send.EnvelopeFrom, send.EnvelopeRecipients, send.MIMEData)
+		cancel()
+	}
+	return s.finishSMTP(ctx, send, snapshot.MessageID, result, err, true)
+}
+
+// finishSMTP records how an SMTP delivery went and tells the browser.
+func (s *userMailDeliveryScope) finishSMTP(ctx context.Context, send storage.OutgoingSend, messageID string, result models.SendResult, err error, sentCopy bool) (bool, error) {
 	if ctx.Err() != nil {
 		return false, ctx.Err()
 	} // Leave the claim for recovery, never silently resend.
@@ -190,7 +227,7 @@ func (s *userMailDeliveryScope) send(ctx context.Context) (bool, error) {
 	finalErr := s.call(ctx, func(db *storage.DB) error {
 		switch status {
 		case storage.OutgoingSendSent:
-			return db.CompleteOutgoingSend(ctx, send.ID, snapshot.MessageID, true)
+			return db.CompleteOutgoingSend(ctx, send.ID, messageID, sentCopy)
 		case storage.OutgoingSendPending:
 			return db.FinishOutgoingSendWithRetry(ctx, send.ID, errText, nextAttempt)
 		default:
@@ -228,9 +265,13 @@ func (s *userMailDeliveryScope) sentCopy(ctx context.Context) (bool, error) {
 	work, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	var err error
-	if s.cfg.Provider == "imap" {
+	var snapshot outgoingMessageSnapshot
+	switch {
+	case s.cfg.Provider == "imap":
 		err = s.copySent(work, send)
-	} else {
+	case json.Unmarshal(send.MessageJSON, &snapshot) == nil && snapshot.IdentitySMTP:
+		err = s.fileProviderSent(work, send, snapshot)
+	default:
 		err = s.cacheProviderSent(work, send)
 	}
 	if ctx.Err() != nil {
@@ -329,6 +370,65 @@ func (s *userMailDeliveryScope) copySent(ctx context.Context, send storage.Outgo
 	events = append(events, mail.Event{Type: mail.EventMutation, UserID: s.owner, AccountID: s.id, FolderID: folder})
 	for _, event := range events {
 		s.runner.h.userIMAP.Events().Publish(event)
+	}
+	return nil
+}
+
+// fileProviderSent files a message sent through an identity's own server in
+// a Gmail or JMAP account's Sent, then keeps the local Sent copy linked to
+// it, as copySent does over IMAP.
+func (s *userMailDeliveryScope) fileProviderSent(ctx context.Context, send storage.OutgoingSend, snapshot outgoingMessageSnapshot) error {
+	var folder string
+	if err := s.call(ctx, func(db *storage.DB) error {
+		var err error
+		folder, _, err = db.GetFolderIDByRole(ctx, s.id, "sent")
+		return err
+	}); err != nil {
+		return err
+	}
+	if folder == "" || snapshot.MessageID == "" {
+		return errors.New("Sent copy identity is unavailable")
+	}
+	var providerID string
+	var err error
+	switch s.cfg.Provider {
+	case providers.ProviderGmail:
+		providerID, err = s.providerMail.FileGmailSentCopy(ctx, send.MIMEData, snapshot.MessageID)
+	case providers.ProviderJMAP:
+		providerID, err = mail.FileJMAPSentCopy(ctx, s.cfg, s.password, send.MIMEData, snapshot.MessageID, snapshot.Date)
+	default:
+		err = errors.New("Gofer can't keep a Sent copy for this account")
+	}
+	if err != nil {
+		return err
+	}
+	if err := s.cacheSent(ctx, send, folder, snapshot); err != nil {
+		return err
+	}
+	var drafts string
+	if err := s.runner.h.userAccounts.WithAccountForUser(ctx, s.owner, s.id, func(accounts *config.AccountStore, db *storage.DB) error {
+		id, err := db.GetMessageLocalIDByInternetIDInternal(ctx, s.id, snapshot.MessageID)
+		if err != nil {
+			return err
+		}
+		if err := db.SetMessageProviderMessageID(ctx, id, providerID); err != nil {
+			return err
+		}
+		if send.DraftID != "" {
+			local := &Handler{db: db, accountStore: accounts, auth: s.runner.h.auth, blobStore: s.runner.h.blobStore}
+			if local.deliveredSnapshotMatchesDraft(ctx, send) {
+				if drafts, err = db.DiscardIMAPDraft(ctx, s.id, send.DraftID); err != nil {
+					return err
+				}
+			}
+		}
+		return db.CompleteSentCopy(ctx, send.ID, 0, 0)
+	}); err != nil {
+		return err
+	}
+	s.runner.h.userIMAP.Events().Publish(mail.Event{Type: mail.EventMutation, UserID: s.owner, AccountID: s.id, FolderID: folder})
+	if drafts != "" {
+		s.runner.h.userIMAP.Events().Publish(mail.Event{Type: mail.EventMutation, UserID: s.owner, AccountID: s.id, FolderID: drafts})
 	}
 	return nil
 }
