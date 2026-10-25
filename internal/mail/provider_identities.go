@@ -1,6 +1,7 @@
 package mail
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -181,4 +182,37 @@ func (o *SyncOrchestrator) gmailProviderIdentities(ctx context.Context, accountI
 		})
 	}
 	return identities, nil
+}
+
+// GmailFromWarning says when Gmail sent a message as another address than
+// the From in its MIME, as it does with an address that is not a verified
+// send-as alias; sentFrom is the From header Gmail reports for the sent
+// message. It is empty when the addresses match or either can't be read.
+func GmailFromWarning(mime []byte, sentFrom string) string {
+	header, err := netmail.ReadMessage(bytes.NewReader(mime))
+	if err != nil {
+		return ""
+	}
+	wanted, err := netmail.ParseAddress(header.Header.Get("From"))
+	if err != nil {
+		return ""
+	}
+	actual, err := netmail.ParseAddress(sentFrom)
+	if err != nil || strings.EqualFold(actual.Address, wanted.Address) {
+		return ""
+	}
+	return fmt.Sprintf("Gmail sent this as %s: %s isn't a verified send-as address in Gmail.", actual.Address, wanted.Address)
+}
+
+// gmailSentFromWarning asks Gmail for the From it sent providerMessageID
+// with and compares it with the MIME's.
+func gmailSentFromWarning(ctx context.Context, token, providerMessageID string, mime []byte) string {
+	if strings.TrimSpace(providerMessageID) == "" {
+		return ""
+	}
+	sent, err := getGmailAPIMessageMetadata(ctx, token, providerMessageID)
+	if err != nil {
+		return ""
+	}
+	return GmailFromWarning(mime, gmailAPIHeaders(sent.Payload.Headers)["from"])
 }

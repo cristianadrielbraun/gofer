@@ -49,6 +49,8 @@ type providerActionAPI struct {
 	loseDraftAck, badDraftReply    bool
 	hideDrafts                     bool
 	draftStatus, deleteDraftStatus int
+	// sentFrom is the From Gmail reports for a message it sent.
+	sentFrom string
 }
 
 func (a *providerActionAPI) unblock() { a.releaseOnce.Do(func() { close(a.release) }) }
@@ -228,7 +230,11 @@ func (a *providerActionAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if copyID, ok := strings.CutPrefix(r.URL.Path, "/me/messages/"); ok {
 			id = copyID
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"id": id, "parentFolderId": a.parent[owner], "categories": a.categoriesLocked(owner)})
+		response := map[string]any{"id": id, "parentFolderId": a.parent[owner], "categories": a.categoriesLocked(owner)}
+		if a.sentFrom != "" && strings.HasPrefix(r.URL.Path, "/users/me/messages/") {
+			response["payload"] = map[string]any{"headers": []map[string]string{{"name": "From", "value": a.sentFrom}}}
+		}
+		_ = json.NewEncoder(w).Encode(response)
 	case strings.HasSuffix(r.URL.Path, "/move"):
 		var destination string
 		_ = json.Unmarshal(payload["destinationId"], &destination)

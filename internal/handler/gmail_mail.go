@@ -306,6 +306,32 @@ func (h *Handler) sendGmailAPIRaw(ctx context.Context, cfg *models.AccountConfig
 	return strings.TrimSpace(sent.ID), token, nil
 }
 
+// gmailSentFrom returns the From header Gmail sent providerMessageID with,
+// or "" when Gmail can't be asked.
+func (h *Handler) gmailSentFrom(ctx context.Context, token, providerMessageID string) string {
+	if strings.TrimSpace(providerMessageID) == "" {
+		return ""
+	}
+	var sent struct {
+		Payload struct {
+			Headers []struct {
+				Name  string `json:"name"`
+				Value string `json:"value"`
+			} `json:"headers"`
+		} `json:"payload"`
+	}
+	endpoint := gmailAPIBaseURL + "/users/me/messages/" + url.PathEscape(providerMessageID) + "?format=metadata&metadataHeaders=From"
+	if err := doGoogleJSON(ctx, http.MethodGet, endpoint, token, nil, &sent); err != nil {
+		return ""
+	}
+	for _, header := range sent.Payload.Headers {
+		if strings.EqualFold(header.Name, "From") {
+			return header.Value
+		}
+	}
+	return ""
+}
+
 func (h *Handler) cacheGmailSentMessageID(ctx context.Context, accountID string, msg *message.OutgoingMessage, token, providerMessageID string) {
 	localID, err := h.db.GetMessageLocalIDByInternetIDInternal(ctx, accountID, msg.MessageID)
 	if err != nil || localID == 0 {

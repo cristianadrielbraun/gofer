@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -30,6 +31,9 @@ type UserProviderSendResult struct {
 	MessageID string
 	Retryable bool
 	Error     error
+	// FromWarning says the provider sent the message as another address
+	// than its From.
+	FromWarning string
 }
 
 func (p *UserProviderMail) RetryAt() time.Time { return p.scope.retryAt }
@@ -94,6 +98,7 @@ func (p *UserProviderMail) Send(ctx context.Context, mime []byte) UserProviderSe
 			headers = outlookImmutableIDHeaders()
 		}
 		attempted = true
+		token = access
 		accepted, wireErr = providerMailRaw(ctx, http.MethodPost, endpoint, access, contentType, headers, body, &response)
 		return wireErr
 	})
@@ -101,6 +106,14 @@ func (p *UserProviderMail) Send(ctx context.Context, mime []byte) UserProviderSe
 		// A success status confirms acceptance even if the optional identity body
 		// is missing or corrupt. Recover its ID during Sent reconciliation.
 		result.Outcome, result.MessageID = models.SendSuccess, strings.TrimSpace(response.ID)
+		if scope.config.Provider == "gmail" {
+			if result.FromWarning = gmailSentFromWarning(ctx, token, result.MessageID, mime); result.FromWarning != "" {
+				// The alias is likely gone from Gmail: take it out of the From menu.
+				if err := o.refreshProviderIdentities(ctx, scope.id, scope.config); err != nil {
+					log.Printf("provider identities %s after a changed From: %v", scope.id, err)
+				}
+			}
+		}
 		return result
 	}
 	result.Error = err

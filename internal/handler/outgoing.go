@@ -402,7 +402,19 @@ func (h *Handler) deliverOutgoingSend(parent context.Context, send storage.Outgo
 		return
 	}
 	h.cleanupDeliveredDraft(parent, send)
-	h.publishOutgoingResult(send, "sent", "")
+	var extra map[string]any
+	if send.Transport == storage.OutgoingTransportGmail {
+		if warning := mailpkg.GmailFromWarning(send.MIMEData, h.gmailSentFrom(sendCtx, providerToken, providerMessageID)); warning != "" {
+			extra = map[string]any{"from_warning": warning}
+			// The alias is likely gone from Gmail: take it out of the From menu.
+			if h.syncer != nil {
+				if err := h.syncer.RefreshProviderIdentities(parent, send.AccountID); err != nil {
+					log.Printf("outgoing-send: refresh identities %s after a changed From: %v", send.AccountID, err)
+				}
+			}
+		}
+	}
+	h.publishOutgoingResultWithPayload(send, "sent", "", extra)
 }
 
 func (h *Handler) runDueSentCopies(ctx context.Context) {

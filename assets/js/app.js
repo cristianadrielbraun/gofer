@@ -5854,6 +5854,9 @@ document.addEventListener("DOMContentLoaded", function () {
 
       if (data.status === "sent") {
         showSendStatus("sent", "Message sent")
+        if (data.from_warning) {
+          showGoferToast({ id: "compose-from-warning-" + (data.send_id || ""), title: "Sent from another address", description: data.from_warning, variant: "warning", position: "bottom-right", duration: 15000, dismissible: true })
+        }
         handleComposeSendResult("sent", data)
       } else if (data.status === "retrying") {
         var retrySeconds = Math.max(1, Number(data.retry_in_seconds) || 60)
