@@ -66,6 +66,13 @@ func startRecordedIMAPServer(t *testing.T, caps goimap.CapSet, hidden ...goimap.
 
 func startRecordedIMAPServerWithMailboxes(t *testing.T, caps goimap.CapSet, mailboxes []string, hidden ...goimap.Cap) (*models.AccountConfig, *commandRecorder) {
 	t.Helper()
+	return startRecordedIMAPServerWithSpecialUse(t, caps, mailboxes, nil, hidden...)
+}
+
+// startRecordedIMAPServerWithSpecialUse is startRecordedIMAPServerWithMailboxes
+// with special-use attributes on some of the mailboxes.
+func startRecordedIMAPServerWithSpecialUse(t *testing.T, caps goimap.CapSet, mailboxes []string, specialUse map[string]goimap.MailboxAttr, hidden ...goimap.Cap) (*models.AccountConfig, *commandRecorder) {
+	t.Helper()
 	mem := imapmemserver.New()
 	user := imapmemserver.NewUser("user@example.com", "secret")
 	for _, mailbox := range mailboxes {
@@ -76,6 +83,9 @@ func startRecordedIMAPServerWithMailboxes(t *testing.T, caps goimap.CapSet, mail
 	mem.AddUser(user)
 	server := imapserver.New(&imapserver.Options{
 		NewSession: func(*imapserver.Conn) (imapserver.Session, *imapserver.GreetingData, error) {
+			if specialUse != nil {
+				return &specialUseSession{Session: mem.NewSession(), mailboxes: mailboxes, specialUse: specialUse}, nil, nil
+			}
 			return mem.NewSession(), nil, nil
 		},
 		InsecureAuth: true,
@@ -184,4 +194,33 @@ func TestClientConnectionLostAfterServerCloses(t *testing.T) {
 	if !client.ConnectionLost() {
 		t.Fatal("ConnectionLost() = false after the server closed the session")
 	}
+}
+
+// specialUseSession lists mailboxes with their special-use attributes, which
+// the in-memory server cannot store, and like some servers sends them only
+// when the client asks for them.
+type specialUseSession struct {
+	imapserver.Session
+	mailboxes  []string
+	specialUse map[string]goimap.MailboxAttr
+}
+
+func (s *specialUseSession) List(w *imapserver.ListWriter, ref string, patterns []string, options *goimap.ListOptions) error {
+	for _, mailbox := range s.mailboxes {
+		matches := false
+		for _, pattern := range patterns {
+			matches = matches || pattern == "*" || (pattern == "%" && !strings.Contains(mailbox, "/"))
+		}
+		if !matches {
+			continue
+		}
+		data := &goimap.ListData{Mailbox: mailbox, Delim: '/'}
+		if attr, ok := s.specialUse[mailbox]; ok && options != nil && options.ReturnSpecialUse {
+			data.Attrs = append(data.Attrs, attr)
+		}
+		if err := w.WriteList(data); err != nil {
+			return err
+		}
+	}
+	return nil
 }

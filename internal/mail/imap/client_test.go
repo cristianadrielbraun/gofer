@@ -210,3 +210,43 @@ func TestListFoldersUsesServerNamespaceForRoles(t *testing.T) {
 		})
 	}
 }
+
+// Gmail names its folders in the account's language, so only the special-use
+// attributes say which is the Trash.
+func TestListFoldersAsksForSpecialUseRoles(t *testing.T) {
+	tests := []struct {
+		name string
+		caps goimap.CapSet
+	}{
+		{name: "SPECIAL-USE", caps: goimap.CapSet{goimap.CapIMAP4rev1: {}, goimap.CapSpecialUse: {}}},
+		{name: "SPECIAL-USE and LIST-STATUS", caps: goimap.CapSet{goimap.CapIMAP4rev1: {}, goimap.CapSpecialUse: {}, goimap.CapListStatus: {}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg, recorder := startRecordedIMAPServerWithSpecialUse(t, tt.caps,
+				[]string{"INBOX", "[Gmail]", "[Gmail]/Corbeille", "[Gmail]/Messages envoyés", "Corbeille"},
+				map[string]goimap.MailboxAttr{"[Gmail]/Corbeille": goimap.MailboxAttrTrash, "[Gmail]/Messages envoyés": goimap.MailboxAttrSent})
+			client, err := NewClient(context.Background(), cfg, "secret")
+			if err != nil {
+				t.Fatalf("NewClient() error = %v", err)
+			}
+			defer client.Close()
+			folders, err := client.ListFolders(context.Background())
+			if err != nil {
+				t.Fatalf("ListFolders() error = %v", err)
+			}
+			want := map[string]string{"[Gmail]/Corbeille": "trash", "[Gmail]/Messages envoyés": "sent", "Corbeille": "custom"}
+			for _, folder := range folders {
+				if role, ok := want[folder.Name]; ok {
+					if folder.Role != role {
+						t.Errorf("%s role = %q, want %q; client sent:\n%s", folder.Name, folder.Role, role, recorder.String())
+					}
+					delete(want, folder.Name)
+				}
+			}
+			if len(want) > 0 {
+				t.Fatalf("folders not listed: %v", want)
+			}
+		})
+	}
+}

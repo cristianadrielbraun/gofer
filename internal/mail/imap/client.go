@@ -234,7 +234,7 @@ func (c *Client) ListFolders(ctx context.Context) ([]FolderInfo, error) {
 
 	namespaces := c.personalNamespaces()
 
-	cmd := c.client.List("", "%", nil)
+	cmd := c.client.List("", "%", listOptions(c, false))
 	defer cmd.Close()
 
 	var folders []FolderInfo
@@ -262,7 +262,7 @@ func (c *Client) ListFolders(ctx context.Context) ([]FolderInfo, error) {
 
 	// Also get subfolders by listing with * pattern. Where the server can,
 	// this listing also returns every folder's status.
-	subCmd := c.client.List("", "*", listStatusOptions(c))
+	subCmd := c.client.List("", "*", listOptions(c, true))
 	defer subCmd.Close()
 
 	seen := make(map[string]bool)

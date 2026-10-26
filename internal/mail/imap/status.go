@@ -66,9 +66,24 @@ func (c *Client) FolderStatus(ctx context.Context, remoteName string) (FolderSta
 	return status, ok, nil
 }
 
-func listStatusOptions(c *Client) *imap.ListOptions {
-	if !c.supportsListStatus() {
+// listOptions are the return options for a LIST of folders, with each
+// folder's status when withStatus is set and the server can return it.
+//
+// Special-use attributes are asked for whenever the server has them: a server
+// may leave them out otherwise, above all once the command names other return
+// options. Without them a folder's role comes from its name, which
+// only matches English names, so Gmail's "[Gmail]/Corbeille" would not be
+// the Trash.
+func listOptions(c *Client, withStatus bool) *imap.ListOptions {
+	options := &imap.ListOptions{}
+	if caps := c.client.Caps(); caps != nil && caps.Has(imap.CapSpecialUse) {
+		options.ReturnSpecialUse = true
+	}
+	if withStatus && c.supportsListStatus() {
+		options.ReturnStatus = c.statusOptions()
+	}
+	if !options.ReturnSpecialUse && options.ReturnStatus == nil {
 		return nil
 	}
-	return &imap.ListOptions{ReturnStatus: c.statusOptions()}
+	return options
 }
