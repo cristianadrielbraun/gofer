@@ -646,8 +646,11 @@ func sidebarTagGroupActive(filters models.EmailFilters, accountID string) bool {
 // themeClass is the page's light or dark class. Express has no dark mode, so it
 // is always light; the saved choice still applies to the other styles.
 func themeClass(settings map[string]string) string {
-	if themeStyle(settings) == "express" {
+	switch themeStyle(settings) {
+	case "express":
 		return ""
+	case themebuilder.StyleName:
+		return customThemeClass(settings)
 	}
 	if uiSettingGet(settings, "theme", "dark") == "dark" {
 		return "dark"
@@ -669,6 +672,15 @@ func themeStyle(settings map[string]string) string {
 func customThemeSaved(settings map[string]string) bool {
 	_, ok := themebuilder.FromSettings(settings)
 	return ok
+}
+
+// customThemeClass is "dark" when the Custom theme is a dark one. The Custom
+// theme is shown in its own mode, whatever the color mode setting says.
+func customThemeClass(settings map[string]string) string {
+	if theme, ok := themebuilder.FromSettings(settings); ok && theme.Dark() {
+		return "dark"
+	}
+	return ""
 }
 
 // customThemeCSS is the Custom theme's palette and corners, or "" if there is

@@ -984,6 +984,25 @@ func TestThemeLookAttributes(t *testing.T) {
 	}
 }
 
+// The Custom theme is shown in its own mode, whatever the color mode setting.
+func TestCustomThemeKeepsItsMode(t *testing.T) {
+	dark := `{"mode":"dark","seed":"#16a34a","sidebar":"dark","depth":"raised","corners":"medium"}`
+	light := `{"mode":"light","seed":"#16a34a","sidebar":"dark","depth":"raised","corners":"medium"}`
+	for _, tc := range []struct {
+		settings map[string]string
+		want     string
+	}{
+		{map[string]string{"theme_style": "custom", "theme": "light", "custom_theme": dark}, "dark"},
+		{map[string]string{"theme_style": "custom", "theme": "dark", "custom_theme": light}, ""},
+		{map[string]string{"theme_style": "classic", "theme": "dark", "custom_theme": light}, "dark"},
+		{map[string]string{"theme_style": "custom", "theme": "dark"}, "dark"},
+	} {
+		if got := themeClass(tc.settings); got != tc.want {
+			t.Errorf("themeClass(%v) = %q, want %q", tc.settings, got, tc.want)
+		}
+	}
+}
+
 func TestCustomThemeNeedsASavedTheme(t *testing.T) {
 	saved := `{"seed":"#16a34a","sidebar":"dark","depth":"raised","corners":"medium"}`
 	if got := themeStyle(map[string]string{"theme_style": "custom", "custom_theme": saved}); got != "custom" {
@@ -1015,7 +1034,7 @@ func TestAppearanceTabCustomThemeCard(t *testing.T) {
 	if !strings.Contains(html, `id="custom-theme-dialog"`) || !strings.Contains(html, `data-custom-theme-build`) {
 		t.Fatal("theme builder missing")
 	}
-	for _, want := range []string{`data-custom-theme-seed-option="#16a34a"`, `data-custom-theme-secondary-option="#16a34a"`, `name="custom_theme_tone" value="neutral"`} {
+	for _, want := range []string{`data-custom-theme-seed-option="#16a34a"`, `aria-label="Complementary"`, `name="custom_theme_tint" value="none"`} {
 		if !strings.Contains(html, want) {
 			t.Errorf("theme builder lacks %s", want)
 		}

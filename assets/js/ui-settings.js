@@ -65,8 +65,15 @@ var GoferSettings;
 
   // Express has no dark mode: it always shows light, while the saved choice is
   // kept for the other styles.
+  // Express is always light, and the Custom theme is shown in the mode it was
+  // built for.
   function effectiveTheme(theme, style) {
-    return style === "express" ? "light" : theme;
+    if (style === "express") return "light";
+    if (style === "custom") {
+      var custom = customTheme();
+      if (custom) return custom.mode === "dark" ? "dark" : "light";
+    }
+    return theme;
   }
 
   function applyTheme(theme) {

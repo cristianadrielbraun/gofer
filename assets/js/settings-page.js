@@ -150,6 +150,8 @@
       }
       var isDark = mode.dataset.mode === 'dark';
       document.querySelectorAll('[data-theme-preview]').forEach(function(el) {
+        // Express is always light, and the Custom theme keeps its own mode.
+        if (el.getAttribute('data-theme') === 'custom') return;
         el.classList.toggle('dark', isDark && el.getAttribute('data-theme') !== 'express');
       });
       return;
@@ -340,6 +342,10 @@
     saved = false;
     before = { style: name, css: styleBlock(name).textContent, dark: html.classList.contains('dark') };
     mode = before.dark ? 'dark' : 'light';
+    // The Custom theme has only its own mode, which the page is already in.
+    root.querySelectorAll('[data-theme-colors-modes], [data-theme-colors-modes-note]').forEach(function(el) {
+      el.classList.toggle('hidden', name === 'custom');
+    });
     var title = root.querySelector('[data-theme-colors-title]');
     if (title) title.textContent = 'Edit ' + styleLabel(name) + ' colors';
     watchClose(root);
@@ -424,17 +430,21 @@
 })();
 
 // Theme builder. The Custom theme is saved as its builder choices in
-// custom_theme, and the server makes its palette from them. Every change is
-// previewed on the page; closing without saving puts the page back.
+// custom_theme, and the server makes its palette from them. Changes show only
+// in the dialog's preview frame; the page takes the theme when it is saved.
 (function() {
   var BUILDER_ID = 'custom-theme-dialog';
   var DELETE_ID = 'custom-theme-delete-dialog';
-  var FIELDS = ['tone', 'sidebar', 'depth', 'corners'];
+  var FIELDS = ['mode', 'tint', 'strength', 'contrast', 'sidebar', 'depth', 'corners'];
   var editing = null;
-  var before = null;
-  var saved = false;
-  var previewSeq = 0;
+  // The hand edits of the saved theme, shown in the preview until the palette
+  // changes.
+  var handEdits = '';
+  var palette = { key: '', css: '' };
+  var paletteRequest = null;
   var previewTimer = null;
+  var frameReady = false;
+  var frameSeq = 0;
 
   function hexColor(value) {
     value = (value || '').trim().toLowerCase();
@@ -464,34 +474,45 @@
     var theme = savedTheme();
     if (theme) {
       return {
+        mode: theme.mode === 'dark' ? 'dark' : 'light',
         seed: theme.seed,
         secondary: theme.secondary || '',
-        tone: theme.tone || 'primary',
-        sidebar: theme.sidebar,
+        tint: theme.tint || 'primary',
+        strength: theme.strength || 'subtle',
+        contrast: theme.contrast || 'normal',
+        // Sidebars saved before they were relative to the panes.
+        sidebar: theme.sidebar === 'light' || theme.sidebar === 'lighter' ? 'lighter' : 'darker',
         depth: theme.depth,
         corners: theme.corners,
       };
     }
     var minimal = document.documentElement.getAttribute('data-theme') === 'minimal';
     return {
+      mode: document.documentElement.classList.contains('dark') ? 'dark' : 'light',
       seed: '#2563eb',
       secondary: '',
-      tone: 'primary',
-      sidebar: minimal ? 'light' : 'dark',
+      tint: 'primary',
+      strength: 'subtle',
+      contrast: 'normal',
+      sidebar: minimal ? 'lighter' : 'darker',
       depth: minimal ? 'flat' : 'raised',
       corners: minimal ? 'square' : 'medium',
     };
   }
 
-  // The colors, tone and sidebar decide the palette, so changing any of them
-  // replaces it and clears hand-edited colors.
+  // The base, colors, tint, contrast and sidebar decide the palette, so changing any of
+  // them replaces it and clears hand-edited colors.
   function colorsChanged() {
     var theme = savedTheme();
     if (!theme || !editing) return false;
-    return theme.seed !== editing.seed ||
+    var mode = theme.mode === 'dark' ? 'dark' : 'light';
+    return mode !== editing.mode ||
+      theme.seed !== editing.seed ||
       (theme.secondary || '') !== editing.secondary ||
-      (theme.tone || 'primary') !== editing.tone ||
-      theme.sidebar !== editing.sidebar;
+      (theme.tint || 'primary') !== editing.tint ||
+      (theme.strength || 'subtle') !== editing.strength ||
+      (theme.contrast || 'normal') !== editing.contrast ||
+      startingTheme().sidebar !== editing.sidebar;
   }
 
   function block(selector, attribute) {
@@ -512,89 +533,248 @@
     return block('style[data-theme-colors="custom"]', { name: 'data-theme-colors', value: 'custom' });
   }
 
-  function setLook(theme) {
-    var html = document.documentElement;
-    html.setAttribute('data-theme', 'custom');
-    if (theme.depth === 'flat') html.setAttribute('data-depth', 'flat');
-    else html.removeAttribute('data-depth');
-    if (theme.corners === 'square') html.setAttribute('data-corners', 'square');
-    else html.removeAttribute('data-corners');
+  function builder() {
+    return document.getElementById(BUILDER_ID);
+  }
+
+  function frame() {
+    var root = builder();
+    return root && root.querySelector('[data-custom-theme-preview-frame]');
+  }
+
+  // OKLCH, as themebuilder works in: lightness 0-1, chroma, hue in radians.
+  function toOklch(hex) {
+    var lin = [1, 3, 5].map(function(i) {
+      var v = parseInt(hex.substr(i, 2), 16) / 255;
+      return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+    });
+    var l = Math.cbrt(0.4122214708 * lin[0] + 0.5363325363 * lin[1] + 0.0514459929 * lin[2]);
+    var m = Math.cbrt(0.2119034982 * lin[0] + 0.6806995451 * lin[1] + 0.1073969566 * lin[2]);
+    var s = Math.cbrt(0.0883024619 * lin[0] + 0.2817188376 * lin[1] + 0.6299787005 * lin[2]);
+    var a = 1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s;
+    var b = 0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s;
+    return { l: 0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s, c: Math.hypot(a, b), h: Math.atan2(b, a) };
+  }
+
+  function oklabToRGB(L, a, b) {
+    var l = Math.pow(L + 0.3963377774 * a + 0.2158037573 * b, 3);
+    var m = Math.pow(L - 0.1055613458 * a - 0.0638541728 * b, 3);
+    var s = Math.pow(L - 0.0894841775 * a - 1.2914855480 * b, 3);
+    return [
+      4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+      -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+      -0.0041960863 * l - 0.7034186168 * m + 1.7076147010 * s,
+    ].map(function(v) {
+      return v <= 0.0031308 ? v * 12.92 : 1.055 * Math.pow(v, 1 / 2.4) - 0.055;
+    });
+  }
+
+  // The OKLCH color as #rrggbb, with chroma lowered until it fits in sRGB.
+  function fromOklch(l, c, h) {
+    var fits = function(rgb) { return rgb.every(function(v) { return v >= -1e-4 && v <= 1 + 1e-4; }); };
+    var rgb = oklabToRGB(l, c * Math.cos(h), c * Math.sin(h));
+    if (!fits(rgb)) {
+      var lo = 0, hi = 1;
+      rgb = oklabToRGB(l, 0, 0);
+      for (var i = 0; i < 24; i++) {
+        var mid = (lo + hi) / 2;
+        var cand = oklabToRGB(l, c * mid * Math.cos(h), c * mid * Math.sin(h));
+        if (fits(cand)) { rgb = cand; lo = mid; } else { hi = mid; }
+      }
+    }
+    return '#' + rgb.map(function(v) {
+      return ('0' + Math.round(Math.max(0, Math.min(1, v)) * 255).toString(16)).slice(-2);
+    }).join('');
+  }
+
+  // The secondary suggestions are the primary's hue turned, at its lightness
+  // and chroma; a pale or grey primary still gets colors with some body.
+  function suggestSecondaries(root, seed) {
+    var primary = toOklch(seed);
+    var l = Math.max(0.5, Math.min(0.75, primary.l));
+    var chroma = {
+      match: Math.max(primary.c, 0.1),
+      muted: Math.max(primary.c * 0.35, 0.03),
+      neutral: 0.015,
+    };
+    root.querySelectorAll('[data-custom-theme-suggestion-chroma]').forEach(function(swatch) {
+      var kind = swatch.getAttribute('data-custom-theme-suggestion-chroma');
+      var turn = parseFloat(swatch.getAttribute('data-custom-theme-suggestion-turn')) * Math.PI / 180;
+      var color = kind === 'same' ? seed : fromOklch(l, chroma[kind], primary.h + turn);
+      // The first swatch follows the primary, so its value stays empty.
+      if (kind !== 'same') swatch.setAttribute('data-custom-theme-secondary-option', color);
+      swatch.style.backgroundColor = color;
+    });
+  }
+
+  function renderSwatches(root, optionAttribute, pickerAttribute, color) {
+    var offered = false;
+    root.querySelectorAll('[' + optionAttribute + ']').forEach(function(swatch) {
+      var active = swatch.getAttribute(optionAttribute) === color;
+      if (active) offered = true;
+      swatch.setAttribute('data-account-color-active', active ? 'true' : 'false');
+      swatch.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
+    var picker = root.querySelector('[' + pickerAttribute + ']');
+    if (!picker) return;
+    var tile = picker.closest('[data-custom-theme-picker-tile]');
+    var picked = !!color && !offered;
+    if (color) picker.value = color;
+    if (!tile) return;
+    tile.toggleAttribute('data-custom-theme-picked', picked);
+    tile.setAttribute('data-account-color-active', picked ? 'true' : 'false');
+    tile.style.backgroundColor = picked ? color : '';
   }
 
   function render() {
-    var root = document.getElementById(BUILDER_ID);
+    var root = builder();
     if (!root || !editing) return;
-    root.querySelectorAll('[data-custom-theme-seed-option]').forEach(function(swatch) {
-      var active = swatch.getAttribute('data-custom-theme-seed-option') === editing.seed;
-      swatch.setAttribute('data-account-color-active', active ? 'true' : 'false');
-      swatch.setAttribute('aria-pressed', active ? 'true' : 'false');
-    });
-    var picker = root.querySelector('[data-custom-theme-seed]');
-    if (picker) picker.value = editing.seed;
+    renderSwatches(root, 'data-custom-theme-seed-option', 'data-custom-theme-seed', editing.seed);
     var value = root.querySelector('[data-custom-theme-seed-value]');
     if (value) value.textContent = editing.seed;
     // An empty secondary follows the primary color.
-    root.querySelectorAll('[data-custom-theme-secondary-option]').forEach(function(swatch) {
-      var active = swatch.getAttribute('data-custom-theme-secondary-option') === editing.secondary;
-      swatch.setAttribute('data-account-color-active', active ? 'true' : 'false');
-      swatch.setAttribute('aria-pressed', active ? 'true' : 'false');
-    });
-    var secondaryPicker = root.querySelector('[data-custom-theme-secondary]');
-    if (secondaryPicker) secondaryPicker.value = editing.secondary || editing.seed;
+    suggestSecondaries(root, editing.seed);
+    renderSwatches(root, 'data-custom-theme-secondary-option', 'data-custom-theme-secondary', editing.secondary);
+    if (!editing.secondary) {
+      var secondaryPicker = root.querySelector('[data-custom-theme-secondary]');
+      if (secondaryPicker) secondaryPicker.value = editing.seed;
+    }
     var secondaryValue = root.querySelector('[data-custom-theme-secondary-value]');
     if (secondaryValue) secondaryValue.textContent = editing.secondary || 'Same as primary';
-    var secondaryMatch = root.querySelector('[data-custom-theme-secondary-match]');
-    if (secondaryMatch) secondaryMatch.classList.toggle('hidden', !editing.secondary);
     root.querySelectorAll('[data-custom-theme-field]').forEach(function(input) {
       input.checked = editing[input.getAttribute('data-custom-theme-field')] === input.value;
     });
+    // No tint has no strength to choose, so the choice is greyed out.
+    var strength = root.querySelector('[data-custom-theme-choice="strength"]');
+    if (strength) {
+      strength.disabled = editing.tint === 'none';
+      strength.classList.toggle('opacity-50', strength.disabled);
+    }
     var warning = root.querySelector('[data-custom-theme-reset-warning]');
     if (warning) {
       var count = colorsChanged() ? handEditCount() : 0;
       warning.classList.toggle('hidden', count === 0);
       warning.textContent = count === 1
-        ? 'New colors, tone or sidebar make a new palette, so saving clears the 1 color you edited by hand.'
-        : 'New colors, tone or sidebar make a new palette, so saving clears the ' + count + ' colors you edited by hand.';
+        ? 'A new base, colors, tint, contrast or sidebar make a new palette, so saving clears the 1 color you edited by hand.'
+        : 'A new base, colors, tint, contrast or sidebar make a new palette, so saving clears the ' + count + ' colors you edited by hand.';
     }
+  }
+
+  // The palette CSS for a theme, from the server; the last one is kept.
+  function paletteFor(theme) {
+    var key = JSON.stringify(theme);
+    if (palette.key === key) return Promise.resolve(palette.css);
+    if (paletteRequest && paletteRequest.key === key) return paletteRequest.promise;
+    var promise = fetch('/api/settings/custom-theme.css', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: key,
+    })
+      .then(function(res) { return res.ok ? res.text() : Promise.reject(res.status); })
+      .then(function(css) {
+        palette = { key: key, css: css };
+        return css;
+      });
+    paletteRequest = { key: key, promise: promise };
+    return promise;
+  }
+
+  function attribute(value) {
+    return String(value).replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+  }
+
+  // The frame gets the page's stylesheets, fonts and styles, but not its
+  // theme's colors, so the preview is drawn with the app's own CSS. It is
+  // built once the palette is known, with the palette in it, and stays hidden
+  // until its fonts are in, so it never shows other colors or reflowing text.
+  function loadFrame() {
+    var el = frame();
+    var template = builder().querySelector('[data-custom-theme-preview-template]');
+    if (!el || !template || !editing) return;
+    var seq = ++frameSeq;
+    frameReady = false;
+    el.style.visibility = 'hidden';
+    paletteFor(Object.assign({}, editing)).then(function() {
+      if (seq !== frameSeq || !editing) return;
+      var head = ['<meta charset="utf-8">'];
+      document.querySelectorAll('head link[rel="stylesheet"], head style').forEach(function(node) {
+        if (node.matches('style[data-custom-theme], style[data-theme-colors]')) return;
+        if (node.tagName === 'LINK') head.push('<link rel="stylesheet" href="' + attribute(node.href) + '">');
+        else head.push('<style>' + node.textContent + '</style>');
+      });
+      // The first drawing shows at once; once the frame is visible, option
+      // changes fade into each other.
+      head.push('<style data-custom-theme-motion>*,*::before,*::after{transition:none!important}</style>');
+      // Raised surfaces are gradients with no color under them, so a fade to
+      // flat passes through see-through; the theme background, not the
+      // frame's white, shows through.
+      head.push('<style>html{background-color:var(--background)}</style>');
+      head.push('<style data-custom-theme></style><style data-theme-colors="custom"></style>');
+      el.onload = function() {
+        if (seq !== frameSeq) return;
+        frameReady = true;
+        drawFrame();
+        var doc = el.contentDocument;
+        var fonts = doc && doc.fonts ? doc.fonts.ready : Promise.resolve();
+        fonts.then(function() {
+          if (seq !== frameSeq) return;
+          el.style.visibility = '';
+          requestAnimationFrame(function() {
+            var motion = seq === frameSeq && doc.querySelector('style[data-custom-theme-motion]');
+            if (motion) motion.textContent = FRAME_MOTION;
+          });
+        });
+      };
+      el.srcdoc = '<!doctype html><html data-theme="custom"><head>' + head.join('') +
+        '</head><body class="bg-background text-foreground antialiased surface-desk">' + template.innerHTML + '</body></html>';
+    }).catch(function() {});
+    fitFrame();
+  }
+
+  var FRAME_MOTION = '*,*::before,*::after{transition:color .3s ease,background-color .3s ease,' +
+    'border-color .3s ease,outline-color .3s ease,box-shadow .3s ease,border-radius .3s ease,' +
+    'fill .3s ease,stroke .3s ease,text-decoration-color .3s ease!important}';
+
+  // The frame is laid out at a desktop size and scaled down to the stage,
+  // which is no wider than the frame, so it never grows past the real size.
+  function fitFrame() {
+    var el = frame();
+    var stage = el && el.parentElement;
+    if (!stage || !stage.clientWidth) return;
+    var scale = stage.clientWidth / el.offsetWidth;
+    el.style.transform = 'scale(' + scale + ')';
+    stage.style.height = Math.round(el.offsetHeight * scale) + 'px';
+  }
+
+  function drawFrame() {
+    var el = frame();
+    if (!frameReady || !el || !el.contentDocument || !editing) return;
+    var doc = el.contentDocument;
+    var html = doc.documentElement;
+    html.classList.toggle('dark', editing.mode === 'dark');
+    if (editing.depth === 'flat') html.setAttribute('data-depth', 'flat');
+    else html.removeAttribute('data-depth');
+    if (editing.corners === 'square') html.setAttribute('data-corners', 'square');
+    else html.removeAttribute('data-corners');
+    var paletteStyle = doc.querySelector('style[data-custom-theme]');
+    if (paletteStyle) paletteStyle.textContent = palette.css;
+    // Hand edits were made for the saved palette; a new one shows without them.
+    var editsStyle = doc.querySelector('style[data-theme-colors="custom"]');
+    if (editsStyle) editsStyle.textContent = colorsChanged() ? '' : handEdits;
   }
 
   function preview() {
     if (previewTimer) clearTimeout(previewTimer);
     previewTimer = setTimeout(function() {
       previewTimer = null;
-      var seq = ++previewSeq;
-      var theme = Object.assign({}, editing);
-      fetch('/api/settings/custom-theme.css', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(theme),
-      })
-        .then(function(res) { return res.ok ? res.text() : Promise.reject(res.status); })
-        .then(function(css) {
-          if (seq !== previewSeq || !before) return;
-          paletteBlock().textContent = css;
-          // Hand edits were made for the saved palette; a new one shows without them.
-          handEditsBlock().textContent = colorsChanged() ? '' : before.handEdits;
-          setLook(theme);
+      if (!editing) return;
+      var key = JSON.stringify(editing);
+      paletteFor(Object.assign({}, editing))
+        .then(function() {
+          if (editing && JSON.stringify(editing) === key) drawFrame();
         })
         .catch(function() {});
     }, 60);
-  }
-
-  function restore() {
-    if (previewTimer) clearTimeout(previewTimer);
-    previewTimer = null;
-    previewSeq++;
-    if (!before) return;
-    var html = document.documentElement;
-    paletteBlock().textContent = before.palette;
-    handEditsBlock().textContent = before.handEdits;
-    html.setAttribute('data-theme', before.theme);
-    ['data-depth', 'data-corners'].forEach(function(name) {
-      if (before[name] === null) html.removeAttribute(name);
-      else html.setAttribute(name, before[name]);
-    });
-    before = null;
   }
 
   function watchClose(root) {
@@ -602,29 +782,20 @@
     if (!content || content.dataset.customThemeWatch) return;
     content.dataset.customThemeWatch = 'true';
     content.addEventListener('close', function() {
-      if (!saved) restore();
-      before = null;
       editing = null;
     });
   }
 
   function open() {
-    var root = document.getElementById(BUILDER_ID);
+    var root = builder();
     if (!root || typeof GoferSettings === 'undefined' || !window.tui || !window.tui.dialog) return;
-    var html = document.documentElement;
-    before = {
-      theme: html.getAttribute('data-theme') || 'classic',
-      'data-depth': html.getAttribute('data-depth'),
-      'data-corners': html.getAttribute('data-corners'),
-      palette: paletteBlock().textContent,
-      handEdits: handEditsBlock().textContent,
-    };
-    saved = false;
     editing = startingTheme();
+    handEdits = handEditsBlock().textContent;
     watchClose(root);
     render();
-    preview();
+    loadFrame();
     window.tui.dialog.open(BUILDER_ID);
+    watchStage();
   }
 
   function selectStyle(style) {
@@ -635,18 +806,21 @@
 
   function save() {
     if (!editing) return;
-    if (colorsChanged() && handEditCount() > 0) {
-      GoferSettings.set('theme_colors_custom', '');
-      handEditsBlock().textContent = '';
-    }
-    saved = true;
-    before = null;
-    GoferSettings.set('custom_theme', JSON.stringify(editing));
-    GoferSettings.set('theme_style', 'custom');
-    var card = document.querySelector('[data-theme-card="custom"]');
-    if (card) card.classList.remove('hidden');
-    selectStyle('custom');
-    window.tui.dialog.close(BUILDER_ID);
+    var theme = Object.assign({}, editing);
+    var clearHandEdits = colorsChanged() && handEditCount() > 0;
+    paletteFor(theme).then(function(css) {
+      paletteBlock().textContent = css;
+      if (clearHandEdits) {
+        GoferSettings.set('theme_colors_custom', '');
+        handEditsBlock().textContent = '';
+      }
+      GoferSettings.set('custom_theme', JSON.stringify(theme));
+      GoferSettings.set('theme_style', 'custom');
+      var card = document.querySelector('[data-theme-card="custom"]');
+      if (card) card.classList.remove('hidden');
+      selectStyle('custom');
+      window.tui.dialog.close(BUILDER_ID);
+    }).catch(function() {});
   }
 
   function deleteTheme() {
@@ -671,6 +845,18 @@
     preview();
   }
 
+  // The stage has no width until the dialog shows, and changes with the window.
+  function watchStage() {
+    var el = frame();
+    var stage = el && el.parentElement;
+    if (!stage || stage.dataset.customThemeObserved || typeof ResizeObserver === 'undefined') {
+      requestAnimationFrame(fitFrame);
+      return;
+    }
+    stage.dataset.customThemeObserved = 'true';
+    new ResizeObserver(fitFrame).observe(stage);
+  }
+
   document.addEventListener('click', function(e) {
     if (e.target.closest('[data-custom-theme-build]')) {
       open();
@@ -686,10 +872,6 @@
     }
     if (e.target.closest('[data-custom-theme-delete-confirm]')) {
       deleteTheme();
-      return;
-    }
-    if (e.target.closest('[data-custom-theme-secondary-match]')) {
-      update({ secondary: '' });
       return;
     }
     var swatch = e.target.closest('[data-custom-theme-seed-option]');
@@ -710,7 +892,8 @@
   });
 
   document.addEventListener('change', function(e) {
-    if (!e.target.matches || !e.target.matches('[data-custom-theme-field]')) return;
+    if (!e.target.matches) return;
+    if (!e.target.matches('[data-custom-theme-field]')) return;
     var field = e.target.getAttribute('data-custom-theme-field');
     if (FIELDS.indexOf(field) < 0) return;
     var change = {};

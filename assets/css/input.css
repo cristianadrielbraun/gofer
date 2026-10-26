@@ -909,6 +909,49 @@
   box-shadow: 0 0 0 2px var(--popover), 0 0 0 4px var(--ring), 0 1px 2px rgba(0,0,0,0.16);
 }
 
+/* The theme builder's Base switch slides its highlight to the checked side. */
+[data-custom-theme-choice="mode"]:has([value="dark"]:checked) [data-custom-theme-base-indicator] {
+  transform: translateX(calc(100% + 2px));
+}
+
+/* The theme builder's last tile opens a color picker. Its dashed outline and
+   plus tell it apart from the colors; once a color of its own is picked, the
+   tile is filled with it. */
+.custom-theme-picker-tile {
+  border-style: dashed;
+  border-color: var(--muted-foreground);
+  box-shadow: none;
+}
+
+.custom-theme-picker-tile[data-custom-theme-picked] {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--border) 60%, transparent);
+}
+
+.custom-theme-picker-tile[data-custom-theme-picked] .custom-theme-picker-plus {
+  color: #fff;
+  filter: drop-shadow(0 0 1px rgba(0,0,0,0.8));
+}
+
+/* The theme builder's preview has no server to load a message body from, so
+   it shows one styled like the body frame's own document (handler.go). */
+.custom-theme-preview-body {
+  padding: 8px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  background: var(--paper);
+  color: var(--paper-foreground);
+}
+
+.custom-theme-preview-body p {
+  margin: 0 0 1em;
+}
+
+.custom-theme-preview-body a {
+  color: var(--copper);
+}
+
 html[data-corners="square"] .account-color-marker {
   border-radius: 0;
 }

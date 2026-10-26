@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-
-	"github.com/cristianadrielbraun/gofer/internal/themecolors"
 )
 
 // SettingKey is the UI setting that stores the Custom theme's builder choices
@@ -26,11 +24,19 @@ var radii = map[string]string{
 
 // Theme is what the builder saves.
 type Theme struct {
+	// Mode is "light" or "dark". The theme has only that palette, and the app
+	// shows it in that mode whatever the color mode setting says.
+	Mode string `json:"mode"`
 	Seed string `json:"seed"`
 	// Secondary is empty to follow Seed.
 	Secondary string `json:"secondary,omitempty"`
-	// Tone is "primary", "secondary" or "neutral".
-	Tone    string `json:"tone"`
+	// Tint is "primary", "secondary" or "none".
+	Tint string `json:"tint"`
+	// Strength is "subtle", "strong" or "strongest".
+	Strength string `json:"strength"`
+	// Contrast is "normal", "high" or "highest".
+	Contrast string `json:"contrast"`
+	// Sidebar is "darker" or "lighter" than the panes.
 	Sidebar string `json:"sidebar"`
 	// Depth is "raised", with Classic's shadows and bevels, or "flat".
 	Depth   string `json:"depth"`
@@ -64,6 +70,13 @@ func Parse(raw string) (Theme, bool) {
 	if strings.TrimSpace(raw) == "" || json.Unmarshal([]byte(raw), &t) != nil {
 		return Theme{}, false
 	}
+	// Themes saved before the mode existed are light.
+	if t.Mode == "" {
+		t.Mode = "light"
+	}
+	if t.Mode != "light" && t.Mode != "dark" {
+		return Theme{}, false
+	}
 	t.Seed = strings.ToLower(strings.TrimSpace(t.Seed))
 	if _, ok := parseHex(t.Seed); !ok {
 		return Theme{}, false
@@ -72,14 +85,34 @@ func Parse(raw string) (Theme, bool) {
 	if _, ok := parseHex(t.Secondary); t.Secondary != "" && !ok {
 		return Theme{}, false
 	}
-	// Themes saved before the tone existed took it from the primary color.
-	if t.Tone == "" {
-		t.Tone = "primary"
+	// Themes saved before the tint existed took a subtle one from the
+	// primary color.
+	if t.Tint == "" {
+		t.Tint = "primary"
 	}
-	if t.Tone != "primary" && t.Tone != "secondary" && t.Tone != "neutral" {
+	if t.Tint != "primary" && t.Tint != "secondary" && t.Tint != "none" {
 		return Theme{}, false
 	}
-	if t.Sidebar != "light" && t.Sidebar != "dark" {
+	if t.Strength == "" {
+		t.Strength = "subtle"
+	}
+	if t.Strength != "subtle" && t.Strength != "strong" && t.Strength != "strongest" {
+		return Theme{}, false
+	}
+	if t.Contrast == "" {
+		t.Contrast = "normal"
+	}
+	if t.Contrast != "normal" && t.Contrast != "high" && t.Contrast != "highest" {
+		return Theme{}, false
+	}
+	// Before the sidebar was relative to the panes, it was light or dark.
+	switch t.Sidebar {
+	case "dark":
+		t.Sidebar = "darker"
+	case "light":
+		t.Sidebar = "lighter"
+	}
+	if t.Sidebar != "darker" && t.Sidebar != "lighter" {
 		return Theme{}, false
 	}
 	if t.Depth != "raised" && t.Depth != "flat" {
@@ -117,31 +150,33 @@ func (t Theme) LookAttributes() map[string]string {
 
 // CSS is the theme's palette and corner radius. It applies to every element
 // with data-theme="custom", so the color editor can read the colors the theme
-// ships with; hand edits from themecolors use stronger selectors and win.
+// ships with; hand edits from themecolors use stronger selectors and win. The
+// palette is for the theme's mode, and applies in either, since the page
+// follows the theme's mode.
 func (t Theme) CSS() string {
-	palette, ok := Generate(Options{Seed: t.Seed, Secondary: t.Secondary, Tone: t.Tone, Sidebar: t.Sidebar})
+	palette, ok := Generate(Options{Seed: t.Seed, Secondary: t.Secondary, Tint: t.Tint, Strength: t.Strength, Contrast: t.Contrast, Sidebar: t.Sidebar})
 	if !ok {
 		return ""
 	}
 	scope := fmt.Sprintf(`[data-theme="%s"]`, StyleName)
+	values := palette[t.Mode]
+	names := make([]string, 0, len(values))
+	for name := range values {
+		names = append(names, name)
+	}
+	sort.Strings(names)
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s{--radius:%s;}", scope, radii[t.Corners])
-	for _, mode := range themecolors.Modes {
-		selector := scope + ":not(.dark)"
-		if mode == "dark" {
-			selector = scope + ".dark"
-		}
-		values := palette[mode]
-		names := make([]string, 0, len(values))
-		for name := range values {
-			names = append(names, name)
-		}
-		sort.Strings(names)
-		b.WriteString(selector + "{")
-		for _, name := range names {
-			fmt.Fprintf(&b, "--%s:%s;", name, values[name])
-		}
-		b.WriteString("}")
+	// The .dark form outranks the built-in styles' .dark rules.
+	fmt.Fprintf(&b, "%s,%s.dark{", scope, scope)
+	for _, name := range names {
+		fmt.Fprintf(&b, "--%s:%s;", name, values[name])
 	}
+	b.WriteString("}")
 	return b.String()
+}
+
+// Dark reports whether the theme is a dark one.
+func (t Theme) Dark() bool {
+	return t.Mode == "dark"
 }

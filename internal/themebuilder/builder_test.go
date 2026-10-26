@@ -28,7 +28,7 @@ var testSeeds = func() []string {
 }()
 
 func TestGenerateDefinesEveryEditorColor(t *testing.T) {
-	for _, sidebar := range []string{"light", "dark"} {
+	for _, sidebar := range []string{"lighter", "darker"} {
 		palette, ok := Generate(Options{Seed: "#2563eb", Sidebar: sidebar})
 		if !ok {
 			t.Fatal("Generate refused a valid seed")
@@ -50,26 +50,31 @@ func TestGenerateDefinesEveryEditorColor(t *testing.T) {
 }
 
 func TestGenerateRefusesBadOptions(t *testing.T) {
-	for _, opts := range []Options{{Seed: "blue", Sidebar: "light"}, {Seed: "#36f", Sidebar: "light"}, {Seed: "#3366ff", Sidebar: "left"}} {
+	for _, opts := range []Options{{Seed: "blue", Sidebar: "lighter"}, {Seed: "#36f", Sidebar: "lighter"}, {Seed: "#3366ff", Sidebar: "left"}} {
 		if _, ok := Generate(opts); ok {
 			t.Errorf("Generate(%+v) accepted", opts)
 		}
 	}
 }
 
-// Text pairs need WCAG AA; the primary and focus colors need 3:1 against
-// what they sit on.
+// Text pairs need WCAG AA, and AAA at high contrast; the primary and focus
+// colors need 3:1 against what they sit on.
 var textPairs = [][2]string{
 	{"foreground", "background"}, {"foreground", "card"}, {"card-foreground", "card"},
 	{"popover-foreground", "popover"}, {"secondary-foreground", "secondary"},
 	{"accent-foreground", "accent"}, {"muted-foreground", "background"},
 	{"muted-foreground", "card"}, {"muted-foreground", "muted"},
-	{"primary-foreground", "primary"}, {"sidebar-foreground", "sidebar"},
+	{"sidebar-foreground", "sidebar"},
 	{"sidebar-accent-foreground", "sidebar-accent"},
-	{"sidebar-primary-foreground", "sidebar-primary"},
 	{"paper-foreground", "paper"}, {"copper", "paper"}, {"ink", "background"},
 	{"destructive", "background"}, {"destructive", "card"},
 	{"success", "background"}, {"success", "card"},
+}
+
+// Text on filled buttons needs WCAG AA at any contrast, since high contrast
+// keeps the buttons' colors.
+var filledPairs = [][2]string{
+	{"primary-foreground", "primary"}, {"sidebar-primary-foreground", "sidebar-primary"},
 }
 
 var uiPairs = [][2]string{
@@ -82,9 +87,13 @@ var testSecondaries = []string{"", "#ff0000", "#fff7cc", "#0a246a", "#808080"}
 func TestGenerateKeepsContrastForAnySeed(t *testing.T) {
 	for _, seed := range testSeeds {
 		for _, secondary := range testSecondaries {
-			for _, tone := range []string{"primary", "secondary", "neutral"} {
-				for _, sidebar := range []string{"light", "dark"} {
-					checkContrast(t, Options{Seed: seed, Secondary: secondary, Tone: tone, Sidebar: sidebar})
+			for _, tint := range []string{"primary", "secondary", "none"} {
+				for _, strength := range []string{"subtle", "strong", "strongest"} {
+					for _, contrast := range []string{"normal", "high", "highest"} {
+						for _, sidebar := range []string{"lighter", "darker"} {
+							checkContrast(t, Options{Seed: seed, Secondary: secondary, Tint: tint, Strength: strength, Contrast: contrast, Sidebar: sidebar})
+						}
+					}
 				}
 			}
 		}
@@ -98,22 +107,27 @@ func checkContrast(t *testing.T, opts Options) {
 		t.Fatalf("Generate refused %+v", opts)
 	}
 	for _, mode := range themecolors.Modes {
-				check := func(pairs [][2]string, min float64) {
-					for _, pair := range pairs {
+		check := func(pairs [][2]string, min float64) {
+			for _, pair := range pairs {
 				if got := contrastOf(palette[mode][pair[0]], palette[mode][pair[1]]); got < min-0.005 {
 					t.Errorf("%+v, %s: %s on %s = %.2f, want %.1f", opts, mode, pair[0], pair[1], got, min)
 				}
 			}
 		}
-		check(textPairs, MinTextContrast)
+		if opts.Contrast != "normal" {
+			check(textPairs, highTextContrast)
+		} else {
+			check(textPairs, MinTextContrast)
+		}
+		check(filledPairs, MinTextContrast)
 		check(uiPairs, minUIContrast)
 	}
 }
 
-func TestSecondaryAndToneChooseHues(t *testing.T) {
+func TestSecondaryAndTintChooseHues(t *testing.T) {
 	green := toLCH(mustRGB(t, "#16a34a")).h
 	orange := toLCH(mustRGB(t, "#ea580c")).h
-	palette, ok := Generate(Options{Seed: "#16a34a", Secondary: "#ea580c", Tone: "neutral", Sidebar: "light"})
+	palette, ok := Generate(Options{Seed: "#16a34a", Secondary: "#ea580c", Tint: "none", Sidebar: "lighter"})
 	if !ok {
 		t.Fatal("Generate refused valid options")
 	}
@@ -125,17 +139,36 @@ func TestSecondaryAndToneChooseHues(t *testing.T) {
 		t.Errorf("primary hue %.2f, want green %.2f", h, green)
 	}
 	if c := toLCH(mustRGB(t, light["background"])).c; c > 0.005 {
-		t.Errorf("neutral tone gave background chroma %.3f", c)
+		t.Errorf("no tint gave background chroma %.3f", c)
 	}
 
-	byOrange, _ := Generate(Options{Seed: "#16a34a", Secondary: "#ea580c", Tone: "secondary", Sidebar: "light"})
+	byOrange, _ := Generate(Options{Seed: "#16a34a", Secondary: "#ea580c", Tint: "secondary", Sidebar: "lighter"})
 	if h := toLCH(mustRGB(t, byOrange["light"]["background"])).h; math.Abs(h-orange) > 0.3 {
-		t.Errorf("secondary tone gave background hue %.2f, want %.2f", h, orange)
+		t.Errorf("secondary tint gave background hue %.2f, want %.2f", h, orange)
 	}
-	if _, ok := Generate(Options{Seed: "#16a34a", Tone: "loud", Sidebar: "light"}); ok {
-		t.Error("unknown tone accepted")
+	if _, ok := Generate(Options{Seed: "#16a34a", Tint: "loud", Sidebar: "lighter"}); ok {
+		t.Error("unknown tint accepted")
 	}
-	if _, ok := Generate(Options{Seed: "#16a34a", Secondary: "orange", Sidebar: "light"}); ok {
+	if _, ok := Generate(Options{Seed: "#16a34a", Strength: "loud", Sidebar: "lighter"}); ok {
+		t.Error("unknown strength accepted")
+	}
+
+	strengths := []string{"subtle", "strong", "strongest"}
+	for i := 1; i < len(strengths); i++ {
+		weaker, _ := Generate(Options{Seed: "#16a34a", Strength: strengths[i-1], Sidebar: "lighter"})
+		stronger, _ := Generate(Options{Seed: "#16a34a", Strength: strengths[i], Sidebar: "lighter"})
+		for _, mode := range themecolors.Modes {
+			for _, name := range []string{"background", "card", "border"} {
+				weak, bold := toLCH(mustRGB(t, weaker[mode][name])).c, toLCH(mustRGB(t, stronger[mode][name])).c
+				// Dark surfaces can't show much more color, so the step is
+				// smaller than the chroma asked for.
+				if bold < weak*1.3 {
+					t.Errorf("%s %s: %s tint chroma %.3f, %s %.3f", mode, name, strengths[i], bold, strengths[i-1], weak)
+				}
+			}
+		}
+	}
+	if _, ok := Generate(Options{Seed: "#16a34a", Secondary: "orange", Sidebar: "lighter"}); ok {
 		t.Error("bad secondary accepted")
 	}
 }
@@ -150,7 +183,7 @@ func mustRGB(t *testing.T, hex string) rgb {
 }
 
 func TestGreySeedGivesGreyPalette(t *testing.T) {
-	palette, _ := Generate(Options{Seed: "#808080", Sidebar: "light"})
+	palette, _ := Generate(Options{Seed: "#808080", Sidebar: "lighter"})
 	for _, mode := range themecolors.Modes {
 		for _, name := range []string{"background", "card", "sidebar", "border"} {
 			c, _ := parseHex(palette[mode][name])
@@ -162,8 +195,8 @@ func TestGreySeedGivesGreyPalette(t *testing.T) {
 }
 
 func TestSeedHueCarriesIntoSurfaces(t *testing.T) {
-	green, _ := Generate(Options{Seed: "#16a34a", Sidebar: "light"})
-	blue, _ := Generate(Options{Seed: "#2563eb", Sidebar: "light"})
+	green, _ := Generate(Options{Seed: "#16a34a", Sidebar: "lighter"})
+	blue, _ := Generate(Options{Seed: "#2563eb", Sidebar: "lighter"})
 	if green["light"]["background"] == blue["light"]["background"] {
 		t.Fatal("different seeds gave the same background")
 	}
@@ -190,12 +223,33 @@ func countEditorColors() int {
 	return n
 }
 
+func TestHigherContrastRaisesText(t *testing.T) {
+	levels := []string{"normal", "high", "highest"}
+	for _, sidebar := range []string{"lighter", "darker"} {
+		for i := 1; i < len(levels); i++ {
+			lower, _ := Generate(Options{Seed: "#16a34a", Contrast: levels[i-1], Sidebar: sidebar})
+			higher, _ := Generate(Options{Seed: "#16a34a", Contrast: levels[i], Sidebar: sidebar})
+			for _, mode := range themecolors.Modes {
+				for _, pair := range [][2]string{{"foreground", "background"}, {"muted-foreground", "background"}, {"border", "background"}, {"sidebar-foreground", "sidebar"}, {"sidebar-border", "sidebar"}} {
+					before := contrastOf(lower[mode][pair[0]], lower[mode][pair[1]])
+					after := contrastOf(higher[mode][pair[0]], higher[mode][pair[1]])
+					if after <= before {
+						t.Errorf("%s %s sidebar, %s on %s: %s %.2f, %s %.2f", mode, sidebar, pair[0], pair[1], levels[i], after, levels[i-1], before)
+					}
+				}
+			}
+		}
+	}
+}
+
 func TestParseTheme(t *testing.T) {
 	theme, ok := Parse(`{"seed":"#16A34A","sidebar":"dark","depth":"flat","corners":"square"}`)
 	if !ok {
 		t.Fatal("Parse refused a valid theme")
 	}
-	if got := theme.Encode(); got != `{"seed":"#16a34a","tone":"primary","sidebar":"dark","depth":"flat","corners":"square"}` {
+	// Themes saved before the mode existed are light, and their light or dark
+	// sidebar is a lighter or darker one.
+	if got := theme.Encode(); got != `{"mode":"light","seed":"#16a34a","tint":"primary","strength":"subtle","contrast":"normal","sidebar":"darker","depth":"flat","corners":"square"}` {
 		t.Fatalf("Encode = %s", got)
 	}
 	attrs := theme.LookAttributes()
@@ -209,7 +263,10 @@ func TestParseTheme(t *testing.T) {
 		`{"seed":"#16a34a","sidebar":"dark","depth":"bevel","corners":"square"}`,
 		`{"seed":"#16a34a","sidebar":"dark","depth":"flat","corners":"9px"}`,
 		`{"seed":"#16a34a","secondary":"sand","sidebar":"dark","depth":"flat","corners":"square"}`,
-		`{"seed":"#16a34a","tone":"loud","sidebar":"dark","depth":"flat","corners":"square"}`,
+		`{"seed":"#16a34a","tint":"loud","sidebar":"dark","depth":"flat","corners":"square"}`,
+		`{"seed":"#16a34a","strength":"loud","sidebar":"dark","depth":"flat","corners":"square"}`,
+		`{"seed":"#16a34a","contrast":"loud","sidebar":"dark","depth":"flat","corners":"square"}`,
+		`{"mode":"dim","seed":"#16a34a","sidebar":"dark","depth":"flat","corners":"square"}`,
 	} {
 		if _, ok := Parse(raw); ok {
 			t.Errorf("Parse(%q) accepted", raw)
@@ -222,10 +279,42 @@ func TestThemeCSS(t *testing.T) {
 	if attrs := theme.LookAttributes(); len(attrs) != 0 {
 		t.Fatalf("raised, round theme has look attributes %v", attrs)
 	}
+	palette, _ := Generate(Options{Seed: "#16a34a", Sidebar: "lighter"})
+	scope := `[data-theme="custom"],[data-theme="custom"].dark{`
 	css := theme.CSS()
-	for _, want := range []string{`[data-theme="custom"]{--radius:1rem;}`, `[data-theme="custom"]:not(.dark){--accent:`, `[data-theme="custom"].dark{--accent:`} {
+	for _, want := range []string{`[data-theme="custom"]{--radius:1rem;}`, scope + "--accent:" + palette["light"]["accent"] + ";"} {
 		if !strings.Contains(css, want) {
-			t.Errorf("CSS lacks %s", want)
+			t.Errorf("CSS lacks %s\n%s", want, css)
+		}
+	}
+	if strings.Contains(css, ":not(.dark)") {
+		t.Errorf("a theme has one palette, for either mode:\n%s", css)
+	}
+
+	// A dark theme carries the dark palette.
+	theme, _ = Parse(`{"mode":"dark","seed":"#16a34a","sidebar":"light","depth":"raised","corners":"large"}`)
+	if !theme.Dark() || !strings.Contains(theme.CSS(), scope+"--accent:"+palette["dark"]["accent"]+";") {
+		t.Errorf("dark theme CSS lacks the dark palette:\n%s", theme.CSS())
+	}
+}
+
+// The sidebar is darker or lighter than the panes in either mode.
+func TestSidebarAgainstPanes(t *testing.T) {
+	lightness := func(hex string) float64 { return toLCH(mustRGB(t, hex)).l }
+	darker, _ := Generate(Options{Seed: "#16a34a", Sidebar: "darker"})
+	lighter, _ := Generate(Options{Seed: "#16a34a", Sidebar: "lighter"})
+	for _, mode := range []string{"light", "dark"} {
+		background := lightness(darker[mode]["background"])
+		if l := lightness(darker[mode]["sidebar"]); l >= background {
+			t.Errorf("%s: darker sidebar %.2f is not darker than the background %.2f", mode, l, background)
+		}
+		if l := lightness(lighter[mode]["sidebar"]); l <= lightness(darker[mode]["sidebar"]) {
+			t.Errorf("%s: lighter sidebar %.2f is not lighter than the darker one", mode, l)
+		}
+	}
+	for _, mode := range []string{"light", "dark"} {
+		if l := lightness(lighter[mode]["sidebar"]); l <= lightness(lighter[mode]["background"]) {
+			t.Errorf("%s: lighter sidebar %.2f is not lighter than the background", mode, l)
 		}
 	}
 }

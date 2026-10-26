@@ -314,9 +314,11 @@
   background: var(--xp-title) top / 100% 36px no-repeat local, var(--background);
 }
 
-/* A calendar dialog caps its panel at the screen's height; the strip above
-   it takes part of that, or the footer would end below the screen. */
+/* A calendar dialog, a data dialog and the theme builder cap their panel at
+   the screen's height; the strip above it takes part of that, or the footer
+   would end below the screen. */
 [data-theme="express"] dialog.calendar-dialog[data-tui-dialog-content]:not(.bg-transparent) > [data-tui-dialog-panel],
+[data-theme="express"] dialog.custom-theme-dialog[data-tui-dialog-content]:not(.bg-transparent) > [data-tui-dialog-panel],
 [data-theme="express"] dialog.data-dialog[data-tui-dialog-content]:not(.bg-transparent) > [data-tui-dialog-panel] {
   max-height: calc(100dvh - 2rem - 36px);
 }
@@ -2384,6 +2386,85 @@ html:root[data-theme="express"] :is([data-calendar-month-event], [data-calendar-
 [data-theme="express"] [data-mode-picker] [data-mode]:focus-visible {
   outline: 1px dotted var(--foreground);
   outline-offset: -3px;
+}
+
+/* The theme builder's Base switch is the same kind of toggle, with the
+   chosen side latched down. */
+[data-theme="express"] [data-custom-theme-base-indicator] {
+  display: none;
+}
+
+[data-theme="express"] [data-custom-theme-choice="mode"] > div:has([data-custom-theme-base-option]) {
+  gap: 2px;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+
+[data-theme="express"] [data-custom-theme-base-option] {
+  border-radius: 0;
+  color: var(--foreground);
+  transition: none;
+}
+
+[data-theme="express"] [data-custom-theme-base-option]:hover {
+  box-shadow: inset -1px -1px 0 var(--xp-mid), inset 1px 1px 0 var(--xp-light);
+}
+
+/* The press nudges the centered label down and right by a pixel. */
+[data-theme="express"] [data-custom-theme-base-option]:has(:checked),
+[data-theme="express"] [data-custom-theme-base-option]:active {
+  padding: 2px 0 0 2px;
+  background: color-mix(in srgb, var(--xp-face), var(--xp-light));
+  box-shadow: inset 1px 1px 0 var(--xp-mid), inset -1px -1px 0 var(--xp-light);
+}
+
+[data-theme="express"] [data-custom-theme-base-option]:has(:focus-visible) {
+  --tw-ring-shadow: 0 0 #0000;
+  outline: 1px dotted var(--foreground);
+  outline-offset: -3px;
+}
+
+/* The theme builder's colors are the classic color dialog's wells: small
+   sunken squares, the chosen one framed in black with a dotted focus line.
+   The picker tile is a raised button until it holds a picked color. */
+[data-theme="express"] [data-custom-theme-builder] .account-color-swatch {
+  width: 1.625rem;
+  height: 1.375rem;
+  border: none;
+  border-radius: 0;
+  box-shadow: var(--xp-bevel-in);
+  transition: none;
+}
+
+[data-theme="express"] [data-custom-theme-builder] .account-color-swatch:hover {
+  scale: none;
+}
+
+[data-theme="express"] [data-custom-theme-builder] .account-color-swatch[data-account-color-active="true"] {
+  box-shadow: 0 0 0 1px var(--xp-frame), var(--xp-bevel-in);
+  outline: 1px dotted var(--foreground);
+  outline-offset: 3px;
+}
+
+[data-theme="express"] [data-custom-theme-builder] .custom-theme-picker-tile:not([data-custom-theme-picked]) {
+  background: var(--xp-face);
+  color: var(--foreground);
+  box-shadow: var(--xp-bevel-out);
+}
+
+[data-theme="express"] [data-custom-theme-builder] .custom-theme-picker-tile:not([data-custom-theme-picked]):active {
+  box-shadow: var(--xp-bevel-pressed);
+}
+
+[data-theme="express"] [data-custom-theme-builder] .custom-theme-picker-tile:not([data-custom-theme-picked]):active .custom-theme-picker-plus {
+  translate: 1px 1px;
+}
+
+[data-theme="express"] [data-custom-theme-builder] .custom-theme-picker-plus {
+  width: 0.75rem;
+  height: 0.75rem;
 }
 
 /* === MESSAGE LIST === */

@@ -1199,13 +1199,18 @@ function setupModePickers() {
       var activeButton = picker.querySelector('[data-mode="' + activeMode + '"]') || buttons[0]
       if (!activeButton) return
 
-      var express = document.documentElement.getAttribute("data-theme") === "express"
+      var style = document.documentElement.getAttribute("data-theme")
+      var express = style === "express"
+      // The Custom theme has its own mode.
+      var custom = style === "custom"
       buttons.forEach(function (btn) {
         var isActive = btn === activeButton
         btn.className = modeButtonClasses(isActive)
         btn.setAttribute("aria-pressed", isActive ? "true" : "false")
-        if (btn.dataset.mode === "dark") btn.disabled = express
+        btn.disabled = custom || (btn.dataset.mode === "dark" && express)
       })
+      var customNote = picker.querySelector("[data-mode-custom-note]")
+      if (customNote) customNote.classList.toggle("hidden", !custom)
 
       var pickerRect = picker.getBoundingClientRect()
       var buttonRect = activeButton.getBoundingClientRect()

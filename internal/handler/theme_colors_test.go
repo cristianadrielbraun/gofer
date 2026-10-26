@@ -68,7 +68,7 @@ func TestThemeColorsCSSPreview(t *testing.T) {
 func TestNormalizeCustomThemeSetting(t *testing.T) {
 	updates := map[string]string{"custom_theme": `{"seed":"#16A34A","sidebar":"dark","depth":"flat","corners":"small"}`}
 	normalizeCustomThemeSetting(updates)
-	if got := updates["custom_theme"]; got != `{"seed":"#16a34a","tone":"primary","sidebar":"dark","depth":"flat","corners":"small"}` {
+	if got := updates["custom_theme"]; got != `{"mode":"light","seed":"#16a34a","tint":"primary","strength":"subtle","contrast":"normal","sidebar":"darker","depth":"flat","corners":"small"}` {
 		t.Fatalf("stored as %q", got)
 	}
 	updates = map[string]string{"custom_theme": `{"seed":"green"}`}
