@@ -417,10 +417,17 @@ func (h *Handler) deliverOutgoingSend(parent context.Context, send storage.Outgo
 		return
 	}
 	h.cleanupDeliveredDraft(parent, send)
-	var extra map[string]any
+	extra := map[string]any{}
+	// Without a Sent folder the copy can't be kept; the page says so instead
+	// of only "Message sent".
+	if needsSentCopy {
+		if folderID, _, err := h.db.GetFolderIDByRole(parent, send.AccountID, "sent"); err == nil && folderID == "" {
+			extra["missing_folder"] = "sent"
+		}
+	}
 	if send.Transport == storage.OutgoingTransportGmail {
 		if warning := mailpkg.GmailFromWarning(send.MIMEData, h.gmailSentFrom(sendCtx, providerToken, providerMessageID)); warning != "" {
-			extra = map[string]any{"from_warning": warning}
+			extra["from_warning"] = warning
 			// The alias is likely gone from Gmail: take it out of the From menu.
 			if h.syncer != nil {
 				if err := h.syncer.RefreshProviderIdentities(parent, send.AccountID); err != nil {
@@ -456,7 +463,11 @@ func (h *Handler) reconcileSentCopy(parent context.Context, send storage.Outgoin
 		h.finishSentCopy(send, storage.SentCopyFailed, fmt.Errorf("load Sent folder: %w", err))
 		return
 	}
-	if folderID == "" || remoteName == "" {
+	if folderID == "" {
+		h.finishSentCopy(send, storage.SentCopyFailed, errors.New(models.NoSentFolderError))
+		return
+	}
+	if remoteName == "" {
 		h.finishSentCopy(send, storage.SentCopyFailed, fmt.Errorf("remote Sent folder is not available"))
 		return
 	}

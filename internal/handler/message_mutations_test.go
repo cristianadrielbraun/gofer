@@ -484,8 +484,8 @@ func TestDeleteWithoutTrashFolderSaysWhy(t *testing.T) {
 	req.SetPathValue("id", id)
 	recorder := httptest.NewRecorder()
 	h.handleDeleteMessage(recorder, req)
-	if recorder.Code != http.StatusBadRequest || strings.TrimSpace(recorder.Body.String()) != "This account has no Trash folder." {
-		t.Fatalf("single delete status=%d body=%q", recorder.Code, recorder.Body.String())
+	if recorder.Code != http.StatusBadRequest || strings.TrimSpace(recorder.Body.String()) != "This account has no Trash folder." || recorder.Header().Get(missingFolderHeader) != "victim-account trash" {
+		t.Fatalf("single delete status=%d body=%q header=%q", recorder.Code, recorder.Body.String(), recorder.Header().Get(missingFolderHeader))
 	}
 
 	body := `{"targets":[{"id":"` + id + `"}],"folder_id":"victim-inbox"}`
@@ -497,8 +497,41 @@ func TestDeleteWithoutTrashFolderSaysWhy(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &got); err != nil || recorder.Code != http.StatusOK {
 		t.Fatalf("bulk delete status=%d body=%s err=%v", recorder.Code, recorder.Body.String(), err)
 	}
-	if got["updated"] != 0 || got["no_trash"] != 1 {
-		t.Fatalf("bulk delete answered %v, want updated 0 and no_trash 1", got)
+	if got["updated"] != 0 || got["no_trash"] != 1 || recorder.Header().Get(missingFolderHeader) != "victim-account trash" {
+		t.Fatalf("bulk delete answered %v %q, want updated 0 and no_trash 1", got, recorder.Header().Get(missingFolderHeader))
+	}
+
+	// Archive and spam say which folder is missing too.
+	req = asOwner(httptest.NewRequest(http.MethodPost, "/api/messages/"+id+"/thread/archive", nil))
+	req.SetPathValue("id", id)
+	recorder = httptest.NewRecorder()
+	h.handleArchiveThread(recorder, req)
+	if recorder.Code != http.StatusBadRequest || recorder.Header().Get(missingFolderHeader) != "victim-account archive" {
+		t.Fatalf("archive status=%d body=%q header=%q", recorder.Code, recorder.Body.String(), recorder.Header().Get(missingFolderHeader))
+	}
+	req = asOwner(httptest.NewRequest(http.MethodPost, "/api/messages/archive", strings.NewReader(body)))
+	req.Header.Set("Content-Type", "application/json")
+	recorder = httptest.NewRecorder()
+	h.handleArchiveMessages(recorder, req)
+	got = nil
+	if err := json.Unmarshal(recorder.Body.Bytes(), &got); err != nil || got["no_archive"] != 1 || recorder.Header().Get(missingFolderHeader) != "victim-account archive" {
+		t.Fatalf("bulk archive status=%d body=%s header=%q", recorder.Code, recorder.Body.String(), recorder.Header().Get(missingFolderHeader))
+	}
+	req = asOwner(httptest.NewRequest(http.MethodPost, "/api/messages/spam", strings.NewReader(body)))
+	req.Header.Set("Content-Type", "application/json")
+	recorder = httptest.NewRecorder()
+	h.handleMarkMessagesSpam(recorder, req)
+	if recorder.Code != http.StatusBadRequest || strings.TrimSpace(recorder.Body.String()) != noSpamFolderMessage || recorder.Header().Get(missingFolderHeader) != "victim-account junk" {
+		t.Fatalf("spam status=%d body=%q header=%q", recorder.Code, recorder.Body.String(), recorder.Header().Get(missingFolderHeader))
+	}
+
+	// Asked to, the email is deleted for good instead.
+	req = asOwner(httptest.NewRequest(http.MethodDelete, "/api/messages/"+id+"?folder_id=victim-inbox&permanent=1", nil))
+	req.SetPathValue("id", id)
+	recorder = httptest.NewRecorder()
+	h.handleDeleteMessage(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("permanent delete status=%d body=%q", recorder.Code, recorder.Body.String())
 	}
 }
 

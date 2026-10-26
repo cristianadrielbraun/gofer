@@ -161,9 +161,15 @@ func (h *Handler) registerUserMessageMutations(private func(string, http.Handler
 }
 
 func (h *Handler) queueUserSpamTargets(w http.ResponseWriter, r *http.Request, targets []ownedMessageTarget, disposition spamDisposition) {
-	updated, messages, failed := 0, 0, 0
+	updated, messages, failed, noSpam := 0, 0, 0, 0
 	for _, target := range targets {
 		destination, _, err := h.spamDestinationFolder(r.Context(), target.Infos[0].AccountID, disposition)
+		if errors.Is(err, errNoSpamFolder) {
+			noteMissingFolder(w, target.Infos[0].AccountID, "junk")
+			noSpam++
+			failed += len(target.Infos)
+			continue
+		}
 		if err != nil {
 			log.Printf("user spam destination %s: %v", target.Infos[0].AccountID, err)
 			failed += len(target.Infos)
@@ -193,6 +199,10 @@ func (h *Handler) queueUserSpamTargets(w http.ResponseWriter, r *http.Request, t
 		updated++
 		messages += len(target.Infos)
 		h.publishSpamMutation(target.Infos, destination)
+	}
+	if messages == 0 && noSpam > 0 && noSpam == len(targets) {
+		http.Error(w, noSpamFolderMessage, http.StatusBadRequest)
+		return
 	}
 	if messages == 0 && failed > 0 {
 		http.Error(w, "spam action could not be saved", http.StatusBadGateway)

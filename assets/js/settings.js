@@ -1515,6 +1515,18 @@ document.addEventListener("htmx:afterSettle", function (e) {
   }
 })
 
+// /settings/accounts?folder_roles=<account> opens that account's folder roles,
+// as a delete refused for want of a Trash folder offers.
+goferOnContent("#edit-account-container", function () {
+  var params = new URLSearchParams(window.location.search)
+  var accountID = params.get("folder_roles")
+  if (!accountID || !window.htmx) return
+  params.delete("folder_roles")
+  var query = params.toString()
+  history.replaceState(history.state, "", window.location.pathname + (query ? "?" + query : "") + window.location.hash)
+  htmx.ajax("GET", "/api/accounts/" + encodeURIComponent(accountID) + "/folder-roles/manage", { target: "#edit-account-container", swap: "innerHTML" })
+})
+
 // Switching the identities dialog between its list and its form resizes the
 // dialog smoothly, as the calendar's dialog does, rather than jumping.
 document.body.addEventListener("htmx:beforeSwap", function (e) {

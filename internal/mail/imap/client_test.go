@@ -250,3 +250,51 @@ func TestListFoldersAsksForSpecialUseRoles(t *testing.T) {
 		})
 	}
 }
+
+// A folder made for a role is marked with it where the server can, and is
+// known by its name either way.
+func TestCreateRoleMailbox(t *testing.T) {
+	tests := []struct {
+		name   string
+		caps   goimap.CapSet
+		marked bool
+	}{
+		{name: "CREATE-SPECIAL-USE", caps: goimap.CapSet{goimap.CapIMAP4rev1: {}, goimap.CapCreateSpecialUse: {}}, marked: true},
+		{name: "no CREATE-SPECIAL-USE", caps: goimap.CapSet{goimap.CapIMAP4rev1: {}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg, recorder := startRecordedIMAPServerWithMailboxes(t, tt.caps, []string{"INBOX"})
+			client, err := NewClient(context.Background(), cfg, "secret")
+			if err != nil {
+				t.Fatalf("NewClient() error = %v", err)
+			}
+			defer client.Close()
+			name, err := client.CreateRoleMailbox(context.Background(), "trash")
+			if err != nil || name != "Trash" {
+				t.Fatalf("CreateRoleMailbox() = %q, %v", name, err)
+			}
+			if got := strings.Contains(recorder.String(), `CREATE "Trash" (USE (\Trash))`); got != tt.marked {
+				t.Fatalf("marked = %v, want %v; client sent:\n%s", got, tt.marked, recorder.String())
+			}
+			// Asking again leaves the folder as it is.
+			if _, err := client.CreateRoleMailbox(context.Background(), "trash"); err != nil {
+				t.Fatalf("second CreateRoleMailbox() error = %v", err)
+			}
+			folders, err := client.ListFolders(context.Background())
+			if err != nil {
+				t.Fatalf("ListFolders() error = %v", err)
+			}
+			found := false
+			for _, folder := range folders {
+				found = found || (folder.Name == "Trash" && folder.Role == "trash")
+			}
+			if !found {
+				t.Fatalf("folders = %+v, want Trash as the trash", folders)
+			}
+			if _, err := client.CreateRoleMailbox(context.Background(), "inbox"); err == nil {
+				t.Fatal("a folder was made for the inbox")
+			}
+		})
+	}
+}

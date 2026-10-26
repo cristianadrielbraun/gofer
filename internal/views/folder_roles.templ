@@ -43,13 +43,20 @@ func folderRoleLabel(role string) string {
 	return role
 }
 
+func folderRoleArticle(role string) string {
+	if role == "archive" {
+		return "an"
+	}
+	return "a"
+}
+
 // folderRoleMissing says what doesn't work while a role has no folder.
 func folderRoleMissing(role string) string {
 	switch role {
 	case "sent":
 		return "Sent mail isn't saved to the server."
 	case "drafts":
-		return "Drafts can't be saved."
+		return "Drafts can't be saved, and mail can't be scheduled."
 	case "trash":
 		return "Mail can't be deleted."
 	case "junk":
@@ -76,7 +83,8 @@ templ folderRoleIcon(role string) {
 }
 
 // FolderRolesPanel is the form inside the folder roles dialog. Right after
-// saving it starts a sync of the account, which moves the roles.
+// saving, or creating a folder for a role, it starts a sync of the account,
+// which moves the roles.
 templ FolderRolesPanel(data models.FolderRolesData) {
 	<form
 		id="folder-roles-panel"
@@ -116,6 +124,8 @@ templ FolderRolesPanel(data models.FolderRolesData) {
 				<p class="text-xs text-destructive" role="alert" data-folder-roles-error>{ data.Error }</p>
 			} else if data.Saved {
 				<p class="text-xs text-muted-foreground" role="status" data-folder-roles-saved>Saved. The account is syncing to apply the roles.</p>
+			} else if data.Created != "" {
+				<p class="text-xs text-muted-foreground" role="status" data-folder-roles-created>Created “{ data.Created }”. The account is syncing to pick it up.</p>
 			} else {
 				<p class="text-xs text-muted-foreground">Your choices stay in Gofer; other mail apps aren't affected.</p>
 			}
@@ -127,6 +137,8 @@ templ FolderRolesPanel(data models.FolderRolesData) {
 		if data.Saved {
 			@SettingsAccountMissingFolderRoles(data.Account, true)
 			@FolderRolesMenuAlert(data.Account, true)
+		}
+		if data.Saved || data.Created != "" {
 			<button
 				type="button"
 				hidden
@@ -156,6 +168,20 @@ templ folderRoleRow(data models.FolderRolesData, role models.FolderRole) {
 				<p class="truncate text-xs text-muted-foreground">Detected: { role.Detected }</p>
 			} else {
 				<p class="text-xs text-destructive" data-folder-role-missing>Not found. { folderRoleMissing(role.Role) }</p>
+				// Until the sync after creating one, the folder isn't listed.
+				if data.Created == "" {
+					<button
+						type="button"
+						class="mt-1 text-xs font-medium text-foreground underline underline-offset-2 hover:text-primary disabled:opacity-50"
+						hx-post={ fmt.Sprintf("/api/accounts/%s/folder-roles/create?role=%s", data.Account.ID, role.Role) }
+						hx-target="#folder-roles-panel"
+						hx-swap="outerHTML"
+						hx-disabled-elt="this"
+						data-folder-role-create={ role.Role }
+					>
+						Create { folderRoleArticle(role.Role) } { folderRoleLabel(role.Role) } folder
+					</button>
+				}
 			}
 		</div>
 		@selectbox.SelectBox(selectbox.Props{Class: "settings-select w-48 shrink-0 sm:w-56"}) {

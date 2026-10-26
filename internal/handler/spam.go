@@ -65,6 +65,9 @@ func (h *Handler) handleMarkMessagesSpamState(w http.ResponseWriter, r *http.Req
 
 		destFolderID, destRemoteID, err := h.spamDestinationFolder(ctx, infos[0].AccountID, disposition)
 		if err != nil {
+			if errors.Is(err, errNoSpamFolder) {
+				noteMissingFolder(w, infos[0].AccountID, "junk")
+			}
 			if firstErr == nil {
 				firstErr = err
 			}
@@ -131,6 +134,10 @@ func (h *Handler) handleMarkMessagesSpamState(w http.ResponseWriter, r *http.Req
 	}
 
 	if updatedMessages == 0 && firstErr != nil {
+		if errors.Is(firstErr, errNoSpamFolder) {
+			http.Error(w, noSpamFolderMessage, http.StatusBadRequest)
+			return
+		}
 		http.Error(w, firstErr.Error(), http.StatusBadGateway)
 		return
 	}
@@ -186,8 +193,14 @@ func (h *Handler) spamDestinationFolder(ctx context.Context, accountID string, d
 			return folderID, remoteID, nil
 		}
 	}
-	return "", "", fmt.Errorf("no spam folder found")
+	return "", "", errNoSpamFolder
 }
+
+// errNoSpamFolder means the account has no folder for spam to go to;
+// noSpamFolderMessage says so to the user.
+var errNoSpamFolder = errors.New("no spam folder found")
+
+const noSpamFolderMessage = "This account has no Spam folder."
 
 func (h *Handler) spamAccountProvider(ctx context.Context, info storage.MessageMutationInfo) string {
 	provider := strings.TrimSpace(info.AccountProvider)

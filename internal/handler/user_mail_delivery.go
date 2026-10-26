@@ -239,6 +239,18 @@ func (s *userMailDeliveryScope) finishSMTP(ctx context.Context, send storage.Out
 	}
 	eventStatus := status
 	payload := map[string]any{"send_id": send.ID}
+	// Without a Sent folder the copy can't be kept; the page says so instead
+	// of only "Message sent".
+	if status == storage.OutgoingSendSent && sentCopy {
+		var folder string
+		if s.call(ctx, func(db *storage.DB) error {
+			var err error
+			folder, _, err = db.GetFolderIDByRole(ctx, s.id, "sent")
+			return err
+		}) == nil && folder == "" {
+			payload["missing_folder"] = "sent"
+		}
+	}
 	if status == storage.OutgoingSendPending {
 		eventStatus = "retrying"
 		payload["attempt"] = send.AttemptCount
@@ -279,14 +291,22 @@ func (s *userMailDeliveryScope) sentCopy(ctx context.Context) (bool, error) {
 	}
 	if err != nil {
 		// Once claimed, any failure after APPEND may follow remote acceptance.
-		// Search the stable Message-ID before every subsequent append.
+		// Search the stable Message-ID before every subsequent append. Without
+		// a Sent folder nothing was appended, and the copy simply failed.
+		state := storage.SentCopyAmbiguous
+		if errors.Is(err, errNoSentFolder) {
+			state = storage.SentCopyFailed
+		}
 		saveErr := s.call(ctx, func(db *storage.DB) error {
-			return db.FinishSentCopyWithError(ctx, send.ID, storage.SentCopyAmbiguous, sanitizeOutgoingErrorText(err.Error()), time.Now().Add(sentCopyRetryDelay(send.SentCopyAttempts)))
+			return db.FinishSentCopyWithError(ctx, send.ID, state, sanitizeOutgoingErrorText(err.Error()), time.Now().Add(sentCopyRetryDelay(send.SentCopyAttempts)))
 		})
 		return saveErr == nil, errors.Join(err, saveErr)
 	}
 	return true, nil
 }
+
+// errNoSentFolder means the IMAP account has no Sent folder to copy into.
+var errNoSentFolder = errors.New(models.NoSentFolderError)
 
 func (s *userMailDeliveryScope) copySent(ctx context.Context, send storage.OutgoingSend) error {
 	var folder, remote string
@@ -297,7 +317,10 @@ func (s *userMailDeliveryScope) copySent(ctx context.Context, send storage.Outgo
 	}); err != nil {
 		return err
 	}
-	if folder == "" || remote == "" {
+	if folder == "" {
+		return errNoSentFolder
+	}
+	if remote == "" {
 		return errors.New("remote Sent folder is not available")
 	}
 	var snapshot outgoingMessageSnapshot

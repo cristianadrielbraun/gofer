@@ -7,6 +7,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/themebuilder"
 	"github.com/cristianadrielbraun/gofer/internal/themecolors"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -5673,7 +5674,13 @@ templ SettingsOperationsContent(status models.MailOperationsStatus) {
 									}
 								</div>
 								if operation.LastError != "" {
-									<div class="mt-2 rounded-md border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs leading-relaxed text-red-800 dark:text-red-200">{ operation.LastError }</div>
+									<div class="mt-2 rounded-md border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs leading-relaxed text-red-800 dark:text-red-200">
+										{ operation.LastError }
+										// Once a folder is chosen, Retry files the copy there.
+										if strings.Contains(operation.LastError, models.NoSentFolderError) {
+											<a href={ templ.SafeURL("/settings/accounts?folder_roles=" + url.QueryEscape(operation.AccountID)) } class="ml-1 font-semibold underline underline-offset-2" data-mail-operation-choose-sent>Choose a Sent folder</a>
+										}
+									</div>
 								}
 								<div class="mt-2 text-[11px] text-muted-foreground">
 									{ fmt.Sprintf("Attempt %d", operation.Attempts) } · next retry { mailOperationTimeLabel(operation.NextRetryAt) }

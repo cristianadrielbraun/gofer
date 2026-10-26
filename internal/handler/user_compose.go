@@ -112,8 +112,11 @@ func (h *Handler) saveUserComposeDraft(ctx context.Context, r *http.Request) (co
 		return fail(500, "failed to load identity")
 	}
 	folder, remote, err := h.db.GetFolderIDByRole(ctx, accountID, "drafts")
-	if err != nil || folder == "" || remote == "" {
-		return fail(400, "drafts folder not available")
+	if err == nil && (folder == "" || remote == "") {
+		return composeDraftSaveResult{}, noDraftsFolderError(accountID)
+	}
+	if err != nil {
+		return fail(500, "failed to load drafts folder")
 	}
 	draftID := strings.TrimSpace(r.FormValue("draft_id"))
 	if draftID == "" {

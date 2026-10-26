@@ -69,6 +69,20 @@ func TestFolderRoleRoutes(t *testing.T) {
 		}
 	}
 
+	// Creating a folder for a role says why it failed: this account's server
+	// can't be reached.
+	rec = identityRequest(t, h, h.handleCreateFolderRoleFolder, http.MethodPost, "/api/accounts/victim-account/folder-roles/create?role=junk", account, nil, true)
+	body = rec.Body.String()
+	if rec.Code != http.StatusOK || !strings.Contains(body, "Couldn&#39;t create the folder") || strings.Contains(body, "data-folder-roles-sync") {
+		t.Fatalf("create = %d %q", rec.Code, body)
+	}
+	if rec = identityRequest(t, h, h.handleCreateFolderRoleFolder, http.MethodPost, "/api/accounts/victim-account/folder-roles/create?role=inbox", account, nil, true); rec.Code != http.StatusBadRequest {
+		t.Fatalf("create inbox = %d, want 400", rec.Code)
+	}
+	if rec = identityRequest(t, h, h.handleCreateFolderRoleFolder, http.MethodPost, "/api/accounts/victim-account/folder-roles/create?role=trash", account, nil, false); rec.Code != http.StatusNotFound {
+		t.Fatalf("foreign create = %d, want 404", rec.Code)
+	}
+
 	// Only IMAP accounts have the dialog.
 	if _, err := db.Write().ExecContext(ctx, `UPDATE accounts SET provider = 'gmail' WHERE id = 'victim-account'`); err != nil {
 		t.Fatal(err)
@@ -76,5 +90,8 @@ func TestFolderRoleRoutes(t *testing.T) {
 	rec = identityRequest(t, h, h.handleManageFolderRoles, http.MethodGet, "/", account, nil, true)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("gmail manage = %d, want 404", rec.Code)
+	}
+	if rec = identityRequest(t, h, h.handleCreateFolderRoleFolder, http.MethodPost, "/?role=trash", account, nil, true); rec.Code != http.StatusNotFound {
+		t.Fatalf("gmail create = %d, want 404", rec.Code)
 	}
 }

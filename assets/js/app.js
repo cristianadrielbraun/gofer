@@ -1815,9 +1815,17 @@ document.addEventListener("DOMContentLoaded", function () {
         var path = action === "archive" ? "/api/messages/archive" : "/api/messages/delete"
         var extra = action === "delete" ? { folder_id: currentMailListFolderID() } : null
         sendBulkMessageAction(path, targets, extra).then(function (totals) {
-          if (action === "delete") showMailDeleteSkippedToast(totals.no_trash)
+          showMailActionSkippedToast(action, totals)
+          // A row the server didn't move, such as one of an account without
+          // the folder, slides back once the list is fresh.
+          var slideBack = function () {
+            var stayed = document.querySelector('#mail-list-scroll .mail-list-item[data-email-id="' + cssEscape(emailId) + '"]')
+            if (stayed) reset(stayed, stayed.querySelector(":scope > a"))
+          }
           if (virtualMailList && typeof virtualMailList.refreshCurrentFolder === "function") {
-            virtualMailList.refreshCurrentFolder({ noAnimation: true }).catch(function () {})
+            virtualMailList.refreshCurrentFolder({ noAnimation: true }).catch(function () {}).then(slideBack)
+          } else {
+            slideBack()
           }
           refreshSidebarUnread()
         })
@@ -3485,6 +3493,7 @@ document.addEventListener("DOMContentLoaded", function () {
       var run = Promise.resolve()
       for (var start = 0; start < targets.length; start += MAIL_BULK_CHUNK_SIZE) {
         run = run.then(postBulkMessageChunk.bind(null, path, targets.slice(start, start + MAIL_BULK_CHUNK_SIZE), extra)).then(function (response) {
+          if (!totals.missingFolder) totals.missingFolder = missingFolderFromResponse(response)
           if (!response.ok) return
           return response.json().then(function (data) {
             for (var key in data) {
@@ -3515,6 +3524,15 @@ document.addEventListener("DOMContentLoaded", function () {
         if (!row) continue
         row.style.opacity = "0.45"
         row.style.pointerEvents = "none"
+      }
+    }
+
+    function clearOptimisticRemove(ids) {
+      for (var i = 0; i < ids.length; i++) {
+        var row = document.querySelector('#mail-list-scroll .mail-list-item[data-email-id="' + cssEscape(ids[i]) + '"]')
+        if (!row) continue
+        row.style.opacity = ""
+        row.style.pointerEvents = ""
       }
     }
 
@@ -3566,9 +3584,13 @@ document.addEventListener("DOMContentLoaded", function () {
         if (action === "delete") extra = { folder_id: currentMailListFolderID() }
         if (action === "spam" || action === "not-spam" || action === "unarchive") extra = { folder_id: currentMailListFolderID() }
         sendBulkMessageAction(path, targets, extra).then(function (totals) {
-          if (action === "delete") showMailDeleteSkippedToast(totals.no_trash)
+          showMailActionSkippedToast(action, totals)
+          // Rows the server didn't move, such as those of an account without
+          // the folder, come back once the list is fresh.
           if (virtualMailList && typeof virtualMailList.refreshCurrentFolder === "function") {
-            virtualMailList.refreshCurrentFolder({ noAnimation: starring }).catch(function () {})
+            virtualMailList.refreshCurrentFolder({ noAnimation: starring }).catch(function () {}).then(function () { clearOptimisticRemove(ids) })
+          } else {
+            clearOptimisticRemove(ids)
           }
           refreshSidebarUnread()
         })
@@ -5852,7 +5874,12 @@ document.addEventListener("DOMContentLoaded", function () {
         startOutgoingSendPolling(data.send_id)
       }
 
-      if (data.status === "sent") {
+      if (data.status === "sent" && data.missing_folder === "sent" && data.account_id) {
+        hideSendStatus()
+        _outgoingMissingSentNoticed[data.send_id] = true
+        showMissingSentFolderToast(data.account_id)
+        handleComposeSendResult("sent", data)
+      } else if (data.status === "sent") {
         showSendStatus("sent", "Message sent")
         if (data.from_warning) {
           showGoferToast({ id: "compose-from-warning-" + (data.send_id || ""), title: "Sent from another address", description: data.from_warning, variant: "warning", position: "bottom-right", duration: 15000, dismissible: true })
@@ -8594,9 +8621,32 @@ function fetchOutgoingSendStatus(id) {
       if (!summary) return null
       applyOutgoingSendSummary(summary)
       recoverComposeOutgoingSend(summary)
+      noticeMissingSentFolder(summary)
       if (outgoingSendSummaryIsTerminal(summary)) stopOutgoingSendPolling(summary.id)
       return summary
     })
+}
+
+// A message sent from an account without a Sent folder still goes out, but no
+// copy is kept, and without a Sent folder there's no list to show its badge
+// in. So right after sending it, the page says so once and offers to choose
+// the folder; sends picked up again on a reload stay quiet.
+var _outgoingSentHere = {}
+var _outgoingMissingSentNoticed = {}
+
+function noticeMissingSentFolder(summary) {
+  if (!_outgoingSentHere[summary.id]) return
+  if (summary.status !== "sent" || summary.sent_copy_status !== "failed" || _outgoingMissingSentNoticed[summary.id]) return
+  if (String(summary.sent_copy_last_error || "").indexOf("This account has no Sent folder.") === -1) return
+  _outgoingMissingSentNoticed[summary.id] = true
+  showMissingSentFolderToast(summary.account_id)
+}
+
+function showMissingSentFolderToast(accountID) {
+  showMissingFolderToast({ account: accountID, role: "sent" }, "Message sent, but not saved", {
+    description: "This account has no Sent folder, so the message wasn't saved to one. Choose a Sent folder and Gofer will save it there.",
+    variant: "warning", icon: "warning",
+  })
 }
 
 function startOutgoingSendPolling(id) {
@@ -15450,8 +15500,12 @@ function saveComposeDraft(fromPane, auto) {
     body: params.toString()
   }).then(function (r) {
     if (!r.ok) {
+      var missing = missingFolderFromResponse(r)
+      if (missing) showMissingFolderToast(missing, "Couldn't save the draft", { description: "This account has no Drafts folder. The draft stays open here." })
       return r.json().catch(function () { return {} }).then(function (data) {
-        throw new Error(data.error || "Failed to save draft")
+        var err = new Error(data.error || "Failed to save draft")
+        err.toastShown = !!missing
+        throw err
       })
     }
     return r.json()
@@ -15466,7 +15520,7 @@ function saveComposeDraft(fromPane, auto) {
     form.dataset.composeDirty = "true"
     _setComposeDraftButtonState(form, "failed")
     form._composeManualDraftSave = false
-    showSendStatus("failed", err && err.message ? err.message : "Failed to save draft")
+    if (!(err && err.toastShown)) showSendStatus("failed", err && err.message ? err.message : "Failed to save draft")
     return false
   })
 }
@@ -16847,6 +16901,7 @@ function sendCompose(fromPane) {
   }).then(function (data) {
     if (data && data.send_id && _composeSendState) {
       _composeSendState.sendID = data.send_id
+      _outgoingSentHere[data.send_id] = true
       startOutgoingSendPolling(data.send_id)
       fetchOutgoingSendStatus(data.send_id).catch(function () {})
     }
@@ -17130,8 +17185,12 @@ function scheduleCompose(fromPane, trigger) {
     body: params.toString()
   }).then(function (r) {
     if (!r.ok) {
+      var missing = missingFolderFromResponse(r)
+      if (missing) showMissingFolderToast(missing, "Couldn't schedule the message", { description: "Scheduling saves the message as a draft first, and this account has no Drafts folder. Send it now, or choose a Drafts folder." })
       return r.json().catch(function () { return {} }).then(function (data) {
-        throw new Error(data.error || "Failed to schedule message")
+        var err = new Error(data.error || "Failed to schedule message")
+        err.toastShown = !!missing
+        throw err
       })
     }
     return r.json().catch(function () { return {} })
@@ -17153,7 +17212,11 @@ function scheduleCompose(fromPane, trigger) {
   }).catch(function (err) {
     _setComposeSending(form, false)
     form.dataset.composeDirty = "true"
-    showSendStatus("failed", err && err.message ? err.message : "Failed to schedule message")
+    if (err && err.toastShown) {
+      hideSendStatus()
+    } else {
+      showSendStatus("failed", err && err.message ? err.message : "Failed to schedule message")
+    }
   })
 }
 
@@ -17854,39 +17917,111 @@ function restoreOptimisticMailRemoval(emailId, vml) {
 }
 
 // A failed delete puts the message back and says why. The server answers
-// in plain text, such as "This account has no Trash folder."
-function failMailDelete(emailId, vml, err) {
+// in plain text, such as "This account has no Trash folder."; then it can
+// still be deleted for good at permanentURL.
+function failMailDelete(emailId, vml, err, permanentURL) {
   restoreOptimisticMailRemoval(emailId, vml)
+  if (err && err.missingFolder && err.missingFolder.role === "trash") {
+    showMissingFolderToast(err.missingFolder, "Couldn't delete the email", {
+      secondaryActionLabel: "Delete permanently",
+      onSecondaryAction: function () { confirmPermanentMailDelete(emailId, permanentURL) },
+    })
+    return
+  }
   var reason = err && err.reason ? err.reason : "Try again in a moment."
   showGoferToast({ id: "mail-delete-error", title: "Couldn't delete the email", description: reason, variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
 }
 
+// Deleting for good can't be undone, so the toast asks once more.
+function confirmPermanentMailDelete(emailId, permanentURL) {
+  showGoferToast({
+    id: "mail-missing-folder", title: "Delete the email permanently?", description: "It won't go to a Trash folder, and it can't be undone.",
+    variant: "warning", icon: "warning", position: "bottom-right", duration: 10000, dismissible: true,
+    secondaryActionLabel: "Delete permanently",
+    onSecondaryAction: function () {
+      dismissGoferToast(document.getElementById("mail-missing-folder"))
+      var vml = beginOptimisticMailRemoval(emailId)
+      fetch(permanentURL, { method: "DELETE" })
+        .then(function (response) {
+          if (!response.ok) return mailDeleteResponseError(response)
+          finishOptimisticMailRemoval(vml)
+        })
+        .catch(function (err) { failMailDelete(emailId, vml, err, permanentURL) })
+    },
+  })
+}
+
 function mailDeleteResponseError(response) {
+  var missing = missingFolderFromResponse(response)
   return response.text().catch(function () { return "" }).then(function (text) {
     var err = new Error("delete failed")
     err.reason = text.trim()
+    err.missingFolder = missing
     throw err
   })
 }
 
-function showMailDeleteSkippedToast(count) {
-  if (!count) return
-  showGoferToast({ id: "mail-delete-error", title: Number(count).toLocaleString() + (count === 1 ? " email wasn't" : " emails weren't") + " deleted", description: "Mail from an account without a Trash folder stays where it is.", variant: "warning", icon: "warning", position: "bottom-right", duration: 8000, dismissible: true })
+// A batch of mail actions that skipped mail of an account without the folder
+// it needs says so, and offers to choose the folder.
+function showMailActionSkippedToast(action, totals) {
+  var missing = totals && totals.missingFolder
+  if (!missing) return
+  var count = action === "delete" ? totals.no_trash : (action === "archive" ? totals.no_archive : totals.failed)
+  var verb = action === "delete" ? "deleted" : (action === "archive" ? "archived" : "marked as spam")
+  var title = count ? Number(count).toLocaleString() + (count === 1 ? " email wasn't " : " emails weren't ") + verb : "Some emails weren't " + verb
+  showMissingFolderToast(missing, title)
+}
+
+// missingFolderFromResponse reads which account, and which of its folder
+// roles, held a mail action back: the server names them as "<account> <role>".
+function missingFolderFromResponse(response) {
+  var value = response && response.headers ? response.headers.get("X-Gofer-Missing-Folder") || "" : ""
+  var parts = value.split(" ")
+  return parts.length === 2 && parts[0] && parts[1] ? { account: parts[0], role: parts[1] } : null
+}
+
+var MISSING_FOLDER_LABELS = { sent: "Sent", drafts: "Drafts", trash: "Trash", junk: "Spam", archive: "Archive" }
+
+// showMissingFolderToast says an account has no folder for a role and offers
+// to choose one. extra adds to the toast, such as a way around it.
+function showMissingFolderToast(missing, title, extra) {
+  var label = MISSING_FOLDER_LABELS[missing.role] || missing.role
+  var toast = {
+    id: "mail-missing-folder", title: title, description: "This account has no " + label + " folder.",
+    variant: "error", icon: "error", position: "bottom-right", duration: 10000, dismissible: true,
+    actionLabel: "Choose " + (missing.role === "archive" ? "an " : "a ") + label + " folder",
+    onClick: function () { openFolderRolesSettings(missing.account) },
+  }
+  for (var key in extra || {}) toast[key] = extra[key]
+  showGoferToast(toast)
+}
+
+// openFolderRolesSettings goes to the accounts settings, with the folder roles
+// of accountID open.
+function openFolderRolesSettings(accountID) {
+  window.location.href = "/settings/accounts?folder_roles=" + encodeURIComponent(accountID)
 }
 
 function deleteMessage(emailId) {
   var vml = beginOptimisticMailRemoval(emailId)
-  fetch("/api/messages/" + encodeURIComponent(emailId) + mailDeleteFolderQuery(), { method: "DELETE" })
+  var url = "/api/messages/" + encodeURIComponent(emailId) + mailDeleteFolderQuery()
+  fetch(url, { method: "DELETE" })
     .then(function (response) {
       if (!response.ok) return mailDeleteResponseError(response)
       finishOptimisticMailRemoval(vml)
     })
-    .catch(function (err) { failMailDelete(emailId, vml, err) })
+    .catch(function (err) { failMailDelete(emailId, vml, err, mailPermanentDeleteURL(url)) })
+}
+
+function mailPermanentDeleteURL(url) {
+  return url + (url.indexOf("?") === -1 ? "?" : "&") + "permanent=1"
 }
 
 function archiveThread(emailId) {
   fetch("/api/messages/" + emailId + "/thread/archive", { method: "POST" })
-    .then(function () {
+    .then(function (response) {
+      var missing = missingFolderFromResponse(response)
+      if (missing) showMissingFolderToast(missing, "Couldn't archive the email")
       var mailView = document.getElementById("mail-view")
       if (mailView) setMailViewEmpty()
       var container = document.getElementById("mail-list-scroll")
@@ -17904,12 +18039,13 @@ function archiveThread(emailId) {
 
 function deleteThread(emailId) {
   var vml = beginOptimisticMailRemoval(emailId)
-  fetch("/api/messages/" + encodeURIComponent(emailId) + "/thread" + mailDeleteFolderQuery(), { method: "DELETE" })
+  var url = "/api/messages/" + encodeURIComponent(emailId) + "/thread" + mailDeleteFolderQuery()
+  fetch(url, { method: "DELETE" })
     .then(function (response) {
       if (!response.ok) return mailDeleteResponseError(response)
       finishOptimisticMailRemoval(vml)
     })
-    .catch(function (err) { failMailDelete(emailId, vml, err) })
+    .catch(function (err) { failMailDelete(emailId, vml, err, mailPermanentDeleteURL(url)) })
 }
 
 function markSpam(emailId) {
@@ -18066,7 +18202,9 @@ function markSpamState(emailId, notSpam, thread) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ targets: [{ id: String(emailId), thread: !!thread }], folder_id: mailActionCurrentFolderID() })
   })
-    .then(function () {
+    .then(function (response) {
+      var missing = missingFolderFromResponse(response)
+      if (missing) showMissingFolderToast(missing, "Couldn't mark the email as spam")
       var mailView = document.getElementById("mail-view")
       if (mailView) setMailViewEmpty()
       var container = document.getElementById("mail-list-scroll")

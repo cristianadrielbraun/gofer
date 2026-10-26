@@ -514,6 +514,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/accounts/{id}/identities/smtp-test", h.handleTestIdentitySMTP)
 	mux.HandleFunc("GET /api/accounts/{id}/folder-roles/manage", h.handleManageFolderRoles)
 	mux.HandleFunc("POST /api/accounts/{id}/folder-roles", h.handleSaveFolderRoles)
+	mux.HandleFunc("POST /api/accounts/{id}/folder-roles/create", h.handleCreateFolderRoleFolder)
 	mux.HandleFunc("POST /api/signatures", h.handleSaveSignature)
 	mux.HandleFunc("DELETE /api/signatures/{id}", h.handleDeleteSignature)
 	mux.HandleFunc("POST /api/accounts/{id}/test", h.handleTestAccount)
@@ -5146,7 +5147,7 @@ func (h *Handler) handleComposeDraft(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	saved, composeErr := h.saveComposeDraftFromForm(ctx, r)
 	if composeErr != nil {
-		writeComposeJSONError(w, composeErr.status, composeErr.message)
+		writeComposeRequestError(w, composeErr)
 		return
 	}
 	if err := h.refreshPendingOutgoingSend(ctx, saved); err != nil {
@@ -5161,6 +5162,21 @@ func (h *Handler) handleComposeDraft(w http.ResponseWriter, r *http.Request) {
 type composeRequestError struct {
 	status  int
 	message string
+	// noDraftsAccount is the account whose missing Drafts folder refused
+	// the draft, which the page offers to choose.
+	noDraftsAccount string
+}
+
+// noDraftsFolderError refuses a draft of an account without a Drafts folder.
+func noDraftsFolderError(accountID string) *composeRequestError {
+	return &composeRequestError{status: http.StatusBadRequest, message: "This account has no Drafts folder.", noDraftsAccount: accountID}
+}
+
+func writeComposeRequestError(w http.ResponseWriter, err *composeRequestError) {
+	if err.noDraftsAccount != "" {
+		noteMissingFolder(w, err.noDraftsAccount, "drafts")
+	}
+	writeComposeJSONError(w, err.status, err.message)
 }
 
 type composeDraftSaveResult struct {
@@ -5202,8 +5218,11 @@ func (h *Handler) saveComposeDraftFromForm(ctx context.Context, r *http.Request)
 	}
 
 	draftFolderID, draftFolderRemoteName, err := h.db.GetFolderIDByRole(ctx, accountID, "drafts")
-	if err != nil || draftFolderID == "" {
-		return composeDraftSaveResult{}, &composeRequestError{status: http.StatusBadRequest, message: "drafts folder not available"}
+	if err == nil && draftFolderID == "" {
+		return composeDraftSaveResult{}, noDraftsFolderError(accountID)
+	}
+	if err != nil {
+		return composeDraftSaveResult{}, &composeRequestError{status: http.StatusInternalServerError, message: "failed to load drafts folder"}
 	}
 
 	draftID := strings.TrimSpace(r.FormValue("draft_id"))
@@ -5847,7 +5866,7 @@ func (h *Handler) handleComposeSchedule(w http.ResponseWriter, r *http.Request) 
 
 	saved, composeErr := h.saveComposeDraftFromForm(r.Context(), r)
 	if composeErr != nil {
-		writeComposeJSONError(w, composeErr.status, composeErr.message)
+		writeComposeRequestError(w, composeErr)
 		return
 	}
 
@@ -6400,6 +6419,7 @@ func (h *Handler) handleArchiveMessages(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	updated := 0
+	noArchive := 0
 
 	for _, target := range targets {
 		currentInfo := target.Infos[0].MessageMutationInfo
@@ -6407,7 +6427,12 @@ func (h *Handler) handleArchiveMessages(w http.ResponseWriter, r *http.Request) 
 			continue
 		}
 		archiveFolderID, _, err := h.db.GetFolderIDByRole(ctx, currentInfo.AccountID, "archive")
-		if err != nil || archiveFolderID == "" || archiveFolderID == currentInfo.FolderID {
+		if err == nil && archiveFolderID == "" {
+			noteMissingFolder(w, currentInfo.AccountID, "archive")
+			noArchive++
+			continue
+		}
+		if err != nil || archiveFolderID == currentInfo.FolderID {
 			continue
 		}
 		if err := h.queueMessageMoves(ctx, target.Infos, archiveFolderID); err != nil {
@@ -6421,7 +6446,7 @@ func (h *Handler) handleArchiveMessages(w http.ResponseWriter, r *http.Request) 
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]int{"updated": updated})
+	json.NewEncoder(w).Encode(map[string]int{"updated": updated, "no_archive": noArchive})
 }
 
 // handleUnarchiveMessages moves archived messages back to their account's Inbox.
@@ -6495,6 +6520,9 @@ func (h *Handler) handleDeleteMessages(w http.ResponseWriter, r *http.Request) {
 		} else {
 			trashFolderID, _, err := h.db.GetFolderIDByRole(ctx, currentInfo.AccountID, "trash")
 			if err != nil || trashFolderID == "" {
+				if err == nil {
+					noteMissingFolder(w, currentInfo.AccountID, "trash")
+				}
 				noTrash++
 				continue
 			}
@@ -6747,7 +6775,10 @@ func (h *Handler) handleArchiveThread(w http.ResponseWriter, r *http.Request) {
 
 	archiveFolderID, _, err := h.db.GetFolderIDByRole(ctx, info.AccountID, "archive")
 	if err != nil || archiveFolderID == "" {
-		http.Error(w, "no archive folder found", http.StatusBadRequest)
+		if err == nil {
+			noteMissingFolder(w, info.AccountID, "archive")
+		}
+		http.Error(w, "This account has no Archive folder.", http.StatusBadRequest)
 		return
 	}
 	if archiveFolderID == info.FolderID {
@@ -6778,7 +6809,9 @@ func (h *Handler) handleDeleteThread(w http.ResponseWriter, r *http.Request) {
 	infos := targets[0].Infos
 	currentInfo := infos[0].MessageMutationInfo
 
-	if currentInfo.FolderRole == "trash" {
+	// permanent=1 deletes for good without a Trash folder, as the page offers
+	// when the account has none.
+	if currentInfo.FolderRole == "trash" || r.URL.Query().Get("permanent") == "1" {
 		if err := h.queuePermanentDeletes(ctx, infos); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -6786,6 +6819,9 @@ func (h *Handler) handleDeleteThread(w http.ResponseWriter, r *http.Request) {
 	} else {
 		trashFolderID, _, err := h.db.GetFolderIDByRole(ctx, currentInfo.AccountID, "trash")
 		if err != nil || trashFolderID == "" {
+			if err == nil {
+				noteMissingFolder(w, currentInfo.AccountID, "trash")
+			}
 			http.Error(w, "This account has no Trash folder.", http.StatusBadRequest)
 			return
 		}
@@ -6812,7 +6848,9 @@ func (h *Handler) handleDeleteMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if info.FolderRole == "trash" {
+	// permanent=1 deletes for good without a Trash folder, as the page offers
+	// when the account has none.
+	if info.FolderRole == "trash" || r.URL.Query().Get("permanent") == "1" {
 		if err := h.db.PermanentlyDeleteMessageAndQueueForUser(ctx, msgID, info.FolderID, h.userID(ctx)); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -6821,6 +6859,9 @@ func (h *Handler) handleDeleteMessage(w http.ResponseWriter, r *http.Request) {
 	} else {
 		trashFolderID, _, err := h.db.GetFolderIDByRole(ctx, info.AccountID, "trash")
 		if err != nil || trashFolderID == "" {
+			if err == nil {
+				noteMissingFolder(w, info.AccountID, "trash")
+			}
 			http.Error(w, "This account has no Trash folder.", http.StatusBadRequest)
 			return
 		}

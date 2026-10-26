@@ -197,3 +197,20 @@ func containsIMAPFlag(flags []goimap.Flag, want goimap.Flag) bool {
 	}
 	return false
 }
+
+// Without a Drafts folder the draft is refused, naming the account so the
+// page can offer to choose one.
+func TestHandleComposeDraftWithoutDraftsFolderSaysWhy(t *testing.T) {
+	h, _ := newAccountOwnershipTestHandler(t)
+	form := url.Values{"account_id": {"victim-account"}, "to": {"recipient@example.com"}, "body": {"Draft body"}}
+	req := httptest.NewRequest(http.MethodPost, "/compose/draft", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req = req.WithContext(auth.ContextWithUser(req.Context(), &auth.User{ID: "owner", Username: "owner"}))
+	rec := httptest.NewRecorder()
+
+	h.handleComposeDraft(rec, req)
+
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "This account has no Drafts folder.") || rec.Header().Get(missingFolderHeader) != "victim-account drafts" {
+		t.Fatalf("status = %d body = %q header = %q", rec.Code, rec.Body.String(), rec.Header().Get(missingFolderHeader))
+	}
+}

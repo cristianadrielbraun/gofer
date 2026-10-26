@@ -377,6 +377,7 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 		private("POST /api/accounts/{id}/test", routed.handleUserTestAccount)
 		private("POST /api/accounts/{id}/identities/refresh", routed.handleUserRefreshAccountIdentities)
 		private("POST /api/accounts/{id}/identities/smtp-test", routed.handleUserTestIdentitySMTP)
+		private("POST /api/accounts/{id}/folder-roles/create", routed.handleCreateFolderRoleFolder)
 		private("POST /api/mail/sync/accounts/{id}/repair", routed.handleUserRepairMailAccount)
 		private("POST /api/mail/sync", routed.handleUserManualSync)
 		private("POST /api/mail/sync/accounts/{id}", routed.handleUserManualSync)

@@ -205,14 +205,16 @@ type AccountSignatureSettings struct {
 
 // FolderRolesData is what the folder roles dialog of an IMAP account shows:
 // each role and its folder, and the folders a role can be given. Error says
-// why the last change failed; Saved is set right after a change, which the
-// account's folders follow at its next sync.
+// why the last change failed; Saved is set right after a change, and Created
+// names a folder just made for a role. The account's folders follow either
+// at its next sync.
 type FolderRolesData struct {
 	Account Account
 	Roles   []FolderRole
 	Folders []FolderOption
 	Error   string
 	Saved   bool
+	Created string
 }
 
 // FolderRole is one role of an account's folders. Chosen is the ID of the

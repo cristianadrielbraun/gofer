@@ -39,6 +39,10 @@ type MailOperationSummary struct {
 	Ambiguous             bool      `json:"ambiguous"`
 }
 
+// NoSentFolderError is why a sent copy failed when its IMAP account has no
+// Sent folder; the failure offers to choose one.
+const NoSentFolderError = "This account has no Sent folder."
+
 type MailOperationsStatus struct {
 	Operations     []MailOperationSummary `json:"operations"`
 	Total          int                    `json:"total"`
