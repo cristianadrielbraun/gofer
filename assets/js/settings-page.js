@@ -362,8 +362,9 @@
     before = { style: name, css: styleBlock(name).textContent, dark: html.classList.contains('dark') };
     mode = before.dark ? 'dark' : 'light';
     // The Custom theme has only its own mode, which the page is already in.
+    // The hidden attribute, since the switch's inline-flex outranks the class.
     root.querySelectorAll('[data-theme-colors-modes], [data-theme-colors-modes-note]').forEach(function(el) {
-      el.classList.toggle('hidden', name === 'custom');
+      el.hidden = name === 'custom';
     });
     var title = root.querySelector('[data-theme-colors-title]');
     if (title) title.textContent = 'Edit ' + styleLabel(name) + ' colors';
