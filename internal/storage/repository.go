@@ -5090,12 +5090,21 @@ func buildFolderTree(flat []folderRow) []models.Folder {
 		}
 	}
 
-	for i := range roots {
-		if children, ok := childrenMap[roots[i].ID]; ok {
-			roots[i].Children = children
+	// Children are attached at every depth, each folder once, so a parent
+	// loop in the stored folders can't recurse forever.
+	attached := make(map[string]bool, len(flat))
+	var attach func(folders []models.Folder) []models.Folder
+	attach = func(folders []models.Folder) []models.Folder {
+		for i := range folders {
+			if attached[folders[i].ID] {
+				continue
+			}
+			attached[folders[i].ID] = true
+			folders[i].Children = attach(childrenMap[folders[i].ID])
 		}
+		return folders
 	}
-	return roots
+	return attach(roots)
 }
 
 func (db *DB) GetFolderEmailCount(ctx context.Context, folderID string) (int, error) {
