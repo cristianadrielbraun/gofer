@@ -2034,8 +2034,9 @@ document.addEventListener("DOMContentLoaded", function () {
       var spam = mailFolderIsSpam(folderID)
       showMailContextItem(root, "spam", !spam)
       showMailContextItem(root, "not-spam", spam)
-      // The move dialog takes one message; several are moved by dragging them.
-      showMailContextItem(root, "move", single)
+      // The move dialog lists one account's folders, so several messages can
+      // use it when they're all from one account; otherwise they're dragged.
+      showMailContextItem(root, "move", single || selectedMailAccount() !== "")
       var permanent = mailFolderIsTrash(folderID)
       var remove = setMailContextItem(root, "delete", permanent ? "Permanently delete" : "Delete")
       if (remove) remove.classList.toggle("text-destructive", permanent)
@@ -2091,7 +2092,18 @@ document.addEventListener("DOMContentLoaded", function () {
         return
       }
       if (action === "move") {
-        if (target) openMoveDialog(target.id, target.thread)
+        if (!target) return
+        if (selectedMailIds.size > 1 && selectedMailIds.has(target.id)) {
+          var ids = Array.from(selectedMailIds)
+          var sourceFolderID = currentMailListFolderID()
+          openMoveDialog(target.id, target.thread, {
+            targets: selectedMailTargets(ids),
+            move: function (folderID) { moveDroppedMail(ids, folderID, sourceFolderID) },
+            done: clearMailSelection,
+          })
+          return
+        }
+        openMoveDialog(target.id, target.thread)
         return
       }
       // The rest are the toolbar's actions, which follow its read and star state.
@@ -3639,6 +3651,19 @@ document.addEventListener("DOMContentLoaded", function () {
       var item = pos !== undefined && list.cache ? list.cache.get(pos) : null
       if (item) return mailRowInfoFromHTML(item.id, item.html).account
       return selectedMailAccounts.get(emailId) || ""
+    }
+
+    // selectedMailAccount is the account every selected message is from, or ""
+    // when they're from several or one isn't known.
+    function selectedMailAccount() {
+      var account = ""
+      var known = true
+      selectedMailIds.forEach(function (id) {
+        var each = mailRowAccountID(id)
+        if (!each || (account && each !== account)) known = false
+        account = account || each
+      })
+      return known ? account : ""
     }
 
     // Rows can be dragged onto the sidebar's folders. Dragging a selected row
@@ -18475,8 +18500,13 @@ function moveMessagesOutOfFolder(emailId, path, body) {
 }
 
 // The Move to dialog is fetched when asked for: it lists the folders of the
-// email's account, which the page does not otherwise carry.
-function openMoveDialog(emailId, thread) {
+// email's account, which the page does not otherwise carry. For several
+// emails of one account, selection holds them: their targets, how to move
+// them within the account, and what to do once they're sent to another.
+var moveDialogSelection = null
+
+function openMoveDialog(emailId, thread, selection) {
+  moveDialogSelection = selection || null
   var params = new URLSearchParams()
   var folderID = mailActionCurrentFolderID()
   if (folderID) params.set("folder_id", folderID)
@@ -18494,6 +18524,11 @@ function openMoveDialog(emailId, thread) {
         document.body.appendChild(host)
       }
       host.innerHTML = html
+      if (moveDialogSelection) {
+        var title = host.querySelector("[data-tui-dialog-title], h2")
+        var count = mailToAccountCount(moveDialogSelection.targets)
+        if (title) title.textContent = count ? "Move " + Number(count).toLocaleString() + " emails to" : "Move the selected conversations to"
+      }
       if (window.tui && window.tui.dialog) {
         window.tui.dialog.open("mail-move-dialog")
         return
@@ -18556,8 +18591,10 @@ function confirmMoveDialog(emailId, thread) {
   var list = document.querySelector("#mail-move-dialog [data-mail-move-list]")
   var source = list ? list.getAttribute("data-mail-move-source-account") || "" : ""
   var account = selected.getAttribute("data-mail-move-account") || ""
+  var selection = moveDialogSelection
+  moveDialogSelection = null
   if (source && account && account !== source) {
-    var targets = [{ id: String(emailId), thread: !!thread }]
+    var targets = selection ? selection.targets : [{ id: String(emailId), thread: !!thread }]
     closeMoveDialog()
     openMessagesToAccount({
       targets: targets,
@@ -18565,7 +18602,13 @@ function confirmMoveDialog(emailId, thread) {
       sourceFolderID: mailActionCurrentFolderID(),
       accounts: [source],
       count: mailToAccountCount(targets),
+      done: selection ? selection.done : undefined,
     })
+    return
+  }
+  if (selection) {
+    closeMoveDialog()
+    selection.move(selected.getAttribute("data-mail-move-folder"))
     return
   }
   moveMessage(emailId, selected.getAttribute("data-mail-move-folder"), thread)
