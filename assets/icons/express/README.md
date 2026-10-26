@@ -16,3 +16,7 @@ embedded metadata.
 `clock.svg`, `phone.svg`, `cards.svg`, `table.svg`, `focus.svg` and `eye.svg` are not from Tango, which has no matching icons. They were drawn
 for this project in Tango's style and palette, and are covered by the
 project's own license.
+
+`folder-cog-16.png` and `folder-cog-32.png` put Tango's `emblem-system` gear,
+scaled down, on the corner of its `folder`, as Tango puts emblems on icons.
+Both are Tango's public-domain pictures.

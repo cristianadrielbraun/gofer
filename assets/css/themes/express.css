@@ -1362,6 +1362,11 @@ html:root[data-theme="express"] :is(.account-wizard-card-footer, .account-wizard
   --xp-icon-paths: hidden;
 }
 
+[data-theme="express"] svg[data-lucide="folder-cog"] {
+  --xp-icon: image-set(url("/assets/icons/express/folder-cog-16.png") 1x, url("/assets/icons/express/folder-cog-32.png") 2x);
+  --xp-icon-paths: hidden;
+}
+
 [data-theme="express"] svg[data-lucide="calendar-days"],
 [data-theme="express"] svg[data-lucide="calendar"] {
   --xp-icon: image-set(url("/assets/icons/express/x-office-calendar-16.png") 1x, url("/assets/icons/express/x-office-calendar-32.png") 2x);
