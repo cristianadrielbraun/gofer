@@ -162,6 +162,11 @@ func mailMoveAccountProblem(account models.Account, own bool) string {
 	return ""
 }
 
+// mailMoveIndent indents a Move dialog row by its depth in the folder tree.
+func mailMoveIndent(depth int) string {
+	return fmt.Sprintf("padding-left: %.2frem", 0.625+float64(depth)*1.25)
+}
+
 // mailMoveTakesOtherAccounts reports whether a folder can take email from
 // another account. Gmail and Outlook only take drafts made as drafts.
 func mailMoveTakesOtherAccounts(account models.Account, folder models.Folder) bool {

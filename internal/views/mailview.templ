@@ -1294,28 +1294,63 @@ templ MailMoveDialog(email *models.Email, accounts []models.Account) {
 								<span class="ml-auto shrink-0 text-[11px] text-muted-foreground">Other account</span>
 							}
 						</div>
-						for _, target := range mailMoveTargets(account.Folders) {
-							{{ current := target.Folder.ID == email.FolderID }}
+						// A new folder can go in any account the email can move to,
+						// at the top or inside a folder. Gmail's labels aren't places
+						// to move to, so its own account offers a new label instead.
+						if problem == "" && account.Provider != "gmail" {
+							@mailMoveNewRow(account)
+						} else if own && account.Provider == "gmail" {
 							<button
 								type="button"
-								role="option"
-								aria-selected="false"
-								disabled?={ problem != "" || current || (!own && !mailMoveTakesOtherAccounts(account, target.Folder)) }
-								class="flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-sm enabled:hover:bg-accent enabled:hover:text-accent-foreground aria-selected:bg-primary/10 aria-selected:text-primary disabled:cursor-default disabled:opacity-50"
-								style={ fmt.Sprintf("padding-left: %.2frem", 0.625+float64(target.Depth)*1.25) }
-								data-mail-move-folder={ target.Folder.ID }
-								data-mail-move-account={ account.ID }
-								data-mail-move-name={ strings.ToLower(target.Folder.Name) }
-								data-on-click={ onAction("selectMoveFolder", actionElement) }
+								class="flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+								data-mail-move-new-row
+								data-on-click={ onAction("createMoveLabel", email.ID, email.ThreadCount > 1) }
 							>
-								<span class="flex size-5 shrink-0 items-center justify-center text-muted-foreground">
-									@SidebarFolderIcon(target.Folder.Icon)
+								<span class="flex size-5 shrink-0 items-center justify-center">
+									@icon.Tag(icon.Props{Class: "size-4"})
 								</span>
-								<span class="flex-1 truncate">{ target.Folder.Name }</span>
-								if current {
-									<span class="shrink-0 text-[11px] text-muted-foreground">Current folder</span>
-								}
+								<span class="flex-1 truncate">New label…</span>
 							</button>
+						}
+						for _, target := range mailMoveTargets(account.Folders) {
+							{{ current := target.Folder.ID == email.FolderID }}
+							<div class="group flex items-center rounded-md" data-mail-move-row>
+								<button
+									type="button"
+									role="option"
+									aria-selected="false"
+									disabled?={ problem != "" || current || (!own && !mailMoveTakesOtherAccounts(account, target.Folder)) }
+									class="flex min-w-0 flex-1 items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-sm enabled:hover:bg-accent enabled:hover:text-accent-foreground aria-selected:bg-primary/10 aria-selected:text-primary disabled:cursor-default disabled:opacity-50"
+									style={ mailMoveIndent(target.Depth) }
+									data-mail-move-folder={ target.Folder.ID }
+									data-mail-move-account={ account.ID }
+									data-mail-move-depth={ fmt.Sprintf("%d", target.Depth) }
+									data-mail-move-name={ strings.ToLower(target.Folder.Name) }
+									data-on-click={ onAction("selectMoveFolder", actionElement) }
+								>
+									<span class="flex size-5 shrink-0 items-center justify-center text-muted-foreground">
+										@SidebarFolderIcon(target.Folder.Icon)
+									</span>
+									<span class="flex-1 truncate">{ target.Folder.Name }</span>
+									if current {
+										<span class="shrink-0 text-[11px] text-muted-foreground">Current folder</span>
+									}
+								</button>
+								if problem == "" && account.Provider != "gmail" {
+									<button
+										type="button"
+										class="ml-0.5 flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground focus-visible:opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
+										title={ "New folder in " + target.Folder.Name }
+										aria-label={ "New folder in " + target.Folder.Name }
+										data-mail-move-create-account={ account.ID }
+										data-mail-move-create-parent={ target.Folder.ID }
+										data-mail-move-create-depth={ fmt.Sprintf("%d", target.Depth+1) }
+										data-on-click={ onAction("startMoveFolderCreate", actionElement) }
+									>
+										@icon.FolderPlus(icon.Props{Class: "size-3.5"})
+									</button>
+								}
+							</div>
 						}
 					</div>
 				}
@@ -1343,6 +1378,26 @@ templ MailMoveDialog(email *models.Email, accounts []models.Account) {
 // is checked when all the emails have it and partly checked when some do;
 // Apply sends only what was changed. Typing a name that doesn't exist yet
 // offers to create it.
+// mailMoveNewRow is the Move dialog's row that starts a new folder at the
+// top of an account.
+templ mailMoveNewRow(account models.Account) {
+	<button
+		type="button"
+		class="flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+		aria-label={ "New folder in " + account.Email }
+		data-mail-move-new-row
+		data-mail-move-create-account={ account.ID }
+		data-mail-move-create-parent=""
+		data-mail-move-create-depth="0"
+		data-on-click={ onAction("startMoveFolderCreate", actionElement) }
+	>
+		<span class="flex size-5 shrink-0 items-center justify-center">
+			@icon.FolderPlus(icon.Props{Class: "size-4"})
+		</span>
+		<span class="flex-1 truncate">New folder…</span>
+	</button>
+}
+
 templ MailLabelsDialog(options []MailLabelOption) {
 	@dialog.Dialog(dialog.Props{ID: "mail-labels-dialog"}) {
 		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-sm"}) {

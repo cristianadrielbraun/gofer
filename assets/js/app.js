@@ -18887,6 +18887,9 @@ function moveMessagesOutOfFolder(emailId, path, body) {
 // emails of one account, selection holds them: their targets, how to move
 // them within the account, and what to do once they're sent to another.
 var moveDialogSelection = null
+// moveDialogURL fetched the open dialog, which is fetched again to show a
+// folder made in it.
+var moveDialogURL = ""
 
 function openMoveDialog(emailId, thread, selection) {
   moveDialogSelection = selection || null
@@ -18894,7 +18897,8 @@ function openMoveDialog(emailId, thread, selection) {
   var folderID = mailActionCurrentFolderID()
   if (folderID) params.set("folder_id", folderID)
   var query = params.toString()
-  fetch("/email/" + encodeURIComponent(emailId) + "/move" + (query ? "?" + query : ""))
+  moveDialogURL = "/email/" + encodeURIComponent(emailId) + "/move" + (query ? "?" + query : "")
+  fetch(moveDialogURL)
     .then(function (response) {
       if (!response.ok) throw new Error("move dialog unavailable")
       return response.text()
@@ -18997,6 +19001,165 @@ function confirmMoveDialog(emailId, thread) {
   moveMessage(emailId, selected.getAttribute("data-mail-move-folder"), thread)
 }
 
+// New label in the Move dialog of a Gmail email adds a new label to it:
+// Gmail has labels instead of folders, and they aren't places to move to.
+function createMoveLabel(emailId, thread) {
+  var dialog = document.getElementById("mail-move-dialog")
+  var list = dialog && dialog.querySelector("[data-mail-move-list]")
+  var account = list ? list.getAttribute("data-mail-move-source-account") || "" : ""
+  if (!account) return
+  var search = dialog.querySelector("[data-mail-move-search]")
+  var suggested = search ? search.value.trim() : ""
+  var selection = moveDialogSelection
+  moveDialogSelection = null
+  var targets = selection ? selection.targets : [{ id: String(emailId), thread: !!thread }]
+  var many = !!selection
+  // The prompt opens once the dialog has closed: closing hands focus back
+  // to the page, which would take it from the prompt.
+  var content = dialog.querySelector("[data-tui-dialog-content]")
+  new Promise(function (resolve) {
+    if (!content || !content.open) return resolve()
+    content.addEventListener("close", function () { resolve() }, { once: true })
+    closeMoveDialog()
+  }).then(function () {
+    return window.goferPrompt({
+      title: "New label",
+      message: "Gmail has labels instead of folders. The new label is added to " + (many ? "the selected emails, which stay where they are" : "the email, which stays where it is") + ", and shows under Tags. To put it inside another label, name it like Work/Projects.",
+      label: "Label name",
+      value: suggested,
+      confirmLabel: "Add label",
+    })
+  }).then(function (name) {
+    name = name === null ? "" : name.trim()
+    if (!name) return
+    return postLabelChange("/api/messages/label", targets, name, mailActionCurrentFolderID()).then(function () {
+      if (window.goferRefreshSidebarAccount) window.goferRefreshSidebarAccount(account)
+      if (selection && typeof selection.done === "function") selection.done()
+      showGoferToast({ title: "Added the “" + name + "” label", variant: "success", icon: "success", position: "bottom-right", duration: 3000, dismissible: true })
+    }).catch(function (err) {
+      showGoferToast({ title: "Couldn't add the label", description: err && err.reason ? err.reason : "Please try again.", variant: "error", icon: "error", duration: 8000 })
+    })
+  })
+}
+
+// A new folder in the Move dialog is named in the list, where it will be:
+// at the top of an account or inside the folder whose button was pressed.
+// Once made, the list shows it chosen, and Move moves there as to any
+// folder, another account's included.
+function startMoveFolderCreate(button) {
+  var dialog = document.getElementById("mail-move-dialog")
+  if (!dialog || !button) return
+  dialog.querySelectorAll("[data-mail-move-create-form]").forEach(function (form) { form.remove() })
+  var account = button.getAttribute("data-mail-move-create-account") || ""
+  var parent = button.getAttribute("data-mail-move-create-parent") || ""
+  var depth = Number(button.getAttribute("data-mail-move-create-depth") || 0)
+  if (!account) return
+  var search = dialog.querySelector("[data-mail-move-search]")
+
+  var form = document.createElement("form")
+  form.setAttribute("data-mail-move-create-form", "")
+  form.className = "py-1 pr-1"
+  form.style.paddingLeft = (0.625 + depth * 1.25) + "rem"
+  var line = document.createElement("div")
+  line.className = "flex items-center gap-1.5"
+  var input = document.createElement("input")
+  input.type = "text"
+  input.autocomplete = "off"
+  input.placeholder = "Folder name"
+  input.setAttribute("aria-label", "New folder name")
+  input.className = "h-7 min-w-0 flex-1 rounded-md border border-input bg-background px-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+  input.value = search ? search.value.trim() : ""
+  var create = document.createElement("button")
+  create.type = "submit"
+  create.className = "h-7 shrink-0 rounded-md bg-primary px-2.5 text-xs font-medium text-primary-foreground disabled:opacity-50"
+  create.textContent = "Create"
+  var problem = document.createElement("p")
+  problem.className = "mt-1 hidden text-xs text-destructive"
+  line.appendChild(input)
+  line.appendChild(create)
+  form.appendChild(line)
+  form.appendChild(problem)
+
+  var row = button.closest("[data-mail-move-row]") || button
+  row.insertAdjacentElement("afterend", form)
+  input.focus()
+  input.select()
+
+  input.addEventListener("keydown", function (event) {
+    // Escape closes only the new folder's field, not the dialog.
+    if (event.key !== "Escape") return
+    event.preventDefault()
+    event.stopPropagation()
+    form.remove()
+  })
+  form.addEventListener("submit", function (event) {
+    event.preventDefault()
+    var name = input.value.trim()
+    if (!name || create.disabled) return
+    create.disabled = true
+    input.disabled = true
+    problem.classList.add("hidden")
+    var body = new URLSearchParams()
+    body.set("name", name)
+    body.set("parent", parent)
+    fetch("/api/accounts/" + encodeURIComponent(account) + "/folders", { method: "POST", headers: { Accept: "application/json" }, body: body })
+      .then(function (response) {
+        if (response.ok) return response.json()
+        return response.text().then(function (text) {
+          throw new Error(response.status >= 500 && response.status !== 502 ? "Couldn't create the folder. Please try again." : String(text || "").trim())
+        })
+      })
+      .then(function (made) {
+        if (!made || !made.id) throw new Error("Couldn't create the folder. Please try again.")
+        if (window.goferRefreshSidebarAccount) window.goferRefreshSidebarAccount(account)
+        return reloadMoveDialogList(made.id)
+      })
+      .catch(function (err) {
+        create.disabled = false
+        input.disabled = false
+        problem.textContent = err && err.message ? err.message : "Couldn't create the folder. Please try again."
+        problem.classList.remove("hidden")
+        input.focus()
+      })
+  })
+}
+
+// Fetches the open Move dialog again and swaps in its folder list, with the
+// folder chosen shown selected.
+function reloadMoveDialogList(folderID) {
+  var dialog = document.getElementById("mail-move-dialog")
+  var list = dialog && dialog.querySelector("[data-mail-move-list]")
+  if (!list || !moveDialogURL) return Promise.resolve()
+  return fetch(moveDialogURL)
+    .then(function (response) {
+      if (!response.ok) throw new Error("move dialog unavailable")
+      return response.text()
+    })
+    .then(function (html) {
+      var template = document.createElement("template")
+      template.innerHTML = html
+      var fresh = template.content.querySelector("[data-mail-move-list]")
+      if (!fresh) return
+      list.innerHTML = fresh.innerHTML
+      var search = dialog.querySelector("[data-mail-move-search]")
+      if (search) {
+        search.value = ""
+        filterMoveFolders(search)
+      }
+      var confirm = dialog.querySelector("[data-mail-move-confirm]")
+      if (confirm) confirm.disabled = true
+      var made = list.querySelector('[data-mail-move-folder="' + cssEscape(folderID) + '"]')
+      if (!made) return
+      selectMoveFolder(made)
+      made.scrollIntoView({ block: "nearest" })
+      made.focus()
+    })
+    .catch(function () {
+      closeMoveDialog()
+      showGoferToast({ title: "The folder was made", description: "Open Move again to choose it.", variant: "info", icon: "info", duration: 6000 })
+    })
+}
+
 // Emails going into a folder of another account are copied there and then
 // deleted here, so a dialog naming both accounts asks first. The copy runs
 // in the background; each email leaves the list once its copy is saved.
@@ -19092,18 +19255,22 @@ function confirmMessagesToAccount(mode) {
     })
 }
 
-// Search hides folders whose name doesn't match, and accounts left with none.
-// A hidden selection is dropped so Move never acts on a folder out of sight.
+// Search hides folders whose name doesn't match. An account left with none
+// still shows its new folder row, named for the search, so a folder that
+// isn't there yet can be made; an account without one is hidden. A hidden
+// selection is dropped so Move never acts on a folder out of sight.
 function filterMoveFolders(input) {
   var dialog = document.getElementById("mail-move-dialog")
   if (!dialog) return
-  var query = String(input && input.value || "").trim().toLowerCase()
+  var typed = String(input && input.value || "").trim()
+  var query = typed.toLowerCase()
   var anyVisible = false
+  dialog.querySelectorAll("[data-mail-move-create-form]").forEach(function (form) { form.remove() })
   dialog.querySelectorAll("[data-mail-move-account]").forEach(function (account) {
     var accountVisible = false
     account.querySelectorAll("[data-mail-move-folder]").forEach(function (folder) {
       var match = !query || (folder.getAttribute("data-mail-move-name") || "").indexOf(query) !== -1
-      folder.classList.toggle("hidden", !match)
+      ;(folder.closest("[data-mail-move-row]") || folder).classList.toggle("hidden", !match)
       if (!match && folder.getAttribute("aria-selected") === "true") {
         folder.setAttribute("aria-selected", "false")
         var confirm = dialog.querySelector("[data-mail-move-confirm]")
@@ -19111,8 +19278,13 @@ function filterMoveFolders(input) {
       }
       if (match) accountVisible = true
     })
-    account.classList.toggle("hidden", !accountVisible)
     if (accountVisible) anyVisible = true
+    var newRow = account.querySelector("[data-mail-move-new-row][data-mail-move-create-account]")
+    if (newRow) {
+      var label = newRow.querySelector(".flex-1")
+      if (label) label.textContent = typed ? "New folder “" + typed + "”…" : "New folder…"
+    }
+    account.classList.toggle("hidden", !accountVisible && !newRow)
   })
   var empty = dialog.querySelector("[data-mail-move-empty]")
   if (empty) empty.classList.toggle("hidden", anyVisible)
