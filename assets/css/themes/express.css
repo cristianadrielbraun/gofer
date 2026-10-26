@@ -2603,10 +2603,21 @@ html:root[data-theme="express"] :is([data-calendar-month-event], [data-calendar-
 
 /* === SCROLLBARS === */
 
-/* A silver thumb in a lighter track, like the classic bars (input.css). */
+/* The classic raised thumb in a dithered-looking track, at the same sizes as
+   the other themes' bars (input.css). */
 [data-theme="express"] {
   --scrollbar-thumb: var(--xp-face);
+  --scrollbar-thumb-hover: var(--xp-face);
   --scrollbar-track: color-mix(in srgb, var(--xp-face) 55%, var(--xp-light));
+}
+
+[data-theme="express"] *::-webkit-scrollbar-thumb {
+  border-radius: 0;
+  box-shadow: var(--xp-bevel-out);
+}
+
+[data-theme="express"] *::-webkit-scrollbar-corner {
+  background: var(--xp-face);
 }
 
 /* === MOVE TO DIALOG === */
