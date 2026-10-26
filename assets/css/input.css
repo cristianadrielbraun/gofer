@@ -300,6 +300,12 @@
   padding: 0.25rem;
 }
 
+/* A collapsed folder's own unread count gives way to its total with its
+   subfolders (app.js). */
+[data-folder-unread][data-unread-rolled-up] {
+  display: none !important;
+}
+
 .compose-recipient-suggestions[hidden] {
   display: none;
 }

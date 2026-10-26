@@ -18220,6 +18220,71 @@ function syncMailArchiveActionState() {
 }
 
 // folderID is the folder the list is switching to, when it is not loaded yet.
+// A collapsed folder in the sidebar shows its unread mail together with its
+// subfolders', which it hides, in an outlined badge whose tooltip says how
+// many are below; expanded, it shows its own count again. The sidebar's
+// counts and folders change in many places, so this watches the sidebar
+// rather than each of them.
+function sidebarUnreadCount(badge) {
+  if (!badge || badge.style.display === "none") return 0
+  var n = parseInt(badge.textContent, 10)
+  return isNaN(n) ? 0 : n
+}
+
+function syncSidebarUnreadRollups(root) {
+  var rollups = (root || document).querySelectorAll("[data-folder-unread-rollup]")
+  for (var i = 0; i < rollups.length; i++) {
+    var rollup = rollups[i]
+    var group = rollup.closest("[data-sidebar-folder]")
+    var row = rollup.closest("a")
+    if (!group || !row) continue
+    var own = row.querySelector("[data-folder-unread]")
+    var below = 0
+    var children = group.querySelector("[data-sidebar-folder-children]")
+    if (children) {
+      var badges = children.querySelectorAll("[data-folder-unread]")
+      for (var j = 0; j < badges.length; j++) below += sidebarUnreadCount(badges[j])
+    }
+    var rolledUp = group.getAttribute("data-sidebar-folder-collapsed") === "true" && below > 0
+    var total = String(sidebarUnreadCount(own) + below)
+    var title = below === 1 ? "1 unread in subfolders" : below + " unread in subfolders"
+    if (rollup.hidden !== !rolledUp) rollup.hidden = !rolledUp
+    if (rollup.style.display !== (rolledUp ? "flex" : "")) rollup.style.display = rolledUp ? "flex" : ""
+    if (rolledUp && rollup.textContent !== total) rollup.textContent = total
+    if (rolledUp && rollup.title !== title) rollup.title = title
+    if (own && own.hasAttribute("data-unread-rolled-up") !== rolledUp) own.toggleAttribute("data-unread-rolled-up", rolledUp)
+  }
+}
+
+(function () {
+  var queued = false
+  function queueSync() {
+    if (queued) return
+    queued = true
+    Promise.resolve().then(function () {
+      queued = false
+      syncSidebarUnreadRollups(document)
+    })
+  }
+  function watch(aside) {
+    if (aside._goferUnreadRollups) return
+    aside._goferUnreadRollups = new MutationObserver(function (records) {
+      for (var i = 0; i < records.length; i++) {
+        var target = records[i].target
+        var el = target.nodeType === 1 ? target : target.parentElement
+        // Its own changes are only to the totals and the hidden counts.
+        if (el && el.closest && el.closest("[data-folder-unread-rollup]")) continue
+        if (records[i].type === "attributes" && records[i].attributeName === "data-unread-rolled-up") continue
+        queueSync()
+        return
+      }
+    })
+    aside._goferUnreadRollups.observe(aside, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ["data-sidebar-folder-collapsed", "style", "data-unread-rolled-up"] })
+    queueSync()
+  }
+  if (typeof window.goferOnContent === "function") window.goferOnContent("aside", watch)
+})()
+
 function syncMailDeleteActionState(folderID) {
   var button = document.querySelector('[data-mail-selection-action="delete"]')
   if (!button) return

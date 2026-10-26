@@ -978,6 +978,13 @@ templ SidebarFolderItem(folder models.Folder, activeFolder string, accountID str
 						{ fmt.Sprintf("%d", folder.Unread) }
 					</span>
 				}
+				// While the folder is collapsed, app.js shows here its unread
+				// mail with its subfolders', in place of its own count.
+				<span
+					hidden
+					data-folder-unread-rollup={ folder.ID }
+					class="min-w-5 h-5 px-1.5 items-center justify-center rounded-full border border-sidebar-foreground/40 text-[11px] font-semibold tabular-nums text-sidebar-foreground"
+				></span>
 				@icon.ChevronDown(icon.Props{Class: "sidebar-folder-chevron size-3.5 shrink-0 text-sidebar-foreground transition-transform duration-200"})
 			</a>
 			<div class="sidebar-folder-children" data-sidebar-folder-children={ groupID }>
