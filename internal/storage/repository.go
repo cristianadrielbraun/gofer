@@ -4932,6 +4932,9 @@ func (db *DB) GetAccountsIncludingDeleting(ctx context.Context, userID string) (
 			return nil, fmt.Errorf("get folders for %s: %w", accounts[i].ID, err)
 		}
 		accounts[i].Folders = folders
+		if accounts[i].MissingFolderRoles, err = db.MissingFolderRoles(ctx, accounts[i].ID, accounts[i].Provider); err != nil {
+			return nil, fmt.Errorf("get folder roles for %s: %w", accounts[i].ID, err)
+		}
 	}
 	if err := db.attachAccountLabels(ctx, userID, accounts); err != nil {
 		return nil, err
