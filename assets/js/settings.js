@@ -1515,6 +1515,43 @@ document.addEventListener("htmx:afterSettle", function (e) {
   }
 })
 
+// The Mail operations list counts down to reloading itself. Each reload, or
+// a press of Refresh, replaces the whole list, which starts a new countdown.
+// While the tab is hidden the countdown waits at zero, and reloads once the
+// tab is shown again.
+// A reload that fails leaves the list as it was and counts down again.
+goferOnContent("#mail-operations-content[data-mail-operations-refresh]", function (content) {
+  var label = content.querySelector("[data-mail-operations-countdown]")
+  var seconds = parseInt(content.getAttribute("data-mail-operations-refresh"), 10) || 15
+  var timer = null
+  function countDown(prefix) {
+    var left = seconds
+    if (label) label.textContent = prefix + "Auto refresh in " + left + "s"
+    timer = setInterval(function () {
+      if (!content.isConnected) {
+        clearInterval(timer)
+        return
+      }
+      if (left > 0) left--
+      if (left > 0) {
+        if (label) label.textContent = prefix + "Auto refresh in " + left + "s"
+        return
+      }
+      if (document.hidden) return
+      clearInterval(timer)
+      if (window.htmx) htmx.trigger(content, "mail-operations-refresh")
+    }, 1000)
+  }
+  content.addEventListener("htmx:beforeRequest", function () {
+    clearInterval(timer)
+    if (label) label.textContent = "Refreshing..."
+  })
+  content.addEventListener("htmx:afterRequest", function (event) {
+    if (event.detail && !event.detail.successful && content.isConnected) countDown("Couldn't refresh. ")
+  })
+  countDown("")
+})
+
 // /settings/accounts?folder_roles=<account> opens that account's folder roles,
 // as a delete refused for want of a Trash folder offers.
 goferOnContent("#edit-account-container", function () {
