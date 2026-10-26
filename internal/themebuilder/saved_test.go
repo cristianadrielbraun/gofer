@@ -108,3 +108,33 @@ func TestCleanName(t *testing.T) {
 		}
 	}
 }
+
+func TestSavedThemeColors(t *testing.T) {
+	themes, ok := ParseList(`[{"id":"a1","name":"Forest",` + testTheme + `,"colors":{"light":{"primary":"#ABCDEF"}}},{"id":"b2","name":"Night",` + testTheme + `,"colors":{}}]`)
+	if !ok {
+		t.Fatal("ParseList refused hand-edited colors")
+	}
+	if themes[0].Colors["light"]["primary"] != "#abcdef" || themes[1].Colors != nil {
+		t.Fatalf("colors = %v, %v", themes[0].Colors, themes[1].Colors)
+	}
+	if got := EncodeList(themes); !strings.Contains(got, `"colors":{"light":{"primary":"#abcdef"}}}`) || strings.Count(got, `"colors"`) != 1 {
+		t.Fatalf("EncodeList = %s", got)
+	}
+	for _, colors := range []string{`{"light":{"primary":"red"}}`, `{"light":{"nope":"#123456"}}`, `{"sepia":{}}`, `[]`} {
+		if _, ok := ParseList(`[{"id":"a1","name":"Forest",` + testTheme + `,"colors":` + colors + `}]`); ok {
+			t.Errorf("colors %s accepted", colors)
+		}
+	}
+
+	// The theme saved before names keeps its hand edits.
+	legacy := ListFromSettings(map[string]string{SettingKey: `{` + testTheme + `}`, "theme_colors_custom": `{"light":{"primary":"#123456"}}`})
+	if len(legacy) != 1 || legacy[0].Colors["light"]["primary"] != "#123456" {
+		t.Fatalf("legacy hand edits = %+v", legacy)
+	}
+
+	// A card is drawn in its own palette, with its hand edits for its mode.
+	css := legacy[0].CardCSS("#card")
+	if !strings.HasPrefix(css, "#card{--radius:0px;") || !strings.Contains(css, "--primary:#123456;") || strings.Count(css, "{") != 1 {
+		t.Fatalf("CardCSS = %s", css)
+	}
+}

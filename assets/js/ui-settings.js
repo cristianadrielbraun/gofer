@@ -90,12 +90,36 @@ var GoferSettings;
   // themeLookAttributes in internal/views/helpers.go.
   var STYLE_LOOKS = { minimal: { depth: "flat", corners: "square" } };
 
-  function customTheme() {
-    try {
-      return JSON.parse(_cache.custom_theme || "null");
-    } catch (_) {
-      return null;
+  // The saved Custom themes. Before themes had names there was one, kept in
+  // custom_theme with its hand edits in theme_colors_custom; it reads as the
+  // first of the list. Mirrors themebuilder.ListFromSettings.
+  function customThemes() {
+    var list = (_cache.custom_themes || "").trim();
+    if (list) {
+      try {
+        var themes = JSON.parse(list);
+        return Array.isArray(themes) ? themes : [];
+      } catch (_) {
+        return [];
+      }
     }
+    try {
+      var theme = JSON.parse(_cache.custom_theme || "null");
+      if (!theme || !theme.seed) return [];
+      var colors = JSON.parse(_cache.theme_colors_custom || "null");
+      return [Object.assign({ id: "theme1", name: "My theme" }, theme, colors ? { colors: colors } : {})];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  // The Custom theme the page is drawn with when the Custom style is chosen.
+  function customTheme() {
+    var themes = customThemes();
+    for (var i = 0; i < themes.length; i++) {
+      if (themes[i].id === _cache.custom_theme_active) return themes[i];
+    }
+    return themes[0] || null;
   }
 
   function styleLook(style) {
@@ -627,6 +651,11 @@ var GoferSettings;
       applyThemeStyle(value);
       if (typeof applyEmailBodyTheme === "function") applyEmailBodyTheme();
     }
+    // Another Custom theme, or a changed one, has its own mode and look.
+    if ((key === "custom_themes" || key === "custom_theme_active") && _cache.theme_style === "custom") {
+      applyThemeStyle("custom");
+      if (typeof applyEmailBodyTheme === "function") applyEmailBodyTheme();
+    }
     if (isPanelSizeKey(key)) {
       var sidebarWidth = parseInt(panelSetting("sidebar_width"), 10);
       var sidebar = document.querySelector("aside");
@@ -731,6 +760,25 @@ var GoferSettings;
 
     // Lays the panes out for the section now on screen.
     applyPaneLayout: applyPaneLayout,
+
+    // The saved Custom themes, and the one the page is drawn with.
+    customThemes: customThemes,
+    activeCustomTheme: customTheme,
+
+    // Saves the Custom themes. The list replaces the settings that held the
+    // one theme before themes had names, as the server does.
+    setCustomThemes: function (themes) {
+      _cache.custom_theme = "";
+      _cache.theme_colors_custom = "";
+      GoferSettings.set("custom_themes", JSON.stringify(themes));
+    },
+
+    // Saves every setting now, rather than after the usual pause.
+    saveNow: function () {
+      if (_saveTimer) clearTimeout(_saveTimer);
+      _saveTimer = null;
+      return persistSettingsNow();
+    },
 
     // The light or dark mode actually shown, which Express forces to light.
     effectiveTheme: function () {

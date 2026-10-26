@@ -537,21 +537,7 @@ templ SettingsAppearanceTab(uiSettings map[string]string) {
 						<span class="text-xs text-muted-foreground">Bevelled silver, navy highlights</span>
 					</label>
 				</div>
-				<div class="space-y-4 border-t border-border/60 pt-5">
-					<div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-						<div class="min-w-0">
-							<h4 class="text-sm font-medium text-foreground">Your own theme</h4>
-							<p class="text-xs text-muted-foreground">Build a theme from one color. Afterwards you can fine-tune any of its colors with the pencil on its card.</p>
-						</div>
-						@button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeSm, Class: "shrink-0", Attributes: templ.Attributes{"data-custom-theme-build": ""}}) {
-							@icon.WandSparkles(icon.Props{Class: "size-4"})
-							Theme builder
-						}
-					</div>
-					<div class="grid grid-cols-2 sm:grid-cols-3 gap-4 max-w-2xl has-[>.hidden]:hidden">
-						@CustomThemeCard(uiSettings)
-					</div>
-				</div>
+				@customThemesSection(uiSettings)
 				@ThemeColorsDialog()
 				@ThemeColorsDiscardDialog()
 				@CustomThemeDialog()
@@ -2214,10 +2200,11 @@ templ ThemeColorsEditButton(style string) {
 	</span>
 }
 
-// customThemeEditMenu is the Custom card's pencil: it opens the theme
-// builder on the saved theme, or the editor for single colors that the other
-// styles' pencils open.
-templ customThemeEditMenu() {
+// customThemeEditMenu is a Custom theme card's pencil: it opens the theme
+// builder on that theme, or the editor for single colors that the other
+// styles' pencils open. It shows on the selected card, so the theme it edits
+// is the one the page is drawn with.
+templ customThemeEditMenu(id string) {
 	<span class="hidden group-has-[:checked]/theme:inline-flex">
 		@dropdown.Dropdown() {
 			@dropdown.Trigger() {
@@ -2226,7 +2213,7 @@ templ customThemeEditMenu() {
 				</button>
 			}
 			@dropdown.Content(dropdown.ContentProps{Placement: dropdown.PlacementBottomStart, Class: "w-60"}) {
-				@dropdown.Item(dropdown.ItemProps{Class: "items-start justify-start gap-2.5", Attributes: templ.Attributes{"data-custom-theme-build": ""}}) {
+				@dropdown.Item(dropdown.ItemProps{Class: "items-start justify-start gap-2.5", Attributes: templ.Attributes{"data-custom-theme-edit": id}}) {
 					@icon.WandSparkles(icon.Props{Class: "mt-0.5 size-4 shrink-0"})
 					<span class="flex flex-col gap-0.5 text-left">
 						<span>Theme builder</span>
@@ -2245,13 +2232,45 @@ templ customThemeEditMenu() {
 	</span>
 }
 
-// CustomThemeCard is the Custom theme in the style picker, shown once one is
-// built. Its preview is drawn with the theme's palette.
-templ CustomThemeCard(uiSettings map[string]string) {
-	<div class={ "group/theme relative flex", templ.KV("hidden", !customThemeSaved(uiSettings)) } data-theme-card="custom">
+// customThemesSection lists the saved Custom themes as cards in the style
+// picker, each drawn in its own colors, under the button that builds a new
+// one.
+templ customThemesSection(uiSettings map[string]string) {
+	{{ themes := themebuilder.ListFromSettings(uiSettings) }}
+	{{ full := len(themes) >= themebuilder.MaxThemes }}
+	<div class="space-y-4 border-t border-border/60 pt-5" data-custom-themes>
+		<div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+			<div class="min-w-0">
+				<h4 class="text-sm font-medium text-foreground">Your own themes</h4>
+				if full {
+					<p class="text-xs text-muted-foreground">You have { strconv.Itoa(themebuilder.MaxThemes) } themes, as many as Gofer keeps. Delete one to build another.</p>
+				} else {
+					<p class="text-xs text-muted-foreground">Build a theme from one color. Afterwards you can change it, or fine-tune any of its colors, with the pencil on its card.</p>
+				}
+			</div>
+			@button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeSm, Class: "shrink-0", Disabled: full, Attributes: templ.Attributes{"data-custom-theme-build": ""}}) {
+				@icon.WandSparkles(icon.Props{Class: "size-4"})
+				New theme
+			}
+		</div>
+		if len(themes) > 0 {
+			@templ.Raw(`<style data-custom-theme-cards>` + customThemeCardsCSS(themes) + `</style>`)
+			<div class="grid grid-cols-2 sm:grid-cols-3 gap-4 max-w-2xl">
+				for _, theme := range themes {
+					@CustomThemeCard(theme, customThemeSelected(uiSettings, theme.ID))
+				}
+			</div>
+		}
+	</div>
+}
+
+// CustomThemeCard is a saved Custom theme in the style picker. Its preview is
+// drawn with the theme's own palette (customThemeCardsCSS).
+templ CustomThemeCard(theme themebuilder.Saved, selected bool) {
+	<div id={ customThemeCardID(theme.ID) } class="group/theme relative flex" data-theme-card="custom" data-custom-theme-id={ theme.ID }>
 		<label class="relative flex flex-1 flex-col rounded-lg border-2 p-3 cursor-pointer transition-all duration-200 text-left hover:shadow-md group border-border has-[:checked]:border-primary has-[:checked]:ring-2 has-[:checked]:ring-primary/20">
-			@radio.Radio(radio.Props{Name: "theme_style", Value: "custom", Checked: themeStyle(uiSettings) == "custom", Class: "absolute right-2.5 bottom-2.5 z-10"})
-			<div data-theme="custom" data-theme-preview class={ "overflow-hidden h-36 mb-2 flex", customThemeClass(uiSettings) } style="background:var(--background); border-radius:var(--radius)">
+			@radio.Radio(radio.Props{Name: "theme_style", Value: "custom", Checked: selected, Class: "absolute right-2.5 bottom-2.5 z-10", Attributes: templ.Attributes{"data-custom-theme-id": theme.ID}})
+			<div data-theme="custom" data-theme-preview class={ "overflow-hidden h-36 mb-2 flex", customThemeModeClass(theme) } style="background:var(--background); border-radius:var(--radius)">
 				<div class="w-1/4 p-2 flex flex-col gap-1.5" style="background:var(--sidebar); border-right:1px solid var(--sidebar-border)">
 					<div style="height:3px; width:70%; background:var(--sidebar-foreground); opacity:0.5; border-radius:var(--radius)"></div>
 					<div style="height:3px; width:90%; background:var(--sidebar-foreground); opacity:0.3; border-radius:var(--radius)"></div>
@@ -2275,14 +2294,20 @@ templ CustomThemeCard(uiSettings map[string]string) {
 					</div>
 				</div>
 			</div>
-			<span class="text-sm font-medium text-foreground leading-tight">Custom</span>
-			<span class="text-xs text-muted-foreground">Built from your own color</span>
+			<span class="truncate text-sm font-medium text-foreground leading-tight">{ theme.Name }</span>
+			<span class="text-xs text-muted-foreground">
+				if theme.Dark() {
+					Dark base
+				} else {
+					Light base
+				}
+			</span>
 		</label>
 		<div class="absolute right-2 top-2 z-20 flex gap-1">
-			@customThemeEditMenu()
+			@customThemeEditMenu(theme.ID)
 			@tooltip.Tooltip() {
 				@tooltip.Trigger(tooltip.TriggerProps{Class: "inline-flex"}) {
-					<button type="button" class="inline-flex size-7 items-center justify-center rounded-md border border-border bg-background/90 text-destructive shadow-sm transition-colors hover:bg-destructive/10" data-custom-theme-delete aria-label="Delete the Custom theme">
+					<button type="button" class="inline-flex size-7 items-center justify-center rounded-md border border-border bg-background/90 text-destructive shadow-sm transition-colors hover:bg-destructive/10" data-custom-theme-delete={ theme.ID } data-custom-theme-delete-name={ theme.Name } aria-label={ "Delete " + theme.Name }>
 						@icon.Trash2(icon.Props{Class: "size-3.5"})
 					</button>
 				}
@@ -2305,7 +2330,11 @@ templ CustomThemeDialog() {
 				@dialog.Description() { Pick a light or dark base and your colors, and Gofer makes the rest of the theme from them. The theme is always shown on its own base. }
 			}
 			<div class="grid min-h-0 flex-1 gap-5 overflow-y-auto md:grid-cols-[19rem_minmax(0,1fr)] md:grid-rows-[minmax(0,1fr)] md:overflow-hidden" data-custom-theme-builder>
-				<div class="space-y-5 px-1.5 md:min-h-0 md:overflow-y-auto md:pr-2">
+				<div class="space-y-5 px-1.5 md:h-0 md:min-h-full md:overflow-y-auto md:pr-2" data-custom-theme-controls>
+					<div class="space-y-2">
+						<label for="custom-theme-name" class="text-sm font-semibold text-foreground">Name</label>
+						@input.Input(input.Props{ID: "custom-theme-name", Type: input.TypeText, Attributes: templ.Attributes{"maxlength": strconv.Itoa(themebuilder.MaxNameLength), "autocomplete": "off", "data-custom-theme-name": ""}})
+					</div>
 					@customThemeBase()
 					<fieldset class="space-y-2">
 						<legend class="mb-2 flex w-full items-center gap-2 text-sm font-semibold text-foreground">
@@ -2325,7 +2354,7 @@ templ CustomThemeDialog() {
 					</fieldset>
 					<div class="space-y-3">
 						@customThemeChoice("Tint", "A hint of a color in the backgrounds, cards, borders and sidebar. Strength sets how much.", "tint", []customThemeOption{{"primary", "From primary"}, {"secondary", "From secondary"}, {"none", "None"}})
-						@customThemeSubChoice("Strength", "strength", []customThemeOption{{"subtle", "Subtle"}, {"strong", "Strong"}, {"strongest", "Strongest"}})
+						@customThemeSubChoice("Tint strength", "strength", []customThemeOption{{"subtle", "Subtle"}, {"strong", "Strong"}, {"strongest", "Strongest"}})
 					</div>
 					@customThemeChoice("Contrast", "How much text and borders stand out from what they sit on. High and Highest make text darker on light themes and lighter on dark ones, and borders stronger. Button colors stay as they are.", "contrast", []customThemeOption{{"normal", "Normal"}, {"high", "High"}, {"highest", "Highest"}})
 					@customThemeChoice("Sidebar", "", "sidebar", []customThemeOption{{"darker", "Darker than the panes"}, {"lighter", "Lighter than the panes"}})
@@ -2726,7 +2755,9 @@ templ CustomThemeDeleteDialog() {
 	@dialog.Dialog(dialog.Props{ID: "custom-theme-delete-dialog"}) {
 		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-md"}) {
 			@dialog.Header() {
-				@dialog.Title() { Delete your Custom theme? }
+				@dialog.Title() {
+					<span data-custom-theme-delete-title>Delete this theme?</span>
+				}
 				@dialog.Description() { Its colors and any colors you edited by hand are removed. If it is selected, Gofer switches to Classic. }
 			}
 			@dialog.Footer() {

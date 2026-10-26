@@ -4032,13 +4032,15 @@ func normalizeCustomThemeSetting(updates map[string]string) {
 
 // normalizeCustomThemesSetting stores the saved Custom themes in their
 // canonical form, and drops a list or active ID that does not parse. Writing
-// the list retires the setting that held the one theme before themes had
-// names, so a deleted theme cannot come back from it.
+// the list retires the settings that held the one theme and its hand edits
+// before themes had names, so a deleted theme cannot come back from them;
+// each theme in the list keeps its own.
 func normalizeCustomThemesSetting(updates map[string]string) {
 	if raw, ok := updates[themebuilder.ListKey]; ok {
 		if themes, valid := themebuilder.ParseList(raw); valid {
 			updates[themebuilder.ListKey] = themebuilder.EncodeList(themes)
 			updates[themebuilder.SettingKey] = ""
+			updates[themecolors.SettingKey(themebuilder.StyleName)] = ""
 		} else {
 			delete(updates, themebuilder.ListKey)
 		}

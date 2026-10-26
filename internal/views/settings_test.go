@@ -3,13 +3,16 @@ package views
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/models"
+	"github.com/cristianadrielbraun/gofer/internal/themebuilder"
 )
 
 func TestSettingsSyncTabIncludesUnifiedFoldersPanel(t *testing.T) {
@@ -1003,6 +1006,23 @@ func TestCustomThemeKeepsItsMode(t *testing.T) {
 	}
 }
 
+func TestEachCustomThemeKeepsItsHandEdits(t *testing.T) {
+	list := `[{"id":"a1","name":"Day","seed":"#16a34a","sidebar":"darker","depth":"raised","corners":"medium","colors":{"light":{"primary":"#111111"}}},` +
+		`{"id":"b2","name":"Night","seed":"#2563eb","sidebar":"lighter","depth":"flat","corners":"square","colors":{"light":{"primary":"#222222"}}}]`
+	settings := map[string]string{"custom_themes": list, "custom_theme_active": "b2", "theme_colors_custom": `{"light":{"primary":"#333333"}}`}
+	css := themeColorsCSS(settings, "custom")
+	if !strings.Contains(css, "--primary:#222222;") || strings.Contains(css, "#111111") || strings.Contains(css, "#333333") {
+		t.Fatalf("Custom hand edits = %s, want the active theme's", css)
+	}
+	if !themeColorsChanged(settings, "custom") {
+		t.Fatal("the active theme has hand edits")
+	}
+	settings["custom_theme_active"] = "a1"
+	if css := themeColorsCSS(settings, "custom"); !strings.Contains(css, "#111111") {
+		t.Fatalf("after switching, hand edits = %s", css)
+	}
+}
+
 func TestActiveCustomThemeDrawsThePage(t *testing.T) {
 	list := `[{"id":"a1","name":"Day","mode":"light","seed":"#16a34a","sidebar":"darker","depth":"raised","corners":"medium"},` +
 		`{"id":"b2","name":"Night","mode":"dark","seed":"#2563eb","sidebar":"lighter","depth":"flat","corners":"square"}]`
@@ -1046,27 +1066,63 @@ func TestAppearanceTabCustomThemeCard(t *testing.T) {
 		}
 		return out.String()
 	}
+	// card is a Custom theme card's radio tag.
+	card := func(html, id string) string {
+		t.Helper()
+		tag := regexp.MustCompile(`<input[^>]*data-custom-theme-id="` + id + `"[^>]*>`).FindString(html)
+		if tag == "" {
+			t.Fatalf("no radio for theme %s", id)
+		}
+		return tag
+	}
+	checked := regexp.MustCompile(`\schecked[\s/>]`)
 	html := render(map[string]string{"theme_style": "classic"})
-	if !strings.Contains(html, `class="group/theme relative flex hidden" data-theme-card="custom"`) {
-		t.Fatal("Custom card should be hidden before a theme is built")
+	if strings.Contains(html, `data-theme-card="custom"`) {
+		t.Fatal("no Custom card should show before a theme is built")
 	}
 	if !strings.Contains(html, `id="custom-theme-dialog"`) || !strings.Contains(html, `data-custom-theme-build`) {
 		t.Fatal("theme builder missing")
 	}
-	for _, want := range []string{`data-custom-theme-seed-option="#16a34a"`, `aria-label="Complementary"`, `name="custom_theme_tint" value="none"`} {
+	for _, want := range []string{`data-custom-theme-seed-option="#16a34a"`, `aria-label="Complementary"`, `name="custom_theme_tint" value="none"`, `data-custom-theme-name`} {
 		if !strings.Contains(html, want) {
 			t.Errorf("theme builder lacks %s", want)
 		}
 	}
+
+	// The theme saved before names shows as "My theme".
 	html = render(map[string]string{"theme_style": "custom", "custom_theme": `{"seed":"#16a34a","sidebar":"dark","depth":"raised","corners":"medium"}`})
-	if strings.Contains(html, `relative flex hidden" data-theme-card="custom"`) {
-		t.Fatal("built Custom theme is hidden")
+	for _, want := range []string{`id="custom-theme-card-theme1"`, `>My theme</span>`, `data-custom-theme-edit="theme1"`, `data-theme-colors-edit="custom"`} {
+		if !strings.Contains(html, want) {
+			t.Errorf("Custom card lacks %s", want)
+		}
 	}
-	if !strings.Contains(html, `value="custom" checked`) {
-		t.Fatal("Custom radio is not checked")
+	if !checked.MatchString(card(html, "theme1")) {
+		t.Error("the theme saved before names should be checked")
 	}
-	if !strings.Contains(html, `data-theme-colors-edit="custom"`) {
-		t.Fatal("Custom card has no color editor")
+
+	list := `[{"id":"a1","name":"Day <b>","seed":"#16a34a","sidebar":"darker","depth":"raised","corners":"medium"},` +
+		`{"id":"b2","name":"Night","mode":"dark","seed":"#2563eb","sidebar":"lighter","depth":"flat","corners":"square","colors":{"dark":{"primary":"#123456"}}}]`
+	html = render(map[string]string{"theme_style": "custom", "custom_themes": list, "custom_theme_active": "b2"})
+	if strings.Count(html, `data-theme-card="custom"`) != 2 {
+		t.Fatal("want a card per saved theme")
+	}
+	if !checked.MatchString(card(html, "b2")) || checked.MatchString(card(html, "a1")) {
+		t.Error("only the active theme's card should be checked")
+	}
+	if !strings.Contains(html, `Day &lt;b&gt;`) {
+		t.Error("theme names should be escaped")
+	}
+	// Each card is drawn in its own colors, hand edits included.
+	if !strings.Contains(html, `#custom-theme-card-b2 [data-theme-preview]{--radius:0px;`) || !strings.Contains(html, `--primary:#123456;`) {
+		t.Error("cards lack their own palettes")
+	}
+	full := make([]string, themebuilder.MaxThemes)
+	for i := range full {
+		full[i] = fmt.Sprintf(`{"id":"t%d","name":"Theme","seed":"#16a34a","sidebar":"darker","depth":"raised","corners":"medium"}`, i)
+	}
+	html = render(map[string]string{"custom_themes": "[" + strings.Join(full, ",") + "]"})
+	if !strings.Contains(html, `as many as Gofer keeps`) || !strings.Contains(html, `disabled data-custom-theme-build`) {
+		t.Error("New theme should be disabled with the most themes saved")
 	}
 }
 

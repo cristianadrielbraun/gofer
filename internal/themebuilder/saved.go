@@ -2,10 +2,13 @@ package themebuilder
 
 import (
 	"encoding/json"
+	"fmt"
 	"regexp"
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/cristianadrielbraun/gofer/internal/themecolors"
 )
 
 // ListKey is the UI setting that stores every saved Custom theme, as a JSON
@@ -33,11 +36,13 @@ const (
 
 var idPattern = regexp.MustCompile(`^[a-z0-9]{1,24}$`)
 
-// Saved is a Custom theme with its ID and name, as the list stores it.
+// Saved is a Custom theme with its ID and name, as the list stores it, and
+// the colors changed by hand in the color editor since it was built.
 type Saved struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
 	Theme
+	Colors themecolors.Overrides `json:"colors,omitempty"`
 }
 
 // ValidID reports whether id can name a saved theme.
@@ -71,8 +76,9 @@ func ParseList(raw string) ([]Saved, bool) {
 	seen := map[string]bool{}
 	for _, entry := range entries {
 		var head struct {
-			ID   string `json:"id"`
-			Name string `json:"name"`
+			ID     string          `json:"id"`
+			Name   string          `json:"name"`
+			Colors json.RawMessage `json:"colors"`
 		}
 		if json.Unmarshal(entry, &head) != nil || !ValidID(head.ID) || seen[head.ID] {
 			return nil, false
@@ -85,10 +91,30 @@ func ParseList(raw string) ([]Saved, bool) {
 		if !ok {
 			return nil, false
 		}
+		colors, ok := parseColors(head.Colors)
+		if !ok {
+			return nil, false
+		}
 		seen[head.ID] = true
-		themes = append(themes, Saved{ID: head.ID, Name: name, Theme: theme})
+		themes = append(themes, Saved{ID: head.ID, Name: name, Theme: theme, Colors: colors})
 	}
 	return themes, true
+}
+
+// parseColors reads a theme's hand-edited colors; none is nil, so the stored
+// form leaves them out.
+func parseColors(raw json.RawMessage) (themecolors.Overrides, bool) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil, true
+	}
+	colors, ok := themecolors.Parse(string(raw))
+	if !ok {
+		return nil, false
+	}
+	if colors.Empty() {
+		return nil, true
+	}
+	return colors, true
 }
 
 // EncodeList is the stored form of themes from ParseList.
@@ -108,7 +134,11 @@ func ListFromSettings(settings map[string]string) []Saved {
 		return themes
 	}
 	if theme, ok := Parse(settings[SettingKey]); ok {
-		return []Saved{{ID: LegacyID, Name: LegacyName, Theme: theme}}
+		saved := Saved{ID: LegacyID, Name: LegacyName, Theme: theme}
+		if colors := themecolors.FromSettings(settings, StyleName); !colors.Empty() {
+			saved.Colors = colors
+		}
+		return []Saved{saved}
 	}
 	return nil
 }
@@ -127,4 +157,24 @@ func ActiveFromSettings(settings map[string]string) (Saved, bool) {
 		}
 	}
 	return themes[0], true
+}
+
+// CardCSS is the theme's palette, with its hand-edited colors, and corner
+// radius on the elements selector picks, such as its card's preview in
+// Settings, where every theme is shown in its own colors at once.
+func (s Saved) CardCSS(selector string) string {
+	values, ok := s.colors()
+	if !ok {
+		return ""
+	}
+	for name, value := range s.Colors[s.Mode] {
+		values[name] = value
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s{--radius:%s;", selector, radii[s.Corners])
+	for _, name := range sortedNames(values) {
+		fmt.Fprintf(&b, "--%s:%s;", name, values[name])
+	}
+	b.WriteString("}")
+	return b.String()
 }

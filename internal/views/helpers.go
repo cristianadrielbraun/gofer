@@ -734,12 +734,56 @@ type customThemeOption struct {
 
 // themeColorsCSS is a style's changed colors as CSS, or "" if it has none.
 func themeColorsCSS(settings map[string]string, style string) string {
-	return themecolors.FromSettings(settings, style).CSS(style)
+	return styleColors(settings, style).CSS(style)
 }
 
 // themeColorsChanged reports whether a style has changed colors to discard.
 func themeColorsChanged(settings map[string]string, style string) bool {
-	return !themecolors.FromSettings(settings, style).Empty()
+	return !styleColors(settings, style).Empty()
+}
+
+// styleColors are a style's hand-edited colors. Each Custom theme keeps its
+// own, and the active one's are the Custom style's.
+func styleColors(settings map[string]string, style string) themecolors.Overrides {
+	if style == themebuilder.StyleName {
+		saved, _ := themebuilder.ActiveFromSettings(settings)
+		return saved.Colors
+	}
+	return themecolors.FromSettings(settings, style)
+}
+
+// customThemeCardID is the element ID of a Custom theme's card in Settings.
+func customThemeCardID(id string) string {
+	return "custom-theme-card-" + id
+}
+
+// customThemeCardsCSS draws each Custom theme's card preview in that theme's
+// own colors. The ID selectors outrank the page's Custom palette and hand
+// edits, which are the active theme's.
+func customThemeCardsCSS(themes []themebuilder.Saved) string {
+	var b strings.Builder
+	for _, theme := range themes {
+		b.WriteString(theme.CardCSS("#" + customThemeCardID(theme.ID) + " [data-theme-preview]"))
+	}
+	return b.String()
+}
+
+// customThemeSelected reports whether a Custom theme is the one the page is
+// drawn with.
+func customThemeSelected(settings map[string]string, id string) bool {
+	if themeStyle(settings) != themebuilder.StyleName {
+		return false
+	}
+	active, ok := themebuilder.ActiveFromSettings(settings)
+	return ok && active.ID == id
+}
+
+// customThemeModeClass is "dark" for a dark Custom theme's card preview.
+func customThemeModeClass(theme themebuilder.Saved) string {
+	if theme.Dark() {
+		return "dark"
+	}
+	return ""
 }
 
 func senderDisplay(contact models.Contact, mode string) string {

@@ -95,13 +95,16 @@ func TestNormalizeCustomThemesSetting(t *testing.T) {
 	if v, ok := updates["custom_theme"]; !ok || v != "" {
 		t.Fatal("writing the list should retire the theme saved before names")
 	}
+	if v, ok := updates["theme_colors_custom"]; !ok || v != "" {
+		t.Fatal("writing the list should retire the hand edits saved before names")
+	}
 	if updates["custom_theme_active"] != "a1" {
 		t.Fatal("a valid active ID was dropped")
 	}
 
 	updates = map[string]string{"custom_themes": `[{"id":"a1","name":""}]`, "custom_theme_active": "../x"}
 	normalizeCustomThemesSetting(updates)
-	for _, key := range []string{"custom_themes", "custom_theme_active", "custom_theme"} {
+	for _, key := range []string{"custom_themes", "custom_theme_active", "custom_theme", "theme_colors_custom"} {
 		if _, ok := updates[key]; ok {
 			t.Errorf("%s kept after a bad list and active ID", key)
 		}

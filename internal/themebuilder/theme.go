@@ -156,17 +156,12 @@ func (t Theme) LookAttributes() map[string]string {
 // palette is for the theme's mode, and applies in either, since the page
 // follows the theme's mode.
 func (t Theme) CSS() string {
-	palette, ok := Generate(Options{Seed: t.Seed, Secondary: t.Secondary, Tint: t.Tint, Strength: t.Strength, Contrast: t.Contrast, Sidebar: t.Sidebar})
+	values, ok := t.colors()
 	if !ok {
 		return ""
 	}
 	scope := fmt.Sprintf(`[data-theme="%s"]`, StyleName)
-	values := palette[t.Mode]
-	names := make([]string, 0, len(values))
-	for name := range values {
-		names = append(names, name)
-	}
-	sort.Strings(names)
+	names := sortedNames(values)
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s{--radius:%s;}", scope, radii[t.Corners])
 	// The .dark form outranks the built-in styles' .dark rules.
@@ -176,6 +171,24 @@ func (t Theme) CSS() string {
 	}
 	b.WriteString("}")
 	return b.String()
+}
+
+// colors is the palette for the theme's mode.
+func (t Theme) colors() (map[string]string, bool) {
+	palette, ok := Generate(Options{Seed: t.Seed, Secondary: t.Secondary, Tint: t.Tint, Strength: t.Strength, Contrast: t.Contrast, Sidebar: t.Sidebar})
+	if !ok {
+		return nil, false
+	}
+	return palette[t.Mode], true
+}
+
+func sortedNames(values map[string]string) []string {
+	names := make([]string, 0, len(values))
+	for name := range values {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // Dark reports whether the theme is a dark one.
