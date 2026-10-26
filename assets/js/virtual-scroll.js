@@ -22,8 +22,14 @@ function contactRowRem(viewMode) {
 // A CSS transition, a fade or a scale leaves the row on its own layer at
 // fractional positions, where Chrome draws its text blurry until it settles.
 // Whole-pixel offsets set frame by frame keep the text sharp all the way.
+//
+// MAX_ROW_SLIDE caps how far a row slides; at 0 rows appear in place, as any
+// slide's last whole-pixel step read as a small jump once it landed.
+var MAX_ROW_SLIDE = 0
+
 function slideRowsInWholePixels(nodes, duration, offsetY, delay, stagger) {
-  if (!nodes.length) return
+  offsetY = Math.max(-MAX_ROW_SLIDE, Math.min(MAX_ROW_SLIDE, offsetY))
+  if (!nodes.length || Math.round(offsetY) === 0) return
   var rows = []
   for (var i = 0; i < nodes.length; i++) {
     var node = nodes[i]
@@ -47,7 +53,11 @@ function slideRowsInWholePixels(nodes, duration, offsetY, delay, stagger) {
         continue
       }
       var t = Math.min(1, Math.max(0, (now - start - row.delay) / duration))
-      var y = Math.round(offsetY * Math.pow(1 - t, 3))
+      // Eases out but still moves at the end, about 0.4 of its starting
+      // speed. An ease that stops gently held the row a pixel short for a few
+      // frames, and its last whole-pixel step then read as a small jump.
+      var p = (2 * t - 0.6 * t * t) / 1.4
+      var y = Math.round(offsetY * (1 - p))
       row.node.style.transform = y === 0 ? row.base : row.base + " translateY(" + y + "px)"
       row.last = row.node.style.transform
       if (t >= 1) {
@@ -76,6 +86,13 @@ class VirtualMailList {
 
     this.cache = new Map()
     this.indexById = new Map()
+    // Rows of the other layout, by "<view mode>:<email id>", fetched while
+    // idle so switching between cards and table needs no request. Dropped
+    // with the folder or filters; otherViewGeneration tells a late fetch so.
+    this.otherViewRows = new Map()
+    this.otherViewGeneration = 0
+    this.otherViewPending = []
+    this.otherViewTimer = null
     this.loadedRanges = []
     this.totalCount = 0
     this.displayTotalCount = 0
@@ -763,6 +780,12 @@ class VirtualMailList {
       return
     }
 
+    // Every row is measured first, then every row moved to where it was,
+    // then the page laid out once before they slide back. Measuring and
+    // moving each row in turn made Chrome lay out the whole list again for
+    // every row, which froze a switch between cards and table for most of a
+    // second.
+    var moving = []
     for (var i = 0; i < this.itemsContainer.children.length; i++) {
       var node = this.itemsContainer.children[i]
       var row = node.classList.contains("mail-list-item") ? node : node.querySelector(".mail-list-item")
@@ -770,35 +793,39 @@ class VirtualMailList {
       var id = row.dataset.emailId
       afterIds.add(id)
       var old = before.get(id)
-      if (old) {
-        var next = node.getBoundingClientRect()
-        var nextAnchor = node.querySelector(".mail-list-item > a")
-        var nextVisualRect = nextAnchor ? nextAnchor.getBoundingClientRect() : next
-        var nextVisualTopOffset = nextVisualRect.top - next.top
-        var dx = old.rect.left - next.left
-        var dy = (old.rect.top + (old.visualTopOffset || 0)) - (next.top + nextVisualTopOffset)
-        var finalHeight = node.style.height || (next.height + "px")
-        var heightChanged = options.animateHeight && Math.abs(old.rect.height - next.height) > 0.5
-        var animated = false
-        if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5 || heightChanged) {
-          var base = node.style.transform || ""
-          node.style.transition = "none"
-          node.style.transform = base + " translate(" + dx + "px," + dy + "px)"
-          if (heightChanged) {
-            node.style.height = old.rect.height + "px"
-            node.style.overflow = "hidden"
-          }
-          node.offsetHeight
-          node.style.transition = "transform " + duration + "ms " + ease + (heightChanged ? ", height " + duration + "ms " + ease : "")
-          node.style.transform = base
-          if (heightChanged) node.style.height = finalHeight
-          this.cleanupTransition(node, duration)
-          animated = true
-        }
-        if (!animated && options.enterExisting) entering.push(node)
-      } else {
+      if (!old) {
+        entering.push(node)
+        continue
+      }
+      var next = node.getBoundingClientRect()
+      var nextAnchor = node.querySelector(".mail-list-item > a")
+      var nextVisualRect = nextAnchor ? nextAnchor.getBoundingClientRect() : next
+      var nextVisualTopOffset = nextVisualRect.top - next.top
+      var dx = old.rect.left - next.left
+      var dy = (old.rect.top + (old.visualTopOffset || 0)) - (next.top + nextVisualTopOffset)
+      var heightChanged = options.animateHeight && Math.abs(old.rect.height - next.height) > 0.5
+      if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5 || heightChanged) {
+        moving.push({ node: node, dx: dx, dy: dy, oldHeight: old.rect.height, finalHeight: node.style.height || (next.height + "px"), heightChanged: heightChanged, base: node.style.transform || "" })
+      } else if (options.enterExisting) {
         entering.push(node)
       }
+    }
+    for (var m = 0; m < moving.length; m++) {
+      var move = moving[m]
+      move.node.style.transition = "none"
+      move.node.style.transform = move.base + " translate(" + move.dx + "px," + move.dy + "px)"
+      if (move.heightChanged) {
+        move.node.style.height = move.oldHeight + "px"
+        move.node.style.overflow = "hidden"
+      }
+    }
+    if (moving.length) this.itemsContainer.offsetHeight
+    for (var n = 0; n < moving.length; n++) {
+      var moved = moving[n]
+      moved.node.style.transition = "transform " + duration + "ms " + ease + (moved.heightChanged ? ", height " + duration + "ms " + ease : "")
+      moved.node.style.transform = moved.base
+      if (moved.heightChanged) moved.node.style.height = moved.finalHeight
+      this.cleanupTransition(moved.node, duration)
     }
 
     var exitCount = 0
@@ -837,6 +864,11 @@ class VirtualMailList {
     var overlay = null
     var containerRect = this.container.getBoundingClientRect()
     var exitIndex = 0
+    // All the leaving rows' copies are placed before the page is laid out
+    // once, rather than once per copy, and then fade out together.
+    var clones = []
+    var scrollLeft = this.container.scrollLeft
+    var scrollTop = this.container.scrollTop
     before.forEach(function (item, id) {
       if (afterIds.has(id)) return
       if (!overlay) overlay = this.ensureTransitionOverlay()
@@ -845,18 +877,21 @@ class VirtualMailList {
       var clone = document.createElement("div")
       clone.innerHTML = item.html
       clone.style.position = "absolute"
-      clone.style.left = (item.rect.left - containerRect.left + this.container.scrollLeft) + "px"
-      clone.style.top = (item.rect.top - containerRect.top + this.container.scrollTop) + "px"
+      clone.style.left = (item.rect.left - containerRect.left + scrollLeft) + "px"
+      clone.style.top = (item.rect.top - containerRect.top + scrollTop) + "px"
       clone.style.width = item.rect.width + "px"
       clone.style.height = item.rect.height + "px"
       clone.style.transition = "transform " + duration + "ms " + ease + " " + delay + "ms, opacity " + duration + "ms ease-out " + delay + "ms"
       clone.style.willChange = "transform, opacity"
       overlay.appendChild(clone)
-      clone.offsetHeight
-      clone.style.opacity = "0"
-      clone.style.transform = "translateY(" + offsetY + "px)"
+      clones.push(clone)
       setTimeout(function () { clone.remove() }, duration + delay + 40)
     }, this)
+    if (overlay) overlay.offsetHeight
+    for (var c = 0; c < clones.length; c++) {
+      clones[c].style.opacity = "0"
+      clones[c].style.transform = "translateY(" + offsetY + "px)"
+    }
     if (overlay) {
       setTimeout(function () { if (overlay.parentNode) overlay.remove() }, duration + Math.min(140, Math.max(0, exitIndex - 1) * stagger) + 80)
     }
@@ -1295,11 +1330,103 @@ class VirtualMailList {
     var end = parseInt(wrapper.dataset.windowEnd)
     if (viewMode === this.viewMode && !isNaN(start) && !isNaN(end) && end >= start) {
       this.addLoadedRange(start, end)
+      if (!wrapper.hasAttribute("data-local-view-switch")) this.queueOtherViewRows(start, end)
     }
     if (viewMode === this.viewMode) {
       this.updateFrontiers()
       this.updateEffectiveCount({ preserveScroll: this.loadingDirection === "up" })
     }
+  }
+
+  otherViewMode() {
+    return this.viewMode === "table" ? "cards" : "table"
+  }
+
+  dropOtherViewRows() {
+    this.otherViewRows.clear()
+    this.otherViewGeneration++
+    this.otherViewPending = []
+    if (this.otherViewTimer) clearTimeout(this.otherViewTimer)
+    this.otherViewTimer = null
+  }
+
+  // queueOtherViewRows fetches a range just loaded again in the other layout
+  // once the page is idle, so a switch finds it ready. Ranges loaded close
+  // together go in one quiet batch.
+  queueOtherViewRows(start, end) {
+    if (this.navigationMode === "pagination") return
+    this.otherViewPending.push([start, end])
+    if (this.otherViewTimer) return
+    var list = this
+    this.otherViewTimer = setTimeout(function () {
+      list.otherViewTimer = null
+      var idle = window.requestIdleCallback || function (fn) { return setTimeout(fn, 0) }
+      idle(function () { list.fetchOtherViewRows() })
+    }, 400)
+  }
+
+  async fetchOtherViewRows() {
+    var ranges = this.otherViewPending
+    this.otherViewPending = []
+    var generation = this.otherViewGeneration
+    var mode = this.otherViewMode()
+    for (var i = 0; i < ranges.length; i++) {
+      var start = ranges[i][0]
+      var end = ranges[i][1]
+      try {
+        var html = await this.fetchHTML(this.itemsURLForView(mode, start, end - start + 1))
+        if (generation !== this.otherViewGeneration || mode !== this.otherViewMode()) return
+        var template = document.createElement("template")
+        template.innerHTML = html
+        var rows = template.content.querySelectorAll(".mail-list-item[data-email-id]")
+        for (var j = 0; j < rows.length; j++) this.otherViewRows.set(mode + ":" + rows[j].dataset.emailId, rows[j].outerHTML)
+      } catch (_) {
+        // A switch then asks the server, as before.
+      }
+    }
+  }
+
+  // otherViewReply builds, from the other layout's stored rows, the reply the
+  // server would give for the rows from rangeStart to rangeEnd, as one reply
+  // for each run of them stored, or null when the rows on screen, first to
+  // last, aren't all stored. Rows further away load from the server as they
+  // used to, so none shows a state older than the refresh that follows. The
+  // current layout's rows are all kept for switching back.
+  otherViewReply(viewMode, first, last, rangeStart, rangeEnd) {
+    for (var pos = first; pos <= last; pos++) {
+      var item = this.cache.get(pos)
+      if (!item || !item.id || !this.otherViewRows.has(viewMode + ":" + item.id)) return null
+    }
+    var positions = Array.from(this.cache.keys()).sort(function (a, b) { return a - b })
+    var replies = []
+    var run = null
+    var template = document.createElement("template")
+    for (var i = 0; i < positions.length; i++) {
+      var p = positions[i]
+      var cached = this.cache.get(p)
+      var stored = cached && cached.id ? this.otherViewRows.get(viewMode + ":" + cached.id) : null
+      if (cached && cached.id && cached.html) this.otherViewRows.set(this.viewMode + ":" + cached.id, cached.html)
+      if (!stored || p < rangeStart || p > rangeEnd) {
+        run = null
+        continue
+      }
+      template.innerHTML = stored
+      var row = template.content.firstElementChild
+      if (!row) continue
+      row.dataset.position = String(p)
+      if (!run || run.end !== p - 1) {
+        run = { start: p, end: p, rows: [] }
+        replies.push(run)
+      }
+      run.end = p
+      run.rows.push(row.outerHTML)
+    }
+    var list = this
+    return replies.map(function (r) {
+      return '<div data-local-view-switch data-view-mode="' + viewMode + '" data-total-count="' + list.totalCount +
+        '" data-display-total-count="' + list.displayTotalCount + '" data-window-start="' + r.start + '" data-window-end="' + r.end + '">' +
+        r.rows.join("") + "</div>"
+    })
   }
 
   updateEffectiveCount(options) {
@@ -1612,6 +1739,7 @@ class VirtualMailList {
           this.frontierUp,
           this.frontierDown
         )
+        this.queueOtherViewRows(this.frontierUp, this.frontierDown)
       }
     }
     if (this.navigationMode === "pagination") {
@@ -1825,6 +1953,7 @@ class VirtualMailList {
   reset() {
     this.cache.clear()
     this.indexById.clear()
+    this.dropOtherViewRows()
     this.loadedRanges = []
     this.totalCount = 0
     this.displayTotalCount = 0
@@ -1984,6 +2113,29 @@ class VirtualMailList {
     var rangeStart = Math.max(0, anchorIndex - this.overscan)
     var rangeEnd = Math.min(this.totalCount - 1, rangeStart + Math.max(this.chunkSize, viewportRows + this.overscan * 2 + this.poolSlack) - 1)
     var rangeLimit = Math.max(1, rangeEnd - rangeStart + 1)
+    // With the rows on screen fetched in this layout already, the switch is
+    // made here, and the server is asked afterwards only to catch rows that
+    // changed meanwhile, such as one just read.
+    var firstShown = this.positionAtOffset(this.container.scrollTop)
+    var lastShown = Math.min(this.totalCount - 1, this.positionAtOffset(this.container.scrollTop + this.container.clientHeight))
+    var local = lastShown >= firstShown ? this.otherViewReply(viewMode, firstShown, lastShown, rangeStart, rangeEnd) : null
+    if (local && local.length) {
+      this.setViewMode(viewMode, false)
+      for (var r = 0; r < local.length; r++) this.ingestHTML(local[r])
+      this.selectedEmailId = selected
+      this.container.scrollTop = this.offsetAtPosition(anchorIndex) + Math.round(anchorRatio * this.itemHeight)
+      this.render()
+      this.animateListTransition(transition, { enterFrom: -8, exitTo: 14, animateHeight: true, animateText: true })
+      var list = this
+      this.fetchHTML(this.itemsURLForView(viewMode, rangeStart, rangeLimit)).then(function (html) {
+        if (list.viewMode !== viewMode) return
+        list.ingestHTML(html)
+        list.prevFirst = null
+        list.prevLast = null
+        list.render()
+      }).catch(function () {})
+      return
+    }
     var pendingStart = performance.now ? performance.now() : Date.now()
     this.setViewSwitchPending(true)
     try {
@@ -3470,6 +3622,11 @@ class VirtualContactsList {
     var overlay = null
     var containerRect = this.container.getBoundingClientRect()
     var exitIndex = 0
+    // All the leaving rows' copies are placed before the page is laid out
+    // once, rather than once per copy, and then fade out together.
+    var clones = []
+    var scrollLeft = this.container.scrollLeft
+    var scrollTop = this.container.scrollTop
     before.forEach(function (item, id) {
       if (afterIds.has(id)) return
       if (!overlay) overlay = this.ensureTransitionOverlay()
@@ -3478,18 +3635,21 @@ class VirtualContactsList {
       var clone = document.createElement("div")
       clone.innerHTML = item.html
       clone.style.position = "absolute"
-      clone.style.left = (item.rect.left - containerRect.left + this.container.scrollLeft) + "px"
-      clone.style.top = (item.rect.top - containerRect.top + this.container.scrollTop) + "px"
+      clone.style.left = (item.rect.left - containerRect.left + scrollLeft) + "px"
+      clone.style.top = (item.rect.top - containerRect.top + scrollTop) + "px"
       clone.style.width = item.rect.width + "px"
       clone.style.height = item.rect.height + "px"
       clone.style.transition = "transform " + duration + "ms " + ease + " " + delay + "ms, opacity " + duration + "ms ease-out " + delay + "ms"
       clone.style.willChange = "transform, opacity"
       overlay.appendChild(clone)
-      clone.offsetHeight
-      clone.style.opacity = "0"
-      clone.style.transform = "translateY(" + offsetY + "px)"
+      clones.push(clone)
       setTimeout(function () { clone.remove() }, duration + delay + 40)
     }, this)
+    if (overlay) overlay.offsetHeight
+    for (var c = 0; c < clones.length; c++) {
+      clones[c].style.opacity = "0"
+      clones[c].style.transform = "translateY(" + offsetY + "px)"
+    }
     if (overlay) setTimeout(function () { if (overlay.parentNode) overlay.remove() }, duration + Math.min(140, Math.max(0, exitIndex - 1) * stagger) + 80)
   }
 
