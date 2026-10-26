@@ -319,7 +319,9 @@ func TestPasskeyRemovalRotatesSessionsAndProtectsLastAuthenticator(t *testing.T)
 		}
 	})
 
-	t.Run("last required strong authenticator", func(t *testing.T) {
+	// A passkey is a first factor, so two-factor authentication doesn't keep
+	// it; the password still signs in.
+	t.Run("passkey is not a required second factor", func(t *testing.T) {
 		fixture := newPasskeyTestFixture(t, true)
 		started, err := fixture.manager.StartPasskeyRegistration(t.Context(), fixture.session.Token, "https://gofer.example", "Only passkey")
 		if err != nil {
@@ -332,14 +334,14 @@ func TestPasskeyRemovalRotatesSessionsAndProtectsLastAuthenticator(t *testing.T)
 			t.Fatal(err)
 		}
 		listed, err := fixture.manager.ListPasskeys(t.Context(), fixture.session.Token)
-		if err != nil || len(listed) != 1 || listed[0].CanRemove {
+		if err != nil || len(listed) != 1 || !listed[0].CanRemove {
 			t.Fatalf("admin passkey list = %#v, %v", listed, err)
-		}
-		if _, err := fixture.manager.RemovePasskey(t.Context(), fixture.session.Token, created.ID, "Browser"); !errors.Is(err, ErrLastAuthenticator) {
-			t.Fatalf("last passkey removal error = %v", err)
 		}
 		if _, err := fixture.manager.RemovePasskey(t.Context(), fixture.session.Token, "foreign-passkey", "Browser"); !errors.Is(err, ErrPasskeyNotFound) {
 			t.Fatalf("foreign passkey removal error = %v", err)
+		}
+		if rotated, err := fixture.manager.RemovePasskey(t.Context(), fixture.session.Token, created.ID, "Browser"); err != nil || rotated == nil {
+			t.Fatalf("admin passkey removal = %#v, %v", rotated, err)
 		}
 	})
 

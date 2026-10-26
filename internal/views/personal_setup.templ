@@ -56,7 +56,7 @@ templ PersonalSetupPage(data PersonalSetupData) {
        <label for="personal-password-confirmation" class="text-sm font-medium">Confirm password</label>
        <input id="personal-password-confirmation" name="password_confirmation" type="password" autocomplete="new-password" required class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"/>
       </div>
-      <p class="text-sm text-muted-foreground">You can add a TOTP authenticator app or passkey in Security immediately after setup.</p>
+      <p class="text-sm text-muted-foreground">You can add a passkey or turn on two-factor authentication in Security right after setup.</p>
       @button.Button(button.Props{Type:button.TypeSubmit, FullWidth:true}) {
  Finish setup
  }

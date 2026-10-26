@@ -318,7 +318,7 @@ func TestPasswordSecurityPageExplainsMissingLocalCredentialWithoutRenderingForm(
 	mux := http.NewServeMux()
 	handler.RegisterRoutes(mux)
 	recorder := getPasswordSecurityPage(t, manager, mux, session.Token)
-	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), "does not have a local password") || strings.Contains(recorder.Body.String(), `action="/settings/security/password"`) {
+	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), "This account has no password") || strings.Contains(recorder.Body.String(), `action="/settings/security/password"`) {
 		t.Fatalf("federated-only security page = %d %q", recorder.Code, recorder.Body.String())
 	}
 }

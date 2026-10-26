@@ -22,7 +22,7 @@ const (
 	invitationEnrollmentFailureMessage     = "That invitation token is invalid or no longer active."
 	credentialRedemptionFailureMessage     = "That reset token is invalid or no longer active."
 	enrollmentRedemptionServiceMessage     = "Unable to set the password right now. Please try again."
-	enrollmentRedemptionMFARequiredMessage = "This account must enroll a strong authenticator before it can be activated. Contact an administrator to complete MFA enrollment."
+	enrollmentRedemptionMFARequiredMessage = "This account must set up an authenticator app before it can be activated. Contact an administrator to finish two-factor authentication setup."
 )
 
 func (h *Handler) handleInvitationEnrollment(w http.ResponseWriter, r *http.Request) {

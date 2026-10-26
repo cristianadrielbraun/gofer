@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"log"
 	"net"
@@ -67,6 +68,12 @@ func (h *Handler) handlePasswordLoginSubmit(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	identifier := boundedLoginIdentifier(r.FormValue("identifier"))
+	// Without JavaScript, Continue sends only the username; show the ways it
+	// can sign in.
+	if _, hasPassword := r.PostForm["password"]; !hasPassword && requiredType == auth.UserTypeWebmail {
+		h.renderLoginPage(w, r, http.StatusOK, "", identifier)
+		return
+	}
 	result, err := h.auth.AuthenticatePassword(r.Context(), auth.PasswordLoginOptions{
 		Identifier:       identifier,
 		Password:         r.FormValue("password"),
@@ -235,11 +242,23 @@ func (h *Handler) renderTypedLoginPage(w http.ResponseWriter, r *http.Request, u
 	h.renderLoginPage(w, r, status, message, identifier)
 }
 
+// renderLoginPage shows the username step, or, with a username, the ways it
+// can sign in.
 func (h *Handler) renderLoginPage(w http.ResponseWriter, r *http.Request, status int, message, identifier string) {
+	data := views.LoginPageData{
+		ShowGoogle: h.auth.HasGoogleLogin(), ShowMicrosoft: h.auth.HasMicrosoftLogin(), OIDCName: h.auth.OIDCLoginName(),
+		ErrorMessage: message, Identifier: identifier, Personal: h.auth.IsPersonal(),
+		MethodsShown: identifier != "",
+	}
+	if data.MethodsShown {
+		hasPasskey, err := h.auth.HasPasskeyLogin(r.Context(), identifier, h.auth.Config().BaseURL, loginSource(r))
+		if err != nil {
+			log.Printf("look up sign-in methods: %v", err)
+		}
+		data.HasPasskey = hasPasskey
+	}
 	var page bytes.Buffer
-	if err := views.LoginPage(
-		h.auth.HasGoogleLogin(), h.auth.HasMicrosoftLogin(), h.auth.OIDCLoginName(), message, identifier, h.auth.IsPersonal(),
-	).Render(r.Context(), &page); err != nil {
+	if err := views.LoginPage(data).Render(r.Context(), &page); err != nil {
 		log.Printf("render login page: %v", err)
 		http.Error(w, "failed to render sign-in page", http.StatusInternalServerError)
 		return
@@ -248,6 +267,28 @@ func (h *Handler) renderLoginPage(w http.ResponseWriter, r *http.Request, status
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(status)
 	_, _ = page.WriteTo(w)
+}
+
+// handleLoginMethods tells the sign-in page whether a username has a passkey.
+// A failed lookup offers only the password.
+func (h *Handler) handleLoginMethods(w http.ResponseWriter, r *http.Request) {
+	if !h.auth.IsEnabled() {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, loginFormMaximumBytes)
+	hasPasskey := false
+	if err := r.ParseForm(); err == nil {
+		hasPasskey, err = h.auth.HasPasskeyLogin(
+			r.Context(), boundedLoginIdentifier(r.PostFormValue("identifier")), h.auth.Config().BaseURL, loginSource(r),
+		)
+		if err != nil {
+			log.Printf("look up sign-in methods: %v", err)
+		}
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]bool{"passkey": hasPasskey})
 }
 
 func (h *Handler) renderAdminLoginPage(w http.ResponseWriter, r *http.Request, status int, message, identifier string) {
@@ -279,6 +320,8 @@ func (h *Handler) renderLoginMFAContinuationPage(w http.ResponseWriter, r *http.
 	}
 	primarySignIn := "Password verified."
 	switch factors.PrimaryMethod {
+	case auth.AuthenticationMethodPasskey:
+		primarySignIn = "Passkey verified."
 	case auth.AuthenticationMethodFederatedGoogle:
 		primarySignIn = "Google sign-in successful."
 		if factors.VerifiedEmail != "" {
@@ -289,7 +332,7 @@ func (h *Handler) renderLoginMFAContinuationPage(w http.ResponseWriter, r *http.
 	case auth.AuthenticationMethodFederatedOIDC:
 		primarySignIn = h.auth.OIDCLoginName() + " sign-in successful."
 	}
-	component := views.LoginMFAContinuationPage(message, views.LoginMFAFactors{Username: factors.Username, HasTOTP: factors.HasTOTP, HasPasskey: factors.HasPasskey, PrimarySignIn: primarySignIn})
+	component := views.LoginMFAContinuationPage(message, views.LoginMFAFactors{Username: factors.Username, HasTOTP: factors.HasTOTP, PrimarySignIn: primarySignIn})
 	if management {
 		component = views.ManagementMFAContinuationPage(message)
 	}

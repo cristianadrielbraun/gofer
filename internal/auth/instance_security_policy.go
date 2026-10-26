@@ -98,22 +98,18 @@ func (m *Manager) InstanceSecurityPolicy(ctx context.Context) (InstanceSecurityP
 	return readInstanceSecurityPolicy(ctx, m.db.Read())
 }
 
-func userHasStrongAuthenticator(ctx context.Context, queryer instanceSecurityPolicyQueryer, userID, rpID string) (bool, error) {
+// userHasSecondFactor reports whether the user has a TOTP authenticator app,
+// the second factor asked for after a password, passkey, or provider sign-in.
+// A passkey is a first factor, in place of the password, so it doesn't count.
+func userHasSecondFactor(ctx context.Context, queryer instanceSecurityPolicyQueryer, userID string) (bool, error) {
 	var ready int
 	if err := queryer.QueryRowContext(ctx, `
-		SELECT
-			EXISTS (
-				SELECT 1 FROM totp_credentials
-				WHERE user_id = ? AND enabled = 1 AND revoked_at IS NULL
-			)
-			OR EXISTS (
-				SELECT 1 FROM webauthn_credentials
-				WHERE user_id = ? AND rp_id = ? AND revoked_at IS NULL
-				  AND credential_ciphertext IS NOT NULL AND key_version IS NOT NULL
-			)`,
-		userID, userID, rpID,
+		SELECT EXISTS (
+			SELECT 1 FROM totp_credentials
+			WHERE user_id = ? AND enabled = 1 AND revoked_at IS NULL
+		)`, userID,
 	).Scan(&ready); err != nil {
-		return false, fmt.Errorf("check strong authenticator enrollment: %w", err)
+		return false, fmt.Errorf("check second factor enrollment: %w", err)
 	}
 	return ready == 1, nil
 }
@@ -126,11 +122,7 @@ func (m *Manager) requireUserReadyForInstanceMFA(ctx context.Context, queryer in
 	if !policy.MFA.RequiresAllUsers() {
 		return nil
 	}
-	rpID, err := passkeyRelyingPartyID(m.config.BaseURL)
-	if err != nil {
-		return fmt.Errorf("resolve passkey relying party for instance MFA activation: %w", err)
-	}
-	ready, err := userHasStrongAuthenticator(ctx, queryer, userID, rpID)
+	ready, err := userHasSecondFactor(ctx, queryer, userID)
 	if err != nil {
 		return err
 	}
@@ -251,9 +243,8 @@ func (m *Manager) SetInstanceMFAPolicy(ctx context.Context, options SetInstanceM
 				UPDATE sessions
 				SET revoked_at = ?, revoked_by = ?, revocation_reason = ?
 				WHERE revoked_at IS NULL
-				  AND assurance_level NOT IN (?, ?)`,
-				now, actorUserID, SessionRevocationAdminAction,
-				AssuranceLevelMultiFactor, AssuranceLevelPhishingResistant,
+				  AND assurance_level != ?`,
+				now, actorUserID, SessionRevocationAdminAction, AssuranceLevelMultiFactor,
 			)
 			if err != nil {
 				return fmt.Errorf("revoke weak sessions for instance MFA policy: %w", err)

@@ -343,7 +343,7 @@ templ SetupPasswordPage(data SetupPasswordData) {
 							}
 						}
 						<a href="/setup/owner" class="flex h-9 w-full items-center justify-center rounded-md px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">Back to owner profile</a>
-						<p class="text-center text-xs text-muted-foreground">Next, the owner must enroll administrator MFA and recovery codes before setup can complete.</p>
+						<p class="text-center text-xs text-muted-foreground">Next, the owner must set up an authenticator app and recovery codes before setup can complete.</p>
 					</form>
 					if data.PasswordReady {
 						<form method="post" action="/setup/mfa" class="mt-4">
@@ -366,7 +366,7 @@ templ SetupMFAPage(data SetupMFAData) {
 		<head>
 			<meta charset="UTF-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-			<title>Gofer - Set Up Owner MFA</title>
+			<title>Gofer - Set Up Owner Two-Factor Authentication</title>
 			@AppIcon()
 			<link rel="stylesheet" href={ assetver.URL("/assets/css/output.css") }/>
 			<script src={ assetver.URL("/assets/js/actions.js") }></script>
@@ -580,7 +580,7 @@ templ SetupReviewPage(data SetupReviewData) {
 						<h2 id="review-security-heading" class="text-base font-semibold">Prepared security</h2>
 						<ul class="mt-3 space-y-2 text-sm">
 							<li>Owner password prepared; { fmt.Sprintf("%d existing password credential(s) will be replaced", data.ExistingPasswordCredentials) }.</li>
-							<li>Authenticator verified; { fmt.Sprintf("%d active TOTP credential(s) will be replaced", data.ReplacedTOTPs) }.</li>
+							<li>Authenticator verified; { fmt.Sprintf("%d active authenticator app(s) will be replaced", data.ReplacedTOTPs) }.</li>
 							<li>Recovery batch acknowledged; { fmt.Sprintf("%d unused recovery code(s) will be replaced", data.ReplacedRecoveryCodes) }.</li>
 							<li>{ fmt.Sprintf("%d active passkey(s) and %d app-login identity record(s) remain attached to the same user", data.RetainedPasskeys, data.RetainedIdentities) }.</li>
 						</ul>

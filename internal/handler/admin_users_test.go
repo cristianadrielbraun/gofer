@@ -367,7 +367,7 @@ func TestAdministratorCanRequireAndClearIndividualUserMFA(t *testing.T) {
 	if page.Code != http.StatusOK {
 		t.Fatalf("administrator users page = %d %q", page.Code, page.Body.String())
 	}
-	for _, want := range []string{"MFA policy", "Require MFA", `action="` + path + `"`, `name="required" value="true"`} {
+	for _, want := range []string{"Require 2FA", "Require 2FA", `action="` + path + `"`, `name="required" value="true"`} {
 		if !strings.Contains(page.Body.String(), want) {
 			t.Fatalf("administrator user MFA control missing %q: %q", want, page.Body.String())
 		}
@@ -652,7 +652,7 @@ func TestAdministratorCanIssueAndRedeemWebmailUserCredentialReset(t *testing.T) 
 	for _, want := range []string{
 		"Password-reset token created", "Reset token ready for reset-target",
 		"Gofer stores only a hash of the token", "https://gofer.example/account/redeem",
-		"Successful redemption signs the user out everywhere, preserves MFA",
+		"Successful redemption signs the user out everywhere, keeps two-factor authentication",
 	} {
 		if !strings.Contains(issued.Body.String(), want) {
 			t.Fatalf("credential-reset result missing %q: %q", want, issued.Body.String())

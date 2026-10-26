@@ -429,11 +429,7 @@ func (m *Manager) requireUserReadyForAuthenticationPolicy(
 	if policy.UserMFARequired && !policy.AdministratorMFARequired && !policy.InstanceMFARequired {
 		return nil
 	}
-	rpID, err := passkeyRelyingPartyID(m.config.BaseURL)
-	if err != nil {
-		return fmt.Errorf("resolve passkey relying party for user activation: %w", err)
-	}
-	ready, err := userHasStrongAuthenticator(ctx, queryer, userID, rpID)
+	ready, err := userHasSecondFactor(ctx, queryer, userID)
 	if err != nil {
 		return err
 	}

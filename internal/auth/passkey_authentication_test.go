@@ -231,21 +231,35 @@ func TestPasskeyLoginSupportsIdentifierAndDiscoverableAssertions(t *testing.T) {
 				t.Fatalf("passkey login draft was not encrypted: %q", payload)
 			}
 
-			session, err := fixture.manager.FinishPasskeyLogin(
+			result, err := fixture.manager.FinishPasskeyLogin(
 				t.Context(), started.Challenge.Token, "https://gofer.example", []byte(`{"assertion":true}`),
 				"198.51.100.20", "Passkey Login Browser/1.0",
 			)
-			if err != nil || session == nil {
-				t.Fatalf("FinishPasskeyLogin() = %#v, %v", session, err)
+			secondFactorRequired := test.requireMFA || test.instanceMFA
+			if err != nil || result == nil || (result.Session == nil) != secondFactorRequired {
+				t.Fatalf("FinishPasskeyLogin() = %#v, %v", result, err)
 			}
-			if session.AuthenticationMethod != AuthenticationMethodPasskey ||
-				session.AssuranceLevel != AssuranceLevelPhishingResistant || session.StepUpAt == nil ||
-				session.StepUpMethod != AuthenticationMethodPasskey || session.UserID != fixture.userID {
-				t.Fatalf("passkey login session = %#v", session)
-			}
-			stored, err := fixture.manager.GetSessionByToken(t.Context(), session.Token)
-			if err != nil || stored == nil || stored.ID != session.ID {
-				t.Fatalf("stored passkey session = %#v, %v", stored, err)
+			if secondFactorRequired {
+				// A passkey is a first factor, so the authenticator app comes
+				// next; this user has none yet and has to set one up.
+				var sessions int
+				if err := fixture.manager.db.Read().QueryRowContext(t.Context(), `SELECT COUNT(*) FROM sessions`).Scan(&sessions); err != nil {
+					t.Fatal(err)
+				}
+				if result.PreAuthChallenge == nil || !result.MFAEnrollmentRequired || sessions != 0 {
+					t.Fatalf("passkey login with two-factor required = %#v, sessions=%d", result, sessions)
+				}
+			} else {
+				session := result.Session
+				if session.AuthenticationMethod != AuthenticationMethodPasskey ||
+					session.AssuranceLevel != AssuranceLevelPhishingResistant || session.StepUpAt == nil ||
+					session.StepUpMethod != AuthenticationMethodPasskey || session.UserID != fixture.userID {
+					t.Fatalf("passkey login session = %#v", session)
+				}
+				stored, err := fixture.manager.GetSessionByToken(t.Context(), session.Token)
+				if err != nil || stored == nil || stored.ID != session.ID {
+					t.Fatalf("stored passkey session = %#v, %v", stored, err)
+				}
 			}
 			var signCount int
 			var lastUsedAt, consumedAt any
@@ -459,9 +473,13 @@ func TestPasskeyLoginCompletionIsAtomicAndSingleWinner(t *testing.T) {
 			go func() {
 				defer wait.Done()
 				<-ready
-				session, err := fixture.manager.FinishPasskeyLogin(
+				completed, err := fixture.manager.FinishPasskeyLogin(
 					t.Context(), started.Challenge.Token, "https://gofer.example", []byte(`{}`), "source", "Browser",
 				)
+				var session *Session
+				if completed != nil {
+					session = completed.Session
+				}
 				results <- result{session: session, err: err}
 			}()
 		}
@@ -662,4 +680,29 @@ func mustMarshalPasskeyTestJSON(t *testing.T, value any) []byte {
 		t.Fatal(err)
 	}
 	return encoded
+}
+
+// A passkey is a first factor, so with an authenticator app set up, signing in
+// with a passkey asks for the app's code next.
+func TestPasskeyLoginAsksForTheAuthenticatorApp(t *testing.T) {
+	fixture := newPasskeyAuthenticationFixture(t, 7)
+	insertPolicyTestTOTP(t, fixture.manager, fixture.userID, fixture.clock.now)
+	started, err := fixture.manager.StartPasskeyLogin(t.Context(), "", "https://gofer.example", "198.51.100.20")
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := fixture.manager.FinishPasskeyLogin(
+		t.Context(), started.Challenge.Token, "https://gofer.example", []byte(`{}`), "198.51.100.20", "Browser",
+	)
+	if err != nil || result == nil || result.Session != nil || result.PreAuthChallenge == nil || result.MFAEnrollmentRequired {
+		t.Fatalf("FinishPasskeyLogin() = %#v, %v", result, err)
+	}
+	factors, err := fixture.manager.GetMFAContinuationFactors(t.Context(), result.PreAuthChallenge.Token, "https://gofer.example")
+	if err != nil || factors.PrimaryMethod != AuthenticationMethodPasskey || !factors.HasTOTP {
+		t.Fatalf("continuation factors = %#v, %v", factors, err)
+	}
+	var sessions int
+	if err := fixture.manager.db.Read().QueryRowContext(t.Context(), `SELECT COUNT(*) FROM sessions`).Scan(&sessions); err != nil || sessions != 0 {
+		t.Fatalf("sessions before the code = %d, %v", sessions, err)
+	}
 }

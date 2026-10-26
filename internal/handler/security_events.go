@@ -119,7 +119,7 @@ func (h *Handler) handleSecurityActivityPage(w http.ResponseWriter, r *http.Requ
 func securityEventTitle(eventType auth.AuthEventType, success bool) string {
 	switch eventType {
 	case auth.AuthEventPrimaryVerified:
-		return "Primary sign-in verified; MFA pending"
+		return "Sign-in verified; authenticator app code pending"
 	case auth.AuthEventLoginSucceeded:
 		if success {
 			return "Signed in"

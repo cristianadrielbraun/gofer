@@ -109,11 +109,7 @@ func (m *Manager) preparePrimaryMFAContinuation(
 	if !policy.RequiresMFA {
 		return nil, nil, ErrAuthenticationPolicyNotSatisfied
 	}
-	rpID, err := passkeyRelyingPartyID(m.config.BaseURL)
-	if err != nil {
-		return nil, nil, fmt.Errorf("resolve MFA enrollment relying party: %w", err)
-	}
-	ready, err := userHasStrongAuthenticator(ctx, queryer, userID, rpID)
+	ready, err := userHasSecondFactor(ctx, queryer, userID)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -152,11 +148,7 @@ func (m *Manager) requireMFAContinuationAuthenticatorState(
 	if !validMFAContinuationDraft(draft) {
 		return ErrMFAContinuationInvalid
 	}
-	rpID, err := passkeyRelyingPartyID(m.config.BaseURL)
-	if err != nil {
-		return err
-	}
-	ready, err := userHasStrongAuthenticator(ctx, queryer, userID, rpID)
+	ready, err := userHasSecondFactor(ctx, queryer, userID)
 	if err != nil {
 		return err
 	}

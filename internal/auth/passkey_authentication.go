@@ -251,7 +251,10 @@ func (m *Manager) createPasskeyAssertionChallenge(ctx context.Context, origin st
 	return &PasskeyAuthenticationOptions{Challenge: challenge, RequestJSON: append(json.RawMessage(nil), requestJSON...)}, nil
 }
 
-func (m *Manager) FinishPasskeyLogin(ctx context.Context, challengeToken, origin string, responseJSON []byte, source, userAgent string) (*Session, error) {
+// FinishPasskeyLogin verifies a passkey sign-in. A passkey is a first factor,
+// like a password, so with two-factor authentication on, the result is an
+// authenticator-app step instead of a session.
+func (m *Manager) FinishPasskeyLogin(ctx context.Context, challengeToken, origin string, responseJSON []byte, source, userAgent string) (*PrimaryAuthenticationResult, error) {
 	invalidBody := len(responseJSON) == 0 || len(responseJSON) > passkeyAssertionMaxBodyBytes
 	canonicalOrigin, rpID, err := canonicalWebAuthnRelyingParty(origin)
 	if err != nil {
@@ -353,7 +356,7 @@ func (m *Manager) FinishPasskeyStepUp(ctx context.Context, challengeToken, sessi
 	return m.completePasskeyStepUp(ctx, challenge, draft, challengeToken, sessionToken, canonicalOrigin, source, userAgent, user, snapshot, record)
 }
 
-func (m *Manager) completePasskeyLogin(ctx context.Context, challenge *PreAuthChallenge, draft *passkeyAssertionDraft, challengeToken, origin, source, userAgent string, user *passkeyAuthenticationUser, snapshot *passkeyCredentialSnapshot, record *passkeyCredentialRecord) (*Session, error) {
+func (m *Manager) completePasskeyLogin(ctx context.Context, challenge *PreAuthChallenge, draft *passkeyAssertionDraft, challengeToken, origin, source, userAgent string, user *passkeyAuthenticationUser, snapshot *passkeyCredentialSnapshot, record *passkeyCredentialRecord) (*PrimaryAuthenticationResult, error) {
 	sessionID, err := m.tokens.ID()
 	if err != nil {
 		return nil, fmt.Errorf("generate passkey session ID: %w", err)
@@ -390,6 +393,21 @@ func (m *Manager) completePasskeyLogin(ctx context.Context, challenge *PreAuthCh
 	if session.IdleExpiresAt.After(session.AbsoluteExpiresAt) {
 		session.IdleExpiresAt = session.AbsoluteExpiresAt
 	}
+	policy, err := m.loadAuthenticationPolicy(ctx, m.db.Read(), user.UserID, user.AuthVersion)
+	if err != nil {
+		return nil, ErrPasskeyAuthenticationInvalid
+	}
+	var mfaChallenge *PreAuthChallenge
+	var continuation *mfaContinuationDraft
+	if policy.RequiresMFA {
+		mfaChallenge, continuation, err = m.preparePrimaryMFAContinuation(
+			ctx, m.db.Read(), user.UserID, user.AuthVersion, AuthenticationMethodPasskey,
+			policy, m.config.BaseURL, now,
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
 	cloneWarning := false
 	retryAt := time.Time{}
 	err = m.runSecurityTransition(ctx, SecurityTransitionLoginCompletion, func(tx *sql.Tx) error {
@@ -405,11 +423,11 @@ func (m *Manager) completePasskeyLogin(ctx context.Context, challenge *PreAuthCh
 		if err := tx.QueryRowContext(ctx, `SELECT status, auth_version FROM users WHERE id = ?`, user.UserID).Scan(&status, &authVersion); err != nil || !status.AllowsAuthentication() || authVersion != user.AuthVersion {
 			return ErrPasskeyAuthenticationInvalid
 		}
-		policy, err := m.loadAuthenticationPolicy(ctx, tx, user.UserID, authVersion)
-		if err != nil {
+		currentPolicy, err := m.loadAuthenticationPolicy(ctx, tx, user.UserID, authVersion)
+		if err != nil || currentPolicy != policy {
 			return ErrPasskeyAuthenticationInvalid
 		}
-		if !policy.allowsAssurance(session.AssuranceLevel) {
+		if mfaChallenge == nil && !policy.allowsAssurance(session.AssuranceLevel) {
 			return ErrAuthenticationPolicyNotSatisfied
 		}
 		if record.CloneWarning {
@@ -446,6 +464,24 @@ func (m *Manager) completePasskeyLogin(ctx context.Context, challenge *PreAuthCh
 		if err := consumePasskeyAssertionChallenge(ctx, tx, currentChallenge, challengeToken, now); err != nil {
 			return err
 		}
+		if draft.Identifier != "" {
+			identifierHash, err := m.authenticationThrottleBucketHash(passkeyLoginThrottleAction, loginThrottleBucketIdentifier, draft.Identifier)
+			if err != nil {
+				return err
+			}
+			if _, err := tx.ExecContext(ctx, `DELETE FROM auth_throttle WHERE bucket_hash = ? AND action = ?`, identifierHash, passkeyLoginThrottleAction); err != nil {
+				return fmt.Errorf("clear passkey login throttle: %w", err)
+			}
+		}
+		if mfaChallenge != nil {
+			if err := m.requireMFAContinuationAuthenticatorState(ctx, tx, user.UserID, continuation); err != nil {
+				return ErrPasskeyAuthenticationInvalid
+			}
+			if err := m.insertMFAContinuation(ctx, tx, mfaChallenge, now); err != nil {
+				return err
+			}
+			return m.appendPrimaryAuthenticationEvent(ctx, tx, user.UserID, nil, AuthenticationMethodPasskey)
+		}
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE users SET last_login_at = ?, updated_at = ?
 			WHERE id = ? AND status = 'active' AND auth_version = ?`, now, now, user.UserID, user.AuthVersion,
@@ -464,15 +500,6 @@ func (m *Manager) completePasskeyLogin(ctx context.Context, challenge *PreAuthCh
 			session.StepUpAt, session.StepUpMethod, session.CreatedAt,
 		); err != nil {
 			return fmt.Errorf("insert passkey session: %w", err)
-		}
-		if draft.Identifier != "" {
-			identifierHash, err := m.authenticationThrottleBucketHash(passkeyLoginThrottleAction, loginThrottleBucketIdentifier, draft.Identifier)
-			if err != nil {
-				return err
-			}
-			if _, err := tx.ExecContext(ctx, `DELETE FROM auth_throttle WHERE bucket_hash = ? AND action = ?`, identifierHash, passkeyLoginThrottleAction); err != nil {
-				return fmt.Errorf("clear passkey login throttle: %w", err)
-			}
 		}
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO auth_events (
@@ -495,7 +522,12 @@ func (m *Manager) completePasskeyLogin(ctx context.Context, challenge *PreAuthCh
 		}
 		return nil, ErrPasskeyCloneWarning
 	}
-	return session, nil
+	if mfaChallenge != nil {
+		return &PrimaryAuthenticationResult{
+			PreAuthChallenge: mfaChallenge, MFAEnrollmentRequired: continuation.Enrollment != nil,
+		}, nil
+	}
+	return &PrimaryAuthenticationResult{Session: session}, nil
 }
 
 func (m *Manager) completePasskeyStepUp(ctx context.Context, challenge *PreAuthChallenge, draft *passkeyAssertionDraft, challengeToken, sessionToken, origin, source, userAgent string, user *passkeyAuthenticationUser, snapshot *passkeyCredentialSnapshot, record *passkeyCredentialRecord) error {
@@ -567,7 +599,7 @@ func (m *Manager) completePasskeyStepUp(ctx context.Context, challenge *PreAuthC
 			return err
 		}
 		result, err := tx.ExecContext(ctx, `
-			UPDATE sessions SET step_up_at = ?, step_up_method = ?, assurance_level = 'phishing_resistant'
+			UPDATE sessions SET step_up_at = ?, step_up_method = ?
 			WHERE id = ? AND user_id = ? AND token_hash = ? AND revoked_at IS NULL`,
 			now, AuthenticationMethodPasskey, currentSession.ID, currentSession.UserID, hashToken(sessionToken),
 		)

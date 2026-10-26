@@ -324,12 +324,14 @@ func (m *Manager) FinishPasskeyRegistration(ctx context.Context, challengeToken,
 		); err != nil {
 			return fmt.Errorf("revoke other sessions after passkey enrollment: %w", err)
 		}
-		// Registration verifies possession and user verification for the new key.
-		// Preserve the current bearer while invalidating older login challenges.
+		// Registration verifies possession and user verification for the new key,
+		// which refreshes verification but adds no factor to how this session
+		// signed in. Preserve the current bearer while invalidating older login
+		// challenges.
 		if _, err := tx.ExecContext(ctx, `
-            UPDATE sessions SET auth_version = ?, assurance_level = ?, step_up_at = ?, step_up_method = ?
+            UPDATE sessions SET auth_version = ?, step_up_at = ?, step_up_method = ?
             WHERE id = ? AND revoked_at IS NULL`,
-			newAuthVersion, AssuranceLevelPhishingResistant, now, AuthenticationMethodPasskey, current.ID,
+			newAuthVersion, now, AuthenticationMethodPasskey, current.ID,
 		); err != nil {
 			return fmt.Errorf("strengthen session after passkey enrollment: %w", err)
 		}
@@ -596,16 +598,9 @@ func (m *Manager) listPasskeysForUser(ctx context.Context, userID string) ([]Pas
 			return nil, err
 		}
 		passkeys[index].CanRemove = canRemove
+		// A passkey is a first factor, so only the last way to sign in stays.
 		if !canRemove {
-			policy, err := queryAuthenticationPolicy(ctx, m.db.Read(), userID, 0)
-			if err != nil {
-				return nil, err
-			}
-			if policy.MFAEnrollmentRequired {
-				passkeys[index].RemoveReason = "Your administrator policy requires at least one MFA method to remain enabled. Add another TOTP authenticator app or passkey before removing this one."
-			} else {
-				passkeys[index].RemoveReason = "Keep at least one sign-in method available. Add another sign-in method before removing this passkey."
-			}
+			passkeys[index].RemoveReason = "Keep at least one sign-in method available. Add another sign-in method before removing this passkey."
 		}
 	}
 	return passkeys, nil

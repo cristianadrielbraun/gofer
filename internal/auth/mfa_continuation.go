@@ -42,6 +42,7 @@ func validMFAContinuationDraft(draft *mfaContinuationDraft) bool {
 	}
 	switch draft.PrimaryMethod {
 	case AuthenticationMethodPassword,
+		AuthenticationMethodPasskey,
 		AuthenticationMethodFederatedGoogle,
 		AuthenticationMethodFederatedMicrosoft,
 		AuthenticationMethodFederatedOIDC:
@@ -256,7 +257,6 @@ type MFAContinuationFactors struct {
 	PrimaryMethod AuthenticationMethod
 	Username      string
 	HasTOTP       bool
-	HasPasskey    bool
 }
 
 func (m *Manager) GetMFAContinuationFactors(ctx context.Context, token, origin string) (*MFAContinuationFactors, error) {
@@ -271,22 +271,15 @@ func (m *Manager) GetMFAContinuationFactors(ctx context.Context, token, origin s
 	if !policy.RequiresMFA || draft.Enrollment != nil {
 		return nil, ErrMFAContinuationInvalid
 	}
-	rpID, err := passkeyRelyingPartyID(m.config.BaseURL)
-	if err != nil {
-		return nil, err
-	}
 	result := MFAContinuationFactors{PrimaryMethod: draft.PrimaryMethod, VerifiedEmail: draft.VerifiedEmail}
 	err = m.db.Read().QueryRowContext(ctx, `
 		SELECT u.username_normalized,
 			EXISTS(SELECT 1 FROM totp_credentials t
-				WHERE t.user_id = u.id AND t.enabled = 1 AND t.revoked_at IS NULL),
-			EXISTS(SELECT 1 FROM webauthn_credentials w
-				WHERE w.user_id = u.id AND w.rp_id = ? AND w.revoked_at IS NULL
-				  AND w.credential_ciphertext IS NOT NULL AND w.key_version IS NOT NULL)
+				WHERE t.user_id = u.id AND t.enabled = 1 AND t.revoked_at IS NULL)
 		FROM users u
 		WHERE u.id = ? AND u.status = 'active' AND u.auth_version = ?`,
-		rpID, challenge.UserID, draft.AuthVersion,
-	).Scan(&result.Username, &result.HasTOTP, &result.HasPasskey)
+		challenge.UserID, draft.AuthVersion,
+	).Scan(&result.Username, &result.HasTOTP)
 	if err != nil {
 		return nil, fmt.Errorf("read MFA continuation factors: %w", err)
 	}

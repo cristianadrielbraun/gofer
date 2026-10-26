@@ -685,7 +685,7 @@ func AdminSecurityVerificationDialog(data AdminSecurityVerificationData) templ.C
 						if templ_7745c5c3_Err != nil {
 							return templ_7745c5c3_Err
 						}
-						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 26, "</div><div class=\"min-w-0 flex-1\"><label for=\"admin-security-totp-code\" class=\"text-sm font-semibold text-foreground\">TOTP authenticator app code</label><p class=\"mt-1 text-xs leading-relaxed text-muted-foreground\">Enter the current six-digit code from your authenticator app.</p></div></div><input id=\"admin-security-totp-code\" autofocus aria-label=\"TOTP verification code\" name=\"code\" type=\"text\" inputmode=\"numeric\" autocomplete=\"one-time-code\" pattern=\"[0-9]{6}\" minlength=\"6\" maxlength=\"6\" required class=\"h-10 w-full rounded-md border border-input bg-background px-3 text-center font-mono text-base tracking-[0.3em] text-foreground shadow-sm outline-none transition-colors focus:border-ring focus:ring-2 focus:ring-ring/25\"> <button type=\"submit\" class=\"inline-flex h-10 w-full items-center justify-center rounded-md border border-border bg-background px-4 text-sm font-semibold text-foreground shadow-sm transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60\">Verify code</button><p data-admin-security-totp-status role=\"status\" aria-live=\"polite\" class=\"min-h-4 text-xs text-muted-foreground\"></p></form>")
+						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 26, "</div><div class=\"min-w-0 flex-1\"><label for=\"admin-security-totp-code\" class=\"text-sm font-semibold text-foreground\">Authenticator app code</label><p class=\"mt-1 text-xs leading-relaxed text-muted-foreground\">Enter the current six-digit code from your authenticator app.</p></div></div><input id=\"admin-security-totp-code\" autofocus aria-label=\"Authenticator app code\" name=\"code\" type=\"text\" inputmode=\"numeric\" autocomplete=\"one-time-code\" pattern=\"[0-9]{6}\" minlength=\"6\" maxlength=\"6\" required class=\"h-10 w-full rounded-md border border-input bg-background px-3 text-center font-mono text-base tracking-[0.3em] text-foreground shadow-sm outline-none transition-colors focus:border-ring focus:ring-2 focus:ring-ring/25\"> <button type=\"submit\" class=\"inline-flex h-10 w-full items-center justify-center rounded-md border border-border bg-background px-4 text-sm font-semibold text-foreground shadow-sm transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60\">Verify code</button><p data-admin-security-totp-status role=\"status\" aria-live=\"polite\" class=\"min-h-4 text-xs text-muted-foreground\"></p></form>")
 						if templ_7745c5c3_Err != nil {
 							return templ_7745c5c3_Err
 						}
@@ -2026,7 +2026,7 @@ func AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificati
 			}
 		}
 		if data.StepUpRequired {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 147, "<div role=\"alert\" class=\"mt-5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-900 dark:text-amber-100\"><p class=\"font-semibold\">Recent administrator verification required</p><p class=\"mt-1\">Verify with a passkey or authenticator to manage invitations, password resets, user access, deletion, and individual MFA policies for the next ten minutes.</p><div class=\"mt-3\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 147, "<div role=\"alert\" class=\"mt-5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-900 dark:text-amber-100\"><p class=\"font-semibold\">Recent administrator verification required</p><p class=\"mt-1\">Verify with a passkey or authenticator to manage invitations, password resets, user access, deletion, and individual two-factor authentication requirements for the next ten minutes.</p><div class=\"mt-3\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -2117,7 +2117,7 @@ func AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificati
 				return templ_7745c5c3_Err
 			}
 		} else {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 155, "<div class=\"overflow-x-auto\"><table class=\"w-full min-w-[70rem] text-left text-sm\"><thead class=\"bg-muted/45 text-xs font-semibold text-muted-foreground\"><tr><th scope=\"col\" class=\"px-4 py-3\">User</th><th scope=\"col\" class=\"px-4 py-3\">Status</th><th scope=\"col\" class=\"px-4 py-3\">Role</th><th scope=\"col\" class=\"px-4 py-3\">MFA policy</th><th scope=\"col\" class=\"px-4 py-3\">Invitation</th><th scope=\"col\" class=\"px-4 py-3 text-right\">Actions</th><th scope=\"col\" class=\"px-4 py-3\">User ID</th></tr></thead> <tbody class=\"divide-y divide-border\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 155, "<div class=\"overflow-x-auto\"><table class=\"w-full min-w-[70rem] text-left text-sm\"><thead class=\"bg-muted/45 text-xs font-semibold text-muted-foreground\"><tr><th scope=\"col\" class=\"px-4 py-3\">User</th><th scope=\"col\" class=\"px-4 py-3\">Status</th><th scope=\"col\" class=\"px-4 py-3\">Role</th><th scope=\"col\" class=\"px-4 py-3\">2FA</th><th scope=\"col\" class=\"px-4 py-3\">Invitation</th><th scope=\"col\" class=\"px-4 py-3 text-right\">Actions</th><th scope=\"col\" class=\"px-4 py-3\">User ID</th></tr></thead> <tbody class=\"divide-y divide-border\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -2545,7 +2545,7 @@ func AdminUserMFAPolicyAction(user AdminUserData, stepUpRequired bool) templ.Com
 							return templ_7745c5c3_Err
 						}
 					} else {
-						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 194, "Require MFA")
+						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 194, "Require 2FA")
 						if templ_7745c5c3_Err != nil {
 							return templ_7745c5c3_Err
 						}
@@ -2611,12 +2611,12 @@ func AdminUserMFAPolicyAction(user AdminUserData, stepUpRequired bool) templ.Com
 							}
 							ctx = templ.InitializeContext(ctx)
 							if user.MFARequired {
-								templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 195, "Clear the individual MFA requirement?")
+								templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 195, "Clear the individual 2FA requirement?")
 								if templ_7745c5c3_Err != nil {
 									return templ_7745c5c3_Err
 								}
 							} else {
-								templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 196, "Require MFA for ")
+								templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 196, "Require 2FA for ")
 								if templ_7745c5c3_Err != nil {
 									return templ_7745c5c3_Err
 								}
@@ -2657,12 +2657,12 @@ func AdminUserMFAPolicyAction(user AdminUserData, stepUpRequired bool) templ.Com
 							}
 							ctx = templ.InitializeContext(ctx)
 							if user.MFARequired {
-								templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 199, "This removes only the mandatory enrollment requirement. Existing sessions and authenticators are unchanged. Enrolled TOTP or passkeys will still be required during sign-in.")
+								templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 199, "This removes only the mandatory enrollment requirement. Existing sessions and authenticators are unchanged. An enrolled authenticator app will still be required during sign-in.")
 								if templ_7745c5c3_Err != nil {
 									return templ_7745c5c3_Err
 								}
 							} else {
-								templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 200, "The user must enroll and retain a TOTP authenticator app or passkey. If neither is enrolled, setup is required at the next sign-in. Existing sessions are unchanged; enrolled MFA is always verified, even without this requirement.")
+								templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 200, "The user must set up and keep an authenticator app, which is asked for after every password, passkey, or provider sign-in. If none is set up, setup is required at the next sign-in. Existing sessions are unchanged; an enrolled authenticator app is always verified, even without this requirement.")
 								if templ_7745c5c3_Err != nil {
 									return templ_7745c5c3_Err
 								}
@@ -2796,7 +2796,7 @@ func AdminUserMFAPolicyAction(user AdminUserData, stepUpRequired bool) templ.Com
 									return templ_7745c5c3_Err
 								}
 							} else {
-								templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 208, "Require MFA")
+								templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 208, "Require 2FA")
 								if templ_7745c5c3_Err != nil {
 									return templ_7745c5c3_Err
 								}
@@ -5385,7 +5385,7 @@ func AdminUserCredentialResetResultDialog(data *AdminUserCredentialResetData) te
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 345, "</textarea></div><div class=\"rounded-md border border-amber-500/25 bg-amber-500/10 px-3 py-2.5 text-xs leading-relaxed text-amber-900 dark:text-amber-100\">Send the page address and token through a trusted channel. Issuing this token does not change existing access or remove an earlier password-change requirement. Successful redemption signs the user out everywhere, preserves MFA, and does not enable a disabled account.</div>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 345, "</textarea></div><div class=\"rounded-md border border-amber-500/25 bg-amber-500/10 px-3 py-2.5 text-xs leading-relaxed text-amber-900 dark:text-amber-100\">Send the page address and token through a trusted channel. Issuing this token does not change existing access or remove an earlier password-change requirement. Successful redemption signs the user out everywhere, keeps two-factor authentication, and does not enable a disabled account.</div>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -11789,7 +11789,7 @@ func AdminUserRequiredPasswordChangeAction(user AdminUserData, stepUpRequired bo
 								}()
 							}
 							ctx = templ.InitializeContext(ctx)
-							templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 776, "Existing sessions will be signed out now. At their next login, the user must replace their password before accessing webmail. They can sign in with their current password and any required MFA. No reset token is generated.")
+							templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 776, "Existing sessions will be signed out now. At their next login, the user must replace their password before accessing webmail. They can sign in with their current password and any required authenticator app code. No reset token is generated.")
 							if templ_7745c5c3_Err != nil {
 								return templ_7745c5c3_Err
 							}

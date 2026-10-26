@@ -29,8 +29,10 @@ func TestAuthenticationPolicyRequiresStrongAssuranceAndStepUp(t *testing.T) {
 		"per-user MFA":  perUserMFA,
 		"instance MFA":  instanceMFA,
 	} {
+		// A passkey sign-in alone is one factor; two factors take the
+		// authenticator app as well.
 		if policy.allowsAssurance(AssuranceLevelLegacy) || policy.allowsAssurance(AssuranceLevelSingleFactor) ||
-			!policy.allowsAssurance(AssuranceLevelMultiFactor) || !policy.allowsAssurance(AssuranceLevelPhishingResistant) {
+			!policy.allowsAssurance(AssuranceLevelMultiFactor) || policy.allowsAssurance(AssuranceLevelPhishingResistant) {
 			t.Fatalf("%s assurance policy = %#v", name, policy)
 		}
 		if policy.allowsStepUpMethod(AuthenticationMethodPassword) ||
@@ -63,7 +65,8 @@ func TestAuthenticatedSessionIssuanceEnforcesCurrentPolicy(t *testing.T) {
 		{name: "administrator single-factor session", isAdmin: true, assurance: AssuranceLevelSingleFactor, wantError: true},
 		{name: "administrator multi-factor session", isAdmin: true, assurance: AssuranceLevelMultiFactor},
 		{name: "per-user single-factor session", mfaRequired: true, assurance: AssuranceLevelSingleFactor, wantError: true},
-		{name: "per-user phishing-resistant session", mfaRequired: true, assurance: AssuranceLevelPhishingResistant},
+		{name: "per-user passkey-only session", mfaRequired: true, assurance: AssuranceLevelPhishingResistant, wantError: true},
+		{name: "per-user multi-factor session", mfaRequired: true, assurance: AssuranceLevelMultiFactor},
 		{name: "instance single-factor session", instanceMFA: true, assurance: AssuranceLevelSingleFactor, wantError: true},
 		{name: "instance multi-factor session", instanceMFA: true, assurance: AssuranceLevelMultiFactor},
 	} {
@@ -146,7 +149,7 @@ func TestIndividualMFAPolicyPreservesExistingSessionContinuity(t *testing.T) {
 		t.Fatalf("rotated weak session under individual policy = %#v, %v", stored, err)
 	}
 	strong, err := manager.CreateAuthenticatedSession(
-		t.Context(), "person", "Passkey Browser", AuthenticationMethodPasskey, AssuranceLevelPhishingResistant,
+		t.Context(), "person", "Passkey and TOTP Browser", AuthenticationMethodPasskey, AssuranceLevelMultiFactor,
 	)
 	if err != nil {
 		t.Fatal(err)

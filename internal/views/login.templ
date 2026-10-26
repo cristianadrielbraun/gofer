@@ -26,7 +26,21 @@ type RecoveryRepairCodesData struct {
 type MFAEnrollmentData = RecoveryRepairMFAData
 type MFAEnrollmentCodesData = RecoveryRepairCodesData
 
-templ LoginPage(showGoogle, showMicrosoft bool, oidcName string, errorMessage string, identifier string, personal ...bool) {
+// LoginPageData is the sign-in page. It asks for the username first, then
+// shows the password, and a passkey when the username has one. MethodsShown
+// starts the page at that second step, as after a wrong password.
+type LoginPageData struct {
+	ShowGoogle    bool
+	ShowMicrosoft bool
+	OIDCName      string
+	ErrorMessage  string
+	Identifier    string
+	Personal      bool
+	MethodsShown  bool
+	HasPasskey    bool
+}
+
+templ LoginPage(data LoginPageData) {
 	<!DOCTYPE html>
 	<html lang="en" class="dark" data-theme="classic">
 		<head>
@@ -44,81 +58,91 @@ templ LoginPage(showGoogle, showMicrosoft bool, oidcName string, errorMessage st
 						<img src={ assetver.URL("/assets/logo.svg") } alt="Gofer" class="h-12 w-auto mx-auto"/>
 						<p class="text-muted-foreground mt-2 text-sm">A self-hosted email client</p>
 					</div>
-					if errorMessage != "" {
+					if data.ErrorMessage != "" {
 						<div id="login-error" role="alert" aria-live="polite" class="bg-destructive/10 border border-destructive/20 text-destructive rounded-lg px-4 py-3 text-sm mb-6">
-							{ errorMessage }
+							{ data.ErrorMessage }
 						</div>
 					}
-					<form method="post" action="/login" class="space-y-4">
-						<div class="space-y-2">
-							<label for="login-identifier" class="text-sm font-medium">Username</label>
-							<input
-								id="login-identifier"
-								name="identifier"
-								type="text"
-								value={ identifier }
-								autocomplete="username"
-								autocapitalize="none"
-								spellcheck="false"
-								required
-								autofocus?={ errorMessage == "" }
-								if errorMessage != "" {
-									aria-invalid="true"
-									aria-describedby="login-error"
-								}
-								class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none transition-shadow placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 aria-[invalid=true]:border-destructive aria-[invalid=true]:ring-destructive/20"
-							/>
-						</div>
-						<div class="space-y-2">
-							<div class="flex items-center justify-between gap-3">
-								<label for="login-password" class="text-sm font-medium">Password</label>
-								if len(personal) == 0 || !personal[0] {
-<a href="/account/recover" class="text-xs font-semibold text-primary hover:underline hover:underline-offset-2">Forgot password?</a>
-}
+					<div data-login-flow data-methods-path="/login/methods" data-methods-shown={ fmt.Sprint(data.MethodsShown) } data-identified={ loginIdentified(data) }>
+						<form method="post" action="/login" data-login-form>
+							<div class="space-y-2">
+								<label for="login-identifier" class="text-sm font-medium">Username</label>
+								<input
+									id="login-identifier"
+									name="identifier"
+									type="text"
+									value={ data.Identifier }
+									autocomplete="username"
+									autocapitalize="none"
+									spellcheck="false"
+									required
+									autofocus?={ !data.MethodsShown }
+									if data.ErrorMessage != "" {
+										aria-invalid="true"
+										aria-describedby="login-error"
+									}
+									class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none transition-shadow placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 aria-[invalid=true]:border-destructive aria-[invalid=true]:ring-destructive/20"
+								/>
 							</div>
-							<input
-								id="login-password"
-								name="password"
-								type="password"
-								autocomplete="current-password"
-								required
-								autofocus?={ errorMessage != "" }
-								if errorMessage != "" {
-									aria-invalid="true"
-									aria-describedby="login-error"
-								}
-								class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none transition-shadow placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 aria-[invalid=true]:border-destructive aria-[invalid=true]:ring-destructive/20"
-							/>
+							<div class="login-reveal" data-login-reveal="password" data-open={ fmt.Sprint(data.MethodsShown) }>
+								<div>
+									<div class="space-y-2 pt-4">
+										<div class="flex items-center justify-between gap-3">
+											<label for="login-password" class="text-sm font-medium">Password</label>
+											if !data.Personal {
+												<a href="/account/recover" class="text-xs font-semibold text-primary hover:underline hover:underline-offset-2">Forgot password?</a>
+											}
+										</div>
+										<input
+											id="login-password"
+											name="password"
+											type="password"
+											autocomplete="current-password"
+											required
+											disabled?={ !data.MethodsShown }
+											autofocus?={ data.MethodsShown }
+											if data.ErrorMessage != "" {
+												aria-invalid="true"
+												aria-describedby="login-error"
+											}
+											class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none transition-shadow placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 aria-[invalid=true]:border-destructive aria-[invalid=true]:ring-destructive/20"
+										/>
+									</div>
+								</div>
+							</div>
+							@button.Button(button.Props{Type: button.TypeSubmit, FullWidth: true, Class: "mt-4", Attributes: templ.Attributes{"data-login-submit": ""}}) {
+								<span class="login-submit-labels">
+									<span class="login-submit-label" data-login-submit-label="continue" data-shown={ fmt.Sprint(!data.MethodsShown) } aria-hidden={ fmt.Sprint(data.MethodsShown) }>Continue</span>
+									<span class="login-submit-label" data-login-submit-label="sign-in" data-shown={ fmt.Sprint(data.MethodsShown) } aria-hidden={ fmt.Sprint(!data.MethodsShown) }>Sign in</span>
+								</span>
+							}
+						</form>
+						<div class="login-reveal" data-login-reveal="passkey" data-open={ fmt.Sprint(data.MethodsShown && data.HasPasskey) }>
+							<div>
+								<form
+									data-passkey-authentication
+									data-start-path="/login/passkey/start"
+									data-finish-path="/login/passkey/finish"
+									data-identifier-source="#login-identifier"
+									data-fallback="Use your password if the passkey is unavailable."
+									class="space-y-3 pt-3"
+								>
+									@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantOutline, FullWidth: true}) {
+										Sign in with a passkey
+									}
+									<p data-passkey-authentication-status role="status" aria-live="polite" class="text-center text-xs text-muted-foreground empty:hidden"></p>
+									<noscript><p class="text-center text-xs text-amber-800 dark:text-amber-200">JavaScript is required for passkey sign-in. You can still use your password.</p></noscript>
+								</form>
+							</div>
 						</div>
-						@button.Button(button.Props{Type: button.TypeSubmit, FullWidth: true}) {
-							Sign in
-						}
-					</form>
-					<div class="relative my-6">
-						<div class="absolute inset-0 flex items-center" aria-hidden="true"><div class="w-full border-t border-border"></div></div>
-						<div class="relative flex justify-center"><span class="bg-background px-3 text-xs uppercase tracking-wide text-muted-foreground">or</span></div>
 					</div>
-					<form
-						data-passkey-authentication
-						data-start-path="/login/passkey/start"
-						data-finish-path="/login/passkey/finish"
-						data-identifier-source="#login-identifier"
-						data-fallback="Use your password if the passkey is unavailable."
-						class="space-y-3"
-					>
-						@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantOutline, FullWidth: true}) {
-							Sign in with a passkey
-						}
-						<p data-passkey-authentication-status role="status" aria-live="polite" class="text-center text-xs text-muted-foreground">Enter a username to target its passkeys, or leave it blank to choose a saved account.</p>
-						<noscript><p class="text-center text-xs text-amber-800 dark:text-amber-200">JavaScript is required for passkey sign-in. You can still use your password.</p></noscript>
-					</form>
-					if showGoogle || showMicrosoft || oidcName != "" {
+					if data.ShowGoogle || data.ShowMicrosoft || data.OIDCName != "" {
 						<div class="relative my-6">
 							<div class="absolute inset-0 flex items-center" aria-hidden="true"><div class="w-full border-t border-border"></div></div>
 							<div class="relative flex justify-center"><span class="bg-background px-3 text-xs uppercase tracking-wide text-muted-foreground">or</span></div>
 						</div>
 						<div class="space-y-3">
-							if showGoogle {
+							if data.ShowGoogle {
 								@button.Button(button.Props{Variant: button.VariantOutline, FullWidth: true, Href: "/auth/google"}) {
 									<span class="flex items-center justify-center gap-3">
 										<svg class="w-5 h-5" viewBox="0 0 24 24" aria-hidden="true">
@@ -131,7 +155,7 @@ templ LoginPage(showGoogle, showMicrosoft bool, oidcName string, errorMessage st
 									</span>
 								}
 							}
-							if showMicrosoft {
+							if data.ShowMicrosoft {
 								@button.Button(button.Props{Variant: button.VariantOutline, FullWidth: true, Href: "/auth/microsoft"}) {
 									<span class="flex items-center justify-center gap-3">
 										<svg class="w-5 h-5" viewBox="0 0 24 24" aria-hidden="true">
@@ -144,39 +168,48 @@ templ LoginPage(showGoogle, showMicrosoft bool, oidcName string, errorMessage st
 									</span>
 								}
 							}
-							if oidcName != "" {
+							if data.OIDCName != "" {
 								@button.Button(button.Props{Variant: button.VariantOutline, FullWidth: true, Href: "/auth/oidc"}) {
 									<span class="flex items-center justify-center gap-3">
 										<svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
 											<circle cx="12" cy="12" r="9"></circle>
 											<path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"></path>
 										</svg>
-										Continue with { oidcName }
+										Continue with { data.OIDCName }
 									</span>
 								}
 							}
 						</div>
 					}
-					if len(personal) > 0 && personal[0] {
- <p class="mt-6 text-center text-sm text-muted-foreground">Lost access? Use the local Gofer recovery command to reset your password.</p>
-} else {
-<p class="mt-6 text-center text-sm text-muted-foreground">
-						Have an invitation?
-						<a href="/account/enroll" class="font-semibold text-primary hover:underline hover:underline-offset-2">Set up your account</a>
-					</p>
-}
+					if data.Personal {
+						<p class="mt-6 text-center text-sm text-muted-foreground">Lost access? Use the local Gofer recovery command to reset your password.</p>
+					} else {
+						<p class="mt-6 text-center text-sm text-muted-foreground">
+							Have an invitation?
+							<a href="/account/enroll" class="font-semibold text-primary hover:underline hover:underline-offset-2">Set up your account</a>
+						</p>
+					}
 				</div>
 			</div>
 			<script src={ assetver.URL("/assets/js/passkey-authentication.js") }></script>
+			<script src={ assetver.URL("/assets/js/login.js") }></script>
 		</body>
 	</html>
 }
 
+// loginIdentified is the username whose sign-in options are shown, so that
+// changing it can go back to the username step.
+func loginIdentified(data LoginPageData) string {
+	if !data.MethodsShown {
+		return ""
+	}
+	return data.Identifier
+}
+
 type LoginMFAFactors struct {
 	PrimarySignIn string
-	Username   string
-	HasTOTP    bool
-	HasPasskey bool
+	Username      string
+	HasTOTP       bool
 }
 
 templ LoginMFAContinuationPage(errorMessage string, factors LoginMFAFactors) {
@@ -195,16 +228,11 @@ templ LoginMFAContinuationPage(errorMessage string, factors LoginMFAFactors) {
 				<div class="w-full max-w-sm">
 					<div class="text-center">
 						<img src={ assetver.URL("/assets/logo.svg") } alt="Gofer" class="h-12 w-auto mx-auto"/>
-						if factors.HasPasskey && !factors.HasTOTP {
-							<h1 class="mt-8 text-2xl font-semibold">Verify with your passkey</h1>
-							<p class="mt-3 text-sm text-muted-foreground">Your passkey is your only registered MFA method. Verify with your passkey to finish signing in.</p>
-						} else {
-							<h1 class="mt-8 text-2xl font-semibold">Complete additional verification</h1>
-							<p class="mt-3 text-sm text-muted-foreground">Use a registered verification method to finish signing in.</p>
-						}
+						<h1 class="mt-8 text-2xl font-semibold">Complete additional verification</h1>
+						<p class="mt-3 text-sm text-muted-foreground">Enter the code from your authenticator app to finish signing in.</p>
 					</div>
 					if factors.PrimarySignIn != "" {
-						<p role="status" class="mt-6 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-center text-sm font-medium text-emerald-800 dark:text-emerald-200">{ factors.PrimarySignIn } <span class="block mt-1 font-normal">Complete MFA to finish signing in.</span></p>
+						<p role="status" class="mt-6 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-center text-sm font-medium text-emerald-800 dark:text-emerald-200">{ factors.PrimarySignIn } <span class="block mt-1 font-normal">Enter your authenticator app code to finish signing in.</span></p>
 					}
 					if errorMessage != "" {
 						<div id="login-mfa-error" role="alert" aria-live="polite" class="mt-6 rounded-lg border border-destructive/20 bg-destructive/10 px-4 py-3 text-sm text-destructive">
@@ -214,7 +242,7 @@ templ LoginMFAContinuationPage(errorMessage string, factors LoginMFAFactors) {
 					if factors.HasTOTP {
 						<form method="post" action="/login/mfa" class="mt-6 space-y-4">
 							<div class="space-y-2">
-								<label for="login-mfa-code" class="block text-center text-sm font-medium">TOTP authenticator app code</label>
+								<label for="login-mfa-code" class="block text-center text-sm font-medium">Authenticator app code</label>
 								<input
 									id="login-mfa-code"
 									name="code"
@@ -238,16 +266,6 @@ templ LoginMFAContinuationPage(errorMessage string, factors LoginMFAFactors) {
 							}
 						</form>
 					}
-					if factors.HasPasskey {
-						<form data-passkey-authentication data-start-path="/login/passkey/start" data-finish-path="/login/passkey/finish" data-identifier-source="#mfa-passkey-identifier" data-fallback="Try another registered passkey or restart sign-in." class="mt-6 space-y-3">
-							<input id="mfa-passkey-identifier" type="hidden" value={ factors.Username }/>
-							@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantOutline, FullWidth: true}) {
-								Verify with a passkey
-							}
-							<p data-passkey-authentication-status role="status" aria-live="polite" class="text-sm text-muted-foreground">Your passkey satisfies MFA when you verify with your device PIN, fingerprint, or face.</p>
-							<noscript><p>JavaScript is required for passkey sign-in.</p></noscript>
-						</form>
-					}
 					<div class="mt-4">
 						@button.Button(button.Props{Variant: button.VariantOutline, FullWidth: true, Href: "/login"}) {
 							Restart sign-in
@@ -258,7 +276,6 @@ templ LoginMFAContinuationPage(errorMessage string, factors LoginMFAFactors) {
 					</div>
 				</div>
 			</main>
-			<script src={ assetver.URL("/assets/js/passkey-authentication.js") }></script>
 		</body>
 	</html>
 }
@@ -382,7 +399,7 @@ templ MFAEnrollmentPage(data MFAEnrollmentData) {
 		<head>
 			<meta charset="UTF-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-			<title>Gofer - Set Up MFA</title>
+			<title>Gofer - Set Up Two-Factor Authentication</title>
 			@AppIcon()
 			<link rel="stylesheet" href={ assetver.URL("/assets/css/output.css") }/>
 			<script src={ assetver.URL("/assets/js/actions.js") }></script>
@@ -392,9 +409,9 @@ templ MFAEnrollmentPage(data MFAEnrollmentData) {
 				<div class="w-full max-w-lg">
 					<div class="text-center mb-8">
 						<img src={ assetver.URL("/assets/logo.svg") } alt="Gofer" class="h-12 w-auto mx-auto"/>
-						<p class="mt-5 text-xs font-medium uppercase tracking-widest text-warning">MFA required</p>
+						<p class="mt-5 text-xs font-medium uppercase tracking-widest text-warning">Two-factor authentication required</p>
 						<h1 class="mt-2 text-2xl font-semibold">Set up an authenticator</h1>
-						<p class="mt-2 text-sm text-muted-foreground">Your primary sign-in succeeded, but Gofer has not created a session. Set up MFA before continuing to your mailbox.</p>
+						<p class="mt-2 text-sm text-muted-foreground">Your primary sign-in succeeded, but Gofer has not created a session. Set up an authenticator app before continuing to your mailbox.</p>
 					</div>
 					if data.ErrorMessage != "" {
 						<div id="mfa-enrollment-error" role="alert" aria-live="polite" class="mb-4 rounded-lg border border-destructive/20 bg-destructive/10 px-4 py-3 text-sm text-destructive">{ data.ErrorMessage }</div>
@@ -425,7 +442,7 @@ templ MFAEnrollmentPage(data MFAEnrollmentData) {
 							Generate a different setup key
 						}
 					</form>
-					<p class="mt-6 text-center text-xs text-muted-foreground">Completing MFA enrollment signs out other sessions. Future password or provider sign-ins will require verification with your enrolled MFA.</p>
+					<p class="mt-6 text-center text-xs text-muted-foreground">Finishing setup signs out other sessions. From now on, every sign-in asks for a code from this authenticator app.</p>
 				</div>
 			</main>
 		</body>
@@ -480,7 +497,7 @@ templ MFAEnrollmentCodesPage(data MFAEnrollmentCodesData) {
 								<span>I saved these recovery codes and understand they are the fallback for this authenticator.</span>
 							</label>
 							@button.Button(button.Props{Type: button.TypeSubmit, FullWidth: true}) {
-								Complete MFA setup and sign in
+								Finish setup and sign in
 							}
 						</form>
 						<form method="post" action="/login/mfa/enroll/codes" class="mt-2">

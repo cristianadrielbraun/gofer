@@ -70,7 +70,7 @@ func TestPasswordSecuritySettingsDoesNotOfferChangeWithoutCredential(t *testing.
 		t.Fatalf("PasswordSecuritySettings.Render() error = %v", err)
 	}
 	html := output.String()
-	if !strings.Contains(html, "does not have a local password") || strings.Contains(html, `action="/settings/security/password"`) || strings.Contains(html, `name="current_password"`) {
+	if !strings.Contains(html, "This account has no password") || strings.Contains(html, `action="/settings/security/password"`) || strings.Contains(html, `name="current_password"`) {
 		t.Fatalf("missing-credential password settings = %q", html)
 	}
 }
@@ -108,7 +108,7 @@ func TestPasswordSecuritySettingsRendersLocalLoginIdentifiersReadOnlyAndEscaped(
 	if err := PasswordSecuritySettings(PasswordSecurityData{}).Render(context.Background(), &output); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Count(output.String(), ">Not set</") != 1 {
+	if !strings.Contains(output.String(), "data-local-login-username>Not set</dd>") {
 		t.Fatalf("missing local identifier should render one Not set value: %q", output.String())
 	}
 }
@@ -123,7 +123,7 @@ func TestPasswordSecuritySettingsRendersSessionHistoryWithoutInternalValues(t *t
 		CanRevokeOtherSessions: true,
 		Sessions: []SecuritySessionData{
 			{
-				Client: "Firefox on Linux", Authentication: "Password", Assurance: "Multi-factor",
+				Client: "Firefox on Linux", Authentication: "Password", Assurance: "Two-factor",
 				SignedInAt: "Aug 19, 2026 at 10:00 AM", LastActiveAt: "Aug 19, 2026 at 10:05 AM",
 				Current: true, Active: true,
 			},
@@ -149,7 +149,7 @@ func TestPasswordSecuritySettingsRendersSessionHistoryWithoutInternalValues(t *t
 		`id="security-sessions-revoke-others"`,
 		`data-tui-dialog-target="security-session-revoke-1"`,
 		`id="security-session-revoke-1"`,
-		"Firefox on Linux", "Password · Multi-factor", "Current",
+		"Firefox on Linux", "Password · Two-factor", "Current",
 		"Chrome on macOS", "Passkey · Phishing-resistant", "Active",
 		`action="` + revokePath + `"`, ">Sign out</button>",
 		`action="` + revokeOthersPath + `"`, "Sign out all other sessions",
@@ -307,14 +307,14 @@ func TestPasswordSecuritySettingsRendersFirstTimeTOTPEnrollmentWithoutReplacemen
 		t.Fatalf("PasswordSecuritySettings.Render() setup action error = %v", err)
 	}
 	for _, want := range []string{
-		"Not enrolled", "Set up authenticator", `action="/settings/security/totp/start"`,
+		">Off</span>", "Set up an authenticator app", `action="/settings/security/totp/start"`,
 		`name="_csrf" value="` + csrf + `"`,
 	} {
 		if !strings.Contains(output.String(), want) {
 			t.Fatalf("first-time TOTP setup action missing %q: %q", want, output.String())
 		}
 	}
-	if strings.Contains(output.String(), "Replace TOTP authenticator app") {
+	if strings.Contains(output.String(), "Replace authenticator app") {
 		t.Fatal("first-time TOTP setup action rendered replacement copy")
 	}
 
@@ -338,7 +338,7 @@ func TestPasswordSecuritySettingsRendersFirstTimeTOTPEnrollmentWithoutReplacemen
 		`data-totp-management`, "Verify the new authenticator",
 		`alt="QR code containing the new Gofer authenticator key"`,
 		`aria-label="New authenticator manual setup key"`,
-		"authenticator is not enabled until the code is verified", "Enable authenticator",
+		"authenticator is not enabled until the code is verified", "Turn on two-factor authentication",
 		`&lt;first-authenticator-key&gt;`,
 	} {
 		if !strings.Contains(html, want) {
@@ -371,7 +371,7 @@ func TestPasswordSecurityVerificationRendersOnlyAvailableStepUpMethods(t *testin
 	for _, want := range []string{
 		`data-security-step-up`, `action="/settings/security/step-up"`,
 		`inputmode="numeric"`, `autocomplete="one-time-code"`,
-		`id="security-totp-code"`, `aria-label="TOTP verification code"`,
+		`id="security-totp-code"`, `aria-label="Authenticator app code"`,
 		"has not loaded your security details yet",
 		`data-passkey-authentication`, `data-start-path="/settings/security/passkeys/step-up/start"`,
 		`data-finish-path="/settings/security/passkeys/step-up/finish"`, "Verify with a passkey",
@@ -436,7 +436,7 @@ func TestPasswordSecuritySettingsRequiresStrongStepUpForMFAPasswordChange(t *tes
 	}
 	requiredHTML := requiredOutput.String()
 	for _, want := range []string{
-		"current password alone is not sufficient verification",
+		"the current password alone is not enough",
 		"Verify this session above before changing the password",
 	} {
 		if !strings.Contains(requiredHTML, want) {

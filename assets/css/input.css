@@ -6881,3 +6881,54 @@ aside a[data-mail-drop-active] {
 #mail-source-dialog .mail-source-label {
   background: color-mix(in srgb, var(--card) 94%, var(--foreground));
 }
+
+/* Sign-in page: the password and passkey open under the username. */
+.login-reveal {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition: grid-template-rows 280ms cubic-bezier(0.2, 0, 0, 1), opacity 200ms ease;
+}
+
+/* Room for focus rings, which the clipping would otherwise cut off. */
+.login-reveal > * {
+  min-height: 0;
+  overflow: hidden;
+  margin: -4px;
+  padding: 4px;
+}
+
+.login-reveal[data-open="true"] {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transition: grid-template-rows 280ms cubic-bezier(0.2, 0, 0, 1), opacity 240ms ease 80ms;
+}
+
+.login-reveal[data-open="false"] {
+  visibility: hidden;
+  transition: grid-template-rows 280ms cubic-bezier(0.2, 0, 0, 1), opacity 160ms ease, visibility 0s linear 280ms;
+}
+
+.login-submit-labels {
+  display: grid;
+}
+
+.login-submit-label {
+  grid-area: 1 / 1;
+  text-align: center;
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+
+.login-submit-label[data-shown="false"] {
+  opacity: 0;
+  transform: translateY(4px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-reveal,
+  .login-reveal[data-open="true"],
+  .login-reveal[data-open="false"],
+  .login-submit-label {
+    transition: none;
+  }
+}

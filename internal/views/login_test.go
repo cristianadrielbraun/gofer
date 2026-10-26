@@ -8,7 +8,7 @@ import (
 
 func TestLoginPageUsesAccessibleLocalPasswordForm(t *testing.T) {
 	var output bytes.Buffer
-	if err := LoginPage(false, false, "", "Unable to sign in with those credentials.", `person"@example.com`).Render(t.Context(), &output); err != nil {
+	if err := LoginPage(LoginPageData{ErrorMessage: "Unable to sign in with those credentials.", Identifier: `person"@example.com`, MethodsShown: true}).Render(t.Context(), &output); err != nil {
 		t.Fatalf("LoginPage().Render() error = %v", err)
 	}
 	html := output.String()
@@ -35,9 +35,31 @@ func TestLoginPageUsesAccessibleLocalPasswordForm(t *testing.T) {
 	}
 }
 
+// The page starts at the username: the password is closed and left out of the
+// form, and the button continues.
+func TestLoginPageStartsAtTheUsername(t *testing.T) {
+	var output bytes.Buffer
+	if err := LoginPage(LoginPageData{}).Render(t.Context(), &output); err != nil {
+		t.Fatalf("LoginPage().Render() error = %v", err)
+	}
+	html := output.String()
+	for _, required := range []string{
+		`data-login-reveal="password" data-open="false"`, `data-login-reveal="passkey" data-open="false"`,
+		`data-login-submit-label="continue" data-shown="true"`, `src="/assets/js/login.js"`,
+	} {
+		if !strings.Contains(html, required) {
+			t.Fatalf("login page missing %q", required)
+		}
+	}
+	passwordInput := html[strings.Index(html, `id="login-password"`):]
+	if passwordInput = passwordInput[:strings.Index(passwordInput, ">")]; !strings.Contains(passwordInput, "disabled") {
+		t.Fatalf("the closed password is sent: %s", passwordInput)
+	}
+}
+
 func TestLoginPageShowsGoogleOnlyWhenConfigured(t *testing.T) {
 	var output bytes.Buffer
-	if err := LoginPage(true, false, "", "", "").Render(t.Context(), &output); err != nil {
+	if err := LoginPage(LoginPageData{ShowGoogle: true}).Render(t.Context(), &output); err != nil {
 		t.Fatalf("LoginPage().Render() error = %v", err)
 	}
 	html := output.String()
@@ -51,7 +73,7 @@ func TestLoginPageShowsGoogleOnlyWhenConfigured(t *testing.T) {
 
 func TestLoginPageShowsMicrosoftOnlyWhenConfigured(t *testing.T) {
 	var output bytes.Buffer
-	if err := LoginPage(false, true, "", "", "").Render(t.Context(), &output); err != nil {
+	if err := LoginPage(LoginPageData{ShowMicrosoft: true}).Render(t.Context(), &output); err != nil {
 		t.Fatalf("LoginPage().Render() error = %v", err)
 	}
 	html := output.String()
@@ -65,7 +87,7 @@ func TestLoginPageShowsMicrosoftOnlyWhenConfigured(t *testing.T) {
 
 func TestLoginPageShowsConfiguredOIDCProviderWithoutMailboxAccess(t *testing.T) {
 	var output bytes.Buffer
-	if err := LoginPage(false, false, "Company SSO", "", "").Render(t.Context(), &output); err != nil {
+	if err := LoginPage(LoginPageData{OIDCName: "Company SSO"}).Render(t.Context(), &output); err != nil {
 		t.Fatalf("LoginPage().Render() error = %v", err)
 	}
 	html := output.String()
@@ -170,7 +192,7 @@ func TestRequiredMFAEnrollmentPagesRemainSessionlessAndLocal(t *testing.T) {
 		"Set up an authenticator", "Gofer has not created a session",
 		`src="data:image/png;base64,cXItZGF0YQ=="`, "ABCD EFGH",
 		`action="/login/mfa/enroll"`, `value="confirm"`, `value="restart"`,
-		"Completing MFA enrollment signs out other sessions",
+		"Finishing setup signs out other sessions",
 	} {
 		if !strings.Contains(enrollment.String(), required) {
 			t.Fatalf("required MFA enrollment page missing %q: %q", required, enrollment.String())
@@ -189,7 +211,7 @@ func TestRequiredMFAEnrollmentPagesRemainSessionlessAndLocal(t *testing.T) {
 	for _, required := range []string{
 		"Save your recovery codes", "AAAA-BBBB-CCCC-DDDD-EEEE-FFFF",
 		`action="/login/mfa/enroll/codes"`, `name="batch_id" value="batch-id"`,
-		"Complete MFA setup and sign in", "No new session or authenticator exists",
+		"Finish setup and sign in", "No new session or authenticator exists",
 	} {
 		if !strings.Contains(codes.String(), required) {
 			t.Fatalf("required MFA recovery page missing %q: %q", required, codes.String())
@@ -201,11 +223,11 @@ func TestRequiredMFAEnrollmentPagesRemainSessionlessAndLocal(t *testing.T) {
 }
 
 func TestLoginMFAConfirmationEscapesProviderAndKeepsVerificationRequired(t *testing.T) {
-	for _, passkeyOnly := range []bool{false, true} {
+	{
 		var output bytes.Buffer
 		err := LoginMFAContinuationPage("", LoginMFAFactors{
 			PrimarySignIn: "<script>provider</script> sign-in successful.",
-			HasTOTP:       !passkeyOnly, HasPasskey: passkeyOnly,
+			HasTOTP:       true,
 		}).Render(t.Context(), &output)
 		if err != nil {
 			t.Fatal(err)
@@ -214,7 +236,7 @@ func TestLoginMFAConfirmationEscapesProviderAndKeepsVerificationRequired(t *test
 		if strings.Contains(html, "<script>provider</script>") || !strings.Contains(html, "&lt;script&gt;provider&lt;/script&gt;") {
 			t.Fatal("provider confirmation was not escaped")
 		}
-		if !strings.Contains(html, "Complete MFA to finish signing in.") || strings.Contains(html, "Your password was accepted") {
+		if !strings.Contains(html, "Enter your authenticator app code to finish signing in.") || strings.Contains(html, "Your password was accepted") {
 			t.Fatal("confirmation misrepresents completed authentication")
 		}
 	}

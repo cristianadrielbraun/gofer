@@ -35,7 +35,7 @@ func TestSetAdministratorUserStatusDisablesAndEnablesWithoutChangingCredentials(
 		t.Fatal(err)
 	}
 	second, err := manager.CreateAuthenticatedSession(
-		t.Context(), "person", "Second browser", AuthenticationMethodPasskey, AssuranceLevelPhishingResistant,
+		t.Context(), "person", "Second browser", AuthenticationMethodPasskey, AssuranceLevelMultiFactor,
 	)
 	if err != nil {
 		t.Fatal(err)

@@ -39,12 +39,10 @@ func canRemoveAuthenticatorInTransaction(
 	availability federatedLoginAvailability,
 	removal authenticatorRemoval,
 ) (bool, error) {
-	var hasPassword, hasTOTP, passkeyCount, googleIdentityCount, microsoftIdentityCount, oidcIdentityCount int
+	var hasPassword, passkeyCount, googleIdentityCount, microsoftIdentityCount, oidcIdentityCount int
 	err := tx.QueryRowContext(ctx, `
 		SELECT
 			EXISTS(SELECT 1 FROM password_credentials p WHERE p.user_id = u.id),
-			EXISTS(SELECT 1 FROM totp_credentials t
-				WHERE t.user_id = u.id AND t.enabled = 1 AND t.revoked_at IS NULL),
 			(SELECT COUNT(*) FROM webauthn_credentials w
 				WHERE w.user_id = u.id AND w.rp_id = ? AND w.revoked_at IS NULL
 				  AND w.credential_ciphertext IS NOT NULL AND w.key_version IS NOT NULL
@@ -65,15 +63,12 @@ func canRemoveAuthenticatorInTransaction(
 		googleIdentityProvider, googleLoginIssuer, removal.IdentityID, removal.IdentityID,
 		microsoftIdentityProvider, removal.IdentityID, removal.IdentityID,
 		oidcIdentityProvider, availability.OIDCIssuer, removal.IdentityID, removal.IdentityID, userID,
-	).Scan(&hasPassword, &hasTOTP, &passkeyCount, &googleIdentityCount, &microsoftIdentityCount, &oidcIdentityCount)
+	).Scan(&hasPassword, &passkeyCount, &googleIdentityCount, &microsoftIdentityCount, &oidcIdentityCount)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, ErrSecuritySessionInvalid
 	}
 	if err != nil {
 		return false, fmt.Errorf("load remaining authenticator inventory: %w", err)
-	}
-	if removal.TOTP {
-		hasTOTP = 0
 	}
 	if !availability.Google {
 		googleIdentityCount = 0
@@ -90,6 +85,8 @@ func canRemoveAuthenticatorInTransaction(
 		return false, fmt.Errorf("load authenticator removal policy: %w", err)
 	}
 	hasPrimary := hasPassword == 1 || passkeyCount > 0 || googleIdentityCount > 0 || microsoftIdentityCount > 0 || oidcIdentityCount > 0
-	hasStrong := hasTOTP == 1 || passkeyCount > 0
-	return hasPrimary && (!policy.MFAEnrollmentRequired || hasStrong), nil
+	// Only the authenticator app is a second factor, so only it has to stay
+	// while two-factor authentication is required. Anything else can go while
+	// some way to sign in remains.
+	return hasPrimary && !(removal.TOTP && policy.MFAEnrollmentRequired), nil
 }

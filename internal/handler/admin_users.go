@@ -244,7 +244,7 @@ func (h *Handler) handleSetAdminUserMFAPolicy(w http.ResponseWriter, r *http.Req
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, "Invalid MFA policy request.")
+		h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, "Invalid two-factor authentication request.")
 		return
 	}
 	var required bool
@@ -253,7 +253,7 @@ func (h *Handler) handleSetAdminUserMFAPolicy(w http.ResponseWriter, r *http.Req
 		required = true
 	case "false":
 	default:
-		h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, "Invalid MFA policy request.")
+		h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, "Invalid two-factor authentication request.")
 		return
 	}
 	result, err := h.auth.SetAdministratorUserMFAPolicy(ctx, auth.SetAdministratorUserMFAPolicyOptions{
@@ -263,26 +263,26 @@ func (h *Handler) handleSetAdminUserMFAPolicy(w http.ResponseWriter, r *http.Req
 	if err != nil {
 		switch {
 		case errors.Is(err, auth.ErrRecentStepUpRequired):
-			h.renderAdminUsers(w, r, http.StatusForbidden, views.AdminUserInvitationFormData{}, nil, "Verify this administrator session before changing a user's MFA policy.")
+			h.renderAdminUsers(w, r, http.StatusForbidden, views.AdminUserInvitationFormData{}, nil, "Verify this administrator session before changing a user's two-factor authentication requirement.")
 		case errors.Is(err, auth.ErrAdministratorRequired):
 			http.Error(w, "admin access required", http.StatusForbidden)
 		case errors.Is(err, auth.ErrAdministratorUserMFATargetInvalid):
 			h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, "This webmail user is no longer available. Refresh the page and try again.")
 		default:
 			log.Printf("set administrator user MFA policy: %v", err)
-			h.renderAdminUsers(w, r, http.StatusInternalServerError, views.AdminUserInvitationFormData{}, nil, "Unable to change the user's MFA policy right now.")
+			h.renderAdminUsers(w, r, http.StatusInternalServerError, views.AdminUserInvitationFormData{}, nil, "Unable to change the user's two-factor authentication requirement right now.")
 		}
 		return
 	}
 	if !result.Changed {
-		redirectAdminUsers(w, r, "The user's MFA policy was already up to date.")
+		redirectAdminUsers(w, r, "The user's two-factor authentication requirement was already up to date.")
 		return
 	}
 	if result.Required {
-		redirectAdminUsers(w, r, "MFA is now required for this user's next sign-in. Existing sessions and factors were left unchanged.")
+		redirectAdminUsers(w, r, "Two-factor authentication is now required for this user's next sign-in. Existing sessions and factors were left unchanged.")
 		return
 	}
-	redirectAdminUsers(w, r, "The individual MFA requirement was cleared. Existing sessions and factors were left unchanged.")
+	redirectAdminUsers(w, r, "The individual two-factor authentication requirement was cleared. Existing sessions and factors were left unchanged.")
 }
 
 func (h *Handler) handleSetAdminUserStatus(w http.ResponseWriter, r *http.Request) {
@@ -326,7 +326,7 @@ func (h *Handler) handleSetAdminUserStatus(w http.ResponseWriter, r *http.Reques
 		case errors.Is(err, auth.ErrLastActiveAdmin):
 			h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, "The last active management administrator cannot be disabled.")
 		case errors.Is(err, auth.ErrInstanceMFAEnrollmentNeeded):
-			h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, "This user needs an enrolled authenticator before they can be enabled under the current MFA policy.")
+			h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, "This user needs an authenticator app before they can be enabled while two-factor authentication is required.")
 		case errors.Is(err, auth.ErrAdministratorUserStatusInvalid),
 			errors.Is(err, auth.ErrAdministratorUserStatusTargetInvalid):
 			h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, "This user is no longer available for that action. Refresh the page and try again.")

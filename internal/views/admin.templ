@@ -308,14 +308,14 @@ templ AdminSecurityVerificationDialog(data AdminSecurityVerificationData) {
 									@icon.Smartphone(icon.Props{Class: "size-5"})
 								</div>
 								<div class="min-w-0 flex-1">
-									<label for="admin-security-totp-code" class="text-sm font-semibold text-foreground">TOTP authenticator app code</label>
+									<label for="admin-security-totp-code" class="text-sm font-semibold text-foreground">Authenticator app code</label>
 									<p class="mt-1 text-xs leading-relaxed text-muted-foreground">Enter the current six-digit code from your authenticator app.</p>
 								</div>
 							</div>
 							<input
 								id="admin-security-totp-code"
 								autofocus
-								aria-label="TOTP verification code"
+								aria-label="Authenticator app code"
 								name="code"
 								type="text"
 								inputmode="numeric"
@@ -704,7 +704,7 @@ templ AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificat
 				if data.StepUpRequired {
 					<div role="alert" class="mt-5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-900 dark:text-amber-100">
 						<p class="font-semibold">Recent administrator verification required</p>
-						<p class="mt-1">Verify with a passkey or authenticator to manage invitations, password resets, user access, deletion, and individual MFA policies for the next ten minutes.</p>
+						<p class="mt-1">Verify with a passkey or authenticator to manage invitations, password resets, user access, deletion, and individual two-factor authentication requirements for the next ten minutes.</p>
 						<div class="mt-3">
 							@AdminSecurityVerificationTrigger(adminSecurityVerificationValue(verification), "Verify now")
 						</div>
@@ -750,7 +750,7 @@ templ AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificat
 										<th scope="col" class="px-4 py-3">User</th>
 										<th scope="col" class="px-4 py-3">Status</th>
 										<th scope="col" class="px-4 py-3">Role</th>
-										<th scope="col" class="px-4 py-3">MFA policy</th>
+										<th scope="col" class="px-4 py-3">2FA</th>
 										<th scope="col" class="px-4 py-3">Invitation</th>
 										<th scope="col" class="px-4 py-3 text-right">Actions</th>
 										<th scope="col" class="px-4 py-3">User ID</th>
@@ -885,7 +885,7 @@ templ AdminUserMFAPolicyAction(user AdminUserData, stepUpRequired bool) {
 					if user.MFARequired {
 						Clear individual policy
 					} else {
-						Require MFA
+						Require 2FA
 					}
 				}
 			}
@@ -894,16 +894,16 @@ templ AdminUserMFAPolicyAction(user AdminUserData, stepUpRequired bool) {
 					@dialog.Header() {
 						@dialog.Title() {
 							if user.MFARequired {
-								Clear the individual MFA requirement?
+								Clear the individual 2FA requirement?
 							} else {
-								Require MFA for { adminUserUsername(user.Username) }?
+								Require 2FA for { adminUserUsername(user.Username) }?
 							}
 						}
 						@dialog.Description() {
 							if user.MFARequired {
-								This removes only the mandatory enrollment requirement. Existing sessions and authenticators are unchanged. Enrolled TOTP or passkeys will still be required during sign-in.
+								This removes only the mandatory enrollment requirement. Existing sessions and authenticators are unchanged. An enrolled authenticator app will still be required during sign-in.
 							} else {
-								The user must enroll and retain a TOTP authenticator app or passkey. If neither is enrolled, setup is required at the next sign-in. Existing sessions are unchanged; enrolled MFA is always verified, even without this requirement.
+								The user must set up and keep an authenticator app, which is asked for after every password, passkey, or provider sign-in. If none is set up, setup is required at the next sign-in. Existing sessions are unchanged; an enrolled authenticator app is always verified, even without this requirement.
 							}
 						}
 					}
@@ -920,7 +920,7 @@ templ AdminUserMFAPolicyAction(user AdminUserData, stepUpRequired bool) {
 								if user.MFARequired {
 									Clear individual policy
 								} else {
-									Require MFA
+									Require 2FA
 								}
 							}
 						}
@@ -1369,7 +1369,7 @@ templ AdminUserCredentialResetResultDialog(data *AdminUserCredentialResetData) {
 			<div class="rounded-md border border-amber-500/25 bg-amber-500/10 px-3 py-2.5 text-xs leading-relaxed text-amber-900 dark:text-amber-100">
 				Send the page address and token through a trusted channel.
 				Issuing this token does not change existing access or remove an earlier password-change requirement.
-				Successful redemption signs the user out everywhere, preserves MFA, and does not enable a disabled account.
+				Successful redemption signs the user out everywhere, keeps two-factor authentication, and does not enable a disabled account.
 			</div>
 			@dialog.Footer() {
 				@dialog.Close(dialog.CloseProps{For: "admin-user-credential-reset-result-dialog"}) {
@@ -3104,7 +3104,7 @@ templ AdminUserRequiredPasswordChangeAction(user AdminUserData, stepUpRequired b
       Require a password change for { adminUserUsername(user.Username) }?
      }
      @dialog.Description() {
-      Existing sessions will be signed out now. At their next login, the user must replace their password before accessing webmail. They can sign in with their current password and any required MFA. No reset token is generated.
+      Existing sessions will be signed out now. At their next login, the user must replace their password before accessing webmail. They can sign in with their current password and any required authenticator app code. No reset token is generated.
      }
     }
     <form method="post" action={ user.RequiredChangePath }>

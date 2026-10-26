@@ -15,6 +15,7 @@ func (h *Handler) RegisterAuthenticationRoutes(mux *http.ServeMux) {
 
 	mux.HandleFunc("GET /login", h.handleLogin)
 	mux.HandleFunc("POST /login", h.handleLoginSubmit)
+	mux.HandleFunc("POST /login/methods", h.handleLoginMethods)
 	mux.HandleFunc("GET /admin/login", h.handleAdminLogin)
 	mux.HandleFunc("POST /admin/login", h.handleAdminLoginSubmit)
 	mux.HandleFunc("POST "+loginPasskeyStartPath, h.handleLoginPasskeyStart)

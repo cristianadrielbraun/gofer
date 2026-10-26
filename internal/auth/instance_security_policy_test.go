@@ -215,9 +215,17 @@ func TestSetInstanceMFAPolicyRevokesWeakSessionsAndDoesNotReviveThem(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	strong, err := manager.CreateAuthenticatedSession(
+	// A passkey sign-in alone is one factor, so it is weak too.
+	passkeyOnly, err := manager.CreateAuthenticatedSession(
 		t.Context(), "passkey-user", "Passkey browser",
 		AuthenticationMethodPasskey, AssuranceLevelPhishingResistant,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	strong, err := manager.CreateAuthenticatedSession(
+		t.Context(), "totp-user", "Passkey and TOTP browser",
+		AuthenticationMethodPasskey, AssuranceLevelMultiFactor,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -227,13 +235,15 @@ func TestSetInstanceMFAPolicyRevokesWeakSessionsAndDoesNotReviveThem(t *testing.
 		ActorUserID: adminSession.UserID, ActorSessionID: adminSession.ID,
 		Policy: InstanceMFAPolicyAllUsers,
 	})
-	if err != nil || result == nil || !result.Changed || result.RevokedSessions != 1 ||
+	if err != nil || result == nil || !result.Changed || result.RevokedSessions != 2 ||
 		result.Policy.MFA != InstanceMFAPolicyAllUsers || result.Policy.UpdatedAt == nil ||
 		!result.Policy.UpdatedAt.Equal(now) || result.Policy.UpdatedBy != adminSession.UserID {
 		t.Fatalf("SetInstanceMFAPolicy(all users) = %#v, %v", result, err)
 	}
-	if stored, err := manager.GetSessionByToken(t.Context(), weak.Token); err != nil || stored != nil {
-		t.Fatalf("weak session after activation = %#v, %v", stored, err)
+	for _, session := range []*Session{weak, passkeyOnly} {
+		if stored, err := manager.GetSessionByToken(t.Context(), session.Token); err != nil || stored != nil {
+			t.Fatalf("weak session after activation = %#v, %v", stored, err)
+		}
 	}
 	if stored, err := manager.GetSessionByToken(t.Context(), strong.Token); err != nil || stored == nil || stored.ID != strong.ID {
 		t.Fatalf("strong session after activation = %#v, %v", stored, err)
@@ -259,7 +269,7 @@ func TestSetInstanceMFAPolicyRevokesWeakSessionsAndDoesNotReviveThem(t *testing.
 		t.Fatal(err)
 	}
 	if eventType != AuthEventSecurityPolicyChanged || eventActor != adminSession.UserID ||
-		eventSession != adminSession.ID || metadata != `{"from":"administrators","to":"all_users","revoked_sessions":1}` {
+		eventSession != adminSession.ID || metadata != `{"from":"administrators","to":"all_users","revoked_sessions":2}` {
 		t.Fatalf("policy event = type:%q actor:%q session:%q metadata:%q", eventType, eventActor, eventSession, metadata)
 	}
 	same, err := manager.SetInstanceMFAPolicy(t.Context(), SetInstanceMFAPolicyOptions{

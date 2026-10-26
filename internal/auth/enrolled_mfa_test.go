@@ -46,8 +46,11 @@ func TestEnrolledMFAAppliesToPasswordAndEveryFederatedPrimary(t *testing.T) {
 						challenge = result.PreAuthChallenge
 						enrollment = result.MFAEnrollmentRequired
 					}
-					enrolled := factor != "none" && factor != "foreign-passkey"
-					if required || enrolled {
+					// A passkey is a first factor, in place of the password; only
+					// TOTP is a second factor.
+					enrolled := factor == "totp" || factor == "both"
+					secondStep := enrolled
+					if required || secondStep {
 						if session != nil || challenge == nil || enrollment != (required && !enrolled) {
 							t.Fatal("primary login bypassed verification or selected wrong enrollment flow")
 						}
@@ -69,7 +72,7 @@ func TestEnrolledMFAAppliesToPasswordAndEveryFederatedPrimary(t *testing.T) {
 						t.Fatal("optional factorless account cannot sign in")
 					}
 					policy, err := m.loadAuthenticationPolicy(t.Context(), m.db.Read(), "person", 1)
-					if err != nil || policy.MFAEnrollmentRequired != required || policy.RequiresMFA != (required || enrolled) {
+					if err != nil || policy.MFAEnrollmentRequired != required || policy.RequiresMFA != (required || secondStep) {
 						t.Fatalf("incorrect enrollment/verification policy: %#v %v", policy, err)
 					}
 				})
@@ -156,9 +159,12 @@ func TestPasskeyEnrollmentRevokesOtherSessionsAtomically(t *testing.T) {
 				if revoked != 1 || version != 2 || keys != 1 {
 					t.Fatal("enrollment did not revoke others atomically")
 				}
+				// Adding a passkey refreshes verification but doesn't change how
+				// the session signed in.
 				current, err := m.GetSessionByToken(t.Context(), f.session.Token)
-				if err != nil || current == nil || current.AssuranceLevel != AssuranceLevelPhishingResistant {
-					t.Fatal("retained session was not strengthened")
+				if err != nil || current == nil || current.AssuranceLevel != f.session.AssuranceLevel ||
+					current.StepUpMethod != AuthenticationMethodPasskey {
+					t.Fatalf("retained session = %#v, %v", current, err)
 				}
 			}
 		})
@@ -278,5 +284,39 @@ func TestGoogleMFAConfirmationUsesVerifiedEmailWithoutAuditDisclosure(t *testing
 	claims.EmailVerified = false
 	if _, _, err := m.authenticateGoogleIdentity(t.Context(), claims, "Browser"); err == nil {
 		t.Fatal("unverified email accepted")
+	}
+}
+
+// A session signed in with only a passkey is one factor. Verifying with the
+// authenticator app makes it two-factor, which opens security settings; a
+// passkey can't, so it isn't offered until then.
+func TestPasskeySessionBecomesTwoFactorWithTheAuthenticatorApp(t *testing.T) {
+	now := time.Date(2026, 9, 10, 1, 0, 0, 0, time.UTC)
+	m, _, secret, session := prepareMFAManagement(t, now, false)
+	insertPolicyTestPasskey(t, m, session.UserID, now)
+	if _, err := m.db.Write().Exec(`UPDATE users SET user_type='webmail',is_admin=0 WHERE id=?`, session.UserID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.db.Write().Exec(`UPDATE sessions SET authentication_method='passkey', assurance_level='phishing_resistant' WHERE id=?`, session.ID); err != nil {
+		t.Fatal(err)
+	}
+	access, err := m.GetSecuritySettingsAccess(t.Context(), session.Token)
+	if err != nil || access.StepUpFresh || !access.HasTOTP || access.HasPasskey {
+		t.Fatalf("access before the app = %#v, %v", access, err)
+	}
+	if err := m.VerifySecurityTOTPStepUp(t.Context(), session.Token, setupTOTPCode(t, secret, now), "198.51.100.1", "Browser"); err != nil {
+		t.Fatal(err)
+	}
+	access, err = m.GetSecuritySettingsAccess(t.Context(), session.Token)
+	if err != nil || !access.StepUpFresh || !access.HasPasskey {
+		t.Fatalf("access after the app = %#v, %v", access, err)
+	}
+	// Verifying with a passkey later keeps the session two-factor.
+	if _, err := m.db.Write().Exec(`UPDATE sessions SET step_up_method='passkey' WHERE id=?`, session.ID); err != nil {
+		t.Fatal(err)
+	}
+	current, err := m.GetSessionByToken(t.Context(), session.Token)
+	if err != nil || current == nil || current.AssuranceLevel != AssuranceLevelMultiFactor {
+		t.Fatalf("session after the app = %#v, %v", current, err)
 	}
 }

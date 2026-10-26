@@ -106,7 +106,7 @@ func insertConcurrentRemovalSession(
 			id, user_id, token_hash, auth_version, authentication_method,
 			assurance_level, user_agent, authenticated_at, last_used_at,
 			idle_expires_at, absolute_expires_at, step_up_at, step_up_method, created_at
-		) VALUES (?, ?, ?, 1, 'passkey', 'phishing_resistant', 'Concurrent removal test',
+		) VALUES (?, ?, ?, 1, 'passkey', 'multi_factor', 'Concurrent removal test',
 			?, ?, ?, ?, ?, 'passkey', ?)`,
 		sessionID, userID, hashToken(rawToken), now, now,
 		now.Add(time.Hour), now.Add(24*time.Hour), now, now,
@@ -128,9 +128,11 @@ func insertConcurrentRemovalPasskey(t *testing.T, manager *Manager, userID, pass
 	}
 }
 
-func TestLastAuthenticatorProtectionSerializesConcurrentTOTPAndPasskeyRemoval(t *testing.T) {
+// While two-factor authentication is required, the authenticator app is the
+// second factor and has to stay; a passkey is a first factor and can go.
+func TestRequiredTOTPStaysWhilePasskeysCanBeRemoved(t *testing.T) {
 	now := time.Date(2026, time.August, 31, 10, 0, 0, 0, time.UTC)
-	manager := newDeterministicManager(t, &fixedClock{now: now}, newSynchronizedRemovalTokenGenerator())
+	manager := newDeterministicManager(t, &fixedClock{now: now}, secureTokenGenerator{})
 	insertActiveUser(t, manager, "person", false, now)
 	if _, err := manager.db.Write().ExecContext(t.Context(), `
 		UPDATE users SET mfa_required = 1 WHERE id = 'person';
@@ -139,59 +141,28 @@ func TestLastAuthenticatorProtectionSerializesConcurrentTOTPAndPasskeyRemoval(t 
 		INSERT INTO totp_credentials (
 			id, user_id, encrypted_seed, key_version, enabled, created_at
 		) VALUES ('person-totp', 'person', x'01', 1, 1, ?)`, now, now, now); err != nil {
-		t.Fatalf("prepare TOTP/passkey removal race: %v", err)
+		t.Fatalf("prepare TOTP/passkey removal: %v", err)
 	}
 	insertConcurrentRemovalPasskey(t, manager, "person", "person-passkey", now)
-	insertConcurrentRemovalSession(t, manager, "person", "totp-removal-session", "totp-removal-token", now)
-	insertConcurrentRemovalSession(t, manager, "person", "passkey-removal-session", "passkey-removal-token", now)
+	insertConcurrentRemovalSession(t, manager, "person", "removal-session", "removal-token", now)
 
-	winner := runConcurrentAuthenticatorRemovals(t,
-		func() (*Session, error) {
-			return manager.DisableTOTP(t.Context(), "totp-removal-token", "TOTP removal")
-		},
-		func() (*Session, error) {
-			return manager.RemovePasskey(t.Context(), "passkey-removal-token", "person-passkey", "Passkey removal")
-		},
-	)
-
-	var activeTOTP, activePasskeys, authVersion, activeSessions, events int
+	if rotated, err := manager.DisableTOTP(t.Context(), "removal-token", "TOTP removal"); !errors.Is(err, ErrLastAuthenticator) || rotated != nil {
+		t.Fatalf("required TOTP removal = %#v, %v", rotated, err)
+	}
+	rotated, err := manager.RemovePasskey(t.Context(), "removal-token", "person-passkey", "Passkey removal")
+	if err != nil || rotated == nil {
+		t.Fatalf("passkey removal = %#v, %v", rotated, err)
+	}
+	var activeTOTP, activePasskeys int
 	if err := manager.db.Read().QueryRowContext(t.Context(), `
-		SELECT COUNT(*) FROM totp_credentials
-		WHERE user_id = 'person' AND enabled = 1 AND revoked_at IS NULL`).Scan(&activeTOTP); err != nil {
+		SELECT
+			(SELECT COUNT(*) FROM totp_credentials WHERE user_id = 'person' AND enabled = 1 AND revoked_at IS NULL),
+			(SELECT COUNT(*) FROM webauthn_credentials WHERE user_id = 'person' AND revoked_at IS NULL)`,
+	).Scan(&activeTOTP, &activePasskeys); err != nil {
 		t.Fatal(err)
 	}
-	if err := manager.db.Read().QueryRowContext(t.Context(), `
-		SELECT COUNT(*) FROM webauthn_credentials
-		WHERE user_id = 'person' AND revoked_at IS NULL`).Scan(&activePasskeys); err != nil {
-		t.Fatal(err)
-	}
-	if err := manager.db.Read().QueryRowContext(t.Context(), `SELECT auth_version FROM users WHERE id = 'person'`).Scan(&authVersion); err != nil {
-		t.Fatal(err)
-	}
-	if err := manager.db.Read().QueryRowContext(t.Context(), `
-		SELECT COUNT(*) FROM sessions WHERE user_id = 'person' AND revoked_at IS NULL`).Scan(&activeSessions); err != nil {
-		t.Fatal(err)
-	}
-	if err := manager.db.Read().QueryRowContext(t.Context(), `
-		SELECT COUNT(*) FROM auth_events
-		WHERE subject_user_id = 'person' AND event_type = ?`, AuthEventCredentialChanged).Scan(&events); err != nil {
-		t.Fatal(err)
-	}
-	if activeTOTP+activePasskeys != 1 || authVersion != 2 || activeSessions != 1 || events != 1 {
-		t.Fatalf(
-			"serialized TOTP/passkey removal state: TOTP=%d passkeys=%d auth_version=%d sessions=%d events=%d",
-			activeTOTP, activePasskeys, authVersion, activeSessions, events,
-		)
-	}
-
-	if activeTOTP == 1 {
-		if rotated, err := manager.DisableTOTP(t.Context(), winner.session.Token, "Final TOTP removal"); !errors.Is(err, ErrLastAuthenticator) || rotated != nil {
-			t.Fatalf("final TOTP removal = %#v, %v", rotated, err)
-		}
-	} else if rotated, err := manager.RemovePasskey(
-		t.Context(), winner.session.Token, "person-passkey", "Final passkey removal",
-	); !errors.Is(err, ErrLastAuthenticator) || rotated != nil {
-		t.Fatalf("final passkey removal = %#v, %v", rotated, err)
+	if activeTOTP != 1 || activePasskeys != 0 {
+		t.Fatalf("after removals: TOTP=%d passkeys=%d", activeTOTP, activePasskeys)
 	}
 }
 

@@ -140,9 +140,12 @@ func (m *Manager) GetSecuritySettingsAccess(ctx context.Context, sessionToken st
 	if err != nil {
 		return nil, fmt.Errorf("load security settings access policy: %w", err)
 	}
+	// A passkey is a first factor: verifying with one refreshes the session
+	// but can't make a one-factor session two-factor, so it is offered only
+	// when the session already is enough.
 	return &SecuritySettingsAccess{
 		HasTOTP:     hasTOTP == 1,
-		HasPasskey:  hasPasskey == 1,
+		HasPasskey:  hasPasskey == 1 && policy.allowsAssurance(session.AssuranceLevel),
 		StepUpFresh: hasRecentSecurityStepUp(session, policy, m.clock.Now().UTC()),
 	}, nil
 }
@@ -214,11 +217,10 @@ func (m *Manager) GetSecurityFactorSummary(ctx context.Context, sessionToken str
 			(m.HasGoogleLogin() && googleIdentityCount > 0) ||
 			(m.HasMicrosoftLogin() && microsoftIdentityCount > 0) ||
 			(m.HasOIDCLogin() && oidcIdentityCount > 0)
-		hasOtherStrongFactor := passkeyCount > 0
-		summary.CanDisableTOTP = hasPrimary && (!policy.MFAEnrollmentRequired || hasOtherStrongFactor)
+		summary.CanDisableTOTP = hasPrimary && !policy.MFAEnrollmentRequired
 		if !summary.CanDisableTOTP {
 			if policy.MFAEnrollmentRequired {
-				summary.DisableTOTPReason = "Your administrator policy requires at least one MFA method to remain enabled. Add another TOTP authenticator app or passkey before removing this one."
+				summary.DisableTOTPReason = "Your administrator requires two-factor authentication, so this authenticator app can't be removed. You can replace it with another one."
 			} else {
 				summary.DisableTOTPReason = "Add another sign-in method before disabling this authenticator."
 			}
@@ -324,7 +326,7 @@ func (m *Manager) VerifySecurityTOTPStepUp(ctx context.Context, sessionToken, co
 		}
 		result, err = tx.ExecContext(ctx, `
 			UPDATE sessions SET step_up_at = ?, step_up_method = ?,
-                assurance_level = CASE WHEN assurance_level IN ('single_factor', 'legacy') THEN 'multi_factor' ELSE assurance_level END
+                assurance_level = CASE WHEN assurance_level IN ('single_factor', 'legacy', 'phishing_resistant') THEN 'multi_factor' ELSE assurance_level END
 			WHERE id = ? AND user_id = ? AND token_hash = ? AND revoked_at IS NULL`,
 			now, AuthenticationMethodTOTP, session.ID, session.UserID, hashToken(sessionToken),
 		)

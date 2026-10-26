@@ -618,7 +618,9 @@ func TestLocalLoginMFAOffersOnlyRegisteredFactors(t *testing.T) {
 		{name: "no factors requires enrollment"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			handler, manager, db := newLocalLoginHandler(t, auth.UserStatusActive, false, !tc.totp && (!tc.passkey || tc.rp != "gofer.example"), true, false)
+			// A passkey alone doesn't ask for a second step after the password,
+			// so without TOTP the step is required by policy.
+			handler, manager, db := newLocalLoginHandler(t, auth.UserStatusActive, false, !tc.totp, true, false)
 			if tc.totp {
 				if _, err := db.Write().ExecContext(t.Context(), `INSERT INTO totp_credentials (id,user_id,encrypted_seed,key_version,algorithm,digits,period,issuer,enabled) VALUES ('totp','person',x'01',1,'SHA1',6,30,'Gofer',1)`); err != nil {
 					t.Fatal(err)
@@ -645,10 +647,11 @@ func TestLocalLoginMFAOffersOnlyRegisteredFactors(t *testing.T) {
 			if cookie == nil {
 				t.Fatal("missing primary authentication challenge")
 			}
-			usablePasskey := tc.passkey && tc.rp == "gofer.example"
-			if !tc.totp && !usablePasskey {
+			// A passkey is a first factor, so without the authenticator app the
+			// account has to set one up.
+			if !tc.totp {
 				if login.Header().Get("Location") != "/login/mfa/enroll" {
-					t.Fatal("factorless account did not require enrollment")
+					t.Fatal("account without an authenticator app did not require enrollment")
 				}
 				return
 			}
@@ -660,9 +663,6 @@ func TestLocalLoginMFAOffersOnlyRegisteredFactors(t *testing.T) {
 				t.Fatalf("MFA page: %d", page.Code)
 			}
 			html := page.Body.String()
-			if usablePasskey && !tc.totp && !strings.Contains(html, "Your passkey is your only registered MFA method") {
-				t.Fatal("missing explicit passkey verification requirement")
-			}
 			for _, path := range []string{"/", "/api/accounts"} {
 				privateRequest := httptest.NewRequest(http.MethodGet, path, nil)
 				privateRequest.AddCookie(cookie)
@@ -673,11 +673,8 @@ func TestLocalLoginMFAOffersOnlyRegisteredFactors(t *testing.T) {
 				}
 			}
 
-			if strings.Contains(html, `name="code"`) != tc.totp || strings.Contains(html, `data-passkey-authentication`) != usablePasskey {
+			if !strings.Contains(html, `name="code"`) || strings.Contains(html, `data-passkey-authentication`) {
 				t.Fatal("offered factors do not match registered factors")
-			}
-			if usablePasskey && (!strings.Contains(html, `id="mfa-passkey-identifier" type="hidden" value="person"`) || !strings.Contains(html, `/assets/js/passkey-authentication.js`)) {
-				t.Fatal("passkey sign-in missing target or script")
 			}
 			var sessions int
 			if err := db.Read().QueryRowContext(t.Context(), `SELECT COUNT(*) FROM sessions`).Scan(&sessions); err != nil || sessions != 0 {

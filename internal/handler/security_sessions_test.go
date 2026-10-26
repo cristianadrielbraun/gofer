@@ -46,12 +46,12 @@ func TestSecuritySessionViewDataUsesBoundedHumanReadableMetadata(t *testing.T) {
 		t.Fatalf("securitySessionViewData() = %#v, %t", views, truncated)
 	}
 	if views[0].Client != "Chrome on Linux" || views[0].Authentication != "Password" ||
-		views[0].Assurance != "Multi-factor" || !views[0].Current || !views[0].Active ||
+		views[0].Assurance != "Two-factor" || !views[0].Current || !views[0].Active ||
 		views[0].SignedInAt != "Aug 19, 2026 at 12:30 PM" || views[0].EndedAt != "" {
 		t.Fatalf("current session view = %#v", views[0])
 	}
 	if views[1].Client != "Safari on macOS" || views[1].Authentication != "Passkey" ||
-		views[1].Assurance != "Phishing-resistant" || !views[1].Active || views[1].Current ||
+		views[1].Assurance != "Single factor" || !views[1].Active || views[1].Current ||
 		views[1].RevokePath != "/settings/security/sessions/opaque_action_reference/revoke" {
 		t.Fatalf("active session view = %#v", views[1])
 	}

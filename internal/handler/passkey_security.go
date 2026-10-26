@@ -108,7 +108,7 @@ func (h *Handler) handleSecurityPasskeyRemove(w http.ResponseWriter, r *http.Req
 		case errors.Is(err, auth.ErrPasskeyNotFound):
 			http.NotFound(w, r)
 		case errors.Is(err, auth.ErrLastAuthenticator):
-			h.renderSecurityManagementError(w, r, http.StatusConflict, "Add another sign-in method or strong authenticator before removing this passkey.")
+			h.renderSecurityManagementError(w, r, http.StatusConflict, "Add another sign-in method before removing this passkey.")
 		case errors.Is(err, auth.ErrRecentStepUpRequired):
 			http.Redirect(w, r, "/settings/security?verify=1", http.StatusSeeOther)
 		case errors.Is(err, auth.ErrSecuritySessionInvalid):

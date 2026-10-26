@@ -126,12 +126,11 @@ func securitySessionAuthenticationLabel(method auth.AuthenticationMethod, oidcNa
 
 func securitySessionAssuranceLabel(level auth.AssuranceLevel) string {
 	switch level {
-	case auth.AssuranceLevelSingleFactor:
+	// A passkey on its own is one factor, like a password.
+	case auth.AssuranceLevelSingleFactor, auth.AssuranceLevelPhishingResistant:
 		return "Single factor"
 	case auth.AssuranceLevelMultiFactor:
-		return "Multi-factor"
-	case auth.AssuranceLevelPhishingResistant:
-		return "Phishing-resistant"
+		return "Two-factor"
 	default:
 		return "Legacy assurance"
 	}

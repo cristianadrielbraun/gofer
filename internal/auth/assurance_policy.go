@@ -42,7 +42,9 @@ func (policy authenticationPolicy) allowsAssurance(assurance AssuranceLevel) boo
 	if !policy.RequiresMFA {
 		return true
 	}
-	return assurance == AssuranceLevelMultiFactor || assurance == AssuranceLevelPhishingResistant
+	// A passkey sign-in alone is one factor, like a password; two-factor
+	// authentication also takes the authenticator app.
+	return assurance == AssuranceLevelMultiFactor
 }
 
 // allowsExistingSession preserves sessions that were valid before an
@@ -109,11 +111,7 @@ func (m *Manager) loadAuthenticationPolicy(ctx context.Context, queryer authenti
 }
 
 func (m *Manager) withEnrolledMFAPolicy(ctx context.Context, queryer authenticationPolicyQueryer, userID string, policy authenticationPolicy) (authenticationPolicy, error) {
-	rpID, err := passkeyRelyingPartyID(m.config.BaseURL)
-	if err != nil {
-		return authenticationPolicy{}, err
-	}
-	enrolled, err := userHasStrongAuthenticator(ctx, queryer, userID, rpID)
+	enrolled, err := userHasSecondFactor(ctx, queryer, userID)
 	if err != nil {
 		return authenticationPolicy{}, err
 	}

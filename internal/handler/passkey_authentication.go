@@ -76,7 +76,7 @@ func (h *Handler) handleLoginPasskeyFinish(w http.ResponseWriter, r *http.Reques
 		writePasskeyJSONError(w, http.StatusBadRequest, passkeyLoginFailureMessage)
 		return
 	}
-	session, err := h.auth.FinishPasskeyLogin(
+	result, err := h.auth.FinishPasskeyLogin(
 		r.Context(), auth.GetPasskeyLoginChallengeToken(r), h.auth.Config().BaseURL,
 		responseJSON, loginSource(r), r.UserAgent(),
 	)
@@ -103,14 +103,28 @@ func (h *Handler) handleLoginPasskeyFinish(w http.ResponseWriter, r *http.Reques
 		}
 		return
 	}
-	if session == nil || session.Token == "" {
+	if result != nil && result.Session == nil && result.PreAuthChallenge != nil {
+		// Two-factor authentication is on: the authenticator app comes next.
+		challenge := result.PreAuthChallenge
+		auth.ClearPasskeyLoginChallengeCookie(w, h.auth.Config().SecureCookies)
+		auth.ClearSessionCookie(w, h.auth.Config().SecureCookies)
+		auth.SetPreAuthCookie(
+			w, challenge.Token, h.auth.Config().SecureCookies,
+			challenge.ExpiresAt.Sub(challenge.CreatedAt),
+		)
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{"redirect": primaryAuthenticationContinuationPath(result)})
+		return
+	}
+	if result == nil || result.Session == nil || result.Session.Token == "" || result.PreAuthChallenge != nil {
 		log.Printf("passkey login returned no session")
 		writePasskeyJSONError(w, http.StatusInternalServerError, "Unable to complete passkey sign-in right now.")
 		return
 	}
 	auth.ClearPasskeyLoginChallengeCookie(w, h.auth.Config().SecureCookies)
 	auth.ClearPreAuthCookie(w, h.auth.Config().SecureCookies)
-	auth.SetSessionCookie(w, session.Token, h.auth.Config().SecureCookies)
+	auth.SetSessionCookie(w, result.Session.Token, h.auth.Config().SecureCookies)
 	returnTo := auth.GetReturnTo(r)
 	auth.ClearReturnToCookie(w, h.auth.Config().SecureCookies)
 	if returnTo == "" {

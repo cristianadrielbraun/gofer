@@ -170,7 +170,7 @@ func TestAdminUsersPageRendersProtectedIndividualMFAPolicyActions(t *testing.T) 
 	}
 	html := out.String()
 	for _, want := range []string{
-		"MFA policy", "Require MFA for optional.user?", "Clear the individual MFA requirement?",
+		"Require 2FA", "Require 2FA for optional.user?", "Clear the individual 2FA requirement?",
 		`action="/admin/users/optional-user/mfa-policy"`, `action="/admin/users/required-user/mfa-policy"`,
 		`name="required" value="true"`, `name="required" value="false"`, csrf,
 		"Existing sessions and authenticators are unchanged", "setup is required at the next sign-in",
@@ -266,7 +266,7 @@ func TestAdminUsersPageRendersProtectedCredentialResetActionAndOneTimeResult(t *
 		"Password-reset token created", "Reset token ready for webmail.user",
 		"Gofer password reset for webmail.user", "https://gofer.example/account/redeem",
 		"Reset token: private-reset-token", "Gofer stores only a hash of the token",
-		"Successful redemption signs the user out everywhere, preserves MFA, and does not enable a disabled account",
+		"Successful redemption signs the user out everywhere, keeps two-factor authentication, and does not enable a disabled account",
 		"I saved the reset token",
 	} {
 		if !strings.Contains(html, want) {
@@ -365,9 +365,9 @@ func TestAdminUsersPageDisablesInvitationUntilRecentVerification(t *testing.T) {
 		"Recent administrator verification required", `data-admin-security-verification`,
 		`data-tui-dialog-target="admin-security-verification-dialog"`,
 		`data-tui-dialog-show-modal="false"`, `id="admin-security-totp-code"`,
-		`autocomplete="one-time-code"`, `aria-label="TOTP verification code"`,
+		`autocomplete="one-time-code"`, `aria-label="Authenticator app code"`,
 		`action="/settings/security/step-up"`, `name="return_to" value="/admin/users"`,
-		"manage invitations, password resets, user access, deletion, and individual MFA policies for the next ten minutes", " disabled",
+		"manage invitations, password resets, user access, deletion, and individual two-factor authentication requirements for the next ten minutes", " disabled",
 	} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("stale administrator invitation view missing %q: %s", want, html)

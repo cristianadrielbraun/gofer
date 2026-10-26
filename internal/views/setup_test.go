@@ -75,7 +75,7 @@ func TestSetupPasswordPageIsAccessibleLocalAndSecretFree(t *testing.T) {
 		`aria-describedby="owner-password-help owner-password-error"`, `role="alert"`, `&lt;script&gt;alert`,
 		"Owner password ready for final enrollment", "Only its Argon2id hash is inside the encrypted setup draft",
 		`href="/setup/owner"`, `action="/setup/mfa"`, `value="start"`,
-		"administrator MFA and recovery codes", "Passwords are never echoed",
+		"set up an authenticator app and recovery codes", "Passwords are never echoed",
 	} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("setup password page missing %q", want)
@@ -235,7 +235,7 @@ func TestSetupReviewPageIsAccessibleLocalAndEscapesIdentity(t *testing.T) {
 		`aria-labelledby="review-security-heading"`, `aria-labelledby="review-migration-heading"`,
 		"existing-user", "Current Person", "disabled", "standard user", `&lt;script&gt;alert`,
 		"1 existing password credential(s) will be replaced",
-		"1 active TOTP credential(s) will be replaced",
+		"1 active authenticator app(s) will be replaced",
 		"8 unused recovery code(s) will be replaced",
 		"2 active passkey(s) and 1 app-login identity record(s) remain attached",
 		"Claim the selected existing user in place", "3 mail account record(s) exist; 3 are attached to valid user IDs",

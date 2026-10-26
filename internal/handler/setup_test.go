@@ -367,7 +367,7 @@ func TestSetupPasswordRequiresCurrentOwnerDraftAndNeverEchoesSecrets(t *testing.
 	stack.ServeHTTP(page, request)
 	for _, want := range []string{
 		"Choose the owner password", `action="/setup/password"`, `autocomplete="new-password"`,
-		`minlength="15"`, "administrator MFA and recovery codes",
+		`minlength="15"`, "set up an authenticator app and recovery codes",
 	} {
 		if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), want) {
 			t.Fatalf("password page missing %q: %d %q", want, page.Code, page.Body.String())
@@ -916,7 +916,7 @@ func TestSetupReviewIsSecretFreeReadOnlyAndShowsExactFreshImpact(t *testing.T) {
 		"Review owner setup", "Create a new active owner and administrator",
 		"Owner", "owner", "Prepared security",
 		"0 existing password credential(s) will be replaced",
-		"0 active TOTP credential(s) will be replaced",
+		"0 active authenticator app(s) will be replaced",
 		"0 unused recovery code(s) will be replaced",
 		"0 active passkey(s) and 0 app-login identity record(s) remain attached",
 		"Initialize a fresh owner without creating or claiming a synthetic default user",
@@ -1530,7 +1530,7 @@ func TestPersonalSetupUsesTokenAndSingleProfileWithoutAdminRoutes(t *testing.T) 
 	if completed.Code != http.StatusSeeOther || sessionCookie == nil || completed.Header().Get("Location") != "/settings/security" {
 		t.Fatalf("completion: %d %s", completed.Code, completed.Body.String())
 	}
-	if page := get("/settings/security", sessionCookie); page.Code != http.StatusOK || !strings.Contains(page.Body.String(), "Add passkey") || !strings.Contains(page.Body.String(), "TOTP") {
+	if page := get("/settings/security", sessionCookie); page.Code != http.StatusOK || !strings.Contains(page.Body.String(), "Add passkey") || !strings.Contains(page.Body.String(), "authenticator app") {
 		t.Fatalf("personal security: %d %s", page.Code, page.Body.String())
 	}
 	for _, path := range []string{"/admin", "/admin/users", "/admin/account/security", "/api/admin/users", "/account/enroll", "/account/enroll/google", "/account/recover", "/setup/owner", "/setup/mfa"} {
