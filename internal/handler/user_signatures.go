@@ -11,9 +11,9 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
 
-// Only these local signature and identity operations use the adapter.
-// Provider services and network clients are absent from the request-local
-// handler.
+// Only these local signature, identity and folder role operations use the
+// adapter. Provider services and network clients are absent from the
+// request-local handler.
 func (h *Handler) registerUserSignatures(private func(string, http.HandlerFunc)) {
 	for _, route := range []struct {
 		pattern string
@@ -30,6 +30,8 @@ func (h *Handler) registerUserSignatures(private func(string, http.HandlerFunc))
 		{"POST /api/accounts/{id}/identities", func(h *Handler) http.HandlerFunc { return h.handleSaveAccountIdentity }},
 		{"DELETE /api/accounts/{id}/identities/{identity}", func(h *Handler) http.HandlerFunc { return h.handleDeleteAccountIdentity }},
 		{"POST /api/accounts/{id}/identities/{identity}/move", func(h *Handler) http.HandlerFunc { return h.handleMoveAccountIdentity }},
+		{"GET /api/accounts/{id}/folder-roles/manage", func(h *Handler) http.HandlerFunc { return h.handleManageFolderRoles }},
+		{"POST /api/accounts/{id}/folder-roles", func(h *Handler) http.HandlerFunc { return h.handleSaveFolderRoles }},
 	} {
 		private(route.pattern, h.userSignatureHandler(route.handler))
 	}

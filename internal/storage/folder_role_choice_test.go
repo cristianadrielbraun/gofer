@@ -3,6 +3,7 @@ package storage
 import (
 	"maps"
 	"path/filepath"
+	"slices"
 	"testing"
 )
 
@@ -45,6 +46,23 @@ func TestFolderRoleChoices(t *testing.T) {
 	if got := choices(); len(got) != 0 {
 		t.Fatalf("after migration = %v", got)
 	}
+	roles := func() map[string]string {
+		t.Helper()
+		rows, err := db.Read().QueryContext(ctx, `SELECT id, role FROM folders WHERE account_id = 'acc_a'`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+		got := map[string]string{}
+		for rows.Next() {
+			var id, role string
+			if err := rows.Scan(&id, &role); err != nil {
+				t.Fatal(err)
+			}
+			got[id] = role
+		}
+		return got
+	}
 
 	if err := db.SetFolderRoleChoices(ctx, "owner", "acc_a", map[string]string{"trash": "f_bin", "archive": "f_old"}); err != nil {
 		t.Fatal(err)
@@ -58,6 +76,7 @@ func TestFolderRoleChoices(t *testing.T) {
 		choices       map[string]string
 	}{
 		"the inbox":           {"owner", "acc_a", map[string]string{"inbox": "f_old"}},
+		"the inbox folder":    {"owner", "acc_a", map[string]string{"trash": "f_inbox"}},
 		"an unknown role":     {"owner", "acc_a", map[string]string{"starred": "f_old"}},
 		"one folder twice":    {"owner", "acc_a", map[string]string{"trash": "f_old", "archive": "f_old"}},
 		"another's folder":    {"owner", "acc_a", map[string]string{"trash": "f_b"}},
@@ -79,6 +98,21 @@ func TestFolderRoleChoices(t *testing.T) {
 	}
 	if got := choices(); !maps.Equal(got, map[string]string{"Old deleted": "trash"}) {
 		t.Fatalf("after choosing again = %v", got)
+	}
+	// The chosen folder takes the role at once, from the folder that had it;
+	// one left out keeps it until the folders are synced.
+	if got := roles(); !maps.Equal(got, map[string]string{"f_inbox": "inbox", "f_bin": "custom", "f_old": "trash", "f_parent": "custom"}) {
+		t.Fatalf("roles after choosing again = %v", got)
+	}
+	if missing, err := db.MissingFolderRoles(ctx, "acc_a", "imap"); err != nil || !slices.Equal(missing, []string{"sent", "drafts", "junk", "archive"}) {
+		t.Fatalf("MissingFolderRoles = %v, %v", missing, err)
+	}
+	// Without an inbox the folders haven't been listed yet, and only IMAP
+	// accounts have roles to choose.
+	for account, provider := range map[string]string{"acc_b": "imap", "acc_g": "gmail"} {
+		if missing, err := db.MissingFolderRoles(ctx, account, provider); err != nil || missing != nil {
+			t.Fatalf("MissingFolderRoles(%s) = %v, %v", account, missing, err)
+		}
 	}
 	if err := db.SetFolderRoleChoices(ctx, "owner", "acc_a", nil); err != nil {
 		t.Fatal(err)

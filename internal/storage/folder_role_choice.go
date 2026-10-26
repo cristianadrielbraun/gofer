@@ -14,7 +14,8 @@ import (
 var ChoosableFolderRoles = []string{"sent", "drafts", "trash", "junk", "archive"}
 
 // ErrFolderRoleChoice means the roles chosen are not ones that can be chosen,
-// name a folder twice, or name a folder the account doesn't have.
+// name a folder twice, or name the inbox or a folder the account doesn't
+// have.
 var ErrFolderRoleChoice = errors.New("those folders cannot be given those roles")
 
 // migrateV129ToV130 lets people choose an IMAP account's Sent, Drafts, Trash,
@@ -78,7 +79,8 @@ func (db *DB) FolderRoleChoices(ctx context.Context, accountID string) (map[stri
 // SetFolderRoleChoices replaces the roles chosen by hand for one of the
 // owner's IMAP accounts. choices maps a role from ChoosableFolderRoles to
 // the ID of the folder given it; a role left out goes back to the folder the
-// server reports. The folders' roles change at the next folder sync.
+// server reports. A chosen role moves to its folder at once; the next folder
+// sync renames the folders and gives a role left out back to the server's.
 func (db *DB) SetFolderRoleChoices(ctx context.Context, userID, accountID string, choices map[string]string) error {
 	tx, err := db.Write().BeginTx(ctx, nil)
 	if err != nil {
@@ -104,7 +106,7 @@ func (db *DB) SetFolderRoleChoices(ctx context.Context, userID, accountID string
 		chosen[folderID] = true
 		result, err := tx.ExecContext(ctx, `
 			UPDATE folders SET role_choice = ?, updated_at = CURRENT_TIMESTAMP
-			WHERE id = ? AND account_id = ? AND selectable = 1 AND COALESCE(remote_id, '') != ''
+			WHERE id = ? AND account_id = ? AND selectable = 1 AND role != 'inbox' AND COALESCE(remote_id, '') != ''
 			  AND COALESCE(discovery_state, 'active') = 'active'`, role, folderID, accountID)
 		if err != nil {
 			return err
@@ -114,6 +116,78 @@ func (db *DB) SetFolderRoleChoices(ctx context.Context, userID, accountID string
 		} else if n != 1 {
 			return ErrFolderRoleChoice
 		}
+		if _, err := tx.ExecContext(ctx, `UPDATE folders SET role = 'custom', updated_at = CURRENT_TIMESTAMP WHERE account_id = ? AND role = ? AND id != ?`, accountID, role, folderID); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE folders SET role = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, role, folderID); err != nil {
+			return err
+		}
 	}
 	return tx.Commit()
+}
+
+// FolderRoleFolder is a folder of an account as the folder roles dialog
+// needs it: its role now, the role chosen for it by hand, and whether it can
+// hold mail.
+type FolderRoleFolder struct {
+	ID         string
+	RemoteID   string
+	Role       string
+	RoleChoice string
+	Selectable bool
+}
+
+// ListFolderRoleFolders returns an account's listed folders by remote name.
+func (db *DB) ListFolderRoleFolders(ctx context.Context, accountID string) ([]FolderRoleFolder, error) {
+	rows, err := db.Read().QueryContext(ctx, `
+		SELECT id, remote_id, role, role_choice, selectable FROM folders
+		WHERE account_id = ? AND COALESCE(remote_id, '') != '' AND COALESCE(discovery_state, 'active') = 'active'
+		ORDER BY remote_id COLLATE NOCASE, remote_id`, accountID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var folders []FolderRoleFolder
+	for rows.Next() {
+		var f FolderRoleFolder
+		if err := rows.Scan(&f.ID, &f.RemoteID, &f.Role, &f.RoleChoice, &f.Selectable); err != nil {
+			return nil, err
+		}
+		folders = append(folders, f)
+	}
+	return folders, rows.Err()
+}
+
+// MissingFolderRoles returns the roles in ChoosableFolderRoles that none of
+// an IMAP account's folders has. It returns none for other accounts, and for
+// an account whose folders haven't been listed yet, which has no inbox.
+func (db *DB) MissingFolderRoles(ctx context.Context, accountID, provider string) ([]string, error) {
+	if provider != providers.ProviderIMAP {
+		return nil, nil
+	}
+	rows, err := db.Read().QueryContext(ctx, `
+		SELECT DISTINCT role FROM folders
+		WHERE account_id = ? AND selectable = 1 AND COALESCE(discovery_state, 'active') = 'active'`, accountID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	present := map[string]bool{}
+	for rows.Next() {
+		var role string
+		if err := rows.Scan(&role); err != nil {
+			return nil, err
+		}
+		present[role] = true
+	}
+	if err := rows.Err(); err != nil || !present["inbox"] {
+		return nil, err
+	}
+	var missing []string
+	for _, role := range ChoosableFolderRoles {
+		if !present[role] {
+			missing = append(missing, role)
+		}
+	}
+	return missing, nil
 }

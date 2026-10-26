@@ -203,6 +203,33 @@ type AccountSignatureSettings struct {
 	ForwardPlacement   string `json:"forward_placement"`
 }
 
+// FolderRolesData is what the folder roles dialog of an IMAP account shows:
+// each role and its folder, and the folders a role can be given. Error says
+// why the last change failed; Saved is set right after a change, which the
+// account's folders follow at its next sync.
+type FolderRolesData struct {
+	Account Account
+	Roles   []FolderRole
+	Folders []FolderOption
+	Error   string
+	Saved   bool
+}
+
+// FolderRole is one role of an account's folders. Chosen is the ID of the
+// folder given it by hand; without one, Detected names the folder the server
+// gave it, if any.
+type FolderRole struct {
+	Role     string
+	Chosen   string
+	Detected string
+}
+
+// FolderOption is a folder a role can be given.
+type FolderOption struct {
+	ID   string
+	Name string
+}
+
 // AccountIdentitiesData is what the identities dialog of one account shows:
 // its identities, the signatures they may use, and the identity in the form,
 // which is empty when adding one. Error says why the last change failed.

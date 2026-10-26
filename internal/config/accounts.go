@@ -1588,6 +1588,9 @@ func (s *AccountStore) getAccountByID(ctx context.Context, accountID, userID str
 	a.EmailSyncEnabled = emailSyncEnabled == 1
 	a.ContactSyncEnabled = contactSyncEnabled == 1
 	a.CalendarSyncEnabled = calendarSyncEnabled == 1
+	if a.MissingFolderRoles, err = s.db.MissingFolderRoles(ctx, a.ID, a.Provider); err != nil {
+		return nil, err
+	}
 	return &a, nil
 }
 

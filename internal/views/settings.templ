@@ -1437,6 +1437,9 @@ templ SettingsAccountCard(account models.Account) {
 								@SettingsAccountJMAPPausedPopover(account)
 							}
 							@SettingsAccountSyncErrorPopover(account, syncError, syncErrorAt)
+							if account.Provider == "imap" && !account.IsDeleting {
+								@SettingsAccountMissingFolderRoles(account, false)
+							}
 						</div>
 						<p class="mt-0.5 truncate text-xs text-muted-foreground">{ account.Email }</p>
 						if account.ReconnectPending && !account.IsDeleting {
@@ -1655,6 +1658,71 @@ templ SettingsAccountSyncErrorPopover(account models.Account, syncError string, 
 	</span>
 }
 
+// SettingsAccountMissingFolderRoles warns, next to an IMAP account's name,
+// that roles of its folders weren't found, and opens Folder roles to set
+// them. It is always there, empty while nothing is missing, so saving the
+// roles can swap it in place.
+templ SettingsAccountMissingFolderRoles(account models.Account, oob bool) {
+	<span id={ "account-missing-folder-roles-" + account.ID } class="inline-flex shrink-0 empty:hidden" { swapOOB(oob)... }>
+		if len(account.MissingFolderRoles) > 0 {
+			@settingsAccountMissingFolderRolesAlert(account)
+		}
+	</span>
+}
+
+// FolderRolesMenuAlert marks the Folder roles item of an account's menu
+// while roles of its folders weren't found.
+templ FolderRolesMenuAlert(account models.Account, oob bool) {
+	<span id={ "folder-roles-menu-alert-" + account.ID } class="ml-auto inline-flex text-destructive empty:hidden" { swapOOB(oob)... }>
+		if len(account.MissingFolderRoles) > 0 {
+			<span class="inline-flex" aria-label={ missingFolderRolesText(account.MissingFolderRoles) } data-folder-roles-missing-alert>
+				@icon.CircleAlert(icon.Props{Class: "size-3.5"})
+			</span>
+		}
+	</span>
+}
+
+func swapOOB(oob bool) templ.Attributes {
+	if oob {
+		return templ.Attributes{"hx-swap-oob": "true"}
+	}
+	return templ.Attributes{}
+}
+
+templ settingsAccountMissingFolderRolesAlert(account models.Account) {
+	@tooltip.Tooltip() {
+		@tooltip.Trigger(tooltip.TriggerProps{Class: "inline-flex shrink-0"}) {
+			<button
+				type="button"
+				class="inline-flex size-6 items-center justify-center rounded-md text-destructive transition-colors hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/40"
+				aria-label={ missingFolderRolesText(account.MissingFolderRoles) }
+				hx-get={ fmt.Sprintf("/api/accounts/%s/folder-roles/manage", account.ID) }
+				hx-target="#edit-account-container"
+				hx-swap="innerHTML"
+				data-settings-account-missing-folder-roles={ account.ID }
+			>
+				@icon.CircleAlert(icon.Props{Class: "size-4"})
+			</button>
+		}
+		@tooltip.Content(tooltip.ContentProps{Position: tooltip.PositionTop, ShowArrow: true, Class: "max-w-72 px-3 py-1.5 text-center text-xs leading-relaxed"}) {
+			{ missingFolderRolesText(account.MissingFolderRoles) }
+		}
+	}
+}
+
+// missingFolderRolesText says which folders weren't found, such as
+// "Couldn't find the Trash and Spam folders. Set them in Folder roles."
+func missingFolderRolesText(roles []string) string {
+	labels := make([]string, len(roles))
+	for i, role := range roles {
+		labels[i] = folderRoleLabel(role)
+	}
+	if len(labels) == 1 {
+		return "Couldn't find the " + labels[0] + " folder. Set it in Folder roles."
+	}
+	return "Couldn't find the " + strings.Join(labels[:len(labels)-1], ", ") + " and " + labels[len(labels)-1] + " folders. Set them in Folder roles."
+}
+
 templ SettingsAccountJMAPPausedPopover(account models.Account) {
 	<span data-settings-account-jmap-paused={ account.ID } class="inline-flex shrink-0">
 		@popover.Root(popover.RootProps{ID: fmt.Sprintf("account-jmap-paused-%s", account.ID), Class: "shrink-0"}) {
@@ -1871,6 +1939,21 @@ templ SettingsAccountActionsMenu(account models.Account) {
 			}) {
 				@icon.AtSign(icon.Props{Class: "size-3.5"})
 				Identities
+			}
+			if account.Provider == "imap" {
+				@dropdown.Item(dropdown.ItemProps{
+					Class: "justify-start gap-2",
+					Attributes: templ.Attributes{
+						"type":      "button",
+						"hx-get":    fmt.Sprintf("/api/accounts/%s/folder-roles/manage", account.ID),
+						"hx-target": "#edit-account-container",
+						"hx-swap":   "innerHTML",
+					},
+				}) {
+					@icon.FolderCog(icon.Props{Class: "size-3.5"})
+					Folder roles
+					@FolderRolesMenuAlert(account, false)
+				}
 			}
 			if account.Provider == "gmail" {
 				@GmailReauthForm(account)

@@ -1507,6 +1507,14 @@ document.addEventListener("htmx:afterSettle", function (e) {
   }
 })
 
+// Opens an IMAP account's folder roles dialog once it has been loaded. Saving
+// swaps only its panel, so it stays open.
+document.addEventListener("htmx:afterSettle", function (e) {
+  if (e.target && e.target.querySelector && e.target.querySelector("#folder-roles-dialog") && window.tui && window.tui.dialog) {
+    setTimeout(function () { window.tui.dialog.open("folder-roles-dialog") }, 20)
+  }
+})
+
 // Switching the identities dialog between its list and its form resizes the
 // dialog smoothly, as the calendar's dialog does, rather than jumping.
 document.body.addEventListener("htmx:beforeSwap", function (e) {
