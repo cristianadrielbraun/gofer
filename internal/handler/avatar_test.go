@@ -140,7 +140,7 @@ func TestAvatarProviderPlanForEmail(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			plan := avatarProviderPlanForEmail(tt.email, tt.domainCnt)
+			plan := avatarProviderPlanForEmail(tt.email, tt.domainCnt, nil)
 			if strings.Join(plan.providers, ",") != strings.Join(tt.want, ",") {
 				t.Fatalf("providers = %v, want %v", plan.providers, tt.want)
 			}
@@ -150,6 +150,67 @@ func TestAvatarProviderPlanForEmail(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestAvatarProviderPlanLeavesOutTurnedOffProviders(t *testing.T) {
+	enabled, err := parseAvatarProviders("gravatar, Libravatar")
+	if err != nil {
+		t.Fatalf("parseAvatarProviders() error = %v", err)
+	}
+	on := func(name string) bool { return enabled[name] }
+	tests := []struct {
+		name      string
+		email     string
+		domainCnt int
+		want      []string
+	}{
+		{name: "custom domain person", email: "alice@brand.example", want: []string{"gravatar", "libravatar"}},
+		{name: "role sender falls back to sender providers", email: "support@brand.example", want: []string{"gravatar", "libravatar"}},
+		{name: "high volume domain falls back to sender providers", email: "alice@brand.example", domainCnt: avatarDomainFirstThreshold, want: []string{"gravatar", "libravatar"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			plan := avatarProviderPlanForEmail(tt.email, tt.domainCnt, on)
+			if strings.Join(plan.providers, ",") != strings.Join(tt.want, ",") {
+				t.Fatalf("providers = %v, want %v", plan.providers, tt.want)
+			}
+			for _, provider := range []string{"bimi", "domain_icon"} {
+				if !strings.Contains(plan.skipped[provider], "GOFER_AVATAR_PROVIDERS") {
+					t.Fatalf("skipped[%q] = %q, want turned-off message", provider, plan.skipped[provider])
+				}
+			}
+		})
+	}
+
+	enabled, _ = parseAvatarProviders("bimi")
+	plan := avatarProviderPlanForEmail("support@brand.example", 0, func(name string) bool { return enabled[name] })
+	if strings.Join(plan.providers, ",") != "bimi" {
+		t.Fatalf("role sender with bimi on: providers = %v, want [bimi]", plan.providers)
+	}
+}
+
+func TestParseAvatarProviders(t *testing.T) {
+	all, err := parseAvatarProviders(" ")
+	if err != nil || len(all) != len(avatarProviderNames()) {
+		t.Fatalf("parseAvatarProviders(unset) = %v, %v; want every provider", all, err)
+	}
+	none, err := parseAvatarProviders("None")
+	if err != nil || len(none) != 0 {
+		t.Fatalf("parseAvatarProviders(none) = %v, %v; want no providers", none, err)
+	}
+	if _, err := parseAvatarProviders("gravatar,favicon"); err == nil || !strings.Contains(err.Error(), "favicon") {
+		t.Fatalf("parseAvatarProviders(unknown) error = %v, want it named", err)
+	}
+}
+
+func TestAvatarProviderEnabled(t *testing.T) {
+	h := &Handler{avatarProviders: map[string]bool{}}
+	if h.avatarProviderEnabled("gravatar") {
+		t.Fatal("avatarProviderEnabled(gravatar) = true with none turned on")
+	}
+	if !(&Handler{}).avatarProviderEnabled("bimi") {
+		t.Fatal("avatarProviderEnabled(bimi) = false without a list")
 	}
 }
 

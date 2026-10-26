@@ -69,6 +69,9 @@ func RunShared(rootCtx context.Context) error {
 		log.Printf("WARNING: GOFER_ALLOWED_CIDRS applies to %s, so Outlook notifications only arrive if it lists Microsoft's servers; set GOFER_OUTLOOK_WEBHOOKS_SKIP_ALLOWED_CIDRS=true to let them through", httpguard.OutlookWebhookPath)
 	}
 
+	if _, err := handler.AvatarProvidersFromEnv(); err != nil {
+		log.Fatalf("invalid avatar configuration: %v", err)
+	}
 	diagnostics, err := loadDiagnosticsConfig()
 	if err != nil {
 		log.Fatalf("invalid diagnostics configuration: %v", err)

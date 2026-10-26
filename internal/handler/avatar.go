@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -647,9 +648,39 @@ func avatarProviderNames() []string {
 type avatarProviderPlan struct {
 	providers []string
 	skipped   map[string]string
+	// domainFirst marks senders whose own picture is skipped in favor of
+	// their domain's.
+	domainFirst bool
 }
 
-func avatarProviderPlanForEmail(email string, domainSenderCount int) avatarProviderPlan {
+// avatarProviderPlanForEmail picks the providers to try for a sender, in
+// order, leaving out those enabled turns off. A nil enabled allows all.
+func avatarProviderPlanForEmail(email string, domainSenderCount int, enabled func(string) bool) avatarProviderPlan {
+	plan := preferredAvatarProviderPlan(email, domainSenderCount)
+	if enabled == nil {
+		return plan
+	}
+	// With both domain providers off, the sender's own picture is still
+	// worth looking for.
+	if plan.domainFirst && !slices.ContainsFunc(plan.providers, enabled) {
+		plan = avatarProviderPlan{providers: avatarProviderNames()}
+	}
+	providers := make([]string, 0, len(plan.providers))
+	for _, provider := range plan.providers {
+		if enabled(provider) {
+			providers = append(providers, provider)
+			continue
+		}
+		if plan.skipped == nil {
+			plan.skipped = map[string]string{}
+		}
+		plan.skipped[provider] = avatarProviderOffAttemptMessage(provider)
+	}
+	plan.providers = providers
+	return plan
+}
+
+func preferredAvatarProviderPlan(email string, domainSenderCount int) avatarProviderPlan {
 	domain := avatarresolver.EmailDomain(email)
 	if domain == "" {
 		return avatarProviderPlan{providers: []string{"gravatar", "libravatar", "bimi", "domain_icon"}}
@@ -665,7 +696,8 @@ func avatarProviderPlanForEmail(email string, domainSenderCount int) avatarProvi
 	}
 	if isRoleLikeSender(email) {
 		return avatarProviderPlan{
-			providers: []string{"bimi", "domain_icon"},
+			providers:   []string{"bimi", "domain_icon"},
+			domainFirst: true,
 			skipped: map[string]string{
 				"gravatar":   gravatarSkippedAttemptMessage(email, "role-like sender; domain avatar preferred"),
 				"libravatar": libravatarSkippedAttemptMessage(email, "role-like sender; domain avatar preferred"),
@@ -674,7 +706,8 @@ func avatarProviderPlanForEmail(email string, domainSenderCount int) avatarProvi
 	}
 	if domainSenderCount >= avatarDomainFirstThreshold {
 		return avatarProviderPlan{
-			providers: []string{"bimi", "domain_icon"},
+			providers:   []string{"bimi", "domain_icon"},
+			domainFirst: true,
 			skipped: map[string]string{
 				"gravatar":   gravatarSkippedAttemptMessage(email, "high-volume domain; domain avatar preferred"),
 				"libravatar": libravatarSkippedAttemptMessage(email, "high-volume domain; domain avatar preferred"),
@@ -757,7 +790,7 @@ func (h *Handler) fetchAndPersistAvatarGuarded(ctx context.Context, hash, email 
 	outcomes := []avatarProviderOutcome{}
 	lastProviderErr := error(nil)
 	lastErrorProvider := ""
-	plan := avatarProviderPlanForEmail(email, domainSenderCount)
+	plan := avatarProviderPlanForEmail(email, domainSenderCount, h.avatarProviderEnabled)
 	for provider, message := range plan.skipped {
 		providerStatuses[provider] = "skipped"
 		outcomes = append(outcomes, avatarProviderOutcome{provider: provider, status: "skipped"})

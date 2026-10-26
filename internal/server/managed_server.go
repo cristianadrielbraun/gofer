@@ -301,6 +301,9 @@ func RunManaged(ctx context.Context, stdout, stderr io.Writer) (err error) {
 	if err != nil {
 		return err
 	}
+	if _, err := handler.AvatarProvidersFromEnv(); err != nil {
+		return err
+	}
 	diagnostics, err := loadDiagnosticsConfig()
 	if err != nil {
 		return err

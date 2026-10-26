@@ -76,6 +76,7 @@ type Handler struct {
 	auth                       *auth.Manager
 	mailboxAuth                *mailauth.Service
 	avatar                     *avatarresolver.Resolver
+	avatarProviders            map[string]bool
 	bodyClientMu               sync.Mutex
 	bodyClients                map[string]*imap.Client
 	bodyFetchMu                sync.Mutex
@@ -171,6 +172,8 @@ func New(db *storage.DB, accountStore *config.AccountStore, syncer *mail.SyncOrc
 	if len(mailboxCredentials) > 0 {
 		credentials = mailboxCredentials[0]
 	}
+	// Startup has already refused an invalid GOFER_AVATAR_PROVIDERS.
+	avatarProviders, _ := AvatarProvidersFromEnv()
 	h := &Handler{
 		db:                     db,
 		accountStore:           accountStore,
@@ -179,6 +182,7 @@ func New(db *storage.DB, accountStore *config.AccountStore, syncer *mail.SyncOrc
 		auth:                   authManager,
 		mailboxAuth:            credentials,
 		avatar:                 avatarresolver.NewResolver(),
+		avatarProviders:        avatarProviders,
 		bodyClients:            make(map[string]*imap.Client),
 		bodyFetches:            make(map[int64]chan struct{}),
 		avatarWarmupQueue:      make(chan avatarWarmupJob, avatarWarmupQueueSize),
