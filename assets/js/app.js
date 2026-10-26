@@ -1584,8 +1584,24 @@ document.addEventListener("DOMContentLoaded", function () {
       lastSelectedMailId = row.dataset.emailId
     }
 
+    // A range runs in the list's order. The list reuses its row elements as it
+    // scrolls and places them by position, so their order in the page isn't
+    // the list's: rows of the list come from its positions, also those loaded
+    // but scrolled away, and others, such as a thread's messages, by where
+    // they are on screen.
     function selectMailRange(fromId, toId, selected) {
-      var rows = renderedMailRows().filter(function (row) { return row.dataset.emailId })
+      var list = currentMailListController()
+      var fromPos = list && list.indexById ? list.indexById.get(fromId) : undefined
+      var toPos = list && list.indexById ? list.indexById.get(toId) : undefined
+      if (fromPos !== undefined && toPos !== undefined && list.cache) {
+        for (var pos = Math.min(fromPos, toPos); pos <= Math.max(fromPos, toPos); pos++) {
+          var item = list.cache.get(pos)
+          if (item && item.id) setMailSelected(item.id, selected)
+        }
+        return
+      }
+      var rows = renderedMailRows().filter(function (row) { return row.dataset.emailId && !row.closest("[hidden]") })
+      rows.sort(function (a, b) { return a.getBoundingClientRect().top - b.getBoundingClientRect().top })
       var fromIndex = -1
       var toIndex = -1
       for (var i = 0; i < rows.length; i++) {
