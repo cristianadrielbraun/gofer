@@ -5,6 +5,8 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/buildinfo"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
+	"github.com/cristianadrielbraun/gofer/internal/themebuilder"
+	"github.com/cristianadrielbraun/gofer/internal/themecolors"
 	"slices"
 	"strconv"
 	"strings"
@@ -395,6 +397,7 @@ templ SettingsAppearanceTab(uiSettings map[string]string) {
 							<button
 								type="button"
 								data-mode="light"
+								disabled?={ themeStyle(uiSettings) == themebuilder.StyleName }
 								class={
 									"inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-200",
 									templ.KV("bg-background text-foreground shadow-sm", themeClass(uiSettings) != "dark"),
@@ -409,7 +412,7 @@ templ SettingsAppearanceTab(uiSettings map[string]string) {
 									<button
 										type="button"
 										data-mode="dark"
-										disabled?={ themeStyle(uiSettings) == "express" }
+										disabled?={ themeStyle(uiSettings) == "express" || themeStyle(uiSettings) == themebuilder.StyleName }
 										class={
 											"inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all duration-200",
 											templ.KV("bg-background text-foreground shadow-sm", themeClass(uiSettings) == "dark"),
@@ -425,10 +428,12 @@ templ SettingsAppearanceTab(uiSettings map[string]string) {
 								}
 							}
 						</div>
+						<p class={ "text-xs text-muted-foreground", templ.KV("hidden", themeStyle(uiSettings) != themebuilder.StyleName) } data-mode-custom-note>Set by your Custom theme</p>
 					</div>
 				</div>
 				<div class="grid grid-cols-2 sm:grid-cols-3 gap-4 max-w-2xl" data-theme-picker>
-					<label class="relative flex flex-col rounded-lg border-2 p-3 cursor-pointer transition-all duration-200 text-left hover:shadow-md group border-border has-[:checked]:border-primary has-[:checked]:ring-2 has-[:checked]:ring-primary/20">
+					<div class="group/theme relative flex" data-theme-card="classic">
+					<label class="relative flex flex-1 flex-col rounded-lg border-2 p-3 cursor-pointer transition-all duration-200 text-left hover:shadow-md group border-border has-[:checked]:border-primary has-[:checked]:ring-2 has-[:checked]:ring-primary/20">
 						@radio.Radio(radio.Props{Name: "theme_style", Value: "classic", Checked: uiSettingGet(uiSettings, "theme_style", "classic") == "classic", Class: "absolute right-2.5 bottom-2.5 z-10"})
 						<div data-theme="classic" data-theme-preview class={ "overflow-hidden h-36 mb-2 flex", templ.KV("dark", uiSettingGet(uiSettings, "theme", "dark") == "dark") } style="background:var(--background); border-radius:12px">
 							<div class="w-1/4 p-2 flex flex-col gap-1.5" style="background:var(--sidebar)">
@@ -459,8 +464,11 @@ templ SettingsAppearanceTab(uiSettings map[string]string) {
 						<span class="text-sm font-medium text-foreground leading-tight">Classic</span>
 						<span class="text-xs text-muted-foreground">Warm tones, soft rounded</span>
 					</label>
+					@ThemeColorsCardActions(uiSettings, "classic")
+					</div>
 
-					<label class="relative flex flex-col rounded-lg border-2 p-3 cursor-pointer transition-all duration-200 text-left hover:shadow-md group border-border has-[:checked]:border-primary has-[:checked]:ring-2 has-[:checked]:ring-primary/20">
+					<div class="group/theme relative flex" data-theme-card="minimal">
+					<label class="relative flex flex-1 flex-col rounded-lg border-2 p-3 cursor-pointer transition-all duration-200 text-left hover:shadow-md group border-border has-[:checked]:border-primary has-[:checked]:ring-2 has-[:checked]:ring-primary/20">
 						@radio.Radio(radio.Props{Name: "theme_style", Value: "minimal", Checked: uiSettingGet(uiSettings, "theme_style", "classic") == "minimal", Class: "absolute right-2.5 bottom-2.5 z-10"})
 						<div data-theme="minimal" data-theme-preview class={ "overflow-hidden h-36 mb-2 flex", templ.KV("dark", uiSettingGet(uiSettings, "theme", "dark") == "dark") } style="background:var(--background); border-radius:0">
 							<div class="w-1/4 p-2 flex flex-col gap-1.5" style="background:var(--sidebar); border-right:1px solid var(--sidebar-border)">
@@ -491,6 +499,8 @@ templ SettingsAppearanceTab(uiSettings map[string]string) {
 						<span class="text-sm font-medium text-foreground leading-tight">Minimal</span>
 						<span class="text-xs text-muted-foreground">Clean, flat, sharp edges</span>
 					</label>
+					@ThemeColorsCardActions(uiSettings, "minimal")
+					</div>
 
 					<label class="relative flex flex-col rounded-lg border-2 p-3 cursor-pointer transition-all duration-200 text-left hover:shadow-md group border-border has-[:checked]:border-primary has-[:checked]:ring-2 has-[:checked]:ring-primary/20">
 						@radio.Radio(radio.Props{Name: "theme_style", Value: "express", Checked: uiSettingGet(uiSettings, "theme_style", "classic") == "express", Class: "absolute right-2.5 bottom-2.5 z-10"})
@@ -527,6 +537,11 @@ templ SettingsAppearanceTab(uiSettings map[string]string) {
 						<span class="text-xs text-muted-foreground">Bevelled silver, navy highlights</span>
 					</label>
 				</div>
+				@customThemesSection(uiSettings)
+				@ThemeColorsDialog()
+				@ThemeColorsDiscardDialog()
+				@CustomThemeDialog()
+				@CustomThemeDeleteDialog()
 			</div>
 			<div class="settings-card bg-card rounded-lg border p-6 space-y-5">
 				<div>
@@ -2076,6 +2091,724 @@ templ AccountColorPopover(account models.Account) {
 				</div>
 			}
 		}
+}
+
+// ThemeColorsCardActions sit on a style's card: a pencil to change its colors
+// while it is selected, and a trash once it has changes to discard.
+templ ThemeColorsCardActions(uiSettings map[string]string, style string) {
+	<div class="absolute right-2 top-2 z-20 flex gap-1">
+		@ThemeColorsEditButton(style)
+		<span class={ templ.KV("hidden", !themeColorsChanged(uiSettings, style)) } data-theme-colors-discard-wrap={ style }>
+			@tooltip.Tooltip() {
+				@tooltip.Trigger(tooltip.TriggerProps{Class: "inline-flex"}) {
+					<button type="button" class="inline-flex size-7 items-center justify-center rounded-md border border-border bg-background/90 text-destructive shadow-sm transition-colors hover:bg-destructive/10" data-theme-colors-discard={ style } aria-label={ "Discard " + themeStyleLabel(style) + " color changes" }>
+						@icon.Trash2(icon.Props{Class: "size-3.5"})
+					</button>
+				}
+				@tooltip.Content(tooltip.ContentProps{Position: tooltip.PositionBottom}) {
+					Discard color changes
+				}
+			}
+		</span>
+	</div>
+}
+
+// ThemeColorsDialog changes the selected style's colors. settings-page.js
+// fills it when it opens and previews every change on the page.
+templ ThemeColorsDialog() {
+	@dialog.Dialog(dialog.Props{ID: "theme-colors-dialog"}) {
+		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-2xl"}) {
+			@dialog.Header() {
+				@dialog.Title() {
+					<span data-theme-colors-title>Edit colors</span>
+				}
+				@dialog.Description() {
+					The page shows your changes as you make them.
+					<span data-theme-colors-modes-note>Light and dark mode each have their own colors.</span>
+				}
+			}
+			<div class="flex flex-wrap items-center justify-between gap-3">
+				<div class="inline-flex rounded-lg border border-border bg-background p-0.5 gap-0.5" data-theme-colors-modes>
+					for _, mode := range []string{"light", "dark"} {
+						<button type="button" class="inline-flex items-center px-3 py-1.5 rounded-md text-xs font-medium text-muted-foreground transition-colors hover:text-foreground data-[active=true]:bg-muted data-[active=true]:text-foreground data-[active=true]:shadow-sm" data-theme-colors-mode={ mode }>
+							if mode == "light" {
+								Light
+							} else {
+								Dark
+							}
+						</button>
+					}
+				</div>
+				<span class="text-xs text-muted-foreground" data-theme-colors-count></span>
+			</div>
+			<div class="max-h-[55vh] space-y-5 overflow-y-auto pr-1" data-theme-colors-editor>
+				for _, group := range themecolors.Groups {
+					<section>
+						<h4 class="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ group.Label }</h4>
+						<div class="grid gap-x-4 gap-y-1 sm:grid-cols-2">
+							for _, v := range group.Variables {
+								<div class="flex items-center gap-2.5 rounded-md px-1.5 py-1 data-[changed=true]:bg-accent/60" data-theme-colors-row={ v.Name }>
+									<input id={ "theme-color-" + v.Name } type="color" class="h-8 w-10 shrink-0 cursor-pointer rounded border border-border bg-transparent p-0.5" data-theme-colors-input={ v.Name }/>
+									<div class="min-w-0 flex-1">
+										<label for={ "theme-color-" + v.Name } class="block truncate text-sm text-foreground">{ v.Label }</label>
+										if v.Hint != "" {
+											<p class="truncate text-xs text-muted-foreground">{ v.Hint }</p>
+										}
+									</div>
+									<span class="font-mono text-xs text-muted-foreground" data-theme-colors-value></span>
+									<button type="button" class="invisible inline-flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground" data-theme-colors-reset={ v.Name } aria-label={ "Reset " + v.Label }>
+										@icon.RotateCcw(icon.Props{Class: "size-3.5"})
+									</button>
+								</div>
+							}
+						</div>
+					</section>
+				}
+			</div>
+			@dialog.Footer() {
+				@button.Button(button.Props{Variant: button.VariantGhost, Class: "sm:mr-auto", Attributes: templ.Attributes{"data-theme-colors-reset-all": ""}}) {
+					@icon.RotateCcw(icon.Props{Class: "size-4"})
+					Reset all
+				}
+				@dialog.Close() {
+					@button.Button(button.Props{Variant: button.VariantOutline}) {
+						Cancel
+					}
+				}
+				@button.Button(button.Props{Attributes: templ.Attributes{"data-theme-colors-save": ""}}) {
+					Save colors
+				}
+			}
+		}
+	}
+}
+
+// ThemeColorsEditButton opens the color editor for a style. It shows only
+// while that style is selected.
+templ ThemeColorsEditButton(style string) {
+	<span class="hidden group-has-[:checked]/theme:inline-flex">
+		@tooltip.Tooltip() {
+			@tooltip.Trigger(tooltip.TriggerProps{Class: "inline-flex"}) {
+				<button type="button" class="inline-flex size-7 items-center justify-center rounded-md border border-border bg-background/90 text-muted-foreground shadow-sm transition-colors hover:bg-accent hover:text-foreground" data-theme-colors-edit={ style } aria-label={ "Edit " + themeStyleLabel(style) + " colors" }>
+					@icon.Pencil(icon.Props{Class: "size-3.5"})
+				</button>
+			}
+			@tooltip.Content(tooltip.ContentProps{Position: tooltip.PositionBottom}) {
+				Edit colors
+			}
+		}
+	</span>
+}
+
+// customThemeEditMenu is a Custom theme card's pencil: it opens the theme
+// builder on that theme, or the editor for single colors that the other
+// styles' pencils open. It shows on the selected card, so the theme it edits
+// is the one the page is drawn with. It also duplicates the theme, unless
+// full says there are as many themes as Gofer keeps.
+templ customThemeEditMenu(id string, full bool) {
+	<span class="hidden group-has-[:checked]/theme:inline-flex">
+		@dropdown.Dropdown() {
+			@dropdown.Trigger() {
+				<button type="button" class="inline-flex size-7 items-center justify-center rounded-md border border-border bg-background/90 text-muted-foreground shadow-sm transition-colors hover:bg-accent hover:text-foreground" aria-label="Edit the Custom theme">
+					@icon.Pencil(icon.Props{Class: "size-3.5"})
+				</button>
+			}
+			@dropdown.Content(dropdown.ContentProps{Placement: dropdown.PlacementBottomStart, Class: "w-60"}) {
+				@dropdown.Item(dropdown.ItemProps{Class: "items-start justify-start gap-2.5", Attributes: templ.Attributes{"data-custom-theme-edit": id}}) {
+					@icon.WandSparkles(icon.Props{Class: "mt-0.5 size-4 shrink-0"})
+					<span class="flex flex-col gap-0.5 text-left">
+						<span>Theme builder</span>
+						<span class="text-xs text-muted-foreground">Base, colors, tint and look</span>
+					</span>
+				}
+				@dropdown.Item(dropdown.ItemProps{Class: "items-start justify-start gap-2.5", Attributes: templ.Attributes{"data-theme-colors-edit": "custom"}}) {
+					@icon.Palette(icon.Props{Class: "mt-0.5 size-4 shrink-0"})
+					<span class="flex flex-col gap-0.5 text-left">
+						<span>Edit each color</span>
+						<span class="text-xs text-muted-foreground">Fine-tune single colors by hand</span>
+					</span>
+				}
+				@dropdown.Item(dropdown.ItemProps{Class: "items-start justify-start gap-2.5", Disabled: full, Attributes: templ.Attributes{"data-custom-theme-duplicate": id}}) {
+					@icon.Copy(icon.Props{Class: "mt-0.5 size-4 shrink-0"})
+					<span class="flex flex-col gap-0.5 text-left">
+						<span>Duplicate</span>
+						if full {
+							<span class="text-xs text-muted-foreground">Delete a theme to make room</span>
+						} else {
+							<span class="text-xs text-muted-foreground">A copy to start another theme from</span>
+						}
+					</span>
+				}
+			}
+		}
+	</span>
+}
+
+// customThemesSection lists the saved Custom themes as cards in the style
+// picker, each drawn in its own colors, under the button that builds a new
+// one.
+templ customThemesSection(uiSettings map[string]string) {
+	{{ themes := themebuilder.ListFromSettings(uiSettings) }}
+	{{ full := len(themes) >= themebuilder.MaxThemes }}
+	<div class="space-y-4 border-t border-border/60 pt-5" data-custom-themes>
+		<div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+			<div class="min-w-0">
+				<h4 class="text-sm font-medium text-foreground">Your own themes</h4>
+				if full {
+					<p class="text-xs text-muted-foreground">You have { strconv.Itoa(themebuilder.MaxThemes) } themes, as many as Gofer keeps. Delete one to build another.</p>
+				} else {
+					<p class="text-xs text-muted-foreground">Build a theme from one color. Afterwards you can change it, or fine-tune any of its colors, with the pencil on its card.</p>
+				}
+			</div>
+			@button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeSm, Class: "shrink-0", Disabled: full, Attributes: templ.Attributes{"data-custom-theme-build": ""}}) {
+				@icon.WandSparkles(icon.Props{Class: "size-4"})
+				New theme
+			}
+		</div>
+		if len(themes) > 0 {
+			@templ.Raw(`<style data-custom-theme-cards>` + customThemeCardsCSS(themes) + `</style>`)
+			<div class="grid grid-cols-2 sm:grid-cols-3 gap-4 max-w-2xl">
+				for _, theme := range themes {
+					@CustomThemeCard(theme, customThemeSelected(uiSettings, theme.ID), full)
+				}
+			</div>
+		}
+	</div>
+}
+
+// CustomThemeCard is a saved Custom theme in the style picker. Its preview is
+// drawn with the theme's own palette (customThemeCardsCSS).
+templ CustomThemeCard(theme themebuilder.Saved, selected bool, full bool) {
+	<div id={ customThemeCardID(theme.ID) } class="group/theme relative flex" data-theme-card="custom" data-custom-theme-id={ theme.ID }>
+		<label class="relative flex flex-1 flex-col rounded-lg border-2 p-3 cursor-pointer transition-all duration-200 text-left hover:shadow-md group border-border has-[:checked]:border-primary has-[:checked]:ring-2 has-[:checked]:ring-primary/20">
+			@radio.Radio(radio.Props{Name: "theme_style", Value: "custom", Checked: selected, Class: "absolute right-2.5 bottom-2.5 z-10", Attributes: templ.Attributes{"data-custom-theme-id": theme.ID}})
+			<div data-theme="custom" data-theme-preview class={ "overflow-hidden h-36 mb-2 flex", customThemeModeClass(theme) } style="background:var(--background); border-radius:var(--radius)">
+				<div class="w-1/4 p-2 flex flex-col gap-1.5" style="background:var(--sidebar); border-right:1px solid var(--sidebar-border)">
+					<div style="height:3px; width:70%; background:var(--sidebar-foreground); opacity:0.5; border-radius:var(--radius)"></div>
+					<div style="height:3px; width:90%; background:var(--sidebar-foreground); opacity:0.3; border-radius:var(--radius)"></div>
+					<div style="height:3px; width:50%; background:var(--sidebar-primary); border-radius:var(--radius)"></div>
+					<div style="height:3px; width:80%; background:var(--sidebar-foreground); opacity:0.3; border-radius:var(--radius)"></div>
+					<div style="height:3px; width:60%; background:var(--sidebar-foreground); opacity:0.3; border-radius:var(--radius)"></div>
+				</div>
+				<div class="flex-1 p-2 flex flex-col gap-1.5" style="background:var(--background)">
+					<div style="height:3px; width:60%; background:var(--foreground); opacity:0.3; border-radius:var(--radius); margin-bottom:2px"></div>
+					<div class="flex-1 p-2 flex flex-col" style="background:var(--card); border:1px solid var(--border); border-radius:var(--radius)">
+						<div style="height:2px; width:75%; background:var(--foreground); opacity:0.4; margin-bottom:3px"></div>
+						<div style="height:2px; width:50%; background:var(--primary); margin-bottom:3px"></div>
+						<div style="height:2px; width:85%; background:var(--foreground); opacity:0.2; margin-bottom:3px"></div>
+						<div style="height:2px; width:60%; background:var(--foreground); opacity:0.15; margin-bottom:3px"></div>
+						<div style="height:2px; width:90%; background:var(--foreground); opacity:0.1; margin-bottom:3px"></div>
+						<div style="flex:1; width:100%; background:var(--secondary); border-radius:calc(var(--radius) * 0.6); margin-bottom:3px"></div>
+						<div style="display:inline-flex; gap:4px; margin-top:auto">
+							<div style="height:10px; width:28px; background:var(--primary); border-radius:calc(var(--radius) * 0.75)"></div>
+							<div style="height:10px; width:28px; background:var(--card); border:1px solid var(--border); border-radius:calc(var(--radius) * 0.75)"></div>
+						</div>
+					</div>
+				</div>
+			</div>
+			<span class="truncate text-sm font-medium text-foreground leading-tight">{ theme.Name }</span>
+			<span class="text-xs text-muted-foreground">
+				if theme.Dark() {
+					Dark base
+				} else {
+					Light base
+				}
+			</span>
+		</label>
+		<div class="absolute right-2 top-2 z-20 flex gap-1">
+			@customThemeEditMenu(theme.ID, full)
+			@tooltip.Tooltip() {
+				@tooltip.Trigger(tooltip.TriggerProps{Class: "inline-flex"}) {
+					<button type="button" class="inline-flex size-7 items-center justify-center rounded-md border border-border bg-background/90 text-destructive shadow-sm transition-colors hover:bg-destructive/10" data-custom-theme-delete={ theme.ID } data-custom-theme-delete-name={ theme.Name } aria-label={ "Delete " + theme.Name }>
+						@icon.Trash2(icon.Props{Class: "size-3.5"})
+					</button>
+				}
+				@tooltip.Content(tooltip.ContentProps{Position: tooltip.PositionBottom}) {
+					Delete theme
+				}
+			}
+		</div>
+	</div>
+}
+
+// CustomThemeDialog is the theme builder. settings-page.js fills it when it
+// opens, from the saved theme or the selected style, and shows every change in
+// the preview frame; the page itself changes only when the theme is saved.
+templ CustomThemeDialog() {
+	@dialog.Dialog(dialog.Props{ID: "custom-theme-dialog"}) {
+		@dialog.Content(dialog.ContentProps{Class: "custom-theme-dialog sm:max-w-[min(96vw,88rem)] max-h-[calc(100dvh-2rem)] [&>[data-tui-dialog-panel]]:flex [&>[data-tui-dialog-panel]]:max-h-[calc(100dvh-2rem)] [&>[data-tui-dialog-panel]]:flex-col"}) {
+			@dialog.Header() {
+				@dialog.Title() { Theme builder }
+				@dialog.Description() { Pick a light or dark base and your colors, and Gofer makes the rest of the theme from them. The theme is always shown on its own base. }
+			}
+			<div class="grid min-h-0 flex-1 gap-5 overflow-y-auto md:grid-cols-[19rem_minmax(0,1fr)] md:grid-rows-[minmax(0,1fr)] md:overflow-hidden" data-custom-theme-builder>
+				<div class="space-y-5 px-1.5 md:h-0 md:min-h-full md:overflow-y-auto md:pr-2" data-custom-theme-controls>
+					<div class="space-y-2">
+						<label for="custom-theme-name" class="text-sm font-semibold text-foreground">Name</label>
+						@input.Input(input.Props{ID: "custom-theme-name", Type: input.TypeText, Attributes: templ.Attributes{"maxlength": strconv.Itoa(themebuilder.MaxNameLength), "autocomplete": "off", "data-custom-theme-name": ""}})
+					</div>
+					@customThemeBase()
+					<fieldset class="space-y-2">
+						<legend class="mb-2 flex w-full items-center gap-2 text-sm font-semibold text-foreground">
+							Primary color
+							<span class="ml-auto font-mono text-xs font-normal text-muted-foreground" data-custom-theme-seed-value></span>
+						</legend>
+						@customThemeSwatches("data-custom-theme-seed-option", "data-custom-theme-seed")
+						<p class="text-xs text-muted-foreground">Main buttons, links and selection.</p>
+					</fieldset>
+					<fieldset class="space-y-2">
+						<legend class="mb-2 flex w-full items-center gap-2 text-sm font-semibold text-foreground">
+							Secondary color
+							<span class="ml-auto font-mono text-xs font-normal text-muted-foreground" data-custom-theme-secondary-value></span>
+						</legend>
+						@customThemeSecondarySwatches()
+						<p class="text-xs text-muted-foreground">Secondary buttons, chips and hovered items. The suggestions go with the primary color.</p>
+					</fieldset>
+					<div class="space-y-3">
+						@customThemeChoice("Tint", "A hint of a color in the backgrounds, cards, borders and sidebar. Strength sets how much.", "tint", []customThemeOption{{"primary", "From primary"}, {"secondary", "From secondary"}, {"none", "None"}})
+						@customThemeSubChoice("Tint strength", "strength", []customThemeOption{{"subtle", "Subtle"}, {"strong", "Strong"}, {"strongest", "Strongest"}})
+					</div>
+					@customThemeChoice("Contrast", "How much text and borders stand out from what they sit on. High and Highest make text darker on light themes and lighter on dark ones, and borders stronger. Button colors stay as they are.", "contrast", []customThemeOption{{"normal", "Normal"}, {"high", "High"}, {"highest", "Highest"}})
+					@customThemeChoice("Sidebar", "", "sidebar", []customThemeOption{{"darker", "Darker than the panes"}, {"lighter", "Lighter than the panes"}})
+					@customThemeChoice("Buttons and surfaces", "", "depth", []customThemeOption{{"raised", "Raised"}, {"flat", "Flat"}})
+					@customThemeChoice("Corners", "", "corners", []customThemeOption{{"square", "Square"}, {"small", "Small"}, {"medium", "Medium"}, {"large", "Large"}})
+					<p class="hidden rounded-md border border-border bg-muted/60 px-3 py-2 text-xs text-muted-foreground" data-custom-theme-reset-warning></p>
+				</div>
+				<div class="flex min-w-0 flex-col gap-2 [justify-content:safe_center] md:min-h-0 md:overflow-y-auto">
+					<span class="text-sm font-semibold text-foreground">Preview</span>
+					<div class="relative w-full max-w-[1000px] overflow-hidden rounded-md border border-border bg-background" data-custom-theme-preview-stage>
+						<iframe title="Theme preview" sandbox="allow-same-origin" tabindex="-1" class="pointer-events-auto absolute left-0 top-0 origin-top-left border-0" style="width:1060px;height:620px" data-custom-theme-preview-frame></iframe>
+					</div>
+					<template data-custom-theme-preview-template>
+						@CustomThemePreview()
+					</template>
+				</div>
+			</div>
+			@dialog.Footer() {
+				@dialog.Close() {
+					@button.Button(button.Props{Variant: button.VariantOutline}) {
+						Cancel
+					}
+				}
+				@button.Button(button.Props{Attributes: templ.Attributes{"data-custom-theme-save": ""}}) {
+					Save theme
+				}
+			}
+		}
+	}
+}
+
+// customThemeSwatches are the suggested colors, each marked with attribute,
+// and a last tile that opens a color picker marked with pickerAttribute. The
+// tile shows the picked color once one outside the suggestions is chosen.
+templ customThemeSwatches(attribute string, pickerAttribute string) {
+	<div class="flex flex-wrap gap-2">
+		for _, preset := range themebuilder.Presets {
+			<button
+				type="button"
+				class="account-color-swatch size-7 rounded-full transition-transform hover:scale-110 focus-visible:outline-none"
+				style={ accountColorStyle(preset.Color) }
+				{ templ.Attributes{attribute: preset.Color}... }
+				data-account-color-active="false"
+				aria-label={ preset.Name }
+				aria-pressed="false"
+			></button>
+		}
+		@customThemePickerTile(pickerAttribute)
+	</div>
+}
+
+// customThemeSecondarySwatches are colors that go with the primary color,
+// which settings-page.js works out from it whenever it changes, and the
+// color picker tile. The first follows the primary color.
+templ customThemeSecondarySwatches() {
+	<div class="flex flex-wrap gap-2">
+		for _, suggestion := range secondarySuggestions {
+			@tooltip.Tooltip() {
+				@tooltip.Trigger() {
+					<button
+						type="button"
+						class="account-color-swatch size-7 rounded-full transition-transform hover:scale-110 focus-visible:outline-none"
+						data-custom-theme-secondary-option=""
+						data-custom-theme-suggestion-turn={ strconv.Itoa(suggestion.Turn) }
+						data-custom-theme-suggestion-chroma={ suggestion.Chroma }
+						data-account-color-active="false"
+						aria-label={ suggestion.Name }
+						aria-pressed="false"
+					></button>
+				}
+				@tooltip.Content(tooltip.ContentProps{Position: tooltip.PositionTop, ShowArrow: true}) {
+					{ suggestion.Name }
+				}
+			}
+		}
+		@customThemePickerTile("data-custom-theme-secondary")
+	</div>
+}
+
+// customThemePickerTile opens a color picker, marked with pickerAttribute.
+templ customThemePickerTile(pickerAttribute string) {
+	<label class="account-color-swatch custom-theme-picker-tile relative flex size-7 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-transform hover:scale-110" data-account-color-active="false" data-custom-theme-picker-tile>
+		@icon.Plus(icon.Props{Class: "custom-theme-picker-plus size-4"})
+		<input type="color" value="#2563eb" class="absolute inset-0 size-full cursor-pointer opacity-0" aria-label="Choose another color" { templ.Attributes{pickerAttribute: ""}... }/>
+	</label>
+}
+
+// CustomThemePreview is the app, with made-up mail, in the theme builder's
+// preview frame. It is a trimmed copy of the real sidebar, mail list and
+// reader, with the same classes, so the theme looks as it will; keep it in
+// step with them. Its sizes are its own: the frame runs no scripts, which the
+// app needs to apply saved panel sizes.
+templ CustomThemePreview() {
+	{{ emails := themePreviewEmails() }}
+	<div class="flex h-screen overflow-hidden">
+		@customThemePreviewSidebar()
+		<div class="resize-handle pointer-events-none"></div>
+		<div class="flex w-[21.5rem] shrink-0 flex-col border-r border-border bg-card h-full overflow-hidden">
+			<div class="mail-list-header px-4 py-4 space-y-3">
+				<div class="mail-list-title-row flex items-center gap-2">
+					<h2 class="text-lg font-bold tracking-tight" style="font-family: var(--font-serif)">Inbox</h2>
+				</div>
+				<div class="mail-list-search-input-wrap relative groove rounded-lg min-w-0">
+					@icon.Search(icon.Props{Class: "absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground"})
+					<input type="text" placeholder="Search" tabindex="-1" readonly class="h-9 w-full pl-8 pr-3 rounded-lg text-sm bg-background border border-border/50 outline-none"/>
+				</div>
+			</div>
+			<hr class="divider-etched"/>
+			<div id="mail-list-scroll" class="min-h-0 flex-1 overflow-hidden px-2 py-2" data-mail-card-fields="avatar,from,date,attachment,to,subject,preview,labels,starred">
+				for i, email := range emails {
+					@customThemePreviewCard(email, i == 1)
+				}
+			</div>
+		</div>
+		<div class="flex flex-1 flex-col min-w-0 bg-background surface-desk">
+			@customThemePreviewReader(emails[1])
+		</div>
+	</div>
+}
+
+templ customThemePreviewSidebar() {
+	<div class="flex w-max shrink-0 flex-col surface-leather text-sidebar-foreground h-full overflow-hidden">
+		<div class="px-4 pt-5 pb-4">
+			<div class="sidebar-app-nav relative grid h-8 w-full grid-cols-3 gap-0.5 rounded-lg border border-sidebar-border bg-sidebar-accent/35 p-0.5">
+				<div class="absolute top-0.5 bottom-0.5 left-0.5 rounded-md border border-sidebar-border bg-sidebar-accent shadow-sm" style={ sidebarAppIndicatorStyle("mail") }></div>
+				@customThemePreviewAppTab(icon.Mail(icon.Props{Class: "size-3.5"}), "Mail", true)
+				@customThemePreviewAppTab(icon.BookUser(icon.Props{Class: "size-3.5"}), "Contacts", false)
+				@customThemePreviewAppTab(icon.CalendarDays(icon.Props{Class: "size-3.5"}), "Calendar", false)
+			</div>
+		</div>
+		<div class="px-4 pb-4">
+			<div class="btn-skeuo flex items-center justify-center gap-2 w-full h-10 rounded-lg text-sidebar-primary-foreground font-semibold text-sm">
+				@icon.Pen(icon.Props{Class: "size-4"})
+				Compose
+			</div>
+		</div>
+		<hr class="divider-etched mx-4"/>
+		<div class="flex-1 overflow-hidden px-3 pt-2 pb-3">
+			<div class="flex w-full items-center gap-2.5 px-2 py-2 text-sm font-semibold text-sidebar-accent-foreground">
+				<span class="flex size-4 shrink-0 items-center justify-center text-sidebar-primary">
+					@icon.Folders(icon.Props{Class: "size-4"})
+				</span>
+				<span class="flex-1 truncate">Unified folders</span>
+				@icon.ChevronDown(icon.Props{Class: "size-3.5 shrink-0 text-sidebar-foreground"})
+			</div>
+			<div class="space-y-px mt-0.5">
+				@customThemePreviewFolder("inbox", "Inbox", 2, true)
+				@customThemePreviewFolder("starred", "Starred", 0, false)
+				@customThemePreviewFolder("send", "Sent", 0, false)
+				@customThemePreviewFolder("file", "Drafts", 1, false)
+				@customThemePreviewFolder("archive", "Archive", 0, false)
+				@customThemePreviewFolder("trash", "Trash", 0, false)
+			</div>
+			<div class="mt-1.5 flex w-full items-center gap-2.5 px-2 py-2 text-sm font-semibold text-sidebar-accent-foreground">
+				<div class="account-color-marker size-2.5 shrink-0" style={ accountColorStyle("#0d9488") }></div>
+				<span class="flex-1 truncate">Personal</span>
+				@icon.ChevronRight(icon.Props{Class: "size-3.5 shrink-0 text-sidebar-foreground"})
+			</div>
+		</div>
+		<div class="px-4 py-3 border-t border-sidebar-border">
+			<div class="flex items-center gap-2 px-2 py-1.5 rounded-md text-sidebar-foreground text-[13px]">
+				<span class="flex size-4 shrink-0 items-center justify-center">
+					@icon.Settings(icon.Props{Class: "size-4"})
+				</span>
+				<span class="truncate">Settings</span>
+			</div>
+		</div>
+	</div>
+}
+
+templ customThemePreviewAppTab(tabIcon templ.Component, label string, active bool) {
+	<span
+		class={
+			"relative z-10 inline-flex h-7 min-w-0 items-center justify-center gap-1 rounded-md px-2 text-xs font-medium",
+			templ.KV("text-sidebar-accent-foreground", active),
+			templ.KV("text-sidebar-foreground", !active),
+		}
+	>
+		@tabIcon
+		<span class="truncate">{ label }</span>
+	</span>
+}
+
+templ customThemePreviewFolder(folderIcon string, name string, unread int, active bool) {
+	<div
+		class={
+			"flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] transition-all duration-150",
+			templ.KV("bg-sidebar-accent text-sidebar-primary font-medium", active),
+			templ.KV("text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground", !active),
+		}
+	>
+		<span class="flex size-5 shrink-0 items-center justify-center rounded text-sidebar-foreground">
+			@SidebarFolderIcon(folderIcon)
+		</span>
+		<span class="flex-1 truncate">{ name }</span>
+		if unread > 0 {
+			<span
+				data-folder-unread
+				class={
+					"min-w-5 h-5 px-1.5 flex items-center justify-center rounded-full text-[11px] font-semibold tabular-nums",
+					templ.KV("bg-sidebar-primary/20 text-sidebar-primary", active),
+					templ.KV("bg-sidebar-accent text-sidebar-foreground", !active),
+				}
+			>
+				{ strconv.Itoa(unread) }
+			</span>
+		}
+	</div>
+}
+
+// customThemePreviewCard is a mail list card, as MailListCardItem draws it
+// with the default layout.
+templ customThemePreviewCard(email models.Email, selected bool) {
+	<div class="mail-list-item" data-is-read={ fmt.Sprintf("%t", email.IsRead) }>
+		<a
+			class={
+				"mail-list-card px-3.5 py-2.5 rounded-lg cursor-pointer transition-all duration-200 group",
+				templ.KV("envelope-active", selected),
+				templ.KV("envelope", !selected),
+			}
+		>
+			<div class="mail-list-card-zone mail-list-card-zone-rail-top" data-mail-card-zone="railTop">
+				<div data-mail-card-field="avatar">
+					@ContactAvatar(email.From, "size-6 rounded-full text-[10px] font-semibold shadow-[0_1px_3px_rgba(0,0,0,0.15)]", contactAvatarListFallback(email.IsRead))
+				</div>
+			</div>
+			<div class="mail-list-card-zone mail-list-card-zone-header" data-mail-card-zone="header">
+				<span class={ "text-[15px] truncate", templ.KV("font-bold text-primary", !email.IsRead), templ.KV("text-black dark:text-foreground", email.IsRead) } data-mail-card-field="from">{ email.From.Name }</span>
+				<span class={ "text-[13px] tabular-nums", templ.KV("text-primary font-semibold", !email.IsRead), templ.KV("text-black dark:text-foreground", email.IsRead) } data-mail-card-field="date">{ email.Date }</span>
+			</div>
+			<div class="mail-list-card-zone mail-list-card-zone-meta" data-mail-card-zone="meta">
+				if email.HasAttachment {
+					<span data-mail-card-field="attachment" class="inline-flex items-center gap-0.5 text-xs text-muted-foreground">
+						@icon.Paperclip(icon.Props{Class: "size-3"})
+						<span class="mail-list-card-attachment-count tabular-nums">{ strconv.Itoa(email.AttachmentCount) }</span>
+					</span>
+				}
+			</div>
+			<div class="mail-list-card-zone mail-list-card-zone-body" data-mail-card-zone="body">
+				<p data-mail-card-field="to" class="text-xs text-black dark:text-foreground truncate leading-snug">
+					<span class="font-medium text-muted-foreground">To</span>
+					{ email.To[0].Name }
+				</p>
+			</div>
+			<div class="mail-list-card-zone mail-list-card-zone-body-bottom" data-mail-card-zone="bodyBottom">
+				<p class={ "text-sm truncate", templ.KV("font-semibold text-primary", !email.IsRead), templ.KV("text-black dark:text-foreground", email.IsRead) } data-mail-card-field="subject">{ email.Subject }</p>
+			</div>
+			<div class="mail-list-card-zone mail-list-card-zone-footer" data-mail-card-zone="footer">
+				<p class="min-w-0 flex-1 text-[13px] text-black dark:text-foreground truncate leading-normal" data-mail-card-field="preview">{ email.Preview }</p>
+				if len(email.Labels) > 0 {
+					<span class="mail-list-card-labels" data-mail-card-field="labels">
+						for _, label := range email.Labels {
+							<span class={ "text-[11px] px-1.5 py-0.5 rounded font-medium shrink-0 shadow-[0_1px_2px_rgba(0,0,0,0.08)]", label.Color }>{ label.Name }</span>
+						}
+					</span>
+				}
+			</div>
+			<div class="mail-list-card-zone mail-list-card-zone-corner" data-mail-card-zone="corner">
+				if email.IsStarred {
+					<span data-mail-card-field="starred">
+						@icon.Star(icon.Props{Class: "size-3.5 text-amber-500 fill-amber-500 shrink-0 drop-shadow-[0_1px_1px_rgba(180,120,0,0.4)]"})
+					</span>
+				}
+			</div>
+		</a>
+	</div>
+}
+
+// customThemePreviewReader is the reader, as MailViewContent draws a single
+// message, with two of its toolbar buttons and two of its reply buttons.
+templ customThemePreviewReader(email models.Email) {
+	<div class="mail-view-frame flex flex-col h-full">
+		<div class="surface-paper rounded-md flex flex-col h-full overflow-hidden">
+			<div class="mail-view-toolbar flex items-center justify-between px-6 py-2.5">
+				<div class="flex items-center gap-1">
+					@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeIcon, Class: "h-8 w-8 text-icon hover:text-ink hover:bg-ink/5"}) {
+						@icon.Trash2(icon.Props{Class: "size-4"})
+					}
+					@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeIcon, Class: "h-8 w-8 text-icon hover:text-ink hover:bg-ink/5"}) {
+						@icon.Archive(icon.Props{Class: "size-4"})
+					}
+				</div>
+				<span class="text-xs text-muted-foreground tabular-nums">{ email.DateFull }</span>
+			</div>
+			<div class="h-px bg-gradient-to-r from-transparent via-amber-900/10 to-transparent"></div>
+			<div class="flex-1 overflow-hidden">
+				<div class="mail-view-content mx-auto px-8 py-6">
+					<div class="flex items-start gap-4">
+						@ContactAvatar(email.From, "size-11 rounded-full text-sm font-bold shrink-0 shadow-[0_2px_6px_rgba(0,0,0,0.2)]", "bg-gradient-to-b from-amber-700/70 to-amber-900/70 text-amber-100")
+						<div class="flex-1 min-w-0">
+							<div class="flex items-center gap-2 flex-wrap">
+								<span class="font-semibold text-ink">{ email.From.Name }</span>
+								<span class="text-xs text-muted-foreground">&lt;{ email.From.Email }&gt;</span>
+							</div>
+							<div class="text-xs text-muted-foreground mt-0.5">to { email.To[0].Name }</div>
+						</div>
+					</div>
+					<h1 class="mt-5 text-xl font-bold tracking-tight text-ink" style="font-family: var(--font-serif)">{ email.Subject }</h1>
+					<div class="h-px bg-gradient-to-r from-transparent via-ink/10 to-transparent my-6"></div>
+					<div class="custom-theme-preview-body">
+						<p>Hi Jamie,</p>
+						<p>I've drawn up the beds and marked where the tomatoes go. The beans can climb the fence on the sunny side, and the herbs go by the kitchen door.</p>
+						<p>The plan is attached, and the seeds I'd like to try are <a href="#">on this list</a>. Have a look when you can and tell me what you think.</p>
+						<p>Ana</p>
+					</div>
+				</div>
+			</div>
+			<div class="px-6 py-3 border-t border-ink/6">
+				<div class="flex items-center gap-2">
+					@button.Button(button.Props{Variant: button.VariantOutline, Class: "flex-1 h-9 border-ink/10 text-muted-foreground hover:text-ink hover:border-ink/20"}) {
+						<span class="flex items-center gap-2 text-[13px]">
+							@icon.Reply(icon.Props{Class: "size-4"})
+							Reply
+						</span>
+					}
+					@button.Button(button.Props{Variant: button.VariantOutline, Class: "flex-1 h-9 border-ink/10 text-muted-foreground hover:text-ink hover:border-ink/20"}) {
+						<span class="flex items-center gap-2 text-[13px]">
+							@icon.Forward(icon.Props{Class: "size-4"})
+							Forward
+						</span>
+					}
+				</div>
+			</div>
+		</div>
+	</div>
+}
+
+// customThemeBase is the light or dark base, a wide switch like the Color
+// Mode one, set apart from the rest since every other choice is made on it.
+templ customThemeBase() {
+	<fieldset class="space-y-2 border-b border-border pb-5" data-custom-theme-choice="mode">
+		<legend class="mb-2 text-sm font-semibold text-foreground">Base</legend>
+		<div class="relative grid grid-cols-2 gap-0.5 rounded-lg border border-border bg-background p-0.5">
+			<div class="pointer-events-none absolute top-0.5 bottom-0.5 left-0.5 w-[calc((100%-6px)/2)] rounded-[calc(var(--radius)-2px)] border border-border bg-card shadow-[var(--shadow-card)] transition-transform duration-[220ms] ease-in-out" data-custom-theme-base-indicator></div>
+			@customThemeBaseOption("light", "Light")
+			@customThemeBaseOption("dark", "Dark")
+		</div>
+		<p class="text-xs text-muted-foreground">Everything below is built on it.</p>
+	</fieldset>
+}
+
+templ customThemeBaseOption(value string, label string) {
+	<label data-custom-theme-base-option class="relative z-10 inline-flex h-8 cursor-pointer items-center justify-center gap-1.5 rounded-md text-sm font-medium text-muted-foreground transition-colors duration-200 hover:text-foreground has-[:checked]:text-foreground has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring">
+		@radio.Radio(radio.Props{Name: "custom_theme_mode", Value: value, Class: "absolute inset-0 size-full cursor-pointer opacity-0", Attributes: templ.Attributes{"data-custom-theme-field": "mode"}})
+		if value == "dark" {
+			@icon.Moon(icon.Props{Class: "size-3.5"})
+		} else {
+			@icon.Sun(icon.Props{Class: "size-3.5"})
+		}
+		{ label }
+	</label>
+}
+
+// customThemeSubChoice is a set of radios that refines the choice above it,
+// under a small label rather than a heading.
+templ customThemeSubChoice(label string, field string, options []customThemeOption) {
+	<fieldset class="space-y-2" data-custom-theme-choice={ field }>
+		<legend class="mb-1.5 text-xs font-medium text-muted-foreground">{ label }</legend>
+		@customThemeRadios(field, options)
+	</fieldset>
+}
+
+// customThemeChoice is a set of radios; info, if any, explains it in a
+// tooltip on an icon next to the legend.
+templ customThemeChoice(legend string, info string, field string, options []customThemeOption) {
+	<fieldset class="space-y-2" data-custom-theme-choice={ field }>
+		<legend class="mb-2 flex items-center gap-1.5 text-sm font-semibold text-foreground">
+			{ legend }
+			if info != "" {
+				@tooltip.Tooltip() {
+					@tooltip.Trigger() {
+						<button type="button" class="inline-flex text-muted-foreground hover:text-foreground focus-visible:outline-none" aria-label={ "About " + strings.ToLower(legend) }>
+							@icon.Info(icon.Props{Class: "size-3.5"})
+						</button>
+					}
+					@tooltip.Content(tooltip.ContentProps{Position: tooltip.PositionRight, ShowArrow: true, Class: "max-w-64 py-2 text-xs font-normal leading-snug"}) {
+						{ info }
+					}
+				}
+			}
+		</legend>
+		@customThemeRadios(field, options)
+	</fieldset>
+}
+
+templ customThemeRadios(field string, options []customThemeOption) {
+	<div class="flex flex-wrap gap-x-5 gap-y-2">
+		for _, option := range options {
+			<label class="flex items-center gap-2 text-sm">
+				@radio.Radio(radio.Props{Name: "custom_theme_" + field, Value: option.Value, Attributes: templ.Attributes{"data-custom-theme-field": field}})
+				{ option.Label }
+			</label>
+		}
+	</div>
+}
+
+templ CustomThemeDeleteDialog() {
+	@dialog.Dialog(dialog.Props{ID: "custom-theme-delete-dialog"}) {
+		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-md"}) {
+			@dialog.Header() {
+				@dialog.Title() {
+					<span data-custom-theme-delete-title>Delete this theme?</span>
+				}
+				@dialog.Description() { Its colors and any colors you edited by hand are removed. If it is selected, Gofer switches to Classic. }
+			}
+			@dialog.Footer() {
+				@dialog.Close() {
+					@button.Button(button.Props{Variant: button.VariantOutline}) {
+						Cancel
+					}
+				}
+				@button.Button(button.Props{Variant: button.VariantDestructive, Attributes: templ.Attributes{"data-custom-theme-delete-confirm": ""}}) {
+					@icon.Trash2(icon.Props{Class: "size-4"})
+					Delete theme
+				}
+			}
+		}
+	}
+}
+
+templ ThemeColorsDiscardDialog() {
+	@dialog.Dialog(dialog.Props{ID: "theme-colors-discard-dialog"}) {
+		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-md"}) {
+			@dialog.Header() {
+				@dialog.Title() { Discard color changes? }
+				@dialog.Description() {
+					<span data-theme-colors-discard-text>The style goes back to the colors it ships with.</span>
+				}
+			}
+			@dialog.Footer() {
+				@dialog.Close() {
+					@button.Button(button.Props{Variant: button.VariantOutline}) {
+						Cancel
+					}
+				}
+				@button.Button(button.Props{Variant: button.VariantDestructive, Attributes: templ.Attributes{"data-theme-colors-discard-confirm": ""}}) {
+					@icon.Trash2(icon.Props{Class: "size-4"})
+					Discard changes
+				}
+			}
+		}
+	}
 }
 
 templ AccountSignaturesSettings(accounts []models.AccountSignatureData) {

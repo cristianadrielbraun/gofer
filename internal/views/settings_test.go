@@ -3,13 +3,16 @@ package views
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/models"
+	"github.com/cristianadrielbraun/gofer/internal/themebuilder"
 )
 
 func TestSettingsSyncTabIncludesUnifiedFoldersPanel(t *testing.T) {
@@ -907,6 +910,242 @@ func TestThemeClassKeepsExpressLight(t *testing.T) {
 		if got := themeClass(tc.settings); got != tc.want {
 			t.Errorf("themeClass(%v) = %q, want %q", tc.settings, got, tc.want)
 		}
+	}
+}
+
+func TestAppearanceTabThemeColorActions(t *testing.T) {
+	render := func(settings map[string]string) string {
+		t.Helper()
+		var out bytes.Buffer
+		if err := SettingsAppearanceTab(settings).Render(context.Background(), &out); err != nil {
+			t.Fatal(err)
+		}
+		return out.String()
+	}
+	discardHidden := func(html, style string) bool {
+		return strings.Contains(html, `<span class="hidden" data-theme-colors-discard-wrap="`+style+`">`)
+	}
+
+	html := render(map[string]string{"theme_style": "classic"})
+	for _, style := range []string{"classic", "minimal"} {
+		if !strings.Contains(html, `data-theme-colors-edit="`+style+`"`) {
+			t.Errorf("%s card has no edit button", style)
+		}
+		if !discardHidden(html, style) {
+			t.Errorf("%s discard should be hidden without changes", style)
+		}
+	}
+	if strings.Contains(html, `data-theme-colors-edit="express"`) {
+		t.Fatal("Express should not be editable")
+	}
+	if !strings.Contains(html, `data-theme-colors-row="primary"`) || !strings.Contains(html, `data-theme-colors-row="sidebar-ring"`) {
+		t.Fatal("editor rows missing")
+	}
+
+	html = render(map[string]string{"theme_style": "classic", "theme_colors_minimal": `{"dark":{"primary":"#1d4ed8"}}`})
+	if discardHidden(html, "minimal") {
+		t.Fatal("minimal has changes but no discard button")
+	}
+	if !discardHidden(html, "classic") {
+		t.Fatal("classic has no changes but shows discard")
+	}
+}
+
+func TestThemeColorsStyleWritesEachStyle(t *testing.T) {
+	settings := map[string]string{"theme_colors_classic": `{"light":{"primary":"#1d4ed8"}}`, "theme_colors_minimal": `{"light":{"primary":"bad"}}`}
+	var out bytes.Buffer
+	if err := ThemeColorsStyle(settings).Render(context.Background(), &out); err != nil {
+		t.Fatal(err)
+	}
+	html := out.String()
+	if !strings.Contains(html, `<style data-theme-colors="classic">:is(html,[data-theme-preview],[data-theme-probe])[data-theme="classic"]:not(.dark){--primary:#1d4ed8;}`) {
+		t.Fatalf("classic block missing: %s", html)
+	}
+	if !strings.Contains(html, `<style data-theme-colors="minimal"></style>`) {
+		t.Fatalf("invalid minimal changes should leave an empty block: %s", html)
+	}
+}
+
+func TestThemeLookAttributes(t *testing.T) {
+	for _, tc := range []struct {
+		style  string
+		depth  string
+		corner string
+	}{
+		{"minimal", "flat", "square"},
+		{"classic", "", ""},
+		{"express", "", ""},
+		{"custom", "flat", ""},
+	} {
+		attrs := themeLookAttributes(map[string]string{"theme_style": tc.style, "custom_theme": `{"seed":"#16a34a","sidebar":"dark","depth":"flat","corners":"large"}`})
+		if got, _ := attrs["data-depth"].(string); got != tc.depth {
+			t.Errorf("%s data-depth = %q, want %q", tc.style, got, tc.depth)
+		}
+		if got, _ := attrs["data-corners"].(string); got != tc.corner {
+			t.Errorf("%s data-corners = %q, want %q", tc.style, got, tc.corner)
+		}
+	}
+}
+
+// The Custom theme is shown in its own mode, whatever the color mode setting.
+func TestCustomThemeKeepsItsMode(t *testing.T) {
+	dark := `{"mode":"dark","seed":"#16a34a","sidebar":"dark","depth":"raised","corners":"medium"}`
+	light := `{"mode":"light","seed":"#16a34a","sidebar":"dark","depth":"raised","corners":"medium"}`
+	for _, tc := range []struct {
+		settings map[string]string
+		want     string
+	}{
+		{map[string]string{"theme_style": "custom", "theme": "light", "custom_theme": dark}, "dark"},
+		{map[string]string{"theme_style": "custom", "theme": "dark", "custom_theme": light}, ""},
+		{map[string]string{"theme_style": "classic", "theme": "dark", "custom_theme": light}, "dark"},
+		{map[string]string{"theme_style": "custom", "theme": "dark"}, "dark"},
+	} {
+		if got := themeClass(tc.settings); got != tc.want {
+			t.Errorf("themeClass(%v) = %q, want %q", tc.settings, got, tc.want)
+		}
+	}
+}
+
+func TestEachCustomThemeKeepsItsHandEdits(t *testing.T) {
+	list := `[{"id":"a1","name":"Day","seed":"#16a34a","sidebar":"darker","depth":"raised","corners":"medium","colors":{"light":{"primary":"#111111"}}},` +
+		`{"id":"b2","name":"Night","seed":"#2563eb","sidebar":"lighter","depth":"flat","corners":"square","colors":{"light":{"primary":"#222222"}}}]`
+	settings := map[string]string{"custom_themes": list, "custom_theme_active": "b2", "theme_colors_custom": `{"light":{"primary":"#333333"}}`}
+	css := themeColorsCSS(settings, "custom")
+	if !strings.Contains(css, "--primary:#222222;") || strings.Contains(css, "#111111") || strings.Contains(css, "#333333") {
+		t.Fatalf("Custom hand edits = %s, want the active theme's", css)
+	}
+	if !themeColorsChanged(settings, "custom") {
+		t.Fatal("the active theme has hand edits")
+	}
+	settings["custom_theme_active"] = "a1"
+	if css := themeColorsCSS(settings, "custom"); !strings.Contains(css, "#111111") {
+		t.Fatalf("after switching, hand edits = %s", css)
+	}
+}
+
+func TestActiveCustomThemeDrawsThePage(t *testing.T) {
+	list := `[{"id":"a1","name":"Day","mode":"light","seed":"#16a34a","sidebar":"darker","depth":"raised","corners":"medium"},` +
+		`{"id":"b2","name":"Night","mode":"dark","seed":"#2563eb","sidebar":"lighter","depth":"flat","corners":"square"}]`
+	settings := map[string]string{"theme_style": "custom", "theme": "light", "custom_themes": list, "custom_theme_active": "b2"}
+	if got := themeClass(settings); got != "dark" {
+		t.Errorf("themeClass = %q, want the active theme's dark", got)
+	}
+	if attrs := themeLookAttributes(settings); attrs["data-depth"] != "flat" || attrs["data-corners"] != "square" {
+		t.Errorf("themeLookAttributes = %v, want the active theme's look", attrs)
+	}
+	settings["custom_theme_active"] = "a1"
+	if got := themeClass(settings); got != "" {
+		t.Errorf("themeClass = %q after switching to the light theme", got)
+	}
+	if got := themeStyle(map[string]string{"theme_style": "custom", "custom_themes": `[]`, "custom_theme": `{"seed":"#16a34a","sidebar":"dark","depth":"raised","corners":"medium"}`}); got != "classic" {
+		t.Errorf("themeStyle = %q with every theme deleted, want classic", got)
+	}
+}
+
+func TestCustomThemeNeedsASavedTheme(t *testing.T) {
+	saved := `{"seed":"#16a34a","sidebar":"dark","depth":"raised","corners":"medium"}`
+	if got := themeStyle(map[string]string{"theme_style": "custom", "custom_theme": saved}); got != "custom" {
+		t.Fatalf("themeStyle = %q, want custom", got)
+	}
+	for _, settings := range []map[string]string{
+		{"theme_style": "custom"},
+		{"theme_style": "custom", "custom_theme": `{"seed":"green"}`},
+	} {
+		if got := themeStyle(settings); got != "classic" {
+			t.Errorf("themeStyle(%v) = %q, want classic", settings, got)
+		}
+	}
+}
+
+func TestAppearanceTabCustomThemeCard(t *testing.T) {
+	render := func(settings map[string]string) string {
+		t.Helper()
+		var out bytes.Buffer
+		if err := SettingsAppearanceTab(settings).Render(context.Background(), &out); err != nil {
+			t.Fatal(err)
+		}
+		return out.String()
+	}
+	// card is a Custom theme card's radio tag.
+	card := func(html, id string) string {
+		t.Helper()
+		tag := regexp.MustCompile(`<input[^>]*data-custom-theme-id="` + id + `"[^>]*>`).FindString(html)
+		if tag == "" {
+			t.Fatalf("no radio for theme %s", id)
+		}
+		return tag
+	}
+	checked := regexp.MustCompile(`\schecked[\s/>]`)
+	html := render(map[string]string{"theme_style": "classic"})
+	if strings.Contains(html, `data-theme-card="custom"`) {
+		t.Fatal("no Custom card should show before a theme is built")
+	}
+	if !strings.Contains(html, `id="custom-theme-dialog"`) || !strings.Contains(html, `data-custom-theme-build`) {
+		t.Fatal("theme builder missing")
+	}
+	for _, want := range []string{`data-custom-theme-seed-option="#16a34a"`, `aria-label="Complementary"`, `name="custom_theme_tint" value="none"`, `data-custom-theme-name`} {
+		if !strings.Contains(html, want) {
+			t.Errorf("theme builder lacks %s", want)
+		}
+	}
+
+	// The theme saved before names shows as "My theme".
+	html = render(map[string]string{"theme_style": "custom", "custom_theme": `{"seed":"#16a34a","sidebar":"dark","depth":"raised","corners":"medium"}`})
+	for _, want := range []string{`id="custom-theme-card-theme1"`, `>My theme</span>`, `data-custom-theme-edit="theme1"`, `data-theme-colors-edit="custom"`} {
+		if !strings.Contains(html, want) {
+			t.Errorf("Custom card lacks %s", want)
+		}
+	}
+	if !checked.MatchString(card(html, "theme1")) {
+		t.Error("the theme saved before names should be checked")
+	}
+
+	list := `[{"id":"a1","name":"Day <b>","seed":"#16a34a","sidebar":"darker","depth":"raised","corners":"medium"},` +
+		`{"id":"b2","name":"Night","mode":"dark","seed":"#2563eb","sidebar":"lighter","depth":"flat","corners":"square","colors":{"dark":{"primary":"#123456"}}}]`
+	html = render(map[string]string{"theme_style": "custom", "custom_themes": list, "custom_theme_active": "b2"})
+	if strings.Count(html, `data-theme-card="custom"`) != 2 {
+		t.Fatal("want a card per saved theme")
+	}
+	if !strings.Contains(html, `data-custom-theme-duplicate="a1"`) || strings.Contains(html, `Delete a theme to make room`) {
+		t.Error("each card should offer Duplicate while there is room")
+	}
+	if !checked.MatchString(card(html, "b2")) || checked.MatchString(card(html, "a1")) {
+		t.Error("only the active theme's card should be checked")
+	}
+	if !strings.Contains(html, `Day &lt;b&gt;`) {
+		t.Error("theme names should be escaped")
+	}
+	// Each card is drawn in its own colors, hand edits included.
+	if !strings.Contains(html, `#custom-theme-card-b2 [data-theme-preview]{--radius:0px;`) || !strings.Contains(html, `--primary:#123456;`) {
+		t.Error("cards lack their own palettes")
+	}
+	full := make([]string, themebuilder.MaxThemes)
+	for i := range full {
+		full[i] = fmt.Sprintf(`{"id":"t%d","name":"Theme","seed":"#16a34a","sidebar":"darker","depth":"raised","corners":"medium"}`, i)
+	}
+	html = render(map[string]string{"custom_themes": "[" + strings.Join(full, ",") + "]"})
+	if !strings.Contains(html, `as many as Gofer keeps`) || !strings.Contains(html, `disabled data-custom-theme-build`) {
+		t.Error("New theme should be disabled with the most themes saved")
+	}
+	if strings.Count(html, `Delete a theme to make room`) != themebuilder.MaxThemes {
+		t.Error("Duplicate should say why it is unavailable on every card")
+	}
+}
+
+func TestThemeColorsStyleWritesCustomPaletteFirst(t *testing.T) {
+	settings := map[string]string{
+		"custom_theme":        `{"seed":"#16a34a","sidebar":"dark","depth":"raised","corners":"medium"}`,
+		"theme_colors_custom": `{"light":{"primary":"#123456"}}`,
+	}
+	var out bytes.Buffer
+	if err := ThemeColorsStyle(settings).Render(context.Background(), &out); err != nil {
+		t.Fatal(err)
+	}
+	html := out.String()
+	palette := strings.Index(html, `<style data-custom-theme>[data-theme="custom"]{--radius:0.65rem;}`)
+	edits := strings.Index(html, `--primary:#123456;`)
+	if palette < 0 || edits < 0 || palette > edits {
+		t.Fatalf("palette should come before hand edits: %s", html)
 	}
 }
 

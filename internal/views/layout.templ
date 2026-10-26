@@ -3,6 +3,7 @@ package views
 import (
 	"github.com/cristianadrielbraun/gofer/internal/assetver"
 	"github.com/cristianadrielbraun/gofer/internal/models"
+	"github.com/cristianadrielbraun/gofer/internal/themecolors"
 
 	"github.com/cristianadrielbraun/gofer/components/copybutton"
 	"github.com/cristianadrielbraun/gofer/components/dialog"
@@ -26,7 +27,7 @@ templ AppIcon() {
 
 templ Layout(accounts []models.Account, activeFolder string, emails []models.Email, selectedEmail *models.Email, totalCount int, scrollCount int, uiSettings map[string]string, selectedThread []models.ThreadItem, initialEmailID string, scheduledCount int, filters models.EmailFilters) {
 	<!DOCTYPE html>
-	<html lang="en" class={ themeClass(uiSettings) } data-theme={ themeStyle(uiSettings) }>
+	<html lang="en" class={ themeClass(uiSettings) } data-theme={ themeStyle(uiSettings) } { themeLookAttributes(uiSettings)... }>
 		<head>
 			<meta charset="UTF-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
@@ -35,6 +36,7 @@ templ Layout(accounts []models.Account, activeFolder string, emails []models.Ema
 			@FontFaces()
 			@SavedPanelSizeStyle()
 			<link rel="stylesheet" href={ assetver.URL("/assets/css/output.css") }/>
+			@ThemeColorsStyle(uiSettings)
 			@dialog.Script()
 			@dropdown.Script()
 			@checkbox.Script()
@@ -114,7 +116,7 @@ templ MailSyncProgressDialog() {
 
 templ SettingsLayout(accounts []models.Account, syncSettings models.SyncSettings, activeTab string, uiSettings map[string]string, signatureData []models.AccountSignatureData) {
 	<!DOCTYPE html>
-	<html lang="en" class={ themeClass(uiSettings) } data-theme={ themeStyle(uiSettings) }>
+	<html lang="en" class={ themeClass(uiSettings) } data-theme={ themeStyle(uiSettings) } { themeLookAttributes(uiSettings)... }>
 		<head>
 			<meta charset="UTF-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
@@ -123,6 +125,7 @@ templ SettingsLayout(accounts []models.Account, syncSettings models.SyncSettings
 			@FontFaces()
 			@SavedPanelSizeStyle()
 			<link rel="stylesheet" href={ assetver.URL("/assets/css/output.css") }/>
+			@ThemeColorsStyle(uiSettings)
 			@SettingsComponentScripts()
 			@AppSidebarResponsiveStyle()
 			<script src={ assetver.URL("/assets/js/actions.js") }></script>
@@ -223,7 +226,7 @@ templ ContactsAppPartial(accounts []models.Account, contacts []models.Contact, s
 
 templ ContactsLayout(accounts []models.Account, contacts []models.Contact, selected *models.Contact, selectedProfile *models.ContactProfile, showNew bool, syncQueued bool, filters models.ContactFilters, totalCount int, uiSettings map[string]string) {
 	<!DOCTYPE html>
-	<html lang="en" class={ themeClass(uiSettings) } data-theme={ themeStyle(uiSettings) }>
+	<html lang="en" class={ themeClass(uiSettings) } data-theme={ themeStyle(uiSettings) } { themeLookAttributes(uiSettings)... }>
 		<head>
 			<meta charset="UTF-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
@@ -232,6 +235,7 @@ templ ContactsLayout(accounts []models.Account, contacts []models.Contact, selec
 			@FontFaces()
 			@SavedPanelSizeStyle()
 			<link rel="stylesheet" href={ assetver.URL("/assets/css/output.css") }/>
+			@ThemeColorsStyle(uiSettings)
 			@dialog.Script()
 			@dropdown.Script()
 			@checkbox.Script()
@@ -306,7 +310,7 @@ templ ContactsShell(accounts []models.Account, contacts []models.Contact, select
 
 templ AdminLayout(uiSettings map[string]string, userData AdminUsersData, avatarStatus models.AvatarStatus, contactStatus models.ContactAdminStatus, labelStatus models.LabelAdminStatus, securityData models.MailSecurityAdminData, operationStatus models.MailOperationsAdminStatus, activeSection string, activeTab string) {
 	<!DOCTYPE html>
-	<html lang="en" class={ themeClass(uiSettings) } data-theme={ themeStyle(uiSettings) }>
+	<html lang="en" class={ themeClass(uiSettings) } data-theme={ themeStyle(uiSettings) } { themeLookAttributes(uiSettings)... }>
 		<head>
 			<meta charset="UTF-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
@@ -315,6 +319,7 @@ templ AdminLayout(uiSettings map[string]string, userData AdminUsersData, avatarS
 			@FontFaces()
 			@SavedPanelSizeStyle()
 			<link rel="stylesheet" href={ assetver.URL("/assets/css/output.css") }/>
+			@ThemeColorsStyle(uiSettings)
 			@dialog.Script()
 			@dropdown.Script()
 			@checkbox.Script()
@@ -363,6 +368,17 @@ templ ResizeHandle(panel string) {
 		data-panel={ panel }
 		draggable="false"
 	></div>
+}
+
+// ThemeColorsStyle carries each style's changed colors, one block per style
+// so the Settings editor can replace one while previewing. The values come
+// from themecolors.Parse, which only lets known names and hex colors through.
+templ ThemeColorsStyle(uiSettings map[string]string) {
+	// The Custom theme's palette comes first, so its hand edits win.
+	@templ.Raw(`<style data-custom-theme>` + customThemeCSS(uiSettings) + `</style>`)
+	for _, style := range themecolors.Styles {
+		@templ.Raw(`<style data-theme-colors="` + style + `">` + themeColorsCSS(uiSettings, style) + `</style>`)
+	}
 }
 
 templ SavedPanelSizeStyle() {

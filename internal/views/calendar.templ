@@ -19,7 +19,7 @@ import (
 
 templ CalendarLayout(accounts []models.Account, month CalendarMonthData, uiSettings map[string]string) {
 	<!DOCTYPE html>
-	<html lang="en" class={ themeClass(uiSettings) } data-theme={ themeStyle(uiSettings) }>
+	<html lang="en" class={ themeClass(uiSettings) } data-theme={ themeStyle(uiSettings) } { themeLookAttributes(uiSettings)... }>
 		<head>
 			<meta charset="UTF-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
@@ -28,6 +28,7 @@ templ CalendarLayout(accounts []models.Account, month CalendarMonthData, uiSetti
 			@FontFaces()
 			@SavedPanelSizeStyle()
 			<link rel="stylesheet" href={ assetver.URL("/assets/css/output.css") }/>
+			@ThemeColorsStyle(uiSettings)
 			@dialog.Script()
 			@dropdown.Script()
 			@popover.Script()

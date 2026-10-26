@@ -18903,6 +18903,8 @@ function readEmailBodyPalette(theme) {
   var themeStyle = (window.GoferSettings && GoferSettings.get("theme_style")) || document.documentElement.getAttribute("data-theme") || "classic"
   var probe = document.createElement("div")
   probe.setAttribute("data-theme", themeStyle)
+  // Picks up the style's changed colors, which apply to probes too.
+  probe.setAttribute("data-theme-probe", "")
   if (theme === "dark") probe.className = "dark"
   probe.style.cssText = "position:absolute;visibility:hidden;pointer-events:none;width:0;height:0;overflow:hidden"
   ;(document.body || document.documentElement).appendChild(probe)

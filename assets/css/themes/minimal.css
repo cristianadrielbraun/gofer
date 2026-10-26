@@ -34,6 +34,11 @@
   --copper: #0a0a0a;
   --brass: #737373;
   --ink: #0a0a0a;
+}
+
+/* The flat look: no shadows, plain surfaces and outlined cards. Minimal
+   always has it; a Custom theme has it when built flat. */
+[data-depth="flat"] {
   --shadow-card: none;
   --shadow-card-hover: none;
   --shadow-raised: none;
@@ -79,47 +84,56 @@
   --ink: #fafafa;
 }
 
-/* === STRUCTURAL OVERRIDES === */
+/* === LOOK === */
+/* Rules for the flat look are keyed to data-depth and square controls to
+   data-corners, so a Custom theme can have them too. Minimal's own color
+   choices, such as black selection bars, stay keyed to data-theme. */
 
-[data-theme="minimal"] .surface-desk {
+[data-depth="flat"] .surface-desk {
   background: var(--background);
 }
 
-[data-theme="minimal"] .surface-leather {
+[data-depth="flat"] .surface-leather {
   background: var(--sidebar);
 }
 
-[data-theme="minimal"] .surface-paper {
+[data-depth="flat"] .surface-paper {
   background: var(--paper);
   color: var(--paper-foreground);
   box-shadow: none;
 }
 
-[data-theme="minimal"].dark .surface-paper {
+[data-depth="flat"].dark .surface-paper {
   background: var(--paper);
   color: var(--paper-foreground);
 }
 
-[data-theme="minimal"] .raised {
+/* The reader's sheet fills its pane instead of floating inside its inset.
+   Minimal's paper is its background anyway; a Custom theme's paper is not. */
+[data-depth="flat"] .mail-view-frame {
+  background: var(--paper);
+}
+
+[data-depth="flat"] .raised {
   box-shadow: 0 1px 2px rgba(0,0,0,0.05);
 }
 
-[data-theme="minimal"] .btn-skeuo {
+[data-depth="flat"] .btn-skeuo {
   background: var(--primary);
   color: var(--primary-foreground);
   box-shadow: none;
 }
 
-[data-theme="minimal"] .btn-skeuo:hover {
+[data-depth="flat"] .btn-skeuo:hover {
   background: color-mix(in srgb, var(--primary) 90%, #000);
 }
 
-[data-theme="minimal"] .btn-skeuo:active {
+[data-depth="flat"] .btn-skeuo:active {
   box-shadow: none;
   transform: none;
 }
 
-[data-theme="minimal"] .envelope {
+[data-depth="flat"] .envelope {
   border: 1px solid var(--border);
   box-shadow: none;
 }
@@ -128,7 +142,7 @@
 	border-color: #b4b4b4;
 }
 
-[data-theme="minimal"] .envelope:hover {
+[data-depth="flat"] .envelope:hover {
   box-shadow: none;
   transform: none;
   border-color: color-mix(in srgb, var(--foreground) 20%, transparent);
@@ -143,7 +157,7 @@
   border-color: var(--foreground);
 }
 
-[data-theme="minimal"] .envelope-active {
+[data-depth="flat"] .envelope-active {
   border: 1px solid var(--border);
   background: color-mix(in srgb, var(--foreground) 7%, var(--background));
   box-shadow: inset 3px 0 0 var(--primary), inset 0 0 0 1px color-mix(in srgb, var(--primary) 42%, transparent);
@@ -155,68 +169,68 @@
   box-shadow: inset 3px 0 0 #000000, inset 0 0 0 1px #000000;
 }
 
-[data-theme="minimal"] .compose-titlebar {
+[data-depth="flat"] .compose-titlebar {
   background: var(--sidebar);
   border-bottom: 1px solid var(--border);
 }
 
-[data-theme="minimal"] .compose-body {
+[data-depth="flat"] .compose-body {
   background: var(--background);
 }
 
-[data-theme="minimal"] .compose-fields {
+[data-depth="flat"] .compose-fields {
   border-bottom: 1px solid var(--border);
 }
 
-[data-theme="minimal"] .compose-field-row {
+[data-depth="flat"] .compose-field-row {
   border-bottom: 1px solid var(--border);
 }
 
-[data-theme="minimal"] .compose-field-label {
+[data-depth="flat"] .compose-field-label {
   color: var(--muted-foreground);
 }
 
-[data-theme="minimal"] .compose-toolbar {
+[data-depth="flat"] .compose-toolbar {
   background: var(--muted);
   border-bottom: 1px solid var(--border);
 }
 
-[data-theme="minimal"] .compose-footer {
+[data-depth="flat"] .compose-footer {
   border-top: 1px solid var(--border);
   background: var(--muted);
 }
 
-[data-theme="minimal"] .compose-send-btn {
+[data-depth="flat"] .compose-send-btn {
   background: var(--primary);
   box-shadow: none;
 }
 
-[data-theme="minimal"] .compose-send-btn:hover {
+[data-depth="flat"] .compose-send-btn:hover {
   background: color-mix(in srgb, var(--primary) 90%, #000);
   box-shadow: none;
 }
 
-[data-theme="minimal"] .compose-send-btn:active {
+[data-depth="flat"] .compose-send-btn:active {
   box-shadow: none;
   transform: none;
 }
 
-[data-theme="minimal"] .compose-draft-btn {
+[data-depth="flat"] .compose-draft-btn {
   background: var(--muted);
   box-shadow: none;
 }
 
-[data-theme="minimal"] .compose-draft-btn:hover {
+[data-depth="flat"] .compose-draft-btn:hover {
   background: color-mix(in srgb, var(--muted) 80%, transparent);
   box-shadow: none;
 }
 
-[data-theme="minimal"] .compose-seal {
+[data-depth="flat"] .compose-seal {
   background: var(--primary);
   box-shadow: none;
 }
 
-[data-theme="minimal"] .divider-etched {
+[data-depth="flat"] .divider-etched {
   background: var(--border);
 }
 
@@ -256,16 +270,23 @@
   pointer-events: none;
 }
 
-[data-theme="minimal"] [data-folder-unread],
-[data-theme="minimal"] #mail-folder-count {
-  border-radius: 0;
+[data-depth="flat"] [data-folder-unread],
+[data-depth="flat"] #mail-folder-count {
   box-shadow: none;
 }
 
-[data-theme="minimal"] .empty-icon-box {
+[data-corners="square"] [data-folder-unread],
+[data-corners="square"] #mail-folder-count {
   border-radius: 0;
+}
+
+[data-depth="flat"] .empty-icon-box {
   box-shadow: none;
   border: 2px solid var(--border);
+}
+
+[data-corners="square"] .empty-icon-box {
+  border-radius: 0;
 }
 
 [data-theme="minimal"]:not(.dark) .settings-select .select-trigger:hover {
@@ -331,11 +352,14 @@
   color: var(--foreground);
 }
 
-[data-theme="minimal"] label:has(input[role="switch"]) > div {
+/* === SQUARE CORNERS === */
+/* Controls that are round whatever the radius. */
+
+[data-corners="square"] label:has(input[role="switch"]) > div {
   border-radius: 0;
 }
 
-[data-theme="minimal"] label:has(input[role="switch"]) > div::after {
+[data-corners="square"] label:has(input[role="switch"]) > div::after {
   border-radius: 0;
   height: 0.9rem;
   width: 0.9rem;
@@ -343,17 +367,17 @@
   box-shadow: none;
 }
 
-[data-theme="minimal"] label:has(input[role="switch"]:checked) > div::after {
+[data-corners="square"] label:has(input[role="switch"]:checked) > div::after {
   translate: 1.0625rem 0;
 }
 
-[data-theme="minimal"] label:has(input[data-mail-filter-input][role="switch"]) > div::after {
+[data-corners="square"] label:has(input[data-mail-filter-input][role="switch"]) > div::after {
   height: 0.75rem;
   width: 0.75rem;
   margin-left: 0;
 }
 
-[data-theme="minimal"] label:has(input[data-mail-filter-input][role="switch"]:checked) > div::after {
+[data-corners="square"] label:has(input[data-mail-filter-input][role="switch"]:checked) > div::after {
   translate: 1rem 0;
 }
 

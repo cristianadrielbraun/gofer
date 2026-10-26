@@ -26,6 +26,8 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/providerquota"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
+	"github.com/cristianadrielbraun/gofer/internal/themebuilder"
+	"github.com/cristianadrielbraun/gofer/internal/themecolors"
 	"github.com/cristianadrielbraun/gofer/internal/store"
 	"github.com/cristianadrielbraun/gofer/internal/translation"
 	"github.com/cristianadrielbraun/gofer/internal/views"
@@ -542,6 +544,8 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 		mux.HandleFunc(pattern, handler)
 	})
 	mux.HandleFunc("PATCH /api/settings/ui", h.handleSaveUISettings)
+	mux.HandleFunc("POST /api/settings/theme-colors.css", h.handleThemeColorsCSS)
+	mux.HandleFunc("POST /api/settings/custom-theme.css", h.handleCustomThemeCSS)
 	mux.HandleFunc("GET /api/push/vapid-public-key", h.handlePushVAPIDPublicKey)
 	mux.HandleFunc("POST /api/push/subscription", h.handleSavePushSubscription)
 	mux.HandleFunc("DELETE /api/push/subscription", h.handleDeletePushSubscription)
@@ -3978,6 +3982,9 @@ func (h *Handler) handleSaveUISettings(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
+	normalizeThemeColorSettings(updates)
+	normalizeCustomThemeSetting(updates)
+	normalizeCustomThemesSetting(updates)
 
 	userID := h.userID(r.Context())
 	if err := h.withUserDB(r.Context(), userID, func(db *storage.DB) error {
@@ -3989,6 +3996,99 @@ func (h *Handler) handleSaveUISettings(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+}
+
+// normalizeThemeColorSettings stores each style's changed colors in their
+// canonical form and drops changes that do not parse, so a bad value never
+// reaches the page.
+func normalizeThemeColorSettings(updates map[string]string) {
+	for key, raw := range updates {
+		if !strings.HasPrefix(key, themecolors.SettingPrefix) {
+			continue
+		}
+		overrides, ok := themecolors.Parse(raw)
+		if !ok || !themecolors.IsStyle(strings.TrimPrefix(key, themecolors.SettingPrefix)) {
+			delete(updates, key)
+			continue
+		}
+		updates[key] = overrides.Encode()
+	}
+}
+
+// normalizeCustomThemeSetting stores the Custom theme's builder choices in
+// their canonical form and drops ones that do not parse. An empty value is
+// kept: it deletes the theme.
+func normalizeCustomThemeSetting(updates map[string]string) {
+	raw, ok := updates[themebuilder.SettingKey]
+	if !ok || strings.TrimSpace(raw) == "" {
+		return
+	}
+	if theme, valid := themebuilder.Parse(raw); valid {
+		updates[themebuilder.SettingKey] = theme.Encode()
+		return
+	}
+	delete(updates, themebuilder.SettingKey)
+}
+
+// normalizeCustomThemesSetting stores the saved Custom themes in their
+// canonical form, and drops a list or active ID that does not parse. Writing
+// the list retires the settings that held the one theme and its hand edits
+// before themes had names, so a deleted theme cannot come back from them;
+// each theme in the list keeps its own.
+func normalizeCustomThemesSetting(updates map[string]string) {
+	if raw, ok := updates[themebuilder.ListKey]; ok {
+		if themes, valid := themebuilder.ParseList(raw); valid {
+			updates[themebuilder.ListKey] = themebuilder.EncodeList(themes)
+			updates[themebuilder.SettingKey] = ""
+			updates[themecolors.SettingKey(themebuilder.StyleName)] = ""
+		} else {
+			delete(updates, themebuilder.ListKey)
+		}
+	}
+	if id, ok := updates[themebuilder.ActiveKey]; ok && id != "" && !themebuilder.ValidID(id) {
+		delete(updates, themebuilder.ActiveKey)
+	}
+}
+
+// handleCustomThemeCSS is the stylesheet for a Custom theme being built, so
+// Settings can preview it before it is saved.
+func (h *Handler) handleCustomThemeCSS(w http.ResponseWriter, r *http.Request) {
+	raw, err := io.ReadAll(io.LimitReader(r.Body, 4<<10))
+	if err != nil {
+		http.Error(w, "invalid theme", http.StatusBadRequest)
+		return
+	}
+	theme, ok := themebuilder.Parse(string(raw))
+	if !ok {
+		http.Error(w, "invalid theme", http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "text/css; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	io.WriteString(w, theme.CSS())
+}
+
+type themeColorsPreview struct {
+	Style     string          `json:"style"`
+	Overrides json.RawMessage `json:"overrides"`
+}
+
+// handleThemeColorsCSS is the stylesheet for colors being edited, so Settings
+// can preview them before they are saved.
+func (h *Handler) handleThemeColorsCSS(w http.ResponseWriter, r *http.Request) {
+	var preview themeColorsPreview
+	if err := json.NewDecoder(io.LimitReader(r.Body, 64<<10)).Decode(&preview); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	overrides, ok := themecolors.Parse(string(preview.Overrides))
+	if !ok || !themecolors.IsStyle(preview.Style) {
+		http.Error(w, "invalid colors", http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "text/css; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	io.WriteString(w, overrides.CSS(preview.Style))
 }
 
 func (h *Handler) contextWithUserTimezone(ctx context.Context, userID string) context.Context {
