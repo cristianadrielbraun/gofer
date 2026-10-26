@@ -18168,7 +18168,9 @@ function mailFolderIsSpam(folderID) {
   var links = document.querySelectorAll('aside a[hx-get^="/folder/"]')
   for (var i = 0; i < links.length; i++) {
     if ((links[i].getAttribute("hx-get") || "") !== "/folder/" + folderID) continue
-    return String(links[i].dataset.folderRole || "").toLowerCase() === "spam"
+    // IMAP servers call their spam folder junk.
+    var role = String(links[i].dataset.folderRole || "").toLowerCase()
+    return role === "spam" || role === "junk"
   }
   return false
 }
@@ -18219,6 +18221,27 @@ function syncMailDeleteActionState(folderID) {
   if (tooltip) tooltip.textContent = permanent ? "Permanently delete" : "Delete"
   // Entering Trash or Spam with nothing selected turns Delete into a whole-folder action.
   if (typeof window.syncMailDeleteAllAction === "function") window.syncMailDeleteAllAction()
+  syncMailSpamActionState(folderID)
+}
+
+// In a Spam folder the toolbar's spam button, and its copy in the overflow
+// menu, mark the selection as not spam, highlighted as in the reading pane.
+function syncMailSpamActionState(folderID) {
+  var spam = mailFolderIsSpam(folderID)
+  var toggles = document.querySelectorAll("[data-mail-spam-toggle]")
+  for (var i = 0; i < toggles.length; i++) {
+    var toggle = toggles[i]
+    toggle.setAttribute("data-mail-selection-action", spam ? "not-spam" : "spam")
+    var variants = toggle.querySelectorAll("[data-mail-spam-variant]")
+    for (var j = 0; j < variants.length; j++) variants[j].hidden = (variants[j].getAttribute("data-mail-spam-variant") === "not-spam") !== spam
+    var highlight = toggle.getAttribute("data-mail-not-spam-class")
+    if (!highlight) continue
+    highlight.split(/\s+/).forEach(function (name) { if (name) toggle.classList.toggle(name, spam) })
+    toggle.setAttribute("aria-label", spam ? "Mark selected messages as not spam" : "Report selected messages as spam")
+    var root = toggle.closest("[data-tui-popover-root]")
+    var tooltip = root && root.querySelector("[data-mail-spam-tooltip]")
+    if (tooltip) tooltip.textContent = spam ? "Not spam" : "Report spam"
+  }
 }
 
 function mailViewRequestURL(emailID, single) {

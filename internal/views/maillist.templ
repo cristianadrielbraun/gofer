@@ -484,51 +484,7 @@ templ MailListToolbar(accounts []models.Account, activeFolder string, viewMode s
 					}
 				}
 			</div>
-			if mailFolderIDIsSpam(activeFolder, accounts) {
-				<div class="mail-toolbar-collapsible" data-mail-overflow-rank="1">
-					@tooltip.Tooltip() {
-						@tooltip.Trigger() {
-							@button.Button(button.Props{
-								Variant:    button.VariantGhost,
-								Size:       button.SizeIcon,
-								Class:      "h-7 w-7",
-								Disabled:   true,
-								Attributes: templ.Attributes{"data-mail-selection-action": "not-spam", "aria-label": "Mark selected messages as not spam"},
-							}) {
-								@icon.ShieldCheck(icon.Props{Class: "size-3.5"})
-							}
-						}
-						@tooltip.Content(tooltip.ContentProps{
-							Position:  tooltip.PositionBottom,
-							ShowArrow: true,
-						}) {
-							Not spam
-						}
-					}
-				</div>
-			} else {
-				<div class="mail-toolbar-collapsible" data-mail-overflow-rank="1">
-					@tooltip.Tooltip() {
-						@tooltip.Trigger() {
-							@button.Button(button.Props{
-								Variant:    button.VariantGhost,
-								Size:       button.SizeIcon,
-								Class:      "h-7 w-7",
-								Disabled:   true,
-								Attributes: templ.Attributes{"data-mail-selection-action": "spam", "aria-label": "Report selected messages as spam"},
-							}) {
-								@icon.ShieldAlert(icon.Props{Class: "size-3.5"})
-							}
-						}
-						@tooltip.Content(tooltip.ContentProps{
-							Position:  tooltip.PositionBottom,
-							ShowArrow: true,
-						}) {
-							Report spam
-						}
-					}
-				</div>
-			}
+			@mailToolbarSpamButton(mailFolderIDIsSpam(activeFolder, accounts))
 			<div class="mail-toolbar-collapsible" data-mail-collapsed data-mail-overflow-menu>
 				@dropdown.Dropdown() {
 					@dropdown.Trigger() {
@@ -554,20 +510,15 @@ templ MailListToolbar(accounts []models.Account, activeFolder string, viewMode s
 								Labels…
 							</span>
 						}
-						if mailFolderIDIsSpam(activeFolder, accounts) {
-							@dropdown.Item(dropdown.ItemProps{Attributes: templ.Attributes{"data-mail-selection-action": "not-spam", "data-mail-overflow-rank": "1", "data-mail-overflow-menu-item": ""}}) {
-								<span class="flex items-center gap-2 font-medium text-emerald-700 dark:text-emerald-300">
-									@icon.ShieldCheck(icon.Props{Class: "size-4"})
-									Not spam
-								</span>
-							}
-						} else {
-							@dropdown.Item(dropdown.ItemProps{Attributes: templ.Attributes{"data-mail-selection-action": "spam", "data-mail-overflow-rank": "1", "data-mail-overflow-menu-item": ""}}) {
-								<span class="flex items-center gap-2">
-									@icon.ShieldAlert(icon.Props{Class: "size-4"})
-									Report spam
-								</span>
-							}
+						@dropdown.Item(dropdown.ItemProps{Attributes: templ.Attributes{"data-mail-selection-action": mailSpamAction(mailFolderIDIsSpam(activeFolder, accounts)), "data-mail-overflow-rank": "1", "data-mail-overflow-menu-item": "", "data-mail-spam-toggle": ""}}) {
+							<span class="flex items-center gap-2 font-medium text-emerald-700 dark:text-emerald-300" data-mail-spam-variant="not-spam" hidden?={ !mailFolderIDIsSpam(activeFolder, accounts) }>
+								@icon.ShieldCheck(icon.Props{Class: "size-4"})
+								Not spam
+							</span>
+							<span class="flex items-center gap-2" data-mail-spam-variant="spam" hidden?={ mailFolderIDIsSpam(activeFolder, accounts) }>
+								@icon.ShieldAlert(icon.Props{Class: "size-4"})
+								Report spam
+							</span>
 						}
 					}
 				}
@@ -1511,4 +1462,73 @@ templ MailListThreadSubItems(items []models.ThreadItem, senderDisplayMode string
 			</div>
 		}
 	</div>
+}
+
+// mailNotSpamButtonClass marks the toolbar's spam button as Not spam in a Spam
+// folder, as the reading pane's does. app.js toggles it when the folder
+// changes, reading it from the button.
+const mailNotSpamButtonClass = "border border-amber-500/35 bg-amber-500/12 text-amber-700 shadow-[0_1px_2px_rgba(0,0,0,0.04)] hover:bg-amber-500/20 hover:text-amber-800 dark:border-amber-300/20 dark:bg-amber-300/10 dark:text-amber-300 dark:hover:text-amber-200"
+
+func mailSpamButtonClass(spamFolder bool) string {
+	if spamFolder {
+		return "h-7 w-7 " + mailNotSpamButtonClass
+	}
+	return "h-7 w-7"
+}
+
+func mailSpamAction(spamFolder bool) string {
+	if spamFolder {
+		return "not-spam"
+	}
+	return "spam"
+}
+
+// mailToolbarSpamButton reports the selection as spam, or in a Spam folder
+// marks it as not spam. The list switches folders without drawing the
+// toolbar again, so app.js switches the button between the two.
+templ mailToolbarSpamButton(spamFolder bool) {
+	<div class="mail-toolbar-collapsible" data-mail-overflow-rank="1">
+		@tooltip.Tooltip() {
+			@tooltip.Trigger() {
+				@button.Button(button.Props{
+					Variant:  button.VariantGhost,
+					Size:     button.SizeIcon,
+					Class:    mailSpamButtonClass(spamFolder),
+					Disabled: true,
+					Attributes: templ.Attributes{
+						"data-mail-selection-action": mailSpamAction(spamFolder),
+						"aria-label":                 mailSpamLabel(spamFolder),
+						"data-mail-spam-toggle":      "",
+						"data-mail-not-spam-class":   mailNotSpamButtonClass,
+					},
+				}) {
+					<span class="inline-flex" data-mail-spam-variant="not-spam" hidden?={ !spamFolder }>
+						@icon.ShieldCheck(icon.Props{Class: "size-3.5"})
+					</span>
+					<span class="inline-flex" data-mail-spam-variant="spam" hidden?={ spamFolder }>
+						@icon.ShieldAlert(icon.Props{Class: "size-3.5"})
+					</span>
+				}
+			}
+			@tooltip.Content(tooltip.ContentProps{
+				Position:  tooltip.PositionBottom,
+				ShowArrow: true,
+			}) {
+				<span data-mail-spam-tooltip>
+					if spamFolder {
+						Not spam
+					} else {
+						Report spam
+					}
+				</span>
+			}
+		}
+	</div>
+}
+
+func mailSpamLabel(spamFolder bool) string {
+	if spamFolder {
+		return "Mark selected messages as not spam"
+	}
+	return "Report selected messages as spam"
 }
