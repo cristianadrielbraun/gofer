@@ -7,8 +7,9 @@ import (
 	"strings"
 )
 
-// SettingKey is the UI setting that stores the Custom theme's builder choices
-// as JSON. The palette is made from them whenever a page is drawn, so the
+// SettingKey is the UI setting that held the one Custom theme's builder
+// choices, as JSON, before themes had names; ListKey has replaced it. A
+// theme's palette is made from its choices whenever a page is drawn, so the
 // generator's improvements reach saved themes.
 const SettingKey = "custom_theme"
 
@@ -124,9 +125,10 @@ func Parse(raw string) (Theme, bool) {
 	return t, true
 }
 
-// FromSettings is the saved Custom theme, if there is a valid one.
+// FromSettings is the active Custom theme's choices, if one is saved.
 func FromSettings(settings map[string]string) (Theme, bool) {
-	return Parse(settings[SettingKey])
+	saved, ok := ActiveFromSettings(settings)
+	return saved.Theme, ok
 }
 
 // Encode is the stored form of a theme from Parse.

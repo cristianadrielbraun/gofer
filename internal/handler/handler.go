@@ -3984,6 +3984,7 @@ func (h *Handler) handleSaveUISettings(w http.ResponseWriter, r *http.Request) {
 	}
 	normalizeThemeColorSettings(updates)
 	normalizeCustomThemeSetting(updates)
+	normalizeCustomThemesSetting(updates)
 
 	userID := h.userID(r.Context())
 	if err := h.withUserDB(r.Context(), userID, func(db *storage.DB) error {
@@ -4027,6 +4028,24 @@ func normalizeCustomThemeSetting(updates map[string]string) {
 		return
 	}
 	delete(updates, themebuilder.SettingKey)
+}
+
+// normalizeCustomThemesSetting stores the saved Custom themes in their
+// canonical form, and drops a list or active ID that does not parse. Writing
+// the list retires the setting that held the one theme before themes had
+// names, so a deleted theme cannot come back from it.
+func normalizeCustomThemesSetting(updates map[string]string) {
+	if raw, ok := updates[themebuilder.ListKey]; ok {
+		if themes, valid := themebuilder.ParseList(raw); valid {
+			updates[themebuilder.ListKey] = themebuilder.EncodeList(themes)
+			updates[themebuilder.SettingKey] = ""
+		} else {
+			delete(updates, themebuilder.ListKey)
+		}
+	}
+	if id, ok := updates[themebuilder.ActiveKey]; ok && id != "" && !themebuilder.ValidID(id) {
+		delete(updates, themebuilder.ActiveKey)
+	}
 }
 
 // handleCustomThemeCSS is the stylesheet for a Custom theme being built, so

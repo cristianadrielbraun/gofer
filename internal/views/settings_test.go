@@ -1003,6 +1003,25 @@ func TestCustomThemeKeepsItsMode(t *testing.T) {
 	}
 }
 
+func TestActiveCustomThemeDrawsThePage(t *testing.T) {
+	list := `[{"id":"a1","name":"Day","mode":"light","seed":"#16a34a","sidebar":"darker","depth":"raised","corners":"medium"},` +
+		`{"id":"b2","name":"Night","mode":"dark","seed":"#2563eb","sidebar":"lighter","depth":"flat","corners":"square"}]`
+	settings := map[string]string{"theme_style": "custom", "theme": "light", "custom_themes": list, "custom_theme_active": "b2"}
+	if got := themeClass(settings); got != "dark" {
+		t.Errorf("themeClass = %q, want the active theme's dark", got)
+	}
+	if attrs := themeLookAttributes(settings); attrs["data-depth"] != "flat" || attrs["data-corners"] != "square" {
+		t.Errorf("themeLookAttributes = %v, want the active theme's look", attrs)
+	}
+	settings["custom_theme_active"] = "a1"
+	if got := themeClass(settings); got != "" {
+		t.Errorf("themeClass = %q after switching to the light theme", got)
+	}
+	if got := themeStyle(map[string]string{"theme_style": "custom", "custom_themes": `[]`, "custom_theme": `{"seed":"#16a34a","sidebar":"dark","depth":"raised","corners":"medium"}`}); got != "classic" {
+		t.Errorf("themeStyle = %q with every theme deleted, want classic", got)
+	}
+}
+
 func TestCustomThemeNeedsASavedTheme(t *testing.T) {
 	saved := `{"seed":"#16a34a","sidebar":"dark","depth":"raised","corners":"medium"}`
 	if got := themeStyle(map[string]string{"theme_style": "custom", "custom_theme": saved}); got != "custom" {

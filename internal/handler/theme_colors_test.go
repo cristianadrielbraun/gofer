@@ -83,6 +83,37 @@ func TestNormalizeCustomThemeSetting(t *testing.T) {
 	}
 }
 
+func TestNormalizeCustomThemesSetting(t *testing.T) {
+	updates := map[string]string{
+		"custom_themes":       `[{"id":"a1","name":" Forest ","seed":"#16A34A","sidebar":"darker","depth":"flat","corners":"small"}]`,
+		"custom_theme_active": "a1",
+	}
+	normalizeCustomThemesSetting(updates)
+	if got := updates["custom_themes"]; got != `[{"id":"a1","name":"Forest","mode":"light","seed":"#16a34a","tint":"primary","strength":"subtle","contrast":"normal","sidebar":"darker","depth":"flat","corners":"small"}]` {
+		t.Fatalf("stored as %q", got)
+	}
+	if v, ok := updates["custom_theme"]; !ok || v != "" {
+		t.Fatal("writing the list should retire the theme saved before names")
+	}
+	if updates["custom_theme_active"] != "a1" {
+		t.Fatal("a valid active ID was dropped")
+	}
+
+	updates = map[string]string{"custom_themes": `[{"id":"a1","name":""}]`, "custom_theme_active": "../x"}
+	normalizeCustomThemesSetting(updates)
+	for _, key := range []string{"custom_themes", "custom_theme_active", "custom_theme"} {
+		if _, ok := updates[key]; ok {
+			t.Errorf("%s kept after a bad list and active ID", key)
+		}
+	}
+
+	updates = map[string]string{"custom_themes": `[]`, "custom_theme_active": ""}
+	normalizeCustomThemesSetting(updates)
+	if updates["custom_themes"] != `[]` || updates["custom_theme_active"] != "" {
+		t.Fatalf("deleting every theme: %v", updates)
+	}
+}
+
 func TestCustomThemeCSSPreview(t *testing.T) {
 	h := &Handler{}
 	post := func(body string) *httptest.ResponseRecorder {
