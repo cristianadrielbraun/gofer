@@ -1340,7 +1340,8 @@ html:root[data-theme="express"] :is(.account-wizard-card-footer, .account-wizard
 }
 
 [data-theme="express"] svg[data-lucide="trash-2"],
-[data-theme="express"] svg[data-lucide="trash"] {
+[data-theme="express"] svg[data-lucide="trash"],
+[data-theme="express"] svg[data-lucide="folder-x"] {
   --xp-icon: image-set(url("/assets/icons/express/user-trash-16.png") 1x, url("/assets/icons/express/user-trash-32.png") 2x);
   --xp-icon-paths: hidden;
 }
@@ -1364,6 +1365,21 @@ html:root[data-theme="express"] :is(.account-wizard-card-footer, .account-wizard
 
 [data-theme="express"] svg[data-lucide="folder-cog"] {
   --xp-icon: image-set(url("/assets/icons/express/folder-cog-16.png") 1x, url("/assets/icons/express/folder-cog-32.png") 2x);
+  --xp-icon-paths: hidden;
+}
+
+[data-theme="express"] svg[data-lucide="folder-plus"] {
+  --xp-icon: image-set(url("/assets/icons/express/folder-new-16.png") 1x, url("/assets/icons/express/folder-new-32.png") 2x);
+  --xp-icon-paths: hidden;
+}
+
+[data-theme="express"] svg[data-lucide="folder-pen"] {
+  --xp-icon: image-set(url("/assets/icons/express/folder-pen-16.png") 1x, url("/assets/icons/express/folder-pen-32.png") 2x);
+  --xp-icon-paths: hidden;
+}
+
+[data-theme="express"] svg[data-lucide="folder-output"] {
+  --xp-icon: image-set(url("/assets/icons/express/folder-output-16.png") 1x, url("/assets/icons/express/folder-output-32.png") 2x);
   --xp-icon-paths: hidden;
 }
 

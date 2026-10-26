@@ -17,6 +17,7 @@ embedded metadata.
 for this project in Tango's style and palette, and are covered by the
 project's own license.
 
-`folder-cog-16.png` and `folder-cog-32.png` put Tango's `emblem-system` gear,
-scaled down, on the corner of its `folder`, as Tango puts emblems on icons.
-Both are Tango's public-domain pictures.
+`folder-cog`, `folder-pen` and `folder-output` put a Tango picture, scaled
+down, on the corner of Tango's `folder`, as Tango puts emblems on icons: the
+`emblem-system` gear, `accessories-text-editor` and the `go-up` arrow. All
+of them are Tango's public-domain pictures.
