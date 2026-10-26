@@ -105,11 +105,10 @@ func TestAllowedProviderAvatarHost(t *testing.T) {
 
 func TestAvatarProviderPlanForEmail(t *testing.T) {
 	tests := []struct {
-		name      string
-		email     string
-		domainCnt int
-		want      []string
-		skipped   []string
+		name    string
+		email   string
+		want    []string
+		skipped []string
 	}{
 		{
 			name:    "public mailbox uses per-sender providers only",
@@ -124,23 +123,15 @@ func TestAvatarProviderPlanForEmail(t *testing.T) {
 			skipped: []string{"gravatar", "libravatar"},
 		},
 		{
-			name:      "high volume custom domain uses domain providers only",
-			email:     "alice@brand.example",
-			domainCnt: avatarDomainFirstThreshold,
-			want:      []string{"bimi", "domain_icon"},
-			skipped:   []string{"gravatar", "libravatar"},
-		},
-		{
-			name:      "low volume custom person uses quality order",
-			email:     "alice@brand.example",
-			domainCnt: avatarDomainFirstThreshold - 1,
-			want:      []string{"gravatar", "libravatar", "bimi", "domain_icon"},
+			name:  "custom domain person uses quality order",
+			email: "alice@brand.example",
+			want:  []string{"gravatar", "libravatar", "bimi", "domain_icon"},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			plan := avatarProviderPlanForEmail(tt.email, tt.domainCnt, nil)
+			plan := avatarProviderPlanForEmail(tt.email, nil)
 			if strings.Join(plan.providers, ",") != strings.Join(tt.want, ",") {
 				t.Fatalf("providers = %v, want %v", plan.providers, tt.want)
 			}
@@ -160,18 +151,16 @@ func TestAvatarProviderPlanLeavesOutTurnedOffProviders(t *testing.T) {
 	}
 	on := func(name string) bool { return enabled[name] }
 	tests := []struct {
-		name      string
-		email     string
-		domainCnt int
-		want      []string
+		name  string
+		email string
+		want  []string
 	}{
 		{name: "custom domain person", email: "alice@brand.example", want: []string{"gravatar", "libravatar"}},
 		{name: "role sender falls back to sender providers", email: "support@brand.example", want: []string{"gravatar", "libravatar"}},
-		{name: "high volume domain falls back to sender providers", email: "alice@brand.example", domainCnt: avatarDomainFirstThreshold, want: []string{"gravatar", "libravatar"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			plan := avatarProviderPlanForEmail(tt.email, tt.domainCnt, on)
+			plan := avatarProviderPlanForEmail(tt.email, on)
 			if strings.Join(plan.providers, ",") != strings.Join(tt.want, ",") {
 				t.Fatalf("providers = %v, want %v", plan.providers, tt.want)
 			}
@@ -184,7 +173,7 @@ func TestAvatarProviderPlanLeavesOutTurnedOffProviders(t *testing.T) {
 	}
 
 	enabled, _ = parseAvatarProviders("bimi")
-	plan := avatarProviderPlanForEmail("support@brand.example", 0, func(name string) bool { return enabled[name] })
+	plan := avatarProviderPlanForEmail("support@brand.example", func(name string) bool { return enabled[name] })
 	if strings.Join(plan.providers, ",") != "bimi" {
 		t.Fatalf("role sender with bimi on: providers = %v, want [bimi]", plan.providers)
 	}

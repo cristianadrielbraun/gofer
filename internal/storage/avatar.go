@@ -486,32 +486,6 @@ func (db *DB) GetAllSenderAvatarCandidates(ctx context.Context, limit, offset in
 	return candidates, rows.Err()
 }
 
-func (db *DB) GetSenderAvatarDomainCounts(ctx context.Context) (map[string]int, error) {
-	rows, err := db.Read().QueryContext(ctx,
-		`SELECT lower(substr(trim(email), instr(trim(email), '@') + 1)) AS domain, COUNT(*)
-		 FROM sender_avatars
-		 WHERE trim(email) != '' AND instr(trim(email), '@') > 1
-		 GROUP BY domain`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	counts := map[string]int{}
-	for rows.Next() {
-		var domain string
-		var count int
-		if err := rows.Scan(&domain, &count); err != nil {
-			return nil, err
-		}
-		domain = strings.Trim(strings.ToLower(strings.TrimSpace(domain)), ".")
-		if domain != "" {
-			counts[domain] = count
-		}
-	}
-	return counts, rows.Err()
-}
-
 func normalizeProviderStatus(status string) string {
 	switch strings.ToLower(strings.TrimSpace(status)) {
 	case "found", "missing", "error", "skipped":
