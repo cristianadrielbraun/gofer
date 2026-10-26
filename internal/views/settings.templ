@@ -2203,8 +2203,9 @@ templ ThemeColorsEditButton(style string) {
 // customThemeEditMenu is a Custom theme card's pencil: it opens the theme
 // builder on that theme, or the editor for single colors that the other
 // styles' pencils open. It shows on the selected card, so the theme it edits
-// is the one the page is drawn with.
-templ customThemeEditMenu(id string) {
+// is the one the page is drawn with. It also duplicates the theme, unless
+// full says there are as many themes as Gofer keeps.
+templ customThemeEditMenu(id string, full bool) {
 	<span class="hidden group-has-[:checked]/theme:inline-flex">
 		@dropdown.Dropdown() {
 			@dropdown.Trigger() {
@@ -2225,6 +2226,17 @@ templ customThemeEditMenu(id string) {
 					<span class="flex flex-col gap-0.5 text-left">
 						<span>Edit each color</span>
 						<span class="text-xs text-muted-foreground">Fine-tune single colors by hand</span>
+					</span>
+				}
+				@dropdown.Item(dropdown.ItemProps{Class: "items-start justify-start gap-2.5", Disabled: full, Attributes: templ.Attributes{"data-custom-theme-duplicate": id}}) {
+					@icon.Copy(icon.Props{Class: "mt-0.5 size-4 shrink-0"})
+					<span class="flex flex-col gap-0.5 text-left">
+						<span>Duplicate</span>
+						if full {
+							<span class="text-xs text-muted-foreground">Delete a theme to make room</span>
+						} else {
+							<span class="text-xs text-muted-foreground">A copy to start another theme from</span>
+						}
 					</span>
 				}
 			}
@@ -2257,7 +2269,7 @@ templ customThemesSection(uiSettings map[string]string) {
 			@templ.Raw(`<style data-custom-theme-cards>` + customThemeCardsCSS(themes) + `</style>`)
 			<div class="grid grid-cols-2 sm:grid-cols-3 gap-4 max-w-2xl">
 				for _, theme := range themes {
-					@CustomThemeCard(theme, customThemeSelected(uiSettings, theme.ID))
+					@CustomThemeCard(theme, customThemeSelected(uiSettings, theme.ID), full)
 				}
 			</div>
 		}
@@ -2266,7 +2278,7 @@ templ customThemesSection(uiSettings map[string]string) {
 
 // CustomThemeCard is a saved Custom theme in the style picker. Its preview is
 // drawn with the theme's own palette (customThemeCardsCSS).
-templ CustomThemeCard(theme themebuilder.Saved, selected bool) {
+templ CustomThemeCard(theme themebuilder.Saved, selected bool, full bool) {
 	<div id={ customThemeCardID(theme.ID) } class="group/theme relative flex" data-theme-card="custom" data-custom-theme-id={ theme.ID }>
 		<label class="relative flex flex-1 flex-col rounded-lg border-2 p-3 cursor-pointer transition-all duration-200 text-left hover:shadow-md group border-border has-[:checked]:border-primary has-[:checked]:ring-2 has-[:checked]:ring-primary/20">
 			@radio.Radio(radio.Props{Name: "theme_style", Value: "custom", Checked: selected, Class: "absolute right-2.5 bottom-2.5 z-10", Attributes: templ.Attributes{"data-custom-theme-id": theme.ID}})
@@ -2304,7 +2316,7 @@ templ CustomThemeCard(theme themebuilder.Saved, selected bool) {
 			</span>
 		</label>
 		<div class="absolute right-2 top-2 z-20 flex gap-1">
-			@customThemeEditMenu(theme.ID)
+			@customThemeEditMenu(theme.ID, full)
 			@tooltip.Tooltip() {
 				@tooltip.Trigger(tooltip.TriggerProps{Class: "inline-flex"}) {
 					<button type="button" class="inline-flex size-7 items-center justify-center rounded-md border border-border bg-background/90 text-destructive shadow-sm transition-colors hover:bg-destructive/10" data-custom-theme-delete={ theme.ID } data-custom-theme-delete-name={ theme.Name } aria-label={ "Delete " + theme.Name }>

@@ -1106,6 +1106,9 @@ func TestAppearanceTabCustomThemeCard(t *testing.T) {
 	if strings.Count(html, `data-theme-card="custom"`) != 2 {
 		t.Fatal("want a card per saved theme")
 	}
+	if !strings.Contains(html, `data-custom-theme-duplicate="a1"`) || strings.Contains(html, `Delete a theme to make room`) {
+		t.Error("each card should offer Duplicate while there is room")
+	}
 	if !checked.MatchString(card(html, "b2")) || checked.MatchString(card(html, "a1")) {
 		t.Error("only the active theme's card should be checked")
 	}
@@ -1123,6 +1126,9 @@ func TestAppearanceTabCustomThemeCard(t *testing.T) {
 	html = render(map[string]string{"custom_themes": "[" + strings.Join(full, ",") + "]"})
 	if !strings.Contains(html, `as many as Gofer keeps`) || !strings.Contains(html, `disabled data-custom-theme-build`) {
 		t.Error("New theme should be disabled with the most themes saved")
+	}
+	if strings.Count(html, `Delete a theme to make room`) != themebuilder.MaxThemes {
+		t.Error("Duplicate should say why it is unavailable on every card")
 	}
 }
 

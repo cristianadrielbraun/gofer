@@ -932,6 +932,30 @@
     redrawAppearance();
   }
 
+  // "Night copy", or "Night copy 2" and on when that is taken, cut to the
+  // longest name the server keeps.
+  function copyName(name) {
+    var names = GoferSettings.customThemes().map(function(theme) { return theme.name; });
+    var fit = function(suffix) { return Array.from(name).slice(0, 40 - suffix.length).join('').trim() + suffix; };
+    var copy = fit(' copy');
+    for (var n = 2; names.indexOf(copy) >= 0; n++) copy = fit(' copy ' + n);
+    return copy;
+  }
+
+  // A copy of a theme, hand-edited colors and all, goes right after it and
+  // is chosen. It looks the same as the theme it copies, which is the one the
+  // page is drawn with, so the page stays as it is.
+  function duplicate(id) {
+    var themes = GoferSettings.customThemes();
+    var theme = findTheme(id);
+    if (!theme || themes.length >= MAX_THEMES) return;
+    var copy = Object.assign({}, theme, { id: newID(), name: copyName(theme.name) });
+    themes.splice(themes.findIndex(function(t) { return t.id === id; }) + 1, 0, copy);
+    GoferSettings.setCustomThemes(themes);
+    GoferSettings.set('custom_theme_active', copy.id);
+    redrawAppearance();
+  }
+
   // Choosing a theme's card draws the page with it: its palette and hand
   // edits come from the server first, so the page never shows the wrong ones.
   function choose(id) {
@@ -979,6 +1003,11 @@
     var edit = e.target.closest('[data-custom-theme-edit]');
     if (edit) {
       open(edit.getAttribute('data-custom-theme-edit'));
+      return;
+    }
+    var copy = e.target.closest('[data-custom-theme-duplicate]');
+    if (copy) {
+      duplicate(copy.getAttribute('data-custom-theme-duplicate'));
       return;
     }
     if (e.target.closest('[data-custom-theme-save]')) {
