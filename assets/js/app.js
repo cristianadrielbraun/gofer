@@ -3150,7 +3150,9 @@ document.addEventListener("DOMContentLoaded", function () {
       if (label) label.textContent = text
       var button = banner.querySelector("[data-mail-select-all-banner-action]")
       if (button) {
+        // The button's own inline-flex outranks hidden, so it goes too.
         button.classList.toggle("hidden", !canSelectAll)
+        button.classList.toggle("inline-flex", canSelectAll)
         button.textContent = mailSelectAllLoading ? "Selecting\u2026" : "Select all " + formatMailCount(total) + " in this list"
         button.disabled = mailSelectAllLoading
       }
