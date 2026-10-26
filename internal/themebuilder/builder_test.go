@@ -288,13 +288,25 @@ func TestThemeCSS(t *testing.T) {
 		}
 	}
 	if strings.Contains(css, ":not(.dark)") {
-		t.Errorf("a theme has one palette, for either mode:\n%s", css)
+		t.Errorf("a light theme has one palette, for either mode:\n%s", css)
+	}
+	// A message body shown dark reads the dark mode's message colors.
+	probe := func(p map[string]string) string {
+		return "{--copper:" + p["copper"] + ";--paper:" + p["paper"] + ";--paper-foreground:" + p["paper-foreground"] + ";}"
+	}
+	if want := `[data-theme="custom"][data-theme-probe].dark` + probe(palette["dark"]); !strings.Contains(css, want) {
+		t.Errorf("CSS lacks %s\n%s", want, css)
 	}
 
-	// A dark theme carries the dark palette.
+	// A dark theme carries the dark palette, and light message colors for a
+	// body shown light.
 	theme, _ = Parse(`{"mode":"dark","seed":"#16a34a","sidebar":"light","depth":"raised","corners":"large"}`)
-	if !theme.Dark() || !strings.Contains(theme.CSS(), scope+"--accent:"+palette["dark"]["accent"]+";") {
-		t.Errorf("dark theme CSS lacks the dark palette:\n%s", theme.CSS())
+	css = theme.CSS()
+	if !theme.Dark() || !strings.Contains(css, scope+"--accent:"+palette["dark"]["accent"]+";") {
+		t.Errorf("dark theme CSS lacks the dark palette:\n%s", css)
+	}
+	if want := `[data-theme="custom"][data-theme-probe]:not(.dark)` + probe(palette["light"]); !strings.Contains(css, want) {
+		t.Errorf("CSS lacks %s\n%s", want, css)
 	}
 }
 

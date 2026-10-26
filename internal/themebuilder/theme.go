@@ -155,27 +155,45 @@ func (t Theme) LookAttributes() map[string]string {
 // ships with; hand edits from themecolors use stronger selectors and win. The
 // palette is for the theme's mode, and applies in either, since the page
 // follows the theme's mode.
+//
+// A message body can still be shown light on a dark theme, or dark on a light
+// one, so the reader's color probe also gets the other mode's message colors.
 func (t Theme) CSS() string {
-	values, ok := t.colors()
+	palette, ok := t.palette()
 	if !ok {
 		return ""
 	}
 	scope := fmt.Sprintf(`[data-theme="%s"]`, StyleName)
-	names := sortedNames(values)
+	values := palette[t.Mode]
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s{--radius:%s;}", scope, radii[t.Corners])
 	// The .dark form outranks the built-in styles' .dark rules.
 	fmt.Fprintf(&b, "%s,%s.dark{", scope, scope)
-	for _, name := range names {
+	for _, name := range sortedNames(values) {
 		fmt.Fprintf(&b, "--%s:%s;", name, values[name])
+	}
+	b.WriteString("}")
+	other, probe := "dark", scope+"[data-theme-probe].dark"
+	if t.Dark() {
+		other, probe = "light", scope+"[data-theme-probe]:not(.dark)"
+	}
+	b.WriteString(probe + "{")
+	for _, name := range []string{"copper", "paper", "paper-foreground"} {
+		fmt.Fprintf(&b, "--%s:%s;", name, palette[other][name])
 	}
 	b.WriteString("}")
 	return b.String()
 }
 
+// palette is the theme's palette for both modes; the theme itself uses only
+// its own.
+func (t Theme) palette() (Palette, bool) {
+	return Generate(Options{Seed: t.Seed, Secondary: t.Secondary, Tint: t.Tint, Strength: t.Strength, Contrast: t.Contrast, Sidebar: t.Sidebar})
+}
+
 // colors is the palette for the theme's mode.
 func (t Theme) colors() (map[string]string, bool) {
-	palette, ok := Generate(Options{Seed: t.Seed, Secondary: t.Secondary, Tint: t.Tint, Strength: t.Strength, Contrast: t.Contrast, Sidebar: t.Sidebar})
+	palette, ok := t.palette()
 	if !ok {
 		return nil, false
 	}
