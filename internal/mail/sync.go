@@ -1333,6 +1333,34 @@ queueLoop:
 	log.Printf("scheduled sync: run %s finished with status %s", runID, status)
 }
 
+// arrivedMessages leaves out of msgs those the folder already shows: ones
+// moved there from Gofer, which the server reports under new UIDs. The rest
+// are new mail to tell about. If the folder can't be read, all of them are.
+func arrivedMessages(ctx context.Context, repo interface {
+	MessagesShownInFolder(context.Context, string, string, []string) (map[string]bool, error)
+}, accountID, folderID string, msgs []storage.SyncMessage) []storage.SyncMessage {
+	ids := make([]string, 0, len(msgs))
+	for _, msg := range msgs {
+		if msg.MessageID != "" {
+			ids = append(ids, msg.MessageID)
+		}
+	}
+	if len(ids) == 0 {
+		return msgs
+	}
+	shown, err := repo.MessagesShownInFolder(ctx, accountID, folderID, ids)
+	if err != nil || len(shown) == 0 {
+		return msgs
+	}
+	arrived := make([]storage.SyncMessage, 0, len(msgs))
+	for _, msg := range msgs {
+		if msg.MessageID == "" || !shown[msg.MessageID] {
+			arrived = append(arrived, msg)
+		}
+	}
+	return arrived
+}
+
 func (s *newMailSummary) Add(msgs []storage.SyncMessage) {
 	for _, msg := range msgs {
 		s.Count++
@@ -1546,7 +1574,7 @@ func (o *SyncOrchestrator) fullFolderSync(ctx context.Context, client *imap.Clie
 	if highestUID > 0 {
 		var summary newMailSummary
 		result, err := client.SyncFolderIncremental(ctx, folder.ID, folder.RemoteID, highestUID, expectedUIDValidity, func(msgs []storage.SyncMessage) error {
-			summary.Add(msgs)
+			summary.Add(arrivedMessages(ctx, o.imapRepository(), accountID, folder.ID, msgs))
 			return o.imapRepository().UpsertSyncMessages(ctx, withFolderLabels(msgs, accountProvider, folder.RemoteID, folder.Role))
 		})
 		if err != nil {
@@ -2586,7 +2614,7 @@ func (o *SyncOrchestrator) syncIncremental(syncCtx context.Context, accountID, f
 
 	var summary newMailSummary
 	result, err := client.SyncFolderIncremental(syncCtx, folderID, remoteName, highestUID, storedUIDValidity, func(msgs []storage.SyncMessage) error {
-		summary.Add(msgs)
+		summary.Add(arrivedMessages(syncCtx, o.db, accountID, folderID, msgs))
 		return o.db.UpsertSyncMessages(syncCtx, withFolderLabels(msgs, cfg.Provider, remoteName, folderRole))
 	})
 	if err != nil {

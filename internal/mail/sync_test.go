@@ -1057,3 +1057,19 @@ func TestIMAPFolderInputsApplyChosenRoles(t *testing.T) {
 		t.Fatalf("Sent = %#v, want it kept as the Sent folder", sent)
 	}
 }
+
+type shownInFolder map[string]bool
+
+func (s shownInFolder) MessagesShownInFolder(context.Context, string, string, []string) (map[string]bool, error) {
+	return s, nil
+}
+
+// A message Gofer moved into a folder is reported by the server under a new
+// UID, but it's not new mail; one without a Message-ID can't be told apart.
+func TestArrivedMessagesLeavesOutMovedMail(t *testing.T) {
+	msgs := []storage.SyncMessage{{MessageID: "<moved@example.com>"}, {MessageID: "<new@example.com>"}, {}}
+	got := arrivedMessages(context.Background(), shownInFolder{"<moved@example.com>": true}, "acc", "inbox", msgs)
+	if len(got) != 2 || got[0].MessageID != "<new@example.com>" || got[1].MessageID != "" {
+		t.Fatalf("arrivedMessages = %+v", got)
+	}
+}
