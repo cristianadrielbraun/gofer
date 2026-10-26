@@ -42,6 +42,7 @@ templ AppDialogs() {
 			<form class="grid gap-4" data-app-prompt-form>
 				@dialog.Header() {
 					@dialog.Title(dialog.TitleProps{Attributes: templ.Attributes{"data-app-prompt-title": ""}})
+					@dialog.Description(dialog.DescriptionProps{Attributes: templ.Attributes{"data-app-prompt-message": "", "hidden": ""}})
 				}
 				<div class="grid gap-2">
 					@label.Label(label.Props{For: "app-prompt-input", Attributes: templ.Attributes{"data-app-prompt-label": ""}})

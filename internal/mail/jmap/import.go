@@ -5,11 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"time"
 )
 
-// ImportError is the server refusing to store a message or create a mailbox.
-// Nothing was stored, and sending the same request again won't change that.
+// ImportError is the server refusing to store a message or to create,
+// rename, move or delete a mailbox. Nothing was changed, and sending the same
+// request again won't change that.
 type ImportError struct {
 	Step string
 	SetError
@@ -211,4 +213,83 @@ func (c *Client) CreateMailbox(ctx context.Context, session *Session, accountID,
 		return "", errors.New("jmap: the server did not confirm the mailbox")
 	}
 	return id, nil
+}
+
+// RenameMailbox gives a mailbox a new name, keeping its parent.
+func (c *Client) RenameMailbox(ctx context.Context, session *Session, accountID, id, name string) error {
+	if name == "" {
+		return errors.New("jmap: a mailbox needs a name")
+	}
+	return c.updateMailbox(ctx, session, accountID, id, "rename mailbox", map[string]any{"name": name})
+}
+
+// MoveMailbox puts a mailbox inside parentID, or at the top when it's "",
+// named name there.
+func (c *Client) MoveMailbox(ctx context.Context, session *Session, accountID, id, parentID, name string) error {
+	if name == "" {
+		return errors.New("jmap: a mailbox needs a name")
+	}
+	patch := map[string]any{"name": name, "parentId": nil}
+	if parentID != "" {
+		patch["parentId"] = parentID
+	}
+	return c.updateMailbox(ctx, session, accountID, id, "move mailbox", patch)
+}
+
+func (c *Client) updateMailbox(ctx context.Context, session *Session, accountID, id, step string, patch map[string]any) error {
+	if id == "" {
+		return errors.New("jmap: a mailbox is required")
+	}
+	responses, err := c.Call(ctx, session, []string{CapabilityMail},
+		Invocation{Name: "Mailbox/set", Args: map[string]any{
+			"accountId": accountID,
+			"update":    map[string]any{id: patch},
+		}, CallID: "0"})
+	if err != nil {
+		return err
+	}
+	var updated struct {
+		NotUpdated map[string]SetError `json:"notUpdated"`
+	}
+	if err := responses.Get("0", &updated); err != nil {
+		return fmt.Errorf("Mailbox/set: %w", err)
+	}
+	if failure, ok := updated.NotUpdated[id]; ok {
+		return &ImportError{Step: step, SetError: failure}
+	}
+	return nil
+}
+
+// DestroyMailboxes deletes mailboxes and the emails only they hold, in the
+// order given, so children listed before their parents go first. Each is
+// its own Mailbox/set in one request: a server refuses a mailbox that still
+// has children.
+func (c *Client) DestroyMailboxes(ctx context.Context, session *Session, accountID string, ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	calls := make([]Invocation, 0, len(ids))
+	for i, id := range ids {
+		calls = append(calls, Invocation{Name: "Mailbox/set", Args: map[string]any{
+			"accountId":             accountID,
+			"destroy":               []string{id},
+			"onDestroyRemoveEmails": true,
+		}, CallID: strconv.Itoa(i)})
+	}
+	responses, err := c.Call(ctx, session, []string{CapabilityMail}, calls...)
+	if err != nil {
+		return err
+	}
+	for i, id := range ids {
+		var destroyed struct {
+			NotDestroyed map[string]SetError `json:"notDestroyed"`
+		}
+		if err := responses.Get(strconv.Itoa(i), &destroyed); err != nil {
+			return fmt.Errorf("Mailbox/set: %w", err)
+		}
+		if failure, ok := destroyed.NotDestroyed[id]; ok {
+			return &ImportError{Step: "delete mailbox", SetError: failure}
+		}
+	}
+	return nil
 }

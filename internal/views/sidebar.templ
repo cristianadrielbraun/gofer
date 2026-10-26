@@ -75,6 +75,30 @@ templ SidebarContextMenu() {
 			@sidebarContextItem("mailbox-size", "Mailbox size", "") {
 				@icon.ChartBar(icon.Props{Class: "size-4"})
 			}
+			@sidebarContextItem("new-folder", "New folder…", "") {
+				@icon.FolderPlus(icon.Props{Class: "size-4"})
+			}
+			@sidebarContextItem("new-subfolder", "New subfolder…", "") {
+				@icon.FolderPlus(icon.Props{Class: "size-4"})
+			}
+			@sidebarContextItem("new-label", "New label…", "") {
+				@icon.Tag(icon.Props{Class: "size-4"})
+			}
+			@sidebarContextItem("rename-folder", "Rename folder…", "") {
+				@icon.FolderPen(icon.Props{Class: "size-4"})
+			}
+			@sidebarContextItem("rename-label", "Rename label…", "") {
+				@icon.Pencil(icon.Props{Class: "size-4"})
+			}
+			@sidebarContextItem("restore-folder", "Move out of Trash", "") {
+				@icon.FolderOutput(icon.Props{Class: "size-4"})
+			}
+			@sidebarContextItem("delete-folder", "Delete folder…", "text-destructive "+menuDestructiveClass) {
+				@icon.FolderX(icon.Props{Class: "size-4"})
+			}
+			@sidebarContextItem("delete-label", "Delete label…", "text-destructive "+menuDestructiveClass) {
+				@icon.Trash2(icon.Props{Class: "size-4"})
+			}
 		}
 	}
 }
@@ -848,7 +872,7 @@ templ SidebarUnifiedSection(accounts []models.Account, activeFolder string, uiSe
 templ SidebarAccountSection(account models.Account, activeFolder string, uiSettings map[string]string, filters models.EmailFilters) {
 	{{ active := accountHasActiveFolder(account, activeFolder, filters) }}
 	{{ collapsed := sidebarAccountCollapsed(uiSettings, account.ID, active) }}
-	<div id={ "sidebar-account-" + account.ID } class="mb-1.5" data-sidebar-account={ account.ID } data-sidebar-account-active?={ active } data-sidebar-account-collapsed={ fmt.Sprintf("%t", collapsed) }>
+	<div id={ "sidebar-account-" + account.ID } class="mb-1.5" data-sidebar-account={ account.ID } data-sidebar-account-active?={ active } data-sidebar-account-collapsed={ fmt.Sprintf("%t", collapsed) } data-sidebar-account-provider={ account.Provider }>
 		<button
 			type="button"
 			class="sidebar-account-toggle flex w-full items-center gap-2.5 px-2 py-2 text-sm font-semibold text-sidebar-accent-foreground transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
@@ -919,6 +943,7 @@ templ SidebarTagFilterLink(label models.Label, folderID string, activeFolder str
 		hx-swap="outerHTML settle:0s"
 		data-sidebar-tag-filter
 		data-sidebar-tag-label={ strings.TrimSpace(label.Name) }
+		data-sidebar-tag-id={ label.ID }
 		data-sidebar-tag-account={ strings.TrimSpace(accountID) }
 		class={
 			"flex items-center gap-2.5 w-full rounded-md px-2.5 py-1.5 text-[13px] transition-all duration-150",

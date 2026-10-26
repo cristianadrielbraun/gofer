@@ -715,8 +715,10 @@ type mailImportWriter interface {
 	close()
 }
 
-// mailAccountWriter connects to an account to upload messages into it.
-func (h *Handler) mailAccountWriter(ctx context.Context, owner, accountID string) (mailImportWriter, error) {
+// mailAccountAccess returns what signing in to an account's mail takes:
+// its settings, and its password unless it's Gmail or Outlook, which sign
+// in with mailImportToken.
+func (h *Handler) mailAccountAccess(ctx context.Context, owner, accountID string) (*models.AccountConfig, string, error) {
 	var cfg *models.AccountConfig
 	var password string
 	err := h.withProfileAccount(ctx, owner, accountID, func(accounts *config.AccountStore, _ *storage.DB) error {
@@ -733,11 +735,19 @@ func (h *Handler) mailAccountWriter(ctx context.Context, owner, accountID string
 			return err
 		}
 		if cfg.AuthMethod != "plain" {
-			return errors.New("this account can't be imported into")
+			return errAccountSignInUnsupported
 		}
 		password, err = accounts.DecryptPassword(ctx, accountID)
 		return err
 	})
+	return cfg, password, err
+}
+
+var errAccountSignInUnsupported = errors.New("this account's sign-in isn't supported here")
+
+// mailAccountWriter connects to an account to upload messages into it.
+func (h *Handler) mailAccountWriter(ctx context.Context, owner, accountID string) (mailImportWriter, error) {
+	cfg, password, err := h.mailAccountAccess(ctx, owner, accountID)
 	if err != nil {
 		return nil, err
 	}

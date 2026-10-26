@@ -2852,27 +2852,53 @@ document.addEventListener("DOMContentLoaded", function () {
       link.click()
     }
 
-    // What a right-click in the mail sidebar landed on: a folder (not a tag
-    // filter or Scheduled) or an account's heading.
+    // What a right-click in the mail sidebar landed on: a folder (not
+    // Scheduled), an account's tag or an account's heading.
     function sidebarContextTarget(el) {
       var body = el.closest('[data-sidebar-app-body="mail"]')
       if (!body) return null
       var link = el.closest('a[hx-get^="/folder/"]')
-      if (link && body.contains(link) && !link.hasAttribute("data-sidebar-tag-filter")) {
+      if (link && body.contains(link) && link.hasAttribute("data-sidebar-tag-filter")) {
+        // Only a tag of one account, a Gmail label, has a menu.
+        var tagAccount = link.getAttribute("data-sidebar-tag-account") || ""
+        var labelID = link.getAttribute("data-sidebar-tag-id") || ""
+        if (!tagAccount || !labelID) return null
+        return { kind: "tag", labelID: labelID, accountID: tagAccount, provider: sidebarAccountProvider(tagAccount), name: link.getAttribute("data-sidebar-tag-label") || "this label" }
+      }
+      if (link && body.contains(link)) {
         var role = String(link.dataset.folderRole || "").toLowerCase()
         if (role === "scheduled") return null
         var path = (link.getAttribute("hx-get") || "").split("?")[0].replace(/^\/folder\//, "")
         var name = link.querySelector(".flex-1")
+        var folderAccount = link.dataset.mailDropAccount || ""
         // Unified folders belong to no single account.
-        return { kind: "folder", folderID: decodeURIComponent(path), accountID: link.dataset.mailDropAccount || "", role: role, name: name ? name.textContent.trim() : "this folder" }
+        return { kind: "folder", folderID: decodeURIComponent(path), accountID: folderAccount, provider: sidebarAccountProvider(folderAccount), role: role, inTrash: sidebarFolderInTrash(link), name: name ? name.textContent.trim() : "this folder" }
       }
       var toggle = el.closest("[data-sidebar-account-toggle]")
       var accountID = toggle && toggle.getAttribute("data-sidebar-account-toggle")
       if (accountID && accountID !== "__unified__" && body.contains(toggle)) {
         var title = toggle.querySelector(".flex-1")
-        return { kind: "account", accountID: accountID, name: title ? title.textContent.trim() : "this account" }
+        return { kind: "account", accountID: accountID, provider: sidebarAccountProvider(accountID), name: title ? title.textContent.trim() : "this account" }
       }
       return null
+    }
+
+    // Whether a folder's link is inside the Trash folder's subfolders.
+    function sidebarFolderInTrash(link) {
+      var children = link.closest("[data-sidebar-folder-children]")
+      while (children) {
+        var group = children.parentElement
+        var row = group && group.querySelector(":scope > a[data-sidebar-folder-row]")
+        if (row && String(row.dataset.folderRole || "").toLowerCase() === "trash") return true
+        children = group && group.parentElement ? group.parentElement.closest("[data-sidebar-folder-children]") : null
+      }
+      return false
+    }
+
+    function sidebarAccountProvider(accountID) {
+      if (!accountID) return ""
+      var section = document.querySelector('[data-sidebar-account="' + cssEscape(accountID) + '"]')
+      return section ? section.getAttribute("data-sidebar-account-provider") || "" : ""
     }
 
     // Shows the items for the target; false when none apply.
@@ -2884,7 +2910,16 @@ document.addEventListener("DOMContentLoaded", function () {
         "spam-to-trash": target.kind === "folder" && target.role === "spam",
         // A paused account has no sync button to press.
         "sync-account": target.kind === "account" && !!sidebarAccountSyncButton(target.accountID),
-        "mailbox-size": !!target.accountID,
+        "mailbox-size": target.kind !== "tag" && !!target.accountID,
+        // Gmail has labels rather than folders, so its items say so.
+        "new-folder": target.kind === "account" && target.provider !== "gmail",
+        "new-label": target.kind === "account" && target.provider === "gmail",
+        "new-subfolder": target.kind === "folder" && !!target.accountID && target.provider !== "gmail" && target.role !== "starred",
+        "rename-folder": target.kind === "folder" && !!target.accountID && target.provider !== "gmail" && target.role === "custom",
+        "delete-folder": target.kind === "folder" && !!target.accountID && target.provider !== "gmail" && target.role === "custom",
+        "restore-folder": target.kind === "folder" && !!target.accountID && target.provider !== "gmail" && target.role === "custom" && target.inTrash,
+        "rename-label": target.kind === "tag" && target.provider === "gmail",
+        "delete-label": target.kind === "tag" && target.provider === "gmail",
       }
       var any = false
       var items = root.querySelectorAll("[data-sidebar-context-action]")
@@ -2913,6 +2948,225 @@ document.addEventListener("DOMContentLoaded", function () {
         var button = sidebarAccountSyncButton(target.accountID)
         if (button) button.click()
       } else if (action === "mailbox-size") window.goferOpenMailboxSize(target.accountID, target.kind === "folder" ? target.folderID : "")
+      else if (action === "new-folder") createMailFolder(target.accountID, "", "")
+      else if (action === "new-subfolder") createMailFolder(target.accountID, target.folderID, target.name)
+      else if (action === "rename-folder") renameMailFolder(target)
+      else if (action === "delete-folder") deleteMailFolder(target)
+      else if (action === "restore-folder") restoreMailFolder(target)
+      else if (action === "new-label") createGmailLabel(target.accountID)
+      else if (action === "rename-label") renameGmailLabel(target)
+      else if (action === "delete-label") deleteGmailLabel(target)
+    }
+
+    // Folders and Gmail labels are changed on the server while the request
+    // waits; a refusal comes back as text to show.
+    var folderChangeBusy = false
+
+    function postFolderChange(url, fields) {
+      var body = new URLSearchParams()
+      Object.keys(fields || {}).forEach(function (key) { body.set(key, fields[key]) })
+      return fetch(url, { method: "POST", headers: { Accept: "application/json" }, body: body }).then(function (response) {
+        if (response.ok) return response.json()
+        return postFolderChangeError(response)
+      })
+    }
+
+    // Throws the refusal a failed folder change answered with.
+    function postFolderChangeError(response) {
+      return response.text().then(function (text) {
+        if (response.status === 404) throw new Error("It's no longer there. Refresh the page to see the folders as they are.")
+        throw new Error(response.status >= 500 && response.status !== 502 ? "Try again in a moment." : (text || "").trim())
+      })
+    }
+
+    function getFolderInfo(url) {
+      return fetch(url, { headers: { Accept: "application/json" } }).then(function (response) {
+        if (!response.ok) throw new Error("Try again in a moment.")
+        return response.json()
+      })
+    }
+
+    function runFolderChange(id, failure, work) {
+      if (folderChangeBusy) return
+      folderChangeBusy = true
+      return work()
+        .catch(function (err) {
+          console.warn(err)
+          showGoferToast({ id: id, title: failure, description: err && err.message ? err.message : "Try again in a moment.", variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
+        })
+        .finally(function () { folderChangeBusy = false })
+    }
+
+    function folderChangeDone(id, title, accountID, refreshList) {
+      if (accountID && window.goferRefreshSidebarAccount) window.goferRefreshSidebarAccount(accountID)
+      if (refreshList && virtualMailList && typeof virtualMailList.refreshCurrentFolder === "function") {
+        virtualMailList.refreshCurrentFolder({ noAnimation: true }).catch(function () {})
+      }
+      showGoferToast({ id: id, title: title, variant: "success", icon: "success", position: "bottom-right", duration: 3000, dismissible: true })
+    }
+
+    function folderCount(n, one, many) {
+      return n === 1 ? "1 " + one : n + " " + many
+    }
+
+    function createMailFolder(accountID, parentID, parentName) {
+      if (!accountID || folderChangeBusy) return
+      window.goferPrompt({
+        title: parentID ? "New folder in " + parentName : "New folder",
+        label: "Folder name",
+        confirmLabel: "Create folder",
+      }).then(function (name) {
+        if (name === null || !name.trim()) return
+        return runFolderChange("mail-folder-create", "Couldn't create the folder", function () {
+          return postFolderChange("/api/accounts/" + encodeURIComponent(accountID) + "/folders", { name: name, parent: parentID || "" }).then(function (data) {
+            folderChangeDone("mail-folder-create", "Created “" + (data && data.name || name.trim()) + "”", accountID, false)
+          })
+        })
+      })
+    }
+
+    function renameMailFolder(target) {
+      if (!target.folderID || folderChangeBusy) return
+      window.goferPrompt({
+        title: "Rename folder",
+        label: "Folder name",
+        value: target.name,
+        confirmLabel: "Rename",
+      }).then(function (name) {
+        if (name === null || !name.trim() || name.trim() === target.name) return
+        return runFolderChange("mail-folder-rename", "Couldn't rename the folder", function () {
+          return postFolderChange("/api/folders/" + encodeURIComponent(target.folderID) + "/rename", { name: name }).then(function () {
+            folderChangeDone("mail-folder-rename", "Folder renamed", target.accountID, false)
+          })
+        })
+      })
+    }
+
+    // A delete moves the folder into Trash. One already there, or one the
+    // account has no Trash for, is deleted for good after a warning that
+    // says so; the server never does that unless asked.
+    function deleteMailFolder(target) {
+      if (!target.folderID || folderChangeBusy) return
+      getFolderInfo("/api/folders/" + encodeURIComponent(target.folderID) + "/manage").then(function (info) {
+        var inside = [folderCount(info.messages || 0, "message", "messages")]
+        if (info.subfolders) inside.push(folderCount(info.subfolders, "subfolder", "subfolders"))
+        inside = inside.join(" and ")
+        var gone = (info.ids || [info.id]).indexOf(currentSidebarActiveFolder())
+        if (info.trash_name) {
+          return window.goferConfirm({
+            title: "Delete folder?",
+            message: "“" + info.name + "” moves to " + info.trash_name + ", with its " + inside + ". You can move it back out from there.",
+            confirmLabel: "Move to " + info.trash_name,
+            destructive: true,
+          }).then(function (accepted) {
+            if (!accepted) return
+            return sendFolderDelete(target, info, gone >= 0, false)
+          })
+        }
+        var why = info.in_trash ? "It's in Trash already, so it" : "This account has no Trash folder, so it"
+        return confirmPermanentFolderDelete(target, info, why + " is deleted from the mail server with its " + inside + ". This can't be undone.", gone >= 0)
+      }).catch(function (err) {
+        console.warn(err)
+        showGoferToast({ id: "mail-folder-delete", title: "Couldn't delete the folder", description: "Try again in a moment.", variant: "error", icon: "error", position: "bottom-right", duration: 6000, dismissible: true })
+      })
+    }
+
+    function confirmPermanentFolderDelete(target, info, message, gone) {
+      return window.goferConfirm({ title: "Delete “" + info.name + "” for good?", message: message, confirmLabel: "Delete for good", destructive: true }).then(function (accepted) {
+        if (!accepted) return
+        return sendFolderDelete(target, info, gone, true)
+      })
+    }
+
+    function sendFolderDelete(target, info, gone, permanent) {
+      var refused = null
+      var run = runFolderChange("mail-folder-delete", "Couldn't delete the folder", function () {
+        var body = new URLSearchParams()
+        if (permanent) body.set("permanent", "1")
+        return fetch("/api/folders/" + encodeURIComponent(target.folderID) + "/delete", { method: "POST", headers: { Accept: "application/json" }, body: body }).then(function (response) {
+          if (response.status === 409) return response.text().then(function (text) { refused = (text || "").trim() })
+          if (!response.ok) return postFolderChangeError(response)
+          // Leave a folder that's gone for the account's inbox.
+          var inbox = gone && document.querySelector('[data-sidebar-account="' + cssEscape(target.accountID) + '"] a[data-folder-role="inbox"]')
+          if (inbox) inbox.click()
+          folderChangeDone("mail-folder-delete", permanent ? "Deleted “" + info.name + "”" : "Moved “" + info.name + "” to " + (info.trash_name || "Trash"), target.accountID, false)
+        })
+      })
+      if (!run) return
+      return run.then(function () {
+        // The folder couldn't go into Trash: say why, and offer the
+        // permanent delete instead.
+        if (refused !== null) {
+          return confirmPermanentFolderDelete(target, info, refused + " Delete it from the mail server instead? This can't be undone.", gone)
+        }
+      })
+    }
+
+    function restoreMailFolder(target) {
+      if (!target.folderID || folderChangeBusy) return
+      return runFolderChange("mail-folder-restore", "Couldn't move the folder out of Trash", function () {
+        return postFolderChange("/api/folders/" + encodeURIComponent(target.folderID) + "/restore", {}).then(function () {
+          folderChangeDone("mail-folder-restore", "Moved “" + target.name + "” out of Trash", target.accountID, false)
+        })
+      })
+    }
+
+    function createGmailLabel(accountID) {
+      if (!accountID || folderChangeBusy) return
+      window.goferPrompt({
+        title: "New label",
+        message: "Gmail has labels instead of folders. The new label shows under Tags, and you can add it to messages like any other tag. To put it inside another label, name it like Work/Projects.",
+        label: "Label name",
+        confirmLabel: "Create label",
+      }).then(function (name) {
+        if (name === null || !name.trim()) return
+        return runFolderChange("mail-label-create", "Couldn't create the label", function () {
+          return postFolderChange("/api/accounts/" + encodeURIComponent(accountID) + "/labels", { name: name }).then(function (data) {
+            folderChangeDone("mail-label-create", "Created the “" + (data && data.name || name.trim()) + "” label", accountID, false)
+          })
+        })
+      })
+    }
+
+    function renameGmailLabel(target) {
+      if (!target.labelID || folderChangeBusy) return
+      window.goferPrompt({
+        title: "Rename label",
+        message: "The label is renamed in Gmail, along with any labels inside it.",
+        label: "Label name",
+        value: target.name,
+        confirmLabel: "Rename",
+      }).then(function (name) {
+        if (name === null || !name.trim() || name.trim() === target.name) return
+        return runFolderChange("mail-label-rename", "Couldn't rename the label", function () {
+          return postFolderChange("/api/labels/" + encodeURIComponent(target.labelID) + "/rename", { name: name }).then(function () {
+            folderChangeDone("mail-label-rename", "Label renamed", target.accountID, true)
+          })
+        })
+      })
+    }
+
+    function deleteGmailLabel(target) {
+      if (!target.labelID || folderChangeBusy) return
+      getFolderInfo("/api/labels/" + encodeURIComponent(target.labelID) + "/manage").then(function (info) {
+        var nested = info.nested ? ", with the " + folderCount(info.nested, "label", "labels") + " inside it" : ""
+        return window.goferConfirm({
+          title: "Delete label?",
+          message: "The “" + info.name + "” label is deleted from Gmail" + nested + ". Its messages stay in Gmail, without the label.",
+          confirmLabel: "Delete label",
+          destructive: true,
+        }).then(function (accepted) {
+          if (!accepted) return
+          return runFolderChange("mail-label-delete", "Couldn't delete the label", function () {
+            return postFolderChange("/api/labels/" + encodeURIComponent(target.labelID) + "/delete", {}).then(function () {
+              folderChangeDone("mail-label-delete", "Deleted the “" + info.name + "” label", target.accountID, true)
+            })
+          })
+        })
+      }).catch(function (err) {
+        console.warn(err)
+        showGoferToast({ id: "mail-label-delete", title: "Couldn't delete the label", description: "Try again in a moment.", variant: "error", icon: "error", position: "bottom-right", duration: 6000, dismissible: true })
+      })
     }
 
     var markAllReadBusy = false
@@ -3299,6 +3553,27 @@ document.addEventListener("DOMContentLoaded", function () {
             return response.json()
           })
           .then(function (data) {
+            if (kind !== "trash") return data
+            // Folders moved to Trash go with its messages.
+            return fetch("/api/folders/" + encodeURIComponent(folderID) + "/trash-folders/delete", { method: "POST", headers: { Accept: "application/json" } })
+              .then(function (response) { return response.ok ? response.json() : { failed: 1 } })
+              .catch(function () { return { failed: 1 } })
+              .then(function (folders) {
+                data = data || {}
+                data.folders_deleted = folders.deleted || 0
+                if (folders.failed) data.skipped_folders = true
+                if (data.folders_deleted) refreshMailSidebarBody()
+                return data
+              })
+          })
+          .then(function (data) {
+            if (data && data.skipped_folders) {
+              showGoferToast({ id: "mail-delete-all-folders", title: "Some folders in Trash weren't deleted", description: "Try again in a moment.", variant: "warning", position: "bottom-right", duration: 8000, dismissible: true })
+            }
+            if (data && !data.removed && data.folders_deleted) {
+              showGoferToast({ id: "mail-delete-all-folders-done", title: "Deleted " + folderCount(data.folders_deleted, "folder", "folders") + " in Trash", variant: "success", icon: "success", position: "bottom-right", duration: 3000, dismissible: true })
+              return
+            }
             if (!data || !data.removed) {
               var note = data && data.no_trash ? all.noTrash : all.alreadyEmpty
               showGoferToast({ id: "mail-delete-all-empty", title: note, variant: "info", icon: "info", position: "bottom-right", duration: 4000, dismissible: true })
@@ -18134,7 +18409,7 @@ var MAIL_DELETE_ALL = {
     tooltip: "Empty trash permanently",
     label: "Empty trash permanently",
     title: "Empty trash?",
-    message: "Every message in Trash will be deleted permanently. This can't be undone.",
+    message: "Every message and folder in Trash will be deleted permanently. This can't be undone.",
     destructive: true,
     confirm: "Empty trash",
     failed: "Couldn't empty the trash",

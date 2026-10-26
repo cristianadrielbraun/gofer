@@ -254,6 +254,7 @@
   // The app asks questions in its own dialogs (AppDialogs in
   // app_dialogs.templ), never the browser's popups. goferConfirm resolves
   // true when confirmed; goferPrompt resolves the text entered, or null.
+  // Both show options.message under the title when given.
   function openAppDialog(id, onClosed) {
     var root = document.getElementById(id)
     var content = root && root.querySelector("[data-tui-dialog-content]")
@@ -310,6 +311,9 @@
       var form = root.querySelector("[data-app-prompt-form]")
       var input = root.querySelector("[data-app-prompt-input]")
       root.querySelector("[data-app-prompt-title]").textContent = options.title || ""
+      var message = root.querySelector("[data-app-prompt-message]")
+      message.textContent = options.message || ""
+      message.hidden = !options.message
       root.querySelector("[data-app-prompt-label]").textContent = options.label || ""
       root.querySelector("[data-app-prompt-accept]").textContent = options.confirmLabel || "OK"
       input.value = options.value || ""

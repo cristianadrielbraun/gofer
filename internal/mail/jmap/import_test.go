@@ -104,6 +104,79 @@ func TestCreateMailbox(t *testing.T) {
 	}
 }
 
+func TestRenameMailbox(t *testing.T) {
+	var calls [][]json.RawMessage
+	server := importServer(t, `{"methodResponses": [
+	  ["Mailbox/set", {"accountId": "a1", "updated": {"mb1": null}}, "0"]
+	], "sessionState": "s1"}`, &calls)
+	if err := (&Client{HTTP: server.Client()}).RenameMailbox(context.Background(), &Session{APIURL: server.URL}, "a1", "mb1", "Bills"); err != nil {
+		t.Fatalf("RenameMailbox = %v", err)
+	}
+	var args map[string]any
+	_ = json.Unmarshal(calls[0][1], &args)
+	if update := args["update"].(map[string]any)["mb1"].(map[string]any); update["name"] != "Bills" || len(update) != 1 {
+		t.Fatalf("update = %v", update)
+	}
+	refused := importServer(t, `{"methodResponses": [
+	  ["Mailbox/set", {"accountId": "a1", "notUpdated": {"mb1": {"type": "forbidden"}}}, "0"]
+	], "sessionState": "s1"}`, &calls)
+	err := (&Client{HTTP: refused.Client()}).RenameMailbox(context.Background(), &Session{APIURL: refused.URL}, "a1", "mb1", "Bills")
+	var importErr *ImportError
+	if !errors.As(err, &importErr) || importErr.Type != "forbidden" {
+		t.Fatalf("refused = %v", err)
+	}
+}
+
+// A mailbox moves inside another, or to the top with a null parent.
+func TestMoveMailbox(t *testing.T) {
+	var calls [][]json.RawMessage
+	server := importServer(t, `{"methodResponses": [
+	  ["Mailbox/set", {"accountId": "a1", "updated": {"mb1": null}}, "0"]
+	], "sessionState": "s1"}`, &calls)
+	client := &Client{HTTP: server.Client()}
+	for _, parent := range []string{"trash", ""} {
+		if err := client.MoveMailbox(context.Background(), &Session{APIURL: server.URL}, "a1", "mb1", parent, "Bills 2"); err != nil {
+			t.Fatalf("MoveMailbox(%q) = %v", parent, err)
+		}
+		var args map[string]any
+		_ = json.Unmarshal(calls[0][1], &args)
+		update := args["update"].(map[string]any)["mb1"].(map[string]any)
+		var want any
+		if parent != "" {
+			want = parent
+		}
+		if got, ok := update["parentId"]; !ok || got != want || update["name"] != "Bills 2" {
+			t.Fatalf("update = %v", update)
+		}
+	}
+}
+
+// Mailboxes are destroyed one call each, in the order given, with their
+// emails.
+func TestDestroyMailboxes(t *testing.T) {
+	var calls [][]json.RawMessage
+	server := importServer(t, `{"methodResponses": [
+	  ["Mailbox/set", {"accountId": "a1", "destroyed": ["child"]}, "0"],
+	  ["Mailbox/set", {"accountId": "a1", "notDestroyed": {"parent": {"type": "mailboxHasChild"}}}, "1"]
+	], "sessionState": "s1"}`, &calls)
+	err := (&Client{HTTP: server.Client()}).DestroyMailboxes(context.Background(), &Session{APIURL: server.URL}, "a1", []string{"child", "parent"})
+	var importErr *ImportError
+	if !errors.As(err, &importErr) || importErr.Type != "mailboxHasChild" {
+		t.Fatalf("DestroyMailboxes = %v", err)
+	}
+	if len(calls) != 2 {
+		t.Fatalf("calls = %d, want 2", len(calls))
+	}
+	for i, want := range []string{"child", "parent"} {
+		var args map[string]any
+		_ = json.Unmarshal(calls[i][1], &args)
+		destroy := args["destroy"].([]any)
+		if len(destroy) != 1 || destroy[0] != want || args["onDestroyRemoveEmails"] != true {
+			t.Fatalf("call %d = %v", i, args)
+		}
+	}
+}
+
 // FindEmails sends the header search and every window in one request, uses
 // the searches the server answers, and keeps only exact Message-IDs.
 func TestFindEmailsSearchesTogether(t *testing.T) {

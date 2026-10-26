@@ -140,29 +140,8 @@ func (db *DB) ReconcileDiscoveredFolders(ctx context.Context, accountID, provide
 		return FolderDiscoveryResult{}, fmt.Errorf("scan confirmed removed folders: %w", err)
 	}
 
-	if len(result.RemovedIDs) > 0 {
-		if err := quarantineRemovedFolderWork(ctx, tx, result.RemovedIDs, providerKind); err != nil {
-			return FolderDiscoveryResult{}, err
-		}
-		placeholders := sqlPlaceholders(len(result.RemovedIDs))
-		args := stringsToAny(result.RemovedIDs)
-		if _, err := tx.ExecContext(ctx, `UPDATE folders
-			SET discovery_state = 'removed',
-			    selectable = 0,
-			    sync_cursor = NULL,
-			    uid_validity = NULL,
-			    uid_next = NULL,
-			    highest_seen_uid = 0,
-			    highest_modseq = NULL,
-			    last_full_sync_at = NULL,
-			    last_incremental_sync_at = NULL,
-			    total_count = 0,
-			    unread_count = 0,
-			    sync_error = 'folder removed remotely',
-			    updated_at = CURRENT_TIMESTAMP
-			WHERE id IN (`+placeholders+`)`, args...); err != nil {
-			return FolderDiscoveryResult{}, fmt.Errorf("mark removed folders: %w", err)
-		}
+	if err := removeFoldersTx(ctx, tx, result.RemovedIDs, providerKind, "folder removed remotely"); err != nil {
+		return FolderDiscoveryResult{}, err
 	}
 
 	if len(seen) > 0 {
@@ -177,6 +156,37 @@ func (db *DB) ReconcileDiscoveredFolders(ctx context.Context, accountID, provide
 		return FolderDiscoveryResult{}, fmt.Errorf("commit folder reconciliation: %w", err)
 	}
 	return result, nil
+}
+
+// removeFoldersTx marks folders removed and drops what Gofer keeps of them:
+// their pending work fails, and messages left in no folder go.
+func removeFoldersTx(ctx context.Context, tx *sql.Tx, folderIDs []string, providerKind, reason string) error {
+	if len(folderIDs) == 0 {
+		return nil
+	}
+	if err := quarantineRemovedFolderWork(ctx, tx, folderIDs, providerKind); err != nil {
+		return err
+	}
+	placeholders := sqlPlaceholders(len(folderIDs))
+	args := append([]any{reason}, stringsToAny(folderIDs)...)
+	if _, err := tx.ExecContext(ctx, `UPDATE folders
+		SET discovery_state = 'removed',
+		    selectable = 0,
+		    sync_cursor = NULL,
+		    uid_validity = NULL,
+		    uid_next = NULL,
+		    highest_seen_uid = 0,
+		    highest_modseq = NULL,
+		    last_full_sync_at = NULL,
+		    last_incremental_sync_at = NULL,
+		    total_count = 0,
+		    unread_count = 0,
+		    sync_error = ?,
+		    updated_at = CURRENT_TIMESTAMP
+		WHERE id IN (`+placeholders+`)`, args...); err != nil {
+		return fmt.Errorf("mark removed folders: %w", err)
+	}
+	return nil
 }
 
 func uniqueFolderDiscoveryIdentities(values []string) []string {
