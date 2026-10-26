@@ -217,6 +217,14 @@ type FolderRolesData struct {
 	Created string
 }
 
+// FoldersData is what an account's folders dialog shows: its folders, or
+// on Gmail its labels, which Gmail has instead.
+type FoldersData struct {
+	Account Account
+	Folders []Folder
+	Labels  []Label
+}
+
 // FolderRole is one role of an account's folders. Chosen is the ID of the
 // folder given it by hand; without one, Detected names the folder the server
 // gave it, if any.

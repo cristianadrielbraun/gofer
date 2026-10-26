@@ -1941,6 +1941,23 @@ templ SettingsAccountActionsMenu(account models.Account) {
 				@icon.AtSign(icon.Props{Class: "size-3.5"})
 				Identities
 			}
+			@dropdown.Item(dropdown.ItemProps{
+				Class: "justify-start gap-2",
+				Attributes: templ.Attributes{
+					"type":      "button",
+					"hx-get":    fmt.Sprintf("/api/accounts/%s/folders/manage", account.ID),
+					"hx-target": "#edit-account-container",
+					"hx-swap":   "innerHTML",
+				},
+			}) {
+				if account.Provider == "gmail" {
+					@icon.Tags(icon.Props{Class: "size-3.5"})
+					Labels
+				} else {
+					@icon.Folders(icon.Props{Class: "size-3.5"})
+					Folders
+				}
+			}
 			if account.Provider == "imap" {
 				@dropdown.Item(dropdown.ItemProps{
 					Class: "justify-start gap-2",

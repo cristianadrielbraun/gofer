@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cristianadrielbraun/gofer/internal/storage"
 	"github.com/emersion/go-imap/v2/imapclient"
 )
 
@@ -232,5 +233,56 @@ func TestCleanFolderName(t *testing.T) {
 		if (err == nil) != tt.ok || got != tt.want {
 			t.Errorf("cleanFolderName(%q, %q) = %q, %v", tt.provider, tt.name, got, err)
 		}
+	}
+}
+
+// The folders dialog lists the owner's folders, with rename and delete only
+// on folders without a role and Move out of Trash only inside Trash. On
+// Gmail it lists labels.
+func TestManageFoldersDialog(t *testing.T) {
+	h, db := newAccountOwnershipTestHandler(t)
+	ctx := t.Context()
+	if _, err := db.Write().ExecContext(ctx, `
+		INSERT INTO folders (id, account_id, parent_id, remote_id, name, role, selectable, sort_order) VALUES
+		('f-inbox', 'victim-account', NULL, 'INBOX', 'Inbox', 'inbox', 1, 0),
+		('f-trash', 'victim-account', NULL, 'Trash', 'Trash', 'trash', 1, 1),
+		('f-old', 'victim-account', 'f-trash', 'Trash/Old plans', 'Old plans', 'custom', 1, 2),
+		('f-trips', 'victim-account', NULL, 'Trips', 'Trips', 'custom', 1, 3)`); err != nil {
+		t.Fatalf("insert folders: %v", err)
+	}
+	account := map[string]string{"id": "victim-account"}
+	rec := identityRequest(t, h, h.handleManageFolders, http.MethodGet, "/api/accounts/victim-account/folders/manage", account, nil, true)
+	body := rec.Body.String()
+	if rec.Code != http.StatusOK || !strings.Contains(body, `id="folders-dialog"`) || !strings.Contains(body, "Old plans") {
+		t.Fatalf("dialog = %d %q", rec.Code, body)
+	}
+	for _, want := range []string{`aria-label="Rename Trips"`, `aria-label="Delete Trips"`, `aria-label="Move Old plans out of Trash"`, `aria-label="New folder in Inbox"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("dialog lacks %s", want)
+		}
+	}
+	for _, unwanted := range []string{`aria-label="Rename Inbox"`, `aria-label="Delete Trash"`, `aria-label="Move Trips out of Trash"`} {
+		if strings.Contains(body, unwanted) {
+			t.Errorf("dialog has %s", unwanted)
+		}
+	}
+	rec = identityRequest(t, h, h.handleManageFolders, http.MethodGet, "/?panel=1", account, nil, true)
+	if rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), `id="folders-dialog"`) || !strings.Contains(rec.Body.String(), `id="folders-panel"`) {
+		t.Fatalf("panel = %d %q", rec.Code, rec.Body.String())
+	}
+	if rec := identityRequest(t, h, h.handleManageFolders, http.MethodGet, "/", account, nil, false); rec.Code != http.StatusNotFound {
+		t.Fatalf("foreign dialog = %d, want 404", rec.Code)
+	}
+
+	if _, err := db.Write().ExecContext(ctx, `UPDATE accounts SET provider = 'gmail' WHERE id = 'victim-account'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.UpsertLabels(ctx, []storage.LabelInput{{AccountID: "victim-account", Name: "Receipts", ProviderID: "Label_1", ProviderType: storage.LabelProviderGmail}}); err != nil {
+		t.Fatal(err)
+	}
+	rec = identityRequest(t, h, h.handleManageFolders, http.MethodGet, "/", account, nil, true)
+	body = rec.Body.String()
+	if rec.Code != http.StatusOK || !strings.Contains(body, `aria-label="Delete Receipts"`) || !strings.Contains(body, "New label") || strings.Contains(body, "Trips") {
+		t.Fatalf("gmail dialog = %d %q", rec.Code, body)
 	}
 }

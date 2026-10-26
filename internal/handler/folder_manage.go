@@ -19,6 +19,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
+	"github.com/cristianadrielbraun/gofer/internal/views"
 )
 
 // Folders are created, renamed and deleted on the server while the request
@@ -186,6 +187,41 @@ func (h *Handler) handleFolderInfo(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeFolderJSON(w, info)
+}
+
+// handleManageFolders renders an account's folders dialog, or with
+// "panel" set only the list inside it, to show it again after a change.
+func (h *Handler) handleManageFolders(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	owner := h.userID(ctx)
+	accountID := r.PathValue("id")
+	var data models.FoldersData
+	err := h.withProfileAccount(ctx, owner, accountID, func(accounts *config.AccountStore, db *storage.DB) error {
+		account, err := accounts.GetAccountByIDForUser(ctx, owner, accountID)
+		if err != nil {
+			return err
+		}
+		if account == nil || account.IsDeleting {
+			return errFolderAccount
+		}
+		data.Account = *account
+		if account.Provider == providers.ProviderGmail {
+			data.Labels, err = db.ProviderLabels(ctx, accountID, storage.LabelProviderGmail)
+			return err
+		}
+		data.Folders, err = db.AccountFolderTree(ctx, accountID)
+		return err
+	})
+	if err != nil {
+		writeFolderError(w, r, "load the folders", err)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html")
+	if r.URL.Query().Get("panel") != "" {
+		views.FoldersPanel(data).Render(ctx, w)
+		return
+	}
+	views.FoldersDialog(data).Render(ctx, w)
 }
 
 // handleCreateFolder makes a folder on the server, inside the folder named

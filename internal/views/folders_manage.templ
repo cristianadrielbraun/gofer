@@ -1,0 +1,153 @@
+package views
+
+import (
+	"fmt"
+	"github.com/cristianadrielbraun/gofer/internal/models"
+
+	"github.com/cristianadrielbraun/gofer/components/button"
+	"github.com/cristianadrielbraun/gofer/components/dialog"
+	"github.com/cristianadrielbraun/gofer/components/icon"
+)
+
+// FoldersDialog lists an account's folders, from its settings, to make,
+// rename and delete them where the sidebar's menu isn't at hand, as on a
+// phone. Gmail has labels instead, which it lists. The buttons run the
+// sidebar's folder actions (app.js), which ask first; after each change the
+// panel loads again.
+templ FoldersDialog(data models.FoldersData) {
+	@dialog.Dialog(dialog.Props{ID: "folders-dialog"}) {
+		@dialog.Content(dialog.ContentProps{Class: "mobile-page-dialog sm:max-w-xl"}) {
+			@dialog.Header() {
+				@dialog.Title() {
+					if data.Account.Provider == "gmail" {
+						Labels
+					} else {
+						Folders
+					}
+				}
+				@dialog.Description() {
+					if data.Account.Provider == "gmail" {
+						Gmail has labels instead of folders. Gofer shows them under Tags. Deleting a label leaves its messages in Gmail.
+					} else {
+						Make, rename and delete this account's folders on the mail server. A deleted folder goes into Trash first.
+					}
+				}
+			}
+			@FoldersPanel(data)
+		}
+	}
+}
+
+templ FoldersPanel(data models.FoldersData) {
+	<div
+		id="folders-panel"
+		class="min-w-0 space-y-3"
+		data-folders-panel={ fmt.Sprintf("/api/accounts/%s/folders/manage?panel=1", data.Account.ID) }
+		data-account-id={ data.Account.ID }
+	>
+		<div class="flex items-center gap-3">
+			<div class="account-color-marker size-3 shrink-0" style={ accountColorStyle(data.Account.Color) } data-account-marker={ data.Account.ID }></div>
+			<span class="min-w-0 flex-1 truncate text-sm font-medium">{ data.Account.Email }</span>
+			@button.Button(button.Props{
+				Variant: button.VariantOutline,
+				Class:   "h-8 shrink-0 gap-1.5 px-3 text-xs",
+				Attributes: templ.Attributes{
+					"data-folder-action":  newFolderAction(data.Account.Provider),
+					"data-folder-account": data.Account.ID,
+					"data-on-click":       onAction("manageFolderAction", actionElement),
+				},
+			}) {
+				if data.Account.Provider == "gmail" {
+					@icon.Tag(icon.Props{Class: "size-3.5"})
+					New label
+				} else {
+					@icon.FolderPlus(icon.Props{Class: "size-3.5"})
+					New folder
+				}
+			}
+		</div>
+		<div class="max-h-[60vh] overflow-y-auto rounded-lg border border-border bg-background/60 p-1">
+			if data.Account.Provider == "gmail" {
+				if len(data.Labels) == 0 {
+					<p class="px-3 py-6 text-center text-sm text-muted-foreground">No labels yet.</p>
+				}
+				for _, label := range data.Labels {
+					<div class="flex items-center gap-2 rounded-md px-2.5 py-1.5 hover:bg-accent/50">
+						<span class="flex size-5 shrink-0 items-center justify-center text-muted-foreground">
+							@icon.Tag(icon.Props{Class: "size-3.5"})
+						</span>
+						<span class="min-w-0 flex-1 truncate text-sm">{ label.Name }</span>
+						@folderRowButton("rename-label", data.Account.ID, label.ID, label.Name, "Rename "+label.Name, false) {
+							@icon.Pencil(icon.Props{Class: "size-3.5"})
+						}
+						@folderRowButton("delete-label", data.Account.ID, label.ID, label.Name, "Delete "+label.Name, true) {
+							@icon.Trash2(icon.Props{Class: "size-3.5"})
+						}
+					</div>
+				}
+			} else {
+				for _, folder := range data.Folders {
+					@foldersPanelRow(data.Account.ID, folder, 0, false)
+				}
+			}
+		</div>
+	</div>
+}
+
+func newFolderAction(provider string) string {
+	if provider == "gmail" {
+		return "new-label"
+	}
+	return "new-folder"
+}
+
+// foldersPanelRow is one folder, then the folders inside it. Only folders
+// without a role can be renamed or deleted; one inside Trash can be moved
+// back out.
+templ foldersPanelRow(accountID string, folder models.Folder, depth int, inTrash bool) {
+	{{ custom := folder.Role == "custom" }}
+	<div class="flex items-center gap-2 rounded-md py-1.5 pr-1 hover:bg-accent/50" style={ mailMoveIndent(depth) }>
+		<span class="flex size-5 shrink-0 items-center justify-center text-muted-foreground">
+			@SidebarFolderIcon(folder.Icon)
+		</span>
+		<span class="min-w-0 flex-1 truncate text-sm">{ folder.Name }</span>
+		if folder.Role != "starred" {
+			@folderRowButton("new-subfolder", accountID, folder.ID, folder.Name, "New folder in "+folder.Name, false) {
+				@icon.FolderPlus(icon.Props{Class: "size-3.5"})
+			}
+		}
+		if custom && inTrash {
+			@folderRowButton("restore-folder", accountID, folder.ID, folder.Name, "Move "+folder.Name+" out of Trash", false) {
+				@icon.FolderOutput(icon.Props{Class: "size-3.5"})
+			}
+		}
+		if custom {
+			@folderRowButton("rename-folder", accountID, folder.ID, folder.Name, "Rename "+folder.Name, false) {
+				@icon.Pencil(icon.Props{Class: "size-3.5"})
+			}
+			@folderRowButton("delete-folder", accountID, folder.ID, folder.Name, "Delete "+folder.Name, true) {
+				@icon.Trash2(icon.Props{Class: "size-3.5"})
+			}
+		}
+	</div>
+	for _, child := range folder.Children {
+		@foldersPanelRow(accountID, child, depth+1, inTrash || folder.Role == "trash")
+	}
+}
+
+templ folderRowButton(action, accountID, id, name, label string, destructive bool) {
+	<button
+		type="button"
+		class={ "flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+			templ.KV("hover:bg-destructive/10 hover:text-destructive", destructive) }
+		title={ label }
+		aria-label={ label }
+		data-folder-action={ action }
+		data-folder-account={ accountID }
+		data-folder-id={ id }
+		data-folder-name={ name }
+		data-on-click={ onAction("manageFolderAction", actionElement) }
+	>
+		{ children... }
+	</button>
+}

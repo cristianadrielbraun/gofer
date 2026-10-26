@@ -1507,6 +1507,21 @@ document.addEventListener("htmx:afterSettle", function (e) {
   }
 })
 
+// Opens an account's folders dialog once it has been loaded. Its list loads
+// again after each change made from it, or from the sidebar while it's open.
+document.addEventListener("htmx:afterSettle", function (e) {
+  if (e.target && e.target.querySelector && e.target.querySelector("#folders-dialog") && window.tui && window.tui.dialog) {
+    setTimeout(function () { window.tui.dialog.open("folders-dialog") }, 20)
+  }
+})
+
+document.addEventListener("gofer:folders-changed", function (e) {
+  var panel = document.getElementById("folders-panel")
+  if (!panel || !window.htmx) return
+  if (e.detail && e.detail.accountID && e.detail.accountID !== panel.getAttribute("data-account-id")) return
+  htmx.ajax("GET", panel.getAttribute("data-folders-panel"), { target: "#folders-panel", swap: "outerHTML" })
+})
+
 // Opens an IMAP account's folder roles dialog once it has been loaded. Saving
 // swaps only its panel, so it stays open.
 document.addEventListener("htmx:afterSettle", function (e) {

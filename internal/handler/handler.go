@@ -520,6 +520,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/accounts/{id}/folder-roles", h.handleSaveFolderRoles)
 	mux.HandleFunc("POST /api/accounts/{id}/folder-roles/create", h.handleCreateFolderRoleFolder)
 	mux.HandleFunc("POST /api/accounts/{id}/folders", h.handleCreateFolder)
+	mux.HandleFunc("GET /api/accounts/{id}/folders/manage", h.handleManageFolders)
 	mux.HandleFunc("GET /api/folders/{id}/manage", h.handleFolderInfo)
 	mux.HandleFunc("POST /api/folders/{id}/rename", h.handleRenameFolder)
 	mux.HandleFunc("POST /api/folders/{id}/delete", h.handleDeleteFolder)

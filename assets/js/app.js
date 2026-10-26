@@ -2999,10 +2999,23 @@ document.addEventListener("DOMContentLoaded", function () {
 
     function folderChangeDone(id, title, accountID, refreshList) {
       if (accountID && window.goferRefreshSidebarAccount) window.goferRefreshSidebarAccount(accountID)
+      document.dispatchEvent(new CustomEvent("gofer:folders-changed", { detail: { accountID: accountID } }))
       if (refreshList && virtualMailList && typeof virtualMailList.refreshCurrentFolder === "function") {
         virtualMailList.refreshCurrentFolder({ noAnimation: true }).catch(function () {})
       }
       showGoferToast({ id: id, title: title, variant: "success", icon: "success", position: "bottom-right", duration: 3000, dismissible: true })
+    }
+
+    // The account settings' folders dialog runs these too.
+    window.goferFolderActions = {
+      "new-folder": function (t) { createMailFolder(t.accountID, "", "") },
+      "new-subfolder": function (t) { createMailFolder(t.accountID, t.folderID, t.name) },
+      "rename-folder": renameMailFolder,
+      "delete-folder": deleteMailFolder,
+      "restore-folder": restoreMailFolder,
+      "new-label": function (t) { createGmailLabel(t.accountID) },
+      "rename-label": renameGmailLabel,
+      "delete-label": deleteGmailLabel,
     }
 
     function folderCount(n, one, many) {
@@ -18999,6 +19012,21 @@ function confirmMoveDialog(emailId, thread) {
     return
   }
   moveMessage(emailId, selected.getAttribute("data-mail-move-folder"), thread)
+}
+
+// A button in the account settings' folders dialog runs the folder action
+// it names, as the sidebar's menu does.
+function manageFolderAction(button) {
+  var actions = window.goferFolderActions
+  var action = button && button.getAttribute("data-folder-action")
+  if (!actions || !actions[action]) return
+  var id = button.getAttribute("data-folder-id") || ""
+  actions[action]({
+    accountID: button.getAttribute("data-folder-account") || "",
+    folderID: id,
+    labelID: id,
+    name: button.getAttribute("data-folder-name") || "",
+  })
 }
 
 // New label in the Move dialog of a Gmail email adds a new label to it:

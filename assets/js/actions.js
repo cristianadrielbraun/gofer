@@ -86,6 +86,7 @@
     "handleMailSidebarSyncStart",
     "handleReply",
     "labelsDialogSearchKeydown",
+    "manageFolderAction",
     "markNotSpam",
     "markSpam",
     "markThreadNotSpam",

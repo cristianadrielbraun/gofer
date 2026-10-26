@@ -348,3 +348,9 @@ func (db *DB) ProviderLabels(ctx context.Context, accountID, providerType string
 	}
 	return labels, rows.Err()
 }
+
+// AccountFolderTree returns an account's folders as the sidebar shows them,
+// with the folders inside each.
+func (db *DB) AccountFolderTree(ctx context.Context, accountID string) ([]models.Folder, error) {
+	return db.getFolders(ctx, strings.TrimSpace(accountID))
+}
