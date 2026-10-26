@@ -115,6 +115,10 @@ document.addEventListener("DOMContentLoaded", function () {
   var mailSelectAllLoading = false
   // Whether each selected row stands for a thread, for rows not loaded in the list.
   var selectedMailThreads = new Map()
+  // The account of each message selected with "Select all in this list", for
+  // rows not loaded in the list. A message's account never changes, so it's
+  // kept until the next such selection.
+  var selectedMailAccounts = new Map()
   // On a phone, deselecting everything from the checkbox or its menu stays in
   // selection mode; only the bar's close button, or leaving the list, ends it.
   var keepMailSelectionModeWhenEmpty = false
@@ -3073,9 +3077,11 @@ document.addEventListener("DOMContentLoaded", function () {
           var ids = (data && data.ids) || []
           selectedMailIds.clear()
           selectedMailThreads.clear()
+          selectedMailAccounts.clear()
           for (var i = 0; i < ids.length; i++) {
             selectedMailIds.add(ids[i].id)
             selectedMailThreads.set(ids[i].id, !!ids[i].thread)
+            if (ids[i].account) selectedMailAccounts.set(ids[i].id, ids[i].account)
           }
           mailSelectAllMatching = { key: key, total: ids.length, truncated: !!data.truncated }
         })
@@ -3621,14 +3627,16 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     // The account a list row belongs to, also for selected rows scrolled out of
-    // the page, which the list keeps as HTML.
+    // the page, which the list keeps as HTML, and for rows never loaded that
+    // "Select all in this list" selected.
     function mailRowAccountID(emailId) {
       var row = document.querySelector('#mail-list-scroll .mail-list-item[data-email-id="' + cssEscape(emailId) + '"]')
       if (row) return row.dataset.accountId || ""
       var list = currentMailListController()
       var pos = list && list.indexById ? list.indexById.get(emailId) : undefined
       var item = pos !== undefined && list.cache ? list.cache.get(pos) : null
-      return item ? mailRowInfoFromHTML(item.id, item.html).account : ""
+      if (item) return mailRowInfoFromHTML(item.id, item.html).account
+      return selectedMailAccounts.get(emailId) || ""
     }
 
     // Rows can be dragged onto the sidebar's folders. Dragging a selected row

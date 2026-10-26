@@ -76,8 +76,9 @@ func TestMailItemIDsListsEveryMatchingRowInOrder(t *testing.T) {
 		t.Fatalf("response = %#v, want the 3 inbox messages", all)
 	}
 	for i, id := range want {
-		if all.IDs[i].ID != id || all.IDs[i].Thread {
-			t.Fatalf("ids[%d] = %#v, want single message %s (newest first)", i, all.IDs[i], id)
+		// The account lets the page move messages it never loaded.
+		if all.IDs[i].ID != id || all.IDs[i].Thread || all.IDs[i].Account != "acc" {
+			t.Fatalf("ids[%d] = %#v, want single message %s of acc (newest first)", i, all.IDs[i], id)
 		}
 	}
 

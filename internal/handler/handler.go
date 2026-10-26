@@ -2473,8 +2473,9 @@ func (h *Handler) handleMailItems(w http.ResponseWriter, r *http.Request) {
 const mailItemIDsLimit = 10000
 
 type mailItemID struct {
-	ID     string `json:"id"`
-	Thread bool   `json:"thread"`
+	ID      string `json:"id"`
+	Thread  bool   `json:"thread"`
+	Account string `json:"account"`
 }
 
 type mailItemIDsResponse struct {
@@ -2518,7 +2519,7 @@ func (h *Handler) handleMailItemIDs(w http.ResponseWriter, r *http.Request) {
 					result.Truncated = true
 					break
 				}
-				result.IDs = append(result.IDs, mailItemID{ID: email.ID, Thread: email.ThreadCount > 1})
+				result.IDs = append(result.IDs, mailItemID{ID: email.ID, Thread: email.ThreadCount > 1, Account: email.AccountID})
 			}
 			if result.Truncated || len(page.Emails) < pageSize || start+len(page.Emails) >= total {
 				break
