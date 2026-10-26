@@ -387,7 +387,7 @@ class VirtualMailList {
     this.container.addEventListener("scroll", function () {
       if (rafId) return
       rafId = requestAnimationFrame(function () {
-        self.render()
+        self.render({ scrolling: true })
         rafId = null
       })
     })
@@ -405,7 +405,12 @@ class VirtualMailList {
     }
   }
 
-  render() {
+  // While scrolling, only rows coming into view change: they get their selection
+  // marks and htmx here, and the toolbar and select-all controls are left alone
+  // unless loaded rows were dropped. Syncing those measures the toolbar, which
+  // made Chrome lay out the whole page for every row scrolled in.
+  render(options) {
+    var scrolling = !!(options && options.scrolling)
     this.applyPaneLayoutDensity()
     var scrollTop = this.container.scrollTop
     var clientHeight = this.container.clientHeight
@@ -453,6 +458,7 @@ class VirtualMailList {
     this.ensureRangeLoaded(first, last)
     this.maybeLoadAtEdges(first, last)
     if (this.evictFarChunks(first, last)) {
+      scrolling = false
       scrollTop = this.container.scrollTop
       this._rebuildOffsets()
       first = this.positionAtOffset(Math.max(0, scrollTop - this.overscan * this.itemHeight))
@@ -464,14 +470,19 @@ class VirtualMailList {
 
     this.spacerTop.style.height = "0px"
     this.spacerBottom.style.height = "0px"
-    this.itemsContainer.style.height = this.totalHeight() + "px"
+    var height = this.totalHeight() + "px"
+    if (this.itemsContainer.style.height !== height) this.itemsContainer.style.height = height
 
-    this.renderPooled(first, last)
-    this.syncSelectionClasses(this.itemsContainer)
-    if (typeof window.syncMailSelectionControls === "function") window.syncMailSelectionControls()
-
-    if (typeof htmx !== "undefined") {
-      htmx.process(this.itemsContainer)
+    var stamped = this.renderPooled(first, last)
+    if (scrolling) {
+      for (var i = 0; i < stamped.length; i++) {
+        if (typeof window.syncMailRowSelection === "function") window.syncMailRowSelection(stamped[i])
+        if (typeof htmx !== "undefined") htmx.process(stamped[i])
+      }
+    } else {
+      this.syncSelectionClasses(this.itemsContainer)
+      if (typeof window.syncMailSelectionControls === "function") window.syncMailSelectionControls()
+      if (typeof htmx !== "undefined") htmx.process(this.itemsContainer)
     }
 
     if (this.container.scrollTop !== scrollTop) {
@@ -514,8 +525,10 @@ class VirtualMailList {
     row.hidden = true
   }
 
+  // Returns the shells that got a mail row's content.
   renderPooled(first, last) {
     this.ensureRowPool()
+    var stamped = []
     var entries = Array.from(this.visibleRows.entries())
     for (var i = 0; i < entries.length; i++) {
       var idx = entries[i][1]
@@ -525,19 +538,25 @@ class VirtualMailList {
       if (this.rowByIndex.has(pos)) continue
       var row = this.acquireRow(pos)
       if (!row) continue
-      this.stampRow(row, pos)
+      if (this.stampRow(row, pos)) stamped.push(row)
     }
     var vis = Array.from(this.visibleRows.entries())
-    for (var j = 0; j < vis.length; j++) this.stampRow(vis[j][0], vis[j][1])
+    for (var j = 0; j < vis.length; j++) {
+      if (this.stampRow(vis[j][0], vis[j][1])) stamped.push(vis[j][0])
+    }
+    return stamped
   }
 
+  // Returns whether the shell got a mail row's content.
   stampRow(shell, index) {
     var item = this.cache.get(index)
-    shell.hidden = false
-    shell.style.transform = "translateY(" + this.offsetAtPosition(index) + "px)"
-    shell.style.height = this.getHeight(index) + "px"
+    if (shell.hidden) shell.hidden = false
+    var transform = "translateY(" + this.offsetAtPosition(index) + "px)"
+    if (shell.style.transform !== transform) shell.style.transform = transform
+    var height = this.getHeight(index) + "px"
+    if (shell.style.height !== height) shell.style.height = height
     if (!item) {
-      if (shell._mailRenderSkeleton === true && shell._mailRenderViewMode === this.viewMode) return
+      if (shell._mailRenderSkeleton === true && shell._mailRenderViewMode === this.viewMode) return false
       shell._mailRenderSkeleton = true
       shell._mailRenderId = ""
       shell._mailRenderHTML = ""
@@ -551,7 +570,7 @@ class VirtualMailList {
       shell.removeAttribute("data-thread-collapsing")
       shell.innerHTML = this.createSkeleton().outerHTML
       if (this.viewMode === "cards" && typeof window.applyMailCardLayoutSettings === "function") window.applyMailCardLayoutSettings(shell)
-      return
+      return false
     }
     var expanded = this.expandedThreads.get(item.id)
     var expandedHTML = expanded && expanded.html ? expanded.html : ""
@@ -568,7 +587,7 @@ class VirtualMailList {
       shell._mailRenderExpandedCollapsing === expandedCollapsing &&
       shell._mailRenderViewMode === this.viewMode
     ) {
-      return
+      return false
     }
     shell._mailRenderSkeleton = false
     shell._mailRenderId = item.id
@@ -584,9 +603,9 @@ class VirtualMailList {
     shell.innerHTML = this.rowHTML(item, this.viewMode)
     if (this.viewMode === "cards" && typeof window.applyMailCardLayoutSettings === "function") window.applyMailCardLayoutSettings(shell)
     var row = shell.querySelector(".mail-list-item") || shell.firstElementChild
-    if (!row) return
+    if (!row) return true
     var anchor = row.querySelector("a")
-    if (!anchor) return
+    if (!anchor) return true
     if (item.id === this.selectedEmailId) {
       anchor.classList.remove("envelope")
       anchor.classList.add("envelope-active")
@@ -613,12 +632,13 @@ class VirtualMailList {
 
       shell.replaceChildren(mainRow, subContainer)
       this.syncSelectionClasses(shell)
-      if (typeof window.syncMailSelectionControls === "function") window.syncMailSelectionControls()
+      if (typeof window.syncMailRowSelection === "function") window.syncMailRowSelection(shell)
       this.updateExpandedThreadMeasuredHeight(item.id, shell)
-      return
+      return true
     }
     if (toggle) toggle.removeAttribute("data-expanded")
     anchor.style.height = ""
+    return true
   }
 
   setSyncState(active, current, total, meta) {

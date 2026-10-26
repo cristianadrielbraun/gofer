@@ -118,14 +118,17 @@
     -moz-osx-font-smoothing: grayscale;
   }
   /* Security scrolls inside its content pane, including after an HTMX swap.
-     Keep wheel/touch scrolling from moving the document and sidebar. */
+     Keep wheel/touch scrolling from moving the document and sidebar. The
+     shell is matched with its own :has(): as "body:has(...) #app-shell", any
+     element added anywhere made Chrome restyle far more than the new element,
+     about 7ms for each mail row scrolled into view. */
   body:has([data-password-security-settings]),
   body:has([data-password-security-verification]) {
     height: 100dvh;
     overflow: hidden;
   }
-  body:has([data-password-security-settings]) #app-shell,
-  body:has([data-password-security-verification]) #app-shell {
+  #app-shell:has([data-password-security-settings]),
+  #app-shell:has([data-password-security-verification]) {
     height: 100dvh;
     min-height: 0;
   }
@@ -1154,6 +1157,15 @@ input[role="switch"] + .gofer-switch-track::after {
 
 #mail-list {
   container-type: inline-size;
+}
+
+/* The pane's own color, painted again by the lists that scroll in it. Below
+   a device pixel ratio of 1.5, Chrome keeps a see-through scroller off its
+   own layer to keep subpixel text, and repaints the rows on every frame of
+   scrolling; an opaque one gets a layer and keeps subpixel text. */
+#mail-list-scroll,
+#contacts-list-scroll {
+  background-color: var(--color-card);
 }
 
 .mail-list-title-row {

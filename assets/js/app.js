@@ -1384,6 +1384,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
   function setupMailListActions() {
     window.syncMailSelectionControls = syncMailSelectionControls
+    window.syncMailRowSelection = syncMailRowSelection
     window.clearMailSelection = clearMailSelection
     window.applyOptimisticMailRemove = applyOptimisticRemove
 
@@ -3186,18 +3187,21 @@ document.addEventListener("DOMContentLoaded", function () {
       }
     }
 
-    function syncMailSelectionControls() {
-      var deleteSlotFrom = mailDeleteSlotLeft()
-      syncMailSelectAllControls(selectedMailIds.size)
-      var rows = renderedMailRows()
-      var visibleSelected = 0
+    // Marks the rows rendered inside root, or the whole list, as selected or not.
+    function syncMailRowSelection(root) {
+      var rows = root ? root.querySelectorAll(".mail-list-item[data-email-id]") : renderedMailRows()
       for (var i = 0; i < rows.length; i++) {
         var selected = selectedMailIds.has(rows[i].dataset.emailId)
-        if (selected) visibleSelected++
         rows[i].toggleAttribute("data-mail-selected", selected)
         var anchor = rows[i].querySelector(":scope > a")
         if (anchor) anchor.toggleAttribute("data-mail-selected", selected)
       }
+    }
+
+    function syncMailSelectionControls() {
+      var deleteSlotFrom = mailDeleteSlotLeft()
+      syncMailSelectAllControls(selectedMailIds.size)
+      syncMailRowSelection()
 
       var count = selectedMailIds.size
       if (count === 0 && !keepMailSelectionModeWhenEmpty) setMailSelectionMode(false)
