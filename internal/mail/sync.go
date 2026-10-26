@@ -2346,9 +2346,17 @@ func (o *SyncOrchestrator) syncAccount(ctx context.Context, accountID string, in
 	if err != nil {
 		return fmt.Errorf("read folder roles chosen for %s: %w", accountID, err)
 	}
-	folderInputs, err := imapFolderInputs(accountID, folders, choices)
+	existingIDs, err := o.imapRepository().IMAPFolderIDs(ctx, accountID)
+	if err != nil {
+		return fmt.Errorf("read folder IDs for %s: %w", accountID, err)
+	}
+	folderInputs, err := imapFolderInputs(accountID, folders, choices, existingIDs)
 	if err != nil {
 		return err
+	}
+	folderIDByRemote := make(map[string]string, len(folderInputs))
+	for _, input := range folderInputs {
+		folderIDByRemote[input.RemoteID] = input.ID
 	}
 	if len(folderInputs) > 0 {
 		if err := o.imapRepository().UpsertFolders(ctx, folderInputs); err != nil {
@@ -2423,10 +2431,9 @@ func (o *SyncOrchestrator) syncAccount(ctx context.Context, accountID string, in
 		default:
 		}
 
-		folderDBID := folderIDFromRemote(accountID, f.Name)
 		folderInfo, ok := folderInfoByRemote[f.Name]
 		if !ok {
-			folderInfo = storage.FolderSyncInfo{ID: folderDBID, AccountID: accountID, RemoteID: f.Name, Role: f.Role}
+			folderInfo = storage.FolderSyncInfo{ID: folderIDByRemote[f.Name], AccountID: accountID, RemoteID: f.Name, Role: f.Role}
 		}
 		err := o.fullFolderSync(ctx, client, accountID, cfg.Provider, folderInfo, f.Status, i+1, len(syncFolders), idleExcluded)
 		if err != nil && client.ConnectionLost() && ctx.Err() == nil {
@@ -2667,14 +2674,11 @@ func (o *SyncOrchestrator) reconcileAndRefresh(ctx context.Context, client *imap
 	return o.refreshFlags(ctx, client, accountID, folder, expectedUIDValidity)
 }
 
-func folderIDFromRemote(accountID, remoteName string) string {
-	return storage.FolderIDForIdentity(accountID, "imap", remoteName)
-}
-
 // imapFolderInputs turns an IMAP folder listing into the folder rows to save.
 // choices are the roles chosen by hand, by folder name; a chosen role is
-// taken from the folder the server gave it.
-func imapFolderInputs(accountID string, folders []imap.FolderInfo, choices map[string]string) ([]storage.UpsertFolderInput, error) {
+// taken from the folder the server gave it. existingIDs are the IDs folders
+// already have, by name: a folder renamed in Gofer keeps the one it had.
+func imapFolderInputs(accountID string, folders []imap.FolderInfo, choices, existingIDs map[string]string) ([]storage.UpsertFolderInput, error) {
 	folderInputs := make([]storage.UpsertFolderInput, 0, len(folders))
 	sortOrder := map[string]int{"inbox": 0, "starred": 1, "sent": 2, "drafts": 3, "archive": 4, "junk": 5, "trash": 6}
 	knownFolders := make(map[string]bool, len(folders))
@@ -2685,9 +2689,22 @@ func imapFolderInputs(accountID string, folders []imap.FolderInfo, choices map[s
 			chosenRoles[role] = true
 		}
 	}
+	takenIDs := make(map[string]bool, len(existingIDs))
+	for _, id := range existingIDs {
+		takenIDs[id] = true
+	}
+	folderIDs := make(map[string]string, len(folders))
+	for _, f := range folders {
+		id, ok := existingIDs[f.Name]
+		if !ok {
+			id = storage.NewIMAPFolderID(accountID, f.Name, takenIDs)
+			takenIDs[id] = true
+		}
+		folderIDs[f.Name] = id
+	}
 
 	for i, f := range folders {
-		folderID := folderIDFromRemote(accountID, f.Name)
+		folderID := folderIDs[f.Name]
 		if folderID == "" {
 			return nil, fmt.Errorf("IMAP folder has no stable remote identity (name=%q)", f.Name)
 		}
@@ -2710,7 +2727,7 @@ func imapFolderInputs(accountID string, folders []imap.FolderInfo, choices map[s
 			if delimiterIndex := strings.LastIndex(f.Name, string(f.Delimiter)); delimiterIndex > 0 {
 				parentName := f.Name[:delimiterIndex]
 				if knownFolders[parentName] {
-					parentID = folderIDFromRemote(accountID, parentName)
+					parentID = folderIDs[parentName]
 					// Shown under its parent, the folder needs only its own name.
 					name = f.Name[delimiterIndex+len(string(f.Delimiter)):]
 				}

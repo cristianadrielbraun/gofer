@@ -1009,7 +1009,7 @@ func TestIMAPFolderInputsNestFoldersByName(t *testing.T) {
 		{Name: "Work.2024", Delimiter: '.', Role: "custom", Selectable: true},
 	}
 
-	inputs, err := imapFolderInputs("acc", folders, nil)
+	inputs, err := imapFolderInputs("acc", folders, nil, nil)
 	if err != nil {
 		t.Fatalf("imapFolderInputs() error = %v", err)
 	}
@@ -1029,6 +1029,36 @@ func TestIMAPFolderInputsNestFoldersByName(t *testing.T) {
 	}
 }
 
+// A folder renamed in Gofer keeps the ID it had, and its children stay
+// under it. A new folder with the old name gets an ID of its own.
+func TestIMAPFolderInputsKeepIDsOfRenamedFolders(t *testing.T) {
+	oldID := storage.FolderIDForIdentity("acc", "imap", "Trips")
+	childID := storage.FolderIDForIdentity("acc", "imap", "Trips/Coast")
+	existing := map[string]string{"Journeys": oldID, "Journeys/Coast": childID}
+	folders := []imap.FolderInfo{
+		{Name: "Journeys", Delimiter: '/', Role: "custom", Selectable: true},
+		{Name: "Journeys/Coast", Delimiter: '/', Role: "custom", Selectable: true},
+		{Name: "Trips", Delimiter: '/', Role: "custom", Selectable: true},
+	}
+	inputs, err := imapFolderInputs("acc", folders, nil, existing)
+	if err != nil {
+		t.Fatalf("imapFolderInputs() error = %v", err)
+	}
+	byRemote := make(map[string]storage.UpsertFolderInput, len(inputs))
+	for _, input := range inputs {
+		byRemote[input.RemoteID] = input
+	}
+	if got := byRemote["Journeys"].ID; got != oldID {
+		t.Fatalf("Journeys ID = %q, want %q", got, oldID)
+	}
+	if coast := byRemote["Journeys/Coast"]; coast.ID != childID || coast.ParentID != oldID {
+		t.Fatalf("Journeys/Coast = %#v, want ID %q under %q", coast, childID, oldID)
+	}
+	if got := byRemote["Trips"].ID; got == "" || got == oldID || got == childID {
+		t.Fatalf("new Trips ID = %q, want one of its own", got)
+	}
+}
+
 // A role chosen by hand goes to the chosen folder, and the folder the server
 // gave it becomes an ordinary one. A choice for a folder no longer listed
 // takes nothing away.
@@ -1039,7 +1069,7 @@ func TestIMAPFolderInputsApplyChosenRoles(t *testing.T) {
 		{Name: "Sent", Delimiter: '/', Role: "sent", Selectable: true},
 		{Name: "INBOX/Old deleted", Delimiter: '/', Role: "custom", Selectable: true},
 	}
-	inputs, err := imapFolderInputs("acc", folders, map[string]string{"INBOX/Old deleted": "trash", "Gone": "sent"})
+	inputs, err := imapFolderInputs("acc", folders, map[string]string{"INBOX/Old deleted": "trash", "Gone": "sent"}, nil)
 	if err != nil {
 		t.Fatalf("imapFolderInputs() error = %v", err)
 	}

@@ -68,6 +68,16 @@ func (f *mailExportFixture) addMailTransferTarget(t *testing.T) (models.Account,
 	return account, inbox
 }
 
+// holdBackgroundSync keeps the sync a transfer starts when it ends from
+// running, so it doesn't rebuild the fixture's folders, which have no sync
+// state, while the test looks at what the transfer did.
+func (f *mailExportFixture) holdBackgroundSync(t *testing.T) {
+	t.Helper()
+	if _, err := f.db.Write().ExecContext(t.Context(), `UPDATE accounts SET email_sync_enabled = 0`); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func (f *mailExportFixture) waitTransferFinished(t *testing.T, id string) *mailTransferJob {
 	t.Helper()
 	deadline := time.Now().Add(20 * time.Second)
@@ -123,6 +133,7 @@ func TestMailTransferMovesMessagesBetweenAccounts(t *testing.T) {
 	f := newMailExportFixture(t)
 	f.h.syncer = mail.NewSyncOrchestrator(f.db, f.h.accountStore, f.h.blobStore, nil)
 	target, targetInbox := f.addMailTransferTarget(t)
+	f.holdBackgroundSync(t)
 
 	req := ownerRequest(httptest.NewRequest(http.MethodGet, "/api/mail/transfers/new?from="+f.account.ID+"&to="+target.ID, nil))
 	rec := httptest.NewRecorder()
@@ -239,6 +250,7 @@ func TestMessagesMoveToAnotherAccount(t *testing.T) {
 	f := newMailExportFixture(t)
 	f.h.syncer = mail.NewSyncOrchestrator(f.db, f.h.accountStore, f.h.blobStore, nil)
 	_, targetInbox := f.addMailTransferTarget(t)
+	f.holdBackgroundSync(t)
 
 	query := url.Values{"folder_id": {targetInbox}, "accounts": {f.account.ID}, "count": {"2"}}
 	req := ownerRequest(httptest.NewRequest(http.MethodGet, "/api/messages/to-account?"+query.Encode(), nil))

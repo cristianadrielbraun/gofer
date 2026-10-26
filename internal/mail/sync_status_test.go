@@ -19,6 +19,7 @@ import (
 
 	"github.com/cristianadrielbraun/gofer/internal/config"
 	"github.com/cristianadrielbraun/gofer/internal/models"
+	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
 
 // startCountingIMAPServer serves an in-memory mailbox through a proxy that
@@ -163,7 +164,7 @@ func TestIMAPPollSkipsUnchangedFoldersAndNoticesChanges(t *testing.T) {
 				}
 				return selects.Load() - before
 			}
-			inbox := folderIDFromRemote(account.ID, "INBOX")
+			inbox := storage.FolderIDForIdentity(account.ID, "imap", "INBOX")
 			readState := func(subject string) (found, read, starred bool) {
 				t.Helper()
 				err := db.Read().QueryRow(`SELECT mfs.is_read, mfs.is_starred FROM message_folder_state mfs
