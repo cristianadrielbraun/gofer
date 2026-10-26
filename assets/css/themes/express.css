@@ -2522,21 +2522,15 @@ html:root[data-theme="express"] :is([data-calendar-month-event], [data-calendar-
 
 /* === SCROLLBARS === */
 
-[data-theme="express"] * {
-  scrollbar-width: auto;
-  scrollbar-color: var(--xp-face) color-mix(in srgb, var(--xp-face) 55%, var(--xp-light));
+/* The classic raised thumb in a dithered-looking track, at the same sizes as
+   the other themes' bars (input.css). */
+[data-theme="express"] {
+  --scrollbar-thumb: var(--xp-face);
+  --scrollbar-thumb-hover: var(--xp-face);
+  --scrollbar-track: color-mix(in srgb, var(--xp-face) 55%, var(--xp-light));
 }
 
-[data-theme="express"] *::-webkit-scrollbar {
-  width: 16px;
-  height: 16px;
-  background: color-mix(in srgb, var(--xp-face) 55%, var(--xp-light));
-}
-
-[data-theme="express"] *::-webkit-scrollbar-thumb,
-[data-theme="express"] *::-webkit-scrollbar-thumb:hover,
-[data-theme="express"] #mail-list-scroll::-webkit-scrollbar-thumb {
-  background: var(--xp-face);
+[data-theme="express"] *::-webkit-scrollbar-thumb {
   border-radius: 0;
   box-shadow: var(--xp-bevel-out);
 }
