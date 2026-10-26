@@ -27,6 +27,7 @@ type imapSyncRepository interface {
 	ApplyIMAPFlagChanges(ctx context.Context, folderID string, expectedUIDValidity uint32, updates []storage.FlagUpdate, highestModSeq uint64) (int, error)
 	BatchUpdateFlags(ctx context.Context, folderID string, updates []storage.FlagUpdate) (int, error)
 	UpsertFolders(ctx context.Context, folders []storage.UpsertFolderInput) error
+	FolderRoleChoices(ctx context.Context, accountID string) (map[string]string, error)
 	ReconcileDiscoveredFolders(ctx context.Context, accountID, providerKind string, seenIdentities []string, completedAt time.Time) (storage.FolderDiscoveryResult, error)
 	GetFoldersForAccount(ctx context.Context, accountID string) ([]storage.FolderSyncInfo, error)
 	UpdateFolderSyncState(ctx context.Context, folderID string, highestUID uint32, uidValidity uint32, totalCount int) error
@@ -159,6 +160,15 @@ func (r *userIMAPScope) BatchUpdateFlags(ctx context.Context, folderID string, u
 }
 func (r *userIMAPScope) UpsertFolders(ctx context.Context, folders []storage.UpsertFolderInput) error {
 	return r.call(ctx, func(db *storage.DB) error { return db.UpsertFolders(ctx, folders) })
+}
+func (r *userIMAPScope) FolderRoleChoices(ctx context.Context, accountID string) (map[string]string, error) {
+	var result map[string]string
+	err := r.call(ctx, func(db *storage.DB) error {
+		var err error
+		result, err = db.FolderRoleChoices(ctx, accountID)
+		return err
+	})
+	return result, err
 }
 func (r *userIMAPScope) ReconcileDiscoveredFolders(ctx context.Context, accountID, providerKind string, seenIdentities []string, completedAt time.Time) (storage.FolderDiscoveryResult, error) {
 	var result storage.FolderDiscoveryResult

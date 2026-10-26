@@ -2314,7 +2314,11 @@ func (o *SyncOrchestrator) syncAccount(ctx context.Context, accountID string, in
 		return err
 	}
 
-	folderInputs, err := imapFolderInputs(accountID, folders)
+	choices, err := o.imapRepository().FolderRoleChoices(ctx, accountID)
+	if err != nil {
+		return fmt.Errorf("read folder roles chosen for %s: %w", accountID, err)
+	}
+	folderInputs, err := imapFolderInputs(accountID, folders, choices)
 	if err != nil {
 		return err
 	}
@@ -2640,12 +2644,18 @@ func folderIDFromRemote(accountID, remoteName string) string {
 }
 
 // imapFolderInputs turns an IMAP folder listing into the folder rows to save.
-func imapFolderInputs(accountID string, folders []imap.FolderInfo) ([]storage.UpsertFolderInput, error) {
+// choices are the roles chosen by hand, by folder name; a chosen role is
+// taken from the folder the server gave it.
+func imapFolderInputs(accountID string, folders []imap.FolderInfo, choices map[string]string) ([]storage.UpsertFolderInput, error) {
 	folderInputs := make([]storage.UpsertFolderInput, 0, len(folders))
 	sortOrder := map[string]int{"inbox": 0, "starred": 1, "sent": 2, "drafts": 3, "archive": 4, "junk": 5, "trash": 6}
 	knownFolders := make(map[string]bool, len(folders))
+	chosenRoles := map[string]bool{}
 	for _, f := range folders {
 		knownFolders[f.Name] = true
+		if role, ok := choices[f.Name]; ok {
+			chosenRoles[role] = true
+		}
 	}
 
 	for i, f := range folders {
@@ -2654,6 +2664,11 @@ func imapFolderInputs(accountID string, folders []imap.FolderInfo) ([]storage.Up
 			return nil, fmt.Errorf("IMAP folder has no stable remote identity (name=%q)", f.Name)
 		}
 		role := f.Role
+		if choice, ok := choices[f.Name]; ok {
+			role = choice
+		} else if chosenRoles[role] {
+			role = "custom"
+		}
 		order, ok := sortOrder[role]
 		if !ok {
 			order = 100 + i

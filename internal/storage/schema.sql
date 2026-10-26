@@ -75,7 +75,10 @@ CREATE TABLE IF NOT EXISTS folders (
     missing_since DATETIME,
     discovery_state TEXT NOT NULL DEFAULT 'active',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    -- A role the user gave an IMAP folder by hand, which the folder sync puts
+    -- before the one the server reports; '' for none.
+    role_choice TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS folder_id_aliases (
@@ -1771,4 +1774,4 @@ CREATE TABLE IF NOT EXISTS calendar_invitation_messages (
 );
 
 -- Schema version marker for fresh installs
-INSERT OR REPLACE INTO schema_version (version) VALUES (129);
+INSERT OR REPLACE INTO schema_version (version) VALUES (130);

@@ -1009,7 +1009,7 @@ func TestIMAPFolderInputsNestFoldersByName(t *testing.T) {
 		{Name: "Work.2024", Delimiter: '.', Role: "custom", Selectable: true},
 	}
 
-	inputs, err := imapFolderInputs("acc", folders)
+	inputs, err := imapFolderInputs("acc", folders, nil)
 	if err != nil {
 		t.Fatalf("imapFolderInputs() error = %v", err)
 	}
@@ -1026,5 +1026,34 @@ func TestIMAPFolderInputsNestFoldersByName(t *testing.T) {
 	}
 	if orphan := byRemote["Work.2024"]; orphan.ParentID != "" || orphan.Name != "Work.2024" {
 		t.Fatalf("Work.2024 = %#v, want its full name at the top, as Work is not listed", orphan)
+	}
+}
+
+// A role chosen by hand goes to the chosen folder, and the folder the server
+// gave it becomes an ordinary one. A choice for a folder no longer listed
+// takes nothing away.
+func TestIMAPFolderInputsApplyChosenRoles(t *testing.T) {
+	folders := []imap.FolderInfo{
+		{Name: "INBOX", Delimiter: '/', Role: "inbox", Selectable: true},
+		{Name: "Trash", Delimiter: '/', Role: "trash", Selectable: true},
+		{Name: "Sent", Delimiter: '/', Role: "sent", Selectable: true},
+		{Name: "INBOX/Old deleted", Delimiter: '/', Role: "custom", Selectable: true},
+	}
+	inputs, err := imapFolderInputs("acc", folders, map[string]string{"INBOX/Old deleted": "trash", "Gone": "sent"})
+	if err != nil {
+		t.Fatalf("imapFolderInputs() error = %v", err)
+	}
+	byRemote := make(map[string]storage.UpsertFolderInput, len(inputs))
+	for _, input := range inputs {
+		byRemote[input.RemoteID] = input
+	}
+	if chosen := byRemote["INBOX/Old deleted"]; chosen.Role != "trash" || chosen.Name != "Trash" || chosen.ParentID != "" || chosen.Icon != "trash" {
+		t.Fatalf("chosen folder = %#v, want the top-level Trash", chosen)
+	}
+	if detected := byRemote["Trash"]; detected.Role != "custom" || detected.Name != "Trash" || detected.Icon != "folder" {
+		t.Fatalf("detected folder = %#v, want an ordinary folder", detected)
+	}
+	if sent := byRemote["Sent"]; sent.Role != "sent" {
+		t.Fatalf("Sent = %#v, want it kept as the Sent folder", sent)
 	}
 }
