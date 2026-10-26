@@ -98,48 +98,19 @@
   * {
     @apply border-border;
   }
-  /* Scrollbars are always shown, and their thumb widens when hovered or
-     dragged. Themes and panes recolor them through these variables. */
+  /* Scrollbars use the standard properties, which themes and panes recolor
+     through these variables. Chrome draws ::-webkit-scrollbar ones on its
+     main thread, which made the mail list stutter while scrolling. */
   :root {
     --scrollbar-thumb: var(--color-muted-foreground);
-    --scrollbar-thumb-hover: color-mix(in srgb, var(--color-muted-foreground) 70%, var(--color-foreground));
     --scrollbar-track: transparent;
   }
-  /* Chrome and Safari ignore their ::-webkit-scrollbar rules wherever the
-     standard properties are set, and draw their own thin bar, so only
-     browsers without those rules, like Firefox, get the standard ones. */
-  @supports not selector(::-webkit-scrollbar) {
-    * {
-      scrollbar-width: auto;
-      scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
-    }
-  }
-  *::-webkit-scrollbar {
-    width: 10px;
-    height: 10px;
-    background: var(--scrollbar-track);
-  }
-  /* A transparent border insets the thumb; hovering or dragging drops it. */
-  *::-webkit-scrollbar-thumb {
-    background: var(--scrollbar-thumb);
-    background-clip: padding-box;
-    border: 2px solid transparent;
-    border-radius: 5px;
-  }
-  *::-webkit-scrollbar-thumb:hover,
-  *::-webkit-scrollbar-thumb:active {
-    background: var(--scrollbar-thumb-hover);
-    border-width: 0;
-  }
-  *::-webkit-scrollbar-corner {
-    background: var(--scrollbar-track);
-  }
-  html[data-corners="square"] *::-webkit-scrollbar-thumb {
-    border-radius: 0;
+  * {
+    scrollbar-width: auto;
+    scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
   }
   html[data-theme="classic"]:not(.dark) #mail-list-scroll {
     --scrollbar-thumb: #a99b88;
-    --scrollbar-thumb-hover: #8a7c6a;
   }
   body {
     @apply bg-background text-foreground;
