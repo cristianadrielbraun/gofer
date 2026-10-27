@@ -11,6 +11,29 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
 
+// errFolderGone marks a folder page whose folder no longer exists, such as one
+// deleted on the server. renderMailboxView sends the browser to the inbox.
+var errFolderGone = errors.New("folder no longer exists")
+
+// resolveFolderPage resolves the folder a page shows, reporting a missing
+// folder as errFolderGone.
+func (h *Handler) resolveFolderPage(ctx context.Context, userID, requested string) (string, error) {
+	folderID, err := h.resolveFolderID(ctx, userID, requested)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", errFolderGone
+	}
+	return folderID, err
+}
+
+func redirectToInbox(w http.ResponseWriter, r *http.Request) {
+	if r.Header.Get("HX-Request") == "true" {
+		w.Header().Set("HX-Redirect", "/")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
 // renderMailboxView copies repository results into a component while leased,
 // then renders to the client after releasing the store. Only the audited local
 // read handlers use this adapter. The request-local handler has no provider,
@@ -27,6 +50,10 @@ func (h *Handler) renderMailboxView(w http.ResponseWriter, r *http.Request, ctx 
 		return err
 	})
 	if err != nil {
+		if errors.Is(err, errFolderGone) {
+			redirectToInbox(w, r)
+			return
+		}
 		if errors.Is(err, sql.ErrNoRows) || errors.Is(err, storage.ErrAccountRoute) {
 			http.NotFound(w, r)
 			return

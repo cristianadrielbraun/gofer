@@ -694,7 +694,7 @@ func (h *Handler) handleIndex(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	h.renderMailboxView(w, r, &ctx, func(h *Handler) (templ.Component, error) {
 		userID := h.userID(ctx)
-		folderID, err := h.resolveFolderID(ctx, userID, r.URL.Query().Get("folder"))
+		folderID, err := h.resolveFolderPage(ctx, userID, r.URL.Query().Get("folder"))
 		if err != nil {
 			return nil, err
 		}
@@ -725,7 +725,7 @@ func (h *Handler) handleFolderWithEmail(w http.ResponseWriter, r *http.Request) 
 	ctx := r.Context()
 	h.renderMailboxView(w, r, &ctx, func(h *Handler) (templ.Component, error) {
 		userID := h.userID(ctx)
-		folderID, err := h.resolveFolderID(ctx, userID, r.PathValue("id"))
+		folderID, err := h.resolveFolderPage(ctx, userID, r.PathValue("id"))
 		if err != nil {
 			return nil, err
 		}
@@ -2303,7 +2303,7 @@ func (h *Handler) handleFolderPartial(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	h.renderMailboxView(w, r, &ctx, func(h *Handler) (templ.Component, error) {
 		userID := h.userID(ctx)
-		folderID, err := h.resolveFolderID(ctx, userID, r.PathValue("id"))
+		folderID, err := h.resolveFolderPage(ctx, userID, r.PathValue("id"))
 		if err != nil {
 			return nil, err
 		}
@@ -2332,7 +2332,7 @@ func (h *Handler) handleFolderFull(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	h.renderMailboxView(w, r, &ctx, func(h *Handler) (templ.Component, error) {
 		userID := h.userID(ctx)
-		folderID, err := h.resolveFolderID(ctx, userID, r.PathValue("id"))
+		folderID, err := h.resolveFolderPage(ctx, userID, r.PathValue("id"))
 		if err != nil {
 			return nil, err
 		}
