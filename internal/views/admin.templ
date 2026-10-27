@@ -1413,7 +1413,13 @@ templ AdminSecurityPage(data models.MailSecurityAdminData, verification ...Admin
 			<div class="max-w-6xl px-6 py-8 lg:px-8 lg:py-10">
 				<div class="mb-7">
 					<h2 class="text-2xl font-bold text-foreground" style="font-family: var(--font-serif)">Mail security</h2>
-					<p class="mt-1 max-w-3xl text-sm text-muted-foreground">Manage narrow exceptions for test labs and local mail servers. Normal account discovery and mail connections remain encrypted by default.</p>
+					<p class="mt-1 max-w-3xl text-sm text-muted-foreground">
+						if data.Allowlist != nil {
+							Choose where mailboxes may connect, and approve the narrow exceptions test labs and local mail servers need. A connection has to pass both.
+						} else {
+							Manage narrow exceptions for test labs and local mail servers. Normal account discovery and mail connections remain encrypted by default.
+						}
+					</p>
 				</div>
 				if data.Notice != "" {
 					<div class="mb-5 rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-sm font-medium text-emerald-800 dark:text-emerald-200">{ data.Notice }</div>
@@ -1430,11 +1436,215 @@ templ AdminSecurityPage(data models.MailSecurityAdminData, verification ...Admin
 						</div>
 					</div>
 				}
-				@MailSecurityExceptionsPanel(data)
+				if data.Allowlist != nil {
+					@tabs.Tabs(tabs.Props{ID: "mail-security-tabs"}) {
+						@tabs.List(tabs.ListProps{Class: "bg-card"}) {
+							@tabs.Trigger(tabs.TriggerProps{Value: "allowlist", IsActive: data.Tab != "exceptions"}) {
+								Allowed servers
+								if len(data.Allowlist.Refused) > 0 {
+									<span class="rounded-full bg-red-500/12 px-1.5 text-[11px] font-semibold tabular-nums text-red-700 dark:text-red-300">{ fmt.Sprintf("%d refused", len(data.Allowlist.Refused)) }</span>
+								}
+							}
+							@tabs.Trigger(tabs.TriggerProps{Value: "exceptions", IsActive: data.Tab == "exceptions"}) {
+								Security exceptions
+								if len(data.Exceptions) > 0 {
+									<span class="rounded-full bg-muted px-1.5 text-[11px] font-semibold tabular-nums text-muted-foreground">{ fmt.Sprintf("%d", len(data.Exceptions)) }</span>
+								}
+							}
+						}
+						@tabs.Content(tabs.ContentProps{Value: "allowlist", IsActive: data.Tab != "exceptions", Class: "mt-6"}) {
+							@MailAllowlistPanel(data, *data.Allowlist)
+						}
+						@tabs.Content(tabs.ContentProps{Value: "exceptions", IsActive: data.Tab == "exceptions", Class: "mt-6"}) {
+							<p class="mb-4 max-w-3xl text-sm text-muted-foreground">Let one exact server be on a private network or go without encryption. Everything else stays refused.</p>
+							if mailAllowlistServersLimited(*data.Allowlist) {
+								<div class="mb-5 flex items-start gap-3 rounded-lg border border-border bg-card p-4 text-sm text-muted-foreground">
+									@icon.Info(icon.Props{Class: "mt-0.5 size-4 shrink-0"})
+									<p>The mail servers are limited, so a server also needs to be on the Allowed servers list. An exception doesn't add it there.</p>
+								</div>
+							}
+							@MailSecurityExceptionsPanel(data)
+						}
+					}
+				} else {
+					@MailSecurityExceptionsPanel(data)
+				}
 			</div>
 		</div>
 	</div>
 	@AdminSecurityVerificationDialog(adminSecurityVerificationValue(verification))
+}
+
+func mailAllowlistServersLimited(list models.MailAllowlistAdminData) bool {
+	return len(list.Servers) > 0 || list.Gmail || list.Outlook
+}
+
+func mailAllowlistLimited(list models.MailAllowlistAdminData) bool {
+	return mailAllowlistServersLimited(list) || len(list.Domains) > 0
+}
+
+// MailAllowlistPanel limits the mail servers mailboxes connect to and the
+// domains of their addresses, and says which mailboxes the limits refuse.
+templ MailAllowlistPanel(data models.MailSecurityAdminData, list models.MailAllowlistAdminData) {
+	<section class="rounded-lg border border-border bg-card p-5" id="allowed-mail">
+		<div class={ adminPanelTitleClass() }>Allowed mail servers and domains</div>
+		<p class="mt-1 max-w-3xl text-sm text-muted-foreground">Limit where mailboxes may connect. While a list has entries, mailboxes can only use what is on it; an empty list allows everything. An entry matches exactly, and *.example.org matches the names below example.org, not example.org itself. Mailboxes outside the lists stop connecting, and their owners see why.</p>
+		<div class="mt-5 grid gap-5 lg:grid-cols-2">
+			<div class="min-w-0 rounded-lg border border-border bg-background/45 p-4">
+				<div class="text-sm font-semibold text-foreground">Mail servers</div>
+				<p class="mt-1 text-xs leading-relaxed text-muted-foreground">The IMAP, SMTP, JMAP, CalDAV and CardDAV servers mailboxes may connect to, including an identity's own SMTP server.</p>
+				@mailAllowlistEntries(data, list.Servers, "No limit: mailboxes can connect to any server.")
+				@mailAllowlistAddForm(data, "/servers", "imap.example.org or *.example.org", "Add server")
+				<div class="mt-4 border-t border-border pt-4">
+					<div class="text-xs font-semibold text-muted-foreground">Gmail and Outlook</div>
+					<p class="mt-1 text-xs leading-relaxed text-muted-foreground">They connect only to Google and Microsoft. While the servers are limited, they're refused unless allowed here; allowing one alone limits mailboxes to it.</p>
+					<div class="mt-2 space-y-2">
+						@mailAllowlistProvider(data, "gmail", "Gmail", list.Gmail, mailAllowlistServersLimited(list))
+						@mailAllowlistProvider(data, "outlook", "Outlook", list.Outlook, mailAllowlistServersLimited(list))
+					</div>
+				</div>
+			</div>
+			<div class="min-w-0 rounded-lg border border-border bg-background/45 p-4">
+				<div class="text-sm font-semibold text-foreground">Mailbox address domains</div>
+				<p class="mt-1 text-xs leading-relaxed text-muted-foreground">The domains mailbox addresses may have, as in ana@example.org. This doesn't limit the addresses mail is sent to.</p>
+				@mailAllowlistEntries(data, list.Domains, "No limit: mailboxes can have any address.")
+				@mailAllowlistAddForm(data, "/domains", "example.org or *.example.org", "Add domain")
+			</div>
+		</div>
+		<div class="mt-5 grid gap-5 lg:grid-cols-2">
+			<div class="min-w-0 rounded-lg border border-border bg-background/45 p-4">
+				<div class="text-sm font-semibold text-foreground">People the lists don't apply to</div>
+				<p class="mt-1 text-xs leading-relaxed text-muted-foreground">Their mailboxes can use any server and address. Mail security exceptions still apply to them.</p>
+				if len(list.Exempt) == 0 {
+					<div class="mt-3 rounded-md border border-dashed border-border px-3 py-4 text-center text-xs text-muted-foreground">The lists apply to everyone.</div>
+				} else {
+					<div class="mt-3 space-y-2">
+						for _, user := range list.Exempt {
+							<div class="flex items-center justify-between gap-3 rounded-md border border-border bg-card px-3 py-2">
+								<span class="min-w-0 truncate text-sm font-semibold text-foreground">{ user.Username }</span>
+								<form method="post" action={ templ.URL(adminMailAllowlistBase + "/exempt") }>
+									<input type="hidden" name="_csrf" value={ data.CSRFTokens[adminMailAllowlistBase+"/exempt"] }/>
+									<input type="hidden" name="user_id" value={ user.ID }/>
+									<input type="hidden" name="exempt" value="false"/>
+									<button type="submit" class={ mailAllowlistRemoveButtonClass() } disabled?={ data.StepUpRequired }>Apply the lists</button>
+								</form>
+							</div>
+						}
+					</div>
+				}
+				if len(list.Candidates) > 0 {
+					<form method="post" action={ templ.URL(adminMailAllowlistBase + "/exempt") } class="mt-3 flex flex-col gap-2 sm:flex-row">
+						<input type="hidden" name="_csrf" value={ data.CSRFTokens[adminMailAllowlistBase+"/exempt"] }/>
+						<input type="hidden" name="exempt" value="true"/>
+						<div class="min-w-0 sm:flex-1">
+							@selectbox.SelectBox() {
+								@selectbox.Trigger(selectbox.TriggerProps{Name: "user_id", Class: "h-9 bg-background", DisableClear: true, Required: true, Attributes: templ.Attributes{"aria-label": "Webmail user"}}) {
+									@selectbox.Value(selectbox.ValueProps{Placeholder: "Choose a webmail user"})
+								}
+								@selectbox.Content(selectbox.ContentProps{SearchPlaceholder: "Search webmail users..."}) {
+									for _, user := range list.Candidates {
+										@selectbox.Item(selectbox.ItemProps{Value: user.ID}) {
+											{ user.Username }
+										}
+									}
+								}
+							}
+						</div>
+						<button type="submit" class={ mailAllowlistAddButtonClass() } disabled?={ data.StepUpRequired }>Don't apply the lists</button>
+					</form>
+				}
+			</div>
+			<div class="min-w-0 rounded-lg border border-border bg-background/45 p-4">
+				<div class="flex items-center justify-between gap-3">
+					<div class="text-sm font-semibold text-foreground">Mailboxes outside the lists</div>
+					if mailAllowlistLimited(list) {
+						<span class="text-xs font-semibold tabular-nums text-muted-foreground">{ fmt.Sprintf("%d", len(list.Refused)) }</span>
+					}
+				</div>
+				<p class="mt-1 text-xs leading-relaxed text-muted-foreground">These don't connect until the lists allow them, or their owner changes them.</p>
+				if !mailAllowlistLimited(list) {
+					<div class="mt-3 rounded-md border border-dashed border-border px-3 py-4 text-center text-xs text-muted-foreground">Nothing is limited.</div>
+				} else if len(list.Refused) == 0 {
+					<div class="mt-3 rounded-md border border-dashed border-border px-3 py-4 text-center text-xs text-muted-foreground">Every mailbox is within the lists.</div>
+				} else {
+					<div class="mt-3 space-y-2">
+						for _, account := range list.Refused {
+							<div class="rounded-md border border-red-500/20 bg-red-500/5 px-3 py-2">
+								<div class="flex flex-wrap items-baseline justify-between gap-x-3">
+									<span class="min-w-0 truncate text-sm font-semibold text-foreground">{ account.Email }</span>
+									<span class="text-xs text-muted-foreground">{ account.Username }</span>
+								</div>
+								<div class="mt-0.5 text-xs font-medium text-red-700 dark:text-red-300">{ account.Reason }</div>
+							</div>
+						}
+					</div>
+				}
+			</div>
+		</div>
+	</section>
+}
+
+const adminMailAllowlistBase = "/admin/security/allowlist"
+
+func mailAllowlistRemoveButtonClass() string {
+	return "shrink-0 rounded-md border border-border bg-card px-2.5 py-1 text-xs font-semibold text-muted-foreground transition-colors hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:text-red-300"
+}
+
+func mailAllowlistAddButtonClass() string {
+	return "h-9 shrink-0 rounded-md border border-border bg-card px-3 text-xs font-semibold text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+}
+
+templ mailAllowlistEntries(data models.MailSecurityAdminData, entries []models.MailAllowlistAdminEntry, empty string) {
+	if len(entries) == 0 {
+		<div class="mt-3 rounded-md border border-dashed border-border px-3 py-4 text-center text-xs text-muted-foreground">{ empty }</div>
+	} else {
+		<div class="mt-3 space-y-2">
+			for _, entry := range entries {
+				<div class="flex items-center justify-between gap-3 rounded-md border border-border bg-card px-3 py-2">
+					<span class="min-w-0 truncate font-mono text-sm font-bold text-foreground">{ entry.Value }</span>
+					<form method="post" action={ templ.URL(adminMailAllowlistBase + "/entries/" + entry.ID + "/delete") } data-confirm-action="Remove" data-confirm-destructive data-confirm={ "Remove " + entry.Value + " from the list? Mailboxes that need it will stop connecting." }>
+						<input type="hidden" name="_csrf" value={ data.CSRFTokens[adminMailAllowlistBase+"/entries/"+entry.ID+"/delete"] }/>
+						<button type="submit" class={ mailAllowlistRemoveButtonClass() } disabled?={ data.StepUpRequired }>Remove</button>
+					</form>
+				</div>
+			}
+		</div>
+	}
+}
+
+templ mailAllowlistAddForm(data models.MailSecurityAdminData, action, placeholder, label string) {
+	<form method="post" action={ templ.URL(adminMailAllowlistBase + action) } class="mt-3 flex flex-col gap-2 sm:flex-row">
+		<input type="hidden" name="_csrf" value={ data.CSRFTokens[adminMailAllowlistBase+action] }/>
+		<input name="value" type="text" required placeholder={ placeholder } aria-label={ label } class="h-9 min-w-0 sm:flex-1 rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/30"/>
+		<button type="submit" class={ mailAllowlistAddButtonClass() } disabled?={ data.StepUpRequired }>{ label }</button>
+	</form>
+}
+
+templ mailAllowlistProvider(data models.MailSecurityAdminData, provider, name string, allowed, limited bool) {
+	<div class="flex items-center justify-between gap-3 rounded-md border border-border bg-card px-3 py-2">
+		<div class="min-w-0">
+			<span class="text-sm font-semibold text-foreground">{ name }</span>
+			<span class="ml-2 text-xs text-muted-foreground">
+				if allowed {
+					Allowed
+				} else if limited {
+					Refused
+				} else {
+					Allowed while the servers aren't limited
+				}
+			</span>
+		</div>
+		<form method="post" action={ templ.URL(adminMailAllowlistBase + "/providers") }>
+			<input type="hidden" name="_csrf" value={ data.CSRFTokens[adminMailAllowlistBase+"/providers"] }/>
+			<input type="hidden" name="provider" value={ provider }/>
+			<input type="hidden" name="allowed" value={ fmt.Sprintf("%t", !allowed) }/>
+			if allowed {
+				<button type="submit" class={ mailAllowlistRemoveButtonClass() } disabled?={ data.StepUpRequired }>Stop allowing</button>
+			} else {
+				<button type="submit" class={ mailAllowlistRemoveButtonClass() } disabled?={ data.StepUpRequired }>Allow</button>
+			}
+		</form>
+	</div>
 }
 
 // MailSecurityExceptionsPanel lists and adds the exceptions an administrator,
@@ -1552,6 +1762,9 @@ templ MailSecurityExceptionsPanel(data models.MailSecurityAdminData) {
 								>
 									{ adminMailSecurityKindLabel(item) }
 								</span>
+								if item.OutsideAllowlist {
+									<span class="rounded-md bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Not on the allowed list</span>
+								}
 							</div>
 							<div class="mt-1 text-xs text-muted-foreground">Added by { item.CreatedBy } on { item.CreatedAt.Local().Format("Jan 2, 2006 15:04") }</div>
 							if len(item.Accounts) > 0 {

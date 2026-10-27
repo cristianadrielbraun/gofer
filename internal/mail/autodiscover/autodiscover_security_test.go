@@ -44,6 +44,20 @@ func TestResolveTargetRejectsPrivateAddressesUnlessExactException(t *testing.T) 
 	}
 }
 
+// With the allowed mail servers set, discovery connects to no other host,
+// except Thunderbird's directory of providers.
+func TestResolveTargetKeepsToTheAllowedServers(t *testing.T) {
+	resolver := fakeIPResolverFunc(func(context.Context, string) ([]net.IPAddr, error) {
+		return []net.IPAddr{{IP: net.ParseIP("1.1.1.1")}}, nil
+	})
+	policy := securityPolicy{resolveIP: resolver.LookupIPAddr, allowServer: func(host string) bool { return host == "imap.example.test" }}
+	for host, allowed := range map[string]bool{"imap.example.test": true, "IMAP.example.test.": true, "smtp.example.test": false, "autoconfig.example.test": false, "autoconfig.thunderbird.net": true} {
+		if _, err := resolveTarget(context.Background(), "https", host, 443, policy); (err == nil) != allowed {
+			t.Errorf("%s allowed = %v, want %v (%v)", host, err == nil, allowed, err)
+		}
+	}
+}
+
 func TestDiscoveryRedirectRejectsPrivateTarget(t *testing.T) {
 	resolver := fakeIPResolverFunc(func(_ context.Context, host string) ([]net.IPAddr, error) {
 		if host == "private.example.test" {

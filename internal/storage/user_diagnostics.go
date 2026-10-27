@@ -29,7 +29,7 @@ const (
 )
 
 type DiagnosticTransportAccount struct {
-	ID, Email                                    string
+	ID, Email, Provider                          string
 	IMAPHost, IMAPTLSMode, SMTPHost, SMTPTLSMode string
 	IMAPPort, SMTPPort                           int
 	JMAPSessionURL                               string
@@ -122,7 +122,7 @@ func (db *DB) listDiagnosticTransports(ctx context.Context, owner string) ([]Dia
 // listTransportAccounts reads how accounts connect, for matching them with
 // mail security exceptions.
 func (db *DB) listTransportAccounts(ctx context.Context, filter string, args ...any) ([]DiagnosticTransportAccount, error) {
-	rows, err := db.Read().QueryContext(ctx, `SELECT a.id,a.email_address,
+	rows, err := db.Read().QueryContext(ctx, `SELECT a.id,a.email_address,a.provider,
  lower(trim(COALESCE(a.imap_host,''))),COALESCE(a.imap_port,0),lower(trim(COALESCE(a.imap_tls_mode,''))),
  lower(trim(COALESCE(a.smtp_host,''))),COALESCE(a.smtp_port,0),lower(trim(COALESCE(a.smtp_tls_mode,''))),
  COALESCE(a.jmap_session_url,''),
@@ -137,7 +137,7 @@ func (db *DB) listTransportAccounts(ctx context.Context, filter string, args ...
 	var result []DiagnosticTransportAccount
 	for rows.Next() {
 		var account DiagnosticTransportAccount
-		if err := rows.Scan(&account.ID, &account.Email, &account.IMAPHost, &account.IMAPPort, &account.IMAPTLSMode, &account.SMTPHost, &account.SMTPPort, &account.SMTPTLSMode, &account.JMAPSessionURL, &account.CardDAVURL, &account.CalDAVURL); err != nil {
+		if err := rows.Scan(&account.ID, &account.Email, &account.Provider, &account.IMAPHost, &account.IMAPPort, &account.IMAPTLSMode, &account.SMTPHost, &account.SMTPPort, &account.SMTPTLSMode, &account.JMAPSessionURL, &account.CardDAVURL, &account.CalDAVURL); err != nil {
 			return nil, err
 		}
 		result = append(result, account)

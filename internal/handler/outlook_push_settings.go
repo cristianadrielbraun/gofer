@@ -110,7 +110,7 @@ func (h *Handler) withOutlookAccount(ctx context.Context, owner, id string, fn f
 	}
 	if h.userAccounts != nil {
 		return h.userAccounts.WithAccountForUser(ctx, owner, id, func(local *config.AccountStore, db *storage.DB) error {
-			cfg, err := local.GetConfig(ctx, id)
+			cfg, err := local.GetSettingsConfig(ctx, id)
 			if err != nil {
 				return err
 			}

@@ -133,6 +133,9 @@ func (h *Handler) handleSaveAccountIdentity(w http.ResponseWriter, r *http.Reque
 	if saveErr == nil && identity.HasOwnSMTP() && password == "" && !keepsSMTPPassword(current, identity) {
 		saveErr = errIdentitySMTPPasswordMissing
 	}
+	if saveErr == nil && identity.HasOwnSMTP() {
+		saveErr = h.accountStore.CheckAccountServer(r.Context(), identity.AccountID, identity.SMTPHost)
+	}
 	if saveErr == nil {
 		var saved models.Identity
 		saved, saveErr = h.db.SaveAccountIdentityGuarded(r.Context(), userID, identity, h.signatureGuard)

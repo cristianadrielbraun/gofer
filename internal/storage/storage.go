@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	mailmessage "github.com/cristianadrielbraun/gofer/internal/mail/message"
 	"github.com/cristianadrielbraun/gofer/internal/store"
@@ -33,6 +34,9 @@ type DB struct {
 	contactHook       func(ContactActivityNotification)
 	userMailDelivery  bool
 	senderAvatarCache *DB // immutable installation cache reference on owned stores
+	// mailAllowlist holds the allowed mail lists once read, until this
+	// database changes them.
+	mailAllowlist atomic.Pointer[MailAllowlist]
 }
 
 type ContactActivityNotification struct {
@@ -53,7 +57,7 @@ type ThreadingState struct {
 	Total      int  `json:"total"`
 }
 
-const CurrentSchemaVersion = 130
+const CurrentSchemaVersion = 131
 
 func New(dbPath string) (*DB, error) {
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
@@ -1087,6 +1091,11 @@ func (db *DB) migrate() error {
 	if currentVersion <= 129 {
 		if err := migrateV129ToV130(db.write); err != nil {
 			return fmt.Errorf("migrate v129 to v130: %w", err)
+		}
+	}
+	if currentVersion <= 130 {
+		if err := migrateV130ToV131(db.write); err != nil {
+			return fmt.Errorf("migrate v130 to v131: %w", err)
 		}
 	}
 

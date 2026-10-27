@@ -53,7 +53,7 @@ func (h *Handler) handleUserSaveSyncSettings(w http.ResponseWriter, r *http.Requ
 	ctx, owner := r.Context(), h.userID(r.Context())
 	for id := range updates {
 		err := h.userAccounts.WithAccountForUser(ctx, owner, id, func(local *config.AccountStore, _ *storage.DB) error {
-			cfg, err := local.GetConfig(ctx, id)
+			cfg, err := local.GetSettingsConfig(ctx, id)
 			if err != nil {
 				return err
 			}
@@ -118,7 +118,7 @@ func (h *Handler) handleUserEmailService(w http.ResponseWriter, r *http.Request)
 	var account *models.Account
 	err := h.userAccounts.WithAccountForUser(r.Context(), owner, id, func(local *config.AccountStore, _ *storage.DB) error {
 		if r.FormValue("enabled") == "true" {
-			cfg, err := local.GetConfig(r.Context(), id)
+			cfg, err := local.GetSettingsConfig(r.Context(), id)
 			if err != nil {
 				return err
 			}

@@ -165,6 +165,20 @@ func (h *Handler) handleAdminSecurity(w http.ResponseWriter, r *http.Request) {
 		action := "/admin/security/exceptions/" + item.ID + "/delete"
 		data.CSRFTokens[action] = auth.CSRFToken(ctx, http.MethodPost, action)
 	}
+	if data.Allowlist, err = h.mailAllowlistAdminData(ctx, data.CSRFTokens); err != nil {
+		log.Printf("admin mail security: load allowed mail lists: %v", err)
+		http.Error(w, "failed to load the allowed mail lists", http.StatusInternalServerError)
+		return
+	}
+	if data.Allowlist != nil {
+		data.Tab = "allowlist"
+		if r.URL.Query().Get("tab") == "exceptions" {
+			data.Tab = "exceptions"
+		}
+		if err := h.markExceptionsOutsideAllowlist(ctx, data.Exceptions); err != nil {
+			log.Printf("admin mail security: compare exceptions with allowed servers: %v", err)
+		}
+	}
 	uiSettings := h.db.GetUISettings(ctx, h.userID(ctx))
 	if r.Header.Get("HX-Request") == "true" {
 		w.Header().Set("Content-Type", "text/html")
@@ -184,28 +198,28 @@ func (h *Handler) handleAddHTTPDiscoveryException(w http.ResponseWriter, r *http
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		redirectAdminSecurity(w, r, "", "Invalid form data.")
+		h.redirectAdminSecurity(w, r, "", "Invalid form data.")
 		return
 	}
 	if r.FormValue("acknowledge") != "yes" {
-		redirectAdminSecurity(w, r, "", "Confirm that you understand the risk before adding an exception.")
+		h.redirectAdminSecurity(w, r, "", "Confirm that you understand the risk before adding an exception.")
 		return
 	}
 	domain := normalizeDiscoveryExceptionDomain(r.FormValue("domain"))
 	if !validDiscoveryExceptionDomain(domain) {
-		redirectAdminSecurity(w, r, "", "Enter a valid email domain without a scheme or path.")
+		h.redirectAdminSecurity(w, r, "", "Enter a valid email domain without a scheme or path.")
 		return
 	}
 	user := h.userID(r.Context())
 	if err := h.validateMailSecurityAdministrator(r.Context()); err != nil {
-		redirectAdminSecurity(w, r, "", "Administrator access is no longer available.")
+		h.redirectAdminSecurity(w, r, "", "Administrator access is no longer available.")
 		return
 	}
 	if err := h.db.AddHTTPDiscoveryException(r.Context(), domain, user); err != nil {
-		redirectAdminSecurity(w, r, "", "Could not add the HTTP discovery exception.")
+		h.redirectAdminSecurity(w, r, "", "Could not add the HTTP discovery exception.")
 		return
 	}
-	redirectAdminSecurity(w, r, "HTTP discovery is now allowed for "+domain+".", "")
+	h.redirectAdminSecurity(w, r, "HTTP discovery is now allowed for "+domain+".", "")
 }
 
 func (h *Handler) handleAddPlaintextTransportException(w http.ResponseWriter, r *http.Request) {
@@ -218,30 +232,30 @@ func (h *Handler) handleAddPlaintextTransportException(w http.ResponseWriter, r 
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		redirectAdminSecurity(w, r, "", "Invalid form data.")
+		h.redirectAdminSecurity(w, r, "", "Invalid form data.")
 		return
 	}
 	if r.FormValue("acknowledge") != "yes" {
-		redirectAdminSecurity(w, r, "", "Confirm that you understand the risk before adding an exception.")
+		h.redirectAdminSecurity(w, r, "", "Confirm that you understand the risk before adding an exception.")
 		return
 	}
 	protocol := strings.ToLower(strings.TrimSpace(r.FormValue("protocol")))
 	host := normalizePlaintextExceptionHost(r.FormValue("host"))
 	port, err := strconv.Atoi(strings.TrimSpace(r.FormValue("port")))
 	if (protocol != "http" && protocol != "imap" && protocol != "smtp") || !validPlaintextExceptionHost(host) || err != nil || port < 1 || port > 65535 {
-		redirectAdminSecurity(w, r, "", "Enter HTTP, IMAP, or SMTP with an exact host and a port between 1 and 65535.")
+		h.redirectAdminSecurity(w, r, "", "Enter HTTP, IMAP, or SMTP with an exact host and a port between 1 and 65535.")
 		return
 	}
 	if err := h.validateMailSecurityAdministrator(r.Context()); err != nil {
-		redirectAdminSecurity(w, r, "", "Administrator access is no longer available.")
+		h.redirectAdminSecurity(w, r, "", "Administrator access is no longer available.")
 		return
 	}
 	if err := h.db.AddPlaintextTransportException(r.Context(), protocol, host, port, h.userID(r.Context())); err != nil {
-		redirectAdminSecurity(w, r, "", "Could not add the plaintext transport exception.")
+		h.redirectAdminSecurity(w, r, "", "Could not add the plaintext transport exception.")
 		return
 	}
 	h.restartAccountsUsingException(r.Context(), models.MailSecurityExceptionPlaintextTransport, protocol, host, port)
-	redirectAdminSecurity(w, r, strings.ToUpper(protocol)+" plaintext is now allowed for "+host+":"+strconv.Itoa(port)+".", "")
+	h.redirectAdminSecurity(w, r, strings.ToUpper(protocol)+" plaintext is now allowed for "+host+":"+strconv.Itoa(port)+".", "")
 }
 
 func (h *Handler) handleAddPrivateTargetException(w http.ResponseWriter, r *http.Request) {
@@ -254,30 +268,30 @@ func (h *Handler) handleAddPrivateTargetException(w http.ResponseWriter, r *http
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		redirectAdminSecurity(w, r, "", "Invalid form data.")
+		h.redirectAdminSecurity(w, r, "", "Invalid form data.")
 		return
 	}
 	if r.FormValue("acknowledge") != "yes" {
-		redirectAdminSecurity(w, r, "", "Confirm that you understand the risk before adding an exception.")
+		h.redirectAdminSecurity(w, r, "", "Confirm that you understand the risk before adding an exception.")
 		return
 	}
 	protocol := strings.ToLower(strings.TrimSpace(r.FormValue("protocol")))
 	host := normalizePrivateTargetHost(r.FormValue("host"))
 	port, err := strconv.Atoi(strings.TrimSpace(r.FormValue("port")))
 	if (protocol != "http" && protocol != "https" && protocol != "imap" && protocol != "smtp") || !validPrivateTargetHost(host) || err != nil || port < 1 || port > 65535 {
-		redirectAdminSecurity(w, r, "", "Enter HTTP, HTTPS, IMAP, or SMTP with an exact host and a port between 1 and 65535.")
+		h.redirectAdminSecurity(w, r, "", "Enter HTTP, HTTPS, IMAP, or SMTP with an exact host and a port between 1 and 65535.")
 		return
 	}
 	if err := h.validateMailSecurityAdministrator(r.Context()); err != nil {
-		redirectAdminSecurity(w, r, "", "Administrator access is no longer available.")
+		h.redirectAdminSecurity(w, r, "", "Administrator access is no longer available.")
 		return
 	}
 	if err := h.db.AddPrivateTargetException(r.Context(), protocol, host, port, h.userID(r.Context())); err != nil {
-		redirectAdminSecurity(w, r, "", "Could not add the private target exception.")
+		h.redirectAdminSecurity(w, r, "", "Could not add the private target exception.")
 		return
 	}
 	h.restartAccountsUsingException(r.Context(), models.MailSecurityExceptionPrivateTarget, protocol, host, port)
-	redirectAdminSecurity(w, r, strings.ToUpper(protocol)+" private target is now allowed for "+host+":"+strconv.Itoa(port)+".", "")
+	h.redirectAdminSecurity(w, r, strings.ToUpper(protocol)+" private target is now allowed for "+host+":"+strconv.Itoa(port)+".", "")
 }
 
 // restartAccountsUsingException reconnects the accounts an exception just
@@ -329,7 +343,7 @@ func (h *Handler) handleDeleteMailSecurityException(w http.ResponseWriter, r *ht
 		item, err = h.db.GetMailSecurityPolicy(r.Context(), id)
 	}
 	if err != nil {
-		redirectAdminSecurity(w, r, "", "Could not load the security exception.")
+		h.redirectAdminSecurity(w, r, "", "Could not load the security exception.")
 		return
 	}
 	if item == nil {
@@ -341,7 +355,7 @@ func (h *Handler) handleDeleteMailSecurityException(w http.ResponseWriter, r *ht
 		items, readErr := h.mailSecurityExceptions(r.Context())
 		if readErr != nil {
 			if r.Context().Err() != nil || errors.Is(readErr, storage.ErrUserDiagnosticsAccess) {
-				redirectAdminSecurity(w, r, "", "Could not verify administrator access.")
+				h.redirectAdminSecurity(w, r, "", "Could not verify administrator access.")
 				return
 			}
 			// Missing/damaged stores must not prevent revoking central policy.
@@ -358,11 +372,11 @@ func (h *Handler) handleDeleteMailSecurityException(w http.ResponseWriter, r *ht
 		}
 	}
 	if err := h.validateMailSecurityAdministrator(r.Context()); err != nil {
-		redirectAdminSecurity(w, r, "", "Administrator access is no longer available.")
+		h.redirectAdminSecurity(w, r, "", "Administrator access is no longer available.")
 		return
 	}
 	if err := h.db.DeleteMailSecurityException(r.Context(), id); err != nil {
-		redirectAdminSecurity(w, r, "", "Could not revoke the security exception.")
+		h.redirectAdminSecurity(w, r, "", "Could not revoke the security exception.")
 		return
 	}
 	for _, account := range item.Accounts {
@@ -371,7 +385,7 @@ func (h *Handler) handleDeleteMailSecurityException(w http.ResponseWriter, r *ht
 	if stopAll && h.ownedMailbox.userIMAP != nil {
 		h.ownedMailbox.userIMAP.StopMailSecuritySessions()
 	}
-	redirectAdminSecurity(w, r, "Security exception revoked.", "")
+	h.redirectAdminSecurity(w, r, "Security exception revoked.", "")
 }
 
 func (h *Handler) requireRecentAdminSecurityStepUp(w http.ResponseWriter, r *http.Request) bool {
@@ -387,7 +401,7 @@ func (h *Handler) requireRecentAdminSecurityStepUp(w http.ResponseWriter, r *htt
 		// The security settings page asks the owner to verify first.
 		http.Redirect(w, r, "/settings/security", http.StatusSeeOther)
 	case errors.Is(err, auth.ErrRecentStepUpRequired):
-		redirectAdminSecurity(w, r, "", "Verify this administrator session before changing mail security exceptions.")
+		h.redirectAdminSecurity(w, r, "", "Verify this administrator session before changing mail security exceptions.")
 	case errors.Is(err, auth.ErrSecuritySessionInvalid):
 		auth.ClearSessionCookie(w, h.auth.Config().SecureCookies)
 		if personal {
@@ -402,7 +416,7 @@ func (h *Handler) requireRecentAdminSecurityStepUp(w http.ResponseWriter, r *htt
 	return false
 }
 
-func redirectAdminSecurity(w http.ResponseWriter, r *http.Request, notice, message string) {
+func (h *Handler) redirectAdminSecurity(w http.ResponseWriter, r *http.Request, notice, message string) {
 	if mailSecuritySurfaceIsOwner(r.Context()) {
 		values := url.Values{}
 		if notice != "" {
@@ -420,6 +434,10 @@ func redirectAdminSecurity(w http.ResponseWriter, r *http.Request, notice, messa
 	}
 	if message != "" {
 		values.Set("error", message)
+	}
+	// Return to the tab the change was made on, when the page has tabs.
+	if h.ownedMailbox != nil && !strings.HasPrefix(r.URL.Path, adminMailAllowlistBase+"/") {
+		values.Set("tab", "exceptions")
 	}
 	target := "/admin/security"
 	if query := values.Encode(); query != "" {
