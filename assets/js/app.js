@@ -9196,8 +9196,8 @@ function setMailViewEmptyNow() {
   mailView.innerHTML =
     '<div class="flex flex-col items-center justify-center h-full text-center" data-mail-view-empty>' +
       '<div class="space-y-4 animate-fade-in">' +
-        '<div class="size-20 rounded-2xl bg-card flex items-center justify-center mx-auto raised">' +
-          '<svg class="size-9 text-muted-foreground opacity-30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 7-8.991 5.727a2 2 0 0 1-2.009 0L2 7"/><rect x="2" y="4" width="20" height="16" rx="2"/></svg>' +
+        '<div class="mail-empty-tile relative size-20 rounded-2xl bg-card flex items-center justify-center mx-auto raised" data-on-click=\'["wolfEmptyPaneClick", "$this"]\'>' +
+          '<svg class="mail-empty-icon size-9 text-muted-foreground opacity-30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 7-8.991 5.727a2 2 0 0 1-2.009 0L2 7"/><rect x="2" y="4" width="20" height="16" rx="2"/></svg>' +
         '</div>' +
         '<div>' +
           '<h3 class="font-semibold mb-1">Select an email</h3>' +
@@ -9205,6 +9205,37 @@ function setMailViewEmptyNow() {
         '</div>' +
       '</div>' +
     '</div>'
+}
+
+// Five quick clicks on the empty reader's mail icon let a wolf out of its
+// tile to howl at the moon (wolf.css runs the show). The wolf leaves when its
+// animation ends.
+function wolfEmptyPaneClick(tile) {
+  if (tile.classList.contains("wolf-howling")) return
+  clearTimeout(tile._wolfClickReset)
+  tile._wolfClicks = (tile._wolfClicks || 0) + 1
+  if (tile._wolfClicks < 5) {
+    tile._wolfClickReset = setTimeout(function () { tile._wolfClicks = 0 }, 1200)
+    return
+  }
+  tile._wolfClicks = 0
+  var template = document.getElementById("mail-wolf")
+  if (!template) return
+  var wolf = template.content.firstElementChild.cloneNode(true)
+  // The wolf, moon and howl need about 175px above the tile; a short reader
+  // gets a smaller wolf.
+  var pane = tile.closest("[data-mail-view-empty]")
+  if (pane) {
+    var room = tile.getBoundingClientRect().top - pane.getBoundingClientRect().top
+    wolf.style.setProperty("--wolf-scale", String(Math.max(0.4, Math.min(1, room / 175))))
+  }
+  wolf.addEventListener("animationend", function (event) {
+    if (event.target !== wolf) return
+    wolf.remove()
+    tile.classList.remove("wolf-howling")
+  })
+  tile.appendChild(wolf)
+  tile.classList.add("wolf-howling")
 }
 
 // Returns from the full-screen reader to the list on small screens.

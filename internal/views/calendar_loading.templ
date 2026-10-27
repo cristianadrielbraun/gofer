@@ -6,10 +6,14 @@ import "github.com/cristianadrielbraun/gofer/internal/models"
 // They stay outside the HTMX/history targets so switching apps needs no fetch.
 // AppSwitchEmptyPaneTemplates hold the read pane Mail and Contacts show with
 // nothing open. Switching to a section with nothing to open shows this at
-// once instead of a loading placeholder.
+// once instead of a loading placeholder. The wolf waits here too, for the
+// mail one's icon to let it out.
 templ AppSwitchEmptyPaneTemplates() {
 	<template id="mail-view-empty">
 		@MailViewEmpty()
+	</template>
+	<template id="mail-wolf">
+		@MailWolf()
 	</template>
 	<template id="contacts-view-empty">
 		@ContactsDetail(nil, nil, false, false, nil)

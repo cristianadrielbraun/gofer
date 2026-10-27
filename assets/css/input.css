@@ -2,6 +2,7 @@
 @import "./themes/classic.css";
 @import "./themes/minimal.css";
 @import "./themes/express.css";
+@import "./wolf.css";
 
 @custom-variant dark (&:where(.dark, .dark *));
 

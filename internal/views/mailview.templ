@@ -1216,8 +1216,8 @@ templ MailViewDraftBar(email *models.Email) {
 templ MailViewEmpty() {
 	<div class="flex flex-col items-center justify-center h-full text-center" data-mail-view-empty>
 		<div class="space-y-4 animate-fade-in">
-			<div class="size-20 rounded-2xl bg-card flex items-center justify-center mx-auto raised">
-				@icon.Mail(icon.Props{Class: "size-9 text-muted-foreground opacity-30"})
+			<div class="mail-empty-tile relative size-20 rounded-2xl bg-card flex items-center justify-center mx-auto raised" data-on-click='["wolfEmptyPaneClick", "$this"]'>
+				@icon.Mail(icon.Props{Class: "mail-empty-icon size-9 text-muted-foreground opacity-30"})
 			</div>
 			<div>
 				<h3 class="font-semibold mb-1">Select an email</h3>

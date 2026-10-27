@@ -142,6 +142,7 @@
     "window.tui.popover.open",
     "wizardGo",
     "wizardServiceNext",
+    "wolfEmptyPaneClick",
   ]
   var allowed = Object.create(null)
   actionNames.forEach(function (name) { allowed[name] = true })
