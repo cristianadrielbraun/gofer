@@ -235,6 +235,7 @@ func RunShared(rootCtx context.Context) error {
 	if _, err := setupNotice.WriteTo(os.Stderr); err != nil {
 		log.Fatalf("failed to display setup notice: %v", err)
 	}
+	defer startControlSocket(dbPath, db)()
 	listener, err := net.Listen("tcp", httpConfig.ListenAddr)
 	if err != nil {
 		return err

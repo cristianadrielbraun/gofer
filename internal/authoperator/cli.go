@@ -38,17 +38,15 @@ func Run(ctx context.Context, args []string, databasePath string, stdout, stderr
 		_, _ = io.WriteString(stderr, usage)
 		return 2
 	}
-	if command.name == "recover" {
-		return runRecovery(ctx, command.target, databasePath, stdout, stderr)
-	}
-	if command.name == "setup-token rotate" {
-		return runSetupTokenRotation(ctx, databasePath, stdout, stderr)
-	}
-	if command.name == "sessions revoke" {
-		return runSessionRevocation(ctx, command.target, databasePath, stdout, stderr)
-	}
-	if command.name == "invite create" {
-		return runInvitationCreation(ctx, command.invitation, databasePath, stdout, stderr)
+	if command.mutating() {
+		// A running Gofer holds the runtime lock, so it carries out the change
+		// itself. Without one, the command takes the lock and writes directly.
+		if handled, exitCode := runOnServer(ctx, ControlSocketPath(databasePath), args, stdout, stderr); handled {
+			return exitCode
+		}
+		return runMutation(ctx, command, func(action func(*Service) error) error {
+			return runMutatingCommand(ctx, databasePath, action)
+		}, stdout, stderr)
 	}
 
 	db, err := storage.OpenReadOnly(databasePath)
@@ -74,10 +72,37 @@ func Run(ctx context.Context, args []string, databasePath string, stdout, stderr
 	return 0
 }
 
+// mutationRunner gives a mutating command a Service only while the database
+// may be changed: under the operator's runtime lock, or inside the server.
+type mutationRunner func(action func(*Service) error) error
+
+func runMutation(ctx context.Context, command parsedCommand, mutate mutationRunner, stdout, stderr io.Writer) int {
+	switch command.name {
+	case "recover":
+		return runRecovery(ctx, command.target, mutate, stdout, stderr)
+	case "setup-token rotate":
+		return runSetupTokenRotation(ctx, mutate, stdout, stderr)
+	case "sessions revoke":
+		return runSessionRevocation(ctx, command.target, mutate, stdout, stderr)
+	case "invite create":
+		return runInvitationCreation(ctx, command.invitation, mutate, stdout, stderr)
+	}
+	_, _ = fmt.Fprintf(stderr, "auth: %s does not change the database\n", command.name)
+	return 2
+}
+
 type parsedCommand struct {
 	name       string
 	target     UserTarget
 	invitation invitationOptions
+}
+
+func (command parsedCommand) mutating() bool {
+	switch command.name {
+	case "recover", "setup-token rotate", "sessions revoke", "invite create":
+		return true
+	}
+	return false
 }
 
 type invitationOptions struct {
@@ -194,7 +219,7 @@ func parseInvitationOptions(args []string) (invitationOptions, error) {
 	return options, nil
 }
 
-func runInvitationCreation(ctx context.Context, options invitationOptions, databasePath string, stdout, stderr io.Writer) int {
+func runInvitationCreation(ctx context.Context, options invitationOptions, mutate mutationRunner, stdout, stderr io.Writer) int {
 	// Invitations are redeemed through managed mode's sign-in pages, so check
 	// the mode and public address before anything is written.
 	if mode := auth.LoadConfig("").AuthenticationMode(); mode != auth.ModeManaged {
@@ -206,7 +231,7 @@ func runInvitationCreation(ctx context.Context, options invitationOptions, datab
 		_, _ = fmt.Fprintf(stderr, "auth invite create: %v\n", err)
 		return 1
 	}
-	err = runMutatingCommand(ctx, databasePath, func(service *Service) error {
+	err = mutate(func(service *Service) error {
 		invitation, err := service.CreateInvitation(ctx, options.name, options.username, options.lifetime)
 		if err != nil {
 			return err
@@ -240,8 +265,8 @@ func runInvitationCreation(ctx context.Context, options invitationOptions, datab
 	return 0
 }
 
-func runRecovery(ctx context.Context, target UserTarget, databasePath string, stdout, stderr io.Writer) int {
-	err := runMutatingCommand(ctx, databasePath, func(service *Service) error {
+func runRecovery(ctx context.Context, target UserTarget, mutate mutationRunner, stdout, stderr io.Writer) int {
+	err := mutate(func(service *Service) error {
 		result, err := service.Recover(ctx, target)
 		if err != nil {
 			return err
@@ -264,8 +289,8 @@ func runRecovery(ctx context.Context, target UserTarget, databasePath string, st
 	return 0
 }
 
-func runSessionRevocation(ctx context.Context, target UserTarget, databasePath string, stdout, stderr io.Writer) int {
-	err := runMutatingCommand(ctx, databasePath, func(service *Service) error {
+func runSessionRevocation(ctx context.Context, target UserTarget, mutate mutationRunner, stdout, stderr io.Writer) int {
+	err := mutate(func(service *Service) error {
 		result, err := service.RevokeSessions(ctx, target)
 		if err != nil {
 			return err
@@ -284,8 +309,8 @@ func runSessionRevocation(ctx context.Context, target UserTarget, databasePath s
 	return 0
 }
 
-func runSetupTokenRotation(ctx context.Context, databasePath string, stdout, stderr io.Writer) int {
-	err := runMutatingCommand(ctx, databasePath, func(service *Service) error {
+func runSetupTokenRotation(ctx context.Context, mutate mutationRunner, stdout, stderr io.Writer) int {
+	err := mutate(func(service *Service) error {
 		result, err := service.RotateSetupToken(ctx)
 		if err != nil {
 			return err

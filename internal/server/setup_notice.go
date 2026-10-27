@@ -35,7 +35,7 @@ func provisionInitialSetupToken(ctx context.Context, manager *auth.Manager, conf
 	if provision.State.TokenExpiresAt != nil {
 		fmt.Fprintf(&notice, " Expires: %s (server local time)\n", provision.State.TokenExpiresAt.Local().Format("2006-01-02 15:04:05 MST (UTC-07:00)"))
 	}
-	notice.WriteString("\n Lost or expired token? Stop Gofer, then run:\n ./gofer auth setup-token rotate\n Use the same GOFER_DB_PATH, then restart Gofer.\n")
+	notice.WriteString("\n Lost or expired token? Run, with Gofer running or stopped:\n ./gofer auth setup-token rotate\n Use the same GOFER_DB_PATH.\n")
 	if err := writeLocalProfileNotice(ctx, manager, &notice); err != nil {
 		return err
 	}

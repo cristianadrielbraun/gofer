@@ -57,12 +57,10 @@ The image differs from a plain binary in a few defaults: it runs in `personal` m
 
 The example publishes the port on `127.0.0.1` only, for an HTTPS reverse proxy on the same machine. That proxy reaches Gofer through the Docker network gateway, so set `GOFER_TRUSTED_PROXY_CIDRS: 172.16.0.0/12` to pass on the real client address. To reach Gofer from other machines without a proxy, publish `"8090:8090"` instead, and see the plain HTTP note above.
 
-If the setup token is lost or expired, rotate it with Gofer stopped:
+If the setup token is lost or expired, rotate it while Gofer is running:
 
 ```sh
-docker compose stop gofer
-docker compose run --rm gofer auth setup-token rotate
-docker compose start gofer
+docker compose exec gofer gofer auth setup-token rotate
 ```
 
 Your mail, settings, and encryption keys all live in the volume. Back it up with Gofer stopped. `latest` follows each new release; pin a version such as `ghcr.io/cristianadrielbraun/gofer:0.9` if you'd rather choose when to upgrade. If you update images automatically, read the upgrade notes above first, and consider `GOFER_PREVENT_STORAGE_CONVERSION=true` in managed mode.
@@ -71,13 +69,12 @@ Your mail, settings, and encryption keys all live in the volume. Back it up with
 
 In managed mode, `/admin` provides user administration, invitations, security policies, and security activity. It also includes diagnostics for account sync, contacts, avatars, and provider behavior.
 
-
-Invitations can also be created from the command line with Gofer stopped, for example from a script:
+Invitations can also be created from the command line, for example from a script:
 
 ```sh
-docker compose stop gofer
-docker compose run --rm gofer auth invite create --name "Ada Example" --username ada --expires-in 72h
-docker compose start gofer
+docker compose exec gofer gofer auth invite create --name "Ada Example" --username ada --expires-in 72h
 ```
 
 It prints the enrollment address and a one-time invitation token. `--expires-in` defaults to 24 hours and can be at most 168 hours (7 days).
+
+The `gofer auth` commands that change something (`invite create`, `recover`, `sessions revoke` and `setup-token rotate`) are handed to the running Gofer through a private socket next to the database, `gofer.db.control/socket`. When Gofer is stopped they change the database directly, so `docker compose run --rm gofer auth …` works too. Run them as the same user as Gofer. If the database path is too long for a socket (about 100 characters), Gofer logs that at startup and these commands need it stopped.

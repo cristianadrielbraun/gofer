@@ -318,6 +318,7 @@ func RunManaged(ctx context.Context, stdout, stderr io.Writer) (err error) {
 		return err
 	}
 	defer func() { err = errors.Join(err, app.Close()) }()
+	defer startControlSocket(app.storage.central.Path(), app.storage.central)()
 	listener, err := net.Listen("tcp", app.httpConfig.ListenAddr)
 	if err != nil {
 		return err
