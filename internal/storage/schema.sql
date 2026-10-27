@@ -1702,6 +1702,25 @@ CREATE TABLE IF NOT EXISTS mail_security_exceptions (
 CREATE INDEX IF NOT EXISTS idx_mail_security_exceptions_lookup
 ON mail_security_exceptions(kind, protocol, host, port);
 
+-- Allowed mail servers and mailbox address domains. An empty list limits
+-- nothing. A provider row lets Gmail or Outlook in while servers are limited.
+CREATE TABLE IF NOT EXISTS mail_allowlist_entries (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL CHECK (kind IN ('server', 'domain', 'provider')),
+    value TEXT NOT NULL CHECK (value <> ''),
+    created_by TEXT NOT NULL DEFAULT '',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CHECK (kind != 'provider' OR value IN ('gmail', 'outlook')),
+    UNIQUE(kind, value)
+);
+
+-- People the allowed mail lists don't apply to.
+CREATE TABLE IF NOT EXISTS mail_allowlist_exempt_users (
+    user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    created_by TEXT NOT NULL DEFAULT '',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS calendar_reply_jobs (
     id TEXT PRIMARY KEY REFERENCES outgoing_sends(id) ON DELETE CASCADE,
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -1774,4 +1793,4 @@ CREATE TABLE IF NOT EXISTS calendar_invitation_messages (
 );
 
 -- Schema version marker for fresh installs
-INSERT OR REPLACE INTO schema_version (version) VALUES (130);
+INSERT OR REPLACE INTO schema_version (version) VALUES (131);
