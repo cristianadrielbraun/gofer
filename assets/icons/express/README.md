@@ -13,7 +13,7 @@ Each icon keeps its Tango name with its pixel size appended, for example
 embedded metadata.
 
 `star.svg`, `tag.svg`, `tags.svg`, `mail.svg`, `user.svg`, `map-pin.svg`,
-`clock.svg`, `phone.svg`, `cards.svg`, `table.svg`, `focus.svg` and `eye.svg` are not from Tango, which has no matching icons. They were drawn
+`clock.svg`, `phone.svg`, `cards.svg`, `table.svg`, `focus.svg`, `eye.svg` and `chart-pie.svg` are not from Tango, which has no matching icons. They were drawn
 for this project in Tango's style and palette, and are covered by the
 project's own license.
 

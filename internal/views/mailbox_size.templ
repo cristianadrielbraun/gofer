@@ -23,7 +23,9 @@ templ MailboxSizeDialog() {
 				}
 				@dialog.Description(dialog.DescriptionProps{Attributes: templ.Attributes{"data-mailbox-size-account-name": ""}})
 			}
-			<div data-mailbox-size-body></div>
+			// The panel is a grid; without min-w-0 a long folder path widens it
+			// instead of being cut short.
+			<div class="min-w-0" data-mailbox-size-body></div>
 			<template data-mailbox-size-loading>
 				@mailboxSizeLoading()
 			</template>
@@ -148,45 +150,73 @@ templ mailboxSizeFolderRow(row mailboxSizeRow, totalBytes int64) {
 }
 
 // AccountMailboxSizeSummary is the line on an account's settings card. It
-// brings the account's details along, so See folders opens them at once.
+// brings the account's details along, so See usage opens them at once.
 templ AccountMailboxSizeSummary(size models.MailboxSize) {
-	<div class="flex min-w-0 flex-1 items-center justify-between gap-2" data-account-mailbox-size={ size.Account.ID }>
-		<p class="min-w-0 truncate text-xs text-muted-foreground">
-			<span class="font-semibold text-foreground tabular-nums">{ formatMailboxBytes(size.Total.Bytes) }</span>
-			<span class="hidden sm:inline">on the server</span>
-			if size.HasLocal {
-				<span class="hidden sm:inline">· <span class="font-semibold text-foreground tabular-nums">{ formatMailboxBytes(size.Total.LocalBytes) }</span> on this device</span>
+	@accountMailboxSizeLine(size.Account.ID, &size, nil)
+}
+
+// SettingsAccountMailboxSize loads the account's size after the settings page
+// shows, so a large mailbox doesn't hold the page up. Until then the line
+// shows with only its numbers missing; actions.js slides them in.
+templ SettingsAccountMailboxSize(account models.Account) {
+	<div class="mt-3 flex items-center gap-3 border-t border-border/60 pt-2.5">
+		<p class="shrink-0 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Mailbox size</p>
+		@accountMailboxSizeLine(account.ID, nil, templ.Attributes{
+			"data-mailbox-size-loading": "",
+			"aria-busy":                 "true",
+			"hx-get":                    fmt.Sprintf("/api/accounts/%s/mailbox-size?view=summary", account.ID),
+			"hx-trigger":                "load",
+			"hx-swap":                   "outerHTML",
+		})
+	</div>
+}
+
+// accountMailboxSizeLine shows skeletons for the numbers while size is nil.
+// It expects room on this device to be counted, as it is for the owner's
+// accounts.
+templ accountMailboxSizeLine(accountID string, size *models.MailboxSize, attrs templ.Attributes) {
+	<div class="flex h-6 min-w-0 flex-1 items-center justify-between gap-2" data-account-mailbox-size={ accountID } { attrs... }>
+		{{ server, local := "", "" }}
+		if size != nil {
+			{{ server, local = formatMailboxBytes(size.Total.Bytes), formatMailboxBytes(size.Total.LocalBytes) }}
+		}
+		<div class="min-w-0 truncate text-xs text-muted-foreground">
+			@accountMailboxSizeNumber("server", server)
+			<span class="hidden sm:inline">{ " on the server" }</span>
+			if size == nil || size.HasLocal {
+				<span class="hidden sm:inline">
+					{ " · " }
+					@accountMailboxSizeNumber("local", local)
+					{ " on this device" }
+				</span>
 			}
-		</p>
+		</div>
 		@button.Button(button.Props{
 			Variant:    button.VariantOutline,
 			Size:       button.SizeSm,
 			Class:      "h-6 shrink-0 gap-1 px-2 text-xs",
-			Attributes: templ.Attributes{"data-mailbox-size-account": size.Account.ID},
+			Attributes: templ.Attributes{"data-mailbox-size-account": accountID},
 		}) {
-			@icon.ChartBar(icon.Props{Class: "size-3.5"})
-			See folders
+			@icon.ChartPie(icon.Props{Class: "size-3.5"})
+			See usage
 		}
-		<template data-mailbox-size-prefetched={ size.Account.ID }>
-			@MailboxSizeDetails(size)
-		</template>
+		if size != nil {
+			<template data-mailbox-size-prefetched={ accountID }>
+				@MailboxSizeDetails(*size)
+			</template>
+		}
 	</div>
 }
 
-// SettingsAccountMailboxSize loads the account's size after the settings page
-// shows, so a large mailbox doesn't hold the page up.
-templ SettingsAccountMailboxSize(account models.Account) {
-	<div class="mt-3 flex items-center gap-3 border-t border-border/60 pt-2.5">
-		<p class="shrink-0 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Mailbox size</p>
-		<div
-			class="flex h-6 min-w-0 flex-1 items-center"
-			hx-get={ fmt.Sprintf("/api/accounts/%s/mailbox-size?view=summary", account.ID) }
-			hx-trigger="load"
-			hx-swap="outerHTML"
-		>
-			@skeleton.Skeleton(skeleton.Props{Class: "h-4 w-48 max-w-full"})
-		</div>
-	</div>
+// accountMailboxSizeNumber is a skeleton while text is empty.
+templ accountMailboxSizeNumber(name, text string) {
+	<span class="inline-block whitespace-nowrap align-baseline font-semibold text-foreground tabular-nums" data-mailbox-size-number={ name }>
+		if text == "" {
+			@skeleton.Skeleton(skeleton.Props{Class: "inline-block h-3 w-12 align-[-1px]"})
+		} else {
+			{ text }
+		}
+	</span>
 }
 
 type mailboxSizeRow struct {

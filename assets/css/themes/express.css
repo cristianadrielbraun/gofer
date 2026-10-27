@@ -1542,6 +1542,11 @@ html:root[data-theme="express"] :is(.account-wizard-card-footer, .account-wizard
   --xp-icon-paths: hidden;
 }
 
+[data-theme="express"] svg[data-lucide="chart-pie"] {
+  --xp-icon: url("/assets/icons/express/chart-pie.svg");
+  --xp-icon-paths: hidden;
+}
+
 [data-theme="express"] svg[data-lucide="layout-template"] {
   --xp-icon: image-set(url("/assets/icons/express/preferences-desktop-16.png") 1x, url("/assets/icons/express/preferences-desktop-32.png") 2x);
   --xp-icon-paths: hidden;

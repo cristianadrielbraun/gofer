@@ -452,6 +452,50 @@
       body.style.overflow = ""
     })
   }
+
+  // A settings card's size line keeps its words while loading; the numbers
+  // ease from the skeleton's width to their own, so the words slide along.
+  var mailboxSizeSkeletons = {}
+  document.addEventListener("htmx:beforeSwap", function (event) {
+    var line = event.detail.target
+    if (!line.matches || !line.matches("[data-account-mailbox-size][data-mailbox-size-loading]")) return
+    var widths = {}
+    line.querySelectorAll("[data-mailbox-size-number]").forEach(function (number) {
+      widths[number.getAttribute("data-mailbox-size-number")] = number.getBoundingClientRect().width
+    })
+    mailboxSizeSkeletons[line.getAttribute("data-account-mailbox-size")] = widths
+  })
+  document.addEventListener("htmx:afterSwap", function () {
+    Object.keys(mailboxSizeSkeletons).forEach(function (accountID) {
+      var line = document.querySelector('[data-account-mailbox-size="' + CSS.escape(accountID) + '"]:not([data-mailbox-size-loading])')
+      if (!line) return
+      var widths = mailboxSizeSkeletons[accountID]
+      delete mailboxSizeSkeletons[accountID]
+      if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return
+      line.querySelectorAll("[data-mailbox-size-number]").forEach(function (number) {
+        var from = widths[number.getAttribute("data-mailbox-size-number")]
+        var to = number.getBoundingClientRect().width
+        // Hidden on narrow screens.
+        if (!from || !to) return
+        number.style.clipPath = "inset(0 -1px)"
+        number.style.width = from + "px"
+        number.style.opacity = "0"
+        void number.offsetWidth
+        number.style.transition = "width 250ms ease-out, opacity 250ms ease-out"
+        number.style.width = to + "px"
+        number.style.opacity = ""
+        number.addEventListener("transitionend", function done(event) {
+          // Opacity always changes; the width may not.
+          if (event.propertyName !== "opacity") return
+          number.removeEventListener("transitionend", done)
+          number.style.transition = ""
+          number.style.width = ""
+          number.style.clipPath = ""
+        })
+      })
+    })
+  })
+
   document.addEventListener("click", function (event) {
     var control = event.target.closest && event.target.closest("[data-mailbox-size-account]")
     if (!control) return
