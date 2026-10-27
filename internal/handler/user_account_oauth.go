@@ -29,6 +29,12 @@ func (h *Handler) handleUserAccountOAuthAuthorize(w http.ResponseWriter, r *http
 	}
 	owner := h.userID(r.Context())
 	form := map[string]string{"provider": provider, "email_address": strings.TrimSpace(r.FormValue("email_address")), "display_name": r.FormValue("display_name"), "flow_action": accountOAuthFlowAction(r.FormValue("flow_action"))}
+	// Refuse a provider or address the allowed mail lists leave out before
+	// sending the person to sign in.
+	if code := h.oauthMailAllowlistFailure(r.Context(), owner, provider, form["email_address"]); code != "" {
+		http.Redirect(w, r, "/settings/accounts?error="+code, http.StatusSeeOther)
+		return
+	}
 	if form["flow_action"] == "reconnect" {
 		// Existing reconnect forms identify a mailbox by owner/provider/email.
 		// Resolve once and bind its opaque ID and subject into central flow state.
@@ -110,6 +116,10 @@ func (h *Handler) finishUserAccountOAuth(w http.ResponseWriter, ctx context.Cont
 			if email := strings.TrimSpace(flow.FormData["email_address"]); email != "" && !strings.EqualFold(email, strings.TrimSpace(req.EmailAddress)) {
 				return errors.New("authorized mailbox email does not match requested email")
 			}
+			if code := h.oauthMailAllowlistFailure(ctx, owner, provider, req.EmailAddress); code != "" {
+				failure = code
+				return errors.New("the allowed mail lists refuse this mailbox")
+			}
 			id := flow.FormData["account_id"]
 			failure = "oauth_identity_mismatch"
 			if id != "" && req.ProviderAccountID != flow.FormData["provider_account_id"] {
@@ -183,4 +193,22 @@ func (h *Handler) finishUserAccountOAuth(w http.ResponseWriter, ctx context.Cont
 		return "/settings/accounts?error=" + failure
 	}
 	return accountOAuthSuccessRedirect(flow.FormData)
+}
+
+// oauthMailAllowlistFailure is the error code for a Gmail or Outlook mailbox
+// the allowed mail lists refuse, or "" when they let it in. An address not
+// known yet is checked once the provider names it.
+func (h *Handler) oauthMailAllowlistFailure(ctx context.Context, owner, provider, email string) string {
+	list, err := h.mailAllowlistDB().MailAllowlistForUser(ctx, owner)
+	if err != nil {
+		log.Printf("routed mailbox OAuth: %v", err)
+		return "create_failed"
+	}
+	if list.CheckProvider(provider) != nil {
+		return "mail_allowlist_provider"
+	}
+	if strings.TrimSpace(email) != "" && list.CheckAddress(email) != nil {
+		return "mail_allowlist_domain"
+	}
+	return ""
 }

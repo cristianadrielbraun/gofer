@@ -64,13 +64,17 @@ type Options struct {
 	AllowHTTPDiscovery      func(domain string) bool
 	AllowPlaintextTransport func(protocol, host string, port int) bool
 	AllowPrivateTarget      func(protocol, host string, port int) bool
-	TLSRootCAs              *x509.CertPool
+	// AllowServer, when set, limits the hosts discovery connects to, other
+	// than Thunderbird's directory of mail providers.
+	AllowServer func(host string) bool
+	TLSRootCAs  *x509.CertPool
 }
 
 type securityPolicy struct {
 	allowHTTPDiscovery      func(domain string) bool
 	allowPlaintextTransport func(protocol, host string, port int) bool
 	allowPrivateTarget      func(protocol, host string, port int) bool
+	allowServer             func(host string) bool
 	resolveIP               func(context.Context, string) ([]net.IPAddr, error)
 	rootCAs                 *x509.CertPool
 }
@@ -92,6 +96,15 @@ func (p securityPolicy) allowsHTTPDiscovery(domain string) bool {
 
 func (p securityPolicy) allowsPlaintextTransport(protocol, host string, port int) bool {
 	return p.allowPlaintextTransport != nil && p.allowPlaintextTransport(strings.ToLower(strings.TrimSpace(protocol)), cleanHost(host), port)
+}
+
+// thunderbirdDirectoryHost serves Thunderbird's directory of mail
+// providers. It is no one's mail server, so the allowed servers don't limit it.
+const thunderbirdDirectoryHost = "autoconfig.thunderbird.net"
+
+func (p securityPolicy) allowsServer(host string) bool {
+	host = cleanHost(host)
+	return p.allowServer == nil || host == thunderbirdDirectoryHost || p.allowServer(host)
 }
 
 func (p securityPolicy) allowsPrivateTarget(protocol, host string, port int) bool {
@@ -145,6 +158,7 @@ func Discover(ctx context.Context, email string, opts Options) ([]Candidate, err
 		allowHTTPDiscovery:      opts.AllowHTTPDiscovery,
 		allowPlaintextTransport: opts.AllowPlaintextTransport,
 		allowPrivateTarget:      opts.AllowPrivateTarget,
+		allowServer:             opts.AllowServer,
 		resolveIP:               opts.IPResolver.LookupIPAddr,
 		rootCAs:                 opts.TLSRootCAs,
 	}
@@ -489,6 +503,9 @@ func resolveTarget(ctx context.Context, protocol, host string, port int, policy 
 	}
 	if port < 1 || port > 65535 {
 		return nil, fmt.Errorf("autodiscovery refused invalid target port")
+	}
+	if !policy.allowsServer(host) {
+		return nil, fmt.Errorf("autodiscovery refused %q, which the allowed mail servers leave out", host)
 	}
 	var addresses []net.IPAddr
 	if literal, err := netip.ParseAddr(host); err == nil {

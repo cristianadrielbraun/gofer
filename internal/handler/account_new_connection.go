@@ -269,6 +269,9 @@ func (h *Handler) resolveJMAPAccountChanges(r *http.Request, accountID string, r
 // jmapEndpointPolicy reads the mail security exceptions for one JMAP
 // endpoint, as they apply when a saved account connects.
 func (h *Handler) jmapEndpointPolicy(ctx context.Context, endpoint jmap.Endpoint) (allowPlaintext, allowPrivate bool, err error) {
+	if err := h.checkMailServer(ctx, endpoint.Host); err != nil {
+		return false, false, err
+	}
 	if endpoint.Scheme == "http" {
 		if allowPlaintext, err = h.db.IsPlaintextTransportAllowed(ctx, "http", endpoint.Host, endpoint.Port); err != nil {
 			return false, false, fmt.Errorf("check HTTP security exception: %w", err)
@@ -325,6 +328,9 @@ func (h *Handler) prepareNewAccountTransport(ctx context.Context, protocol strin
 	host, port := cfg.IMAPHost, cfg.IMAPPort
 	if protocol == "smtp" {
 		host, port = cfg.SMTPHost, cfg.SMTPPort
+	}
+	if err := h.checkMailServer(ctx, host); err != nil {
+		return err
 	}
 	allowPlaintext, err := h.db.IsPlaintextTransportAllowed(ctx, protocol, host, port)
 	if err != nil {

@@ -341,7 +341,8 @@ func (w *userCalendarWorkers) report(ctx context.Context, action string, err err
 	}
 }
 func (w *userCalendarWorkers) process(parent context.Context, job userCalendarJob) {
-	ctx, cancel := context.WithTimeout(parent, 4*time.Minute)
+	// CalDAV and CardDAV servers are checked against the owner's lists.
+	ctx, cancel := context.WithTimeout(withMailAllowlistOwner(parent, job.owner), 4*time.Minute)
 	defer cancel()
 	now := time.Now()
 	revision, reserved, forced, err := w.h.userStorage.ReserveServiceAccountWithWake(ctx, job.owner, job.account, storage.ScheduledCalendar, now, now.Add(5*time.Minute), false)

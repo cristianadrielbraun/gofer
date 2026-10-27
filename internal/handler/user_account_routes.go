@@ -346,6 +346,10 @@ func userAccountError(w http.ResponseWriter, r *http.Request, err error) {
 		http.Error(w, "This mailbox is already connected to Gofer.", http.StatusConflict)
 		return
 	}
+	if storage.IsMailAllowlistError(err) {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
 	if isPermanentOAuthError(err) {
 		// Retrying cannot help until the user grants access again.
 		log.Printf("routed account needs reconnect: %v", err)

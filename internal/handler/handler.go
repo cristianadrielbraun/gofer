@@ -210,6 +210,7 @@ func New(db *storage.DB, accountStore *config.AccountStore, syncer *mail.SyncOrc
 		providerAvatarHTTPClient: &http.Client{Timeout: 15 * time.Second, Transport: netguard.NewHTTPTransport(nil)},
 	}
 	setDAVPrivateTargetPolicy(privateTargetAllowed(db))
+	setDAVServerPolicy(davServerAllowed(db))
 	setDAVPlaintextPolicy(func(ctx context.Context, host string, port int) bool {
 		allowed, err := db.IsPlaintextTransportAllowed(ctx, "http", host, port)
 		if err != nil {
@@ -2771,8 +2772,23 @@ func (h *Handler) handleDiscoverAccount(w http.ResponseWriter, r *http.Request) 
 
 	ctx, cancel := context.WithTimeout(r.Context(), 18*time.Second)
 	defer cancel()
+	allowlist, err := h.mailAllowlist(ctx)
+	if err != nil {
+		log.Printf("mail autodiscovery: %v", err)
+		writeJSONError(w, http.StatusServiceUnavailable, "Gofer could not check the allowed mail servers.")
+		return
+	}
+	if err := allowlist.CheckAddress(email); err != nil {
+		writeJSONError(w, http.StatusForbidden, err.Error())
+		return
+	}
+	var allowServer func(string) bool
+	if allowlist.ServersLimited() {
+		allowServer = allowlist.AllowsServer
+	}
 	candidates, err := mailautodiscover.Discover(ctx, email, mailautodiscover.Options{
 		ProbeHeuristics: true,
+		AllowServer:     allowServer,
 		AllowHTTPDiscovery: func(domain string) bool {
 			allowed, err := h.db.IsHTTPDiscoveryAllowed(ctx, domain)
 			if err != nil {

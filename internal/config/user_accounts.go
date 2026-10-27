@@ -86,7 +86,10 @@ func (s *UserAccountStore) CreateAccount(ctx context.Context, userID string, req
 	// user's cache slot while holding a lease: release validation before creation.
 	copy := *req
 	if err := s.WithUser(ctx, userID, func(local *AccountStore, _ *storage.DB) error {
-		return local.prepareAccountCreation(ctx, &copy)
+		if err := local.prepareAccountCreation(ctx, &copy); err != nil {
+			return err
+		}
+		return local.checkMailAllowlist(ctx, userID, requestMailbox(&copy))
 	}); err != nil {
 		return nil, err
 	}

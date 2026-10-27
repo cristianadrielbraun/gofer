@@ -79,20 +79,42 @@ func (s *AccountStore) DecryptSmtpPassword(ctx context.Context, accountID string
 }
 
 func (s *AccountStore) GetConfig(ctx context.Context, accountID string) (*models.AccountConfig, error) {
+	return s.getConfig(ctx, accountID, true)
+}
+
+// GetSettingsConfig is GetConfig for deciding which settings an account has.
+// It also returns a mailbox the allowed mail lists don't let connect, so its
+// settings can still be saved.
+func (s *AccountStore) GetSettingsConfig(ctx context.Context, accountID string) (*models.AccountConfig, error) {
+	return s.getConfig(ctx, accountID, false)
+}
+
+func (s *AccountStore) getConfig(ctx context.Context, accountID string, checkAllowlist bool) (*models.AccountConfig, error) {
 	var cfg models.AccountConfig
 	cfg.AccountID = accountID
+	var owner sql.NullString
+	var email string
 	err := s.db.Read().QueryRowContext(ctx,
 		`SELECT provider, provider_account_id,
 		        imap_host, imap_port, imap_tls_mode,
 		        smtp_host, smtp_port, smtp_tls_mode,
-		        username, auth_method, smtp_username, jmap_session_url
+		        username, auth_method, smtp_username, jmap_session_url,
+		        user_id, email_address
 		 FROM accounts WHERE id = ? AND COALESCE(is_deleting, 0) = 0`, accountID,
 	).Scan(&cfg.Provider, &cfg.ProviderAccountID,
 		&cfg.IMAPHost, &cfg.IMAPPort, &cfg.IMAPTLSMode,
 		&cfg.SMTPHost, &cfg.SMTPPort, &cfg.SMTPTLSMode,
-		&cfg.Username, &cfg.AuthMethod, &cfg.SmtpUsername, &cfg.JMAPSessionURL)
+		&cfg.Username, &cfg.AuthMethod, &cfg.SmtpUsername, &cfg.JMAPSessionURL,
+		&owner, &email)
 	if err != nil {
 		return nil, fmt.Errorf("query account config: %w", err)
+	}
+	// A mailbox the allowed mail lists stopped letting in doesn't connect.
+	if checkAllowlist {
+		if err := s.checkMailAllowlist(ctx, owner.String, storage.MailAllowlistMailbox{Provider: cfg.Provider, Email: email,
+			IMAPHost: cfg.IMAPHost, SMTPHost: cfg.SMTPHost, JMAPSessionURL: cfg.JMAPSessionURL}); err != nil {
+			return nil, err
+		}
 	}
 	if accountProviderKeepsMailTransports(cfg.Provider) {
 		cfg.IMAPAllowPlaintext, err = s.policyDB.IsPlaintextTransportAllowed(ctx, "imap", cfg.IMAPHost, cfg.IMAPPort)
@@ -728,6 +750,9 @@ func (s *AccountStore) createAccountWithID(ctx context.Context, userID, id strin
 	if err := s.prepareAccountCreation(ctx, req); err != nil {
 		return nil, err
 	}
+	if err := s.checkMailAllowlist(ctx, userID, requestMailbox(req)); err != nil {
+		return nil, err
+	}
 	if purgeDeleting {
 		if err := s.purgeDeletingAccountForCreate(ctx, userID, id); err != nil {
 			return nil, fmt.Errorf("purge deleting account: %w", err)
@@ -800,6 +825,9 @@ func (s *AccountStore) UpdateAccount(ctx context.Context, accountID string, req 
 
 func (s *AccountStore) updateAccount(ctx context.Context, accountID, userID string, req *models.CreateAccountRequest) error {
 	if err := s.normalizeAccountMailTLSModes(ctx, req, false); err != nil {
+		return err
+	}
+	if err := s.checkUpdatedMailbox(ctx, accountID, userID, req); err != nil {
 		return err
 	}
 	setClauses := []string{}

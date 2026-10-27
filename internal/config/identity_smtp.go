@@ -15,6 +15,9 @@ func (s *AccountStore) IdentitySMTPConfig(ctx context.Context, identity models.I
 	if !identity.HasOwnSMTP() {
 		return nil, fmt.Errorf("identity %s has no SMTP server of its own", identity.ID)
 	}
+	if err := s.CheckAccountServer(ctx, identity.AccountID, identity.SMTPHost); err != nil {
+		return nil, err
+	}
 	cfg := &models.AccountConfig{
 		AccountID:    identity.AccountID,
 		Provider:     "imap",

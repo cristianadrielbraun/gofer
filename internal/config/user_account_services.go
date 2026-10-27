@@ -77,6 +77,9 @@ func (s *AccountServiceSnapshot) JMAPConfig(ctx context.Context) (*models.Accoun
 	if err := s.repository.checkServiceSnapshot(s); err != nil {
 		return nil, err
 	}
+	if err := s.checkMailAllowlist(ctx); err != nil {
+		return nil, err
+	}
 	d := s.data
 	if d.Provider != providers.ProviderJMAP || d.AuthMethod != "plain" {
 		return nil, errors.New("the account does not send over JMAP")
@@ -96,6 +99,9 @@ func (s *AccountServiceSnapshot) JMAPConfig(ctx context.Context) (*models.Accoun
 // reacquiring account configuration or retaining a user-store lease.
 func (s *AccountServiceSnapshot) SMTPConfig(ctx context.Context) (*models.AccountConfig, error) {
 	if err := s.repository.checkServiceSnapshot(s); err != nil {
+		return nil, err
+	}
+	if err := s.checkMailAllowlist(ctx); err != nil {
 		return nil, err
 	}
 	d := s.data
@@ -444,6 +450,13 @@ func (s *UserAccountStore) SaveContactServices(ctx context.Context, snapshot *Ac
 	}
 	cfg.AccountID, cfg.UserID = snapshot.id, snapshot.owner
 	cfg.AddressBooks = append([]models.ContactAddressBook(nil), cfg.AddressBooks...)
+	addresses := []string{cfg.BaseURL, cfg.AddressBookURL}
+	for _, book := range cfg.AddressBooks {
+		addresses = append(addresses, book.URL)
+	}
+	if err := s.checkServiceURLs(ctx, snapshot.owner, addresses...); err != nil {
+		return err
+	}
 	return s.WithAccountForUser(ctx, snapshot.owner, snapshot.id, func(local *AccountStore, _ *storage.DB) error {
 		return local.saveContactSyncConfig(ctx, snapshot.owner, snapshot.id, cfg, password, s.serviceGuard(ctx, snapshot, true))
 	})
@@ -488,6 +501,9 @@ func (s *UserAccountStore) SetContactServicesEnabled(ctx context.Context, snapsh
 }
 func (s *UserAccountStore) SaveCalDAVServices(ctx context.Context, snapshot *AccountServiceSnapshot, baseURL, username, password string, useAccountCredentials bool) error {
 	if err := s.checkServiceSnapshot(snapshot); err != nil {
+		return err
+	}
+	if err := s.checkServiceURLs(ctx, snapshot.owner, baseURL); err != nil {
 		return err
 	}
 	return s.WithAccountForUser(ctx, snapshot.owner, snapshot.id, func(local *AccountStore, _ *storage.DB) error {

@@ -61,10 +61,30 @@ func calDAVURLScheme(scheme string) bool {
 	return strings.EqualFold(scheme, "https") || strings.EqualFold(scheme, "http")
 }
 
-// davPlaintextGuard refuses plain HTTP to a DAV server nobody approved.
+var davServerPolicy atomic.Pointer[func(context.Context, string) error]
+
+// setDAVServerPolicy points DAV connections at the allowed mail servers,
+// once, when the handler is built.
+func setDAVServerPolicy(check func(ctx context.Context, host string) error) {
+	davServerPolicy.Store(&check)
+}
+
+func davServerCheck(ctx context.Context, host string) error {
+	policy := davServerPolicy.Load()
+	if policy == nil || *policy == nil {
+		return nil
+	}
+	return (*policy)(ctx, host)
+}
+
+// davPlaintextGuard refuses plain HTTP to a DAV server nobody approved, and
+// any request to a server the allowed mail servers leave out.
 type davPlaintextGuard struct{ service string }
 
 func (g davPlaintextGuard) RoundTrip(req *http.Request) (*http.Response, error) {
+	if err := davServerCheck(req.Context(), req.URL.Hostname()); err != nil {
+		return nil, err
+	}
 	switch strings.ToLower(req.URL.Scheme) {
 	case "https":
 	case "http":

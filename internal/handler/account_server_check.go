@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/netguard"
+	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
 
 type accountServerNote struct {
@@ -80,6 +81,13 @@ func (h *Handler) accountServerNotes(ctx context.Context, protocol, host string,
 			note.Text += " Ask your Gofer administrator to add " + exception + " for " + endpoint + "."
 		}
 		return note
+	}
+
+	// No exception lets in a server the allowed mail servers leave out.
+	if err := h.checkMailServer(ctx, host); storage.IsMailAllowlistError(err) {
+		return append(notes, accountServerNote{Level: "blocked", Text: err.Error()})
+	} else if err != nil {
+		log.Printf("account server check: allowed mail servers for %s: %v", endpoint, err)
 	}
 
 	// A name that doesn't resolve yet gets no note: the person may still be

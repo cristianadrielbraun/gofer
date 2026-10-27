@@ -274,7 +274,8 @@ func (w *userContactWorkers) report(ctx context.Context, action string, err erro
 }
 
 func (w *userContactWorkers) process(parent context.Context, job userContactJob) {
-	ctx, cancel := context.WithTimeout(parent, 4*time.Minute)
+	// CalDAV and CardDAV servers are checked against the owner's lists.
+	ctx, cancel := context.WithTimeout(withMailAllowlistOwner(parent, job.owner), 4*time.Minute)
 	defer cancel()
 	now := time.Now()
 	if job.account == "" {

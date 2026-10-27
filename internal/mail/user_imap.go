@@ -503,6 +503,9 @@ func (s *UserIMAP) sync(ctx context.Context, owner, id string, repair, backgroun
 			s.mu.Lock()
 			s.stopWatchesLocked(id)
 			s.mu.Unlock()
+			if storage.IsMailAllowlistError(err) && ctx.Err() == nil {
+				s.reportAllowlistRefusal(ctx, owner, id, err)
+			}
 			return err
 		}
 		interval = scope.pollInterval
@@ -914,4 +917,18 @@ func (s *UserIMAP) Events() *EventBus                  { return s.events }
 // provider's API by message id rather than from an IMAP folder and UID.
 func userIMAPProviderBody(provider string) bool {
 	return provider == providers.ProviderGmail || provider == providers.ProviderOutlook || provider == providers.ProviderJMAP
+}
+
+// reportAllowlistRefusal shows the owner why an account the allowed mail
+// lists no longer let in stopped syncing.
+func (s *UserIMAP) reportAllowlistRefusal(ctx context.Context, owner, id string, refusal error) {
+	err := s.accounts.WithAccountForUser(ctx, owner, id, func(_ *config.AccountStore, db *storage.DB) error {
+		return db.MarkEmailSyncError(ctx, id, refusal.Error(), time.Now().UTC())
+	})
+	if err != nil {
+		log.Printf("user IMAP allowed mail lists %s: %v", id, err)
+		return
+	}
+	s.events.Publish(Event{Type: EventAccountSyncStatus, AccountID: id, UserID: owner,
+		Payload: map[string]any{"status": "error", "error": refusal.Error()}})
 }

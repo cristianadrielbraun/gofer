@@ -5986,6 +5986,8 @@ document.addEventListener("DOMContentLoaded", function () {
       oauth_metadata_failed: "Authorization was saved, but account details could not be updated. Reconnect the account to try again.",
       oauth_sync_failed: "Authorization was saved, but synchronization could not start. Try syncing the account again.",
       create_failed: "Gofer could not save this account. Review your existing accounts and try again.",
+      mail_allowlist_provider: "Your Gofer administrator doesn't allow mailboxes from this provider.",
+      mail_allowlist_domain: "Your Gofer administrator doesn't allow mailboxes with this address's domain.",
     }
     var errorCode = params.get("error")
     var errorMessage = Object.prototype.hasOwnProperty.call(errors, errorCode) ? errors[errorCode] : ""
