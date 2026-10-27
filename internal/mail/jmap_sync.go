@@ -13,6 +13,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/mail/imap"
 	"github.com/cristianadrielbraun/gofer/internal/mail/jmap"
 	"github.com/cristianadrielbraun/gofer/internal/mail/keywords"
+	"github.com/cristianadrielbraun/gofer/internal/mail/message"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
@@ -168,13 +169,14 @@ func (o *SyncOrchestrator) syncJMAPEmailChanges(ctx context.Context, accountID s
 					continue
 				}
 				for _, row := range emailRows {
+					row.Arrived = created[email.ID]
 					rows = append(rows, row)
 					touched[row.FolderID] = true
 					if created[email.ID] {
 						if fresh[row.FolderID] == nil {
 							fresh[row.FolderID] = &newMailSummary{}
 						}
-						fresh[row.FolderID].Add([]storage.SyncMessage{jmapNewMail(email)})
+						fresh[row.FolderID].AddProvider(row, jmapNewMail(email))
 					}
 				}
 			}
@@ -204,8 +206,12 @@ func (o *SyncOrchestrator) syncJMAPEmailChanges(ctx context.Context, accountID s
 	for folderID := range touched {
 		o.publishEvent(Event{Type: EventSyncComplete, AccountID: accountID, FolderID: folderID, Payload: map[string]any{"status": "complete", "provider": "jmap"}})
 	}
-	for folderID, summary := range fresh {
-		o.publishNewMail(ctx, accountID, folderID, mailboxes.names[folderID], *summary)
+	if len(fresh) > 0 {
+		outcome := o.runMailRules(ctx, accountID)
+		for folderID, summary := range fresh {
+			summary.ApplyRules(outcome)
+			o.publishNewMail(ctx, accountID, folderID, mailboxes.names[folderID], *summary)
+		}
 	}
 	return nil
 }
@@ -443,6 +449,7 @@ func jmapEmailToProviderSyncs(accountID string, email jmap.Email, folders map[st
 		ProviderThreadID:  strings.TrimSpace(email.ThreadID),
 		InReplyTo:         jmapMessageIDList(email.InReplyTo),
 		References:        jmapMessageIDList(email.References),
+		ListID:            message.CleanListID(email.ListID),
 		Subject:           strings.TrimSpace(email.Subject),
 		FromName:          fromName,
 		FromEmail:         fromEmail,

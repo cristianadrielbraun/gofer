@@ -218,6 +218,9 @@ func New(db *storage.DB, accountStore *config.AccountStore, syncer *mail.SyncOrc
 		}
 		return err == nil && allowed
 	})
+	if syncer != nil {
+		syncer.SetMutationWake(h.signalMessageMutationWorker)
+	}
 	db.SetContactActivityHook(func(event storage.ContactActivityNotification) {
 		if h.syncer == nil {
 			return

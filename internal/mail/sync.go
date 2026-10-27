@@ -109,11 +109,16 @@ type dirtyIMAPFolder struct {
 	remoteName string
 }
 
+// newMailSummary gathers the mail one sync found arriving in a folder, to
+// tell about it once the sync and the mail rules are done.
 type newMailSummary struct {
-	Count       int
-	UnreadCount int
-	Latest      storage.SyncMessage
-	LatestSet   bool
+	arrivals []newMailArrival
+}
+
+type newMailArrival struct {
+	msg storage.SyncMessage
+	// key names the message in a MailRuleOutcome.
+	key string
 }
 
 type TokenProvider interface {
@@ -165,6 +170,7 @@ type SyncOrchestrator struct {
 	interval            int
 	intervalMu          sync.RWMutex
 	intervalChanged     chan struct{}
+	mutationWake        func()
 }
 
 func newAccountSyncSlots(limit int) chan struct{} {
@@ -1333,9 +1339,10 @@ queueLoop:
 	log.Printf("scheduled sync: run %s finished with status %s", runID, status)
 }
 
-// arrivedMessages leaves out of msgs those the folder already shows: ones
-// moved there from Gofer, which the server reports under new UIDs. The rest
-// are new mail to tell about. If the folder can't be read, all of them are.
+// arrivedMessages marks as arrived the msgs the folder doesn't already show,
+// and returns them: they are new mail, to tell about and to run mail rules
+// on. The ones it shows were moved there from Gofer, and the server reports
+// them under new UIDs. If the folder can't be read, all of them arrived.
 func arrivedMessages(ctx context.Context, repo interface {
 	MessagesShownInFolder(context.Context, string, string, []string) (map[string]bool, error)
 }, accountID, folderID string, msgs []storage.SyncMessage) []storage.SyncMessage {
@@ -1345,17 +1352,18 @@ func arrivedMessages(ctx context.Context, repo interface {
 			ids = append(ids, msg.MessageID)
 		}
 	}
-	if len(ids) == 0 {
-		return msgs
-	}
-	shown, err := repo.MessagesShownInFolder(ctx, accountID, folderID, ids)
-	if err != nil || len(shown) == 0 {
-		return msgs
+	var shown map[string]bool
+	if len(ids) > 0 {
+		var err error
+		if shown, err = repo.MessagesShownInFolder(ctx, accountID, folderID, ids); err != nil {
+			shown = nil
+		}
 	}
 	arrived := make([]storage.SyncMessage, 0, len(msgs))
-	for _, msg := range msgs {
-		if msg.MessageID == "" || !shown[msg.MessageID] {
-			arrived = append(arrived, msg)
+	for i := range msgs {
+		if msgs[i].MessageID == "" || !shown[msgs[i].MessageID] {
+			msgs[i].Arrived = true
+			arrived = append(arrived, msgs[i])
 		}
 	}
 	return arrived
@@ -1363,38 +1371,63 @@ func arrivedMessages(ctx context.Context, repo interface {
 
 func (s *newMailSummary) Add(msgs []storage.SyncMessage) {
 	for _, msg := range msgs {
-		s.Count++
-		if !msg.IsRead {
-			s.UnreadCount++
-		}
-		if !s.LatestSet || msg.DateSent.After(s.Latest.DateSent) {
-			s.Latest = msg
-			s.LatestSet = true
-		}
+		s.arrivals = append(s.arrivals, newMailArrival{msg: msg, key: msg.MailRuleKey()})
 	}
 }
 
-func (o *SyncOrchestrator) publishNewMail(ctx context.Context, accountID, folderID, remoteName string, summary newMailSummary) {
-	if summary.Count <= 0 {
+// AddProvider adds a message synced from a provider API, shown as msg.
+func (s *newMailSummary) AddProvider(row storage.ProviderSyncMessage, msg storage.SyncMessage) {
+	s.arrivals = append(s.arrivals, newMailArrival{msg: msg, key: row.MailRuleKey()})
+}
+
+// ApplyRules leaves out the mail rules moved away and counts the mail they
+// marked read as read.
+func (s *newMailSummary) ApplyRules(outcome storage.MailRuleOutcome) {
+	if !outcome.Changed() {
 		return
+	}
+	kept := s.arrivals[:0]
+	for _, arrival := range s.arrivals {
+		if outcome.Moved[arrival.key] {
+			continue
+		}
+		if outcome.Read[arrival.key] {
+			arrival.msg.IsRead = true
+		}
+		kept = append(kept, arrival)
+	}
+	s.arrivals = kept
+}
+
+func (o *SyncOrchestrator) publishNewMail(ctx context.Context, accountID, folderID, remoteName string, summary newMailSummary) {
+	if len(summary.arrivals) == 0 {
+		return
+	}
+	unread := 0
+	latest := summary.arrivals[0].msg
+	for _, arrival := range summary.arrivals {
+		if !arrival.msg.IsRead {
+			unread++
+		}
+		if arrival.msg.DateSent.After(latest.DateSent) {
+			latest = arrival.msg
+		}
 	}
 
 	folderRole, _ := o.imapRepository().GetFolderRole(ctx, folderID)
 	payload := map[string]any{
-		"count":        summary.Count,
-		"unread_count": summary.UnreadCount,
+		"count":        len(summary.arrivals),
+		"unread_count": unread,
 		"folder_name":  displayName(remoteName, folderRole),
+		"subject":      latest.Subject,
+		"from_name":    latest.FromName,
+		"from_email":   latest.FromEmail,
 	}
-	if summary.LatestSet {
-		payload["subject"] = summary.Latest.Subject
-		payload["from_name"] = summary.Latest.FromName
-		payload["from_email"] = summary.Latest.FromEmail
-		if avatarURL := o.imapSenderAvatarURL(ctx, summary.Latest.FromEmail); avatarURL != "" {
-			payload["avatar_url"] = avatarURL
-		}
-		if summary.Latest.RemoteUID > 0 {
-			payload["remote_uid"] = summary.Latest.RemoteUID
-		}
+	if avatarURL := o.imapSenderAvatarURL(ctx, latest.FromEmail); avatarURL != "" {
+		payload["avatar_url"] = avatarURL
+	}
+	if latest.RemoteUID > 0 {
+		payload["remote_uid"] = latest.RemoteUID
 	}
 
 	o.publishEvent(Event{
@@ -1592,6 +1625,7 @@ func (o *SyncOrchestrator) fullFolderSync(ctx context.Context, client *imap.Clie
 		}
 		if result.TotalFetched > 0 {
 			log.Printf("periodic incremental %s/%s: %d new", accountID, folder.RemoteID, result.TotalFetched)
+			summary.ApplyRules(o.runMailRules(ctx, accountID))
 			o.publishNewMail(ctx, accountID, folder.ID, folder.RemoteID, summary)
 		}
 	} else {
@@ -2286,6 +2320,8 @@ func (o *SyncOrchestrator) syncAccount(ctx context.Context, accountID string, in
 	if err != nil {
 		return err
 	}
+	// Mail an earlier sync set aside for the rules and didn't get to them.
+	o.runMailRules(ctx, accountID)
 	// The addresses the account may send from follow a sync that worked.
 	defer func() {
 		if err == nil {
@@ -2657,6 +2693,7 @@ func (o *SyncOrchestrator) syncIncremental(syncCtx context.Context, accountID, f
 		return
 	}
 
+	summary.ApplyRules(o.runMailRules(syncCtx, accountID))
 	unread, _ := o.db.RefreshFolderUnreadCount(syncCtx, folderID)
 
 	o.publishNewMail(syncCtx, accountID, folderID, remoteName, summary)

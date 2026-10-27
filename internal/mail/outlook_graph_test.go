@@ -1326,6 +1326,114 @@ func TestSyncOutlookGraphFolderAnnouncesNewMail(t *testing.T) {
 	}
 }
 
+// Mail rules run on mail a later sync finds, not on what the first import
+// brings in, and mail they move away isn't announced.
+func TestSyncOutlookGraphFolderRunsMailRules(t *testing.T) {
+	ctx := context.Background()
+	db := newLabelSyncTestDB(t)
+	seedOutlookGraphFolder(t, ctx, db)
+	if err := db.UpsertFolders(ctx, []storage.UpsertFolderInput{{
+		ID: "acc_trash", AccountID: "acc", RemoteID: "Deleted Items", ProviderRemoteID: "folder-trash", Name: "Deleted Items", Role: "trash", Selectable: true,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.SaveMailRuleGuarded(ctx, "default", models.MailRule{Name: "Flyers", Enabled: true,
+		Conditions: []models.MailRuleCondition{{Field: models.MailRuleFieldFrom, Operator: models.MailRuleOpContains, Value: "flyers@"}},
+		Actions:    []models.MailRuleAction{{Kind: models.MailRuleActionTrash}},
+	}, nil); err != nil {
+		t.Fatal(err)
+	}
+	message := func(id, subject, fromEmail, received string) map[string]any {
+		return map[string]any{
+			"id":                id,
+			"internetMessageId": "<" + id + "@example.com>",
+			"subject":           subject,
+			"body":              map[string]string{"contentType": "text", "content": subject},
+			"from":              map[string]any{"emailAddress": map[string]string{"name": "Corner Shop", "address": fromEmail}},
+			"toRecipients":      []map[string]any{{"emailAddress": map[string]string{"address": "user@example.com"}}},
+			"receivedDateTime":  received,
+			"sentDateTime":      received,
+			"internetMessageHeaders": []map[string]string{
+				{"name": "List-Id", "value": "Corner Shop offers <offers.corner-shop.example>"},
+			},
+		}
+	}
+	var page []map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && (r.URL.Path == "/me/mailFolders/folder-inbox/messages/delta" || r.URL.Path == "/delta/current"):
+			_ = json.NewEncoder(w).Encode(map[string]any{"value": page, "@odata.deltaLink": "http://" + r.Host + "/delta/current"})
+		default:
+			t.Fatalf("unexpected Graph request %s %s", r.Method, r.URL.String())
+		}
+	}))
+	defer server.Close()
+	previousBaseURL := outlookGraphBaseURL
+	outlookGraphBaseURL = server.URL
+	t.Cleanup(func() { outlookGraphBaseURL = previousBaseURL })
+
+	orchestrator := NewSyncOrchestrator(db, nil, store.NewBlobStore(filepath.Join(t.TempDir(), "blobs")), labelSyncTestTokens{})
+	events := orchestrator.Events().Subscribe()
+	defer orchestrator.Events().Unsubscribe(events)
+
+	page = []map[string]any{message("graph-old-flyer", "Last week's offers", "flyers@corner-shop.example", "2026-06-22T09:00:00Z")}
+	if err := orchestrator.syncOutlookGraphFolder(ctx, "acc", "graph-token", outlookGraphInboxTarget(""), nil, 1, 1); err != nil {
+		t.Fatalf("first syncOutlookGraphFolder() error = %v", err)
+	}
+	for len(events) > 0 {
+		<-events
+	}
+
+	page = []map[string]any{
+		message("graph-flyer", "This week's offers", "flyers@corner-shop.example", "2026-06-22T11:00:00Z"),
+		message("graph-note", "Your order is ready", "orders@corner-shop.example", "2026-06-22T10:00:00Z"),
+	}
+	if err := orchestrator.syncOutlookGraphFolder(ctx, "acc", "graph-token", outlookGraphInboxTargetFromDB(t, ctx, db), nil, 1, 1); err != nil {
+		t.Fatalf("incremental syncOutlookGraphFolder() error = %v", err)
+	}
+	var announced []Event
+	trashChanged := false
+	for len(events) > 0 {
+		event := <-events
+		if event.Type == EventNewMail {
+			announced = append(announced, event)
+		}
+		if event.Type == EventSyncComplete && event.FolderID == "acc_trash" {
+			trashChanged = true
+		}
+	}
+	if len(announced) != 1 || announced[0].Payload["count"] != 1 || announced[0].Payload["subject"] != "Your order is ready" {
+		t.Fatalf("new mail events = %+v, want the order note alone", announced)
+	}
+	if !trashChanged {
+		t.Fatal("the Trash folder wasn't refreshed after the rule moved mail into it")
+	}
+	folders := map[string]string{}
+	rows, err := db.Read().QueryContext(ctx, `SELECT m.subject, s.folder_id FROM messages m JOIN message_folder_state s ON s.message_id = m.id WHERE s.is_deleted = 0`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rows.Next() {
+		var subject, folder string
+		if err := rows.Scan(&subject, &folder); err != nil {
+			t.Fatal(err)
+		}
+		folders[subject] = folder
+	}
+	rows.Close()
+	if folders["This week's offers"] != "acc_trash" || folders["Last week's offers"] != "acc_inbox" || folders["Your order is ready"] != "acc_inbox" {
+		t.Fatalf("folders = %v, want only the new flyer in Trash", folders)
+	}
+	var listID string
+	if err := db.Read().QueryRowContext(ctx, `SELECT list_id FROM messages WHERE subject = 'Your order is ready'`).Scan(&listID); err != nil || listID != "Corner Shop offers <offers.corner-shop.example>" {
+		t.Fatalf("list_id = %q, %v", listID, err)
+	}
+	var moves int
+	if err := db.Read().QueryRowContext(ctx, `SELECT COUNT(*) FROM message_mutations WHERE account_id = 'acc' AND kind = 'move'`).Scan(&moves); err != nil || moves != 1 {
+		t.Fatalf("queued moves = %d, %v", moves, err)
+	}
+}
+
 func TestSyncOutlookGraphFolderAttachmentFailureDoesNotCheckpoint(t *testing.T) {
 	ctx := context.Background()
 	db := newLabelSyncTestDB(t)

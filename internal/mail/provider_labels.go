@@ -1478,7 +1478,9 @@ func (o *SyncOrchestrator) replayIMAPLabelMutationQueue(ctx context.Context, acc
 	defer client.Close()
 
 	for _, entry := range entries {
-		if err := o.applyQueuedIMAPLabelMutation(ctx, client, entry); err != nil {
+		if err := o.applyQueuedIMAPLabelMutation(ctx, client, entry); errors.Is(err, errLabelWaitsForMove) {
+			continue
+		} else if err != nil {
 			log.Printf("imap label mutation replay account=%s message=%d label=%q op=%s: %v", entry.AccountID, entry.MessageID, entry.LabelName, entry.Operation, err)
 			if markErr := o.db.MarkLabelMutationError(ctx, entry.ID, entry.Attempts, err); markErr != nil {
 				log.Printf("imap label mutation queue mark error id=%d: %v", entry.ID, markErr)
@@ -1495,6 +1497,11 @@ func (o *SyncOrchestrator) applyQueuedIMAPLabelMutation(ctx context.Context, cli
 	info, err := o.queuedMessageMutationInfo(ctx, entry)
 	if err != nil || info == nil {
 		return err
+	}
+	if entry.LabelName == "$Junk" || entry.LabelName == "$NotJunk" {
+		// Spam training flags, queued by a mail rule, are status rather than
+		// labels shown on the message.
+		return o.storeQueuedIMAPSpamFlag(ctx, client, entry, info)
 	}
 	keyword, err := o.keywordForAccountLabel(ctx, entry.AccountID, entry.LabelName)
 	if err != nil {
@@ -1540,6 +1547,42 @@ func (o *SyncOrchestrator) applyQueuedIMAPLabelMutation(ctx context.Context, cli
 	default:
 		return fmt.Errorf("unsupported label mutation operation %q", entry.Operation)
 	}
+}
+
+// errLabelWaitsForMove leaves a queued label change for a later pass, without
+// counting it as failed.
+var errLabelWaitsForMove = errors.New("waiting for the message's move to be sent")
+
+// storeQueuedIMAPSpamFlag sets or clears $Junk or $NotJunk on the message.
+// A spam rule queues the flag along with a move to Junk, which the
+// queued-changes worker sends on its own; the flag waits for it, then goes
+// on the copy in Junk.
+func (o *SyncOrchestrator) storeQueuedIMAPSpamFlag(ctx context.Context, client *mailimap.Client, entry storage.LabelMutationQueueEntry, info *storage.MessageMutationInfo) error {
+	if moving, err := o.db.HasQueuedMessageMove(ctx, entry.MessageID); err != nil {
+		return err
+	} else if moving {
+		return errLabelWaitsForMove
+	}
+	remoteName := strings.TrimSpace(info.FolderRemoteID)
+	uid := info.RemoteUID
+	if remoteName == "" {
+		return fmt.Errorf("message has no remote IMAP folder identity")
+	}
+	if uid == 0 {
+		var err error
+		uid, err = client.FindUIDByMessageID(ctx, remoteName, info.InternetMessageID)
+		if err != nil {
+			return err
+		}
+		if uid == 0 {
+			return fmt.Errorf("message has no remote IMAP identity")
+		}
+	}
+	operation := goimap.StoreFlagsDel
+	if entry.Operation == storage.LabelMutationAdd {
+		operation = goimap.StoreFlagsAdd
+	}
+	return client.StoreFlags(ctx, remoteName, uid, operation, []goimap.Flag{goimap.Flag(entry.LabelName)})
 }
 
 func (o *SyncOrchestrator) queuedMessageMutationInfo(ctx context.Context, entry storage.LabelMutationQueueEntry) (*storage.MessageMutationInfo, error) {

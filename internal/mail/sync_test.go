@@ -1102,4 +1102,7 @@ func TestArrivedMessagesLeavesOutMovedMail(t *testing.T) {
 	if len(got) != 2 || got[0].MessageID != "<new@example.com>" || got[1].MessageID != "" {
 		t.Fatalf("arrivedMessages = %+v", got)
 	}
+	if msgs[0].Arrived || !msgs[1].Arrived || !msgs[2].Arrived {
+		t.Fatalf("arrived marks = %v %v %v, want only the moved message unmarked", msgs[0].Arrived, msgs[1].Arrived, msgs[2].Arrived)
+	}
 }

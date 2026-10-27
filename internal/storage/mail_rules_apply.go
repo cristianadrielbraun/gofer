@@ -8,6 +8,7 @@ import (
 	"log"
 	"strings"
 
+	mailmessage "github.com/cristianadrielbraun/gofer/internal/mail/message"
 	"github.com/cristianadrielbraun/gofer/internal/mailrules"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
@@ -29,6 +30,24 @@ type MailRuleOutcome struct {
 
 // Changed reports whether rules acted on any message.
 func (o MailRuleOutcome) Changed() bool { return len(o.Folders) > 0 }
+
+// MailRuleKey is how a MailRuleOutcome names a message synced from IMAP: its
+// Message-ID, or the one made up for it when it has none.
+func (m SyncMessage) MailRuleKey() string {
+	if id := mailmessage.NormalizeMessageID(m.MessageID); id != "" {
+		return id
+	}
+	return mailmessage.NormalizeMessageID(fmt.Sprintf("<%s-%d@sync.gofer>", m.FolderID, m.RemoteUID))
+}
+
+// MailRuleKey is how a MailRuleOutcome names a message synced from a
+// provider API.
+func (m ProviderSyncMessage) MailRuleKey() string {
+	if id := mailmessage.NormalizeMessageID(m.InternetMessageID); id != "" {
+		return id
+	}
+	return mailmessage.NormalizeMessageID(syntheticProviderMessageID(m.ProviderMessageID))
+}
 
 func newMailRuleOutcome() MailRuleOutcome {
 	return MailRuleOutcome{Moved: map[string]bool{}, Read: map[string]bool{}, Folders: map[string]bool{}}
