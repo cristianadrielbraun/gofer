@@ -98,6 +98,7 @@ func (h *Handler) registerAdministrationRoutes(mux *http.ServeMux) {
 	adminRoute("POST /admin/security/plaintext", h.handleAddPlaintextTransportException)
 	adminRoute("POST /admin/security/private-target", h.handleAddPrivateTargetException)
 	adminRoute("POST /admin/security/exceptions/{id}/delete", h.handleDeleteMailSecurityException)
+	h.registerAdminMailAllowlistRoutes(adminRoute)
 	adminRoute("GET /api/admin/events", h.handleSSE)
 	adminRoute("GET /api/admin/mail-operations/status", h.handleAdminMailOperationsStatus)
 	adminRoute("GET /api/system/processing", h.handleProcessingStatus)
