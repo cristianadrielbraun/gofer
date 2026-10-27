@@ -116,8 +116,8 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 			return err
 		}
 	}
-	private := func(pattern string, handler http.HandlerFunc) {
-		mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
+	privateHandler := func(pattern string, handler http.HandlerFunc) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
 			if err := routing.ValidateUser(r.Context(), routed.userID(r.Context())); err != nil {
 				http.Error(w, "user storage unavailable", http.StatusForbidden)
 				return
@@ -185,7 +185,10 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 				}
 			}
 			handler(w, r)
-		})
+		}
+	}
+	private := func(pattern string, handler http.HandlerFunc) {
+		mux.HandleFunc(pattern, privateHandler(pattern, handler))
 	}
 	private("GET /api/settings/ui", routed.handleGetUISettings)
 	private("GET /api/avatars/{hash}", routed.handleAvatarImage)
@@ -281,7 +284,20 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 	// user's, so they need no storage.
 	mux.HandleFunc("POST /api/settings/about/update-check", routed.handleAboutUpdateCheck)
 	mux.HandleFunc("GET /settings/about/licenses", routed.handleAboutLicenses)
-	routed.registerSecuritySettingsRoutes(private)
+	// Administrators verify and manage their own sign-in on the same security
+	// routes, and have no user store, so the central handler serves them.
+	management := map[string]http.HandlerFunc{}
+	h.registerSecuritySettingsRoutes(func(pattern string, handler http.HandlerFunc) { management[pattern] = handler })
+	routed.registerSecuritySettingsRoutes(func(pattern string, handler http.HandlerFunc) {
+		central, webmail := management[pattern], privateHandler(pattern, handler)
+		mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
+			if user := auth.GetCurrentUser(r.Context()); user != nil && user.IsManagement() && central != nil {
+				central(w, r)
+				return
+			}
+			webmail(w, r)
+		})
+	})
 	private("GET /settings/accounts", routed.handleUserAccountSettings)
 	private("GET /settings/sync", func(w http.ResponseWriter, r *http.Request) { routed.handleUserSyncSettingsView(w, r, "sync") })
 	private("GET /settings/contacts", func(w http.ResponseWriter, r *http.Request) { routed.handleUserSyncSettingsView(w, r, "contacts") })
