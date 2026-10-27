@@ -121,7 +121,8 @@ CREATE TABLE IF NOT EXISTS messages (
     size_bytes INTEGER NOT NULL DEFAULT 0,
     has_attachments INTEGER NOT NULL DEFAULT 0,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    list_id TEXT NOT NULL DEFAULT ''
 );
 
 -- Conversation threads
@@ -1793,4 +1794,45 @@ CREATE TABLE IF NOT EXISTS calendar_invitation_messages (
 );
 
 -- Schema version marker for fresh installs
-INSERT OR REPLACE INTO schema_version (version) VALUES (131);
+-- Mail rules, the arrivals waiting for them, and what they did.
+CREATE TABLE IF NOT EXISTS mail_rules (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    account_id TEXT REFERENCES accounts(id) ON DELETE CASCADE,
+    name TEXT NOT NULL CHECK (name != ''),
+    enabled INTEGER NOT NULL DEFAULT 1,
+    match_all INTEGER NOT NULL DEFAULT 1,
+    stop_processing INTEGER NOT NULL DEFAULT 0,
+    conditions_json TEXT NOT NULL DEFAULT '[]',
+    actions_json TEXT NOT NULL DEFAULT '[]',
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_mail_rules_user ON mail_rules(user_id, sort_order);
+
+CREATE TABLE IF NOT EXISTS mail_rule_pending (
+    message_id INTEGER PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
+    account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    folder_id TEXT NOT NULL DEFAULT '',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_mail_rule_pending_account ON mail_rule_pending(account_id, message_id);
+
+CREATE TABLE IF NOT EXISTS mail_rule_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    rule_id TEXT NOT NULL DEFAULT '',
+    rule_name TEXT NOT NULL DEFAULT '',
+    account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    message_id INTEGER NOT NULL DEFAULT 0,
+    subject TEXT NOT NULL DEFAULT '',
+    from_email TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL CHECK (source IN ('arrival', 'manual')),
+    status TEXT NOT NULL CHECK (status IN ('applied', 'skipped', 'failed')),
+    detail TEXT NOT NULL DEFAULT '',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_mail_rule_runs_user ON mail_rule_runs(user_id, id);
+
+INSERT OR REPLACE INTO schema_version (version) VALUES (132);

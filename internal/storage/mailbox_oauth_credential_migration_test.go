@@ -62,6 +62,8 @@ func seedV85MailboxOAuthSchema(t *testing.T, path, accounts, credentials string)
 		CREATE TABLE outgoing_sends (id TEXT PRIMARY KEY);
 		-- Signatures existed since v15; account identities reference them.
 		CREATE TABLE signatures (id TEXT PRIMARY KEY);
+		-- Messages existed from the start; mail rule arrivals reference them.
+		CREATE TABLE messages (id INTEGER PRIMARY KEY);
 	` + accounts + credentials); err != nil {
 		_ = db.Close()
 		t.Fatalf("seed v85 mailbox OAuth schema: %v", err)
