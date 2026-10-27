@@ -79,12 +79,66 @@ func (m *Manager) CreateAdministratorUserInvitation(ctx context.Context, options
 		return nil, ErrRecentStepUpRequired
 	}
 
+	invitation, err := m.newUserInvitation(options.Name, options.Username, options.Lifetime, actorUserID)
+	if err != nil {
+		return nil, err
+	}
+	eventID, err := m.tokens.ID()
+	if err != nil {
+		return nil, fmt.Errorf("generate invitation event ID: %w", err)
+	}
+	now := invitation.result.Token.CreatedAt
+
+	err = m.runSecurityTransition(ctx, SecurityTransitionEnrollment, func(tx *sql.Tx) error {
+		if err := requireActiveManagementAdministrator(ctx, tx, actorUserID); err != nil {
+			return err
+		}
+		if err := requireRecentAdministratorStepUp(ctx, tx, actorUserID, actorSessionID, now); err != nil {
+			return err
+		}
+		if err := insertUserInvitation(ctx, tx, invitation); err != nil {
+			return err
+		}
+
+		metadata, err := enrollmentTokenEventJSON(invitation.result.Token.ID, invitation.result.Token.Purpose, 0)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO auth_events (
+				id, occurred_at, actor_user_id, subject_user_id, session_id, event_type,
+				success, reason, metadata_json
+			) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+			eventID, now, actorUserID, invitation.result.User.ID, actorSessionID,
+			AuthEventEnrollmentIssued, AuthEventReasonAdministratorAction, metadata,
+		); err != nil {
+			return fmt.Errorf("record invited user enrollment issuance: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return invitation.result, nil
+}
+
+// preparedUserInvitation is a validated invitation whose raw token has not
+// been stored yet. usernameNormalized never leaves this package.
+type preparedUserInvitation struct {
+	result             *AdministratorUserInvitation
+	usernameNormalized string
+}
+
+// newUserInvitation validates the invited user's details and generates the
+// pending user's ID and first enrollment token. createdBy is empty when a
+// local operator, not a signed-in administrator, issues the invitation.
+func (m *Manager) newUserInvitation(rawName, rawUsername string, requestedLifetime time.Duration, createdBy string) (*preparedUserInvitation, error) {
 	fieldErrors := make(map[string]string)
-	name, err := PrepareDisplayName(options.Name)
+	name, err := PrepareDisplayName(rawName)
 	if err != nil {
 		fieldErrors["name"] = err.Error()
 	}
-	username, usernameNormalized, err := PrepareUsername(options.Username)
+	username, usernameNormalized, err := PrepareUsername(rawUsername)
 	if err != nil {
 		fieldErrors["username"] = err.Error()
 	}
@@ -92,7 +146,7 @@ func (m *Manager) CreateAdministratorUserInvitation(ctx context.Context, options
 		return nil, &AdministratorUserInvitationValidationError{Fields: fieldErrors}
 	}
 
-	lifetime, err := enrollmentTokenLifetime(EnrollmentTokenPurposeEnrollment, options.Lifetime)
+	lifetime, err := enrollmentTokenLifetime(EnrollmentTokenPurposeEnrollment, requestedLifetime)
 	if err != nil {
 		return nil, err
 	}
@@ -108,78 +162,60 @@ func (m *Manager) CreateAdministratorUserInvitation(ctx context.Context, options
 	if err != nil {
 		return nil, fmt.Errorf("generate invitation token: %w", err)
 	}
-	eventID, err := m.tokens.ID()
-	if err != nil {
-		return nil, fmt.Errorf("generate invitation event ID: %w", err)
-	}
 
 	now := m.clock.Now().UTC()
-	result := &AdministratorUserInvitation{
-		Name: name,
-		User: AdministratorUserSummary{
-			ID: userID, Username: username, Status: UserStatusPending,
+	return &preparedUserInvitation{
+		usernameNormalized: usernameNormalized,
+		result: &AdministratorUserInvitation{
+			Name: name,
+			User: AdministratorUserSummary{
+				ID: userID, Username: username, Status: UserStatusPending,
+			},
+			Token: EnrollmentToken{
+				ID: tokenID, Token: rawToken, UserID: userID, CreatedBy: createdBy,
+				Purpose: EnrollmentTokenPurposeEnrollment, CreatedAt: now, ExpiresAt: now.Add(lifetime),
+			},
 		},
-		Token: EnrollmentToken{
-			ID: tokenID, Token: rawToken, UserID: userID, CreatedBy: actorUserID,
-			Purpose: EnrollmentTokenPurposeEnrollment, CreatedAt: now, ExpiresAt: now.Add(lifetime),
-		},
-	}
+	}, nil
+}
 
-	err = m.runSecurityTransition(ctx, SecurityTransitionEnrollment, func(tx *sql.Tx) error {
-		if err := requireActiveManagementAdministrator(ctx, tx, actorUserID); err != nil {
-			return err
-		}
-		if err := requireRecentAdministratorStepUp(ctx, tx, actorUserID, actorSessionID, now); err != nil {
-			return err
-		}
-		collisions, err := administratorInvitationIdentifierCollisions(ctx, tx, usernameNormalized)
-		if err != nil {
-			return err
-		}
-		if len(collisions) != 0 {
-			return &AdministratorUserInvitationValidationError{Fields: collisions}
-		}
-
-		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO users (
-				id, username, username_normalized, name,
-				status, auth_version, mfa_required, user_type, is_admin, created_at, updated_at
-			) VALUES (?, ?, ?, ?, 'pending', 1, 0, 'webmail', 0, ?, ?)`,
-			result.User.ID, result.User.Username, usernameNormalized, result.Name, now, now,
-		); err != nil {
-			return fmt.Errorf("create pending invited user: %w", err)
-		}
-		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO user_enrollment_tokens (
-				id, user_id, created_by, token_hash, purpose, created_at, expires_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-			result.Token.ID, result.Token.UserID, result.Token.CreatedBy,
-			hashToken(result.Token.Token), result.Token.Purpose,
-			result.Token.CreatedAt, result.Token.ExpiresAt,
-		); err != nil {
-			return fmt.Errorf("create invited user enrollment token: %w", err)
-		}
-
-		metadata, err := enrollmentTokenEventJSON(result.Token.ID, result.Token.Purpose, 0)
-		if err != nil {
-			return err
-		}
-		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO auth_events (
-				id, occurred_at, actor_user_id, subject_user_id, session_id, event_type,
-				success, reason, metadata_json
-			) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`,
-			eventID, now, actorUserID, result.User.ID, actorSessionID,
-			AuthEventEnrollmentIssued, AuthEventReasonAdministratorAction, metadata,
-		); err != nil {
-			return fmt.Errorf("record invited user enrollment issuance: %w", err)
-		}
-		return nil
-	})
+// insertUserInvitation stores the pending user and the hash of its first
+// enrollment token. The caller records the matching auth event.
+func insertUserInvitation(ctx context.Context, tx *sql.Tx, invitation *preparedUserInvitation) error {
+	result := invitation.result
+	collisions, err := administratorInvitationIdentifierCollisions(ctx, tx, invitation.usernameNormalized)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	return result, nil
+	if len(collisions) != 0 {
+		return &AdministratorUserInvitationValidationError{Fields: collisions}
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO users (
+			id, username, username_normalized, name,
+			status, auth_version, mfa_required, user_type, is_admin, created_at, updated_at
+		) VALUES (?, ?, ?, ?, 'pending', 1, 0, 'webmail', 0, ?, ?)`,
+		result.User.ID, result.User.Username, invitation.usernameNormalized, result.Name,
+		result.Token.CreatedAt, result.Token.CreatedAt,
+	); err != nil {
+		return fmt.Errorf("create pending invited user: %w", err)
+	}
+	var createdBy any
+	if result.Token.CreatedBy != "" {
+		createdBy = result.Token.CreatedBy
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO user_enrollment_tokens (
+			id, user_id, created_by, token_hash, purpose, created_at, expires_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		result.Token.ID, result.Token.UserID, createdBy,
+		hashToken(result.Token.Token), result.Token.Purpose,
+		result.Token.CreatedAt, result.Token.ExpiresAt,
+	); err != nil {
+		return fmt.Errorf("create invited user enrollment token: %w", err)
+	}
+	return nil
 }
 
 func administratorInvitationIdentifierCollisions(ctx context.Context, tx *sql.Tx, usernameNormalized string) (map[string]string, error) {

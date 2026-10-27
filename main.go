@@ -48,6 +48,7 @@ Authentication:
   gofer auth status
   gofer auth users list
   gofer auth setup-token rotate
+  gofer auth invite create --name <name> --username <username> [--expires-in <duration>]
   gofer auth recover (--user-id <id> | --username <name>) --confirm <same value>
   gofer auth sessions revoke (--user-id <id> | --username <name>) --confirm <same value>
 

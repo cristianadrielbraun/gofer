@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/runtimeguard"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
@@ -555,5 +556,165 @@ func TestRecoverReportsUnknownUserID(t *testing.T) {
 	}
 	if stdout.Len() != 0 || !strings.Contains(stderr.String(), `no user has ID "Disabled-User"`) {
 		t.Fatalf("unknown user ID output = stdout:%q stderr:%q", stdout.String(), stderr.String())
+	}
+}
+
+func setManagedInvitationEnvironment(t *testing.T) {
+	t.Helper()
+	t.Setenv("GOFER_AUTH_MODE", "managed")
+	t.Setenv("GOFER_ADDR", "127.0.0.1:8090")
+	t.Setenv("GOFER_BASE_URL", "https://mail.example.test/")
+}
+
+func TestInvitationRequiresNameAndUsernameBeforeOpeningDatabase(t *testing.T) {
+	missingDirectory := filepath.Join(t.TempDir(), "missing")
+	databasePath := filepath.Join(missingDirectory, "gofer.db")
+	tests := [][]string{
+		{"invite", "create"},
+		{"invite", "create", "--name", "Ada Example"},
+		{"invite", "create", "--username", "ada"},
+		{"invite", "create", "--name", "Ada Example", "--username"},
+		{"invite", "create", "--name", "Ada Example", "--username", "ada", "--name", "Other"},
+		{"invite", "create", "--name", "Ada Example", "--username", "ada", "--admin", "yes"},
+		{"invite", "create", "--name", "Ada Example", "--username", "ada", "--expires-in", "2d"},
+		{"invite", "create", "--name", "Ada Example", "--username", "ada", "--expires-in", "-1h"},
+	}
+	for _, args := range tests {
+		var stdout, stderr bytes.Buffer
+		if code := Run(t.Context(), args, databasePath, &stdout, &stderr); code != 2 {
+			t.Fatalf("Run(%v) code = %d, stderr=%q", args, code, stderr.String())
+		}
+		if stdout.Len() != 0 || !strings.Contains(stderr.String(), "gofer auth invite create") {
+			t.Fatalf("Run(%v) output = stdout:%q stderr:%q", args, stdout.String(), stderr.String())
+		}
+	}
+	if _, err := os.Stat(missingDirectory); !os.IsNotExist(err) {
+		t.Fatalf("invalid invitation created database directory: %v", err)
+	}
+}
+
+func TestInvitationCreatesPendingUserAndPersistsOnlyTokenHash(t *testing.T) {
+	setManagedInvitationEnvironment(t)
+	databasePath := createOperatorTestDatabase(t)
+	var stdout, stderr bytes.Buffer
+	args := []string{"invite", "create", "--name", "Ada Example", "--username", "Ada", "--expires-in", "48h"}
+	if code := Run(t.Context(), args, databasePath, &stdout, &stderr); code != 0 {
+		t.Fatalf("Run(invite create) code = %d stderr=%q", code, stderr.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("invitation stderr = %q", stderr.String())
+	}
+	fields := make(map[string]string)
+	for _, line := range strings.Split(strings.TrimSuffix(stdout.String(), "\n"), "\n") {
+		key, value, ok := strings.Cut(line, ": ")
+		if !ok {
+			t.Fatalf("invitation output line %q is not key: value", line)
+		}
+		fields[key] = value
+	}
+	if fields["username"] != `"Ada"` || fields["enrollment_url"] != "https://mail.example.test/account/enroll" {
+		t.Fatalf("invitation output = %q", stdout.String())
+	}
+	token := fields["invitation_token"]
+	if token == "" || fields["user_id"] == "" || fields["expires_at"] == "" {
+		t.Fatalf("invitation output is missing fields: %q", stdout.String())
+	}
+
+	db, err := storage.OpenReadOnly(databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var userID, status, userType, name string
+	var isAdmin int
+	if err := db.Read().QueryRow(`
+		SELECT id, status, user_type, is_admin, name FROM users WHERE username_normalized = 'ada'`,
+	).Scan(&userID, &status, &userType, &isAdmin, &name); err != nil {
+		t.Fatal(err)
+	}
+	if `"`+userID+`"` != fields["user_id"] || status != "pending" || userType != "webmail" || isAdmin != 0 || name != "Ada Example" {
+		t.Fatalf("invited user = id:%q status:%q type:%q admin:%d name:%q", userID, status, userType, isAdmin, name)
+	}
+	var tokenHash, purpose string
+	var createdBy sql.NullString
+	var createdAt, expiresAt time.Time
+	if err := db.Read().QueryRow(`
+		SELECT token_hash, purpose, created_by, created_at, expires_at
+		FROM user_enrollment_tokens WHERE user_id = ?`, userID,
+	).Scan(&tokenHash, &purpose, &createdBy, &createdAt, &expiresAt); err != nil {
+		t.Fatal(err)
+	}
+	lifetimeHours := expiresAt.Sub(createdAt).Hours()
+	digest := sha256.Sum256([]byte(token))
+	if tokenHash != fmt.Sprintf("%x", digest) || tokenHash == token || purpose != "enrollment" || createdBy.Valid || lifetimeHours != 48 {
+		t.Fatalf("invitation token row = hash:%q purpose:%q created_by:%v lifetime:%vh", tokenHash, purpose, createdBy, lifetimeHours)
+	}
+	var reason string
+	if err := db.Read().QueryRow(`
+		SELECT reason FROM auth_events
+		WHERE subject_user_id = ? AND event_type = 'enrollment_token_issued' AND actor_user_id IS NULL`, userID,
+	).Scan(&reason); err != nil {
+		t.Fatal(err)
+	}
+	if reason != "local_operator" {
+		t.Fatalf("invitation event reason = %q", reason)
+	}
+}
+
+func TestInvitationReportsUsernameCollisionWithoutOutput(t *testing.T) {
+	setManagedInvitationEnvironment(t)
+	databasePath := createOperatorTestDatabase(t)
+	var stdout, stderr bytes.Buffer
+	args := []string{"invite", "create", "--name", "Another Owner", "--username", "OWNER"}
+	if code := Run(t.Context(), args, databasePath, &stdout, &stderr); code != 1 {
+		t.Fatalf("Run(invite create collision) code = %d stderr=%q", code, stderr.String())
+	}
+	if stdout.Len() != 0 || !strings.Contains(stderr.String(), "--username: That username is already used") {
+		t.Fatalf("collision output = stdout:%q stderr:%q", stdout.String(), stderr.String())
+	}
+}
+
+func TestInvitationRequiresManagedMode(t *testing.T) {
+	t.Setenv("GOFER_AUTH_MODE", "personal")
+	databasePath := createOperatorTestDatabase(t)
+	var stdout, stderr bytes.Buffer
+	args := []string{"invite", "create", "--name", "Ada Example", "--username", "ada"}
+	if code := Run(t.Context(), args, databasePath, &stdout, &stderr); code != 1 {
+		t.Fatalf("Run(invite create personal) code = %d", code)
+	}
+	if stdout.Len() != 0 || !strings.Contains(stderr.String(), "managed mode") {
+		t.Fatalf("personal-mode invitation output = stdout:%q stderr:%q", stdout.String(), stderr.String())
+	}
+}
+
+func TestInvitationRequiresCompletedSetup(t *testing.T) {
+	setManagedInvitationEnvironment(t)
+	databasePath := createUninitializedOperatorTestDatabase(t)
+	var stdout, stderr bytes.Buffer
+	args := []string{"invite", "create", "--name", "Ada Example", "--username", "ada"}
+	if code := Run(t.Context(), args, databasePath, &stdout, &stderr); code != 1 {
+		t.Fatalf("Run(invite create before setup) code = %d", code)
+	}
+	if stdout.Len() != 0 || !strings.Contains(stderr.String(), "authentication setup is not complete") {
+		t.Fatalf("pre-setup invitation output = stdout:%q stderr:%q", stdout.String(), stderr.String())
+	}
+}
+
+func TestInvitationRefusesToRunWhileRuntimeLockIsHeld(t *testing.T) {
+	setManagedInvitationEnvironment(t)
+	databasePath := createOperatorTestDatabase(t)
+	lock, err := runtimeguard.Acquire(databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Close()
+
+	var stdout, stderr bytes.Buffer
+	args := []string{"invite", "create", "--name", "Ada Example", "--username", "ada"}
+	if code := Run(t.Context(), args, databasePath, &stdout, &stderr); code != 1 {
+		t.Fatalf("Run(invite create while locked) code = %d", code)
+	}
+	if stdout.Len() != 0 || !strings.Contains(stderr.String(), "stop the server") {
+		t.Fatalf("locked invitation output = stdout:%q stderr:%q", stdout.String(), stderr.String())
 	}
 }

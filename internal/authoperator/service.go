@@ -62,6 +62,10 @@ func (service *Service) RevokeSessions(ctx context.Context, target UserTarget) (
 	return service.manager.RevokeUserSessionsLocally(ctx, userID)
 }
 
+func (service *Service) CreateInvitation(ctx context.Context, name, username string, lifetime time.Duration) (*auth.AdministratorUserInvitation, error) {
+	return service.manager.CreateUserInvitationLocally(ctx, name, username, lifetime)
+}
+
 func (service *Service) resolveUserID(ctx context.Context, target UserTarget) (string, error) {
 	query, value, label := `SELECT id FROM users WHERE id = ?`, target.ID, "ID"
 	if target.Username != "" {

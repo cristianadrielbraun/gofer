@@ -2,13 +2,18 @@ package authoperator
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
+	"sort"
 	"strconv"
+	"strings"
 	"text/tabwriter"
 	"time"
 
+	"github.com/cristianadrielbraun/gofer/internal/auth"
+	"github.com/cristianadrielbraun/gofer/internal/httpguard"
 	"github.com/cristianadrielbraun/gofer/internal/runtimeguard"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
@@ -17,6 +22,7 @@ const usage = `Usage:
   gofer auth status
   gofer auth users list
   gofer auth setup-token rotate
+  gofer auth invite create --name <name> --username <username> [--expires-in <duration>]
   gofer auth recover (--user-id <id> | --username <name>) --confirm <same value>
   gofer auth sessions revoke (--user-id <id> | --username <name>) --confirm <same value>
 `
@@ -40,6 +46,9 @@ func Run(ctx context.Context, args []string, databasePath string, stdout, stderr
 	}
 	if command.name == "sessions revoke" {
 		return runSessionRevocation(ctx, command.target, databasePath, stdout, stderr)
+	}
+	if command.name == "invite create" {
+		return runInvitationCreation(ctx, command.invitation, databasePath, stdout, stderr)
 	}
 
 	db, err := storage.OpenReadOnly(databasePath)
@@ -66,8 +75,15 @@ func Run(ctx context.Context, args []string, databasePath string, stdout, stderr
 }
 
 type parsedCommand struct {
-	name   string
-	target UserTarget
+	name       string
+	target     UserTarget
+	invitation invitationOptions
+}
+
+type invitationOptions struct {
+	name     string
+	username string
+	lifetime time.Duration
 }
 
 func parseCommand(args []string) (command parsedCommand, help bool, err error) {
@@ -82,6 +98,13 @@ func parseCommand(args []string) (command parsedCommand, help bool, err error) {
 	}
 	if len(args) == 2 && args[0] == "setup-token" && args[1] == "rotate" {
 		return parsedCommand{name: "setup-token rotate"}, false, nil
+	}
+	if len(args) >= 2 && args[0] == "invite" && args[1] == "create" {
+		options, err := parseInvitationOptions(args[2:])
+		if err != nil {
+			return parsedCommand{}, false, err
+		}
+		return parsedCommand{name: "invite create", invitation: options}, false, nil
 	}
 	if len(args) == 5 && args[0] == "recover" {
 		target, err := parseConfirmedUserOptions(args[1:], "recovery")
@@ -137,6 +160,84 @@ func parseConfirmedUserOptions(args []string, action string) (UserTarget, error)
 		return UserTarget{}, fmt.Errorf("--confirm must exactly match the --user-id or --username value")
 	}
 	return target, nil
+}
+
+func parseInvitationOptions(args []string) (invitationOptions, error) {
+	if len(args)%2 != 0 {
+		return invitationOptions{}, fmt.Errorf("invitation options must each have a value")
+	}
+	values := make(map[string]string, 3)
+	for index := 0; index < len(args); index += 2 {
+		flag := args[index]
+		if flag != "--name" && flag != "--username" && flag != "--expires-in" {
+			return invitationOptions{}, fmt.Errorf("unknown invitation option %q", flag)
+		}
+		if _, duplicate := values[flag]; duplicate {
+			return invitationOptions{}, fmt.Errorf("invitation option %s was provided more than once", flag)
+		}
+		if args[index+1] == "" {
+			return invitationOptions{}, fmt.Errorf("invitation option %s requires a value", flag)
+		}
+		values[flag] = args[index+1]
+	}
+	if values["--name"] == "" || values["--username"] == "" {
+		return invitationOptions{}, fmt.Errorf("invitation requires --name and --username")
+	}
+	options := invitationOptions{name: values["--name"], username: values["--username"]}
+	if value := values["--expires-in"]; value != "" {
+		lifetime, err := time.ParseDuration(value)
+		if err != nil || lifetime <= 0 {
+			return invitationOptions{}, fmt.Errorf("--expires-in must be a duration such as 30m, 24h or 168h")
+		}
+		options.lifetime = lifetime
+	}
+	return options, nil
+}
+
+func runInvitationCreation(ctx context.Context, options invitationOptions, databasePath string, stdout, stderr io.Writer) int {
+	// Invitations are redeemed through managed mode's sign-in pages, so check
+	// the mode and public address before anything is written.
+	if mode := auth.LoadConfig("").AuthenticationMode(); mode != auth.ModeManaged {
+		_, _ = fmt.Fprintf(stderr, "auth invite create: invitations need managed mode, but GOFER_AUTH_MODE is %s\n", mode)
+		return 1
+	}
+	httpConfig, err := httpguard.LoadConfig()
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "auth invite create: %v\n", err)
+		return 1
+	}
+	err = runMutatingCommand(ctx, databasePath, func(service *Service) error {
+		invitation, err := service.CreateInvitation(ctx, options.name, options.username, options.lifetime)
+		if err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintf(stdout,
+			"user_id: %s\nusername: %s\nexpires_at: %s\nenrollment_url: %s\ninvitation_token: %s\n",
+			printableField(invitation.User.ID), printableField(invitation.User.Username),
+			invitation.Token.ExpiresAt.UTC().Format(time.RFC3339),
+			strings.TrimRight(httpConfig.BaseURL, "/")+invitationEnrollmentPath, invitation.Token.Token,
+		); err != nil {
+			return fmt.Errorf("write invitation: %w", err)
+		}
+		return nil
+	})
+	var validationErr *auth.AdministratorUserInvitationValidationError
+	if errors.As(err, &validationErr) {
+		fields := make([]string, 0, len(validationErr.Fields))
+		for field := range validationErr.Fields {
+			fields = append(fields, field)
+		}
+		sort.Strings(fields)
+		for _, field := range fields {
+			_, _ = fmt.Fprintf(stderr, "auth invite create: --%s: %s\n", field, validationErr.Fields[field])
+		}
+		return 1
+	}
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "auth invite create: %v\n", err)
+		return 1
+	}
+	return 0
 }
 
 func runRecovery(ctx context.Context, target UserTarget, databasePath string, stdout, stderr io.Writer) int {
@@ -301,6 +402,10 @@ func writeUsers(ctx context.Context, output io.Writer, service *Service) error {
 	}
 	return writer.Flush()
 }
+
+// invitationEnrollmentPath is where an invited user redeems their token; it
+// matches the route the admin panel shows next to new invitations.
+const invitationEnrollmentPath = "/account/enroll"
 
 func printableField(value string) string {
 	if value == "" {

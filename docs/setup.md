@@ -71,3 +71,13 @@ Your mail, settings, and encryption keys all live in the volume. Back it up with
 
 In managed mode, `/admin` provides user administration, invitations, security policies, and security activity. It also includes diagnostics for account sync, contacts, avatars, and provider behavior.
 
+
+Invitations can also be created from the command line with Gofer stopped, for example from a script:
+
+```sh
+docker compose stop gofer
+docker compose run --rm gofer auth invite create --name "Ada Example" --username ada --expires-in 72h
+docker compose start gofer
+```
+
+It prints the enrollment address and a one-time invitation token. `--expires-in` defaults to 24 hours and can be at most 168 hours (7 days).
