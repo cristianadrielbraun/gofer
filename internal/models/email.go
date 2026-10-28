@@ -263,6 +263,7 @@ type EmailPage struct {
 }
 
 type EmailFilters struct {
+	SearchScope     *MailSearchScope
 	Unread          bool
 	Starred         bool
 	Attachments     bool

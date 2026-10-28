@@ -26,9 +26,9 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/providerquota"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
+	"github.com/cristianadrielbraun/gofer/internal/store"
 	"github.com/cristianadrielbraun/gofer/internal/themebuilder"
 	"github.com/cristianadrielbraun/gofer/internal/themecolors"
-	"github.com/cristianadrielbraun/gofer/internal/store"
 	"github.com/cristianadrielbraun/gofer/internal/translation"
 	"github.com/cristianadrielbraun/gofer/internal/views"
 	"golang.org/x/oauth2"
@@ -449,6 +449,10 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /folder/{id}/{email}", h.handleFolderWithEmail)
 	mux.HandleFunc("GET /mail/folder/{id}/items", h.handleMailItems)
 	mux.HandleFunc("GET /mail/folder/{id}/ids", h.handleMailItemIDs)
+	mux.HandleFunc("GET /mail/search", h.handleMailSearch)
+	mux.HandleFunc("GET /mail/search/items", h.handleMailSearchItems)
+	mux.HandleFunc("GET /mail/search/ids", h.handleMailSearchIDs)
+	mux.HandleFunc("GET /mail/search/thread/{id}/subitems", h.handleMailSearchThreadSubItems)
 	mux.HandleFunc("GET /mail/thread/{threadId}/subitems", h.handleThreadSubItems)
 	mux.HandleFunc("GET /contacts", h.handleContacts)
 	mux.HandleFunc("GET /contacts/items", h.handleContactItems)
@@ -847,7 +851,7 @@ func (h *Handler) handleLabelsDialog(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 	h.renderMailboxView(w, r, &ctx, func(h *Handler) (templ.Component, error) {
-		targets, err := h.resolveOwnedMessageTargets(ctx, messageBulkTargets(payload), strings.TrimSpace(payload.FolderID), false)
+		targets, err := h.resolveMessageBulkTargets(ctx, payload, strings.TrimSpace(payload.FolderID), false)
 		if errors.Is(err, errMessageTargetNotFound) || errors.Is(err, errInvalidMessageTarget) {
 			return nil, sql.ErrNoRows
 		}
@@ -2500,9 +2504,10 @@ func (h *Handler) handleMailItems(w http.ResponseWriter, r *http.Request) {
 const mailItemIDsLimit = 10000
 
 type mailItemID struct {
-	ID      string `json:"id"`
-	Thread  bool   `json:"thread"`
-	Account string `json:"account"`
+	ID       string `json:"id"`
+	Thread   bool   `json:"thread"`
+	Account  string `json:"account"`
+	FolderID string `json:"folder_id,omitempty"`
 }
 
 type mailItemIDsResponse struct {
@@ -2546,7 +2551,7 @@ func (h *Handler) handleMailItemIDs(w http.ResponseWriter, r *http.Request) {
 					result.Truncated = true
 					break
 				}
-				result.IDs = append(result.IDs, mailItemID{ID: email.ID, Thread: email.ThreadCount > 1, Account: email.AccountID})
+				result.IDs = append(result.IDs, mailItemID{ID: email.ID, Thread: email.ThreadCount > 1, Account: email.AccountID, FolderID: email.FolderID})
 			}
 			if result.Truncated || len(page.Emails) < pageSize || start+len(page.Emails) >= total {
 				break
@@ -2749,24 +2754,7 @@ func (h *Handler) handleThreadSubItems(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleSearch(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	h.renderMailboxView(w, r, &ctx, func(h *Handler) (templ.Component, error) {
-		userID := h.userID(ctx)
-		settings := h.db.GetUISettings(ctx, userID)
-		ctx = storage.WithTimezone(ctx, settings["timezone"])
-		accounts, err := h.db.GetAccounts(ctx, userID)
-		if err != nil {
-			return nil, err
-		}
-		var emails []models.Email
-		if q := r.URL.Query().Get("q"); q != "" {
-			emails, err = h.db.SearchMessages(ctx, userID, q, 50)
-			if err != nil {
-				return nil, err
-			}
-		}
-		return views.MailListEmails(accounts, emails, "", nil, len(emails), len(emails), 0, settings["sender_display"], views.ListViewSetting(ctx, settings, "mail_list_view"), settings["mail_list_navigation"]), nil
-	})
+	h.handleMailSearch(w, r)
 }
 
 func (h *Handler) handleDiscoverAccount(w http.ResponseWriter, r *http.Request) {
@@ -6242,15 +6230,17 @@ func threadUIDsByFolder(infos []storage.ThreadMessageMutationInfo) map[string][]
 }
 
 type messageBulkTarget struct {
-	ID     string `json:"id"`
-	Thread bool   `json:"thread"`
+	ID       string `json:"id"`
+	Thread   bool   `json:"thread"`
+	FolderID string `json:"folder_id,omitempty"`
 }
 
 type messageBulkRequest struct {
-	Targets  []messageBulkTarget `json:"targets"`
-	State    string              `json:"state"`
-	FolderID string              `json:"folder_id"`
-	Label    string              `json:"label"`
+	SearchScope *models.MailSearchScope `json:"search_scope,omitempty"`
+	Targets     []messageBulkTarget     `json:"targets"`
+	State       string                  `json:"state"`
+	FolderID    string                  `json:"folder_id"`
+	Label       string                  `json:"label"`
 	// SourceFolderID is the folder a move takes messages from. FolderID is the
 	// destination for moves, so the source travels separately.
 	SourceFolderID string `json:"source_folder_id"`
@@ -6272,9 +6262,20 @@ func (h *Handler) resolveOwnedMessageTargets(ctx context.Context, targets []mess
 	userID := h.userID(ctx)
 	resolved := make([]ownedMessageTarget, 0, len(targets))
 	for _, target := range targets {
-		msgID, info, err := h.getMessageInfoForFolder(ctx, target.ID, sourceFolderID)
+		folderID := sourceFolderID
+		if strings.TrimSpace(target.FolderID) != "" {
+			var err error
+			folderID, err = h.resolveFolderID(ctx, userID, strings.TrimSpace(target.FolderID))
+			if err != nil {
+				return nil, errMessageTargetNotFound
+			}
+		}
+		msgID, info, err := h.getMessageInfoForFolder(ctx, target.ID, folderID)
 		if err != nil {
 			return nil, err
+		}
+		if target.FolderID != "" && info.FolderID != folderID {
+			return nil, errMessageTargetNotFound
 		}
 
 		infos := []storage.ThreadMessageMutationInfo{{
@@ -6337,7 +6338,7 @@ func messageBulkTargets(payload messageBulkRequest) []messageBulkTarget {
 			}
 			seenMessages[key] = true
 		}
-		targets = append(targets, messageBulkTarget{ID: id, Thread: target.Thread})
+		targets = append(targets, messageBulkTarget{ID: id, Thread: target.Thread, FolderID: strings.TrimSpace(target.FolderID)})
 	}
 	return targets
 }
@@ -6382,7 +6383,7 @@ func (h *Handler) handleMarkMessagesRead(w http.ResponseWriter, r *http.Request)
 
 	targetRead := payload.State != "unread" && payload.State != "false"
 	ctx := h.messageMutationContext(r.Context())
-	targets, err := h.resolveOwnedMessageTargets(ctx, messageBulkTargets(payload), strings.TrimSpace(payload.FolderID), true)
+	targets, err := h.resolveMessageBulkTargets(ctx, payload, strings.TrimSpace(payload.FolderID), true)
 	if err != nil {
 		writeMessageTargetError(w, r, err)
 		return
@@ -6419,7 +6420,7 @@ func (h *Handler) handleMarkMessagesStarred(w http.ResponseWriter, r *http.Reque
 	}
 	targetStarred := payload.State != "unstarred" && payload.State != "false"
 	ctx := h.messageMutationContext(r.Context())
-	targets, err := h.resolveOwnedMessageTargets(ctx, messageBulkTargets(payload), strings.TrimSpace(payload.FolderID), true)
+	targets, err := h.resolveMessageBulkTargets(ctx, payload, strings.TrimSpace(payload.FolderID), true)
 	if err != nil {
 		writeMessageTargetError(w, r, err)
 		return
@@ -6456,7 +6457,7 @@ func (h *Handler) handleArchiveMessages(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	ctx := h.messageMutationContext(r.Context())
-	targets, err := h.resolveOwnedMessageTargets(ctx, messageBulkTargets(payload), strings.TrimSpace(payload.FolderID), false)
+	targets, err := h.resolveMessageBulkTargets(ctx, payload, strings.TrimSpace(payload.FolderID), false)
 	if err != nil {
 		writeMessageTargetError(w, r, err)
 		return
@@ -6501,7 +6502,7 @@ func (h *Handler) handleUnarchiveMessages(w http.ResponseWriter, r *http.Request
 		return
 	}
 	ctx := h.messageMutationContext(r.Context())
-	targets, err := h.resolveOwnedMessageTargets(ctx, messageBulkTargets(payload), strings.TrimSpace(payload.FolderID), false)
+	targets, err := h.resolveMessageBulkTargets(ctx, payload, strings.TrimSpace(payload.FolderID), false)
 	if err != nil {
 		writeMessageTargetError(w, r, err)
 		return
@@ -6545,7 +6546,7 @@ func (h *Handler) handleDeleteMessages(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := h.messageMutationContext(r.Context())
 	sourceFolderID := strings.TrimSpace(payload.FolderID)
-	targets, err := h.resolveOwnedMessageTargets(ctx, messageBulkTargets(payload), sourceFolderID, false)
+	targets, err := h.resolveMessageBulkTargets(ctx, payload, sourceFolderID, false)
 	if err != nil {
 		writeMessageTargetError(w, r, err)
 		return
@@ -6625,7 +6626,7 @@ func (h *Handler) handleMoveMessages(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	targets, err := h.resolveOwnedMessageTargets(ctx, messageBulkTargets(payload), strings.TrimSpace(payload.SourceFolderID), false)
+	targets, err := h.resolveMessageBulkTargets(ctx, payload, strings.TrimSpace(payload.SourceFolderID), false)
 	if err != nil {
 		log.Printf("message move refused: %v", err)
 		writeMessageTargetError(w, r, err)

@@ -50,6 +50,14 @@ func (h *Handler) renderMailboxView(w http.ResponseWriter, r *http.Request, ctx 
 		return err
 	})
 	if err != nil {
+		if errors.Is(err, errInvalidMailSearch) {
+			http.Error(w, "invalid mail search scope", http.StatusBadRequest)
+			return
+		}
+		if errors.Is(err, storage.ErrMailSearchScope) {
+			http.NotFound(w, r)
+			return
+		}
 		if errors.Is(err, errFolderGone) {
 			redirectToInbox(w, r)
 			return

@@ -37,7 +37,7 @@ func (h *Handler) handleLabelMessages(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := h.messageMutationContext(r.Context())
-	targets, err := h.resolveOwnedMessageTargets(ctx, messageBulkTargets(payload), strings.TrimSpace(payload.FolderID), false)
+	targets, err := h.resolveMessageBulkTargets(ctx, payload, strings.TrimSpace(payload.FolderID), false)
 	if err != nil {
 		writeMessageTargetError(w, r, err)
 		return
@@ -71,7 +71,7 @@ func (h *Handler) handleUnlabelMessages(w http.ResponseWriter, r *http.Request) 
 	}
 
 	ctx := h.messageMutationContext(r.Context())
-	targets, err := h.resolveOwnedMessageTargets(ctx, messageBulkTargets(payload), strings.TrimSpace(payload.FolderID), false)
+	targets, err := h.resolveMessageBulkTargets(ctx, payload, strings.TrimSpace(payload.FolderID), false)
 	if err != nil {
 		writeMessageTargetError(w, r, err)
 		return

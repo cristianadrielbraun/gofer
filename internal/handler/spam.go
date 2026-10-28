@@ -45,7 +45,7 @@ func (h *Handler) handleMarkMessagesSpamState(w http.ResponseWriter, r *http.Req
 
 	ctx := h.messageMutationContext(r.Context())
 	sourceFolderID := strings.TrimSpace(payload.FolderID)
-	targets, err := h.resolveOwnedMessageTargets(ctx, messageBulkTargets(payload), sourceFolderID, false)
+	targets, err := h.resolveMessageBulkTargets(ctx, payload, sourceFolderID, false)
 	if err != nil {
 		writeMessageTargetError(w, r, err)
 		return

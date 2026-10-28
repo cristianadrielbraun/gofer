@@ -21,7 +21,7 @@ import (
 )
 
 templ MailList(accounts []models.Account, emails []models.Email, activeFolder string, selectedEmail *models.Email, totalCount int, scrollCount int, windowStart int, width string, senderDisplayMode string, viewMode string, navigationMode string, filters models.EmailFilters) {
-	<div id="mail-list" class="w-full lg:flex flex-col border-r border-border bg-card h-full overflow-hidden" style={ "width:" + mailListWidthCSS(width) } data-panel-section="mail" data-mail-list-view={ mailListViewMode(viewMode) } data-mail-navigation-mode={ mailListNavigationMode(navigationMode) }>
+	<div id="mail-list" class="w-full lg:flex flex-col border-r border-border bg-card h-full overflow-hidden" style={ "width:" + mailListWidthCSS(width) } data-panel-section="mail" data-mail-list-view={ mailListViewMode(viewMode) } data-mail-navigation-mode={ mailListNavigationMode(navigationMode) } data-mail-search-scope={ mailSearchScopeJSON(filters.SearchScope) }>
 		@MailListHeader(accounts, activeFolder, totalCount, filters)
 		@MailListToolbar(accounts, activeFolder, mailListViewMode(viewMode), filters)
 		@MailSelectAllBanner()
@@ -153,6 +153,9 @@ templ mailContextItem(action string, label string) {
 }
 
 func mailListFolderHeading(activeFolder string, filters models.EmailFilters) string {
+	if filters.SearchScope != nil {
+		return "Search results"
+	}
 	if strings.TrimSpace(filters.Participant) != "" {
 		return "All mail"
 	}
@@ -1148,7 +1151,7 @@ templ MailCardLayoutDialog() {
 }
 
 templ MailListCardItem(accounts []models.Account, email models.Email, position int, selectedEmail *models.Email, senderDisplayMode string) {
-	<div class="mail-list-item" data-email-id={ email.ID } data-account-id={ email.AccountID } data-position={ fmt.Sprintf("%d", position) } data-thread-id={ email.ThreadID } data-has-thread={ fmt.Sprintf("%t", email.ThreadCount > 1) } data-is-read={ fmt.Sprintf("%t", email.IsRead) } data-starred={ fmt.Sprintf("%t", email.IsStarred) } data-is-draft={ fmt.Sprintf("%t", email.IsDraft) }>
+	<div class="mail-list-item" data-email-id={ email.ID } data-account-id={ email.AccountID } data-folder-id={ email.FolderID } data-position={ fmt.Sprintf("%d", position) } data-thread-id={ email.ThreadID } data-has-thread={ fmt.Sprintf("%t", email.ThreadCount > 1) } data-is-read={ fmt.Sprintf("%t", email.IsRead) } data-starred={ fmt.Sprintf("%t", email.IsStarred) } data-is-draft={ fmt.Sprintf("%t", email.IsDraft) }>
 		<a
 			href={ templ.URL(fmt.Sprintf("/?email=%s", email.ID)) }
 			hx-get={ mailViewPartialURL(email.ID, email.FolderID, false) }
@@ -1286,7 +1289,7 @@ templ MailListCardItem(accounts []models.Account, email models.Email, position i
 }
 
 templ MailListTableItem(email models.Email, position int, selectedEmail *models.Email, senderDisplayMode string) {
-	<div class="mail-list-item mail-list-table-row" data-email-id={ email.ID } data-account-id={ email.AccountID } data-position={ fmt.Sprintf("%d", position) } data-thread-id={ email.ThreadID } data-has-thread={ fmt.Sprintf("%t", email.ThreadCount > 1) } data-is-read={ fmt.Sprintf("%t", email.IsRead) } data-starred={ fmt.Sprintf("%t", email.IsStarred) } data-is-draft={ fmt.Sprintf("%t", email.IsDraft) }>
+	<div class="mail-list-item mail-list-table-row" data-email-id={ email.ID } data-account-id={ email.AccountID } data-folder-id={ email.FolderID } data-position={ fmt.Sprintf("%d", position) } data-thread-id={ email.ThreadID } data-has-thread={ fmt.Sprintf("%t", email.ThreadCount > 1) } data-is-read={ fmt.Sprintf("%t", email.IsRead) } data-starred={ fmt.Sprintf("%t", email.IsStarred) } data-is-draft={ fmt.Sprintf("%t", email.IsDraft) }>
 		<a
 			href={ templ.URL(fmt.Sprintf("/?email=%s", email.ID)) }
 			hx-get={ mailViewPartialURL(email.ID, email.FolderID, false) }

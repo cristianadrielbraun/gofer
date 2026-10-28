@@ -419,7 +419,7 @@ func (h *Handler) handleMessagesToAccount(w http.ResponseWriter, r *http.Request
 		if h.userAccounts != nil {
 			local = &Handler{db: db, auth: h.auth}
 		}
-		targets, err := local.resolveOwnedMessageTargets(ctx, messageBulkTargets(payload.messageBulkRequest), strings.TrimSpace(payload.SourceFolderID), false)
+		targets, err := local.resolveMessageBulkTargets(ctx, payload.messageBulkRequest, strings.TrimSpace(payload.SourceFolderID), false)
 		if err != nil {
 			return err
 		}

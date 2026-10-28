@@ -192,3 +192,17 @@ func TestMailSearchDeepTreeDoesNotCrossAccounts(t *testing.T) {
 		t.Fatalf("deep tree ids=%v count=%d", ids, page.TotalCount)
 	}
 }
+
+func TestMailSearchRowIDsHaveIndependentTotalAndFolderContext(t *testing.T) {
+	db := mailSearchTestDB(t)
+	scope := models.MailSearchScope{Kind: models.MailSearchAll}
+	ids, total, err := db.GetMailSearchRowIDsForUser(t.Context(), "default", scope, models.EmailFilters{Query: "needle", ByMessage: true}, 2)
+	if err != nil || total != 4 || !reflect.DeepEqual(ids, []MailSearchRowID{
+		{ID: "6", Account: "a", FolderID: "trash"}, {ID: "4", Account: "b", FolderID: "b-inbox"},
+	}) {
+		t.Fatalf("ids=%+v total=%d error=%v", ids, total, err)
+	}
+	if _, _, err := db.GetMailSearchRowIDsForUser(t.Context(), "default", scope, models.EmailFilters{}, 10002); err == nil {
+		t.Fatal("unbounded ID request accepted")
+	}
+}
