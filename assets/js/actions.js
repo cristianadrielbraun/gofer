@@ -105,6 +105,7 @@
     "retryCalendarTeams",
     "retryCalendarTeamsPreview",
     "saveComposeDraft",
+    "saveWizardEmailService",
     "scheduleCompose",
     "selectCalendarGuest",
     "selectComposeAccount",

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"html"
 	"os"
 	"regexp"
 	"slices"
@@ -880,6 +881,32 @@ func renderedWizardSwitchForService(html, service string) string {
 		return ""
 	}
 	return html[start : markerIndex+endOffset+1]
+}
+
+func TestEditAccountEmailSwitchSavesIndependentlyOfMailSetup(t *testing.T) {
+	for _, provider := range []string{"gmail", "outlook", "imap", "jmap", "icloud"} {
+		t.Run(provider, func(t *testing.T) {
+			var out bytes.Buffer
+			if err := EditAccountDialog(models.EditAccountData{
+				AccountID: "contacts-only", Provider: provider,
+			}).Render(t.Context(), &out); err != nil {
+				t.Fatal(err)
+			}
+			markup := out.String()
+			switchHTML := html.UnescapeString(renderedWizardSwitchForService(markup, "email"))
+			if !strings.Contains(switchHTML, `data-on-change="["saveWizardEmailService","$this"]"`) {
+				t.Fatalf("Email switch must use the explicit boolean save action: %s", switchHTML)
+			}
+			for _, want := range []string{`data-wizard-footer-step="email-off"`, "Close", "Continue to Contacts"} {
+				if !strings.Contains(markup, want) {
+					t.Errorf("missing Email-off control %q", want)
+				}
+			}
+			if strings.Contains(markup, `data-wizard-service-status="email"`) || strings.Contains(markup, "Email is off.") {
+				t.Error("Email switch must not add status text between the sections or in the footer")
+			}
+		})
+	}
 }
 
 func TestAccountDiscoveryRequiresExplicitCandidateSelection(t *testing.T) {

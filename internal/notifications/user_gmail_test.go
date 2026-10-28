@@ -151,8 +151,16 @@ wait:
 	}
 	for _, enabled := range []string{"false", "true"} {
 		form := url.Values{"service": {"email"}, "enabled": {enabled}}
-		if response := f.request("alice", http.MethodPost, "/api/accounts/"+accounts["alice"]+"/service", form.Encode()); response.Code != 200 {
+		if response := f.request("alice", http.MethodPost, "/api/accounts/"+accounts["alice"]+"/services", form.Encode()); response.Code != 200 {
 			t.Fatalf("Gmail email control %s: %d %s", enabled, response.Code, response.Body.String())
+		}
+		if err := f.routing.WithUser(t.Context(), "alice", func(db *storage.DB) error {
+			if got := db.IsEmailSyncEnabled(t.Context(), accounts["alice"]); got != (enabled == "true") {
+				t.Fatalf("Gmail email control %s: saved enabled=%v", enabled, got)
+			}
+			return nil
+		}); err != nil {
+			t.Fatal(err)
 		}
 	}
 	form := url.Values{"sync_interval_minutes": {"2"}, "account_ids": {accounts["alice"]}}

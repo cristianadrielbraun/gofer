@@ -1519,7 +1519,8 @@ function setWizardFooter(root, step, immediate) {
         return;
       }
       seen[itemStep] = true;
-      var active = +itemStep === +step;
+      var emailOff = root.id === 'edit-account-dialog' && step < 4 && !editWizardEmailEnabled(root);
+      var active = emailOff ? itemStep === 'email-off' : itemStep === String(step);
       item.dataset.active = String(active);
       item.classList.toggle('hidden', !active);
     });
@@ -1804,6 +1805,7 @@ function maybeGoAddContacts() {
 }
 function syncWizardServiceContent(root) {
   root = root || document;
+  syncEditWizardEmailSteps(root);
   root.querySelectorAll('[data-wizard-service-content]').forEach(function(content) {
     var service = content.dataset.wizardServiceContent;
     var toggle = root.querySelector('[data-wizard-service-switch="' + service + '"]');
@@ -1828,6 +1830,16 @@ function syncWizardServiceContent(root) {
         el.setAttribute('tabindex', '-1');
       }
     });
+  });
+}
+function syncEditWizardEmailSteps(root) {
+  if (root.id !== 'edit-account-dialog') return;
+  var section = root.querySelector('[data-wizard-section-steps="0,1,2,3"]');
+  if (!section) return;
+  var enabled = editWizardEmailEnabled(root);
+  section.querySelectorAll('[data-account-wizard-step], .account-wizard-section-title').forEach(function(button) {
+    button.disabled = !enabled;
+    button.classList.toggle('opacity-50', !enabled);
   });
 }
 // Contacts and calendar stay usable while switched off. Starting to fill one
@@ -1860,6 +1872,48 @@ function wizardServiceStatus(root, service, message) {
   messageBox.className = 'rounded-md border border-destructive/20 bg-destructive/10 px-3 py-2 text-xs text-destructive';
   messageBox.textContent = message;
   status.appendChild(messageBox);
+}
+// Email saves immediately, independently of the mail settings form. Always
+// send a boolean: unchecked checkboxes are omitted from normal form posts.
+function saveWizardEmailService(toggle) {
+  var form = toggle && toggle.closest('[data-wizard-service-form]');
+  var root = toggle && toggle.closest('#edit-account-dialog');
+  if (!form || !root || toggle.disabled) return;
+  var enabled = toggle.checked;
+  var initialEnabled = toggle.dataset.wizardServiceInitialEnabled === 'true';
+  var footer = root.querySelector('[data-wizard-footer-step="email-off"]');
+  toggle.disabled = true;
+  if (footer) footer.querySelectorAll('button').forEach(function(button) { button.disabled = true; });
+  if (!enabled) {
+    editAccountTest.invalidate();
+    editWizardGo(0, true);
+  }
+  var body = new URLSearchParams({ service: 'email', enabled: String(enabled) });
+  return fetch('/api/accounts/' + encodeURIComponent(form.dataset.accountId) + '/services', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'text/html' },
+    body: body.toString()
+  }).then(function(response) {
+    if (!response.ok) {
+      return response.text().then(function(message) {
+        throw new Error((message || '').trim() || 'Could not save email settings.');
+      });
+    }
+    toggle.dataset.wizardServiceInitialEnabled = String(enabled);
+  }).catch(function(error) {
+    toggle.checked = initialEnabled;
+    if (typeof showGoferToast === 'function') showGoferToast({
+      title: 'Could not save email settings',
+      description: error.message || 'Could not save email settings.',
+      variant: 'error'
+    });
+  }).finally(function() {
+    toggle.disabled = false;
+    if (footer) footer.querySelectorAll('button').forEach(function(button) { button.disabled = false; });
+    syncWizardServiceContent(root);
+    setWizardFooter(root, _editWizStep, true);
+  });
 }
 // Calendar is the add wizard's last step: moving on from it finishes.
 function wizardServiceAdvance(root, step) {
@@ -1946,6 +2000,7 @@ document.addEventListener('change', function(event) {
   if (event.target && event.target.matches && event.target.matches('[data-wizard-service-switch]')) {
     var root = event.target.closest('#add-account-dialog,#edit-account-dialog') || document;
     syncWizardServiceContent(root);
+    if (root.id === 'edit-account-dialog') setWizardFooter(root, _editWizStep, true);
   }
 });
 function toggleSmtpAuth(checked) {
@@ -2700,17 +2755,23 @@ document.addEventListener('htmx:afterRequest', function(event) {
 document.addEventListener('htmx:afterSettle', function(event) {
   if (event.target.closest && event.target.closest('#edit-account-dialog')) updateReconnectGates();
 });
+function editWizardEmailEnabled(root) {
+  var toggle = root.querySelector('[data-wizard-service-switch="email"]');
+  return !toggle || toggle.checked;
+}
 function editWizardGo(step, immediate) {
   if (step < 0) step = 0;
   if (step > 5) step = 5;
   var track = document.getElementById('edit-wizard-track');
   var root = document.getElementById('edit-account-dialog');
   if (!track || !root) return;
+  var emailEnabled = editWizardEmailEnabled(root);
+  if (!emailEnabled && step < 4) step = 0;
   step = wizardSkipSending(step, _editWizStep, !!root.querySelector('[data-wizard-skip-sending]'));
   // Moving on to contacts or calendar with unsaved mail changes would lose
   // them, so they go through the test step to be saved first.
   var unsaved = root.querySelector('[data-edit-account-unsaved]');
-  if (step >= 4 && editAccountChanged()) {
+  if (step >= 4 && emailEnabled && editAccountChanged()) {
     step = 3;
     if (unsaved) unsaved.hidden = false;
   } else if (unsaved) {

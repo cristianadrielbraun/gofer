@@ -3954,7 +3954,7 @@ templ AccountWizardSectionSwitch(goFn string, accountID string, service string, 
 		if oob {
 			hx-swap-oob="outerHTML"
 		}
-		if persist && service != "calendar" {
+		if persist && service != "calendar" && service != "email" {
 			hx-post={ fmt.Sprintf("/api/accounts/%s/services", accountID) }
 			hx-swap="none"
 		}
@@ -3962,13 +3962,17 @@ templ AccountWizardSectionSwitch(goFn string, accountID string, service string, 
 		if persist {
 			<input type="hidden" name="service" value={ service }/>
 		}
+		{{ changeAction := "goferSubmitHTMXForm" }}
+		if persist && service == "email" {
+			{{ changeAction = "saveWizardEmailService" }}
+		}
 		@switchcomp.Switch(switchcomp.Props{
 			ID:         fmt.Sprintf("account-wizard-%s-%s", accountID, service),
 			Name:       "enabled",
 			Value:      "true",
 			Checked:    enabled,
 			Disabled:   disabled,
-			Attributes: mergeTemplAttrs(attrs, templ.Attributes{"data-wizard-service-switch": service, "data-wizard-service-initial-enabled": strconv.FormatBool(enabled), "data-on-change": onAction("goferSubmitHTMXForm", actionElement)}),
+			Attributes: mergeTemplAttrs(attrs, templ.Attributes{"data-wizard-service-switch": service, "data-wizard-service-initial-enabled": strconv.FormatBool(enabled), "data-on-change": onAction(changeAction, actionElement)}),
 		})
 	</form>
 }
@@ -4529,6 +4533,12 @@ templ EditAccountDialog(data models.EditAccountData) {
 
 templ EditAccountWizardFooter(data models.EditAccountData) {
 	<div id="edit-wizard-footer" class="account-wizard-card-footer">
+		<div data-wizard-footer-step="email-off" data-active="false" class="hidden flex justify-end gap-2">
+			<div class="flex justify-end gap-2">
+				<button type="button" data-on-click='["goferNavigate","/settings/accounts"]' class="inline-flex items-center gap-1.5 text-sm font-medium px-3 py-2 rounded-lg border border-border text-foreground hover:bg-accent transition-colors disabled:pointer-events-none disabled:opacity-50">Close</button>
+				<button type="button" data-on-click='["editWizardGo",4,true]' class="inline-flex items-center gap-1.5 text-sm font-medium px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:pointer-events-none disabled:opacity-50">Continue to Contacts</button>
+			</div>
+		</div>
 		<div data-wizard-footer-step="0" data-active="true" class="flex justify-end">
 			<button type="button" data-on-click='["editWizardGo",1]' class="inline-flex items-center gap-1.5 text-sm font-medium px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:pointer-events-none disabled:opacity-50">
 				Next
