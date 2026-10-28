@@ -127,6 +127,10 @@ type mailRuleRunner struct {
 	rules     []*mailrules.Rule
 	folders   map[string]mailRuleFolder
 	recorded  bool
+	// quiet records only what failed: a run by hand over many messages
+	// records one summary instead.
+	quiet  bool
+	failed int
 }
 
 type mailRuleFolder struct {
@@ -396,13 +400,18 @@ func (r *mailRuleRunner) run(ctx context.Context, messageID int64, arrival, trig
 			status = models.MailRuleRunSkipped
 		}
 		detail := strings.Join(append(append(failures, done...), skipped...), "; ")
-		if err := recordMailRuleRun(ctx, r.db.Write(), r.owner, models.MailRuleRun{
-			RuleID: rule.ID, RuleName: rule.Name, AccountID: r.accountID, MessageID: m.id,
-			Subject: m.subject, FromEmail: m.fromEmail, Trigger: trigger, Status: status, Detail: detail,
-		}); err != nil {
-			return outcome, err
+		if status == models.MailRuleRunFailed {
+			r.failed++
 		}
-		r.recorded = true
+		if !r.quiet || status == models.MailRuleRunFailed {
+			if err := recordMailRuleRun(ctx, r.db.Write(), r.owner, models.MailRuleRun{
+				RuleID: rule.ID, RuleName: rule.Name, AccountID: r.accountID, MessageID: m.id,
+				Subject: m.subject, FromEmail: m.fromEmail, Trigger: trigger, Status: status, Detail: detail,
+			}); err != nil {
+				return outcome, err
+			}
+			r.recorded = true
+		}
 		if rule.StopProcessing {
 			break
 		}

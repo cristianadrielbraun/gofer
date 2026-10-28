@@ -2740,7 +2740,7 @@ templ ContactSyncSetupDiscover(setup models.ContactSyncSetup) {
 				}
 			</form>
 		</div>
-		@dialog.Footer(dialog.FooterProps{Class: "shrink-0 items-center justify-between border-t border-ink/10 bg-card px-5 py-4 sm:justify-between sm:px-6"}) {
+		@dialog.Footer(dialog.FooterProps{Class: "shrink-0 items-center justify-between bg-card px-5 py-4 sm:justify-between sm:px-6"}) {
 			@button.Button(button.Props{Variant: button.VariantOutline, Class: "text-muted-foreground", Attributes: templ.Attributes{"data-contact-sync-setup-cancel": ""}}) { Keep sync disabled }
 			@button.Button(button.Props{Type: button.TypeSubmit, Form: selectionFormID, Class: "btn-skeuo"}) {
 				Review values
@@ -2858,7 +2858,7 @@ templ ContactSyncSetupResolve(setup models.ContactSyncSetup) {
 				</div>
 			}
 		</div>
-		@dialog.Footer(dialog.FooterProps{Class: "shrink-0 items-center justify-between border-t border-ink/10 bg-card px-5 py-4 sm:justify-between sm:px-6"}) {
+		@dialog.Footer(dialog.FooterProps{Class: "shrink-0 items-center justify-between bg-card px-5 py-4 sm:justify-between sm:px-6"}) {
 			@button.Button(button.Props{Variant: button.VariantOutline, Class: "text-muted-foreground", Attributes: templ.Attributes{"data-contact-sync-setup-cancel": ""}}) { Keep sync disabled }
 			@button.Button(button.Props{Type: button.TypeSubmit, Class: "btn-skeuo"}) {
 				@icon.CloudSync(icon.Props{Class: "size-4"})

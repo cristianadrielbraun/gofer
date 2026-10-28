@@ -36,6 +36,8 @@ templ SettingsPage(accounts []models.Account, syncSettings models.SyncSettings, 
 					@SettingsAccountsTab(accounts)
 				} else if activeTab == "sync" {
 					@SettingsSyncTab(syncSettings, uiSettings)
+				} else if activeTab == "rules" {
+					@SettingsRulesTab()
 				} else if activeTab == "operations" {
 					@SettingsOperationsTab()
 				} else if activeTab == "contacts" {
@@ -64,6 +66,8 @@ func settingsSectionHeading(section string) (string, string) {
 			return "Accounts", "Connect and manage your email and calendar accounts."
 		case "sync":
 			return "Email sync and folders", "Choose how email syncs and which folders appear in unified views."
+		case "rules":
+			return "Rules", "Sort, file and clean up new mail automatically, on the server, around the clock."
 		case "operations":
 			return "Mail operations", "Track outgoing messages and background mail operations."
 		case "contacts":
@@ -3440,7 +3444,7 @@ templ AddAccountDialog() {
 				.account-wizard-sticky-header { position:sticky; top:-6px; z-index:20; margin:-6px -6px 1rem; padding:6px 6px .75rem; background:var(--card); box-shadow:0 1px 0 color-mix(in oklab, var(--border) 70%, transparent); }
 				.account-wizard-controls { flex-shrink:0; margin-top:.5rem; border-top:1px solid var(--border); background:var(--card); padding-top:.75rem; padding-bottom:2px; }
 				.account-wizard-panel .account-wizard-controls { display:none; }
-				.account-wizard-card-footer { min-height:3.25rem; border-top:1px solid var(--border); background:var(--card); padding-top:.75rem; padding-bottom:2px; transition:opacity .12s ease; }
+				.account-wizard-card-footer { min-height:3.25rem; background:var(--card); padding-top:.75rem; padding-bottom:2px; transition:opacity .12s ease; }
 				.account-wizard-card-footer[data-switching="true"] { opacity:0; pointer-events:none; }
 				.account-wizard-card-footer > [data-wizard-footer-step] { display:none !important; }
 				.account-wizard-card-footer > [data-wizard-footer-step][data-active="true"] { display:flex !important; }

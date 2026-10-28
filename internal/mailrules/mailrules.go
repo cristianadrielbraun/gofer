@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -90,10 +91,34 @@ func Compile(rule models.MailRule) (*Rule, error) {
 	return compiled, nil
 }
 
+// GroupConditions puts a rule's conditions in their groups, numbered from 0
+// in order with each group's conditions together, and reads a rule from
+// before groups, which matched when any condition held, as one group per
+// condition.
+func GroupConditions(rule *models.MailRule) {
+	if !rule.MatchAll {
+		for i := range rule.Conditions {
+			rule.Conditions[i].Group = i
+		}
+		rule.MatchAll = true
+	}
+	number := map[int]int{}
+	for _, condition := range rule.Conditions {
+		if _, ok := number[condition.Group]; !ok {
+			number[condition.Group] = len(number)
+		}
+	}
+	for i := range rule.Conditions {
+		rule.Conditions[i].Group = number[rule.Conditions[i].Group]
+	}
+	slices.SortStableFunc(rule.Conditions, func(a, b models.MailRuleCondition) int { return a.Group - b.Group })
+}
+
 // Validate checks a rule and puts it in the form it is stored in: trimmed,
-// with lower-case values where case doesn't matter. Its error is shown to
-// the person who wrote the rule.
+// grouped, with lower-case values where case doesn't matter. Its error is
+// shown to the person who wrote the rule.
 func Validate(rule *models.MailRule) error {
+	GroupConditions(rule)
 	rule.Name = strings.TrimSpace(rule.Name)
 	rule.AccountID = strings.TrimSpace(rule.AccountID)
 	if rule.Name == "" {
@@ -257,16 +282,19 @@ func (r *Rule) Match(m Message) bool {
 	if !r.namesOwnMail() && (m.InFolderRole("sent") || m.InFolderRole("drafts")) {
 		return false
 	}
-	for i, condition := range r.Conditions {
-		held := r.holds(i, condition, m)
-		if r.MatchAll && !held {
-			return false
+	// Conditions come grouped, so a group is a run of them.
+	for start := 0; start < len(r.Conditions); {
+		end, held := start, true
+		for end < len(r.Conditions) && r.Conditions[end].Group == r.Conditions[start].Group {
+			held = held && r.holds(end, r.Conditions[end], m)
+			end++
 		}
-		if !r.MatchAll && held {
+		if held {
 			return true
 		}
+		start = end
 	}
-	return r.MatchAll
+	return false
 }
 
 func (r *Rule) namesOwnMail() bool {

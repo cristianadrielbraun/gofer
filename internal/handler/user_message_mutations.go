@@ -105,18 +105,10 @@ func (h *Handler) userMessageMutationHandler(selectHandler func(*Handler) http.H
 			http.Error(w, "mailbox unavailable", http.StatusServiceUnavailable)
 			return
 		}
-		wake := make(map[string]bool)
-		for _, event := range state.events {
-			h.userIMAP.Events().Publish(event)
-			wake[event.AccountID] = true
-		}
-		for id := range wake {
-			if err := h.userIMAP.WakeMutations(ctx, state.owner, id); err != nil {
-				log.Printf("user mail changes saved; queue wake %s: %v", id, err)
-				// Retain the successful local result: retrying a toggle can undo it,
-				// and repeating a move to Trash can become a permanent deletion.
-				response.header.Set("X-Gofer-Mail-Delivery", "delayed")
-			}
+		if !h.deliverUserMutations(ctx, state) {
+			// Retain the successful local result: retrying a toggle can undo it,
+			// and repeating a move to Trash can become a permanent deletion.
+			response.header.Set("X-Gofer-Mail-Delivery", "delayed")
 		}
 		for key, values := range response.header {
 			w.Header()[key] = append([]string(nil), values...)
@@ -127,6 +119,26 @@ func (h *Handler) userMessageMutationHandler(selectHandler func(*Handler) http.H
 		w.WriteHeader(response.status)
 		_, _ = w.Write(response.body.Bytes())
 	}
+}
+
+// deliverUserMutations tells the owner's pages about the changes a leased
+// request or job made, and wakes the queues of their accounts. It reports
+// false when a queue couldn't be woken; the changes then wait for its next
+// pass.
+func (h *Handler) deliverUserMutations(ctx context.Context, state *userMessageMutationState) bool {
+	delivered := true
+	wake := make(map[string]bool)
+	for _, event := range state.events {
+		h.userIMAP.Events().Publish(event)
+		wake[event.AccountID] = true
+	}
+	for id := range wake {
+		if err := h.userIMAP.WakeMutations(ctx, state.owner, id); err != nil {
+			log.Printf("user mail changes saved; queue wake %s: %v", id, err)
+			delivered = false
+		}
+	}
+	return delivered
 }
 
 func (h *Handler) registerUserMessageMutations(private func(string, http.HandlerFunc)) {
@@ -157,6 +169,10 @@ func (h *Handler) registerUserMessageMutations(private func(string, http.Handler
 		{"POST /api/messages/{id}/move", func(h *Handler) http.HandlerFunc { return h.handleMoveMessage }},
 	} {
 		private(route.pattern, h.userMessageMutationHandler(route.handler))
+	}
+	// Rule runs lease the store themselves, step by step.
+	for _, route := range mailRuleRunRoutes {
+		private(route.pattern, route.handler(h))
 	}
 }
 

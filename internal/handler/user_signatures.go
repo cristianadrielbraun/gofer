@@ -35,6 +35,9 @@ func (h *Handler) registerUserSignatures(private func(string, http.HandlerFunc))
 	} {
 		private(route.pattern, h.userSignatureHandler(route.handler))
 	}
+	for _, route := range mailRuleLocalRoutes {
+		private(route.pattern, h.userSignatureHandler(route.handler))
+	}
 }
 
 func (h *Handler) userSignatureHandler(selectHandler func(*Handler) http.HandlerFunc) http.HandlerFunc {

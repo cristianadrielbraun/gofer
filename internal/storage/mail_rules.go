@@ -126,6 +126,7 @@ func scanMailRule(scan func(...any) error) (models.MailRule, error) {
 		return models.MailRule{}, fmt.Errorf("rule %s actions: %w", rule.ID, err)
 	}
 	rule.CreatedAt, rule.UpdatedAt = created.Time, updated.Time
+	mailrules.GroupConditions(&rule)
 	return rule, nil
 }
 
@@ -414,4 +415,27 @@ func markMailRuleArrivalTx(ctx context.Context, tx *sql.Tx, messageID int64, acc
 			WHERE a.id = ? AND r.enabled = 1 AND (r.account_id IS NULL OR r.account_id = a.id))`,
 		messageID, accountID, folderID, accountID)
 	return err
+}
+
+// ListMailRuleFolderChoices returns, for each of the owner's accounts, the
+// folders a rule can name, by name.
+func (db *DB) ListMailRuleFolderChoices(ctx context.Context, userID string) (map[string][]models.MailRuleFolderChoice, error) {
+	rows, err := db.Read().QueryContext(ctx, `
+		SELECT f.account_id, f.id, f.name, COALESCE(f.remote_id, ''), f.role FROM folders f JOIN accounts a ON a.id = f.account_id
+		WHERE a.user_id = ? AND COALESCE(a.is_deleting, 0) = 0 AND COALESCE(f.discovery_state, 'active') = 'active' AND f.selectable = 1
+		ORDER BY lower(COALESCE(NULLIF(f.remote_id, ''), f.name)), f.id`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	choices := map[string][]models.MailRuleFolderChoice{}
+	for rows.Next() {
+		var accountID string
+		var folder models.MailRuleFolderChoice
+		if err := rows.Scan(&accountID, &folder.ID, &folder.Name, &folder.Path, &folder.Role); err != nil {
+			return nil, err
+		}
+		choices[accountID] = append(choices[accountID], folder)
+	}
+	return choices, rows.Err()
 }

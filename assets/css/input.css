@@ -5839,14 +5839,15 @@ body.mail-list-column-resizing {
   display: none;
 }
 
-[data-account-order-list][data-account-order-active] {
+[data-account-order-list][data-order-active],
+[data-mail-rule-order-list][data-order-active] {
   position: relative;
   cursor: grabbing;
   user-select: none;
 }
 
-/* Where the dragged card lands when it's let go. */
-[data-account-order-placeholder] {
+/* Where the dragged item lands when it's let go. */
+[data-order-placeholder] {
   position: absolute;
   left: 0;
   right: 0;
@@ -5858,26 +5859,80 @@ body.mail-list-column-resizing {
   transition: top 200ms ease-out;
 }
 
-/* The account card being dragged floats above the others under the pointer. */
-[data-settings-account-card][data-account-order-dragging] {
+/* The account card or rule being dragged floats above the others under the
+   pointer. */
+[data-settings-account-card][data-order-dragging],
+[data-mail-rule-row][data-order-dragging] {
   position: relative;
   z-index: 10;
   transition: none;
 }
 
-[data-settings-account-card] > .settings-account-card {
+[data-settings-account-card] > .settings-account-card,
+[data-mail-rule-row] > .mail-rule-card {
   transition: border-color 150ms ease, box-shadow 150ms ease, background-color 150ms ease;
 }
 
-[data-settings-account-card][data-account-order-dragging] > .settings-account-card {
+[data-settings-account-card][data-order-dragging] > .settings-account-card,
+[data-mail-rule-row][data-order-dragging] > .mail-rule-card {
   border-color: color-mix(in srgb, var(--ring) 70%, transparent);
   background-color: var(--card);
   box-shadow: 0 14px 28px -14px rgb(0 0 0 / 0.5), 0 4px 10px -6px rgb(0 0 0 / 0.3);
 }
 
-[data-settings-account-card][data-account-order-dragging] [data-account-order-handle] {
+[data-settings-account-card][data-order-dragging] [data-account-order-handle],
+[data-mail-rule-row][data-order-dragging] [data-mail-rule-order-handle] {
   color: var(--foreground);
   background-color: var(--accent);
+}
+
+/* A rule fades while its switch is off, and says so, as soon as the switch
+   moves; the list isn't drawn again for it. */
+[data-mail-rule-row] > .mail-rule-card {
+  transition: opacity 200ms ease, border-color 150ms ease, box-shadow 150ms ease, background-color 150ms ease;
+}
+
+[data-mail-rule-row]:has([data-mail-rule-enabled]:not(:checked)) > .mail-rule-card {
+  opacity: 0.7;
+}
+
+[data-mail-rule-row] [data-mail-rule-inactive] {
+  display: none;
+}
+
+[data-mail-rule-row]:has([data-mail-rule-enabled]:not(:checked)) [data-mail-rule-inactive] {
+  display: inline-flex;
+}
+
+/* The rules' loading shape shows only when the list takes a while, so a
+   quick load doesn't flash it. */
+[data-mail-rules-loading] > * {
+  opacity: 0;
+  animation: fade-in 200ms ease 150ms forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-mail-rules-loading] > * {
+    animation-duration: 1ms;
+  }
+}
+
+/* A run's count shows only when it takes a while, so a quick one goes
+   straight to its result without flashing the progress. */
+[data-mail-rule-run-state="counting"] [data-mail-rule-run-status] {
+  opacity: 0;
+  animation: fade-in 200ms ease 150ms forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-mail-rule-run-state="counting"] [data-mail-rule-run-status] {
+    animation-duration: 1ms;
+  }
+}
+
+/* With a single rule there is nothing to reorder. */
+[data-mail-rule-order-list]:not(:has(> [data-mail-rule-row] ~ [data-mail-rule-row])) [data-mail-rule-order-handle] {
+  display: none;
 }
 
 @media (max-width: 1023.98px) {

@@ -5,18 +5,16 @@ import (
 	"database/sql"
 	"errors"
 	"log"
-	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/models"
 )
 
-// A run on mail already there looks at the newest messages of a folder, and
-// acts on at most so many of them; the owner can run it again for the rest.
-var (
-	mailRuleRunScanLimit  = 5000
-	mailRuleRunMatchLimit = 1000
-	mailRulePreviewSample = 20
-)
+// A run by hand goes through a folder this many messages at a time, so
+// that a large folder doesn't hold the store for long.
+const MailRuleRunScanBatch = 500
+
+// MailRuleRunApplyBatch is the most messages one step of a run changes.
+var MailRuleRunApplyBatch = 200
 
 // ErrMailRuleRunFolder is returned when no account the rule applies to has
 // the folder a run names.
@@ -30,36 +28,28 @@ type MailRuleRunScope struct {
 	Folder    models.MailRuleFolderTarget
 }
 
-// MailRulePreview is what running a rule on mail already there would do.
-type MailRulePreview struct {
-	// Matches are the messages the rule would change, newest first.
-	Matches []int64
-	// Sample shows the first of them.
-	Sample []MailRulePreviewMessage
-	// Scanned counts the messages looked at.
+// MailRuleScanStep is one step of finding the mail already in a folder that
+// a rule would change.
+type MailRuleScanStep struct {
+	// Total is how many messages the folder holds, given on the first step.
+	Total int
+	// Scanned counts the messages this step looked at, and Matches are the
+	// ones the rule would change.
 	Scanned int
-	// Truncated says the folder holds more mail than one run looks at or
-	// acts on.
-	Truncated bool
+	Matches []int64
+	// Next goes on to the following step; Done says there is none.
+	Next int64
+	Done bool
 }
 
-// MailRulePreviewMessage is a message a preview shows.
-type MailRulePreviewMessage struct {
-	ID        int64
-	AccountID string
-	FolderID  string
-	Subject   string
-	FromName  string
-	FromEmail string
-	Date      time.Time
-}
-
-// MailRuleRunResult says what a run on mail already there did.
+// MailRuleRunResult says what a step of a run by hand did.
 type MailRuleRunResult struct {
-	// Changed counts the messages the rule acted on; Unchanged those it no
-	// longer matched, or had nothing left to do to.
-	Changed   int
+	// Changed counts the messages the rule acted on, by account; Unchanged
+	// those it no longer matched, or had nothing left to do to; Failed
+	// those it failed to act on, which its activity records.
+	Changed   map[string]int
 	Unchanged int
+	Failed    int
 	// Folders are the folders whose contents changed.
 	Folders []FolderRef
 }
@@ -159,13 +149,14 @@ func (t mailRuleRunTarget) wouldChange(m *mailRuleMessage) bool {
 	return false
 }
 
-// PreviewMailRuleRun finds the mail already in a folder that a rule, enabled
-// or not, would change, without changing it.
-func (db *DB) PreviewMailRuleRun(ctx context.Context, userID, ruleID string, scope MailRuleRunScope, allow func(accountID string) bool) (MailRulePreview, error) {
-	preview := MailRulePreview{Matches: []int64{}, Sample: []MailRulePreviewMessage{}}
+// ScanMailRuleRun looks at the next limit messages in a folder, newest
+// message first, and finds those a rule, active or not, would change,
+// without changing them. The first step starts with before 0.
+func (db *DB) ScanMailRuleRun(ctx context.Context, userID, ruleID string, scope MailRuleRunScope, allow func(accountID string) bool, before int64, limit int) (MailRuleScanStep, error) {
+	step := MailRuleScanStep{Matches: []int64{}}
 	_, targets, err := db.mailRuleRunTargets(ctx, userID, ruleID, scope, allow)
 	if err != nil {
-		return preview, err
+		return step, err
 	}
 	folderIDs := make([]any, 0, len(targets))
 	byFolder := map[string]mailRuleRunTarget{}
@@ -173,70 +164,70 @@ func (db *DB) PreviewMailRuleRun(ctx context.Context, userID, ruleID string, sco
 		folderIDs = append(folderIDs, target.folder.id)
 		byFolder[target.folder.id] = target
 	}
+	in := sqlPlaceholders(len(folderIDs))
+	if before == 0 {
+		if err := db.Read().QueryRowContext(ctx, `
+			SELECT COUNT(*) FROM message_folder_state WHERE folder_id IN (`+in+`) AND is_deleted = 0`, folderIDs...).Scan(&step.Total); err != nil {
+			return step, err
+		}
+	}
+	args := append(folderIDs, before == 0, before, limit)
 	rows, err := db.Read().QueryContext(ctx, `
-		SELECT message_id, folder_id, message_date FROM message_folder_state
-		WHERE folder_id IN (`+sqlPlaceholders(len(folderIDs))+`) AND is_deleted = 0
-		ORDER BY message_date DESC, message_id DESC LIMIT ?`, append(folderIDs, mailRuleRunScanLimit+1)...)
+		SELECT message_id, folder_id FROM message_folder_state
+		WHERE folder_id IN (`+in+`) AND is_deleted = 0 AND (? OR message_id < ?)
+		ORDER BY message_id DESC LIMIT ?`, args...)
 	if err != nil {
-		return preview, err
+		return step, err
 	}
 	type candidate struct {
 		messageID int64
 		folderID  string
-		date      sqliteNullTime
 	}
 	var candidates []candidate
 	for rows.Next() {
 		var c candidate
-		if err := rows.Scan(&c.messageID, &c.folderID, &c.date); err != nil {
+		if err := rows.Scan(&c.messageID, &c.folderID); err != nil {
 			rows.Close()
-			return preview, err
+			return step, err
 		}
 		candidates = append(candidates, c)
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
-		return preview, err
+		return step, err
 	}
-	if len(candidates) > mailRuleRunScanLimit {
-		candidates, preview.Truncated = candidates[:mailRuleRunScanLimit], true
-	}
+	step.Done = len(candidates) < limit
 	for _, c := range candidates {
-		if len(preview.Matches) == mailRuleRunMatchLimit {
-			preview.Truncated = true
-			break
-		}
-		preview.Scanned++
+		step.Scanned++
+		step.Next = c.messageID
 		target := byFolder[c.folderID]
 		m, err := target.runner.loadMessage(ctx, c.messageID)
 		if err != nil {
-			return preview, err
+			return step, err
 		}
-		if !target.wouldChange(m) {
-			continue
-		}
-		preview.Matches = append(preview.Matches, c.messageID)
-		if len(preview.Sample) < mailRulePreviewSample {
-			preview.Sample = append(preview.Sample, MailRulePreviewMessage{
-				ID: m.id, AccountID: target.runner.accountID, FolderID: c.folderID,
-				Subject: m.subject, FromName: m.facts.FromName, FromEmail: m.fromEmail, Date: c.date.Time,
-			})
+		if target.wouldChange(m) {
+			step.Matches = append(step.Matches, c.messageID)
 		}
 	}
-	return preview, nil
+	return step, nil
 }
 
-// RunMailRuleNow applies a rule, enabled or not, to messages a preview
-// found. A message that has left the folder, or that the rule no longer
-// matches or has nothing left to do to, is left as it is.
+// RunMailRuleNow applies a rule, active or not, to messages a scan found,
+// at most MailRuleRunApplyBatch of them. A message that has left the
+// folder, or that the rule no longer matches or has nothing left to do to,
+// is left as it is. Only what fails is recorded in the rule's activity; the
+// run records a summary when it ends.
 func (db *DB) RunMailRuleNow(ctx context.Context, userID, ruleID string, scope MailRuleRunScope, messageIDs []int64, allow func(accountID string) bool) (MailRuleRunResult, error) {
-	var result MailRuleRunResult
+	result := MailRuleRunResult{Changed: map[string]int{}}
 	_, targets, err := db.mailRuleRunTargets(ctx, userID, ruleID, scope, allow)
 	if err != nil {
 		return result, err
 	}
-	if len(messageIDs) > mailRuleRunMatchLimit {
-		messageIDs = messageIDs[:mailRuleRunMatchLimit]
+	for _, target := range targets {
+		target.runner.quiet = true
+	}
+	if len(messageIDs) > MailRuleRunApplyBatch {
+		messageIDs = messageIDs[:MailRuleRunApplyBatch]
 	}
 	changed := map[FolderRef]bool{}
 	seen := map[int64]bool{}
@@ -277,13 +268,16 @@ func (db *DB) RunMailRuleNow(ctx context.Context, userID, ruleID string, scope M
 			result.Unchanged++
 			continue
 		}
-		result.Changed++
+		result.Changed[accountID]++
 		for folderID := range outcome.Folders {
 			changed[FolderRef{AccountID: accountID, FolderID: folderID}] = true
 		}
 	}
 	for ref := range changed {
 		result.Folders = append(result.Folders, ref)
+	}
+	for _, target := range targets {
+		result.Failed += target.runner.failed
 	}
 	for _, target := range targets {
 		if target.runner.recorded {
@@ -294,4 +288,25 @@ func (db *DB) RunMailRuleNow(ctx context.Context, userID, ruleID string, scope M
 		}
 	}
 	return result, nil
+}
+
+// RecordMailRuleRunSummary records in a rule's activity what a run by hand
+// did in one account.
+func (db *DB) RecordMailRuleRunSummary(ctx context.Context, userID, ruleID, accountID, detail string, changed int) error {
+	rule, err := db.GetMailRule(ctx, userID, ruleID)
+	if errors.Is(err, sql.ErrNoRows) {
+		rule = models.MailRule{ID: ruleID, Name: "A deleted rule"}
+	} else if err != nil {
+		return err
+	}
+	status := models.MailRuleRunApplied
+	if changed == 0 {
+		status = models.MailRuleRunSkipped
+	}
+	if err := recordMailRuleRun(ctx, db.Write(), userID, models.MailRuleRun{
+		RuleID: rule.ID, RuleName: rule.Name, AccountID: accountID, Trigger: models.MailRuleTriggerManual, Status: status, Detail: detail,
+	}); err != nil {
+		return err
+	}
+	return pruneMailRuleRuns(ctx, db.Write(), userID)
 }

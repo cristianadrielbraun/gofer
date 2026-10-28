@@ -3006,6 +3006,9 @@ document.addEventListener("DOMContentLoaded", function () {
       showGoferToast({ id: id, title: title, variant: "success", icon: "success", position: "bottom-right", duration: 3000, dismissible: true })
     }
 
+    // A rule's Move to folder offers a new folder too.
+    window.goferCreateMailFolder = createMailFolder
+
     // The account settings' folders dialog runs these too.
     window.goferFolderActions = {
       "new-folder": function (t) { createMailFolder(t.accountID, "", "") },
@@ -3022,19 +3025,25 @@ document.addEventListener("DOMContentLoaded", function () {
       return n === 1 ? "1 " + one : n + " " + many
     }
 
-    function createMailFolder(accountID, parentID, parentName) {
-      if (!accountID || folderChangeBusy) return
-      window.goferPrompt({
-        title: parentID ? "New folder in " + parentName : "New folder",
+    // createMailFolder asks for a name and creates the folder. It resolves to
+    // the folder made, {id, name}, or null when none was. options.title
+    // replaces the prompt's title.
+    function createMailFolder(accountID, parentID, parentName, options) {
+      if (!accountID || folderChangeBusy) return Promise.resolve(null)
+      return window.goferPrompt({
+        title: (options && options.title) || (parentID ? "New folder in " + parentName : "New folder"),
         label: "Folder name",
         confirmLabel: "Create folder",
       }).then(function (name) {
-        if (name === null || !name.trim()) return
-        return runFolderChange("mail-folder-create", "Couldn't create the folder", function () {
+        if (name === null || !name.trim()) return null
+        var created = null
+        var change = runFolderChange("mail-folder-create", "Couldn't create the folder", function () {
           return postFolderChange("/api/accounts/" + encodeURIComponent(accountID) + "/folders", { name: name, parent: parentID || "" }).then(function (data) {
+            created = data && data.id ? data : null
             folderChangeDone("mail-folder-create", "Created “" + (data && data.name || name.trim()) + "”", accountID, false)
           })
         })
+        return change ? change.then(function () { return created }) : null
       })
     }
 
@@ -6191,6 +6200,13 @@ document.addEventListener("DOMContentLoaded", function () {
 
     source.addEventListener("calendar-changed", function () {
       scheduleCalendarCacheRefresh()
+    })
+
+    // A rule run by hand reports its progress; settings.js shows it.
+    source.addEventListener("mail-rule-run", function (e) {
+      var data
+      try { data = JSON.parse(e.data) } catch (_) { return }
+      if (data && data.job) document.dispatchEvent(new CustomEvent("gofer:mail-rule-run", { detail: data }))
     })
 
     source.addEventListener("calendar-reminder", function (e) {

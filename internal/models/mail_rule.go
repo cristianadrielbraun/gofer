@@ -10,7 +10,9 @@ type MailRule struct {
 	AccountID string `json:"account_id,omitempty"`
 	Name      string `json:"name"`
 	Enabled   bool   `json:"enabled"`
-	// MatchAll makes every condition have to hold; otherwise any one does.
+	// MatchAll is set on every rule saved with condition groups. A rule
+	// from before them without it matched when any one condition held; it
+	// is read as one group per condition.
 	MatchAll bool `json:"match_all"`
 	// StopProcessing keeps later rules from acting on a message this rule
 	// matched.
@@ -24,7 +26,10 @@ type MailRule struct {
 
 // MailRuleCondition tests one part of a message: Field compared with Value
 // by Operator. A folder condition names its folder in Folder instead.
+// Conditions in one Group must all hold; a rule matches a message when one
+// of its groups does.
 type MailRuleCondition struct {
+	Group    int                   `json:"group"`
 	Field    string                `json:"field"`
 	Operator string                `json:"operator"`
 	Value    string                `json:"value,omitempty"`
@@ -109,4 +114,80 @@ type MailRuleRun struct {
 	Status    string    `json:"status"`
 	Detail    string    `json:"detail"`
 	CreatedAt time.Time `json:"created_at"`
+}
+
+// MailRulesData is what the Rules settings show: the owner's rules, and
+// while one is added, edited or run, that rule.
+type MailRulesData struct {
+	Rules    []MailRule
+	Accounts []MailRuleAccount
+	// Editing is the rule in the form while one is added or edited.
+	Editing *MailRule
+	// Run is the rule being run on mail already there.
+	Run    *MailRuleRunData
+	Error  string
+	Notice string
+}
+
+// MailRuleAccount is an account a rule can be limited to, with the folders
+// of its own a rule can name.
+type MailRuleAccount struct {
+	ID       string
+	Name     string
+	Email    string
+	Color    string
+	Provider string
+	Folders  []MailRuleFolderChoice
+	// Tree is the account's folders as the Folders dialog shows them.
+	Tree []Folder
+}
+
+// MailRuleFolderChoice is a folder of one account.
+type MailRuleFolderChoice struct {
+	ID   string
+	Name string
+	Path string
+	Role string
+}
+
+// MailRuleRunData is a rule being run by hand on the mail in a folder: first
+// counting what it would change, then changing it.
+type MailRuleRunData struct {
+	Rule  MailRule
+	JobID string
+	// Scope is the folder chosen: "role:inbox", or "id:" and a folder ID;
+	// ScopeName names it.
+	Scope     string
+	ScopeName string
+	State     string
+	// Total is how many messages the folder holds, Scanned how many were
+	// looked at so far, and Matches how many the rule would change.
+	Total   int
+	Scanned int
+	Matches int
+	// Processed counts the matches gone through so far, of which Changed
+	// were changed, Unchanged needed nothing anymore, and Failed failed.
+	Processed int
+	Changed   int
+	Unchanged int
+	Failed    int
+	Error     string
+	// Seq counts the run's changes, so a page can tell a newer report of
+	// it from an older one.
+	Seq int
+}
+
+// The states of a rule run by hand.
+const (
+	MailRuleRunCounting = "counting"
+	MailRuleRunCounted  = "counted"
+	MailRuleRunRunning  = "running"
+	MailRuleRunDone     = "done"
+	MailRuleRunStopped  = "stopped"
+	MailRuleRunError    = "error"
+)
+
+// Finished reports whether a run by hand has ended.
+func (d MailRuleRunData) Finished() bool {
+	return d.State == MailRuleRunDone || d.State == MailRuleRunStopped || d.State == MailRuleRunError
 }

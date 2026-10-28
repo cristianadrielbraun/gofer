@@ -93,6 +93,44 @@ func TestMatchAllAndAny(t *testing.T) {
 	}
 }
 
+// A rule matches when every condition of one of its groups holds.
+func TestConditionGroups(t *testing.T) {
+	grouped := func(group int, c models.MailRuleCondition) models.MailRuleCondition {
+		c.Group = group
+		return c
+	}
+	// (From contains news and From ends with harbor-bakery.example) or
+	// Subject contains invoice, with the groups' conditions given mixed up.
+	rule := compileRule(t, models.MailRule{MatchAll: true, Conditions: []models.MailRuleCondition{
+		grouped(4, condition("from", "contains", "news")),
+		grouped(9, condition("subject", "contains", "invoice")),
+		grouped(4, condition("from", "ends_with", "harbor-bakery.example")),
+	}})
+	if got := []int{rule.Conditions[0].Group, rule.Conditions[1].Group, rule.Conditions[2].Group}; got[0] != 0 || got[1] != 0 || got[2] != 1 || rule.Conditions[2].Field != "subject" {
+		t.Fatalf("groups = %v, conditions = %+v", got, rule.Conditions)
+	}
+	if !rule.Match(newsletter) {
+		t.Fatal("the first group held but the rule didn't match")
+	}
+	other := newsletter
+	other.FromEmail, other.FromName = "news@mill.example", "The Mill"
+	if rule.Match(other) {
+		t.Fatal("matched with half of the first group and none of the second")
+	}
+	other.Subject = "Your invoice"
+	if !rule.Match(other) {
+		t.Fatal("the second group held but the rule didn't match")
+	}
+
+	// A rule saved before groups, matching any condition, is one group per
+	// condition.
+	legacy := models.MailRule{Conditions: []models.MailRuleCondition{condition("from", "contains", "mill"), condition("subject", "contains", "invoice")}}
+	GroupConditions(&legacy)
+	if !legacy.MatchAll || legacy.Conditions[0].Group != 0 || legacy.Conditions[1].Group != 1 {
+		t.Fatalf("legacy rule = %+v", legacy)
+	}
+}
+
 func TestOwnMailNeedsSentOrDraftsNamed(t *testing.T) {
 	sent := newsletter
 	sent.Folders = []Folder{{ID: "acct_f_sent", Role: "sent"}}

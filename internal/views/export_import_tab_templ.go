@@ -714,7 +714,7 @@ func dataDialogFooter() templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = dialog.Footer(dialog.FooterProps{Class: "shrink-0 border-t border-border/60 px-6 py-4", Attributes: templ.Attributes{"data-data-dialog-footer": ""}}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var34), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = dialog.Footer(dialog.FooterProps{Class: "shrink-0 px-6 py-4", Attributes: templ.Attributes{"data-data-dialog-footer": ""}}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var34), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

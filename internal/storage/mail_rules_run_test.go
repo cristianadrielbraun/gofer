@@ -9,54 +9,71 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/models"
 )
 
-func previewSubjects(preview MailRulePreview) []string {
-	subjects := []string{}
-	for _, m := range preview.Sample {
-		subjects = append(subjects, m.Subject)
+// scanAll finds every message a rule would change, step by step, as a run
+// by hand does.
+func scanAll(t *testing.T, db *DB, ruleID string, scope MailRuleRunScope, allow func(string) bool) (matches []int64, total, steps int, err error) {
+	return scanAllBy(t, db, ruleID, scope, allow, MailRuleRunScanBatch)
+}
+
+func scanAllBy(t *testing.T, db *DB, ruleID string, scope MailRuleRunScope, allow func(string) bool, limit int) (matches []int64, total, steps int, err error) {
+	t.Helper()
+	matches = []int64{}
+	var before int64
+	for {
+		step, err := db.ScanMailRuleRun(t.Context(), "default", ruleID, scope, allow, before, limit)
+		if err != nil {
+			return matches, total, steps, err
+		}
+		if steps == 0 {
+			total = step.Total
+		}
+		steps++
+		matches = append(matches, step.Matches...)
+		if step.Done {
+			return matches, total, steps, nil
+		}
+		before = step.Next
 	}
-	return subjects
+}
+
+func changedCount(result MailRuleRunResult) int {
+	n := 0
+	for _, changed := range result.Changed {
+		n += changed
+	}
+	return n
 }
 
 func inboxScope() MailRuleRunScope {
 	return MailRuleRunScope{Folder: models.MailRuleFolderTarget{Role: "inbox"}}
 }
 
-// A rule runs on the mail already in a folder only after a preview, and acts
-// on what the preview found; a second run has nothing left to do.
-func TestPreviewAndRunMailRuleOnExistingMail(t *testing.T) {
+// A rule runs on the mail already in a folder only after a scan, and acts
+// on what the scan found; a second run has nothing left to do.
+func TestScanAndRunMailRuleOnExistingMail(t *testing.T) {
 	db := newMailRulesTestDB(t, "imap")
 	ctx := t.Context()
 	rule := saveTestRule(t, db, models.MailRule{Conditions: fromBakery(), Actions: []models.MailRuleAction{{Kind: "archive"}}})
-	// Running by hand works on a rule that is off too.
+	// Running by hand works on an inactive rule too.
 	if err := db.SetMailRuleEnabledGuarded(ctx, "default", rule.ID, false, nil); err != nil {
 		t.Fatal(err)
 	}
-	day := time.Date(2026, 9, 1, 8, 0, 0, 0, time.UTC)
-	older := backfill(t, db, "inbox", SyncMessage{MessageID: "<rolls@harbor-bakery.example>", Subject: "Rolls are back", FromEmail: "news@harbor-bakery.example", DateSent: day})
-	newer := backfill(t, db, "inbox", SyncMessage{MessageID: "<pies@harbor-bakery.example>", Subject: "Pie week", FromEmail: "news@harbor-bakery.example", DateSent: day.AddDate(0, 0, 3)})
-	other := backfill(t, db, "inbox", SyncMessage{MessageID: "<dentist@clinic.example>", Subject: "Appointment", FromEmail: "desk@clinic.example", DateSent: day.AddDate(0, 0, 2)})
-	elsewhere := backfill(t, db, "receipts", SyncMessage{MessageID: "<bill@harbor-bakery.example>", Subject: "Your bill", FromEmail: "till@harbor-bakery.example", DateSent: day})
+	older := backfill(t, db, "inbox", SyncMessage{MessageID: "<rolls@harbor-bakery.example>", Subject: "Rolls are back", FromEmail: "news@harbor-bakery.example"})
+	newer := backfill(t, db, "inbox", SyncMessage{MessageID: "<pies@harbor-bakery.example>", Subject: "Pie week", FromEmail: "news@harbor-bakery.example"})
+	other := backfill(t, db, "inbox", SyncMessage{MessageID: "<dentist@clinic.example>", Subject: "Appointment", FromEmail: "desk@clinic.example"})
+	elsewhere := backfill(t, db, "receipts", SyncMessage{MessageID: "<bill@harbor-bakery.example>", Subject: "Your bill", FromEmail: "till@harbor-bakery.example"})
 
-	preview, err := db.PreviewMailRuleRun(ctx, "default", rule.ID, inboxScope(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !slices.Equal(preview.Matches, []int64{newer, older}) || preview.Scanned != 3 || preview.Truncated {
-		t.Fatalf("preview = %+v", preview)
-	}
-	if got := previewSubjects(preview); !slices.Equal(got, []string{"Pie week", "Rolls are back"}) || preview.Sample[0].FolderID != "inbox" || !preview.Sample[0].Date.Equal(day.AddDate(0, 0, 3)) {
-		t.Fatalf("sample = %+v", preview.Sample)
+	matches, total, _, err := scanAll(t, db, rule.ID, inboxScope(), nil)
+	if err != nil || !slices.Equal(matches, []int64{newer, older}) || total != 3 {
+		t.Fatalf("scan = %v of %d, %v", matches, total, err)
 	}
 	if visibleFolders(t, db, newer) != "inbox" || len(ruleRuns(t, db)) != 0 {
-		t.Fatal("the preview changed something")
+		t.Fatal("the scan changed something")
 	}
 
-	result, err := db.RunMailRuleNow(ctx, "default", rule.ID, inboxScope(), preview.Matches, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.Changed != 2 || result.Unchanged != 0 {
-		t.Fatalf("result = %+v", result)
+	result, err := db.RunMailRuleNow(ctx, "default", rule.ID, inboxScope(), matches, nil)
+	if err != nil || changedCount(result) != 2 || result.Changed["acc"] != 2 || result.Unchanged != 0 || result.Failed != 0 {
+		t.Fatalf("result = %+v, %v", result, err)
 	}
 	if !slices.Contains(result.Folders, FolderRef{AccountID: "acc", FolderID: "inbox"}) || !slices.Contains(result.Folders, FolderRef{AccountID: "acc", FolderID: "archive"}) {
 		t.Fatalf("changed folders = %+v", result.Folders)
@@ -66,24 +83,30 @@ func TestPreviewAndRunMailRuleOnExistingMail(t *testing.T) {
 			t.Fatalf("message %d in %q, want %q", id, got, want)
 		}
 	}
-	runs := ruleRuns(t, db)
-	if len(runs) != 2 || runs[0].Trigger != models.MailRuleTriggerManual || runs[0].Status != models.MailRuleRunApplied || runs[0].Detail != "archived" {
+	// The messages a run changed aren't recorded one by one; the run
+	// records a summary.
+	if runs := ruleRuns(t, db); len(runs) != 0 {
+		t.Fatalf("activity = %+v", runs)
+	}
+	if err := db.RecordMailRuleRunSummary(ctx, "default", rule.ID, "acc", "Run by hand on Inbox: changed 2 messages", 2); err != nil {
+		t.Fatal(err)
+	}
+	if runs := ruleRuns(t, db); len(runs) != 1 || runs[0].Trigger != models.MailRuleTriggerManual || runs[0].Status != models.MailRuleRunApplied || runs[0].MessageID != 0 {
 		t.Fatalf("activity = %+v", runs)
 	}
 
-	again, err := db.PreviewMailRuleRun(ctx, "default", rule.ID, inboxScope(), nil)
-	if err != nil || len(again.Matches) != 0 || again.Scanned != 1 {
-		t.Fatalf("second preview = %+v, %v", again, err)
+	if again, _, _, err := scanAll(t, db, rule.ID, inboxScope(), nil); err != nil || len(again) != 0 {
+		t.Fatalf("second scan = %v, %v", again, err)
 	}
-	// Confirming a stale preview does nothing either.
-	result, err = db.RunMailRuleNow(ctx, "default", rule.ID, inboxScope(), preview.Matches, nil)
-	if err != nil || result.Changed != 0 || result.Unchanged != 2 || len(ruleRuns(t, db)) != 2 {
+	// Running on a stale scan does nothing either.
+	result, err = db.RunMailRuleNow(ctx, "default", rule.ID, inboxScope(), matches, nil)
+	if err != nil || changedCount(result) != 0 || result.Unchanged != 2 {
 		t.Fatalf("second run = %+v, %v", result, err)
 	}
 }
 
-// A preview leaves out mail the rule would leave as it is.
-func TestPreviewMailRuleRunLeavesOutMailWithNothingToDo(t *testing.T) {
+// A scan leaves out mail the rule would leave as it is.
+func TestScanMailRuleRunLeavesOutMailWithNothingToDo(t *testing.T) {
 	db := newMailRulesTestDB(t, "imap")
 	ctx := t.Context()
 	rule := saveTestRule(t, db, models.MailRule{Conditions: fromBakery(),
@@ -92,50 +115,45 @@ func TestPreviewMailRuleRunLeavesOutMailWithNothingToDo(t *testing.T) {
 		Labels: []LabelInput{{AccountID: "acc", ProviderType: LabelProviderLocal, Name: "bread"}}, LabelsKnown: true, LabelProvider: LabelProviderLocal})
 	unread := backfill(t, db, "inbox", SyncMessage{MessageID: "<unread@harbor-bakery.example>", Subject: "Unread", FromEmail: "news@harbor-bakery.example"})
 
-	preview, err := db.PreviewMailRuleRun(ctx, "default", rule.ID, inboxScope(), nil)
-	if err != nil {
+	matches, _, _, err := scanAll(t, db, rule.ID, inboxScope(), nil)
+	if err != nil || !slices.Equal(matches, []int64{unread}) {
+		t.Fatalf("matches = %v, want only %d (not %d), %v", matches, unread, read, err)
+	}
+	if _, err := db.RunMailRuleNow(ctx, "default", rule.ID, inboxScope(), matches, nil); err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(preview.Matches, []int64{unread}) {
-		t.Fatalf("matches = %v, want only %d (not %d)", preview.Matches, unread, read)
-	}
-	if _, err := db.RunMailRuleNow(ctx, "default", rule.ID, inboxScope(), preview.Matches, nil); err != nil {
-		t.Fatal(err)
-	}
-	again, err := db.PreviewMailRuleRun(ctx, "default", rule.ID, inboxScope(), nil)
-	if err != nil || len(again.Matches) != 0 {
-		t.Fatalf("after labeling, preview = %+v, %v", again, err)
+	if again, _, _, err := scanAll(t, db, rule.ID, inboxScope(), nil); err != nil || len(again) != 0 {
+		t.Fatalf("after labeling, scan = %v, %v", again, err)
 	}
 }
 
-// One run looks at the newest mail of a folder only, and acts on so many
-// messages at most.
-func TestPreviewMailRuleRunIsCapped(t *testing.T) {
+// A scan goes through the whole folder a step at a time, so a rule that
+// leaves mail where it is still reaches the oldest of it; a run acts on so
+// many messages a step.
+func TestScanMailRuleRunCoversTheWholeFolder(t *testing.T) {
 	db := newMailRulesTestDB(t, "imap")
 	ctx := t.Context()
 	rule := saveTestRule(t, db, models.MailRule{Conditions: fromBakery(), Actions: []models.MailRuleAction{{Kind: "star"}}})
-	day := time.Date(2026, 9, 1, 8, 0, 0, 0, time.UTC)
 	var ids []int64
 	for i := range 5 {
 		ids = append(ids, backfill(t, db, "inbox", SyncMessage{MessageID: "<loaf-" + string(rune('a'+i)) + "@harbor-bakery.example>",
-			Subject: "Loaf", FromEmail: "news@harbor-bakery.example", DateSent: day.AddDate(0, 0, i)}))
+			Subject: "Loaf", FromEmail: "news@harbor-bakery.example"}))
 	}
-	scan, match := mailRuleRunScanLimit, mailRuleRunMatchLimit
-	t.Cleanup(func() { mailRuleRunScanLimit, mailRuleRunMatchLimit = scan, match })
+	backfill(t, db, "inbox", SyncMessage{MessageID: "<dentist@clinic.example>", Subject: "Appointment", FromEmail: "desk@clinic.example"})
+	apply := MailRuleRunApplyBatch
+	t.Cleanup(func() { MailRuleRunApplyBatch = apply })
+	MailRuleRunApplyBatch = 2
 
-	mailRuleRunScanLimit, mailRuleRunMatchLimit = 3, 1000
-	preview, err := db.PreviewMailRuleRun(ctx, "default", rule.ID, inboxScope(), nil)
-	if err != nil || !slices.Equal(preview.Matches, []int64{ids[4], ids[3], ids[2]}) || !preview.Truncated {
-		t.Fatalf("scan-capped preview = %+v, %v", preview, err)
+	matches, total, steps, err := scanAllBy(t, db, rule.ID, inboxScope(), nil, 2)
+	if err != nil || total != 6 || steps != 4 || !slices.Equal(matches, []int64{ids[4], ids[3], ids[2], ids[1], ids[0]}) {
+		t.Fatalf("scan = %v of %d in %d steps, %v", matches, total, steps, err)
 	}
-	mailRuleRunScanLimit, mailRuleRunMatchLimit = 1000, 2
-	preview, err = db.PreviewMailRuleRun(ctx, "default", rule.ID, inboxScope(), nil)
-	if err != nil || !slices.Equal(preview.Matches, []int64{ids[4], ids[3]}) || !preview.Truncated {
-		t.Fatalf("match-capped preview = %+v, %v", preview, err)
+	result, err := db.RunMailRuleNow(ctx, "default", rule.ID, inboxScope(), matches, nil)
+	if err != nil || changedCount(result) != 2 {
+		t.Fatalf("run of more than a step = %+v, %v", result, err)
 	}
-	result, err := db.RunMailRuleNow(ctx, "default", rule.ID, inboxScope(), ids, nil)
-	if err != nil || result.Changed != 2 {
-		t.Fatalf("run of more than the cap = %+v, %v", result, err)
+	if rest, _, _, err := scanAllBy(t, db, rule.ID, inboxScope(), nil, 2); err != nil || !slices.Equal(rest, []int64{ids[2], ids[1], ids[0]}) {
+		t.Fatalf("left after one step = %v, %v", rest, err)
 	}
 }
 
@@ -165,26 +183,26 @@ func TestRunMailRuleNowScope(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	preview, err := db.PreviewMailRuleRun(ctx, "default", everywhere.ID, inboxScope(), nil)
-	if err != nil || len(preview.Matches) != 2 {
-		t.Fatalf("every inbox = %+v, %v", preview, err)
+	matches, _, _, err := scanAll(t, db, everywhere.ID, inboxScope(), nil)
+	if err != nil || len(matches) != 2 {
+		t.Fatalf("every inbox = %v, %v", matches, err)
 	}
 	onlyFirst := func(accountID string) bool { return accountID == "acc" }
-	if preview, err = db.PreviewMailRuleRun(ctx, "default", everywhere.ID, inboxScope(), onlyFirst); err != nil || !slices.Equal(preview.Matches, []int64{first}) {
-		t.Fatalf("allowed accounts = %+v, %v", preview, err)
+	if matches, _, _, err = scanAll(t, db, everywhere.ID, inboxScope(), onlyFirst); err != nil || !slices.Equal(matches, []int64{first}) {
+		t.Fatalf("allowed accounts = %v, %v", matches, err)
 	}
 	byID := MailRuleRunScope{Folder: models.MailRuleFolderTarget{FolderID: "inbox2"}}
-	if preview, err = db.PreviewMailRuleRun(ctx, "default", everywhere.ID, byID, nil); err != nil || !slices.Equal(preview.Matches, []int64{second}) {
-		t.Fatalf("one folder = %+v, %v", preview, err)
+	if matches, _, _, err = scanAll(t, db, everywhere.ID, byID, nil); err != nil || !slices.Equal(matches, []int64{second}) {
+		t.Fatalf("one folder = %v, %v", matches, err)
 	}
-	if _, err := db.PreviewMailRuleRun(ctx, "default", everywhere.ID, MailRuleRunScope{AccountID: "acc", Folder: models.MailRuleFolderTarget{FolderID: "inbox2"}}, nil); !errors.Is(err, ErrMailRuleRunFolder) {
+	if _, err := db.ScanMailRuleRun(ctx, "default", everywhere.ID, MailRuleRunScope{AccountID: "acc", Folder: models.MailRuleFolderTarget{FolderID: "inbox2"}}, nil, 0, MailRuleRunScanBatch); !errors.Is(err, ErrMailRuleRunFolder) {
 		t.Fatalf("folder of another account: %v", err)
 	}
 	firstOnly := saveTestRule(t, db, models.MailRule{Name: "First only", AccountID: "acc", Conditions: fromBakery(), Actions: []models.MailRuleAction{{Kind: "trash"}}})
-	if _, err := db.PreviewMailRuleRun(ctx, "default", firstOnly.ID, byID, nil); !errors.Is(err, ErrMailRuleRunFolder) {
+	if _, err := db.ScanMailRuleRun(ctx, "default", firstOnly.ID, byID, nil, 0, MailRuleRunScanBatch); !errors.Is(err, ErrMailRuleRunFolder) {
 		t.Fatalf("folder outside the rule's account: %v", err)
 	}
-	if _, err := db.PreviewMailRuleRun(ctx, "someone-else", everywhere.ID, inboxScope(), nil); err == nil {
+	if _, err := db.ScanMailRuleRun(ctx, "someone-else", everywhere.ID, inboxScope(), nil, 0, MailRuleRunScanBatch); err == nil {
 		t.Fatal("another user ran the rule")
 	}
 
@@ -194,7 +212,7 @@ func TestRunMailRuleNowScope(t *testing.T) {
 		t.Fatal(err)
 	}
 	result, err := db.RunMailRuleNow(ctx, "default", firstOnly.ID, inboxScope(), []int64{first, second}, nil)
-	if err != nil || result.Changed != 0 || result.Unchanged != 2 {
+	if err != nil || changedCount(result) != 0 || result.Unchanged != 2 {
 		t.Fatalf("run = %+v, %v", result, err)
 	}
 	if visibleFolders(t, db, first) != "receipts" || visibleFolders(t, db, second) != "inbox2" {
