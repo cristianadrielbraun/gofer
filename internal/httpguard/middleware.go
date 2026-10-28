@@ -1,6 +1,8 @@
 package httpguard
 
 import (
+	"encoding/json"
+	"log"
 	"net/http"
 	"strings"
 )
@@ -11,7 +13,7 @@ func (c *Config) Middleware(next http.Handler) http.Handler {
 		r = c.withClientAddress(r)
 
 		if !c.trustsHost(r.Host) {
-			http.Error(w, "request host is not trusted", http.StatusMisdirectedRequest)
+			requestBlocked(w, r, "Request host is not trusted. Check that GOFER_BASE_URL matches the URL used to open Gofer, including http:// or https:// and the port.", http.StatusMisdirectedRequest)
 			return
 		}
 		// Browsers send policy reports on their own, without the headers the
@@ -25,12 +27,23 @@ func (c *Config) Middleware(next http.Handler) http.Handler {
 			return
 		}
 		if requiresSameOrigin(r) && !c.isSameOriginRequest(r) {
-			http.Error(w, "cross-origin request blocked", http.StatusForbidden)
+			requestBlocked(w, r, "Cross-origin request blocked. Check that GOFER_BASE_URL matches the URL used to open Gofer, including http:// or https:// and the port. If Gofer is behind a reverse proxy, use its public URL. Update the setting and restart Gofer before trying again.", http.StatusForbidden)
 			return
 		}
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+// HTMX does not display error response bodies. Send a separate notification
+// while keeping the rejection status and leaving the current form intact.
+func requestBlocked(w http.ResponseWriter, r *http.Request, message string, status int) {
+	log.Printf("HTTP guard: %s %s: %s", r.Method, r.URL.Path, message)
+	if r.Header.Get("HX-Request") == "true" {
+		trigger, _ := json.Marshal(map[string]string{"gofer-request-blocked": message})
+		w.Header().Set("HX-Trigger", string(trigger))
+	}
+	http.Error(w, message, status)
 }
 
 func requiresSameOrigin(r *http.Request) bool {

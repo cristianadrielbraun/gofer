@@ -1,10 +1,72 @@
 package httpguard
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
+
+// Issue #54: a page served through HTTPS loads with an HTTP base URL, but
+// Review import is rejected before the uploaded profile can be processed.
+func TestProfileImportBaseURLMismatch(t *testing.T) {
+	for _, baseURL := range []string{"http://mail.example.test", "https://mail.example.test"} {
+		for _, htmx := range []bool{false, true} {
+			t.Run(baseURL+"/htmx="+fmt.Sprint(htmx), func(t *testing.T) {
+				cfg, err := newConfig("0.0.0.0:8090", baseURL, true)
+				if err != nil {
+					t.Fatal(err)
+				}
+				calls := 0
+				handler := cfg.Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+					calls++
+					w.WriteHeader(http.StatusNoContent)
+				}))
+				for _, path := range []string{"/api/profile/import/preview", "/api/profile/import"} {
+					request := httptest.NewRequest(http.MethodPost, "https://mail.example.test"+path, strings.NewReader("profile data"))
+					request.Header.Set("Origin", "https://mail.example.test")
+					request.Header.Set("Sec-Fetch-Site", "same-origin")
+					if htmx {
+						request.Header.Set("HX-Request", "true")
+					}
+					response := httptest.NewRecorder()
+					handler.ServeHTTP(response, request)
+					if baseURL == "https://mail.example.test" {
+						if response.Code != http.StatusNoContent || response.Header().Get("HX-Trigger") != "" {
+							t.Fatalf("correct base URL: status=%d headers=%v", response.Code, response.Header())
+						}
+						continue
+					}
+					if response.Code != http.StatusForbidden || calls != 0 {
+						t.Fatalf("mismatch: status=%d handler calls=%d", response.Code, calls)
+					}
+					message := strings.TrimSpace(response.Body.String())
+					for _, explanation := range []string{"GOFER_BASE_URL", "https://", "reverse proxy", "restart Gofer"} {
+						if !strings.Contains(message, explanation) {
+							t.Errorf("missing %q in %q", explanation, message)
+						}
+					}
+					if htmx {
+						var trigger map[string]string
+						if err := json.Unmarshal([]byte(response.Header().Get("HX-Trigger")), &trigger); err != nil {
+							t.Fatal(err)
+						}
+						if trigger["gofer-request-blocked"] != message {
+							t.Fatalf("HTMX explanation = %v, want %q", trigger, message)
+						}
+					} else if response.Header().Get("HX-Trigger") != "" {
+						t.Fatal("non-HTMX response has a trigger")
+					}
+				}
+				if baseURL == "https://mail.example.test" && calls != 2 {
+					t.Fatalf("correct base URL: handler calls=%d", calls)
+				}
+			})
+		}
+	}
+}
 
 func TestMiddlewareRequestBoundary(t *testing.T) {
 	cfg, err := newConfig(DefaultListenAddr, DefaultBaseURL, false)

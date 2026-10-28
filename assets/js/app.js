@@ -37,6 +37,20 @@ function setupPageRequestOwnership() {
 
 setupPageRequestOwnership()
 
+// Guard rejections happen before route handlers and HTMX keeps their error
+// bodies out of the page. Explain the failure without discarding form input.
+document.addEventListener("gofer-request-blocked", function (event) {
+  showGoferToast({
+    id: "gofer-request-blocked",
+    title: "Request blocked",
+    description: event.detail.value,
+    dismissible: true,
+    variant: "error",
+    icon: "error",
+    duration: 0,
+  })
+})
+
 // Phones only have the card layout for the mail and contact lists. The server already
 // renders cards for them (see the gofer_list_view cookie); this covers a list that
 // arrived as a table anyway, such as the first visit or a window resized across the
