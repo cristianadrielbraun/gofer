@@ -14,6 +14,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/components/timepicker"
 	"github.com/cristianadrielbraun/gofer/components/input"
 	"github.com/cristianadrielbraun/gofer/components/popover"
+	"github.com/cristianadrielbraun/gofer/components/progress"
 	"github.com/cristianadrielbraun/gofer/components/selectbox"
 	"github.com/cristianadrielbraun/gofer/components/tabs"
 	"github.com/cristianadrielbraun/gofer/components/tooltip"
@@ -159,6 +160,7 @@ templ SettingsComponentScripts() {
 	@popover.Script()
 	@copybutton.Script()
 	@toast.Script()
+	@progress.Script()
 }
 
 templ SettingsRuntime(accounts []models.Account) {

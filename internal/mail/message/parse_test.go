@@ -74,3 +74,17 @@ func TestTextFromHTMLReturnsCompleteVisibleText(t *testing.T) {
 		t.Fatalf("TextFromHTML() included non-visible content: %q", got)
 	}
 }
+
+func TestParseListID(t *testing.T) {
+	for _, tc := range []struct{ raw, want string }{
+		{"List-Id: Corner Shop offers <offers.corner-shop.example>\r\n\r\n", "Corner Shop offers <offers.corner-shop.example>"},
+		{"References: <a@example.test>\r\nList-Id: Corner Shop offers\r\n <offers.corner-shop.example>\r\n\r\n", "Corner Shop offers <offers.corner-shop.example>"},
+		{"List-Id: =?UTF-8?Q?Caf=C3=A9_news?= <news.cafe.example>\r\n\r\n", "Café news <news.cafe.example>"},
+		{"List-Id: <bare.list.example>\r\n", "<bare.list.example>"},
+		{"In-Reply-To: <a@example.test>\r\n\r\n", ""},
+	} {
+		if got := ParseListID([]byte(tc.raw)); got != tc.want {
+			t.Errorf("ParseListID(%q) = %q, want %q", tc.raw, got, tc.want)
+		}
+	}
+}

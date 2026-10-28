@@ -956,6 +956,10 @@ type SyncMessage struct {
 	ToRecipients     []Recipient
 	CCRecipients     []Recipient
 	SizeBytes        int64
+	ListID           string
+	// Arrived marks mail that just came in, as opposed to mail a first or
+	// catch-up sync finds. Mail rules act on it.
+	Arrived bool
 }
 
 type ProviderSyncMessage struct {
@@ -984,6 +988,10 @@ type ProviderSyncMessage struct {
 	CCRecipients      []Recipient
 	BCCRecipients     []Recipient
 	SizeBytes         int64
+	ListID            string
+	// Arrived marks mail that just came in, as opposed to mail a first or
+	// catch-up sync finds. Mail rules act on it.
+	Arrived bool
 }
 
 const (
@@ -1516,10 +1524,11 @@ func (db *DB) UpsertSyncMessages(ctx context.Context, msgs []SyncMessage) error 
 
 	msgStmt, err := tx.PrepareContext(ctx, `
 		INSERT INTO messages (account_id, internet_message_id, message_id_normalized, in_reply_to, "references", normalized_subject, subject, from_name, from_email,
-			date_sent, date_received, snippet, preview_text, size_bytes)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			date_sent, date_received, snippet, preview_text, size_bytes, list_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(account_id, internet_message_id) DO UPDATE SET
 			message_id_normalized = excluded.message_id_normalized,
+			list_id = CASE WHEN excluded.list_id != '' THEN excluded.list_id ELSE list_id END,
 			subject = excluded.subject,
 			normalized_subject = excluded.normalized_subject,
 			from_name = excluded.from_name,
@@ -1575,8 +1584,8 @@ func (db *DB) UpsertSyncMessages(ctx context.Context, msgs []SyncMessage) error 
 
 	newMsgStmt, err := tx.PrepareContext(ctx, `
 		INSERT INTO messages (account_id, internet_message_id, message_id_normalized, in_reply_to, "references", normalized_subject, subject, from_name, from_email,
-			date_sent, date_received, snippet, preview_text, size_bytes, thread_id, thread_parent_id)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			date_sent, date_received, snippet, preview_text, size_bytes, thread_id, thread_parent_id, list_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		RETURNING id`)
 	if err != nil {
 		return fmt.Errorf("prepare new msg insert: %w", err)
@@ -1653,12 +1662,17 @@ func (db *DB) UpsertSyncMessages(ctx context.Context, msgs []SyncMessage) error 
 				parent = thread.parentID.Int64
 			}
 			if err := newMsgStmt.QueryRowContext(ctx, m.AccountID, m.MessageID, messageIDNorm, inReplyTo, m.References, normalizedSubject, m.Subject,
-				m.FromName, m.FromEmail, messageDBDate, messageDBDate, m.Snippet, m.Snippet, m.SizeBytes, thread.threadID, parent).Scan(&msgID); err != nil {
+				m.FromName, m.FromEmail, messageDBDate, messageDBDate, m.Snippet, m.Snippet, m.SizeBytes, thread.threadID, parent, m.ListID).Scan(&msgID); err != nil {
 				return fmt.Errorf("insert message: %w", err)
+			}
+			if m.Arrived {
+				if err := markMailRuleArrivalTx(ctx, tx, msgID, m.AccountID, m.FolderID); err != nil {
+					return fmt.Errorf("set arrival aside for mail rules: %w", err)
+				}
 			}
 		} else if !preserveLocalDraft {
 			if _, err := msgStmt.ExecContext(ctx, m.AccountID, m.MessageID, messageIDNorm, inReplyTo, m.References, normalizedSubject, m.Subject,
-				m.FromName, m.FromEmail, messageDBDate, messageDBDate, m.Snippet, m.Snippet, m.SizeBytes,
+				m.FromName, m.FromEmail, messageDBDate, messageDBDate, m.Snippet, m.Snippet, m.SizeBytes, m.ListID,
 				boolInt(m.DateSentFallback), boolInt(m.DateSentFallback)); err != nil {
 				return fmt.Errorf("upsert message: %w", err)
 			}
@@ -1792,8 +1806,8 @@ func (db *DB) UpsertProviderSyncMessages(ctx context.Context, msgs []ProviderSyn
 
 	insertStmt, err := tx.PrepareContext(ctx, `
 		INSERT INTO messages (account_id, internet_message_id, message_id_normalized, in_reply_to, "references", normalized_subject, subject, from_name, from_email,
-			date_sent, date_received, snippet, preview_text, provider_thread_id, has_attachments, size_bytes)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+			date_sent, date_received, snippet, preview_text, provider_thread_id, has_attachments, size_bytes, list_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return nil, fmt.Errorf("prepare provider msg insert: %w", err)
 	}
@@ -1837,6 +1851,7 @@ func (db *DB) UpsertProviderSyncMessages(ctx context.Context, msgs []ProviderSyn
 			provider_thread_id = CASE WHEN ? != '' THEN ? ELSE provider_thread_id END,
 			has_attachments = ?,
 			size_bytes = CASE WHEN ? > 0 THEN ? ELSE size_bytes END,
+			list_id = CASE WHEN ? != '' THEN ? ELSE list_id END,
 			updated_at = CURRENT_TIMESTAMP
 		WHERE id = ?`)
 	if err != nil {
@@ -1959,13 +1974,18 @@ func (db *DB) UpsertProviderSyncMessages(ctx context.Context, msgs []ProviderSyn
 		if wasNew {
 			result, err := insertStmt.ExecContext(ctx,
 				m.AccountID, m.InternetMessageID, messageIDNorm, inReplyTo, m.References, normalizedSubject, m.Subject,
-				m.FromName, m.FromEmail, dateSentDB, dateReceivedDB, snippet, snippet, m.ProviderThreadID, boolInt(m.HasAttachments), m.SizeBytes)
+				m.FromName, m.FromEmail, dateSentDB, dateReceivedDB, snippet, snippet, m.ProviderThreadID, boolInt(m.HasAttachments), m.SizeBytes, m.ListID)
 			if err != nil {
 				return nil, fmt.Errorf("insert provider message: %w", err)
 			}
 			msgID, err = result.LastInsertId()
 			if err != nil {
 				return nil, fmt.Errorf("provider message id: %w", err)
+			}
+			if m.Arrived {
+				if err := markMailRuleArrivalTx(ctx, tx, msgID, m.AccountID, m.FolderID); err != nil {
+					return nil, fmt.Errorf("set arrival aside for mail rules: %w", err)
+				}
 			}
 		} else {
 			if _, err := updateStmt.ExecContext(ctx,
@@ -1977,7 +1997,7 @@ func (db *DB) UpsertProviderSyncMessages(ctx context.Context, msgs []ProviderSyn
 				boolInt(hasDateSent), dateSentDB, dateSentDB,
 				boolInt(hasDateReceived), dateReceivedDB, dateReceivedDB,
 				inReplyTo, m.References, snippet, snippet,
-				m.ProviderThreadID, m.ProviderThreadID, boolInt(m.HasAttachments), m.SizeBytes, m.SizeBytes, msgID); err != nil {
+				m.ProviderThreadID, m.ProviderThreadID, boolInt(m.HasAttachments), m.SizeBytes, m.SizeBytes, m.ListID, m.ListID, msgID); err != nil {
 				return nil, fmt.Errorf("update provider message: %w", err)
 			}
 			// A draft edited elsewhere keeps its id, so the body and

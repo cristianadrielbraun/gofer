@@ -703,6 +703,9 @@ func (o *SyncOrchestrator) syncOutlookGraphFolder(ctx context.Context, accountID
 			}
 		}
 		o.publishEvent(Event{Type: EventSyncComplete, AccountID: accountID, FolderID: folder.ID, FolderRole: folder.Role, Payload: o.folderSyncProgressPayload(o.outlookPersistContext(ctx), accountID, folderName, "graph", payload)})
+		if len(fresh.arrivals) > 0 {
+			fresh.ApplyRules(o.runMailRules(o.outlookPersistContext(ctx), accountID))
+		}
 		o.publishNewMail(o.outlookPersistContext(ctx), accountID, folder.ID, folder.RemoteID, fresh)
 	}()
 
@@ -775,6 +778,9 @@ func (o *SyncOrchestrator) syncOutlookGraphFolder(ctx context.Context, accountID
 				if known, err = o.outlookRepository().KnownProviderFolderCopies(persistCtx, accountID, folder.ID, providerIDs); err != nil {
 					return err
 				}
+				for i := range upserts {
+					upserts[i].Arrived = !known[upserts[i].ProviderMessageID]
+				}
 			}
 			idsByProvider, err := o.outlookRepository().UpsertProviderSyncMessages(persistCtx, upserts)
 			if err != nil {
@@ -783,7 +789,7 @@ func (o *SyncOrchestrator) syncOutlookGraphFolder(ctx context.Context, accountID
 			if !full {
 				for _, upsert := range upserts {
 					if !known[upsert.ProviderMessageID] {
-						fresh.Add([]storage.SyncMessage{providerNewMail(upsert)})
+						fresh.AddProvider(upsert, providerNewMail(upsert))
 					}
 				}
 			}
@@ -956,6 +962,7 @@ func outlookGraphMessageToProviderSync(accountID, folderID string, msg outlookGr
 		ProviderThreadID:  strings.TrimSpace(msg.ConversationID),
 		InReplyTo:         outlookGraphHeaderValue(msg.InternetMessageHeaders, "In-Reply-To"),
 		References:        outlookGraphHeaderValue(msg.InternetMessageHeaders, "References"),
+		ListID:            message.CleanListID(outlookGraphHeaderValue(msg.InternetMessageHeaders, "List-Id")),
 		Subject:           subject,
 		FromName:          strings.TrimSpace(from.Name),
 		FromEmail:         strings.TrimSpace(from.Address),

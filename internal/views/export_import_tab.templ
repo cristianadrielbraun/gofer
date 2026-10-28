@@ -124,7 +124,7 @@ templ dataDialogScroll(class string) {
 
 // dataDialogFooter is a data dialog's button row, under its scrolling part.
 templ dataDialogFooter() {
-	@dialog.Footer(dialog.FooterProps{Class: "shrink-0 border-t border-border/60 px-6 py-4", Attributes: templ.Attributes{"data-data-dialog-footer": ""}}) {
+	@dialog.Footer(dialog.FooterProps{Class: "shrink-0 px-6 py-4", Attributes: templ.Attributes{"data-data-dialog-footer": ""}}) {
 		{ children... }
 	}
 }

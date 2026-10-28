@@ -1056,6 +1056,109 @@ func TestSyncGmailAPIHistoryAnnouncesAddedMail(t *testing.T) {
 	}
 }
 
+// Mail rules run on the mail history adds, before it is announced, and a
+// message they mark read is announced as read.
+func TestSyncGmailAPIHistoryRunsMailRules(t *testing.T) {
+	ctx := context.Background()
+	db := newLabelSyncTestDB(t)
+	seedGmailAPIHistoryTestState(t, db, "gmail-known")
+	if _, err := db.SaveMailRuleGuarded(ctx, "default", models.MailRule{Name: "Bills", Enabled: true,
+		Conditions: []models.MailRuleCondition{{Field: models.MailRuleFieldListID, Operator: models.MailRuleOpContains, Value: "billing.example.test"}},
+		Actions:    []models.MailRuleAction{{Kind: models.MailRuleActionMarkRead}},
+	}, nil); err != nil {
+		t.Fatal(err)
+	}
+	message := func(id, subject, listID string) map[string]any {
+		headers := []map[string]string{
+			{"name": "Message-ID", "value": "<" + id + "@example.com>"},
+			{"name": "Subject", "value": subject},
+			{"name": "From", "value": "Billing <billing@example.test>"},
+		}
+		if listID != "" {
+			headers = append(headers, map[string]string{"name": "List-Id", "value": listID})
+		}
+		return map[string]any{
+			"id": id, "threadId": "thread-" + id, "labelIds": []string{"INBOX", "UNREAD"}, "historyId": "110", "internalDate": "1760000200000",
+			"payload": map[string]any{"headers": headers},
+		}
+	}
+	messages := map[string]map[string]any{
+		"gmail-known": message("gmail-known", "Gmail history message", "Billing <billing.example.test>"),
+		"gmail-bill":  message("gmail-bill", "Invoice 42", "Billing\r\n <billing.example.test>"),
+		"gmail-other": message("gmail-other", "Garden plans", ""),
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/users/me/labels":
+			_ = json.NewEncoder(w).Encode(map[string]any{"labels": []map[string]any{{"id": "INBOX", "name": "INBOX", "type": "system"}}})
+		case r.Method == http.MethodGet && r.URL.Path == "/users/me/history":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"historyId": "110",
+				"history": []map[string]any{{
+					"labelsAdded": []map[string]any{{"message": map[string]string{"id": "gmail-known"}, "labelIds": []string{"UNREAD"}}},
+					"messagesAdded": []map[string]any{
+						{"message": map[string]string{"id": "gmail-bill"}},
+						{"message": map[string]string{"id": "gmail-other"}},
+					},
+				}},
+			})
+		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/users/me/messages/"):
+			msg, ok := messages[strings.TrimPrefix(r.URL.Path, "/users/me/messages/")]
+			if !ok {
+				http.NotFound(w, r)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(msg)
+		default:
+			t.Fatalf("unexpected Gmail request %s %s", r.Method, r.URL.String())
+		}
+	}))
+	defer server.Close()
+	previousBaseURL := gmailAPIBaseURL
+	gmailAPIBaseURL = server.URL
+	t.Cleanup(func() { gmailAPIBaseURL = previousBaseURL })
+
+	orchestrator := NewSyncOrchestrator(db, nil, store.NewBlobStore(filepath.Join(t.TempDir(), "blobs")), labelSyncTestTokens{})
+	woken := 0
+	orchestrator.SetMutationWake(func() { woken++ })
+	events := orchestrator.Events().Subscribe()
+	defer orchestrator.Events().Unsubscribe(events)
+	if err := orchestrator.syncGmailAPIAccount(ctx, "acc", true); err != nil {
+		t.Fatalf("syncGmailAPIAccount() error = %v", err)
+	}
+	var inbox Event
+	for len(events) > 0 {
+		if event := <-events; event.Type == EventNewMail {
+			inbox = event
+		}
+	}
+	if inbox.Payload["count"] != 2 || inbox.Payload["unread_count"] != 1 {
+		t.Fatalf("inbox new mail = %+v, want 2 with 1 unread", inbox)
+	}
+	if woken != 1 {
+		t.Fatalf("mutation worker woken %d times, want 1", woken)
+	}
+	runs, err := db.ListMailRuleRuns(ctx, "default", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runs) != 1 || runs[0].Subject != "Invoice 42" || runs[0].Status != models.MailRuleRunApplied {
+		t.Fatalf("rule runs = %+v, want the invoice alone: the known message isn't new", runs)
+	}
+	var listID string
+	var read bool
+	if err := db.Read().QueryRowContext(ctx, `SELECT m.list_id, s.is_read FROM messages m JOIN message_folder_state s ON s.message_id = m.id WHERE m.internet_message_id = '<gmail-bill@example.com>'`).Scan(&listID, &read); err != nil {
+		t.Fatal(err)
+	}
+	if listID != "Billing <billing.example.test>" || !read {
+		t.Fatalf("invoice list_id = %q, read = %v", listID, read)
+	}
+	var queued int
+	if err := db.Read().QueryRowContext(ctx, `SELECT COUNT(*) FROM message_mutations WHERE account_id = 'acc'`).Scan(&queued); err != nil || queued != 1 {
+		t.Fatalf("queued message changes = %d, %v; want the read change", queued, err)
+	}
+}
+
 func TestSyncGmailAPIHistoryQueuesAndRecoversTransientMessage404(t *testing.T) {
 	ctx := context.Background()
 	db := newLabelSyncTestDB(t)

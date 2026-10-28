@@ -131,7 +131,7 @@ func InspectUserStorageMigration(ctx context.Context, sourcePath string) (UserSt
 }
 
 func migrationSharedVersionSupported(version int) bool {
-	return version >= 105 && version <= 131
+	return version >= 105 && version <= 132
 }
 
 // These recognized shared schemas differ only in the explicitly handled push
@@ -434,6 +434,8 @@ func migrationSourceColumns(ctx context.Context, tx *sql.Tx, table *UserStorageM
 		missing = []string{"smtp_host", "smtp_port", "smtp_tls_mode", "smtp_username", "encrypted_smtp_password"}
 	} else if table.Name == "folders" && version < 130 {
 		missing = []string{"role_choice"}
+	} else if table.Name == "messages" && version < 132 {
+		missing = []string{"list_id"}
 	}
 	for _, name := range missing {
 		if actual[name] {
@@ -506,6 +508,9 @@ func requireSharedMigrationTables(ctx context.Context, present map[string]bool, 
 			}
 			if (name == "mail_allowlist_entries" || name == "mail_allowlist_exempt_users") && version < 131 {
 				continue // Added empty by migrateV130ToV131.
+			}
+			if (name == "mail_rules" || name == "mail_rule_pending" || name == "mail_rule_runs") && version < 132 {
+				continue // Added empty by migrateV131ToV132.
 			}
 			return migrationSourceError(name, "required shared table is missing")
 		}

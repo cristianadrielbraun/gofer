@@ -868,6 +868,84 @@ func TestSyncAnnouncesNewJMAPMail(t *testing.T) {
 	}
 }
 
+// In per-user stores, mail rules run on the emails a sync finds created,
+// not on the first import; what they move away isn't announced, and the next
+// pass sends their changes to the server.
+func TestSyncRunsMailRulesOnNewJMAPMail(t *testing.T) {
+	f := newUserGmailFixture(t)
+	server := newFakeJMAPServer(t)
+	server.emailState = "c0"
+	server.setMailboxes(
+		jmap.Mailbox{ID: "mb-in", Name: "Inbox", Role: "inbox", MyRights: readable()},
+		jmap.Mailbox{ID: "mb-arch", Name: "Archive", Role: "archive", MyRights: readable()},
+	)
+	oldOffers := testJMAPEmail("e1", "Last week's offers", 10, "mb-in")
+	oldOffers.ListID = "Corner Shop offers <offers.corner-shop.example>"
+	server.emails = []jmap.Email{oldOffers}
+	useFakeJMAPAccount(t, f, server)
+	f.local(t, "alice", func(db *storage.DB) error {
+		_, err := db.SaveMailRuleGuarded(t.Context(), "alice", models.MailRule{Name: "Offers", Enabled: true,
+			Conditions: []models.MailRuleCondition{{Field: models.MailRuleFieldListID, Operator: models.MailRuleOpContains, Value: "offers.corner-shop.example"}},
+			Actions:    []models.MailRuleAction{{Kind: models.MailRuleActionLabel, Label: "Shop"}, {Kind: models.MailRuleActionArchive}},
+		}, nil)
+		return err
+	})
+	events := f.worker.Events().Subscribe()
+	defer f.worker.Events().Unsubscribe(events)
+	if err := f.worker.Sync(t.Context(), "alice", f.ids["alice"]); err != nil {
+		t.Fatal(err)
+	}
+	for len(events) > 0 {
+		<-events
+	}
+
+	offers := testJMAPEmail("e2", "This week's offers", 1, "mb-in")
+	offers.ListID = "Corner Shop offers <offers.corner-shop.example>"
+	server.addEmail(offers)
+	server.addEmail(testJMAPEmail("e3", "Your order is ready", 2, "mb-in"))
+	if err := f.worker.Sync(t.Context(), "alice", f.ids["alice"]); err != nil {
+		t.Fatal(err)
+	}
+	var announced []Event
+	for len(events) > 0 {
+		if event := <-events; event.Type == EventNewMail {
+			announced = append(announced, event)
+		}
+	}
+	if len(announced) != 1 || announced[0].Payload["count"] != 1 || announced[0].Payload["subject"] != "Your order is ready" {
+		t.Fatalf("new mail events = %+v, want the order alone", announced)
+	}
+	f.local(t, "alice", func(db *storage.DB) error {
+		var folder string
+		if err := db.Read().QueryRow(`SELECT s.folder_id FROM message_folder_state s JOIN messages m ON m.id = s.message_id WHERE m.subject = 'This week''s offers' AND s.is_deleted = 0`).Scan(&folder); err != nil {
+			return err
+		}
+		if folder != jmapLocalFolderID(f.ids["alice"], "mb-arch") {
+			t.Errorf("the new offers are in %q, want the Archive", folder)
+		}
+		runs, err := db.ListMailRuleRuns(t.Context(), "alice", 10)
+		if err != nil {
+			return err
+		}
+		if len(runs) != 1 || runs[0].Subject != "This week's offers" {
+			t.Errorf("rule runs = %+v, want the new offers alone", runs)
+		}
+		return nil
+	})
+
+	// The next pass sends the label and the move.
+	if err := f.worker.Sync(t.Context(), "alice", f.ids["alice"]); err != nil {
+		t.Fatal(err)
+	}
+	email, _ := server.email("e2")
+	if !email.MailboxIDs["mb-arch"] || email.MailboxIDs["mb-in"] || !email.Keywords["Shop"] {
+		t.Fatalf("server copy of the new offers: mailboxes %v, keywords %v", email.MailboxIDs, email.Keywords)
+	}
+	if old, _ := server.email("e1"); !old.MailboxIDs["mb-in"] {
+		t.Fatalf("the imported offers moved: %v", old.MailboxIDs)
+	}
+}
+
 // Later syncs apply the changes since the saved cursor, chunk by chunk,
 // without querying the whole account again: read and flag changes, moves,
 // deletions and new mail.

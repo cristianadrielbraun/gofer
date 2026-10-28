@@ -1,0 +1,953 @@
+package views
+
+import (
+	"fmt"
+	"strconv"
+	"time"
+
+	"github.com/cristianadrielbraun/gofer/internal/models"
+
+	"github.com/cristianadrielbraun/gofer/components/badge"
+	"github.com/cristianadrielbraun/gofer/components/checkbox"
+	"github.com/cristianadrielbraun/gofer/components/dialog"
+	"github.com/cristianadrielbraun/gofer/components/icon"
+	"github.com/cristianadrielbraun/gofer/components/input"
+	"github.com/cristianadrielbraun/gofer/components/progress"
+	"github.com/cristianadrielbraun/gofer/components/selectbox"
+	"github.com/cristianadrielbraun/gofer/components/skeleton"
+	switchcomp "github.com/cristianadrielbraun/gofer/components/switch"
+	"github.com/cristianadrielbraun/gofer/components/tooltip"
+)
+
+// SettingsRulesTab loads the rules once the tab shows.
+// The card's heading is drawn with the page; only the list loads after it,
+// in the shape of rules, faded in only if it takes a while.
+templ SettingsRulesTab() {
+	<div class="mt-6 space-y-6">
+		<div class="settings-card bg-card rounded-lg border p-6 space-y-5">
+			<div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+				<div class="min-w-0">
+					<h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-1">Rules</h3>
+					<p class="text-xs text-muted-foreground">Rules act on new mail as it arrives, even while Gofer is closed in your browser. They run from top to bottom; drag a rule to change its place.</p>
+				</div>
+				<div class="flex shrink-0 items-center gap-2 self-start">
+					<button
+						type="button"
+						class="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm hover:bg-accent"
+						hx-get={ mailRulePath("/activity") }
+						hx-target="#mail-rule-dialog-container"
+						hx-swap="innerHTML"
+						data-mail-rule-activity
+					>
+						@icon.History(icon.Props{Class: "size-3.5"})
+						Activity
+					</button>
+					<button
+						type="button"
+						class="btn-skeuo inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold"
+						hx-get={ mailRulePath("/dialog?add=1") }
+						hx-target="#mail-rule-dialog-container"
+						hx-swap="innerHTML"
+						data-mail-rule-add
+					>
+						@icon.Plus(icon.Props{Class: "size-3.5"})
+						Add rule
+					</button>
+				</div>
+			</div>
+			<div id="mail-rules-panel" hx-get="/api/settings/rules/panel" hx-trigger="load" hx-swap="outerHTML" aria-busy="true" data-mail-rules-loading>
+				@mailRulesLoading()
+			</div>
+		</div>
+		<div id="mail-rule-dialog-container"></div>
+	</div>
+}
+
+// mailRulesLoading has the shape of one rule in the list, the least it
+// shows, so the card grows to the list rather than shrinking to it.
+templ mailRulesLoading() {
+	<ul class="space-y-2">
+		for range 1 {
+			<li class="flex items-center gap-3 rounded-lg border border-border bg-background/60 p-3">
+				@skeleton.Skeleton(skeleton.Props{Class: "size-4 shrink-0"})
+				<div class="min-w-0 flex-1 space-y-1.5">
+					<div class="flex h-5 items-center">
+						@skeleton.Skeleton(skeleton.Props{Class: "h-3.5 w-40"})
+					</div>
+					<div class="flex h-4 items-center">
+						@skeleton.Skeleton(skeleton.Props{Class: "h-3 w-64 max-w-full"})
+					</div>
+				</div>
+				@skeleton.Skeleton(skeleton.Props{Class: "h-5 w-9 shrink-0 rounded-full"})
+			</li>
+		}
+	</ul>
+}
+
+func mailRulePath(rest string) string {
+	return "/api/settings/rules" + rest
+}
+
+const mailRuleIconButton = "inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+
+// MailRulesPanel shows the rules. Every change to the list swaps the whole
+// panel.
+templ MailRulesPanel(data models.MailRulesData) {
+	<div id="mail-rules-panel" class="min-w-0 space-y-4" data-mail-rules-panel>
+		@mailRulesList(data)
+	</div>
+}
+
+// MailRuleDialog adds or edits a rule, or runs one on mail already here.
+// Changes made in it swap MailRuleDialogPanel; saving or running closes it
+// and shows the list again. It is laid out like the data dialogs: the
+// header stays at the top, the buttons in the footer at the bottom, and
+// what is between them scrolls.
+templ MailRuleDialog(data models.MailRulesData) {
+	@dialog.Dialog(dialog.Props{ID: "mail-rule-dialog"}) {
+		@dialog.Content(dialog.ContentProps{Class: mailRuleDialogWidth(data) + " max-h-[calc(100dvh-2rem)] [&>[data-tui-dialog-panel]]:flex [&>[data-tui-dialog-panel]]:max-h-[calc(100dvh-2rem)] [&>[data-tui-dialog-panel]]:min-h-0 [&>[data-tui-dialog-panel]]:flex-col [&>[data-tui-dialog-panel]]:gap-0 [&>[data-tui-dialog-panel]]:p-0"}) {
+			@dialog.Header(dialog.HeaderProps{Class: "shrink-0 px-6 pt-6 pb-4"}) {
+				@dialog.Title() {
+					if data.Run != nil {
+						Run { data.Run.Rule.Name }
+					} else if data.Editing != nil && data.Editing.ID != "" {
+						Edit rule
+					} else {
+						New rule
+					}
+				}
+				@dialog.Description() {
+					if data.Run != nil {
+						<span data-mail-rule-run-summary>{ mailRuleRunSummary(data.Run.Rule, data.Accounts) }</span>
+					} else {
+						When a message arrives and the conditions hold, the rule does the actions.
+					}
+				}
+			}
+			@MailRuleDialogPanel(data)
+		}
+	}
+}
+
+// MailRuleDialogPanel is the inside of the rule dialog: the form, or the
+// preview of a run.
+templ MailRuleDialogPanel(data models.MailRulesData) {
+	<div id="mail-rule-dialog-panel" class="flex min-h-0 min-w-0 flex-1 flex-col" data-mail-rule-dialog-panel>
+		if data.Run != nil {
+			@mailRuleRunView(data)
+		} else if data.Editing != nil {
+			@mailRuleForm(data, *data.Editing)
+		}
+	</div>
+}
+
+templ mailRulesList(data models.MailRulesData) {
+	<div class="space-y-5">
+		if data.Notice != "" {
+			<p class="flex items-start gap-1.5 rounded-md border border-border/60 bg-background/60 px-3 py-2 text-xs text-foreground" role="status" data-mail-rule-notice>
+				@icon.CircleCheck(icon.Props{Class: "mt-0.5 size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400"})
+				{ data.Notice }
+			</p>
+		}
+		if data.Error != "" {
+			<p class="text-xs text-destructive" role="alert" data-mail-rule-error>{ data.Error }</p>
+		}
+		if len(data.Rules) == 0 {
+			<div class="rounded-lg border border-dashed border-border p-6 text-center">
+				<p class="text-sm text-muted-foreground">No rules yet. A rule can file newsletters away, mark mail from a sender as read, move offers to the Trash and more.</p>
+			</div>
+		} else {
+			<ul class="space-y-2" data-mail-rule-order-list>
+				for _, rule := range data.Rules {
+					@mailRuleRow(data, rule)
+				}
+			</ul>
+		}
+	</div>
+}
+
+templ mailRuleRow(data models.MailRulesData, rule models.MailRule) {
+	<li data-mail-rule-row data-mail-rule-id={ rule.ID }>
+		<div class="mail-rule-card flex items-center gap-3 rounded-lg border border-border bg-background/60 p-3">
+			<button
+				type="button"
+				data-mail-rule-order-handle
+				class="-ml-1 flex h-8 shrink-0 cursor-grab touch-none items-center rounded px-0.5 text-muted-foreground/70 transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing"
+				aria-label={ fmt.Sprintf("Reorder %s. Drag, or use the arrow keys", rule.Name) }
+				title="Drag to reorder"
+			>
+				@icon.GripVertical(icon.Props{Class: "size-4"})
+			</button>
+			<div class="min-w-0 flex-1">
+				<div class="flex h-5 min-w-0 items-center gap-2">
+					<p class="min-w-0 truncate text-sm font-medium">{ rule.Name }</p>
+					// Shown while the rule's switch is off; see input.css.
+					@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: "shrink-0 text-[10px]", Attributes: templ.Attributes{"data-mail-rule-inactive": ""}}) {
+						Inactive
+					}
+					if rule.StopProcessing {
+						@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: "shrink-0 text-[10px]"}) {
+							Stops later rules
+						}
+					}
+				</div>
+				<p class="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground" data-mail-rule-summary>
+					if rule.AccountID != "" {
+						<span class="account-color-marker size-2.5 shrink-0" style={ accountColorStyle(mailRuleAccountColor(rule.AccountID, data.Accounts)) }></span>
+					}
+					<span class="truncate">{ mailRuleListSummary(rule, data.Accounts) }</span>
+				</p>
+			</div>
+			<div class="flex shrink-0 items-center gap-1">
+				@switchcomp.Switch(switchcomp.Props{
+					Name:    "enabled",
+					Value:   "true",
+					Checked: rule.Enabled,
+					Attributes: templ.Attributes{
+						"aria-label":             fmt.Sprintf("%s is active", rule.Name),
+						"hx-post":                mailRulePath("/" + rule.ID + "/enabled"),
+						"hx-trigger":             "change",
+						"hx-swap":                "none",
+						"data-mail-rule-enabled": rule.ID,
+					},
+				})
+				<button
+					type="button"
+					class={ mailRuleIconButton }
+					aria-label={ fmt.Sprintf("Run %s on mail already here", rule.Name) }
+					title="Run now on mail already here"
+					hx-get={ mailRulePath("/" + rule.ID + "/run") }
+					hx-target="#mail-rule-dialog-container"
+					hx-swap="innerHTML"
+					data-mail-rule-run-open
+				>
+					@icon.Play(icon.Props{Class: "size-3.5"})
+				</button>
+				<button
+					type="button"
+					class={ mailRuleIconButton }
+					aria-label={ fmt.Sprintf("Edit %s", rule.Name) }
+					title="Edit"
+					hx-get={ mailRulePath("/dialog?edit=" + rule.ID) }
+					hx-target="#mail-rule-dialog-container"
+					hx-swap="innerHTML"
+					data-mail-rule-edit
+				>
+					@icon.Pencil(icon.Props{Class: "size-3.5"})
+				</button>
+				<button
+					type="button"
+					class="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+					aria-label={ fmt.Sprintf("Delete %s", rule.Name) }
+					title="Delete"
+					data-mail-rule-delete={ mailRulePath("/" + rule.ID) }
+					data-mail-rule-name={ rule.Name }
+				>
+					@icon.Trash2(icon.Props{Class: "size-3.5"})
+				</button>
+			</div>
+		</div>
+	</li>
+}
+
+const mailRuleFieldLabelClass = "mb-1.5 block text-xs font-medium text-muted-foreground"
+
+// mailRuleForm adds or edits a rule. Changing a choice that others depend
+// on, or adding or removing a row, sends the form to be shown again; only
+// Save stores it.
+templ mailRuleForm(data models.MailRulesData, rule models.MailRule) {
+	<form
+		class={ dataDialogFormClass }
+		hx-post={ mailRulePath("") }
+		hx-target="#mail-rule-dialog-panel"
+		hx-swap="outerHTML"
+		data-mail-rule-form
+	>
+		@dataDialogScroll("pb-5") {
+			<div
+				class="space-y-5"
+				hx-post={ mailRulePath("/form") }
+				hx-trigger="mail-rule-rerender"
+				hx-target="#mail-rule-dialog-panel"
+				hx-swap="outerHTML"
+				data-mail-rule-form-body
+			>
+				<input type="hidden" name="id" value={ rule.ID }/>
+				<div class="grid gap-3 sm:grid-cols-2">
+					<div>
+						<label class={ mailRuleFieldLabelClass } for="mail-rule-name">Name</label>
+						@input.Input(input.Props{ID: "mail-rule-name", Name: "name", Type: input.TypeText, Value: rule.Name, Placeholder: "Newsletters", Required: true, Attributes: templ.Attributes{"maxlength": "120", "autocomplete": "off"}})
+					</div>
+					<div>
+						<label class={ mailRuleFieldLabelClass }>For</label>
+						@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
+							@selectbox.Trigger(selectbox.TriggerProps{Name: "account_id", Class: "bg-background", DisableClear: true, Attributes: templ.Attributes{"data-mail-rule-rerender": ""}}) {
+								@selectbox.Value(selectbox.ValueProps{Placeholder: "All accounts"})
+							}
+							@selectbox.Content(selectbox.ContentProps{NoSearch: len(data.Accounts) < 8, Class: "mobile-sheet"}) {
+								@selectbox.Item(selectbox.ItemProps{Value: "", Selected: rule.AccountID == ""}) {
+									All accounts 
+								}
+								for _, account := range data.Accounts {
+									@selectbox.Item(selectbox.ItemProps{Value: account.ID, Selected: account.ID == rule.AccountID}) {
+										{ account.Email }
+									}
+								}
+							}
+						}
+					</div>
+				</div>
+				<fieldset class="space-y-3" data-mail-rule-conditions>
+					<legend class="space-y-1">
+						<span class="block text-xs font-semibold uppercase tracking-wider text-muted-foreground">When a message arrives and</span>
+						<span class="block text-xs text-muted-foreground">Conditions in a group must all hold. With more than one group, one of them is enough.</span>
+					</legend>
+					<div>
+						for g, group := range mailRuleConditionGroups(rule) {
+							if g > 0 {
+								<div class="flex justify-center py-1" aria-hidden="true" data-mail-rule-or>
+									<span class="rounded-full border border-border bg-card px-2 text-[10px] font-semibold uppercase leading-4 tracking-wider text-muted-foreground">or</span>
+								</div>
+							}
+							<div class="space-y-1 rounded-lg border border-border bg-background/40 p-1.5" data-mail-rule-condition-group={ strconv.Itoa(g) }>
+								for k, item := range group {
+									@mailRuleConditionRow(data, rule, item.index, item.condition, k > 0)
+								}
+								if mailRuleCanAddCondition(&rule) {
+									<div class="sm:pl-9">
+										@mailRuleAddConditionButton(g, "AND condition")
+									</div>
+								}
+							</div>
+						}
+					</div>
+					if mailRuleCanAddCondition(&rule) {
+						@mailRuleAddConditionButton(-1, "OR condition")
+					}
+				</fieldset>
+				<fieldset class="space-y-3" data-mail-rule-actions>
+					<legend class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Do this</legend>
+					<div class="space-y-2">
+						for i, action := range rule.Actions {
+							@mailRuleActionRow(data, rule, i, action)
+						}
+					</div>
+					if mailRuleCanAddAction(&rule) {
+						@mailRuleRowButton("add_action", 0, "Add action")
+					}
+				</fieldset>
+				<div class="space-y-2 border-t border-border/60 pt-4">
+					<label class="flex items-start gap-2 text-sm">
+						@checkbox.Checkbox(checkbox.Props{Name: "stop_processing", Value: "true", Checked: rule.StopProcessing, Class: "mt-0.5"})
+						<span>
+							Stop here
+							<span class="block text-xs text-muted-foreground">Rules below this one leave a message alone once this one matched it.</span>
+						</span>
+					</label>
+					<label class="flex items-start gap-2 text-sm">
+						@checkbox.Checkbox(checkbox.Props{Name: "enabled", Value: "true", Checked: rule.Enabled, Class: "mt-0.5"})
+						<span>
+							Active
+							<span class="block text-xs text-muted-foreground">An inactive rule leaves new mail alone, but can still be run by hand.</span>
+						</span>
+					</label>
+				</div>
+			</div>
+		}
+		@dataDialogFooter() {
+			if data.Error != "" {
+				<p class="text-xs text-destructive sm:mr-auto sm:self-center" role="alert" data-mail-rule-error>{ data.Error }</p>
+			} else {
+				<p class="text-xs text-muted-foreground sm:mr-auto sm:self-center">A rule acts on mail that arrives after it is saved. To use it on mail already here, run it from the list.</p>
+			}
+			@mailRuleFooterButtons() {
+				@dialog.Close() {
+					<button type="button" class={ mailRuleCancelButton }>Cancel</button>
+				}
+				<button type="submit" class={ mailRulePrimaryButton } data-mail-rule-save>
+					@icon.Save(icon.Props{Class: "size-3.5"})
+					Save
+				</button>
+			}
+		}
+	</form>
+}
+
+const (
+	mailRuleCancelButton  = "inline-flex items-center rounded-lg px-3 py-1.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground"
+	mailRulePrimaryButton = "btn-skeuo inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold"
+)
+
+// mailRuleFooterButtons keeps a footer's buttons together at its right.
+templ mailRuleFooterButtons() {
+	<div class="flex shrink-0 items-center justify-end gap-2">
+		{ children... }
+	</div>
+}
+
+// mailRuleAddConditionButton adds a condition to a group, or with group -1,
+// in a new group after the others, keeping the rest of the form as it is.
+templ mailRuleAddConditionButton(group int, label string) {
+	<button
+		type="button"
+		class="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+		hx-post={ mailRulePath("/form") }
+		hx-vals={ fmt.Sprintf(`{"op":"add_condition","group":%q}`, strconv.Itoa(group)) }
+		hx-target="#mail-rule-dialog-panel"
+		hx-swap="outerHTML"
+		data-mail-rule-add-condition={ strconv.Itoa(group) }
+	>
+		@icon.Plus(icon.Props{Class: "size-3.5"})
+		{ label }
+	</button>
+}
+
+// mailRuleRowButton adds or removes a condition or an action, keeping the
+// rest of the form as it is.
+templ mailRuleRowButton(op string, index int, label string) {
+	if op == "add_condition" || op == "add_action" {
+		<button
+			type="button"
+			class="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+			hx-post={ mailRulePath("/form") }
+			hx-vals={ fmt.Sprintf(`{"op":%q}`, op) }
+			hx-target="#mail-rule-dialog-panel"
+			hx-swap="outerHTML"
+			data-mail-rule-row-op={ op }
+		>
+			@icon.Plus(icon.Props{Class: "size-3.5"})
+			{ label }
+		</button>
+	} else {
+		<button
+			type="button"
+			class={ mailRuleIconButton }
+			aria-label={ label }
+			title={ label }
+			hx-post={ mailRulePath("/form") }
+			hx-vals={ fmt.Sprintf(`{"op":%q,"index":%q}`, op, strconv.Itoa(index)) }
+			hx-target="#mail-rule-dialog-panel"
+			hx-swap="outerHTML swap:220ms"
+			data-mail-rule-row-op={ op }
+		>
+			@icon.X(icon.Props{Class: "size-3.5"})
+		</button>
+	}
+}
+
+// mailRuleConditionRow is one condition on one line, after "and" when
+// another of its group comes before it.
+templ mailRuleConditionRow(data models.MailRulesData, rule models.MailRule, index int, condition models.MailRuleCondition, and bool) {
+	<div class={ "flex flex-col gap-1.5 sm:flex-row sm:items-center", templ.KV("border-t border-border/50 pt-1.5 sm:border-0 sm:pt-0", and) } data-mail-rule-condition>
+		<input type="hidden" name="cond_group" value={ strconv.Itoa(condition.Group) }/>
+		<span class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground sm:w-7 sm:shrink-0 sm:text-right" aria-hidden="true">
+			if and {
+				and
+			} else {
+				<span class="hidden sm:inline">if</span>
+			}
+		</span>
+		<div class="w-full sm:w-32 sm:shrink-0">
+			@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
+				@selectbox.Trigger(selectbox.TriggerProps{Name: "cond_field", Class: mailRuleCompactControl, DisableClear: true, Attributes: templ.Attributes{"data-mail-rule-rerender": "", "aria-label": "What to test"}}) {
+					@selectbox.Value(selectbox.ValueProps{Placeholder: "From"})
+				}
+				@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
+					for _, field := range mailRuleFields {
+						@selectbox.Item(selectbox.ItemProps{Value: field.value, Selected: field.value == condition.Field}) {
+							{ field.label }
+						}
+					}
+				}
+			}
+		</div>
+		<div class="w-full sm:w-36 sm:shrink-0">
+			@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
+				@selectbox.Trigger(selectbox.TriggerProps{Name: "cond_op", Class: mailRuleCompactControl, DisableClear: true, Attributes: templ.Attributes{"aria-label": "How to compare"}}) {
+					@selectbox.Value(selectbox.ValueProps{Placeholder: "contains"})
+				}
+				@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
+					if condition.Field == models.MailRuleFieldFolder {
+						@selectbox.Item(selectbox.ItemProps{Value: models.MailRuleOpIs, Selected: condition.Operator == models.MailRuleOpIs}) {
+							is 
+						}
+						@selectbox.Item(selectbox.ItemProps{Value: models.MailRuleOpIsNot, Selected: condition.Operator == models.MailRuleOpIsNot}) {
+							isn't 
+						}
+					} else {
+						for _, operator := range MailRuleTextOperators {
+							@selectbox.Item(selectbox.ItemProps{Value: operator, Selected: operator == condition.Operator}) {
+								{ mailRuleOperatorLabel(operator) }
+							}
+						}
+					}
+				}
+			}
+		</div>
+		<div class="min-w-0 flex-1">
+			if condition.Field == models.MailRuleFieldFolder {
+				<input type="hidden" name="cond_value" value=""/>
+				@mailRuleFolderSelect("cond_folder", condition.Folder, data.Accounts, rule.AccountID, true)
+			} else {
+				<input type="hidden" name="cond_folder" value=""/>
+				@input.Input(input.Props{Name: "cond_value", Type: input.TypeText, Class: mailRuleCompactControl, Value: condition.Value, Placeholder: mailRuleValuePlaceholder(condition), Attributes: templ.Attributes{"maxlength": "500", "autocomplete": "off", "aria-label": "Text to compare with"}})
+			}
+		</div>
+		if len(rule.Conditions) > 1 {
+			@mailRuleRowButton("remove_condition", index, "Remove this condition")
+		}
+	</div>
+}
+
+func mailRuleValuePlaceholder(condition models.MailRuleCondition) string {
+	switch condition.Field {
+	case models.MailRuleFieldFrom, models.MailRuleFieldTo, models.MailRuleFieldCC, models.MailRuleFieldRecipients:
+		if condition.Operator == models.MailRuleOpMatches {
+			return `@(news|offers)\.example$`
+		}
+		return "news@example.com"
+	case models.MailRuleFieldListID:
+		return "list.example.com"
+	}
+	if condition.Operator == models.MailRuleOpMatches {
+		return `^\[weekly\]`
+	}
+	return "Weekly digest"
+}
+
+// mailRuleFolderSelect picks a folder. For a rule of one account it lists
+// that account's folders as its Folders dialog does, and for a move, offers
+// a new folder at the top or inside any of them; for a rule of every account,
+// the folders every account has. withOwnMail offers Sent and Drafts too.
+templ mailRuleFolderSelect(name string, target *models.MailRuleFolderTarget, accounts []models.MailRuleAccount, accountID string, withOwnMail bool) {
+	{{ tree := mailRuleAccountTree(accounts, accountID) }}
+	{{ makes := !withOwnMail && mailRuleAccountMakesFolders(accounts, accountID) }}
+	@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
+		@selectbox.Trigger(selectbox.TriggerProps{Name: name, Class: mailRuleCompactControl, DisableClear: true, Attributes: templ.Attributes{"aria-label": "Folder"}}) {
+			@selectbox.Value(selectbox.ValueProps{Placeholder: "Choose a folder"})
+		}
+		@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet max-h-80 overflow-y-auto"}) {
+			if accountID == "" {
+				@selectbox.Group() {
+					@selectbox.Label(selectbox.LabelProps{Class: "text-xs text-muted-foreground"}) {
+						In each account 
+					}
+					for _, role := range []string{"inbox", "archive", "trash", "junk", "sent", "drafts"} {
+						if withOwnMail || (role != "sent" && role != "drafts") {
+							@selectbox.Item(selectbox.ItemProps{Value: "role:" + role, Selected: target != nil && target.Role == role}) {
+								{ mailRuleRoleLabels[role] }
+							}
+						}
+					}
+				}
+				@selectbox.Group() {
+					@selectbox.Label(selectbox.LabelProps{Class: "text-xs font-normal text-muted-foreground"}) {
+						Choose an account under For to use its other folders. 
+					}
+				}
+			} else {
+				if makes {
+					<button
+						type="button"
+						class="mb-1 flex w-full items-center gap-2 rounded-sm border-b border-border/60 px-2 py-1.5 text-left text-sm text-muted-foreground outline-none hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground"
+						data-mail-rule-new-folder={ accountID }
+					>
+						@icon.FolderPlus(icon.Props{Class: "size-4 shrink-0"})
+						<span class="flex-1 truncate">New folder…</span>
+					</button>
+				}
+				for _, folder := range tree {
+					@mailRuleFolderTreeItem(folder, 0, target, accountID, withOwnMail, makes)
+				}
+			}
+		}
+	}
+}
+
+// mailRuleFolderTreeItem is one folder of the folder picker, then the
+// folders inside it. Starred is a view, not a folder, so it isn't offered.
+// The new subfolder button sits beside the row, at its right, rather than in
+// it: the picker shows a chosen row's text as the field's value.
+templ mailRuleFolderTreeItem(folder models.Folder, depth int, target *models.MailRuleFolderTarget, accountID string, withOwnMail bool, makes bool) {
+	if folder.Role != "starred" {
+		{{ ownMail := folder.Role == "sent" || folder.Role == "drafts" }}
+		{{ subfolder := makes && !(ownMail && !withOwnMail) }}
+		<div class="relative">
+			@selectbox.Item(selectbox.ItemProps{
+				Value:      mailRuleTreeValue(folder),
+				Selected:   mailRuleTreeSelected(folder, target),
+				Disabled:   ownMail && !withOwnMail,
+				Class:      mailRuleTreeItemPadding(subfolder),
+				Attributes: templ.Attributes{"style": mailMoveIndent(depth)},
+			}) {
+				<span class="inline-flex min-w-0 items-center gap-2 align-middle">
+					<span class="flex size-4 shrink-0 items-center justify-center text-muted-foreground">
+						@SidebarFolderIcon(folder.Icon)
+					</span>
+					<span class="min-w-0 truncate">{ folder.Name }</span>
+				</span>
+			}
+			if subfolder {
+				<div class="absolute right-7 top-1/2 -translate-y-1/2">
+					@tooltip.Tooltip() {
+						@tooltip.Trigger(tooltip.TriggerProps{Class: "inline-flex"}) {
+							<button
+								type="button"
+								class="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+								aria-label={ "New subfolder in " + folder.Name }
+								data-mail-rule-new-folder={ accountID }
+								data-mail-rule-new-folder-parent={ folder.ID }
+								data-mail-rule-new-folder-parent-name={ folder.Name }
+							>
+								@icon.FolderPlus(icon.Props{Class: "size-3.5"})
+							</button>
+						}
+						@tooltip.Content(tooltip.ContentProps{Position: tooltip.PositionLeft, ShowArrow: true, Class: "px-3 py-1.5 text-xs"}) {
+							New subfolder in { folder.Name }
+						}
+					}
+				</div>
+			}
+		</div>
+	}
+	for _, child := range folder.Children {
+		@mailRuleFolderTreeItem(child, depth+1, target, accountID, withOwnMail, makes)
+	}
+}
+
+templ mailRuleActionRow(data models.MailRulesData, rule models.MailRule, index int, action models.MailRuleAction) {
+	<div class="flex flex-col gap-2 rounded-md border border-border/60 bg-background/40 p-2 sm:flex-row sm:items-center" data-mail-rule-action>
+		<div class="w-full sm:w-44 sm:shrink-0">
+			@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
+				@selectbox.Trigger(selectbox.TriggerProps{Name: "act_kind", Class: "bg-background", DisableClear: true, Attributes: templ.Attributes{"data-mail-rule-rerender": "", "aria-label": "Action"}}) {
+					@selectbox.Value(selectbox.ValueProps{Placeholder: "Archive"})
+				}
+				@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
+					for _, kind := range mailRuleActionKinds {
+						if MailRuleActionOffered(rule.Actions, index, kind.value) {
+							@selectbox.Item(selectbox.ItemProps{Value: kind.value, Selected: kind.value == action.Kind}) {
+								{ kind.label }
+							}
+						}
+					}
+				}
+			}
+		</div>
+		<div class="min-w-0 flex-1">
+			switch action.Kind {
+				case models.MailRuleActionMove:
+					<input type="hidden" name="act_label" value=""/>
+					@mailRuleFolderSelect("act_folder", action.Folder, data.Accounts, rule.AccountID, false)
+				case models.MailRuleActionLabel:
+					<input type="hidden" name="act_folder" value=""/>
+					@input.Input(input.Props{Name: "act_label", Type: input.TypeText, Value: action.Label, Placeholder: "Receipts", Attributes: templ.Attributes{"maxlength": "500", "autocomplete": "off", "aria-label": "Label"}})
+				default:
+					<input type="hidden" name="act_folder" value=""/>
+					<input type="hidden" name="act_label" value=""/>
+					<p class="px-1 text-xs text-muted-foreground">{ mailRuleActionHint(action.Kind) }</p>
+			}
+		</div>
+		if len(rule.Actions) > 1 {
+			@mailRuleRowButton("remove_action", index, "Remove this action")
+		}
+	</div>
+}
+
+func mailRuleActionHint(kind string) string {
+	switch kind {
+	case models.MailRuleActionArchive:
+		return "Moves the message to the account's Archive folder."
+	case models.MailRuleActionTrash:
+		return "Moves the message to the account's Trash. Nothing is deleted for good."
+	case models.MailRuleActionSpam:
+		return "Moves the message to Spam, as Report spam does."
+	case models.MailRuleActionMarkRead:
+		return "New-mail notifications leave the message out."
+	case models.MailRuleActionStar:
+		return "Stars the message."
+	}
+	return ""
+}
+
+// mailRuleRunView previews running a rule on the mail already in a folder,
+// and runs it once that is confirmed.
+// mailRuleRunView runs a rule on the mail in a folder: it counts what the
+// rule would change, then, once confirmed, changes it. Both go on in the
+// background; settings.js follows them and draws this again when the state
+// changes.
+templ mailRuleRunView(data models.MailRulesData) {
+	{{ run := data.Run }}
+	{{ roles, own := mailRuleRunScopes(run.Rule, data.Accounts) }}
+	<div class={ dataDialogFormClass } data-mail-rule-run={ run.JobID } data-mail-rule-run-state={ run.State } data-mail-rule-run-seq={ strconv.Itoa(run.Seq) }>
+		@dataDialogScroll("space-y-5 pb-5") {
+			<form
+				class="flex flex-col gap-2 sm:flex-row sm:items-center"
+				hx-post={ mailRulePath("/" + run.Rule.ID + "/run/scope") }
+				hx-trigger="change"
+				hx-target="#mail-rule-dialog-panel"
+				hx-swap="outerHTML"
+				data-mail-rule-run-scope
+			>
+				<label class="text-sm text-muted-foreground sm:shrink-0">On the mail in</label>
+				<div class="w-full sm:flex-1">
+					@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
+						@selectbox.Trigger(selectbox.TriggerProps{Name: "scope", Class: "bg-background", DisableClear: true, Disabled: !mailRuleRunScopeOpen(run), Attributes: templ.Attributes{"aria-label": "Folder to run the rule on"}}) {
+							@selectbox.Value(selectbox.ValueProps{Placeholder: "Inbox"})
+						}
+						@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
+							@selectbox.Group() {
+								for _, role := range roles {
+									@selectbox.Item(selectbox.ItemProps{Value: role.value, Selected: role.value == run.Scope}) {
+										{ role.label }
+									}
+								}
+							}
+							for _, account := range own {
+								@selectbox.Group() {
+									@selectbox.Label(selectbox.LabelProps{Class: "text-xs text-muted-foreground"}) {
+										{ account.Email }
+									}
+									for _, folder := range account.Folders {
+										@selectbox.Item(selectbox.ItemProps{Value: "id:" + folder.ID, Selected: "id:"+folder.ID == run.Scope}) {
+											{ mailRuleFolderChoiceName(folder) }
+										}
+									}
+								}
+							}
+						}
+					}
+				</div>
+			</form>
+			<div class="space-y-2" aria-live="polite" data-mail-rule-run-status>
+				switch run.State {
+					case models.MailRuleRunCounting:
+						@mailRuleRunProgress(run.Scanned, run.Total)
+						<p class="text-sm text-muted-foreground">
+							Checking messages… <span data-mail-rule-run-field="scanned">{ mailRuleCount(run.Scanned) }</span> of <span data-mail-rule-run-field="total">{ mailRuleCount(run.Total) }</span>
+						</p>
+						<p class="text-xs text-muted-foreground"><span data-mail-rule-run-field="matches">{ mailRuleCount(run.Matches) }</span> would change so far.</p>
+					case models.MailRuleRunCounted:
+						if run.Matches == 0 {
+							<p class="text-sm text-muted-foreground" data-mail-rule-run-total="0">Nothing in { run.ScopeName } needs this rule. Gofer checked { MailRuleMessages(run.Scanned) }.</p>
+						} else {
+							<p class="text-sm" data-mail-rule-run-total={ strconv.Itoa(run.Matches) }>
+								<span class="text-2xl font-semibold tabular-nums">{ mailRuleCount(run.Matches) }</span>
+								<span class="block text-muted-foreground">{ mailRuleMessagesWord(run.Matches) } in { run.ScopeName } would change, out of { mailRuleCount(run.Scanned) } checked.</span>
+							</p>
+						}
+					case models.MailRuleRunRunning:
+						@mailRuleRunProgress(run.Processed, run.Matches)
+						<p class="text-sm text-muted-foreground">
+							Changing messages… <span data-mail-rule-run-field="processed">{ mailRuleCount(run.Processed) }</span> of <span data-mail-rule-run-field="matches">{ mailRuleCount(run.Matches) }</span>
+						</p>
+						<p class="text-xs text-muted-foreground">You can close this; the rule keeps running, and Gofer tells you when it's done.</p>
+					case models.MailRuleRunDone:
+						<p class="flex items-start gap-1.5 text-sm" data-mail-rule-run-done>
+							@icon.CircleCheck(icon.Props{Class: "mt-0.5 size-4 shrink-0 text-emerald-600 dark:text-emerald-400"})
+							{ MailRuleRunDoneNotice(*run) }
+						</p>
+					case models.MailRuleRunStopped:
+						<p class="text-sm text-muted-foreground" data-mail-rule-run-stopped>
+							if run.Processed > 0 || run.Changed > 0 {
+								Stopped after { MailRuleMessages(run.Processed) } of { mailRuleCount(run.Matches) }. What was changed stays changed; run the rule again for the rest.
+							} else {
+								Stopped. Nothing was changed.
+							}
+						</p>
+					default:
+						<p class="text-sm text-destructive" role="alert" data-mail-rule-error>{ run.Error }</p>
+				}
+			</div>
+		}
+		@dataDialogFooter() {
+			@mailRuleFooterButtons() {
+				switch  {
+					case run.State == models.MailRuleRunCounted && run.Matches > 0:
+						@dialog.Close() {
+							<button type="button" class={ mailRuleCancelButton }>Cancel</button>
+						}
+						<button
+							type="button"
+							class={ mailRulePrimaryButton }
+							hx-post={ "/api/settings/rule-runs/" + run.JobID + "/start" }
+							hx-target="#mail-rule-dialog-panel"
+							hx-swap="outerHTML"
+							hx-disabled-elt="this"
+							data-mail-rule-run-start
+						>
+							@icon.Play(icon.Props{Class: "size-3.5"})
+							Run on { MailRuleMessages(run.Matches) }
+						</button>
+					case run.State == models.MailRuleRunCounting || run.State == models.MailRuleRunRunning:
+						<button
+							type="button"
+							class={ mailRuleCancelButton }
+							hx-post={ "/api/settings/rule-runs/" + run.JobID + "/stop" }
+							hx-target="#mail-rule-dialog-panel"
+							hx-swap="outerHTML"
+							hx-disabled-elt="this"
+							data-mail-rule-run-stop
+						>Stop</button>
+						@dialog.Close() {
+							<button type="button" class={ mailRulePrimaryButton }>Close</button>
+						}
+					default:
+						@dialog.Close() {
+							<button type="button" class={ mailRulePrimaryButton }>Close</button>
+						}
+				}
+			}
+		}
+	</div>
+}
+
+// mailRuleRunProgress is a run's progress bar; settings.js moves it as the
+// run goes.
+templ mailRuleRunProgress(value, max int) {
+	@progress.Progress(progress.Props{
+		Value: value, Max: max, Size: progress.SizeSm,
+		Attributes: templ.Attributes{"data-mail-rule-run-progress": "", "aria-label": "Progress"},
+		BarClass:   "transition-[width] duration-200 ease-out",
+	})
+}
+
+// MailRuleActivityDialog shows what the rules did, newest first. Filters,
+// "Show more" and clearing swap MailRuleActivityList.
+templ MailRuleActivityDialog(data models.MailRuleActivityData, now time.Time) {
+	@dialog.Dialog(dialog.Props{ID: "mail-rule-activity-dialog"}) {
+		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-2xl max-h-[calc(100dvh-2rem)] [&>[data-tui-dialog-panel]]:flex [&>[data-tui-dialog-panel]]:max-h-[calc(100dvh-2rem)] [&>[data-tui-dialog-panel]]:min-h-0 [&>[data-tui-dialog-panel]]:flex-col [&>[data-tui-dialog-panel]]:gap-0 [&>[data-tui-dialog-panel]]:p-0"}) {
+			@dialog.Header(dialog.HeaderProps{Class: "shrink-0 px-6 pt-6 pb-4"}) {
+				@dialog.Title() {
+					Rule activity
+				}
+				@dialog.Description() {
+					What your rules did, newest first. Gofer keeps the latest 2,000 entries.
+				}
+			}
+			<div class={ dataDialogFormClass }>
+				@dataDialogScroll("space-y-4 pb-5") {
+					<form
+						class="flex flex-col gap-3 sm:flex-row sm:items-center"
+						hx-get={ mailRulePath("/activity/list") }
+						hx-trigger="change"
+						hx-target="#mail-rule-activity-list"
+						hx-swap="outerHTML"
+						data-mail-rule-activity-filters
+					>
+						<div class="w-full sm:w-64">
+							@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
+								@selectbox.Trigger(selectbox.TriggerProps{Name: "rule", Class: "bg-background", DisableClear: true, Attributes: templ.Attributes{"aria-label": "Rule"}}) {
+									@selectbox.Value(selectbox.ValueProps{Placeholder: "All rules"})
+								}
+								@selectbox.Content(selectbox.ContentProps{NoSearch: len(data.Rules) < 8, Class: "mobile-sheet"}) {
+									@selectbox.Item(selectbox.ItemProps{Value: "", Selected: data.RuleID == ""}) {
+										All rules 
+									}
+									for _, rule := range data.Rules {
+										@selectbox.Item(selectbox.ItemProps{Value: rule.ID, Selected: rule.ID == data.RuleID}) {
+											{ rule.Name }
+										}
+									}
+								}
+							}
+						</div>
+						<label class="flex items-center gap-2 text-sm">
+							@checkbox.Checkbox(checkbox.Props{Name: "failed", Value: "1", Checked: data.FailedOnly})
+							Only what failed
+						</label>
+					</form>
+					@MailRuleActivityList(data, now)
+				}
+				@dataDialogFooter() {
+					@mailRuleFooterButtons() {
+						<button
+							type="button"
+							class="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+							data-mail-rule-activity-clear={ mailRulePath("/activity/clear") }
+						>
+							@icon.Trash2(icon.Props{Class: "size-3.5"})
+							Clear activity
+						</button>
+						@dialog.Close() {
+							<button type="button" class={ mailRulePrimaryButton }>Close</button>
+						}
+					}
+				}
+			</div>
+		}
+	}
+}
+
+// MailRuleActivityList is the activity's entries as filtered. An entry for
+// a message that is still there opens it.
+templ MailRuleActivityList(data models.MailRuleActivityData, now time.Time) {
+	<div id="mail-rule-activity-list" class="space-y-3" data-mail-rule-activity-list>
+		if len(data.Runs) == 0 {
+			<div class="rounded-lg border border-dashed border-border p-6 text-center">
+				<p class="text-sm text-muted-foreground">
+					if data.RuleID != "" || data.FailedOnly {
+						Nothing here matches.
+					} else {
+						Nothing yet. What your rules do to mail shows up here.
+					}
+				</p>
+			</div>
+		} else {
+			<ul class="divide-y divide-border/60 rounded-lg border border-border bg-background/60">
+				for _, run := range data.Runs {
+					<li>
+						if run.FolderID != "" {
+							<a href={ templ.SafeURL(mailRuleActivityMessageURL(run)) } class="flex min-w-0 items-start gap-3 px-3 py-2.5 hover:bg-accent/50" data-mail-rule-activity-entry={ run.Status }>
+								@mailRuleActivityEntry(run, now)
+							</a>
+						} else {
+							<div class="flex min-w-0 items-start gap-3 px-3 py-2.5" data-mail-rule-activity-entry={ run.Status }>
+								@mailRuleActivityEntry(run, now)
+							</div>
+						}
+					</li>
+				}
+			</ul>
+			if data.More {
+				<div class="flex justify-center">
+					<button
+						type="button"
+						class={ mailRuleCancelButton }
+						hx-get={ mailRuleActivityMorePath(data) }
+						hx-target="#mail-rule-activity-list"
+						hx-swap="outerHTML"
+						data-mail-rule-activity-more
+					>Show more</button>
+				</div>
+			}
+		}
+	</div>
+}
+
+templ mailRuleActivityEntry(run models.MailRuleRun, now time.Time) {
+	<span class="mt-0.5 flex size-4 shrink-0 items-center justify-center">
+		switch run.Status {
+			case models.MailRuleRunApplied:
+				@icon.CircleCheck(icon.Props{Class: "size-4 text-emerald-600 dark:text-emerald-400"})
+			case models.MailRuleRunFailed:
+				@icon.CircleAlert(icon.Props{Class: "size-4 text-destructive"})
+			default:
+				@icon.CircleMinus(icon.Props{Class: "size-4 text-muted-foreground"})
+		}
+	</span>
+	<span class="min-w-0 flex-1">
+		<span class="block truncate text-sm">
+			if run.MessageID == 0 {
+				{ mailRuleSentence(run.Detail) }
+			} else if run.Subject != "" {
+				{ run.Subject }
+			} else {
+				<span class="text-muted-foreground">(no subject)</span>
+			}
+		</span>
+		<span class={ "block truncate text-xs", templ.KV("text-destructive", run.Status == models.MailRuleRunFailed), templ.KV("text-muted-foreground", run.Status != models.MailRuleRunFailed) }>
+			{ mailRuleActivityDetail(run) }
+		</span>
+	</span>
+	<time class="shrink-0 pt-0.5 text-xs text-muted-foreground tabular-nums" datetime={ run.CreatedAt.Format(time.RFC3339) }>{ mailRuleActivityTime(run.CreatedAt, now) }</time>
+}

@@ -711,6 +711,14 @@ func (db *DB) ClaimMessageMutationBatch(ctx context.Context, lead MessageMutatio
 	return mutations, nil
 }
 
+// HasQueuedMessageMove reports whether a move of the message is waiting to
+// be sent to the server.
+func (db *DB) HasQueuedMessageMove(ctx context.Context, messageID int64) (bool, error) {
+	var queued bool
+	err := db.Read().QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM message_mutations WHERE message_id = ? AND kind = 'move' AND status IN ('pending', 'processing'))`, messageID).Scan(&queued)
+	return queued, err
+}
+
 func (db *DB) MarkInterruptedMessageMutationsPending(ctx context.Context) (int64, error) {
 	return db.markInterruptedMessageMutationsPending(ctx, "")
 }

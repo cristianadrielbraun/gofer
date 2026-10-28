@@ -4,6 +4,7 @@ document.addEventListener("DOMContentLoaded", function () {
   setupModePickers()
   setupAccountColorPickers()
   setupAccountOrder()
+  setupMailRuleForm()
   setupAccountSignaturesDialog(document)
   setupEmailLinkHandler()
 })
@@ -600,17 +601,53 @@ function saveAccountColor(picker, rawColor, source) {
   })
 }
 
-// Accounts are put in order on the Accounts page by dragging a card's handle,
-// with the arrow keys on a focused handle, or with Move up and Move down in
-// its menu. Accounts being deleted keep their place and can't be moved.
-function accountOrderCards(list) {
-  return Array.prototype.filter.call(list.querySelectorAll("[data-settings-account-card]"), function (card) {
-    return card.parentNode === list && card.getAttribute("data-account-deleting") !== "true"
+// Accounts on the Accounts page and rules on the Rules page are put in order
+// by dragging an item's handle, or with the arrow keys on a focused handle.
+// Accounts also move with Move up and Move down in their menu; accounts being
+// deleted keep their place and can't be moved.
+var accountOrder = {
+  list: "[data-account-order-list]",
+  item: "[data-settings-account-card]",
+  handle: "[data-account-order-handle]",
+  id: function (item) { return item.getAttribute("data-account-id") },
+  movable: function (item) { return item.getAttribute("data-account-deleting") !== "true" },
+  save: function (list, previous) { saveAccountOrder(list, previous) }
+}
+
+var mailRuleOrder = {
+  list: "[data-mail-rule-order-list]",
+  item: "[data-mail-rule-row]",
+  handle: "[data-mail-rule-order-handle]",
+  id: function (item) { return item.getAttribute("data-mail-rule-id") },
+  movable: function () { return true },
+  save: function (list, previous) { saveMailRuleOrder(list, previous) }
+}
+
+var orderKinds = [accountOrder, mailRuleOrder]
+
+function orderKindOf(el) {
+  for (var i = 0; i < orderKinds.length; i++) {
+    if (el.closest(orderKinds[i].list)) return orderKinds[i]
+  }
+  return null
+}
+
+function orderItems(kind, list) {
+  return Array.prototype.filter.call(list.querySelectorAll(kind.item), function (item) {
+    return item.parentNode === list && kind.movable(item)
   })
 }
 
+function orderIDs(kind, list) {
+  return orderItems(kind, list).map(kind.id)
+}
+
+function accountOrderCards(list) {
+  return orderItems(accountOrder, list)
+}
+
 function accountOrderIDs(list) {
-  return accountOrderCards(list).map(function (card) { return card.getAttribute("data-account-id") })
+  return orderIDs(accountOrder, list)
 }
 
 function syncAccountOrderControls() {
@@ -629,20 +666,20 @@ function cssEscapeSettings(value) {
   return window.CSS && CSS.escape ? CSS.escape(value) : String(value).replace(/["\\]/g, "\\$&")
 }
 
-// moveAccountCard puts card before ref (or last among the accounts when ref
-// is null), sliding the cards that make room from where they were.
-function moveAccountCard(list, card, ref) {
-  var cards = Array.prototype.slice.call(list.querySelectorAll("[data-settings-account-card]"))
-  var before = cards.map(function (c) { return c.getBoundingClientRect().top })
+// moveOrderItem puts item before ref (or last among the movable items when
+// ref is null), sliding the items that make room from where they were.
+function moveOrderItem(kind, list, item, ref) {
+  var items = Array.prototype.slice.call(list.querySelectorAll(kind.item))
+  var before = items.map(function (c) { return c.getBoundingClientRect().top })
   if (ref) {
-    list.insertBefore(card, ref)
+    list.insertBefore(item, ref)
   } else {
-    var movable = accountOrderCards(list).filter(function (c) { return c !== card })
+    var movable = orderItems(kind, list).filter(function (c) { return c !== item })
     var last = movable[movable.length - 1]
-    list.insertBefore(card, last ? last.nextSibling : null)
+    list.insertBefore(item, last ? last.nextSibling : null)
   }
-  cards.forEach(function (c, i) {
-    if (c === card && card.hasAttribute("data-account-order-dragging")) return
+  items.forEach(function (c, i) {
+    if (c === item && item.hasAttribute("data-order-dragging")) return
     var dy = before[i] - c.getBoundingClientRect().top
     if (!dy) return
     c.style.transition = "none"
@@ -653,23 +690,23 @@ function moveAccountCard(list, card, ref) {
   })
 }
 
-function moveAccountCardBy(card, step) {
-  var list = card && card.closest("[data-account-order-list]")
+function moveOrderItemBy(kind, item, step) {
+  var list = item && item.closest(kind.list)
   if (!list) return
-  var cards = accountOrderCards(list)
-  var at = cards.indexOf(card)
+  var items = orderItems(kind, list)
+  var at = items.indexOf(item)
   var to = at + step
-  if (at < 0 || to < 0 || to >= cards.length) return
-  var previous = accountOrderIDs(list)
-  moveAccountCard(list, card, step < 0 ? cards[to] : cards[to + 1] || null)
-  saveAccountOrder(list, previous)
+  if (at < 0 || to < 0 || to >= items.length) return
+  var previous = orderIDs(kind, list)
+  moveOrderItem(kind, list, item, step < 0 ? items[to] : items[to + 1] || null)
+  kind.save(list, previous)
 }
 
-function restoreAccountOrder(list, ids) {
-  var cards = accountOrderCards(list)
+function restoreOrder(kind, list, ids) {
+  var items = orderItems(kind, list)
   ids.forEach(function (id) {
-    var card = cards.filter(function (c) { return c.getAttribute("data-account-id") === id })[0]
-    if (card) moveAccountCard(list, card, null)
+    var item = items.filter(function (c) { return kind.id(c) === id })[0]
+    if (item) moveOrderItem(kind, list, item, null)
   })
 }
 
@@ -692,9 +729,32 @@ function saveAccountOrder(list, previous) {
     }
     throw new Error("save account order: " + res.status)
   }).catch(function () {
-    restoreAccountOrder(list, previous)
+    restoreOrder(accountOrder, list, previous)
     syncAccountOrderControls()
     showGoferToast({ title: "Could not save the account order", description: "Check your connection and try again.", variant: "error", icon: "error", duration: 6000 })
+  })
+}
+
+function saveMailRuleOrder(list, previous) {
+  var ids = orderIDs(mailRuleOrder, list)
+  if (ids.join("\n") === previous.join("\n")) return
+  var body = new URLSearchParams()
+  ids.forEach(function (id) { body.append("rule_id", id) })
+  fetch("/api/settings/rules/order", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: body.toString()
+  }).then(function (res) {
+    if (res.ok) return
+    if (res.status === 409) {
+      showGoferToast({ title: "Your rules changed", description: "The list was reloaded. Put the rules in order again.", variant: "error", icon: "error", duration: 6000 })
+      if (window.htmx) window.htmx.ajax("GET", "/api/settings/rules/panel", { target: "#mail-rules-panel", swap: "outerHTML" })
+      return
+    }
+    throw new Error("save rule order: " + res.status)
+  }).catch(function () {
+    restoreOrder(mailRuleOrder, list, previous)
+    showGoferToast({ title: "Could not save the rule order", description: "Check your connection and try again.", variant: "error", icon: "error", duration: 6000 })
   })
 }
 
@@ -709,44 +769,55 @@ function setupAccountOrder() {
     var menu = item.closest("[data-account-actions-menu]")
     var id = menu && menu.getAttribute("data-account-actions-menu")
     var card = id && document.querySelector('[data-settings-account-card][data-account-id="' + cssEscapeSettings(id) + '"]')
-    if (card) moveAccountCardBy(card, item.getAttribute("data-account-move") === "up" ? -1 : 1)
+    if (card) moveOrderItemBy(accountOrder, card, item.getAttribute("data-account-move") === "up" ? -1 : 1)
   })
 
+  function orderHandle(target) {
+    if (!target.closest) return null
+    for (var i = 0; i < orderKinds.length; i++) {
+      var handle = target.closest(orderKinds[i].handle)
+      if (handle) return { kind: orderKinds[i], handle: handle }
+    }
+    return null
+  }
+
   document.addEventListener("keydown", function (e) {
-    var handle = e.target.closest && e.target.closest("[data-account-order-handle]")
-    if (!handle || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return
+    var found = orderHandle(e.target)
+    if (!found || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return
     e.preventDefault()
-    moveAccountCardBy(handle.closest("[data-settings-account-card]"), e.key === "ArrowUp" ? -1 : 1)
-    handle.focus()
+    moveOrderItemBy(found.kind, found.handle.closest(found.kind.item), e.key === "ArrowUp" ? -1 : 1)
+    found.handle.focus()
   })
 
   document.addEventListener("pointerdown", function (e) {
-    var handle = e.target.closest && e.target.closest("[data-account-order-handle]")
-    if (!handle || e.button !== 0) return
-    var card = handle.closest("[data-settings-account-card]")
-    var list = card && card.closest("[data-account-order-list]")
+    var found = orderHandle(e.target)
+    if (!found || e.button !== 0) return
+    var kind = found.kind
+    var handle = found.handle
+    var card = handle.closest(kind.item)
+    var list = card && card.closest(kind.list)
     if (!list) return
     e.preventDefault()
     handle.setPointerCapture(e.pointerId)
-    drag = { list: list, card: card, handle: handle, pointerId: e.pointerId, previous: accountOrderIDs(list), grabY: e.clientY - card.getBoundingClientRect().top }
-    card.setAttribute("data-account-order-dragging", "")
-    list.setAttribute("data-account-order-active", "")
+    drag = { kind: kind, list: list, card: card, handle: handle, pointerId: e.pointerId, previous: orderIDs(kind, list), grabY: e.clientY - card.getBoundingClientRect().top }
+    card.setAttribute("data-order-dragging", "")
+    list.setAttribute("data-order-active", "")
     drag.placeholder = document.createElement("div")
-    drag.placeholder.setAttribute("data-account-order-placeholder", "")
+    drag.placeholder.setAttribute("data-order-placeholder", "")
     drag.placeholder.setAttribute("aria-hidden", "true")
-    followAccountDrag(e.clientY)
+    followOrderDrag(e.clientY)
     list.appendChild(drag.placeholder)
   })
 
-  // The grabbed card floats under the pointer, a little larger, while an
+  // The grabbed item floats under the pointer, a little larger, while an
   // outline shows the place in the list where it would drop.
-  function accountCardTop(list, card) {
-    return card.offsetParent === list ? card.offsetTop : card.offsetTop - list.offsetTop
+  function orderItemTop(list, item) {
+    return item.offsetParent === list ? item.offsetTop : item.offsetTop - list.offsetTop
   }
 
-  function followAccountDrag(clientY) {
+  function followOrderDrag(clientY) {
     var y = clientY - drag.list.getBoundingClientRect().top - drag.grabY
-    var top = accountCardTop(drag.list, drag.card)
+    var top = orderItemTop(drag.list, drag.card)
     drag.card.style.transform = "translateY(" + (y - top) + "px) scale(1.01)"
     drag.placeholder.style.top = top + "px"
     drag.placeholder.style.height = drag.card.offsetHeight + "px"
@@ -754,40 +825,336 @@ function setupAccountOrder() {
 
   document.addEventListener("pointermove", function (e) {
     if (!drag || e.pointerId !== drag.pointerId) return
-    // Offsets ignore the slide of cards making room, so the place under the
+    // Offsets ignore the slide of items making room, so the place under the
     // pointer doesn't shift while they move.
-    var cards = accountOrderCards(drag.list)
-    var others = cards.filter(function (c) { return c !== drag.card })
-    // A card makes way once the floating card's leading edge passes its middle.
-    var at = cards.indexOf(drag.card)
+    var items = orderItems(drag.kind, drag.list)
+    var others = items.filter(function (c) { return c !== drag.card })
+    // An item makes way once the floating item's leading edge passes its middle.
+    var at = items.indexOf(drag.card)
     var floatTop = e.clientY - drag.list.getBoundingClientRect().top - drag.grabY
     var floatBottom = floatTop + drag.card.offsetHeight
     var to = 0
     others.forEach(function (other, k) {
-      var middle = accountCardTop(drag.list, other) + other.offsetHeight / 2
+      var middle = orderItemTop(drag.list, other) + other.offsetHeight / 2
       if (k < at ? floatTop >= middle : floatBottom > middle) to++
     })
-    if (to !== at) moveAccountCard(drag.list, drag.card, others[to] || null)
-    followAccountDrag(e.clientY)
+    if (to !== at) moveOrderItem(drag.kind, drag.list, drag.card, others[to] || null)
+    followOrderDrag(e.clientY)
   })
 
   function endDrag(e) {
     if (!drag || e.pointerId !== drag.pointerId) return
     var done = drag
     drag = null
-    // Back in the card's own transition, it settles into its place.
-    done.card.removeAttribute("data-account-order-dragging")
-    done.list.removeAttribute("data-account-order-active")
+    // Back in the item's own transition, it settles into its place.
+    done.card.removeAttribute("data-order-dragging")
+    done.list.removeAttribute("data-order-active")
     done.placeholder.remove()
     done.card.style.transform = ""
     if (done.handle.hasPointerCapture(e.pointerId)) done.handle.releasePointerCapture(e.pointerId)
-    saveAccountOrder(done.list, done.previous)
+    done.kind.save(done.list, done.previous)
   }
   document.addEventListener("pointerup", endDrag)
   document.addEventListener("pointercancel", endDrag)
 
   syncAccountOrderControls()
   document.body.addEventListener("htmx:afterSettle", syncAccountOrderControls)
+}
+
+// Opens the rule dialog once it has been loaded. Changes made in it swap only
+// its inside; saving or running a rule shows the list again and closes it.
+document.addEventListener("htmx:afterSettle", function (e) {
+  if (e.target && e.target.querySelector && e.target.querySelector("#mail-rule-dialog") && window.tui && window.tui.dialog) {
+    setTimeout(function () { window.tui.dialog.open("mail-rule-dialog") }, 20)
+  }
+})
+
+document.body.addEventListener("mail-rule-dialog-done", function () {
+  if (window.tui && window.tui.dialog && document.getElementById("mail-rule-dialog")) window.tui.dialog.close("mail-rule-dialog")
+})
+
+// Conditions, groups and actions added to a rule's form grow and fade in;
+// removed ones shrink and fade out before the form is shown again. Rules
+// added to the list grow in, and a deleted rule shrinks away. Any other
+// redraw of the form eases the dialog to its new height. The pace is the
+// app's own for things opening and closing.
+var mailRuleMotion = { duration: 220, easing: "ease" }
+
+function mailRuleStill() {
+  return !Element.prototype.animate || window.matchMedia("(prefers-reduced-motion: reduce)").matches
+}
+
+// mailRuleFold grows el in from nothing, or with out, shrinks it away.
+function mailRuleFold(el, out) {
+  if (!el || mailRuleStill()) return null
+  var style = getComputedStyle(el)
+  var open = {
+    height: el.offsetHeight + "px", opacity: 1,
+    marginTop: style.marginTop, marginBottom: style.marginBottom, paddingTop: style.paddingTop, paddingBottom: style.paddingBottom,
+    borderTopWidth: style.borderTopWidth, borderBottomWidth: style.borderBottomWidth,
+  }
+  var closed = { height: "0px", opacity: 0, marginTop: "0px", marginBottom: "0px", paddingTop: "0px", paddingBottom: "0px", borderTopWidth: "0px", borderBottomWidth: "0px" }
+  var overflow = el.style.overflow
+  el.style.overflow = "hidden"
+  var animation = el.animate(out ? [open, closed] : [closed, open], { duration: mailRuleMotion.duration, easing: mailRuleMotion.easing, fill: out ? "forwards" : "none" })
+  animation.onfinish = animation.oncancel = function () { if (!out) el.style.overflow = overflow }
+  return animation
+}
+
+// mailRuleRemoved is what removing with button takes away: its row, or
+// the whole group with the "or" beside it when the row is the group's last.
+function mailRuleRemoved(button) {
+  var row = button.closest("[data-mail-rule-condition], [data-mail-rule-action]")
+  if (!row || !row.hasAttribute("data-mail-rule-condition")) return row ? [row] : []
+  var group = row.closest("[data-mail-rule-condition-group]")
+  if (!group || group.querySelectorAll("[data-mail-rule-condition]").length > 1) return [row]
+  var badge = group.previousElementSibling || (group.nextElementSibling && group.nextElementSibling.hasAttribute("data-mail-rule-or") ? group.nextElementSibling : null)
+  return badge && badge.hasAttribute("data-mail-rule-or") ? [group, badge] : [group]
+}
+
+var mailRuleSwap = null
+
+document.addEventListener("htmx:beforeRequest", function (e) {
+  var button = e.detail && e.detail.elt
+  var op = button && button.getAttribute && button.getAttribute("data-mail-rule-row-op")
+  if (op === "remove_condition" || op === "remove_action") mailRuleRemoved(button).forEach(function (el) { mailRuleFold(el, true) })
+})
+
+// A removal the server didn't take shows the row again.
+document.addEventListener("htmx:afterRequest", function (e) {
+  var button = e.detail && e.detail.elt
+  var op = button && button.getAttribute && button.getAttribute("data-mail-rule-row-op")
+  if ((op !== "remove_condition" && op !== "remove_action") || e.detail.successful) return
+  mailRuleRemoved(button).forEach(function (el) {
+    el.getAnimations().forEach(function (animation) { animation.cancel() })
+    el.style.overflow = ""
+  })
+})
+
+document.body.addEventListener("htmx:beforeSwap", function (e) {
+  var target = e.detail && e.detail.target
+  if (!target || !e.detail.shouldSwap) return
+  var elt = e.detail.requestConfig && e.detail.requestConfig.elt
+  if (target.id === "mail-rule-dialog-panel") {
+    var op = elt && elt.getAttribute && elt.getAttribute("data-mail-rule-row-op")
+    var runView = target.querySelector("[data-mail-rule-run]")
+    var content = target.closest("[data-tui-dialog-content]")
+    mailRuleSwap = {
+      panel: true,
+      bounds: content ? content.getBoundingClientRect() : null,
+      runState: runView ? runView.getAttribute("data-mail-rule-run-state") : "",
+      condition: elt && elt.getAttribute && elt.getAttribute("data-mail-rule-add-condition"),
+      action: op === "add_action",
+      removed: op === "remove_condition" || op === "remove_action",
+    }
+  } else if (target.id === "mail-rules-panel") {
+    mailRuleSwap = { list: true, loaded: target.hasAttribute("data-mail-rules-panel"), height: target.offsetHeight, rules: Array.prototype.map.call(target.querySelectorAll("[data-mail-rule-row]"), function (row) { return row.getAttribute("data-mail-rule-id") }) }
+  }
+})
+
+document.body.addEventListener("htmx:afterSwap", function () {
+  var swap = mailRuleSwap
+  mailRuleSwap = null
+  if (!swap || mailRuleStill()) return
+  if (swap.list) {
+    // The first load eases from the loading shape to the list, which
+    // fades in, as the app's panels do.
+    if (!swap.loaded) {
+      var list = document.getElementById("mail-rules-panel")
+      if (!list) return
+      var height = list.offsetHeight
+      if (Math.abs(height - swap.height) > 1) {
+        list.style.overflow = "hidden"
+        var grow = list.animate([{ height: swap.height + "px" }, { height: height + "px" }], mailRuleMotion)
+        grow.onfinish = grow.oncancel = function () { list.style.overflow = "" }
+      }
+      list.animate([{ opacity: 0, transform: "translateY(5px)" }, { opacity: 1, transform: "translateY(0)" }], { duration: 180, easing: "ease-out" })
+      return
+    }
+    document.querySelectorAll("#mail-rules-panel [data-mail-rule-row]").forEach(function (row) {
+      if (swap.rules.indexOf(row.getAttribute("data-mail-rule-id")) < 0) mailRuleFold(row, false)
+    })
+    return
+  }
+  var panel = document.getElementById("mail-rule-dialog-panel")
+  if (!panel) return
+  var added = null
+  if (swap.condition === "-1") {
+    var groups = panel.querySelectorAll("[data-mail-rule-condition-group]")
+    added = groups[groups.length - 1]
+    var badge = added && added.previousElementSibling
+    if (badge && badge.hasAttribute("data-mail-rule-or")) mailRuleFold(badge, false)
+  } else if (swap.condition !== null && swap.condition !== undefined) {
+    var rows = panel.querySelectorAll('[data-mail-rule-condition-group="' + swap.condition + '"] [data-mail-rule-condition]')
+    added = rows[rows.length - 1]
+  } else if (swap.action) {
+    var actions = panel.querySelectorAll("[data-mail-rule-action]")
+    added = actions[actions.length - 1]
+  }
+  if (added) {
+    mailRuleFold(added, false)
+    return
+  }
+  // A removal has already shrunk away. Anything else that changes the
+  // dialog's height eases the dialog to it; what is in it is left alone.
+  var content = panel.closest("[data-tui-dialog-content]")
+  if (!swap.removed && content && swap.bounds) {
+    // A resize still running reports its own height; stop it first, so the
+    // new one measures the real height and carries on from where the
+    // dialog is.
+    if (content._mailRuleResize) content._mailRuleResize.cancel()
+    var height = content.offsetHeight
+    if (Math.abs(height - swap.bounds.height) >= 1) {
+      var resize = content.animate([{ height: swap.bounds.height + "px" }, { height: height + "px" }], mailRuleMotion)
+      content._mailRuleResize = resize
+      resize.onfinish = resize.oncancel = function () { if (content._mailRuleResize === resize) content._mailRuleResize = null }
+    }
+  }
+  // A run that moved on shows its new state as the app's sections come in.
+  // A new count fades its progress in by itself, once it takes a while.
+  var runView = panel.querySelector("[data-mail-rule-run]")
+  var runState = runView && runView.getAttribute("data-mail-rule-run-state")
+  var status = runView && runView.querySelector("[data-mail-rule-run-status]")
+  if (status && swap.runState && runState !== swap.runState && runState !== "counting") {
+    status.animate([{ opacity: 0, transform: "translateY(5px)" }, { opacity: 1, transform: "translateY(0)" }], { duration: 180, easing: "ease-out" })
+  }
+})
+
+// A rule run by hand counts, then changes mail, in the background. Its
+// progress arrives as events: the open run dialog moves its bar and counts,
+// and is drawn again when the run's state changes. A run that ends while
+// its dialog is closed says so in a toast. The newest event of each run is
+// kept, for a dialog drawn after it arrived.
+var mailRuleRunLatest = {}
+
+// mailRuleRunView is the open run dialog of a job; drawn says a dialog that
+// was just drawn counts too, though it opens a moment later.
+function mailRuleRunView(job, drawn) {
+  var view = document.querySelector('#mail-rule-dialog-panel [data-mail-rule-run="' + cssEscapeSettings(job) + '"]')
+  var dialog = view && view.closest("dialog")
+  return view && dialog && (dialog.open || drawn) ? view : null
+}
+
+function showMailRuleRun(run, drawn) {
+  var view = mailRuleRunView(run.job, drawn)
+  if (!view) return false
+  // The dialog may already show a newer state than this report.
+  if (Number(run.seq) <= Number(view.getAttribute("data-mail-rule-run-seq"))) return true
+  view.setAttribute("data-mail-rule-run-seq", String(run.seq))
+  if (view.getAttribute("data-mail-rule-run-state") !== run.state) {
+    if (window.htmx) window.htmx.ajax("GET", "/api/settings/rule-runs/" + encodeURIComponent(run.job), { target: "#mail-rule-dialog-panel", swap: "outerHTML" })
+    return true
+  }
+  var bar = view.querySelector("[data-mail-rule-run-progress]")
+  if (bar) {
+    var value = run.state === "running" ? run.processed : run.scanned
+    var max = run.state === "running" ? run.matches : run.total
+    bar.setAttribute("aria-valuemax", String(Math.max(max, 1)))
+    bar.setAttribute("aria-valuenow", String(value))
+    var indicator = bar.querySelector("[data-tui-progress-indicator]")
+    if (indicator) indicator.style.width = (max > 0 ? Math.min(100, value * 100 / max) : 0) + "%"
+  }
+  view.querySelectorAll("[data-mail-rule-run-field]").forEach(function (field) {
+    var n = Number(run[field.getAttribute("data-mail-rule-run-field")]) || 0
+    field.textContent = n.toLocaleString("en-US")
+  })
+  return true
+}
+
+document.addEventListener("gofer:mail-rule-run", function (e) {
+  var run = e.detail
+  mailRuleRunLatest[run.job] = run
+  if (showMailRuleRun(run)) return
+  if (run.state === "done") {
+    showGoferToast({ id: "mail-rule-run-" + run.job, title: "“" + run.rule_name + "” finished", description: run.notice, variant: "success", icon: "success", position: "bottom-right", duration: 8000, dismissible: true })
+  } else if (run.state === "error") {
+    showGoferToast({ id: "mail-rule-run-" + run.job, title: "“" + run.rule_name + "” stopped", description: run.error, variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
+  }
+})
+
+document.body.addEventListener("htmx:afterSettle", function () {
+  var view = document.querySelector("#mail-rule-dialog-panel [data-mail-rule-run]")
+  var run = view && mailRuleRunLatest[view.getAttribute("data-mail-rule-run")]
+  if (run) showMailRuleRun(run, true)
+})
+
+// The rules' activity opens once loaded. Clearing it asks first.
+document.addEventListener("htmx:afterSettle", function (e) {
+  if (e.target && e.target.querySelector && e.target.querySelector("#mail-rule-activity-dialog") && window.tui && window.tui.dialog) {
+    setTimeout(function () { window.tui.dialog.open("mail-rule-activity-dialog") }, 20)
+  }
+})
+
+document.addEventListener("click", function (e) {
+  var button = e.target.closest && e.target.closest("[data-mail-rule-activity-clear]")
+  if (!button || typeof window.goferConfirm !== "function" || !window.htmx) return
+  e.preventDefault()
+  window.goferConfirm({
+    title: "Clear the activity?",
+    message: "Gofer forgets what your rules did so far. The rules and your mail stay as they are.",
+    confirmLabel: "Clear activity",
+    destructive: true,
+  }).then(function (accepted) {
+    if (!accepted || !document.getElementById("mail-rule-activity-list")) return
+    window.htmx.ajax("POST", button.getAttribute("data-mail-rule-activity-clear"), { target: "#mail-rule-activity-list", swap: "outerHTML" })
+  })
+})
+
+// Deleting a rule asks first.
+document.addEventListener("click", function (e) {
+  var button = e.target.closest && e.target.closest("[data-mail-rule-delete]")
+  if (!button || typeof window.goferConfirm !== "function" || !window.htmx) return
+  e.preventDefault()
+  window.goferConfirm({
+    title: "Delete rule?",
+    message: "“" + button.getAttribute("data-mail-rule-name") + "” stops acting on new mail. What it already did to messages stays as it is.",
+    confirmLabel: "Delete rule",
+    destructive: true,
+  }).then(function (accepted) {
+    if (!accepted || !document.getElementById("mail-rules-panel")) return
+    var row = button.closest("[data-mail-rule-row]")
+    var fold = mailRuleFold(row, true)
+    var remove = function () { window.htmx.ajax("DELETE", button.getAttribute("data-mail-rule-delete"), { target: "#mail-rules-panel", swap: "outerHTML" }) }
+    if (fold) fold.onfinish = remove
+    else remove()
+  })
+})
+
+// New folder… in a rule's Move to folder, or the button beside a folder,
+// creates a folder in the rule's account, at the top or inside that folder,
+// as the account's Folders dialog does, then chooses it. It is caught before
+// the folder picker would take the click as choosing the folder beside it.
+document.addEventListener("click", function (e) {
+  var button = e.target.closest && e.target.closest("[data-mail-rule-new-folder]")
+  if (!button || typeof window.goferCreateMailFolder !== "function") return
+  e.preventDefault()
+  e.stopPropagation()
+  var row = button.closest("[data-mail-rule-action]")
+  var input = row && row.querySelector('input[name="act_folder"]')
+  var body = button.closest("[data-mail-rule-form-body]")
+  var content = button.closest("[popover]")
+  if (content && window.tui && window.tui.popover && window.tui.popover.closeElement) window.tui.popover.closeElement(content)
+  var parent = button.getAttribute("data-mail-rule-new-folder-parent") || ""
+  var parentName = button.getAttribute("data-mail-rule-new-folder-parent-name") || ""
+  var title = parent ? "New subfolder in " + parentName : "New folder"
+  window.goferCreateMailFolder(button.getAttribute("data-mail-rule-new-folder"), parent, parentName, { title: title }).then(function (folder) {
+    if (!folder || !input || !body || !body.isConnected || !window.htmx) return
+    input.value = "id:" + folder.id
+    window.htmx.trigger(body, "mail-rule-rerender")
+  })
+}, true)
+
+// A rule's form is shown again when a choice that others depend on changes,
+// such as the account its folders come from.
+function setupMailRuleForm() {
+  if (setupMailRuleForm.ready) return
+  setupMailRuleForm.ready = true
+  document.addEventListener("change", function (e) {
+    var input = e.target
+    if (!input.matches || !input.matches("[data-mail-rule-rerender]") || !window.htmx) return
+    var body = input.closest("[data-mail-rule-form-body]")
+    if (body) window.htmx.trigger(body, "mail-rule-rerender")
+  })
 }
 
 function sanitizeSignatureStyle(style) {
@@ -1269,6 +1636,7 @@ if (typeof MutationObserver !== "undefined" && document.documentElement) {
 var settingsTabs = [
   "accounts",
   "sync",
+  "rules",
   "operations",
   "contacts",
   "appearance",

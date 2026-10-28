@@ -133,6 +133,7 @@ type Handler struct {
 	outgoingRandom             func() float64
 	sentCopyIMAPFactory        sentCopyIMAPClientFactory
 	messageMutationWake        chan struct{}
+	mailRuleRuns               *mailRuleRuns
 	messageMutationIMAPFactory messageMutationIMAPClientFactory
 	remoteResourceDownloader   func(context.Context, string) ([]byte, error)
 	// messageFileKey signs the image addresses in message pages; see
@@ -196,6 +197,7 @@ func New(db *storage.DB, accountStore *config.AccountStore, syncer *mail.SyncOrc
 		outgoingNow:            time.Now,
 		outgoingRandom:         rand.Float64,
 		messageMutationWake:    make(chan struct{}, 1),
+		mailRuleRuns:           newMailRuleRuns(),
 		authEventRetentionWake: make(chan struct{}, 1),
 		sentCopyIMAPFactory: func(ctx context.Context, cfg *models.AccountConfig, password string) (sentCopyIMAPClient, error) {
 			return imap.NewClient(ctx, cfg, password)
@@ -218,6 +220,9 @@ func New(db *storage.DB, accountStore *config.AccountStore, syncer *mail.SyncOrc
 		}
 		return err == nil && allowed
 	})
+	if syncer != nil {
+		syncer.SetMutationWake(h.signalMessageMutationWorker)
+	}
 	db.SetContactActivityHook(func(event storage.ContactActivityNotification) {
 		if h.syncer == nil {
 			return
@@ -549,6 +554,12 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/settings/accounts/{id}/outlook-push", h.handleOutlookPushSetting)
 	mux.HandleFunc("POST /api/settings/accounts/{id}/outlook-push/check", h.handleOutlookPushCheck)
 	mux.HandleFunc("GET /api/settings/signatures/manage", h.handleManageSignaturesSettings)
+	for _, route := range mailRuleLocalRoutes {
+		mux.HandleFunc(route.pattern, route.handler(h))
+	}
+	for _, route := range mailRuleRunRoutes {
+		mux.HandleFunc(route.pattern, route.handler(h))
+	}
 	mux.HandleFunc("GET /api/settings/ui", h.handleGetUISettings)
 	h.registerProfileTransferRoutes(func(pattern string, handler http.HandlerFunc) {
 		mux.HandleFunc(pattern, handler)
@@ -3467,7 +3478,7 @@ func (h *Handler) handleSettings(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handleSettingsTab(w http.ResponseWriter, r *http.Request) {
 	tab := r.PathValue("tab")
-	if tab != "accounts" && tab != "sync" && tab != "operations" && tab != "contacts" && tab != "appearance" && tab != "regional" && tab != "compose-display" && tab != "security" && tab != "advanced" && tab != "export-import" && tab != "about" {
+	if tab != "accounts" && tab != "sync" && tab != "rules" && tab != "operations" && tab != "contacts" && tab != "appearance" && tab != "regional" && tab != "compose-display" && tab != "security" && tab != "advanced" && tab != "export-import" && tab != "about" {
 		http.NotFound(w, r)
 		return
 	}

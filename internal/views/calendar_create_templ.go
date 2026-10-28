@@ -1531,7 +1531,7 @@ func CalendarCreateDialog(data CalendarCreateData) templ.Component {
 						return templ_7745c5c3_Err
 					}
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 67, "<p data-calendar-create-error role=\"alert\" aria-atomic=\"true\" tabindex=\"-1\" hidden class=\"max-h-24 shrink-0 overflow-y-auto border-t border-border px-5 py-3 text-sm leading-relaxed text-destructive sm:px-6\"></p><footer class=\"flex shrink-0 items-center justify-end gap-2 border-t border-border px-5 py-3 sm:px-6\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 67, "<p data-calendar-create-error role=\"alert\" aria-atomic=\"true\" tabindex=\"-1\" hidden class=\"max-h-24 shrink-0 overflow-y-auto border-t border-border px-5 py-3 text-sm leading-relaxed text-destructive sm:px-6\"></p><footer class=\"flex shrink-0 items-center justify-end gap-2 px-5 py-3 sm:px-6\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}

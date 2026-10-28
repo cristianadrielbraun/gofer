@@ -72,7 +72,8 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 		messageFileKey:           h.messageFileKey,
 		providerAvatarHTTPClient: h.providerAvatarHTTPClient,
 		avatarWarmupOwner:        h,
-		userBackfills:            make(map[string]struct{}), contactSyncRunning: make(map[string]struct{})}
+		userBackfills:            make(map[string]struct{}), contactSyncRunning: make(map[string]struct{}),
+		mailRuleRuns:             newMailRuleRuns()}
 	if option.IMAP != nil {
 		if h.blobStore != nil && h.blobStore != option.IMAP.Blobs() {
 			return errors.New("routed compose must use the IMAP blob store")

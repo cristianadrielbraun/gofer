@@ -107,6 +107,22 @@ func ParseThreadHeaders(raw []byte) (inReplyTo string, references string) {
 	return inReplyTo, references
 }
 
+// ParseListID reads the List-Id header from raw header lines.
+func ParseListID(raw []byte) string {
+	reader := textproto.NewReader(bufio.NewReader(bytes.NewReader(raw)))
+	header, err := reader.ReadMIMEHeader()
+	if err != nil && len(header) == 0 {
+		return ""
+	}
+	return CleanListID(header.Get("List-Id"))
+}
+
+// CleanListID decodes a List-Id header value and puts it on one line, the
+// way rules match it.
+func CleanListID(value string) string {
+	return collapseSpaces(DecodeHeader(strings.TrimSpace(value)))
+}
+
 func BaseSubject(subject string) string {
 	s := collapseSpaces(subject)
 	for {

@@ -27,6 +27,8 @@ const (
 	EventCalendarSync          EventType = "calendar-sync"
 	EventCalendarChanged       EventType = "calendar-changed"
 	EventCalendarReminder      EventType = "calendar-reminder"
+	// EventMailRuleRun tells how a rule run by hand is going.
+	EventMailRuleRun EventType = "mail-rule-run"
 )
 
 type Event struct {

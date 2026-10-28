@@ -29,6 +29,8 @@ type Email struct {
 	SentAt        time.Time       `json:"sentAt"`
 	HasAttachment bool            `json:"hasAttachment"`
 	Preview       string          `json:"preview"`
+	// ListID is the List-Id header, decoded; empty when there is none.
+	ListID string `json:"header:List-Id:asText"`
 }
 
 type EmailAddress struct {
@@ -49,7 +51,7 @@ const (
 var EmailSummaryProperties = []string{
 	"id", "blobId", "threadId", "mailboxIds", "keywords", "size", "receivedAt",
 	"messageId", "inReplyTo", "references", "from", "to", "cc", "bcc", "replyTo",
-	"subject", "sentAt", "hasAttachment", "preview",
+	"subject", "sentAt", "hasAttachment", "preview", "header:List-Id:asText",
 }
 
 // EmailFilter is a FilterCondition for Email/query. Only the conditions Gofer
