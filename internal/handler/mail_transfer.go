@@ -297,6 +297,12 @@ func (h *Handler) transferMailFolder(ctx context.Context, job *mailTransferJob, 
 			}
 			folder.Done++
 			folder.LastMessageID = source.ID
+			// Saved after every message so the transfers page counts up
+			// as it goes and a restart picks up at the next message.
+			job.UpdatedAt = time.Now().UTC()
+			if err := m.save(job); err != nil {
+				return err
+			}
 		}
 		if len(folder.MessageIDs) > 0 {
 			// Chosen messages that left the folder meanwhile are passed over.
