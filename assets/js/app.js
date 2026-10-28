@@ -4313,7 +4313,9 @@ document.addEventListener("DOMContentLoaded", function () {
       for (var start = 0; start < targets.length; start += MAIL_BULK_CHUNK_SIZE) {
         run = run.then(postMoveChunk.bind(null, targets.slice(start, start + MAIL_BULK_CHUNK_SIZE), folderID, sourceFolderID))
       }
-      run.catch(function (err) {
+      run.then(function () {
+        showMailMovedToast(targets, folderID)
+      }, function (err) {
         var reason = err && err.reason ? err.reason : "Please try again."
         showGoferToast({ title: "Couldn't move the emails", description: reason, variant: "error", icon: "error", duration: 8000 })
       }).then(function () {
@@ -9396,6 +9398,21 @@ function showGoferToast(opts) {
     if (opts.secondaryActionLabel) actionHTML += '<button type="button" class="text-xs font-semibold underline underline-offset-2 opacity-80 hover:opacity-100 disabled:opacity-50" data-gofer-toast-secondary' + (opts.secondaryActionDisabled ? ' disabled aria-disabled="true"' : '') + '>' + _escapeComposeHTML(opts.secondaryActionLabel) + '</button>'
     actionHTML += '</div>'
   }
+  // actions are buttons of their own, each with its handler.
+  var actions = opts.actions || []
+  if (actions.length) {
+    actionHTML += '<div class="mt-2 flex items-center gap-3 text-xs font-semibold">'
+    for (var a = 0; a < actions.length; a++) {
+      actionHTML += '<button type="button" class="text-xs font-semibold underline underline-offset-2 opacity-80 hover:opacity-100 disabled:opacity-50" data-gofer-toast-action="' + a + '">' + _escapeComposeHTML(actions[a].label) + '</button>'
+    }
+    actionHTML += '</div>'
+  }
+  // progress, from 0 to 100, shows a bar under the text that
+  // updateGoferToast moves.
+  var progressHTML = ""
+  if (typeof opts.progress === "number") {
+    progressHTML = '<div class="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-secondary"><div class="h-full rounded-full bg-primary transition-all" data-gofer-toast-bar style="width: ' + Math.max(0, Math.min(100, opts.progress)) + '%"></div></div>'
+  }
   var toast = document.createElement("div")
   toast.id = id
   toast.setAttribute("popover", "manual")
@@ -9411,8 +9428,9 @@ function showGoferToast(opts) {
       (duration > 0 ? '<div class="gofer-toast-progress-wrap"><div class="toast-progress gofer-toast-progress" data-variant="' + _escapeComposeHTML(opts.variant || "default") + '"></div></div>' : '') +
       _goferToastIcon(opts.icon || "info") +
       '<span class="flex-1 min-w-0">' +
-        (opts.title ? '<p class="text-sm font-semibold truncate">' + _escapeComposeHTML(opts.title) + '</p>' : '') +
-        (opts.description ? '<p class="text-sm opacity-90 mt-1">' + _escapeComposeHTML(opts.description) + '</p>' : '') +
+        (opts.title ? '<p class="text-sm font-semibold truncate" data-gofer-toast-title>' + _escapeComposeHTML(opts.title) + '</p>' : '') +
+        (opts.description ? '<p class="text-sm opacity-90 mt-1" data-gofer-toast-description>' + _escapeComposeHTML(opts.description) + '</p>' : '') +
+        progressHTML +
         actionHTML +
       '</span>' +
       (opts.dismissible ? '<button type="button" class="gofer-toast-dismiss" aria-label="Close" data-tui-toast-dismiss>x</button>' : '') +
@@ -9427,6 +9445,14 @@ function showGoferToast(opts) {
       opts.onSecondaryAction(e)
     })
   }
+  toast.querySelectorAll("[data-gofer-toast-action]").forEach(function (button) {
+    var action = actions[Number(button.getAttribute("data-gofer-toast-action"))]
+    button.addEventListener("click", function (e) {
+      e.preventDefault()
+      e.stopPropagation()
+      if (action && typeof action.onClick === "function") action.onClick(e)
+    })
+  })
   if (typeof opts.onClick === "function") {
     var card = toast.querySelector(".gofer-toast-card")
     if (card) {
@@ -9461,6 +9487,18 @@ function showGoferToast(opts) {
     toast._goferToastTimer = setTimeout(function () { dismissGoferToast(toast) }, duration)
   }
   return toast
+}
+
+// updateGoferToast changes the text and bar of a toast that is showing,
+// without showing it again.
+function updateGoferToast(toast, opts) {
+  if (!toast || !toast.isConnected) return
+  var title = toast.querySelector("[data-gofer-toast-title]")
+  if (title && opts.title !== undefined) title.textContent = opts.title
+  var description = toast.querySelector("[data-gofer-toast-description]")
+  if (description && opts.description !== undefined) description.textContent = opts.description
+  var bar = toast.querySelector("[data-gofer-toast-bar]")
+  if (bar && typeof opts.progress === "number") bar.style.width = Math.max(0, Math.min(100, opts.progress)) + "%"
 }
 
 function positionGoferToast(toast, position) {
@@ -18921,16 +18959,37 @@ function refreshAfterLabelMutation(emailId) {
 
 function moveMessage(emailId, folderId, thread) {
   closeMoveDialog()
+  var targets = [{ id: String(emailId), thread: !!thread }]
   // The source names which copy moves: mail sent to oneself is in Sent and the
   // Inbox, and only the one being looked at should move.
-  moveMessagesOutOfFolder(emailId, "/api/messages/move", { targets: [{ id: String(emailId), thread: !!thread }], folder_id: folderId, source_folder_id: mailActionCurrentFolderID() })
+  moveMessagesOutOfFolder(emailId, "/api/messages/move", { targets: targets, folder_id: folderId, source_folder_id: mailActionCurrentFolderID() }, {
+    moved: function () { showMailMovedToast(targets, folderId) },
+    failed: function (reason) {
+      showGoferToast({ title: thread ? "Couldn't move the conversation" : "Couldn't move the email", description: reason, variant: "error", icon: "error", duration: 8000 })
+    },
+  })
+}
+
+// showMailMovedToast says where emails moved within their account went.
+function showMailMovedToast(targets, folderID) {
+  var link = document.querySelector('[data-mail-drop-folder="' + CSS.escape(folderID) + '"] .flex-1.truncate')
+  var where = link && link.textContent.trim() ? " to " + link.textContent.trim() : ""
+  var count = mailToAccountCount(targets)
+  var title
+  if (count === 1) title = "Moved the email" + where
+  else if (count > 1) title = "Moved " + Number(count).toLocaleString() + " emails" + where
+  else if (targets.length === 1) title = "Moved the conversation" + where
+  else title = "Moved " + Number(targets.length).toLocaleString() + " conversations" + where
+  showGoferToast({ id: "mail-moved", title: title, variant: "success", icon: "success", position: "bottom-right", duration: 3000, dismissible: true })
 }
 
 function unarchiveThread(emailId) {
   moveMessagesOutOfFolder(emailId, "/api/messages/unarchive", { targets: [{ id: String(emailId), thread: true }], folder_id: mailActionCurrentFolderID() })
 }
 
-function moveMessagesOutOfFolder(emailId, path, body) {
+// report, when given, hears how the move went: moved() once it's done, or
+// failed(reason) after the email is back in the list.
+function moveMessagesOutOfFolder(emailId, path, body, report) {
   var vml = beginOptimisticMailRemoval(emailId)
   fetch(path, {
     method: "POST",
@@ -18938,10 +18997,20 @@ function moveMessagesOutOfFolder(emailId, path, body) {
     body: JSON.stringify(body)
   })
     .then(function (response) {
-      if (!response.ok) throw new Error("move failed")
+      if (!response.ok) {
+        return response.text().then(function (text) {
+          var err = new Error("move failed")
+          err.reason = String(text || "").trim() || "The server answered " + response.status + "."
+          throw err
+        })
+      }
       finishOptimisticMailRemoval(vml)
+      if (report) report.moved()
     })
-    .catch(function () { restoreOptimisticMailRemoval(emailId, vml) })
+    .catch(function (err) {
+      restoreOptimisticMailRemoval(emailId, vml)
+      if (report) report.failed(err && err.reason ? err.reason : "Please try again.")
+    })
 }
 
 // The Move to dialog is fetched when asked for: it lists the folders of the
@@ -19315,21 +19384,231 @@ function confirmMessagesToAccount(mode) {
     })
     .then(function (result) {
       if (typeof pending.done === "function") pending.done()
-      var emails = result.messages === 1 ? "1 email" : result.messages + " emails"
-      showGoferToast({
-        title: (mode === "copy" ? "Copying " : "Moving ") + emails + " to " + result.account,
-        description: mode === "copy"
-          ? "The copies go into " + result.folder + ". You can follow it in Settings, under Export and import."
-          : "Each email leaves this folder once its copy is saved in " + result.folder + ". You can follow it in Settings, under Export and import.",
-        variant: "success",
-        icon: "success",
-        duration: 7000,
-      })
+      followMailTransfers(result, mode === "copy")
     })
     .catch(function (err) {
       var reason = err && err.reason ? err.reason : "Please try again."
       showGoferToast({ title: "Couldn't move the emails", description: reason, variant: "error", icon: "error", duration: 8000 })
     })
+}
+
+// followMailTransfers shows how far emails sent to another account have
+// got, with the transfers' Cancel. The transfers followed are kept in the
+// browser, so the toast comes back after a reload and on every page but
+// Export and import, which lists them itself. Hide only takes the toast
+// away: the transfers go on, and a toast still says how they ended.
+var mailTransferPollDelay = 1500
+var mailTransferStorageKey = "gofer:mail-transfer-toasts"
+var mailTransfersFollowed = {}
+
+function storedMailTransfers() {
+  try {
+    var list = JSON.parse(localStorage.getItem(mailTransferStorageKey) || "[]")
+    return Array.isArray(list) ? list : []
+  } catch (_) {
+    return []
+  }
+}
+
+function storeMailTransfer(entry, remove) {
+  var list = storedMailTransfers().filter(function (other) { return other.key !== entry.key })
+  if (!remove) list.push(entry)
+  try { localStorage.setItem(mailTransferStorageKey, JSON.stringify(list)) } catch (_) {}
+}
+
+function followMailTransfers(result, copy) {
+  var ids = result.jobs || []
+  if (!ids.length) return
+  var entry = {
+    key: ids[0], ids: ids, copy: copy, account: result.account, folder: result.folder,
+    emails: mailTransferNumber(result.messages) + (result.messages === 1 ? " email" : " emails"),
+    hidden: false,
+  }
+  storeMailTransfer(entry)
+  followMailTransfer(entry, false)
+}
+
+function resumeMailTransferToasts() {
+  storedMailTransfers().forEach(function (entry) {
+    if (entry && entry.key && Array.isArray(entry.ids)) followMailTransfer(entry, true)
+  })
+}
+
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", resumeMailTransferToasts)
+else resumeMailTransferToasts()
+
+function onMailTransfersPage() {
+  return window.location.pathname.indexOf("/settings/export-import") === 0
+}
+
+function followMailTransfer(entry, resumed) {
+  if (mailTransfersFollowed[entry.key]) return
+  mailTransfersFollowed[entry.key] = true
+  var toastID = "mail-transfer-" + entry.key
+  var toast = null
+  var canceling = false
+  // A reload starts counting from what's deleted by then.
+  var deleted = resumed ? -1 : 0
+  var line = "Starting…"
+  var progress = 0
+
+  function showToast() {
+    if (entry.hidden || onMailTransfersPage()) {
+      if (toast) removeGoferToastNow(toast)
+      toast = null
+      return
+    }
+    if (toast && toast.isConnected) {
+      updateGoferToast(toast, { description: canceling ? "Canceling…" : line, progress: progress })
+      return
+    }
+    toast = showGoferToast({
+      id: toastID,
+      title: (entry.copy ? "Copying " : "Moving ") + entry.emails + " to " + entry.account,
+      description: canceling ? "Canceling…" : line,
+      variant: "info",
+      icon: "spinner",
+      position: "bottom-right",
+      duration: 0,
+      width: "min(24rem, calc(100vw - 2rem))",
+      progress: progress,
+      actions: [
+        { label: "Details", onClick: function () { window.location.href = "/settings/export-import" } },
+        { label: "Cancel", onClick: cancel },
+        { label: "Hide", onClick: hide },
+      ],
+    })
+  }
+
+  function hide() {
+    entry.hidden = true
+    storeMailTransfer(entry)
+    if (toast) dismissGoferToast(toast)
+    toast = null
+  }
+
+  function cancel() {
+    if (canceling) return
+    canceling = true
+    showToast()
+    entry.ids.forEach(function (id) {
+      fetch("/api/mail/transfers/" + encodeURIComponent(id) + "/cancel", { method: "POST" }).catch(function () {})
+    })
+  }
+
+  function finish() {
+    delete mailTransfersFollowed[entry.key]
+    storeMailTransfer(entry, true)
+    if (toast) removeGoferToastNow(toast)
+    toast = null
+  }
+
+  function poll() {
+    var params = new URLSearchParams()
+    entry.ids.forEach(function (id) { params.append("id", id) })
+    fetch("/api/mail/transfers/status?" + params.toString())
+      .then(function (response) {
+        if (!response.ok) throw new Error("status unavailable")
+        return response.json()
+      })
+      .then(function (statuses) {
+        // Removed in Settings meanwhile: there's nothing left to report.
+        if (!statuses.length) {
+          finish()
+          return
+        }
+        var sum = { processed: 0, total: 0, copied: 0, duplicates: 0, failed: 0, deleted: 0 }
+        var running = false, waiting = true, folder = "", problem = "", paused = false, canceled = false
+        statuses.forEach(function (status) {
+          for (var key in sum) sum[key] += status[key] || 0
+          if (status.state === "running") {
+            running = true
+            if (!status.waiting) waiting = false
+            if (!folder) folder = status.folder || ""
+          }
+          if (status.state === "paused") {
+            paused = true
+            if (!problem) problem = status.error || ""
+          }
+          if (status.state === "canceled") canceled = true
+        })
+        // Moved emails leave the list as their originals are deleted.
+        if (deleted >= 0 && sum.deleted > deleted) refreshMailListAfterTransfer()
+        deleted = sum.deleted
+        if (running) {
+          line = waiting ? "Waiting for other transfers to finish"
+            : sum.total ? (folder ? (entry.copy ? "Copying " : "Moving ") + folder + "… " : "") + mailTransferNumber(sum.processed) + " of " + mailTransferNumber(sum.total) + " messages"
+            : "Starting…"
+          progress = sum.total ? sum.processed * 100 / sum.total : 0
+          showToast()
+          setTimeout(poll, mailTransferPollDelay)
+          return
+        }
+        finish()
+        refreshMailListAfterTransfer()
+        // Export and import shows how it ended in its own list.
+        if (!onMailTransfersPage()) {
+          showMailTransferResult(toastID, sum, { copy: entry.copy, emails: entry.emails, account: entry.account, folder: entry.folder, paused: paused, canceled: canceled, problem: problem })
+        }
+      })
+      .catch(function () { setTimeout(poll, mailTransferPollDelay * 2) })
+  }
+
+  if (resumed) {
+    poll()
+    return
+  }
+  showToast()
+  setTimeout(poll, mailTransferPollDelay)
+}
+
+function mailTransferNumber(n) {
+  return Number(n || 0).toLocaleString()
+}
+
+function refreshMailListAfterTransfer() {
+  var container = document.getElementById("mail-list-scroll")
+  if (container && container._virtualMailList && typeof container._virtualMailList.refreshCurrentFolder === "function") {
+    container._virtualMailList.refreshCurrentFolder({ noAnimation: true }).catch(function () {})
+  }
+  if (window.goferRefreshSidebarUnread) window.goferRefreshSidebarUnread()
+}
+
+function showMailTransferResult(toastID, sum, info) {
+  var messages = function (n) { return mailTransferNumber(n) + (n === 1 ? " email" : " emails") }
+  var details = { label: "Details", onClick: function () { window.location.href = "/settings/export-import" } }
+  if (info.paused) {
+    showGoferToast({
+      id: toastID,
+      title: info.copy ? "Couldn't finish copying the emails" : "Couldn't finish moving the emails",
+      description: (info.problem ? info.problem + " " : "") + "You can continue it in Settings, under Export and import.",
+      variant: "error", icon: "error", position: "bottom-right", duration: 0, dismissible: true, actions: [details],
+    })
+    return
+  }
+  if (info.canceled) {
+    showGoferToast({
+      id: toastID,
+      title: info.copy ? "Copying canceled" : "Move canceled",
+      description: messages(sum.copied) + " reached " + info.account + " before it stopped.",
+      variant: "info", icon: "info", position: "bottom-right", duration: 8000, dismissible: true,
+    })
+    return
+  }
+  var notes = []
+  if (sum.duplicates) notes.push(messages(sum.duplicates) + (sum.duplicates === 1 ? " was" : " were") + " already there.")
+  if (sum.failed) notes.push(messages(sum.failed) + " couldn't be copied and stayed where " + (sum.failed === 1 ? "it was." : "they were."))
+  showGoferToast({
+    id: toastID,
+    title: (info.copy ? "Copied " : "Moved ") + info.emails + " to " + info.account,
+    description: notes.length ? notes.join(" ") : "They're in " + info.folder + ".",
+    variant: sum.failed ? "warning" : "success",
+    icon: sum.failed ? "warning" : "success",
+    position: "bottom-right",
+    duration: sum.failed ? 0 : 6000,
+    dismissible: true,
+    actions: sum.failed ? [details] : undefined,
+  })
 }
 
 // Search hides folders whose name doesn't match. An account left with none

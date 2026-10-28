@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -170,6 +171,19 @@ func TestMailTransferMovesMessagesBetweenAccounts(t *testing.T) {
 	// server. Archive/2024: one copied.
 	if copied != 3 || duplicates != 1 || failed != 1 || deleted != 4 {
 		t.Fatalf("copied %d, duplicates %d, failed %d, deleted %d", copied, duplicates, failed, deleted)
+	}
+
+	statusURL := "/api/mail/transfers/status?id=" + job.ID + "&id=missing"
+	status := httptest.NewRecorder()
+	f.h.handleMailTransferStatus(status, ownerRequest(httptest.NewRequest(http.MethodGet, statusURL, nil)))
+	var statuses []mailTransferStatus
+	if err := json.Unmarshal(status.Body.Bytes(), &statuses); err != nil || len(statuses) != 1 || statuses[0].State != mailJobDone || statuses[0].Copied != 3 || statuses[0].Deleted != 4 {
+		t.Fatalf("status = %s (%v)", status.Body.String(), err)
+	}
+	status = httptest.NewRecorder()
+	f.h.handleMailTransferStatus(status, attackerRequest(httptest.NewRequest(http.MethodGet, statusURL, nil)))
+	if strings.TrimSpace(status.Body.String()) != "[]" {
+		t.Fatalf("another person sees the status: %s", status.Body.String())
 	}
 
 	inbox := f.serverMessagesAs(t, "sky@example.test", "other-secret", "INBOX")

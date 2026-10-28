@@ -20,6 +20,7 @@ import (
 func (h *Handler) registerMailTransferRoutes(register func(string, http.HandlerFunc)) {
 	register("GET /api/mail/transfers", h.handleMailTransfers)
 	register("GET /api/mail/transfers/jobs", h.handleMailTransferJobs)
+	register("GET /api/mail/transfers/status", h.handleMailTransferStatus)
 	register("GET /api/mail/transfers/new", h.handleNewMailTransfer)
 	register("POST /api/mail/transfers", h.handleStartMailTransfer)
 	register("POST /api/mail/transfers/{id}/cancel", h.handleCancelMailTransfer)
@@ -193,6 +194,51 @@ func (h *Handler) handleMailTransferJobs(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	h.renderMailTransferJobs(w, r)
+}
+
+// mailTransferStatus is how far a transfer has got, for the toast that
+// follows one started from the message list.
+type mailTransferStatus struct {
+	ID         string `json:"id"`
+	State      string `json:"state"`
+	Waiting    bool   `json:"waiting,omitempty"`
+	Folder     string `json:"folder,omitempty"`
+	Processed  int    `json:"processed"`
+	Total      int    `json:"total"`
+	Copied     int    `json:"copied"`
+	Duplicates int    `json:"duplicates"`
+	Failed     int    `json:"failed"`
+	Deleted    int    `json:"deleted"`
+	Error      string `json:"error,omitempty"`
+}
+
+// handleMailTransferStatus answers for the transfers named by id; one that
+// was removed meanwhile is left out.
+func (h *Handler) handleMailTransferStatus(w http.ResponseWriter, r *http.Request) {
+	if !h.mailTransfersAvailable(w) {
+		return
+	}
+	owner := h.userID(r.Context())
+	result := []mailTransferStatus{}
+	for _, id := range r.URL.Query()["id"] {
+		job, err := h.mailTransfers.loadOwned(owner, id)
+		if err != nil {
+			continue
+		}
+		processed, total, copied, duplicates, failed, deleted := job.totals()
+		status := mailTransferStatus{
+			ID: job.ID, State: job.State, Error: job.Error,
+			Processed: processed, Total: total, Copied: copied, Duplicates: duplicates, Failed: failed, Deleted: deleted,
+		}
+		if job.State == mailJobRunning && h.mailTransfers.isWaiting(job.ID) {
+			status.Waiting = true
+		} else if folder := job.current(); folder != nil {
+			status.Folder = folder.Path
+		}
+		result = append(result, status)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(result)
 }
 
 func (h *Handler) handleNewMailTransfer(w http.ResponseWriter, r *http.Request) {
@@ -407,15 +453,16 @@ func (h *Handler) handleMessagesToAccount(w http.ResponseWriter, r *http.Request
 		}
 		sources[accountID] = source
 	}
-	started := 0
+	var started []string
 	for accountID, ids := range bySource {
-		if _, err := h.mailTransferMessages(ctx, owner, sources[accountID], target, destination, ids, move); err != nil {
+		job, err := h.mailTransferMessages(ctx, owner, sources[accountID], target, destination, ids, move)
+		if err != nil {
 			log.Printf("mail transfer: start from the message list: %v", err)
 			http.Error(w, "The emails could not be sent to the other account.", http.StatusInternalServerError)
 			return
 		}
-		started++
+		started = append(started, job.ID)
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{"messages": len(infos), "transfers": started, "account": target.Email, "folder": destination.Path})
+	_ = json.NewEncoder(w).Encode(map[string]any{"messages": len(infos), "transfers": len(started), "jobs": started, "account": target.Email, "folder": destination.Path})
 }
