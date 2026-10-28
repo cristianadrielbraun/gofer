@@ -2,8 +2,12 @@ package views
 
 import (
 	"fmt"
+	"net/url"
 	"strconv"
 	"strings"
+	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/cristianadrielbraun/gofer/internal/mailrules"
 	"github.com/cristianadrielbraun/gofer/internal/models"
@@ -409,4 +413,67 @@ func mailRuleCanAddCondition(rule *models.MailRule) bool {
 
 func mailRuleCanAddAction(rule *models.MailRule) bool {
 	return len(rule.Actions) < mailrules.MaxActions
+}
+
+// mailRuleSentence starts a text of the activity with a capital.
+func mailRuleSentence(text string) string {
+	if text == "" {
+		return text
+	}
+	first, size := utf8.DecodeRuneInString(text)
+	return string(unicode.ToUpper(first)) + text[size:]
+}
+
+// mailRuleActivityDetail says, under an entry, which rule it was and what
+// it did: "Newsletters · From news@example.com · Archived".
+func mailRuleActivityDetail(run models.MailRuleRun) string {
+	parts := []string{run.RuleName}
+	if run.MessageID == 0 {
+		if run.Trigger == models.MailRuleTriggerManual {
+			parts = append(parts, "Run by hand")
+		}
+		return strings.Join(parts, " · ")
+	}
+	if run.FromEmail != "" {
+		parts = append(parts, "From "+run.FromEmail)
+	}
+	if run.Trigger == models.MailRuleTriggerManual {
+		parts = append(parts, "Run by hand")
+	}
+	if run.Detail != "" {
+		parts = append(parts, mailRuleSentence(run.Detail))
+	}
+	return strings.Join(parts, " · ")
+}
+
+// mailRuleActivityTime says when an entry happened: the time today, the
+// day this year, or the date.
+func mailRuleActivityTime(at, now time.Time) string {
+	now = now.In(at.Location())
+	switch {
+	case at.Year() == now.Year() && at.YearDay() == now.YearDay():
+		return at.Format("15:04")
+	case at.Year() == now.Year():
+		return at.Format("Jan 2, 15:04")
+	}
+	return at.Format("Jan 2, 2006")
+}
+
+// mailRuleActivityMessageURL opens the message an entry names, in a folder
+// it shows in now.
+func mailRuleActivityMessageURL(run models.MailRuleRun) string {
+	return "/folder/" + url.PathEscape(run.FolderID) + "/" + strconv.FormatInt(run.MessageID, 10)
+}
+
+// mailRuleActivityMorePath shows the activity with more entries, filtered
+// as it is.
+func mailRuleActivityMorePath(data models.MailRuleActivityData) string {
+	query := url.Values{"limit": {strconv.Itoa(data.Limit + 50)}}
+	if data.RuleID != "" {
+		query.Set("rule", data.RuleID)
+	}
+	if data.FailedOnly {
+		query.Set("failed", "1")
+	}
+	return mailRulePath("/activity/list?" + query.Encode())
 }

@@ -1078,6 +1078,28 @@ document.body.addEventListener("htmx:afterSettle", function () {
   if (run) showMailRuleRun(run, true)
 })
 
+// The rules' activity opens once loaded. Clearing it asks first.
+document.addEventListener("htmx:afterSettle", function (e) {
+  if (e.target && e.target.querySelector && e.target.querySelector("#mail-rule-activity-dialog") && window.tui && window.tui.dialog) {
+    setTimeout(function () { window.tui.dialog.open("mail-rule-activity-dialog") }, 20)
+  }
+})
+
+document.addEventListener("click", function (e) {
+  var button = e.target.closest && e.target.closest("[data-mail-rule-activity-clear]")
+  if (!button || typeof window.goferConfirm !== "function" || !window.htmx) return
+  e.preventDefault()
+  window.goferConfirm({
+    title: "Clear the activity?",
+    message: "Gofer forgets what your rules did so far. The rules and your mail stay as they are.",
+    confirmLabel: "Clear activity",
+    destructive: true,
+  }).then(function (accepted) {
+    if (!accepted || !document.getElementById("mail-rule-activity-list")) return
+    window.htmx.ajax("POST", button.getAttribute("data-mail-rule-activity-clear"), { target: "#mail-rule-activity-list", swap: "outerHTML" })
+  })
+})
+
 // Deleting a rule asks first.
 document.addEventListener("click", function (e) {
   var button = e.target.closest && e.target.closest("[data-mail-rule-delete]")

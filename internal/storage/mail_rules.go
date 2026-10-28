@@ -357,14 +357,35 @@ func requireOneRow(result sql.Result, err error) error {
 
 // ListMailRuleRuns returns what the owner's rules did, newest first.
 func (db *DB) ListMailRuleRuns(ctx context.Context, userID string, limit int) ([]models.MailRuleRun, error) {
-	if limit <= 0 || limit > mailRuleRunsKept {
-		limit = mailRuleRunsKept
+	runs, _, err := db.ListMailRuleActivity(ctx, userID, MailRuleActivityFilter{Limit: limit})
+	return runs, err
+}
+
+// MailRuleActivityFilter picks the entries of the rules' activity to show:
+// one rule's only when RuleID is set, failures only, and at most Limit.
+type MailRuleActivityFilter struct {
+	RuleID     string
+	FailedOnly bool
+	Limit      int
+}
+
+// ListMailRuleActivity returns what the owner's rules did, newest first, as
+// filtered, with whether there are more entries, and for each message a
+// folder it shows in now.
+func (db *DB) ListMailRuleActivity(ctx context.Context, userID string, filter MailRuleActivityFilter) ([]models.MailRuleRun, bool, error) {
+	if filter.Limit <= 0 || filter.Limit > mailRuleRunsKept {
+		filter.Limit = mailRuleRunsKept
 	}
 	rows, err := db.Read().QueryContext(ctx, `
-		SELECT id, rule_id, rule_name, account_id, message_id, subject, from_email, source, status, detail, created_at
-		FROM mail_rule_runs WHERE user_id = ? ORDER BY id DESC LIMIT ?`, userID, limit)
+		SELECT r.id, r.rule_id, r.rule_name, r.account_id, r.message_id, r.subject, r.from_email, r.source, r.status, r.detail, r.created_at,
+			COALESCE((SELECT s.folder_id FROM message_folder_state s JOIN messages m ON m.id = s.message_id
+				WHERE s.message_id = r.message_id AND m.account_id = r.account_id AND s.is_deleted = 0 ORDER BY s.folder_id LIMIT 1), '')
+		FROM mail_rule_runs r
+		WHERE r.user_id = ? AND (? = '' OR r.rule_id = ?) AND (? = 0 OR r.status = ?)
+		ORDER BY r.id DESC LIMIT ?`,
+		userID, filter.RuleID, filter.RuleID, filter.FailedOnly, models.MailRuleRunFailed, filter.Limit+1)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	defer rows.Close()
 	runs := []models.MailRuleRun{}
@@ -372,13 +393,17 @@ func (db *DB) ListMailRuleRuns(ctx context.Context, userID string, limit int) ([
 		var run models.MailRuleRun
 		var created sqliteNullTime
 		if err := rows.Scan(&run.ID, &run.RuleID, &run.RuleName, &run.AccountID, &run.MessageID, &run.Subject, &run.FromEmail,
-			&run.Trigger, &run.Status, &run.Detail, &created); err != nil {
-			return nil, err
+			&run.Trigger, &run.Status, &run.Detail, &created, &run.FolderID); err != nil {
+			return nil, false, err
 		}
 		run.CreatedAt = created.Time
 		runs = append(runs, run)
 	}
-	return runs, rows.Err()
+	more := len(runs) > filter.Limit
+	if more {
+		runs = runs[:filter.Limit]
+	}
+	return runs, more, rows.Err()
 }
 
 // ClearMailRuleRunsGuarded forgets what the owner's rules did.

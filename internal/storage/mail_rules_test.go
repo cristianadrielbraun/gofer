@@ -427,3 +427,44 @@ func TestMailRuleRunsArePruned(t *testing.T) {
 		t.Fatalf("kept %d runs", len(runs))
 	}
 }
+
+// The activity can be narrowed to one rule or to failures, comes in pages,
+// and says where each message is now.
+func TestListMailRuleActivity(t *testing.T) {
+	db := newMailRulesTestDB(t, "imap")
+	ctx := t.Context()
+	bakery := saveTestRule(t, db, models.MailRule{Name: "Bakery", Conditions: fromBakery(), Actions: []models.MailRuleAction{{Kind: "star"}}})
+	other := saveTestRule(t, db, models.MailRule{Name: "Other", Conditions: fromBakery(), Actions: []models.MailRuleAction{{Kind: "star"}}})
+	kept := backfill(t, db, "inbox", SyncMessage{MessageID: "<kept@harbor-bakery.example>", Subject: "Kept", FromEmail: "news@harbor-bakery.example"})
+	for _, run := range []models.MailRuleRun{
+		{RuleID: bakery.ID, RuleName: "Bakery", AccountID: "acc", MessageID: kept, Subject: "Kept", Status: models.MailRuleRunApplied, Detail: "starred"},
+		{RuleID: other.ID, RuleName: "Other", AccountID: "acc", MessageID: 999999, Subject: "Gone", Status: models.MailRuleRunFailed, Detail: "star: no"},
+		{RuleID: bakery.ID, RuleName: "Bakery", AccountID: "acc", Trigger: models.MailRuleTriggerManual, Status: models.MailRuleRunApplied, Detail: "Run by hand"},
+	} {
+		if run.Trigger == "" {
+			run.Trigger = models.MailRuleTriggerArrival
+		}
+		if err := recordMailRuleRun(ctx, db.Write(), "default", run); err != nil {
+			t.Fatal(err)
+		}
+	}
+	all, more, err := db.ListMailRuleActivity(ctx, "default", MailRuleActivityFilter{})
+	if err != nil || more || len(all) != 3 || all[0].Detail != "Run by hand" || all[0].FolderID != "" {
+		t.Fatalf("all = %+v, %v, %v", all, more, err)
+	}
+	if all[2].FolderID != "inbox" || all[1].FolderID != "" {
+		t.Fatalf("folders = %q, %q", all[2].FolderID, all[1].FolderID)
+	}
+	if runs, _, _ := db.ListMailRuleActivity(ctx, "default", MailRuleActivityFilter{RuleID: bakery.ID}); len(runs) != 2 {
+		t.Fatalf("one rule = %+v", runs)
+	}
+	if runs, _, _ := db.ListMailRuleActivity(ctx, "default", MailRuleActivityFilter{FailedOnly: true}); len(runs) != 1 || runs[0].Subject != "Gone" {
+		t.Fatalf("failures = %+v", runs)
+	}
+	if runs, more, _ := db.ListMailRuleActivity(ctx, "default", MailRuleActivityFilter{Limit: 2}); len(runs) != 2 || !more {
+		t.Fatalf("first page = %d, more %v", len(runs), more)
+	}
+	if runs, _, _ := db.ListMailRuleActivity(ctx, "someone-else", MailRuleActivityFilter{}); len(runs) != 0 {
+		t.Fatalf("another user's activity = %+v", runs)
+	}
+}

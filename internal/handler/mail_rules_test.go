@@ -277,6 +277,29 @@ func TestMailRuleSettingsRoutes(t *testing.T) {
 	if h.mailRuleRuns.job("owner", job[1]) != nil {
 		t.Fatal("the earlier run of the rule was kept")
 	}
+
+	// The activity shows the run's summary to its owner only, filters, and
+	// clears.
+	rec = identityRequest(t, h, h.handleMailRuleActivity, http.MethodGet, "/api/settings/rules/activity", nil, nil, true)
+	if body := rec.Body.String(); rec.Code != http.StatusOK || !strings.Contains(body, `id="mail-rule-activity-dialog"`) || !strings.Contains(body, "Run by hand on Inbox: changed 1 message") {
+		t.Fatalf("activity = %d %q", rec.Code, body)
+	}
+	rec = identityRequest(t, h, h.handleMailRuleActivityList, http.MethodGet, "/api/settings/rules/activity/list?failed=1", nil, nil, true)
+	if !strings.Contains(rec.Body.String(), "Nothing here matches.") {
+		t.Fatalf("failures only = %q", rec.Body.String())
+	}
+	rec = identityRequest(t, h, h.handleMailRuleActivity, http.MethodGet, "/api/settings/rules/activity", nil, nil, false)
+	if strings.Contains(rec.Body.String(), "Run by hand on Inbox") {
+		t.Fatalf("attacker activity = %q", rec.Body.String())
+	}
+	rec = identityRequest(t, h, h.handleClearMailRuleActivity, http.MethodPost, "/api/settings/rules/activity/clear", nil, url.Values{}, false)
+	if runs, _ := db.ListMailRuleRuns(ctx, "owner", 0); len(runs) != 1 {
+		t.Fatalf("attacker cleared the activity: %+v", runs)
+	}
+	rec = identityRequest(t, h, h.handleClearMailRuleActivity, http.MethodPost, "/api/settings/rules/activity/clear", nil, url.Values{}, true)
+	if runs, _ := db.ListMailRuleRuns(ctx, "owner", 0); rec.Code != http.StatusOK || len(runs) != 0 || !strings.Contains(rec.Body.String(), "Nothing yet.") {
+		t.Fatalf("clear = %d %q, %+v", rec.Code, rec.Body.String(), runs)
+	}
 }
 
 var mailRuleRunJobID = regexp.MustCompile(`data-mail-rule-run="([0-9a-f]+)"`)

@@ -446,4 +446,7 @@ var mailRuleLocalRoutes = []mailRuleRoute{
 	{"POST /api/settings/rules/order", func(h *Handler) http.HandlerFunc { return h.handleMailRuleOrder }},
 	{"DELETE /api/settings/rules/{id}", func(h *Handler) http.HandlerFunc { return h.handleDeleteMailRule }},
 	{"POST /api/settings/rules/{id}/enabled", func(h *Handler) http.HandlerFunc { return h.handleMailRuleEnabled }},
+	{"GET /api/settings/rules/activity", func(h *Handler) http.HandlerFunc { return h.handleMailRuleActivity }},
+	{"GET /api/settings/rules/activity/list", func(h *Handler) http.HandlerFunc { return h.handleMailRuleActivityList }},
+	{"POST /api/settings/rules/activity/clear", func(h *Handler) http.HandlerFunc { return h.handleClearMailRuleActivity }},
 }

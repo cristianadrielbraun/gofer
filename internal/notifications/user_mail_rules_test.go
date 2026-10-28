@@ -122,6 +122,13 @@ func TestUserMailRulesHTTPRunAndIsolation(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	// Each owner sees their own activity.
+	if rec := f.request("alice", http.MethodGet, "/api/settings/rules/activity", ""); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Run by hand on Inbox: changed 1 message") {
+		t.Fatalf("alice activity: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := f.request("bob", http.MethodGet, "/api/settings/rules/activity", ""); rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), "Run by hand") {
+		t.Fatalf("bob activity: %d %s", rec.Code, rec.Body.String())
+	}
 	var central int
 	if err := f.system.Read().QueryRow(`SELECT COUNT(*) FROM mail_rules`).Scan(&central); err != nil || central != 0 {
 		t.Fatalf("central rules = %d, %v", central, err)

@@ -114,6 +114,23 @@ type MailRuleRun struct {
 	Status    string    `json:"status"`
 	Detail    string    `json:"detail"`
 	CreatedAt time.Time `json:"created_at"`
+	// FolderID is a folder the message shows in now, to open it from; empty
+	// when it is gone, or the entry names no message.
+	FolderID string `json:"folder_id,omitempty"`
+}
+
+// MailRuleActivityData is what the rules' activity shows: entries newest
+// first, as filtered.
+type MailRuleActivityData struct {
+	Runs  []MailRuleRun
+	Rules []MailRule
+	// RuleID shows one rule's entries only; FailedOnly those that failed.
+	RuleID     string
+	FailedOnly bool
+	// Limit is how many entries are shown, and More whether there are others.
+	Limit int
+	More  bool
+	Error string
 }
 
 // MailRulesData is what the Rules settings show: the owner's rules, and

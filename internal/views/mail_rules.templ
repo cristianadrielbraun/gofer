@@ -3,6 +3,7 @@ package views
 import (
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/models"
 
@@ -29,17 +30,30 @@ templ SettingsRulesTab() {
 					<h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-1">Rules</h3>
 					<p class="text-xs text-muted-foreground">Rules act on new mail as it arrives, even while Gofer is closed in your browser. They run from top to bottom; drag a rule to change its place.</p>
 				</div>
-				<button
-					type="button"
-					class="btn-skeuo inline-flex shrink-0 items-center gap-1.5 self-start rounded-lg px-3 py-1.5 text-sm font-semibold"
-					hx-get={ mailRulePath("/dialog?add=1") }
-					hx-target="#mail-rule-dialog-container"
-					hx-swap="innerHTML"
-					data-mail-rule-add
-				>
-					@icon.Plus(icon.Props{Class: "size-3.5"})
-					Add rule
-				</button>
+				<div class="flex shrink-0 items-center gap-2 self-start">
+					<button
+						type="button"
+						class="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-sm hover:bg-accent"
+						hx-get={ mailRulePath("/activity") }
+						hx-target="#mail-rule-dialog-container"
+						hx-swap="innerHTML"
+						data-mail-rule-activity
+					>
+						@icon.History(icon.Props{Class: "size-3.5"})
+						Activity
+					</button>
+					<button
+						type="button"
+						class="btn-skeuo inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold"
+						hx-get={ mailRulePath("/dialog?add=1") }
+						hx-target="#mail-rule-dialog-container"
+						hx-swap="innerHTML"
+						data-mail-rule-add
+					>
+						@icon.Plus(icon.Props{Class: "size-3.5"})
+						Add rule
+					</button>
+				</div>
 			</div>
 			<div id="mail-rules-panel" hx-get="/api/settings/rules/panel" hx-trigger="load" hx-swap="outerHTML" aria-busy="true" data-mail-rules-loading>
 				@mailRulesLoading()
@@ -683,14 +697,20 @@ templ mailRuleRunView(data models.MailRulesData) {
 						@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
 							@selectbox.Group() {
 								for _, role := range roles {
-									@selectbox.Item(selectbox.ItemProps{Value: role.value, Selected: role.value == run.Scope}) { { role.label } }
+									@selectbox.Item(selectbox.ItemProps{Value: role.value, Selected: role.value == run.Scope}) {
+										{ role.label }
+									}
 								}
 							}
 							for _, account := range own {
 								@selectbox.Group() {
-									@selectbox.Label(selectbox.LabelProps{Class: "text-xs text-muted-foreground"}) { { account.Email } }
+									@selectbox.Label(selectbox.LabelProps{Class: "text-xs text-muted-foreground"}) {
+										{ account.Email }
+									}
 									for _, folder := range account.Folders {
-										@selectbox.Item(selectbox.ItemProps{Value: "id:" + folder.ID, Selected: "id:"+folder.ID == run.Scope}) { { mailRuleFolderChoiceName(folder) } }
+										@selectbox.Item(selectbox.ItemProps{Value: "id:" + folder.ID, Selected: "id:"+folder.ID == run.Scope}) {
+											{ mailRuleFolderChoiceName(folder) }
+										}
 									}
 								}
 							}
@@ -741,7 +761,7 @@ templ mailRuleRunView(data models.MailRulesData) {
 		}
 		@dataDialogFooter() {
 			@mailRuleFooterButtons() {
-				switch {
+				switch  {
 					case run.State == models.MailRuleRunCounted && run.Matches > 0:
 						@dialog.Close() {
 							<button type="button" class={ mailRuleCancelButton }>Cancel</button>
@@ -789,4 +809,145 @@ templ mailRuleRunProgress(value, max int) {
 		Attributes: templ.Attributes{"data-mail-rule-run-progress": "", "aria-label": "Progress"},
 		BarClass:   "transition-[width] duration-200 ease-out",
 	})
+}
+
+// MailRuleActivityDialog shows what the rules did, newest first. Filters,
+// "Show more" and clearing swap MailRuleActivityList.
+templ MailRuleActivityDialog(data models.MailRuleActivityData, now time.Time) {
+	@dialog.Dialog(dialog.Props{ID: "mail-rule-activity-dialog"}) {
+		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-2xl max-h-[calc(100dvh-2rem)] [&>[data-tui-dialog-panel]]:flex [&>[data-tui-dialog-panel]]:max-h-[calc(100dvh-2rem)] [&>[data-tui-dialog-panel]]:min-h-0 [&>[data-tui-dialog-panel]]:flex-col [&>[data-tui-dialog-panel]]:gap-0 [&>[data-tui-dialog-panel]]:p-0"}) {
+			@dialog.Header(dialog.HeaderProps{Class: "shrink-0 px-6 pt-6 pb-4"}) {
+				@dialog.Title() {
+					Rule activity
+				}
+				@dialog.Description() {
+					What your rules did, newest first. Gofer keeps the latest 2,000 entries.
+				}
+			}
+			<div class={ dataDialogFormClass }>
+				@dataDialogScroll("space-y-4 pb-5") {
+					<form
+						class="flex flex-col gap-3 sm:flex-row sm:items-center"
+						hx-get={ mailRulePath("/activity/list") }
+						hx-trigger="change"
+						hx-target="#mail-rule-activity-list"
+						hx-swap="outerHTML"
+						data-mail-rule-activity-filters
+					>
+						<div class="w-full sm:w-64">
+							@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
+								@selectbox.Trigger(selectbox.TriggerProps{Name: "rule", Class: "bg-background", DisableClear: true, Attributes: templ.Attributes{"aria-label": "Rule"}}) {
+									@selectbox.Value(selectbox.ValueProps{Placeholder: "All rules"})
+								}
+								@selectbox.Content(selectbox.ContentProps{NoSearch: len(data.Rules) < 8, Class: "mobile-sheet"}) {
+									@selectbox.Item(selectbox.ItemProps{Value: "", Selected: data.RuleID == ""}) {
+										All rules 
+									}
+									for _, rule := range data.Rules {
+										@selectbox.Item(selectbox.ItemProps{Value: rule.ID, Selected: rule.ID == data.RuleID}) {
+											{ rule.Name }
+										}
+									}
+								}
+							}
+						</div>
+						<label class="flex items-center gap-2 text-sm">
+							@checkbox.Checkbox(checkbox.Props{Name: "failed", Value: "1", Checked: data.FailedOnly})
+							Only what failed
+						</label>
+					</form>
+					@MailRuleActivityList(data, now)
+				}
+				@dataDialogFooter() {
+					@mailRuleFooterButtons() {
+						<button
+							type="button"
+							class="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+							data-mail-rule-activity-clear={ mailRulePath("/activity/clear") }
+						>
+							@icon.Trash2(icon.Props{Class: "size-3.5"})
+							Clear activity
+						</button>
+						@dialog.Close() {
+							<button type="button" class={ mailRulePrimaryButton }>Close</button>
+						}
+					}
+				}
+			</div>
+		}
+	}
+}
+
+// MailRuleActivityList is the activity's entries as filtered. An entry for
+// a message that is still there opens it.
+templ MailRuleActivityList(data models.MailRuleActivityData, now time.Time) {
+	<div id="mail-rule-activity-list" class="space-y-3" data-mail-rule-activity-list>
+		if len(data.Runs) == 0 {
+			<div class="rounded-lg border border-dashed border-border p-6 text-center">
+				<p class="text-sm text-muted-foreground">
+					if data.RuleID != "" || data.FailedOnly {
+						Nothing here matches.
+					} else {
+						Nothing yet. What your rules do to mail shows up here.
+					}
+				</p>
+			</div>
+		} else {
+			<ul class="divide-y divide-border/60 rounded-lg border border-border bg-background/60">
+				for _, run := range data.Runs {
+					<li>
+						if run.FolderID != "" {
+							<a href={ templ.SafeURL(mailRuleActivityMessageURL(run)) } class="flex min-w-0 items-start gap-3 px-3 py-2.5 hover:bg-accent/50" data-mail-rule-activity-entry={ run.Status }>
+								@mailRuleActivityEntry(run, now)
+							</a>
+						} else {
+							<div class="flex min-w-0 items-start gap-3 px-3 py-2.5" data-mail-rule-activity-entry={ run.Status }>
+								@mailRuleActivityEntry(run, now)
+							</div>
+						}
+					</li>
+				}
+			</ul>
+			if data.More {
+				<div class="flex justify-center">
+					<button
+						type="button"
+						class={ mailRuleCancelButton }
+						hx-get={ mailRuleActivityMorePath(data) }
+						hx-target="#mail-rule-activity-list"
+						hx-swap="outerHTML"
+						data-mail-rule-activity-more
+					>Show more</button>
+				</div>
+			}
+		}
+	</div>
+}
+
+templ mailRuleActivityEntry(run models.MailRuleRun, now time.Time) {
+	<span class="mt-0.5 flex size-4 shrink-0 items-center justify-center">
+		switch run.Status {
+			case models.MailRuleRunApplied:
+				@icon.CircleCheck(icon.Props{Class: "size-4 text-emerald-600 dark:text-emerald-400"})
+			case models.MailRuleRunFailed:
+				@icon.CircleAlert(icon.Props{Class: "size-4 text-destructive"})
+			default:
+				@icon.CircleMinus(icon.Props{Class: "size-4 text-muted-foreground"})
+		}
+	</span>
+	<span class="min-w-0 flex-1">
+		<span class="block truncate text-sm">
+			if run.MessageID == 0 {
+				{ mailRuleSentence(run.Detail) }
+			} else if run.Subject != "" {
+				{ run.Subject }
+			} else {
+				<span class="text-muted-foreground">(no subject)</span>
+			}
+		</span>
+		<span class={ "block truncate text-xs", templ.KV("text-destructive", run.Status == models.MailRuleRunFailed), templ.KV("text-muted-foreground", run.Status != models.MailRuleRunFailed) }>
+			{ mailRuleActivityDetail(run) }
+		</span>
+	</span>
+	<time class="shrink-0 pt-0.5 text-xs text-muted-foreground tabular-nums" datetime={ run.CreatedAt.Format(time.RFC3339) }>{ mailRuleActivityTime(run.CreatedAt, now) }</time>
 }
