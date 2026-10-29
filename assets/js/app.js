@@ -3394,6 +3394,7 @@ document.addEventListener("DOMContentLoaded", function () {
         .then(function (data) {
           if (mailSelectAllKey(currentMailListController()) !== key) return
           var ids = (data && data.ids) || []
+          if (window.GoferMailSearch) window.GoferMailSearch.remember(ids)
           selectedMailIds.clear()
           selectedMailThreads.clear()
           selectedMailAccounts.clear()
@@ -3838,8 +3839,14 @@ document.addEventListener("DOMContentLoaded", function () {
     var MAIL_BULK_CHUNK_SIZE = 200
 
     // sendBulkMessageAction resolves to the counts the chunks answered with,
-    // added up, such as { updated: 3, no_trash: 1 } for a delete.
+    // added up, such as { updated: 3, no_trash: 1 } for a delete. Lists, such
+    // as a search delete's kept_trash, are joined.
     function sendBulkMessageAction(path, targets, extra) {
+      var captured = mailActionPayload(Object.assign({ targets: targets }, extra || {}))
+      targets = captured.targets
+      extra = Object.assign({}, captured)
+      delete extra.targets
+      if (!("search_scope" in extra)) extra.search_scope = null
       var totals = {}
       var run = Promise.resolve()
       for (var start = 0; start < targets.length; start += MAIL_BULK_CHUNK_SIZE) {
@@ -3849,6 +3856,7 @@ document.addEventListener("DOMContentLoaded", function () {
           return response.json().then(function (data) {
             for (var key in data) {
               if (typeof data[key] === "number") totals[key] = (totals[key] || 0) + data[key]
+              else if (Array.isArray(data[key])) totals[key] = (totals[key] || []).concat(data[key])
             }
           }, function () {})
         })
@@ -3865,7 +3873,7 @@ document.addEventListener("DOMContentLoaded", function () {
         method: "POST",
         keepalive: true,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify(mailActionPayload(body)),
       })
     }
 
@@ -4345,7 +4353,7 @@ document.addEventListener("DOMContentLoaded", function () {
         method: "POST",
         keepalive: true,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ targets: targets, folder_id: folderID, source_folder_id: sourceFolderID }),
+        body: JSON.stringify(mailActionPayload({ targets: targets, folder_id: folderID, source_folder_id: sourceFolderID })),
       }).then(function (response) {
         if (response.ok) return
         return response.text().then(function (text) {
@@ -5233,7 +5241,7 @@ document.addEventListener("DOMContentLoaded", function () {
       var heading = document.getElementById("mail-folder-name")
       if (!heading) return
       var defaultName = heading.getAttribute("data-mail-folder-default-name") || "Inbox"
-      heading.textContent = filters && filters.participant ? "All mail" : defaultName
+      heading.textContent = window.GoferMailSearch && window.GoferMailSearch.scope() ? "Search results" : filters && filters.participant ? "All mail" : defaultName
     }
 
     function clearAdvancedFilter(name) {
@@ -5595,6 +5603,11 @@ document.addEventListener("DOMContentLoaded", function () {
       syncFilterButton(readFilters())
     }
 
+    window.readMailFilters = function () {
+      if (searchTimer) { clearTimeout(searchTimer); searchTimer = null }
+      if (filterResultsTimer) { clearTimeout(filterResultsTimer); filterResultsTimer = null }
+      return readFilters()
+    }
     window.syncMailFilterControls = syncFilterControls
 
     document.addEventListener("submit", function (e) {
@@ -7575,7 +7588,7 @@ document.addEventListener("DOMContentLoaded", function () {
       var isOnSettings = mainContent && mainContent.querySelector("[data-settings-page]")
       var isOnContacts = !!document.getElementById("contacts-list-scroll")
       var mailListDetached = !virtualMailList || !virtualMailList.container || !document.body.contains(virtualMailList.container)
-      if (isOnSettings || isOnContacts || mailListDetached) {
+      if (isOnSettings || isOnContacts || mailListDetached || (virtualMailList && virtualMailList.searchScope)) {
         if (typeof htmx !== "undefined") {
           virtualContactsList = null
           history.pushState({ folder: folderID, email: null }, "", "/folder/" + folderID + target.search)
@@ -18247,6 +18260,10 @@ function toggleRead(emailId) {
 }
 
 function toggleThreadRead(emailId, threadId) {
+  if (window.GoferMailSearch && window.GoferMailSearch.scope()) {
+    var row = window.GoferMailSearch.rowData(emailId)
+    return runScopedMailAction(emailId, "read", true, { state: row && row.isRead === "true" ? "unread" : "read" })
+  }
   fetch("/api/messages/" + emailId + "/thread/read", { method: "POST" })
     .then(function (r) { return r.json() })
     .then(function (data) {
@@ -18301,6 +18318,10 @@ function toggleStar(emailId) {
 
 // Stars every message in the thread, or unstars them all when any is starred.
 function toggleThreadStar(emailId, threadId) {
+  if (window.GoferMailSearch && window.GoferMailSearch.scope()) {
+    var row = window.GoferMailSearch.rowData(emailId)
+    return runScopedMailAction(emailId, "star", true, { state: row && row.starred === "true" ? "unstarred" : "starred" })
+  }
   fetch("/api/messages/" + encodeURIComponent(emailId) + "/thread/star", { method: "POST" })
     .then(function (r) {
       if (!r.ok) throw new Error("Failed to star thread")
@@ -18395,6 +18416,42 @@ function confirmPermanentMailDelete(emailId, permanentURL) {
   })
 }
 
+// Search results can include mail already in Trash, which a delete keeps.
+// Deleting it again is for good, so the toast asks first, then deletes only
+// those, in chunks the server accepts.
+function confirmPermanentSearchDelete(targets) {
+  var one = targets.length === 1
+  showGoferToast({
+    id: "mail-search-permanent-delete",
+    title: one ? "Delete the email permanently?" : "Delete " + targets.length.toLocaleString() + " emails permanently?",
+    description: (one ? "It's" : "They're") + " already in Trash, so this can't be undone.",
+    variant: "warning", icon: "warning", position: "bottom-right", duration: 10000, dismissible: true,
+    secondaryActionLabel: "Delete permanently",
+    onSecondaryAction: function () {
+      dismissGoferToast(document.getElementById("mail-search-permanent-delete"))
+      var run = Promise.resolve()
+      for (var start = 0; start < targets.length; start += 200) {
+        run = run.then(function (chunk) {
+          return fetch("/api/messages/delete", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(mailActionPayload({ targets: chunk, permanent: true })),
+          }).then(function (response) { if (!response.ok) return mailDeleteResponseError(response) })
+        }.bind(null, targets.slice(start, start + 200)))
+      }
+      run.then(function () {
+        var container = document.getElementById("mail-list-scroll")
+        var controller = container && container._virtualMailList
+        if (controller) return controller.refreshCurrentFolder({ noAnimation: true })
+      }).then(function () {
+        if (window.goferRefreshSidebarUnread) window.goferRefreshSidebarUnread()
+      }).catch(function (err) {
+        var reason = err && err.reason ? err.reason : "Try again in a moment."
+        showGoferToast({ id: "mail-delete-error", title: "Couldn't delete the email", description: reason, variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
+      })
+    },
+  })
+}
+
 function mailDeleteResponseError(response) {
   var missing = missingFolderFromResponse(response)
   return response.text().catch(function () { return "" }).then(function (text) {
@@ -18408,6 +18465,7 @@ function mailDeleteResponseError(response) {
 // A batch of mail actions that skipped mail of an account without the folder
 // it needs says so, and offers to choose the folder.
 function showMailActionSkippedToast(action, totals) {
+  if (totals && totals.kept_trash && totals.kept_trash.length) confirmPermanentSearchDelete(totals.kept_trash)
   var missing = totals && totals.missingFolder
   if (!missing) return
   var count = action === "delete" ? totals.no_trash : (action === "archive" ? totals.no_archive : totals.failed)
@@ -18447,6 +18505,7 @@ function openFolderRolesSettings(accountID) {
 }
 
 function deleteMessage(emailId) {
+  if (window.GoferMailSearch && window.GoferMailSearch.scope()) return runScopedMailAction(emailId, "delete", false)
   var vml = beginOptimisticMailRemoval(emailId)
   var url = "/api/messages/" + encodeURIComponent(emailId) + mailDeleteFolderQuery()
   fetch(url, { method: "DELETE" })
@@ -18462,6 +18521,7 @@ function mailPermanentDeleteURL(url) {
 }
 
 function archiveThread(emailId) {
+  if (window.GoferMailSearch && window.GoferMailSearch.scope()) return runScopedMailAction(emailId, "archive", true)
   fetch("/api/messages/" + emailId + "/thread/archive", { method: "POST" })
     .then(function (response) {
       var missing = missingFolderFromResponse(response)
@@ -18482,6 +18542,7 @@ function archiveThread(emailId) {
 }
 
 function deleteThread(emailId) {
+  if (window.GoferMailSearch && window.GoferMailSearch.scope()) return runScopedMailAction(emailId, "delete", true)
   var vml = beginOptimisticMailRemoval(emailId)
   var url = "/api/messages/" + encodeURIComponent(emailId) + "/thread" + mailDeleteFolderQuery()
   fetch(url, { method: "DELETE" })
@@ -18508,7 +18569,35 @@ function markThreadNotSpam(emailId) {
   markSpamState(emailId, true, true)
 }
 
+function runScopedMailAction(emailId, action, thread, extra) {
+  var body = Object.assign({ targets: [{ id: String(emailId), thread: !!thread }] }, extra || {})
+  return fetch("/api/messages/" + action, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(mailActionPayload(body))
+  }).then(function (response) {
+    if (!response.ok) return mailDeleteResponseError(response)
+    return response.json()
+  }).then(function (totals) {
+    showMailActionSkippedToast(action, totals)
+    ;(totals.message_ids || []).forEach(function (id) {
+      if (action === "read") document.querySelectorAll('[data-read-email="' + id + '"]').forEach(function (button) { setReadButtonIcon(button, extra.state === "read") })
+      if (action === "star") document.querySelectorAll('[data-star-email="' + id + '"]').forEach(function (button) { setStarButtonIcon(button, extra.state === "starred") })
+    })
+    if (action === "read") syncThreadReadButtons()
+    if (action === "star") syncThreadStarButtons()
+    var container = document.getElementById("mail-list-scroll")
+    var controller = container && container._virtualMailList
+    if (controller) return controller.refreshCurrentFolder({ noAnimation: true })
+  }).then(function () { if (window.goferRefreshSidebarUnread) window.goferRefreshSidebarUnread() }).catch(function () {
+    showGoferToast({ title: "Couldn't change the selected mail", variant: "error", duration: 5000 })
+  })
+}
+
+function mailActionPayload(body) {
+  return window.GoferMailSearch ? window.GoferMailSearch.payload(body) : body
+}
+
 function mailActionCurrentFolderID() {
+  if (window.GoferMailSearch && window.GoferMailSearch.scope()) return ""
   var container = document.getElementById("mail-list-scroll")
   if (container && container._virtualMailList && container._virtualMailList.folderID) return container._virtualMailList.folderID
   if (container && container.dataset.folderId) return container.dataset.folderId
@@ -18720,7 +18809,7 @@ function syncMailSpamActionState(folderID) {
 
 function mailViewRequestURL(emailID, single) {
   var params = new URLSearchParams()
-  var folderID = mailActionCurrentFolderID()
+  var folderID = window.GoferMailSearch && window.GoferMailSearch.scope() ? window.GoferMailSearch.folderFor(emailID) : mailActionCurrentFolderID()
   if (folderID) params.set("folder_id", folderID)
   if (single) params.set("single", "1")
   var query = params.toString()
@@ -18732,7 +18821,7 @@ function markSpamState(emailId, notSpam, thread) {
   fetch(path, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ targets: [{ id: String(emailId), thread: !!thread }], folder_id: mailActionCurrentFolderID() })
+    body: JSON.stringify(mailActionPayload({ targets: [{ id: String(emailId), thread: !!thread }], folder_id: mailActionCurrentFolderID() }))
   })
     .then(function (response) {
       var missing = missingFolderFromResponse(response)
@@ -18766,7 +18855,7 @@ function openLabelsDialog(targets, done) {
   fetch("/mail/labels-dialog", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ targets: targets, folder_id: folderID }),
+    body: JSON.stringify(mailActionPayload({ targets: targets, folder_id: folderID })),
   })
     .then(function (response) {
       if (!response.ok) throw new Error("labels dialog unavailable")
@@ -18939,7 +19028,7 @@ function postLabelChunk(path, targets, label, folderID) {
   return fetch(path, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ targets: targets, label: label, folder_id: folderID }),
+    body: JSON.stringify(mailActionPayload({ targets: targets, label: label, folder_id: folderID })),
   }).then(function (response) {
     if (response.ok) return
     return response.text().then(function (text) {
@@ -19008,7 +19097,7 @@ function moveMessagesOutOfFolder(emailId, path, body, report) {
   fetch(path, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body)
+    body: JSON.stringify(mailActionPayload(body))
   })
     .then(function (response) {
       if (!response.ok) {
@@ -19386,7 +19475,7 @@ function confirmMessagesToAccount(mode) {
   fetch("/api/messages/to-account", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ targets: pending.targets, folder_id: pending.folderID, source_folder_id: pending.sourceFolderID, mode: mode }),
+    body: JSON.stringify(mailActionPayload({ targets: pending.targets, folder_id: pending.folderID, source_folder_id: pending.sourceFolderID, mode: mode })),
   })
     .then(function (response) {
       if (response.ok) return response.json()

@@ -7,8 +7,10 @@ function listRemPx(rem) {
 
 // Mail card rows are shorter on small screens, where they use a fixed phone layout
 // (see the small-screen mail list styles).
-function mailCardRowRem() {
-  return window.matchMedia("(max-width: 1023.98px)").matches ? 5.25 : 6.5
+// Search result cards carry a 1.5rem location strip along their top edge
+// (.mail-search-location-strip in input.css).
+function mailCardRowRem(searchResults) {
+  return (window.matchMedia("(max-width: 1023.98px)").matches ? 5.25 : 6.5) + (searchResults ? 1.5 : 0)
 }
 
 // Contact rows use one 4rem phone layout on small screens, in either view.
@@ -77,9 +79,10 @@ class VirtualMailList {
     this.container = container
     this.root = container.closest("#mail-list") || container.parentElement || container
     this.folderID = options.folderID || "inbox"
+    try { this.searchScope = JSON.parse(this.root.dataset.mailSearchScope || "null") } catch (_) { this.searchScope = null }
     this.viewMode = options.viewMode || container.dataset.viewMode || "cards"
     this.navigationMode = (options.navigationMode || container.dataset.navigationMode) === "pagination" ? "pagination" : "infinite"
-    this.itemHeight = listRemPx(this.viewMode === "table" ? 2.75 : mailCardRowRem())
+    this.itemHeight = listRemPx(this.viewMode === "table" ? 2.75 : mailCardRowRem(!!this.searchScope))
     this.subItemHeight = listRemPx(this.viewMode === "table" ? 2 : 3)
     this.expandedThreadGap = 26
     this.overscan = 10
@@ -98,7 +101,7 @@ class VirtualMailList {
     this.displayTotalCount = 0
     this.effectiveCount = 0
     this.windowStart = 0
-    this.selectedEmailId = null
+    this.selectedEmailId = this.searchScope ? new URLSearchParams(window.location.search).get("selected") : null
     this.nextCursor = null
     this.hasMore = true
     this.isLoading = false
@@ -1274,7 +1277,9 @@ class VirtualMailList {
     this.isLoading = true
     try {
       var params = "limit=" + this.mailListFetchLimit()
-      if (this.nextCursor) {
+      if (this.searchScope) {
+        params += "&start=" + (this.frontierDown + 1)
+      } else if (this.nextCursor) {
         params += "&after=" + encodeURIComponent(this.nextCursor)
       }
       if (this.selectedEmailId) {
@@ -1870,6 +1875,8 @@ class VirtualMailList {
   }
 
   async switchFolder(folderID, pushState) {
+    if (folderID !== "search") this.searchScope = null
+    if (window.GoferMailSearch) window.GoferMailSearch.sync()
     if (pushState === undefined) pushState = true
     if (this.navigationMode === "pagination") {
       this.folderID = folderID
@@ -2014,7 +2021,7 @@ class VirtualMailList {
   // differs), so they are worked out again when the screen crosses the breakpoint.
   refreshRowMetrics() {
     var anchor = this.positionAtOffset(this.container.scrollTop)
-    this.itemHeight = listRemPx(this.viewMode === "table" ? 2.75 : mailCardRowRem())
+    this.itemHeight = listRemPx(this.viewMode === "table" ? 2.75 : mailCardRowRem(!!this.searchScope))
     this.subItemHeight = listRemPx(this.viewMode === "table" ? 2 : 3)
     this.invalidateOffsets()
     this.container.scrollTop = this.offsetAtPosition(anchor)
@@ -2026,7 +2033,7 @@ class VirtualMailList {
 
   setViewMode(viewMode, keepRows) {
     this.viewMode = viewMode === "table" ? "table" : "cards"
-    this.itemHeight = listRemPx(this.viewMode === "table" ? 2.75 : mailCardRowRem())
+    this.itemHeight = listRemPx(this.viewMode === "table" ? 2.75 : mailCardRowRem(!!this.searchScope))
     this.subItemHeight = listRemPx(this.viewMode === "table" ? 2 : 3)
     this.container.dataset.viewMode = this.viewMode
     var mailList = document.getElementById("mail-list")
@@ -2178,6 +2185,7 @@ class VirtualMailList {
   }
 
   withFilterParams(url) {
+    if (this.searchScope) url = url.replace(/^\/mail\/folder\/search\/(items|ids)/, "/mail/search/$1")
     var sep = url.indexOf("?") === -1 ? "?" : "&"
     var filters = this.filters || this.emptyFilters()
     var pairs = [
@@ -2233,7 +2241,7 @@ class VirtualMailList {
       url += sep + "tag_provider_type=" + encodeURIComponent(tag.providerType)
       sep = "&"
     }
-    return url
+    return this.searchScope && window.GoferMailSearch ? window.GoferMailSearch.scopeURL(url, this.searchScope) : url
   }
 
   emptyFilters() {
@@ -2395,6 +2403,11 @@ class VirtualMailList {
     if (tag.label === filterTag && tag.accountId) params.set("tag_account_id", tag.accountId)
     if (tag.label === filterTag && tag.providerId) params.set("tag_provider_id", tag.providerId)
     if (tag.label === filterTag && tag.providerId && tag.providerType) params.set("tag_provider_type", tag.providerType)
+    if (this.searchScope && window.GoferMailSearch) {
+      var origin = new URLSearchParams(window.location.search).get("search_from")
+      if (origin) params.set("search_from", origin)
+      return window.GoferMailSearch.scopeURL("?" + params.toString(), this.searchScope).slice(1)
+    }
     return params.toString()
   }
 
@@ -2470,12 +2483,13 @@ class VirtualMailList {
   ensureSelectionWindowed() {}
 
   pushUrl() {
-    var path = "/folder/" + this.folderID
-    if (this.selectedEmailId) {
+    var path = this.searchScope ? "/mail/search" : "/folder/" + this.folderID
+    if (!this.searchScope && this.selectedEmailId) {
       path += "/" + this.selectedEmailId
     }
-    var query = this.filterQueryString()
-    if (query) path += "?" + query
+    var query = new URLSearchParams(this.filterQueryString())
+    if (this.searchScope && this.selectedEmailId) query.set("selected", this.selectedEmailId)
+    if (query.toString()) path += "?" + query.toString()
     if (window.location.pathname + window.location.search !== path) {
       // fromList lets the small-screen back button return to the list with history.back().
       var fromList = !!this.selectedEmailId && !(history.state && history.state.email)
@@ -2484,10 +2498,11 @@ class VirtualMailList {
   }
 
   replaceUrl() {
-    var path = "/folder/" + this.folderID
-    if (this.selectedEmailId) path += "/" + this.selectedEmailId
-    var query = this.filterQueryString()
-    if (query) path += "?" + query
+    var path = this.searchScope ? "/mail/search" : "/folder/" + this.folderID
+    if (!this.searchScope && this.selectedEmailId) path += "/" + this.selectedEmailId
+    var query = new URLSearchParams(this.filterQueryString())
+    if (this.searchScope && this.selectedEmailId) query.set("selected", this.selectedEmailId)
+    if (query.toString()) path += "?" + query.toString()
     history.replaceState({ folder: this.folderID, email: this.selectedEmailId || null }, "", path)
   }
 
@@ -2512,6 +2527,7 @@ class VirtualMailList {
   }
 
   updateHeader() {
+    if (window.GoferMailSearch) window.GoferMailSearch.sync()
     var nameEl = document.getElementById("mail-folder-name")
     if (nameEl) {
       var link = null
@@ -2742,7 +2758,8 @@ class VirtualMailList {
     try {
       var threadId = this.getThreadDataAttr(emailId)
       if (!threadId) return
-      var html = await this.fetchHTML("/mail/thread/" + encodeURIComponent(threadId) + "/subitems")
+      var threadURL = this.searchScope ? this.withFilterParams("/mail/search/thread/" + encodeURIComponent(emailId) + "/subitems") : "/mail/thread/" + encodeURIComponent(threadId) + "/subitems"
+      var html = await this.fetchHTML(threadURL)
       var tmp = document.createElement("template")
       tmp.innerHTML = html
       var wrapper = tmp.content.firstElementChild
@@ -2814,7 +2831,7 @@ class VirtualMailList {
       encodeURIComponent(selectedId) +
       "&view=" +
       encodeURIComponent(this.viewMode)
-    var html = await this.fetchHTML(url)
+    var html = await this.fetchHTML(this.withFilterParams(url))
     this.ingestHTML(html)
 
     var anchorPos = this.indexById.get(selectedId)
@@ -3693,6 +3710,20 @@ window.addEventListener("popstate", function (e) {
     if (typeof htmx !== "undefined") {
       htmx.ajax("GET", "/settings/" + e.state.settingsTab, {target: "#main-content", swap: "outerHTML"})
     }
+    return
+  }
+
+  var currentMail = document.getElementById("mail-list-scroll")
+  var wasSearch = currentMail && currentMail._virtualMailList && currentMail._virtualMailList.searchScope
+  if (window.location.pathname === "/mail/search" || window.location.pathname === "/search" || (wasSearch && /^\/folder\/[^/]+/.test(window.location.pathname))) {
+    var target = window.location.pathname
+    if (/^\/folder\//.test(target)) target = "/folder/" + target.split("/")[2] + "/full"
+    var search = window.location.search
+    // Let all history listeners advance request ownership before starting
+    // this navigation, so its own response isn't mistaken for a stale page.
+    setTimeout(function () {
+      if (typeof htmx !== "undefined") htmx.ajax("GET", target + search, {target: "#main-content", swap: "outerHTML"})
+    }, 0)
     return
   }
 

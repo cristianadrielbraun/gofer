@@ -21,7 +21,7 @@ import (
 )
 
 templ MailList(accounts []models.Account, emails []models.Email, activeFolder string, selectedEmail *models.Email, totalCount int, scrollCount int, windowStart int, width string, senderDisplayMode string, viewMode string, navigationMode string, filters models.EmailFilters) {
-	<div id="mail-list" class="w-full lg:flex flex-col border-r border-border bg-card h-full overflow-hidden" style={ "width:" + mailListWidthCSS(width) } data-panel-section="mail" data-mail-list-view={ mailListViewMode(viewMode) } data-mail-navigation-mode={ mailListNavigationMode(navigationMode) } data-mail-search-scope={ mailSearchScopeJSON(filters.SearchScope) }>
+	<div id="mail-list" class="w-full lg:flex flex-col border-r border-border bg-card h-full overflow-hidden" style={ "width:" + mailListWidthCSS(width) } data-panel-section="mail" data-mail-list-view={ mailListViewMode(viewMode) } data-mail-navigation-mode={ mailListNavigationMode(navigationMode) } data-mail-search-scope={ mailSearchScopeJSON(filters.SearchScope) } data-mail-search-results?={ filters.SearchScope != nil }>
 		@MailListHeader(accounts, activeFolder, totalCount, filters)
 		@MailListToolbar(accounts, activeFolder, mailListViewMode(viewMode), filters)
 		@MailSelectAllBanner()
@@ -195,6 +195,7 @@ templ MailListHeader(accounts []models.Account, activeFolder string, totalCount 
 					@MailFiltersPopover(accounts, !filters.ByMessage)
 				</div>
 			</div>
+			@MailSearchControls(accounts, activeFolder, filters)
 			<div data-mail-active-filter-pills class="mail-active-filter-strip hidden" aria-label="Active filters"></div>
 		</div>
 	</div>
@@ -1164,6 +1165,13 @@ templ MailListCardItem(accounts []models.Account, email models.Email, position i
 			}
 			data-mail-card-layout-scope
 		>
+			// Search results name where each message is, across the card's top edge.
+			if email.SearchLocation != "" {
+				<div class="mail-search-location-strip" title={ email.SearchLocation } data-mail-search-location>
+					@icon.Folder(icon.Props{Class: "size-3 shrink-0"})
+					<span class="truncate">{ email.SearchLocation }</span>
+				</div>
+			}
 			<div class="mail-list-card-zone mail-list-card-zone-rail-top" data-mail-card-zone="railTop">
 				<div data-mail-card-field="avatar">
 					@ContactAvatar(email.From, "size-6 rounded-full text-[10px] font-semibold shadow-[0_1px_3px_rgba(0,0,0,0.15)]", contactAvatarListFallback(email.IsRead))
@@ -1259,7 +1267,9 @@ templ MailListCardItem(accounts []models.Account, email models.Email, position i
 				>{ email.Subject }</p>
 			</div>
 			<div class="mail-list-card-zone mail-list-card-zone-footer" data-mail-card-zone="footer">
-				<p class="min-w-0 flex-1 text-[13px] text-black dark:text-foreground truncate leading-normal" data-mail-card-field="preview">{ email.Preview }</p>
+				<p class="min-w-0 flex-1 text-[13px] text-black dark:text-foreground truncate leading-normal" data-mail-card-field="preview">
+					{ email.Preview }
+				</p>
 				if len(email.Labels) > 0 {
 					// One field for all labels, so it moves and sizes as a unit.
 					<span class="mail-list-card-labels" data-mail-card-field="labels">
@@ -1348,13 +1358,18 @@ templ MailListTableItem(email models.Email, position int, selectedEmail *models.
 				>{ contactsDisplay(email.To, senderDisplayMode) }</span>
 			</div>
 			<div class="flex items-center gap-2 min-w-0" data-mail-table-cell="subject">
-				<span
-					class={
-						"truncate",
-						templ.KV("font-medium text-foreground", !email.IsRead),
-						templ.KV("text-muted-foreground", email.IsRead),
+				<div class="min-w-0">
+					<span
+						class={
+							"truncate",
+							templ.KV("font-medium text-foreground", !email.IsRead),
+							templ.KV("text-muted-foreground", email.IsRead),
+						}
+					>{ email.Subject }</span>
+					if email.SearchLocation != "" {
+						<span class="block truncate text-[11px] text-muted-foreground" title={ email.SearchLocation } data-mail-search-location>{ email.SearchLocation }</span>
 					}
-				>{ email.Subject }</span>
+				</div>
 				if len(email.Labels) > 0 {
 					for _, label := range email.Labels {
 						<span class={ "hidden xl:inline text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0", label.Color }>

@@ -2581,6 +2581,35 @@ body.mail-list-column-resizing {
   overflow: hidden;
 }
 
+/* Search result cards carry their location in a strip along the top edge,
+   outside the card's padding: 1.5rem taller, matching mailCardRowRem() in
+   virtual-scroll.js. No line divides it from its card, so it can't be read as
+   part of the card above. */
+#mail-list[data-mail-search-results] :is(.mail-list-item, .mail-list-thread-main) {
+  height: 8rem;
+  min-height: 8rem;
+  max-height: 8rem;
+}
+
+#mail-list[data-mail-search-results] .mail-list-item > a.mail-list-card {
+  position: relative;
+  padding-top: 2rem;
+}
+
+.mail-search-location-strip {
+  position: absolute;
+  inset: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  height: 1.5rem;
+  padding: 0.25rem 0.75rem 0;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--color-muted-foreground);
+  background: color-mix(in srgb, var(--color-muted) 70%, transparent);
+}
+
 .mail-list-thread-main > .mail-list-item,
 .mail-list-thread-main > .mail-list-item > a {
   height: 100%;
@@ -4647,6 +4676,21 @@ body.mail-list-column-resizing {
     height: 5.25rem;
     min-height: 5.25rem;
     max-height: 5.25rem;
+  }
+
+  /* Search results: the location strip sits above the row's own layout. */
+  #mail-list[data-mail-list-view][data-mail-search-results] :is(.mail-list-item, .mail-list-thread-main) {
+    height: 6.75rem;
+    min-height: 6.75rem;
+    max-height: 6.75rem;
+  }
+
+  #mail-list[data-mail-list-view][data-mail-search-results] .mail-list-item > a.mail-list-card {
+    padding-top: 2rem;
+  }
+
+  #mail-list[data-mail-list-view] .mail-search-location-strip {
+    padding: 0.25rem 1rem 0;
   }
 
   #mail-list[data-mail-list-view] .mail-list-thread-main > .mail-list-item {
@@ -6986,5 +7030,15 @@ aside a[data-mail-drop-active] {
   .login-reveal[data-open="false"],
   .login-submit-label {
     transition: none;
+  }
+}
+
+#mail-search-folders-dialog [hidden] {
+  display: none;
+}
+
+@media (max-width: 767px) {
+  .mail-search-scope-row {
+    padding: 0 0.75rem 0.5rem;
   }
 }

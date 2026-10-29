@@ -67,6 +67,8 @@ type Email struct {
 	AccountColor      string
 	FolderID          string
 	FolderRole        string
+	// SearchLocation names the account and folder path on search results.
+	SearchLocation    string
 	From              Contact
 	To                []Contact
 	CC                []Contact

@@ -1,0 +1,114 @@
+package views
+
+import (
+	"strings"
+	"github.com/cristianadrielbraun/gofer/components/button"
+	"github.com/cristianadrielbraun/gofer/components/checkbox"
+	"github.com/cristianadrielbraun/gofer/components/dialog"
+	"github.com/cristianadrielbraun/gofer/components/icon"
+	"github.com/cristianadrielbraun/gofer/components/selectbox"
+	"github.com/cristianadrielbraun/gofer/internal/models"
+)
+
+templ MailSearchControls(accounts []models.Account, activeFolder string, filters models.EmailFilters) {
+	<div class="mail-search-scope-row flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground" data-mail-search-controls data-current-folder={ activeFolder }>
+		<div class="flex min-w-0 max-w-full items-center gap-2">
+			<span class="shrink-0">Search in:</span>
+			@selectbox.SelectBox(selectbox.Props{Class: "w-56 min-w-0 max-w-full", Attributes: templ.Attributes{"data-mail-scope-select": ""}}) {
+				@selectbox.Trigger(selectbox.TriggerProps{DisableClear: true, Required: true, Class: "h-8 bg-background text-xs", Attributes: templ.Attributes{"aria-label": "Search in"}}) {
+					@selectbox.Value(selectbox.ValueProps{Class: "text-xs"})
+				}
+				@selectbox.Content(selectbox.ContentProps{NoSearch: len(accounts) < 8, Class: "mobile-sheet"}) {
+					@selectbox.Item(selectbox.ItemProps{Value: "current", Selected: filters.SearchScope == nil}) {
+						Current folder / view
+					}
+					@selectbox.Item(selectbox.ItemProps{Value: "all", Selected: filters.SearchScope != nil && filters.SearchScope.Kind == models.MailSearchAll}) {
+						All accounts
+					}
+					for _, account := range accounts {
+						@selectbox.Item(selectbox.ItemProps{Value: "account:" + account.ID, Selected: filters.SearchScope != nil && filters.SearchScope.Kind == models.MailSearchAccount && filters.SearchScope.AccountID == account.ID}) {
+							{ account.Email }
+						}
+					}
+					@selectbox.Item(selectbox.ItemProps{Value: "folders", Selected: filters.SearchScope != nil && filters.SearchScope.Kind == models.MailSearchFolders}) {
+						{ mailSearchFolderSelectionLabel(filters.SearchScope) }
+					}
+				}
+			}
+		</div>
+		<span class="hidden" data-mail-scope-edit>
+			@button.Button(button.Props{Variant: button.VariantLink, Class: "h-auto p-0 text-xs"}) {
+				Edit folders
+			}
+		</span>
+		<label class="hidden items-center gap-1.5" data-mail-scope-exclude-label>
+			@checkbox.Checkbox(checkbox.Props{Checked: filters.SearchScope != nil && filters.SearchScope.ExcludeSpamTrash, Attributes: templ.Attributes{"data-mail-scope-exclude": ""}})
+			<span>Exclude Spam &amp; Trash</span>
+		</label>
+		<a href="/mail/search" class="hidden" data-mail-scope-navigation aria-hidden="true" tabindex="-1"></a>
+	</div>
+	@dialog.Dialog(dialog.Props{ID: "mail-search-folders-dialog"}) {
+		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-lg max-h-[calc(100dvh-2rem)] [&>[data-tui-dialog-panel]]:flex [&>[data-tui-dialog-panel]]:max-h-[calc(100dvh-2rem)] [&>[data-tui-dialog-panel]]:min-h-0 [&>[data-tui-dialog-panel]]:flex-col [&>[data-tui-dialog-panel]]:gap-0 [&>[data-tui-dialog-panel]]:p-0", Attributes: templ.Attributes{"aria-label": "Choose folders to search"}}) {
+			@dialog.Header(dialog.HeaderProps{Class: "shrink-0 px-6 pt-6 pb-4"}) {
+				@dialog.Title() {
+					Choose folders to search
+				}
+				@dialog.Description() {
+					Pick folders from any of your accounts.
+				}
+				<div class="relative">
+					@icon.Search(icon.Props{Class: "absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground"})
+					<input type="search" placeholder="Find a folder or account" aria-label="Find a folder or account" autocomplete="off" class="h-9 w-full rounded-md border border-input bg-background pl-9 pr-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring" data-mail-scope-folder-search/>
+				</div>
+			}
+			<div class="min-h-0 flex-1 overflow-y-auto overscroll-contain border-y border-border" data-mail-scope-folder-list>
+				for _, account := range accounts {
+					<section data-mail-scope-account>
+						<div class="sticky top-0 z-10 flex items-center gap-2 bg-muted px-6 py-2">
+							<div class="account-color-marker size-2.5 shrink-0" style={ accountColorStyle(account.Color) }></div>
+							<span class="truncate text-xs font-semibold text-foreground">{ account.Email }</span>
+						</div>
+						for _, folder := range account.Folders {
+							@MailSearchFolderChoice(folder, account.Email, "", 0)
+						}
+					</section>
+				}
+				<p class="hidden px-6 py-4 text-sm text-muted-foreground" data-mail-scope-folder-empty>No matching folders.</p>
+			</div>
+			@dialog.Footer(dialog.FooterProps{Class: "shrink-0 flex-col items-stretch px-6 py-4 sm:items-center sm:justify-between"}) {
+				<div class="min-w-0 space-y-1">
+					<label class="flex items-center gap-2 text-sm">
+						@checkbox.Checkbox(checkbox.Props{Checked: true, Attributes: templ.Attributes{"data-mail-scope-descendants": ""}})
+						Include subfolders
+					</label>
+					<p class="text-xs text-muted-foreground" role="status" data-mail-scope-folder-status>Select up to 200 folders. Only locally synced mail is searched.</p>
+				</div>
+				<div class="flex shrink-0 justify-end gap-2">
+					@button.Button(button.Props{Variant: button.VariantOutline, Attributes: templ.Attributes{"data-mail-scope-cancel": ""}}) {
+						Cancel
+					}
+					@button.Button(button.Props{Disabled: true, Attributes: templ.Attributes{"data-mail-scope-apply": ""}}) {
+						Search selected folders
+					}
+				</div>
+			}
+		}
+	}
+}
+
+templ MailSearchFolderChoice(folder models.Folder, accountEmail string, parent string, depth int) {
+	{{ path := folder.Name; if parent != "" { path = parent + " / " + folder.Name } }}
+	<label class="flex cursor-pointer items-center gap-2.5 py-1.5 pr-6 hover:bg-accent/50" style={ mailSearchFolderIndent(depth) } title={ path } data-mail-scope-folder-row data-search-text={ strings.ToLower(accountEmail + " " + path) }>
+		@checkbox.Checkbox(checkbox.Props{Value: folder.ID, Attributes: templ.Attributes{"data-mail-scope-folder": ""}})
+		@icon.Folder(icon.Props{Class: "size-3.5 shrink-0 text-muted-foreground"})
+		<span class="min-w-0 text-sm">
+			<span class="block truncate">{ folder.Name }</span>
+			if parent != "" {
+				<span class="block truncate text-[11px] text-muted-foreground">{ parent }</span>
+			}
+		</span>
+	</label>
+	for _, child := range folder.Children {
+		@MailSearchFolderChoice(child, accountEmail, path, depth+1)
+	}
+}

@@ -6236,6 +6236,7 @@ type messageBulkTarget struct {
 }
 
 type messageBulkRequest struct {
+	Permanent   bool                    `json:"permanent,omitempty"`
 	SearchScope *models.MailSearchScope `json:"search_scope,omitempty"`
 	Targets     []messageBulkTarget     `json:"targets"`
 	State       string                  `json:"state"`
@@ -6407,6 +6408,10 @@ func (h *Handler) handleMarkMessagesRead(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
+	if payload.SearchScope != nil {
+		writeMailSearchFlagResult(w, updated, targets)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]int{"updated": updated})
@@ -6445,6 +6450,10 @@ func (h *Handler) handleMarkMessagesStarred(w http.ResponseWriter, r *http.Reque
 		}
 	}
 
+	if payload.SearchScope != nil {
+		writeMailSearchFlagResult(w, updated, targets)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]int{"updated": updated})
@@ -6553,10 +6562,17 @@ func (h *Handler) handleDeleteMessages(w http.ResponseWriter, r *http.Request) {
 	}
 	updated := 0
 	noTrash := 0
+	// Search results can hold mail already in Trash. Deleting it again is for
+	// good, so it is kept and named back until the reader confirms.
+	keptTrash := []messageBulkTarget{}
 
 	for _, target := range targets {
 		currentInfo := target.Infos[0].MessageMutationInfo
 		if currentInfo.FolderRole == "trash" {
+			if payload.SearchScope != nil && !payload.Permanent {
+				keptTrash = append(keptTrash, target.Target)
+				continue
+			}
 			if err := h.queuePermanentDeletes(ctx, target.Infos); err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
@@ -6582,7 +6598,11 @@ func (h *Handler) handleDeleteMessages(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]int{"updated": updated, "no_trash": noTrash})
+	result := map[string]any{"updated": updated, "no_trash": noTrash}
+	if payload.SearchScope != nil {
+		result["kept_trash"] = keptTrash
+	}
+	json.NewEncoder(w).Encode(result)
 }
 
 // handleMoveMessages moves messages to a folder. The destination is either one

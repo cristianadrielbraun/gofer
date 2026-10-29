@@ -191,7 +191,7 @@ func TestMailSearchActionsResolveOnlyScopedMembers(t *testing.T) {
 
 func TestMailSearchDeleteUsesEachFoldersRole(t *testing.T) {
 	h, db := newMailSearchHandler(t)
-	req := httptest.NewRequest("POST", "/api/messages/delete", strings.NewReader(`{"search_scope":{"kind":"all"},"targets":[{"id":"4","thread":true,"folder_id":"trash"}]}`))
+	req := httptest.NewRequest("POST", "/api/messages/delete", strings.NewReader(`{"search_scope":{"kind":"all"},"permanent":true,"targets":[{"id":"4","thread":true,"folder_id":"trash"}]}`))
 	rec := httptest.NewRecorder()
 	h.handleDeleteMessages(rec, ownerRequest(req))
 	if rec.Code != 200 {
@@ -224,4 +224,63 @@ func TestMailSearchUsesPerUserStorage(t *testing.T) {
 			t.Fatalf("owner=%s status=%d body=%s", owner, rec.Code, rec.Body.String())
 		}
 	}
+}
+
+func TestMailSearchDeleteKeepsTrashWithoutPermanentRequest(t *testing.T) {
+	h, db := newMailSearchHandler(t)
+	req := httptest.NewRequest("POST", "/api/messages/delete", strings.NewReader(`{"search_scope":{"kind":"all"},"targets":[{"id":"4","thread":true}]}`))
+	rec := httptest.NewRecorder()
+	h.handleDeleteMessages(rec, ownerRequest(req))
+	var result struct {
+		KeptTrash []messageBulkTarget `json:"kept_trash"`
+	}
+	if rec.Code != 200 || json.Unmarshal(rec.Body.Bytes(), &result) != nil || len(result.KeptTrash) != 1 || result.KeptTrash[0].ID != "4" {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var count int
+	if err := db.Read().QueryRow(`SELECT COUNT(*) FROM message_mutations WHERE message_id=4`).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("Trash mutations=%d error=%v", count, err)
+	}
+}
+
+func TestMailSearchFlagsReturnOnlyChangedMembers(t *testing.T) {
+	for _, action := range []string{"read", "star"} {
+		t.Run(action, func(t *testing.T) {
+			h, db := newMailSearchHandler(t)
+			req := httptest.NewRequest("POST", "/api/messages/"+action, strings.NewReader(`{"search_scope":{"kind":"folders","folder_ids":["root"],"include_descendants":true},"targets":[{"id":"2","thread":true}]}`))
+			rec := httptest.NewRecorder()
+			if action == "read" {
+				h.handleMarkMessagesRead(rec, ownerRequest(req))
+			} else {
+				h.handleMarkMessagesStarred(rec, ownerRequest(req))
+			}
+			var result struct {
+				MessageIDs []string `json:"message_ids"`
+			}
+			if rec.Code != 200 || json.Unmarshal(rec.Body.Bytes(), &result) != nil {
+				t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+			}
+			ids := map[string]bool{}
+			for _, id := range result.MessageIDs {
+				ids[id] = true
+			}
+			if len(ids) != 2 || !ids["1"] || !ids["2"] {
+				t.Fatalf("changed IDs=%v", result.MessageIDs)
+			}
+			var read, starred int
+			if err := db.Read().QueryRow(`SELECT is_read,is_starred FROM message_folder_state WHERE message_id=4`).Scan(&read, &starred); err != nil || read != 0 || starred != 0 {
+				t.Fatalf("outside-scope read=%d starred=%d error=%v", read, starred, err)
+			}
+		})
+	}
+}
+
+// Personal and managed mode serve signed-in users from the per-user routes.
+func TestUserStorageRoutesServeMailSearch(t *testing.T) {
+	assertUserStorageRoutes(t, []struct{ method, path string }{
+		{http.MethodGet, "/mail/search"},
+		{http.MethodGet, "/mail/search/items"},
+		{http.MethodGet, "/mail/search/ids"},
+		{http.MethodGet, "/mail/search/thread/{id}/subitems"},
+	})
 }

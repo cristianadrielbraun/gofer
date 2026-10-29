@@ -75,6 +75,7 @@ templ Layout(accounts []models.Account, activeFolder string, emails []models.Ema
 			@CalendarLoadingTemplates(accounts, uiSettings)
 			@AppSwitchEmptyPaneTemplates()
 			<script src={ assetver.URL("/assets/js/htmx.min.js") }></script>
+			<script src={ assetver.URL("/assets/js/mail-search.js") }></script>
 			<script src={ assetver.URL("/assets/js/virtual-scroll.js") }></script>
 			<script src={ assetver.URL("/assets/js/app.js") }></script>
 			<script src={ assetver.URL("/assets/js/settings.js") }></script>
@@ -171,6 +172,7 @@ templ SettingsRuntime(accounts []models.Account) {
 	@AddAccountDialog()
 	<div id="edit-account-container"></div>
 	<script src={ assetver.URL("/assets/js/htmx.min.js") }></script>
+	<script src={ assetver.URL("/assets/js/mail-search.js") }></script>
 	<script src={ assetver.URL("/assets/js/virtual-scroll.js") }></script>
 	<script src={ assetver.URL("/assets/js/app.js") }></script>
 	<script src={ assetver.URL("/assets/js/settings.js") }></script>
@@ -263,6 +265,7 @@ templ ContactsLayout(accounts []models.Account, contacts []models.Contact, selec
 			@CalendarLoadingTemplates(accounts, uiSettings)
 			@AppSwitchEmptyPaneTemplates()
 			<script src={ assetver.URL("/assets/js/htmx.min.js") }></script>
+			<script src={ assetver.URL("/assets/js/mail-search.js") }></script>
 			<script src={ assetver.URL("/assets/js/virtual-scroll.js") }></script>
 			<script src={ assetver.URL("/assets/js/app.js") }></script>
 			<script src={ assetver.URL("/assets/js/settings.js") }></script>

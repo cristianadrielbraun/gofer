@@ -17,6 +17,22 @@ import (
 
 var errInvalidMailSearch = errors.New("invalid mail search scope")
 
+// Scoped flag actions tell the reader which messages changed; messages from
+// the same conversation outside the selected folders keep their own state.
+func writeMailSearchFlagResult(w http.ResponseWriter, updated int, targets []ownedMessageTarget) {
+	ids := make([]string, 0)
+	for _, target := range targets {
+		for _, info := range target.Infos {
+			ids = append(ids, strconv.FormatInt(info.MessageID, 10))
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(struct {
+		Updated    int      `json:"updated"`
+		MessageIDs []string `json:"message_ids"`
+	}{updated, ids})
+}
+
 // Scope parameters are separate from account_id, which remains an ordinary
 // advanced filter. Repeated scope_folder_id values select independent roots.
 func parseMailSearchScope(r *http.Request) (models.MailSearchScope, error) {
@@ -83,6 +99,9 @@ func (h *Handler) handleMailSearch(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return nil, err
 		}
+		for i := range page.Emails {
+			page.Emails[i].SearchLocation = views.MailSearchLocation(accounts, page.Emails[i])
+		}
 		selected := strings.TrimSpace(r.URL.Query().Get("selected"))
 		if r.Header.Get("HX-Request") == "true" {
 			return views.MailContentPartial(accounts, page.Emails, "search", nil, page.DisplayTotalCount, page.TotalCount, nil, settings, selected, 0, filters), nil
@@ -114,9 +133,12 @@ func (h *Handler) handleMailSearchItems(w http.ResponseWriter, r *http.Request) 
 		if err != nil {
 			return nil, err
 		}
-		accounts, err := local.db.GetAccountNames(ctx, userID)
+		accounts, err := local.db.GetAccounts(ctx, userID)
 		if err != nil {
 			return nil, err
+		}
+		for i := range page.Emails {
+			page.Emails[i].SearchLocation = views.MailSearchLocation(accounts, page.Emails[i])
 		}
 		view := r.URL.Query().Get("view")
 		if view == "" {
