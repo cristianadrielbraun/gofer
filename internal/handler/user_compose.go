@@ -221,7 +221,8 @@ func (h *Handler) saveUserComposeDraft(ctx context.Context, r *http.Request) (co
 			if len(message.AllRecipients(&delivery)) == 0 {
 				return c, fmt.Errorf("queued draft needs a recipient")
 			}
-			mime, err := buildOutgoingMIME(pending.Transport, &delivery)
+			transport := outgoingTransportForMessage(cfg, &delivery)
+			mime, err := buildOutgoingMIME(transport, &delivery)
 			if err != nil {
 				return c, err
 			}
@@ -229,7 +230,7 @@ func (h *Handler) saveUserComposeDraft(ctx context.Context, r *http.Request) (co
 			if err != nil {
 				return c, err
 			}
-			c.Pending = &storage.QueueOutgoingSendInput{ID: pending.ID, AccountID: accountID, DraftID: draftID, EnvelopeFrom: msg.FromEmail, EnvelopeRecipients: message.AllRecipients(&delivery), MIMEData: mime, MessageJSON: snapshot}
+			c.Pending = &storage.QueueOutgoingSendInput{ID: pending.ID, AccountID: accountID, DraftID: draftID, Transport: transport, EnvelopeFrom: msg.FromEmail, EnvelopeRecipients: message.AllRecipients(&delivery), MIMEData: mime, MessageJSON: snapshot}
 		}
 		return c, nil
 	})
@@ -239,7 +240,7 @@ func (h *Handler) saveUserComposeDraft(ctx context.Context, r *http.Request) (co
 	}
 	success = true
 	h.publishMutation(accountID, folder)
-	return composeDraftSaveResult{AccountID: accountID, DraftID: draftID, MessageID: id, DraftFolderID: folder}, nil
+	return composeDraftSaveResult{AccountID: accountID, DraftID: draftID, MessageID: id, DraftFolderID: folder, Sender: &sender}, nil
 }
 
 func (h *Handler) handleUserDiscardDraft(w http.ResponseWriter, r *http.Request) {

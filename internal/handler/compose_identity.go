@@ -196,6 +196,30 @@ func matchSenderIdentity(account *models.Account, identities []models.Identity, 
 	return models.Identity{}, false
 }
 
+// draftSender is who a saved draft whose From is name and email goes out as:
+// the identity it names, the account for its own address, or else a one-time
+// From, reported by oneTime. A draft keeps no way of sending, so a one-time
+// From goes through the own server of the first identity at the same domain
+// that has one, or else the account's way.
+func draftSender(account *models.Account, identities []models.Identity, name, email string) (sender composeSender, oneTime bool) {
+	if identity, ok := matchSenderIdentity(account, identities, name, email); ok {
+		return identityComposeSender(identity), false
+	}
+	email = strings.TrimSpace(email)
+	if email == "" || strings.EqualFold(email, account.Email) {
+		return accountComposeSender(account), false
+	}
+	sender = composeSender{Name: strings.TrimSpace(name), Email: email}
+	domain := email[strings.LastIndex(email, "@")+1:]
+	for _, identity := range identities {
+		if identity.HasOwnSMTP() && strings.EqualFold(identity.Email[strings.LastIndex(identity.Email, "@")+1:], domain) {
+			sender.IdentityID, sender.OwnSMTP = identity.ID, true
+			break
+		}
+	}
+	return sender, true
+}
+
 // replyIdentity finds the identity a reply to email goes out as. A message
 // sent from one of the account's identities is answered as that identity;
 // otherwise the first of the account's addresses in To, then Cc, decides, and
