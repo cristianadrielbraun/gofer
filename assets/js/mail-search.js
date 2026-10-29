@@ -67,13 +67,6 @@
     var controls = document.querySelector("[data-mail-search-controls]")
     if (!controls) return
     var selected = scope()
-    var select = controls.querySelector('[data-mail-scope-select] input[type="hidden"]')
-    select.value = !selected ? "current" : selected.kind === "account" ? "account:" + selected.account_id : selected.kind
-    controls.querySelector("[data-mail-scope-edit]").classList.toggle("hidden", !selected || selected.kind !== "folders")
-    var exclude = controls.querySelector("[data-mail-scope-exclude-label]")
-    exclude.classList.toggle("hidden", !selected)
-    exclude.classList.toggle("flex", !!selected)
-    controls.querySelector("[data-mail-scope-exclude]").checked = !!(selected && selected.exclude_spam_trash)
     var controller = list()
     if (controller) {
       var origin = new URLSearchParams(window.location.search).get("search_from")
@@ -155,24 +148,28 @@
   }
 
   document.addEventListener("change", function (event) {
-    var target = event.target
-    if (target.matches('[data-mail-scope-select] input[type="hidden"]')) {
-      if (target.value === "folders") return openPicker()
-      var selected = target.value === "current" ? null : target.value === "all" ? { kind: "all" } : { kind: "account", account_id: target.value.slice(8) }
-      if (selected && scope() && scope().exclude_spam_trash) selected.exclude_spam_trash = true
-      navigate(selected)
-    }
-    if (target.matches("[data-mail-scope-exclude]")) {
-      var selected = scope()
-      if (selected) navigate(Object.assign({}, selected, { exclude_spam_trash: target.checked }))
-    }
-    if (target.matches("[data-mail-scope-folder]")) updatePicker()
+    if (event.target.matches("[data-mail-scope-folder]")) updatePicker()
   })
   document.addEventListener("input", function (event) {
     if (event.target.matches("[data-mail-scope-folder-search]")) updatePicker()
   })
   document.addEventListener("click", function (event) {
-    if (event.target.closest("[data-mail-scope-edit]")) openPicker()
+    var option = event.target.closest("[data-mail-scope-option]")
+    if (option) {
+      var value = option.dataset.mailScopeOption
+      if (value === "folders") return openPicker()
+      var current = scope()
+      var selected = value === "current" ? null : value === "all" ? { kind: "all" } : { kind: "account", account_id: value.slice(8) }
+      if (selected && current && current.exclude_spam_trash) selected.exclude_spam_trash = true
+      // Choosing the scope already in use changes nothing.
+      if (!selected ? !current : current && current.kind === selected.kind && (current.account_id || "") === (selected.account_id || "")) return
+      return navigate(selected)
+    }
+    if (event.target.closest("[data-mail-scope-exclude]")) {
+      var excluding = scope()
+      if (excluding) navigate(Object.assign({}, excluding, { exclude_spam_trash: !excluding.exclude_spam_trash }))
+      return
+    }
     if (event.target.closest("[data-mail-scope-cancel]")) window.tui.dialog.close("mail-search-folders-dialog")
     if (event.target.closest("[data-mail-scope-apply]")) {
       var root = dialog()

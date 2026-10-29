@@ -5477,6 +5477,58 @@ document.addEventListener("DOMContentLoaded", function () {
       return !window.GoferSettings || GoferSettings.get("group_conversations") !== "false"
     }
 
+    function setRecipientFilter(value, type) {
+      if (!setInputValue("to", value)) return false
+      setInputValue("recipient_type", type)
+      return true
+    }
+
+    // filetype: takes one of the Filters panel's attachment types, such as
+    // pdf or image; anything else is a file extension.
+    function setAttachmentTypeFilter(value) {
+      var type = value.toLowerCase().replace(/^\./, "")
+      if (["pdf", "image", "document", "spreadsheet", "presentation", "archive", "audio", "video"].indexOf(type) !== -1) {
+        if (!setInputValue("attachment_type", type)) return false
+        syncAttachmentExtensionField()
+        return true
+      }
+      if (!/^[a-z0-9]{1,16}$/.test(type) || !setInputValue("attachment_type", "custom")) return false
+      syncAttachmentExtensionField()
+      return setInputValue("attachment_extension", type)
+    }
+
+    // searchSizeInMB reads larger: and smaller: sizes, in MB unless they say
+    // KB or GB, to the Filters panel's tenth of a MB.
+    function searchSizeInMB(value) {
+      var match = /^(\d+(?:\.\d+)?)\s*(k|kb|m|mb|g|gb)?$/i.exec(value)
+      if (!match) return null
+      var size = parseFloat(match[1])
+      var unit = (match[2] || "m").charAt(0).toLowerCase()
+      if (unit === "k") size = size / 1024
+      if (unit === "g") size = size * 1024
+      return Math.round(size * 10) / 10
+    }
+
+    // accountFilterID reads account: as an account's address, or enough of
+    // one to name a single account; anything else is taken as its ID.
+    function accountFilterID(value) {
+      var form = document.querySelector("[data-mail-advanced-filter-form]")
+      var input = form && form.querySelector('[name="account_id"]')
+      var select = input && input.closest(".select-container")
+      if (!select) return value
+      var wanted = value.toLowerCase()
+      var exact = null
+      var partial = []
+      select.querySelectorAll(".select-item").forEach(function (item) {
+        var text = ((item.querySelector(".select-item-text") || item).textContent || "").trim().toLowerCase()
+        var id = item.getAttribute("data-tui-selectbox-value") || ""
+        if (!id) return
+        if (text === wanted || id === value) exact = id
+        else if (text.indexOf(wanted) !== -1) partial.push(id)
+      })
+      return exact || (partial.length === 1 ? partial[0] : value)
+    }
+
     function applyKeywordToken(key, value) {
       key = (key || "").toLowerCase().replace(/_/g, "-")
       value = (value || "").trim()
@@ -5487,15 +5539,23 @@ document.addEventListener("DOMContentLoaded", function () {
       }
       if (key === "contact" || key === "participant") return setContactFilterValue(value)
       if (key === "from") return setInputValue("from", value)
-      if (key === "to" || key === "cc" || key === "bcc" || key === "recipient" || key === "recipients") return setInputValue("to", value)
+      // to:, cc: and bcc: each look in that field only; recipient: in any.
+      if (key === "to" || key === "cc" || key === "bcc") return setRecipientFilter(value, key)
+      if (key === "recipient" || key === "recipients") return setRecipientFilter(value, "")
       if (key === "subject" || key === "subj") return setInputValue("subject", value)
       if (key === "body") return setInputValue("body", value)
       if (key === "attachment" || key === "attach" || key === "filename") return setInputValue("attachment", value)
       if (key === "tag") return setInputValue("tag", value)
-      if (key === "account" || key === "account-id") return setInputValue("account_id", value)
+      if (key === "account" || key === "account-id") return setInputValue("account_id", accountFilterID(value))
       if (key === "after") return setInputValue("after_date", value)
       if (key === "before") return setInputValue("before_date", value)
       if (key === "from-domain" || key === "fromdomain" || key === "domain") return setInputValue("from_domain", value)
+      if (key === "to-domain" || key === "todomain" || key === "recipient-domain") return setInputValue("recipient_domain", value)
+      if (key === "filetype") return setAttachmentTypeFilter(value)
+      if (key === "larger" || key === "smaller") {
+        var megabytes = searchSizeInMB(value)
+        return megabytes !== null && setInputValue(key === "larger" ? "min_size_mb" : "max_size_mb", String(megabytes))
+      }
       if (key === "is") {
         if (value === "unread") setFilterTriState("status", "unread")
         else if (value === "read") setFilterTriState("status", "read")
@@ -5507,6 +5567,13 @@ document.addEventListener("DOMContentLoaded", function () {
         if (value === "attachment" || value === "attachments") setFilterTriState("attachments", "yes")
         else if (value === "tag" || value === "tags") setQuickBoolean("has_tags", true)
         else if ((value === "thread" || value === "threads") && listsConversations()) setQuickBoolean("threads_only", true)
+        else return false
+        return true
+      }
+      if (key === "no") {
+        if (value === "attachment" || value === "attachments") setFilterTriState("attachments", "no")
+        else if (value === "tag" || value === "tags") setFilterTriState("tags", "no")
+        else if ((value === "thread" || value === "threads") && listsConversations()) setFilterTriState("threads", "no")
         else return false
         return true
       }
@@ -5597,7 +5664,7 @@ document.addEventListener("DOMContentLoaded", function () {
         // Small screens swap in a shorter placeholder (see mobile-nav.js).
         search.placeholder = search.hasAttribute("data-desktop-placeholder")
           ? search.getAttribute("data-mobile-placeholder")
-          : "Search, or use from: subject: body: then Enter"
+          : "Search mail"
       }
       renderActivePills()
       syncFilterButton(readFilters())
@@ -5728,6 +5795,21 @@ document.addEventListener("DOMContentLoaded", function () {
       clearInputs("[data-mail-advanced-filter-form]")
       syncAdvancedFilterCount()
       renderActivePills()
+    })
+
+    // A command chosen from the search help is typed into the field, ready
+    // for its value.
+    document.addEventListener("click", function (e) {
+      var command = e.target.closest && e.target.closest("[data-mail-search-command]")
+      if (!command) return
+      var search = document.querySelector("[data-mail-search-input]")
+      if (window.tui && window.tui.popover) window.tui.popover.close("mail-search-help")
+      if (!search) return
+      var text = command.getAttribute("data-mail-search-command")
+      var before = search.value.replace(/\s+$/, "")
+      search.value = (before ? before + " " : "") + text
+      search.focus()
+      search.setSelectionRange(search.value.length, search.value.length)
     })
 
     document.addEventListener("keydown", function (e) {
@@ -7619,7 +7701,7 @@ document.addEventListener("DOMContentLoaded", function () {
       '<div class="mail-list-search-section">' +
       '<div class="mail-list-search-primary">' +
       '<div class="mail-list-search-input-wrap relative groove rounded-lg min-w-0">' +
-      '<input type="text" placeholder="Search, or use from: subject: body: then Enter" disabled class="h-9 w-full pl-3 pr-3 rounded-lg text-sm bg-background border border-border/50 opacity-60" />' +
+      '<input type="text" placeholder="Search mail" disabled class="h-9 w-full pl-3 pr-3 rounded-lg text-sm bg-background border border-border/50 opacity-60" />' +
       '</div>' +
       '<div class="mail-list-search-actions">' +
       '<button type="button" disabled class="mail-list-advanced-filter-button inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 text-xs font-semibold text-muted-foreground opacity-60"><span>Filters</span>' + pendingIcon("size-3.5") + '</button>' +
@@ -8089,7 +8171,7 @@ document.addEventListener("DOMContentLoaded", function () {
       '<div class="mail-list-title-row flex items-center justify-between"><div class="mail-list-title flex items-center gap-2 min-w-0"><h2 id="mail-folder-name" class="text-lg font-bold tracking-tight" style="font-family: var(--font-serif)">Inbox</h2><span id="mail-folder-count" class="inline-flex h-5 min-w-10 items-center justify-center rounded-full bg-muted px-2 text-xs font-medium text-muted-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)] animate-pulse"></span></div></div>' +
       '<div class="mail-list-search-section"><div class="mail-list-search-primary"><div class="mail-list-search-input-wrap relative groove rounded-lg min-w-0">' +
           '<span class="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 rounded-sm bg-muted-foreground/30"></span>' +
-          '<input type="text" disabled placeholder="Search, or use from: subject: body: then Enter" class="h-9 w-full pl-8 pr-3 rounded-lg text-sm bg-background border border-border/50 outline-none opacity-70"/>' +
+          '<input type="text" disabled placeholder="Search mail" class="h-9 w-full pl-8 pr-3 rounded-lg text-sm bg-background border border-border/50 outline-none opacity-70"/>' +
         '</div><div class="mail-list-search-actions">' +
           '<button type="button" disabled class="mail-list-advanced-filter-button inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 text-xs font-semibold text-foreground opacity-70"><span>Filters</span>' + pendingIcon("size-3.5") + '</button>' +
         '</div></div></div>' +

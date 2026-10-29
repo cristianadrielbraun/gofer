@@ -5516,20 +5516,45 @@ func ftsQuery(input string) string {
 	return strings.Join(terms, " ")
 }
 
+// attachmentTypeMatchSQL matches messages with an attachment of the type,
+// leaving out inline images, which show in the body rather than as files.
+func attachmentTypeMatchSQL(filterType, customExtension string) (string, []any) {
+	clause, args := attachmentTypeFilterSQL(filterType, customExtension)
+	if clause == "" {
+		return "", nil
+	}
+	return "EXISTS (SELECT 1 FROM attachments att WHERE att.message_id = m.id AND COALESCE(att.inline, 0) = 0 AND (" + clause + "))", args
+}
+
+// attachmentExtensionSQL matches attachments by file name extension.
+func attachmentExtensionSQL(extensions ...string) string {
+	parts := make([]string, len(extensions))
+	for i, extension := range extensions {
+		parts[i] = "lower(att.filename) LIKE '%." + extension + "'"
+	}
+	return strings.Join(parts, " OR ")
+}
+
 func attachmentTypeFilterSQL(filterType, customExtension string) (string, []any) {
 	switch filterType {
 	case "pdf":
-		return "lower(att.content_type) = 'application/pdf' OR lower(att.filename) LIKE '%.pdf'", nil
-	case "image", "audio", "video":
-		return "lower(att.content_type) LIKE ?", []any{filterType + "/%"}
+		return "lower(att.content_type) = 'application/pdf' OR " + attachmentExtensionSQL("pdf"), nil
+	// Some mail programs send these as application/octet-stream, so their
+	// file names count too.
+	case "image":
+		return "lower(att.content_type) LIKE ? OR " + attachmentExtensionSQL("jpg", "jpeg", "png", "gif", "webp", "heic", "heif", "avif", "bmp", "tif", "tiff", "svg"), []any{"image/%"}
+	case "audio":
+		return "lower(att.content_type) LIKE ? OR " + attachmentExtensionSQL("mp3", "m4a", "wav", "ogg", "oga", "opus", "flac", "aac", "wma"), []any{"audio/%"}
+	case "video":
+		return "lower(att.content_type) LIKE ? OR " + attachmentExtensionSQL("mp4", "m4v", "mov", "avi", "mkv", "webm", "wmv", "mpg", "mpeg", "3gp"), []any{"video/%"}
 	case "document":
-		return "lower(att.filename) LIKE '%.doc' OR lower(att.filename) LIKE '%.docx' OR lower(att.filename) LIKE '%.odt' OR lower(att.filename) LIKE '%.rtf' OR lower(att.filename) LIKE '%.txt'", nil
+		return attachmentExtensionSQL("doc", "docx", "odt", "rtf", "txt"), nil
 	case "spreadsheet":
-		return "lower(att.filename) LIKE '%.xls' OR lower(att.filename) LIKE '%.xlsx' OR lower(att.filename) LIKE '%.ods' OR lower(att.filename) LIKE '%.csv'", nil
+		return attachmentExtensionSQL("xls", "xlsx", "ods", "csv"), nil
 	case "presentation":
-		return "lower(att.filename) LIKE '%.ppt' OR lower(att.filename) LIKE '%.pptx' OR lower(att.filename) LIKE '%.odp'", nil
+		return attachmentExtensionSQL("ppt", "pptx", "odp"), nil
 	case "archive":
-		return "lower(att.filename) LIKE '%.zip' OR lower(att.filename) LIKE '%.rar' OR lower(att.filename) LIKE '%.7z' OR lower(att.filename) LIKE '%.tar' OR lower(att.filename) LIKE '%.gz'", nil
+		return attachmentExtensionSQL("zip", "rar", "7z", "tar", "gz"), nil
 	case "custom":
 		customExtension = strings.TrimPrefix(strings.ToLower(strings.TrimSpace(customExtension)), ".")
 		if customExtension != "" {
@@ -5624,9 +5649,9 @@ func emailFilterSQL(filters models.EmailFilters) emailFilterParts {
 		cteParts = append(cteParts, "EXISTS (SELECT 1 FROM attachments att WHERE att.message_id = m.id AND att.filename LIKE ?)")
 		args = append(args, "%"+filters.Attachment+"%")
 	}
-	if clause, clauseArgs := attachmentTypeFilterSQL(filters.AttachmentType, filters.AttachmentExt); clause != "" {
-		cteParts = append(cteParts, "EXISTS (SELECT 1 FROM attachments att WHERE att.message_id = m.id AND ("+clause+"))")
-		args = append(args, clauseArgs...)
+	if match, matchArgs := attachmentTypeMatchSQL(filters.AttachmentType, filters.AttachmentExt); match != "" {
+		cteParts = append(cteParts, match)
+		args = append(args, matchArgs...)
 	}
 	if filters.MinSizeBytes > 0 {
 		cteParts = append(cteParts, "m.size_bytes >= ?")

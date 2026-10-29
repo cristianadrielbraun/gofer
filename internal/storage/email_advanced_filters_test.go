@@ -41,6 +41,47 @@ func TestAttachmentTypeFilterSQLSupportsPresetsAndCustomExtensions(t *testing.T)
 	}
 }
 
+func TestAttachmentTypeMatchLeavesOutInlineAndReadsFileNames(t *testing.T) {
+	db, _ := seedUserLabelTest(t, "imap")
+	if _, err := db.Write().Exec(`
+		INSERT INTO messages(id,account_id,internet_message_id,subject) VALUES
+			(2,'acc','<photo@test.invalid>','Photo as a generic file'),
+			(3,'acc','<chart@test.invalid>','Chart'),
+			(4,'acc','<song@test.invalid>','Song');
+		INSERT INTO attachments(message_id,filename,content_type,size_bytes,inline,storage_path) VALUES
+			(1,'logo.png','image/png',10,1,'a'),
+			(2,'photo.JPG','application/octet-stream',10,0,'b'),
+			(3,'chart','image/png',10,0,'c'),
+			(4,'song.mp3','application/octet-stream',10,0,'d')`); err != nil {
+		t.Fatal(err)
+	}
+	matching := func(filterType string) []int64 {
+		t.Helper()
+		match, args := attachmentTypeMatchSQL(filterType, "")
+		rows, err := db.Read().Query("SELECT m.id FROM messages m WHERE "+match+" ORDER BY m.id", args...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+		var ids []int64
+		for rows.Next() {
+			var id int64
+			if err := rows.Scan(&id); err != nil {
+				t.Fatal(err)
+			}
+			ids = append(ids, id)
+		}
+		return ids
+	}
+	// Message 1 has only an inline logo; 2 is a photo sent as a generic file.
+	if got := matching("image"); !reflect.DeepEqual(got, []int64{2, 3}) {
+		t.Fatalf("image matches %v, want [2 3]", got)
+	}
+	if got := matching("audio"); !reflect.DeepEqual(got, []int64{4}) {
+		t.Fatalf("audio matches %v, want [4]", got)
+	}
+}
+
 func TestEmailFilterSQLSupportsSingleMessagesOnly(t *testing.T) {
 	parts := emailFilterSQL(models.EmailFilters{NoThreads: true})
 	if !strings.Contains(parts.outerClause, "thread_count = 1") {

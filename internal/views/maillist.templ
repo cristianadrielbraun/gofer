@@ -179,23 +179,27 @@ templ MailListHeader(accounts []models.Account, activeFolder string, totalCount 
 				<button type="button" class="mail-list-search-close hidden" data-mail-search-close aria-label="Close search">
 					@icon.ArrowLeft(icon.Props{Class: "size-5"})
 				</button>
-				<div class="mail-list-search-input-wrap relative groove rounded-lg min-w-0">
-					@icon.Search(icon.Props{Class: "absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground"})
-					<input
-						type="text"
-						name="q"
-						placeholder="Search, or use from: subject: body: then Enter"
-						data-mobile-placeholder="Search mail"
-						class="h-9 w-full pl-8 pr-3 rounded-lg text-sm bg-background border border-border/50 outline-none focus:ring-2 focus:ring-ring"
-						data-mail-search-input
-						autocomplete="off"
-					/>
+				<div class="mail-list-search-input-wrap groove flex min-w-0 items-stretch rounded-lg border border-border/50 bg-background focus-within:ring-2 focus-within:ring-ring">
+					@MailSearchScopeMenu(accounts, activeFolder, filters)
+					<div class="mail-list-search-field relative min-w-0 flex-1">
+						@icon.Search(icon.Props{Class: "absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground"})
+						<input
+							type="text"
+							name="q"
+							placeholder="Search mail"
+							data-mobile-placeholder="Search mail"
+							class="h-9 w-full pl-8 pr-2 text-sm bg-transparent outline-none"
+							data-mail-search-input
+							autocomplete="off"
+						/>
+					</div>
+					@MailSearchHelp(!filters.ByMessage)
 				</div>
 				<div class="mail-list-search-actions">
 					@MailFiltersPopover(accounts, !filters.ByMessage)
 				</div>
 			</div>
-			@MailSearchControls(accounts, activeFolder, filters)
+			@MailSearchControls(accounts)
 			<div data-mail-active-filter-pills class="mail-active-filter-strip hidden" aria-label="Active filters"></div>
 		</div>
 	</div>

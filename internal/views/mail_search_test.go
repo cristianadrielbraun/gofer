@@ -18,16 +18,16 @@ func TestMailSearchControlsShowScopeAndNestedChoices(t *testing.T) {
 		t.Fatal(err)
 	}
 	html := buf.String()
-	for _, want := range []string{`aria-label="Search in"`, `1 folder + subfolders`, `value="invoices"`, `data-search-text="team@example.com projects / invoices"`, `aria-label="Choose folders to search"`} {
+	for _, want := range []string{`aria-label="Search in: 1 folder"`, `Edit folders (1 folder + subfolders)`, `value="invoices"`, `data-search-text="team@example.com projects / invoices"`, `aria-label="Choose folders to search"`} {
 		if !strings.Contains(html, want) {
 			t.Errorf("missing %q", want)
 		}
 	}
-	search := strings.Index(html, "data-mail-search-input")
 	scope := strings.Index(html, "data-mail-search-controls")
+	search := strings.Index(html, "data-mail-search-input")
 	pills := strings.Index(html, "data-mail-active-filter-pills")
-	if !(search < scope && scope < pills) {
-		t.Fatal("scope must appear between search input and active filters")
+	if !(scope < search && search < pills) {
+		t.Fatal("the scope must start the search bar, before the input and the active filters")
 	}
 	email := models.Email{AccountID: "work", FolderID: "invoices"}
 	if got := MailSearchLocation(accounts, email); got != "team@example.com · Projects / Invoices" {

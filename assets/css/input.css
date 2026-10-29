@@ -4320,7 +4320,11 @@ body.mail-list-column-resizing {
     display: none;
   }
 
-  #mail-list[data-mail-list-view] .mail-list-search-input-wrap > svg {
+  #mail-list[data-mail-list-view] .mail-search-scope-label {
+    display: none;
+  }
+
+  #mail-list[data-mail-list-view] .mail-list-search-field > svg {
     left: 0.875rem;
     width: 1.125rem;
     height: 1.125rem;
@@ -7037,8 +7041,9 @@ aside a[data-mail-drop-active] {
   display: none;
 }
 
-@media (max-width: 767px) {
-  .mail-search-scope-row {
-    padding: 0 0.75rem 0.5rem;
+/* A narrow list keeps only the scope's icon, so the field keeps its room. */
+@container (max-width: 360px) {
+  .mail-search-scope-label {
+    display: none;
   }
 }

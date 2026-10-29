@@ -29,6 +29,35 @@ func mailSearchFolderSelectionLabel(scope *models.MailSearchScope) string {
 	return label
 }
 
+// mailSearchScopeLabel names the scope on the search bar's scope button.
+func mailSearchScopeLabel(accounts []models.Account, scope *models.MailSearchScope) string {
+	if scope == nil {
+		return "This folder"
+	}
+	switch scope.Kind {
+	case models.MailSearchAll:
+		return "All accounts"
+	case models.MailSearchAccount:
+		for _, account := range accounts {
+			if account.ID == scope.AccountID {
+				return account.Email
+			}
+		}
+		return "One account"
+	}
+	if len(scope.FolderIDs) == 1 {
+		return "1 folder"
+	}
+	return fmt.Sprintf("%d folders", len(scope.FolderIDs))
+}
+
+func mailSearchBool(value bool) string {
+	if value {
+		return "true"
+	}
+	return "false"
+}
+
 func mailSearchFolderIndent(depth int) string {
 	return fmt.Sprintf("padding-left: %dpx", 24+min(depth, 8)*16)
 }
