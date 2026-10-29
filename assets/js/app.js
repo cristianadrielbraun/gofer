@@ -6333,6 +6333,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
       refreshSidebarUnread()
       showBrowserTabNewMailNotification(data)
+      refreshSearchResultsFor(data)
       withMailListForFolder(data.folder_id, data.folder_role || "", function (vml) { vml.onNewEmail() })
     })
 
@@ -6499,6 +6500,7 @@ document.addEventListener("DOMContentLoaded", function () {
         }, false)
         return
       }
+      refreshSearchResultsFor(data)
       if (data.refresh_only) {
         syncStatesByFolder[data.folder_id] = mailFolderSyncStateFromEvent(data, false)
         refreshSidebarUnread()
@@ -7313,6 +7315,15 @@ document.addEventListener("DOMContentLoaded", function () {
     if (!folderID || isRoleFolderID(folderID)) return true
     if (folderID === accountID || folderID.indexOf(accountID + "_") === 0) return true
     return folderID.indexOf("acc_") !== 0
+  }
+
+  // An open search reads many folders, so it refreshes when sync changes mail
+  // in any of them. Without "immediate", a burst of folder events becomes one
+  // refresh every few seconds.
+  function refreshSearchResultsFor(data) {
+    var vml = virtualMailList
+    if (!vml || !vml.searchScope || !window.GoferMailSearch || !window.GoferMailSearch.touches(data)) return
+    scheduleSyncRefresh(vml, { noAnimation: true, rebase: mailListNearTop(vml) })
   }
 
   function withMailListForFolder(folderId, folderRole, fn, queueIfInactive) {

@@ -840,7 +840,7 @@ func MailSearchControls(accounts []models.Account) templ.Component {
 						return templ_7745c5c3_Err
 					}
 					for _, folder := range account.Folders {
-						templ_7745c5c3_Err = MailSearchFolderChoice(folder, account.Email, "", 0).Render(ctx, templ_7745c5c3_Buffer)
+						templ_7745c5c3_Err = MailSearchFolderChoice(folder, account.ID, account.Email, "", "", 0).Render(ctx, templ_7745c5c3_Buffer)
 						if templ_7745c5c3_Err != nil {
 							return templ_7745c5c3_Err
 						}
@@ -948,7 +948,9 @@ func MailSearchControls(accounts []models.Account) templ.Component {
 	})
 }
 
-func MailSearchFolderChoice(folder models.Folder, accountEmail string, parent string, depth int) templ.Component {
+// MailSearchFolderChoice is one folder in the picker. Its account and parent
+// also tell an open search which folders' sync events reach it.
+func MailSearchFolderChoice(folder models.Folder, accountID string, accountEmail string, parent string, parentID string, depth int) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -980,7 +982,7 @@ func MailSearchFolderChoice(folder models.Folder, accountEmail string, parent st
 		var templ_7745c5c3_Var36 string
 		templ_7745c5c3_Var36, templ_7745c5c3_Err = templruntime.SanitizeStyleAttributeValues(mailSearchFolderIndent(depth))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_search.templ`, Line: 229, Col: 125}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_search.templ`, Line: 231, Col: 125}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var36))
 		if templ_7745c5c3_Err != nil {
@@ -993,7 +995,7 @@ func MailSearchFolderChoice(folder models.Folder, accountEmail string, parent st
 		var templ_7745c5c3_Var37 string
 		templ_7745c5c3_Var37, templ_7745c5c3_Err = templ.JoinStringErrs(path)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_search.templ`, Line: 229, Col: 140}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_search.templ`, Line: 231, Col: 140}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var37))
 		if templ_7745c5c3_Err != nil {
@@ -1006,7 +1008,7 @@ func MailSearchFolderChoice(folder models.Folder, accountEmail string, parent st
 		var templ_7745c5c3_Var38 string
 		templ_7745c5c3_Var38, templ_7745c5c3_Err = templ.JoinStringErrs(strings.ToLower(accountEmail + " " + path))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_search.templ`, Line: 229, Col: 231}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_search.templ`, Line: 231, Col: 231}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var38))
 		if templ_7745c5c3_Err != nil {
@@ -1016,7 +1018,7 @@ func MailSearchFolderChoice(folder models.Folder, accountEmail string, parent st
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = checkbox.Checkbox(checkbox.Props{Value: folder.ID, Attributes: templ.Attributes{"data-mail-scope-folder": ""}}).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = checkbox.Checkbox(checkbox.Props{Value: folder.ID, Attributes: templ.Attributes{"data-mail-scope-folder": "", "data-account-id": accountID, "data-parent-id": parentID}}).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1031,7 +1033,7 @@ func MailSearchFolderChoice(folder models.Folder, accountEmail string, parent st
 		var templ_7745c5c3_Var39 string
 		templ_7745c5c3_Var39, templ_7745c5c3_Err = templ.JoinStringErrs(folder.Name)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_search.templ`, Line: 233, Col: 45}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_search.templ`, Line: 235, Col: 45}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var39))
 		if templ_7745c5c3_Err != nil {
@@ -1049,7 +1051,7 @@ func MailSearchFolderChoice(folder models.Folder, accountEmail string, parent st
 			var templ_7745c5c3_Var40 string
 			templ_7745c5c3_Var40, templ_7745c5c3_Err = templ.JoinStringErrs(parent)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_search.templ`, Line: 235, Col: 75}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_search.templ`, Line: 237, Col: 75}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var40))
 			if templ_7745c5c3_Err != nil {
@@ -1065,7 +1067,7 @@ func MailSearchFolderChoice(folder models.Folder, accountEmail string, parent st
 			return templ_7745c5c3_Err
 		}
 		for _, child := range folder.Children {
-			templ_7745c5c3_Err = MailSearchFolderChoice(child, accountEmail, path, depth+1).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = MailSearchFolderChoice(child, accountID, accountEmail, path, folder.ID, depth+1).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

@@ -76,4 +76,27 @@ ownership++
 timers.shift()()
 assert.equal(requests[0].ownership, 1)
 assert.equal(new URL(requests[0].url, 'http://localhost').pathname, '/mail/search')
-console.log('Mail search: scope URLs, folder encoding, paging requests, action context, captured scopes, selection history, and ordinary folders passed.')
+// Sync events refresh an open search when their folder is in its scope.
+const pickerFolders = [['projects', ''], ['client', 'projects'], ['invoices', 'client'], ['elsewhere', ''], ['trash', '']]
+  .map(([value, parentId]) => ({value, dataset: {parentId}}))
+const picker = {querySelectorAll(selector) { return selector === '[data-mail-scope-folder]' ? pickerFolders : [] }}
+const getElementById = document.getElementById
+document.getElementById = id => id === 'mail-search-folders-dialog' ? picker : getElementById(id)
+const event = (folder_id, account_id = 'a', folder_role = 'custom') => ({folder_id, account_id, folder_role})
+for (const [scope, touched, untouched] of [
+  [{kind: 'all'}, [event('elsewhere', 'b'), event('trash', 'a', 'trash')], []],
+  [{kind: 'all', exclude_spam_trash: true}, [event('elsewhere')], [event('trash', 'a', 'trash'), event('spam', 'a', 'junk')]],
+  [{kind: 'account', account_id: 'a'}, [event('elsewhere')], [event('elsewhere', 'b')]],
+  [{kind: 'folders', folder_ids: ['projects']}, [event('projects')], [event('client'), event('elsewhere')]],
+  [{kind: 'folders', folder_ids: ['projects'], include_descendants: true}, [event('projects'), event('invoices')], [event('elsewhere')]],
+]) {
+  controller.searchScope = scope
+  for (const data of touched) assert.equal(search.touches(data), true, JSON.stringify(scope) + ' reads ' + data.folder_id)
+  for (const data of untouched) assert.equal(search.touches(data), false, JSON.stringify(scope) + ' does not read ' + data.folder_id)
+}
+controller.searchScope = null
+assert.equal(search.touches(event('projects')), false, 'a folder list matches its own events')
+document.getElementById = getElementById
+controller.searchScope = {kind: 'all'}
+
+console.log('Mail search: scope URLs, folder encoding, paging requests, action context, captured scopes, selection history, ordinary folders, and sync refreshes passed.')

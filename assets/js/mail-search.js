@@ -184,7 +184,28 @@
   document.addEventListener("htmx:afterSettle", function () { requestAnimationFrame(restoreReader) })
   document.addEventListener("DOMContentLoaded", function () { requestAnimationFrame(restoreReader) })
 
-  window.GoferMailSearch = { scope: scope, scopeURL: scopeURL, payload: payload, folderFor: folderFor, rowData: rowData, sync: sync,
+  // touches reports whether a sync event's folder is one the open search
+  // reads, so new or changed mail there refreshes its results. The folder
+  // picker knows every folder's account and parent.
+  function touches(event) {
+    var selected = scope()
+    if (!selected || !event || !event.folder_id) return false
+    var role = event.folder_role || ""
+    if (selected.exclude_spam_trash && (role === "spam" || role === "junk" || role === "trash")) return false
+    if (selected.kind === "all") return true
+    if (selected.kind === "account") return event.account_id === selected.account_id
+    var chosen = new Set(selected.folder_ids || [])
+    var parents = new Map()
+    var root = dialog()
+    if (root) root.querySelectorAll("[data-mail-scope-folder]").forEach(function (input) { parents.set(input.value, input.dataset.parentId || "") })
+    for (var id = event.folder_id, depth = 0; id && depth < 64; id = parents.get(id), depth++) {
+      if (chosen.has(id)) return true
+      if (!selected.include_descendants) return false
+    }
+    return false
+  }
+
+  window.GoferMailSearch = { scope: scope, scopeURL: scopeURL, payload: payload, folderFor: folderFor, rowData: rowData, sync: sync, touches: touches,
     remember: function (ids) { rememberedFolders.clear(); ids.forEach(function (id) { if (id.folder_id) rememberedFolders.set(String(id.id), id.folder_id) }) },
     navigate: navigate }
 })()

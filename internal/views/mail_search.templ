@@ -197,7 +197,7 @@ templ MailSearchControls(accounts []models.Account) {
 							<span class="truncate text-xs font-semibold text-foreground">{ account.Email }</span>
 						</div>
 						for _, folder := range account.Folders {
-							@MailSearchFolderChoice(folder, account.Email, "", 0)
+							@MailSearchFolderChoice(folder, account.ID, account.Email, "", "", 0)
 						}
 					</section>
 				}
@@ -224,10 +224,12 @@ templ MailSearchControls(accounts []models.Account) {
 	}
 }
 
-templ MailSearchFolderChoice(folder models.Folder, accountEmail string, parent string, depth int) {
+// MailSearchFolderChoice is one folder in the picker. Its account and parent
+// also tell an open search which folders' sync events reach it.
+templ MailSearchFolderChoice(folder models.Folder, accountID string, accountEmail string, parent string, parentID string, depth int) {
 	{{ path := folder.Name; if parent != "" { path = parent + " / " + folder.Name } }}
 	<label class="flex cursor-pointer items-center gap-2.5 py-1.5 pr-6 hover:bg-accent/50" style={ mailSearchFolderIndent(depth) } title={ path } data-mail-scope-folder-row data-search-text={ strings.ToLower(accountEmail + " " + path) }>
-		@checkbox.Checkbox(checkbox.Props{Value: folder.ID, Attributes: templ.Attributes{"data-mail-scope-folder": ""}})
+		@checkbox.Checkbox(checkbox.Props{Value: folder.ID, Attributes: templ.Attributes{"data-mail-scope-folder": "", "data-account-id": accountID, "data-parent-id": parentID}})
 		@icon.Folder(icon.Props{Class: "size-3.5 shrink-0 text-muted-foreground"})
 		<span class="min-w-0 text-sm">
 			<span class="block truncate">{ folder.Name }</span>
@@ -237,6 +239,6 @@ templ MailSearchFolderChoice(folder models.Folder, accountEmail string, parent s
 		</span>
 	</label>
 	for _, child := range folder.Children {
-		@MailSearchFolderChoice(child, accountEmail, path, depth+1)
+		@MailSearchFolderChoice(child, accountID, accountEmail, path, folder.ID, depth+1)
 	}
 }
