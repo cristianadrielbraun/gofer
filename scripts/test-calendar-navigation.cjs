@@ -34,7 +34,7 @@ function node() {
 const surface = node()
 const calendar = {
   dataset: {calendarView: 'month'},
-  querySelector() { return surface },
+  querySelector(selector) { return selector === '[data-calendar-week-header]' ? null : surface },
   getBoundingClientRect() { return {top: 0, left: 256} },
   appendChild(snapshot) { this.snapshot = snapshot; snapshot.removed = false },
 }
@@ -43,7 +43,7 @@ const context = vm.createContext({
   document: {querySelector() { return surface }, getElementById() { return calendar }},
   window: {matchMedia() { return {matches: reducedMotion} }, getComputedStyle() { return {opacity: '0.6', transform: 'matrix(0.99, 0, 0, 0.99, 3, 0)'} }},
 })
-vm.runInContext('var _calendarNavigationRequest = null; var _calendarNavigationTransition = null;\n' +
+vm.runInContext('var _calendarNavigationRequest = null; var _calendarNavigationTransition = null; var _calendarWeekSlide = null;\n' +
   ['finishCalendarNavigationTransition', 'configureCalendarNavigationRequest', 'prepareCalendarNavigation', 'animateCalendarNavigation', 'handleCalendarNavigationResult'].map(helper).join('\n'), context)
 function event(xhr, shouldSwap = true) { return {detail: {xhr, shouldSwap, target: {id: 'main-content'}}} }
 function navigate(direction) {

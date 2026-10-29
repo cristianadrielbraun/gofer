@@ -81,6 +81,7 @@ const buttons = ['month', 'week'].map(view => ({
 buttons.forEach(button => { button.classList.owner = button })
 const indicator = {style: {}}
 context.document.querySelector = () => ({querySelectorAll() { return buttons }, querySelector() { return indicator }})
+context.window = {getComputedStyle(node) { return {transform: node.style.transform} }}
 vm.runInContext('var _calendarViewSwitchRequest = null;\n' + helper('setCalendarViewSwitch') + '\n' + helper('handleCalendarViewSwitchResult'), context)
 context.setCalendarViewSwitch('week')
 assert.equal(indicator.style.transform, 'translateX(calc(100% + 2px))')

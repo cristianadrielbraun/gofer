@@ -48,7 +48,7 @@ const context = vm.createContext({
   adjustCalendarCreateAllDayRange() {}, setCalendarCreateError(_form, value) { message = value },
   showGoferToast(value) { toasts.push(value) }, scheduleCalendarCacheRefresh() { refreshes++ },
 })
-vm.runInContext(['updateCalendarRecurrenceForm', 'validateCalendarCreatePickers', 'syncCalendarDescription', 'submitCalendarCreate'].map(helper).join('\n'), context)
+vm.runInContext(['updateCalendarRecurrenceForm', 'validateCalendarCreatePickers', 'syncCalendarDescription', 'calendarTeamsReplacing', 'submitCalendarCreate'].map(helper).join('\n'), context)
 context.updateCalendarCreateForm = form => {
   const locked = !!(form._calendarCreateBusy || form._calendarCreateUncertain || form._calendarCreateConflict)
   Object.values(inputs).forEach(input => { input.disabled = locked })
@@ -100,7 +100,7 @@ async function main() {
   inputs.repeat_frequency.value = 'yearly'
   inputs.start_date.value = '2024-02-29'
   context.updateCalendarCreateForm(form)
-  assert.match(summary.textContent, /February 29/)
+  assert.match(summary.textContent, /February 29|29 February/, 'Yearly series keep the leap day in the default locale\'s order')
   inputs.repeat_frequency.value = 'none'
   context.updateCalendarCreateForm(form)
   assert.equal(row.dataset.repeating, 'false', 'Returning to Does not repeat restores full width')

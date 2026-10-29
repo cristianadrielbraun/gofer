@@ -52,8 +52,8 @@ const context = vm.createContext({initializeCalendarDialogResize(){},
   fetch(url, options) { return new Promise((resolve, reject) => requests.push({url, options, resolve, reject})) },
   showGoferToast(data) { toasts.push(data) }, scheduleCalendarCacheRefresh() { refreshes++ },
 })
-vm.runInContext('var _calendarSelectedDay = {period: "week:2026-09-28", date: "2026-10-03"};\n' +
-  ['configureCalendarCreateDialog', 'adjustCalendarCreateAllDayRange', 'updateCalendarRecurrenceForm', 'updateCalendarTeamsForm', 'updateCalendarCreateForm', 'initializeCalendarCreateForm', 'validateCalendarCreatePickers', 'setCalendarCreateError', 'syncCalendarDescription', 'submitCalendarCreate'].map(helper).join('\n'), context)
+vm.runInContext('var _calendarSelectedDay = {period: "week:2026-09-28", date: "2026-10-03"}, _calendarCreateRange = null;\n' +
+  ['configureCalendarCreateDialog', 'adjustCalendarCreateAllDayRange', 'updateCalendarRecurrenceForm', 'updateCalendarTeamsForm', 'calendarTeamsReplacing', 'updateCalendarCreateForm', 'initializeCalendarCreateForm', 'validateCalendarCreatePickers', 'setCalendarCreateError', 'syncCalendarDescription', 'submitCalendarCreate'].map(helper).join('\n'), context)
 vm.runInContext(source.slice(source.indexOf('document.addEventListener("submit",', source.indexOf('function submitCalendarCreate(')), source.indexOf('function updateCalendarResponseForm(')), context)
 for (const picker of ['datepicker', 'timepicker']) {
   const module = fs.readFileSync(path.join(__dirname, '../assets/js/' + picker + '.js'), 'utf8')

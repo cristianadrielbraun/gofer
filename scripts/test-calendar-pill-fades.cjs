@@ -52,8 +52,8 @@ const context = vm.createContext({window: {
   matchMedia() { return {matches: reducedMotion} },
   getComputedStyle(node) { return {opacity: node.opacity, getPropertyValue() { return '0.5rem' }} },
 }})
-vm.runInContext('var _calendarPillSnapshot = null; var _calendarPillFades = new Map();\n' +
-  ['captureCalendarPills', 'rememberCalendarPillGeometry', 'finishCalendarPillFade', 'clearCalendarPillFades', 'fadeCalendarPill', 'animateCalendarPills'].map(helper).join('\n'), context)
+vm.runInContext('var _calendarPillSnapshot = null; var _calendarPillFades = new Map(); var _calendarWeekSlide = null;\n' +
+  ['captureCalendarPills', 'rememberCalendarPillGeometry', 'finishCalendarPillFade', 'clearCalendarPillFades', 'fadeCalendarPill', 'fadeOutCalendarPill', 'animateCalendarPills'].map(helper).join('\n'), context)
 function finish() { [...context._calendarPillFades.values()].forEach(fade => fade.animation.onfinish()) }
 function cadence(animation) {
   assert.equal(animation.timing.duration, 300)

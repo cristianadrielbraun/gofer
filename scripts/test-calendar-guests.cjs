@@ -49,10 +49,17 @@ dropdownRuntime.updateCalendarGuestDropdown(dropdownForm)
 assert.equal(dropdownCalls.at(-1)[0], 'close', 'late results must not reopen an unfocused guest field')
 
 let error = ''
-const fields = {all_day: {checked: false}, repeat_frequency: {value: 'weekly'}, guests: {value: 'guest@example.com', focus() { focused++ }}}
+const fields = {
+  all_day: {checked: false}, repeat_frequency: {value: 'weekly'}, repeat_end: {value: 'never'}, guests: {value: 'guest@example.com', focus() { focused++ }},
+  start_date: {value: '2026-10-25'}, end_date: {value: '2026-10-25'}, timezone: {value: 'Europe/Berlin'}, start_time: {value: '09:00'}, end_time: {value: '10:00'},
+}
 const recurrenceRuntime = vm.createContext({adjustCalendarCreateAllDayRange() {}, setCalendarCreateError(form, message) { error = message }})
 vm.runInContext(fn('validateCalendarCreatePickers'), recurrenceRuntime)
-const repeatForm = {querySelector(selector) { const match = selector.match(/name="([^"]+)"/); return match ? fields[match[1]] : null }}
+const repeatForm = {querySelector(selector) { const match = selector.match(/name="([^"]+)"/); return match ? fields[match[1]] : {focus() { focused++ }} }}
+assert.equal(recurrenceRuntime.validateCalendarCreatePickers(repeatForm), true, 'meetings with guests can repeat')
+assert.equal(error, '')
+fields.repeat_end.value = 'until'
+fields.repeat_until = {value: '2026-10-24'}
 assert.equal(recurrenceRuntime.validateCalendarCreatePickers(repeatForm), false)
-assert.match(error, /do not repeat/)
+assert.match(error, /repeat end date/)
 console.log('Calendar guests: quoted names, contact selection, stale suggestion cancellation, busy forms, and recurrence validation passed.')

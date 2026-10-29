@@ -21,7 +21,7 @@ const form = {
   querySelectorAll() { return [] },
 }
 const runtime = vm.createContext({
-  window: {prompt() { return nextURL }},
+  window: {goferPrompt() { return Promise.resolve(nextURL) }},
   document: {
     createElement() { return {innerHTML: '', content: {querySelectorAll() { return [] }}} },
     getElementById() { return form },
@@ -30,7 +30,7 @@ const runtime = vm.createContext({
   _sanitizeComposeHTML(html) { return html }, _composeEditorText(node) { return node.innerText },
   _saveComposeSelection(node) { saved.push(node) }, _restoreComposeSelection(node) { restored.push(node) },
 })
-vm.runInContext(['syncCalendarDescription', 'calendarDescriptionSelection', 'calendarDescriptionExec'].map(fn).join('\n'), runtime)
+vm.runInContext(['syncCalendarDescription', 'calendarDescriptionSelection', 'promptForLink', 'calendarDescriptionExec'].map(fn).join('\n'), runtime)
 runtime.syncCalendarDescription(editor)
 assert.equal(fields.description_html.value, editor.innerHTML, 'send HTML, not only the visible text')
 assert.equal(fields.description.value, 'Agenda', 'retain the plain fallback')
@@ -44,15 +44,21 @@ assert.equal(restored[0], editor, 'format the saved selection after toolbar focu
 assert(saved.includes(editor))
 runtime.calendarDescriptionExec({closest() { return null }}, 'formatBlock', 'blockquote')
 assert.equal(commands.at(-1)[2], 'blockquote', 'portaled dropdown formatting finds the calendar editor, not the mail composer')
-nextURL = 'javascript:alert(1)'
-const before = commands.length
-runtime.calendarDescriptionExec(editor, 'createLink')
-assert.equal(commands.length, before, 'reject active URL schemes')
-nextURL = 'guest@example.com'
-runtime.calendarDescriptionExec(editor, 'createLink')
-assert.equal(commands.at(-1)[2], 'mailto:guest@example.com')
-locked = true
-runtime.calendarDescriptionExec(editor, 'italic')
-assert.equal(commands.length, before + 1, 'busy or uncertain forms cannot format content')
-assert(focused > 0)
-console.log('Calendar rich description: HTML/plain serialization, selection, formatting, portaled toolbar, link safety and frozen saves passed.')
+async function links() {
+  const prompted = () => new Promise(setImmediate)
+  nextURL = 'javascript:alert(1)'
+  const before = commands.length
+  runtime.calendarDescriptionExec(editor, 'createLink')
+  await prompted()
+  assert.equal(commands.length, before, 'reject active URL schemes')
+  nextURL = 'guest@example.com'
+  runtime.calendarDescriptionExec(editor, 'createLink')
+  await prompted()
+  assert.equal(commands.at(-1)[2], 'mailto:guest@example.com')
+  locked = true
+  runtime.calendarDescriptionExec(editor, 'italic')
+  assert.equal(commands.length, before + 1, 'busy or uncertain forms cannot format content')
+  assert(focused > 0)
+  console.log('Calendar rich description: HTML/plain serialization, selection, formatting, portaled toolbar, link safety and frozen saves passed.')
+}
+links().catch(error => { console.error(error); process.exitCode = 1 })

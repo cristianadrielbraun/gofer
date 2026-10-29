@@ -29,8 +29,11 @@ const form = {
     if (selector === '[name="all_day"]') return {checked: true}
     if (selector === '[data-calendar-meet-checking]') return {content: {cloneNode() { return {} }}}
     if (selector === '[data-calendar-teams-checking]') return {content: {cloneNode() { return {} }}}
+    const name = (selector.match(/^\[name="(.+)"\]$/) || [])[1]
+    if (name in fields) return fields[name]
   },
 }
+const fields = {start_date: {value: '2026-01-05'}, end_date: {value: '2026-01-05'}, timezone: {value: 'UTC'}, repeat_end: {value: 'never'}, teams_draft_id: {value: ''}, google_meet_draft_id: {value: ''}}
 let message = ''
 const context = vm.createContext({
   window: {htmx: {process(root) { root.processed = true }, trigger(root, name) {
@@ -94,7 +97,11 @@ toggle.disabled = false
 toggle.focus = () => {}
 repeat.value = 'weekly'
 assert.equal(context.validateCalendarCreatePickers(form), false)
-assert.match(message, /Teams meetings.*do not repeat/)
+assert.match(message, /Wait for the Teams link/)
+fields.teams_draft_id.value = 'teams-draft'
+message = ''
+assert.equal(context.validateCalendarCreatePickers(form), true, 'Repeating Teams meetings save once the link is ready')
+assert.equal(message, '')
 selected.dataset.calendarSourceProvider = 'gmail'
 sourceInput.value = 'google'
 context.updateCalendarTeamsForm(form, selected, false)
@@ -106,7 +113,10 @@ const originalQuery = form.querySelector.bind(form)
 const meet = {checked: true, disabled: false, focus() {}}
 form.querySelector = selector => selector === '[name="google_meet_meeting"]' ? meet : selector === '[name="teams_meeting"]' ? null : originalQuery(selector)
 assert.equal(context.validateCalendarCreatePickers(form), false)
-assert.match(message, /Google Meet meetings.*do not repeat/)
+assert.match(message, /Wait for the Google Meet link/)
+fields.google_meet_draft_id.value = 'meet-draft'
+message = ''
+assert.equal(context.validateCalendarCreatePickers(form), true, 'Repeating Meet meetings save once the link is ready')
 form.isConnected = false
 assert.equal(context.calendarTeamsSwapAllowed(detail), false)
-console.log('Calendar Teams capability, source switching, locking, and recurrence checks passed')
+console.log('Calendar Teams capability, source switching, locking, and link-ready checks passed')

@@ -27,6 +27,7 @@ function surface() {
 }
 function harness() {
   const document = surface(), window = surface()
+  window.matchMedia = () => ({matches: false, addEventListener() {}})
   const context = vm.createContext({document, window})
   vm.runInContext(source.slice(0, end), context)
   return {

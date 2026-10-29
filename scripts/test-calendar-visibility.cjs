@@ -72,11 +72,18 @@ async function main() {
   }))
   const day = {dataset: {calendarDayEventCount: '6'}}
   const overflow = {offsetHeight: 18, hidden: false, textContent: ''}
-  const container = {clientHeight: 150, hidden: false, querySelectorAll() { return buttons }, querySelector() { return overflow }, closest() { return day }}
+  // 100px fits four 21px rows with 4px gaps, but only three beside the overflow label.
+  const container = {clientHeight: 100, hidden: false, querySelectorAll() { return buttons }, querySelector() { return overflow }, closest() { return day }}
   const grid = {clientHeight: 500, querySelectorAll(selector) { return selector === '[data-calendar-month-events]' ? [container] : [] }}
   const calendar = {querySelector() { return grid }}
+  container.clientHeight = 150
+  context.layoutCalendarMonth(calendar)
+  assert.equal(buttons.filter(node => !node.hidden).length, 6, 'A day shows as many events as fit, not at most three')
+  assert.equal(overflow.hidden, true)
+  container.clientHeight = 100
   context.layoutCalendarMonth(calendar)
   assert.equal(buttons.filter(node => !node.hidden).length, 3)
+  assert.equal(overflow.hidden, false)
   assert.equal(overflow.textContent, '+3 more')
   context._calendarVisibility.set('work', {visible: false})
   context.layoutCalendarMonth(calendar)

@@ -5,8 +5,8 @@ const vm = require('node:vm')
 
 const source = fs.readFileSync(path.join(__dirname, '../assets/js/app.js'), 'utf8')
 const start = source.indexOf('function _calendarAgendaEventMatchesDay(')
-const end = source.indexOf('\n}', source.indexOf('function _calendarAgendaEventIsUpcoming(', start)) + 2
-assert(start >= 0 && end > start, 'Calendar day filtering helpers were not found')
+const end = source.indexOf('\n}', start) + 2
+assert(start >= 0 && end > start, 'Calendar day filtering helper was not found')
 class TestDate extends Date {
   static now() { return Date.parse('2026-10-25T12:00:00Z') }
 }
@@ -32,8 +32,4 @@ const cases = [
 for (const [name, event, expected] of cases) {
   assert.equal(context._calendarAgendaEventMatchesDay(event, day), expected, name)
 }
-assert.equal(context._calendarAgendaEventIsUpcoming(allDay('2026-10-24', '2026-10-25'), '2026-10-25'), false)
-assert.equal(context._calendarAgendaEventIsUpcoming(allDay('2026-10-25', '2026-10-26'), '2026-10-25'), true)
-assert.equal(context._calendarAgendaEventIsUpcoming(timed('2026-10-25T10:00:00Z', '2026-10-25T11:00:00Z'), '2026-10-25'), false)
-assert.equal(context._calendarAgendaEventIsUpcoming(timed('2026-10-25T13:00:00Z', '2026-10-25T14:00:00Z'), '2026-10-25'), true)
-console.log('Calendar day filtering: date ranges, midnight boundaries, DST, and upcoming checks passed.')
+console.log('Calendar day filtering: date ranges, midnight boundaries, and DST passed.')

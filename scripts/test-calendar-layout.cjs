@@ -57,7 +57,7 @@ for (let left = 0; left < blocks.length; left++) {
   }
 }
 const count = context._calendarMonthVisibleCount
-assert.equal(count(12, 150, 21, 19, 4), 3)
+assert.equal(count(12, 150, 21, 19, 4), 5, 'As many events as fit, with room kept for "+N more"')
 assert.equal(count(3, 40, 21, 19, 4), 0)
 assert.equal(count(3, 45, 21, 19, 4), 1)
 assert.equal(count(2, 46, 21, 19, 4), 2)

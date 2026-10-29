@@ -23,7 +23,7 @@ const form = {
   }[selector] },
 }
 const context = vm.createContext({
-  document: {body: {addEventListener(type, handler) { (handlers[type] ||= []).push(handler) }}, addEventListener(type, handler) { clicks[type] = handler }},
+  document: {body: {addEventListener(type, handler) { (handlers[type] ||= []).push(handler) }}, addEventListener(type, handler) { (clicks[type] ||= []).push(handler) }},
   window: {tui: {dialog: {close(root) { closed.push(['dialog', root]) }}, popover: {closeElement(root) { closed.push(['popover', root]) }}}},
   showGoferToast(toast) { toasts.push(toast) }, scheduleCalendarCacheRefresh() { refreshes++ },
 })
@@ -101,7 +101,8 @@ assert.equal(closed.length, 0, 'A delayed deletion must not close a newer dialog
 assert.equal(refreshes, 1)
 
 reset()
-clicks.click({target: {closest() { return {closest() { return popover }} }}})
+const cancelButton = {closest() { return popover }}
+for (const handler of clicks.click) handler({target: {closest(selector) { return selector === '[data-calendar-delete-cancel]' ? cancelButton : null }}, preventDefault() {}})
 assert.deepEqual(closed, [['popover', popover]], 'Cancel dismisses only the confirmation without any request')
 assert.equal(trigger.focused, true)
 assert.equal(form._calendarDeleteBusy, false)
