@@ -82,6 +82,35 @@ func TestAttachmentTypeMatchLeavesOutInlineAndReadsFileNames(t *testing.T) {
 	}
 }
 
+func TestAttachmentNameFilterLeavesOutInlineImages(t *testing.T) {
+	db, _ := seedUserLabelTest(t, "imap")
+	if _, err := db.Write().Exec(`
+		INSERT INTO messages(id,account_id,internet_message_id,subject) VALUES (2,'acc','<attached@test.invalid>','Attached logo');
+		INSERT INTO attachments(message_id,filename,content_type,size_bytes,inline,storage_path) VALUES
+			(1,'logo.png','image/png',10,1,'a'),
+			(2,'logo-final.png','image/png',10,0,'b')`); err != nil {
+		t.Fatal(err)
+	}
+	parts := emailFilterSQL(models.EmailFilters{Attachment: "logo"})
+	var ids []int64
+	rows, err := db.Read().Query("SELECT m.id FROM messages m WHERE 1=1"+parts.cteClause+" ORDER BY m.id", parts.args...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, id)
+	}
+	// Message 1's logo is inline, in its body.
+	if !reflect.DeepEqual(ids, []int64{2}) {
+		t.Fatalf("attachment:logo matches %v, want [2]", ids)
+	}
+}
+
 func TestEmailFilterSQLSupportsSingleMessagesOnly(t *testing.T) {
 	parts := emailFilterSQL(models.EmailFilters{NoThreads: true})
 	if !strings.Contains(parts.outerClause, "thread_count = 1") {

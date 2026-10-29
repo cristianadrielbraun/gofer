@@ -5646,7 +5646,8 @@ func emailFilterSQL(filters models.EmailFilters) emailFilterParts {
 		args = append(args, "%"+filters.Subject+"%")
 	}
 	if filters.Attachment != "" {
-		cteParts = append(cteParts, "EXISTS (SELECT 1 FROM attachments att WHERE att.message_id = m.id AND att.filename LIKE ?)")
+		// An inline image is part of the body, not an attachment.
+		cteParts = append(cteParts, "EXISTS (SELECT 1 FROM attachments att WHERE att.message_id = m.id AND COALESCE(att.inline, 0) = 0 AND att.filename LIKE ?)")
 		args = append(args, "%"+filters.Attachment+"%")
 	}
 	if match, matchArgs := attachmentTypeMatchSQL(filters.AttachmentType, filters.AttachmentExt); match != "" {
