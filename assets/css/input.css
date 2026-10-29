@@ -7037,6 +7037,12 @@ aside a[data-mail-drop-active] {
   }
 }
 
+/* A list replacing another (search results and folders) keeps its rows
+   hidden until they fan in; see fanInRows in virtual-scroll.js. */
+.mail-list-entering #mail-list-scroll .mail-list-item {
+  opacity: 0;
+}
+
 #mail-search-folders-dialog [hidden] {
   display: none;
 }

@@ -28,7 +28,9 @@ templ AppIcon() {
 
 templ Layout(accounts []models.Account, activeFolder string, emails []models.Email, selectedEmail *models.Email, totalCount int, scrollCount int, windowStart int, uiSettings map[string]string, selectedThread []models.ThreadItem, initialEmailID string, scheduledCount int, filters models.EmailFilters) {
 	<!DOCTYPE html>
-	<html lang="en" class={ themeClass(uiSettings) } data-theme={ themeStyle(uiSettings) } { themeLookAttributes(uiSettings)... }>
+	// The mail list's rows start hidden and fan in once it's set up
+	// (fanInRows in virtual-scroll.js), so a page load animates them too.
+	<html lang="en" class={ themeClass(uiSettings), "mail-list-entering" } data-theme={ themeStyle(uiSettings) } { themeLookAttributes(uiSettings)... }>
 		<head>
 			<meta charset="UTF-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>

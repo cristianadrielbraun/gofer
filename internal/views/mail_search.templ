@@ -37,7 +37,7 @@ templ MailSearchScopeMenu(accounts []models.Account, activeFolder string, filter
 				@dropdown.Separator()
 				@dropdown.Item(dropdown.ItemProps{Class: "justify-start gap-2", Attributes: templ.Attributes{"data-mail-scope-option": "folders"}}) {
 					@icon.FolderTree(icon.Props{Class: "size-4 shrink-0 text-muted-foreground"})
-					<span class="min-w-0 flex-1 truncate">
+					<span class="min-w-0 flex-1 truncate" data-mail-scope-folders-label>
 						if scope != nil && scope.Kind == models.MailSearchFolders {
 							Edit folders ({ mailSearchFolderSelectionLabel(scope) })
 						} else {
@@ -47,11 +47,11 @@ templ MailSearchScopeMenu(accounts []models.Account, activeFolder string, filter
 				}
 				@dropdown.Separator()
 				// Spam and Trash only matter when the search reaches past one folder.
-				@dropdown.Item(dropdown.ItemProps{Class: "justify-start gap-2", Disabled: scope == nil, Attributes: templ.Attributes{"role": "menuitemcheckbox", "aria-checked": mailSearchBool(scope != nil && scope.ExcludeSpamTrash), "data-mail-scope-exclude": ""}}) {
+				@dropdown.Item(dropdown.ItemProps{Class: "justify-start gap-2 aria-disabled:pointer-events-none aria-disabled:opacity-50", Attributes: templ.Attributes{"role": "menuitemcheckbox", "aria-checked": mailSearchBool(scope != nil && scope.ExcludeSpamTrash), "aria-disabled": mailSearchBool(scope == nil), "data-mail-scope-exclude": ""}}) {
 					<span class="flex size-4 shrink-0 items-center justify-center rounded-sm border border-input">
-						if scope != nil && scope.ExcludeSpamTrash {
+						<span class={ mailSearchShown("flex", scope != nil && scope.ExcludeSpamTrash) } data-mail-scope-check>
 							@icon.Check(icon.Props{Class: "size-3"})
-						}
+						</span>
 					</span>
 					Leave out Spam and Trash
 				}
@@ -63,24 +63,30 @@ templ MailSearchScopeMenu(accounts []models.Account, activeFolder string, filter
 templ mailSearchScopeItem(value string, label string, checked bool) {
 	@dropdown.Item(dropdown.ItemProps{Class: "justify-start gap-2", Attributes: templ.Attributes{"role": "menuitemradio", "aria-checked": mailSearchBool(checked), "data-mail-scope-option": value}}) {
 		<span class="flex size-4 shrink-0 items-center justify-center">
-			if checked {
+			<span class={ mailSearchShown("flex", checked) } data-mail-scope-check>
 				@icon.Check(icon.Props{Class: "size-3.5"})
-			}
+			</span>
 		</span>
 		<span class="min-w-0 flex-1 truncate">{ label }</span>
 	}
 }
 
+// mailSearchScopeIcon renders every scope's icon and shows the scope's, so
+// the page can show a scope chosen before there's anything to search.
 templ mailSearchScopeIcon(scope *models.MailSearchScope) {
-	if scope == nil {
-		@icon.Folder(icon.Props{Class: "size-3.5 shrink-0 text-muted-foreground"})
-	} else if scope.Kind == models.MailSearchAll {
-		@icon.Layers(icon.Props{Class: "size-3.5 shrink-0 text-muted-foreground"})
-	} else if scope.Kind == models.MailSearchAccount {
-		@icon.AtSign(icon.Props{Class: "size-3.5 shrink-0 text-muted-foreground"})
-	} else {
-		@icon.FolderTree(icon.Props{Class: "size-3.5 shrink-0 text-muted-foreground"})
-	}
+	{{ kind := mailSearchScopeKind(scope) }}
+	<span class={ mailSearchShown("flex shrink-0", kind == "current") } data-mail-scope-icon="current">
+		@icon.Folder(icon.Props{Class: "size-3.5 text-muted-foreground"})
+	</span>
+	<span class={ mailSearchShown("flex shrink-0", kind == "all") } data-mail-scope-icon="all">
+		@icon.Layers(icon.Props{Class: "size-3.5 text-muted-foreground"})
+	</span>
+	<span class={ mailSearchShown("flex shrink-0", kind == "account") } data-mail-scope-icon="account">
+		@icon.AtSign(icon.Props{Class: "size-3.5 text-muted-foreground"})
+	</span>
+	<span class={ mailSearchShown("flex shrink-0", kind == "folders") } data-mail-scope-icon="folders">
+		@icon.FolderTree(icon.Props{Class: "size-3.5 text-muted-foreground"})
+	</span>
 }
 
 // mailSearchCommand is one search command the help lists: what to type, an

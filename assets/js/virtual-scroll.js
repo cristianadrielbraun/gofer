@@ -449,7 +449,7 @@ class VirtualMailList {
           '<h3 class="font-semibold text-sm mb-1">' + (syncing ? 'Syncing folder' : 'No emails') + '</h3>' +
           '<p class="text-xs text-muted-foreground">' + subtitle + '</p>' +
         '</div>'
-      this.animateExitingRows(stale ? stale.rows : null, new Set(), 180, "cubic-bezier(0.2, 0, 0, 1)", 14, 18)
+      if (stale) this.fanOutLeavingRows(stale.rows, new Set())
       return
     }
 
@@ -776,6 +776,143 @@ class VirtualMailList {
     return window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches
   }
 
+  // onScreenRows are the rendered rows the reader can see, top to bottom.
+  onScreenRows() {
+    if (!this.itemsContainer) return []
+    var view = this.container.getBoundingClientRect()
+    var rows = []
+    for (var i = 0; i < this.itemsContainer.children.length; i++) {
+      var node = this.itemsContainer.children[i]
+      var row = node.classList.contains("mail-list-item") ? node : node.querySelector(".mail-list-item")
+      if (!row || !row.dataset.emailId) continue
+      var rect = node.getBoundingClientRect()
+      if (rect.bottom > view.top && rect.top < view.bottom) rows.push({ node: node, top: rect.top })
+    }
+    rows.sort(function (a, b) { return a.top - b.top })
+    return rows.map(function (row) { return row.node })
+  }
+
+  // clearForTransition fans the list's rows out, top to bottom, and resolves
+  // once the last is gone. Moving between a folder and search results
+  // replaces the whole list rather than morphing one into the other, so the
+  // old list visibly ends before the new one fans in (fanInRows). Rows keep
+  // their positioning transform; the fan uses translate and opacity.
+  clearForTransition() {
+    var nodes = this.prefersReducedMotion() ? [] : this.onScreenRows()
+    var self = this
+    var hide = function () { if (self.itemsContainer) self.itemsContainer.style.visibility = "hidden" }
+    VirtualMailList.fanInNext = nodes.length > 0
+    if (nodes.length === 0 || typeof nodes[0].animate !== "function") {
+      hide()
+      return Promise.resolve()
+    }
+    this.transitionAnimations = nodes.map(function (node, i) {
+      // Each card drops back and shrinks a little before it fades, so it
+      // reads as moving away.
+      return node.animate([
+        { opacity: 1, translate: "0 0", scale: "1" },
+        { opacity: 1, offset: 0.45 },
+        { opacity: 0, translate: "0 18px", scale: "0.99" },
+      ], { duration: 220, delay: Math.min(150, i * 25), easing: "cubic-bezier(0.4, 0, 1, 1)", fill: "forwards" })
+    })
+    return Promise.all(this.transitionAnimations.map(function (animation) {
+      return animation.finished.catch(function () {})
+    })).then(hide)
+  }
+
+  // releaseClearedRows drops the finished fan-out from the row elements but
+  // keeps the list hidden, so the list can reuse them for new rows and show
+  // those with fanInRows.
+  releaseClearedRows() {
+    VirtualMailList.fanInNext = false
+    ;(this.transitionAnimations || []).forEach(function (animation) { animation.cancel() })
+    this.transitionAnimations = null
+  }
+
+  // cancelTransitionClear shows the rows again when the list they were
+  // cleared for couldn't load.
+  cancelTransitionClear() {
+    VirtualMailList.fanInNext = false
+    document.documentElement.classList.remove("mail-list-entering")
+    ;(this.transitionAnimations || []).forEach(function (animation) { animation.cancel() })
+    this.transitionAnimations = null
+    if (this.itemsContainer) this.itemsContainer.style.visibility = ""
+  }
+
+  // fanOutLeavingRows fans out the rows a list change removed, from where
+  // they were, top to bottom, and returns how many it shows leaving. They
+  // are copies by now, drawn under the list so the rows arriving in their
+  // place land on top of them.
+  fanOutLeavingRows(before, afterIds) {
+    var view = this.container.getBoundingClientRect()
+    var leaving = []
+    before.forEach(function (item, id) {
+      if (afterIds.has(id)) return
+      if (item.rect.bottom > view.top && item.rect.top < view.bottom) leaving.push(item)
+    })
+    if (leaving.length === 0 || this.prefersReducedMotion()) return 0
+    leaving.sort(function (a, b) { return a.rect.top - b.rect.top })
+    var overlay = this.ensureTransitionOverlay()
+    overlay.style.zIndex = "0"
+    this.itemsContainer.style.zIndex = "1"
+    var itemsContainer = this.itemsContainer
+    var scrollLeft = this.container.scrollLeft
+    var scrollTop = this.container.scrollTop
+    var last = null
+    for (var i = 0; i < leaving.length; i++) {
+      var item = leaving[i]
+      var clone = document.createElement("div")
+      clone.innerHTML = item.html
+      clone.style.position = "absolute"
+      clone.style.left = (item.rect.left - view.left + scrollLeft) + "px"
+      clone.style.top = (item.rect.top - view.top + scrollTop) + "px"
+      clone.style.width = item.rect.width + "px"
+      clone.style.height = item.rect.height + "px"
+      overlay.appendChild(clone)
+      if (typeof clone.animate !== "function") continue
+      last = clone.animate([
+        { opacity: 1, translate: "0 0", scale: "1" },
+        { opacity: 1, offset: 0.45 },
+        { opacity: 0, translate: "0 18px", scale: "0.99" },
+      ], { duration: 220, delay: Math.min(150, i * 25), easing: "cubic-bezier(0.4, 0, 1, 1)", fill: "forwards" })
+    }
+    var done = function () {
+      if (overlay.parentNode) overlay.remove()
+      itemsContainer.style.zIndex = ""
+    }
+    if (last) last.finished.then(done, done)
+    else done()
+    return leaving.length
+  }
+
+  // fanInRows is clearForTransition run backwards for the new list's rows:
+  // the same stagger and distance, each card fading in first and then
+  // dropping into place from above, slightly bigger as if dropped. The rows
+  // arrive hidden (the mail-list-entering class); they stay hidden until the
+  // list has been drawn once, because an animation started during the rest
+  // of the set-up would have its first cards done before anyone saw them.
+  fanInRows(rows, delay) {
+    delay = delay || 0
+    var nodes = this.prefersReducedMotion() ? [] : this.onScreenRows()
+    if (rows) nodes = nodes.filter(function (node) { return rows.indexOf(node) !== -1 })
+    for (var i = 0; i < nodes.length; i++) nodes[i].style.opacity = "0"
+    document.documentElement.classList.remove("mail-list-entering")
+    if (nodes.length === 0) return
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () {
+        for (var j = 0; j < nodes.length; j++) {
+          nodes[j].style.opacity = ""
+          if (typeof nodes[j].animate !== "function") continue
+          nodes[j].animate([
+            { opacity: 0, translate: "0 -18px", scale: "1.01" },
+            { opacity: 1, offset: 0.55 },
+            { opacity: 1, translate: "0 0", scale: "1" },
+          ], { duration: 220, delay: delay + Math.min(150, j * 25), easing: "cubic-bezier(0, 0, 0.6, 1)", fill: "backwards" })
+        }
+      })
+    })
+  }
+
   ensureTransitionOverlay() {
     var existing = this.container.querySelector("[data-mail-list-transition-overlay]")
     if (existing) existing.remove()
@@ -807,7 +944,7 @@ class VirtualMailList {
     var entering = []
 
     if (this.effectiveCount === 0) {
-      this.animateExitingRows(before, afterIds, duration, ease, options.exitTo || 12, options.exitStagger || 0)
+      this.fanOutLeavingRows(before, afterIds)
       return
     }
 
@@ -859,14 +996,11 @@ class VirtualMailList {
       this.cleanupTransition(moved.node, duration)
     }
 
-    var exitCount = 0
-    before.forEach(function (_, id) { if (!afterIds.has(id)) exitCount++ })
-    var exitStagger = options.exitStagger !== undefined ? options.exitStagger : (exitCount > 3 ? 16 : 0)
-    var enterStagger = options.enterStagger !== undefined ? options.enterStagger : (entering.length > 3 ? 12 : 0)
-    var enterDelay = options.enterDelay !== undefined ? options.enterDelay : (exitCount > 3 && entering.length > 0 ? Math.min(140, exitCount * 12) : 0)
-
-    this.animateEnteringRows(entering, duration, ease, options.enterFrom || -10, enterDelay, enterStagger)
-    this.animateExitingRows(before, afterIds, duration, ease, options.exitTo || 12, exitStagger)
+    // The rows staying slide to their places, while the ones leaving fan out
+    // and the new ones fan in, together; the leaving ones get a short head
+    // start.
+    var leaving = this.fanOutLeavingRows(before, afterIds)
+    this.fanInRows(entering, leaving > 0 ? 60 : 0)
   }
 
   animateRenderedRows(options) {
@@ -887,45 +1021,6 @@ class VirtualMailList {
 
   animateEnteringRows(nodes, duration, ease, offsetY, delay, stagger) {
     slideRowsInWholePixels(nodes, duration, offsetY, delay || 0, stagger || 0)
-  }
-
-  animateExitingRows(before, afterIds, duration, ease, offsetY, stagger) {
-    if (!before || before.size === 0) return
-    stagger = stagger || 0
-    var overlay = null
-    var containerRect = this.container.getBoundingClientRect()
-    var exitIndex = 0
-    // All the leaving rows' copies are placed before the page is laid out
-    // once, rather than once per copy, and then fade out together.
-    var clones = []
-    var scrollLeft = this.container.scrollLeft
-    var scrollTop = this.container.scrollTop
-    before.forEach(function (item, id) {
-      if (afterIds.has(id)) return
-      if (!overlay) overlay = this.ensureTransitionOverlay()
-      var delay = Math.min(140, exitIndex * stagger)
-      exitIndex++
-      var clone = document.createElement("div")
-      clone.innerHTML = item.html
-      clone.style.position = "absolute"
-      clone.style.left = (item.rect.left - containerRect.left + scrollLeft) + "px"
-      clone.style.top = (item.rect.top - containerRect.top + scrollTop) + "px"
-      clone.style.width = item.rect.width + "px"
-      clone.style.height = item.rect.height + "px"
-      clone.style.transition = "transform " + duration + "ms " + ease + " " + delay + "ms, opacity " + duration + "ms ease-out " + delay + "ms"
-      clone.style.willChange = "transform, opacity"
-      overlay.appendChild(clone)
-      clones.push(clone)
-      setTimeout(function () { clone.remove() }, duration + delay + 40)
-    }, this)
-    if (overlay) overlay.offsetHeight
-    for (var c = 0; c < clones.length; c++) {
-      clones[c].style.opacity = "0"
-      clones[c].style.transform = "translateY(" + offsetY + "px)"
-    }
-    if (overlay) {
-      setTimeout(function () { if (overlay.parentNode) overlay.remove() }, duration + Math.min(140, Math.max(0, exitIndex - 1) * stagger) + 80)
-    }
   }
 
   cleanupTransition(node, duration) {
@@ -1831,7 +1926,20 @@ class VirtualMailList {
 
     this.render()
     this.updatePaginationControls()
-    if (options.animate !== false) this.animateRenderedRows({ enterFrom: -8 })
+    if (VirtualMailList.fanInNext) {
+      VirtualMailList.fanInNext = false
+      this.fanInRows()
+    } else if (VirtualMailList.moveFrom) {
+      // The list this one replaced, within a search: move rather than refill.
+      var previous = VirtualMailList.moveFrom
+      VirtualMailList.moveFrom = null
+      document.documentElement.classList.remove("mail-list-entering")
+      this.animateListTransition(previous)
+    } else if (options.animate !== false) {
+      this.fanInRows()
+    } else {
+      document.documentElement.classList.remove("mail-list-entering")
+    }
   }
 
   renderTableHeader() {
@@ -2431,7 +2539,12 @@ class VirtualMailList {
       (filters.query ? 1 : 0) + (filters.afterDate ? 1 : 0) + (filters.beforeDate ? 1 : 0)
   }
 
-  async applyFilters(filters) {
+  // applyFilters reloads the list for new filters. options.replace fans the
+  // old rows out and then the new ones in (clearForTransition, fanInRows),
+  // as starting or ending a search does; otherwise the rows move in one go
+  // (animateListTransition), as a change within a search does.
+  async applyFilters(filters, options) {
+    var replacing = !!(options && options.replace) && !this.prefersReducedMotion()
     var next = this.emptyFilters()
     filters = filters || {}
     for (var key in next) {
@@ -2441,7 +2554,17 @@ class VirtualMailList {
     this.filters = next
     if (this.navigationMode === "pagination") {
       var previousSelectedPaginated = this.selectedEmailId
-      await this.loadPage(0, { preserveSelection: true, loadSelected: false, knownTotal: false, animation: { enterFrom: -8, exitTo: 14 } })
+      if (replacing) {
+        // A page renders as soon as it loads, so it waits for the rows to leave.
+        await this.clearForTransition()
+        this.releaseClearedRows()
+      }
+      try {
+        await this.loadPage(0, replacing ? { preserveSelection: true, loadSelected: false, knownTotal: false, noAnimation: true }
+          : { preserveSelection: true, loadSelected: false, knownTotal: false })
+      } finally {
+        if (replacing && this.itemsContainer) this.itemsContainer.style.visibility = ""
+      }
       if (previousSelectedPaginated && this.indexById.has(previousSelectedPaginated)) this.selectedEmailId = previousSelectedPaginated
       else this.selectedEmailId = null
       this.prevFirst = null
@@ -2450,13 +2573,24 @@ class VirtualMailList {
       this.syncSelectionClasses(this.itemsContainer)
       this.replaceUrl()
       this.updateFilteredSelection(previousSelectedPaginated)
+      if (replacing) this.fanInRows()
       return
     }
-    var transition = this.captureListTransition()
+    var transition = replacing ? null : this.captureListTransition()
     var previousSelected = this.selectedEmailId
     var params = "limit=" + this.mailListFetchLimit() + "&view=" + encodeURIComponent(this.viewMode)
     if (previousSelected) params += "&selected=" + encodeURIComponent(previousSelected)
-    var html = await this.fetchHTML(this.withFilterParams("/mail/folder/" + this.folderID + "/items?" + params))
+    // The old rows leave while the new ones load.
+    var leaving = replacing ? this.clearForTransition() : null
+    var html
+    try {
+      html = await this.fetchHTML(this.withFilterParams("/mail/folder/" + this.folderID + "/items?" + params))
+      if (leaving) await leaving
+    } catch (err) {
+      if (replacing) this.cancelTransitionClear()
+      throw err
+    }
+    if (replacing) this.releaseClearedRows()
     var syncState = this.syncState
     this.reset()
     this.syncState = syncState
@@ -2467,7 +2601,12 @@ class VirtualMailList {
       this.selectedEmailId = null
     }
     this.render()
-    this.animateListTransition(transition, { enterFrom: -8, exitTo: 14 })
+    if (replacing) {
+      if (this.itemsContainer) this.itemsContainer.style.visibility = ""
+      this.fanInRows()
+    } else {
+      this.animateListTransition(transition)
+    }
     this.updateHeader()
     this.replaceUrl()
     this.updateFilteredSelection(previousSelected)
@@ -3731,8 +3870,17 @@ window.addEventListener("popstate", function (e) {
     var search = window.location.search
     // Let all history listeners advance request ownership before starting
     // this navigation, so its own response isn't mistaken for a stale page.
+    // Moving into or out of search clears the old list first.
+    var leaving = currentMail && currentMail._virtualMailList
     setTimeout(function () {
-      if (typeof htmx !== "undefined") htmx.ajax("GET", target + search, {target: "#main-content", swap: "outerHTML"})
+      if (leaving && window.GoferMailSearch) {
+        window.GoferMailSearch.replaceList(leaving, target + search).catch(function () {
+          leaving.cancelTransitionClear()
+          if (typeof htmx !== "undefined") htmx.ajax("GET", target + search, {target: "#main-content", swap: "outerHTML"})
+        })
+      } else if (typeof htmx !== "undefined") {
+        htmx.ajax("GET", target + search, {target: "#main-content", swap: "outerHTML"})
+      }
     }, 0)
     return
   }

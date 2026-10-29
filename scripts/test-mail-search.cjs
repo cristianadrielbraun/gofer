@@ -6,15 +6,21 @@ const vm = require('node:vm')
 const urls = []
 const events = {}, timers = [], requests = []
 let ownership = 0
-const controller = {searchScope: {kind: 'all'}, indexById: new Map(), cache: new Map()}
+const cleared = []
+// Clearing resolves at once here, so a request it waits for is visible right away.
+const controller = {searchScope: {kind: 'all'}, indexById: new Map(), cache: new Map(),
+  clearForTransition() { cleared.push(requests.length); return {then(next) { next(); return this }} }}
 const location = {pathname: '/mail/search', search: '?search_from=projects&q=invoice'}
 const history = {state: {folder: 'search'}, pushState(state, _, url) { this.state = state; urls.push(url) },
   replaceState(state, _, url) { this.state = state; urls.push(url) }}
 const document = {getElementById(id) { return id === 'mail-list-scroll' ? {_virtualMailList: controller} : null },
   querySelector() { return null }, addEventListener() {}}
 const window = {location, addEventListener(name, listener) { (events[name] ||= []).push(listener) }}
-const context = vm.createContext({window, document, history, URLSearchParams, Map, Set,
-  setTimeout(callback) { timers.push(callback) }, htmx: {ajax(method, url) { requests.push({url, ownership}) }}})
+const swaps = []
+const context = vm.createContext({window, document, history, URLSearchParams, Map, Set, Promise,
+  setTimeout(callback) { timers.push(callback) },
+  fetch(url) { requests.push({url, ownership}); return Promise.resolve({ok: true, text() { return Promise.resolve('<div id="main-content"></div>') }}) },
+  htmx: {ajax(method, url) { requests.push({url, ownership}) }, swap(target, html) { swaps.push(target) }}})
 vm.runInContext(fs.readFileSync(path.join(__dirname, '../assets/js/mail-search.js'), 'utf8'), context)
 vm.runInContext(fs.readFileSync(path.join(__dirname, '../assets/js/virtual-scroll.js'), 'utf8'), context)
 const search = window.GoferMailSearch
@@ -76,6 +82,7 @@ ownership++
 timers.shift()()
 assert.equal(requests[0].ownership, 1)
 assert.equal(new URL(requests[0].url, 'http://localhost').pathname, '/mail/search')
+assert.deepEqual(cleared, [0], 'the old list starts clearing as the new one is requested')
 // Sync events refresh an open search when their folder is in its scope.
 const pickerFolders = [['projects', ''], ['client', 'projects'], ['invoices', 'client'], ['elsewhere', ''], ['trash', '']]
   .map(([value, parentId]) => ({value, dataset: {parentId}}))
@@ -99,4 +106,9 @@ assert.equal(search.touches(event('projects')), false, 'a folder list matches it
 document.getElementById = getElementById
 controller.searchScope = {kind: 'all'}
 
-console.log('Mail search: scope URLs, folder encoding, paging requests, action context, captured scopes, selection history, ordinary folders, and sync refreshes passed.')
+// The new list replaces the old one only once both the request and the
+// old list's exit are done.
+Promise.resolve().then(() => new Promise(resolve => setImmediate(resolve))).then(() => {
+  assert.deepEqual(swaps, ['#main-content'])
+console.log('Mail search: scope URLs, folder encoding, paging requests, action context, captured scopes, selection history, ordinary folders, list replacement, and sync refreshes passed.')
+})

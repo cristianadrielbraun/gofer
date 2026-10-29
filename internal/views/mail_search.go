@@ -51,6 +51,22 @@ func mailSearchScopeLabel(accounts []models.Account, scope *models.MailSearchSco
 	return fmt.Sprintf("%d folders", len(scope.FolderIDs))
 }
 
+// mailSearchScopeKind names a scope as the scope menu's options do.
+func mailSearchScopeKind(scope *models.MailSearchScope) string {
+	if scope == nil {
+		return "current"
+	}
+	return string(scope.Kind)
+}
+
+// mailSearchShown adds "hidden" to classes when the element isn't shown.
+func mailSearchShown(classes string, shown bool) string {
+	if shown {
+		return classes
+	}
+	return classes + " hidden"
+}
+
 func mailSearchBool(value bool) string {
 	if value {
 		return "true"

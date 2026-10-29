@@ -105,10 +105,39 @@
     link.setAttribute("href", url)
     document.dispatchEvent(new CustomEvent("gofer:mail-folder-clicked", {detail: {folderID: selected ? "search" : origin}}))
     history.pushState({ folder: selected ? "search" : origin, email: null }, "", url)
-    return htmx.ajax("GET", request, { source: link, target: "#main-content", swap: "outerHTML" }).catch(function () {
+    // With a search or filters on both sides, this is a change within a
+    // search: the rows move rather than the list emptying and refilling.
+    var within = !!(window.mailFiltersActive && window.mailFiltersActive())
+    return replaceList(controller, request, { move: within }).catch(function () {
+      controller.cancelTransitionClear()
       if (window.location.pathname + window.location.search === url) history.replaceState(previousState, "", previous)
       sync()
       if (window.showGoferToast) showGoferToast({ title: "Couldn't change the search scope", variant: "error", duration: 5000 })
+    })
+  }
+
+  // replaceList moves between a folder and search results. Starting or ending
+  // a search, the old list fans out and the new one fans in rather than one
+  // morphing into the other; the new list loads while the old one leaves and
+  // is swapped in once both are done. options.move, for a change within a
+  // search, keeps the old rows and hands them to the new list, which moves
+  // them (VirtualMailList.moveFrom). Call it after the address changes: a
+  // list for an address that has since moved on is dropped.
+  function replaceList(controller, request, options) {
+    var address = window.location.pathname + window.location.search
+    var moving = !!(options && options.move && controller)
+    var leaving = !controller || moving ? Promise.resolve() : controller.clearForTransition()
+    var loading = fetch(request, { credentials: "same-origin", headers: { "HX-Request": "true", "HX-Target": "main-content", "HX-Current-URL": window.location.href } })
+      .then(function (response) {
+        if (!response.ok) throw new Error("list unavailable")
+        return response.text()
+      })
+    return Promise.all([loading, leaving]).then(function (done) {
+      if (window.location.pathname + window.location.search !== address) return
+      if (moving && window.VirtualMailList) window.VirtualMailList.moveFrom = controller.captureListTransition()
+      // The new rows arrive hidden and fan in once the list is set up.
+      else if (window.VirtualMailList && window.VirtualMailList.fanInNext) document.documentElement.classList.add("mail-list-entering")
+      htmx.swap("#main-content", done[0], { swapStyle: "outerHTML" })
     })
   }
 
@@ -134,10 +163,72 @@
     root.querySelector("[data-mail-scope-folder-empty]").classList.toggle("hidden", visible !== 0)
   }
 
+  function controls() { return document.querySelector("[data-mail-search-controls]") }
+
+  // pending is a scope chosen while there was nothing to search. It waits on
+  // the menu until a search or filter needs it, rather than listing all of
+  // the scope's mail.
+  function pending() {
+    var root = controls()
+    try { return JSON.parse(root && root.dataset.pendingScope || "null") } catch (_) { return null }
+  }
+
+  // chosen is the scope the menu shows: the open search's, or a waiting one.
+  function chosen() { return scope() || pending() }
+
+  // choose applies a scope from the menu or the folder picker. Search results
+  // and filtered lists move to it at once; otherwise it waits for a search.
+  function choose(selected) {
+    var filtering = window.mailFiltersActive && window.mailFiltersActive()
+    if (scope() || (selected && filtering)) return navigate(selected)
+    var root = controls()
+    if (!root) return
+    if (selected) root.dataset.pendingScope = JSON.stringify(selected)
+    else delete root.dataset.pendingScope
+    showScope(selected)
+  }
+
+  function folderSelectionLabel(selected) {
+    var count = (selected.folder_ids || []).length
+    return (count === 1 ? "1 folder" : count + " folders") + (selected.include_descendants ? " + subfolders" : "")
+  }
+
+  // showScope draws a scope on the menu as the server would.
+  function showScope(selected) {
+    var root = controls()
+    if (!root) return
+    var kind = selected ? selected.kind : "current"
+    var value = !selected ? "current" : selected.kind === "account" ? "account:" + selected.account_id : selected.kind
+    var option = root.querySelector('[data-mail-scope-option="' + value + '"]')
+    var label = !selected ? "This folder" : kind === "all" ? "All accounts" : kind === "account" ? (option ? option.textContent.trim() : "One account")
+      : (selected.folder_ids || []).length === 1 ? "1 folder" : (selected.folder_ids || []).length + " folders"
+    var trigger = root.querySelector("[data-mail-scope-trigger]")
+    if (trigger) {
+      trigger.setAttribute("aria-label", "Search in: " + label)
+      trigger.querySelector(".mail-search-scope-label").textContent = label
+      trigger.querySelectorAll("[data-mail-scope-icon]").forEach(function (icon) { icon.classList.toggle("hidden", icon.dataset.mailScopeIcon !== kind) })
+    }
+    root.querySelectorAll("[data-mail-scope-option]").forEach(function (item) {
+      var checked = item.dataset.mailScopeOption === value && kind !== "folders"
+      if (item.dataset.mailScopeOption !== "folders") item.setAttribute("aria-checked", checked ? "true" : "false")
+      var check = item.querySelector("[data-mail-scope-check]")
+      if (check) check.classList.toggle("hidden", !checked)
+    })
+    var folders = root.querySelector("[data-mail-scope-folders-label]")
+    if (folders) folders.textContent = kind === "folders" ? "Edit folders (" + folderSelectionLabel(selected) + ")" : "Choose folders…"
+    var exclude = root.querySelector("[data-mail-scope-exclude]")
+    if (exclude) {
+      var excluding = !!(selected && selected.exclude_spam_trash)
+      exclude.setAttribute("aria-disabled", selected ? "false" : "true")
+      exclude.setAttribute("aria-checked", excluding ? "true" : "false")
+      exclude.querySelector("[data-mail-scope-check]").classList.toggle("hidden", !excluding)
+    }
+  }
+
   function openPicker() {
     var root = dialog()
     if (!root) return
-    var selected = scope()
+    var selected = chosen()
     var ids = new Set(selected && selected.folder_ids || [])
     root.querySelectorAll("[data-mail-scope-folder]").forEach(function (input) { input.checked = ids.has(input.value) })
     root.querySelector("[data-mail-scope-descendants]").checked = !selected || selected.kind !== "folders" || !!selected.include_descendants
@@ -158,16 +249,16 @@
     if (option) {
       var value = option.dataset.mailScopeOption
       if (value === "folders") return openPicker()
-      var current = scope()
+      var current = chosen()
       var selected = value === "current" ? null : value === "all" ? { kind: "all" } : { kind: "account", account_id: value.slice(8) }
       if (selected && current && current.exclude_spam_trash) selected.exclude_spam_trash = true
       // Choosing the scope already in use changes nothing.
       if (!selected ? !current : current && current.kind === selected.kind && (current.account_id || "") === (selected.account_id || "")) return
-      return navigate(selected)
+      return choose(selected)
     }
     if (event.target.closest("[data-mail-scope-exclude]")) {
-      var excluding = scope()
-      if (excluding) navigate(Object.assign({}, excluding, { exclude_spam_trash: !excluding.exclude_spam_trash }))
+      var excluding = chosen()
+      if (excluding) choose(Object.assign({}, excluding, { exclude_spam_trash: !excluding.exclude_spam_trash }))
       return
     }
     if (event.target.closest("[data-mail-scope-cancel]")) window.tui.dialog.close("mail-search-folders-dialog")
@@ -176,9 +267,9 @@
       var ids = Array.from(root.querySelectorAll("[data-mail-scope-folder]:checked"), function (input) { return input.value })
       if (!ids.length || ids.length > 200) return
       var selected = { kind: "folders", folder_ids: ids, include_descendants: root.querySelector("[data-mail-scope-descendants]").checked }
-      if (scope() && scope().exclude_spam_trash) selected.exclude_spam_trash = true
+      if (chosen() && chosen().exclude_spam_trash) selected.exclude_spam_trash = true
       window.tui.dialog.close("mail-search-folders-dialog")
-      navigate(selected)
+      choose(selected)
     }
   })
   document.addEventListener("htmx:afterSettle", function () { requestAnimationFrame(restoreReader) })
@@ -207,5 +298,5 @@
 
   window.GoferMailSearch = { scope: scope, scopeURL: scopeURL, payload: payload, folderFor: folderFor, rowData: rowData, sync: sync, touches: touches,
     remember: function (ids) { rememberedFolders.clear(); ids.forEach(function (id) { if (id.folder_id) rememberedFolders.set(String(id.id), id.folder_id) }) },
-    navigate: navigate }
+    navigate: navigate, replaceList: replaceList, pending: pending }
 })()

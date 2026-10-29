@@ -208,4 +208,23 @@ for (const [text, expected] of [
 }
 assert.equal(command('larger:big').get('q'), 'larger:big', 'A size that isn\'t one is searched as words')
 
-console.log('Mail filters: all status choices, Apply counters, request parameters, Any, replacement, combined filters, Clear all, restored state, and search commands passed.')
+// The search field filters only on Enter: typing doesn't, and text still in
+// the field stays out of filters applied from the panel.
+fire('click', button('data-mail-advanced-filter-clear'))
+submit()
+const typedBefore = applied.length
+search.value = 'has:attachment invo'
+for (const listener of listeners.input || []) listener({target: search})
+for (const [id, callback] of timers) { timers.delete(id); callback() }
+assert.equal(applied.length, typedBefore, 'typing does not filter')
+click('status', 'unread')
+const typedApply = submit().query
+assert.equal((typedApply.get('q') || '').includes('invo'), false, 'text being typed is not part of an Apply')
+assert.equal(typedApply.get('unread'), '1')
+const entered = {target: search, key: 'Enter', preventDefault() {}}
+for (const listener of listeners.keydown || []) listener(entered)
+for (const [id, callback] of timers) { timers.delete(id); callback() }
+assert.equal(applied.at(-1).query.get('q').split(' ').includes('invo'), true, 'Enter searches what was typed')
+assert.equal(applied.at(-1).query.get('attachments'), '1')
+
+console.log('Mail filters: all status choices, Apply counters, request parameters, Any, replacement, combined filters, Clear all, restored state, search commands, and searching on Enter passed.')

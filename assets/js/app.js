@@ -4643,13 +4643,11 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 
   function setupMailFilters() {
-    var searchTimer = null
     var committedQuery = ""
     var committedParticipant = ""
     var contactFilterSearchTimer = null
     var contactFilterSearchSequence = 0
     var activePillOverflowFrame = null
-    var filterResultsTimer = null
     var activePillAnimationDelay = 190
 
     function emptyFilters() {
@@ -4742,9 +4740,9 @@ document.addEventListener("DOMContentLoaded", function () {
         filters.sortBy = (sortForm.querySelector('[name="sort_by"]') || {}).value || "date"
         filters.sortOrder = (sortForm.querySelector('[name="sort_order"]:checked') || {}).value || "desc"
       }
-      var search = document.querySelector("[data-mail-search-input]")
-      var pendingQuery = search ? (search.value || "").trim() : ""
-      filters.query = [committedQuery, pendingQuery].filter(Boolean).join(" ")
+      // Only text searched with Enter counts; what's still in the field is
+      // being typed.
+      filters.query = committedQuery
       if (!advanced) filters.participant = committedParticipant
       return filters
     }
@@ -4753,13 +4751,20 @@ document.addEventListener("DOMContentLoaded", function () {
       return String(value || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;")
     }
 
-    function syncFilterButton(filters) {
-      var count = (filters.unread ? 1 : 0) + (filters.starred ? 1 : 0) + (filters.attachments ? 1 : 0) +
+    function activeFilterCount(filters) {
+      return (filters.unread ? 1 : 0) + (filters.starred ? 1 : 0) + (filters.attachments ? 1 : 0) +
         (filters.read ? 1 : 0) + (filters.noAttachments ? 1 : 0) + (filters.hasTags ? 1 : 0) + (filters.noTags ? 1 : 0) +
         (filters.threadsOnly ? 1 : 0) + (filters.noThreads ? 1 : 0) + (filters.participant ? 1 : 0) + (filters.from ? 1 : 0) + (filters.to ? 1 : 0) +
         (filters.recipientType ? 1 : 0) + (filters.recipientDomain ? 1 : 0) + (filters.subject ? 1 : 0) + (filters.body ? 1 : 0) + (filters.fromDomain ? 1 : 0) +
         (filters.attachment ? 1 : 0) + (filters.attachmentType ? 1 : 0) + (filters.minSizeMB ? 1 : 0) + (filters.maxSizeMB ? 1 : 0) + (filters.tag ? 1 : 0) + (filters.accountId ? 1 : 0) +
         (filters.query ? 1 : 0) + (filters.afterDate ? 1 : 0) + (filters.beforeDate ? 1 : 0)
+    }
+
+    // mailFiltersActive reports whether the list has a search or a filter.
+    window.mailFiltersActive = function () { return activeFilterCount(readFilters()) > 0 }
+
+    function syncFilterButton(filters) {
+      var count = activeFilterCount(filters)
       var button = document.querySelector("[data-mail-filter-button]")
       var badge = document.querySelector("[data-mail-filter-count]")
       if (button) {
@@ -5282,27 +5287,32 @@ document.addEventListener("DOMContentLoaded", function () {
       }
     }
 
-    function applyFiltersToResults(filters, delay) {
-      if (filterResultsTimer) {
-        clearTimeout(filterResultsTimer)
-        filterResultsTimer = null
-      }
-      var run = function () {
-        filterResultsTimer = null
-        if (virtualMailList) virtualMailList.applyFilters(filters).catch(function () {})
-      }
-      if (delay > 0) filterResultsTimer = window.setTimeout(run, delay)
-      else run()
+    // Starting or ending a search replaces the list: the rows fan out, then
+    // the results fan in. A change within a search moves the rows in one go,
+    // the leaving ones fanning out as the new ones fan in. Either starts at
+    // once, alongside the pill's animation.
+    function applyFiltersToResults(filters) {
+      if (!virtualMailList) return
+      var scoped = !!virtualMailList.searchScope
+      var wasSearching = scoped || activeFilterCount(virtualMailList.filters || {}) > 0
+      var searching = scoped || activeFilterCount(filters) > 0
+      virtualMailList.applyFilters(filters, { replace: wasSearching !== searching }).catch(function () {})
     }
 
-    function applyCurrentFilters(options) {
-      options = options || {}
+    function applyCurrentFilters() {
       var filters = readFilters()
       committedParticipant = filters.participant || ""
       syncMailFolderHeading(filters)
       syncFilterButton(filters)
       renderActivePills()
-      applyFiltersToResults(filters, options.delayResults === false ? 0 : activePillAnimationDelay)
+      // A scope chosen while there was nothing to search applies with the
+      // first search or filter.
+      var waitingScope = window.GoferMailSearch && !window.GoferMailSearch.scope() && window.GoferMailSearch.pending()
+      if (waitingScope && activeFilterCount(filters) > 0) {
+        window.GoferMailSearch.navigate(waitingScope)
+        return
+      }
+      applyFiltersToResults(filters)
     }
 
     function splitSearchTokens(text) {
@@ -5583,10 +5593,6 @@ document.addEventListener("DOMContentLoaded", function () {
     function commitSearchInput(input) {
       var raw = (input && input.value ? input.value : "").trim()
       if (!raw) return false
-      if (searchTimer) {
-        clearTimeout(searchTimer)
-        searchTimer = null
-      }
       var tokens = splitSearchTokens(raw)
       var plain = []
       for (var i = 0; i < tokens.length; i++) {
@@ -5613,8 +5619,7 @@ document.addEventListener("DOMContentLoaded", function () {
       return true
     }
 
-    function clearActiveFilter(name, options) {
-      options = options || {}
+    function clearActiveFilter(name) {
       if (name === "q") {
         committedQuery = ""
         var search = document.querySelector("[data-mail-search-input]")
@@ -5635,7 +5640,14 @@ document.addEventListener("DOMContentLoaded", function () {
       else if (name === "threads_only" || name === "no_threads") setFilterTriState("threads", "")
       else clearAdvancedFilter(name)
       syncAdvancedFilterCount()
-      applyCurrentFilters(options)
+      // Clearing the search in search results goes back to the folder it
+      // started from, keeping any other filters.
+      if (name === "q" && window.GoferMailSearch && window.GoferMailSearch.scope()) {
+        renderActivePills()
+        window.GoferMailSearch.navigate(null)
+        return
+      }
+      applyCurrentFilters()
     }
 
     function removeActiveFilterWithAnimation(remove) {
@@ -5649,7 +5661,7 @@ document.addEventListener("DOMContentLoaded", function () {
       }
       pill.classList.add("mail-active-filter-pill-exiting")
       window.setTimeout(function () {
-        clearActiveFilter(name, { delayResults: false })
+        clearActiveFilter(name)
       }, 145)
     }
 
@@ -5671,8 +5683,6 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     window.readMailFilters = function () {
-      if (searchTimer) { clearTimeout(searchTimer); searchTimer = null }
-      if (filterResultsTimer) { clearTimeout(filterResultsTimer); filterResultsTimer = null }
       return readFilters()
     }
     window.syncMailFilterControls = syncFilterControls
@@ -5695,7 +5705,7 @@ document.addEventListener("DOMContentLoaded", function () {
       }
       // Applying a sort reloads only the list, so the toolbar's label is updated here.
       var sortByInput = form.querySelector('[name="sort_by"]')
-      applyCurrentFilters({ delayResults: false })
+      applyCurrentFilters()
       if (window.animateMailSortLabel) window.animateMailSortLabel(mailSortLabelText(sortByInput ? sortByInput.value : ""))
     })
 
@@ -5821,14 +5831,9 @@ document.addEventListener("DOMContentLoaded", function () {
     })
 
     document.addEventListener("input", function (e) {
-      if (e.target && e.target.matches && e.target.matches("[data-mail-search-input]")) {
-        if (searchTimer) clearTimeout(searchTimer)
-        searchTimer = setTimeout(function () {
-          searchTimer = null
-          applyCurrentFilters()
-        }, 250)
-        return
-      }
+      // The search field filters only on Enter (commitSearchInput), so
+      // search text and commands can take as long as they need.
+      if (e.target && e.target.matches && e.target.matches("[data-mail-search-input]")) return
       if (e.target && e.target.matches && e.target.matches("[data-tui-selectbox-search]") && e.target.closest("[data-mail-contact-filter-select]")) {
         scheduleContactFilterSearch(e.target)
       }
@@ -7681,12 +7686,26 @@ document.addEventListener("DOMContentLoaded", function () {
       var isOnSettings = mainContent && mainContent.querySelector("[data-settings-page]")
       var isOnContacts = !!document.getElementById("contacts-list-scroll")
       var mailListDetached = !virtualMailList || !virtualMailList.container || !document.body.contains(virtualMailList.container)
-      if (isOnSettings || isOnContacts || mailListDetached || (virtualMailList && virtualMailList.searchScope)) {
+      var leavingSearch = !mailListDetached && virtualMailList && virtualMailList.searchScope
+      if (isOnSettings || isOnContacts || mailListDetached || leavingSearch) {
         if (typeof htmx !== "undefined") {
           virtualContactsList = null
           history.pushState({ folder: folderID, email: null }, "", "/folder/" + folderID + target.search)
-          if (mainContent) showMailContentLoading(mainContent, link)
-          htmx.ajax("GET", "/folder/" + folderID + "/full" + target.search, {target: "#main-content", swap: "outerHTML"})
+          // Search results clear before the folder loads, like any move
+          // between search and a folder; other pages show the loading state.
+          var loadFolder = function () {
+            htmx.ajax("GET", "/folder/" + folderID + "/full" + target.search, {target: "#main-content", swap: "outerHTML"})
+          }
+          if (leavingSearch && window.GoferMailSearch) {
+            var leaving = virtualMailList
+            window.GoferMailSearch.replaceList(leaving, "/folder/" + folderID + "/full" + target.search).catch(function () {
+              leaving.cancelTransitionClear()
+              loadFolder()
+            })
+          } else {
+            if (mainContent) showMailContentLoading(mainContent, link)
+            loadFolder()
+          }
         }
       } else {
         virtualMailList.switchFolder(folderID).then(function () {
