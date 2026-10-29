@@ -1378,13 +1378,13 @@ templ ContactsListPane(contacts []models.Contact, selected *models.Contact, filt
 				<div class="mail-list-search-actions">
 					@dropdown.Dropdown() {
 						@dropdown.Trigger() {
-							<button type="button" data-contact-filter-trigger data-active={ fmt.Sprintf("%t", contactFiltersActive(filters)) } class="mail-list-advanced-filter-button relative inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 text-xs font-semibold text-foreground hover:bg-accent data-[active=true]:bg-accent data-[active=true]:text-foreground" aria-label="Filter contacts">
+							@button.Button(button.Props{Variant: button.VariantOutline, Class: mailListFilterButtonClass, Attributes: templ.Attributes{"data-contact-filter-trigger": "", "data-active": fmt.Sprintf("%t", contactFiltersActive(filters)), "aria-label": "Filter contacts"}}) {
 								<span class="mail-list-filter-label">Filters</span>
 								@icon.SlidersHorizontal(icon.Props{Class: "size-3.5"})
 								if count := contactFiltersActiveCount(filters); count > 0 {
 									<span class="min-w-4 rounded-full bg-primary px-1 text-center text-[10px] leading-4 text-primary-foreground">{ fmt.Sprint(count) }</span>
 								}
-							</button>
+							}
 						}
 						@dropdown.Content(dropdown.ContentProps{Placement: dropdown.PlacementBottomEnd, Class: "mobile-sheet w-[26rem] max-w-[calc(100vw-2rem)] normal-case tracking-normal p-3"}) {
 							<form action="/contacts" method="get" class="space-y-3" data-contact-filter-form>

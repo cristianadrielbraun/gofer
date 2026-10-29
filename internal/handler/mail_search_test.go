@@ -157,6 +157,19 @@ func TestMailSearchContinuesBeyondFirstFiftyResults(t *testing.T) {
 	if rec.Code != 200 || rows != 12 || !strings.Contains(rec.Body.String(), `data-total-count="62"`) {
 		t.Fatalf("page status=%d rows=%d, want 200 and 12 rows", rec.Code, rows)
 	}
+	// In the table, the page continues the run of results from Projects that
+	// the first page ended with, so no row starts a new location. Every card
+	// has its own band.
+	rec = httptest.NewRecorder()
+	h.handleMailSearchItems(rec, ownerRequest(httptest.NewRequest("GET", "/mail/search/items"+query+"&start=50&limit=50&view=table", nil)))
+	if strings.Contains(rec.Body.String(), "data-search-group") || !strings.Contains(rec.Body.String(), `data-search-location="owner@example.com · Projects"`) {
+		t.Fatal("a table page in the middle of a run of one location shows its band again")
+	}
+	rec = httptest.NewRecorder()
+	h.handleMailSearchItems(rec, ownerRequest(httptest.NewRequest("GET", "/mail/search/items"+query+"&start=50&limit=50&view=cards", nil)))
+	if strings.Count(rec.Body.String(), "data-search-group") != 12 {
+		t.Fatal("every search card shows its location band")
+	}
 }
 
 // A search reopened with a message open, after a reload or Back, starts at

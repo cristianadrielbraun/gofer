@@ -600,14 +600,23 @@ templ MailSelectAllBanner() {
 
 // MailFiltersPopover offers filtering by conversation only while the list
 // groups mail into conversations.
+// raisedButtonClass makes the theme's standard outline button (raised in
+// Classic) use the card color, for the toolbar buttons beside a list or
+// calendar.
+const raisedButtonClass = "bg-card dark:bg-card"
+
+// mailListFilterButtonClass is the Filters button beside the mail and
+// contacts searches.
+const mailListFilterButtonClass = "mail-list-advanced-filter-button relative h-9 shrink-0 gap-1.5 rounded-lg px-2.5 text-xs font-semibold text-foreground has-[>svg]:px-2.5 data-[active=true]:bg-accent data-[active=true]:text-foreground " + raisedButtonClass
+
 templ MailFiltersPopover(accounts []models.Account, conversations bool) {
 	@popover.Root(popover.RootProps{ID: "mail-filters-popover", Class: "inline-flex"}) {
 		@popover.Trigger() {
-			<button type="button" aria-label="Filters" data-mail-filter-button class="mail-list-advanced-filter-button relative inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 text-xs font-semibold text-foreground hover:bg-accent data-[active=true]:bg-accent data-[active=true]:text-foreground">
+			@button.Button(button.Props{Variant: button.VariantOutline, Class: mailListFilterButtonClass, Attributes: templ.Attributes{"aria-label": "Filters", "data-mail-filter-button": ""}}) {
 				<span class="mail-list-filter-label">Filters</span>
 				@icon.SlidersHorizontal(icon.Props{Class: "size-3.5"})
 				<span data-mail-filter-count class="hidden min-w-4 rounded-full bg-primary px-1 text-center text-[10px] leading-4 text-primary-foreground"></span>
-			</button>
+			}
 		}
 		@popover.Content(popover.ContentProps{Placement: popover.PlacementBottomEnd, Offset: 8, Exclusive: true, Class: "mobile-sheet mail-filters-sheet z-[70] w-[min(36rem,calc(100vw-1.5rem))] max-w-none overflow-hidden p-0 [&::backdrop]:transition-colors [&::backdrop]:duration-150 data-[tui-popover-open=false]:[&::backdrop]:bg-black/0 data-[tui-popover-open=true]:[&::backdrop]:bg-black/25"}) {
 			<div class="mail-filters-sheet-body flex h-[min(32.2rem,calc(100vh-2rem))] min-h-0 flex-col">
@@ -1156,7 +1165,12 @@ templ MailCardLayoutDialog() {
 }
 
 templ MailListCardItem(accounts []models.Account, email models.Email, position int, selectedEmail *models.Email, senderDisplayMode string) {
-	<div class="mail-list-item" data-email-id={ email.ID } data-account-id={ email.AccountID } data-folder-id={ email.FolderID } data-position={ fmt.Sprintf("%d", position) } data-thread-id={ email.ThreadID } data-has-thread={ fmt.Sprintf("%t", email.ThreadCount > 1) } data-is-read={ fmt.Sprintf("%t", email.IsRead) } data-starred={ fmt.Sprintf("%t", email.IsStarred) } data-is-draft={ fmt.Sprintf("%t", email.IsDraft) }>
+	<div class="mail-list-item" data-email-id={ email.ID } data-account-id={ email.AccountID } data-folder-id={ email.FolderID } data-position={ fmt.Sprintf("%d", position) } data-thread-id={ email.ThreadID } data-has-thread={ fmt.Sprintf("%t", email.ThreadCount > 1) } data-is-read={ fmt.Sprintf("%t", email.IsRead) } data-starred={ fmt.Sprintf("%t", email.IsStarred) } data-is-draft={ fmt.Sprintf("%t", email.IsDraft) }
+		if email.SearchLocation != "" {
+			data-search-location={ email.SearchLocation }
+		}
+		data-search-group?={ email.SearchLocation != "" }
+	>
 		<a
 			href={ templ.URL(fmt.Sprintf("/?email=%s", email.ID)) }
 			hx-get={ mailViewPartialURL(email.ID, email.FolderID, false) }
@@ -1169,7 +1183,8 @@ templ MailListCardItem(accounts []models.Account, email models.Email, position i
 			}
 			data-mail-card-layout-scope
 		>
-			// Search results name where each message is, across the card's top edge.
+			// Search results name where each message is, across the card's top
+			// edge. Every card has it; the table shows it once per run.
 			if email.SearchLocation != "" {
 				<div class="mail-search-location-strip" title={ email.SearchLocation } data-mail-search-location>
 					@icon.Folder(icon.Props{Class: "size-3 shrink-0"})
@@ -1303,7 +1318,12 @@ templ MailListCardItem(accounts []models.Account, email models.Email, position i
 }
 
 templ MailListTableItem(email models.Email, position int, selectedEmail *models.Email, senderDisplayMode string) {
-	<div class="mail-list-item mail-list-table-row" data-email-id={ email.ID } data-account-id={ email.AccountID } data-folder-id={ email.FolderID } data-position={ fmt.Sprintf("%d", position) } data-thread-id={ email.ThreadID } data-has-thread={ fmt.Sprintf("%t", email.ThreadCount > 1) } data-is-read={ fmt.Sprintf("%t", email.IsRead) } data-starred={ fmt.Sprintf("%t", email.IsStarred) } data-is-draft={ fmt.Sprintf("%t", email.IsDraft) }>
+	<div class="mail-list-item mail-list-table-row" data-email-id={ email.ID } data-account-id={ email.AccountID } data-folder-id={ email.FolderID } data-position={ fmt.Sprintf("%d", position) } data-thread-id={ email.ThreadID } data-has-thread={ fmt.Sprintf("%t", email.ThreadCount > 1) } data-is-read={ fmt.Sprintf("%t", email.IsRead) } data-starred={ fmt.Sprintf("%t", email.IsStarred) } data-is-draft={ fmt.Sprintf("%t", email.IsDraft) }
+		if email.SearchLocation != "" {
+			data-search-location={ email.SearchLocation }
+		}
+		data-search-group?={ email.SearchGroupStart }
+	>
 		<a
 			href={ templ.URL(fmt.Sprintf("/?email=%s", email.ID)) }
 			hx-get={ mailViewPartialURL(email.ID, email.FolderID, false) }
@@ -1315,6 +1335,15 @@ templ MailListTableItem(email models.Email, position int, selectedEmail *models.
 				templ.KV("envelope", selectedEmail == nil || selectedEmail.ID != email.ID),
 			}
 		>
+			// Search results name where each message is in a band above the
+			// row, across the columns, like the cards' strip; once above each
+			// run of results from the same place.
+			if email.SearchGroupStart {
+				<div class="mail-search-location-strip" title={ email.SearchLocation } data-mail-search-location>
+					@icon.Folder(icon.Props{Class: "size-3 shrink-0"})
+					<span class="truncate">{ email.SearchLocation }</span>
+				</div>
+			}
 			<div class="flex items-center justify-center" data-mail-table-cell="accountMarker">
 				<span class="account-color-marker size-2.5 shrink-0" style={ accountColorStyle(email.AccountColor) }></span>
 			</div>
@@ -1362,17 +1391,14 @@ templ MailListTableItem(email models.Email, position int, selectedEmail *models.
 				>{ contactsDisplay(email.To, senderDisplayMode) }</span>
 			</div>
 			<div class="flex items-center gap-2 min-w-0" data-mail-table-cell="subject">
-				<div class="min-w-0">
+				<div class="min-w-0 overflow-hidden">
 					<span
 						class={
-							"truncate",
+							"block truncate",
 							templ.KV("font-medium text-foreground", !email.IsRead),
 							templ.KV("text-muted-foreground", email.IsRead),
 						}
 					>{ email.Subject }</span>
-					if email.SearchLocation != "" {
-						<span class="block truncate text-[11px] text-muted-foreground" title={ email.SearchLocation } data-mail-search-location>{ email.SearchLocation }</span>
-					}
 				</div>
 				if len(email.Labels) > 0 {
 					for _, label := range email.Labels {

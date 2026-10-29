@@ -168,11 +168,16 @@ func (db *DB) GetMailSearchPageForUser(ctx context.Context, userID string, scope
 	if start >= total {
 		return page, nil
 	}
+	// The row before the page comes too, for page.Before.
+	from, count := start, limit
+	if start > 0 {
+		from, count = start-1, limit+1
+	}
 	rows, err := db.Read().QueryContext(ctx, query+`
 		SELECT id, account_id, account_color, subject, from_name, from_email, date_received,
 			snippet, has_attachments, body_text_path, body_html_path, thread_has_attachments,
 			folder_id, thread_is_read, thread_is_starred, thread_id, thread_count
-		FROM results ORDER BY `+emailOrderSQL(filters)+` LIMIT ? OFFSET ?`, append(args, limit, start)...)
+		FROM results ORDER BY `+emailOrderSQL(filters)+` LIMIT ? OFFSET ?`, append(args, count, from)...)
 	if err != nil {
 		return nil, fmt.Errorf("list mail search: %w", err)
 	}
@@ -180,6 +185,10 @@ func (db *DB) GetMailSearchPageForUser(ctx context.Context, userID string, scope
 	page.Emails, err = db.scanEmailRows(ctx, rows)
 	if err != nil {
 		return nil, err
+	}
+	if start > 0 && len(page.Emails) > 0 {
+		page.Before = &page.Emails[0]
+		page.Emails = page.Emails[1:]
 	}
 	page.WindowEnd = start + len(page.Emails) - 1
 	page.HasMore = len(page.Emails) > 0 && page.WindowEnd+1 < total

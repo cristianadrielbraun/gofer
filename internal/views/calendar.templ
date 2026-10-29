@@ -224,8 +224,11 @@ templ CalendarMainContent(month CalendarMonthData) {
 		<header class="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-4" inert?={ month.Loading }>
 			<h1 class="min-w-0 truncate text-lg font-bold tracking-tight" style="font-family: var(--font-serif)" data-calendar-title>{ month.MonthLabel }</h1>
 			<div class="flex shrink-0 items-center gap-1.5">
-				<a href={ calendarViewURL(month.View, month.TodayDateKey) } hx-get={ calendarViewURL(month.View, month.TodayDateKey) } hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-sync="#main-content:replace" hx-push-url={ calendarViewURL(month.View, month.TodayDateKey) } data-calendar-today class="inline-flex h-8 items-center rounded-md border border-border bg-background px-2.5 text-xs font-semibold text-foreground shadow-sm transition-colors hover:bg-accent">Today</a>
-				<div class="inline-flex h-8 items-center rounded-md border border-border bg-background shadow-sm">
+				@button.Button(button.Props{Variant: button.VariantOutline, Href: calendarViewURL(month.View, month.TodayDateKey), Class: "h-8 px-2.5 text-xs font-semibold text-foreground " + raisedButtonClass, Attributes: templ.Attributes{"hx-get": calendarViewURL(month.View, month.TodayDateKey), "hx-target": "#main-content", "hx-select": "#main-content", "hx-swap": "outerHTML", "hx-sync": "#main-content:replace", "hx-push-url": calendarViewURL(month.View, month.TodayDateKey), "data-calendar-today": ""}}) {
+					Today
+				}
+				// The arrows share one outline button's look; templui has no button group.
+				<div class="inline-flex h-8 items-center rounded-md border bg-card shadow-xs dark:border-input dark:bg-card">
 					<a href={ calendarNavigationURL(month, -1) } hx-get={ calendarNavigationURL(month, -1) } hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-sync="#main-content:replace" hx-push-url={ calendarNavigationURL(month, -1) } data-calendar-navigate="-1" class="inline-flex h-full w-8 items-center justify-center rounded-l-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground" aria-label={ calendarNavigationLabel(month, "Previous") }>
 						@icon.ChevronLeft(icon.Props{Class: "size-4"})
 					</a>

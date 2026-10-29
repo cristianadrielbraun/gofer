@@ -185,6 +185,33 @@ func TestMailSearchPageAroundKeepsTheOpenMessageInView(t *testing.T) {
 	}
 }
 
+// A later page brings the row before it, which tells whether its first row
+// starts a new location.
+func TestMailSearchPageCarriesTheRowBeforeIt(t *testing.T) {
+	db := mailSearchTestDB(t)
+	all := models.MailSearchScope{Kind: models.MailSearchAll}
+	byMessage := models.EmailFilters{ByMessage: true}
+	first, err := db.GetMailSearchPageForUser(context.Background(), "default", all, 0, 2, byMessage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Before != nil {
+		t.Fatalf("first page has a row before it: %s", first.Before.ID)
+	}
+	// Rows by message: 8 6 4 3 2 1.
+	page, err := db.GetMailSearchPageForUser(context.Background(), "default", all, 2, 2, byMessage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ids []string
+	for _, email := range page.Emails {
+		ids = append(ids, email.ID)
+	}
+	if page.Before == nil || page.Before.ID != "6" || !reflect.DeepEqual(ids, []string{"4", "3"}) || page.WindowStart != 2 || page.WindowEnd != 3 {
+		t.Fatalf("before=%v ids=%v window=%d-%d", page.Before, ids, page.WindowStart, page.WindowEnd)
+	}
+}
+
 func TestMailSearchDescendantsTerminateOnCycles(t *testing.T) {
 	db := mailSearchTestDB(t)
 	if _, err := db.Write().Exec(`UPDATE folders SET parent_id='grandchild' WHERE id='root'`); err != nil {

@@ -3708,6 +3708,15 @@ document.addEventListener("DOMContentLoaded", function () {
       toolbar._mailCompressStep = step
     }
 
+    // mailToolbarLabelWidth is a collapsible label's full width, to the
+    // fraction of a pixel. scrollWidth rounds, and a label capped at the
+    // rounded width lost part of a pixel, moving everything after it.
+    function mailToolbarLabelWidth(el) {
+      var range = document.createRange()
+      range.selectNodeContents(el)
+      return range.getBoundingClientRect().width
+    }
+
     // Each collapsible part with the width it takes now (mid-animation, maybe)
     // and the width it takes when shown, both counting the flex gap beside it.
     function mailToolbarCollapsibles(toolbar, actions) {
@@ -3716,7 +3725,7 @@ document.addEventListener("DOMContentLoaded", function () {
       states.forEach(function (_, el) {
         var gap = parseFloat(getComputedStyle(el.parentElement).columnGap) || 0
         var margin = parseFloat(getComputedStyle(el).marginLeft) || 0
-        var width = el.scrollWidth
+        var width = mailToolbarLabelWidth(el)
         if (el.style.getPropertyValue("--collapse-width") !== width + "px") el.style.setProperty("--collapse-width", width + "px")
         parts.push({ el: el, current: el.offsetWidth + gap + margin, full: width + gap })
       })
@@ -3728,7 +3737,7 @@ document.addEventListener("DOMContentLoaded", function () {
       var label = document.querySelector("[data-mail-sort-label]")
       if (!label || label.textContent === text) return
       label.textContent = text
-      label.style.setProperty("--collapse-width", label.scrollWidth + "px")
+      label.style.setProperty("--collapse-width", mailToolbarLabelWidth(label) + "px")
       syncMailActionOverflow()
     }
 
@@ -4643,6 +4652,8 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 
   function setupMailFilters() {
+    // The pills last shown, kept for when the list's header is replaced.
+    var shownPillKeys = Object.create(null)
     var committedQuery = ""
     var committedParticipant = ""
     var contactFilterSearchTimer = null
@@ -5141,6 +5152,17 @@ document.addEventListener("DOMContentLoaded", function () {
       bar.querySelectorAll("[data-mail-active-filter-key]").forEach(function (pill) {
         existingKeys[pill.getAttribute("data-mail-active-filter-key") || ""] = true
       })
+      // Moving to another folder or scope replaces the list's header, pills
+      // and all. The pills that were already showing stay put rather than
+      // dropping in again, and the strip opens without its transition.
+      var replacedBar = !bar._mailPillsRendered
+      var wasShowing = replacedBar && Object.keys(shownPillKeys).length > 0
+      if (replacedBar) {
+        existingKeys = shownPillKeys
+        hadOverflow = hadOverflow || wasShowing
+      }
+      bar._mailPillsRendered = true
+      shownPillKeys = Object.create(null)
       if (!pills.length) {
         hideActivePillBar(bar, panel)
         return
@@ -5153,12 +5175,20 @@ document.addEventListener("DOMContentLoaded", function () {
       for (var i = 0; i < pills.length; i++) {
         var pill = pills[i]
         var key = activePillKey(pill)
+        shownPillKeys[key] = true
         var pillClass = existingKeys[key] ? "mail-active-filter-pill mail-active-filter-pill-stable" : "mail-active-filter-pill"
         html += activePillButtonHTML(pill, 'data-mail-active-filter-pill="' + escapeHTML(JSON.stringify(pill)) + '" data-mail-active-filter-key="' + escapeHTML(key) + '"', pillClass)
       }
       html += '</div><button type="button" data-mail-active-filter-overflow class="mail-active-filter-overflow ' + (hadOverflow ? "mail-active-filter-overflow-stable " : "") + 'hidden" aria-expanded="false" aria-label="Show hidden filters">+0</button>'
       bar.innerHTML = html
-      bar.classList.remove("hidden")
+      if (wasShowing) {
+        bar.style.transition = "none"
+        bar.classList.remove("hidden")
+        bar.offsetHeight
+        bar.style.transition = ""
+      } else {
+        bar.classList.remove("hidden")
+      }
       ensureActivePillOverflowPanel(bar)
       scheduleActivePillOverflow(bar)
     }
@@ -7730,12 +7760,8 @@ document.addEventListener("DOMContentLoaded", function () {
       '</div>' +
       '<div class="mail-list-search-section">' +
       '<div class="mail-list-search-primary">' +
-      '<div class="mail-list-search-input-wrap relative groove rounded-lg min-w-0">' +
-      '<input type="text" placeholder="Search mail" disabled class="h-9 w-full pl-3 pr-3 rounded-lg text-sm bg-background border border-border/50 opacity-60" />' +
-      '</div>' +
-      '<div class="mail-list-search-actions">' +
-      '<button type="button" disabled class="mail-list-advanced-filter-button inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 text-xs font-semibold text-muted-foreground opacity-60"><span>Filters</span>' + pendingIcon("size-3.5") + '</button>' +
-      '</div>' +
+      pendingMailSearchHTML() +
+      '<div class="mail-list-search-actions">' + pendingFiltersButtonHTML() + '</div>' +
       '</div>' +
       '</div>' +
       '</div>' +
@@ -8170,6 +8196,27 @@ document.addEventListener("DOMContentLoaded", function () {
     return '<span class="inline-block ' + (className || "size-3.5") + ' rounded-sm bg-current opacity-30"></span>'
   }
 
+  // pendingMailSearchHTML mirrors the mail search bar (MailListHeader and
+  // MailSearchScopeMenu): the scope part, the field and the help button.
+  function pendingMailSearchHTML() {
+    return '<div class="mail-list-search-input-wrap groove flex min-w-0 items-stretch rounded-lg border border-border/50 bg-background opacity-70">' +
+        '<div class="mail-search-scope flex shrink-0"><span class="mail-search-scope-trigger relative flex h-full items-center gap-1.5 rounded-l-lg border-r border-border/60 bg-card pl-2.5 pr-2 text-xs font-semibold text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.35),1px_0_3px_rgba(0,0,0,0.08)]">' +
+          pendingIcon("size-3.5 shrink-0") + '<span class="mail-search-scope-label">This folder</span>' + pendingIcon("size-3.5 shrink-0") +
+        '</span></div>' +
+        '<div class="mail-list-search-field relative min-w-0 flex-1">' +
+          '<span class="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 rounded-sm bg-muted-foreground/30"></span>' +
+          '<input type="text" disabled placeholder="Search mail" class="h-9 w-full bg-transparent pl-8 pr-2 text-sm outline-none"/>' +
+        '</div>' +
+        '<span class="flex shrink-0 items-center px-2.5 text-muted-foreground">' + pendingIcon("size-3.5") + '</span>' +
+      '</div>'
+  }
+
+  // pendingFiltersButtonHTML mirrors the Filters button beside the mail and
+  // contacts searches (mailListFilterButtonClass).
+  function pendingFiltersButtonHTML() {
+    return '<button type="button" disabled class="mail-list-advanced-filter-button relative inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border bg-card px-2.5 text-xs font-semibold text-foreground shadow-xs opacity-70 dark:border-input dark:bg-card"><span>Filters</span>' + pendingIcon("size-3.5") + '</button>'
+  }
+
   // The mail list's Cards/Table switch sits in a capsule with the layout
   // button; contacts has the switch alone, as it was before the capsule.
   function pendingViewToggleHTML(viewMode, withLayoutButton) {
@@ -8199,12 +8246,8 @@ document.addEventListener("DOMContentLoaded", function () {
   function mailPendingHeaderHTML() {
     return '<div class="mail-list-header px-4 py-4 space-y-3">' +
       '<div class="mail-list-title-row flex items-center justify-between"><div class="mail-list-title flex items-center gap-2 min-w-0"><h2 id="mail-folder-name" class="text-lg font-bold tracking-tight" style="font-family: var(--font-serif)">Inbox</h2><span id="mail-folder-count" class="inline-flex h-5 min-w-10 items-center justify-center rounded-full bg-muted px-2 text-xs font-medium text-muted-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)] animate-pulse"></span></div></div>' +
-      '<div class="mail-list-search-section"><div class="mail-list-search-primary"><div class="mail-list-search-input-wrap relative groove rounded-lg min-w-0">' +
-          '<span class="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 rounded-sm bg-muted-foreground/30"></span>' +
-          '<input type="text" disabled placeholder="Search mail" class="h-9 w-full pl-8 pr-3 rounded-lg text-sm bg-background border border-border/50 outline-none opacity-70"/>' +
-        '</div><div class="mail-list-search-actions">' +
-          '<button type="button" disabled class="mail-list-advanced-filter-button inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 text-xs font-semibold text-foreground opacity-70"><span>Filters</span>' + pendingIcon("size-3.5") + '</button>' +
-        '</div></div></div>' +
+      '<div class="mail-list-search-section"><div class="mail-list-search-primary">' + pendingMailSearchHTML() +
+        '<div class="mail-list-search-actions">' + pendingFiltersButtonHTML() + '</div></div></div>' +
     '</div>'
   }
 
@@ -8215,7 +8258,7 @@ document.addEventListener("DOMContentLoaded", function () {
         '<span class="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 rounded-sm bg-muted-foreground/30"></span>' +
         '<input type="search" disabled placeholder="Search contacts" class="h-9 w-full rounded-lg border border-border/50 bg-background pl-8 pr-3 text-sm text-foreground placeholder:text-muted-foreground opacity-70"/>' +
       '</div>' +
-      '<button type="button" disabled class="mail-list-advanced-filter-button inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 text-xs font-semibold text-foreground opacity-70"><span>Filters</span>' + pendingIcon("size-3.5") + '</button>' +
+      pendingFiltersButtonHTML() +
       '</div>' +
     '</div>'
   }

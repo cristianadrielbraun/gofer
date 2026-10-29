@@ -33,6 +33,22 @@ func writeMailSearchFlagResult(w http.ResponseWriter, updated int, targets []own
 	}{updated, ids})
 }
 
+// setSearchLocations names where each result is and marks the ones whose
+// location differs from the result before them, including the one just
+// before the page, so the location shows once above each run.
+func setSearchLocations(accounts []models.Account, page *models.EmailPage) {
+	previous := ""
+	if page.Before != nil {
+		previous = views.MailSearchLocation(accounts, *page.Before)
+	}
+	for i := range page.Emails {
+		location := views.MailSearchLocation(accounts, page.Emails[i])
+		page.Emails[i].SearchLocation = location
+		page.Emails[i].SearchGroupStart = location != "" && location != previous
+		previous = location
+	}
+}
+
 // Scope parameters are separate from account_id, which remains an ordinary
 // advanced filter. Repeated scope_folder_id values select independent roots.
 func parseMailSearchScope(r *http.Request) (models.MailSearchScope, error) {
@@ -106,9 +122,7 @@ func (h *Handler) handleMailSearch(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return nil, err
 		}
-		for i := range page.Emails {
-			page.Emails[i].SearchLocation = views.MailSearchLocation(accounts, page.Emails[i])
-		}
+		setSearchLocations(accounts, page)
 		var selectedEmail *models.Email
 		if selected != "" {
 			selectedEmail = &models.Email{ID: selected}
@@ -150,9 +164,7 @@ func (h *Handler) handleMailSearchItems(w http.ResponseWriter, r *http.Request) 
 		if err != nil {
 			return nil, err
 		}
-		for i := range page.Emails {
-			page.Emails[i].SearchLocation = views.MailSearchLocation(accounts, page.Emails[i])
-		}
+		setSearchLocations(accounts, page)
 		view := r.URL.Query().Get("view")
 		if view == "" {
 			view = views.ListViewSetting(ctx, settings, "mail_list_view")

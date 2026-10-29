@@ -17,7 +17,9 @@ templ MailSearchScopeMenu(accounts []models.Account, activeFolder string, filter
 	<div class="mail-search-scope flex shrink-0" data-mail-search-controls data-current-folder={ activeFolder }>
 		@dropdown.Dropdown() {
 			@dropdown.Trigger() {
-				<button type="button" class="mail-search-scope-trigger flex h-full items-center gap-1.5 rounded-l-lg border-r border-border/60 pl-2.5 pr-2 text-xs font-semibold text-foreground hover:bg-accent focus-visible:bg-accent focus-visible:outline-none" aria-label={ "Search in: " + mailSearchScopeLabel(accounts, scope) } data-mail-scope-trigger>
+				// The search bar's left part, in the card color and slightly raised
+				// over the sunken field.
+				<button type="button" class="mail-search-scope-trigger relative flex h-full items-center gap-1.5 rounded-l-lg border-r border-border/60 bg-card pl-2.5 pr-2 text-xs font-semibold text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.35),1px_0_3px_rgba(0,0,0,0.08)] hover:bg-accent focus-visible:bg-accent focus-visible:outline-none" aria-label={ "Search in: " + mailSearchScopeLabel(accounts, scope) } data-mail-scope-trigger>
 					@mailSearchScopeIcon(scope)
 					<span class="mail-search-scope-label max-w-[9rem] truncate">{ mailSearchScopeLabel(accounts, scope) }</span>
 					@icon.ChevronDown(icon.Props{Class: "size-3.5 shrink-0 text-muted-foreground"})

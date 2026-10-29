@@ -68,7 +68,10 @@ type Email struct {
 	FolderID          string
 	FolderRole        string
 	// SearchLocation names the account and folder path on search results.
-	SearchLocation    string
+	SearchLocation string
+	// SearchGroupStart marks a search result whose location differs from the
+	// result before it, so the location shows once above each run.
+	SearchGroupStart bool
 	From              Contact
 	To                []Contact
 	CC                []Contact
@@ -255,7 +258,10 @@ type Attachment struct {
 }
 
 type EmailPage struct {
-	Emails            []Email
+	Emails []Email
+	// Before is the row just before Emails in a search, which tells whether
+	// the first of them starts a new location (Email.SearchGroupStart).
+	Before            *Email
 	TotalCount        int
 	DisplayTotalCount int
 	WindowStart       int

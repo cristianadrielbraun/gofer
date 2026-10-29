@@ -5,12 +5,18 @@ function listRemPx(rem) {
   return Math.round(rem * root)
 }
 
+// Search results show where they are in a band (data-search-group): along
+// the top of every card, 1.5rem, and above a table row's columns, 1.25rem,
+// once per run of rows from one place (input.css). getHeight adds it to
+// those rows.
+function mailSearchBandRem(viewMode) {
+  return viewMode === "table" ? 1.25 : 1.5
+}
+
 // Mail card rows are shorter on small screens, where they use a fixed phone layout
 // (see the small-screen mail list styles).
-// Search result cards carry a 1.5rem location strip along their top edge
-// (.mail-search-location-strip in input.css).
-function mailCardRowRem(searchResults) {
-  return (window.matchMedia("(max-width: 1023.98px)").matches ? 5.25 : 6.5) + (searchResults ? 1.5 : 0)
+function mailCardRowRem() {
+  return window.matchMedia("(max-width: 1023.98px)").matches ? 5.25 : 6.5
 }
 
 // Contact rows use one 4rem phone layout on small screens, in either view.
@@ -82,7 +88,7 @@ class VirtualMailList {
     try { this.searchScope = JSON.parse(this.root.dataset.mailSearchScope || "null") } catch (_) { this.searchScope = null }
     this.viewMode = options.viewMode || container.dataset.viewMode || "cards"
     this.navigationMode = (options.navigationMode || container.dataset.navigationMode) === "pagination" ? "pagination" : "infinite"
-    this.itemHeight = listRemPx(this.viewMode === "table" ? 2.75 : mailCardRowRem(!!this.searchScope))
+    this.itemHeight = listRemPx(this.viewMode === "table" ? 2.75 : mailCardRowRem())
     this.subItemHeight = listRemPx(this.viewMode === "table" ? 2 : 3)
     this.expandedThreadGap = 26
     this.overscan = 10
@@ -212,6 +218,11 @@ class VirtualMailList {
     var item = existing && existing.id === id ? existing : { id: id, html: "" }
     item.id = id
     item.html = html
+    // Search results: where the row is, and whether its location band shows.
+    var opening = html.slice(0, html.indexOf(">") + 1)
+    var location = opening.match(/ data-search-location="([^"]*)"/)
+    item.searchLocation = location ? location[1] : ""
+    item.searchGroup = opening.indexOf(" data-search-group") !== -1
     this.cache.set(pos, item)
     this.indexById.set(id, pos)
   }
@@ -275,13 +286,14 @@ class VirtualMailList {
   getHeight(pos) {
     var item = this.cache.get(pos)
     if (!item) return this.itemHeight
+    var rowHeight = this.itemHeight + (item.searchGroup ? listRemPx(mailSearchBandRem(this.viewMode)) : 0)
     var expanded = this.expandedThreads.get(item.id)
     if (expanded) {
       if (expanded.measuredHeight) return expanded.measuredHeight
       var gap = this.viewMode === "table" ? 0 : this.expandedThreadGap
-      return this.itemHeight + expanded.subCount * this.subItemHeight + gap
+      return rowHeight + expanded.subCount * this.subItemHeight + gap
     }
-    return this.itemHeight
+    return rowHeight
   }
 
   invalidateOffsets() {
@@ -362,6 +374,7 @@ class VirtualMailList {
     this.itemsContainer = document.createElement("div")
 
     this.container.innerHTML = ""
+    this.appendStickySearchGroup()
     this.container.appendChild(this.spacerTop)
     this.container.appendChild(this.itemsContainer)
     this.container.appendChild(this.spacerBottom)
@@ -423,6 +436,7 @@ class VirtualMailList {
   render(options) {
     var scrolling = !!(options && options.scrolling)
     this.applyPaneLayoutDensity()
+    this.updateStickySearchGroup()
     var scrollTop = this.container.scrollTop
     var clientHeight = this.container.clientHeight
     if (this.effectiveCount === 0) {
@@ -633,6 +647,7 @@ class VirtualMailList {
       else shell.removeAttribute("data-thread-collapsing")
       var mainRow = document.createElement("div")
       mainRow.className = "mail-list-thread-main"
+      if (item.searchGroup) mainRow.setAttribute("data-search-group", "")
       anchor.style.height = ""
       if (toggle) toggle.setAttribute("data-expanded", "")
       mainRow.appendChild(row)
@@ -774,6 +789,76 @@ class VirtualMailList {
 
   prefersReducedMotion() {
     return window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  }
+
+  // appendStickySearchGroup adds the band that pins a run of search results'
+  // location to the top of the list (updateStickySearchGroup).
+  appendStickySearchGroup() {
+    this.stickySearchGroup = document.createElement("div")
+    this.stickySearchGroup.className = "mail-search-sticky"
+    this.stickySearchGroup.hidden = true
+    this.stickySearchGroup.setAttribute("aria-hidden", "true")
+    this.container.appendChild(this.stickySearchGroup)
+  }
+
+  // updateStickySearchGroup keeps the location of the topmost table row's run
+  // of search results pinned under the column names once that run's own
+  // band has scrolled away. The next run's band pushes it up as it arrives.
+  updateStickySearchGroup() {
+    var sticky = this.stickySearchGroup
+    if (!sticky) return
+    var hide = function () { if (!sticky.hidden) sticky.hidden = true }
+    // Only the table groups rows under one band; every card has its own.
+    if (!this.searchScope || this.viewMode !== "table" || this.effectiveCount === 0) return hide()
+    var scrollTop = this.container.scrollTop
+    var top = this.positionAtOffset(scrollTop)
+    var item = this.cache.get(top)
+    if (!item || !item.searchLocation) return hide()
+    var start = top
+    while (start > this.windowStart) {
+      var previous = this.cache.get(start - 1)
+      if (!previous || previous.searchLocation !== item.searchLocation) break
+      start--
+    }
+    // The run's own band is still in view.
+    if (this.offsetAtPosition(start) >= scrollTop) return hide()
+    var band = listRemPx(mailSearchBandRem(this.viewMode))
+    var shift = 0
+    var last = Math.min(this.windowStart + this.effectiveCount - 1, top + 3)
+    for (var next = top + 1; next <= last; next++) {
+      var nextItem = this.cache.get(next)
+      if (!nextItem) break
+      if (nextItem.searchGroup) {
+        shift = Math.min(0, this.offsetAtPosition(next) - scrollTop - band)
+        break
+      }
+    }
+    if (sticky._location !== item.searchLocation) {
+      sticky._location = item.searchLocation
+      var decode = document.createElement("textarea")
+      decode.innerHTML = item.searchLocation
+      sticky.innerHTML = '<div class="mail-search-location-strip"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-3 shrink-0"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg><span class="truncate"></span></div>'
+      sticky.querySelector("span").textContent = decode.value
+    }
+    if (sticky.hidden) sticky.hidden = false
+    // In the table it pins below the column names, which pin at the top. It
+    // tucks a pixel under them (they draw above it), so a fractional height
+    // can't leave a gap for the rows to show through.
+    var columns = this.viewMode === "table" ? this.container.querySelector(".mail-list-table-header") : null
+    var pinnedTop = (columns ? Math.max(0, parseFloat(getComputedStyle(columns).height) - 1) : 0) + "px"
+    if (sticky.style.top !== pinnedTop) sticky.style.top = pinnedTop
+    // The band lines up with the rows' own bands; the next run's pushes it.
+    var strip = sticky.firstElementChild
+    var anchor = this.itemsContainer && this.itemsContainer.querySelector(".mail-list-item > a")
+    if (anchor) {
+      var anchorRect = anchor.getBoundingClientRect()
+      var left = (anchorRect.left - sticky.getBoundingClientRect().left) + "px"
+      var width = anchorRect.width + "px"
+      if (strip.style.left !== left) strip.style.left = left
+      if (strip.style.width !== width) strip.style.width = width
+    }
+    var transform = shift ? "translateY(" + shift + "px)" : ""
+    if (strip.style.transform !== transform) strip.style.transform = transform
   }
 
   // onScreenRows are the rendered rows the reader can see, top to bottom.
@@ -1905,6 +1990,7 @@ class VirtualMailList {
     this.itemsContainer.style.position = "relative"
     this.itemsContainer.style.minWidth = "0"
     this.itemsContainer.style.overflowAnchor = "none"
+    this.appendStickySearchGroup()
     this.container.appendChild(this.spacerTop)
     this.container.appendChild(this.itemsContainer)
     this.container.appendChild(this.spacerBottom)
@@ -2139,7 +2225,7 @@ class VirtualMailList {
   // differs), so they are worked out again when the screen crosses the breakpoint.
   refreshRowMetrics() {
     var anchor = this.positionAtOffset(this.container.scrollTop)
-    this.itemHeight = listRemPx(this.viewMode === "table" ? 2.75 : mailCardRowRem(!!this.searchScope))
+    this.itemHeight = listRemPx(this.viewMode === "table" ? 2.75 : mailCardRowRem())
     this.subItemHeight = listRemPx(this.viewMode === "table" ? 2 : 3)
     this.invalidateOffsets()
     this.container.scrollTop = this.offsetAtPosition(anchor)
@@ -2151,7 +2237,7 @@ class VirtualMailList {
 
   setViewMode(viewMode, keepRows) {
     this.viewMode = viewMode === "table" ? "table" : "cards"
-    this.itemHeight = listRemPx(this.viewMode === "table" ? 2.75 : mailCardRowRem(!!this.searchScope))
+    this.itemHeight = listRemPx(this.viewMode === "table" ? 2.75 : mailCardRowRem())
     this.subItemHeight = listRemPx(this.viewMode === "table" ? 2 : 3)
     this.container.dataset.viewMode = this.viewMode
     var mailList = document.getElementById("mail-list")

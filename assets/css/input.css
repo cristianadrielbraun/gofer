@@ -2584,14 +2584,16 @@ body.mail-list-column-resizing {
 /* Search result cards carry their location in a strip along the top edge,
    outside the card's padding: 1.5rem taller, matching mailCardRowRem() in
    virtual-scroll.js. No line divides it from its card, so it can't be read as
-   part of the card above. */
-#mail-list[data-mail-search-results] :is(.mail-list-item, .mail-list-thread-main) {
+   part of the card above. Rows with a band are marked data-search-group,
+   which getHeight in virtual-scroll.js matches. Table rows get the same band
+   above their columns, once per run of rows from one place; see below. */
+#mail-list[data-mail-search-results]:not([data-mail-list-view="table"]) :is(.mail-list-item, .mail-list-thread-main)[data-search-group] {
   height: 8rem;
   min-height: 8rem;
   max-height: 8rem;
 }
 
-#mail-list[data-mail-search-results] .mail-list-item > a.mail-list-card {
+#mail-list[data-mail-search-results] .mail-list-item[data-search-group] > a.mail-list-card {
   position: relative;
   padding-top: 2rem;
 }
@@ -4683,13 +4685,13 @@ body.mail-list-column-resizing {
   }
 
   /* Search results: the location strip sits above the row's own layout. */
-  #mail-list[data-mail-list-view][data-mail-search-results] :is(.mail-list-item, .mail-list-thread-main) {
+  #mail-list[data-mail-list-view][data-mail-search-results] :is(.mail-list-item, .mail-list-thread-main)[data-search-group] {
     height: 6.75rem;
     min-height: 6.75rem;
     max-height: 6.75rem;
   }
 
-  #mail-list[data-mail-list-view][data-mail-search-results] .mail-list-item > a.mail-list-card {
+  #mail-list[data-mail-list-view][data-mail-search-results] .mail-list-item[data-search-group] > a.mail-list-card {
     padding-top: 2rem;
   }
 
@@ -7041,6 +7043,45 @@ aside a[data-mail-drop-active] {
    hidden until they fan in; see fanInRows in virtual-scroll.js. */
 .mail-list-entering #mail-list-scroll .mail-list-item {
   opacity: 0;
+}
+
+/* Search results in the table: the location is a band above the first row
+   of each run from one place, across the columns, making it 1.25rem taller
+   (mailSearchBandRem in virtual-scroll.js). */
+#mail-list[data-mail-search-results][data-mail-list-view="table"] :is(.mail-list-item, .mail-list-thread-main)[data-search-group] {
+  height: 4rem;
+  min-height: 4rem;
+  max-height: 4rem;
+}
+
+#mail-list[data-mail-search-results][data-mail-list-view="table"] .mail-list-item[data-search-group] > a {
+  position: relative;
+  padding-top: 1.625rem;
+}
+
+#mail-list[data-mail-list-view="table"] .mail-search-location-strip {
+  height: 1.25rem;
+}
+
+/* The location of the table's run of search results at the top of the list,
+   pinned once the run's own band scrolls away (updateStickySearchGroup in
+   virtual-scroll.js): a sticky line of no height holding a solid copy of the
+   rows' band. */
+.mail-search-sticky {
+  position: sticky;
+  top: 0;
+  z-index: 15;
+  height: 0;
+}
+
+.mail-search-sticky[hidden] {
+  display: none;
+}
+
+.mail-search-sticky .mail-search-location-strip {
+  right: auto;
+  background: color-mix(in srgb, var(--color-muted) 70%, var(--color-card));
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--color-border) 60%, transparent);
 }
 
 #mail-search-folders-dialog [hidden] {
