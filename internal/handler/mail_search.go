@@ -95,7 +95,7 @@ func (h *Handler) handleMailSearch(w http.ResponseWriter, r *http.Request) {
 		selected := strings.TrimSpace(r.URL.Query().Get("selected"))
 		var page *models.EmailPage
 		if selectedID, parseErr := strconv.ParseInt(selected, 10, 64); parseErr == nil && selectedID > 0 {
-			page, err = local.db.GetMailSearchPageAroundForUser(ctx, userID, scope, selectedID, 50, filters)
+			page, err = local.db.GetMailSearchPageAroundForUser(ctx, userID, scope, selectedID, 50, filters, settings["mail_list_navigation"] == "pagination")
 		} else {
 			page, err = local.db.GetMailSearchPageForUser(ctx, userID, scope, 0, 50, filters)
 		}

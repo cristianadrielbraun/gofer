@@ -6114,7 +6114,20 @@ func (db *DB) GetEmailsAfterCursorForUser(ctx context.Context, userID, folderID,
 	return db.GetEmailsRangeFilteredForUser(ctx, userID, folderID, pos+1, limit, filters)
 }
 
-func (db *DB) GetEmailsAroundEmail(ctx context.Context, folderID, emailID string, limit int, filters models.EmailFilters) (*models.EmailPage, error) {
+// aroundStart is where the page around a list position starts: centred on
+// it for a scrolling list, or at the start of its page for a paginated one,
+// whose pages are limit rows each.
+func aroundStart(position, limit int, paged bool) int {
+	if paged {
+		return position / limit * limit
+	}
+	if position > limit/2 {
+		return position - limit/2
+	}
+	return 0
+}
+
+func (db *DB) GetEmailsAroundEmail(ctx context.Context, folderID, emailID string, limit int, filters models.EmailFilters, paged bool) (*models.EmailPage, error) {
 	pos, err := db.findEmailPosition(ctx, folderID, emailID, filters)
 	if err != nil {
 		return nil, err
@@ -6123,19 +6136,14 @@ func (db *DB) GetEmailsAroundEmail(ctx context.Context, folderID, emailID string
 		return db.GetEmailsRangeFiltered(ctx, folderID, 0, limit, filters)
 	}
 
-	half := limit / 2
-	start := pos - half
-	if start < 0 {
-		start = 0
-	}
-	return db.GetEmailsRangeFiltered(ctx, folderID, start, limit, filters)
+	return db.GetEmailsRangeFiltered(ctx, folderID, aroundStart(pos, limit, paged), limit, filters)
 }
 
-func (db *DB) GetEmailsAroundEmailForUser(ctx context.Context, userID, folderID, emailID string, limit int, filters models.EmailFilters) (*models.EmailPage, error) {
+func (db *DB) GetEmailsAroundEmailForUser(ctx context.Context, userID, folderID, emailID string, limit int, filters models.EmailFilters, paged bool) (*models.EmailPage, error) {
 	// The same split as GetEmailsRangeFilteredForUserWithTotal, so the page
 	// comes from the list the position was found in.
 	if !isUnifiedFolderID(folderID) && filters.Participant == "" {
-		return db.GetEmailsAroundEmail(ctx, folderID, emailID, limit, filters)
+		return db.GetEmailsAroundEmail(ctx, folderID, emailID, limit, filters, paged)
 	}
 	pos, err := db.findEmailPositionForUser(ctx, userID, folderID, emailID, filters)
 	if err != nil {
@@ -6145,12 +6153,7 @@ func (db *DB) GetEmailsAroundEmailForUser(ctx context.Context, userID, folderID,
 		return db.GetEmailsRangeFilteredForUser(ctx, userID, folderID, 0, limit, filters)
 	}
 
-	half := limit / 2
-	start := pos - half
-	if start < 0 {
-		start = 0
-	}
-	return db.GetEmailsRangeFilteredForUser(ctx, userID, folderID, start, limit, filters)
+	return db.GetEmailsRangeFilteredForUser(ctx, userID, folderID, aroundStart(pos, limit, paged), limit, filters)
 }
 
 func (db *DB) listEmails(ctx context.Context, folderID string, offset, limit int) ([]models.Email, error) {

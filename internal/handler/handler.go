@@ -723,7 +723,7 @@ func (h *Handler) handleIndex(w http.ResponseWriter, r *http.Request) {
 		count := h.scheduledSidebarCount(ctx, userID)
 		if r.Header.Get("HX-Request") == "true" && r.Header.Get("HX-Target") == "mail-list" {
 			ctx = storage.WithTimezone(ctx, settings["timezone"])
-			window, err := h.loadMailWindow(ctx, userID, folderID, filters, emailID, 50)
+			window, err := h.loadMailWindow(ctx, userID, folderID, filters, emailID, 50, settings["mail_list_navigation"] == "pagination")
 			if err != nil {
 				return nil, err
 			}
@@ -2359,7 +2359,7 @@ func (h *Handler) handleFolderFull(w http.ResponseWriter, r *http.Request) {
 		}
 		filters := applyEmailListSettings(parseEmailFilters(r), r, settings)
 		selected := r.URL.Query().Get("selected")
-		window, err := h.loadMailWindow(ctx, userID, folderID, filters, selected, 50)
+		window, err := h.loadMailWindow(ctx, userID, folderID, filters, selected, 50, settings["mail_list_navigation"] == "pagination")
 		if err != nil {
 			return nil, err
 		}
@@ -2384,7 +2384,9 @@ func (h *Handler) scheduledSidebarCount(ctx context.Context, userID string) int 
 	return count
 }
 
-func (h *Handler) loadMailWindow(ctx context.Context, userID, folderID string, filters models.EmailFilters, selectedEmailID string, limit int) (mailWindow, error) {
+// loadMailWindow loads a list's first page, or the page around the selected
+// message; paged lists start on that message's page.
+func (h *Handler) loadMailWindow(ctx context.Context, userID, folderID string, filters models.EmailFilters, selectedEmailID string, limit int, paged bool) (mailWindow, error) {
 	if limit <= 0 {
 		limit = 50
 	}
@@ -2396,7 +2398,7 @@ func (h *Handler) loadMailWindow(ctx context.Context, userID, folderID string, f
 
 	var page *models.EmailPage
 	if selectedEmailID != "" {
-		page, err = h.db.GetEmailsAroundEmailForUser(ctx, userID, folderID, selectedEmailID, limit, filters)
+		page, err = h.db.GetEmailsAroundEmailForUser(ctx, userID, folderID, selectedEmailID, limit, filters, paged)
 		if err != nil {
 			return mailWindow{}, err
 		}
@@ -2470,7 +2472,7 @@ func (h *Handler) handleMailItems(w http.ResponseWriter, r *http.Request) {
 		filters := applyEmailListSettings(parseEmailFilters(r), r, settings)
 		var page *models.EmailPage
 		if around := r.URL.Query().Get("around"); around != "" {
-			page, err = h.db.GetEmailsAroundEmailForUser(ctx, userID, folderID, around, limit, filters)
+			page, err = h.db.GetEmailsAroundEmailForUser(ctx, userID, folderID, around, limit, filters, settings["mail_list_navigation"] == "pagination")
 		} else if startStr := r.URL.Query().Get("start"); startStr != "" {
 			start, parseErr := strconv.Atoi(startStr)
 			if parseErr != nil || start < 0 {

@@ -87,7 +87,7 @@ func BenchmarkLargeMailbox(b *testing.B) {
 		return db.GetEmailsAfterCursor(ctx, inbox, middle, 50, models.EmailFilters{})
 	}))
 	measure("OpenMessageInList", page(func() (*models.EmailPage, error) {
-		return db.GetEmailsAroundEmail(ctx, inbox, middle, 50, models.EmailFilters{})
+		return db.GetEmailsAroundEmail(ctx, inbox, middle, 50, models.EmailFilters{}, false)
 	}))
 	// The same, listing each message on its own.
 	byMessage := models.EmailFilters{ByMessage: true}
@@ -106,7 +106,7 @@ func BenchmarkLargeMailbox(b *testing.B) {
 		return db.GetEmailsAfterCursor(ctx, inbox, middle, 50, byMessage)
 	}))
 	measure("ByMessage/OpenMessageInList", page(func() (*models.EmailPage, error) {
-		return db.GetEmailsAroundEmail(ctx, inbox, middle, 50, byMessage)
+		return db.GetEmailsAroundEmail(ctx, inbox, middle, 50, byMessage, false)
 	}))
 	measure("ByMessage/FilterUnread", page(func() (*models.EmailPage, error) {
 		filters := models.EmailFilters{Unread: true, ByMessage: true}

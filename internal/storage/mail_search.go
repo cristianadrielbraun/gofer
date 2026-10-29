@@ -189,11 +189,12 @@ func (db *DB) GetMailSearchPageForUser(ctx context.Context, userID string, scope
 	return page, nil
 }
 
-// GetMailSearchPageAroundForUser returns the page of results with messageID's
-// row near its middle, so a reopened search shows the open message in place.
+// GetMailSearchPageAroundForUser returns the page of results around
+// messageID's row (see aroundStart), so a reopened search shows the open
+// message in place.
 // When conversations are grouped, an older message finds its conversation's
 // row. A message outside the results gets the first page.
-func (db *DB) GetMailSearchPageAroundForUser(ctx context.Context, userID string, scope models.MailSearchScope, messageID int64, limit int, filters models.EmailFilters) (*models.EmailPage, error) {
+func (db *DB) GetMailSearchPageAroundForUser(ctx context.Context, userID string, scope models.MailSearchScope, messageID int64, limit int, filters models.EmailFilters, paged bool) (*models.EmailPage, error) {
 	if limit <= 0 || limit > 500 {
 		return nil, fmt.Errorf("invalid mail search page")
 	}
@@ -213,8 +214,8 @@ func (db *DB) GetMailSearchPageAroundForUser(ctx context.Context, userID string,
 		return nil, fmt.Errorf("find mail search position: %w", err)
 	}
 	start := 0
-	if position > limit/2 {
-		start = position - limit/2
+	if position >= 0 {
+		start = aroundStart(position, limit, paged)
 	}
 	return db.GetMailSearchPageForUser(ctx, userID, scope, start, limit, filters)
 }
