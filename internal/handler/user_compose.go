@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -104,12 +103,9 @@ func (h *Handler) saveUserComposeDraft(ctx context.Context, r *http.Request) (co
 	if err != nil {
 		return fail(404, "account not found")
 	}
-	sender, err := h.composeSenderFor(ctx, account, r.FormValue("identity_id"))
-	if errors.Is(err, errComposeIdentityNotFound) {
-		return fail(404, "identity not found")
-	}
+	sender, err := h.composeSenderFor(ctx, account, r, false)
 	if err != nil {
-		return fail(500, "failed to load identity")
+		return fail(composeSenderError(err))
 	}
 	folder, remote, err := h.db.GetFolderIDByRole(ctx, accountID, "drafts")
 	if err == nil && (folder == "" || remote == "") {

@@ -3,6 +3,7 @@ package handler
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -313,5 +314,105 @@ func TestComposeSourceRepliesAsAddressedIdentity(t *testing.T) {
 	own, _ := source(1)["own_emails"].([]any)
 	if len(own) != 3 || own[0] != "owner@example.com" || own[1] != "sales@example.com" || own[2] != "help@example.com" {
 		t.Fatalf("own_emails = %v", own)
+	}
+}
+
+func queuedComposeSend(t *testing.T, h *Handler, db *storage.DB, form url.Values) (storage.OutgoingSend, outgoingMessageSnapshot) {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	h.handleCompose(rec, composeIdentityRequest(t, "/compose", form))
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status = %d body = %q", rec.Code, rec.Body.String())
+	}
+	var response map[string]string
+	_ = json.NewDecoder(rec.Body).Decode(&response)
+	queued, err := db.GetOutgoingSend(t.Context(), response["send_id"])
+	if err != nil {
+		t.Fatalf("GetOutgoingSend() error = %v", err)
+	}
+	var snapshot outgoingMessageSnapshot
+	if err := json.Unmarshal(queued.MessageJSON, &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	return queued, snapshot
+}
+
+func TestHandleComposeSendsOneTimeFrom(t *testing.T) {
+	h, db := newAccountOwnershipTestHandler(t)
+	sales := seedSalesIdentity(t, db)
+	shop, err := db.SaveAccountIdentityGuarded(t.Context(), "owner", models.Identity{AccountID: "victim-account", Name: "Shop", Email: "shop@example.org", ReplyTo: "orders@example.org", SMTPHost: "smtp.example.org", SMTPPort: 587, SMTPTLSMode: "starttls", SMTPUsername: "shop-login"}, nil)
+	if err != nil {
+		t.Fatalf("save shop identity: %v", err)
+	}
+	base := func(extra url.Values) url.Values {
+		form := url.Values{"account_id": {"victim-account"}, "to": {"recipient@example.com"}, "subject": {"Once"}, "body": {"Hello"}}
+		for key, values := range extra {
+			form[key] = values
+		}
+		return form
+	}
+
+	// The account's way: the typed name and address, nothing from an
+	// identity, even one named alongside.
+	queued, snapshot := queuedComposeSend(t, h, db, base(url.Values{"from_name": {" Owner Tracking "}, "from_email": {" Owner+Tracking@Example.com "}, "identity_id": {sales.ID}}))
+	from := mimeAddresses(t, queued.MIMEData, "From")
+	if len(from) != 1 || from[0].Address != "Owner+Tracking@Example.com" || from[0].Name != "Owner Tracking" || queued.EnvelopeFrom != "Owner+Tracking@Example.com" {
+		t.Fatalf("From = %v envelope %q", from, queued.EnvelopeFrom)
+	}
+	if len(mimeAddresses(t, queued.MIMEData, "Reply-To")) != 0 || snapshot.IdentityID != "" || snapshot.IdentitySMTP {
+		t.Fatalf("account way snapshot = %+v", snapshot)
+	}
+
+	// Through an identity's own server: its route, not its name, address or
+	// Reply-To.
+	queued, snapshot = queuedComposeSend(t, h, db, base(url.Values{"from_email": {"deals@example.org"}, "send_via": {shop.ID}}))
+	from = mimeAddresses(t, queued.MIMEData, "From")
+	if len(from) != 1 || from[0].Address != "deals@example.org" || from[0].Name != "" || len(mimeAddresses(t, queued.MIMEData, "Reply-To")) != 0 {
+		t.Fatalf("identity server From = %v", from)
+	}
+	if snapshot.IdentityID != shop.ID || !snapshot.IdentitySMTP || queued.Transport != storage.OutgoingTransportSMTP {
+		t.Fatalf("identity server snapshot = %+v transport %q", snapshot, queued.Transport)
+	}
+
+	for name, extra := range map[string]url.Values{
+		"not an address":         {"from_email": {"deals@"}},
+		"wildcard":               {"from_email": {"*@example.org"}},
+		"identity without smtp":  {"from_email": {"deals@example.org"}, "send_via": {sales.ID}},
+		"missing identity":       {"from_email": {"deals@example.org"}, "send_via": {"missing"}},
+		"another user's account": {"from_email": {"deals@example.org"}, "account_id": {"attacker-account"}},
+	} {
+		rec := httptest.NewRecorder()
+		h.handleCompose(rec, composeIdentityRequest(t, "/compose", base(extra)))
+		if rec.Code != http.StatusBadRequest && rec.Code != http.StatusNotFound {
+			t.Fatalf("%s: status = %d body = %q", name, rec.Code, rec.Body.String())
+		}
+	}
+}
+
+func TestOneTimeFromFollowsTheAccountRule(t *testing.T) {
+	h, db := newAccountOwnershipTestHandler(t)
+	if _, err := db.Write().Exec(`UPDATE accounts SET provider = 'gmail' WHERE id = 'victim-account'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.ReplaceProviderIdentities(t.Context(), "victim-account", []models.Identity{{ProviderIdentityID: "alias", Email: "alias@example.com"}}); err != nil {
+		t.Fatal(err)
+	}
+	account, err := h.ownedAccount(composeIdentityRequest(t, "/", nil).Context(), "victim-account")
+	if err != nil || account == nil {
+		t.Fatalf("account = %v, %v", account, err)
+	}
+	ctx := composeIdentityRequest(t, "/", nil).Context()
+	if _, err := h.oneTimeComposeSender(ctx, account, "", "someone@example.net", "", true); !errors.Is(err, errComposeFromNotAllowed) {
+		t.Fatalf("unlisted Gmail address err = %v", err)
+	}
+	// A draft may keep it until the way of sending changes.
+	if sender, err := h.oneTimeComposeSender(ctx, account, "", "someone@example.net", "", false); err != nil || sender.Email != "someone@example.net" {
+		t.Fatalf("draft sender = %+v, %v", sender, err)
+	}
+	// Addresses Gmail lists go out under any name.
+	for _, email := range []string{"OWNER@example.com", "alias@example.com"} {
+		if sender, err := h.oneTimeComposeSender(ctx, account, "Another Name", email, "", true); err != nil || sender.Name != "Another Name" || sender.IdentityID != "" {
+			t.Fatalf("listed %s = %+v, %v", email, sender, err)
+		}
 	}
 }

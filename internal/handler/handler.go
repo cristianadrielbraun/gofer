@@ -5242,12 +5242,10 @@ func (h *Handler) saveComposeDraftFromForm(ctx context.Context, r *http.Request)
 		return composeDraftSaveResult{}, &composeRequestError{status: http.StatusNotFound, message: "account not found"}
 	}
 
-	sender, err := h.composeSenderFor(ctx, account, r.FormValue("identity_id"))
-	if errors.Is(err, errComposeIdentityNotFound) {
-		return composeDraftSaveResult{}, &composeRequestError{status: http.StatusNotFound, message: "identity not found"}
-	}
+	sender, err := h.composeSenderFor(ctx, account, r, false)
 	if err != nil {
-		return composeDraftSaveResult{}, &composeRequestError{status: http.StatusInternalServerError, message: "failed to load identity"}
+		status, text := composeSenderError(err)
+		return composeDraftSaveResult{}, &composeRequestError{status: status, message: text}
 	}
 
 	draftFolderID, draftFolderRemoteName, err := h.db.GetFolderIDByRole(ctx, accountID, "drafts")
@@ -5824,13 +5822,10 @@ func (h *Handler) handleCompose(w http.ResponseWriter, r *http.Request) {
 		htmlBody = "<html><body><pre style=\"white-space:pre-wrap;font-family:sans-serif\">" + template.HTMLEscapeString(body) + "</pre></body></html>"
 	}
 	inReplyTo, references := h.validComposeThreadHeaders(ctx, accountID, r.FormValue("subject"), r.FormValue("in_reply_to"), r.FormValue("references"))
-	sender, err := h.composeSenderFor(ctx, account, r.FormValue("identity_id"))
-	if errors.Is(err, errComposeIdentityNotFound) {
-		writeComposeJSONError(w, http.StatusNotFound, "identity not found")
-		return
-	}
+	sender, err := h.composeSenderFor(ctx, account, r, true)
 	if err != nil {
-		writeComposeJSONError(w, http.StatusInternalServerError, "failed to load identity")
+		status, text := composeSenderError(err)
+		writeComposeJSONError(w, status, text)
 		return
 	}
 
