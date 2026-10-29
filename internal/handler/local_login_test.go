@@ -520,7 +520,7 @@ func TestLocalLoginMFAPostIsProtectedByCanonicalOriginGuard(t *testing.T) {
 	request.AddCookie(challengeCookie)
 	recorder := httptest.NewRecorder()
 	guard.Middleware(http.HandlerFunc(handler.handleLoginMFASubmit)).ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusForbidden || !strings.Contains(recorder.Body.String(), "cross-origin request blocked") || strings.Contains(recorder.Body.String(), "123456") {
+	if recorder.Code != http.StatusForbidden || !strings.Contains(recorder.Body.String(), "Cross-origin request blocked") || strings.Contains(recorder.Body.String(), "123456") {
 		t.Fatalf("cross-origin TOTP submission = %d %q", recorder.Code, recorder.Body.String())
 	}
 	var attempts, sessions int

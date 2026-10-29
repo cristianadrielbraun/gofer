@@ -483,7 +483,7 @@ func TestSetupPasswordPostIsProtectedByCanonicalOriginGuard(t *testing.T) {
 	request.AddCookie(setupCookie)
 	recorder := httptest.NewRecorder()
 	guard.Middleware(stack).ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusForbidden || !strings.Contains(recorder.Body.String(), "cross-origin request blocked") || strings.Contains(recorder.Body.String(), password) {
+	if recorder.Code != http.StatusForbidden || !strings.Contains(recorder.Body.String(), "Cross-origin request blocked") || strings.Contains(recorder.Body.String(), password) {
 		t.Fatalf("cross-origin password submission = %d %q", recorder.Code, recorder.Body.String())
 	}
 	var storedPayload []byte
@@ -862,7 +862,7 @@ func TestSetupRecoveryStripsQueriesBoundsFormsAndRejectsCrossOrigin(t *testing.T
 	request.AddCookie(setupCookie)
 	blocked := httptest.NewRecorder()
 	guard.Middleware(stack).ServeHTTP(blocked, request)
-	if blocked.Code != http.StatusForbidden || !strings.Contains(blocked.Body.String(), "cross-origin request blocked") {
+	if blocked.Code != http.StatusForbidden || !strings.Contains(blocked.Body.String(), "Cross-origin request blocked") {
 		t.Fatalf("cross-origin recovery generation = %d %q", blocked.Code, blocked.Body.String())
 	}
 	var storedPayload []byte
@@ -1080,7 +1080,7 @@ func TestSetupCompletionPostIsBoundedQueryFreeAndProtectedByCanonicalOrigin(t *t
 	request.AddCookie(setupCookie)
 	recorder := httptest.NewRecorder()
 	guard.Middleware(stack).ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusForbidden || !strings.Contains(recorder.Body.String(), "cross-origin request blocked") ||
+	if recorder.Code != http.StatusForbidden || !strings.Contains(recorder.Body.String(), "Cross-origin request blocked") ||
 		responseCookie(recorder, "gofer_session", true) != nil {
 		t.Fatalf("cross-origin setup completion = %d cookies:%#v body:%q", recorder.Code, recorder.Result().Cookies(), recorder.Body.String())
 	}
@@ -1157,7 +1157,7 @@ func TestSetupMFAPostIsProtectedByCanonicalOriginGuard(t *testing.T) {
 	request.AddCookie(setupCookie)
 	recorder := httptest.NewRecorder()
 	guard.Middleware(stack).ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusForbidden || !strings.Contains(recorder.Body.String(), "cross-origin request blocked") {
+	if recorder.Code != http.StatusForbidden || !strings.Contains(recorder.Body.String(), "Cross-origin request blocked") {
 		t.Fatalf("cross-origin MFA start = %d %q", recorder.Code, recorder.Body.String())
 	}
 	var storedPayload []byte
@@ -1277,7 +1277,7 @@ func TestSetupOwnerPostIsProtectedByCanonicalOriginGuard(t *testing.T) {
 	request.AddCookie(setupCookie)
 	recorder := httptest.NewRecorder()
 	guard.Middleware(stack).ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusForbidden || !strings.Contains(recorder.Body.String(), "cross-origin request blocked") {
+	if recorder.Code != http.StatusForbidden || !strings.Contains(recorder.Body.String(), "Cross-origin request blocked") {
 		t.Fatalf("cross-origin owner submission = %d %q", recorder.Code, recorder.Body.String())
 	}
 	var payload []byte
@@ -1405,7 +1405,7 @@ func TestSetupPostIsProtectedByCanonicalOriginGuard(t *testing.T) {
 	request.Header.Set("Origin", "https://attacker.example")
 	recorder := httptest.NewRecorder()
 	guard.Middleware(stack).ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusForbidden || !strings.Contains(recorder.Body.String(), "cross-origin request blocked") {
+	if recorder.Code != http.StatusForbidden || !strings.Contains(recorder.Body.String(), "Cross-origin request blocked") {
 		t.Fatalf("cross-origin setup = %d %q", recorder.Code, recorder.Body.String())
 	}
 	var attempts, challenges int

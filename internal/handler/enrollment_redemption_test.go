@@ -540,7 +540,7 @@ func TestEnrollmentRedemptionPostRemainsProtectedByCanonicalOriginGuard(t *testi
 	request.Header.Set("Origin", "https://attacker.example")
 	recorder := httptest.NewRecorder()
 	guard.Middleware(stack).ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusForbidden || !strings.Contains(recorder.Body.String(), "cross-origin request blocked") {
+	if recorder.Code != http.StatusForbidden || !strings.Contains(recorder.Body.String(), "Cross-origin request blocked") {
 		t.Fatalf("cross-origin redemption = %d %q", recorder.Code, recorder.Body.String())
 	}
 	var used, credentials int

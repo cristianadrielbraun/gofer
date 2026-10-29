@@ -125,7 +125,7 @@ func TestPasskeyEndpointsRemainProtectedByCanonicalOriginAndSessionCSRF(t *testi
 	request.Header.Set("Origin", "https://attacker.example")
 	blocked := httptest.NewRecorder()
 	guard.Middleware(http.HandlerFunc(handler.handleLoginPasskeyStart)).ServeHTTP(blocked, request)
-	if blocked.Code != http.StatusForbidden || !strings.Contains(blocked.Body.String(), "cross-origin request blocked") {
+	if blocked.Code != http.StatusForbidden || !strings.Contains(blocked.Body.String(), "Cross-origin request blocked") {
 		t.Fatalf("cross-origin passkey start = %d %q", blocked.Code, blocked.Body.String())
 	}
 	var challenges int

@@ -209,7 +209,7 @@ func TestRecoveryCodeSubmissionIsOriginProtectedAndBounded(t *testing.T) {
 	request.AddCookie(mfaCookie)
 	recorder := httptest.NewRecorder()
 	guard.Middleware(http.HandlerFunc(handler.handleRecoveryCodeLoginSubmit)).ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusForbidden || !strings.Contains(recorder.Body.String(), "cross-origin request blocked") ||
+	if recorder.Code != http.StatusForbidden || !strings.Contains(recorder.Body.String(), "Cross-origin request blocked") ||
 		strings.Contains(recorder.Body.String(), recoveryCode) {
 		t.Fatalf("cross-origin recovery submission = %d %q", recorder.Code, recorder.Body.String())
 	}
