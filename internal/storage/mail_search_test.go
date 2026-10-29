@@ -148,6 +148,39 @@ func TestMailSearchPaginationAndFolderContext(t *testing.T) {
 	}
 }
 
+func TestMailSearchPageAroundKeepsTheOpenMessageInView(t *testing.T) {
+	db := mailSearchTestDB(t)
+	all := models.MailSearchScope{Kind: models.MailSearchAll}
+	for _, tt := range []struct {
+		name      string
+		messageID int64
+		filters   models.EmailFilters
+		start     int
+		ids       []string
+	}{
+		// Rows by message: 8 6 4 3 2 1.
+		{"by message", 1, models.EmailFilters{ByMessage: true}, 4, []string{"2", "1"}},
+		// Rows by conversation: 8 6 4 2. Message 1 is an older part of 2's.
+		{"older message of a conversation", 1, models.EmailFilters{}, 2, []string{"4", "2"}},
+		{"another user's message", 5, models.EmailFilters{ByMessage: true}, 0, []string{"8", "6"}},
+		{"no such message", 999, models.EmailFilters{ByMessage: true}, 0, []string{"8", "6"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			page, err := db.GetMailSearchPageAroundForUser(context.Background(), "default", all, tt.messageID, 2, tt.filters)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var ids []string
+			for _, email := range page.Emails {
+				ids = append(ids, email.ID)
+			}
+			if page.WindowStart != tt.start || !reflect.DeepEqual(ids, tt.ids) {
+				t.Fatalf("start=%d ids=%v, want start=%d ids=%v", page.WindowStart, ids, tt.start, tt.ids)
+			}
+		})
+	}
+}
+
 func TestMailSearchDescendantsTerminateOnCycles(t *testing.T) {
 	db := mailSearchTestDB(t)
 	if _, err := db.Write().Exec(`UPDATE folders SET parent_id='grandchild' WHERE id='root'`); err != nil {

@@ -168,18 +168,32 @@ func newSummaryListFixture(t *testing.T) *DB {
 
 // Positions found through the source index must match where the
 // message's row actually appears in the list.
+// A reopened list starts at the open message's page, so its position must
+// match where the list shows it under any filter and sort, whether the list
+// is read from summaries or from the general query.
 func TestSummaryPositionMatchesListOrder(t *testing.T) {
 	db := newSummaryListFixture(t)
 	ctx := context.Background()
-	for _, tt := range []struct {
+	type positionCase struct {
 		folder  string
 		filters models.EmailFilters
-	}{
-		{"box-inbox", models.EmailFilters{}}, {"box-archive", models.EmailFilters{}},
-		{"inbox", models.EmailFilters{}}, {"archive", models.EmailFilters{}},
-		{"box-inbox", models.EmailFilters{ByMessage: true}}, {"box-archive", models.EmailFilters{ByMessage: true}},
-		{"inbox", models.EmailFilters{ByMessage: true}}, {"archive", models.EmailFilters{ByMessage: true}},
-	} {
+	}
+	var cases []positionCase
+	for _, folder := range []string{"box-inbox", "box-archive", "inbox", "archive"} {
+		for _, filters := range []models.EmailFilters{
+			{},
+			// Summaries, in date order and in others.
+			{Unread: true}, {SortBy: "date", SortOrder: "asc"}, {SortBy: "sender", SortOrder: "asc"},
+			{Starred: true, SortBy: "subject", SortOrder: "desc"},
+			// The general query.
+			{From: "ana"}, {SortBy: "size"}, {SortBy: "unread"}, {From: "ana", SortBy: "subject", SortOrder: "asc"},
+		} {
+			cases = append(cases, positionCase{folder, filters})
+			filters.ByMessage = true
+			cases = append(cases, positionCase{folder, filters})
+		}
+	}
+	for _, tt := range cases {
 		folder := tt.folder
 		var page *models.EmailPage
 		var err error
@@ -225,8 +239,8 @@ func TestSummaryPositionMatchesListOrder(t *testing.T) {
 				t.Fatalf("%s %+v message %d: position %d, list shows it at %d (listed %v)", folder, tt.filters, id, got, want, listed)
 			}
 		}
-		if found < 50 {
-			t.Fatalf("%s: only %d messages listed; the fixture is too sparse", folder, found)
+		if found < 10 {
+			t.Fatalf("%s %+v: only %d messages listed; the fixture is too sparse", folder, tt.filters, found)
 		}
 	}
 }

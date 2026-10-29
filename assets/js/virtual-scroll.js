@@ -243,6 +243,14 @@ class VirtualMailList {
     return this._offsetCache[this.effectiveCount]
   }
 
+  // scrollToOffset scrolls to rows that may not be drawn yet. The browser
+  // caps a scroll at the content it has, so the window gets its full height
+  // first; the next render sizes the spacers properly.
+  scrollToOffset(offset) {
+    if (this.spacerBottom) this.spacerBottom.style.height = this.totalHeight() + "px"
+    this.container.scrollTop = offset
+  }
+
   offsetAtPosition(pos) {
     if (pos <= this.windowStart) return 0
     this._rebuildOffsets()
@@ -1487,7 +1495,7 @@ class VirtualMailList {
       this.effectiveCount = next
       this.invalidateOffsets()
       if (anchorPos !== null) {
-        this.container.scrollTop = this.offsetAtPosition(anchorPos) + anchorOffset
+        this.scrollToOffset(this.offsetAtPosition(anchorPos) + anchorOffset)
       }
     }
   }
@@ -1814,9 +1822,11 @@ class VirtualMailList {
     }
     this.renderTableHeader()
 
+    // Scroll before the first render: rendering at the top would start
+    // loading the rows above the open message.
     if (this.selectedEmailId) {
       var selectedPos = this.indexById.get(this.selectedEmailId)
-      if (selectedPos !== undefined) this.container.scrollTop = this.offsetAtPosition(selectedPos)
+      if (selectedPos !== undefined) this.scrollToOffset(this.offsetAtPosition(selectedPos))
     }
 
     this.render()

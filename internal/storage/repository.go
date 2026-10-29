@@ -6132,7 +6132,9 @@ func (db *DB) GetEmailsAroundEmail(ctx context.Context, folderID, emailID string
 }
 
 func (db *DB) GetEmailsAroundEmailForUser(ctx context.Context, userID, folderID, emailID string, limit int, filters models.EmailFilters) (*models.EmailPage, error) {
-	if !isUnifiedFolderID(folderID) {
+	// The same split as GetEmailsRangeFilteredForUserWithTotal, so the page
+	// comes from the list the position was found in.
+	if !isUnifiedFolderID(folderID) && filters.Participant == "" {
 		return db.GetEmailsAroundEmail(ctx, folderID, emailID, limit, filters)
 	}
 	pos, err := db.findEmailPositionForUser(ctx, userID, folderID, emailID, filters)
@@ -6254,40 +6256,60 @@ func (db *DB) listEmailsUnfilteredFrom(ctx context.Context, fromWhere string, ar
 	return db.scanEmailRows(ctx, rows)
 }
 
-func (db *DB) listEmailsFilteredForUser(ctx context.Context, userID, folderID string, offset, limit int, filters models.EmailFilters) ([]models.Email, error) {
+// filteredListSQL is the general query behind filtered and sorted lists, up
+// to its visible CTE: each message in the list with its row's totals, rn = 1
+// on the row's newest message. Its args come before the outer clause's,
+// which ends the args. An empty userID reads folderID on its own.
+func (db *DB) filteredListSQL(ctx context.Context, userID, folderID string, filters models.EmailFilters) (string, []any, emailFilterParts, error) {
 	filterSQL := emailFilterSQL(filters)
 	key := listRowKeySQL(filters)
-	var where string
+	var from string
 	var args []any
-	if filters.Participant != "" {
-		where = participantMailScopeWhere()
+	switch {
+	case userID == "" && isStarredFolder(folderID):
+		from = `JOIN folders f ON mfs.folder_id = f.id
+			 JOIN accounts a ON m.account_id = a.id
+			 ` + filterSQL.joinClause + `
+			 WHERE f.account_id = (SELECT account_id FROM folders WHERE id = ?)
+			 AND mfs.is_starred = 1 AND mfs.is_deleted = 0`
+		args = []any{folderID}
+	case userID == "":
+		from = `JOIN accounts a ON m.account_id = a.id
+			 ` + filterSQL.joinClause + `
+			 WHERE mfs.folder_id = ? AND mfs.is_deleted = 0`
+		args = []any{folderID}
+	case filters.Participant != "":
+		from = filterSQL.joinClause + `
+			 ` + participantMailScopeWhere()
 		args = []any{userID}
-	} else if folderID == "starred" {
+	case folderID == "starred":
 		accountFilter, accountArgs, err := db.unifiedFolderAccountFilter(ctx, userID, folderID, "a")
 		if err != nil {
-			return nil, err
+			return "", nil, filterSQL, err
 		}
-		where = `JOIN accounts a ON m.account_id = a.id
+		from = filterSQL.joinClause + `
+			 JOIN accounts a ON m.account_id = a.id
 			 WHERE a.user_id = ? AND mfs.is_starred = 1 AND mfs.is_deleted = 0` + accountFilter
 		args = append([]any{userID}, accountArgs...)
-	} else if folderID == "scheduled" {
-		where = `JOIN outgoing_sends os ON os.message_id = m.id
+	case folderID == "scheduled":
+		from = filterSQL.joinClause + `
+			 JOIN outgoing_sends os ON os.message_id = m.id
 			 JOIN accounts a ON m.account_id = a.id
 			 WHERE a.user_id = ? AND os.is_scheduled = 1 AND os.status = ? AND mfs.is_deleted = 0`
 		args = []any{userID, OutgoingSendPending}
-	} else {
+	default:
 		accountFilter, accountArgs, err := db.unifiedFolderAccountFilter(ctx, userID, folderID, "a")
 		if err != nil {
-			return nil, err
+			return "", nil, filterSQL, err
 		}
 		rolePredicate, roleArgs := unifiedFolderRolePredicate("f", folderID)
-		where = `JOIN folders f ON mfs.folder_id = f.id
+		from = filterSQL.joinClause + `
+			 JOIN folders f ON mfs.folder_id = f.id
 			 JOIN accounts a ON f.account_id = a.id
 			 WHERE a.user_id = ? AND ` + rolePredicate + ` AND mfs.is_deleted = 0` + accountFilter
 		args = append([]any{userID}, roleArgs...)
 		args = append(args, accountArgs...)
 	}
-
 	query := `WITH ` + filterSQL.withClause + `visible AS (
 			  SELECT m.id, m.account_id, a.color AS account_color, m.subject, m.from_name, m.from_email,
 			         m.date_received, m.snippet, m.has_attachments, m.body_text_path, m.body_html_path,
@@ -6295,24 +6317,38 @@ func (db *DB) listEmailsFilteredForUser(ctx context.Context, userID, folderID st
 			         ROW_NUMBER() OVER (PARTITION BY ` + key + ` ORDER BY m.date_received DESC, m.id DESC) AS rn,
 			         COUNT(*) OVER (PARTITION BY ` + key + `) AS thread_count,
 			         MIN(mfs.is_read) OVER (PARTITION BY ` + key + `) AS thread_is_read,
-			         MAX(mfs.is_starred) OVER (PARTITION BY ` + key + `) AS thread_is_starred,			         
+			         MAX(mfs.is_starred) OVER (PARTITION BY ` + key + `) AS thread_is_starred,
 			         MAX(m.has_attachments) OVER (PARTITION BY ` + key + `) AS thread_has_attachments,
 			         SUM(COALESCE(m.size_bytes, 0)) OVER (PARTITION BY ` + key + `) AS thread_size_bytes
 			  FROM messages m
 			  JOIN message_folder_state mfs ON m.id = mfs.message_id
-			  ` + filterSQL.joinClause + `
-			  ` + where + filterSQL.cteClause + `
+			  ` + from + filterSQL.cteClause + `
 			)
-			SELECT id, account_id, account_color, subject, from_name, from_email, date_received, snippet, has_attachments, body_text_path, body_html_path,
+			`
+	args = append(append([]any{}, filterSQL.withArgs...), args...)
+	args = append(args, filterSQL.args...)
+	return query, args, filterSQL, nil
+}
+
+func (db *DB) listEmailsFilteredForUser(ctx context.Context, userID, folderID string, offset, limit int, filters models.EmailFilters) ([]models.Email, error) {
+	return db.listFilteredRows(ctx, userID, folderID, offset, limit, filters)
+}
+
+func (db *DB) listEmailsFiltered(ctx context.Context, folderID string, offset, limit int, filters models.EmailFilters) ([]models.Email, error) {
+	return db.listFilteredRows(ctx, "", folderID, offset, limit, filters)
+}
+
+func (db *DB) listFilteredRows(ctx context.Context, userID, folderID string, offset, limit int, filters models.EmailFilters) ([]models.Email, error) {
+	visible, args, filterSQL, err := db.filteredListSQL(ctx, userID, folderID, filters)
+	if err != nil {
+		return nil, err
+	}
+	query := visible + `SELECT id, account_id, account_color, subject, from_name, from_email, date_received, snippet, has_attachments, body_text_path, body_html_path,
 			       thread_has_attachments, folder_id, thread_is_read, thread_is_starred, thread_id, thread_count
 			FROM visible WHERE rn = 1` + filterSQL.outerClause + `
 			ORDER BY ` + emailOrderSQL(filters) + `
 			LIMIT ? OFFSET ?`
-	args = append(append([]any{}, filterSQL.withArgs...), args...)
-	args = append(args, filterSQL.args...)
-	args = append(args, limit, offset)
-
-	rows, err := db.Read().QueryContext(ctx, query, args...)
+	rows, err := db.Read().QueryContext(ctx, query, append(args, limit, offset)...)
 	if err != nil {
 		return nil, fmt.Errorf("list emails: %w", err)
 	}
@@ -6320,66 +6356,30 @@ func (db *DB) listEmailsFilteredForUser(ctx context.Context, userID, folderID st
 	return db.scanEmailRows(ctx, rows)
 }
 
-func (db *DB) listEmailsFiltered(ctx context.Context, folderID string, offset, limit int, filters models.EmailFilters) ([]models.Email, error) {
-	filterSQL := emailFilterSQL(filters)
-	key := listRowKeySQL(filters)
-	query := `WITH ` + filterSQL.withClause + `visible AS (
-			  SELECT m.id, m.account_id, a.color AS account_color, m.subject, m.from_name, m.from_email,
-			         m.date_received, m.snippet, m.has_attachments, m.body_text_path, m.body_html_path,
-			         mfs.folder_id, mfs.is_read, mfs.is_starred, m.thread_id,
-			         ROW_NUMBER() OVER (PARTITION BY ` + key + ` ORDER BY m.date_received DESC, m.id DESC) AS rn,
-			         COUNT(*) OVER (PARTITION BY ` + key + `) AS thread_count,
-			         MIN(mfs.is_read) OVER (PARTITION BY ` + key + `) AS thread_is_read,
-			         MAX(mfs.is_starred) OVER (PARTITION BY ` + key + `) AS thread_is_starred,			         
-			         MAX(m.has_attachments) OVER (PARTITION BY ` + key + `) AS thread_has_attachments,
-			         SUM(COALESCE(m.size_bytes, 0)) OVER (PARTITION BY ` + key + `) AS thread_size_bytes
-			  FROM messages m
-			  JOIN message_folder_state mfs ON m.id = mfs.message_id
-			  JOIN accounts a ON m.account_id = a.id
-			  ` + filterSQL.joinClause + `
-			  WHERE mfs.folder_id = ? AND mfs.is_deleted = 0` + filterSQL.cteClause + `
-			)
-			SELECT id, account_id, account_color, subject, from_name, from_email, date_received, snippet, has_attachments, body_text_path, body_html_path,
-			       thread_has_attachments, folder_id, thread_is_read, thread_is_starred, thread_id, thread_count
-			FROM visible WHERE rn = 1` + filterSQL.outerClause + `
-			ORDER BY ` + emailOrderSQL(filters) + `
-			LIMIT ? OFFSET ?`
-
-	var args []any
-	if isStarredFolder(folderID) {
-		query = `WITH ` + filterSQL.withClause + `visible AS (
-			 SELECT m.id, m.account_id, a.color AS account_color, m.subject, m.from_name, m.from_email,
-			        m.date_received, m.snippet, m.has_attachments, m.body_text_path, m.body_html_path,
-				        mfs.folder_id, mfs.is_read, mfs.is_starred, m.thread_id,
-				        ROW_NUMBER() OVER (PARTITION BY ` + key + ` ORDER BY m.date_received DESC, m.id DESC) AS rn,
-				        COUNT(*) OVER (PARTITION BY ` + key + `) AS thread_count,
-				        MIN(mfs.is_read) OVER (PARTITION BY ` + key + `) AS thread_is_read,
-				        MAX(mfs.is_starred) OVER (PARTITION BY ` + key + `) AS thread_is_starred,				        
-				        MAX(m.has_attachments) OVER (PARTITION BY ` + key + `) AS thread_has_attachments,
-				        SUM(COALESCE(m.size_bytes, 0)) OVER (PARTITION BY ` + key + `) AS thread_size_bytes
-			 FROM messages m
-			 JOIN message_folder_state mfs ON m.id = mfs.message_id
-			 JOIN folders f ON mfs.folder_id = f.id
-			 JOIN accounts a ON m.account_id = a.id
-			 ` + filterSQL.joinClause + `
-					 WHERE f.account_id = (SELECT account_id FROM folders WHERE id = ?)
-					 AND mfs.is_starred = 1 AND mfs.is_deleted = 0` + filterSQL.cteClause + `
-			)
-			SELECT id, account_id, account_color, subject, from_name, from_email, date_received, snippet, has_attachments, body_text_path, body_html_path,
-			       thread_has_attachments, folder_id, thread_is_read, thread_is_starred, thread_id, thread_count
-			FROM visible WHERE rn = 1` + filterSQL.outerClause + `
-			ORDER BY ` + emailOrderSQL(filters) + `
-			LIMIT ? OFFSET ?`
-	}
-	args = append(append(append([]any{}, filterSQL.withArgs...), folderID), filterSQL.args...)
-	args = append(args, limit, offset)
-
-	rows, err := db.Read().QueryContext(ctx, query, args...)
+// filteredListPosition is the position of messageID's row in a filtered or
+// sorted list, numbered by the query that lists it. In a conversation list
+// an older message finds its conversation's row. Like the other lookups, a
+// message the list doesn't show is at position 0.
+func (db *DB) filteredListPosition(ctx context.Context, userID, folderID string, messageID int64, filters models.EmailFilters) (int, error) {
+	visible, args, filterSQL, err := db.filteredListSQL(ctx, userID, folderID, filters)
 	if err != nil {
-		return nil, fmt.Errorf("list emails: %w", err)
+		return -1, err
 	}
-	defer rows.Close()
-	return db.scanEmailRows(ctx, rows)
+	match := `r.id = sel.id`
+	if !filters.ByMessage {
+		match += ` OR (r.account_id = sel.account_id AND r.thread_id = sel.thread_id AND sel.thread_id != '')`
+	}
+	query := visible + `, ordered AS (
+			  SELECT id, account_id, thread_id, ROW_NUMBER() OVER (ORDER BY ` + emailOrderSQL(filters) + `) - 1 AS position
+			  FROM visible WHERE rn = 1` + filterSQL.outerClause + `
+			)
+			SELECT r.position FROM ordered r JOIN messages sel ON sel.id = ? WHERE ` + match + ` LIMIT 1`
+	var position int
+	err = db.Read().QueryRowContext(ctx, query, append(args, messageID)...).Scan(&position)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	}
+	return position, err
 }
 
 func (db *DB) scanEmailRows(ctx context.Context, rows *sql.Rows) ([]models.Email, error) {
@@ -6481,7 +6481,10 @@ func (db *DB) findEmailPosition(ctx context.Context, folderID, emailID string, f
 		if err != nil {
 			return -1, err
 		}
-		return db.summaryPosition(ctx, scope, msgID)
+		return db.summaryPosition(ctx, scope, filters, msgID)
+	}
+	if !emailFiltersEmpty(filters) || !emailUsesDefaultSort(filters) {
+		return db.filteredListPosition(ctx, "", folderID, msgID, filters)
 	}
 
 	var query string
@@ -6532,7 +6535,10 @@ func (db *DB) findEmailPositionForUser(ctx context.Context, userID, folderID, em
 		if err != nil {
 			return -1, err
 		}
-		return db.summaryPosition(ctx, scope, msgID)
+		return db.summaryPosition(ctx, scope, filters, msgID)
+	}
+	if !emailFiltersEmpty(filters) || !emailUsesDefaultSort(filters) {
+		return db.filteredListPosition(ctx, userID, folderID, msgID, filters)
 	}
 
 	var where string

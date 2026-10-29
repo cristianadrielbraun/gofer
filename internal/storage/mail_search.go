@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
@@ -186,6 +187,36 @@ func (db *DB) GetMailSearchPageForUser(ctx context.Context, userID string, scope
 		page.NextCursor = page.Emails[len(page.Emails)-1].ID
 	}
 	return page, nil
+}
+
+// GetMailSearchPageAroundForUser returns the page of results with messageID's
+// row near its middle, so a reopened search shows the open message in place.
+// When conversations are grouped, an older message finds its conversation's
+// row. A message outside the results gets the first page.
+func (db *DB) GetMailSearchPageAroundForUser(ctx context.Context, userID string, scope models.MailSearchScope, messageID int64, limit int, filters models.EmailFilters) (*models.EmailPage, error) {
+	if limit <= 0 || limit > 500 {
+		return nil, fmt.Errorf("invalid mail search page")
+	}
+	query, args, err := db.mailSearchVisibleSQL(ctx, userID, scope, filters)
+	if err != nil {
+		return nil, err
+	}
+	match := `r.id = sel.id`
+	if !filters.ByMessage {
+		match += ` OR (r.account_id = sel.account_id AND r.thread_id = sel.thread_id AND sel.thread_id != '')`
+	}
+	position := -1
+	err = db.Read().QueryRowContext(ctx, query+`, ordered AS (
+		SELECT id, account_id, thread_id, ROW_NUMBER() OVER (ORDER BY `+emailOrderSQL(filters)+`) - 1 AS position FROM results
+	) SELECT r.position FROM ordered r JOIN messages sel ON sel.id = ? WHERE `+match+` LIMIT 1`, append(args, messageID)...).Scan(&position)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("find mail search position: %w", err)
+	}
+	start := 0
+	if position > limit/2 {
+		start = position - limit/2
+	}
+	return db.GetMailSearchPageForUser(ctx, userID, scope, start, limit, filters)
 }
 
 type MailSearchRowID struct {

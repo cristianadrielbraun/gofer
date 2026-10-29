@@ -91,7 +91,14 @@ func (h *Handler) handleMailSearch(w http.ResponseWriter, r *http.Request) {
 		ctx = storage.WithTimezone(ctx, settings["timezone"])
 		filters := applyEmailListSettings(parseEmailFilters(r), r, settings)
 		filters.SearchScope = &scope
-		page, err := local.db.GetMailSearchPageForUser(ctx, userID, scope, 0, 50, filters)
+		// A search reopened with a message open starts at that message's page.
+		selected := strings.TrimSpace(r.URL.Query().Get("selected"))
+		var page *models.EmailPage
+		if selectedID, parseErr := strconv.ParseInt(selected, 10, 64); parseErr == nil && selectedID > 0 {
+			page, err = local.db.GetMailSearchPageAroundForUser(ctx, userID, scope, selectedID, 50, filters)
+		} else {
+			page, err = local.db.GetMailSearchPageForUser(ctx, userID, scope, 0, 50, filters)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -102,11 +109,17 @@ func (h *Handler) handleMailSearch(w http.ResponseWriter, r *http.Request) {
 		for i := range page.Emails {
 			page.Emails[i].SearchLocation = views.MailSearchLocation(accounts, page.Emails[i])
 		}
-		selected := strings.TrimSpace(r.URL.Query().Get("selected"))
-		if r.Header.Get("HX-Request") == "true" {
-			return views.MailContentPartial(accounts, page.Emails, "search", nil, page.DisplayTotalCount, page.TotalCount, nil, settings, selected, 0, filters), nil
+		var selectedEmail *models.Email
+		if selected != "" {
+			selectedEmail = &models.Email{ID: selected}
+			if !filters.ByMessage {
+				selectedEmail.ID = local.visibleMailListSelectionID(ctx, userID, page.Emails, selected)
+			}
 		}
-		return views.Layout(accounts, "search", page.Emails, nil, page.DisplayTotalCount, page.TotalCount, settings, nil, selected, local.scheduledSidebarCount(ctx, userID), filters), nil
+		if r.Header.Get("HX-Request") == "true" {
+			return views.MailContentPartial(accounts, page.Emails, "search", selectedEmail, page.DisplayTotalCount, page.TotalCount, nil, settings, selected, page.WindowStart, filters), nil
+		}
+		return views.Layout(accounts, "search", page.Emails, selectedEmail, page.DisplayTotalCount, page.TotalCount, page.WindowStart, settings, nil, selected, local.scheduledSidebarCount(ctx, userID), filters), nil
 	})
 }
 

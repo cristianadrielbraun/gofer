@@ -732,7 +732,7 @@ func (h *Handler) handleIndex(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("HX-Request") == "true" && r.Header.Get("HX-Target") == "app-shell" {
 			return views.MailShell(accounts, folderID, nil, nil, -1, -1, settings, nil, emailID, count, filters), nil
 		}
-		return views.Layout(accounts, folderID, nil, nil, -1, -1, settings, nil, emailID, count, filters), nil
+		return views.Layout(accounts, folderID, nil, nil, -1, -1, 0, settings, nil, emailID, count, filters), nil
 	})
 }
 
@@ -749,7 +749,7 @@ func (h *Handler) handleFolderWithEmail(w http.ResponseWriter, r *http.Request) 
 			return nil, err
 		}
 		settings := h.db.GetUISettings(ctx, userID)
-		return views.Layout(accounts, folderID, nil, nil, -1, -1, settings, nil, r.PathValue("email"), h.scheduledSidebarCount(ctx, userID), applyEmailListSettings(parseEmailFilters(r), r, settings)), nil
+		return views.Layout(accounts, folderID, nil, nil, -1, -1, 0, settings, nil, r.PathValue("email"), h.scheduledSidebarCount(ctx, userID), applyEmailListSettings(parseEmailFilters(r), r, settings)), nil
 	})
 }
 
@@ -2330,7 +2330,7 @@ func (h *Handler) handleFolderPartial(w http.ResponseWriter, r *http.Request) {
 		}
 		filters := applyEmailListSettings(parseEmailFilters(r), r, settings)
 		if r.Header.Get("HX-Request") != "true" {
-			return views.Layout(accounts, folderID, nil, nil, -1, -1, settings, nil, "", h.scheduledSidebarCount(ctx, userID), filters), nil
+			return views.Layout(accounts, folderID, nil, nil, -1, -1, 0, settings, nil, "", h.scheduledSidebarCount(ctx, userID), filters), nil
 		}
 		page, err := h.db.GetEmailsRangeFilteredForUser(ctx, userID, folderID, 0, 50, filters)
 		if err != nil {
@@ -2395,7 +2395,7 @@ func (h *Handler) loadMailWindow(ctx context.Context, userID, folderID string, f
 	}
 
 	var page *models.EmailPage
-	if selectedEmailID != "" && !emailFiltersActive(filters) {
+	if selectedEmailID != "" {
 		page, err = h.db.GetEmailsAroundEmailForUser(ctx, userID, folderID, selectedEmailID, limit, filters)
 		if err != nil {
 			return mailWindow{}, err
@@ -2469,7 +2469,7 @@ func (h *Handler) handleMailItems(w http.ResponseWriter, r *http.Request) {
 		ctx = storage.WithTimezone(ctx, settings["timezone"])
 		filters := applyEmailListSettings(parseEmailFilters(r), r, settings)
 		var page *models.EmailPage
-		if around := r.URL.Query().Get("around"); around != "" && !emailFiltersActive(filters) {
+		if around := r.URL.Query().Get("around"); around != "" {
 			page, err = h.db.GetEmailsAroundEmailForUser(ctx, userID, folderID, around, limit, filters)
 		} else if startStr := r.URL.Query().Get("start"); startStr != "" {
 			start, parseErr := strconv.Atoi(startStr)

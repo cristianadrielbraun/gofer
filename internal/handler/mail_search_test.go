@@ -159,6 +159,34 @@ func TestMailSearchContinuesBeyondFirstFiftyResults(t *testing.T) {
 	}
 }
 
+// A search reopened with a message open, after a reload or Back, starts at
+// that message's page instead of the first.
+func TestMailSearchStartsAtTheOpenMessage(t *testing.T) {
+	h, db := newMailSearchHandler(t)
+	if err := db.MergeUISettings(t.Context(), "owner", map[string]string{"group_conversations": "false"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Write().Exec(`
+		WITH RECURSIVE numbers(id) AS (VALUES(10) UNION ALL SELECT id+1 FROM numbers WHERE id<69)
+		INSERT INTO messages(id, account_id, subject) SELECT id, 'victim-account', 'Extra result' FROM numbers;
+		INSERT INTO message_folder_state(message_id, folder_id, remote_uid) SELECT id, 'root', id FROM messages WHERE id>=10;`); err != nil {
+		t.Fatal(err)
+	}
+	// Results run 2, 1, then 69 down to 10, so message 10 is the last of 62.
+	for _, htmx := range []bool{false, true} {
+		req := httptest.NewRequest("GET", "/mail/search?scope=folders&scope_folder_id=root&include_descendants=1&selected=10", nil)
+		if htmx {
+			req.Header.Set("HX-Request", "true")
+		}
+		rec := httptest.NewRecorder()
+		h.handleMailSearch(rec, ownerRequest(req))
+		body := rec.Body.String()
+		if rec.Code != 200 || !strings.Contains(body, `data-window-start="36"`) || !strings.Contains(body, `data-email-id="10"`) || strings.Contains(body, `data-email-id="2"`) {
+			t.Fatalf("htmx=%t status=%d: the page around message 10 should start at 36", htmx, rec.Code)
+		}
+	}
+}
+
 func TestMailSearchActionsResolveOnlyScopedMembers(t *testing.T) {
 	h, _ := newMailSearchHandler(t)
 	ctx := ownerRequest(httptest.NewRequest("GET", "/", nil)).Context()

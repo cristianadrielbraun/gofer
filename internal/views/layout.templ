@@ -26,7 +26,7 @@ templ AppIcon() {
 	<link rel="manifest" href={ assetver.URL("/assets/manifest.webmanifest") }/>
 }
 
-templ Layout(accounts []models.Account, activeFolder string, emails []models.Email, selectedEmail *models.Email, totalCount int, scrollCount int, uiSettings map[string]string, selectedThread []models.ThreadItem, initialEmailID string, scheduledCount int, filters models.EmailFilters) {
+templ Layout(accounts []models.Account, activeFolder string, emails []models.Email, selectedEmail *models.Email, totalCount int, scrollCount int, windowStart int, uiSettings map[string]string, selectedThread []models.ThreadItem, initialEmailID string, scheduledCount int, filters models.EmailFilters) {
 	<!DOCTYPE html>
 	<html lang="en" class={ themeClass(uiSettings) } data-theme={ themeStyle(uiSettings) } { themeLookAttributes(uiSettings)... }>
 		<head>
@@ -60,9 +60,11 @@ templ Layout(accounts []models.Account, activeFolder string, emails []models.Ema
 				@Sidebar(accounts, activeFolder, uiSettingGet(uiSettings, "sidebar_width", "256px"), uiSettings, scheduledCount, filters)
 				@ResizeHandle("sidebar")
 				<div id="main-content" class={ mailPaneLayoutClass(uiSettingGet(uiSettings, "mail_pane_layout", "side")) } data-mail-pane-layout={ mailPaneLayout(uiSettingGet(uiSettings, "mail_pane_layout", "side")) }>
-					@MailList(accounts, emails, activeFolder, selectedEmail, totalCount, scrollCount, 0, uiSettingGet(uiSettings, "mail_list_width", "50%"), uiSettingGet(uiSettings, "sender_display", "name"), ListViewSetting(ctx, uiSettings, "mail_list_view"), uiSettingGet(uiSettings, "mail_list_navigation", "infinite"), filters)
+					@MailList(accounts, emails, activeFolder, selectedEmail, totalCount, scrollCount, windowStart, uiSettingGet(uiSettings, "mail_list_width", "50%"), uiSettingGet(uiSettings, "sender_display", "name"), ListViewSetting(ctx, uiSettings, "mail_list_view"), uiSettingGet(uiSettings, "mail_list_navigation", "infinite"), filters)
 					@ResizeHandle("maillist")
-					if initialEmailID != "" && selectedEmail == nil {
+					// selectedEmail may only mark the list row; the reader loads the
+					// message itself.
+					if initialEmailID != "" {
 						@MailViewLoading()
 					} else {
 						@MailView(selectedEmail, selectedThread)

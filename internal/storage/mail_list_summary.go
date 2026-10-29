@@ -219,6 +219,24 @@ func (scope mailListScope) order(filters models.EmailFilters) string {
 	}
 }
 
+// summaryOrderedPosition is summaryPosition for the other sort orders. It
+// numbers the summary's rows, one per list row, in the list's order.
+func (db *DB) summaryOrderedPosition(ctx context.Context, scope mailListScope, filters models.EmailFilters, messageID int64) (int, error) {
+	src := scope.src
+	var position int
+	err := db.Read().QueryRowContext(ctx, `SELECT position FROM (
+		SELECT `+src.key+` AS row_key, ROW_NUMBER() OVER (ORDER BY `+scope.order(filters)+`) - 1 AS position
+		FROM `+src.table+` s
+		JOIN messages m ON `+src.head+` = m.id
+		JOIN accounts a ON m.account_id = a.id
+		`+scope.where+`
+	) WHERE row_key = `+src.keyOf+` LIMIT 1`, append(append([]any{}, scope.args...), messageID)...).Scan(&position)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	}
+	return position, err
+}
+
 func (db *DB) countSummaryList(ctx context.Context, scope mailListScope) (int, error) {
 	var count int
 	err := db.Read().QueryRowContext(ctx, `SELECT COUNT(*) FROM `+scope.src.table+` s `+scope.where, scope.args...).Scan(&count)
@@ -291,10 +309,13 @@ func (db *DB) listSummaryEmails(ctx context.Context, scope mailListScope, order 
 }
 
 // summaryPosition returns how many rows come before the row of messageID in
-// a summary-backed list in its default order, by counting index entries
-// rather than grouping the folder's messages. A message the list does not
-// show is reported at position 0.
-func (db *DB) summaryPosition(ctx context.Context, scope mailListScope, messageID int64) (int, error) {
+// a summary-backed list, by counting index entries rather than grouping the
+// folder's messages. A message the list does not show is reported at
+// position 0.
+func (db *DB) summaryPosition(ctx context.Context, scope mailListScope, filters models.EmailFilters, messageID int64) (int, error) {
+	if !emailUsesDefaultSort(filters) {
+		return db.summaryOrderedPosition(ctx, scope, filters, messageID)
+	}
 	src := scope.src
 	var last sql.NullString
 	var head int64
