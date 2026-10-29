@@ -55,19 +55,6 @@ func (db *DB) CatchAllIdentityDomains(ctx context.Context, userID, accountID str
 	return catchAllIdentityDomains(ctx, db.Read(), accountID)
 }
 
-// IdentityAddressAllowed reports whether an account of provider whose
-// provider reported domains as whole-domain identities can send as email.
-func IdentityAddressAllowed(provider string, domains []string, email string) bool {
-	switch provider {
-	case providers.ProviderGmail:
-		return false
-	case providers.ProviderJMAP:
-		at := strings.LastIndex(email, "@")
-		return at >= 0 && slices.ContainsFunc(domains, func(domain string) bool { return strings.EqualFold(domain, email[at+1:]) })
-	}
-	return true
-}
-
 func checkManualIdentityAddress(ctx context.Context, tx *sql.Tx, accountID, email string) error {
 	var provider string
 	if err := tx.QueryRowContext(ctx, `SELECT provider FROM accounts WHERE id = ?`, accountID).Scan(&provider); err != nil {
@@ -77,7 +64,8 @@ func checkManualIdentityAddress(ctx context.Context, tx *sql.Tx, accountID, emai
 	if err != nil {
 		return err
 	}
-	if !IdentityAddressAllowed(provider, domains, email) {
+	// The rule's service only matters to what the compose form says.
+	if !providers.AccountFromRule(provider, "", domains).Accepts(email) {
 		return ErrIdentityAddressNotAllowed
 	}
 	return nil
