@@ -22,6 +22,24 @@ func TestCalendarWeekRequestUsesExactLocalSevenDayWindow(t *testing.T) {
 	}
 }
 
+func TestCalendarOpensInSavedViewUnlessLinkNamesOne(t *testing.T) {
+	settings := map[string]string{"calendar_view": "week"}
+	for target, expected := range map[string]string{
+		"/calendar":                           "week",
+		"/calendar?month=2026-10":             "month",
+		"/calendar?date=2026-10-25":           "month",
+		"/calendar?view=month":                "month",
+		"/calendar?view=week&date=2026-10-25": "week",
+	} {
+		if view := calendarDataFromRequest(httptest.NewRequest(http.MethodGet, target, nil), settings).View; view != expected {
+			t.Errorf("%s opened %q, want %q", target, view, expected)
+		}
+	}
+	if view := calendarDataFromRequest(httptest.NewRequest(http.MethodGet, "/calendar", nil), map[string]string{"calendar_view": "month"}).View; view != "month" {
+		t.Errorf("saved month opened %q", view)
+	}
+}
+
 func TestHandleCalendarRefreshPreservesWeekView(t *testing.T) {
 	db, err := storage.New(filepath.Join(t.TempDir(), "week.db"))
 	if err != nil {

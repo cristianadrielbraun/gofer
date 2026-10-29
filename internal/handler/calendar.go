@@ -293,10 +293,20 @@ func calendarMonthFromRequest(r *http.Request, uiSettings map[string]string) tim
 
 func calendarDataFromRequest(r *http.Request, uiSettings map[string]string) views.CalendarMonthData {
 	at := calendarMonthFromRequest(r, uiSettings)
-	if r.URL.Query().Get("view") == "week" {
+	if calendarViewFromRequest(r, uiSettings) == "week" {
 		return views.NewCalendarWeekData(at)
 	}
 	return views.NewCalendarMonthData(at)
+}
+
+// A link to a month or date names its view. Plain /calendar opens the view
+// last chosen.
+func calendarViewFromRequest(r *http.Request, uiSettings map[string]string) string {
+	query := r.URL.Query()
+	if query.Has("view") || query.Has("month") || query.Has("date") {
+		return query.Get("view")
+	}
+	return uiSettings["calendar_view"]
 }
 
 func viewsCalendarLocation(uiSettings map[string]string) *time.Location {

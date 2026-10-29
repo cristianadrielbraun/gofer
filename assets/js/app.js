@@ -8430,12 +8430,17 @@ document.addEventListener("DOMContentLoaded", function () {
     virtualMailList = null
     virtualContactsList = null
     if (mode === "calendar") {
+      // Only the month template carries the sidebar; the panes show the view
+      // the calendar will open in.
       var template = document.getElementById("calendar-loading-month")
       if (!template) return
       var content = template.content.cloneNode(true)
+      var view = window.GoferSettings && GoferSettings.get("calendar_view") === "week" ? "week" : "month"
+      var weekTemplate = view === "week" && document.getElementById("calendar-loading-week")
+      var panes = weekTemplate ? weekTemplate.content.cloneNode(true) : content
       ;["sidebar-app-body", "sidebar-sync-controls", "mail-list", "mail-view"].forEach(function (id) {
         var root = document.getElementById(id)
-        var loading = content.querySelector("#" + id)
+        var loading = (id === "mail-list" || id === "mail-view" ? panes : content).querySelector("#" + id)
         if (root && loading) replaceAppPaneContents(root, loading, id === "mail-list")
       })
       initializeCalendarViewport()
@@ -11262,6 +11267,7 @@ document.body.addEventListener("htmx:afterSwap", function (event) {
   if (!xhr || xhr !== _calendarViewSwitchRequest) return
   _calendarViewSwitchRequest = null
   setCalendarViewSwitch(xhr.goferCalendarViewSwitch)
+  if (window.GoferSettings) GoferSettings.set("calendar_view", xhr.goferCalendarViewSwitch)
   // The tabs were replaced with the new view. Carry on the indicator's slide from
   // where the old one had got to, for the rest of its time, rather than restarting.
   var indicator = document.querySelector("[data-calendar-view-indicator]")

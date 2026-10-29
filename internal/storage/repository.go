@@ -8697,6 +8697,7 @@ func defaultUISettings() map[string]string {
 		"mail_pane_layout":                  "side",
 		"contacts_pane_layout":              "side",
 		"calendar_pane_layout":              "side",
+		"calendar_view":                     "month",
 		"mail_list_width":                   "50%",
 		"mail_list_height":                  "360",
 		"mail_list_navigation":              "infinite",
