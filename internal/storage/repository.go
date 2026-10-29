@@ -1179,7 +1179,7 @@ func (db *DB) reindexMessagesSearchTx(ctx context.Context, tx *sql.Tx, messageID
 		       COALESCE((SELECT group_concat(trim(COALESCE(mr.name, '') || ' ' || COALESCE(mr.email, '')), ' ') FROM message_recipients mr WHERE mr.message_id = m.id), ''),
 		       COALESCE(m.snippet, ''),
 		       COALESCE(m.preview_text, m.snippet, ''),
-		       COALESCE((SELECT group_concat(att.filename, ' ') FROM attachments att WHERE att.message_id = m.id), ''),
+		       COALESCE((SELECT group_concat(att.filename, ' ') FROM attachments att WHERE att.message_id = m.id AND COALESCE(att.inline, 0) = 0), ''),
 		       m.body_text_path,
 		       m.body_html_path
 		FROM messages m

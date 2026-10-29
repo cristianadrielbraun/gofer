@@ -176,6 +176,11 @@ func RunShared(rootCtx context.Context) error {
 		} else {
 			log.Printf("boot: background threading worker finished")
 		}
+		// The search index no longer counts inline images as attachments;
+		// older entries are corrected once.
+		if err := db.EnsureSearchAttachmentNames(ctx); err != nil {
+			log.Printf("boot: %v", err)
+		}
 
 		log.Printf("boot: sync orchestrator startup launched")
 		syncer.Start(ctx)

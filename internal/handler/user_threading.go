@@ -173,6 +173,11 @@ func (w *userThreadingWorker) run(ctx context.Context) {
 			if err != nil {
 				w.fail(fmt.Errorf("repair threading for user %s: %w", owner, err), true)
 			}
+			// The search index no longer counts inline images as attachments;
+			// older entries are corrected once. A failure is only logged.
+			if err := w.h.userStorage.EnsureUserSearchIndexForStartup(ctx, owner); err != nil && ctx.Err() == nil {
+				log.Printf("storage: correct search index for user %s: %v", owner, err)
+			}
 			cursor = owner
 		}
 	}
