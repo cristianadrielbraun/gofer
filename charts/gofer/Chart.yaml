@@ -2,8 +2,8 @@ apiVersion: v2
 name: gofer
 description: Gofer, a self-hosted webmail and contacts/calendar client, as a single-replica StatefulSet-like Deployment backed by a persistent SQLite volume.
 type: application
-version: 0.1.4
-appVersion: "0.17.0"
+version: 0.1.5
+appVersion: "0.18.0"
 kubeVersion: ">=1.25.0-0"
 home: https://github.com/cristianadrielbraun/gofer
 sources:
