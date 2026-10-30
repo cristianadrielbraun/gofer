@@ -160,14 +160,14 @@ func (h *Handler) providerListsAddress(ctx context.Context, account *models.Acco
 
 // accountFromRule is the rule for the From addresses the account's own way of
 // sending takes.
-func (h *Handler) accountFromRule(ctx context.Context, account *models.Account) (providers.FromRule, error) {
+func (h *Handler) accountFromRule(ctx context.Context, account *models.Account) (models.FromRule, error) {
 	cfg, err := h.accountStore.GetConfig(ctx, account.ID)
 	if err != nil {
-		return providers.FromRule{}, err
+		return models.FromRule{}, err
 	}
 	domains, err := h.db.CatchAllIdentityDomains(ctx, h.userID(ctx), account.ID)
 	if err != nil {
-		return providers.FromRule{}, err
+		return models.FromRule{}, err
 	}
 	return providers.AccountFromRule(account.Provider, cfg.SMTPHost, domains), nil
 }

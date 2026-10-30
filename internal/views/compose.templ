@@ -78,6 +78,7 @@ templ ComposeDialog(accounts []models.Account) {
 							}
 						}
 					</div>
+					@composeOneTimeFromRow(accounts, "dialog")
 					<div class="compose-to-row">
 						@ComposeField("To", "to", "recipient@example.com")
 						@ComposeCcBccButtons()
@@ -536,6 +537,100 @@ templ composeFromMenuItems(accounts []models.Account, scope string) {
 			}
 		}
 	}
+	if composeHasOneTimeFrom(accounts) {
+		@dropdown.Separator()
+		@dropdown.Item(dropdown.ItemProps{
+			Class: "compose-from-item select-item group relative justify-start gap-2 py-1 pr-3 text-[13px] font-normal outline-none transition-colors duration-150",
+			Attributes: templ.Attributes{
+				"data-compose-one-time-item":    "",
+				"data-compose-account-scope":    scope,
+				"data-compose-account-selected": "false",
+				"data-on-click":                 onAction("selectComposeOneTimeFrom", actionElement, scope == "pane"),
+			},
+		}) {
+			@icon.PenLine(icon.Props{Class: "size-3.5 shrink-0 opacity-70"})
+			<span class="min-w-0 truncate select-item-text">Custom From…</span>
+		}
+	}
+}
+
+// composeOneTimeFromRow is where a From for just this message is typed: its
+// name, its address, and which server sends it. It shows once "Custom
+// From…" is picked in the From menu.
+templ composeOneTimeFromRow(accounts []models.Account, scope string) {
+	if composeHasOneTimeFrom(accounts) {
+		<div class="compose-one-time-from hidden" data-compose-one-time-from data-compose-account-scope={ scope }>
+			<input type="hidden" name="one_time_from" value="" data-compose-one-time-active/>
+			<input type="hidden" name="send_via" value="" data-compose-one-time-send-via/>
+			<div class="flex items-start gap-2 pb-1">
+				<span class="w-8 shrink-0" aria-hidden="true"></span>
+				<div class="min-w-0 flex-1">
+				<div class="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+					@input.Input(input.Props{
+						Name:        "from_name",
+						Placeholder: "Display name",
+						Class:       "compose-input h-8",
+						Attributes:  templ.Attributes{"aria-label": "Display name", "autocomplete": "off", "data-compose-one-time-name": "", "data-on-input": onAction("changeComposeOneTimeFrom", actionElement)},
+					})
+					@input.Input(input.Props{
+						Name:        "from_email",
+						Type:        input.TypeEmail,
+						Placeholder: "Email address",
+						Class:       "compose-input h-8",
+						Attributes:  templ.Attributes{"aria-label": "Email address", "autocomplete": "off", "spellcheck": "false", "data-compose-one-time-email": "", "data-on-input": onAction("changeComposeOneTimeFrom", actionElement), "data-on-blur": onAction("checkComposeOneTimeFrom", actionElement)},
+					})
+					<div class="flex min-w-0 items-center gap-2 sm:col-span-2">
+						<span class="shrink-0 text-xs text-muted-foreground">Send via</span>
+						@selectbox.SelectBox(selectbox.Props{Class: "min-w-0 flex-1", Attributes: templ.Attributes{"data-compose-send-via": ""}}) {
+							@selectbox.Trigger(selectbox.TriggerProps{Class: "h-8 text-[13px]", DisableClear: true, Required: true}) {
+								@selectbox.Value(selectbox.ValueProps{Placeholder: "Choose a server", Class: "truncate"})
+							}
+							@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
+								for i, acc := range accounts {
+									@selectbox.Group() {
+										@selectbox.Label(selectbox.LabelProps{Class: "flex items-center gap-1.5 px-2 pt-1.5 pb-0.5 text-[11px] font-medium text-muted-foreground"}) {
+											<div class="account-color-marker size-2 shrink-0" style={ accountColorStyle(acc.Color) }></div>
+											<span class="truncate">{ contactSidebarAccountName(acc) }</span>
+										}
+										for _, route := range composeFromRoutes(acc) {
+											@selectbox.Item(selectbox.ItemProps{
+												Value:    route.Key,
+												Disabled: route.Reason != "",
+												Class:    "text-[13px]",
+												Attributes: templ.Attributes{
+													"data-account-id":      route.AccountID,
+													"data-identity-id":     route.IdentityID,
+													"data-from-kind":       composeFromKindName(route.Rule.Kind),
+													"data-from-domains":    route.Domains(),
+													"data-from-note":       route.Note,
+													"data-from-warns":      fmt.Sprintf("%t", route.Warns()),
+												},
+											}) {
+												{ route.Label }
+												<span class="opacity-60">
+													· 
+													if route.Reason != "" {
+														{ route.Reason }
+													} else {
+														{ route.Detail }
+													}
+												</span>
+											}
+										}
+									}
+									if i < len(accounts)-1 {
+										<div class="my-1 h-px bg-border"></div>
+									}
+								}
+							}
+						}
+					</div>
+				</div>
+				<p class="hidden mt-1.5 text-xs leading-snug" data-compose-one-time-note></p>
+				</div>
+			</div>
+		</div>
+	}
 }
 
 // composeFromAddressText shows a From choice as its name with the address
@@ -621,6 +716,7 @@ templ ComposePane(accounts []models.Account) {
 								}
 							}
 						</div>
+						@composeOneTimeFromRow(accounts, "pane")
 						@ComposeField("To", "to", "recipient@example.com")
 						<div id="pane-cc-field" class="hidden">
 							@ComposeField("Cc", "cc", "")

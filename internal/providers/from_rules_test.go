@@ -1,6 +1,10 @@
 package providers
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/cristianadrielbraun/gofer/internal/models"
+)
 
 func TestAccountFromRule(t *testing.T) {
 	cases := []struct {
@@ -8,17 +12,17 @@ func TestAccountFromRule(t *testing.T) {
 		provider string
 		smtpHost string
 		domains  []string
-		kind     FromRuleKind
+		kind     models.FromRuleKind
 		service  string
 	}{
-		{"gmail", ProviderGmail, "smtp.gmail.com", nil, FromListed, ""},
-		{"jmap without catch-all", ProviderJMAP, "", nil, FromListed, ""},
-		{"jmap with catch-all", ProviderJMAP, "", []string{"example.net"}, FromDomains, ""},
-		{"outlook", ProviderOutlook, "", nil, FromUnknown, FromServiceOutlook},
-		{"imap on gmail", ProviderIMAP, "SMTP.Gmail.com.", nil, FromUnknown, FromServiceGmail},
-		{"imap on icloud", ProviderIMAP, ICloudSMTPHost, nil, FromUnknown, FromServiceICloud},
-		{"imap on office365", ProviderIMAP, "smtp.office365.com", nil, FromUnknown, FromServiceOutlook},
-		{"imap elsewhere", ProviderIMAP, "mail.example.org", nil, FromUnknown, ""},
+		{"gmail", ProviderGmail, "smtp.gmail.com", nil, models.FromListed, ""},
+		{"jmap without catch-all", ProviderJMAP, "", nil, models.FromListed, ""},
+		{"jmap with catch-all", ProviderJMAP, "", []string{"example.net"}, models.FromDomains, ""},
+		{"outlook", ProviderOutlook, "", nil, models.FromUnknown, FromServiceOutlook},
+		{"imap on gmail", ProviderIMAP, "SMTP.Gmail.com.", nil, models.FromUnknown, FromServiceGmail},
+		{"imap on icloud", ProviderIMAP, ICloudSMTPHost, nil, models.FromUnknown, FromServiceICloud},
+		{"imap on office365", ProviderIMAP, "smtp.office365.com", nil, models.FromUnknown, FromServiceOutlook},
+		{"imap elsewhere", ProviderIMAP, "mail.example.org", nil, models.FromUnknown, ""},
 	}
 	for _, tc := range cases {
 		rule := AccountFromRule(tc.provider, tc.smtpHost, tc.domains)
@@ -29,11 +33,11 @@ func TestAccountFromRule(t *testing.T) {
 }
 
 func TestFromRuleAccepts(t *testing.T) {
-	listed := FromRule{Kind: FromListed}
-	domains := FromRule{Kind: FromDomains, Domains: []string{"example.net", "shop.example.net"}}
-	unknown := FromRule{Kind: FromUnknown, Service: FromServiceOutlook}
+	listed := models.FromRule{Kind: models.FromListed}
+	domains := models.FromRule{Kind: models.FromDomains, Domains: []string{"example.net", "shop.example.net"}}
+	unknown := models.FromRule{Kind: models.FromUnknown, Service: FromServiceOutlook}
 	cases := []struct {
-		rule  FromRule
+		rule  models.FromRule
 		email string
 		want  bool
 	}{

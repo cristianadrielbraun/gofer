@@ -14796,6 +14796,7 @@ function _updateComposeBtn(disabled) {
 
 // selectComposeAccount sends as the account or identity of a From menu item.
 function selectComposeAccount(el, fromPane) {
+  deactivateComposeOneTimeFrom(document.getElementById(fromPane ? "compose-pane-form" : "compose-form"), true)
   var accountId = el.dataset.accountId
   var identityId = el.dataset.identityId || ""
   var email = identityId ? el.dataset.identityEmail : el.dataset.accountEmail
@@ -14816,12 +14817,317 @@ function selectComposeAccount(el, fromPane) {
 function syncComposeAccountItems(scope, accountId, identityId) {
   if (!scope || !accountId) return
   identityId = identityId || ""
+  var form = document.getElementById(scope === "pane" ? "compose-pane-form" : "compose-form")
+  var oneTime = composeOneTimeActive(form)
   var items = document.querySelectorAll('[data-compose-account-scope="' + scope + '"][data-compose-account-item]')
   for (var i = 0; i < items.length; i++) {
-    var selected = items[i].dataset.accountId === accountId && (items[i].dataset.identityId || "") === identityId
+    var selected = !oneTime && items[i].dataset.accountId === accountId && (items[i].dataset.identityId || "") === identityId
     items[i].dataset.composeAccountSelected = selected ? "true" : "false"
   }
+  var oneTimeItems = document.querySelectorAll('[data-compose-account-scope="' + scope + '"][data-compose-one-time-item]')
+  for (var j = 0; j < oneTimeItems.length; j++) oneTimeItems[j].dataset.composeAccountSelected = oneTime ? "true" : "false"
 }
+
+// _composeEaseHeight runs change, which may show, hide or refill el, and
+// eases el's height from before to after, so what sits below it, down to
+// the editor's own height, moves smoothly too. A hidden el is shown until it
+// has closed; then finish runs, if given. A change midway starts from where
+// the earlier one had got to.
+function _composeEaseHeight(el, change, animate, finish) {
+  if (!el) return
+  var before = el.classList.contains("hidden") ? 0 : el.getBoundingClientRect().height
+  var marginBefore = before ? getComputedStyle(el).marginTop : "0px"
+  if (el._composeEase) {
+    var earlier = el._composeEase
+    el._composeEase = null
+    earlier.cancel()
+    if (earlier._finish) earlier._finish()
+  }
+  el._composeChanging = true
+  try { change() } finally { el._composeChanging = false }
+  var hide = el.classList.contains("hidden")
+  if (!animate || !el.animate || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    if (finish) finish()
+    return
+  }
+  el.classList.remove("hidden")
+  var after = hide ? 0 : el.getBoundingClientRect().height
+  var marginAfter = hide ? "0px" : getComputedStyle(el).marginTop
+  if (Math.abs(before - after) < 0.5 && marginBefore === marginAfter) {
+    if (hide) el.classList.add("hidden")
+    if (finish) finish()
+    return
+  }
+  el.style.overflow = "hidden"
+  var animation = el.animate([
+    { height: before + "px", marginTop: marginBefore, opacity: before ? 1 : 0 },
+    { height: after + "px", marginTop: marginAfter, opacity: after ? 1 : 0 },
+  ], { duration: 220, easing: "ease" })
+  animation._finish = finish
+  el._composeEase = animation
+  animation.onfinish = function () {
+    if (el._composeEase !== animation) return
+    el._composeEase = null
+    el.style.overflow = ""
+    if (hide) el.classList.add("hidden")
+    if (finish) finish()
+  }
+}
+
+// A one-time From is typed for just this message, in the row under From: a
+// name, an address, and the server that sends it (Send via), which is the
+// account's own or one of its identities' own SMTP servers. Its fields are
+// empty unless the row is on, so the form sends nothing for it then.
+function composeOneTimeRow(form) {
+  return form ? form.querySelector("[data-compose-one-time-from]") : null
+}
+
+function composeOneTimeActive(form) {
+  var row = composeOneTimeRow(form)
+  var active = row && row.querySelector("[data-compose-one-time-active]")
+  return !!(active && active.value === "1")
+}
+
+function _composeOneTimeForm(el) {
+  return el && el.closest ? el.closest("#compose-form, #compose-pane-form") : null
+}
+
+function _composeOneTimeRouteItems(row) {
+  return row ? row.querySelectorAll("[data-compose-send-via] .select-item") : []
+}
+
+function _composeOneTimeRouteUsable(item) {
+  return !!item && item.dataset.tuiSelectboxDisabled !== "true"
+}
+
+function _selectedComposeOneTimeRoute(row) {
+  var items = _composeOneTimeRouteItems(row)
+  for (var i = 0; i < items.length; i++) {
+    if (items[i].dataset.tuiSelectboxSelected === "true" && _composeOneTimeRouteUsable(items[i])) return items[i]
+  }
+  return null
+}
+
+// activateComposeOneTimeFrom turns the row on, with Send via the account's
+// own way when it takes other addresses.
+function activateComposeOneTimeFrom(form, animate) {
+  var row = composeOneTimeRow(form)
+  if (!row) return
+  var accountField = form.querySelector('input[name="account_id"]')
+  var accountId = accountField ? accountField.value : ""
+  _composeEaseHeight(row, function () {
+    row.querySelector("[data-compose-one-time-active]").value = "1"
+    row.classList.remove("hidden")
+    var identityField = form.querySelector('input[name="identity_id"]')
+    if (identityField) identityField.value = ""
+    setComposeOneTimeRoute(form, accountId, "")
+  }, animate)
+}
+
+// deactivateComposeOneTimeFrom turns the row off at once, so nothing in it
+// is sent, and empties it once it has closed.
+function deactivateComposeOneTimeFrom(form, animate) {
+  var row = composeOneTimeRow(form)
+  if (!row) return
+  var active = row.querySelector("[data-compose-one-time-active]")
+  if (row.classList.contains("hidden") && !row._composeEase && !(active && active.value)) return
+  _composeEaseHeight(row, function () {
+    if (active) active.value = ""
+    row.classList.add("hidden")
+    row.dataset.composeOneTimeChecked = "false"
+  }, animate, function () {
+    if (composeOneTimeActive(form)) return
+    var fields = row.querySelectorAll("input[name]")
+    for (var i = 0; i < fields.length; i++) fields[i].value = ""
+    var email = row.querySelector("[data-compose-one-time-email]")
+    if (email) email.removeAttribute("aria-invalid")
+    _renderComposeOneTimeNote(form, false)
+  })
+}
+
+// _composeSkipsField leaves the one-time From's fields out of what a form
+// sends while the row is off, as they empty only once it has closed.
+var _composeOneTimeFieldNames = { one_time_from: true, from_name: true, from_email: true, send_via: true }
+function _composeSkipsField(form, input) {
+  return !!_composeOneTimeFieldNames[input.name] && !composeOneTimeActive(form)
+}
+
+// syncComposeOneTimeFrom shows the row as the form's fields say, after they
+// were filled from a draft or moved between the dialog and the pane.
+function syncComposeOneTimeFrom(form) {
+  var row = composeOneTimeRow(form)
+  if (!row) return
+  var accountField = form.querySelector('input[name="account_id"]')
+  if (!composeOneTimeActive(form)) {
+    deactivateComposeOneTimeFrom(form, false)
+  } else {
+    if (row._composeEase) row._composeEase.cancel()
+    row._composeEase = null
+    row.style.overflow = ""
+    row.classList.remove("hidden")
+    var sendVia = row.querySelector("[data-compose-one-time-send-via]")
+    setComposeOneTimeRoute(form, accountField ? accountField.value : "", sendVia ? sendVia.value : "")
+  }
+  var identityField = form.querySelector('input[name="identity_id"]')
+  syncComposeAccountItems(form.id === "compose-pane-form" ? "pane" : "dialog", accountField ? accountField.value : "", identityField ? identityField.value : "")
+}
+
+// setComposeOneTimeRoute picks the Send via route of accountId through the
+// server of identityId, or its own way when identityId is empty; failing
+// that, another usable route of the account, then any usable route.
+function setComposeOneTimeRoute(form, accountId, identityId) {
+  var row = composeOneTimeRow(form)
+  if (!row) return
+  identityId = identityId || ""
+  var items = _composeOneTimeRouteItems(row)
+  var pick = null
+  for (var i = 0; !pick && i < items.length; i++) {
+    if (_composeOneTimeRouteUsable(items[i]) && items[i].dataset.accountId === accountId && (items[i].dataset.identityId || "") === identityId) pick = items[i]
+  }
+  for (var j = 0; !pick && j < items.length; j++) {
+    if (_composeOneTimeRouteUsable(items[j]) && items[j].dataset.accountId === accountId) pick = items[j]
+  }
+  for (var k = 0; !pick && k < items.length; k++) {
+    if (_composeOneTimeRouteUsable(items[k])) pick = items[k]
+  }
+  for (var m = 0; m < items.length; m++) items[m].dataset.tuiSelectboxSelected = items[m] === pick ? "true" : "false"
+  var hidden = row.querySelector("[data-compose-send-via] [data-tui-selectbox-hidden-input]")
+  if (hidden) {
+    hidden.value = pick ? pick.dataset.tuiSelectboxValue : ""
+    hidden.dispatchEvent(new Event("input", { bubbles: true }))
+  }
+  _applyComposeOneTimeRoute(form, pick)
+}
+
+// _applyComposeOneTimeRoute sends through route: its account, and its
+// identity's server, if any.
+function _applyComposeOneTimeRoute(form, route) {
+  var row = composeOneTimeRow(form)
+  if (!row) return
+  var sendVia = row.querySelector("[data-compose-one-time-send-via]")
+  if (sendVia) sendVia.value = route ? route.dataset.identityId || "" : ""
+  var accountField = form.querySelector('input[name="account_id"]')
+  if (route && accountField && accountField.value !== route.dataset.accountId) {
+    accountField.value = route.dataset.accountId
+    applyDefaultComposeSignature(form, true)
+  }
+  _renderComposeOneTimeDisplay(form)
+  _renderComposeOneTimeNote(form, row.dataset.composeOneTimeChecked === "true")
+}
+
+function _renderComposeOneTimeDisplay(form) {
+  var row = composeOneTimeRow(form)
+  var display = document.getElementById(form.id === "compose-pane-form" ? "compose-pane-from-display" : "compose-from-display")
+  if (!row || !display) return
+  var name = String(row.querySelector("[data-compose-one-time-name]").value || "").trim()
+  var email = String(row.querySelector("[data-compose-one-time-email]").value || "").trim()
+  if (!email) display.textContent = "Custom From"
+  else display.textContent = (name ? name + " <" : "") + email + (name ? ">" : "")
+}
+
+// composeOneTimeFromError says what keeps the one-time From from being
+// sent, or is empty when nothing does or the row is off.
+function composeOneTimeFromError(form) {
+  if (!composeOneTimeActive(form)) return ""
+  var row = composeOneTimeRow(form)
+  var email = String(row.querySelector("[data-compose-one-time-email]").value || "").trim()
+  if (!email) return "Enter the address to send from."
+  if (!_isComposeRecipientValid(email) || email.indexOf("*") >= 0) return "Enter a valid address to send from."
+  var route = _selectedComposeOneTimeRoute(row)
+  if (!route) return "Choose a server to send it."
+  if (route.dataset.fromKind === "domains") {
+    var domain = email.slice(email.lastIndexOf("@") + 1).toLowerCase()
+    var domains = String(route.dataset.fromDomains || "").toLowerCase().split(/\s+/).filter(Boolean)
+    if (domains.indexOf(domain) < 0) return "This server sends only from addresses at " + domains.join(", ") + "."
+  }
+  return ""
+}
+
+// _renderComposeOneTimeNote shows what is wrong with the address once it
+// has been checked, and otherwise what the chosen server does with it.
+function _renderComposeOneTimeNote(form, showError) {
+  var row = composeOneTimeRow(form)
+  var note = row && row.querySelector("[data-compose-one-time-note]")
+  if (!note) return
+  var email = row.querySelector("[data-compose-one-time-email]")
+  var error = showError ? composeOneTimeFromError(form) : ""
+  var route = _selectedComposeOneTimeRoute(row)
+  var text = error || (composeOneTimeActive(form) && route ? route.dataset.fromNote || "" : "")
+  var warns = !error && !!route && route.dataset.fromWarns === "true"
+  if (note.textContent !== text || note.classList.contains("hidden") === !!text) {
+    // Only an open row moves what is below it; one opening or closing
+    // already eases its whole height.
+    var animate = !row.classList.contains("hidden") && !row._composeEase && !row._composeChanging
+    _composeEaseHeight(note, function () {
+      if (text) note.textContent = text
+      note.classList.toggle("hidden", !text)
+    }, animate, function () {
+      if (note.classList.contains("hidden")) note.textContent = ""
+    })
+  }
+  note.classList.toggle("text-destructive", !!error)
+  note.classList.toggle("compose-one-time-warning", warns)
+  note.classList.toggle("text-muted-foreground", !error && !warns)
+  if (email) {
+    if (error) email.setAttribute("aria-invalid", "true")
+    else email.removeAttribute("aria-invalid")
+  }
+}
+
+// selectComposeOneTimeFrom is the "Custom From…" item of a From menu.
+function selectComposeOneTimeFrom(el, fromPane) {
+  var form = document.getElementById(fromPane ? "compose-pane-form" : "compose-form")
+  if (!form) return
+  var wasActive = composeOneTimeActive(form)
+  if (!wasActive) activateComposeOneTimeFrom(form, true)
+  var accountField = form.querySelector('input[name="account_id"]')
+  syncComposeAccountItems(form.id === "compose-pane-form" ? "pane" : "dialog", accountField ? accountField.value : "", "")
+  if (!wasActive) {
+    applyDefaultComposeSignature(form, true)
+    _markComposeDirty(form)
+  }
+  var email = composeOneTimeRow(form).querySelector("[data-compose-one-time-email]")
+  if (email) setTimeout(function () { email.focus() }, 0)
+}
+
+function changeComposeOneTimeFrom(el) {
+  var form = _composeOneTimeForm(el)
+  if (!form) return
+  _renderComposeOneTimeDisplay(form)
+  _renderComposeOneTimeNote(form, composeOneTimeRow(form).dataset.composeOneTimeChecked === "true")
+  _markComposeDirty(form)
+}
+
+// checkComposeOneTimeFrom checks a typed address when it is left, and keeps
+// checking it as it changes from then on.
+function checkComposeOneTimeFrom(el) {
+  var form = _composeOneTimeForm(el)
+  if (!form || !String(el.value || "").trim()) return
+  composeOneTimeRow(form).dataset.composeOneTimeChecked = "true"
+  _renderComposeOneTimeNote(form, true)
+}
+
+// validateComposeOneTimeFrom refuses to send or schedule a one-time From
+// that can't go out, and says why.
+function validateComposeOneTimeFrom(form) {
+  var error = composeOneTimeFromError(form)
+  if (!error) return true
+  composeOneTimeRow(form).dataset.composeOneTimeChecked = "true"
+  _renderComposeOneTimeNote(form, true)
+  showSendStatus("failed", error)
+  return false
+}
+
+document.addEventListener("change", function (event) {
+  var hidden = event.target
+  if (!hidden || !hidden.matches || !hidden.matches("[data-compose-send-via] [data-tui-selectbox-hidden-input]")) return
+  var form = _composeOneTimeForm(hidden)
+  if (!form) return
+  _applyComposeOneTimeRoute(form, _selectedComposeOneTimeRoute(composeOneTimeRow(form)))
+  var accountField = form.querySelector('input[name="account_id"]')
+  syncComposeAccountItems(form.id === "compose-pane-form" ? "pane" : "dialog", accountField ? accountField.value : "", "")
+  _markComposeDirty(form)
+})
 
 // The From menu fits its longest choice and may grow to the end of its row,
 // so long names and addresses fit. Popovers sit in the top layer, where CSS
@@ -14849,6 +15155,7 @@ function resetComposeForm(fromPane, skipCleanup) {
   for (var i = 0; i < fields.length; i++) fields[i].value = ""
   var modeField = form.querySelector('input[name="compose_mode"]')
   if (modeField) modeField.value = "new"
+  deactivateComposeOneTimeFrom(form, false)
   setComposeKind(form, "new")
   var editor = form.querySelector("[data-compose-editor]")
   if (editor) editor.innerHTML = ""
@@ -16109,7 +16416,19 @@ function saveComposeDraft(fromPane, auto) {
   var params = new URLSearchParams()
   var inputs = form.querySelectorAll("input, textarea")
   for (var i = 0; inputs && i < inputs.length; i++) {
-    if (inputs[i].name) params.append(inputs[i].name, inputs[i].value)
+    if (inputs[i].name && !_composeSkipsField(form, inputs[i])) params.append(inputs[i].name, inputs[i].value)
+  }
+  var oneTimeError = composeOneTimeFromError(form)
+  if (oneTimeError && /valid address|address to send/.test(oneTimeError)) {
+    // A draft may keep an address a server would refuse, but not one that
+    // isn't an address: an autosave waits for it, a manual save says so.
+    if (!auto) {
+      form._composeManualDraftSave = false
+      _setComposeDraftButtonState(form, "failed")
+      validateComposeOneTimeFrom(form)
+      return Promise.resolve(false)
+    }
+    ;["one_time_from", "from_name", "from_email", "send_via"].forEach(function (name) { params.delete(name) })
   }
 
   return fetch("/compose/draft", {
@@ -17172,9 +17491,14 @@ function syncComposeInlineImageInputs(form) {
 }
 
 function _composeValsFromDraft(draft) {
+  var oneTime = draft.one_time_from || null
   return {
     account_id: draft.account_id || "",
     identity_id: draft.identity_id || "",
+    one_time_from: oneTime ? "1" : "",
+    from_name: oneTime ? oneTime.name || "" : "",
+    from_email: oneTime ? oneTime.email || "" : "",
+    send_via: oneTime ? oneTime.send_via || "" : "",
     draft_id: draft.draft_id || "",
     to: draft.to || "",
     cc: draft.cc || "",
@@ -17485,6 +17809,7 @@ function sendCompose(fromPane) {
     showSendStatus("failed", "Fix invalid recipient addresses before sending")
     return
   }
+  if (!validateComposeOneTimeFrom(form)) return
   _syncComposeFormEditor(form)
   if (!validateComposeMessageSize(form)) return
 
@@ -17497,7 +17822,7 @@ function sendCompose(fromPane) {
   var params = new URLSearchParams()
   var inputs = form.querySelectorAll("input, textarea")
   for (var i = 0; inputs && i < inputs.length; i++) {
-    if (inputs[i].name) params.append(inputs[i].name, inputs[i].value)
+    if (inputs[i].name && !_composeSkipsField(form, inputs[i])) params.append(inputs[i].name, inputs[i].value)
   }
 
   showSendStatus("sending", "Sending...")
@@ -17750,6 +18075,7 @@ function scheduleCompose(fromPane, trigger) {
     showSendStatus("failed", "Fix invalid recipient addresses before scheduling")
     return
   }
+  if (!validateComposeOneTimeFrom(form)) return
   _syncComposeFormEditor(form)
   if (!validateComposeMessageSize(form)) return
 
@@ -17786,7 +18112,7 @@ function scheduleCompose(fromPane, trigger) {
   var params = new URLSearchParams()
   var inputs = form.querySelectorAll("input, textarea")
   for (var i = 0; inputs && i < inputs.length; i++) {
-    if (inputs[i].name) params.append(inputs[i].name, inputs[i].value)
+    if (inputs[i].name && !_composeSkipsField(form, inputs[i])) params.append(inputs[i].name, inputs[i].value)
   }
   params.set("schedule_date", dateValue)
   params.set("schedule_hour", hourValue)
@@ -17981,6 +18307,10 @@ function composeValuesFromSource(source, mode) {
   var vals = {
     account_id: source.account_id || "",
     identity_id: source.identity_id || "",
+    one_time_from: "",
+    from_name: "",
+    from_email: "",
+    send_via: "",
     draft_id: "",
     to: "",
     cc: "",
@@ -18056,6 +18386,7 @@ function writeComposePrefill(form, vals, prefix, mode) {
   setComposeKind(form, mode)
   _showComposeOptionalFields(form, vals)
   setComposeAccount(form, vals.account_id, vals.identity_id)
+  syncComposeOneTimeFrom(form)
   applyDefaultComposeSignature(form, true)
   focusComposePrefill(form, mode)
 }
@@ -20463,7 +20794,7 @@ function _readComposeFormValues(form) {
   var vals = {}
   var inputs = form.querySelectorAll("input, textarea")
   for (var i = 0; inputs && i < inputs.length; i++) {
-    if (inputs[i].name) vals[inputs[i].name] = inputs[i].value
+    if (inputs[i].name) vals[inputs[i].name] = _composeSkipsField(form, inputs[i]) ? "" : inputs[i].value
   }
   var fromDisplay = form.querySelector("[id$='-from-display']")
   if (fromDisplay) vals._fromDisplay = fromDisplay.innerHTML
@@ -20499,6 +20830,7 @@ function _writeComposeFormValues(form, vals, prefix) {
     setComposeAccount(form, vals.account_id, vals.identity_id)
   }
   if (vals.account_id) syncComposeAccountItems(form.id === "compose-pane-form" ? "pane" : "dialog", vals.account_id, vals.identity_id)
+  syncComposeOneTimeFrom(form)
   _setComposeEditorValue(form, vals.body || "", vals.html_body || "", vals.inline_images || [])
   renderComposeAttachments(form, vals.attachments || [])
   form.dataset.composeUploadsPending = "0"
