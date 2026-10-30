@@ -111,7 +111,7 @@ func (s *AccountStore) getConfig(ctx context.Context, accountID string, checkAll
 	}
 	// A mailbox the allowed mail lists stopped letting in doesn't connect.
 	if checkAllowlist {
-		if err := s.checkMailAllowlist(ctx, owner.String, storage.MailAllowlistMailbox{Provider: cfg.Provider, Email: email,
+		if err := s.checkMailAllowlist(ctx, owner.String, storage.MailAllowlistMailbox{Provider: cfg.Provider, Email: email, Username: cfg.Username,
 			IMAPHost: cfg.IMAPHost, SMTPHost: cfg.SMTPHost, JMAPSessionURL: cfg.JMAPSessionURL}); err != nil {
 			return nil, err
 		}

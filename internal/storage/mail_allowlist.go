@@ -141,6 +141,16 @@ func (l MailAllowlist) CheckAddress(address string) error {
 	return &MailAllowlistError{Rule: MailAllowlistDomain, Value: domain}
 }
 
+// CheckLogin refuses the login of an account with no mail when it is an
+// address the domain list doesn't allow. A plain username has no domain, so
+// only the servers it signs in to are checked.
+func (l MailAllowlist) CheckLogin(username string) error {
+	if !strings.Contains(username, "@") {
+		return nil
+	}
+	return l.CheckAddress(strings.TrimSpace(username))
+}
+
 // CheckProvider refuses Gmail and Outlook mailboxes while servers are limited
 // and the administrator hasn't let that provider in. Other providers connect
 // to the servers they name, which CheckServer checks.
@@ -163,8 +173,11 @@ func (l MailAllowlist) CheckProvider(provider string) error {
 
 // MailAllowlistMailbox is what the lists check about a mailbox.
 type MailAllowlistMailbox struct {
-	Provider       string
-	Email          string
+	Provider string
+	Email    string
+	// Username is the login of an account with no mail, which its DAV
+	// servers know it by.
+	Username       string
 	IMAPHost       string
 	SMTPHost       string
 	JMAPSessionURL string
@@ -176,11 +189,14 @@ type MailAllowlistMailbox struct {
 // mailboxes are checked by provider, since they only reach Google and
 // Microsoft.
 func (l MailAllowlist) CheckMailbox(mailbox MailAllowlistMailbox) error {
-	// An account with no mail has no address, only its DAV servers.
-	if !strings.EqualFold(strings.TrimSpace(mailbox.Provider), providers.ProviderDAV) {
-		if err := l.CheckAddress(mailbox.Email); err != nil {
+	// An account with no mail has no address, only its DAV servers and the
+	// login it signs in to them with.
+	if strings.EqualFold(strings.TrimSpace(mailbox.Provider), providers.ProviderDAV) {
+		if err := l.CheckLogin(mailbox.Username); err != nil {
 			return err
 		}
+	} else if err := l.CheckAddress(mailbox.Email); err != nil {
+		return err
 	}
 	switch strings.ToLower(strings.TrimSpace(mailbox.Provider)) {
 	case providers.ProviderGmail, providers.ProviderOutlook:
@@ -207,7 +223,7 @@ func (l MailAllowlist) CheckMailbox(mailbox MailAllowlistMailbox) error {
 // CheckMailboxTransports is CheckMailbox for an account as administrator
 // diagnostics list it.
 func (l MailAllowlist) CheckMailboxTransports(account DiagnosticTransportAccount) error {
-	return l.CheckMailbox(MailAllowlistMailbox{Provider: account.Provider, Email: account.Email,
+	return l.CheckMailbox(MailAllowlistMailbox{Provider: account.Provider, Email: account.Email, Username: account.Username,
 		IMAPHost: account.IMAPHost, SMTPHost: account.SMTPHost, JMAPSessionURL: account.JMAPSessionURL,
 		CardDAVURL: account.CardDAVURL, CalDAVURL: account.CalDAVURL})
 }

@@ -184,6 +184,43 @@ func TestContactsOnlyAccount(t *testing.T) {
 	}
 }
 
+// A login that is an address must be at an allowed domain, and is refused
+// before the server is asked; a plain username has no domain to check.
+func TestDAVAccountLoginKeepsToTheAllowedDomains(t *testing.T) {
+	asked := 0
+	dav := davAccountTestServer(t)
+	f := newUserContactPushFixture(t, "carddav", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		asked++
+		dav.ServeHTTP(w, r)
+	}))
+	f.h.userAccountHooks = UserAccountHooks{Created: func(context.Context, string) error { return nil }}
+	if _, err := f.h.mailAllowlistDB().AddMailAllowlistEntry(t.Context(), storage.MailAllowlistDomain, "example.test", "admin"); err != nil {
+		t.Fatal(err)
+	}
+	book := f.server.URL + "/books/family/"
+	form := func(username string) url.Values {
+		return url.Values{"service": {"contacts"}, "server_url": {f.server.URL}, "username": {username}, "password": {"dav-pass"}, "item": {book}, "default_item": {book}}
+	}
+	rec := httptest.NewRecorder()
+	f.h.handleUserFindDAVItems(rec, davAccountRequest("/api/accounts/dav/find", form("dav-user@example.org")))
+	if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "example.org") {
+		t.Fatalf("find: %d %q", rec.Code, rec.Body.String())
+	}
+	rec = httptest.NewRecorder()
+	f.h.handleUserCreateDAVAccount(rec, davAccountRequest("/api/accounts/dav", form("dav-user@example.org")))
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("create: %d %q", rec.Code, rec.Body.String())
+	}
+	if asked != 0 || len(aliceDAVAccounts(t, f)) != 0 {
+		t.Fatalf("refused login asked the server %d times, accounts %v", asked, aliceDAVAccounts(t, f))
+	}
+	rec = httptest.NewRecorder()
+	f.h.handleUserCreateDAVAccount(rec, davAccountRequest("/api/accounts/dav", form("dav-user")))
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("create with a plain username: %d %q", rec.Code, rec.Body.String())
+	}
+}
+
 // An account imported from a profile saves only with its password, which
 // starts it syncing with the calendars ticked in its dialog.
 func TestImportedCalendarOnlyAccountTakesItsPassword(t *testing.T) {

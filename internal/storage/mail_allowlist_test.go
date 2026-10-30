@@ -51,11 +51,21 @@ func TestMailAllowlistMatching(t *testing.T) {
 	if err := gmail.CheckMailbox(MailAllowlistMailbox{Provider: "imap", Email: "ana@example.test", IMAPHost: "imap.example.test"}); !IsMailAllowlistError(err) {
 		t.Error("only Gmail allowed, but an IMAP server was let in:", err)
 	}
-	// An account with no mail has no address for the domain list, but its
-	// DAV server is still checked.
+	// An account with no mail has no address for the domain list, only a
+	// login, which is checked when it is an address. Its DAV server is still
+	// checked.
 	domains := MailAllowlist{Domains: []string{"example.test"}, Servers: []string{"dav.example.test"}}
-	if err := domains.CheckMailbox(MailAllowlistMailbox{Provider: "dav", CalDAVURL: "https://dav.example.test/"}); err != nil {
-		t.Error("account with no mail refused for its missing address:", err)
+	if err := domains.CheckMailbox(MailAllowlistMailbox{Provider: "dav", Username: "ana", CalDAVURL: "https://dav.example.test/"}); err != nil {
+		t.Error("account with no mail refused for its plain username:", err)
+	}
+	if err := domains.CheckMailbox(MailAllowlistMailbox{Provider: "dav", Username: "ana@example.test", CalDAVURL: "https://dav.example.test/"}); err != nil {
+		t.Error("account with no mail refused for a login at an allowed domain:", err)
+	}
+	if err := domains.CheckMailbox(MailAllowlistMailbox{Provider: "dav", Username: "ana@example.org", CardDAVURL: "https://dav.example.test/"}); !IsMailAllowlistError(err) {
+		t.Error("account with no mail let in with a login at a domain not allowed:", err)
+	}
+	if err := (MailAllowlist{Servers: []string{"dav.example.test"}}).CheckMailbox(MailAllowlistMailbox{Provider: "dav", Username: "ana@example.org", CalDAVURL: "https://dav.example.test/"}); err != nil {
+		t.Error("login checked against an empty domain list:", err)
 	}
 	if err := domains.CheckMailbox(MailAllowlistMailbox{Provider: "dav", CalDAVURL: "https://other.example.test/"}); !IsMailAllowlistError(err) {
 		t.Error("account with no mail let in to a server not allowed:", err)

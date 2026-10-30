@@ -203,6 +203,9 @@ func (h *Handler) handleUserFindDAVItems(w http.ResponseWriter, r *http.Request)
 			return
 		}
 	}
+	if !h.checkDAVLogin(w, r, form.username) {
+		return
+	}
 	found, err := discoverDAVAccount(r.Context(), form)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -226,6 +229,9 @@ func (h *Handler) handleUserCreateDAVAccount(w http.ResponseWriter, r *http.Requ
 	}
 	if problem != "" {
 		http.Error(w, problem, http.StatusBadRequest)
+		return
+	}
+	if !h.checkDAVLogin(w, r, form.username) {
 		return
 	}
 	found, err := discoverDAVAccount(r.Context(), form)
@@ -284,6 +290,9 @@ func (h *Handler) handleUserUpdateDAVAccount(w http.ResponseWriter, r *http.Requ
 			return
 		}
 	}
+	if !h.checkDAVLogin(w, r, login.username) {
+		return
+	}
 	found, err := discoverDAVAccount(r.Context(), login)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -308,6 +317,20 @@ func (h *Handler) handleUserUpdateDAVAccount(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// checkDAVLogin refuses, before signing in, a login the allowed mail lists
+// don't let the person use, and reports whether it may go on.
+func (h *Handler) checkDAVLogin(w http.ResponseWriter, r *http.Request, username string) bool {
+	list, err := h.mailAllowlist(r.Context())
+	if err == nil {
+		err = list.CheckLogin(username)
+	}
+	if err != nil {
+		userAccountError(w, r, err)
+		return false
+	}
+	return true
 }
 
 func davChooseOne(service string) string {

@@ -34,7 +34,7 @@ func (s *AccountStore) checkMailAllowlist(ctx context.Context, userID string, ma
 // requestMailbox is what the allowed mail lists check about a new or changed
 // account.
 func requestMailbox(req *models.CreateAccountRequest) storage.MailAllowlistMailbox {
-	return storage.MailAllowlistMailbox{Provider: req.Provider, Email: req.EmailAddress,
+	return storage.MailAllowlistMailbox{Provider: req.Provider, Email: req.EmailAddress, Username: req.Username,
 		IMAPHost: req.IMAPHost, SMTPHost: req.SMTPHost, JMAPSessionURL: req.JMAPSessionURL}
 }
 
@@ -58,9 +58,9 @@ func (s *AccountStore) CheckAccountServer(ctx context.Context, accountID, host s
 func (s *AccountStore) checkUpdatedMailbox(ctx context.Context, accountID, userID string, req *models.CreateAccountRequest) error {
 	var mailbox storage.MailAllowlistMailbox
 	err := s.db.Read().QueryRowContext(ctx, `
-		SELECT provider, email_address, COALESCE(imap_host, ''), COALESCE(smtp_host, ''), COALESCE(jmap_session_url, '')
+		SELECT provider, email_address, COALESCE(username, ''), COALESCE(imap_host, ''), COALESCE(smtp_host, ''), COALESCE(jmap_session_url, '')
 		FROM accounts WHERE id = ?`, accountID).Scan(
-		&mailbox.Provider, &mailbox.Email, &mailbox.IMAPHost, &mailbox.SMTPHost, &mailbox.JMAPSessionURL)
+		&mailbox.Provider, &mailbox.Email, &mailbox.Username, &mailbox.IMAPHost, &mailbox.SMTPHost, &mailbox.JMAPSessionURL)
 	if errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("account %s not found", accountID)
 	}
@@ -72,6 +72,9 @@ func (s *AccountStore) checkUpdatedMailbox(ctx context.Context, accountID, userI
 	}
 	if req.EmailAddress != "" {
 		mailbox.Email = req.EmailAddress
+	}
+	if req.Username != "" {
+		mailbox.Username = req.Username
 	}
 	switch {
 	case accountProviderUsesGraphMail(mailbox.Provider), accountProviderUsesJMAP(mailbox.Provider):
@@ -99,7 +102,7 @@ func (s *AccountServiceSnapshot) checkMailAllowlist(ctx context.Context) error {
 		return fmt.Errorf("check allowed mail lists: %w", err)
 	}
 	d := s.data
-	return list.CheckMailbox(storage.MailAllowlistMailbox{Provider: d.Provider, Email: d.EmailAddress,
+	return list.CheckMailbox(storage.MailAllowlistMailbox{Provider: d.Provider, Email: d.EmailAddress, Username: d.Username,
 		IMAPHost: d.IMAPHost, SMTPHost: d.SMTPHost, JMAPSessionURL: d.JMAPSessionURL})
 }
 
