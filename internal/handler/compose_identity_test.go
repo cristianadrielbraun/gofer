@@ -3,6 +3,7 @@ package handler
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -11,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	gomail "github.com/emersion/go-message/mail"
 
@@ -169,15 +171,18 @@ func TestComposeDraftKeepsIdentity(t *testing.T) {
 		t.Fatalf("draft sender = %q %q %v", msg.FromName, msg.FromEmail, msg.ReplyTo)
 	}
 
-	// Once the identity is gone the draft goes out as the account.
+	// Once the identity is gone its address is a one-time From, the
+	// account's way and without the identity's Reply-To.
 	if err := db.DeleteAccountIdentityGuarded(t.Context(), "owner", "victim-account", identity.ID, nil); err != nil {
 		t.Fatalf("delete identity: %v", err)
 	}
-	if draft := getDraft(); draft["identity_id"] != "" {
-		t.Fatalf("draft identity after delete = %v", draft["identity_id"])
+	draft := getDraft()
+	oneTime, _ := draft["one_time_from"].(map[string]any)
+	if draft["identity_id"] != "" || oneTime["email"] != "sales@example.com" || oneTime["send_via"] != "" {
+		t.Fatalf("draft after delete = identity %v one-time %v", draft["identity_id"], draft["one_time_from"])
 	}
 	msg, err = h.outgoingMessageFromDraft(t.Context(), localID)
-	if err != nil || msg.FromEmail != "owner@example.com" || len(msg.ReplyTo) != 0 {
+	if err != nil || msg.FromEmail != "sales@example.com" || msg.IdentityID != "" || len(msg.ReplyTo) != 0 {
 		t.Fatalf("draft sender after delete = %+v, %v", msg, err)
 	}
 }
@@ -313,5 +318,228 @@ func TestComposeSourceRepliesAsAddressedIdentity(t *testing.T) {
 	own, _ := source(1)["own_emails"].([]any)
 	if len(own) != 3 || own[0] != "owner@example.com" || own[1] != "sales@example.com" || own[2] != "help@example.com" {
 		t.Fatalf("own_emails = %v", own)
+	}
+}
+
+func queuedComposeSend(t *testing.T, h *Handler, db *storage.DB, form url.Values) (storage.OutgoingSend, outgoingMessageSnapshot) {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	h.handleCompose(rec, composeIdentityRequest(t, "/compose", form))
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status = %d body = %q", rec.Code, rec.Body.String())
+	}
+	var response map[string]string
+	_ = json.NewDecoder(rec.Body).Decode(&response)
+	queued, err := db.GetOutgoingSend(t.Context(), response["send_id"])
+	if err != nil {
+		t.Fatalf("GetOutgoingSend() error = %v", err)
+	}
+	var snapshot outgoingMessageSnapshot
+	if err := json.Unmarshal(queued.MessageJSON, &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	return queued, snapshot
+}
+
+func TestHandleComposeSendsOneTimeFrom(t *testing.T) {
+	h, db := newAccountOwnershipTestHandler(t)
+	sales := seedSalesIdentity(t, db)
+	shop, err := db.SaveAccountIdentityGuarded(t.Context(), "owner", models.Identity{AccountID: "victim-account", Name: "Shop", Email: "shop@example.org", ReplyTo: "orders@example.org", SMTPHost: "smtp.example.org", SMTPPort: 587, SMTPTLSMode: "starttls", SMTPUsername: "shop-login"}, nil)
+	if err != nil {
+		t.Fatalf("save shop identity: %v", err)
+	}
+	base := func(extra url.Values) url.Values {
+		form := url.Values{"account_id": {"victim-account"}, "to": {"recipient@example.com"}, "subject": {"Once"}, "body": {"Hello"}}
+		for key, values := range extra {
+			form[key] = values
+		}
+		return form
+	}
+
+	// The account's way: the typed name and address, nothing from an
+	// identity, even one named alongside.
+	queued, snapshot := queuedComposeSend(t, h, db, base(url.Values{"from_name": {" Owner Tracking "}, "from_email": {" Owner+Tracking@Example.com "}, "identity_id": {sales.ID}}))
+	from := mimeAddresses(t, queued.MIMEData, "From")
+	if len(from) != 1 || from[0].Address != "Owner+Tracking@Example.com" || from[0].Name != "Owner Tracking" || queued.EnvelopeFrom != "Owner+Tracking@Example.com" {
+		t.Fatalf("From = %v envelope %q", from, queued.EnvelopeFrom)
+	}
+	if len(mimeAddresses(t, queued.MIMEData, "Reply-To")) != 0 || snapshot.IdentityID != "" || snapshot.IdentitySMTP {
+		t.Fatalf("account way snapshot = %+v", snapshot)
+	}
+
+	// Through an identity's own server: its route, not its name, address or
+	// Reply-To.
+	queued, snapshot = queuedComposeSend(t, h, db, base(url.Values{"from_email": {"deals@example.org"}, "send_via": {shop.ID}}))
+	from = mimeAddresses(t, queued.MIMEData, "From")
+	if len(from) != 1 || from[0].Address != "deals@example.org" || from[0].Name != "" || len(mimeAddresses(t, queued.MIMEData, "Reply-To")) != 0 {
+		t.Fatalf("identity server From = %v", from)
+	}
+	if snapshot.IdentityID != shop.ID || !snapshot.IdentitySMTP || queued.Transport != storage.OutgoingTransportSMTP {
+		t.Fatalf("identity server snapshot = %+v transport %q", snapshot, queued.Transport)
+	}
+
+	for name, extra := range map[string]url.Values{
+		"not an address":         {"from_email": {"deals@"}},
+		"wildcard":               {"from_email": {"*@example.org"}},
+		"identity without smtp":  {"from_email": {"deals@example.org"}, "send_via": {sales.ID}},
+		"missing identity":       {"from_email": {"deals@example.org"}, "send_via": {"missing"}},
+		"another user's account": {"from_email": {"deals@example.org"}, "account_id": {"attacker-account"}},
+	} {
+		rec := httptest.NewRecorder()
+		h.handleCompose(rec, composeIdentityRequest(t, "/compose", base(extra)))
+		if rec.Code != http.StatusBadRequest && rec.Code != http.StatusNotFound {
+			t.Fatalf("%s: status = %d body = %q", name, rec.Code, rec.Body.String())
+		}
+	}
+}
+
+func TestOneTimeFromFollowsTheAccountRule(t *testing.T) {
+	h, db := newAccountOwnershipTestHandler(t)
+	if _, err := db.Write().Exec(`UPDATE accounts SET provider = 'gmail' WHERE id = 'victim-account'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.ReplaceProviderIdentities(t.Context(), "victim-account", []models.Identity{{ProviderIdentityID: "alias", Email: "alias@example.com"}}); err != nil {
+		t.Fatal(err)
+	}
+	account, err := h.ownedAccount(composeIdentityRequest(t, "/", nil).Context(), "victim-account")
+	if err != nil || account == nil {
+		t.Fatalf("account = %v, %v", account, err)
+	}
+	ctx := composeIdentityRequest(t, "/", nil).Context()
+	if _, err := h.oneTimeComposeSender(ctx, account, "", "someone@example.net", "", true); !errors.Is(err, errComposeFromNotAllowed) {
+		t.Fatalf("unlisted Gmail address err = %v", err)
+	}
+	// A draft may keep it until the way of sending changes.
+	if sender, err := h.oneTimeComposeSender(ctx, account, "", "someone@example.net", "", false); err != nil || sender.Email != "someone@example.net" {
+		t.Fatalf("draft sender = %+v, %v", sender, err)
+	}
+	// Addresses Gmail lists go out under any name.
+	for _, email := range []string{"OWNER@example.com", "alias@example.com"} {
+		if sender, err := h.oneTimeComposeSender(ctx, account, "Another Name", email, "", true); err != nil || sender.Name != "Another Name" || sender.IdentityID != "" {
+			t.Fatalf("listed %s = %+v, %v", email, sender, err)
+		}
+	}
+}
+
+func TestDraftSenderOfOneTimeFrom(t *testing.T) {
+	account := &models.Account{ID: "acct", Name: "Ana", Email: "ana@example.com"}
+	identities := []models.Identity{
+		{ID: "sales", Email: "sales@example.org"},
+		{ID: "shop", Email: "shop@example.org", SMTPHost: "smtp.example.org"},
+	}
+	if sender, oneTime := draftSender(account, identities, "Sales", "sales@example.org"); oneTime || sender.IdentityID != "sales" {
+		t.Fatalf("identity = %+v, %v", sender, oneTime)
+	}
+	if sender, oneTime := draftSender(account, identities, "Other", "ANA@example.com"); oneTime || sender.IdentityID != "" || sender.Email != "ana@example.com" {
+		t.Fatalf("account = %+v, %v", sender, oneTime)
+	}
+	if sender, oneTime := draftSender(account, identities, " Deals ", "deals@Example.org"); !oneTime || sender.Name != "Deals" || sender.IdentityID != "shop" || !sender.OwnSMTP {
+		t.Fatalf("same domain as an own-server identity = %+v, %v", sender, oneTime)
+	}
+	if sender, oneTime := draftSender(account, identities, "", "me+tag@example.com"); !oneTime || sender.IdentityID != "" || sender.OwnSMTP {
+		t.Fatalf("other domain = %+v, %v", sender, oneTime)
+	}
+}
+
+func TestScheduledOneTimeFromKeepsItsWayOfSending(t *testing.T) {
+	h, db := newAccountOwnershipTestHandler(t)
+	h.blobStore = store.NewBlobStore(filepath.Join(t.TempDir(), "blobs"))
+	h.syncer = mailpkg.NewSyncOrchestrator(db, h.accountStore, h.blobStore, nil)
+	if err := db.UpsertFolders(t.Context(), []storage.UpsertFolderInput{{
+		ID: "victim-drafts", AccountID: "victim-account", RemoteID: "Drafts", Name: "Drafts", Role: "drafts", Selectable: true,
+	}}); err != nil {
+		t.Fatalf("UpsertFolders() error = %v", err)
+	}
+	shop, err := db.SaveAccountIdentityGuarded(t.Context(), "owner", models.Identity{AccountID: "victim-account", Name: "Shop", Email: "shop@example.org", SMTPHost: "smtp.example.org", SMTPPort: 587, SMTPTLSMode: "starttls", SMTPUsername: "shop-login"}, nil)
+	if err != nil {
+		t.Fatalf("save shop identity: %v", err)
+	}
+	tomorrow := time.Now().UTC().Add(24 * time.Hour).Truncate(5 * time.Minute)
+	schedule := func(subject string, extra url.Values) *httptest.ResponseRecorder {
+		form := url.Values{
+			"account_id": {"victim-account"}, "to": {"recipient@example.com"}, "subject": {subject}, "body": {"Later"},
+			"schedule_timezone": {"UTC"}, "schedule_date": {tomorrow.Format("2006-01-02")}, "schedule_hour": {strconv.Itoa(tomorrow.Hour())}, "schedule_minute": {strconv.Itoa(tomorrow.Minute())},
+		}
+		for key, values := range extra {
+			form[key] = values
+		}
+		rec := httptest.NewRecorder()
+		h.handleComposeSchedule(rec, composeIdentityRequest(t, "/compose/schedule", form))
+		return rec
+	}
+	queuedFor := func(subject string) (storage.OutgoingSend, outgoingMessageSnapshot, int64) {
+		t.Helper()
+		var localID int64
+		if err := db.Read().QueryRow(`SELECT id FROM messages WHERE account_id = 'victim-account' AND subject = ?`, subject).Scan(&localID); err != nil {
+			t.Fatalf("draft row %q: %v", subject, err)
+		}
+		queued, err := db.OutgoingSendForMessageInternal(t.Context(), localID)
+		if err != nil || queued == nil {
+			t.Fatalf("queued %q = %v, %v", subject, queued, err)
+		}
+		var snapshot outgoingMessageSnapshot
+		if err := json.Unmarshal(queued.MessageJSON, &snapshot); err != nil {
+			t.Fatal(err)
+		}
+		return *queued, snapshot, localID
+	}
+
+	// Chosen the account's way although the identity's server is at the
+	// same domain: the choice stands.
+	if rec := schedule("Account way", url.Values{"from_name": {"Deals"}, "from_email": {"deals@example.org"}}); rec.Code != http.StatusOK {
+		t.Fatalf("schedule status = %d body = %q", rec.Code, rec.Body.String())
+	}
+	queued, snapshot, _ := queuedFor("Account way")
+	if snapshot.FromEmail != "deals@example.org" || snapshot.FromName != "Deals" || snapshot.IdentitySMTP || queued.Transport != storage.OutgoingTransportSMTP || queued.EnvelopeFrom != "deals@example.org" {
+		t.Fatalf("account way = %+v transport %q", snapshot, queued.Transport)
+	}
+
+	if rec := schedule("Shop way", url.Values{"from_email": {"deals@example.org"}, "send_via": {shop.ID}}); rec.Code != http.StatusOK {
+		t.Fatalf("schedule status = %d body = %q", rec.Code, rec.Body.String())
+	}
+	queued, snapshot, localID := queuedFor("Shop way")
+	if !snapshot.IdentitySMTP || snapshot.IdentityID != shop.ID || snapshot.FromEmail != "deals@example.org" {
+		t.Fatalf("shop way = %+v", snapshot)
+	}
+	// Reopened, the draft comes back with the way of sending it waits for.
+	req := httptest.NewRequest(http.MethodGet, "/api/drafts/"+strconv.FormatInt(localID, 10), nil)
+	req.SetPathValue("id", strconv.FormatInt(localID, 10))
+	rec := httptest.NewRecorder()
+	h.handleGetDraft(rec, ownerRequest(req))
+	var draft struct {
+		IdentityID  string            `json:"identity_id"`
+		OneTimeFrom map[string]string `json:"one_time_from"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&draft); err != nil {
+		t.Fatal(err)
+	}
+	if draft.IdentityID != "" || draft.OneTimeFrom["email"] != "deals@example.org" || draft.OneTimeFrom["send_via"] != shop.ID {
+		t.Fatalf("draft = %+v", draft)
+	}
+
+	// Saving it again the account's way moves the waiting send off the
+	// identity's server.
+	rec = httptest.NewRecorder()
+	h.handleComposeDraft(rec, composeIdentityRequest(t, "/compose/draft", url.Values{
+		"account_id": {"victim-account"}, "draft_id": {queued.DraftID}, "to": {"recipient@example.com"}, "subject": {"Shop way"}, "body": {"Edited"},
+		"from_email": {"deals@example.org"},
+	}))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("draft status = %d body = %q", rec.Code, rec.Body.String())
+	}
+	if _, snapshot, _ = queuedFor("Shop way"); snapshot.IdentitySMTP || snapshot.IdentityID != "" || snapshot.TextBody != "Edited" {
+		t.Fatalf("after edit = %+v", snapshot)
+	}
+
+	// A From the account's way refuses is refused before any draft is kept.
+	if _, err := db.Write().Exec(`UPDATE accounts SET provider = 'gmail' WHERE id = 'victim-account'`); err != nil {
+		t.Fatal(err)
+	}
+	if rec := schedule("Refused", url.Values{"from_email": {"deals@example.org"}}); rec.Code != http.StatusBadRequest {
+		t.Fatalf("refused status = %d body = %q", rec.Code, rec.Body.String())
+	}
+	var drafts int
+	if err := db.Read().QueryRow(`SELECT COUNT(*) FROM messages WHERE subject = 'Refused'`).Scan(&drafts); err != nil || drafts != 0 {
+		t.Fatalf("refused drafts = %d, %v", drafts, err)
 	}
 }

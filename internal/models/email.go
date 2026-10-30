@@ -31,6 +31,9 @@ type Account struct {
 	CalendarSources     []AccountCalendarSource
 	// Identities are the further addresses the account sends as.
 	Identities []Identity
+	// FromRule is which From addresses the account's own way of sending
+	// takes, for a one-time From.
+	FromRule FromRule
 	// MissingFolderRoles are the roles, such as "trash", no folder of an IMAP
 	// account has, once its folders have been listed.
 	MissingFolderRoles []string

@@ -5217,6 +5217,8 @@ type composeDraftSaveResult struct {
 	DraftID       string
 	MessageID     int64
 	DraftFolderID string
+	// Sender is who the form sends the draft as, by the way it chose.
+	Sender *composeSender
 }
 
 func writeComposeJSONError(w http.ResponseWriter, status int, message string) {
@@ -5242,12 +5244,10 @@ func (h *Handler) saveComposeDraftFromForm(ctx context.Context, r *http.Request)
 		return composeDraftSaveResult{}, &composeRequestError{status: http.StatusNotFound, message: "account not found"}
 	}
 
-	sender, err := h.composeSenderFor(ctx, account, r.FormValue("identity_id"))
-	if errors.Is(err, errComposeIdentityNotFound) {
-		return composeDraftSaveResult{}, &composeRequestError{status: http.StatusNotFound, message: "identity not found"}
-	}
+	sender, err := h.composeSenderFor(ctx, account, r, false)
 	if err != nil {
-		return composeDraftSaveResult{}, &composeRequestError{status: http.StatusInternalServerError, message: "failed to load identity"}
+		status, text := composeSenderError(err)
+		return composeDraftSaveResult{}, &composeRequestError{status: status, message: text}
 	}
 
 	draftFolderID, draftFolderRemoteName, err := h.db.GetFolderIDByRole(ctx, accountID, "drafts")
@@ -5359,7 +5359,7 @@ func (h *Handler) saveComposeDraftFromForm(ctx context.Context, r *http.Request)
 	}
 	h.publishMutation(accountID, draftFolderID)
 
-	return composeDraftSaveResult{AccountID: accountID, DraftID: draftID, MessageID: msgID, DraftFolderID: draftFolderID}, nil
+	return composeDraftSaveResult{AccountID: accountID, DraftID: draftID, MessageID: msgID, DraftFolderID: draftFolderID, Sender: &sender}, nil
 }
 
 func (h *Handler) handleDiscardComposeDraft(w http.ResponseWriter, r *http.Request) {
@@ -5688,11 +5688,28 @@ func (h *Handler) handleGetDraft(w http.ResponseWriter, r *http.Request) {
 		attachments = append(attachments, draftAttachment{ID: att.ID, Filename: att.Filename, ContentType: att.ContentType, Size: att.SizeBytes, Existing: true})
 		attachments[len(attachments)-1].PreviewURL = attachmentPreviewURL(att.ID, att.ContentType, att.Filename)
 	}
+	// A one-time From comes back with its way of sending: the one a waiting
+	// send has, or else the one draftSender picks.
 	identityID := ""
+	var oneTime map[string]string
 	if account, err := h.ownedAccount(r.Context(), email.AccountID); err == nil && account != nil {
 		if identities, err := h.db.ListAccountIdentities(r.Context(), h.userID(r.Context()), email.AccountID); err == nil {
-			if identity, ok := matchSenderIdentity(account, identities, email.From.Name, email.From.Email); ok {
-				identityID = identity.ID
+			sender, isOneTime := draftSender(account, identities, email.From.Name, email.From.Email)
+			if isOneTime {
+				if localID, err := strconv.ParseInt(email.ID, 10, 64); err == nil {
+					if pending, err := h.db.OutgoingSendForMessageInternal(r.Context(), localID); err == nil && pending != nil {
+						var snapshot outgoingMessageSnapshot
+						if json.Unmarshal(pending.MessageJSON, &snapshot) == nil && strings.EqualFold(snapshot.FromEmail, sender.Email) {
+							sender.IdentityID = ""
+							if snapshot.IdentitySMTP {
+								sender.IdentityID = snapshot.IdentityID
+							}
+						}
+					}
+				}
+				oneTime = map[string]string{"name": sender.Name, "email": sender.Email, "send_via": sender.IdentityID}
+			} else {
+				identityID = sender.IdentityID
 			}
 		}
 	}
@@ -5700,6 +5717,7 @@ func (h *Handler) handleGetDraft(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]any{
 		"account_id":    email.AccountID,
 		"identity_id":   identityID,
+		"one_time_from": oneTime,
 		"draft_id":      email.InternetMessageID,
 		"to":            contactsToAddressList(email.To),
 		"cc":            contactsToAddressList(email.CC),
@@ -5824,13 +5842,10 @@ func (h *Handler) handleCompose(w http.ResponseWriter, r *http.Request) {
 		htmlBody = "<html><body><pre style=\"white-space:pre-wrap;font-family:sans-serif\">" + template.HTMLEscapeString(body) + "</pre></body></html>"
 	}
 	inReplyTo, references := h.validComposeThreadHeaders(ctx, accountID, r.FormValue("subject"), r.FormValue("in_reply_to"), r.FormValue("references"))
-	sender, err := h.composeSenderFor(ctx, account, r.FormValue("identity_id"))
-	if errors.Is(err, errComposeIdentityNotFound) {
-		writeComposeJSONError(w, http.StatusNotFound, "identity not found")
-		return
-	}
+	sender, err := h.composeSenderFor(ctx, account, r, true)
 	if err != nil {
-		writeComposeJSONError(w, http.StatusInternalServerError, "failed to load identity")
+		status, text := composeSenderError(err)
+		writeComposeJSONError(w, status, text)
 		return
 	}
 
@@ -5897,6 +5912,15 @@ func (h *Handler) handleComposeSchedule(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// It is sent as it would be now, so a From its way of sending refuses is
+	// refused before the draft is saved.
+	if account, err := h.ownedAccount(r.Context(), r.FormValue("account_id")); err == nil && account != nil {
+		if _, err := h.composeSenderFor(r.Context(), account, r, true); err != nil {
+			status, text := composeSenderError(err)
+			writeComposeJSONError(w, status, text)
+			return
+		}
+	}
 	saved, composeErr := h.saveComposeDraftFromForm(r.Context(), r)
 	if composeErr != nil {
 		writeComposeRequestError(w, composeErr)
@@ -5907,6 +5931,10 @@ func (h *Handler) handleComposeSchedule(w http.ResponseWriter, r *http.Request) 
 	if err != nil {
 		writeComposeJSONError(w, http.StatusInternalServerError, "failed to prepare scheduled message")
 		return
+	}
+	if saved.Sender != nil {
+		// The form says how to send it, which the draft alone can't.
+		saved.Sender.apply(msg)
 	}
 	scheduled, err := h.queueOutgoingMessage(r.Context(), saved.AccountID, saved.MessageID, saved.DraftID, msg, scheduledFor, true)
 	if errors.Is(err, providers.ErrJMAPDisabled) {

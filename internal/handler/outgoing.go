@@ -173,6 +173,16 @@ func outgoingTransportForConfig(cfg *models.AccountConfig) string {
 	return storage.OutgoingTransportSMTP
 }
 
+// outgoingTransportForMessage is how msg goes out from an account set up as
+// cfg: through the own server of the identity it names, if it has one, and
+// otherwise the account's way.
+func outgoingTransportForMessage(cfg *models.AccountConfig, msg *message.OutgoingMessage) string {
+	if msg.IdentitySMTP {
+		return storage.OutgoingTransportSMTP
+	}
+	return outgoingTransportForConfig(cfg)
+}
+
 func buildOutgoingMIME(transport string, msg *message.OutgoingMessage) ([]byte, error) {
 	if transport == storage.OutgoingTransportJMAP {
 		return message.BuildMIMEMessageForJMAP(msg)
@@ -201,11 +211,7 @@ func (h *Handler) queueOutgoingMessage(ctx context.Context, accountID string, lo
 	if err != nil {
 		return storage.OutgoingSend{}, fmt.Errorf("account not found")
 	}
-	transport := outgoingTransportForConfig(cfg)
-	if msg.IdentitySMTP {
-		// The identity's own server sends it, whatever the account's provider.
-		transport = storage.OutgoingTransportSMTP
-	}
+	transport := outgoingTransportForMessage(cfg, msg)
 	if transport == storage.OutgoingTransportJMAP && !providers.JMAPEnabled() {
 		return storage.OutgoingSend{}, providers.ErrJMAPDisabled
 	}
@@ -307,7 +313,7 @@ func (h *Handler) prepareMigratedOutgoingSends(ctx context.Context) {
 			_ = h.db.MarkPendingOutgoingSendFailed(ctx, send.ID, "account not found")
 			continue
 		}
-		transport := outgoingTransportForConfig(cfg)
+		transport := outgoingTransportForMessage(cfg, msg)
 		raw, err := buildOutgoingMIME(transport, msg)
 		if err != nil {
 			_ = h.db.MarkPendingOutgoingSendFailed(ctx, send.ID, err.Error())
@@ -903,6 +909,8 @@ func (h *Handler) deliveredSnapshotMatchesDraft(ctx context.Context, send storag
 	}
 	current.MessageID = delivered.MessageID
 	current.Date = delivered.Date
+	// The draft keeps no way of sending, so only what was sent is compared.
+	current.IdentityID, current.IdentitySMTP = delivered.IdentityID, delivered.IdentitySMTP
 	// Text-only compose adds a generated HTML view at delivery. That view is
 	// equivalent to the unchanged draft's text, not a newer unsent edit.
 	if current.HTMLBody == "" && current.TextBody != "" {
@@ -942,15 +950,14 @@ func (h *Handler) outgoingMessageFromDraft(ctx context.Context, localMessageID i
 	}
 	inReplyTo, references := h.validComposeThreadHeaders(ctx, email.AccountID, email.Subject, email.InReplyTo, email.References)
 	// A draft is sent as the identity its From names, if the account still
-	// has it, and otherwise as the account.
+	// has it, as the account for its own address, or else as a one-time From.
 	sender := composeSender{Name: email.From.Name, Email: email.From.Email}
 	if account, err := h.accountStore.GetAccountByID(ctx, email.AccountID); err == nil && account != nil {
-		sender = accountComposeSender(account)
-		if identities, err := h.db.ListAccountIdentitiesInternal(ctx, email.AccountID); err != nil {
+		identities, err := h.db.ListAccountIdentitiesInternal(ctx, email.AccountID)
+		if err != nil {
 			return nil, err
-		} else if identity, ok := matchSenderIdentity(account, identities, email.From.Name, email.From.Email); ok {
-			sender = identityComposeSender(identity)
 		}
+		sender, _ = draftSender(account, identities, email.From.Name, email.From.Email)
 	}
 	msg := &message.OutgoingMessage{
 		To: to, CC: cc, Bcc: bcc,
@@ -974,6 +981,10 @@ func (h *Handler) refreshPendingOutgoingSend(ctx context.Context, saved composeD
 	if err != nil {
 		return err
 	}
+	if saved.Sender != nil {
+		// The form says how to send it, which the draft alone can't.
+		saved.Sender.apply(msg)
+	}
 
 	// A retry must keep the same delivery identity. The draft contents can
 	// change while it is waiting, but changing Message-ID would make the next
@@ -991,7 +1002,7 @@ func (h *Handler) refreshPendingOutgoingSend(ctx context.Context, saved composeD
 	if err != nil {
 		return fmt.Errorf("account not found")
 	}
-	transport := outgoingTransportForConfig(cfg)
+	transport := outgoingTransportForMessage(cfg, msg)
 	raw, err := buildOutgoingMIME(transport, msg)
 	if err != nil {
 		return fmt.Errorf("build outgoing message: %w", err)

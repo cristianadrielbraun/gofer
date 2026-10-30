@@ -4862,7 +4862,7 @@ func (db *DB) GetAccounts(ctx context.Context, userID string) ([]models.Account,
 		            WHERE cs.account_id = a.id AND cs.user_id = a.user_id
 		              AND cs.is_deleted = 0 AND cs.is_selected = 1
 		        ) THEN 1 ELSE 0 END AS calendar_sync_enabled,
-		        COALESCE(a.imap_host, ''), COALESCE(a.auth_method, '')
+		        COALESCE(a.imap_host, ''), COALESCE(a.auth_method, ''), COALESCE(a.smtp_host, '')
 		 FROM accounts a
 		 LEFT JOIN account_contact_sync_configs acc ON acc.account_id = a.id AND acc.user_id = a.user_id
 		 WHERE a.user_id = ? AND COALESCE(a.is_deleting, 0) = 0
@@ -4876,8 +4876,8 @@ func (db *DB) GetAccounts(ctx context.Context, userID string) ([]models.Account,
 	for rows.Next() {
 		var a models.Account
 		var isDeleting, emailSyncEnabled, contactSyncEnabled, calendarSyncEnabled int
-		var imapHost, authMethod string
-		if err := rows.Scan(&a.ID, &a.Provider, &a.Email, &a.Name, &a.Color, &a.Initials, &isDeleting, &emailSyncEnabled, &a.EmailSyncError, &a.EmailSyncErrorAt, &contactSyncEnabled, &a.ContactSyncProvider, &calendarSyncEnabled, &imapHost, &authMethod); err != nil {
+		var imapHost, authMethod, smtpHost string
+		if err := rows.Scan(&a.ID, &a.Provider, &a.Email, &a.Name, &a.Color, &a.Initials, &isDeleting, &emailSyncEnabled, &a.EmailSyncError, &a.EmailSyncErrorAt, &contactSyncEnabled, &a.ContactSyncProvider, &calendarSyncEnabled, &imapHost, &authMethod, &smtpHost); err != nil {
 			return nil, fmt.Errorf("scan account: %w", err)
 		}
 		if providers.IsICloudAccount(a.Provider, authMethod, imapHost) {
@@ -4887,6 +4887,8 @@ func (db *DB) GetAccounts(ctx context.Context, userID string) ([]models.Account,
 		a.EmailSyncEnabled = emailSyncEnabled == 1
 		a.ContactSyncEnabled = contactSyncEnabled == 1
 		a.CalendarSyncEnabled = calendarSyncEnabled == 1
+		// Catch-all domains are added once the rows are read.
+		a.FromRule = providers.AccountFromRule(a.Provider, smtpHost, nil)
 		accounts = append(accounts, a)
 	}
 
@@ -4898,6 +4900,13 @@ func (db *DB) GetAccounts(ctx context.Context, userID string) ([]models.Account,
 		accounts[i].Folders = folders
 		if accounts[i].MissingFolderRoles, err = db.MissingFolderRoles(ctx, accounts[i].ID, accounts[i].Provider); err != nil {
 			return nil, fmt.Errorf("get folder roles for %s: %w", accounts[i].ID, err)
+		}
+		if accounts[i].Provider == providers.ProviderJMAP {
+			domains, err := catchAllIdentityDomains(ctx, db.Read(), accounts[i].ID)
+			if err != nil {
+				return nil, fmt.Errorf("get catch-all domains for %s: %w", accounts[i].ID, err)
+			}
+			accounts[i].FromRule = providers.AccountFromRule(accounts[i].Provider, "", domains)
 		}
 	}
 	if err := db.attachAccountLabels(ctx, userID, accounts); err != nil {

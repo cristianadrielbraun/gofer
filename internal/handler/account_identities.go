@@ -50,18 +50,19 @@ func (h *Handler) loadAccountIdentitiesData(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "failed to load identities", http.StatusInternalServerError)
 		return models.AccountIdentitiesData{}, false
 	}
+	rule := providers.AccountFromRule(account.Provider, "", domains)
 	data := models.AccountIdentitiesData{
 		Account: *account, Identities: identities, Signatures: signatures,
 		ProviderListsIdentities: mail.ProviderListsIdentities(account.Provider),
 		CatchAllDomains:         domains,
-		AccountSendsAnyAddress:  account.Provider != providers.ProviderGmail && (account.Provider != providers.ProviderJMAP || len(domains) > 0),
+		AccountSendsAnyAddress:  rule.TakesOtherAddresses(),
 		// Gofer could keep no copy in an Outlook account's Sent Items.
 		CanUseOwnSMTP: account.Provider != providers.ProviderOutlook,
 		Unusable:      map[string]bool{},
 	}
 	data.CanAddIdentities = data.AccountSendsAnyAddress || data.CanUseOwnSMTP
 	for _, identity := range identities {
-		if identity.Source == models.IdentitySourceManual && !identity.HasOwnSMTP() && !storage.IdentityAddressAllowed(account.Provider, domains, identity.Email) {
+		if identity.Source == models.IdentitySourceManual && !identity.HasOwnSMTP() && !rule.Accepts(identity.Email) {
 			data.Unusable[identity.ID] = true
 		}
 	}

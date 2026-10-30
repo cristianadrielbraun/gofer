@@ -108,14 +108,14 @@ func (db *DB) PublishDraft(ctx context.Context, draft DraftMessageInput, stage f
 		}
 	}
 	if p := c.Pending; p != nil {
-		if p.AccountID != draft.AccountID || p.ID == "" || p.DraftID != draft.InternetMessageID || len(p.MIMEData) == 0 || len(p.MessageJSON) == 0 || len(p.EnvelopeRecipients) == 0 {
+		if p.AccountID != draft.AccountID || p.ID == "" || p.Transport == "" || p.DraftID != draft.InternetMessageID || len(p.MIMEData) == 0 || len(p.MessageJSON) == 0 || len(p.EnvelopeRecipients) == 0 {
 			return 0, errors.New("pending send payload mismatch")
 		}
 		recipients, err := json.Marshal(p.EnvelopeRecipients)
 		if err != nil {
 			return 0, err
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE outgoing_sends SET envelope_from=?,envelope_recipients=?,mime_data=?,message_json=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND account_id=? AND message_id=? AND status='pending'`, p.EnvelopeFrom, string(recipients), p.MIMEData, string(p.MessageJSON), p.ID, draft.AccountID, id); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE outgoing_sends SET transport=?,envelope_from=?,envelope_recipients=?,mime_data=?,message_json=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND account_id=? AND message_id=? AND status='pending'`, p.Transport, p.EnvelopeFrom, string(recipients), p.MIMEData, string(p.MessageJSON), p.ID, draft.AccountID, id); err != nil {
 			return 0, err
 		}
 	}

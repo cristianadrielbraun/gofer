@@ -1081,6 +1081,15 @@ input[role="switch"] + .gofer-switch-track::after {
   color: var(--accent-foreground);
 }
 
+/* What a server that may refuse a one-time From would do with it. */
+.compose-one-time-from .compose-one-time-warning {
+  color: var(--color-amber-700);
+}
+
+.dark .compose-one-time-from .compose-one-time-warning {
+  color: var(--color-amber-400);
+}
+
 .sidebar-account-toggle {
   border-radius: var(--radius);
 }
