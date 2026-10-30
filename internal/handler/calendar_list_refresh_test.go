@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/config"
+	"github.com/cristianadrielbraun/gofer/internal/mail"
 	"github.com/cristianadrielbraun/gofer/internal/mailauth"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
@@ -62,6 +63,7 @@ func TestCalendarListDueSpacesTheReads(t *testing.T) {
 type fakeCalendarListAPI struct {
 	mu    sync.Mutex
 	names []string
+	reads int
 }
 
 func (f *fakeCalendarListAPI) set(names ...string) {
@@ -73,6 +75,9 @@ func (f *fakeCalendarListAPI) set(names ...string) {
 func (f *fakeCalendarListAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if strings.HasSuffix(r.URL.Path, "/me/calendars") || strings.HasSuffix(r.URL.Path, "/calendarList") {
+		f.reads++
+	}
 	w.Header().Set("Content-Type", "application/json")
 	var items []string
 	for i, name := range f.names {
@@ -226,4 +231,45 @@ func TestSharedCalendarListRefresh(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantCalendarChoices(t, "after an empty list", list(), map[string]calendarChoice{"main": {selected: true}, "new": {}})
+}
+
+// A calendar notification also reads the account's calendar list, so a
+// calendar made in Outlook shows up with its first event; more notifications
+// within the minute don't read it again.
+func TestOutlookCalendarNotificationReadsTheCalendarList(t *testing.T) {
+	api := &fakeCalendarListAPI{}
+	f := newUserContactPushFixture(t, "outlook", api)
+	previous := outlookGraphBaseURL
+	outlookGraphBaseURL = f.server.URL
+	t.Cleanup(func() { outlookGraphBaseURL = previous })
+	account := f.accounts["alice"]
+	expires := time.Now().Add(time.Hour)
+	if err := f.h.userCredentials.UpsertForUser(t.Context(), "alice", account.ID, "microsoft", "subject", "alice-access", "alice-refresh", "Bearer", &expires, "https://graph.microsoft.com/Calendars.ReadWrite"); err != nil {
+		t.Fatal(err)
+	}
+	api.set("main")
+	if _, err := f.h.runUserCalendarDiscovery(t.Context(), "alice", account.ID, nil, nil, false); err != nil {
+		t.Fatal(err)
+	}
+	api.mu.Lock()
+	api.names, api.reads = []string{"main", "new"}, 0
+	api.mu.Unlock()
+
+	f.h.OutlookServiceChanged(t.Context(), mail.OutlookPushCalendar, []string{account.ID})
+	f.h.OutlookServiceChanged(t.Context(), mail.OutlookPushCalendar, []string{account.ID})
+	api.mu.Lock()
+	reads := api.reads
+	api.mu.Unlock()
+	if reads != 1 {
+		t.Fatalf("calendar list read %d times, want once", reads)
+	}
+	if err := f.h.userAccounts.WithAccountForUser(t.Context(), "alice", account.ID, func(_ *config.AccountStore, db *storage.DB) error {
+		others, err := db.ListUnselectedCalendarSources(t.Context(), "alice")
+		if err == nil && (len(others) != 1 || others[0].Name != "new") {
+			t.Fatalf("offered calendars %+v", others)
+		}
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
 }
