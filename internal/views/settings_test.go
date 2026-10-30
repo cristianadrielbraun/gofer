@@ -1216,6 +1216,41 @@ func TestOutlookPushControlStates(t *testing.T) {
 	}
 }
 
+// The card shows each subscription's state on its own line, and the badge
+// says the notifications work only when every one the account needs does.
+func TestOutlookPushControlShowsEachService(t *testing.T) {
+	render := func(push models.OutlookPushSettings) string {
+		t.Helper()
+		var out bytes.Buffer
+		if err := OutlookPushControl(push).Render(context.Background(), &out); err != nil {
+			t.Fatal(err)
+		}
+		return out.String()
+	}
+	base := models.OutlookPushSettings{AccountID: "acc", Enabled: true, Available: true, Subscribed: true}
+
+	push := base
+	push.Services = []models.OutlookPushServiceState{{Service: "calendar", Synced: true, Subscribed: true}, {Service: "contacts"}}
+	html := render(push)
+	if !strings.Contains(html, "Working") || !strings.Contains(html, `data-outlook-push-service="working"`) || !strings.Contains(html, "Contacts not synced") {
+		t.Fatalf("calendar working, contacts not synced = %s", html)
+	}
+
+	push = base
+	push.Services = []models.OutlookPushServiceState{{Service: "calendar", Synced: true, Subscribed: true}, {Service: "contacts", Synced: true, Error: "Forbidden"}}
+	html = render(push)
+	if !strings.Contains(html, "Not working") || !strings.Contains(html, "Contacts: Forbidden") || !strings.Contains(html, `data-outlook-push-service="failing"`) {
+		t.Fatalf("contacts failing = %s", html)
+	}
+
+	push = base
+	push.Services = []models.OutlookPushServiceState{{Service: "calendar", Synced: true}, {Service: "contacts", Synced: true, Checked: true}}
+	html = render(push)
+	if strings.Contains(html, ">Working<") || !strings.Contains(html, "Starting") {
+		t.Fatalf("calendar not set up yet = %s", html)
+	}
+}
+
 // An account card can be moved by its handle or its menu, except while the
 // account is being deleted.
 func TestSettingsAccountCardCanBeReordered(t *testing.T) {

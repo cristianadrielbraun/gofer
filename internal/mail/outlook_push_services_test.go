@@ -235,3 +235,46 @@ func TestOutlookServiceNotificationsRefreshTheirService(t *testing.T) {
 		t.Fatal("a lifecycle notification didn't run the mail sync")
 	}
 }
+
+// Testing the connection makes new calendar and contacts subscriptions for
+// the services the account syncs, each with its own token, in place of the
+// old ones, and reports each outcome.
+func TestOutlookServiceChecksMakeNewSubscriptions(t *testing.T) {
+	ctx := context.Background()
+	db := newLabelSyncTestDB(t)
+	if _, err := db.Write().Exec(`INSERT INTO accounts (id, user_id, provider, email_address) VALUES ('out-1', 'default', ?, 'out-1@example.com')`, providers.ProviderOutlook); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.ReplaceCalendarSources(ctx, "default", "out-1", providers.ProviderOutlook, []storage.CalendarSource{{RemoteID: "cal-1", Name: "Calendar", IsPrimary: true, IsSelected: true}}); err != nil {
+		t.Fatal(err)
+	}
+	graph := &fakeOutlookServiceGraph{subs: map[string]outlookGraphSubscription{}}
+	o := NewSyncOrchestrator(db, nil, nil, outlookServiceTestTokens{})
+	o.EnableOutlookWebhooks(testOutlookWebhookURL, testOutlookWebhookKey)
+	o.outlookGraphRequest = graph.request
+	now := time.Now().UTC()
+	o.sweepOutlookSubscriptions(ctx, now)
+	graph.takeCalls()
+
+	results, err := o.CheckOutlookPushServices(ctx, "out-1")
+	if err != nil || len(results) != 2 || results[OutlookPushCalendar] != nil || results[OutlookPushContacts] != nil {
+		t.Fatalf("check = %v, %v", results, err)
+	}
+	calls := graph.takeCalls()
+	slices.Sort(calls)
+	equalCalls(t, "check", calls,
+		"calendar-token DELETE sub-2", "calendar-token POST me/events",
+		"contacts-token DELETE sub-3", "contacts-token POST me/contacts")
+	if status := o.OutlookServicePushStatus("out-1", OutlookPushCalendar); !status.Subscribed || status.Error != "" {
+		t.Fatalf("calendar status after the check = %+v", status)
+	}
+
+	// An account that syncs no calendar only checks its contacts.
+	if _, err := db.Write().Exec(`UPDATE calendar_sources SET is_selected = 0 WHERE account_id = 'out-1'`); err != nil {
+		t.Fatal(err)
+	}
+	results, err = o.CheckOutlookPushServices(ctx, "out-1")
+	if _, checked := results[OutlookPushCalendar]; err != nil || checked || len(results) != 1 {
+		t.Fatalf("check without calendars = %v, %v", results, err)
+	}
+}

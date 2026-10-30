@@ -130,6 +130,24 @@ func (t *outlookSubscriptions) keepService(ctx context.Context, key outlookSubsc
 	t.attempt(ctx, key, token, request, now, false)
 }
 
+// checkServices makes new calendar and contacts subscriptions for the
+// account right away, for those of the two it syncs, as check does for its
+// mailbox, and returns each one's outcome.
+func (t *outlookSubscriptions) checkServices(ctx context.Context, accountID string, calendar, contacts bool, tokens any, request graphJSONRequest, now time.Time) map[OutlookPushService]error {
+	if t == nil {
+		return nil
+	}
+	results := make(map[OutlookPushService]error)
+	for _, service := range outlookPushServices[1:] {
+		if (service == OutlookPushCalendar && !calendar) || (service == OutlookPushContacts && !contacts) {
+			continue
+		}
+		key := outlookSubscriptionKey{account: accountID, service: service}
+		results[service] = t.attempt(ctx, key, outlookServiceToken(tokens, accountID, service), request, now, true)
+	}
+	return results
+}
+
 // check makes a new subscription for the account right away, replacing any
 // it has, and returns why Graph refused it. Only a new subscription shows
 // that Microsoft can reach Gofer: Graph calls the notification URL before
@@ -209,15 +227,20 @@ func (t *outlookSubscriptions) deletePrevious(ctx context.Context, token outlook
 	return deleteOutlookSubscription(ctx, request, access, id)
 }
 
-// status reports the account's subscription as Gofer last saw it.
+// status reports the account's mail subscription as Gofer last saw it.
 func (t *outlookSubscriptions) status(accountID string, now time.Time) OutlookPushStatus {
+	return t.statusService(mailSubscription(accountID), now)
+}
+
+// statusService is status for any of the account's services.
+func (t *outlookSubscriptions) statusService(key outlookSubscriptionKey, now time.Time) OutlookPushStatus {
 	if t == nil {
 		return OutlookPushStatus{}
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	status := OutlookPushStatus{Available: true}
-	if state := t.accounts[mailSubscription(accountID)]; state != nil {
+	if state := t.accounts[key]; state != nil {
 		status.Subscribed = state.id != "" && now.Before(state.expires)
 		if status.Subscribed {
 			status.Expires = state.expires

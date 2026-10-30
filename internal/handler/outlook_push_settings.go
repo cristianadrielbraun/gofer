@@ -38,6 +38,23 @@ func (h *Handler) outlookPushSettings(ctx context.Context, accountID string) *mo
 		settings.Subscribed, settings.Expires = status.Subscribed, status.Expires
 		settings.Error, settings.RetryAt = status.Error, status.RetryAt
 	}
+	calendar, contacts, err := h.db.OutlookPushServices(ctx, accountID)
+	if err != nil {
+		calendar, contacts = false, false
+	}
+	for _, service := range []mail.OutlookPushService{mail.OutlookPushCalendar, mail.OutlookPushContacts} {
+		state := models.OutlookPushServiceState{Service: string(service), Synced: (service == mail.OutlookPushCalendar && calendar) || (service == mail.OutlookPushContacts && contacts)}
+		var serviceStatus mail.OutlookPushStatus
+		if h.userIMAP != nil {
+			serviceStatus = h.userIMAP.OutlookServicePushStatus(accountID, service)
+		} else if h.syncer != nil {
+			serviceStatus = h.syncer.OutlookServicePushStatus(accountID, service)
+		}
+		if enabled && serviceStatus.Available && state.Synced {
+			state.Subscribed, state.Error = serviceStatus.Subscribed, serviceStatus.Error
+		}
+		settings.Services = append(settings.Services, state)
+	}
 	return settings
 }
 
@@ -75,31 +92,38 @@ func (h *Handler) handleOutlookPushSetting(w http.ResponseWriter, r *http.Reques
 	} else if h.syncer != nil {
 		h.syncer.OutlookPushChanged()
 	}
-	h.renderOutlookPush(w, r, owner, id, false, nil)
+	h.renderOutlookPush(w, r, owner, id, false, nil, nil)
 }
 
-// handleOutlookPushCheck makes a new subscription for the account now. Graph
-// accepts it only after calling Gofer's notification URL, so it shows
-// whether Microsoft can reach this server.
+// handleOutlookPushCheck makes new subscriptions for the account now: its
+// mailbox's, and its calendar's and contacts' when it syncs them. Graph
+// accepts each only after calling Gofer's notification URL, so they show
+// whether Microsoft can reach this server for each.
 func (h *Handler) handleOutlookPushCheck(w http.ResponseWriter, r *http.Request) {
 	ctx, owner, id := r.Context(), h.userID(r.Context()), strings.TrimSpace(r.PathValue("id"))
 	if err := h.withOutlookAccount(ctx, owner, id, func(*storage.DB) error { return nil }); err != nil {
 		userAccountError(w, r, err)
 		return
 	}
-	var err error
+	var err, servicesErr error
+	var services map[mail.OutlookPushService]error
 	if h.userIMAP != nil {
 		err = h.userIMAP.CheckOutlookPush(ctx, owner, id)
+		services, servicesErr = h.userIMAP.CheckOutlookPushServices(ctx, owner, id)
 	} else if h.syncer != nil {
 		err = h.syncer.CheckOutlookPush(ctx, id)
+		services, servicesErr = h.syncer.CheckOutlookPushServices(ctx, id)
 	} else {
 		err = mail.ErrOutlookPushUnavailable
 	}
-	if errors.Is(err, storage.ErrAccountRoute) {
+	if errors.Is(err, storage.ErrAccountRoute) || errors.Is(servicesErr, storage.ErrAccountRoute) {
 		http.NotFound(w, r)
 		return
 	}
-	h.renderOutlookPush(w, r, owner, id, true, err)
+	if servicesErr != nil && ctx.Err() == nil {
+		log.Printf("outlook push account=%s: check calendar and contacts: %v", id, servicesErr)
+	}
+	h.renderOutlookPush(w, r, owner, id, true, err, services)
 }
 
 // withOutlookAccount runs fn with the database holding the owner's Outlook
@@ -135,8 +159,9 @@ func (h *Handler) withOutlookAccount(ctx context.Context, owner, id string, fn f
 }
 
 // renderOutlookPush answers with the account's control, and the result of
-// Check now when checked is set.
-func (h *Handler) renderOutlookPush(w http.ResponseWriter, r *http.Request, owner, id string, checked bool, checkErr error) {
+// Check now when checked is set: checkErr for the mailbox, and services for
+// the calendar and contacts it checked.
+func (h *Handler) renderOutlookPush(w http.ResponseWriter, r *http.Request, owner, id string, checked bool, checkErr error, services map[mail.OutlookPushService]error) {
 	var settings *models.OutlookPushSettings
 	err := h.withOutlookAccount(r.Context(), owner, id, func(db *storage.DB) error {
 		local := &Handler{db: db, userIMAP: h.userIMAP, syncer: h.syncer}
@@ -150,6 +175,16 @@ func (h *Handler) renderOutlookPush(w http.ResponseWriter, r *http.Request, owne
 	settings.Checked = checked
 	if checkErr != nil {
 		settings.CheckError = mail.OutlookPushErrorMessage(checkErr)
+	}
+	for i := range settings.Services {
+		serviceErr, tested := services[mail.OutlookPushService(settings.Services[i].Service)]
+		if !tested {
+			continue
+		}
+		settings.Services[i].Checked = true
+		if serviceErr != nil {
+			settings.Services[i].CheckError = mail.OutlookPushErrorMessage(serviceErr)
+		}
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := views.OutlookPushControl(*settings).Render(r.Context(), w); err != nil {

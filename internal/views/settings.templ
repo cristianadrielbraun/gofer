@@ -5515,7 +5515,17 @@ templ OutlookPushControl(push models.OutlookPushSettings) {
 							@outlookPushStatus(id, push)
 						}
 					</div>
-					<p class="pl-[1.625rem] text-xs leading-relaxed text-muted-foreground">Microsoft tells Gofer the moment anything changes in the mailbox, so new mail shows up right away without waiting for a check. This server must be reachable from the internet.</p>
+					if push.Available {
+						// Each subscription's state, kept in place while scheduled checks
+						// are chosen so switching options doesn't move the card.
+						<div class={ "flex min-h-6 flex-wrap items-center gap-x-3 gap-y-1 pl-[1.625rem] text-xs", templ.KV("invisible", !usesPush) } aria-hidden={ strconv.FormatBool(!usesPush) } data-outlook-push-services>
+							@outlookPushServiceState(id+"-mail", "Mail", outlookPushMailState(push), outlookPushFailure(push))
+							for _, service := range push.Services {
+								@outlookPushServiceState(id+"-"+service.Service, outlookPushServiceLabel(service.Service), outlookPushServiceStateOf(service), outlookPushServiceFailure(service))
+							}
+						</div>
+					}
+					<p class="pl-[1.625rem] text-xs leading-relaxed text-muted-foreground">Microsoft tells Gofer the moment anything changes in the mailbox, calendars or contacts, so changes show up right away without waiting for a check. This server must be reachable from the internet.</p>
 				</div>
 				<div>
 					<div class="flex min-h-8 items-center gap-2.5">
@@ -5529,7 +5539,7 @@ templ OutlookPushControl(push models.OutlookPushSettings) {
 						})
 						<label for={ id + "-checks" } class="text-sm font-medium">Scheduled checks</label>
 					</div>
-					<p class="pl-[1.625rem] text-xs leading-relaxed text-muted-foreground">Gofer asks Microsoft for new mail at the sync interval, and more often while Gofer is open. It works anywhere, but new mail can take a little longer to show up.</p>
+					<p class="pl-[1.625rem] text-xs leading-relaxed text-muted-foreground">Gofer asks Microsoft for changes to the mailbox, calendars and contacts at the sync interval, and more often while Gofer is open. It works anywhere, but changes can take a little longer to show up.</p>
 				</div>
 			</div>
 			if push.Available {
@@ -5554,16 +5564,18 @@ templ OutlookPushControl(push models.OutlookPushSettings) {
 	</fieldset>
 }
 
-// outlookPushStatus only says whether webhook notifications work, on the
-// option's own line so switching options doesn't move the card.
+// outlookPushStatus only says whether webhook notifications work, for every
+// service the account is subscribed for, on the option's own line so
+// switching options doesn't move the card.
 templ outlookPushStatus(id string, push models.OutlookPushSettings) {
+	{{ state := outlookPushOverall(push) }}
 	<span class="inline-flex items-center gap-1 text-xs" role="status">
-		if (push.Checked && push.CheckError == "") || (!push.Checked && push.Subscribed) {
+		if state == "working" {
 			<span class="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400">
 				@icon.CircleCheck(icon.Props{Class: "size-3.5 shrink-0"})
 				Working
 			</span>
-		} else if push.Checked || push.Error != "" {
+		} else if state == "failing" {
 			<span class="inline-flex items-center gap-1 text-destructive">
 				@icon.CircleAlert(icon.Props{Class: "size-3.5 shrink-0"})
 				Not working
@@ -5580,8 +5592,10 @@ templ outlookPushStatus(id string, push models.OutlookPushSettings) {
 				}
 				@popover.Content(popover.ContentProps{Placement: popover.PlacementBottomStart, Offset: 8, ShowArrow: true, Class: "mobile-sheet w-80 p-3"}) {
 					<div class="space-y-2 text-xs leading-relaxed text-muted-foreground">
-						<p class="text-foreground">Microsoft says: { outlookPushFailure(push) }</p>
-						<p>Microsoft has to reach this server's address from the internet over HTTPS, without signing in. Gofer keeps trying, and checks for new mail on schedule meanwhile.</p>
+						for _, failure := range outlookPushFailures(push) {
+							<p class="text-foreground">{ failure }</p>
+						}
+						<p>Microsoft has to reach this server's address from the internet over HTTPS, without signing in. Gofer keeps trying, and checks for changes on schedule meanwhile.</p>
 					</div>
 				}
 			}
@@ -5590,6 +5604,49 @@ templ outlookPushStatus(id string, push models.OutlookPushSettings) {
 				@icon.Clock(icon.Props{Class: "size-3.5 shrink-0"})
 				Starting
 			</span>
+		}
+	</span>
+}
+
+// outlookPushServiceState is one service's subscription on the line under
+// the webhook option, with Microsoft's reason when it fails.
+templ outlookPushServiceState(id, label, state, failure string) {
+	<span class="inline-flex items-center gap-1" data-outlook-push-service={ state }>
+		switch state {
+			case "working":
+				<span class="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400">
+					@icon.CircleCheck(icon.Props{Class: "size-3.5 shrink-0"})
+					{ label }
+				</span>
+			case "failing":
+				<span class="inline-flex items-center gap-1 text-destructive">
+					@icon.CircleAlert(icon.Props{Class: "size-3.5 shrink-0"})
+					{ label }
+				</span>
+				@popover.Root(popover.RootProps{ID: id + "-failure", Class: "shrink-0"}) {
+					@popover.Trigger() {
+						<button
+							type="button"
+							class="inline-flex size-4 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+							aria-label={ "Why " + label + " notifications aren't working" }
+						>
+							@icon.Info(icon.Props{Class: "size-3.5"})
+						</button>
+					}
+					@popover.Content(popover.ContentProps{Placement: popover.PlacementBottomStart, Offset: 8, ShowArrow: true, Class: "mobile-sheet w-80 p-3"}) {
+						<p class="text-xs leading-relaxed text-foreground">Microsoft says: { failure }</p>
+					}
+				}
+			case "starting":
+				<span class="inline-flex items-center gap-1 text-muted-foreground" title="Gofer sets it up after the account's next sync.">
+					@icon.Clock(icon.Props{Class: "size-3.5 shrink-0"})
+					{ label }
+				</span>
+			default:
+				<span class="inline-flex items-center gap-1 text-muted-foreground opacity-70" title={ "This account doesn't sync its " + strings.ToLower(label) + ", so Microsoft isn't asked about it." }>
+					@icon.Minus(icon.Props{Class: "size-3.5 shrink-0"})
+					{ label } not synced
+				</span>
 		}
 	</span>
 }
@@ -5640,6 +5697,78 @@ func outlookPushFailure(push models.OutlookPushSettings) string {
 		return push.CheckError
 	}
 	return push.Error
+}
+
+// outlookPushState is how one subscription is doing: "working", "failing",
+// "starting" before Gofer has set it up, or "off" for a service the account
+// doesn't sync, which isn't subscribed.
+func outlookPushState(synced, subscribed bool, err string, checked bool, checkErr string) string {
+	switch {
+	case !synced:
+		return "off"
+	case checked && checkErr == "", !checked && subscribed:
+		return "working"
+	case checked, err != "":
+		return "failing"
+	}
+	return "starting"
+}
+
+func outlookPushMailState(push models.OutlookPushSettings) string {
+	return outlookPushState(true, push.Subscribed, push.Error, push.Checked, push.CheckError)
+}
+
+func outlookPushServiceStateOf(service models.OutlookPushServiceState) string {
+	return outlookPushState(service.Synced, service.Subscribed, service.Error, service.Checked, service.CheckError)
+}
+
+func outlookPushServiceFailure(service models.OutlookPushServiceState) string {
+	if service.Checked {
+		return service.CheckError
+	}
+	return service.Error
+}
+
+func outlookPushServiceLabel(service string) string {
+	if service == "calendar" {
+		return "Calendar"
+	}
+	return "Contacts"
+}
+
+// outlookPushOverall is how webhook notifications are doing for the whole
+// account: failing when any subscription fails, working when every one the
+// account needs works, and starting otherwise.
+func outlookPushOverall(push models.OutlookPushSettings) string {
+	states := []string{outlookPushMailState(push)}
+	for _, service := range push.Services {
+		states = append(states, outlookPushServiceStateOf(service))
+	}
+	overall := "working"
+	for _, state := range states {
+		switch state {
+		case "failing":
+			return "failing"
+		case "starting":
+			overall = "starting"
+		}
+	}
+	return overall
+}
+
+// outlookPushFailures are Microsoft's reasons for each subscription that
+// fails, named by service.
+func outlookPushFailures(push models.OutlookPushSettings) []string {
+	var failures []string
+	if outlookPushMailState(push) == "failing" {
+		failures = append(failures, "Mail: "+outlookPushFailure(push))
+	}
+	for _, service := range push.Services {
+		if outlookPushServiceStateOf(service) == "failing" {
+			failures = append(failures, outlookPushServiceLabel(service.Service)+": "+outlookPushServiceFailure(service))
+		}
+	}
+	return failures
 }
 
 templ AccountFormError(message string) {

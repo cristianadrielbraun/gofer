@@ -137,6 +137,22 @@ type OutlookPushSettings struct {
 	// accepted the new subscription.
 	Checked    bool
 	CheckError string
+	// Services are the account's calendar and contacts subscriptions, in
+	// that order, beside the mail one the fields above describe.
+	Services []OutlookPushServiceState
+}
+
+// OutlookPushServiceState is the state of an Outlook account's calendar or
+// contacts subscription. Gofer only subscribes a service the account syncs.
+type OutlookPushServiceState struct {
+	// Service is "calendar" or "contacts".
+	Service    string
+	Synced     bool
+	Subscribed bool
+	Error      string
+	// Checked and CheckError are as in OutlookPushSettings.
+	Checked    bool
+	CheckError string
 }
 
 type FolderSyncStatus struct {

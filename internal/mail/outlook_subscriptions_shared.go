@@ -133,6 +133,30 @@ func (o *SyncOrchestrator) CheckOutlookPush(ctx context.Context, accountID strin
 	return o.outlookSubs.check(ctx, accountID, o.outlookSubscriptionToken(accountID), o.outlookSubscriptionRequest(), time.Now().UTC())
 }
 
+// OutlookServicePushStatus reports the account's calendar or contacts
+// subscription for the settings page.
+func (o *SyncOrchestrator) OutlookServicePushStatus(accountID string, service OutlookPushService) OutlookPushStatus {
+	return o.outlookSubs.statusService(outlookSubscriptionKey{account: accountID, service: service}, time.Now().UTC())
+}
+
+// CheckOutlookPushServices makes new calendar and contacts subscriptions for
+// the account now, for the ones it syncs, and returns each outcome.
+func (o *SyncOrchestrator) CheckOutlookPushServices(ctx context.Context, accountID string) (map[OutlookPushService]error, error) {
+	if o.outlookSubs == nil {
+		return nil, ErrOutlookPushUnavailable
+	}
+	if push, err := o.db.ProviderPushEnabled(ctx, accountID); err != nil {
+		return nil, err
+	} else if !push {
+		return nil, errOutlookPushOff
+	}
+	calendar, contacts, err := o.db.OutlookPushServices(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	return o.outlookSubs.checkServices(ctx, accountID, calendar, contacts, o.tokenProvider, o.outlookSubscriptionRequest(), time.Now().UTC()), nil
+}
+
 // OutlookPushChanged applies an account's new choice between notifications
 // and scheduled checks without waiting for the next sweep.
 func (o *SyncOrchestrator) OutlookPushChanged() {

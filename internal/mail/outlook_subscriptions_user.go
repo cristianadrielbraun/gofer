@@ -121,6 +121,48 @@ func (s *UserIMAP) OutlookPushStatus(accountID string) OutlookPushStatus {
 	return s.outlookSubs.status(accountID, time.Now().UTC())
 }
 
+// OutlookServicePushStatus reports the account's calendar or contacts
+// subscription for the settings page.
+func (s *UserIMAP) OutlookServicePushStatus(accountID string, service OutlookPushService) OutlookPushStatus {
+	return s.outlookSubs.statusService(outlookSubscriptionKey{account: accountID, service: service}, time.Now().UTC())
+}
+
+// CheckOutlookPushServices makes new calendar and contacts subscriptions for
+// the owner's account now, for the ones it syncs, and returns each outcome.
+func (s *UserIMAP) CheckOutlookPushServices(ctx context.Context, owner, accountID string) (map[OutlookPushService]error, error) {
+	if s.outlookSubs == nil {
+		return nil, ErrOutlookPushUnavailable
+	}
+	var results map[OutlookPushService]error
+	err := s.operation(ctx, owner, accountID, 0, 2*outlookSubscriptionTimeout, func(ctx context.Context) error {
+		scope, err := s.snapshot(ctx, owner, accountID)
+		if err != nil {
+			return err
+		}
+		if scope.config.Provider != providers.ProviderOutlook || scope.tokens == nil {
+			return errors.New("only Outlook accounts can use change notifications")
+		}
+		var push, calendar, contacts bool
+		if err := scope.call(ctx, func(db *storage.DB) error {
+			if push, err = db.ProviderPushEnabled(ctx, accountID); err != nil {
+				return err
+			}
+			calendar, contacts, err = db.OutlookPushServices(ctx, accountID)
+			return err
+		}); err != nil {
+			return err
+		}
+		if !push {
+			return errOutlookPushOff
+		}
+		o := NewSyncOrchestrator(nil, nil, s.blobs, scope.tokens)
+		o.imapScope = scope
+		results = s.outlookSubs.checkServices(ctx, accountID, calendar, contacts, scope.tokens, o.outlookJSON, time.Now().UTC())
+		return nil
+	})
+	return results, err
+}
+
 // CheckOutlookPush makes a new subscription for the owner's account now,
 // which shows whether Microsoft can reach Gofer.
 func (s *UserIMAP) CheckOutlookPush(ctx context.Context, owner, accountID string) error {
