@@ -183,3 +183,57 @@ func TestContactsOnlyAccount(t *testing.T) {
 		t.Fatalf("edit dialog = %+v", dialog)
 	}
 }
+
+// An account imported from a profile saves only with its password, which
+// starts it syncing with the calendars ticked in its dialog.
+func TestImportedCalendarOnlyAccountTakesItsPassword(t *testing.T) {
+	f := newUserContactPushFixture(t, "carddav", davAccountTestServer(t))
+	f.h.userAccountHooks = UserAccountHooks{Created: func(context.Context, string) error { return nil }}
+	home, club := f.server.URL+"/calendars/home/", f.server.URL+"/calendars/club/"
+	form := url.Values{"service": {"calendar"}, "server_url": {f.server.URL}, "username": {"dav-user"}, "password": {"dav-pass"}, "item": {home}}
+	rec := httptest.NewRecorder()
+	f.h.handleUserCreateDAVAccount(rec, davAccountRequest("/api/accounts/dav", form))
+	id := rec.Header().Get("X-Gofer-Account-ID")
+	if rec.Code != http.StatusNoContent || id == "" {
+		t.Fatalf("create: %d %q", rec.Code, rec.Body.String())
+	}
+	if err := f.h.userAccounts.WithAccountForUser(t.Context(), "alice", id, func(_ *config.AccountStore, db *storage.DB) error {
+		return db.SetImportedAccountPending(t.Context(), "alice", id, storage.ImportedAccountPending{Calendars: []string{club}, Needs: []string{storage.ImportedLoginMail}})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	data, err := f.h.userEditData(t.Context(), "alice", id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dialog := davAccountDialogData(*data)
+	if !dialog.NeedsPassword {
+		t.Fatal("imported account's dialog doesn't ask for its password")
+	}
+	for _, item := range dialog.Items {
+		if item.ID == club && !item.Checked {
+			t.Fatal("the calendar the profile synced starts unticked")
+		}
+	}
+
+	update := func(password string) *httptest.ResponseRecorder {
+		edit := url.Values{"server_url": {f.server.URL}, "username": {"dav-user"}, "password": {password}, "item": {home}}
+		r := davAccountRequest("/api/accounts/"+id+"/dav", edit)
+		r.SetPathValue("id", id)
+		rec := httptest.NewRecorder()
+		f.h.handleUserUpdateDAVAccount(rec, r)
+		return rec
+	}
+	if rec := update(""); rec.Code != http.StatusBadRequest {
+		t.Fatalf("saved without its password: %d", rec.Code)
+	}
+	if rec := update("dav-pass"); rec.Code != http.StatusNoContent {
+		t.Fatalf("update: %d %q", rec.Code, rec.Body.String())
+	}
+	if data, err = f.h.userEditData(t.Context(), "alice", id); err != nil {
+		t.Fatal(err)
+	}
+	if data.ReconnectPending || data.CalendarSync.SelectedSourceCount != 1 || davSelectedCalendar(data) != "Home" {
+		t.Fatalf("after its password: pending %v, %+v", data.ReconnectPending, data.CalendarSync)
+	}
+}

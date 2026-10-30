@@ -7,6 +7,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/components/checkbox"
 	"github.com/cristianadrielbraun/gofer/components/icon"
 	"github.com/cristianadrielbraun/gofer/components/radio"
+	"github.com/cristianadrielbraun/gofer/internal/providers"
 )
 
 // ProfileImportAccount is one account in a profile being imported. Status is
@@ -102,6 +103,9 @@ func profileImportStatusLabel(status string) string {
 func profileImportStatusDescription(account ProfileImportAccount) string {
 	switch account.Status {
 	case "exists":
+		if account.Provider == providers.ProviderDAV {
+			return "This account is already in Gofer. Replacing its settings keeps its password."
+		}
 		if account.CanReplace {
 			return "This mailbox is already in Gofer. Replacing its settings keeps its password, sign-in and mail."
 		}
@@ -265,7 +269,7 @@ templ profileAccountSummary(account ProfileImportAccount) {
 				{ accountProviderName(account.Provider) }
 			</span>
 		</span>
-		if account.Name != "" && account.Name != account.Email {
+		if account.Name != "" && account.Email != "" && account.Name != account.Email {
 			<span class="block truncate text-xs text-muted-foreground">{ account.Email }</span>
 		}
 		<span class="mt-1 block text-xs text-muted-foreground">

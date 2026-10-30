@@ -34,6 +34,9 @@ type DAVItem struct {
 type DAVAccountDialogData struct {
 	AccountID, Service, Name, ServerURL, Username string
 	Items                                         []DAVItem
+	// NeedsPassword is set for an account imported from a profile, which
+	// syncs once its password is entered.
+	NeedsPassword bool
 }
 
 // accountHasNoMail reports whether the account is only a CalDAV or CardDAV
@@ -154,6 +157,12 @@ templ DAVAccountDialog(data DAVAccountDialogData) {
 			<form class={ dataDialogFormClass } data-dav-account-form novalidate>
 				<input type="hidden" name="service" value={ data.Service }/>
 				@dataDialogScroll("space-y-4 pb-4") {
+					if data.NeedsPassword {
+						<p class="flex items-start gap-2 rounded-lg border border-amber-300/50 bg-amber-100/50 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300" data-dav-account-needs-password>
+							@icon.KeyRound(icon.Props{Class: "mt-0.5 size-3.5 shrink-0"})
+							<span>Imported from a profile. Enter its password and save to start syncing.</span>
+						</p>
+					}
 					<div>
 						<label class="mb-1.5 block text-xs font-medium text-muted-foreground">Name <span class="font-normal">(optional)</span></label>
 						@input.Input(input.Props{Name: "display_name", Type: input.TypeText, Value: data.Name, Placeholder: "The server's name"})
@@ -169,7 +178,7 @@ templ DAVAccountDialog(data DAVAccountDialogData) {
 						</div>
 						<div>
 							<label class="mb-1.5 block text-xs font-medium text-muted-foreground">Password or app password</label>
-							if editing {
+							if editing && !data.NeedsPassword {
 								@input.Input(input.Props{Name: "password", Type: input.TypePassword, Placeholder: "Leave blank to keep current", Attributes: templ.Attributes{"autocomplete": "current-password", "data-dav-login": ""}})
 							} else {
 								@input.Input(input.Props{Name: "password", Type: input.TypePassword, Placeholder: "••••••••", Required: true, Attributes: templ.Attributes{"autocomplete": "current-password", "data-dav-login": ""}})

@@ -69,6 +69,9 @@ type EditAccountData struct {
 	ReconnectSMTP     bool
 	ReconnectContacts bool
 	ReconnectCalendar bool
+	// ReconnectCalendars are the calendars the profile had selected, which
+	// come back on with it.
+	ReconnectCalendars []string
 	Signatures        []Signature
 	SignatureSettings AccountSignatureSettings
 	ContactSync       ContactSyncConfig

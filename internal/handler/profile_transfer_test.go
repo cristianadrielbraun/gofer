@@ -13,6 +13,7 @@ import (
 
 	"github.com/cristianadrielbraun/gofer/internal/config"
 	"github.com/cristianadrielbraun/gofer/internal/models"
+	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
 
@@ -813,5 +814,80 @@ func TestProfileJMAPCalendarsRoundTrip(t *testing.T) {
 	}
 	if cfg, err := target.accountStore.GetCalendarSyncConfig(ctx, "default", id); err != nil || cfg.Protocol != "jmap" || cfg.CalDAVBaseURL != "" {
 		t.Fatalf("imported calendar setup = %+v, %v", cfg, err)
+	}
+}
+
+// A calendar-only account goes into a profile without its password, comes
+// back waiting for it, and is known again by its login on its server.
+func TestProfileCalendarOnlyAccountRoundTrip(t *testing.T) {
+	ctx := t.Context()
+	source := newProfileTestHandler(t)
+	created, err := source.accountStore.CreateAccount(ctx, "default", &models.CreateAccountRequest{
+		Provider: providers.ProviderDAV, DisplayName: "Home server", Username: "sam", Password: "dav-secret-value",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := source.accountStore.SaveCalDAVConfig(ctx, "default", created.ID, "https://dav.example.test/", "", "", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := source.db.ReplaceCalendarSources(ctx, "default", created.ID, storage.CalendarSourceProviderCalDAV, []storage.CalendarSource{
+		{RemoteID: "https://dav.example.test/sam/home/", Name: "Home", IsPrimary: true, IsSelected: true},
+		{RemoteID: "https://dav.example.test/sam/club/", Name: "Club"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	data := exportProfileForTest(t, source, false)
+	if strings.Contains(string(data), "dav-secret-value") || !strings.Contains(string(data), `"provider":"dav"`) || !strings.Contains(string(data), `"version":2`) {
+		t.Fatalf("exported profile = %s", data)
+	}
+
+	target := newProfileTestHandler(t)
+	file, err := parseProfile(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan := target.profileAccountPlans(file, nil)[file.Accounts[0].Ref]; plan.Status != profileImportNew {
+		t.Fatalf("plan for a new calendar-only account = %+v", plan)
+	}
+	result, err := target.importProfile(ctx, "default", file, profileImportOptions{Accounts: map[string]bool{file.Accounts[0].Ref: true}})
+	if err != nil || !slices.Equal(result.Accounts, []string{"Home server"}) || len(result.AccountFailures) != 0 {
+		t.Fatalf("import = %+v, %v", result, err)
+	}
+	accounts, err := target.db.GetAccounts(ctx, "default")
+	if err != nil || len(accounts) != 1 {
+		t.Fatalf("imported accounts = %+v, %v", accounts, err)
+	}
+	account := accounts[0]
+	if account.Provider != providers.ProviderDAV || account.DAVService != "calendar" || account.DAVLogin != "sam" || !account.ReconnectPending ||
+		!slices.Equal(account.ReconnectNeeds, []string{storage.ImportedLoginMail}) || account.CalendarSyncEnabled {
+		t.Fatalf("imported account = %+v", account)
+	}
+	calendar, err := target.accountStore.GetCalendarSyncConfig(ctx, "default", account.ID)
+	if err != nil || calendar.CalDAVBaseURL != "https://dav.example.test/" || !calendar.CalDAVUseAccountCredentials || calendar.SourceCount != 2 {
+		t.Fatalf("imported calendars = %+v, %v", calendar, err)
+	}
+
+	// Importing it again finds it, by its login on its server.
+	existing, err := target.profileExistingAccounts(ctx, "default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan := target.profileAccountPlans(file, existing)[file.Accounts[0].Ref]; plan.Status != profileImportExists || !plan.CanReplace || plan.ExistingID != account.ID {
+		t.Fatalf("plan for the imported account = %+v", plan)
+	}
+	if err := target.replaceProfileAccount(ctx, "default", account.ID, file.Accounts[0], nil); err != nil {
+		t.Fatalf("replace: %v", err)
+	}
+	if data, err := target.accountStore.GetEditData(ctx, account.ID); err != nil || data.Provider != providers.ProviderDAV || data.Username != "sam" || data.IMAPHost != "" {
+		t.Fatalf("replaced account = %+v, %v", data, err)
+	}
+
+	// With its password, the calendar the profile synced comes back on.
+	if _, _, err := target.resolveImportedLogin(ctx, "default", account.ID, storage.ImportedLoginMail); err != nil {
+		t.Fatal(err)
+	}
+	if calendar, err := target.accountStore.GetCalendarSyncConfig(ctx, "default", account.ID); err != nil || calendar.SelectedSourceCount != 1 {
+		t.Fatalf("calendars after the password = %+v, %v", calendar, err)
 	}
 }

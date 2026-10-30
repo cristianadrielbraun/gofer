@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"regexp"
 	"slices"
 	"sort"
@@ -25,8 +26,11 @@ import (
 // Gofer-only contacts to another installation. It never holds passwords or
 // sign-in tokens: imported accounts wait until they are reconnected.
 const (
-	profileFormat         = "gofer-profile"
-	profileVersion        = 1
+	profileFormat = "gofer-profile"
+	// profileVersion is the newest profile this Gofer reads. Version 2 added
+	// accounts with no mail; a profile without one is still written as
+	// version 1, so older Gofers keep reading it.
+	profileVersion        = 2
 	profileImportMaxBytes = 16 << 20
 )
 
@@ -176,7 +180,7 @@ func (h *Handler) withProfileAccount(ctx context.Context, owner, accountID strin
 }
 
 func exportProfile(ctx context.Context, store *config.AccountStore, db *storage.DB, owner string, includeContacts bool, now time.Time) (*profileFile, error) {
-	file := &profileFile{Format: profileFormat, Version: profileVersion, ExportedAt: now.UTC().Format(time.RFC3339)}
+	file := &profileFile{Format: profileFormat, Version: 1, ExportedAt: now.UTC().Format(time.RFC3339)}
 
 	accounts, err := db.GetAccounts(ctx, owner)
 	if err != nil {
@@ -202,7 +206,10 @@ func exportProfile(ctx context.Context, store *config.AccountStore, db *storage.
 		accountRefs[account.ID] = ref
 		exported, err := exportProfileAccount(ctx, store, db, owner, account, ref, signatureRefs)
 		if err != nil {
-			return nil, fmt.Errorf("export account %s: %w", account.Email, err)
+			return nil, fmt.Errorf("export account %s: %w", account.ID, err)
+		}
+		if exported.Provider == providers.ProviderDAV {
+			file.Version = 2
 		}
 		file.Accounts = append(file.Accounts, exported)
 	}
@@ -403,7 +410,8 @@ func parseProfile(data []byte) (*profileFile, error) {
 			return nil, errors.New("This profile file is damaged.")
 		}
 		refs[account.Ref] = true
-		if strings.TrimSpace(account.EmailAddress) == "" {
+		// An account with no mail goes by its login instead of an address.
+		if strings.TrimSpace(account.EmailAddress) == "" && (account.Provider != providers.ProviderDAV || strings.TrimSpace(account.Username) == "") {
 			return nil, errors.New("This profile file is damaged.")
 		}
 	}
@@ -421,7 +429,7 @@ const (
 
 func (h *Handler) profileProviderAvailable(provider string) bool {
 	switch provider {
-	case providers.ProviderIMAP:
+	case providers.ProviderIMAP, providers.ProviderDAV:
 		return true
 	case providers.ProviderJMAP:
 		return providers.JMAPEnabled()
@@ -445,7 +453,8 @@ type profileExistingAccount struct {
 }
 
 // profileExistingAccounts maps the email addresses of the user's accounts,
-// in lower case, to the accounts.
+// in lower case, to the accounts; an account with no mail goes by its login
+// on its server.
 func (h *Handler) profileExistingAccounts(ctx context.Context, owner string) (map[string]profileExistingAccount, error) {
 	existing := map[string]profileExistingAccount{}
 	err := h.withProfileStore(ctx, owner, func(_ *config.AccountStore, db *storage.DB) error {
@@ -454,14 +463,51 @@ func (h *Handler) profileExistingAccounts(ctx context.Context, owner string) (ma
 			return err
 		}
 		for _, account := range accounts {
-			// An account with no mail has no address to match.
-			if !account.IsDeleting && strings.TrimSpace(account.Email) != "" {
-				existing[strings.ToLower(strings.TrimSpace(account.Email))] = profileExistingAccount{ID: account.ID, Provider: account.Provider}
+			key := strings.ToLower(strings.TrimSpace(account.Email))
+			if account.Provider == providers.ProviderDAV {
+				key = profileDAVKey(account.DAVLogin, account.DAVServer)
+			}
+			if !account.IsDeleting && key != "" {
+				existing[key] = profileExistingAccount{ID: account.ID, Provider: account.Provider}
 			}
 		}
 		return nil
 	})
 	return existing, err
+}
+
+// profileAccountKey is what an account of a profile is matched by: its email
+// address, or for an account with no mail its login on its server.
+func profileAccountKey(account profileAccount) string {
+	if account.Provider != providers.ProviderDAV {
+		return strings.ToLower(strings.TrimSpace(account.EmailAddress))
+	}
+	server := ""
+	if account.Calendar != nil {
+		server = account.Calendar.CalDAVBaseURL
+	}
+	if strings.TrimSpace(server) == "" && account.Contacts != nil {
+		server = account.Contacts.BaseURL
+	}
+	return profileDAVKey(account.Username, server)
+}
+
+func profileDAVKey(username, server string) string {
+	username = strings.ToLower(strings.TrimSpace(username))
+	parsed, err := url.Parse(strings.TrimSpace(server))
+	if username == "" || err != nil || parsed.Hostname() == "" {
+		return ""
+	}
+	return "dav:" + username + "@" + strings.ToLower(parsed.Hostname())
+}
+
+// profileAccountName names an account of a profile in what an import says:
+// its address, or the name of an account with no mail.
+func profileAccountName(account profileAccount) string {
+	if address := strings.TrimSpace(account.EmailAddress); address != "" {
+		return address
+	}
+	return strings.TrimSpace(account.DisplayName)
 }
 
 // profileAccountPlan is what importing one account of a profile can do.
@@ -476,7 +522,7 @@ type profileAccountPlan struct {
 func (h *Handler) profileAccountPlans(file *profileFile, existing map[string]profileExistingAccount) map[string]profileAccountPlan {
 	plans := make(map[string]profileAccountPlan, len(file.Accounts))
 	for _, account := range file.Accounts {
-		current, connected := existing[strings.ToLower(strings.TrimSpace(account.EmailAddress))]
+		current, connected := existing[profileAccountKey(account)]
 		switch {
 		case connected:
 			canReplace := current.Provider == account.Provider && !(account.Provider == providers.ProviderJMAP && strings.TrimSpace(account.JMAPSessionURL) == "")
@@ -634,19 +680,19 @@ func (h *Handler) importProfile(ctx context.Context, owner string, file *profile
 		case plan.Status == profileImportNew && options.Accounts[account.Ref]:
 			id, err := h.importProfileAccount(ctx, owner, account, signatureIDs)
 			if err != nil {
-				log.Printf("profile import: account %s: %v", account.EmailAddress, err)
-				result.AccountFailures = append(result.AccountFailures, account.EmailAddress)
+				log.Printf("profile import: account %s: %v", profileAccountName(account), err)
+				result.AccountFailures = append(result.AccountFailures, profileAccountName(account))
 				continue
 			}
 			accountIDs[account.Ref] = id
-			result.Accounts = append(result.Accounts, account.EmailAddress)
+			result.Accounts = append(result.Accounts, profileAccountName(account))
 		case plan.CanReplace && options.AccountActions[account.Ref] == profileConflictReplace:
 			if err := h.replaceProfileAccount(ctx, owner, plan.ExistingID, account, signatureIDs); err != nil {
-				log.Printf("profile import: replace account %s: %v", account.EmailAddress, err)
-				result.AccountFailures = append(result.AccountFailures, account.EmailAddress)
+				log.Printf("profile import: replace account %s: %v", profileAccountName(account), err)
+				result.AccountFailures = append(result.AccountFailures, profileAccountName(account))
 				continue
 			}
-			result.AccountsReplaced = append(result.AccountsReplaced, account.EmailAddress)
+			result.AccountsReplaced = append(result.AccountsReplaced, profileAccountName(account))
 		}
 	}
 
@@ -723,7 +769,7 @@ func profileCalendarProvider(account profileAccount) string {
 	if profileCalendarsOverJMAP(account) {
 		return storage.CalendarSourceProviderJMAP
 	}
-	if account.Provider == providers.ProviderIMAP || account.Provider == providers.ProviderJMAP {
+	if account.Provider == providers.ProviderIMAP || account.Provider == providers.ProviderJMAP || account.Provider == providers.ProviderDAV {
 		return storage.CalendarSourceProviderCalDAV
 	}
 	return account.Provider
@@ -753,7 +799,7 @@ func (h *Handler) importProfileAccount(ctx context.Context, owner string, accoun
 		JMAPSessionURL:    account.JMAPSessionURL,
 		EmailSyncDisabled: true,
 	}
-	if req.Provider == providers.ProviderIMAP || req.Provider == providers.ProviderJMAP {
+	if req.Provider == providers.ProviderIMAP || req.Provider == providers.ProviderJMAP || req.Provider == providers.ProviderDAV {
 		req.AuthMethod = "plain"
 	} else {
 		req.AuthMethod = "oauth2"
@@ -896,7 +942,7 @@ func importProfileAccountServices(ctx context.Context, store *config.AccountStor
 	if calendar == nil {
 		return nil
 	}
-	if (account.Provider == providers.ProviderIMAP || account.Provider == providers.ProviderJMAP) && !profileCalendarsOverJMAP(account) && strings.TrimSpace(calendar.CalDAVBaseURL) != "" {
+	if (account.Provider == providers.ProviderIMAP || account.Provider == providers.ProviderJMAP || account.Provider == providers.ProviderDAV) && !profileCalendarsOverJMAP(account) && strings.TrimSpace(calendar.CalDAVBaseURL) != "" {
 		if err := store.SaveCalDAVConfig(ctx, owner, id, calendar.CalDAVBaseURL, calendar.CalDAVUsername, "", calendar.CalDAVUseAccountCredentials); err != nil {
 			return err
 		}
@@ -1244,6 +1290,9 @@ func (h *Handler) replaceProfileAccount(ctx context.Context, owner, id string, a
 		if account.Provider == providers.ProviderJMAP {
 			req = models.CreateAccountRequest{Provider: providers.ProviderJMAP, DisplayName: name, AuthMethod: "plain",
 				JMAPSessionURL: account.JMAPSessionURL, Username: account.Username}
+		}
+		if account.Provider == providers.ProviderDAV {
+			req = models.CreateAccountRequest{Provider: providers.ProviderDAV, DisplayName: name, AuthMethod: "plain", Username: account.Username}
 		}
 		var err error
 		if h.userAccounts != nil {

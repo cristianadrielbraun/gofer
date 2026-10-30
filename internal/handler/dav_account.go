@@ -54,7 +54,9 @@ func parseDAVAccountForm(w http.ResponseWriter, r *http.Request, saved *models.E
 	if form.service != davServiceCalendar && form.service != davServiceContacts {
 		return form, "Choose calendars or contacts."
 	}
-	if form.serverURL == "" || form.username == "" || (saved == nil && strings.TrimSpace(form.password) == "") {
+	// An account imported from a profile has no password yet.
+	needsPassword := saved == nil || saved.ReconnectPending
+	if form.serverURL == "" || form.username == "" || (needsPassword && strings.TrimSpace(form.password) == "") {
 		return form, "Enter the server URL, username and password."
 	}
 	if form.name == "" {
@@ -144,13 +146,14 @@ func davItems(found davAccountDiscovery, checked func(id string) (bool, bool)) [
 	return items
 }
 
-// davSavedChoices ticks what an account already syncs; anything else the
-// server has starts unticked.
+// davSavedChoices ticks what an account already syncs, or for an account
+// imported from a profile what the profile synced; anything else the server
+// has starts unticked.
 func davSavedChoices(data models.EditAccountData) func(string) (bool, bool) {
 	return func(id string) (bool, bool) {
 		for _, source := range data.CalendarSync.Sources {
 			if source.RemoteID == id {
-				return source.IsSelected, false
+				return source.IsSelected || (data.ReconnectPending && slices.Contains(data.ReconnectCalendars, id)), false
 			}
 		}
 		for _, book := range data.ContactSync.AddressBooks {
@@ -292,6 +295,13 @@ func (h *Handler) handleUserUpdateDAVAccount(w http.ResponseWriter, r *http.Requ
 		userAccountError(w, r, err)
 		return
 	}
+	if saved.ReconnectPending {
+		// It came from a profile; with its password it syncs again, with the
+		// calendars or address books ticked below.
+		if _, _, err := h.resolveImportedLogin(r.Context(), owner, id, storage.ImportedLoginMail); err != nil {
+			log.Printf("routed account %s: turn on imported services: %v", id, err)
+		}
+	}
 	if err := h.saveDAVAccountServices(r.Context(), owner, id, form, found); err != nil {
 		log.Printf("routed account %s: save %s: %v", id, form.service, err)
 		userContactSetupError(w, r, err)
@@ -382,11 +392,14 @@ func (h *Handler) saveDAVAccountServices(ctx context.Context, owner, id string, 
 // davAccountDialogData fills the dialog of an account with no mail from its
 // saved settings.
 func davAccountDialogData(data models.EditAccountData) views.DAVAccountDialogData {
-	dialog := views.DAVAccountDialogData{AccountID: data.AccountID, Service: davAccountService(data), Name: data.DisplayName, Username: data.Username}
+	dialog := views.DAVAccountDialogData{AccountID: data.AccountID, Service: davAccountService(data), Name: data.DisplayName, Username: data.Username, NeedsPassword: data.ReconnectPending}
+	checked := davSavedChoices(data)
 	if dialog.Service == davServiceCalendar {
 		dialog.ServerURL = data.CalendarSync.CalDAVBaseURL
 		for _, source := range data.CalendarSync.Sources {
-			dialog.Items = append(dialog.Items, views.DAVItem{ID: source.RemoteID, Name: calendarSourceLabel(source), Color: source.Color, Primary: source.IsPrimary, Checked: source.IsSelected})
+			item := views.DAVItem{ID: source.RemoteID, Name: calendarSourceLabel(source), Color: source.Color, Primary: source.IsPrimary}
+			item.Checked, _ = checked(source.RemoteID)
+			dialog.Items = append(dialog.Items, item)
 		}
 		return dialog
 	}

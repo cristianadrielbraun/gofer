@@ -205,6 +205,7 @@ func (s *AccountStore) GetEditData(ctx context.Context, accountID string) (*mode
 				data.ReconnectSMTP = waiting.SMTPSeparate && slices.Contains(data.ReconnectNeeds, storage.ImportedLoginMail)
 				data.ReconnectContacts = waiting.Contacts
 				data.ReconnectCalendar = len(waiting.Calendars) > 0
+				data.ReconnectCalendars = waiting.Calendars
 			}
 		}
 		if isBuiltinContactProvider(data.Provider) && data.ContactSync.Provider != data.Provider {
