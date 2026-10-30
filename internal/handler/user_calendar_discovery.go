@@ -311,7 +311,7 @@ func calendarDiscoveredSources(calendars []calendar.RemoteCalendar) []storage.Ca
 	return sources
 }
 
-func (p *userCalendarRequest) discoverDAV(ctx context.Context, r *http.Request) ([]storage.CalendarSource, *config.DiscoveredCalDAVSettings, error) {
+func (p *userCalendarRequest) discoverDAV(ctx context.Context, r *http.Request, create *davCreate) ([]storage.CalendarSource, *config.DiscoveredCalDAVSettings, error) {
 	service := p.service()
 	identity := service.Identity()
 	savedURL, savedUsername, _ := service.CalDAVSettings()
@@ -340,11 +340,11 @@ func (p *userCalendarRequest) discoverDAV(ctx context.Context, r *http.Request) 
 	var sources []storage.CalendarSource
 	if autodiscover {
 		candidates := calDAVAutodiscoveryCandidates(ctx, []string{baseURL, jmapServerAddress(identity.JMAPSessionURL)}, identity.EmailAddress, identity.IMAPHost, identity.SMTPHost)
-		sources, baseURL, err = discoverCalDAVCalendarsCandidates(ctx, candidates, username, password, service.OwnerID(), service.AccountID())
+		sources, baseURL, err = discoverCalDAVCalendarsCandidates(ctx, candidates, username, password, service.OwnerID(), service.AccountID(), create)
 	} else {
 		baseURL, err = normalizeCalDAVBaseURL(baseURL)
 		if err == nil {
-			sources, err = discoverCalDAVCalendars(ctx, baseURL, username, password, service.OwnerID(), service.AccountID())
+			sources, err = discoverCalDAVCalendars(ctx, baseURL, username, password, service.OwnerID(), service.AccountID(), create)
 		}
 	}
 	if err != nil {
@@ -364,6 +364,7 @@ func (h *Handler) handleUserDiscoverCalendars(w http.ResponseWriter, r *http.Req
 	}
 	owner, id := h.userID(r.Context()), strings.TrimSpace(r.PathValue("id"))
 	message, failed, davSaved := "", false, false
+	create, createErr := davCreateFromForm(r)
 	err := h.userIMAP.RunAccountService(r.Context(), owner, id, mail.AccountServiceCalendar, cardDAVDiscoveryOverallTimeout, func(ctx context.Context) error {
 		snapshot, err := h.userAccounts.SnapshotCalendarDiscovery(ctx, owner, id)
 		if err != nil {
@@ -377,8 +378,12 @@ func (h *Handler) handleUserDiscoverCalendars(w http.ResponseWriter, r *http.Req
 		request := &userCalendarRequest{h: h, snapshot: snapshot}
 		var sources []storage.CalendarSource
 		var dav *config.DiscoveredCalDAVSettings
+		if createErr != nil {
+			message, failed = createErr.Error(), true
+			return nil
+		}
 		if snapshot.Provider() == storage.CalendarSourceProviderCalDAV {
-			sources, dav, err = request.discoverDAV(ctx, r)
+			sources, dav, err = request.discoverDAV(ctx, r, create)
 		} else if snapshot.Provider() == storage.CalendarSourceProviderJMAP {
 			sources, err = request.discoverJMAP(ctx)
 		} else if h.userCredentials == nil {
@@ -421,6 +426,9 @@ func (h *Handler) handleUserDiscoverCalendars(w http.ResponseWriter, r *http.Req
 			label = "JMAP calendar(s)"
 		}
 		message = fmt.Sprintf("Discovered %d %s. The primary calendar is selected by default.", len(sources), label)
+		if dav != nil {
+			message = calDAVDiscoveryMessage(len(sources), create, message)
+		}
 		return nil
 	})
 	if err != nil {

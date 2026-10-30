@@ -502,6 +502,12 @@ func (h *Handler) handleDiscoverAccountCalendars(w http.ResponseWriter, r *http.
 			discoverySucceeded = true
 			break
 		}
+		create, createErr := davCreateFromForm(r)
+		if createErr != nil {
+			statusMessage = createErr.Error()
+			statusError = true
+			break
+		}
 		autodiscover := r.FormValue("autodiscover") == "1"
 		useAccountCredentials := r.FormValue("use_account_credentials") == "1"
 		baseURL := strings.TrimSpace(r.FormValue("caldav_url"))
@@ -558,9 +564,9 @@ func (h *Handler) handleDiscoverAccountCalendars(w http.ResponseWriter, r *http.
 		var discoverErr error
 		if autodiscover {
 			candidates := calDAVAutodiscoveryCandidates(discoveryCtx, []string{baseURL, jmapServerAddress(data.JMAPSessionURL)}, data.EmailAddress, data.IMAPHost, data.SMTPHost)
-			calendars, normalizedBaseURL, discoverErr = discoverCalDAVCalendarsCandidates(discoveryCtx, candidates, username, password, userID, accountID)
+			calendars, normalizedBaseURL, discoverErr = discoverCalDAVCalendarsCandidates(discoveryCtx, candidates, username, password, userID, accountID, create)
 		} else {
-			calendars, discoverErr = discoverCalDAVCalendars(discoveryCtx, normalizedBaseURL, username, password, userID, accountID)
+			calendars, discoverErr = discoverCalDAVCalendars(discoveryCtx, normalizedBaseURL, username, password, userID, accountID, create)
 		}
 		cancel()
 		if discoverErr != nil {
@@ -579,7 +585,7 @@ func (h *Handler) handleDiscoverAccountCalendars(w http.ResponseWriter, r *http.
 			statusError = true
 			break
 		}
-		statusMessage = fmt.Sprintf("Discovered %d CalDAV calendar(s). The first calendar is selected by default.", len(calendars))
+		statusMessage = calDAVDiscoveryMessage(len(calendars), create, fmt.Sprintf("Discovered %d CalDAV calendar(s). The first calendar is selected by default.", len(calendars)))
 		discoverySucceeded = true
 		if r.FormValue("password") != "" || useAccountCredentials {
 			if remaining, waiting, err := h.resolveImportedLogin(ctx, userID, accountID, storage.ImportedLoginCalendar); err != nil {

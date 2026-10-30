@@ -2293,7 +2293,7 @@ function davAccountURL(root, path) {
   var id = root.dataset.accountId;
   return id ? '/api/accounts/' + encodeURIComponent(id) + '/dav' + path : '/api/accounts/dav' + path;
 }
-function davAccountRequest(root, path, busyMessage) {
+function davAccountRequest(root, path, busyMessage, extra) {
   var form = root.querySelector('[data-dav-account-form]');
   var missing = Array.prototype.find.call(form.querySelectorAll('input[required]'), function(input) {
     return !input.value.trim();
@@ -2304,11 +2304,13 @@ function davAccountRequest(root, path, busyMessage) {
   }
   davAccountBusy(root, true);
   davAccountStatus(root, 'busy', busyMessage);
+  var body = new URLSearchParams(new FormData(form));
+  Object.keys(extra || {}).forEach(function(name) { body.set(name, extra[name]); });
   return fetch(davAccountURL(root, path), {
     method: 'POST',
     credentials: 'same-origin',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'text/html' },
-    body: new URLSearchParams(new FormData(form)).toString()
+    body: body.toString()
   }).then(function(response) {
     return response.text().then(function(body) {
       if (!response.ok) throw new Error((body || '').trim() || 'Could not reach the server.');
@@ -2329,6 +2331,28 @@ function findDAVItems(button) {
     davAccountBusy(root, false);
   }).catch(function() {});
 }
+// createDAVItem makes a calendar or address book on the server, then lists
+// them again with it ticked, keeping what was ticked before.
+function createDAVItem(button) {
+  var root = davAccountRoot(button);
+  if (!root) return;
+  var input = root.querySelector('[data-dav-new-name]');
+  var name = input ? input.value.trim() : '';
+  if (!name) {
+    if (input) input.focus();
+    return;
+  }
+  davAccountRequest(root, '/find', 'Creating ' + name + '...', { create_name: name }).then(function(html) {
+    davAccountItems(root, html);
+    davAccountBusy(root, false);
+  }).catch(function() {});
+}
+document.addEventListener('keydown', function(event) {
+  var input = event.target;
+  if (event.key !== 'Enter' || !input || !input.hasAttribute || !input.hasAttribute('data-dav-new-name')) return;
+  event.preventDefault();
+  createDAVItem(input);
+});
 function saveDAVAccount(root) {
   var editing = !!root.dataset.accountId;
   davAccountRequest(root, '', editing ? 'Signing in and saving...' : 'Signing in and creating the account...').then(function() {
@@ -2494,7 +2518,9 @@ function syncProtocolChoices(root) {
 }
 document.addEventListener('DOMContentLoaded', function() { syncProtocolChoices(document); });
 document.body.addEventListener('htmx:afterSwap', function(event) { syncProtocolChoices(event.target || document); });
-function discoverCardDAV(accountID, fieldsID, statusID, autodiscover) {
+// discoverCardDAV lists the address books on the CardDAV server, first
+// making one named createName on it when that is set.
+function discoverCardDAV(accountID, fieldsID, statusID, autodiscover, createName) {
   var fields = document.getElementById(fieldsID);
   var status = document.getElementById(statusID);
   if (!fields || !status) return;
@@ -2506,10 +2532,11 @@ function discoverCardDAV(accountID, fieldsID, statusID, autodiscover) {
     body.append(input.name, input.value || '');
   });
   if (autodiscover) body.append('autodiscover', '1');
+  if (createName) body.append('create_name', createName);
   var overJMAP = body.get('provider') === 'jmap';
   function renderDiscoveryProgress(completed, total, endpoint) {
     var percent = total > 0 ? Math.max(0, Math.min(100, Math.round((completed / total) * 100))) : 0;
-    var label = total > 0 ? 'Testing ' + Math.min(completed + 1, total) + ' of ' + total + ' CardDAV checks' : (overJMAP ? 'Looking up JMAP address books...' : 'Preparing CardDAV discovery...');
+    var label = total > 0 ? 'Testing ' + Math.min(completed + 1, total) + ' of ' + total + ' CardDAV checks' : (overJMAP ? 'Looking up JMAP address books...' : createName ? 'Creating ' + createName + '...' : 'Preparing CardDAV discovery...');
     var safeEndpoint = endpoint ? endpoint.replace(/[&<>"]/g, function(ch) { return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]); }) : '';
     status.innerHTML = '<div class="rounded-lg border border-border bg-background/60 p-3 text-xs text-muted-foreground"><div class="flex items-center justify-between gap-3"><span class="font-medium text-foreground">' + label + '</span><span class="tabular-nums">' + completed + '/' + (total || '?') + '</span></div><div class="mt-2 h-1.5 overflow-hidden rounded-md bg-muted"><div class="h-full rounded-md bg-primary transition-all" style="width:' + percent + '%"></div></div>' + (safeEndpoint ? '<div class="mt-2 truncate">' + safeEndpoint + '</div>' : '') + '</div>';
   }
@@ -2533,6 +2560,7 @@ function discoverCardDAV(accountID, fieldsID, statusID, autodiscover) {
       }
       if (event.type === 'error') {
         if (timeout) window.clearTimeout(timeout);
+        enableCreate();
         var err = document.createElement('div');
         err.className = 'rounded-md border border-destructive/20 bg-destructive/10 px-3 py-2 text-xs text-destructive';
         err.textContent = event.error || 'Could not discover CardDAV address books.';
@@ -2542,7 +2570,7 @@ function discoverCardDAV(accountID, fieldsID, statusID, autodiscover) {
       }
       if (event.type === 'done') {
         if (timeout) window.clearTimeout(timeout);
-        renderDiscoveryResults(event.address_books || []);
+        renderDiscoveryResults(event.address_books || [], event.created || '');
       }
     }
     function read() {
@@ -2562,23 +2590,85 @@ function discoverCardDAV(accountID, fieldsID, statusID, autodiscover) {
     return read();
   }).catch(function(err) {
     if (timeout) window.clearTimeout(timeout);
+    enableCreate();
     var message = err && err.name === 'AbortError' ? 'CardDAV discovery timed out. Check the app logs for the attempted DNS and URL checks, or enter the provider\'s exact CardDAV base URL and try again.' : 'Could not discover CardDAV address books. Check the app logs for details.';
     status.innerHTML = '<div class="rounded-md border border-destructive/20 bg-destructive/10 px-3 py-2 text-xs text-destructive">' + message + '</div>';
   });
-  function renderDiscoveryResults(books) {
+  function enableCreate() {
+    fields.querySelectorAll('[data-carddav-create]').forEach(function(button) { button.disabled = false; });
+  }
+  // createRow makes another address book on the server, which then lists
+  // them again with it ticked; see CardDAVCreateAddressBook.
+  function createRow() {
+    var row = document.createElement('div');
+    row.className = 'mt-3 flex items-end gap-2 border-t border-border/60 pt-3';
+    row.setAttribute('data-carddav-create-row', '');
+    var field = document.createElement('div');
+    field.className = 'min-w-0 flex-1';
+    var label = document.createElement('label');
+    label.className = 'mb-1.5 block text-xs font-medium text-muted-foreground';
+    label.textContent = 'New address book';
+    var input = document.createElement('input');
+    input.type = 'text';
+    input.maxLength = 100;
+    input.autocomplete = 'off';
+    input.placeholder = 'Address book name';
+    input.setAttribute('data-carddav-new-name', '');
+    input.className = 'flex h-9 w-full min-w-0 rounded-md border border-input bg-input/30 px-3 py-1 text-base shadow-xs transition-[color,box-shadow] outline-none md:text-sm placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]';
+    var button = document.createElement('button');
+    button.type = 'button';
+    button.setAttribute('data-carddav-create', '');
+    button.dataset.accountId = accountID;
+    button.dataset.fieldsId = fieldsID;
+    button.dataset.statusId = statusID;
+    button.dataset.carddavAutodiscover = autodiscover ? 'true' : 'false';
+    button.className = 'inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md border border-primary/30 bg-primary/10 px-3 text-xs font-semibold text-primary transition-colors hover:border-primary/45 hover:bg-primary/15 disabled:pointer-events-none disabled:opacity-60';
+    button.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-3.5"><path d="M5 12h14"></path><path d="M12 5v14"></path></svg>';
+    button.appendChild(document.createTextNode('Create'));
+    field.appendChild(label);
+    field.appendChild(input);
+    row.appendChild(field);
+    row.appendChild(button);
+    return row;
+  }
+  function renderDiscoveryResults(books, created) {
     status.textContent = '';
+    var pickerSection = fields.querySelector('[data-carddav-addressbook-section]');
     if (!books.length) {
-      var empty = document.createElement('div');
-      empty.className = 'rounded-md border border-border bg-background/60 px-3 py-2 text-xs text-muted-foreground';
-      empty.textContent = overJMAP ? 'The JMAP server has no address books for this login.' : 'No CardDAV address books were found.';
-      status.appendChild(empty);
+      if (overJMAP) {
+        var empty = document.createElement('div');
+        empty.className = 'rounded-md border border-border bg-background/60 px-3 py-2 text-xs text-muted-foreground';
+        empty.textContent = 'The JMAP server has no address books for this login.';
+        status.appendChild(empty);
+        return;
+      }
+      var none = document.createElement('div');
+      none.className = pickerSection ? '' : 'rounded-lg border border-border bg-background/60 p-3';
+      var noneTitle = document.createElement('div');
+      noneTitle.className = 'text-xs font-semibold text-foreground';
+      noneTitle.textContent = 'No address books on this server yet';
+      var noneHint = document.createElement('p');
+      noneHint.className = 'mt-1 text-[11px] leading-relaxed text-muted-foreground';
+      noneHint.textContent = 'Create one to sync. It is made on the server, so your other apps see it too.';
+      none.appendChild(noneTitle);
+      none.appendChild(noneHint);
+      none.appendChild(createRow());
+      if (pickerSection) {
+        pickerSection.classList.remove('hidden');
+        pickerSection.textContent = '';
+        pickerSection.appendChild(none);
+      } else {
+        status.appendChild(none);
+      }
       return;
     }
-    var pickerSection = fields.querySelector('[data-carddav-addressbook-section]');
     if (pickerSection) pickerSection.classList.remove('hidden');
     var existingInputs = fields.querySelectorAll('input[name="addressbook_url"]');
     var selected = {};
-    existingInputs.forEach(function(input) { if (input.value) selected[input.value] = true; });
+    existingInputs.forEach(function(input) {
+      if (input.value && (input.type !== 'checkbox' || input.checked)) selected[input.value] = true;
+    });
+    if (created) selected[created] = true;
     var wrap = document.createElement('div');
     wrap.className = pickerSection ? '' : 'rounded-lg border border-border bg-background/60 p-3';
     var title = document.createElement('div');
@@ -2658,9 +2748,13 @@ function discoverCardDAV(accountID, fieldsID, statusID, autodiscover) {
       if (check.checked) row.classList.add('border-primary', 'bg-primary/10');
       list.appendChild(row);
     });
+    var previousDefault = fields.querySelector('input[name="default_addressbook_url"]:checked');
+    var keepDefault = previousDefault ? list.querySelector('input[name="default_addressbook_url"][value="' + CSS.escape(previousDefault.value) + '"]') : null;
+    if (keepDefault && !keepDefault.disabled) keepDefault.checked = true;
     var firstChecked = list.querySelector('input[name="addressbook_url"]:checked');
-    if (firstChecked) firstChecked.closest('label').querySelector('input[name="default_addressbook_url"]').checked = true;
+    if (!list.querySelector('input[name="default_addressbook_url"]:checked') && firstChecked) firstChecked.closest('label').querySelector('input[name="default_addressbook_url"]').checked = true;
     wrap.appendChild(list);
+    if (!overJMAP) wrap.appendChild(createRow());
     if (pickerSection) {
       pickerSection.textContent = '';
       pickerSection.appendChild(wrap);
@@ -2674,6 +2768,33 @@ document.addEventListener('click', function(event) {
   if (!button) return;
   event.preventDefault();
   discoverCardDAV(button.dataset.accountId || '', button.dataset.fieldsId || '', button.dataset.statusId || '', button.dataset.carddavAutodiscover === 'true');
+});
+// createCardDAVAddressBook runs discovery from a New address book row,
+// making the address book named there first.
+function createCardDAVAddressBook(button) {
+  var row = button.closest('[data-carddav-create-row]');
+  var input = row ? row.querySelector('[data-carddav-new-name]') : null;
+  var name = input ? input.value.trim() : '';
+  if (!name) {
+    if (input) input.focus();
+    return;
+  }
+  button.disabled = true;
+  discoverCardDAV(button.dataset.accountId || '', button.dataset.fieldsId || '', button.dataset.statusId || '', button.dataset.carddavAutodiscover === 'true', name);
+}
+document.addEventListener('click', function(event) {
+  var button = event.target && event.target.closest ? event.target.closest('[data-carddav-create]') : null;
+  if (!button) return;
+  event.preventDefault();
+  createCardDAVAddressBook(button);
+});
+document.addEventListener('keydown', function(event) {
+  var input = event.target;
+  if (event.key !== 'Enter' || !input || !input.hasAttribute || !input.hasAttribute('data-carddav-new-name')) return;
+  event.preventDefault();
+  var row = input.closest('[data-carddav-create-row]');
+  var button = row ? row.querySelector('[data-carddav-create]') : null;
+  if (button) createCardDAVAddressBook(button);
 });
 document.addEventListener('click', function(event) {
   var button = event.target && event.target.closest ? event.target.closest('[data-carddav-manual]') : null;

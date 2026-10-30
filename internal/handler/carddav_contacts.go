@@ -452,14 +452,19 @@ func (h *Handler) handleDiscoverAccountContactSync(w http.ResponseWriter, r *htt
 			return
 		}
 	}
-
-	log.Printf("contacts carddav discover %s: trying %d candidate(s): %s", accountID, len(candidates), strings.Join(candidates, ", "))
-	if strings.Contains(r.Header.Get("Accept"), "application/x-ndjson") {
-		h.streamCardDAVDiscovery(w, ctx, accountID, candidates, username, password, autodiscover)
+	create, err := davCreateFromForm(r)
+	if err != nil {
+		writeJSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	books, err := discoverCardDAVAddressBooksCandidates(ctx, candidates, username, password, nil, autodiscover)
+	log.Printf("contacts carddav discover %s: trying %d candidate(s): %s", accountID, len(candidates), strings.Join(candidates, ", "))
+	if strings.Contains(r.Header.Get("Accept"), "application/x-ndjson") {
+		h.streamCardDAVDiscovery(w, ctx, accountID, candidates, username, password, autodiscover, create)
+		return
+	}
+
+	books, err := discoverCardDAVAddressBooksCandidates(ctx, candidates, username, password, nil, autodiscover, create)
 	if err != nil {
 		log.Printf("contacts carddav discover %s: failed: %v", accountID, err)
 		writeJSONError(w, http.StatusBadRequest, err.Error())
@@ -467,10 +472,20 @@ func (h *Handler) handleDiscoverAccountContactSync(w http.ResponseWriter, r *htt
 	}
 	log.Printf("contacts carddav discover %s: found %d address book(s)", accountID, len(books))
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{"address_books": books})
+	_ = json.NewEncoder(w).Encode(cardDAVDiscoveryResult(books, create))
 }
 
-func (h *Handler) streamCardDAVDiscovery(w http.ResponseWriter, ctx context.Context, accountID string, candidates []string, username, password string, autodiscover bool) {
+// cardDAVDiscoveryResult answers a discovery with the address books found
+// and, when it made one, the new address book's URL.
+func cardDAVDiscoveryResult(books []models.ContactAddressBook, create *davCreate) map[string]any {
+	result := map[string]any{"address_books": books}
+	if create != nil && create.Created != "" {
+		result["created"] = create.Created
+	}
+	return result
+}
+
+func (h *Handler) streamCardDAVDiscovery(w http.ResponseWriter, ctx context.Context, accountID string, candidates []string, username, password string, autodiscover bool, create *davCreate) {
 	w.Header().Set("Content-Type", "application/x-ndjson")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -486,14 +501,16 @@ func (h *Handler) streamCardDAVDiscovery(w http.ResponseWriter, ctx context.Cont
 	writeEvent(map[string]any{"type": "start", "message": "Preparing CardDAV discovery..."})
 	books, err := discoverCardDAVAddressBooksCandidates(ctx, candidates, username, password, func(completed, total int, endpoint string) {
 		writeEvent(map[string]any{"type": "progress", "completed": completed, "total": total, "endpoint": endpoint})
-	}, autodiscover)
+	}, autodiscover, create)
 	if err != nil {
 		log.Printf("contacts carddav discover %s: failed: %v", accountID, err)
 		writeEvent(map[string]any{"type": "error", "error": err.Error()})
 		return
 	}
 	log.Printf("contacts carddav discover %s: found %d address book(s)", accountID, len(books))
-	writeEvent(map[string]any{"type": "done", "address_books": books})
+	done := cardDAVDiscoveryResult(books, create)
+	done["type"] = "done"
+	writeEvent(done)
 }
 
 func (h *Handler) contactSyncAccountIdentity(ctx context.Context, userID, accountID string) (string, string, string, string, string, error) {
@@ -1196,10 +1213,14 @@ func discoverCardDAVAddressBooksAny(ctx context.Context, candidates []string, us
 }
 
 func discoverCardDAVAddressBooksAnyWithProgress(ctx context.Context, candidates []string, username, password string, progress cardDAVDiscoveryProgress) ([]models.ContactAddressBook, error) {
-	return discoverCardDAVAddressBooksCandidates(ctx, candidates, username, password, progress, true)
+	return discoverCardDAVAddressBooksCandidates(ctx, candidates, username, password, progress, true, nil)
 }
 
-func discoverCardDAVAddressBooksCandidates(ctx context.Context, candidates []string, username, password string, progress cardDAVDiscoveryProgress, autodiscover bool) ([]models.ContactAddressBook, error) {
+// discoverCardDAVAddressBooksCandidates lists the address books of the first
+// candidate server that reports an address book home, first making the one
+// create asks for, when it isn't nil. An empty home isn't an error, so an
+// address book can be created there.
+func discoverCardDAVAddressBooksCandidates(ctx context.Context, candidates []string, username, password string, progress cardDAVDiscoveryProgress, autodiscover bool, create *davCreate) ([]models.ContactAddressBook, error) {
 	if len(candidates) == 0 {
 		return nil, fmt.Errorf("Could not auto-discover CardDAV because no server URL, username, or email address is available. Enter the provider's CardDAV base URL and try again")
 	}
@@ -1239,9 +1260,12 @@ func discoverCardDAVAddressBooksCandidates(ctx context.Context, candidates []str
 			tracker.start(endpoint)
 		}, func() {
 			tracker.complete()
-		})
+		}, create)
 		if err == nil {
 			return books, nil
+		}
+		if create != nil && create.attempted {
+			return nil, err
 		}
 		log.Printf("contacts carddav discover: %s failed: %v", candidate.baseURL, err)
 		lastErr = err
@@ -1279,7 +1303,7 @@ func (t *cardDAVDiscoveryTracker) complete() {
 	t.completed++
 }
 
-func discoverCardDAVAddressBooksCandidate(ctx context.Context, rawBaseURL, baseURL, username, password string, beforeEndpoint func(endpoint string), afterEndpoint func()) ([]models.ContactAddressBook, string, error) {
+func discoverCardDAVAddressBooksCandidate(ctx context.Context, rawBaseURL, baseURL, username, password string, beforeEndpoint func(endpoint string), afterEndpoint func(), create *davCreate) ([]models.ContactAddressBook, string, error) {
 	wellKnown := cardDAVWellKnownURL(baseURL)
 	if beforeEndpoint != nil {
 		beforeEndpoint(wellKnown)
@@ -1316,12 +1340,23 @@ func discoverCardDAVAddressBooksCandidate(ctx context.Context, rawBaseURL, baseU
 	}
 	homeURL = absoluteDAVHref(principalURL, homeURL)
 
+	created := ""
+	if create != nil {
+		create.attempted = true
+		if created, err = createCardDAVAddressBook(ctx, homeURL, username, password, create.Name); err != nil {
+			return nil, used, err
+		}
+		create.Created = created
+	}
 	books, err := listCardDAVAddressBooks(ctx, homeURL, username, password)
 	if err != nil {
 		return nil, used, err
 	}
-	if len(books) == 0 {
-		return nil, used, fmt.Errorf("no CardDAV address books found")
+	// The address book is listed under the URL the server gives it.
+	for _, book := range books {
+		if created != "" && davSameCollection(book.URL, created) {
+			create.Created = book.URL
+		}
 	}
 	return books, used, nil
 }

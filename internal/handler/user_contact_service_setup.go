@@ -208,11 +208,16 @@ func (h *Handler) handleUserDiscoverAccountContactSync(w http.ResponseWriter, r 
 			writeJSONError(w, http.StatusBadRequest, "enter the CardDAV password before discovery")
 			return nil
 		}
+		create, err := davCreateFromForm(r)
+		if err != nil {
+			writeJSONError(w, http.StatusBadRequest, err.Error())
+			return nil
+		}
 		if streaming {
 			streamed = true
-			return h.streamUserCardDAVDiscovery(w, ctx, snapshot, candidates, username, password, autodiscover)
+			return h.streamUserCardDAVDiscovery(w, ctx, snapshot, candidates, username, password, autodiscover, create)
 		}
-		books, discoveryErr := discoverCardDAVAddressBooksCandidates(ctx, candidates, username, password, nil, autodiscover)
+		books, discoveryErr := discoverCardDAVAddressBooksCandidates(ctx, candidates, username, password, nil, autodiscover, create)
 		if err := h.userAccounts.ValidateContactServices(ctx, snapshot); err != nil {
 			return err
 		}
@@ -221,14 +226,14 @@ func (h *Handler) handleUserDiscoverAccountContactSync(w http.ResponseWriter, r 
 			return nil
 		}
 		w.Header().Set("Content-Type", "application/json")
-		return json.NewEncoder(w).Encode(map[string]any{"address_books": books})
+		return json.NewEncoder(w).Encode(cardDAVDiscoveryResult(books, create))
 	})
 	if err != nil && !streamed {
 		userContactSetupError(w, r, err)
 	}
 }
 
-func (h *Handler) streamUserCardDAVDiscovery(w http.ResponseWriter, parent context.Context, snapshot *config.AccountServiceSnapshot, candidates []string, username, password string, autodiscover bool) error {
+func (h *Handler) streamUserCardDAVDiscovery(w http.ResponseWriter, parent context.Context, snapshot *config.AccountServiceSnapshot, candidates []string, username, password string, autodiscover bool, create *davCreate) error {
 	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
 	w.Header().Set("Content-Type", "application/x-ndjson")
@@ -256,7 +261,7 @@ func (h *Handler) streamUserCardDAVDiscovery(w http.ResponseWriter, parent conte
 			return
 		}
 		writeEvent(map[string]any{"type": "progress", "completed": completed, "total": total, "endpoint": endpoint})
-	}, autodiscover)
+	}, autodiscover, create)
 	if writeErr != nil {
 		return writeErr
 	}
@@ -268,7 +273,9 @@ func (h *Handler) streamUserCardDAVDiscovery(w http.ResponseWriter, parent conte
 		writeEvent(map[string]any{"type": "error", "error": discoveryErr.Error()})
 		return writeErr
 	}
-	writeEvent(map[string]any{"type": "done", "address_books": books})
+	done := cardDAVDiscoveryResult(books, create)
+	done["type"] = "done"
+	writeEvent(done)
 	if writeErr != nil {
 		return fmt.Errorf("write CardDAV discovery: %w", writeErr)
 	}

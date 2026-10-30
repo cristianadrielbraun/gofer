@@ -95,7 +95,9 @@ type davAccountDiscovery struct {
 	addressBooks []models.ContactAddressBook
 }
 
-func discoverDAVAccount(ctx context.Context, form davAccountForm) (davAccountDiscovery, error) {
+// discoverDAVAccount signs in to the server and lists its calendars or
+// address books, first making the one create asks for, when it isn't nil.
+func discoverDAVAccount(ctx context.Context, form davAccountForm, create *davCreate) (davAccountDiscovery, error) {
 	ctx, cancel := context.WithTimeout(ctx, cardDAVDiscoveryOverallTimeout)
 	defer cancel()
 	var found davAccountDiscovery
@@ -103,7 +105,7 @@ func discoverDAVAccount(ctx context.Context, form davAccountForm) (davAccountDis
 	if form.service == davServiceCalendar {
 		found.serverURL, err = normalizeCalDAVBaseURL(form.serverURL)
 		if err == nil {
-			found.calendars, err = discoverCalDAVCalendars(ctx, found.serverURL, form.username, form.password, "", "")
+			found.calendars, err = discoverCalDAVCalendars(ctx, found.serverURL, form.username, form.password, "", "", create)
 		}
 		if err == nil && len(found.calendars) > calendarDiscoveryMaxSources {
 			err = errors.New("CalDAV discovery exceeded its source limit")
@@ -115,10 +117,7 @@ func discoverDAVAccount(ctx context.Context, form davAccountForm) (davAccountDis
 	}
 	found.serverURL, err = normalizeCardDAVBaseURL(form.serverURL)
 	if err == nil {
-		found.addressBooks, err = discoverCardDAVAddressBooksCandidates(ctx, contactSyncDiscoveryCandidates(found.serverURL), form.username, form.password, nil, false)
-	}
-	if err == nil && len(found.addressBooks) == 0 {
-		err = errors.New("the server did not list any address books")
+		found.addressBooks, err = discoverCardDAVAddressBooksCandidates(ctx, contactSyncDiscoveryCandidates(found.serverURL), form.username, form.password, nil, false, create)
 	}
 	if err != nil {
 		return found, fmt.Errorf("Could not sign in to the CardDAV server: %w", err)
@@ -203,20 +202,40 @@ func (h *Handler) handleUserFindDAVItems(w http.ResponseWriter, r *http.Request)
 			return
 		}
 	}
+	create, err := davCreateFromForm(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	if !h.checkDAVLogin(w, r, form.username) {
 		return
 	}
-	found, err := discoverDAVAccount(r.Context(), form)
+	found, err := discoverDAVAccount(r.Context(), form, create)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	checked := davNewChoices(found)
-	if saved != nil {
+	if create != nil {
+		checked = davCreatedChoices(form, create.Created)
+	} else if saved != nil {
 		checked = davSavedChoices(*saved)
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = views.DAVItems(form.service, davItems(found, checked)).Render(r.Context(), w)
+}
+
+// davCreatedChoices keeps, after a calendar or address book was made, what
+// the dialog had ticked, and ticks the new one too. A new address book is the
+// default when none was.
+func davCreatedChoices(form davAccountForm, created string) func(string) (bool, bool) {
+	return func(id string) (bool, bool) {
+		isNew := created != "" && davSameCollection(id, created)
+		if form.defaultItem != "" {
+			return isNew || slices.Contains(form.items, id), id == form.defaultItem
+		}
+		return isNew || slices.Contains(form.items, id), isNew
+	}
 }
 
 // handleUserCreateDAVAccount adds an account with no mail, only a CalDAV or
@@ -234,7 +253,7 @@ func (h *Handler) handleUserCreateDAVAccount(w http.ResponseWriter, r *http.Requ
 	if !h.checkDAVLogin(w, r, form.username) {
 		return
 	}
-	found, err := discoverDAVAccount(r.Context(), form)
+	found, err := discoverDAVAccount(r.Context(), form, nil)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -293,7 +312,7 @@ func (h *Handler) handleUserUpdateDAVAccount(w http.ResponseWriter, r *http.Requ
 	if !h.checkDAVLogin(w, r, login.username) {
 		return
 	}
-	found, err := discoverDAVAccount(r.Context(), login)
+	found, err := discoverDAVAccount(r.Context(), login, nil)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return

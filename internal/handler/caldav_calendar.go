@@ -166,7 +166,7 @@ func calDAVDiscoveryDomains(domain string) []string {
 	return domains
 }
 
-func discoverCalDAVCalendarsCandidates(ctx context.Context, candidates []string, username, password, userID, accountID string) ([]storage.CalendarSource, string, error) {
+func discoverCalDAVCalendarsCandidates(ctx context.Context, candidates []string, username, password, userID, accountID string, create *davCreate) ([]storage.CalendarSource, string, error) {
 	var lastErr error
 	for _, candidate := range candidates {
 		if err := ctx.Err(); err != nil {
@@ -178,9 +178,12 @@ func discoverCalDAVCalendarsCandidates(ctx context.Context, candidates []string,
 			lastErr = err
 			continue
 		}
-		calendars, err := discoverCalDAVCalendars(ctx, normalized, username, password, userID, accountID)
+		calendars, err := discoverCalDAVCalendars(ctx, normalized, username, password, userID, accountID, create)
 		if err == nil {
 			return calendars, normalized, nil
+		}
+		if create != nil && create.attempted {
+			return nil, "", err
 		}
 		lastErr = err
 	}
@@ -202,7 +205,11 @@ func calDAVWellKnownURL(baseURL string) string {
 	return parsed.String()
 }
 
-func discoverCalDAVCalendars(ctx context.Context, rawBaseURL, username, password, userID, accountID string) ([]storage.CalendarSource, error) {
+// discoverCalDAVCalendars lists the calendars of a CalDAV server, first
+// making the one create asks for, when it isn't nil. A server that reports a
+// calendar home with nothing in it has no calendars yet, which isn't an
+// error, so one can be created there.
+func discoverCalDAVCalendars(ctx context.Context, rawBaseURL, username, password, userID, accountID string, create *davCreate) ([]storage.CalendarSource, error) {
 	baseURL, err := normalizeCalDAVBaseURL(rawBaseURL)
 	if err != nil {
 		return nil, err
@@ -210,6 +217,7 @@ func discoverCalDAVCalendars(ctx context.Context, rawBaseURL, username, password
 
 	endpoints := []string{calDAVWellKnownURL(baseURL), baseURL}
 	var lastErr error
+	emptyHome := false
 	for _, endpoint := range endpoints {
 		principalURL, home, requestErr := calDAVDiscoveryProperties(ctx, endpoint, username, password)
 		if requestErr != nil {
@@ -241,9 +249,33 @@ func discoverCalDAVCalendars(ctx context.Context, rawBaseURL, username, password
 				continue
 			}
 		}
-		if home == "" {
+		reported := home != ""
+		if !reported {
 			// Some servers use the configured endpoint itself as the calendar home.
 			home = endpoint
+		}
+		if create != nil {
+			// Only a home the server named is known to take new calendars.
+			if !reported {
+				lastErr = fmt.Errorf("%s did not say where new calendars go", endpoint)
+				continue
+			}
+			create.attempted = true
+			created, createErr := createCalDAVCalendar(ctx, home, username, password, create.Name)
+			if createErr != nil {
+				return nil, createErr
+			}
+			create.Created = created
+			calendars, listErr := listCalDAVCalendars(ctx, home, username, password, userID, accountID)
+			if listErr != nil {
+				return nil, listErr
+			}
+			for i := range calendars {
+				if davSameCollection(calendars[i].RemoteID, created) {
+					calendars[i].IsSelected = true
+				}
+			}
+			return calendars, nil
 		}
 		calendars, listErr := listCalDAVCalendars(ctx, home, username, password, userID, accountID)
 		if listErr == nil && len(calendars) > 0 {
@@ -252,8 +284,14 @@ func discoverCalDAVCalendars(ctx context.Context, rawBaseURL, username, password
 		if listErr != nil {
 			lastErr = listErr
 		} else {
+			// A home the server named counts as an empty server; the endpoint
+			// itself, listed only as a fallback, could be any WebDAV folder.
+			emptyHome = emptyHome || reported
 			lastErr = fmt.Errorf("no calendars were returned from %s", home)
 		}
+	}
+	if emptyHome {
+		return []storage.CalendarSource{}, nil
 	}
 	if lastErr != nil {
 		return nil, fmt.Errorf("could not discover CalDAV calendars: %w", lastErr)

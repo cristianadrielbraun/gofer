@@ -214,6 +214,29 @@ function handleCalendarDiscoveryResult(event) {
   if (flag) flag.remove()
 }
 
+function _calendarCreateBusy(form, busy) {
+  var button = form.querySelector("[data-calendar-create-submit]")
+  if (!button) return
+  var label = button.querySelector("[data-calendar-create-label]")
+  if (label) label.textContent = busy ? "Creating..." : "Create"
+  button.disabled = !!busy
+  button.setAttribute("aria-busy", busy ? "true" : "false")
+}
+
+function handleCalendarCreateStart(event) {
+  var element = _settingsEventElement(event)
+  var form = element && element.closest ? element.closest("[data-calendar-create-form]") : null
+  if (form) _calendarCreateBusy(form, true)
+}
+
+// The answer swaps in the whole panel, so this only matters when there was
+// none, such as when the request didn't reach Gofer.
+function handleCalendarCreateResult(event) {
+  var element = _settingsEventElement(event)
+  var form = element && element.closest ? element.closest("[data-calendar-create-form]") : null
+  if (form) _calendarCreateBusy(form, false)
+}
+
 function _calendarSourceForm(event) {
   var element = _settingsEventElement(event)
   return element && element.closest ? element.closest("[data-calendar-source-form]") : null
