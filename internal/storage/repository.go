@@ -8171,6 +8171,8 @@ type FolderSyncInfo struct {
 	ProviderCountDriftRemoteCount   int
 	ProviderCountDriftCursor        string
 	ProviderCountDriftConfirmations int
+	// Name is the folder's own name, without the folders it's in.
+	Name string
 }
 
 func (db *DB) GetSetting(ctx context.Context, userID string, key string) (string, error) {
@@ -8792,7 +8794,7 @@ func (db *DB) GetFoldersForAccount(ctx context.Context, accountID string) ([]Fol
 		        COALESCE(f.provider_count_drift_local_count, 0),
 		        COALESCE(f.provider_count_drift_remote_count, 0),
 		        COALESCE(f.provider_count_drift_cursor, ''),
-		        COALESCE(f.provider_count_drift_confirmations, 0)
+		        COALESCE(f.provider_count_drift_confirmations, 0), COALESCE(f.name, '')
 		 FROM folders f
 		 JOIN accounts a ON a.id = f.account_id
 		 WHERE f.account_id = ?
@@ -8819,7 +8821,7 @@ func (db *DB) GetFoldersForAccount(ctx context.Context, accountID string) ([]Fol
 			&f.TotalCount, &f.UIDNext,
 			&f.ProviderCountDriftFirstSeenAt, &f.ProviderCountDriftLastSeenAt,
 			&f.ProviderCountDriftLocalCount, &f.ProviderCountDriftRemoteCount,
-			&f.ProviderCountDriftCursor, &f.ProviderCountDriftConfirmations); err != nil {
+			&f.ProviderCountDriftCursor, &f.ProviderCountDriftConfirmations, &f.Name); err != nil {
 			return nil, fmt.Errorf("scan folder: %w", err)
 		}
 		folders = append(folders, f)

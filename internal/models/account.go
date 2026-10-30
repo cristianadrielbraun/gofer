@@ -156,9 +156,11 @@ type OutlookPushServiceState struct {
 }
 
 type FolderSyncStatus struct {
-	ID                 string
-	Name               string
-	RemoteID           string
+	ID       string
+	Name     string
+	RemoteID string
+	// FolderName is the folder's own name, without the folders it's in.
+	FolderName         string
 	Icon               string
 	Role               string
 	LastSyncedAt       string

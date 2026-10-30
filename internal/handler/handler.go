@@ -3879,6 +3879,7 @@ func (h *Handler) buildSyncSettings(ctx context.Context, accounts []models.Accou
 			folderStatuses = append(folderStatuses, models.FolderSyncStatus{
 				ID:                 f.ID,
 				Name:               name,
+				FolderName:         f.Name,
 				RemoteID:           f.RemoteID,
 				Icon:               folderIconFromRole(f.Role),
 				Role:               f.Role,

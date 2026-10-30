@@ -310,6 +310,7 @@ func TestSettingsSyncTabRendersFolderRemotePaths(t *testing.T) {
 				Folders: []models.FolderSyncStatus{
 					{ID: "acc_gmail_sent", Name: "sent", RemoteID: "[Gmail]/Sent Mail", Role: "sent", Icon: "send", IsIDLE: true},
 					{ID: "acc_sent", Name: "sent", RemoteID: "Sent", Role: "sent", Icon: "send", IsIDLE: false},
+					{ID: "acc_deep", Name: "Trash/Two/Nested/Three", FolderName: "Three", RemoteID: "Trash/Two/Nested/Three", Icon: "folder"},
 				},
 			},
 		},
@@ -322,8 +323,12 @@ func TestSettingsSyncTabRendersFolderRemotePaths(t *testing.T) {
 	html := out.String()
 	for _, want := range []string{
 		`data-folder-id="acc_gmail_sent"`,
-		`title="[Gmail]/Sent Mail"`,
 		"[Gmail]/Sent Mail",
+		// A deep folder shows its top folder and own name, and its tooltip
+		// the whole path.
+		">Trash/…/Three</span>",
+		"data-tui-popover-trigger",
+		"Trash/Two/Nested/Three",
 		`data-folder-id="acc_sent"`,
 		">Sent</span>",
 	} {
@@ -1328,6 +1333,21 @@ func TestSettingsMailOffersConversationGrouping(t *testing.T) {
 		row = row[:strings.Index(row, ">")]
 		if faded := strings.Contains(row, "opacity-50"); faded == tt.grouped {
 			t.Fatalf("saved %q: thread order row %s faded %v, want %v", tt.saved, row, faded, !tt.grouped)
+		}
+	}
+}
+
+func TestSyncFolderShortName(t *testing.T) {
+	for _, test := range []struct{ remote, name, want string }{
+		{"INBOX", "INBOX", "INBOX"},
+		{"Trash/Test Two", "Test Two", "Trash/Test Two"},
+		{"Trash/Test Two/Testing nested", "Testing nested", "Trash/…/Testing nested"},
+		{"Trash/Test Two/Nested/Nested three", "Nested three", "Trash/…/Nested three"},
+		{"INBOX.Lists.Gofer", "Gofer", "INBOX.….Gofer"},
+		{"Archive/2026", "", "Archive/2026"},
+	} {
+		if got := syncFolderShortName(models.FolderSyncStatus{RemoteID: test.remote, Name: test.remote, FolderName: test.name}); got != test.want {
+			t.Fatalf("%q = %q, want %q", test.remote, got, test.want)
 		}
 	}
 }

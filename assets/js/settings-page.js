@@ -1165,22 +1165,15 @@
   var syncSaveInFlight = false;
   var syncSaveQueued = false;
 
+  // The box a pill is in says whether its folder is real-time; the pill
+  // only changes colour.
   function setPillEffectiveMode(pill, isIDLE) {
-    var label = pill.querySelector('.sync-label');
-    var toggle = pill.querySelector('[data-sync-pill-toggle]');
     pill.dataset.effectiveIdle = isIDLE ? 'true' : 'false';
     if (isIDLE) {
       pill.className = pill.className.replace(/bg-muted\/50 border-border text-muted-foreground/g, 'bg-amber-800/10 border-amber-700/20 text-amber-800 dark:bg-amber-300/10 dark:border-amber-300/20 dark:text-amber-200');
-      if (!label && toggle) {
-        label = document.createElement('span');
-        label.className = 'sync-label text-[10px] opacity-70';
-        toggle.appendChild(label);
-      }
-      if (label) label.textContent = 'real-time';
       return;
     }
     pill.className = pill.className.replace(/bg-amber-800\/10 border-amber-700\/20 text-amber-800 dark:bg-amber-300\/10 dark:border-amber-300\/20 dark:text-amber-200/g, 'bg-muted/50 border-border text-muted-foreground');
-    if (label) label.remove();
   }
 
   function fallbackTooltipText(pill) {

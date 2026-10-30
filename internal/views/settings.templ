@@ -1325,6 +1325,14 @@ templ UnifiedFolderAccountRow(folder unifiedFolderOption, account models.Account
 	</div>
 }
 
+templ syncFolderPillToggle(f models.FolderSyncStatus) {
+	<button type="button" data-sync-pill-toggle class="inline-flex min-w-0 items-center gap-1.5">
+		{{ folderIcon := icon.Icon(f.Icon) }}
+		@folderIcon(icon.Props{Class: "size-3 shrink-0"})
+		<span class="truncate">{ syncFolderShortName(f) }</span>
+	</button>
+}
+
 templ syncFolderPill(f models.FolderSyncStatus, interval int, accountID string) {
 		<div
 			data-sync-pill
@@ -1338,22 +1346,25 @@ templ syncFolderPill(f models.FolderSyncStatus, interval int, accountID string) 
 			data-idle-fallback-reason={ f.IDLEFallbackReason }
 			data-idle-retry-at={ f.IDLERetryAt }
 			class={
-				"inline-flex items-center gap-1.5 px-2.5 rounded-md border text-xs font-medium cursor-pointer transition-transform hover:scale-[1.02] will-change-transform backface-hidden",
+				"inline-flex max-w-full items-center gap-1.5 px-2.5 rounded-md border text-xs font-medium cursor-pointer transition-transform hover:scale-[1.02] will-change-transform backface-hidden",
 				templ.KV("bg-amber-800/10 border-amber-700/20 text-amber-800 dark:bg-amber-300/10 dark:border-amber-300/20 dark:text-amber-200", syncFolderUsesEffectiveIDLE(f)),
 				templ.KV("bg-muted/50 border-border text-muted-foreground", !syncFolderUsesEffectiveIDLE(f)),
 			}
 			style="height:26px"
 		>
-			<button type="button" data-sync-pill-toggle class="inline-flex min-w-0 items-center gap-1.5" title={ f.RemoteID }>
-				{{ folderIcon := icon.Icon(f.Icon) }}
-				@folderIcon(icon.Props{Class: "size-3 shrink-0"})
-				<span class="truncate">{ syncFolderDisplayName(f) }</span>
-				if syncFolderUsesEffectiveIDLE(f) {
-					<span class="sync-label text-[10px] opacity-70">
-						real-time
-					</span>
+			if syncFolderNeedsFullName(f) {
+				// The full path, for a name shortened or too long for the pill.
+				@tooltip.Tooltip() {
+					@tooltip.Trigger(tooltip.TriggerProps{Class: "inline-flex min-w-0"}) {
+						@syncFolderPillToggle(f)
+					}
+					@tooltip.Content(tooltip.ContentProps{Position: tooltip.PositionTop, ShowArrow: true, Class: "max-w-96 break-all px-3 py-1.5 text-xs leading-relaxed"}) {
+						{ syncFolderDisplayName(f) }
+					}
 				}
-			</button>
+			} else {
+				@syncFolderPillToggle(f)
+			}
 			<span
 				data-idle-fallback-warning
 				class={
@@ -5443,6 +5454,30 @@ func syncFolderDisplayName(f models.FolderSyncStatus) string {
 		return name
 	}
 	return f.Role
+}
+
+// syncFolderShortName shortens a folder nested more than one level to its
+// top folder and its own name, such as "Trash/…/Nested three", so a deep
+// folder fits its pill; the pill's tooltip has the whole path.
+func syncFolderShortName(f models.FolderSyncStatus) string {
+	full, name := syncFolderDisplayName(f), strings.TrimSpace(f.FolderName)
+	cut := len(full) - len(name) - 1
+	if name == "" || cut < 1 || !strings.HasSuffix(full, name) {
+		return full
+	}
+	separator := full[cut : cut+1]
+	top, rest, nested := strings.Cut(full[:cut], separator)
+	if !nested || rest == "" {
+		return full
+	}
+	return top + separator + "…" + separator + name
+}
+
+// syncFolderNeedsFullName reports whether the pill shortens the folder's
+// name, or may cut it off, so its tooltip gives the whole path.
+func syncFolderNeedsFullName(f models.FolderSyncStatus) bool {
+	full := syncFolderDisplayName(f)
+	return syncFolderShortName(f) != full || len([]rune(full)) > 32
 }
 
 func syncSettingsHasConfigurableFolderModes(settings models.SyncSettings) bool {
