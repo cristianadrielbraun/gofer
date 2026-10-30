@@ -43,6 +43,7 @@ func (h *Handler) handleSaveAccountCalendarSources(w http.ResponseWriter, r *htt
 		http.Error(w, "account not found", http.StatusNotFound)
 		return
 	}
+	h.markCalendarCreateAccess(ctx, data)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := views.CalendarSyncSettingsResult(*data, "Calendar sources saved.", false).Render(ctx, w); err != nil {
 		http.Error(w, "failed to render calendar source selection", http.StatusInternalServerError)

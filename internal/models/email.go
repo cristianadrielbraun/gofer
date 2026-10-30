@@ -217,7 +217,19 @@ type CalendarSyncConfig struct {
 	SourceCount         int
 	SelectedSourceCount int
 	Sources             []CalendarSource
+	// CreateAccess is, for a Google or Microsoft account, whether its grant
+	// lets Gofer make calendars; other accounts leave it empty.
+	CreateAccess string
+	// FoundNone is set, for the answer to a discovery only, when the server
+	// has no calendars yet.
+	FoundNone bool
 }
+
+// What CalendarSyncConfig.CreateAccess says.
+const (
+	CalendarCreateAllowed        = "allowed"
+	CalendarCreateNeedsReconnect = "reconnect"
+)
 
 type ContactAddressBook struct {
 	ID            string `json:"id,omitempty"`

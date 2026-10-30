@@ -18,8 +18,11 @@ import (
 )
 
 const (
-	GoogleCalendarReadOnlyScope        = "https://www.googleapis.com/auth/calendar.readonly"
-	GoogleCalendarEventsScope          = "https://www.googleapis.com/auth/calendar.events"
+	GoogleCalendarReadOnlyScope = "https://www.googleapis.com/auth/calendar.readonly"
+	GoogleCalendarEventsScope   = "https://www.googleapis.com/auth/calendar.events"
+	// GoogleCalendarAppCreatedScope lets Gofer make calendars, and manage only
+	// the ones it made.
+	GoogleCalendarAppCreatedScope      = "https://www.googleapis.com/auth/calendar.app.created"
 	microsoftGraphContactsScope        = "https://graph.microsoft.com/Contacts.ReadWrite"
 	microsoftGraphCalendarScope        = "https://graph.microsoft.com/Calendars.Read"
 	microsoftGraphCalendarWriteScope   = "https://graph.microsoft.com/Calendars.ReadWrite"
@@ -130,6 +133,35 @@ func (m *Manager) CalendarWriteAuthorized(ctx context.Context, accountID, provid
 		return recordHasScopes(record.Scopes, GoogleCalendarEventsScope) || recordHasScopes(record.Scopes, "https://www.googleapis.com/auth/calendar")
 	}
 	return recordHasScopes(record.Scopes, microsoftGraphCalendarWriteScope)
+}
+
+// CalendarCreateAuthorized reports, from the saved grant alone, whether the
+// account may make new calendars.
+func (m *Manager) CalendarCreateAuthorized(ctx context.Context, accountID, provider string) bool {
+	oauthProvider, err := oauthProviderForAccountProvider(provider)
+	if err != nil {
+		return false
+	}
+	record, err := m.oauthTokenForAccount(ctx, accountID, oauthProvider)
+	if err != nil {
+		return false
+	}
+	if provider == providers.ProviderGmail {
+		return googleCalendarCreateAllowed(record.Scopes)
+	}
+	return recordHasScopes(record.Scopes, microsoftGraphCalendarWriteScope)
+}
+
+// GetCalendarCreateTokenForAccount is a token that may make new calendars on
+// the account's Google or Microsoft calendar.
+func (m *Manager) GetCalendarCreateTokenForAccount(ctx context.Context, accountID, provider string) (string, error) {
+	if !m.CalendarCreateAuthorized(ctx, accountID, provider) {
+		return "", errCalendarCreateNotAuthorized
+	}
+	if provider == providers.ProviderOutlook {
+		return m.getMicrosoftGraphTokenForAccount(ctx, accountID, "calendar write", microsoftGraphCalendarWriteScope)
+	}
+	return m.getOAuthTokenForAccount(ctx, accountID, providers.OAuthGoogle)
 }
 
 func (m *Manager) GetGoogleCalendarWriteTokenForAccount(ctx context.Context, accountID string) (string, error) {

@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -133,12 +134,14 @@ func TestJMAPCalendarSourcesKeepRightsAndDefault(t *testing.T) {
 
 // jmapCalendarsTestServer serves a JMAP account with two calendars to any
 // username with the password; events are JSON keyed by id, all in calendar
-// "c1", and state is the account's event state.
+// "c1", and state is the account's event state. Calendar/set adds calendars,
+// named in created.
 type jmapCalendarsTestServer struct {
 	password string
 	mu       sync.Mutex
 	state    string
 	events   map[string]string
+	created  []string
 }
 
 func (f *jmapCalendarsTestServer) set(state string, events map[string]string) {
@@ -165,8 +168,9 @@ func (f *jmapCalendarsTestServer) handler() http.Handler {
 		_ = json.NewDecoder(r.Body).Decode(&request)
 		var name string
 		var args struct {
-			IDs    []string          `json:"ids"`
-			Filter map[string]string `json:"filter"`
+			IDs    []string                  `json:"ids"`
+			Filter map[string]string         `json:"filter"`
+			Create map[string]map[string]any `json:"create"`
 		}
 		_ = json.Unmarshal(request.MethodCalls[0][0], &name)
 		_ = json.Unmarshal(request.MethodCalls[0][1], &args)
@@ -175,10 +179,21 @@ func (f *jmapCalendarsTestServer) handler() http.Handler {
 		var answer any
 		switch name {
 		case "Calendar/get":
-			answer = map[string]any{"accountId": "a1", "state": "c", "list": []any{
+			list := []any{
 				map[string]any{"id": "c1", "name": "Personal", "isDefault": true, "timeZone": "Europe/Prague", "myRights": map[string]bool{"mayReadItems": true, "mayWriteAll": true}},
 				map[string]any{"id": "c2", "name": "Holidays", "myRights": map[string]bool{"mayReadItems": true}},
-			}}
+			}
+			for i, name := range f.created {
+				list = append(list, map[string]any{"id": fmt.Sprintf("new%d", i), "name": name, "myRights": map[string]bool{"mayReadItems": true, "mayWriteAll": true}})
+			}
+			answer = map[string]any{"accountId": "a1", "state": "c", "list": list}
+		case "Calendar/set":
+			created := map[string]any{}
+			for key, calendar := range args.Create {
+				created[key] = map[string]string{"id": fmt.Sprintf("new%d", len(f.created))}
+				f.created = append(f.created, fmt.Sprint(calendar["name"]))
+			}
+			answer = map[string]any{"accountId": "a1", "created": created}
 		case "CalendarEvent/get":
 			list := []json.RawMessage{}
 			for _, id := range args.IDs {
@@ -359,5 +374,53 @@ func TestJMAPCalendarLiveExpansion(t *testing.T) {
 	}
 	if !slices.Equal(got, want) {
 		t.Fatalf("occurrences =\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+// A JMAP account's Calendar sync makes a calendar with Calendar/set, then
+// lists it selected beside the others.
+func TestJMAPCalendarCreateForTheSharedStore(t *testing.T) {
+	t.Setenv("GOFER_JMAP_EXPERIMENT", "true")
+	h, db := newAccountOwnershipTestHandler(t)
+	fake := &jmapCalendarsTestServer{password: "saved-secret"}
+	server := httptest.NewServer(fake.handler())
+	t.Cleanup(server.Close)
+	address, _ := url.Parse(server.URL)
+	port, _ := strconv.Atoi(address.Port())
+	if err := db.AddPlaintextTransportException(t.Context(), "http", address.Hostname(), port, "administrator"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AddPrivateTargetException(t.Context(), "http", address.Hostname(), port, "administrator"); err != nil {
+		t.Fatal(err)
+	}
+	account, err := h.accountStore.CreateAccount(t.Context(), "owner", &models.CreateAccountRequest{
+		Provider: "jmap", EmailAddress: "lena@example.test", DisplayName: "Lena",
+		JMAPSessionURL: server.URL + "/.well-known/jmap", Username: "lena@example.test", Password: "saved-secret",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	form := url.Values{"calendar_protocol": {"jmap"}, "create_name": {"Book club"}}
+	req := httptest.NewRequest(http.MethodPost, "/api/accounts/"+account.ID+"/calendar/discover", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.SetPathValue("id", account.ID)
+	rec := httptest.NewRecorder()
+	h.handleDiscoverAccountCalendars(rec, ownerRequest(req))
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Created the calendar &#34;Book club&#34;") || !strings.Contains(rec.Body.String(), "data-calendar-create-form") {
+		t.Fatalf("create = %d %s", rec.Code, rec.Body.String())
+	}
+	if !slices.Equal(fake.created, []string{"Book club"}) {
+		t.Fatalf("created = %v", fake.created)
+	}
+	sources, err := db.ListCalendarSourcesForAccount(t.Context(), "owner", account.ID)
+	if err != nil || len(sources) != 3 {
+		t.Fatalf("sources = %+v, %v", sources, err)
+	}
+	for _, source := range sources {
+		want := source.RemoteID == jmapCalendarDAVCollection("c1") || source.RemoteID == jmapCalendarDAVCollection("new0")
+		if source.IsSelected != want {
+			t.Fatalf("source %s selected = %v", source.Name, source.IsSelected)
+		}
 	}
 }

@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cristianadrielbraun/gofer/internal/auth"
 	"github.com/cristianadrielbraun/gofer/internal/config"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
@@ -21,7 +23,8 @@ import (
 // jmapContactsTestServer serves a JMAP account with two address books to
 // any username with the password. Cards are JSON keyed by id; changes is
 // what ContactCard/changes reports next. ContactCard/set changes the cards
-// and is recorded in sets.
+// and is recorded in sets. AddressBook/set adds the address books named in
+// books.
 type jmapContactsTestServer struct {
 	password string
 	mu       sync.Mutex
@@ -30,6 +33,7 @@ type jmapContactsTestServer struct {
 	changes  map[string]any
 	sets     []jmapContactsTestSet
 	created  int
+	books    []string
 }
 
 type jmapContactsTestSet struct {
@@ -142,10 +146,23 @@ func (f *jmapContactsTestServer) handler() http.Handler {
 		var answer any
 		switch name {
 		case "AddressBook/get":
-			answer = map[string]any{"accountId": "a1", "state": "b", "list": []any{
+			list := []any{
 				map[string]any{"id": "B1", "name": "Personal", "isDefault": true, "myRights": map[string]bool{"mayRead": true, "mayWrite": true}},
 				map[string]any{"id": "B2", "name": "Team", "myRights": map[string]bool{"mayRead": true}},
-			}}
+			}
+			for i, book := range f.books {
+				list = append(list, map[string]any{"id": fmt.Sprintf("NB%d", i), "name": book, "myRights": map[string]bool{"mayRead": true, "mayWrite": true}})
+			}
+			answer = map[string]any{"accountId": "a1", "state": "b", "list": list}
+		case "AddressBook/set":
+			var set jmapContactsTestSet
+			_ = json.Unmarshal(request.MethodCalls[0][1], &set)
+			created := map[string]any{}
+			for key, book := range set.Create {
+				created[key] = map[string]string{"id": fmt.Sprintf("NB%d", len(f.books))}
+				f.books = append(f.books, fmt.Sprint(book["name"]))
+			}
+			answer = map[string]any{"accountId": "a1", "created": created}
 		case "ContactCard/get":
 			list := []json.RawMessage{}
 			for _, id := range *args.IDs {
@@ -431,5 +448,31 @@ func TestUserJMAPContactPushUpdatesAndDeletes(t *testing.T) {
 	}
 	if fake.card("n1") != nil || remote() != nil {
 		t.Fatal("the delete left the card behind")
+	}
+}
+
+// A JMAP account's contacts make an address book with AddressBook/set, and
+// discovery answers with it listed and named as the new one.
+func TestUserJMAPContactSetupCreatesAddressBook(t *testing.T) {
+	fake := &jmapContactsTestServer{password: "synthetic"}
+	fake.set("s1", map[string]string{}, nil)
+	f := newUserContactPushFixture(t, "jmap", fake.handler())
+	alice := f.accounts["alice"]
+	form := url.Values{"provider": {"jmap"}, "create_name": {"Neighbours"}}
+	req := httptest.NewRequest(http.MethodPost, "/api/accounts/"+alice.ID+"/contacts/sync/discover", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.SetPathValue("id", alice.ID)
+	req = req.WithContext(auth.ContextWithUser(req.Context(), &auth.User{ID: "alice"}))
+	rec := httptest.NewRecorder()
+	f.h.handleUserDiscoverAccountContactSync(rec, req)
+	var result struct {
+		AddressBooks []models.ContactAddressBook `json:"address_books"`
+		Created      string                      `json:"created"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil || rec.Code != http.StatusOK {
+		t.Fatalf("discover = %d %s", rec.Code, rec.Body.String())
+	}
+	if len(fake.books) != 1 || fake.books[0] != "Neighbours" || result.Created != "NB0" || len(result.AddressBooks) != 3 {
+		t.Fatalf("books %v, result %+v", fake.books, result)
 	}
 }

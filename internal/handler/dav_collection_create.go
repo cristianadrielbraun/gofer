@@ -121,14 +121,14 @@ func davCreateCollection(ctx context.Context, transport http.RoundTripper, metho
 	return nil
 }
 
-// calDAVDiscoveryMessage tells what CalDAV discovery did when it made a
+// calendarDiscoveryMessage tells what calendar discovery did when it made a
 // calendar or found none, and otherwise keeps found.
-func calDAVDiscoveryMessage(count int, create *davCreate, found string) string {
+func calendarDiscoveryMessage(count int, create *davCreate, found string) string {
 	if create != nil && create.Created != "" {
 		return fmt.Sprintf("Created the calendar %q.", create.Name)
 	}
 	if count == 0 {
-		return "Signed in. This server has no calendars yet."
+		return "Signed in. There are no calendars here yet."
 	}
 	return found
 }

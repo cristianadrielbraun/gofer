@@ -2884,6 +2884,7 @@ func (h *Handler) handleCreateAccount(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "account created but setup details could not be loaded", http.StatusInternalServerError)
 		return
 	}
+	h.markCalendarCreateAccess(r.Context(), editData)
 	w.Header().Set("Content-Type", "text/html")
 	views.AddAccountPostCreateStep(*editData).Render(r.Context(), w)
 }
@@ -2903,6 +2904,7 @@ func (h *Handler) handleGetEditAccount(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("get account: %v", err), http.StatusNotFound)
 		return
 	}
+	h.markCalendarCreateAccess(r.Context(), data)
 
 	w.Header().Set("Content-Type", "text/html")
 	views.EditAccountDialog(*data).Render(r.Context(), w)
@@ -7445,7 +7447,7 @@ func (h *Handler) handleGoogleAccountCallback(w http.ResponseWriter, r *http.Req
 	go func() {
 		bg, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
-		if _, err := h.discoverGoogleCalendarSources(bg, userID, accountID, token.AccessToken); err != nil {
+		if _, err := h.discoverGoogleCalendarSources(bg, userID, accountID, token.AccessToken, nil); err != nil {
 			log.Printf("calendar discovery %s after gmail connect: %v", accountID, err)
 		}
 	}()

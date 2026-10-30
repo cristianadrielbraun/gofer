@@ -104,6 +104,9 @@ func (h *Handler) userEditData(ctx context.Context, owner, id string) (*models.E
 		data, err = local.GetEditData(ctx, id)
 		return err
 	})
+	if err == nil {
+		h.markUserCalendarCreateAccess(ctx, owner, data)
+	}
 	return data, err
 }
 

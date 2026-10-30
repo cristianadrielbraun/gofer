@@ -17,6 +17,7 @@ func googleAccountScopes() []string {
 		"https://www.googleapis.com/auth/contacts",
 		GoogleCalendarReadOnlyScope,
 		GoogleCalendarEventsScope,
+		GoogleCalendarAppCreatedScope,
 	}
 }
 

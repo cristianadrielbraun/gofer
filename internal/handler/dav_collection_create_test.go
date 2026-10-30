@@ -255,7 +255,7 @@ func TestCalendarSyncCreatesCalDAVCalendar(t *testing.T) {
 	}
 
 	body := discover(url.Values{"caldav_url": {server.URL}, "username": {"dav-user"}, "password": {"dav-pass"}})
-	if !strings.Contains(body, "This server has no calendars yet") || !strings.Contains(body, "data-calendar-create-form") {
+	if !strings.Contains(body, "There are no calendars here yet") || !strings.Contains(body, "data-calendar-create-form") {
 		t.Fatalf("empty server: %q", body)
 	}
 	// Creating signs in with the saved settings; the form sends only the URL.

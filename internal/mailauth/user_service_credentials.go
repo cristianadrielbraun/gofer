@@ -20,6 +20,9 @@ const (
 	userCredentialContacts
 	userCredentialCalendarRead
 	userCredentialCalendarWrite
+	// userCredentialCalendarCreate makes new calendars, which a Google grant
+	// for event writes alone doesn't allow.
+	userCredentialCalendarCreate
 )
 
 // Known grants and cached access-token scopes are different for a scoped Graph
@@ -74,6 +77,43 @@ func googleCalendarReadAllowed(scopes string) bool {
 func googleCalendarWriteAllowed(scopes string) bool {
 	return recordHasScopes(scopes, GoogleCalendarEventsScope) || recordHasScopes(scopes, "https://www.googleapis.com/auth/calendar")
 }
+
+// googleCalendarCreateAllowed reports whether a Google grant may make new
+// calendars. Accounts connected before Gofer asked for it don't have it until
+// they are reconnected.
+func googleCalendarCreateAllowed(scopes string) bool {
+	return recordHasScopes(scopes, GoogleCalendarAppCreatedScope) || recordHasScopes(scopes, "https://www.googleapis.com/auth/calendar")
+}
+
+// errCalendarCreateNotAuthorized is the answer for an account whose grant
+// predates creating calendars.
+var errCalendarCreateNotAuthorized = errors.New("this account isn't allowed to create calendars yet; reconnect it from its actions menu, then try again")
+
+func calendarCreateAllowed(record userCredentialRecord) bool {
+	switch record.Provider {
+	case providers.OAuthGoogle:
+		return googleCalendarCreateAllowed(record.grantedScopes)
+	case providers.OAuthMicrosoft:
+		return ownedGraphHasScopes(record.grantedScopes, microsoftGraphCalendarWriteScope)
+	default:
+		return false
+	}
+}
+
+// CalendarCreateAuthorizedForUser is a local grant check, as
+// CalendarWriteAuthorizedForUser is, for making new calendars.
+func (s *UserCredentials) CalendarCreateAuthorizedForUser(ctx context.Context, owner, id string) bool {
+	allowed := false
+	err := s.operation(ctx, owner, id, false, func(ctx context.Context) error {
+		record, err := s.load(ctx, owner, id)
+		if err == nil {
+			allowed = calendarCreateAllowed(record)
+		}
+		return err
+	})
+	return err == nil && allowed
+}
+
 func calendarWriteAllowed(record userCredentialRecord, provider string) bool {
 	switch provider {
 	case providers.ProviderGmail:
@@ -189,6 +229,9 @@ func (s *UserCredentials) serviceAuthorizationFrom(ctx context.Context, owner, i
 				return errors.New("calendar event writes are not authorized; reconnect this account to grant write access")
 			}
 		}
+		if purpose == userCredentialCalendarCreate && !calendarCreateAllowed(record) {
+			return errCalendarCreateNotAuthorized
+		}
 		if purpose == userCredentialCalendarRead && record.Provider == providers.OAuthGoogle && !googleCalendarReadAllowed(record.grantedScopes) {
 			return errors.New("Google Calendar reads are not authorized; reconnect this account to grant Calendar access")
 		}
@@ -199,7 +242,7 @@ func (s *UserCredentials) serviceAuthorizationFrom(ctx context.Context, owner, i
 				scopes = []string{microsoftGraphContactsScope}
 			case userCredentialCalendarRead:
 				scopes = []string{microsoftGraphCalendarScope}
-			case userCredentialCalendarWrite:
+			case userCredentialCalendarWrite, userCredentialCalendarCreate:
 				scopes = []string{microsoftGraphCalendarWriteScope}
 			default:
 				return errors.New("unknown credential service")
@@ -212,6 +255,9 @@ func (s *UserCredentials) serviceAuthorizationFrom(ctx context.Context, owner, i
 			}
 			if purpose == userCredentialCalendarWrite {
 				cached = googleCalendarWriteAllowed(record.Scopes)
+			}
+			if purpose == userCredentialCalendarCreate {
+				cached = googleCalendarCreateAllowed(record.Scopes)
 			}
 		}
 		if !force && cached && record.AccessToken != "" && record.ExpiresAt.Valid && record.ExpiresAt.Time.After(time.Now().Add(5*time.Minute)) {
@@ -260,6 +306,9 @@ func (s *UserCredentials) serviceAuthorizationFrom(ctx context.Context, owner, i
 			if purpose == userCredentialCalendarWrite && !googleCalendarWriteAllowed(observed) {
 				return errors.New("refreshed Google authorization does not allow Calendar writes")
 			}
+			if purpose == userCredentialCalendarCreate && !googleCalendarCreateAllowed(observed) {
+				return errCalendarCreateNotAuthorized
+			}
 		}
 		record.revision++ // Both credential publications increment the matched revision once.
 		authorization = s.authorizationFor(record, purpose, token.AccessToken)
@@ -280,6 +329,12 @@ func (s *UserCredentials) CalendarAccount(owner, id string, write bool) *UserAcc
 		purpose = userCredentialCalendarWrite
 	}
 	return &UserAccountCredentials{credentials: s, owner: owner, id: id, purpose: purpose}
+}
+
+// CalendarCreateAccount is the account's credentials for making new
+// calendars on its Google or Microsoft calendar.
+func (s *UserCredentials) CalendarCreateAccount(owner, id string) *UserAccountCredentials {
+	return &UserAccountCredentials{credentials: s, owner: owner, id: id, purpose: userCredentialCalendarCreate}
 }
 func (s *UserAccountCredentials) service(ctx context.Context, id string, purpose userCredentialPurpose, provider string) (string, error) {
 	if id != s.id {

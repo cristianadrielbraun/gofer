@@ -363,7 +363,7 @@ func (h *Handler) handleUserDiscoverCalendars(w http.ResponseWriter, r *http.Req
 		return
 	}
 	owner, id := h.userID(r.Context()), strings.TrimSpace(r.PathValue("id"))
-	message, failed, davSaved := "", false, false
+	message, failed, davSaved, foundNone := "", false, false, false
 	create, createErr := davCreateFromForm(r)
 	err := h.userIMAP.RunAccountService(r.Context(), owner, id, mail.AccountServiceCalendar, cardDAVDiscoveryOverallTimeout, func(ctx context.Context) error {
 		snapshot, err := h.userAccounts.SnapshotCalendarDiscovery(ctx, owner, id)
@@ -385,10 +385,19 @@ func (h *Handler) handleUserDiscoverCalendars(w http.ResponseWriter, r *http.Req
 		if snapshot.Provider() == storage.CalendarSourceProviderCalDAV {
 			sources, dav, err = request.discoverDAV(ctx, r, create)
 		} else if snapshot.Provider() == storage.CalendarSourceProviderJMAP {
-			sources, err = request.discoverJMAP(ctx)
+			sources, err = request.discoverJMAP(ctx, create)
 		} else if h.userCredentials == nil {
 			err = errors.New("Mailbox OAuth is not configured for this Gofer instance.")
 		} else {
+			if create != nil {
+				if create.Created, err = request.createOAuthCalendar(ctx, create.Name); err != nil {
+					if changed := request.validate(ctx); changed != nil {
+						return changed
+					}
+					message, failed = "Calendar creation failed: "+err.Error(), true
+					return nil
+				}
+			}
 			request.credentials = h.userCredentials.CalendarAccount(owner, id, false)
 			var calendars []calendar.RemoteCalendar
 			if snapshot.Provider() == "gmail" {
@@ -397,6 +406,7 @@ func (h *Handler) handleUserDiscoverCalendars(w http.ResponseWriter, r *http.Req
 				calendars, err = discoverOutlookCalendarsWithFetch(ctx, func(endpoint string, out any) error { return request.getJSON(ctx, endpoint, out) })
 			}
 			sources = calendarDiscoveredSources(calendars)
+			selectCreatedCalendar(sources, create)
 		}
 		if err != nil {
 			if changed := request.validate(ctx); changed != nil {
@@ -426,9 +436,8 @@ func (h *Handler) handleUserDiscoverCalendars(w http.ResponseWriter, r *http.Req
 			label = "JMAP calendar(s)"
 		}
 		message = fmt.Sprintf("Discovered %d %s. The primary calendar is selected by default.", len(sources), label)
-		if dav != nil {
-			message = calDAVDiscoveryMessage(len(sources), create, message)
-		}
+		message = calendarDiscoveryMessage(len(sources), create, message)
+		foundNone = len(sources) == 0
 		return nil
 	})
 	if err != nil {
@@ -452,6 +461,7 @@ func (h *Handler) handleUserDiscoverCalendars(w http.ResponseWriter, r *http.Req
 		userAccountError(w, r, err)
 		return
 	}
+	data.CalendarSync.FoundNone = foundNone
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := views.CalendarSyncSettingsResult(*data, message, failed).Render(r.Context(), w); err != nil {
 		log.Printf("owned calendar: render discovery: %v", err)

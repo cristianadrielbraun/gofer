@@ -1,9 +1,11 @@
 package handler
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -172,5 +174,105 @@ func TestHandleDiscoverAccountCalendarsStoresSourcesAndRendersStatus(t *testing.
 	}
 	if len(accounts) != 1 || !accounts[0].CalendarSyncEnabled {
 		t.Fatalf("accounts after discovery = %#v, want Calendar enabled", accounts)
+	}
+}
+
+// A Google account whose grant lets Gofer make calendars creates one, which
+// is listed selected; an older grant is told to reconnect, and the panel says
+// so.
+func TestHandleDiscoverAccountCalendarsCreatesGoogleCalendar(t *testing.T) {
+	for _, test := range []struct {
+		name, scopes string
+		allowed      bool
+	}{
+		{"allowed", mailauth.GoogleCalendarReadOnlyScope + " " + mailauth.GoogleCalendarEventsScope + " " + mailauth.GoogleCalendarAppCreatedScope, true},
+		{"older grant", mailauth.GoogleCalendarReadOnlyScope + " " + mailauth.GoogleCalendarEventsScope, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			db, err := storage.New(filepath.Join(t.TempDir(), "gofer.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = db.Close() })
+			if _, err := db.Write().Exec(`
+				INSERT INTO users (id, username, username_normalized, name)
+				VALUES ('default', 'default', 'default', 'Default');
+				INSERT INTO accounts (id, user_id, provider, provider_account_id, email_address, display_name, auth_method)
+				VALUES ('gmail-account', 'default', 'gmail', 'google-subject', 'person@gmail.com', 'Person', 'oauth2');`); err != nil {
+				t.Fatal(err)
+			}
+			mailCredentials := mailauth.New(&mailauth.Config{GoogleClient: &oauth2.Config{}}, db, testMailboxCredentialKey)
+			expiresAt := time.Now().Add(time.Hour)
+			if err := mailCredentials.UpsertOAuthAccount(t.Context(), "gmail-account", providers.OAuthGoogle, "google-subject", "calendar-token", "refresh-token", "Bearer", &expiresAt, test.scopes); err != nil {
+				t.Fatal(err)
+			}
+			accountStore, err := config.NewAccountStore(db, []byte("0123456789abcdef0123456789abcdef"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			h := &Handler{db: db, accountStore: accountStore, mailboxAuth: mailCredentials}
+
+			var created []string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				switch {
+				case r.Method == http.MethodPost && r.URL.Path == "/calendars":
+					var body struct{ Summary string }
+					_ = json.NewDecoder(r.Body).Decode(&body)
+					created = append(created, body.Summary)
+					_, _ = fmt.Fprint(w, `{"id":"new-calendar@group.calendar.google.com","summary":"`+body.Summary+`"}`)
+				case r.Method == http.MethodGet && r.URL.Path == "/users/me/calendarList":
+					items := `{"id":"primary","summary":"Primary","accessRole":"owner","primary":true}`
+					for _, name := range created {
+						items += `,{"id":"new-calendar@group.calendar.google.com","summary":"` + name + `","accessRole":"owner"}`
+					}
+					_, _ = fmt.Fprint(w, `{"items":[`+items+`]}`)
+				default:
+					t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+					w.WriteHeader(http.StatusNotFound)
+				}
+			}))
+			defer server.Close()
+			previousBase := googleCalendarAPIBaseURL
+			googleCalendarAPIBaseURL = server.URL
+			t.Cleanup(func() { googleCalendarAPIBaseURL = previousBase })
+
+			discover := func(form url.Values) string {
+				req := httptest.NewRequest(http.MethodPost, "/api/accounts/gmail-account/calendar/discover", strings.NewReader(form.Encode()))
+				req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+				req.SetPathValue("id", "gmail-account")
+				req = req.WithContext(auth.ContextWithUser(req.Context(), &auth.User{ID: "default", Username: "default"}))
+				rec := httptest.NewRecorder()
+				h.handleDiscoverAccountCalendars(rec, req)
+				if rec.Code != http.StatusOK {
+					t.Fatalf("status = %d body = %q", rec.Code, rec.Body.String())
+				}
+				return rec.Body.String()
+			}
+
+			body := discover(url.Values{})
+			if strings.Contains(body, "data-calendar-create-form") != test.allowed || strings.Contains(body, "reconnect this account") == test.allowed {
+				t.Fatalf("panel after discovery: %q", body)
+			}
+			body = discover(url.Values{"create_name": {"Family"}})
+			sources, err := db.ListCalendarSourcesForAccount(t.Context(), "default", "gmail-account")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !test.allowed {
+				if len(created) != 0 || !strings.Contains(body, "Calendar creation failed") || !strings.Contains(body, "reconnect it") {
+					t.Fatalf("an older grant created %v: %q", created, body)
+				}
+				return
+			}
+			if !strings.Contains(body, "Created the calendar &#34;Family&#34;") || len(sources) != 2 {
+				t.Fatalf("create: %q, sources %+v", body, sources)
+			}
+			for _, source := range sources {
+				if !source.IsSelected {
+					t.Fatalf("source %s is not selected", source.Name)
+				}
+			}
+		})
 	}
 }

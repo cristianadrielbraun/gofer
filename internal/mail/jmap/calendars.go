@@ -77,6 +77,13 @@ func (c *Client) GetCalendars(ctx context.Context, session *Session, accountID s
 	return &result, nil
 }
 
+// CreateCalendar runs Calendar/set to make a calendar named name, shown and
+// subscribed to, and returns its id.
+func (c *Client) CreateCalendar(ctx context.Context, session *Session, accountID, name string) (string, error) {
+	return c.createOne(ctx, session, CapabilityCalendars, "Calendar/set", accountID, "calendar",
+		map[string]any{"name": name, "isSubscribed": true, "isVisible": true})
+}
+
 // GetCalendarEvents runs CalendarEvent/get. An empty ids still answers with
 // the current state. Each event also gets its iCalendar property: the
 // iCalendar details the server kept without a JSCalendar form, which some

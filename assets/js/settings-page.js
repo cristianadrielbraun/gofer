@@ -2536,7 +2536,7 @@ function discoverCardDAV(accountID, fieldsID, statusID, autodiscover, createName
   var overJMAP = body.get('provider') === 'jmap';
   function renderDiscoveryProgress(completed, total, endpoint) {
     var percent = total > 0 ? Math.max(0, Math.min(100, Math.round((completed / total) * 100))) : 0;
-    var label = total > 0 ? 'Testing ' + Math.min(completed + 1, total) + ' of ' + total + ' CardDAV checks' : (overJMAP ? 'Looking up JMAP address books...' : createName ? 'Creating ' + createName + '...' : 'Preparing CardDAV discovery...');
+    var label = total > 0 ? 'Testing ' + Math.min(completed + 1, total) + ' of ' + total + ' CardDAV checks' : (createName ? 'Creating ' + createName + '...' : overJMAP ? 'Looking up JMAP address books...' : 'Preparing CardDAV discovery...');
     var safeEndpoint = endpoint ? endpoint.replace(/[&<>"]/g, function(ch) { return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]); }) : '';
     status.innerHTML = '<div class="rounded-lg border border-border bg-background/60 p-3 text-xs text-muted-foreground"><div class="flex items-center justify-between gap-3"><span class="font-medium text-foreground">' + label + '</span><span class="tabular-nums">' + completed + '/' + (total || '?') + '</span></div><div class="mt-2 h-1.5 overflow-hidden rounded-md bg-muted"><div class="h-full rounded-md bg-primary transition-all" style="width:' + percent + '%"></div></div>' + (safeEndpoint ? '<div class="mt-2 truncate">' + safeEndpoint + '</div>' : '') + '</div>';
   }
@@ -2635,13 +2635,6 @@ function discoverCardDAV(accountID, fieldsID, statusID, autodiscover, createName
     status.textContent = '';
     var pickerSection = fields.querySelector('[data-carddav-addressbook-section]');
     if (!books.length) {
-      if (overJMAP) {
-        var empty = document.createElement('div');
-        empty.className = 'rounded-md border border-border bg-background/60 px-3 py-2 text-xs text-muted-foreground';
-        empty.textContent = 'The JMAP server has no address books for this login.';
-        status.appendChild(empty);
-        return;
-      }
       var none = document.createElement('div');
       none.className = pickerSection ? '' : 'rounded-lg border border-border bg-background/60 p-3';
       var noneTitle = document.createElement('div');
@@ -2754,7 +2747,7 @@ function discoverCardDAV(accountID, fieldsID, statusID, autodiscover, createName
     var firstChecked = list.querySelector('input[name="addressbook_url"]:checked');
     if (!list.querySelector('input[name="default_addressbook_url"]:checked') && firstChecked) firstChecked.closest('label').querySelector('input[name="default_addressbook_url"]').checked = true;
     wrap.appendChild(list);
-    if (!overJMAP) wrap.appendChild(createRow());
+    wrap.appendChild(createRow());
     if (pickerSection) {
       pickerSection.textContent = '';
       pickerSection.appendChild(wrap);

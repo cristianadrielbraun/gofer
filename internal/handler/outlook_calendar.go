@@ -435,7 +435,7 @@ func (h *Handler) syncOutlookCalendarWindow(ctx context.Context, userID string, 
 	return h.syncCalendarProviderWindow(ctx, userID, windowStart, windowEnd, providers.ProviderOutlook)
 }
 
-func (h *Handler) discoverOutlookCalendarSources(ctx context.Context, userID, accountID, accessToken string) (int, error) {
+func (h *Handler) discoverOutlookCalendarSources(ctx context.Context, userID, accountID, accessToken string, create *davCreate) (int, error) {
 	calendars, err := discoverOutlookCalendars(ctx, accessToken)
 	if err != nil {
 		return 0, fmt.Errorf("discover Microsoft calendars: %w", err)
@@ -468,6 +468,7 @@ func (h *Handler) discoverOutlookCalendarSources(ctx context.Context, userID, ac
 			IsSelected:  selected,
 		})
 	}
+	selectCreatedCalendar(sources, create)
 	if err := h.db.ReplaceCalendarSources(ctx, userID, accountID, providers.ProviderOutlook, sources); err != nil {
 		return 0, fmt.Errorf("store discovered Microsoft calendars: %w", err)
 	}

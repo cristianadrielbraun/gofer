@@ -213,7 +213,7 @@ func newJMAPCalendarLive(t *testing.T) *jmapCalendarLive {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := h.discoverJMAPCalendarSources(ctx, "owner", account.ID); err != nil {
+	if _, err := h.discoverJMAPCalendarSources(ctx, "owner", account.ID, nil); err != nil {
 		t.Fatal(err)
 	}
 	sources, err := db.ListCalendarSourcesForAccount(ctx, "owner", account.ID)

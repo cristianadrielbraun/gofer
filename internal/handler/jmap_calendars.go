@@ -312,7 +312,14 @@ func calendarDiscoveryProtocol(r *http.Request, current string) string {
 
 // discoverJMAP lists the request account's JMAP calendars, for the per-user
 // stores.
-func (p *userCalendarRequest) discoverJMAP(ctx context.Context) ([]storage.CalendarSource, error) {
+func (p *userCalendarRequest) discoverJMAP(ctx context.Context, create *davCreate) ([]storage.CalendarSource, error) {
+	if create != nil {
+		created, err := p.createJMAPCalendar(ctx, create.Name)
+		if err != nil {
+			return nil, err
+		}
+		create.Created = created
+	}
 	cfg, password, err := p.jmapConnection(ctx)
 	if err != nil {
 		return nil, err
@@ -328,21 +335,31 @@ func (p *userCalendarRequest) discoverJMAP(ctx context.Context) ([]storage.Calen
 		return nil, errors.New("JMAP discovery exceeded its source limit")
 	}
 	service := p.service()
-	return jmapCalendarSources(service.OwnerID(), service.AccountID(), calendars), nil
+	sources := jmapCalendarSources(service.OwnerID(), service.AccountID(), calendars)
+	selectCreatedCalendar(sources, create)
+	return sources, nil
 }
 
 // discoverJMAPCalendarSources lists a shared-store JMAP account's calendars
 // and saves them as its calendar sources, in place of any CalDAV ones.
-func (h *Handler) discoverJMAPCalendarSources(ctx context.Context, userID, accountID string) (int, error) {
+func (h *Handler) discoverJMAPCalendarSources(ctx context.Context, userID, accountID string, create *davCreate) (int, error) {
 	cfg, password, err := h.jmapAccountConnection(ctx, accountID)
 	if err != nil {
 		return 0, err
+	}
+	if create != nil {
+		id, err := mail.CreateJMAPCalendar(ctx, cfg, password, create.Name)
+		if err != nil {
+			return 0, err
+		}
+		create.Created = jmapCalendarDAVCollection(id)
 	}
 	calendars, err := mail.JMAPCalendars(ctx, cfg, password)
 	if err != nil {
 		return 0, err
 	}
 	sources := jmapCalendarSources(userID, accountID, calendars)
+	selectCreatedCalendar(sources, create)
 	if err := h.db.ReplaceCalendarSources(ctx, userID, accountID, storage.CalendarSourceProviderJMAP, sources); err != nil {
 		return 0, fmt.Errorf("store discovered JMAP calendars: %w", err)
 	}

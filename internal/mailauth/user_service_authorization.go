@@ -120,7 +120,7 @@ func (s *UserAccountCredentials) ServiceAuthorization(ctx context.Context, force
 }
 
 func (s *UserCredentials) ValidateServiceAuthorization(ctx context.Context, snapshot *UserServiceAuthorization) error {
-	if s == nil || snapshot == nil || snapshot.repository != s || snapshot.owner == "" || snapshot.account == "" || snapshot.id == "" || snapshot.revision < 1 || (snapshot.token == "") != snapshot.grantOnly || (snapshot.grantOnly && snapshot.purpose != userCredentialCalendarRead && snapshot.purpose != userCredentialCalendarWrite) || snapshot.purpose < userCredentialMailbox || snapshot.purpose > userCredentialCalendarWrite {
+	if s == nil || snapshot == nil || snapshot.repository != s || snapshot.owner == "" || snapshot.account == "" || snapshot.id == "" || snapshot.revision < 1 || (snapshot.token == "") != snapshot.grantOnly || (snapshot.grantOnly && snapshot.purpose != userCredentialCalendarRead && snapshot.purpose != userCredentialCalendarWrite) || snapshot.purpose < userCredentialMailbox || snapshot.purpose > userCredentialCalendarCreate {
 		return ErrMailboxAuthorizationChanged
 	}
 	if err := s.ctx.Err(); err != nil {

@@ -84,3 +84,31 @@ func (c *Client) SetEmails(ctx context.Context, session *Session, args EmailSet)
 	}
 	return &result, nil
 }
+
+// createOne runs a /set that creates one object and returns its id. what
+// names the object in errors, such as "calendar".
+func (c *Client) createOne(ctx context.Context, session *Session, capability, method, accountID, what string, object map[string]any) (string, error) {
+	responses, err := c.Call(ctx, session, []string{capability},
+		Invocation{Name: method, Args: map[string]any{
+			"accountId": accountID,
+			"create":    map[string]any{"new": object},
+		}, CallID: "0"})
+	if err != nil {
+		return "", err
+	}
+	var created struct {
+		Created    map[string]struct{ ID string } `json:"created"`
+		NotCreated map[string]SetError            `json:"notCreated"`
+	}
+	if err := responses.Get("0", &created); err != nil {
+		return "", fmt.Errorf("%s: %w", method, err)
+	}
+	if failure, ok := created.NotCreated["new"]; ok {
+		return "", fmt.Errorf("the server did not create the %s: %w", what, &failure)
+	}
+	id := created.Created["new"].ID
+	if id == "" {
+		return "", fmt.Errorf("jmap: the server did not confirm the %s", what)
+	}
+	return id, nil
+}
