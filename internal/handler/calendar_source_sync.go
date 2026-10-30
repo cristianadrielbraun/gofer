@@ -13,9 +13,11 @@ import (
 )
 
 // handleCalendarSourceSync starts syncing a calendar the Calendar sidebar
-// offers, one the account has but doesn't sync: it joins the calendars its
-// account syncs, as ticking it in Calendar sync does.
+// offers, one the account has but doesn't sync, or with DELETE stops syncing
+// one: it joins or leaves the calendars its account syncs, as ticking or
+// unticking it in Calendar sync does. Nothing changes on the provider.
 func (h *Handler) handleCalendarSourceSync(w http.ResponseWriter, r *http.Request) {
+	start := r.Method != http.MethodDelete
 	sourceID, owner := strings.TrimSpace(r.PathValue("id")), h.userID(r.Context())
 	if sourceID == "" {
 		http.Error(w, "calendar required", http.StatusBadRequest)
@@ -25,8 +27,8 @@ func (h *Handler) handleCalendarSourceSync(w http.ResponseWriter, r *http.Reques
 	if h.userStorage == nil {
 		var accountID string
 		var ids []string
-		if accountID, ids, err = calendarSourceSelection(r.Context(), h.db, owner, sourceID); err == nil {
-			if err = h.db.SetCalendarSourceSelection(r.Context(), owner, accountID, ids); err == nil {
+		if accountID, ids, err = calendarSourceSelection(r.Context(), h.db, owner, sourceID, start); err == nil {
+			if err = h.db.SetCalendarSourceSelection(r.Context(), owner, accountID, ids); err == nil && start {
 				err = h.db.ScheduleCalendarSync(r.Context(), owner, sourceID, time.Now())
 			}
 		}
@@ -36,7 +38,7 @@ func (h *Handler) handleCalendarSourceSync(w http.ResponseWriter, r *http.Reques
 			var ids []string
 			if err := h.userAccounts.WithUser(ctx, owner, func(_ *config.AccountStore, db *storage.DB) error {
 				var err error
-				accountID, ids, err = calendarSourceSelection(ctx, db, owner, sourceID)
+				accountID, ids, err = calendarSourceSelection(ctx, db, owner, sourceID, start)
 				return err
 			}); err != nil {
 				return err
@@ -56,21 +58,28 @@ func (h *Handler) handleCalendarSourceSync(w http.ResponseWriter, r *http.Reques
 	case err != nil && h.userStorage != nil:
 		userAccountError(w, r, err)
 	case err != nil:
-		http.Error(w, "Could not start syncing this calendar.", http.StatusInternalServerError)
+		http.Error(w, "Could not change whether this calendar syncs.", http.StatusInternalServerError)
 	default:
 		w.WriteHeader(http.StatusNoContent)
 	}
 }
 
-// calendarSourceSelection is the account of an unsynced calendar of the
-// owner, and the calendars that account syncs with it added.
-func calendarSourceSelection(ctx context.Context, db *storage.DB, owner, sourceID string) (string, []string, error) {
-	others, err := db.ListUnselectedCalendarSources(ctx, owner)
+// calendarSourceSelection is the account of one of the owner's calendars and
+// the calendars that account is to sync: with it added when start, for an
+// unsynced calendar, or without it otherwise, for a synced one.
+func calendarSourceSelection(ctx context.Context, db *storage.DB, owner, sourceID string, start bool) (string, []string, error) {
+	selected, err := db.ListSelectedCalendarSources(ctx, owner)
 	if err != nil {
 		return "", nil, err
 	}
+	candidates := selected
+	if start {
+		if candidates, err = db.ListUnselectedCalendarSources(ctx, owner); err != nil {
+			return "", nil, err
+		}
+	}
 	accountID := ""
-	for _, source := range others {
+	for _, source := range candidates {
 		if source.ID == sourceID {
 			accountID = source.AccountID
 		}
@@ -78,13 +87,12 @@ func calendarSourceSelection(ctx context.Context, db *storage.DB, owner, sourceI
 	if accountID == "" {
 		return "", nil, sql.ErrNoRows
 	}
-	selected, err := db.ListSelectedCalendarSources(ctx, owner)
-	if err != nil {
-		return "", nil, err
+	var ids []string
+	if start {
+		ids = append(ids, sourceID)
 	}
-	ids := []string{sourceID}
 	for _, source := range selected {
-		if source.AccountID == accountID {
+		if source.AccountID == accountID && source.ID != sourceID {
 			ids = append(ids, source.ID)
 		}
 	}

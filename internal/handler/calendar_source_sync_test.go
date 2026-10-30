@@ -13,7 +13,11 @@ import (
 )
 
 func calendarSourceSyncRequest(owner, sourceID string) *http.Request {
-	r := httptest.NewRequest(http.MethodPost, "/api/calendar/sources/"+sourceID+"/sync", nil)
+	return calendarSourceSyncMethod(http.MethodPost, owner, sourceID)
+}
+
+func calendarSourceSyncMethod(method, owner, sourceID string) *http.Request {
+	r := httptest.NewRequest(method, "/api/calendar/sources/"+sourceID+"/sync", nil)
 	r.SetPathValue("id", sourceID)
 	return r.WithContext(auth.ContextWithUser(r.Context(), &auth.User{ID: owner}))
 }
@@ -74,6 +78,26 @@ func TestCalendarSourceSyncForTheSharedStore(t *testing.T) {
 	if err != nil || len(others) != 0 {
 		t.Fatalf("still offered %+v, %v", others, err)
 	}
+
+	// Stopping one moves it back among the offered calendars; a calendar
+	// that isn't synced can't be stopped.
+	rec = httptest.NewRecorder()
+	h.handleCalendarSourceSync(rec, calendarSourceSyncMethod(http.MethodDelete, "default", ids["main"]))
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("stop: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = httptest.NewRecorder()
+	h.handleCalendarSourceSync(rec, calendarSourceSyncMethod(http.MethodDelete, "default", ids["main"]))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("stopping an unsynced calendar: %d %s", rec.Code, rec.Body.String())
+	}
+	selected, err = db.ListSelectedCalendarSources(t.Context(), "default")
+	if err != nil || len(selected) != 1 || selected[0].ID != ids["club"] {
+		t.Fatalf("selected after stopping %+v, %v", selected, err)
+	}
+	if others, err := db.ListUnselectedCalendarSources(t.Context(), "default"); err != nil || len(others) != 1 || others[0].ID != ids["main"] {
+		t.Fatalf("offered after stopping %+v, %v", others, err)
+	}
 }
 
 // A per-user account does the same through its own store.
@@ -108,6 +132,20 @@ func TestCalendarSourceSyncForThePerUserStores(t *testing.T) {
 		selected, err := db.ListSelectedCalendarSources(t.Context(), "alice")
 		if err == nil && len(selected) != 2 {
 			t.Fatalf("selected %+v", selected)
+		}
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	rec = httptest.NewRecorder()
+	f.h.handleCalendarSourceSync(rec, calendarSourceSyncMethod(http.MethodDelete, "alice", ids["main"]))
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("stop: %d %s", rec.Code, strings.TrimSpace(rec.Body.String()))
+	}
+	if err := f.h.userAccounts.WithAccountForUser(t.Context(), "alice", account.ID, func(_ *config.AccountStore, db *storage.DB) error {
+		selected, err := db.ListSelectedCalendarSources(t.Context(), "alice")
+		if err == nil && (len(selected) != 1 || selected[0].ID != ids["club"]) {
+			t.Fatalf("selected after stopping %+v", selected)
 		}
 		return err
 	}); err != nil {

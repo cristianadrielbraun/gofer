@@ -127,30 +127,32 @@ templ CalendarSidebarContent(accounts []models.Account, loading bool) {
 								</span>
 								<span class="size-2 shrink-0 rounded-full" style={ calendarEventColorStyle(CalendarEvent{SourceColor: source.Color}) }></span>
 								<span class={ "min-w-0 flex-1 truncate", templ.KV("opacity-50", source.IsHidden) } data-calendar-source-name title={ calendarSourceDisplayName(source) }>{ calendarSourceDisplayName(source) }</span>
-								// Shows only this calendar, or all of them again when it already is
-								// the only one shown. Appears on hover or keyboard focus.
-								@tooltip.Tooltip() {
-									@tooltip.Trigger() {
-										@button.Button(button.Props{
-											Variant:  button.VariantGhost,
-											Size:     button.SizeIcon,
-											Class:    "calendar-only-button size-6 shrink-0 rounded text-sidebar-foreground opacity-0 transition-opacity hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:opacity-100 group-hover:opacity-100",
-											Disabled: loading,
-											Attributes: templ.Attributes{
-												"data-calendar-visibility-only": source.ID,
-												"aria-label":                    "Show only " + calendarSourceDisplayName(source),
-											},
-										}) {
-											<span class="inline-flex" data-calendar-only-icon="only">
-												@icon.Focus(icon.Props{Class: "size-3.5"})
-											</span>
-											<span class="inline-flex" data-calendar-only-icon="all" hidden>
-												@icon.Eye(icon.Props{Class: "size-3.5"})
-											</span>
-										}
+								// Its menu: show only this calendar (or all of them again when it
+								// already is the only one shown), or stop syncing it. Appears on
+								// hover or keyboard focus, and stays while the menu is open.
+								@dropdown.Dropdown() {
+									@dropdown.Trigger() {
+										<button type="button" disabled?={ loading } data-calendar-source-menu={ source.ID } aria-label={ "Options for " + calendarSourceDisplayName(source) } class="inline-flex size-6 shrink-0 items-center justify-center rounded text-sidebar-foreground opacity-0 transition-opacity hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:opacity-100 group-hover:opacity-100 aria-expanded:opacity-100 disabled:pointer-events-none">
+											@icon.Ellipsis(icon.Props{Class: "size-3.5"})
+										</button>
 									}
-									@tooltip.Content(tooltip.ContentProps{Position: tooltip.PositionRight, ShowArrow: true}) {
-										<span data-calendar-only-tooltip={ source.ID }>Show only this calendar</span>
+									@dropdown.Content(dropdown.ContentProps{Placement: dropdown.PlacementBottomEnd, Class: "w-52 normal-case tracking-normal"}) {
+										@dropdown.Item(dropdown.ItemProps{Class: "justify-start gap-2", Attributes: templ.Attributes{"type": "button", "data-calendar-visibility-only": source.ID}}) {
+											<span class="inline-flex text-muted-foreground" data-calendar-only-icon="only">
+												@icon.Focus(icon.Props{Class: "size-4"})
+											</span>
+											<span class="inline-flex text-muted-foreground" data-calendar-only-icon="all" hidden>
+												@icon.Eye(icon.Props{Class: "size-4"})
+											</span>
+											<span data-calendar-only-tooltip={ source.ID }>Show only this calendar</span>
+										}
+										@dropdown.Separator()
+										@dropdown.Item(dropdown.ItemProps{Class: "justify-start gap-2", Attributes: templ.Attributes{"type": "button", "data-calendar-source-stop": source.ID}}) {
+											<span class="inline-flex text-muted-foreground">
+												@icon.CircleMinus(icon.Props{Class: "size-4"})
+											</span>
+											Stop syncing
+										}
 									}
 								}
 								// The same 24px slot as the "Other calendars" count and buttons,

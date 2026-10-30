@@ -11315,7 +11315,8 @@ function initializeCalendarVisibility() {
     if (status) status.style.opacity = state && state.saving ? "1" : "0"
     var sync = row && row.querySelector("[data-calendar-source-sync]")
     if (sync) sync.style.visibility = state && state.saving ? "hidden" : ""
-    var only = row && row.querySelector("[data-calendar-visibility-only]")
+    // Found by source ID: the row's menu opens outside the row.
+    var only = document.querySelector('[data-calendar-visibility-only="' + CSS.escape(input.dataset.calendarVisibility) + '"]')
     if (only) {
       var showsAll = calendarSourceIsOnlyVisible(input.dataset.calendarVisibility)
       only.setAttribute("aria-label", showsAll ? "Show all calendars" : "Show only " + (label ? label.textContent : "this calendar"))
@@ -11390,7 +11391,6 @@ document.addEventListener("change", function (event) {
 document.addEventListener("click", function (event) {
   var button = event.target.closest && event.target.closest("[data-calendar-visibility-only]")
   if (!button || button.disabled) return
-  // The button sits in the row's label; keep the click from toggling the checkbox.
   event.preventDefault()
   var sourceID = button.dataset.calendarVisibilityOnly
   var inputs = Array.from(document.querySelectorAll("[data-calendar-visibility]")).filter(function (input) { return !input.disabled })
@@ -14593,18 +14593,21 @@ function refreshCalendarSidebar() {
   window.htmx.ajax("GET", window.location.pathname + window.location.search, { target: body, select: "#sidebar-app-body", swap: "outerHTML" }).then(updateCalendarSyncPresentation)
 }
 
-// A calendar under "Other calendars" starts syncing from its button; it then
-// moves up among the account's synced calendars.
+// A calendar under "Other calendars" starts syncing from its button and
+// moves up among the account's synced calendars; a synced one's menu stops
+// syncing it and moves it back down.
 document.addEventListener("click", function (event) {
-  var button = event.target.closest && event.target.closest("[data-calendar-source-start]")
+  var button = event.target.closest && event.target.closest("[data-calendar-source-start], [data-calendar-source-stop]")
   if (!button || button.disabled) return
   event.preventDefault()
+  var start = button.hasAttribute("data-calendar-source-start")
+  var sourceID = start ? button.dataset.calendarSourceStart : button.dataset.calendarSourceStop
   button.disabled = true
   button.setAttribute("aria-busy", "true")
   var icon = button.querySelector("svg")
   if (icon) icon.classList.add("animate-pulse")
-  fetch("/api/calendar/sources/" + encodeURIComponent(button.dataset.calendarSourceStart) + "/sync", {
-    method: "POST",
+  fetch("/api/calendar/sources/" + encodeURIComponent(sourceID) + "/sync", {
+    method: start ? "POST" : "DELETE",
     headers: { "Accept": "text/plain" },
   }).then(function (response) {
     if (response.ok) return
@@ -14616,7 +14619,7 @@ document.addEventListener("click", function (event) {
     button.disabled = false
     button.removeAttribute("aria-busy")
     if (icon) icon.classList.remove("animate-pulse")
-    showGoferToast({ title: "Could not sync this calendar", description: error && error.message ? error.message : "Please try again.", variant: "error", icon: "error", position: "bottom-right", duration: 6000, dismissible: true })
+    showGoferToast({ title: start ? "Could not sync this calendar" : "Could not stop syncing this calendar", description: error && error.message ? error.message : "Please try again.", variant: "error", icon: "error", position: "bottom-right", duration: 6000, dismissible: true })
   })
 })
 
