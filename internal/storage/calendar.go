@@ -134,7 +134,7 @@ func replaceCalendarSourcesTx(ctx context.Context, tx *sql.Tx, userID, accountID
 		}
 		return fmt.Errorf("verify calendar account: %w", err)
 	}
-	if accountProvider != provider && !(provider == CalendarSourceProviderCalDAV && (accountProvider == "imap" || accountProvider == "jmap")) &&
+	if accountProvider != provider && !(provider == CalendarSourceProviderCalDAV && (accountProvider == "imap" || accountProvider == "jmap" || accountProvider == "dav")) &&
 		!(provider == CalendarSourceProviderJMAP && accountProvider == "jmap") {
 		return sql.ErrNoRows
 	}

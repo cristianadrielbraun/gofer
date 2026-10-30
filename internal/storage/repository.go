@@ -4851,6 +4851,17 @@ func (db *DB) GetAccountNames(ctx context.Context, userID string) ([]models.Acco
 	return accounts, rows.Err()
 }
 
+// DAVAccountColumns select, for an account with no mail, the service it is
+// for, its username and the CalDAV or CardDAV server it uses, which name it in
+// place of an address.
+const DAVAccountColumns = `CASE WHEN a.provider != 'dav' THEN ''
+		            WHEN EXISTS (SELECT 1 FROM account_caldav_configs c WHERE c.account_id = a.id AND c.user_id = a.user_id) THEN 'calendar'
+		            WHEN acc.account_id IS NOT NULL THEN 'contacts' ELSE '' END,
+		        CASE WHEN a.provider = 'dav' THEN COALESCE(a.username, '') ELSE '' END,
+		        CASE WHEN a.provider = 'dav' THEN COALESCE(
+		            (SELECT NULLIF(c.base_url, '') FROM account_caldav_configs c WHERE c.account_id = a.id AND c.user_id = a.user_id),
+		            NULLIF(acc.base_url, ''), '') ELSE '' END`
+
 func (db *DB) GetAccounts(ctx context.Context, userID string) ([]models.Account, error) {
 	rows, err := db.Read().QueryContext(ctx,
 		`SELECT a.id, a.provider, a.email_address, a.display_name, a.color, a.initials, COALESCE(a.is_deleting, 0), COALESCE(a.email_sync_enabled, 1),
@@ -4862,7 +4873,8 @@ func (db *DB) GetAccounts(ctx context.Context, userID string) ([]models.Account,
 		            WHERE cs.account_id = a.id AND cs.user_id = a.user_id
 		              AND cs.is_deleted = 0 AND cs.is_selected = 1
 		        ) THEN 1 ELSE 0 END AS calendar_sync_enabled,
-		        COALESCE(a.imap_host, ''), COALESCE(a.auth_method, ''), COALESCE(a.smtp_host, '')
+		        COALESCE(a.imap_host, ''), COALESCE(a.auth_method, ''), COALESCE(a.smtp_host, ''),
+		        `+DAVAccountColumns+`
 		 FROM accounts a
 		 LEFT JOIN account_contact_sync_configs acc ON acc.account_id = a.id AND acc.user_id = a.user_id
 		 WHERE a.user_id = ? AND COALESCE(a.is_deleting, 0) = 0
@@ -4877,7 +4889,7 @@ func (db *DB) GetAccounts(ctx context.Context, userID string) ([]models.Account,
 		var a models.Account
 		var isDeleting, emailSyncEnabled, contactSyncEnabled, calendarSyncEnabled int
 		var imapHost, authMethod, smtpHost string
-		if err := rows.Scan(&a.ID, &a.Provider, &a.Email, &a.Name, &a.Color, &a.Initials, &isDeleting, &emailSyncEnabled, &a.EmailSyncError, &a.EmailSyncErrorAt, &contactSyncEnabled, &a.ContactSyncProvider, &calendarSyncEnabled, &imapHost, &authMethod, &smtpHost); err != nil {
+		if err := rows.Scan(&a.ID, &a.Provider, &a.Email, &a.Name, &a.Color, &a.Initials, &isDeleting, &emailSyncEnabled, &a.EmailSyncError, &a.EmailSyncErrorAt, &contactSyncEnabled, &a.ContactSyncProvider, &calendarSyncEnabled, &imapHost, &authMethod, &smtpHost, &a.DAVService, &a.DAVLogin, &a.DAVServer); err != nil {
 			return nil, fmt.Errorf("scan account: %w", err)
 		}
 		if providers.IsICloudAccount(a.Provider, authMethod, imapHost) {
@@ -4935,7 +4947,8 @@ func (db *DB) GetAccountsIncludingDeleting(ctx context.Context, userID string) (
 		            WHERE cs.account_id = a.id AND cs.user_id = a.user_id
 		              AND cs.is_deleted = 0 AND cs.is_selected = 1
 		        ) THEN 1 ELSE 0 END AS calendar_sync_enabled,
-		        COALESCE(a.imap_host, ''), COALESCE(a.auth_method, '')
+		        COALESCE(a.imap_host, ''), COALESCE(a.auth_method, ''),
+		        `+DAVAccountColumns+`
 		 FROM accounts a
 		 LEFT JOIN account_contact_sync_configs acc ON acc.account_id = a.id AND acc.user_id = a.user_id
 		 WHERE a.user_id = ?
@@ -4950,7 +4963,7 @@ func (db *DB) GetAccountsIncludingDeleting(ctx context.Context, userID string) (
 		var a models.Account
 		var isDeleting, emailSyncEnabled, contactSyncEnabled, calendarSyncEnabled int
 		var imapHost, authMethod string
-		if err := rows.Scan(&a.ID, &a.Provider, &a.Email, &a.Name, &a.Color, &a.Initials, &isDeleting, &emailSyncEnabled, &a.EmailSyncError, &a.EmailSyncErrorAt, &contactSyncEnabled, &a.ContactSyncProvider, &calendarSyncEnabled, &imapHost, &authMethod); err != nil {
+		if err := rows.Scan(&a.ID, &a.Provider, &a.Email, &a.Name, &a.Color, &a.Initials, &isDeleting, &emailSyncEnabled, &a.EmailSyncError, &a.EmailSyncErrorAt, &contactSyncEnabled, &a.ContactSyncProvider, &calendarSyncEnabled, &imapHost, &authMethod, &a.DAVService, &a.DAVLogin, &a.DAVServer); err != nil {
 			return nil, fmt.Errorf("scan account: %w", err)
 		}
 		if providers.IsICloudAccount(a.Provider, authMethod, imapHost) {

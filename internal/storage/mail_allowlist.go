@@ -176,8 +176,11 @@ type MailAllowlistMailbox struct {
 // mailboxes are checked by provider, since they only reach Google and
 // Microsoft.
 func (l MailAllowlist) CheckMailbox(mailbox MailAllowlistMailbox) error {
-	if err := l.CheckAddress(mailbox.Email); err != nil {
-		return err
+	// An account with no mail has no address, only its DAV servers.
+	if !strings.EqualFold(strings.TrimSpace(mailbox.Provider), providers.ProviderDAV) {
+		if err := l.CheckAddress(mailbox.Email); err != nil {
+			return err
+		}
 	}
 	switch strings.ToLower(strings.TrimSpace(mailbox.Provider)) {
 	case providers.ProviderGmail, providers.ProviderOutlook:

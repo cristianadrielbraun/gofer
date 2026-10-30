@@ -21,6 +21,12 @@ type Account struct {
 	ContactSyncEnabled  bool
 	ContactSyncProvider string
 	CalendarSyncEnabled bool
+	// DAVService is "calendar" or "contacts" for an account with no mail, the
+	// one service it is for. DAVLogin and DAVServer are its username and the
+	// CalDAV or CardDAV server it signs in to.
+	DAVService string
+	DAVLogin   string
+	DAVServer  string
 	// ReconnectPending is set for an account imported from a profile that
 	// still needs its password or sign-in.
 	ReconnectPending bool

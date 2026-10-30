@@ -1264,6 +1264,7 @@ templ MailViewMobileLabels(email *models.Email) {
 // selects it; Move does the move. A folder of another account asks first,
 // since that copies the email there and deletes it here.
 templ MailMoveDialog(email *models.Email, accounts []models.Account) {
+	{{ accounts = mailAccounts(accounts) }}
 	@dialog.Dialog(dialog.Props{ID: "mail-move-dialog"}) {
 		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-md"}) {
 			@dialog.Header() {

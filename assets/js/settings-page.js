@@ -1614,7 +1614,8 @@ function accountWizardTest(options) {
     var save = footer.querySelector('[data-account-test-save]');
     var back = footer.querySelector('[data-account-test-back]');
     if (anyway) {
-      anyway.textContent = state === 'failed' ? options.anywayFailedLabel : options.anywayLabel;
+      var label = state === 'failed' ? options.anywayFailedLabel : options.anywayLabel;
+      anyway.textContent = typeof label === 'function' ? label() : label;
       anyway.hidden = state === 'passed' || done;
     }
     if (retest) retest.hidden = state !== 'failed';
@@ -1718,8 +1719,8 @@ function newAddAccountTest() {
     form: 'account-form',
     results: 'add-account-test-results',
     footer: '#add-wizard-footer [data-wizard-footer-step="3"]',
-    anywayLabel: 'Skip test and create',
-    anywayFailedLabel: 'Create anyway',
+    anywayLabel: function() { return addingMailToAccount() ? 'Skip test and add email' : 'Skip test and create'; },
+    anywayFailedLabel: function() { return addingMailToAccount() ? 'Add anyway' : 'Create anyway'; },
     // Going back would create the account a second time.
     lockWhenDone: true,
     request: function(key) { return { url: '/api/accounts/test', body: key }; },
@@ -1745,7 +1746,7 @@ goferOnContent('#add-account-dialog', function() {
 });
 document.body.addEventListener('htmx:beforeRequest', function(event) {
   if (!event.target || event.target.id !== 'account-form') return;
-  addAccountTest.saving('Creating account...');
+  addAccountTest.saving(addingMailToAccount() ? 'Adding email...' : 'Creating account...');
 });
 // Creating failed: say why on the test step, where the person is. Managed
 // servers answer with an error status; others send an error card in place
@@ -1801,7 +1802,9 @@ function syncAddContactStepAfterSwap() {
 function maybeGoAddContacts() {
   if (!addAccountCreated()) return;
   syncAddContactStep();
-  addAccountTest.saved('Account created. Mail is syncing now. You can close this window, or continue to set up this account\'s contacts and calendar.');
+  addAccountTest.saved(addingMailToAccount()
+    ? 'Email added. Mail is syncing now. You can close this window, or continue to this account\'s contacts and calendar.'
+    : 'Account created. Mail is syncing now. You can close this window, or continue to set up this account\'s contacts and calendar.');
 }
 function syncWizardServiceContent(root) {
   root = root || document;
@@ -2198,8 +2201,159 @@ function setAddAccountMailService(service) {
 }
 function openAddAccountWizard(service) {
   setAddAccountMailService(service);
+  var root = document.getElementById('add-account-dialog');
+  if (root) delete root.dataset.addMail;
   goferSwitchDialog('choose-account-type-dialog', 'add-account-dialog');
 }
+// An account with only calendars or contacts gets its mail through the add
+// wizard, which then saves the mailbox to that account instead of creating
+// one, and goes on to its contacts and calendar as usual.
+var _addMailAccount = null;
+function openAddMailChooser(accountID, name) {
+  _addMailAccount = { id: accountID, name: name || '' };
+  var chooser = document.getElementById('choose-mail-type-dialog');
+  if (!chooser || !window.tui || !window.tui.dialog) return;
+  chooser.querySelectorAll('[data-add-mail-account-name]').forEach(function(label) { label.textContent = name || 'this account'; });
+  if (window.tui.dialog.isOpen('edit-dav-account-dialog')) {
+    goferSwitchDialog('edit-dav-account-dialog', 'choose-mail-type-dialog');
+  } else {
+    window.tui.dialog.open('choose-mail-type-dialog');
+  }
+}
+function startAddMail(service) {
+  var root = document.getElementById('add-account-dialog');
+  var form = document.getElementById('account-form');
+  if (!_addMailAccount || !root || !form) return;
+  setAddAccountMailService(service);
+  root.dataset.addMail = _addMailAccount.id;
+  var name = form.querySelector('input[name="display_name"]');
+  if (name && !name.value) name.value = _addMailAccount.name;
+  goferSwitchDialog('choose-mail-type-dialog', 'add-account-dialog');
+}
+document.body.addEventListener('htmx:configRequest', function(event) {
+  var root = document.getElementById('add-account-dialog');
+  if (!event.target || event.target.id !== 'account-form' || !root || !root.dataset.addMail) return;
+  event.detail.path = '/api/accounts/' + encodeURIComponent(root.dataset.addMail) + '/mail';
+});
+function addingMailToAccount() {
+  var root = document.getElementById('add-account-dialog');
+  return !!(root && root.dataset.addMail);
+}
+
+// Calendar-only and contacts-only accounts: a server, its login, and the
+// calendars or address books to sync. Find signs in and lists them; the
+// account is then created, or saved, with the ones ticked. Changing the
+// server or login drops the list until it is found again.
+function openDAVAccountDialog(service) {
+  var root = document.getElementById('add-dav-account-dialog');
+  var form = root && root.querySelector('[data-dav-account-form]');
+  if (!form || !window.tui || !window.tui.dialog) return;
+  form.reset();
+  root.dataset.davService = service === 'contacts' ? 'contacts' : 'calendar';
+  form.querySelector('input[name="service"]').value = root.dataset.davService;
+  davAccountItems(root, '');
+  davAccountStatus(root, '', '');
+  davAccountBusy(root, false);
+  window.tui.dialog.open('add-dav-account-dialog');
+}
+function davAccountRoot(element) {
+  return element && element.closest ? element.closest('[data-dav-account-dialog]') : null;
+}
+function davAccountStatus(root, kind, message) {
+  var status = root.querySelector('[data-dav-account-status]');
+  if (!status) return;
+  status.textContent = '';
+  if (!message) return;
+  var box = document.createElement('div');
+  box.setAttribute('role', kind === 'error' ? 'alert' : 'status');
+  if (kind === 'busy') {
+    box.className = 'flex items-center gap-2 py-1 text-xs text-muted-foreground';
+    var spinner = document.createElement('div');
+    spinner.className = 'size-4 rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground animate-spin';
+    box.appendChild(spinner);
+    box.appendChild(document.createElement('span')).textContent = message;
+  } else {
+    box.className = 'rounded-md border border-destructive/20 bg-destructive/10 px-3 py-2 text-xs text-destructive';
+    box.textContent = message;
+  }
+  status.appendChild(box);
+}
+function davAccountItems(root, html) {
+  var list = root.querySelector('[data-dav-items]');
+  if (list) list.innerHTML = html;
+  var save = root.querySelector('[data-dav-account-save]');
+  if (save) save.disabled = !root.querySelector('[data-dav-items-found]');
+}
+function davAccountBusy(root, busy) {
+  root.querySelectorAll('[data-dav-account-action]').forEach(function(button) {
+    button.disabled = busy || (button.hasAttribute('data-dav-account-save') && !root.querySelector('[data-dav-items-found]'));
+  });
+}
+function davAccountURL(root, path) {
+  var id = root.dataset.accountId;
+  return id ? '/api/accounts/' + encodeURIComponent(id) + '/dav' + path : '/api/accounts/dav' + path;
+}
+function davAccountRequest(root, path, busyMessage) {
+  var form = root.querySelector('[data-dav-account-form]');
+  var missing = Array.prototype.find.call(form.querySelectorAll('input[required]'), function(input) {
+    return !input.value.trim();
+  });
+  if (missing) {
+    missing.reportValidity();
+    return Promise.reject(new Error(''));
+  }
+  davAccountBusy(root, true);
+  davAccountStatus(root, 'busy', busyMessage);
+  return fetch(davAccountURL(root, path), {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'text/html' },
+    body: new URLSearchParams(new FormData(form)).toString()
+  }).then(function(response) {
+    return response.text().then(function(body) {
+      if (!response.ok) throw new Error((body || '').trim() || 'Could not reach the server.');
+      davAccountStatus(root, '', '');
+      return body;
+    });
+  }).catch(function(error) {
+    davAccountBusy(root, false);
+    if (error && error.message) davAccountStatus(root, 'error', error.message);
+    throw new Error('');
+  });
+}
+function findDAVItems(button) {
+  var root = davAccountRoot(button);
+  if (!root) return;
+  davAccountRequest(root, '/find', 'Signing in...').then(function(html) {
+    davAccountItems(root, html);
+    davAccountBusy(root, false);
+  }).catch(function() {});
+}
+function saveDAVAccount(root) {
+  var editing = !!root.dataset.accountId;
+  davAccountRequest(root, '', editing ? 'Signing in and saving...' : 'Signing in and creating the account...').then(function() {
+    window.location.href = editing ? '/settings/accounts' : '/settings/accounts?account_added=1';
+  }).catch(function() {});
+}
+document.addEventListener('submit', function(event) {
+  var form = event.target;
+  if (!form || !form.hasAttribute || !form.hasAttribute('data-dav-account-form')) return;
+  event.preventDefault();
+  var root = davAccountRoot(form);
+  if (root) saveDAVAccount(root);
+});
+document.addEventListener('input', function(event) {
+  var input = event.target;
+  if (!input || !input.hasAttribute || !input.hasAttribute('data-dav-login')) return;
+  var root = davAccountRoot(input);
+  if (root && root.querySelector('[data-dav-items-found]')) davAccountItems(root, '');
+});
+// Edit on a calendar-only or contacts-only account loads its own dialog.
+document.addEventListener('htmx:afterSettle', function(event) {
+  if (event.target && event.target.querySelector && event.target.querySelector('#edit-dav-account-dialog') && window.tui && window.tui.dialog) {
+    setTimeout(function() { window.tui.dialog.open('edit-dav-account-dialog'); }, 20);
+  }
+});
 function discoverMailSettings(button) {
   var form = document.getElementById('account-form');
   var status = mailDiscoveryStatus();

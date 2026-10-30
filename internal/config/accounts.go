@@ -232,7 +232,7 @@ func (s *AccountStore) GetCalendarSyncConfig(ctx context.Context, userID, accoun
 	if err != nil {
 		return cfg, err
 	}
-	if cfg.Provider == "imap" || cfg.Provider == "jmap" {
+	if cfg.Provider == "imap" || cfg.Provider == "jmap" || cfg.Provider == providers.ProviderDAV {
 		// Their calendars come from a CalDAV server.
 		var hasPassword, useAccountCredentials int
 		err := s.db.Read().QueryRowContext(ctx, `
@@ -252,7 +252,7 @@ func (s *AccountStore) GetCalendarSyncConfig(ctx context.Context, userID, accoun
 	if err != nil {
 		return cfg, err
 	}
-	if cfg.Provider == "imap" || cfg.Provider == "jmap" {
+	if cfg.Provider == "imap" || cfg.Provider == "jmap" || cfg.Provider == providers.ProviderDAV {
 		cfg.Protocol = storage.CalendarSourceProviderCalDAV
 	}
 	for _, source := range sources {
@@ -339,7 +339,7 @@ func (s *AccountStore) saveCalDAVConfigTx(ctx context.Context, tx *sql.Tx, userI
 		INSERT INTO account_caldav_configs (account_id, user_id, base_url, username, encrypted_password, use_account_credentials)
 		SELECT id, user_id, ?, ?, ?, ?
 		FROM accounts
-		WHERE id = ? AND user_id = ? AND provider IN ('imap', 'jmap') AND COALESCE(is_deleting, 0) = 0 AND 1 = 1
+		WHERE id = ? AND user_id = ? AND provider IN ('imap', 'jmap', 'dav') AND COALESCE(is_deleting, 0) = 0 AND 1 = 1
 		ON CONFLICT(account_id) DO UPDATE SET
 			user_id = excluded.user_id,
 			base_url = excluded.base_url,
@@ -611,11 +611,18 @@ func accountProviderUsesJMAP(provider string) bool {
 	return strings.EqualFold(strings.TrimSpace(provider), "jmap")
 }
 
+// accountProviderHasNoMail reports whether the account is only a CalDAV or
+// CardDAV server, with no mailbox.
+func accountProviderHasNoMail(provider string) bool {
+	return strings.EqualFold(strings.TrimSpace(provider), providers.ProviderDAV)
+}
+
 // accountProviderKeepsMailTransports reports whether the account keeps IMAP
-// and SMTP settings: not Outlook, which uses only Graph, or JMAP. Gmail keeps
-// them although its mail goes through the Gmail API, for the IMAP fallback.
+// and SMTP settings: not Outlook, which uses only Graph, JMAP, or an account
+// with no mail. Gmail keeps them although its mail goes through the Gmail
+// API, for the IMAP fallback.
 func accountProviderKeepsMailTransports(provider string) bool {
-	return !accountProviderUsesGraphMail(provider) && !accountProviderUsesJMAP(provider)
+	return !accountProviderUsesGraphMail(provider) && !accountProviderUsesJMAP(provider) && !accountProviderHasNoMail(provider)
 }
 
 // normalizeJMAPSessionURL accepts an absolute http or https URL without
@@ -707,6 +714,19 @@ func (s *AccountStore) prepareAccountCreation(ctx context.Context, req *models.C
 		req.SmtpUsername = ""
 		req.SmtpPassword = ""
 		req.AuthMethod = "oauth2"
+	} else if accountProviderHasNoMail(req.Provider) {
+		// The username and password sign in to the CalDAV or CardDAV server.
+		req.EmailAddress = ""
+		req.IMAPHost = ""
+		req.IMAPPort = 0
+		req.IMAPTLSMode = ""
+		req.SMTPHost = ""
+		req.SMTPPort = 0
+		req.SMTPTLSMode = ""
+		req.SmtpUsername = ""
+		req.SmtpPassword = ""
+		req.AuthMethod = "plain"
+		req.EmailSyncDisabled = true
 	} else if accountProviderUsesJMAP(req.Provider) {
 		if !providers.JMAPEnabled() {
 			return providers.ErrJMAPDisabled
@@ -792,8 +812,9 @@ func (s *AccountStore) createAccountWithID(ctx context.Context, userID, id strin
 	if !purgeDeleting {
 		// The single local writer makes this check/insert atomic for concurrent
 		// UUID reservations. The same email may belong to different user stores.
-		query += ` WHERE NOT EXISTS (SELECT 1 FROM accounts WHERE user_id = ? AND email_address = ? COLLATE NOCASE)`
-		args = append(args, userID, req.EmailAddress)
+		// An account with no mail has no address to be the same mailbox by.
+		query += ` WHERE ? = '' OR NOT EXISTS (SELECT 1 FROM accounts WHERE user_id = ? AND email_address = ? COLLATE NOCASE)`
+		args = append(args, req.EmailAddress, userID, req.EmailAddress)
 	} else {
 		// The ID comes from the mailbox, and an account being deleted was purged
 		// above, so a row with this ID is the same mailbox already connected.
@@ -1602,11 +1623,12 @@ func (s *AccountStore) getAccountByID(ctx context.Context, accountID, userID str
 		            SELECT 1 FROM calendar_sources cs
 		            WHERE cs.account_id = a.id AND cs.user_id = a.user_id
 		              AND cs.is_deleted = 0 AND cs.is_selected = 1
-		        ) THEN 1 ELSE 0 END AS calendar_sync_enabled
+		        ) THEN 1 ELSE 0 END AS calendar_sync_enabled,
+		        `+storage.DAVAccountColumns+`
 		 FROM accounts a
 		 LEFT JOIN account_contact_sync_configs acc ON acc.account_id = a.id AND acc.user_id = a.user_id
 		 WHERE `+where+` AND COALESCE(a.is_deleting, 0) = 0`, args...,
-	).Scan(&a.ID, &a.Provider, &a.Email, &a.Name, &a.Color, &a.Initials, &emailSyncEnabled, &a.EmailSyncError, &a.EmailSyncErrorAt, &contactSyncEnabled, &a.ContactSyncProvider, &calendarSyncEnabled)
+	).Scan(&a.ID, &a.Provider, &a.Email, &a.Name, &a.Color, &a.Initials, &emailSyncEnabled, &a.EmailSyncError, &a.EmailSyncErrorAt, &contactSyncEnabled, &a.ContactSyncProvider, &calendarSyncEnabled, &a.DAVService, &a.DAVLogin, &a.DAVServer)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}

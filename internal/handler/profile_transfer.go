@@ -454,7 +454,8 @@ func (h *Handler) profileExistingAccounts(ctx context.Context, owner string) (ma
 			return err
 		}
 		for _, account := range accounts {
-			if !account.IsDeleting {
+			// An account with no mail has no address to match.
+			if !account.IsDeleting && strings.TrimSpace(account.Email) != "" {
 				existing[strings.ToLower(strings.TrimSpace(account.Email))] = profileExistingAccount{ID: account.ID, Provider: account.Provider}
 			}
 		}

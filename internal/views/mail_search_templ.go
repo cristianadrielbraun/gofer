@@ -840,6 +840,7 @@ func MailSearchControls(accounts []models.Account) templ.Component {
 			templ_7745c5c3_Var36 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
+		accounts = mailAccounts(accounts)
 		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 56, "<a href=\"/mail/search\" class=\"hidden\" data-mail-scope-navigation aria-hidden=\"true\" tabindex=\"-1\"></a>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
@@ -958,7 +959,7 @@ func MailSearchControls(accounts []models.Account) templ.Component {
 					var templ_7745c5c3_Var42 string
 					templ_7745c5c3_Var42, templ_7745c5c3_Err = templruntime.SanitizeStyleAttributeValues(accountColorStyle(account.Color))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_search.templ`, Line: 204, Col: 99}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_search.templ`, Line: 205, Col: 99}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var42))
 					if templ_7745c5c3_Err != nil {
@@ -971,7 +972,7 @@ func MailSearchControls(accounts []models.Account) templ.Component {
 					var templ_7745c5c3_Var43 string
 					templ_7745c5c3_Var43, templ_7745c5c3_Err = templ.JoinStringErrs(account.Email)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_search.templ`, Line: 205, Col: 83}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_search.templ`, Line: 206, Col: 83}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var43))
 					if templ_7745c5c3_Err != nil {
@@ -1124,7 +1125,7 @@ func MailSearchFolderChoice(folder models.Folder, accountID string, accountEmail
 		var templ_7745c5c3_Var48 string
 		templ_7745c5c3_Var48, templ_7745c5c3_Err = templruntime.SanitizeStyleAttributeValues(mailSearchFolderIndent(depth))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_search.templ`, Line: 239, Col: 125}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_search.templ`, Line: 240, Col: 125}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var48))
 		if templ_7745c5c3_Err != nil {
@@ -1137,7 +1138,7 @@ func MailSearchFolderChoice(folder models.Folder, accountID string, accountEmail
 		var templ_7745c5c3_Var49 string
 		templ_7745c5c3_Var49, templ_7745c5c3_Err = templ.JoinStringErrs(path)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_search.templ`, Line: 239, Col: 140}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_search.templ`, Line: 240, Col: 140}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var49))
 		if templ_7745c5c3_Err != nil {
@@ -1150,7 +1151,7 @@ func MailSearchFolderChoice(folder models.Folder, accountID string, accountEmail
 		var templ_7745c5c3_Var50 string
 		templ_7745c5c3_Var50, templ_7745c5c3_Err = templ.JoinStringErrs(strings.ToLower(accountEmail + " " + path))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_search.templ`, Line: 239, Col: 231}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_search.templ`, Line: 240, Col: 231}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var50))
 		if templ_7745c5c3_Err != nil {
@@ -1175,7 +1176,7 @@ func MailSearchFolderChoice(folder models.Folder, accountID string, accountEmail
 		var templ_7745c5c3_Var51 string
 		templ_7745c5c3_Var51, templ_7745c5c3_Err = templ.JoinStringErrs(folder.Name)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_search.templ`, Line: 243, Col: 45}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_search.templ`, Line: 244, Col: 45}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var51))
 		if templ_7745c5c3_Err != nil {
@@ -1193,7 +1194,7 @@ func MailSearchFolderChoice(folder models.Folder, accountID string, accountEmail
 			var templ_7745c5c3_Var52 string
 			templ_7745c5c3_Var52, templ_7745c5c3_Err = templ.JoinStringErrs(parent)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_search.templ`, Line: 245, Col: 75}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_search.templ`, Line: 246, Col: 75}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var52))
 			if templ_7745c5c3_Err != nil {

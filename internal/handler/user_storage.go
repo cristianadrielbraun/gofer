@@ -130,6 +130,8 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 				pattern != "POST /api/accounts/discover" &&
 				pattern != "GET /api/accounts/server-check" &&
 				pattern != "POST /api/accounts/test" &&
+				pattern != "POST /api/accounts/dav/find" &&
+				pattern != "POST /api/accounts/{id}/dav/find" &&
 				pattern != "POST /api/accounts/{id}/test-changes" &&
 				pattern != "POST /api/accounts/{id}/test" &&
 				pattern != "POST /api/accounts/{id}/identities/refresh" &&
@@ -373,6 +375,13 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 		private("POST /api/accounts/{id}/contacts/sync", routed.handleUserSaveAccountContactSync)
 		private("POST /api/accounts/{id}/contacts/sync/test", routed.handleUserTestAccountContactSync)
 		private("POST /api/accounts/{id}/contacts/sync/discover", routed.handleUserDiscoverAccountContactSync)
+		if option.Accounts != nil {
+			private("POST /api/accounts/dav/find", routed.handleUserFindDAVItems)
+			private("POST /api/accounts/dav", routed.handleUserCreateDAVAccount)
+			private("POST /api/accounts/{id}/dav/find", routed.handleUserFindDAVItems)
+			private("POST /api/accounts/{id}/dav", routed.handleUserUpdateDAVAccount)
+			private("POST /api/accounts/{id}/mail", routed.handleUserAddAccountMail)
+		}
 		private("POST /api/settings/contacts/accounts/sync", routed.handleUserSyncAccountContacts)
 		private("POST /api/settings/contacts/providers/gmail/sync", routed.handleUserSyncAccountContacts)
 		private("POST /api/contacts/{id}/sync-now", routed.handleUserSyncContactNow)

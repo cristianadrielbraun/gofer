@@ -18,6 +18,7 @@ import (
 )
 
 templ ComposeDialog(accounts []models.Account) {
+	{{ accounts = mailAccounts(accounts) }}
 	@dialog.Dialog(dialog.Props{
 		ID: "compose-dialog",
 		Class: "[&_[data-tui-dialog-panel]]:!flex [&_[data-tui-dialog-panel]]:flex-col [&_[data-tui-dialog-panel]]:h-full [&_[data-tui-dialog-panel]]:min-h-0 [&_[data-tui-dialog-panel]]:gap-3",
@@ -647,6 +648,7 @@ templ composeFromAddressText(name, email string) {
 }
 
 templ ComposePane(accounts []models.Account) {
+	{{ accounts = mailAccounts(accounts) }}
 	<div class="flex flex-col h-full p-2" data-compose-pane>
 		<div class="surface-paper rounded-md flex flex-col h-full overflow-hidden">
 			<div class="flex items-center justify-between px-6 py-2.5">

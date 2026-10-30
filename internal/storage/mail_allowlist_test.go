@@ -51,6 +51,18 @@ func TestMailAllowlistMatching(t *testing.T) {
 	if err := gmail.CheckMailbox(MailAllowlistMailbox{Provider: "imap", Email: "ana@example.test", IMAPHost: "imap.example.test"}); !IsMailAllowlistError(err) {
 		t.Error("only Gmail allowed, but an IMAP server was let in:", err)
 	}
+	// An account with no mail has no address for the domain list, but its
+	// DAV server is still checked.
+	domains := MailAllowlist{Domains: []string{"example.test"}, Servers: []string{"dav.example.test"}}
+	if err := domains.CheckMailbox(MailAllowlistMailbox{Provider: "dav", CalDAVURL: "https://dav.example.test/"}); err != nil {
+		t.Error("account with no mail refused for its missing address:", err)
+	}
+	if err := domains.CheckMailbox(MailAllowlistMailbox{Provider: "dav", CalDAVURL: "https://other.example.test/"}); !IsMailAllowlistError(err) {
+		t.Error("account with no mail let in to a server not allowed:", err)
+	}
+	if err := domains.CheckMailbox(MailAllowlistMailbox{Provider: "imap", IMAPHost: "dav.example.test"}); !IsMailAllowlistError(err) {
+		t.Error("mailbox with no address let in past the domain list:", err)
+	}
 }
 
 func TestNormalizeMailAllowlistEntry(t *testing.T) {

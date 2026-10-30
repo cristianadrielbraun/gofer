@@ -627,7 +627,7 @@ templ SidebarSyncControls(accounts []models.Account, activeApp string) {
 									@icon.RefreshCw(icon.Props{Class: "size-3.5 shrink-0"})
 									<span class="min-w-0 flex-1">
 										<span class="block truncate font-medium">{ calendarAccountDisplayName(account) }</span>
-										<span class="block truncate text-[11px] text-sidebar-foreground">{ account.Email }</span>
+										<span class="block truncate text-[11px] text-sidebar-foreground">{ accountAddress(account) }</span>
 									</span>
 								</button>
 							}
@@ -708,7 +708,7 @@ templ SidebarSyncControls(accounts []models.Account, activeApp string) {
 											@icon.RefreshCw(icon.Props{Class: "size-3.5 shrink-0"})
 											<span class="min-w-0 flex-1">
 												<span class="block truncate font-medium">{ contactSidebarAccountName(account) }</span>
-												<span class="block truncate text-[11px] text-sidebar-foreground">{ account.Email }</span>
+												<span class="block truncate text-[11px] text-sidebar-foreground">{ accountAddress(account) }</span>
 											</span>
 										</button>
 									}

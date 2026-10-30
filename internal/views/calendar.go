@@ -477,6 +477,8 @@ func calendarAccountProviderLabel(account models.Account) string {
 		return "IMAP"
 	case "jmap":
 		return "JMAP"
+	case "dav":
+		return "CalDAV"
 	default:
 		provider := strings.TrimSpace(account.Provider)
 		if provider == "" {

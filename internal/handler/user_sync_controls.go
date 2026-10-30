@@ -122,6 +122,9 @@ func (h *Handler) handleUserEmailService(w http.ResponseWriter, r *http.Request)
 			if err != nil {
 				return err
 			}
+			if cfg.Provider == providers.ProviderDAV {
+				return config.ErrAccountHasNoMail
+			}
 			if !h.userIMAP.SupportsAccount(cfg) {
 				return storage.ErrAccountRoute
 			}
@@ -133,6 +136,10 @@ func (h *Handler) handleUserEmailService(w http.ResponseWriter, r *http.Request)
 		account, err = local.GetAccountByIDForUser(r.Context(), owner, id)
 		return err
 	})
+	if errors.Is(err, config.ErrAccountHasNoMail) {
+		http.Error(w, "Add email to this account before turning it on.", http.StatusConflict)
+		return
+	}
 	if err != nil {
 		userAccountError(w, r, err)
 		return

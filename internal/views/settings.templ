@@ -1039,15 +1039,7 @@ templ SettingsAccountsTab(accounts []models.Account) {
 				<h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-1">Accounts</h3>
 				<p class="text-xs text-muted-foreground leading-relaxed">See which connected services each account provides. Email is available for existing mail accounts; contacts appear when provider sync is enabled.</p>
 			</div>
-			@dialog.Trigger(dialog.TriggerProps{For: "choose-account-type-dialog"}) {
-				@button.Button(button.Props{
-					Size:    button.SizeSm,
-					Class:   "btn-skeuo shrink-0",
-				}) {
-					@icon.Plus(icon.Props{Class: "size-4"})
-					Add Account
-				}
-			}
+			@SettingsAddAccountButton()
 		</div>
 		if len(accounts) == 0 {
 			@SettingsNoAccounts()
@@ -1445,8 +1437,11 @@ templ SettingsAccountCard(account models.Account) {
 							if account.Provider == "imap" && !account.IsDeleting {
 								@SettingsAccountMissingFolderRoles(account, false)
 							}
+							if accountHasNoMail(account) {
+								@AccountNoMailBadge(account)
+							}
 						</div>
-						<p class="mt-0.5 truncate text-xs text-muted-foreground">{ account.Email }</p>
+						<p class="mt-0.5 truncate text-xs text-muted-foreground">{ accountAddress(account) }</p>
 						if account.ReconnectPending && !account.IsDeleting {
 							<p class="mt-1.5 flex items-start gap-1.5 text-xs text-amber-700 dark:text-amber-400" data-account-reconnect-pending>
 								@icon.KeyRound(icon.Props{Class: "mt-0.5 size-3.5 shrink-0"})
@@ -1465,6 +1460,9 @@ templ SettingsAccountCard(account models.Account) {
 						if account.ReconnectPending {
 							@AccountReconnectButton(account)
 						}
+						if accountHasNoMail(account) {
+							@AccountAddMailButton(account.ID, account.Name, accountReconnectButtonClass)
+						}
 						<button
 							type="button"
 							data-account-primary-action="edit"
@@ -1482,14 +1480,24 @@ templ SettingsAccountCard(account models.Account) {
 			</div>
 			<div class="mt-4 border-t border-border/60 pt-3">
 				<div class="mb-2 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-					<p class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Enabled services</p>
-					<p class="text-[11px] text-muted-foreground">Use Edit to enable/disable services.</p>
+					if accountHasNoMail(account) {
+						<p class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Service</p>
+					} else {
+						<p class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Enabled services</p>
+						<p class="text-[11px] text-muted-foreground">Use Edit to enable/disable services.</p>
+					}
 				</div>
 				<div class="settings-account-services flex items-end justify-between gap-3">
 					<div class="flex flex-wrap gap-2">
-						@AccountServiceIndicator(account, "email", "Email", "Fetches mail and keeps folders up to date.", account.EmailSyncEnabled)
-						@AccountServiceIndicator(account, "contacts", "Contacts", accountContactSyncStatusDescription(account), account.ContactSyncEnabled)
-						@AccountServiceIndicator(account, "calendar", "Calendar", accountCalendarSyncStatusDescription(account), account.CalendarSyncEnabled)
+						if account.DAVService == davServiceContacts {
+							@AccountServiceIndicator(account, "contacts", "Contacts", accountContactSyncStatusDescription(account), account.ContactSyncEnabled)
+						} else if account.DAVService == davServiceCalendar {
+							@AccountServiceIndicator(account, "calendar", "Calendar", accountCalendarSyncStatusDescription(account), account.CalendarSyncEnabled)
+						} else {
+							@AccountServiceIndicator(account, "email", "Email", "Fetches mail and keeps folders up to date.", account.EmailSyncEnabled)
+							@AccountServiceIndicator(account, "contacts", "Contacts", accountContactSyncStatusDescription(account), account.ContactSyncEnabled)
+							@AccountServiceIndicator(account, "calendar", "Calendar", accountCalendarSyncStatusDescription(account), account.CalendarSyncEnabled)
+						}
 					</div>
 					<span class="inline-flex shrink-0 items-center gap-1 rounded-md border border-border/70 bg-muted/35 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
 						@AccountProviderIcon(accountDisplayProvider(account), "size-3.5 shrink-0")
@@ -1501,7 +1509,7 @@ templ SettingsAccountCard(account models.Account) {
 				@SettingsAccountMailboxSize(account)
 			}
 		</div>
-		if !account.IsDeleting {
+		if !account.IsDeleting && !accountHasNoMail(account) {
 			@SettingsAccountConnectionTestDialog(account)
 		}
 		if account.Provider == "gmail" && account.EmailSyncEnabled && !account.IsDeleting {
@@ -1556,14 +1564,18 @@ templ SettingsAccountCard(account models.Account) {
 						Delete Account
 					}
 					@dialog.Description() {
-						This removes <strong>{ account.Email }</strong> and its locally stored mail, contacts, scheduled sends, and account settings from Gofer. It does not delete anything from your mail provider.
+						if accountHasNoMail(account) {
+							This removes <strong>{ account.Name }</strong> and its locally stored calendars, contacts and settings from Gofer. It does not delete anything from the server.
+						} else {
+							This removes <strong>{ account.Email }</strong> and its locally stored mail, contacts, scheduled sends, and account settings from Gofer. It does not delete anything from your mail provider.
+						}
 					}
 				}
 				<div class="flex items-center gap-3 p-3 rounded-lg bg-destructive/5 border border-destructive/15">
 					<div class="account-color-marker size-5 shrink-0" style={ accountColorStyle(account.Color) } data-account-marker={ account.ID }></div>
 					<div class="flex-1 min-w-0">
 						<p class="text-sm font-medium truncate">{ account.Name }</p>
-						<p class="text-xs text-muted-foreground truncate">{ account.Email }</p>
+						<p class="text-xs text-muted-foreground truncate">{ accountAddress(account) }</p>
 					</div>
 				</div>
 				@dialog.Footer() {
@@ -1912,54 +1924,56 @@ templ SettingsAccountActionsMenu(account models.Account) {
 			@dropdown.Label(dropdown.LabelProps{Class: "text-[10px] uppercase tracking-wider text-muted-foreground"}) {
 				Account actions
 			}
-			@dialog.Trigger(dialog.TriggerProps{For: fmt.Sprintf("test-account-%s", account.ID)}) {
-				{{ testDialogID := fmt.Sprintf("test-account-%s", account.ID) }}
+			if !accountHasNoMail(account) {
+				@dialog.Trigger(dialog.TriggerProps{For: fmt.Sprintf("test-account-%s", account.ID)}) {
+					{{ testDialogID := fmt.Sprintf("test-account-%s", account.ID) }}
+					@dropdown.Item(dropdown.ItemProps{
+						ID:    fmt.Sprintf("test-btn-%s", account.ID),
+						Class: "justify-start gap-2",
+						Attributes: templ.Attributes{
+							"type":                         "button",
+							"data-account-id":              account.ID,
+							"data-account-primary-action":  "test",
+							"data-account-test-dialog-open": "",
+							"data-account-test-dialog":      testDialogID,
+							"hx-post":                      fmt.Sprintf("/api/accounts/%s/test", account.ID),
+							"hx-swap":                      "none",
+							"data-on-htmx-before-request":         onAction("handleAccountTestStart", actionEvent),
+							"data-on-htmx-after-request":          onAction("handleAccountTestResult", actionEvent),
+						},
+					}) {
+						@icon.Wifi(icon.Props{Class: "size-3.5"})
+						Test
+					}
+				}
 				@dropdown.Item(dropdown.ItemProps{
-					ID:    fmt.Sprintf("test-btn-%s", account.ID),
 					Class: "justify-start gap-2",
 					Attributes: templ.Attributes{
-						"type":                         "button",
-						"data-account-id":              account.ID,
-						"data-account-primary-action":  "test",
-						"data-account-test-dialog-open": "",
-						"data-account-test-dialog":      testDialogID,
-						"hx-post":                      fmt.Sprintf("/api/accounts/%s/test", account.ID),
-						"hx-swap":                      "none",
-						"data-on-htmx-before-request":         onAction("handleAccountTestStart", actionEvent),
-						"data-on-htmx-after-request":          onAction("handleAccountTestResult", actionEvent),
+						"type":      "button",
+						"hx-get":    fmt.Sprintf("/api/accounts/%s/identities/manage", account.ID),
+						"hx-target": "#edit-account-container",
+						"hx-swap":   "innerHTML",
 					},
 				}) {
-					@icon.Wifi(icon.Props{Class: "size-3.5"})
-					Test
+					@icon.AtSign(icon.Props{Class: "size-3.5"})
+					Identities
 				}
-			}
-			@dropdown.Item(dropdown.ItemProps{
-				Class: "justify-start gap-2",
-				Attributes: templ.Attributes{
-					"type":      "button",
-					"hx-get":    fmt.Sprintf("/api/accounts/%s/identities/manage", account.ID),
-					"hx-target": "#edit-account-container",
-					"hx-swap":   "innerHTML",
-				},
-			}) {
-				@icon.AtSign(icon.Props{Class: "size-3.5"})
-				Identities
-			}
-			@dropdown.Item(dropdown.ItemProps{
-				Class: "justify-start gap-2",
-				Attributes: templ.Attributes{
-					"type":      "button",
-					"hx-get":    fmt.Sprintf("/api/accounts/%s/folders/manage", account.ID),
-					"hx-target": "#edit-account-container",
-					"hx-swap":   "innerHTML",
-				},
-			}) {
-				if account.Provider == "gmail" {
-					@icon.Tags(icon.Props{Class: "size-3.5"})
-					Labels
-				} else {
-					@icon.Folders(icon.Props{Class: "size-3.5"})
-					Folders
+				@dropdown.Item(dropdown.ItemProps{
+					Class: "justify-start gap-2",
+					Attributes: templ.Attributes{
+						"type":      "button",
+						"hx-get":    fmt.Sprintf("/api/accounts/%s/folders/manage", account.ID),
+						"hx-target": "#edit-account-container",
+						"hx-swap":   "innerHTML",
+					},
+				}) {
+					if account.Provider == "gmail" {
+						@icon.Tags(icon.Props{Class: "size-3.5"})
+						Labels
+					} else {
+						@icon.Folders(icon.Props{Class: "size-3.5"})
+						Folders
+					}
 				}
 			}
 			if account.Provider == "imap" {
@@ -2116,6 +2130,8 @@ func accountProviderName(provider string) string {
 		return "iCloud"
 	case providers.ProviderJMAP:
 		return "JMAP"
+	case providers.ProviderDAV:
+		return "DAV"
 	default:
 		return "IMAP"
 	}
@@ -2144,6 +2160,8 @@ templ AccountProviderIcon(provider string, class string) {
 			<path d="M4.75137 33.3193L7.6947 36.2605C7.90494 36.4706 8.28336 36.4706 8.53565 36.2605L13.1609 31.6387C13.3711 31.4286 13.3711 31.0504 13.1609 30.7983L10.2175 27.8572L14.9689 23.1093H0V38.0252L4.75137 33.2773V33.3193Z"/>
 			<path d="M0 15.4202H7.73675V10.5042C7.73675 8.94958 8.99817 7.73109 10.5119 7.73109H58.4881C60.0439 7.73109 61.2633 8.9916 61.2633 10.5042V23.3193C61.2633 24.6639 60.7587 25.9244 59.7916 26.8487L38.8099 47.8151C37.7166 48.9076 36.245 49.6219 34.7313 49.7059C33.0494 49.7899 31.4516 49.1597 30.2742 47.9832L26.1115 43.8235C25.9013 43.6134 25.5229 43.6134 25.2706 43.8235L20.6453 48.4454C20.4351 48.6555 20.4351 49.0336 20.6453 49.2857L24.5978 53.2353C27.1207 55.7563 30.4424 57.3109 33.9744 57.437C37.8007 57.563 41.4589 56.1345 44.1499 53.4454L65.2578 32.3529C67.6545 29.958 69 26.7647 69 23.3613V10.5462C69 4.70588 64.2907 0 58.4881 0H10.5119C4.70932 0 0 4.70588 0 10.5042V15.4202Z"/>
 		</svg>
+	} else if strings.TrimSpace(provider) == providers.ProviderDAV {
+		@icon.Server(icon.Props{Class: class})
 	} else {
 		@icon.Mail(icon.Props{Class: class})
 	}
@@ -3403,9 +3421,12 @@ templ AddAccountDialog() {
 		@dialog.Content(dialog.ContentProps{Class: "account-wizard-dialog mobile-page-dialog sm:max-w-4xl"}) {
 			@dialog.Header() {
 				@dialog.Title() {
-					<span data-add-mode="generic">Add Account</span>
-					<span data-add-mode="icloud">Add iCloud Account</span>
-					<span data-add-mode="jmap">Add JMAP Account</span>
+					<span data-add-account-only>
+						<span data-add-mode="generic">Add Account</span>
+						<span data-add-mode="icloud">Add iCloud Account</span>
+						<span data-add-mode="jmap">Add JMAP Account</span>
+					</span>
+					<span data-add-mail-only>Add Email</span>
 				}
 				@dialog.Description() {
 					Connect mail first, then optionally configure contacts and calendar.
@@ -3451,6 +3472,8 @@ templ AddAccountDialog() {
 				#add-account-dialog:not([data-mail-service]) [data-add-mode]:not([data-add-mode~="generic"]),
 				#add-account-dialog[data-mail-service="icloud"] [data-add-mode]:not([data-add-mode~="icloud"]),
 				#add-account-dialog[data-mail-service="jmap"] [data-add-mode]:not([data-add-mode~="jmap"]) { display:none !important; }
+				#add-account-dialog:not([data-add-mail]) [data-add-mail-only],
+				#add-account-dialog[data-add-mail] [data-add-account-only] { display:none !important; }
 			</style>
 			<div class="account-wizard-shell grid gap-4 pt-2 md:grid-cols-[14.5rem_minmax(0,1fr)]">
 		@AccountWizardAddSidebar()
@@ -3740,7 +3763,7 @@ templ AddAccountDialog() {
 										@icon.PlugZap(icon.Props{Class: "size-4 text-muted-foreground"})
 										Test and create
 									</h4>
-									<p class="text-xs leading-relaxed text-muted-foreground"><span data-add-mode="generic icloud">Gofer signs in to both servers with the settings you entered.</span><span data-add-mode="jmap">Gofer finds your JMAP server and signs in.</span> Nothing is saved until you create the account.</p>
+									<p class="text-xs leading-relaxed text-muted-foreground"><span data-add-mode="generic icloud">Gofer signs in to both servers with the settings you entered.</span><span data-add-mode="jmap">Gofer finds your JMAP server and signs in.</span> <span data-add-account-only>Nothing is saved until you create the account.</span><span data-add-mail-only>Nothing changes until you add the email.</span></p>
 									<div id="add-account-test-results" data-add-account-test-results aria-live="polite" class="mt-4 space-y-3"></div>
 								</div>
 							</div>
@@ -4027,7 +4050,8 @@ templ AddAccountWizardFooter() {
 					Test again
 				</button>
 				<button type="submit" form="account-form" data-account-test-action data-account-test-save hidden class="inline-flex items-center gap-1.5 text-sm font-medium px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:pointer-events-none disabled:opacity-50">
-					Create account
+					<span data-add-account-only>Create account</span>
+					<span data-add-mail-only>Add email</span>
 					@icon.ChevronRight(icon.Props{Class: "size-4"})
 				</button>
 				<button type="button" data-on-click='["goferNavigate","/settings/accounts?account_added=1"]' data-account-test-close hidden class="inline-flex items-center gap-1.5 text-sm font-medium px-3 py-2 rounded-lg border border-border text-foreground hover:bg-accent transition-colors disabled:pointer-events-none disabled:opacity-50">Close</button>
@@ -5176,10 +5200,17 @@ templ AddAccountPostCreateStep(data models.EditAccountData) {
 	{{ accountID := data.AccountID }}
 	{{ isJMAP := data.Provider == providers.ProviderJMAP && !editAccountIsICloud(data) }}
 	<div id="add-wizard-footer-step-4" data-wizard-footer-step="4" data-active="false" hx-swap-oob="outerHTML" class="hidden flex-wrap justify-end gap-2">
-		<button type="submit" form={ fmt.Sprintf("add-contact-sync-form-%s", accountID) } class="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors">
-			Next
-			@icon.ChevronRight(icon.Props{Class: "size-4"})
-		</button>
+		if data.ContactSync.Enabled {
+			<button type="button" data-on-click='["wizardGo",5]' class="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors">
+				Next
+				@icon.ChevronRight(icon.Props{Class: "size-4"})
+			</button>
+		} else {
+			<button type="submit" form={ fmt.Sprintf("add-contact-sync-form-%s", accountID) } class="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors">
+				Next
+				@icon.ChevronRight(icon.Props{Class: "size-4"})
+			</button>
+		}
 	</div>
 	<div id="add-wizard-footer-step-5" data-wizard-footer-step="5" data-active="false" hx-swap-oob="outerHTML" class="hidden flex-wrap justify-between gap-2">
 		<button type="button" data-on-click='["wizardGo",4]' class="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">
@@ -5203,81 +5234,88 @@ templ AddAccountPostCreateStep(data models.EditAccountData) {
 			@icon.BookUser(icon.Props{Class: "size-4 text-muted-foreground"})
 			Contact sync
 		</h4>
-		<form id={ fmt.Sprintf("add-contact-sync-form-%s", accountID) } data-wizard-contact-form data-wizard-next-step="5" hx-post={ fmt.Sprintf("/api/accounts/%s/contacts/sync", accountID) } hx-target={ fmt.Sprintf("#add-contact-sync-status-%s", accountID) } hx-swap="innerHTML" class="rounded-lg border border-border bg-background/45 p-4">
-			<div class="mb-3 flex items-start justify-between gap-4">
-				<div class="min-w-0">
-					<h4 class="flex items-center gap-2 text-sm font-semibold text-foreground">
-						@icon.BookUser(icon.Props{Class: "size-4 text-muted-foreground"})
-						Contact sync
-					</h4>
-					if isJMAP {
-						<p class="mt-1 text-xs leading-relaxed text-muted-foreground">Sync this account's address books over JMAP, or over CardDAV if you prefer.</p>
-					} else {
-						<p class="mt-1 text-xs leading-relaxed text-muted-foreground">Enable this only if the account has a CardDAV address book.</p>
-					}
-				</div>
-				<span class="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">Optional</span>
+		if data.ContactSync.Enabled {
+			<div class="rounded-lg border border-border bg-background/45 p-4" data-add-account-contacts-kept>
+				<p class="text-sm font-semibold text-foreground">Contacts already sync</p>
+				<p class="mt-1 text-xs leading-relaxed text-muted-foreground">This account keeps syncing its contacts with the login it already had. Change them later with Edit.</p>
 			</div>
-			<div id={ fmt.Sprintf("add-contact-sync-fields-%s", accountID) } class="space-y-3">
-				<div class="grid gap-3 sm:grid-cols-2">
-					if editAccountIsICloud(data) {
+		} else {
+			<form id={ fmt.Sprintf("add-contact-sync-form-%s", accountID) } data-wizard-contact-form data-wizard-next-step="5" hx-post={ fmt.Sprintf("/api/accounts/%s/contacts/sync", accountID) } hx-target={ fmt.Sprintf("#add-contact-sync-status-%s", accountID) } hx-swap="innerHTML" class="rounded-lg border border-border bg-background/45 p-4">
+				<div class="mb-3 flex items-start justify-between gap-4">
+					<div class="min-w-0">
+						<h4 class="flex items-center gap-2 text-sm font-semibold text-foreground">
+							@icon.BookUser(icon.Props{Class: "size-4 text-muted-foreground"})
+							Contact sync
+						</h4>
+						if isJMAP {
+							<p class="mt-1 text-xs leading-relaxed text-muted-foreground">Sync this account's address books over JMAP, or over CardDAV if you prefer.</p>
+						} else {
+							<p class="mt-1 text-xs leading-relaxed text-muted-foreground">Enable this only if the account has a CardDAV address book.</p>
+						}
+					</div>
+					<span class="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">Optional</span>
+				</div>
+				<div id={ fmt.Sprintf("add-contact-sync-fields-%s", accountID) } class="space-y-3">
+					<div class="grid gap-3 sm:grid-cols-2">
+						if editAccountIsICloud(data) {
+							<div class="sm:col-span-2">
+								@ICloudContactsNotice()
+							</div>
+							@ICloudContactFields()
+						} else {
+						if isJMAP {
+							@JMAPContactProtocolChoice(accountID, fmt.Sprintf("add-contact-sync-fields-%s", accountID), fmt.Sprintf("add-contact-sync-status-%s", accountID), true)
+						}
+						<div class={ "sm:col-span-2 grid gap-3 sm:grid-cols-2", templ.KV("hidden", isJMAP) } data-contact-protocol="carddav">
 						<div class="sm:col-span-2">
-							@ICloudContactsNotice()
+							<div class="mb-1.5 flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
+								<label class="text-xs font-medium text-muted-foreground">Base URL</label>
+								@CardDAVAutodiscoverButton(accountID, fmt.Sprintf("add-contact-sync-fields-%s", accountID), fmt.Sprintf("add-contact-sync-status-%s", accountID))
+							</div>
+							@input.Input(input.Props{Name: "base_url", Type: input.TypeURL, Placeholder: "https://dav.example.com/"})
+							<div data-server-check-url class="mt-1.5 hidden space-y-1" aria-live="polite"></div>
 						</div>
-						@ICloudContactFields()
-					} else {
-					if isJMAP {
-						@JMAPContactProtocolChoice(accountID, fmt.Sprintf("add-contact-sync-fields-%s", accountID), fmt.Sprintf("add-contact-sync-status-%s", accountID), true)
-					}
-					<div class={ "sm:col-span-2 grid gap-3 sm:grid-cols-2", templ.KV("hidden", isJMAP) } data-contact-protocol="carddav">
-					<div class="sm:col-span-2">
-						<div class="mb-1.5 flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
-							<label class="text-xs font-medium text-muted-foreground">Base URL</label>
-							@CardDAVAutodiscoverButton(accountID, fmt.Sprintf("add-contact-sync-fields-%s", accountID), fmt.Sprintf("add-contact-sync-status-%s", accountID))
+						<label class="flex items-center gap-2 cursor-pointer sm:col-span-2">
+							@checkbox.Checkbox(checkbox.Props{
+								Name:       "use_account_credentials",
+								Value:      "1",
+								Checked:    true,
+								Attributes: templ.Attributes{"data-on-change": onAction("toggleCardDAVAuth", actionElement)},
+							})
+							<span class="text-sm">Use same credentials as incoming mail</span>
+						</label>
+						<div class="sm:col-span-2 grid gap-3 sm:grid-cols-2 opacity-50" data-carddav-credential-fields>
+							<div>
+								<label class="mb-1.5 block text-xs font-medium text-muted-foreground">Username</label>
+								@input.Input(input.Props{Name: "username", Type: input.TypeText, Placeholder: "Same as incoming mail", Disabled: true})
+							</div>
+							<div>
+								<label class="mb-1.5 block text-xs font-medium text-muted-foreground">Password or app password</label>
+								@input.Input(input.Props{Name: "password", Type: input.TypePassword, Placeholder: "Same as incoming mail", Disabled: true})
+							</div>
 						</div>
-						@input.Input(input.Props{Name: "base_url", Type: input.TypeURL, Placeholder: "https://dav.example.com/"})
-						<div data-server-check-url class="mt-1.5 hidden space-y-1" aria-live="polite"></div>
-					</div>
-					<label class="flex items-center gap-2 cursor-pointer sm:col-span-2">
-						@checkbox.Checkbox(checkbox.Props{
-							Name:       "use_account_credentials",
-							Value:      "1",
-							Checked:    true,
-							Attributes: templ.Attributes{"data-on-change": onAction("toggleCardDAVAuth", actionElement)},
-						})
-						<span class="text-sm">Use same credentials as incoming mail</span>
-					</label>
-					<div class="sm:col-span-2 grid gap-3 sm:grid-cols-2 opacity-50" data-carddav-credential-fields>
-						<div>
-							<label class="mb-1.5 block text-xs font-medium text-muted-foreground">Username</label>
-							@input.Input(input.Props{Name: "username", Type: input.TypeText, Placeholder: "Same as incoming mail", Disabled: true})
 						</div>
-						<div>
-							<label class="mb-1.5 block text-xs font-medium text-muted-foreground">Password or app password</label>
-							@input.Input(input.Props{Name: "password", Type: input.TypePassword, Placeholder: "Same as incoming mail", Disabled: true})
+						}
+						<div class="hidden sm:col-span-2 rounded-md border border-border bg-background/35 px-3 py-2" data-carddav-addressbook-section data-carddav-manual-addressbook>
+							<label class="mb-1.5 block text-xs font-medium text-muted-foreground">Exact address book URL</label>
+							@input.Input(input.Props{Name: "addressbook_url", Type: input.TypeURL, Placeholder: "https://dav.example.com/addressbooks/user/default/"})
+							<div data-server-check-url class="mt-1.5 hidden space-y-1" aria-live="polite"></div>
 						</div>
-					</div>
-					</div>
-					}
-					<div class="hidden sm:col-span-2 rounded-md border border-border bg-background/35 px-3 py-2" data-carddav-addressbook-section data-carddav-manual-addressbook>
-						<label class="mb-1.5 block text-xs font-medium text-muted-foreground">Exact address book URL</label>
-						@input.Input(input.Props{Name: "addressbook_url", Type: input.TypeURL, Placeholder: "https://dav.example.com/addressbooks/user/default/"})
-						<div data-server-check-url class="mt-1.5 hidden space-y-1" aria-live="polite"></div>
 					</div>
 				</div>
-			</div>
-			<div id={ fmt.Sprintf("add-contact-sync-status-%s", accountID) } class="mt-3 min-h-0"></div>
-			<div class="mt-4 flex flex-wrap justify-end gap-2">
-				if editAccountIsICloud(data) {
-					@CardDAVDiscoverAddressBooksButton(accountID, fmt.Sprintf("add-contact-sync-fields-%s", accountID), fmt.Sprintf("add-contact-sync-status-%s", accountID), providers.ICloudCardDAVURL)
-				} else {
-					<span class={ templ.KV("contents", !isJMAP), templ.KV("hidden", isJMAP) } data-contact-protocol="carddav">
-						@CardDAVDiscoverAddressBooksButton(accountID, fmt.Sprintf("add-contact-sync-fields-%s", accountID), fmt.Sprintf("add-contact-sync-status-%s", accountID), "")
-						@CardDAVManualAddressBookButton(fmt.Sprintf("add-contact-sync-fields-%s", accountID), "")
-					</span>
-				}
-			</div>
-		</form>
+				<div id={ fmt.Sprintf("add-contact-sync-status-%s", accountID) } class="mt-3 min-h-0"></div>
+				<div class="mt-4 flex flex-wrap justify-end gap-2">
+					if editAccountIsICloud(data) {
+						@CardDAVDiscoverAddressBooksButton(accountID, fmt.Sprintf("add-contact-sync-fields-%s", accountID), fmt.Sprintf("add-contact-sync-status-%s", accountID), providers.ICloudCardDAVURL)
+					} else {
+						<span class={ templ.KV("contents", !isJMAP), templ.KV("hidden", isJMAP) } data-contact-protocol="carddav">
+							@CardDAVDiscoverAddressBooksButton(accountID, fmt.Sprintf("add-contact-sync-fields-%s", accountID), fmt.Sprintf("add-contact-sync-status-%s", accountID), "")
+							@CardDAVManualAddressBookButton(fmt.Sprintf("add-contact-sync-fields-%s", accountID), "")
+						</span>
+					}
+				</div>
+			</form>
+		}
 		</div>
 		</div>
 		<div class="account-wizard-controls flex flex-wrap justify-between gap-2">

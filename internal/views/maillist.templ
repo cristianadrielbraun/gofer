@@ -610,6 +610,7 @@ const raisedButtonClass = "bg-card dark:bg-card"
 const mailListFilterButtonClass = "mail-list-advanced-filter-button relative h-9 shrink-0 gap-1.5 rounded-lg px-2.5 text-xs font-semibold text-foreground has-[>svg]:px-2.5 data-[active=true]:bg-accent data-[active=true]:text-foreground " + raisedButtonClass
 
 templ MailFiltersPopover(accounts []models.Account, conversations bool) {
+	{{ accounts = mailAccounts(accounts) }}
 	@popover.Root(popover.RootProps{ID: "mail-filters-popover", Class: "inline-flex"}) {
 		@popover.Trigger() {
 			@button.Button(button.Props{Variant: button.VariantOutline, Class: mailListFilterButtonClass, Attributes: templ.Attributes{"aria-label": "Filters", "data-mail-filter-button": ""}}) {

@@ -114,6 +114,10 @@ func (h *Handler) handleUserEditAccount(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if data.Provider == providers.ProviderDAV {
+		_ = views.DAVAccountDialog(davAccountDialogData(*data)).Render(r.Context(), w)
+		return
+	}
 	_ = views.EditAccountDialog(*data).Render(r.Context(), w)
 }
 

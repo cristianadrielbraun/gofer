@@ -18,6 +18,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/mail"
 	"github.com/cristianadrielbraun/gofer/internal/mail/message"
 	"github.com/cristianadrielbraun/gofer/internal/models"
+	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
 
@@ -160,8 +161,13 @@ func (h *Handler) withMailExportAccount(ctx context.Context, owner, accountID st
 func (h *Handler) mailExportAccounts(ctx context.Context, owner string) ([]models.Account, error) {
 	var accounts []models.Account
 	err := h.withProfileStore(ctx, owner, func(_ *config.AccountStore, db *storage.DB) error {
-		var err error
-		accounts, err = db.GetAccounts(ctx, owner)
+		all, err := db.GetAccounts(ctx, owner)
+		for _, account := range all {
+			// An account with only calendars or contacts has no mail to move.
+			if account.Provider != providers.ProviderDAV {
+				accounts = append(accounts, account)
+			}
+		}
 		return err
 	})
 	return accounts, err

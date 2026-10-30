@@ -10,6 +10,9 @@ const (
 	ProviderCardDAV = "carddav"
 	OAuthGoogle     = "google"
 	OAuthMicrosoft  = "microsoft"
+	// ProviderDAV is an account with no mail, only a CalDAV or CardDAV
+	// server, signed in to with the account's own login.
+	ProviderDAV = "dav"
 )
 
 func GmailAccountRequest(email, displayName, providerAccountID string) *models.CreateAccountRequest {

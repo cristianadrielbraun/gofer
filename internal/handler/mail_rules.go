@@ -15,6 +15,7 @@ import (
 
 	"github.com/cristianadrielbraun/gofer/internal/mailrules"
 	"github.com/cristianadrielbraun/gofer/internal/models"
+	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 	"github.com/cristianadrielbraun/gofer/internal/views"
 )
@@ -35,7 +36,7 @@ func mailRulesData(ctx context.Context, db *storage.DB, userID string) (models.M
 	}
 	data := models.MailRulesData{Rules: rules}
 	for _, account := range accounts {
-		if account.IsDeleting {
+		if account.IsDeleting || account.Provider == providers.ProviderDAV {
 			continue
 		}
 		tree, err := db.AccountFolderTree(ctx, account.ID)
