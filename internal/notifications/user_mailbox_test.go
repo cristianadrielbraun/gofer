@@ -364,10 +364,15 @@ func TestUserMailboxHTTPReadsIsolateOverlappingMessageFolderAndThreadIDs(t *test
 				t.Fatalf("body %s %s: %d %s", owner, path, rec.Code, rec.Body.String())
 			}
 		}
-		for _, path := range []string{"/email/999", "/email/999/body", "/folder/" + other + "-inbox/full", "/api/sidebar/accounts/" + f.accounts[other].ID} {
+		for _, path := range []string{"/email/999", "/email/999/body", "/api/sidebar/accounts/" + f.accounts[other].ID} {
 			if rec := f.request(owner, http.MethodGet, path, ""); rec.Code != http.StatusNotFound {
 				t.Fatalf("foreign/missing %s %s: %d", owner, path, rec.Code)
 			}
+		}
+		// Another owner's folder is as unknown as a deleted one, whose page
+		// sends to the inbox (#47), and nothing of it comes back.
+		if rec := f.request(owner, http.MethodGet, "/folder/"+other+"-inbox/full", ""); rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/" || strings.Contains(rec.Body.String(), other) {
+			t.Fatalf("foreign folder %s: %d %q %s", owner, rec.Code, rec.Header().Get("Location"), rec.Body.String())
 		}
 		if rec := f.request(owner, http.MethodGet, "/email/2/body", ""); rec.Code != http.StatusServiceUnavailable {
 			t.Fatalf("uncached body tried unconverted fetch: %d", rec.Code)

@@ -93,7 +93,9 @@ func (a *ownedCalendarSyncAPI) count(owner string) int {
 	return a.calls[owner]
 }
 func (a *ownedCalendarSyncAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path == "/token" {
+	// A refresh also reads the calendar list, which the discovery API
+	// answers with the calendar the account syncs.
+	if r.URL.Path == "/token" || r.Method == "PROPFIND" || strings.HasSuffix(r.URL.Path, "/users/me/calendarList") || strings.HasSuffix(r.URL.Path, "/me/calendars") {
 		a.base.ServeHTTP(w, r)
 		return
 	}
