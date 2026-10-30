@@ -70,3 +70,25 @@ func (db *DB) SetProviderPushEnabled(ctx context.Context, userID, accountID stri
 	}
 	return nil
 }
+
+// OutlookPushServices reports whether an Outlook account syncs calendars,
+// with at least one Outlook calendar selected, and contacts, which Outlook
+// accounts do unless turned off. These are the services besides mail whose
+// changes Microsoft can announce.
+func (db *DB) OutlookPushServices(ctx context.Context, accountID string) (calendar, contacts bool, err error) {
+	var calendarSync, contactSync int
+	err = db.Read().QueryRowContext(ctx, `SELECT
+		    CASE WHEN EXISTS (
+		        SELECT 1 FROM calendar_sources cs
+		        WHERE cs.account_id = a.id AND cs.user_id = a.user_id AND cs.provider = 'outlook'
+		          AND cs.is_deleted = 0 AND cs.is_selected = 1
+		    ) THEN 1 ELSE 0 END,
+		    COALESCE(acc.enabled, 1)
+		 FROM accounts a
+		 LEFT JOIN account_contact_sync_configs acc ON acc.account_id = a.id AND acc.user_id = a.user_id
+		 WHERE a.id = ? AND a.provider = 'outlook' AND COALESCE(a.is_deleting, 0) = 0`, accountID).Scan(&calendarSync, &contactSync)
+	if err == sql.ErrNoRows {
+		return false, false, ErrAccountRoute
+	}
+	return calendarSync == 1, contactSync == 1, err
+}

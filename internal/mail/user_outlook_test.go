@@ -1072,3 +1072,50 @@ func TestUserOutlookPushCheckAndScheduledChecks(t *testing.T) {
 		t.Fatalf("check with scheduled checks: %v", err)
 	}
 }
+
+// An account that syncs its calendars and contacts is also subscribed to
+// their changes, each with its own token, and their notifications refresh
+// those services.
+func TestUserOutlookWebhookSubscribesCalendarsAndContacts(t *testing.T) {
+	f := newUserOutlookFixture(t)
+	key := []byte("fedcba9876543210fedcba9876543210")
+	f.worker.EnableOutlookWebhooks("https://mail.example.com/webhooks/outlook", key)
+	refreshed := make(chan string, 4)
+	f.worker.OnOutlookServiceChange(func(_ context.Context, service OutlookPushService, ids []string) {
+		for _, id := range ids {
+			refreshed <- string(service) + " " + id
+		}
+	})
+	alice := f.ids["alice"]
+	expiry := time.Now().Add(time.Hour)
+	scopes := userOutlookScopes + " https://graph.microsoft.com/Calendars.ReadWrite https://graph.microsoft.com/Contacts.ReadWrite"
+	if err := f.credentials.UpsertForUser(t.Context(), "alice", alice, "microsoft", "same-subject", "alice-access", "alice-refresh", "Bearer", &expiry, scopes); err != nil {
+		t.Fatal(err)
+	}
+	f.local(t, "alice", func(db *storage.DB) error {
+		return db.ReplaceCalendarSources(t.Context(), "alice", alice, providers.ProviderOutlook, []storage.CalendarSource{{RemoteID: "cal-1", Name: "Calendar", IsPrimary: true, IsSelected: true}})
+	})
+	if err := f.worker.Sync(t.Context(), "alice", alice); err != nil {
+		t.Fatal(err)
+	}
+	f.api.mu.Lock()
+	byResource := map[string]outlookGraphSubscription{}
+	for _, created := range f.api.subscriptions {
+		byResource[created.Resource] = created
+	}
+	f.api.mu.Unlock()
+	if len(byResource) != 3 || byResource["me/messages"].ID == "" || byResource["me/events"].ID == "" || byResource["me/contacts"].ID == "" {
+		t.Fatalf("subscriptions %v", byResource)
+	}
+
+	events := byResource["me/events"]
+	f.worker.ReceiveOutlookNotifications([]OutlookNotification{{SubscriptionID: events.ID, ClientState: events.ClientState}})
+	select {
+	case change := <-refreshed:
+		if change != "calendar "+alice {
+			t.Fatalf("refreshed %q", change)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("a calendar notification refreshed nothing")
+	}
+}

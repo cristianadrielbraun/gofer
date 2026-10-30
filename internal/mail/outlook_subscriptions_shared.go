@@ -22,14 +22,14 @@ func (o *SyncOrchestrator) outlookSubscriptionRequest() graphJSONRequest {
 	return providerJSON
 }
 
+// OnOutlookServiceChange sets what refreshes the calendars and contacts of
+// the accounts Microsoft announces changes for. It is called before Start.
+func (o *SyncOrchestrator) OnOutlookServiceChange(change OutlookServiceChange) {
+	o.outlookServiceChange = change
+}
+
 func (o *SyncOrchestrator) outlookSubscriptionToken(accountID string) outlookSubscriptionToken {
-	return func(ctx context.Context) (string, error) {
-		graphTokens, ok := o.tokenProvider.(graphMailTokenProvider)
-		if !ok {
-			return "", errProviderLabelAuth
-		}
-		return graphTokens.GetMicrosoftGraphMailTokenForAccount(ctx, accountID)
-	}
+	return outlookServiceToken(o.tokenProvider, accountID, OutlookPushMail)
 }
 
 func (o *SyncOrchestrator) runOutlookSubscriptions(ctx context.Context) {
@@ -51,9 +51,10 @@ func (o *SyncOrchestrator) runOutlookSubscriptions(ctx context.Context) {
 	}
 }
 
-// sweepOutlookSubscriptions subscribes Outlook accounts that receive mail,
-// renews subscriptions nearing their end, and drops those of accounts that
-// were removed or stopped receiving mail.
+// sweepOutlookSubscriptions subscribes Outlook accounts that receive mail to
+// their mailbox changes, and to those of the calendars and contacts they
+// sync, renews subscriptions nearing their end, and drops those of accounts
+// that were removed or stopped receiving mail.
 func (o *SyncOrchestrator) sweepOutlookSubscriptions(ctx context.Context, now time.Time) {
 	if o.outlookSubs == nil {
 		return
@@ -72,18 +73,21 @@ func (o *SyncOrchestrator) sweepOutlookSubscriptions(ctx context.Context, now ti
 		}
 		push, err := o.db.ProviderPushEnabled(ctx, accountID)
 		if err != nil {
-			// Leave the subscription as it is until the choice can be read.
+			// Leave the subscriptions as they are until the choice can be read.
 			wanted[accountID] = true
 			continue
 		}
 		if push {
 			wanted[accountID] = true
 			o.outlookSubs.keep(ctx, accountID, o.outlookSubscriptionToken(accountID), o.outlookSubscriptionRequest(), now)
+			if calendar, contacts, err := o.db.OutlookPushServices(ctx, accountID); err == nil {
+				o.outlookSubs.keepServices(ctx, accountID, calendar, contacts, o.tokenProvider, o.outlookSubscriptionRequest(), now)
+			}
 		}
 	}
-	for _, accountID := range o.outlookSubs.tracked() {
-		if !wanted[accountID] {
-			o.outlookSubs.drop(ctx, accountID, o.outlookSubscriptionToken(accountID), o.outlookSubscriptionRequest())
+	for _, key := range o.outlookSubs.tracked() {
+		if !wanted[key.account] {
+			o.outlookSubs.dropService(ctx, key, outlookServiceToken(o.tokenProvider, key.account, key.service), o.outlookSubscriptionRequest())
 		}
 	}
 }
@@ -91,15 +95,23 @@ func (o *SyncOrchestrator) sweepOutlookSubscriptions(ctx context.Context, now ti
 // ReceiveOutlookNotifications syncs the accounts Graph announced changes
 // for. Subscription problems it reports wake the subscription loop.
 func (o *SyncOrchestrator) ReceiveOutlookNotifications(notifications []OutlookNotification) {
-	ids := o.outlookSubs.receive(notifications)
-	if len(ids) == 0 {
+	changed := o.outlookSubs.receive(notifications)
+	if len(changed) == 0 {
 		return
 	}
 	ctx := o.accountLifecycleContext(context.Background())
 	go func() {
-		for _, accountID := range ids {
+		for _, accountID := range changed[OutlookPushMail] {
 			if o.db.IsEmailSyncEnabled(ctx, accountID) {
 				o.requestPushSync(ctx, accountID)
+			}
+		}
+		if o.outlookServiceChange == nil {
+			return
+		}
+		for _, service := range outlookPushServices[1:] {
+			if ids := changed[service]; len(ids) > 0 {
+				o.outlookServiceChange(ctx, service, ids)
 			}
 		}
 	}()

@@ -171,6 +171,10 @@ type SyncOrchestrator struct {
 	intervalMu          sync.RWMutex
 	intervalChanged     chan struct{}
 	mutationWake        func()
+
+	// outlookServiceChange refreshes the calendars and contacts Microsoft
+	// announced changes for.
+	outlookServiceChange OutlookServiceChange
 }
 
 func newAccountSyncSlots(limit int) chan struct{} {

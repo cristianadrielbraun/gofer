@@ -70,6 +70,10 @@ type UserIMAP struct {
 	// outlookSubs is set while GOFER_OUTLOOK_WEBHOOKS is on.
 	outlookSubs *outlookSubscriptions
 	closing     bool
+
+	// outlookServiceChange refreshes the calendars and contacts Microsoft
+	// announced changes for.
+	outlookServiceChange OutlookServiceChange
 }
 type userIMAPJob struct{ owner, account string }
 type userIMAPKey struct {
@@ -899,7 +903,7 @@ func (s *UserIMAP) Cleanup(ctx context.Context, id string) error {
 		}
 	}
 	// The sign-in is gone; Graph ends the subscription on its own.
-	s.outlookSubs.drop(ctx, id, nil, nil)
+	s.outlookSubs.dropAccount(id)
 	return s.blobs.DeleteAccount(id)
 }
 
