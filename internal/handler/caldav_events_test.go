@@ -119,7 +119,7 @@ func TestCalDAVReportRejectsCrossOriginRedirect(t *testing.T) {
 func TestCalDAVCalendarRefreshPreservesCacheAndAccountScope(t *testing.T) {
 	for _, reuseMailbox := range []bool{false, true} {
 		t.Run(fmt.Sprintf("reuseMailbox=%t", reuseMailbox), func(t *testing.T) {
-			var requests, tags, responseMode atomic.Int32
+			var requests, tags, lists, responseMode atomic.Int32
 			wantUsername := "calendar-login"
 			if reuseMailbox {
 				wantUsername = "mailbox-login"
@@ -131,6 +131,21 @@ func TestCalDAVCalendarRefreshPreservesCacheAndAccountScope(t *testing.T) {
 					tags.Add(1)
 					w.WriteHeader(http.StatusMultiStatus)
 					_, _ = fmt.Fprint(w, `<d:multistatus xmlns:d="DAV:" xmlns:cs="http://calendarserver.org/ns/"><d:response><d:href>/calendars/main/</d:href><d:propstat><d:prop><cs:getctag>1</cs:getctag></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response></d:multistatus>`)
+					return
+				}
+				if r.Method == "PROPFIND" && ok && username == wantUsername && password == "test-password" {
+					// The refresh button reads the calendar list too: the
+					// home lists the same two calendars.
+					lists.Add(1)
+					w.WriteHeader(http.StatusMultiStatus)
+					if r.Header.Get("Depth") == "1" {
+						calendar := func(path string) string {
+							return `<d:response><d:href>` + path + `</d:href><d:propstat><d:prop><d:resourcetype><d:collection/><c:calendar/></d:resourcetype></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>`
+						}
+						_, _ = fmt.Fprint(w, `<d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">`+calendar("/calendars/main/")+calendar("/calendars/unselected/")+`</d:multistatus>`)
+						return
+					}
+					_, _ = fmt.Fprintf(w, `<d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav"><d:response><d:href>%s</d:href><d:propstat><d:prop><d:current-user-principal><d:href>/principal/</d:href></d:current-user-principal><c:calendar-home-set><d:href>/calendars/</d:href></c:calendar-home-set></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response></d:multistatus>`, r.URL.Path)
 					return
 				}
 				requests.Add(1)
@@ -222,6 +237,12 @@ func TestCalDAVCalendarRefreshPreservesCacheAndAccountScope(t *testing.T) {
 			cached, err := db.ListCalendarEvents(t.Context(), "calendar-user", start, start.AddDate(0, 1, 0))
 			if err != nil || len(cached) != 3 || requests.Load() != 2 || tags.Load() != 1 {
 				t.Fatalf("cached events=%d requests=%d tags=%d error=%v", len(cached), requests.Load(), tags.Load(), err)
+			}
+			if lists.Load() == 0 {
+				t.Fatal("the refresh button didn't read the calendar list")
+			}
+			if listed, err := db.ListSelectedCalendarSources(t.Context(), "calendar-user"); err != nil || len(listed) != 1 || listed[0].ID != "main-source" {
+				t.Fatalf("reading the list changed the synced calendars: %+v, %v", listed, err)
 			}
 			if mark, ok := h.calendarChanges.get(storage.CalendarSource{ID: "main-source", UserID: "calendar-user"}); !ok || mark.tag != "ctag:1" {
 				t.Fatalf("download not marked: %+v %v", mark, ok)

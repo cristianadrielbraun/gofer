@@ -5079,8 +5079,17 @@ func (db *DB) attachCalendarSources(ctx context.Context, userID string, accounts
 			LastSyncedAt: calendarTimestamp(source.LastSuccessAt), NextAttemptAt: calendarTimestamp(source.NextAttemptAt),
 		})
 	}
+	others, err := db.ListUnselectedCalendarSources(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("query account calendars: %w", err)
+	}
+	otherByAccount := make(map[string][]models.AccountCalendarSource)
+	for _, source := range others {
+		otherByAccount[source.AccountID] = append(otherByAccount[source.AccountID], models.AccountCalendarSource{ID: source.ID, Name: source.Name, Color: source.Color})
+	}
 	for i := range accounts {
 		accounts[i].CalendarSources = byAccount[accounts[i].ID]
+		accounts[i].OtherCalendarSources = otherByAccount[accounts[i].ID]
 	}
 	return nil
 }

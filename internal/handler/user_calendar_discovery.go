@@ -311,16 +311,16 @@ func calendarDiscoveredSources(calendars []calendar.RemoteCalendar) []storage.Ca
 	return sources
 }
 
-func (p *userCalendarRequest) discoverDAV(ctx context.Context, r *http.Request, create *davCreate) ([]storage.CalendarSource, *config.DiscoveredCalDAVSettings, error) {
+func (p *userCalendarRequest) discoverDAV(ctx context.Context, form url.Values, create *davCreate) ([]storage.CalendarSource, *config.DiscoveredCalDAVSettings, error) {
 	service := p.service()
 	identity := service.Identity()
 	savedURL, savedUsername, _ := service.CalDAVSettings()
-	autodiscover, useAccount := r.PostForm.Get("autodiscover") == "1", r.PostForm.Get("use_account_credentials") == "1"
-	baseURL := strings.TrimSpace(r.PostForm.Get("caldav_url"))
+	autodiscover, useAccount := form.Get("autodiscover") == "1", form.Get("use_account_credentials") == "1"
+	baseURL := strings.TrimSpace(form.Get("caldav_url"))
 	if baseURL == "" && !autodiscover {
 		baseURL = savedURL
 	}
-	username := strings.TrimSpace(r.PostForm.Get("username"))
+	username := strings.TrimSpace(form.Get("username"))
 	if useAccount {
 		username = strings.TrimSpace(identity.Username)
 		if username == "" {
@@ -329,7 +329,7 @@ func (p *userCalendarRequest) discoverDAV(ctx context.Context, r *http.Request, 
 	} else if username == "" {
 		username = savedUsername
 	}
-	password, err := service.CalDAVPassword(r.PostForm.Get("password"), useAccount)
+	password, err := service.CalDAVPassword(form.Get("password"), useAccount)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -363,14 +363,65 @@ func (h *Handler) handleUserDiscoverCalendars(w http.ResponseWriter, r *http.Req
 		return
 	}
 	owner, id := h.userID(r.Context()), strings.TrimSpace(r.PathValue("id"))
-	message, failed, davSaved, foundNone := "", false, false, false
-	create, createErr := davCreateFromForm(r)
-	err := h.userIMAP.RunAccountService(r.Context(), owner, id, mail.AccountServiceCalendar, cardDAVDiscoveryOverallTimeout, func(ctx context.Context) error {
+	var result userCalendarDiscovery
+	create, err := davCreateFromForm(r)
+	if err != nil {
+		result.message, result.failed = err.Error(), true
+	} else {
+		result, err = h.runUserCalendarDiscovery(r.Context(), owner, id, r.PostForm, create, false)
+	}
+	if err != nil {
+		if errors.Is(err, storage.ErrCalendarDiscoveryChanged) || errors.Is(err, config.ErrAccountServicesChanged) || errors.Is(err, mailauth.ErrMailboxAuthorizationChanged) {
+			http.Error(w, "Calendar access or settings changed; retry discovery.", http.StatusConflict)
+		} else {
+			userAccountError(w, r, err)
+		}
+		return
+	}
+	message := result.message
+	if result.davSaved && (r.PostForm.Get("password") != "" || r.PostForm.Get("use_account_credentials") == "1") {
+		if remaining, waiting, err := h.resolveImportedLogin(r.Context(), owner, id, storage.ImportedLoginCalendar); err != nil {
+			log.Printf("routed account %s: turn on imported calendars: %v", id, err)
+		} else if waiting {
+			markImportedLoginResolved(w, storage.ImportedLoginCalendar, remaining)
+			message = strings.Replace(message, "The primary calendar is selected by default.", "The calendars from your profile are selected.", 1)
+		}
+	}
+	data, err := h.userEditData(r.Context(), owner, id)
+	if err != nil {
+		userAccountError(w, r, err)
+		return
+	}
+	data.CalendarSync.FoundNone = result.foundNone
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := views.CalendarSyncSettingsResult(*data, message, result.failed).Render(r.Context(), w); err != nil {
+		log.Printf("owned calendar: render discovery: %v", err)
+	}
+}
+
+// userCalendarDiscovery is how a per-user account's calendar discovery went.
+// failed with a message is a problem to show; an error is one to answer with.
+type userCalendarDiscovery struct {
+	message                     string
+	failed, davSaved, foundNone bool
+}
+
+// runUserCalendarDiscovery lists the account's calendars, first making the
+// one create asks for, and saves the list, signing in as form says: the
+// Calendar sync form, or for a background refresh the saved settings. A
+// background refresh leaves the calendars it finds for the first time
+// unticked and every other choice as it was; calendars the provider no longer
+// lists are removed either way.
+func (h *Handler) runUserCalendarDiscovery(parent context.Context, owner, id string, form url.Values, create *davCreate, background bool) (userCalendarDiscovery, error) {
+	var result userCalendarDiscovery
+	err := h.userIMAP.RunAccountService(parent, owner, id, mail.AccountServiceCalendar, cardDAVDiscoveryOverallTimeout, func(ctx context.Context) error {
 		snapshot, err := h.userAccounts.SnapshotCalendarDiscovery(ctx, owner, id)
 		if err != nil {
 			return err
 		}
-		if protocol := calendarDiscoveryProtocol(r, snapshot.Provider()); protocol != snapshot.Provider() {
+		if background {
+			form = backgroundCalendarDiscoveryForm(snapshot)
+		} else if protocol := calendarDiscoveryProtocolFor(form.Get("calendar_protocol"), snapshot.Provider()); protocol != snapshot.Provider() {
 			if snapshot, err = snapshot.WithProvider(protocol); err != nil {
 				return err
 			}
@@ -378,12 +429,8 @@ func (h *Handler) handleUserDiscoverCalendars(w http.ResponseWriter, r *http.Req
 		request := &userCalendarRequest{h: h, snapshot: snapshot}
 		var sources []storage.CalendarSource
 		var dav *config.DiscoveredCalDAVSettings
-		if createErr != nil {
-			message, failed = createErr.Error(), true
-			return nil
-		}
 		if snapshot.Provider() == storage.CalendarSourceProviderCalDAV {
-			sources, dav, err = request.discoverDAV(ctx, r, create)
+			sources, dav, err = request.discoverDAV(ctx, form, create)
 		} else if snapshot.Provider() == storage.CalendarSourceProviderJMAP {
 			sources, err = request.discoverJMAP(ctx, create)
 		} else if h.userCredentials == nil {
@@ -394,7 +441,7 @@ func (h *Handler) handleUserDiscoverCalendars(w http.ResponseWriter, r *http.Req
 					if changed := request.validate(ctx); changed != nil {
 						return changed
 					}
-					message, failed = "Calendar creation failed: "+err.Error(), true
+					result.message, result.failed = "Calendar creation failed: "+err.Error(), true
 					return nil
 				}
 			}
@@ -412,11 +459,23 @@ func (h *Handler) handleUserDiscoverCalendars(w http.ResponseWriter, r *http.Req
 			if changed := request.validate(ctx); changed != nil {
 				return changed
 			}
-			if errors.Is(err, mailauth.ErrMailboxAuthorizationChanged) || errors.Is(err, storage.ErrCalendarDiscoveryChanged) || errors.Is(err, config.ErrAccountServicesChanged) || errors.Is(err, storage.ErrAccountRoute) || errors.Is(err, storage.ErrUserStoreOwner) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			if background || errors.Is(err, mailauth.ErrMailboxAuthorizationChanged) || errors.Is(err, storage.ErrCalendarDiscoveryChanged) || errors.Is(err, config.ErrAccountServicesChanged) || errors.Is(err, storage.ErrAccountRoute) || errors.Is(err, storage.ErrUserStoreOwner) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return err
 			}
-			message, failed = "Calendar discovery failed: "+err.Error(), true
+			result.message, result.failed = "Calendar discovery failed: "+err.Error(), true
 			return nil
+		}
+		if background {
+			if len(sources) == 0 {
+				// A provider that suddenly lists nothing is more likely
+				// failing than emptied; Refresh calendars can still clear it.
+				return nil
+			}
+			// Calendars already known keep their choice; new ones wait for
+			// the owner to tick them.
+			for i := range sources {
+				sources[i].IsSelected = false
+			}
 		}
 		var guards []func() error
 		if request.authorization != nil {
@@ -425,8 +484,13 @@ func (h *Handler) handleUserDiscoverCalendars(w http.ResponseWriter, r *http.Req
 		if _, err := h.userAccounts.PublishCalendarDiscovery(ctx, snapshot, sources, dav, guards...); err != nil {
 			return err
 		}
-		davSaved = dav != nil
-		h.wakeUserCalendarAccount(ctx, owner, id)
+		result.davSaved = dav != nil
+		if background {
+			// An open Calendar redraws its list of calendars.
+			h.userIMAP.Events().Publish(mail.Event{Type: mail.EventCalendarChanged, UserID: owner, AccountID: id, Payload: map[string]any{"sources": true}})
+		} else {
+			h.wakeUserCalendarAccount(ctx, owner, id)
+		}
 		label := "Google calendar source(s)"
 		if snapshot.Provider() == "outlook" {
 			label = "Microsoft calendar source(s)"
@@ -435,35 +499,24 @@ func (h *Handler) handleUserDiscoverCalendars(w http.ResponseWriter, r *http.Req
 		} else if snapshot.Provider() == storage.CalendarSourceProviderJMAP {
 			label = "JMAP calendar(s)"
 		}
-		message = fmt.Sprintf("Discovered %d %s. The primary calendar is selected by default.", len(sources), label)
-		message = calendarDiscoveryMessage(len(sources), create, message)
-		foundNone = len(sources) == 0
+		result.message = fmt.Sprintf("Discovered %d %s. The primary calendar is selected by default.", len(sources), label)
+		result.message = calendarDiscoveryMessage(len(sources), create, result.message)
+		result.foundNone = len(sources) == 0
 		return nil
 	})
-	if err != nil {
-		if errors.Is(err, storage.ErrCalendarDiscoveryChanged) || errors.Is(err, config.ErrAccountServicesChanged) || errors.Is(err, mailauth.ErrMailboxAuthorizationChanged) {
-			http.Error(w, "Calendar access or settings changed; retry discovery.", http.StatusConflict)
-		} else {
-			userAccountError(w, r, err)
-		}
-		return
-	}
-	if davSaved && (r.PostForm.Get("password") != "" || r.PostForm.Get("use_account_credentials") == "1") {
-		if remaining, waiting, err := h.resolveImportedLogin(r.Context(), owner, id, storage.ImportedLoginCalendar); err != nil {
-			log.Printf("routed account %s: turn on imported calendars: %v", id, err)
-		} else if waiting {
-			markImportedLoginResolved(w, storage.ImportedLoginCalendar, remaining)
-			message = strings.Replace(message, "The primary calendar is selected by default.", "The calendars from your profile are selected.", 1)
+	return result, err
+}
+
+// backgroundCalendarDiscoveryForm signs in as the account's saved calendar
+// settings do.
+func backgroundCalendarDiscoveryForm(snapshot *config.UserCalendarDiscoverySnapshot) url.Values {
+	form := url.Values{}
+	if snapshot.Provider() == storage.CalendarSourceProviderCalDAV {
+		baseURL, _, useAccount := snapshot.Service().CalDAVSettings()
+		form.Set("caldav_url", baseURL)
+		if useAccount {
+			form.Set("use_account_credentials", "1")
 		}
 	}
-	data, err := h.userEditData(r.Context(), owner, id)
-	if err != nil {
-		userAccountError(w, r, err)
-		return
-	}
-	data.CalendarSync.FoundNone = foundNone
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := views.CalendarSyncSettingsResult(*data, message, failed).Render(r.Context(), w); err != nil {
-		log.Printf("owned calendar: render discovery: %v", err)
-	}
+	return form
 }

@@ -391,6 +391,10 @@ func (w *userCalendarWorkers) process(parent context.Context, job userCalendarJo
 	_, syncErr := w.h.syncUserCalendarWindow(ctx, job.owner, start, end, job.account, true, forced)
 	if !errors.Is(syncErr, errCalendarAccountNotConfigured) {
 		w.report(ctx, "refresh account", syncErr)
+		if w.h.calendarListDue(job.account, time.Now(), calendarSourceGone(checkErr) || calendarSourceGone(syncErr)) {
+			_, listErr := w.h.runUserCalendarDiscovery(ctx, job.owner, job.account, nil, nil, true)
+			w.report(ctx, "refresh calendar list", listErr)
+		}
 	}
 	if ctx.Err() != nil {
 		return

@@ -360,6 +360,32 @@ func (db *DB) ListSelectedCalendarSources(ctx context.Context, userID string) ([
 	return db.listSelectedCalendarSources(ctx, userID, false)
 }
 
+// ListUnselectedCalendarSources returns the user's calendars that were
+// discovered but aren't synced, for the Calendar sidebar to offer.
+func (db *DB) ListUnselectedCalendarSources(ctx context.Context, userID string) ([]CalendarSource, error) {
+	rows, err := db.Read().QueryContext(ctx, `
+		SELECT source.id, source.account_id, source.provider, source.name, source.color
+		FROM calendar_sources source
+		JOIN accounts account ON account.id = source.account_id AND account.user_id = source.user_id
+		WHERE source.user_id = ? AND COALESCE(account.is_deleting, 0) = 0
+		  AND source.is_deleted = 0 AND source.is_selected = 0
+		ORDER BY source.name COLLATE NOCASE, source.remote_id`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var sources []CalendarSource
+	for rows.Next() {
+		var source CalendarSource
+		source.UserID = userID
+		if err := rows.Scan(&source.ID, &source.AccountID, &source.Provider, &source.Name, &source.Color); err != nil {
+			return nil, err
+		}
+		sources = append(sources, source)
+	}
+	return sources, rows.Err()
+}
+
 // ListInstanceCalendarSyncSources is for the server worker, never an HTTP audience.
 func (db *DB) ListInstanceCalendarSyncSources(ctx context.Context) ([]CalendarSource, error) {
 	return db.listSelectedCalendarSources(ctx, "", true)

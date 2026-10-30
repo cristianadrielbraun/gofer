@@ -301,10 +301,16 @@ func (p *userCalendarRequest) jmapConnection(ctx context.Context) (*models.Accou
 // mail-server account's calendars come from CalDAV unless the form chose
 // JMAP; other accounts keep their provider.
 func calendarDiscoveryProtocol(r *http.Request, current string) string {
+	return calendarDiscoveryProtocolFor(r.FormValue("calendar_protocol"), current)
+}
+
+// calendarDiscoveryProtocolFor is calendarDiscoveryProtocol for the form's
+// calendar_protocol value.
+func calendarDiscoveryProtocolFor(chosen, current string) string {
 	if current != storage.CalendarSourceProviderCalDAV && current != storage.CalendarSourceProviderJMAP {
 		return current
 	}
-	if strings.TrimSpace(r.FormValue("calendar_protocol")) == storage.CalendarSourceProviderJMAP {
+	if strings.TrimSpace(chosen) == storage.CalendarSourceProviderJMAP {
 		return storage.CalendarSourceProviderJMAP
 	}
 	return storage.CalendarSourceProviderCalDAV

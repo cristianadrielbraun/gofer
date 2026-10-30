@@ -459,7 +459,7 @@ func calendarAccountDisplayName(account models.Account) string {
 func calendarConfiguredAccounts(accounts []models.Account) []models.Account {
 	configured := make([]models.Account, 0, len(accounts))
 	for _, account := range accounts {
-		if account.IsDeleting || !account.CalendarSyncEnabled {
+		if account.IsDeleting || (!account.CalendarSyncEnabled && len(account.OtherCalendarSources) == 0) {
 			continue
 		}
 		configured = append(configured, account)

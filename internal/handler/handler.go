@@ -150,6 +150,10 @@ type Handler struct {
 	authEventRetentionWorkers sync.WaitGroup
 	smtpProfileMu             sync.RWMutex
 	smtpProfile               smtpDeliveryProfileState
+
+	// calendarListRead is when each account's calendar list was last read
+	// in the background.
+	calendarListRead sync.Map
 }
 
 const (
@@ -459,6 +463,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /calendar", h.handleCalendar)
 	mux.HandleFunc("POST /api/calendar/sync", h.handleCalendarSync)
 	mux.HandleFunc("POST /api/calendar/sources/{id}/visibility", h.handleCalendarVisibility)
+	mux.HandleFunc("POST /api/calendar/sources/{id}/sync", h.handleCalendarSourceSync)
 	mux.HandleFunc("GET /api/calendar/events/{id}", h.handleCalendarEvent)
 	mux.HandleFunc("GET /api/calendar/events/{id}/actions", h.handleCalendarEventActions)
 	mux.HandleFunc("GET /api/calendar/events/{id}/delivery", h.handleCalendarDeliveryStatus)

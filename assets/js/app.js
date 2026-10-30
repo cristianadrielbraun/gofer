@@ -6344,7 +6344,10 @@ document.addEventListener("DOMContentLoaded", function () {
       handleCalendarSyncEvent(data)
     })
 
-    source.addEventListener("calendar-changed", function () {
+    source.addEventListener("calendar-changed", function (event) {
+      var data
+      try { data = JSON.parse(event.data) } catch (_) { data = null }
+      if (data && data.sources) refreshCalendarSidebar()
       scheduleCalendarCacheRefresh()
     })
 
@@ -14581,6 +14584,41 @@ function handleCalendarSyncEvent(data) {
   if (current !== data || data.state !== "ok") return
   if (data.changed || (data.snapshot && previous && Date.parse(data.last_synced_at) > (Date.parse(previous.last_synced_at) || 0))) scheduleCalendarCacheRefresh()
 }
+
+// refreshCalendarSidebar redraws the list of calendars beside an open
+// Calendar after calendars were added or removed on their provider.
+function refreshCalendarSidebar() {
+  var body = document.querySelector('[data-sidebar-app-body="calendar"]')
+  if (!body || !window.htmx) return
+  window.htmx.ajax("GET", window.location.pathname + window.location.search, { target: body, select: "#sidebar-app-body", swap: "outerHTML" }).then(updateCalendarSyncPresentation)
+}
+
+// A calendar under "Other calendars" starts syncing from its button; it then
+// moves up among the account's synced calendars.
+document.addEventListener("click", function (event) {
+  var button = event.target.closest && event.target.closest("[data-calendar-source-start]")
+  if (!button || button.disabled) return
+  event.preventDefault()
+  button.disabled = true
+  button.setAttribute("aria-busy", "true")
+  var icon = button.querySelector("svg")
+  if (icon) icon.classList.add("animate-pulse")
+  fetch("/api/calendar/sources/" + encodeURIComponent(button.dataset.calendarSourceStart) + "/sync", {
+    method: "POST",
+    headers: { "Accept": "text/plain" },
+  }).then(function (response) {
+    if (response.ok) return
+    return response.text().then(function (text) { throw new Error((text || "").trim() || "Please try again.") })
+  }).then(function () {
+    refreshCalendarSidebar()
+    scheduleCalendarCacheRefresh()
+  }).catch(function (error) {
+    button.disabled = false
+    button.removeAttribute("aria-busy")
+    if (icon) icon.classList.remove("animate-pulse")
+    showGoferToast({ title: "Could not sync this calendar", description: error && error.message ? error.message : "Please try again.", variant: "error", icon: "error", position: "bottom-right", duration: 6000, dismissible: true })
+  })
+})
 
 function scheduleCalendarCacheRefresh() {
   _calendarCacheRefreshPending = true

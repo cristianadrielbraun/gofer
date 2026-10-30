@@ -35,6 +35,9 @@ type Account struct {
 	ReconnectNeeds      []string
 	ContactAddressBooks []ContactAddressBook
 	CalendarSources     []AccountCalendarSource
+	// OtherCalendarSources are the account's calendars that aren't synced,
+	// which the Calendar sidebar offers to sync.
+	OtherCalendarSources []AccountCalendarSource
 	// Identities are the further addresses the account sends as.
 	Identities []Identity
 	// FromRule is which From addresses the account's own way of sending

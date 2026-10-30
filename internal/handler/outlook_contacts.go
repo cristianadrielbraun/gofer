@@ -66,7 +66,7 @@ type outlookAPIError struct {
 }
 
 func (e outlookAPIError) Error() string {
-	return fmt.Sprintf("graph contacts api returned %d: %s", e.Status, sanitizeProviderErrorBody(e.Body))
+	return fmt.Sprintf("Microsoft Graph returned %d: %s", e.Status, sanitizeProviderErrorBody(e.Body))
 }
 
 func (e outlookAPIError) RetryAfter() (time.Time, bool) {

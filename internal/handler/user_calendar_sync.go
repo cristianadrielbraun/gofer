@@ -330,6 +330,7 @@ func (h *Handler) handleUserCalendarSync(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	start, end := calendarVisibleWindow(month)
+	h.refreshUserCalendarLists(ctx, owner, strings.TrimSpace(r.FormValue("account_id")))
 	count, syncErr := h.syncUserCalendarWindow(ctx, owner, start, end, strings.TrimSpace(r.FormValue("account_id")), false, false)
 	if errors.Is(syncErr, errCalendarAccountNotConfigured) {
 		http.Error(w, syncErr.Error(), http.StatusNotFound)

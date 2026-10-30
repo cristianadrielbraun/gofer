@@ -91,6 +91,7 @@ func (h *Handler) handleCalendarSync(w http.ResponseWriter, r *http.Request) {
 	month := calendarDataFromRequest(r, uiSettings)
 	windowStart, windowEnd := calendarVisibleWindow(month)
 	accountID := strings.TrimSpace(r.FormValue("account_id"))
+	h.refreshCalendarLists(ctx, userID, accountID)
 	synced, syncErr := h.syncCalendarScopedWindow(ctx, userID, windowStart, windowEnd, "", accountID)
 	if errors.Is(syncErr, errCalendarAccountNotConfigured) {
 		http.Error(w, syncErr.Error(), http.StatusNotFound)

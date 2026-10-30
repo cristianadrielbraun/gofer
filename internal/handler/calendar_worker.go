@@ -95,18 +95,27 @@ func (h *Handler) runCalendarSyncTick(ctx context.Context, now time.Time) {
 				settings := h.db.GetUISettings(ctx, source.UserID)
 				start, end := calendarBackgroundWindow(now, viewsCalendarLocation(settings))
 				credentials := make(map[string]calendarCredentials)
+				var err error
 				if job.check {
-					changed, err := h.calendarSourceChanged(ctx, source, job.mark, credentials)
+					var changed bool
+					changed, err = h.calendarSourceChanged(ctx, source, job.mark, credentials)
 					h.calendarChanges.checked(source, time.Now())
-					if err != nil || !changed {
-						if err != nil && ctx.Err() == nil {
-							log.Printf("calendar check %s: %v", source.ID, err)
-						}
+					if err != nil && ctx.Err() == nil {
+						log.Printf("calendar check %s: %v", source.ID, err)
+					}
+					if err == nil && !changed {
 						continue
 					}
 				}
-				if _, err := h.syncCalendarSource(ctx, source, start, end, !job.check, credentials); err != nil && ctx.Err() == nil {
-					log.Printf("calendar sync %s: %v", source.ID, err)
+				if err == nil {
+					if _, err = h.syncCalendarSource(ctx, source, start, end, !job.check, credentials); err != nil && ctx.Err() == nil {
+						log.Printf("calendar sync %s: %v", source.ID, err)
+					}
+				}
+				if ctx.Err() == nil && h.calendarListDue(source.AccountID, time.Now(), calendarSourceGone(err)) {
+					if err := h.refreshCalendarList(ctx, source, credentials); err != nil && ctx.Err() == nil {
+						log.Printf("calendar list %s: %v", source.AccountID, err)
+					}
 				}
 			}
 		}()
