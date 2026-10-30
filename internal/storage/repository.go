@@ -803,9 +803,20 @@ func (db *DB) EnsureThreading(ctx context.Context) error {
 	}
 	log.Printf("storage: EnsureThreading backfill required")
 
+	// Where conversations exist, only the messages missing one are linked,
+	// as sync links new mail: replies waiting for a message join it then.
+	// Without any, as before conversations existed, every message is.
+	var hasThreads bool
+	if err := db.Read().QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM threads)`).Scan(&hasThreads); err != nil {
+		return err
+	}
+	missing := ""
+	if hasThreads {
+		missing = ` WHERE COALESCE(thread_id, '') = '' OR COALESCE(message_id_normalized, '') = ''`
+	}
 	rows, err := db.Read().QueryContext(ctx,
 		`SELECT id, account_id, COALESCE(internet_message_id, ''), in_reply_to, "references", subject, date_received
-		 FROM messages ORDER BY date_received ASC, id ASC`)
+		 FROM messages`+missing+` ORDER BY date_received ASC, id ASC`)
 	if err != nil {
 		return err
 	}

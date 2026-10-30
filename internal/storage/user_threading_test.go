@@ -328,3 +328,79 @@ func TestUserStartupThreadingHonorsAccountDirectoryTransitions(t *testing.T) {
 		})
 	}
 }
+
+func TestUserStartupThreadingLinksOnlyMessagesMissingAConversation(t *testing.T) {
+	_, _, r := newAccountRoutingTest(t, 1)
+	seedStartupThreading(t, r, "bob", 12)
+	if err := r.EnsureUserThreadingForStartup(t.Context(), "bob", nil); err != nil {
+		t.Fatal(err)
+	}
+	var account string
+	if err := r.WithUser(t.Context(), "bob", func(db *DB) error {
+		return db.Read().QueryRow(`SELECT account_id FROM messages WHERE id = 1`).Scan(&account)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	add := func(id int, internetID, inReplyTo, subject string) {
+		t.Helper()
+		if err := r.WithUser(t.Context(), "bob", func(db *DB) error {
+			_, err := db.Write().Exec(`INSERT INTO messages(id,account_id,internet_message_id,subject,in_reply_to,"references",date_received) VALUES(?,?,?,?,?,?,?)`,
+				id, account, internetID, subject, inReplyTo, inReplyTo, "2026-10-08 10:00:00")
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	repair := func() ThreadingState {
+		t.Helper()
+		var last ThreadingState
+		if err := r.EnsureUserThreadingForStartup(t.Context(), "bob", func(s ThreadingState) { last = s }); err != nil {
+			t.Fatal(err)
+		}
+		return last
+	}
+	threadOf := func(id int) string {
+		t.Helper()
+		var thread string
+		if err := r.WithUser(t.Context(), "bob", func(db *DB) error {
+			return db.Read().QueryRow(`SELECT COALESCE(thread_id,'') FROM messages WHERE id = ?`, id).Scan(&thread)
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return thread
+	}
+
+	// A reply arrives before the message it answers; only it is linked.
+	add(20, "<reply@test.invalid>", "<late@test.invalid>", "Re: Plans")
+	if state := repair(); state.Total != 1 || state.Processed != 1 {
+		t.Fatalf("reply repair = %+v, want one message", state)
+	}
+	// The original then joins it, as when sync brings it in.
+	add(21, "<late@test.invalid>", "", "Plans")
+	if state := repair(); state.Total != 1 || state.Processed != 1 {
+		t.Fatalf("original repair = %+v, want one message", state)
+	}
+	if reply, original := threadOf(20), threadOf(21); reply == "" || reply != original {
+		t.Fatalf("reply thread %q, original thread %q", reply, original)
+	}
+	if state := repair(); state != (ThreadingState{}) {
+		t.Fatalf("completed repair repeated: %+v", state)
+	}
+
+	// The shared database's repair links only what is missing too.
+	add(22, "<again@test.invalid>", "<late@test.invalid>", "Re: Plans")
+	if err := r.WithUser(t.Context(), "bob", func(db *DB) error {
+		if err := db.EnsureThreading(t.Context()); err != nil {
+			return err
+		}
+		if state := db.GetThreadingState(); state.Total != 1 {
+			return fmt.Errorf("shared repair state = %+v, want one message", state)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if threadOf(22) != threadOf(21) {
+		t.Fatalf("shared repair thread %q, original thread %q", threadOf(22), threadOf(21))
+	}
+}

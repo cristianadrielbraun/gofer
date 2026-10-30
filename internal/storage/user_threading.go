@@ -54,16 +54,18 @@ func (r *AccountRouting) withStartupStore(ctx context.Context, owner string, fn 
 func (r *AccountRouting) EnsureUserThreadingForStartup(ctx context.Context, owner string, progress func(ThreadingState)) error {
 	var ids []int64
 	if err := r.withStartupStore(ctx, owner, func(db *DB) error {
-		var needs bool
-		if err := db.Read().QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM messages m JOIN accounts a ON a.id=m.account_id WHERE a.user_id=? AND COALESCE(a.is_deleting,0)=0 AND (COALESCE(m.thread_id,'')='' OR COALESCE(m.message_id_normalized,'')=''))
- OR (EXISTS(SELECT 1 FROM messages m JOIN accounts a ON a.id=m.account_id WHERE a.user_id=? AND COALESCE(a.is_deleting,0)=0)
- AND NOT EXISTS(SELECT 1 FROM threads t JOIN accounts a ON a.id=t.account_id WHERE a.user_id=? AND COALESCE(a.is_deleting,0)=0))`, owner, owner, owner).Scan(&needs); err != nil {
+		// Where conversations exist, only the messages missing one are linked,
+		// as sync links new mail: replies waiting for a message join it then.
+		// Without any, as before conversations existed, every message is.
+		var hasThreads bool
+		if err := db.Read().QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM threads t JOIN accounts a ON a.id=t.account_id WHERE a.user_id=? AND COALESCE(a.is_deleting,0)=0)`, owner).Scan(&hasThreads); err != nil {
 			return err
 		}
-		if !needs {
-			return nil
+		query := `SELECT m.id FROM messages m JOIN accounts a ON a.id=m.account_id WHERE a.user_id=? AND COALESCE(a.is_deleting,0)=0`
+		if hasThreads {
+			query += ` AND (COALESCE(m.thread_id,'')='' OR COALESCE(m.message_id_normalized,'')='')`
 		}
-		rows, err := db.Read().QueryContext(ctx, `SELECT m.id FROM messages m JOIN accounts a ON a.id=m.account_id WHERE a.user_id=? AND COALESCE(a.is_deleting,0)=0 ORDER BY m.date_received,m.id`, owner)
+		rows, err := db.Read().QueryContext(ctx, query+` ORDER BY m.date_received,m.id`, owner)
 		if err != nil {
 			return err
 		}
@@ -78,6 +80,9 @@ func (r *AccountRouting) EnsureUserThreadingForStartup(ctx context.Context, owne
 		return rows.Err()
 	}); err != nil {
 		return err
+	}
+	if len(ids) == 0 {
+		return nil
 	}
 	state := ThreadingState{InProgress: len(ids) > 0, Total: len(ids)}
 	if progress != nil {
