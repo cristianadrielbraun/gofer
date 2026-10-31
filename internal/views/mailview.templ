@@ -728,7 +728,7 @@ templ MailViewHeader(email *models.Email, thread []models.ThreadItem) {
 							Variant:    button.VariantGhost,
 							Size:       button.SizeIcon,
 							Class:      "h-8 w-8 text-icon hover:text-ink hover:bg-ink/5",
-							Attributes: templ.Attributes{"data-on-click": onAction("archiveThread", email.ID)},
+							Attributes: templ.Attributes{"data-on-click": onAction("archiveThread", email.ID, actionElement), "data-mail-archive-account": email.AccountID},
 						}) {
 							@icon.Archive(icon.Props{Class: "size-4"})
 						}
@@ -741,7 +741,7 @@ templ MailViewHeader(email *models.Email, thread []models.ThreadItem) {
 					if mailEmailIsArchived(email) {
 						{ threadAwareLabel("Move to Inbox", "Move thread to Inbox", email) }
 					} else {
-						{ threadAwareLabel("Archive", "Archive thread", email) }
+						<span data-mail-archive-tooltip>{ threadAwareLabel("Archive", "Archive thread", email) }</span>
 					}
 				}
 			}

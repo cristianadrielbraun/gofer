@@ -1537,7 +1537,7 @@ document.addEventListener("DOMContentLoaded", function () {
         e.preventDefault()
         if (selectionAction.disabled) return
         if (selectionAction.hasAttribute("data-mail-delete-all")) deleteAllInMailFolder(selectionAction.dataset.mailDeleteAllFolder)
-        else performMailSelectionAction(mailSelectionActionName(selectionAction))
+        else performMailSelectionAction(mailSelectionActionName(selectionAction), selectionAction)
         return
       }
 
@@ -1608,12 +1608,14 @@ document.addEventListener("DOMContentLoaded", function () {
       syncMailDeleteActionState()
       syncMailArchiveActionState()
       syncMailSelectionControls()
+      syncReaderArchiveAvailability()
     })
 
     seedMailSelectionFromActive()
     syncMailDeleteActionState()
     syncMailArchiveActionState()
     syncMailSelectionControls()
+    syncReaderArchiveAvailability()
     setupMailKeyboardShortcuts()
     setupMailDragAndDrop()
     setupMailContextMenu()
@@ -1955,7 +1957,12 @@ document.addEventListener("DOMContentLoaded", function () {
         mailSwipeActive = false
         suppressMailRowClickUntil = Date.now() + 400
         var action = actionFor(dx)
-        if (action && target.isConnected && Math.abs(dx) > target.offsetWidth * 0.35) {
+        var withoutArchive = action === "archive" && !mailFolderIsArchive(currentMailListFolderID()) ? mailAccountsWithoutArchive([target.dataset.accountId]) : []
+        if (action && withoutArchive.length && target.isConnected && Math.abs(dx) > target.offsetWidth * 0.35) {
+          // Its account has nowhere to archive to: it slides back and says so.
+          reset(target, link)
+          showArchiveUnavailable(target, withoutArchive, null)
+        } else if (action && target.isConnected && Math.abs(dx) > target.offsetWidth * 0.35) {
           if (navigator.vibrate) navigator.vibrate(12)
           commit(target, link, action)
         } else {
@@ -2104,7 +2111,8 @@ document.addEventListener("DOMContentLoaded", function () {
       var unstar = mailToolbarActionUndoes("star")
       setMailContextItem(root, "star", unstar ? "Unstar" : "Star", unstar ? "unstar" : "star")
       var unarchive = mailFolderIsArchive(folderID)
-      setMailContextItem(root, "archive", unarchive ? "Move to Inbox" : "Archive", unarchive ? "unarchive" : "archive")
+      var archiveItem = setMailContextItem(root, "archive", unarchive ? "Move to Inbox" : "Archive", unarchive ? "unarchive" : "archive")
+      markArchiveUnavailable(archiveItem, !unarchive && selectionWithoutArchive(Array.from(selectedMailIds)).length > 0)
       var spam = mailFolderIsSpam(folderID)
       showMailContextItem(root, "spam", !spam)
       showMailContextItem(root, "not-spam", spam)
@@ -2182,7 +2190,7 @@ document.addEventListener("DOMContentLoaded", function () {
       }
       // The rest are the toolbar's actions, which follow its read and star state.
       var button = document.querySelector('.mail-list-toolbar button[data-mail-selection-action="' + action + '"]')
-      performMailSelectionAction(button ? mailSelectionActionName(button) : action)
+      performMailSelectionAction(button ? mailSelectionActionName(button) : action, target ? mailRowById(target.id) : null)
     }
 
     // Right-clicking a folder in the sidebar offers what applies to the whole
@@ -3552,6 +3560,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
       var actions = document.querySelectorAll("[data-mail-selection-action]")
       for (var a = 0; a < actions.length; a++) actions[a].disabled = count === 0 || mailSelectionBusy
+      syncArchiveSelectionAvailability()
 
       var list = document.getElementById("mail-list")
       if (list) list.toggleAttribute("data-mail-has-selection", count > 0)
@@ -3947,9 +3956,11 @@ document.addEventListener("DOMContentLoaded", function () {
       }
     }
 
-    function performMailSelectionAction(action) {
+    // anchor is where the action was asked for, for a popover about it.
+    function performMailSelectionAction(action, anchor) {
       if (mailSelectionBusy || selectedMailIds.size === 0) return
       var ids = Array.from(selectedMailIds)
+      if (action === "archive" && !mailFolderIsArchive(currentMailListFolderID()) && archiveSelectionBlocked(ids, anchor)) return
       if (action === "labels") {
         var labelTargets = selectedMailTargets(ids)
         openLabelsDialog(labelTargets, function () {
@@ -4034,6 +4045,43 @@ document.addEventListener("DOMContentLoaded", function () {
     // The account a list row belongs to, also for selected rows scrolled out of
     // the page, which the list keeps as HTML, and for rows never loaded that
     // "Select all in this list" selected.
+    // selectionWithoutArchive lists the accounts of ids that have no Archive
+    // folder.
+    function selectionWithoutArchive(ids) {
+      return mailAccountsWithoutArchive(ids.map(mailRowAccountID))
+    }
+
+    // archiveSelectionBlocked shows why ids can't all be archived and returns
+    // true, or returns false when they can. When some of them can, the
+    // popover offers to archive just those.
+    function archiveSelectionBlocked(ids, anchor) {
+      var missing = selectionWithoutArchive(ids)
+      if (!missing.length) return false
+      var archivable = ids.filter(function (id) { return missing.indexOf(mailRowAccountID(id)) === -1 })
+      if (!anchor || !anchor.isConnected) {
+        var button = document.querySelector('.mail-list-toolbar [data-mail-selection-action="archive"]')
+        anchor = button && button.offsetParent ? button : mailRowById(ids[0])
+      }
+      showArchiveUnavailable(anchor, missing, archivable.length ? function () {
+        selectedMailIds.clear()
+        archivable.forEach(function (id) { setMailSelected(id, true) })
+        syncMailSelectionControls()
+        performMailSelectionAction("archive")
+      } : null)
+      return true
+    }
+
+    // The toolbar's Archive buttons, and its menu copies, grey out while the
+    // selection has mail of an account with no Archive folder.
+    function syncArchiveSelectionAvailability() {
+      var blocked = selectedMailIds.size > 0 && !mailFolderIsArchive(currentMailListFolderID()) &&
+        selectionWithoutArchive(Array.from(selectedMailIds)).length > 0
+      document.querySelectorAll('[data-mail-selection-action="archive"]').forEach(function (button) {
+        markArchiveUnavailable(button, blocked)
+      })
+      return blocked
+    }
+
     function mailRowAccountID(emailId) {
       var row = document.querySelector('#mail-list-scroll .mail-list-item[data-email-id="' + cssEscape(emailId) + '"]')
       if (row) return row.dataset.accountId || ""
@@ -19265,7 +19313,173 @@ function mailPermanentDeleteURL(url) {
   return url + (url.indexOf("?") === -1 ? "?" : "&") + "permanent=1"
 }
 
-function archiveThread(emailId) {
+// mailAccountsWithoutArchive lists which of accountIDs have no Archive folder
+// to archive into, as the sidebar marks them. Accounts it doesn't know are
+// left to the server, which says so if it can't archive.
+function mailAccountsWithoutArchive(accountIDs) {
+  var missing = []
+  ;(accountIDs || []).forEach(function (id) {
+    if (!id || missing.indexOf(id) !== -1) return
+    if (document.querySelector('[data-sidebar-account="' + CSS.escape(id) + '"][data-sidebar-account-no-archive]')) missing.push(id)
+  })
+  return missing
+}
+
+function mailAccountName(accountID) {
+  var name = document.querySelector('[data-sidebar-account="' + CSS.escape(accountID) + '"] .sidebar-account-toggle > span')
+  return name ? name.textContent.trim() : ""
+}
+
+// markArchiveUnavailable greys an Archive control out while what it would
+// archive includes mail of an account with no Archive folder. It still
+// answers a click, with showArchiveUnavailable.
+function markArchiveUnavailable(control, unavailable) {
+  if (!control) return
+  control.toggleAttribute("data-archive-unavailable", !!unavailable)
+  if (unavailable) control.setAttribute("aria-disabled", "true")
+  else control.removeAttribute("aria-disabled")
+  // Its tooltip says so too, and says what it did again once it can.
+  var root = control.closest("[data-tui-popover-root]")
+  var tooltip = root && root.querySelector("[data-mail-archive-tooltip]")
+  if (!tooltip) return
+  if (unavailable && tooltip.textContent !== "Can't archive") {
+    tooltip.dataset.archiveLabel = tooltip.textContent
+    tooltip.textContent = "Can't archive"
+  } else if (!unavailable && tooltip.textContent === "Can't archive") {
+    tooltip.textContent = tooltip.dataset.archiveLabel || "Archive"
+  }
+}
+
+// The reader's Archive button names the account of the message it shows.
+function syncReaderArchiveAvailability() {
+  document.querySelectorAll("#mail-view [data-mail-archive-account]").forEach(function (button) {
+    markArchiveUnavailable(button, mailAccountsWithoutArchive([button.dataset.mailArchiveAccount]).length > 0)
+  })
+}
+
+function closeArchiveUnavailable() {
+  var open = document.getElementById("archive-unavailable")
+  if (!open) return
+  if (open.matches(":popover-open")) open.hidePopover()
+  open.remove()
+}
+
+// showArchiveUnavailable says, next to anchor, that the accounts in missing
+// have no Archive folder, and offers to choose or create one for each, as the
+// toast does when archiving fails. archiveRest, when some of the messages can
+// still be archived, archives those; the popover offers it too. On a phone it
+// opens as a sheet from the bottom.
+function showArchiveUnavailable(anchor, missing, archiveRest) {
+  closeArchiveUnavailable()
+  if (!missing || !missing.length) return
+  // The button's tooltip would sit under the popover.
+  var tooltipRoot = anchor && anchor.closest && anchor.closest("[data-tui-popover-root]")
+  if (tooltipRoot && window.tui && window.tui.popover) window.tui.popover.closeElement(tooltipRoot)
+  var panel = document.createElement("div")
+  panel.id = "archive-unavailable"
+  panel.className = "archive-unavailable"
+  panel.setAttribute("popover", "auto")
+  panel.setAttribute("role", "dialog")
+  panel.setAttribute("aria-labelledby", "archive-unavailable-title")
+
+  var single = missing.length === 1
+  var name = single ? mailAccountName(missing[0]) : ""
+  var title = document.createElement("h2")
+  title.id = "archive-unavailable-title"
+  title.textContent = archiveRest ? "Some of these emails can't be archived" : "Can't archive"
+  var text = document.createElement("p")
+  if (archiveRest) {
+    text.textContent = single
+      ? "The mailbox of some of the selected emails" + (name ? ", " + name + "," : "") + " has no Archive folder."
+      : "The mailboxes of some of the selected emails have no Archive folder."
+  } else {
+    text.textContent = single
+      ? (name ? name + " has" : "This account has") + " no Archive folder. Choose one, or create it, to archive its email."
+      : "These accounts have no Archive folder. Choose one, or create it, for each."
+  }
+  panel.appendChild(title)
+  panel.appendChild(text)
+
+  var actions = document.createElement("div")
+  actions.className = "archive-unavailable-actions"
+  missing.forEach(function (accountID) {
+    var choose = document.createElement("button")
+    choose.type = "button"
+    var accountName = mailAccountName(accountID)
+    choose.textContent = single || !accountName ? "Choose an Archive folder" : "Choose one for " + accountName
+    choose.addEventListener("click", function () {
+      closeArchiveUnavailable()
+      openFolderRolesSettings(accountID)
+    })
+    actions.appendChild(choose)
+  })
+  if (archiveRest) {
+    var rest = document.createElement("button")
+    rest.type = "button"
+    rest.className = "archive-unavailable-primary"
+    rest.textContent = "Archive the others"
+    rest.addEventListener("click", function () {
+      closeArchiveUnavailable()
+      archiveRest()
+    })
+    actions.appendChild(rest)
+  }
+  panel.appendChild(actions)
+  panel.addEventListener("toggle", function (event) {
+    if (event.newState === "closed") panel.remove()
+  })
+  document.body.appendChild(panel)
+  panel.showPopover()
+  placeArchiveUnavailable(panel, anchor)
+  var first = actions.querySelector("button:last-child")
+  if (first) first.focus({ preventScroll: true })
+}
+
+// Escape closes it, before the mail shortcuts take Escape to clear the
+// selection.
+document.addEventListener("keydown", function (event) {
+  if (event.key !== "Escape") return
+  var open = document.getElementById("archive-unavailable")
+  if (!open || !open.matches(":popover-open")) return
+  event.preventDefault()
+  event.stopPropagation()
+  closeArchiveUnavailable()
+}, true)
+
+// Under the anchor, lined up with its right edge and kept on screen; above
+// it when there is no room below. A phone shows it as a sheet instead.
+function placeArchiveUnavailable(panel, anchor) {
+  if (window.matchMedia("(max-width: 1023.98px)").matches) return
+  var rect = anchor && anchor.getBoundingClientRect ? anchor.getBoundingClientRect() : null
+  if (!rect || (!rect.width && !rect.height)) {
+    // A menu item that closed with its menu: the reader's or the list's
+    // Archive button stands in, or else the middle of the screen.
+    var stand = document.querySelector('#mail-view [data-mail-archive-account], .mail-list-toolbar [data-mail-selection-action="archive"]')
+    rect = stand ? stand.getBoundingClientRect() : null
+  }
+  var width = panel.offsetWidth
+  var height = panel.offsetHeight
+  var margin = 8
+  var left, top
+  if (rect && (rect.width || rect.height)) {
+    left = Math.min(Math.max(margin, rect.right - width), window.innerWidth - width - margin)
+    top = rect.bottom + 6
+    if (top + height > window.innerHeight - margin) top = Math.max(margin, rect.top - height - 6)
+  } else {
+    left = (window.innerWidth - width) / 2
+    top = (window.innerHeight - height) / 3
+  }
+  panel.style.left = Math.round(left) + "px"
+  panel.style.top = Math.round(top) + "px"
+}
+
+function archiveThread(emailId, button) {
+  var account = button && button.dataset ? button.dataset.mailArchiveAccount : ""
+  var withoutArchive = mailAccountsWithoutArchive([account])
+  if (withoutArchive.length) {
+    showArchiveUnavailable(button, withoutArchive, null)
+    return
+  }
   if (window.GoferMailSearch && window.GoferMailSearch.scope()) return runScopedMailAction(emailId, "archive", true)
   fetch("/api/messages/" + emailId + "/thread/archive", { method: "POST" })
     .then(function (response) {

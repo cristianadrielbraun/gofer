@@ -492,3 +492,27 @@ func TestSidebarFolderTreeCollapsesFolderChildrenFromSettings(t *testing.T) {
 		t.Fatalf("active parent folder should style the whole row including the toggle: %s", html)
 	}
 }
+
+// An account with no Archive folder is marked, so its mail's Archive buttons
+// can say so before anything is tried.
+func TestSidebarMarksAccountsWithoutArchive(t *testing.T) {
+	accounts := []models.Account{
+		{ID: "no-archive", Name: "Work", EmailSyncEnabled: true, MissingFolderRoles: []string{"junk", "archive"}},
+		{ID: "has-archive", Name: "Home", EmailSyncEnabled: true, MissingFolderRoles: []string{"junk"}},
+	}
+	var out bytes.Buffer
+	if err := SidebarFolderTree(accounts, "", nil, 0, models.EmailFilters{}).Render(context.Background(), &out); err != nil {
+		t.Fatal(err)
+	}
+	html := out.String()
+	for id, marked := range map[string]bool{"no-archive": true, "has-archive": false} {
+		start := strings.Index(html, `data-sidebar-account="`+id+`"`)
+		if start == -1 {
+			t.Fatalf("account %s missing:\n%s", id, html)
+		}
+		tag := html[start : start+strings.Index(html[start:], ">")]
+		if got := strings.Contains(tag, "data-sidebar-account-no-archive"); got != marked {
+			t.Errorf("account %s marked %t, want %t: %s", id, got, marked, tag)
+		}
+	}
+}
