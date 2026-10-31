@@ -14587,11 +14587,47 @@ function handleCalendarSyncEvent(data) {
 
 // refreshCalendarSidebar redraws the list of calendars beside an open
 // Calendar after calendars were added or removed on their provider.
+// The list keeps its scroll position and its open "Other calendars"
+// sections: they are noted before the swap and put back as the new list goes
+// in, before it is drawn, so only the change itself shows.
+var _calendarSidebarKept = null
+
 function refreshCalendarSidebar() {
   var body = document.querySelector('[data-sidebar-app-body="calendar"]')
   if (!body || !window.htmx) return
+  var nav = body.querySelector("nav")
+  _calendarSidebarKept = {
+    replaced: body,
+    scroll: nav ? nav.scrollTop : 0,
+    open: Array.from(body.querySelectorAll('[data-calendar-other-sources][data-tui-collapsible-state="open"]')).map(function (root) { return root.dataset.calendarOtherSources }),
+  }
   window.htmx.ajax("GET", window.location.pathname + window.location.search, { target: body, select: "#sidebar-app-body", swap: "outerHTML" }).then(updateCalendarSyncPresentation)
 }
+
+document.body.addEventListener("htmx:afterSwap", function () {
+  var kept = _calendarSidebarKept
+  var body = kept && document.querySelector('[data-sidebar-app-body="calendar"]')
+  // Other swaps, such as the calendar's own refresh, leave the list alone.
+  if (!body || body === kept.replaced) return
+  _calendarSidebarKept = null
+  kept.open.forEach(function (accountID) {
+    var root = body.querySelector('[data-calendar-other-sources="' + CSS.escape(accountID) + '"]')
+    if (!root) return
+    root.setAttribute("data-tui-collapsible-state", "open")
+    var trigger = root.querySelector('[data-tui-collapsible="trigger"]')
+    if (trigger) trigger.setAttribute("aria-expanded", "true")
+    var content = root.querySelector('[data-tui-collapsible="content"]')
+    if (!content) return
+    // Already open, without playing the opening again.
+    content.style.transition = "none"
+    content.classList.add("tui-collapsible-open")
+    void content.offsetHeight
+    content.style.transition = ""
+  })
+  var nav = body.querySelector("nav")
+  if (nav) nav.scrollTop = kept.scroll
+  initializeCalendarVisibility()
+})
 
 // A calendar under "Other calendars" starts syncing from its button and
 // moves up among the account's synced calendars; a synced one's menu stops
