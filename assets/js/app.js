@@ -6486,32 +6486,7 @@ document.addEventListener("DOMContentLoaded", function () {
         fetchOutgoingSendStatus(data.send_id)
         startOutgoingSendPolling(data.send_id)
       }
-
-      if (data.status === "sent" && data.missing_folder === "sent" && data.account_id) {
-        hideSendStatus()
-        _outgoingMissingSentNoticed[data.send_id] = true
-        showMissingSentFolderToast(data.account_id)
-        handleComposeSendResult("sent", data)
-      } else if (data.status === "sent") {
-        showSendStatus("sent", "Message sent")
-        if (data.from_warning) {
-          showGoferToast({ id: "compose-from-warning-" + (data.send_id || ""), title: "Sent from another address", description: data.from_warning, variant: "warning", position: "bottom-right", duration: 15000, dismissible: true })
-        }
-        handleComposeSendResult("sent", data)
-      } else if (data.status === "retrying") {
-        var retrySeconds = Math.max(1, Number(data.retry_in_seconds) || 60)
-        var retryMinutes = Math.max(1, Math.ceil(retrySeconds / 60))
-        var retryText = data.error || "The provider could not send the message yet."
-        retryText += " Gofer will try again in " + retryMinutes + (retryMinutes === 1 ? " minute." : " minutes.")
-        showSendStatus("retrying", retryText)
-        handleComposeSendResult("retrying", data)
-      } else if (data.status === "ambiguous") {
-        showSendStatus("ambiguous", data.error || "Send status unknown")
-        handleComposeSendResult("ambiguous", data)
-      } else {
-        showSendStatus("failed", data.error || "Failed to send")
-        handleComposeSendResult("failed", data)
-      }
+      showComposeSendResult(data)
     })
 
     source.addEventListener("mutation", function (e) {
@@ -9265,6 +9240,70 @@ function recoverComposeOutgoingSend(summary) {
   }
 }
 
+// showComposeSendResult says how a send ended, in place of its "Working..."
+// toast. The live updates tell it first; where they don't arrive, as behind
+// some company networks' filters, polling the send does (see
+// settleOutgoingSendFromSummary). Each outcome of a send shows once,
+// whichever comes first.
+var _outgoingSendShown = {}
+
+function showComposeSendResult(data) {
+  var outcome = data.status + "\n" + (data.error || "")
+  if (data.send_id) {
+    if (_outgoingSendShown[data.send_id] === outcome) return
+    _outgoingSendShown[data.send_id] = outcome
+  }
+  if (data.status === "sent" && data.missing_folder === "sent" && data.account_id) {
+    hideSendStatus()
+    _outgoingMissingSentNoticed[data.send_id] = true
+    showMissingSentFolderToast(data.account_id)
+    handleComposeSendResult("sent", data)
+  } else if (data.status === "sent") {
+    showSendStatus("sent", "Message sent")
+    if (data.from_warning) {
+      showGoferToast({ id: "compose-from-warning-" + (data.send_id || ""), title: "Sent from another address", description: data.from_warning, variant: "warning", position: "bottom-right", duration: 15000, dismissible: true })
+    }
+    handleComposeSendResult("sent", data)
+  } else if (data.status === "retrying") {
+    var retrySeconds = Math.max(1, Number(data.retry_in_seconds) || 60)
+    var retryMinutes = Math.max(1, Math.ceil(retrySeconds / 60))
+    var retryText = data.error || "The provider could not send the message yet."
+    retryText += " Gofer will try again in " + retryMinutes + (retryMinutes === 1 ? " minute." : " minutes.")
+    showSendStatus("retrying", retryText)
+    handleComposeSendResult("retrying", data)
+  } else if (data.status === "ambiguous") {
+    showSendStatus("ambiguous", data.error || "Send status unknown")
+    handleComposeSendResult("ambiguous", data)
+  } else {
+    showSendStatus("failed", data.error || "Failed to send")
+    handleComposeSendResult("failed", data)
+  }
+}
+
+// settleOutgoingSendFromSummary shows how a send started on this page ended,
+// from its polled status, in the live update's terms. Sends picked up again
+// on a reload stay quiet, as do ones still on their way.
+function settleOutgoingSendFromSummary(summary) {
+  if (!summary || !_outgoingSentHere[summary.id]) return
+  var data = { send_id: summary.id, account_id: summary.account_id, error: summary.last_error || "" }
+  if (summary.status === "sent") {
+    data.status = "sent"
+    data.error = ""
+  } else if (summary.status === "failed" || summary.status === "ambiguous") {
+    data.status = summary.status
+  } else if (summary.status === "pending" && Number(summary.attempt_count) > 0 && !summary.is_scheduled) {
+    data.status = "retrying"
+    var next = Date.parse(summary.next_attempt_at || "")
+    if (!isNaN(next)) data.retry_in_seconds = Math.max(1, Math.round((next - Date.now()) / 1000))
+  } else {
+    return
+  }
+  showComposeSendResult(data)
+  // Closing the compose form stops polling, but the copy for the Sent folder
+  // may still be on its way, and without live updates only polling hears of it.
+  if (!outgoingSendSummaryIsTerminal(summary)) startOutgoingSendPolling(summary.id)
+}
+
 function fetchOutgoingSendStatus(id) {
   if (!id) return Promise.resolve(null)
   return fetch("/api/outgoing-sends/" + encodeURIComponent(id), { headers: { "Accept": "application/json" } })
@@ -9279,6 +9318,9 @@ function fetchOutgoingSendStatus(id) {
     .then(function (summary) {
       if (!summary) return null
       applyOutgoingSendSummary(summary)
+      // Before recoverComposeOutgoingSend, which lets go of a finished send's
+      // compose form, so the result closes it as the live update would.
+      settleOutgoingSendFromSummary(summary)
       recoverComposeOutgoingSend(summary)
       noticeMissingSentFolder(summary)
       if (outgoingSendSummaryIsTerminal(summary)) stopOutgoingSendPolling(summary.id)
