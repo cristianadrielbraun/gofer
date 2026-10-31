@@ -39,3 +39,16 @@ func TestPaneLayoutIsSetPerSection(t *testing.T) {
 		}
 	}
 }
+
+// Only mail can do without its reading pane.
+func TestPaneLayoutListIsMailOnly(t *testing.T) {
+	settings := map[string]string{"mail_pane_layout": "list", "contacts_pane_layout": "list", "calendar_pane_layout": "list"}
+	for section, want := range map[string]string{"mail": "list", "contacts": "side", "calendar": "side"} {
+		if got := PaneLayout(settings, section); got != want {
+			t.Errorf("PaneLayout(%s) = %q, want %q", section, got, want)
+		}
+	}
+	if got := mailPaneLayoutSettingLabel("list"); got != "No reading pane" {
+		t.Errorf("label = %q", got)
+	}
+}

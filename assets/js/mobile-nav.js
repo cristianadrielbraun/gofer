@@ -152,6 +152,16 @@
     paneTimer = setTimeout(function () { root.removeAttribute("data-pane-anim") }, 320)
   }
 
+  // animatePaneOpen marks a message opening where the pane watcher above isn't
+  // running: on a computer, with no reading pane. It is called as the reader
+  // first fills, so the animation starts on the frame the message appears.
+  function animatePaneOpen() {
+    if (!desktop.matches || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return
+    clearTimeout(paneTimer)
+    root.setAttribute("data-pane-anim", "open")
+    paneTimer = setTimeout(function () { root.removeAttribute("data-pane-anim") }, 320)
+  }
+
   // Closing mirrors opening: the reader slides out to the right over the list, and
   // only then is it cleared. clear() empties the reader; it is skipped if something
   // else has replaced the reader's content in the meantime.
@@ -159,7 +169,9 @@
     var reader = document.querySelector("#main-content > [data-mail-reader]")
     var content = reader && reader.firstElementChild
     var open = !!(content && !content.hasAttribute("data-mail-view-empty"))
-    if (desktop.matches || !open || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    // On a computer only mail with no reading pane swaps the panes like this.
+    var swapsPanes = !desktop.matches || !!document.querySelector('#main-content[data-mail-pane-layout="list"]')
+    if (!swapsPanes || !open || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
       clear()
       return
     }
@@ -269,5 +281,5 @@
 
   window.GoferMobileNav = {
     showSyncStatus: showSyncStatus,
-    animatePaneClose: animatePaneClose, open: function () { setOpen(true) }, close: function () { setOpen(false) } }
+    animatePaneClose: animatePaneClose, animatePaneOpen: animatePaneOpen, open: function () { setOpen(true) }, close: function () { setOpen(false) } }
 })()

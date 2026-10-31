@@ -28,8 +28,12 @@ var GoferSettings;
     return sectionKey(panelSection(), key);
   }
 
+  // Only mail can do without its second pane; contacts and calendar keep
+  // theirs side by side.
   function paneLayout(section) {
-    return mailPaneLayout(_cache[sectionKey(section || panelSection(), "mail_pane_layout")]);
+    section = section || panelSection();
+    var layout = mailPaneLayout(_cache[sectionKey(section, "mail_pane_layout")]);
+    return layout === "list" && PANEL_SECTION_KEYS[section] ? "side" : layout;
   }
 
   function panelSetting(key, section) {
@@ -520,7 +524,7 @@ var GoferSettings;
   }
 
   function mailPaneLayout(value) {
-    return value === "stacked" ? "stacked" : "side";
+    return value === "stacked" || value === "list" ? value : "side";
   }
 
   function applyPaneLayout() {

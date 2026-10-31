@@ -892,18 +892,24 @@ func defaultComposeViewSettingLabel(view string) string {
 	}
 }
 
+// mailPaneLayout is "side", "stacked", or "list": the message list alone,
+// with a message opened in its place.
 func mailPaneLayout(value string) string {
-	if value == "stacked" {
-		return "stacked"
+	if value == "stacked" || value == "list" {
+		return value
 	}
 	return "side"
 }
 
-// PaneLayout is "side" or "stacked" for one app section. Unlike the panel
-// sizes, contacts and calendar never borrow mail's layout.
+// PaneLayout is the layout of one app section. Unlike the panel sizes,
+// contacts and calendar never borrow mail's layout, and only mail can do
+// without its second pane.
 func PaneLayout(settings map[string]string, section string) string {
 	if section == "contacts" || section == "calendar" {
-		return mailPaneLayout(settings[section+"_pane_layout"])
+		if layout := mailPaneLayout(settings[section+"_pane_layout"]); layout != "list" {
+			return layout
+		}
+		return "side"
 	}
 	return mailPaneLayout(settings["mail_pane_layout"])
 }
@@ -916,8 +922,11 @@ func mailPaneLayoutClass(value string) string {
 }
 
 func mailPaneLayoutSettingLabel(value string) string {
-	if mailPaneLayout(value) == "stacked" {
+	switch mailPaneLayout(value) {
+	case "stacked":
 		return "Stacked"
+	case "list":
+		return "No reading pane"
 	}
 	return "Side by side"
 }

@@ -604,6 +604,9 @@ templ paneLayoutSettingRow(name string, title string, description string, layout
 				@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
 					@selectbox.Item(selectbox.ItemProps{Value: "side", Selected: layout == "side"}) { Side by side }
 					@selectbox.Item(selectbox.ItemProps{Value: "stacked", Selected: layout == "stacked"}) { Stacked }
+					if name == "mail_pane_layout" {
+						@selectbox.Item(selectbox.ItemProps{Value: "list", Selected: layout == "list"}) { No reading pane }
+					}
 				}
 			}
 		</div>

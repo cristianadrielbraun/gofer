@@ -1409,6 +1409,28 @@ document.addEventListener("DOMContentLoaded", function () {
     setupMailPullToRefresh()
     setupMailSwipeActions()
 
+    // With no reading pane, a click selects a message, and a double click
+    // opens it in the list's place. Opening it by script (Enter, or the double
+    // click below) goes through as usual. This runs before htmx sees the click.
+    document.addEventListener("click", function (e) {
+      if (!e.isTrusted || !mailListOnlyLayout() || mailSelectionModeActive()) return
+      if (e.button !== 0 || e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return
+      var link = e.target.closest && e.target.closest("#mail-list-scroll :is(.mail-list-item[data-email-id], .thread-sub-item) > a")
+      if (!link || e.target.closest(".star-btn, [data-thread-toggle]")) return
+      e.preventDefault()
+      e.stopPropagation()
+      if (e.detail >= 2) {
+        link.click()
+        return
+      }
+      var row = link.closest(".mail-list-item[data-email-id]")
+      if (!row || link.parentElement !== row) return
+      selectedMailIds.clear()
+      setMailSelected(row.dataset.emailId, true)
+      lastSelectedMailId = row.dataset.emailId
+      syncMailSelectionControls()
+    }, true)
+
     document.addEventListener("click", function (e) {
       var rowLink = e.target.closest && e.target.closest(".mail-list-item[data-email-id] > a")
       if (rowLink && Date.now() < suppressMailRowClickUntil) {
@@ -1555,8 +1577,29 @@ document.addEventListener("DOMContentLoaded", function () {
     })
 
     // Closing the reader drops the selection that opening the email seeded.
+    // With no reading pane, the message stays selected instead, so the list
+    // carries on from where it was.
     document.addEventListener("gofer:mail-view-closed", function (evt) {
       var emailId = evt.detail && evt.detail.emailId
+      if (emailId && mailListOnlyLayout()) {
+        selectedMailIds.clear()
+        setMailSelected(emailId, true)
+        lastSelectedMailId = emailId
+        syncMailSelectionControls()
+        var row = document.querySelector('#mail-list-scroll .mail-list-item[data-email-id="' + cssEscape(emailId) + '"]')
+        var link = row && row.querySelector(":scope > a")
+        // The row's transitions carry the list's coming back into view, so
+        // it takes focus only once it shows, a frame or two later.
+        var tries = 0
+        var focusRow = function () {
+          if (!link.isConnected) return
+          if (tries === 0) row.scrollIntoView({ block: "nearest" })
+          link.focus({ preventScroll: true })
+          if (document.activeElement !== link && ++tries < 20) requestAnimationFrame(focusRow)
+        }
+        if (link) requestAnimationFrame(focusRow)
+        return
+      }
       if (selectedMailIds.size === 1 && selectedMailIds.has(emailId)) clearMailSelection()
     })
 
@@ -4402,6 +4445,16 @@ document.addEventListener("DOMContentLoaded", function () {
           return
         }
 
+        // With no reading pane, Escape takes an opened message back to the
+        // list, and the keys that move through the list leave it be: the
+        // arrows scroll the message instead.
+        var listOnlyReader = mailListOnlyReaderOpen()
+        if (e.key === "Escape" && listOnlyReader) {
+          e.preventDefault()
+          closeMobileMailView()
+          return
+        }
+
         if (e.key === "Escape" && (selectedMailIds.size > 0 || selectedMailIdForKeyboard())) {
           e.preventDefault()
           clearKeyboardMailSelection()
@@ -4409,6 +4462,7 @@ document.addEventListener("DOMContentLoaded", function () {
         }
 
         var key = String(e.key || "").toLowerCase()
+        if (listOnlyReader && (key === "j" || key === "k" || key === "arrowdown" || key === "arrowup" || key === "enter" || key === "o")) return
         if (key === "j" || key === "arrowdown") {
           e.preventDefault()
           moveKeyboardMailSelection(1)
@@ -8903,6 +8957,10 @@ document.addEventListener("DOMContentLoaded", function () {
   function showMailViewLoading(trigger) {
     var mailView = document.getElementById("mail-view")
     if (!mailView) return
+    // With no reading pane, a message opening takes the list's place.
+    if (mailListOnlyLayout() && !mailListOnlyReaderOpen() && window.GoferMobileNav && window.GoferMobileNav.animatePaneOpen) {
+      window.GoferMobileNav.animatePaneOpen()
+    }
     var preview = getMailRowPreview(trigger) || {}
     var initials = escapeHTML(preview.initials || "")
     var avatarSrc = escapeHTML(preview.avatar || "")
@@ -9447,6 +9505,20 @@ function wolfEmptyPaneClick(tile) {
 }
 
 // Returns from the full-screen reader to the list on small screens.
+// mailListOnlyLayout reports whether mail shows the list alone, with an opened
+// message in its place. Phones always work that way and keep their own rules.
+function mailListOnlyLayout() {
+  var main = document.getElementById("main-content")
+  return !!(main && main.dataset.mailPaneLayout === "list" && document.getElementById("mail-list-scroll")) &&
+    !window.matchMedia("(max-width: 1023.98px)").matches
+}
+
+// mailListOnlyReaderOpen reports whether a message has taken the list's place.
+function mailListOnlyReaderOpen() {
+  var view = document.getElementById("mail-view")
+  return mailListOnlyLayout() && !!(view && view.querySelector(":scope > :not([data-mail-view-empty])"))
+}
+
 function closeMobileMailView() {
   if (history.state && history.state.email && history.state.fromList) {
     history.back()

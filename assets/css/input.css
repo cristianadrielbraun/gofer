@@ -3452,6 +3452,67 @@ body.mail-list-column-resizing {
   transform: rotate(90deg);
 }
 
+/* No reading pane: the list fills the page, and an opened message takes its
+   place, as on a phone. The list keeps its box while hidden so its scroll
+   position and virtual rows survive. */
+@media (min-width: 1024px) {
+  #main-content[data-mail-pane-layout="list"] > #mail-list {
+    width: 100% !important;
+    max-width: none;
+    flex: 1 1 auto;
+    border-right: 0;
+  }
+
+  #main-content[data-mail-pane-layout="list"] > .resize-handle[data-panel="maillist"],
+  #main-content[data-mail-pane-layout="list"] > [data-mail-reader]:has(> [data-mail-view-empty]) {
+    display: none;
+  }
+
+  #main-content[data-mail-pane-layout="list"]:has(> [data-mail-reader] > :not([data-mail-view-empty])) {
+    position: relative;
+  }
+
+  #main-content[data-mail-pane-layout="list"]:has(> [data-mail-reader] > :not([data-mail-view-empty])) > #mail-list {
+    position: absolute;
+    inset: 0;
+    visibility: hidden;
+  }
+
+  /* Above the list, which stays under it while either one fades. */
+  #main-content[data-mail-pane-layout="list"] > [data-mail-reader] {
+    position: relative;
+    z-index: 1;
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  /* mobile-nav.js marks a message opening and closing, as on a phone.
+     Opening, the message rises into place over the list, which recedes;
+     closing, it sinks away and the list comes back. */
+  html[data-pane-anim="open"] #main-content[data-mail-pane-layout="list"] > [data-mail-reader] {
+    animation: list-pane-reader-in 0.26s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  html[data-pane-anim="open"] #main-content[data-mail-pane-layout="list"] > #mail-list {
+    visibility: visible !important;
+    animation: list-pane-list-out 0.26s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+  }
+
+  html[data-pane-anim="closing"] #main-content[data-mail-pane-layout="list"] > [data-mail-reader] {
+    animation: list-pane-reader-out 0.2s cubic-bezier(0.4, 0, 1, 1) forwards;
+  }
+
+  html[data-pane-anim="closing"] #main-content[data-mail-pane-layout="list"] > #mail-list,
+  html[data-pane-anim="close"] #main-content[data-mail-pane-layout="list"] > #mail-list {
+    visibility: visible !important;
+    animation: list-pane-list-in 0.24s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  #main-content[data-mail-pane-layout="list"] .mobile-back-button {
+    display: inline-flex;
+  }
+}
+
 /* === COMPOSE DIALOG === */
 
 .compose-window {
@@ -5390,6 +5451,54 @@ body.mail-list-column-resizing {
   html[data-pane-anim="closing"] #main-content > #mail-list {
     visibility: visible !important;
     animation: pane-pop-in 0.24s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+}
+
+@keyframes list-pane-reader-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.75rem) scale(0.99);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes list-pane-reader-out {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+
+  to {
+    opacity: 0;
+    transform: translateY(0.75rem) scale(0.99);
+  }
+}
+
+@keyframes list-pane-list-out {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+
+  to {
+    opacity: 0;
+    transform: scale(0.985);
+  }
+}
+
+@keyframes list-pane-list-in {
+  from {
+    opacity: 0;
+    transform: scale(0.985);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
   }
 }
 
