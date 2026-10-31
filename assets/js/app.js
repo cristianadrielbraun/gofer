@@ -8805,10 +8805,12 @@ document.addEventListener("DOMContentLoaded", function () {
     return {
       initials: (fallback || avatar) ? (fallback || avatar).textContent.trim() : "",
       avatar: image && !image.classList.contains("hidden") && image.complete && image.naturalWidth ? (image.currentSrc || image.getAttribute("src") || "") : "",
-      sender: textFrom(row, ".text-sm.truncate"),
-      time: textFrom(row, ".tabular-nums"),
-      subject: textFrom(row, "p.text-\\[13px\\]"),
-      preview: textFrom(row, "p.text-xs"),
+      // Font sizes and card placement can change; read the named fields so
+      // the subject or body preview never stands in for the sender or subject.
+      sender: textFrom(row, '[data-mail-card-field="from"], [data-mail-table-cell="from"]'),
+      time: textFrom(row, '[data-mail-card-field="date"] [data-mail-date-short], [data-mail-table-cell="date"] [data-mail-date-short]'),
+      subject: textFrom(row, '[data-mail-card-field="subject"], [data-mail-table-cell="subject"] > div > span'),
+      preview: textFrom(row, '[data-mail-card-field="preview"]'),
     }
   }
 
@@ -8996,6 +8998,30 @@ document.addEventListener("DOMContentLoaded", function () {
     var avatar = avatarSrc
       ? '<img src="' + avatarSrc + '" alt="" class="mail-view-avatar size-11 rounded-full object-cover shrink-0 shadow-[0_2px_6px_rgba(0,0,0,0.2)]">'
       : '<div class="mail-view-avatar size-11 rounded-full bg-gradient-to-b from-amber-700/70 to-amber-900/70 flex items-center justify-center text-sm font-bold text-amber-100 shrink-0 shadow-[0_2px_6px_rgba(0,0,0,0.2)]' + (initials ? '' : ' animate-pulse') + '">' + initials + '</div>'
+    var senderHTML =
+      '<div class="mail-view-sender flex items-start gap-4">' +
+        avatar +
+        '<div class="flex-1 min-w-0">' +
+          '<div class="flex items-center gap-2 flex-wrap min-h-6">' +
+            (sender ? '<span class="font-semibold text-ink">' + sender + '</span>' : '<span class="h-4 w-40 rounded bg-ink/5 animate-pulse"></span>') +
+            '<span class="mail-view-address h-3 w-48 rounded bg-ink/5 animate-pulse"></span>' +
+          '</div>' +
+          '<div class="mt-1.5 h-3 w-28 rounded bg-ink/5 animate-pulse"></div>' +
+        '</div>' +
+      '</div>'
+    var bodyHTML =
+      '<div class="h-px bg-gradient-to-r from-transparent via-ink/10 to-transparent my-6"></div>' +
+      '<div class="mb-3 flex justify-end lg:justify-between">' +
+        '<div class="hidden lg:block h-7 w-48 shrink-0 rounded-lg bg-ink/[0.04] animate-pulse"></div>' +
+        '<div class="h-7 w-32 rounded-md border border-ink/10 bg-ink/[0.04] animate-pulse"></div>' +
+      '</div>' +
+      '<div class="space-y-3 py-2">' +
+        '<div class="h-4 w-full rounded bg-ink/5 animate-pulse"></div>' +
+        '<div class="h-4 w-11/12 rounded bg-ink/5 animate-pulse"></div>' +
+        '<div class="h-4 w-4/5 rounded bg-ink/5 animate-pulse"></div>' +
+        '<div class="h-4 w-2/3 rounded bg-ink/5 animate-pulse"></div>' +
+      '</div>'
+    if (keepMailViewChrome(mailView, trigger, senderHTML, bodyHTML)) return
     mailView.innerHTML =
       '<div class="mail-view-frame flex flex-col h-full" aria-busy="true" aria-label="Loading message">' +
         '<div class="surface-paper rounded-md flex flex-col h-full overflow-hidden">' +
@@ -9016,32 +9042,9 @@ document.addEventListener("DOMContentLoaded", function () {
           '<div class="h-px bg-gradient-to-r from-transparent via-amber-900/10 to-transparent"></div>' +
           '<div class="flex-1 overflow-y-auto">' +
             '<div class="mail-view-content mx-auto px-8 py-6">' +
-              '<div class="mail-view-sender flex items-start gap-4">' +
-                avatar +
-                '<div class="flex-1 min-w-0">' +
-                  '<div class="flex items-center gap-2 flex-wrap min-h-6">' +
-                    (sender ? '<span class="font-semibold text-ink">' + sender + '</span>' : '<span class="h-4 w-40 rounded bg-ink/5 animate-pulse"></span>') +
-                    '<span class="mail-view-address h-3 w-48 rounded bg-ink/5 animate-pulse"></span>' +
-                  '</div>' +
-                  '<div class="mt-1.5 h-3 w-28 rounded bg-ink/5 animate-pulse"></div>' +
-                '</div>' +
-              '</div>' +
-              '<div class="mail-view-subject-row flex items-start justify-between gap-4 mt-5">' +
-                (subject
-                  ? '<h1 class="text-xl font-bold tracking-tight text-ink min-w-0" style="font-family: var(--font-serif)">' + subject + '</h1>'
-                  : '<div class="h-6 w-2/3 rounded bg-ink/5 animate-pulse"></div>') +
-              '</div>' +
-              '<div class="h-px bg-gradient-to-r from-transparent via-ink/10 to-transparent my-6"></div>' +
-              '<div class="mb-3 flex justify-end lg:justify-between">' +
-                '<div class="hidden lg:block h-7 w-48 shrink-0 rounded-lg bg-ink/[0.04] animate-pulse"></div>' +
-                '<div class="h-7 w-32 rounded-md border border-ink/10 bg-ink/[0.04] animate-pulse"></div>' +
-              '</div>' +
-              '<div class="space-y-3 py-2">' +
-                '<div class="h-4 w-full rounded bg-ink/5 animate-pulse"></div>' +
-                '<div class="h-4 w-11/12 rounded bg-ink/5 animate-pulse"></div>' +
-                '<div class="h-4 w-4/5 rounded bg-ink/5 animate-pulse"></div>' +
-                '<div class="h-4 w-2/3 rounded bg-ink/5 animate-pulse"></div>' +
-              '</div>' +
+              senderHTML +
+              mailViewSkeletonSubject(subject) +
+              bodyHTML +
             '</div>' +
           '</div>' +
           '<div class="px-6 py-3 border-t border-ink/6">' +
@@ -9053,6 +9056,64 @@ document.addEventListener("DOMContentLoaded", function () {
           '</div>' +
         '</div>' +
       '</div>'
+  }
+
+  // subject is already escaped.
+  function mailViewSkeletonSubject(subject) {
+    return '<div class="mail-view-subject-row flex items-start justify-between gap-4 mt-5">' +
+      (subject
+        ? '<h1 class="text-xl font-bold tracking-tight text-ink min-w-0" style="font-family: var(--font-serif)">' + subject + '</h1>'
+        : '<div class="h-6 w-2/3 rounded bg-ink/5 animate-pulse"></div>') +
+      '</div>'
+  }
+
+  // keepMailViewChrome goes from one message to another without the reader's
+  // toolbar, menu and reply bar turning into placeholders and back: they stay
+  // where they are, and only what belongs to the message shows as loading.
+  // Until the next message arrives they still belong to the one being left,
+  // so they can't be used meanwhile. It returns false when the reader shows
+  // no message, or the next one is laid out differently (a conversation
+  // against a single message), and the whole reader shows as loading.
+  function keepMailViewChrome(mailView, trigger, senderHTML, bodyHTML) {
+    var frame = mailView.querySelector(":scope > .mail-view-frame:not([aria-busy])")
+    var opensThread = frame ? mailViewTriggerOpensThread(trigger) : null
+    if (opensThread === null) return false
+    var threadFrame = frame.querySelector(".mail-view-thread-frame")
+    var threadList = threadFrame && threadFrame.querySelector("[data-thread-list]")
+    var scroll = frame.querySelector("[data-mail-view-scroll]")
+    if (opensThread ? !threadList : !scroll) return false
+
+    var preview = getMailRowPreview(trigger) || {}
+    frame.setAttribute("aria-busy", "true")
+    frame.querySelectorAll(".mail-view-toolbar, .mail-view-thread-toolbar, [data-mail-calendar-footer], #reply-bar").forEach(function (part) {
+      part.inert = true
+    })
+    var date = frame.querySelector(".mail-view-date")
+    if (date && preview.time) date.textContent = preview.time
+    if (opensThread) {
+      var heading = threadFrame.querySelector(".mail-view-thread-toolbar .mail-view-subject-row h1")
+      if (heading && preview.subject) heading.textContent = preview.subject
+      threadList.innerHTML = '<div class="shrink-0"><article class="mail-thread-card surface-paper rounded-md">' +
+        '<div class="mail-view-content mx-auto px-8 py-6">' + senderHTML + bodyHTML + '</div></article></div>'
+      threadList.scrollTop = 0
+    } else {
+      scroll.innerHTML = '<div class="mail-view-content mx-auto px-8 py-6">' + senderHTML +
+        mailViewSkeletonSubject(escapeHTML(preview.subject || "")) + bodyHTML + '</div>'
+      scroll.scrollTop = 0
+      var footer = frame.querySelector("[data-mail-calendar-footer]")
+      if (footer) footer.innerHTML = ""
+    }
+    return true
+  }
+
+  // Whether a list row opens as a conversation, or null when it's no row.
+  // A message picked inside a conversation opens on its own.
+  function mailViewTriggerOpensThread(trigger) {
+    if (!trigger || !trigger.closest) return null
+    if (trigger.closest(".thread-sub-item")) return false
+    var row = trigger.closest(".mail-list-item[data-email-id]")
+    if (!row) return null
+    return row.dataset.hasThread === "true" && (!window.GoferSettings || GoferSettings.get("group_conversations") !== "false")
   }
 
   document.body.addEventListener("htmx:afterSettle", function (evt) {

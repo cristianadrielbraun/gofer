@@ -249,7 +249,7 @@ templ MailViewContent(email *models.Email, thread []models.ThreadItem) {
 			<div class="surface-paper rounded-md flex flex-col h-full overflow-hidden">
 				@MailViewHeader(email, thread)
 				<div class="h-px bg-gradient-to-r from-transparent via-amber-900/10 to-transparent"></div>
-				<div class="flex-1 overflow-y-auto">
+				<div class="flex-1 overflow-y-auto" data-mail-view-scroll>
 					<div class="mail-view-content mx-auto px-8 py-6">
 						@MailViewSender(email)
 						<div class="mail-view-mobile-tools mail-view-message-actions mt-2 -mr-1 flex items-center justify-end gap-0.5 lg:hidden">
