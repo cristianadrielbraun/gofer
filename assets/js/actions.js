@@ -108,6 +108,7 @@
     "pasteCalendarDescription",
     "prepareCalendarDescriptionSubmit",
     "prepareComposeSchedule",
+    "printEmail",
     "removeLabelMessage",
     "retryCalendarMeetPreview",
     "retryCalendarTeams",

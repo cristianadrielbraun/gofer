@@ -1,0 +1,58 @@
+package views
+
+import (
+	"strings"
+
+	"github.com/cristianadrielbraun/gofer/internal/models"
+)
+
+func emailPrintSubject(email *models.Email) string {
+	if subject := strings.TrimSpace(email.Subject); subject != "" {
+		return subject
+	}
+	return "(no subject)"
+}
+
+// emailPrintAttachments names the files attached to the message, leaving out
+// the images shown in its body.
+func emailPrintAttachments(email *models.Email) string {
+	var names []string
+	for _, attachment := range email.Attachments {
+		if !attachment.Inline && strings.TrimSpace(attachment.Filename) != "" {
+			names = append(names, attachment.Filename)
+		}
+	}
+	return strings.Join(names, ", ")
+}
+
+// EmailPrintHeader heads a message's body when it is printed: its subject,
+// who sent it to whom and when, and its attachments. It is styled inline,
+// since it goes into the message's own document.
+templ EmailPrintHeader(email *models.Email) {
+	<div data-gofer-print-header style="font: 13px/1.5 system-ui, -apple-system, 'Segoe UI', sans-serif; color: #111; margin: 0 0 16px; padding: 0 0 12px; border-bottom: 1px solid #ccc;">
+		<div style="font-size: 20px; font-weight: 600; margin: 0 0 10px;">{ emailPrintSubject(email) }</div>
+		<table style="border-collapse: collapse; font: inherit; color: inherit;">
+			@emailPrintRow("From", formatContacts([]models.Contact{email.From}))
+			if len(email.To) > 0 {
+				@emailPrintRow("To", formatContacts(email.To))
+			}
+			if len(email.CC) > 0 {
+				@emailPrintRow("Cc", formatContacts(email.CC))
+			}
+			if len(email.BCC) > 0 {
+				@emailPrintRow("Bcc", formatContacts(email.BCC))
+			}
+			@emailPrintRow("Date", email.DateFull)
+			if names := emailPrintAttachments(email); names != "" {
+				@emailPrintRow("Attachments", names)
+			}
+		</table>
+	</div>
+}
+
+templ emailPrintRow(label, value string) {
+	<tr>
+		<td style="color: #555; padding: 1px 12px 1px 0; vertical-align: top; white-space: nowrap;">{ label }</td>
+		<td style="padding: 1px 0; overflow-wrap: anywhere;">{ value }</td>
+	</tr>
+}

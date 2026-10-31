@@ -124,5 +124,8 @@ load:
 	if !remote {
 		doc = append(doc, scriptWithNonce(remoteImagesDetectScript(id), nonce)...)
 	}
+	if emailBodyPrinting(r) {
+		doc = h.printBodyDocument(ctx, w, owner, id, doc, nonce)
+	}
 	_, _ = w.Write(doc)
 }

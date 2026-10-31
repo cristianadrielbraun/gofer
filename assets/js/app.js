@@ -19835,6 +19835,28 @@ function openMoveDialog(emailId, thread, selection) {
     .catch(function () {})
 }
 
+// printEmail loads the message, with its details on top and in light colors,
+// in a frame nobody sees; it opens the print dialog itself once loaded.
+function printEmail(emailId) {
+  if (!/^\d+$/.test(String(emailId))) return
+  var previous = document.getElementById("email-print-frame")
+  if (previous) previous.remove()
+  var frame = document.createElement("iframe")
+  frame.id = "email-print-frame"
+  frame.title = "Print"
+  frame.tabIndex = -1
+  frame.setAttribute("aria-hidden", "true")
+  frame.setAttribute("sandbox", "allow-scripts allow-modals")
+  // Off-screen rather than hidden, which some browsers won't print.
+  frame.style.cssText = "position:fixed;left:-10000px;top:0;width:720px;height:600px;border:0"
+  var params = new URLSearchParams({ print: "1", theme: "light", bg: "#ffffff", fg: "#111111" })
+  if (emailBodyWantsLargeText()) params.set("text", "large")
+  var reading = document.querySelector('[data-email-body-frame][data-email-id="' + emailId + '"]')
+  if (reading && reading.dataset.remoteLoaded === "true") params.set("remote", "true")
+  frame.src = "/email/" + encodeURIComponent(emailId) + "/body?" + params.toString()
+  document.body.appendChild(frame)
+}
+
 // The source dialog downloads the message when it isn't saved, which can
 // take a moment, so a toast says what failed instead of nothing happening.
 function openMessageSource(emailId) {

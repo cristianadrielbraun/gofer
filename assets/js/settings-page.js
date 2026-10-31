@@ -2296,7 +2296,7 @@ function davAccountRequest(root, path, busyMessage, extra) {
     return Promise.reject(new Error(''));
   }
   davAccountBusy(root, true);
-  davAccountStatus(root, 'busy', busyMessage);
+  if (busyMessage) davAccountStatus(root, 'busy', busyMessage);
   var body = new URLSearchParams(new FormData(form));
   Object.keys(extra || {}).forEach(function(name) { body.set(name, extra[name]); });
   return fetch(davAccountURL(root, path), {
@@ -2348,7 +2348,9 @@ document.addEventListener('keydown', function(event) {
 });
 function saveDAVAccount(root) {
   var editing = !!root.dataset.accountId;
-  davAccountRequest(root, '', editing ? 'Signing in and saving...' : 'Signing in and creating the account...').then(function() {
+  // Saving shows nothing while it runs, only an error if it fails: the
+  // disabled buttons say it is busy without the dialog changing height.
+  davAccountRequest(root, '').then(function() {
     window.location.href = editing ? '/settings/accounts' : '/settings/accounts?account_added=1';
   }).catch(function() {});
 }

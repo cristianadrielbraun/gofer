@@ -910,7 +910,7 @@ templ MailViewHeader(email *models.Email, thread []models.ThreadItem) {
 							View source
 						</span>
 					}
-					@dropdown.Item() {
+					@dropdown.Item(dropdown.ItemProps{Attributes: templ.Attributes{"data-on-click": onAction("printEmail", email.ID)}}) {
 						<span class="flex items-center gap-2">
 							@icon.Printer(icon.Props{Class: "size-4"})
 							Print

@@ -1715,6 +1715,9 @@ func (h *Handler) handleEmailBody(w http.ResponseWriter, r *http.Request) {
 	if !loadRemote {
 		doc = append(doc, scriptWithNonce(remoteImagesDetectScript(emailID), nonce)...)
 	}
+	if emailBodyPrinting(r) {
+		doc = h.printBodyDocument(ctx, w, userID, emailID, doc, nonce)
+	}
 	w.Write(doc)
 }
 
