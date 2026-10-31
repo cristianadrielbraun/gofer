@@ -7514,6 +7514,9 @@ document.addEventListener("DOMContentLoaded", function () {
     pendingSyncEvents = remaining.slice(-50)
   }
 
+  // Also called by the mail actions outside this setup (see below), such as
+  // deleting or moving from the reader.
+  window.refreshSidebarUnread = refreshSidebarUnread
   function refreshSidebarUnread() {
     fetch("/api/folders/unread").then(function (r) { return r.json() }).then(function (counts) {
       var badges = document.querySelectorAll("[data-folder-unread]")
@@ -19195,11 +19198,18 @@ function beginOptimisticMailRemoval(emailId) {
   return vml
 }
 
+// finishOptimisticMailRemoval brings the list and the sidebar's counts up to
+// date once the server has done what was asked. The action has worked by
+// then, so nothing here may count as it failing.
 function finishOptimisticMailRemoval(vml) {
-  if (vml && typeof vml.refreshCurrentFolder === "function") {
-    vml.refreshCurrentFolder({ noAnimation: true }).catch(function () {})
+  try {
+    if (vml && typeof vml.refreshCurrentFolder === "function") {
+      vml.refreshCurrentFolder({ noAnimation: true }).catch(function () {})
+    }
+    if (typeof window.refreshSidebarUnread === "function") window.refreshSidebarUnread()
+  } catch (err) {
+    console.error("refresh after a mail action:", err)
   }
-  refreshSidebarUnread()
 }
 
 function restoreOptimisticMailRemoval(emailId, vml) {
@@ -19245,6 +19255,7 @@ function confirmPermanentMailDelete(emailId, permanentURL) {
         .then(function (response) {
           if (!response.ok) return mailDeleteResponseError(response)
           finishOptimisticMailRemoval(vml)
+          showMailDeletedToast(false, true)
         })
         .catch(function (err) { failMailDelete(emailId, vml, err, permanentURL) })
     },
@@ -19341,14 +19352,29 @@ function openFolderRolesSettings(accountID) {
 
 function deleteMessage(emailId) {
   if (window.GoferMailSearch && window.GoferMailSearch.scope()) return runScopedMailAction(emailId, "delete", false)
+  var permanent = mailDeleteIsPermanent()
   var vml = beginOptimisticMailRemoval(emailId)
   var url = "/api/messages/" + encodeURIComponent(emailId) + mailDeleteFolderQuery()
   fetch(url, { method: "DELETE" })
     .then(function (response) {
       if (!response.ok) return mailDeleteResponseError(response)
       finishOptimisticMailRemoval(vml)
+      showMailDeletedToast(false, permanent)
     })
     .catch(function (err) { failMailDelete(emailId, vml, err, mailPermanentDeleteURL(url)) })
+}
+
+// Delete removes mail for good where the list's Delete button says so, as
+// in Trash; elsewhere it moves it to Trash.
+function mailDeleteIsPermanent() {
+  var button = document.querySelector('[data-mail-selection-action="delete"]')
+  return !!(button && button.dataset.mailDeletePermanent === "true")
+}
+
+function showMailDeletedToast(thread, permanent) {
+  var what = thread ? "the conversation" : "the email"
+  var title = permanent ? "Deleted " + what + " permanently" : "Moved " + what + " to Trash"
+  showGoferToast({ id: "mail-deleted", title: title, variant: "success", icon: "success", position: "bottom-right", duration: 3000, dismissible: true })
 }
 
 function mailPermanentDeleteURL(url) {
@@ -19544,12 +19570,14 @@ function archiveThread(emailId, button) {
 
 function deleteThread(emailId) {
   if (window.GoferMailSearch && window.GoferMailSearch.scope()) return runScopedMailAction(emailId, "delete", true)
+  var permanent = mailDeleteIsPermanent()
   var vml = beginOptimisticMailRemoval(emailId)
   var url = "/api/messages/" + encodeURIComponent(emailId) + "/thread" + mailDeleteFolderQuery()
   fetch(url, { method: "DELETE" })
     .then(function (response) {
       if (!response.ok) return mailDeleteResponseError(response)
       finishOptimisticMailRemoval(vml)
+      showMailDeletedToast(true, permanent)
     })
     .catch(function (err) { failMailDelete(emailId, vml, err, mailPermanentDeleteURL(url)) })
 }
