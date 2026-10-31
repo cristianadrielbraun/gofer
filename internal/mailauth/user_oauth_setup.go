@@ -58,11 +58,13 @@ func (s *UserCredentials) WithMailboxSetup(ctx context.Context, owner string, fn
 	return fn(work)
 }
 
-func (s *UserCredentials) AccountAuthorizationURL(provider, state string) (string, error) {
+// AccountAuthorizationURL is where an account of the provider signs in.
+// fullCalendar asks a Google account to let Gofer manage all its calendars.
+func (s *UserCredentials) AccountAuthorizationURL(provider, state string, fullCalendar bool) (string, error) {
 	switch provider {
 	case providers.ProviderGmail:
 		if s.codec.HasGoogleOAuth() {
-			return s.codec.GoogleAccountOAuthURL(state), nil
+			return s.codec.GoogleAccountOAuthURL(state, fullCalendar), nil
 		}
 	case providers.ProviderOutlook:
 		if s.codec.HasMicrosoftOAuth() {
@@ -98,7 +100,7 @@ func (s *UserCredentials) ConsumeAccountOAuthFlow(ctx context.Context, state, ow
 // The caller must bind the result to the consumed session/owner and save the
 // grant with UpsertForUser before starting the mailbox worker.
 func (s *UserCredentials) ExchangeMailboxCode(ctx context.Context, provider, code string) (*models.CreateAccountRequest, *oauth2.Token, error) {
-	if _, err := s.AccountAuthorizationURL(provider, ""); err != nil {
+	if _, err := s.AccountAuthorizationURL(provider, "", false); err != nil {
 		return nil, nil, err
 	}
 	var token *oauth2.Token

@@ -5075,7 +5075,8 @@ func (db *DB) attachCalendarSources(ctx context.Context, userID string, accounts
 	for _, source := range sources {
 		byAccount[source.AccountID] = append(byAccount[source.AccountID], models.AccountCalendarSource{
 			ID: source.ID, Name: source.Name, Color: source.Color, IsHidden: source.IsHidden,
-			Provider: source.Provider, Protected: source.IsPrimary && (source.Provider == "gmail" || source.Provider == "outlook"),
+			Provider: source.Provider, Undeletable: source.UndeletableReason(),
+			AccessRole: source.AccessRole, CreatedInGofer: source.CreatedInGofer,
 			SyncState: source.SyncState, SyncAttempt: source.SyncAttempt, SyncError: source.SyncError,
 			LastSyncedAt: calendarTimestamp(source.LastSuccessAt), NextAttemptAt: calendarTimestamp(source.NextAttemptAt),
 		})

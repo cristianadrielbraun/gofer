@@ -14659,17 +14659,76 @@ document.addEventListener("click", function (event) {
   })
 })
 
+// offerFullCalendarAccess explains that Google lets Gofer change only the
+// calendars it created, or for a calendar shared with the account, that it
+// can't change the account's own calendar list, and offers to sign the
+// account in again allowing it, coming back to this page.
+function offerFullCalendarAccess(data, action) {
+  var name = data.calendarSourceName || "this calendar"
+  var personal = action === "rename-mine" || action === "remove"
+  var doing = { "delete": "delete", "rename-mine": "rename", remove: "remove" }[action] || "rename"
+  window.goferConfirm({
+    title: "Allow Gofer to " + doing + " “" + name + "”" + (personal ? " just for you" : "") + "?",
+    message: personal
+      ? "Google lets Gofer change your calendar list only with full calendar access. Allow it to rename or remove “" + name + "” and other calendars shared with you, just for you, from here: Google asks you to sign in again and confirm, then brings you back."
+      : "Google lets Gofer rename and delete only the calendars it created. Allow full calendar access to manage “" + name + "” and every other calendar you own from here: Google asks you to sign in again and confirm, then brings you back.",
+    confirmLabel: "Allow full calendar access",
+  }).then(function (accepted) {
+    if (!accepted) return
+    var form = document.createElement("form")
+    form.method = "POST"
+    form.action = "/api/accounts/oauth2/authorize"
+    var fields = { flow_action: "reconnect", provider: "gmail", email_address: data.calendarAccountEmail || "", display_name: data.calendarAccountName || "", calendar_access: "full", return_to: window.location.pathname + window.location.search }
+    Object.keys(fields).forEach(function (key) {
+      var input = document.createElement("input")
+      input.type = "hidden"
+      input.name = key
+      input.value = fields[key]
+      form.appendChild(input)
+    })
+    document.body.appendChild(form)
+    form.submit()
+  })
+}
+
+// A Google calendar Gofer didn't create shows Rename and Delete greyed out;
+// choosing one offers full calendar access instead.
+document.addEventListener("click", function (event) {
+  var button = event.target.closest && event.target.closest("[data-calendar-source-needs-access]")
+  if (!button) return
+  event.preventDefault()
+  offerFullCalendarAccess(button.dataset, button.dataset.calendarSourceNeedsAccess)
+})
+
 // Rename and Delete in a synced calendar's menu change the calendar on its
 // provider. A delete is confirmed first: the calendar and its events are gone
-// for every app.
+// for every app. A Google calendar shared with the account is instead renamed
+// or removed just in its own calendar list, which Google Calendar on the
+// account shows too.
 document.addEventListener("click", function (event) {
-  var button = event.target.closest && event.target.closest("[data-calendar-source-rename], [data-calendar-source-delete]")
+  var button = event.target.closest && event.target.closest("[data-calendar-source-rename], [data-calendar-source-delete], [data-calendar-source-rename-mine], [data-calendar-source-remove]")
   if (!button || button.disabled) return
   event.preventDefault()
-  var rename = button.hasAttribute("data-calendar-source-rename")
-  var sourceID = rename ? button.dataset.calendarSourceRename : button.dataset.calendarSourceDelete
+  var personal = button.hasAttribute("data-calendar-source-rename-mine") || button.hasAttribute("data-calendar-source-remove")
+  var rename = button.hasAttribute("data-calendar-source-rename") || button.hasAttribute("data-calendar-source-rename-mine")
+  var sourceID = button.dataset.calendarSourceRename || button.dataset.calendarSourceDelete || button.dataset.calendarSourceRenameMine || button.dataset.calendarSourceRemove
   var name = button.dataset.calendarSourceName || "this calendar"
-  var ask = rename
+  var ask = personal && rename
+    ? window.goferPrompt({
+      title: "Rename just for you",
+      message: "Only you see this name, in Gofer and in Google Calendar on this account. Its owner and everyone else it's shared with still see the calendar's own name.",
+      label: "Calendar name", value: name, confirmLabel: "Rename",
+    }).then(function (next) {
+      next = (next || "").trim()
+      return next && next !== name ? { method: "PATCH", body: JSON.stringify({ name: next, just_for_me: true }) } : null
+    })
+    : personal
+    ? window.goferConfirm({
+      title: "Remove “" + name + "” from your list?",
+      message: "“" + name + "” disappears from Gofer and from Google Calendar on this account. The calendar and its events stay as they are for its owner and everyone else it's shared with, and you can add it again in Google Calendar.",
+      confirmLabel: "Remove from your list",
+    }).then(function (accepted) { return accepted ? { method: "DELETE", query: "?just_for_me=1" } : null })
+    : rename
     ? window.goferPrompt({ title: "Rename calendar", label: "Calendar name", value: name, confirmLabel: "Rename" }).then(function (next) {
       next = (next || "").trim()
       return next && next !== name ? { method: "PATCH", body: JSON.stringify({ name: next }) } : null
@@ -14682,7 +14741,7 @@ document.addEventListener("click", function (event) {
     }).then(function (accepted) { return accepted ? { method: "DELETE" } : null })
   ask.then(function (request) {
     if (!request) return
-    return fetch("/api/calendar/sources/" + encodeURIComponent(sourceID), {
+    return fetch("/api/calendar/sources/" + encodeURIComponent(sourceID) + (request.query || ""), {
       method: request.method,
       headers: request.body ? { "Content-Type": "application/json", "Accept": "text/plain" } : { "Accept": "text/plain" },
       body: request.body,
@@ -14690,13 +14749,17 @@ document.addEventListener("click", function (event) {
       if (response.ok) {
         refreshCalendarSidebar()
         scheduleCalendarCacheRefresh()
-        showGoferToast({ title: rename ? "Calendar renamed" : "Calendar deleted", variant: "success", icon: "success", position: "bottom-right", duration: 3000, dismissible: true })
+        showGoferToast({ title: rename ? "Calendar renamed" : personal ? "Calendar removed from your list" : "Calendar deleted", variant: "success", icon: "success", position: "bottom-right", duration: 3000, dismissible: true })
+        return
+      }
+      if (response.headers.get("X-Gofer-Needs-Calendar-Access") === "google") {
+        offerFullCalendarAccess(button.dataset, personal ? (rename ? "rename-mine" : "remove") : rename ? "rename" : "delete")
         return
       }
       return response.text().then(function (text) { throw new Error((text || "").trim() || "Please try again.") })
     })
   }).catch(function (error) {
-    showGoferToast({ title: rename ? "Could not rename the calendar" : "Could not delete the calendar", description: error && error.message ? error.message : "Please try again.", variant: "error", icon: "error", position: "bottom-right", duration: 6000, dismissible: true })
+    showGoferToast({ title: rename ? "Could not rename the calendar" : personal ? "Could not remove the calendar" : "Could not delete the calendar", description: error && error.message ? error.message : "Please try again.", variant: "error", icon: "error", position: "bottom-right", duration: 6000, dismissible: true })
   })
 })
 

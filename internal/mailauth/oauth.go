@@ -21,8 +21,15 @@ func googleAccountScopes() []string {
 	}
 }
 
-func (m *Service) GoogleAccountOAuthURL(state string) string {
-	return m.accountOAuthConfig().AuthCodeURL(state, oauth2.AccessTypeOffline, oauth2.ApprovalForce)
+// GoogleAccountOAuthURL is where a Google account signs in. fullCalendar also
+// asks to manage all the person's calendars. Google keeps what was granted
+// before, so an ordinary reconnect doesn't take that away again.
+func (m *Service) GoogleAccountOAuthURL(state string, fullCalendar bool) string {
+	cfg := m.accountOAuthConfig()
+	if fullCalendar {
+		cfg.Scopes = append(append([]string(nil), cfg.Scopes...), GoogleCalendarFullScope)
+	}
+	return cfg.AuthCodeURL(state, oauth2.AccessTypeOffline, oauth2.ApprovalForce, oauth2.SetAuthURLParam("include_granted_scopes", "true"))
 }
 
 func (m *Service) MicrosoftAccountOAuthURL(state string) string {

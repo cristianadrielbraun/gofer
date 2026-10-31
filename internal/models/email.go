@@ -48,6 +48,10 @@ type Account struct {
 	MissingFolderRoles []string
 	Folders             []Folder
 	Labels              []Label
+
+	// CalendarFullAccess is set for a Google account that allowed Gofer to
+	// manage all its calendars, not only the ones Gofer created.
+	CalendarFullAccess bool
 }
 
 // AccountCalendarSource is sidebar metadata, not account sync configuration.
@@ -63,9 +67,13 @@ type AccountCalendarSource struct {
 	NextAttemptAt string
 	// Provider is where the calendar lives: gmail, outlook, caldav or jmap.
 	Provider string
-	// Protected is set for a Google or Microsoft account's main calendar,
-	// which can't be deleted.
-	Protected bool
+	// Undeletable says why the calendar can't be deleted, such as a Google
+	// or Microsoft account's main calendar; empty when it can.
+	Undeletable string
+	// AccessRole is the account's role on the calendar, such as "owner" or
+	// "reader", and CreatedInGofer is set when it was created from Gofer.
+	AccessRole     string
+	CreatedInGofer bool
 }
 
 type Folder struct {
@@ -231,6 +239,9 @@ type CalendarSyncConfig struct {
 	// FoundNone is set, for the answer to a discovery only, when the server
 	// has no calendars yet.
 	FoundNone bool
+	// FullAccess is set for a Google account that allowed Gofer to manage
+	// all its calendars, not only the ones Gofer made.
+	FullAccess bool
 }
 
 // What CalendarSyncConfig.CreateAccess says.

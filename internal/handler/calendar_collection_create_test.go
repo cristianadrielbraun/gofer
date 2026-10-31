@@ -2,10 +2,13 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -114,6 +117,17 @@ func TestUserCalendarDiscoveryCreatesOAuthCalendar(t *testing.T) {
 			}
 			if data.CalendarSync.CreateAccess != models.CalendarCreateAllowed || len(data.CalendarSync.Sources) != 2 {
 				t.Fatalf("calendar sync = %+v", data.CalendarSync)
+			}
+			if err := f.h.userAccounts.WithAccountForUser(t.Context(), "alice", account.ID, func(_ *config.AccountStore, db *storage.DB) error {
+				selected, err := db.ListSelectedCalendarSources(t.Context(), "alice")
+				for _, source := range selected {
+					if source.CreatedInGofer != (source.RemoteID == "made-by-gofer") {
+						t.Fatalf("%s created in Gofer = %v", source.RemoteID, source.CreatedInGofer)
+					}
+				}
+				return err
+			}); err != nil {
+				t.Fatal(err)
 			}
 			for _, source := range data.CalendarSync.Sources {
 				if !source.IsSelected {
@@ -245,5 +259,91 @@ func TestCalendarManageErrorReadsGoogleHiddenCalendars(t *testing.T) {
 		if (test.want == "") != (err == nil) || (err != nil && !strings.Contains(err.Error(), test.want)) {
 			t.Fatalf("%s %q %v = %v", test.provider, test.name, test.err, err)
 		}
+	}
+}
+
+// A rename or removal just for the account changes its own Google calendar
+// list, not the calendar; without full calendar access Google refuses it.
+func TestGoogleCalendarListEntryChangesOnlyTheAccountsList(t *testing.T) {
+	var seen []string
+	refuse := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		seen = append(seen, r.Method+" "+r.URL.Path+" "+strings.TrimSpace(string(body)))
+		switch {
+		case refuse:
+			http.Error(w, `{"error":{"code":403,"message":"Insufficient Permission"}}`, http.StatusForbidden)
+		case strings.HasSuffix(r.URL.Path, "/gone"):
+			http.Error(w, `{"error":{"code":404,"message":"Not Found"}}`, http.StatusNotFound)
+		default:
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{}`)
+		}
+	}))
+	defer server.Close()
+	prior := googleCalendarAPIBaseURL
+	googleCalendarAPIBaseURL = server.URL
+	defer func() { googleCalendarAPIBaseURL = prior }()
+
+	shared := storage.CalendarSource{Provider: "gmail", RemoteID: "team@group.calendar.google.com"}
+	if err := manageCalendarSource(t.Context(), shared, calendarManageLogin{token: "t"}, calendarChange{name: "Team (mine)", personal: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := manageCalendarSource(t.Context(), shared, calendarManageLogin{token: "t"}, calendarChange{personal: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := manageGoogleCalendarListEntry(t.Context(), storage.CalendarSource{RemoteID: "gone"}, "t", ""); err != nil {
+		t.Fatalf("removing a calendar already gone from the list: %v", err)
+	}
+	want := `PATCH /users/me/calendarList/team@group.calendar.google.com {"summaryOverride":"Team (mine)"}; DELETE /users/me/calendarList/team@group.calendar.google.com ; DELETE /users/me/calendarList/gone `
+	if got := strings.Join(seen, "; "); got != want {
+		t.Fatalf("Google saw %q, want %q", got, want)
+	}
+	// Renaming a calendar the account owns drops its own name for it too,
+	// which Google would otherwise keep showing.
+	seen = nil
+	family := storage.CalendarSource{Provider: "gmail", RemoteID: "family1@group.calendar.google.com"}
+	if err := manageCalendarSource(t.Context(), family, calendarManageLogin{token: "t"}, calendarChange{name: "Home"}); err != nil {
+		t.Fatal(err)
+	}
+	want = `PATCH /calendars/family1@group.calendar.google.com {"summary":"Home"}; PATCH /users/me/calendarList/family1@group.calendar.google.com {"summaryOverride":null}`
+	if got := strings.Join(seen, "; "); got != want {
+		t.Fatalf("Google saw %q, want %q", got, want)
+	}
+	refuse = true
+	if err := manageGoogleCalendarListEntry(t.Context(), shared, "t", "Team"); !errors.Is(err, errGoogleCalendarListNeedsAccess) {
+		t.Fatalf("without full access = %v", err)
+	}
+	if err := manageCalendarSource(t.Context(), storage.CalendarSource{Provider: "outlook"}, calendarManageLogin{}, calendarChange{name: "x", personal: true}); err == nil {
+		t.Fatal("an Outlook calendar was renamed just for the account")
+	}
+}
+
+// Google's family calendar can be renamed but not deleted.
+func TestSyncedCalendarSourceRefusesDeletingTheFamilyCalendar(t *testing.T) {
+	db, err := storage.New(filepath.Join(t.TempDir(), "gofer.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Write().Exec(`
+		INSERT INTO users (id, username, username_normalized, name) VALUES ('alice', 'alice', 'alice', 'Alice');
+		INSERT INTO accounts (id, user_id, provider, email_address) VALUES ('acc', 'alice', 'gmail', 'alice@gmail.com');`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.ReplaceCalendarSources(t.Context(), "alice", "acc", "gmail", []storage.CalendarSource{{
+		RemoteID: "family01234567890@group.calendar.google.com", Name: "Family", AccessRole: "owner", IsSelected: true,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	sources, err := db.ListSelectedCalendarSources(t.Context(), "alice")
+	if err != nil || len(sources) != 1 {
+		t.Fatalf("sources = %v, %v", sources, err)
+	}
+	if _, err := syncedCalendarSource(t.Context(), db, "alice", sources[0].ID, calendarChange{}); !errors.As(err, new(errCalendarUndeletable)) || !strings.Contains(err.Error(), "family calendar") {
+		t.Fatalf("delete = %v", err)
+	}
+	if _, err := syncedCalendarSource(t.Context(), db, "alice", sources[0].ID, calendarChange{name: "Home"}); err != nil {
+		t.Fatalf("rename = %v", err)
 	}
 }

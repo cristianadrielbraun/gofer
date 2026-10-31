@@ -125,3 +125,25 @@ func TestReadAccountOAuthCallbackUsesBoundFlowUser(t *testing.T) {
 		t.Fatalf("callback flow = %#v", flow)
 	}
 }
+
+// A reconnect started from a page goes back to it, but only within Gofer.
+func TestAccountOAuthReturnPath(t *testing.T) {
+	for path, want := range map[string]string{
+		"/calendar?view=week":     "/calendar?view=week",
+		"//evil.example/x":        "",
+		"https://evil.example/":   "",
+		"/\\evil.example":         "",
+		"calendar":                "",
+		"/calendar\r\nX-Bad: yes": "",
+	} {
+		if got := accountOAuthReturnPath(path); got != want {
+			t.Fatalf("%q = %q, want %q", path, got, want)
+		}
+	}
+	if got := accountOAuthSuccessRedirect(map[string]string{"flow_action": "reconnect", "return_to": "/calendar"}); got != "/calendar" {
+		t.Fatalf("reconnect back to Calendar = %q", got)
+	}
+	if got := accountOAuthSuccessRedirect(map[string]string{"flow_action": "add", "return_to": "/calendar"}); got != "/settings/accounts?account_added=1" {
+		t.Fatalf("an added account went to %q", got)
+	}
+}

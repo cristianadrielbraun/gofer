@@ -1351,3 +1351,80 @@ func TestSyncFolderShortName(t *testing.T) {
 		}
 	}
 }
+
+// A Gmail account's Calendar sync offers full calendar access until it has
+// it, and then says how to take it back.
+func TestGoogleCalendarManageAccess(t *testing.T) {
+	render := func(full bool) string {
+		t.Helper()
+		var out bytes.Buffer
+		data := models.EditAccountData{AccountID: "acc", Provider: "gmail", EmailAddress: "person@gmail.com", DisplayName: "Person"}
+		data.CalendarSync.FullAccess = full
+		if err := GoogleCalendarManageAccess(data).Render(context.Background(), &out); err != nil {
+			t.Fatal(err)
+		}
+		return out.String()
+	}
+	limited := render(false)
+	for _, want := range []string{"only the calendars it created", `name="calendar_access" value="full"`, `name="flow_action" value="reconnect"`, `name="email_address" value="person@gmail.com"`, "Allow full calendar access"} {
+		if !strings.Contains(limited, want) {
+			t.Fatalf("limited access missing %q: %s", want, limited)
+		}
+	}
+	full := render(true)
+	if !strings.Contains(full, "manages all your Google calendars") || !strings.Contains(full, "myaccount.google.com/connections") || strings.Contains(full, "calendar_access") {
+		t.Fatalf("full access = %s", full)
+	}
+}
+
+// Rename and Delete are offered where the provider allows them: a Google
+// calendar the account owns needs Gofer to have created it, or full access;
+// one shared with it never can be.
+func TestCalendarManageState(t *testing.T) {
+	gmail := models.Account{Provider: "gmail", Email: "person@gmail.com", Name: "Person"}
+	full := gmail
+	full.CalendarFullAccess = true
+	for _, test := range []struct {
+		account models.Account
+		source  models.AccountCalendarSource
+		want    string
+	}{
+		{gmail, models.AccountCalendarSource{Provider: "gmail", AccessRole: "owner", CreatedInGofer: true}, "ok"},
+		{gmail, models.AccountCalendarSource{Provider: "gmail", AccessRole: "owner"}, "access"},
+		{full, models.AccountCalendarSource{Provider: "gmail", AccessRole: "owner"}, "ok"},
+		{full, models.AccountCalendarSource{Provider: "gmail", AccessRole: "reader"}, "personal"},
+		{gmail, models.AccountCalendarSource{Provider: "gmail", AccessRole: "writer"}, "personal-access"},
+		{models.Account{}, models.AccountCalendarSource{Provider: "outlook", AccessRole: "owner"}, "ok"},
+		{models.Account{}, models.AccountCalendarSource{Provider: "outlook", AccessRole: "reader"}, "owner"},
+		{models.Account{}, models.AccountCalendarSource{Provider: "caldav", AccessRole: "unknown"}, "ok"},
+		{models.Account{}, models.AccountCalendarSource{Provider: "caldav", AccessRole: "reader"}, "owner"},
+	} {
+		if got := calendarManageState(test.account, test.source); got != test.want {
+			t.Fatalf("%s %+v with full access %v = %q, want %q", test.source.Provider, test.source, test.account.CalendarFullAccess, got, test.want)
+		}
+	}
+	render := func(account models.Account, source models.AccountCalendarSource) string {
+		var out bytes.Buffer
+		if err := CalendarSourceManageItems(account, source).Render(context.Background(), &out); err != nil {
+			t.Fatal(err)
+		}
+		return out.String()
+	}
+	needs := render(gmail, models.AccountCalendarSource{ID: "s1", Name: "Familia", Provider: "gmail", AccessRole: "owner"})
+	if !strings.Contains(needs, `data-calendar-source-needs-access="rename"`) || !strings.Contains(needs, `data-calendar-account-email="person@gmail.com"`) || strings.Contains(needs, "data-calendar-source-rename") {
+		t.Fatalf("needs access = %s", needs)
+	}
+	// A Google calendar shared with the account is renamed or removed only
+	// in its own list, which also needs full access.
+	shared := render(gmail, models.AccountCalendarSource{ID: "s2", Name: "Holidays", Provider: "gmail", AccessRole: "reader"})
+	if !strings.Contains(shared, `data-calendar-source-needs-access="rename-mine"`) || !strings.Contains(shared, `data-calendar-source-needs-access="remove"`) || strings.Contains(shared, "data-calendar-source-delete") {
+		t.Fatalf("shared = %s", shared)
+	}
+	shared = render(full, models.AccountCalendarSource{ID: "s2", Name: "Holidays", Provider: "gmail", AccessRole: "reader"})
+	if !strings.Contains(shared, `data-calendar-source-rename-mine="s2"`) || !strings.Contains(shared, `data-calendar-source-remove="s2"`) || strings.Contains(shared, "needs-access") || strings.Contains(shared, "data-calendar-source-delete") {
+		t.Fatalf("shared with full access = %s", shared)
+	}
+	if other := render(models.Account{}, models.AccountCalendarSource{ID: "s3", Provider: "caldav", AccessRole: "reader"}); !strings.Contains(other, "Only its owner") || strings.Contains(other, "just for you") {
+		t.Fatalf("CalDAV shared = %s", other)
+	}
+}

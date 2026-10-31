@@ -23,12 +23,12 @@ func (h *Handler) handleUserAccountOAuthAuthorize(w http.ResponseWriter, r *http
 		return
 	}
 	provider := strings.TrimSpace(r.FormValue("provider"))
-	if _, err := h.userCredentials.AccountAuthorizationURL(provider, ""); err != nil {
+	if _, err := h.userCredentials.AccountAuthorizationURL(provider, "", false); err != nil {
 		http.Error(w, err.Error(), 400)
 		return
 	}
 	owner := h.userID(r.Context())
-	form := map[string]string{"provider": provider, "email_address": strings.TrimSpace(r.FormValue("email_address")), "display_name": r.FormValue("display_name"), "flow_action": accountOAuthFlowAction(r.FormValue("flow_action"))}
+	form := map[string]string{"provider": provider, "email_address": strings.TrimSpace(r.FormValue("email_address")), "display_name": r.FormValue("display_name"), "flow_action": accountOAuthFlowAction(r.FormValue("flow_action")), "return_to": accountOAuthReturnPath(r.FormValue("return_to"))}
 	// Refuse a provider or address the allowed mail lists leave out before
 	// sending the person to sign in.
 	if code := h.oauthMailAllowlistFailure(r.Context(), owner, provider, form["email_address"]); code != "" {
@@ -67,7 +67,7 @@ func (h *Handler) handleUserAccountOAuthAuthorize(w http.ResponseWriter, r *http
 		http.Redirect(w, r, microsoftDeviceSignInLocation(state), http.StatusSeeOther)
 		return
 	}
-	location, err := h.userCredentials.AccountAuthorizationURL(provider, state)
+	location, err := h.userCredentials.AccountAuthorizationURL(provider, state, r.FormValue("calendar_access") == "full")
 	if err != nil {
 		http.Error(w, "mailbox OAuth provider is not configured", 400)
 		return

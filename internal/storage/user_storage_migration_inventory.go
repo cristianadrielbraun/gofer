@@ -29,7 +29,7 @@ var userStorageMigrationTables = map[string]migrationTableRule{
 	"calendar_meet_drafts":            {migrationLocal, `r.user_id`, "user_id,source_id,draft_id,remote_id,conference_json,used_by,cleanup_pending,created_at"},
 	"calendar_reply_jobs":             {migrationLocal, `r.user_id`, "id,user_id,source_id,resource_id,remote_id,version,response,payload,state,attempted_at,created_at"},
 	"calendar_response_requests":      {migrationLocal, `r.user_id`, "user_id,source_id,remote_id,version,response,claim_id,created_at"},
-	"calendar_sources":                {migrationLocal, `r.user_id`, "id,user_id,account_id,provider,remote_id,name,description,timezone,color,access_role,is_primary,is_selected,is_hidden,is_deleted,created_at,updated_at"},
+	"calendar_sources":                {migrationLocal, `r.user_id`, "id,user_id,account_id,provider,remote_id,name,description,timezone,color,access_role,is_primary,is_selected,is_hidden,is_deleted,created_at,updated_at,created_in_gofer"},
 	"calendar_sync_state":             {migrationLocal, `(SELECT c.user_id FROM @calendar_sources c WHERE c.id=r.source_id)`, "source_id,state,cursor_kind,cursor_value,window_start,window_end,full_sync_required,attempt_count,last_started_at,last_success_at,next_attempt_at,last_error,created_at,updated_at"},
 	"calendar_teams_drafts":           {migrationLocal, `r.user_id`, "user_id,source_id,draft_id,remote_id,meeting_json,used_by,state,updated_at"},
 	"contact_activity_events":         {migrationLocal, `r.user_id`, "id,user_id,event_type,email,message,event_count,created_at"},

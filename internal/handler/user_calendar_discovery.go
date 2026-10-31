@@ -496,6 +496,14 @@ func (h *Handler) runUserCalendarDiscovery(parent context.Context, owner, id str
 		if _, err := h.userAccounts.PublishCalendarDiscovery(ctx, snapshot, sources, dav, guards...); err != nil {
 			return err
 		}
+		if create != nil && create.Created != "" {
+			// Google lets Gofer change the calendars it created.
+			if err := h.userAccounts.WithAccountForUser(ctx, owner, id, func(_ *config.AccountStore, db *storage.DB) error {
+				return db.MarkCalendarCreatedInGofer(ctx, owner, id, create.Created)
+			}); err != nil {
+				log.Printf("owned calendar: mark %s created in Gofer: %v", id, err)
+			}
+		}
 		result.davSaved = dav != nil
 		if background {
 			// An open Calendar redraws its list of calendars.

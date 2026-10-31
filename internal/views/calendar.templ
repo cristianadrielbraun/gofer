@@ -156,30 +156,7 @@ templ CalendarSidebarContent(accounts []models.Account, loading bool) {
 										@dropdown.Separator()
 										// Rename and Delete change the calendar on its provider, for
 										// every app, not only in Gofer.
-										@dropdown.Item(dropdown.ItemProps{Class: "justify-start gap-2", Attributes: templ.Attributes{"type": "button", "data-calendar-source-rename": source.ID, "data-calendar-source-name": calendarSourceDisplayName(source)}}) {
-											<span class="inline-flex text-muted-foreground">
-												@icon.Pencil(icon.Props{Class: "size-4"})
-											</span>
-											Rename…
-										}
-										if source.Protected {
-											@dropdown.Item(dropdown.ItemProps{Class: "items-start justify-start gap-2", Disabled: true}) {
-												<span class="inline-flex pt-0.5 text-muted-foreground">
-													@icon.Trash2(icon.Props{Class: "size-4"})
-												</span>
-												<span class="flex flex-col">
-													Delete…
-													<span class="text-xs text-muted-foreground">The account's main calendar can't be deleted.</span>
-												</span>
-											}
-										} else {
-											@dropdown.Item(dropdown.ItemProps{Class: "justify-start gap-2 text-destructive hover:text-destructive focus:text-destructive", Attributes: templ.Attributes{"type": "button", "data-calendar-source-delete": source.ID, "data-calendar-source-name": calendarSourceDisplayName(source), "data-calendar-provider": calendarSourceHome(source)}}) {
-												<span class="inline-flex">
-													@icon.Trash2(icon.Props{Class: "size-4"})
-												</span>
-												Delete…
-											}
-										}
+										@CalendarSourceManageItems(account, source)
 									}
 								}
 								// The same 24px slot as the "Other calendars" count and buttons,
@@ -199,6 +176,99 @@ templ CalendarSidebarContent(accounts []models.Account, loading bool) {
 			}
 		</nav>
 	</div>
+}
+
+// CalendarSourceManageItems are a synced calendar's Rename and Delete. Where
+// the provider won't allow them they are greyed out: a Google calendar Gofer
+// didn't create still opens an offer to allow full calendar access, and one
+// shared with the account only says why. A Google calendar the account
+// doesn't own can instead be renamed or removed just for it.
+templ CalendarSourceManageItems(account models.Account, source models.AccountCalendarSource) {
+	{{ state := calendarManageState(account, source) }}
+	{{ name := calendarSourceDisplayName(source) }}
+	switch state {
+		case "personal", "personal-access":
+			for _, action := range []string{"rename-mine", "remove"} {
+				@dropdown.Item(dropdown.ItemProps{Class: calendarPersonalItemClass(state), Attributes: calendarPersonalItemAttributes(state, action, account, source, name)}) {
+					<span class={ "inline-flex", templ.KV("text-muted-foreground", state == "personal") }>
+						if action == "rename-mine" {
+							@icon.Pencil(icon.Props{Class: "size-4"})
+						} else {
+							@icon.CalendarMinus(icon.Props{Class: "size-4"})
+						}
+					</span>
+					if action == "rename-mine" {
+						Rename just for you…
+					} else {
+						Remove from your list…
+					}
+					if state == "personal-access" {
+						<span class="ml-auto inline-flex text-muted-foreground">
+							@icon.KeyRound(icon.Props{Class: "size-3.5"})
+						</span>
+					}
+				}
+			}
+		case "owner":
+			@dropdown.Item(dropdown.ItemProps{Class: "items-start justify-start gap-2", Disabled: true}) {
+				<span class="inline-flex pt-0.5 text-muted-foreground">
+					@icon.Pencil(icon.Props{Class: "size-4"})
+				</span>
+				<span class="flex flex-col">
+					Rename or delete…
+					<span class="text-xs text-muted-foreground">Only its owner can rename or delete it.</span>
+				</span>
+			}
+		case "access":
+			for _, action := range []string{"rename", "delete"} {
+				@dropdown.Item(dropdown.ItemProps{Class: "justify-start gap-2 text-muted-foreground opacity-70", Attributes: templ.Attributes{
+					"type": "button", "aria-disabled": "true",
+					"data-calendar-source-needs-access": action, "data-calendar-source-name": name,
+					"data-calendar-account-email": account.Email, "data-calendar-account-name": account.Name,
+				}}) {
+					<span class="inline-flex">
+						if action == "rename" {
+							@icon.Pencil(icon.Props{Class: "size-4"})
+						} else {
+							@icon.Trash2(icon.Props{Class: "size-4"})
+						}
+					</span>
+					if action == "rename" {
+						Rename…
+					} else {
+						Delete…
+					}
+					<span class="ml-auto inline-flex text-muted-foreground">
+						@icon.KeyRound(icon.Props{Class: "size-3.5"})
+					</span>
+				}
+			}
+		default:
+			@dropdown.Item(dropdown.ItemProps{Class: "justify-start gap-2", Attributes: templ.Attributes{"type": "button", "data-calendar-source-rename": source.ID, "data-calendar-source-name": name, "data-calendar-account-email": account.Email, "data-calendar-account-name": account.Name}}) {
+				<span class="inline-flex text-muted-foreground">
+					@icon.Pencil(icon.Props{Class: "size-4"})
+				</span>
+				Rename…
+			}
+			if source.Undeletable != "" {
+				@dropdown.Item(dropdown.ItemProps{Class: "items-start justify-start gap-2", Disabled: true}) {
+					<span class="inline-flex pt-0.5 text-muted-foreground">
+						@icon.Trash2(icon.Props{Class: "size-4"})
+					</span>
+					<span class="flex flex-col">
+						Delete…
+						<span class="text-xs text-muted-foreground">{ source.Undeletable }</span>
+					</span>
+				}
+			} else {
+				@dropdown.Item(dropdown.ItemProps{Class: "justify-start gap-2 text-destructive hover:text-destructive focus:text-destructive", Attributes: templ.Attributes{"type": "button", "data-calendar-source-delete": source.ID, "data-calendar-source-name": name, "data-calendar-provider": calendarSourceHome(source), "data-calendar-account-email": account.Email, "data-calendar-account-name": account.Name}}) {
+					<span class="inline-flex">
+						@icon.Trash2(icon.Props{Class: "size-4"})
+					</span>
+					Delete…
+				}
+			}
+	}
 }
 
 // CalendarOtherSources lists, folded away under an account, its calendars

@@ -7348,6 +7348,7 @@ func (h *Handler) handleAccountOAuthAuthorize(w http.ResponseWriter, r *http.Req
 		"email_address": r.FormValue("email_address"),
 		"display_name":  r.FormValue("display_name"),
 		"flow_action":   accountOAuthFlowAction(r.FormValue("flow_action")),
+		"return_to":     accountOAuthReturnPath(r.FormValue("return_to")),
 	}
 
 	user := auth.GetCurrentUser(r.Context())
@@ -7364,7 +7365,7 @@ func (h *Handler) handleAccountOAuthAuthorize(w http.ResponseWriter, r *http.Req
 
 	switch provider {
 	case providers.ProviderGmail:
-		authorizeURL = h.mailCredentials().GoogleAccountOAuthURL(state)
+		authorizeURL = h.mailCredentials().GoogleAccountOAuthURL(state, r.FormValue("calendar_access") == "full")
 	case providers.ProviderOutlook:
 		if h.mailCredentials().UsesMicrosoftDeviceCode() {
 			if _, err := h.mailCredentials().StartMicrosoftDeviceSignIn(r.Context(), state, user.ID, auth.GetSessionToken(r)); err != nil {
@@ -7547,6 +7548,16 @@ func (h *Handler) finishMicrosoftAccount(ctx context.Context, flow *mailauth.Acc
 	return accountOAuthSuccessRedirect(formData)
 }
 
+// accountOAuthReturnPath is where a reconnect started from a page, such as
+// Calendar, goes back to: a path in Gofer, never another site.
+func accountOAuthReturnPath(path string) string {
+	path = strings.TrimSpace(path)
+	if !strings.HasPrefix(path, "/") || strings.HasPrefix(path, "//") || strings.ContainsAny(path, "\\\r\n\t") || len(path) > 512 {
+		return ""
+	}
+	return path
+}
+
 func accountOAuthFlowAction(action string) string {
 	if strings.EqualFold(strings.TrimSpace(action), "reconnect") {
 		return "reconnect"
@@ -7556,6 +7567,9 @@ func accountOAuthFlowAction(action string) string {
 
 func accountOAuthSuccessRedirect(formData map[string]string) string {
 	if accountOAuthFlowAction(formData["flow_action"]) == "reconnect" {
+		if back := accountOAuthReturnPath(formData["return_to"]); back != "" {
+			return back
+		}
 		return "/settings/accounts?account_reconnected=1"
 	}
 	return "/settings/accounts?account_added=1"

@@ -1459,6 +1459,7 @@ CREATE TABLE IF NOT EXISTS calendar_sources (
     is_deleted INTEGER NOT NULL DEFAULT 0 CHECK (is_deleted IN (0, 1)),
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_in_gofer INTEGER NOT NULL DEFAULT 0,
     UNIQUE (account_id, remote_id)
 );
 
@@ -1835,4 +1836,4 @@ CREATE TABLE IF NOT EXISTS mail_rule_runs (
 );
 CREATE INDEX IF NOT EXISTS idx_mail_rule_runs_user ON mail_rule_runs(user_id, id);
 
-INSERT OR REPLACE INTO schema_version (version) VALUES (132);
+INSERT OR REPLACE INTO schema_version (version) VALUES (133);

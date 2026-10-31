@@ -21,6 +21,7 @@ func (h *Handler) handleCalendar(w http.ResponseWriter, r *http.Request) {
 		userID := local.userID(ctx)
 		uiSettings := local.db.GetUISettings(ctx, userID)
 		accounts, _ := local.db.GetAccounts(ctx, userID)
+		h.markCalendarFullAccess(ctx, userID, accounts)
 		month := calendarDataFromRequest(r, uiSettings)
 		sources, sourceErr := local.db.ListSelectedCalendarSources(ctx, userID)
 		if sourceErr != nil {

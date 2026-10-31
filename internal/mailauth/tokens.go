@@ -22,7 +22,10 @@ const (
 	GoogleCalendarEventsScope   = "https://www.googleapis.com/auth/calendar.events"
 	// GoogleCalendarAppCreatedScope lets Gofer make calendars, and manage only
 	// the ones it made.
-	GoogleCalendarAppCreatedScope      = "https://www.googleapis.com/auth/calendar.app.created"
+	GoogleCalendarAppCreatedScope = "https://www.googleapis.com/auth/calendar.app.created"
+	// GoogleCalendarFullScope lets Gofer manage every calendar the person
+	// owns. Gofer asks for it only when they choose to allow it.
+	GoogleCalendarFullScope            = "https://www.googleapis.com/auth/calendar"
 	microsoftGraphContactsScope        = "https://graph.microsoft.com/Contacts.ReadWrite"
 	microsoftGraphCalendarScope        = "https://graph.microsoft.com/Calendars.Read"
 	microsoftGraphCalendarWriteScope   = "https://graph.microsoft.com/Calendars.ReadWrite"
@@ -150,6 +153,13 @@ func (m *Manager) CalendarCreateAuthorized(ctx context.Context, accountID, provi
 		return googleCalendarCreateAllowed(record.Scopes)
 	}
 	return recordHasScopes(record.Scopes, microsoftGraphCalendarWriteScope)
+}
+
+// GoogleCalendarFullAccess reports, from the saved grant alone, whether a
+// Google account allowed Gofer to manage all its calendars.
+func (m *Manager) GoogleCalendarFullAccess(ctx context.Context, accountID string) bool {
+	record, err := m.oauthTokenForAccount(ctx, accountID, providers.OAuthGoogle)
+	return err == nil && recordHasScopes(record.Scopes, GoogleCalendarFullScope)
 }
 
 // GetCalendarCreateTokenForAccount is a token that may make new calendars on

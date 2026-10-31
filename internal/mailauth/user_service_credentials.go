@@ -100,6 +100,20 @@ func calendarCreateAllowed(record userCredentialRecord) bool {
 	}
 }
 
+// GoogleCalendarFullAccessForUser is a local grant check of whether a Google
+// account allowed Gofer to manage all its calendars.
+func (s *UserCredentials) GoogleCalendarFullAccessForUser(ctx context.Context, owner, id string) bool {
+	allowed := false
+	err := s.operation(ctx, owner, id, false, func(ctx context.Context) error {
+		record, err := s.load(ctx, owner, id)
+		if err == nil {
+			allowed = record.Provider == providers.OAuthGoogle && recordHasScopes(record.grantedScopes, GoogleCalendarFullScope)
+		}
+		return err
+	})
+	return err == nil && allowed
+}
+
 // CalendarCreateAuthorizedForUser is a local grant check, as
 // CalendarWriteAuthorizedForUser is, for making new calendars.
 func (s *UserCredentials) CalendarCreateAuthorizedForUser(ctx context.Context, owner, id string) bool {

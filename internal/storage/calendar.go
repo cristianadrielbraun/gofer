@@ -43,6 +43,22 @@ type CalendarSource struct {
 	NextAttemptAt *time.Time
 	WindowStart   *time.Time
 	WindowEnd     *time.Time
+	// CreatedInGofer is set for a calendar created from Gofer.
+	CreatedInGofer bool
+}
+
+// UndeletableReason says why the calendar can't be deleted from its
+// provider, or is empty when it can: a Google or Microsoft account's main
+// calendar can't be, nor Google's family calendar, which belongs to the
+// family group. Google marks that one only by its id.
+func (s CalendarSource) UndeletableReason() string {
+	switch {
+	case s.IsPrimary && (s.Provider == "gmail" || s.Provider == "outlook"):
+		return "The account's main calendar can't be deleted."
+	case s.Provider == "gmail" && strings.HasPrefix(s.RemoteID, "family") && strings.HasSuffix(s.RemoteID, "@group.calendar.google.com"):
+		return "Google's family calendar can't be deleted."
+	}
+	return ""
 }
 
 // CalendarEvent is the local representation of one normalized provider
@@ -399,7 +415,7 @@ func (db *DB) listSelectedCalendarSources(ctx context.Context, userID string, in
 		       source.is_selected, source.is_deleted, source.is_hidden,
 		       COALESCE(sync.state, 'pending'), COALESCE(sync.attempt_count, 0), COALESCE(sync.last_error, ''),
 		       sync.last_started_at, sync.last_success_at, sync.next_attempt_at,
-		       sync.window_start, sync.window_end
+		       sync.window_start, sync.window_end, source.created_in_gofer
 		FROM calendar_sources source
 		JOIN accounts account ON account.id = source.account_id
 		LEFT JOIN calendar_sync_state sync ON sync.source_id = source.id
@@ -423,7 +439,7 @@ func (db *DB) listSelectedCalendarSources(ctx context.Context, userID string, in
 			&source.ID, &source.UserID, &source.AccountID, &source.Provider,
 			&source.RemoteID, &source.Name, &source.Description, &source.TimeZone,
 			&source.Color, &source.AccessRole, &isPrimary, &isSelected, &isDeleted, &isHidden,
-			&source.SyncState, &source.SyncAttempt, &source.SyncError, &started, &success, &next, &windowStart, &windowEnd,
+			&source.SyncState, &source.SyncAttempt, &source.SyncError, &started, &success, &next, &windowStart, &windowEnd, &source.CreatedInGofer,
 		); err != nil {
 			return nil, err
 		}

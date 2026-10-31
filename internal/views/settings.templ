@@ -4952,6 +4952,36 @@ templ CalendarSyncSettingsResult(data models.EditAccountData, message string, is
 	@CalendarSyncSettingsPanel(data, message, isError)
 }
 
+// GoogleCalendarManageAccess says which Google calendars Gofer may rename
+// and delete, and, while that is only the ones it made, offers to sign in
+// again allowing it to manage all of them.
+templ GoogleCalendarManageAccess(data models.EditAccountData) {
+	<div class="rounded-lg border border-border bg-background/50 p-3 text-xs leading-relaxed text-muted-foreground" data-google-calendar-access={ strconv.FormatBool(data.CalendarSync.FullAccess) }>
+		if data.CalendarSync.FullAccess {
+			<p class="font-semibold text-foreground">Gofer manages all your Google calendars</p>
+			<p class="mt-0.5">It can rename and delete any calendar you own, and rename or remove calendars shared with you just for you. Google only lets you take that back by removing all of Gofer's access in your <a href="https://myaccount.google.com/connections" target="_blank" rel="noopener noreferrer" class="font-medium text-primary hover:underline">Google account</a>; reconnecting afterwards asks for the usual access only.</p>
+		} else {
+			<div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+				<div class="min-w-0">
+					<p class="font-semibold text-foreground">Gofer manages only the calendars it created</p>
+					<p class="mt-0.5">Google lets Gofer rename and delete just the calendars made from Gofer. To manage all the calendars you own from here, and rename or remove calendars shared with you just for you, allow full calendar access: Google asks you to sign in again and confirm.</p>
+				</div>
+				<form method="POST" action="/api/accounts/oauth2/authorize" class="shrink-0">
+					<input type="hidden" name="flow_action" value="reconnect"/>
+					<input type="hidden" name="provider" value="gmail"/>
+					<input type="hidden" name="email_address" value={ data.EmailAddress }/>
+					<input type="hidden" name="display_name" value={ data.DisplayName }/>
+					<input type="hidden" name="calendar_access" value="full"/>
+					@button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeSm, Type: button.TypeSubmit, Attributes: templ.Attributes{"data-google-calendar-full-access": ""}}) {
+						@icon.KeyRound(icon.Props{Class: "size-3.5"})
+						Allow full calendar access
+					}
+				</form>
+			</div>
+		}
+	</div>
+}
+
 templ CalendarProviderAccessNotice(title string, message string) {
 	<div class="rounded-lg border border-border bg-background/50 p-3 text-xs leading-relaxed text-muted-foreground">
 		<p class="font-semibold text-foreground">{ title }</p>
@@ -4980,6 +5010,7 @@ templ CalendarSyncSettingsPanel(data models.EditAccountData, message string, isE
 		<div data-wizard-service-status="calendar" class="min-h-0"></div>
 		if data.Provider == "gmail" {
 			@CalendarProviderAccessNotice("Google Calendar access", "Discovery uses this account's Google authorization. If Calendar access is missing, reconnect the account from its actions menu, then try again.")
+			@GoogleCalendarManageAccess(data)
 			<form method="POST" action={ fmt.Sprintf("/api/accounts/%s/calendar/discover", data.AccountID) } data-calendar-discovery-form hx-post={ fmt.Sprintf("/api/accounts/%s/calendar/discover", data.AccountID) } hx-target={ fmt.Sprintf("#account-calendar-sync-panel-%s", data.AccountID) } hx-swap="outerHTML" data-on-htmx-before-request='["handleCalendarDiscoveryStart","$event"]' data-on-htmx-after-request='["handleCalendarDiscoveryResult","$event"]' class="flex justify-end">
 				<button type="submit" data-calendar-discovery-submit class="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-70">
 					@icon.RefreshCw(icon.Props{Class: "size-3.5"})

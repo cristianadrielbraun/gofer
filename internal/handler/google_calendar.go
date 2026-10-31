@@ -498,6 +498,12 @@ func (h *Handler) discoverAccountCalendars(ctx context.Context, w http.ResponseW
 			statusError = true
 			break
 		}
+		if create != nil && create.Created != "" {
+			// Google lets Gofer change the calendars it created.
+			if err := h.db.MarkCalendarCreatedInGofer(ctx, userID, accountID, create.Created); err != nil {
+				log.Printf("calendar: mark %s created in Gofer: %v", accountID, err)
+			}
+		}
 		statusMessage = calendarDiscoveryMessage(count, create, fmt.Sprintf("Discovered %d Google calendar source(s). The primary calendar is selected by default.", count))
 		*found = count
 		discoverySucceeded = true

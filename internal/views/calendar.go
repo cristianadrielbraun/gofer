@@ -467,6 +467,65 @@ func calendarConfiguredAccounts(accounts []models.Account) []models.Account {
 	return configured
 }
 
+// calendarManageState is whether the account may rename and delete a
+// calendar from Gofer: "ok"; "access" for a Google calendar it owns but Gofer
+// didn't create, which needs full calendar access; or "owner" for one only
+// its owner can change, such as a calendar shared with it or subscribed to.
+// A Google calendar it doesn't own is "personal" instead: Gofer can rename it
+// or remove it just in the account's own calendar list, as Google Calendar
+// does, which also needs full calendar access ("personal-access").
+func calendarManageState(account models.Account, source models.AccountCalendarSource) string {
+	role := strings.ToLower(strings.TrimSpace(source.AccessRole))
+	switch source.Provider {
+	case "gmail":
+		if role != "owner" {
+			if account.CalendarFullAccess {
+				return "personal"
+			}
+			return "personal-access"
+		}
+		if account.CalendarFullAccess || source.CreatedInGofer {
+			return "ok"
+		}
+		return "access"
+	case "outlook":
+		if role != "" && role != "owner" {
+			return "owner"
+		}
+	default:
+		if role == "reader" || role == "freebusyreader" {
+			return "owner"
+		}
+	}
+	return "ok"
+}
+
+// calendarPersonalItemClass greys out a just-for-you item that first needs
+// full calendar access.
+func calendarPersonalItemClass(state string) string {
+	if state == "personal-access" {
+		return "justify-start gap-2 text-muted-foreground opacity-70"
+	}
+	return "justify-start gap-2"
+}
+
+// calendarPersonalItemAttributes are a just-for-you Rename or Remove's
+// attributes: the change itself, or, without full calendar access, the offer
+// to allow it.
+func calendarPersonalItemAttributes(state, action string, account models.Account, source models.AccountCalendarSource, name string) templ.Attributes {
+	attributes := templ.Attributes{
+		"type": "button", "data-calendar-source-name": name,
+		"data-calendar-account-email": account.Email, "data-calendar-account-name": account.Name,
+	}
+	if state == "personal-access" {
+		attributes["aria-disabled"] = "true"
+		attributes["data-calendar-source-needs-access"] = action
+	} else {
+		attributes["data-calendar-source-"+action] = source.ID
+	}
+	return attributes
+}
+
 // calendarSourceHome names where a calendar lives, for saying what deleting
 // it deletes from.
 func calendarSourceHome(source models.AccountCalendarSource) string {

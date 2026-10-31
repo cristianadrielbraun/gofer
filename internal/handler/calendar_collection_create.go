@@ -165,6 +165,7 @@ func (h *Handler) markCalendarCreateAccess(ctx context.Context, data *models.Edi
 	data.CalendarSync.CreateAccess = calendarCreateAccess(data.Provider, func() bool {
 		return h.mailCredentials() != nil && h.mailCredentials().CalendarCreateAuthorized(ctx, data.AccountID, data.Provider)
 	})
+	data.CalendarSync.FullAccess = data.Provider == providers.ProviderGmail && h.mailCredentials() != nil && h.mailCredentials().GoogleCalendarFullAccess(ctx, data.AccountID)
 }
 
 // markUserCalendarCreateAccess fills in whether a per-user account may make
@@ -176,4 +177,21 @@ func (h *Handler) markUserCalendarCreateAccess(ctx context.Context, owner string
 	data.CalendarSync.CreateAccess = calendarCreateAccess(data.Provider, func() bool {
 		return h.userCredentials != nil && h.userCredentials.CalendarCreateAuthorizedForUser(ctx, owner, data.AccountID)
 	})
+	data.CalendarSync.FullAccess = data.Provider == providers.ProviderGmail && h.userCredentials != nil && h.userCredentials.GoogleCalendarFullAccessForUser(ctx, owner, data.AccountID)
+}
+
+// markCalendarFullAccess notes which Google accounts allowed Gofer to manage
+// all their calendars, for the Calendar sidebar's menus. It reads the saved
+// grants only.
+func (h *Handler) markCalendarFullAccess(ctx context.Context, userID string, accounts []models.Account) {
+	for i := range accounts {
+		if accounts[i].Provider != providers.ProviderGmail || len(accounts[i].CalendarSources) == 0 {
+			continue
+		}
+		if h.userCredentials != nil {
+			accounts[i].CalendarFullAccess = h.userCredentials.GoogleCalendarFullAccessForUser(ctx, userID, accounts[i].ID)
+		} else if h.mailCredentials() != nil {
+			accounts[i].CalendarFullAccess = h.mailCredentials().GoogleCalendarFullAccess(ctx, accounts[i].ID)
+		}
+	}
 }

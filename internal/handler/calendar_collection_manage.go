@@ -19,9 +19,19 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
 
-// errCalendarPrimary refuses deleting a Google or Microsoft account's main
-// calendar, which neither allows.
-var errCalendarPrimary = errors.New("The account's main calendar can't be deleted.")
+// errGoogleCalendarNeedsAccess is Google refusing to change a calendar Gofer
+// didn't create, which full calendar access allows.
+var errGoogleCalendarNeedsAccess = errors.New("Google lets Gofer rename or delete only the calendars it created. Change this one in Google Calendar, or allow Gofer full calendar access in the account's Calendar settings.")
+
+// errGoogleCalendarListNeedsAccess is Google refusing to change the account's
+// own calendar list, which full calendar access allows.
+var errGoogleCalendarListNeedsAccess = errors.New("Google lets Gofer change your calendar list only with full calendar access. Change it in Google Calendar, or allow Gofer full calendar access in the account's Calendar settings.")
+
+// errCalendarUndeletable refuses deleting a calendar its provider won't
+// delete, such as a Google or Microsoft account's main calendar, saying why.
+type errCalendarUndeletable string
+
+func (e errCalendarUndeletable) Error() string { return string(e) }
 
 // calendarManageLogin signs in to a calendar's provider to rename or delete
 // it: an OAuth token, a CalDAV login, or the JMAP connection.
@@ -47,6 +57,9 @@ func manageProviderCalendar(ctx context.Context, source storage.CalendarSource, 
 		} else {
 			err = userContactProviderJSON(ctx, source.Provider, http.MethodPatch, endpoint, login.token, payload, nil)
 		}
+		if err == nil && name != "" && source.Provider == providers.ProviderGmail {
+			clearGoogleCalendarListName(ctx, source, login.token)
+		}
 		return calendarManageError(source.Provider, name, err)
 	case storage.CalendarSourceProviderCalDAV:
 		target, err := resolveCalDAVHref(login.baseURL, source.RemoteID)
@@ -68,6 +81,17 @@ func manageProviderCalendar(ctx context.Context, source storage.CalendarSource, 
 		return mail.RenameJMAPCalendar(ctx, login.jmap, login.password, id, name)
 	}
 	return errors.New("this calendar's provider can't rename or delete calendars")
+}
+
+// clearGoogleCalendarListName drops the account's own name for a calendar it
+// just renamed, which Google shows instead of the calendar's name: Google's
+// family calendar comes with one, for example. Without full calendar access
+// Google refuses it, and the calendar was renamed anyway.
+func clearGoogleCalendarListName(ctx context.Context, source storage.CalendarSource, token string) {
+	endpoint := googleCalendarAPIBaseURL + "/users/me/calendarList/" + url.PathEscape(source.RemoteID)
+	if err := userContactProviderJSON(ctx, providers.ProviderGmail, http.MethodPatch, endpoint, token, map[string]any{"summaryOverride": nil}, nil); err != nil {
+		log.Printf("calendar: clear own name for renamed calendar %s: %v", source.ID, err)
+	}
 }
 
 // calendarManageError explains a Google or Microsoft refusal to rename or
@@ -92,31 +116,80 @@ func calendarManageError(provider, name string, err error) error {
 	}
 	if hidden || status == http.StatusForbidden || status == http.StatusUnauthorized {
 		if provider == providers.ProviderGmail {
-			return errors.New("Google lets Gofer rename or delete only the calendars it created. Change this one in Google Calendar.")
+			return errGoogleCalendarNeedsAccess
 		}
 		return errors.New("Microsoft didn't allow this change. Reconnect the account, or change the calendar in Outlook.")
 	}
 	return err
 }
 
+// manageGoogleCalendarListEntry renames a Google calendar only in the
+// account's own calendar list, or with name empty removes it from that list.
+// The calendar itself, and what everyone else sees, stays as it is. A
+// calendar already gone from the list counts as removed.
+func manageGoogleCalendarListEntry(ctx context.Context, source storage.CalendarSource, token, name string) error {
+	endpoint := googleCalendarAPIBaseURL + "/users/me/calendarList/" + url.PathEscape(source.RemoteID)
+	var err error
+	if name == "" {
+		err = userContactProviderJSON(ctx, providers.ProviderGmail, http.MethodDelete, endpoint, token, nil, nil)
+	} else {
+		err = userContactProviderJSON(ctx, providers.ProviderGmail, http.MethodPatch, endpoint, token, map[string]any{"summaryOverride": name}, nil)
+	}
+	var google googleAPIError
+	if err == nil || !errors.As(err, &google) {
+		return err
+	}
+	switch {
+	case google.Status == http.StatusForbidden || google.Status == http.StatusUnauthorized:
+		return errGoogleCalendarListNeedsAccess
+	case name == "" && (google.Status == http.StatusNotFound || google.Status == http.StatusGone):
+		return nil
+	case google.Status == http.StatusNotFound:
+		return errors.New("This calendar is no longer in your Google calendar list. Refresh the page.")
+	}
+	return err
+}
+
+// calendarChange is a rename's new name, or none for a delete. Personal
+// renames or removes a Google calendar only in the account's own list.
+type calendarChange struct {
+	name     string
+	personal bool
+}
+
 // readCalendarChange reads a rename request's new name, or none for DELETE.
-func readCalendarChange(w http.ResponseWriter, r *http.Request) (string, error) {
+// ?just_for_me=1 on a DELETE, or "just_for_me" in a rename, changes only the
+// account's own calendar list.
+func readCalendarChange(w http.ResponseWriter, r *http.Request) (calendarChange, error) {
 	if r.Method == http.MethodDelete {
-		return "", nil
+		return calendarChange{personal: r.URL.Query().Get("just_for_me") == "1"}, nil
 	}
 	var request struct {
-		Name string `json:"name"`
+		Name      string `json:"name"`
+		JustForMe bool   `json:"just_for_me"`
 	}
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096))
 	decoder.DisallowUnknownFields()
 	if decoder.Decode(&request) != nil || decoder.Decode(&struct{}{}) != io.EOF {
-		return "", errors.New("The new name could not be read.")
+		return calendarChange{}, errors.New("The new name could not be read.")
 	}
-	name := strings.TrimSpace(request.Name)
-	if name == "" {
-		return "", errors.New("Enter a name.")
+	change := calendarChange{name: strings.TrimSpace(request.Name), personal: request.JustForMe}
+	if change.name == "" {
+		return change, errors.New("Enter a name.")
 	}
-	return name, checkCollectionName(name)
+	return change, checkCollectionName(change.name)
+}
+
+// manageCalendarSource makes a change on the calendar's provider: in the
+// account's own Google calendar list when it is personal.
+func manageCalendarSource(ctx context.Context, source storage.CalendarSource, login calendarManageLogin, change calendarChange) error {
+	if !change.personal {
+		return manageProviderCalendar(ctx, source, login, change.name)
+	}
+	if source.Provider != providers.ProviderGmail {
+		return errors.New("Only Google calendars can be renamed or removed just for you.")
+	}
+	return manageGoogleCalendarListEntry(ctx, source, login.token, change.name)
 }
 
 // handleCalendarSourceManage renames a synced calendar on its provider, or
@@ -124,23 +197,27 @@ func readCalendarChange(w http.ResponseWriter, r *http.Request) (string, error) 
 // calendar list again so Gofer shows the change.
 func (h *Handler) handleCalendarSourceManage(w http.ResponseWriter, r *http.Request) {
 	sourceID, owner := strings.TrimSpace(r.PathValue("id")), h.userID(r.Context())
-	name, err := readCalendarChange(w, r)
+	change, err := readCalendarChange(w, r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	if h.userStorage != nil {
-		err = h.manageUserCalendar(r.Context(), owner, sourceID, name)
+		err = h.manageUserCalendar(r.Context(), owner, sourceID, change)
 	} else {
-		err = h.manageCalendar(r.Context(), owner, sourceID, name)
+		err = h.manageCalendar(r.Context(), owner, sourceID, change)
 	}
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
 		http.Error(w, "This calendar is no longer synced. Refresh the page.", http.StatusNotFound)
 	case errors.Is(err, storage.ErrAccountRoute) || errors.Is(err, storage.ErrUserStoreOwner):
 		userAccountError(w, r, err)
-	case errors.Is(err, errCalendarPrimary):
+	case errors.As(err, new(errCalendarUndeletable)):
 		http.Error(w, err.Error(), http.StatusConflict)
+	case errors.Is(err, errGoogleCalendarNeedsAccess) || errors.Is(err, errGoogleCalendarListNeedsAccess):
+		// The page offers to sign in again with full calendar access.
+		w.Header().Set("X-Gofer-Needs-Calendar-Access", "google")
+		http.Error(w, err.Error(), http.StatusForbidden)
 	case err != nil:
 		http.Error(w, err.Error(), http.StatusBadGateway)
 	default:
@@ -148,16 +225,18 @@ func (h *Handler) handleCalendarSourceManage(w http.ResponseWriter, r *http.Requ
 	}
 }
 
-// syncedCalendarSource is one of the owner's synced calendars.
-func syncedCalendarSource(ctx context.Context, db *storage.DB, owner, sourceID string) (storage.CalendarSource, error) {
+// syncedCalendarSource is one of the owner's synced calendars, refusing a
+// delete its provider won't do. Removing one just from the account's own
+// list is allowed.
+func syncedCalendarSource(ctx context.Context, db *storage.DB, owner, sourceID string, change calendarChange) (storage.CalendarSource, error) {
 	sources, err := db.ListSelectedCalendarSources(ctx, owner)
 	if err != nil {
 		return storage.CalendarSource{}, err
 	}
 	for _, source := range sources {
 		if source.ID == sourceID {
-			if source.IsPrimary && (source.Provider == providers.ProviderGmail || source.Provider == providers.ProviderOutlook) {
-				return source, errCalendarPrimaryIfDelete
+			if reason := source.UndeletableReason(); reason != "" && change.name == "" && !change.personal {
+				return source, errCalendarUndeletable(reason)
 			}
 			return source, nil
 		}
@@ -165,24 +244,16 @@ func syncedCalendarSource(ctx context.Context, db *storage.DB, owner, sourceID s
 	return storage.CalendarSource{}, sql.ErrNoRows
 }
 
-// errCalendarPrimaryIfDelete marks a Google or Microsoft main calendar,
-// which can be renamed but not deleted.
-var errCalendarPrimaryIfDelete = errors.New("main calendar")
-
 // manageUserCalendar is the per-user store's rename or delete.
-func (h *Handler) manageUserCalendar(ctx context.Context, owner, sourceID, name string) error {
+func (h *Handler) manageUserCalendar(ctx context.Context, owner, sourceID string, change calendarChange) error {
+	name := change.name
 	var source storage.CalendarSource
 	if err := h.userAccounts.WithUser(ctx, owner, func(_ *config.AccountStore, db *storage.DB) error {
 		var err error
-		source, err = syncedCalendarSource(ctx, db, owner, sourceID)
+		source, err = syncedCalendarSource(ctx, db, owner, sourceID, change)
 		return err
 	}); err != nil {
-		if !errors.Is(err, errCalendarPrimaryIfDelete) {
-			return err
-		}
-		if name == "" {
-			return errCalendarPrimary
-		}
+		return err
 	}
 	err := h.userIMAP.RunAccountService(ctx, owner, source.AccountID, mail.AccountServiceCalendar, cardDAVDiscoveryOverallTimeout, func(ctx context.Context) error {
 		snapshot, err := h.userAccounts.SnapshotCalendarDiscovery(ctx, owner, source.AccountID)
@@ -220,7 +291,7 @@ func (h *Handler) manageUserCalendar(ctx context.Context, owner, sourceID, name 
 			}
 			login.token = authorization.Token()
 		}
-		return request.recordRetry(ctx, manageProviderCalendar(ctx, source, login, name))
+		return request.recordRetry(ctx, manageCalendarSource(ctx, source, login, change))
 	})
 	if err != nil {
 		return err
@@ -246,15 +317,11 @@ func (h *Handler) manageUserCalendar(ctx context.Context, owner, sourceID, name 
 }
 
 // manageCalendar is the shared store's rename or delete.
-func (h *Handler) manageCalendar(ctx context.Context, userID, sourceID, name string) error {
-	source, err := syncedCalendarSource(ctx, h.db, userID, sourceID)
+func (h *Handler) manageCalendar(ctx context.Context, userID, sourceID string, change calendarChange) error {
+	name := change.name
+	source, err := syncedCalendarSource(ctx, h.db, userID, sourceID, change)
 	if err != nil {
-		if !errors.Is(err, errCalendarPrimaryIfDelete) {
-			return err
-		}
-		if name == "" {
-			return errCalendarPrimary
-		}
+		return err
 	}
 	credential := h.calendarCredentialsForSource(ctx, userID, source)
 	login := calendarManageLogin{baseURL: credential.baseURL, username: credential.username, password: credential.password, jmap: credential.jmap}
@@ -268,7 +335,7 @@ func (h *Handler) manageCalendar(ctx context.Context, userID, sourceID, name str
 	} else if credential.err != nil {
 		return credential.err
 	}
-	if err := manageProviderCalendar(ctx, source, login, name); err != nil {
+	if err := manageCalendarSource(ctx, source, login, change); err != nil {
 		return err
 	}
 	if name == "" {
