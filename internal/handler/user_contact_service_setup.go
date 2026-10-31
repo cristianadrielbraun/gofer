@@ -208,7 +208,7 @@ func (h *Handler) handleUserDiscoverAccountContactSync(w http.ResponseWriter, r 
 			writeJSONError(w, http.StatusBadRequest, "enter the CardDAV password before discovery")
 			return nil
 		}
-		create, err := davCreateFromForm(r)
+		create, err := davChangeFromForm(r)
 		if err != nil {
 			writeJSONError(w, http.StatusBadRequest, err.Error())
 			return nil
@@ -224,6 +224,9 @@ func (h *Handler) handleUserDiscoverAccountContactSync(w http.ResponseWriter, r 
 		if discoveryErr != nil {
 			writeJSONError(w, http.StatusBadRequest, discoveryErr.Error())
 			return nil
+		}
+		if err := h.dropUserDeletedAddressBook(ctx, snapshot, create); err != nil {
+			return err
 		}
 		w.Header().Set("Content-Type", "application/json")
 		return json.NewEncoder(w).Encode(cardDAVDiscoveryResult(books, create))
@@ -272,6 +275,10 @@ func (h *Handler) streamUserCardDAVDiscovery(w http.ResponseWriter, parent conte
 	if discoveryErr != nil {
 		writeEvent(map[string]any{"type": "error", "error": discoveryErr.Error()})
 		return writeErr
+	}
+	if err := h.dropUserDeletedAddressBook(ctx, snapshot, create); err != nil {
+		writeEvent(map[string]any{"type": "error", "error": "The address book was deleted, but its account's contact sync could not be updated; retry discovery."})
+		return err
 	}
 	done := cardDAVDiscoveryResult(books, create)
 	done["type"] = "done"

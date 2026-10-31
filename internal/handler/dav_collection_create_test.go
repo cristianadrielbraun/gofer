@@ -63,6 +63,26 @@ func (s *emptyDAVServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.methods[r.URL.Path] = r.Method
 		w.WriteHeader(http.StatusCreated)
 		return
+	case "PROPPATCH":
+		body, _ := io.ReadAll(r.Body)
+		_, name, _ := strings.Cut(string(body), "<d:displayname>")
+		name, _, _ = strings.Cut(name, "</d:displayname>")
+		if _, ok := s.collections[r.URL.Path]; !ok {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		s.collections[r.URL.Path] = name
+		w.WriteHeader(207)
+		fmt.Fprintf(w, `<d:multistatus xmlns:d="DAV:"><d:response><d:href>%s</d:href><d:propstat><d:prop><d:displayname/></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response></d:multistatus>`, r.URL.Path)
+		return
+	case http.MethodDelete:
+		if _, ok := s.collections[r.URL.Path]; !ok {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		delete(s.collections, r.URL.Path)
+		w.WriteHeader(http.StatusNoContent)
+		return
 	case "PROPFIND":
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -269,5 +289,148 @@ func TestCalendarSyncCreatesCalDAVCalendar(t *testing.T) {
 	}
 	if len(sources) != 1 || sources[0].Name != "Family" || !sources[0].IsSelected {
 		t.Fatalf("sources = %#v", sources)
+	}
+}
+
+// A CalDAV calendar is renamed with PROPPATCH and deleted with DELETE on its
+// server, and Gofer's list follows.
+func TestCalendarRenameAndDeleteOnCalDAV(t *testing.T) {
+	dav := newEmptyDAVServer()
+	dav.collections["/calendars/home/"] = "Home"
+	dav.collections["/calendars/club/"] = "Club"
+	server := httptest.NewServer(dav)
+	defer server.Close()
+	allowLocalDAVServers(t)
+	db, err := storage.New(filepath.Join(t.TempDir(), "gofer.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if _, err := db.Write().Exec(`
+		INSERT INTO users (id, username, username_normalized, name) VALUES ('default', 'default', 'default', 'Default');
+		INSERT INTO accounts (id, user_id, provider, email_address, display_name, auth_method) VALUES ('imap-account', 'default', 'imap', 'person@example.com', 'Person', 'plain');`); err != nil {
+		t.Fatal(err)
+	}
+	accountStore, err := config.NewAccountStore(db, []byte("0123456789abcdef0123456789abcdef"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := accountStore.SaveCalDAVConfig(t.Context(), "default", "imap-account", server.URL, "dav-user", "dav-pass", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.ReplaceCalendarSources(t.Context(), "default", "imap-account", "caldav", []storage.CalendarSource{
+		{RemoteID: server.URL + "/calendars/home/", Name: "Home", IsPrimary: true, IsSelected: true},
+		{RemoteID: server.URL + "/calendars/club/", Name: "Club", IsSelected: true},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	h := &Handler{db: db, accountStore: accountStore}
+	sourceID := func(name string) string {
+		sources, err := db.ListCalendarSourcesForAccount(t.Context(), "default", "imap-account")
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, source := range sources {
+			if source.Name == name {
+				return source.ID
+			}
+		}
+		return ""
+	}
+	manage := func(method, id, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, "/api/calendar/sources/"+id, strings.NewReader(body))
+		req.SetPathValue("id", id)
+		req = req.WithContext(auth.ContextWithUser(req.Context(), &auth.User{ID: "default", Username: "default"}))
+		rec := httptest.NewRecorder()
+		h.handleCalendarSourceManage(rec, req)
+		return rec
+	}
+
+	club := sourceID("Club")
+	if rec := manage(http.MethodPatch, club, `{"name":"Book club"}`); rec.Code != http.StatusNoContent {
+		t.Fatalf("rename: %d %s", rec.Code, rec.Body.String())
+	}
+	if dav.collections["/calendars/club/"] != "Book club" || sourceID("Book club") != club {
+		t.Fatalf("after rename: server %v, source %q", dav.collections, sourceID("Book club"))
+	}
+	if rec := manage(http.MethodPatch, club, `{"name":"Bad\nname"}`); rec.Code != http.StatusBadRequest {
+		t.Fatalf("rename with a line break: %d", rec.Code)
+	}
+	if rec := manage(http.MethodDelete, club, ""); rec.Code != http.StatusNoContent {
+		t.Fatalf("delete: %d %s", rec.Code, rec.Body.String())
+	}
+	if _, ok := dav.collections["/calendars/club/"]; ok || sourceID("Book club") != "" {
+		t.Fatalf("after delete: server %v, source still listed", dav.collections)
+	}
+	if rec := manage(http.MethodDelete, club, ""); rec.Code != http.StatusNotFound {
+		t.Fatalf("deleting it again: %d", rec.Code)
+	}
+}
+
+// A contacts-only account's dialog renames and deletes address books on
+// their server, keeping what was ticked.
+func TestContactsOnlyAccountRenamesAndDeletesAddressBooks(t *testing.T) {
+	dav := newEmptyDAVServer()
+	dav.collections["/books/family/"] = "Family"
+	dav.collections["/books/work/"] = "Work"
+	f := newUserContactPushFixture(t, "carddav", dav)
+	base := url.Values{"service": {"contacts"}, "server_url": {f.server.URL}, "username": {"dav-user"}, "password": {"dav-pass"},
+		"item": {f.server.URL + "/books/family/"}, "default_item": {f.server.URL + "/books/family/"}}
+	find := func(change url.Values) *httptest.ResponseRecorder {
+		form := url.Values{}
+		for key, values := range base {
+			form[key] = values
+		}
+		for key, values := range change {
+			form[key] = values
+		}
+		rec := httptest.NewRecorder()
+		f.h.handleUserFindDAVItems(rec, davAccountRequest("/api/accounts/dav/find", form))
+		return rec
+	}
+
+	rec := find(url.Values{"rename_target": {f.server.URL + "/books/work/"}, "rename_name": {"Office"}})
+	if rec.Code != http.StatusOK || dav.collections["/books/work/"] != "Office" || !strings.Contains(rec.Body.String(), ">Office<") ||
+		!strings.Contains(rec.Body.String(), `checked name="item" value="`+f.server.URL+`/books/family/"`) {
+		t.Fatalf("rename: %d %v %s", rec.Code, dav.collections, rec.Body.String())
+	}
+	rec = find(url.Values{"delete_target": {f.server.URL + "/books/work/"}})
+	if _, still := dav.collections["/books/work/"]; rec.Code != http.StatusOK || still || strings.Contains(rec.Body.String(), "Office") {
+		t.Fatalf("delete: %d %v %s", rec.Code, dav.collections, rec.Body.String())
+	}
+	// Only an address book in the account's home can be changed.
+	rec = find(url.Values{"delete_target": {"https://elsewhere.example/books/x/"}})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("delete elsewhere: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// Deleting an address book an account syncs from its Contacts step takes it
+// out of the saved contact sync.
+func TestContactSyncDeleteDropsTheSavedAddressBook(t *testing.T) {
+	dav := newEmptyDAVServer()
+	f := newUserContactPushFixture(t, "carddav", dav)
+	alice := f.accounts["alice"]
+	dav.collections["/books/alice/"] = "Alice"
+	dav.collections["/books/other/"] = "Other"
+	form := url.Values{"base_url": {f.server.URL}, "username": {"dav-user"}, "password": {"dav-pass"}, "delete_target": {f.server.URL + "/books/alice/"}}
+	req := httptest.NewRequest(http.MethodPost, "/api/accounts/"+alice.ID+"/contacts/sync/discover", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.SetPathValue("id", alice.ID)
+	req = req.WithContext(auth.ContextWithUser(req.Context(), &auth.User{ID: "alice"}))
+	rec := httptest.NewRecorder()
+	f.h.handleUserDiscoverAccountContactSync(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("delete: %d %s", rec.Code, rec.Body.String())
+	}
+	if _, still := dav.collections["/books/alice/"]; still {
+		t.Fatal("the address book is still on the server")
+	}
+	snapshot, err := f.h.userAccounts.SnapshotServices(t.Context(), "alice", alice.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg := snapshot.ContactConfig(); len(cfg.AddressBooks) != 0 || cfg.Enabled {
+		t.Fatalf("saved contact sync after the delete = %+v", cfg)
 	}
 }

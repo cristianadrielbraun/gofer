@@ -14623,6 +14623,47 @@ document.addEventListener("click", function (event) {
   })
 })
 
+// Rename and Delete in a synced calendar's menu change the calendar on its
+// provider. A delete is confirmed first: the calendar and its events are gone
+// for every app.
+document.addEventListener("click", function (event) {
+  var button = event.target.closest && event.target.closest("[data-calendar-source-rename], [data-calendar-source-delete]")
+  if (!button || button.disabled) return
+  event.preventDefault()
+  var rename = button.hasAttribute("data-calendar-source-rename")
+  var sourceID = rename ? button.dataset.calendarSourceRename : button.dataset.calendarSourceDelete
+  var name = button.dataset.calendarSourceName || "this calendar"
+  var ask = rename
+    ? window.goferPrompt({ title: "Rename calendar", label: "Calendar name", value: name, confirmLabel: "Rename" }).then(function (next) {
+      next = (next || "").trim()
+      return next && next !== name ? { method: "PATCH", body: JSON.stringify({ name: next }) } : null
+    })
+    : window.goferConfirm({
+      title: "Delete “" + name + "”?",
+      message: "“" + name + "” and all its events are deleted from " + (button.dataset.calendarProvider || "its server") + ", for every app and device that uses it. This can't be undone.",
+      confirmLabel: "Delete calendar",
+      destructive: true,
+    }).then(function (accepted) { return accepted ? { method: "DELETE" } : null })
+  ask.then(function (request) {
+    if (!request) return
+    return fetch("/api/calendar/sources/" + encodeURIComponent(sourceID), {
+      method: request.method,
+      headers: request.body ? { "Content-Type": "application/json", "Accept": "text/plain" } : { "Accept": "text/plain" },
+      body: request.body,
+    }).then(function (response) {
+      if (response.ok) {
+        refreshCalendarSidebar()
+        scheduleCalendarCacheRefresh()
+        showGoferToast({ title: rename ? "Calendar renamed" : "Calendar deleted", variant: "success", icon: "success", position: "bottom-right", duration: 3000, dismissible: true })
+        return
+      }
+      return response.text().then(function (text) { throw new Error((text || "").trim() || "Please try again.") })
+    })
+  }).catch(function (error) {
+    showGoferToast({ title: rename ? "Could not rename the calendar" : "Could not delete the calendar", description: error && error.message ? error.message : "Please try again.", variant: "error", icon: "error", position: "bottom-right", duration: 6000, dismissible: true })
+  })
+})
+
 function scheduleCalendarCacheRefresh() {
   _calendarCacheRefreshPending = true
   if (_calendarCacheRefreshTimer) return

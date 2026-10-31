@@ -467,6 +467,20 @@ func calendarConfiguredAccounts(accounts []models.Account) []models.Account {
 	return configured
 }
 
+// calendarSourceHome names where a calendar lives, for saying what deleting
+// it deletes from.
+func calendarSourceHome(source models.AccountCalendarSource) string {
+	switch source.Provider {
+	case "gmail":
+		return "Google Calendar"
+	case "outlook":
+		return "Outlook"
+	case "jmap":
+		return "the account's JMAP server"
+	}
+	return "the account's CalDAV server"
+}
+
 func calendarAccountProviderLabel(account models.Account) string {
 	switch strings.ToLower(strings.TrimSpace(account.Provider)) {
 	case "gmail":

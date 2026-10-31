@@ -70,6 +70,24 @@ func CreateJMAPAddressBook(ctx context.Context, cfg *models.AccountConfig, passw
 	return client.CreateAddressBook(ctx, session, account, name)
 }
 
+// RenameJMAPAddressBook gives an address book on the account's JMAP server a
+// new name, and DeleteJMAPAddressBook deletes it with its contacts.
+func RenameJMAPAddressBook(ctx context.Context, cfg *models.AccountConfig, password, id, name string) error {
+	client, session, account, err := jmapContactsSession(ctx, cfg, password)
+	if err != nil {
+		return err
+	}
+	return client.RenameAddressBook(ctx, session, account, id, name)
+}
+
+func DeleteJMAPAddressBook(ctx context.Context, cfg *models.AccountConfig, password, id string) error {
+	client, session, account, err := jmapContactsSession(ctx, cfg, password)
+	if err != nil {
+		return err
+	}
+	return client.DestroyAddressBook(ctx, session, account, id)
+}
+
 // PullJMAPContacts fetches the cards in the given address books (JMAP ids)
 // that changed since sinceState, or all of them when sinceState is empty or
 // the server can no longer tell what changed since then.

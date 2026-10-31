@@ -372,6 +372,8 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 		private("POST /api/calendar/sources/{id}/visibility", routed.handleCalendarVisibility)
 		private("POST /api/calendar/sources/{id}/sync", routed.handleCalendarSourceSync)
 		private("DELETE /api/calendar/sources/{id}/sync", routed.handleCalendarSourceSync)
+		private("PATCH /api/calendar/sources/{id}", routed.handleCalendarSourceManage)
+		private("DELETE /api/calendar/sources/{id}", routed.handleCalendarSourceManage)
 		private("POST /api/accounts/{id}/calendar/sources", routed.handleUserSaveCalendarSources)
 		private("POST /api/accounts/{id}/calendar/discover", routed.handleUserDiscoverCalendars)
 		private("POST /api/accounts/{id}/contacts/sync", routed.handleUserSaveAccountContactSync)

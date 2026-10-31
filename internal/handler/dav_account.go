@@ -202,7 +202,13 @@ func (h *Handler) handleUserFindDAVItems(w http.ResponseWriter, r *http.Request)
 			return
 		}
 	}
-	create, err := davCreateFromForm(r)
+	// Address books can also be renamed and deleted here; calendars are
+	// renamed and deleted from the Calendar sidebar.
+	readChange := davCreateFromForm
+	if form.service == davServiceContacts {
+		readChange = davChangeFromForm
+	}
+	create, err := readChange(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -214,6 +220,17 @@ func (h *Handler) handleUserFindDAVItems(w http.ResponseWriter, r *http.Request)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
+	}
+	if saved != nil && create != nil && create.Delete {
+		if err := h.userIMAP.RunAccountService(r.Context(), owner, id, mail.AccountServiceContacts, cardDAVDiscoveryOverallTimeout, func(ctx context.Context) error {
+			snapshot, err := h.userAccounts.SnapshotServices(ctx, owner, id)
+			if err != nil {
+				return err
+			}
+			return h.dropUserDeletedAddressBook(ctx, snapshot, create)
+		}); err != nil {
+			log.Printf("routed account %s: drop deleted address book: %v", id, err)
+		}
 	}
 	checked := davNewChoices(found)
 	if create != nil {

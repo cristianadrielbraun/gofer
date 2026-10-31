@@ -61,6 +61,11 @@ type AccountCalendarSource struct {
 	SyncError     string
 	LastSyncedAt  string
 	NextAttemptAt string
+	// Provider is where the calendar lives: gmail, outlook, caldav or jmap.
+	Provider string
+	// Protected is set for a Google or Microsoft account's main calendar,
+	// which can't be deleted.
+	Protected bool
 }
 
 type Folder struct {

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -34,6 +35,9 @@ type jmapContactsTestServer struct {
 	sets     []jmapContactsTestSet
 	created  int
 	books    []string
+	// renamed and destroyed are the address books AddressBook/set changed.
+	renamed   map[string]string
+	destroyed []string
 }
 
 type jmapContactsTestSet struct {
@@ -146,9 +150,19 @@ func (f *jmapContactsTestServer) handler() http.Handler {
 		var answer any
 		switch name {
 		case "AddressBook/get":
-			list := []any{
-				map[string]any{"id": "B1", "name": "Personal", "isDefault": true, "myRights": map[string]bool{"mayRead": true, "mayWrite": true}},
-				map[string]any{"id": "B2", "name": "Team", "myRights": map[string]bool{"mayRead": true}},
+			var list []any
+			for _, book := range []map[string]any{
+				{"id": "B1", "name": "Personal", "isDefault": true, "myRights": map[string]bool{"mayRead": true, "mayWrite": true}},
+				{"id": "B2", "name": "Team", "myRights": map[string]bool{"mayRead": true}},
+			} {
+				id := book["id"].(string)
+				if slices.Contains(f.destroyed, id) {
+					continue
+				}
+				if name, ok := f.renamed[id]; ok {
+					book["name"] = name
+				}
+				list = append(list, book)
 			}
 			for i, book := range f.books {
 				list = append(list, map[string]any{"id": fmt.Sprintf("NB%d", i), "name": book, "myRights": map[string]bool{"mayRead": true, "mayWrite": true}})
@@ -157,6 +171,13 @@ func (f *jmapContactsTestServer) handler() http.Handler {
 		case "AddressBook/set":
 			var set jmapContactsTestSet
 			_ = json.Unmarshal(request.MethodCalls[0][1], &set)
+			for id, patch := range set.Update {
+				if f.renamed == nil {
+					f.renamed = map[string]string{}
+				}
+				f.renamed[id] = fmt.Sprint(patch["name"])
+			}
+			f.destroyed = append(f.destroyed, set.Destroy...)
 			created := map[string]any{}
 			for key, book := range set.Create {
 				created[key] = map[string]string{"id": fmt.Sprintf("NB%d", len(f.books))}
@@ -474,5 +495,37 @@ func TestUserJMAPContactSetupCreatesAddressBook(t *testing.T) {
 	}
 	if len(fake.books) != 1 || fake.books[0] != "Neighbours" || result.Created != "NB0" || len(result.AddressBooks) != 3 {
 		t.Fatalf("books %v, result %+v", fake.books, result)
+	}
+}
+
+// A JMAP account's Contacts step renames and deletes address books with
+// AddressBook/set, and a deleted one leaves the saved contact sync.
+func TestUserJMAPContactSetupRenamesAndDeletesAddressBooks(t *testing.T) {
+	fake := &jmapContactsTestServer{password: "synthetic"}
+	fake.set("s1", map[string]string{}, nil)
+	f := newUserContactPushFixture(t, "jmap", fake.handler())
+	alice := f.accounts["alice"]
+	discover := func(change url.Values) *httptest.ResponseRecorder {
+		change.Set("provider", "jmap")
+		req := httptest.NewRequest(http.MethodPost, "/api/accounts/"+alice.ID+"/contacts/sync/discover", strings.NewReader(change.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.SetPathValue("id", alice.ID)
+		req = req.WithContext(auth.ContextWithUser(req.Context(), &auth.User{ID: "alice"}))
+		rec := httptest.NewRecorder()
+		f.h.handleUserDiscoverAccountContactSync(rec, req)
+		return rec
+	}
+	if rec := discover(url.Values{"rename_target": {"B2"}, "rename_name": {"Colleagues"}}); rec.Code != http.StatusOK || fake.renamed["B2"] != "Colleagues" || !strings.Contains(rec.Body.String(), "Colleagues") {
+		t.Fatalf("rename: %d %v %s", rec.Code, fake.renamed, rec.Body.String())
+	}
+	if rec := discover(url.Values{"delete_target": {"B1"}}); rec.Code != http.StatusOK || !slices.Equal(fake.destroyed, []string{"B1"}) || strings.Contains(rec.Body.String(), "Personal") {
+		t.Fatalf("delete: %d %v %s", rec.Code, fake.destroyed, rec.Body.String())
+	}
+	snapshot, err := f.h.userAccounts.SnapshotServices(t.Context(), "alice", alice.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg := snapshot.ContactConfig(); len(cfg.AddressBooks) != 0 {
+		t.Fatalf("saved contact sync after the delete = %+v", cfg)
 	}
 }

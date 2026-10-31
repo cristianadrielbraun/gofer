@@ -4767,6 +4767,9 @@ templ ContactSyncSettings(data models.EditAccountData) {
 												Default for new contacts
 											</label>
 										</div>
+										if contactSyncCanCreate(data) {
+											@AddressBookActions(book.URL, contactAddressBookName(book), templ.Attributes{"data-account-id": data.AccountID, "data-fields-id": fmt.Sprintf("account-contact-sync-fields-%s", data.AccountID), "data-status-id": fmt.Sprintf("account-contact-sync-status-%s", data.AccountID), "data-carddav-autodiscover": "false"})
+										}
 									</label>
 								}
 							</div>
@@ -4815,6 +4818,19 @@ func contactSyncCanCreate(data models.EditAccountData) bool {
 		return len(data.ContactSync.AddressBooks) > 0
 	}
 	return strings.TrimSpace(data.ContactSync.BaseURL) != ""
+}
+
+// AddressBookActions renames or deletes an address book on its server, by
+// its URL or JMAP id. attrs say where the list it is in signs in from.
+templ AddressBookActions(id, name string, attrs templ.Attributes) {
+	<span class="ml-auto flex shrink-0 items-center gap-0.5">
+		<button type="button" data-address-book-rename={ id } data-address-book-name={ name } aria-label={ "Rename " + name } title="Rename" class="inline-flex size-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50" { attrs... }>
+			@icon.Pencil(icon.Props{Class: "size-3.5"})
+		</button>
+		<button type="button" data-address-book-delete={ id } data-address-book-name={ name } aria-label={ "Delete " + name } title="Delete" class="inline-flex size-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50" { attrs... }>
+			@icon.Trash2(icon.Props{Class: "size-3.5"})
+		</button>
+	</span>
 }
 
 // CardDAVCreateAddressBook makes a new address book on the CardDAV server in

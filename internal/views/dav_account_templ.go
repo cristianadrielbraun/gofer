@@ -870,7 +870,13 @@ func DAVItems(service string, items []DAVItem) templ.Component {
 				return templ_7745c5c3_Err
 			}
 			if item.Primary {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 63, "<span class=\"shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary\">Primary</span>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 63, "<span class=\"shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary\">Primary</span> ")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+			}
+			if service == davServiceContacts {
+				templ_7745c5c3_Err = AddressBookActions(item.ID, item.Name, nil).Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -965,7 +971,7 @@ func AccountNoMailBadge(account models.Account) templ.Component {
 		var templ_7745c5c3_Var28 string
 		templ_7745c5c3_Var28, templ_7745c5c3_Err = templ.JoinStringErrs(accountNoMailLabel(account))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/dav_account.templ`, Line: 313, Col: 31}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/dav_account.templ`, Line: 316, Col: 31}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var28))
 		if templ_7745c5c3_Err != nil {
@@ -1014,7 +1020,7 @@ func AccountAddMailButton(accountID string, name string, class string) templ.Com
 		var templ_7745c5c3_Var31 string
 		templ_7745c5c3_Var31, templ_7745c5c3_Err = templ.JoinStringErrs(onAction("openAddMailChooser", accountID, name))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/dav_account.templ`, Line: 323, Col: 65}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/dav_account.templ`, Line: 326, Col: 65}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var31))
 		if templ_7745c5c3_Err != nil {
@@ -1228,7 +1234,7 @@ func chooseMailTypeOption(service string, provider string, title string, descrip
 		var templ_7745c5c3_Var40 string
 		templ_7745c5c3_Var40, templ_7745c5c3_Err = templ.JoinStringErrs(onAction("startAddMail", service))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/dav_account.templ`, Line: 356, Col: 72}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/dav_account.templ`, Line: 359, Col: 72}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var40))
 		if templ_7745c5c3_Err != nil {
@@ -1249,7 +1255,7 @@ func chooseMailTypeOption(service string, provider string, title string, descrip
 		var templ_7745c5c3_Var41 string
 		templ_7745c5c3_Var41, templ_7745c5c3_Err = templ.JoinStringErrs(title)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/dav_account.templ`, Line: 361, Col: 59}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/dav_account.templ`, Line: 364, Col: 59}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var41))
 		if templ_7745c5c3_Err != nil {
@@ -1262,7 +1268,7 @@ func chooseMailTypeOption(service string, provider string, title string, descrip
 		var templ_7745c5c3_Var42 string
 		templ_7745c5c3_Var42, templ_7745c5c3_Err = templ.JoinStringErrs(description)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/dav_account.templ`, Line: 362, Col: 66}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/dav_account.templ`, Line: 365, Col: 66}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var42))
 		if templ_7745c5c3_Err != nil {

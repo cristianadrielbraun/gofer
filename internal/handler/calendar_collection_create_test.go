@@ -12,8 +12,10 @@ import (
 	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/auth"
+	"github.com/cristianadrielbraun/gofer/internal/config"
 	"github.com/cristianadrielbraun/gofer/internal/mailauth"
 	"github.com/cristianadrielbraun/gofer/internal/models"
+	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
 
 // fakeCalendarAPI is a Google Calendar and Microsoft Graph calendar list
@@ -119,5 +121,108 @@ func TestUserCalendarDiscoveryCreatesOAuthCalendar(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// fakeOutlookCalendars lists Outlook calendars by id and name and lets them
+// be renamed and deleted, recording each change.
+type fakeOutlookCalendars struct {
+	mu      sync.Mutex
+	ids     []string
+	names   map[string]string
+	changes []string
+}
+
+func (f *fakeOutlookCalendars) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	w.Header().Set("Content-Type", "application/json")
+	id := strings.TrimPrefix(r.URL.Path, "/me/calendars/")
+	switch {
+	case r.Method == http.MethodGet && r.URL.Path == "/me/calendars":
+		var items []string
+		for i, id := range f.ids {
+			items = append(items, fmt.Sprintf(`{"id":%q,"name":%q,"isDefaultCalendar":%t,"canEdit":true}`, id, f.names[id], i == 0))
+		}
+		fmt.Fprint(w, `{"value":[`+strings.Join(items, ",")+`]}`)
+	case r.Method == http.MethodPatch && id != r.URL.Path:
+		var body struct{ Name string }
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		f.names[id] = body.Name
+		f.changes = append(f.changes, "rename "+id+" "+body.Name)
+		fmt.Fprintf(w, `{"id":%q,"name":%q}`, id, body.Name)
+	case r.Method == http.MethodDelete && id != r.URL.Path:
+		for i, existing := range f.ids {
+			if existing == id {
+				f.ids = append(f.ids[:i], f.ids[i+1:]...)
+			}
+		}
+		f.changes = append(f.changes, "delete "+id)
+		w.WriteHeader(http.StatusNoContent)
+	default:
+		w.WriteHeader(http.StatusNotFound)
+	}
+}
+
+// A per-user Outlook calendar is renamed and deleted on Microsoft's side,
+// with Gofer's list following; the account's main calendar isn't deleted.
+func TestUserCalendarRenameAndDeleteOnOutlook(t *testing.T) {
+	api := &fakeOutlookCalendars{ids: []string{"main", "club"}, names: map[string]string{"main": "Calendar", "club": "Club"}}
+	f := newUserContactPushFixture(t, "outlook", api)
+	previous := outlookGraphBaseURL
+	outlookGraphBaseURL = f.server.URL
+	t.Cleanup(func() { outlookGraphBaseURL = previous })
+	account := f.accounts["alice"]
+	expires := time.Now().Add(time.Hour)
+	if err := f.h.userCredentials.UpsertForUser(t.Context(), "alice", account.ID, "microsoft", "subject", "alice-access", "alice-refresh", "Bearer", &expires, "https://graph.microsoft.com/Calendars.ReadWrite"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.h.runUserCalendarDiscovery(t.Context(), "alice", account.ID, nil, nil, false); err != nil {
+		t.Fatal(err)
+	}
+	sources := func() map[string]storage.CalendarSource {
+		out := map[string]storage.CalendarSource{}
+		if err := f.h.userAccounts.WithAccountForUser(t.Context(), "alice", account.ID, func(_ *config.AccountStore, db *storage.DB) error {
+			list, err := db.ListCalendarSourcesForAccount(t.Context(), "alice", account.ID)
+			for _, source := range list {
+				out[source.RemoteID] = source
+			}
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	// Club is synced too.
+	if err := f.h.userAccounts.SetCalendarSourcesSelected(t.Context(), "alice", account.ID, []string{sources()["main"].ID, sources()["club"].ID}); err != nil {
+		t.Fatal(err)
+	}
+	manage := func(method, id, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, "/api/calendar/sources/"+id, strings.NewReader(body))
+		req.SetPathValue("id", id)
+		req = req.WithContext(auth.ContextWithUser(req.Context(), &auth.User{ID: "alice"}))
+		rec := httptest.NewRecorder()
+		f.h.handleCalendarSourceManage(rec, req)
+		return rec
+	}
+
+	club := sources()["club"].ID
+	if rec := manage(http.MethodPatch, club, `{"name":"Book club"}`); rec.Code != http.StatusNoContent {
+		t.Fatalf("rename: %d %s", rec.Code, rec.Body.String())
+	}
+	if sources()["club"].Name != "Book club" {
+		t.Fatalf("renamed source = %+v", sources()["club"])
+	}
+	if rec := manage(http.MethodDelete, sources()["main"].ID, ""); rec.Code != http.StatusConflict {
+		t.Fatalf("deleting the main calendar: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := manage(http.MethodDelete, club, ""); rec.Code != http.StatusNoContent {
+		t.Fatalf("delete: %d %s", rec.Code, rec.Body.String())
+	}
+	if _, ok := sources()["club"]; ok {
+		t.Fatal("the deleted calendar is still listed")
+	}
+	if strings.Join(api.changes, "; ") != "rename club Book club; delete club" {
+		t.Fatalf("Microsoft saw %v", api.changes)
 	}
 }

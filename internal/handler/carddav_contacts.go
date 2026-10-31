@@ -452,7 +452,7 @@ func (h *Handler) handleDiscoverAccountContactSync(w http.ResponseWriter, r *htt
 			return
 		}
 	}
-	create, err := davCreateFromForm(r)
+	create, err := davChangeFromForm(r)
 	if err != nil {
 		writeJSONError(w, http.StatusBadRequest, err.Error())
 		return
@@ -470,6 +470,7 @@ func (h *Handler) handleDiscoverAccountContactSync(w http.ResponseWriter, r *htt
 		writeJSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	h.dropDeletedAddressBook(ctx, userID, accountID, create)
 	log.Printf("contacts carddav discover %s: found %d address book(s)", accountID, len(books))
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(cardDAVDiscoveryResult(books, create))
@@ -507,6 +508,7 @@ func (h *Handler) streamCardDAVDiscovery(w http.ResponseWriter, ctx context.Cont
 		writeEvent(map[string]any{"type": "error", "error": err.Error()})
 		return
 	}
+	h.dropDeletedAddressBook(ctx, h.userID(ctx), accountID, create)
 	log.Printf("contacts carddav discover %s: found %d address book(s)", accountID, len(books))
 	done := cardDAVDiscoveryResult(books, create)
 	done["type"] = "done"
@@ -1341,7 +1343,11 @@ func discoverCardDAVAddressBooksCandidate(ctx context.Context, rawBaseURL, baseU
 	homeURL = absoluteDAVHref(principalURL, homeURL)
 
 	created := ""
-	if create != nil {
+	if create != nil && create.Target != "" {
+		if err := changeDAVAddressBook(ctx, homeURL, username, password, create); err != nil {
+			return nil, used, err
+		}
+	} else if create != nil {
 		create.attempted = true
 		if created, err = createCardDAVAddressBook(ctx, homeURL, username, password, create.Name); err != nil {
 			return nil, used, err

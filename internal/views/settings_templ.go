@@ -19165,17 +19165,17 @@ func ContactSyncSettings(data models.EditAccountData) templ.Component {
 							return templ_7745c5c3_Err
 						}
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1160, "Default for new contacts</label></div></label>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1160, "Default for new contacts</label></div>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1161, "</div>")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				if contactSyncCanCreate(data) {
-					templ_7745c5c3_Err = CardDAVCreateAddressBook(data.AccountID, fmt.Sprintf("account-contact-sync-fields-%s", data.AccountID), fmt.Sprintf("account-contact-sync-status-%s", data.AccountID), false).Render(ctx, templ_7745c5c3_Buffer)
+					if contactSyncCanCreate(data) {
+						templ_7745c5c3_Err = AddressBookActions(book.URL, contactAddressBookName(book), templ.Attributes{"data-account-id": data.AccountID, "data-fields-id": fmt.Sprintf("account-contact-sync-fields-%s", data.AccountID), "data-status-id": fmt.Sprintf("account-contact-sync-status-%s", data.AccountID), "data-carddav-autodiscover": "false"}).Render(ctx, templ_7745c5c3_Buffer)
+						if templ_7745c5c3_Err != nil {
+							return templ_7745c5c3_Err
+						}
+					}
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1161, "</label>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -19184,8 +19184,18 @@ func ContactSyncSettings(data models.EditAccountData) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
+				if contactSyncCanCreate(data) {
+					templ_7745c5c3_Err = CardDAVCreateAddressBook(data.AccountID, fmt.Sprintf("account-contact-sync-fields-%s", data.AccountID), fmt.Sprintf("account-contact-sync-status-%s", data.AccountID), false).Render(ctx, templ_7745c5c3_Buffer)
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1163, "</div>")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
 			} else if strings.TrimSpace(data.ContactSync.AddressBookURL) != "" {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1163, "<div class=\"sm:col-span-2 rounded-md border border-border bg-background/35 px-3 py-2\" data-carddav-addressbook-section data-carddav-manual-addressbook><label class=\"text-xs font-medium text-muted-foreground mb-1.5 block\">Exact address book URL</label>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1164, "<div class=\"sm:col-span-2 rounded-md border border-border bg-background/35 px-3 py-2\" data-carddav-addressbook-section data-carddav-manual-addressbook><label class=\"text-xs font-medium text-muted-foreground mb-1.5 block\">Exact address book URL</label>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -19193,7 +19203,7 @@ func ContactSyncSettings(data models.EditAccountData) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1164, "<div data-server-check-url class=\"mt-1.5 hidden space-y-1\" aria-live=\"polite\"></div>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1165, "<div data-server-check-url class=\"mt-1.5 hidden space-y-1\" aria-live=\"polite\"></div>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -19203,12 +19213,12 @@ func ContactSyncSettings(data models.EditAccountData) templ.Component {
 						return templ_7745c5c3_Err
 					}
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1165, "</div>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1166, "</div>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			} else {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1166, "<div class=\"hidden sm:col-span-2 rounded-md border border-border bg-background/35 px-3 py-2\" data-carddav-addressbook-section data-carddav-manual-addressbook><label class=\"text-xs font-medium text-muted-foreground mb-1.5 block\">Exact address book URL</label>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1167, "<div class=\"hidden sm:col-span-2 rounded-md border border-border bg-background/35 px-3 py-2\" data-carddav-addressbook-section data-carddav-manual-addressbook><label class=\"text-xs font-medium text-muted-foreground mb-1.5 block\">Exact address book URL</label>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -19216,25 +19226,25 @@ func ContactSyncSettings(data models.EditAccountData) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1167, "<div data-server-check-url class=\"mt-1.5 hidden space-y-1\" aria-live=\"polite\"></div></div>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1168, "<div data-server-check-url class=\"mt-1.5 hidden space-y-1\" aria-live=\"polite\"></div></div>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1168, "</div><div id=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1169, "</div><div id=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var815 string
 			templ_7745c5c3_Var815, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("account-contact-sync-status-%s", data.AccountID))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 4794, Col: 75}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 4797, Col: 75}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var815))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1169, "\" class=\"min-h-0\"></div><div class=\"flex flex-wrap justify-end gap-2\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1170, "\" class=\"min-h-0\"></div><div class=\"flex flex-wrap justify-end gap-2\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -19249,7 +19259,7 @@ func ContactSyncSettings(data models.EditAccountData) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1170, "<span class=\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1171, "<span class=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -19262,7 +19272,7 @@ func ContactSyncSettings(data models.EditAccountData) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1171, "\" data-contact-protocol=\"carddav\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1172, "\" data-contact-protocol=\"carddav\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -19274,17 +19284,17 @@ func ContactSyncSettings(data models.EditAccountData) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1172, "</span>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1173, "</span>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1173, "</div></form>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1174, "</div></form>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1174, "</div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1175, "</div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -19300,6 +19310,147 @@ func contactSyncCanCreate(data models.EditAccountData) bool {
 		return len(data.ContactSync.AddressBooks) > 0
 	}
 	return strings.TrimSpace(data.ContactSync.BaseURL) != ""
+}
+
+// AddressBookActions renames or deletes an address book on its server, by
+// its URL or JMAP id. attrs say where the list it is in signs in from.
+func AddressBookActions(id, name string, attrs templ.Attributes) templ.Component {
+	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
+			return templ_7745c5c3_CtxErr
+		}
+		templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+		if !templ_7745c5c3_IsBuffer {
+			defer func() {
+				templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err == nil {
+					templ_7745c5c3_Err = templ_7745c5c3_BufErr
+				}
+			}()
+		}
+		ctx = templ.InitializeContext(ctx)
+		templ_7745c5c3_Var818 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var818 == nil {
+			templ_7745c5c3_Var818 = templ.NopComponent
+		}
+		ctx = templ.ClearChildren(ctx)
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1176, "<span class=\"ml-auto flex shrink-0 items-center gap-0.5\"><button type=\"button\" data-address-book-rename=\"")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		var templ_7745c5c3_Var819 string
+		templ_7745c5c3_Var819, templ_7745c5c3_Err = templ.JoinStringErrs(id)
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 4827, Col: 53}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var819))
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1177, "\" data-address-book-name=\"")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		var templ_7745c5c3_Var820 string
+		templ_7745c5c3_Var820, templ_7745c5c3_Err = templ.JoinStringErrs(name)
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 4827, Col: 85}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var820))
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1178, "\" aria-label=\"")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		var templ_7745c5c3_Var821 string
+		templ_7745c5c3_Var821, templ_7745c5c3_Err = templ.JoinStringErrs("Rename " + name)
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 4827, Col: 117}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var821))
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1179, "\" title=\"Rename\" class=\"inline-flex size-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50\"")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templ.RenderAttributes(ctx, templ_7745c5c3_Buffer, attrs)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1180, ">")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = icon.Pencil(icon.Props{Class: "size-3.5"}).Render(ctx, templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1181, "</button> <button type=\"button\" data-address-book-delete=\"")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		var templ_7745c5c3_Var822 string
+		templ_7745c5c3_Var822, templ_7745c5c3_Err = templ.JoinStringErrs(id)
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 4830, Col: 53}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var822))
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1182, "\" data-address-book-name=\"")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		var templ_7745c5c3_Var823 string
+		templ_7745c5c3_Var823, templ_7745c5c3_Err = templ.JoinStringErrs(name)
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 4830, Col: 85}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var823))
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1183, "\" aria-label=\"")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		var templ_7745c5c3_Var824 string
+		templ_7745c5c3_Var824, templ_7745c5c3_Err = templ.JoinStringErrs("Delete " + name)
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 4830, Col: 117}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var824))
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1184, "\" title=\"Delete\" class=\"inline-flex size-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50\"")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templ.RenderAttributes(ctx, templ_7745c5c3_Buffer, attrs)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1185, ">")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = icon.Trash2(icon.Props{Class: "size-3.5"}).Render(ctx, templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1186, "</button></span>")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		return nil
+	})
 }
 
 // CardDAVCreateAddressBook makes a new address book on the CardDAV server in
@@ -19321,12 +19472,12 @@ func CardDAVCreateAddressBook(accountID string, fieldsID string, statusID string
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var818 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var818 == nil {
-			templ_7745c5c3_Var818 = templ.NopComponent
+		templ_7745c5c3_Var825 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var825 == nil {
+			templ_7745c5c3_Var825 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1175, "<div class=\"mt-3 flex items-end gap-2 border-t border-border/60 pt-3\" data-carddav-create-row><div class=\"min-w-0 flex-1\"><label class=\"mb-1.5 block text-xs font-medium text-muted-foreground\">New address book</label>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1187, "<div class=\"mt-3 flex items-end gap-2 border-t border-border/60 pt-3\" data-carddav-create-row><div class=\"min-w-0 flex-1\"><label class=\"mb-1.5 block text-xs font-medium text-muted-foreground\">New address book</label>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -19334,59 +19485,59 @@ func CardDAVCreateAddressBook(accountID string, fieldsID string, statusID string
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1176, "</div><button type=\"button\" data-carddav-create data-account-id=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1188, "</div><button type=\"button\" data-carddav-create data-account-id=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var819 string
-		templ_7745c5c3_Var819, templ_7745c5c3_Err = templ.JoinStringErrs(accountID)
+		var templ_7745c5c3_Var826 string
+		templ_7745c5c3_Var826, templ_7745c5c3_Err = templ.JoinStringErrs(accountID)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 4829, Col: 71}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 4845, Col: 71}
 		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var819))
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1177, "\" data-fields-id=\"")
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var826))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var820 string
-		templ_7745c5c3_Var820, templ_7745c5c3_Err = templ.JoinStringErrs(fieldsID)
-		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 4829, Col: 99}
-		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var820))
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1189, "\" data-fields-id=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1178, "\" data-status-id=\"")
+		var templ_7745c5c3_Var827 string
+		templ_7745c5c3_Var827, templ_7745c5c3_Err = templ.JoinStringErrs(fieldsID)
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 4845, Col: 99}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var827))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var821 string
-		templ_7745c5c3_Var821, templ_7745c5c3_Err = templ.JoinStringErrs(statusID)
-		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 4829, Col: 127}
-		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var821))
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1190, "\" data-status-id=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1179, "\" data-carddav-autodiscover=\"")
+		var templ_7745c5c3_Var828 string
+		templ_7745c5c3_Var828, templ_7745c5c3_Err = templ.JoinStringErrs(statusID)
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 4845, Col: 127}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var828))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var822 string
-		templ_7745c5c3_Var822, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprint(autodiscover))
-		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 4829, Col: 182}
-		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var822))
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1191, "\" data-carddav-autodiscover=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1180, "\" class=\"inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md border border-primary/30 bg-primary/10 px-3 text-xs font-semibold text-primary transition-colors hover:border-primary/45 hover:bg-primary/15 disabled:pointer-events-none disabled:opacity-60\">")
+		var templ_7745c5c3_Var829 string
+		templ_7745c5c3_Var829, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprint(autodiscover))
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 4845, Col: 182}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var829))
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1192, "\" class=\"inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md border border-primary/30 bg-primary/10 px-3 text-xs font-semibold text-primary transition-colors hover:border-primary/45 hover:bg-primary/15 disabled:pointer-events-none disabled:opacity-60\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -19394,7 +19545,7 @@ func CardDAVCreateAddressBook(accountID string, fieldsID string, statusID string
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1181, "Create</button></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1193, "Create</button></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -19443,25 +19594,25 @@ func JMAPContactProtocolChoice(accountID string, fieldsID string, statusID strin
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var823 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var823 == nil {
-			templ_7745c5c3_Var823 = templ.NopComponent
+		templ_7745c5c3_Var830 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var830 == nil {
+			templ_7745c5c3_Var830 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1182, "<input type=\"hidden\" name=\"provider\" value=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1194, "<input type=\"hidden\" name=\"provider\" value=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var824 string
-		templ_7745c5c3_Var824, templ_7745c5c3_Err = templ.JoinStringErrs(contactProtocol(useJMAP))
+		var templ_7745c5c3_Var831 string
+		templ_7745c5c3_Var831, templ_7745c5c3_Err = templ.JoinStringErrs(contactProtocol(useJMAP))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 4862, Col: 70}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 4878, Col: 70}
 		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var824))
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var831))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1183, "\" data-contact-protocol-field><div class=\"sm:col-span-2 space-y-2\"><label class=\"text-xs font-medium text-muted-foreground block\">Sync contacts over</label><div class=\"flex flex-wrap gap-4\"><label class=\"inline-flex items-center gap-2 text-sm cursor-pointer\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1195, "\" data-contact-protocol-field><div class=\"sm:col-span-2 space-y-2\"><label class=\"text-xs font-medium text-muted-foreground block\">Sync contacts over</label><div class=\"flex flex-wrap gap-4\"><label class=\"inline-flex items-center gap-2 text-sm cursor-pointer\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -19469,7 +19620,7 @@ func JMAPContactProtocolChoice(accountID string, fieldsID string, statusID strin
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1184, "JMAP</label> <label class=\"inline-flex items-center gap-2 text-sm cursor-pointer\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1196, "JMAP</label> <label class=\"inline-flex items-center gap-2 text-sm cursor-pointer\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -19477,68 +19628,68 @@ func JMAPContactProtocolChoice(accountID string, fieldsID string, statusID strin
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1185, "CardDAV</label></div></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1197, "CardDAV</label></div></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var825 = []any{"sm:col-span-2 space-y-3", templ.KV("hidden", !useJMAP)}
-		templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var825...)
+		var templ_7745c5c3_Var832 = []any{"sm:col-span-2 space-y-3", templ.KV("hidden", !useJMAP)}
+		templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var832...)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1186, "<div class=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1198, "<div class=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var826 string
-		templ_7745c5c3_Var826, templ_7745c5c3_Err = templ.JoinStringErrs(templ.CSSClasses(templ_7745c5c3_Var825).String())
+		var templ_7745c5c3_Var833 string
+		templ_7745c5c3_Var833, templ_7745c5c3_Err = templ.JoinStringErrs(templ.CSSClasses(templ_7745c5c3_Var832).String())
 		if templ_7745c5c3_Err != nil {
 			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 1, Col: 0}
 		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var826))
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var833))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1187, "\" data-contact-protocol=\"jmap\"><p class=\"text-xs leading-relaxed text-muted-foreground\">Contacts come from the same JMAP server as your mail, with the same login. If you signed in with an API token, it needs the contacts permission.</p><button type=\"button\" data-carddav-discover data-account-id=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1199, "\" data-contact-protocol=\"jmap\"><p class=\"text-xs leading-relaxed text-muted-foreground\">Contacts come from the same JMAP server as your mail, with the same login. If you signed in with an API token, it needs the contacts permission.</p><button type=\"button\" data-carddav-discover data-account-id=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var827 string
-		templ_7745c5c3_Var827, templ_7745c5c3_Err = templ.JoinStringErrs(accountID)
+		var templ_7745c5c3_Var834 string
+		templ_7745c5c3_Var834, templ_7745c5c3_Err = templ.JoinStringErrs(accountID)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 4878, Col: 73}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 4894, Col: 73}
 		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var827))
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1188, "\" data-fields-id=\"")
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var834))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var828 string
-		templ_7745c5c3_Var828, templ_7745c5c3_Err = templ.JoinStringErrs(fieldsID)
-		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 4878, Col: 101}
-		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var828))
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1200, "\" data-fields-id=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1189, "\" data-status-id=\"")
+		var templ_7745c5c3_Var835 string
+		templ_7745c5c3_Var835, templ_7745c5c3_Err = templ.JoinStringErrs(fieldsID)
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 4894, Col: 101}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var835))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var829 string
-		templ_7745c5c3_Var829, templ_7745c5c3_Err = templ.JoinStringErrs(statusID)
-		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 4878, Col: 129}
-		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var829))
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1201, "\" data-status-id=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1190, "\" class=\"inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-xs font-semibold text-foreground hover:bg-accent\">")
+		var templ_7745c5c3_Var836 string
+		templ_7745c5c3_Var836, templ_7745c5c3_Err = templ.JoinStringErrs(statusID)
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 4894, Col: 129}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var836))
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1202, "\" class=\"inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-xs font-semibold text-foreground hover:bg-accent\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -19546,7 +19697,7 @@ func JMAPContactProtocolChoice(accountID string, fieldsID string, statusID strin
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1191, "Find address books</button></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1203, "Find address books</button></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -19572,25 +19723,25 @@ func ICloudContactFields() templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var830 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var830 == nil {
-			templ_7745c5c3_Var830 = templ.NopComponent
+		templ_7745c5c3_Var837 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var837 == nil {
+			templ_7745c5c3_Var837 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1192, "<input type=\"hidden\" name=\"base_url\" value=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1204, "<input type=\"hidden\" name=\"base_url\" value=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var831 string
-		templ_7745c5c3_Var831, templ_7745c5c3_Err = templ.JoinStringErrs(providers.ICloudCardDAVURL)
+		var templ_7745c5c3_Var838 string
+		templ_7745c5c3_Var838, templ_7745c5c3_Err = templ.JoinStringErrs(providers.ICloudCardDAVURL)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 4888, Col: 72}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 4904, Col: 72}
 		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var831))
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var838))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1193, "\"> <input type=\"hidden\" name=\"use_account_credentials\" value=\"1\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1205, "\"> <input type=\"hidden\" name=\"use_account_credentials\" value=\"1\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -19614,12 +19765,12 @@ func ICloudContactsNotice() templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var832 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var832 == nil {
-			templ_7745c5c3_Var832 = templ.NopComponent
+		templ_7745c5c3_Var839 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var839 == nil {
+			templ_7745c5c3_Var839 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1194, "<div class=\"rounded-lg border border-border bg-background/50 p-3 text-xs text-muted-foreground leading-relaxed\">iCloud contacts use this account's Apple Account email and app-specific password. If contact sync reports a sign-in problem, create a new app-specific password and enter it under Email, in Sign in.</div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1206, "<div class=\"rounded-lg border border-border bg-background/50 p-3 text-xs text-muted-foreground leading-relaxed\">iCloud contacts use this account's Apple Account email and app-specific password. If contact sync reports a sign-in problem, create a new app-specific password and enter it under Email, in Sign in.</div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -19660,25 +19811,25 @@ func JMAPCalendarProtocolChoice(useJMAP bool) templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var833 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var833 == nil {
-			templ_7745c5c3_Var833 = templ.NopComponent
+		templ_7745c5c3_Var840 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var840 == nil {
+			templ_7745c5c3_Var840 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1195, "<input type=\"hidden\" name=\"calendar_protocol\" value=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1207, "<input type=\"hidden\" name=\"calendar_protocol\" value=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var834 string
-		templ_7745c5c3_Var834, templ_7745c5c3_Err = templ.JoinStringErrs(calendarProtocol(useJMAP))
+		var templ_7745c5c3_Var841 string
+		templ_7745c5c3_Var841, templ_7745c5c3_Err = templ.JoinStringErrs(calendarProtocol(useJMAP))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 4914, Col: 80}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 4930, Col: 80}
 		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var834))
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var841))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1196, "\" data-calendar-protocol-field><div class=\"sm:col-span-2 space-y-2\"><label class=\"text-xs font-medium text-muted-foreground block\">Sync calendars over</label><div class=\"flex flex-wrap gap-4\"><label class=\"inline-flex items-center gap-2 text-sm cursor-pointer\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1208, "\" data-calendar-protocol-field><div class=\"sm:col-span-2 space-y-2\"><label class=\"text-xs font-medium text-muted-foreground block\">Sync calendars over</label><div class=\"flex flex-wrap gap-4\"><label class=\"inline-flex items-center gap-2 text-sm cursor-pointer\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -19686,7 +19837,7 @@ func JMAPCalendarProtocolChoice(useJMAP bool) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1197, "JMAP</label> <label class=\"inline-flex items-center gap-2 text-sm cursor-pointer\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1209, "JMAP</label> <label class=\"inline-flex items-center gap-2 text-sm cursor-pointer\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -19694,29 +19845,29 @@ func JMAPCalendarProtocolChoice(useJMAP bool) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1198, "CalDAV</label></div></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1210, "CalDAV</label></div></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var835 = []any{"sm:col-span-2 text-xs leading-relaxed text-muted-foreground", templ.KV("hidden", !useJMAP)}
-		templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var835...)
+		var templ_7745c5c3_Var842 = []any{"sm:col-span-2 text-xs leading-relaxed text-muted-foreground", templ.KV("hidden", !useJMAP)}
+		templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var842...)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1199, "<p class=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1211, "<p class=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var836 string
-		templ_7745c5c3_Var836, templ_7745c5c3_Err = templ.JoinStringErrs(templ.CSSClasses(templ_7745c5c3_Var835).String())
+		var templ_7745c5c3_Var843 string
+		templ_7745c5c3_Var843, templ_7745c5c3_Err = templ.JoinStringErrs(templ.CSSClasses(templ_7745c5c3_Var842).String())
 		if templ_7745c5c3_Err != nil {
 			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 1, Col: 0}
 		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var836))
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var843))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1200, "\" data-calendar-protocol=\"jmap\">Calendars come from the same JMAP server as your mail, with the same login. Gofer sends meeting invitations and replies by email from this account. If the server doesn't offer calendars over JMAP, choose CalDAV.</p>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1212, "\" data-calendar-protocol=\"jmap\">Calendars come from the same JMAP server as your mail, with the same login. Gofer sends meeting invitations and replies by email from this account. If the server doesn't offer calendars over JMAP, choose CalDAV.</p>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -19740,9 +19891,9 @@ func CalendarSyncSettings(data models.EditAccountData) templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var837 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var837 == nil {
-			templ_7745c5c3_Var837 = templ.NopComponent
+		templ_7745c5c3_Var844 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var844 == nil {
+			templ_7745c5c3_Var844 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
 		templ_7745c5c3_Err = CalendarSyncSettingsPanel(data, "", false).Render(ctx, templ_7745c5c3_Buffer)
@@ -19769,9 +19920,9 @@ func CalendarSyncSettingsResult(data models.EditAccountData, message string, isE
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var838 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var838 == nil {
-			templ_7745c5c3_Var838 = templ.NopComponent
+		templ_7745c5c3_Var845 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var845 == nil {
+			templ_7745c5c3_Var845 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
 		templ_7745c5c3_Err = CalendarSyncSettingsPanel(data, message, isError).Render(ctx, templ_7745c5c3_Buffer)
@@ -19798,38 +19949,38 @@ func CalendarProviderAccessNotice(title string, message string) templ.Component 
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var839 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var839 == nil {
-			templ_7745c5c3_Var839 = templ.NopComponent
+		templ_7745c5c3_Var846 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var846 == nil {
+			templ_7745c5c3_Var846 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1201, "<div class=\"rounded-lg border border-border bg-background/50 p-3 text-xs leading-relaxed text-muted-foreground\"><p class=\"font-semibold text-foreground\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1213, "<div class=\"rounded-lg border border-border bg-background/50 p-3 text-xs leading-relaxed text-muted-foreground\"><p class=\"font-semibold text-foreground\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var840 string
-		templ_7745c5c3_Var840, templ_7745c5c3_Err = templ.JoinStringErrs(title)
+		var templ_7745c5c3_Var847 string
+		templ_7745c5c3_Var847, templ_7745c5c3_Err = templ.JoinStringErrs(title)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 4941, Col: 50}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 4957, Col: 50}
 		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var840))
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1202, "</p><p class=\"mt-0.5\">")
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var847))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var841 string
-		templ_7745c5c3_Var841, templ_7745c5c3_Err = templ.JoinStringErrs(message)
-		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 4942, Col: 29}
-		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var841))
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1214, "</p><p class=\"mt-0.5\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1203, "</p></div>")
+		var templ_7745c5c3_Var848 string
+		templ_7745c5c3_Var848, templ_7745c5c3_Err = templ.JoinStringErrs(message)
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 4958, Col: 29}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var848))
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1215, "</p></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -19853,25 +20004,25 @@ func CalendarSyncSettingsPanel(data models.EditAccountData, message string, isEr
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var842 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var842 == nil {
-			templ_7745c5c3_Var842 = templ.NopComponent
+		templ_7745c5c3_Var849 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var849 == nil {
+			templ_7745c5c3_Var849 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1204, "<div id=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1216, "<div id=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var843 string
-		templ_7745c5c3_Var843, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("account-calendar-sync-panel-%s", data.AccountID))
+		var templ_7745c5c3_Var850 string
+		templ_7745c5c3_Var850, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("account-calendar-sync-panel-%s", data.AccountID))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 4947, Col: 72}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 4963, Col: 72}
 		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var843))
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var850))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1205, "\" class=\"space-y-3\" data-wizard-service-content=\"calendar\"><div class=\"account-wizard-sticky-header flex items-start justify-between gap-4\"><div class=\"min-w-0\"><h4 class=\"flex items-center gap-2 text-sm font-semibold text-foreground\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1217, "\" class=\"space-y-3\" data-wizard-service-content=\"calendar\"><div class=\"account-wizard-sticky-header flex items-start justify-between gap-4\"><div class=\"min-w-0\"><h4 class=\"flex items-center gap-2 text-sm font-semibold text-foreground\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -19879,27 +20030,27 @@ func CalendarSyncSettingsPanel(data models.EditAccountData, message string, isEr
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1206, "Calendar sync</h4><p class=\"mt-1 text-xs leading-relaxed text-muted-foreground\">Choose whether this account contributes calendars to Gofer.</p></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1218, "Calendar sync</h4><p class=\"mt-1 text-xs leading-relaxed text-muted-foreground\">Choose whether this account contributes calendars to Gofer.</p></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		if data.CalendarSync.Enabled {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1207, "<span class=\"shrink-0 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400\">Enabled</span>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1219, "<span class=\"shrink-0 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400\">Enabled</span>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		} else if data.CalendarSync.SourceCount > 0 {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1208, "<span class=\"shrink-0 rounded-md bg-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground\">Not selected</span>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1220, "<span class=\"shrink-0 rounded-md bg-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground\">Not selected</span>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		} else {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1209, "<span class=\"shrink-0 rounded-md bg-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground\">Not configured</span>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1221, "<span class=\"shrink-0 rounded-md bg-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground\">Not configured</span>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1210, "</div><div data-wizard-service-status=\"calendar\" class=\"min-h-0\"></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1222, "</div><div data-wizard-service-status=\"calendar\" class=\"min-h-0\"></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -19908,46 +20059,46 @@ func CalendarSyncSettingsPanel(data models.EditAccountData, message string, isEr
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1211, " <form method=\"POST\" action=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1223, " <form method=\"POST\" action=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var844 templ.SafeURL
-			templ_7745c5c3_Var844, templ_7745c5c3_Err = templ.JoinURLErrs(fmt.Sprintf("/api/accounts/%s/calendar/discover", data.AccountID))
+			var templ_7745c5c3_Var851 templ.SafeURL
+			templ_7745c5c3_Var851, templ_7745c5c3_Err = templ.JoinURLErrs(fmt.Sprintf("/api/accounts/%s/calendar/discover", data.AccountID))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 4967, Col: 97}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 4983, Col: 97}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var844))
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1212, "\" data-calendar-discovery-form hx-post=\"")
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var851))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var845 string
-			templ_7745c5c3_Var845, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("/api/accounts/%s/calendar/discover", data.AccountID))
-			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 4967, Col: 204}
-			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var845))
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1224, "\" data-calendar-discovery-form hx-post=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1213, "\" hx-target=\"")
+			var templ_7745c5c3_Var852 string
+			templ_7745c5c3_Var852, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("/api/accounts/%s/calendar/discover", data.AccountID))
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 4983, Col: 204}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var852))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var846 string
-			templ_7745c5c3_Var846, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("#account-calendar-sync-panel-%s", data.AccountID))
-			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 4967, Col: 281}
-			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var846))
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1225, "\" hx-target=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1214, "\" hx-swap=\"outerHTML\" data-on-htmx-before-request='[\"handleCalendarDiscoveryStart\",\"$event\"]' data-on-htmx-after-request='[\"handleCalendarDiscoveryResult\",\"$event\"]' class=\"flex justify-end\"><button type=\"submit\" data-calendar-discovery-submit class=\"inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-70\">")
+			var templ_7745c5c3_Var853 string
+			templ_7745c5c3_Var853, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("#account-calendar-sync-panel-%s", data.AccountID))
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 4983, Col: 281}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var853))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1226, "\" hx-swap=\"outerHTML\" data-on-htmx-before-request='[\"handleCalendarDiscoveryStart\",\"$event\"]' data-on-htmx-after-request='[\"handleCalendarDiscoveryResult\",\"$event\"]' class=\"flex justify-end\"><button type=\"submit\" data-calendar-discovery-submit class=\"inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-70\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -19955,22 +20106,22 @@ func CalendarSyncSettingsPanel(data models.EditAccountData, message string, isEr
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1215, "<span data-calendar-discovery-label>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1227, "<span data-calendar-discovery-label>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			if data.CalendarSync.SourceCount > 0 {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1216, "Refresh calendars")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1228, "Refresh calendars")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			} else {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1217, "Discover calendars")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1229, "Discover calendars")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1218, "</span></button></form>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1230, "</span></button></form>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -19979,46 +20130,46 @@ func CalendarSyncSettingsPanel(data models.EditAccountData, message string, isEr
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1219, " <form method=\"POST\" action=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1231, " <form method=\"POST\" action=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var847 templ.SafeURL
-			templ_7745c5c3_Var847, templ_7745c5c3_Err = templ.JoinURLErrs(fmt.Sprintf("/api/accounts/%s/calendar/discover", data.AccountID))
+			var templ_7745c5c3_Var854 templ.SafeURL
+			templ_7745c5c3_Var854, templ_7745c5c3_Err = templ.JoinURLErrs(fmt.Sprintf("/api/accounts/%s/calendar/discover", data.AccountID))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 4981, Col: 97}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 4997, Col: 97}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var847))
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1220, "\" data-calendar-discovery-form hx-post=\"")
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var854))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var848 string
-			templ_7745c5c3_Var848, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("/api/accounts/%s/calendar/discover", data.AccountID))
-			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 4981, Col: 204}
-			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var848))
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1232, "\" data-calendar-discovery-form hx-post=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1221, "\" hx-target=\"")
+			var templ_7745c5c3_Var855 string
+			templ_7745c5c3_Var855, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("/api/accounts/%s/calendar/discover", data.AccountID))
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 4997, Col: 204}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var855))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var849 string
-			templ_7745c5c3_Var849, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("#account-calendar-sync-panel-%s", data.AccountID))
-			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 4981, Col: 281}
-			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var849))
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1233, "\" hx-target=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1222, "\" hx-swap=\"outerHTML\" data-on-htmx-before-request='[\"handleCalendarDiscoveryStart\",\"$event\"]' data-on-htmx-after-request='[\"handleCalendarDiscoveryResult\",\"$event\"]' class=\"flex justify-end\"><button type=\"submit\" data-calendar-discovery-submit class=\"inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-70\">")
+			var templ_7745c5c3_Var856 string
+			templ_7745c5c3_Var856, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("#account-calendar-sync-panel-%s", data.AccountID))
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 4997, Col: 281}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var856))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1234, "\" hx-swap=\"outerHTML\" data-on-htmx-before-request='[\"handleCalendarDiscoveryStart\",\"$event\"]' data-on-htmx-after-request='[\"handleCalendarDiscoveryResult\",\"$event\"]' class=\"flex justify-end\"><button type=\"submit\" data-calendar-discovery-submit class=\"inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-70\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -20026,22 +20177,22 @@ func CalendarSyncSettingsPanel(data models.EditAccountData, message string, isEr
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1223, "<span data-calendar-discovery-label>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1235, "<span data-calendar-discovery-label>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			if data.CalendarSync.SourceCount > 0 {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1224, "Refresh calendars")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1236, "Refresh calendars")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			} else {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1225, "Discover calendars")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1237, "Discover calendars")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1226, "</span></button></form>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1238, "</span></button></form>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -20050,59 +20201,59 @@ func CalendarSyncSettingsPanel(data models.EditAccountData, message string, isEr
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1227, " <form method=\"POST\" action=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1239, " <form method=\"POST\" action=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var850 templ.SafeURL
-			templ_7745c5c3_Var850, templ_7745c5c3_Err = templ.JoinURLErrs(fmt.Sprintf("/api/accounts/%s/calendar/discover", data.AccountID))
+			var templ_7745c5c3_Var857 templ.SafeURL
+			templ_7745c5c3_Var857, templ_7745c5c3_Err = templ.JoinURLErrs(fmt.Sprintf("/api/accounts/%s/calendar/discover", data.AccountID))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 4995, Col: 97}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5011, Col: 97}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var850))
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1228, "\" data-calendar-discovery-form hx-post=\"")
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var857))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var851 string
-			templ_7745c5c3_Var851, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("/api/accounts/%s/calendar/discover", data.AccountID))
-			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 4995, Col: 204}
-			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var851))
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1240, "\" data-calendar-discovery-form hx-post=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1229, "\" hx-target=\"")
+			var templ_7745c5c3_Var858 string
+			templ_7745c5c3_Var858, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("/api/accounts/%s/calendar/discover", data.AccountID))
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5011, Col: 204}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var858))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var852 string
-			templ_7745c5c3_Var852, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("#account-calendar-sync-panel-%s", data.AccountID))
-			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 4995, Col: 281}
-			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var852))
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1241, "\" hx-target=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1230, "\" hx-swap=\"outerHTML\" data-on-htmx-before-request='[\"handleCalendarDiscoveryStart\",\"$event\"]' data-on-htmx-after-request='[\"handleCalendarDiscoveryResult\",\"$event\"]' class=\"flex justify-end\"><input type=\"hidden\" name=\"caldav_url\" value=\"")
+			var templ_7745c5c3_Var859 string
+			templ_7745c5c3_Var859, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("#account-calendar-sync-panel-%s", data.AccountID))
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5011, Col: 281}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var859))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var853 string
-			templ_7745c5c3_Var853, templ_7745c5c3_Err = templ.JoinStringErrs(providers.ICloudCalDAVURL)
-			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 4996, Col: 76}
-			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var853))
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1242, "\" hx-swap=\"outerHTML\" data-on-htmx-before-request='[\"handleCalendarDiscoveryStart\",\"$event\"]' data-on-htmx-after-request='[\"handleCalendarDiscoveryResult\",\"$event\"]' class=\"flex justify-end\"><input type=\"hidden\" name=\"caldav_url\" value=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1231, "\"> <input type=\"hidden\" name=\"use_account_credentials\" value=\"1\"> <button type=\"submit\" data-calendar-discovery-submit class=\"inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-70\">")
+			var templ_7745c5c3_Var860 string
+			templ_7745c5c3_Var860, templ_7745c5c3_Err = templ.JoinStringErrs(providers.ICloudCalDAVURL)
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5012, Col: 76}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var860))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1243, "\"> <input type=\"hidden\" name=\"use_account_credentials\" value=\"1\"> <button type=\"submit\" data-calendar-discovery-submit class=\"inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-70\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -20110,84 +20261,84 @@ func CalendarSyncSettingsPanel(data models.EditAccountData, message string, isEr
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1232, "<span data-calendar-discovery-label>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1244, "<span data-calendar-discovery-label>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			if data.CalendarSync.SourceCount > 0 {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1233, "Refresh calendars")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1245, "Refresh calendars")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			} else {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1234, "Discover calendars")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1246, "Discover calendars")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1235, "</span></button></form>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1247, "</span></button></form>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		} else if data.Provider == "imap" || editAccountIsJMAP(data) {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1236, "<form id=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1248, "<form id=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var854 string
-			templ_7745c5c3_Var854, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("account-calendar-discovery-form-%s", data.AccountID))
+			var templ_7745c5c3_Var861 string
+			templ_7745c5c3_Var861, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("account-calendar-discovery-form-%s", data.AccountID))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5010, Col: 79}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5026, Col: 79}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var854))
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1237, "\" method=\"POST\" action=\"")
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var861))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var855 templ.SafeURL
-			templ_7745c5c3_Var855, templ_7745c5c3_Err = templ.JoinURLErrs(fmt.Sprintf("/api/accounts/%s/calendar/discover", data.AccountID))
-			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5010, Col: 170}
-			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var855))
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1249, "\" method=\"POST\" action=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1238, "\" data-calendar-discovery-form hx-post=\"")
+			var templ_7745c5c3_Var862 templ.SafeURL
+			templ_7745c5c3_Var862, templ_7745c5c3_Err = templ.JoinURLErrs(fmt.Sprintf("/api/accounts/%s/calendar/discover", data.AccountID))
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5026, Col: 170}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var862))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var856 string
-			templ_7745c5c3_Var856, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("/api/accounts/%s/calendar/discover", data.AccountID))
-			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5010, Col: 277}
-			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var856))
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1250, "\" data-calendar-discovery-form hx-post=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1239, "\" hx-target=\"")
+			var templ_7745c5c3_Var863 string
+			templ_7745c5c3_Var863, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("/api/accounts/%s/calendar/discover", data.AccountID))
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5026, Col: 277}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var863))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var857 string
-			templ_7745c5c3_Var857, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("#account-calendar-sync-panel-%s", data.AccountID))
-			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5010, Col: 354}
-			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var857))
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1251, "\" hx-target=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1240, "\" hx-swap=\"outerHTML\" data-on-htmx-before-request='[\"handleCalendarDiscoveryStart\",\"$event\"]' data-on-htmx-after-request='[\"handleCalendarDiscoveryResult\",\"$event\"]' class=\"space-y-3\">")
+			var templ_7745c5c3_Var864 string
+			templ_7745c5c3_Var864, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("#account-calendar-sync-panel-%s", data.AccountID))
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5026, Col: 354}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var864))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1252, "\" hx-swap=\"outerHTML\" data-on-htmx-before-request='[\"handleCalendarDiscoveryStart\",\"$event\"]' data-on-htmx-after-request='[\"handleCalendarDiscoveryResult\",\"$event\"]' class=\"space-y-3\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			useJMAP := calendarSyncUsesJMAP(data)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1241, "<div class=\"grid gap-3 sm:grid-cols-2\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1253, "<div class=\"grid gap-3 sm:grid-cols-2\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -20197,25 +20348,25 @@ func CalendarSyncSettingsPanel(data models.EditAccountData, message string, isEr
 					return templ_7745c5c3_Err
 				}
 			}
-			var templ_7745c5c3_Var858 = []any{"sm:col-span-2 grid gap-3 sm:grid-cols-2", templ.KV("hidden", useJMAP)}
-			templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var858...)
+			var templ_7745c5c3_Var865 = []any{"sm:col-span-2 grid gap-3 sm:grid-cols-2", templ.KV("hidden", useJMAP)}
+			templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var865...)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1242, "<div class=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1254, "<div class=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var859 string
-			templ_7745c5c3_Var859, templ_7745c5c3_Err = templ.JoinStringErrs(templ.CSSClasses(templ_7745c5c3_Var858).String())
+			var templ_7745c5c3_Var866 string
+			templ_7745c5c3_Var866, templ_7745c5c3_Err = templ.JoinStringErrs(templ.CSSClasses(templ_7745c5c3_Var865).String())
 			if templ_7745c5c3_Err != nil {
 				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 1, Col: 0}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var859))
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var866))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1243, "\" data-calendar-protocol=\"caldav\"><div class=\"sm:col-span-2\"><div class=\"mb-1.5 flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between\"><label class=\"text-xs font-medium text-muted-foreground\">Base URL</label> <button type=\"button\" data-calendar-autodiscover class=\"inline-flex h-8 w-fit shrink-0 items-center gap-1.5 rounded-md border border-primary/30 bg-primary/10 px-3 text-xs font-semibold text-primary shadow-sm transition-colors hover:border-primary/45 hover:bg-primary/15 disabled:pointer-events-none disabled:opacity-70\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1255, "\" data-calendar-protocol=\"caldav\"><div class=\"sm:col-span-2\"><div class=\"mb-1.5 flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between\"><label class=\"text-xs font-medium text-muted-foreground\">Base URL</label> <button type=\"button\" data-calendar-autodiscover class=\"inline-flex h-8 w-fit shrink-0 items-center gap-1.5 rounded-md border border-primary/30 bg-primary/10 px-3 text-xs font-semibold text-primary shadow-sm transition-colors hover:border-primary/45 hover:bg-primary/15 disabled:pointer-events-none disabled:opacity-70\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -20223,7 +20374,7 @@ func CalendarSyncSettingsPanel(data models.EditAccountData, message string, isEr
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1244, "<span data-calendar-autodiscover-label>Attempt URL autodiscover</span></button></div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1256, "<span data-calendar-autodiscover-label>Attempt URL autodiscover</span></button></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -20231,7 +20382,7 @@ func CalendarSyncSettingsPanel(data models.EditAccountData, message string, isEr
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1245, "<div data-server-check-url class=\"mt-1.5 hidden space-y-1\" aria-live=\"polite\"></div></div><label class=\"sm:col-span-2 flex cursor-pointer items-center gap-2\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1257, "<div data-server-check-url class=\"mt-1.5 hidden space-y-1\" aria-live=\"polite\"></div></div><label class=\"sm:col-span-2 flex cursor-pointer items-center gap-2\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -20244,29 +20395,29 @@ func CalendarSyncSettingsPanel(data models.EditAccountData, message string, isEr
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1246, "<span class=\"text-sm\">Use same credentials as incoming mail</span></label>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1258, "<span class=\"text-sm\">Use same credentials as incoming mail</span></label>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var860 = []any{"sm:col-span-2 grid gap-3 sm:grid-cols-2", templ.KV("opacity-50", data.CalendarSync.CalDAVUseAccountCredentials)}
-			templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var860...)
+			var templ_7745c5c3_Var867 = []any{"sm:col-span-2 grid gap-3 sm:grid-cols-2", templ.KV("opacity-50", data.CalendarSync.CalDAVUseAccountCredentials)}
+			templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var867...)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1247, "<div class=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1259, "<div class=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var861 string
-			templ_7745c5c3_Var861, templ_7745c5c3_Err = templ.JoinStringErrs(templ.CSSClasses(templ_7745c5c3_Var860).String())
+			var templ_7745c5c3_Var868 string
+			templ_7745c5c3_Var868, templ_7745c5c3_Err = templ.JoinStringErrs(templ.CSSClasses(templ_7745c5c3_Var867).String())
 			if templ_7745c5c3_Err != nil {
 				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 1, Col: 0}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var861))
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var868))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1248, "\" data-calendar-credential-fields><div><label class=\"mb-1.5 block text-xs font-medium text-muted-foreground\">Username</label>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1260, "\" data-calendar-credential-fields><div><label class=\"mb-1.5 block text-xs font-medium text-muted-foreground\">Username</label>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -20274,7 +20425,7 @@ func CalendarSyncSettingsPanel(data models.EditAccountData, message string, isEr
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1249, "</div><div><label class=\"mb-1.5 block text-xs font-medium text-muted-foreground\">Password or app password</label>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1261, "</div><div><label class=\"mb-1.5 block text-xs font-medium text-muted-foreground\">Password or app password</label>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -20282,7 +20433,7 @@ func CalendarSyncSettingsPanel(data models.EditAccountData, message string, isEr
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1250, "</div></div></div></div><div class=\"flex flex-wrap justify-end gap-2\"><button type=\"submit\" data-calendar-discovery-submit")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1262, "</div></div></div></div><div class=\"flex flex-wrap justify-end gap-2\"><button type=\"submit\" data-calendar-discovery-submit")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -20290,7 +20441,7 @@ func CalendarSyncSettingsPanel(data models.EditAccountData, message string, isEr
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1251, " class=\"inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-70\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1263, " class=\"inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-70\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -20298,27 +20449,27 @@ func CalendarSyncSettingsPanel(data models.EditAccountData, message string, isEr
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1252, "<span data-calendar-discovery-label>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1264, "<span data-calendar-discovery-label>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			if data.CalendarSync.SourceCount > 0 {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1253, "Refresh calendars")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1265, "Refresh calendars")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			} else {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1254, "Discover calendars")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1266, "Discover calendars")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1255, "</span></button></div></form>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1267, "</span></button></div></form>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		} else {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1256, "<div class=\"rounded-lg border border-border bg-background/50 p-4\"><div class=\"flex items-start gap-3\"><div class=\"mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md border border-border/70 bg-card text-muted-foreground\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1268, "<div class=\"rounded-lg border border-border bg-background/50 p-4\"><div class=\"flex items-start gap-3\"><div class=\"mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md border border-border/70 bg-card text-muted-foreground\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -20326,83 +20477,83 @@ func CalendarSyncSettingsPanel(data models.EditAccountData, message string, isEr
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1257, "</div><div class=\"min-w-0\"><p class=\"text-xs font-semibold text-foreground\">Calendar discovery is not available</p><p class=\"mt-1 text-xs leading-relaxed text-muted-foreground\">Calendar discovery is available for Google and Microsoft accounts. This account will remain out of the Calendar view until a source is connected and selected.</p></div><span class=\"shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground\">Next</span></div></div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1269, "</div><div class=\"min-w-0\"><p class=\"text-xs font-semibold text-foreground\">Calendar discovery is not available</p><p class=\"mt-1 text-xs leading-relaxed text-muted-foreground\">Calendar discovery is available for Google and Microsoft accounts. This account will remain out of the Calendar view until a source is connected and selected.</p></div><span class=\"shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground\">Next</span></div></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
 		if data.CalendarSync.SourceCount > 0 {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1258, "<div class=\"rounded-lg border border-border bg-background/45 p-3\"><div class=\"flex items-center justify-between gap-4\"><div class=\"text-xs font-semibold text-foreground\">Selected calendars</div><span class=\"shrink-0 rounded-md bg-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1270, "<div class=\"rounded-lg border border-border bg-background/45 p-3\"><div class=\"flex items-center justify-between gap-4\"><div class=\"text-xs font-semibold text-foreground\">Selected calendars</div><span class=\"shrink-0 rounded-md bg-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var862 string
-			templ_7745c5c3_Var862, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d of %d selected", data.CalendarSync.SelectedSourceCount, data.CalendarSync.SourceCount))
+			var templ_7745c5c3_Var869 string
+			templ_7745c5c3_Var869, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d of %d selected", data.CalendarSync.SelectedSourceCount, data.CalendarSync.SourceCount))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5080, Col: 212}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5096, Col: 212}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var862))
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1259, "</span></div><p class=\"mt-1 text-[11px] leading-relaxed text-muted-foreground\">Select calendars to sync. Your choices are saved when you click Done.</p><form method=\"POST\" action=\"")
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var869))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var863 templ.SafeURL
-			templ_7745c5c3_Var863, templ_7745c5c3_Err = templ.JoinURLErrs(fmt.Sprintf("/api/accounts/%s/calendar/sources", data.AccountID))
-			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5085, Col: 78}
-			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var863))
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1271, "</span></div><p class=\"mt-1 text-[11px] leading-relaxed text-muted-foreground\">Select calendars to sync. Your choices are saved when you click Done.</p><form method=\"POST\" action=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1260, "\" data-calendar-source-form data-account-id=\"")
+			var templ_7745c5c3_Var870 templ.SafeURL
+			templ_7745c5c3_Var870, templ_7745c5c3_Err = templ.JoinURLErrs(fmt.Sprintf("/api/accounts/%s/calendar/sources", data.AccountID))
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5101, Col: 78}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var870))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var864 string
-			templ_7745c5c3_Var864, templ_7745c5c3_Err = templ.JoinStringErrs(data.AccountID)
-			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5087, Col: 37}
-			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var864))
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1272, "\" data-calendar-source-form data-account-id=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1261, "\" hx-post=\"")
+			var templ_7745c5c3_Var871 string
+			templ_7745c5c3_Var871, templ_7745c5c3_Err = templ.JoinStringErrs(data.AccountID)
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5103, Col: 37}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var871))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var865 string
-			templ_7745c5c3_Var865, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("/api/accounts/%s/calendar/sources", data.AccountID))
-			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5088, Col: 79}
-			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var865))
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1273, "\" hx-post=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1262, "\" hx-target=\"")
+			var templ_7745c5c3_Var872 string
+			templ_7745c5c3_Var872, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("/api/accounts/%s/calendar/sources", data.AccountID))
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5104, Col: 79}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var872))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var866 string
-			templ_7745c5c3_Var866, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("#account-calendar-sync-panel-%s", data.AccountID))
-			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5089, Col: 79}
-			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var866))
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1274, "\" hx-target=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1263, "\" hx-swap=\"outerHTML\" data-on-htmx-before-request='[\"handleCalendarSourceSaveStart\",\"$event\"]' data-on-htmx-after-request='[\"handleCalendarSourceSaveResult\",\"$event\"]' class=\"mt-3\"><div class=\"max-h-56 space-y-2 overflow-y-auto overscroll-contain pr-1\">")
+			var templ_7745c5c3_Var873 string
+			templ_7745c5c3_Var873, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("#account-calendar-sync-panel-%s", data.AccountID))
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5105, Col: 79}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var873))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1275, "\" hx-swap=\"outerHTML\" data-on-htmx-before-request='[\"handleCalendarSourceSaveStart\",\"$event\"]' data-on-htmx-after-request='[\"handleCalendarSourceSaveResult\",\"$event\"]' class=\"mt-3\"><div class=\"max-h-56 space-y-2 overflow-y-auto overscroll-contain pr-1\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			for _, source := range data.CalendarSync.Sources {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1264, "<label class=\"flex w-full cursor-pointer items-start gap-3 rounded-md border border-border bg-background/35 px-3 py-2 text-xs transition-colors hover:bg-accent/50 has-[:checked]:border-primary/40 has-[:checked]:bg-primary/[0.06]\"><span class=\"mt-0.5 inline-flex shrink-0\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1276, "<label class=\"flex w-full cursor-pointer items-start gap-3 rounded-md border border-border bg-background/35 px-3 py-2 text-xs transition-colors hover:bg-accent/50 has-[:checked]:border-primary/40 has-[:checked]:bg-primary/[0.06]\"><span class=\"mt-0.5 inline-flex shrink-0\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -20418,71 +20569,71 @@ func CalendarSyncSettingsPanel(data models.EditAccountData, message string, isEr
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1265, "</span> <span class=\"mt-1 size-2 shrink-0 rounded-full\" style=\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1277, "</span> <span class=\"mt-1 size-2 shrink-0 rounded-full\" style=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				var templ_7745c5c3_Var867 string
-				templ_7745c5c3_Var867, templ_7745c5c3_Err = templruntime.SanitizeStyleAttributeValues(accountColorStyle(source.Color))
+				var templ_7745c5c3_Var874 string
+				templ_7745c5c3_Var874, templ_7745c5c3_Err = templruntime.SanitizeStyleAttributeValues(accountColorStyle(source.Color))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5109, Col: 95}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5125, Col: 95}
 				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var867))
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1266, "\"></span> <span class=\"min-w-0 flex-1\"><span class=\"block truncate font-semibold text-foreground\">")
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var874))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				var templ_7745c5c3_Var868 string
-				templ_7745c5c3_Var868, templ_7745c5c3_Err = templ.JoinStringErrs(calendarSourceName(source))
-				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5111, Col: 96}
-				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var868))
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1278, "\"></span> <span class=\"min-w-0 flex-1\"><span class=\"block truncate font-semibold text-foreground\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1267, "</span> ")
+				var templ_7745c5c3_Var875 string
+				templ_7745c5c3_Var875, templ_7745c5c3_Err = templ.JoinStringErrs(calendarSourceName(source))
+				if templ_7745c5c3_Err != nil {
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5127, Col: 96}
+				}
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var875))
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1279, "</span> ")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				if calendarSourceDetails(source) != "" {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1268, "<span class=\"mt-0.5 block truncate text-[11px] text-muted-foreground\">")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1280, "<span class=\"mt-0.5 block truncate text-[11px] text-muted-foreground\">")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					var templ_7745c5c3_Var869 string
-					templ_7745c5c3_Var869, templ_7745c5c3_Err = templ.JoinStringErrs(calendarSourceDetails(source))
+					var templ_7745c5c3_Var876 string
+					templ_7745c5c3_Var876, templ_7745c5c3_Err = templ.JoinStringErrs(calendarSourceDetails(source))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5113, Col: 111}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5129, Col: 111}
 					}
-					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var869))
+					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var876))
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1269, "</span>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1281, "</span>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1270, "</span> ")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1282, "</span> ")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				if source.IsPrimary {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1271, "<span class=\"shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary\">Primary</span>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1283, "<span class=\"shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary\">Primary</span>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1272, "</label>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1284, "</label>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1273, "</div><div data-calendar-source-save-status class=\"mt-3 min-h-0\"></div></form>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1285, "</div><div data-calendar-source-save-status class=\"mt-3 min-h-0\"></div></form>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -20492,17 +20643,17 @@ func CalendarSyncSettingsPanel(data models.EditAccountData, message string, isEr
 					return templ_7745c5c3_Err
 				}
 			} else if data.CalendarSync.CreateAccess == models.CalendarCreateNeedsReconnect {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1274, "<p class=\"mt-3 border-t border-border/60 pt-3 text-[11px] leading-relaxed text-muted-foreground\">To create calendars from Gofer, reconnect this account from its actions menu. Gofer asks for that permission only when connecting.</p>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1286, "<p class=\"mt-3 border-t border-border/60 pt-3 text-[11px] leading-relaxed text-muted-foreground\">To create calendars from Gofer, reconnect this account from its actions menu. Gofer asks for that permission only when connecting.</p>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1275, "</div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1287, "</div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		} else if calendarCreateKind(data) != "" {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1276, "<div class=\"rounded-lg border border-border bg-background/50 p-3 text-xs leading-relaxed text-muted-foreground\"><p class=\"font-semibold text-foreground\">No calendars on this server yet</p><p class=\"mt-0.5\">Create one to start syncing it. It is made on the server, so your other apps see it too.</p>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1288, "<div class=\"rounded-lg border border-border bg-background/50 p-3 text-xs leading-relaxed text-muted-foreground\"><p class=\"font-semibold text-foreground\">No calendars on this server yet</p><p class=\"mt-0.5\">Create one to start syncing it. It is made on the server, so your other apps see it too.</p>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -20510,56 +20661,56 @@ func CalendarSyncSettingsPanel(data models.EditAccountData, message string, isEr
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1277, "</div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1289, "</div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		} else if data.Provider == "gmail" || data.Provider == "outlook" || data.Provider == "imap" || editAccountIsJMAP(data) {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1278, "<div class=\"rounded-lg border border-border bg-background/50 p-3 text-xs leading-relaxed text-muted-foreground\"><p class=\"font-semibold text-foreground\">No calendars discovered yet</p><p class=\"mt-0.5\">Run discovery above. This account will appear in Calendar once at least one source is selected.</p></div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1290, "<div class=\"rounded-lg border border-border bg-background/50 p-3 text-xs leading-relaxed text-muted-foreground\"><p class=\"font-semibold text-foreground\">No calendars discovered yet</p><p class=\"mt-0.5\">Run discovery above. This account will appear in Calendar once at least one source is selected.</p></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
 		if message != "" {
 			if isError {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1279, "<div role=\"alert\" class=\"rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs leading-relaxed text-destructive\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1291, "<div role=\"alert\" class=\"rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs leading-relaxed text-destructive\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				var templ_7745c5c3_Var870 string
-				templ_7745c5c3_Var870, templ_7745c5c3_Err = templ.JoinStringErrs(message)
+				var templ_7745c5c3_Var877 string
+				templ_7745c5c3_Var877, templ_7745c5c3_Err = templ.JoinStringErrs(message)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5144, Col: 147}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5160, Col: 147}
 				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var870))
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var877))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1280, "</div>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1292, "</div>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			} else {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1281, "<div role=\"status\" class=\"rounded-lg border border-emerald-500/25 bg-emerald-500/5 px-3 py-2 text-xs leading-relaxed text-emerald-700 dark:text-emerald-300\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1293, "<div role=\"status\" class=\"rounded-lg border border-emerald-500/25 bg-emerald-500/5 px-3 py-2 text-xs leading-relaxed text-emerald-700 dark:text-emerald-300\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				var templ_7745c5c3_Var871 string
-				templ_7745c5c3_Var871, templ_7745c5c3_Err = templ.JoinStringErrs(message)
+				var templ_7745c5c3_Var878 string
+				templ_7745c5c3_Var878, templ_7745c5c3_Err = templ.JoinStringErrs(message)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5146, Col: 170}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5162, Col: 170}
 				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var871))
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var878))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1282, "</div>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1294, "</div>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1283, "</div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1295, "</div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -20607,99 +20758,99 @@ func CalendarCreateForm(data models.EditAccountData) templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var872 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var872 == nil {
-			templ_7745c5c3_Var872 = templ.NopComponent
+		templ_7745c5c3_Var879 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var879 == nil {
+			templ_7745c5c3_Var879 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1284, "<form method=\"POST\" action=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1296, "<form method=\"POST\" action=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var873 templ.SafeURL
-		templ_7745c5c3_Var873, templ_7745c5c3_Err = templ.JoinURLErrs(fmt.Sprintf("/api/accounts/%s/calendar/discover", data.AccountID))
+		var templ_7745c5c3_Var880 templ.SafeURL
+		templ_7745c5c3_Var880, templ_7745c5c3_Err = templ.JoinURLErrs(fmt.Sprintf("/api/accounts/%s/calendar/discover", data.AccountID))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5179, Col: 76}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5195, Col: 76}
 		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var873))
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1285, "\" data-calendar-create-form hx-post=\"")
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var880))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var874 string
-		templ_7745c5c3_Var874, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("/api/accounts/%s/calendar/discover", data.AccountID))
-		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5181, Col: 77}
-		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var874))
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1297, "\" data-calendar-create-form hx-post=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1286, "\" hx-target=\"")
+		var templ_7745c5c3_Var881 string
+		templ_7745c5c3_Var881, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("/api/accounts/%s/calendar/discover", data.AccountID))
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5197, Col: 77}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var881))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var875 string
-		templ_7745c5c3_Var875, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("#account-calendar-sync-panel-%s", data.AccountID))
-		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5182, Col: 76}
-		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var875))
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1298, "\" hx-target=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1287, "\" hx-swap=\"outerHTML\" data-on-htmx-before-request='[\"handleCalendarCreateStart\",\"$event\"]' data-on-htmx-after-request='[\"handleCalendarCreateResult\",\"$event\"]' class=\"mt-3 flex items-end gap-2 border-t border-border/60 pt-3\">")
+		var templ_7745c5c3_Var882 string
+		templ_7745c5c3_Var882, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("#account-calendar-sync-panel-%s", data.AccountID))
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5198, Col: 76}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var882))
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1299, "\" hx-swap=\"outerHTML\" data-on-htmx-before-request='[\"handleCalendarCreateStart\",\"$event\"]' data-on-htmx-after-request='[\"handleCalendarCreateResult\",\"$event\"]' class=\"mt-3 flex items-end gap-2 border-t border-border/60 pt-3\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		switch calendarCreateKind(data) {
 		case "caldav":
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1288, "<input type=\"hidden\" name=\"caldav_url\" value=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1300, "<input type=\"hidden\" name=\"caldav_url\" value=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var876 string
-			templ_7745c5c3_Var876, templ_7745c5c3_Err = templ.JoinStringErrs(data.CalendarSync.CalDAVBaseURL)
+			var templ_7745c5c3_Var883 string
+			templ_7745c5c3_Var883, templ_7745c5c3_Err = templ.JoinStringErrs(data.CalendarSync.CalDAVBaseURL)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5190, Col: 82}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5206, Col: 82}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var876))
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var883))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1289, "\"> ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1301, "\"> ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			if data.CalendarSync.CalDAVUseAccountCredentials {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1290, "<input type=\"hidden\" name=\"use_account_credentials\" value=\"1\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1302, "<input type=\"hidden\" name=\"use_account_credentials\" value=\"1\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
 		case providers.ProviderJMAP:
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1291, "<input type=\"hidden\" name=\"calendar_protocol\" value=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1303, "<input type=\"hidden\" name=\"calendar_protocol\" value=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var877 string
-			templ_7745c5c3_Var877, templ_7745c5c3_Err = templ.JoinStringErrs(providers.ProviderJMAP)
+			var templ_7745c5c3_Var884 string
+			templ_7745c5c3_Var884, templ_7745c5c3_Err = templ.JoinStringErrs(providers.ProviderJMAP)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5195, Col: 80}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5211, Col: 80}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var877))
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var884))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1292, "\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1304, "\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1293, "<div class=\"min-w-0 flex-1\"><label class=\"mb-1.5 block text-xs font-medium text-muted-foreground\">New calendar</label>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1305, "<div class=\"min-w-0 flex-1\"><label class=\"mb-1.5 block text-xs font-medium text-muted-foreground\">New calendar</label>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -20707,7 +20858,7 @@ func CalendarCreateForm(data models.EditAccountData) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1294, "</div><button type=\"submit\" data-calendar-create-submit class=\"inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-70\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1306, "</div><button type=\"submit\" data-calendar-create-submit class=\"inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-70\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -20715,7 +20866,7 @@ func CalendarCreateForm(data models.EditAccountData) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1295, "<span data-calendar-create-label>Create</span></button></form>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1307, "<span data-calendar-create-label>Create</span></button></form>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -20739,12 +20890,12 @@ func CalendarSetupNotice() templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var878 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var878 == nil {
-			templ_7745c5c3_Var878 = templ.NopComponent
+		templ_7745c5c3_Var885 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var885 == nil {
+			templ_7745c5c3_Var885 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1296, "<div data-wizard-service-content=\"calendar\" data-wizard-service-always-active=\"true\" class=\"rounded-lg border border-border bg-background/45 p-4\"><div class=\"flex items-start justify-between gap-4\"><div class=\"flex min-w-0 items-start gap-3\"><div class=\"mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md border border-border/70 bg-card text-muted-foreground\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1308, "<div data-wizard-service-content=\"calendar\" data-wizard-service-always-active=\"true\" class=\"rounded-lg border border-border bg-background/45 p-4\"><div class=\"flex items-start justify-between gap-4\"><div class=\"flex min-w-0 items-start gap-3\"><div class=\"mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md border border-border/70 bg-card text-muted-foreground\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -20752,7 +20903,7 @@ func CalendarSetupNotice() templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1297, "</div><div class=\"min-w-0\"><h4 class=\"text-sm font-semibold text-foreground\">Calendar sync</h4><p class=\"mt-1 text-xs leading-relaxed text-muted-foreground\">Calendar setup is optional and depends on the provider. Google and Microsoft use account authorization; IMAP mailboxes can connect a separate CalDAV service.</p></div></div><span class=\"shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground\">Available</span></div><p class=\"mt-3 border-t border-border/60 pt-3 text-[11px] leading-relaxed text-muted-foreground\">This account will not appear in Calendar until a calendar source has been discovered and selected.</p></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1309, "</div><div class=\"min-w-0\"><h4 class=\"text-sm font-semibold text-foreground\">Calendar sync</h4><p class=\"mt-1 text-xs leading-relaxed text-muted-foreground\">Calendar setup is optional and depends on the provider. Google and Microsoft use account authorization; IMAP mailboxes can connect a separate CalDAV service.</p></div></div><span class=\"shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground\">Available</span></div><p class=\"mt-3 border-t border-border/60 pt-3 text-[11px] leading-relaxed text-muted-foreground\">This account will not appear in Calendar until a calendar source has been discovered and selected.</p></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -20806,34 +20957,34 @@ func CardDAVBaseURLRequiredTooltip(hidden bool) templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var879 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var879 == nil {
-			templ_7745c5c3_Var879 = templ.NopComponent
+		templ_7745c5c3_Var886 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var886 == nil {
+			templ_7745c5c3_Var886 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		var templ_7745c5c3_Var880 = []any{"inline-flex", templ.KV("!hidden", hidden)}
-		templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var880...)
+		var templ_7745c5c3_Var887 = []any{"inline-flex", templ.KV("!hidden", hidden)}
+		templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var887...)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1298, "<span data-carddav-disabled-action class=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1310, "<span data-carddav-disabled-action class=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var881 string
-		templ_7745c5c3_Var881, templ_7745c5c3_Err = templ.JoinStringErrs(templ.CSSClasses(templ_7745c5c3_Var880).String())
+		var templ_7745c5c3_Var888 string
+		templ_7745c5c3_Var888, templ_7745c5c3_Err = templ.JoinStringErrs(templ.CSSClasses(templ_7745c5c3_Var887).String())
 		if templ_7745c5c3_Err != nil {
 			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 1, Col: 0}
 		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var881))
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var888))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1299, "\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1311, "\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Var882 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_Var889 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 			if !templ_7745c5c3_IsBuffer {
@@ -20845,7 +20996,7 @@ func CardDAVBaseURLRequiredTooltip(hidden bool) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Var883 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+			templ_7745c5c3_Var890 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 				templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 				templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 				if !templ_7745c5c3_IsBuffer {
@@ -20857,29 +21008,29 @@ func CardDAVBaseURLRequiredTooltip(hidden bool) templ.Component {
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1300, "<span class=\"inline-flex cursor-not-allowed\" title=\"Fill the Base URL first, or use Attempt URL autodiscover.\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1312, "<span class=\"inline-flex cursor-not-allowed\" title=\"Fill the Base URL first, or use Attempt URL autodiscover.\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templ_7745c5c3_Var879.Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = templ_7745c5c3_Var886.Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1301, "</span>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1313, "</span>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				return nil
 			})
-			templ_7745c5c3_Err = tooltip.Trigger(tooltip.TriggerProps{Class: "inline-flex"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var883), templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = tooltip.Trigger(tooltip.TriggerProps{Class: "inline-flex"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var890), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1302, " ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1314, " ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Var884 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+			templ_7745c5c3_Var891 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 				templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 				templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 				if !templ_7745c5c3_IsBuffer {
@@ -20891,23 +21042,23 @@ func CardDAVBaseURLRequiredTooltip(hidden bool) templ.Component {
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1303, "Fill the Base URL first, or use Attempt URL autodiscover.")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1315, "Fill the Base URL first, or use Attempt URL autodiscover.")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				return nil
 			})
-			templ_7745c5c3_Err = tooltip.Content(tooltip.ContentProps{Position: tooltip.PositionTop, ShowArrow: true, Class: "max-w-56 px-3 py-1.5 text-center text-xs leading-relaxed"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var884), templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = tooltip.Content(tooltip.ContentProps{Position: tooltip.PositionTop, ShowArrow: true, Class: "max-w-56 px-3 py-1.5 text-center text-xs leading-relaxed"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var891), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = tooltip.Tooltip().Render(templ.WithChildren(ctx, templ_7745c5c3_Var882), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = tooltip.Tooltip().Render(templ.WithChildren(ctx, templ_7745c5c3_Var889), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1304, "</span>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1316, "</span>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -20931,12 +21082,12 @@ func CardDAVAutodiscoverButton(accountID string, fieldsID string, statusID strin
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var885 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var885 == nil {
-			templ_7745c5c3_Var885 = templ.NopComponent
+		templ_7745c5c3_Var892 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var892 == nil {
+			templ_7745c5c3_Var892 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Var886 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_Var893 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 			if !templ_7745c5c3_IsBuffer {
@@ -20952,7 +21103,7 @@ func CardDAVAutodiscoverButton(accountID string, fieldsID string, statusID strin
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1305, " Attempt URL autodiscover")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1317, " Attempt URL autodiscover")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -20969,7 +21120,7 @@ func CardDAVAutodiscoverButton(accountID string, fieldsID string, statusID strin
 				"data-fields-id":            fieldsID,
 				"data-status-id":            statusID,
 			},
-		}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var886), templ_7745c5c3_Buffer)
+		}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var893), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -20993,87 +21144,87 @@ func CardDAVDiscoverAddressBooksButton(accountID string, fieldsID string, status
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var887 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var887 == nil {
-			templ_7745c5c3_Var887 = templ.NopComponent
+		templ_7745c5c3_Var894 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var894 == nil {
+			templ_7745c5c3_Var894 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
 		disabled := strings.TrimSpace(baseURL) == ""
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1306, "<span data-carddav-base-url-action data-fields-id=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1318, "<span data-carddav-base-url-action data-fields-id=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var888 string
-		templ_7745c5c3_Var888, templ_7745c5c3_Err = templ.JoinStringErrs(fieldsID)
+		var templ_7745c5c3_Var895 string
+		templ_7745c5c3_Var895, templ_7745c5c3_Err = templ.JoinStringErrs(fieldsID)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5291, Col: 61}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5307, Col: 61}
 		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var888))
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1307, "\" class=\"contents\">")
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var895))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var889 = []any{"inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-xs font-semibold text-foreground hover:bg-accent", templ.KV("!hidden", disabled)}
-		templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var889...)
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1319, "\" class=\"contents\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1308, "<button type=\"button\" data-carddav-enabled-action data-carddav-discover data-account-id=\"")
+		var templ_7745c5c3_Var896 = []any{"inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-xs font-semibold text-foreground hover:bg-accent", templ.KV("!hidden", disabled)}
+		templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var896...)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var890 string
-		templ_7745c5c3_Var890, templ_7745c5c3_Err = templ.JoinStringErrs(accountID)
-		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5292, Col: 101}
-		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var890))
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1320, "<button type=\"button\" data-carddav-enabled-action data-carddav-discover data-account-id=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1309, "\" data-fields-id=\"")
+		var templ_7745c5c3_Var897 string
+		templ_7745c5c3_Var897, templ_7745c5c3_Err = templ.JoinStringErrs(accountID)
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5308, Col: 101}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var897))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var891 string
-		templ_7745c5c3_Var891, templ_7745c5c3_Err = templ.JoinStringErrs(fieldsID)
-		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5292, Col: 129}
-		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var891))
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1321, "\" data-fields-id=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1310, "\" data-status-id=\"")
+		var templ_7745c5c3_Var898 string
+		templ_7745c5c3_Var898, templ_7745c5c3_Err = templ.JoinStringErrs(fieldsID)
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5308, Col: 129}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var898))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var892 string
-		templ_7745c5c3_Var892, templ_7745c5c3_Err = templ.JoinStringErrs(statusID)
-		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5292, Col: 157}
-		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var892))
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1322, "\" data-status-id=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1311, "\" class=\"")
+		var templ_7745c5c3_Var899 string
+		templ_7745c5c3_Var899, templ_7745c5c3_Err = templ.JoinStringErrs(statusID)
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5308, Col: 157}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var899))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var893 string
-		templ_7745c5c3_Var893, templ_7745c5c3_Err = templ.JoinStringErrs(templ.CSSClasses(templ_7745c5c3_Var889).String())
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1323, "\" class=\"")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		var templ_7745c5c3_Var900 string
+		templ_7745c5c3_Var900, templ_7745c5c3_Err = templ.JoinStringErrs(templ.CSSClasses(templ_7745c5c3_Var896).String())
 		if templ_7745c5c3_Err != nil {
 			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 1, Col: 0}
 		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var893))
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var900))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1312, "\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1324, "\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -21081,11 +21232,11 @@ func CardDAVDiscoverAddressBooksButton(accountID string, fieldsID string, status
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1313, "Connect and discover address books</button>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1325, "Connect and discover address books</button>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Var894 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_Var901 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 			if !templ_7745c5c3_IsBuffer {
@@ -21097,7 +21248,7 @@ func CardDAVDiscoverAddressBooksButton(accountID string, fieldsID string, status
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1314, "<button type=\"button\" disabled class=\"pointer-events-none inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-xs font-semibold text-muted-foreground opacity-50\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1326, "<button type=\"button\" disabled class=\"pointer-events-none inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-xs font-semibold text-muted-foreground opacity-50\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -21105,17 +21256,17 @@ func CardDAVDiscoverAddressBooksButton(accountID string, fieldsID string, status
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1315, "Connect and discover address books</button>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1327, "Connect and discover address books</button>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = CardDAVBaseURLRequiredTooltip(!disabled).Render(templ.WithChildren(ctx, templ_7745c5c3_Var894), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = CardDAVBaseURLRequiredTooltip(!disabled).Render(templ.WithChildren(ctx, templ_7745c5c3_Var901), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1316, "</span>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1328, "</span>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -21139,61 +21290,61 @@ func CardDAVManualAddressBookButton(fieldsID string, baseURL string) templ.Compo
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var895 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var895 == nil {
-			templ_7745c5c3_Var895 = templ.NopComponent
+		templ_7745c5c3_Var902 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var902 == nil {
+			templ_7745c5c3_Var902 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
 		disabled := strings.TrimSpace(baseURL) == ""
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1317, "<span data-carddav-base-url-action data-fields-id=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1329, "<span data-carddav-base-url-action data-fields-id=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var896 string
-		templ_7745c5c3_Var896, templ_7745c5c3_Err = templ.JoinStringErrs(fieldsID)
+		var templ_7745c5c3_Var903 string
+		templ_7745c5c3_Var903, templ_7745c5c3_Err = templ.JoinStringErrs(fieldsID)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5307, Col: 61}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5323, Col: 61}
 		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var896))
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1318, "\" class=\"contents\">")
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var903))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var897 = []any{"inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-xs font-semibold text-foreground hover:bg-accent", templ.KV("!hidden", disabled)}
-		templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var897...)
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1330, "\" class=\"contents\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1319, "<button type=\"button\" data-carddav-enabled-action data-carddav-manual data-fields-id=\"")
+		var templ_7745c5c3_Var904 = []any{"inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-xs font-semibold text-foreground hover:bg-accent", templ.KV("!hidden", disabled)}
+		templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var904...)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var898 string
-		templ_7745c5c3_Var898, templ_7745c5c3_Err = templ.JoinStringErrs(fieldsID)
-		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5308, Col: 97}
-		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var898))
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1331, "<button type=\"button\" data-carddav-enabled-action data-carddav-manual data-fields-id=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1320, "\" class=\"")
+		var templ_7745c5c3_Var905 string
+		templ_7745c5c3_Var905, templ_7745c5c3_Err = templ.JoinStringErrs(fieldsID)
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5324, Col: 97}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var905))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var899 string
-		templ_7745c5c3_Var899, templ_7745c5c3_Err = templ.JoinStringErrs(templ.CSSClasses(templ_7745c5c3_Var897).String())
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1332, "\" class=\"")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		var templ_7745c5c3_Var906 string
+		templ_7745c5c3_Var906, templ_7745c5c3_Err = templ.JoinStringErrs(templ.CSSClasses(templ_7745c5c3_Var904).String())
 		if templ_7745c5c3_Err != nil {
 			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 1, Col: 0}
 		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var899))
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var906))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1321, "\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1333, "\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -21201,11 +21352,11 @@ func CardDAVManualAddressBookButton(fieldsID string, baseURL string) templ.Compo
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1322, "Enter address book URL manually</button>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1334, "Enter address book URL manually</button>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Var900 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_Var907 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 			if !templ_7745c5c3_IsBuffer {
@@ -21217,7 +21368,7 @@ func CardDAVManualAddressBookButton(fieldsID string, baseURL string) templ.Compo
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1323, "<button type=\"button\" disabled class=\"pointer-events-none inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-xs font-semibold text-muted-foreground opacity-50\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1335, "<button type=\"button\" disabled class=\"pointer-events-none inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-xs font-semibold text-muted-foreground opacity-50\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -21225,17 +21376,17 @@ func CardDAVManualAddressBookButton(fieldsID string, baseURL string) templ.Compo
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1324, "Enter address book URL manually</button>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1336, "Enter address book URL manually</button>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = CardDAVBaseURLRequiredTooltip(!disabled).Render(templ.WithChildren(ctx, templ_7745c5c3_Var900), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = CardDAVBaseURLRequiredTooltip(!disabled).Render(templ.WithChildren(ctx, templ_7745c5c3_Var907), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1325, "</span>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1337, "</span>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -21259,19 +21410,19 @@ func AddAccountPostCreateStep(data models.EditAccountData) templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var901 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var901 == nil {
-			templ_7745c5c3_Var901 = templ.NopComponent
+		templ_7745c5c3_Var908 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var908 == nil {
+			templ_7745c5c3_Var908 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
 		accountID := data.AccountID
 		isJMAP := data.Provider == providers.ProviderJMAP && !editAccountIsICloud(data)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1326, "<div id=\"add-wizard-footer-step-4\" data-wizard-footer-step=\"4\" data-active=\"false\" hx-swap-oob=\"outerHTML\" class=\"hidden flex-wrap justify-end gap-2\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1338, "<div id=\"add-wizard-footer-step-4\" data-wizard-footer-step=\"4\" data-active=\"false\" hx-swap-oob=\"outerHTML\" class=\"hidden flex-wrap justify-end gap-2\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		if data.ContactSync.Enabled {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1327, "<button type=\"button\" data-on-click='[\"wizardGo\",5]' class=\"inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors\">Next")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1339, "<button type=\"button\" data-on-click='[\"wizardGo\",5]' class=\"inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors\">Next")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -21279,25 +21430,25 @@ func AddAccountPostCreateStep(data models.EditAccountData) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1328, "</button>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1340, "</button>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		} else {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1329, "<button type=\"submit\" form=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1341, "<button type=\"submit\" form=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var902 string
-			templ_7745c5c3_Var902, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("add-contact-sync-form-%s", accountID))
+			var templ_7745c5c3_Var909 string
+			templ_7745c5c3_Var909, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("add-contact-sync-form-%s", accountID))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5331, Col: 82}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5347, Col: 82}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var902))
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var909))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1330, "\" class=\"inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors\">Next")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1342, "\" class=\"inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors\">Next")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -21305,12 +21456,12 @@ func AddAccountPostCreateStep(data models.EditAccountData) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1331, "</button>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1343, "</button>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1332, "</div><div id=\"add-wizard-footer-step-5\" data-wizard-footer-step=\"5\" data-active=\"false\" hx-swap-oob=\"outerHTML\" class=\"hidden flex-wrap justify-between gap-2\"><button type=\"button\" data-on-click='[\"wizardGo\",4]' class=\"inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1344, "</div><div id=\"add-wizard-footer-step-5\" data-wizard-footer-step=\"5\" data-active=\"false\" hx-swap-oob=\"outerHTML\" class=\"hidden flex-wrap justify-between gap-2\"><button type=\"button\" data-on-click='[\"wizardGo\",4]' class=\"inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -21318,7 +21469,7 @@ func AddAccountPostCreateStep(data models.EditAccountData) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1333, "Back</button> <button type=\"button\" data-on-click='[\"wizardServiceNext\",\"$this\",\"calendar\",\"done\"]' class=\"inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1345, "Back</button> <button type=\"button\" data-on-click='[\"wizardServiceNext\",\"$this\",\"calendar\",\"done\"]' class=\"inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -21326,7 +21477,7 @@ func AddAccountPostCreateStep(data models.EditAccountData) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1334, "Done</button></div><div id=\"add-calendar-content\" hx-swap-oob=\"innerHTML\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1346, "Done</button></div><div id=\"add-calendar-content\" hx-swap-oob=\"innerHTML\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -21334,7 +21485,7 @@ func AddAccountPostCreateStep(data models.EditAccountData) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1335, "</div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1347, "</div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -21342,7 +21493,7 @@ func AddAccountPostCreateStep(data models.EditAccountData) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1336, "<div class=\"flex h-full flex-col pt-1\"><div class=\"account-wizard-scroll space-y-5\"><div data-add-account-created hidden></div><div data-wizard-service-content=\"contacts\" class=\"space-y-5\"><h4 class=\"account-wizard-sticky-header text-sm font-semibold text-foreground flex items-center gap-2\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1348, "<div class=\"flex h-full flex-col pt-1\"><div class=\"account-wizard-scroll space-y-5\"><div data-add-account-created hidden></div><div data-wizard-service-content=\"contacts\" class=\"space-y-5\"><h4 class=\"account-wizard-sticky-header text-sm font-semibold text-foreground flex items-center gap-2\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -21350,56 +21501,56 @@ func AddAccountPostCreateStep(data models.EditAccountData) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1337, "Contact sync</h4>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1349, "Contact sync</h4>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		if data.ContactSync.Enabled {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1338, "<div class=\"rounded-lg border border-border bg-background/45 p-4\" data-add-account-contacts-kept><p class=\"text-sm font-semibold text-foreground\">Contacts already sync</p><p class=\"mt-1 text-xs leading-relaxed text-muted-foreground\">This account keeps syncing its contacts with the login it already had. Change them later with Edit.</p></div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1350, "<div class=\"rounded-lg border border-border bg-background/45 p-4\" data-add-account-contacts-kept><p class=\"text-sm font-semibold text-foreground\">Contacts already sync</p><p class=\"mt-1 text-xs leading-relaxed text-muted-foreground\">This account keeps syncing its contacts with the login it already had. Change them later with Edit.</p></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		} else {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1339, "<form id=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1351, "<form id=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var903 string
-			templ_7745c5c3_Var903, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("add-contact-sync-form-%s", accountID))
+			var templ_7745c5c3_Var910 string
+			templ_7745c5c3_Var910, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("add-contact-sync-form-%s", accountID))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5365, Col: 64}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5381, Col: 64}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var903))
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1340, "\" data-wizard-contact-form data-wizard-next-step=\"5\" hx-post=\"")
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var910))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var904 string
-			templ_7745c5c3_Var904, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("/api/accounts/%s/contacts/sync", accountID))
-			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5365, Col: 184}
-			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var904))
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1352, "\" data-wizard-contact-form data-wizard-next-step=\"5\" hx-post=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1341, "\" hx-target=\"")
+			var templ_7745c5c3_Var911 string
+			templ_7745c5c3_Var911, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("/api/accounts/%s/contacts/sync", accountID))
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5381, Col: 184}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var911))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var905 string
-			templ_7745c5c3_Var905, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("#add-contact-sync-status-%s", accountID))
-			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5365, Col: 252}
-			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var905))
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1353, "\" hx-target=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1342, "\" hx-swap=\"innerHTML\" class=\"rounded-lg border border-border bg-background/45 p-4\"><div class=\"mb-3 flex items-start justify-between gap-4\"><div class=\"min-w-0\"><h4 class=\"flex items-center gap-2 text-sm font-semibold text-foreground\">")
+			var templ_7745c5c3_Var912 string
+			templ_7745c5c3_Var912, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("#add-contact-sync-status-%s", accountID))
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5381, Col: 252}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var912))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1354, "\" hx-swap=\"innerHTML\" class=\"rounded-lg border border-border bg-background/45 p-4\"><div class=\"mb-3 flex items-start justify-between gap-4\"><div class=\"min-w-0\"><h4 class=\"flex items-center gap-2 text-sm font-semibold text-foreground\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -21407,40 +21558,40 @@ func AddAccountPostCreateStep(data models.EditAccountData) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1343, "Contact sync</h4>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1355, "Contact sync</h4>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			if isJMAP {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1344, "<p class=\"mt-1 text-xs leading-relaxed text-muted-foreground\">Sync this account's address books over JMAP, or over CardDAV if you prefer.</p>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1356, "<p class=\"mt-1 text-xs leading-relaxed text-muted-foreground\">Sync this account's address books over JMAP, or over CardDAV if you prefer.</p>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			} else {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1345, "<p class=\"mt-1 text-xs leading-relaxed text-muted-foreground\">Enable this only if the account has a CardDAV address book.</p>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1357, "<p class=\"mt-1 text-xs leading-relaxed text-muted-foreground\">Enable this only if the account has a CardDAV address book.</p>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1346, "</div><span class=\"shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground\">Optional</span></div><div id=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1358, "</div><span class=\"shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground\">Optional</span></div><div id=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var906 string
-			templ_7745c5c3_Var906, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("add-contact-sync-fields-%s", accountID))
+			var templ_7745c5c3_Var913 string
+			templ_7745c5c3_Var913, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("add-contact-sync-fields-%s", accountID))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5380, Col: 66}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5396, Col: 66}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var906))
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var913))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1347, "\" class=\"space-y-3\"><div class=\"grid gap-3 sm:grid-cols-2\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1359, "\" class=\"space-y-3\"><div class=\"grid gap-3 sm:grid-cols-2\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			if editAccountIsICloud(data) {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1348, "<div class=\"sm:col-span-2\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1360, "<div class=\"sm:col-span-2\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -21448,7 +21599,7 @@ func AddAccountPostCreateStep(data models.EditAccountData) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1349, "</div>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1361, "</div>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -21463,29 +21614,29 @@ func AddAccountPostCreateStep(data models.EditAccountData) templ.Component {
 						return templ_7745c5c3_Err
 					}
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1350, " ")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1362, " ")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				var templ_7745c5c3_Var907 = []any{"sm:col-span-2 grid gap-3 sm:grid-cols-2", templ.KV("hidden", isJMAP)}
-				templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var907...)
+				var templ_7745c5c3_Var914 = []any{"sm:col-span-2 grid gap-3 sm:grid-cols-2", templ.KV("hidden", isJMAP)}
+				templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var914...)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1351, "<div class=\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1363, "<div class=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				var templ_7745c5c3_Var908 string
-				templ_7745c5c3_Var908, templ_7745c5c3_Err = templ.JoinStringErrs(templ.CSSClasses(templ_7745c5c3_Var907).String())
+				var templ_7745c5c3_Var915 string
+				templ_7745c5c3_Var915, templ_7745c5c3_Err = templ.JoinStringErrs(templ.CSSClasses(templ_7745c5c3_Var914).String())
 				if templ_7745c5c3_Err != nil {
 					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 1, Col: 0}
 				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var908))
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var915))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1352, "\" data-contact-protocol=\"carddav\"><div class=\"sm:col-span-2\"><div class=\"mb-1.5 flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between\"><label class=\"text-xs font-medium text-muted-foreground\">Base URL</label>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1364, "\" data-contact-protocol=\"carddav\"><div class=\"sm:col-span-2\"><div class=\"mb-1.5 flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between\"><label class=\"text-xs font-medium text-muted-foreground\">Base URL</label>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -21493,7 +21644,7 @@ func AddAccountPostCreateStep(data models.EditAccountData) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1353, "</div>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1365, "</div>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -21501,7 +21652,7 @@ func AddAccountPostCreateStep(data models.EditAccountData) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1354, "<div data-server-check-url class=\"mt-1.5 hidden space-y-1\" aria-live=\"polite\"></div></div><label class=\"flex items-center gap-2 cursor-pointer sm:col-span-2\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1366, "<div data-server-check-url class=\"mt-1.5 hidden space-y-1\" aria-live=\"polite\"></div></div><label class=\"flex items-center gap-2 cursor-pointer sm:col-span-2\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -21514,7 +21665,7 @@ func AddAccountPostCreateStep(data models.EditAccountData) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1355, "<span class=\"text-sm\">Use same credentials as incoming mail</span></label><div class=\"sm:col-span-2 grid gap-3 sm:grid-cols-2 opacity-50\" data-carddav-credential-fields><div><label class=\"mb-1.5 block text-xs font-medium text-muted-foreground\">Username</label>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1367, "<span class=\"text-sm\">Use same credentials as incoming mail</span></label><div class=\"sm:col-span-2 grid gap-3 sm:grid-cols-2 opacity-50\" data-carddav-credential-fields><div><label class=\"mb-1.5 block text-xs font-medium text-muted-foreground\">Username</label>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -21522,7 +21673,7 @@ func AddAccountPostCreateStep(data models.EditAccountData) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1356, "</div><div><label class=\"mb-1.5 block text-xs font-medium text-muted-foreground\">Password or app password</label>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1368, "</div><div><label class=\"mb-1.5 block text-xs font-medium text-muted-foreground\">Password or app password</label>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -21530,12 +21681,12 @@ func AddAccountPostCreateStep(data models.EditAccountData) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1357, "</div></div></div>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1369, "</div></div></div>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1358, "<div class=\"hidden sm:col-span-2 rounded-md border border-border bg-background/35 px-3 py-2\" data-carddav-addressbook-section data-carddav-manual-addressbook><label class=\"mb-1.5 block text-xs font-medium text-muted-foreground\">Exact address book URL</label>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1370, "<div class=\"hidden sm:col-span-2 rounded-md border border-border bg-background/35 px-3 py-2\" data-carddav-addressbook-section data-carddav-manual-addressbook><label class=\"mb-1.5 block text-xs font-medium text-muted-foreground\">Exact address book URL</label>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -21543,20 +21694,20 @@ func AddAccountPostCreateStep(data models.EditAccountData) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1359, "<div data-server-check-url class=\"mt-1.5 hidden space-y-1\" aria-live=\"polite\"></div></div></div></div><div id=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1371, "<div data-server-check-url class=\"mt-1.5 hidden space-y-1\" aria-live=\"polite\"></div></div></div></div><div id=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var909 string
-			templ_7745c5c3_Var909, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("add-contact-sync-status-%s", accountID))
+			var templ_7745c5c3_Var916 string
+			templ_7745c5c3_Var916, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("add-contact-sync-status-%s", accountID))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5428, Col: 66}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5444, Col: 66}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var909))
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var916))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1360, "\" class=\"mt-3 min-h-0\"></div><div class=\"mt-4 flex flex-wrap justify-end gap-2\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1372, "\" class=\"mt-3 min-h-0\"></div><div class=\"mt-4 flex flex-wrap justify-end gap-2\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -21566,25 +21717,25 @@ func AddAccountPostCreateStep(data models.EditAccountData) templ.Component {
 					return templ_7745c5c3_Err
 				}
 			} else {
-				var templ_7745c5c3_Var910 = []any{templ.KV("contents", !isJMAP), templ.KV("hidden", isJMAP)}
-				templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var910...)
+				var templ_7745c5c3_Var917 = []any{templ.KV("contents", !isJMAP), templ.KV("hidden", isJMAP)}
+				templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var917...)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1361, "<span class=\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1373, "<span class=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				var templ_7745c5c3_Var911 string
-				templ_7745c5c3_Var911, templ_7745c5c3_Err = templ.JoinStringErrs(templ.CSSClasses(templ_7745c5c3_Var910).String())
+				var templ_7745c5c3_Var918 string
+				templ_7745c5c3_Var918, templ_7745c5c3_Err = templ.JoinStringErrs(templ.CSSClasses(templ_7745c5c3_Var917).String())
 				if templ_7745c5c3_Err != nil {
 					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 1, Col: 0}
 				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var911))
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var918))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1362, "\" data-contact-protocol=\"carddav\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1374, "\" data-contact-protocol=\"carddav\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -21596,17 +21747,17 @@ func AddAccountPostCreateStep(data models.EditAccountData) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1363, "</span>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1375, "</span>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1364, "</div></form>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1376, "</div></form>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1365, "</div></div><div class=\"account-wizard-controls flex flex-wrap justify-between gap-2\"><button type=\"button\" data-on-click='[\"wizardGo\",2]' class=\"inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1377, "</div></div><div class=\"account-wizard-controls flex flex-wrap justify-between gap-2\"><button type=\"button\" data-on-click='[\"wizardGo\",2]' class=\"inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -21614,20 +21765,20 @@ func AddAccountPostCreateStep(data models.EditAccountData) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1366, "Back</button> <button type=\"submit\" form=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1378, "Back</button> <button type=\"submit\" form=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var912 string
-		templ_7745c5c3_Var912, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("add-contact-sync-form-%s", accountID))
+		var templ_7745c5c3_Var919 string
+		templ_7745c5c3_Var919, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("add-contact-sync-form-%s", accountID))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5448, Col: 82}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5464, Col: 82}
 		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var912))
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var919))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1367, "\" class=\"inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors\">Next")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1379, "\" class=\"inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors\">Next")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -21635,7 +21786,7 @@ func AddAccountPostCreateStep(data models.EditAccountData) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1368, "</button></div></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1380, "</button></div></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -21660,12 +21811,12 @@ func AccountChangesSaved() templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var913 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var913 == nil {
-			templ_7745c5c3_Var913 = templ.NopComponent
+		templ_7745c5c3_Var920 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var920 == nil {
+			templ_7745c5c3_Var920 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1369, "<div role=\"status\" class=\"rounded-md border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-800 dark:text-emerald-200\">Changes saved.</div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1381, "<div role=\"status\" class=\"rounded-md border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-800 dark:text-emerald-200\">Changes saved.</div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -21766,62 +21917,62 @@ func OutlookPushControl(push models.OutlookPushSettings) templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var914 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var914 == nil {
-			templ_7745c5c3_Var914 = templ.NopComponent
+		templ_7745c5c3_Var921 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var921 == nil {
+			templ_7745c5c3_Var921 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
 		id := "outlook-push-" + push.AccountID
 		usesPush := push.Enabled && push.Available
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1370, "<fieldset id=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1382, "<fieldset id=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var915 string
-		templ_7745c5c3_Var915, templ_7745c5c3_Err = templ.JoinStringErrs(id)
+		var templ_7745c5c3_Var922 string
+		templ_7745c5c3_Var922, templ_7745c5c3_Err = templ.JoinStringErrs(id)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5541, Col: 18}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5557, Col: 18}
 		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var915))
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1371, "\" class=\"rounded-md border border-border/70 bg-card/60 p-3\" data-sync-autosave-ignore data-outlook-push=\"")
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var922))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var916 string
-		templ_7745c5c3_Var916, templ_7745c5c3_Err = templ.JoinStringErrs(push.AccountID)
-		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5541, Col: 139}
-		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var916))
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1383, "\" class=\"rounded-md border border-border/70 bg-card/60 p-3\" data-sync-autosave-ignore data-outlook-push=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1372, "\"><legend class=\"sr-only\">How Gofer learns about new Outlook mail</legend><div class=\"text-xs font-semibold uppercase tracking-wider text-muted-foreground\">Outlook Graph sync</div><div class=\"mt-3 flex items-start gap-4\"><div class=\"min-w-0 flex-1 space-y-3\">")
+		var templ_7745c5c3_Var923 string
+		templ_7745c5c3_Var923, templ_7745c5c3_Err = templ.JoinStringErrs(push.AccountID)
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5557, Col: 139}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var923))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var917 = []any{templ.KV("opacity-60", !push.Available)}
-		templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var917...)
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1384, "\"><legend class=\"sr-only\">How Gofer learns about new Outlook mail</legend><div class=\"text-xs font-semibold uppercase tracking-wider text-muted-foreground\">Outlook Graph sync</div><div class=\"mt-3 flex items-start gap-4\"><div class=\"min-w-0 flex-1 space-y-3\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1373, "<div class=\"")
+		var templ_7745c5c3_Var924 = []any{templ.KV("opacity-60", !push.Available)}
+		templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var924...)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var918 string
-		templ_7745c5c3_Var918, templ_7745c5c3_Err = templ.JoinStringErrs(templ.CSSClasses(templ_7745c5c3_Var917).String())
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1385, "<div class=\"")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		var templ_7745c5c3_Var925 string
+		templ_7745c5c3_Var925, templ_7745c5c3_Err = templ.JoinStringErrs(templ.CSSClasses(templ_7745c5c3_Var924).String())
 		if templ_7745c5c3_Err != nil {
 			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 1, Col: 0}
 		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var918))
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var925))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1374, "\"><div class=\"flex min-h-8 flex-wrap items-center gap-x-2.5 gap-y-1\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1386, "\"><div class=\"flex min-h-8 flex-wrap items-center gap-x-2.5 gap-y-1\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -21837,38 +21988,38 @@ func OutlookPushControl(push models.OutlookPushSettings) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var919 = []any{"text-sm font-medium", templ.KV("cursor-not-allowed", !push.Available)}
-		templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var919...)
+		var templ_7745c5c3_Var926 = []any{"text-sm font-medium", templ.KV("cursor-not-allowed", !push.Available)}
+		templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var926...)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1375, "<label for=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1387, "<label for=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var920 string
-		templ_7745c5c3_Var920, templ_7745c5c3_Err = templ.JoinStringErrs(id + "-notifications")
+		var templ_7745c5c3_Var927 string
+		templ_7745c5c3_Var927, templ_7745c5c3_Err = templ.JoinStringErrs(id + "-notifications")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5557, Col: 40}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5573, Col: 40}
 		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var920))
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1376, "\" class=\"")
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var927))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var921 string
-		templ_7745c5c3_Var921, templ_7745c5c3_Err = templ.JoinStringErrs(templ.CSSClasses(templ_7745c5c3_Var919).String())
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1388, "\" class=\"")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		var templ_7745c5c3_Var928 string
+		templ_7745c5c3_Var928, templ_7745c5c3_Err = templ.JoinStringErrs(templ.CSSClasses(templ_7745c5c3_Var926).String())
 		if templ_7745c5c3_Err != nil {
 			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 1, Col: 0}
 		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var921))
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var928))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1377, "\">Webhook notifications</label> ")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1389, "\">Webhook notifications</label> ")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -21884,47 +22035,47 @@ func OutlookPushControl(push models.OutlookPushSettings) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1378, "</div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1390, "</div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		if push.Available {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1379, "  ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1391, "  ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var922 = []any{"flex min-h-6 flex-wrap items-center gap-x-3 gap-y-1 pl-[1.625rem] text-xs", templ.KV("invisible", !usesPush)}
-			templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var922...)
+			var templ_7745c5c3_Var929 = []any{"flex min-h-6 flex-wrap items-center gap-x-3 gap-y-1 pl-[1.625rem] text-xs", templ.KV("invisible", !usesPush)}
+			templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var929...)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1380, "<div class=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1392, "<div class=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var923 string
-			templ_7745c5c3_Var923, templ_7745c5c3_Err = templ.JoinStringErrs(templ.CSSClasses(templ_7745c5c3_Var922).String())
+			var templ_7745c5c3_Var930 string
+			templ_7745c5c3_Var930, templ_7745c5c3_Err = templ.JoinStringErrs(templ.CSSClasses(templ_7745c5c3_Var929).String())
 			if templ_7745c5c3_Err != nil {
 				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 1, Col: 0}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var923))
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var930))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1381, "\" aria-hidden=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1393, "\" aria-hidden=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var924 string
-			templ_7745c5c3_Var924, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.FormatBool(!usesPush))
+			var templ_7745c5c3_Var931 string
+			templ_7745c5c3_Var931, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.FormatBool(!usesPush))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5568, Col: 174}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5584, Col: 174}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var924))
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var931))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1382, "\" data-outlook-push-services>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1394, "\" data-outlook-push-services>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -21938,12 +22089,12 @@ func OutlookPushControl(push models.OutlookPushSettings) templ.Component {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1383, "</div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1395, "</div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1384, "<p class=\"pl-[1.625rem] text-xs leading-relaxed text-muted-foreground\">Microsoft tells Gofer the moment anything changes in the mailbox, calendars or contacts, so changes show up right away without waiting for a check. This server must be reachable from the internet.</p></div><div><div class=\"flex min-h-8 items-center gap-2.5\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1396, "<p class=\"pl-[1.625rem] text-xs leading-relaxed text-muted-foreground\">Microsoft tells Gofer the moment anything changes in the mailbox, calendars or contacts, so changes show up right away without waiting for a check. This server must be reachable from the internet.</p></div><div><div class=\"flex min-h-8 items-center gap-2.5\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -21958,25 +22109,25 @@ func OutlookPushControl(push models.OutlookPushSettings) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1385, "<label for=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1397, "<label for=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var925 string
-		templ_7745c5c3_Var925, templ_7745c5c3_Err = templ.JoinStringErrs(id + "-checks")
+		var templ_7745c5c3_Var932 string
+		templ_7745c5c3_Var932, templ_7745c5c3_Err = templ.JoinStringErrs(id + "-checks")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5587, Col: 33}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5603, Col: 33}
 		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var925))
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var932))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1386, "\" class=\"text-sm font-medium\">Scheduled checks</label></div><p class=\"pl-[1.625rem] text-xs leading-relaxed text-muted-foreground\">Gofer asks Microsoft for changes to the mailbox, calendars and contacts at the sync interval, and more often while Gofer is open. It works anywhere, but changes can take a little longer to show up.</p></div></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1398, "\" class=\"text-sm font-medium\">Scheduled checks</label></div><p class=\"pl-[1.625rem] text-xs leading-relaxed text-muted-foreground\">Gofer asks Microsoft for changes to the mailbox, calendars and contacts at the sync interval, and more often while Gofer is open. It works anywhere, but changes can take a little longer to show up.</p></div></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		if push.Available {
-			templ_7745c5c3_Var926 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+			templ_7745c5c3_Var933 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 				templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 				templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 				if !templ_7745c5c3_IsBuffer {
@@ -21992,7 +22143,7 @@ func OutlookPushControl(push models.OutlookPushSettings) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1387, " Test connection")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1399, " Test connection")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -22010,12 +22161,12 @@ func OutlookPushControl(push models.OutlookPushSettings) templ.Component {
 					"hx-disabled-elt": "this",
 					"aria-hidden":     strconv.FormatBool(!usesPush),
 				},
-			}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var926), templ_7745c5c3_Buffer)
+			}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var933), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1388, "</div></fieldset>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1400, "</div></fieldset>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -22042,18 +22193,18 @@ func outlookPushStatus(id string, push models.OutlookPushSettings) templ.Compone
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var927 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var927 == nil {
-			templ_7745c5c3_Var927 = templ.NopComponent
+		templ_7745c5c3_Var934 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var934 == nil {
+			templ_7745c5c3_Var934 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
 		state := outlookPushOverall(push)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1389, "<span class=\"inline-flex items-center gap-1 text-xs\" role=\"status\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1401, "<span class=\"inline-flex items-center gap-1 text-xs\" role=\"status\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		if state == "working" {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1390, "<span class=\"inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1402, "<span class=\"inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -22061,12 +22212,12 @@ func outlookPushStatus(id string, push models.OutlookPushSettings) templ.Compone
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1391, "Working</span>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1403, "Working</span>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		} else if state == "failing" {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1392, "<span class=\"inline-flex items-center gap-1 text-destructive\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1404, "<span class=\"inline-flex items-center gap-1 text-destructive\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -22074,11 +22225,11 @@ func outlookPushStatus(id string, push models.OutlookPushSettings) templ.Compone
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1393, "Not working</span>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1405, "Not working</span>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Var928 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+			templ_7745c5c3_Var935 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 				templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 				templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 				if !templ_7745c5c3_IsBuffer {
@@ -22090,7 +22241,7 @@ func outlookPushStatus(id string, push models.OutlookPushSettings) templ.Compone
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Var929 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+				templ_7745c5c3_Var936 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 					templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 					templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 					if !templ_7745c5c3_IsBuffer {
@@ -22102,7 +22253,7 @@ func outlookPushStatus(id string, push models.OutlookPushSettings) templ.Compone
 						}()
 					}
 					ctx = templ.InitializeContext(ctx)
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1394, "<button type=\"button\" class=\"inline-flex size-4 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring\" aria-label=\"Why webhook notifications aren't working\">")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1406, "<button type=\"button\" class=\"inline-flex size-4 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring\" aria-label=\"Why webhook notifications aren't working\">")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -22110,21 +22261,21 @@ func outlookPushStatus(id string, push models.OutlookPushSettings) templ.Compone
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1395, "</button>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1407, "</button>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 					return nil
 				})
-				templ_7745c5c3_Err = popover.Trigger().Render(templ.WithChildren(ctx, templ_7745c5c3_Var929), templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = popover.Trigger().Render(templ.WithChildren(ctx, templ_7745c5c3_Var936), templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1396, " ")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1408, " ")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Var930 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+				templ_7745c5c3_Var937 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 					templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 					templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 					if !templ_7745c5c3_IsBuffer {
@@ -22136,47 +22287,47 @@ func outlookPushStatus(id string, push models.OutlookPushSettings) templ.Compone
 						}()
 					}
 					ctx = templ.InitializeContext(ctx)
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1397, "<div class=\"space-y-2 text-xs leading-relaxed text-muted-foreground\">")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1409, "<div class=\"space-y-2 text-xs leading-relaxed text-muted-foreground\">")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 					for _, failure := range outlookPushFailures(push) {
-						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1398, "<p class=\"text-foreground\">")
+						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1410, "<p class=\"text-foreground\">")
 						if templ_7745c5c3_Err != nil {
 							return templ_7745c5c3_Err
 						}
-						var templ_7745c5c3_Var931 string
-						templ_7745c5c3_Var931, templ_7745c5c3_Err = templ.JoinStringErrs(failure)
+						var templ_7745c5c3_Var938 string
+						templ_7745c5c3_Var938, templ_7745c5c3_Err = templ.JoinStringErrs(failure)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5643, Col: 43}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5659, Col: 43}
 						}
-						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var931))
+						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var938))
 						if templ_7745c5c3_Err != nil {
 							return templ_7745c5c3_Err
 						}
-						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1399, "</p>")
+						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1411, "</p>")
 						if templ_7745c5c3_Err != nil {
 							return templ_7745c5c3_Err
 						}
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1400, "<p>Microsoft has to reach this server's address from the internet over HTTPS, without signing in. Gofer keeps trying, and checks for changes on schedule meanwhile.</p></div>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1412, "<p>Microsoft has to reach this server's address from the internet over HTTPS, without signing in. Gofer keeps trying, and checks for changes on schedule meanwhile.</p></div>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 					return nil
 				})
-				templ_7745c5c3_Err = popover.Content(popover.ContentProps{Placement: popover.PlacementBottomStart, Offset: 8, ShowArrow: true, Class: "mobile-sheet w-80 p-3"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var930), templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = popover.Content(popover.ContentProps{Placement: popover.PlacementBottomStart, Offset: 8, ShowArrow: true, Class: "mobile-sheet w-80 p-3"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var937), templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				return nil
 			})
-			templ_7745c5c3_Err = popover.Root(popover.RootProps{ID: id + "-failure", Class: "shrink-0"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var928), templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = popover.Root(popover.RootProps{ID: id + "-failure", Class: "shrink-0"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var935), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		} else {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1401, "<span class=\"inline-flex items-center gap-1 text-muted-foreground\" title=\"Gofer sets it up after the account's next sync.\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1413, "<span class=\"inline-flex items-center gap-1 text-muted-foreground\" title=\"Gofer sets it up after the account's next sync.\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -22184,12 +22335,12 @@ func outlookPushStatus(id string, push models.OutlookPushSettings) templ.Compone
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1402, "Starting</span>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1414, "Starting</span>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1403, "</span>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1415, "</span>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -22215,31 +22366,31 @@ func outlookPushServiceState(id, label, state, failure string) templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var932 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var932 == nil {
-			templ_7745c5c3_Var932 = templ.NopComponent
+		templ_7745c5c3_Var939 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var939 == nil {
+			templ_7745c5c3_Var939 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1404, "<span class=\"inline-flex items-center gap-1\" data-outlook-push-service=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1416, "<span class=\"inline-flex items-center gap-1\" data-outlook-push-service=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var933 string
-		templ_7745c5c3_Var933, templ_7745c5c3_Err = templ.JoinStringErrs(state)
+		var templ_7745c5c3_Var940 string
+		templ_7745c5c3_Var940, templ_7745c5c3_Err = templ.JoinStringErrs(state)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5661, Col: 79}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5677, Col: 79}
 		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var933))
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var940))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1405, "\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1417, "\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		switch state {
 		case "working":
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1406, "<span class=\"inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1418, "<span class=\"inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -22247,21 +22398,21 @@ func outlookPushServiceState(id, label, state, failure string) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var934 string
-			templ_7745c5c3_Var934, templ_7745c5c3_Err = templ.JoinStringErrs(label)
+			var templ_7745c5c3_Var941 string
+			templ_7745c5c3_Var941, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5666, Col: 12}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5682, Col: 12}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var934))
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var941))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1407, "</span>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1419, "</span>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		case "failing":
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1408, "<span class=\"inline-flex items-center gap-1 text-destructive\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1420, "<span class=\"inline-flex items-center gap-1 text-destructive\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -22269,20 +22420,20 @@ func outlookPushServiceState(id, label, state, failure string) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var935 string
-			templ_7745c5c3_Var935, templ_7745c5c3_Err = templ.JoinStringErrs(label)
+			var templ_7745c5c3_Var942 string
+			templ_7745c5c3_Var942, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5671, Col: 12}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5687, Col: 12}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var935))
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1409, "</span>")
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var942))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Var936 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1421, "</span>")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Var943 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 				templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 				templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 				if !templ_7745c5c3_IsBuffer {
@@ -22294,7 +22445,7 @@ func outlookPushServiceState(id, label, state, failure string) templ.Component {
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Var937 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+				templ_7745c5c3_Var944 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 					templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 					templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 					if !templ_7745c5c3_IsBuffer {
@@ -22306,20 +22457,20 @@ func outlookPushServiceState(id, label, state, failure string) templ.Component {
 						}()
 					}
 					ctx = templ.InitializeContext(ctx)
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1410, "<button type=\"button\" class=\"inline-flex size-4 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring\" aria-label=\"")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1422, "<button type=\"button\" class=\"inline-flex size-4 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring\" aria-label=\"")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					var templ_7745c5c3_Var938 string
-					templ_7745c5c3_Var938, templ_7745c5c3_Err = templ.JoinStringErrs("Why " + label + " notifications aren't working")
+					var templ_7745c5c3_Var945 string
+					templ_7745c5c3_Var945, templ_7745c5c3_Err = templ.JoinStringErrs("Why " + label + " notifications aren't working")
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5678, Col: 68}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5694, Col: 68}
 					}
-					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var938))
+					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var945))
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1411, "\">")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1423, "\">")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -22327,21 +22478,21 @@ func outlookPushServiceState(id, label, state, failure string) templ.Component {
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1412, "</button>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1424, "</button>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 					return nil
 				})
-				templ_7745c5c3_Err = popover.Trigger().Render(templ.WithChildren(ctx, templ_7745c5c3_Var937), templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = popover.Trigger().Render(templ.WithChildren(ctx, templ_7745c5c3_Var944), templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1413, " ")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1425, " ")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Var939 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+				templ_7745c5c3_Var946 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 					templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 					templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 					if !templ_7745c5c3_IsBuffer {
@@ -22353,37 +22504,37 @@ func outlookPushServiceState(id, label, state, failure string) templ.Component {
 						}()
 					}
 					ctx = templ.InitializeContext(ctx)
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1414, "<p class=\"text-xs leading-relaxed text-foreground\">Microsoft says: ")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1426, "<p class=\"text-xs leading-relaxed text-foreground\">Microsoft says: ")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					var templ_7745c5c3_Var940 string
-					templ_7745c5c3_Var940, templ_7745c5c3_Err = templ.JoinStringErrs(failure)
+					var templ_7745c5c3_Var947 string
+					templ_7745c5c3_Var947, templ_7745c5c3_Err = templ.JoinStringErrs(failure)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5684, Col: 82}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5700, Col: 82}
 					}
-					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var940))
+					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var947))
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1415, "</p>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1427, "</p>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 					return nil
 				})
-				templ_7745c5c3_Err = popover.Content(popover.ContentProps{Placement: popover.PlacementBottomStart, Offset: 8, ShowArrow: true, Class: "mobile-sheet w-80 p-3"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var939), templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = popover.Content(popover.ContentProps{Placement: popover.PlacementBottomStart, Offset: 8, ShowArrow: true, Class: "mobile-sheet w-80 p-3"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var946), templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				return nil
 			})
-			templ_7745c5c3_Err = popover.Root(popover.RootProps{ID: id + "-failure", Class: "shrink-0"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var936), templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = popover.Root(popover.RootProps{ID: id + "-failure", Class: "shrink-0"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var943), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		case "starting":
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1416, "<span class=\"inline-flex items-center gap-1 text-muted-foreground\" title=\"Gofer sets it up after the account's next sync.\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1428, "<span class=\"inline-flex items-center gap-1 text-muted-foreground\" title=\"Gofer sets it up after the account's next sync.\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -22391,34 +22542,34 @@ func outlookPushServiceState(id, label, state, failure string) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var941 string
-			templ_7745c5c3_Var941, templ_7745c5c3_Err = templ.JoinStringErrs(label)
+			var templ_7745c5c3_Var948 string
+			templ_7745c5c3_Var948, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5690, Col: 12}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5706, Col: 12}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var941))
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var948))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1417, "</span>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1429, "</span>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		default:
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1418, "<span class=\"inline-flex items-center gap-1 text-muted-foreground opacity-70\" title=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1430, "<span class=\"inline-flex items-center gap-1 text-muted-foreground opacity-70\" title=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var942 string
-			templ_7745c5c3_Var942, templ_7745c5c3_Err = templ.JoinStringErrs("This account doesn't sync its " + strings.ToLower(label) + ", so Microsoft isn't asked about it.")
+			var templ_7745c5c3_Var949 string
+			templ_7745c5c3_Var949, templ_7745c5c3_Err = templ.JoinStringErrs("This account doesn't sync its " + strings.ToLower(label) + ", so Microsoft isn't asked about it.")
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5693, Col: 188}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5709, Col: 188}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var942))
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var949))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1419, "\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1431, "\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -22426,21 +22577,21 @@ func outlookPushServiceState(id, label, state, failure string) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var943 string
-			templ_7745c5c3_Var943, templ_7745c5c3_Err = templ.JoinStringErrs(label)
+			var templ_7745c5c3_Var950 string
+			templ_7745c5c3_Var950, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5695, Col: 12}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5711, Col: 12}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var943))
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var950))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1420, " not synced</span>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1432, " not synced</span>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1421, "</span>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1433, "</span>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -22464,12 +22615,12 @@ func outlookPushUnavailableNote(id string, managed bool) templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var944 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var944 == nil {
-			templ_7745c5c3_Var944 = templ.NopComponent
+		templ_7745c5c3_Var951 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var951 == nil {
+			templ_7745c5c3_Var951 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Var945 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_Var952 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 			if !templ_7745c5c3_IsBuffer {
@@ -22481,7 +22632,7 @@ func outlookPushUnavailableNote(id string, managed bool) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Var946 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+			templ_7745c5c3_Var953 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 				templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 				templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 				if !templ_7745c5c3_IsBuffer {
@@ -22493,7 +22644,7 @@ func outlookPushUnavailableNote(id string, managed bool) templ.Component {
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1422, "<button type=\"button\" class=\"inline-flex size-4 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring\" aria-label=\"Why webhook notifications are unavailable\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1434, "<button type=\"button\" class=\"inline-flex size-4 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring\" aria-label=\"Why webhook notifications are unavailable\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -22501,21 +22652,21 @@ func outlookPushUnavailableNote(id string, managed bool) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1423, "</button>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1435, "</button>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				return nil
 			})
-			templ_7745c5c3_Err = popover.Trigger().Render(templ.WithChildren(ctx, templ_7745c5c3_Var946), templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = popover.Trigger().Render(templ.WithChildren(ctx, templ_7745c5c3_Var953), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1424, " ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1436, " ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Var947 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+			templ_7745c5c3_Var954 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 				templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 				templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 				if !templ_7745c5c3_IsBuffer {
@@ -22528,25 +22679,25 @@ func outlookPushUnavailableNote(id string, managed bool) templ.Component {
 				}
 				ctx = templ.InitializeContext(ctx)
 				if managed {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1425, "<p class=\"text-xs leading-relaxed text-muted-foreground\">Webhook notifications aren't turned on for this server. Ask your administrator if you'd like Outlook mail to arrive as it happens.</p>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1437, "<p class=\"text-xs leading-relaxed text-muted-foreground\">Webhook notifications aren't turned on for this server. Ask your administrator if you'd like Outlook mail to arrive as it happens.</p>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 				} else {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1426, "<div class=\"space-y-2 text-xs leading-relaxed text-muted-foreground\"><p>Webhook notifications are off on this server. Microsoft has to reach Gofer from the internet to send them.</p><p>To turn them on, set <code class=\"font-mono text-foreground\">GOFER_OUTLOOK_WEBHOOKS=true</code> with <code class=\"font-mono text-foreground\">GOFER_BASE_URL</code> on a public HTTPS address, and let <code class=\"font-mono text-foreground\">/webhooks/outlook</code> through your proxy without signing in. Then restart Gofer.</p></div>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1438, "<div class=\"space-y-2 text-xs leading-relaxed text-muted-foreground\"><p>Webhook notifications are off on this server. Microsoft has to reach Gofer from the internet to send them.</p><p>To turn them on, set <code class=\"font-mono text-foreground\">GOFER_OUTLOOK_WEBHOOKS=true</code> with <code class=\"font-mono text-foreground\">GOFER_BASE_URL</code> on a public HTTPS address, and let <code class=\"font-mono text-foreground\">/webhooks/outlook</code> through your proxy without signing in. Then restart Gofer.</p></div>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 				}
 				return nil
 			})
-			templ_7745c5c3_Err = popover.Content(popover.ContentProps{Placement: popover.PlacementBottomStart, Offset: 8, ShowArrow: true, Class: "mobile-sheet w-80 p-3"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var947), templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = popover.Content(popover.ContentProps{Placement: popover.PlacementBottomStart, Offset: 8, ShowArrow: true, Class: "mobile-sheet w-80 p-3"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var954), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = popover.Root(popover.RootProps{ID: id, Class: "shrink-0"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var945), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = popover.Root(popover.RootProps{ID: id, Class: "shrink-0"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var952), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -22666,12 +22817,12 @@ func AccountFormError(message string) templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var948 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var948 == nil {
-			templ_7745c5c3_Var948 = templ.NopComponent
+		templ_7745c5c3_Var955 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var955 == nil {
+			templ_7745c5c3_Var955 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1427, "<div class=\"space-y-4\" data-account-form-error><div class=\"flex items-center gap-3 p-3 rounded-lg bg-destructive/10 border border-destructive/20\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1439, "<div class=\"space-y-4\" data-account-form-error><div class=\"flex items-center gap-3 p-3 rounded-lg bg-destructive/10 border border-destructive/20\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -22679,20 +22830,20 @@ func AccountFormError(message string) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1428, "<p class=\"text-sm text-destructive\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1440, "<p class=\"text-sm text-destructive\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var949 string
-		templ_7745c5c3_Var949, templ_7745c5c3_Err = templ.JoinStringErrs(message)
+		var templ_7745c5c3_Var956 string
+		templ_7745c5c3_Var956, templ_7745c5c3_Err = templ.JoinStringErrs(message)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5825, Col: 48}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5841, Col: 48}
 		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var949))
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var956))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1429, "</p></div><div class=\"flex justify-end pt-2\"><a href=\"/settings/accounts\" class=\"inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors px-3 py-1.5 rounded-md border border-border hover:bg-accent\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1441, "</p></div><div class=\"flex justify-end pt-2\"><a href=\"/settings/accounts\" class=\"inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors px-3 py-1.5 rounded-md border border-border hover:bg-accent\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -22700,7 +22851,7 @@ func AccountFormError(message string) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1430, "Try Again</a></div></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1442, "Try Again</a></div></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -22724,60 +22875,60 @@ func ConnectionTestResults(results []models.ConnectionTestResult, accountID stri
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var950 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var950 == nil {
-			templ_7745c5c3_Var950 = templ.NopComponent
+		templ_7745c5c3_Var957 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var957 == nil {
+			templ_7745c5c3_Var957 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1431, "<div class=\"space-y-3\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1443, "<div class=\"space-y-3\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var951 = []any{"grid grid-cols-1 gap-3", templ.KV("sm:grid-cols-2", len(results) > 1)}
-		templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var951...)
+		var templ_7745c5c3_Var958 = []any{"grid grid-cols-1 gap-3", templ.KV("sm:grid-cols-2", len(results) > 1)}
+		templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var958...)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1432, "<div class=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1444, "<div class=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var952 string
-		templ_7745c5c3_Var952, templ_7745c5c3_Err = templ.JoinStringErrs(templ.CSSClasses(templ_7745c5c3_Var951).String())
+		var templ_7745c5c3_Var959 string
+		templ_7745c5c3_Var959, templ_7745c5c3_Err = templ.JoinStringErrs(templ.CSSClasses(templ_7745c5c3_Var958).String())
 		if templ_7745c5c3_Err != nil {
 			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 1, Col: 0}
 		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var952))
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var959))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1433, "\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1445, "\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		for _, r := range results {
-			var templ_7745c5c3_Var953 = []any{"flex items-center gap-3 p-3 rounded-lg border",
+			var templ_7745c5c3_Var960 = []any{"flex items-center gap-3 p-3 rounded-lg border",
 				templ.KV("bg-emerald-500/10 border-emerald-500/25", r.Success),
 				templ.KV("bg-destructive/10 border-destructive/20", !r.Success),
 			}
-			templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var953...)
+			templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var960...)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1434, "<div class=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1446, "<div class=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var954 string
-			templ_7745c5c3_Var954, templ_7745c5c3_Err = templ.JoinStringErrs(templ.CSSClasses(templ_7745c5c3_Var953).String())
+			var templ_7745c5c3_Var961 string
+			templ_7745c5c3_Var961, templ_7745c5c3_Err = templ.JoinStringErrs(templ.CSSClasses(templ_7745c5c3_Var960).String())
 			if templ_7745c5c3_Err != nil {
 				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 1, Col: 0}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var954))
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var961))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1435, "\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1447, "\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -22792,90 +22943,90 @@ func ConnectionTestResults(results []models.ConnectionTestResult, accountID stri
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1436, "<div class=\"flex-1 min-w-0\"><div class=\"flex items-center gap-2\"><span class=\"text-xs font-semibold uppercase tracking-wider text-muted-foreground\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1448, "<div class=\"flex-1 min-w-0\"><div class=\"flex items-center gap-2\"><span class=\"text-xs font-semibold uppercase tracking-wider text-muted-foreground\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var955 string
-			templ_7745c5c3_Var955, templ_7745c5c3_Err = templ.JoinStringErrs(r.Service)
+			var templ_7745c5c3_Var962 string
+			templ_7745c5c3_Var962, templ_7745c5c3_Err = templ.JoinStringErrs(r.Service)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5852, Col: 102}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5868, Col: 102}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var955))
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var962))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1437, "</span> ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1449, "</span> ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			if r.Success {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1438, "<span class=\"text-xs text-emerald-700 dark:text-emerald-300 font-medium\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1450, "<span class=\"text-xs text-emerald-700 dark:text-emerald-300 font-medium\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				var templ_7745c5c3_Var956 string
-				templ_7745c5c3_Var956, templ_7745c5c3_Err = templ.JoinStringErrs(r.Message)
+				var templ_7745c5c3_Var963 string
+				templ_7745c5c3_Var963, templ_7745c5c3_Err = templ.JoinStringErrs(r.Message)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5854, Col: 93}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5870, Col: 93}
 				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var956))
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var963))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1439, "</span>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1451, "</span>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1440, "</div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1452, "</div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			if !r.Success {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1441, "<p class=\"text-xs text-destructive mt-0.5\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1453, "<p class=\"text-xs text-destructive mt-0.5\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				var templ_7745c5c3_Var957 string
-				templ_7745c5c3_Var957, templ_7745c5c3_Err = templ.JoinStringErrs(r.Error)
+				var templ_7745c5c3_Var964 string
+				templ_7745c5c3_Var964, templ_7745c5c3_Err = templ.JoinStringErrs(r.Error)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5858, Col: 59}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5874, Col: 59}
 				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var957))
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1442, "</p><p class=\"text-xs text-muted-foreground mt-0.5\">")
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var964))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				var templ_7745c5c3_Var958 string
-				templ_7745c5c3_Var958, templ_7745c5c3_Err = templ.JoinStringErrs(r.Message)
-				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5859, Col: 66}
-				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var958))
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1454, "</p><p class=\"text-xs text-muted-foreground mt-0.5\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1443, "</p>")
+				var templ_7745c5c3_Var965 string
+				templ_7745c5c3_Var965, templ_7745c5c3_Err = templ.JoinStringErrs(r.Message)
+				if templ_7745c5c3_Err != nil {
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5875, Col: 66}
+				}
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var965))
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1455, "</p>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1444, "</div></div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1456, "</div></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1445, "</div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1457, "</div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		for _, r := range results {
 			if r.Success && r.Warning != "" {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1446, "<div class=\"flex items-start gap-3 p-3 rounded-lg border bg-amber-500/10 border-amber-500/25\" data-connection-test-warning>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1458, "<div class=\"flex items-start gap-3 p-3 rounded-lg border bg-amber-500/10 border-amber-500/25\" data-connection-test-warning>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -22883,40 +23034,40 @@ func ConnectionTestResults(results []models.ConnectionTestResult, accountID stri
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1447, "<p class=\"flex-1 min-w-0 text-xs leading-relaxed text-amber-800 dark:text-amber-200\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1459, "<p class=\"flex-1 min-w-0 text-xs leading-relaxed text-amber-800 dark:text-amber-200\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				var templ_7745c5c3_Var959 string
-				templ_7745c5c3_Var959, templ_7745c5c3_Err = templ.JoinStringErrs(r.Warning)
+				var templ_7745c5c3_Var966 string
+				templ_7745c5c3_Var966, templ_7745c5c3_Err = templ.JoinStringErrs(r.Warning)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5869, Col: 101}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5885, Col: 101}
 				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var959))
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var966))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1448, "</p></div>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1460, "</p></div>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
 		}
 		if wizardType == "" {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1449, "<button class=\"w-full inline-flex items-center justify-center gap-1.5 text-sm font-medium px-4 py-2 rounded-lg border border-border hover:bg-accent transition-colors\" hx-post=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1461, "<button class=\"w-full inline-flex items-center justify-center gap-1.5 text-sm font-medium px-4 py-2 rounded-lg border border-border hover:bg-accent transition-colors\" hx-post=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var960 string
-			templ_7745c5c3_Var960, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("/api/accounts/%s/test", accountID))
+			var templ_7745c5c3_Var967 string
+			templ_7745c5c3_Var967, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("/api/accounts/%s/test", accountID))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5876, Col: 61}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5892, Col: 61}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var960))
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var967))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1450, "\" hx-target=\"#test-results\" hx-swap=\"outerHTML\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1462, "\" hx-target=\"#test-results\" hx-swap=\"outerHTML\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -22924,12 +23075,12 @@ func ConnectionTestResults(results []models.ConnectionTestResult, accountID stri
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1451, "Retry</button>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1463, "Retry</button>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1452, "</div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1464, "</div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -23027,12 +23178,12 @@ func SettingsOperationsTab() templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var961 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var961 == nil {
-			templ_7745c5c3_Var961 = templ.NopComponent
+		templ_7745c5c3_Var968 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var968 == nil {
+			templ_7745c5c3_Var968 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1453, "<div class=\"mt-6 space-y-6\"><div class=\"settings-card bg-card rounded-lg border p-6\"><div class=\"flex items-start gap-3\"><div class=\"mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md border border-border/70 bg-background text-muted-foreground\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1465, "<div class=\"mt-6 space-y-6\"><div class=\"settings-card bg-card rounded-lg border p-6\"><div class=\"flex items-start gap-3\"><div class=\"mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md border border-border/70 bg-background text-muted-foreground\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -23040,7 +23191,7 @@ func SettingsOperationsTab() templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1454, "</div><div><h3 class=\"text-sm font-semibold uppercase tracking-wider text-muted-foreground\">Mail operations</h3><p class=\"mt-1 text-xs leading-relaxed text-muted-foreground\">See background message changes, draft sync, labels, and Sent copies that are still queued or need attention. Retrying here keeps the original operation identity.</p></div></div></div><div id=\"mail-operations-content\" hx-get=\"/settings/operations/content\" hx-trigger=\"load\" hx-swap=\"outerHTML\" class=\"settings-card rounded-lg border bg-card p-6 text-sm text-muted-foreground\">Loading mail operations...</div></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1466, "</div><div><h3 class=\"text-sm font-semibold uppercase tracking-wider text-muted-foreground\">Mail operations</h3><p class=\"mt-1 text-xs leading-relaxed text-muted-foreground\">See background message changes, draft sync, labels, and Sent copies that are still queued or need attention. Retrying here keeps the original operation identity.</p></div></div></div><div id=\"mail-operations-content\" hx-get=\"/settings/operations/content\" hx-trigger=\"load\" hx-swap=\"outerHTML\" class=\"settings-card rounded-lg border bg-card p-6 text-sm text-muted-foreground\">Loading mail operations...</div></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -23071,43 +23222,43 @@ func SettingsOperationsContent(status models.MailOperationsStatus) templ.Compone
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var962 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var962 == nil {
-			templ_7745c5c3_Var962 = templ.NopComponent
+		templ_7745c5c3_Var969 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var969 == nil {
+			templ_7745c5c3_Var969 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1455, "<div id=\"mail-operations-content\" hx-get=\"/settings/operations/content\" hx-trigger=\"mail-operations-refresh\" hx-swap=\"outerHTML\" class=\"settings-card rounded-lg border bg-card p-6 space-y-4\" data-mail-operations-refresh=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1467, "<div id=\"mail-operations-content\" hx-get=\"/settings/operations/content\" hx-trigger=\"mail-operations-refresh\" hx-swap=\"outerHTML\" class=\"settings-card rounded-lg border bg-card p-6 space-y-4\" data-mail-operations-refresh=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var963 string
-		templ_7745c5c3_Var963, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.Itoa(mailOperationsRefreshSeconds))
+		var templ_7745c5c3_Var970 string
+		templ_7745c5c3_Var970, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.Itoa(mailOperationsRefreshSeconds))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5994, Col: 75}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 6010, Col: 75}
 		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var963))
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1456, "\"><div class=\"flex flex-wrap items-start justify-between gap-3\"><div><h3 class=\"text-sm font-semibold uppercase tracking-wider text-muted-foreground\">Background mail work</h3><p class=\"mt-1 text-xs text-muted-foreground\">")
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var970))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var964 string
-		templ_7745c5c3_Var964, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d operation(s) currently retained locally", status.Total))
-		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 5999, Col: 123}
-		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var964))
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1468, "\"><div class=\"flex flex-wrap items-start justify-between gap-3\"><div><h3 class=\"text-sm font-semibold uppercase tracking-wider text-muted-foreground\">Background mail work</h3><p class=\"mt-1 text-xs text-muted-foreground\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1457, "</p></div><div class=\"flex flex-wrap items-center justify-end gap-2\">")
+		var templ_7745c5c3_Var971 string
+		templ_7745c5c3_Var971, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d operation(s) currently retained locally", status.Total))
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 6015, Col: 123}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var971))
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1469, "</p></div><div class=\"flex flex-wrap items-center justify-end gap-2\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		if status.ActionRequired > 0 {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1458, "<span class=\"inline-flex shrink-0 items-center gap-1.5 rounded-full border border-amber-500/25 bg-amber-500/10 px-2 py-1 text-[11px] font-semibold text-amber-800 dark:text-amber-200\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1470, "<span class=\"inline-flex shrink-0 items-center gap-1.5 rounded-full border border-amber-500/25 bg-amber-500/10 px-2 py-1 text-[11px] font-semibold text-amber-800 dark:text-amber-200\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -23115,38 +23266,38 @@ func SettingsOperationsContent(status models.MailOperationsStatus) templ.Compone
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var965 string
-			templ_7745c5c3_Var965, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d need attention", status.ActionRequired))
+			var templ_7745c5c3_Var972 string
+			templ_7745c5c3_Var972, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d need attention", status.ActionRequired))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 6005, Col: 63}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 6021, Col: 63}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var965))
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1459, "</span> ")
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var972))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1471, "</span> ")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1460, "<span class=\"text-[11px] tabular-nums text-muted-foreground\" aria-live=\"off\" data-mail-operations-countdown>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1472, "<span class=\"text-[11px] tabular-nums text-muted-foreground\" aria-live=\"off\" data-mail-operations-countdown>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var966 string
-		templ_7745c5c3_Var966, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("Auto refresh in %ds", mailOperationsRefreshSeconds))
+		var templ_7745c5c3_Var973 string
+		templ_7745c5c3_Var973, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("Auto refresh in %ds", mailOperationsRefreshSeconds))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 6009, Col: 71}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 6025, Col: 71}
 		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var966))
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1461, "</span>")
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var973))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Var967 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1473, "</span>")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Var974 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 			if !templ_7745c5c3_IsBuffer {
@@ -23162,7 +23313,7 @@ func SettingsOperationsContent(status models.MailOperationsStatus) templ.Compone
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1462, " Refresh")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1474, " Refresh")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -23180,233 +23331,233 @@ func SettingsOperationsContent(status models.MailOperationsStatus) templ.Compone
 				"hx-disabled-elt":                  "this",
 				"data-mail-operations-refresh-now": "",
 			},
-		}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var967), templ_7745c5c3_Buffer)
+		}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var974), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1463, "</div></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1475, "</div></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		if len(status.Operations) == 0 {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1464, "<div class=\"rounded-md border border-dashed border-border px-4 py-8 text-center text-xs text-muted-foreground\">Nothing is waiting for provider work.</div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1476, "<div class=\"rounded-md border border-dashed border-border px-4 py-8 text-center text-xs text-muted-foreground\">Nothing is waiting for provider work.</div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		} else {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1465, "<div class=\"space-y-2\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1477, "<div class=\"space-y-2\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			for _, operation := range status.Operations {
-				var templ_7745c5c3_Var968 = []any{"settings-item rounded-lg border bg-background/40 p-4",
+				var templ_7745c5c3_Var975 = []any{"settings-item rounded-lg border bg-background/40 p-4",
 					templ.KV("border-amber-500/25", operation.CanRetry || operation.CanReconcile),
 					templ.KV("border-border/60", !operation.CanRetry && !operation.CanReconcile),
 				}
-				templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var968...)
+				templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var975...)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1466, "<div class=\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1478, "<div class=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				var templ_7745c5c3_Var969 string
-				templ_7745c5c3_Var969, templ_7745c5c3_Err = templ.JoinStringErrs(templ.CSSClasses(templ_7745c5c3_Var968).String())
+				var templ_7745c5c3_Var976 string
+				templ_7745c5c3_Var976, templ_7745c5c3_Err = templ.JoinStringErrs(templ.CSSClasses(templ_7745c5c3_Var975).String())
 				if templ_7745c5c3_Err != nil {
 					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 1, Col: 0}
 				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var969))
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var976))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1467, "\" data-mail-operation-id=\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1479, "\" data-mail-operation-id=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				var templ_7745c5c3_Var970 string
-				templ_7745c5c3_Var970, templ_7745c5c3_Err = templ.JoinStringErrs(operation.ID)
+				var templ_7745c5c3_Var977 string
+				templ_7745c5c3_Var977, templ_7745c5c3_Err = templ.JoinStringErrs(operation.ID)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 6038, Col: 44}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 6054, Col: 44}
 				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var970))
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1468, "\"><div class=\"flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between\"><div class=\"min-w-0\"><div class=\"flex flex-wrap items-center gap-2\"><span class=\"text-sm font-semibold text-foreground\">")
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var977))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				var templ_7745c5c3_Var971 string
-				templ_7745c5c3_Var971, templ_7745c5c3_Err = templ.JoinStringErrs(mailOperationTypeLabel(operation.Type))
-				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 6042, Col: 101}
-				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var971))
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1480, "\"><div class=\"flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between\"><div class=\"min-w-0\"><div class=\"flex flex-wrap items-center gap-2\"><span class=\"text-sm font-semibold text-foreground\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1469, "</span> ")
+				var templ_7745c5c3_Var978 string
+				templ_7745c5c3_Var978, templ_7745c5c3_Err = templ.JoinStringErrs(mailOperationTypeLabel(operation.Type))
+				if templ_7745c5c3_Err != nil {
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 6058, Col: 101}
+				}
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var978))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				var templ_7745c5c3_Var972 = []any{"rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider",
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1481, "</span> ")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				var templ_7745c5c3_Var979 = []any{"rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider",
 					templ.KV("border-amber-500/25 bg-amber-500/10 text-amber-800 dark:text-amber-200", operation.CanRetry || operation.CanReconcile),
 					templ.KV("border-border bg-card text-muted-foreground", !operation.CanRetry && !operation.CanReconcile),
 				}
-				templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var972...)
+				templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var979...)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1470, "<span class=\"")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				var templ_7745c5c3_Var973 string
-				templ_7745c5c3_Var973, templ_7745c5c3_Err = templ.JoinStringErrs(templ.CSSClasses(templ_7745c5c3_Var972).String())
-				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 1, Col: 0}
-				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var973))
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1471, "\">")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				var templ_7745c5c3_Var974 string
-				templ_7745c5c3_Var974, templ_7745c5c3_Err = templ.JoinStringErrs(mailOperationStateLabel(operation))
-				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 6047, Col: 47}
-				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var974))
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1472, "</span></div><div class=\"mt-1 text-xs text-muted-foreground\">")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				var templ_7745c5c3_Var975 string
-				templ_7745c5c3_Var975, templ_7745c5c3_Err = templ.JoinStringErrs(operation.AccountEmail)
-				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 6050, Col: 33}
-				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var975))
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1473, " ")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				if mailOperationTargetLabel(operation) != "" {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1474, "<span>· ")
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
-					var templ_7745c5c3_Var976 string
-					templ_7745c5c3_Var976, templ_7745c5c3_Err = templ.JoinStringErrs(mailOperationTargetLabel(operation))
-					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 6052, Col: 57}
-					}
-					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var976))
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1475, "</span>")
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
-				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1476, "</div>")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				if operation.LastError != "" {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1477, "<div class=\"mt-2 rounded-md border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs leading-relaxed text-red-800 dark:text-red-200\">")
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
-					var templ_7745c5c3_Var977 string
-					templ_7745c5c3_Var977, templ_7745c5c3_Err = templ.JoinStringErrs(operation.LastError)
-					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 6057, Col: 31}
-					}
-					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var977))
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
-					if strings.Contains(operation.LastError, models.NoSentFolderError) {
-						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1478, "<a href=\"")
-						if templ_7745c5c3_Err != nil {
-							return templ_7745c5c3_Err
-						}
-						var templ_7745c5c3_Var978 templ.SafeURL
-						templ_7745c5c3_Var978, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL("/settings/accounts?folder_roles=" + url.QueryEscape(operation.AccountID)))
-						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 6060, Col: 109}
-						}
-						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var978))
-						if templ_7745c5c3_Err != nil {
-							return templ_7745c5c3_Err
-						}
-						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1479, "\" class=\"ml-1 font-semibold underline underline-offset-2\" data-mail-operation-choose-sent>Choose a Sent folder</a>")
-						if templ_7745c5c3_Err != nil {
-							return templ_7745c5c3_Err
-						}
-					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1480, "</div>")
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
-				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1481, "<div class=\"mt-2 text-[11px] text-muted-foreground\">")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				var templ_7745c5c3_Var979 string
-				templ_7745c5c3_Var979, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("Attempt %d", operation.Attempts))
-				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 6065, Col: 56}
-				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var979))
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1482, " · next retry ")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1482, "<span class=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var980 string
-				templ_7745c5c3_Var980, templ_7745c5c3_Err = templ.JoinStringErrs(mailOperationTimeLabel(operation.NextRetryAt))
+				templ_7745c5c3_Var980, templ_7745c5c3_Err = templ.JoinStringErrs(templ.CSSClasses(templ_7745c5c3_Var979).String())
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 6065, Col: 120}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 1, Col: 0}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var980))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1483, "</div></div><div class=\"flex shrink-0 items-center gap-2\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1483, "\">")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				var templ_7745c5c3_Var981 string
+				templ_7745c5c3_Var981, templ_7745c5c3_Err = templ.JoinStringErrs(mailOperationStateLabel(operation))
+				if templ_7745c5c3_Err != nil {
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 6063, Col: 47}
+				}
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var981))
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1484, "</span></div><div class=\"mt-1 text-xs text-muted-foreground\">")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				var templ_7745c5c3_Var982 string
+				templ_7745c5c3_Var982, templ_7745c5c3_Err = templ.JoinStringErrs(operation.AccountEmail)
+				if templ_7745c5c3_Err != nil {
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 6066, Col: 33}
+				}
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var982))
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1485, " ")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				if mailOperationTargetLabel(operation) != "" {
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1486, "<span>· ")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					var templ_7745c5c3_Var983 string
+					templ_7745c5c3_Var983, templ_7745c5c3_Err = templ.JoinStringErrs(mailOperationTargetLabel(operation))
+					if templ_7745c5c3_Err != nil {
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 6068, Col: 57}
+					}
+					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var983))
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1487, "</span>")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1488, "</div>")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				if operation.LastError != "" {
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1489, "<div class=\"mt-2 rounded-md border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs leading-relaxed text-red-800 dark:text-red-200\">")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					var templ_7745c5c3_Var984 string
+					templ_7745c5c3_Var984, templ_7745c5c3_Err = templ.JoinStringErrs(operation.LastError)
+					if templ_7745c5c3_Err != nil {
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 6073, Col: 31}
+					}
+					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var984))
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					if strings.Contains(operation.LastError, models.NoSentFolderError) {
+						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1490, "<a href=\"")
+						if templ_7745c5c3_Err != nil {
+							return templ_7745c5c3_Err
+						}
+						var templ_7745c5c3_Var985 templ.SafeURL
+						templ_7745c5c3_Var985, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL("/settings/accounts?folder_roles=" + url.QueryEscape(operation.AccountID)))
+						if templ_7745c5c3_Err != nil {
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 6076, Col: 109}
+						}
+						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var985))
+						if templ_7745c5c3_Err != nil {
+							return templ_7745c5c3_Err
+						}
+						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1491, "\" class=\"ml-1 font-semibold underline underline-offset-2\" data-mail-operation-choose-sent>Choose a Sent folder</a>")
+						if templ_7745c5c3_Err != nil {
+							return templ_7745c5c3_Err
+						}
+					}
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1492, "</div>")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1493, "<div class=\"mt-2 text-[11px] text-muted-foreground\">")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				var templ_7745c5c3_Var986 string
+				templ_7745c5c3_Var986, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("Attempt %d", operation.Attempts))
+				if templ_7745c5c3_Err != nil {
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 6081, Col: 56}
+				}
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var986))
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1494, " · next retry ")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				var templ_7745c5c3_Var987 string
+				templ_7745c5c3_Var987, templ_7745c5c3_Err = templ.JoinStringErrs(mailOperationTimeLabel(operation.NextRetryAt))
+				if templ_7745c5c3_Err != nil {
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 6081, Col: 120}
+				}
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var987))
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1495, "</div></div><div class=\"flex shrink-0 items-center gap-2\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				if operation.CanRetry || operation.CanReconcile {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1484, "<button type=\"button\" data-mail-operation-retry data-mail-operation-id=\"")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1496, "<button type=\"button\" data-mail-operation-retry data-mail-operation-id=\"")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					var templ_7745c5c3_Var981 string
-					templ_7745c5c3_Var981, templ_7745c5c3_Err = templ.JoinStringErrs(operation.ID)
+					var templ_7745c5c3_Var988 string
+					templ_7745c5c3_Var988, templ_7745c5c3_Err = templ.JoinStringErrs(operation.ID)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 6070, Col: 94}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 6086, Col: 94}
 					}
-					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var981))
+					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var988))
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1485, "\" class=\"inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-xs font-semibold text-foreground transition-colors hover:bg-accent\">")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1497, "\" class=\"inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-xs font-semibold text-foreground transition-colors hover:bg-accent\">")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -23414,31 +23565,31 @@ func SettingsOperationsContent(status models.MailOperationsStatus) templ.Compone
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					var templ_7745c5c3_Var982 string
-					templ_7745c5c3_Var982, templ_7745c5c3_Err = templ.JoinStringErrs(mailOperationActionLabel(operation))
+					var templ_7745c5c3_Var989 string
+					templ_7745c5c3_Var989, templ_7745c5c3_Err = templ.JoinStringErrs(mailOperationActionLabel(operation))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 6072, Col: 47}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 6088, Col: 47}
 					}
-					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var982))
+					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var989))
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1486, "</button>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1498, "</button>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1487, "</div></div></div>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1499, "</div></div></div>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1488, "</div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1500, "</div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1489, "</div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1501, "</div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

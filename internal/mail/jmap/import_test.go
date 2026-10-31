@@ -261,3 +261,40 @@ func TestFindEmailsFailsWhenNoSearchIsAnswered(t *testing.T) {
 		t.Fatalf("FindEmails = %v", err)
 	}
 }
+
+// Calendars and address books are created, renamed and deleted with their
+// /set, deleting what they hold too, and a refusal says what was refused.
+func TestCalendarAndAddressBookSets(t *testing.T) {
+	var calls [][]json.RawMessage
+	args := func() map[string]any {
+		var out map[string]any
+		_ = json.Unmarshal(calls[0][1], &out)
+		return out
+	}
+	ok := func(method string) (*Client, *Session) {
+		server := importServer(t, `{"methodResponses": [["`+method+`", {"accountId": "a1", "created": {"new": {"id": "n1"}}}, "0"]], "sessionState": "s1"}`, &calls)
+		t.Cleanup(server.Close)
+		return &Client{HTTP: server.Client()}, &Session{APIURL: server.URL}
+	}
+
+	calendars, session := ok("Calendar/set")
+	if id, err := calendars.CreateCalendar(context.Background(), session, "a1", "Club"); err != nil || id != "n1" || args()["create"].(map[string]any)["new"].(map[string]any)["name"] != "Club" {
+		t.Fatalf("create calendar = %q, %v, %v", id, err, args())
+	}
+	if err := calendars.RenameCalendar(context.Background(), session, "a1", "c1", "Book club"); err != nil || args()["update"].(map[string]any)["c1"].(map[string]any)["name"] != "Book club" {
+		t.Fatalf("rename calendar = %v, %v", err, args())
+	}
+	if err := calendars.DestroyCalendar(context.Background(), session, "a1", "c1"); err != nil || args()["onDestroyRemoveEvents"] != true || args()["destroy"].([]any)[0] != "c1" {
+		t.Fatalf("delete calendar = %v, %v", err, args())
+	}
+	books, bookSession := ok("AddressBook/set")
+	if err := books.DestroyAddressBook(context.Background(), bookSession, "a1", "b1"); err != nil || args()["onDestroyRemoveContents"] != true {
+		t.Fatalf("delete address book = %v, %v", err, args())
+	}
+
+	refused := importServer(t, `{"methodResponses": [["Calendar/set", {"accountId": "a1", "notDestroyed": {"c1": {"type": "forbidden", "description": "default calendar"}}}, "0"]], "sessionState": "s1"}`, &calls)
+	err := (&Client{HTTP: refused.Client()}).DestroyCalendar(context.Background(), &Session{APIURL: refused.URL}, "a1", "c1")
+	if err == nil || !strings.Contains(err.Error(), "did not delete the calendar") || !strings.Contains(err.Error(), "default calendar") {
+		t.Fatalf("refused delete = %v", err)
+	}
+}

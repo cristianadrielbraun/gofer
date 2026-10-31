@@ -124,6 +124,17 @@ func (c *Client) CreateAddressBook(ctx context.Context, session *Session, accoun
 		map[string]any{"name": name})
 }
 
+// RenameAddressBook runs AddressBook/set to give an address book a new name.
+func (c *Client) RenameAddressBook(ctx context.Context, session *Session, accountID, id, name string) error {
+	return c.updateOne(ctx, session, CapabilityContacts, "AddressBook/set", accountID, id, "address book", map[string]any{"name": name})
+}
+
+// DestroyAddressBook runs AddressBook/set to delete an address book with its
+// contacts.
+func (c *Client) DestroyAddressBook(ctx context.Context, session *Session, accountID, id string) error {
+	return c.destroyOne(ctx, session, CapabilityContacts, "AddressBook/set", accountID, id, "address book", "onDestroyRemoveContents")
+}
+
 // GetContactCards runs ContactCard/get. A nil ids fetches every card in the
 // account; the server may refuse that for a large account, so a full listing
 // should query the ids first and fetch them in pages of MaxObjectsInGet.

@@ -2512,8 +2512,11 @@ function syncProtocolChoices(root) {
 document.addEventListener('DOMContentLoaded', function() { syncProtocolChoices(document); });
 document.body.addEventListener('htmx:afterSwap', function(event) { syncProtocolChoices(event.target || document); });
 // discoverCardDAV lists the address books on the CardDAV server, first
-// making one named createName on it when that is set.
-function discoverCardDAV(accountID, fieldsID, statusID, autodiscover, createName) {
+// first making the change asked for, if any: {create_name}, {rename_target,
+// rename_name} or {delete_target}.
+function discoverCardDAV(accountID, fieldsID, statusID, autodiscover, change) {
+  change = change || {};
+  var busyLabel = change.create_name ? 'Creating ' + change.create_name + '...' : change.rename_name ? 'Renaming to ' + change.rename_name + '...' : change.delete_target ? 'Deleting the address book...' : '';
   var fields = document.getElementById(fieldsID);
   var status = document.getElementById(statusID);
   if (!fields || !status) return;
@@ -2525,11 +2528,11 @@ function discoverCardDAV(accountID, fieldsID, statusID, autodiscover, createName
     body.append(input.name, input.value || '');
   });
   if (autodiscover) body.append('autodiscover', '1');
-  if (createName) body.append('create_name', createName);
+  Object.keys(change).forEach(function(name) { body.append(name, change[name]); });
   var overJMAP = body.get('provider') === 'jmap';
   function renderDiscoveryProgress(completed, total, endpoint) {
     var percent = total > 0 ? Math.max(0, Math.min(100, Math.round((completed / total) * 100))) : 0;
-    var label = total > 0 ? 'Testing ' + Math.min(completed + 1, total) + ' of ' + total + ' CardDAV checks' : (createName ? 'Creating ' + createName + '...' : overJMAP ? 'Looking up JMAP address books...' : 'Preparing CardDAV discovery...');
+    var label = total > 0 ? 'Testing ' + Math.min(completed + 1, total) + ' of ' + total + ' CardDAV checks' : (busyLabel || (overJMAP ? 'Looking up JMAP address books...' : 'Preparing CardDAV discovery...'));
     var safeEndpoint = endpoint ? endpoint.replace(/[&<>"]/g, function(ch) { return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]); }) : '';
     status.innerHTML = '<div class="rounded-lg border border-border bg-background/60 p-3 text-xs text-muted-foreground"><div class="flex items-center justify-between gap-3"><span class="font-medium text-foreground">' + label + '</span><span class="tabular-nums">' + completed + '/' + (total || '?') + '</span></div><div class="mt-2 h-1.5 overflow-hidden rounded-md bg-muted"><div class="h-full rounded-md bg-primary transition-all" style="width:' + percent + '%"></div></div>' + (safeEndpoint ? '<div class="mt-2 truncate">' + safeEndpoint + '</div>' : '') + '</div>';
   }
@@ -2623,6 +2626,31 @@ function discoverCardDAV(accountID, fieldsID, statusID, autodiscover, createName
     row.appendChild(field);
     row.appendChild(button);
     return row;
+  }
+  // addressBookActions are the rename and delete buttons of a listed book;
+  // see AddressBookActions.
+  function addressBookActions(book) {
+    var wrap = document.createElement('span');
+    wrap.className = 'ml-auto flex shrink-0 items-center gap-0.5';
+    [
+      { kind: 'rename', label: 'Rename', hover: 'hover:bg-accent hover:text-foreground', svg: '<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"></path><path d="m15 5 4 4"></path>' },
+      { kind: 'delete', label: 'Delete', hover: 'hover:bg-destructive/10 hover:text-destructive', svg: '<path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path><line x1="10" x2="10" y1="11" y2="17"></line><line x1="14" x2="14" y1="11" y2="17"></line>' },
+    ].forEach(function(action) {
+      var button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'inline-flex size-6 items-center justify-center rounded text-muted-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 ' + action.hover;
+      button.setAttribute('data-address-book-' + action.kind, book.url || '');
+      button.dataset.addressBookName = book.name || 'Address book';
+      button.dataset.accountId = accountID;
+      button.dataset.fieldsId = fieldsID;
+      button.dataset.statusId = statusID;
+      button.dataset.carddavAutodiscover = autodiscover ? 'true' : 'false';
+      button.setAttribute('aria-label', action.label + ' ' + (book.name || 'address book'));
+      button.title = action.label;
+      button.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-3.5">' + action.svg + '</svg>';
+      wrap.appendChild(button);
+    });
+    return wrap;
   }
   function renderDiscoveryResults(books, created) {
     status.textContent = '';
@@ -2718,6 +2746,7 @@ function discoverCardDAV(accountID, fieldsID, statusID, autodiscover, createName
       row.appendChild(hiddenID);
       row.appendChild(hiddenName);
       row.appendChild(content);
+      row.appendChild(addressBookActions(book));
       check.addEventListener('change', function() {
         radio.disabled = !check.checked;
         hiddenName.disabled = !check.checked;
@@ -2755,6 +2784,41 @@ document.addEventListener('click', function(event) {
   event.preventDefault();
   discoverCardDAV(button.dataset.accountId || '', button.dataset.fieldsId || '', button.dataset.statusId || '', button.dataset.carddavAutodiscover === 'true');
 });
+// An address book's rename and delete buttons change it on its server, then
+// list the books again: through the Contacts step's discovery, or in the
+// calendar-only/contacts-only dialog through its Find. A delete is confirmed
+// first, since the book and its contacts are gone for every app.
+document.addEventListener('click', function(event) {
+  var button = event.target && event.target.closest ? event.target.closest('[data-address-book-rename], [data-address-book-delete]') : null;
+  if (!button || button.disabled) return;
+  event.preventDefault();
+  var rename = button.hasAttribute('data-address-book-rename');
+  var target = rename ? button.getAttribute('data-address-book-rename') : button.getAttribute('data-address-book-delete');
+  var name = button.dataset.addressBookName || 'this address book';
+  var ask = rename
+    ? window.goferPrompt({ title: 'Rename address book', label: 'Address book name', value: name, confirmLabel: 'Rename' }).then(function(next) {
+      next = (next || '').trim();
+      return next && next !== name ? { rename_target: target, rename_name: next } : null;
+    })
+    : window.goferConfirm({
+      title: 'Delete “' + name + '”?',
+      message: '“' + name + '” and all its contacts are deleted from the server, for every app and device that uses it. This can\'t be undone.',
+      confirmLabel: 'Delete address book',
+      destructive: true,
+    }).then(function(accepted) { return accepted ? { delete_target: target } : null; });
+  ask.then(function(change) {
+    if (!change) return;
+    var root = davAccountRoot(button);
+    if (root) {
+      davAccountRequest(root, '/find', rename ? 'Renaming...' : 'Deleting...', change).then(function(html) {
+        davAccountItems(root, html);
+        davAccountBusy(root, false);
+      }).catch(function() {});
+      return;
+    }
+    discoverCardDAV(button.dataset.accountId || '', button.dataset.fieldsId || '', button.dataset.statusId || '', button.dataset.carddavAutodiscover === 'true', change);
+  });
+});
 // createCardDAVAddressBook runs discovery from a New address book row,
 // making the address book named there first.
 function createCardDAVAddressBook(button) {
@@ -2766,7 +2830,7 @@ function createCardDAVAddressBook(button) {
     return;
   }
   button.disabled = true;
-  discoverCardDAV(button.dataset.accountId || '', button.dataset.fieldsId || '', button.dataset.statusId || '', button.dataset.carddavAutodiscover === 'true', name);
+  discoverCardDAV(button.dataset.accountId || '', button.dataset.fieldsId || '', button.dataset.statusId || '', button.dataset.carddavAutodiscover === 'true', { create_name: name });
 }
 document.addEventListener('click', function(event) {
   var button = event.target && event.target.closest ? event.target.closest('[data-carddav-create]') : null;

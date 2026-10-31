@@ -112,3 +112,50 @@ func (c *Client) createOne(ctx context.Context, session *Session, capability, me
 	}
 	return id, nil
 }
+
+// updateOne runs a /set that changes one object with patch. what names the
+// object in errors, such as "calendar".
+func (c *Client) updateOne(ctx context.Context, session *Session, capability, method, accountID, id, what string, patch map[string]any) error {
+	responses, err := c.Call(ctx, session, []string{capability},
+		Invocation{Name: method, Args: map[string]any{
+			"accountId": accountID,
+			"update":    map[string]any{id: patch},
+		}, CallID: "0"})
+	if err != nil {
+		return err
+	}
+	var updated struct {
+		NotUpdated map[string]SetError `json:"notUpdated"`
+	}
+	if err := responses.Get("0", &updated); err != nil {
+		return fmt.Errorf("%s: %w", method, err)
+	}
+	if failure, ok := updated.NotUpdated[id]; ok {
+		return fmt.Errorf("the server did not rename the %s: %w", what, &failure)
+	}
+	return nil
+}
+
+// destroyOne runs a /set that deletes one object, and with removeArg set to
+// true, what it holds. what names the object in errors.
+func (c *Client) destroyOne(ctx context.Context, session *Session, capability, method, accountID, id, what, removeArg string) error {
+	responses, err := c.Call(ctx, session, []string{capability},
+		Invocation{Name: method, Args: map[string]any{
+			"accountId": accountID,
+			"destroy":   []string{id},
+			removeArg:   true,
+		}, CallID: "0"})
+	if err != nil {
+		return err
+	}
+	var destroyed struct {
+		NotDestroyed map[string]SetError `json:"notDestroyed"`
+	}
+	if err := responses.Get("0", &destroyed); err != nil {
+		return fmt.Errorf("%s: %w", method, err)
+	}
+	if failure, ok := destroyed.NotDestroyed[id]; ok {
+		return fmt.Errorf("the server did not delete the %s: %w", what, &failure)
+	}
+	return nil
+}

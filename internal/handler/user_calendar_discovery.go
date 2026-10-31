@@ -314,27 +314,10 @@ func calendarDiscoveredSources(calendars []calendar.RemoteCalendar) []storage.Ca
 func (p *userCalendarRequest) discoverDAV(ctx context.Context, form url.Values, create *davCreate) ([]storage.CalendarSource, *config.DiscoveredCalDAVSettings, error) {
 	service := p.service()
 	identity := service.Identity()
-	savedURL, savedUsername, _ := service.CalDAVSettings()
-	autodiscover, useAccount := form.Get("autodiscover") == "1", form.Get("use_account_credentials") == "1"
-	baseURL := strings.TrimSpace(form.Get("caldav_url"))
-	if baseURL == "" && !autodiscover {
-		baseURL = savedURL
-	}
-	username := strings.TrimSpace(form.Get("username"))
-	if useAccount {
-		username = strings.TrimSpace(identity.Username)
-		if username == "" {
-			username = identity.EmailAddress
-		}
-	} else if username == "" {
-		username = savedUsername
-	}
-	password, err := service.CalDAVPassword(form.Get("password"), useAccount)
+	autodiscover := form.Get("autodiscover") == "1"
+	baseURL, username, password, useAccount, err := p.calDAVLogin(form)
 	if err != nil {
 		return nil, nil, err
-	}
-	if username == "" || strings.TrimSpace(password) == "" {
-		return nil, nil, errors.New("Enter the CalDAV username and password or use the incoming-mail credentials.")
 	}
 	ctx = context.WithValue(ctx, calendarDiscoveryDAVGuardKey{}, calendarDiscoveryDAVCallbacks{ready: p.ready, failure: p.recordRetry})
 	var sources []storage.CalendarSource
@@ -354,6 +337,35 @@ func (p *userCalendarRequest) discoverDAV(ctx context.Context, form url.Values, 
 		return nil, nil, errors.New("CalDAV discovery exceeded its source limit")
 	}
 	return sources, &config.DiscoveredCalDAVSettings{BaseURL: baseURL, Username: username, Password: password, UseAccountCredentials: useAccount}, nil
+}
+
+// calDAVLogin is the CalDAV server and login form asks for, or the saved
+// ones where it leaves them out.
+func (p *userCalendarRequest) calDAVLogin(form url.Values) (baseURL, username, password string, useAccount bool, err error) {
+	service := p.service()
+	identity := service.Identity()
+	savedURL, savedUsername, _ := service.CalDAVSettings()
+	autodiscover, useAccount := form.Get("autodiscover") == "1", form.Get("use_account_credentials") == "1"
+	baseURL = strings.TrimSpace(form.Get("caldav_url"))
+	if baseURL == "" && !autodiscover {
+		baseURL = savedURL
+	}
+	username = strings.TrimSpace(form.Get("username"))
+	if useAccount {
+		username = strings.TrimSpace(identity.Username)
+		if username == "" {
+			username = identity.EmailAddress
+		}
+	} else if username == "" {
+		username = savedUsername
+	}
+	if password, err = service.CalDAVPassword(form.Get("password"), useAccount); err != nil {
+		return "", "", "", false, err
+	}
+	if username == "" || strings.TrimSpace(password) == "" {
+		return "", "", "", false, errors.New("Enter the CalDAV username and password or use the incoming-mail credentials.")
+	}
+	return baseURL, username, password, useAccount, nil
 }
 
 func (h *Handler) handleUserDiscoverCalendars(w http.ResponseWriter, r *http.Request) {

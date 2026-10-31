@@ -271,6 +271,9 @@ templ DAVItems(service string, items []DAVItem) {
 					if item.Primary {
 						<span class="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">Primary</span>
 					}
+					if service == davServiceContacts {
+						@AddressBookActions(item.ID, item.Name, nil)
+					}
 				</label>
 			}
 		</div>
