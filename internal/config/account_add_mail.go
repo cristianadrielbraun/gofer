@@ -26,19 +26,39 @@ func (s *UserAccountStore) AddMail(ctx context.Context, owner, id string, req *m
 	}
 	copy := *req
 	if err := s.WithUser(ctx, owner, func(local *AccountStore, _ *storage.DB) error {
-		if err := local.prepareAccountCreation(ctx, &copy); err != nil {
-			return err
-		}
-		return local.checkMailAllowlist(ctx, owner, requestMailbox(&copy))
+		return local.prepareAddMail(ctx, owner, &copy)
 	}); err != nil {
 		return err
-	}
-	if accountProviderHasNoMail(copy.Provider) || accountProviderUsesGraphMail(copy.Provider) || copy.AuthMethod != "plain" {
-		return errors.New("add mail with IMAP or JMAP")
 	}
 	return s.WithAccountForUser(ctx, owner, id, func(local *AccountStore, _ *storage.DB) error {
 		return local.addMail(ctx, owner, id, &copy)
 	})
+}
+
+// AddMail is UserAccountStore.AddMail for the shared store of open and
+// personal mode.
+func (s *AccountStore) AddMail(ctx context.Context, owner, id string, req *models.CreateAccountRequest) error {
+	if req == nil {
+		return errors.New("account request is required")
+	}
+	copy := *req
+	if err := s.prepareAddMail(ctx, owner, &copy); err != nil {
+		return err
+	}
+	return s.addMail(ctx, owner, id, &copy)
+}
+
+func (s *AccountStore) prepareAddMail(ctx context.Context, owner string, req *models.CreateAccountRequest) error {
+	if err := s.prepareAccountCreation(ctx, req); err != nil {
+		return err
+	}
+	if err := s.checkMailAllowlist(ctx, owner, requestMailbox(req)); err != nil {
+		return err
+	}
+	if accountProviderHasNoMail(req.Provider) || accountProviderUsesGraphMail(req.Provider) || req.AuthMethod != "plain" {
+		return errors.New("add mail with IMAP or JMAP")
+	}
+	return nil
 }
 
 func (s *AccountStore) addMail(ctx context.Context, owner, id string, req *models.CreateAccountRequest) error {

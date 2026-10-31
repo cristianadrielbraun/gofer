@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/config"
 	"github.com/cristianadrielbraun/gofer/internal/mail"
@@ -177,10 +178,10 @@ func davNewChoices(found davAccountDiscovery) func(string) (bool, bool) {
 	}
 }
 
-// handleUserFindDAVItems signs in to the server in the dialog of a
+// handleFindDAVItems signs in to the server in the dialog of a
 // calendar-only or contacts-only account and lists its calendars or address
 // books to choose from. Nothing is saved.
-func (h *Handler) handleUserFindDAVItems(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) handleFindDAVItems(w http.ResponseWriter, r *http.Request) {
 	var saved *models.EditAccountData
 	owner, id := h.userID(r.Context()), r.PathValue("id")
 	if id != "" {
@@ -221,7 +222,9 @@ func (h *Handler) handleUserFindDAVItems(w http.ResponseWriter, r *http.Request)
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if saved != nil && create != nil && create.Delete {
+	if saved != nil && create != nil && create.Delete && h.userAccounts == nil {
+		h.dropDeletedAddressBook(r.Context(), owner, id, create)
+	} else if saved != nil && create != nil && create.Delete {
 		if err := h.userIMAP.RunAccountService(r.Context(), owner, id, mail.AccountServiceContacts, cardDAVDiscoveryOverallTimeout, func(ctx context.Context) error {
 			snapshot, err := h.userAccounts.SnapshotServices(ctx, owner, id)
 			if err != nil {
@@ -255,10 +258,10 @@ func davCreatedChoices(form davAccountForm, created string) func(string) (bool, 
 	}
 }
 
-// handleUserCreateDAVAccount adds an account with no mail, only a CalDAV or
+// handleCreateDAVAccount adds an account with no mail, only a CalDAV or
 // CardDAV server. It signs in first, so nothing is saved for a server or login
 // that doesn't work, then saves the calendars or address books ticked.
-func (h *Handler) handleUserCreateDAVAccount(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) handleCreateDAVAccount(w http.ResponseWriter, r *http.Request) {
 	form, problem := parseDAVAccountForm(w, r, nil)
 	if problem == "" && len(form.items) == 0 {
 		problem = davChooseOne(form.service)
@@ -276,9 +279,15 @@ func (h *Handler) handleUserCreateDAVAccount(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	owner := h.userID(r.Context())
-	account, err := h.userAccounts.CreateAccount(r.Context(), owner, &models.CreateAccountRequest{
+	req := &models.CreateAccountRequest{
 		Provider: providers.ProviderDAV, DisplayName: form.name, Username: form.username, Password: form.password,
-	})
+	}
+	var account *models.Account
+	if h.userAccounts == nil {
+		account, err = h.accountStore.CreateAccount(r.Context(), owner, req)
+	} else {
+		account, err = h.userAccounts.CreateAccount(r.Context(), owner, req)
+	}
 	if err != nil {
 		var pending *config.PendingAccountCreationError
 		if errors.As(err, &pending) {
@@ -293,6 +302,11 @@ func (h *Handler) handleUserCreateDAVAccount(w http.ResponseWriter, r *http.Requ
 		http.Error(w, "The account was created, but its "+form.service+" could not be saved. Open Edit to choose them again.", http.StatusServiceUnavailable)
 		return
 	}
+	if h.userAccounts == nil {
+		// With no mail there is nothing for the mail sync to start.
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if err := h.userStorage.WithAccountActivityForUser(r.Context(), owner, account.ID, func() error {
 		return h.userAccountHooks.Created(r.Context(), account.ID)
 	}); err != nil {
@@ -301,10 +315,10 @@ func (h *Handler) handleUserCreateDAVAccount(w http.ResponseWriter, r *http.Requ
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// handleUserUpdateDAVAccount saves the dialog of a calendar-only or
+// handleUpdateDAVAccount saves the dialog of a calendar-only or
 // contacts-only account: its name, server and login, signing in with them
 // first, and the calendars or address books ticked.
-func (h *Handler) handleUserUpdateDAVAccount(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) handleUpdateDAVAccount(w http.ResponseWriter, r *http.Request) {
 	owner, id := h.userID(r.Context()), r.PathValue("id")
 	saved, err := h.davAccountEditData(r.Context(), owner, id)
 	if err != nil {
@@ -334,9 +348,15 @@ func (h *Handler) handleUserUpdateDAVAccount(w http.ResponseWriter, r *http.Requ
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if err := h.userAccounts.UpdateAccount(r.Context(), owner, id, &models.CreateAccountRequest{
+	req := &models.CreateAccountRequest{
 		Provider: providers.ProviderDAV, DisplayName: form.name, Username: form.username, Password: form.password,
-	}); err != nil {
+	}
+	if h.userAccounts == nil {
+		err = h.accountStore.UpdateAccount(r.Context(), id, req)
+	} else {
+		err = h.userAccounts.UpdateAccount(r.Context(), owner, id, req)
+	}
+	if err != nil {
 		userAccountError(w, r, err)
 		return
 	}
@@ -378,14 +398,37 @@ func davChooseOne(service string) string {
 
 // davAccountEditData is the saved settings of an account with no mail.
 func (h *Handler) davAccountEditData(ctx context.Context, owner, id string) (*models.EditAccountData, error) {
-	data, err := h.userEditData(ctx, owner, id)
+	data, err := h.accountEditData(ctx, owner, id)
 	if err == nil && data.Provider != providers.ProviderDAV {
 		return nil, storage.ErrAccountRoute
 	}
 	return data, err
 }
 
+// accountEditData is the saved settings of one of owner's accounts, from
+// their own store in managed mode or the shared one otherwise.
+func (h *Handler) accountEditData(ctx context.Context, owner, id string) (*models.EditAccountData, error) {
+	if h.userAccounts != nil {
+		return h.userEditData(ctx, owner, id)
+	}
+	account, err := h.accountStore.GetAccountByIDForUser(ctx, owner, id)
+	if err == nil && account == nil {
+		err = storage.ErrAccountRoute
+	}
+	if err != nil {
+		return nil, err
+	}
+	data, err := h.accountStore.GetEditData(ctx, id)
+	if err == nil {
+		h.markCalendarCreateAccess(ctx, data)
+	}
+	return data, err
+}
+
 func (h *Handler) davAccountPassword(ctx context.Context, owner, id string) (string, error) {
+	if h.userAccounts == nil {
+		return h.accountStore.DecryptPassword(ctx, id)
+	}
 	snapshot, err := h.userAccounts.SnapshotServices(ctx, owner, id)
 	if err != nil {
 		return "", err
@@ -397,6 +440,9 @@ func (h *Handler) davAccountPassword(ctx context.Context, owner, id string) (str
 // own login: the calendars, with the ones ticked selected, or the address
 // books ticked.
 func (h *Handler) saveDAVAccountServices(ctx context.Context, owner, id string, form davAccountForm, found davAccountDiscovery) error {
+	if h.userAccounts == nil {
+		return h.saveSharedDAVAccountServices(ctx, owner, id, form, found)
+	}
 	if form.service == davServiceCalendar {
 		err := h.userIMAP.RunAccountService(ctx, owner, id, mail.AccountServiceCalendar, cardDAVDiscoveryOverallTimeout, func(ctx context.Context) error {
 			snapshot, err := h.userAccounts.SnapshotCalendarDiscovery(ctx, owner, id)
@@ -448,6 +494,51 @@ func (h *Handler) saveDAVAccountServices(ctx context.Context, owner, id string, 
 	return h.WakeUserContactAccount(ctx, owner, id)
 }
 
+// saveSharedDAVAccountServices is saveDAVAccountServices for the shared store
+// of open and personal mode. The calendar worker picks up the calendars on
+// its next round; contacts sync right away.
+func (h *Handler) saveSharedDAVAccountServices(ctx context.Context, owner, id string, form davAccountForm, found davAccountDiscovery) error {
+	if form.service == davServiceCalendar {
+		if err := h.accountStore.SaveCalDAVConfig(ctx, owner, id, found.serverURL, "", "", true); err != nil {
+			return err
+		}
+		if err := h.db.ReplaceCalendarSources(ctx, owner, id, storage.CalendarSourceProviderCalDAV, found.calendars); err != nil {
+			return err
+		}
+		data, err := h.accountStore.GetEditData(ctx, id)
+		if err != nil {
+			return err
+		}
+		selected := []string{}
+		for _, source := range data.CalendarSync.Sources {
+			if slices.Contains(form.items, source.RemoteID) {
+				selected = append(selected, source.ID)
+			}
+		}
+		return h.db.SetCalendarSourceSelection(ctx, owner, id, selected)
+	}
+	var books []models.ContactAddressBook
+	for _, book := range found.addressBooks {
+		if slices.Contains(form.items, book.URL) {
+			book.Default = book.URL == form.defaultItem
+			books = append(books, book)
+		}
+	}
+	cfg := models.ContactSyncConfig{AccountID: id, UserID: owner, Provider: providers.ProviderCardDAV, Enabled: true,
+		BaseURL: found.serverURL, Username: form.username, AddressBooks: books}
+	if err := h.accountStore.SaveContactSyncConfig(ctx, owner, id, cfg, ""); err != nil {
+		return err
+	}
+	go func() {
+		bg, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		if _, err := h.SyncContactAccount(bg, id); err != nil && !errors.Is(err, errContactSyncAlreadyRunning) {
+			log.Printf("contacts sync %s after saving its address books: %v", id, err)
+		}
+	}()
+	return nil
+}
+
 // davAccountDialogData fills the dialog of an account with no mail from its
 // saved settings.
 func davAccountDialogData(data models.EditAccountData) views.DAVAccountDialogData {
@@ -480,12 +571,12 @@ func calendarSourceLabel(source models.CalendarSource) string {
 	return source.RemoteID
 }
 
-// handleUserAddAccountMail adds a mailbox to an account with no mail, which
+// handleAddAccountMail adds a mailbox to an account with no mail, which
 // the add-account wizard does in place of creating one. It answers with the
 // wizard's contacts and calendar steps, as creating does.
-func (h *Handler) handleUserAddAccountMail(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) handleAddAccountMail(w http.ResponseWriter, r *http.Request) {
 	owner, id := h.userID(r.Context()), r.PathValue("id")
-	existing, err := h.userEditData(r.Context(), owner, id)
+	existing, err := h.accountEditData(r.Context(), owner, id)
 	if err != nil {
 		userAccountError(w, r, err)
 		return
@@ -512,7 +603,12 @@ func (h *Handler) handleUserAddAccountMail(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "this account connection method is not available yet", http.StatusNotImplemented)
 		return
 	}
-	if err := h.userAccounts.AddMail(r.Context(), owner, id, &req); err != nil {
+	if h.userAccounts == nil {
+		err = h.accountStore.AddMail(r.Context(), owner, id, &req)
+	} else {
+		err = h.userAccounts.AddMail(r.Context(), owner, id, &req)
+	}
+	if err != nil {
 		if errors.Is(err, config.ErrAccountHasMail) {
 			http.Error(w, err.Error(), http.StatusConflict)
 			return
@@ -521,6 +617,11 @@ func (h *Handler) handleUserAddAccountMail(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	w.Header().Set("X-Gofer-Account-ID", id)
+	if h.userAccounts == nil {
+		h.syncer.StartAccount(r.Context(), id)
+		h.renderAddMailNextStep(w, r, owner, id)
+		return
+	}
 	if err := h.userStorage.WithAccountActivityForUser(r.Context(), owner, id, func() error {
 		return h.userAccountHooks.Updated(r.Context(), id)
 	}); err != nil {
@@ -528,7 +629,11 @@ func (h *Handler) handleUserAddAccountMail(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "email added; synchronization could not be started", http.StatusServiceUnavailable)
 		return
 	}
-	data, err := h.userEditData(r.Context(), owner, id)
+	h.renderAddMailNextStep(w, r, owner, id)
+}
+
+func (h *Handler) renderAddMailNextStep(w http.ResponseWriter, r *http.Request, owner, id string) {
+	data, err := h.accountEditData(r.Context(), owner, id)
 	if err != nil {
 		userAccountError(w, r, err)
 		return

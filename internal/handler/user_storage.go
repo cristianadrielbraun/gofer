@@ -380,11 +380,11 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 		private("POST /api/accounts/{id}/contacts/sync/test", routed.handleUserTestAccountContactSync)
 		private("POST /api/accounts/{id}/contacts/sync/discover", routed.handleUserDiscoverAccountContactSync)
 		if option.Accounts != nil {
-			private("POST /api/accounts/dav/find", routed.handleUserFindDAVItems)
-			private("POST /api/accounts/dav", routed.handleUserCreateDAVAccount)
-			private("POST /api/accounts/{id}/dav/find", routed.handleUserFindDAVItems)
-			private("POST /api/accounts/{id}/dav", routed.handleUserUpdateDAVAccount)
-			private("POST /api/accounts/{id}/mail", routed.handleUserAddAccountMail)
+			private("POST /api/accounts/dav/find", routed.handleFindDAVItems)
+			private("POST /api/accounts/dav", routed.handleCreateDAVAccount)
+			private("POST /api/accounts/{id}/dav/find", routed.handleFindDAVItems)
+			private("POST /api/accounts/{id}/dav", routed.handleUpdateDAVAccount)
+			private("POST /api/accounts/{id}/mail", routed.handleAddAccountMail)
 		}
 		private("POST /api/settings/contacts/accounts/sync", routed.handleUserSyncAccountContacts)
 		private("POST /api/settings/contacts/providers/gmail/sync", routed.handleUserSyncAccountContacts)

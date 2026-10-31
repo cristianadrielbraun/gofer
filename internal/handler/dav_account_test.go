@@ -77,18 +77,18 @@ func TestCalendarOnlyAccount(t *testing.T) {
 	form := url.Values{"service": {"calendar"}, "display_name": {"Home server"}, "server_url": {f.server.URL}, "username": {"dav-user"}, "password": {"wrong"}}
 
 	rec := httptest.NewRecorder()
-	f.h.handleUserFindDAVItems(rec, davAccountRequest("/api/accounts/dav/find", form))
+	f.h.handleFindDAVItems(rec, davAccountRequest("/api/accounts/dav/find", form))
 	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "CalDAV") {
 		t.Fatalf("wrong password: %d %q", rec.Code, rec.Body.String())
 	}
 	form.Set("password", "dav-pass")
 	rec = httptest.NewRecorder()
-	f.h.handleUserFindDAVItems(rec, davAccountRequest("/api/accounts/dav/find", form))
+	f.h.handleFindDAVItems(rec, davAccountRequest("/api/accounts/dav/find", form))
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), ">Home<") || !strings.Contains(rec.Body.String(), ">Club<") {
 		t.Fatalf("find: %d %q", rec.Code, rec.Body.String())
 	}
 	rec = httptest.NewRecorder()
-	f.h.handleUserCreateDAVAccount(rec, davAccountRequest("/api/accounts/dav", form))
+	f.h.handleCreateDAVAccount(rec, davAccountRequest("/api/accounts/dav", form))
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("created with no calendar chosen: %d", rec.Code)
 	}
@@ -98,7 +98,7 @@ func TestCalendarOnlyAccount(t *testing.T) {
 
 	form["item"] = []string{f.server.URL + "/calendars/club/"}
 	rec = httptest.NewRecorder()
-	f.h.handleUserCreateDAVAccount(rec, davAccountRequest("/api/accounts/dav", form))
+	f.h.handleCreateDAVAccount(rec, davAccountRequest("/api/accounts/dav", form))
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("create: %d %q", rec.Code, rec.Body.String())
 	}
@@ -123,7 +123,7 @@ func TestCalendarOnlyAccount(t *testing.T) {
 	r := davAccountRequest("/api/accounts/"+ids[0]+"/dav", edit)
 	r.SetPathValue("id", ids[0])
 	rec = httptest.NewRecorder()
-	f.h.handleUserUpdateDAVAccount(rec, r)
+	f.h.handleUpdateDAVAccount(rec, r)
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("update: %d %q", rec.Code, rec.Body.String())
 	}
@@ -155,7 +155,7 @@ func TestContactsOnlyAccount(t *testing.T) {
 	book := f.server.URL + "/books/family/"
 	form := url.Values{"service": {"contacts"}, "server_url": {f.server.URL}, "username": {"dav-user"}, "password": {"dav-pass"}, "item": {book}, "default_item": {book}}
 	rec := httptest.NewRecorder()
-	f.h.handleUserCreateDAVAccount(rec, davAccountRequest("/api/accounts/dav", form))
+	f.h.handleCreateDAVAccount(rec, davAccountRequest("/api/accounts/dav", form))
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("create: %d %q", rec.Code, rec.Body.String())
 	}
@@ -202,12 +202,12 @@ func TestDAVAccountLoginKeepsToTheAllowedDomains(t *testing.T) {
 		return url.Values{"service": {"contacts"}, "server_url": {f.server.URL}, "username": {username}, "password": {"dav-pass"}, "item": {book}, "default_item": {book}}
 	}
 	rec := httptest.NewRecorder()
-	f.h.handleUserFindDAVItems(rec, davAccountRequest("/api/accounts/dav/find", form("dav-user@example.org")))
+	f.h.handleFindDAVItems(rec, davAccountRequest("/api/accounts/dav/find", form("dav-user@example.org")))
 	if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "example.org") {
 		t.Fatalf("find: %d %q", rec.Code, rec.Body.String())
 	}
 	rec = httptest.NewRecorder()
-	f.h.handleUserCreateDAVAccount(rec, davAccountRequest("/api/accounts/dav", form("dav-user@example.org")))
+	f.h.handleCreateDAVAccount(rec, davAccountRequest("/api/accounts/dav", form("dav-user@example.org")))
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("create: %d %q", rec.Code, rec.Body.String())
 	}
@@ -215,7 +215,7 @@ func TestDAVAccountLoginKeepsToTheAllowedDomains(t *testing.T) {
 		t.Fatalf("refused login asked the server %d times, accounts %v", asked, aliceDAVAccounts(t, f))
 	}
 	rec = httptest.NewRecorder()
-	f.h.handleUserCreateDAVAccount(rec, davAccountRequest("/api/accounts/dav", form("dav-user")))
+	f.h.handleCreateDAVAccount(rec, davAccountRequest("/api/accounts/dav", form("dav-user")))
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("create with a plain username: %d %q", rec.Code, rec.Body.String())
 	}
@@ -229,7 +229,7 @@ func TestImportedCalendarOnlyAccountTakesItsPassword(t *testing.T) {
 	home, club := f.server.URL+"/calendars/home/", f.server.URL+"/calendars/club/"
 	form := url.Values{"service": {"calendar"}, "server_url": {f.server.URL}, "username": {"dav-user"}, "password": {"dav-pass"}, "item": {home}}
 	rec := httptest.NewRecorder()
-	f.h.handleUserCreateDAVAccount(rec, davAccountRequest("/api/accounts/dav", form))
+	f.h.handleCreateDAVAccount(rec, davAccountRequest("/api/accounts/dav", form))
 	id := rec.Header().Get("X-Gofer-Account-ID")
 	if rec.Code != http.StatusNoContent || id == "" {
 		t.Fatalf("create: %d %q", rec.Code, rec.Body.String())
@@ -258,7 +258,7 @@ func TestImportedCalendarOnlyAccountTakesItsPassword(t *testing.T) {
 		r := davAccountRequest("/api/accounts/"+id+"/dav", edit)
 		r.SetPathValue("id", id)
 		rec := httptest.NewRecorder()
-		f.h.handleUserUpdateDAVAccount(rec, r)
+		f.h.handleUpdateDAVAccount(rec, r)
 		return rec
 	}
 	if rec := update(""); rec.Code != http.StatusBadRequest {

@@ -115,14 +115,14 @@ func TestCalendarOnlyAccountCreatesCalendar(t *testing.T) {
 	form := url.Values{"service": {"calendar"}, "server_url": {f.server.URL}, "username": {"dav-user"}, "password": {"dav-pass"}}
 
 	rec := httptest.NewRecorder()
-	f.h.handleUserFindDAVItems(rec, davAccountRequest("/api/accounts/dav/find", form))
+	f.h.handleFindDAVItems(rec, davAccountRequest("/api/accounts/dav/find", form))
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "No calendars on this server yet") || strings.Contains(rec.Body.String(), "data-dav-items-found") {
 		t.Fatalf("find on an empty server: %d %q", rec.Code, rec.Body.String())
 	}
 
 	form.Set("create_name", "Book club & friends")
 	rec = httptest.NewRecorder()
-	f.h.handleUserFindDAVItems(rec, davAccountRequest("/api/accounts/dav/find", form))
+	f.h.handleFindDAVItems(rec, davAccountRequest("/api/accounts/dav/find", form))
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "data-dav-items-found") || !strings.Contains(rec.Body.String(), "Book club &amp; friends") {
 		t.Fatalf("create: %d %q", rec.Code, rec.Body.String())
 	}
@@ -152,7 +152,7 @@ func TestContactsOnlyAccountCreatesAddressBook(t *testing.T) {
 		"item": {f.server.URL + "/books/family/"}, "default_item": {f.server.URL + "/books/family/"}, "create_name": {"Work"}}
 
 	rec := httptest.NewRecorder()
-	f.h.handleUserFindDAVItems(rec, davAccountRequest("/api/accounts/dav/find", form))
+	f.h.handleFindDAVItems(rec, davAccountRequest("/api/accounts/dav/find", form))
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), ">Work<") {
 		t.Fatalf("create: %d %q", rec.Code, rec.Body.String())
 	}
@@ -385,7 +385,7 @@ func TestContactsOnlyAccountRenamesAndDeletesAddressBooks(t *testing.T) {
 			form[key] = values
 		}
 		rec := httptest.NewRecorder()
-		f.h.handleUserFindDAVItems(rec, davAccountRequest("/api/accounts/dav/find", form))
+		f.h.handleFindDAVItems(rec, davAccountRequest("/api/accounts/dav/find", form))
 		return rec
 	}
 

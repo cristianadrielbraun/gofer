@@ -2,6 +2,7 @@ package config
 
 import (
 	"errors"
+	"path/filepath"
 	"testing"
 
 	"github.com/cristianadrielbraun/gofer/internal/models"
@@ -128,5 +129,57 @@ func TestAddMailRefusesAMailboxAlreadyConnected(t *testing.T) {
 		return nil
 	}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// In open and personal mode an account with no mail gets its own ID, and
+// adding a mailbox to it keeps the login its calendars sign in with.
+func TestSharedStoreAddMail(t *testing.T) {
+	db, err := storage.New(filepath.Join(t.TempDir(), "gofer.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if _, err := db.Write().Exec(`INSERT INTO users(id,username,username_normalized) VALUES('alice','alice','alice')`); err != nil {
+		t.Fatal(err)
+	}
+	accounts, err := NewAccountStore(db, []byte("0123456789abcdef0123456789abcdef"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := accounts.CreateAccount(t.Context(), "alice", davAccountTestRequest("alice"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := accounts.CreateAccount(t.Context(), "alice", davAccountTestRequest("alice-work"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.ID == second.ID {
+		t.Fatalf("both accounts are %q", first.ID)
+	}
+	if err := accounts.SaveCalDAVConfig(t.Context(), "alice", first.ID, "https://dav.example.com/", "", "", true); err != nil {
+		t.Fatal(err)
+	}
+	mailbox := &models.CreateAccountRequest{Provider: providers.ProviderIMAP, EmailAddress: "alice@example.com", AuthMethod: "plain",
+		IMAPHost: "imap.example.com", IMAPPort: 993, SMTPHost: "smtp.example.com", SMTPPort: 465, Username: "alice@example.com", Password: "mail-pass"}
+	if err := accounts.AddMail(t.Context(), "alice", first.ID, mailbox); err != nil {
+		t.Fatal(err)
+	}
+	if err := accounts.AddMail(t.Context(), "alice", first.ID, mailbox); !errors.Is(err, ErrAccountHasMail) {
+		t.Fatalf("adding mail twice: %v", err)
+	}
+	data, err := accounts.GetEditData(t.Context(), first.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if data.Provider != providers.ProviderIMAP || data.EmailAddress != "alice@example.com" || !data.EmailSyncEnabled {
+		t.Fatalf("account = %+v", data)
+	}
+	if cal := data.CalendarSync; cal.CalDAVUseAccountCredentials || cal.CalDAVUsername != "alice" {
+		t.Fatalf("calendars = %+v", cal)
+	}
+	if password, err := accounts.CalDAVPassword(t.Context(), "alice", first.ID); err != nil || password != "alice-dav-password" {
+		t.Fatalf("calendars sign in with %q, %v", password, err)
 	}
 }

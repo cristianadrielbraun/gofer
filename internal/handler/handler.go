@@ -524,6 +524,11 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/accounts/{id}/contacts/sync", h.handleSaveAccountContactSync)
 	mux.HandleFunc("POST /api/accounts/{id}/contacts/sync/test", h.handleTestAccountContactSync)
 	mux.HandleFunc("POST /api/accounts/{id}/contacts/sync/discover", h.handleDiscoverAccountContactSync)
+	mux.HandleFunc("POST /api/accounts/dav/find", h.handleFindDAVItems)
+	mux.HandleFunc("POST /api/accounts/dav", h.handleCreateDAVAccount)
+	mux.HandleFunc("POST /api/accounts/{id}/dav/find", h.handleFindDAVItems)
+	mux.HandleFunc("POST /api/accounts/{id}/dav", h.handleUpdateDAVAccount)
+	mux.HandleFunc("POST /api/accounts/{id}/mail", h.handleAddAccountMail)
 	mux.HandleFunc("GET /api/accounts/{id}/signatures", h.handleAccountSignatures)
 	mux.HandleFunc("GET /api/accounts/{id}/signatures/manage", h.handleManageAccountSignatures)
 	mux.HandleFunc("POST /api/accounts/{id}/signature-settings", h.handleSaveAccountSignatureSettings)
@@ -2915,6 +2920,10 @@ func (h *Handler) handleGetEditAccount(w http.ResponseWriter, r *http.Request) {
 	h.markCalendarCreateAccess(r.Context(), data)
 
 	w.Header().Set("Content-Type", "text/html")
+	if data.Provider == providers.ProviderDAV {
+		_ = views.DAVAccountDialog(davAccountDialogData(*data)).Render(r.Context(), w)
+		return
+	}
 	views.EditAccountDialog(*data).Render(r.Context(), w)
 }
 
@@ -2990,6 +2999,12 @@ func (h *Handler) handleUpdateAccountService(w http.ResponseWriter, r *http.Requ
 	enabled := r.FormValue("enabled") == "true"
 	switch r.FormValue("service") {
 	case "email":
+		if enabled {
+			if account, err := h.ownedAccount(ctx, accountID); err == nil && account != nil && account.Provider == providers.ProviderDAV {
+				http.Error(w, "Add email to this account before turning it on.", http.StatusConflict)
+				return
+			}
+		}
 		if err := h.accountStore.SetEmailSyncEnabled(ctx, userID, accountID, enabled); err != nil {
 			http.Error(w, "could not update email sync", http.StatusInternalServerError)
 			return

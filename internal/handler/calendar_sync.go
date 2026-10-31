@@ -177,7 +177,7 @@ func (h *Handler) calendarCredentialsForSource(ctx context.Context, userID strin
 			result.err = err
 			return result
 		}
-		if cfg.Provider != providers.ProviderIMAP && cfg.Provider != providers.ProviderJMAP {
+		if cfg.Provider != providers.ProviderIMAP && cfg.Provider != providers.ProviderJMAP && cfg.Provider != providers.ProviderDAV {
 			result.err = fmt.Errorf("CalDAV is not configured for this account")
 			return result
 		}

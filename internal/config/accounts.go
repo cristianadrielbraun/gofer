@@ -697,7 +697,12 @@ func isBuiltinContactProvider(provider string) bool {
 }
 
 func (s *AccountStore) CreateAccount(ctx context.Context, userID string, req *models.CreateAccountRequest) (*models.Account, error) {
-	return s.createAccountWithID(ctx, userID, generateAccountID(req.EmailAddress), req, true)
+	id := generateAccountID(req.EmailAddress)
+	if accountProviderHasNoMail(req.Provider) {
+		// An account with no mail has no address to name it by.
+		id = generateAccountID("dav_" + strings.ReplaceAll(uuid.NewString(), "-", ""))
+	}
+	return s.createAccountWithID(ctx, userID, id, req, true)
 }
 
 func (s *AccountStore) prepareAccountCreation(ctx context.Context, req *models.CreateAccountRequest) error {
