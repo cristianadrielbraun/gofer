@@ -84,10 +84,13 @@ func calendarManageError(provider, name string, err error) error {
 	} else if errors.As(err, &outlook) {
 		status = outlook.Status
 	}
-	if name == "" && (status == http.StatusNotFound || status == http.StatusGone) {
+	// Google answers 404 for a calendar Gofer didn't make, as if it weren't
+	// there, rather than refusing it; it isn't gone.
+	hidden := provider == providers.ProviderGmail && status == http.StatusNotFound
+	if name == "" && !hidden && (status == http.StatusNotFound || status == http.StatusGone) {
 		return nil
 	}
-	if status == http.StatusForbidden || status == http.StatusUnauthorized {
+	if hidden || status == http.StatusForbidden || status == http.StatusUnauthorized {
 		if provider == providers.ProviderGmail {
 			return errors.New("Google lets Gofer rename or delete only the calendars it created. Change this one in Google Calendar.")
 		}

@@ -226,3 +226,24 @@ func TestUserCalendarRenameAndDeleteOnOutlook(t *testing.T) {
 		t.Fatalf("Microsoft saw %v", api.changes)
 	}
 }
+
+// Google hides a calendar Gofer didn't make behind a 404, which is a
+// refusal rather than a calendar already gone; Microsoft's 404 is gone.
+func TestCalendarManageErrorReadsGoogleHiddenCalendars(t *testing.T) {
+	for _, test := range []struct {
+		provider, name string
+		err            error
+		want           string
+	}{
+		{"gmail", "New name", googleAPIError{Status: http.StatusNotFound}, "only the calendars it created"},
+		{"gmail", "", googleAPIError{Status: http.StatusNotFound}, "only the calendars it created"},
+		{"gmail", "", googleAPIError{Status: http.StatusForbidden}, "only the calendars it created"},
+		{"outlook", "", outlookAPIError{Status: http.StatusNotFound}, ""},
+		{"outlook", "New name", outlookAPIError{Status: http.StatusForbidden}, "Microsoft didn't allow"},
+	} {
+		err := calendarManageError(test.provider, test.name, test.err)
+		if (test.want == "") != (err == nil) || (err != nil && !strings.Contains(err.Error(), test.want)) {
+			t.Fatalf("%s %q %v = %v", test.provider, test.name, test.err, err)
+		}
+	}
+}
