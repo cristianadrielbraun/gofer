@@ -240,10 +240,11 @@
   border-bottom-color: #c6c6c6;
 }
 
-/* The selected row's border (input.css) is black on every side here. */
+/* The selected row's border (input.css) is the text color on every side here.
+   Not a color of its own, so the theme builder doesn't list it. */
 [data-theme="minimal"]:not(.dark) [data-view-mode="table"] .mail-list-item > a {
-  --table-pick-edge: #000000;
-  --table-pick-bar: #000000;
+  --table-pick-edge: var(--foreground);
+  --table-pick-bar: var(--foreground);
 }
 
 [data-theme="minimal"]:not(.dark) [data-view-mode="table"] .mail-list-item > a.envelope-active,
