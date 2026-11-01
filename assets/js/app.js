@@ -37,6 +37,14 @@ function setupPageRequestOwnership() {
 
 setupPageRequestOwnership()
 
+// Android browsers offer "Install app" only when the site has a service
+// worker. Registering it asks for nothing: push stays behind its own opt-in.
+function registerAppServiceWorker() {
+  if (!window.isSecureContext || !("serviceWorker" in navigator)) return
+  navigator.serviceWorker.register("/sw.js").catch(function () {})
+}
+registerAppServiceWorker()
+
 // Guard rejections happen before route handlers and HTMX keeps their error
 // bodies out of the page. Explain the failure without discarding form input.
 document.addEventListener("gofer-request-blocked", function (event) {
