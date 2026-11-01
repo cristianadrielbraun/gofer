@@ -9190,9 +9190,11 @@ document.addEventListener("DOMContentLoaded", function () {
     '</button>'
   }
 
-  // showMailViewLoading draws the reader as a single message (see MailViewContent in
-  // mailview.templ) with what the list row already knows filled in, so the sheet
-  // doesn't jump when the message arrives. Keep it in step with MailViewLoading.
+  // showMailViewLoading draws the reader as a single message, or as a
+  // conversation with one card per message (see MailViewContent and
+  // MailViewThreadContent in mailview.templ), with what the list row already
+  // knows filled in, so the sheet doesn't jump when it arrives. Keep the single
+  // message in step with MailViewLoading.
   function showMailViewLoading(trigger) {
     var mailView = document.getElementById("mail-view")
     if (!mailView) return
@@ -9220,9 +9222,6 @@ document.addEventListener("DOMContentLoaded", function () {
           '<div class="mt-1.5 h-3 w-28 rounded bg-ink/5 animate-pulse"></div>' +
         '</div>' +
       '</div>'
-    // A thread card keeps its divider between sender and body; a single message
-    // has its sender in the fixed header, whose bottom edge does that job.
-    var dividerHTML = '<div class="h-px bg-gradient-to-r from-transparent via-ink/10 to-transparent my-6"></div>'
     var bodyHTML =
       '<div class="mb-3 flex justify-end lg:justify-between">' +
         '<div class="hidden lg:block h-7 w-48 shrink-0 rounded-lg bg-ink/[0.04] animate-pulse"></div>' +
@@ -9234,25 +9233,48 @@ document.addEventListener("DOMContentLoaded", function () {
         '<div class="h-4 w-4/5 rounded bg-ink/5 animate-pulse"></div>' +
         '<div class="h-4 w-2/3 rounded bg-ink/5 animate-pulse"></div>' +
       '</div>'
-    if (keepMailViewChrome(mailView, trigger, senderHTML, dividerHTML, bodyHTML)) return
+    if (keepMailViewChrome(mailView, trigger, senderHTML, bodyHTML)) return
+    var toolbarHTML =
+      '<div class="mail-view-toolbar flex items-center justify-between px-6 py-2.5">' +
+        '<div class="mail-view-actions flex items-center gap-1 min-w-0">' +
+          '<button type="button" class="mobile-back-button h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-ink/5" data-on-click=\'["closeMobileMailView"]\' aria-label="Back to list">' + mailViewSkeletonIcon("arrow-left", "size-5") + '</button>' +
+          mailViewSkeletonToolbarButton("archive") +
+          mailViewSkeletonToolbarButton("trash-2") +
+          '<div>' + mailViewSkeletonToolbarButton("shield-alert").replace('<button ', '<button data-mail-action="spam" ') + '</div>' +
+          mailViewSkeletonToolbarButton("star", "size-4") +
+          mailViewSkeletonToolbarButton("mail") +
+        '</div>' +
+        '<div class="mail-view-meta flex items-center gap-2">' +
+          (time ? '<span class="mail-view-date text-xs text-muted-foreground tabular-nums">' + time + '</span>' : '<span class="mail-view-date h-3 w-32 rounded bg-ink/5 animate-pulse"></span>') +
+          mailViewSkeletonToolbarButton("ellipsis-vertical") +
+        '</div>' +
+      '</div>'
+    var threadCount = mailViewTriggerThreadCount(trigger)
+    if (threadCount > 1) {
+      mailView.innerHTML =
+        '<div class="mail-view-frame flex flex-col h-full" aria-busy="true" aria-label="Loading conversation">' +
+          '<div class="mail-view-thread-frame flex flex-col h-full">' +
+            '<div class="mail-view-thread-toolbar surface-paper rounded-md shrink-0">' +
+              toolbarHTML +
+              '<div class="h-px bg-gradient-to-r from-transparent via-amber-900/10 to-transparent"></div>' +
+              '<div class="mail-view-content mx-auto px-8 pt-4 pb-3">' +
+                mailViewSkeletonSubject(subject).replace(" mt-5", " mb-1") +
+                mailViewSkeletonThreadCount(threadCount) +
+              '</div>' +
+            '</div>' +
+            '<div data-thread-list class="mail-view-thread-scroll flex-1 min-h-0 overflow-y-auto flex flex-col gap-2">' +
+              mailViewThreadSkeletonCards(threadCount, senderHTML, bodyHTML) +
+            '</div>' +
+          '</div>' +
+        '</div>'
+      scrollThreadSkeletonToOpen(mailView.querySelector("[data-thread-list]"))
+      return
+    }
     mailView.innerHTML =
       '<div class="mail-view-frame flex flex-col h-full" aria-busy="true" aria-label="Loading message">' +
         '<div class="surface-paper rounded-md flex flex-col h-full overflow-hidden">' +
           '<div class="mail-view-message-header shrink-0">' +
-          '<div class="mail-view-toolbar flex items-center justify-between px-6 py-2.5">' +
-            '<div class="mail-view-actions flex items-center gap-1 min-w-0">' +
-              '<button type="button" class="mobile-back-button h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-ink/5" data-on-click=\'["closeMobileMailView"]\' aria-label="Back to list">' + mailViewSkeletonIcon("arrow-left", "size-5") + '</button>' +
-              mailViewSkeletonToolbarButton("archive") +
-              mailViewSkeletonToolbarButton("trash-2") +
-              '<div>' + mailViewSkeletonToolbarButton("shield-alert").replace('<button ', '<button data-mail-action="spam" ') + '</div>' +
-              mailViewSkeletonToolbarButton("star", "size-4") +
-              mailViewSkeletonToolbarButton("mail") +
-            '</div>' +
-            '<div class="mail-view-meta flex items-center gap-2">' +
-              (time ? '<span class="mail-view-date text-xs text-muted-foreground tabular-nums">' + time + '</span>' : '<span class="mail-view-date h-3 w-32 rounded bg-ink/5 animate-pulse"></span>') +
-              mailViewSkeletonToolbarButton("ellipsis-vertical") +
-            '</div>' +
-          '</div>' +
+          toolbarHTML +
           '<div class="h-px bg-gradient-to-r from-transparent via-amber-900/10 to-transparent"></div>' +
           '<div class="mail-view-content mx-auto px-8 py-6">' +
             senderHTML +
@@ -9282,6 +9304,64 @@ document.addEventListener("DOMContentLoaded", function () {
       '</div>'
   }
 
+  function mailViewSkeletonThreadCount(count) {
+    return '<div class="flex items-center gap-2">' +
+      '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-3.5 text-muted-foreground" aria-hidden="true"><path d="M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z"/><path d="M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1"/></svg>' +
+      '<span class="text-xs font-medium text-muted-foreground" data-thread-count>' + count + ' messages in this thread</span>' +
+      '<span class="text-xs text-ink/20">|</span>' +
+      '<span class="h-3 w-16 rounded bg-ink/5 animate-pulse"></span>' +
+    '</div>'
+  }
+
+  // mailViewThreadSkeletonCards draws one card per message of a conversation,
+  // as MailViewThreadContent lays them out: each collapsed, except the opened
+  // message, which comes first or last depending on the thread order.
+  function mailViewThreadSkeletonCards(count, senderHTML, bodyHTML) {
+    count = Math.max(1, Math.min(count || 1, 50))
+    var oldestFirst = window.GoferSettings && GoferSettings.get("thread_order") === "oldest"
+    var openIndex = oldestFirst ? count - 1 : 0
+    var actions = '<div class="mt-2 -ml-1 max-lg:-mr-1 max-lg:ml-0 flex items-center gap-0.5 max-lg:justify-end">' +
+      '<div class="h-7 w-7"></div><div class="h-7 w-7"></div><div class="h-7 w-7"></div>' +
+      '<div class="ml-1 h-4 w-28 rounded bg-ink/[0.04] animate-pulse"></div>' +
+    '</div>'
+    var closedSender =
+      '<div class="mail-view-thread-sender flex items-start gap-4">' +
+        '<div class="mail-view-avatar size-11 rounded-full bg-ink/5 shrink-0 animate-pulse"></div>' +
+        '<div class="flex-1 min-w-0">' +
+          '<div class="flex items-center gap-2 min-h-6"><span class="h-4 w-36 rounded bg-ink/5 animate-pulse"></span><span class="mail-view-address h-3 w-44 rounded bg-ink/5 animate-pulse"></span></div>' +
+          '<div class="mt-1 h-3 w-28 rounded bg-ink/5 animate-pulse"></div>' +
+        '</div>' +
+      '</div>'
+    var html = ""
+    for (var i = 0; i < count; i++) {
+      var open = i === openIndex
+      html += '<div class="shrink-0"' + (open ? ' data-thread-skeleton-open' : '') + '><article class="mail-thread-card surface-paper rounded-md">' +
+        '<div class="mail-view-content mx-auto px-8 py-6">' +
+          (open ? senderHTML.replace("mail-view-sender", "mail-view-thread-sender") : closedSender) +
+          actions +
+          '<div class="mt-4 flex items-center gap-1.5 text-xs text-muted-foreground/60 select-none"><span class="size-3.5"></span>' + (open ? 'Hide email' : 'Show email') + '</div>' +
+          (open ? '<div class="mt-3">' + bodyHTML + '</div>' : '') +
+        '</div></article></div>'
+    }
+    return html
+  }
+
+  // As scrollThreadToSelected does for the real thread: the open message goes
+  // to the top of the pane.
+  function scrollThreadSkeletonToOpen(list) {
+    var open = list && list.querySelector("[data-thread-skeleton-open]")
+    if (!open || list.firstElementChild === open) return
+    list.scrollTop += open.getBoundingClientRect().top - list.getBoundingClientRect().top
+  }
+
+  // How many messages a list row's conversation holds, or 0 when it opens on
+  // its own.
+  function mailViewTriggerThreadCount(trigger) {
+    if (!mailViewTriggerOpensThread(trigger)) return 0
+    var row = trigger.closest(".mail-list-item[data-email-id]")
+    return parseInt(row && row.dataset.threadCount, 10) || 2
+  }
+
   // keepMailViewChrome goes from one message to another without the reader's
   // toolbar, menu and reply bar turning into placeholders and back: they stay
   // where they are, and only what belongs to the message shows as loading.
@@ -9289,7 +9369,7 @@ document.addEventListener("DOMContentLoaded", function () {
   // so they can't be used meanwhile. It returns false when the reader shows
   // no message, or the next one is laid out differently (a conversation
   // against a single message), and the whole reader shows as loading.
-  function keepMailViewChrome(mailView, trigger, senderHTML, dividerHTML, bodyHTML) {
+  function keepMailViewChrome(mailView, trigger, senderHTML, bodyHTML) {
     var frame = mailView.querySelector(":scope > .mail-view-frame:not([aria-busy])")
     var opensThread = frame ? mailViewTriggerOpensThread(trigger) : null
     if (opensThread === null) return false
@@ -9309,9 +9389,12 @@ document.addEventListener("DOMContentLoaded", function () {
     if (opensThread) {
       var heading = threadFrame.querySelector(".mail-view-thread-toolbar .mail-view-subject-row h1")
       if (heading && preview.subject) heading.textContent = preview.subject
-      threadList.innerHTML = '<div class="shrink-0"><article class="mail-thread-card surface-paper rounded-md">' +
-        '<div class="mail-view-content mx-auto px-8 py-6">' + senderHTML + dividerHTML + bodyHTML + '</div></article></div>'
+      var count = mailViewTriggerThreadCount(trigger)
+      var countLabel = threadFrame.querySelector("[data-thread-count]")
+      if (countLabel && count > 1) countLabel.textContent = count + " messages in this thread"
+      threadList.innerHTML = mailViewThreadSkeletonCards(count, senderHTML, bodyHTML)
       threadList.scrollTop = 0
+      scrollThreadSkeletonToOpen(threadList)
     } else {
       header.innerHTML = senderHTML + mailViewSkeletonSubject(escapeHTML(preview.subject || ""))
       scroll.innerHTML = '<div class="mail-view-content mx-auto px-8 py-6">' + bodyHTML + '</div>'

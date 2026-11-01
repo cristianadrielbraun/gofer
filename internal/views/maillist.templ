@@ -1170,7 +1170,7 @@ templ MailCardLayoutDialog() {
 }
 
 templ MailListCardItem(accounts []models.Account, email models.Email, position int, selectedEmail *models.Email, senderDisplayMode string) {
-	<div class="mail-list-item" data-email-id={ email.ID } data-account-id={ email.AccountID } data-folder-id={ email.FolderID } data-position={ fmt.Sprintf("%d", position) } data-thread-id={ email.ThreadID } data-has-thread={ fmt.Sprintf("%t", email.ThreadCount > 1) } data-is-read={ fmt.Sprintf("%t", email.IsRead) } data-starred={ fmt.Sprintf("%t", email.IsStarred) } data-is-draft={ fmt.Sprintf("%t", email.IsDraft) }
+	<div class="mail-list-item" data-email-id={ email.ID } data-account-id={ email.AccountID } data-folder-id={ email.FolderID } data-position={ fmt.Sprintf("%d", position) } data-thread-id={ email.ThreadID } data-has-thread={ fmt.Sprintf("%t", email.ThreadCount > 1) } data-thread-count={ fmt.Sprintf("%d", email.ThreadCount) } data-is-read={ fmt.Sprintf("%t", email.IsRead) } data-starred={ fmt.Sprintf("%t", email.IsStarred) } data-is-draft={ fmt.Sprintf("%t", email.IsDraft) }
 		if email.SearchLocation != "" {
 			data-search-location={ email.SearchLocation }
 		}
@@ -1324,7 +1324,7 @@ templ MailListCardItem(accounts []models.Account, email models.Email, position i
 }
 
 templ MailListTableItem(email models.Email, position int, selectedEmail *models.Email, senderDisplayMode string) {
-	<div class="mail-list-item mail-list-table-row" data-email-id={ email.ID } data-account-id={ email.AccountID } data-folder-id={ email.FolderID } data-position={ fmt.Sprintf("%d", position) } data-thread-id={ email.ThreadID } data-has-thread={ fmt.Sprintf("%t", email.ThreadCount > 1) } data-is-read={ fmt.Sprintf("%t", email.IsRead) } data-starred={ fmt.Sprintf("%t", email.IsStarred) } data-is-draft={ fmt.Sprintf("%t", email.IsDraft) }
+	<div class="mail-list-item mail-list-table-row" data-email-id={ email.ID } data-account-id={ email.AccountID } data-folder-id={ email.FolderID } data-position={ fmt.Sprintf("%d", position) } data-thread-id={ email.ThreadID } data-has-thread={ fmt.Sprintf("%t", email.ThreadCount > 1) } data-thread-count={ fmt.Sprintf("%d", email.ThreadCount) } data-is-read={ fmt.Sprintf("%t", email.IsRead) } data-starred={ fmt.Sprintf("%t", email.IsStarred) } data-is-draft={ fmt.Sprintf("%t", email.IsDraft) }
 		if email.SearchLocation != "" {
 			data-search-location={ email.SearchLocation }
 		}
