@@ -947,3 +947,9 @@ func (s *UserIMAP) reportAllowlistRefusal(ctx context.Context, owner, id string,
 	s.events.Publish(Event{Type: EventAccountSyncStatus, AccountID: id, UserID: owner,
 		Payload: map[string]any{"status": "error", "error": refusal.Error()}})
 }
+
+// PrepareMessageBody saves a parsed message's text and HTML bodies in blobs,
+// the way sync saves a fetched body, for SaveMessageBodyCache to publish.
+func PrepareMessageBody(ctx context.Context, blobs *store.BlobStore, accountID string, msgID int64, p *message.ParsedMessage) (storage.MessageBodyCache, error) {
+	return prepareUserIMAPBody(ctx, blobs, accountID, msgID, p)
+}

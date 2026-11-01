@@ -203,7 +203,7 @@ templ MailSearchControls(accounts []models.Account) {
 					<section data-mail-scope-account>
 						<div class="sticky top-0 z-10 flex items-center gap-2 bg-muted px-6 py-2">
 							<div class="account-color-marker size-2.5 shrink-0" style={ accountColorStyle(account.Color) }></div>
-							<span class="truncate text-xs font-semibold text-foreground">{ account.Email }</span>
+							<span class="truncate text-xs font-semibold text-foreground">{ accountTitle(account) }</span>
 						</div>
 						for _, folder := range account.Folders {
 							@MailSearchFolderChoice(folder, account.ID, account.Email, "", "", 0)

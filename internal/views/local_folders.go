@@ -42,3 +42,12 @@ func mailboxSizeWhere(account models.Account) string {
 	}
 	return "on the mail server"
 }
+
+// accountTitle names an account where its address would show: the address,
+// or its name for one that has none, such as Local folders.
+func accountTitle(account models.Account) string {
+	if account.Email != "" {
+		return account.Email
+	}
+	return account.Name
+}

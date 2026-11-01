@@ -255,3 +255,17 @@ func (db *DB) deleteFolderlessMessagesTx(ctx context.Context, tx *sql.Tx, ids []
 	}
 	return db.flushThreadTotalsTx(ctx, tx, threads)
 }
+
+// FolderIDByName returns the ID of the folder named name, in any case, under
+// parentID ("" for the top) of an account, or "" if there is none.
+func (db *DB) FolderIDByName(ctx context.Context, accountID, parentID, name string) (string, error) {
+	var id string
+	err := db.Read().QueryRowContext(ctx, `SELECT id FROM folders
+		WHERE account_id = ? AND COALESCE(parent_id, '') = ? AND lower(name) = lower(?)
+		  AND COALESCE(discovery_state, 'active') = 'active'
+		ORDER BY id LIMIT 1`, accountID, parentID, name).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return id, err
+}

@@ -942,8 +942,8 @@ func mailboxSizeFoldersOverlap(size models.MailboxSize, rows []mailboxSizeRow) b
 
 func mailboxSizeAccountName(account models.Account) string {
 	name := strings.TrimSpace(account.Name)
-	if name == "" || strings.EqualFold(name, account.Email) {
-		return account.Email
+	if name == "" || account.Email == "" || strings.EqualFold(name, account.Email) {
+		return accountTitle(account)
 	}
 	return name + " · " + account.Email
 }

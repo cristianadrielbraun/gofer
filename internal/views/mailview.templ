@@ -1294,9 +1294,11 @@ templ MailMoveDialog(email *models.Email, accounts []models.Account) {
 					<div class="mb-2 last:mb-0" data-mail-move-account>
 						<div class="flex items-center gap-2 px-2.5 pt-1 pb-1">
 							<div class="account-color-marker size-2.5 shrink-0" style={ accountColorStyle(account.Color) }></div>
-							<span class="truncate text-xs font-semibold text-foreground">{ account.Email }</span>
+							<span class="truncate text-xs font-semibold text-foreground">{ accountTitle(account) }</span>
 							if problem != "" {
 								<span class="ml-auto shrink-0 text-[11px] text-muted-foreground">{ problem }</span>
+							} else if accountIsLocalFolders(account) {
+								<span class="ml-auto shrink-0 text-[11px] text-muted-foreground">On this server only</span>
 							} else if !own {
 								<span class="ml-auto shrink-0 text-[11px] text-muted-foreground">Other account</span>
 							}
@@ -1391,7 +1393,7 @@ templ mailMoveNewRow(account models.Account) {
 	<button
 		type="button"
 		class="flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-		aria-label={ "New folder in " + account.Email }
+		aria-label={ "New folder in " + accountTitle(account) }
 		data-mail-move-new-row
 		data-mail-move-create-account={ account.ID }
 		data-mail-move-create-parent=""

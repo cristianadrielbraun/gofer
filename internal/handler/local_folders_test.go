@@ -4,10 +4,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/auth"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
+	"github.com/cristianadrielbraun/gofer/internal/store"
 )
 
 // In a shared database, opening mail makes the user's Local folders, which
@@ -102,5 +104,65 @@ func TestManageLocalFolders(t *testing.T) {
 	}
 	if _, err := h.renameFolder(ctx, "owner", archive, provider, "Old"); err == nil {
 		t.Fatal("renamed Archive")
+	}
+}
+
+const localWriterTestMessage = "Message-ID: <picnic-1@example.test>\r\n" +
+	"From: Jordan Reyes <jordan@example.test>\r\n" +
+	"To: Owner <owner@example.com>\r\n" +
+	"Subject: Picnic on Saturday\r\n" +
+	"Date: Tue, 06 Oct 2026 09:30:00 +0000\r\n" +
+	"MIME-Version: 1.0\r\n" +
+	"Content-Type: text/plain; charset=utf-8\r\n" +
+	"\r\n" +
+	"Bring the blue blanket.\r\n"
+
+// The Local folders writer makes the folders it's given by path and saves a
+// message there whole: its raw message, body, sender, recipients and state.
+func TestLocalFoldersWriterSavesMail(t *testing.T) {
+	h, db := newAccountOwnershipTestHandler(t)
+	ctx := auth.ContextWithUser(t.Context(), &auth.User{ID: "owner", Username: "owner"})
+	account, err := db.EnsureLocalFoldersAccount(t.Context(), "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer, err := h.mailAccountWriter(ctx, "owner", account)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer writer.close()
+	folderID, err := writer.ensureFolder(ctx, "Family/2026")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again, err := writer.ensureFolder(ctx, "family/2026"); err != nil || again != folderID {
+		t.Fatalf("second ensure = %q, %v; want %q", again, err, folderID)
+	}
+	folder, _, err := h.managedFolder(ctx, "owner", folderID)
+	if err != nil || folder.Name != "2026" || folder.ParentID == "" {
+		t.Fatalf("folder = %+v %v", folder, err)
+	}
+	date := time.Date(2026, 10, 6, 9, 30, 0, 0, time.UTC)
+	if err := writer.upload(ctx, folderID, mailImportMessage{Raw: []byte(localWriterTestMessage), MessageID: "<picnic-1@example.test>", Subject: "Picnic on Saturday", Date: date, Read: true, Flagged: true}); err != nil {
+		t.Fatal(err)
+	}
+	var id int64
+	var subject, fromEmail, rawPath, textPath string
+	if err := db.Read().QueryRow(`SELECT m.id, m.subject, m.from_email, COALESCE(m.raw_path, ''), COALESCE(m.body_text_path, '') FROM messages m WHERE m.account_id = ?`, account).
+		Scan(&id, &subject, &fromEmail, &rawPath, &textPath); err != nil {
+		t.Fatal(err)
+	}
+	if subject != "Picnic on Saturday" || fromEmail != "jordan@example.test" || rawPath == "" || textPath == "" {
+		t.Fatalf("saved %q from %q raw=%q text=%q", subject, fromEmail, rawPath, textPath)
+	}
+	if raw, err := store.ReadMessageFile(rawPath); err != nil || string(raw) != localWriterTestMessage {
+		t.Fatalf("raw = %q, %v", raw, err)
+	}
+	var read, starred, recipients int
+	if err := db.Read().QueryRow(`SELECT is_read, is_starred FROM message_folder_state WHERE message_id = ? AND folder_id = ?`, id, folderID).Scan(&read, &starred); err != nil || read != 1 || starred != 1 {
+		t.Fatalf("state read=%d starred=%d %v", read, starred, err)
+	}
+	if err := db.Read().QueryRow(`SELECT COUNT(*) FROM message_recipients WHERE message_id = ? AND email = 'owner@example.com'`, id).Scan(&recipients); err != nil || recipients != 1 {
+		t.Fatalf("recipients = %d, %v", recipients, err)
 	}
 }

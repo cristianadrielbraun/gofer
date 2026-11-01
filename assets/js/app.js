@@ -20584,7 +20584,17 @@ function closeMessagesToAccountDialog() {
   if (content && content.open) content.close()
 }
 
+// chooseMessagesToAccountMode names the confirm button after the choice.
+function chooseMessagesToAccountMode(input) {
+  var button = document.querySelector("#mail-to-account-dialog [data-mail-to-account-confirm]")
+  if (button && input && input.checked) button.textContent = input.getAttribute("data-mail-to-account-button") || "Move"
+}
+
 function confirmMessagesToAccount(mode) {
+  if (!mode) {
+    var chosen = document.querySelector('#mail-to-account-dialog [data-mail-to-account-mode]:checked')
+    mode = chosen ? chosen.value : "move"
+  }
   var pending = pendingMessagesToAccount
   pendingMessagesToAccount = null
   closeMessagesToAccountDialog()

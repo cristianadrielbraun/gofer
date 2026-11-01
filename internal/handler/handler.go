@@ -6306,7 +6306,10 @@ type messageBulkTarget struct {
 }
 
 type messageBulkRequest struct {
-	Permanent   bool                    `json:"permanent,omitempty"`
+	Permanent bool `json:"permanent,omitempty"`
+	// ForGood deletes the messages for good from whatever folder they are
+	// in, without passing through Trash, as a move that deletes them does.
+	ForGood     bool                    `json:"for_good,omitempty"`
 	SearchScope *models.MailSearchScope `json:"search_scope,omitempty"`
 	Targets     []messageBulkTarget     `json:"targets"`
 	State       string                  `json:"state"`
@@ -6638,7 +6641,12 @@ func (h *Handler) handleDeleteMessages(w http.ResponseWriter, r *http.Request) {
 
 	for _, target := range targets {
 		currentInfo := target.Infos[0].MessageMutationInfo
-		if currentInfo.FolderRole == "trash" {
+		if payload.ForGood && currentInfo.FolderRole != "trash" {
+			if err := h.queuePermanentDeletes(ctx, target.Infos); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+		} else if currentInfo.FolderRole == "trash" {
 			if payload.SearchScope != nil && !payload.Permanent {
 				keptTrash = append(keptTrash, target.Target)
 				continue

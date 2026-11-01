@@ -26,6 +26,10 @@ import (
 // Gmail label, Outlook folder or JMAP mailbox behind it, or the IMAP folder
 // name.
 func mailImportFolderRemote(provider string, folder storage.MailExportFolder) string {
+	if provider == providers.ProviderLocal {
+		// The Local folders writer files mail by folder ID.
+		return folder.ID
+	}
 	if provider == "gmail" || provider == "outlook" || provider == providers.ProviderJMAP {
 		return folder.ProviderRemoteID
 	}

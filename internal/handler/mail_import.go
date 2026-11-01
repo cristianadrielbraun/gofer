@@ -757,7 +757,7 @@ func (h *Handler) mailAccountWriter(ctx context.Context, owner, accountID string
 	}
 	switch cfg.Provider {
 	case providers.ProviderLocal:
-		return nil, errLocalFoldersNoWriter
+		return &localImportWriter{h: h, owner: owner, accountID: accountID}, nil
 	case "gmail":
 		return &gmailImportWriter{mailImportCaller{token: h.mailImportToken(owner, accountID)}}, nil
 	case "outlook":

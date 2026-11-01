@@ -2,17 +2,12 @@ package handler
 
 import (
 	"context"
-	"errors"
 	"sync"
 )
 
 // localFoldersNoDelete answers a request to delete the Local folders account,
 // which every user keeps. It can be hidden instead.
 const localFoldersNoDelete = "Local folders can't be deleted. You can hide them instead."
-
-// errLocalFoldersNoWriter refuses copying mail into Local folders, which
-// needs its own writer.
-var errLocalFoldersNoWriter = errors.New("mail can't be copied into Local folders yet")
 
 // localFoldersReady holds the users whose Local folders account is known to
 // exist, so the mailbox doesn't look for it on every page.
