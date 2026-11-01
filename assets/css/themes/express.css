@@ -82,6 +82,7 @@
   --shadow-emboss: none;
   --shadow-inset: none;
   --shadow-paper: none;
+  --mail-header-shade: none;
   --shadow-button: none;
   --shadow-button-pressed: none;
 }

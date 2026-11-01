@@ -9009,8 +9009,10 @@ document.addEventListener("DOMContentLoaded", function () {
           '<div class="mt-1.5 h-3 w-28 rounded bg-ink/5 animate-pulse"></div>' +
         '</div>' +
       '</div>'
+    // A thread card keeps its divider between sender and body; a single message
+    // has its sender in the fixed header, whose bottom edge does that job.
+    var dividerHTML = '<div class="h-px bg-gradient-to-r from-transparent via-ink/10 to-transparent my-6"></div>'
     var bodyHTML =
-      '<div class="h-px bg-gradient-to-r from-transparent via-ink/10 to-transparent my-6"></div>' +
       '<div class="mb-3 flex justify-end lg:justify-between">' +
         '<div class="hidden lg:block h-7 w-48 shrink-0 rounded-lg bg-ink/[0.04] animate-pulse"></div>' +
         '<div class="h-7 w-32 rounded-md border border-ink/10 bg-ink/[0.04] animate-pulse"></div>' +
@@ -9021,10 +9023,11 @@ document.addEventListener("DOMContentLoaded", function () {
         '<div class="h-4 w-4/5 rounded bg-ink/5 animate-pulse"></div>' +
         '<div class="h-4 w-2/3 rounded bg-ink/5 animate-pulse"></div>' +
       '</div>'
-    if (keepMailViewChrome(mailView, trigger, senderHTML, bodyHTML)) return
+    if (keepMailViewChrome(mailView, trigger, senderHTML, dividerHTML, bodyHTML)) return
     mailView.innerHTML =
       '<div class="mail-view-frame flex flex-col h-full" aria-busy="true" aria-label="Loading message">' +
         '<div class="surface-paper rounded-md flex flex-col h-full overflow-hidden">' +
+          '<div class="mail-view-message-header shrink-0">' +
           '<div class="mail-view-toolbar flex items-center justify-between px-6 py-2.5">' +
             '<div class="mail-view-actions flex items-center gap-1 min-w-0">' +
               '<button type="button" class="mobile-back-button h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-ink/5" data-on-click=\'["closeMobileMailView"]\' aria-label="Back to list">' + mailViewSkeletonIcon("arrow-left", "size-5") + '</button>' +
@@ -9040,12 +9043,13 @@ document.addEventListener("DOMContentLoaded", function () {
             '</div>' +
           '</div>' +
           '<div class="h-px bg-gradient-to-r from-transparent via-amber-900/10 to-transparent"></div>' +
+          '<div class="mail-view-content mx-auto px-8 py-6">' +
+            senderHTML +
+            mailViewSkeletonSubject(subject) +
+          '</div>' +
+          '</div>' +
           '<div class="flex-1 overflow-y-auto">' +
-            '<div class="mail-view-content mx-auto px-8 py-6">' +
-              senderHTML +
-              mailViewSkeletonSubject(subject) +
-              bodyHTML +
-            '</div>' +
+            '<div class="mail-view-content mx-auto px-8 py-6">' + bodyHTML + '</div>' +
           '</div>' +
           '<div class="px-6 py-3 border-t border-ink/6">' +
             '<div class="mail-view-reply-actions flex items-center gap-2">' +
@@ -9074,14 +9078,15 @@ document.addEventListener("DOMContentLoaded", function () {
   // so they can't be used meanwhile. It returns false when the reader shows
   // no message, or the next one is laid out differently (a conversation
   // against a single message), and the whole reader shows as loading.
-  function keepMailViewChrome(mailView, trigger, senderHTML, bodyHTML) {
+  function keepMailViewChrome(mailView, trigger, senderHTML, dividerHTML, bodyHTML) {
     var frame = mailView.querySelector(":scope > .mail-view-frame:not([aria-busy])")
     var opensThread = frame ? mailViewTriggerOpensThread(trigger) : null
     if (opensThread === null) return false
     var threadFrame = frame.querySelector(".mail-view-thread-frame")
     var threadList = threadFrame && threadFrame.querySelector("[data-thread-list]")
     var scroll = frame.querySelector("[data-mail-view-scroll]")
-    if (opensThread ? !threadList : !scroll) return false
+    var header = frame.querySelector("[data-mail-view-header]")
+    if (opensThread ? !threadList : !(scroll && header)) return false
 
     var preview = getMailRowPreview(trigger) || {}
     frame.setAttribute("aria-busy", "true")
@@ -9094,11 +9099,11 @@ document.addEventListener("DOMContentLoaded", function () {
       var heading = threadFrame.querySelector(".mail-view-thread-toolbar .mail-view-subject-row h1")
       if (heading && preview.subject) heading.textContent = preview.subject
       threadList.innerHTML = '<div class="shrink-0"><article class="mail-thread-card surface-paper rounded-md">' +
-        '<div class="mail-view-content mx-auto px-8 py-6">' + senderHTML + bodyHTML + '</div></article></div>'
+        '<div class="mail-view-content mx-auto px-8 py-6">' + senderHTML + dividerHTML + bodyHTML + '</div></article></div>'
       threadList.scrollTop = 0
     } else {
-      scroll.innerHTML = '<div class="mail-view-content mx-auto px-8 py-6">' + senderHTML +
-        mailViewSkeletonSubject(escapeHTML(preview.subject || "")) + bodyHTML + '</div>'
+      header.innerHTML = senderHTML + mailViewSkeletonSubject(escapeHTML(preview.subject || ""))
+      scroll.innerHTML = '<div class="mail-view-content mx-auto px-8 py-6">' + bodyHTML + '</div>'
       scroll.scrollTop = 0
       var footer = frame.querySelector("[data-mail-calendar-footer]")
       if (footer) footer.innerHTML = ""
@@ -22903,3 +22908,16 @@ function openCalendarPick(pick) {
   document.body.addEventListener("htmx:afterRequest", done)
   trigger.click()
 }
+
+// A single message's header casts its shadow only once the body scrolls under it;
+// at the top the reader reads as one sheet. Scroll events don't bubble, so this
+// listens in the capture phase and survives the reader being swapped.
+document.addEventListener("scroll", function (event) {
+  var scroll = event.target
+  if (!(scroll instanceof Element) || !scroll.matches("[data-mail-view-scroll]")) return
+  var header = scroll.previousElementSibling
+  if (!header || !header.classList.contains("mail-view-message-header")) return
+  // Smooth scrolling eases its last few pixels toward the top, so waiting for
+  // exactly 0 left the shadow up after the body had visibly reached the top.
+  header.toggleAttribute("data-scrolled", scroll.scrollTop > 8)
+}, true)

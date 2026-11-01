@@ -3378,6 +3378,40 @@ body.mail-list-column-resizing {
   to { opacity: 1; transform: translateY(0); }
 }
 
+/* A single message's toolbar, sender and subject stay put above its scrolling
+   body, dropping the paper shadow a thread's toolbar sheet casts over its
+   messages. Themes without that shadow still get the line underneath, and so
+   does the thread's toolbar sheet. */
+.mail-view-message-header {
+  position: relative;
+  z-index: 1;
+}
+
+/* A thread's toolbar shadow only shows across the frame's gap, where it fades
+   out before the next sheet starts, so it reads short and strong. Draw that
+   same fade under this header. Themes without a paper shadow drop it. */
+.mail-view-message-header::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  height: var(--mail-frame-pad);
+  pointer-events: none;
+  background: var(--mail-header-shade, linear-gradient(to bottom, rgba(26,22,18,0.16), rgba(26,22,18,0.05) 50%, transparent));
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.mail-view-message-header[data-scrolled]::after {
+  opacity: 1;
+}
+
+.mail-view-message-header,
+.mail-view-thread-toolbar {
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
+}
+
 .mail-view-thread-scroll {
   margin: 0 calc(-1 * var(--mail-frame-pad)) calc(-1 * var(--mail-frame-pad));
   padding: var(--mail-frame-pad);
@@ -4153,11 +4187,6 @@ body.mail-list-column-resizing {
   #mail-view[data-mail-reader] .mail-view-thread-toolbar,
   #mail-view[data-mail-reader] .mail-thread-card {
     border-radius: 0;
-  }
-
-  /* Without the frame's gap and shadows, a line keeps the thread toolbar apart from the messages. */
-  #mail-view[data-mail-reader] .mail-view-thread-toolbar {
-    border-bottom: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
   }
 
   #mail-view[data-mail-reader] .mail-view-toolbar {
