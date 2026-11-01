@@ -2,6 +2,7 @@ package views
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"time"
 
@@ -192,8 +193,8 @@ templ mailRuleRow(data models.MailRulesData, rule models.MailRule) {
 					}
 				</div>
 				<p class="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground" data-mail-rule-summary>
-					if rule.AccountID != "" {
-						<span class="account-color-marker size-2.5 shrink-0" style={ accountColorStyle(mailRuleAccountColor(rule.AccountID, data.Accounts)) }></span>
+					if color := mailRuleAccountColor(rule, data.Accounts); color != "" {
+						<span class="account-color-marker size-2.5 shrink-0" style={ accountColorStyle(color) }></span>
 					}
 					<span class="truncate">{ mailRuleListSummary(rule, data.Accounts) }</span>
 				</p>
@@ -281,16 +282,18 @@ templ mailRuleForm(data models.MailRulesData, rule models.MailRule) {
 					<div>
 						<label class={ mailRuleFieldLabelClass }>For</label>
 						@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
-							@selectbox.Trigger(selectbox.TriggerProps{Name: "account_id", Class: "bg-background", DisableClear: true, Attributes: templ.Attributes{"data-mail-rule-rerender": ""}}) {
-								@selectbox.Value(selectbox.ValueProps{Placeholder: "All accounts"})
+							@selectbox.Trigger(selectbox.TriggerProps{Name: "account_ids", Class: "bg-background", DisableClear: true, Multiple: true, ShowPills: true, SelectedCountText: "{n} accounts", Attributes: templ.Attributes{"data-mail-rule-accounts": "", "value": mailRuleAccountsValue(rule)}}) {
+								@selectbox.Value(selectbox.ValueProps{Placeholder: "Choose accounts"})
 							}
 							@selectbox.Content(selectbox.ContentProps{NoSearch: len(data.Accounts) < 8, Class: "mobile-sheet"}) {
-								@selectbox.Item(selectbox.ItemProps{Value: "", Selected: rule.AccountID == ""}) {
-									All accounts 
+								@selectbox.Item(selectbox.ItemProps{Value: "all", Selected: !rule.AccountsChosen}) {
+									All accounts
 								}
 								for _, account := range data.Accounts {
-									@selectbox.Item(selectbox.ItemProps{Value: account.ID, Selected: account.ID == rule.AccountID}) {
-										{ account.Email }
+									if mailRuleWatchable(account) {
+										@selectbox.Item(selectbox.ItemProps{Value: account.ID, Selected: rule.AccountsChosen && slices.Contains(rule.AccountIDs, account.ID)}) {
+											{ mailRuleAccountTitle(account) }
+										}
 									}
 								}
 							}
@@ -487,7 +490,7 @@ templ mailRuleConditionRow(data models.MailRulesData, rule models.MailRule, inde
 		<div class="min-w-0 flex-1">
 			if condition.Field == models.MailRuleFieldFolder {
 				<input type="hidden" name="cond_value" value=""/>
-				@mailRuleFolderSelect("cond_folder", condition.Folder, data.Accounts, rule.AccountID, true)
+				@mailRuleFolderSelect("cond_folder", condition.Folder, data.Accounts, true, false)
 			} else {
 				<input type="hidden" name="cond_folder" value=""/>
 				@input.Input(input.Props{Name: "cond_value", Type: input.TypeText, Class: mailRuleCompactControl, Value: condition.Value, Placeholder: mailRuleValuePlaceholder(condition), Attributes: templ.Attributes{"maxlength": "500", "autocomplete": "off", "aria-label": "Text to compare with"}})
@@ -515,49 +518,51 @@ func mailRuleValuePlaceholder(condition models.MailRuleCondition) string {
 	return "Weekly digest"
 }
 
-// mailRuleFolderSelect picks a folder. For a rule of one account it lists
-// that account's folders as its Folders dialog does, and for a move, offers
-// a new folder at the top or inside any of them; for a rule of every account,
-// the folders every account has. withOwnMail offers Sent and Drafts too.
-templ mailRuleFolderSelect(name string, target *models.MailRuleFolderTarget, accounts []models.MailRuleAccount, accountID string, withOwnMail bool) {
-	{{ tree := mailRuleAccountTree(accounts, accountID) }}
-	{{ makes := !withOwnMail && mailRuleAccountMakesFolders(accounts, accountID) }}
+// mailRuleFolderSelect picks a folder: first the ones every account has,
+// which stand for that folder of the account the message is in, then each
+// account's own folders, as its Folders dialog shows them. A folder of
+// another account than the message's moves it there. withOwnMail offers
+// Sent and Drafts too; forMove lists Local folders and offers new folders.
+templ mailRuleFolderSelect(name string, target *models.MailRuleFolderTarget, accounts []models.MailRuleAccount, withOwnMail bool, forMove bool) {
 	@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
-		@selectbox.Trigger(selectbox.TriggerProps{Name: name, Class: mailRuleCompactControl, DisableClear: true, Attributes: templ.Attributes{"aria-label": "Folder"}}) {
+		@selectbox.Trigger(selectbox.TriggerProps{Name: name, Class: mailRuleCompactControl, DisableClear: true, Attributes: mailRuleFolderTriggerAttributes(forMove)}) {
 			@selectbox.Value(selectbox.ValueProps{Placeholder: "Choose a folder"})
 		}
 		@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet max-h-80 overflow-y-auto"}) {
-			if accountID == "" {
-				@selectbox.Group() {
-					@selectbox.Label(selectbox.LabelProps{Class: "text-xs text-muted-foreground"}) {
-						In each account 
-					}
-					for _, role := range []string{"inbox", "archive", "trash", "junk", "sent", "drafts"} {
-						if withOwnMail || (role != "sent" && role != "drafts") {
-							@selectbox.Item(selectbox.ItemProps{Value: "role:" + role, Selected: target != nil && target.Role == role}) {
-								{ mailRuleRoleLabels[role] }
-							}
+			@selectbox.Group() {
+				@selectbox.Label(selectbox.LabelProps{Class: "text-xs text-muted-foreground"}) {
+					In the message's account
+				}
+				for _, role := range []string{"inbox", "archive", "trash", "junk", "sent", "drafts"} {
+					if withOwnMail || (role != "sent" && role != "drafts") {
+						@selectbox.Item(selectbox.ItemProps{Value: "role:" + role, Selected: target != nil && target.Role == role}) {
+							{ mailRuleRoleLabels[role] }
 						}
 					}
 				}
-				@selectbox.Group() {
-					@selectbox.Label(selectbox.LabelProps{Class: "text-xs font-normal text-muted-foreground"}) {
-						Choose an account under For to use its other folders. 
+			}
+			for _, account := range accounts {
+				if forMove || mailRuleWatchable(account) {
+					{{ makes := forMove && account.Provider != "gmail" }}
+					@selectbox.Group() {
+						@selectbox.Label(selectbox.LabelProps{Class: "mt-1 flex items-center gap-2 border-t border-border/60 pt-2 text-xs text-muted-foreground"}) {
+							<span class="account-color-marker size-2 shrink-0" style={ accountColorStyle(account.Color) }></span>
+							<span class="truncate">{ mailRuleAccountTitle(account) }</span>
+						}
+						if makes {
+							<button
+								type="button"
+								class="mb-1 flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-muted-foreground outline-none hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground"
+								data-mail-rule-new-folder={ account.ID }
+							>
+								@icon.FolderPlus(icon.Props{Class: "size-4 shrink-0"})
+								<span class="flex-1 truncate">New folder…</span>
+							</button>
+						}
+						for _, folder := range account.Tree {
+							@mailRuleFolderTreeItem(folder, 0, target, account.ID, withOwnMail, makes)
+						}
 					}
-				}
-			} else {
-				if makes {
-					<button
-						type="button"
-						class="mb-1 flex w-full items-center gap-2 rounded-sm border-b border-border/60 px-2 py-1.5 text-left text-sm text-muted-foreground outline-none hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground"
-						data-mail-rule-new-folder={ accountID }
-					>
-						@icon.FolderPlus(icon.Props{Class: "size-4 shrink-0"})
-						<span class="flex-1 truncate">New folder…</span>
-					</button>
-				}
-				for _, folder := range tree {
-					@mailRuleFolderTreeItem(folder, 0, target, accountID, withOwnMail, makes)
 				}
 			}
 		}
@@ -574,8 +579,8 @@ templ mailRuleFolderTreeItem(folder models.Folder, depth int, target *models.Mai
 		{{ subfolder := makes && !(ownMail && !withOwnMail) }}
 		<div class="relative">
 			@selectbox.Item(selectbox.ItemProps{
-				Value:      mailRuleTreeValue(folder),
-				Selected:   mailRuleTreeSelected(folder, target),
+				Value:      "id:" + folder.ID,
+				Selected:   target != nil && target.Role == "" && target.FolderID == folder.ID,
 				Disabled:   ownMail && !withOwnMail,
 				Class:      mailRuleTreeItemPadding(subfolder),
 				Attributes: templ.Attributes{"style": mailMoveIndent(depth)},
@@ -637,13 +642,34 @@ templ mailRuleActionRow(data models.MailRulesData, rule models.MailRule, index i
 			switch action.Kind {
 				case models.MailRuleActionMove:
 					<input type="hidden" name="act_label" value=""/>
-					@mailRuleFolderSelect("act_folder", action.Folder, data.Accounts, rule.AccountID, false)
+					@mailRuleFolderSelect("act_folder", action.Folder, data.Accounts, false, true)
+					if action.Folder != nil && action.Folder.FolderID != "" {
+						<div class="mt-2">
+							@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
+								@selectbox.Trigger(selectbox.TriggerProps{Name: "act_for_good", Class: mailRuleCompactControl, DisableClear: true, Attributes: templ.Attributes{"aria-label": "What happens to mail from another account", "value": mailRuleForGoodValue(action.ForGood)}}) {
+									@selectbox.Value(selectbox.ValueProps{Placeholder: "Put the original in its Trash"})
+								}
+								@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
+									@selectbox.Item(selectbox.ItemProps{Value: "0", Selected: !action.ForGood}) {
+										From another account: put the original in its Trash
+									}
+									@selectbox.Item(selectbox.ItemProps{Value: "1", Selected: action.ForGood}) {
+										From another account: delete the original for good
+									}
+								}
+							}
+						</div>
+					} else {
+						<input type="hidden" name="act_for_good" value=""/>
+					}
 				case models.MailRuleActionLabel:
 					<input type="hidden" name="act_folder" value=""/>
+					<input type="hidden" name="act_for_good" value=""/>
 					@input.Input(input.Props{Name: "act_label", Type: input.TypeText, Value: action.Label, Placeholder: "Receipts", Attributes: templ.Attributes{"maxlength": "500", "autocomplete": "off", "aria-label": "Label"}})
 				default:
 					<input type="hidden" name="act_folder" value=""/>
 					<input type="hidden" name="act_label" value=""/>
+					<input type="hidden" name="act_for_good" value=""/>
 					<p class="px-1 text-xs text-muted-foreground">{ mailRuleActionHint(action.Kind) }</p>
 			}
 		</div>

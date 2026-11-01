@@ -48,7 +48,7 @@ func TestUserMailRulesHTTPRunAndIsolation(t *testing.T) {
 	f, _ := newUserMutationFixture(t)
 	for _, owner := range []string{"alice", "bob"} {
 		form := url.Values{
-			"name": {owner + " archive"}, "account_id": {f.accounts[owner].ID}, "match": {"all"}, "enabled": {"true"},
+			"name": {owner + " archive"}, "account_ids": {f.accounts[owner].ID}, "match": {"all"}, "enabled": {"true"},
 			"cond_field": {"subject"}, "cond_op": {"contains"}, "cond_value": {"private subject 1"}, "cond_folder": {""},
 			"act_kind": {"archive"}, "act_folder": {""}, "act_label": {""},
 		}

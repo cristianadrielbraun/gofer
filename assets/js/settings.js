@@ -1172,6 +1172,19 @@ document.addEventListener("click", function (e) {
 function setupMailRuleForm() {
   if (setupMailRuleForm.ready) return
   setupMailRuleForm.ready = true
+  // "All accounts" stands alone: choosing it clears the accounts chosen,
+  // choosing an account clears it, and choosing none goes back to it.
+  document.addEventListener("change", function (e) {
+    var input = e.target
+    if (!input.matches || !input.matches("[data-mail-rule-accounts]")) return
+    var values = input.value.split(",").filter(Boolean)
+    var before = (input._mailRuleAccounts != null ? input._mailRuleAccounts : input.getAttribute("value") || "").split(",")
+    var next = values
+    if (!values.length || (values.indexOf("all") >= 0 && before.indexOf("all") < 0)) next = ["all"]
+    else if (values.indexOf("all") >= 0 && values.length > 1) next = values.filter(function (v) { return v !== "all" })
+    input._mailRuleAccounts = next.join(",")
+    if (input.value !== input._mailRuleAccounts) input.value = input._mailRuleAccounts
+  })
   document.addEventListener("change", function (e) {
     var input = e.target
     if (!input.matches || !input.matches("[data-mail-rule-rerender]") || !window.htmx) return

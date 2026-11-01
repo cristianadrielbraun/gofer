@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/cristianadrielbraun/gofer/internal/mailrules"
@@ -18,7 +19,7 @@ import (
 var ErrMailRuleOrderChanged = errors.New("the rules changed; reload to see them")
 
 // ErrMailRuleFolder means a rule names a folder its account doesn't have.
-var ErrMailRuleFolder = errors.New("that folder is not in the rule's account")
+var ErrMailRuleFolder = errors.New("a folder condition can only name a folder of an account the rule is for")
 
 // ErrTooManyMailRules means the owner has as many rules as one may.
 var ErrTooManyMailRules = fmt.Errorf("you can have at most %d rules", mailrules.MaxRulesPerOwner)
@@ -109,16 +110,21 @@ func migrateV131ToV132(db *sql.DB) error {
 	return tx.Commit()
 }
 
-const mailRuleColumns = `id, COALESCE(account_id, ''), name, enabled, match_all, stop_processing, conditions_json, actions_json, sort_order, created_at, updated_at`
+const mailRuleColumns = `id, accounts_chosen, COALESCE((SELECT group_concat(ra.account_id) FROM mail_rule_accounts ra WHERE ra.rule_id = mail_rules.id), ''),
+	name, enabled, match_all, stop_processing, conditions_json, actions_json, sort_order, created_at, updated_at`
 
 func scanMailRule(scan func(...any) error) (models.MailRule, error) {
 	var rule models.MailRule
-	var conditions, actions string
+	var conditions, actions, accounts string
+	var chosen bool
 	var created, updated sqliteNullTime
-	if err := scan(&rule.ID, &rule.AccountID, &rule.Name, &rule.Enabled, &rule.MatchAll, &rule.StopProcessing,
+	if err := scan(&rule.ID, &chosen, &accounts, &rule.Name, &rule.Enabled, &rule.MatchAll, &rule.StopProcessing,
 		&conditions, &actions, &rule.SortOrder, &created, &updated); err != nil {
 		return models.MailRule{}, err
 	}
+	rule.AccountsChosen = chosen
+	rule.AccountIDs = splitMailRuleAccounts(accounts)
+	slices.Sort(rule.AccountIDs)
 	if err := json.Unmarshal([]byte(conditions), &rule.Conditions); err != nil {
 		return models.MailRule{}, fmt.Errorf("rule %s conditions: %w", rule.ID, err)
 	}
@@ -163,9 +169,10 @@ func (db *DB) GetMailRule(ctx context.Context, userID, ruleID string) (models.Ma
 }
 
 // SaveMailRuleGuarded checks and stores one of the owner's rules, a new one
-// last, and returns it as stored. A folder a rule names by ID must be in
-// the rule's account; its current name is kept with it, to find it by
-// should its ID change.
+// last, and returns it as stored. A folder a rule names by ID must be one of
+// the owner's, and a folder a condition names must be in an account the
+// rule is for; the folder's account and current name are kept with it, its
+// name to find it by should its ID change.
 func (db *DB) SaveMailRuleGuarded(ctx context.Context, userID string, rule models.MailRule, guard func(*sql.Tx) error) (models.MailRule, error) {
 	if err := mailrules.Validate(&rule); err != nil {
 		return models.MailRule{}, err
@@ -180,36 +187,45 @@ func (db *DB) SaveMailRuleGuarded(ctx context.Context, userID string, rule model
 			return models.MailRule{}, err
 		}
 	}
-	if rule.AccountID != "" {
+	for _, accountID := range rule.AccountIDs {
 		var owned bool
 		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM accounts WHERE id = ? AND user_id = ? AND COALESCE(is_deleting, 0) = 0)`,
-			rule.AccountID, userID).Scan(&owned); err != nil {
+			accountID, userID).Scan(&owned); err != nil {
 			return models.MailRule{}, err
 		}
 		if !owned {
 			return models.MailRule{}, sql.ErrNoRows
 		}
 	}
-	targets := make([]*models.MailRuleFolderTarget, 0, len(rule.Conditions)+len(rule.Actions))
+	type folderTarget struct {
+		target    *models.MailRuleFolderTarget
+		condition bool
+	}
+	targets := make([]folderTarget, 0, len(rule.Conditions)+len(rule.Actions))
 	for i := range rule.Conditions {
-		targets = append(targets, rule.Conditions[i].Folder)
+		targets = append(targets, folderTarget{rule.Conditions[i].Folder, true})
 	}
 	for i := range rule.Actions {
-		targets = append(targets, rule.Actions[i].Folder)
+		targets = append(targets, folderTarget{rule.Actions[i].Folder, false})
 	}
-	for _, target := range targets {
+	for _, entry := range targets {
+		target := entry.target
 		if target == nil || target.FolderID == "" {
 			continue
 		}
-		var path string
-		err := tx.QueryRowContext(ctx, `SELECT COALESCE(remote_id, '') FROM folders WHERE id = ? AND account_id = ?`, target.FolderID, rule.AccountID).Scan(&path)
+		var path, accountID string
+		err := tx.QueryRowContext(ctx, `SELECT COALESCE(f.remote_id, ''), f.account_id FROM folders f JOIN accounts a ON a.id = f.account_id
+			WHERE f.id = ? AND a.user_id = ? AND COALESCE(a.is_deleting, 0) = 0`, target.FolderID, userID).Scan(&path, &accountID)
 		if errors.Is(err, sql.ErrNoRows) {
 			return models.MailRule{}, ErrMailRuleFolder
 		}
 		if err != nil {
 			return models.MailRule{}, err
 		}
-		target.Path = path
+		if entry.condition && !rule.WatchesAccount(accountID) {
+			return models.MailRule{}, ErrMailRuleFolder
+		}
+		target.Path, target.AccountID = path, accountID
 	}
 	conditions, err := json.Marshal(rule.Conditions)
 	if err != nil {
@@ -219,7 +235,6 @@ func (db *DB) SaveMailRuleGuarded(ctx context.Context, userID string, rule model
 	if err != nil {
 		return models.MailRule{}, err
 	}
-	account := sql.NullString{String: rule.AccountID, Valid: rule.AccountID != ""}
 	if rule.ID == "" {
 		var count int
 		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM mail_rules WHERE user_id = ?`, userID).Scan(&count); err != nil {
@@ -230,17 +245,17 @@ func (db *DB) SaveMailRuleGuarded(ctx context.Context, userID string, rule model
 		}
 		rule.ID = "rul_" + strings.ReplaceAll(uuid.NewString(), "-", "")
 		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO mail_rules (id, user_id, account_id, name, enabled, match_all, stop_processing, conditions_json, actions_json, sort_order)
+			INSERT INTO mail_rules (id, user_id, accounts_chosen, name, enabled, match_all, stop_processing, conditions_json, actions_json, sort_order)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM mail_rules WHERE user_id = ?))`,
-			rule.ID, userID, account, rule.Name, rule.Enabled, rule.MatchAll, rule.StopProcessing, string(conditions), string(actions), userID); err != nil {
+			rule.ID, userID, rule.AccountsChosen, rule.Name, rule.Enabled, rule.MatchAll, rule.StopProcessing, string(conditions), string(actions), userID); err != nil {
 			return models.MailRule{}, fmt.Errorf("save rule: %w", err)
 		}
 	} else {
 		result, err := tx.ExecContext(ctx, `
-			UPDATE mail_rules SET account_id = ?, name = ?, enabled = ?, match_all = ?, stop_processing = ?,
+			UPDATE mail_rules SET account_id = NULL, accounts_chosen = ?, name = ?, enabled = ?, match_all = ?, stop_processing = ?,
 				conditions_json = ?, actions_json = ?, updated_at = CURRENT_TIMESTAMP
 			WHERE id = ? AND user_id = ?`,
-			account, rule.Name, rule.Enabled, rule.MatchAll, rule.StopProcessing, string(conditions), string(actions), rule.ID, userID)
+			rule.AccountsChosen, rule.Name, rule.Enabled, rule.MatchAll, rule.StopProcessing, string(conditions), string(actions), rule.ID, userID)
 		if err != nil {
 			return models.MailRule{}, fmt.Errorf("save rule: %w", err)
 		}
@@ -249,6 +264,9 @@ func (db *DB) SaveMailRuleGuarded(ctx context.Context, userID string, rule model
 		} else if changed == 0 {
 			return models.MailRule{}, sql.ErrNoRows
 		}
+	}
+	if err := saveMailRuleAccountsTx(ctx, tx, rule.ID, rule.AccountIDs); err != nil {
+		return models.MailRule{}, err
 	}
 	saved, err := scanMailRule(tx.QueryRowContext(ctx, `SELECT `+mailRuleColumns+` FROM mail_rules WHERE id = ?`, rule.ID).Scan)
 	if err != nil {
@@ -437,7 +455,7 @@ func markMailRuleArrivalTx(ctx context.Context, tx *sql.Tx, messageID int64, acc
 		INSERT OR IGNORE INTO mail_rule_pending (message_id, account_id, folder_id)
 		SELECT ?, ?, ? WHERE EXISTS (
 			SELECT 1 FROM mail_rules r JOIN accounts a ON a.user_id = r.user_id
-			WHERE a.id = ? AND r.enabled = 1 AND (r.account_id IS NULL OR r.account_id = a.id))`,
+			WHERE a.id = ? AND r.enabled = 1 AND `+mailRuleWatchesSQL("r", "a.id")+`)`,
 		messageID, accountID, folderID, accountID)
 	return err
 }

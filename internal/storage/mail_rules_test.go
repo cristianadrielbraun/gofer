@@ -130,13 +130,13 @@ func TestMigrateV131ToV132AddsMailRules(t *testing.T) {
 func TestSaveListOrderAndDeleteMailRules(t *testing.T) {
 	db := newMailRulesTestDB(t, "imap")
 	ctx := t.Context()
-	first := saveTestRule(t, db, models.MailRule{Name: "First", AccountID: "acc", MatchAll: true, Conditions: fromBakery(),
+	first := saveTestRule(t, db, models.MailRule{Name: "First", AccountsChosen: true, AccountIDs: []string{"acc"}, MatchAll: true, Conditions: fromBakery(),
 		Actions: []models.MailRuleAction{{Kind: "move", Folder: &models.MailRuleFolderTarget{FolderID: "receipts"}}}})
 	if first.Actions[0].Folder.Path != "Receipts" {
 		t.Fatalf("folder path not kept: %+v", first.Actions[0].Folder)
 	}
 	second := saveTestRule(t, db, models.MailRule{Name: "Second", Conditions: fromBakery(), Actions: []models.MailRuleAction{{Kind: "star"}}})
-	if second.SortOrder != first.SortOrder+1 || second.AccountID != "" {
+	if second.SortOrder != first.SortOrder+1 || second.AccountsChosen {
 		t.Fatalf("second rule = %+v", second)
 	}
 
@@ -184,11 +184,11 @@ func TestSaveMailRuleChecksOwnership(t *testing.T) {
 		t.Fatal(err)
 	}
 	star := []models.MailRuleAction{{Kind: "star"}}
-	if _, err := db.SaveMailRuleGuarded(ctx, "default", models.MailRule{Name: "x", AccountID: "other-acc", Conditions: fromBakery(), Actions: star}, nil); !errors.Is(err, sql.ErrNoRows) {
+	if _, err := db.SaveMailRuleGuarded(ctx, "default", models.MailRule{Name: "x", AccountsChosen: true, AccountIDs: []string{"other-acc"}, Conditions: fromBakery(), Actions: star}, nil); !errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("foreign account = %v", err)
 	}
 	move := []models.MailRuleAction{{Kind: "move", Folder: &models.MailRuleFolderTarget{FolderID: "other-inbox"}}}
-	if _, err := db.SaveMailRuleGuarded(ctx, "default", models.MailRule{Name: "x", AccountID: "acc", Conditions: fromBakery(), Actions: move}, nil); !errors.Is(err, ErrMailRuleFolder) {
+	if _, err := db.SaveMailRuleGuarded(ctx, "default", models.MailRule{Name: "x", AccountsChosen: true, AccountIDs: []string{"acc"}, Conditions: fromBakery(), Actions: move}, nil); !errors.Is(err, ErrMailRuleFolder) {
 		t.Fatalf("foreign folder = %v", err)
 	}
 	mine := saveTestRule(t, db, models.MailRule{Conditions: fromBakery(), Actions: star})
@@ -241,7 +241,7 @@ func TestArrivalsAreSetAsideOnlyWithRules(t *testing.T) {
 func TestApplyPendingMailRulesActs(t *testing.T) {
 	db := newMailRulesTestDB(t, "imap")
 	ctx := t.Context()
-	saveTestRule(t, db, models.MailRule{Name: "Receipts", AccountID: "acc", MatchAll: true,
+	saveTestRule(t, db, models.MailRule{Name: "Receipts", AccountsChosen: true, AccountIDs: []string{"acc"}, MatchAll: true,
 		Conditions: append(fromBakery(), models.MailRuleCondition{Field: "subject", Operator: "contains", Value: "receipt"}),
 		Actions: []models.MailRuleAction{
 			{Kind: "move", Folder: &models.MailRuleFolderTarget{FolderID: "receipts"}},
@@ -331,7 +331,7 @@ func TestMailRulesStopAndMoveOnce(t *testing.T) {
 func TestMailRulesLeaveOwnMailAndMissingFolders(t *testing.T) {
 	db := newMailRulesTestDB(t, "imap")
 	ctx := t.Context()
-	saveTestRule(t, db, models.MailRule{Name: "Gone", AccountID: "acc", Conditions: fromBakery(),
+	saveTestRule(t, db, models.MailRule{Name: "Gone", AccountsChosen: true, AccountIDs: []string{"acc"}, Conditions: fromBakery(),
 		Actions: []models.MailRuleAction{{Kind: "move", Folder: &models.MailRuleFolderTarget{FolderID: "receipts"}}}})
 	if _, err := db.Write().Exec(`DELETE FROM folders WHERE id = 'receipts'`); err != nil {
 		t.Fatal(err)
@@ -353,7 +353,7 @@ func TestMailRulesLeaveOwnMailAndMissingFolders(t *testing.T) {
 func TestMailRuleFolderFoundByPathAfterRename(t *testing.T) {
 	db := newMailRulesTestDB(t, "imap")
 	ctx := t.Context()
-	saveTestRule(t, db, models.MailRule{Name: "Receipts", AccountID: "acc", Conditions: fromBakery(),
+	saveTestRule(t, db, models.MailRule{Name: "Receipts", AccountsChosen: true, AccountIDs: []string{"acc"}, Conditions: fromBakery(),
 		Actions: []models.MailRuleAction{{Kind: "move", Folder: &models.MailRuleFolderTarget{FolderID: "receipts"}}}})
 	// Renamed elsewhere and back, an IMAP folder comes back with a new ID.
 	if _, err := db.Write().Exec(`DELETE FROM folders WHERE id = 'receipts'`); err != nil {

@@ -370,3 +370,36 @@ func TestMessagesMoveToLocalFoldersForGood(t *testing.T) {
 		t.Fatalf("local copy %q raw=%q %v", subject, rawPath, err)
 	}
 }
+
+// A move a rule queued to another account's folder starts a transfer that
+// moves the message there, and leaves the queue empty.
+func TestQueuedMailRuleMoveBecomesTransfer(t *testing.T) {
+	f := newMailExportFixture(t)
+	f.h.syncer = mail.NewSyncOrchestrator(f.db, f.h.accountStore, f.h.blobStore, nil)
+	f.holdBackgroundSync(t)
+	local, err := f.db.EnsureLocalFoldersAccount(t.Context(), "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	archive := storage.LocalFolderID(local, "archive")
+	if _, err := f.db.Write().Exec(`INSERT INTO mail_rule_transfers (user_id, message_id, source_account_id, source_folder_id, target_folder_id, for_good)
+		VALUES ('owner', ?, ?, ?, ?, 1)`, f.ids["garden"], f.account.ID, f.folders["inbox"], archive); err != nil {
+		t.Fatal(err)
+	}
+	f.h.startQueuedMailRuleTransfers(t.Context(), "owner")
+	jobs, err := f.h.mailTransfers.jobs("owner")
+	if err != nil || len(jobs) != 1 {
+		t.Fatalf("transfers = %d, %v", len(jobs), err)
+	}
+	job := f.waitTransferFinished(t, jobs[0].ID)
+	_, total, copied, _, failed, deleted := job.totals()
+	if job.State != mailJobDone || total != 1 || copied != 1 || failed != 0 || deleted != 1 || !job.ForGood {
+		t.Fatalf("state %s: total %d, copied %d, failed %d, deleted %d (%s)", job.State, total, copied, failed, deleted, job.Error)
+	}
+	var left, inArchive int
+	_ = f.db.Read().QueryRow(`SELECT COUNT(*) FROM mail_rule_transfers`).Scan(&left)
+	_ = f.db.Read().QueryRow(`SELECT COUNT(*) FROM message_folder_state WHERE folder_id = ? AND is_deleted = 0`, archive).Scan(&inArchive)
+	if left != 0 || inArchive != 1 {
+		t.Fatalf("queue %d, in Local folders %d", left, inArchive)
+	}
+}

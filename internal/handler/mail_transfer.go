@@ -138,6 +138,7 @@ func (h *Handler) StartMailTransfers(ctx context.Context) {
 	}
 	h.mailTransfers = newMailJobManager(ctx, "mail transfer", mailJobDirectory(h.db, "mail-transfers"),
 		func() *mailTransferJob { return &mailTransferJob{} }, h.runMailTransfer)
+	h.startMailRuleTransfers(ctx)
 }
 
 var (

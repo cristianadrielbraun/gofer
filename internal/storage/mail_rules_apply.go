@@ -110,6 +110,9 @@ func (db *DB) ApplyPendingMailRules(ctx context.Context, accountID string) (Mail
 			return outcome, err
 		}
 	}
+	if runner != nil && runner.transfers {
+		announceMailRuleTransfers(runner.owner)
+	}
 	if runner != nil && runner.recorded {
 		if err := pruneMailRuleRuns(ctx, db.Write(), runner.owner); err != nil {
 			log.Printf("mail rules: prune activity of %s: %v", accountID, err)
@@ -127,6 +130,8 @@ type mailRuleRunner struct {
 	rules     []*mailrules.Rule
 	folders   map[string]mailRuleFolder
 	recorded  bool
+	// transfers is set once a rule queued a move to another account.
+	transfers bool
 	// quiet records only what failed: a run by hand over many messages
 	// records one summary instead.
 	quiet  bool
@@ -154,7 +159,7 @@ func (db *DB) newMailRuleRunner(ctx context.Context, accountID string, only []mo
 	if rules == nil {
 		rules, err = queryMailRules(ctx, db.Read(), `
 			SELECT `+mailRuleColumns+` FROM mail_rules
-			WHERE user_id = ? AND enabled = 1 AND (account_id IS NULL OR account_id = ?)
+			WHERE user_id = ? AND enabled = 1 AND `+mailRuleWatchesSQL("mail_rules", "?")+`
 			ORDER BY sort_order, created_at, id`, runner.owner, accountID)
 		if err != nil {
 			return nil, err
@@ -479,6 +484,9 @@ func (r *mailRuleRunner) apply(ctx context.Context, m *mailRuleMessage, arrival 
 		return "labeled “" + action.Label + "”", nil
 	}
 
+	if target := moveTarget(action); r.otherAccount(target) {
+		return r.queueTransfer(ctx, m, arrival, action, target)
+	}
 	verb := map[string]string{
 		models.MailRuleActionMove:    "move",
 		models.MailRuleActionArchive: "archive",
@@ -546,6 +554,9 @@ func (r *mailRuleRunner) needless(m *mailRuleMessage, arrival string, action mod
 		return action.Kind + ": unknown action", true
 	}
 	target := moveTarget(action)
+	if r.otherAccount(target) {
+		return r.transferNeedless(m, arrival, target)
+	}
 	destination, ok := r.findFolder(target)
 	if !ok {
 		name := target.Path

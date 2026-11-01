@@ -198,7 +198,7 @@ func TestRunMailRuleNowScope(t *testing.T) {
 	if _, err := db.ScanMailRuleRun(ctx, "default", everywhere.ID, MailRuleRunScope{AccountID: "acc", Folder: models.MailRuleFolderTarget{FolderID: "inbox2"}}, nil, 0, MailRuleRunScanBatch); !errors.Is(err, ErrMailRuleRunFolder) {
 		t.Fatalf("folder of another account: %v", err)
 	}
-	firstOnly := saveTestRule(t, db, models.MailRule{Name: "First only", AccountID: "acc", Conditions: fromBakery(), Actions: []models.MailRuleAction{{Kind: "trash"}}})
+	firstOnly := saveTestRule(t, db, models.MailRule{Name: "First only", AccountsChosen: true, AccountIDs: []string{"acc"}, Conditions: fromBakery(), Actions: []models.MailRuleAction{{Kind: "trash"}}})
 	if _, err := db.ScanMailRuleRun(ctx, "default", firstOnly.ID, byID, nil, 0, MailRuleRunScanBatch); !errors.Is(err, ErrMailRuleRunFolder) {
 		t.Fatalf("folder outside the rule's account: %v", err)
 	}
