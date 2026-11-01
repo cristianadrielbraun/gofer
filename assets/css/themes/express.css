@@ -1105,6 +1105,31 @@ html:root[data-theme="express"] :is(.account-wizard-card-footer, .account-wizard
   box-shadow: var(--xp-bevel-pressed);
 }
 
+/* The reader's back-to-the-top button is a raised face like the other
+   buttons, with the Tango arrow. */
+[data-theme="express"] .mail-view-scroll-top-button {
+  border: none;
+  border-radius: 0;
+  background: var(--xp-face);
+  color: var(--foreground);
+  box-shadow: var(--xp-bevel-out);
+  transition: opacity 150ms ease-out, transform 150ms ease-out;
+}
+
+[data-theme="express"] .mail-view-scroll-top-button:hover {
+  background: color-mix(in srgb, var(--xp-face) 92%, var(--xp-light));
+  color: var(--foreground);
+}
+
+[data-theme="express"] .mail-view-scroll-top-button:active {
+  box-shadow: var(--xp-bevel-pressed);
+}
+
+[data-theme="express"] .mail-view-scroll-top-button svg[data-lucide="arrow-up"] {
+  --xp-icon: image-set(url("/assets/icons/express/go-up-16.png") 1x, url("/assets/icons/express/go-up-32.png") 2x);
+  --xp-icon-paths: hidden;
+}
+
 /* === ICONS === */
 
 /* Common icons are swapped for Tango Desktop Project pictures (public domain,

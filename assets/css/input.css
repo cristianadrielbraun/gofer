@@ -3583,6 +3583,67 @@ body.mail-list-column-resizing {
   mask-image: linear-gradient(to bottom, transparent 0, #000 var(--mail-frame-pad));
 }
 
+/* Back to the top: a zero-height strip stuck to the bottom of the reader's
+   scrolling pane, so the button floats in the padding beside the message
+   without taking any room from it. */
+.mail-view-scroll-top {
+  position: sticky;
+  bottom: 0;
+  height: 0;
+  flex: none;
+  pointer-events: none;
+}
+
+.mail-view-thread-scroll > .mail-view-scroll-top {
+  margin-top: -0.5rem;
+}
+
+.mail-view-scroll-top-button {
+  position: absolute;
+  /* In the 2rem padding beside the message, clear of the scrollbar. Where the
+     padding is narrower it overlaps the message a little. */
+  right: 0.125rem;
+  bottom: 0.75rem;
+  display: inline-flex;
+  width: 1.75rem;
+  height: 1.75rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  border: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
+  background: var(--background);
+  color: var(--muted-foreground);
+  box-shadow: var(--shadow-button);
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 150ms ease-out, transform 150ms ease-out, color 150ms, background-color 150ms;
+  cursor: pointer;
+  pointer-events: none;
+}
+
+.mail-view-scroll-top-button:active {
+  box-shadow: var(--shadow-button-pressed);
+}
+
+[data-depth="flat"] .mail-view-scroll-top-button {
+  box-shadow: none;
+}
+
+[data-corners="square"] .mail-view-scroll-top-button {
+  border-radius: 0;
+}
+
+.mail-view-scroll-top[data-visible] .mail-view-scroll-top-button {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+
+.mail-view-scroll-top-button:hover {
+  color: var(--foreground);
+  background: var(--accent);
+}
+
 /* Thread sheets slide when a message opens or closes. A sheet under a running
    transform isn't snapped to the pixel grid and one at rest is, so at
    fractional display scaling its text jumped a pixel when the animation let
@@ -3592,6 +3653,10 @@ body.mail-list-column-resizing {
 }
 
 @container (max-width: 560px) {
+  .mail-view-scroll-top-button {
+    right: 0;
+  }
+
   .mail-view-frame {
     --mail-frame-pad: 0.375rem;
   }
@@ -3642,6 +3707,10 @@ body.mail-list-column-resizing {
 }
 
 @container (max-width: 380px) {
+  .mail-view-scroll-top {
+    display: none;
+  }
+
   .mail-view-toolbar {
     flex-direction: column;
   }
@@ -4390,6 +4459,10 @@ body.mail-list-column-resizing {
   #mail-view[data-mail-reader] .mail-view-toolbar button svg {
     width: 1.25rem;
     height: 1.25rem;
+  }
+
+  #mail-view[data-mail-reader] .mail-view-scroll-top {
+    display: none;
   }
 
   #mail-view[data-mail-reader] .mail-view-content {

@@ -21394,6 +21394,36 @@ function scrollThreadToSelected() {
 }
 document.body.addEventListener("htmx:afterSettle", scrollThreadToSelected)
 
+// The reader's back-to-the-top button shows once its pane is scrolled down.
+document.addEventListener("scroll", function (e) {
+  var pane = e.target
+  if (!pane || !pane.matches || !pane.matches("[data-mail-view-scroll], [data-thread-list]")) return
+  var strip = pane.querySelector(":scope > [data-mail-view-scroll-top]")
+  if (strip) strip.toggleAttribute("data-visible", pane.scrollTop > 300)
+}, true)
+
+document.addEventListener("click", function (e) {
+  var button = e.target.closest && e.target.closest("[data-mail-view-scroll-top-button]")
+  if (!button) return
+  var pane = button.closest("[data-mail-view-scroll], [data-thread-list]")
+  if (!pane) return
+  var smooth = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"
+  var target = 0
+  if (pane.matches("[data-thread-list]")) {
+    // The start of the message being read; from there, the one before it.
+    var paneTop = pane.getBoundingClientRect().top + parseFloat(getComputedStyle(pane).paddingTop || "0")
+    var cards = pane.querySelectorAll("[data-thread-card]")
+    for (var i = cards.length - 1; i >= 0; i--) {
+      var offset = cards[i].getBoundingClientRect().top - paneTop
+      if (offset < -8) {
+        target = Math.max(0, pane.scrollTop + offset)
+        break
+      }
+    }
+  }
+  pane.scrollTo({ top: target, behavior: smooth })
+})
+
 // emailBodyFrameFor returns the message frame a message event came from, or
 // null. Messages are only accepted from Gofer's own message frames, and the
 // message they belong to is read from the frame, not from the event.

@@ -266,6 +266,7 @@ templ MailViewContent(email *models.Email, thread []models.ThreadItem) {
 						@MailViewAttachments(email)
 						@MailViewBody(email)
 					</div>
+					@mailViewScrollTopButton()
 				</div>
 				<div id={"mail-calendar-footer-"+email.ID} data-mail-calendar-footer class="max-h-[35dvh] shrink-0 overflow-y-auto" hx-get={"/api/mail/"+email.ID+"/calendar"} hx-trigger="load" hx-swap="innerHTML" hx-sync="this:replace"></div>
 				if email.IsDraft {
@@ -336,8 +337,28 @@ templ MailViewThreadContent(email *models.Email, thread []models.ThreadItem) {
 					</article>
 				</div>
 			}
+			@mailViewScrollTopButton()
 		</div>
 		<div id={"mail-calendar-footer-"+email.ID} data-mail-calendar-footer class="surface-paper rounded-md max-h-[35dvh] shrink-0 overflow-y-auto empty:hidden mt-2" hx-get={"/api/mail/"+email.ID+"/calendar"} hx-trigger="load" hx-swap="innerHTML" hx-sync="this:replace"></div>
+	</div>
+}
+
+// mailViewScrollTopButton sits at the bottom of a reader's scrolling pane, in
+// the padding between the message and the scrollbar, and shows once the pane
+// is scrolled down. It takes a single message back to its start, and a thread
+// to the start of the message being read, then the ones before it.
+templ mailViewScrollTopButton() {
+	<div class="mail-view-scroll-top" data-mail-view-scroll-top>
+		@tooltip.Tooltip() {
+			@tooltip.Trigger() {
+				<button type="button" class="mail-view-scroll-top-button" aria-label="Back to the top" tabindex="-1" data-mail-view-scroll-top-button>
+					@icon.ArrowUp(icon.Props{Class: "size-4"})
+				</button>
+			}
+			@tooltip.Content(tooltip.ContentProps{Position: tooltip.PositionLeft, ShowArrow: true}) {
+				Back to the top
+			}
+		}
 	</div>
 }
 
