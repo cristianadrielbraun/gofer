@@ -3774,7 +3774,9 @@ document.addEventListener("DOMContentLoaded", function () {
     function mailToolbarLabelWidth(el) {
       var range = document.createRange()
       range.selectNodeContents(el)
-      return range.getBoundingClientRect().width
+      // A range around buttons can measure 0 (no text inside), which capped
+      // the action buttons at max-width 0; scrollWidth still sees them.
+      return Math.max(range.getBoundingClientRect().width, el.scrollWidth)
     }
 
     // Each collapsible part with the width it takes now (mid-animation, maybe)
