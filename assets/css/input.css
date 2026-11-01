@@ -3365,6 +3365,19 @@ body.mail-list-column-resizing {
   background: var(--paper);
 }
 
+/* Newly inserted message content settles in without moving the reader's chrome.
+   This covers both the loading preview and the single-message/thread response. */
+@media (prefers-reduced-motion: no-preference) {
+  #mail-view[data-mail-reader] .mail-view-content {
+    animation: mail-reader-content-in 160ms ease-out;
+  }
+}
+
+@keyframes mail-reader-content-in {
+  from { opacity: 0.65; transform: translateY(3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 .mail-view-thread-scroll {
   margin: 0 calc(-1 * var(--mail-frame-pad)) calc(-1 * var(--mail-frame-pad));
   padding: var(--mail-frame-pad);
