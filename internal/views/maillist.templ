@@ -181,18 +181,25 @@ templ MailListHeader(accounts []models.Account, activeFolder string, totalCount 
 				</button>
 				<div class="mail-list-search-input-wrap groove flex min-w-0 items-stretch rounded-lg border border-border/50 bg-background focus-within:ring-2 focus-within:ring-ring">
 					@MailSearchScopeMenu(accounts, activeFolder, filters)
-					<div class="mail-list-search-field relative min-w-0 flex-1">
-						@icon.Search(icon.Props{Class: "absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground"})
-						<input
-							type="text"
-							name="q"
-							placeholder="Search mail"
-							data-mobile-placeholder="Search mail"
-							class="h-9 w-full pl-8 pr-2 text-sm bg-transparent outline-none"
-							data-mail-search-input
-							autocomplete="off"
-						/>
-					</div>
+					@popover.Root(popover.RootProps{ID: "mail-search-suggest"}) {
+						@popover.Trigger(popover.TriggerProps{TriggerType: popover.TriggerTypeManual, Class: "mail-list-search-field relative block min-w-0 flex-1"}) {
+							@icon.Search(icon.Props{Class: "absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground"})
+							<input
+								type="text"
+								name="q"
+								placeholder="Search mail"
+								data-mobile-placeholder="Search mail"
+								class="h-9 w-full pl-8 pr-2 text-sm bg-transparent outline-none"
+								data-mail-search-input
+								autocomplete="off"
+								role="combobox"
+								aria-autocomplete="list"
+								aria-controls="mail-search-suggestions"
+								aria-expanded="false"
+							/>
+						}
+						@MailSearchSuggestions(!filters.ByMessage)
+					}
 					@MailSearchHelp(!filters.ByMessage)
 				</div>
 				<div class="mail-list-search-actions">

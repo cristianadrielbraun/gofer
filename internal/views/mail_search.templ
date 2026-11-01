@@ -217,6 +217,31 @@ templ MailSearchHelp(conversations bool) {
 	}
 }
 
+// MailSearchSuggestions lists the search commands that match what is being
+// typed, under the search field. Script shows the matching ones (and values
+// for some commands, like file types and accounts) and types the chosen one in.
+templ MailSearchSuggestions(conversations bool) {
+	@popover.Content(popover.ContentProps{Placement: popover.PlacementBottomStart, Offset: 6, DisableESC: true, Class: "z-[70] max-w-[calc(100vw-1.5rem)] p-1", Attributes: templ.Attributes{"data-mail-search-suggest-content": ""}}) {
+		<div id="mail-search-suggestions" role="listbox" aria-label="Search commands" class="max-h-[min(20rem,50dvh)] overflow-y-auto" data-mail-search-suggestions>
+			for _, group := range mailSearchCommandGroups {
+				for _, command := range group.Commands {
+					if command.Conversations && !conversations {
+						continue
+					}
+					@mailSearchSuggestion(command.Insert, command.Meaning)
+				}
+			}
+		</div>
+	}
+}
+
+templ mailSearchSuggestion(insert string, meaning string) {
+	<button type="button" role="option" tabindex="-1" aria-selected="false" class="hidden w-full items-baseline gap-3 rounded-md px-2 py-1.5 text-left hover:bg-accent aria-selected:bg-accent [&:not(.hidden)]:flex" data-mail-search-suggestion={ insert }>
+		<code class="shrink-0 whitespace-nowrap font-mono text-xs text-foreground">{ insert }</code>
+		<span class="min-w-0 truncate text-xs text-muted-foreground">{ meaning }</span>
+	</button>
+}
+
 // MailSearchControls holds what the scope menu opens: the folder picker.
 templ MailSearchControls(accounts []models.Account) {
 	{{ accounts = mailAccounts(accounts) }}

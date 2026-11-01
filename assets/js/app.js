@@ -6165,6 +6165,199 @@ document.addEventListener("DOMContentLoaded", function () {
       search.setSelectionRange(search.value.length, search.value.length)
     })
 
+    // Search suggestions: the commands that match the word being typed, under
+    // the field. A word matches a command by its start ("fr" → from:) or by
+    // its value ("un" → is:unread); after "filetype:" or "account:" it lists
+    // their values. Tab or Enter on a highlighted one types it in.
+    var SEARCH_FILETYPES = ["pdf", "image", "document", "spreadsheet", "presentation", "archive", "audio", "video"]
+
+    function searchSuggestRoot() {
+      return document.getElementById("mail-search-suggest")
+    }
+
+    function searchSuggestList() {
+      return document.querySelector("[data-mail-search-suggestions]")
+    }
+
+    function searchSuggestOpen() {
+      var content = document.querySelector("[data-mail-search-suggest-content]")
+      return !!(content && content.getAttribute("data-tui-popover-open") === "true")
+    }
+
+    function closeSearchSuggest() {
+      var input = document.querySelector("[data-mail-search-input]")
+      if (input) {
+        input.setAttribute("aria-expanded", "false")
+        input.removeAttribute("aria-activedescendant")
+      }
+      if (searchSuggestOpen() && window.tui && window.tui.popover) window.tui.popover.close("mail-search-suggest")
+    }
+
+    // The word the cursor is in, and where it starts and ends.
+    function searchSuggestWord(input) {
+      var text = input.value
+      var cursor = input.selectionStart == null ? text.length : input.selectionStart
+      var start = cursor
+      while (start > 0 && !/\s/.test(text.charAt(start - 1))) start--
+      var end = cursor
+      while (end < text.length && !/\s/.test(text.charAt(end))) end++
+      return { start: start, end: end, word: text.slice(start, cursor).toLowerCase() }
+    }
+
+    function searchAccountValues() {
+      var form = document.querySelector("[data-mail-advanced-filter-form]")
+      var field = form && form.querySelector('[name="account_id"]')
+      var select = field && field.closest(".select-container")
+      var values = []
+      if (!select) return values
+      select.querySelectorAll(".select-item").forEach(function (item) {
+        if (!item.getAttribute("data-tui-selectbox-value")) return
+        var text = ((item.querySelector(".select-item-text") || item).textContent || "").trim()
+        if (text && !/\s/.test(text)) values.push(text)
+      })
+      return values
+    }
+
+    function searchSuggestValueItem(list, insert, meaning) {
+      var item = list.querySelector("[data-mail-search-suggestion]").cloneNode(true)
+      item.setAttribute("data-mail-search-suggestion", insert)
+      item.setAttribute("data-mail-search-suggestion-value", "")
+      item.querySelector("code").textContent = insert
+      item.querySelector("span").textContent = meaning
+      list.appendChild(item)
+      return item
+    }
+
+    function updateSearchSuggest(input) {
+      var list = searchSuggestList()
+      if (!list || !input) return
+      list.querySelectorAll("[data-mail-search-suggestion-value]").forEach(function (item) { item.remove() })
+      var word = searchSuggestWord(input).word
+      var shown = []
+      if (word && word.charAt(0) !== '"' && word.charAt(0) !== "'") {
+        var colon = word.indexOf(":")
+        var key = colon > 0 ? word.slice(0, colon) : ""
+        var value = colon > 0 ? word.slice(colon + 1) : ""
+        list.querySelectorAll("[data-mail-search-suggestion]").forEach(function (item) {
+          var insert = item.getAttribute("data-mail-search-suggestion")
+          var at = insert.indexOf(":")
+          var match = colon > 0
+            ? insert !== word && insert.indexOf(word) === 0
+            : insert.indexOf(word) === 0 || (at > 0 && at < insert.length - 1 && insert.slice(at + 1).indexOf(word) === 0)
+          item.classList.toggle("hidden", !match)
+          if (match) shown.push(item)
+        })
+        var values = key === "filetype" ? SEARCH_FILETYPES : key === "account" ? searchAccountValues() : []
+        values.forEach(function (v) {
+          if (v.toLowerCase().indexOf(value) !== 0 || v.toLowerCase() === value) return
+          shown.push(searchSuggestValueItem(list, key + ":" + v, key === "filetype" ? "File type" : "Account"))
+        })
+      } else {
+        list.querySelectorAll("[data-mail-search-suggestion]").forEach(function (item) { item.classList.add("hidden") })
+      }
+      list.querySelectorAll('[aria-selected="true"]').forEach(function (item) { item.setAttribute("aria-selected", "false") })
+      input.removeAttribute("aria-activedescendant")
+      if (!shown.length) {
+        closeSearchSuggest()
+        return
+      }
+      input.setAttribute("aria-expanded", "true")
+      list.scrollTop = 0
+      if (!searchSuggestOpen() && window.tui && window.tui.popover) {
+        var content = document.querySelector("[data-mail-search-suggest-content]")
+        var wrap = input.closest(".mail-list-search-input-wrap")
+        if (content && wrap) content.style.minWidth = Math.min(wrap.offsetWidth, 448) + "px"
+        window.tui.popover.open("mail-search-suggest")
+      }
+    }
+
+    function searchSuggestItems() {
+      var list = searchSuggestList()
+      return list ? Array.prototype.slice.call(list.querySelectorAll("[data-mail-search-suggestion]:not(.hidden)")) : []
+    }
+
+    function moveSearchSuggest(input, step) {
+      var items = searchSuggestItems()
+      if (!items.length) return
+      var index = items.findIndex(function (item) { return item.getAttribute("aria-selected") === "true" })
+      if (index !== -1) items[index].setAttribute("aria-selected", "false")
+      index = index === -1 ? (step > 0 ? 0 : items.length - 1) : (index + step + items.length) % items.length
+      var item = items[index]
+      item.setAttribute("aria-selected", "true")
+      if (!item.id) item.id = "mail-search-suggestion-" + index + "-" + Date.now()
+      input.setAttribute("aria-activedescendant", item.id)
+      item.scrollIntoView({ block: "nearest" })
+    }
+
+    // Types the command in place of the word being typed. A command that
+    // still needs its value leaves the cursor after its colon.
+    function applySearchSuggestion(input, item) {
+      var insert = item.getAttribute("data-mail-search-suggestion")
+      var word = searchSuggestWord(input)
+      var text = input.value
+      var needsValue = insert.charAt(insert.length - 1) === ":"
+      var after = text.slice(word.end)
+      var addition = insert + (needsValue ? "" : (after.charAt(0) === " " ? "" : " "))
+      input.value = text.slice(0, word.start) + addition + after
+      var cursor = word.start + addition.length + (needsValue || after.charAt(0) !== " " ? 0 : 1)
+      input.focus()
+      input.setSelectionRange(cursor, cursor)
+      if (needsValue && (insert === "filetype:" || insert === "account:")) updateSearchSuggest(input)
+      else closeSearchSuggest()
+    }
+
+    document.addEventListener("input", function (e) {
+      if (e.target && e.target.matches && e.target.matches("[data-mail-search-input]")) updateSearchSuggest(e.target)
+    })
+
+    // Before the search's own Enter handler and the phone search mode's Escape.
+    document.addEventListener("keydown", function (e) {
+      if (!e.target || !e.target.matches || !e.target.matches("[data-mail-search-input]")) return
+      if (!searchSuggestOpen()) {
+        if (e.key === "ArrowDown" && e.target.value) updateSearchSuggest(e.target)
+        return
+      }
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault()
+        moveSearchSuggest(e.target, e.key === "ArrowDown" ? 1 : -1)
+        return
+      }
+      if (e.key === "Escape") {
+        e.preventDefault()
+        e.stopImmediatePropagation()
+        closeSearchSuggest()
+        return
+      }
+      if (e.key === "Tab" || e.key === "Enter") {
+        var items = searchSuggestItems()
+        var chosen = items.find(function (item) { return item.getAttribute("aria-selected") === "true" })
+        if (!chosen && e.key === "Tab" && !e.shiftKey) chosen = items[0]
+        if (!chosen) {
+          closeSearchSuggest()
+          return
+        }
+        e.preventDefault()
+        e.stopImmediatePropagation()
+        applySearchSuggestion(e.target, chosen)
+      }
+    }, true)
+
+    // Clicking a suggestion keeps the focus in the field.
+    document.addEventListener("mousedown", function (e) {
+      if (e.target.closest && e.target.closest("[data-mail-search-suggestion]")) e.preventDefault()
+    })
+
+    document.addEventListener("click", function (e) {
+      var item = e.target.closest && e.target.closest("[data-mail-search-suggestion]")
+      if (!item) return
+      var input = document.querySelector("[data-mail-search-input]")
+      if (input) applySearchSuggestion(input, item)
+    })
+
+    document.addEventListener("focusout", function (e) {
+      if (e.target && e.target.matches && e.target.matches("[data-mail-search-input]")) closeSearchSuggest()
+    })
+
     document.addEventListener("keydown", function (e) {
       if (e.key === "Escape") closeActivePillOverflow()
       if (!e.target || !e.target.matches || !e.target.matches("[data-mail-search-input]")) return
