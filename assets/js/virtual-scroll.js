@@ -16,7 +16,7 @@ function mailSearchBandRem(viewMode) {
 // Mail card rows are shorter on small screens, where they use a fixed phone layout
 // (see the small-screen mail list styles).
 function mailCardRowRem() {
-  return window.matchMedia("(max-width: 1023.98px)").matches ? 5.25 : 6.5
+  return window.matchMedia("(max-width: 1023.98px)").matches ? 5.25 : 7.0625
 }
 
 // Contact rows use one 4rem phone layout on small screens, in either view.

@@ -1713,9 +1713,9 @@ html[data-theme="classic"] .mail-list-search-input-wrap {
 }
 
 .mail-list-item {
-  height: 6.5rem;
-  min-height: 6.5rem;
-  max-height: 6.5rem;
+  height: 7.0625rem;
+  min-height: 7.0625rem;
+  max-height: 7.0625rem;
   padding: 3px 0;
 }
 
@@ -1881,9 +1881,9 @@ html[data-theme="classic"] .mail-list-search-input-wrap {
     "railMiddle bodyBottom status"
     "railBottom footer corner";
   column-gap: 0.75rem;
-  row-gap: 0.0625rem;
+  row-gap: 0.25rem;
   align-items: stretch;
-  min-height: 6.125rem;
+  min-height: 6.6875rem;
   min-width: 0;
   padding-block: 0.5rem;
 }
@@ -1930,7 +1930,7 @@ html[data-theme="classic"] .mail-list-search-input-wrap {
 
 .mail-list-card-zone-header {
   grid-area: header;
-  align-items: baseline;
+  align-items: center;
 }
 
 .mail-list-card:not(.mail-card-layout-preview-card, .contact-card):not(:has(> .mail-list-card-zone-meta > :not(.mail-list-card-empty-icon-slot))) .mail-list-card-zone-header,
@@ -2669,9 +2669,9 @@ body.mail-list-column-resizing {
 }
 
 .mail-list-thread-main {
-  height: 6.5rem;
-  min-height: 6.5rem;
-  max-height: 6.5rem;
+  height: 7.0625rem;
+  min-height: 7.0625rem;
+  max-height: 7.0625rem;
   overflow: hidden;
 }
 
@@ -2682,9 +2682,9 @@ body.mail-list-column-resizing {
    which getHeight in virtual-scroll.js matches. Table rows get the same band
    above their columns, once per run of rows from one place; see below. */
 #mail-list[data-mail-search-results]:not([data-mail-list-view="table"]) :is(.mail-list-item, .mail-list-thread-main)[data-search-group] {
-  height: 8rem;
-  min-height: 8rem;
-  max-height: 8rem;
+  height: 8.5625rem;
+  min-height: 8.5625rem;
+  max-height: 8.5625rem;
 }
 
 #mail-list[data-mail-search-results] .mail-list-item[data-search-group] > a.mail-list-card {
@@ -2932,10 +2932,10 @@ body.mail-list-column-resizing {
   display: grid;
   align-items: start;
   column-gap: 0.75rem;
-  row-gap: 0.125rem;
-  height: 6.5rem;
-  min-height: 6.5rem;
-  max-height: 6.5rem;
+  row-gap: 0.25rem;
+  height: 7.0625rem;
+  min-height: 7.0625rem;
+  max-height: 7.0625rem;
   padding-block: 0.5rem;
 }
 
