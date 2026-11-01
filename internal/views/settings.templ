@@ -1044,6 +1044,7 @@ templ SettingsAccountsTab(accounts []models.Account) {
 			</div>
 			@SettingsAddAccountButton()
 		</div>
+		{{ accounts = connectedAccounts(accounts) }}
 		if len(accounts) == 0 {
 			@SettingsNoAccounts()
 		} else {

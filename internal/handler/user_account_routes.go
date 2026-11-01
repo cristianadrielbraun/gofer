@@ -287,6 +287,23 @@ func (h *Handler) handleUserDeleteAccount(w http.ResponseWriter, r *http.Request
 		accepted()
 		return
 	}
+	// An account already being deleted is not Local folders, so a retried
+	// deletion skips the check.
+	if state == storage.AccountActive {
+		var provider string
+		if err := h.userAccounts.WithAccountForUser(r.Context(), owner, id, func(_ *config.AccountStore, db *storage.DB) error {
+			var err error
+			provider, err = db.GetAccountProvider(r.Context(), id)
+			return err
+		}); err != nil {
+			userAccountError(w, r, err)
+			return
+		}
+		if provider == providers.ProviderLocal {
+			http.Error(w, localFoldersNoDelete, http.StatusConflict)
+			return
+		}
+	}
 	h.accountDeleteMu.Lock()
 	if running := h.userDeletions[id]; running != nil {
 		h.accountDeleteMu.Unlock()

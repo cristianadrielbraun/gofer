@@ -4315,7 +4315,7 @@ func (db *DB) IsAccountOwnedByPendingUserDeletion(ctx context.Context, accountID
 }
 
 func (db *DB) GetEmailSyncAccountIDs(ctx context.Context, userID string) ([]string, error) {
-	rows, err := db.Read().QueryContext(ctx, `SELECT id FROM accounts WHERE user_id = ? AND COALESCE(is_deleting, 0) = 0 AND COALESCE(email_sync_enabled, 1) = 1 ORDER BY id`, userID)
+	rows, err := db.Read().QueryContext(ctx, `SELECT id FROM accounts WHERE user_id = ? AND COALESCE(is_deleting, 0) = 0 AND COALESCE(email_sync_enabled, 1) = 1 AND provider != 'local' ORDER BY id`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -4356,7 +4356,7 @@ func (db *DB) GetAllEmailSyncAccountIDs(ctx context.Context) ([]string, error) {
 	rows, err := db.Read().QueryContext(ctx, `
 		SELECT a.id FROM accounts a JOIN users u ON u.id = a.user_id
 		WHERE COALESCE(a.is_deleting, 0) = 0 AND COALESCE(a.email_sync_enabled, 1) = 1
-		  AND u.status = 'active' ORDER BY a.id`)
+		  AND a.provider != 'local' AND u.status = 'active' ORDER BY a.id`)
 	if err != nil {
 		return nil, err
 	}
@@ -4378,7 +4378,7 @@ func (db *DB) IsEmailSyncEnabled(ctx context.Context, accountID string) bool {
 	err := db.Read().QueryRowContext(ctx, `
 		SELECT COALESCE(a.email_sync_enabled, 1)
 		FROM accounts a JOIN users u ON u.id = a.user_id
-		WHERE a.id = ? AND COALESCE(a.is_deleting, 0) = 0 AND u.status = 'active'`, accountID).Scan(&enabled)
+		WHERE a.id = ? AND COALESCE(a.is_deleting, 0) = 0 AND a.provider != 'local' AND u.status = 'active'`, accountID).Scan(&enabled)
 	return err == nil && enabled == 1
 }
 

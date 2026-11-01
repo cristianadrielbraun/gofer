@@ -380,6 +380,8 @@ func (s *UserIMAP) snapshotAccount(ctx context.Context, owner, id string, allowJ
 			return ErrJMAPSyncUnavailable
 		} else if r.config.Provider == providers.ProviderDAV {
 			return config.ErrAccountHasNoMail
+		} else if r.config.Provider == providers.ProviderLocal {
+			return config.ErrLocalFolders
 		} else if r.config.Provider != providers.ProviderIMAP || r.config.AuthMethod != "plain" {
 			return errors.New("routed worker supports plain IMAP and configured Gmail/Outlook OAuth accounts only")
 		}
@@ -504,8 +506,9 @@ func (s *UserIMAP) sync(ctx context.Context, owner, id string, repair, backgroun
 			}
 		}()
 		scope, err = s.snapshotAccount(ctx, owner, id, true)
-		if errors.Is(err, config.ErrAccountHasNoMail) {
+		if errors.Is(err, config.ErrAccountHasNoMail) || errors.Is(err, config.ErrLocalFolders) {
 			// Its calendars and contacts sync on their own; there is no mail.
+			// Local folders have no mail server to sync with.
 			scope = nil
 			paused = true
 			return nil

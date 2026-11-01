@@ -3321,6 +3321,13 @@ func (h *Handler) handleDeleteAccount(w http.ResponseWriter, r *http.Request) {
 	if !h.requireOwnedAccount(w, r, accountID) {
 		return
 	}
+	if provider, err := h.db.GetAccountProvider(r.Context(), accountID); err != nil {
+		http.Error(w, "account unavailable", http.StatusInternalServerError)
+		return
+	} else if provider == providers.ProviderLocal {
+		http.Error(w, localFoldersNoDelete, http.StatusConflict)
+		return
+	}
 
 	h.closeBodyClient(accountID)
 	h.syncer.StopAccount(accountID)
@@ -3839,6 +3846,10 @@ func (h *Handler) buildAccountSignatureData(ctx context.Context, accounts []mode
 	signatures, _ := h.db.ListSignatures(ctx, userID)
 	data := make([]models.AccountSignatureData, 0, len(accounts))
 	for _, account := range accounts {
+		if account.Provider == providers.ProviderLocal {
+			// Mail isn't sent from Local folders.
+			continue
+		}
 		settings, _ := h.db.GetAccountSignatureSettings(ctx, userID, account.ID)
 		data = append(data, models.AccountSignatureData{Account: account, Signatures: signatures, Settings: settings})
 	}
@@ -3850,7 +3861,7 @@ func (h *Handler) buildSyncSettings(ctx context.Context, accounts []models.Accou
 
 	var accountStatuses []models.AccountSyncStatus
 	for _, account := range accounts {
-		if !account.EmailSyncEnabled {
+		if !account.EmailSyncEnabled || account.Provider == providers.ProviderLocal {
 			continue
 		}
 		folders, err := h.db.GetFoldersForAccount(ctx, account.ID)

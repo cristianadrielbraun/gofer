@@ -13,6 +13,8 @@ const (
 	FolderDiscoveryGmail   = "gmail"
 	FolderDiscoveryOutlook = "outlook"
 	FolderDiscoveryJMAP    = "jmap"
+	// FolderDiscoveryLocal is a Local folders folder, made in Gofer alone.
+	FolderDiscoveryLocal = "local"
 
 	folderRemovalGracePeriod = 24 * time.Hour
 )

@@ -43,7 +43,8 @@ func (h *Handler) checkUserMessageMutation(ctx context.Context, info *storage.Me
 	if err != nil {
 		return err
 	}
-	if !((cfg.Provider == "imap" && cfg.AuthMethod == "plain") || (cfg.Provider == "jmap" && cfg.AuthMethod == "plain" && providers.JMAPEnabled()) || (s.credentials && (cfg.Provider == "gmail" || cfg.Provider == "outlook") && cfg.AuthMethod == "oauth2")) {
+	// Changes to Local folders are made here alone.
+	if !(cfg.Provider == providers.ProviderLocal || (cfg.Provider == "imap" && cfg.AuthMethod == "plain") || (cfg.Provider == "jmap" && cfg.AuthMethod == "plain" && providers.JMAPEnabled()) || (s.credentials && (cfg.Provider == "gmail" || cfg.Provider == "outlook") && cfg.AuthMethod == "oauth2")) {
 		return errUserMessageMutationUnsupported
 	}
 	s.checked[info.AccountID] = true

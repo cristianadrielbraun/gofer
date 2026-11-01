@@ -719,7 +719,9 @@ templ SidebarSyncControls(accounts []models.Account, activeApp string) {
 							<div class="px-2 py-1.5 text-[11px] font-semibold uppercase text-sidebar-foreground">Force sync individual account, including IDLE folders</div>
 							<div class="space-y-1">
 								for _, account := range accounts {
-									if account.EmailSyncEnabled && !account.IsDeleting && jmapAccountPaused(account) {
+									if accountIsLocalFolders(account) {
+										// Nothing to sync: no mail server.
+									} else if account.EmailSyncEnabled && !account.IsDeleting && jmapAccountPaused(account) {
 										@SidebarPausedAccountSyncRow(account)
 									} else if account.EmailSyncEnabled && !account.IsDeleting {
 										<button

@@ -13,6 +13,9 @@ const (
 	// ProviderDAV is an account with no mail, only a CalDAV or CardDAV
 	// server, signed in to with the account's own login.
 	ProviderDAV = "dav"
+	// ProviderLocal is the Local folders account: mail kept only on the Gofer
+	// server, with no mail server behind it. Each user has exactly one.
+	ProviderLocal = "local"
 )
 
 func GmailAccountRequest(email, displayName, providerAccountID string) *models.CreateAccountRequest {

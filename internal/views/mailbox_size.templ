@@ -78,7 +78,7 @@ templ MailboxSizeDetails(size models.MailboxSize) {
 		<div class="flex items-end justify-between gap-4 rounded-lg border border-border bg-muted/30 px-4 py-3">
 			<div class="min-w-0">
 				<p class="text-2xl font-semibold tabular-nums">{ formatMailboxBytes(size.Total.Bytes) }</p>
-				<p class="mt-0.5 text-xs text-muted-foreground">on the mail server · { mailExportCount(size.Total.Messages, "message", "messages") }</p>
+				<p class="mt-0.5 text-xs text-muted-foreground">{ mailboxSizeWhere(size.Account) } · { mailExportCount(size.Total.Messages, "message", "messages") }</p>
 			</div>
 			if size.HasLocal {
 				<div class="shrink-0 text-right">

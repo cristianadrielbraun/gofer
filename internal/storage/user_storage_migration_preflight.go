@@ -131,7 +131,7 @@ func InspectUserStorageMigration(ctx context.Context, sourcePath string) (UserSt
 }
 
 func migrationSharedVersionSupported(version int) bool {
-	return version >= 105 && version <= 133
+	return version >= 105 && version <= 134
 }
 
 // These recognized shared schemas differ only in the explicitly handled push
@@ -417,11 +417,11 @@ func migrationSourceColumns(ctx context.Context, tx *sql.Tx, table *UserStorageM
 	} else if table.Name == "calendar_events" && version < 112 {
 		missing = []string{"event_type"}
 	} else if table.Name == "accounts" && version < 114 {
-		missing = []string{"jmap_session_url", "provider_push_enabled", "sort_order"}
+		missing = []string{"jmap_session_url", "provider_push_enabled", "sort_order", "hidden"}
 	} else if table.Name == "accounts" && version < 122 {
-		missing = []string{"provider_push_enabled", "sort_order"}
+		missing = []string{"provider_push_enabled", "sort_order", "hidden"}
 	} else if table.Name == "accounts" && version < 124 {
-		missing = []string{"sort_order"}
+		missing = []string{"sort_order", "hidden"}
 	} else if table.Name == "message_folder_state" && version < 118 {
 		missing = []string{"remote_message_id", "message_date", "message_has_attachments", "deleted_at"}
 	} else if table.Name == "message_folder_state" && version < 125 {
@@ -438,6 +438,8 @@ func migrationSourceColumns(ctx context.Context, tx *sql.Tx, table *UserStorageM
 		missing = []string{"list_id"}
 	} else if table.Name == "calendar_sources" && version < 133 {
 		missing = []string{"created_in_gofer"}
+	} else if table.Name == "accounts" && version < 134 {
+		missing = []string{"hidden"}
 	}
 	for _, name := range missing {
 		if actual[name] {

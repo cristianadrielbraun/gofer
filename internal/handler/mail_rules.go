@@ -36,7 +36,7 @@ func mailRulesData(ctx context.Context, db *storage.DB, userID string) (models.M
 	}
 	data := models.MailRulesData{Rules: rules}
 	for _, account := range accounts {
-		if account.IsDeleting || account.Provider == providers.ProviderDAV {
+		if account.IsDeleting || account.Provider == providers.ProviderDAV || account.Provider == providers.ProviderLocal {
 			continue
 		}
 		tree, err := db.AccountFolderTree(ctx, account.ID)

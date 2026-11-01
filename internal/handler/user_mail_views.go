@@ -40,6 +40,9 @@ func redirectToInbox(w http.ResponseWriter, r *http.Request) {
 // background-worker or body-fetch state; it must never escape the callback.
 func (h *Handler) renderMailboxView(w http.ResponseWriter, r *http.Request, ctx *context.Context, prepare func(*Handler) (templ.Component, error)) {
 	var component templ.Component
+	if err := h.ensureLocalFolders(r.Context(), h.userID(r.Context())); err != nil {
+		log.Printf("local folders unavailable: %v", err)
+	}
 	err := h.withUserDB(r.Context(), h.userID(r.Context()), func(db *storage.DB) error {
 		local := h
 		if h.userStorage != nil {
