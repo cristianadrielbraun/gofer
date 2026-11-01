@@ -659,7 +659,7 @@ templ EmailBodyStyleCycleButton(emailID string) {
 // that translates the message or shows the original again, and a menu of languages. It
 // shares the desktop control's behavior and its colors while a translation is shown.
 templ EmailTranslateIconButton(emailID string) {
-	<div data-translate-email-icon-shell={ emailID } data-translated="false" class="inline-flex h-7 overflow-hidden rounded-md text-icon transition-colors data-[translated=true]:bg-copper/10 data-[translated=true]:text-copper">
+	<div data-translate-email-icon-shell={ emailID } data-translated="false" class="inline-flex [&.hidden]:hidden h-7 overflow-hidden rounded-md text-icon transition-colors data-[translated=true]:bg-copper/10 data-[translated=true]:text-copper">
 		<button type="button" data-translate-email-icon={ emailID } data-translated="false" aria-pressed="false" aria-label="Translate" class="inline-flex h-full items-center pl-1.5 pr-0.5 transition-colors hover:text-ink">
 			@icon.Languages(icon.Props{Class: "size-3.5"})
 		</button>

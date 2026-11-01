@@ -2511,7 +2511,7 @@ func EmailTranslateIconButton(emailID string) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 139, "\" data-translated=\"false\" class=\"inline-flex h-7 overflow-hidden rounded-md text-icon transition-colors data-[translated=true]:bg-copper/10 data-[translated=true]:text-copper\"><button type=\"button\" data-translate-email-icon=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 139, "\" data-translated=\"false\" class=\"inline-flex [&.hidden]:hidden h-7 overflow-hidden rounded-md text-icon transition-colors data-[translated=true]:bg-copper/10 data-[translated=true]:text-copper\"><button type=\"button\" data-translate-email-icon=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
