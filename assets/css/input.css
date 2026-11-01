@@ -1868,10 +1868,12 @@ html:not([data-theme="express"]) [data-view-mode="table"] .mail-list-item > a[da
   box-shadow: none;
 }
 
-/* Only colors animate on table rows, so the border and padding swap in one
-   step instead of sliding the text. */
+/* Only the background and text color animate on table rows, so the border
+   and padding swap in one step instead of sliding the text. The border color
+   doesn't animate either: unselected rows have none, so it would fade in from
+   the text color and flash white in dark themes. */
 html:not([data-theme="express"]) [data-view-mode="table"] .mail-list-item > a {
-  transition-property: background-color, border-color, color;
+  transition-property: background-color, color;
 }
 
 .mail-list-item[data-mail-read-optimistic] .font-semibold,
