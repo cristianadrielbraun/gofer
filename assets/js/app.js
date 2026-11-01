@@ -1452,9 +1452,10 @@ document.addEventListener("DOMContentLoaded", function () {
         return
       }
       var threadToggle = e.target.closest && e.target.closest("#mail-list-scroll [data-thread-toggle]")
-      if (threadToggle && mobileMailList.matches && !mailSelectionModeActive()) {
-        // On a phone, opening the message would replace the list, so the toggle only
-        // expands the thread. Stopping here also keeps htmx on the row from firing.
+      if (threadToggle) {
+        // The toggle only expands or collapses the thread: it leaves the open
+        // message, and which row is current, as they are. Stopping here also
+        // keeps htmx on the row from firing.
         e.preventDefault()
         e.stopPropagation()
         var toggleScroll = document.getElementById("mail-list-scroll")
