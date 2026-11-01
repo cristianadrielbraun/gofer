@@ -1356,6 +1356,9 @@ input[role="switch"] + .gofer-switch-track::after {
   gap: 0.25rem;
   flex: 1 1 auto;
   min-width: 0;
+  /* Room for the pills' bottom border and shadow, which the clip below
+     would otherwise cut, at some zoom levels by a whole pixel. */
+  padding-block: 2px;
   overflow: hidden;
 }
 
