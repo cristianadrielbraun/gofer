@@ -6353,16 +6353,22 @@ func MailListTableItem(email models.Email, position int, selectedEmail *models.E
 				}
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 412, "</div><div class=\"flex items-center justify-end shrink-0 text-muted-foreground tabular-nums\" data-mail-table-cell=\"date\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 412, "</div><div class=\"flex items-center justify-end gap-1.5 shrink-0 text-muted-foreground tabular-nums\" data-mail-table-cell=\"date\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
+		}
+		if !email.IsRead {
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 413, "<span class=\"size-2 shrink-0 rounded-full bg-primary shadow-[0_0_6px_rgba(199,123,48,0.4)]\" aria-label=\"Unread\"></span> ")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
 		}
 		var templ_7745c5c3_Var268 = []any{templ.Classes("min-w-12 text-right", templ.KV("text-primary font-medium", !email.IsRead))}
 		templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var268...)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 413, "<span class=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 414, "<span class=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -6375,7 +6381,7 @@ func MailListTableItem(email models.Email, position int, selectedEmail *models.E
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 414, "\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 415, "\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -6383,7 +6389,7 @@ func MailListTableItem(email models.Email, position int, selectedEmail *models.E
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 415, "</span></div></a></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 416, "</span></div></a></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -6412,7 +6418,7 @@ func MailListEmpty() templ.Component {
 			templ_7745c5c3_Var270 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 416, "<div class=\"flex flex-col items-center justify-center py-20 px-4 text-center\"><div class=\"empty-icon-box size-16 rounded-2xl bg-muted/50 flex items-center justify-center mb-4 raised\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 417, "<div class=\"flex flex-col items-center justify-center py-20 px-4 text-center\"><div class=\"empty-icon-box size-16 rounded-2xl bg-muted/50 flex items-center justify-center mb-4 raised\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -6420,7 +6426,7 @@ func MailListEmpty() templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 417, "</div><h3 class=\"font-semibold text-sm mb-1\">No emails</h3><p class=\"text-xs text-muted-foreground\">Your inbox is empty</p></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 418, "</div><h3 class=\"font-semibold text-sm mb-1\">No emails</h3><p class=\"text-xs text-muted-foreground\">Your inbox is empty</p></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -6449,111 +6455,111 @@ func MailListItemsFragment(accounts []models.Account, emails []models.Email, fol
 			templ_7745c5c3_Var271 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 418, "<div data-total-count=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 419, "<div data-total-count=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var272 string
 		templ_7745c5c3_Var272, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", totalCount))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/maillist.templ`, Line: 1433, Col: 50}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/maillist.templ`, Line: 1436, Col: 50}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var272))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 419, "\" data-display-total-count=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 420, "\" data-display-total-count=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var273 string
 		templ_7745c5c3_Var273, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", displayTotalCount))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/maillist.templ`, Line: 1434, Col: 65}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/maillist.templ`, Line: 1437, Col: 65}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var273))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 420, "\" data-window-start=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 421, "\" data-window-start=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var274 string
 		templ_7745c5c3_Var274, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", windowStart))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/maillist.templ`, Line: 1435, Col: 52}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/maillist.templ`, Line: 1438, Col: 52}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var274))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 421, "\" data-window-end=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 422, "\" data-window-end=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var275 string
 		templ_7745c5c3_Var275, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", windowEnd))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/maillist.templ`, Line: 1436, Col: 48}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/maillist.templ`, Line: 1439, Col: 48}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var275))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 422, "\" data-next-cursor=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 423, "\" data-next-cursor=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var276 string
 		templ_7745c5c3_Var276, templ_7745c5c3_Err = templ.JoinStringErrs(nextCursor)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/maillist.templ`, Line: 1437, Col: 31}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/maillist.templ`, Line: 1440, Col: 31}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var276))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 423, "\" data-has-more=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 424, "\" data-has-more=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var277 string
 		templ_7745c5c3_Var277, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%t", hasMore))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/maillist.templ`, Line: 1438, Col: 44}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/maillist.templ`, Line: 1441, Col: 44}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var277))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 424, "\" data-folder-id=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 425, "\" data-folder-id=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var278 string
 		templ_7745c5c3_Var278, templ_7745c5c3_Err = templ.JoinStringErrs(folderID)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/maillist.templ`, Line: 1439, Col: 27}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/maillist.templ`, Line: 1442, Col: 27}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var278))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 425, "\" data-view-mode=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 426, "\" data-view-mode=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var279 string
 		templ_7745c5c3_Var279, templ_7745c5c3_Err = templ.JoinStringErrs(mailListViewMode(viewMode))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/maillist.templ`, Line: 1440, Col: 45}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/maillist.templ`, Line: 1443, Col: 45}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var279))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 426, "\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 427, "\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -6563,7 +6569,7 @@ func MailListItemsFragment(accounts []models.Account, emails []models.Email, fol
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 427, "</div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 428, "</div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -6592,64 +6598,64 @@ func MailListThreadSubItems(items []models.ThreadItem, senderDisplayMode string)
 			templ_7745c5c3_Var280 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 428, "<div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 429, "<div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		for _, item := range items {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 429, "<div class=\"thread-sub-item\" data-sub-email-id=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 430, "<div class=\"thread-sub-item\" data-sub-email-id=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var281 string
 			templ_7745c5c3_Var281, templ_7745c5c3_Err = templ.JoinStringErrs(item.ID)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/maillist.templ`, Line: 1451, Col: 59}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/maillist.templ`, Line: 1454, Col: 59}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var281))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 430, "\"><a href=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 431, "\"><a href=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var282 templ.SafeURL
 			templ_7745c5c3_Var282, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(fmt.Sprintf("/?email=%s", item.ID)))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/maillist.templ`, Line: 1453, Col: 57}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/maillist.templ`, Line: 1456, Col: 57}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var282))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 431, "\" hx-get=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 432, "\" hx-get=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var283 string
 			templ_7745c5c3_Var283, templ_7745c5c3_Err = templ.JoinStringErrs(mailViewPartialURL(item.ID, item.FolderID, true))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/maillist.templ`, Line: 1454, Col: 62}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/maillist.templ`, Line: 1457, Col: 62}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var283))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 432, "\" hx-target=\"#mail-view\" hx-swap=\"innerHTML\" class=\"flex items-start gap-2.5 px-3 py-1.5 cursor-pointer transition-colors hover:bg-muted/50\"><div class=\"flex items-center justify-center shrink-0\" data-mail-table-cell=\"accountMarker\"><span class=\"account-color-marker size-2.5 shrink-0\" style=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 433, "\" hx-target=\"#mail-view\" hx-swap=\"innerHTML\" class=\"flex items-start gap-2.5 px-3 py-1.5 cursor-pointer transition-colors hover:bg-muted/50\"><div class=\"flex items-center justify-center shrink-0\" data-mail-table-cell=\"accountMarker\"><span class=\"account-color-marker size-2.5 shrink-0\" style=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var284 string
 			templ_7745c5c3_Var284, templ_7745c5c3_Err = templruntime.SanitizeStyleAttributeValues(accountColorStyle(item.AccountColor))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/maillist.templ`, Line: 1460, Col: 103}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/maillist.templ`, Line: 1463, Col: 103}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var284))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 433, "\"></span></div><div data-mail-table-cell=\"thread\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 434, "\"></span></div><div data-mail-table-cell=\"thread\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -6657,7 +6663,7 @@ func MailListThreadSubItems(items []models.ThreadItem, senderDisplayMode string)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 434, "</div><div class=\"flex-1 min-w-0\"><div class=\"flex items-center justify-between gap-2\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 435, "</div><div class=\"flex-1 min-w-0\"><div class=\"flex items-center justify-between gap-2\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -6669,7 +6675,7 @@ func MailListThreadSubItems(items []models.ThreadItem, senderDisplayMode string)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 435, "<span class=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 436, "<span class=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -6682,20 +6688,20 @@ func MailListThreadSubItems(items []models.ThreadItem, senderDisplayMode string)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 436, "\" data-mail-table-cell=\"from\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 437, "\" data-mail-table-cell=\"from\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var287 string
 			templ_7745c5c3_Var287, templ_7745c5c3_Err = templ.JoinStringErrs(senderDisplay(item.From, senderDisplayMode))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/maillist.templ`, Line: 1474, Col: 53}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/maillist.templ`, Line: 1477, Col: 53}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var287))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 437, "</span> ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 438, "</span> ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -6707,7 +6713,7 @@ func MailListThreadSubItems(items []models.ThreadItem, senderDisplayMode string)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 438, "<span class=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 439, "<span class=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -6720,20 +6726,20 @@ func MailListThreadSubItems(items []models.ThreadItem, senderDisplayMode string)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 439, "\" data-mail-table-cell=\"to\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 440, "\" data-mail-table-cell=\"to\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var290 string
 			templ_7745c5c3_Var290, templ_7745c5c3_Err = templ.JoinStringErrs(contactsDisplay(item.To, senderDisplayMode))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/maillist.templ`, Line: 1482, Col: 53}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/maillist.templ`, Line: 1485, Col: 53}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var290))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 440, "</span><div class=\"flex items-center justify-center shrink-0\" data-mail-table-cell=\"attachment\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 441, "</span><div class=\"flex items-center justify-center shrink-0\" data-mail-table-cell=\"attachment\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -6743,25 +6749,25 @@ func MailListThreadSubItems(items []models.ThreadItem, senderDisplayMode string)
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 441, "</div><div class=\"flex items-center justify-center shrink-0\" data-mail-table-cell=\"starred\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 442, "</div><div class=\"flex items-center justify-center shrink-0\" data-mail-table-cell=\"starred\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			if item.IsStarred {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 442, "<button class=\"star-btn\" data-email-id=\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 443, "<button class=\"star-btn\" data-email-id=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var291 string
 				templ_7745c5c3_Var291, templ_7745c5c3_Err = templ.JoinStringErrs(item.ID)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/maillist.templ`, Line: 1490, Col: 57}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/maillist.templ`, Line: 1493, Col: 57}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var291))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 443, "\" aria-label=\"Unstar\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 444, "\" aria-label=\"Unstar\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -6769,25 +6775,25 @@ func MailListThreadSubItems(items []models.ThreadItem, senderDisplayMode string)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 444, "</button>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 445, "</button>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			} else {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 445, "<button class=\"opacity-0 group-hover:opacity-100 transition-opacity star-btn\" data-email-id=\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 446, "<button class=\"opacity-0 group-hover:opacity-100 transition-opacity star-btn\" data-email-id=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var292 string
 				templ_7745c5c3_Var292, templ_7745c5c3_Err = templ.JoinStringErrs(item.ID)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/maillist.templ`, Line: 1494, Col: 110}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/maillist.templ`, Line: 1497, Col: 110}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var292))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 446, "\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 447, "\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -6795,12 +6801,12 @@ func MailListThreadSubItems(items []models.ThreadItem, senderDisplayMode string)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 447, "</button>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 448, "</button>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 448, "</div><div class=\"flex items-center gap-1.5 shrink-0\" data-mail-table-cell=\"date\"><span class=\"text-[11px] text-muted-foreground tabular-nums\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 449, "</div><div class=\"flex items-center gap-1.5 shrink-0\" data-mail-table-cell=\"date\"><span class=\"text-[11px] text-muted-foreground tabular-nums\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -6808,35 +6814,35 @@ func MailListThreadSubItems(items []models.ThreadItem, senderDisplayMode string)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 449, "</span></div></div><p class=\"text-[11px] text-muted-foreground truncate leading-relaxed\" data-mail-table-cell=\"subject\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 450, "</span></div></div><p class=\"text-[11px] text-muted-foreground truncate leading-relaxed\" data-mail-table-cell=\"subject\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var293 string
 			templ_7745c5c3_Var293, templ_7745c5c3_Err = templ.JoinStringErrs(item.Preview)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/maillist.templ`, Line: 1505, Col: 121}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/maillist.templ`, Line: 1508, Col: 121}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var293))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 450, "</p></div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 451, "</p></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			if !item.IsRead {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 451, "<div class=\"w-1.5 h-1.5 rounded-full bg-primary shrink-0\"></div>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 452, "<div class=\"w-1.5 h-1.5 rounded-full bg-primary shrink-0\"></div>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 452, "</a></div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 453, "</a></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 453, "</div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 454, "</div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -6887,7 +6893,7 @@ func mailToolbarSpamButton(spamFolder bool) templ.Component {
 			templ_7745c5c3_Var294 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 454, "<div class=\"mail-toolbar-collapsible\" data-mail-overflow-rank=\"1\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 455, "<div class=\"mail-toolbar-collapsible\" data-mail-overflow-rank=\"1\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -6927,17 +6933,17 @@ func mailToolbarSpamButton(spamFolder bool) templ.Component {
 						}()
 					}
 					ctx = templ.InitializeContext(ctx)
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 455, "<span class=\"inline-flex\" data-mail-spam-variant=\"not-spam\"")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 456, "<span class=\"inline-flex\" data-mail-spam-variant=\"not-spam\"")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 					if !spamFolder {
-						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 456, " hidden")
+						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 457, " hidden")
 						if templ_7745c5c3_Err != nil {
 							return templ_7745c5c3_Err
 						}
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 457, ">")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 458, ">")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -6945,17 +6951,17 @@ func mailToolbarSpamButton(spamFolder bool) templ.Component {
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 458, "</span> <span class=\"inline-flex\" data-mail-spam-variant=\"spam\"")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 459, "</span> <span class=\"inline-flex\" data-mail-spam-variant=\"spam\"")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 					if spamFolder {
-						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 459, " hidden")
+						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 460, " hidden")
 						if templ_7745c5c3_Err != nil {
 							return templ_7745c5c3_Err
 						}
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 460, ">")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 461, ">")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -6963,7 +6969,7 @@ func mailToolbarSpamButton(spamFolder bool) templ.Component {
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 461, "</span>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 462, "</span>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -6990,7 +6996,7 @@ func mailToolbarSpamButton(spamFolder bool) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 462, " ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 463, " ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -7006,22 +7012,22 @@ func mailToolbarSpamButton(spamFolder bool) templ.Component {
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 463, "<span data-mail-spam-tooltip>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 464, "<span data-mail-spam-tooltip>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				if spamFolder {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 464, "Not spam")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 465, "Not spam")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 				} else {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 465, "Report spam")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 466, "Report spam")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 466, "</span>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 467, "</span>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -7040,7 +7046,7 @@ func mailToolbarSpamButton(spamFolder bool) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 467, "</div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 468, "</div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

@@ -240,35 +240,16 @@
   border-bottom-color: #c6c6c6;
 }
 
-[data-theme="minimal"]:not(.dark) [data-view-mode="table"] .mail-list-item:has(> a.envelope-active),
-[data-theme="minimal"]:not(.dark) [data-view-mode="table"] .mail-list-item[data-mail-selected] {
-  border-bottom-color: transparent;
+/* The selected row's border (input.css) is black on every side here. */
+[data-theme="minimal"]:not(.dark) [data-view-mode="table"] .mail-list-item > a {
+  --table-pick-edge: #000000;
+  --table-pick-bar: #000000;
 }
 
 [data-theme="minimal"]:not(.dark) [data-view-mode="table"] .mail-list-item > a.envelope-active,
 [data-theme="minimal"]:not(.dark) [data-view-mode="table"] .mail-list-item[data-mail-selected] > a,
 [data-theme="minimal"]:not(.dark) [data-view-mode="table"] .mail-list-item > a[data-mail-selected] {
-  border-color: #000000;
   background: color-mix(in srgb, var(--foreground) 8%, var(--background));
-  box-shadow: inset 3px 0 0 #000000;
-}
-
-[data-theme="minimal"]:not(.dark) [data-view-mode="table"] .mail-list-item:has(> a.envelope-active),
-[data-theme="minimal"]:not(.dark) [data-view-mode="table"] .mail-list-item[data-mail-selected] {
-  position: relative;
-  z-index: 1;
-}
-
-[data-theme="minimal"]:not(.dark) [data-view-mode="table"] .mail-list-item:has(> a.envelope-active)::before,
-[data-theme="minimal"]:not(.dark) [data-view-mode="table"] .mail-list-item[data-mail-selected]::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: -1px;
-  height: 1px;
-  background: #000000;
-  pointer-events: none;
 }
 
 [data-depth="flat"] [data-folder-unread],
@@ -390,4 +371,18 @@
 
 [data-theme="minimal"].dark .mail-list-item {
   --muted-foreground: #bababa;
+}
+
+[data-theme="minimal"] [data-view-mode="table"] .mail-list-table-row [data-mail-table-cell="date"] .bg-primary {
+  background: var(--foreground);
+  box-shadow: none;
+}
+
+/* Unread table rows take the page background, like unread cards. */
+[data-theme="minimal"] [data-view-mode="table"] .mail-list-table-row[data-is-read="false"]:not([data-mail-selected]) > a.envelope:not(.envelope-active) {
+  background: var(--background);
+}
+
+[data-theme="minimal"] [data-view-mode="table"] .mail-list-table-row[data-is-read="false"]:not([data-mail-selected]) > a.envelope:not(.envelope-active):hover {
+  background: color-mix(in srgb, var(--foreground) 3%, var(--background));
 }

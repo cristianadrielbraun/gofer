@@ -1409,7 +1409,10 @@ templ MailListTableItem(email models.Email, position int, selectedEmail *models.
 					}
 				}
 			</div>
-			<div class="flex items-center justify-end shrink-0 text-muted-foreground tabular-nums" data-mail-table-cell="date">
+			<div class="flex items-center justify-end gap-1.5 shrink-0 text-muted-foreground tabular-nums" data-mail-table-cell="date">
+				if !email.IsRead {
+					<span class="size-2 shrink-0 rounded-full bg-primary shadow-[0_0_6px_rgba(199,123,48,0.4)]" aria-label="Unread"></span>
+				}
 				<span class={ templ.Classes("min-w-12 text-right", templ.KV("text-primary font-medium", !email.IsRead)) }>
 					@mailListDate(email.Date, email.DateWithTime)
 				</span>
