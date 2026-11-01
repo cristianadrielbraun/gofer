@@ -141,6 +141,10 @@ document.addEventListener("DOMContentLoaded", function () {
   // rows not loaded in the list. A message's account never changes, so it's
   // kept until the next such selection.
   var selectedMailAccounts = new Map()
+  // The messages shown under each expanded thread row, by the row's id. Once
+  // one of them is picked on its own, the thread row stands for its own
+  // message only, and these say which of the others are picked too.
+  var mailThreadSubIds = new Map()
   // On a phone, deselecting everything from the checkbox or its menu stays in
   // selection mode; only the bar's close button, or leaving the list, ends it.
   var keepMailSelectionModeWhenEmpty = false
@@ -1458,6 +1462,16 @@ document.addEventListener("DOMContentLoaded", function () {
         if (toggleList) toggleList.toggleThreadExpand(threadToggle.dataset.threadToggle, { select: false })
         return
       }
+      // While selecting, or with Ctrl/Cmd, a thread's message picks itself
+      // instead of opening.
+      var subLink = e.target.closest && e.target.closest("#mail-list-scroll .thread-sub-item[data-sub-email-id] > a")
+      if (subLink && (e.metaKey || e.ctrlKey || mailSelectionModeActive()) && !e.target.closest(".star-btn")) {
+        e.preventDefault()
+        e.stopPropagation()
+        toggleMailThreadSubSelected(subLink.parentElement)
+        return
+      }
+
       var rowClickIgnored = e.target.closest && (e.target.closest(".star-btn") || e.target.closest("[data-thread-toggle]"))
       if (rowLink && !rowClickIgnored) {
         var linkRow = rowLink.closest(".mail-list-item[data-email-id]")
@@ -1465,9 +1479,10 @@ document.addEventListener("DOMContentLoaded", function () {
           if (e.shiftKey || e.metaKey || e.ctrlKey || mailSelectionModeActive()) {
             e.preventDefault()
             e.stopPropagation()
-            var linkNext = e.shiftKey && lastSelectedMailId ? true : !selectedMailIds.has(linkRow.dataset.emailId)
-            if (e.shiftKey && lastSelectedMailId) selectMailRange(lastSelectedMailId, linkRow.dataset.emailId, linkNext)
-            else setMailSelected(linkRow.dataset.emailId, linkNext)
+            if (e.shiftKey && lastSelectedMailId) selectMailRange(lastSelectedMailId, linkRow.dataset.emailId, true)
+            else toggleMailRowSelected(linkRow.dataset.emailId)
+            // Picking messages one by one is selecting: the rows show their checkboxes.
+            if (selectedMailIds.size > 0) setMailSelectionMode(true)
           } else {
             selectedMailIds.clear()
             setMailSelected(linkRow.dataset.emailId, true)
@@ -1510,8 +1525,29 @@ document.addEventListener("DOMContentLoaded", function () {
 
       if (e.target.closest && e.target.closest("[data-mail-select-all-toggle]")) {
         // Not prevented: a cancelled click would put the box back after the sync below.
-        if (mailSelectionCounts()) clearMailSelection({ keepMode: true })
+        if (mailSelectionCounts()) clearMailSelection({ keepMode: mobileMailList.matches })
         else applyMailSelectChoice("all")
+        return
+      }
+
+      // A row's own checkbox, shown while selecting, toggles just that row;
+      // Shift extends from the last one, as Shift+click on a row does.
+      var rowCheck = e.target.closest && e.target.closest("[data-mail-row-check]")
+      var subCheck = rowCheck && rowCheck.closest(".thread-sub-item[data-sub-email-id]")
+      if (subCheck) {
+        toggleMailThreadSubSelected(subCheck)
+        return
+      }
+      if (rowCheck) {
+        var checkRow = rowCheck.closest(".mail-list-item[data-email-id]")
+        if (checkRow) {
+          var checkId = checkRow.dataset.emailId
+          if (e.shiftKey && lastSelectedMailId) selectMailRange(lastSelectedMailId, checkId, true)
+          else toggleMailRowSelected(checkId)
+          lastSelectedMailId = checkId
+          keepMailSelectionModeWhenEmpty = mobileMailList.matches
+          syncMailSelectionControls()
+        }
         return
       }
 
@@ -1529,7 +1565,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
       if (e.target.closest && e.target.closest("[data-mail-select-all-banner-clear]")) {
         e.preventDefault()
-        clearMailSelection({ keepMode: true })
+        clearMailSelection({ keepMode: mobileMailList.matches })
         return
       }
 
@@ -1641,6 +1677,91 @@ document.addEventListener("DOMContentLoaded", function () {
       if (selected) keepMailSelectionModeWhenEmpty = false
       if (selected) selectedMailIds.add(emailId)
       else selectedMailIds.delete(emailId)
+      // A row picked or dropped as a whole stands for its whole thread again.
+      if (mailThreadSubIds.has(emailId)) selectedMailThreads.delete(emailId)
+    }
+
+    // "all" when a row is picked with its whole thread, "some" when only some
+    // of a thread's messages are, "none" otherwise.
+    function mailThreadSelectionState(rowId) {
+      if (selectedMailIds.has(rowId) && selectedMailThreads.get(rowId) !== false) return "all"
+      if (selectedMailIds.has(rowId)) return "some"
+      var subs = mailThreadSubIds.get(rowId) || []
+      for (var i = 0; i < subs.length; i++) if (selectedMailIds.has(subs[i])) return "some"
+      return "none"
+    }
+
+    function dropMailThreadSubs(rowId) {
+      var subs = mailThreadSubIds.get(rowId) || []
+      for (var i = 0; i < subs.length; i++) {
+        selectedMailIds.delete(subs[i])
+        selectedMailThreads.delete(subs[i])
+      }
+    }
+
+    // A row's checkbox, a long press or a click while selecting: a thread
+    // picked whole, or in part, is dropped; otherwise the whole thread is picked.
+    function toggleMailRowSelected(rowId) {
+      var state = mailThreadSelectionState(rowId)
+      dropMailThreadSubs(rowId)
+      setMailSelected(rowId, state === "none")
+    }
+
+    function mailThreadSubRowId(sub) {
+      var slot = sub.closest(".mail-list-thread-slot")
+      var row = slot && slot.querySelector(".mail-list-item[data-email-id]")
+      return row ? row.dataset.emailId : ""
+    }
+
+    function rememberMailThreadSubs(slot) {
+      var row = slot.querySelector(".mail-list-item[data-email-id]")
+      if (!row) return
+      var ids = []
+      var subs = slot.querySelectorAll(".thread-sub-item[data-sub-email-id]")
+      for (var i = 0; i < subs.length; i++) ids.push(subs[i].dataset.subEmailId)
+      mailThreadSubIds.set(row.dataset.emailId, ids)
+    }
+
+    // Picking one message of an expanded thread splits the thread's selection
+    // into its messages: the row then stands for its own message alone. With
+    // every message picked again, the row takes the whole thread back.
+    function toggleMailThreadSubSelected(sub) {
+      var subId = sub.dataset.subEmailId
+      var rowId = mailThreadSubRowId(sub)
+      if (!subId || !rowId) return
+      rememberMailThreadSubs(sub.closest(".mail-list-thread-slot"))
+      var subs = mailThreadSubIds.get(rowId) || []
+      var row = document.querySelector('#mail-list-scroll .mail-list-item[data-email-id="' + cssEscape(rowId) + '"]')
+      var account = row ? row.dataset.accountId : ""
+      mailSelectAllMatching = null
+      keepMailSelectionModeWhenEmpty = mobileMailList.matches
+      if (mailThreadSelectionState(rowId) === "all") {
+        selectedMailThreads.set(rowId, false)
+        for (var i = 0; i < subs.length; i++) {
+          selectedMailIds.add(subs[i])
+          selectedMailThreads.set(subs[i], false)
+          if (account) selectedMailAccounts.set(subs[i], account)
+        }
+      }
+      if (selectedMailIds.has(subId)) {
+        selectedMailIds.delete(subId)
+        selectedMailThreads.delete(subId)
+      } else {
+        selectedMailIds.add(subId)
+        selectedMailThreads.set(subId, false)
+        if (account) selectedMailAccounts.set(subId, account)
+      }
+      var allSubs = subs.every(function (id) { return selectedMailIds.has(id) })
+      if (selectedMailIds.has(rowId) && allSubs) {
+        dropMailThreadSubs(rowId)
+        selectedMailThreads.delete(rowId)
+      } else if (!selectedMailIds.has(rowId) && allSubs && subs.length) {
+        // Every other message is picked: the row's own message joins them.
+        selectedMailIds.add(rowId)
+        selectedMailThreads.set(rowId, false)
+      }
+      if (selectedMailIds.size > 0) setMailSelectionMode(true)
+      syncMailSelectionControls()
     }
 
     function seedMailSelectionFromActive() {
@@ -2006,7 +2127,7 @@ document.addEventListener("DOMContentLoaded", function () {
             selectedMailIds.clear()
             setMailSelectionMode(true)
           }
-          setMailSelected(row.dataset.emailId, !selectedMailIds.has(row.dataset.emailId))
+          toggleMailRowSelected(row.dataset.emailId)
           lastSelectedMailId = row.dataset.emailId
           suppressMailRowClickUntil = Date.now() + 700
           if (navigator.vibrate) navigator.vibrate(12)
@@ -2026,6 +2147,56 @@ document.addEventListener("DOMContentLoaded", function () {
       document.addEventListener("contextmenu", function (e) {
         if (mobile.matches && e.target.closest && e.target.closest("#mail-list-scroll .mail-list-item[data-email-id] > a")) e.preventDefault()
       })
+
+      // With a mouse, holding the button down on a row without moving does the
+      // same. Rows drag to folders, so moving or starting a drag cancels it.
+      var mouseTimer = 0
+      var mouseStart = null
+      var mouseFired = false
+
+      function cancelMouse() {
+        clearTimeout(mouseTimer)
+        mouseTimer = 0
+        mouseStart = null
+      }
+
+      document.addEventListener("mousedown", function (e) {
+        cancelMouse()
+        mouseFired = false
+        if (mobile.matches || e.button !== 0 || e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return
+        var link = e.target.closest && e.target.closest("#mail-list-scroll .mail-list-item[data-email-id] > a")
+        if (!link || e.target.closest(".star-btn, [data-thread-toggle]")) return
+        mouseStart = { x: e.clientX, y: e.clientY }
+        mouseTimer = setTimeout(function () {
+          mouseTimer = 0
+          var row = link.closest(".mail-list-item[data-email-id]")
+          if (!row || !row.isConnected) return
+          if (!mailSelectionModeActive()) {
+            selectedMailIds.clear()
+            setMailSelectionMode(true)
+          }
+          toggleMailRowSelected(row.dataset.emailId)
+          lastSelectedMailId = row.dataset.emailId
+          mouseFired = true
+          // The click comes when the button is let go, however long that takes.
+          suppressMailRowClickUntil = Date.now() + 60000
+          syncMailSelectionControls()
+        }, 500)
+      })
+
+      document.addEventListener("mousemove", function (e) {
+        if (!mouseStart) return
+        if (Math.abs(e.clientX - mouseStart.x) > 5 || Math.abs(e.clientY - mouseStart.y) > 5) cancelMouse()
+      })
+      document.addEventListener("dragstart", cancelMouse, true)
+      function endMouse() {
+        cancelMouse()
+        if (mouseFired) suppressMailRowClickUntil = Date.now() + 300
+        mouseFired = false
+      }
+      // A drag that starts after the press fired ends without a mouseup.
+      document.addEventListener("mouseup", endMouse)
+      document.addEventListener("dragend", endMouse)
     }
 
     // Right-clicking a message opens its menu. A message outside the selection
@@ -3408,7 +3579,7 @@ document.addEventListener("DOMContentLoaded", function () {
     // applyMailSelectChoice selects loaded rows by the select-all menu's choice.
     function applyMailSelectChoice(choice) {
       if (choice === "none") {
-        clearMailSelection({ keepMode: true })
+        clearMailSelection({ keepMode: mobileMailList.matches })
         return
       }
       var rows = loadedMailRows()
@@ -3428,8 +3599,8 @@ document.addEventListener("DOMContentLoaded", function () {
         selectedMailThreads.set(picked[i].id, picked[i].thread)
       }
       lastSelectedMailId = picked.length ? picked[picked.length - 1].id : null
-      keepMailSelectionModeWhenEmpty = picked.length === 0
-      if (picked.length && mobileMailList.matches) setMailSelectionMode(true)
+      keepMailSelectionModeWhenEmpty = picked.length === 0 && mobileMailList.matches
+      if (picked.length) setMailSelectionMode(true)
       syncMailSelectionControls()
     }
 
@@ -3523,10 +3694,12 @@ document.addEventListener("DOMContentLoaded", function () {
         text = formatMailCount(count) + " selected."
       }
       var canSelectAll = count > 0 && !mailSelectAllMatching && total > count
-      banner.classList.toggle("hidden", !text)
-      banner.classList.toggle("flex", !!text)
+      // The banner folds open and shut; while it shuts it keeps its last words.
+      banner.toggleAttribute("data-open", !!text)
+      banner.setAttribute("aria-hidden", text ? "false" : "true")
+      banner.inert = !text
       var label = banner.querySelector("[data-mail-select-all-banner-text]")
-      if (label) label.textContent = text
+      if (label && text) label.textContent = text
       var button = banner.querySelector("[data-mail-select-all-banner-action]")
       if (button) {
         // The button's own inline-flex outranks hidden, so it goes too.
@@ -3545,6 +3718,28 @@ document.addEventListener("DOMContentLoaded", function () {
         rows[i].toggleAttribute("data-mail-selected", selected)
         var anchor = rows[i].querySelector(":scope > a")
         if (anchor) anchor.toggleAttribute("data-mail-selected", selected)
+        var check = rows[i].querySelector(":scope > [data-mail-row-check] input")
+        if (check) {
+          var state = mailThreadSelectionState(rows[i].dataset.emailId)
+          check.checked = state === "all"
+          check.indeterminate = state === "some"
+        }
+      }
+      var slots = root ? [root] : document.querySelectorAll("#mail-list-scroll .mail-list-thread-slot")
+      for (var s = 0; s < slots.length; s++) {
+        var slot = slots[s].matches && slots[s].matches(".mail-list-thread-slot") ? slots[s] : null
+        if (!slot) continue
+        rememberMailThreadSubs(slot)
+        var mainRow = slot.querySelector(".mail-list-item[data-email-id]")
+        var whole = mainRow && mailThreadSelectionState(mainRow.dataset.emailId) === "all"
+        var subs = slot.querySelectorAll(".thread-sub-item[data-sub-email-id]")
+        for (var k = 0; k < subs.length; k++) {
+          var subSelected = whole || selectedMailIds.has(subs[k].dataset.subEmailId)
+          var subLink = subs[k].querySelector(":scope > a")
+          if (subLink) subLink.toggleAttribute("data-mail-selected", !whole && subSelected)
+          var subCheck = subs[k].querySelector(":scope > [data-mail-row-check] input")
+          if (subCheck) subCheck.checked = subSelected
+        }
       }
     }
 
@@ -4513,7 +4708,7 @@ document.addEventListener("DOMContentLoaded", function () {
           return
         }
 
-        if (e.key === "Escape" && (selectedMailIds.size > 0 || selectedMailIdForKeyboard())) {
+        if (e.key === "Escape" && (selectedMailIds.size > 0 || mailSelectionModeActive() || selectedMailIdForKeyboard())) {
           e.preventDefault()
           clearKeyboardMailSelection()
           return

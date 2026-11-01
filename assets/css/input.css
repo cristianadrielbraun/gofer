@@ -1791,6 +1791,121 @@ html[data-theme="classic"] .mail-list-search-input-wrap {
   box-shadow: inset 3px 0 0 var(--color-primary), inset 0 0 0 1px color-mix(in srgb, var(--color-primary) 35%, transparent);
 }
 
+/* While selecting, each row shows a checkbox on its left. Table rows move
+   over to make room for it; cards move less, and the box sits on their edge. */
+.mail-list-item:has(> .mail-row-check),
+.thread-sub-item:has(> .mail-row-check) {
+  position: relative;
+}
+
+.mail-row-check {
+  position: absolute;
+  inset-block: 0;
+  left: 0;
+  z-index: 1;
+  display: flex;
+  width: 2rem;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  visibility: hidden;
+  transform: scale(0.6);
+  pointer-events: none;
+  transition: opacity 180ms ease, transform 200ms cubic-bezier(0.2, 0.9, 0.3, 1.2), visibility 0s linear 200ms;
+}
+
+#mail-list[data-mail-selecting] .mail-row-check {
+  opacity: 1;
+  visibility: visible;
+  transform: none;
+  pointer-events: auto;
+  transition-delay: 40ms, 40ms, 0s;
+}
+
+/* Rows slide over as their checkbox comes in. Table rows keep their own short
+   property list (see below the table row styles), with margin-left added. */
+#mail-list :is(.mail-list-item, .thread-sub-item) > .mail-row-check ~ a {
+  transition-duration: 200ms;
+  transition-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+#mail-list[data-mail-selecting] :is(.mail-list-item, .thread-sub-item) > .mail-row-check ~ a {
+  margin-left: 2rem;
+}
+
+/* A thread's messages slide with it. Table rows only animate a few
+   properties; their own rules list margin-left with them. */
+html #mail-list .thread-sub-item > .mail-row-check ~ a {
+  transition-property: background-color, color, margin-left;
+}
+
+#mail-list [data-view-mode="cards"] .thread-sub-items {
+  transition: opacity 0.14s ease-out, margin-left 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+#mail-list[data-mail-selecting] [data-view-mode="cards"] .thread-sub-items {
+  margin-left: 2.125rem;
+}
+
+#mail-list[data-mail-selecting] [data-view-mode="cards"] .thread-sub-item > .mail-row-check ~ a {
+  margin-left: 1.75rem;
+}
+
+/* Expanded messages picked one by one get the selected row's tint. */
+.thread-sub-item > a[data-mail-selected] {
+  background: color-mix(in srgb, var(--color-primary) 6%, transparent);
+}
+
+.mail-list-item:not(.mail-list-table-row) > .mail-row-check {
+  width: 1.75rem;
+}
+
+#mail-list[data-mail-selecting] .mail-list-item:not(.mail-list-table-row) > .mail-row-check ~ a {
+  margin-left: 1.25rem;
+}
+
+/* The selection banner folds open above the list, so the list slides down
+   with it instead of jumping. */
+.mail-selection-banner {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition: grid-template-rows 220ms cubic-bezier(0.2, 0.8, 0.2, 1), opacity 160ms ease;
+}
+
+.mail-selection-banner[data-open] {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+.mail-selection-banner-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.mail-selection-banner:not([data-open]) .mail-selection-banner-inner > div {
+  border-top-color: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mail-row-check,
+  html #mail-list :is(.mail-list-item, .thread-sub-item) > .mail-row-check ~ a,
+  #mail-list [data-view-mode="cards"] .thread-sub-items,
+  .mail-selection-banner {
+    transition: none;
+  }
+}
+
+.mail-row-check-input {
+  cursor: pointer;
+}
+
+/* Unchecked, the box covers the card edge it sits on; checked, it keeps the
+   checkbox's own fill. */
+.mail-row-check-input:not(:checked, :indeterminate) {
+  background: var(--color-card);
+}
+
 /* The select-all checkbox and its menu arrow read as one control: hovering the
    arrow, or its menu being open, highlights both. */
 .mail-select-all:has([data-tui-popover-trigger] button:hover),
@@ -1873,7 +1988,7 @@ html:not([data-theme="express"]) [data-view-mode="table"] .mail-list-item > a[da
    doesn't animate either: unselected rows have none, so it would fade in from
    the text color and flash white in dark themes. */
 html:not([data-theme="express"]) [data-view-mode="table"] .mail-list-item > a {
-  transition-property: background-color, color;
+  transition-property: background-color, color, margin-left;
 }
 
 .mail-list-item[data-mail-read-optimistic] .font-semibold,

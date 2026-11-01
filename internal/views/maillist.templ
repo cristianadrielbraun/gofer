@@ -579,22 +579,26 @@ templ mailSelectMenuItem(value string, label string) {
 // extend the selection to every message the folder and filters match or to
 // clear it. app.js fills and shows it.
 templ MailSelectAllBanner() {
-	<div data-mail-select-all-banner class="mail-select-all-banner hidden items-center justify-center gap-x-3 gap-y-0.5 flex-wrap border-t border-border/60 bg-accent/60 px-4 py-1.5 text-center text-xs text-muted-foreground">
-		<span data-mail-select-all-banner-text></span>
-		@button.Button(button.Props{
-			Variant:    button.VariantLink,
-			Size:       button.SizeSm,
-			Class:      "h-auto p-0 text-xs",
-			Attributes: templ.Attributes{"data-mail-select-all-banner-action": ""},
-		})
-		@button.Button(button.Props{
-			Variant:    button.VariantLink,
-			Size:       button.SizeSm,
-			Class:      "h-auto p-0 text-xs text-muted-foreground hover:text-foreground",
-			Attributes: templ.Attributes{"data-mail-select-all-banner-clear": ""},
-		}) {
-			Clear
-		}
+	<div data-mail-select-all-banner class="mail-selection-banner" aria-hidden="true">
+		<div class="mail-selection-banner-inner">
+			<div class="flex items-center justify-center gap-x-3 gap-y-0.5 flex-wrap border-t border-border/60 bg-accent/60 px-4 py-1.5 text-center text-xs text-muted-foreground">
+				<span data-mail-select-all-banner-text></span>
+				@button.Button(button.Props{
+					Variant:    button.VariantLink,
+					Size:       button.SizeSm,
+					Class:      "h-auto p-0 text-xs",
+					Attributes: templ.Attributes{"data-mail-select-all-banner-action": ""},
+				})
+				@button.Button(button.Props{
+					Variant:    button.VariantLink,
+					Size:       button.SizeSm,
+					Class:      "h-auto p-0 text-xs text-muted-foreground hover:text-foreground",
+					Attributes: templ.Attributes{"data-mail-select-all-banner-clear": ""},
+				}) {
+					Clear
+				}
+			</div>
+		</div>
 	</div>
 }
 
@@ -1172,6 +1176,7 @@ templ MailListCardItem(accounts []models.Account, email models.Email, position i
 		}
 		data-search-group?={ email.SearchLocation != "" }
 	>
+		@mailRowCheck()
 		<a
 			href={ templ.URL(fmt.Sprintf("/?email=%s", email.ID)) }
 			hx-get={ mailViewPartialURL(email.ID, email.FolderID, false) }
@@ -1325,6 +1330,7 @@ templ MailListTableItem(email models.Email, position int, selectedEmail *models.
 		}
 		data-search-group?={ email.SearchGroupStart }
 	>
+		@mailRowCheck()
 		<a
 			href={ templ.URL(fmt.Sprintf("/?email=%s", email.ID)) }
 			hx-get={ mailViewPartialURL(email.ID, email.FolderID, false) }
@@ -1452,6 +1458,7 @@ templ MailListThreadSubItems(items []models.ThreadItem, senderDisplayMode string
 	<div>
 		for _, item := range items {
 			<div class="thread-sub-item" data-sub-email-id={ item.ID }>
+				@mailRowCheck()
 				<a
 					href={ templ.URL(fmt.Sprintf("/?email=%s", item.ID)) }
 					hx-get={ mailViewPartialURL(item.ID, item.FolderID, true) }
@@ -1583,4 +1590,15 @@ func mailSpamLabel(spamFolder bool) string {
 		return "Mark selected messages as not spam"
 	}
 	return "Report selected messages as spam"
+}
+
+// mailRowCheck is a row's checkbox, shown left of the row while the list is
+// selecting. app.js keeps it checked and toggles the row when it is clicked.
+templ mailRowCheck() {
+	<div class="mail-row-check" data-mail-row-check>
+		@checkbox.Checkbox(checkbox.Props{
+			Class:      "mail-row-check-input",
+			Attributes: templ.Attributes{"tabindex": "-1", "aria-label": "Select message"},
+		})
+	</div>
 }
