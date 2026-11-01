@@ -581,15 +581,34 @@ templ SettingsAppearanceTab(uiSettings map[string]string) {
 					<h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-1">Pane layout</h3>
 					<p class="text-xs text-muted-foreground">Choose whether each list and its detail pane sit beside each other or stack vertically. Small screens always show one pane at a time.</p>
 				</div>
-				@paneLayoutSettingRow("mail_pane_layout", "Email", "The message list and the reading pane.", PaneLayout(uiSettings, "mail"))
+				@paneLayoutSettingRow("mail_pane_layout", "Email", "The message list and the reading pane.", PaneLayout(uiSettings, "mail")) {
+					@mailSingleClickOpenSetting(uiSettings)
+				}
 				@paneLayoutSettingRow("contacts_pane_layout", "Contacts", "The contact list and the contact details.", PaneLayout(uiSettings, "contacts"))
 				@paneLayoutSettingRow("calendar_pane_layout", "Calendar", "The calendar grid and the agenda.", PaneLayout(uiSettings, "calendar"))
 			</div>
 		</div>
 }
 
+templ mailSingleClickOpenSetting(uiSettings map[string]string) {
+	<div class="mt-4 flex items-start justify-between gap-6 data-[disabled]:opacity-50" data-mail-single-click-open-row data-disabled?={ PaneLayout(uiSettings, "mail") != "list" }>
+		<div class="min-w-0">
+			<span id="mail-single-click-open-label" class="text-sm font-medium text-foreground">Open email with a single click</span>
+			<p class="text-xs text-muted-foreground mt-1 leading-relaxed">Single click instead of double. Ctrl, Shift and long press still select.<br/>Only available with No reading pane.</p>
+		</div>
+		@switchcomp.Switch(switchcomp.Props{
+			ID:         "mail-single-click-open",
+			Name:       "mail_single_click_open",
+			Checked:    uiSettingGet(uiSettings, "mail_single_click_open", "false") == "true",
+			Disabled:   PaneLayout(uiSettings, "mail") != "list",
+			Attributes: templ.Attributes{"aria-labelledby": "mail-single-click-open-label", "data-ui-setting-switch": "mail_single_click_open"},
+		})
+	</div>
+}
+
 templ paneLayoutSettingRow(name string, title string, description string, layout string) {
-	<div class="settings-row border-t border-border/60 pt-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+	<div class="settings-row border-t border-border/60 pt-5">
+	<div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
 		<div class="min-w-0">
 			<h4 class="text-sm font-medium text-foreground">{ title }</h4>
 			<p class="text-xs text-muted-foreground mt-1">{ description }</p>
@@ -610,6 +629,8 @@ templ paneLayoutSettingRow(name string, title string, description string, layout
 				}
 			}
 		</div>
+	</div>
+	{ children... }
 	</div>
 }
 

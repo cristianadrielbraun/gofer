@@ -1422,16 +1422,21 @@ document.addEventListener("DOMContentLoaded", function () {
     setupMailSwipeActions()
 
     // With no reading pane, a click selects a message, and a double click
-    // opens it in the list's place. Opening it by script (Enter, or the double
-    // click below) goes through as usual. This runs before htmx sees the click.
+    // opens it in the list's place (a single click does, with that setting on).
+    // Opening it by script (Enter, or the double click below) goes through as
+    // usual. This runs before htmx sees the click.
     document.addEventListener("click", function (e) {
       if (!e.isTrusted || !mailListOnlyLayout() || mailSelectionModeActive()) return
+      if (Date.now() < suppressMailRowClickUntil) return
       if (e.button !== 0 || e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return
       var link = e.target.closest && e.target.closest("#mail-list-scroll :is(.mail-list-item[data-email-id], .thread-sub-item) > a")
       if (!link || e.target.closest(".star-btn, [data-thread-toggle]")) return
       e.preventDefault()
       e.stopPropagation()
-      if (e.detail >= 2) {
+      var singleClickOpen = window.GoferSettings && GoferSettings.get("mail_single_click_open") === "true"
+      if (e.detail >= 2 || singleClickOpen) {
+        // A second click of a double click lands on the opened message, not here.
+        if (singleClickOpen && e.detail >= 2) return
         link.click()
         return
       }

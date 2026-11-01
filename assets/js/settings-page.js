@@ -57,6 +57,17 @@
     if (paneLayout && typeof GoferSettings !== 'undefined') {
       GoferSettings.set(paneLayout.name, paneLayout.value);
     }
+    if (paneLayout && paneLayout.name === 'mail_pane_layout') {
+      // Single-click open only applies with no reading pane.
+      var singleClickOff = paneLayout.value !== 'list';
+      var singleClickRow = document.querySelector('[data-mail-single-click-open-row]');
+      var singleClickSwitch = document.getElementById('mail-single-click-open');
+      if (singleClickRow) singleClickRow.toggleAttribute('data-disabled', singleClickOff);
+      if (singleClickSwitch) {
+        singleClickSwitch.disabled = singleClickOff;
+        singleClickSwitch.classList.toggle('cursor-not-allowed', singleClickOff);
+      }
+    }
     var autosaveToggle = e.target.closest('[data-compose-autosave-setting="enabled"]');
     if (autosaveToggle && typeof GoferSettings !== 'undefined') {
       GoferSettings.set('compose_autosave_enabled', autosaveToggle.checked ? 'true' : 'false');
