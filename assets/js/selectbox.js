@@ -223,13 +223,14 @@
         // Create pills container
         valueEl.innerHTML = '';
         const pillsContainer = document.createElement('div');
-        pillsContainer.className = 'flex flex-wrap gap-1 items-center min-h-[1.5rem]';
+        // One line only: pills that don't fit give way to the count below.
+        pillsContainer.className = 'flex flex-nowrap gap-1 items-center min-h-[1.5rem] min-w-0 overflow-hidden';
         
         const pills = [];
         
         Array.from(selectedItems).forEach(selectedItem => {
           const pill = document.createElement('span');
-          pill.className = 'inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-md bg-primary text-primary-foreground';
+          pill.className = 'inline-flex shrink-0 items-center gap-1 whitespace-nowrap px-2 py-0.5 text-xs rounded-md bg-primary text-primary-foreground';
           
           const text = document.createElement('span');
           text.textContent = selectedItem.querySelector('.select-item-text')?.textContent || '';
@@ -256,8 +257,8 @@
           const containerWidth = valueEl.offsetWidth;
           const contentWidth = pillsContainer.scrollWidth;
           
-          // If pills overflow and we have more than 3 items, switch to count
-          if (contentWidth > containerWidth - 10 && selectedItems.length > 3) {
+          // If the pills don't fit on one line, show the count instead
+          if (selectedItems.length > 1 && contentWidth > containerWidth - 10) {
             const countText = trigger.getAttribute('data-tui-selectbox-selected-count-text') || '{n} items selected';
             valueEl.textContent = countText.replace('{n}', selectedItems.length);
           }
