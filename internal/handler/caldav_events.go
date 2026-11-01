@@ -296,6 +296,11 @@ func normalizeCalDAVEvent(component ical.Event, href, etag string, location *tim
 		return calendar.RemoteEvent{}, fmt.Errorf("CalDAV event start and end use different date types")
 	}
 	if event.AllDay {
+		// Some clients write an all-day event's end as the same day it starts,
+		// treating DTEND as inclusive. Other clients show those as one day.
+		if !end.After(start) {
+			end = start.AddDate(0, 0, 1)
+		}
 		event.StartDate, event.EndDate = start.Format("2006-01-02"), end.Format("2006-01-02")
 		if event.EndDate <= event.StartDate {
 			return calendar.RemoteEvent{}, fmt.Errorf("CalDAV all-day event has an invalid date range")

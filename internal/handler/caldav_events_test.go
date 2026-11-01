@@ -35,6 +35,8 @@ func TestParseCalDAVEvents(t *testing.T) {
 		{"instant", "DTSTART:20260917T090000Z", "2026-09-17T09:00:00Z", "2026-09-17T09:00:00Z", "", ""},
 		{"exclusive all day", "DTSTART;VALUE=DATE:20260917\nDTEND;VALUE=DATE:20260920", "", "", "2026-09-17", "2026-09-20"},
 		{"all day across DST", "DTSTART;VALUE=DATE:20261025", "", "", "2026-10-25", "2026-10-26"},
+		{"same-day all day end", "DTSTART;VALUE=DATE:20260917\nDTEND;VALUE=DATE:20260917", "", "", "2026-09-17", "2026-09-18"},
+		{"zero all day duration", "DTSTART;VALUE=DATE:20260917\nDURATION:P0D", "", "", "2026-09-17", "2026-09-18"},
 		{"all day duration", "DTSTART;VALUE=DATE:20261025\nDURATION:P2D", "", "", "2026-10-25", "2026-10-27"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
