@@ -9,7 +9,10 @@ import (
 	"github.com/cristianadrielbraun/gofer/components/dialog"
 	"github.com/cristianadrielbraun/gofer/components/dropdown"
 	"github.com/cristianadrielbraun/gofer/components/icon"
+	"github.com/cristianadrielbraun/gofer/components/input"
 	"github.com/cristianadrielbraun/gofer/components/popover"
+	"github.com/cristianadrielbraun/gofer/components/progress"
+	"github.com/cristianadrielbraun/gofer/components/selectbox"
 	"github.com/cristianadrielbraun/gofer/components/timepicker"
 	"github.com/cristianadrielbraun/gofer/components/toast"
 	"github.com/cristianadrielbraun/gofer/components/tooltip"
@@ -37,6 +40,8 @@ templ CalendarLayout(accounts []models.Account, month CalendarMonthData, uiSetti
 			@timepicker.Script()
 			@toast.Script()
 			@collapsible.Script()
+			@selectbox.Script()
+			@progress.Script()
 			@AppSidebarResponsiveStyle()
 			<script src={ assetver.URL("/assets/js/actions.js") }></script>
 		</head>
@@ -84,10 +89,35 @@ templ CalendarSidebarContent(accounts []models.Account, loading bool) {
 	{{ configuredAccounts := calendarConfiguredAccounts(accounts) }}
 	<div id="sidebar-app-body" class="flex min-h-0 flex-1 flex-col" data-sidebar-app-body="calendar" aria-busy={ strconv.FormatBool(loading) } inert?={ loading }>
 		<div class="px-4 pb-4" data-sidebar-create>
-			<button type="button" disabled?={ loading } data-calendar-create-trigger hx-get="/api/calendar/events/new" hx-target="#app-pane-dialogs" hx-swap="innerHTML" hx-sync="#app-pane-dialogs:replace" hx-disabled-elt="this" class="btn-skeuo flex h-10 w-full cursor-pointer items-center justify-center gap-2 rounded-lg text-sm font-semibold text-sidebar-primary-foreground disabled:cursor-wait disabled:opacity-50" aria-haspopup="dialog" aria-controls="calendar-create-dialog">
-				@icon.CalendarPlus(icon.Props{Class: "size-4"})
-				<span>New event</span>
-			</button>
+			<div class="inline-flex w-full items-stretch rounded-lg shadow-sm">
+				<button type="button" disabled?={ loading } data-calendar-create-trigger hx-get="/api/calendar/events/new" hx-target="#app-pane-dialogs" hx-swap="innerHTML" hx-sync="#app-pane-dialogs:replace" hx-disabled-elt="this" class="btn-skeuo flex h-10 min-w-0 flex-1 cursor-pointer items-center justify-center gap-2 rounded-l-lg rounded-r-none text-sm font-semibold text-sidebar-primary-foreground disabled:cursor-wait disabled:opacity-50" aria-haspopup="dialog" aria-controls="calendar-create-dialog">
+					@icon.CalendarPlus(icon.Props{Class: "size-4"})
+					<span>New event</span>
+				</button>
+				@dropdown.Dropdown() {
+					@dropdown.Trigger() {
+						<button type="button" disabled?={ loading } class="btn-skeuo inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-l-none rounded-r-lg border-l border-sidebar-border/70 text-sidebar-primary-foreground disabled:opacity-50" aria-label="Calendar actions">
+							@icon.EllipsisVertical(icon.Props{Class: "size-4"})
+						</button>
+					}
+					@dropdown.Content(dropdown.ContentProps{Placement: dropdown.PlacementBottomEnd, Class: "w-48 normal-case tracking-normal"}) {
+						@dropdown.Item(dropdown.ItemProps{Class: "justify-start gap-2", Attributes: templ.Attributes{"type": "button", "data-calendar-import-open": ""}}) {
+							<span class="inline-flex text-muted-foreground">
+								@icon.Upload(icon.Props{Class: "size-4"})
+							</span>
+							Import events…
+						}
+						@dropdown.Item(dropdown.ItemProps{Class: "justify-start gap-2", Attributes: templ.Attributes{"type": "button", "data-calendar-export-open": ""}}) {
+							<span class="inline-flex text-muted-foreground">
+								@icon.Download(icon.Props{Class: "size-4"})
+							</span>
+							Export calendar…
+						}
+					}
+				}
+			</div>
+			@CalendarImportDialog(accounts)
+			@CalendarExportDialog(accounts)
 		</div>
 		<hr class="divider-etched mx-4"/>
 		<nav class="flex min-h-0 flex-1 flex-col overflow-y-auto px-3 pt-3 pb-3">
@@ -153,6 +183,23 @@ templ CalendarSidebarContent(accounts []models.Account, loading bool) {
 											</span>
 											Stop syncing
 										}
+										if source.Provider == "caldav" {
+											// Import adds the events of an .ics file to this
+											// calendar; Export downloads all of its events as one.
+											@dropdown.Separator()
+											@dropdown.Item(dropdown.ItemProps{Class: "justify-start gap-2", Attributes: templ.Attributes{"type": "button", "data-calendar-import-open": source.ID}}) {
+												<span class="inline-flex text-muted-foreground">
+													@icon.Upload(icon.Props{Class: "size-4"})
+												</span>
+												Import events…
+											}
+											@dropdown.Item(dropdown.ItemProps{Href: "/api/calendar/sources/" + source.ID + "/export", Class: "justify-start gap-2", Attributes: templ.Attributes{"download": "", "data-calendar-source-export": source.ID}}) {
+												<span class="inline-flex text-muted-foreground">
+													@icon.Download(icon.Props{Class: "size-4"})
+												</span>
+												Export as .ics
+											}
+										}
 										@dropdown.Separator()
 										// Rename and Delete change the calendar on its provider, for
 										// every app, not only in Gofer.
@@ -176,6 +223,134 @@ templ CalendarSidebarContent(accounts []models.Account, loading bool) {
 			}
 		</nav>
 	</div>
+}
+
+// CalendarImportDialog imports an .ics file's events into a synced CalDAV
+// calendar, or into a new calendar on a CalDAV account, named from the file.
+templ CalendarImportDialog(accounts []models.Account) {
+	{{ calendars := calendarTransferCalendars(accounts, true) }}
+	{{ targets := calendarTransferNewTargets(accounts) }}
+	@dialog.Dialog(dialog.Props{ID: "calendar-import-dialog"}) {
+		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-lg normal-case tracking-normal"}) {
+			@dialog.Header() {
+				@dialog.Title() {
+					Import events
+				}
+				@dialog.Description() {
+					Add the events of an iCalendar (.ics) file to a calendar. Events already in it are skipped, and nothing in it is changed or removed.
+				}
+			}
+			if len(calendars) == 0 && len(targets) == 0 {
+				<p class="text-sm text-muted-foreground">Import needs an account that syncs calendars over CalDAV. Add one in Accounts.</p>
+				@dialog.Footer() {
+					@dialog.Close(dialog.CloseProps{For: "calendar-import-dialog"}) {
+						<button type="button" class="inline-flex h-9 items-center justify-center rounded-md border border-border px-3 text-sm font-semibold text-muted-foreground hover:bg-accent hover:text-foreground">Close</button>
+					}
+				}
+			} else {
+				<form class="space-y-4" data-calendar-import-form>
+					<div class="space-y-1.5">
+						<label for="calendar-import-file" class="block text-xs font-semibold uppercase tracking-wider text-muted-foreground">iCalendar file</label>
+						<input id="calendar-import-file" type="file" name="file" accept=".ics,text/calendar" required data-calendar-import-file class="block w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground file:mr-3 file:rounded-md file:border-0 file:bg-primary file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-primary-foreground hover:file:bg-primary/90"/>
+						<p class="text-xs text-muted-foreground">Up to 10 MB. Exports from most calendar apps work.</p>
+					</div>
+					<div class="space-y-1.5">
+						<label class="block text-xs font-semibold uppercase tracking-wider text-muted-foreground">Import into</label>
+						@selectbox.SelectBox() {
+							@selectbox.Trigger(selectbox.TriggerProps{Name: "target", Class: "h-10 bg-background", Required: true, DisableClear: true, Attributes: templ.Attributes{"data-calendar-import-target": ""}}) {
+								@selectbox.Value(selectbox.ValueProps{Placeholder: "Choose a calendar", Class: "text-left"})
+							}
+							@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+								for i, choice := range calendars {
+									@selectbox.Item(selectbox.ItemProps{Value: choice.Value, Selected: i == 0}) {
+										{ choice.Label }
+									}
+								}
+								for i, choice := range targets {
+									@selectbox.Item(selectbox.ItemProps{Value: choice.Value, Selected: len(calendars) == 0 && i == 0}) {
+										{ choice.Label }
+									}
+								}
+							}
+						}
+					</div>
+					<div class="space-y-1.5" data-calendar-import-name-field hidden?={ len(calendars) > 0 }>
+						<label for="calendar-import-name" class="block text-xs font-semibold uppercase tracking-wider text-muted-foreground">New calendar name</label>
+						@input.Input(input.Props{ID: "calendar-import-name", Name: "name", Type: input.TypeText, Placeholder: "Calendar name", Attributes: templ.Attributes{"maxlength": "100", "autocomplete": "off", "data-calendar-import-name": ""}})
+						<p class="text-xs text-muted-foreground">Filled in from the file when it has a name.</p>
+					</div>
+					<div class="space-y-1.5" data-calendar-import-progress hidden>
+						<div class="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+							<span data-calendar-import-progress-label aria-live="polite">Preparing…</span>
+							<span class="tabular-nums" data-calendar-import-progress-count></span>
+						</div>
+						@progress.Progress(progress.Props{Max: 100, Value: 0, Size: progress.SizeSm, Attributes: templ.Attributes{"data-calendar-import-progress-bar": "", "aria-label": "Import progress"}})
+					</div>
+					@dialog.Footer() {
+						@dialog.Close(dialog.CloseProps{For: "calendar-import-dialog"}) {
+							<button type="button" class="inline-flex h-9 items-center justify-center rounded-md border border-border px-3 text-sm font-semibold text-muted-foreground hover:bg-accent hover:text-foreground">Cancel</button>
+						}
+						<button type="submit" data-calendar-import-submit class="inline-flex h-9 items-center justify-center gap-1.5 rounded-md bg-primary px-3 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-70">
+							@icon.Upload(icon.Props{Class: "size-4"})
+							<span data-calendar-import-submit-label>Import events</span>
+						</button>
+					}
+				</form>
+			}
+		}
+	}
+}
+
+// CalendarExportDialog downloads one synced CalDAV calendar as an .ics file.
+templ CalendarExportDialog(accounts []models.Account) {
+	{{ calendars := calendarTransferCalendars(accounts, false) }}
+	@dialog.Dialog(dialog.Props{ID: "calendar-export-dialog"}) {
+		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-lg normal-case tracking-normal"}) {
+			@dialog.Header() {
+				@dialog.Title() {
+					Export calendar
+				}
+				@dialog.Description() {
+					Download all the events of a calendar as an iCalendar (.ics) file, which other calendar apps can import.
+				}
+			}
+			if len(calendars) == 0 {
+				<p class="text-sm text-muted-foreground">Export works with calendars synced over CalDAV, and none are synced yet.</p>
+				@dialog.Footer() {
+					@dialog.Close(dialog.CloseProps{For: "calendar-export-dialog"}) {
+						<button type="button" class="inline-flex h-9 items-center justify-center rounded-md border border-border px-3 text-sm font-semibold text-muted-foreground hover:bg-accent hover:text-foreground">Close</button>
+					}
+				}
+			} else {
+				<form class="space-y-4" data-calendar-export-form>
+					<div class="space-y-1.5">
+						<label class="block text-xs font-semibold uppercase tracking-wider text-muted-foreground">Calendar</label>
+						@selectbox.SelectBox() {
+							@selectbox.Trigger(selectbox.TriggerProps{Name: "source", Class: "h-10 bg-background", Required: true, DisableClear: true}) {
+								@selectbox.Value(selectbox.ValueProps{Placeholder: "Choose a calendar", Class: "text-left"})
+							}
+							@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+								for i, choice := range calendars {
+									@selectbox.Item(selectbox.ItemProps{Value: choice.SourceID, Selected: i == 0}) {
+										{ choice.Label }
+									}
+								}
+							}
+						}
+					</div>
+					@dialog.Footer() {
+						@dialog.Close(dialog.CloseProps{For: "calendar-export-dialog"}) {
+							<button type="button" class="inline-flex h-9 items-center justify-center rounded-md border border-border px-3 text-sm font-semibold text-muted-foreground hover:bg-accent hover:text-foreground">Cancel</button>
+						}
+						<button type="submit" data-calendar-export-submit class="inline-flex h-9 items-center justify-center gap-1.5 rounded-md bg-primary px-3 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-70">
+							@icon.Download(icon.Props{Class: "size-4"})
+							Export
+						</button>
+					}
+				</form>
+			}
+		}
+	}
 }
 
 // CalendarSourceManageItems are a synced calendar's Rename and Delete. Where

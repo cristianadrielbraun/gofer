@@ -15481,6 +15481,221 @@ document.addEventListener("click", function (event) {
   })
 })
 
+// Import events… and Export calendar… open their dialogs, from the New event
+// menu or from a CalDAV calendar's own menu, which picks that calendar.
+// Import adds an .ics file's events to a calendar, or to a new one named from
+// the file; Export downloads a calendar's events as one. Problems show in a
+// toast rather than leaving the page.
+function calendarImportNameFromFile(text, filename) {
+  var unfolded = text.replace(/\r?\n[ \t]/g, "")
+  var match = /^X-WR-CALNAME(?:;[^:\r\n]*)?:(.*)$/im.exec(unfolded)
+  var name = match ? match[1].replace(/\\([,;\\])/g, "$1").replace(/\\n/gi, " ").trim() : ""
+  if (!name) name = (filename || "").replace(/\.(ics|ical|ifb|icalendar)$/i, "").trim()
+  return name.slice(0, 100)
+}
+
+function updateCalendarImportNameField(form) {
+  var target = form.querySelector("input[name='target']")
+  var field = form.querySelector("[data-calendar-import-name-field]")
+  if (!target || !field) return
+  var creating = (target.value || "").indexOf("account:") === 0
+  field.hidden = !creating
+  var name = field.querySelector("[data-calendar-import-name]")
+  if (name) name.required = creating
+}
+
+function downloadCalendarExport(href) {
+  var filename = "calendar.ics"
+  return fetch(href, { headers: { "Accept": "text/calendar" } }).then(function (response) {
+    if (!response.ok) return response.text().then(function (text) { throw new Error((text || "").trim() || "Please try again.") })
+    var match = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(response.headers.get("Content-Disposition") || "")
+    if (match) { try { filename = decodeURIComponent(match[1]) } catch (e) { filename = match[1] } }
+    return response.blob()
+  }).then(function (blob) {
+    var url = URL.createObjectURL(blob)
+    var a = document.createElement("a")
+    a.href = url
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    setTimeout(function () { URL.revokeObjectURL(url) }, 1000)
+  })
+}
+
+document.addEventListener("click", function (event) {
+  var button = event.target.closest && event.target.closest("[data-calendar-import-open]")
+  if (!button) return
+  event.preventDefault()
+  var form = document.querySelector("#calendar-import-dialog [data-calendar-import-form]")
+  if (form) {
+    form.reset()
+    var name = form.querySelector("[data-calendar-import-name]")
+    if (name) { name.value = ""; delete name.dataset.edited }
+    var sourceID = button.dataset.calendarImportOpen
+    var target = form.querySelector("input[name='target']")
+    if (sourceID && target) target.value = "source:" + sourceID
+    updateCalendarImportNameField(form)
+  }
+  if (window.tui && window.tui.dialog) window.tui.dialog.open("calendar-import-dialog")
+})
+
+document.addEventListener("click", function (event) {
+  var button = event.target.closest && event.target.closest("[data-calendar-export-open]")
+  if (!button) return
+  event.preventDefault()
+  if (window.tui && window.tui.dialog) window.tui.dialog.open("calendar-export-dialog")
+})
+
+document.addEventListener("change", function (event) {
+  var form = event.target.closest && event.target.closest("[data-calendar-import-form]")
+  if (!form) return
+  if (event.target.name === "target") { updateCalendarImportNameField(form); return }
+  if (!event.target.matches("[data-calendar-import-file]")) return
+  var file = event.target.files && event.target.files[0]
+  var name = form.querySelector("[data-calendar-import-name]")
+  if (!file || !name || name.dataset.edited) return
+  file.slice(0, 256 << 10).text().then(function (text) {
+    if (!name.dataset.edited) name.value = calendarImportNameFromFile(text, file.name)
+  }).catch(function () {
+    if (!name.dataset.edited) name.value = calendarImportNameFromFile("", file.name)
+  })
+})
+
+document.addEventListener("input", function (event) {
+  if (event.target.matches && event.target.matches("[data-calendar-import-name]")) event.target.dataset.edited = "true"
+})
+
+document.addEventListener("submit", function (event) {
+  var form = event.target.closest && event.target.closest("[data-calendar-import-form]")
+  if (!form) return
+  event.preventDefault()
+  var fileInput = form.querySelector("[data-calendar-import-file]")
+  var file = fileInput && fileInput.files && fileInput.files[0]
+  var target = (form.querySelector("input[name='target']") || {}).value || ""
+  var nameInput = form.querySelector("[data-calendar-import-name]")
+  var name = nameInput ? nameInput.value.trim() : ""
+  var problem = !file ? "Choose an .ics file." : !target ? "Choose a calendar to import into." : target.indexOf("account:") === 0 && !name ? "Enter a name for the new calendar." : ""
+  if (problem) {
+    showGoferToast({ title: "Could not import the events", description: problem, variant: "error", icon: "error", position: "bottom-right", duration: 5000, dismissible: true })
+    return
+  }
+  var creating = target.indexOf("account:") === 0
+  var query = creating
+    ? "?account=" + encodeURIComponent(target.slice(8)) + "&name=" + encodeURIComponent(name)
+    : "?source=" + encodeURIComponent(target.slice(7))
+  var submit = form.querySelector("[data-calendar-import-submit]")
+  var label = form.querySelector("[data-calendar-import-submit-label]")
+  var progress = form.querySelector("[data-calendar-import-progress]")
+  var progressLabel = form.querySelector("[data-calendar-import-progress-label]")
+  var progressCount = form.querySelector("[data-calendar-import-progress-count]")
+  var progressBar = form.querySelector("[data-calendar-import-progress-bar]")
+  var showProgress = function (done, total, text) {
+    if (progress) progress.hidden = false
+    if (progressLabel) progressLabel.textContent = text
+    if (progressCount) progressCount.textContent = total ? done + " of " + total : ""
+    var percent = total ? Math.round(done / total * 100) : 0
+    if (progressBar) {
+      progressBar.setAttribute("aria-valuenow", String(percent))
+      var indicator = progressBar.querySelector("[data-tui-progress-indicator]")
+      if (indicator) indicator.style.width = percent + "%"
+    }
+  }
+  if (submit) { submit.disabled = true; submit.setAttribute("aria-busy", "true") }
+  if (label) label.textContent = "Importing…"
+  showProgress(0, 0, creating ? "Creating the calendar…" : "Signing in to the calendar…")
+  var done = function () {
+    if (submit) { submit.disabled = false; submit.removeAttribute("aria-busy") }
+    if (label) label.textContent = "Import events"
+    if (progress) progress.hidden = true
+  }
+  // The server answers with JSON lines while it imports: progress, then the
+  // result or an error. An error before it starts is a plain text answer.
+  var readImport = function (response) {
+    if (!response.ok) return response.text().then(function (text) { throw new Error((text || "").trim() || "Please try again.") })
+    if ((response.headers.get("Content-Type") || "").indexOf("application/x-ndjson") !== 0 || !response.body) return response.json()
+    var reader = response.body.getReader()
+    var decoder = new TextDecoder()
+    var buffered = ""
+    var last = null
+    var handle = function (text) {
+      if (!text.trim()) return
+      var message = JSON.parse(text)
+      if (message.error) throw new Error(message.error)
+      if (typeof message.total === "number") {
+        showProgress(message.done, message.total, "Adding events to the calendar…")
+        return
+      }
+      last = message
+    }
+    var pump = function () {
+      return reader.read().then(function (chunk) {
+        if (chunk.done) {
+          handle(buffered)
+          if (!last) throw new Error("The import stopped before it finished. Importing the file again skips the events already added.")
+          return last
+        }
+        buffered += decoder.decode(chunk.value, { stream: true })
+        var lines = buffered.split("\n")
+        buffered = lines.pop()
+        lines.forEach(handle)
+        return pump()
+      })
+    }
+    return pump()
+  }
+  fetch("/api/calendar/import" + query, {
+    method: "POST",
+    headers: { "Content-Type": "text/calendar", "Accept": "application/x-ndjson, application/json" },
+    body: file,
+  }).then(readImport).then(function (result) {
+    done()
+    if (window.tui && window.tui.dialog) window.tui.dialog.close("calendar-import-dialog")
+    var added = result.added || 0
+    var skipped = result.skipped || 0
+    var into = result.calendar ? (result.created ? " into the new calendar “" + result.calendar + "”" : " into “" + result.calendar + "”") : ""
+    showGoferToast({
+      title: (added === 1 ? "1 event imported" : added + " events imported") + into,
+      description: skipped ? (skipped === 1 ? "1 event was skipped: " : skipped + " events were skipped: ") + "the server refused them, usually because they're already in the calendar." : "",
+      variant: "success", icon: "success", position: "bottom-right", duration: skipped ? 8000 : 4000, dismissible: true,
+    })
+    if (result.created) refreshCalendarSidebar()
+    var sync = document.querySelector("[data-calendar-sync-button]")
+    if (sync && !sync.disabled) sync.click()
+    else scheduleCalendarCacheRefresh()
+  }).catch(function (error) {
+    done()
+    if (creating) refreshCalendarSidebar()
+    showGoferToast({ title: "Could not import the events", description: error && error.message ? error.message : "Please try again.", variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
+  })
+})
+
+document.addEventListener("submit", function (event) {
+  var form = event.target.closest && event.target.closest("[data-calendar-export-form]")
+  if (!form) return
+  event.preventDefault()
+  var sourceID = (form.querySelector("input[name='source']") || {}).value || ""
+  if (!sourceID) return
+  var submit = form.querySelector("[data-calendar-export-submit]")
+  if (submit) submit.disabled = true
+  downloadCalendarExport("/api/calendar/sources/" + encodeURIComponent(sourceID) + "/export").then(function () {
+    if (window.tui && window.tui.dialog) window.tui.dialog.close("calendar-export-dialog")
+  }).catch(function (error) {
+    showGoferToast({ title: "Could not export the calendar", description: error && error.message ? error.message : "Please try again.", variant: "error", icon: "error", position: "bottom-right", duration: 6000, dismissible: true })
+  }).then(function () {
+    if (submit) submit.disabled = false
+  })
+})
+
+document.addEventListener("click", function (event) {
+  var link = event.target.closest && event.target.closest("[data-calendar-source-export]")
+  if (!link) return
+  event.preventDefault()
+  downloadCalendarExport(link.getAttribute("href")).catch(function (error) {
+    showGoferToast({ title: "Could not export the calendar", description: error && error.message ? error.message : "Please try again.", variant: "error", icon: "error", position: "bottom-right", duration: 6000, dismissible: true })
+  })
+})
+
 function scheduleCalendarCacheRefresh() {
   _calendarCacheRefreshPending = true
   if (_calendarCacheRefreshTimer) return
