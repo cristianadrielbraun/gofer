@@ -6,21 +6,26 @@ import (
 	"github.com/cristianadrielbraun/gofer/components/button"
 	"github.com/cristianadrielbraun/gofer/components/dialog"
 	"github.com/cristianadrielbraun/gofer/components/icon"
+	"github.com/cristianadrielbraun/gofer/components/radio"
 )
 
 // MailToAccountDialogData describes emails about to go into a folder of
-// another account. Problem, when set, says why they can't.
+// another account. Problem, when set, says why they can't. ToLocal says the
+// folder is in Local folders, where moving them is mostly to free space on
+// the server, so deleting them there for good is offered first.
 type MailToAccountDialogData struct {
 	Count   int
 	Sources []string
 	Target  string
 	Folder  string
 	Problem string
+	ToLocal bool
 }
 
-// MailToAccountDialog asks before emails are moved into another account,
-// since that copies them there and deletes them from the account they're in.
+// MailToAccountDialog asks before emails go into another account, and
+// whether they then leave the account they're in.
 templ MailToAccountDialog(data MailToAccountDialogData) {
+	{{ mode := mailToAccountDefaultMode(data) }}
 	@dialog.Dialog(dialog.Props{ID: "mail-to-account-dialog"}) {
 		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-lg", Attributes: templ.Attributes{"data-mail-to-account-dialog": ""}}) {
 			@dialog.Header() {
@@ -42,11 +47,12 @@ templ MailToAccountDialog(data MailToAccountDialogData) {
 							{ mailToAccountSummary(data) }
 						</p>
 					</div>
-					<ul class="list-disc space-y-1 pl-5 text-xs text-muted-foreground">
-						<li>{ "Move copies each email to " + data.Target + ", then deletes it from " + strings.Join(data.Sources, " and ") + ". Deleted emails go to its Trash, so you can get them back until it's emptied." }</li>
-						<li>{ "Copy leaves them where they are and adds a copy to " + data.Target + "." }</li>
-						<li>This runs in the background. You can follow it in Settings, under Export and import.</li>
-					</ul>
+					<div class="space-y-2" role="radiogroup" aria-label="Move or copy" data-mail-to-account-modes>
+						@mailToAccountMode("move", "Move", "Each email is copied to "+data.Target+", then deleted from "+strings.Join(data.Sources, " and ")+" into its Trash, so you can get it back until Trash is emptied.", mode)
+						@mailToAccountMode("move-delete", "Move and delete permanently", "Each email is copied to "+data.Target+", then deleted from "+strings.Join(data.Sources, " and ")+" for good, with no copy left in its Trash.", mode)
+						@mailToAccountMode("copy", "Copy", strings.Join(data.Sources, " and ")+" keeps the emails, and "+data.Target+" gets a copy.", mode)
+					</div>
+					<p class="text-xs text-muted-foreground">This runs in the background. You can follow it in Settings, under Export and import.</p>
 				</div>
 			}
 			@dialog.Footer() {
@@ -57,22 +63,52 @@ templ MailToAccountDialog(data MailToAccountDialogData) {
 				}
 				if data.Problem == "" {
 					@button.Button(button.Props{
-						Variant:    button.VariantOutline,
 						Class:      "h-8 px-3 text-xs",
-						Attributes: templ.Attributes{"data-mail-to-account-copy": "", "data-on-click": onAction("confirmMessagesToAccount", "copy")},
+						Attributes: templ.Attributes{"data-mail-to-account-confirm": "", "data-on-click": onAction("confirmMessagesToAccount")},
 					}) {
-						Copy instead
-					}
-					@button.Button(button.Props{
-						Class:      "h-8 px-3 text-xs",
-						Attributes: templ.Attributes{"data-mail-to-account-move": "", "data-on-click": onAction("confirmMessagesToAccount", "move")},
-					}) {
-						Move
+						{ mailToAccountModeButton(mode) }
 					}
 				}
 			}
 		}
 	}
+}
+
+templ mailToAccountMode(value, label, detail, selected string) {
+	<label class="flex items-start gap-2.5 text-sm text-foreground">
+		<span class="mt-0.5 flex shrink-0">
+			@radio.Radio(radio.Props{
+				Name:       "mail-to-account-mode",
+				Value:      value,
+				Checked:    value == selected,
+				Attributes: templ.Attributes{"data-mail-to-account-mode": value, "data-mail-to-account-button": mailToAccountModeButton(value), "data-on-change": onAction("chooseMessagesToAccountMode", actionElement)},
+			})
+		</span>
+		<span>
+			<span class="font-medium">{ label }</span>
+			<span class="block text-xs text-muted-foreground mt-0.5">{ detail }</span>
+		</span>
+	</label>
+}
+
+// mailToAccountDefaultMode is the choice the dialog opens with: a plain move,
+// or for Local folders a move that deletes the emails for good.
+func mailToAccountDefaultMode(data MailToAccountDialogData) string {
+	if data.ToLocal {
+		return "move-delete"
+	}
+	return "move"
+}
+
+// mailToAccountModeButton is the confirm button's label for a choice.
+func mailToAccountModeButton(mode string) string {
+	switch mode {
+	case "move-delete":
+		return "Move and delete"
+	case "copy":
+		return "Copy"
+	}
+	return "Move"
 }
 
 func mailToAccountSummary(data MailToAccountDialogData) string {

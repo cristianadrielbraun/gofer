@@ -273,6 +273,7 @@ func TestSettingsSyncTabRendersUnifiedFolderAccountSwitches(t *testing.T) {
 			{AccountID: "acc-b", AccountName: "Archive", AccountEmail: "archive@example.com", Color: "#4f8f6b"},
 		},
 	}
+	settings.UnifiedAccounts = settings.Accounts
 	uiSettings := map[string]string{
 		"unified_folder_inbox_account_acc-b_enabled": "false",
 	}

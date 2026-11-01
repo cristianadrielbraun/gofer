@@ -499,6 +499,10 @@ var errMailImportAccount = errors.New("account unavailable")
 // syncMailAccount fetches an account's mail in the background, so messages
 // a job added show.
 func (h *Handler) syncMailAccount(ctx context.Context, owner, accountID string) {
+	if provider, err := h.folderAccountProvider(ctx, owner, accountID); err == nil && provider == providers.ProviderLocal {
+		// Local folders have no server to sync with.
+		return
+	}
 	if h.userIMAP != nil {
 		go func() {
 			if err := h.userIMAP.Sync(ctx, owner, accountID); err != nil {
@@ -727,7 +731,7 @@ func (h *Handler) mailAccountAccess(ctx context.Context, owner, accountID string
 		if err != nil {
 			return err
 		}
-		if cfg.Provider == "gmail" || cfg.Provider == "outlook" {
+		if cfg.Provider == "gmail" || cfg.Provider == "outlook" || cfg.Provider == providers.ProviderLocal {
 			return nil
 		}
 		if h.userIMAP == nil {
@@ -752,6 +756,8 @@ func (h *Handler) mailAccountWriter(ctx context.Context, owner, accountID string
 		return nil, err
 	}
 	switch cfg.Provider {
+	case providers.ProviderLocal:
+		return &localImportWriter{h: h, owner: owner, accountID: accountID}, nil
 	case "gmail":
 		return &gmailImportWriter{mailImportCaller{token: h.mailImportToken(owner, accountID)}}, nil
 	case "outlook":

@@ -120,7 +120,18 @@ func GroupConditions(rule *models.MailRule) {
 func Validate(rule *models.MailRule) error {
 	GroupConditions(rule)
 	rule.Name = strings.TrimSpace(rule.Name)
-	rule.AccountID = strings.TrimSpace(rule.AccountID)
+	accounts := rule.AccountIDs[:0]
+	for _, id := range rule.AccountIDs {
+		if id = strings.TrimSpace(id); id != "" && !slices.Contains(accounts, id) {
+			accounts = append(accounts, id)
+		}
+	}
+	rule.AccountIDs = accounts
+	if !rule.AccountsChosen {
+		rule.AccountIDs = nil
+	} else if len(rule.AccountIDs) == 0 {
+		return errors.New("choose the accounts the rule is for")
+	}
 	if rule.Name == "" {
 		return errors.New("give the rule a name")
 	}
@@ -134,7 +145,7 @@ func Validate(rule *models.MailRule) error {
 		return fmt.Errorf("a rule can have at most %d conditions", MaxConditions)
 	}
 	for i := range rule.Conditions {
-		if err := validateCondition(&rule.Conditions[i], rule.AccountID); err != nil {
+		if err := validateCondition(&rule.Conditions[i]); err != nil {
 			return err
 		}
 	}
@@ -148,7 +159,7 @@ func Validate(rule *models.MailRule) error {
 	location := ""
 	for i := range rule.Actions {
 		action := &rule.Actions[i]
-		if err := validateAction(action, rule.AccountID); err != nil {
+		if err := validateAction(action); err != nil {
 			return err
 		}
 		if MovesMessage(action.Kind) {
@@ -176,7 +187,7 @@ func MovesMessage(kind string) bool {
 	return false
 }
 
-func validateCondition(condition *models.MailRuleCondition, accountID string) error {
+func validateCondition(condition *models.MailRuleCondition) error {
 	condition.Field = strings.TrimSpace(condition.Field)
 	condition.Operator = strings.TrimSpace(condition.Operator)
 	if condition.Field == models.MailRuleFieldFolder {
@@ -184,7 +195,7 @@ func validateCondition(condition *models.MailRuleCondition, accountID string) er
 			return errors.New("a folder condition can only be \"is\" or \"is not\"")
 		}
 		condition.Value = ""
-		return validateFolderTarget(condition.Folder, accountID)
+		return validateFolderTarget(condition.Folder)
 	}
 	condition.Folder = nil
 	switch condition.Field {
@@ -213,8 +224,11 @@ func validateCondition(condition *models.MailRuleCondition, accountID string) er
 	return nil
 }
 
-func validateAction(action *models.MailRuleAction, accountID string) error {
+func validateAction(action *models.MailRuleAction) error {
 	action.Kind = strings.TrimSpace(action.Kind)
+	if action.Kind != models.MailRuleActionMove {
+		action.ForGood = false
+	}
 	switch action.Kind {
 	case models.MailRuleActionMove:
 		action.Label = ""
@@ -224,7 +238,15 @@ func validateAction(action *models.MailRuleAction, accountID string) error {
 		if action.Folder.Role == "sent" || action.Folder.Role == "drafts" {
 			return errors.New("mail can't be moved to Sent or Drafts")
 		}
-		return validateFolderTarget(action.Folder, accountID)
+		if err := validateFolderTarget(action.Folder); err != nil {
+			return err
+		}
+		// A folder named by role is in the message's own account, where a
+		// move is just a move.
+		if action.Folder.Role != "" {
+			action.ForGood = false
+		}
+		return nil
 	case models.MailRuleActionLabel:
 		action.Folder = nil
 		action.Label = strings.TrimSpace(action.Label)
@@ -243,7 +265,7 @@ func validateAction(action *models.MailRuleAction, accountID string) error {
 	return nil
 }
 
-func validateFolderTarget(target *models.MailRuleFolderTarget, accountID string) error {
+func validateFolderTarget(target *models.MailRuleFolderTarget) error {
 	if target == nil {
 		return errors.New("choose a folder")
 	}
@@ -261,17 +283,13 @@ func validateFolderTarget(target *models.MailRuleFolderTarget, accountID string)
 		if !valid {
 			return fmt.Errorf("unknown folder %q", target.Role)
 		}
-		target.FolderID, target.Path = "", ""
+		target.FolderID, target.Path, target.AccountID = "", "", ""
 		return nil
 	}
 	if target.FolderID == "" {
 		return errors.New("choose a folder")
 	}
-	// A folder belongs to one account; a rule for every account can only
-	// name folders every account has.
-	if accountID == "" {
-		return errors.New("a rule for every account can only use Inbox, Archive, Trash, Spam, Sent and Drafts; choose an account to use its other folders")
-	}
+	target.AccountID = strings.TrimSpace(target.AccountID)
 	return nil
 }
 

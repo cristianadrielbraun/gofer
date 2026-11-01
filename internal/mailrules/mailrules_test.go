@@ -156,7 +156,7 @@ func TestFolderConditions(t *testing.T) {
 	if !inJunk.Match(spam) {
 		t.Fatal("a junk condition did not match a spam folder")
 	}
-	notInbox := compileRule(t, models.MailRule{AccountID: "acct", MatchAll: true, Conditions: []models.MailRuleCondition{
+	notInbox := compileRule(t, models.MailRule{AccountsChosen: true, AccountIDs: []string{"acct"}, MatchAll: true, Conditions: []models.MailRuleCondition{
 		{Field: "folder", Operator: "is_not", Folder: &models.MailRuleFolderTarget{FolderID: "acct_f_inbox", Path: "INBOX"}},
 	}})
 	if notInbox.Match(newsletter) || !notInbox.Match(spam) {
@@ -204,9 +204,9 @@ func TestValidate(t *testing.T) {
 		{"move to sent", func(r *models.MailRule) {
 			r.Actions = []models.MailRuleAction{{Kind: "move", Folder: &models.MailRuleFolderTarget{Role: "sent"}}}
 		}, "Sent"},
-		{"folder id on every account", func(r *models.MailRule) {
-			r.Actions = []models.MailRuleAction{{Kind: "move", Folder: &models.MailRuleFolderTarget{FolderID: "acct_f_1"}}}
-		}, "every account"},
+		{"accounts chosen but none", func(r *models.MailRule) {
+			r.AccountsChosen, r.AccountIDs = true, []string{" "}
+		}, "choose the accounts"},
 		{"folder contains", func(r *models.MailRule) {
 			r.Conditions = []models.MailRuleCondition{{Field: "folder", Operator: "contains", Folder: &models.MailRuleFolderTarget{Role: "inbox"}}}
 		}, "folder condition"},

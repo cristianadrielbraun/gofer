@@ -149,38 +149,38 @@ templ MailViewLoading() {
 	<div id="mail-view" class="hidden lg:flex flex-1 flex-col min-w-0 bg-background surface-desk" data-mail-reader>
 		<div class="mail-view-frame flex flex-col h-full" aria-busy="true" aria-label="Loading message">
 			<div class="surface-paper rounded-md flex flex-col h-full overflow-hidden">
-				<div class="mail-view-toolbar flex items-center justify-between px-6 py-2.5">
-					<div class="mail-view-actions flex items-center gap-1 min-w-0">
-						<button type="button" class="mobile-back-button h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-ink/5" data-on-click='["closeMobileMailView"]' aria-label="Back to list">
-							@icon.ArrowLeft(icon.Props{Class: "size-5"})
-						</button>
-						@mailViewLoadingToolbarButton() {
-							@icon.Trash2(icon.Props{Class: "size-4"})
-						}
-						@mailViewLoadingToolbarButton() {
-							@icon.Archive(icon.Props{Class: "size-4"})
-						}
-						<div>
-							<button type="button" disabled tabindex="-1" data-mail-action="spam" class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-ink opacity-25">
-								@icon.ShieldAlert(icon.Props{Class: "size-4"})
+				<div class="mail-view-message-header shrink-0">
+					<div class="mail-view-toolbar flex items-center justify-between px-6 py-2.5">
+						<div class="mail-view-actions flex items-center gap-1 min-w-0">
+							<button type="button" class="mobile-back-button h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-ink/5" data-on-click='["closeMobileMailView"]' aria-label="Back to list">
+								@icon.ArrowLeft(icon.Props{Class: "size-5"})
 							</button>
+							@mailViewLoadingToolbarButton() {
+								@icon.Trash2(icon.Props{Class: "size-4"})
+							}
+							@mailViewLoadingToolbarButton() {
+								@icon.Archive(icon.Props{Class: "size-4"})
+							}
+							<div>
+								<button type="button" disabled tabindex="-1" data-mail-action="spam" class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-ink opacity-25">
+									@icon.ShieldAlert(icon.Props{Class: "size-4"})
+								</button>
+							</div>
+							@mailViewLoadingToolbarButton() {
+								@icon.Star(icon.Props{Class: "size-4"})
+							}
+							@mailViewLoadingToolbarButton() {
+								@icon.Mail(icon.Props{Class: "size-4"})
+							}
 						</div>
-						@mailViewLoadingToolbarButton() {
-							@icon.Star(icon.Props{Class: "size-4"})
-						}
-						@mailViewLoadingToolbarButton() {
-							@icon.Mail(icon.Props{Class: "size-4"})
-						}
+						<div class="mail-view-meta flex items-center gap-2">
+							<span class="mail-view-date h-3 w-32 rounded bg-ink/5 animate-pulse"></span>
+							@mailViewLoadingToolbarButton() {
+								@icon.EllipsisVertical(icon.Props{Class: "size-4"})
+							}
+						</div>
 					</div>
-					<div class="mail-view-meta flex items-center gap-2">
-						<span class="mail-view-date h-3 w-32 rounded bg-ink/5 animate-pulse"></span>
-						@mailViewLoadingToolbarButton() {
-							@icon.EllipsisVertical(icon.Props{Class: "size-4"})
-						}
-					</div>
-				</div>
-				<div class="h-px bg-gradient-to-r from-transparent via-amber-900/10 to-transparent"></div>
-				<div class="flex-1 overflow-y-auto">
+					<div class="h-px bg-gradient-to-r from-transparent via-amber-900/10 to-transparent"></div>
 					<div class="mail-view-content mx-auto px-8 py-6">
 						<div class="mail-view-sender flex items-start gap-4">
 							<div class="mail-view-avatar size-11 rounded-full bg-gradient-to-b from-amber-700/40 to-amber-900/40 shrink-0 animate-pulse"></div>
@@ -195,7 +195,10 @@ templ MailViewLoading() {
 						<div class="mail-view-subject-row flex items-start justify-between gap-4 mt-5">
 							<div class="h-6 w-2/3 rounded bg-ink/5 animate-pulse"></div>
 						</div>
-						<div class="h-px bg-gradient-to-r from-transparent via-ink/10 to-transparent my-6"></div>
+					</div>
+				</div>
+				<div class="flex-1 overflow-y-auto">
+					<div class="mail-view-content mx-auto px-8 py-6">
 						<div class="mb-3 flex justify-end lg:justify-between">
 							<div class="hidden lg:block h-7 w-48 shrink-0 rounded-lg bg-ink/[0.04] animate-pulse"></div>
 							<div class="h-7 w-32 rounded-md border border-ink/10 bg-ink/[0.04] animate-pulse"></div>
@@ -247,16 +250,20 @@ templ MailViewContent(email *models.Email, thread []models.ThreadItem) {
 			@MailViewThreadContent(email, thread)
 		} else {
 			<div class="surface-paper rounded-md flex flex-col h-full overflow-hidden">
-				@MailViewHeader(email, thread)
-				<div class="h-px bg-gradient-to-r from-transparent via-amber-900/10 to-transparent"></div>
-				<div class="flex-1 overflow-y-auto" data-mail-view-scroll>
-					<div class="mail-view-content mx-auto px-8 py-6">
+				<div class="mail-view-message-header shrink-0">
+					@MailViewHeader(email, thread)
+					<div class="h-px bg-gradient-to-r from-transparent via-amber-900/10 to-transparent"></div>
+					<div class="mail-view-content mx-auto px-8 py-6" data-mail-view-header>
 						@MailViewSender(email)
 						<div class="mail-view-mobile-tools mail-view-message-actions mt-2 -mr-1 flex items-center justify-end gap-0.5 lg:hidden">
 							@EmailBodyStyleCycleButton(email.ID)
 							@EmailTranslateIconButton(email.ID)
 						</div>
-						<div class="h-px bg-gradient-to-r from-transparent via-ink/10 to-transparent my-6"></div>
+					</div>
+				</div>
+				<div class="flex-1 overflow-y-auto" data-mail-view-scroll>
+					<div class="mail-view-content mx-auto px-8 py-6">
+						@MailViewAttachments(email)
 						@MailViewBody(email)
 					</div>
 				</div>
@@ -1017,14 +1024,13 @@ templ MailViewSender(email *models.Email) {
 	</div>
 	<div class="mail-view-subject-row flex items-start justify-between gap-4 mt-5">
 		<h1 class="text-xl font-bold tracking-tight text-ink min-w-0" style="font-family: var(--font-serif)">{ email.Subject }</h1>
-@MailViewMobileLabels(email)
+		@MailViewMobileLabels(email)
 	</div>
-	@MailViewAttachments(email)
 }
 
 templ MailViewAttachments(email *models.Email) {
 	if len(email.Attachments) > 0 {
-		<div class="mt-5 space-y-2">
+		<div class="mb-6 space-y-2">
 			for _, att := range email.Attachments {
 				if shouldShowAttachment(att) {
 					<div class="mail-view-attachment flex items-center gap-3 px-4 py-2.5 rounded-lg border border-ink/8 shadow-[0_1px_3px_rgba(0,0,0,0.04)]">
@@ -1282,15 +1288,17 @@ templ MailMoveDialog(email *models.Email, accounts []models.Account) {
 				/>
 			}
 			<div class="h-[50vh] max-h-96 overflow-y-auto rounded-md border border-border bg-muted/50 p-1" role="listbox" aria-label="Folders" data-mail-move-list data-mail-move-source-account={ email.AccountID }>
-				for _, account := range accounts {
+				for _, account := range moveTargetAccounts(accounts, email.AccountID) {
 					{{ own := account.ID == email.AccountID }}
 					{{ problem := mailMoveAccountProblem(account, own) }}
 					<div class="mb-2 last:mb-0" data-mail-move-account>
 						<div class="flex items-center gap-2 px-2.5 pt-1 pb-1">
 							<div class="account-color-marker size-2.5 shrink-0" style={ accountColorStyle(account.Color) }></div>
-							<span class="truncate text-xs font-semibold text-foreground">{ account.Email }</span>
+							<span class="truncate text-xs font-semibold text-foreground">{ accountTitle(account) }</span>
 							if problem != "" {
 								<span class="ml-auto shrink-0 text-[11px] text-muted-foreground">{ problem }</span>
+							} else if accountIsLocalFolders(account) {
+								<span class="ml-auto shrink-0 text-[11px] text-muted-foreground">On this server only</span>
 							} else if !own {
 								<span class="ml-auto shrink-0 text-[11px] text-muted-foreground">Other account</span>
 							}
@@ -1385,7 +1393,7 @@ templ mailMoveNewRow(account models.Account) {
 	<button
 		type="button"
 		class="flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-		aria-label={ "New folder in " + account.Email }
+		aria-label={ "New folder in " + accountTitle(account) }
 		data-mail-move-new-row
 		data-mail-move-create-account={ account.ID }
 		data-mail-move-create-parent=""

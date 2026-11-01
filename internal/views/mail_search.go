@@ -40,7 +40,7 @@ func mailSearchScopeLabel(accounts []models.Account, scope *models.MailSearchSco
 	case models.MailSearchAccount:
 		for _, account := range accounts {
 			if account.ID == scope.AccountID {
-				return account.Email
+				return accountTitle(account)
 			}
 		}
 		return "One account"

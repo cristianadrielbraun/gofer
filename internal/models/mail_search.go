@@ -16,4 +16,7 @@ type MailSearchScope struct {
 	FolderIDs          []string            `json:"folder_ids,omitempty"`
 	IncludeDescendants bool                `json:"include_descendants,omitempty"`
 	ExcludeSpamTrash   bool                `json:"exclude_spam_trash,omitempty"`
+	// IncludeLocal brings disabled Local folders into a search of every
+	// account, which otherwise leaves them out.
+	IncludeLocal bool `json:"include_local,omitempty"`
 }

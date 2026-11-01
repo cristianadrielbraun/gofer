@@ -38,7 +38,7 @@ func (db *DB) SaveMessageBodyCache(ctx context.Context, id int64, accountID stri
 		if provider == "" {
 			provider = "gmail"
 		} // Compatibility with the original Gmail cache contract.
-		if provider != "gmail" && provider != "outlook" && provider != "jmap" {
+		if provider != "gmail" && provider != "outlook" && provider != "jmap" && provider != localProvider {
 			return fmt.Errorf("unsupported provider body identity")
 		}
 		// OAuth providers are also bound to the provider's account; a JMAP
@@ -47,6 +47,10 @@ func (db *DB) SaveMessageBodyCache(ctx context.Context, id int64, accountID stri
 		args := []any{id, accountID, c.ProviderMessageID, c.ProviderMessageID, provider, c.ProviderAccountID}
 		if provider == "jmap" {
 			signIn = `a.auth_method='plain'`
+			args = args[:5]
+		} else if provider == localProvider {
+			// Local folders sign in nowhere.
+			signIn = `1=1`
 			args = args[:5]
 		} else if c.ProviderAccountID == "" {
 			return fmt.Errorf("provider account identity required")

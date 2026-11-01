@@ -36,6 +36,8 @@ func mailRulesData(ctx context.Context, db *storage.DB, userID string) (models.M
 	}
 	data := models.MailRulesData{Rules: rules}
 	for _, account := range accounts {
+		// Local folders are only somewhere to move mail to; the form
+		// doesn't offer them as an account to watch.
 		if account.IsDeleting || account.Provider == providers.ProviderDAV {
 			continue
 		}
@@ -44,7 +46,7 @@ func mailRulesData(ctx context.Context, db *storage.DB, userID string) (models.M
 			return models.MailRulesData{}, fmt.Errorf("folders of %s: %w", account.ID, err)
 		}
 		data.Accounts = append(data.Accounts, models.MailRuleAccount{
-			ID: account.ID, Name: account.Name, Email: account.Email, Color: account.Color, Provider: account.Provider,
+			ID: account.ID, Name: account.Name, Email: account.Email, Color: account.Color, Provider: account.Provider, Hidden: account.Hidden,
 			Folders: folders[account.ID], Tree: tree,
 		})
 	}
@@ -139,7 +141,7 @@ func (h *Handler) handleMailRuleForm(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	rule := mailRuleFromForm(r)
+	rule, forGoodChosen := mailRuleFromForm(r)
 	index, _ := strconv.Atoi(r.FormValue("index"))
 	switch r.FormValue("op") {
 	case "add_condition":
@@ -167,7 +169,7 @@ func (h *Handler) handleMailRuleForm(w http.ResponseWriter, r *http.Request) {
 			rule.Actions = slices.Delete(rule.Actions, index, index+1)
 		}
 	}
-	fitMailRuleForm(&rule, data.Accounts)
+	fitMailRuleForm(&rule, data.Accounts, forGoodChosen)
 	data.Editing = &rule
 	h.renderMailRuleDialogPanel(w, r, data)
 }
@@ -188,24 +190,28 @@ func nextMailRuleAction(actions []models.MailRuleAction) string {
 
 // fitMailRuleForm makes each condition and action of a rule in the form
 // fit what it has become: a folder condition compares with is, a move has a
-// folder, and a rule for every account names no folder of one account.
-func fitMailRuleForm(rule *models.MailRule, accounts []models.MailRuleAccount) {
+// folder that is still there, and a move to Local folders starts out
+// deleting mail it moves from another account for good.
+// forGoodChosen says, by action, whether the form already showed the choice
+// of what happens to mail from another account, which is then kept.
+func fitMailRuleForm(rule *models.MailRule, accounts []models.MailRuleAccount, forGoodChosen []bool) {
 	mailrules.GroupConditions(rule)
+	folderAccount := func(target *models.MailRuleFolderTarget) (models.MailRuleAccount, bool) {
+		for _, account := range accounts {
+			for _, folder := range account.Folders {
+				if folder.ID == target.FolderID {
+					return account, true
+				}
+			}
+		}
+		return models.MailRuleAccount{}, false
+	}
 	ownFolder := func(target *models.MailRuleFolderTarget) bool {
 		if target == nil || target.FolderID == "" {
 			return true
 		}
-		for _, account := range accounts {
-			if account.ID != rule.AccountID {
-				continue
-			}
-			for _, folder := range account.Folders {
-				if folder.ID == target.FolderID {
-					return true
-				}
-			}
-		}
-		return false
+		_, ok := folderAccount(target)
+		return ok
 	}
 	for i := range rule.Conditions {
 		condition := &rule.Conditions[i]
@@ -229,18 +235,25 @@ func fitMailRuleForm(rule *models.MailRule, accounts []models.MailRuleAccount) {
 			if action.Folder != nil && !ownFolder(action.Folder) {
 				action.Folder = nil
 			}
+			if action.Folder == nil || action.Folder.FolderID == "" {
+				action.ForGood = false
+			} else if i >= len(forGoodChosen) || !forGoodChosen[i] {
+				account, _ := folderAccount(action.Folder)
+				action.ForGood = account.Provider == providers.ProviderLocal
+			}
 		} else {
 			action.Folder = nil
 		}
 	}
 }
 
-// mailRuleFromForm reads a rule from the rule form. Each condition row sends
-// every one of its fields, so the lists line up.
-func mailRuleFromForm(r *http.Request) models.MailRule {
+// mailRuleFromForm reads a rule from the rule form. Each condition and
+// action row sends every one of its fields, so the lists line up. It also
+// says, by action, whether the row had the choice of what happens to mail
+// from another account.
+func mailRuleFromForm(r *http.Request) (models.MailRule, []bool) {
 	rule := models.MailRule{
 		ID:             strings.TrimSpace(r.FormValue("id")),
-		AccountID:      strings.TrimSpace(r.FormValue("account_id")),
 		Name:           r.FormValue("name"),
 		Enabled:        r.FormValue("enabled") != "",
 		MatchAll:       true,
@@ -265,7 +278,18 @@ func mailRuleFromForm(r *http.Request) models.MailRule {
 		}
 		rule.Conditions = append(rule.Conditions, condition)
 	}
-	kinds, actionFolders, labels := r.PostForm["act_kind"], r.PostForm["act_folder"], r.PostForm["act_label"]
+	rule.AccountsChosen = true
+	for _, id := range strings.Split(r.FormValue("account_ids"), ",") {
+		switch id = strings.TrimSpace(id); id {
+		case "":
+		case "all":
+			rule.AccountsChosen = false
+		default:
+			rule.AccountIDs = append(rule.AccountIDs, id)
+		}
+	}
+	kinds, actionFolders, labels, forGood := r.PostForm["act_kind"], r.PostForm["act_folder"], r.PostForm["act_label"], r.PostForm["act_for_good"]
+	chosen := []bool{}
 	for i, kind := range kinds {
 		if i == mailrules.MaxActions+1 {
 			break
@@ -274,12 +298,14 @@ func mailRuleFromForm(r *http.Request) models.MailRule {
 		switch kind {
 		case models.MailRuleActionMove:
 			action.Folder = mailRuleFolderFromValue(at(actionFolders, i))
+			action.ForGood = at(forGood, i) == "1"
 		case models.MailRuleActionLabel:
 			action.Label = at(labels, i)
 		}
+		chosen = append(chosen, at(forGood, i) != "")
 		rule.Actions = append(rule.Actions, action)
 	}
-	return rule
+	return rule, chosen
 }
 
 // mailRuleFolderFromValue reads a folder choice of the form: "role:" and a
@@ -304,7 +330,7 @@ func (h *Handler) handleSaveMailRule(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid form data", http.StatusBadRequest)
 		return
 	}
-	rule := mailRuleFromForm(r)
+	rule, _ := mailRuleFromForm(r)
 	_, saveErr := h.db.SaveMailRuleGuarded(r.Context(), h.userID(r.Context()), rule, h.signatureGuard)
 	if errors.Is(saveErr, sql.ErrNoRows) && rule.ID != "" {
 		http.NotFound(w, r)
@@ -319,7 +345,7 @@ func (h *Handler) handleSaveMailRule(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(saveErr, sql.ErrNoRows):
 			data.Error = "That account is no longer here. Choose another."
 		case errors.Is(saveErr, storage.ErrMailRuleFolder):
-			data.Error = "A folder the rule names is not in the account it is for. Choose the folder again."
+			data.Error = "A folder condition names a folder of an account the rule isn't for, or a folder that is gone. Choose the folder again."
 		case errors.Is(saveErr, storage.ErrTooManyMailRules):
 			data.Error = sentence(saveErr.Error())
 		default:
@@ -330,8 +356,8 @@ func (h *Handler) handleSaveMailRule(w http.ResponseWriter, r *http.Request) {
 				data.Error = sentence(saveErr.Error())
 			}
 		}
-		rule = mailRuleFromForm(r)
-		fitMailRuleForm(&rule, data.Accounts)
+		rule, forGoodChosen := mailRuleFromForm(r)
+		fitMailRuleForm(&rule, data.Accounts, forGoodChosen)
 		data.Editing = &rule
 		h.renderMailRuleDialogPanel(w, r, data)
 		return

@@ -14,6 +14,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 
 	"github.com/cristianadrielbraun/gofer/internal/models"
+	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/views"
 )
 
@@ -52,7 +53,7 @@ func mailTransferSourceProblem(account models.Account) string {
 // first account that can be read and another that can receive mail.
 func (h *Handler) mailTransferFormData(r *http.Request, values url.Values, message string) (views.MailTransferFormData, error) {
 	ctx, owner := r.Context(), h.userID(r.Context())
-	data := views.MailTransferFormData{Message: message, Move: values.Get("mode") == "move"}
+	data := views.MailTransferFormData{Message: message, Mode: values.Get("mode")}
 	accounts, err := h.mailExportAccounts(ctx, owner)
 	if err != nil {
 		return data, err
@@ -69,11 +70,13 @@ func (h *Handler) mailTransferFormData(r *http.Request, values url.Values, messa
 		view := mailExportAccountView(account)
 		sourceProblem, targetProblem := mailTransferSourceProblem(account), mailImportAccountProblem(account)
 		data.Sources = append(data.Sources, views.MailImportAccount{MailExportAccount: view, Problem: sourceProblem})
-		data.Targets = append(data.Targets, views.MailImportAccount{MailExportAccount: view, Problem: targetProblem})
+		if !account.Hidden {
+			data.Targets = append(data.Targets, views.MailImportAccount{MailExportAccount: view, Problem: targetProblem})
+		}
 		if sourceProblem == "" {
 			readable[account.ID] = account
 		}
-		if targetProblem == "" {
+		if targetProblem == "" && !account.Hidden {
 			writable[account.ID] = account
 		}
 	}
@@ -107,6 +110,13 @@ func (h *Handler) mailTransferFormData(r *http.Request, values url.Values, messa
 	}
 	source, target := readable[data.SourceID], writable[data.TargetID]
 	data.SourceEmail = source.Email
+	if data.Mode == "" {
+		// Mail goes to Local folders mostly to free space on the server.
+		data.Mode = string(mailTransferCopy)
+		if target.Provider == providers.ProviderLocal {
+			data.Mode = string(mailTransferMoveForGood)
+		}
+	}
 	sourceFolders, err := h.mailExportFolders(ctx, owner, source.ID)
 	if err != nil {
 		return data, err
@@ -139,7 +149,7 @@ func (h *Handler) mailTransferJobViews(owner string) ([]views.MailTransferJob, e
 	for _, job := range jobs {
 		processed, total, copied, duplicates, failed, deleted := job.totals()
 		view := views.MailTransferJob{
-			ID: job.ID, Source: job.SourceEmail, Target: job.TargetEmail, Move: job.Move, State: job.State, Error: job.Error,
+			ID: job.ID, Source: job.SourceEmail, Target: job.TargetEmail, Move: job.Move, ForGood: job.ForGood, State: job.State, Error: job.Error,
 			Processed: processed, Total: total, Copied: copied, Duplicates: duplicates, Failed: failed, Deleted: deleted,
 			Started: job.CreatedAt.Local().Format("Jan 2, 15:04"),
 		}
@@ -274,7 +284,7 @@ func (h *Handler) handleStartMailTransfer(w http.ResponseWriter, r *http.Request
 		h.renderMailTransferPanel(w, r, r.PostForm, "Choose the account the mail goes into.")
 		return
 	}
-	if _, err := h.createMailTransfer(ctx, owner, source, target, r.PostForm.Get("mode") == "move", r.PostForm); err != nil {
+	if _, err := h.createMailTransfer(ctx, owner, source, target, parseMailTransferMode(r.PostForm.Get("mode")), r.PostForm); err != nil {
 		message := "The transfer could not be started."
 		switch {
 		case errors.Is(err, errMailTransferSameAccount):
@@ -362,6 +372,7 @@ func (h *Handler) handleMessagesToAccountDialog(w http.ResponseWriter, r *http.R
 		data.Problem = "That folder can't take mail from another account."
 	} else {
 		data.Target, data.Folder = target.Email, folder.Path
+		data.ToLocal = target.Provider == providers.ProviderLocal
 		if problem := mailImportAccountProblem(target); problem != "" {
 			data.Problem = target.Email + ": " + problem
 		}
@@ -443,7 +454,7 @@ func (h *Handler) handleMessagesToAccount(w http.ResponseWriter, r *http.Request
 		}
 		bySource[info.AccountID][info.FolderID] = append(bySource[info.AccountID][info.FolderID], info.MessageID)
 	}
-	move := payload.Mode != "copy"
+	mode := parseMailTransferMode(payload.Mode)
 	sources := map[string]models.Account{}
 	for accountID := range bySource {
 		source, ok, err := h.mailExportAccount(ctx, owner, accountID)
@@ -455,7 +466,7 @@ func (h *Handler) handleMessagesToAccount(w http.ResponseWriter, r *http.Request
 	}
 	var started []string
 	for accountID, ids := range bySource {
-		job, err := h.mailTransferMessages(ctx, owner, sources[accountID], target, destination, ids, move)
+		job, err := h.mailTransferMessages(ctx, owner, sources[accountID], target, destination, ids, mode)
 		if err != nil {
 			log.Printf("mail transfer: start from the message list: %v", err)
 			http.Error(w, "The emails could not be sent to the other account.", http.StatusInternalServerError)

@@ -18,13 +18,14 @@
   function scopeURL(url, selected) {
     var parts = url.split("?")
     var params = new URLSearchParams(parts[1] || "")
-    ;["scope", "scope_account_id", "scope_folder_id", "include_descendants", "exclude_spam_trash"].forEach(function (name) { params.delete(name) })
+    ;["scope", "scope_account_id", "scope_folder_id", "include_descendants", "exclude_spam_trash", "include_local"].forEach(function (name) { params.delete(name) })
     if (selected) {
       params.set("scope", selected.kind)
       if (selected.account_id) params.set("scope_account_id", selected.account_id)
       ;(selected.folder_ids || []).forEach(function (id) { params.append("scope_folder_id", id) })
       if (selected.include_descendants) params.set("include_descendants", "1")
       if (selected.exclude_spam_trash) params.set("exclude_spam_trash", "1")
+      if (selected.include_local && selected.kind === "all") params.set("include_local", "1")
     }
     var query = params.toString()
     return parts[0] + (query ? "?" + query : "")
@@ -108,7 +109,12 @@
     // With a search or filters on both sides, this is a change within a
     // search: the rows move rather than the list emptying and refilling.
     var within = !!(window.mailFiltersActive && window.mailFiltersActive())
-    return replaceList(controller, request, { move: within }).catch(function () {
+    // The scope menu stays open while choosing, so it opens again over the
+    // new list, which replaces it.
+    var menuOpen = !!document.querySelector("#mail-search-scope-menu [data-tui-popover-content]:popover-open")
+    return replaceList(controller, request, { move: within }).then(function () {
+      if (menuOpen && window.tui && window.tui.popover) window.tui.popover.open("mail-search-scope-menu")
+    }).catch(function () {
       controller.cancelTransitionClear()
       if (window.location.pathname + window.location.search === url) history.replaceState(previousState, "", previous)
       sync()
@@ -223,6 +229,16 @@
       exclude.setAttribute("aria-checked", excluding ? "true" : "false")
       exclude.querySelector("[data-mail-scope-check]").classList.toggle("hidden", !excluding)
     }
+    var local = root.querySelector("[data-mail-scope-include-local]")
+    if (local) {
+      var including = !!(selected && selected.kind === "all" && selected.include_local)
+      var row = local.closest("[data-mail-scope-include-local-row]")
+      var shown = !!(selected && selected.kind === "all")
+      row.dataset.shown = shown ? "true" : "false"
+      row.inert = !shown
+      local.setAttribute("aria-checked", including ? "true" : "false")
+      local.querySelector("[data-mail-scope-check]").classList.toggle("hidden", !including)
+    }
   }
 
   function openPicker() {
@@ -252,9 +268,15 @@
       var current = chosen()
       var selected = value === "current" ? null : value === "all" ? { kind: "all" } : { kind: "account", account_id: value.slice(8) }
       if (selected && current && current.exclude_spam_trash) selected.exclude_spam_trash = true
+      if (selected && current && current.include_local) selected.include_local = true
       // Choosing the scope already in use changes nothing.
       if (!selected ? !current : current && current.kind === selected.kind && (current.account_id || "") === (selected.account_id || "")) return
       return choose(selected)
+    }
+    if (event.target.closest("[data-mail-scope-include-local]")) {
+      var including = chosen()
+      if (including && including.kind === "all") choose(Object.assign({}, including, { include_local: !including.include_local }))
+      return
     }
     if (event.target.closest("[data-mail-scope-exclude]")) {
       var excluding = chosen()

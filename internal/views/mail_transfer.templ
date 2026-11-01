@@ -24,7 +24,9 @@ type MailTransferFormData struct {
 	Targets  []MailImportAccount
 	SourceID string
 	TargetID string
-	Move     bool
+	// Mode is "copy", "move" or "move-delete", as mailTransferMode names
+	// them.
+	Mode string
 	// SourceEmail names the account moved messages are deleted from.
 	SourceEmail string
 	Folders     []MailTransferFolder
@@ -39,6 +41,7 @@ type MailTransferJob struct {
 	Source     string
 	Target     string
 	Move       bool
+	ForGood    bool
 	State      string
 	Error      string
 	Folder     string
@@ -132,7 +135,7 @@ templ MailTransferForm(data MailTransferFormData) {
 				<div class="space-y-2" role="radiogroup" aria-label="Copy or move">
 					<label class="flex items-start gap-2.5 text-sm text-foreground">
 						<span class="mt-0.5 flex shrink-0">
-							@radio.Radio(radio.Props{Name: "mode", Value: "copy", Checked: !data.Move})
+							@radio.Radio(radio.Props{Name: "mode", Value: "copy", Checked: data.Mode != "move" && data.Mode != "move-delete"})
 						</span>
 						<span>
 							<span class="font-medium">Copy</span>
@@ -141,13 +144,26 @@ templ MailTransferForm(data MailTransferFormData) {
 					</label>
 					<label class="flex items-start gap-2.5 text-sm text-foreground">
 						<span class="mt-0.5 flex shrink-0">
-							@radio.Radio(radio.Props{Name: "mode", Value: "move", Checked: data.Move})
+							@radio.Radio(radio.Props{Name: "mode", Value: "move", Checked: data.Mode == "move"})
 						</span>
 						<span>
 							<span class="font-medium">Move</span>
 							<span class="block text-xs text-muted-foreground mt-0.5">
 								if data.SourceEmail != "" {
 									{ "Each message is deleted from " + data.SourceEmail + " once its copy is saved. Deleted messages go to its Trash, so you can get them back until it's emptied; messages moved from Trash are deleted for good." }
+								}
+							</span>
+						</span>
+					</label>
+					<label class="flex items-start gap-2.5 text-sm text-foreground">
+						<span class="mt-0.5 flex shrink-0">
+							@radio.Radio(radio.Props{Name: "mode", Value: "move-delete", Checked: data.Mode == "move-delete"})
+						</span>
+						<span>
+							<span class="font-medium">Move and delete permanently</span>
+							<span class="block text-xs text-muted-foreground mt-0.5">
+								if data.SourceEmail != "" {
+									{ "Each message is deleted for good from " + data.SourceEmail + " once its copy is saved, with no copy left in its Trash." }
 								}
 							</span>
 						</span>
@@ -323,7 +339,11 @@ func mailTransferJobStatus(job MailTransferJob) string {
 		}
 	}
 	if job.Move && job.Deleted > 0 {
-		parts = append(parts, fmt.Sprintf("%s deleted from %s", mailExportNumber(job.Deleted), job.Source))
+		deleted := "deleted from"
+		if job.ForGood {
+			deleted = "deleted for good from"
+		}
+		parts = append(parts, fmt.Sprintf("%s %s %s", mailExportNumber(job.Deleted), deleted, job.Source))
 	}
 	parts = append(parts, "started "+job.Started)
 	return strings.Join(parts, " · ")

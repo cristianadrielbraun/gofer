@@ -16,6 +16,7 @@ import (
 
 	"github.com/cristianadrielbraun/gofer/internal/mail"
 	"github.com/cristianadrielbraun/gofer/internal/models"
+	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
 
 // addMailTransferTarget adds a second account on the fake server, with an
@@ -240,7 +241,7 @@ func TestMailTransferCopyLeavesTheOriginals(t *testing.T) {
 	f := newMailExportFixture(t)
 	target, targetInbox := f.addMailTransferTarget(t)
 	form := url.Values{"folder": {f.folders["archive-2024"]}, "target:" + f.folders["archive-2024"]: {targetInbox}}
-	job, err := f.h.createMailTransfer(t.Context(), "owner", f.account, target, false, form)
+	job, err := f.h.createMailTransfer(t.Context(), "owner", f.account, target, mailTransferCopy, form)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -253,7 +254,7 @@ func TestMailTransferCopyLeavesTheOriginals(t *testing.T) {
 	if err := f.db.Read().QueryRow(`SELECT folder_id FROM message_folder_state WHERE message_id = ?`, f.ids["receipt"]).Scan(&folder); err != nil || folder != f.folders["archive-2024"] {
 		t.Fatalf("copied message moved to %q (%v)", folder, err)
 	}
-	if _, err := f.h.createMailTransfer(t.Context(), "owner", f.account, f.account, false, form); err != errMailTransferSameAccount {
+	if _, err := f.h.createMailTransfer(t.Context(), "owner", f.account, f.account, mailTransferCopy, form); err != errMailTransferSameAccount {
 		t.Fatalf("transfer into the same account = %v", err)
 	}
 }
@@ -270,7 +271,7 @@ func TestMessagesMoveToAnotherAccount(t *testing.T) {
 	req := ownerRequest(httptest.NewRequest(http.MethodGet, "/api/messages/to-account?"+query.Encode(), nil))
 	rec := httptest.NewRecorder()
 	f.h.handleMessagesToAccountDialog(rec, req)
-	for _, want := range []string{"Move to another account?", "2 emails will go from robin@example.test to Inbox in sky@example.test, a different account.", "Copy instead", "data-mail-to-account-move"} {
+	for _, want := range []string{"Move to another account?", "2 emails will go from robin@example.test to Inbox in sky@example.test, a different account.", "Move and delete permanently", `value="move" checked`, "data-mail-to-account-confirm"} {
 		if !strings.Contains(rec.Body.String(), want) {
 			t.Fatalf("dialog lacks %q:\n%s", want, rec.Body.String())
 		}
@@ -316,5 +317,89 @@ func TestMessagesMoveToAnotherAccount(t *testing.T) {
 	mixed := `{"targets":[{"id":"` + strconv.FormatInt(targetMessage, 10) + `"}],"folder_id":"` + targetInbox + `","mode":"move"}`
 	if rec := post(ownerRequest, mixed); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "already in sky@example.test") {
 		t.Fatalf("emails already there = %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// Emails moved into Local folders and deleted for good leave their account
+// at once, with nothing in its Trash, and are kept whole in Local folders.
+func TestMessagesMoveToLocalFoldersForGood(t *testing.T) {
+	f := newMailExportFixture(t)
+	f.h.syncer = mail.NewSyncOrchestrator(f.db, f.h.accountStore, f.h.blobStore, nil)
+	f.holdBackgroundSync(t)
+	local, err := f.db.EnsureLocalFoldersAccount(t.Context(), "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	archive := storage.LocalFolderID(local, "archive")
+
+	query := url.Values{"folder_id": {archive}, "accounts": {f.account.ID}, "count": {"1"}}
+	req := ownerRequest(httptest.NewRequest(http.MethodGet, "/api/messages/to-account?"+query.Encode(), nil))
+	rec := httptest.NewRecorder()
+	f.h.handleMessagesToAccountDialog(rec, req)
+	for _, want := range []string{"to Archive in Local folders", `value="move-delete" checked`, "Move and delete"} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Fatalf("dialog lacks %q:\n%s", want, rec.Body.String())
+		}
+	}
+
+	body := `{"targets":[{"id":"` + strconv.FormatInt(f.ids["garden"], 10) + `"}],"folder_id":"` + archive + `","source_folder_id":"` + f.folders["inbox"] + `","mode":"move-delete"}`
+	req = ownerRequest(httptest.NewRequest(http.MethodPost, "/api/messages/to-account", strings.NewReader(body)))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	f.h.handleMessagesToAccount(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("move = %d %s", rec.Code, rec.Body.String())
+	}
+	jobs, err := f.h.mailTransfers.jobs("owner")
+	if err != nil || len(jobs) != 1 {
+		t.Fatalf("transfers = %d, %v", len(jobs), err)
+	}
+	job := f.waitTransferFinished(t, jobs[0].ID)
+	_, total, copied, _, failed, deleted := job.totals()
+	if job.State != mailJobDone || total != 1 || copied != 1 || failed != 0 || deleted != 1 || !job.ForGood {
+		t.Fatalf("state %s: total %d, copied %d, failed %d, deleted %d (%s)", job.State, total, copied, failed, deleted, job.Error)
+	}
+	var inTrash, kept int
+	_ = f.db.Read().QueryRow(`SELECT COUNT(*) FROM message_folder_state WHERE message_id = ? AND folder_id = ? AND is_deleted = 0`, f.ids["garden"], f.folders["trash"]).Scan(&inTrash)
+	_ = f.db.Read().QueryRow(`SELECT COUNT(*) FROM message_folder_state WHERE message_id = ? AND is_deleted = 0`, f.ids["garden"]).Scan(&kept)
+	if inTrash != 0 || kept != 0 {
+		t.Fatalf("source copy left: %d in Trash, %d shown", inTrash, kept)
+	}
+	var subject, rawPath string
+	if err := f.db.Read().QueryRow(`SELECT m.subject, COALESCE(m.raw_path, '') FROM messages m JOIN message_folder_state s ON s.message_id = m.id WHERE s.folder_id = ?`, archive).Scan(&subject, &rawPath); err != nil || rawPath == "" {
+		t.Fatalf("local copy %q raw=%q %v", subject, rawPath, err)
+	}
+}
+
+// A move a rule queued to another account's folder starts a transfer that
+// moves the message there, and leaves the queue empty.
+func TestQueuedMailRuleMoveBecomesTransfer(t *testing.T) {
+	f := newMailExportFixture(t)
+	f.h.syncer = mail.NewSyncOrchestrator(f.db, f.h.accountStore, f.h.blobStore, nil)
+	f.holdBackgroundSync(t)
+	local, err := f.db.EnsureLocalFoldersAccount(t.Context(), "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	archive := storage.LocalFolderID(local, "archive")
+	if _, err := f.db.Write().Exec(`INSERT INTO mail_rule_transfers (user_id, message_id, source_account_id, source_folder_id, target_folder_id, for_good)
+		VALUES ('owner', ?, ?, ?, ?, 1)`, f.ids["garden"], f.account.ID, f.folders["inbox"], archive); err != nil {
+		t.Fatal(err)
+	}
+	f.h.startQueuedMailRuleTransfers(t.Context(), "owner")
+	jobs, err := f.h.mailTransfers.jobs("owner")
+	if err != nil || len(jobs) != 1 {
+		t.Fatalf("transfers = %d, %v", len(jobs), err)
+	}
+	job := f.waitTransferFinished(t, jobs[0].ID)
+	_, total, copied, _, failed, deleted := job.totals()
+	if job.State != mailJobDone || total != 1 || copied != 1 || failed != 0 || deleted != 1 || !job.ForGood {
+		t.Fatalf("state %s: total %d, copied %d, failed %d, deleted %d (%s)", job.State, total, copied, failed, deleted, job.Error)
+	}
+	var left, inArchive int
+	_ = f.db.Read().QueryRow(`SELECT COUNT(*) FROM mail_rule_transfers`).Scan(&left)
+	_ = f.db.Read().QueryRow(`SELECT COUNT(*) FROM message_folder_state WHERE folder_id = ? AND is_deleted = 0`, archive).Scan(&inArchive)
+	if left != 0 || inArchive != 1 {
+		t.Fatalf("queue %d, in Local folders %d", left, inArchive)
 	}
 }

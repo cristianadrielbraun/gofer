@@ -61,7 +61,7 @@ func parseMailSearchScope(r *http.Request) (models.MailSearchScope, error) {
 		Kind: models.MailSearchScopeKind(kind), AccountID: strings.TrimSpace(q.Get("scope_account_id")),
 		FolderIDs: q["scope_folder_id"],
 	}
-	for name, field := range map[string]*bool{"include_descendants": &scope.IncludeDescendants, "exclude_spam_trash": &scope.ExcludeSpamTrash} {
+	for name, field := range map[string]*bool{"include_descendants": &scope.IncludeDescendants, "exclude_spam_trash": &scope.ExcludeSpamTrash, "include_local": &scope.IncludeLocal} {
 		switch q.Get(name) {
 		case "", "0":
 		case "1":

@@ -1044,12 +1044,19 @@ templ SettingsAccountsTab(accounts []models.Account) {
 			</div>
 			@SettingsAddAccountButton()
 		</div>
-		if len(accounts) == 0 {
+		if len(connectedAccounts(accounts)) == 0 {
 			@SettingsNoAccounts()
-		} else {
+		}
+		if len(accounts) > 0 {
 			<div class="space-y-3" data-account-order-list>
 				for _, a := range accounts {
-					@SettingsAccountCard(a)
+					if accountIsLocalFolders(a) {
+						if !a.IsDeleting {
+							@SettingsLocalFoldersCard(a)
+						}
+					} else {
+						@SettingsAccountCard(a)
+					}
 				}
 			</div>
 		}
@@ -1220,7 +1227,7 @@ templ SettingsSyncTab(settings models.SyncSettings, uiSettings map[string]string
 				</div>
 				<div class="settings-item overflow-hidden rounded-lg border border-border/60 bg-background/40" data-unified-folder-list>
 					for _, folder := range unifiedFolderOptions() {
-						@UnifiedFolderSettingRow(folder, settings.Accounts, uiSettings)
+						@UnifiedFolderSettingRow(folder, settings.UnifiedAccounts, uiSettings)
 					}
 				</div>
 			</div>

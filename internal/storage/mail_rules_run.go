@@ -85,11 +85,8 @@ func (db *DB) mailRuleRunTargets(ctx context.Context, userID, ruleID string, sco
 		accountID = folderAccount
 		scope.Folder.Path = ""
 	}
-	if rule.AccountID != "" {
-		if accountID != "" && accountID != rule.AccountID {
-			return rule, nil, ErrMailRuleRunFolder
-		}
-		accountID = rule.AccountID
+	if accountID != "" && !rule.WatchesAccount(accountID) {
+		return rule, nil, ErrMailRuleRunFolder
 	}
 	rows, err := db.Read().QueryContext(ctx, `
 		SELECT id FROM accounts WHERE user_id = ? AND (? = '' OR id = ?) ORDER BY sort_order, id`, userID, accountID, accountID)
@@ -103,7 +100,9 @@ func (db *DB) mailRuleRunTargets(ctx context.Context, userID, ruleID string, sco
 			rows.Close()
 			return rule, nil, err
 		}
-		accounts = append(accounts, id)
+		if rule.WatchesAccount(id) {
+			accounts = append(accounts, id)
+		}
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
@@ -278,6 +277,12 @@ func (db *DB) RunMailRuleNow(ctx context.Context, userID, ruleID string, scope M
 	}
 	for _, target := range targets {
 		result.Failed += target.runner.failed
+	}
+	for _, target := range targets {
+		if target.runner.transfers {
+			announceMailRuleTransfers(userID)
+			break
+		}
 	}
 	for _, target := range targets {
 		if target.runner.recorded {

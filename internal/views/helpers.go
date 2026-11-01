@@ -514,7 +514,7 @@ func unifiedFolders(accounts []models.Account, settings map[string]string) []mod
 	unreadByRole := make(map[string]int)
 	seenRole := make(map[string]bool)
 	for _, account := range accounts {
-		if account.IsDeleting || !account.EmailSyncEnabled {
+		if account.IsDeleting || !account.EmailSyncEnabled || account.Hidden {
 			continue
 		}
 		collectUnifiedFolders(account.Folders, account.ID, settings, unreadByRole, seenRole)
@@ -547,7 +547,7 @@ func unifiedFolders(accounts []models.Account, settings map[string]string) []mod
 
 func hasUnifiedFolderAccount(accounts []models.Account, settings map[string]string, folderID string) bool {
 	for _, account := range accounts {
-		if !account.IsDeleting && account.EmailSyncEnabled && unifiedFolderAccountEnabled(settings, folderID, account.ID) {
+		if !account.IsDeleting && account.EmailSyncEnabled && !account.Hidden && unifiedFolderAccountEnabled(settings, folderID, account.ID) {
 			return true
 		}
 	}

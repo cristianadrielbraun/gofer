@@ -164,9 +164,14 @@ func (h *Handler) mailExportAccounts(ctx context.Context, owner string) ([]model
 		all, err := db.GetAccounts(ctx, owner)
 		for _, account := range all {
 			// An account with only calendars or contacts has no mail to move.
-			if account.Provider != providers.ProviderDAV {
-				accounts = append(accounts, account)
+			if account.Provider == providers.ProviderDAV {
+				continue
 			}
+			// Local folders have no address; mail jobs name them instead.
+			if account.Provider == providers.ProviderLocal && account.Email == "" {
+				account.Email = account.Name
+			}
+			accounts = append(accounts, account)
 		}
 		return err
 	})

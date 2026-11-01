@@ -1557,6 +1557,12 @@ html[data-theme="classic"] .mail-list-search-input-wrap {
   --accent: color-mix(in oklab, var(--popover-foreground) 14%, var(--popover));
 }
 
+/* The Move dialog's folder list sits on the muted background, where the same
+   weak accent hid the hovered folder, so it gets the menus' stronger one. */
+:root:not([data-theme="express"], [data-theme="custom"]) [data-mail-move-list] {
+  --accent: color-mix(in oklab, var(--foreground) 14%, var(--muted));
+}
+
 /* A small gap between menu items, so a hovered item's highlight never touches
    the selected item's. */
 [data-tui-popover-content] :is(.select-item, [data-tui-dropdown-item], [data-tui-dropdown-submenu-trigger]):not(:first-child) {
@@ -1713,9 +1719,9 @@ html[data-theme="classic"] .mail-list-search-input-wrap {
 }
 
 .mail-list-item {
-  height: 6.5rem;
-  min-height: 6.5rem;
-  max-height: 6.5rem;
+  height: 7.0625rem;
+  min-height: 7.0625rem;
+  max-height: 7.0625rem;
   padding: 3px 0;
 }
 
@@ -1881,9 +1887,9 @@ html[data-theme="classic"] .mail-list-search-input-wrap {
     "railMiddle bodyBottom status"
     "railBottom footer corner";
   column-gap: 0.75rem;
-  row-gap: 0.0625rem;
+  row-gap: 0.25rem;
   align-items: stretch;
-  min-height: 6.125rem;
+  min-height: 6.6875rem;
   min-width: 0;
   padding-block: 0.5rem;
 }
@@ -1930,7 +1936,7 @@ html[data-theme="classic"] .mail-list-search-input-wrap {
 
 .mail-list-card-zone-header {
   grid-area: header;
-  align-items: baseline;
+  align-items: center;
 }
 
 .mail-list-card:not(.mail-card-layout-preview-card, .contact-card):not(:has(> .mail-list-card-zone-meta > :not(.mail-list-card-empty-icon-slot))) .mail-list-card-zone-header,
@@ -2669,9 +2675,9 @@ body.mail-list-column-resizing {
 }
 
 .mail-list-thread-main {
-  height: 6.5rem;
-  min-height: 6.5rem;
-  max-height: 6.5rem;
+  height: 7.0625rem;
+  min-height: 7.0625rem;
+  max-height: 7.0625rem;
   overflow: hidden;
 }
 
@@ -2682,9 +2688,9 @@ body.mail-list-column-resizing {
    which getHeight in virtual-scroll.js matches. Table rows get the same band
    above their columns, once per run of rows from one place; see below. */
 #mail-list[data-mail-search-results]:not([data-mail-list-view="table"]) :is(.mail-list-item, .mail-list-thread-main)[data-search-group] {
-  height: 8rem;
-  min-height: 8rem;
-  max-height: 8rem;
+  height: 8.5625rem;
+  min-height: 8.5625rem;
+  max-height: 8.5625rem;
 }
 
 #mail-list[data-mail-search-results] .mail-list-item[data-search-group] > a.mail-list-card {
@@ -2932,10 +2938,10 @@ body.mail-list-column-resizing {
   display: grid;
   align-items: start;
   column-gap: 0.75rem;
-  row-gap: 0.125rem;
-  height: 6.5rem;
-  min-height: 6.5rem;
-  max-height: 6.5rem;
+  row-gap: 0.25rem;
+  height: 7.0625rem;
+  min-height: 7.0625rem;
+  max-height: 7.0625rem;
   padding-block: 0.5rem;
 }
 
@@ -3363,6 +3369,53 @@ body.mail-list-column-resizing {
    gradient; otherwise the card around a body reads a shade darker than the body. */
 .mail-view-frame .surface-paper {
   background: var(--paper);
+}
+
+/* Newly inserted message content settles in without moving the reader's chrome.
+   This covers both the loading preview and the single-message/thread response. */
+@media (prefers-reduced-motion: no-preference) {
+  #mail-view[data-mail-reader] .mail-view-content {
+    animation: mail-reader-content-in 160ms ease-out;
+  }
+}
+
+@keyframes mail-reader-content-in {
+  from { opacity: 0.65; transform: translateY(3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* A single message's toolbar, sender and subject stay put above its scrolling
+   body, dropping the paper shadow a thread's toolbar sheet casts over its
+   messages. Themes without that shadow still get the line underneath, and so
+   does the thread's toolbar sheet. */
+.mail-view-message-header {
+  position: relative;
+  z-index: 1;
+}
+
+/* A thread's toolbar shadow only shows across the frame's gap, where it fades
+   out before the next sheet starts, so it reads short and strong. Draw that
+   same fade under this header. Themes without a paper shadow drop it. */
+.mail-view-message-header::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  height: var(--mail-frame-pad);
+  pointer-events: none;
+  background: var(--mail-header-shade, linear-gradient(to bottom, rgba(26,22,18,0.16), rgba(26,22,18,0.05) 50%, transparent));
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.mail-view-message-header[data-scrolled]::after {
+  opacity: 1;
+}
+
+.mail-view-message-header,
+.mail-view-thread-toolbar {
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
 }
 
 .mail-view-thread-scroll {
@@ -4140,11 +4193,6 @@ body.mail-list-column-resizing {
   #mail-view[data-mail-reader] .mail-view-thread-toolbar,
   #mail-view[data-mail-reader] .mail-thread-card {
     border-radius: 0;
-  }
-
-  /* Without the frame's gap and shadows, a line keeps the thread toolbar apart from the messages. */
-  #mail-view[data-mail-reader] .mail-view-thread-toolbar {
-    border-bottom: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
   }
 
   #mail-view[data-mail-reader] .mail-view-toolbar {

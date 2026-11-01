@@ -28,6 +28,7 @@
     "checkComposeOneTimeFrom",
     "chooseContactProtocol",
     "chooseCalendarProtocol",
+    "chooseMessagesToAccountMode",
     "closeComposeSchedulePopover",
     "closeMobileContactView",
     "closeMobileMailView",

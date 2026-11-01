@@ -6,10 +6,13 @@ import "time"
 // message, its actions are applied to it, as if the owner had done so.
 type MailRule struct {
 	ID string `json:"id"`
-	// AccountID limits the rule to one account. Empty means every account.
-	AccountID string `json:"account_id,omitempty"`
-	Name      string `json:"name"`
-	Enabled   bool   `json:"enabled"`
+	// AccountsChosen limits the rule to the mail of AccountIDs, which can be
+	// none once the accounts chosen are gone. Otherwise the rule runs on
+	// every account's mail.
+	AccountsChosen bool     `json:"accounts_chosen,omitempty"`
+	AccountIDs     []string `json:"account_ids,omitempty"`
+	Name           string   `json:"name"`
+	Enabled        bool     `json:"enabled"`
 	// MatchAll is set on every rule saved with condition groups. A rule
 	// from before them without it matched when any one condition held; it
 	// is read as one group per condition.
@@ -42,6 +45,10 @@ type MailRuleAction struct {
 	Kind   string                `json:"kind"`
 	Folder *MailRuleFolderTarget `json:"folder,omitempty"`
 	Label  string                `json:"label,omitempty"`
+	// ForGood, for a move to a folder of another account, deletes the
+	// message from its own account for good once it's copied, rather than
+	// putting it in that account's Trash.
+	ForGood bool `json:"for_good,omitempty"`
 }
 
 // MailRuleFolderTarget names a folder a rule moves mail to or tests for. A
@@ -52,6 +59,23 @@ type MailRuleFolderTarget struct {
 	Role     string `json:"role,omitempty"`
 	FolderID string `json:"folder_id,omitempty"`
 	Path     string `json:"path,omitempty"`
+	// AccountID is the account of the folder FolderID names. Rules saved
+	// before a rule could name another account's folder leave it empty: the
+	// folder is then in the account the message is in.
+	AccountID string `json:"account_id,omitempty"`
+}
+
+// WatchesAccount reports whether the rule runs on an account's mail.
+func (r MailRule) WatchesAccount(accountID string) bool {
+	if !r.AccountsChosen {
+		return true
+	}
+	for _, id := range r.AccountIDs {
+		if id == accountID {
+			return true
+		}
+	}
+	return false
 }
 
 // The parts of a message a condition can test.
@@ -154,7 +178,10 @@ type MailRuleAccount struct {
 	Email    string
 	Color    string
 	Provider string
-	Folders  []MailRuleFolderChoice
+	// Hidden is set for an account the user hid, which isn't offered as a
+	// place to move mail unless a rule already moves mail there.
+	Hidden  bool
+	Folders []MailRuleFolderChoice
 	// Tree is the account's folders as the Folders dialog shows them.
 	Tree []Folder
 }

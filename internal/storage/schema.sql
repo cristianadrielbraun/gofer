@@ -35,8 +35,11 @@ CREATE TABLE IF NOT EXISTS accounts (
     is_deleting INTEGER NOT NULL DEFAULT 0,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    sort_order INTEGER NOT NULL DEFAULT 0
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    -- 1 when the user hid the account from the sidebar and move targets.
+    hidden INTEGER NOT NULL DEFAULT 0
 );
+CREATE UNIQUE INDEX IF NOT EXISTS idx_accounts_local_folders ON accounts(COALESCE(user_id, '')) WHERE provider = 'local';
 
 CREATE INDEX IF NOT EXISTS idx_accounts_user ON accounts(user_id);
 CREATE INDEX IF NOT EXISTS idx_accounts_provider_identity ON accounts(provider, provider_account_id);
@@ -1808,9 +1811,29 @@ CREATE TABLE IF NOT EXISTS mail_rules (
     actions_json TEXT NOT NULL DEFAULT '[]',
     sort_order INTEGER NOT NULL DEFAULT 0,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    -- 1 when the rule runs only on the accounts in mail_rule_accounts.
+    accounts_chosen INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_mail_rules_user ON mail_rules(user_id, sort_order);
+CREATE TABLE IF NOT EXISTS mail_rule_accounts (
+    rule_id TEXT NOT NULL REFERENCES mail_rules(id) ON DELETE CASCADE,
+    account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    PRIMARY KEY (rule_id, account_id)
+);
+CREATE INDEX IF NOT EXISTS idx_mail_rule_accounts_account ON mail_rule_accounts(account_id);
+CREATE TABLE IF NOT EXISTS mail_rule_transfers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    source_account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    source_folder_id TEXT NOT NULL,
+    target_folder_id TEXT NOT NULL REFERENCES folders(id) ON DELETE CASCADE,
+    for_good INTEGER NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (message_id, target_folder_id)
+);
+CREATE INDEX IF NOT EXISTS idx_mail_rule_transfers_user ON mail_rule_transfers(user_id, id);
 
 CREATE TABLE IF NOT EXISTS mail_rule_pending (
     message_id INTEGER PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
@@ -1836,4 +1859,4 @@ CREATE TABLE IF NOT EXISTS mail_rule_runs (
 );
 CREATE INDEX IF NOT EXISTS idx_mail_rule_runs_user ON mail_rule_runs(user_id, id);
 
-INSERT OR REPLACE INTO schema_version (version) VALUES (133);
+INSERT OR REPLACE INTO schema_version (version) VALUES (135);

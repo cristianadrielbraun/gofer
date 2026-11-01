@@ -15,6 +15,9 @@ type Account struct {
 	Initials            string
 	IsActive            bool
 	IsDeleting          bool
+	// Hidden is set when the user hid the account, which so far only Local
+	// folders can be: it leaves the sidebar and the places mail can go.
+	Hidden              bool
 	EmailSyncEnabled    bool
 	EmailSyncError      string
 	EmailSyncErrorAt    string

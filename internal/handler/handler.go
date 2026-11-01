@@ -519,6 +519,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/accounts/{id}/edit", h.handleUpdateAccount)
 	mux.HandleFunc("POST /api/accounts/{id}/services", h.handleUpdateAccountService)
 	mux.HandleFunc("POST /api/accounts/{id}/color", h.handleUpdateAccountColor)
+	mux.HandleFunc("POST /api/accounts/{id}/shown", h.handleLocalFoldersShown)
 	mux.HandleFunc("POST /api/accounts/{id}/calendar/discover", h.handleDiscoverAccountCalendars)
 	mux.HandleFunc("POST /api/accounts/{id}/calendar/sources", h.handleSaveAccountCalendarSources)
 	mux.HandleFunc("POST /api/accounts/{id}/contacts/sync", h.handleSaveAccountContactSync)
@@ -3321,6 +3322,13 @@ func (h *Handler) handleDeleteAccount(w http.ResponseWriter, r *http.Request) {
 	if !h.requireOwnedAccount(w, r, accountID) {
 		return
 	}
+	if provider, err := h.db.GetAccountProvider(r.Context(), accountID); err != nil {
+		http.Error(w, "account unavailable", http.StatusInternalServerError)
+		return
+	} else if provider == providers.ProviderLocal {
+		http.Error(w, localFoldersNoDelete, http.StatusConflict)
+		return
+	}
 
 	h.closeBodyClient(accountID)
 	h.syncer.StopAccount(accountID)
@@ -3839,6 +3847,10 @@ func (h *Handler) buildAccountSignatureData(ctx context.Context, accounts []mode
 	signatures, _ := h.db.ListSignatures(ctx, userID)
 	data := make([]models.AccountSignatureData, 0, len(accounts))
 	for _, account := range accounts {
+		if account.Provider == providers.ProviderLocal {
+			// Mail isn't sent from Local folders.
+			continue
+		}
 		settings, _ := h.db.GetAccountSignatureSettings(ctx, userID, account.ID)
 		data = append(data, models.AccountSignatureData{Account: account, Signatures: signatures, Settings: settings})
 	}
@@ -3848,9 +3860,15 @@ func (h *Handler) buildAccountSignatureData(ctx context.Context, accounts []mode
 func (h *Handler) buildSyncSettings(ctx context.Context, accounts []models.Account) models.SyncSettings {
 	syncInterval := h.db.GetSyncInterval(ctx, h.userID(ctx))
 
-	var accountStatuses []models.AccountSyncStatus
+	var accountStatuses, unifiedAccounts []models.AccountSyncStatus
 	for _, account := range accounts {
-		if !account.EmailSyncEnabled {
+		if account.EmailSyncEnabled && !account.IsDeleting && !account.Hidden {
+			unifiedAccounts = append(unifiedAccounts, models.AccountSyncStatus{
+				AccountID: account.ID, AccountName: account.Name, AccountEmail: account.Email,
+				Provider: account.Provider, Color: account.Color, Initials: account.Initials,
+			})
+		}
+		if !account.EmailSyncEnabled || account.Provider == providers.ProviderLocal {
 			continue
 		}
 		folders, err := h.db.GetFoldersForAccount(ctx, account.ID)
@@ -3922,6 +3940,7 @@ func (h *Handler) buildSyncSettings(ctx context.Context, accounts []models.Accou
 	return models.SyncSettings{
 		SyncIntervalMinutes: syncInterval,
 		Accounts:            accountStatuses,
+		UnifiedAccounts:     unifiedAccounts,
 	}
 }
 
@@ -6295,7 +6314,10 @@ type messageBulkTarget struct {
 }
 
 type messageBulkRequest struct {
-	Permanent   bool                    `json:"permanent,omitempty"`
+	Permanent bool `json:"permanent,omitempty"`
+	// ForGood deletes the messages for good from whatever folder they are
+	// in, without passing through Trash, as a move that deletes them does.
+	ForGood     bool                    `json:"for_good,omitempty"`
 	SearchScope *models.MailSearchScope `json:"search_scope,omitempty"`
 	Targets     []messageBulkTarget     `json:"targets"`
 	State       string                  `json:"state"`
@@ -6627,7 +6649,12 @@ func (h *Handler) handleDeleteMessages(w http.ResponseWriter, r *http.Request) {
 
 	for _, target := range targets {
 		currentInfo := target.Infos[0].MessageMutationInfo
-		if currentInfo.FolderRole == "trash" {
+		if payload.ForGood && currentInfo.FolderRole != "trash" {
+			if err := h.queuePermanentDeletes(ctx, target.Infos); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+		} else if currentInfo.FolderRole == "trash" {
 			if payload.SearchScope != nil && !payload.Permanent {
 				keptTrash = append(keptTrash, target.Target)
 				continue

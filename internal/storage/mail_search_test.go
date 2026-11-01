@@ -270,3 +270,44 @@ func TestMailSearchRowIDsHaveIndependentTotalAndFolderContext(t *testing.T) {
 		t.Fatal("unbounded ID request accepted")
 	}
 }
+
+// Disabled Local folders are left out of a search of every account, and of
+// the unified folders, unless the search asks for them or names them.
+func TestMailSearchLeavesOutDisabledLocalFolders(t *testing.T) {
+	db := mailSearchTestDB(t)
+	if _, err := db.Write().Exec(`UPDATE accounts SET provider = 'local', hidden = 1 WHERE id = 'b'`); err != nil {
+		t.Fatal(err)
+	}
+	search := func(scope models.MailSearchScope) []string {
+		page, err := db.GetMailSearchPageForUser(t.Context(), "default", scope, 0, 50, models.EmailFilters{Query: "needle", ByMessage: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var ids []string
+		for _, email := range page.Emails {
+			ids = append(ids, email.ID)
+		}
+		return ids
+	}
+	for _, tt := range []struct {
+		name  string
+		scope models.MailSearchScope
+		want  []string
+	}{
+		{"every account", models.MailSearchScope{Kind: models.MailSearchAll}, []string{"6", "3", "1"}},
+		{"asked for", models.MailSearchScope{Kind: models.MailSearchAll, IncludeLocal: true}, []string{"6", "4", "3", "1"}},
+		{"named account", models.MailSearchScope{Kind: models.MailSearchAccount, AccountID: "b"}, []string{"4"}},
+		{"named folder", models.MailSearchScope{Kind: models.MailSearchFolders, FolderIDs: []string{"b-inbox"}}, []string{"4"}},
+	} {
+		if got := search(tt.scope); !reflect.DeepEqual(got, tt.want) {
+			t.Errorf("%s = %v, want %v", tt.name, got, tt.want)
+		}
+	}
+	where, args, err := db.unifiedFolderAccountFilter(t.Context(), "default", "inbox", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(args, []any{"a"}) {
+		t.Fatalf("unified accounts = %q %v", where, args)
+	}
+}

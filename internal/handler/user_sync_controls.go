@@ -125,6 +125,9 @@ func (h *Handler) handleUserEmailService(w http.ResponseWriter, r *http.Request)
 			if cfg.Provider == providers.ProviderDAV {
 				return config.ErrAccountHasNoMail
 			}
+			if cfg.Provider == providers.ProviderLocal {
+				return config.ErrLocalFolders
+			}
 			if !h.userIMAP.SupportsAccount(cfg) {
 				return storage.ErrAccountRoute
 			}

@@ -25,7 +25,8 @@ import (
 
 // A mail transfer copies the messages of chosen folders from one account
 // into folders of another. A move then deletes each message from the first
-// account once its copy is saved, which puts it in that account's Trash.
+// account once its copy is saved, which puts it in that account's Trash, or
+// deletes it there for good when the move is made so.
 const (
 	mailTransferBatch = 100
 	// Deleted messages are sent to the delete action in groups this size.
@@ -60,6 +61,28 @@ type mailTransferFolder struct {
 	Finished      bool  `json:"finished"`
 }
 
+// mailTransferMode is what a transfer does with the messages it copied.
+type mailTransferMode string
+
+const (
+	// mailTransferCopy leaves them where they were.
+	mailTransferCopy mailTransferMode = "copy"
+	// mailTransferMove deletes them from the first account, into its Trash.
+	mailTransferMove mailTransferMode = "move"
+	// mailTransferMoveForGood deletes them from the first account for good.
+	mailTransferMoveForGood mailTransferMode = "move-delete"
+)
+
+// parseMailTransferMode reads a transfer's mode as a form or request names
+// it; anything else is a copy, which changes nothing.
+func parseMailTransferMode(value string) mailTransferMode {
+	switch mailTransferMode(value) {
+	case mailTransferMove, mailTransferMoveForGood:
+		return mailTransferMode(value)
+	}
+	return mailTransferCopy
+}
+
 type mailTransferDelete struct {
 	ID     int64  `json:"id"`
 	Folder string `json:"folder"`
@@ -73,6 +96,9 @@ type mailTransferJob struct {
 	TargetEmail     string                `json:"target_email"`
 	TargetProvider  string                `json:"target_provider"`
 	Move            bool                  `json:"move"`
+	// ForGood deletes moved messages for good instead of putting them in
+	// the first account's Trash.
+	ForGood bool                  `json:"for_good,omitempty"`
 	Folders         []*mailTransferFolder `json:"folders"`
 	// PendingDelete holds moved messages whose copies are saved but which
 	// are not yet deleted from the first account.
@@ -112,6 +138,7 @@ func (h *Handler) StartMailTransfers(ctx context.Context) {
 	}
 	h.mailTransfers = newMailJobManager(ctx, "mail transfer", mailJobDirectory(h.db, "mail-transfers"),
 		func() *mailTransferJob { return &mailTransferJob{} }, h.runMailTransfer)
+	h.startMailRuleTransfers(ctx)
 }
 
 var (
@@ -120,7 +147,7 @@ var (
 )
 
 // createMailTransfer records which folders go where and starts copying.
-func (h *Handler) createMailTransfer(ctx context.Context, owner string, source, target models.Account, move bool, form url.Values) (*mailTransferJob, error) {
+func (h *Handler) createMailTransfer(ctx context.Context, owner string, source, target models.Account, mode mailTransferMode, form url.Values) (*mailTransferJob, error) {
 	if source.ID == target.ID {
 		return nil, errMailTransferSameAccount
 	}
@@ -144,7 +171,7 @@ func (h *Handler) createMailTransfer(ctx context.Context, owner string, source, 
 	job := &mailTransferJob{
 		mailJobInfo:     mailJobInfo{ID: newMailJobID(), Owner: owner, State: mailJobRunning, CreatedAt: now, UpdatedAt: now},
 		SourceAccountID: source.ID, SourceEmail: source.Email,
-		TargetAccountID: target.ID, TargetEmail: target.Email, TargetProvider: target.Provider, Move: move,
+		TargetAccountID: target.ID, TargetEmail: target.Email, TargetProvider: target.Provider, Move: mode != mailTransferCopy, ForGood: mode == mailTransferMoveForGood,
 	}
 	for _, folder := range sourceFolders {
 		if !chosen[folder.ID] {
@@ -378,7 +405,7 @@ func (h *Handler) deleteTransferredMessages(ctx context.Context, job *mailTransf
 			ids = append(ids, job.PendingDelete[count].ID)
 			count++
 		}
-		deleted, err := h.deleteFolderMessages(ctx, job.Owner, folderID, ids)
+		deleted, err := h.deleteFolderMessages(ctx, job.Owner, folderID, ids, job.ForGood)
 		if err != nil {
 			log.Printf("mail transfer %s: delete: %v", job.ID, err)
 			return errMailTransferDelete
@@ -400,8 +427,8 @@ func (h *Handler) deleteTransferredMessages(ctx context.Context, job *mailTransf
 // deleteFolderMessages deletes messages from a folder the way the message
 // list does, and returns how many it deleted. Messages already gone from the
 // folder are skipped.
-func (h *Handler) deleteFolderMessages(ctx context.Context, owner, folderID string, ids []int64) (int, error) {
-	status, err := h.deleteMessagesAs(ctx, owner, folderID, ids)
+func (h *Handler) deleteFolderMessages(ctx context.Context, owner, folderID string, ids []int64, forGood bool) (int, error) {
+	status, err := h.deleteMessagesAs(ctx, owner, folderID, ids, forGood)
 	if err != nil {
 		return 0, err
 	}
@@ -415,7 +442,7 @@ func (h *Handler) deleteFolderMessages(ctx context.Context, owner, folderID stri
 	// one at a time.
 	deleted := 0
 	for _, id := range ids {
-		status, err := h.deleteMessagesAs(ctx, owner, folderID, []int64{id})
+		status, err := h.deleteMessagesAs(ctx, owner, folderID, []int64{id}, forGood)
 		if err != nil {
 			return deleted, err
 		}
@@ -426,12 +453,12 @@ func (h *Handler) deleteFolderMessages(ctx context.Context, owner, folderID stri
 	return deleted, nil
 }
 
-func (h *Handler) deleteMessagesAs(ctx context.Context, owner, folderID string, ids []int64) (int, error) {
+func (h *Handler) deleteMessagesAs(ctx context.Context, owner, folderID string, ids []int64, forGood bool) (int, error) {
 	targets := make([]map[string]string, 0, len(ids))
 	for _, id := range ids {
 		targets = append(targets, map[string]string{"id": strconv.FormatInt(id, 10)})
 	}
-	body, err := json.Marshal(map[string]any{"targets": targets, "folder_id": folderID})
+	body, err := json.Marshal(map[string]any{"targets": targets, "folder_id": folderID, "for_good": forGood})
 	if err != nil {
 		return 0, err
 	}
@@ -465,7 +492,7 @@ func mailTransferNextIDs(ids []int64, afterID int64, limit int) []int64 {
 // mailTransferMessages starts a transfer of messages chosen in the message
 // list into one folder of another account. ids maps each of the first
 // account's folders to the messages chosen in it.
-func (h *Handler) mailTransferMessages(ctx context.Context, owner string, source, target models.Account, destination storage.MailExportFolder, ids map[string][]int64, move bool) (*mailTransferJob, error) {
+func (h *Handler) mailTransferMessages(ctx context.Context, owner string, source, target models.Account, destination storage.MailExportFolder, ids map[string][]int64, mode mailTransferMode) (*mailTransferJob, error) {
 	if source.ID == target.ID {
 		return nil, errMailTransferSameAccount
 	}
@@ -478,7 +505,7 @@ func (h *Handler) mailTransferMessages(ctx context.Context, owner string, source
 	job := &mailTransferJob{
 		mailJobInfo:     mailJobInfo{ID: newMailJobID(), Owner: owner, State: mailJobRunning, CreatedAt: now, UpdatedAt: now},
 		SourceAccountID: source.ID, SourceEmail: source.Email,
-		TargetAccountID: target.ID, TargetEmail: target.Email, TargetProvider: target.Provider, Move: move,
+		TargetAccountID: target.ID, TargetEmail: target.Email, TargetProvider: target.Provider, Move: mode != mailTransferCopy, ForGood: mode == mailTransferMoveForGood,
 	}
 	for _, folder := range folders {
 		chosen := ids[folder.ID]

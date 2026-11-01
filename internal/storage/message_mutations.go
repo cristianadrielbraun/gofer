@@ -23,6 +23,9 @@ const (
 	MessageMutationProviderOutlook = "outlook"
 	MessageMutationProviderIMAP    = "imap"
 	MessageMutationProviderJMAP    = "jmap"
+	// MessageMutationProviderLocal is Local folders, whose changes are made
+	// here alone and never queued.
+	MessageMutationProviderLocal = "local"
 )
 
 const (
@@ -83,6 +86,7 @@ func (db *DB) permanentlyDeleteMessagesAndQueue(ctx context.Context, messageIDs 
 	}
 	defer tx.Rollback()
 	refreshFolders := map[string]struct{}{}
+	var localDeleted []int64
 	for _, messageID := range messageIDs {
 		var accountID, provider string
 		var sourceUIDValidity int64
@@ -103,6 +107,15 @@ func (db *DB) permanentlyDeleteMessagesAndQueue(ctx context.Context, messageIDs 
 			return fmt.Errorf("load message %d for permanent delete: %w", messageID, err)
 		}
 		providerType := messageMutationProviderType(provider)
+		if providerType == MessageMutationProviderLocal {
+			// Gone at once: no server has to confirm it.
+			if _, err := tx.ExecContext(ctx, `DELETE FROM message_folder_state WHERE message_id = ? AND folder_id = ?`, messageID, folderID); err != nil {
+				return fmt.Errorf("delete local message %d: %w", messageID, err)
+			}
+			refreshFolders[folderID] = struct{}{}
+			localDeleted = append(localDeleted, messageID)
+			continue
+		}
 		// Each copy has its own delete; deleting the other copy of mail sent
 		// to oneself doesn't take this one over.
 		copyFolders, err := copyFoldersTx(ctx, tx, messageID, folderID, "")
@@ -166,6 +179,9 @@ func (db *DB) permanentlyDeleteMessagesAndQueue(ctx context.Context, messageIDs 
 				return err
 			}
 		}
+	}
+	if err := db.deleteFolderlessMessagesTx(ctx, tx, localDeleted); err != nil {
+		return err
 	}
 	if err := tx.Commit(); err != nil {
 		return err
@@ -272,6 +288,12 @@ func moveMessagesAndQueueTx(ctx context.Context, tx *sql.Tx, messageIDs []int64,
 		}
 
 		providerType := messageMutationProviderType(provider)
+		if providerType == MessageMutationProviderLocal {
+			if err := moveLocalMessageTx(ctx, tx, messageID, sourceFolderID, destinationFolderID, isRead, isStarred); err != nil {
+				return nil, err
+			}
+			continue
+		}
 		// A move continues the one that brought the message to its source
 		// folder; a move out of another folder is a change of its own.
 		var mutationID, remoteFolderID, status string
@@ -418,7 +440,10 @@ func (db *DB) setMessageStateAndQueue(ctx context.Context, messageIDs []int64, k
 		}
 		providerType := messageMutationProviderType(provider)
 		scopes := []string{""}
-		if providerType != MessageMutationProviderIMAP {
+		if providerType == MessageMutationProviderLocal {
+			// Nothing to send anywhere.
+			scopes = nil
+		} else if providerType != MessageMutationProviderIMAP {
 			// A message with copies under different provider ids gets the
 			// change once per copy, each through a folder it is in.
 			copyScopes, err := providerCopyFolderScopesTx(ctx, tx, messageID)
@@ -526,6 +551,8 @@ func messageMutationProviderType(provider string) string {
 		return MessageMutationProviderOutlook
 	case MessageMutationProviderJMAP:
 		return MessageMutationProviderJMAP
+	case localProvider:
+		return MessageMutationProviderLocal
 	default:
 		return MessageMutationProviderIMAP
 	}

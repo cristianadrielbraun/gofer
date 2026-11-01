@@ -17,6 +17,10 @@ var ErrAccountHasMail = errors.New("this account already has email")
 // ErrAccountHasNoMail is turning on the mail of an account that has none.
 var ErrAccountHasNoMail = errors.New("this account has no email")
 
+// ErrLocalFolders is syncing, deleting or connecting the Local folders
+// account, which has no mail server.
+var ErrLocalFolders = errors.New("local folders have no mail server")
+
 // AddMail makes an account with no mail, only a CalDAV or CardDAV server, a
 // mail account like any other, with the mailbox req describes. Its calendars
 // and contacts keep signing in with the login they used.

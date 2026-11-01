@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -40,7 +41,7 @@ func newMailRulesTestHandler(t *testing.T) (*Handler, *storage.DB) {
 
 func mailRuleForm(fields map[string]string) url.Values {
 	form := url.Values{
-		"name": {"Offers"}, "account_id": {"victim-account"}, "match": {"all"}, "enabled": {"true"},
+		"name": {"Offers"}, "account_ids": {"victim-account"}, "match": {"all"}, "enabled": {"true"},
 		"cond_field": {"subject"}, "cond_op": {"contains"}, "cond_value": {"offer"}, "cond_folder": {""},
 		"act_kind": {"archive"}, "act_folder": {""}, "act_label": {""},
 	}
@@ -103,9 +104,10 @@ func TestMailRuleSettingsRoutes(t *testing.T) {
 	if rec = identityRequest(t, h, h.handleMailRuleForm, http.MethodPost, "/api/settings/rules/form", nil, form, true); !strings.Contains(rec.Body.String(), `data-tui-selectbox-value="mark_read" data-tui-selectbox-selected="true"`) {
 		t.Fatalf("added action isn't Mark as read: %q", rec.Body.String())
 	}
-	// A rule for every account can't make a folder in one of them.
-	rec = identityRequest(t, h, h.handleMailRuleForm, http.MethodPost, "/api/settings/rules/form", nil, mailRuleForm(map[string]string{"account_id": "", "act_kind": "move"}), true)
-	if rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), "data-mail-rule-new-folder") || !strings.Contains(rec.Body.String(), "Choose an account under For") {
+	// A rule for every account moves mail to any account's folders, and can
+	// make a folder in one of them.
+	rec = identityRequest(t, h, h.handleMailRuleForm, http.MethodPost, "/api/settings/rules/form", nil, mailRuleForm(map[string]string{"account_ids": "all", "act_kind": "move"}), true)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `data-mail-rule-new-folder="victim-account"`) || !strings.Contains(rec.Body.String(), "In the message's account") {
 		t.Fatalf("move for every account = %d %q", rec.Code, rec.Body.String())
 	}
 	if rules, _ := db.ListMailRules(ctx, "owner"); len(rules) != 0 {
@@ -156,7 +158,7 @@ func TestMailRuleSettingsRoutes(t *testing.T) {
 		t.Fatalf("attacker panel = %q", rec.Body.String())
 	}
 	for name, rec := range map[string]interface{ Result() *http.Response }{
-		"edit":    identityRequest(t, h, h.handleSaveMailRule, http.MethodPost, "/api/settings/rules", nil, mailRuleForm(map[string]string{"id": offers.ID, "account_id": ""}), false),
+		"edit":    identityRequest(t, h, h.handleSaveMailRule, http.MethodPost, "/api/settings/rules", nil, mailRuleForm(map[string]string{"id": offers.ID, "account_ids": "all"}), false),
 		"enabled": identityRequest(t, h, h.handleMailRuleEnabled, http.MethodPost, "/api/settings/rules/"+offers.ID+"/enabled", route, url.Values{}, false),
 		"delete":  identityRequest(t, h, h.handleDeleteMailRule, http.MethodDelete, "/api/settings/rules/"+offers.ID, route, nil, false),
 		"run":     identityRequest(t, h, h.handleMailRuleRunDialog, http.MethodGet, "/api/settings/rules/"+offers.ID+"/run", route, nil, false),
@@ -165,7 +167,7 @@ func TestMailRuleSettingsRoutes(t *testing.T) {
 			t.Fatalf("attacker %s = %d", name, code)
 		}
 	}
-	if got, err := db.GetMailRule(ctx, "owner", offers.ID); err != nil || !got.Enabled || got.AccountID != "victim-account" {
+	if got, err := db.GetMailRule(ctx, "owner", offers.ID); err != nil || !got.Enabled || !slices.Equal(got.AccountIDs, []string{"victim-account"}) {
 		t.Fatalf("after attacker = %+v, %v", got, err)
 	}
 
@@ -327,7 +329,7 @@ func waitMailRuleRun(t *testing.T, h *Handler, owner, id, state string) models.M
 // Stopping a count leaves nothing to run.
 func TestStopMailRuleCount(t *testing.T) {
 	h, db := newMailRulesTestHandler(t)
-	rule, err := db.SaveMailRuleGuarded(t.Context(), "owner", models.MailRule{Name: "Offers", AccountID: "victim-account", Enabled: true,
+	rule, err := db.SaveMailRuleGuarded(t.Context(), "owner", models.MailRule{Name: "Offers", AccountsChosen: true, AccountIDs: []string{"victim-account"}, Enabled: true,
 		Conditions: []models.MailRuleCondition{{Field: "subject", Operator: "contains", Value: "o"}},
 		Actions:    []models.MailRuleAction{{Kind: models.MailRuleActionStar}}}, nil)
 	if err != nil {

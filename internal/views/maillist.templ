@@ -685,7 +685,7 @@ templ MailFiltersPopover(accounts []models.Account, conversations bool) {
 												@selectbox.Content(selectbox.ContentProps{NoSearch: true, DisableExclusive: true}) {
 													for _, account := range accounts {
 														@selectbox.Item(selectbox.ItemProps{Value: account.ID}) {
-															{ account.Email }
+															{ accountTitle(account) }
 														}
 													}
 												}

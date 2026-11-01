@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"github.com/google/uuid"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -281,6 +282,9 @@ func (h *Handler) createFolder(ctx context.Context, owner, accountID, parentID, 
 	}
 
 	switch provider {
+	case providers.ProviderLocal:
+		// A Local folder is only here; its ID stays when it's renamed.
+		return h.saveProviderFolder(ctx, owner, accountID, storage.FolderDiscoveryLocal, parent, uuid.NewString(), name, sortOrder)
 	case providers.ProviderOutlook:
 		collection := outlookGraphBaseURL + "/me/mailFolders"
 		if parent.ID != "" {
@@ -424,6 +428,8 @@ func (h *Handler) renameFolder(ctx context.Context, owner string, folder storage
 	}
 
 	switch provider {
+	case providers.ProviderLocal:
+		return change, saveRename(folder.RemoteID, newPath, '/')
 	case providers.ProviderGmail:
 		return folderChange{}, folderRefusal("Gmail has labels instead of folders.")
 	case providers.ProviderOutlook:
@@ -616,6 +622,8 @@ func (h *Handler) moveFolder(ctx context.Context, owner string, folder storage.M
 	}
 
 	switch provider {
+	case providers.ProviderLocal:
+		return saveMove(targetID, path, name, '/')
 	case providers.ProviderGmail:
 		return folderRefusal("Gmail has labels instead of folders.")
 	case providers.ProviderOutlook:
@@ -763,6 +771,9 @@ func (h *Handler) deleteFolder(ctx context.Context, owner string, folder storage
 	}
 
 	switch provider {
+	case providers.ProviderLocal:
+		// Its messages go with it, and their files with the next cleanup.
+		return forget(storage.FolderDiscoveryLocal, ids)
 	case providers.ProviderGmail:
 		return folderRefusal("Gmail has labels instead of folders.")
 	case providers.ProviderOutlook:

@@ -103,6 +103,9 @@ type CreateAccountRequest struct {
 type SyncSettings struct {
 	SyncIntervalMinutes int
 	Accounts            []AccountSyncStatus
+	// UnifiedAccounts are the accounts whose folders the unified folders can
+	// gather: those with mail, Local folders included unless disabled.
+	UnifiedAccounts []AccountSyncStatus
 }
 
 type AccountSyncStatus struct {

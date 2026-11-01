@@ -2,7 +2,9 @@ package views
 
 import (
 	"fmt"
+	"github.com/a-h/templ"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -106,7 +108,7 @@ func mailRuleFolderName(target *models.MailRuleFolderTarget, accounts []models.M
 	for _, account := range accounts {
 		for _, folder := range account.Folders {
 			if folder.ID == target.FolderID {
-				return mailRuleFolderChoiceName(folder)
+				return mailRuleFolderChoiceName(folder) + " in " + mailRuleAccountTitle(account)
 			}
 		}
 	}
@@ -114,6 +116,30 @@ func mailRuleFolderName(target *models.MailRuleFolderTarget, accounts []models.M
 		return target.Path
 	}
 	return "a folder that is gone"
+}
+
+// mailRuleAccountTitle names an account: its address, or its name when it
+// has none, as Local folders.
+func mailRuleAccountTitle(account models.MailRuleAccount) string {
+	if account.Email != "" {
+		return account.Email
+	}
+	return account.Name
+}
+
+// mailRuleWatchable reports whether a rule can run on an account's mail.
+// Mail never arrives in Local folders, so rules only move mail there.
+func mailRuleWatchable(account models.MailRuleAccount) bool {
+	return account.Provider != "local"
+}
+
+// mailRuleAccountsValue is the account picker's value: "all", or the IDs
+// of the accounts chosen.
+func mailRuleAccountsValue(rule models.MailRule) string {
+	if !rule.AccountsChosen {
+		return "all"
+	}
+	return strings.Join(rule.AccountIDs, ",")
 }
 
 func mailRuleFolderChoiceName(folder models.MailRuleFolderChoice) string {
@@ -189,7 +215,7 @@ const mailRuleCompactControl = "bg-background h-8 md:text-xs"
 // mailRuleListSummary says in a line who a rule is for, how much it tests
 // and what it does: "All accounts · 3 conditions in 2 groups · Archive".
 func mailRuleListSummary(rule models.MailRule, accounts []models.MailRuleAccount) string {
-	return mailRuleAccountName(rule.AccountID, accounts) + " · " + mailRuleConditionsCount(rule) + " · " + mailRuleActionsText(rule, accounts)
+	return mailRuleAccountName(rule, accounts) + " · " + mailRuleConditionsCount(rule) + " · " + mailRuleActionsText(rule, accounts)
 }
 
 // mailRuleConditionsCount counts a rule's conditions, and its groups when
@@ -214,21 +240,33 @@ func mailRuleActionsText(rule models.MailRule, accounts []models.MailRuleAccount
 }
 
 // mailRuleAccountName says which accounts a rule is for.
-func mailRuleAccountName(accountID string, accounts []models.MailRuleAccount) string {
-	if accountID == "" {
+func mailRuleAccountName(rule models.MailRule, accounts []models.MailRuleAccount) string {
+	if !rule.AccountsChosen {
 		return "All accounts"
 	}
+	var names []string
 	for _, account := range accounts {
-		if account.ID == accountID {
-			return account.Email
+		if slices.Contains(rule.AccountIDs, account.ID) {
+			names = append(names, mailRuleAccountTitle(account))
 		}
 	}
-	return "An account that is gone"
+	switch {
+	case len(names) == 0:
+		return "No accounts to watch"
+	case len(names) <= 2:
+		return strings.Join(names, " and ")
+	}
+	return fmt.Sprintf("%d accounts", len(names))
 }
 
-func mailRuleAccountColor(accountID string, accounts []models.MailRuleAccount) string {
+// mailRuleAccountColor is the color of the one account a rule is for, or
+// "" when it is for more than one.
+func mailRuleAccountColor(rule models.MailRule, accounts []models.MailRuleAccount) string {
+	if !rule.AccountsChosen || len(rule.AccountIDs) != 1 {
+		return ""
+	}
 	for _, account := range accounts {
-		if account.ID == accountID {
+		if account.ID == rule.AccountIDs[0] {
 			return account.Color
 		}
 	}
@@ -238,15 +276,21 @@ func mailRuleAccountColor(accountID string, accounts []models.MailRuleAccount) s
 // mailRuleRunScopes are the folders a rule can be run on: a role in every
 // account it is for, then each account's own folders.
 func mailRuleRunScopes(rule models.MailRule, accounts []models.MailRuleAccount) (roles []struct{ value, label string }, own []models.MailRuleAccount) {
+	watched := 0
+	for _, account := range accounts {
+		if mailRuleWatchable(account) && rule.WatchesAccount(account.ID) {
+			watched++
+		}
+	}
 	every := ""
-	if rule.AccountID == "" && len(accounts) > 1 {
-		every = " (every account)"
+	if watched > 1 {
+		every = " (each account)"
 	}
 	for _, role := range []string{"inbox", "archive", "junk", "trash"} {
 		roles = append(roles, struct{ value, label string }{"role:" + role, mailRuleRoleLabels[role] + every})
 	}
 	for _, account := range accounts {
-		if rule.AccountID != "" && account.ID != rule.AccountID {
+		if !mailRuleWatchable(account) || !rule.WatchesAccount(account.ID) {
 			continue
 		}
 		if folders := mailRuleOwnFolders(accounts, account.ID); len(folders) > 0 {
@@ -328,29 +372,6 @@ func MailRuleRunDoneNotice(run models.MailRuleRunData) string {
 	return notice
 }
 
-func mailRuleAccountTree(accounts []models.MailRuleAccount, accountID string) []models.Folder {
-	for _, account := range accounts {
-		if account.ID == accountID {
-			return account.Tree
-		}
-	}
-	return nil
-}
-
-// mailRuleTreeRole is the role a folder of the tree stands for in a rule,
-// so that the rule follows the role should the folder change; empty for a
-// folder without one.
-func mailRuleTreeRole(folder models.Folder) string {
-	role := folder.Role
-	if role == "spam" {
-		role = "junk"
-	}
-	if _, ok := mailRuleRoleLabels[role]; ok {
-		return role
-	}
-	return ""
-}
-
 // mailRuleTreeItemPadding leaves room at a folder row's right for its
 // checkmark, and for the new subfolder button beside it.
 func mailRuleTreeItemPadding(subfolder bool) string {
@@ -358,23 +379,6 @@ func mailRuleTreeItemPadding(subfolder bool) string {
 		return "pr-16"
 	}
 	return "pr-8"
-}
-
-func mailRuleTreeValue(folder models.Folder) string {
-	if role := mailRuleTreeRole(folder); role != "" {
-		return "role:" + role
-	}
-	return "id:" + folder.ID
-}
-
-func mailRuleTreeSelected(folder models.Folder, target *models.MailRuleFolderTarget) bool {
-	if target == nil {
-		return false
-	}
-	if role := mailRuleTreeRole(folder); role != "" {
-		return target.Role == role
-	}
-	return target.FolderID == folder.ID
 }
 
 // MailRuleActionOffered reports whether the action at index may become kind:
@@ -394,17 +398,6 @@ func MailRuleActionOffered(actions []models.MailRuleAction, index int, kind stri
 		}
 	}
 	return true
-}
-
-// mailRuleAccountMakesFolders reports whether a rule's form can offer a
-// new folder in the account: Gmail has labels instead.
-func mailRuleAccountMakesFolders(accounts []models.MailRuleAccount, accountID string) bool {
-	for _, account := range accounts {
-		if account.ID == accountID {
-			return account.Provider != "gmail"
-		}
-	}
-	return false
 }
 
 func mailRuleCanAddCondition(rule *models.MailRule) bool {
@@ -476,4 +469,40 @@ func mailRuleActivityMorePath(data models.MailRuleActivityData) string {
 		query.Set("failed", "1")
 	}
 	return mailRulePath("/activity/list?" + query.Encode())
+}
+
+// mailRuleFolderTriggerAttributes names the folder picker for screen readers.
+// A move's picker draws the form again when it changes, to offer what
+// happens to mail moved from another account.
+func mailRuleFolderTriggerAttributes(forMove bool) templ.Attributes {
+	attributes := templ.Attributes{"aria-label": "Folder"}
+	if forMove {
+		attributes["data-mail-rule-rerender"] = ""
+	}
+	return attributes
+}
+
+// mailRuleForGoodValue is the form's value for whether mail moved from
+// another account is deleted there for good.
+func mailRuleForGoodValue(forGood bool) string {
+	if forGood {
+		return "1"
+	}
+	return "0"
+}
+
+// mailRuleTargetIn reports whether a rule's folder is one of the account's.
+func mailRuleTargetIn(target *models.MailRuleFolderTarget, account models.MailRuleAccount) bool {
+	if target == nil || target.FolderID == "" {
+		return false
+	}
+	if target.AccountID == account.ID {
+		return true
+	}
+	for _, folder := range account.Folders {
+		if folder.ID == target.FolderID {
+			return true
+		}
+	}
+	return false
 }
