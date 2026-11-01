@@ -3155,7 +3155,7 @@ func SidebarFolderTree(accounts []models.Account, activeFolder string, uiSetting
 			}
 		}
 		for _, account := range accounts {
-			if account.EmailSyncEnabled && !account.IsDeleting {
+			if account.EmailSyncEnabled && !account.IsDeleting && !account.Hidden {
 				templ_7745c5c3_Err = SidebarAccountSection(account, activeFolder, uiSettings, filters).Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err

@@ -519,6 +519,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/accounts/{id}/edit", h.handleUpdateAccount)
 	mux.HandleFunc("POST /api/accounts/{id}/services", h.handleUpdateAccountService)
 	mux.HandleFunc("POST /api/accounts/{id}/color", h.handleUpdateAccountColor)
+	mux.HandleFunc("POST /api/accounts/{id}/shown", h.handleLocalFoldersShown)
 	mux.HandleFunc("POST /api/accounts/{id}/calendar/discover", h.handleDiscoverAccountCalendars)
 	mux.HandleFunc("POST /api/accounts/{id}/calendar/sources", h.handleSaveAccountCalendarSources)
 	mux.HandleFunc("POST /api/accounts/{id}/contacts/sync", h.handleSaveAccountContactSync)
@@ -3859,8 +3860,14 @@ func (h *Handler) buildAccountSignatureData(ctx context.Context, accounts []mode
 func (h *Handler) buildSyncSettings(ctx context.Context, accounts []models.Account) models.SyncSettings {
 	syncInterval := h.db.GetSyncInterval(ctx, h.userID(ctx))
 
-	var accountStatuses []models.AccountSyncStatus
+	var accountStatuses, unifiedAccounts []models.AccountSyncStatus
 	for _, account := range accounts {
+		if account.EmailSyncEnabled && !account.IsDeleting && !account.Hidden {
+			unifiedAccounts = append(unifiedAccounts, models.AccountSyncStatus{
+				AccountID: account.ID, AccountName: account.Name, AccountEmail: account.Email,
+				Provider: account.Provider, Color: account.Color, Initials: account.Initials,
+			})
+		}
 		if !account.EmailSyncEnabled || account.Provider == providers.ProviderLocal {
 			continue
 		}
@@ -3933,6 +3940,7 @@ func (h *Handler) buildSyncSettings(ctx context.Context, accounts []models.Accou
 	return models.SyncSettings{
 		SyncIntervalMinutes: syncInterval,
 		Accounts:            accountStatuses,
+		UnifiedAccounts:     unifiedAccounts,
 	}
 }
 

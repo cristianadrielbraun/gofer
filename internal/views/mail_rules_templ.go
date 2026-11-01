@@ -2242,7 +2242,7 @@ func mailRuleFolderSelect(name string, target *models.MailRuleFolderTarget, acco
 					return templ_7745c5c3_Err
 				}
 				for _, account := range accounts {
-					if forMove || mailRuleWatchable(account) {
+					if (forMove && (!account.Hidden || mailRuleTargetIn(target, account))) || (!forMove && mailRuleWatchable(account)) {
 						makes := forMove && account.Provider != "gmail"
 						templ_7745c5c3_Var105 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 							templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context

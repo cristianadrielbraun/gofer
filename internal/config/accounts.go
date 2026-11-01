@@ -1115,6 +1115,25 @@ func (s *AccountStore) UpdateAccountColor(ctx context.Context, userID, accountID
 	return nil
 }
 
+// SetLocalFoldersHidden hides or shows the user's Local folders, the only
+// account that can be hidden.
+func (s *AccountStore) SetLocalFoldersHidden(ctx context.Context, userID, accountID string, hidden bool) error {
+	res, err := s.db.Write().ExecContext(ctx,
+		`UPDATE accounts SET hidden = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ? AND provider = 'local'`,
+		hidden, accountID, userID)
+	if err != nil {
+		return err
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 func (s *AccountStore) SetEmailSyncEnabled(ctx context.Context, userID, accountID string, enabled bool) error {
 	value := 0
 	if enabled {

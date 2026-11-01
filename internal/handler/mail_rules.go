@@ -46,7 +46,7 @@ func mailRulesData(ctx context.Context, db *storage.DB, userID string) (models.M
 			return models.MailRulesData{}, fmt.Errorf("folders of %s: %w", account.ID, err)
 		}
 		data.Accounts = append(data.Accounts, models.MailRuleAccount{
-			ID: account.ID, Name: account.Name, Email: account.Email, Color: account.Color, Provider: account.Provider,
+			ID: account.ID, Name: account.Name, Email: account.Email, Color: account.Color, Provider: account.Provider, Hidden: account.Hidden,
 			Folders: folders[account.ID], Tree: tree,
 		})
 	}

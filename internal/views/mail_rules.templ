@@ -542,7 +542,7 @@ templ mailRuleFolderSelect(name string, target *models.MailRuleFolderTarget, acc
 				}
 			}
 			for _, account := range accounts {
-				if forMove || mailRuleWatchable(account) {
+				if (forMove && (!account.Hidden || mailRuleTargetIn(target, account))) || (!forMove && mailRuleWatchable(account)) {
 					{{ makes := forMove && account.Provider != "gmail" }}
 					@selectbox.Group() {
 						@selectbox.Label(selectbox.LabelProps{Class: "mt-1 flex items-center gap-2 border-t border-border/60 pt-2 text-xs text-muted-foreground"}) {

@@ -3,6 +3,7 @@ package handler
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -33,6 +34,50 @@ func TestSharedLocalFoldersAreMadeAndKept(t *testing.T) {
 	}
 	if still, err := db.LocalFoldersAccountIDForUser(t.Context(), "owner"); err != nil || still != id {
 		t.Fatalf("after delete = %q, %v", still, err)
+	}
+}
+
+// Local folders can be hidden and shown again, and no other account can be
+// hidden.
+func TestHideLocalFolders(t *testing.T) {
+	h, db := newAccountOwnershipTestHandler(t)
+	ctx := auth.ContextWithUser(t.Context(), &auth.User{ID: "owner", Username: "owner"})
+	account, err := db.EnsureLocalFoldersAccount(t.Context(), "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	shown := func(id, body string) int {
+		req := httptest.NewRequest(http.MethodPost, "/api/accounts/"+id+"/shown", strings.NewReader(body)).WithContext(ctx)
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.SetPathValue("id", id)
+		rec := httptest.NewRecorder()
+		h.handleLocalFoldersShown(rec, req)
+		return rec.Code
+	}
+	hidden := func() bool {
+		accounts, err := db.GetAccounts(t.Context(), "owner")
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, a := range accounts {
+			if a.ID == account {
+				return a.Hidden
+			}
+		}
+		t.Fatal("Local folders missing")
+		return false
+	}
+	if code := shown(account, ""); code != http.StatusNoContent || !hidden() {
+		t.Fatalf("hide = %d, hidden %v", code, hidden())
+	}
+	if code := shown(account, "shown=true"); code != http.StatusNoContent || hidden() {
+		t.Fatalf("show = %d, hidden %v", code, hidden())
+	}
+	if _, err := db.Write().Exec(`INSERT INTO accounts (id, user_id, provider, email_address) VALUES ('mail', 'owner', 'imap', 'robin@example.org')`); err != nil {
+		t.Fatal(err)
+	}
+	if code := shown("mail", ""); code != http.StatusNotFound {
+		t.Fatalf("hide a mail account = %d", code)
 	}
 }
 

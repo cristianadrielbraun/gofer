@@ -94,6 +94,11 @@ func (db *DB) mailSearchStatesSQL(ctx context.Context, userID string, scope mode
 	if scope.ExcludeSpamTrash {
 		excluded = ` AND f.role NOT IN ('spam', 'junk', 'trash')`
 	}
+	if scope.Kind == models.MailSearchAll && !scope.IncludeLocal {
+		// Disabled Local folders are searched only when asked for; a search
+		// of their account or folders chose them already.
+		excluded += ` AND COALESCE(owner.hidden, 0) = 0`
+	}
 	query := `WITH RECURSIVE ` + folders + `search_copies AS (
 		SELECT s.message_id, s.folder_id,
 			MIN(s.is_read) OVER (PARTITION BY s.message_id) AS is_read,

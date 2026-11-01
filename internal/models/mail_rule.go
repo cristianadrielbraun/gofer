@@ -178,7 +178,10 @@ type MailRuleAccount struct {
 	Email    string
 	Color    string
 	Provider string
-	Folders  []MailRuleFolderChoice
+	// Hidden is set for an account the user hid, which isn't offered as a
+	// place to move mail unless a rule already moves mail there.
+	Hidden  bool
+	Folders []MailRuleFolderChoice
 	// Tree is the account's folders as the Folders dialog shows them.
 	Tree []Folder
 }

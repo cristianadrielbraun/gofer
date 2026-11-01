@@ -1288,7 +1288,7 @@ templ MailMoveDialog(email *models.Email, accounts []models.Account) {
 				/>
 			}
 			<div class="h-[50vh] max-h-96 overflow-y-auto rounded-md border border-border bg-muted/50 p-1" role="listbox" aria-label="Folders" data-mail-move-list data-mail-move-source-account={ email.AccountID }>
-				for _, account := range accounts {
+				for _, account := range moveTargetAccounts(accounts, email.AccountID) {
 					{{ own := account.ID == email.AccountID }}
 					{{ problem := mailMoveAccountProblem(account, own) }}
 					<div class="mb-2 last:mb-0" data-mail-move-account>

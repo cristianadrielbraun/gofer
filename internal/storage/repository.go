@@ -187,6 +187,7 @@ func (db *DB) unifiedFolderAccountFilter(ctx context.Context, userID, folderID, 
 	rows, err := db.Read().QueryContext(ctx,
 		`SELECT id FROM accounts
 		 WHERE user_id = ? AND COALESCE(is_deleting, 0) = 0 AND COALESCE(email_sync_enabled, 1) = 1
+		   AND COALESCE(hidden, 0) = 0
 		 ORDER BY id`, userID)
 	if err != nil {
 		return "", nil, err
@@ -4865,7 +4866,7 @@ const DAVAccountColumns = `CASE WHEN a.provider != 'dav' THEN ''
 func (db *DB) GetAccounts(ctx context.Context, userID string) ([]models.Account, error) {
 	rows, err := db.Read().QueryContext(ctx,
 		`SELECT a.id, a.provider, a.email_address, a.display_name, a.color, a.initials, COALESCE(a.is_deleting, 0), COALESCE(a.email_sync_enabled, 1),
-		        COALESCE(a.email_sync_error, ''), COALESCE(a.email_sync_error_at, ''),
+		        COALESCE(a.email_sync_error, ''), COALESCE(a.email_sync_error_at, ''), COALESCE(a.hidden, 0),
 		        CASE WHEN a.provider IN ('gmail', 'outlook') THEN COALESCE(acc.enabled, 1) ELSE COALESCE(acc.enabled, 0) END AS contact_sync_enabled,
 		        CASE WHEN a.provider IN ('gmail', 'outlook') THEN a.provider ELSE COALESCE(acc.provider, '') END AS contact_sync_provider,
 		        CASE WHEN EXISTS (
@@ -4889,7 +4890,7 @@ func (db *DB) GetAccounts(ctx context.Context, userID string) ([]models.Account,
 		var a models.Account
 		var isDeleting, emailSyncEnabled, contactSyncEnabled, calendarSyncEnabled int
 		var imapHost, authMethod, smtpHost string
-		if err := rows.Scan(&a.ID, &a.Provider, &a.Email, &a.Name, &a.Color, &a.Initials, &isDeleting, &emailSyncEnabled, &a.EmailSyncError, &a.EmailSyncErrorAt, &contactSyncEnabled, &a.ContactSyncProvider, &calendarSyncEnabled, &imapHost, &authMethod, &smtpHost, &a.DAVService, &a.DAVLogin, &a.DAVServer); err != nil {
+		if err := rows.Scan(&a.ID, &a.Provider, &a.Email, &a.Name, &a.Color, &a.Initials, &isDeleting, &emailSyncEnabled, &a.EmailSyncError, &a.EmailSyncErrorAt, &a.Hidden, &contactSyncEnabled, &a.ContactSyncProvider, &calendarSyncEnabled, &imapHost, &authMethod, &smtpHost, &a.DAVService, &a.DAVLogin, &a.DAVServer); err != nil {
 			return nil, fmt.Errorf("scan account: %w", err)
 		}
 		if providers.IsICloudAccount(a.Provider, authMethod, imapHost) {
@@ -4939,7 +4940,7 @@ func (db *DB) GetAccounts(ctx context.Context, userID string) ([]models.Account,
 func (db *DB) GetAccountsIncludingDeleting(ctx context.Context, userID string) ([]models.Account, error) {
 	rows, err := db.Read().QueryContext(ctx,
 		`SELECT a.id, a.provider, a.email_address, a.display_name, a.color, a.initials, COALESCE(a.is_deleting, 0), COALESCE(a.email_sync_enabled, 1),
-		        COALESCE(a.email_sync_error, ''), COALESCE(a.email_sync_error_at, ''),
+		        COALESCE(a.email_sync_error, ''), COALESCE(a.email_sync_error_at, ''), COALESCE(a.hidden, 0),
 		        CASE WHEN a.provider IN ('gmail', 'outlook') THEN COALESCE(acc.enabled, 1) ELSE COALESCE(acc.enabled, 0) END AS contact_sync_enabled,
 		        CASE WHEN a.provider IN ('gmail', 'outlook') THEN a.provider ELSE COALESCE(acc.provider, '') END AS contact_sync_provider,
 		        CASE WHEN EXISTS (
@@ -4963,7 +4964,7 @@ func (db *DB) GetAccountsIncludingDeleting(ctx context.Context, userID string) (
 		var a models.Account
 		var isDeleting, emailSyncEnabled, contactSyncEnabled, calendarSyncEnabled int
 		var imapHost, authMethod string
-		if err := rows.Scan(&a.ID, &a.Provider, &a.Email, &a.Name, &a.Color, &a.Initials, &isDeleting, &emailSyncEnabled, &a.EmailSyncError, &a.EmailSyncErrorAt, &contactSyncEnabled, &a.ContactSyncProvider, &calendarSyncEnabled, &imapHost, &authMethod, &a.DAVService, &a.DAVLogin, &a.DAVServer); err != nil {
+		if err := rows.Scan(&a.ID, &a.Provider, &a.Email, &a.Name, &a.Color, &a.Initials, &isDeleting, &emailSyncEnabled, &a.EmailSyncError, &a.EmailSyncErrorAt, &a.Hidden, &contactSyncEnabled, &a.ContactSyncProvider, &calendarSyncEnabled, &imapHost, &authMethod, &a.DAVService, &a.DAVLogin, &a.DAVServer); err != nil {
 			return nil, fmt.Errorf("scan account: %w", err)
 		}
 		if providers.IsICloudAccount(a.Provider, authMethod, imapHost) {

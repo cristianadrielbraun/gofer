@@ -8,6 +8,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/components/dropdown"
 	"github.com/cristianadrielbraun/gofer/components/icon"
 	"github.com/cristianadrielbraun/gofer/components/popover"
+	"github.com/cristianadrielbraun/gofer/components/tooltip"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 )
 
@@ -15,7 +16,8 @@ import (
 templ MailSearchScopeMenu(accounts []models.Account, activeFolder string, filters models.EmailFilters) {
 	{{ scope := filters.SearchScope }}
 	<div class="mail-search-scope flex shrink-0" data-mail-search-controls data-current-folder={ activeFolder }>
-		@dropdown.Dropdown() {
+		// Choosing in the menu leaves it open; a click outside or Escape closes it.
+		@dropdown.Dropdown(dropdown.Props{ID: "mail-search-scope-menu"}) {
 			@dropdown.Trigger() {
 				// The search bar's left part, in the card color and slightly raised
 				// over the sunken field.
@@ -25,18 +27,12 @@ templ MailSearchScopeMenu(accounts []models.Account, activeFolder string, filter
 					@icon.ChevronDown(icon.Props{Class: "size-3.5 shrink-0 text-muted-foreground"})
 				</button>
 			}
-			@dropdown.Content(dropdown.ContentProps{Class: "mobile-sheet w-64 max-h-[min(24rem,70dvh)]", Attributes: templ.Attributes{"role": "menu", "aria-label": "Search in"}}) {
+			@dropdown.Content(dropdown.ContentProps{Class: "mobile-sheet w-64 max-h-none overflow-visible", Attributes: templ.Attributes{"role": "menu", "aria-label": "Search in"}}) {
+				// The scope choices scroll on their own, so the footer below them
+				// always shows.
+				<div class="max-h-[min(24rem,70dvh)] overflow-y-auto overflow-x-hidden">
 				@mailSearchScopeItem("current", "This folder", scope == nil)
 				@mailSearchScopeItem("all", "All accounts", scope != nil && scope.Kind == models.MailSearchAll)
-				if len(accounts) > 0 {
-					@dropdown.Label(dropdown.LabelProps{Class: "px-2 pt-2 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground"}) {
-						Accounts
-					}
-					for _, account := range accounts {
-						@mailSearchScopeItem("account:"+account.ID, account.Email, scope != nil && scope.Kind == models.MailSearchAccount && scope.AccountID == account.ID)
-					}
-				}
-				@dropdown.Separator()
 				@dropdown.Item(dropdown.ItemProps{Class: "justify-start gap-2", Attributes: templ.Attributes{"data-mail-scope-option": "folders"}}) {
 					@icon.FolderTree(icon.Props{Class: "size-4 shrink-0 text-muted-foreground"})
 					<span class="min-w-0 flex-1 truncate" data-mail-scope-folders-label>
@@ -47,9 +43,22 @@ templ MailSearchScopeMenu(accounts []models.Account, activeFolder string, filter
 						}
 					</span>
 				}
+				if len(accounts) > 0 {
+					@dropdown.Label(dropdown.LabelProps{Class: "px-2 pt-2 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground"}) {
+						Accounts
+					}
+					for _, account := range accounts {
+						if !account.Hidden {
+							@mailSearchScopeItem("account:"+account.ID, accountTitle(account), scope != nil && scope.Kind == models.MailSearchAccount && scope.AccountID == account.ID)
+						}
+					}
+				}
+				</div>
+				// The footer: choices that refine any scope, held below the
+				// scrolling ones so they needn't be scrolled to.
 				@dropdown.Separator()
 				// Spam and Trash only matter when the search reaches past one folder.
-				@dropdown.Item(dropdown.ItemProps{Class: "justify-start gap-2 aria-disabled:pointer-events-none aria-disabled:opacity-50", Attributes: templ.Attributes{"role": "menuitemcheckbox", "aria-checked": mailSearchBool(scope != nil && scope.ExcludeSpamTrash), "aria-disabled": mailSearchBool(scope == nil), "data-mail-scope-exclude": ""}}) {
+				@dropdown.Item(dropdown.ItemProps{Class: "justify-start gap-2 transition-opacity duration-200 ease-out aria-disabled:pointer-events-none aria-disabled:opacity-50 motion-reduce:transition-none", PreventClose: true, Attributes: templ.Attributes{"role": "menuitemcheckbox", "aria-checked": mailSearchBool(scope != nil && scope.ExcludeSpamTrash), "aria-disabled": mailSearchBool(scope == nil), "data-mail-scope-exclude": ""}}) {
 					<span class="flex size-4 shrink-0 items-center justify-center rounded-sm border border-input">
 						<span class={ mailSearchShown("flex", scope != nil && scope.ExcludeSpamTrash) } data-mail-scope-check>
 							@icon.Check(icon.Props{Class: "size-3"})
@@ -57,13 +66,41 @@ templ MailSearchScopeMenu(accounts []models.Account, activeFolder string, filter
 					</span>
 					Leave out Spam and Trash
 				}
+				if disabledLocalFolders(accounts) {
+					// Disabled Local folders stay out of every search unless asked for.
+					// The choice only applies to All accounts, so it shows only then.
+					// It folds open and shut, the menu growing and shrinking with it.
+					{{ localShown := scope != nil && scope.Kind == models.MailSearchAll }}
+					<div class="grid grid-rows-[1fr] opacity-100 transition-[grid-template-rows,opacity] duration-200 ease-out data-[shown=false]:grid-rows-[0fr] data-[shown=false]:opacity-0 motion-reduce:transition-none" data-shown={ mailSearchBool(localShown) } inert?={ !localShown } data-mail-scope-include-local-row>
+					<div class="min-h-0 overflow-hidden">
+					@dropdown.Item(dropdown.ItemProps{Class: "justify-start gap-2", PreventClose: true, Attributes: templ.Attributes{"role": "menuitemcheckbox", "aria-checked": mailSearchBool(scope != nil && scope.IncludeLocal), "data-mail-scope-include-local": ""}}) {
+						<span class="flex size-4 shrink-0 items-center justify-center rounded-sm border border-input">
+							<span class={ mailSearchShown("flex", scope != nil && scope.IncludeLocal) } data-mail-scope-check>
+								@icon.Check(icon.Props{Class: "size-3"})
+							</span>
+						</span>
+						<span class="min-w-0 flex-1">Include Local folders</span>
+						@tooltip.Tooltip() {
+							@tooltip.Trigger(tooltip.TriggerProps{Class: "inline-flex"}) {
+								<span class="flex size-5 shrink-0 items-center justify-center text-muted-foreground" aria-label="About Local folders in search">
+									@icon.Info(icon.Props{Class: "size-3.5"})
+								</span>
+							}
+							@tooltip.Content(tooltip.ContentProps{Position: tooltip.PositionLeft, ShowArrow: true, Class: "max-w-56 px-3 py-1.5 text-xs"}) {
+								Local folders are disabled, but their mail is still in Gofer. Tick this to search it without enabling them.
+							}
+						}
+					}
+					</div>
+					</div>
+				}
 			}
 		}
 	</div>
 }
 
 templ mailSearchScopeItem(value string, label string, checked bool) {
-	@dropdown.Item(dropdown.ItemProps{Class: "justify-start gap-2", Attributes: templ.Attributes{"role": "menuitemradio", "aria-checked": mailSearchBool(checked), "data-mail-scope-option": value}}) {
+	@dropdown.Item(dropdown.ItemProps{Class: "justify-start gap-2", PreventClose: true, Attributes: templ.Attributes{"role": "menuitemradio", "aria-checked": mailSearchBool(checked), "data-mail-scope-option": value}}) {
 		<span class="flex size-4 shrink-0 items-center justify-center">
 			<span class={ mailSearchShown("flex", checked) } data-mail-scope-check>
 				@icon.Check(icon.Props{Class: "size-3.5"})
@@ -199,7 +236,7 @@ templ MailSearchControls(accounts []models.Account) {
 				</div>
 			}
 			<div class="min-h-0 flex-1 overflow-y-auto overscroll-contain border-y border-border" data-mail-scope-folder-list>
-				for _, account := range accounts {
+				for _, account := range moveTargetAccounts(accounts, "") {
 					<section data-mail-scope-account>
 						<div class="sticky top-0 z-10 flex items-center gap-2 bg-muted px-6 py-2">
 							<div class="account-color-marker size-2.5 shrink-0" style={ accountColorStyle(account.Color) }></div>

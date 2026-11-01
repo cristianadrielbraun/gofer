@@ -326,6 +326,7 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 		private("GET /api/accounts/{id}/edit", routed.handleUserEditAccount)
 		private("POST /api/accounts/{id}/edit", routed.handleUserUpdateAccount)
 		private("POST /api/accounts/{id}/color", routed.handleUserAccountColor)
+		private("POST /api/accounts/{id}/shown", routed.handleUserLocalFoldersShown)
 		private("DELETE /api/accounts/{id}", routed.handleUserDeleteAccount)
 		if option.Credentials != nil {
 			private("POST /api/accounts/oauth2/authorize", routed.handleUserAccountOAuthAuthorize)

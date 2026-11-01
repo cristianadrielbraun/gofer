@@ -490,3 +490,19 @@ func mailRuleForGoodValue(forGood bool) string {
 	}
 	return "0"
 }
+
+// mailRuleTargetIn reports whether a rule's folder is one of the account's.
+func mailRuleTargetIn(target *models.MailRuleFolderTarget, account models.MailRuleAccount) bool {
+	if target == nil || target.FolderID == "" {
+		return false
+	}
+	if target.AccountID == account.ID {
+		return true
+	}
+	for _, folder := range account.Folders {
+		if folder.ID == target.FolderID {
+			return true
+		}
+	}
+	return false
+}

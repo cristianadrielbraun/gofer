@@ -70,11 +70,13 @@ func (h *Handler) mailTransferFormData(r *http.Request, values url.Values, messa
 		view := mailExportAccountView(account)
 		sourceProblem, targetProblem := mailTransferSourceProblem(account), mailImportAccountProblem(account)
 		data.Sources = append(data.Sources, views.MailImportAccount{MailExportAccount: view, Problem: sourceProblem})
-		data.Targets = append(data.Targets, views.MailImportAccount{MailExportAccount: view, Problem: targetProblem})
+		if !account.Hidden {
+			data.Targets = append(data.Targets, views.MailImportAccount{MailExportAccount: view, Problem: targetProblem})
+		}
 		if sourceProblem == "" {
 			readable[account.ID] = account
 		}
-		if targetProblem == "" {
+		if targetProblem == "" && !account.Hidden {
 			writable[account.ID] = account
 		}
 	}

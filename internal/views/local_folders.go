@@ -51,3 +51,31 @@ func accountTitle(account models.Account) string {
 	}
 	return account.Name
 }
+
+// moveTargetAccounts are the accounts the Move dialog offers: all but a
+// hidden one, unless the message is already in it.
+func moveTargetAccounts(accounts []models.Account, ownID string) []models.Account {
+	out := make([]models.Account, 0, len(accounts))
+	for _, account := range accounts {
+		if !account.Hidden || account.ID == ownID {
+			out = append(out, account)
+		}
+	}
+	return out
+}
+
+// localFoldersAccount finds the user's Local folders among their accounts.
+func localFoldersAccount(accounts []models.Account) (models.Account, bool) {
+	for _, account := range accounts {
+		if accountIsLocalFolders(account) && !account.IsDeleting {
+			return account, true
+		}
+	}
+	return models.Account{}, false
+}
+
+// disabledLocalFolders reports whether the user disabled their Local folders.
+func disabledLocalFolders(accounts []models.Account) bool {
+	local, ok := localFoldersAccount(accounts)
+	return ok && local.Hidden
+}

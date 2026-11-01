@@ -824,7 +824,7 @@ templ SidebarFolderTree(accounts []models.Account, activeFolder string, uiSettin
 			@SidebarUnifiedSection(accounts, activeFolder, uiSettings, filters)
 		}
 		for _, account := range accounts {
-			if account.EmailSyncEnabled && !account.IsDeleting {
+			if account.EmailSyncEnabled && !account.IsDeleting && !account.Hidden {
 				@SidebarAccountSection(account, activeFolder, uiSettings, filters)
 			}
 		}
