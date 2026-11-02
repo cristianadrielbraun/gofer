@@ -91,6 +91,9 @@ func (h *Handler) handleUserSyncSettingsView(w http.ResponseWriter, r *http.Requ
 		syncSettings := local.buildSyncSettings(ctx, accounts)
 		signatures := local.buildAccountSignatureData(ctx, accounts)
 		if r.Header.Get("HX-Request") == "true" {
+			if r.Header.Get("HX-Target") == "settings-content" {
+				return views.SettingsPage(display, syncSettings, tab, settings, signatures), nil
+			}
 			return views.SettingsPartial(display, syncSettings, tab, settings, signatures), nil
 		}
 		return views.SettingsLayout(display, syncSettings, tab, settings, signatures), nil

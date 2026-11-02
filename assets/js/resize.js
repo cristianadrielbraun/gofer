@@ -220,6 +220,14 @@ var appPanelsSlideRemaining;
     return [start, end];
   }
 
+  function startPanelSlide(element, prop, from, to, startTime) {
+    var animation = element.animate(slideKeyframes(prop, from, to), { duration: SLIDE_MS, easing: SLIDE_EASING });
+    // Resolve the clock before a fast response can replace the loading pane.
+    // Otherwise its first animation can still be pending at the handover.
+    if (startTime !== null) animation.startTime = startTime;
+    return trackSlide(animation);
+  }
+
   // Milliseconds until every running slide has ended.
   appPanelsSlideRemaining = function () {
     return slides.reduce(function (longest, animation) {
@@ -271,8 +279,9 @@ var appPanelsSlideRemaining;
       listPlaced = { el: list, section: section, width: list.style.width, height: list.style.height };
     }
 
+    var startTime = document.timeline ? document.timeline.currentTime : null;
     if (sidebarTo && Math.abs(sidebarTo - before.sidebar) > 1) {
-      trackSlide(aside.animate(slideKeyframes("width", before.sidebar, sidebarTo), { duration: SLIDE_MS, easing: SLIDE_EASING }));
+      startPanelSlide(aside, "width", before.sidebar, sidebarTo, startTime);
     }
     if (slideList && Math.abs(listTo - before.list[prop]) > 1) {
       listSlide = {
@@ -280,7 +289,7 @@ var appPanelsSlideRemaining;
         prop: prop,
         from: before.list[prop],
         to: listTo,
-        animation: trackSlide(list.animate(slideKeyframes(prop, before.list[prop], listTo), { duration: SLIDE_MS, easing: SLIDE_EASING })),
+        animation: startPanelSlide(list, prop, before.list[prop], listTo, startTime),
       };
     }
   };
@@ -304,7 +313,11 @@ var appPanelsSlideRemaining;
     // The same animation, picked up at the same moment, so the handover has
     // no change of speed.
     var animation = list.animate(slideKeyframes(slide.prop, slide.from, slide.to), { duration: SLIDE_MS, easing: SLIDE_EASING });
-    animation.currentTime = slide.animation.currentTime;
+    // Copying currentTime leaves a newly created animation pending: its clock
+    // starts on a later frame, adding a pause at every pane replacement. Keep
+    // the original timeline anchor so loading and loaded panes finish together.
+    if (slide.animation.startTime !== null) animation.startTime = slide.animation.startTime;
+    else animation.currentTime = slide.animation.currentTime;
     listSlide = { el: list, prop: slide.prop, from: slide.from, to: slide.to, animation: trackSlide(animation) };
     slide.animation.cancel();
   }

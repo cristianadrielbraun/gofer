@@ -14,7 +14,7 @@ function setupPageRequestOwnership() {
     var trigger = detail.elt
     var pageTarget = detail.target && /^(main-content|settings-content|app-shell)$/.test(detail.target.id)
     var navigation = trigger && trigger.hasAttribute && (
-      trigger.hasAttribute("data-sidebar-app-button") ||
+      trigger.hasAttribute("data-sidebar-app-button") || trigger.hasAttribute("data-client-page-request") ||
       (pageTarget && detail.requestConfig && detail.requestConfig.verb === "get" &&
         (trigger.hasAttribute("href") || detail.boosted)))
     if (navigation) generation++
@@ -117,6 +117,7 @@ document.addEventListener("DOMContentLoaded", function () {
   var autoMarkReadEmailId = null
   var suppressEmailUrlPushFor = null
   var preserveMailListSelectionFor = null
+  var initialMailReaderLoader = null
   var selectedMailIds = new Set()
   // The contacts list's selection, kept by setupContactsSelection.
   var selectedContactIds = new Set()
@@ -157,6 +158,65 @@ document.addEventListener("DOMContentLoaded", function () {
 
   // Register app/request ownership before Mail can start its initial fetch.
   setupSidebarAppNavToggle()
+  // Settings shares this document with the three apps. Keep the existing
+  // controllers and section-specific transitions when its client router mounts
+  // a new screen, without installing a second SSE connection or listeners.
+  window.GoferAppNavigation = {
+    cancel: function () {
+      cancelCalendarPageRequests()
+      var initial = document.getElementById("mail-list-scroll")
+      if (initial && parseInt(initial.dataset.totalCount, 10) < 0 && window.htmx) htmx.trigger(document.body, "htmx:abort")
+      if (initialMailReaderLoader) document.body.removeEventListener("htmx:afterSettle", initialMailReaderLoader)
+      initialMailReaderLoader = null
+    },
+    prepare: function (mode) {
+      virtualMailList = null
+      virtualContactsList = null
+      if (mode !== "settings") {
+        setSidebarAppNavMode(mode)
+        showAppSwitchPending(mode)
+      }
+    },
+    remember: function () {
+      var sidebar = document.getElementById("sidebar-app-body")
+      if (sidebar) rememberSectionLocation(sidebar.dataset.sidebarAppBody)
+    },
+    requestURL: sectionRequestURL,
+    bindSidebar: setupFolderClickInterception,
+    loaded: function (mode, address) {
+      var locations = sectionLocations()
+      ;["mail", "contacts"].forEach(function (section) { pointSectionButton(section, locations[section]) })
+      var sidebar = document.getElementById("sidebar-app-body")
+      if (sidebar) rememberSectionLocation(mode)
+      document.documentElement.removeAttribute("data-app-switching")
+      if (mode === "mail") {
+        var url = new URL(address, location.href)
+        var path = /^\/folder\/[^/]+\/([^/]+)$/.exec(url.pathname)
+        var id = url.searchParams.get("email") || (path && decodeURIComponent(path[1]))
+        if (id && window.htmx) {
+          preserveMailListSelectionFor = id
+          htmx.ajax("GET", mailViewRequestURL(id), "#mail-view")
+        }
+      }
+    },
+    restored: function () {
+      var mail = document.getElementById("mail-list-scroll")
+      var contacts = document.getElementById("contacts-list-scroll")
+      virtualMailList = mail && mail._virtualMailList
+      virtualContactsList = contacts && contacts._virtualContactsList
+      if (mail && !virtualMailList) {
+        if (parseInt(mail.dataset.totalCount, 10) < 0) {
+          mail.setAttribute("data-load-folder", "")
+          var selectedPath = /^\/folder\/[^/]+\/([^/]+)$/.exec(location.pathname)
+          var selected = new URLSearchParams(location.search).get("email") || (selectedPath && decodeURIComponent(selectedPath[1]))
+          if (selected) document.body.setAttribute("data-initial-email-id", selected)
+        }
+        initVirtualScroll()
+      }
+      initializeCalendarDaySelection()
+      document.documentElement.removeAttribute("data-app-switching")
+    },
+  }
   initVirtualScroll()
   setupFolderClickInterception()
   setupEmailSelectionTracking()
@@ -201,7 +261,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
     function init(root) {
       var scroll = root && root.id === "contacts-list-scroll" ? root : document.getElementById("contacts-list-scroll")
-      if (!scroll || scroll._virtualContactsList || typeof VirtualContactsList === "undefined") return
+      if (!scroll || scroll._virtualContactsList || scroll.closest("[data-navigation-pending]") || typeof VirtualContactsList === "undefined") return
       var selected = scroll.querySelector(".mail-list-item[data-contact-id] .envelope-active")
       var selectedRow = selected && selected.closest("[data-contact-id]")
       virtualContactsList = new VirtualContactsList(scroll, {
@@ -235,15 +295,120 @@ document.addEventListener("DOMContentLoaded", function () {
       }
     }
 
+    // Set while the sidebar fills the filter form, which applies them itself.
+    var settingContactFilters = false
+
     function syncFilterUI(filters) {
       var count = (filters.source ? 1 : 0) + (filters.saveTarget ? 1 : 0) + (filters.activity ? 1 : 0)
+      syncActiveFilterChips(filters)
       var button = document.querySelector('[aria-label="Filter contacts"]')
-      if (button) {
-        button.dataset.active = count > 0 ? "true" : "false"
-        var badge = button.querySelector("span")
-        if (badge) badge.textContent = String(count)
+      if (!button) return
+      button.dataset.active = count > 0 ? "true" : "false"
+      // The count is the pill after the icon; the first span is the "Filters" label.
+      var badge = button.querySelector("span.rounded-full")
+      if (count === 0) {
+        if (badge) badge.remove()
+        return
       }
+      if (!badge) {
+        badge = document.createElement("span")
+        badge.className = "min-w-4 rounded-full bg-primary px-1 text-center text-[10px] leading-4 text-primary-foreground"
+        button.appendChild(badge)
+      }
+      badge.textContent = String(count)
     }
+
+    // The strip under the search with a pill for each active filter, the mail
+    // list's own (styles and open/close transition included). A pill's text is
+    // the label of the matching entry in the filter form, which the server
+    // draws with the same names.
+    var contactPillClearTimer = null
+
+    function activeFilterPills(filters) {
+      var pills = []
+      function label(name, value) {
+        var input = document.querySelector('[data-contact-filter-form] input[name="' + name + '"]')
+        var container = input && input.closest(".select-container")
+        var items = container ? container.querySelectorAll("[data-tui-selectbox-value]") : []
+        for (var i = 0; i < items.length; i++) {
+          if (items[i].getAttribute("data-tui-selectbox-value") !== value) continue
+          var text = items[i].querySelector(".select-item-text")
+          if (text) return text.textContent.trim()
+        }
+        return value
+      }
+      if (filters.source) pills.push({ name: "source", text: "Origin: " + label("source", filters.source) })
+      if (filters.saveTarget) pills.push({ name: "save_target", text: label("save_target", filters.saveTarget) })
+      if (filters.activity) pills.push({ name: "activity", text: filters.activity === "seen" ? "Seen in mail" : "No messages" })
+      return pills
+    }
+
+    function syncActiveFilterChips(filters) {
+      var strip = document.querySelector("[data-contact-active-filter-pills]")
+      if (!strip) return
+      if (contactPillClearTimer) { clearTimeout(contactPillClearTimer); contactPillClearTimer = null }
+      var pills = activeFilterPills(filters)
+      if (pills.length === 0) {
+        // The pills stay while the strip closes, then go.
+        strip.classList.add("hidden")
+        contactPillClearTimer = setTimeout(function () {
+          contactPillClearTimer = null
+          if (strip.classList.contains("hidden")) strip.innerHTML = ""
+        }, 190)
+        return
+      }
+      var existing = Object.create(null)
+      strip.querySelectorAll("[data-contact-active-filter-key]").forEach(function (pill) {
+        existing[pill.getAttribute("data-contact-active-filter-key")] = true
+      })
+      var html = '<div class="mail-active-filter-visible">'
+      pills.forEach(function (pill) {
+        var key = pill.name + ":" + pill.text
+        var text = escapeHTML(pill.text)
+        html += '<button type="button" data-contact-active-filter-remove="' + pill.name + '" data-contact-active-filter-key="' + escapeHTML(key) + '" title="' + text + '" aria-label="Remove filter: ' + text + '" class="mail-active-filter-pill' + (existing[key] ? " mail-active-filter-pill-stable" : "") + '">' +
+          '<span class="mail-active-filter-pill-label">' + text + '</span><span class="mail-active-filter-pill-remove">x</span></button>'
+      })
+      strip.innerHTML = html + "</div>"
+      strip.classList.remove("hidden")
+    }
+
+    // The sidebar item that stands for the filters, as the server picks it.
+    function sidebarTargetFor(filters) {
+      if (filters.trash) return "trash"
+      if (!filters.source) return filters.saveTarget
+      if (filters.saveTarget) return "-"
+      return /^(synced:|book:)/.test(filters.source) ? "source:" + filters.source : "-"
+    }
+
+    // Choosing a pill drops that filter, after the pill's exit.
+    document.addEventListener("click", function (e) {
+      var remove = e.target.closest && e.target.closest("[data-contact-active-filter-remove]")
+      var list = remove && currentList()
+      if (!list) return
+      e.preventDefault()
+      var field = { source: "source", save_target: "saveTarget", activity: "activity" }[remove.getAttribute("data-contact-active-filter-remove")]
+      if (!field) return
+      var motion = !window.matchMedia("(prefers-reduced-motion: reduce)").matches
+      if (motion) remove.classList.add("mail-active-filter-pill-exiting")
+      setTimeout(function () {
+        var filters = Object.assign({}, list.filters)
+        filters[field] = ""
+        var form = document.querySelector("[data-contact-filter-form]")
+        var input = form && form.querySelector('input[name="' + remove.getAttribute("data-contact-active-filter-remove") + '"]')
+        if (input) {
+          settingContactFilters = true
+          try {
+            input.value = ""
+            input.dispatchEvent(new Event("input", { bubbles: true }))
+          } finally {
+            settingContactFilters = false
+          }
+        }
+        syncFilterUI(filters)
+        setContactsSidebarActive(sidebarTargetFor(filters))
+        list.applyFilters(filters).catch(function () {})
+      }, motion ? 145 : 0)
+    })
 
     function contactSidebarTargetFromURL(url) {
       try {
@@ -311,6 +476,50 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     init(document)
+
+    // Choosing another address book in the sidebar changes the list in place,
+    // like a folder in the mail list: the old cards drop out as the new ones
+    // drop in. The Trash has its own header and actions, so moving into or out
+    // of it still loads the page.
+    document.addEventListener("click", function (e) {
+      var link = e.target.closest && e.target.closest("[data-contact-sidebar-link]")
+      if (!link || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
+      var list = currentList()
+      var scroll = document.getElementById("contacts-list-scroll")
+      if (!list || !list.itemsContainer || !scroll || scroll.closest("[data-navigation-pending]")) return
+      var target = link.getAttribute("data-contact-sidebar-target") || ""
+      if ((target === "trash") !== (scroll.dataset.trash === "1")) return
+      e.preventDefault()
+      e.stopImmediatePropagation()
+      var source = target.indexOf("source:") === 0 ? target.slice(7) : ""
+      var values = { source: source, save_target: target === "trash" || source ? "" : target, activity: "" }
+      var form = document.querySelector("[data-contact-filter-form]")
+      if (form) {
+        // Setting a select's value also moves its selection and the text shown.
+        settingContactFilters = true
+        try {
+          Object.keys(values).forEach(function (name) {
+            var input = form.querySelector('input[name="' + name + '"]')
+            if (!input) return
+            input.value = values[name]
+            input.dispatchEvent(new Event("input", { bubbles: true }))
+          })
+        } finally {
+          settingContactFilters = false
+        }
+      }
+      // The filters come from the chosen item, not read back from the form: a
+      // select without a matching entry would drop its value and the pill and
+      // list would disagree with the sidebar.
+      var filters = readFilters()
+      filters.source = values.source
+      filters.saveTarget = values.save_target
+      filters.activity = ""
+      filters.trash = false
+      syncFilterUI(filters)
+      setContactsSidebarActive(target)
+      list.applyFilters(filters).catch(function () {})
+    }, true)
 
     // Escape clears the selection and deselects the open contact, like the
     // mail list.
@@ -948,7 +1157,7 @@ document.addEventListener("DOMContentLoaded", function () {
         }
         return
       }
-      if (!e.target || !e.target.closest("[data-contact-filter-form]")) return
+      if (!e.target || !e.target.closest("[data-contact-filter-form]") || settingContactFilters) return
       applyFilters()
     })
 
@@ -8069,9 +8278,12 @@ document.addEventListener("DOMContentLoaded", function () {
         var loadEmailAfterShell = function (evt) {
           if (!evt.target || evt.target.id !== "main-content") return
           document.body.removeEventListener("htmx:afterSettle", loadEmailAfterShell)
+          initialMailReaderLoader = null
           preserveMailListSelectionFor = initialEmailId
           htmx.ajax("GET", mailViewRequestURL(initialEmailId), "#mail-view")
         }
+        if (initialMailReaderLoader) document.body.removeEventListener("htmx:afterSettle", initialMailReaderLoader)
+        initialMailReaderLoader = loadEmailAfterShell
         document.body.addEventListener("htmx:afterSettle", loadEmailAfterShell)
       }
       var params = new URLSearchParams(window.location.search)
@@ -8099,7 +8311,8 @@ document.addEventListener("DOMContentLoaded", function () {
 
   function setupFolderClickInterception() {
     var sidebar = document.querySelector("aside")
-    if (!sidebar) return
+    if (!sidebar || sidebar._goferFolderClicks) return
+    sidebar._goferFolderClicks = true
 
     function clearFolderActiveState() {
       var sidebarLinks = sidebar.querySelectorAll("a[hx-get^='/folder/']")
@@ -8586,19 +8799,7 @@ document.addEventListener("DOMContentLoaded", function () {
         }
         return
       }
-      if (_calendarContentRequest) _calendarContentRequest.abort()
-      if (_calendarCacheRequest) {
-        var cache = _calendarCacheRequest
-        _calendarCacheRequest = null
-        cache.abort()
-      }
-      if (_calendarSyncRequest) {
-        var sync = _calendarSyncRequest
-        handleCalendarSyncAbort({ detail: { xhr: sync } })
-        sync.abort()
-      }
-      _calendarNavigationRequest = null
-      finishCalendarNavigationTransition()
+      cancelCalendarPageRequests()
       if (!previous) {
         var sidebar = document.getElementById("sidebar-app-body")
         previous = { mode: sidebar ? sidebar.dataset.sidebarAppBody : "mail", panes: [] }
@@ -9020,22 +9221,38 @@ document.addEventListener("DOMContentLoaded", function () {
     }
     var list = document.getElementById("mail-list")
     if (list) {
-      list.removeAttribute("inert")
-      list.removeAttribute("aria-busy")
-      var rows = pendingRowCount(list, mode, viewMode)
-      list.className = "w-full lg:flex flex-col border-r border-border bg-card h-full overflow-hidden"
-      list.dataset.viewMode = viewMode
-      list.dataset.panelSection = mode
-      if (mode === "contacts") {
-        list.setAttribute("data-contact-list-shell", "")
-        list.removeAttribute("data-mail-list-view")
-        list.removeAttribute("data-mail-navigation-mode")
+      var listTemplate = document.getElementById("app-navigation-" + mode + "-" + viewMode)
+      var preloadedList = listTemplate && listTemplate.content.querySelector("#mail-list")
+      if (preloadedList) {
+        var rowCount = pendingRowCount(list, mode, viewMode)
+        replaceAppPaneContents(list, preloadedList, true)
+        list.setAttribute("inert", "")
+        list.setAttribute("aria-busy", "true")
+        list.setAttribute("data-navigation-pending", "")
+        var pendingScroll = list.querySelector(mode === "contacts" ? "#contacts-list-scroll" : "#mail-list-scroll")
+        if (pendingScroll) {
+          pendingScroll.removeAttribute("data-load-folder")
+          pendingScroll.removeAttribute("data-hydrate-dropin")
+          pendingScroll.innerHTML = listRowsPendingHTML(mode, viewMode, rowCount)
+        }
       } else {
-        list.removeAttribute("data-contact-list-shell")
-        list.dataset.mailListView = viewMode
-        list.dataset.mailNavigationMode = window.GoferSettings ? (GoferSettings.get("mail_list_navigation") || "infinite") : "infinite"
+        list.removeAttribute("inert")
+        list.removeAttribute("aria-busy")
+        var rows = pendingRowCount(list, mode, viewMode)
+        list.className = "w-full lg:flex flex-col border-r border-border bg-card h-full overflow-hidden"
+        list.dataset.viewMode = viewMode
+        list.dataset.panelSection = mode
+        if (mode === "contacts") {
+          list.setAttribute("data-contact-list-shell", "")
+          list.removeAttribute("data-mail-list-view")
+          list.removeAttribute("data-mail-navigation-mode")
+        } else {
+          list.removeAttribute("data-contact-list-shell")
+          list.dataset.mailListView = viewMode
+          list.dataset.mailNavigationMode = window.GoferSettings ? (GoferSettings.get("mail_list_navigation") || "infinite") : "infinite"
+        }
+        list.innerHTML = listPendingHTML(mode, viewMode, rows)
       }
-      list.innerHTML = listPendingHTML(mode, viewMode, rows)
       if (mode === "mail" && viewMode === "table" && typeof window.applyMailTableColumnSettings === "function") {
         window.applyMailTableColumnSettings(list.querySelector("#mail-list-scroll"))
       }
@@ -9687,7 +9904,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
   document.body.addEventListener("htmx:afterSettle", function (evt) {
     var scroll = document.getElementById("mail-list-scroll")
-    if (!scroll || scroll._virtualMailList) return
+    if (!scroll || scroll._virtualMailList || scroll.closest("[data-navigation-pending]")) return
     if (!evt.target || !evt.target.querySelector) return
     if (!evt.target.querySelector("#mail-list-scroll")) return
 
@@ -10182,6 +10399,8 @@ function setMailViewEmpty() {
 function setMailViewEmptyNow() {
   var mailView = document.getElementById("mail-view")
   if (!mailView) return
+  // Already showing it: drawing it again would replay its fade-in.
+  if (mailView.querySelector("[data-mail-view-empty]")) return
   mailView.innerHTML =
     '<div class="flex flex-col items-center justify-center h-full text-center" data-mail-view-empty>' +
       '<div class="space-y-4 animate-fade-in">' +
@@ -11849,6 +12068,22 @@ function replaceAppPaneContents(root, source, preserveWidth) {
 var _calendarContentRequest = null
 var _calendarContentPrevious = null
 
+function cancelCalendarPageRequests() {
+  if (_calendarContentRequest) _calendarContentRequest.abort()
+  if (_calendarCacheRequest) {
+    var cache = _calendarCacheRequest
+    _calendarCacheRequest = null
+    cache.abort()
+  }
+  if (_calendarSyncRequest) {
+    var sync = _calendarSyncRequest
+    handleCalendarSyncAbort({ detail: { xhr: sync } })
+    sync.abort()
+  }
+  _calendarNavigationRequest = null
+  finishCalendarNavigationTransition()
+}
+
 function calendarLoadingWeekCount(month) {
   var parts = /^(\d{4})-(\d{2})$/.exec(month || "")
   if (!parts) return null
@@ -12077,6 +12312,18 @@ document.body.addEventListener("htmx:afterSwap", function (event) {
   slide.onfinish = slide.oncancel = function () { indicator.style.transition = "" }
 })
 
+// Agenda events that were not on show fade in like the calendar's own events
+// (same duration and easing); ones already showing stay put on later passes.
+var _calendarAgendaShown = new WeakSet()
+
+function fadeInCalendarAgendaEvent(event, show) {
+  if (!show) { _calendarAgendaShown.delete(event); return }
+  if (_calendarAgendaShown.has(event)) return
+  _calendarAgendaShown.add(event)
+  if (!event.animate || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return
+  event.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 300, easing: "ease" })
+}
+
 function _calendarAgendaEventMatchesDay(event, day) {
   if (event.calendarEventAllDay === "true") {
     return !!event.calendarEventStartDate && !!event.calendarEventEndDate &&
@@ -12235,6 +12482,7 @@ function initializeCalendarDaySelection() {
     var show = _calendarSourceIsVisible(event) && (!selected || _calendarAgendaEventMatchesDay(event.dataset, selected.dataset))
     event.hidden = !show
     if (show) visible++
+    fadeInCalendarAgendaEvent(event, show)
   })
   agenda.querySelector("#calendar-agenda-heading").textContent = selected ? selected.dataset.calendarDayTitle : "All events"
   agenda.querySelector("[data-calendar-agenda-context]").textContent = selected ?
@@ -16366,8 +16614,28 @@ function resetComposeForm(fromPane, skipCleanup) {
   delete form.dataset.composeOutgoingStatus
   delete form.dataset.composeUploadFailed
   form.dataset.composeDirty = "false"
+  if (!fromPane) refreshComposeAccountData(true)
   updateComposeSendState(form)
   _setComposeDraftButtonState(form, "default")
+}
+
+function refreshComposeAccountData(reset) {
+  var form = document.getElementById("compose-form")
+  var template = document.getElementById("compose-account-data")
+  var data = template && template.content.querySelector("[data-compose-default-account]")
+  if (!form || !data) return
+  if (!reset && (document.querySelector("#compose-dialog dialog[open]") || _composeHasDraftContent(form) || _composePendingUploads(form) > 0 || form.dataset.composeSending === "true")) return
+  var menu = form.querySelector(".compose-from-menu")
+  if (menu) menu.replaceChildren(data.querySelector("[data-compose-from-options]").cloneNode(true))
+  var oldRow = form.querySelector("[data-compose-one-time-from]")
+  var newRow = data.querySelector("[data-compose-one-time-options]").firstElementChild
+  if (oldRow) oldRow.remove()
+  if (newRow) form.querySelector("[data-compose-from-row]").after(newRow.cloneNode(true))
+  form.querySelector('[name="account_id"]').value = data.dataset.composeDefaultAccount
+  form.querySelector('[name="identity_id"]').value = ""
+  var display = document.getElementById("compose-from-display")
+  if (display) display.textContent = data.dataset.composeDefaultName + " <" + data.dataset.composeDefaultEmail + ">"
+  updateComposeSendState(form)
 }
 
 function composeModeForForm(form) {

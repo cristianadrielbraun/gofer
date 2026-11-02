@@ -238,6 +238,7 @@
   }
   function setupContent(entry) {
     document.querySelectorAll(entry.selector).forEach(function (element) {
+      if (element.closest("[data-navigation-pending]")) return
       if (element[entry.key]) return
       element[entry.key] = true
       entry.setup(element)

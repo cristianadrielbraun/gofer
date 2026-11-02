@@ -212,7 +212,7 @@ templ accountMailboxSizeLine(accountID string, size *models.MailboxSize, attrs t
 templ accountMailboxSizeNumber(name, text string) {
 	<span class="inline-block whitespace-nowrap align-baseline font-semibold text-foreground tabular-nums" data-mailbox-size-number={ name }>
 		if text == "" {
-			@skeleton.Skeleton(skeleton.Props{Class: "inline-block h-3 w-12 align-[-1px]"})
+			@skeleton.Skeleton(skeleton.Props{Class: "inline-block h-3.5 w-11 align-[-2px]"})
 		} else {
 			{ text }
 		}

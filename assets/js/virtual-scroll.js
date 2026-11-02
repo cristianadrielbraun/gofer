@@ -3163,7 +3163,7 @@ class VirtualContactsList {
     this.container.appendChild(this.spacerBottom)
     this.renderTableHeader()
     this.render()
-    if (options.animate !== false) this.animateRenderedRows({ enterFrom: -8 })
+    if (options.animate !== false) this.fanInRows()
   }
 
   // Row sizes depend on the screen (phone rows use one shorter layout, and the root
@@ -3698,7 +3698,9 @@ class VirtualContactsList {
   // The detail pane's "Select a contact" screen, for when none is open.
   showEmptyDetail() {
     var detail = document.getElementById("contacts-detail")
-    if (detail) detail.innerHTML = '<div class="flex flex-col items-center justify-center h-full text-center"><div class="space-y-4 animate-fade-in"><div class="size-20 rounded-2xl bg-card flex items-center justify-center mx-auto raised"><svg class="size-9 text-muted-foreground/30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18a3 3 0 1 0-6 0"></path><circle cx="12" cy="10" r="2"></circle><rect width="18" height="18" x="3" y="4" rx="2"></rect><path d="M8 2v4"></path><path d="M16 2v4"></path></svg></div><div><h3 class="font-semibold mb-1">Select a contact</h3><p class="text-sm text-muted-foreground">Choose a contact from the list to view or edit it</p></div></div></div>'
+    // Already showing it: drawing it again would replay its fade-in.
+    if (detail && (detail.hasAttribute("data-mail-view-empty") || detail.querySelector("[data-mail-view-empty]"))) return
+    if (detail) detail.innerHTML = '<div class="flex flex-col items-center justify-center h-full text-center" data-mail-view-empty><div class="space-y-4 animate-fade-in"><div class="size-20 rounded-2xl bg-card flex items-center justify-center mx-auto raised"><svg class="size-9 text-muted-foreground/30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18a3 3 0 1 0-6 0"></path><circle cx="12" cy="10" r="2"></circle><rect width="18" height="18" x="3" y="4" rx="2"></rect><path d="M8 2v4"></path><path d="M16 2v4"></path></svg></div><div><h3 class="font-semibold mb-1">Select a contact</h3><p class="text-sm text-muted-foreground">Choose a contact from the list to view or edit it</p></div></div></div>'
   }
 
   updateHeader() {
@@ -3742,7 +3744,11 @@ class VirtualContactsList {
         text: this.captureContactTextMetrics(row),
       })
     }
-    return { rows: rows }
+    // Where the list was, so rows can be compared with where they were in it
+    // even when the list itself has moved since, as it does while the filter
+    // pills open above it.
+    var view = this.container.getBoundingClientRect()
+    return { rows: rows, viewTop: view.top, viewLeft: view.left }
   }
 
   captureContactTextMetrics(row) {
@@ -3824,6 +3830,9 @@ class VirtualContactsList {
     var before = snapshot.rows
     var afterIds = new Set()
     var entering = []
+    var viewNow = this.container.getBoundingClientRect()
+    var shiftY = viewNow.top - (snapshot.viewTop !== undefined ? snapshot.viewTop : viewNow.top)
+    var shiftX = viewNow.left - (snapshot.viewLeft !== undefined ? snapshot.viewLeft : viewNow.left)
     for (var i = 0; i < this.itemsContainer.children.length; i++) {
       var node = this.itemsContainer.children[i]
       var row = node.classList.contains("mail-list-item") ? node : node.querySelector(".mail-list-item")
@@ -3836,8 +3845,8 @@ class VirtualContactsList {
         var nextAnchor = node.querySelector(".mail-list-item > a")
         var nextVisualRect = nextAnchor ? nextAnchor.getBoundingClientRect() : next
         var nextVisualTopOffset = nextVisualRect.top - next.top
-        var dx = old.rect.left - next.left
-        var dy = (old.rect.top + (old.visualTopOffset || 0)) - (next.top + nextVisualTopOffset)
+        var dx = old.rect.left + shiftX - next.left
+        var dy = (old.rect.top + shiftY + (old.visualTopOffset || 0)) - (next.top + nextVisualTopOffset)
         var finalHeight = node.style.height || (next.height + "px")
         var heightChanged = options.animateHeight && Math.abs(old.rect.height - next.height) > 0.5
         var animated = false
@@ -3862,10 +3871,101 @@ class VirtualContactsList {
         entering.push(node)
       }
     }
-    var exitCount = 0
-    before.forEach(function (_, id) { if (!afterIds.has(id)) exitCount++ })
-    this.animateEnteringRows(entering, duration, ease, options.enterFrom || -10, exitCount > 3 ? Math.min(140, exitCount * 12) : 0, entering.length > 3 ? 12 : 0)
-    this.animateExitingRows(before, afterIds, duration, ease, options.exitTo || 12, exitCount > 3 ? 16 : 0)
+    // The rows staying slide to their places, while the ones leaving fan out
+    // and the new ones fan in, together; the leaving ones get a short head
+    // start, as in the mail list.
+    var leaving = this.fanOutLeavingRows(before, afterIds, snapshot)
+    this.fanInRows(entering, leaving > 0 ? 60 : 0)
+  }
+
+  // onScreenRows are the rendered rows the reader can see, top to bottom.
+  onScreenRows() {
+    if (!this.itemsContainer) return []
+    var view = this.container.getBoundingClientRect()
+    var rows = []
+    for (var i = 0; i < this.itemsContainer.children.length; i++) {
+      var node = this.itemsContainer.children[i]
+      var row = node.classList.contains("mail-list-item") ? node : node.querySelector(".mail-list-item")
+      if (!row || !row.dataset.contactId) continue
+      var rect = node.getBoundingClientRect()
+      if (rect.bottom > view.top && rect.top < view.bottom) rows.push({ node: node, top: rect.top })
+    }
+    rows.sort(function (a, b) { return a.top - b.top })
+    return rows.map(function (row) { return row.node })
+  }
+
+  // fanInRows is the mail list's fan-in: each card fades in first and then
+  // drops into place from above, staggered top to bottom. The rows stay hidden
+  // until the list has been drawn once, so the first cards aren't done before
+  // anyone sees them.
+  fanInRows(rows, delay) {
+    delay = delay || 0
+    var nodes = this.prefersReducedMotion() ? [] : this.onScreenRows()
+    if (rows) nodes = nodes.filter(function (node) { return rows.indexOf(node) !== -1 })
+    for (var i = 0; i < nodes.length; i++) nodes[i].style.opacity = "0"
+    if (nodes.length === 0) return
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () {
+        for (var j = 0; j < nodes.length; j++) {
+          nodes[j].style.opacity = ""
+          if (typeof nodes[j].animate !== "function") continue
+          nodes[j].animate([
+            { opacity: 0, translate: "0 -18px", scale: "1.01" },
+            { opacity: 1, offset: 0.55 },
+            { opacity: 1, translate: "0 0", scale: "1" },
+          ], { duration: 220, delay: delay + Math.min(150, j * 25), easing: "cubic-bezier(0, 0, 0.6, 1)", fill: "backwards" })
+        }
+      })
+    })
+  }
+
+  // fanOutLeavingRows fans out the rows a list change removed, from where
+  // they were, top to bottom, and returns how many it shows leaving. They
+  // are copies, drawn under the list so the rows arriving in their place land
+  // on top of them.
+  fanOutLeavingRows(before, afterIds, origin) {
+    var view = this.container.getBoundingClientRect()
+    // The rows were measured against where the list was then.
+    var shiftY = origin ? view.top - origin.viewTop : 0
+    var shiftX = origin ? view.left - origin.viewLeft : 0
+    var leaving = []
+    before.forEach(function (item, id) {
+      if (afterIds.has(id)) return
+      if (item.rect.bottom + shiftY > view.top && item.rect.top + shiftY < view.bottom) leaving.push(item)
+    })
+    if (leaving.length === 0 || this.prefersReducedMotion()) return 0
+    leaving.sort(function (a, b) { return a.rect.top - b.rect.top })
+    var overlay = this.ensureTransitionOverlay()
+    overlay.style.zIndex = "0"
+    this.itemsContainer.style.zIndex = "1"
+    var itemsContainer = this.itemsContainer
+    var scrollLeft = this.container.scrollLeft
+    var scrollTop = this.container.scrollTop
+    var last = null
+    for (var i = 0; i < leaving.length; i++) {
+      var item = leaving[i]
+      var clone = document.createElement("div")
+      clone.innerHTML = item.html
+      clone.style.position = "absolute"
+      clone.style.left = (item.rect.left + shiftX - view.left + scrollLeft) + "px"
+      clone.style.top = (item.rect.top + shiftY - view.top + scrollTop) + "px"
+      clone.style.width = item.rect.width + "px"
+      clone.style.height = item.rect.height + "px"
+      overlay.appendChild(clone)
+      if (typeof clone.animate !== "function") continue
+      last = clone.animate([
+        { opacity: 1, translate: "0 0", scale: "1" },
+        { opacity: 1, offset: 0.45 },
+        { opacity: 0, translate: "0 18px", scale: "0.99" },
+      ], { duration: 220, delay: Math.min(150, i * 25), easing: "cubic-bezier(0.4, 0, 1, 1)", fill: "forwards" })
+    }
+    var done = function () {
+      if (overlay.parentNode) overlay.remove()
+      itemsContainer.style.zIndex = ""
+    }
+    if (last) last.finished.then(done, done)
+    else done()
+    return leaving.length
   }
 
   animateRenderedRows(options) {

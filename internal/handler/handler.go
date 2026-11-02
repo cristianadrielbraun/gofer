@@ -3506,6 +3506,10 @@ func (h *Handler) handleSettings(w http.ResponseWriter, r *http.Request) {
 
 	if r.Header.Get("HX-Request") == "true" {
 		w.Header().Set("Content-Type", "text/html")
+		if r.Header.Get("HX-Target") == "settings-content" {
+			views.SettingsPage(displayAccounts, syncSettings, "accounts", uiSettings, signatureData).Render(ctx, w)
+			return
+		}
 		views.SettingsPartial(displayAccounts, syncSettings, "accounts", uiSettings, signatureData).Render(ctx, w)
 		return
 	}
@@ -3545,6 +3549,10 @@ func (h *Handler) handleSettingsTab(w http.ResponseWriter, r *http.Request) {
 
 	if r.Header.Get("HX-Request") == "true" {
 		w.Header().Set("Content-Type", "text/html")
+		if r.Header.Get("HX-Target") == "settings-content" {
+			views.SettingsPage(displayAccounts, syncSettings, tab, uiSettings, signatureData).Render(ctx, w)
+			return
+		}
 		views.SettingsPartial(displayAccounts, syncSettings, tab, uiSettings, signatureData).Render(ctx, w)
 		return
 	}

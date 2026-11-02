@@ -1,0 +1,102 @@
+package views
+
+import "github.com/cristianadrielbraun/gofer/internal/models"
+import "github.com/cristianadrielbraun/gofer/internal/assetver"
+import "github.com/cristianadrielbraun/gofer/components/progress"
+
+templ AppNavigationScripts() {
+	<template id="compose-account-data"></template>
+	@progress.Script()
+	<script src={ assetver.URL("/assets/js/notification-avatar.js") }></script>
+	@MailCardLayoutScript()
+	<script src={ assetver.URL("/assets/js/passkey-registration.js") }></script>
+	<script src={ assetver.URL("/assets/js/passkey-authentication.js") }></script>
+	<script src={ assetver.URL("/assets/js/navigation.js") }></script>
+}
+
+templ AppNavigationDialogs() {
+	@AccountSetupDialogs()
+	@MailSyncProgressDialog()
+}
+
+// Only sender choices change as accounts are added or removed. Deliver them
+// inertly, so refreshing account metadata cannot overwrite an open draft.
+templ ComposeAccountData(accounts []models.Account) {
+	{{ accounts = sendingAccounts(accounts) }}
+	<template id="compose-account-data">
+		<div data-compose-default-account={ composeDefaultAccountID(accounts) } data-compose-default-name={ composeDefaultName(accounts) } data-compose-default-email={ composeDefaultEmail(accounts) }>
+			<div data-compose-from-options>
+				@composeFromMenuItems(accounts, "dialog")
+			</div>
+			<div data-compose-one-time-options>
+				@composeOneTimeFromRow(accounts, "dialog")
+			</div>
+		</div>
+	</template>
+}
+
+// These templates contain presentation only. They live outside the changing
+// panes and are cloned without processing load triggers or enabling controls.
+// Lists, account state, settings values and authorization still come from the
+// destination's normal, user-scoped handlers.
+templ AppNavigationTemplates(uiSettings map[string]string) {
+	<template id="app-navigation-sidebar">
+		@Sidebar(nil, "inbox", uiSettingGet(uiSettings, "sidebar_width", "256px"), uiSettings, 0, models.EmailFilters{})
+	</template>
+	<template id="app-navigation-settings-sidebar">
+		@SettingsSidebar("", uiSettingGet(uiSettings, "sidebar_width", "256px"))
+	</template>
+	for _, mode := range []string{"cards", "table"} {
+		<template id={ "app-navigation-mail-" + mode }>
+			<div id="main-content" class={ mailPaneLayoutClass(PaneLayout(uiSettings, "mail")) } data-mail-pane-layout={ PaneLayout(uiSettings, "mail") }>
+				@MailList(nil, nil, "inbox", nil, -1, -1, 0, PanelSetting(uiSettings, "mail", "mail_list_width", "50%"), uiSettingGet(uiSettings, "sender_display", "name"), mode, uiSettingGet(uiSettings, "mail_list_navigation", "infinite"), models.EmailFilters{})
+				@ResizeHandle("maillist")
+				<div id="mail-view" class="hidden lg:flex flex-1 flex-col min-w-0 bg-background surface-desk" data-mail-reader>
+					@MailViewEmpty()
+				</div>
+			</div>
+		</template>
+		<template id={ "app-navigation-contacts-" + mode }>
+			@ContactsPage(nil, nil, nil, false, false, models.ContactFilters{View: mode}, -1, uiSettings, nil)
+		</template>
+	}
+	for _, view := range []string{"month", "week"} {
+		<template id={ "app-navigation-calendar-" + view }>
+			@CalendarPage(calendarLoadingData(view, uiSettings), uiSettings)
+		</template>
+	}
+	for _, tab := range []string{"accounts", "sync", "rules", "operations", "contacts", "appearance", "regional", "compose-display", "advanced", "export-import", "about"} {
+		<template id={ "app-navigation-settings-" + tab }>
+			@SettingsPage(nil, models.SyncSettings{}, tab, uiSettings, nil)
+		</template>
+	}
+	<template id="app-navigation-settings-security">
+		<div data-settings-page class="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
+			<div class="flex-1 min-h-0 overflow-y-auto">
+				<div id="settings-content" class="max-w-3xl px-8 py-10">
+					@SettingsSectionHeader("security")
+					@NavigationLoadingContent()
+				</div>
+			</div>
+		</div>
+	</template>
+}
+
+templ NavigationLoadingContent() {
+	<div role="status" aria-label="Loading" class="space-y-4 py-4">
+		<div class="h-4 w-2/3 rounded bg-muted animate-pulse"></div>
+		<div class="h-4 w-1/2 rounded bg-muted animate-pulse"></div>
+		<div class="h-4 w-2/3 rounded bg-muted animate-pulse"></div>
+	</div>
+}
+
+templ AccountSetupDialogs() {
+	@ChooseAccountTypeDialog()
+	@GmailAccountDialog()
+	@OutlookAccountDialog()
+	@AddAccountDialog()
+	@DAVAccountDialog(DAVAccountDialogData{Service: "calendar"})
+	@ChooseMailTypeDialog()
+	<div id="edit-account-container"></div>
+}
+

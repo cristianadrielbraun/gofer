@@ -1350,6 +1350,7 @@ templ ContactsListPane(contacts []models.Contact, selected *models.Contact, filt
 					Contacts here are deleted for good after { fmt.Sprint(models.ContactTrashRetentionDays) } days, from their address books too.
 				</p>
 			}
+			<div>
 			<div class="contacts-search-row flex items-center gap-2">
 				<button type="button" class="mail-list-search-close hidden" data-mail-search-close aria-label="Close search">
 					@icon.ArrowLeft(icon.Props{Class: "size-5"})
@@ -1486,26 +1487,24 @@ templ ContactsListPane(contacts []models.Contact, selected *models.Contact, filt
 					}
 				</div>
 			</div>
-			// Under the search, where the mail list shows its active filters.
-			if contactFiltersActive(filters) {
-				<div class="flex min-w-0 flex-wrap items-center gap-1 px-1 text-[11px] text-muted-foreground" data-contact-active-filters>
-					if filters.Source != "" {
-						<span class="truncate rounded-full border border-border bg-background px-2 py-0.5">Origin: { contactOriginFilterLabel(filters.Source, accounts) }</span>
-					}
-					if filters.SaveTarget != "" {
-						<span class="truncate rounded-full border border-border bg-background px-2 py-0.5">{ contactSaveTargetLabel(filters.SaveTarget, accounts) }</span>
-					}
-					if filters.Activity != "" {
-						<span class="shrink-0 rounded-full border border-border bg-background px-2 py-0.5">
-							if filters.Activity == "seen" {
-								Seen in mail
-							} else {
-								No messages
-							}
-						</span>
-					}
-				</div>
-			}
+			// Under the search, as the mail list's active filter strip. It stays in
+			// the page, collapsed, so the pills open and close it smoothly.
+			<div data-contact-active-filter-pills class={ "mail-active-filter-strip", templ.KV("hidden", !contactFiltersActive(filters)) } aria-label="Active filters">
+				if contactFiltersActive(filters) {
+					<div class="mail-active-filter-visible">
+						if filters.Source != "" {
+							@contactActiveFilterPill("source", "Origin: "+contactOriginFilterLabel(filters.Source, accounts))
+						}
+						if filters.SaveTarget != "" {
+							@contactActiveFilterPill("save_target", contactSaveTargetLabel(filters.SaveTarget, accounts))
+						}
+						if filters.Activity != "" {
+							@contactActiveFilterPill("activity", contactActivityFilterLabel(filters.Activity))
+						}
+					</div>
+				}
+			</div>
+			</div>
 		</div>
 		<div class="contacts-list-toolbar relative flex items-center gap-1 px-4 py-1.5">
 			@ContactsSelectAllControl()
@@ -1598,7 +1597,9 @@ templ ContactsListPane(contacts []models.Contact, selected *models.Contact, filt
 				data-trash="1"
 			}
 		>
-			if len(contacts) == 0 && filters.Trash {
+			if totalCount < 0 {
+				@NavigationLoadingContent()
+			} else if len(contacts) == 0 && filters.Trash {
 				<div class="flex flex-col items-center justify-center py-20 px-4 text-center">
 					<div class="empty-icon-box size-16 rounded-2xl bg-muted/50 flex items-center justify-center mb-4 raised">
 						@icon.Trash2(icon.Props{Class: "size-5"})
@@ -3135,4 +3136,20 @@ templ ContactRecentActivity(contact models.Contact, emails []models.Email) {
 			</div>
 		}
 	</div>
+}
+
+// contactActiveFilterPill is one active filter in the strip under the search,
+// the mail list's pill. Choosing it removes that filter.
+templ contactActiveFilterPill(name string, text string) {
+	<button type="button" data-contact-active-filter-remove={ name } data-contact-active-filter-key={ name + ":" + text } title={ text } aria-label={ "Remove filter: " + text } class="mail-active-filter-pill mail-active-filter-pill-stable">
+		<span class="mail-active-filter-pill-label">{ text }</span>
+		<span class="mail-active-filter-pill-remove">x</span>
+	</button>
+}
+
+func contactActivityFilterLabel(activity string) string {
+	if activity == "seen" {
+		return "Seen in mail"
+	}
+	return "No messages"
 }

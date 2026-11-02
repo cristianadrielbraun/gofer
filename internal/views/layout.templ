@@ -55,6 +55,7 @@ templ Layout(accounts []models.Account, activeFolder string, emails []models.Ema
 			@copybutton.Script()
 			@toast.Script()
 			@collapsible.Script()
+			@SettingsComponentScripts()
 			@AppSidebarResponsiveStyle()
 			<script src={ assetver.URL("/assets/js/actions.js") }></script>
 		</head>
@@ -77,19 +78,19 @@ templ Layout(accounts []models.Account, activeFolder string, emails []models.Ema
 			</div>
 			<div id="app-pane-dialogs"></div>
 			@ComposeDialog(accounts)
-			@MailSyncProgressDialog()
 			@CalendarLoadingTemplates(accounts, uiSettings)
 			@AppSwitchEmptyPaneTemplates()
+			@AppNavigationTemplates(uiSettings)
+			@AppNavigationDialogs()
 			<script src={ assetver.URL("/assets/js/htmx.min.js") }></script>
 			<script src={ assetver.URL("/assets/js/mail-search.js") }></script>
 			<script src={ assetver.URL("/assets/js/virtual-scroll.js") }></script>
-			<script src={ assetver.URL("/assets/js/notification-avatar.js") }></script>
 			<script src={ assetver.URL("/assets/js/app.js") }></script>
 			<script src={ assetver.URL("/assets/js/settings.js") }></script>
 			<script src={ assetver.URL("/assets/js/settings-page.js") }></script>
 			<script src={ assetver.URL("/assets/js/ui-settings.js") }></script>
-			@MailCardLayoutScript()
 			<script src={ assetver.URL("/assets/js/resize.js") }></script>
+			@AppNavigationScripts()
 			@AppDialogs()
 		</body>
 	</html>
@@ -148,7 +149,12 @@ templ SettingsLayout(accounts []models.Account, syncSettings models.SyncSettings
 					@SettingsPage(accounts, syncSettings, activeTab, uiSettings, signatureData)
 				</div>
 			</div>
+			@CalendarLoadingTemplates(accounts, uiSettings)
+			@AppSwitchEmptyPaneTemplates()
+			@AppNavigationTemplates(uiSettings)
+			<div id="app-pane-dialogs"></div>
 			@SettingsRuntime(accounts)
+			@AppNavigationScripts()
 			@AppDialogs()
 		</body>
 	</html>
@@ -174,24 +180,15 @@ templ SettingsComponentScripts() {
 
 templ SettingsRuntime(accounts []models.Account) {
 	@ComposeDialog(accounts)
-	@ChooseAccountTypeDialog()
-	@GmailAccountDialog()
-	@OutlookAccountDialog()
-	@AddAccountDialog()
-	@DAVAccountDialog(DAVAccountDialogData{Service: "calendar"})
-	@ChooseMailTypeDialog()
-	<div id="edit-account-container"></div>
+	@AppNavigationDialogs()
 	<script src={ assetver.URL("/assets/js/htmx.min.js") }></script>
 	<script src={ assetver.URL("/assets/js/mail-search.js") }></script>
 	<script src={ assetver.URL("/assets/js/virtual-scroll.js") }></script>
-	<script src={ assetver.URL("/assets/js/notification-avatar.js") }></script>
 	<script src={ assetver.URL("/assets/js/app.js") }></script>
 	<script src={ assetver.URL("/assets/js/settings.js") }></script>
 	<script src={ assetver.URL("/assets/js/settings-page.js") }></script>
 	<script src={ assetver.URL("/assets/js/ui-settings.js") }></script>
 	<script src={ assetver.URL("/assets/js/resize.js") }></script>
-	<script src={ assetver.URL("/assets/js/passkey-registration.js") }></script>
-	<script src={ assetver.URL("/assets/js/passkey-authentication.js") }></script>
 }
 
 templ MailShell(accounts []models.Account, activeFolder string, emails []models.Email, selectedEmail *models.Email, totalCount int, scrollCount int, uiSettings map[string]string, selectedThread []models.ThreadItem, initialEmailID string, scheduledCount int, filters models.EmailFilters) {
@@ -209,7 +206,6 @@ templ MailShell(accounts []models.Account, activeFolder string, emails []models.
 			}
 		</div>
 	</div>
-	@MailCardLayoutScript()
 }
 
 templ MailAppPartial(accounts []models.Account, activeFolder string, emails []models.Email, selectedEmail *models.Email, totalCount int, scrollCount int, uiSettings map[string]string, selectedThread []models.ThreadItem, initialEmailID string, windowStart int, scheduledCount int, filters models.EmailFilters) {
@@ -224,7 +220,7 @@ templ MailAppPartial(accounts []models.Account, activeFolder string, emails []mo
 		@MailView(selectedEmail, selectedThread)
 	}
 	<div id="app-pane-dialogs"></div>
-	@MailCardLayoutScript()
+	@ComposeAccountData(accounts)
 }
 
 templ ContactsAppPartial(accounts []models.Account, contacts []models.Contact, selected *models.Contact, selectedProfile *models.ContactProfile, showNew bool, syncQueued bool, filters models.ContactFilters, totalCount int, uiSettings map[string]string) {
@@ -237,6 +233,7 @@ templ ContactsAppPartial(accounts []models.Account, contacts []models.Contact, s
 	<div id="app-pane-dialogs">
 		@ContactsImportDialog(accounts)
 	</div>
+	@ComposeAccountData(accounts)
 }
 
 templ ContactsLayout(accounts []models.Account, contacts []models.Contact, selected *models.Contact, selectedProfile *models.ContactProfile, showNew bool, syncQueued bool, filters models.ContactFilters, totalCount int, uiSettings map[string]string) {
@@ -265,6 +262,7 @@ templ ContactsLayout(accounts []models.Account, contacts []models.Contact, selec
 			@copybutton.Script()
 			@toast.Script()
 			@collapsible.Script()
+			@SettingsComponentScripts()
 			@AppSidebarResponsiveStyle()
 			<script src={ assetver.URL("/assets/js/actions.js") }></script>
 		</head>
@@ -276,15 +274,17 @@ templ ContactsLayout(accounts []models.Account, contacts []models.Contact, selec
 				@ComposeDialog(accounts)
 			@CalendarLoadingTemplates(accounts, uiSettings)
 			@AppSwitchEmptyPaneTemplates()
+			@AppNavigationTemplates(uiSettings)
+			@AppNavigationDialogs()
 			<script src={ assetver.URL("/assets/js/htmx.min.js") }></script>
 			<script src={ assetver.URL("/assets/js/mail-search.js") }></script>
 			<script src={ assetver.URL("/assets/js/virtual-scroll.js") }></script>
-			<script src={ assetver.URL("/assets/js/notification-avatar.js") }></script>
 			<script src={ assetver.URL("/assets/js/app.js") }></script>
 			<script src={ assetver.URL("/assets/js/settings.js") }></script>
 			<script src={ assetver.URL("/assets/js/settings-page.js") }></script>
 			<script src={ assetver.URL("/assets/js/ui-settings.js") }></script>
 			<script src={ assetver.URL("/assets/js/resize.js") }></script>
+			@AppNavigationScripts()
 			@AppDialogs()
 		</body>
 	</html>
@@ -413,7 +413,6 @@ templ FolderPartial(accounts []models.Account, emails []models.Email, activeFold
 			@MailViewEmpty()
 		}
 	</div>
-	@MailCardLayoutScript()
 }
 
 templ MailContentPartial(accounts []models.Account, emails []models.Email, activeFolder string, selectedEmail *models.Email, totalCount int, scrollCount int, selectedThread []models.ThreadItem, uiSettings map[string]string, initialEmailID string, windowStart int, filters models.EmailFilters) {
@@ -426,7 +425,6 @@ templ MailContentPartial(accounts []models.Account, emails []models.Email, activ
 			@MailView(selectedEmail, selectedThread)
 		}
 	</div>
-	@MailCardLayoutScript()
 }
 
 templ MailCardLayoutScript() {
@@ -437,13 +435,6 @@ templ SettingsPartial(accounts []models.Account, syncSettings models.SyncSetting
 	<div id="main-content" class="flex flex-1 min-w-0">
 		@SettingsPage(accounts, syncSettings, activeTab, uiSettings, signatureData)
 	</div>
-	@ChooseAccountTypeDialog()
-	@GmailAccountDialog()
-	@OutlookAccountDialog()
-	@AddAccountDialog()
-	@DAVAccountDialog(DAVAccountDialogData{Service: "calendar"})
-	@ChooseMailTypeDialog()
-	<div id="edit-account-container"></div>
 }
 
 templ AdminPartial(userData AdminUsersData, avatarStatus models.AvatarStatus, contactStatus models.ContactAdminStatus, labelStatus models.LabelAdminStatus, securityData models.MailSecurityAdminData, operationStatus models.MailOperationsAdminStatus, activeSection string, activeTab string, verification ...AdminSecurityVerificationData) {

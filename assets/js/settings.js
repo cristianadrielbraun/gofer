@@ -1839,6 +1839,9 @@ document.body.addEventListener("htmx:afterSwap", function (event) {
   var section = event.target
   var request = event.detail && event.detail.requestConfig
   if (!section || section.id !== "settings-content" || !request || request.verb !== "get") return
+  // A page the client mounted from its template already faded in; the real
+  // content replaces it in place instead of fading in a second time.
+  if (event.detail.xhr && event.detail.xhr.goferClientNavigation) return
   animateSectionContent(section)
 })
 

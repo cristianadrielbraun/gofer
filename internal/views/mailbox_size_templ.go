@@ -879,7 +879,7 @@ func accountMailboxSizeNumber(name, text string) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		if text == "" {
-			templ_7745c5c3_Err = skeleton.Skeleton(skeleton.Props{Class: "inline-block h-3 w-12 align-[-1px]"}).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = skeleton.Skeleton(skeleton.Props{Class: "inline-block h-3.5 w-11 align-[-2px]"}).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

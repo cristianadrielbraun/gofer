@@ -79,6 +79,15 @@ const saved = settings.request({href: '/settings/appearance'}, 'settings-content
 assert.equal(settings.response(nextSettings).defaultPrevented, false, 'Saving must not be mistaken for navigation')
 assert.equal(settings.response(saved).defaultPrevented, false)
 
+const client = harness()
+const background = client.request()
+const appPage = client.request({'data-client-page-request': ''}, 'mail-list')
+assert.equal(client.response(background).defaultPrevented, true, 'Client-mounted screens invalidate the previous page before any OOB swap')
+assert.equal(client.response(appPage).defaultPrevented, false)
+const settingsPage = client.request({'data-client-page-request': ''}, 'settings-content')
+assert.equal(client.response(appPage, 'htmx:beforeOnLoad').defaultPrevented, true, 'Late app panes must not overwrite Settings')
+assert.equal(client.response(settingsPage).defaultPrevented, false)
+
 const period = harness()
 const refresh = period.request()
 const nextPeriod = period.request({href: '/calendar?view=week&date=2026-10-12'})
