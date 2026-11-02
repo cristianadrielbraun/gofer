@@ -1566,6 +1566,11 @@ html[data-theme="classic"] .mail-list-search-input-wrap {
   --accent: color-mix(in oklab, var(--foreground) 14%, var(--muted));
 }
 
+/* Settings' folder and label rows need the same contrast on their background. */
+:root:not([data-theme="express"], [data-theme="custom"]) [data-folders-list] {
+  --accent: color-mix(in oklab, var(--foreground) 14%, var(--background));
+}
+
 /* A small gap between menu items, so a hovered item's highlight never touches
    the selected item's. */
 [data-tui-popover-content] :is(.select-item, [data-tui-dropdown-item], [data-tui-dropdown-submenu-trigger]):not(:first-child) {

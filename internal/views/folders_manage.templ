@@ -66,13 +66,13 @@ templ FoldersPanel(data models.FoldersData) {
 				}
 			}
 		</div>
-		<div class="max-h-[60vh] overflow-y-auto rounded-lg border border-border bg-background/60 p-1">
+		<div class="max-h-[60vh] overflow-y-auto rounded-lg border border-border bg-background/60 p-1" data-folders-list>
 			if data.Account.Provider == "gmail" {
 				if len(data.Labels) == 0 {
 					<p class="px-3 py-6 text-center text-sm text-muted-foreground">No labels yet.</p>
 				}
 				for _, label := range data.Labels {
-					<div class="flex items-center gap-2 rounded-md px-2.5 py-1.5 hover:bg-accent/50">
+					<div class="flex items-center gap-2 rounded-md px-2.5 py-1.5 hover:bg-accent">
 						<span class="flex size-5 shrink-0 items-center justify-center text-muted-foreground">
 							@TagAppearanceIcon(label)
 						</span>
@@ -107,7 +107,7 @@ func newFolderAction(provider string) string {
 // back out.
 templ foldersPanelRow(accountID string, folder models.Folder, depth int, inTrash bool) {
 	{{ custom := folder.Role == "custom" }}
-	<div class="flex items-center gap-2 rounded-md py-1.5 pr-1 hover:bg-accent/50" style={ mailMoveIndent(depth) }>
+	<div class="flex items-center gap-2 rounded-md py-1.5 pr-1 hover:bg-accent" style={ mailMoveIndent(depth) }>
 		<span class="flex size-5 shrink-0 items-center justify-center text-muted-foreground">
 			@FolderAppearanceIcon(folder)
 		</span>

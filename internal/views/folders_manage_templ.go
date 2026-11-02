@@ -306,7 +306,7 @@ func FoldersPanel(data models.FoldersData) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "</div><div class=\"max-h-[60vh] overflow-y-auto rounded-lg border border-border bg-background/60 p-1\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "</div><div class=\"max-h-[60vh] overflow-y-auto rounded-lg border border-border bg-background/60 p-1\" data-folders-list>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -318,7 +318,7 @@ func FoldersPanel(data models.FoldersData) templ.Component {
 				}
 			}
 			for _, label := range data.Labels {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "<div class=\"flex items-center gap-2 rounded-md px-2.5 py-1.5 hover:bg-accent/50\"><span class=\"flex size-5 shrink-0 items-center justify-center text-muted-foreground\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "<div class=\"flex items-center gap-2 rounded-md px-2.5 py-1.5 hover:bg-accent\"><span class=\"flex size-5 shrink-0 items-center justify-center text-muted-foreground\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -444,14 +444,14 @@ func foldersPanelRow(accountID string, folder models.Folder, depth int, inTrash 
 		}
 		ctx = templ.ClearChildren(ctx)
 		custom := folder.Role == "custom"
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 22, "<div class=\"flex items-center gap-2 rounded-md py-1.5 pr-1 hover:bg-accent/50\" style=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 22, "<div class=\"flex items-center gap-2 rounded-md py-1.5 pr-1 hover:bg-accent\" style=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var18 string
 		templ_7745c5c3_Var18, templ_7745c5c3_Err = templruntime.SanitizeStyleAttributeValues(mailMoveIndent(depth))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folders_manage.templ`, Line: 110, Col: 109}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/folders_manage.templ`, Line: 110, Col: 106}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var18))
 		if templ_7745c5c3_Err != nil {
