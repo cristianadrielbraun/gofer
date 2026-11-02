@@ -229,7 +229,8 @@ templ CalendarSidebarContent(accounts []models.Account, loading bool) {
 }
 
 // CalendarImportDialog imports an .ics file's events into a synced CalDAV
-// calendar, or into a new calendar on a CalDAV account, named from the file.
+// calendar, or into a new calendar on an account that syncs calendars, named
+// from the file.
 templ CalendarImportDialog(accounts []models.Account) {
 	{{ calendars := calendarTransferCalendars(accounts, true) }}
 	{{ targets := calendarTransferNewTargets(accounts) }}
@@ -244,7 +245,7 @@ templ CalendarImportDialog(accounts []models.Account) {
 				}
 			}
 			if len(calendars) == 0 && len(targets) == 0 {
-				<p class="text-sm text-muted-foreground">Import needs an account that syncs calendars over CalDAV. Add one in Accounts.</p>
+				<p class="text-sm text-muted-foreground">Import needs an account that syncs calendars. Add one in Accounts.</p>
 				@dialog.Footer() {
 					@dialog.Close(dialog.CloseProps{For: "calendar-import-dialog"}) {
 						<button type="button" class="inline-flex h-9 items-center justify-center rounded-md border border-border px-3 text-sm font-semibold text-muted-foreground hover:bg-accent hover:text-foreground">Close</button>
@@ -270,7 +271,7 @@ templ CalendarImportDialog(accounts []models.Account) {
 									}
 								}
 								for i, choice := range targets {
-									@selectbox.Item(selectbox.ItemProps{Value: choice.Value, Selected: len(calendars) == 0 && i == 0}) {
+									@selectbox.Item(selectbox.ItemProps{Value: choice.Value, Disabled: choice.Disabled, Selected: len(calendars) == 0 && i == calendarTransferFirstTarget(targets)}) {
 										{ choice.Label }
 									}
 								}

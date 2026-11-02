@@ -46,3 +46,31 @@ func TestCalendarTransferDialogs(t *testing.T) {
 		t.Error("export offers the wrong calendars: read-only ones belong too, feeds don't")
 	}
 }
+
+// A new calendar on an account whose sign-in can't make calendars is shown
+// but can't be picked, nor is it picked first.
+func TestCalendarImportDialogNeedsReconnectForNewCalendar(t *testing.T) {
+	option := func(reconnect bool) string {
+		t.Helper()
+		accounts := []models.Account{{ID: "g1", Name: "Robin", Email: "robin@example.com", Provider: "gmail", CalendarSyncEnabled: true, CalendarCreateNeedsReconnect: reconnect,
+			OtherCalendarSources: []models.AccountCalendarSource{{ID: "s1", Name: "Holidays", Provider: "gmail", AccessRole: "reader"}}}}
+		var out bytes.Buffer
+		if err := CalendarImportDialog(accounts).Render(t.Context(), &out); err != nil {
+			t.Fatal(err)
+		}
+		page := out.String()
+		end := strings.Index(page, `data-tui-selectbox-value="account:g1"`)
+		if end < 0 {
+			t.Fatal("no new calendar offered")
+		}
+		start := strings.LastIndex(page[:end], "<div")
+		tag := page[start:]
+		return tag[:strings.Index(tag, ">")]
+	}
+	if got := option(true); !strings.Contains(got, `data-tui-selectbox-disabled="true"`) || !strings.Contains(got, `data-tui-selectbox-selected="false"`) {
+		t.Errorf("the new calendar on an account that needs a reconnect can be picked: %s", got)
+	}
+	if got := option(false); !strings.Contains(got, `data-tui-selectbox-disabled="false"`) || !strings.Contains(got, `data-tui-selectbox-selected="true"`) {
+		t.Errorf("the new calendar on an account that can make calendars isn't picked: %s", got)
+	}
+}

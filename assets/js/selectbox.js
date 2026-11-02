@@ -198,10 +198,12 @@
 
     // Required single-selects retain a value during initialization and reset.
     if (!isMultiple && trigger.getAttribute('data-tui-selectbox-required') === 'true' && selectedItems.length === 0) {
-      const items = Array.from(content.querySelectorAll('.select-item'));
+      const items = Array.from(content.querySelectorAll('.select-item')).filter(
+        item => item.getAttribute('data-tui-selectbox-disabled') !== 'true'
+      );
       const initialValue = hiddenInput?.value || hiddenInput?.defaultValue;
       const item = items.find(item => item.getAttribute('data-tui-selectbox-value') === initialValue) ||
-        items.find(item => item.getAttribute('data-tui-selectbox-disabled') !== 'true') || items[0];
+        items[0];
       if (item) {
         item.setAttribute('data-tui-selectbox-selected', 'true');
         selectedItems = [item];

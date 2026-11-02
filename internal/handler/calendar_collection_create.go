@@ -185,13 +185,24 @@ func (h *Handler) markUserCalendarCreateAccess(ctx context.Context, owner string
 // grants only.
 func (h *Handler) markCalendarFullAccess(ctx context.Context, userID string, accounts []models.Account) {
 	for i := range accounts {
-		if accounts[i].Provider != providers.ProviderGmail || len(accounts[i].CalendarSources) == 0 {
+		account := &accounts[i]
+		if (account.Provider != providers.ProviderGmail && account.Provider != providers.ProviderOutlook) || len(account.CalendarSources)+len(account.OtherCalendarSources) == 0 {
+			continue
+		}
+		// Whether it can make calendars, for the import's new calendar.
+		account.CalendarCreateNeedsReconnect = calendarCreateAccess(account.Provider, func() bool {
+			if h.userCredentials != nil {
+				return h.userCredentials.CalendarCreateAuthorizedForUser(ctx, userID, account.ID)
+			}
+			return h.mailCredentials() != nil && h.mailCredentials().CalendarCreateAuthorized(ctx, account.ID, account.Provider)
+		}) == models.CalendarCreateNeedsReconnect
+		if account.Provider != providers.ProviderGmail || len(account.CalendarSources) == 0 {
 			continue
 		}
 		if h.userCredentials != nil {
-			accounts[i].CalendarFullAccess = h.userCredentials.GoogleCalendarFullAccessForUser(ctx, userID, accounts[i].ID)
+			account.CalendarFullAccess = h.userCredentials.GoogleCalendarFullAccessForUser(ctx, userID, account.ID)
 		} else if h.mailCredentials() != nil {
-			accounts[i].CalendarFullAccess = h.mailCredentials().GoogleCalendarFullAccess(ctx, accounts[i].ID)
+			account.CalendarFullAccess = h.mailCredentials().GoogleCalendarFullAccess(ctx, account.ID)
 		}
 	}
 }

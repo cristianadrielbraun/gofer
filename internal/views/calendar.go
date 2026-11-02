@@ -622,7 +622,13 @@ func calendarTransferNewTargets(accounts []models.Account) []calendarTransferCho
 			}
 		}
 		if syncs {
-			choices = append(choices, calendarTransferChoice{Value: "account:" + account.ID, Label: "New calendar in " + calendarAccountDisplayName(account)})
+			choice := calendarTransferChoice{Value: "account:" + account.ID, Label: "New calendar in " + calendarAccountDisplayName(account)}
+			if account.CalendarCreateNeedsReconnect {
+				// Its sign-in can't make calendars until it is reconnected.
+				choice.Label += " (reconnect the account first)"
+				choice.Disabled = true
+			}
+			choices = append(choices, choice)
 		}
 	}
 	return choices
@@ -631,4 +637,16 @@ func calendarTransferNewTargets(accounts []models.Account) []calendarTransferCho
 // calendarTransferChoice is one option in the import or export dialog.
 type calendarTransferChoice struct {
 	Value, Label, SourceID string
+	Disabled               bool
+}
+
+// calendarTransferFirstTarget is the first new calendar the import can
+// make, -1 when there is none.
+func calendarTransferFirstTarget(targets []calendarTransferChoice) int {
+	for i, target := range targets {
+		if !target.Disabled {
+			return i
+		}
+	}
+	return -1
 }

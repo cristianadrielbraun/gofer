@@ -55,6 +55,9 @@ type Account struct {
 	// CalendarFullAccess is set for a Google account that allowed Gofer to
 	// manage all its calendars, not only the ones Gofer created.
 	CalendarFullAccess bool
+	// CalendarCreateNeedsReconnect is set for a Google or Microsoft account
+	// whose sign-in is from before Gofer asked to make calendars.
+	CalendarCreateNeedsReconnect bool
 }
 
 // AccountCalendarSource is sidebar metadata, not account sync configuration.
