@@ -147,6 +147,7 @@ const outlookImportTestFile = "BEGIN:VCALENDAR\r\n" +
 	"DTEND;TZID=Europe/Paris:20260105T203000\r\n" +
 	"RRULE:FREQ=WEEKLY;COUNT=4\r\n" +
 	"EXDATE;TZID=Europe/Paris:20260119T190000\r\n" +
+	"RDATE;TZID=Europe/Paris:20260108T190000,20260105T190000\r\n" +
 	"SUMMARY:Choir\r\n" +
 	"TRANSP:TRANSPARENT\r\n" +
 	"ATTENDEE:mailto:sam@example.com\r\n" +
@@ -306,7 +307,13 @@ func TestOutlookCalendarImportThenExport(t *testing.T) {
 	if choir["isReminderOn"] != true || choir["reminderMinutesBeforeStart"] != float64(1440) {
 		t.Errorf("reminder imported as %v %v, want the earliest, a day before", choir["isReminderOn"], choir["reminderMinutesBeforeStart"])
 	}
-	if _, ok := fake.events[1]["isReminderOn"]; ok {
+	if extra := fake.events[1]; extra["subject"] != "Choir" || extra["recurrence"] != nil || extra["start"].(map[string]any)["dateTime"] != "2026-01-08T19:00:00" || extra["end"].(map[string]any)["dateTime"] != "2026-01-08T20:30:00" {
+		t.Errorf("the series' extra date imported as %v", extra)
+	}
+	if len(fake.events) != 3 {
+		t.Errorf("imported %d events, want the series, its one extra date and the market", len(fake.events))
+	}
+	if _, ok := fake.events[2]["isReminderOn"]; ok {
 		t.Error("an event without alarms didn't get the calendar's reminder")
 	}
 	if body := choir["body"].(map[string]any)["content"]; body != "Guests: sam@example.com" {
@@ -324,14 +331,14 @@ func TestOutlookCalendarImportThenExport(t *testing.T) {
 	if !fake.deleted["e0-2"] || fake.changed["e0-1"]["subject"] != "Choir (late)" || len(fake.deleted) != 1 || len(fake.changed) != 1 {
 		t.Errorf("series dates: deleted %v, changed %v", fake.deleted, fake.changed)
 	}
-	market := fake.events[1]
+	market := fake.events[2]
 	if market["isAllDay"] != true || market["sensitivity"] != "private" || market["start"].(map[string]any)["dateTime"] != "2026-03-07T00:00:00" || market["end"].(map[string]any)["dateTime"] != "2026-03-08T00:00:00" {
 		t.Errorf("all-day event imported as %v", market)
 	}
 
 	fake.requests = 0
 	result, err = importCalendarEvents(t.Context(), source, credentials, resources, nil)
-	if err != nil || result.Existing != 2 || result.Failed != 1 || len(fake.events) != 2 || fake.requests != 1 {
+	if err != nil || result.Existing != 2 || result.Failed != 1 || len(fake.events) != 3 || fake.requests != 1 {
 		t.Fatalf("second import = %+v, %v, %d events", result, err, len(fake.events))
 	}
 
@@ -345,8 +352,8 @@ func TestOutlookCalendarImportThenExport(t *testing.T) {
 			t.Errorf("export lacks %q:\n%s", want, exported)
 		}
 	}
-	if strings.Count(exported, "BEGIN:VEVENT") != 3 {
-		t.Errorf("export has %d events, want the series, its changed date and the market:\n%s", strings.Count(exported, "BEGIN:VEVENT"), exported)
+	if strings.Count(exported, "BEGIN:VEVENT") != 4 || !strings.Contains(exported, "UID:choir#rdate-20260108T180000Z") {
+		t.Errorf("export has %d events, want the series, its changed date, its extra date and the market:\n%s", strings.Count(exported, "BEGIN:VEVENT"), exported)
 	}
 }
 
@@ -446,5 +453,35 @@ func TestOutlookImportDescriptionNamesTheMeetingsPeople(t *testing.T) {
 	}
 	if got := outlookImportDescription(resources[1].Events()[0].Component); got != "" {
 		t.Errorf("an event with only an organizer got %q", got)
+	}
+}
+
+// An extra date the file changed comes in as its changed copy, and one the
+// file deleted doesn't come in; neither is looked for in the series.
+func TestOutlookImportChangedAndDeletedExtraDates(t *testing.T) {
+	fake := &fakeOutlookCalendar{token: "token", deleted: map[string]bool{}, changed: map[string]map[string]any{}}
+	server := httptest.NewServer(fake)
+	defer server.Close()
+	prior := outlookGraphBaseURL
+	outlookGraphBaseURL = server.URL
+	defer func() { outlookGraphBaseURL = prior }()
+	file := "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:x\r\n" +
+		"BEGIN:VEVENT\r\nUID:yoga\r\nDTSTAMP:20260101T000000Z\r\nDTSTART:20260105T080000Z\r\nDTEND:20260105T090000Z\r\nRRULE:FREQ=WEEKLY;COUNT=2\r\n" +
+		"RDATE:20260108T080000Z,20260110T080000Z\r\nEXDATE:20260110T080000Z\r\nSUMMARY:Yoga\r\nEND:VEVENT\r\n" +
+		"BEGIN:VEVENT\r\nUID:yoga\r\nDTSTAMP:20260101T000000Z\r\nRECURRENCE-ID:20260108T080000Z\r\nDTSTART:20260109T100000Z\r\nDTEND:20260109T110000Z\r\nSUMMARY:Yoga outside\r\nEND:VEVENT\r\n" +
+		"END:VCALENDAR\r\n"
+	resources, err := calendarImportResources([]byte(file))
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := importCalendarEvents(t.Context(), storage.CalendarSource{Provider: "outlook", RemoteID: "cal"}, calendarCredentials{token: "token"}, resources, nil)
+	if err != nil || result != (calendarImportResult{Added: 1}) {
+		t.Fatalf("import = %+v, %v", result, err)
+	}
+	if len(fake.events) != 2 || len(fake.changed) != 0 || len(fake.deleted) != 0 || fake.requests != 3 {
+		t.Fatalf("events %v, changed %v, deleted %v", fake.events, fake.changed, fake.deleted)
+	}
+	if extra := fake.events[1]; extra["subject"] != "Yoga outside" || extra["start"].(map[string]any)["dateTime"] != "2026-01-09T10:00:00" {
+		t.Errorf("the changed extra date imported as %v", extra)
 	}
 }

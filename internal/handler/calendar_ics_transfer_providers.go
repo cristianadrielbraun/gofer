@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -970,7 +971,56 @@ func importOutlookCalendarEvent(ctx context.Context, token, remoteCalendarID str
 	events := outlookGraphBaseURL + "/me/calendars/" + url.PathEscape(remoteCalendarID) + "/events"
 	payload := outlookImportPayload(*series)
 	payload["singleValueExtendedProperties"] = []map[string]string{{"id": outlookImportUIDProperty, "value": series.uid}}
-	var excluded []calendarImportTime
+	readDates := func(name string) []calendarImportTime {
+		var dates []calendarImportTime
+		for _, prop := range series.component.Props[name] {
+			if strings.EqualFold(prop.Params.Get(ical.ParamValue), "PERIOD") {
+				continue
+			}
+			for _, value := range strings.Split(prop.Value, ",") {
+				date := prop
+				date.Value = strings.TrimSpace(value)
+				if at, err := readCalendarImportTime(&date); err == nil {
+					dates = append(dates, at)
+				}
+			}
+		}
+		return dates
+	}
+	excluded := readDates(ical.PropExceptionDates)
+	// Microsoft's series have no extra dates, so each is an event of its
+	// own, as the date's changed copy has it when the file has one, unless
+	// the file deleted it.
+	var extra []calendarImportEvent
+	for _, at := range readDates(ical.PropRecurrenceDates) {
+		deleted := false
+		excluded = slices.DeleteFunc(excluded, func(other calendarImportTime) bool {
+			// Not a date of the series to delete from it.
+			same := calendarImportSameTime(at, other)
+			deleted = deleted || same
+			return same
+		})
+		if deleted || calendarImportSameTime(at, series.start) {
+			continue // One the file deleted, or the series' own first date.
+		}
+		event := *series
+		event.start, event.end = at, at
+		event.end.at = at.at.Add(series.end.at.Sub(series.start.at))
+		event.end.date = event.end.at.Format("2006-01-02")
+		cancelled := false
+		changed = slices.DeleteFunc(changed, func(date calendarImportEvent) bool {
+			if !calendarImportSameTime(*date.recurrenceID, at) {
+				return false
+			}
+			event = date
+			cancelled = strings.EqualFold(calendarImportText(date.component, ical.PropStatus), "CANCELLED")
+			return true
+		})
+		if !cancelled {
+			event.recurrenceID = &at
+			extra = append(extra, event)
+		}
+	}
 	if rules := series.component.Props[ical.PropRecurrenceRule]; len(rules) > 0 {
 		if len(rules) > 1 {
 			return calendarTransferProblem("Microsoft calendars can't repeat an event by more than one rule")
@@ -983,17 +1033,8 @@ func importOutlookCalendarEvent(ctx context.Context, token, remoteCalendarID str
 			recurrence["range"].(map[string]any)["recurrenceTimeZone"] = "UTC"
 		}
 		payload["recurrence"] = recurrence
-		for _, prop := range series.component.Props[ical.PropExceptionDates] {
-			for _, value := range strings.Split(prop.Value, ",") {
-				date := prop
-				date.Value = strings.TrimSpace(value)
-				if at, err := readCalendarImportTime(&date); err == nil {
-					excluded = append(excluded, at)
-				}
-			}
-		}
 	} else {
-		changed = nil
+		changed, excluded = nil, nil
 	}
 	var created struct {
 		ID string `json:"id"`
@@ -1025,7 +1066,31 @@ func importOutlookCalendarEvent(ctx context.Context, token, remoteCalendarID str
 			log.Printf("calendar import: Microsoft changed date of %s: %v", series.uid, err)
 		}
 	}
+	for _, date := range extra {
+		// Each under a UID of its own, so a second import finds it.
+		uid := series.uid + "#rdate-" + date.recurrenceID.date
+		if !date.recurrenceID.allDay {
+			uid = series.uid + "#rdate-" + date.recurrenceID.at.UTC().Format("20060102T150405Z")
+		}
+		payload := outlookImportPayload(date)
+		payload["singleValueExtendedProperties"] = []map[string]string{{"id": outlookImportUIDProperty, "value": uid}}
+		if err := calendarProviderJSON(ctx, http.MethodPost, events, token, payload, nil); err != nil {
+			if calendarImportAborts(err) {
+				return err
+			}
+			log.Printf("calendar import: Microsoft extra date of %s: %v", series.uid, err)
+		}
+	}
 	return nil
+}
+
+// calendarImportSameTime says whether two dates of a series are the same
+// one: the same day for all-day ones, the same moment otherwise.
+func calendarImportSameTime(a, b calendarImportTime) bool {
+	if a.allDay || b.allDay {
+		return a.at.Format("2006-01-02") == b.at.Format("2006-01-02")
+	}
+	return a.at.Equal(b.at)
 }
 
 // outlookImportChangeDate changes one date of a series, or deletes it when
