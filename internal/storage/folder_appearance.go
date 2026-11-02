@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"strings"
 
@@ -9,26 +10,54 @@ import (
 )
 
 var ErrFolderColor = errors.New("choose a valid folder color")
+var ErrFolderIcon = errors.New("choose an available icon for a custom folder")
 
-// SetFolderColor keeps personal appearance outside provider-owned folder data.
-// Ownership and active state are checked in the write itself.
+// SetFolderColor preserves an existing icon preference for color-only callers.
 func (db *DB) SetFolderColor(ctx context.Context, owner, folderID, color string) error {
+	return db.SetFolderAppearance(ctx, owner, folderID, color, nil)
+}
+
+// SetFolderAppearance keeps personal appearance outside provider-owned data.
+// A nil icon leaves the current icon preference unchanged; an empty icon resets it.
+// The role and ownership are checked in the same transaction as both preferences.
+func (db *DB) SetFolderAppearance(ctx context.Context, owner, folderID, color string, icon *string) error {
 	if !models.ValidFolderColor(color) {
 		return ErrFolderColor
 	}
-	result, err := db.Write().ExecContext(ctx, `INSERT INTO app_settings (user_id, key, value, updated_at)
-		SELECT a.user_id, 'folder_color:' || f.id, ?, CURRENT_TIMESTAMP
-		FROM folders f JOIN accounts a ON a.id = f.account_id
-		WHERE f.id = ? AND a.user_id = ? AND COALESCE(a.is_deleting, 0) = 0
-		AND COALESCE(f.discovery_state, 'active') = 'active' AND COALESCE(f.selectable, 1) = 1
-		ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
-		strings.ToLower(color), folderID, owner)
+	if icon != nil && !models.ValidFolderIcon(*icon) {
+		return ErrFolderIcon
+	}
+	tx, err := db.Write().BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	changed, err := result.RowsAffected()
-	if err == nil && changed == 0 {
+	defer tx.Rollback()
+	var role string
+	err = tx.QueryRowContext(ctx, `SELECT f.role FROM folders f JOIN accounts a ON a.id = f.account_id
+		WHERE f.id = ? AND a.user_id = ? AND COALESCE(a.is_deleting, 0) = 0
+		AND COALESCE(f.discovery_state, 'active') = 'active' AND COALESCE(f.selectable, 1) = 1`, folderID, owner).Scan(&role)
+	if errors.Is(err, sql.ErrNoRows) {
 		return ErrFolderNotManaged
 	}
-	return err
+	if err != nil {
+		return err
+	}
+	if icon != nil && role != "custom" {
+		return ErrFolderIcon
+	}
+	set := func(key, value string) error {
+		_, err := tx.ExecContext(ctx, `INSERT INTO app_settings (user_id, key, value, updated_at)
+			VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+			ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`, owner, key+folderID, value)
+		return err
+	}
+	if err := set("folder_color:", strings.ToLower(color)); err != nil {
+		return err
+	}
+	if icon != nil {
+		if err := set("folder_icon:", *icon); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }

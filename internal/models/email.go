@@ -83,14 +83,15 @@ type AccountCalendarSource struct {
 }
 
 type Folder struct {
-	ID       string
-	Name     string
-	Icon     string
-	Color    string
-	Role     string
-	Unread   int
-	IsSystem bool
-	Children []Folder
+	ID           string
+	Name         string
+	Icon         string
+	IconOverride string
+	Color        string
+	Role         string
+	Unread       int
+	IsSystem     bool
+	Children     []Folder
 }
 
 type Email struct {

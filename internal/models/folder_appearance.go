@@ -15,3 +15,51 @@ func ValidFolderColor(color string) bool {
 	}
 	return true
 }
+
+// FolderIconChoice is an outlined symbol available for a custom folder.
+type FolderIconChoice struct {
+	Name string
+	Icon string
+}
+
+// FolderIconChoices is shared by the picker and server-side validation.
+var FolderIconChoices = [...]FolderIconChoice{
+	{Name: "Work", Icon: "briefcase-business"},
+	{Name: "Home", Icon: "house"},
+	{Name: "People", Icon: "users"},
+	{Name: "Heart", Icon: "heart"},
+	{Name: "Bookmark", Icon: "bookmark"},
+	{Name: "Flag", Icon: "flag"},
+	{Name: "Tag", Icon: "tag"},
+	{Name: "Document", Icon: "file-text"},
+	{Name: "Education", Icon: "graduation-cap"},
+	{Name: "Wallet", Icon: "wallet"},
+	{Name: "Receipt", Icon: "receipt"},
+	{Name: "Shopping", Icon: "shopping-bag"},
+	{Name: "Travel", Icon: "plane"},
+	{Name: "Camera", Icon: "camera"},
+	{Name: "Code", Icon: "code-xml"},
+	{Name: "Tools", Icon: "wrench"},
+	{Name: "Ideas", Icon: "lightbulb"},
+}
+
+// ValidFolderIcon allows the provider's default or one of the curated symbols.
+func ValidFolderIcon(name string) bool {
+	if name == "" {
+		return true
+	}
+	for _, choice := range FolderIconChoices {
+		if choice.Icon == name {
+			return true
+		}
+	}
+	return false
+}
+
+// CustomFolderIcon ignores overrides when a folder gains a reserved role.
+func CustomFolderIcon(folder Folder) string {
+	if folder.Role == "custom" && ValidFolderIcon(folder.IconOverride) {
+		return folder.IconOverride
+	}
+	return ""
+}

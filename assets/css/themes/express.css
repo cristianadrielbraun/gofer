@@ -2732,3 +2732,11 @@ html:root[data-theme="express"] :is([data-calendar-month-event], [data-calendar-
 [data-theme="express"] [data-folder-appearance-icon] {
   color: inherit !important;
 }
+
+[data-theme="express"] [data-folder-custom-icon] {
+  display: none;
+}
+
+[data-theme="express"] [data-folder-customized] > [data-folder-default-icon] {
+  display: inline-flex;
+}

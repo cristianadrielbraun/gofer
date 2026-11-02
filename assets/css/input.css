@@ -7574,3 +7574,8 @@ aside a[data-mail-drop-active] {
     display: none;
   }
 }
+
+/* Keep the provider symbol available for Reset and themes with fixed artwork. */
+[data-folder-customized] > [data-folder-default-icon] {
+  display: none;
+}

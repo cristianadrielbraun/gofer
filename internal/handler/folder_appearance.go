@@ -55,10 +55,10 @@ func (h *Handler) handleSaveFolderAppearance(w http.ResponseWriter, r *http.Requ
 		http.Error(w, "Invalid appearance.", http.StatusBadRequest)
 		return
 	}
-	// This slice only accepts color. Symbols remain controlled by folder roles.
+	// Only curated icons can be selected, and the storage write checks the current role.
 	for key := range r.PostForm {
-		if key != "color" {
-			http.Error(w, "Only folder color can be changed.", http.StatusBadRequest)
+		if key != "color" && key != "icon" {
+			http.Error(w, "Invalid folder appearance.", http.StatusBadRequest)
 			return
 		}
 	}
@@ -67,15 +67,23 @@ func (h *Handler) handleSaveFolderAppearance(w http.ResponseWriter, r *http.Requ
 		http.Error(w, "Choose a valid folder color.", http.StatusBadRequest)
 		return
 	}
+	var icon *string
+	if icons, present := r.PostForm["icon"]; present {
+		if len(icons) != 1 || !models.ValidFolderIcon(icons[0]) {
+			http.Error(w, "Choose an available folder icon.", http.StatusBadRequest)
+			return
+		}
+		icon = &icons[0]
+	}
 	ctx := r.Context()
 	owner := h.userID(ctx)
 	folder, _, err := h.managedFolder(ctx, owner, r.PathValue("id"))
 	if err == nil {
 		err = h.withProfileAccount(ctx, owner, folder.AccountID, func(_ *config.AccountStore, db *storage.DB) error {
-			return db.SetFolderColor(ctx, owner, folder.ID, colors[0])
+			return db.SetFolderAppearance(ctx, owner, folder.ID, colors[0], icon)
 		})
 	}
-	if errors.Is(err, storage.ErrFolderColor) {
+	if errors.Is(err, storage.ErrFolderColor) || errors.Is(err, storage.ErrFolderIcon) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -83,5 +91,9 @@ func (h *Handler) handleSaveFolderAppearance(w http.ResponseWriter, r *http.Requ
 		writeFolderError(w, r, "save folder appearance", err)
 		return
 	}
-	writeFolderJSON(w, map[string]string{"id": folder.ID, "account_id": folder.AccountID, "color": strings.ToLower(colors[0])})
+	result := map[string]string{"id": folder.ID, "account_id": folder.AccountID, "color": strings.ToLower(colors[0])}
+	if icon != nil {
+		result["icon"] = *icon
+	}
+	writeFolderJSON(w, result)
 }

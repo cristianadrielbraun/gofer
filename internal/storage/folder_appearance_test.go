@@ -3,6 +3,8 @@ package storage
 import (
 	"errors"
 	"testing"
+
+	"github.com/cristianadrielbraun/gofer/internal/models"
 )
 
 func TestFolderColorSurvivesProviderUpdatesAndNesting(t *testing.T) {
@@ -45,5 +47,48 @@ func TestFolderColorSurvivesProviderUpdatesAndNesting(t *testing.T) {
 	}
 	if err := db.SetFolderColor(ctx, "default", "acc_dunes", "#ef4444"); !errors.Is(err, ErrFolderNotManaged) {
 		t.Fatalf("inactive write = %v", err)
+	}
+}
+
+func TestFolderIconSurvivesSyncAndCannotOverrideNewRole(t *testing.T) {
+	db := seedManagedFolders(t)
+	ctx := t.Context()
+	icon := "briefcase-business"
+	if err := db.SetFolderAppearance(ctx, "default", "acc_dunes", "#3b82f6", &icon); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.UpsertFolders(ctx, []UpsertFolderInput{
+		{ID: "acc_dunes", AccountID: "acc", ParentID: "acc_coast", RemoteID: "Trips/Coast/Dunes", Name: "Work", Icon: "folder", Role: "custom", Selectable: true},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	get := func() models.Folder {
+		tree, err := db.AccountFolderTree(ctx, "acc")
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, f := range tree {
+			if f.ID == "acc_trips" {
+				return f.Children[0].Children[0]
+			}
+		}
+		t.Fatal("nested folder missing")
+		return models.Folder{}
+	}
+	f := get()
+	if f.Icon != "folder" || models.CustomFolderIcon(f) != icon || f.Color != "#3b82f6" {
+		t.Fatalf("sync overwrote appearance: %+v", f)
+	}
+	if _, err := db.Write().ExecContext(ctx, `UPDATE folders SET role='archive', icon='archive' WHERE id='acc_dunes'`); err != nil {
+		t.Fatal(err)
+	}
+	if f := get(); models.CustomFolderIcon(f) != "" || f.Icon != "archive" {
+		t.Fatalf("role icon overridden: %+v", f)
+	}
+	if err := db.SetFolderAppearance(ctx, "default", "acc_dunes", "#ef4444", &icon); !errors.Is(err, ErrFolderIcon) {
+		t.Fatalf("role write = %v", err)
+	}
+	if f := get(); f.Color != "#3b82f6" {
+		t.Fatalf("refused icon write changed color: %+v", f)
 	}
 }

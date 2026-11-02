@@ -589,11 +589,31 @@
   var request = 0
   var saving = false
 
-  function preview(form, color) {
+  function applyFolderSymbol(icon, symbol) {
+    var previous = icon.querySelector("[data-folder-custom-icon]")
+    if (previous) previous.remove()
+    icon.toggleAttribute("data-folder-customized", !!symbol)
+    if (symbol) {
+      var custom = document.createElement("span")
+      custom.className = "inline-flex"
+      custom.setAttribute("data-folder-custom-icon", "")
+      custom.appendChild(symbol.cloneNode(true))
+      icon.appendChild(custom)
+    }
+  }
+
+  function selectedFolderSymbol(choice) {
+    return choice && choice.value ? choice.closest("label").querySelector("svg").cloneNode(true) : null
+  }
+
+  function preview(form) {
     var icon = form.querySelector("[data-folder-appearance-icon]")
     if (!icon) return
-    icon.style.color = color
-    icon.toggleAttribute("data-folder-color", !!color)
+    var color = form.querySelector('input[name="color"]:checked')
+    icon.style.color = color ? color.value : ""
+    icon.toggleAttribute("data-folder-color", !!(color && color.value))
+    var choice = form.querySelector('input[name="icon"]:checked')
+    if (choice) applyFolderSymbol(icon, selectedFolderSymbol(choice))
   }
 
   window.goferOpenFolderAppearance = function (target) {
@@ -615,7 +635,7 @@
 
   document.addEventListener("change", function (event) {
     var form = event.target.closest("[data-folder-appearance-form]")
-    if (form && event.target.name === "color") preview(form, event.target.value)
+    if (form && (event.target.name === "color" || event.target.name === "icon")) preview(form)
   })
 
   document.addEventListener("click", function (event) {
@@ -623,7 +643,9 @@
     if (!reset) return
     var form = reset.closest("form")
     form.querySelector('input[name="color"][value=""]').checked = true
-    preview(form, "")
+    var defaultIcon = form.querySelector('input[name="icon"][value=""]')
+    if (defaultIcon) defaultIcon.checked = true
+    preview(form)
   })
 
   document.addEventListener("submit", function (event) {
@@ -636,22 +658,26 @@
     var error = form.querySelector("[data-folder-appearance-error]")
     var save = form.querySelector("[data-folder-appearance-save]")
     var color = chosen.value
+    var chosenIcon = form.querySelector('input[name="icon"]:checked')
+    var symbol = selectedFolderSymbol(chosenIcon)
     var token = request
     error.hidden = true
     saving = true
     save.disabled = true
     save.textContent = "Saving…"
     var fields = new URLSearchParams({ color: color })
+    if (chosenIcon) fields.set("icon", chosenIcon.value)
     fetch("/api/folders/" + encodeURIComponent(form.dataset.folderId) + "/appearance", {
       method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" }, body: fields.toString(),
     }).then(function (response) {
-      if (!response.ok) throw new Error(response.status === 404 ? "This folder is no longer available." : "Couldn't save the color. Try again.")
+      if (!response.ok) throw new Error(response.status === 404 ? "This folder is no longer available." : "Couldn't save folder appearance. Try again.")
       return response.json()
     }).then(function (data) {
       document.querySelectorAll("[data-folder-appearance-icon]").forEach(function (icon) {
         if (icon.getAttribute("data-folder-appearance-icon") !== data.id) return
         icon.style.color = data.color
         icon.toggleAttribute("data-folder-color", !!data.color)
+        if (chosenIcon) applyFolderSymbol(icon, symbol)
       })
       if (token === request) window.tui.dialog.close("folder-appearance-dialog")
       if (window.goferRefreshSidebarAccount) window.goferRefreshSidebarAccount(data.account_id)

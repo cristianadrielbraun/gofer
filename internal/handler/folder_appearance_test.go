@@ -67,3 +67,83 @@ func TestFolderAppearanceOwnershipValidationAndPersistence(t *testing.T) {
 		t.Fatalf("deleting account GET = %d", got)
 	}
 }
+
+func TestCustomFolderIconPickerAndRoleProtection(t *testing.T) {
+	h, db := newAccountOwnershipTestHandler(t)
+	ctx := t.Context()
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO folders (id, account_id, remote_id, name, icon, role, selectable) VALUES
+		('icon-projects', 'victim-account', 'Projects', 'Projects', 'folder', 'custom', 1),
+		('icon-inbox', 'victim-account', 'INBOX', 'Inbox', 'inbox', 'inbox', 1)`); err != nil {
+		t.Fatal(err)
+	}
+	id := map[string]string{"id": "icon-projects"}
+	get := func() string {
+		rec := identityRequest(t, h, h.handleFolderAppearance, http.MethodGet, "/", id, nil, true)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("GET = %d: %s", rec.Code, rec.Body.String())
+		}
+		return rec.Body.String()
+	}
+	if body := get(); strings.Count(body, `name="icon"`) != 18 || !strings.Contains(body, `aria-label="Default icon"`) {
+		t.Fatalf("custom picker = %s", body)
+	}
+	for _, tc := range []struct {
+		name   string
+		form   url.Values
+		owner  bool
+		status int
+	}{
+		{"unknown icon", url.Values{"color": {"#3b82f6"}, "icon": {"missing-icon"}}, true, http.StatusBadRequest},
+		{"SVG injection", url.Values{"color": {"#3b82f6"}, "icon": {`<svg onload="alert(1)">`}}, true, http.StatusBadRequest},
+		{"duplicate icon", url.Values{"color": {"#3b82f6"}, "icon": {"heart", "flag"}}, true, http.StatusBadRequest},
+		{"foreign icon write", url.Values{"color": {"#3b82f6"}, "icon": {"heart"}}, false, http.StatusNotFound},
+		{"custom icon", url.Values{"color": {"#3b82f6"}, "icon": {"heart"}}, true, http.StatusOK},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := identityRequest(t, h, h.handleSaveFolderAppearance, http.MethodPost, "/", id, tc.form, tc.owner)
+			if rec.Code != tc.status {
+				t.Fatalf("POST = %d: %s", rec.Code, rec.Body.String())
+			}
+		})
+	}
+	if body := get(); !strings.Contains(body, `value="heart" checked`) || !strings.Contains(body, `data-folder-customized`) {
+		t.Fatalf("saved picker = %s", body)
+	}
+	// Older color-only clients leave the saved icon in place.
+	rec := identityRequest(t, h, h.handleSaveFolderAppearance, http.MethodPost, "/", id, url.Values{"color": {"#ef4444"}}, true)
+	if rec.Code != http.StatusOK || !strings.Contains(get(), `value="heart" checked`) {
+		t.Fatalf("color-only update lost icon: %d", rec.Code)
+	}
+	// A role can change while the editor is open. Refuse both changes together.
+	if _, err := db.Write().ExecContext(ctx, `UPDATE folders SET role='archive', icon='archive' WHERE id='icon-projects'`); err != nil {
+		t.Fatal(err)
+	}
+	rec = identityRequest(t, h, h.handleSaveFolderAppearance, http.MethodPost, "/", id, url.Values{"color": {"#3b82f6"}, "icon": {"flag"}}, true)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("new role override = %d", rec.Code)
+	}
+	body := get()
+	if strings.Contains(body, `name="icon"`) || strings.Contains(body, `data-folder-customized`) || !strings.Contains(body, `value="#ef4444" checked`) {
+		t.Fatalf("role change must hide override and keep color: %s", body)
+	}
+	// Even an empty override is refused for an immutable role icon.
+	id["id"] = "icon-inbox"
+	for _, icon := range []string{"heart", ""} {
+		rec := identityRequest(t, h, h.handleSaveFolderAppearance, http.MethodPost, "/", id, url.Values{"color": {""}, "icon": {icon}}, true)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("role icon %q = %d", icon, rec.Code)
+		}
+	}
+	// Restoring the custom role makes Reset available again.
+	id["id"] = "icon-projects"
+	if _, err := db.Write().ExecContext(ctx, `UPDATE folders SET role='custom', icon='folder' WHERE id='icon-projects'`); err != nil {
+		t.Fatal(err)
+	}
+	rec = identityRequest(t, h, h.handleSaveFolderAppearance, http.MethodPost, "/", id, url.Values{"color": {""}, "icon": {""}}, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("reset = %d: %s", rec.Code, rec.Body.String())
+	}
+	if body := get(); strings.Contains(body, `data-folder-customized`) || !strings.Contains(body, `value="" checked`) {
+		t.Fatalf("reset picker = %s", body)
+	}
+}
