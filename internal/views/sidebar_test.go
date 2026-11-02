@@ -516,3 +516,39 @@ func TestSidebarMarksAccountsWithoutArchive(t *testing.T) {
 		}
 	}
 }
+
+func TestVirtualViewAppearancesPreserveVisibilityAndCounts(t *testing.T) {
+	accounts := []models.Account{{ID: "acc", EmailSyncEnabled: true, Folders: []models.Folder{{ID: "acc-inbox", Name: "Inbox", Icon: "inbox", Role: "inbox", Unread: 3, Color: "#ef4444"}}}}
+	settings := map[string]string{models.VirtualFolderColorKey("inbox"): "#3b82f6", models.VirtualFolderStyleKey("inbox"): "filled", models.VirtualFolderColorKey("scheduled"): "#16a34a", models.VirtualFolderStyleKey("scheduled"): "filled"}
+	folders := unifiedFolders(accounts, settings)
+	for _, folder := range folders {
+		if folder.ID == "inbox" && (folder.Color != "#3b82f6" || folder.IconStyle != "filled" || folder.Unread != 3 || !folder.IsVirtual) {
+			t.Fatalf("unified inbox = %+v", folder)
+		}
+	}
+	var out bytes.Buffer
+	if err := SidebarScheduledFolder("scheduled", 2, settings).Render(t.Context(), &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`data-folder-appearance-virtual`, `data-folder-icon-style="filled"`, `color:#16a34a`, `>2<`} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("Scheduled missing %q: %s", want, out.String())
+		}
+	}
+	settings["unified_folder_inbox_enabled"] = "false"
+	for _, folder := range unifiedFolders(accounts, settings) {
+		if folder.ID == "inbox" {
+			t.Fatal("appearance preference made hidden inbox visible")
+		}
+	}
+	out.Reset()
+	if err := SettingsSyncTab(models.SyncSettings{}, settings).Render(t.Context(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Count(out.String(), `data-folder-action="folder-appearance"`); got != 8 {
+		t.Fatalf("settings appearance controls = %d, want 8", got)
+	}
+	if !strings.Contains(out.String(), `data-folder-id="scheduled"`) || !strings.Contains(out.String(), `data-folder-id="inbox"`) {
+		t.Fatal("hidden views must remain configurable in Settings")
+	}
+}

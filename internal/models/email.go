@@ -92,6 +92,9 @@ type Folder struct {
 	Role         string
 	Unread       int
 	IsSystem     bool
+	IsVirtual    bool
+	IsTag        bool
+	IsUnifiedTag bool
 	Children     []Folder
 }
 
@@ -294,6 +297,10 @@ type Label struct {
 	Color        string
 	ProviderID   string
 	ProviderType string
+	// Personal icon appearance is separate from the provider's badge classes in Color.
+	AppearanceColor string
+	IconStyle       string
+	IsUnified       bool
 }
 
 type Attachment struct {

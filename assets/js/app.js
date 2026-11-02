@@ -3102,27 +3102,26 @@ document.addEventListener("DOMContentLoaded", function () {
       link.click()
     }
 
-    // What a right-click in the mail sidebar landed on: a folder (not
-    // Scheduled), an account's tag or an account's heading.
+    // What a right-click in the mail sidebar landed on: a folder or view,
+    // an account's tag, or an account's heading.
     function sidebarContextTarget(el) {
       var body = el.closest('[data-sidebar-app-body="mail"]')
       if (!body) return null
       var link = el.closest('a[hx-get^="/folder/"]')
       if (link && body.contains(link) && link.hasAttribute("data-sidebar-tag-filter")) {
-        // Only a tag of one account, a Gmail label, has a menu.
+        // Appearance is available for account tags and the combined tag filter.
         var tagAccount = link.getAttribute("data-sidebar-tag-account") || ""
         var labelID = link.getAttribute("data-sidebar-tag-id") || ""
-        if (!tagAccount || !labelID) return null
-        return { kind: "tag", labelID: labelID, accountID: tagAccount, provider: sidebarAccountProvider(tagAccount), name: link.getAttribute("data-sidebar-tag-label") || "this label" }
+        if (!labelID) return null
+        return { kind: "tag", tag: true, unifiedTag: link.hasAttribute("data-tag-appearance-unified"), folderID: labelID, labelID: labelID, accountID: tagAccount, provider: sidebarAccountProvider(tagAccount), name: link.getAttribute("data-sidebar-tag-label") || "this label" }
       }
       if (link && body.contains(link)) {
         var role = String(link.dataset.folderRole || "").toLowerCase()
-        if (role === "scheduled") return null
         var path = (link.getAttribute("hx-get") || "").split("?")[0].replace(/^\/folder\//, "")
         var name = link.querySelector(".flex-1")
         var folderAccount = link.dataset.mailDropAccount || ""
         // Unified folders belong to no single account.
-        return { kind: "folder", folderID: decodeURIComponent(path), accountID: folderAccount, provider: sidebarAccountProvider(folderAccount), role: role, inTrash: sidebarFolderInTrash(link), name: name ? name.textContent.trim() : "this folder" }
+        return { kind: "folder", folderID: decodeURIComponent(path), accountID: folderAccount, provider: sidebarAccountProvider(folderAccount), role: role, virtual: link.hasAttribute("data-folder-appearance-virtual"), inTrash: sidebarFolderInTrash(link), name: name ? name.textContent.trim() : "this folder" }
       }
       var toggle = el.closest("[data-sidebar-account-toggle]")
       var accountID = toggle && toggle.getAttribute("data-sidebar-account-toggle")
@@ -3155,7 +3154,7 @@ document.addEventListener("DOMContentLoaded", function () {
     function fillSidebarContextMenu(root, target) {
       var shown = {
         // Starred is a view across folders, not a folder the server can mark.
-        "mark-read": target.kind === "folder" && target.role !== "starred" && !/^starred(-|$)/.test(target.folderID),
+        "mark-read": target.kind === "folder" && target.role !== "starred" && target.role !== "scheduled" && !/^starred(-|$)/.test(target.folderID),
         "empty-trash": target.kind === "folder" && target.role === "trash",
         "spam-to-trash": target.kind === "folder" && target.role === "spam",
         // A paused account has no sync button to press.
@@ -3165,7 +3164,7 @@ document.addEventListener("DOMContentLoaded", function () {
         "new-folder": target.kind === "account" && target.provider !== "gmail",
         "new-label": target.kind === "account" && target.provider === "gmail",
         "new-subfolder": target.kind === "folder" && !!target.accountID && target.provider !== "gmail" && target.role !== "starred",
-        "folder-appearance": target.kind === "folder" && !!target.accountID && target.role !== "starred" && !/^starred(-|$)/.test(target.folderID),
+        "folder-appearance": document.documentElement.getAttribute("data-theme") !== "express" && ((target.kind === "tag" && !!target.labelID) || (target.kind === "folder" && (target.virtual || (!!target.accountID && target.role !== "starred" && !/^starred(-|$)/.test(target.folderID))))),
         "rename-folder": target.kind === "folder" && !!target.accountID && target.provider !== "gmail" && target.role === "custom",
         "delete-folder": target.kind === "folder" && !!target.accountID && target.provider !== "gmail" && target.role === "custom",
         "restore-folder": target.kind === "folder" && !!target.accountID && target.provider !== "gmail" && target.role === "custom" && target.inTrash,
@@ -21076,6 +21075,9 @@ function manageFolderAction(button) {
     folderID: id,
     labelID: id,
     name: button.getAttribute("data-folder-name") || "",
+    virtual: button.hasAttribute("data-folder-appearance-virtual"),
+    tag: button.hasAttribute("data-tag-appearance"),
+    unifiedTag: button.hasAttribute("data-tag-appearance-unified"),
   })
 }
 

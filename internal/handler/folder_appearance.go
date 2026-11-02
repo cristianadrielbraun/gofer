@@ -49,46 +49,58 @@ func (h *Handler) handleFolderAppearance(w http.ResponseWriter, r *http.Request)
 	views.FolderAppearancePanel(appearance, folder.AccountID).Render(ctx, w)
 }
 
-func (h *Handler) handleSaveFolderAppearance(w http.ResponseWriter, r *http.Request) {
+type folderAppearanceInput struct {
+	Color       string
+	Icon, Style *string
+}
+
+func readFolderAppearance(w http.ResponseWriter, r *http.Request) (folderAppearanceInput, bool) {
+	var input folderAppearanceInput
 	r.Body = http.MaxBytesReader(w, r.Body, 4096)
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "Invalid appearance.", http.StatusBadRequest)
-		return
+		return input, false
 	}
-	// Only curated icons can be selected, and the storage write checks the current role.
 	for key := range r.PostForm {
 		if key != "color" && key != "icon" && key != "style" {
 			http.Error(w, "Invalid folder appearance.", http.StatusBadRequest)
-			return
+			return input, false
 		}
 	}
 	colors, ok := r.PostForm["color"]
 	if !ok || len(colors) != 1 || !models.ValidFolderColor(colors[0]) {
 		http.Error(w, "Choose a valid folder color.", http.StatusBadRequest)
-		return
+		return input, false
 	}
-	var icon *string
+	input.Color = strings.ToLower(colors[0])
 	if icons, present := r.PostForm["icon"]; present {
 		if len(icons) != 1 || !models.ValidFolderIcon(icons[0]) {
 			http.Error(w, "Choose an available folder icon.", http.StatusBadRequest)
-			return
+			return input, false
 		}
-		icon = &icons[0]
+		input.Icon = &icons[0]
 	}
-	var style *string
 	if styles, present := r.PostForm["style"]; present {
 		if len(styles) != 1 || !models.ValidFolderIconStyle(styles[0]) {
 			http.Error(w, "Choose an outlined or filled icon style.", http.StatusBadRequest)
-			return
+			return input, false
 		}
-		style = &styles[0]
+		input.Style = &styles[0]
+	}
+	return input, true
+}
+
+func (h *Handler) handleSaveFolderAppearance(w http.ResponseWriter, r *http.Request) {
+	input, ok := readFolderAppearance(w, r)
+	if !ok {
+		return
 	}
 	ctx := r.Context()
 	owner := h.userID(ctx)
 	folder, _, err := h.managedFolder(ctx, owner, r.PathValue("id"))
 	if err == nil {
 		err = h.withProfileAccount(ctx, owner, folder.AccountID, func(_ *config.AccountStore, db *storage.DB) error {
-			return db.SetFolderAppearance(ctx, owner, folder.ID, colors[0], icon, style)
+			return db.SetFolderAppearance(ctx, owner, folder.ID, input.Color, input.Icon, input.Style)
 		})
 	}
 	if errors.Is(err, storage.ErrFolderColor) || errors.Is(err, storage.ErrFolderIcon) || errors.Is(err, storage.ErrFolderIconStyle) {
@@ -99,12 +111,61 @@ func (h *Handler) handleSaveFolderAppearance(w http.ResponseWriter, r *http.Requ
 		writeFolderError(w, r, "save folder appearance", err)
 		return
 	}
-	result := map[string]string{"id": folder.ID, "account_id": folder.AccountID, "color": strings.ToLower(colors[0])}
-	if icon != nil {
-		result["icon"] = *icon
+	result := map[string]string{"id": folder.ID, "account_id": folder.AccountID, "color": input.Color}
+	if input.Icon != nil {
+		result["icon"] = *input.Icon
 	}
-	if style != nil {
-		result["style"] = *style
+	if input.Style != nil {
+		result["style"] = *input.Style
+	}
+	writeFolderJSON(w, result)
+}
+
+func (h *Handler) handleVirtualFolderAppearance(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if _, ok := models.VirtualFolderAppearance(id, nil); !ok {
+		http.NotFound(w, r)
+		return
+	}
+	ctx := r.Context()
+	var folder models.Folder
+	err := h.withUserDB(ctx, h.userID(ctx), func(db *storage.DB) error {
+		folder, _ = models.VirtualFolderAppearance(id, db.GetUISettings(ctx, h.userID(ctx)))
+		return nil
+	})
+	if err != nil {
+		writeFolderError(w, r, "load view appearance", err)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	views.FolderAppearancePanel(folder, "").Render(ctx, w)
+}
+
+func (h *Handler) handleSaveVirtualFolderAppearance(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if _, ok := models.VirtualFolderAppearance(id, nil); !ok {
+		http.NotFound(w, r)
+		return
+	}
+	input, ok := readFolderAppearance(w, r)
+	if !ok {
+		return
+	}
+	if input.Icon != nil {
+		http.Error(w, "This view's symbol cannot be changed.", http.StatusBadRequest)
+		return
+	}
+	ctx := r.Context()
+	err := h.withUserDB(ctx, h.userID(ctx), func(db *storage.DB) error {
+		return db.SetVirtualFolderAppearance(ctx, h.userID(ctx), id, input.Color, input.Style)
+	})
+	if err != nil {
+		writeFolderError(w, r, "save view appearance", err)
+		return
+	}
+	result := map[string]any{"id": id, "color": input.Color, "virtual": true}
+	if input.Style != nil {
+		result["style"] = *input.Style
 	}
 	writeFolderJSON(w, result)
 }

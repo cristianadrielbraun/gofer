@@ -331,9 +331,13 @@ func (db *DB) DeleteProviderLabels(ctx context.Context, accountID, providerType 
 // ProviderLabels returns an account's labels from one provider.
 func (db *DB) ProviderLabels(ctx context.Context, accountID, providerType string) ([]models.Label, error) {
 	rows, err := db.Read().QueryContext(ctx, `
-		SELECT id, account_id, name, provider_id, provider_type FROM labels
-		WHERE account_id = ? AND provider_type = ? AND provider_id != '' AND is_system = 0
-		ORDER BY lower(name)`, accountID, providerType)
+		SELECT l.id, l.account_id, l.name, l.provider_id, l.provider_type,
+		 COALESCE(tag_color.value,''), COALESCE(tag_style.value,'') FROM labels l
+		JOIN accounts a ON a.id=l.account_id
+		LEFT JOIN app_settings tag_color ON tag_color.user_id=a.user_id AND tag_color.key='tag_color:' || l.id
+		LEFT JOIN app_settings tag_style ON tag_style.user_id=a.user_id AND tag_style.key='tag_style:' || l.id
+		WHERE l.account_id = ? AND l.provider_type = ? AND l.provider_id != '' AND l.is_system = 0
+		ORDER BY lower(l.name)`, accountID, providerType)
 	if err != nil {
 		return nil, err
 	}
@@ -341,7 +345,7 @@ func (db *DB) ProviderLabels(ctx context.Context, accountID, providerType string
 	var labels []models.Label
 	for rows.Next() {
 		var label models.Label
-		if err := rows.Scan(&label.ID, &label.AccountID, &label.Name, &label.ProviderID, &label.ProviderType); err != nil {
+		if err := rows.Scan(&label.ID, &label.AccountID, &label.Name, &label.ProviderID, &label.ProviderType, &label.AppearanceColor, &label.IconStyle); err != nil {
 			return nil, err
 		}
 		labels = append(labels, label)

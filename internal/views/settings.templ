@@ -44,6 +44,7 @@ templ SettingsPage(accounts []models.Account, syncSettings models.SyncSettings, 
 					@SettingsContactsTab(accounts, uiSettings)
 				} else if activeTab == "appearance" {
 					@SettingsAppearanceTab(uiSettings)
+					@TagAppearanceSettings(accounts, uiSettings)
 				} else if activeTab == "regional" {
 					@SettingsRegionalTab(uiSettings)
 				} else if activeTab == "compose-display" {
@@ -1222,7 +1223,7 @@ templ SettingsSyncTab(settings models.SyncSettings, uiSettings map[string]string
 				}
 				</form>
 		}
-		@tabs.Content(tabs.ContentProps{Value: "unified"}) {
+		@tabs.Content(tabs.ContentProps{Value: "unified", Class: "space-y-5"}) {
 			<div class="settings-card bg-card rounded-lg border p-6 space-y-5">
 				<div>
 					<h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-1">Unified folders</h3>
@@ -1252,6 +1253,7 @@ templ SettingsSyncTab(settings models.SyncSettings, uiSettings map[string]string
 					}
 				</div>
 			</div>
+			@ScheduledViewAppearanceSetting(uiSettings)
 		}
 	}
 	<style>
@@ -1281,13 +1283,14 @@ templ UnifiedFolderSettingRow(folder unifiedFolderOption, accounts []models.Acco
 	>
 		<div class="flex min-w-0 items-center gap-3">
 			<span class="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground">
-				@SidebarFolderIcon(folder.Icon)
+				@FolderAppearanceIcon(virtualFolderAppearance(folder.ID, uiSettings))
 			</span>
 			<div class="min-w-0">
 				<span id={ "unified-folder-" + folder.ID + "-label" } class="text-sm font-medium text-foreground">{ folder.Name }</span>
 			</div>
 		</div>
 		<div class="flex shrink-0 items-center gap-2">
+			@VirtualFolderAppearanceButton(folder.ID, folder.Name)
 			@UnifiedFolderAccountPopover(folder, accounts, uiSettings, masterEnabled)
 			@switchcomp.Switch(switchcomp.Props{
 				ID:       "unified-folder-" + folder.ID,

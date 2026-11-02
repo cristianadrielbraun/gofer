@@ -2749,3 +2749,11 @@ html:root[data-theme="express"] :is([data-calendar-month-event], [data-calendar-
 [data-theme="express"] [data-folder-appearance-icon][data-folder-icon-style] [data-folder-symbol-filled] {
   display: none;
 }
+
+[data-theme="express"] [data-virtual-view-appearance-setting] {
+  display: none;
+}
+
+[data-theme="express"] [data-tag-appearance-settings] {
+  display: none;
+}

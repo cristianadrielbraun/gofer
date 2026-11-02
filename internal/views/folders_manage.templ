@@ -74,9 +74,10 @@ templ FoldersPanel(data models.FoldersData) {
 				for _, label := range data.Labels {
 					<div class="flex items-center gap-2 rounded-md px-2.5 py-1.5 hover:bg-accent/50">
 						<span class="flex size-5 shrink-0 items-center justify-center text-muted-foreground">
-							@icon.Tag(icon.Props{Class: "size-3.5"})
+							@TagAppearanceIcon(label)
 						</span>
 						<span class="min-w-0 flex-1 truncate text-sm">{ label.Name }</span>
+						@TagAppearanceButton(label)
 						@folderRowButton("rename-label", data.Account.ID, label.ID, label.Name, "Rename "+label.Name, false) {
 							@icon.Pencil(icon.Props{Class: "size-3.5"})
 						}

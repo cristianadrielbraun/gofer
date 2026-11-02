@@ -624,17 +624,26 @@
     }
   }
 
+  function appearanceURL(id, virtual, tag, unifiedTag) {
+    var prefix = tag ? (unifiedTag ? "/api/unified-tags/" : "/api/tags/") : (virtual ? "/api/virtual-folders/" : "/api/folders/")
+    return prefix + encodeURIComponent(id) + "/appearance"
+  }
+
   window.goferOpenFolderAppearance = function (target) {
     if (document.documentElement.getAttribute("data-theme") === "express") return
     var root = document.getElementById("folder-appearance-dialog")
     if (!root || !target.folderID || saving || !window.tui || !window.tui.dialog) return
     var token = ++request
     var body = root.querySelector("[data-folder-appearance-body]")
-    body.textContent = "Loading folder appearance…"
+    var title = root.querySelector("[data-folder-appearance-title]")
+    var description = root.querySelector("[data-folder-appearance-description]")
+    if (title) title.textContent = target.tag ? "Tag appearance" : (target.virtual ? "View appearance" : "Folder appearance")
+    if (description) description.textContent = target.tag ? "Customize this tag’s appearance in Gofer." : (target.virtual ? "Customize this view’s appearance in Gofer." : "Customize this folder’s appearance in Gofer.")
+    body.textContent = "Loading appearance…"
     window.tui.dialog.open("folder-appearance-dialog")
-    fetch("/api/folders/" + encodeURIComponent(target.folderID) + "/appearance", { headers: { Accept: "text/html" } })
+    fetch(appearanceURL(target.folderID, target.virtual, target.tag, target.unifiedTag), { headers: { Accept: "text/html" } })
       .then(function (response) {
-        if (!response.ok) throw new Error(response.status === 404 ? "This folder is no longer available." : "Couldn't load folder appearance. Try again.")
+        if (!response.ok) throw new Error(response.status === 404 ? "This item is no longer available." : "Couldn't load appearance. Try again.")
         return response.text()
       })
       .then(function (html) { if (token === request) body.innerHTML = html })
@@ -680,22 +689,25 @@
     var fields = new URLSearchParams({ color: color })
     if (chosenIcon) fields.set("icon", chosenIcon.value)
     if (style) fields.set("style", style)
-    fetch("/api/folders/" + encodeURIComponent(form.dataset.folderId) + "/appearance", {
+    fetch(appearanceURL(form.dataset.folderId, form.hasAttribute("data-folder-appearance-virtual"), form.hasAttribute("data-tag-appearance"), form.hasAttribute("data-tag-appearance-unified")), {
       method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" }, body: fields.toString(),
     }).then(function (response) {
-      if (!response.ok) throw new Error(response.status === 404 ? "This folder is no longer available." : "Couldn't save folder appearance. Try again.")
+      if (!response.ok) throw new Error(response.status === 404 ? "This item is no longer available." : "Couldn't save appearance. Try again.")
       return response.json()
     }).then(function (data) {
       document.querySelectorAll("[data-folder-appearance-icon]").forEach(function (icon) {
-        if (icon.getAttribute("data-folder-appearance-icon") !== data.id) return
+        if (icon.getAttribute("data-folder-appearance-icon") !== data.id || icon.hasAttribute("data-folder-appearance-virtual") !== !!data.virtual) return
+        if (icon.hasAttribute("data-tag-appearance") !== !!data.tag || icon.hasAttribute("data-tag-appearance-unified") !== !!data.unified_tag) return
         icon.style.color = data.color
         icon.toggleAttribute("data-folder-color", !!data.color)
         if (chosenIcon) applyFolderSymbol(icon, symbol)
         if (data.style) icon.setAttribute("data-folder-icon-style", data.style)
       })
       if (token === request) window.tui.dialog.close("folder-appearance-dialog")
-      if (window.goferRefreshSidebarAccount) window.goferRefreshSidebarAccount(data.account_id)
-      document.dispatchEvent(new CustomEvent("gofer:folders-changed", { detail: { accountID: data.account_id } }))
+      if (!data.virtual && !data.tag) {
+        if (window.goferRefreshSidebarAccount) window.goferRefreshSidebarAccount(data.account_id)
+        document.dispatchEvent(new CustomEvent("gofer:folders-changed", { detail: { accountID: data.account_id } }))
+      }
     }).catch(function (err) {
       error.textContent = err.message
       error.hidden = false

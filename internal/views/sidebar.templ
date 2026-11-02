@@ -85,7 +85,7 @@ templ SidebarContextMenu() {
 			@sidebarContextItem("new-label", "New label…", "") {
 				@icon.Tag(icon.Props{Class: "size-4"})
 			}
-			@sidebarContextItem("folder-appearance", "Folder appearance…", "") {
+			@sidebarContextItem("folder-appearance", "Appearance…", "") {
 				@icon.Palette(icon.Props{Class: "size-4"})
 			}
 			@sidebarContextItem("rename-folder", "Rename folder…", "") {
@@ -821,7 +821,7 @@ templ SidebarMailSyncErrorSummaryTooltip(accounts []models.Account) {
 templ SidebarFolderTree(accounts []models.Account, activeFolder string, uiSettings map[string]string, scheduledCount int, filters models.EmailFilters) {
 	<nav class="flex-1 overflow-y-auto px-3 pt-2 pb-3">
 		if scheduledCount > 0 {
-			@SidebarScheduledFolder(activeFolder, scheduledCount)
+			@SidebarScheduledFolder(activeFolder, scheduledCount, uiSettings)
 		}
 		if uiSettingGet(uiSettings, "unified_folders_enabled", "true") != "false" {
 			@SidebarUnifiedSection(accounts, activeFolder, uiSettings, filters)
@@ -834,22 +834,17 @@ templ SidebarFolderTree(accounts []models.Account, activeFolder string, uiSettin
 	</nav>
 }
 
-templ SidebarScheduledFolder(activeFolder string, scheduledCount int) {
+templ SidebarScheduledFolder(activeFolder string, scheduledCount int, uiSettings map[string]string) {
+	{{ folder := virtualFolderAppearance("scheduled", uiSettings) }}
+	{{ folder.Unread = scheduledCount }}
 	<div class="mb-2">
-		@SidebarFolderLink(models.Folder{
-			ID:       "scheduled",
-			Name:     "Scheduled",
-			Icon:     "calendar-clock",
-			Role:     "scheduled",
-			Unread:   scheduledCount,
-			IsSystem: true,
-		}, activeFolder, "")
+		@SidebarFolderLink(folder, activeFolder, "")
 	</div>
 }
 
 templ SidebarUnifiedSection(accounts []models.Account, activeFolder string, uiSettings map[string]string, filters models.EmailFilters) {
 	{{ folders := unifiedFolders(accounts, uiSettings) }}
-	{{ labels := unifiedSidebarLabels(accounts) }}
+	{{ labels := unifiedSidebarLabels(accounts, uiSettings) }}
 	if len(folders) > 0 || len(labels) > 0 {
 		{{ active := unifiedHasActiveFolder(activeFolder, uiSettings, filters) }}
 		{{ collapsed := sidebarAccountCollapsed(uiSettings, "__unified__", active) }}
@@ -954,6 +949,7 @@ templ SidebarTagFilterLink(label models.Label, folderID string, activeFolder str
 		data-sidebar-tag-label={ strings.TrimSpace(label.Name) }
 		data-sidebar-tag-id={ label.ID }
 		data-sidebar-tag-account={ strings.TrimSpace(accountID) }
+		data-tag-appearance-unified?={ label.IsUnified }
 		class={
 			"flex items-center gap-2.5 w-full rounded-md px-2.5 py-1.5 text-[13px] transition-all duration-150",
 			templ.KV("bg-sidebar-accent text-sidebar-primary font-medium", active),
@@ -961,7 +957,7 @@ templ SidebarTagFilterLink(label models.Label, folderID string, activeFolder str
 		}
 	>
 		<span class="flex size-5 shrink-0 items-center justify-center rounded text-sidebar-foreground">
-			@icon.Tag(icon.Props{Class: "size-3.5"})
+			@TagAppearanceIcon(label)
 		</span>
 		<span class="flex-1 truncate">{ strings.TrimSpace(label.Name) }</span>
 	</a>
@@ -984,6 +980,7 @@ templ SidebarFolderItem(folder models.Folder, activeFolder string, accountID str
 				hx-target="#mail-list"
 				hx-swap="outerHTML settle:0s"
 				data-folder-role={ folder.Role }
+		data-folder-appearance-virtual?={ folder.IsVirtual }
 				data-mail-drop-folder={ folder.ID }
 				data-mail-drop-account={ accountID }
 				class={
@@ -1041,6 +1038,7 @@ templ SidebarFolderLink(folder models.Folder, activeFolder string, accountID str
 		hx-target="#mail-list"
 		hx-swap="outerHTML settle:0s"
 		data-folder-role={ folder.Role }
+		data-folder-appearance-virtual?={ folder.IsVirtual }
 		data-mail-drop-folder={ folder.ID }
 		data-mail-drop-account={ accountID }
 		class={

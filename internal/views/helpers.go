@@ -31,15 +31,19 @@ type unifiedFolderOption struct {
 }
 
 func unifiedFolderOptions() []unifiedFolderOption {
-	return []unifiedFolderOption{
-		{"inbox", "Inbox", "inbox"},
-		{"starred", "Starred", "starred"},
-		{"sent", "Sent", "send"},
-		{"drafts", "Drafts", "file"},
-		{"archive", "Archive", "archive"},
-		{"spam", "Spam", "alert-circle"},
-		{"trash", "Trash", "trash"},
+	var options []unifiedFolderOption
+	for _, folder := range models.VirtualFolders() {
+		if folder.ID != "scheduled" {
+			options = append(options, unifiedFolderOption{folder.ID, folder.Name, folder.Icon})
+		}
 	}
+	return options
+}
+
+// virtualFolderAppearance is also used by Settings for hidden views.
+func virtualFolderAppearance(id string, settings map[string]string) models.Folder {
+	folder, _ := models.VirtualFolderAppearance(id, settings)
+	return folder
 }
 
 func unifiedFolderSettingKey(folderID string) string {
@@ -533,14 +537,9 @@ func unifiedFolders(accounts []models.Account, settings map[string]string) []mod
 		} else if !seenRole[option.ID] {
 			continue
 		}
-		folders = append(folders, models.Folder{
-			ID:       option.ID,
-			Name:     option.Name,
-			Icon:     option.Icon,
-			Role:     option.ID,
-			Unread:   unreadByRole[option.ID],
-			IsSystem: true,
-		})
+		folder := virtualFolderAppearance(option.ID, settings)
+		folder.Unread = unreadByRole[option.ID]
+		folders = append(folders, folder)
 	}
 	return folders
 }
@@ -572,7 +571,7 @@ func unifiedFolderIDFromRole(role string) string {
 	return role
 }
 
-func unifiedSidebarLabels(accounts []models.Account) []models.Label {
+func unifiedSidebarLabels(accounts []models.Account, settings map[string]string) []models.Label {
 	labels := make([]models.Label, 0)
 	seen := make(map[string]bool)
 	for _, account := range accounts {
@@ -590,7 +589,7 @@ func unifiedSidebarLabels(accounts []models.Account) []models.Label {
 			}
 			seen[key] = true
 			label.Name = name
-			labels = append(labels, label)
+			labels = append(labels, models.UnifiedTagAppearance(label, settings))
 		}
 	}
 	sort.SliceStable(labels, func(i, j int) bool {

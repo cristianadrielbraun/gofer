@@ -5007,20 +5007,13 @@ func (db *DB) attachAccountLabels(ctx context.Context, userID string, accounts [
 		return nil
 	}
 	rows, err := db.Read().QueryContext(ctx, `
-		SELECT l.id, l.account_id, l.name, l.color, l.provider_id, l.provider_type
+		SELECT l.id, l.account_id, l.name, l.color, l.provider_id, l.provider_type, COALESCE(tag_color.value, ''), COALESCE(tag_style.value, '')
 		FROM labels l
 		JOIN accounts a ON a.id = l.account_id
+		LEFT JOIN app_settings tag_color ON tag_color.user_id=a.user_id AND tag_color.key='tag_color:' || l.id
+		LEFT JOIN app_settings tag_style ON tag_style.user_id=a.user_id AND tag_style.key='tag_style:' || l.id
 		WHERE a.user_id = ?
-		  AND COALESCE(a.is_deleting, 0) = 0
-		  AND COALESCE(l.is_system, 0) = 0
-		  AND trim(l.name) != ''
-		  AND NOT (
-		    l.provider_type = 'imap_keyword'
-		    AND (
-		      lower(trim(l.name)) IN ('junk', 'notjunk', 'nonjunk', 'non-junk', '$junk', '$notjunk', '$nonjunk')
-		      OR lower(trim(l.provider_id)) IN ('junk', 'notjunk', 'nonjunk', 'non-junk', '$junk', '$notjunk', '$nonjunk')
-		    )
-		  )
+		  AND `+tagVisibilitySQL+`
 		ORDER BY l.account_id, l.name COLLATE NOCASE`, userID)
 	if err != nil {
 		return fmt.Errorf("query account labels: %w", err)
@@ -5031,7 +5024,7 @@ func (db *DB) attachAccountLabels(ctx context.Context, userID string, accounts [
 	seen := make(map[string]bool)
 	for rows.Next() {
 		var label models.Label
-		if err := rows.Scan(&label.ID, &label.AccountID, &label.Name, &label.Color, &label.ProviderID, &label.ProviderType); err != nil {
+		if err := rows.Scan(&label.ID, &label.AccountID, &label.Name, &label.Color, &label.ProviderID, &label.ProviderType, &label.AppearanceColor, &label.IconStyle); err != nil {
 			return fmt.Errorf("scan account label: %w", err)
 		}
 		key := label.AccountID + "\x00" + strings.ToLower(strings.TrimSpace(label.Name))
@@ -8352,6 +8345,13 @@ func normalizeIdleFolderEntriesAll(perAccount map[string][]string) map[string][]
 }
 
 func (db *DB) GetUISettings(ctx context.Context, userID string) map[string]string {
+	settings := db.getStoredUISettings(ctx, userID)
+	db.addVirtualFolderAppearances(ctx, userID, settings)
+	db.addUnifiedTagAppearances(ctx, userID, settings)
+	return settings
+}
+
+func (db *DB) getStoredUISettings(ctx context.Context, userID string) map[string]string {
 	val, err := db.GetSetting(ctx, userID, "ui_settings")
 	if err != nil || val == "" {
 		return defaultUISettings()
