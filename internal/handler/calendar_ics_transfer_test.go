@@ -166,7 +166,7 @@ func TestCalDAVImportThenExport(t *testing.T) {
 		t.Fatal(err)
 	}
 	var steps []int
-	result, err := importCalDAVEvents(t.Context(), source, credentials, parsed, func(counts calendarImportResult) {
+	result, err := importCalDAVEvents(t.Context(), source, credentials, parsed, nil, func(counts calendarImportResult) {
 		steps = append(steps, counts.done())
 	})
 	if err != nil || result != (calendarImportResult{Added: 3}) {
@@ -175,7 +175,7 @@ func TestCalDAVImportThenExport(t *testing.T) {
 	if fmt.Sprint(steps) != "[1 2 3]" {
 		t.Errorf("progress = %v, want one report per event", steps)
 	}
-	result, err = importCalDAVEvents(t.Context(), source, credentials, parsed[1:2], nil)
+	result, err = importCalDAVEvents(t.Context(), source, credentials, parsed[1:2], nil, nil)
 	if err != nil || result != (calendarImportResult{Existing: 1}) {
 		t.Fatalf("second import of seed swap = %+v, %v", result, err)
 	}
@@ -260,8 +260,50 @@ func TestCalDAVImportTellsRefusedFromExisting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := importCalDAVEvents(t.Context(), source, calendarCredentials{username: "u", password: "p", baseURL: source.RemoteID}, resources, nil)
+	result, err := importCalDAVEvents(t.Context(), source, calendarCredentials{username: "u", password: "p", baseURL: source.RemoteID}, resources, nil, nil)
 	if err != nil || result.Added != 0 || result.Existing != 0 || result.Failed != 3 || result.Reason != "“Pruning”: the calendar refused it (HTTP 400)." {
 		t.Fatalf("import = %+v, %v", result, err)
+	}
+	// The same, with the calendar's UIDs read first.
+	result, err = importCalendarEvents(t.Context(), source, calendarCredentials{username: "u", password: "p", baseURL: source.RemoteID}, resources, nil)
+	if err != nil || result.Existing != 0 || result.Failed != 3 {
+		t.Fatalf("import with the UIDs read first = %+v, %v", result, err)
+	}
+}
+
+// The calendar's UIDs are read once, and events it has aren't sent at all,
+// so a server that would accept a second event with a UID doesn't get one.
+func TestCalDAVImportReadsTheCalendarsUIDsFirst(t *testing.T) {
+	var puts, reports int
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case "REPORT":
+			reports++
+			w.WriteHeader(http.StatusMultiStatus)
+			io.WriteString(w, `<?xml version="1.0"?><d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav"><d:response><d:href>/cal/a.ics</d:href><d:propstat><d:prop><c:calendar-data>BEGIN:VCALENDAR&#13;
+VERSION:2.0&#13;
+PRODID:x&#13;
+BEGIN:VEVENT&#13;
+UID:seed-swap&#13;
+END:VEVENT&#13;
+END:VCALENDAR&#13;
+</c:calendar-data></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response></d:multistatus>`)
+		case http.MethodPut:
+			puts++
+			w.WriteHeader(http.StatusCreated)
+		}
+	}))
+	defer server.Close()
+	prior := davHTTPTransport
+	davHTTPTransport = server.Client().Transport
+	defer func() { davHTTPTransport = prior }()
+	source := storage.CalendarSource{ID: "source", Provider: "caldav", RemoteID: server.URL + "/cal/", AccessRole: "owner"}
+	resources, err := calendarImportResources([]byte(calendarImportTestFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := importCalendarEvents(t.Context(), source, calendarCredentials{username: "u", password: "p", baseURL: source.RemoteID}, resources, nil)
+	if err != nil || result != (calendarImportResult{Added: 2, Existing: 1}) || puts != 2 || reports != 1 {
+		t.Fatalf("import = %+v, %v; %d uploads, %d reports", result, err, puts, reports)
 	}
 }

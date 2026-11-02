@@ -20,11 +20,13 @@ type fakeGoogleCalendar struct {
 	mu       sync.Mutex
 	token    string
 	imported []map[string]any
+	requests int
 }
 
 func (f *fakeGoogleCalendar) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.requests++
 	if r.Header.Get("Authorization") != "Bearer "+f.token || !strings.HasPrefix(r.URL.Path, "/calendars/cal/events") {
 		w.WriteHeader(http.StatusForbidden)
 		return
@@ -99,8 +101,9 @@ func TestGoogleCalendarImportThenExport(t *testing.T) {
 		t.Errorf("all-day event imported as %v", swap)
 	}
 
+	fake.requests = 0
 	result, err = importCalendarEvents(t.Context(), source, credentials, resources, nil)
-	if err != nil || result != (calendarImportResult{Existing: 3}) {
+	if err != nil || result != (calendarImportResult{Existing: 3}) || fake.requests != 1 {
 		t.Fatalf("second import = %+v, %v", result, err)
 	}
 	if len(fake.imported) != 4 {
@@ -169,11 +172,12 @@ const outlookImportTestFile = "BEGIN:VCALENDAR\r\n" +
 // fakeOutlookCalendar is just enough of Graph for import and export: events
 // with a repeat rule of weekly dates, whose dates can be changed or deleted.
 type fakeOutlookCalendar struct {
-	mu      sync.Mutex
-	token   string
-	events  []map[string]any
-	deleted map[string]bool
-	changed map[string]map[string]any
+	mu       sync.Mutex
+	token    string
+	requests int
+	events   []map[string]any
+	deleted  map[string]bool
+	changed  map[string]map[string]any
 }
 
 func (f *fakeOutlookCalendar) occurrences(series map[string]any) []map[string]any {
@@ -205,6 +209,7 @@ func (f *fakeOutlookCalendar) occurrences(series map[string]any) []map[string]an
 func (f *fakeOutlookCalendar) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.requests++
 	w.Header().Set("Content-Type", "application/json")
 	const events = "/me/calendars/cal/events"
 	if r.Header.Get("Authorization") != "Bearer "+f.token || !strings.HasPrefix(r.URL.Path, events) {
@@ -307,8 +312,9 @@ func TestOutlookCalendarImportThenExport(t *testing.T) {
 		t.Errorf("all-day event imported as %v", market)
 	}
 
+	fake.requests = 0
 	result, err = importCalendarEvents(t.Context(), source, credentials, resources, nil)
-	if err != nil || result.Existing != 2 || result.Failed != 1 || len(fake.events) != 2 {
+	if err != nil || result.Existing != 2 || result.Failed != 1 || len(fake.events) != 2 || fake.requests != 1 {
 		t.Fatalf("second import = %+v, %v, %d events", result, err, len(fake.events))
 	}
 

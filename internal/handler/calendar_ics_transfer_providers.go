@@ -48,14 +48,36 @@ func calendarTransferProvider(provider string) bool {
 // after each event.
 func importCalendarEvents(ctx context.Context, source storage.CalendarSource, credentials calendarCredentials, resources []*ical.Calendar, progress func(calendarImportResult)) (calendarImportResult, error) {
 	switch source.Provider {
-	case storage.CalendarSourceProviderCalDAV, storage.CalendarSourceProviderJMAP:
-		return importCalDAVEvents(withJMAPCalendarDAV(ctx, source, credentials), source, credentials, resources, progress)
+	case storage.CalendarSourceProviderJMAP:
+		// jmapCalendarDAV finds an event the calendar has by its UID.
+		return importCalDAVEvents(withJMAPCalendarDAV(ctx, source, credentials), source, credentials, resources, nil, progress)
+	case storage.CalendarSourceProviderCalDAV:
+		existing, err := calDAVCalendarUIDs(ctx, source, credentials)
+		var provider calendarCreateProviderError
+		if errors.As(err, &provider) && calendarImportAborts(err) {
+			return calendarImportResult{}, err
+		}
+		if err != nil {
+			// The server refusing a UID it has, and asking it, still
+			// tell them.
+			log.Printf("calendar import %s: list UIDs: %v", source.ID, err)
+			existing = nil
+		}
+		return importCalDAVEvents(ctx, source, credentials, resources, existing, progress)
 	case providers.ProviderGmail:
-		return importEachCalendarEvent(ctx, resources, progress, func(resource *ical.Calendar) (bool, error) {
+		existing, err := googleCalendarUIDs(ctx, credentials.token, source.RemoteID)
+		if err != nil {
+			return calendarImportResult{}, err
+		}
+		return importEachCalendarEvent(ctx, resources, existing, progress, func(resource *ical.Calendar) error {
 			return importGoogleCalendarEvent(ctx, credentials.token, source.RemoteID, resource)
 		})
 	case providers.ProviderOutlook:
-		return importEachCalendarEvent(ctx, resources, progress, func(resource *ical.Calendar) (bool, error) {
+		existing, err := outlookCalendarUIDs(ctx, credentials.token, source.RemoteID)
+		if err != nil {
+			return calendarImportResult{}, err
+		}
+		return importEachCalendarEvent(ctx, resources, existing, progress, func(resource *ical.Calendar) error {
 			return importOutlookCalendarEvent(ctx, credentials.token, source.RemoteID, resource)
 		})
 	}
@@ -77,26 +99,41 @@ func exportCalendarEvents(ctx context.Context, source storage.CalendarSource, cr
 	return nil, calendarTransferProblem("This calendar can't be exported.")
 }
 
-// importEachCalendarEvent runs add on each resource, counting it added when
-// add says so, already in the calendar when add says it isn't, and failed
-// when add fails with a reason about the one event.
-func importEachCalendarEvent(ctx context.Context, resources []*ical.Calendar, progress func(calendarImportResult), add func(*ical.Calendar) (bool, error)) (calendarImportResult, error) {
+// calendarImportUID is the UID of a resource's events.
+func calendarImportUID(resource *ical.Calendar) string {
+	for _, event := range resource.Events() {
+		if uid, _ := event.Props.Text(ical.PropUID); uid != "" {
+			return uid
+		}
+	}
+	return ""
+}
+
+// importEachCalendarEvent runs add on each resource whose UID isn't in
+// existing, counting the others already in the calendar, and failed those
+// add fails with a reason about the one event.
+func importEachCalendarEvent(ctx context.Context, resources []*ical.Calendar, existing map[string]bool, progress func(calendarImportResult), add func(*ical.Calendar) error) (calendarImportResult, error) {
 	var result calendarImportResult
 	for _, resource := range resources {
 		if err := ctx.Err(); err != nil {
 			return result, err
 		}
-		added, err := add(resource)
+		if existing[calendarImportUID(resource)] {
+			result.Existing++
+			if progress != nil {
+				progress(result)
+			}
+			continue
+		}
+		err := add(resource)
 		switch {
 		case err != nil && calendarImportAborts(err):
 			return result, err
 		case err != nil:
 			log.Printf("calendar import: event not imported: %v", err)
 			result.fail(resource, err)
-		case added:
-			result.Added++
 		default:
-			result.Existing++
+			result.Added++
 		}
 		if progress != nil {
 			progress(result)
@@ -423,49 +460,64 @@ func googleImportPayload(event calendarImportEvent, lines []string) map[string]a
 	return payload
 }
 
-// importGoogleCalendarEvent imports one resource into a Google calendar,
-// unless the calendar has an event with its UID. Import sends no
-// invitations; Google keeps the guests as they were.
-func importGoogleCalendarEvent(ctx context.Context, token, remoteCalendarID string, resource *ical.Calendar) (bool, error) {
+// googleCalendarUIDs are the iCalendar UIDs of a Google calendar's events.
+func googleCalendarUIDs(ctx context.Context, token, remoteCalendarID string) (map[string]bool, error) {
+	uids := map[string]bool{}
+	values := url.Values{"maxResults": {"2500"}, "singleEvents": {"false"}, "fields": {"items(iCalUID),nextPageToken"}}
+	endpoint := googleCalendarAPIBaseURL + "/calendars/" + url.PathEscape(remoteCalendarID) + "/events?"
+	for page := 0; ; page++ {
+		if page >= calendarSyncMaxPages {
+			return nil, errors.New("Google Calendar UID listing exceeded its page limit")
+		}
+		var listed struct {
+			Items []struct {
+				ICalUID string `json:"iCalUID"`
+			} `json:"items"`
+			NextPageToken string `json:"nextPageToken"`
+		}
+		if err := calendarProviderJSON(ctx, http.MethodGet, endpoint+values.Encode(), token, nil, &listed); err != nil {
+			return nil, err
+		}
+		for _, item := range listed.Items {
+			uids[item.ICalUID] = true
+		}
+		if listed.NextPageToken == "" {
+			return uids, nil
+		}
+		values.Set("pageToken", listed.NextPageToken)
+	}
+}
+
+// importGoogleCalendarEvent imports one resource into a Google calendar.
+// Import sends no invitations; Google keeps the guests as they were.
+func importGoogleCalendarEvent(ctx context.Context, token, remoteCalendarID string, resource *ical.Calendar) error {
 	series, changed, err := readCalendarImportResource(resource)
 	if err != nil {
-		return false, calendarTransferProblem(err.Error())
+		return calendarTransferProblem(err.Error())
 	}
 	if series == nil {
-		return false, calendarTransferProblem("the file has changed dates of a repeating event without the event itself")
+		return calendarTransferProblem("the file has changed dates of a repeating event without the event itself")
 	}
 	events := googleCalendarAPIBaseURL + "/calendars/" + url.PathEscape(remoteCalendarID) + "/events"
-	var existing struct {
-		Items []struct {
-			ID string `json:"id"`
-		} `json:"items"`
-	}
-	query := url.Values{"iCalUID": {series.uid}, "maxResults": {"1"}}
-	if err := calendarProviderJSON(ctx, http.MethodGet, events+"?"+query.Encode(), token, nil, &existing); err != nil {
-		return false, err
-	}
-	if len(existing.Items) > 0 {
-		return false, nil
-	}
 	lines, err := calendarImportLines(series.component)
 	if err != nil {
-		return false, calendarTransferProblem(err.Error())
+		return calendarTransferProblem(err.Error())
 	}
 	var created struct {
 		ID string `json:"id"`
 	}
 	if err := calendarProviderJSON(ctx, http.MethodPost, events+"/import", token, googleImportPayload(*series, lines), &created); err != nil {
-		return false, err
+		return err
 	}
 	for _, date := range changed {
 		if err := calendarProviderJSON(ctx, http.MethodPost, events+"/import", token, googleImportPayload(date, nil), nil); err != nil {
 			if calendarImportAborts(err) {
-				return true, err
+				return err
 			}
 			log.Printf("calendar import: Google changed date of %s: %v", series.uid, err)
 		}
 	}
-	return true, nil
+	return nil
 }
 
 // exportGoogleCalendarEvents reads every event of a Google calendar, each
@@ -702,44 +754,69 @@ func outlookODataString(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
 }
 
-// importOutlookCalendarEvent creates one resource as a Microsoft event,
-// unless an earlier import made it, and then changes or deletes the dates
-// of a series the file changed or left out.
-func importOutlookCalendarEvent(ctx context.Context, token, remoteCalendarID string, resource *ical.Calendar) (bool, error) {
+// outlookCalendarUIDs are the UIDs of a Microsoft calendar's events: the
+// UID of the file each was imported from, and Microsoft's own, which an
+// export of the calendar gives an event made in it.
+func outlookCalendarUIDs(ctx context.Context, token, remoteCalendarID string) (map[string]bool, error) {
+	uids := map[string]bool{}
+	events := outlookGraphBaseURL + "/me/calendars/" + url.PathEscape(remoteCalendarID) + "/events"
+	expand := "singleValueExtendedProperties($filter=id eq " + outlookODataString(outlookImportUIDProperty) + ")"
+	query := url.Values{"$top": {"1000"}, "$select": {"id,iCalUId"}, "$expand": {expand}}
+	next := events + "?" + query.Encode()
+	for page := 0; next != ""; page++ {
+		if page >= calendarSyncMaxPages {
+			return nil, errors.New("Microsoft calendar UID listing exceeded its page limit")
+		}
+		var listed struct {
+			Value    []outlookCalendarEvent `json:"value"`
+			NextLink string                 `json:"@odata.nextLink"`
+		}
+		if err := calendarProviderJSON(ctx, http.MethodGet, next, token, nil, &listed); err != nil {
+			return nil, err
+		}
+		for _, event := range listed.Value {
+			if uid := strings.TrimSpace(event.ICalUID); uid != "" {
+				uids[uid] = true
+			}
+			for _, prop := range event.SingleValueExtendedProperties {
+				if strings.EqualFold(prop.ID, outlookImportUIDProperty) && strings.TrimSpace(prop.Value) != "" {
+					uids[strings.TrimSpace(prop.Value)] = true
+				}
+			}
+		}
+		next = listed.NextLink
+		if next != "" && !strings.HasPrefix(next, events) {
+			return nil, errors.New("Microsoft gave a next page outside the calendar")
+		}
+	}
+	return uids, nil
+}
+
+// importOutlookCalendarEvent creates one resource as a Microsoft event, and
+// then changes or deletes the dates of a series the file changed or left
+// out.
+func importOutlookCalendarEvent(ctx context.Context, token, remoteCalendarID string, resource *ical.Calendar) error {
 	series, changed, err := readCalendarImportResource(resource)
 	if err != nil {
-		return false, calendarTransferProblem(err.Error())
+		return calendarTransferProblem(err.Error())
 	}
 	if series == nil {
-		return false, calendarTransferProblem("the file has changed dates of a repeating event without the event itself")
+		return calendarTransferProblem("the file has changed dates of a repeating event without the event itself")
 	}
 	if strings.EqualFold(calendarImportText(series.component, ical.PropStatus), "CANCELLED") {
-		return false, calendarTransferProblem("the event is cancelled")
+		return calendarTransferProblem("the event is cancelled")
 	}
 	events := outlookGraphBaseURL + "/me/calendars/" + url.PathEscape(remoteCalendarID) + "/events"
-	var existing struct {
-		Value []struct {
-			ID string `json:"id"`
-		} `json:"value"`
-	}
-	filter := "singleValueExtendedProperties/Any(ep: ep/id eq " + outlookODataString(outlookImportUIDProperty) + " and ep/value eq " + outlookODataString(series.uid) + ")"
-	query := url.Values{"$filter": {filter}, "$select": {"id"}, "$top": {"1"}}
-	if err := calendarProviderJSON(ctx, http.MethodGet, events+"?"+query.Encode(), token, nil, &existing); err != nil {
-		return false, err
-	}
-	if len(existing.Value) > 0 {
-		return false, nil
-	}
 	payload := outlookImportPayload(*series)
 	payload["singleValueExtendedProperties"] = []map[string]string{{"id": outlookImportUIDProperty, "value": series.uid}}
 	var excluded []calendarImportTime
 	if rules := series.component.Props[ical.PropRecurrenceRule]; len(rules) > 0 {
 		if len(rules) > 1 {
-			return false, calendarTransferProblem("Microsoft calendars can't repeat an event by more than one rule")
+			return calendarTransferProblem("Microsoft calendars can't repeat an event by more than one rule")
 		}
 		recurrence, err := outlookImportRecurrence(rules[0].Value, series.start)
 		if err != nil {
-			return false, calendarTransferProblem(err.Error())
+			return calendarTransferProblem(err.Error())
 		}
 		if series.start.allDay {
 			recurrence["range"].(map[string]any)["recurrenceTimeZone"] = "UTC"
@@ -761,16 +838,16 @@ func importOutlookCalendarEvent(ctx context.Context, token, remoteCalendarID str
 		ID string `json:"id"`
 	}
 	if err := calendarProviderJSON(ctx, http.MethodPost, events, token, payload, &created); err != nil {
-		return false, err
+		return err
 	}
 	if created.ID == "" {
-		return true, errors.New("Microsoft did not return the imported event's id")
+		return errors.New("Microsoft did not return the imported event's id")
 	}
 	// The series' dates the file deleted or changed on their own.
 	for _, at := range excluded {
 		if err := outlookImportChangeDate(ctx, token, events, created.ID, at, nil); err != nil {
 			if calendarImportAborts(err) {
-				return true, err
+				return err
 			}
 			log.Printf("calendar import: Microsoft deleted date of %s: %v", series.uid, err)
 		}
@@ -782,12 +859,12 @@ func importOutlookCalendarEvent(ctx context.Context, token, remoteCalendarID str
 		}
 		if err := outlookImportChangeDate(ctx, token, events, created.ID, *date.recurrenceID, change); err != nil {
 			if calendarImportAborts(err) {
-				return true, err
+				return err
 			}
 			log.Printf("calendar import: Microsoft changed date of %s: %v", series.uid, err)
 		}
 	}
-	return true, nil
+	return nil
 }
 
 // outlookImportChangeDate changes one date of a series, or deletes it when
