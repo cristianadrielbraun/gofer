@@ -70,6 +70,33 @@ func TestParseCalDAVEvents(t *testing.T) {
 	}
 }
 
+const calDAVStoredFixture = `BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+UID:weekly@example.com
+DTSTART:20260910T090000Z
+DTEND:20260910T100000Z
+RRULE:FREQ=WEEKLY;COUNT=3
+SUMMARY:Weekly planning
+ORGANIZER;CN=Organizer:mailto:organizer@example.com
+ATTENDEE;CN=Person;PARTSTAT=ACCEPTED:mailto:person@example.com
+END:VEVENT
+BEGIN:VEVENT
+UID:weekly@example.com
+RECURRENCE-ID:20260924T090000Z
+DTSTART:20260924T110000Z
+DTEND:20260924T120000Z
+SUMMARY:Moved weekly planning
+END:VEVENT
+BEGIN:VEVENT
+UID:weekly@example.com
+RECURRENCE-ID:20260910T090000Z
+DTSTART:20260910T090000Z
+SUMMARY:Reminder
+END:VEVENT
+END:VCALENDAR
+`
+
 const calDAVExpandedFixture = `BEGIN:VCALENDAR
 VERSION:2.0
 BEGIN:VEVENT
@@ -170,8 +197,13 @@ func TestCalDAVCalendarRefreshPreservesCacheAndAccountScope(t *testing.T) {
 					_, _ = fmt.Fprint(w, `<d:multistatus xmlns:d="DAV:"/>`)
 				default:
 					data := calDAVExpandedFixture
-					if metadata {
+					switch {
+					case metadata && strings.Contains(string(body), `<c:prop name="UID"/>`):
 						data = strings.Replace(data, "DTSTART:20260917T090000Z", "DTSTART:20260917T090000Z\nRRULE:FREQ=WEEKLY", 1)
+					case metadata:
+						// The stored series the expansion above is of: weekly
+						// from the 10th, with the 10th and the 24th changed.
+						data = calDAVStoredFixture
 					}
 					_, _ = fmt.Fprintf(w, `<d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav"><d:response><d:href>/calendars/main/weekly.ics</d:href><d:propstat><d:prop><d:getetag>"version-1"</d:getetag><c:calendar-data><![CDATA[%s]]></c:calendar-data></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response></d:multistatus>`, data)
 				}

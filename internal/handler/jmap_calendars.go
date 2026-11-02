@@ -109,12 +109,19 @@ type jmapOccurrence struct {
 // jmapCalendarExpand is jmapCalendarOccurrences with each one's VEVENT, as
 // a CalDAV server's expanded calendar data has them.
 func jmapCalendarExpand(event jmap.CalendarEvent, id string, start, end time.Time, location *time.Location) ([]jmapOccurrence, error) {
-	etag := jmapCalendarEventETag(event)
 	cal, err := mail.JMAPEventCalendar(event)
 	if err != nil {
 		return nil, err
 	}
-	components := cal.Events()
+	return expandCalendarSeries(cal.Events(), id, jmapCalendarEventETag(event), start, end, location)
+}
+
+// expandCalendarSeries reads a stored event, its series first and then its
+// dates changed on their own, as the occurrences that overlap the window,
+// each with its VEVENT, as a CalDAV server's expanded calendar data has
+// them. A changed date is read from its own VEVENT, wherever it was moved.
+func expandCalendarSeries(components []ical.Event, id, etag string, start, end time.Time, location *time.Location) ([]jmapOccurrence, error) {
+	var err error
 	master := components[0]
 	overlaps := func(remote calendar.RemoteEvent) bool {
 		if remote.AllDay {

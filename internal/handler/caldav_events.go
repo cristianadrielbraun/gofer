@@ -119,6 +119,7 @@ func listCalDAVCalendarEvents(ctx context.Context, source storage.CalendarSource
 	}
 	page := calendar.EventPage{}
 	seen := make(map[string]bool)
+	var resources []calDAVResourceEvents
 	for _, response := range multi.Responses {
 		if err := ctx.Err(); err != nil {
 			return calendar.EventPage{}, err
@@ -149,7 +150,15 @@ func listCalDAVCalendarEvents(ctx context.Context, source storage.CalendarSource
 		if err != nil {
 			return calendar.EventPage{}, fmt.Errorf("read CalDAV event: %w", err)
 		}
-		for _, event := range events {
+		resources = append(resources, calDAVResourceEvents{href: href, etag: etag, events: events})
+	}
+	// The server's expansion of a series with dates changed on their own
+	// isn't trusted; Gofer expands those from the stored event.
+	if err := expandCalDAVChangedSeries(ctx, source, username, password, resources, query.WindowStart, query.WindowEnd, location); err != nil {
+		return calendar.EventPage{}, err
+	}
+	for _, resource := range resources {
+		for _, event := range resource.events {
 			if seen[event.RemoteID] {
 				return calendar.EventPage{}, fmt.Errorf("CalDAV returned a duplicate event instance")
 			}
