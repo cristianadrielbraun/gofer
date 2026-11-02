@@ -90,6 +90,12 @@ func TestGoogleCalendarImportThenExport(t *testing.T) {
 	if start := pruning["start"].(map[string]any); start["dateTime"] != "2026-01-05T09:00:00+01:00" || start["timeZone"] != "Europe/Paris" {
 		t.Errorf("series start = %v", start)
 	}
+	if reminders := fmt.Sprint(pruning["reminders"]); reminders != "map[overrides:[map[method:popup minutes:60]] useDefault:false]" {
+		t.Errorf("reminders imported as %s", reminders)
+	}
+	if _, ok := imported[2]["reminders"]; ok {
+		t.Error("an event without alarms didn't get the calendar's reminders")
+	}
 	if attendees := fmt.Sprint(pruning["attendees"]); !strings.Contains(attendees, "sam@example.com") || !strings.Contains(attendees, "accepted") {
 		t.Errorf("guests imported as %s", attendees)
 	}
@@ -115,7 +121,7 @@ func TestGoogleCalendarImportThenExport(t *testing.T) {
 		t.Fatal(err)
 	}
 	exported := string(data)
-	if strings.Count(exported, "BEGIN:VEVENT") != 4 || !strings.Contains(exported, "RECURRENCE-ID;TZID=Europe/Paris:20260112T090000") || !strings.Contains(exported, "X-WR-CALNAME:Garden club") {
+	if strings.Count(exported, "BEGIN:VEVENT") != 4 || !strings.Contains(exported, "RECURRENCE-ID;TZID=Europe/Paris:20260112T090000") || !strings.Contains(exported, "X-WR-CALNAME:Garden club") || strings.Count(exported, "TRIGGER:-PT60M") != 1 {
 		t.Fatalf("export has the wrong shape:\n%s", exported)
 	}
 	again, err := calendarImportResources(data)
@@ -144,6 +150,8 @@ const outlookImportTestFile = "BEGIN:VCALENDAR\r\n" +
 	"SUMMARY:Choir\r\n" +
 	"TRANSP:TRANSPARENT\r\n" +
 	"ATTENDEE:mailto:sam@example.com\r\n" +
+	"BEGIN:VALARM\r\nACTION:DISPLAY\r\nTRIGGER:-PT30M\r\nEND:VALARM\r\n" +
+	"BEGIN:VALARM\r\nACTION:DISPLAY\r\nTRIGGER:-P1D\r\nEND:VALARM\r\n" +
 	"END:VEVENT\r\n" +
 	"BEGIN:VEVENT\r\n" +
 	"UID:choir\r\n" +
@@ -295,6 +303,12 @@ func TestOutlookCalendarImportThenExport(t *testing.T) {
 		t.Fatalf("first import = %+v, %v (an hourly rule has no Microsoft pattern)", result, err)
 	}
 	choir := fake.events[0]
+	if choir["isReminderOn"] != true || choir["reminderMinutesBeforeStart"] != float64(1440) {
+		t.Errorf("reminder imported as %v %v, want the earliest, a day before", choir["isReminderOn"], choir["reminderMinutesBeforeStart"])
+	}
+	if _, ok := fake.events[1]["isReminderOn"]; ok {
+		t.Error("an event without alarms didn't get the calendar's reminder")
+	}
 	if choir["attendees"] != nil || choir["showAs"] != "free" {
 		t.Errorf("series imported as %v: guests would get invitations", choir)
 	}
@@ -323,7 +337,7 @@ func TestOutlookCalendarImportThenExport(t *testing.T) {
 		t.Fatal(err)
 	}
 	exported := string(data)
-	for _, want := range []string{"UID:choir", "UID:market", "RRULE:FREQ=WEEKLY;BYDAY=MO;WKST=MO;COUNT=4", "EXDATE;TZID=Europe/Paris:20260119T190000", "RECURRENCE-ID;TZID=Europe/Paris:20260112T190000", "SUMMARY:Choir (late)", "DTSTART;VALUE=DATE:20260307", "CLASS:PRIVATE", "TRANSP:TRANSPARENT"} {
+	for _, want := range []string{"UID:choir", "UID:market", "RRULE:FREQ=WEEKLY;BYDAY=MO;WKST=MO;COUNT=4", "EXDATE;TZID=Europe/Paris:20260119T190000", "RECURRENCE-ID;TZID=Europe/Paris:20260112T190000", "SUMMARY:Choir (late)", "DTSTART;VALUE=DATE:20260307", "CLASS:PRIVATE", "TRANSP:TRANSPARENT", "TRIGGER:-PT1440M"} {
 		if !strings.Contains(exported, want) {
 			t.Errorf("export lacks %q:\n%s", want, exported)
 		}
@@ -382,5 +396,29 @@ func TestCalendarImportAborts(t *testing.T) {
 	}
 	if calendarImportAborts(calendarTransferProblem("unreadable event")) {
 		t.Error("an unreadable event ends the import")
+	}
+}
+
+func TestCalendarImportReminders(t *testing.T) {
+	file := "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:x\r\nBEGIN:VEVENT\r\nUID:r\r\nDTSTAMP:20260101T000000Z\r\n" +
+		"DTSTART:20260301T100000Z\r\nDTEND:20260301T120000Z\r\nSUMMARY:Talk\r\n" +
+		"BEGIN:VALARM\r\nACTION:DISPLAY\r\nTRIGGER:-PT15M\r\nEND:VALARM\r\n" +
+		"BEGIN:VALARM\r\nACTION:EMAIL\r\nTRIGGER;RELATED=END:-PT3H\r\nEND:VALARM\r\n" +
+		"BEGIN:VALARM\r\nACTION:DISPLAY\r\nTRIGGER;VALUE=DATE-TIME:20260301T080000Z\r\nEND:VALARM\r\n" +
+		"BEGIN:VALARM\r\nACTION:DISPLAY\r\nTRIGGER:PT5M\r\nEND:VALARM\r\n" +
+		"END:VEVENT\r\nEND:VCALENDAR\r\n"
+	resources, err := calendarImportResources([]byte(file))
+	if err != nil {
+		t.Fatal(err)
+	}
+	series, _, err := readCalendarImportResource(resources[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	reminders, alarms := calendarImportReminders(*series)
+	// Three hours before the end is an hour before the start; five minutes
+	// after the start isn't a reminder Google or Microsoft keep.
+	if got := fmt.Sprint(reminders); !alarms || got != "[{120 false} {60 true} {15 false}]" {
+		t.Fatalf("reminders = %s, %v", got, alarms)
 	}
 }

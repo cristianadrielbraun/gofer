@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -376,6 +377,84 @@ func calendarImportLines(component *ical.Component) ([]string, error) {
 	return lines, nil
 }
 
+// calendarImportReminder is one of an event's reminders: minutes before
+// it starts, and whether it is sent by email rather than shown.
+type calendarImportReminder struct {
+	minutes int
+	email   bool
+}
+
+// calendarImportReminders are the event's reminders that come before or at
+// its start, earliest last, and whether it has any VALARM at all; an event
+// with none gets the calendar's default.
+func calendarImportReminders(event calendarImportEvent) ([]calendarImportReminder, bool) {
+	var out []calendarImportReminder
+	seen := map[calendarImportReminder]bool{}
+	alarms := false
+	for _, child := range event.component.Children {
+		if child.Name != ical.CompAlarm {
+			continue
+		}
+		alarms = true
+		trigger := child.Props.Get(ical.PropTrigger)
+		if trigger == nil {
+			continue
+		}
+		var before time.Duration
+		if trigger.ValueType() == ical.ValueDateTime {
+			at, err := trigger.DateTime(time.UTC)
+			if err != nil {
+				continue
+			}
+			before = event.start.at.Sub(at)
+		} else {
+			offset, err := trigger.Duration()
+			if err != nil {
+				continue
+			}
+			before = -offset
+			if strings.EqualFold(trigger.Params.Get(ical.ParamRelated), "END") {
+				before -= event.end.at.Sub(event.start.at)
+			}
+		}
+		if before < 0 || before > 28*24*time.Hour {
+			continue // After the start, or further ahead than Google takes.
+		}
+		action, _ := child.Props.Text(ical.PropAction)
+		reminder := calendarImportReminder{minutes: int(before / time.Minute), email: strings.EqualFold(strings.TrimSpace(action), "EMAIL")}
+		if !seen[reminder] {
+			seen[reminder] = true
+			out = append(out, reminder)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].minutes > out[j].minutes })
+	return out, alarms
+}
+
+// calendarExportAlarm is a reminder shown minutes before the event starts.
+func calendarExportAlarm(minutes int) *ical.Component {
+	alarm := ical.NewComponent(ical.CompAlarm)
+	alarm.Props.SetText(ical.PropAction, "DISPLAY")
+	alarm.Props.SetText(ical.PropDescription, "Reminder")
+	trigger := ical.NewProp(ical.PropTrigger)
+	trigger.Value = fmt.Sprintf("-PT%dM", minutes)
+	if minutes == 0 {
+		trigger.Value = "PT0M"
+	}
+	alarm.Props.Set(trigger)
+	return alarm
+}
+
+// calendarExportSeries is the VEVENT of cal's series, not a changed date.
+func calendarExportSeries(cal *ical.Calendar) *ical.Component {
+	for _, child := range cal.Children {
+		if child.Name == ical.CompEvent && child.Props.Get(ical.PropRecurrenceID) == nil {
+			return child
+		}
+	}
+	return nil
+}
+
 // Google
 
 // googleImportTime is a time as Google's events take it. A series needs a
@@ -457,6 +536,22 @@ func googleImportPayload(event calendarImportEvent, lines []string) map[string]a
 	if event.recurrenceID != nil {
 		payload["originalStartTime"] = googleImportTime(*event.recurrenceID, true)
 	}
+	if reminders, alarms := calendarImportReminders(event); alarms {
+		// Google keeps five, and an event with alarms none of which it can
+		// keep has none rather than the calendar's.
+		overrides := []map[string]any{}
+		for _, reminder := range reminders {
+			if len(overrides) == 5 {
+				break
+			}
+			method := "popup"
+			if reminder.email {
+				method = "email"
+			}
+			overrides = append(overrides, map[string]any{"method": method, "minutes": reminder.minutes})
+		}
+		payload["reminders"] = map[string]any{"useDefault": false, "overrides": overrides}
+	}
 	return payload
 }
 
@@ -524,6 +619,7 @@ func importGoogleCalendarEvent(ctx context.Context, token, remoteCalendarID stri
 // series with its changed and deleted dates.
 func exportGoogleCalendarEvents(ctx context.Context, source storage.CalendarSource, token string) ([]byte, error) {
 	var series []googleCalendarEvent
+	var defaults []googleCalendarReminder
 	changed := map[string][]googleCalendarUpdateEvent{}
 	values := url.Values{"maxResults": {"250"}, "showDeleted": {"true"}, "singleEvents": {"false"}}
 	endpoint := googleCalendarAPIBaseURL + "/calendars/" + url.PathEscape(source.RemoteID) + "/events?"
@@ -532,11 +628,15 @@ func exportGoogleCalendarEvents(ctx context.Context, source storage.CalendarSour
 			return nil, errors.New("Google Calendar export exceeded its page limit")
 		}
 		var listed struct {
-			Items         []googleCalendarUpdateEvent `json:"items"`
-			NextPageToken string                      `json:"nextPageToken"`
+			Items            []googleCalendarUpdateEvent `json:"items"`
+			NextPageToken    string                      `json:"nextPageToken"`
+			DefaultReminders []googleCalendarReminder    `json:"defaultReminders"`
 		}
 		if err := calendarProviderJSON(ctx, http.MethodGet, endpoint+values.Encode(), token, nil, &listed); err != nil {
 			return nil, err
+		}
+		if listed.DefaultReminders != nil {
+			defaults = listed.DefaultReminders
 		}
 		for _, item := range listed.Items {
 			switch {
@@ -558,6 +658,15 @@ func exportGoogleCalendarEvents(ctx context.Context, source storage.CalendarSour
 		if err != nil {
 			log.Printf("calendar export: Google event %s: %v", remote.ID, err)
 			continue
+		}
+		reminders := remote.Reminders.Overrides
+		if remote.Reminders.UseDefault {
+			reminders = defaults
+		}
+		if event := calendarExportSeries(cal); event != nil {
+			for _, reminder := range reminders {
+				event.Children = append(event.Children, calendarExportAlarm(reminder.Minutes))
+			}
 		}
 		data, err := calendarExportPersonalEvents(cal)
 		if err != nil {
@@ -745,6 +854,13 @@ func outlookImportPayload(event calendarImportEvent) map[string]any {
 	switch strings.ToUpper(calendarImportText(component, ical.PropClass)) {
 	case "PRIVATE", "CONFIDENTIAL":
 		payload["sensitivity"] = "private"
+	}
+	if reminders, alarms := calendarImportReminders(event); alarms {
+		// Microsoft keeps one reminder: the earliest.
+		payload["isReminderOn"] = len(reminders) > 0
+		if len(reminders) > 0 {
+			payload["reminderMinutesBeforeStart"] = reminders[0].minutes
+		}
 	}
 	return payload
 }
@@ -981,6 +1097,9 @@ func exportOutlookCalendarEvent(ctx context.Context, token, events string, remot
 	series, err := outlookExportComponent(cal, remote.outlookCalendarEvent, uid, zone, rule)
 	if err != nil {
 		return "", err
+	}
+	if remote.IsReminderOn != nil && *remote.IsReminderOn && remote.ReminderMinutes != nil && *remote.ReminderMinutes >= 0 {
+		series.Children = append(series.Children, calendarExportAlarm(*remote.ReminderMinutes))
 	}
 	cal.Children = append(cal.Children, series)
 	if rule != "" {

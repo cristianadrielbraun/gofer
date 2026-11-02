@@ -36,6 +36,7 @@ const calendarImportTestFile = "BEGIN:VCALENDAR\r\n" +
 	"SUMMARY:Pruning\r\n" +
 	"ORGANIZER;SCHEDULE-STATUS=1.2:mailto:robin@example.com\r\n" +
 	"ATTENDEE;PARTSTAT=ACCEPTED:mailto:sam@example.com\r\n" +
+	"BEGIN:VALARM\r\nACTION:DISPLAY\r\nDESCRIPTION:Reminder\r\nTRIGGER:-PT1H\r\nEND:VALARM\r\n" +
 	"END:VEVENT\r\n" +
 	"BEGIN:VEVENT\r\n" +
 	"UID:seed-swap\r\n" +
