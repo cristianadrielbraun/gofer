@@ -537,3 +537,59 @@ func TestJMAPCalendarLiveInvitations(t *testing.T) {
 		t.Fatalf("after the cancellation = %+v, %v", after, err)
 	}
 }
+
+// TestJMAPCalendarLiveImportExport imports an .ics file into a real JMAP
+// calendar twice, the second time adding nothing, and exports it, and
+// skips unless GOFER_JMAP_TEST_URL, _USER and _PASSWORD are set.
+func TestJMAPCalendarLiveImportExport(t *testing.T) {
+	live := newJMAPCalendarLive(t)
+	ctx, h, source, connection := live.ctx, live.h, live.source, live.connection
+	tag := time.Now().UTC().Format("20060102150405")
+	series, single := "gofer-import-"+tag+"-series", "gofer-import-"+tag+"-single"
+	file := "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Example//Test//EN\r\n" +
+		"BEGIN:VEVENT\r\nUID:" + series + "\r\nDTSTAMP:20260101T000000Z\r\nDTSTART;TZID=Europe/Prague:20261207T090000\r\nDTEND;TZID=Europe/Prague:20261207T100000\r\nRRULE:FREQ=DAILY;COUNT=3\r\nSUMMARY:Gofer import " + tag + "\r\nEND:VEVENT\r\n" +
+		"BEGIN:VEVENT\r\nUID:" + series + "\r\nDTSTAMP:20260101T000000Z\r\nRECURRENCE-ID;TZID=Europe/Prague:20261208T090000\r\nDTSTART;TZID=Europe/Prague:20261208T110000\r\nDTEND;TZID=Europe/Prague:20261208T120000\r\nSUMMARY:Gofer import " + tag + " moved\r\nEND:VEVENT\r\n" +
+		"BEGIN:VEVENT\r\nUID:" + single + "\r\nDTSTAMP:20260101T000000Z\r\nDTSTART;VALUE=DATE:20261209\r\nSUMMARY:Gofer import " + tag + " day\r\nEND:VEVENT\r\n" +
+		"END:VCALENDAR\r\n"
+	calendarID := jmapLiveCalendarID(t, source)
+	t.Cleanup(func() {
+		for _, uid := range []string{series, single} {
+			if event, _ := connection.ByUID(context.WithoutCancel(ctx), calendarID, uid); event != nil {
+				_, _ = connection.Delete(context.WithoutCancel(ctx), event.ID())
+			}
+		}
+	})
+	resources, err := calendarImportResources([]byte(file))
+	if err != nil {
+		t.Fatal(err)
+	}
+	credentials := h.calendarUpdateCredentials(ctx, source)
+	if credentials.err != nil {
+		t.Fatal(credentials.err)
+	}
+	result, err := importCalendarEvents(ctx, source, credentials, resources, nil)
+	if err != nil || result != (calendarImportResult{Added: 2}) {
+		t.Fatalf("first import = %+v, %v", result, err)
+	}
+	// The second import finds the events by UID once the server's search
+	// has indexed them.
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(200 * time.Millisecond) {
+		if found, _ := connection.ByUID(ctx, calendarID, single); found != nil {
+			break
+		}
+	}
+	result, err = importCalendarEvents(ctx, source, credentials, resources, nil)
+	if err != nil || result != (calendarImportResult{Skipped: 2}) {
+		t.Fatalf("second import = %+v, %v", result, err)
+	}
+	data, err := exportCalendarEvents(ctx, source, credentials)
+	if err != nil {
+		t.Fatal(err)
+	}
+	exported := string(data)
+	for _, want := range []string{"UID:" + series, "UID:" + single, "RECURRENCE-ID", "moved"} {
+		if !strings.Contains(exported, want) {
+			t.Errorf("export lacks %q", want)
+		}
+	}
+}

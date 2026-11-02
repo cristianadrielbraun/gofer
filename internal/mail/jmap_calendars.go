@@ -121,7 +121,8 @@ type JMAPCalendarEvents struct {
 }
 
 // PullJMAPCalendarEvents fetches the events of a calendar that overlap
-// [start, end), series included when an occurrence does.
+// [start, end), series included when an occurrence does, or every event
+// when start and end are zero.
 func PullJMAPCalendarEvents(ctx context.Context, cfg *models.AccountConfig, password, calendarID string, start, end time.Time) (*JMAPCalendarEvents, error) {
 	client, session, account, err := jmapCalendarsSession(ctx, cfg, password)
 	if err != nil {
@@ -136,7 +137,11 @@ func PullJMAPCalendarEvents(ctx context.Context, cfg *models.AccountConfig, pass
 	if most := session.Core.MaxObjectsInGet; most > 0 && most < limit {
 		limit = most
 	}
-	filter := jmap.CalendarEventFilter{InCalendar: calendarID, After: start.UTC().Format(time.RFC3339), Before: end.UTC().Format(time.RFC3339)}
+	filter := jmap.CalendarEventFilter{InCalendar: calendarID}
+	if !start.IsZero() && !end.IsZero() {
+		// Zero times read every event in the calendar.
+		filter.After, filter.Before = start.UTC().Format(time.RFC3339), end.UTC().Format(time.RFC3339)
+	}
 	for position := 0; ; {
 		query, err := client.QueryCalendarEvents(ctx, session, account, filter, position, limit)
 		if err != nil {

@@ -92,8 +92,14 @@ func TestCalendarImportResources(t *testing.T) {
 	if strings.Contains(swap, "VTIMEZONE") {
 		t.Errorf("seed swap resource carries an unused time zone:\n%s", swap)
 	}
-	if uid, _ := resources[2].Events()[0].Props.Text("UID"); uid == "" {
-		t.Error("an event without a UID was not given one")
+	uid, _ := resources[2].Events()[0].Props.Text("UID")
+	if !strings.HasPrefix(uid, "gofer-import-") {
+		t.Errorf("an event without a UID was given %q", uid)
+	}
+	if again, _ := calendarImportResources([]byte(calendarImportTestFile)); len(again) != 3 {
+		t.Fatal("the file reads differently a second time")
+	} else if second, _ := again[2].Events()[0].Props.Text("UID"); second != uid {
+		t.Errorf("an event without a UID was given %q, then %q: importing again would add it twice", uid, second)
 	}
 
 	for name, data := range map[string]string{

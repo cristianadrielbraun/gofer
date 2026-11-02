@@ -200,7 +200,7 @@ func (p *userCalendarRequest) providerEndpoint(req *http.Request) error {
 			return nil
 		}
 	case http.MethodPost:
-		if len(segments) == 0 || (source.Provider == "outlook" && len(segments) == 2 && (segments[1] == "accept" || segments[1] == "tentativelyAccept" || segments[1] == "decline" || segments[1] == "forward")) {
+		if len(segments) == 0 || (source.Provider == "gmail" && len(segments) == 1 && segments[0] == "import") || (source.Provider == "outlook" && len(segments) == 2 && (segments[1] == "accept" || segments[1] == "tentativelyAccept" || segments[1] == "decline" || segments[1] == "forward")) {
 			return nil
 		}
 	case http.MethodPatch, http.MethodDelete:

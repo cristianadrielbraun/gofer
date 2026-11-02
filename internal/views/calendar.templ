@@ -183,7 +183,7 @@ templ CalendarSidebarContent(accounts []models.Account, loading bool) {
 											</span>
 											Stop syncing
 										}
-										if source.Provider == "caldav" {
+										if calendarTransferProvider(source.Provider) {
 											// Import adds the events of an .ics file to this
 											// calendar; Export downloads all of its events as one.
 											@dropdown.Separator()

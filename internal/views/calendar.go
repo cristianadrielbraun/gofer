@@ -575,13 +575,23 @@ func calendarMoveAttributes(event CalendarEvent) templ.Attributes {
 	}
 }
 
-// calendarTransferCalendars are the synced CalDAV calendars of the accounts,
-// the ones Gofer can import into (writable only) and export.
+// calendarTransferProvider says whether Gofer can import into and export a
+// calendar of the provider.
+func calendarTransferProvider(provider string) bool {
+	switch provider {
+	case "caldav", "jmap", "gmail", "outlook":
+		return true
+	}
+	return false
+}
+
+// calendarTransferCalendars are the synced calendars of the accounts that
+// Gofer can import into (writable only) and export.
 func calendarTransferCalendars(accounts []models.Account, writable bool) []calendarTransferChoice {
 	var choices []calendarTransferChoice
 	for _, account := range calendarConfiguredAccounts(accounts) {
 		for _, source := range account.CalendarSources {
-			if source.Provider != "caldav" {
+			if !calendarTransferProvider(source.Provider) {
 				continue
 			}
 			role := strings.ToLower(strings.TrimSpace(source.AccessRole))
@@ -594,18 +604,18 @@ func calendarTransferCalendars(accounts []models.Account, writable bool) []calen
 	return choices
 }
 
-// calendarTransferNewTargets are the accounts that sync calendars over
-// CalDAV, where an import can make a new calendar.
+// calendarTransferNewTargets are the accounts that sync calendars, where an
+// import can make a new calendar.
 func calendarTransferNewTargets(accounts []models.Account) []calendarTransferChoice {
 	var choices []calendarTransferChoice
 	for _, account := range calendarConfiguredAccounts(accounts) {
-		caldav := false
+		syncs := false
 		for _, list := range [][]models.AccountCalendarSource{account.CalendarSources, account.OtherCalendarSources} {
 			for _, source := range list {
-				caldav = caldav || source.Provider == "caldav"
+				syncs = syncs || calendarTransferProvider(source.Provider)
 			}
 		}
-		if caldav {
+		if syncs {
 			choices = append(choices, calendarTransferChoice{Value: "account:" + account.ID, Label: "New calendar in " + calendarAccountDisplayName(account)})
 		}
 	}

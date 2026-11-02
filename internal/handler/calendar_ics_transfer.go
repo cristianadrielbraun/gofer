@@ -3,6 +3,8 @@ package handler
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -12,6 +14,7 @@ import (
 	"mime"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 	"unicode"
@@ -19,16 +22,20 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/config"
 	"github.com/cristianadrielbraun/gofer/internal/mail"
 	"github.com/cristianadrielbraun/gofer/internal/models"
+	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 	ical "github.com/emersion/go-ical"
 	"github.com/google/uuid"
 )
 
-// Importing an .ics file into a synced CalDAV calendar, and exporting one as
-// an .ics file, from the calendar's menu. An import adds every event in the
-// file as a new event; one the server refuses, such as one already in the
-// calendar, is skipped and counted. Nothing in the calendar is changed or
-// removed. The server is told not to send invitations for imported events.
+// Importing an .ics file into a synced calendar, and exporting one as an .ics
+// file, from the calendar's menu. An import adds every event in the file as a
+// new event; one the calendar already has, by its UID, or one the provider
+// refuses is skipped and counted. Nothing in the calendar is changed or
+// removed, and no invitations are sent for imported events. CalDAV and JMAP
+// calendars take the file's events as they are (JMAP through
+// jmapCalendarDAV); Google and Microsoft calendars get them through their
+// APIs, in calendar_ics_transfer_providers.go.
 
 const (
 	calendarImportMaxSize   = 10 << 20
@@ -48,6 +55,29 @@ type calendarImportResult struct {
 	Skipped  int    `json:"skipped"`
 	Calendar string `json:"calendar,omitempty"`
 	Created  bool   `json:"created,omitempty"`
+}
+
+// calendarImportMadeUID is a UID for an event the file gave none: one made
+// from what the event says, so importing the file again finds it.
+func calendarImportMadeUID(event *ical.Component) string {
+	var lines []string
+	for name, props := range event.Props {
+		switch name {
+		case ical.PropDateTimeStamp, ical.PropCreated, ical.PropLastModified, ical.PropSequence:
+			continue
+		}
+		for _, prop := range props {
+			var params []string
+			for param, values := range prop.Params {
+				params = append(params, param+"="+strings.Join(values, ","))
+			}
+			sort.Strings(params)
+			lines = append(lines, name+";"+strings.Join(params, ";")+":"+prop.Value)
+		}
+	}
+	sort.Strings(lines)
+	sum := sha256.Sum256([]byte(strings.Join(lines, "\n")))
+	return "gofer-import-" + hex.EncodeToString(sum[:16])
 }
 
 // calendarImportResources reads an .ics file into one calendar resource per
@@ -82,7 +112,7 @@ func calendarImportResources(data []byte) (resources []*ical.Calendar, err error
 			case ical.CompEvent:
 				uid, _ := child.Props.Text("UID")
 				if uid = strings.TrimSpace(uid); uid == "" {
-					uid = uuid.NewString()
+					uid = calendarImportMadeUID(child)
 					child.Props.SetText("UID", uid)
 				}
 				if groups[uid] == nil {
@@ -211,10 +241,24 @@ func exportCalDAVEvents(ctx context.Context, source storage.CalendarSource, cred
 	if err != nil {
 		return nil, err
 	}
+	var files []string
+	for _, response := range multi.Responses {
+		for _, stat := range response.PropStats {
+			if strings.Contains(stat.Status, " 200 ") && stat.Prop.CalendarData != "" {
+				files = append(files, stat.Prop.CalendarData)
+			}
+		}
+	}
+	return calendarExportFile(source.Name, files)
+}
+
+// calendarExportFile puts the events of the iCalendar files in one .ics
+// file named name, each time zone they use once.
+func calendarExportFile(name string, files []string) ([]byte, error) {
 	out := ical.NewCalendar()
 	out.Props.SetText(ical.PropProductID, "-//Gofer//Calendar//EN")
 	out.Props.SetText(ical.PropVersion, "2.0")
-	if name := strings.TrimSpace(source.Name); name != "" {
+	if name := strings.TrimSpace(name); name != "" {
 		prop := ical.NewProp("X-WR-CALNAME")
 		prop.SetText(name)
 		prop.Params.Del(ical.ParamValue)
@@ -222,13 +266,7 @@ func exportCalDAVEvents(ctx context.Context, source storage.CalendarSource, cred
 	}
 	zones := map[string]bool{}
 	var events []*ical.Component
-	for _, response := range multi.Responses {
-		data := ""
-		for _, stat := range response.PropStats {
-			if strings.Contains(stat.Status, " 200 ") && stat.Prop.CalendarData != "" {
-				data = stat.Prop.CalendarData
-			}
-		}
+	for _, data := range files {
 		if strings.TrimSpace(data) == "" {
 			continue
 		}
@@ -279,13 +317,13 @@ func calendarExportFilename(name string) string {
 	return clean + ".ics"
 }
 
-// transferCalendarSource runs work on one of the owner's synced CalDAV
-// calendars with its sign-in. write locks the calendar against a sync
+// transferCalendarSource runs work on one of the owner's synced calendars
+// with its sign-in. write locks the calendar against a sync
 // meanwhile, and asks for a sync after.
 func (h *Handler) transferCalendarSource(ctx context.Context, owner, sourceID string, write bool, work func(context.Context, storage.CalendarSource, calendarCredentials) error) error {
 	check := func(source storage.CalendarSource) error {
-		if source.Provider != storage.CalendarSourceProviderCalDAV {
-			return calendarTransferProblem("Only CalDAV calendars can be imported into or exported for now.")
+		if !calendarTransferProvider(source.Provider) {
+			return calendarTransferProblem("This calendar can't be imported into or exported.")
 		}
 		if write && !calendarSourceWritable(source) {
 			return calendarTransferProblem("This calendar is read-only.")
@@ -400,7 +438,7 @@ func readCalendarImport(w http.ResponseWriter, r *http.Request) ([]*ical.Calenda
 }
 
 // handleCalendarSourceImport adds the events of the .ics file in the request
-// body to a synced CalDAV calendar, and answers how many were added and
+// body to a synced calendar, and answers how many were added and
 // skipped.
 func (h *Handler) handleCalendarSourceImport(w http.ResponseWriter, r *http.Request) {
 	resources, ok := readCalendarImport(w, r)
@@ -485,7 +523,7 @@ func (h *Handler) importIntoCalendarSource(w http.ResponseWriter, r *http.Reques
 		line(progressLine{Total: len(resources)})
 		name := source.Name
 		var err error
-		result, err = importCalDAVEvents(ctx, source, credentials, resources, func(counts calendarImportResult) {
+		result, err = importCalendarEvents(ctx, source, credentials, resources, func(counts calendarImportResult) {
 			line(progressLine{Done: counts.Added + counts.Skipped, Total: len(resources)})
 		})
 		result.Calendar = name
@@ -520,9 +558,9 @@ func (h *Handler) importIntoCalendarSource(w http.ResponseWriter, r *http.Reques
 	line(result)
 }
 
-// createCalendarForImport makes a calendar named name on a CalDAV account,
-// signing in as its calendar settings say, through the same discovery the
-// account's Calendar settings use. It returns the new calendar's id, synced.
+// createCalendarForImport makes a calendar named name on an account that
+// syncs calendars, signing in as its calendar settings say, through the same
+// discovery the account's Calendar settings use. It returns the new calendar's id, synced.
 func (h *Handler) createCalendarForImport(ctx context.Context, r *http.Request, owner, accountID, name string) (string, error) {
 	var data *models.EditAccountData
 	var err error
@@ -534,12 +572,19 @@ func (h *Handler) createCalendarForImport(ctx context.Context, r *http.Request, 
 	if err != nil {
 		return "", err
 	}
-	if strings.TrimSpace(data.CalendarSync.CalDAVBaseURL) == "" {
-		return "", calendarTransferProblem("New calendars can be made only on accounts that sync calendars over CalDAV.")
-	}
-	form := url.Values{"caldav_url": {data.CalendarSync.CalDAVBaseURL}}
-	if data.CalendarSync.CalDAVUseAccountCredentials {
-		form.Set("use_account_credentials", "1")
+	form := url.Values{}
+	switch {
+	case data.Provider == providers.ProviderGmail || data.Provider == providers.ProviderOutlook:
+		// Their own calendars; discovery needs nothing more.
+	case data.Provider == providers.ProviderJMAP && data.CalendarSync.Protocol != storage.CalendarSourceProviderCalDAV:
+		form.Set("calendar_protocol", storage.CalendarSourceProviderJMAP)
+	case strings.TrimSpace(data.CalendarSync.CalDAVBaseURL) != "":
+		form.Set("caldav_url", data.CalendarSync.CalDAVBaseURL)
+		if data.CalendarSync.CalDAVUseAccountCredentials {
+			form.Set("use_account_credentials", "1")
+		}
+	default:
+		return "", calendarTransferProblem("This account doesn't sync calendars. Set up its calendars in Accounts first.")
 	}
 	create := &davCreate{Name: name}
 	if h.userStorage == nil {
@@ -623,7 +668,7 @@ func (discardResponse) Header() http.Header         { return http.Header{} }
 func (discardResponse) Write(b []byte) (int, error) { return len(b), nil }
 func (discardResponse) WriteHeader(int)             {}
 
-// handleCalendarSourceExport downloads a synced CalDAV calendar's events as
+// handleCalendarSourceExport downloads a synced calendar's events as
 // an .ics file.
 func (h *Handler) handleCalendarSourceExport(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), calendarTransferTimeout)
@@ -633,7 +678,7 @@ func (h *Handler) handleCalendarSourceExport(w http.ResponseWriter, r *http.Requ
 	err := h.transferCalendarSource(ctx, h.userID(r.Context()), strings.TrimSpace(r.PathValue("id")), false, func(ctx context.Context, source storage.CalendarSource, credentials calendarCredentials) error {
 		var err error
 		name = source.Name
-		data, err = exportCalDAVEvents(ctx, source, credentials)
+		data, err = exportCalendarEvents(ctx, source, credentials)
 		return err
 	})
 	if err != nil {

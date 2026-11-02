@@ -17,6 +17,9 @@ func TestCalendarTransferDialogs(t *testing.T) {
 		{ID: "a2", Name: "Sam", Email: "sam@example.com", CalendarSyncEnabled: true, CalendarSources: []models.AccountCalendarSource{
 			{ID: "s3", Name: "Work", Provider: "gmail", AccessRole: "owner"},
 		}},
+		{ID: "a3", Name: "Kim", Email: "kim@example.com", CalendarSyncEnabled: true, CalendarSources: []models.AccountCalendarSource{
+			{ID: "s4", Name: "Feed", Provider: "ics", AccessRole: "reader"},
+		}},
 	}
 	var out bytes.Buffer
 	if err := CalendarSidebarContent(accounts, false).Render(t.Context(), &out); err != nil {
@@ -29,14 +32,14 @@ func TestCalendarTransferDialogs(t *testing.T) {
 		}
 	}
 	importDialog := page[strings.Index(page, `id="calendar-import-dialog"`):strings.Index(page, `id="calendar-export-dialog"`)]
-	if !strings.Contains(importDialog, `value="source:s1"`) || strings.Contains(importDialog, "source:s2") || strings.Contains(importDialog, "source:s3") {
-		t.Error("import offers the wrong calendars: only writable CalDAV ones belong")
+	if !strings.Contains(importDialog, `value="source:s1"`) || strings.Contains(importDialog, "source:s2") || !strings.Contains(importDialog, `value="source:s3"`) || strings.Contains(importDialog, "source:s4") {
+		t.Error("import offers the wrong calendars: only writable CalDAV, JMAP, Google and Microsoft ones belong")
 	}
-	if !strings.Contains(importDialog, `value="account:a1"`) || strings.Contains(importDialog, "account:a2") {
-		t.Error("import offers new calendars on the wrong accounts: only CalDAV ones belong")
+	if !strings.Contains(importDialog, `value="account:a1"`) || !strings.Contains(importDialog, `value="account:a2"`) || strings.Contains(importDialog, "account:a3") {
+		t.Error("import offers new calendars on the wrong accounts")
 	}
 	exportDialog := page[strings.Index(page, `id="calendar-export-dialog"`):]
-	if !strings.Contains(exportDialog, `value="s1"`) || !strings.Contains(exportDialog, `value="s2"`) || strings.Contains(exportDialog, `value="s3"`) {
-		t.Error("export offers the wrong calendars: every CalDAV one belongs, read-only too")
+	if !strings.Contains(exportDialog, `value="s1"`) || !strings.Contains(exportDialog, `value="s2"`) || !strings.Contains(exportDialog, `value="s3"`) || strings.Contains(exportDialog, `value="s4"`) {
+		t.Error("export offers the wrong calendars: read-only ones belong too, feeds don't")
 	}
 }

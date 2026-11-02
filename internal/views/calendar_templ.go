@@ -1049,7 +1049,7 @@ func CalendarSidebarContent(accounts []models.Account, loading bool) templ.Compo
 							if templ_7745c5c3_Err != nil {
 								return templ_7745c5c3_Err
 							}
-							if source.Provider == "caldav" {
+							if calendarTransferProvider(source.Provider) {
 								templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 76, "  ")
 								if templ_7745c5c3_Err != nil {
 									return templ_7745c5c3_Err
