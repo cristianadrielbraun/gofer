@@ -17826,6 +17826,7 @@ function finishComposeSendSuccess(state) {
   _composeSendState = null
   setTimeout(function () {
     if (state.fromPane) {
+      collapseComposeFullWidth()
       setMailViewEmpty()
       _updateComposeBtn(false)
     } else {
@@ -19611,6 +19612,7 @@ function scheduleCompose(fromPane, trigger) {
     showSendStatus("scheduled", "Will send " + formatGoferDateTime(labelDate))
     setTimeout(function () {
       if (fromPane) {
+        collapseComposeFullWidth()
         setMailViewEmpty()
         _updateComposeBtn(false)
       } else {
@@ -22780,6 +22782,14 @@ function collapseComposeFullWidth() {
   mailList.style.overflow = "hidden"
   mailList.style.transition = axis + " 0.3s cubic-bezier(0.4,0,0.2,1), opacity 0.25s ease, border-width 0.3s ease"
 
+  // Keep the list's content hidden while the pane is still too narrow for it
+  // (it would wrap and then jump); fade it in once the pane has its size.
+  var contentKids = Array.prototype.slice.call(mailList.children)
+  contentKids.forEach(function (kid) {
+    kid.style.transition = "none"
+    kid.style.opacity = "0"
+  })
+
   for (var i = 0; i < resizeHandles.length; i++) {
     resizeHandles[i].style.display = resizeHandles[i]._savedDisplay || ""
     delete resizeHandles[i]._savedDisplay
@@ -22814,6 +22824,17 @@ function collapseComposeFullWidth() {
       resizeHandles[i].style.transition = ""
       resizeHandles[i].style.opacity = ""
     }
+    void mailList.offsetHeight
+    contentKids.forEach(function (kid) {
+      kid.style.transition = "opacity 0.3s ease"
+      kid.style.opacity = "1"
+    })
+    setTimeout(function () {
+      contentKids.forEach(function (kid) {
+        kid.style.transition = ""
+        kid.style.opacity = ""
+      })
+    }, 350)
   }
   mailList.addEventListener("transitionend", onEnd)
 
