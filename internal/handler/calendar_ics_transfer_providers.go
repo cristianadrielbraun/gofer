@@ -839,7 +839,7 @@ func outlookImportPayload(event calendarImportEvent) map[string]any {
 	component := event.component
 	payload := map[string]any{
 		"subject":  calendarImportText(component, ical.PropSummary),
-		"body":     map[string]string{"contentType": "text", "content": calendarImportText(component, ical.PropDescription)},
+		"body":     map[string]string{"contentType": "text", "content": outlookImportDescription(component)},
 		"location": map[string]string{"displayName": calendarImportText(component, ical.PropLocation)},
 		"start":    outlookImportTime(event.start),
 		"end":      outlookImportTime(event.end),
@@ -863,6 +863,51 @@ func outlookImportPayload(event calendarImportEvent) map[string]any {
 		}
 	}
 	return payload
+}
+
+// outlookImportDescription is the event's description, with its organizer
+// and guests written after it: Microsoft would send guests invitations,
+// so a meeting comes in with them as text. Their answers aren't written,
+// since they may have changed since the file was made.
+func outlookImportDescription(component *ical.Component) string {
+	description := calendarImportText(component, ical.PropDescription)
+	person := func(prop ical.Prop) string {
+		email := calendarReplyAddress(prop.Value)
+		name := strings.TrimSpace(prop.Params.Get(ical.ParamCommonName))
+		switch {
+		case name != "" && email != "" && !strings.EqualFold(name, email):
+			return name + " (" + email + ")"
+		case email != "":
+			return email
+		}
+		return name
+	}
+	organizer := ""
+	organizerEmail := ""
+	if prop := component.Props.Get(ical.PropOrganizer); prop != nil {
+		organizer, organizerEmail = person(*prop), calendarReplyAddress(prop.Value)
+	}
+	var guests []string
+	for _, prop := range component.Props[ical.PropAttendee] {
+		if organizerEmail != "" && strings.EqualFold(calendarReplyAddress(prop.Value), organizerEmail) {
+			continue
+		}
+		if guest := person(prop); guest != "" {
+			guests = append(guests, guest)
+		}
+	}
+	if len(guests) == 0 {
+		return description // No meeting, whoever it names as organizer.
+	}
+	var lines []string
+	if organizer != "" {
+		lines = append(lines, "Organizer: "+organizer)
+	}
+	lines = append(lines, "Guests: "+strings.Join(guests, ", "))
+	if description != "" {
+		description += "\n\n"
+	}
+	return description + strings.Join(lines, "\n")
 }
 
 // outlookODataString quotes a value for an OData filter.

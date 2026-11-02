@@ -309,6 +309,9 @@ func TestOutlookCalendarImportThenExport(t *testing.T) {
 	if _, ok := fake.events[1]["isReminderOn"]; ok {
 		t.Error("an event without alarms didn't get the calendar's reminder")
 	}
+	if body := choir["body"].(map[string]any)["content"]; body != "Guests: sam@example.com" {
+		t.Errorf("guests written as %q", body)
+	}
 	if choir["attendees"] != nil || choir["showAs"] != "free" {
 		t.Errorf("series imported as %v: guests would get invitations", choir)
 	}
@@ -420,5 +423,28 @@ func TestCalendarImportReminders(t *testing.T) {
 	// after the start isn't a reminder Google or Microsoft keep.
 	if got := fmt.Sprint(reminders); !alarms || got != "[{120 false} {60 true} {15 false}]" {
 		t.Fatalf("reminders = %s, %v", got, alarms)
+	}
+}
+
+func TestOutlookImportDescriptionNamesTheMeetingsPeople(t *testing.T) {
+	file := "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:x\r\nBEGIN:VEVENT\r\nUID:m\r\nDTSTAMP:20260101T000000Z\r\nDTSTART:20260301T100000Z\r\nSUMMARY:Planning\r\n" +
+		"DESCRIPTION:Bring the budget.\r\n" +
+		"ORGANIZER;CN=Robin Diaz:mailto:robin@example.com\r\n" +
+		"ATTENDEE;CN=Robin Diaz;PARTSTAT=ACCEPTED:mailto:robin@example.com\r\n" +
+		"ATTENDEE;CN=Sam Lee;PARTSTAT=DECLINED:mailto:sam@example.com\r\n" +
+		"ATTENDEE;PARTSTAT=TENTATIVE:mailto:kim@example.com\r\n" +
+		"END:VEVENT\r\n" +
+		"BEGIN:VEVENT\r\nUID:p\r\nDTSTAMP:20260101T000000Z\r\nDTSTART:20260302T100000Z\r\nSUMMARY:Dentist\r\nORGANIZER:mailto:robin@example.com\r\nEND:VEVENT\r\n" +
+		"END:VCALENDAR\r\n"
+	resources, err := calendarImportResources([]byte(file))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "Bring the budget.\n\nOrganizer: Robin Diaz (robin@example.com)\nGuests: Sam Lee (sam@example.com), kim@example.com"
+	if got := outlookImportDescription(resources[0].Events()[0].Component); got != want {
+		t.Errorf("meeting description = %q, want %q", got, want)
+	}
+	if got := outlookImportDescription(resources[1].Events()[0].Component); got != "" {
+		t.Errorf("an event with only an organizer got %q", got)
 	}
 }
