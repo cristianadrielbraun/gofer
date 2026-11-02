@@ -3165,6 +3165,7 @@ document.addEventListener("DOMContentLoaded", function () {
         "new-folder": target.kind === "account" && target.provider !== "gmail",
         "new-label": target.kind === "account" && target.provider === "gmail",
         "new-subfolder": target.kind === "folder" && !!target.accountID && target.provider !== "gmail" && target.role !== "starred",
+        "folder-appearance": target.kind === "folder" && !!target.accountID && target.role !== "starred" && !/^starred(-|$)/.test(target.folderID),
         "rename-folder": target.kind === "folder" && !!target.accountID && target.provider !== "gmail" && target.role === "custom",
         "delete-folder": target.kind === "folder" && !!target.accountID && target.provider !== "gmail" && target.role === "custom",
         "restore-folder": target.kind === "folder" && !!target.accountID && target.provider !== "gmail" && target.role === "custom" && target.inTrash,
@@ -3200,6 +3201,7 @@ document.addEventListener("DOMContentLoaded", function () {
       } else if (action === "mailbox-size") window.goferOpenMailboxSize(target.accountID, target.kind === "folder" ? target.folderID : "")
       else if (action === "new-folder") createMailFolder(target.accountID, "", "")
       else if (action === "new-subfolder") createMailFolder(target.accountID, target.folderID, target.name)
+      else if (action === "folder-appearance") window.goferOpenFolderAppearance(target)
       else if (action === "rename-folder") renameMailFolder(target)
       else if (action === "delete-folder") deleteMailFolder(target)
       else if (action === "restore-folder") restoreMailFolder(target)
@@ -3263,6 +3265,7 @@ document.addEventListener("DOMContentLoaded", function () {
     window.goferFolderActions = {
       "new-folder": function (t) { createMailFolder(t.accountID, "", "") },
       "new-subfolder": function (t) { createMailFolder(t.accountID, t.folderID, t.name) },
+      "folder-appearance": function (t) { window.goferOpenFolderAppearance(t) },
       "rename-folder": renameMailFolder,
       "delete-folder": deleteMailFolder,
       "restore-folder": restoreMailFolder,

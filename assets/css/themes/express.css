@@ -2722,3 +2722,13 @@ html:root[data-theme="express"] :is([data-calendar-month-event], [data-calendar-
 [data-theme="express"] [data-mail-label-option] {
   border-radius: 0;
 }
+
+/* Folder appearance is unavailable until it can preserve Express artwork. */
+[data-theme="express"] [data-sidebar-context-action="folder-appearance"],
+[data-theme="express"] [data-folder-action="folder-appearance"] {
+  display: none !important;
+}
+
+[data-theme="express"] [data-folder-appearance-icon] {
+  color: inherit !important;
+}

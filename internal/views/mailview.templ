@@ -1359,7 +1359,7 @@ templ MailMoveDialog(email *models.Email, accounts []models.Account) {
 									data-on-click={ onAction("selectMoveFolder", actionElement) }
 								>
 									<span class="flex size-5 shrink-0 items-center justify-center text-muted-foreground">
-										@SidebarFolderIcon(target.Folder.Icon)
+										@FolderAppearanceIcon(target.Folder)
 									</span>
 									<span class="flex-1 truncate">{ target.Folder.Name }</span>
 									if current {

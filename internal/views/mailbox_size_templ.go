@@ -464,7 +464,7 @@ func mailboxSizeFolderRow(row mailboxSizeRow, totalBytes int64) templ.Component 
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = SidebarFolderIcon(row.Folder.Icon).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = FolderAppearanceIcon(row.Folder).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

@@ -108,10 +108,13 @@ templ foldersPanelRow(accountID string, folder models.Folder, depth int, inTrash
 	{{ custom := folder.Role == "custom" }}
 	<div class="flex items-center gap-2 rounded-md py-1.5 pr-1 hover:bg-accent/50" style={ mailMoveIndent(depth) }>
 		<span class="flex size-5 shrink-0 items-center justify-center text-muted-foreground">
-			@SidebarFolderIcon(folder.Icon)
+			@FolderAppearanceIcon(folder)
 		</span>
 		<span class="min-w-0 flex-1 truncate text-sm">{ folder.Name }</span>
 		if folder.Role != "starred" {
+			@folderRowButton("folder-appearance", accountID, folder.ID, folder.Name, "Appearance of "+folder.Name, false) {
+				@icon.Palette(icon.Props{Class: "size-3.5"})
+			}
 			@folderRowButton("new-subfolder", accountID, folder.ID, folder.Name, "New folder in "+folder.Name, false) {
 				@icon.FolderPlus(icon.Props{Class: "size-3.5"})
 			}

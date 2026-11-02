@@ -549,6 +549,8 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/accounts/{id}/folders", h.handleCreateFolder)
 	mux.HandleFunc("GET /api/accounts/{id}/folders/manage", h.handleManageFolders)
 	mux.HandleFunc("GET /api/folders/{id}/manage", h.handleFolderInfo)
+	mux.HandleFunc("GET /api/folders/{id}/appearance", h.handleFolderAppearance)
+	mux.HandleFunc("POST /api/folders/{id}/appearance", h.handleSaveFolderAppearance)
 	mux.HandleFunc("POST /api/folders/{id}/rename", h.handleRenameFolder)
 	mux.HandleFunc("POST /api/folders/{id}/delete", h.handleDeleteFolder)
 	mux.HandleFunc("POST /api/folders/{id}/restore", h.handleRestoreFolder)

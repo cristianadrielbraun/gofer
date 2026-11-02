@@ -587,7 +587,7 @@ templ mailRuleFolderTreeItem(folder models.Folder, depth int, target *models.Mai
 			}) {
 				<span class="inline-flex min-w-0 items-center gap-2 align-middle">
 					<span class="flex size-4 shrink-0 items-center justify-center text-muted-foreground">
-						@SidebarFolderIcon(folder.Icon)
+						@FolderAppearanceIcon(folder)
 					</span>
 					<span class="min-w-0 truncate">{ folder.Name }</span>
 				</span>

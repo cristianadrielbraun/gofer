@@ -583,3 +583,86 @@
     if (button) button.classList.add("hidden")
   }
 })()
+
+// Folder appearance uses the same dialog from both the sidebar and Settings.
+;(function () {
+  var request = 0
+  var saving = false
+
+  function preview(form, color) {
+    var icon = form.querySelector("[data-folder-appearance-icon]")
+    if (!icon) return
+    icon.style.color = color
+    icon.toggleAttribute("data-folder-color", !!color)
+  }
+
+  window.goferOpenFolderAppearance = function (target) {
+    if (document.documentElement.getAttribute("data-theme") === "express") return
+    var root = document.getElementById("folder-appearance-dialog")
+    if (!root || !target.folderID || saving || !window.tui || !window.tui.dialog) return
+    var token = ++request
+    var body = root.querySelector("[data-folder-appearance-body]")
+    body.textContent = "Loading folder appearance…"
+    window.tui.dialog.open("folder-appearance-dialog")
+    fetch("/api/folders/" + encodeURIComponent(target.folderID) + "/appearance", { headers: { Accept: "text/html" } })
+      .then(function (response) {
+        if (!response.ok) throw new Error(response.status === 404 ? "This folder is no longer available." : "Couldn't load folder appearance. Try again.")
+        return response.text()
+      })
+      .then(function (html) { if (token === request) body.innerHTML = html })
+      .catch(function (err) { if (token === request) body.textContent = err.message })
+  }
+
+  document.addEventListener("change", function (event) {
+    var form = event.target.closest("[data-folder-appearance-form]")
+    if (form && event.target.name === "color") preview(form, event.target.value)
+  })
+
+  document.addEventListener("click", function (event) {
+    var reset = event.target.closest("[data-folder-appearance-reset]")
+    if (!reset) return
+    var form = reset.closest("form")
+    form.querySelector('input[name="color"][value=""]').checked = true
+    preview(form, "")
+  })
+
+  document.addEventListener("submit", function (event) {
+    var form = event.target.closest("[data-folder-appearance-form]")
+    if (!form) return
+    event.preventDefault()
+    if (saving) return
+    var chosen = form.querySelector('input[name="color"]:checked')
+    if (!chosen) return
+    var error = form.querySelector("[data-folder-appearance-error]")
+    var save = form.querySelector("[data-folder-appearance-save]")
+    var color = chosen.value
+    var token = request
+    error.hidden = true
+    saving = true
+    save.disabled = true
+    save.textContent = "Saving…"
+    var fields = new URLSearchParams({ color: color })
+    fetch("/api/folders/" + encodeURIComponent(form.dataset.folderId) + "/appearance", {
+      method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" }, body: fields.toString(),
+    }).then(function (response) {
+      if (!response.ok) throw new Error(response.status === 404 ? "This folder is no longer available." : "Couldn't save the color. Try again.")
+      return response.json()
+    }).then(function (data) {
+      document.querySelectorAll("[data-folder-appearance-icon]").forEach(function (icon) {
+        if (icon.getAttribute("data-folder-appearance-icon") !== data.id) return
+        icon.style.color = data.color
+        icon.toggleAttribute("data-folder-color", !!data.color)
+      })
+      if (token === request) window.tui.dialog.close("folder-appearance-dialog")
+      if (window.goferRefreshSidebarAccount) window.goferRefreshSidebarAccount(data.account_id)
+      document.dispatchEvent(new CustomEvent("gofer:folders-changed", { detail: { accountID: data.account_id } }))
+    }).catch(function (err) {
+      error.textContent = err.message
+      error.hidden = false
+    }).finally(function () {
+      saving = false
+      save.disabled = false
+      save.textContent = "Save"
+    })
+  })
+})()

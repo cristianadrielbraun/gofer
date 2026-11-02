@@ -14,6 +14,7 @@ import (
 // here too, so every page can open it.
 templ AppDialogs() {
 	@MailboxSizeDialog()
+	@FolderAppearanceDialog()
 	@dialog.Dialog(dialog.Props{ID: "app-confirm-dialog"}) {
 		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-md", Attributes: templ.Attributes{"data-app-confirm": ""}}) {
 			@dialog.Header() {

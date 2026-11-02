@@ -5951,7 +5951,7 @@ func MailMoveDialog(email *models.Email, accounts []models.Account) templ.Compon
 						if templ_7745c5c3_Err != nil {
 							return templ_7745c5c3_Err
 						}
-						templ_7745c5c3_Err = SidebarFolderIcon(target.Folder.Icon).Render(ctx, templ_7745c5c3_Buffer)
+						templ_7745c5c3_Err = FolderAppearanceIcon(target.Folder).Render(ctx, templ_7745c5c3_Buffer)
 						if templ_7745c5c3_Err != nil {
 							return templ_7745c5c3_Err
 						}
