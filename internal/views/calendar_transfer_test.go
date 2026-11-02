@@ -26,10 +26,13 @@ func TestCalendarTransferDialogs(t *testing.T) {
 		t.Fatal(err)
 	}
 	page := out.String()
-	for _, want := range []string{`aria-label="Calendar actions"`, `data-calendar-import-open=""`, `data-calendar-export-open=""`, `id="calendar-import-dialog"`, `id="calendar-export-dialog"`, `data-calendar-import-open="s1"`} {
+	for _, want := range []string{`aria-label="Calendar actions"`, `data-calendar-import-open=""`, `data-calendar-export-open=""`, `id="calendar-import-dialog"`, `id="calendar-export-dialog"`, `data-calendar-import-open="s1"`, `href="/api/calendar/sources/s2/export"`} {
 		if !strings.Contains(page, want) {
 			t.Errorf("sidebar lacks %s", want)
 		}
+	}
+	if strings.Contains(page, `data-calendar-import-open="s2"`) {
+		t.Error("a read-only calendar's menu offers Import events")
 	}
 	importDialog := page[strings.Index(page, `id="calendar-import-dialog"`):strings.Index(page, `id="calendar-export-dialog"`)]
 	if !strings.Contains(importDialog, `value="source:s1"`) || strings.Contains(importDialog, "source:s2") || !strings.Contains(importDialog, `value="source:s3"`) || strings.Contains(importDialog, "source:s4") {

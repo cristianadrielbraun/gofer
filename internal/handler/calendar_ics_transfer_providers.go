@@ -78,8 +78,8 @@ func exportCalendarEvents(ctx context.Context, source storage.CalendarSource, cr
 }
 
 // importEachCalendarEvent runs add on each resource, counting it added when
-// add says so and skipped when add says the calendar has it or the provider
-// refused it.
+// add says so, already in the calendar when add says it isn't, and failed
+// when add fails with a reason about the one event.
 func importEachCalendarEvent(ctx context.Context, resources []*ical.Calendar, progress func(calendarImportResult), add func(*ical.Calendar) (bool, error)) (calendarImportResult, error) {
 	var result calendarImportResult
 	for _, resource := range resources {
@@ -91,12 +91,12 @@ func importEachCalendarEvent(ctx context.Context, resources []*ical.Calendar, pr
 		case err != nil && calendarImportAborts(err):
 			return result, err
 		case err != nil:
-			log.Printf("calendar import: event skipped: %v", err)
-			result.Skipped++
+			log.Printf("calendar import: event not imported: %v", err)
+			result.fail(resource, err)
 		case added:
 			result.Added++
 		default:
-			result.Skipped++
+			result.Existing++
 		}
 		if progress != nil {
 			progress(result)
@@ -432,7 +432,7 @@ func importGoogleCalendarEvent(ctx context.Context, token, remoteCalendarID stri
 		return false, calendarTransferProblem(err.Error())
 	}
 	if series == nil {
-		return false, nil // Google can't keep changed dates without their series.
+		return false, calendarTransferProblem("the file has changed dates of a repeating event without the event itself")
 	}
 	events := googleCalendarAPIBaseURL + "/calendars/" + url.PathEscape(remoteCalendarID) + "/events"
 	var existing struct {
@@ -543,7 +543,7 @@ func outlookImportRecurrence(rule string, start calendarImportTime) (map[string]
 	if err != nil {
 		return nil, err
 	}
-	unsupported := fmt.Errorf("Microsoft calendars can't repeat an event as %q", rule)
+	unsupported := calendarTransferProblem("Microsoft calendars have no repeat pattern like its " + rule)
 	if len(option.Byhour) > 0 || len(option.Byminute) > 0 || len(option.Bysecond) > 0 || len(option.Byyearday) > 0 || len(option.Byweekno) > 0 || len(option.Byeaster) > 0 || len(option.Bysetpos) > 1 || len(option.Bymonth) > 1 || len(option.Bymonthday) > 1 {
 		return nil, unsupported
 	}
@@ -710,8 +710,11 @@ func importOutlookCalendarEvent(ctx context.Context, token, remoteCalendarID str
 	if err != nil {
 		return false, calendarTransferProblem(err.Error())
 	}
-	if series == nil || strings.EqualFold(calendarImportText(series.component, ical.PropStatus), "CANCELLED") {
-		return false, nil
+	if series == nil {
+		return false, calendarTransferProblem("the file has changed dates of a repeating event without the event itself")
+	}
+	if strings.EqualFold(calendarImportText(series.component, ical.PropStatus), "CANCELLED") {
+		return false, calendarTransferProblem("the event is cancelled")
 	}
 	events := outlookGraphBaseURL + "/me/calendars/" + url.PathEscape(remoteCalendarID) + "/events"
 	var existing struct {
@@ -732,7 +735,7 @@ func importOutlookCalendarEvent(ctx context.Context, token, remoteCalendarID str
 	var excluded []calendarImportTime
 	if rules := series.component.Props[ical.PropRecurrenceRule]; len(rules) > 0 {
 		if len(rules) > 1 {
-			return false, calendarTransferProblem("Microsoft calendars can't repeat an event by more than one rule.")
+			return false, calendarTransferProblem("Microsoft calendars can't repeat an event by more than one rule")
 		}
 		recurrence, err := outlookImportRecurrence(rules[0].Value, series.start)
 		if err != nil {

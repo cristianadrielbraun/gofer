@@ -185,13 +185,16 @@ templ CalendarSidebarContent(accounts []models.Account, loading bool) {
 										}
 										if calendarTransferProvider(source.Provider) {
 											// Import adds the events of an .ics file to this
-											// calendar; Export downloads all of its events as one.
+											// calendar, when it can be written to; Export
+											// downloads all of its events as one.
 											@dropdown.Separator()
-											@dropdown.Item(dropdown.ItemProps{Class: "justify-start gap-2", Attributes: templ.Attributes{"type": "button", "data-calendar-import-open": source.ID}}) {
-												<span class="inline-flex text-muted-foreground">
-													@icon.Upload(icon.Props{Class: "size-4"})
-												</span>
-												Import events…
+											if calendarTransferWritable(source) {
+												@dropdown.Item(dropdown.ItemProps{Class: "justify-start gap-2", Attributes: templ.Attributes{"type": "button", "data-calendar-import-open": source.ID}}) {
+													<span class="inline-flex text-muted-foreground">
+														@icon.Upload(icon.Props{Class: "size-4"})
+													</span>
+													Import events…
+												}
 											}
 											@dropdown.Item(dropdown.ItemProps{Href: "/api/calendar/sources/" + source.ID + "/export", Class: "justify-start gap-2", Attributes: templ.Attributes{"download": "", "data-calendar-source-export": source.ID}}) {
 												<span class="inline-flex text-muted-foreground">

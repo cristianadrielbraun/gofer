@@ -15482,7 +15482,7 @@ document.addEventListener("click", function (event) {
 })
 
 // Import events… and Export calendar… open their dialogs, from the New event
-// menu or from a CalDAV calendar's own menu, which picks that calendar.
+// menu or from a calendar's own menu, which picks that calendar.
 // Import adds an .ics file's events to a calendar, or to a new one named from
 // the file; Export downloads a calendar's events as one. Problems show in a
 // toast rather than leaving the page.
@@ -15652,12 +15652,19 @@ document.addEventListener("submit", function (event) {
     done()
     if (window.tui && window.tui.dialog) window.tui.dialog.close("calendar-import-dialog")
     var added = result.added || 0
-    var skipped = result.skipped || 0
+    var existing = result.existing || 0
+    var failed = result.failed || 0
     var into = result.calendar ? (result.created ? " into the new calendar “" + result.calendar + "”" : " into “" + result.calendar + "”") : ""
+    // Events already there are left as they are; ones the calendar couldn't
+    // take are counted apart, with why the first of them failed.
+    var notes = []
+    if (existing) notes.push(existing === 1 ? "1 event was already in the calendar." : existing + " events were already in the calendar.")
+    if (failed) notes.push((failed === 1 ? "1 event couldn't be imported. " : failed + " events couldn't be imported. ") + (result.reason || ""))
+    var warning = failed > 0
     showGoferToast({
       title: (added === 1 ? "1 event imported" : added + " events imported") + into,
-      description: skipped ? (skipped === 1 ? "1 event was skipped: " : skipped + " events were skipped: ") + "the server refused them, usually because they're already in the calendar." : "",
-      variant: "success", icon: "success", position: "bottom-right", duration: skipped ? 8000 : 4000, dismissible: true,
+      description: notes.join(" ").trim(),
+      variant: warning ? "warning" : "success", icon: warning ? "warning" : "success", position: "bottom-right", duration: failed ? 12000 : existing ? 6000 : 4000, dismissible: true,
     })
     if (result.created) refreshCalendarSidebar()
     var sync = document.querySelector("[data-calendar-sync-button]")

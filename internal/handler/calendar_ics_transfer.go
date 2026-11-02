@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"database/sql"
 	"encoding/json"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"io"
@@ -52,9 +53,45 @@ func (e calendarTransferProblem) Error() string { return string(e) }
 // refused.
 type calendarImportResult struct {
 	Added    int    `json:"added"`
-	Skipped  int    `json:"skipped"`
+	// Existing counts the events the calendar already had, by UID; Failed
+	// those it couldn't take, Reason saying why for the first of them.
+	Existing int    `json:"existing"`
+	Failed   int    `json:"failed"`
+	Reason   string `json:"reason,omitempty"`
 	Calendar string `json:"calendar,omitempty"`
 	Created  bool   `json:"created,omitempty"`
+}
+
+// done is how many events the import has been through.
+func (r calendarImportResult) done() int { return r.Added + r.Existing + r.Failed }
+
+// fail counts an event the calendar couldn't take, keeping the first reason.
+func (r *calendarImportResult) fail(resource *ical.Calendar, err error) {
+	r.Failed++
+	if r.Reason != "" {
+		return
+	}
+	var problem calendarTransferProblem
+	var provider calendarCreateProviderError
+	why := "it couldn't be read"
+	switch {
+	case errors.As(err, &problem):
+		why = strings.TrimSuffix(problem.Error(), ".")
+	case errors.As(err, &provider):
+		why = fmt.Sprintf("the calendar refused it (HTTP %d)", provider.Status)
+	}
+	summary := ""
+	for _, event := range resource.Events() {
+		if summary, _ = event.Props.Text(ical.PropSummary); summary != "" {
+			break
+		}
+	}
+	if summary = strings.TrimSpace(summary); summary == "" {
+		summary = "An event"
+	} else {
+		summary = "“" + summary + "”"
+	}
+	r.Reason = summary + ": " + why + "."
 }
 
 // calendarImportMadeUID is a UID for an event the file gave none: one made
@@ -196,7 +233,7 @@ func importCalDAVEvents(ctx context.Context, source storage.CalendarSource, cred
 		}
 		body, err := encodeCalendarReply(resource)
 		if err != nil {
-			result.Skipped++
+			result.fail(resource, err)
 			report()
 			continue
 		}
@@ -220,10 +257,23 @@ func importCalDAVEvents(ctx context.Context, source storage.CalendarSource, cred
 			result.Added++
 		case status == http.StatusUnauthorized || status == http.StatusTooManyRequests || status >= 500:
 			return result, calendarCreateProviderError{status}
+		case status == http.StatusPreconditionFailed:
+			// An event the calendar has under this UID (JMAP calendars
+			// answer so).
+			result.Existing++
 		default:
-			// The server refused this event, such as one whose UID the
-			// calendar already has.
-			result.Skipped++
+			// Servers refuse an event whose UID the calendar already has
+			// in different ways; one that isn't there failed.
+			existing, err := calDAVCalendarHasUID(ctx, source, credentials, resource)
+			var provider calendarCreateProviderError
+			if errors.As(err, &provider) && calendarImportAborts(err) {
+				return result, err
+			}
+			if existing {
+				result.Existing++
+			} else {
+				result.fail(resource, calendarCreateProviderError{status})
+			}
 		}
 		report()
 	}
@@ -524,7 +574,7 @@ func (h *Handler) importIntoCalendarSource(w http.ResponseWriter, r *http.Reques
 		name := source.Name
 		var err error
 		result, err = importCalendarEvents(ctx, source, credentials, resources, func(counts calendarImportResult) {
-			line(progressLine{Done: counts.Added + counts.Skipped, Total: len(resources)})
+			line(progressLine{Done: counts.done(), Total: len(resources)})
 		})
 		result.Calendar = name
 		return err
@@ -689,4 +739,40 @@ func (h *Handler) handleCalendarSourceExport(w http.ResponseWriter, r *http.Requ
 	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": calendarExportFilename(name)}))
 	w.Header().Set("Cache-Control", "no-store")
 	_, _ = w.Write(data)
+}
+
+// calDAVCalendarHasUID says whether a CalDAV calendar has an event with the
+// resource's UID. A JMAP calendar answers a create with an event it has
+// itself, so it is never asked.
+func calDAVCalendarHasUID(ctx context.Context, source storage.CalendarSource, credentials calendarCredentials, resource *ical.Calendar) (bool, error) {
+	if source.Provider != storage.CalendarSourceProviderCalDAV || len(resource.Events()) == 0 {
+		return false, nil
+	}
+	uid, _ := resource.Events()[0].Props.Text(ical.PropUID)
+	var escaped bytes.Buffer
+	_ = xml.EscapeText(&escaped, []byte(uid))
+	body := `<?xml version="1.0" encoding="utf-8"?>
+<c:calendar-query xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
+ <d:prop><c:calendar-data><c:comp name="VCALENDAR"><c:comp name="VEVENT"><c:prop name="UID"/></c:comp></c:comp></c:calendar-data></d:prop>
+ <c:filter><c:comp-filter name="VCALENDAR"><c:comp-filter name="VEVENT"><c:prop-filter name="UID"><c:text-match collation="i;octet">` + escaped.String() + `</c:text-match></c:prop-filter></c:comp-filter></c:comp-filter></c:filter>
+</c:calendar-query>`
+	multi, err := calDAVRequest(ctx, "REPORT", source.RemoteID, credentials.username, credentials.password, "1", body, 30*time.Second)
+	if err != nil {
+		return false, err
+	}
+	// A text-match finds the UID inside longer ones too.
+	for _, response := range multi.Responses {
+		for _, stat := range response.PropStats {
+			cal, err := calendarUpdateDecodeICS([]byte(stat.Prop.CalendarData))
+			if err != nil {
+				continue
+			}
+			for _, event := range cal.Events() {
+				if found, _ := event.Props.Text(ical.PropUID); found == uid {
+					return true, nil
+				}
+			}
+		}
+	}
+	return false, nil
 }

@@ -100,7 +100,7 @@ func TestGoogleCalendarImportThenExport(t *testing.T) {
 	}
 
 	result, err = importCalendarEvents(t.Context(), source, credentials, resources, nil)
-	if err != nil || result != (calendarImportResult{Skipped: 3}) {
+	if err != nil || result != (calendarImportResult{Existing: 3}) {
 		t.Fatalf("second import = %+v, %v", result, err)
 	}
 	if len(fake.imported) != 4 {
@@ -286,7 +286,7 @@ func TestOutlookCalendarImportThenExport(t *testing.T) {
 		t.Fatal(err)
 	}
 	result, err := importCalendarEvents(t.Context(), source, credentials, resources, nil)
-	if err != nil || result != (calendarImportResult{Added: 2, Skipped: 1}) {
+	if err != nil || result.Added != 2 || result.Existing != 0 || result.Failed != 1 || !strings.HasPrefix(result.Reason, "“Hourly”: Microsoft calendars have no repeat pattern like its FREQ=HOURLY") {
 		t.Fatalf("first import = %+v, %v (an hourly rule has no Microsoft pattern)", result, err)
 	}
 	choir := fake.events[0]
@@ -308,7 +308,7 @@ func TestOutlookCalendarImportThenExport(t *testing.T) {
 	}
 
 	result, err = importCalendarEvents(t.Context(), source, credentials, resources, nil)
-	if err != nil || result != (calendarImportResult{Skipped: 3}) || len(fake.events) != 2 {
+	if err != nil || result.Existing != 2 || result.Failed != 1 || len(fake.events) != 2 {
 		t.Fatalf("second import = %+v, %v, %d events", result, err, len(fake.events))
 	}
 

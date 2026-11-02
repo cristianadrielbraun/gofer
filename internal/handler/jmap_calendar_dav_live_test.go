@@ -579,7 +579,7 @@ func TestJMAPCalendarLiveImportExport(t *testing.T) {
 		}
 	}
 	result, err = importCalendarEvents(ctx, source, credentials, resources, nil)
-	if err != nil || result != (calendarImportResult{Skipped: 2}) {
+	if err != nil || result != (calendarImportResult{Existing: 2}) {
 		t.Fatalf("second import = %+v, %v", result, err)
 	}
 	data, err := exportCalendarEvents(ctx, source, credentials)

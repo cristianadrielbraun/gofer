@@ -1050,7 +1050,7 @@ func CalendarSidebarContent(accounts []models.Account, loading bool) templ.Compo
 								return templ_7745c5c3_Err
 							}
 							if calendarTransferProvider(source.Provider) {
-								templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 76, "  ")
+								templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 76, "   ")
 								if templ_7745c5c3_Err != nil {
 									return templ_7745c5c3_Err
 								}
@@ -1062,35 +1062,37 @@ func CalendarSidebarContent(accounts []models.Account, loading bool) templ.Compo
 								if templ_7745c5c3_Err != nil {
 									return templ_7745c5c3_Err
 								}
-								templ_7745c5c3_Var44 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
-									templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
-									templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
-									if !templ_7745c5c3_IsBuffer {
-										defer func() {
-											templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
-											if templ_7745c5c3_Err == nil {
-												templ_7745c5c3_Err = templ_7745c5c3_BufErr
-											}
-										}()
-									}
-									ctx = templ.InitializeContext(ctx)
-									templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 78, "<span class=\"inline-flex text-muted-foreground\">")
+								if calendarTransferWritable(source) {
+									templ_7745c5c3_Var44 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+										templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+										templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+										if !templ_7745c5c3_IsBuffer {
+											defer func() {
+												templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+												if templ_7745c5c3_Err == nil {
+													templ_7745c5c3_Err = templ_7745c5c3_BufErr
+												}
+											}()
+										}
+										ctx = templ.InitializeContext(ctx)
+										templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 78, "<span class=\"inline-flex text-muted-foreground\">")
+										if templ_7745c5c3_Err != nil {
+											return templ_7745c5c3_Err
+										}
+										templ_7745c5c3_Err = icon.Upload(icon.Props{Class: "size-4"}).Render(ctx, templ_7745c5c3_Buffer)
+										if templ_7745c5c3_Err != nil {
+											return templ_7745c5c3_Err
+										}
+										templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 79, "</span> Import events…")
+										if templ_7745c5c3_Err != nil {
+											return templ_7745c5c3_Err
+										}
+										return nil
+									})
+									templ_7745c5c3_Err = dropdown.Item(dropdown.ItemProps{Class: "justify-start gap-2", Attributes: templ.Attributes{"type": "button", "data-calendar-import-open": source.ID}}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var44), templ_7745c5c3_Buffer)
 									if templ_7745c5c3_Err != nil {
 										return templ_7745c5c3_Err
 									}
-									templ_7745c5c3_Err = icon.Upload(icon.Props{Class: "size-4"}).Render(ctx, templ_7745c5c3_Buffer)
-									if templ_7745c5c3_Err != nil {
-										return templ_7745c5c3_Err
-									}
-									templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 79, "</span> Import events…")
-									if templ_7745c5c3_Err != nil {
-										return templ_7745c5c3_Err
-									}
-									return nil
-								})
-								templ_7745c5c3_Err = dropdown.Item(dropdown.ItemProps{Class: "justify-start gap-2", Attributes: templ.Attributes{"type": "button", "data-calendar-import-open": source.ID}}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var44), templ_7745c5c3_Buffer)
-								if templ_7745c5c3_Err != nil {
-									return templ_7745c5c3_Err
 								}
 								templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 80, " ")
 								if templ_7745c5c3_Err != nil {
@@ -1431,7 +1433,7 @@ func CalendarImportDialog(accounts []models.Account) templ.Component {
 									var templ_7745c5c3_Var58 string
 									templ_7745c5c3_Var58, templ_7745c5c3_Err = templ.JoinStringErrs(choice.Label)
 									if templ_7745c5c3_Err != nil {
-										return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 266, Col: 24}
+										return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 269, Col: 24}
 									}
 									_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var58))
 									if templ_7745c5c3_Err != nil {
@@ -1460,7 +1462,7 @@ func CalendarImportDialog(accounts []models.Account) templ.Component {
 									var templ_7745c5c3_Var60 string
 									templ_7745c5c3_Var60, templ_7745c5c3_Err = templ.JoinStringErrs(choice.Label)
 									if templ_7745c5c3_Err != nil {
-										return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 271, Col: 24}
+										return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 274, Col: 24}
 									}
 									_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var60))
 									if templ_7745c5c3_Err != nil {
@@ -1821,7 +1823,7 @@ func CalendarExportDialog(accounts []models.Account) templ.Component {
 									var templ_7745c5c3_Var75 string
 									templ_7745c5c3_Var75, templ_7745c5c3_Err = templ.JoinStringErrs(choice.Label)
 									if templ_7745c5c3_Err != nil {
-										return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 335, Col: 24}
+										return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 338, Col: 24}
 									}
 									_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var75))
 									if templ_7745c5c3_Err != nil {
@@ -2200,7 +2202,7 @@ func CalendarSourceManageItems(account models.Account, source models.AccountCale
 					var templ_7745c5c3_Var86 string
 					templ_7745c5c3_Var86, templ_7745c5c3_Err = templ.JoinStringErrs(source.Undeletable)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 435, Col: 70}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 438, Col: 70}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var86))
 					if templ_7745c5c3_Err != nil {
@@ -2325,7 +2327,7 @@ func CalendarOtherSources(account models.Account, loading bool) templ.Component 
 				var templ_7745c5c3_Var91 string
 				templ_7745c5c3_Var91, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.Itoa(len(account.OtherCalendarSources)))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 457, Col: 120}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 460, Col: 120}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var91))
 				if templ_7745c5c3_Err != nil {
@@ -2364,7 +2366,7 @@ func CalendarOtherSources(account models.Account, loading bool) templ.Component 
 				var templ_7745c5c3_Var93 string
 				templ_7745c5c3_Var93, templ_7745c5c3_Err = templ.JoinStringErrs("Other calendars for " + calendarAccountDisplayName(account))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 461, Col: 121}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 464, Col: 121}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var93))
 				if templ_7745c5c3_Err != nil {
@@ -2382,7 +2384,7 @@ func CalendarOtherSources(account models.Account, loading bool) templ.Component 
 					var templ_7745c5c3_Var94 string
 					templ_7745c5c3_Var94, templ_7745c5c3_Err = templ.JoinStringErrs(source.ID)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 463, Col: 207}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 466, Col: 207}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var94))
 					if templ_7745c5c3_Err != nil {
@@ -2395,7 +2397,7 @@ func CalendarOtherSources(account models.Account, loading bool) templ.Component 
 					var templ_7745c5c3_Var95 string
 					templ_7745c5c3_Var95, templ_7745c5c3_Err = templruntime.SanitizeStyleAttributeValues(calendarEventColorStyle(CalendarEvent{SourceColor: source.Color}))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 464, Col: 133}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 467, Col: 133}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var95))
 					if templ_7745c5c3_Err != nil {
@@ -2408,7 +2410,7 @@ func CalendarOtherSources(account models.Account, loading bool) templ.Component 
 					var templ_7745c5c3_Var96 string
 					templ_7745c5c3_Var96, templ_7745c5c3_Err = templ.JoinStringErrs(calendarSourceDisplayName(source))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 465, Col: 96}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 468, Col: 96}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var96))
 					if templ_7745c5c3_Err != nil {
@@ -2421,7 +2423,7 @@ func CalendarOtherSources(account models.Account, loading bool) templ.Component 
 					var templ_7745c5c3_Var97 string
 					templ_7745c5c3_Var97, templ_7745c5c3_Err = templ.JoinStringErrs(calendarSourceDisplayName(source))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 465, Col: 134}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 468, Col: 134}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var97))
 					if templ_7745c5c3_Err != nil {
@@ -2603,7 +2605,7 @@ func CalendarPage(month CalendarMonthData, uiSettings map[string]string) templ.C
 		var templ_7745c5c3_Var105 string
 		templ_7745c5c3_Var105, templ_7745c5c3_Err = templ.JoinStringErrs(PaneLayout(uiSettings, "calendar"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 495, Col: 167}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 498, Col: 167}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var105))
 		if templ_7745c5c3_Err != nil {
@@ -2661,7 +2663,7 @@ func CalendarSourceSyncIndicator(source models.AccountCalendarSource, loading bo
 		var templ_7745c5c3_Var107 string
 		templ_7745c5c3_Var107, templ_7745c5c3_Err = templ.JoinStringErrs(source.ID)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 503, Col: 44}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 506, Col: 44}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var107))
 		if templ_7745c5c3_Err != nil {
@@ -2674,7 +2676,7 @@ func CalendarSourceSyncIndicator(source models.AccountCalendarSource, loading bo
 		var templ_7745c5c3_Var108 string
 		templ_7745c5c3_Var108, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.Itoa(source.SyncAttempt))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 503, Col: 108}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 506, Col: 108}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var108))
 		if templ_7745c5c3_Err != nil {
@@ -2687,7 +2689,7 @@ func CalendarSourceSyncIndicator(source models.AccountCalendarSource, loading bo
 		var templ_7745c5c3_Var109 string
 		templ_7745c5c3_Var109, templ_7745c5c3_Err = templ.JoinStringErrs(source.SyncState)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 503, Col: 154}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 506, Col: 154}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var109))
 		if templ_7745c5c3_Err != nil {
@@ -2700,7 +2702,7 @@ func CalendarSourceSyncIndicator(source models.AccountCalendarSource, loading bo
 		var templ_7745c5c3_Var110 string
 		templ_7745c5c3_Var110, templ_7745c5c3_Err = templ.JoinStringErrs(source.LastSyncedAt)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 503, Col: 204}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 506, Col: 204}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var110))
 		if templ_7745c5c3_Err != nil {
@@ -2713,7 +2715,7 @@ func CalendarSourceSyncIndicator(source models.AccountCalendarSource, loading bo
 		var templ_7745c5c3_Var111 string
 		templ_7745c5c3_Var111, templ_7745c5c3_Err = templ.JoinStringErrs(source.NextAttemptAt)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 503, Col: 256}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 506, Col: 256}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var111))
 		if templ_7745c5c3_Err != nil {
@@ -2726,7 +2728,7 @@ func CalendarSourceSyncIndicator(source models.AccountCalendarSource, loading bo
 		var templ_7745c5c3_Var112 string
 		templ_7745c5c3_Var112, templ_7745c5c3_Err = templ.JoinStringErrs(source.SyncError)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 503, Col: 304}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 506, Col: 304}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var112))
 		if templ_7745c5c3_Err != nil {
@@ -2739,7 +2741,7 @@ func CalendarSourceSyncIndicator(source models.AccountCalendarSource, loading bo
 		var templ_7745c5c3_Var113 string
 		templ_7745c5c3_Var113, templ_7745c5c3_Err = templ.JoinStringErrs(calendarSourceSyncTitle(source))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 503, Col: 362}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 506, Col: 362}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var113))
 		if templ_7745c5c3_Err != nil {
@@ -2752,7 +2754,7 @@ func CalendarSourceSyncIndicator(source models.AccountCalendarSource, loading bo
 		var templ_7745c5c3_Var114 string
 		templ_7745c5c3_Var114, templ_7745c5c3_Err = templ.JoinStringErrs(calendarSourceSyncTitle(source))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 503, Col: 404}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 506, Col: 404}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var114))
 		if templ_7745c5c3_Err != nil {
@@ -2881,7 +2883,7 @@ func CalendarMainPane(month CalendarMonthData, uiSettings map[string]string) tem
 		var templ_7745c5c3_Var116 string
 		templ_7745c5c3_Var116, templ_7745c5c3_Err = templruntime.SanitizeStyleAttributeValues("width:" + mailListWidthCSS(PanelSetting(uiSettings, "calendar", "mail_list_width", "50%")))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 520, Col: 238}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 523, Col: 238}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var116))
 		if templ_7745c5c3_Err != nil {
@@ -2894,7 +2896,7 @@ func CalendarMainPane(month CalendarMonthData, uiSettings map[string]string) tem
 		var templ_7745c5c3_Var117 string
 		templ_7745c5c3_Var117, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.FormatBool(month.Loading))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 520, Col: 316}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 523, Col: 316}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var117))
 		if templ_7745c5c3_Err != nil {
@@ -2960,7 +2962,7 @@ func CalendarMainContent(month CalendarMonthData) templ.Component {
 		var templ_7745c5c3_Var119 string
 		templ_7745c5c3_Var119, templ_7745c5c3_Err = templ.JoinStringErrs(month.MonthKey)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 531, Col: 61}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 534, Col: 61}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var119))
 		if templ_7745c5c3_Err != nil {
@@ -2973,7 +2975,7 @@ func CalendarMainContent(month CalendarMonthData) templ.Component {
 		var templ_7745c5c3_Var120 string
 		templ_7745c5c3_Var120, templ_7745c5c3_Err = templ.JoinStringErrs(month.MonthLabel)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 531, Col: 108}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 534, Col: 108}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var120))
 		if templ_7745c5c3_Err != nil {
@@ -2986,7 +2988,7 @@ func CalendarMainContent(month CalendarMonthData) templ.Component {
 		var templ_7745c5c3_Var121 string
 		templ_7745c5c3_Var121, templ_7745c5c3_Err = templ.JoinStringErrs(month.TodayDateKey)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 531, Col: 156}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 534, Col: 156}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var121))
 		if templ_7745c5c3_Err != nil {
@@ -2999,7 +3001,7 @@ func CalendarMainContent(month CalendarMonthData) templ.Component {
 		var templ_7745c5c3_Var122 string
 		templ_7745c5c3_Var122, templ_7745c5c3_Err = templ.JoinStringErrs(month.View)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 531, Col: 190}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 534, Col: 190}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var122))
 		if templ_7745c5c3_Err != nil {
@@ -3012,7 +3014,7 @@ func CalendarMainContent(month CalendarMonthData) templ.Component {
 		var templ_7745c5c3_Var123 string
 		templ_7745c5c3_Var123, templ_7745c5c3_Err = templ.JoinStringErrs(month.DateKey)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 531, Col: 227}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 534, Col: 227}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var123))
 		if templ_7745c5c3_Err != nil {
@@ -3025,7 +3027,7 @@ func CalendarMainContent(month CalendarMonthData) templ.Component {
 		var templ_7745c5c3_Var124 string
 		templ_7745c5c3_Var124, templ_7745c5c3_Err = templ.JoinStringErrs(month.PeriodKey)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 531, Col: 268}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 534, Col: 268}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var124))
 		if templ_7745c5c3_Err != nil {
@@ -3038,7 +3040,7 @@ func CalendarMainContent(month CalendarMonthData) templ.Component {
 		var templ_7745c5c3_Var125 string
 		templ_7745c5c3_Var125, templ_7745c5c3_Err = templ.JoinStringErrs(month.SyncSourcesJSON)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 531, Col: 321}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 534, Col: 321}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var125))
 		if templ_7745c5c3_Err != nil {
@@ -3051,7 +3053,7 @@ func CalendarMainContent(month CalendarMonthData) templ.Component {
 		var templ_7745c5c3_Var126 string
 		templ_7745c5c3_Var126, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.FormatBool(month.HasSources))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 531, Col: 388}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 534, Col: 388}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var126))
 		if templ_7745c5c3_Err != nil {
@@ -3064,7 +3066,7 @@ func CalendarMainContent(month CalendarMonthData) templ.Component {
 		var templ_7745c5c3_Var127 string
 		templ_7745c5c3_Var127, templ_7745c5c3_Err = templ.JoinStringErrs(month.Month.Location().String())
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 531, Col: 447}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 534, Col: 447}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var127))
 		if templ_7745c5c3_Err != nil {
@@ -3087,7 +3089,7 @@ func CalendarMainContent(month CalendarMonthData) templ.Component {
 		var templ_7745c5c3_Var128 string
 		templ_7745c5c3_Var128, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.FormatBool(month.Loading))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 531, Col: 536}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 534, Col: 536}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var128))
 		if templ_7745c5c3_Err != nil {
@@ -3105,7 +3107,7 @@ func CalendarMainContent(month CalendarMonthData) templ.Component {
 			var templ_7745c5c3_Var129 string
 			templ_7745c5c3_Var129, templ_7745c5c3_Err = templ.JoinStringErrs(calendarViewSyncValues(month))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 536, Col: 43}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 539, Col: 43}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var129))
 			if templ_7745c5c3_Err != nil {
@@ -3124,7 +3126,7 @@ func CalendarMainContent(month CalendarMonthData) templ.Component {
 			var templ_7745c5c3_Var130 string
 			templ_7745c5c3_Var130, templ_7745c5c3_Err = templ.JoinStringErrs(calendarViewURL(month.View, month.DateKey) + "&cache=1")
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 548, Col: 115}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 551, Col: 115}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var130))
 			if templ_7745c5c3_Err != nil {
@@ -3152,7 +3154,7 @@ func CalendarMainContent(month CalendarMonthData) templ.Component {
 		var templ_7745c5c3_Var131 string
 		templ_7745c5c3_Var131, templ_7745c5c3_Err = templ.JoinStringErrs(month.MonthLabel)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 551, Col: 142}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 554, Col: 142}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var131))
 		if templ_7745c5c3_Err != nil {
@@ -3191,7 +3193,7 @@ func CalendarMainContent(month CalendarMonthData) templ.Component {
 		var templ_7745c5c3_Var133 templ.SafeURL
 		templ_7745c5c3_Var133, templ_7745c5c3_Err = templ.JoinURLErrs(calendarNavigationURL(month, -1))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 558, Col: 47}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 561, Col: 47}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var133))
 		if templ_7745c5c3_Err != nil {
@@ -3204,7 +3206,7 @@ func CalendarMainContent(month CalendarMonthData) templ.Component {
 		var templ_7745c5c3_Var134 string
 		templ_7745c5c3_Var134, templ_7745c5c3_Err = templ.JoinStringErrs(calendarNavigationURL(month, -1))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 558, Col: 91}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 561, Col: 91}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var134))
 		if templ_7745c5c3_Err != nil {
@@ -3217,7 +3219,7 @@ func CalendarMainContent(month CalendarMonthData) templ.Component {
 		var templ_7745c5c3_Var135 string
 		templ_7745c5c3_Var135, templ_7745c5c3_Err = templ.JoinStringErrs(calendarNavigationURL(month, -1))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 558, Col: 244}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 561, Col: 244}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var135))
 		if templ_7745c5c3_Err != nil {
@@ -3230,7 +3232,7 @@ func CalendarMainContent(month CalendarMonthData) templ.Component {
 		var templ_7745c5c3_Var136 string
 		templ_7745c5c3_Var136, templ_7745c5c3_Err = templ.JoinStringErrs(calendarNavigationLabel(month, "Previous"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 558, Col: 480}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 561, Col: 480}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var136))
 		if templ_7745c5c3_Err != nil {
@@ -3251,7 +3253,7 @@ func CalendarMainContent(month CalendarMonthData) templ.Component {
 		var templ_7745c5c3_Var137 templ.SafeURL
 		templ_7745c5c3_Var137, templ_7745c5c3_Err = templ.JoinURLErrs(calendarNavigationURL(month, 1))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 561, Col: 46}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 564, Col: 46}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var137))
 		if templ_7745c5c3_Err != nil {
@@ -3264,7 +3266,7 @@ func CalendarMainContent(month CalendarMonthData) templ.Component {
 		var templ_7745c5c3_Var138 string
 		templ_7745c5c3_Var138, templ_7745c5c3_Err = templ.JoinStringErrs(calendarNavigationURL(month, 1))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 561, Col: 89}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 564, Col: 89}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var138))
 		if templ_7745c5c3_Err != nil {
@@ -3277,7 +3279,7 @@ func CalendarMainContent(month CalendarMonthData) templ.Component {
 		var templ_7745c5c3_Var139 string
 		templ_7745c5c3_Var139, templ_7745c5c3_Err = templ.JoinStringErrs(calendarNavigationURL(month, 1))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 561, Col: 241}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 564, Col: 241}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var139))
 		if templ_7745c5c3_Err != nil {
@@ -3290,7 +3292,7 @@ func CalendarMainContent(month CalendarMonthData) templ.Component {
 		var templ_7745c5c3_Var140 string
 		templ_7745c5c3_Var140, templ_7745c5c3_Err = templ.JoinStringErrs(calendarNavigationLabel(month, "Next"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 561, Col: 495}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 564, Col: 495}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var140))
 		if templ_7745c5c3_Err != nil {
@@ -3311,7 +3313,7 @@ func CalendarMainContent(month CalendarMonthData) templ.Component {
 		var templ_7745c5c3_Var141 string
 		templ_7745c5c3_Var141, templ_7745c5c3_Err = templruntime.SanitizeStyleAttributeValues(calendarViewIndicatorStyle(month.View))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 566, Col: 272}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 569, Col: 272}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var141))
 		if templ_7745c5c3_Err != nil {
@@ -3333,7 +3335,7 @@ func CalendarMainContent(month CalendarMonthData) templ.Component {
 		var templ_7745c5c3_Var143 templ.SafeURL
 		templ_7745c5c3_Var143, templ_7745c5c3_Err = templ.JoinURLErrs(calendarViewURL("month", month.DateKey))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 567, Col: 54}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 570, Col: 54}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var143))
 		if templ_7745c5c3_Err != nil {
@@ -3346,7 +3348,7 @@ func CalendarMainContent(month CalendarMonthData) templ.Component {
 		var templ_7745c5c3_Var144 string
 		templ_7745c5c3_Var144, templ_7745c5c3_Err = templ.JoinStringErrs(calendarViewURL("month", month.DateKey))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 567, Col: 105}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 570, Col: 105}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var144))
 		if templ_7745c5c3_Err != nil {
@@ -3359,7 +3361,7 @@ func CalendarMainContent(month CalendarMonthData) templ.Component {
 		var templ_7745c5c3_Var145 string
 		templ_7745c5c3_Var145, templ_7745c5c3_Err = templ.JoinStringErrs(calendarViewURL("month", month.DateKey))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 567, Col: 265}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 570, Col: 265}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var145))
 		if templ_7745c5c3_Err != nil {
@@ -3385,7 +3387,7 @@ func CalendarMainContent(month CalendarMonthData) templ.Component {
 		var templ_7745c5c3_Var147 string
 		templ_7745c5c3_Var147, templ_7745c5c3_Err = templ.JoinStringErrs(calendarViewCurrent(month.View != "week"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 567, Col: 380}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 570, Col: 380}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var147))
 		if templ_7745c5c3_Err != nil {
@@ -3407,7 +3409,7 @@ func CalendarMainContent(month CalendarMonthData) templ.Component {
 		var templ_7745c5c3_Var149 templ.SafeURL
 		templ_7745c5c3_Var149, templ_7745c5c3_Err = templ.JoinURLErrs(calendarViewURL("week", month.DateKey))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 568, Col: 53}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 571, Col: 53}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var149))
 		if templ_7745c5c3_Err != nil {
@@ -3420,7 +3422,7 @@ func CalendarMainContent(month CalendarMonthData) templ.Component {
 		var templ_7745c5c3_Var150 string
 		templ_7745c5c3_Var150, templ_7745c5c3_Err = templ.JoinStringErrs(calendarViewURL("week", month.DateKey))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 568, Col: 103}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 571, Col: 103}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var150))
 		if templ_7745c5c3_Err != nil {
@@ -3433,7 +3435,7 @@ func CalendarMainContent(month CalendarMonthData) templ.Component {
 		var templ_7745c5c3_Var151 string
 		templ_7745c5c3_Var151, templ_7745c5c3_Err = templ.JoinStringErrs(calendarViewURL("week", month.DateKey))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 568, Col: 262}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 571, Col: 262}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var151))
 		if templ_7745c5c3_Err != nil {
@@ -3459,7 +3461,7 @@ func CalendarMainContent(month CalendarMonthData) templ.Component {
 		var templ_7745c5c3_Var153 string
 		templ_7745c5c3_Var153, templ_7745c5c3_Err = templ.JoinStringErrs(calendarViewCurrent(month.View == "week"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 568, Col: 377}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 571, Col: 377}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var153))
 		if templ_7745c5c3_Err != nil {
@@ -3557,7 +3559,7 @@ func CalendarMainContent(month CalendarMonthData) templ.Component {
 				var templ_7745c5c3_Var156 string
 				templ_7745c5c3_Var156, templ_7745c5c3_Err = templ.JoinStringErrs(calendarWeekdayLabel(index))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 595, Col: 166}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 598, Col: 166}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var156))
 				if templ_7745c5c3_Err != nil {
@@ -3575,7 +3577,7 @@ func CalendarMainContent(month CalendarMonthData) templ.Component {
 			var templ_7745c5c3_Var157 string
 			templ_7745c5c3_Var157, templ_7745c5c3_Err = templruntime.SanitizeStyleAttributeValues("grid-template-rows:repeat(" + strconv.Itoa(len(month.Weeks)) + ",minmax(0,1fr));")
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 598, Col: 140}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 601, Col: 140}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var157))
 			if templ_7745c5c3_Err != nil {
@@ -3614,7 +3616,7 @@ func CalendarMainContent(month CalendarMonthData) templ.Component {
 					var templ_7745c5c3_Var160 string
 					templ_7745c5c3_Var160, templ_7745c5c3_Err = templ.JoinStringErrs(day.ISODate)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 603, Col: 76}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 606, Col: 76}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var160))
 					if templ_7745c5c3_Err != nil {
@@ -3627,7 +3629,7 @@ func CalendarMainContent(month CalendarMonthData) templ.Component {
 					var templ_7745c5c3_Var161 string
 					templ_7745c5c3_Var161, templ_7745c5c3_Err = templ.JoinStringErrs(week.Days[0].ISODate)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 603, Col: 126}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 606, Col: 126}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var161))
 					if templ_7745c5c3_Err != nil {
@@ -3640,7 +3642,7 @@ func CalendarMainContent(month CalendarMonthData) templ.Component {
 					var templ_7745c5c3_Var162 string
 					templ_7745c5c3_Var162, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.Itoa(visibleEvents))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 603, Col: 188}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 606, Col: 188}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var162))
 					if templ_7745c5c3_Err != nil {
@@ -3653,7 +3655,7 @@ func CalendarMainContent(month CalendarMonthData) templ.Component {
 					var templ_7745c5c3_Var163 string
 					templ_7745c5c3_Var163, templ_7745c5c3_Err = templ.JoinStringErrs(day.Date.Format(time.RFC3339))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 603, Col: 281}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 606, Col: 281}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var163))
 					if templ_7745c5c3_Err != nil {
@@ -3666,7 +3668,7 @@ func CalendarMainContent(month CalendarMonthData) templ.Component {
 					var templ_7745c5c3_Var164 string
 					templ_7745c5c3_Var164, templ_7745c5c3_Err = templ.JoinStringErrs(day.Date.AddDate(0, 0, 1).Format(time.RFC3339))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 603, Col: 354}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 606, Col: 354}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var164))
 					if templ_7745c5c3_Err != nil {
@@ -3679,7 +3681,7 @@ func CalendarMainContent(month CalendarMonthData) templ.Component {
 					var templ_7745c5c3_Var165 string
 					templ_7745c5c3_Var165, templ_7745c5c3_Err = templ.JoinStringErrs(day.Date.Format("Monday, January 2"))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 603, Col: 419}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 606, Col: 419}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var165))
 					if templ_7745c5c3_Err != nil {
@@ -3692,7 +3694,7 @@ func CalendarMainContent(month CalendarMonthData) templ.Component {
 					var templ_7745c5c3_Var166 string
 					templ_7745c5c3_Var166, templ_7745c5c3_Err = templ.JoinStringErrs(calendarDayLabel(day))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 603, Col: 456}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 606, Col: 456}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var166))
 					if templ_7745c5c3_Err != nil {
@@ -3715,7 +3717,7 @@ func CalendarMainContent(month CalendarMonthData) templ.Component {
 					var templ_7745c5c3_Var167 string
 					templ_7745c5c3_Var167, templ_7745c5c3_Err = templ.JoinStringErrs(day.ISODate)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 604, Col: 97}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 607, Col: 97}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var167))
 					if templ_7745c5c3_Err != nil {
@@ -3728,7 +3730,7 @@ func CalendarMainContent(month CalendarMonthData) templ.Component {
 					var templ_7745c5c3_Var168 string
 					templ_7745c5c3_Var168, templ_7745c5c3_Err = templ.JoinStringErrs("Show events for " + day.Date.Format("Monday, January 2, 2006"))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 604, Col: 176}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 607, Col: 176}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var168))
 					if templ_7745c5c3_Err != nil {
@@ -3741,7 +3743,7 @@ func CalendarMainContent(month CalendarMonthData) templ.Component {
 					var templ_7745c5c3_Var169 string
 					templ_7745c5c3_Var169, templ_7745c5c3_Err = templ.JoinStringErrs(day.Date.Format("Monday, January 2, 2006"))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 605, Col: 76}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 608, Col: 76}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var169))
 					if templ_7745c5c3_Err != nil {
@@ -3776,7 +3778,7 @@ func CalendarMainContent(month CalendarMonthData) templ.Component {
 					var templ_7745c5c3_Var172 string
 					templ_7745c5c3_Var172, templ_7745c5c3_Err = templ.JoinStringErrs(day.DayNumber)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 608, Col: 69}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 611, Col: 69}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var172))
 					if templ_7745c5c3_Err != nil {
@@ -3838,7 +3840,7 @@ func CalendarMainContent(month CalendarMonthData) templ.Component {
 							var templ_7745c5c3_Var173 string
 							templ_7745c5c3_Var173, templ_7745c5c3_Err = templ.JoinStringErrs(event.SourceID)
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 623, Col: 106}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 626, Col: 106}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var173))
 							if templ_7745c5c3_Err != nil {
@@ -3851,7 +3853,7 @@ func CalendarMainContent(month CalendarMonthData) templ.Component {
 							var templ_7745c5c3_Var174 string
 							templ_7745c5c3_Var174, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.FormatBool(event.SourceHidden))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 623, Col: 177}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 626, Col: 177}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var174))
 							if templ_7745c5c3_Err != nil {
@@ -3864,7 +3866,7 @@ func CalendarMainContent(month CalendarMonthData) templ.Component {
 							var templ_7745c5c3_Var175 string
 							templ_7745c5c3_Var175, templ_7745c5c3_Err = templ.JoinStringErrs(calendarEventResponseState(event))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 623, Col: 244}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 626, Col: 244}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var175))
 							if templ_7745c5c3_Err != nil {
@@ -3885,7 +3887,7 @@ func CalendarMainContent(month CalendarMonthData) templ.Component {
 							var templ_7745c5c3_Var176 string
 							templ_7745c5c3_Var176, templ_7745c5c3_Err = templ.JoinStringErrs(event.ID)
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 623, Col: 320}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 626, Col: 320}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var176))
 							if templ_7745c5c3_Err != nil {
@@ -3898,7 +3900,7 @@ func CalendarMainContent(month CalendarMonthData) templ.Component {
 							var templ_7745c5c3_Var177 string
 							templ_7745c5c3_Var177, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.FormatBool(event.AllDay))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 623, Col: 385}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 626, Col: 385}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var177))
 							if templ_7745c5c3_Err != nil {
@@ -3911,7 +3913,7 @@ func CalendarMainContent(month CalendarMonthData) templ.Component {
 							var templ_7745c5c3_Var178 string
 							templ_7745c5c3_Var178, templ_7745c5c3_Err = templ.JoinStringErrs(event.StartDate)
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 623, Col: 436}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 626, Col: 436}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var178))
 							if templ_7745c5c3_Err != nil {
@@ -3924,7 +3926,7 @@ func CalendarMainContent(month CalendarMonthData) templ.Component {
 							var templ_7745c5c3_Var179 string
 							templ_7745c5c3_Var179, templ_7745c5c3_Err = templ.JoinStringErrs(event.EndDate)
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 623, Col: 483}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 626, Col: 483}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var179))
 							if templ_7745c5c3_Err != nil {
@@ -3953,7 +3955,7 @@ func CalendarMainContent(month CalendarMonthData) templ.Component {
 							var templ_7745c5c3_Var180 string
 							templ_7745c5c3_Var180, templ_7745c5c3_Err = templ.JoinStringErrs(calendarEventResponseSummary(event))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 623, Col: 924}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 626, Col: 924}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var180))
 							if templ_7745c5c3_Err != nil {
@@ -3966,7 +3968,7 @@ func CalendarMainContent(month CalendarMonthData) templ.Component {
 							var templ_7745c5c3_Var181 string
 							templ_7745c5c3_Var181, templ_7745c5c3_Err = templ.JoinStringErrs("Open event: " + calendarEventResponseSummary(event))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 623, Col: 992}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 626, Col: 992}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var181))
 							if templ_7745c5c3_Err != nil {
@@ -3979,7 +3981,7 @@ func CalendarMainContent(month CalendarMonthData) templ.Component {
 							var templ_7745c5c3_Var182 string
 							templ_7745c5c3_Var182, templ_7745c5c3_Err = templ.JoinStringErrs(calendarEventDetailsURL(event.ID))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 623, Col: 1107}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 626, Col: 1107}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var182))
 							if templ_7745c5c3_Err != nil {
@@ -4014,7 +4016,7 @@ func CalendarMainContent(month CalendarMonthData) templ.Component {
 							var templ_7745c5c3_Var185 string
 							templ_7745c5c3_Var185, templ_7745c5c3_Err = templruntime.SanitizeStyleAttributeValues(calendarEventColorStyle(event))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 625, Col: 98}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 628, Col: 98}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var185))
 							if templ_7745c5c3_Err != nil {
@@ -4027,7 +4029,7 @@ func CalendarMainContent(month CalendarMonthData) templ.Component {
 							var templ_7745c5c3_Var186 string
 							templ_7745c5c3_Var186, templ_7745c5c3_Err = templ.JoinStringErrs(calendarEventTimeLabel(event, day.Date.Location()))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 626, Col: 117}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 629, Col: 117}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var186))
 							if templ_7745c5c3_Err != nil {
@@ -4040,7 +4042,7 @@ func CalendarMainContent(month CalendarMonthData) templ.Component {
 							var templ_7745c5c3_Var187 string
 							templ_7745c5c3_Var187, templ_7745c5c3_Err = templ.JoinStringErrs(calendarEventSummary(event))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 627, Col: 141}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 630, Col: 141}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var187))
 							if templ_7745c5c3_Err != nil {
@@ -4076,7 +4078,7 @@ func CalendarMainContent(month CalendarMonthData) templ.Component {
 						var templ_7745c5c3_Var188 string
 						templ_7745c5c3_Var188, templ_7745c5c3_Err = templ.JoinStringErrs(day.ISODate)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 633, Col: 102}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 636, Col: 102}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var188))
 						if templ_7745c5c3_Err != nil {
@@ -4089,7 +4091,7 @@ func CalendarMainContent(month CalendarMonthData) templ.Component {
 						var templ_7745c5c3_Var189 string
 						templ_7745c5c3_Var189, templ_7745c5c3_Err = templ.JoinStringErrs("Show all events for " + day.Date.Format("Monday, January 2, 2006"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 633, Col: 212}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 636, Col: 212}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var189))
 						if templ_7745c5c3_Err != nil {
@@ -4102,7 +4104,7 @@ func CalendarMainContent(month CalendarMonthData) templ.Component {
 						var templ_7745c5c3_Var190 string
 						templ_7745c5c3_Var190, templ_7745c5c3_Err = templ.JoinStringErrs(visibleEvents - 3)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 633, Col: 576}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 636, Col: 576}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var190))
 						if templ_7745c5c3_Err != nil {
@@ -4189,7 +4191,7 @@ func CalendarMainContent(month CalendarMonthData) templ.Component {
 			var templ_7745c5c3_Var195 string
 			templ_7745c5c3_Var195, templ_7745c5c3_Err = templ.JoinStringErrs(calendarSyncMessage(month))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 653, Col: 65}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 656, Col: 65}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var195))
 			if templ_7745c5c3_Err != nil {
@@ -4236,7 +4238,7 @@ func CalendarAgendaPane(month CalendarMonthData) templ.Component {
 		var templ_7745c5c3_Var197 string
 		templ_7745c5c3_Var197, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.FormatBool(month.Loading))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 661, Col: 197}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 664, Col: 197}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var197))
 		if templ_7745c5c3_Err != nil {
@@ -4257,7 +4259,7 @@ func CalendarAgendaPane(month CalendarMonthData) templ.Component {
 		var templ_7745c5c3_Var198 string
 		templ_7745c5c3_Var198, templ_7745c5c3_Err = templ.JoinStringErrs(month.MonthLabel)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 674, Col: 198}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 677, Col: 198}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var198))
 		if templ_7745c5c3_Err != nil {
@@ -4359,7 +4361,7 @@ func CalendarAgendaPane(month CalendarMonthData) templ.Component {
 				var templ_7745c5c3_Var199 string
 				templ_7745c5c3_Var199, templ_7745c5c3_Err = templ.JoinStringErrs(event.SourceID)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 705, Col: 100}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 708, Col: 100}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var199))
 				if templ_7745c5c3_Err != nil {
@@ -4372,7 +4374,7 @@ func CalendarAgendaPane(month CalendarMonthData) templ.Component {
 				var templ_7745c5c3_Var200 string
 				templ_7745c5c3_Var200, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.FormatBool(event.SourceHidden))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 705, Col: 171}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 708, Col: 171}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var200))
 				if templ_7745c5c3_Err != nil {
@@ -4385,7 +4387,7 @@ func CalendarAgendaPane(month CalendarMonthData) templ.Component {
 				var templ_7745c5c3_Var201 string
 				templ_7745c5c3_Var201, templ_7745c5c3_Err = templ.JoinStringErrs(calendarEventResponseState(event))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 705, Col: 238}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 708, Col: 238}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var201))
 				if templ_7745c5c3_Err != nil {
@@ -4398,7 +4400,7 @@ func CalendarAgendaPane(month CalendarMonthData) templ.Component {
 				var templ_7745c5c3_Var202 string
 				templ_7745c5c3_Var202, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.FormatBool(event.AllDay))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 705, Col: 330}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 708, Col: 330}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var202))
 				if templ_7745c5c3_Err != nil {
@@ -4411,7 +4413,7 @@ func CalendarAgendaPane(month CalendarMonthData) templ.Component {
 				var templ_7745c5c3_Var203 string
 				templ_7745c5c3_Var203, templ_7745c5c3_Err = templ.JoinStringErrs(event.StartDate)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 705, Col: 381}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 708, Col: 381}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var203))
 				if templ_7745c5c3_Err != nil {
@@ -4424,7 +4426,7 @@ func CalendarAgendaPane(month CalendarMonthData) templ.Component {
 				var templ_7745c5c3_Var204 string
 				templ_7745c5c3_Var204, templ_7745c5c3_Err = templ.JoinStringErrs(event.EndDate)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 705, Col: 428}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 708, Col: 428}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var204))
 				if templ_7745c5c3_Err != nil {
@@ -4437,7 +4439,7 @@ func CalendarAgendaPane(month CalendarMonthData) templ.Component {
 				var templ_7745c5c3_Var205 string
 				templ_7745c5c3_Var205, templ_7745c5c3_Err = templ.JoinStringErrs(calendarEventTimestamp(event.StartAt))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 705, Col: 496}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 708, Col: 496}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var205))
 				if templ_7745c5c3_Err != nil {
@@ -4450,7 +4452,7 @@ func CalendarAgendaPane(month CalendarMonthData) templ.Component {
 				var templ_7745c5c3_Var206 string
 				templ_7745c5c3_Var206, templ_7745c5c3_Err = templ.JoinStringErrs(calendarEventTimestamp(event.EndAt))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 705, Col: 560}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 708, Col: 560}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var206))
 				if templ_7745c5c3_Err != nil {
@@ -4463,7 +4465,7 @@ func CalendarAgendaPane(month CalendarMonthData) templ.Component {
 				var templ_7745c5c3_Var207 string
 				templ_7745c5c3_Var207, templ_7745c5c3_Err = templ.JoinStringErrs("Open event: " + calendarEventResponseSummary(event))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 705, Col: 839}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 708, Col: 839}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var207))
 				if templ_7745c5c3_Err != nil {
@@ -4476,7 +4478,7 @@ func CalendarAgendaPane(month CalendarMonthData) templ.Component {
 				var templ_7745c5c3_Var208 string
 				templ_7745c5c3_Var208, templ_7745c5c3_Err = templ.JoinStringErrs(calendarEventDetailsURL(event.ID))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 705, Col: 954}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 708, Col: 954}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var208))
 				if templ_7745c5c3_Err != nil {
@@ -4504,7 +4506,7 @@ func CalendarAgendaPane(month CalendarMonthData) templ.Component {
 				var templ_7745c5c3_Var209 string
 				templ_7745c5c3_Var209, templ_7745c5c3_Err = templruntime.SanitizeStyleAttributeValues(calendarEventColorStyle(event))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 717, Col: 93}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 720, Col: 93}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var209))
 				if templ_7745c5c3_Err != nil {
@@ -4517,7 +4519,7 @@ func CalendarAgendaPane(month CalendarMonthData) templ.Component {
 				var templ_7745c5c3_Var210 string
 				templ_7745c5c3_Var210, templ_7745c5c3_Err = templ.JoinStringErrs(calendarEventSummary(event))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 718, Col: 124}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 721, Col: 124}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var210))
 				if templ_7745c5c3_Err != nil {
@@ -4530,7 +4532,7 @@ func CalendarAgendaPane(month CalendarMonthData) templ.Component {
 				var templ_7745c5c3_Var211 string
 				templ_7745c5c3_Var211, templ_7745c5c3_Err = templ.JoinStringErrs(calendarEventAgendaDateLabel(event, month.Month.Location()))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 720, Col: 134}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 723, Col: 134}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var211))
 				if templ_7745c5c3_Err != nil {
@@ -4543,7 +4545,7 @@ func CalendarAgendaPane(month CalendarMonthData) templ.Component {
 				var templ_7745c5c3_Var212 string
 				templ_7745c5c3_Var212, templ_7745c5c3_Err = templ.JoinStringErrs(calendarEventAgendaTimeLabel(event, month.Month.Location()))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 723, Col: 113}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 726, Col: 113}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var212))
 				if templ_7745c5c3_Err != nil {
@@ -4569,7 +4571,7 @@ func CalendarAgendaPane(month CalendarMonthData) templ.Component {
 					var templ_7745c5c3_Var213 string
 					templ_7745c5c3_Var213, templ_7745c5c3_Err = templ.JoinStringErrs(calendarEventMeta(event))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 727, Col: 96}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 730, Col: 96}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var213))
 					if templ_7745c5c3_Err != nil {
@@ -4725,7 +4727,7 @@ func CalendarDayDots(events []CalendarEvent) templ.Component {
 			var templ_7745c5c3_Var217 string
 			templ_7745c5c3_Var217, templ_7745c5c3_Err = templ.JoinStringErrs(event.SourceID)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 759, Col: 127}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 762, Col: 127}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var217))
 			if templ_7745c5c3_Err != nil {
@@ -4738,7 +4740,7 @@ func CalendarDayDots(events []CalendarEvent) templ.Component {
 			var templ_7745c5c3_Var218 string
 			templ_7745c5c3_Var218, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.FormatBool(event.SourceHidden))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 759, Col: 198}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 762, Col: 198}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var218))
 			if templ_7745c5c3_Err != nil {
@@ -4751,7 +4753,7 @@ func CalendarDayDots(events []CalendarEvent) templ.Component {
 			var templ_7745c5c3_Var219 string
 			templ_7745c5c3_Var219, templ_7745c5c3_Err = templruntime.SanitizeStyleAttributeValues(calendarEventColorStyle(event))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 759, Col: 239}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 762, Col: 239}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var219))
 			if templ_7745c5c3_Err != nil {
@@ -5028,7 +5030,7 @@ func CalendarContextMenu() templ.Component {
 								var templ_7745c5c3_Var231 string
 								templ_7745c5c3_Var231, templ_7745c5c3_Err = templ.JoinStringErrs(calendarResponseChoiceLabel(status))
 								if templ_7745c5c3_Err != nil {
-									return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 809, Col: 46}
+									return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 812, Col: 46}
 								}
 								_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var231))
 								if templ_7745c5c3_Err != nil {
@@ -5386,7 +5388,7 @@ func calendarContextItem(action string, label string, class string) templ.Compon
 			var templ_7745c5c3_Var244 string
 			templ_7745c5c3_Var244, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 863, Col: 10}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar.templ`, Line: 866, Col: 10}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var244))
 			if templ_7745c5c3_Err != nil {

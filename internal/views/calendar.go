@@ -594,14 +594,20 @@ func calendarTransferCalendars(accounts []models.Account, writable bool) []calen
 			if !calendarTransferProvider(source.Provider) {
 				continue
 			}
-			role := strings.ToLower(strings.TrimSpace(source.AccessRole))
-			if writable && role != "" && role != "unknown" && role != "owner" && role != "writer" {
+			if writable && !calendarTransferWritable(source) {
 				continue
 			}
 			choices = append(choices, calendarTransferChoice{Value: "source:" + source.ID, Label: calendarAccountDisplayName(account) + " / " + calendarSourceDisplayName(source), SourceID: source.ID})
 		}
 	}
 	return choices
+}
+
+// calendarTransferWritable says whether Gofer can import into a calendar:
+// one the account owns or can write to, or whose role it doesn't know.
+func calendarTransferWritable(source models.AccountCalendarSource) bool {
+	role := strings.ToLower(strings.TrimSpace(source.AccessRole))
+	return role == "" || role == "unknown" || role == "owner" || role == "writer"
 }
 
 // calendarTransferNewTargets are the accounts that sync calendars, where an

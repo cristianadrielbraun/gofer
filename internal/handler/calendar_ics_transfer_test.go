@@ -167,7 +167,7 @@ func TestCalDAVImportThenExport(t *testing.T) {
 	}
 	var steps []int
 	result, err := importCalDAVEvents(t.Context(), source, credentials, parsed, func(counts calendarImportResult) {
-		steps = append(steps, counts.Added+counts.Skipped)
+		steps = append(steps, counts.done())
 	})
 	if err != nil || result != (calendarImportResult{Added: 3}) {
 		t.Fatalf("first import = %+v, %v", result, err)
@@ -176,7 +176,7 @@ func TestCalDAVImportThenExport(t *testing.T) {
 		t.Errorf("progress = %v, want one report per event", steps)
 	}
 	result, err = importCalDAVEvents(t.Context(), source, credentials, parsed[1:2], nil)
-	if err != nil || result != (calendarImportResult{Skipped: 1}) {
+	if err != nil || result != (calendarImportResult{Existing: 1}) {
 		t.Fatalf("second import of seed swap = %+v, %v", result, err)
 	}
 
@@ -237,5 +237,31 @@ func TestCalendarImportRequestChecks(t *testing.T) {
 		if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), test.want) {
 			t.Errorf("%s: %d %q, want 400 with %q", test.query, response.Code, response.Body.String(), test.want)
 		}
+	}
+}
+
+// Events a CalDAV server refuses and doesn't have count as failed, with the
+// first one's reason, not as already in the calendar.
+func TestCalDAVImportTellsRefusedFromExisting(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "REPORT" {
+			w.WriteHeader(http.StatusMultiStatus)
+			io.WriteString(w, `<?xml version="1.0"?><d:multistatus xmlns:d="DAV:"/>`)
+			return
+		}
+		w.WriteHeader(http.StatusBadRequest)
+	}))
+	defer server.Close()
+	prior := davHTTPTransport
+	davHTTPTransport = server.Client().Transport
+	defer func() { davHTTPTransport = prior }()
+	source := storage.CalendarSource{ID: "source", Provider: "caldav", RemoteID: server.URL + "/cal/", AccessRole: "owner"}
+	resources, err := calendarImportResources([]byte(calendarImportTestFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := importCalDAVEvents(t.Context(), source, calendarCredentials{username: "u", password: "p", baseURL: source.RemoteID}, resources, nil)
+	if err != nil || result.Added != 0 || result.Existing != 0 || result.Failed != 3 || result.Reason != "“Pruning”: the calendar refused it (HTTP 400)." {
+		t.Fatalf("import = %+v, %v", result, err)
 	}
 }

@@ -191,7 +191,7 @@ func TestCalDAVCalendarTransferInEachMode(t *testing.T) {
 			if first := s.importFile(t, calendarImportTestFile); first["error"] != nil || first["added"] != float64(3) {
 				t.Fatalf("first import = %v", first)
 			}
-			if second := s.importFile(t, calendarImportTestFile); second["error"] != nil || second["added"] != float64(0) || second["skipped"] != float64(3) || len(api.resources) != 3 {
+			if second := s.importFile(t, calendarImportTestFile); second["error"] != nil || second["added"] != float64(0) || second["existing"] != float64(3) || second["failed"] != float64(0) || len(api.resources) != 3 {
 				t.Fatalf("second import = %v, %d events", second, len(api.resources))
 			}
 			if exported := s.export(t); strings.Count(exported, "BEGIN:VEVENT") != 4 || !strings.Contains(exported, "X-WR-CALNAME:Evenings") {
