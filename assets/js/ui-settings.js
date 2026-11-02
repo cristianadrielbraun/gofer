@@ -702,6 +702,13 @@ var GoferSettings;
     if (key === "timezone") {
       document.documentElement.setAttribute("data-timezone", value || browserTimezone());
     }
+    if (key === "language") {
+      // Pages shown before sign-in read the cookie, so they keep the chosen
+      // language after signing out. Automatic leaves them to the browser.
+      document.cookie = value && value !== "auto"
+        ? "gofer_lang=" + encodeURIComponent(value) + "; path=/; max-age=31536000; samesite=lax"
+        : "gofer_lang=; path=/; max-age=0; samesite=lax";
+    }
   }
 
   GoferSettings = {
@@ -798,7 +805,8 @@ var GoferSettings;
         detail: { key: key, value: value, oldValue: oldValue },
       }));
 
-      if (key === "timezone" && oldValue !== value) {
+      // The page is drawn in the time zone and language, so reload it.
+      if ((key === "timezone" && oldValue !== value) || (key === "language" && (oldValue || "auto") !== (value || "auto"))) {
         if (_saveTimer) clearTimeout(_saveTimer);
         persistSettingsNow().finally(function () {
           window.location.reload();

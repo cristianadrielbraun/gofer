@@ -1071,7 +1071,7 @@
 // Regional tab
 (function() {
   function timezoneLabel(timezone) {
-    if (!timezone || timezone === 'local') return 'Browser timezone';
+    if (!timezone || timezone === 'local') return goferT('js.settings.regional.timezone.browser');
     try {
       var now = new Date();
       var parts = new Intl.DateTimeFormat('en-US', { timeZone: timezone, timeZoneName: 'shortOffset' }).formatToParts(now);
@@ -1130,6 +1130,10 @@
       var valueEl = timezone.closest('.select-trigger') && timezone.closest('.select-trigger').querySelector('.select-value');
       if (valueEl) valueEl.textContent = timezoneLabel(timezone.value);
       GoferSettings.set('timezone', timezone.value);
+    }
+    var language = e.target.closest('[data-language-input]');
+    if (language && typeof GoferSettings !== 'undefined') {
+      GoferSettings.set('language', language.value);
     }
   });
 })();

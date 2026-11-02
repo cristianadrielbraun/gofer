@@ -13,10 +13,11 @@ type PersonalSetupData struct {
 
 templ PersonalSetupPage(data PersonalSetupData) {
  <!DOCTYPE html>
- <html lang="en" class="dark" data-theme="classic">
+ <html lang={ pageLang(ctx) } class="dark" data-theme="classic">
   <head>
    <meta charset="UTF-8"/>
    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+   @I18nScripts()
    <title>Gofer - Personal setup</title>
    @AppIcon()
    <link rel="stylesheet" href={ assetver.URL("/assets/css/output.css") }/>

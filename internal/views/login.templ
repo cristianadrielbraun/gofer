@@ -42,10 +42,11 @@ type LoginPageData struct {
 
 templ LoginPage(data LoginPageData) {
 	<!DOCTYPE html>
-	<html lang="en" class="dark" data-theme="classic">
+	<html lang={ pageLang(ctx) } class="dark" data-theme="classic">
 		<head>
 			<meta charset="UTF-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+			@I18nScripts()
 			<title>Gofer - Sign In</title>
 			@AppIcon()
 			<link rel="stylesheet" href={ assetver.URL("/assets/css/output.css") }/>
@@ -214,10 +215,11 @@ type LoginMFAFactors struct {
 
 templ LoginMFAContinuationPage(errorMessage string, factors LoginMFAFactors) {
 	<!DOCTYPE html>
-	<html lang="en" class="dark" data-theme="classic">
+	<html lang={ pageLang(ctx) } class="dark" data-theme="classic">
 		<head>
 			<meta charset="UTF-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+			@I18nScripts()
 			<title>Gofer - Additional verification</title>
 			@AppIcon()
 			<link rel="stylesheet" href={ assetver.URL("/assets/css/output.css") }/>
@@ -282,10 +284,11 @@ templ LoginMFAContinuationPage(errorMessage string, factors LoginMFAFactors) {
 
 templ RecoveryCodeLoginPage(errorMessage string) {
 	<!DOCTYPE html>
-	<html lang="en" class="dark" data-theme="classic">
+	<html lang={ pageLang(ctx) } class="dark" data-theme="classic">
 		<head>
 			<meta charset="UTF-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+			@I18nScripts()
 			<title>Gofer - Use a Recovery Code</title>
 			@AppIcon()
 			<link rel="stylesheet" href={ assetver.URL("/assets/css/output.css") }/>
@@ -339,10 +342,11 @@ templ RecoveryCodeLoginPage(errorMessage string) {
 
 templ RecoveryRepairMFAPage(data RecoveryRepairMFAData) {
 	<!DOCTYPE html>
-	<html lang="en" class="dark" data-theme="classic">
+	<html lang={ pageLang(ctx) } class="dark" data-theme="classic">
 		<head>
 			<meta charset="UTF-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+			@I18nScripts()
 			<title>Gofer - Repair Your Authenticator</title>
 			@AppIcon()
 			<link rel="stylesheet" href={ assetver.URL("/assets/css/output.css") }/>
@@ -395,10 +399,11 @@ templ RecoveryRepairMFAPage(data RecoveryRepairMFAData) {
 
 templ MFAEnrollmentPage(data MFAEnrollmentData) {
 	<!DOCTYPE html>
-	<html lang="en" class="dark" data-theme="classic">
+	<html lang={ pageLang(ctx) } class="dark" data-theme="classic">
 		<head>
 			<meta charset="UTF-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+			@I18nScripts()
 			<title>Gofer - Set Up Two-Factor Authentication</title>
 			@AppIcon()
 			<link rel="stylesheet" href={ assetver.URL("/assets/css/output.css") }/>
@@ -451,10 +456,11 @@ templ MFAEnrollmentPage(data MFAEnrollmentData) {
 
 templ MFAEnrollmentCodesPage(data MFAEnrollmentCodesData) {
 	<!DOCTYPE html>
-	<html lang="en" class="dark" data-theme="classic">
+	<html lang={ pageLang(ctx) } class="dark" data-theme="classic">
 		<head>
 			<meta charset="UTF-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+			@I18nScripts()
 			<title>Gofer - Save Recovery Codes</title>
 			@AppIcon()
 			<link rel="stylesheet" href={ assetver.URL("/assets/css/output.css") }/>
@@ -523,10 +529,11 @@ templ MFAEnrollmentCodesPage(data MFAEnrollmentCodesData) {
 
 templ RecoveryRepairCodesPage(data RecoveryRepairCodesData) {
 	<!DOCTYPE html>
-	<html lang="en" class="dark" data-theme="classic">
+	<html lang={ pageLang(ctx) } class="dark" data-theme="classic">
 		<head>
 			<meta charset="UTF-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+			@I18nScripts()
 			<title>Gofer - Save New Recovery Codes</title>
 			@AppIcon()
 			<link rel="stylesheet" href={ assetver.URL("/assets/css/output.css") }/>

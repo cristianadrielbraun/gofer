@@ -100,10 +100,11 @@ func setupOwnerDescription(helpID, errorID string, hasError bool) string {
 
 templ SetupTokenPage(data SetupTokenData) {
 	<!DOCTYPE html>
-	<html lang="en" class="dark" data-theme="classic">
+	<html lang={ pageLang(ctx) } class="dark" data-theme="classic">
 		<head>
 			<meta charset="UTF-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+			@I18nScripts()
 			<title>Gofer - Initial Setup</title>
 			@AppIcon()
 			<link rel="stylesheet" href={ assetver.URL("/assets/css/output.css") }/>
@@ -154,10 +155,11 @@ templ SetupTokenPage(data SetupTokenData) {
 
 templ SetupOwnerPage(data SetupOwnerData) {
 	<!DOCTYPE html>
-	<html lang="en" class="dark" data-theme="classic">
+	<html lang={ pageLang(ctx) } class="dark" data-theme="classic">
 		<head>
 			<meta charset="UTF-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+			@I18nScripts()
 			<title>Gofer - Set Up Owner</title>
 			@AppIcon()
 			<link rel="stylesheet" href={ assetver.URL("/assets/css/output.css") }/>
@@ -292,10 +294,11 @@ templ SetupOwnerPage(data SetupOwnerData) {
 
 templ SetupPasswordPage(data SetupPasswordData) {
 	<!DOCTYPE html>
-	<html lang="en" class="dark" data-theme="classic">
+	<html lang={ pageLang(ctx) } class="dark" data-theme="classic">
 		<head>
 			<meta charset="UTF-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+			@I18nScripts()
 			<title>Gofer - Set Owner Password</title>
 			@AppIcon()
 			<link rel="stylesheet" href={ assetver.URL("/assets/css/output.css") }/>
@@ -362,10 +365,11 @@ templ SetupPasswordPage(data SetupPasswordData) {
 
 templ SetupMFAPage(data SetupMFAData) {
 	<!DOCTYPE html>
-	<html lang="en" class="dark" data-theme="classic">
+	<html lang={ pageLang(ctx) } class="dark" data-theme="classic">
 		<head>
 			<meta charset="UTF-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+			@I18nScripts()
 			<title>Gofer - Set Up Owner Two-Factor Authentication</title>
 			@AppIcon()
 			<link rel="stylesheet" href={ assetver.URL("/assets/css/output.css") }/>
@@ -445,10 +449,11 @@ templ SetupMFAPage(data SetupMFAData) {
 
 templ SetupRecoveryPage(data SetupRecoveryData) {
 	<!DOCTYPE html>
-	<html lang="en" class="dark" data-theme="classic">
+	<html lang={ pageLang(ctx) } class="dark" data-theme="classic">
 		<head>
 			<meta charset="UTF-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+			@I18nScripts()
 			<title>Gofer - Save Owner Recovery Codes</title>
 			@AppIcon()
 			<link rel="stylesheet" href={ assetver.URL("/assets/css/output.css") }/>
@@ -519,10 +524,11 @@ templ SetupRecoveryPage(data SetupRecoveryData) {
 
 templ SetupReviewPage(data SetupReviewData) {
 	<!DOCTYPE html>
-	<html lang="en" class="dark" data-theme="classic">
+	<html lang={ pageLang(ctx) } class="dark" data-theme="classic">
 		<head>
 			<meta charset="UTF-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+			@I18nScripts()
 			<title>Gofer - Review Owner Setup</title>
 			@AppIcon()
 			<link rel="stylesheet" href={ assetver.URL("/assets/css/output.css") }/>

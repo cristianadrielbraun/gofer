@@ -16,10 +16,11 @@ type CredentialRedemptionData struct {
 
 templ InvitationEnrollmentPage(data InvitationEnrollmentData) {
 	<!DOCTYPE html>
-	<html lang="en" class="dark" data-theme="classic">
+	<html lang={ pageLang(ctx) } class="dark" data-theme="classic">
 		<head>
 			<meta charset="UTF-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+			@I18nScripts()
 			<title>Gofer - Accept Invitation</title>
 			@AppIcon()
 			<link rel="stylesheet" href={ assetver.URL("/assets/css/output.css") }/>
@@ -122,10 +123,11 @@ templ InvitationEnrollmentPage(data InvitationEnrollmentData) {
 
 templ CredentialRedemptionPage(data CredentialRedemptionData) {
 	<!DOCTYPE html>
-	<html lang="en" class="dark" data-theme="classic">
+	<html lang={ pageLang(ctx) } class="dark" data-theme="classic">
 		<head>
 			<meta charset="UTF-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+			@I18nScripts()
 			<title>Gofer - Reset Password</title>
 			@AppIcon()
 			<link rel="stylesheet" href={ assetver.URL("/assets/css/output.css") }/>
@@ -217,10 +219,11 @@ templ CredentialRedemptionCompletePage() {
 
 templ passwordTokenCompletePage(title string, message string) {
 	<!DOCTYPE html>
-	<html lang="en" class="dark" data-theme="classic">
+	<html lang={ pageLang(ctx) } class="dark" data-theme="classic">
 		<head>
 			<meta charset="UTF-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+			@I18nScripts()
 			<title>Gofer - { title }</title>
 			@AppIcon()
 			<link rel="stylesheet" href={ assetver.URL("/assets/css/output.css") }/>
