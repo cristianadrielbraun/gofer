@@ -1,7 +1,9 @@
 package handler
 
 import (
+	"context"
 	"errors"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"log"
 	"net/http"
 	"strings"
@@ -29,7 +31,7 @@ func (h *Handler) mailImportsAvailable(w http.ResponseWriter) bool {
 	return true
 }
 
-func (h *Handler) mailImportJobViews(owner string) ([]views.MailImportJob, error) {
+func (h *Handler) mailImportJobViews(ctx context.Context, owner string) ([]views.MailImportJob, error) {
 	jobs, err := h.mailImports.jobs(owner)
 	if err != nil {
 		return nil, err
@@ -40,7 +42,7 @@ func (h *Handler) mailImportJobViews(owner string) ([]views.MailImportJob, error
 		view := views.MailImportJob{
 			ID: job.ID, Title: mailImportTitle(job), Account: job.AccountEmail, State: job.State, Error: job.Error,
 			Processed: processed, Total: total, Imported: imported, Duplicates: duplicates, Failed: failed,
-			Started: job.CreatedAt.Local().Format("Jan 2, 15:04"),
+			Started: i18n.Dates(ctx).ShortDateTime(job.CreatedAt.Local()),
 		}
 		if job.State == mailJobRunning && h.mailImports.isWaiting(job.ID) {
 			view.Waiting = true
@@ -73,7 +75,7 @@ func (h *Handler) renderMailImportPanel(w http.ResponseWriter, r *http.Request, 
 }
 
 func (h *Handler) renderMailImportJobs(w http.ResponseWriter, r *http.Request) {
-	jobs, err := h.mailImportJobViews(h.userID(r.Context()))
+	jobs, err := h.mailImportJobViews(r.Context(), h.userID(r.Context()))
 	if err != nil {
 		log.Printf("mail import: %v", err)
 		http.Error(w, "could not list imports", http.StatusInternalServerError)

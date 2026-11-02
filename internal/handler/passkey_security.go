@@ -1,8 +1,10 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"io"
 	"log"
 	"net/http"
@@ -136,7 +138,7 @@ func writePasskeyJSONError(w http.ResponseWriter, status int, message string) {
 	_ = json.NewEncoder(w).Encode(map[string]string{"error": message})
 }
 
-func passkeySecurityViewData(passkeys []auth.PasskeyCredentialSummary) []views.PasskeySecurityData {
+func passkeySecurityViewData(ctx context.Context, passkeys []auth.PasskeyCredentialSummary) []views.PasskeySecurityData {
 	result := make([]views.PasskeySecurityData, 0, len(passkeys))
 	for _, passkey := range passkeys {
 		details := "Passkey"
@@ -155,11 +157,11 @@ func passkeySecurityViewData(passkeys []auth.PasskeyCredentialSummary) []views.P
 		}
 		view := views.PasskeySecurityData{
 			ID: passkey.ID, Name: passkey.Name, Details: details,
-			CreatedAt: passkey.CreatedAt.Local().Format("Jan 2, 2006"),
+			CreatedAt: i18n.Dates(ctx).Date(passkey.CreatedAt.Local()),
 			CanRemove: passkey.CanRemove, RemoveReason: passkey.RemoveReason,
 		}
 		if passkey.LastUsedAt != nil {
-			view.LastUsedAt = passkey.LastUsedAt.Local().Format("Jan 2, 2006")
+			view.LastUsedAt = i18n.Dates(ctx).Date(passkey.LastUsedAt.Local())
 		}
 		result = append(result, view)
 	}

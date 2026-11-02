@@ -95,9 +95,9 @@ templ CalendarEventDialog(details CalendarEventDetails, location *time.Location)
 			</header>
 			<div class="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain px-5 pb-6 text-sm [overflow-wrap:anywhere] sm:px-6" role="region" aria-label="Event information" tabindex="0" data-calendar-event-details-body>
 				@calendarDialogRow(icon.Clock3(icon.Props{Class: "size-4"}), "pt-0.5") {
-					<p class="font-medium">{ calendarEventDetailsDate(event, location) }</p>
+					<p class="font-medium">{ calendarEventDetailsDate(ctx, event, location) }</p>
 					<p class="mt-0.5 text-muted-foreground">
-						{ calendarEventAgendaTimeLabel(event, location) }
+						{ calendarEventAgendaTimeLabel(ctx, event, location) }
 						if timezone := calendarEventDetailsTimeZone(event, location); timezone != "" {
 							<span aria-hidden="true">·</span> { timezone }
 						}

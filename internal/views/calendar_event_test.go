@@ -1,6 +1,7 @@
 package views
 
 import (
+	"context"
 	"bytes"
 	"html"
 	"regexp"
@@ -28,7 +29,7 @@ func TestCalendarEventDetailsDateAndTimeZone(t *testing.T) {
 		{"instant", "Sunday, October 25, 2026", "Europe/Prague (CEST)", CalendarEvent{StartAt: &start, EndAt: &start}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			if got := calendarEventDetailsDate(test.event, prague); got != test.date {
+			if got := calendarEventDetailsDate(context.Background(), test.event, prague); got != test.date {
 				t.Fatalf("date = %q, want %q", got, test.date)
 			}
 			if got := calendarEventDetailsTimeZone(test.event, prague); got != test.zone {
@@ -37,7 +38,7 @@ func TestCalendarEventDetailsDateAndTimeZone(t *testing.T) {
 		})
 	}
 	crossDayEnd := start.Add(24 * time.Hour)
-	if got := calendarEventDetailsDate(CalendarEvent{StartAt: &start, EndAt: &crossDayEnd}, prague); got != "Sun, Oct 25, 2026 – Mon, Oct 26, 2026" {
+	if got := calendarEventDetailsDate(context.Background(), CalendarEvent{StartAt: &start, EndAt: &crossDayEnd}, prague); got != "Sun, Oct 25, 2026 – Mon, Oct 26, 2026" {
 		t.Fatalf("cross-day date = %q", got)
 	}
 }
@@ -58,7 +59,7 @@ func TestCalendarEventDialogRendersReadOnlyDetails(t *testing.T) {
 	html := output.String()
 	for _, expected := range []string{
 		`id="calendar-event-details-dialog"`, `aria-labelledby="calendar-event-details-title"`,
-		`Planning &lt;script&gt;alert(1)&lt;/script&gt;`, `Saturday, October 3, 2026`, `09:00–10:00`,
+		`Planning &lt;script&gt;alert(1)&lt;/script&gt;`, `Saturday, October 3, 2026`, `9:00 AM–10:00 AM`,
 		`Work`, `Room 2`, `organizer@example.com`, `guest@example.com`, `Accepted`, `Optional`, `Last line`,
 		`overflow-y-auto`, `w-[calc(100vw_-_2rem)]`, `Read-only.`, `data-tui-dialog-close`,
 	} {

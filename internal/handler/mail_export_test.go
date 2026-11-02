@@ -375,7 +375,7 @@ func TestMailExportIsOnlyVisibleToItsOwner(t *testing.T) {
 			t.Fatalf("%s by another person = %d", action, rec.Code)
 		}
 	}
-	jobs, err := f.h.mailExportJobViews("attacker")
+	jobs, err := f.h.mailExportJobViews(context.Background(), "attacker")
 	if err != nil || len(jobs) != 0 {
 		t.Fatalf("another person sees %d exports (%v)", len(jobs), err)
 	}
@@ -434,7 +434,7 @@ func TestMailExportCanBeCanceledWhileWaiting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	views, err := f.h.mailExportJobViews("owner")
+	views, err := f.h.mailExportJobViews(context.Background(), "owner")
 	if err != nil || len(views) != 1 || views[0].State != mailJobRunning || !views[0].Waiting {
 		t.Fatalf("waiting export = %+v, %v", views, err)
 	}

@@ -1079,7 +1079,7 @@ function showMailRuleRun(run, drawn) {
   }
   view.querySelectorAll("[data-mail-rule-run-field]").forEach(function (field) {
     var n = Number(run[field.getAttribute("data-mail-rule-run-field")]) || 0
-    field.textContent = n.toLocaleString("en-US")
+    field.textContent = goferNumber(n)
   })
   return true
 }

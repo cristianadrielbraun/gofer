@@ -1,5 +1,7 @@
 package views
 
+import "github.com/cristianadrielbraun/gofer/internal/i18n"
+
 import (
 	"github.com/cristianadrielbraun/gofer/internal/assetver"
 	"github.com/cristianadrielbraun/gofer/components/button"
@@ -537,7 +539,7 @@ templ CalendarMainPane(month CalendarMonthData, uiSettings map[string]string) {
 }
 
 templ CalendarMainContent(month CalendarMonthData) {
-	<div id="calendar-main" data-calendar-month={ month.MonthKey } data-calendar-month-label={ month.MonthLabel } data-calendar-today-date={ month.TodayDateKey } data-calendar-view={ month.View } data-calendar-date={ month.DateKey } data-calendar-period={ month.PeriodKey } data-calendar-sync-sources={ month.SyncSourcesJSON } data-calendar-has-sources={ strconv.FormatBool(month.HasSources) } data-calendar-timezone={ month.Month.Location().String() } data-calendar-loading?={ month.Loading } aria-busy={ strconv.FormatBool(month.Loading) } class="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+	<div id="calendar-main" data-calendar-month={ month.MonthKey } data-calendar-month-label={ calendarPeriodLabel(ctx, month) } data-calendar-today-date={ month.TodayDateKey } data-calendar-view={ month.View } data-calendar-date={ month.DateKey } data-calendar-period={ month.PeriodKey } data-calendar-sync-sources={ month.SyncSourcesJSON } data-calendar-has-sources={ strconv.FormatBool(month.HasSources) } data-calendar-timezone={ month.Month.Location().String() } data-calendar-loading?={ month.Loading } aria-busy={ strconv.FormatBool(month.Loading) } class="relative flex min-h-0 flex-1 flex-col overflow-hidden">
 		if month.AutoSync && !month.Loading {
 			<div
 				class="hidden"
@@ -557,7 +559,7 @@ templ CalendarMainContent(month CalendarMonthData) {
 			<div class="hidden" data-calendar-cache-refresh hx-get={ calendarViewURL(month.View, month.DateKey) + "&cache=1" } hx-trigger="calendar-cache-refresh" hx-target="#main-content" hx-select="#main-content" hx-swap="outerHTML" hx-sync="#main-content:drop" data-on-htmx-before-request='["configureCalendarCacheRequest","$event"]'></div>
 		}
 		<header class="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-4" inert?={ month.Loading }>
-			<h1 class="min-w-0 truncate text-lg font-bold tracking-tight" style="font-family: var(--font-serif)" data-calendar-title>{ month.MonthLabel }</h1>
+			<h1 class="min-w-0 truncate text-lg font-bold tracking-tight" style="font-family: var(--font-serif)" data-calendar-title>{ calendarPeriodLabel(ctx, month) }</h1>
 			<div class="flex shrink-0 items-center gap-1.5">
 				@button.Button(button.Props{Variant: button.VariantOutline, Href: calendarViewURL(month.View, month.TodayDateKey), Class: "h-8 px-2.5 text-xs font-semibold text-foreground " + raisedButtonClass, Attributes: templ.Attributes{"hx-get": calendarViewURL(month.View, month.TodayDateKey), "hx-target": "#main-content", "hx-select": "#main-content", "hx-swap": "outerHTML", "hx-sync": "#main-content:replace", "hx-push-url": calendarViewURL(month.View, month.TodayDateKey), "data-calendar-today": ""}}) {
 					Today
@@ -601,7 +603,7 @@ templ CalendarMainContent(month CalendarMonthData) {
 				<div class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-background shadow-[0_1px_2px_rgba(0,0,0,0.04)]" data-calendar-month-grid>
 					<div class="grid shrink-0 grid-cols-7 border-b border-border bg-muted/35">
 						for index := 0; index < 7; index++ {
-							<div class="px-2 py-2 text-center text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground sm:px-3 sm:text-[11px]">{ calendarWeekdayLabel(index) }</div>
+							<div class="px-2 py-2 text-center text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground sm:px-3 sm:text-[11px]">{ calendarWeekdayLabel(ctx, index) }</div>
 						}
 					</div>
 					<div class="grid min-h-0 flex-1 grid-cols-7" style={ "grid-template-rows:repeat(" + strconv.Itoa(len(month.Weeks)) + ",minmax(0,1fr));" }>
@@ -609,9 +611,9 @@ templ CalendarMainContent(month CalendarMonthData) {
 							for dayIndex, day := range week.Days {
 								{{ dayEvents := calendarEventsForDay(day, month.Events)
 visibleEvents := calendarVisibleEventCount(dayEvents) }}
-								<div class={ calendarDayClass(day) } data-calendar-day={ day.ISODate } data-calendar-week-start={ week.Days[0].ISODate } data-calendar-day-event-count={ strconv.Itoa(visibleEvents) } data-calendar-day-selected="false" data-calendar-day-start={ day.Date.Format(time.RFC3339) } data-calendar-day-end={ day.Date.AddDate(0, 0, 1).Format(time.RFC3339) } data-calendar-day-title={ day.Date.Format("Monday, January 2") } aria-label={ calendarDayLabel(day) }>
-									<button type="button" disabled?={ month.Loading } data-calendar-select-day={ day.ISODate } aria-label={ "Show events for " + day.Date.Format("Monday, January 2, 2006") } aria-pressed="false" aria-controls="calendar-agenda-list" class="absolute inset-0 rounded-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
-										<span class="sr-only">{ day.Date.Format("Monday, January 2, 2006") }</span>
+								<div class={ calendarDayClass(day) } data-calendar-day={ day.ISODate } data-calendar-week-start={ week.Days[0].ISODate } data-calendar-day-event-count={ strconv.Itoa(visibleEvents) } data-calendar-day-selected="false" data-calendar-day-start={ day.Date.Format(time.RFC3339) } data-calendar-day-end={ day.Date.AddDate(0, 0, 1).Format(time.RFC3339) } data-calendar-day-title={ i18n.Dates(ctx).LongDateNoYear(day.Date) } aria-label={ calendarDayLabel(ctx, day) }>
+									<button type="button" disabled?={ month.Loading } data-calendar-select-day={ day.ISODate } aria-label={ "Show events for " + i18n.Dates(ctx).LongDate(day.Date) } aria-pressed="false" aria-controls="calendar-agenda-list" class="absolute inset-0 rounded-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
+										<span class="sr-only">{ i18n.Dates(ctx).LongDate(day.Date) }</span>
 									</button>
 									<div class="pointer-events-none relative flex shrink-0 items-start justify-between gap-1">
 										<span class={ calendarDayNumberClass(day) }>{ day.DayNumber }</span>
@@ -632,14 +634,14 @@ continuesAfter := event.AllDay && event.EndDate > day.Date.AddDate(0, 0, 1).Form
 													<button type="button" hidden?={ !candidate.Visible } data-calendar-source-id={ event.SourceID } data-calendar-source-hidden={ strconv.FormatBool(event.SourceHidden) } data-calendar-response-state={ calendarEventResponseState(event) } { calendarMoveAttributes(event)... } data-calendar-month-event={ event.ID } data-calendar-event-all-day={ strconv.FormatBool(event.AllDay) } data-calendar-event-start-date={ event.StartDate } data-calendar-event-end-date={ event.EndDate } data-calendar-continues-before?={ continuesBefore } data-calendar-continues-after?={ continuesAfter } class="group pointer-events-auto relative flex w-full min-w-0 items-center gap-1.5 truncate rounded bg-primary/[0.06] px-1.5 py-1 text-left text-[10px] leading-tight text-foreground transition-colors hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" title={ calendarEventResponseSummary(event) } aria-label={ "Open event: " + calendarEventResponseSummary(event) } aria-haspopup="dialog" aria-controls="calendar-event-details-content" hx-get={ calendarEventDetailsURL(event.ID) } hx-target="#app-pane-dialogs" hx-swap="innerHTML" hx-sync="#app-pane-dialogs:replace" hx-disabled-elt="this" data-calendar-event-trigger>
 														<span class={ "flex min-w-0 flex-1 items-center gap-1.5", templ.KV("invisible", continuesBefore && dayIndex > 0) }>
 															<span class="size-1.5 shrink-0 rounded-full" style={ calendarEventColorStyle(event) }></span>
-															<span class="shrink-0 font-semibold text-primary">{ calendarEventTimeLabel(event, day.Date.Location()) }</span>
+															<span class="shrink-0 font-semibold text-primary">{ calendarEventTimeLabel(ctx, event, day.Date.Location()) }</span>
 															<span class="min-w-0 flex-1 truncate" data-calendar-event-summary><span data-calendar-event-text>{ calendarEventSummary(event) }</span></span>
 															@CalendarEventResponseIndicator(event, true)
 														</span>
 													</button>
 												}
 											</div>
-											<button type="button" hidden?={ visibleEvents <= 3 } data-calendar-select-day={ day.ISODate } data-calendar-day-overflow aria-label={ "Show all events for " + day.Date.Format("Monday, January 2, 2006") } aria-pressed="false" aria-controls="calendar-agenda-list" class="pointer-events-auto max-w-full shrink-0 self-start truncate rounded px-0.5 py-0.5 text-left text-[9px] font-semibold text-muted-foreground hover:bg-primary/10 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:px-1.5 sm:text-[10px]">+{ visibleEvents - 3 } more</button>
+											<button type="button" hidden?={ visibleEvents <= 3 } data-calendar-select-day={ day.ISODate } data-calendar-day-overflow aria-label={ "Show all events for " + i18n.Dates(ctx).LongDate(day.Date) } aria-pressed="false" aria-controls="calendar-agenda-list" class="pointer-events-auto max-w-full shrink-0 self-start truncate rounded px-0.5 py-0.5 text-left text-[9px] font-semibold text-muted-foreground hover:bg-primary/10 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:px-1.5 sm:text-[10px]">+{ visibleEvents - 3 } more</button>
 										</div>
 									}
 								</div>
@@ -659,7 +661,7 @@ continuesAfter := event.AllDay && event.EndDate > day.Date.AddDate(0, 0, 1).Form
 			} else {
 				<span class={ calendarSyncMessageClass(month) } role="status" aria-live="polite">
 					<span data-calendar-sync-dot class={ calendarAgendaStatusDotClass(month) }></span>
-					<span data-calendar-sync-status>{ calendarSyncMessage(month) }</span>
+					<span data-calendar-sync-status>{ calendarSyncMessage(ctx, month) }</span>
 				</span>
 			}
 		</footer>
@@ -680,7 +682,7 @@ templ CalendarAgendaPane(month CalendarMonthData) {
 				</div>
 				<div class="mt-1 flex items-center justify-between gap-3">
 					<h2 id="calendar-agenda-heading" tabindex="-1" class="text-lg font-bold tracking-tight outline-none" style="font-family: var(--font-serif)">All events</h2>
-					<span data-calendar-agenda-context class="shrink-0 rounded-full border border-border bg-muted/50 px-2 py-1 text-[10px] font-semibold text-muted-foreground" aria-live="polite">{ month.MonthLabel }</span>
+					<span data-calendar-agenda-context class="shrink-0 rounded-full border border-border bg-muted/50 px-2 py-1 text-[10px] font-semibold text-muted-foreground" aria-live="polite">{ calendarPeriodLabel(ctx, month) }</span>
 				</div>
 			</header>
 			{{ agendaEvents := calendarAgendaEvents(month) }}
@@ -726,10 +728,10 @@ templ CalendarAgendaPane(month CalendarMonthData) {
 												<span class="size-2 shrink-0 rounded-full" style={ calendarEventColorStyle(event) }></span>
 												<h3 class="truncate text-sm font-bold text-foreground" data-calendar-event-summary>{ calendarEventSummary(event) }</h3>
 											</div>
-											<span class="shrink-0 text-[11px] font-semibold text-primary">{ calendarEventAgendaDateLabel(event, month.Month.Location()) }</span>
+											<span class="shrink-0 text-[11px] font-semibold text-primary">{ calendarEventAgendaDateLabel(ctx, event, month.Month.Location()) }</span>
 										</div>
 										<div class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
-											<p class="text-xs text-muted-foreground">{ calendarEventAgendaTimeLabel(event, month.Month.Location()) }</p>
+											<p class="text-xs text-muted-foreground">{ calendarEventAgendaTimeLabel(ctx, event, month.Month.Location()) }</p>
 											@CalendarEventResponseIndicator(event, false)
 										</div>
 										if calendarEventMeta(event) != "" {

@@ -807,7 +807,7 @@ templ SidebarMailSyncErrorSummaryTooltip(accounts []models.Account) {
 							<div class="truncate font-semibold">{ account.Name }</div>
 							<div class="truncate text-[11px] opacity-70">{ account.Email }</div>
 							if strings.TrimSpace(account.EmailSyncErrorAt) != "" {
-								<div class="mt-1 opacity-85">Last failure: { formatAccountSyncErrorAt(account.EmailSyncErrorAt, nil) }</div>
+								<div class="mt-1 opacity-85">Last failure: { formatAccountSyncErrorAt(ctx, account.EmailSyncErrorAt, nil) }</div>
 							}
 							<div class="mt-1 break-words opacity-90">{ strings.TrimSpace(account.EmailSyncError) }</div>
 						</div>
@@ -1088,7 +1088,7 @@ templ SidebarAccountSyncErrorTooltip(account models.Account, uiSettings map[stri
 					<div class="opacity-85">
 						Last failure:
 						<span data-account-sync-error-at={ strings.TrimSpace(account.EmailSyncErrorAt) }>
-							{ formatAccountSyncErrorAt(account.EmailSyncErrorAt, uiSettings) }
+							{ formatAccountSyncErrorAt(ctx, account.EmailSyncErrorAt, uiSettings) }
 						</span>
 					</div>
 				}

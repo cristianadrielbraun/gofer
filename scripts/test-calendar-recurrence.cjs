@@ -2,6 +2,7 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const path = require('node:path')
 const vm = require('node:vm')
+const loadI18n = require('./i18n-test-helper.cjs')
 const source = fs.readFileSync(path.join(__dirname, '../assets/js/app.js'), 'utf8')
 function helper(name) {
   const start = source.indexOf('function ' + name + '('), end = source.indexOf('\n}', start)
@@ -48,6 +49,7 @@ const context = vm.createContext({
   adjustCalendarCreateAllDayRange() {}, setCalendarCreateError(_form, value) { message = value },
   showGoferToast(value) { toasts.push(value) }, scheduleCalendarCacheRefresh() { refreshes++ },
 })
+loadI18n(context)
 vm.runInContext(['updateCalendarRecurrenceForm', 'validateCalendarCreatePickers', 'syncCalendarDescription', 'calendarTeamsReplacing', 'submitCalendarCreate'].map(helper).join('\n'), context)
 context.updateCalendarCreateForm = form => {
   const locked = !!(form._calendarCreateBusy || form._calendarCreateUncertain || form._calendarCreateConflict)

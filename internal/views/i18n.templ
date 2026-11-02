@@ -10,5 +10,6 @@ import (
 // any script that shows text.
 templ I18nScripts() {
 	<script src={ i18n.ScriptURL(ctx) }></script>
-	<script src={ assetver.URL("/assets/js/i18n.js") }></script>
+	{{ dateFormat, timeFormat := i18n.DatePrefs(ctx) }}
+	<script src={ assetver.URL("/assets/js/i18n.js") } data-date-format={ dateFormat } data-time-format={ timeFormat }></script>
 }

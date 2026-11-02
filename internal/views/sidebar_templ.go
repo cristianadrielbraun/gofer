@@ -3091,9 +3091,9 @@ func SidebarMailSyncErrorSummaryTooltip(accounts []models.Account) templ.Compone
 								return templ_7745c5c3_Err
 							}
 							var templ_7745c5c3_Var131 string
-							templ_7745c5c3_Var131, templ_7745c5c3_Err = templ.JoinStringErrs(formatAccountSyncErrorAt(account.EmailSyncErrorAt, nil))
+							templ_7745c5c3_Var131, templ_7745c5c3_Err = templ.JoinStringErrs(formatAccountSyncErrorAt(ctx, account.EmailSyncErrorAt, nil))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 810, Col: 108}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 810, Col: 113}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var131))
 							if templ_7745c5c3_Err != nil {
@@ -4539,9 +4539,9 @@ func SidebarAccountSyncErrorTooltip(account models.Account, uiSettings map[strin
 						return templ_7745c5c3_Err
 					}
 					var templ_7745c5c3_Var207 string
-					templ_7745c5c3_Var207, templ_7745c5c3_Err = templ.JoinStringErrs(formatAccountSyncErrorAt(account.EmailSyncErrorAt, uiSettings))
+					templ_7745c5c3_Var207, templ_7745c5c3_Err = templ.JoinStringErrs(formatAccountSyncErrorAt(ctx, account.EmailSyncErrorAt, uiSettings))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1091, Col: 71}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1091, Col: 76}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var207))
 					if templ_7745c5c3_Err != nil {

@@ -975,5 +975,5 @@ templ mailRuleActivityEntry(run models.MailRuleRun, now time.Time) {
 			{ mailRuleActivityDetail(run) }
 		</span>
 	</span>
-	<time class="shrink-0 pt-0.5 text-xs text-muted-foreground tabular-nums" datetime={ run.CreatedAt.Format(time.RFC3339) }>{ mailRuleActivityTime(run.CreatedAt, now) }</time>
+	<time class="shrink-0 pt-0.5 text-xs text-muted-foreground tabular-nums" datetime={ run.CreatedAt.Format(time.RFC3339) }>{ mailRuleActivityTime(ctx, run.CreatedAt, now) }</time>
 }

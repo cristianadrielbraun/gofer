@@ -9,6 +9,7 @@ import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
 import (
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"strconv"
 
 	"github.com/cristianadrielbraun/gofer/components/button"
@@ -83,7 +84,7 @@ func SettingsAboutTab(info buildinfo.Info) templ.Component {
 				var templ_7745c5c3_Var3 templ.SafeURL
 				templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(goferRepositoryURL + "/releases/tag/" + info.Version))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 34, Col: 83}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 35, Col: 83}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
 				if templ_7745c5c3_Err != nil {
@@ -96,7 +97,7 @@ func SettingsAboutTab(info buildinfo.Info) templ.Component {
 				var templ_7745c5c3_Var4 string
 				templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(info.Version)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 34, Col: 216}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 35, Col: 216}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 				if templ_7745c5c3_Err != nil {
@@ -156,7 +157,7 @@ func SettingsAboutTab(info buildinfo.Info) templ.Component {
 				var templ_7745c5c3_Var7 string
 				templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(info.Branch)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 43, Col: 61}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 44, Col: 61}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 				if templ_7745c5c3_Err != nil {
@@ -193,7 +194,7 @@ func SettingsAboutTab(info buildinfo.Info) templ.Component {
 				var templ_7745c5c3_Var9 templ.SafeURL
 				templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(goferRepositoryURL + "/commit/" + info.Commit))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 48, Col: 76}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 49, Col: 76}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 				if templ_7745c5c3_Err != nil {
@@ -206,7 +207,7 @@ func SettingsAboutTab(info buildinfo.Info) templ.Component {
 				var templ_7745c5c3_Var10 string
 				templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs(info.Commit)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 48, Col: 193}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 49, Col: 193}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var10))
 				if templ_7745c5c3_Err != nil {
@@ -219,7 +220,7 @@ func SettingsAboutTab(info buildinfo.Info) templ.Component {
 				var templ_7745c5c3_Var11 string
 				templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs(info.ShortCommit())
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 48, Col: 234}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 49, Col: 234}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
 				if templ_7745c5c3_Err != nil {
@@ -262,7 +263,7 @@ func SettingsAboutTab(info buildinfo.Info) templ.Component {
 				var templ_7745c5c3_Var13 string
 				templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(info.CommitTime.UTC().Format("2006-01-02T15:04:05Z"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 56, Col: 75}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 57, Col: 75}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
 				if templ_7745c5c3_Err != nil {
@@ -273,9 +274,9 @@ func SettingsAboutTab(info buildinfo.Info) templ.Component {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var14 string
-				templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.JoinStringErrs(info.CommitTime.UTC().Format("January 2, 2006"))
+				templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.Dates(ctx).LongMonthDate(info.CommitTime.UTC()))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 56, Col: 127}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 57, Col: 132}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var14))
 				if templ_7745c5c3_Err != nil {
@@ -312,7 +313,7 @@ func SettingsAboutTab(info buildinfo.Info) templ.Component {
 				var templ_7745c5c3_Var16 string
 				templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs(info.GoVersion)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 61, Col: 46}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 62, Col: 46}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
 				if templ_7745c5c3_Err != nil {
@@ -336,7 +337,7 @@ func SettingsAboutTab(info buildinfo.Info) templ.Component {
 		var templ_7745c5c3_Var17 templ.SafeURL
 		templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(goferRepositoryURL))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 66, Col: 47}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 67, Col: 47}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var17))
 		if templ_7745c5c3_Err != nil {
@@ -375,7 +376,7 @@ func SettingsAboutTab(info buildinfo.Info) templ.Component {
 			var templ_7745c5c3_Var18 string
 			templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.JoinStringErrs(updatecheck.Base)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 80, Col: 91}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 81, Col: 91}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var18))
 			if templ_7745c5c3_Err != nil {
@@ -478,7 +479,7 @@ func aboutLibraries(bundled, modules []attribution.Library) templ.Component {
 				var templ_7745c5c3_Var22 string
 				templ_7745c5c3_Var22, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.Itoa(len(modules)))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 107, Col: 34}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 108, Col: 34}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var22))
 				if templ_7745c5c3_Err != nil {
@@ -575,7 +576,7 @@ func aboutLibraryList(libs []attribution.Library) templ.Component {
 			var templ_7745c5c3_Var25 templ.SafeURL
 			templ_7745c5c3_Var25, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(lib.URL))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 124, Col: 32}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 125, Col: 32}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var25))
 			if templ_7745c5c3_Err != nil {
@@ -588,7 +589,7 @@ func aboutLibraryList(libs []attribution.Library) templ.Component {
 			var templ_7745c5c3_Var26 string
 			templ_7745c5c3_Var26, templ_7745c5c3_Err = templ.JoinStringErrs(lib.Name)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 124, Col: 140}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 125, Col: 140}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var26))
 			if templ_7745c5c3_Err != nil {
@@ -606,7 +607,7 @@ func aboutLibraryList(libs []attribution.Library) templ.Component {
 				var templ_7745c5c3_Var27 string
 				templ_7745c5c3_Var27, templ_7745c5c3_Err = templ.JoinStringErrs(lib.Version)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 126, Col: 72}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 127, Col: 72}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var27))
 				if templ_7745c5c3_Err != nil {
@@ -624,7 +625,7 @@ func aboutLibraryList(libs []attribution.Library) templ.Component {
 			var templ_7745c5c3_Var28 string
 			templ_7745c5c3_Var28, templ_7745c5c3_Err = templ.JoinStringErrs(lib.License)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 128, Col: 78}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 129, Col: 78}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var28))
 			if templ_7745c5c3_Err != nil {
@@ -678,7 +679,7 @@ func AboutUpdateCheck(result *updatecheck.Result, errMsg string) templ.Component
 			var templ_7745c5c3_Var30 string
 			templ_7745c5c3_Var30, templ_7745c5c3_Err = templ.JoinStringErrs(errMsg)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 141, Col: 41}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 142, Col: 41}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var30))
 			if templ_7745c5c3_Err != nil {
@@ -767,7 +768,7 @@ func AboutUpdateCheck(result *updatecheck.Result, errMsg string) templ.Component
 			var templ_7745c5c3_Var32 string
 			templ_7745c5c3_Var32, templ_7745c5c3_Err = templ.JoinStringErrs(result.Latest.Notes)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 172, Col: 135}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 173, Col: 135}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var32))
 			if templ_7745c5c3_Err != nil {
@@ -791,7 +792,7 @@ func AboutUpdateCheck(result *updatecheck.Result, errMsg string) templ.Component
 				var templ_7745c5c3_Var33 templ.SafeURL
 				templ_7745c5c3_Var33, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(c.URL))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 179, Col: 32}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 180, Col: 32}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var33))
 				if templ_7745c5c3_Err != nil {
@@ -804,7 +805,7 @@ func AboutUpdateCheck(result *updatecheck.Result, errMsg string) templ.Component
 				var templ_7745c5c3_Var34 string
 				templ_7745c5c3_Var34, templ_7745c5c3_Err = templ.JoinStringErrs(shortSHA(c.SHA))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 179, Col: 162}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 180, Col: 162}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var34))
 				if templ_7745c5c3_Err != nil {
@@ -817,7 +818,7 @@ func AboutUpdateCheck(result *updatecheck.Result, errMsg string) templ.Component
 				var templ_7745c5c3_Var35 string
 				templ_7745c5c3_Var35, templ_7745c5c3_Err = templ.JoinStringErrs(c.Title)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 180, Col: 60}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 181, Col: 60}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var35))
 				if templ_7745c5c3_Err != nil {
@@ -830,7 +831,7 @@ func AboutUpdateCheck(result *updatecheck.Result, errMsg string) templ.Component
 				var templ_7745c5c3_Var36 string
 				templ_7745c5c3_Var36, templ_7745c5c3_Err = templ.JoinStringErrs(c.Title)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 180, Col: 72}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 181, Col: 72}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var36))
 				if templ_7745c5c3_Err != nil {
@@ -846,9 +847,9 @@ func AboutUpdateCheck(result *updatecheck.Result, errMsg string) templ.Component
 						return templ_7745c5c3_Err
 					}
 					var templ_7745c5c3_Var37 string
-					templ_7745c5c3_Var37, templ_7745c5c3_Err = templ.JoinStringErrs(c.Date.UTC().Format("Jan 2"))
+					templ_7745c5c3_Var37, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.Dates(ctx).ShortDate(c.Date.UTC()))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 182, Col: 90}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 183, Col: 101}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var37))
 					if templ_7745c5c3_Err != nil {
@@ -911,7 +912,7 @@ func aboutReleaseStatus(r updatecheck.Result) templ.Component {
 			var templ_7745c5c3_Var39 templ.SafeURL
 			templ_7745c5c3_Var39, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(r.Latest.URL))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 196, Col: 36}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 197, Col: 36}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var39))
 			if templ_7745c5c3_Err != nil {
@@ -924,7 +925,7 @@ func aboutReleaseStatus(r updatecheck.Result) templ.Component {
 			var templ_7745c5c3_Var40 string
 			templ_7745c5c3_Var40, templ_7745c5c3_Err = templ.JoinStringErrs(r.Latest.Tag)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 196, Col: 132}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 197, Col: 132}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var40))
 			if templ_7745c5c3_Err != nil {
@@ -940,9 +941,9 @@ func aboutReleaseStatus(r updatecheck.Result) templ.Component {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var41 string
-				templ_7745c5c3_Var41, templ_7745c5c3_Err = templ.JoinStringErrs(r.Latest.PublishedAt.UTC().Format("January 2, 2006"))
+				templ_7745c5c3_Var41, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.Dates(ctx).LongMonthDate(r.Latest.PublishedAt.UTC()))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 199, Col: 114}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 200, Col: 119}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var41))
 				if templ_7745c5c3_Err != nil {
@@ -992,7 +993,7 @@ func aboutSourceStatus(r updatecheck.Result) templ.Component {
 			var templ_7745c5c3_Var43 string
 			templ_7745c5c3_Var43, templ_7745c5c3_Err = templ.JoinStringErrs(updatecheck.Base)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 208, Col: 130}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 209, Col: 130}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var43))
 			if templ_7745c5c3_Err != nil {
@@ -1010,7 +1011,7 @@ func aboutSourceStatus(r updatecheck.Result) templ.Component {
 				var templ_7745c5c3_Var44 string
 				templ_7745c5c3_Var44, templ_7745c5c3_Err = templ.JoinStringErrs(updatecheck.Base)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 211, Col: 32}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 212, Col: 32}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var44))
 				if templ_7745c5c3_Err != nil {
@@ -1023,7 +1024,7 @@ func aboutSourceStatus(r updatecheck.Result) templ.Component {
 				var templ_7745c5c3_Var45 templ.SafeURL
 				templ_7745c5c3_Var45, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(r.Head.URL))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 212, Col: 35}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 213, Col: 35}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var45))
 				if templ_7745c5c3_Err != nil {
@@ -1036,7 +1037,7 @@ func aboutSourceStatus(r updatecheck.Result) templ.Component {
 				var templ_7745c5c3_Var46 string
 				templ_7745c5c3_Var46, templ_7745c5c3_Err = templ.JoinStringErrs(shortSHA(r.Head.SHA))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 212, Col: 139}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 213, Col: 139}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var46))
 				if templ_7745c5c3_Err != nil {
@@ -1049,7 +1050,7 @@ func aboutSourceStatus(r updatecheck.Result) templ.Component {
 				var templ_7745c5c3_Var47 string
 				templ_7745c5c3_Var47, templ_7745c5c3_Err = templ.JoinStringErrs(r.Head.Title)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 213, Col: 18}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 214, Col: 18}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var47))
 				if templ_7745c5c3_Err != nil {
@@ -1065,9 +1066,9 @@ func aboutSourceStatus(r updatecheck.Result) templ.Component {
 						return templ_7745c5c3_Err
 					}
 					var templ_7745c5c3_Var48 string
-					templ_7745c5c3_Var48, templ_7745c5c3_Err = templ.JoinStringErrs(r.Head.Date.UTC().Format("January 2, 2006"))
+					templ_7745c5c3_Var48, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.Dates(ctx).LongMonthDate(r.Head.Date.UTC()))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 215, Col: 53}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 216, Col: 58}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var48))
 					if templ_7745c5c3_Err != nil {
@@ -1087,7 +1088,7 @@ func aboutSourceStatus(r updatecheck.Result) templ.Component {
 			var templ_7745c5c3_Var49 string
 			templ_7745c5c3_Var49, templ_7745c5c3_Err = templ.JoinStringErrs(updatecheck.Base)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 221, Col: 35}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 222, Col: 35}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var49))
 			if templ_7745c5c3_Err != nil {
@@ -1106,7 +1107,7 @@ func aboutSourceStatus(r updatecheck.Result) templ.Component {
 				var templ_7745c5c3_Var50 string
 				templ_7745c5c3_Var50, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.Itoa(r.Behind))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 225, Col: 28}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 226, Col: 28}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var50))
 				if templ_7745c5c3_Err != nil {
@@ -1125,7 +1126,7 @@ func aboutSourceStatus(r updatecheck.Result) templ.Component {
 				var templ_7745c5c3_Var51 templ.SafeURL
 				templ_7745c5c3_Var51, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(r.CompareURL))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 228, Col: 37}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 229, Col: 37}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var51))
 				if templ_7745c5c3_Err != nil {
@@ -1148,7 +1149,7 @@ func aboutSourceStatus(r updatecheck.Result) templ.Component {
 				var templ_7745c5c3_Var52 string
 				templ_7745c5c3_Var52, templ_7745c5c3_Err = templ.JoinStringErrs(updatecheck.Base)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 232, Col: 113}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 233, Col: 113}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var52))
 				if templ_7745c5c3_Err != nil {
@@ -1167,7 +1168,7 @@ func aboutSourceStatus(r updatecheck.Result) templ.Component {
 			var templ_7745c5c3_Var53 string
 			templ_7745c5c3_Var53, templ_7745c5c3_Err = templ.JoinStringErrs(updatecheck.Base)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 235, Col: 61}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 236, Col: 61}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var53))
 			if templ_7745c5c3_Err != nil {
@@ -1185,7 +1186,7 @@ func aboutSourceStatus(r updatecheck.Result) templ.Component {
 			var templ_7745c5c3_Var54 string
 			templ_7745c5c3_Var54, templ_7745c5c3_Err = templ.JoinStringErrs(updatecheck.Base)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 237, Col: 61}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 238, Col: 61}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var54))
 			if templ_7745c5c3_Err != nil {
@@ -1235,7 +1236,7 @@ func aboutField(label string) templ.Component {
 		var templ_7745c5c3_Var56 string
 		templ_7745c5c3_Var56, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 249, Col: 42}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/about_tab.templ`, Line: 250, Col: 42}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var56))
 		if templ_7745c5c3_Err != nil {

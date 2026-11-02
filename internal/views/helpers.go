@@ -1,6 +1,7 @@
 package views
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"math/rand"
@@ -16,6 +17,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/themecolors"
 
 	"github.com/a-h/templ"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 )
 
 // jmapAccountPaused is a JMAP account while JMAP is turned off: Gofer keeps
@@ -356,12 +358,14 @@ func uiSettingsLocation(settings map[string]string) *time.Location {
 	return time.Local
 }
 
-func formatAccountSyncErrorAt(raw string, settings map[string]string) string {
+func formatAccountSyncErrorAt(ctx context.Context, raw string, settings map[string]string) string {
 	t, ok := parseAccountSyncErrorAt(raw)
 	if !ok {
 		return strings.TrimSpace(raw)
 	}
-	return t.In(uiSettingsLocation(settings)).Format("Jan 2, 2006 15:04 MST")
+	t = t.In(uiSettingsLocation(settings))
+	zone, _ := t.Zone()
+	return i18n.Dates(ctx).DateTime(t) + " " + zone
 }
 
 func parseAccountSyncErrorAt(raw string) (time.Time, bool) {

@@ -714,7 +714,7 @@ class VirtualMailList {
 
   syncNumber(value) {
     value = Math.max(0, Number(value) || 0)
-    try { return value.toLocaleString() } catch (_) { return String(value) }
+    return goferNumber(value)
   }
 
   syncCountLabel() {

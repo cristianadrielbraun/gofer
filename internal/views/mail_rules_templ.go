@@ -4551,9 +4551,9 @@ func mailRuleActivityEntry(run models.MailRuleRun, now time.Time) templ.Componen
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var223 string
-		templ_7745c5c3_Var223, templ_7745c5c3_Err = templ.JoinStringErrs(mailRuleActivityTime(run.CreatedAt, now))
+		templ_7745c5c3_Var223, templ_7745c5c3_Err = templ.JoinStringErrs(mailRuleActivityTime(ctx, run.CreatedAt, now))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 978, Col: 164}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 978, Col: 169}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var223))
 		if templ_7745c5c3_Err != nil {

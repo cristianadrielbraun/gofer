@@ -291,7 +291,7 @@ func TestAdminUsersPageHighlightsRequestedPasswordReset(t *testing.T) {
 	}
 	html := out.String()
 	for _, want := range []string{
-		"Password reset requested", "Requested Aug 29, 14:15", "Generate password-reset token",
+		"Password reset requested", "Requested Aug 29, 2:15 PM", "Generate password-reset token",
 		"Issue a password-reset token for requested.user?",
 	} {
 		if !strings.Contains(html, want) {

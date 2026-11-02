@@ -2,7 +2,9 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"errors"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"log"
 	"net/http"
 	"net/url"
@@ -74,7 +76,7 @@ func (h *Handler) handleSecuritySessionRevocationError(w http.ResponseWriter, r 
 	}
 }
 
-func securitySessionViewData(list *auth.SecuritySessionList, oidcName string) ([]views.SecuritySessionData, bool) {
+func securitySessionViewData(ctx context.Context, list *auth.SecuritySessionList, oidcName string) ([]views.SecuritySessionData, bool) {
 	if list == nil {
 		return nil, false
 	}
@@ -84,13 +86,13 @@ func securitySessionViewData(list *auth.SecuritySessionList, oidcName string) ([
 			Client:         securitySessionClientLabel(session.UserAgent),
 			Authentication: securitySessionAuthenticationLabel(session.AuthenticationMethod, oidcName),
 			Assurance:      securitySessionAssuranceLabel(session.AssuranceLevel),
-			SignedInAt:     formatSecuritySessionTime(session.AuthenticatedAt),
-			LastActiveAt:   formatSecuritySessionTime(session.LastUsedAt),
+			SignedInAt:     formatSecuritySessionTime(ctx, session.AuthenticatedAt),
+			LastActiveAt:   formatSecuritySessionTime(ctx, session.LastUsedAt),
 			Current:        session.Current,
 			Active:         session.Active,
 		}
 		if session.RevokedAt != nil {
-			view.EndedAt = formatSecuritySessionTime(*session.RevokedAt)
+			view.EndedAt = formatSecuritySessionTime(ctx, *session.RevokedAt)
 		}
 		if session.Active && !session.Current {
 			view.RevokePath = securitySessionRevokePath(session.ActionReference)
@@ -199,8 +201,8 @@ func securitySessionClientLabel(userAgent string) string {
 	return normalized
 }
 
-func formatSecuritySessionTime(value time.Time) string {
-	return value.Local().Format("Jan 2, 2006 at 3:04 PM")
+func formatSecuritySessionTime(ctx context.Context, value time.Time) string {
+	return i18n.Dates(ctx).DateTime(value.Local())
 }
 
 func (h *Handler) handleSecuritySessionHistory(w http.ResponseWriter, r *http.Request) {
@@ -231,7 +233,7 @@ func (h *Handler) handleSecuritySessionHistory(w http.ResponseWriter, r *http.Re
 		http.Error(w, "Unable to load session history", http.StatusInternalServerError)
 		return
 	}
-	sessions, _ := securitySessionViewData(list, h.auth.OIDCLoginName())
+	sessions, _ := securitySessionViewData(r.Context(), list, h.auth.OIDCLoginName())
 	// If history disappeared while the dialog was open, do not repeat the main card.
 	if list.Page == 1 {
 		sessions = nil

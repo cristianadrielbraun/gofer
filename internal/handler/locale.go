@@ -12,14 +12,21 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
 
-// savedLanguages caches each signed-in user's language setting ("" for
-// automatic), so a request doesn't read the settings to pick its language.
-// Saving the setting replaces the entry.
-var savedLanguages sync.Map // user ID -> string
+// regionalPrefs are the settings that shape every page's text: its
+// language and how dates and times are written.
+type regionalPrefs struct{ language, dateFormat, timeFormat string }
 
-// LocaleMiddleware puts the request's language in its context: the user's
-// saved choice, else the language cookie, else the browser's languages.
-// It goes inside the authentication middleware, which supplies the user.
+var regionalSettingKeys = []string{i18n.SettingKey, i18n.DateFormatSettingKey, i18n.TimeFormatSettingKey}
+
+// savedRegional caches each signed-in user's regional settings, so a
+// request doesn't read the settings to pick its language and date format.
+// Saving the settings replaces the entry.
+var savedRegional sync.Map // user ID -> regionalPrefs
+
+// LocaleMiddleware puts the request's language and date settings in its
+// context. The language is the user's saved choice, else the language
+// cookie, else the browser's languages. It goes inside the authentication
+// middleware, which supplies the user.
 func (h *Handler) LocaleMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/assets/") {
@@ -27,43 +34,59 @@ func (h *Handler) LocaleMiddleware(next http.Handler) http.Handler {
 			return
 		}
 		locale := i18n.FromRequest(r)
+		var prefs regionalPrefs
 		if user := auth.GetCurrentUser(r.Context()); user != nil && strings.TrimSpace(user.ID) != "" {
-			if saved, ok := i18n.FromSetting(h.savedLanguage(r.Context(), user.ID)); ok {
+			prefs = h.savedRegionalPrefs(r.Context(), user.ID)
+			if saved, ok := i18n.FromSetting(prefs.language); ok {
 				locale = saved
 			}
 		}
-		next.ServeHTTP(w, r.WithContext(i18n.WithLocale(r.Context(), locale)))
+		ctx := i18n.WithDatePrefs(i18n.WithLocale(r.Context(), locale), prefs.dateFormat, prefs.timeFormat)
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
-func (h *Handler) savedLanguage(ctx context.Context, userID string) string {
-	if cached, ok := savedLanguages.Load(userID); ok {
-		return cached.(string)
+func (h *Handler) savedRegionalPrefs(ctx context.Context, userID string) regionalPrefs {
+	if cached, ok := savedRegional.Load(userID); ok {
+		return cached.(regionalPrefs)
 	}
-	var value string
+	var prefs regionalPrefs
 	if err := h.withUserDB(ctx, userID, func(db *storage.DB) error {
-		value = db.GetUISettings(ctx, userID)[i18n.SettingKey]
+		settings := db.GetUISettings(ctx, userID)
+		prefs = regionalPrefs{settings[i18n.SettingKey], settings[i18n.DateFormatSettingKey], settings[i18n.TimeFormatSettingKey]}
 		return nil
 	}); err != nil {
 		// Try again on the next request rather than caching a guess.
-		return ""
+		return regionalPrefs{}
 	}
-	savedLanguages.Store(userID, value)
-	return value
+	savedRegional.Store(userID, prefs)
+	return prefs
 }
 
-// rememberSavedLanguage updates the cache after settings are saved. A save
-// without the language key leaves the cached choice alone.
-func rememberSavedLanguage(userID string, updates map[string]string) {
-	if value, ok := updates[i18n.SettingKey]; ok {
-		savedLanguages.Store(userID, value)
+// rememberSavedRegional updates the cache after settings are saved. A save
+// without any regional key leaves the cached choices alone; a partial one
+// starts over from the stored settings.
+func rememberSavedRegional(userID string, updates map[string]string) {
+	present := 0
+	for _, key := range regionalSettingKeys {
+		if _, ok := updates[key]; ok {
+			present++
+		}
+	}
+	switch present {
+	case 0:
+		return
+	case len(regionalSettingKeys):
+		savedRegional.Store(userID, regionalPrefs{updates[i18n.SettingKey], updates[i18n.DateFormatSettingKey], updates[i18n.TimeFormatSettingKey]})
+	default:
+		savedRegional.Delete(userID)
 	}
 }
 
-// forgetSavedLanguage drops a user's cached choice, for changes such as a
+// forgetSavedRegional drops a user's cached choices, for changes such as a
 // profile import that write settings without going through the save route.
-func forgetSavedLanguage(userID string) {
-	savedLanguages.Delete(userID)
+func forgetSavedRegional(userID string) {
+	savedRegional.Delete(userID)
 }
 
 // serveLocaleScript serves a language's browser catalog. Pages link it with

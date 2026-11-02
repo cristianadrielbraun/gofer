@@ -405,9 +405,9 @@ func CalendarEventDialog(details CalendarEventDetails, location *time.Location) 
 						return templ_7745c5c3_Err
 					}
 					var templ_7745c5c3_Var18 string
-					templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.JoinStringErrs(calendarEventDetailsDate(event, location))
+					templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.JoinStringErrs(calendarEventDetailsDate(ctx, event, location))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar_event.templ`, Line: 98, Col: 71}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar_event.templ`, Line: 98, Col: 76}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var18))
 					if templ_7745c5c3_Err != nil {
@@ -418,9 +418,9 @@ func CalendarEventDialog(details CalendarEventDetails, location *time.Location) 
 						return templ_7745c5c3_Err
 					}
 					var templ_7745c5c3_Var19 string
-					templ_7745c5c3_Var19, templ_7745c5c3_Err = templ.JoinStringErrs(calendarEventAgendaTimeLabel(event, location))
+					templ_7745c5c3_Var19, templ_7745c5c3_Err = templ.JoinStringErrs(calendarEventAgendaTimeLabel(ctx, event, location))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar_event.templ`, Line: 100, Col: 53}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar_event.templ`, Line: 100, Col: 58}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var19))
 					if templ_7745c5c3_Err != nil {

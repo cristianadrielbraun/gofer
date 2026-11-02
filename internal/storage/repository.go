@@ -19,6 +19,7 @@ import (
 	"unicode"
 
 	avatarresolver "github.com/cristianadrielbraun/gofer/internal/avatar"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	mailmessage "github.com/cristianadrielbraun/gofer/internal/mail/message"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
@@ -100,46 +101,29 @@ func firstRune(s string) string {
 	return ""
 }
 
-func formatRelativeDate(t, now time.Time, loc *time.Location) string {
+// formatRelativeDate writes a list date in the request's language and date
+// format: the time today, "Yesterday", or the date.
+func formatRelativeDate(ctx context.Context, t, now time.Time, loc *time.Location) string {
 	if loc == nil {
 		loc = time.Local
 	}
-	t = t.In(loc)
-	now = now.In(loc)
-	tDay := t.Format("2006-01-02")
-	nowDay := now.Format("2006-01-02")
-	yesterday := now.AddDate(0, 0, -1).Format("2006-01-02")
-
-	if tDay == nowDay {
-		return t.Format("3:04 PM")
-	}
-	if tDay == yesterday {
-		return "Yesterday"
-	}
-	if t.Year() == now.Year() {
-		return t.Format("Jan 2")
-	}
-	return t.Format("Jan 2, 2006")
+	return i18n.Dates(ctx).Relative(t.In(loc), now.In(loc))
 }
 
 // formatRelativeDateWithTime is formatRelativeDate with the time added to
 // dates before today, for lists set to always show the time.
-func formatRelativeDateWithTime(t, now time.Time, loc *time.Location) string {
+func formatRelativeDateWithTime(ctx context.Context, t, now time.Time, loc *time.Location) string {
 	if loc == nil {
 		loc = time.Local
 	}
-	date := formatRelativeDate(t, now, loc)
-	if t.In(loc).Format("2006-01-02") == now.In(loc).Format("2006-01-02") {
-		return date
-	}
-	return date + ", " + t.In(loc).Format("3:04 PM")
+	return i18n.Dates(ctx).RelativeWithTime(t.In(loc), now.In(loc))
 }
 
-func formatFullDateTime(t time.Time, loc *time.Location) string {
+func formatFullDateTime(ctx context.Context, t time.Time, loc *time.Location) string {
 	if loc == nil {
 		loc = time.Local
 	}
-	return t.In(loc).Format("Mon, Jan 2, 2006 at 3:04 PM")
+	return i18n.Dates(ctx).WeekdayDateTime(t.In(loc))
 }
 
 func isStarredFolder(folderID string) bool {
@@ -5871,9 +5855,9 @@ func (db *DB) getThreadMessages(ctx context.Context, accountID, threadID, userID
 			item.TextBody = item.Preview
 		}
 		if dateReceived.Valid {
-			item.Date = formatRelativeDate(dateReceived.Time, now, loc)
-			item.DateWithTime = formatRelativeDateWithTime(dateReceived.Time, now, loc)
-			item.DateFull = formatFullDateTime(dateReceived.Time, loc)
+			item.Date = formatRelativeDate(ctx, dateReceived.Time, now, loc)
+			item.DateWithTime = formatRelativeDateWithTime(ctx, dateReceived.Time, now, loc)
+			item.DateFull = formatFullDateTime(ctx, dateReceived.Time, loc)
 		}
 		items = append(items, item)
 	}
@@ -6030,9 +6014,9 @@ func (db *DB) getEmailByID(ctx context.Context, id, userID string) (*models.Emai
 		email.Body = template.HTML(fmt.Sprintf("<p>%s</p>", snippet))
 	}
 	if dateReceived.Valid {
-		email.Date = formatRelativeDate(dateReceived.Time, now, loc)
-		email.DateWithTime = formatRelativeDateWithTime(dateReceived.Time, now, loc)
-		email.DateFull = formatFullDateTime(dateReceived.Time, loc)
+		email.Date = formatRelativeDate(ctx, dateReceived.Time, now, loc)
+		email.DateWithTime = formatRelativeDateWithTime(ctx, dateReceived.Time, now, loc)
+		email.DateFull = formatFullDateTime(ctx, dateReceived.Time, loc)
 	}
 
 	if threadID.Valid {
@@ -6474,8 +6458,8 @@ func (db *DB) scanEmailRows(ctx context.Context, rows *sql.Rows) ([]models.Email
 			r.email.ThreadID = threadID.String
 		}
 		if dateReceived.Valid {
-			r.email.Date = formatRelativeDate(dateReceived.Time, now, loc)
-			r.email.DateWithTime = formatRelativeDateWithTime(dateReceived.Time, now, loc)
+			r.email.Date = formatRelativeDate(ctx, dateReceived.Time, now, loc)
+			r.email.DateWithTime = formatRelativeDateWithTime(ctx, dateReceived.Time, now, loc)
 		}
 		items = append(items, r)
 	}
@@ -6878,8 +6862,8 @@ func (db *DB) SearchMessages(ctx context.Context, userID string, query string, l
 		r.email.IsStarred = isStarred == 1
 		r.email.HasAttachment = hasAttach == 1
 		if dateReceived.Valid {
-			r.email.Date = formatRelativeDate(dateReceived.Time, now, loc)
-			r.email.DateWithTime = formatRelativeDateWithTime(dateReceived.Time, now, loc)
+			r.email.Date = formatRelativeDate(ctx, dateReceived.Time, now, loc)
+			r.email.DateWithTime = formatRelativeDateWithTime(ctx, dateReceived.Time, now, loc)
 		}
 		items = append(items, r)
 	}

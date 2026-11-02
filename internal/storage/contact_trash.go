@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 )
 
@@ -22,7 +23,7 @@ const ContactTrashRetention = models.ContactTrashRetentionDays * 24 * time.Hour
 
 // contactTrashDates formats when a contact went to the Trash, as stored,
 // and when it is deleted for good from there.
-func contactTrashDates(raw string, loc *time.Location) (trashed, purge string) {
+func contactTrashDates(ctx context.Context, raw string, loc *time.Location) (trashed, purge string) {
 	t, ok := parseSQLiteDateTime(raw)
 	if !ok {
 		return raw, ""
@@ -30,7 +31,8 @@ func contactTrashDates(raw string, loc *time.Location) (trashed, purge string) {
 	if loc == nil {
 		loc = time.Local
 	}
-	return t.In(loc).Format("Jan 2, 2006"), t.Add(ContactTrashRetention).In(loc).Format("Jan 2, 2006")
+	dates := i18n.Dates(ctx)
+	return dates.Date(t.In(loc)), dates.Date(t.Add(ContactTrashRetention).In(loc))
 }
 
 // migrateV122ToV123 records when a contact went to the Trash.

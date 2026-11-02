@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"bytes"
 	"errors"
 	"fmt"
@@ -17,7 +18,7 @@ import (
 const adminSecurityActivityPath = "/admin/activity"
 const adminSecurityActivityRetentionPath = "/admin/activity/retention"
 
-func adminSecurityActivityViewData(page *auth.AdministratorSecurityEventPage) views.AdminSecurityActivityData {
+func adminSecurityActivityViewData(ctx context.Context, page *auth.AdministratorSecurityEventPage) views.AdminSecurityActivityData {
 	data := views.AdminSecurityActivityData{ManagedMode: true}
 	if page == nil {
 		return data
@@ -46,7 +47,7 @@ func adminSecurityActivityViewData(page *auth.AdministratorSecurityEventPage) vi
 		data.Events = append(data.Events, views.AdminSecurityActivityEventData{
 			Title:          securityEventTitle(event.EventType, event.Success),
 			Detail:         securityEventDetail(event.Reason, event.Success),
-			OccurredAt:     formatSecuritySessionTime(event.OccurredAt),
+			OccurredAt:     formatSecuritySessionTime(ctx, event.OccurredAt),
 			Client:         securitySessionClientLabel(event.UserAgent),
 			Status:         status,
 			Actor:          actor,
@@ -144,7 +145,7 @@ func (h *Handler) handleAdminSecurityActivity(w http.ResponseWriter, r *http.Req
 			)
 			switch {
 			case loadErr == nil:
-				data = adminSecurityActivityViewData(page)
+				data = adminSecurityActivityViewData(r.Context(), page)
 				data.Filter = string(filter)
 				data.RetentionDays = retention.Days
 				data.RetentionMinimumDays = auth.MinimumAuthenticationEventRetentionDays

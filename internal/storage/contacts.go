@@ -12,6 +12,7 @@ import (
 	"unicode"
 
 	avatarresolver "github.com/cristianadrielbraun/gofer/internal/avatar"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/google/uuid"
 )
@@ -495,7 +496,7 @@ func (db *DB) listProfileContacts(ctx context.Context, userID string, filters mo
 	var contacts []models.Contact
 	loc := timezoneLocationFromContext(ctx)
 	for rows.Next() {
-		contact, err := scanProfileContactRow(rows, loc)
+		contact, err := scanProfileContactRow(ctx, rows, loc)
 		if err != nil {
 			return nil, err
 		}
@@ -602,7 +603,7 @@ func contactProfileFilterSQL(userID string, filters models.ContactFilters) (stri
 	return where, args
 }
 
-func scanProfileContactRow(scanner interface{ Scan(dest ...any) error }, loc *time.Location) (models.Contact, error) {
+func scanProfileContactRow(ctx context.Context, scanner interface{ Scan(dest ...any) error }, loc *time.Location) (models.Contact, error) {
 	var c models.Contact
 	var isDeleted, isManual int
 	var messageCount int
@@ -612,7 +613,7 @@ func scanProfileContactRow(scanner interface{ Scan(dest ...any) error }, loc *ti
 		return c, err
 	}
 	if trashedAt.Valid {
-		c.TrashedAt, c.TrashPurgeAt = contactTrashDates(trashedAt.String, loc)
+		c.TrashedAt, c.TrashPurgeAt = contactTrashDates(ctx, trashedAt.String, loc)
 	}
 	c.Source = source
 	c.IsManual = isManual == 1
@@ -625,14 +626,14 @@ func scanProfileContactRow(scanner interface{ Scan(dest ...any) error }, loc *ti
 	}
 	if lastSeen.Valid {
 		c.LastSeenSort = lastSeen.String
-		c.LastSeenAt = formatContactTime(lastSeen.String, loc)
+		c.LastSeenAt = formatContactTime(ctx, lastSeen.String, loc)
 	}
 	if createdAt.Valid {
-		c.CreatedAt = formatContactTime(createdAt.String, loc)
+		c.CreatedAt = formatContactTime(ctx, createdAt.String, loc)
 	}
 	if updatedAt.Valid {
 		c.UpdatedSort = updatedAt.String
-		c.UpdatedAt = formatContactTime(updatedAt.String, loc)
+		c.UpdatedAt = formatContactTime(ctx, updatedAt.String, loc)
 	}
 	return c, nil
 }
@@ -879,7 +880,7 @@ func (db *DB) getContactWithProfile(ctx context.Context, userID, contactID strin
 		return nil, nil, err
 	}
 	if profile.TrashedAt != "" {
-		contact.TrashedAt, contact.TrashPurgeAt = contactTrashDates(profile.TrashedAt, timezoneLocationFromContext(ctx))
+		contact.TrashedAt, contact.TrashPurgeAt = contactTrashDates(ctx, profile.TrashedAt, timezoneLocationFromContext(ctx))
 	}
 	db.hydrateContactAvatar(ctx, &contact)
 	contact.SaveTargets, _ = db.GetContactSaveTargets(ctx, userID, contactID)
@@ -904,7 +905,7 @@ func (db *DB) contactFromProfile(ctx context.Context, userID string, profile mod
 	}
 	contact.MessageCount = messageCount
 	if lastSeen.Valid {
-		contact.LastSeenAt = formatContactTime(lastSeen.String, timezoneLocationFromContext(ctx))
+		contact.LastSeenAt = formatContactTime(ctx, lastSeen.String, timezoneLocationFromContext(ctx))
 	}
 	contact.Initials = contactInitials(contact)
 	contact.AvatarHash = avatarresolver.GravatarHash(contact.Email)
@@ -941,9 +942,9 @@ func contactValuesFromProfile(ctx context.Context, profile models.ContactProfile
 		IsDeleted:        profile.IsDeleted,
 	}
 	loc := timezoneLocationFromContext(ctx)
-	contact.CreatedAt = formatContactTime(profile.CreatedAt, loc)
+	contact.CreatedAt = formatContactTime(ctx, profile.CreatedAt, loc)
 	contact.UpdatedSort = profile.UpdatedAt
-	contact.UpdatedAt = formatContactTime(profile.UpdatedAt, loc)
+	contact.UpdatedAt = formatContactTime(ctx, profile.UpdatedAt, loc)
 	if contact.Email == "" {
 		contact.Email = bestContactProfileFieldValue(effectiveFields, "email")
 	}
@@ -1049,7 +1050,7 @@ func (db *DB) hydrateContactSyncState(ctx context.Context, userID string, contac
 	contact.SyncStatus = op.Status
 	contact.SyncError = op.LastError
 	if !op.UpdatedAt.IsZero() {
-		contact.SyncUpdatedAt = op.UpdatedAt.In(timezoneLocationFromContext(ctx)).Format("Jan 2, 2006 15:04")
+		contact.SyncUpdatedAt = i18n.Dates(ctx).DateTime(op.UpdatedAt.In(timezoneLocationFromContext(ctx)))
 	}
 	return nil
 }
@@ -1696,7 +1697,7 @@ func (db *DB) DeleteContactSource(ctx context.Context, userID, contactID, provid
 	return tx.Commit()
 }
 
-func scanContactRow(scanner interface{ Scan(dest ...any) error }, loc *time.Location) (models.Contact, error) {
+func scanContactRow(ctx context.Context, scanner interface{ Scan(dest ...any) error }, loc *time.Location) (models.Contact, error) {
 	var c models.Contact
 	var isManual, isDeleted int
 	var lastSeen, createdAt, updatedAt sql.NullString
@@ -1709,24 +1710,24 @@ func scanContactRow(scanner interface{ Scan(dest ...any) error }, loc *time.Loca
 	c.AvatarHash = avatarresolver.GravatarHash(c.Email)
 	if lastSeen.Valid {
 		c.LastSeenSort = lastSeen.String
-		c.LastSeenAt = formatContactTime(lastSeen.String, loc)
+		c.LastSeenAt = formatContactTime(ctx, lastSeen.String, loc)
 	}
 	if createdAt.Valid {
-		c.CreatedAt = formatContactTime(createdAt.String, loc)
+		c.CreatedAt = formatContactTime(ctx, createdAt.String, loc)
 	}
 	if updatedAt.Valid {
 		c.UpdatedSort = updatedAt.String
-		c.UpdatedAt = formatContactTime(updatedAt.String, loc)
+		c.UpdatedAt = formatContactTime(ctx, updatedAt.String, loc)
 	}
 	return c, nil
 }
 
-func formatContactTime(raw string, loc *time.Location) string {
+func formatContactTime(ctx context.Context, raw string, loc *time.Location) string {
 	if t, ok := parseSQLiteDateTime(raw); ok {
 		if loc == nil {
 			loc = time.Local
 		}
-		return t.In(loc).Format("Jan 2, 2006")
+		return i18n.Dates(ctx).Date(t.In(loc))
 	}
 	return raw
 }
@@ -2614,7 +2615,7 @@ func listSuppressedContacts(ctx context.Context, query contactProfileQuery, user
 	var contacts []models.Contact
 	loc := timezoneLocationFromContext(ctx)
 	for rows.Next() {
-		c, err := scanContactRow(rows, loc)
+		c, err := scanContactRow(ctx, rows, loc)
 		if err != nil {
 			return nil, err
 		}

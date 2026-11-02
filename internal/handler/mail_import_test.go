@@ -204,7 +204,7 @@ func TestMailImportOfAGoferExport(t *testing.T) {
 		t.Fatalf("Archive/2024 has %d messages, the duplicate was uploaded", len(archived))
 	}
 
-	views, err := f.h.mailImportJobViews("attacker")
+	views, err := f.h.mailImportJobViews(context.Background(), "attacker")
 	if err != nil || len(views) != 0 {
 		t.Fatalf("another person sees %d imports (%v)", len(views), err)
 	}

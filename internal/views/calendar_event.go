@@ -1,11 +1,14 @@
 package views
 
 import (
+	"context"
 	"net/url"
 	"strconv"
 	"strings"
 	"time"
 	"unicode"
+
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 )
 
 type CalendarEventDetails struct {
@@ -103,7 +106,7 @@ func calendarEventEditURL(details CalendarEventDetails) string {
 	return endpoint
 }
 
-func calendarEventDetailsDate(event CalendarEvent, location *time.Location) string {
+func calendarEventDetailsDate(ctx context.Context, event CalendarEvent, location *time.Location) string {
 	var start, end time.Time
 	if event.AllDay {
 		var err error
@@ -124,10 +127,11 @@ func calendarEventDetailsDate(event CalendarEvent, location *time.Location) stri
 	if start.IsZero() {
 		return "Date unavailable"
 	}
+	dates := i18n.Dates(ctx)
 	if end.IsZero() || sameCalendarDate(start, end) {
-		return start.Format("Monday, January 2, 2006")
+		return dates.LongDate(start)
 	}
-	return start.Format("Mon, Jan 2, 2006") + " – " + end.Format("Mon, Jan 2, 2006")
+	return dates.Range(dates.WeekdayDate(start), dates.WeekdayDate(end))
 }
 
 func calendarEventDetailsTimeZone(event CalendarEvent, location *time.Location) string {

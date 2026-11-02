@@ -24,7 +24,7 @@ func localeTestHandler(t *testing.T) *Handler {
 	if _, err := db.Write().Exec(`INSERT OR IGNORE INTO users (id, username, username_normalized, name) VALUES ('locale-user', 'locale-user', 'locale-user', 'Locale User')`); err != nil {
 		t.Fatalf("insert user: %v", err)
 	}
-	t.Cleanup(func() { forgetSavedLanguage("locale-user") })
+	t.Cleanup(func() { forgetSavedRegional("locale-user") })
 	return &Handler{db: db}
 }
 
@@ -56,7 +56,7 @@ func TestLocaleMiddlewarePrefersTheSavedLanguage(t *testing.T) {
 	if err := h.db.MergeUISettings(context.Background(), "locale-user", map[string]string{i18n.SettingKey: "en"}); err != nil {
 		t.Fatal(err)
 	}
-	forgetSavedLanguage("locale-user")
+	forgetSavedRegional("locale-user")
 	if got := requestLocale(h, true, "es-AR,es;q=0.9", "es"); got != i18n.English {
 		t.Fatalf("saved English beats the browser and the cookie: %q", got)
 	}
@@ -108,5 +108,21 @@ func TestLocaleScriptRoute(t *testing.T) {
 		if w := get(i18n.ScriptPrefix + path); w.Code != http.StatusNotFound {
 			t.Errorf("%s: %d, want 404", path, w.Code)
 		}
+	}
+}
+
+func TestLocaleMiddlewareCarriesTheDateSettings(t *testing.T) {
+	h := localeTestHandler(t)
+	if err := h.db.MergeUISettings(context.Background(), "locale-user", map[string]string{i18n.DateFormatSettingKey: "dd-mm-yyyy", i18n.TimeFormatSettingKey: "24h"}); err != nil {
+		t.Fatal(err)
+	}
+	forgetSavedRegional("locale-user")
+	var format, clock string
+	next := http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) { format, clock = i18n.DatePrefs(r.Context()) })
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r = r.WithContext(auth.ContextWithUser(r.Context(), &auth.User{ID: "locale-user"}))
+	h.LocaleMiddleware(next).ServeHTTP(httptest.NewRecorder(), r)
+	if format != "dd-mm-yyyy" || clock != "24h" {
+		t.Fatalf("date settings = %q %q", format, clock)
 	}
 }

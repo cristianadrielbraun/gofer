@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"net/http"
 	"strings"
 	"time"
@@ -107,7 +108,7 @@ func (h *Handler) handleCalendarSync(w http.ResponseWriter, r *http.Request) {
 		month.SyncError = true
 		month.SyncMessage = "Calendar refresh failed: " + syncErr.Error()
 	} else if month.HasSources {
-		month.SyncMessage = fmt.Sprintf("Synced %d event(s) · Updated %s", synced, time.Now().In(month.Month.Location()).Format("15:04"))
+		month.SyncMessage = fmt.Sprintf("Synced %d event(s) · Updated %s", synced, i18n.Dates(r.Context()).Time(time.Now().In(month.Month.Location())))
 	}
 	if events, err := h.db.ListCalendarEvents(ctx, userID, windowStart, windowEnd); err != nil {
 		month.SyncError = true

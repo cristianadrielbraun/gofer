@@ -67,6 +67,11 @@
 
     options.dateStyle = formatMap[format] || "medium";
 
+    // Gofer: the medium style follows the user's chosen date format.
+    if (options.dateStyle === "medium" && window.goferDates) {
+      return window.goferDates.date(date, "UTC");
+    }
+
     try {
       return new Intl.DateTimeFormat(locale, options).format(date);
     } catch (e) {

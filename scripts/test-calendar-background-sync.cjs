@@ -2,6 +2,7 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const path = require('node:path')
 const vm = require('node:vm')
+const loadI18n = require('./i18n-test-helper.cjs')
 
 const source = fs.readFileSync(path.join(__dirname, '../assets/js/app.js'), 'utf8')
 function helper(name) {
@@ -43,6 +44,7 @@ const context = vm.createContext({
   setTimeout(callback) { timers.push(callback); return timers.length },
   window: {htmx: {trigger(element, name) { requests.push({element, name}) }}},
 })
+loadI18n(context)
 const start = source.indexOf('var _calendarSyncRequest = null')
 const end = source.indexOf('\nfunction configureCalendarSyncRequest(', start)
 assert(start > 0 && end > start)
@@ -63,7 +65,7 @@ assert.equal(icons.find(icon => !icon.hidden).dataset.calendarSourceSyncIcon, 's
 event('ok', 1, {changed: true})
 assert.equal(label.textContent, 'Calendar synchronized')
 assert.equal(button.disabled, false)
-assert.match(status.textContent, /^Last synced 12:00$/)
+assert.match(status.textContent, /^Last synced 12:00 PM$/)
 assert.match(dot.className, /bg-emerald-500/)
 event('syncing', 1)
 event('failed', 0)

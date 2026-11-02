@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"log"
 	"net/http"
 	"net/url"
@@ -140,7 +141,7 @@ func (h *Handler) mailTransferFormData(r *http.Request, values url.Values, messa
 	return data, nil
 }
 
-func (h *Handler) mailTransferJobViews(owner string) ([]views.MailTransferJob, error) {
+func (h *Handler) mailTransferJobViews(ctx context.Context, owner string) ([]views.MailTransferJob, error) {
 	jobs, err := h.mailTransfers.jobs(owner)
 	if err != nil {
 		return nil, err
@@ -151,7 +152,7 @@ func (h *Handler) mailTransferJobViews(owner string) ([]views.MailTransferJob, e
 		view := views.MailTransferJob{
 			ID: job.ID, Source: job.SourceEmail, Target: job.TargetEmail, Move: job.Move, ForGood: job.ForGood, State: job.State, Error: job.Error,
 			Processed: processed, Total: total, Copied: copied, Duplicates: duplicates, Failed: failed, Deleted: deleted,
-			Started: job.CreatedAt.Local().Format("Jan 2, 15:04"),
+			Started: i18n.Dates(ctx).ShortDateTime(job.CreatedAt.Local()),
 		}
 		if job.State == mailJobRunning && h.mailTransfers.isWaiting(job.ID) {
 			view.Waiting = true
@@ -182,7 +183,7 @@ func (h *Handler) renderMailTransferPanel(w http.ResponseWriter, r *http.Request
 }
 
 func (h *Handler) renderMailTransferJobs(w http.ResponseWriter, r *http.Request) {
-	jobs, err := h.mailTransferJobViews(h.userID(r.Context()))
+	jobs, err := h.mailTransferJobViews(r.Context(), h.userID(r.Context()))
 	if err != nil {
 		log.Printf("mail transfer: %v", err)
 		http.Error(w, "could not list transfers", http.StatusInternalServerError)

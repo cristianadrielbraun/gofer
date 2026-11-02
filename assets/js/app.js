@@ -3863,7 +3863,7 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     function formatMailCount(n) {
-      return Number(n || 0).toLocaleString()
+      return goferNumber(Number(n || 0))
     }
 
     // Opening a message selects it, so keyboard actions reach it. A single message
@@ -12097,16 +12097,11 @@ function calendarLoadingPeriodLabel(view, date) {
   if (!/^\d{4}-\d{2}(?:-\d{2})?$/.test(date || "")) return ""
   var at = new Date(date.length === 7 ? date + "-01T12:00:00Z" : date + "T12:00:00Z")
   if (isNaN(at.getTime())) return ""
-  function label(day, year) {
-    return day.toLocaleDateString("en-US", { timeZone: "UTC", month: "short", day: "numeric", year: year ? "numeric" : undefined })
-  }
-  if (view !== "week") return at.toLocaleDateString("en-US", { timeZone: "UTC", month: "long", year: "numeric" })
+  if (view !== "week") return goferDates.monthYear(at, "UTC")
   at.setUTCDate(at.getUTCDate() - (at.getUTCDay() + 6) % 7)
   var end = new Date(at.getTime())
   end.setUTCDate(end.getUTCDate() + 6)
-  if (at.getUTCFullYear() !== end.getUTCFullYear()) return label(at, true) + " – " + label(end, true)
-  if (at.getUTCMonth() !== end.getUTCMonth()) return label(at, false) + " – " + label(end, true)
-  return label(at, false) + "–" + end.getUTCDate() + ", " + end.getUTCFullYear()
+  return goferDates.dateRange(at, end, "UTC")
 }
 
 function showCalendarContentPending(event) {
@@ -12941,13 +12936,13 @@ function initializeCalendarWeekScroll() {
     var text = row.querySelector("[data-calendar-week-hour-text]")
     row.style.height = axis.heights[hour] + "px"
     text.hidden = false
-    text.textContent = String(hour).padStart(2, "0") + ":00"
+    text.textContent = goferDates.hourLabel(hour)
     text.title = ""
     if (_calendarWeekZoom === 0 && !axis.expanded[hour]) {
       var end = hour + 1
       while (end < 24 && !axis.expanded[end]) end++
       text.hidden = (hour > 0 && !axis.expanded[hour - 1]) || axis.offsets[end] - axis.offsets[hour] < 15
-      text.textContent = String(hour).padStart(2, "0") + "–" + String(end).padStart(2, "0")
+      text.textContent = goferDates.hourRange(hour, end)
       text.title = "Empty hours condensed. Zoom in to expand."
     } else if (axis.heights[hour] < 15) text.hidden = hour % 2 !== 0
   })
@@ -13867,9 +13862,9 @@ function updateCalendarRecurrenceForm(form, locked) {
   var start = form.querySelector('[name="start_date"]').value
   var date = /^\d{4}-\d{2}-\d{2}$/.test(start) ? new Date(start + "T12:00:00Z") : null
   if (date && !isNaN(date.getTime())) {
-    if (frequency.value === "weekly") summary += " on " + date.toLocaleDateString(undefined, {weekday: "long", timeZone: "UTC"})
+    if (frequency.value === "weekly") summary += " on " + goferDates.weekdayName(date.getUTCDay())
     if (frequency.value === "monthly") summary += " on day " + date.getUTCDate()
-    if (frequency.value === "yearly") summary += " on " + date.toLocaleDateString(undefined, {month: "long", day: "numeric", timeZone: "UTC"})
+    if (frequency.value === "yearly") summary += " on " + goferDates.monthName(date.getUTCMonth() + 1) + " " + date.getUTCDate()
   }
   if (ending === "count") {
     var count = form.querySelector('[name="repeat_count"]').value
@@ -15549,10 +15544,8 @@ function formatCalendarSyncTime(value, full) {
   if (!value || isNaN(at.getTime())) return ""
   var calendar = document.getElementById("calendar-main")
   var zone = calendar && calendar.dataset.calendarTimezone
-  var options = { hour: "2-digit", minute: "2-digit", hour12: false }
-  if (full) { options.year = "numeric"; options.month = "short"; options.day = "numeric" }
-  if (zone && zone !== "Local" && zone !== "local") options.timeZone = zone
-  try { return at.toLocaleString("en-GB", options) } catch (_) { delete options.timeZone; return at.toLocaleString("en-GB", options) }
+  if (!zone || zone === "Local" || zone === "local") zone = undefined
+  return full ? goferDates.dateTime(at, zone) : goferDates.time(at, zone)
 }
 
 function updateCalendarSyncPresentation() {
@@ -19474,16 +19467,20 @@ function timezoneOffsetLabel(timezone, date) {
   return "UTC" + sign + hours + (minutes ? ":" + pad2(minutes) : "")
 }
 
+// formatGoferDateTime writes a moment in the user's time zone and date
+// format: the date without its year unless options.year is set, then the
+// time, then the zone's short name when options.timeZoneName is set.
 function formatGoferDateTime(date, options) {
   options = options || {}
+  var zone = getGoferTimezone()
   try {
-    return new Intl.DateTimeFormat(undefined, Object.assign({
-      timeZone: getGoferTimezone(),
-      month: "short",
-      day: "numeric",
-      hour: "numeric",
-      minute: "2-digit"
-    }, options)).format(date)
+    var text = options.year ? goferDates.dateTime(date, zone) : goferDates.shortDateTime(date, zone)
+    if (options.timeZoneName) {
+      var name = new Intl.DateTimeFormat("en-US", { timeZone: zone, timeZoneName: "short" }).formatToParts(date)
+        .filter(function (part) { return part.type === "timeZoneName" })[0]
+      if (name) text += " " + name.value
+    }
+    return text
   } catch (_) {
     return date.toLocaleString()
   }
@@ -20391,7 +20388,7 @@ function confirmPermanentSearchDelete(targets) {
   var one = targets.length === 1
   showGoferToast({
     id: "mail-search-permanent-delete",
-    title: one ? "Delete the email permanently?" : "Delete " + targets.length.toLocaleString() + " emails permanently?",
+    title: one ? "Delete the email permanently?" : "Delete " + goferNumber(targets.length) + " emails permanently?",
     description: (one ? "It's" : "They're") + " already in Trash, so this can't be undone.",
     variant: "warning", icon: "warning", position: "bottom-right", duration: 10000, dismissible: true,
     secondaryActionLabel: "Delete permanently",
@@ -20438,7 +20435,7 @@ function showMailActionSkippedToast(action, totals) {
   if (!missing) return
   var count = action === "delete" ? totals.no_trash : (action === "archive" ? totals.no_archive : totals.failed)
   var verb = action === "delete" ? "deleted" : (action === "archive" ? "archived" : "marked as spam")
-  var title = count ? Number(count).toLocaleString() + (count === 1 ? " email wasn't " : " emails weren't ") + verb : "Some emails weren't " + verb
+  var title = count ? goferNumber(Number(count)) + (count === 1 ? " email wasn't " : " emails weren't ") + verb : "Some emails weren't " + verb
   showMissingFolderToast(missing, title)
 }
 
@@ -21231,9 +21228,9 @@ function showMailMovedToast(targets, folderID) {
   var count = mailToAccountCount(targets)
   var title
   if (count === 1) title = "Moved the email" + where
-  else if (count > 1) title = "Moved " + Number(count).toLocaleString() + " emails" + where
+  else if (count > 1) title = "Moved " + goferNumber(Number(count)) + " emails" + where
   else if (targets.length === 1) title = "Moved the conversation" + where
-  else title = "Moved " + Number(targets.length).toLocaleString() + " conversations" + where
+  else title = "Moved " + goferNumber(Number(targets.length)) + " conversations" + where
   showGoferToast({ id: "mail-moved", title: title, variant: "success", icon: "success", position: "bottom-right", duration: 3000, dismissible: true })
 }
 
@@ -21299,7 +21296,7 @@ function openMoveDialog(emailId, thread, selection) {
       if (moveDialogSelection) {
         var title = host.querySelector("[data-tui-dialog-title], h2")
         var count = mailToAccountCount(moveDialogSelection.targets)
-        if (title) title.textContent = count ? "Move " + Number(count).toLocaleString() + " emails to" : "Move the selected conversations to"
+        if (title) title.textContent = count ? "Move " + goferNumber(Number(count)) + " emails to" : "Move the selected conversations to"
       }
       if (window.tui && window.tui.dialog) {
         window.tui.dialog.open("mail-move-dialog")
@@ -21852,7 +21849,7 @@ function followMailTransfer(entry, resumed) {
 }
 
 function mailTransferNumber(n) {
-  return Number(n || 0).toLocaleString()
+  return goferNumber(Number(n || 0))
 }
 
 function refreshMailListAfterTransfer() {
@@ -23315,7 +23312,7 @@ function calendarAddISODays(iso, days) {
 
 function calendarMinuteLabel(minute) {
   minute = ((Math.round(minute) % 1440) + 1440) % 1440
-  return String(Math.floor(minute / 60)).padStart(2, "0") + ":" + String(minute % 60).padStart(2, "0")
+  return goferDates.clockTime(Math.floor(minute / 60), minute % 60)
 }
 
 function calendarDragAnimates() {

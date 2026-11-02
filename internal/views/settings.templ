@@ -1804,7 +1804,7 @@ templ SettingsAccountSyncErrorPopover(account models.Account, syncError string, 
 							class="mt-0.5 text-[11px] text-muted-foreground"
 						>
 							Last failure:
-							<span data-account-sync-error-at={ syncErrorAt }>{ formatAccountSyncErrorAt(syncErrorAt, nil) }</span>
+							<span data-account-sync-error-at={ syncErrorAt }>{ formatAccountSyncErrorAt(ctx, syncErrorAt, nil) }</span>
 						</p>
 						<p class="mt-2 break-words text-xs leading-relaxed text-muted-foreground" data-settings-account-sync-error-message>{ syncError }</p>
 					</div>
@@ -6119,11 +6119,11 @@ func mailOperationTargetLabel(operation models.MailOperationSummary) string {
 	return strings.Join(parts, " · ")
 }
 
-func mailOperationTimeLabel(value time.Time) string {
+func mailOperationTimeLabel(ctx context.Context, value time.Time) string {
 	if value.IsZero() {
 		return "Not scheduled"
 	}
-	return value.Local().Format("Jan 2, 3:04 PM")
+	return i18n.Dates(ctx).ShortDateTime(value.Local())
 }
 
 func mailOperationActionLabel(operation models.MailOperationSummary) string {
@@ -6237,7 +6237,7 @@ templ SettingsOperationsContent(status models.MailOperationsStatus) {
 									</div>
 								}
 								<div class="mt-2 text-[11px] text-muted-foreground">
-									{ fmt.Sprintf("Attempt %d", operation.Attempts) } · next retry { mailOperationTimeLabel(operation.NextRetryAt) }
+									{ fmt.Sprintf("Attempt %d", operation.Attempts) } · next retry { mailOperationTimeLabel(ctx, operation.NextRetryAt) }
 								</div>
 							</div>
 							<div class="flex shrink-0 items-center gap-2">

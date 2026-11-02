@@ -1,6 +1,7 @@
 package views
 
 import (
+	"context"
 	"fmt"
 	"github.com/a-h/templ"
 	"net/url"
@@ -11,6 +12,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"github.com/cristianadrielbraun/gofer/internal/mailrules"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 )
@@ -441,15 +443,16 @@ func mailRuleActivityDetail(run models.MailRuleRun) string {
 
 // mailRuleActivityTime says when an entry happened: the time today, the
 // day this year, or the date.
-func mailRuleActivityTime(at, now time.Time) string {
+func mailRuleActivityTime(ctx context.Context, at, now time.Time) string {
 	now = now.In(at.Location())
+	dates := i18n.Dates(ctx)
 	switch {
 	case at.Year() == now.Year() && at.YearDay() == now.YearDay():
-		return at.Format("15:04")
+		return dates.Time(at)
 	case at.Year() == now.Year():
-		return at.Format("Jan 2, 15:04")
+		return dates.ShortDateTime(at)
 	}
-	return at.Format("Jan 2, 2006")
+	return dates.Date(at)
 }
 
 // mailRuleActivityMessageURL opens the message an entry names, in a folder

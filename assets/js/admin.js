@@ -180,7 +180,7 @@
     if (!value || value === "0001-01-01T00:00:00Z") return "Never"
     var date = new Date(value)
     if (isNaN(date.getTime())) return "Never"
-    return date.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })
+    return goferDates.shortDateTime(date)
   }
 
   function latestAvatarError(status) {

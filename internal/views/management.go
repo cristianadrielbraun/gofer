@@ -187,6 +187,9 @@ func managementAdminLayout(uiSettings map[string]string, activeSection string, s
 		if err := writeHTML(w, `<!DOCTYPE html><html lang="`, escaped(pageLang(ctx)), `" class="`, escaped(themeClass(uiSettings)), `" data-theme="`, escaped(themeStyle(uiSettings)), `"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Gofer - Admin</title><link rel="icon" type="image/svg+xml" href="/assets/logo.svg"><link rel="stylesheet" href="/assets/css/output.css">`); err != nil {
 			return err
 		}
+		if err := I18nScripts().Render(ctx, w); err != nil {
+			return err
+		}
 		if err := SettingsComponentScripts().Render(ctx, w); err != nil {
 			return err
 		}
@@ -218,6 +221,9 @@ func managementAdminLayout(uiSettings map[string]string, activeSection string, s
 func ManagementSecurityLayout(uiSettings map[string]string, content templ.Component) templ.Component {
 	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
 		if err := writeHTML(w, `<!DOCTYPE html><html lang="`, escaped(pageLang(ctx)), `" class="`, escaped(themeClass(uiSettings)), `" data-theme="`, escaped(themeStyle(uiSettings)), `"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Gofer Admin - Account security</title><link rel="icon" type="image/svg+xml" href="/assets/logo.svg"><link rel="stylesheet" href="/assets/css/output.css">`); err != nil {
+			return err
+		}
+		if err := I18nScripts().Render(ctx, w); err != nil {
 			return err
 		}
 		if err := SettingsComponentScripts().Render(ctx, w); err != nil {

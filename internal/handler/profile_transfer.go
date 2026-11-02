@@ -1033,7 +1033,7 @@ func importProfilePreferences(ctx context.Context, db *storage.DB, owner string,
 		if err := db.MergeUISettings(ctx, owner, updates); err != nil {
 			return err
 		}
-		forgetSavedLanguage(owner)
+		forgetSavedRegional(owner)
 	}
 
 	settings := map[string]string{}

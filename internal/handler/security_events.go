@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"bytes"
 	"errors"
 	"fmt"
@@ -15,13 +16,13 @@ import (
 
 const securityActivityPath = "/settings/security/activity"
 
-func securityEventViewData(events []auth.SecurityEventSummary) []views.SecurityEventData {
+func securityEventViewData(ctx context.Context, events []auth.SecurityEventSummary) []views.SecurityEventData {
 	result := make([]views.SecurityEventData, 0, len(events))
 	for _, event := range events {
 		view := views.SecurityEventData{
 			Title:      securityEventTitle(event.EventType, event.Success),
 			Detail:     securityEventDetail(event.Reason, event.Success),
-			OccurredAt: formatSecuritySessionTime(event.OccurredAt),
+			OccurredAt: formatSecuritySessionTime(ctx, event.OccurredAt),
 			Status:     "Failed",
 			Successful: event.Success,
 		}
@@ -36,12 +37,12 @@ func securityEventViewData(events []auth.SecurityEventSummary) []views.SecurityE
 	return result
 }
 
-func securityActivityPageViewData(page *auth.SecurityEventPage) views.SecurityActivityPageData {
+func securityActivityPageViewData(ctx context.Context, page *auth.SecurityEventPage) views.SecurityActivityPageData {
 	if page == nil {
 		return views.SecurityActivityPageData{}
 	}
 	result := views.SecurityActivityPageData{
-		Events:       securityEventViewData(page.Events),
+		Events:       securityEventViewData(ctx, page.Events),
 		TotalEvents:  page.TotalEvents,
 		Page:         page.Page,
 		TotalPages:   page.TotalPages,
@@ -107,7 +108,7 @@ func (h *Handler) handleSecurityActivityPage(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	var output bytes.Buffer
-	if err := views.SecurityActivityDialogPage(securityActivityPageViewData(page)).Render(r.Context(), &output); err != nil {
+	if err := views.SecurityActivityDialogPage(securityActivityPageViewData(r.Context(), page)).Render(r.Context(), &output); err != nil {
 		log.Printf("render security activity page: %v", err)
 		http.Error(w, "failed to render security activity", http.StatusInternalServerError)
 		return

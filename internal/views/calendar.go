@@ -1,6 +1,7 @@
 package views
 
 import (
+	"context"
 	"net/url"
 	"strconv"
 	"strings"
@@ -9,6 +10,8 @@ import (
 	"github.com/a-h/templ"
 
 	"github.com/cristianadrielbraun/gofer/internal/models"
+
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 )
 
 type CalendarDay struct {
@@ -29,7 +32,6 @@ type CalendarMonthData struct {
 	DateKey          string
 	PeriodKey        string
 	Month            time.Time
-	MonthLabel       string
 	MonthKey         string
 	PreviousMonthKey string
 	NextMonthKey     string
@@ -125,7 +127,6 @@ func NewCalendarMonthData(at time.Time) CalendarMonthData {
 		DateKey:          at.Format("2006-01-02"),
 		PeriodKey:        monthKey,
 		Month:            month,
-		MonthLabel:       month.Format("January 2006"),
 		MonthKey:         monthKey,
 		PreviousMonthKey: month.AddDate(0, -1, 0).Format("2006-01"),
 		NextMonthKey:     month.AddDate(0, 1, 0).Format("2006-01"),
@@ -150,15 +151,27 @@ func calendarMonthURL(monthKey string) string {
 	return "/calendar"
 }
 
-func calendarWeekdayLabel(index int) string {
-	return []string{"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"}[index%7]
+// calendarPeriodLabel is the calendar's title: the month, or the days of the
+// week on screen.
+func calendarPeriodLabel(ctx context.Context, month CalendarMonthData) string {
+	dates := i18n.Dates(ctx)
+	if month.View == "week" && len(month.Weeks) > 0 && len(month.Weeks[0].Days) > 0 {
+		days := month.Weeks[0].Days
+		return dates.DateRange(days[0].Date, days[len(days)-1].Date)
+	}
+	return dates.MonthYear(month.Month)
 }
 
-func calendarDayLabel(day CalendarDay) string {
+// calendarWeekdayLabel names a column of a week that starts on Monday.
+func calendarWeekdayLabel(ctx context.Context, index int) string {
+	return i18n.Dates(ctx).WeekdayShortName(time.Weekday((index + 1) % 7))
+}
+
+func calendarDayLabel(ctx context.Context, day CalendarDay) string {
 	if !day.InMonth {
-		return day.Date.Format("Monday, January 2, 2006") + ", outside this month"
+		return i18n.Dates(ctx).LongDate(day.Date) + ", outside this month"
 	}
-	return day.Date.Format("Monday, January 2, 2006")
+	return i18n.Dates(ctx).LongDate(day.Date)
 }
 
 func calendarDayClass(day CalendarDay) string {
@@ -292,40 +305,41 @@ func calendarEventColorStyle(event CalendarEvent) string {
 	return "background-color: " + accountColorValue(color) + ";"
 }
 
-func calendarEventTimeLabel(event CalendarEvent, location *time.Location) string {
+func calendarEventTimeLabel(ctx context.Context, event CalendarEvent, location *time.Location) string {
 	if event.AllDay {
-		return "All day"
+		return i18n.T(ctx, "calendar.all_day")
 	}
 	if event.StartAt == nil {
 		return ""
 	}
-	return event.StartAt.In(location).Format("15:04")
+	return i18n.Dates(ctx).Time(event.StartAt.In(location))
 }
 
-func calendarEventAgendaDateLabel(event CalendarEvent, location *time.Location) string {
+func calendarEventAgendaDateLabel(ctx context.Context, event CalendarEvent, location *time.Location) string {
 	if event.AllDay {
 		if parsed, err := time.ParseInLocation("2006-01-02", event.StartDate, location); err == nil {
-			return parsed.Format("Mon, Jan 2")
+			return i18n.Dates(ctx).WeekdayShortDate(parsed)
 		}
 		return event.StartDate
 	}
 	if event.StartAt == nil {
 		return ""
 	}
-	return event.StartAt.In(location).Format("Mon, Jan 2")
+	return i18n.Dates(ctx).WeekdayShortDate(event.StartAt.In(location))
 }
 
-func calendarEventAgendaTimeLabel(event CalendarEvent, location *time.Location) string {
+func calendarEventAgendaTimeLabel(ctx context.Context, event CalendarEvent, location *time.Location) string {
 	if event.AllDay {
-		return "All day"
+		return i18n.T(ctx, "calendar.all_day")
 	}
 	if event.StartAt == nil {
 		return ""
 	}
+	dates := i18n.Dates(ctx)
 	if event.EndAt == nil || event.EndAt.Equal(*event.StartAt) {
-		return event.StartAt.In(location).Format("15:04")
+		return dates.Time(event.StartAt.In(location))
 	}
-	return event.StartAt.In(location).Format("15:04") + "–" + event.EndAt.In(location).Format("15:04")
+	return dates.TimeRange(event.StartAt.In(location), event.EndAt.In(location))
 }
 
 func calendarEventMeta(event CalendarEvent) string {
@@ -384,7 +398,7 @@ func calendarAgendaStatusLabel(month CalendarMonthData) string {
 	return "Ready for calendar connections"
 }
 
-func calendarAgendaStatusDetail(month CalendarMonthData) string {
+func calendarAgendaStatusDetail(ctx context.Context, month CalendarMonthData) string {
 	if month.Syncing {
 		return "Fetching events from your selected calendars."
 	}
@@ -395,7 +409,7 @@ func calendarAgendaStatusDetail(month CalendarMonthData) string {
 		return month.SyncMessage
 	}
 	if month.LastSyncedAt != nil && month.PendingSources == 0 {
-		return "Last synced " + month.LastSyncedAt.In(month.Month.Location()).Format("15:04") + ". Background refresh is enabled."
+		return "Last synced " + i18n.Dates(ctx).Time(month.LastSyncedAt.In(month.Month.Location())) + ". Background refresh is enabled."
 	}
 	if month.HasSources {
 		return "Waiting for the first successful refresh. Cached events remain available."
@@ -416,7 +430,7 @@ func calendarSyncMessageClass(month CalendarMonthData) string {
 	return "inline-flex items-center gap-1.5 text-muted-foreground"
 }
 
-func calendarSyncMessage(month CalendarMonthData) string {
+func calendarSyncMessage(ctx context.Context, month CalendarMonthData) string {
 	if month.Syncing {
 		return "Refreshing calendars…"
 	}
@@ -424,7 +438,7 @@ func calendarSyncMessage(month CalendarMonthData) string {
 		return month.SyncMessage
 	}
 	if month.LastSyncedAt != nil && month.PendingSources == 0 {
-		return "Last synced " + month.LastSyncedAt.In(month.Month.Location()).Format("15:04")
+		return "Last synced " + i18n.Dates(ctx).Time(month.LastSyncedAt.In(month.Month.Location()))
 	}
 	if month.HasSources {
 		return "Waiting for first refresh"

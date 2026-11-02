@@ -13,9 +13,21 @@ import (
 // ScriptPrefix + "es.js".
 const ScriptPrefix = "/assets/i18n/"
 
-// Browser scripts read only the "js." messages, with English filled in for
-// any the language lacks.
+// Browser scripts read only the "js." messages, plus the date and number
+// words their formatter needs, with English filled in for any the language
+// lacks.
 const scriptKeyPrefix = "js."
+
+var scriptKeyPrefixes = []string{scriptKeyPrefix, "date.", "number."}
+
+func forScripts(key string) bool {
+	for _, prefix := range scriptKeyPrefixes {
+		if strings.HasPrefix(key, prefix) {
+			return true
+		}
+	}
+	return false
+}
 
 type script struct {
 	body    []byte
@@ -33,12 +45,12 @@ func Script(locale Locale) ([]byte, string) {
 	}
 	messages := map[string]string{}
 	for key, message := range catalogs[English] {
-		if strings.HasPrefix(key, scriptKeyPrefix) {
+		if forScripts(key) {
 			messages[key] = message
 		}
 	}
 	for key, message := range catalogs[locale] {
-		if strings.HasPrefix(key, scriptKeyPrefix) && message != "" {
+		if forScripts(key) && message != "" {
 			messages[key] = message
 		}
 	}

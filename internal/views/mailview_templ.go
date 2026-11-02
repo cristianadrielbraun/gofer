@@ -10,6 +10,7 @@ import templruntime "github.com/a-h/templ/runtime"
 
 import (
 	"fmt"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 	"strings"
 
@@ -22,8 +23,6 @@ import (
 	"github.com/cristianadrielbraun/gofer/components/popover"
 	"github.com/cristianadrielbraun/gofer/components/tabs"
 	"github.com/cristianadrielbraun/gofer/components/tooltip"
-
-	"github.com/dustin/go-humanize"
 )
 
 func contactDisplay(c models.Contact) string {
@@ -1559,9 +1558,9 @@ func MailViewThreadItemAttachments(item *models.ThreadItem) templ.Component {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var57 string
-				templ_7745c5c3_Var57, templ_7745c5c3_Err = templ.JoinStringErrs(humanize.Bytes(uint64(att.SizeBytes)))
+				templ_7745c5c3_Var57, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.Bytes(ctx, uint64(att.SizeBytes)))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mailview.templ`, Line: 473, Col: 90}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mailview.templ`, Line: 473, Col: 91}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var57))
 				if templ_7745c5c3_Err != nil {
@@ -4476,9 +4475,9 @@ func MailViewAttachments(email *models.Email) templ.Component {
 						return templ_7745c5c3_Err
 					}
 					var templ_7745c5c3_Var178 string
-					templ_7745c5c3_Var178, templ_7745c5c3_Err = templ.JoinStringErrs(humanize.Bytes(uint64(att.SizeBytes)))
+					templ_7745c5c3_Var178, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.Bytes(ctx, uint64(att.SizeBytes)))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mailview.templ`, Line: 1063, Col: 91}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mailview.templ`, Line: 1063, Col: 92}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var178))
 					if templ_7745c5c3_Err != nil {

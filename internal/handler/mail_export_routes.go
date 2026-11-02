@@ -1,7 +1,9 @@
 package handler
 
 import (
+	"context"
 	"errors"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"log"
 	"net/http"
 	"os"
@@ -56,7 +58,7 @@ func mailJobStarted(w http.ResponseWriter, dialogID string) {
 	w.Header().Set("HX-Trigger", `{"gofer-close-dialog":"`+dialogID+`","mail-jobs-changed":true}`)
 }
 
-func (h *Handler) mailExportJobViews(owner string) ([]views.MailExportJob, error) {
+func (h *Handler) mailExportJobViews(ctx context.Context, owner string) ([]views.MailExportJob, error) {
 	jobs, err := h.mailExports.jobs(owner)
 	if err != nil {
 		return nil, err
@@ -67,7 +69,7 @@ func (h *Handler) mailExportJobViews(owner string) ([]views.MailExportJob, error
 		view := views.MailExportJob{
 			ID: job.ID, Account: job.AccountEmail, State: job.State, Error: job.Error,
 			Processed: processed, Total: total, Exported: job.written(), Failed: job.Failed, NotSaved: job.NotSaved,
-			SavedOnly: job.LocalOnly, Started: job.CreatedAt.Local().Format("Jan 2, 15:04"),
+			SavedOnly: job.LocalOnly, Started: i18n.Dates(ctx).ShortDateTime(job.CreatedAt.Local()),
 		}
 		if job.State == mailJobRunning && h.mailExports.isWaiting(job.ID) {
 			view.Waiting = true
@@ -94,7 +96,7 @@ func (h *Handler) renderMailExportPanel(w http.ResponseWriter, r *http.Request, 
 }
 
 func (h *Handler) renderMailExportJobs(w http.ResponseWriter, r *http.Request) {
-	jobs, err := h.mailExportJobViews(h.userID(r.Context()))
+	jobs, err := h.mailExportJobViews(r.Context(), h.userID(r.Context()))
 	if err != nil {
 		log.Printf("mail export: %v", err)
 		http.Error(w, "could not list exports", http.StatusInternalServerError)

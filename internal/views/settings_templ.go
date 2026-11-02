@@ -8001,9 +8001,9 @@ func SettingsAccountSyncErrorPopover(account models.Account, syncError string, s
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var371 string
-				templ_7745c5c3_Var371, templ_7745c5c3_Err = templ.JoinStringErrs(formatAccountSyncErrorAt(syncErrorAt, nil))
+				templ_7745c5c3_Var371, templ_7745c5c3_Err = templ.JoinStringErrs(formatAccountSyncErrorAt(ctx, syncErrorAt, nil))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 1807, Col: 100}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 1807, Col: 105}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var371))
 				if templ_7745c5c3_Err != nil {
@@ -24110,11 +24110,11 @@ func mailOperationTargetLabel(operation models.MailOperationSummary) string {
 	return strings.Join(parts, " · ")
 }
 
-func mailOperationTimeLabel(value time.Time) string {
+func mailOperationTimeLabel(ctx context.Context, value time.Time) string {
 	if value.IsZero() {
 		return "Not scheduled"
 	}
-	return value.Local().Format("Jan 2, 3:04 PM")
+	return i18n.Dates(ctx).ShortDateTime(value.Local())
 }
 
 func mailOperationActionLabel(operation models.MailOperationSummary) string {
@@ -24493,9 +24493,9 @@ func SettingsOperationsContent(status models.MailOperationsStatus) templ.Compone
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var1033 string
-				templ_7745c5c3_Var1033, templ_7745c5c3_Err = templ.JoinStringErrs(mailOperationTimeLabel(operation.NextRetryAt))
+				templ_7745c5c3_Var1033, templ_7745c5c3_Err = templ.JoinStringErrs(mailOperationTimeLabel(ctx, operation.NextRetryAt))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 6240, Col: 120}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 6240, Col: 125}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var1033))
 				if templ_7745c5c3_Err != nil {

@@ -3711,9 +3711,9 @@ func (h *Handler) renderPasswordSecurityTab(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "failed to load security settings", http.StatusInternalServerError)
 		return
 	}
-	data.Passkeys = passkeySecurityViewData(summary.Passkeys)
-	data.FederatedIdentities = federatedIdentityViewData(identities)
-	data.Sessions, data.SessionsTruncated = securitySessionViewData(sessions, data.OIDCLoginName)
+	data.Passkeys = passkeySecurityViewData(ctx, summary.Passkeys)
+	data.FederatedIdentities = federatedIdentityViewData(ctx, identities)
+	data.Sessions, data.SessionsTruncated = securitySessionViewData(ctx, sessions, data.OIDCLoginName)
 	data.SecurityEventCount = securityEventOverview.TotalEvents
 	for _, session := range data.Sessions {
 		if session.RevokePath != "" {
@@ -4098,7 +4098,7 @@ func (h *Handler) handleSaveUISettings(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "save failed", http.StatusInternalServerError)
 		return
 	}
-	rememberSavedLanguage(userID, updates)
+	rememberSavedRegional(userID, updates)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]bool{"ok": true})
