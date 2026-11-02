@@ -147,3 +147,64 @@ func TestCustomFolderIconPickerAndRoleProtection(t *testing.T) {
 		t.Fatalf("reset picker = %s", body)
 	}
 }
+
+func TestFolderIconStylesPersistForCustomAndRoleFolders(t *testing.T) {
+	h, db := newAccountOwnershipTestHandler(t)
+	ctx := t.Context()
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO folders (id, account_id, remote_id, name, icon, role, selectable) VALUES
+		('styled-custom', 'victim-account', 'Work', 'Work', 'folder', 'custom', 1),
+		('styled-inbox', 'victim-account', 'INBOX', 'Inbox', 'inbox', 'inbox', 1)`); err != nil {
+		t.Fatal(err)
+	}
+	id := map[string]string{"id": "styled-inbox"}
+	for _, tc := range []struct {
+		name   string
+		form   url.Values
+		owner  bool
+		status int
+	}{
+		{"invalid style", url.Values{"color": {"#3b82f6"}, "style": {"solid"}}, true, http.StatusBadRequest},
+		{"empty style", url.Values{"color": {""}, "style": {""}}, true, http.StatusBadRequest},
+		{"duplicate style", url.Values{"color": {""}, "style": {"filled", "outlined"}}, true, http.StatusBadRequest},
+		{"foreign style", url.Values{"color": {""}, "style": {"filled"}}, false, http.StatusNotFound},
+		{"role filled style", url.Values{"color": {"#3b82f6"}, "style": {"filled"}}, true, http.StatusOK},
+		{"role symbol override", url.Values{"color": {"#ef4444"}, "style": {"outlined"}, "icon": {"heart"}}, true, http.StatusBadRequest},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := identityRequest(t, h, h.handleSaveFolderAppearance, http.MethodPost, "/", id, tc.form, tc.owner)
+			if rec.Code != tc.status {
+				t.Fatalf("POST = %d: %s", rec.Code, rec.Body.String())
+			}
+		})
+	}
+	get := func() string {
+		rec := identityRequest(t, h, h.handleFolderAppearance, http.MethodGet, "/", id, nil, true)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("GET = %d: %s", rec.Code, rec.Body.String())
+		}
+		return rec.Body.String()
+	}
+	if body := get(); !strings.Contains(body, `value="filled" checked`) || !strings.Contains(body, `data-folder-filled-symbol="inbox"`) || strings.Contains(body, `name="icon"`) || !strings.Contains(body, `value="#3b82f6" checked`) {
+		t.Fatalf("role appearance = %s", body)
+	}
+	// Color-only clients preserve the selected style.
+	rec := identityRequest(t, h, h.handleSaveFolderAppearance, http.MethodPost, "/", id, url.Values{"color": {"#ef4444"}}, true)
+	if rec.Code != http.StatusOK || !strings.Contains(get(), `value="filled" checked`) {
+		t.Fatal("color-only update lost style")
+	}
+	id["id"] = "styled-custom"
+	rec = identityRequest(t, h, h.handleSaveFolderAppearance, http.MethodPost, "/", id, url.Values{"color": {"#3b82f6"}, "icon": {"camera"}, "style": {"filled"}}, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("custom filled = %d: %s", rec.Code, rec.Body.String())
+	}
+	if body := get(); !strings.Contains(body, `value="filled" checked`) || !strings.Contains(body, `value="camera" checked`) {
+		t.Fatalf("custom appearance = %s", body)
+	}
+	rec = identityRequest(t, h, h.handleSaveFolderAppearance, http.MethodPost, "/", id, url.Values{"color": {""}, "icon": {""}, "style": {"outlined"}}, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("reset = %d", rec.Code)
+	}
+	if body := get(); !strings.Contains(body, `value="outlined" checked`) || strings.Contains(body, `data-folder-customized`) {
+		t.Fatalf("reset appearance = %s", body)
+	}
+}

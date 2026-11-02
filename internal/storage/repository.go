@@ -5106,11 +5106,12 @@ func calendarTimestamp(at *time.Time) string {
 
 func (db *DB) getFolders(ctx context.Context, accountID string) ([]models.Folder, error) {
 	rows, err := db.Read().QueryContext(ctx,
-		`SELECT f.id, f.name, f.icon, f.role, f.unread_count, f.parent_id, COALESCE(appearance.value, ''), COALESCE(icon_appearance.value, '')
+		`SELECT f.id, f.name, f.icon, f.role, f.unread_count, f.parent_id, COALESCE(appearance.value, ''), COALESCE(icon_appearance.value, ''), COALESCE(style_appearance.value, '')
 		 FROM folders f
 		 JOIN accounts a ON a.id = f.account_id
 		 LEFT JOIN app_settings appearance ON appearance.user_id = a.user_id AND appearance.key = 'folder_color:' || f.id
 		 LEFT JOIN app_settings icon_appearance ON icon_appearance.user_id = a.user_id AND icon_appearance.key = 'folder_icon:' || f.id
+		 LEFT JOIN app_settings style_appearance ON style_appearance.user_id = a.user_id AND style_appearance.key = 'folder_icon_style:' || f.id
 		 WHERE f.account_id = ?
 		   AND COALESCE(f.discovery_state, 'active') = 'active'
 		   AND COALESCE(f.selectable, 1) = 1
@@ -5129,7 +5130,7 @@ func (db *DB) getFolders(ctx context.Context, accountID string) ([]models.Folder
 	for rows.Next() {
 		var fr folderRow
 		var role string
-		if err := rows.Scan(&fr.folder.ID, &fr.folder.Name, &fr.folder.Icon, &role, &fr.folder.Unread, &fr.parentID, &fr.folder.Color, &fr.folder.IconOverride); err != nil {
+		if err := rows.Scan(&fr.folder.ID, &fr.folder.Name, &fr.folder.Icon, &role, &fr.folder.Unread, &fr.parentID, &fr.folder.Color, &fr.folder.IconOverride, &fr.folder.IconStyle); err != nil {
 			return nil, fmt.Errorf("scan folder: %w", err)
 		}
 		fr.folder.Role = role

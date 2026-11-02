@@ -87,6 +87,7 @@ type Folder struct {
 	Name         string
 	Icon         string
 	IconOverride string
+	IconStyle    string
 	Color        string
 	Role         string
 	Unread       int

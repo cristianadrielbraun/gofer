@@ -54,7 +54,7 @@ func TestFolderIconSurvivesSyncAndCannotOverrideNewRole(t *testing.T) {
 	db := seedManagedFolders(t)
 	ctx := t.Context()
 	icon := "briefcase-business"
-	if err := db.SetFolderAppearance(ctx, "default", "acc_dunes", "#3b82f6", &icon); err != nil {
+	if err := db.SetFolderAppearance(ctx, "default", "acc_dunes", "#3b82f6", &icon, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.UpsertFolders(ctx, []UpsertFolderInput{
@@ -85,10 +85,41 @@ func TestFolderIconSurvivesSyncAndCannotOverrideNewRole(t *testing.T) {
 	if f := get(); models.CustomFolderIcon(f) != "" || f.Icon != "archive" {
 		t.Fatalf("role icon overridden: %+v", f)
 	}
-	if err := db.SetFolderAppearance(ctx, "default", "acc_dunes", "#ef4444", &icon); !errors.Is(err, ErrFolderIcon) {
+	if err := db.SetFolderAppearance(ctx, "default", "acc_dunes", "#ef4444", &icon, nil); !errors.Is(err, ErrFolderIcon) {
 		t.Fatalf("role write = %v", err)
 	}
 	if f := get(); f.Color != "#3b82f6" {
 		t.Fatalf("refused icon write changed color: %+v", f)
 	}
+}
+
+func TestFolderStyleSurvivesSyncAndPartialUpdates(t *testing.T) {
+	db := seedManagedFolders(t)
+	ctx := t.Context()
+	style, icon := "filled", "camera"
+	if err := db.SetFolderAppearance(ctx, "default", "acc_dunes", "#3b82f6", &icon, &style); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.UpsertFolders(ctx, []UpsertFolderInput{
+		{ID: "acc_dunes", AccountID: "acc", ParentID: "acc_coast", RemoteID: "Trips/Coast/Dunes", Name: "Photos", Icon: "folder", Role: "custom", Selectable: true},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetFolderColor(ctx, "default", "acc_dunes", "#ef4444"); err != nil {
+		t.Fatal(err)
+	}
+	tree, err := db.AccountFolderTree(ctx, "acc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range tree {
+		if f.ID == "acc_trips" {
+			f = f.Children[0].Children[0]
+			if f.IconStyle != "filled" || f.IconOverride != "camera" || f.Color != "#ef4444" {
+				t.Fatalf("lost appearance: %+v", f)
+			}
+			return
+		}
+	}
+	t.Fatal("folder missing")
 }

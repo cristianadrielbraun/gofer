@@ -7579,3 +7579,16 @@ aside a[data-mail-drop-active] {
 [data-folder-customized] > [data-folder-default-icon] {
   display: none;
 }
+
+/* Filled folder artwork has transparent cutouts rather than painted details. */
+[data-folder-symbol-filled] {
+  display: none;
+}
+
+:is([data-folder-appearance-icon], [data-folder-icon-options])[data-folder-icon-style="filled"] [data-folder-symbol-outline] {
+  display: none;
+}
+
+:is([data-folder-appearance-icon], [data-folder-icon-options])[data-folder-icon-style="filled"] [data-folder-symbol-filled] {
+  display: inline-flex;
+}

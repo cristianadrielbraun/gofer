@@ -2740,3 +2740,12 @@ html:root[data-theme="express"] :is([data-calendar-month-event], [data-calendar-
 [data-theme="express"] [data-folder-customized] > [data-folder-default-icon] {
   display: inline-flex;
 }
+
+/* Express keeps the original artwork when another theme selected Filled. */
+[data-theme="express"] [data-folder-appearance-icon][data-folder-icon-style] [data-folder-symbol-outline] {
+  display: inline-flex;
+}
+
+[data-theme="express"] [data-folder-appearance-icon][data-folder-icon-style] [data-folder-symbol-filled] {
+  display: none;
+}

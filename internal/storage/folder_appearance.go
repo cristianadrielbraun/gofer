@@ -10,19 +10,24 @@ import (
 )
 
 var ErrFolderColor = errors.New("choose a valid folder color")
+var ErrFolderIconStyle = errors.New("choose an outlined or filled icon style")
 var ErrFolderIcon = errors.New("choose an available icon for a custom folder")
 
 // SetFolderColor preserves an existing icon preference for color-only callers.
 func (db *DB) SetFolderColor(ctx context.Context, owner, folderID, color string) error {
-	return db.SetFolderAppearance(ctx, owner, folderID, color, nil)
+	return db.SetFolderAppearance(ctx, owner, folderID, color, nil, nil)
 }
 
 // SetFolderAppearance keeps personal appearance outside provider-owned data.
 // A nil icon leaves the current icon preference unchanged; an empty icon resets it.
-// The role and ownership are checked in the same transaction as both preferences.
-func (db *DB) SetFolderAppearance(ctx context.Context, owner, folderID, color string, icon *string) error {
+// A nil style preserves the current style.
+// The role and ownership are checked in the same transaction as the appearance preferences.
+func (db *DB) SetFolderAppearance(ctx context.Context, owner, folderID, color string, icon, style *string) error {
 	if !models.ValidFolderColor(color) {
 		return ErrFolderColor
+	}
+	if style != nil && !models.ValidFolderIconStyle(*style) {
+		return ErrFolderIconStyle
 	}
 	if icon != nil && !models.ValidFolderIcon(*icon) {
 		return ErrFolderIcon
@@ -56,6 +61,11 @@ func (db *DB) SetFolderAppearance(ctx context.Context, owner, folderID, color st
 	}
 	if icon != nil {
 		if err := set("folder_icon:", *icon); err != nil {
+			return err
+		}
+	}
+	if style != nil {
+		if err := set("folder_icon_style:", *style); err != nil {
 			return err
 		}
 	}

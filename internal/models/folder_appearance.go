@@ -16,7 +16,7 @@ func ValidFolderColor(color string) bool {
 	return true
 }
 
-// FolderIconChoice is an outlined symbol available for a custom folder.
+// FolderIconChoice is a symbol available for a custom folder.
 type FolderIconChoice struct {
 	Name string
 	Icon string
@@ -62,4 +62,17 @@ func CustomFolderIcon(folder Folder) string {
 		return folder.IconOverride
 	}
 	return ""
+}
+
+// ValidFolderIconStyle accepts the two available presentations of a symbol.
+func ValidFolderIconStyle(style string) bool {
+	return style == "outlined" || style == "filled"
+}
+
+// FolderIconStyle gives older folders and invalid preferences the default style.
+func FolderIconStyle(style string) string {
+	if style == "filled" {
+		return style
+	}
+	return "outlined"
 }

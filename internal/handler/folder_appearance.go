@@ -57,7 +57,7 @@ func (h *Handler) handleSaveFolderAppearance(w http.ResponseWriter, r *http.Requ
 	}
 	// Only curated icons can be selected, and the storage write checks the current role.
 	for key := range r.PostForm {
-		if key != "color" && key != "icon" {
+		if key != "color" && key != "icon" && key != "style" {
 			http.Error(w, "Invalid folder appearance.", http.StatusBadRequest)
 			return
 		}
@@ -75,15 +75,23 @@ func (h *Handler) handleSaveFolderAppearance(w http.ResponseWriter, r *http.Requ
 		}
 		icon = &icons[0]
 	}
+	var style *string
+	if styles, present := r.PostForm["style"]; present {
+		if len(styles) != 1 || !models.ValidFolderIconStyle(styles[0]) {
+			http.Error(w, "Choose an outlined or filled icon style.", http.StatusBadRequest)
+			return
+		}
+		style = &styles[0]
+	}
 	ctx := r.Context()
 	owner := h.userID(ctx)
 	folder, _, err := h.managedFolder(ctx, owner, r.PathValue("id"))
 	if err == nil {
 		err = h.withProfileAccount(ctx, owner, folder.AccountID, func(_ *config.AccountStore, db *storage.DB) error {
-			return db.SetFolderAppearance(ctx, owner, folder.ID, colors[0], icon)
+			return db.SetFolderAppearance(ctx, owner, folder.ID, colors[0], icon, style)
 		})
 	}
-	if errors.Is(err, storage.ErrFolderColor) || errors.Is(err, storage.ErrFolderIcon) {
+	if errors.Is(err, storage.ErrFolderColor) || errors.Is(err, storage.ErrFolderIcon) || errors.Is(err, storage.ErrFolderIconStyle) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -94,6 +102,9 @@ func (h *Handler) handleSaveFolderAppearance(w http.ResponseWriter, r *http.Requ
 	result := map[string]string{"id": folder.ID, "account_id": folder.AccountID, "color": strings.ToLower(colors[0])}
 	if icon != nil {
 		result["icon"] = *icon
+	}
+	if style != nil {
+		result["style"] = *style
 	}
 	writeFolderJSON(w, result)
 }

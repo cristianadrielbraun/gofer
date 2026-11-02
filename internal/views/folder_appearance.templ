@@ -3,7 +3,6 @@ package views
 import (
 	"github.com/cristianadrielbraun/gofer/components/button"
 	"github.com/cristianadrielbraun/gofer/components/dialog"
-	"github.com/cristianadrielbraun/gofer/components/icon"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 	"strings"
 )
@@ -15,13 +14,13 @@ func folderColorStyle(color string) string {
 
 templ FolderAppearanceIcon(folder models.Folder) {
 	{{ customIcon := models.CustomFolderIcon(folder) }}
-	<span class="inline-flex size-4 shrink-0 items-center justify-center" data-folder-appearance-icon={ folder.ID } data-folder-color?={ folder.Color != "" && models.ValidFolderColor(folder.Color) } data-folder-customized?={ customIcon != "" } style={ folderColorStyle(folder.Color) }>
+	<span class="inline-flex size-4 shrink-0 items-center justify-center" data-folder-appearance-icon={ folder.ID } data-folder-color?={ folder.Color != "" && models.ValidFolderColor(folder.Color) } data-folder-customized?={ customIcon != "" } data-folder-icon-style={ models.FolderIconStyle(folder.IconStyle) } style={ folderColorStyle(folder.Color) }>
 		<span class="inline-flex" data-folder-default-icon>
-			@SidebarFolderIcon(folder.Icon)
+			@folderAppearanceSymbol(folder.Icon)
 		</span>
 		if customIcon != "" {
 			<span class="inline-flex" data-folder-custom-icon>
-				@icon.Icon(customIcon)(icon.Props{Class: "size-4"})
+				@folderAppearanceSymbol(customIcon)
 			</span>
 		}
 	</span>
@@ -51,10 +50,21 @@ templ FolderAppearancePanel(folder models.Folder, accountID string) {
 			@FolderAppearanceIcon(folder)
 			<span class="min-w-0 truncate text-sm font-medium">{ folder.Name }</span>
 		</div>
+		<fieldset>
+			<legend class="mb-2 text-sm font-medium">Icon style</legend>
+			<div class="flex gap-2">
+				for _, style := range []struct { Value, Label string }{{"outlined", "Outlined"}, {"filled", "Filled"}} {
+					<label class="relative flex-1 cursor-pointer">
+						<input type="radio" name="style" value={ style.Value } checked?={ models.FolderIconStyle(folder.IconStyle) == style.Value } class="peer sr-only"/>
+						<span class="flex h-9 items-center justify-center rounded-md border border-border text-sm peer-checked:bg-accent peer-checked:ring-2 peer-checked:ring-ring peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ring">{ style.Label }</span>
+					</label>
+				}
+			</div>
+		</fieldset>
 		if folder.Role == "custom" {
 			<fieldset>
 				<legend class="mb-2 text-sm font-medium">Icon</legend>
-				<div class="grid grid-cols-6 gap-2">
+				<div class="grid grid-cols-6 gap-2" data-folder-icon-options data-folder-icon-style={ models.FolderIconStyle(folder.IconStyle) }>
 					@folderIconOption("", "Default icon", folder)
 					for _, choice := range models.FolderIconChoices {
 						@folderIconOption(choice.Icon, choice.Name, folder)
@@ -78,7 +88,7 @@ templ FolderAppearancePanel(folder models.Folder, accountID string) {
 			</div>
 		</fieldset>
 		if folder.Role != "custom" {
-			<p class="text-xs text-muted-foreground">This folder’s icon is fixed by its role. You can change its color.</p>
+			<p class="text-xs text-muted-foreground">This folder’s icon is fixed by its role. You can change its color and style.</p>
 		}
 		<p class="text-sm text-destructive" data-folder-appearance-error role="alert" hidden></p>
 		@dialog.Footer(dialog.FooterProps{Class: "flex-wrap"}) {
@@ -97,9 +107,9 @@ templ folderIconOption(value, name string, folder models.Folder) {
 		<input type="radio" name="icon" value={ value } checked?={ models.CustomFolderIcon(folder) == value } class="peer sr-only" aria-label={ name }/>
 		<span class="flex size-9 items-center justify-center rounded-md border border-border text-foreground peer-checked:bg-accent peer-checked:ring-2 peer-checked:ring-ring peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ring">
 			if value == "" {
-				@SidebarFolderIcon(folder.Icon)
+				@folderAppearanceSymbol(folder.Icon)
 			} else {
-				@icon.Icon(value)(icon.Props{Class: "size-4"})
+				@folderAppearanceSymbol(value)
 			}
 		</span>
 	</label>
