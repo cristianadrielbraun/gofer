@@ -1,0 +1,275 @@
+[
+  {
+    "name": "defaults",
+    "settings": {},
+    "count": 1,
+    "payload": {
+      "from_name": "Alex Smith",
+      "subject": "Tomorrow's meeting",
+      "preview": "Hi! Shall we meet at 10 tomorrow?",
+      "avatar_url": "/sender.png",
+      "folder_name": "Inbox"
+    },
+    "title": "Alex Smith",
+    "body": "Tomorrow's meeting",
+    "icon": "/sender.png"
+  },
+  {
+    "name": "grouped defaults",
+    "settings": {},
+    "count": 3,
+    "payload": {
+      "from_name": "Alex Smith",
+      "subject": "Tomorrow's meeting",
+      "preview": "Hi! Shall we meet at 10 tomorrow?",
+      "avatar_url": "/sender.png",
+      "folder_name": "Inbox"
+    },
+    "title": "Alex Smith · +2 more",
+    "body": "Alex Smith: Tomorrow's meeting - Inbox",
+    "icon": "/sender.png"
+  },
+  {
+    "name": "sender grouped",
+    "settings": {
+      "notification_title": "sender"
+    },
+    "count": 3,
+    "payload": {
+      "from_name": "Alex Smith",
+      "subject": "Tomorrow's meeting",
+      "preview": "Hi! Shall we meet at 10 tomorrow?",
+      "avatar_url": "/sender.png",
+      "folder_name": "Inbox"
+    },
+    "title": "Alex Smith",
+    "body": "Alex Smith: Tomorrow's meeting - Inbox",
+    "icon": "/sender.png"
+  },
+  {
+    "name": "app title",
+    "settings": {
+      "notification_title": "gofer"
+    },
+    "count": 1,
+    "payload": {
+      "from_name": "Alex Smith",
+      "subject": "Tomorrow's meeting",
+      "preview": "Hi! Shall we meet at 10 tomorrow?",
+      "avatar_url": "/sender.png",
+      "folder_name": "Inbox"
+    },
+    "title": "Gofer",
+    "body": "Tomorrow's meeting",
+    "icon": "/sender.png"
+  },
+  {
+    "name": "count singular",
+    "settings": {
+      "notification_title": "count"
+    },
+    "count": 1,
+    "payload": {
+      "from_name": "Alex Smith",
+      "subject": "Tomorrow's meeting",
+      "preview": "Hi! Shall we meet at 10 tomorrow?",
+      "avatar_url": "/sender.png",
+      "folder_name": "Inbox"
+    },
+    "title": "1 new message",
+    "body": "Tomorrow's meeting",
+    "icon": "/sender.png"
+  },
+  {
+    "name": "count plural",
+    "settings": {
+      "notification_title": "count"
+    },
+    "count": 3,
+    "payload": {
+      "from_name": "Alex Smith",
+      "subject": "Tomorrow's meeting",
+      "preview": "Hi! Shall we meet at 10 tomorrow?",
+      "avatar_url": "/sender.png",
+      "folder_name": "Inbox"
+    },
+    "title": "3 new messages",
+    "body": "Alex Smith: Tomorrow's meeting - Inbox",
+    "icon": "/sender.png"
+  },
+  {
+    "name": "preview",
+    "settings": {
+      "notification_content": "preview"
+    },
+    "count": 1,
+    "payload": {
+      "from_name": "Alex Smith",
+      "subject": "Tomorrow's meeting",
+      "preview": "Hi! Shall we meet at 10 tomorrow?",
+      "avatar_url": "/sender.png",
+      "folder_name": "Inbox"
+    },
+    "title": "Alex Smith",
+    "body": "Tomorrow's meeting\nHi! Shall we meet at 10 tomorrow?",
+    "icon": "/sender.png"
+  },
+  {
+    "name": "private",
+    "settings": {
+      "notification_title": "gofer",
+      "notification_content": "hidden",
+      "notification_icon": "gofer"
+    },
+    "count": 1,
+    "payload": {
+      "from_name": "Alex Smith",
+      "subject": "Tomorrow's meeting",
+      "preview": "Hi! Shall we meet at 10 tomorrow?",
+      "avatar_url": "/sender.png",
+      "folder_name": "Inbox"
+    },
+    "title": "Gofer",
+    "body": "",
+    "icon": "/assets/logo.png"
+  },
+  {
+    "name": "logo",
+    "settings": {
+      "notification_icon": "gofer"
+    },
+    "count": 1,
+    "payload": {
+      "from_name": "Alex Smith",
+      "subject": "Tomorrow's meeting",
+      "preview": "Hi! Shall we meet at 10 tomorrow?",
+      "avatar_url": "/sender.png",
+      "folder_name": "Inbox"
+    },
+    "title": "Alex Smith",
+    "body": "Tomorrow's meeting",
+    "icon": "/assets/logo.png"
+  },
+  {
+    "name": "missing data",
+    "settings": {
+      "notification_content": "preview"
+    },
+    "count": 1,
+    "payload": {},
+    "title": "New mail",
+    "body": "(no subject)",
+    "icon": "/assets/logo.png"
+  },
+  {
+    "name": "email fallback",
+    "settings": {},
+    "count": 1,
+    "payload": {
+      "from_name": "  ",
+      "from_email": "alex@example.com",
+      "icon": "/fallback.png"
+    },
+    "title": "alex@example.com",
+    "body": "(no subject)",
+    "icon": "/fallback.png"
+  },
+  {
+    "name": "invalid settings",
+    "settings": {
+      "notification_title": "bad",
+      "notification_content": "bad",
+      "notification_icon": "bad"
+    },
+    "count": 1,
+    "payload": {
+      "from_name": "Alex Smith",
+      "subject": "Tomorrow's meeting",
+      "preview": "Hi! Shall we meet at 10 tomorrow?",
+      "avatar_url": "/sender.png",
+      "folder_name": "Inbox"
+    },
+    "title": "Alex Smith",
+    "body": "Tomorrow's meeting",
+    "icon": "/sender.png"
+  },
+  {
+    "name": "preview normalization",
+    "settings": {
+      "notification_content": "preview"
+    },
+    "count": 1,
+    "payload": {
+      "from_name": "Alex",
+      "subject": "Hello",
+      "preview": " A\n\tB "
+    },
+    "title": "Alex",
+    "body": "Hello\nA B",
+    "icon": "/assets/logo.png"
+  },
+  {
+    "name": "unicode limit",
+    "settings": {
+      "notification_content": "preview"
+    },
+    "count": 1,
+    "payload": {
+      "from_name": "Alex",
+      "subject": "Hello",
+      "preview": "🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊"
+    },
+    "title": "Alex",
+    "body": "Hello\n🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊🦊…",
+    "icon": "/assets/logo.png"
+  },
+  {
+    "name": "sender pair",
+    "settings": {
+      "notification_title": "sender"
+    },
+    "count": 2,
+    "payload": {
+      "from_name": "Alex Smith",
+      "subject": "Tomorrow's meeting",
+      "preview": "Hi! Shall we meet at 10 tomorrow?",
+      "avatar_url": "/sender.png",
+      "folder_name": "Inbox"
+    },
+    "title": "Alex Smith",
+    "body": "Alex Smith: Tomorrow's meeting - Inbox",
+    "icon": "/sender.png"
+  },
+  {
+    "name": "sender single",
+    "settings": {
+      "notification_title": "sender"
+    },
+    "count": 1,
+    "payload": {
+      "from_name": "Alex Smith",
+      "subject": "Tomorrow's meeting",
+      "preview": "Hi! Shall we meet at 10 tomorrow?",
+      "avatar_url": "/sender.png",
+      "folder_name": "Inbox"
+    },
+    "title": "Alex Smith",
+    "body": "Tomorrow's meeting",
+    "icon": "/sender.png"
+  },
+  {
+    "name": "default pair",
+    "settings": {},
+    "count": 2,
+    "payload": {
+      "from_name": "Alex Smith",
+      "subject": "Tomorrow's meeting",
+      "preview": "Hi! Shall we meet at 10 tomorrow?",
+      "avatar_url": "/sender.png",
+      "folder_name": "Inbox"
+    },
+    "title": "Alex Smith · +1 more",
+    "body": "Alex Smith: Tomorrow's meeting - Inbox",
+    "icon": "/sender.png"
+  }
+]

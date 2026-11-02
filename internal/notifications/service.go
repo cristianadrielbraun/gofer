@@ -125,7 +125,7 @@ func (s *Service) handleNewMail(ctx context.Context, event mail.Event) {
 		}
 		return
 	}
-	title, message := newMailNotificationText(event.Payload, unreadCount)
+	title, message, icon := newMailNotificationAppearance(event.Payload, unreadCount, settings)
 	if settings["desktop_notifications"] != "true" {
 		return
 	}
@@ -138,9 +138,7 @@ func (s *Service) handleNewMail(ctx context.Context, event mail.Event) {
 			"folder_id": event.FolderID,
 			"url":       "/folder/" + event.FolderID,
 		}
-		if icon := newMailNotificationIcon(event.Payload); icon != "" {
-			payload["icon"] = icon
-		}
+		payload["icon"] = icon
 		s.sendWebPush(ctx, userID, event.AccountID, payload, "gofer-new-mail", webpush.UrgencyNormal)
 	}
 }
@@ -364,9 +362,23 @@ func (s *Service) SendTestPush(ctx context.Context, userID, endpoint string) err
 		return storage.ErrNoWebPushSubscription
 	}
 
+	var settings map[string]string
+	if s.userStorage != nil {
+		err = s.userStorage.WithUser(ctx, userID, func(db *storage.DB) error {
+			settings = db.GetUISettings(ctx, userID)
+			return nil
+		})
+	} else {
+		settings = s.db.GetUISettings(ctx, userID)
+	}
+	if err != nil {
+		return err
+	}
+	title, body, icon := newMailNotificationAppearance(notificationAppearanceExample(), 1, settings)
 	payload, err := json.Marshal(map[string]any{
-		"title": "Gofer",
-		"body":  "Test notification. Desktop notifications are working.",
+		"title": title,
+		"body":  body,
+		"icon":  icon,
 		"tag":   "gofer-test-notification",
 		"url":   "/settings/advanced",
 	})

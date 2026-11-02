@@ -1424,6 +1424,7 @@ func (o *SyncOrchestrator) publishNewMail(ctx context.Context, accountID, folder
 		"unread_count": unread,
 		"folder_name":  displayName(remoteName, folderRole),
 		"subject":      latest.Subject,
+		"preview":      latest.Snippet,
 		"from_name":    latest.FromName,
 		"from_email":   latest.FromEmail,
 	}

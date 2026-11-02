@@ -41,7 +41,7 @@ setupPageRequestOwnership()
 // worker. Registering it asks for nothing: push stays behind its own opt-in.
 function registerAppServiceWorker() {
   if (!window.isSecureContext || !("serviceWorker" in navigator)) return
-  navigator.serviceWorker.register("/sw.js").catch(function () {})
+  navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" }).catch(function () {})
 }
 registerAppServiceWorker()
 
@@ -7178,6 +7178,13 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 
   function setupDesktopNotifications() {
+    updateNotificationAppearancePreview()
+    document.addEventListener("change", function (e) {
+      var input = e.target && e.target.closest ? e.target.closest('input[name="notification_title"], input[name="notification_content"], input[name="notification_icon"]') : null
+      if (!input || !window.GoferSettings) return
+      GoferSettings.set(input.name, input.value)
+      updateNotificationAppearancePreview()
+    })
     updateDesktopNotificationControls()
     if (notificationsEnabled()) {
       configureNotificationMethod({ prompt: false }).catch(function () { setNotificationActiveMethod("none") })
@@ -7231,7 +7238,11 @@ document.addEventListener("DOMContentLoaded", function () {
       if (!button || button.disabled) return
       button.disabled = true
       button.setAttribute("data-busy", "")
-      sendTestNotification().then(function () {
+      var saved = window.GoferSettings ? GoferSettings.saveNow() : Promise.resolve()
+      saved.then(function (res) {
+        if (window.GoferSettings && (!res || !res.ok)) throw new Error("Could not save notification settings. Try again before sending a test.")
+        return sendTestNotification()
+      }).then(function () {
         showGoferToast({
           id: "desktop-notifications-test-toast",
           title: "Test notification sent",
@@ -7260,6 +7271,7 @@ document.addEventListener("DOMContentLoaded", function () {
     })
     document.addEventListener("htmx:afterSwap", function () {
       updateDesktopNotificationControls()
+      updateNotificationAppearancePreview()
       setNotificationActiveMethod(_notificationActiveMethod)
     })
   }
@@ -7305,7 +7317,7 @@ document.addEventListener("DOMContentLoaded", function () {
   function sendTestNotification() {
     if (_notificationActiveMethod === "web_push") {
       if (!("serviceWorker" in navigator)) return Promise.reject(new Error("This browser does not support Web Push."))
-      return navigator.serviceWorker.getRegistration("/sw.js").then(function (registration) {
+      return navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" }).then(waitForNotificationWorker).then(function (registration) {
         return registration ? registration.pushManager.getSubscription() : null
       }).then(function (subscription) {
         if (!subscription) throw new Error("This browser has no push subscription. Turn notifications off and on again to register it.")
@@ -7325,18 +7337,21 @@ document.addEventListener("DOMContentLoaded", function () {
       if (!browserNotificationsSupported() || Notification.permission !== "granted") {
         return Promise.reject(new Error("Notification permission was not granted."))
       }
-      var notification = new Notification("Gofer", {
-        body: "Test notification. Desktop notifications are working.",
-        tag: "gofer-test-notification",
-        icon: "/assets/logo.png",
-        badge: "/assets/logo.png",
+      var appearance = newMailNotificationAppearance(notificationAppearanceExample(), 1)
+      return window.GoferNotificationAvatar.render(appearance.icon).then(function (circularIcon) {
+        var notification = new Notification(appearance.title, {
+          body: appearance.body,
+          tag: "gofer-test-notification",
+          icon: circularIcon,
+          badge: "/assets/logo.png",
+        })
+        notification.onclick = function () {
+          window.focus()
+          notification.close()
+        }
+        setTimeout(function () { notification.close() }, 12000)
+        return Promise.resolve()
       })
-      notification.onclick = function () {
-        window.focus()
-        notification.close()
-      }
-      setTimeout(function () { notification.close() }, 12000)
-      return Promise.resolve()
     }
     return Promise.reject(new Error("Turn on desktop notifications first."))
   }
@@ -7402,6 +7417,29 @@ document.addEventListener("DOMContentLoaded", function () {
     return output
   }
 
+  function waitForNotificationWorker(registration) {
+    var worker = registration.installing || registration.waiting || registration.active
+    if (!worker) return Promise.reject(new Error("The notification service worker is unavailable."))
+    if (worker.state === "activated") return Promise.resolve(registration)
+    return new Promise(function (resolve, reject) {
+      var timer = setTimeout(function () {
+        finish(new Error("The notification update is taking too long. Try again in a moment."))
+      }, 10000)
+      function finish(err) {
+        clearTimeout(timer)
+        worker.removeEventListener("statechange", changed)
+        if (err) reject(err)
+        else resolve(registration)
+      }
+      function changed() {
+        if (worker.state === "activated") finish()
+        else if (worker.state === "redundant") finish(new Error("The notification service worker could not activate. Try again."))
+      }
+      worker.addEventListener("statechange", changed)
+      changed()
+    })
+  }
+
   function ensureWebPushSubscription(prompt) {
     if (!webPushSupported()) return Promise.reject(new Error("Web Push requires HTTPS or localhost in a supported browser."))
     return requestNotificationPermission(prompt).then(function (permission) {
@@ -7412,7 +7450,7 @@ document.addEventListener("DOMContentLoaded", function () {
       return res.json()
     }).then(function (data) {
       if (!data.public_key) throw new Error("Web Push is not configured on this server.")
-      return navigator.serviceWorker.register("/sw.js").then(function (registration) {
+      return navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" }).then(waitForNotificationWorker).then(function (registration) {
         return registration.pushManager.getSubscription().then(function (existing) {
           if (existing) return existing
           return registration.pushManager.subscribe({
@@ -7472,6 +7510,45 @@ document.addEventListener("DOMContentLoaded", function () {
     }
   }
 
+  // Keep this formatter in sync with internal/notifications/appearance.go.
+  function newMailNotificationAppearance(data, unreadCount) {
+    var setting = function (key) { return window.GoferSettings ? GoferSettings.get(key) : null }
+    var sender = String(data.from_name || "").trim() || String(data.from_email || "").trim() || "New mail"
+    var subject = String(data.subject || "").trim() || "(no subject)"
+    var folder = String(data.folder_name || "").trim() || "Inbox"
+    var countTitle = unreadCount === 1 ? "1 new message" : unreadCount + " new messages"
+    var title = sender + (unreadCount > 1 ? " · +" + (unreadCount - 1) + " more" : "")
+    if (setting("notification_title") === "sender") title = sender
+    else if (setting("notification_title") === "gofer") title = "Gofer"
+    else if (setting("notification_title") === "count") title = countTitle
+    var body = unreadCount === 1 ? subject : sender + ": " + subject + " - " + folder
+    if (setting("notification_content") === "hidden") body = ""
+    else if (setting("notification_content") === "preview") {
+      var preview = String(data.preview || "").replace(/\s+/g, " ").trim()
+      var chars = Array.from(preview)
+      if (chars.length > 180) preview = chars.slice(0, 180).join("") + "…"
+      if (preview) body += "\n" + preview
+    }
+    var icon = setting("notification_icon") === "gofer" ? "/assets/logo.png" : String(data.avatar_url || data.icon || "/assets/logo.png")
+    return { title: title, body: body, icon: icon }
+  }
+
+  function notificationAppearanceExample() {
+    return { from_name: "Alex Smith", subject: "Tomorrow's meeting", preview: "Hi! Shall we meet at 10 tomorrow?", folder_name: "Inbox", avatar_url: "/assets/notification-avatar.png" }
+  }
+
+  function updateNotificationAppearancePreview() {
+    var appearance = newMailNotificationAppearance(notificationAppearanceExample(), 3)
+    document.querySelectorAll("[data-notification-preview-title]").forEach(function (node) { node.textContent = appearance.title })
+    document.querySelectorAll("[data-notification-preview-body]").forEach(function (node) {
+      node.textContent = appearance.body
+      node.hidden = !appearance.body
+    })
+    var avatar = !window.GoferSettings || GoferSettings.get("notification_icon") !== "gofer"
+    document.querySelectorAll("[data-notification-preview-avatar]").forEach(function (node) { node.hidden = !avatar; node.classList.toggle("hidden", !avatar) })
+    document.querySelectorAll("[data-notification-preview-logo]").forEach(function (node) { node.hidden = avatar; node.classList.toggle("hidden", avatar) })
+  }
+
   function showBrowserTabNewMailNotification(data) {
     if (!notificationsEnabled()) return
     if (_notificationActiveMethod !== "browser_tab") return
@@ -7484,28 +7561,26 @@ document.addEventListener("DOMContentLoaded", function () {
     var unreadCount = Number(data.unread_count || 0)
     if (unreadCount <= 0) return
 
-    var sender = String(data.from_name || data.from_email || "New mail")
-    var subject = String(data.subject || "(no subject)")
+    var appearance = newMailNotificationAppearance(data, unreadCount)
     var folderName = String(data.folder_name || "Inbox")
-    var title = unreadCount === 1 ? sender : unreadCount + " new messages"
-    var body = unreadCount === 1 ? subject : sender + ": " + subject
-    var icon = data.avatar_url || data.icon || "/assets/logo.png"
 
-    var notification = new Notification(title, {
-      body: body,
-      tag: "gofer-new-mail-" + (data.account_id || "") + "-" + (data.folder_id || folderName),
-      icon: icon,
-      badge: "/assets/logo.png",
-      data: { folderID: data.folder_id || "" },
-    })
-    notification.onclick = function () {
-      window.focus()
-      if (notification.data && notification.data.folderID) {
-        window.location.href = "/folder/" + encodeURIComponent(notification.data.folderID)
+    return window.GoferNotificationAvatar.render(appearance.icon).then(function (circularIcon) {
+      var notification = new Notification(appearance.title, {
+        body: appearance.body,
+        tag: "gofer-new-mail-" + (data.account_id || "") + "-" + (data.folder_id || folderName),
+        icon: circularIcon,
+        badge: "/assets/logo.png",
+        data: { folderID: data.folder_id || "" },
+      })
+      notification.onclick = function () {
+        window.focus()
+        if (notification.data && notification.data.folderID) {
+          window.location.href = "/folder/" + encodeURIComponent(notification.data.folderID)
+        }
+        notification.close()
       }
-      notification.close()
-    }
-    setTimeout(function () { notification.close() }, 12000)
+      setTimeout(function () { notification.close() }, 12000)
+    }).catch(function () {})
   }
 
   function openContactDetail(contactID) {

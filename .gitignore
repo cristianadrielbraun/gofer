@@ -4,6 +4,7 @@ internal_notes/
 /gofer
 *.png
 !assets/logo.png
+!assets/notification-avatar.png
 !assets/icons/express/*.png
 !screenshots/
 !screenshots/*.png

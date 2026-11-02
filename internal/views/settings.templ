@@ -701,9 +701,9 @@ templ SettingsAdvancedTab(uiSettings map[string]string) {
 							Attributes: templ.Attributes{"aria-labelledby": "desktop-notifications-label", "data-ui-setting-switch": "desktop_notifications", "data-desktop-notifications-switch": ""},
 						})
 					}
-					<div data-setting-depends-on="desktop-notifications" class={ "transition-opacity", templ.KV("opacity-50", uiSettingGet(uiSettings, "desktop_notifications", "false") != "true") }>
+					<div>
 						@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
-							@selectbox.Trigger(selectbox.TriggerProps{Name: "notification_mode", Class: "bg-background", DisableClear: true, Disabled: uiSettingGet(uiSettings, "desktop_notifications", "false") != "true"}) {
+							@selectbox.Trigger(selectbox.TriggerProps{Name: "notification_mode", Class: "bg-background", DisableClear: true}) {
 								@selectbox.Value(selectbox.ValueProps{Placeholder: "Auto"}) {
 									{ notificationModeSettingLabel(uiSettingGet(uiSettings, "notification_mode", "auto")) }
 								}
@@ -720,6 +720,75 @@ templ SettingsAdvancedTab(uiSettings map[string]string) {
 						@icon.BellRing(icon.Props{Class: "size-3.5"})
 						Send test
 					</button>
+				</div>
+			</div>
+
+			<div class="settings-row border-t border-border/60 pt-5 space-y-4" data-notification-appearance>
+				<div>
+					<h4 class="text-sm font-medium text-foreground">Mail notification appearance</h4>
+					<p class="text-xs text-muted-foreground mt-1 leading-relaxed">Choose what new-mail notifications show. Your desktop controls their final appearance.</p>
+				</div>
+				<div class="grid gap-4 sm:grid-cols-3">
+					<div class="min-w-0 space-y-2">
+						<span id="notification_title-label" class="text-xs font-medium text-foreground">Title</span>
+						@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
+							@selectbox.Trigger(selectbox.TriggerProps{Name: "notification_title", Class: "bg-background", DisableClear: true, Required: true, Attributes: templ.Attributes{"aria-labelledby": "notification_title-label"}}) {
+								@selectbox.Value(selectbox.ValueProps{}) {
+									{ notificationAppearanceLabel("title", uiSettingGet(uiSettings, "notification_title", "auto")) }
+								}
+							}
+							@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
+								@selectbox.Item(selectbox.ItemProps{Value: "auto", Selected: uiSettingGet(uiSettings, "notification_title", "auto") == "auto"}) { Sender or message count }
+								@selectbox.Item(selectbox.ItemProps{Value: "sender", Selected: uiSettingGet(uiSettings, "notification_title", "auto") == "sender"}) { Sender }
+								@selectbox.Item(selectbox.ItemProps{Value: "gofer", Selected: uiSettingGet(uiSettings, "notification_title", "auto") == "gofer"}) { Gofer }
+								@selectbox.Item(selectbox.ItemProps{Value: "count", Selected: uiSettingGet(uiSettings, "notification_title", "auto") == "count"}) { Message count }
+							}
+						}
+					</div>
+					<div class="min-w-0 space-y-2">
+						<span id="notification_content-label" class="text-xs font-medium text-foreground">Content</span>
+						@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
+							@selectbox.Trigger(selectbox.TriggerProps{Name: "notification_content", Class: "bg-background", DisableClear: true, Required: true, Attributes: templ.Attributes{"aria-labelledby": "notification_content-label"}}) {
+								@selectbox.Value(selectbox.ValueProps{}) {
+									{ notificationAppearanceLabel("content", uiSettingGet(uiSettings, "notification_content", "subject")) }
+								}
+							}
+							@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
+								@selectbox.Item(selectbox.ItemProps{Value: "subject", Selected: uiSettingGet(uiSettings, "notification_content", "subject") == "subject"}) { Subject }
+								@selectbox.Item(selectbox.ItemProps{Value: "preview", Selected: uiSettingGet(uiSettings, "notification_content", "subject") == "preview"}) { Subject and preview }
+								@selectbox.Item(selectbox.ItemProps{Value: "hidden", Selected: uiSettingGet(uiSettings, "notification_content", "subject") == "hidden"}) { Hidden }
+							}
+						}
+					</div>
+					<div class="min-w-0 space-y-2">
+						<span id="notification_icon-label" class="text-xs font-medium text-foreground">Icon</span>
+						@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
+							@selectbox.Trigger(selectbox.TriggerProps{Name: "notification_icon", Class: "bg-background", DisableClear: true, Required: true, Attributes: templ.Attributes{"aria-labelledby": "notification_icon-label"}}) {
+								@selectbox.Value(selectbox.ValueProps{}) {
+									{ notificationAppearanceLabel("icon", uiSettingGet(uiSettings, "notification_icon", "avatar")) }
+								}
+							}
+							@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
+								@selectbox.Item(selectbox.ItemProps{Value: "avatar", Selected: uiSettingGet(uiSettings, "notification_icon", "avatar") == "avatar"}) { Sender avatar }
+								@selectbox.Item(selectbox.ItemProps{Value: "gofer", Selected: uiSettingGet(uiSettings, "notification_icon", "avatar") == "gofer"}) { Gofer logo }
+							}
+						}
+					</div>
+
+				</div>
+				<div>
+					<p class="text-xs text-muted-foreground mb-2">Example notification</p>
+					<div class="flex items-start gap-3 rounded-md border border-border bg-background p-4" aria-live="polite">
+						<img src="/assets/logo.png" alt="" class="size-10 shrink-0 rounded-md" data-notification-preview-logo/>
+						<div class="shrink-0" data-notification-preview-avatar hidden>
+							@ContactAvatar(models.Contact{Name: "Alex Smith", Initials: "AS", AvatarURL: "/assets/notification-avatar.png"}, "size-10 rounded-full bg-white ring-1 ring-ink/10 shadow-[0_2px_6px_rgba(0,0,0,0.2)] [&_img]:object-top [&_img]:translate-y-1 [&_img]:scale-[0.85]", "bg-muted text-foreground")
+						</div>
+						<div class="min-w-0">
+							<p class="text-sm font-medium text-foreground" data-notification-preview-title>Alex Smith</p>
+							<p class="text-xs text-muted-foreground whitespace-pre-line break-words mt-1" data-notification-preview-body>Tomorrow's meeting</p>
+						</div>
+					</div>
+					<p class="text-xs text-muted-foreground mt-2">Sample avatar: <a href="https://github.com/golang-samples/gopher-vector" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">Go gopher by Takuya Ueda, based on Renee French’s design</a> · <a href="https://creativecommons.org/licenses/by/3.0/" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">CC BY 3.0</a>.</p>
 				</div>
 			</div>
 			<div class="settings-row border-t border-border/60 pt-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
@@ -6160,4 +6229,26 @@ templ SettingsOperationsContent(status models.MailOperationsStatus) {
 			</div>
 		}
 	</div>
+}
+
+func notificationAppearanceLabel(field, value string) string {
+	switch field {
+	case "title":
+		switch value {
+		case "sender": return "Sender"
+		case "gofer": return "Gofer"
+		case "count": return "Message count"
+		default: return "Sender or message count"
+		}
+	case "content":
+		switch value {
+		case "preview": return "Subject and preview"
+		case "hidden": return "Hidden"
+		default: return "Subject"
+		}
+	case "icon":
+		if value == "gofer" { return "Gofer logo" }
+		return "Sender avatar"
+	}
+	return ""
 }

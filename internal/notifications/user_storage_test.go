@@ -414,6 +414,9 @@ func TestUserStorageContactBackfillWorkerKeepsOwnersSeparate(t *testing.T) {
 
 func TestUserStorageTestPushReachesOnlyTheAskingBrowser(t *testing.T) {
 	f := newUserStorageFixture(t)
+	if rec := f.request("alice", http.MethodPatch, "/api/settings/ui", `{"notification_title":"gofer","notification_content":"hidden","notification_icon":"gofer"}`); rec.Code != http.StatusOK {
+		t.Fatal(rec.Body.String())
+	}
 	f.subscribe(t, "alice", "https://push.example/alice")
 	f.subscribe(t, "bob", "https://push.example/bob")
 	var delivered []string
@@ -428,6 +431,9 @@ func TestUserStorageTestPushReachesOnlyTheAskingBrowser(t *testing.T) {
 	}
 	if len(delivered) != 1 || delivered[0] != "https://push.example/alice" || payload["tag"] != "gofer-test-notification" {
 		t.Fatalf("test push went to %v with %v", delivered, payload)
+	}
+	if payload["title"] != "Gofer" || payload["body"] != "" || payload["icon"] != "/assets/logo.png" {
+		t.Fatalf("test push ignored local appearance preferences: %v", payload)
 	}
 	// Another user's browser, or one that never subscribed, gets nothing.
 	for _, endpoint := range []string{"https://push.example/bob", "https://push.example/unknown", ""} {

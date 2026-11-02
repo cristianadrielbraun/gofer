@@ -1,3 +1,11 @@
+importScripts("/assets/js/notification-avatar.js")
+
+// This worker only handles notifications, so updates can activate while a
+// Gofer tab remains open without changing its page or network requests.
+self.addEventListener("install", function (event) {
+  event.waitUntil(self.skipWaiting())
+})
+
 self.addEventListener("push", function (event) {
   var data = {}
   if (event.data) {
@@ -7,7 +15,7 @@ self.addEventListener("push", function (event) {
   var title = data.title || "Gofer"
   var icon = data.icon || data.avatar_url || "/assets/logo.png"
   var options = {
-    body: data.body || "New notification",
+    body: typeof data.body === "string" ? data.body : "New notification",
     icon: icon,
     badge: "/assets/logo.png",
     tag: data.tag || "gofer-notification",
@@ -17,7 +25,10 @@ self.addEventListener("push", function (event) {
     },
   }
 
-  event.waitUntil(self.registration.showNotification(title, options))
+  event.waitUntil(self.GoferNotificationAvatar.render(icon).then(function (circularIcon) {
+    options.icon = circularIcon
+    return self.registration.showNotification(title, options)
+  }))
 })
 
 self.addEventListener("notificationclick", function (event) {
