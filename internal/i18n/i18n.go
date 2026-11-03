@@ -159,7 +159,8 @@ func T(ctx context.Context, key string, args ...any) string {
 }
 
 // N returns the form of a counted message for count, from key+".one" or
-// key+".other". count also fills the {count} placeholder.
+// key+".other". count also fills the {count} placeholder, unless args give
+// one.
 func N(ctx context.Context, key string, count int, args ...any) string {
 	return TranslateCount(FromContext(ctx), key, count, args...)
 }
@@ -172,7 +173,9 @@ func Translate(locale Locale, key string, args ...any) string {
 // TranslateCount is N for a known locale, for work outside a request.
 func TranslateCount(locale Locale, key string, count int, args ...any) string {
 	form := key + "." + pluralForm(locale, count)
-	return format(lookup(locale, form), append([]any{"count", count}, args...))
+	// The caller's own {count}, such as a formatted number, comes first and
+	// wins; the plain count fills it in otherwise.
+	return format(lookup(locale, form), append(append([]any{}, args...), "count", count))
 }
 
 func lookup(locale Locale, key string) string {

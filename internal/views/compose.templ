@@ -411,12 +411,12 @@ templ ComposeSchedulePopover(fromPane bool, buttonClass string) {
 	@popover.Root(popover.RootProps{Class: "inline-flex"}) {
 		@popover.Trigger() {
 			if fromPane {
-				<button type="button" data-on-click='["prepareComposeSchedule","$this",true]' class={ buttonClass } title={ i18n.T(ctx, "compose.schedule.title") }>
+				<button type="button" data-on-click='["prepareComposeSchedule","$this",true]' class={ buttonClass } title={ i18n.T(ctx, "compose.schedule.title") } data-compose-schedule-trigger>
 					@icon.CalendarClock(icon.Props{Class: "size-3.5"})
 					{ i18n.T(ctx, "compose.send_later") }
 				</button>
 			} else {
-				<button type="button" data-on-click='["prepareComposeSchedule","$this",false]' class={ buttonClass } title={ i18n.T(ctx, "compose.schedule.title") }>
+				<button type="button" data-on-click='["prepareComposeSchedule","$this",false]' class={ buttonClass } title={ i18n.T(ctx, "compose.schedule.title") } data-compose-schedule-trigger>
 					@icon.CalendarClock(icon.Props{Class: "size-3.5"})
 					{ i18n.T(ctx, "compose.send_later") }
 				</button>

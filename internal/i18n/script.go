@@ -14,11 +14,11 @@ import (
 const ScriptPrefix = "/assets/i18n/"
 
 // Browser scripts read only the "js." messages, plus the date and number
-// words their formatter needs, with English filled in for any the language
+// words their formatter needs and language names, with English filled in for any the language
 // lacks.
 const scriptKeyPrefix = "js."
 
-var scriptKeyPrefixes = []string{scriptKeyPrefix, "date.", "number."}
+var scriptKeyPrefixes = []string{scriptKeyPrefix, "date.", "number.", "language.name."}
 
 func forScripts(key string) bool {
 	for _, prefix := range scriptKeyPrefixes {

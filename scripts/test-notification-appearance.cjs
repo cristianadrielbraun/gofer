@@ -2,6 +2,7 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const path = require('node:path')
 const vm = require('node:vm')
+const loadI18n = require('./i18n-test-helper.cjs')
 
 const root = path.join(__dirname, '..')
 const source = fs.readFileSync(path.join(root, 'assets/js/app.js'), 'utf8')
@@ -11,6 +12,7 @@ assert(start > 0 && end > start)
 const context = { window: {}, GoferSettings: { get(key) { return context.settings[key] } }, settings: {} }
 context.window.GoferSettings = context.GoferSettings
 vm.createContext(context)
+loadI18n(context)
 vm.runInContext(source.slice(start, end), context)
 const cases = JSON.parse(fs.readFileSync(path.join(root, 'internal/notifications/testdata/appearance.json'), 'utf8'))
 for (const tc of cases) {

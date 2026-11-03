@@ -79,7 +79,7 @@
   function restoreReader() {
     sync()
     var selected = new URLSearchParams(window.location.search).get("selected")
-    var loading = document.querySelector('#mail-view [aria-label="Loading message"]')
+    var loading = document.querySelector('#mail-view .mail-view-frame[aria-busy="true"]')
     if (scope() && selected && loading && !loading.dataset.searchRequested) {
       loading.dataset.searchRequested = "true"
       htmx.ajax("GET", window.mailViewRequestURL(selected), {target: "#mail-view", swap: "innerHTML"})
@@ -118,7 +118,7 @@
       controller.cancelTransitionClear()
       if (window.location.pathname + window.location.search === url) history.replaceState(previousState, "", previous)
       sync()
-      if (window.showGoferToast) showGoferToast({ title: "Couldn't change the search scope", variant: "error", duration: 5000 })
+      if (window.showGoferToast) showGoferToast({ title: goferT("js.mail.search.scope_failed"), variant: "error", duration: 5000 })
     })
   }
 
@@ -154,7 +154,7 @@
     if (!root) return
     var count = root.querySelectorAll("[data-mail-scope-folder]:checked").length
     root.querySelector("[data-mail-scope-apply]").disabled = count === 0 || count > 200
-    root.querySelector("[data-mail-scope-folder-status]").textContent = count > 200 ? "Choose up to 200 folders." : count ? count + " selected · Only locally synced mail is searched." : "Select up to 200 folders. Only locally synced mail is searched."
+    root.querySelector("[data-mail-scope-folder-status]").textContent = count > 200 ? goferT("js.mail.search.too_many") : count ? goferTn("js.mail.search.selected", count) : goferT("js.mail.search.folders_status")
     var query = root.querySelector("[data-mail-scope-folder-search]").value.trim().toLowerCase()
     var visible = 0
     root.querySelectorAll("[data-mail-scope-account]").forEach(function (account) {
@@ -196,7 +196,8 @@
 
   function folderSelectionLabel(selected) {
     var count = (selected.folder_ids || []).length
-    return (count === 1 ? "1 folder" : count + " folders") + (selected.include_descendants ? " + subfolders" : "")
+    var label = goferTn("js.mail.search.folders", count)
+    return selected.include_descendants ? goferT("js.mail.search.with_subfolders", { folders: label }) : label
   }
 
   // showScope draws a scope on the menu as the server would.
@@ -206,11 +207,11 @@
     var kind = selected ? selected.kind : "current"
     var value = !selected ? "current" : selected.kind === "account" ? "account:" + selected.account_id : selected.kind
     var option = root.querySelector('[data-mail-scope-option="' + value + '"]')
-    var label = !selected ? "This folder" : kind === "all" ? "All accounts" : kind === "account" ? (option ? option.textContent.trim() : "One account")
-      : (selected.folder_ids || []).length === 1 ? "1 folder" : (selected.folder_ids || []).length + " folders"
+    var label = !selected ? goferT("js.mail.search.scope_current") : kind === "all" ? goferT("js.mail.search.scope_all") : kind === "account" ? (option ? option.textContent.trim() : goferT("js.mail.search.scope_one_account"))
+      : goferTn("js.mail.search.folders", (selected.folder_ids || []).length)
     var trigger = root.querySelector("[data-mail-scope-trigger]")
     if (trigger) {
-      trigger.setAttribute("aria-label", "Search in: " + label)
+      trigger.setAttribute("aria-label", goferT("js.mail.search.scope_label", { scope: label }))
       trigger.querySelector(".mail-search-scope-label").textContent = label
       trigger.querySelectorAll("[data-mail-scope-icon]").forEach(function (icon) { icon.classList.toggle("hidden", icon.dataset.mailScopeIcon !== kind) })
     }
@@ -221,7 +222,7 @@
       if (check) check.classList.toggle("hidden", !checked)
     })
     var folders = root.querySelector("[data-mail-scope-folders-label]")
-    if (folders) folders.textContent = kind === "folders" ? "Edit folders (" + folderSelectionLabel(selected) + ")" : "Choose folders…"
+    if (folders) folders.textContent = kind === "folders" ? goferT("js.mail.search.edit_folders", { folders: folderSelectionLabel(selected) }) : goferT("js.mail.search.choose_folders")
     var exclude = root.querySelector("[data-mail-scope-exclude]")
     if (exclude) {
       var excluding = !!(selected && selected.exclude_spam_trash)

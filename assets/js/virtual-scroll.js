@@ -451,7 +451,7 @@ class VirtualMailList {
       var syncCount = syncing ? this.syncCountLabel() : ""
       var subtitle = syncing
         ? (this.syncActionLabel() + (syncCount ? " (" + syncCount + ")" : "..."))
-        : "This folder is empty"
+        : goferT("js.mail.empty.folder")
       this.itemsContainer.innerHTML =
         '<div class="flex flex-col items-center justify-center py-20 px-4 text-center">' +
           '<div class="empty-icon-box size-16 rounded-2xl bg-muted/50 flex items-center justify-center mb-4 raised">' +
@@ -460,7 +460,7 @@ class VirtualMailList {
               '<path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>' +
             '</svg>' +
           '</div>' +
-          '<h3 class="font-semibold text-sm mb-1">' + (syncing ? 'Syncing folder' : 'No emails') + '</h3>' +
+          '<h3 class="font-semibold text-sm mb-1">' + (syncing ? goferT("js.mail.sync.folder") : goferT("js.mail.empty.title")) + '</h3>' +
           '<p class="text-xs text-muted-foreground">' + subtitle + '</p>' +
         '</div>'
       if (stale) this.fanOutLeavingRows(stale.rows, new Set())
@@ -697,10 +697,10 @@ class VirtualMailList {
 
   syncActionLabel() {
     var state = this.syncState || {}
-    if (state.refreshOnly && state.provider === "gmail_api" && state.mode === "repair") return "Repairing Gmail"
-    if (state.refreshOnly && state.provider === "gmail_api") return "Refreshing Gmail labels"
-    if (state.refreshOnly) return "Refreshing mailbox state"
-    return "Syncing folder"
+    if (state.refreshOnly && state.provider === "gmail_api" && state.mode === "repair") return goferT("js.sync.repairing_gmail")
+    if (state.refreshOnly && state.provider === "gmail_api") return goferT("js.mail.sync.gmail_labels")
+    if (state.refreshOnly) return goferT("js.mail.sync.mailbox_state")
+    return goferT("js.mail.sync.folder")
   }
 
   syncDetailLabel() {
@@ -1308,7 +1308,7 @@ class VirtualMailList {
       this.frontierUp = Math.min(this.frontierUp, start)
     } catch (_) {
       await skeletonRevealed
-      this.loadError = "Failed to load emails. Scroll again to retry."
+      this.loadError = goferT("js.mail.list.load_failed")
     } finally {
       this.loadingDirection = null
       this.pendingLoadStart = null
@@ -1817,7 +1817,7 @@ class VirtualMailList {
     var page = pagination.querySelector("[data-mail-pagination-page]")
     var prev = pagination.querySelector("[data-mail-page-prev]")
     var next = pagination.querySelector("[data-mail-page-next]")
-    if (summary) summary.textContent = itemCount > 0 ? ((this.pageStart + 1) + "-" + Math.min(this.totalCount, this.pageStart + itemCount) + " of " + this.totalCount) : "No messages"
+    if (summary) summary.textContent = itemCount > 0 ? goferT("js.mail.pagination.range", { start: goferNumber(this.pageStart + 1), end: goferNumber(Math.min(this.totalCount, this.pageStart + itemCount)), total: goferNumber(this.totalCount) }) : goferT("js.mail.pagination.none")
     if (page) page.textContent = currentPage + " / " + totalPages
     if (prev) prev.disabled = this.isLoading || this.pageStart <= 0
     if (next) next.disabled = this.isLoading || itemCount === 0 || this.pageStart + itemCount >= this.totalCount
@@ -2068,14 +2068,14 @@ class VirtualMailList {
     var accountMarkerStyle = String(this.container.dataset.accountMarkerStyle || "background-color: #8b5cf6").replace(/[&<>"]/g, function (ch) {
       return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]
     })
-    return '<div class="mail-list-table-heading flex items-center justify-center" data-mail-table-column="0" data-mail-table-column-id="accountMarker" data-mail-table-cell="accountMarker" title="Account Marker"><span class="account-color-marker size-2.5" style="' + accountMarkerStyle + '"></span><span class="mail-list-column-separator"></span></div>' +
-      '<div class="mail-list-table-heading text-center" data-mail-table-column="1" data-mail-table-column-id="starred" data-mail-table-cell="starred" title="Starred"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="star" class="size-3 mx-auto"><path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.12 2.12 0 0 0 1.595 1.16l5.166.751a.53.53 0 0 1 .294.904l-3.736 3.643a2.12 2.12 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.12 2.12 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.12 2.12 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.75a2.12 2.12 0 0 0 1.596-1.16z"/></svg><span class="mail-list-column-separator"></span></div>' +
-      '<div class="mail-list-table-heading text-center" data-mail-table-column="2" data-mail-table-column-id="attachment" data-mail-table-cell="attachment" title="Attachment"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="paperclip" class="size-3 mx-auto"><path d="m16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551"/></svg><span class="mail-list-column-separator"></span></div>' +
-      '<div class="mail-list-table-heading flex items-center justify-center" data-mail-table-column="3" data-mail-table-column-id="thread" data-mail-table-cell="thread" title="Thread"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="messages-square" class="size-3"><path d="M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z"></path><path d="M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1"></path></svg><span class="mail-list-column-separator"></span></div>' +
-      '<div class="mail-list-table-heading pl-1" data-mail-table-column="4" data-mail-table-column-id="from" data-mail-table-cell="from">From<span class="mail-list-column-resize" data-mail-table-resize="4"></span></div>' +
-      '<div class="mail-list-table-heading" data-mail-table-column="5" data-mail-table-column-id="to" data-mail-table-cell="to">To<span class="mail-list-column-resize" data-mail-table-resize="5"></span></div>' +
-      '<div class="mail-list-table-heading" data-mail-table-column="6" data-mail-table-column-id="subject" data-mail-table-cell="subject">Subject<span class="mail-list-column-resize" data-mail-table-resize="6"></span></div>' +
-      '<div class="mail-list-table-heading min-w-12 text-right" data-mail-table-column="7" data-mail-table-column-id="date" data-mail-table-cell="date">Date</div>'
+    return '<div class="mail-list-table-heading flex items-center justify-center" data-mail-table-column="0" data-mail-table-column-id="accountMarker" data-mail-table-cell="accountMarker" title="' + goferT("js.mail.column.accountMarker") + '"><span class="account-color-marker size-2.5" style="' + accountMarkerStyle + '"></span><span class="mail-list-column-separator"></span></div>' +
+      '<div class="mail-list-table-heading text-center" data-mail-table-column="1" data-mail-table-column-id="starred" data-mail-table-cell="starred" title="' + goferT("js.mail.column.starred") + '"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="star" class="size-3 mx-auto"><path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.12 2.12 0 0 0 1.595 1.16l5.166.751a.53.53 0 0 1 .294.904l-3.736 3.643a2.12 2.12 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.12 2.12 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.12 2.12 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.75a2.12 2.12 0 0 0 1.596-1.16z"/></svg><span class="mail-list-column-separator"></span></div>' +
+      '<div class="mail-list-table-heading text-center" data-mail-table-column="2" data-mail-table-column-id="attachment" data-mail-table-cell="attachment" title="' + goferT("js.mail.column.attachment") + '"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="paperclip" class="size-3 mx-auto"><path d="m16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551"/></svg><span class="mail-list-column-separator"></span></div>' +
+      '<div class="mail-list-table-heading flex items-center justify-center" data-mail-table-column="3" data-mail-table-column-id="thread" data-mail-table-cell="thread" title="' + goferT("js.mail.column.thread") + '"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" data-lucide="messages-square" class="size-3"><path d="M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z"></path><path d="M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1"></path></svg><span class="mail-list-column-separator"></span></div>' +
+      '<div class="mail-list-table-heading pl-1" data-mail-table-column="4" data-mail-table-column-id="from" data-mail-table-cell="from">' + goferT("js.mail.column.from") + '<span class="mail-list-column-resize" data-mail-table-resize="4"></span></div>' +
+      '<div class="mail-list-table-heading" data-mail-table-column="5" data-mail-table-column-id="to" data-mail-table-cell="to">' + goferT("js.mail.column.to") + '<span class="mail-list-column-resize" data-mail-table-resize="5"></span></div>' +
+      '<div class="mail-list-table-heading" data-mail-table-column="6" data-mail-table-column-id="subject" data-mail-table-cell="subject">' + goferT("js.mail.column.subject") + '<span class="mail-list-column-resize" data-mail-table-resize="6"></span></div>' +
+      '<div class="mail-list-table-heading min-w-12 text-right" data-mail-table-column="7" data-mail-table-column-id="date" data-mail-table-cell="date">' + goferT("js.mail.column.date") + '</div>'
   }
 
   async switchFolder(folderID, pushState) {
@@ -2815,8 +2815,8 @@ class VirtualMailList {
                 '<svg class="size-4 animate-spin" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>' +
               '</span>' +
               '<div class="min-w-0">' +
-                '<div class="text-[10px] font-bold uppercase tracking-[0.12em] text-primary">Mail sync in progress</div>' +
-                '<div id="mail-sync-text" class="mt-0.5 truncate text-xs font-medium text-foreground">Syncing folder</div>' +
+                '<div class="text-[10px] font-bold uppercase tracking-[0.12em] text-primary">' + goferT("js.mail.sync.in_progress") + '</div>' +
+                '<div id="mail-sync-text" class="mt-0.5 truncate text-xs font-medium text-foreground">' + goferT("js.mail.sync.folder") + '</div>' +
               '</div>' +
             '</div>' +
             '<span id="mail-sync-count" class="shrink-0 rounded-md border border-primary/20 bg-primary/10 px-2 py-1 text-[11px] font-semibold tabular-nums text-primary"></span>' +

@@ -9,6 +9,7 @@ import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
 import (
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"strings"
 
 	"github.com/cristianadrielbraun/gofer/internal/models"
@@ -64,7 +65,7 @@ func EmailPrintHeader(email *models.Email) templ.Component {
 		var templ_7745c5c3_Var2 string
 		templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.JoinStringErrs(emailPrintSubject(email))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/email_print.templ`, Line: 33, Col: 94}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/email_print.templ`, Line: 34, Col: 94}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var2))
 		if templ_7745c5c3_Err != nil {
@@ -74,34 +75,34 @@ func EmailPrintHeader(email *models.Email) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = emailPrintRow("From", formatContacts([]models.Contact{email.From})).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = emailPrintRow(i18n.T(ctx, "mail.filters.from"), formatContacts([]models.Contact{email.From})).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		if len(email.To) > 0 {
-			templ_7745c5c3_Err = emailPrintRow("To", formatContacts(email.To)).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = emailPrintRow(i18n.T(ctx, "mail.field.to"), formatContacts(email.To)).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
 		if len(email.CC) > 0 {
-			templ_7745c5c3_Err = emailPrintRow("Cc", formatContacts(email.CC)).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = emailPrintRow(i18n.T(ctx, "mail.field.cc"), formatContacts(email.CC)).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
 		if len(email.BCC) > 0 {
-			templ_7745c5c3_Err = emailPrintRow("Bcc", formatContacts(email.BCC)).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = emailPrintRow(i18n.T(ctx, "mail.field.bcc"), formatContacts(email.BCC)).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = emailPrintRow("Date", email.DateFull).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = emailPrintRow(i18n.T(ctx, "mail.column.date"), email.DateFull).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		if names := emailPrintAttachments(email); names != "" {
-			templ_7745c5c3_Err = emailPrintRow("Attachments", names).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = emailPrintRow(i18n.T(ctx, "mail.filters.attachments"), names).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -142,7 +143,7 @@ func emailPrintRow(label, value string) templ.Component {
 		var templ_7745c5c3_Var4 string
 		templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/email_print.templ`, Line: 55, Col: 101}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/email_print.templ`, Line: 56, Col: 101}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 		if templ_7745c5c3_Err != nil {
@@ -155,7 +156,7 @@ func emailPrintRow(label, value string) templ.Component {
 		var templ_7745c5c3_Var5 string
 		templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(value)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/email_print.templ`, Line: 56, Col: 62}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/email_print.templ`, Line: 57, Col: 62}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 		if templ_7745c5c3_Err != nil {

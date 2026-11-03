@@ -1,6 +1,7 @@
 package views
 
 import (
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"github.com/cristianadrielbraun/gofer/components/button"
 	"github.com/cristianadrielbraun/gofer/components/dialog"
 	"github.com/cristianadrielbraun/gofer/components/icon"
@@ -31,8 +32,8 @@ templ FolderAppearanceDialog() {
 	@dialog.Dialog(dialog.Props{ID: "folder-appearance-dialog"}) {
 		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-sm overflow-y-auto"}) {
 			@dialog.Header() {
-				@dialog.Title(dialog.TitleProps{Attributes: templ.Attributes{"data-folder-appearance-title": ""}}) { Folder appearance }
-				@dialog.Description(dialog.DescriptionProps{Attributes: templ.Attributes{"data-folder-appearance-description": ""}}) { Customize this folder’s appearance in Gofer. }
+				@dialog.Title(dialog.TitleProps{Attributes: templ.Attributes{"data-folder-appearance-title": ""}}) { { i18n.T(ctx, "appearance.folder_title") } }
+				@dialog.Description(dialog.DescriptionProps{Attributes: templ.Attributes{"data-folder-appearance-description": ""}}) { { i18n.T(ctx, "appearance.folder_help") } }
 			}
 			<div data-folder-appearance-body aria-live="polite"></div>
 		}
@@ -49,12 +50,12 @@ templ FolderAppearancePanel(folder models.Folder, accountID string) {
 	<form class="space-y-4" data-folder-appearance-form data-folder-appearance-virtual?={ folder.IsVirtual } data-tag-appearance?={ folder.IsTag } data-tag-appearance-unified?={ folder.IsUnifiedTag } data-folder-id={ folder.ID } data-account-id={ accountID }>
 		<div class="flex items-center gap-2.5 rounded-md border border-border bg-muted/30 px-3 py-3 text-foreground" data-folder-appearance-preview>
 			@FolderAppearanceIcon(folder)
-			<span class="min-w-0 truncate text-sm font-medium">{ folder.Name }</span>
+			<span class="min-w-0 truncate text-sm font-medium">{ i18n.FolderName(ctx, folder.Role, folder.Name) }</span>
 		</div>
 		<fieldset>
-			<legend class="mb-2 text-sm font-medium">Icon style</legend>
+			<legend class="mb-2 text-sm font-medium">{ i18n.T(ctx, "appearance.icon_style") }</legend>
 			<div class="flex gap-2">
-				for _, style := range []struct { Value, Label string }{{"outlined", "Outlined"}, {"filled", "Filled"}} {
+				for _, style := range []struct { Value, Label string }{{"outlined", i18n.T(ctx, "appearance.outlined")}, {"filled", i18n.T(ctx, "appearance.filled")}} {
 					<label class="relative flex-1 cursor-pointer">
 						<input type="radio" name="style" value={ style.Value } checked?={ models.FolderIconStyle(folder.IconStyle) == style.Value } class="peer sr-only"/>
 						<span class="flex h-9 items-center justify-center rounded-md border border-border text-sm peer-checked:bg-accent peer-checked:ring-2 peer-checked:ring-ring peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ring">{ style.Label }</span>
@@ -64,44 +65,44 @@ templ FolderAppearancePanel(folder models.Folder, accountID string) {
 		</fieldset>
 		if folder.Role == "custom" {
 			<fieldset>
-				<legend class="mb-2 text-sm font-medium">Icon</legend>
+				<legend class="mb-2 text-sm font-medium">{ i18n.T(ctx, "appearance.icon") }</legend>
 				<div class="grid grid-cols-6 gap-2" data-folder-icon-options data-folder-icon-style={ models.FolderIconStyle(folder.IconStyle) }>
-					@folderIconOption("", "Default icon", folder)
+					@folderIconOption("", i18n.T(ctx, "appearance.default_icon"), folder)
 					for _, choice := range models.FolderIconChoices {
-						@folderIconOption(choice.Icon, choice.Name, folder)
+						@folderIconOption(choice.Icon, i18n.T(ctx, "appearance.icons."+choice.Icon), folder)
 					}
 				</div>
 			</fieldset>
 		}
 		<fieldset>
-			<legend class="mb-2 text-sm font-medium">Icon color</legend>
+			<legend class="mb-2 text-sm font-medium">{ i18n.T(ctx, "appearance.icon_color") }</legend>
 			<div class="flex flex-wrap items-center gap-2">
-				<label class="relative cursor-pointer" title="Default">
+				<label class="relative cursor-pointer" title={ i18n.T(ctx, "appearance.default") }>
 					<input type="radio" name="color" value="" checked?={ folder.Color == "" } class="peer sr-only"/>
-					<span class="flex h-8 items-center justify-center rounded-md border border-border px-2 text-xs peer-checked:ring-2 peer-checked:ring-ring peer-focus-visible:outline-2 peer-focus-visible:outline-offset-4 peer-focus-visible:outline-ring">Default</span>
+					<span class="flex h-8 items-center justify-center rounded-md border border-border px-2 text-xs peer-checked:ring-2 peer-checked:ring-ring peer-focus-visible:outline-2 peer-focus-visible:outline-offset-4 peer-focus-visible:outline-ring">{ i18n.T(ctx, "appearance.default") }</span>
 				</label>
 				for _, color := range folderColorPalette {
-					<label class="relative cursor-pointer" title={ color.Name }>
-						<input type="radio" name="color" value={ color.Value } checked?={ strings.EqualFold(folder.Color, color.Value) } class="peer sr-only" aria-label={ color.Name }/>
+					<label class="relative cursor-pointer" title={ i18n.T(ctx, "appearance.colors."+strings.ToLower(color.Name)) }>
+						<input type="radio" name="color" value={ color.Value } checked?={ strings.EqualFold(folder.Color, color.Value) } class="peer sr-only" aria-label={ i18n.T(ctx, "appearance.colors."+strings.ToLower(color.Name)) }/>
 						<span class="block size-7 rounded-full border border-foreground/15 peer-checked:ring-2 peer-checked:ring-ring peer-checked:ring-offset-2 peer-checked:ring-offset-background peer-focus-visible:outline-2 peer-focus-visible:outline-offset-4 peer-focus-visible:outline-ring" style={ "background-color:" + color.Value }></span>
 					</label>
 				}
 			</div>
 		</fieldset>
 		if folder.IsTag {
-			<p class="text-xs text-muted-foreground">Tag symbols stay fixed. You can change their color and style.</p>
+			<p class="text-xs text-muted-foreground">{ i18n.T(ctx, "appearance.tag_fixed") }</p>
 		} else if folder.IsVirtual {
-			<p class="text-xs text-muted-foreground">This view’s symbol is fixed. You can change its color and style.</p>
+			<p class="text-xs text-muted-foreground">{ i18n.T(ctx, "appearance.view_fixed") }</p>
 		} else if folder.Role != "custom" {
-			<p class="text-xs text-muted-foreground">This folder’s icon is fixed by its role. You can change its color and style.</p>
+			<p class="text-xs text-muted-foreground">{ i18n.T(ctx, "appearance.role_fixed") }</p>
 		}
 		<p class="text-sm text-destructive" data-folder-appearance-error role="alert" hidden></p>
 		@dialog.Footer(dialog.FooterProps{Class: "flex-wrap"}) {
-			@button.Button(button.Props{Type: "button", Variant: button.VariantGhost, Attributes: templ.Attributes{"data-folder-appearance-reset": ""}}) { Reset to default }
+			@button.Button(button.Props{Type: "button", Variant: button.VariantGhost, Attributes: templ.Attributes{"data-folder-appearance-reset": ""}}) { { i18n.T(ctx, "appearance.reset") } }
 			@dialog.Close() {
-				@button.Button(button.Props{Type: "button", Variant: button.VariantOutline}) { Cancel }
+				@button.Button(button.Props{Type: "button", Variant: button.VariantOutline}) { { i18n.T(ctx, "common.cancel") } }
 			}
-			@button.Button(button.Props{Type: "submit", Attributes: templ.Attributes{"data-folder-appearance-save": ""}}) { Save }
+			@button.Button(button.Props{Type: "submit", Attributes: templ.Attributes{"data-folder-appearance-save": ""}}) { { i18n.T(ctx, "common.save") } }
 		}
 	</form>
 }
@@ -122,7 +123,7 @@ templ folderIconOption(value, name string, folder models.Folder) {
 
 // Virtual views can be configured from Settings even while hidden in the sidebar.
 templ VirtualFolderAppearanceButton(id, name string) {
-	<button type="button" class="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" title={ "Appearance of " + name } aria-label={ "Appearance of " + name } data-folder-action="folder-appearance" data-folder-id={ id } data-folder-name={ name } data-folder-appearance-virtual data-on-click={ onAction("manageFolderAction", actionElement) }>
+	<button type="button" class="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" title={ i18n.T(ctx, "appearance.of", "name", name) } aria-label={ i18n.T(ctx, "appearance.of", "name", name) } data-folder-action="folder-appearance" data-folder-id={ id } data-folder-name={ name } data-folder-appearance-virtual data-on-click={ onAction("manageFolderAction", actionElement) }>
 		@icon.Palette(icon.Props{Class: "size-3.5"})
 	</button>
 }
@@ -135,10 +136,10 @@ templ ScheduledViewAppearanceSetting(uiSettings map[string]string) {
 				@FolderAppearanceIcon(folder)
 			</span>
 			<div class="min-w-0 flex-1">
-				<h3 class="text-sm font-medium">Scheduled view</h3>
-				<p class="mt-1 text-xs text-muted-foreground">Shown in the sidebar when messages are scheduled.</p>
+				<h3 class="text-sm font-medium">{ i18n.T(ctx, "appearance.scheduled_title") }</h3>
+				<p class="mt-1 text-xs text-muted-foreground">{ i18n.T(ctx, "appearance.scheduled_help") }</p>
 			</div>
-			@VirtualFolderAppearanceButton(folder.ID, folder.Name)
+			@VirtualFolderAppearanceButton(folder.ID, i18n.FolderName(ctx, folder.Role, folder.Name))
 		</div>
 	</div>
 }

@@ -83,6 +83,9 @@ func TestTranslateFallsBackAndFillsPlaceholders(t *testing.T) {
 	if got := N(ctx, "msg", 0); got != "0 mensajes" {
 		t.Errorf("N 0 = %q", got)
 	}
+	if got := N(ctx, "msg", 1234, "count", "1.234"); got != "1.234 mensajes" {
+		t.Errorf("N with a formatted count = %q", got)
+	}
 	if got := T(context.Background(), "greet", "name", "Ana"); got != "Hello, Ana" {
 		t.Errorf("no locale in context = %q, want English", got)
 	}
@@ -96,7 +99,7 @@ func placeholders(message string) []string {
 	return slices.Compact(found)
 }
 
-// Every catalog has exactly English's messages, with the same placeholders,
+// Every catalog has exactly English's messages, using only its placeholders,
 // so a language can't silently fall behind.
 func TestCatalogsMatchEnglish(t *testing.T) {
 	english := catalogs[English]
@@ -113,8 +116,14 @@ func TestCatalogsMatchEnglish(t *testing.T) {
 				t.Errorf("%s: %s is not an English message", locale, key)
 				continue
 			}
-			if locale != English && !slices.Equal(placeholders(message), placeholders(english[key])) {
-				t.Errorf("%s: %s uses %v, English uses %v", locale, key, placeholders(message), placeholders(english[key]))
+			// A translation may leave a value out, as "el único mensaje" does
+			// with {count}, but can't use one English doesn't fill in.
+			if locale != English {
+				for _, name := range placeholders(message) {
+					if !slices.Contains(placeholders(english[key]), name) {
+						t.Errorf("%s: %s uses %s, which English doesn't have", locale, key, name)
+					}
+				}
 			}
 			if base, ok := strings.CutSuffix(key, ".one"); ok && messages[base+".other"] == "" {
 				t.Errorf("%s: %s has no .other form", locale, key)
@@ -180,8 +189,8 @@ func TestUsedKeysExist(t *testing.T) {
 			for _, match := range pattern.FindAllStringSubmatch(string(data), -1) {
 				counted := match[1] == "N" || match[1] == "TranslateCount" || match[1] == "n"
 				key := match[2]
-				if pattern == jsKeyPattern && !strings.HasPrefix(key, scriptKeyPrefix) {
-					t.Errorf("%s: browser key %s must start with %q", path, key, scriptKeyPrefix)
+				if pattern == jsKeyPattern && !forScripts(key) {
+					t.Errorf("%s: browser key %s isn't sent to scripts (see scriptKeyPrefixes)", path, key)
 				}
 				check(path, key, counted)
 			}

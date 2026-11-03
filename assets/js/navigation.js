@@ -82,7 +82,7 @@
       main.removeAttribute("data-mail-pane-layout")
       main.replaceChildren(content.cloneNode(true))
       if (typeof setSettingsSidebarActive === "function") setSettingsSidebarActive(destination.tab)
-      document.title = "Gofer - Settings"
+      document.title = goferT("js.page.title", { page: goferT("js.app.settings") })
     } else if (!main.querySelector("#mail-list") || !sidebar.hasAttribute("data-app-sidebar")) {
       replaceAppPaneContents(sidebar, template("app-navigation-sidebar").querySelector("aside"), false)
       replaceAppPaneContents(main, content.querySelector("#main-content"), false)
@@ -121,7 +121,7 @@
     if (!pending || pending.serial !== id) return
     pending = null
     restore()
-    if (typeof showGoferToast === "function") showGoferToast({ title: "Could not load page", description: "Please try again.", variant: "error", icon: "error" })
+    if (typeof showGoferToast === "function") showGoferToast({ title: goferT("js.app.page_failed"), description: goferT("js.common.please_try_again"), variant: "error", icon: "error" })
   }
 
   function navigate(address, options) {
@@ -130,7 +130,7 @@
     var pane = document.getElementById("compose-pane-form")
     if (pane && (_composePendingUploads(pane) > 0 || pane.dataset.composeSending === "true")) {
       if (options && options.history) history.pushState(committed.state, "", committed.address)
-      if (typeof showGoferToast === "function") showGoferToast({ title: "Message in progress", description: "Wait for sending or attachment uploads to finish before switching pages." })
+      if (typeof showGoferToast === "function") showGoferToast({ title: goferT("js.app.message_in_progress"), description: goferT("js.app.message_in_progress_help") })
       return true
     }
     // A swap waiting for the panels to finish sliding can't be called off, so

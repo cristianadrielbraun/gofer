@@ -2,6 +2,7 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const path = require('node:path')
 const vm = require('node:vm')
+const loadI18n = require('./i18n-test-helper.cjs')
 const source = fs.readFileSync(path.join(__dirname, '../assets/js/app.js'), 'utf8')
 const slice = (start, end) => source.slice(source.indexOf(start), source.indexOf(end))
 
@@ -39,6 +40,7 @@ const context = vm.createContext({
   window: {matchMedia: () => ({matches: false})},
   applyDefaultComposeSignature() { signatures++ },
 })
+loadI18n(context)
 vm.runInContext(slice('function _composeRecipientEmail(', 'function _splitComposeRecipients(') + slice('// _composeEaseHeight runs change', 'function activateComposeOneTimeFrom(') + slice('// setComposeOneTimeRoute picks', '// selectComposeOneTimeFrom is') + slice('// _composeSkipsField leaves', '// syncComposeOneTimeFrom shows'), context)
 const selected = () => routes.find(r => r.dataset.tuiSelectboxSelected === 'true')
 
