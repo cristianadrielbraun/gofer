@@ -1,8 +1,11 @@
 package views
 
 import (
+	"context"
 	"encoding/json"
+
 	"github.com/cristianadrielbraun/gofer/internal/calendar"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"strconv"
 	"time"
 )
@@ -85,11 +88,14 @@ func calendarDialogClass(width string) string {
 
 // calendarReminderChoices lists the editor's reminder options, keeping an
 // event's own reminder when it isn't one of them.
-func calendarReminderChoices(data CalendarCreateData) (string, [][2]string) {
-	choices := [][2]string{{"none", "No reminder"}, {"0", "At the start"}, {"5", "5 minutes before"}, {"10", "10 minutes before"}, {"15", "15 minutes before"}, {"30", "30 minutes before"}, {"60", "1 hour before"}, {"1440", "1 day before"}}
+func calendarReminderChoices(ctx context.Context, data CalendarCreateData) (string, [][2]string) {
+	choices := [][2]string{{"none", i18n.T(ctx, "calendar.reminder.none")}}
+	for _, minutes := range []int{0, 5, 10, 15, 30, 60, 1440} {
+		choices = append(choices, [2]string{strconv.Itoa(minutes), CalendarReminderLabel(ctx, minutes)})
+	}
 	current := data.Reminder
 	if current == "" {
-		return "default", append([][2]string{{"default", "Calendar's default reminder"}}, choices...)
+		return "default", append([][2]string{{"default", i18n.T(ctx, "calendar.reminder.default")}}, choices...)
 	}
 	for _, choice := range choices {
 		if choice[0] == current {
@@ -97,63 +103,50 @@ func calendarReminderChoices(data CalendarCreateData) (string, [][2]string) {
 		}
 	}
 	if minutes, err := strconv.Atoi(current); err == nil {
-		return current, append(choices, [2]string{current, CalendarReminderLabel(minutes)})
+		return current, append(choices, [2]string{current, CalendarReminderLabel(ctx, minutes)})
 	}
 	return "none", choices
 }
 
 // CalendarReminderLabel describes a reminder, in minutes before the start.
-func CalendarReminderLabel(minutes int) string {
+func CalendarReminderLabel(ctx context.Context, minutes int) string {
 	if minutes == 0 {
-		return "At the start"
+		return i18n.T(ctx, "calendar.reminder.at_start")
 	}
-	return CalendarReminderSpan(minutes) + " before"
+	return i18n.T(ctx, "calendar.reminder.before", "span", CalendarReminderSpan(ctx, minutes))
 }
 
 // CalendarReminderSpan says how long a reminder is, such as "15 minutes".
-func CalendarReminderSpan(minutes int) string {
+func CalendarReminderSpan(ctx context.Context, minutes int) string {
 	switch {
 	case minutes > 0 && minutes%1440 == 0:
-		return plural(minutes/1440, "day")
+		return i18n.N(ctx, "calendar.duration.days", minutes/1440)
 	case minutes > 0 && minutes%60 == 0:
-		return plural(minutes/60, "hour")
+		return i18n.N(ctx, "calendar.duration.hours", minutes/60)
 	}
-	return plural(minutes, "minute")
-}
-
-func plural(n int, unit string) string {
-	if n == 1 {
-		return "1 " + unit
-	}
-	return strconv.Itoa(n) + " " + unit + "s"
+	return i18n.N(ctx, "calendar.duration.minutes", minutes)
 }
 
 // calendarShowAsChoices lists busy and free, keeping an Outlook event's other
 // state when it has one.
-func calendarShowAsChoices(data CalendarCreateData) (string, [][2]string) {
-	choices := [][2]string{{"busy", "Busy"}, {"free", "Free"}}
+func calendarShowAsChoices(ctx context.Context, data CalendarCreateData) (string, [][2]string) {
+	choices := [][2]string{{"busy", CalendarShowAsLabel(ctx, "busy")}, {"free", CalendarShowAsLabel(ctx, "free")}}
 	switch data.ShowAs {
 	case "", "busy":
 		return "busy", choices
 	case "free":
 		return "free", choices
 	}
-	return data.ShowAs, append(choices, [2]string{data.ShowAs, CalendarShowAsLabel(data.ShowAs)})
+	return data.ShowAs, append(choices, [2]string{data.ShowAs, CalendarShowAsLabel(ctx, data.ShowAs)})
 }
 
 // CalendarShowAsLabel names how an event marks its time.
-func CalendarShowAsLabel(showAs string) string {
+func CalendarShowAsLabel(ctx context.Context, showAs string) string {
 	switch showAs {
-	case "free":
-		return "Free"
-	case "tentative":
-		return "Tentative"
-	case "oof":
-		return "Away"
-	case "working_elsewhere":
-		return "Working elsewhere"
+	case "free", "tentative", "oof", "working_elsewhere":
+		return i18n.T(ctx, "calendar.show_as."+showAs)
 	}
-	return "Busy"
+	return i18n.T(ctx, "calendar.show_as.busy")
 }
 
 func calendarPrivateValue(data CalendarCreateData) string {

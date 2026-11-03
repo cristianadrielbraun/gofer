@@ -301,7 +301,7 @@ document.addEventListener("DOMContentLoaded", function () {
     function syncFilterUI(filters) {
       var count = (filters.source ? 1 : 0) + (filters.saveTarget ? 1 : 0) + (filters.activity ? 1 : 0)
       syncActiveFilterChips(filters)
-      var button = document.querySelector('[aria-label="Filter contacts"]')
+      var button = document.querySelector("[data-contact-filter-trigger]")
       if (!button) return
       button.dataset.active = count > 0 ? "true" : "false"
       // The count is the pill after the icon; the first span is the "Filters" label.
@@ -337,9 +337,9 @@ document.addEventListener("DOMContentLoaded", function () {
         }
         return value
       }
-      if (filters.source) pills.push({ name: "source", text: "Origin: " + label("source", filters.source) })
+      if (filters.source) pills.push({ name: "source", text: goferT("js.contacts.filter.origin", { source: label("source", filters.source) }) })
       if (filters.saveTarget) pills.push({ name: "save_target", text: label("save_target", filters.saveTarget) })
-      if (filters.activity) pills.push({ name: "activity", text: filters.activity === "seen" ? "Seen in mail" : "No messages" })
+      if (filters.activity) pills.push({ name: "activity", text: filters.activity === "seen" ? goferT("js.contacts.filter.seen") : goferT("js.contacts.filter.no_messages") })
       return pills
     }
 
@@ -365,7 +365,7 @@ document.addEventListener("DOMContentLoaded", function () {
       pills.forEach(function (pill) {
         var key = pill.name + ":" + pill.text
         var text = escapeHTML(pill.text)
-        html += '<button type="button" data-contact-active-filter-remove="' + pill.name + '" data-contact-active-filter-key="' + escapeHTML(key) + '" title="' + text + '" aria-label="Remove filter: ' + text + '" class="mail-active-filter-pill' + (existing[key] ? " mail-active-filter-pill-stable" : "") + '">' +
+        html += '<button type="button" data-contact-active-filter-remove="' + pill.name + '" data-contact-active-filter-key="' + escapeHTML(key) + '" title="' + text + '" aria-label="' + escapeHTML(goferT("js.contacts.filter.remove", { filter: pill.text })) + '" class="mail-active-filter-pill' + (existing[key] ? " mail-active-filter-pill-stable" : "") + '">' +
           '<span class="mail-active-filter-pill-label">' + text + '</span><span class="mail-active-filter-pill-remove">x</span></button>'
       })
       strip.innerHTML = html + "</div>"
@@ -661,10 +661,10 @@ document.addEventListener("DOMContentLoaded", function () {
           return
         }
         window.goferConfirm({
-          title: "Discard your changes?",
-          message: "The changes you made to this contact aren't saved.",
-          confirmLabel: "Discard changes",
-          cancelLabel: "Keep editing",
+          title: goferT("js.contacts.discard.title"),
+          message: goferT("js.contacts.discard.message"),
+          confirmLabel: goferT("js.contacts.discard.confirm"),
+          cancelLabel: goferT("js.contacts.discard.keep"),
           destructive: true,
         }).then(function (confirmed) {
           if (confirmed) closeEditor()
@@ -770,14 +770,14 @@ document.addEventListener("DOMContentLoaded", function () {
         method: "POST",
         headers: { "Accept": "application/json" },
       }).then(function (res) {
-        if (!res.ok) return res.text().then(function (text) { throw new Error((text || "Could not start Gofer Sync").trim()) })
+        if (!res.ok) return res.text().then(function (text) { throw new Error((text || goferT("js.contacts.sync.start_failed")).trim()) })
         return res.json()
       }).then(function (data) {
         updateContactSyncLiveState({ contact_id: contactID, status: (data && data.status) || "pending" })
         showGoferToast({
           id: "contact-sync-toast",
-          title: "Gofer Sync queued",
-          description: "The selected locations will be synchronized now.",
+          title: goferT("js.contacts.sync.queued"),
+          description: goferT("js.contacts.sync.queued_now"),
           variant: "info",
           icon: "spinner",
           position: "bottom-right",
@@ -788,8 +788,8 @@ document.addEventListener("DOMContentLoaded", function () {
         setContactSyncButtonsBusy(contactID, false)
         showGoferToast({
           id: "contact-sync-toast",
-          title: "Could not start Gofer Sync",
-          description: err && err.message ? err.message : "The contact could not be queued for synchronization.",
+          title: goferT("js.contacts.sync.start_failed"),
+          description: err && err.message ? err.message : goferT("js.contacts.sync.queue_failed"),
           variant: "error",
           icon: "error",
           position: "bottom-right",
@@ -847,10 +847,10 @@ document.addEventListener("DOMContentLoaded", function () {
     function loadContactSyncSetupBody(url) {
       if (!url) return
       fetch(url, { headers: { "Accept": "text/html" } }).then(function (res) {
-        if (!res.ok) return res.text().then(function (text) { throw new Error(text || "Could not search sync locations") })
+        if (!res.ok) return res.text().then(function (text) { throw new Error(text || goferT("js.contacts.sync_setup.search_failed")) })
         return res.text()
       }).then(renderContactSyncSetupBody).catch(function (err) {
-        showGoferToast({ id: "contact-sync-setup-error", title: "Sync setup failed", description: err.message || "Could not search sync locations.", variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
+        showGoferToast({ id: "contact-sync-setup-error", title: goferT("js.contacts.sync_setup.failed"), description: err.message || goferT("js.contacts.sync_setup.search_failed"), variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
       })
     }
 
@@ -867,12 +867,12 @@ document.addEventListener("DOMContentLoaded", function () {
       searchURL.searchParams.set("query", query)
       button.disabled = true
       fetch(searchURL.pathname + searchURL.search, { headers: { "Accept": "text/html" } }).then(function (res) {
-        if (!res.ok) return res.text().then(function (text) { throw new Error(text || "Could not search this account") })
+        if (!res.ok) return res.text().then(function (text) { throw new Error(text || goferT("js.contacts.sync_setup.account_search_failed")) })
         return res.text()
       }).then(function (html) {
         location.outerHTML = html
       }).catch(function (err) {
-        showGoferToast({ id: "contact-sync-location-search-error", title: "Account search failed", description: err.message || "Could not search this account.", variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
+        showGoferToast({ id: "contact-sync-location-search-error", title: goferT("js.contacts.sync_setup.account_search_title"), description: err.message || goferT("js.contacts.sync_setup.account_search_failed"), variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
       }).finally(function () {
         if (button.isConnected) button.disabled = false
       })
@@ -888,12 +888,12 @@ document.addEventListener("DOMContentLoaded", function () {
 
     function loadContactSyncSetup(url, replaceDialogID) {
       fetch(url, { headers: { "Accept": "text/html" } }).then(function (res) {
-        if (!res.ok) return res.text().then(function (text) { throw new Error(text || "Could not load sync setup") })
+        if (!res.ok) return res.text().then(function (text) { throw new Error(text || goferT("js.contacts.sync_setup.load_failed")) })
         return res.text()
       }).then(function (html) {
         renderContactSyncSetup(html, replaceDialogID || "")
       }).catch(function (err) {
-        showGoferToast({ id: "contact-sync-setup-error", title: "Sync setup failed", description: err.message || "Could not load sync setup.", variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
+        showGoferToast({ id: "contact-sync-setup-error", title: goferT("js.contacts.sync_setup.failed"), description: err.message || goferT("js.contacts.sync_setup.load_failed"), variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
       })
     }
 
@@ -905,7 +905,7 @@ document.addEventListener("DOMContentLoaded", function () {
         body: new URLSearchParams(new FormData(form)),
         headers: { "Accept": confirming ? "application/json" : "text/html", "Content-Type": "application/x-www-form-urlencoded" },
       }).then(function (res) {
-        if (!res.ok) return res.text().then(function (text) { throw new Error(text || "Sync setup failed") })
+        if (!res.ok) return res.text().then(function (text) { throw new Error(text || goferT("js.contacts.sync_setup.failed")) })
         return confirming ? res.json() : res.text()
       }).then(function (data) {
         if (!confirming) {
@@ -918,9 +918,9 @@ document.addEventListener("DOMContentLoaded", function () {
         var syncQueued = !!data.contact_sync_queued
         if (data.contact_id) refreshContactsDetail(data.contact_id, null, syncQueued)
         if (syncQueued) setupSSE()
-        showGoferToast({ id: "contact-sync-toast", title: "Gofer Sync enabled", description: syncQueued ? "The resolved contact is being synchronized across all selected locations." : "Sync is enabled for the selected locations.", variant: "success", icon: "success", position: "bottom-right", duration: 5000, dismissible: true })
+        showGoferToast({ id: "contact-sync-toast", title: goferT("js.contacts.sync.enabled"), description: syncQueued ? goferT("js.contacts.sync.enabled_running") : goferT("js.contacts.sync.enabled_detail"), variant: "success", icon: "success", position: "bottom-right", duration: 5000, dismissible: true })
       }).catch(function (err) {
-        showGoferToast({ id: "contact-sync-setup-error", title: "Sync setup failed", description: err.message || "Could not finish sync setup.", variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
+        showGoferToast({ id: "contact-sync-setup-error", title: goferT("js.contacts.sync_setup.failed"), description: err.message || goferT("js.contacts.sync_setup.finish_failed"), variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
       }).finally(function () {
         if (submit) submit.disabled = false
       })
@@ -942,7 +942,7 @@ document.addEventListener("DOMContentLoaded", function () {
         if (!image) {
           image = document.createElement("img")
           image.setAttribute("data-avatar-image", "")
-          image.alt = "Contact profile picture"
+          image.alt = goferT("js.contacts.avatar.alt")
           image.className = "absolute inset-0 size-full object-cover"
           preview.appendChild(image)
         }
@@ -954,11 +954,11 @@ document.addEventListener("DOMContentLoaded", function () {
           remove.classList.add("inline-flex")
         }
         if (status) {
-          status.textContent = "New picture ready"
+          status.textContent = goferT("js.contacts.avatar.ready")
           status.classList.remove("hidden", "text-muted-foreground")
           status.classList.add("text-emerald-700")
         }
-        if (chooseLabel) chooseLabel.textContent = "Replace"
+        if (chooseLabel) chooseLabel.textContent = goferT("js.contacts.avatar.replace")
       } else {
         if (image) image.remove()
         showContactAvatarFallback(preview)
@@ -967,23 +967,23 @@ document.addEventListener("DOMContentLoaded", function () {
           remove.classList.remove("inline-flex")
         }
         if (status) {
-          status.textContent = "Picture will be removed"
+          status.textContent = goferT("js.contacts.avatar.will_remove")
           status.classList.remove("hidden")
           status.classList.remove("text-emerald-700")
           status.classList.add("text-muted-foreground")
         }
-        if (chooseLabel) chooseLabel.textContent = "Choose image"
+        if (chooseLabel) chooseLabel.textContent = goferT("js.contacts.avatar.choose")
       }
     }
 
     function prepareContactAvatar(file, editor) {
       if (!file || !editor) return
       if (["image/jpeg", "image/png", "image/webp"].indexOf(file.type) === -1) {
-        showGoferToast({ id: "contact-avatar-error", title: "Unsupported picture", description: "Choose a JPEG, PNG, or WebP image.", variant: "error", icon: "error", position: "bottom-right", duration: 5000, dismissible: true })
+        showGoferToast({ id: "contact-avatar-error", title: goferT("js.contacts.avatar.unsupported"), description: goferT("js.contacts.avatar.unsupported_detail"), variant: "error", icon: "error", position: "bottom-right", duration: 5000, dismissible: true })
         return
       }
       if (file.size > 8 * 1024 * 1024) {
-        showGoferToast({ id: "contact-avatar-error", title: "Picture is too large", description: "Choose an image smaller than 8 MB.", variant: "error", icon: "error", position: "bottom-right", duration: 5000, dismissible: true })
+        showGoferToast({ id: "contact-avatar-error", title: goferT("js.contacts.avatar.too_large"), description: goferT("js.contacts.avatar.too_large_detail", { size: goferNumber(8) + " MB" }), variant: "error", icon: "error", position: "bottom-right", duration: 5000, dismissible: true })
         return
       }
       var objectURL = URL.createObjectURL(file)
@@ -1006,7 +1006,7 @@ document.addEventListener("DOMContentLoaded", function () {
       }
       image.onerror = function () {
         URL.revokeObjectURL(objectURL)
-        showGoferToast({ id: "contact-avatar-error", title: "Could not read picture", description: "The selected image appears to be invalid.", variant: "error", icon: "error", position: "bottom-right", duration: 5000, dismissible: true })
+        showGoferToast({ id: "contact-avatar-error", title: goferT("js.contacts.avatar.read_failed"), description: goferT("js.contacts.avatar.invalid"), variant: "error", icon: "error", position: "bottom-right", duration: 5000, dismissible: true })
       }
       image.src = objectURL
     }
@@ -1058,7 +1058,7 @@ document.addEventListener("DOMContentLoaded", function () {
         },
       }).then(function (res) {
         if (!res.ok) {
-          return res.text().then(function (text) { throw new Error(text || "Save failed") })
+          return res.text().then(function (text) { throw new Error(text || goferT("js.contacts.save.failed_short")) })
         }
         return res.json()
       }).then(function (data) {
@@ -1080,8 +1080,8 @@ document.addEventListener("DOMContentLoaded", function () {
           setupSSE()
           showGoferToast({
             id: "contact-sync-toast",
-            title: "Contact saved",
-            description: "Gofer Sync is updating the selected locations...",
+            title: goferT("js.contacts.save.saved"),
+            description: goferT("js.contacts.save.syncing"),
             variant: "info",
             icon: "spinner",
             position: "bottom-right",
@@ -1091,8 +1091,8 @@ document.addEventListener("DOMContentLoaded", function () {
         } else {
           showGoferToast({
             id: "contact-save-toast",
-            title: "Contact saved",
-            description: "The aggregate profile has been updated.",
+            title: goferT("js.contacts.save.saved"),
+            description: goferT("js.contacts.save.updated"),
             variant: "success",
             icon: "success",
             position: "bottom-right",
@@ -1103,8 +1103,8 @@ document.addEventListener("DOMContentLoaded", function () {
       }).catch(function (err) {
         showGoferToast({
           id: "contact-save-toast",
-          title: "Contact save failed",
-          description: err && err.message ? err.message : "Could not save contact.",
+          title: goferT("js.contacts.save.failed"),
+          description: err && err.message ? err.message : goferT("js.contacts.save.failed_detail"),
           variant: "error",
           icon: "error",
           position: "bottom-right",
@@ -1146,7 +1146,7 @@ document.addEventListener("DOMContentLoaded", function () {
           targets.setAttribute("aria-disabled", enabled ? "false" : "true")
         }
         if (label) {
-          label.textContent = enabled ? "Enabled" : "Disabled"
+          label.textContent = enabled ? goferT("js.contacts.sync.state_on") : goferT("js.contacts.sync.state_off")
           label.classList.toggle("border-emerald-500/20", enabled)
           label.classList.toggle("bg-emerald-500/[0.08]", enabled)
           label.classList.toggle("text-emerald-700", enabled)
@@ -2750,7 +2750,7 @@ document.addEventListener("DOMContentLoaded", function () {
       shell.querySelectorAll("[data-contact-select-all-toggle]").forEach(function (toggle) {
         toggle.checked = state === "all"
         toggle.indeterminate = state === "some"
-        toggle.setAttribute("aria-label", counted > 0 ? "Deselect all contacts" : "Select all contacts")
+        toggle.setAttribute("aria-label", counted > 0 ? goferT("js.contacts.deselect_all") : goferT("js.contacts.select_all"))
       })
 
       var banner = shell.querySelector("[data-contact-select-all-banner]")
@@ -2759,14 +2759,14 @@ document.addEventListener("DOMContentLoaded", function () {
       var text = ""
       if (contactSelectAllMatching) {
         text = contactSelectAllMatching.truncated
-          ? "The first " + formatMailCount(contactSelectAllMatching.total) + " contacts in this list are selected."
-          : "All " + formatMailCount(contactSelectAllMatching.total) + " contacts in this list are selected."
+          ? goferTn("js.contacts.selected.first", contactSelectAllMatching.total)
+          : goferTn("js.contacts.selected.all_list", contactSelectAllMatching.total)
       } else if (allLoaded && total > loaded.length) {
-        text = "All " + formatMailCount(loaded.length) + " loaded contacts are selected."
+        text = goferTn("js.contacts.selected.all_loaded", loaded.length)
       } else if (allLoaded) {
-        text = "All " + formatMailCount(counted) + " contacts are selected."
+        text = goferTn("js.contacts.selected.all", counted)
       } else if (counted > 0) {
-        text = formatMailCount(counted) + " selected."
+        text = goferTn("js.contacts.selected.some", counted)
       }
       banner.classList.toggle("hidden", !text)
       banner.classList.toggle("flex", !!text)
@@ -2776,7 +2776,7 @@ document.addEventListener("DOMContentLoaded", function () {
       if (more) {
         var canSelectAll = counted > 0 && !contactSelectAllMatching && total > counted
         more.classList.toggle("hidden", !canSelectAll)
-        more.textContent = contactSelectAllLoading ? "Selecting\u2026" : "Select all " + formatMailCount(total) + " in this list"
+        more.textContent = contactSelectAllLoading ? goferT("js.mail.selecting") : goferTn("js.contacts.select_all_in_list", total)
         more.disabled = contactSelectAllLoading
       }
     }
@@ -2829,7 +2829,7 @@ document.addEventListener("DOMContentLoaded", function () {
         })
         .catch(function (err) {
           console.warn(err)
-          showGoferToast({ id: "contact-select-all-error", title: "Couldn't select every contact", description: "Try again in a moment.", variant: "error", icon: "error", position: "bottom-right", duration: 6000, dismissible: true })
+          showGoferToast({ id: "contact-select-all-error", title: goferT("js.contacts.select_all_failed"), description: goferT("js.common.try_again"), variant: "error", icon: "error", position: "bottom-right", duration: 6000, dismissible: true })
         })
         .finally(function () {
           contactSelectAllLoading = false
@@ -2850,13 +2850,13 @@ document.addEventListener("DOMContentLoaded", function () {
         recipients.push(info.name && info.name !== info.email ? '"' + info.name.replace(/["\\]/g, "") + '" <' + info.email + ">" : info.email)
       })
       if (!recipients.length) {
-        showGoferToast({ id: "contact-compose-none", title: "No email addresses", description: "None of the selected contacts has an email address.", variant: "info", icon: "info", position: "bottom-right", duration: 5000, dismissible: true })
+        showGoferToast({ id: "contact-compose-none", title: goferT("js.contacts.compose.none"), description: goferT("js.contacts.compose.none_detail"), variant: "info", icon: "info", position: "bottom-right", duration: 5000, dismissible: true })
         return
       }
       var values = parseMailtoIntent("mailto:" + recipients.map(encodeURIComponent).join(","))
       if (values) openComposePrefill(values, "new")
       if (missing) {
-        showGoferToast({ id: "contact-compose-missing", title: formatMailCount(missing) + (missing === 1 ? " contact has" : " contacts have") + " no email address", description: "They were left out of the recipients.", variant: "info", icon: "info", position: "bottom-right", duration: 5000, dismissible: true })
+        showGoferToast({ id: "contact-compose-missing", title: goferTn("js.contacts.compose.no_address", missing), description: goferT("js.contacts.compose.left_out"), variant: "info", icon: "info", position: "bottom-right", duration: 5000, dismissible: true })
       }
     }
 
@@ -2893,16 +2893,13 @@ document.addEventListener("DOMContentLoaded", function () {
       if (typeof htmx !== "undefined") htmx.trigger(document.body, "contacts-trash-changed")
     }
 
-    function contactCountLabel(count) {
-      return formatMailCount(count) + (count === 1 ? " contact" : " contacts")
-    }
 
     function postContactIDs(url, ids) {
       var body = new URLSearchParams()
       ids.forEach(function (id) { body.append("id", id) })
       return fetch(url, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" }, body: body.toString() })
         .then(function (response) {
-          if (!response.ok) return response.text().then(function (text) { throw new Error(text.trim() || "Request failed") })
+          if (!response.ok) return response.text().then(function (text) { throw new Error(text.trim() || goferT("js.contacts.request_failed")) })
           return response.json()
         })
     }
@@ -2920,14 +2917,14 @@ document.addEventListener("DOMContentLoaded", function () {
           refreshContactsAfterTrashChange()
           showGoferToast({
             id: "contacts-trashed",
-            title: moved === 1 && who ? "Moved to Trash" : contactCountLabel(moved) + " moved to Trash",
+            title: moved === 1 && who ? goferT("js.contacts.trash.moved_one") : goferTn("js.contacts.trash.moved", moved),
             description: moved === 1 && who ? who : "",
             variant: "success",
             icon: "success",
             position: "bottom-right",
             duration: 8000,
             dismissible: true,
-            secondaryActionLabel: "Undo",
+            secondaryActionLabel: goferT("js.contacts.undo"),
             onSecondaryAction: function () {
               dismissGoferToast(document.getElementById("contacts-trashed"))
               restoreContacts(ids, who)
@@ -2935,7 +2932,7 @@ document.addEventListener("DOMContentLoaded", function () {
           })
         })
         .catch(function (err) {
-          showGoferToast({ id: "contacts-trashed", title: "Couldn't move to Trash", description: err.message, variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
+          showGoferToast({ id: "contacts-trashed", title: goferT("js.contacts.trash.move_failed"), description: err.message, variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
         })
         .finally(function () {
           contactDeleteBusy = false
@@ -2952,10 +2949,10 @@ document.addEventListener("DOMContentLoaded", function () {
           var restored = (result && result.restored) || 0
           clearContactSelection()
           refreshContactsAfterTrashChange()
-          showGoferToast({ id: "contacts-restored", title: restored === 1 && who ? "Restored" : contactCountLabel(restored) + " restored", description: restored === 1 && who ? who : "", variant: "success", icon: "success", position: "bottom-right", duration: 4000, dismissible: true })
+          showGoferToast({ id: "contacts-restored", title: restored === 1 && who ? goferT("js.contacts.trash.restored_one") : goferTn("js.contacts.trash.restored", restored), description: restored === 1 && who ? who : "", variant: "success", icon: "success", position: "bottom-right", duration: 4000, dismissible: true })
         })
         .catch(function (err) {
-          showGoferToast({ id: "contacts-restored", title: "Couldn't restore", description: err.message, variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
+          showGoferToast({ id: "contacts-restored", title: goferT("js.contacts.trash.restore_failed"), description: err.message, variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
         })
         .finally(function () {
           contactDeleteBusy = false
@@ -2980,15 +2977,17 @@ document.addEventListener("DOMContentLoaded", function () {
         else if (info.synced !== false) unknown++
       })
       var single = ids.length === 1 ? (contacts.get(ids[0]) || {}) : null
-      var who = single ? single.name || single.email || "This contact" : contactCountLabel(ids.length)
+      var message = single
+        ? goferT("js.contacts.forever.message_named", { name: single.name || single.email || goferT("js.contacts.forever.this_contact") })
+        : goferTn("js.contacts.forever.message", ids.length)
       var note = synced
-        ? (ids.length === 1 ? " It is also removed from the address books it syncs with." : " " + formatMailCount(synced) + (synced === 1 ? " of them is" : " of them are") + " also removed from the address books " + (synced === 1 ? "it syncs" : "they sync") + " with.")
-        : unknown ? " Any synced with an address book are also removed there." : ""
+        ? (ids.length === 1 ? goferT("js.contacts.forever.note_synced_single") : goferTn("js.contacts.forever.note_synced", synced))
+        : unknown ? goferT("js.contacts.forever.note_unknown") : ""
       return window.goferConfirm({
-        title: title || (ids.length === 1 ? "Delete this contact forever?" : "Delete " + contactCountLabel(ids.length) + " forever?"),
-        message: who + " will be deleted and can't be restored." + note,
+        title: title || (ids.length === 1 ? goferT("js.contacts.forever.title_single") : goferTn("js.contacts.forever.title", ids.length)),
+        message: note ? message + " " + note : message,
         destructive: true,
-        confirmLabel: "Delete forever",
+        confirmLabel: goferT("js.contacts.forever.confirm"),
       }).then(function (accepted) {
         if (!accepted) return
         contactDeleteBusy = true
@@ -2999,7 +2998,7 @@ document.addEventListener("DOMContentLoaded", function () {
         for (var i = 0; i < ids.length; i += CONTACT_DELETE_BATCH) batches.push(ids.slice(i, i + CONTACT_DELETE_BATCH))
         var progress = function () {
           if (ids.length <= CONTACT_DELETE_BATCH) return
-          showGoferToast({ id: "contacts-deleting", title: "Deleting contacts…", description: formatMailCount(deleted + failed.length) + " of " + formatMailCount(ids.length) + " done.", variant: "info", icon: "spinner", position: "bottom-right", duration: 0, dismissible: false })
+          showGoferToast({ id: "contacts-deleting", title: goferT("js.contacts.forever.deleting"), description: goferT("js.contacts.forever.progress", { done: formatMailCount(deleted + failed.length), total: formatMailCount(ids.length) }), variant: "info", icon: "spinner", position: "bottom-right", duration: 0, dismissible: false })
         }
         progress()
         var run = Promise.resolve()
@@ -3024,10 +3023,10 @@ document.addEventListener("DOMContentLoaded", function () {
             clearContactSelection()
             refreshContactsAfterTrashChange()
             if (!failed.length) {
-              showGoferToast({ id: "contacts-deleted", title: contactCountLabel(deleted) + " deleted forever", variant: "success", icon: "success", position: "bottom-right", duration: 4000, dismissible: true })
+              showGoferToast({ id: "contacts-deleted", title: goferTn("js.contacts.forever.deleted", deleted), variant: "success", icon: "success", position: "bottom-right", duration: 4000, dismissible: true })
               return
             }
-            showGoferToast({ id: "contacts-deleted", title: formatMailCount(deleted) + " deleted, " + formatMailCount(failed.length) + " not", description: (name ? name + ": " : "") + first.error, variant: deleted ? "warning" : "error", icon: deleted ? "warning" : "error", position: "bottom-right", duration: 10000, dismissible: true })
+            showGoferToast({ id: "contacts-deleted", title: goferT("js.contacts.forever.partial", { deleted: formatMailCount(deleted), failed: formatMailCount(failed.length) }), description: (name ? name + ": " : "") + first.error, variant: deleted ? "warning" : "error", icon: deleted ? "warning" : "error", position: "bottom-right", duration: 10000, dismissible: true })
           })
           .finally(function () {
             contactDeleteBusy = false
@@ -3041,7 +3040,7 @@ document.addEventListener("DOMContentLoaded", function () {
       if (contactDeleteBusy) return
       fetch("/api/contacts/ids?trash=1", { headers: { Accept: "application/json" } })
         .then(function (response) {
-          if (!response.ok) throw new Error("The Trash couldn't be read.")
+          if (!response.ok) throw new Error(goferT("js.contacts.trash.read_failed"))
           return response.json()
         })
         .then(function (data) {
@@ -3054,10 +3053,10 @@ document.addEventListener("DOMContentLoaded", function () {
             refreshContactsAfterTrashChange()
             return
           }
-          return deleteContactsForever(ids, contacts, "Empty the Trash?")
+          return deleteContactsForever(ids, contacts, goferT("js.contacts.trash.empty_title"))
         })
         .catch(function (err) {
-          showGoferToast({ id: "contacts-deleted", title: "Couldn't empty the Trash", description: err.message, variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
+          showGoferToast({ id: "contacts-deleted", title: goferT("js.contacts.trash.empty_failed"), description: err.message, variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
         })
     }
 
@@ -3201,7 +3200,7 @@ document.addEventListener("DOMContentLoaded", function () {
         }
         root._contactsContextTarget = target
         var title = root.querySelector("[data-contacts-context-title]")
-        if (title) title.textContent = target.multiple ? formatMailCount(selectedContactIds.size) + " contacts" : target.name || target.email || "Contact"
+        if (title) title.textContent = target.multiple ? goferTn("js.contacts.count", selectedContactIds.size) : target.name || target.email || goferT("js.contacts.contact")
         var emailGroup = root.querySelector('[data-contacts-context-group="email"]')
         if (emailGroup) emailGroup.hidden = !target.email && !target.multiple
         var single = { "copy-email": true, messages: true, edit: true }
@@ -3281,11 +3280,11 @@ document.addEventListener("DOMContentLoaded", function () {
 
     function copyContactEmail(email) {
       var done = function () {
-        showGoferToast({ id: "contact-email-copied", title: "Email address copied", description: email, variant: "success", icon: "success", position: "bottom-right", duration: 3000, dismissible: true })
+        showGoferToast({ id: "contact-email-copied", title: goferT("js.contacts.email_copied"), description: email, variant: "success", icon: "success", position: "bottom-right", duration: 3000, dismissible: true })
       }
       if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(email).then(done).catch(function () {
-          showGoferToast({ id: "contact-email-copied", title: "Couldn't copy the address", description: email, variant: "error", icon: "error", position: "bottom-right", duration: 6000, dismissible: true })
+          showGoferToast({ id: "contact-email-copied", title: goferT("js.contacts.email_copy_failed"), description: email, variant: "error", icon: "error", position: "bottom-right", duration: 6000, dismissible: true })
         })
       }
     }
@@ -5965,14 +5964,14 @@ document.addEventListener("DOMContentLoaded", function () {
 
       var customEmail = contactFilterEmail(query)
       if (customEmail && !seen[customEmail.toLowerCase()]) {
-        options.appendChild(contactFilterOption(customEmail, customEmail + " — use this address", selected.toLowerCase() === customEmail.toLowerCase()))
+        options.appendChild(contactFilterOption(customEmail, goferT("js.contacts.picker.use_address", { email: customEmail }), selected.toLowerCase() === customEmail.toLowerCase()))
         count++
       }
       if (!count && selected && (!query || selected.toLowerCase().indexOf(String(query).toLowerCase()) >= 0)) {
         options.appendChild(contactFilterOption(selected, selected, true))
         count++
       }
-      if (!count) contactFilterStatus(options, query ? "No matching contacts." : "Type at least 2 characters to search contacts.")
+      if (!count) contactFilterStatus(options, query ? goferT("js.contacts.picker.no_match") : goferT("js.contacts.picker.type_more"))
     }
 
     function setContactFilterValue(value) {
@@ -5984,7 +5983,7 @@ document.addEventListener("DOMContentLoaded", function () {
       contactFilterSearchSequence++
       options.innerHTML = ""
       if (value) options.appendChild(contactFilterOption(value, value, true))
-      else contactFilterStatus(options, "Type at least 2 characters to search contacts.")
+      else contactFilterStatus(options, goferT("js.contacts.picker.type_more"))
       input.value = value
       input.dispatchEvent(new Event("input", { bubbles: true }))
       return true
@@ -6002,7 +6001,7 @@ document.addEventListener("DOMContentLoaded", function () {
         return
       }
       options.innerHTML = ""
-      contactFilterStatus(options, "Searching contacts…")
+      contactFilterStatus(options, goferT("js.contacts.picker.searching"))
       contactFilterSearchTimer = window.setTimeout(function () {
         contactFilterSearchTimer = null
         fetch("/api/contacts/search?q=" + encodeURIComponent(query), { headers: { "Accept": "application/json" } })
@@ -6014,7 +6013,7 @@ document.addEventListener("DOMContentLoaded", function () {
           .catch(function () {
             if (sequence !== contactFilterSearchSequence) return
             options.innerHTML = ""
-            contactFilterStatus(options, "Contacts could not be loaded.")
+            contactFilterStatus(options, goferT("js.contacts.picker.load_failed"))
           })
       }, 160)
     }
@@ -7821,10 +7820,10 @@ document.addEventListener("DOMContentLoaded", function () {
     if (!detail) return false
     var status = String((data && data.status) || "")
     var statusLabel = ""
-    if (status === "pending") statusLabel = "Sync pending"
-    else if (status === "running") statusLabel = "Syncing"
-    else if (status === "done") statusLabel = "Synced"
-    else if (status === "error") statusLabel = "Sync failed"
+    if (status === "pending") statusLabel = goferT("js.contacts.sync.status.pending")
+    else if (status === "running") statusLabel = goferT("js.contacts.sync.status.running")
+    else if (status === "done") statusLabel = goferT("js.contacts.sync.status.done")
+    else if (status === "error") statusLabel = goferT("js.contacts.sync.status.error")
     if (statusLabel) {
       var statusNodes = detail.querySelectorAll("[data-contact-sync-operation-status]")
       for (var i = 0; i < statusNodes.length; i++) statusNodes[i].textContent = statusLabel
@@ -7847,32 +7846,32 @@ document.addEventListener("DOMContentLoaded", function () {
     if (["contact_sync_queued", "contact_sync_started", "contact_synced", "contact_sync_failed"].indexOf(eventType) === -1) return
     if (!updateContactSyncLiveState(data)) return
     var retryScheduled = eventType === "contact_sync_failed" && data.status === "pending"
-    var title = "Gofer Sync queued"
-    var description = data.message || "The contact is waiting to be synchronized."
+    var title = goferT("js.contacts.sync.queued")
+    var description = data.message || goferT("js.contacts.sync.waiting")
     var variant = "info"
     var icon = "spinner"
     var duration = 0
     var dismissible = false
     if (eventType === "contact_sync_started") {
-      title = "Gofer Sync in progress"
-      description = data.message || "The selected locations are being synchronized."
+      title = goferT("js.contacts.sync.in_progress")
+      description = data.message || goferT("js.contacts.sync.in_progress_detail")
     } else if (eventType === "contact_synced") {
-      title = "Gofer Sync complete"
-      description = data.message || "The contact is synchronized across all selected locations."
+      title = goferT("js.contacts.sync.complete")
+      description = data.message || goferT("js.contacts.sync.complete_detail")
       variant = "success"
       icon = "success"
       duration = 3500
       dismissible = true
     } else if (retryScheduled) {
-      title = "Gofer Sync will retry"
-      description = data.error || data.message || "A location could not be updated yet. Gofer will retry automatically."
+      title = goferT("js.contacts.sync.retry")
+      description = data.error || data.message || goferT("js.contacts.sync.retry_detail")
       variant = "warning"
       icon = "spinner"
       duration = 7000
       dismissible = true
     } else if (eventType === "contact_sync_failed") {
-      title = "Gofer Sync failed"
-      description = data.error || data.message || "The selected locations could not be synchronized."
+      title = goferT("js.contacts.sync.failed")
+      description = data.error || data.message || goferT("js.contacts.sync.failed_detail")
       variant = "error"
       icon = "error"
       duration = 8000
@@ -8909,7 +8908,7 @@ document.addEventListener("DOMContentLoaded", function () {
     if (mode === "contacts") {
       html += '<div class="inline-flex w-full items-stretch rounded-lg shadow-sm">'
       html += '<div class="btn-skeuo flex h-10 min-w-0 flex-1 items-center justify-center gap-2 rounded-l-lg rounded-r-none text-sm font-semibold text-sidebar-primary-foreground opacity-75">'
-      html += pendingSidebarIcon("user-plus", "size-4") + '<span>New contact</span></div>'
+      html += pendingSidebarIcon("user-plus", "size-4") + '<span>' + goferT("js.contacts.new") + '</span></div>'
       html += '<div class="btn-skeuo inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-l-none rounded-r-lg border-l border-sidebar-border/70 text-sidebar-primary-foreground opacity-75">'
       html += pendingSidebarIcon("ellipsis-vertical", "size-4") + '</div></div>'
     } else {
@@ -9026,10 +9025,10 @@ document.addEventListener("DOMContentLoaded", function () {
 
   function contactsPendingHeaderHTML() {
     return '<div class="px-4 py-4 space-y-3">' +
-      '<div class="flex items-center justify-between"><div class="flex items-center gap-2"><h2 class="text-lg font-bold tracking-tight" style="font-family: var(--font-serif)" data-contacts-title>Contacts</h2><span id="contacts-count" class="inline-flex h-5 min-w-10 items-center justify-center rounded-md bg-muted px-2 text-xs font-medium text-muted-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)] animate-pulse"></span></div></div>' +
+      '<div class="flex items-center justify-between"><div class="flex items-center gap-2"><h2 class="text-lg font-bold tracking-tight" style="font-family: var(--font-serif)" data-contacts-title>' + goferT("js.contacts.title") + '</h2><span id="contacts-count" class="inline-flex h-5 min-w-10 items-center justify-center rounded-md bg-muted px-2 text-xs font-medium text-muted-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)] animate-pulse"></span></div></div>' +
       '<div class="flex items-center gap-2"><div class="relative groove rounded-lg flex-1 min-w-0">' +
         '<span class="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 rounded-sm bg-muted-foreground/30"></span>' +
-        '<input type="search" disabled placeholder="Search contacts" class="h-9 w-full rounded-lg border border-border/50 bg-background pl-8 pr-3 text-sm text-foreground placeholder:text-muted-foreground opacity-70"/>' +
+        '<input type="search" disabled placeholder="' + goferT("js.contacts.search") + '" class="h-9 w-full rounded-lg border border-border/50 bg-background pl-8 pr-3 text-sm text-foreground placeholder:text-muted-foreground opacity-70"/>' +
       '</div>' +
       pendingFiltersButtonHTML() +
       '</div>' +
@@ -9060,7 +9059,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
   function contactsPendingToolbarHTML(viewMode) {
     var sortBy = window.GoferSettings ? GoferSettings.get("contacts_list_sort_by") : "updated"
-    var sortLabel = sortBy === "name" ? "Name" : (sortBy === "last_interaction" ? "Last interaction" : "Recently updated")
+    var sortLabel = sortBy === "name" ? goferT("js.contacts.sort.name") : (sortBy === "last_interaction" ? goferT("js.contacts.sort.last_interaction") : goferT("js.contacts.sort.updated"))
     // Mirrors the contacts toolbar: select-all, the view and sort; filters
     // sit beside the search.
     return '<div class="flex items-center gap-1 px-4 py-1.5">' +
@@ -9089,7 +9088,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
   function contactsPendingTableHeaderHTML() {
     return '<div class="mail-list-table-header mail-list-table-grid grid items-center gap-3 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground bg-card/95 border-b border-border/70 sticky top-0 z-20 backdrop-blur-sm" style="--mail-list-table-columns:minmax(10rem,1.4fr) minmax(8rem,0.9fr) minmax(3.5rem,auto)">' +
-      '<div class="mail-list-table-heading">Name</div><div class="mail-list-table-heading">Origin</div><div class="mail-list-table-heading min-w-12 text-right">Msgs</div>' +
+      '<div class="mail-list-table-heading">' + goferT("js.contacts.column.name") + '</div><div class="mail-list-table-heading">' + goferT("js.contacts.column.origin") + '</div><div class="mail-list-table-heading min-w-12 text-right">' + goferT("js.contacts.column.messages") + '</div>' +
     '</div>'
   }
 
@@ -9530,7 +9529,7 @@ document.addEventListener("DOMContentLoaded", function () {
     return {
       initials: fallback ? fallback.textContent.trim() : "",
       avatar: avatar && !avatar.classList.contains("hidden") ? (avatar.currentSrc || avatar.getAttribute("src") || "") : "",
-      name: name || email || "Loading contact",
+      name: name || email || goferT("js.contacts.loading"),
       email: email,
     }
   }
@@ -9568,11 +9567,11 @@ document.addEventListener("DOMContentLoaded", function () {
     return '<div class="w-full rounded-lg border border-ink/10 bg-ink/[0.025] p-4">' +
       '<div class="mb-3 flex items-center justify-between gap-3">' +
         '<div>' +
-          '<h2 class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Recent activity</h2>' +
-          '<p class="mt-1 text-xs text-muted-foreground">Latest emails involving this contact.</p>' +
+          '<h2 class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">' + goferT("js.contacts.recent.title") + '</h2>' +
+          '<p class="mt-1 text-xs text-muted-foreground">' + goferT("js.contacts.recent.detail") + '</p>' +
         '</div>' +
         '<div class="flex shrink-0 items-center gap-2">' +
-          '<span class="rounded bg-ink/[0.05] px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Top 10</span>' +
+          '<span class="rounded bg-ink/[0.05] px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">' + goferT("js.contacts.recent.top", { count: goferNumber(10) }) + '</span>' +
           '<div class="h-7 w-16 rounded-md border border-ink/10 bg-paper/45"></div>' +
         '</div>' +
       '</div>' +
@@ -9586,21 +9585,21 @@ document.addEventListener("DOMContentLoaded", function () {
     var preview = getContactRowPreview(trigger) || {}
     var initials = escapeHTML(preview.initials || "")
     var avatar = escapeHTML(preview.avatar || "")
-    var name = escapeHTML(preview.name || "Loading contact")
+    var name = escapeHTML(preview.name || goferT("js.contacts.loading"))
     var avatarHTML = avatar
       ? '<div class="size-14 shrink-0 overflow-hidden rounded-full bg-ink/5 shadow-[0_8px_22px_rgba(0,0,0,0.16)]"><img src="' + avatar + '" alt="" class="block size-full object-cover"/></div>'
       : '<div class="flex size-14 shrink-0 items-center justify-center rounded-full bg-gradient-to-b from-amber-700/70 to-amber-900/70 text-base font-bold text-amber-100 shadow-[0_8px_22px_rgba(0,0,0,0.16)]">' + initials + '</div>'
     detail.setAttribute("aria-busy", "true")
     detail.innerHTML =
       '<div class="surface-paper rounded-md flex flex-col h-full overflow-hidden" data-contact-detail-loading>' +
-        '<span class="sr-only" role="status">Loading contact details</span>' +
+        '<span class="sr-only" role="status">' + goferT("js.contacts.loading_details") + '</span>' +
         '<div class="shrink-0 border-b border-ink/10 bg-paper/70 px-5 py-4 sm:px-7">' +
           '<div class="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">' +
             '<div class="flex min-w-0 items-start gap-4">' +
               avatarHTML +
               '<div class="min-w-0 pt-0.5">' +
                 '<h1 class="min-w-0 truncate text-2xl font-bold leading-tight tracking-tight text-ink" style="font-family: var(--font-serif)">' + name + '</h1>' +
-                '<div class="mt-1 text-sm text-muted-foreground">Contact entry</div>' +
+                '<div class="mt-1 text-sm text-muted-foreground">' + goferT("js.contacts.entry") + '</div>' +
               '</div>' +
             '</div>' +
             '<div class="flex flex-wrap items-center gap-2 xl:justify-end" aria-hidden="true">' +
@@ -9614,16 +9613,16 @@ document.addEventListener("DOMContentLoaded", function () {
         '<div class="flex-1 overflow-y-auto">' +
           '<div class="w-full space-y-5 px-5 py-5 sm:px-7" aria-hidden="true">' +
             '<section class="rounded-lg border border-ink/10 bg-ink/[0.02]">' +
-              contactDetailSkeletonSectionHeader("Contact") +
+              contactDetailSkeletonSectionHeader(goferT("js.contacts.contact")) +
               '<div class="grid gap-x-6 px-4 lg:grid-cols-2">' +
-                contactDetailSkeletonField("Name", "w-40") +
-                contactDetailSkeletonField("Email", "w-52") +
-                contactDetailSkeletonField("Additional emails", "w-24") +
-                contactDetailSkeletonField("Phone", "w-28") +
-                contactDetailSkeletonField("Additional phones", "w-24") +
-                contactDetailSkeletonField("Title", "w-32") +
-                contactDetailSkeletonField("Organization", "w-36") +
-                contactDetailSkeletonField("Notes", "w-48") +
+                contactDetailSkeletonField(goferT("js.contacts.field.name"), "w-40") +
+                contactDetailSkeletonField(goferT("js.contacts.field.email"), "w-52") +
+                contactDetailSkeletonField(goferT("js.contacts.field.additional_emails"), "w-24") +
+                contactDetailSkeletonField(goferT("js.contacts.field.phone"), "w-28") +
+                contactDetailSkeletonField(goferT("js.contacts.field.additional_phones"), "w-24") +
+                contactDetailSkeletonField(goferT("js.contacts.field.title"), "w-32") +
+                contactDetailSkeletonField(goferT("js.contacts.field.organization"), "w-36") +
+                contactDetailSkeletonField(goferT("js.contacts.field.notes"), "w-48") +
               '</div>' +
             '</section>' +
             '<section class="rounded-lg border border-ink/10 bg-ink/[0.02]">' +
@@ -9636,20 +9635,20 @@ document.addEventListener("DOMContentLoaded", function () {
                 '<div class="h-7 w-24 rounded-md border border-ink/10 bg-ink/[0.025] animate-pulse"></div>' +
               '</div>' +
               '<div class="grid gap-x-6 px-4 lg:grid-cols-2">' +
-                contactDetailSkeletonField("Sync locations", "w-16", "lg:col-span-2") +
-                contactDetailSkeletonField("Origin", "w-24") +
-                contactDetailSkeletonField("Sync status", "w-20") +
-                contactDetailSkeletonField("Sync updated", "w-32") +
-                contactDetailSkeletonField("Sync error", "w-24") +
+                contactDetailSkeletonField(goferT("js.contacts.field.sync_locations"), "w-16", "lg:col-span-2") +
+                contactDetailSkeletonField(goferT("js.contacts.field.origin"), "w-24") +
+                contactDetailSkeletonField(goferT("js.contacts.field.sync_status"), "w-20") +
+                contactDetailSkeletonField(goferT("js.contacts.field.sync_updated"), "w-32") +
+                contactDetailSkeletonField(goferT("js.contacts.field.sync_error"), "w-24") +
               '</div>' +
             '</section>' +
             '<section class="rounded-lg border border-ink/10 bg-ink/[0.02]">' +
-              contactDetailSkeletonSectionHeader("Activity") +
+              contactDetailSkeletonSectionHeader(goferT("js.contacts.field.activity")) +
               '<div class="grid gap-x-6 px-4 sm:grid-cols-2 xl:grid-cols-4">' +
-                contactDetailSkeletonField("Messages", "w-10") +
-                contactDetailSkeletonField("Last seen", "w-28") +
-                contactDetailSkeletonField("Added to Gofer", "w-24") +
-                contactDetailSkeletonField("Contact updated", "w-24") +
+                contactDetailSkeletonField(goferT("js.contacts.field.messages"), "w-10") +
+                contactDetailSkeletonField(goferT("js.contacts.field.last_seen"), "w-28") +
+                contactDetailSkeletonField(goferT("js.contacts.field.added"), "w-24") +
+                contactDetailSkeletonField(goferT("js.contacts.field.updated"), "w-24") +
               '</div>' +
             '</section>' +
             contactDetailRecentActivitySkeleton() +
@@ -11411,7 +11410,7 @@ function updateMailSyncErrorIndicator(root) {
   var issues = mailSyncIssueList()
   var count = issues.length
   indicator.hidden = count === 0
-  indicator.setAttribute("aria-label", count + " mail sync issue" + (count === 1 ? "" : "s"))
+  indicator.setAttribute("aria-label", goferTn("js.sync.issues", count))
   indicator.removeAttribute("title")
   var summary = document.querySelector("[data-mail-sync-error-summary]")
   if (summary) summary.innerHTML = mailSyncErrorSummaryHTML(issues)
@@ -11852,7 +11851,7 @@ function handleMailSidebarSyncStart(context, mode) {
   showMailSyncToast({
     id: "mail-sync-toast",
     title: _mailSyncRunningTitle({ mode: mode }),
-    description: mode === "repair" ? "Preparing Gmail repair..." : "Checking connected mailboxes...",
+    description: mode === "repair" ? goferT("js.sync.preparing_repair") : goferT("js.sync.checking_mailboxes"),
     variant: "info",
     icon: "spinner",
     position: "bottom-right",
@@ -11956,11 +11955,11 @@ function handleMailManualSyncEvent(phase, data) {
     var description = goferT(repairMode ? "js.sync.done.repaired" : "js.sync.done.checked", { accounts: _mailSyncAccountsLabel(total || done) })
     if (status === "cancelled" && total) description = goferT(repairMode ? "js.sync.done.stopped_repairing" : "js.sync.done.stopped_checking", { done: done, total: total })
     else if (status === "cancelled") description = repairMode ? goferT("js.sync.done.repair_stopped") : goferT("js.sync.done.sync_stopped")
-    if (failures > 0 && skipped > 0) description += " " + failures + " failed, " + skipped + " already running."
-    else if (failures > 0) description += " " + failures + " failed."
-    else if (skipped > 0) description += " " + skipped + " already running."
-    if (cancelled > 0) description += " " + cancelled + " cancelled."
-    if (notDone > 0) description += " " + notDone + " did not finish."
+    if (failures > 0 && skipped > 0) description += " " + goferT("js.sync.done.failed_running", { failures: failures, skipped: skipped })
+    else if (failures > 0) description += " " + goferT("js.sync.done.failed", { count: failures })
+    else if (skipped > 0) description += " " + goferT("js.sync.done.running", { count: skipped })
+    if (cancelled > 0) description += " " + goferT("js.sync.done.cancelled", { count: cancelled })
+    if (notDone > 0) description += " " + goferT("js.sync.done.not_finished", { count: notDone })
     _mailSyncActive = false
     _mailSyncCancelRequested = false
     updateMailSyncAggregateFromRuns()
@@ -12163,7 +12162,8 @@ function showCalendarContentPending(event) {
       number.className = "inline-flex size-6 items-center justify-center sm:size-7"
       number.replaceChildren()
     }
-    day.querySelectorAll("span").forEach(function (span) { if (span.textContent === "Today") span.remove() })
+    // The "Today" badge, found by its look: its text follows the language.
+    day.querySelectorAll("span.uppercase.text-primary").forEach(function (span) { span.remove() })
   })
   // The incoming week's dates are known from the link, so its headers can slide in
   // with them before the response arrives.
@@ -12225,7 +12225,7 @@ function handleCalendarContentResult(event) {
       replaceAppPaneContents(document.getElementById("mail-view"), _calendarContentPrevious.agenda, false)
       if (window.htmx) window.htmx.process(calendar)
       initializeCalendarDaySelection()
-      if (event.type !== "htmx:sendAbort") showGoferToast({ title: "Could not load calendar", description: "Please try again.", variant: "error", icon: "error" })
+      if (event.type !== "htmx:sendAbort") showGoferToast({ title: goferT("js.calendar.load_failed"), description: goferT("js.common.please_try_again"), variant: "error", icon: "error" })
     }
   }
   _calendarContentRequest = null
@@ -12364,13 +12364,13 @@ function initializeCalendarVisibility() {
     var only = document.querySelector('[data-calendar-visibility-only="' + CSS.escape(input.dataset.calendarVisibility) + '"]')
     if (only) {
       var showsAll = calendarSourceIsOnlyVisible(input.dataset.calendarVisibility)
-      only.setAttribute("aria-label", showsAll ? "Show all calendars" : "Show only " + (label ? label.textContent : "this calendar"))
+      only.setAttribute("aria-label", showsAll ? goferT("js.calendar.visibility.show_all") : label ? goferT("js.calendar.visibility.show_only_named", { calendar: label.textContent }) : goferT("js.calendar.visibility.show_only"))
       only.querySelectorAll("[data-calendar-only-icon]").forEach(function (icon) {
         icon.hidden = (icon.dataset.calendarOnlyIcon === "all") !== showsAll
       })
       // Found by source ID: the tooltip popover may live outside the row.
       var tip = document.querySelector('[data-calendar-only-tooltip="' + CSS.escape(input.dataset.calendarVisibility) + '"]')
-      if (tip) tip.textContent = showsAll ? "Show all calendars" : "Show only this calendar"
+      if (tip) tip.textContent = showsAll ? goferT("js.calendar.visibility.show_all") : goferT("js.calendar.visibility.show_only")
     }
   })
   document.querySelectorAll("#calendar-main [data-calendar-week-all-day], #calendar-main [data-calendar-week-event], #calendar-main [data-calendar-day-dot]").forEach(function (node) {
@@ -12390,7 +12390,7 @@ function saveCalendarVisibility(sourceID, state, force) {
     headers: { "Content-Type": "application/json", "Accept": "application/json" },
     body: JSON.stringify({ visible: visible }),
   }).then(function (response) {
-    if (!response.ok) throw new Error("Could not save calendar visibility")
+    if (!response.ok) throw new Error(goferT("js.calendar.visibility.save_failed"))
     state.confirmed = visible
     state.saving = false
     initializeCalendarVisibility()
@@ -12405,7 +12405,7 @@ function saveCalendarVisibility(sourceID, state, force) {
     }
     state.visible = state.confirmed
     initializeCalendarDaySelection()
-    showGoferToast({ title: "Could not save calendar visibility", description: "Your previous choice has been restored. Please try again.", variant: "error", icon: "error", position: "bottom-right", duration: 6000, dismissible: true })
+    showGoferToast({ title: goferT("js.calendar.visibility.save_failed"), description: goferT("js.calendar.visibility.restored"), variant: "error", icon: "error", position: "bottom-right", duration: 6000, dismissible: true })
   })
 }
 
@@ -12487,19 +12487,19 @@ function initializeCalendarDaySelection() {
     if (show) visible++
     fadeInCalendarAgendaEvent(event, show)
   })
-  agenda.querySelector("#calendar-agenda-heading").textContent = selected ? selected.dataset.calendarDayTitle : "All events"
+  agenda.querySelector("#calendar-agenda-heading").textContent = selected ? selected.dataset.calendarDayTitle : goferT("js.calendar.agenda.all")
   agenda.querySelector("[data-calendar-agenda-context]").textContent = selected ?
-    visible + (visible === 1 ? " event" : " events") : calendar.dataset.calendarMonthLabel
+    goferTn("js.calendar.events", visible) : calendar.dataset.calendarMonthLabel
   agenda.querySelector("[data-calendar-agenda-clear]").hidden = !selected
   agenda.querySelector("#calendar-agenda-list").hidden = visible === 0
   agenda.querySelector("[data-calendar-agenda-empty]").hidden = visible !== 0
   var sources = Array.from(document.querySelectorAll("[data-calendar-visibility]"))
   var allHidden = sources.length > 0 && sources.every(function (input) { return !_calendarSourceIsVisible(input) })
-  agenda.querySelector("[data-calendar-agenda-empty-title]").textContent = allHidden ? "All calendars are hidden" : selected ? "No events for this day" : "No events"
+  agenda.querySelector("[data-calendar-agenda-empty-title]").textContent = allHidden ? goferT("js.calendar.agenda.all_hidden") : selected ? goferT("js.calendar.agenda.none_day") : goferT("js.calendar.agenda.none")
   agenda.querySelector("[data-calendar-agenda-empty-detail]").textContent = allHidden ?
-    "Show a calendar in the sidebar to see its events." : selected ?
-    "Nothing is scheduled on this day." :
-    calendar.dataset.calendarView === "week" ? "Nothing is scheduled this week." : "Nothing is scheduled this month."
+    goferT("js.calendar.agenda.all_hidden_detail") : selected ?
+    goferT("js.calendar.agenda.none_day_detail") :
+    calendar.dataset.calendarView === "week" ? goferT("js.calendar.agenda.none_week") : goferT("js.calendar.agenda.none_month")
   // Switch views around the selected date rather than an unrelated week.
   var focusDate = selected ? selected.dataset.calendarDay : calendar.dataset.calendarDate
   calendar.querySelectorAll("[data-calendar-view-switch]").forEach(function (link) {
@@ -12951,7 +12951,7 @@ function initializeCalendarWeekScroll() {
       while (end < 24 && !axis.expanded[end]) end++
       text.hidden = (hour > 0 && !axis.expanded[hour - 1]) || axis.offsets[end] - axis.offsets[hour] < 15
       text.textContent = goferDates.hourRange(hour, end)
-      text.title = "Empty hours condensed. Zoom in to expand."
+      text.title = goferT("js.calendar.week.condensed")
     } else if (axis.heights[hour] < 15) text.hidden = hour % 2 !== 0
   })
   grid.querySelectorAll("[data-calendar-timed-column]").forEach(function (column) {
@@ -12977,7 +12977,7 @@ function initializeCalendarWeekScroll() {
   } else if (previousAxis) scroller.scrollTop = previousTop * axis.height / previousAxis.height
   if (!wasInitialized) scroller.scrollLeft = saved ? saved.left : 0
   var status = calendar.querySelector("[data-calendar-week-scale-status]")
-  if (status) status.textContent = _calendarWeekZoom === 0 ? "Fit · Empty hours condensed" : "Zoom · " + Math.round(axis.height / 24) + " px/hour"
+  if (status) status.textContent = _calendarWeekZoom === 0 ? goferT("js.calendar.week.zoom_fit") : goferT("js.calendar.week.zoom_level", { size: goferNumber(Math.round(axis.height / 24)) })
   calendar.querySelectorAll("[data-calendar-week-zoom]").forEach(function (button) {
     var action = button.dataset.calendarWeekZoom
     button.disabled = action === "out" ? _calendarWeekZoom === 0 : action === "in" && _calendarWeekZoom === 3
@@ -13635,8 +13635,8 @@ document.body.addEventListener("htmx:afterRequest", function (event) {
   }
   clearCalendarEventLoading(xhr, true)
   showGoferToast({
-    title: "Could not open event",
-    description: xhr.status === 404 ? "This event is no longer available. Refresh calendars and try again." : "Event details could not be loaded. Please try again.",
+    title: goferT("js.calendar.event.open_failed"),
+    description: xhr.status === 404 ? goferT("js.calendar.event.gone") : goferT("js.calendar.event.load_failed"),
     variant: "error", icon: "error", position: "bottom-right", duration: 6000, dismissible: true,
   })
 })
@@ -13796,7 +13796,7 @@ document.body.addEventListener("htmx:afterRequest", function (event) {
   _calendarCreateDialogRequest = null
   if (!current) return
   if (!event.detail.successful) {
-    showGoferToast({title: xhr.goferCalendarEdit ? "Could not open Edit event" : "Could not open New event", description: "Please try again.", variant: "error", icon: "error", duration: 5000})
+    showGoferToast({title: xhr.goferCalendarEdit ? goferT("js.calendar.edit.open_failed") : goferT("js.calendar.create.open_failed"), description: goferT("js.common.please_try_again"), variant: "error", icon: "error", duration: 5000})
     return
   }
   if (!xhr.goferCalendarCreateSwapped) return
@@ -13865,24 +13865,29 @@ function updateCalendarRecurrenceForm(form, locked) {
   if (!repeating) return
   var interval = form.querySelector('[name="repeat_interval"]').value
   var unit = {daily: "day", weekly: "week", monthly: "month", yearly: "year"}[frequency.value]
-  form.querySelector("[data-calendar-repeat-unit]").textContent = unit + (interval === "1" ? "" : "s")
-  var summary = "Every " + (interval || "…") + " " + unit + (interval === "1" ? "" : "s")
+  // A field still being typed has no number yet; it reads as "…".
+  var counted = function (key, value, params) {
+    var n = /^\d+$/.test(value) ? Number(value) : NaN
+    return isNaN(n) ? goferT(key + ".other", Object.assign({ count: "…" }, params)) : goferTn(key, n, params)
+  }
+  form.querySelector("[data-calendar-repeat-unit]").textContent = goferTn("js.calendar.repeat.unit." + unit, interval === "1" ? 1 : 2)
+  var summary = counted("js.calendar.repeat.every." + unit, interval)
   var start = form.querySelector('[name="start_date"]').value
   var date = /^\d{4}-\d{2}-\d{2}$/.test(start) ? new Date(start + "T12:00:00Z") : null
   if (date && !isNaN(date.getTime())) {
-    if (frequency.value === "weekly") summary += " on " + goferDates.weekdayName(date.getUTCDay())
-    if (frequency.value === "monthly") summary += " on day " + date.getUTCDate()
-    if (frequency.value === "yearly") summary += " on " + goferDates.monthName(date.getUTCMonth() + 1) + " " + date.getUTCDate()
+    if (frequency.value === "weekly") summary = goferT("js.calendar.repeat.on_weekday", { every: summary, weekday: goferDates.weekdayName(date.getUTCDay()) })
+    if (frequency.value === "monthly") summary = goferT("js.calendar.repeat.on_day", { every: summary, day: goferNumber(date.getUTCDate()) })
+    if (frequency.value === "yearly") summary = goferT("js.calendar.repeat.on_date", { every: summary, date: goferDates.longDateNoYear(date, "UTC") })
   }
-  if (ending === "count") {
-    var count = form.querySelector('[name="repeat_count"]').value
-    summary += ", " + (count || "…") + (count === "1" ? " occurrence" : " occurrences including the first")
-  }
-  if (ending === "until") summary += ", through " + (form.querySelector('[name="repeat_until"]').value || "the selected date")
-  if (ending === "never") summary += ", with no end date"
-  summary += "."
-  if (date && (frequency.value === "monthly" || frequency.value === "yearly") && date.getUTCDate() > 28) summary += " Uses the last day in shorter months."
-  if (!form.querySelector('[name="all_day"]').checked) summary += " Times follow " + form.querySelector('[name="timezone"]').value + "."
+  if (ending === "count") summary = counted("js.calendar.repeat.end_count", form.querySelector('[name="repeat_count"]').value, { rule: summary })
+  else if (ending === "until") {
+    var until = form.querySelector('[name="repeat_until"]').value
+    var untilDate = /^\d{4}-\d{2}-\d{2}$/.test(until) ? new Date(until + "T12:00:00Z") : null
+    summary = untilDate && !isNaN(untilDate.getTime()) ? goferT("js.calendar.repeat.end_until", { rule: summary, date: goferDates.date(untilDate, "UTC") }) : goferT("js.calendar.repeat.end_until_unset", { rule: summary })
+  } else if (ending === "never") summary = goferT("js.calendar.repeat.end_never", { rule: summary })
+  else summary = goferT("js.calendar.repeat.plain", { rule: summary })
+  if (date && (frequency.value === "monthly" || frequency.value === "yearly") && date.getUTCDate() > 28) summary += " " + goferT("js.calendar.repeat.last_day")
+  if (!form.querySelector('[name="all_day"]').checked) summary += " " + goferT("js.calendar.repeat.timezone", { timezone: form.querySelector('[name="timezone"]').value })
   form.querySelector("[data-calendar-repeat-summary]").textContent = summary
 }
 
@@ -14039,7 +14044,7 @@ function setCalendarDescriptionExpanded(form, expanded) {
   body.style.opacity = expanded ? "0" : state.bodyOpacity || "1"
   form._calendarDescriptionExpanded = expanded
   var button = editor.querySelector("[data-calendar-description-toggle]")
-  var label = expanded ? "Collapse description" : "Expand description"
+  var label = expanded ? goferT("js.calendar.description.collapse") : goferT("js.calendar.description.expand")
   button.setAttribute("aria-expanded", String(expanded))
   button.setAttribute("aria-label", label)
   button.title = label
@@ -14180,7 +14185,7 @@ function updateCalendarMeetPreview(form, locked) {
     prepareCalendarMeetPreview(form, state)
   }
   input.value = state.status === "ready" ? state.id : ""
-  panel.querySelector("[data-calendar-meet-status]").textContent = state.status === "loading" ? "Generating Google Meet link…" : state.status === "error" ? state.error : ""
+  panel.querySelector("[data-calendar-meet-status]").textContent = state.status === "loading" ? goferT("js.calendar.meet.generating") : state.status === "error" ? state.error : ""
   var link = panel.querySelector("[data-calendar-meet-link]")
   link.hidden = state.status !== "ready"
   var anchor = panel.querySelector("[data-calendar-meet-url]")
@@ -14235,7 +14240,7 @@ function updateCalendarTeamsPreview(form, locked) {
     prepareCalendarMeetPreview(form, state)
   }
   input.value = state.status === "ready" ? state.id : ""
-  panel.querySelector("[data-calendar-meet-status]").textContent = state.status === "loading" ? "Generating Teams link…" : state.status === "error" ? state.error : ""
+  panel.querySelector("[data-calendar-meet-status]").textContent = state.status === "loading" ? goferT("js.calendar.teams.generating") : state.status === "error" ? state.error : ""
   panel.querySelector("[data-calendar-meet-link]").hidden = state.status !== "ready"
   var anchor = panel.querySelector("[data-calendar-meet-url]")
   anchor.textContent = state.url
@@ -14269,7 +14274,7 @@ function prepareCalendarMeetPreview(form, state) {
   var timeout
   var deadline = new Promise(function (_, reject) {
     timeout = setTimeout(function () {
-      reject(new Error(label + " link generation timed out. Retry to check the same link again."))
+      reject(new Error(goferT("js.calendar.meeting.timed_out", { provider: label })))
       controller.abort()
     }, Math.max(0, Math.min(35000, state.deadline - Date.now())))
   })
@@ -14279,14 +14284,14 @@ function prepareCalendarMeetPreview(form, state) {
     .finally(function () { clearTimeout(timeout) })
     .then(function (result) {
       if (!form.isConnected || form[key] !== state) return
-      if (!result.ok) throw new Error(result.data.error || "Could not generate the " + label + " link. Retry.")
-      if (result.data.source_id !== state.source || result.data.draft_id !== state.id) throw new Error("The meeting request changed. Retry.")
+      if (!result.ok) throw new Error(result.data.error || goferT("js.calendar.meeting.failed", { provider: label }))
+      if (result.data.source_id !== state.source || result.data.draft_id !== state.id) throw new Error(goferT("js.calendar.meeting.changed"))
       if (result.data.pending && state.attempts < 5) {
         setTimeout(function () { if (form.isConnected && form[key] === state) prepareCalendarMeetPreview(form, state) }, 750)
         return
       }
       var validURL = teams ? /^https:\/\/(?:teams\.microsoft\.com|teams\.live\.com|teams\.cloud\.microsoft)\/(?:meet|l\/meetup-join)\/[^\s<>"']+$/i : /^https:\/\/meet\.google\.com\/[a-z]{3}-[a-z]{4}-[a-z]{3}(?:\?[^\s]*)?$/
-      if (!validURL.test(result.data.join_url || "")) throw new Error(label + " is still preparing the link. Retry to check it again.")
+      if (!validURL.test(result.data.join_url || "")) throw new Error(goferT("js.calendar.meeting.preparing", { provider: label }))
       state.status = "ready"
       state.url = result.data.join_url
       updateCalendarCreateForm(form)
@@ -14294,7 +14299,7 @@ function prepareCalendarMeetPreview(form, state) {
     .catch(function (error) {
       if (!form.isConnected || form[key] !== state) return
       state.status = "error"
-      state.error = error.message || "Could not generate the " + label + " link. Retry."
+      state.error = error.message || goferT("js.calendar.meeting.failed", { provider: label })
       updateCalendarCreateForm(form)
     })
 }
@@ -14336,7 +14341,7 @@ function calendarReplaceFailure(result, fallback) {
 // meeting. Each step uses the ordinary create and delete requests.
 function replaceCalendarTeamsMeeting(form) {
   if (!form.querySelector("[data-calendar-teams-replace-confirm]").checked) {
-    setCalendarCreateError(form, "Confirm that you want to replace this meeting, or turn Teams back on.")
+    setCalendarCreateError(form, goferT("js.calendar.teams_replace.confirm_first"))
     form.querySelector("[data-calendar-teams-replace-confirm]").focus()
     return Promise.resolve()
   }
@@ -14357,8 +14362,8 @@ function replaceCalendarTeamsMeeting(form) {
     .then(json)
     .then(function (created) {
       if (!created.ok || !(created.data.event_id || created.data.series_id)) {
-        var message = calendarReplaceFailure(created, "Could not create the copy without Teams.")
-        setCalendarCreateError(form, message + (created.data && created.data.uncertain ? " Save again to check without creating a second copy." : " Nothing was changed."))
+        var message = calendarReplaceFailure(created, goferT("js.calendar.teams_replace.copy_failed"))
+        setCalendarCreateError(form, message + " " + (created.data && created.data.uncertain ? goferT("js.calendar.teams_replace.save_again") : goferT("js.calendar.teams_replace.unchanged")))
         return
       }
       return fetch(form.action + "?" + form.dataset.calendarTeamsReplaceDelete, {method: "DELETE", headers: {"Accept": "application/json"}})
@@ -14367,22 +14372,22 @@ function replaceCalendarTeamsMeeting(form) {
           if (!deleted.ok || deleted.data.deleted !== true) {
             // The copy exists; never retry the whole replacement from here.
             form._calendarCreateConflict = true
-            setCalendarCreateError(form, "The copy without Teams was created, but the original Teams meeting could not be deleted: " + calendarReplaceFailure(deleted, "the result could not be confirmed.") + " Open the original meeting and delete it yourself.")
+            setCalendarCreateError(form, goferT("js.calendar.teams_replace.delete_failed", { reason: calendarReplaceFailure(deleted, goferT("js.calendar.teams_replace.unconfirmed_reason")) }))
             scheduleCalendarCacheRefresh()
             return
           }
           if (form.isConnected && window.tui && window.tui.dialog) window.tui.dialog.close("calendar-create-dialog")
-          showGoferToast({title: "Meeting replaced", description: "A copy without Teams was created and the original deleted. Guests were sent a cancellation and a new invitation.", variant: "success", icon: "success", duration: 6000})
+          showGoferToast({title: goferT("js.calendar.teams_replace.done"), description: goferT("js.calendar.teams_replace.done_detail"), variant: "success", icon: "success", duration: 6000})
           scheduleCalendarCacheRefresh()
         })
         .catch(function () {
           form._calendarCreateConflict = true
-          setCalendarCreateError(form, "The copy without Teams was created, but deleting the original could not be confirmed. Refresh calendars and delete the original Teams meeting if it's still there.")
+          setCalendarCreateError(form, goferT("js.calendar.teams_replace.delete_unconfirmed"))
           scheduleCalendarCacheRefresh()
         })
     })
     .catch(function () {
-      setCalendarCreateError(form, "Creating the copy could not be confirmed. Save again to check without creating a second copy.")
+      setCalendarCreateError(form, goferT("js.calendar.teams_replace.create_unconfirmed"))
     })
     .finally(function () { form._calendarCreateBusy = false; updateCalendarCreateForm(form) })
 }
@@ -14402,8 +14407,8 @@ function copyCalendarMeetLink(button) {
   var link = button.closest("[data-calendar-meet-preview]").querySelector("[data-calendar-meet-url]")
   if (!link || !link.href || !navigator.clipboard) return
   navigator.clipboard.writeText(link.href).then(function () {
-    button.textContent = "Copied"
-    setTimeout(function () { if (button.isConnected) button.textContent = "Copy link" }, 1500)
+    button.textContent = goferT("js.calendar.meeting.copied")
+    setTimeout(function () { if (button.isConnected) button.textContent = goferT("js.calendar.meeting.copy_link") }, 1500)
   }).catch(function () {})
 }
 
@@ -14496,13 +14501,13 @@ function updateCalendarCreateForm(form) {
   var dateHelp = form.querySelector("[data-calendar-create-date-help]")
   dateHelp.hidden = !allDay
   dateHelp.textContent = form._calendarCreateDateAdjusted ?
-    "End date adjusted to the start date: it can’t end earlier." :
-    "The end date is included in an all-day event."
+    goferT("js.calendar.create.end_adjusted") :
+    goferT("js.calendar.create.end_included")
   var access = form.querySelector("[data-calendar-create-access]")
   access.hidden = !!allowed
-  access.textContent = editing ? "This calendar is no longer writable. Refresh calendars and reopen the event to check access." : !writable ?
-    "No writable calendar is configured. Choose calendars in Accounts first." :
-    "This account has read-only Calendar access. Reconnect it from Accounts to grant event creation permission."
+  access.textContent = editing ? goferT("js.calendar.create.no_longer_writable") : !writable ?
+    goferT("js.calendar.create.no_writable") :
+    goferT("js.calendar.create.read_only")
   var submit = form.querySelector("[data-calendar-create-submit]")
   var meetToggle = form.querySelector('[name="google_meet_meeting"]')
   var meetDraft = form.querySelector('[name="google_meet_draft_id"]')
@@ -14513,7 +14518,7 @@ function updateCalendarCreateForm(form) {
   submit.disabled = (editing ? locked || !allowed : busy || (!uncertain && !allowed)) || (!uncertain && (meetNotReady || teamsNotReady))
   submit.setAttribute("aria-busy", busy ? "true" : "false")
   form.querySelector("[data-calendar-create-spinner]").hidden = !busy
-  form.querySelector("[data-calendar-create-submit-label]").textContent = editing ? (busy ? "Saving..." : calendarTeamsReplacing(form) ? "Replace meeting" : form.dataset.calendarEditSeries === "true" ? "Save series" : "Save changes") : busy ? "Creating…" : uncertain ? "Retry safely" : "Create event"
+  form.querySelector("[data-calendar-create-submit-label]").textContent = editing ? (busy ? goferT("js.calendar.create.saving") : calendarTeamsReplacing(form) ? goferT("js.calendar.create.replace_meeting") : form.dataset.calendarEditSeries === "true" ? goferT("js.calendar.create.save_series") : goferT("js.calendar.create.save_changes")) : busy ? goferT("js.calendar.create.creating") : uncertain ? goferT("js.calendar.create.retry_safely") : goferT("js.calendar.create.create")
   form.setAttribute("aria-busy", busy ? "true" : "false")
 }
 
@@ -14803,12 +14808,12 @@ function validateCalendarCreatePickers(form) {
   var meet = form.querySelector('[name="google_meet_meeting"]')
   var meetDraft = form.querySelector('[name="google_meet_draft_id"]')
   if (meet && meet.checked && !meet.disabled && (!meetDraft || !meetDraft.value)) {
-    setCalendarCreateError(form, "Wait for the Google Meet link before saving, or turn Google Meet off.")
+    setCalendarCreateError(form, goferT("js.calendar.create.wait_meet"))
     return false
   }
   var teamsDraft = form.querySelector('[name="teams_draft_id"]')
   if (!(form.dataset && form.dataset.calendarEventId) && teams && teams.checked && !teams.disabled && (!teamsDraft || !teamsDraft.value)) {
-    setCalendarCreateError(form, "Wait for the Teams link before saving, or turn Teams off.")
+    setCalendarCreateError(form, goferT("js.calendar.create.wait_teams"))
     return false
   }
   var until = repeat && repeat.value !== "none" && form.querySelector('[name="repeat_end"]').value === "until"
@@ -14816,13 +14821,13 @@ function validateCalendarCreatePickers(form) {
   for (var i = 0; i < fields.length; i++) {
     var input = form.querySelector('[name="' + fields[i] + '"]')
     if (input && input.value) continue
-    setCalendarCreateError(form, fields[i] === "repeat_until" ? "Choose the last date the series can start." : "Choose a " + fields[i].replace("_", " ").replace("timezone", "time zone") + ".")
+    setCalendarCreateError(form, goferT("js.calendar.create.missing." + fields[i]))
     var trigger = form.querySelector("#calendar-create-" + fields[i].replace(/_/g, "-"))
     if (trigger) trigger.focus()
     return false
   }
   if (until && form.querySelector('[name="repeat_until"]').value < form.querySelector('[name="start_date"]').value) {
-    setCalendarCreateError(form, "The repeat end date must be on or after the event’s start date.")
+    setCalendarCreateError(form, goferT("js.calendar.create.until_before_start"))
     form.querySelector("#calendar-create-repeat-until").focus()
     return false
   }
@@ -14875,8 +14880,8 @@ function submitCalendarCreate(form) {
           if (result.data.request_id) form.querySelector('[name="request_id"]').value = result.data.request_id
           else if (window.crypto && typeof window.crypto.randomUUID === "function") form.querySelector('[name="request_id"]').value = window.crypto.randomUUID()
         }
-        var message = result.data.error || (editing ? "Could not update this event." : "Could not create this event. Try again.")
-        if (editing && (form._calendarCreateUncertain || form._calendarCreateConflict) && !result.data.error) message += " Refresh calendars and reopen this event to verify the saved details before editing again."
+        var message = result.data.error || (editing ? goferT("js.calendar.edit.failed") : goferT("js.calendar.create.failed"))
+        if (editing && (form._calendarCreateUncertain || form._calendarCreateConflict) && !result.data.error) message += " " + goferT("js.calendar.edit.verify")
         setCalendarCreateError(form, message)
         return
       }
@@ -14886,12 +14891,12 @@ function submitCalendarCreate(form) {
       // Close only this form; a delayed save must not close a newer dialog.
       if (form.isConnected && window.tui && window.tui.dialog) window.tui.dialog.close("calendar-create-dialog")
       var warning = result.data.teams_unconfirmed || result.data.google_meet_unconfirmed || result.data.refresh_pending
-      showGoferToast({title: editing ? (form.dataset.calendarEditSeries === "true" ? "Series updated" : "Event updated") : result.data.series_id ? "Recurring event created" : "Event created", description: result.data.teams_unconfirmed ? "Event saved, but Microsoft did not confirm a Teams link. Check the event in Outlook; do not create it again." : result.data.google_meet_unconfirmed ? "Event saved, but its Google Meet link is not ready. Refresh the calendar or check Google Calendar; do not create it again." : result.data.refresh_pending ? "Series saved. Its occurrences could not refresh yet; refresh the calendar to load them." : result.data.notify_guests ? "Meeting saved. Guest notifications are being delivered." : result.data.hidden ? "Saved to a hidden calendar. Enable its visibility to see it." : "Saved to your calendar.", variant: warning ? "warning" : "success", icon: warning ? "warning" : "success", duration: warning ? 10000 : 4500})
+      showGoferToast({title: editing ? (form.dataset.calendarEditSeries === "true" ? goferT("js.calendar.saved.series_updated") : goferT("js.calendar.saved.event_updated")) : result.data.series_id ? goferT("js.calendar.saved.recurring_created") : goferT("js.calendar.saved.event_created"), description: result.data.teams_unconfirmed ? goferT("js.calendar.saved.teams_unconfirmed") : result.data.google_meet_unconfirmed ? goferT("js.calendar.saved.meet_unconfirmed") : result.data.refresh_pending ? goferT("js.calendar.saved.refresh_pending") : result.data.notify_guests ? goferT("js.calendar.saved.notifying") : result.data.hidden ? goferT("js.calendar.saved.hidden") : goferT("js.calendar.saved.to_calendar"), variant: warning ? "warning" : "success", icon: warning ? "warning" : "success", duration: warning ? 10000 : 4500})
       scheduleCalendarCacheRefresh()
     })
     .catch(function () {
       form._calendarCreateUncertain = true
-      setCalendarCreateError(form, editing ? "The save result could not be confirmed. Refresh calendars and reopen this event to verify the saved details before editing again." : "The result could not be confirmed. Retry this same event to check without creating a duplicate.")
+      setCalendarCreateError(form, editing ? goferT("js.calendar.edit.unconfirmed") : goferT("js.calendar.create.unconfirmed"))
     })
     .finally(function () { form._calendarCreateBusy = false; updateCalendarCreateForm(form) })
 }
@@ -14951,7 +14956,7 @@ function updateCalendarResponseForm(form) {
   })
   var progress = form.querySelector("[data-calendar-response-progress]")
   if (!form._calendarResponseHelp) form._calendarResponseHelp = progress.textContent
-  progress.textContent = busy ? "Sending your response…" : form._calendarResponseLoader ? "Checking invitation…" : form._calendarResponseHelp
+  progress.textContent = busy ? goferT("js.calendar.response.sending") : form._calendarResponseLoader ? goferT("js.calendar.response.checking") : form._calendarResponseHelp
 }
 
 function setCalendarResponseError(form, message) {
@@ -14998,7 +15003,7 @@ document.body.addEventListener("htmx:afterRequest", function (event) {
     if (loading._calendarResponseLoader !== xhr) return
     delete loading._calendarResponseLoader
     if (!event.detail.successful && loading.isConnected) {
-      var message = xhr.status >= 400 && xhr.status < 500 && xhr.responseText && xhr.responseText.length < 600 ? xhr.responseText.trim() : "Could not check your response. Reopen the invitation or try the scope again."
+      var message = xhr.status >= 400 && xhr.status < 500 && xhr.responseText && xhr.responseText.length < 600 ? xhr.responseText.trim() : goferT("js.calendar.response.check_failed")
       setCalendarResponseError(loading, message)
       updateCalendarResponseForm(loading)
     }
@@ -15013,7 +15018,7 @@ document.body.addEventListener("htmx:afterRequest", function (event) {
     var result = JSON.parse(xhr.responseText)
     if (!event.detail.successful) {
       form._calendarResponseBlocked = !!result.uncertain || !!result.conflict
-      setCalendarResponseError(form, result.error || "Could not send your response. Try again.")
+      setCalendarResponseError(form, result.error || goferT("js.calendar.response.failed"))
     } else {
       if ((result.responded !== true && result.pending !== true) || (result.responded === true && result.pending === true) || result.event_id !== form.dataset.calendarEventId || result.scope !== request.scope || result.response !== request.response) throw new Error("Unconfirmed response")
       form._calendarResponseBlocked = true
@@ -15024,10 +15029,10 @@ document.body.addEventListener("htmx:afterRequest", function (event) {
         var deliveryDialog = form.closest("[data-tui-dialog]")
         if (form.isConnected && deliveryRoot && (!deliveryDialog || (deliveryDialog.open && !deliveryDialog.hasAttribute("data-tui-dialog-closing")))) {
           window.htmx.ajax("GET", "/api/calendar/replies/" + result.delivery_id, { target: deliveryRoot, swap: "innerHTML" }).catch(function () {
-            setCalendarResponseError(form, "Reply queued. Reopen this invitation to check delivery; do not send it again.")
+            setCalendarResponseError(form, goferT("js.calendar.response.queued_check"))
           })
         }
-        showGoferToast({title: "Reply queued", description: "The email reply will send in the background. Reopen the invitation to check delivery.", variant: "info", duration: 5000})
+        showGoferToast({title: goferT("js.calendar.response.queued"), description: goferT("js.calendar.response.queued_detail"), variant: "info", duration: 5000})
         return
       }
       var responseDialog = form.closest("[data-tui-dialog]")
@@ -15047,22 +15052,22 @@ document.body.addEventListener("htmx:afterRequest", function (event) {
           }
         }
         if (pending) {
-          form._calendarResponseHelp = "Response submitted. Refresh to check its status before responding again."
+          form._calendarResponseHelp = goferT("js.calendar.response.submitted_help")
           form.querySelector("[data-calendar-response-progress]").hidden = false
         } else {
           window.htmx.ajax("GET", mailFooter.getAttribute("hx-get"), {target: mailFooter, swap: "innerHTML"}).catch(function () {
-            form._calendarResponseHelp = "Response saved. Refresh to update the event information."
+            form._calendarResponseHelp = goferT("js.calendar.response.saved_help")
             form.querySelector("[data-calendar-response-progress]").hidden = false
             updateCalendarResponseForm(form)
           })
         }
       }
-      showGoferToast({title: result.pending ? "Response submitted" : "Response saved", description: result.pending ? "The provider is still processing your reply. Refresh the calendar to check its status; don't send it again." : result.refresh_pending ? "Your response was confirmed, but the calendar could not refresh yet." : request.scope === "series" ? "Your response to the series was confirmed." : "Your response was confirmed.", variant: pending ? "warning" : "success", icon: pending ? "warning" : "success", duration: pending ? 8000 : 4500})
+      showGoferToast({title: result.pending ? goferT("js.calendar.response.submitted") : goferT("js.calendar.response.saved"), description: result.pending ? goferT("js.calendar.response.processing") : result.refresh_pending ? goferT("js.calendar.response.confirmed_no_refresh") : request.scope === "series" ? goferT("js.calendar.response.confirmed_series") : goferT("js.calendar.response.confirmed"), variant: pending ? "warning" : "success", icon: pending ? "warning" : "success", duration: pending ? 8000 : 4500})
       scheduleCalendarCacheRefresh()
     }
   } catch (_) {
     form._calendarResponseBlocked = true
-    setCalendarResponseError(form, "The response could not be confirmed. Refresh the calendar and reopen the invitation before trying again.")
+    setCalendarResponseError(form, goferT("js.calendar.response.unconfirmed"))
   }
   updateCalendarResponseForm(form)
 })
@@ -15075,7 +15080,7 @@ function updateCalendarDeleteForm(form) {
   form.querySelector("[data-calendar-delete-cancel]").disabled = busy
   form.querySelector("[data-calendar-delete-spinner]").hidden = !busy
   form.querySelectorAll("[data-calendar-delete-load]").forEach(function (button) { button.disabled = locked })
-  form.querySelector("[data-calendar-delete-label]").textContent = busy ? "Deleting…" : form.dataset.calendarDeleteSeries === "true" ? "Delete series" : "Delete event"
+  form.querySelector("[data-calendar-delete-label]").textContent = busy ? goferT("js.calendar.delete.deleting") : form.dataset.calendarDeleteSeries === "true" ? goferT("js.calendar.delete.series") : goferT("js.calendar.delete.event")
   var root = form.closest("[data-tui-dialog]")
   if (root) root.querySelectorAll("[data-calendar-edit-trigger], [data-calendar-delete-trigger]").forEach(function (button) { button.disabled = locked })
 }
@@ -15109,15 +15114,15 @@ document.addEventListener("submit", function (event) {
       return response.json().then(function (data) { return {ok: response.ok, data: data} })
     })
     .then(function (result) {
-      if (!result.ok || result.data.forwarded !== true) { fail(result.data.error || "Could not forward the invitation."); return }
+      if (!result.ok || result.data.forwarded !== true) { fail(result.data.error || goferT("js.calendar.forward.failed")); return }
       form._calendarForwardBusy = false
       submit.disabled = false
       form.reset()
       var root = form.closest("[data-tui-popover-root]")
       if (root && window.tui && window.tui.popover) window.tui.popover.closeElement(root)
-      showGoferToast({title: "Invitation forwarded", description: result.data.delivery === "email" ? "It's being sent from your account." : "Sent by Microsoft.", variant: "success", icon: "success", duration: 3500})
+      showGoferToast({title: goferT("js.calendar.forward.done"), description: result.data.delivery === "email" ? goferT("js.calendar.forward.from_account") : goferT("js.calendar.forward.by_microsoft"), variant: "success", icon: "success", duration: 3500})
     })
-    .catch(function () { fail("Could not forward the invitation. Check your connection and try again.") })
+    .catch(function () { fail(goferT("js.calendar.forward.offline")) })
 })
 
 document.addEventListener("click", function (event) {
@@ -15173,7 +15178,7 @@ document.body.addEventListener("htmx:afterRequest", function (event) {
     delete loading._calendarDeleteLoader
     if (!event.detail.successful && loading.isConnected) {
       loading.querySelector("[data-calendar-delete-check]").hidden = true
-      var message = xhr.status >= 400 && xhr.status < 500 && xhr.responseText && xhr.responseText.length < 600 ? xhr.responseText.trim() : "Could not check the selection. Choose the scope again or reopen this confirmation to retry."
+      var message = xhr.status >= 400 && xhr.status < 500 && xhr.responseText && xhr.responseText.length < 600 ? xhr.responseText.trim() : goferT("js.calendar.delete.check_failed")
       setCalendarDeleteError(loading, message)
       updateCalendarDeleteForm(loading)
     }
@@ -15189,7 +15194,7 @@ document.body.addEventListener("htmx:afterRequest", function (event) {
     var result = JSON.parse(xhr.responseText)
     if (!event.detail.successful) {
       form._calendarDeleteBlocked = !!result.uncertain || !!result.conflict
-      setCalendarDeleteError(form, result.error || (form._calendarDeleteBlocked ? "Refresh the calendar and reopen the event before trying again." : "Could not delete the event. Try again."))
+      setCalendarDeleteError(form, result.error || (form._calendarDeleteBlocked ? goferT("js.calendar.refresh_reopen") : goferT("js.calendar.delete.failed")))
     } else {
       if (result.deleted !== true || result.event_id !== form.dataset.calendarEventId) throw new Error("Unconfirmed deletion")
       if (form.dataset.calendarDeleteSeries === "true" && (!result.series_id || result.series_id !== form.dataset.calendarDeleteSeriesId)) throw new Error("Unconfirmed series deletion")
@@ -15199,12 +15204,12 @@ document.body.addEventListener("htmx:afterRequest", function (event) {
         if (window.tui.popover) window.tui.popover.closeElement(form)
         if (window.tui.dialog) window.tui.dialog.close(form.closest("[data-tui-dialog]"))
       }
-      showGoferToast({title: form.dataset.calendarDeleteSeries === "true" ? "Series deleted" : "Event deleted", description: form.dataset.calendarDeleteSeries === "true" ? "All occurrences were removed from your calendar." : form.dataset.calendarDeleteOccurrence === "true" ? "Only this occurrence was removed. The rest of the series is unchanged." : "Removed from your calendar.", variant: "success", icon: "success", duration: 4500})
+      showGoferToast({title: form.dataset.calendarDeleteSeries === "true" ? goferT("js.calendar.delete.series_done") : goferT("js.calendar.delete.done"), description: form.dataset.calendarDeleteSeries === "true" ? goferT("js.calendar.delete.series_done_detail") : form.dataset.calendarDeleteOccurrence === "true" ? goferT("js.calendar.delete.occurrence_done") : goferT("js.calendar.delete.removed"), variant: "success", icon: "success", duration: 4500})
       scheduleCalendarCacheRefresh()
     }
   } catch (_) {
     form._calendarDeleteBlocked = true
-    setCalendarDeleteError(form, "The deletion could not be confirmed. Refresh the calendar and reopen the event before trying again.")
+    setCalendarDeleteError(form, goferT("js.calendar.delete.unconfirmed"))
   }
   updateCalendarDeleteForm(form)
 })
@@ -15309,7 +15314,8 @@ document.addEventListener("contextmenu", function (event) {
   var context = {id: eventID, trigger: trigger, actions: null}
   _calendarContext = context
   var title = root.querySelector("[data-calendar-context-title]")
-  if (title) title.textContent = trigger.getAttribute("title") || (trigger.getAttribute("aria-label") || "").replace(/^Open (all-day )?event: /, "") || "Event"
+  var eventText = trigger.querySelector("[data-calendar-event-text]")
+  if (title) title.textContent = trigger.getAttribute("title") || (eventText ? eventText.textContent.trim() : "") || goferT("js.calendar.event.fallback")
   var loading = root.querySelector("[data-calendar-context-loading]")
   fillCalendarContextMenu(root, null)
   if (loading) loading.hidden = true
@@ -15430,7 +15436,7 @@ function openCalendarContextEditor(context, scope) {
 
 function calendarContextLabel(context) {
   var title = document.querySelector("#calendar-context-menu [data-calendar-context-title]")
-  return title && title.textContent ? title.textContent : "This event"
+  return title && title.textContent ? title.textContent : goferT("js.calendar.event.this")
 }
 
 // One event, or one occurrence of a series: asked here, then deleted as the
@@ -15442,10 +15448,10 @@ function deleteCalendarContextEvent(context, occurrence) {
     return
   }
   window.goferConfirm({
-    title: occurrence ? "Delete this occurrence?" : "Delete this event?",
-    message: calendarContextLabel(context) + (occurrence ? " will be removed. The rest of the series is unchanged." : " will be removed from your calendar."),
+    title: occurrence ? goferT("js.calendar.delete.confirm_occurrence") : goferT("js.calendar.delete.confirm_event"),
+    message: goferT(occurrence ? "js.calendar.delete.confirm_occurrence_detail" : "js.calendar.delete.confirm_event_detail", { event: calendarContextLabel(context) }),
     destructive: true,
-    confirmLabel: "Delete event",
+    confirmLabel: goferT("js.calendar.delete.event"),
   }).then(function (accepted) {
     if (!accepted) return
     var params = new URLSearchParams({version: a.delete_version})
@@ -15457,15 +15463,15 @@ function deleteCalendarContextEvent(context, occurrence) {
       .then(function (answer) {
         var result = answer.result || {}
         if (!answer.ok) {
-          showGoferToast({title: "Couldn't delete the event", description: result.error || (result.uncertain || result.conflict ? "Refresh the calendar and reopen the event before trying again." : "Try again."), variant: "error", icon: "error", duration: 8000})
+          showGoferToast({title: goferT("js.calendar.delete.failed_title"), description: result.error || (result.uncertain || result.conflict ? goferT("js.calendar.refresh_reopen") : goferT("js.calendar.try_again")), variant: "error", icon: "error", duration: 8000})
           return
         }
         if (result.deleted !== true || result.event_id !== context.id || (occurrence && result.scope !== "occurrence")) throw new Error("Unconfirmed deletion")
-        showGoferToast({title: "Event deleted", description: occurrence ? "Only this occurrence was removed. The rest of the series is unchanged." : "Removed from your calendar.", variant: "success", icon: "success", duration: 4500})
+        showGoferToast({title: goferT("js.calendar.delete.done"), description: occurrence ? goferT("js.calendar.delete.occurrence_done") : goferT("js.calendar.delete.removed"), variant: "success", icon: "success", duration: 4500})
         scheduleCalendarCacheRefresh()
       })
       .catch(function () {
-        showGoferToast({title: "Deletion not confirmed", description: "Refresh the calendar and reopen the event before trying again.", variant: "error", icon: "error", duration: 8000})
+        showGoferToast({title: goferT("js.calendar.delete.not_confirmed"), description: goferT("js.calendar.refresh_reopen"), variant: "error", icon: "error", duration: 8000})
       })
   })
 }
@@ -15515,20 +15521,20 @@ function sendCalendarContextResponse(context, response) {
     .then(function (answer) {
       var result = answer.result || {}
       if (!answer.ok) {
-        showGoferToast({title: "Couldn't send your response", description: result.error || (result.uncertain || result.conflict ? "Refresh the calendar and reopen the invitation before trying again." : "Try again."), variant: "error", icon: "error", duration: 8000})
+        showGoferToast({title: goferT("js.calendar.response.failed_title"), description: result.error || (result.uncertain || result.conflict ? goferT("js.calendar.response.refresh_reopen") : goferT("js.calendar.try_again")), variant: "error", icon: "error", duration: 8000})
         return
       }
       if ((result.responded !== true && result.pending !== true) || (result.responded === true && result.pending === true) || result.event_id !== context.id || result.scope !== state.scope || result.response !== response) throw new Error("Unconfirmed response")
       if (result.delivery === "email") {
-        showGoferToast({title: "Reply queued", description: "The email reply will send in the background. Reopen the invitation to check delivery.", variant: "info", duration: 5000})
+        showGoferToast({title: goferT("js.calendar.response.queued"), description: goferT("js.calendar.response.queued_detail"), variant: "info", duration: 5000})
         return
       }
       var pending = result.pending || result.refresh_pending
-      showGoferToast({title: result.pending ? "Response submitted" : "Response saved", description: result.pending ? "The provider is still processing your reply. Refresh the calendar to check its status; don't send it again." : result.refresh_pending ? "Your response was confirmed, but the calendar could not refresh yet." : state.scope === "series" ? "Your response to the series was confirmed." : "Your response was confirmed.", variant: pending ? "warning" : "success", icon: pending ? "warning" : "success", duration: pending ? 8000 : 4500})
+      showGoferToast({title: result.pending ? goferT("js.calendar.response.submitted") : goferT("js.calendar.response.saved"), description: result.pending ? goferT("js.calendar.response.processing") : result.refresh_pending ? goferT("js.calendar.response.confirmed_no_refresh") : state.scope === "series" ? goferT("js.calendar.response.confirmed_series") : goferT("js.calendar.response.confirmed"), variant: pending ? "warning" : "success", icon: pending ? "warning" : "success", duration: pending ? 8000 : 4500})
       scheduleCalendarCacheRefresh()
     })
     .catch(function () {
-      showGoferToast({title: "Response not confirmed", description: "Refresh the calendar and reopen the invitation before trying again.", variant: "error", icon: "error", duration: 8000})
+      showGoferToast({title: goferT("js.calendar.response.not_confirmed"), description: goferT("js.calendar.response.refresh_reopen"), variant: "error", icon: "error", duration: 8000})
     })
 }
 
@@ -15580,10 +15586,10 @@ function updateCalendarSyncPresentation() {
     node.dataset.calendarNextAttempt = state.next_attempt_at || ""
     var iconState = state.state === "ok" && !state.last_synced_at ? "pending" : state.state
     node.querySelectorAll("[data-calendar-source-sync-icon]").forEach(function (icon) { icon.hidden = icon.dataset.calendarSourceSyncIcon !== iconState })
-    var title = state.state === "syncing" ? "Refreshing calendar…" : state.state === "failed" ?
-      "Refresh failed: " + (state.error || "Could not connect.") + " Cached events remain available." : state.last_synced_at ?
-      "Last synced " + formatCalendarSyncTime(state.last_synced_at, true) : "Waiting for first refresh"
-    if (state.state === "failed" && state.next_attempt_at) title += " Retrying at " + formatCalendarSyncTime(state.next_attempt_at, false) + "."
+    var title = state.state === "syncing" ? goferT("js.calendar.sync.refreshing_one") : state.state === "failed" ?
+      goferT("js.calendar.sync.source_failed", { error: state.error || goferT("js.calendar.sync.could_not_connect") }) : state.last_synced_at ?
+      goferT("js.calendar.sync.last", { time: formatCalendarSyncTime(state.last_synced_at, true) }) : goferT("js.calendar.sync.waiting")
+    if (state.state === "failed" && state.next_attempt_at) title += " " + goferT("js.calendar.sync.retrying_at", { time: formatCalendarSyncTime(state.next_attempt_at, false) })
     node.title = title
     node.setAttribute("aria-label", title)
     sources.push(state)
@@ -15601,22 +15607,22 @@ function updateCalendarSyncPresentation() {
   }, Infinity)
   var synced = !pending && isFinite(last)
   _setCalendarSyncBusy(busy)
-  var message = busy ? "Refreshing calendars…" : failed ? failed + " calendar(s) could not refresh. Retrying automatically." :
-    synced ? "Last synced " + formatCalendarSyncTime(last, false) : "Waiting for first refresh"
+  var message = busy ? goferT("js.calendar.sync.refreshing") : failed ? goferTn("js.calendar.sync.failed_count", failed) :
+    synced ? goferT("js.calendar.sync.last", { time: formatCalendarSyncTime(last, false) }) : goferT("js.calendar.sync.waiting")
   document.querySelectorAll("[data-calendar-sync-status]").forEach(function (node) {
     node.textContent = message
     node.parentElement.className = "inline-flex items-center gap-1.5 " + (busy ? "text-muted-foreground" : failed ? "text-destructive" : synced ? "text-emerald-700 dark:text-emerald-300" : "text-muted-foreground")
   })
   document.querySelectorAll("[data-calendar-sync-label]").forEach(function (node) {
-    node.textContent = busy ? "Refreshing calendars" : failed ? "Calendar sync needs attention" : synced ? "Calendar synchronized" : "Calendar sync pending"
+    node.textContent = busy ? goferT("js.calendar.sync.label.busy") : failed ? goferT("js.calendar.sync.label.failed") : synced ? goferT("js.calendar.sync.label.synced") : goferT("js.calendar.sync.label.pending")
     node.parentElement.className = "flex items-center gap-2 text-xs font-semibold " + (!busy && failed ? "text-destructive" : "text-foreground")
   })
   document.querySelectorAll("[data-calendar-sync-dot]").forEach(function (node) {
     node.className = "size-2 rounded-full " + (busy ? "bg-primary animate-pulse" : failed ? "bg-destructive" : synced ? "bg-emerald-500" : "bg-muted-foreground/50")
   })
   document.querySelectorAll("[data-calendar-sync-detail]").forEach(function (node) {
-    node.textContent = busy ? "Fetching events from your selected calendars." : failed ? "Previously cached events remain available. " + message :
-      synced ? message + ". Background refresh is enabled." : "Waiting for the first successful refresh. Cached events remain available."
+    node.textContent = busy ? goferT("js.calendar.sync.detail.busy") : failed ? goferT("js.calendar.sync.detail.failed", { status: message }) :
+      synced ? goferT("js.calendar.sync.detail.synced", { time: formatCalendarSyncTime(last, false) }) : goferT("js.calendar.sync.detail.pending")
   })
 }
 
@@ -15691,7 +15697,7 @@ document.addEventListener("click", function (event) {
     headers: { "Accept": "text/plain" },
   }).then(function (response) {
     if (response.ok) return
-    return response.text().then(function (text) { throw new Error((text || "").trim() || "Please try again.") })
+    return response.text().then(function (text) { throw new Error((text || "").trim() || goferT("js.common.please_try_again")) })
   }).then(function () {
     refreshCalendarSidebar()
     scheduleCalendarCacheRefresh()
@@ -15699,7 +15705,7 @@ document.addEventListener("click", function (event) {
     button.disabled = false
     button.removeAttribute("aria-busy")
     if (icon) icon.classList.remove("animate-pulse")
-    showGoferToast({ title: start ? "Could not sync this calendar" : "Could not stop syncing this calendar", description: error && error.message ? error.message : "Please try again.", variant: "error", icon: "error", position: "bottom-right", duration: 6000, dismissible: true })
+    showGoferToast({ title: start ? goferT("js.calendar.source.sync_failed") : goferT("js.calendar.source.stop_failed"), description: error && error.message ? error.message : goferT("js.common.please_try_again"), variant: "error", icon: "error", position: "bottom-right", duration: 6000, dismissible: true })
   })
 })
 
@@ -15708,15 +15714,13 @@ document.addEventListener("click", function (event) {
 // can't change the account's own calendar list, and offers to sign the
 // account in again allowing it, coming back to this page.
 function offerFullCalendarAccess(data, action) {
-  var name = data.calendarSourceName || "this calendar"
+  var name = data.calendarSourceName || goferT("js.calendar.source.this")
   var personal = action === "rename-mine" || action === "remove"
-  var doing = { "delete": "delete", "rename-mine": "rename", remove: "remove" }[action] || "rename"
+  var doing = { "delete": "delete", "rename-mine": "rename_mine", remove: "remove" }[action] || "rename"
   window.goferConfirm({
-    title: "Allow Gofer to " + doing + " “" + name + "”" + (personal ? " just for you" : "") + "?",
-    message: personal
-      ? "Google lets Gofer change your calendar list only with full calendar access. Allow it to rename or remove “" + name + "” and other calendars shared with you, just for you, from here: Google asks you to sign in again and confirm, then brings you back."
-      : "Google lets Gofer rename and delete only the calendars it created. Allow full calendar access to manage “" + name + "” and every other calendar you own from here: Google asks you to sign in again and confirm, then brings you back.",
-    confirmLabel: "Allow full calendar access",
+    title: goferT("js.calendar.access.title." + doing, { calendar: name }),
+    message: goferT(personal ? "js.calendar.access.personal" : "js.calendar.access.owned", { calendar: name }),
+    confirmLabel: goferT("js.calendar.access.allow"),
   }).then(function (accepted) {
     if (!accepted) return
     var form = document.createElement("form")
@@ -15756,31 +15760,33 @@ document.addEventListener("click", function (event) {
   var personal = button.hasAttribute("data-calendar-source-rename-mine") || button.hasAttribute("data-calendar-source-remove")
   var rename = button.hasAttribute("data-calendar-source-rename") || button.hasAttribute("data-calendar-source-rename-mine")
   var sourceID = button.dataset.calendarSourceRename || button.dataset.calendarSourceDelete || button.dataset.calendarSourceRenameMine || button.dataset.calendarSourceRemove
-  var name = button.dataset.calendarSourceName || "this calendar"
+  var name = button.dataset.calendarSourceName || goferT("js.calendar.source.this")
   var ask = personal && rename
     ? window.goferPrompt({
-      title: "Rename just for you",
-      message: "Only you see this name, in Gofer and in Google Calendar on this account. Its owner and everyone else it's shared with still see the calendar's own name.",
-      label: "Calendar name", value: name, confirmLabel: goferT("js.common.rename"),
+      title: goferT("js.calendar.source.rename_mine"),
+      message: goferT("js.calendar.source.rename_mine_detail"),
+      label: goferT("js.calendar.source.name"), value: name, confirmLabel: goferT("js.common.rename"),
     }).then(function (next) {
       next = (next || "").trim()
       return next && next !== name ? { method: "PATCH", body: JSON.stringify({ name: next, just_for_me: true }) } : null
     })
     : personal
     ? window.goferConfirm({
-      title: "Remove “" + name + "” from your list?",
-      message: "“" + name + "” disappears from Gofer and from Google Calendar on this account. The calendar and its events stay as they are for its owner and everyone else it's shared with, and you can add it again in Google Calendar.",
-      confirmLabel: "Remove from your list",
+      title: goferT("js.calendar.source.remove_title", { calendar: name }),
+      message: goferT("js.calendar.source.remove_detail", { calendar: name }),
+      confirmLabel: goferT("js.calendar.source.remove"),
     }).then(function (accepted) { return accepted ? { method: "DELETE", query: "?just_for_me=1" } : null })
     : rename
-    ? window.goferPrompt({ title: "Rename calendar", label: "Calendar name", value: name, confirmLabel: "Rename" }).then(function (next) {
+    ? window.goferPrompt({ title: goferT("js.calendar.source.rename"), label: goferT("js.calendar.source.name"), value: name, confirmLabel: goferT("js.common.rename") }).then(function (next) {
       next = (next || "").trim()
       return next && next !== name ? { method: "PATCH", body: JSON.stringify({ name: next }) } : null
     })
     : window.goferConfirm({
-      title: "Delete “" + name + "”?",
-      message: "“" + name + "” and all its events are deleted from " + (button.dataset.calendarProvider || "its server") + ", for every app and device that uses it. This can't be undone.",
-      confirmLabel: "Delete calendar",
+      title: goferT("js.calendar.source.delete_title", { calendar: name }),
+      message: button.dataset.calendarProvider
+        ? goferT("js.calendar.source.delete_detail", { calendar: name, provider: button.dataset.calendarProvider })
+        : goferT("js.calendar.source.delete_detail_server", { calendar: name }),
+      confirmLabel: goferT("js.calendar.source.delete"),
       destructive: true,
     }).then(function (accepted) { return accepted ? { method: "DELETE" } : null })
   ask.then(function (request) {
@@ -15793,17 +15799,17 @@ document.addEventListener("click", function (event) {
       if (response.ok) {
         refreshCalendarSidebar()
         scheduleCalendarCacheRefresh()
-        showGoferToast({ title: rename ? "Calendar renamed" : personal ? "Calendar removed from your list" : "Calendar deleted", variant: "success", icon: "success", position: "bottom-right", duration: 3000, dismissible: true })
+        showGoferToast({ title: rename ? goferT("js.calendar.source.renamed") : personal ? goferT("js.calendar.source.removed") : goferT("js.calendar.source.deleted"), variant: "success", icon: "success", position: "bottom-right", duration: 3000, dismissible: true })
         return
       }
       if (response.headers.get("X-Gofer-Needs-Calendar-Access") === "google") {
         offerFullCalendarAccess(button.dataset, personal ? (rename ? "rename-mine" : "remove") : rename ? "rename" : "delete")
         return
       }
-      return response.text().then(function (text) { throw new Error((text || "").trim() || "Please try again.") })
+      return response.text().then(function (text) { throw new Error((text || "").trim() || goferT("js.common.please_try_again")) })
     })
   }).catch(function (error) {
-    showGoferToast({ title: rename ? "Could not rename the calendar" : personal ? "Could not remove the calendar" : "Could not delete the calendar", description: error && error.message ? error.message : "Please try again.", variant: "error", icon: "error", position: "bottom-right", duration: 6000, dismissible: true })
+    showGoferToast({ title: rename ? goferT("js.calendar.source.rename_failed") : personal ? goferT("js.calendar.source.remove_failed") : goferT("js.calendar.source.delete_failed"), description: error && error.message ? error.message : goferT("js.common.please_try_again"), variant: "error", icon: "error", position: "bottom-right", duration: 6000, dismissible: true })
   })
 })
 
@@ -15833,7 +15839,7 @@ function updateCalendarImportNameField(form) {
 function downloadCalendarExport(href) {
   var filename = "calendar.ics"
   return fetch(href, { headers: { "Accept": "text/calendar" } }).then(function (response) {
-    if (!response.ok) return response.text().then(function (text) { throw new Error((text || "").trim() || "Please try again.") })
+    if (!response.ok) return response.text().then(function (text) { throw new Error((text || "").trim() || goferT("js.common.please_try_again")) })
     var match = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(response.headers.get("Content-Disposition") || "")
     if (match) { try { filename = decodeURIComponent(match[1]) } catch (e) { filename = match[1] } }
     return response.blob()
@@ -15901,9 +15907,9 @@ document.addEventListener("submit", function (event) {
   var target = (form.querySelector("input[name='target']") || {}).value || ""
   var nameInput = form.querySelector("[data-calendar-import-name]")
   var name = nameInput ? nameInput.value.trim() : ""
-  var problem = !file ? "Choose an .ics file." : !target ? "Choose a calendar to import into." : target.indexOf("account:") === 0 && !name ? "Enter a name for the new calendar." : ""
+  var problem = !file ? goferT("js.calendar.import.no_file") : !target ? goferT("js.calendar.import.no_target") : target.indexOf("account:") === 0 && !name ? goferT("js.calendar.import.no_name") : ""
   if (problem) {
-    showGoferToast({ title: "Could not import the events", description: problem, variant: "error", icon: "error", position: "bottom-right", duration: 5000, dismissible: true })
+    showGoferToast({ title: goferT("js.calendar.import.failed"), description: problem, variant: "error", icon: "error", position: "bottom-right", duration: 5000, dismissible: true })
     return
   }
   var creating = target.indexOf("account:") === 0
@@ -15919,7 +15925,7 @@ document.addEventListener("submit", function (event) {
   var showProgress = function (done, total, text) {
     if (progress) progress.hidden = false
     if (progressLabel) progressLabel.textContent = text
-    if (progressCount) progressCount.textContent = total ? done + " of " + total : ""
+    if (progressCount) progressCount.textContent = total ? goferT("js.calendar.import.progress", { done: goferNumber(done), total: goferNumber(total) }) : ""
     var percent = total ? Math.round(done / total * 100) : 0
     if (progressBar) {
       progressBar.setAttribute("aria-valuenow", String(percent))
@@ -15928,17 +15934,17 @@ document.addEventListener("submit", function (event) {
     }
   }
   if (submit) { submit.disabled = true; submit.setAttribute("aria-busy", "true") }
-  if (label) label.textContent = "Importing…"
-  showProgress(0, 0, creating ? "Creating the calendar…" : "Signing in to the calendar…")
+  if (label) label.textContent = goferT("js.calendar.import.importing")
+  showProgress(0, 0, creating ? goferT("js.calendar.import.creating") : goferT("js.calendar.import.signing_in"))
   var done = function () {
     if (submit) { submit.disabled = false; submit.removeAttribute("aria-busy") }
-    if (label) label.textContent = "Import events"
+    if (label) label.textContent = goferT("js.calendar.import.submit")
     if (progress) progress.hidden = true
   }
   // The server answers with JSON lines while it imports: progress, then the
   // result or an error. An error before it starts is a plain text answer.
   var readImport = function (response) {
-    if (!response.ok) return response.text().then(function (text) { throw new Error((text || "").trim() || "Please try again.") })
+    if (!response.ok) return response.text().then(function (text) { throw new Error((text || "").trim() || goferT("js.common.please_try_again")) })
     if ((response.headers.get("Content-Type") || "").indexOf("application/x-ndjson") !== 0 || !response.body) return response.json()
     var reader = response.body.getReader()
     var decoder = new TextDecoder()
@@ -15949,7 +15955,7 @@ document.addEventListener("submit", function (event) {
       var message = JSON.parse(text)
       if (message.error) throw new Error(message.error)
       if (typeof message.total === "number") {
-        showProgress(message.done, message.total, "Adding events to the calendar…")
+        showProgress(message.done, message.total, goferT("js.calendar.import.adding"))
         return
       }
       last = message
@@ -15958,7 +15964,7 @@ document.addEventListener("submit", function (event) {
       return reader.read().then(function (chunk) {
         if (chunk.done) {
           handle(buffered)
-          if (!last) throw new Error("The import stopped before it finished. Importing the file again skips the events already added.")
+          if (!last) throw new Error(goferT("js.calendar.import.stopped"))
           return last
         }
         buffered += decoder.decode(chunk.value, { stream: true })
@@ -15980,15 +15986,15 @@ document.addEventListener("submit", function (event) {
     var added = result.added || 0
     var existing = result.existing || 0
     var failed = result.failed || 0
-    var into = result.calendar ? (result.created ? " into the new calendar “" + result.calendar + "”" : " into “" + result.calendar + "”") : ""
+    var doneKey = result.calendar ? (result.created ? "js.calendar.import.done_new" : "js.calendar.import.done_into") : "js.calendar.import.done"
     // Events already there are left as they are; ones the calendar couldn't
     // take are counted apart, with why the first of them failed.
     var notes = []
-    if (existing) notes.push(existing === 1 ? "1 event was already in the calendar." : existing + " events were already in the calendar.")
-    if (failed) notes.push((failed === 1 ? "1 event couldn't be imported. " : failed + " events couldn't be imported. ") + (result.reason || ""))
+    if (existing) notes.push(goferTn("js.calendar.import.existing", existing))
+    if (failed) notes.push(goferTn("js.calendar.import.failed_count", failed) + " " + (result.reason || ""))
     var warning = failed > 0
     showGoferToast({
-      title: (added === 1 ? "1 event imported" : added + " events imported") + into,
+      title: goferTn(doneKey, added, { calendar: result.calendar || "" }),
       description: notes.join(" ").trim(),
       variant: warning ? "warning" : "success", icon: warning ? "warning" : "success", position: "bottom-right", duration: failed ? 12000 : existing ? 6000 : 4000, dismissible: true,
     })
@@ -15999,7 +16005,7 @@ document.addEventListener("submit", function (event) {
   }).catch(function (error) {
     done()
     if (creating) refreshCalendarSidebar()
-    showGoferToast({ title: "Could not import the events", description: error && error.message ? error.message : "Please try again.", variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
+    showGoferToast({ title: goferT("js.calendar.import.failed"), description: error && error.message ? error.message : goferT("js.common.please_try_again"), variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
   })
 })
 
@@ -16014,7 +16020,7 @@ document.addEventListener("submit", function (event) {
   downloadCalendarExport("/api/calendar/sources/" + encodeURIComponent(sourceID) + "/export").then(function () {
     if (window.tui && window.tui.dialog) window.tui.dialog.close("calendar-export-dialog")
   }).catch(function (error) {
-    showGoferToast({ title: "Could not export the calendar", description: error && error.message ? error.message : "Please try again.", variant: "error", icon: "error", position: "bottom-right", duration: 6000, dismissible: true })
+    showGoferToast({ title: goferT("js.calendar.export.failed"), description: error && error.message ? error.message : goferT("js.common.please_try_again"), variant: "error", icon: "error", position: "bottom-right", duration: 6000, dismissible: true })
   }).then(function () {
     if (submit) submit.disabled = false
   })
@@ -16025,7 +16031,7 @@ document.addEventListener("click", function (event) {
   if (!link) return
   event.preventDefault()
   downloadCalendarExport(link.getAttribute("href")).catch(function (error) {
-    showGoferToast({ title: "Could not export the calendar", description: error && error.message ? error.message : "Please try again.", variant: "error", icon: "error", position: "bottom-right", duration: 6000, dismissible: true })
+    showGoferToast({ title: goferT("js.calendar.export.failed"), description: error && error.message ? error.message : goferT("js.common.please_try_again"), variant: "error", icon: "error", position: "bottom-right", duration: 6000, dismissible: true })
   })
 })
 
@@ -16109,18 +16115,18 @@ function _setCalendarSyncBusy(busy) {
   })
   if (!busy) return
   document.querySelectorAll("[data-calendar-sync-status]").forEach(function (status) {
-    status.textContent = "Refreshing calendars…"
+    status.textContent = goferT("js.calendar.sync.refreshing")
     status.parentElement.className = "inline-flex items-center gap-1.5 text-muted-foreground"
   })
   document.querySelectorAll("[data-calendar-sync-label]").forEach(function (label) {
-    label.textContent = "Refreshing calendars"
+    label.textContent = goferT("js.calendar.sync.label.busy")
     label.parentElement.className = "flex items-center gap-2 text-xs font-semibold text-foreground"
   })
   document.querySelectorAll("[data-calendar-sync-dot]").forEach(function (dot) {
     dot.className = "size-2 rounded-full bg-primary animate-pulse"
   })
   document.querySelectorAll("[data-calendar-sync-detail]").forEach(function (detail) {
-    detail.textContent = "Fetching events from your selected calendars."
+    detail.textContent = goferT("js.calendar.sync.detail.busy")
   })
 }
 
@@ -16159,13 +16165,13 @@ function handleCalendarSyncResult(event) {
   updateCalendarSyncPresentation()
   if (_calendarCacheRefreshPending) scheduleCalendarCacheRefresh()
   if (event.detail.successful) return
-  var message = "Calendar refresh failed. Cached events are still available."
+  var message = goferT("js.calendar.sync.refresh_failed_detail")
   document.querySelectorAll("[data-calendar-sync-status]").forEach(function (status) {
     status.textContent = message
     status.parentElement.className = "inline-flex items-center gap-1.5 text-destructive"
   })
   document.querySelectorAll("[data-calendar-sync-label]").forEach(function (label) {
-    label.textContent = "Calendar refresh failed"
+    label.textContent = goferT("js.calendar.sync.refresh_failed")
     label.parentElement.className = "flex items-center gap-2 text-xs font-semibold text-destructive"
   })
   document.querySelectorAll("[data-calendar-sync-dot]").forEach(function (dot) {
@@ -16186,8 +16192,8 @@ function handleContactSidebarSyncStart(event) {
   var label = _contactSidebarSyncButtonLabel(button)
   showGoferToast({
     id: "contact-sync-toast",
-    title: "Syncing contacts",
-    description: label ? "Checking " + label + " address books..." : "Checking connected address books...",
+    title: goferT("js.contacts.sidebar_sync.title"),
+    description: label ? goferT("js.contacts.sidebar_sync.checking_account", { account: label }) : goferT("js.contacts.sidebar_sync.checking"),
     variant: "info",
     icon: "spinner",
     position: "bottom-right",
@@ -16202,7 +16208,7 @@ function handleContactSidebarSyncResult(event) {
   _setContactSidebarSyncButtonBusy(button, false)
   _contactSidebarSyncActiveButton = null
   var ok = !!(event && event.detail && event.detail.successful) && (!xhr || xhr.getResponseHeader("X-Gofer-Status") !== "error")
-  var message = "Contact sync finished."
+  var message = goferT("js.contacts.sidebar_sync.finished")
   if (xhr && xhr.responseText) {
     var div = document.createElement("div")
     div.innerHTML = xhr.responseText
@@ -16210,7 +16216,7 @@ function handleContactSidebarSyncResult(event) {
   }
   showGoferToast({
     id: "contact-sync-toast",
-    title: ok ? "Contacts synced" : "Contact sync failed",
+    title: ok ? goferT("js.contacts.sidebar_sync.done") : goferT("js.contacts.sidebar_sync.failed"),
     description: message,
     variant: ok ? "success" : "error",
     icon: ok ? "success" : "error",
@@ -23509,7 +23515,7 @@ function finishCalendarDrag(drag, drop) {
   var when = drag.cardTime ? drag.cardTime.textContent : ""
   if (drag.resize) {
     var dayStart = calendarDayStartMs(drag.column.dataset.calendarTimedColumn)
-    when = "Ends at " + calendarMinuteLabel((change.end - dayStart) / 60000)
+    when = goferT("js.calendar.move.ends_at", { time: calendarMinuteLabel((change.end - dayStart) / 60000) })
   }
   var revert = placeCalendarDrop(drag, change)
   moveCalendarEvent(drag.el, change, revert, {x: drag.dropX, y: drag.dropY, when: when, resize: !!drag.resize})
@@ -23689,7 +23695,7 @@ function calendarZonedFields(ms, zone) {
 function moveCalendarEvent(el, change, revert, point) {
   var undo = function (message) {
     revert()
-    if (message) showGoferToast({title: "Event not moved", description: message, variant: "error", icon: "error", duration: 8000, dismissible: true})
+    if (message) showGoferToast({title: goferT("js.calendar.move.not_moved"), description: message, variant: "error", icon: "error", duration: 8000, dismissible: true})
   }
   var url = "/api/calendar/events/" + encodeURIComponent(el.dataset.calendarMove) + "/edit" + (el.dataset.calendarMoveOccurrence === "true" ? "?scope=occurrence" : "")
   fetch(url, {headers: {"Accept": "text/html"}})
@@ -23697,9 +23703,9 @@ function moveCalendarEvent(el, change, revert, point) {
       return response.text().then(function (text) { return {ok: response.ok, text: text} })
     })
     .then(function (result) {
-      if (!result.ok) { undo(result.text.trim().length < 300 ? result.text.trim() : "This event can't be edited right now."); return }
+      if (!result.ok) { undo(result.text.trim().length < 300 ? result.text.trim() : goferT("js.calendar.move.cannot_edit")); return }
       var form = new DOMParser().parseFromString(result.text, "text/html").querySelector("[data-calendar-create-form]")
-      if (!form) { undo("This event can't be edited right now."); return }
+      if (!form) { undo(goferT("js.calendar.move.cannot_edit")); return }
       // The editor enables these before saving, too.
       ["source_id", "version", "request_id", "edit_scope"].forEach(function (name) {
         var input = form.querySelector('[name="' + name + '"]')
@@ -23710,12 +23716,12 @@ function moveCalendarEvent(el, change, revert, point) {
       var back = {id: el.dataset.calendarMove, occurrence: el.dataset.calendarMoveOccurrence === "true", fields: {}}
       ;["start_date", "start_time", "end_date", "end_time", "timezone"].forEach(function (name) { back.fields[name] = fields.get(name) })
       if (change.start === undefined) {
-        if (fields.get("all_day") !== "true") { undo("This event is no longer an all-day event. Refresh the calendar."); return }
+        if (fields.get("all_day") !== "true") { undo(goferT("js.calendar.move.not_all_day")); return }
         fields.set("start_date", calendarAddISODays(fields.get("start_date"), change.days))
         fields.set("end_date", calendarAddISODays(fields.get("end_date"), change.days))
       } else {
         var zone = fields.get("timezone")
-        if (fields.get("all_day") === "true" || !zone) { undo("This event's times changed. Refresh the calendar."); return }
+        if (fields.get("all_day") === "true" || !zone) { undo(goferT("js.calendar.move.times_changed")); return }
         var start = calendarZonedFields(change.start, zone), end = calendarZonedFields(change.end, zone)
         fields.set("start_date", start.date)
         fields.set("start_time", start.time)
@@ -23728,7 +23734,7 @@ function moveCalendarEvent(el, change, revert, point) {
       // Ask first, where the event was dropped; guests are sent the change.
       confirmCalendarMove(point, guests, save, function () { undo() })
     })
-    .catch(function () { undo("Could not load the event. Try again.") })
+    .catch(function () { undo(goferT("js.calendar.move.load_failed")) })
 }
 
 // back, when given, is where the event was: the message that it moved offers
@@ -23740,17 +23746,17 @@ function saveCalendarMove(action, fields, undo, back) {
     })
     .then(function (result) {
       if (!result.ok || result.data.saved !== true) {
-        var message = result.data.error || "Could not move the event."
-        if (result.data.confirm === "reset_series_dates") message = "Open the series in the editor to change its time."
+        var message = result.data.error || goferT("js.calendar.move.failed")
+        if (result.data.confirm === "reset_series_dates") message = goferT("js.calendar.move.open_series")
         undo(message)
         if (result.data.uncertain || result.data.conflict) scheduleCalendarCacheRefresh()
         return
       }
-      var description = result.data.notify_guests ? "Guest notifications are being delivered." : "Saved to your calendar."
+      var description = result.data.notify_guests ? goferT("js.calendar.move.notifying") : goferT("js.calendar.saved.to_calendar")
       if (!back) {
-        showGoferToast({title: "Move undone", description: description, variant: "success", icon: "success", duration: 3500})
+        showGoferToast({title: goferT("js.calendar.move.undone"), description: description, variant: "success", icon: "success", duration: 3500})
       } else {
-        var toast = showGoferToast({title: "Event moved", description: description, variant: "success", icon: "success", duration: 10000, secondaryActionLabel: "Undo", onSecondaryAction: function () {
+        var toast = showGoferToast({title: goferT("js.calendar.move.moved"), description: description, variant: "success", icon: "success", duration: 10000, secondaryActionLabel: goferT("js.calendar.undo"), onSecondaryAction: function () {
           var card = toast && toast.querySelector(".gofer-toast-card")
           var at = card ? card.getBoundingClientRect() : null
           if (toast) dismissGoferToast(toast)
@@ -23760,7 +23766,7 @@ function saveCalendarMove(action, fields, undo, back) {
       scheduleCalendarCacheRefresh()
     })
     .catch(function () {
-      undo("The move could not be confirmed. Refresh the calendar to check the event.")
+      undo(goferT("js.calendar.move.unconfirmed"))
       scheduleCalendarCacheRefresh()
     })
 }
@@ -23769,7 +23775,7 @@ function saveCalendarMove(action, fields, undo, back) {
 // since, so the editor's form is read again for its new version.
 function undoCalendarMove(back, at) {
   var fail = function (message) {
-    showGoferToast({title: "Move not undone", description: message, variant: "error", icon: "error", duration: 8000, dismissible: true})
+    showGoferToast({title: goferT("js.calendar.move.not_undone"), description: message, variant: "error", icon: "error", duration: 8000, dismissible: true})
   }
   var url = "/api/calendar/events/" + encodeURIComponent(back.id) + "/edit" + (back.occurrence ? "?scope=occurrence" : "")
   fetch(url, {headers: {"Accept": "text/html"}})
@@ -23777,9 +23783,9 @@ function undoCalendarMove(back, at) {
       return response.text().then(function (text) { return {ok: response.ok, text: text} })
     })
     .then(function (result) {
-      if (!result.ok) { fail(result.text.trim().length < 300 ? result.text.trim() : "This event can't be edited right now."); return }
+      if (!result.ok) { fail(result.text.trim().length < 300 ? result.text.trim() : goferT("js.calendar.move.cannot_edit")); return }
       var form = new DOMParser().parseFromString(result.text, "text/html").querySelector("[data-calendar-create-form]")
-      if (!form) { fail("This event can't be edited right now."); return }
+      if (!form) { fail(goferT("js.calendar.move.cannot_edit")); return }
       ;["source_id", "version", "request_id", "edit_scope"].forEach(function (name) {
         var input = form.querySelector('[name="' + name + '"]')
         if (input) input.disabled = false
@@ -23791,9 +23797,9 @@ function undoCalendarMove(back, at) {
       var save = function () { saveCalendarMove(form.getAttribute("action"), fields, fail) }
       if (!back.guests) { save(); return }
       // Guests are sent the old time again, so ask first, where the message was.
-      confirmCalendarMove({x: at ? at.left : NaN, y: at ? at.top : NaN, title: "Move this meeting back?", detail: "Guests will be sent the old time.", action: "Move back and notify guests"}, true, save, function () {})
+      confirmCalendarMove({x: at ? at.left : NaN, y: at ? at.top : NaN, title: goferT("js.calendar.move.back_title"), detail: goferT("js.calendar.move.back_detail"), action: goferT("js.calendar.move.back_action")}, true, save, function () {})
     })
-    .catch(function () { fail("Could not load the event. Try again.") })
+    .catch(function () { fail(goferT("js.calendar.move.load_failed")) })
 }
 
 // Asks, next to where an event was dropped, before it is moved; a meeting's
@@ -23806,9 +23812,9 @@ function confirmCalendarMove(point, guests, move, cancel) {
     cancel()
     return
   }
-  var title = point.title || (guests ? "Move this meeting?" : point.resize ? "Change when this event ends?" : "Move this event?")
-  var detail = (point.detail || ((point.when ? point.when + ". " : "") + (guests ? "Guests will be sent the new time." : ""))).trim()
-  var action = point.action || (guests ? "Move and notify guests" : point.resize ? "Save" : "Move")
+  var title = point.title || (guests ? goferT("js.calendar.move.meeting_title") : point.resize ? goferT("js.calendar.move.resize_title") : goferT("js.calendar.move.event_title"))
+  var detail = (point.detail || ((point.when ? point.when + ". " : "") + (guests ? goferT("js.calendar.move.guests_new_time") : ""))).trim()
+  var action = point.action || (guests ? goferT("js.calendar.move.notify_action") : point.resize ? goferT("js.common.save") : goferT("js.calendar.move.action"))
   root.querySelector("[data-calendar-move-title]").textContent = title
   var detailLine = root.querySelector("[data-calendar-move-detail]")
   detailLine.textContent = detail

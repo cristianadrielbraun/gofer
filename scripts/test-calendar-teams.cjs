@@ -1,6 +1,7 @@
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const vm = require('node:vm')
+const loadI18n = require('./i18n-test-helper.cjs')
 const path = require('node:path')
 const source = fs.readFileSync(path.join(__dirname, '../assets/js/app.js'), 'utf8')
 function helper(name) {
@@ -46,6 +47,7 @@ const context = vm.createContext({
   adjustCalendarCreateAllDayRange() {},
   setCalendarCreateError(form, value) { message = value },
 })
+loadI18n(context)
 vm.runInContext(['updateCalendarTeamsForm', 'retryCalendarTeams', 'calendarTeamsSwapAllowed', 'validateCalendarCreatePickers'].map(helper).join('\n'), context)
 context.updateCalendarTeamsForm(form, selected, false)
 assert.equal(root.hidden, false)

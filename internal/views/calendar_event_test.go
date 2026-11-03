@@ -311,10 +311,10 @@ func TestCalendarGuestSummaryAndInitials(t *testing.T) {
 		{Email: "x@example.com", ResponseStatus: "declined"},
 		{Email: "y@example.com"},
 	}
-	if got := calendarGuestSummary(guests); got != "2 yes · 1 maybe · 1 no · 1 awaiting" {
+	if got := calendarGuestSummary(context.Background(), guests); got != "2 yes · 1 maybe · 1 no · 1 awaiting" {
 		t.Errorf("summary = %q", got)
 	}
-	if got := calendarGuestSummary(guests[:1]); got != "1 yes" {
+	if got := calendarGuestSummary(context.Background(), guests[:1]); got != "1 yes" {
 		t.Errorf("organizer-only summary = %q", got)
 	}
 	for person, want := range map[CalendarEventParticipant]string{guests[0]: "AP", guests[1]: "L", guests[2]: "OT", {}: "?"} {

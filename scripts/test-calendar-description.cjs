@@ -1,6 +1,7 @@
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const vm = require('node:vm')
+const loadI18n = require('./i18n-test-helper.cjs')
 const source = fs.readFileSync(require('node:path').join(__dirname, '../assets/js/app.js'), 'utf8')
 const css = fs.readFileSync(require('node:path').join(__dirname, '../assets/css/input.css'), 'utf8')
 assert(css.includes('[data-calendar-description-editor]::before {'), 'the surface must exist independently of animation state')
@@ -41,6 +42,7 @@ const elements = {'[data-calendar-description-editor]': editor, '[data-calendar-
 const form = {isConnected: true, querySelector(selector) { return elements[selector] }, closest() { return {open: true} }}
 let reduced = false, saves = 0
 const runtime = vm.createContext({_saveComposeSelection() {}, _restoreComposeSelection() {}, window: {matchMedia() { return {matches: reduced} }}, getComputedStyle() { return {opacity: body.style.opacity || '1', paddingLeft: '24', paddingRight: '24', paddingTop: '4', paddingBottom: '20'} }, submitCalendarCreate() { saves++ }})
+loadI18n(runtime)
 vm.runInContext(['toggleCalendarDescription', 'setCalendarDescriptionExpanded', 'prepareCalendarDescriptionSubmit'].map(fn).join('\n'), runtime)
 
 async function completeMotion(done) {

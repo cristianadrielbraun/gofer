@@ -2,6 +2,7 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const path = require('node:path')
 const vm = require('node:vm')
+const loadI18n = require('./i18n-test-helper.cjs')
 const source = fs.readFileSync(path.join(__dirname, '../assets/js/app.js'), 'utf8')
 const handlers = {}, closed = [], toasts = [], deliveryRequests = []
 let refreshes = 0
@@ -34,6 +35,7 @@ const context = vm.createContext({
   window: {tui: {dialog: {close(root) { closed.push(root) }}}, htmx: {ajax(method, url, options) { deliveryRequests.push({method, url, options}); return {catch() {}} }}},
   showGoferToast(toast) { toasts.push(toast) }, scheduleCalendarCacheRefresh() { refreshes++ },
 })
+loadI18n(context)
 vm.runInContext(source.slice(source.indexOf('function updateCalendarResponseForm('), source.indexOf('function updateCalendarDeleteForm(')), context)
 function fire(type, detail) {
   const event = {detail, prevented: false, preventDefault() { this.prevented = true }}

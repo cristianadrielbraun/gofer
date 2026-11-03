@@ -2,6 +2,7 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const path = require('node:path')
 const vm = require('node:vm')
+const loadI18n = require('./i18n-test-helper.cjs')
 const source = fs.readFileSync(path.join(__dirname, '../assets/js/app.js'), 'utf8')
 function helper(name) {
   const start = source.indexOf('function ' + name + '(')
@@ -17,6 +18,7 @@ const context = vm.createContext({
   initializeCalendarDaySelection() { restores++ },
   showGoferToast(message) { errors.push(message) },
 })
+loadI18n(context)
 vm.runInContext('var _calendarVisibility = new Map();\n' +
   ['_calendarSourceIsVisible', 'initializeCalendarVisibility', 'saveCalendarVisibility', '_calendarMonthVisibleCount', '_calendarAllDayEventRows', 'layoutCalendarMonth'].map(helper).join('\n'), context)
 function state(visible = false) { return {confirmed: true, visible, saving: false, revision: 1} }

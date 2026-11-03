@@ -165,9 +165,9 @@ func CalendarWeekGrid(data CalendarMonthData) templ.Component {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var11 string
-			templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs("Show events for " + i18n.Dates(ctx).LongDate(day.Date))
+			templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "calendar.show_day_events", "date", i18n.Dates(ctx).LongDate(day.Date)))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar_week.templ`, Line: 17, Col: 164}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar_week.templ`, Line: 17, Col: 192}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
 			if templ_7745c5c3_Err != nil {
@@ -408,9 +408,9 @@ func CalendarWeekGrid(data CalendarMonthData) templ.Component {
 						return templ_7745c5c3_Err
 					}
 					var templ_7745c5c3_Var26 string
-					templ_7745c5c3_Var26, templ_7745c5c3_Err = templ.JoinStringErrs(calendarEventResponseSummary(event))
+					templ_7745c5c3_Var26, templ_7745c5c3_Err = templ.JoinStringErrs(calendarEventResponseSummary(ctx, event))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar_week.templ`, Line: 34, Col: 913}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar_week.templ`, Line: 34, Col: 918}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var26))
 					if templ_7745c5c3_Err != nil {
@@ -421,9 +421,9 @@ func CalendarWeekGrid(data CalendarMonthData) templ.Component {
 						return templ_7745c5c3_Err
 					}
 					var templ_7745c5c3_Var27 string
-					templ_7745c5c3_Var27, templ_7745c5c3_Err = templ.JoinStringErrs("Open all-day event: " + calendarEventResponseSummary(event))
+					templ_7745c5c3_Var27, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "calendar.open_all_day_event", "event", calendarEventResponseSummary(ctx, event)))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar_week.templ`, Line: 34, Col: 989}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar_week.templ`, Line: 34, Col: 1027}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var27))
 					if templ_7745c5c3_Err != nil {
@@ -436,7 +436,7 @@ func CalendarWeekGrid(data CalendarMonthData) templ.Component {
 					var templ_7745c5c3_Var28 string
 					templ_7745c5c3_Var28, templ_7745c5c3_Err = templ.JoinStringErrs(calendarEventDetailsURL(event.ID))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar_week.templ`, Line: 34, Col: 1104}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar_week.templ`, Line: 34, Col: 1142}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var28))
 					if templ_7745c5c3_Err != nil {
@@ -482,9 +482,9 @@ func CalendarWeekGrid(data CalendarMonthData) templ.Component {
 						return templ_7745c5c3_Err
 					}
 					var templ_7745c5c3_Var32 string
-					templ_7745c5c3_Var32, templ_7745c5c3_Err = templ.JoinStringErrs(calendarEventSummary(event))
+					templ_7745c5c3_Var32, templ_7745c5c3_Err = templ.JoinStringErrs(calendarEventSummary(ctx, event))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar_week.templ`, Line: 37, Col: 136}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar_week.templ`, Line: 37, Col: 141}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var32))
 					if templ_7745c5c3_Err != nil {
@@ -586,9 +586,9 @@ func CalendarWeekGrid(data CalendarMonthData) templ.Component {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var38 string
-			templ_7745c5c3_Var38, templ_7745c5c3_Err = templ.JoinStringErrs("Timed events for " + i18n.Dates(ctx).LongDateNoYear(day.Date))
+			templ_7745c5c3_Var38, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "calendar.week.timed_events", "date", i18n.Dates(ctx).LongDateNoYear(day.Date)))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar_week.templ`, Line: 54, Col: 166}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar_week.templ`, Line: 54, Col: 195}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var38))
 			if templ_7745c5c3_Err != nil {
@@ -737,9 +737,9 @@ func CalendarWeekGrid(data CalendarMonthData) templ.Component {
 						return templ_7745c5c3_Err
 					}
 					var templ_7745c5c3_Var47 string
-					templ_7745c5c3_Var47, templ_7745c5c3_Err = templ.JoinStringErrs(calendarEventResponseSummary(block.Event) + " · " + calendarTimedBlockRange(ctx, block))
+					templ_7745c5c3_Var47, templ_7745c5c3_Err = templ.JoinStringErrs(calendarEventResponseSummary(ctx, block.Event) + " · " + calendarTimedBlockRange(ctx, block))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar_week.templ`, Line: 62, Col: 989}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar_week.templ`, Line: 62, Col: 994}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var47))
 					if templ_7745c5c3_Err != nil {
@@ -750,9 +750,9 @@ func CalendarWeekGrid(data CalendarMonthData) templ.Component {
 						return templ_7745c5c3_Err
 					}
 					var templ_7745c5c3_Var48 string
-					templ_7745c5c3_Var48, templ_7745c5c3_Err = templ.JoinStringErrs("Open event: " + calendarEventResponseSummary(block.Event) + ", " + i18n.Dates(ctx).LongDateNoYear(day.Date) + ", " + calendarTimedBlockRange(ctx, block))
+					templ_7745c5c3_Var48, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "calendar.open_event", "event", calendarEventResponseSummary(ctx, block.Event)+", "+i18n.Dates(ctx).LongDateNoYear(day.Date)+", "+calendarTimedBlockRange(ctx, block)))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar_week.templ`, Line: 62, Col: 1158}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar_week.templ`, Line: 62, Col: 1196}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var48))
 					if templ_7745c5c3_Err != nil {
@@ -765,7 +765,7 @@ func CalendarWeekGrid(data CalendarMonthData) templ.Component {
 					var templ_7745c5c3_Var49 string
 					templ_7745c5c3_Var49, templ_7745c5c3_Err = templ.JoinStringErrs(calendarEventDetailsURL(block.Event.ID))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar_week.templ`, Line: 62, Col: 1279}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar_week.templ`, Line: 62, Col: 1317}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var49))
 					if templ_7745c5c3_Err != nil {
@@ -789,9 +789,9 @@ func CalendarWeekGrid(data CalendarMonthData) templ.Component {
 						return templ_7745c5c3_Err
 					}
 					var templ_7745c5c3_Var51 string
-					templ_7745c5c3_Var51, templ_7745c5c3_Err = templ.JoinStringErrs(calendarEventSummary(block.Event))
+					templ_7745c5c3_Var51, templ_7745c5c3_Err = templ.JoinStringErrs(calendarEventSummary(ctx, block.Event))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar_week.templ`, Line: 65, Col: 151}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/calendar_week.templ`, Line: 65, Col: 156}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var51))
 					if templ_7745c5c3_Err != nil {

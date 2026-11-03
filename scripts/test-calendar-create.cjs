@@ -2,6 +2,7 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const path = require('node:path')
 const vm = require('node:vm')
+const loadI18n = require('./i18n-test-helper.cjs')
 const source = fs.readFileSync(path.join(__dirname, '../assets/js/app.js'), 'utf8')
 function helper(name) {
   const start = source.indexOf('function ' + name + '('), end = source.indexOf('\n}', start)
@@ -52,6 +53,7 @@ const context = vm.createContext({initializeCalendarDialogResize(){},
   fetch(url, options) { return new Promise((resolve, reject) => requests.push({url, options, resolve, reject})) },
   showGoferToast(data) { toasts.push(data) }, scheduleCalendarCacheRefresh() { refreshes++ },
 })
+loadI18n(context)
 vm.runInContext('var _calendarSelectedDay = {period: "week:2026-09-28", date: "2026-10-03"}, _calendarCreateRange = null;\n' +
   ['configureCalendarCreateDialog', 'adjustCalendarCreateAllDayRange', 'updateCalendarRecurrenceForm', 'updateCalendarTeamsForm', 'calendarTeamsReplacing', 'updateCalendarCreateForm', 'initializeCalendarCreateForm', 'validateCalendarCreatePickers', 'setCalendarCreateError', 'syncCalendarDescription', 'submitCalendarCreate'].map(helper).join('\n'), context)
 vm.runInContext(source.slice(source.indexOf('document.addEventListener("submit",', source.indexOf('function submitCalendarCreate(')), source.indexOf('function updateCalendarResponseForm(')), context)
@@ -63,6 +65,7 @@ for (const picker of ['datepicker', 'timepicker']) {
   const content = {matches() { return true }, hidePopover() { throw new Error('Bypassing popup state prevents reopening with one click') }}
   const root = {querySelector() { return content }}
   const runtime = vm.createContext({findRoot() { return root }, window: {tui: {popover: {closeElement(node) { calls.push(node) }}}}})
+  loadI18n(runtime)
   vm.runInContext(module.slice(start, end + 4), runtime)
   runtime.closePopover(root)
   assert.deepEqual(calls, [content], picker + ' must close through the templUI popup controller')
@@ -107,6 +110,7 @@ function testDialogLifecycle() {
     showGoferToast(toast) { notices.push(toast) },
     setTimeout(callback) { timers.push(callback) },
   })
+  loadI18n(runtime)
   vm.runInContext(source.slice(source.indexOf('var _calendarCreateDialogRequest = null'), source.indexOf('function adjustCalendarCreateAllDayRange(')), runtime)
   function fire(type, detail) { for (const handler of handlers[type] || []) handler({detail}) }
   function begin(editing = true) {
@@ -438,7 +442,7 @@ async function main() {
   const edited = context.submitCalendarCreate(form)
   await context.submitCalendarCreate(form)
   assert.equal(requests.length, requestIndex + 1, 'Edits must reject duplicate submits')
-  assert.equal(label.textContent, 'Saving...')
+  assert.equal(label.textContent, 'Saving…')
   assert.equal(requests[requestIndex].options.method, 'PATCH')
   assert.equal(requests[requestIndex].url, form.action, 'PATCH must use the escaped server-rendered action')
   const editPayload = new URLSearchParams(requests[requestIndex].options.body)

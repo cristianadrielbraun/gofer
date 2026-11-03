@@ -628,11 +628,11 @@ templ SidebarSyncControls(accounts []models.Account, activeApp string) {
 									data-calendar-sync-button
 									data-calendar-account-sync-button={ account.ID }
 									class="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-xs text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground disabled:cursor-wait"
-									aria-label={ i18n.T(ctx, "calendar.sync.refresh_account", "account", calendarAccountDisplayName(account)) }
+									aria-label={ i18n.T(ctx, "calendar.sync.refresh_account", "account", calendarAccountName(ctx, account)) }
 								>
 									@icon.RefreshCw(icon.Props{Class: "size-3.5 shrink-0"})
 									<span class="min-w-0 flex-1">
-										<span class="block truncate font-medium">{ calendarAccountDisplayName(account) }</span>
+										<span class="block truncate font-medium">{ calendarAccountName(ctx, account) }</span>
 										<span class="block truncate text-[11px] text-sidebar-foreground">{ accountAddress(account) }</span>
 									</span>
 								</button>

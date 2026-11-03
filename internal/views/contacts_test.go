@@ -269,11 +269,11 @@ func TestContactResolverGroupsEqualValuesAcrossSources(t *testing.T) {
 	}
 
 	locations := []models.ContactSyncSetupLocation{{AccountID: "gmail", Label: "account@example.com", Provider: "gmail"}}
-	locationLabels := contactSyncSetupLocationLabels(groups[0].Sources, locations)
+	locationLabels := contactSyncSetupLocationLabels(context.Background(), groups[0].Sources, locations)
 	if !reflect.DeepEqual(locationLabels, []string{"Local", "account@example.com"}) {
 		t.Fatalf("visible sync locations = %#v, want local and provider without canonical", locationLabels)
 	}
-	if got := contactSyncSetupSourceDisplay("canonical", locations); got != "" {
+	if got := contactSyncSetupSourceDisplay(context.Background(), "canonical", locations); got != "" {
 		t.Fatalf("canonical display = %q, want hidden internal source", got)
 	}
 

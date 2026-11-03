@@ -75,7 +75,7 @@ func (h *Handler) userCalendarEventDetails(ctx context.Context, owner, id string
 	if deliveryOnly && !calendarDeliveryAvailable(event) {
 		return details, nil, sql.ErrNoRows
 	}
-	details = calendarEventDetails(event)
+	details = calendarEventDetails(ctx, event)
 	err = h.userAccounts.WithAccountForUser(ctx, owner, source.AccountID, func(_ *config.AccountStore, db *storage.DB) error {
 		location = viewsCalendarLocation(db.GetUISettings(ctx, owner))
 		if calendarDeliveryAvailable(event) {

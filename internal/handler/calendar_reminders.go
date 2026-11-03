@@ -67,7 +67,7 @@ func calendarReminderEvent(owner string, due storage.CalendarReminderDue, locati
 	start := event.StartAt.In(location)
 	when := "Starts now"
 	if minutes := *event.ReminderMinutes; minutes > 0 {
-		when = "In " + views.CalendarReminderSpan(minutes)
+		when = "In " + views.CalendarReminderSpan(context.Background(), minutes)
 	}
 	body := when + " · " + start.Format("15:04")
 	if event.EndAt != nil {

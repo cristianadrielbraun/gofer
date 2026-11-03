@@ -3221,7 +3221,7 @@ class VirtualContactsList {
     header.style.opacity = "0"
     header.style.transform = "translateY(-4px)"
     header.style.transition = "opacity 140ms ease-out, transform 140ms ease-out"
-    header.innerHTML = '<div class="mail-list-table-heading">Name</div><div class="mail-list-table-heading">Origin</div><div class="mail-list-table-heading min-w-12 text-right">Msgs</div>'
+    header.innerHTML = '<div class="mail-list-table-heading">' + goferT("js.contacts.column.name") + '</div><div class="mail-list-table-heading">' + goferT("js.contacts.column.origin") + '</div><div class="mail-list-table-heading min-w-12 text-right">' + goferT("js.contacts.column.messages") + '</div>'
     this.container.insertBefore(header, this.spacerTop || this.container.firstChild)
     requestAnimationFrame(function () {
       header.style.opacity = "1"
@@ -3273,8 +3273,8 @@ class VirtualContactsList {
     return '<div class="flex flex-col items-center justify-center py-20 px-4 text-center">' +
       '<div class="empty-icon-box size-16 rounded-2xl bg-muted/50 flex items-center justify-center mb-4 raised">' +
       '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-7 text-muted-foreground/40"><path d="M15 18a3 3 0 1 0-6 0"></path><circle cx="12" cy="10" r="2"></circle><rect width="18" height="18" x="3" y="4" rx="2"></rect><path d="M8 2v4"></path><path d="M16 2v4"></path></svg>' +
-      '</div><h3 class="font-semibold text-sm mb-1">No contacts yet</h3>' +
-      '<p class="text-xs text-muted-foreground">Observed contacts will appear as mail is synced, or you can add one manually.</p></div>'
+      '</div><h3 class="font-semibold text-sm mb-1">' + goferT("js.contacts.empty.title") + '</h3>' +
+      '<p class="text-xs text-muted-foreground">' + goferT("js.contacts.empty.detail") + '</p></div>'
   }
 
   ensureRowPool() {
@@ -3415,7 +3415,7 @@ class VirtualContactsList {
       this.frontierUp = Math.min(this.frontierUp, start)
     } catch (_) {
       await skeletonRevealed
-      this.loadError = "Failed to load contacts. Scroll again to retry."
+      this.loadError = goferT("js.contacts.list.load_failed")
     } finally {
       this.loadingDirection = null
       this.pendingLoadEnd = null
@@ -3700,7 +3700,7 @@ class VirtualContactsList {
     var detail = document.getElementById("contacts-detail")
     // Already showing it: drawing it again would replay its fade-in.
     if (detail && (detail.hasAttribute("data-mail-view-empty") || detail.querySelector("[data-mail-view-empty]"))) return
-    if (detail) detail.innerHTML = '<div class="flex flex-col items-center justify-center h-full text-center" data-mail-view-empty><div class="space-y-4 animate-fade-in"><div class="size-20 rounded-2xl bg-card flex items-center justify-center mx-auto raised"><svg class="size-9 text-muted-foreground/30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18a3 3 0 1 0-6 0"></path><circle cx="12" cy="10" r="2"></circle><rect width="18" height="18" x="3" y="4" rx="2"></rect><path d="M8 2v4"></path><path d="M16 2v4"></path></svg></div><div><h3 class="font-semibold mb-1">Select a contact</h3><p class="text-sm text-muted-foreground">Choose a contact from the list to view or edit it</p></div></div></div>'
+    if (detail) detail.innerHTML = '<div class="flex flex-col items-center justify-center h-full text-center" data-mail-view-empty><div class="space-y-4 animate-fade-in"><div class="size-20 rounded-2xl bg-card flex items-center justify-center mx-auto raised"><svg class="size-9 text-muted-foreground/30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18a3 3 0 1 0-6 0"></path><circle cx="12" cy="10" r="2"></circle><rect width="18" height="18" x="3" y="4" rx="2"></rect><path d="M8 2v4"></path><path d="M16 2v4"></path></svg></div><div><h3 class="font-semibold mb-1">' + goferT("js.contacts.none_open.title") + '</h3><p class="text-sm text-muted-foreground">' + goferT("js.contacts.none_open.detail") + '</p></div></div></div>'
   }
 
   updateHeader() {

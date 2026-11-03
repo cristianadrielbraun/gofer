@@ -47,7 +47,7 @@ func (h *Handler) sharedCalendarEventDetails(ctx context.Context, userID, eventI
 	if err != nil {
 		return views.CalendarEventDetails{}, err
 	}
-	details := calendarEventDetails(event)
+	details := calendarEventDetails(ctx, event)
 	if calendarDeliveryAvailable(event) {
 		data, err := h.calendarDeliveryData(ctx, event)
 		if err != nil {
@@ -80,14 +80,14 @@ func (h *Handler) sharedCalendarEventDetails(ctx context.Context, userID, eventI
 	return details, nil
 }
 
-func calendarEventDetails(event storage.CalendarEvent) views.CalendarEventDetails {
+func calendarEventDetails(ctx context.Context, event storage.CalendarEvent) views.CalendarEventDetails {
 	reminder := ""
 	if event.ReminderMinutes != nil {
-		reminder = views.CalendarReminderLabel(*event.ReminderMinutes)
+		reminder = views.CalendarReminderLabel(ctx, *event.ReminderMinutes)
 	}
 	return views.CalendarEventDetails{
 		Reminder:        reminder,
-		ShowAs:          calendarShowAsDetail(event.ShowAs),
+		ShowAs:          calendarShowAsDetail(ctx, event.ShowAs),
 		Private:         event.Private,
 		Event:           calendarViewEvent(event),
 		Description:     calendarDescriptionText(event.Description),
@@ -165,9 +165,9 @@ func calendarEventParticipants(raw string) []views.CalendarEventParticipant {
 	return result
 }
 
-func calendarShowAsDetail(showAs string) string {
+func calendarShowAsDetail(ctx context.Context, showAs string) string {
 	if showAs == "" {
 		return ""
 	}
-	return views.CalendarShowAsLabel(showAs)
+	return views.CalendarShowAsLabel(ctx, showAs)
 }

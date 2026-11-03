@@ -2708,9 +2708,9 @@ func SidebarSyncControls(accounts []models.Account, activeApp string) templ.Comp
 							return templ_7745c5c3_Err
 						}
 						var templ_7745c5c3_Var124 string
-						templ_7745c5c3_Var124, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "calendar.sync.refresh_account", "account", calendarAccountDisplayName(account)))
+						templ_7745c5c3_Var124, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "calendar.sync.refresh_account", "account", calendarAccountName(ctx, account)))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 631, Col: 114}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 631, Col: 112}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var124))
 						if templ_7745c5c3_Err != nil {
@@ -2729,9 +2729,9 @@ func SidebarSyncControls(accounts []models.Account, activeApp string) templ.Comp
 							return templ_7745c5c3_Err
 						}
 						var templ_7745c5c3_Var125 string
-						templ_7745c5c3_Var125, templ_7745c5c3_Err = templ.JoinStringErrs(calendarAccountDisplayName(account))
+						templ_7745c5c3_Var125, templ_7745c5c3_Err = templ.JoinStringErrs(calendarAccountName(ctx, account))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 635, Col: 88}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 635, Col: 86}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var125))
 						if templ_7745c5c3_Err != nil {

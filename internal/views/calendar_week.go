@@ -58,11 +58,13 @@ func calendarNavigationURL(data CalendarMonthData, direction int) string {
 	return calendarMonthURL(data.Month.AddDate(0, direction, 0).Format("2006-01"))
 }
 
-func calendarNavigationLabel(data CalendarMonthData, direction string) string {
+// calendarNavigationLabel names the previous or next arrow; direction is
+// "previous" or "next".
+func calendarNavigationLabel(ctx context.Context, data CalendarMonthData, direction string) string {
 	if data.View == "week" {
-		return direction + " week"
+		return i18n.T(ctx, "calendar.nav."+direction+"_week")
 	}
-	return direction + " month"
+	return i18n.T(ctx, "calendar.nav."+direction+"_month")
 }
 
 func calendarViewSwitchClass(active bool) string {
