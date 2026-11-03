@@ -30,7 +30,7 @@ templ CalendarLayout(accounts []models.Account, month CalendarMonthData, uiSetti
 			<meta charset="UTF-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 			@I18nScripts()
-			<title>Gofer - Calendar</title>
+			<title>{ i18n.T(ctx, "page.title", "page", i18n.T(ctx, "app.calendar")) }</title>
 			@AppIcon()
 			@FontFaces()
 			@SavedPanelSizeStyle()

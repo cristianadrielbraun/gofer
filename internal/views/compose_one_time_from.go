@@ -1,6 +1,8 @@
 package views
 
 import (
+	"context"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"strconv"
 	"strings"
 
@@ -37,12 +39,12 @@ func (r composeFromRoute) Domains() string {
 // composeFromRoutes lists the ways a one-time From of acc can be sent: the
 // account's own, then each further SMTP server its identities send through,
 // once per server and login.
-func composeFromRoutes(acc models.Account) []composeFromRoute {
+func composeFromRoutes(ctx context.Context, acc models.Account) []composeFromRoute {
 	routes := []composeFromRoute{{
 		Key: "account:" + acc.ID, AccountID: acc.ID,
-		Label: acc.Email, Detail: composeAccountWayName(acc),
-		Rule: acc.FromRule, Reason: composeFromRuleReason(acc),
-		Note: composeFromRuleNote(acc.FromRule, acc.Email),
+		Label: acc.Email, Detail: composeAccountWayName(ctx, acc),
+		Rule: acc.FromRule, Reason: composeFromRuleReason(ctx, acc),
+		Note: composeFromRuleNote(ctx, acc.FromRule, acc.Email),
 	}}
 	seen := map[string]bool{}
 	for _, identity := range acc.Identities {
@@ -57,8 +59,8 @@ func composeFromRoutes(acc models.Account) []composeFromRoute {
 		rule := providers.SMTPFromRule(identity.SMTPHost)
 		routes = append(routes, composeFromRoute{
 			Key: "identity:" + identity.ID, AccountID: acc.ID, IdentityID: identity.ID,
-			Label: identity.SMTPHost, Detail: "Server of " + identity.Email,
-			Rule: rule, Note: composeFromRuleNote(rule, identity.Email),
+			Label: identity.SMTPHost, Detail: i18n.T(ctx, "compose.from.server_of", "email", identity.Email),
+			Rule: rule, Note: composeFromRuleNote(ctx, rule, identity.Email),
 		})
 	}
 	return routes
@@ -66,9 +68,9 @@ func composeFromRoutes(acc models.Account) []composeFromRoute {
 
 // composeHasOneTimeFrom reports whether any account has a way to send a
 // one-time From.
-func composeHasOneTimeFrom(accounts []models.Account) bool {
+func composeHasOneTimeFrom(ctx context.Context, accounts []models.Account) bool {
 	for _, acc := range accounts {
-		for _, route := range composeFromRoutes(acc) {
+		for _, route := range composeFromRoutes(ctx, acc) {
 			if route.Reason == "" {
 				return true
 			}
@@ -87,46 +89,46 @@ func composeFromKindName(kind models.FromRuleKind) string {
 	return "unknown"
 }
 
-func composeAccountWayName(acc models.Account) string {
+func composeAccountWayName(ctx context.Context, acc models.Account) string {
 	switch acc.Provider {
 	case providers.ProviderGmail:
 		return "Gmail"
 	case providers.ProviderOutlook:
 		return "Outlook"
 	case providers.ProviderJMAP:
-		return "The account's JMAP server"
+		return i18n.T(ctx, "compose.from.jmap_server")
 	}
-	return "The account's SMTP server"
+	return i18n.T(ctx, "compose.from.smtp_server")
 }
 
 // composeFromRuleReason says why the account's own way can't send a one-time
 // From, or is empty when it can.
-func composeFromRuleReason(acc models.Account) string {
+func composeFromRuleReason(ctx context.Context, acc models.Account) string {
 	if acc.FromRule.TakesOtherAddresses() {
 		return ""
 	}
 	if acc.Provider == providers.ProviderGmail {
-		return `Gmail sends only from the addresses in its "Send mail as" settings`
+		return i18n.T(ctx, "compose.from.gmail_reason")
 	}
-	return "The server sends only from its own identities"
+	return i18n.T(ctx, "compose.from.own_identities")
 }
 
 // composeFromRuleNote is what the compose form says about a way of sending
 // with rule, which falls back to own when it won't use the address.
-func composeFromRuleNote(rule models.FromRule, own string) string {
+func composeFromRuleNote(ctx context.Context, rule models.FromRule, own string) string {
 	switch rule.Kind {
 	case models.FromDomains:
-		return "Sends from any address at " + strings.Join(rule.Domains, ", ") + "."
+		return i18n.T(ctx, "compose.from.note.domains", "domains", strings.Join(rule.Domains, ", "))
 	case models.FromListed:
 		return ""
 	}
 	switch rule.Service {
 	case providers.FromServiceOutlook:
-		return "Outlook doesn't say which addresses this account may send as. Without permission for this address, it refuses the message."
+		return i18n.T(ctx, "compose.from.note.outlook")
 	case providers.FromServiceGmail:
-		return `Gmail sends only from the addresses in its "Send mail as" settings, and sends from ` + own + " instead of any other."
+		return i18n.T(ctx, "compose.from.note.gmail", "email", own)
 	case providers.FromServiceICloud:
-		return "iCloud sends only from this account's iCloud addresses and aliases, and may refuse any other."
+		return i18n.T(ctx, "compose.from.note.icloud")
 	}
-	return "This server doesn't say which addresses it accepts. It may refuse the message, or send it from " + own + " instead."
+	return i18n.T(ctx, "compose.from.note.unknown", "email", own)
 }

@@ -356,11 +356,11 @@ templ SettingsComposeDisplayTab(uiSettings map[string]string, signatureData []mo
 					@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
 						@selectbox.Trigger(selectbox.TriggerProps{Name: "translation_target_language", Class: "bg-background", DisableClear: true, Disabled: uiSettingGet(uiSettings, "translation_button_enabled", "true") == "false"}) {
 							@selectbox.Value(selectbox.ValueProps{Placeholder: "English"}) {
-								{ translationLanguageSettingLabel(uiSettingGet(uiSettings, "translation_target_language", "en")) }
+								{ translationLanguageSettingLabel(ctx, uiSettingGet(uiSettings, "translation_target_language", "en")) }
 							}
 						}
 						@selectbox.Content(selectbox.ContentProps{SearchPlaceholder: "Search languages...", Class: "mobile-sheet"}) {
-							for _, language := range translationLanguageOptions() {
+							for _, language := range translationLanguageOptions(ctx) {
 								@selectbox.Item(selectbox.ItemProps{Value: language.Value, Selected: uiSettingGet(uiSettings, "translation_target_language", "en") == language.Value}) { { language.Label } }
 							}
 						}

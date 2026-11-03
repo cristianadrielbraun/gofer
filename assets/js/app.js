@@ -8626,7 +8626,8 @@ document.addEventListener("DOMContentLoaded", function () {
         }
         var indicator = group.querySelector("[data-mail-list-view-indicator]")
         if (indicator) {
-          indicator.style.transform = mode === "table" ? "translateX(100%)" : "translateX(0)"
+          // As mailListViewIndicatorStyle places it: one button and the gap.
+          indicator.style.transform = mode === "table" ? "translateX(calc(100% + 2px))" : "translateX(0)"
         }
       }
 

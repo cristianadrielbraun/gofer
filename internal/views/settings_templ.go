@@ -2085,9 +2085,9 @@ func SettingsComposeDisplayTab(uiSettings map[string]string, signatureData []mod
 					}
 					ctx = templ.InitializeContext(ctx)
 					var templ_7745c5c3_Var100 string
-					templ_7745c5c3_Var100, templ_7745c5c3_Err = templ.JoinStringErrs(translationLanguageSettingLabel(uiSettingGet(uiSettings, "translation_target_language", "en")))
+					templ_7745c5c3_Var100, templ_7745c5c3_Err = templ.JoinStringErrs(translationLanguageSettingLabel(ctx, uiSettingGet(uiSettings, "translation_target_language", "en")))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 359, Col: 104}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 359, Col: 109}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var100))
 					if templ_7745c5c3_Err != nil {
@@ -2121,7 +2121,7 @@ func SettingsComposeDisplayTab(uiSettings map[string]string, signatureData []mod
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				for _, language := range translationLanguageOptions() {
+				for _, language := range translationLanguageOptions(ctx) {
 					templ_7745c5c3_Var102 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 						templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 						templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)

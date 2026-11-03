@@ -1,6 +1,8 @@
 package views
 
 import (
+	"context"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"fmt"
 	"strings"
 	"time"
@@ -33,7 +35,7 @@ templ MailList(accounts []models.Account, emails []models.Email, activeFolder st
 		if mailListNavigationMode(navigationMode) == "pagination" && scrollCount >= 0 {
 			@MailListPagination(scrollCount, windowStart, len(emails), mailListPaginationPageSize())
 		}
-		<button type="button" class="mobile-compose-fab" data-on-click='["openNewCompose"]' aria-label="Compose">
+		<button type="button" class="mobile-compose-fab" data-on-click='["openNewCompose"]' aria-label={ i18n.T(ctx, "mail.compose") }>
 			@icon.Pen(icon.Props{Class: "size-5"})
 		</button>
 		@MailListContextMenu()
@@ -52,22 +54,22 @@ templ MailListContextMenu() {
 			Placement: popover.PlacementBottomStart,
 			Offset:    2,
 			Class:     "z-50 w-52 rounded-md border border-border bg-popover p-1 shadow-md focus:outline-none",
-			Attributes: templ.Attributes{"role": "menu", "aria-label": "Message actions"},
+			Attributes: templ.Attributes{"role": "menu", "aria-label": i18n.T(ctx, "mail.actions.label")},
 		}) {
 			@dropdown.Label(dropdown.LabelProps{Class: "text-xs font-medium text-muted-foreground", Attributes: templ.Attributes{"data-mail-context-count": "", "hidden": true}})
 			<div data-mail-context-group="reply">
-				@mailContextItem("reply", "Reply") {
+				@mailContextItem("reply", i18n.T(ctx, "shortcuts.reply")) {
 					@icon.Reply(icon.Props{Class: "size-4"})
 				}
-				@mailContextItem("reply-all", "Reply all") {
+				@mailContextItem("reply-all", i18n.T(ctx, "shortcuts.reply_all")) {
 					@icon.ReplyAll(icon.Props{Class: "size-4"})
 				}
-				@mailContextItem("forward", "Forward") {
+				@mailContextItem("forward", i18n.T(ctx, "shortcuts.forward")) {
 					@icon.Forward(icon.Props{Class: "size-4"})
 				}
 				@dropdown.Separator()
 			</div>
-			@mailContextItem("read", "Mark as read") {
+			@mailContextItem("read", i18n.T(ctx, "mail.actions.mark_read")) {
 				<span data-mail-context-icon="read">
 					@icon.MailOpen(icon.Props{Class: "size-4"})
 				</span>
@@ -75,7 +77,7 @@ templ MailListContextMenu() {
 					@icon.Mail(icon.Props{Class: "size-4"})
 				</span>
 			}
-			@mailContextItem("star", "Star") {
+			@mailContextItem("star", i18n.T(ctx, "shortcuts.star")) {
 				<span data-mail-context-icon="star">
 					@icon.Star(icon.Props{Class: "size-4"})
 				</span>
@@ -84,7 +86,7 @@ templ MailListContextMenu() {
 				</span>
 			}
 			@dropdown.Separator()
-			@mailContextItem("archive", "Archive") {
+			@mailContextItem("archive", i18n.T(ctx, "shortcuts.archive")) {
 				<span data-mail-context-icon="archive">
 					@icon.Archive(icon.Props{Class: "size-4"})
 				</span>
@@ -92,10 +94,10 @@ templ MailListContextMenu() {
 					@icon.ArchiveRestore(icon.Props{Class: "size-4"})
 				</span>
 			}
-			@mailContextItem("move", "Move to…") {
+			@mailContextItem("move", i18n.T(ctx, "mail.actions.move")) {
 				@icon.FolderInput(icon.Props{Class: "size-4"})
 			}
-			@mailContextItem("labels", "Labels…") {
+			@mailContextItem("labels", i18n.T(ctx, "mail.actions.labels")) {
 				@icon.Tag(icon.Props{Class: "size-4"})
 			}
 			// Several messages have nothing else for More, so spam shows here.
@@ -103,7 +105,7 @@ templ MailListContextMenu() {
 				@mailContextSpamItems()
 			</div>
 			@dropdown.Separator()
-			@mailContextItem("delete", "Delete") {
+			@mailContextItem("delete", i18n.T(ctx, "shortcuts.delete")) {
 				@icon.Trash2(icon.Props{Class: "size-4"})
 			}
 			<div data-mail-context-group="more">
@@ -112,19 +114,19 @@ templ MailListContextMenu() {
 					@dropdown.SubTrigger() {
 						<span class="flex items-center gap-2">
 							@icon.Ellipsis(icon.Props{Class: "size-4"})
-							More
+							{ i18n.T(ctx, "common.more") }
 						</span>
 					}
-					@dropdown.SubContent(dropdown.SubContentProps{Class: "w-44", Attributes: templ.Attributes{"role": "menu", "aria-label": "More message actions"}}) {
+					@dropdown.SubContent(dropdown.SubContentProps{Class: "w-44", Attributes: templ.Attributes{"role": "menu", "aria-label": i18n.T(ctx, "mail.actions.more_label")}}) {
 						@mailContextSpamItems()
 						@dropdown.Separator()
-						@mailContextItem("download", "Download") {
+						@mailContextItem("download", i18n.T(ctx, "mail.actions.download")) {
 							@icon.Download(icon.Props{Class: "size-4"})
 						}
-						@mailContextItem("source", "View source") {
+						@mailContextItem("source", i18n.T(ctx, "mail.actions.source")) {
 							@icon.FileCode(icon.Props{Class: "size-4"})
 						}
-						@mailContextItem("refetch", "Re-fetch") {
+						@mailContextItem("refetch", i18n.T(ctx, "mail.actions.refetch")) {
 							@icon.RefreshCw(icon.Props{Class: "size-4"})
 						}
 					}
@@ -135,10 +137,10 @@ templ MailListContextMenu() {
 }
 
 templ mailContextSpamItems() {
-	@mailContextItem("spam", "Report spam") {
+	@mailContextItem("spam", i18n.T(ctx, "mail.actions.report_spam")) {
 		@icon.ShieldAlert(icon.Props{Class: "size-4"})
 	}
-	@mailContextItem("not-spam", "Not spam") {
+	@mailContextItem("not-spam", i18n.T(ctx, "mail.actions.not_spam")) {
 		@icon.ShieldCheck(icon.Props{Class: "size-4"})
 	}
 }
@@ -152,21 +154,21 @@ templ mailContextItem(action string, label string) {
 	}
 }
 
-func mailListFolderHeading(activeFolder string, filters models.EmailFilters) string {
+func mailListFolderHeading(ctx context.Context, activeFolder string, filters models.EmailFilters) string {
 	if filters.SearchScope != nil {
-		return "Search results"
+		return i18n.T(ctx, "mail.search.results")
 	}
 	if strings.TrimSpace(filters.Participant) != "" {
-		return "All mail"
+		return i18n.T(ctx, "mail.all_mail")
 	}
-	return folderDisplayName(activeFolder)
+	return folderDisplayName(ctx, activeFolder)
 }
 
 templ MailListHeader(accounts []models.Account, activeFolder string, totalCount int, filters models.EmailFilters) {
 	<div class="mail-list-header px-4 py-4 space-y-3">
 		<div class="mail-list-title-row flex items-center justify-between">
 			<div class="mail-list-title flex items-center gap-2 min-w-0">
-				<h2 id="mail-folder-name" data-mail-folder-default-name={ folderDisplayName(activeFolder) } class="text-lg font-bold tracking-tight" style="font-family: var(--font-serif)">{ mailListFolderHeading(activeFolder, filters) }</h2>
+				<h2 id="mail-folder-name" data-mail-folder-default-name={ folderDisplayName(ctx, activeFolder) } class="text-lg font-bold tracking-tight" style="font-family: var(--font-serif)">{ mailListFolderHeading(ctx, activeFolder, filters) }</h2>
 				if totalCount >= 0 {
 					<span id="mail-folder-count" class="inline-flex h-5 min-w-10 items-center justify-center rounded-full bg-muted px-2 text-xs font-medium text-muted-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)]">{ fmt.Sprintf("%d", totalCount) }</span>
 				} else {
@@ -176,7 +178,7 @@ templ MailListHeader(accounts []models.Account, activeFolder string, totalCount 
 		</div>
 		<div class="mail-list-search-section">
 			<div class="mail-list-search-primary">
-				<button type="button" class="mail-list-search-close hidden" data-mail-search-close aria-label="Close search">
+				<button type="button" class="mail-list-search-close hidden" data-mail-search-close aria-label={ i18n.T(ctx, "mail.search.close") }>
 					@icon.ArrowLeft(icon.Props{Class: "size-5"})
 				</button>
 				<div class="mail-list-search-input-wrap groove flex min-w-0 items-stretch rounded-lg border border-border/50 bg-background focus-within:ring-2 focus-within:ring-ring">
@@ -187,8 +189,8 @@ templ MailListHeader(accounts []models.Account, activeFolder string, totalCount 
 							<input
 								type="text"
 								name="q"
-								placeholder="Search mail"
-								data-mobile-placeholder="Search mail"
+								placeholder={ i18n.T(ctx, "mail.search.label") }
+								data-mobile-placeholder={ i18n.T(ctx, "mail.search.label") }
 								class="h-9 w-full pl-8 pr-2 text-sm bg-transparent outline-none"
 								data-mail-search-input
 								autocomplete="off"
@@ -207,7 +209,7 @@ templ MailListHeader(accounts []models.Account, activeFolder string, totalCount 
 				</div>
 			</div>
 			@MailSearchControls(accounts)
-			<div data-mail-active-filter-pills class="mail-active-filter-strip hidden" aria-label="Active filters"></div>
+			<div data-mail-active-filter-pills class="mail-active-filter-strip hidden" aria-label={ i18n.T(ctx, "mail.filters.active") }></div>
 		</div>
 	</div>
 }
@@ -216,7 +218,7 @@ templ MailFilterTriState(name string, leftValue string, leftLabel string, rightV
 	<div class="mail-filter-tristate relative inline-grid h-7 w-full grid-cols-3 overflow-hidden border border-border bg-background p-0.5 text-[11px]" data-mail-tristate={ name } data-mail-tristate-value="">
 		<div class="mail-filter-tristate-indicator" data-mail-tristate-indicator></div>
 		<button type="button" data-mail-tristate-option={ leftValue } aria-pressed="false" class="relative z-10 px-1.5 text-muted-foreground hover:text-foreground">{ leftLabel }</button>
-		<button type="button" data-mail-tristate-option="" aria-pressed="true" class="relative z-10 px-1.5 text-foreground">Any</button>
+		<button type="button" data-mail-tristate-option="" aria-pressed="true" class="relative z-10 px-1.5 text-foreground">{ i18n.T(ctx, "mail.filters.any") }</button>
 		<button type="button" data-mail-tristate-option={ rightValue } aria-pressed="false" class="relative z-10 px-1.5 text-muted-foreground hover:text-foreground">{ rightLabel }</button>
 	</div>
 }
@@ -243,22 +245,12 @@ templ mailListDate(short string, withTime string) {
 	}
 }
 
-func mailSortLabel(filters models.EmailFilters) string {
+func mailSortLabel(ctx context.Context, filters models.EmailFilters) string {
 	switch filters.SortBy {
-	case "sender":
-		return "Sender"
-	case "subject":
-		return "Subject"
-	case "size":
-		return "Size"
-	case "unread":
-		return "Unread first"
-	case "starred":
-		return "Starred first"
-	case "attachments":
-		return "Attachments first"
+	case "sender", "subject", "size", "unread", "starred", "attachments":
+		return i18n.T(ctx, "mail.sort."+filters.SortBy)
 	default:
-		return "Date"
+		return i18n.T(ctx, "mail.sort.date")
 	}
 }
 
@@ -269,7 +261,7 @@ templ MailListToolbar(accounts []models.Account, activeFolder string, viewMode s
 			Variant:    button.VariantGhost,
 			Size:       button.SizeSm,
 			Class:      "hidden lg:hidden h-7 gap-1 px-2 text-xs font-semibold text-muted-foreground",
-			Attributes: templ.Attributes{"data-mail-selection-clear": "", "aria-label": "Clear selection"},
+			Attributes: templ.Attributes{"data-mail-selection-clear": "", "aria-label": i18n.T(ctx, "shortcuts.clear_selection")},
 		}) {
 			<span class="mail-selection-clear-icon hidden" aria-hidden="true">
 				@icon.X(icon.Props{Class: "size-5"})
@@ -277,7 +269,7 @@ templ MailListToolbar(accounts []models.Account, activeFolder string, viewMode s
 			<span data-mail-selection-summary>0</span>
 		}
 		<div class="inline-flex h-7 shrink-0 items-center rounded-lg border border-border bg-background p-0.5 gap-0.5" data-mail-list-view-capsule>
-			<div class="relative inline-flex h-6 gap-0.5" data-mail-list-view-toggle>
+			<div class="relative inline-grid h-6 grid-cols-2 gap-0.5" data-mail-list-view-toggle>
 				<div
 					data-mail-list-view-indicator
 					class="absolute inset-y-0 left-0 w-[calc(50%-1px)] rounded-md border border-border bg-card shadow-sm transition-transform duration-200 ease-out"
@@ -287,29 +279,29 @@ templ MailListToolbar(accounts []models.Account, activeFolder string, viewMode s
 					type="button"
 					data-mail-list-view-button="cards"
 					aria-pressed={ fmt.Sprintf("%t", viewMode == "cards") }
-					aria-label="Cards view"
+					aria-label={ i18n.T(ctx, "mail.view.cards_label") }
 					class={
-						"relative z-10 inline-flex h-6 items-center gap-1 px-2 rounded-md text-xs font-medium transition-colors duration-200",
+						"relative z-10 inline-flex h-6 items-center justify-center gap-1 px-2 rounded-md text-xs font-medium transition-colors duration-200",
 						templ.KV("text-foreground", viewMode == "cards"),
 						templ.KV("text-muted-foreground hover:text-foreground", viewMode != "cards"),
 					}
 				>
 					@icon.LayoutList(icon.Props{Class: "size-3.5"})
-					<span class="mail-toolbar-collapsible" style="--collapse-gap: 0.25rem" data-mail-view-label>Cards</span>
+					<span class="mail-toolbar-collapsible" style="--collapse-gap: 0.25rem" data-mail-view-label>{ i18n.T(ctx, "mail.view.cards") }</span>
 				</button>
 				<button
 					type="button"
 					data-mail-list-view-button="table"
 					aria-pressed={ fmt.Sprintf("%t", viewMode == "table") }
-					aria-label="Table view"
+					aria-label={ i18n.T(ctx, "mail.view.table_label") }
 					class={
-						"relative z-10 inline-flex h-6 items-center gap-1 px-2 rounded-md text-xs font-medium transition-colors duration-200",
+						"relative z-10 inline-flex h-6 items-center justify-center gap-1 px-2 rounded-md text-xs font-medium transition-colors duration-200",
 						templ.KV("text-foreground", viewMode == "table"),
 						templ.KV("text-muted-foreground hover:text-foreground", viewMode != "table"),
 					}
 				>
 					@icon.Table2(icon.Props{Class: "size-3.5"})
-					<span class="mail-toolbar-collapsible" style="--collapse-gap: 0.25rem" data-mail-view-label>Table</span>
+					<span class="mail-toolbar-collapsible" style="--collapse-gap: 0.25rem" data-mail-view-label>{ i18n.T(ctx, "mail.view.table") }</span>
 				</button>
 			</div>
 			<div class="mx-0.5 h-4 w-px bg-border" data-mail-list-view-divider aria-hidden="true"></div>
@@ -317,53 +309,53 @@ templ MailListToolbar(accounts []models.Account, activeFolder string, viewMode s
 		</div>
 		@dropdown.Dropdown() {
 			@dropdown.Trigger() {
-				<button type="button" class="mail-list-sort-trigger inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground" aria-label="Sort messages" data-mail-sort-trigger>
+				<button type="button" class="mail-list-sort-trigger inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground" aria-label={ i18n.T(ctx, "mail.sort.label") } data-mail-sort-trigger>
 					@icon.ArrowUpDown(icon.Props{Class: "size-3.5"})
-					<span class="mail-toolbar-collapsible" style="--collapse-gap: 0.375rem" data-mail-sort-label>{ mailSortLabel(filters) }</span>
+					<span class="mail-toolbar-collapsible" style="--collapse-gap: 0.375rem" data-mail-sort-label>{ mailSortLabel(ctx, filters) }</span>
 				</button>
 			}
 			@dropdown.Content(dropdown.ContentProps{Placement: dropdown.PlacementBottomEnd, Class: "mobile-sheet w-64 normal-case tracking-normal p-3"}) {
 				<form class="space-y-3" data-mail-sort-form>
 					<div class="space-y-1 text-[11px] font-medium text-muted-foreground">
-						<span>Order by</span>
+						<span>{ i18n.T(ctx, "mail.sort.order_by") }</span>
 						@selectbox.SelectBox() {
 							@selectbox.Trigger(selectbox.TriggerProps{Name: "sort_by", Class: "h-8 bg-background text-xs", DisableClear: true}) {
-								@selectbox.Value(selectbox.ValueProps{Placeholder: "Date"})
+								@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "mail.sort.date")})
 							}
 							@selectbox.Content(selectbox.ContentProps{NoSearch: true, DisableExclusive: true}) {
 								@selectbox.Item(selectbox.ItemProps{Value: "date", Selected: filters.SortBy == "" || filters.SortBy == "date"}) {
-									Date
+									{ i18n.T(ctx, "mail.sort.date") }
 								}
 								@selectbox.Item(selectbox.ItemProps{Value: "sender", Selected: filters.SortBy == "sender"}) {
-									Sender
+									{ i18n.T(ctx, "mail.sort.sender") }
 								}
 								@selectbox.Item(selectbox.ItemProps{Value: "subject", Selected: filters.SortBy == "subject"}) {
-									Subject
+									{ i18n.T(ctx, "mail.sort.subject") }
 								}
 								@selectbox.Item(selectbox.ItemProps{Value: "size", Selected: filters.SortBy == "size"}) {
-									Size
+									{ i18n.T(ctx, "mail.sort.size") }
 								}
 								@selectbox.Item(selectbox.ItemProps{Value: "unread", Selected: filters.SortBy == "unread"}) {
-									Unread first
+									{ i18n.T(ctx, "mail.sort.unread") }
 								}
 								@selectbox.Item(selectbox.ItemProps{Value: "starred", Selected: filters.SortBy == "starred"}) {
-									Starred first
+									{ i18n.T(ctx, "mail.sort.starred") }
 								}
 								@selectbox.Item(selectbox.ItemProps{Value: "attachments", Selected: filters.SortBy == "attachments"}) {
-									Attachments first
+									{ i18n.T(ctx, "mail.sort.attachments") }
 								}
 							}
 						}
 					</div>
 					<div class="space-y-1 text-[11px] font-medium text-muted-foreground">
-						<span>Order</span>
-						<div class="mail-sort-order grid h-8 grid-cols-2 gap-0.5 rounded-lg border border-border bg-background p-0.5" role="radiogroup" aria-label="Order">
+						<span>{ i18n.T(ctx, "mail.sort.order") }</span>
+						<div class="mail-sort-order grid h-8 grid-cols-2 gap-0.5 rounded-lg border border-border bg-background p-0.5" role="radiogroup" aria-label={ i18n.T(ctx, "mail.sort.order") }>
 							<div class="mail-sort-order-indicator rounded-md border border-border bg-card shadow-sm" aria-hidden="true"></div>
-							@mailSortOrderOption("desc", "Descending", filters.SortOrder != "asc")
-							@mailSortOrderOption("asc", "Ascending", filters.SortOrder == "asc")
+							@mailSortOrderOption("desc", i18n.T(ctx, "mail.sort.descending"), filters.SortOrder != "asc")
+							@mailSortOrderOption("asc", i18n.T(ctx, "mail.sort.ascending"), filters.SortOrder == "asc")
 						</div>
 					</div>
-					<button type="submit" class="inline-flex h-8 w-full items-center justify-center rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground hover:bg-primary/90">Apply sort</button>
+					<button type="submit" class="inline-flex h-8 w-full items-center justify-center rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground hover:bg-primary/90">{ i18n.T(ctx, "mail.sort.apply") }</button>
 				</form>
 			}
 		}
@@ -381,7 +373,7 @@ templ MailListToolbar(accounts []models.Account, activeFolder string, viewMode s
 							"data-mail-delete-permanent":  fmt.Sprintf("%t", mailFolderIDIsTrash(activeFolder, accounts)),
 							"data-mail-delete-all-folder": mailDeleteAllFolder(activeFolder, accounts),
 							"data-mail-delete-all":        mailDeleteAllFolder(activeFolder, accounts) != "",
-							"aria-label":                  mailDeleteAllLabel(mailDeleteAllFolder(activeFolder, accounts)),
+							"aria-label":                  mailDeleteAllLabel(ctx, mailDeleteAllFolder(activeFolder, accounts)),
 						},
 					}) {
 						@icon.Trash2(icon.Props{Class: "size-3.5"})
@@ -392,7 +384,7 @@ templ MailListToolbar(accounts []models.Account, activeFolder string, viewMode s
 					ShowArrow: true,
 				}) {
 					<span data-mail-delete-tooltip>
-						{ mailDeleteAllTooltip(mailDeleteAllFolder(activeFolder, accounts)) }
+						{ mailDeleteAllTooltip(ctx, mailDeleteAllFolder(activeFolder, accounts)) }
 					</span>
 				}
 			}
@@ -405,7 +397,7 @@ templ MailListToolbar(accounts []models.Account, activeFolder string, viewMode s
 						Size:       button.SizeIcon,
 						Class:      "h-7 w-7",
 						Disabled:   true,
-						Attributes: templ.Attributes{"data-mail-selection-action": "archive", "aria-label": mailArchiveSelectionLabel(mailFolderIDIsArchive(activeFolder, accounts))},
+						Attributes: templ.Attributes{"data-mail-selection-action": "archive", "aria-label": mailArchiveSelectionLabel(ctx, mailFolderIDIsArchive(activeFolder, accounts))},
 					}) {
 						<span class={ mailHiddenClass("", mailFolderIDIsArchive(activeFolder, accounts)) } data-mail-archive-icon>
 							@icon.Archive(icon.Props{Class: "size-3.5"})
@@ -421,9 +413,9 @@ templ MailListToolbar(accounts []models.Account, activeFolder string, viewMode s
 				}) {
 					<span data-mail-archive-tooltip>
 						if mailFolderIDIsArchive(activeFolder, accounts) {
-							Move to Inbox
+							{ i18n.T(ctx, "mail.actions.move_to_inbox") }
 						} else {
-							Archive
+							{ i18n.T(ctx, "shortcuts.archive") }
 						}
 					</span>
 				}
@@ -435,7 +427,7 @@ templ MailListToolbar(accounts []models.Account, activeFolder string, viewMode s
 						Size:       button.SizeIcon,
 						Class:      "h-7 w-7",
 						Disabled:   true,
-						Attributes: templ.Attributes{"data-mail-selection-action": "read", "aria-label": "Mark selected messages as read"},
+						Attributes: templ.Attributes{"data-mail-selection-action": "read", "aria-label": i18n.T(ctx, "mail.selection.read")},
 					}) {
 						<span data-mail-read-icon>
 							@icon.MailOpen(icon.Props{Class: "size-3.5"})
@@ -449,7 +441,7 @@ templ MailListToolbar(accounts []models.Account, activeFolder string, viewMode s
 					Position:  tooltip.PositionBottom,
 					ShowArrow: true,
 				}) {
-					<span data-mail-read-tooltip>Mark as read</span>
+					<span data-mail-read-tooltip>{ i18n.T(ctx, "mail.actions.mark_read") }</span>
 				}
 			}
 			<div class="mail-toolbar-collapsible" data-mail-overflow-rank="3">
@@ -460,7 +452,7 @@ templ MailListToolbar(accounts []models.Account, activeFolder string, viewMode s
 							Size:       button.SizeIcon,
 							Class:      "h-7 w-7",
 							Disabled:   true,
-							Attributes: templ.Attributes{"data-mail-selection-action": "star", "aria-label": "Star selected messages"},
+							Attributes: templ.Attributes{"data-mail-selection-action": "star", "aria-label": i18n.T(ctx, "mail.selection.star")},
 						}) {
 							<span data-mail-star-icon>
 								@icon.Star(icon.Props{Class: "size-3.5"})
@@ -474,7 +466,7 @@ templ MailListToolbar(accounts []models.Account, activeFolder string, viewMode s
 						Position:  tooltip.PositionBottom,
 						ShowArrow: true,
 					}) {
-						<span data-mail-star-tooltip>Star</span>
+						<span data-mail-star-tooltip>{ i18n.T(ctx, "shortcuts.star") }</span>
 					}
 				}
 			</div>
@@ -486,7 +478,7 @@ templ MailListToolbar(accounts []models.Account, activeFolder string, viewMode s
 							Size:       button.SizeIcon,
 							Class:      "h-7 w-7",
 							Disabled:   true,
-							Attributes: templ.Attributes{"data-mail-selection-action": "labels", "aria-label": "Label selected messages"},
+							Attributes: templ.Attributes{"data-mail-selection-action": "labels", "aria-label": i18n.T(ctx, "mail.selection.labels")},
 						}) {
 							@icon.Tag(icon.Props{Class: "size-3.5"})
 						}
@@ -495,7 +487,7 @@ templ MailListToolbar(accounts []models.Account, activeFolder string, viewMode s
 						Position:  tooltip.PositionBottom,
 						ShowArrow: true,
 					}) {
-						Labels
+						{ i18n.T(ctx, "mail.actions.labels_short") }
 					}
 				}
 			</div>
@@ -507,7 +499,7 @@ templ MailListToolbar(accounts []models.Account, activeFolder string, viewMode s
 							Variant:    button.VariantGhost,
 							Size:       button.SizeIcon,
 							Class:      "h-7 w-7",
-							Attributes: templ.Attributes{"aria-label": "More actions"},
+							Attributes: templ.Attributes{"aria-label": i18n.T(ctx, "common.more_actions")},
 						}) {
 							@icon.EllipsisVertical(icon.Props{Class: "size-3.5"})
 						}
@@ -516,23 +508,23 @@ templ MailListToolbar(accounts []models.Account, activeFolder string, viewMode s
 						@dropdown.Item(dropdown.ItemProps{Attributes: templ.Attributes{"data-mail-selection-action": "star", "data-mail-overflow-rank": "3", "data-mail-overflow-menu-item": ""}}) {
 							<span class="flex items-center gap-2">
 								@icon.Star(icon.Props{Class: "size-4"})
-								<span data-mail-star-menu-label>Star</span>
+								<span data-mail-star-menu-label>{ i18n.T(ctx, "shortcuts.star") }</span>
 							</span>
 						}
 						@dropdown.Item(dropdown.ItemProps{Attributes: templ.Attributes{"data-mail-selection-action": "labels", "data-mail-overflow-rank": "2", "data-mail-overflow-menu-item": ""}}) {
 							<span class="flex items-center gap-2">
 								@icon.Tag(icon.Props{Class: "size-4"})
-								Labels…
+								{ i18n.T(ctx, "mail.actions.labels") }
 							</span>
 						}
 						@dropdown.Item(dropdown.ItemProps{Attributes: templ.Attributes{"data-mail-selection-action": mailSpamAction(mailFolderIDIsSpam(activeFolder, accounts)), "data-mail-overflow-rank": "1", "data-mail-overflow-menu-item": "", "data-mail-spam-toggle": ""}}) {
 							<span class="flex items-center gap-2 font-medium text-emerald-700 dark:text-emerald-300" data-mail-spam-variant="not-spam" hidden?={ !mailFolderIDIsSpam(activeFolder, accounts) }>
 								@icon.ShieldCheck(icon.Props{Class: "size-4"})
-								Not spam
+								{ i18n.T(ctx, "mail.actions.not_spam") }
 							</span>
 							<span class="flex items-center gap-2" data-mail-spam-variant="spam" hidden?={ mailFolderIDIsSpam(activeFolder, accounts) }>
 								@icon.ShieldAlert(icon.Props{Class: "size-4"})
-								Report spam
+								{ i18n.T(ctx, "mail.actions.report_spam") }
 							</span>
 						}
 					}
@@ -548,7 +540,7 @@ templ MailSelectAllControl() {
 	<div class="mail-select-all inline-flex h-7 shrink-0 items-center gap-0.5 rounded-md pl-1.5 transition-colors" data-mail-select-all>
 		@checkbox.Checkbox(checkbox.Props{
 			Class:      "mail-select-all-toggle",
-			Attributes: templ.Attributes{"data-mail-select-all-toggle": "", "aria-label": "Select all messages"},
+			Attributes: templ.Attributes{"data-mail-select-all-toggle": "", "aria-label": i18n.T(ctx, "mail.select.all_messages")},
 		})
 		@dropdown.Dropdown() {
 			@dropdown.Trigger() {
@@ -556,21 +548,21 @@ templ MailSelectAllControl() {
 					Variant:    button.VariantGhost,
 					Size:       button.SizeIcon,
 					Class:      "h-7 w-5 text-muted-foreground hover:bg-transparent dark:hover:bg-transparent",
-					Attributes: templ.Attributes{"aria-label": "Select messages by state"},
+					Attributes: templ.Attributes{"aria-label": i18n.T(ctx, "mail.select.by_state")},
 				}) {
 					@icon.ChevronDown(icon.Props{Class: "size-3.5"})
 				}
 			}
 			@dropdown.Content(dropdown.ContentProps{Placement: dropdown.PlacementBottomStart, Class: "mobile-sheet mail-select-all-menu w-44"}) {
-				@mailSelectMenuItem("all", "All")
-				@mailSelectMenuItem("none", "None")
+				@mailSelectMenuItem("all", i18n.T(ctx, "mail.select.all"))
+				@mailSelectMenuItem("none", i18n.T(ctx, "mail.select.none"))
 				@dropdown.Separator()
-				@mailSelectMenuItem("read", "Read")
-				@mailSelectMenuItem("unread", "Unread")
-				@mailSelectMenuItem("starred", "Starred")
-				@mailSelectMenuItem("unstarred", "Unstarred")
+				@mailSelectMenuItem("read", i18n.T(ctx, "mail.select.read"))
+				@mailSelectMenuItem("unread", i18n.T(ctx, "mail.select.unread"))
+				@mailSelectMenuItem("starred", i18n.T(ctx, "mail.select.starred"))
+				@mailSelectMenuItem("unstarred", i18n.T(ctx, "mail.select.unstarred"))
 				@dropdown.Separator()
-				@mailSelectMenuItem("invert", "Invert selection")
+				@mailSelectMenuItem("invert", i18n.T(ctx, "mail.select.invert"))
 			}
 		}
 	</div>
@@ -602,7 +594,7 @@ templ MailSelectAllBanner() {
 					Class:      "h-auto p-0 text-xs text-muted-foreground hover:text-foreground",
 					Attributes: templ.Attributes{"data-mail-select-all-banner-clear": ""},
 				}) {
-					Clear
+					{ i18n.T(ctx, "common.clear") }
 				}
 			</div>
 		</div>
@@ -624,8 +616,8 @@ templ MailFiltersPopover(accounts []models.Account, conversations bool) {
 	{{ accounts = mailAccounts(accounts) }}
 	@popover.Root(popover.RootProps{ID: "mail-filters-popover", Class: "inline-flex"}) {
 		@popover.Trigger() {
-			@button.Button(button.Props{Variant: button.VariantOutline, Class: mailListFilterButtonClass, Attributes: templ.Attributes{"aria-label": "Filters", "data-mail-filter-button": ""}}) {
-				<span class="mail-list-filter-label">Filters</span>
+			@button.Button(button.Props{Variant: button.VariantOutline, Class: mailListFilterButtonClass, Attributes: templ.Attributes{"aria-label": i18n.T(ctx, "mail.filters.title"), "data-mail-filter-button": ""}}) {
+				<span class="mail-list-filter-label">{ i18n.T(ctx, "mail.filters.title") }</span>
 				@icon.SlidersHorizontal(icon.Props{Class: "size-3.5"})
 				<span data-mail-filter-count class="hidden min-w-4 rounded-full bg-primary px-1 text-center text-[10px] leading-4 text-primary-foreground"></span>
 			}
@@ -633,8 +625,8 @@ templ MailFiltersPopover(accounts []models.Account, conversations bool) {
 		@popover.Content(popover.ContentProps{Placement: popover.PlacementBottomEnd, Offset: 8, Exclusive: true, Class: "mobile-sheet mail-filters-sheet z-[70] w-[min(36rem,calc(100vw-1.5rem))] max-w-none overflow-hidden p-0 [&::backdrop]:transition-colors [&::backdrop]:duration-150 data-[tui-popover-open=false]:[&::backdrop]:bg-black/0 data-[tui-popover-open=true]:[&::backdrop]:bg-black/25"}) {
 			<div class="mail-filters-sheet-body flex h-[min(32.2rem,calc(100vh-2rem))] min-h-0 flex-col">
 				<div class="shrink-0 border-b border-border px-4 py-3">
-					<h2 class="text-sm font-semibold text-foreground">Filters</h2>
-					<p class="mail-filters-intro mt-0.5 text-xs text-muted-foreground">Narrow the message list with any combination of filters.</p>
+					<h2 class="text-sm font-semibold text-foreground">{ i18n.T(ctx, "mail.filters.title") }</h2>
+					<p class="mail-filters-intro mt-0.5 text-xs text-muted-foreground">{ i18n.T(ctx, "mail.filters.intro") }</p>
 					<button type="button" class="mail-filters-applied hidden" data-mail-filters-applied data-mail-filters-applied-open>
 						<span data-mail-filters-applied-count></span>
 						@icon.ChevronRight(icon.Props{Class: "size-4"})
@@ -642,56 +634,56 @@ templ MailFiltersPopover(accounts []models.Account, conversations bool) {
 				</div>
 				<form data-mail-advanced-filter-form class="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-4">
 					<div class="grid min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)] gap-3 sm:grid-cols-[9rem_minmax(0,1fr)] sm:grid-rows-[minmax(0,1fr)]">
-						<nav class="flex shrink-0 gap-1 overflow-x-auto rounded-lg border border-border bg-muted/25 p-1.5 sm:self-start sm:flex-col sm:overflow-visible" aria-label="Filter categories">
-							@MailFilterCategoryButton("calendar", "Date range", true)
-							@MailFilterCategoryButton("audience", "People", false)
-							@MailFilterCategoryButton("content", "Content", false)
-							@MailFilterCategoryButton("files", "Files", false)
-							@MailFilterCategoryButton("status", "Status", false)
+						<nav class="flex shrink-0 gap-1 overflow-x-auto rounded-lg border border-border bg-muted/25 p-1.5 sm:self-start sm:flex-col sm:overflow-visible" aria-label={ i18n.T(ctx, "mail.filters.categories") }>
+							@MailFilterCategoryButton("calendar", i18n.T(ctx, "mail.filters.date_range"), true)
+							@MailFilterCategoryButton("audience", i18n.T(ctx, "mail.filters.cat.audience"), false)
+							@MailFilterCategoryButton("content", i18n.T(ctx, "mail.filters.cat.content"), false)
+							@MailFilterCategoryButton("files", i18n.T(ctx, "mail.filters.cat.files"), false)
+							@MailFilterCategoryButton("status", i18n.T(ctx, "mail.filters.cat.status"), false)
 						</nav>
 						<div data-mail-filter-panel-box class="h-full min-h-0 overflow-y-auto overscroll-contain rounded-lg border border-border bg-background/35 p-4 transition-[height] duration-200 ease-out">
 							<section data-mail-filter-panel="calendar" class="space-y-3">
 								<div>
-									<h3 class="text-sm font-semibold text-foreground">Date range</h3>
-									<p class="mt-0.5 text-xs text-muted-foreground">Limit results by message date.</p>
+									<h3 class="text-sm font-semibold text-foreground">{ i18n.T(ctx, "mail.filters.date_range") }</h3>
+									<p class="mt-0.5 text-xs text-muted-foreground">{ i18n.T(ctx, "mail.filters.date_range_help") }</p>
 								</div>
 								<div class="grid gap-3">
 									<div class="space-y-1.5 text-xs font-medium text-muted-foreground">
-										After
-										@MailFilterCalendarField("after_date", "mail-filter-after-calendar", "Any date")
+										{ i18n.T(ctx, "mail.filters.after") }
+										@MailFilterCalendarField("after_date", "mail-filter-after-calendar", i18n.T(ctx, "mail.filters.any_date"))
 									</div>
 									<div class="space-y-1.5 text-xs font-medium text-muted-foreground">
-										Before
-										@MailFilterCalendarField("before_date", "mail-filter-before-calendar", "Any date")
+										{ i18n.T(ctx, "mail.filters.before") }
+										@MailFilterCalendarField("before_date", "mail-filter-before-calendar", i18n.T(ctx, "mail.filters.any_date"))
 									</div>
 								</div>
 							</section>
 							<section data-mail-filter-panel="audience" class="hidden space-y-3">
 								<div>
-									<h3 class="text-sm font-semibold text-foreground">People and accounts</h3>
-									<p class="mt-0.5 text-xs text-muted-foreground">Choose a contact, account, sender, or recipient.</p>
+									<h3 class="text-sm font-semibold text-foreground">{ i18n.T(ctx, "mail.filters.people_title") }</h3>
+									<p class="mt-0.5 text-xs text-muted-foreground">{ i18n.T(ctx, "mail.filters.people_help") }</p>
 								</div>
 								<div class="grid gap-3">
 									<label class="space-y-1.5 text-xs font-medium text-muted-foreground">
-										Contact
+										{ i18n.T(ctx, "mail.filters.contact") }
 										@selectbox.SelectBox(selectbox.Props{Attributes: templ.Attributes{"data-mail-contact-filter-select": ""}}) {
 											@selectbox.Trigger(selectbox.TriggerProps{Name: "participant", Class: "h-8", Attributes: templ.Attributes{"data-mail-advanced-filter-input": ""}}) {
-												@selectbox.Value(selectbox.ValueProps{Placeholder: "Search contacts by name or email"})
+												@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "mail.filters.contact_placeholder")})
 											}
-											@selectbox.Content(selectbox.ContentProps{SearchPlaceholder: "Type a name or email", DisableExclusive: true, Attributes: templ.Attributes{"data-mail-contact-filter-content": ""}}) {
+											@selectbox.Content(selectbox.ContentProps{SearchPlaceholder: i18n.T(ctx, "mail.filters.contact_search"), DisableExclusive: true, Attributes: templ.Attributes{"data-mail-contact-filter-content": ""}}) {
 												<div data-mail-contact-filter-options>
-													<p class="px-2 py-3 text-center text-xs text-muted-foreground" data-mail-contact-filter-status>Type at least 2 characters to search contacts.</p>
+													<p class="px-2 py-3 text-center text-xs text-muted-foreground" data-mail-contact-filter-status>{ i18n.T(ctx, "mail.filters.contact_min") }</p>
 												</div>
 											}
 										}
-										<p class="text-[11px] font-normal text-muted-foreground">Matches messages sent by or addressed to the selected email across all mail.</p>
+										<p class="text-[11px] font-normal text-muted-foreground">{ i18n.T(ctx, "mail.filters.contact_help") }</p>
 									</label>
 									if len(accounts) > 0 {
 										<label class="space-y-1.5 text-xs font-medium text-muted-foreground">
-											Account
+											{ i18n.T(ctx, "mail.filters.account") }
 											@selectbox.SelectBox() {
 												@selectbox.Trigger(selectbox.TriggerProps{Name: "account_id", Class: "h-8", Attributes: templ.Attributes{"data-mail-advanced-filter-input": ""}}) {
-													@selectbox.Value(selectbox.ValueProps{Placeholder: "Any account"})
+													@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "mail.filters.any_account")})
 												}
 												@selectbox.Content(selectbox.ContentProps{NoSearch: true, DisableExclusive: true}) {
 													for _, account := range accounts {
@@ -704,26 +696,26 @@ templ MailFiltersPopover(accounts []models.Account, conversations bool) {
 										</label>
 									}
 									<label class="space-y-1.5 text-xs font-medium text-muted-foreground">
-										From
-										@input.Input(input.Props{Name: "from", Placeholder: "name or email", Class: "h-8", Attributes: templ.Attributes{"data-mail-advanced-filter-input": ""}})
+										{ i18n.T(ctx, "mail.filters.from") }
+										@input.Input(input.Props{Name: "from", Placeholder: i18n.T(ctx, "mail.filters.name_or_email"), Class: "h-8", Attributes: templ.Attributes{"data-mail-advanced-filter-input": ""}})
 									</label>
 									<label class="space-y-1.5 text-xs font-medium text-muted-foreground">
-										From domain
+										{ i18n.T(ctx, "mail.filters.from_domain") }
 										@input.Input(input.Props{Name: "from_domain", Placeholder: "example.com", Class: "h-8", Attributes: templ.Attributes{"data-mail-advanced-filter-input": ""}})
 									</label>
 									<label class="space-y-1.5 text-xs font-medium text-muted-foreground">
-										Recipients
-										@input.Input(input.Props{Name: "to", Placeholder: "name or email", Class: "h-8", Attributes: templ.Attributes{"data-mail-advanced-filter-input": ""}})
+										{ i18n.T(ctx, "mail.filters.recipients") }
+										@input.Input(input.Props{Name: "to", Placeholder: i18n.T(ctx, "mail.filters.name_or_email"), Class: "h-8", Attributes: templ.Attributes{"data-mail-advanced-filter-input": ""}})
 									</label>
 									<label class="space-y-1.5 text-xs font-medium text-muted-foreground">
-										Recipient type
+										{ i18n.T(ctx, "mail.filters.recipient_type") }
 										@selectbox.SelectBox() {
 											@selectbox.Trigger(selectbox.TriggerProps{Name: "recipient_type", Class: "h-8", Attributes: templ.Attributes{"data-mail-advanced-filter-input": ""}}) {
-												@selectbox.Value(selectbox.ValueProps{Placeholder: "Any type"})
+												@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "mail.filters.any_type")})
 											}
 											@selectbox.Content(selectbox.ContentProps{NoSearch: true, DisableExclusive: true}) {
 												@selectbox.Item(selectbox.ItemProps{Value: "to"}) {
-													To
+													{ i18n.T(ctx, "mail.field.to") }
 												}
 												@selectbox.Item(selectbox.ItemProps{Value: "cc"}) {
 													CC
@@ -735,114 +727,114 @@ templ MailFiltersPopover(accounts []models.Account, conversations bool) {
 										}
 									</label>
 									<label class="space-y-1.5 text-xs font-medium text-muted-foreground">
-										Recipient domain
+										{ i18n.T(ctx, "mail.filters.recipient_domain") }
 										@input.Input(input.Props{Name: "recipient_domain", Placeholder: "example.com", Class: "h-8", Attributes: templ.Attributes{"data-mail-advanced-filter-input": ""}})
 									</label>
 								</div>
 							</section>
 							<section data-mail-filter-panel="content" class="hidden space-y-3">
 								<div>
-									<h3 class="text-sm font-semibold text-foreground">Message content</h3>
-									<p class="mt-0.5 text-xs text-muted-foreground">Search specific message fields.</p>
+									<h3 class="text-sm font-semibold text-foreground">{ i18n.T(ctx, "mail.filters.content_title") }</h3>
+									<p class="mt-0.5 text-xs text-muted-foreground">{ i18n.T(ctx, "mail.filters.content_help") }</p>
 								</div>
 								<div class="grid gap-3">
 									<label class="space-y-1.5 text-xs font-medium text-muted-foreground">
-										Subject contains
-										@input.Input(input.Props{Name: "subject", Placeholder: "invoice, project, receipt...", Class: "h-8", Attributes: templ.Attributes{"data-mail-advanced-filter-input": ""}})
+										{ i18n.T(ctx, "mail.filters.subject") }
+										@input.Input(input.Props{Name: "subject", Placeholder: i18n.T(ctx, "mail.filters.subject_placeholder"), Class: "h-8", Attributes: templ.Attributes{"data-mail-advanced-filter-input": ""}})
 									</label>
 									<label class="space-y-1.5 text-xs font-medium text-muted-foreground">
-										Body contains
-										@input.Input(input.Props{Name: "body", Placeholder: "text in message body", Class: "h-8", Attributes: templ.Attributes{"data-mail-advanced-filter-input": ""}})
+										{ i18n.T(ctx, "mail.filters.body") }
+										@input.Input(input.Props{Name: "body", Placeholder: i18n.T(ctx, "mail.filters.body_placeholder"), Class: "h-8", Attributes: templ.Attributes{"data-mail-advanced-filter-input": ""}})
 									</label>
 									<label class="space-y-1.5 text-xs font-medium text-muted-foreground">
-										Tag
-										@input.Input(input.Props{Name: "tag", Placeholder: "work, invoices...", Class: "h-8", Attributes: templ.Attributes{"data-mail-advanced-filter-input": ""}})
+										{ i18n.T(ctx, "mail.filters.tag") }
+										@input.Input(input.Props{Name: "tag", Placeholder: i18n.T(ctx, "mail.filters.tag_placeholder"), Class: "h-8", Attributes: templ.Attributes{"data-mail-advanced-filter-input": ""}})
 									</label>
 								</div>
 							</section>
 							<section data-mail-filter-panel="files" class="hidden space-y-3">
 								<div>
-									<h3 class="text-sm font-semibold text-foreground">Files and size</h3>
-									<p class="mt-0.5 text-xs text-muted-foreground">Filter by attachment details or total message size.</p>
+									<h3 class="text-sm font-semibold text-foreground">{ i18n.T(ctx, "mail.filters.files_title") }</h3>
+									<p class="mt-0.5 text-xs text-muted-foreground">{ i18n.T(ctx, "mail.filters.files_help") }</p>
 								</div>
 								<div class="grid gap-3">
 									<label class="space-y-1.5 text-xs font-medium text-muted-foreground">
-										Attachment filename
+										{ i18n.T(ctx, "mail.filters.attachment_name") }
 										@input.Input(input.Props{Name: "attachment", Placeholder: "receipt.pdf", Class: "h-8", Attributes: templ.Attributes{"data-mail-advanced-filter-input": ""}})
 									</label>
 									<label class="space-y-1.5 text-xs font-medium text-muted-foreground">
-										Attachment type
+										{ i18n.T(ctx, "mail.filters.attachment_type") }
 										@selectbox.SelectBox() {
 											@selectbox.Trigger(selectbox.TriggerProps{Name: "attachment_type", Class: "h-8", Attributes: templ.Attributes{"data-mail-advanced-filter-input": ""}}) {
-												@selectbox.Value(selectbox.ValueProps{Placeholder: "Any type"})
+												@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "mail.filters.any_type")})
 											}
 											@selectbox.Content(selectbox.ContentProps{NoSearch: true, DisableExclusive: true}) {
 												@selectbox.Item(selectbox.ItemProps{Value: "pdf"}) {
 													PDF
 												}
 												@selectbox.Item(selectbox.ItemProps{Value: "image"}) {
-													Images
+													{ i18n.T(ctx, "mail.filters.type.images") }
 												}
 												@selectbox.Item(selectbox.ItemProps{Value: "document"}) {
-													Documents
+													{ i18n.T(ctx, "mail.filters.type.documents") }
 												}
 												@selectbox.Item(selectbox.ItemProps{Value: "spreadsheet"}) {
-													Spreadsheets
+													{ i18n.T(ctx, "mail.filters.type.spreadsheets") }
 												}
 												@selectbox.Item(selectbox.ItemProps{Value: "presentation"}) {
-													Presentations
+													{ i18n.T(ctx, "mail.filters.type.presentations") }
 												}
 												@selectbox.Item(selectbox.ItemProps{Value: "archive"}) {
-													Archives
+													{ i18n.T(ctx, "mail.filters.type.archives") }
 												}
 												@selectbox.Item(selectbox.ItemProps{Value: "audio"}) {
-													Audio
+													{ i18n.T(ctx, "mail.filters.type.audio") }
 												}
 												@selectbox.Item(selectbox.ItemProps{Value: "video"}) {
-													Video
+													{ i18n.T(ctx, "mail.filters.type.video") }
 												}
 												@selectbox.Item(selectbox.ItemProps{Value: "custom"}) {
-													Custom extension
+													{ i18n.T(ctx, "mail.filters.custom_extension") }
 												}
 											}
 										}
 									</label>
 									<label data-mail-attachment-extension-field class="hidden space-y-1.5 text-xs font-medium text-muted-foreground">
-										Custom extension
-										@input.Input(input.Props{Name: "attachment_extension", Placeholder: "e.g. eml", Class: "h-8", Attributes: templ.Attributes{"data-mail-advanced-filter-input": "", "maxlength": "16", "pattern": "\\.?[A-Za-z0-9]+", "title": "Enter an extension such as eml or .eml"}})
+										{ i18n.T(ctx, "mail.filters.custom_extension") }
+										@input.Input(input.Props{Name: "attachment_extension", Placeholder: i18n.T(ctx, "mail.filters.extension_placeholder"), Class: "h-8", Attributes: templ.Attributes{"data-mail-advanced-filter-input": "", "maxlength": "16", "pattern": "\\.?[A-Za-z0-9]+", "title": i18n.T(ctx, "mail.filters.extension_title")}})
 									</label>
 									<label class="space-y-1.5 text-xs font-medium text-muted-foreground">
-										Minimum message size (MB)
+										{ i18n.T(ctx, "mail.filters.min_size") }
 										@input.Input(input.Props{Name: "min_size_mb", Type: input.TypeNumber, Placeholder: "0 MB", Class: "h-8", Attributes: templ.Attributes{"data-mail-advanced-filter-input": "", "min": "0", "step": "0.1"}})
 									</label>
 									<label class="space-y-1.5 text-xs font-medium text-muted-foreground">
-										Maximum message size (MB)
-										@input.Input(input.Props{Name: "max_size_mb", Type: input.TypeNumber, Placeholder: "Any size", Class: "h-8", Attributes: templ.Attributes{"data-mail-advanced-filter-input": "", "min": "0", "step": "0.1"}})
+										{ i18n.T(ctx, "mail.filters.max_size") }
+										@input.Input(input.Props{Name: "max_size_mb", Type: input.TypeNumber, Placeholder: i18n.T(ctx, "mail.filters.any_size"), Class: "h-8", Attributes: templ.Attributes{"data-mail-advanced-filter-input": "", "min": "0", "step": "0.1"}})
 									</label>
 								</div>
 							</section>
 							<section data-mail-filter-panel="status" class="hidden space-y-3">
 								<div>
-									<h3 class="text-sm font-semibold text-foreground">Message status</h3>
-									<p class="mt-0.5 text-xs text-muted-foreground">Match message state and conversation type.</p>
+									<h3 class="text-sm font-semibold text-foreground">{ i18n.T(ctx, "mail.filters.status_title") }</h3>
+									<p class="mt-0.5 text-xs text-muted-foreground">{ i18n.T(ctx, "mail.filters.status_help") }</p>
 								</div>
 								<div class="grid gap-3">
 									<div class="space-y-1">
-										<div class="text-[11px] font-medium text-muted-foreground">Read status</div>
-										@MailFilterTriState("status", "unread", "Unread", "read", "Read")
+										<div class="text-[11px] font-medium text-muted-foreground">{ i18n.T(ctx, "mail.filters.read_status") }</div>
+										@MailFilterTriState("status", "unread", i18n.T(ctx, "mail.select.unread"), "read", i18n.T(ctx, "mail.select.read"))
 									</div>
 									<div class="space-y-1">
-										<div class="text-[11px] font-medium text-muted-foreground">Attachments</div>
-										@MailFilterTriState("attachments", "no", "No", "yes", "Yes")
+										<div class="text-[11px] font-medium text-muted-foreground">{ i18n.T(ctx, "mail.filters.attachments") }</div>
+										@MailFilterTriState("attachments", "no", i18n.T(ctx, "common.no"), "yes", i18n.T(ctx, "common.yes"))
 									</div>
 									<div class="space-y-1">
-										<div class="text-[11px] font-medium text-muted-foreground">Tags</div>
-										@MailFilterTriState("tags", "no", "No", "yes", "Yes")
+										<div class="text-[11px] font-medium text-muted-foreground">{ i18n.T(ctx, "mail.tags") }</div>
+										@MailFilterTriState("tags", "no", i18n.T(ctx, "common.no"), "yes", i18n.T(ctx, "common.yes"))
 									</div>
 									if conversations {
 										<div class="space-y-1">
-											<div class="text-[11px] font-medium text-muted-foreground">Threads</div>
-											@MailFilterTriState("threads", "no", "No", "yes", "Yes")
+											<div class="text-[11px] font-medium text-muted-foreground">{ i18n.T(ctx, "mail.filters.threads") }</div>
+											@MailFilterTriState("threads", "no", i18n.T(ctx, "common.no"), "yes", i18n.T(ctx, "common.yes"))
 										</div>
 									}
 								</div>
@@ -850,11 +842,11 @@ templ MailFiltersPopover(accounts []models.Account, conversations bool) {
 						</div>
 					</div>
 					<div class="mt-auto flex items-center justify-between gap-2 border-t border-border pt-3">
-						<button type="button" data-mail-advanced-filter-clear class="h-8 rounded-md px-2 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground">Clear all</button>
+						<button type="button" data-mail-advanced-filter-clear class="h-8 rounded-md px-2 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground">{ i18n.T(ctx, "mail.filters.clear_all") }</button>
 						<div class="flex items-center gap-2">
-							<button type="button" data-mail-filters-close class="h-8 rounded-md border border-border px-3 text-xs font-medium hover:bg-accent">Cancel</button>
+							<button type="button" data-mail-filters-close class="h-8 rounded-md border border-border px-3 text-xs font-medium hover:bg-accent">{ i18n.T(ctx, "common.cancel") }</button>
 							<button type="submit" class="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground hover:bg-primary/90">
-								<span>Apply</span>
+								<span>{ i18n.T(ctx, "common.apply") }</span>
 								<span data-mail-advanced-filter-count class="hidden min-w-4 rounded-full bg-primary-foreground/15 px-1.5 py-0.5 text-center text-[10px] leading-none">0</span>
 							</button>
 						</div>
@@ -862,10 +854,10 @@ templ MailFiltersPopover(accounts []models.Account, conversations bool) {
 				</form>
 				<div class="mail-filters-applied-view" data-mail-filters-applied-view>
 					<div class="mail-filters-applied-view-header">
-						<button type="button" class="mail-filters-applied-back" data-mail-filters-applied-close aria-label="Back to filters">
+						<button type="button" class="mail-filters-applied-back" data-mail-filters-applied-close aria-label={ i18n.T(ctx, "mail.filters.back") }>
 							@icon.ArrowLeft(icon.Props{Class: "size-5"})
 						</button>
-						<h2 class="text-sm font-semibold text-foreground">Applied filters</h2>
+						<h2 class="text-sm font-semibold text-foreground">{ i18n.T(ctx, "mail.filters.applied") }</h2>
 					</div>
 					<div class="mail-filters-applied-rows" data-mail-filters-applied-list></div>
 				</div>
@@ -919,7 +911,7 @@ templ MailListEmails(accounts []models.Account, emails []models.Email, folderID 
 			<div class="flex h-full items-center justify-center">
 				<div class="flex items-center gap-2 text-sm text-muted-foreground">
 					<div class="size-4 border-2 border-muted-foreground/30 border-t-muted-foreground rounded-full animate-spin"></div>
-					<span>Loading content...</span>
+					<span>{ i18n.T(ctx, "common.loading_content") }</span>
 				</div>
 			</div>
 		} else if mailListViewMode(viewMode) == "table" {
@@ -939,15 +931,15 @@ templ MailListEmails(accounts []models.Account, emails []models.Email, folderID 
 templ MailListPagination(totalCount int, windowStart int, itemCount int, pageSize int) {
 	<div class="border-t border-border/70 bg-card/95 px-3 py-2" data-mail-pagination data-page-size={ fmt.Sprintf("%d", pageSize) }>
 		<div class="flex items-center justify-between gap-2">
-			<div class="min-w-0 text-[11px] font-medium text-muted-foreground" data-mail-pagination-summary>{ mailListPaginationRangeLabel(windowStart, itemCount, totalCount) }</div>
+			<div class="min-w-0 text-[11px] font-medium text-muted-foreground" data-mail-pagination-summary>{ mailListPaginationRangeLabel(ctx, windowStart, itemCount, totalCount) }</div>
 			<div class="flex items-center gap-1.5">
 				<button type="button" class="inline-flex h-7 items-center gap-1 rounded-md border border-border px-2 text-[11px] font-semibold text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-45" data-mail-page-prev disabled?={ windowStart <= 0 }>
 					@icon.ChevronLeft(icon.Props{Class: "size-3"})
-					Prev
+					{ i18n.T(ctx, "common.previous") }
 				</button>
 				<span class="min-w-16 text-center text-[11px] font-medium text-muted-foreground" data-mail-pagination-page>{ fmt.Sprintf("%d / %d", mailListPaginationPage(windowStart, pageSize), mailListPaginationTotalPages(totalCount, pageSize)) }</span>
 				<button type="button" class="inline-flex h-7 items-center gap-1 rounded-md border border-border px-2 text-[11px] font-semibold text-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-45" data-mail-page-next disabled?={ windowStart+itemCount >= totalCount || itemCount == 0 }>
-					Next
+					{ i18n.T(ctx, "common.next") }
 					@icon.ChevronRight(icon.Props{Class: "size-3"})
 				</button>
 			</div>
@@ -965,25 +957,25 @@ templ MailListItem(accounts []models.Account, email models.Email, position int, 
 
 templ MailListTableHeader(markerStyle string) {
 	<div class="mail-list-table-header mail-list-table-grid grid items-center gap-3 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground bg-card/95 border-b border-border/70 sticky top-0 z-20 backdrop-blur-sm">
-		<div class="mail-list-table-heading flex items-center justify-center" data-mail-table-column="0" data-mail-table-column-id="accountMarker" data-mail-table-cell="accountMarker" title="Account Marker">
+		<div class="mail-list-table-heading flex items-center justify-center" data-mail-table-column="0" data-mail-table-column-id="accountMarker" data-mail-table-cell="accountMarker" title={ i18n.T(ctx, "mail.column.accountMarker") }>
 			<span class="account-color-marker size-2.5" style={ markerStyle }></span><span class="mail-list-column-separator"></span>
 		</div>
-		<div class="mail-list-table-heading text-center" data-mail-table-column="1" data-mail-table-column-id="starred" data-mail-table-cell="starred" title="Starred">
+		<div class="mail-list-table-heading text-center" data-mail-table-column="1" data-mail-table-column-id="starred" data-mail-table-cell="starred" title={ i18n.T(ctx, "mail.column.starred") }>
 			@icon.Star(icon.Props{Class: "size-3 mx-auto"})
 			<span class="mail-list-column-separator"></span>
 		</div>
-		<div class="mail-list-table-heading text-center" data-mail-table-column="2" data-mail-table-column-id="attachment" data-mail-table-cell="attachment" title="Attachment">
+		<div class="mail-list-table-heading text-center" data-mail-table-column="2" data-mail-table-column-id="attachment" data-mail-table-cell="attachment" title={ i18n.T(ctx, "mail.column.attachment") }>
 			@icon.Paperclip(icon.Props{Class: "size-3 mx-auto"})
 			<span class="mail-list-column-separator"></span>
 		</div>
-		<div class="mail-list-table-heading flex items-center justify-center" data-mail-table-column="3" data-mail-table-column-id="thread" data-mail-table-cell="thread" title="Thread">
+		<div class="mail-list-table-heading flex items-center justify-center" data-mail-table-column="3" data-mail-table-column-id="thread" data-mail-table-cell="thread" title={ i18n.T(ctx, "mail.column.thread") }>
 			@icon.MessagesSquare(icon.Props{Class: "size-3"})
 			<span class="mail-list-column-separator"></span>
 		</div>
-		<div class="mail-list-table-heading pl-1" data-mail-table-column="4" data-mail-table-column-id="from" data-mail-table-cell="from">From<span class="mail-list-column-resize" data-mail-table-resize="4"></span></div>
-		<div class="mail-list-table-heading" data-mail-table-column="5" data-mail-table-column-id="to" data-mail-table-cell="to">To<span class="mail-list-column-resize" data-mail-table-resize="5"></span></div>
-		<div class="mail-list-table-heading" data-mail-table-column="6" data-mail-table-column-id="subject" data-mail-table-cell="subject">Subject<span class="mail-list-column-resize" data-mail-table-resize="6"></span></div>
-		<div class="mail-list-table-heading min-w-12 text-right" data-mail-table-column="7" data-mail-table-column-id="date" data-mail-table-cell="date">Date</div>
+		<div class="mail-list-table-heading pl-1" data-mail-table-column="4" data-mail-table-column-id="from" data-mail-table-cell="from">{ i18n.T(ctx, "mail.column.from") }<span class="mail-list-column-resize" data-mail-table-resize="4"></span></div>
+		<div class="mail-list-table-heading" data-mail-table-column="5" data-mail-table-column-id="to" data-mail-table-cell="to">{ i18n.T(ctx, "mail.column.to") }<span class="mail-list-column-resize" data-mail-table-resize="5"></span></div>
+		<div class="mail-list-table-heading" data-mail-table-column="6" data-mail-table-column-id="subject" data-mail-table-cell="subject">{ i18n.T(ctx, "mail.column.subject") }<span class="mail-list-column-resize" data-mail-table-resize="6"></span></div>
+		<div class="mail-list-table-heading min-w-12 text-right" data-mail-table-column="7" data-mail-table-column-id="date" data-mail-table-cell="date">{ i18n.T(ctx, "mail.column.date") }</div>
 	</div>
 }
 
@@ -991,35 +983,35 @@ templ MailListColumnSelector() {
 	<div data-mail-card-layout-trigger-wrapper>
 		@tooltip.Tooltip() {
 			@tooltip.Trigger() {
-				@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeIcon, Class: "h-6 w-6 rounded-md", Attributes: templ.Attributes{"aria-label": "Customize card layout", "data-mail-card-layout-dialog-open": ""}}) {
+				@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeIcon, Class: "h-6 w-6 rounded-md", Attributes: templ.Attributes{"aria-label": i18n.T(ctx, "mail.card_layout.customize"), "data-mail-card-layout-dialog-open": ""}}) {
 					@icon.LayoutTemplate(icon.Props{Class: "size-3.5"})
 				}
 			}
 			@tooltip.Content(tooltip.ContentProps{Position: tooltip.PositionBottom, ShowArrow: true}) {
-				Card layout
+				{ i18n.T(ctx, "mail.card_layout.title") }
 			}
 		}
 	</div>
 	<div data-mail-table-column-trigger-wrapper>
 		@dropdown.Dropdown() {
 			@dropdown.Trigger(dropdown.TriggerProps{Attributes: templ.Attributes{"data-mail-list-display-menu-button": ""}}) {
-				@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeIcon, Class: "h-6 w-6 rounded-md", Attributes: templ.Attributes{"aria-label": "Customize table columns"}}) {
+				@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeIcon, Class: "h-6 w-6 rounded-md", Attributes: templ.Attributes{"aria-label": i18n.T(ctx, "mail.columns.customize")}}) {
 					@icon.Settings(icon.Props{Class: "size-3.5"})
 				}
 			}
 			@dropdown.Content(dropdown.ContentProps{Placement: dropdown.PlacementBottomEnd, Class: "normal-case tracking-normal", Attributes: templ.Attributes{"data-mail-list-display-menu": ""}}) {
 				<div data-mail-table-column-menu>
 					@dropdown.Label(dropdown.LabelProps{Class: "text-xs text-muted-foreground"}) {
-						Columns
+						{ i18n.T(ctx, "mail.columns.title") }
 					}
-					@MailListColumnOption("accountMarker", "Account Marker")
-					@MailListColumnOption("starred", "Starred")
-					@MailListColumnOption("attachment", "Attachment")
-					@MailListColumnOption("thread", "Thread")
-					@MailListColumnOption("from", "From")
-					@MailListColumnOption("to", "To")
-					@MailListColumnOption("subject", "Subject")
-					@MailListColumnOption("date", "Date")
+					@MailListColumnOption("accountMarker", i18n.T(ctx, "mail.column.accountMarker"))
+					@MailListColumnOption("starred", i18n.T(ctx, "mail.column.starred"))
+					@MailListColumnOption("attachment", i18n.T(ctx, "mail.column.attachment"))
+					@MailListColumnOption("thread", i18n.T(ctx, "mail.column.thread"))
+					@MailListColumnOption("from", i18n.T(ctx, "mail.column.from"))
+					@MailListColumnOption("to", i18n.T(ctx, "mail.column.to"))
+					@MailListColumnOption("subject", i18n.T(ctx, "mail.column.subject"))
+					@MailListColumnOption("date", i18n.T(ctx, "mail.column.date"))
 				</div>
 			}
 		}
@@ -1040,16 +1032,16 @@ templ MailCardLayoutDialog() {
 		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-5xl"}) {
 			@dialog.Header() {
 				@dialog.Title() {
-					Card layout
+					{ i18n.T(ctx, "mail.card_layout.title") }
 				}
 			}
 			// Options for card fields, opened from a field's ⚙. Rendered as a
 			// popover so it sits above the dialog, next to the field.
 			<div popover="manual" class="mail-card-layout-options" data-mail-card-layout-options>
 				<div class="space-y-2" data-mail-card-layout-options-for="date">
-					<div class="text-xs font-semibold text-foreground">Date</div>
+					<div class="text-xs font-semibold text-foreground">{ i18n.T(ctx, "mail.column.date") }</div>
 					<div class="flex items-center justify-between gap-4">
-						<span id="mail-card-option-date-time-label" class="text-xs text-muted-foreground">Always show time</span>
+						<span id="mail-card-option-date-time-label" class="text-xs text-muted-foreground">{ i18n.T(ctx, "mail.card_layout.always_time") }</span>
 						@switchcomp.Switch(switchcomp.Props{
 							ID:         "mail-card-option-date-time",
 							Attributes: templ.Attributes{"aria-labelledby": "mail-card-option-date-time-label", "data-mail-card-option": "mail_card_date_time"},
@@ -1057,9 +1049,9 @@ templ MailCardLayoutDialog() {
 					</div>
 				</div>
 				<div class="space-y-2" data-mail-card-layout-options-for="account" hidden>
-					<div class="text-xs font-semibold text-foreground">Account</div>
+					<div class="text-xs font-semibold text-foreground">{ i18n.T(ctx, "mail.filters.account") }</div>
 					<div class="flex items-center justify-between gap-4">
-						<span id="mail-card-option-account-marker-label" class="text-xs text-muted-foreground">Show account marker</span>
+						<span id="mail-card-option-account-marker-label" class="text-xs text-muted-foreground">{ i18n.T(ctx, "mail.card_layout.account_marker") }</span>
 						@switchcomp.Switch(switchcomp.Props{
 							ID:         "mail-card-option-account-marker",
 							Attributes: templ.Attributes{"aria-labelledby": "mail-card-option-account-marker-label", "data-mail-card-option": "mail_card_account_marker"},
@@ -1070,11 +1062,11 @@ templ MailCardLayoutDialog() {
 			<div class="mail-card-layout-dialog-grid grid gap-3">
 				<div class="space-y-2 min-w-0">
 					<div class="flex items-center justify-between gap-2">
-						<div class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Card</div>
+						<div class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "mail.card_layout.card") }</div>
 						<div class="flex items-center gap-2">
 							<button type="button" data-mail-card-layout-reset class="inline-flex h-7 items-center gap-1.5 rounded-md border border-border bg-card px-2 text-[11px] font-semibold text-muted-foreground hover:bg-accent hover:text-foreground">
 								@icon.RotateCcw(icon.Props{Class: "size-3"})
-								Reset layout
+								{ i18n.T(ctx, "mail.card_layout.reset") }
 							</button>
 							<div class="text-[11px] font-medium text-muted-foreground tabular-nums" data-mail-card-layout-limit></div>
 						</div>
@@ -1098,12 +1090,12 @@ templ MailCardLayoutDialog() {
 							<div class="mail-list-card-zone mail-list-card-zone-header" data-mail-card-zone="header" data-mail-card-layout-zone-items="header" data-mail-card-layout-dropzone="header">
 								<span data-mail-card-field="from" class="truncate text-sm font-semibold text-foreground">Cristian Braun</span>
 								<span data-mail-card-field="date" class="text-xs font-medium tabular-nums text-primary">
-									@mailListDate("Yesterday", "Yesterday, 10:42 AM")
+									@mailListDate(i18n.T(ctx, "date.yesterday"), i18n.T(ctx, "date.pattern.date_time", "date", i18n.T(ctx, "date.yesterday"), "time", i18n.Dates(ctx).ClockTime(10, 42)))
 								</span>
 								<span data-mail-card-field="account" class="inline-flex min-w-0">
 									<span class="mail-list-card-account inline-flex min-w-0 items-center gap-1 rounded-full border border-border/70 bg-background/40 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
 										<span class="mail-list-card-account-marker account-color-marker size-2 shrink-0 bg-primary"></span>
-										<span class="truncate">Work account</span>
+										<span class="truncate">{ i18n.T(ctx, "mail.card_layout.sample_account") }</span>
 									</span>
 								</span>
 							</div>
@@ -1118,21 +1110,21 @@ templ MailCardLayoutDialog() {
 							</div>
 							<div class="mail-list-card-zone mail-list-card-zone-body" data-mail-card-zone="body" data-mail-card-layout-zone-items="body" data-mail-card-layout-dropzone="body">
 								<p data-mail-card-field="to" class="truncate text-[11px] leading-snug text-muted-foreground">
-									<span class="font-medium text-muted-foreground">To</span>
+									<span class="font-medium text-muted-foreground">{ i18n.T(ctx, "mail.field.to") }</span>
 									cristian@gofer.email
 								</p>
 								<p data-mail-card-field="cc" class="truncate text-[11px] leading-snug text-muted-foreground">
-									<span class="font-medium text-muted-foreground">Cc</span>
+									<span class="font-medium text-muted-foreground">{ i18n.T(ctx, "mail.field.cc") }</span>
 									design@gofer.email
 								</p>
 							</div>
 							<div class="mail-list-card-zone mail-list-card-zone-body-bottom" data-mail-card-zone="bodyBottom" data-mail-card-layout-zone-items="bodyBottom" data-mail-card-layout-dropzone="bodyBottom">
-								<p data-mail-card-field="subject" class="truncate text-[13px] font-medium text-foreground">Layout editor review</p>
+								<p data-mail-card-field="subject" class="truncate text-[13px] font-medium text-foreground">{ i18n.T(ctx, "mail.card_layout.sample_subject") }</p>
 							</div>
 							<div class="mail-list-card-zone mail-list-card-zone-footer" data-mail-card-zone="footer" data-mail-card-layout-zone-items="footer" data-mail-card-layout-dropzone="footer">
-								<p data-mail-card-field="preview" class="min-w-0 flex-1 truncate text-xs leading-relaxed text-muted-foreground">Preview text stays attached to the selected card section.</p>
+								<p data-mail-card-field="preview" class="min-w-0 flex-1 truncate text-xs leading-relaxed text-muted-foreground">{ i18n.T(ctx, "mail.card_layout.sample_preview") }</p>
 								<span class="mail-list-card-labels" data-mail-card-field="labels">
-									<span class="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary shadow-[0_1px_2px_rgba(0,0,0,0.08)]">Design</span>
+									<span class="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary shadow-[0_1px_2px_rgba(0,0,0,0.08)]">{ i18n.T(ctx, "mail.card_layout.sample_label") }</span>
 								</span>
 							</div>
 							<div class="mail-list-card-zone mail-list-card-zone-status" data-mail-card-zone="status" data-mail-card-layout-zone-items="status" data-mail-card-layout-dropzone="status"></div>
@@ -1148,16 +1140,16 @@ templ MailCardLayoutDialog() {
 				<div class="mail-card-layout-hidden-panel min-w-0 rounded-lg border border-border bg-background/45 p-2" data-mail-card-layout-dropzone="hidden">
 					<div class="mb-1 flex items-center justify-between gap-2">
 						<div class="flex min-w-0 items-center gap-1.5">
-							<div class="truncate text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">AVAILABLE FIELDS</div>
+							<div class="truncate text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "mail.card_layout.available") }</div>
 							@tooltip.Tooltip() {
 								@tooltip.Trigger(tooltip.TriggerProps{Class: "inline-flex shrink-0"}) {
-									<button type="button" class="mail-card-layout-help-trigger" aria-label="Available fields placement rules">
+									<button type="button" class="mail-card-layout-help-trigger" aria-label={ i18n.T(ctx, "mail.card_layout.rules") }>
 										@icon.CircleQuestionMark(icon.Props{Class: "size-3.5"})
 									</button>
 								}
 								@tooltip.Content(tooltip.ContentProps{Position: tooltip.PositionTop, ShowArrow: true, Class: "mail-card-layout-help-tooltip"}) {
-									<p><strong>Text fields</strong> can be placed only in the center rows: top, middle, and bottom.</p>
-									<p><strong>Icon-only fields</strong> can be placed only in side slots: the three left rail spots and the right top, middle, and bottom areas.</p>
+									<p><strong>{ i18n.T(ctx, "mail.card_layout.text_fields") }</strong> { i18n.T(ctx, "mail.card_layout.text_fields_rule") }</p>
+									<p><strong>{ i18n.T(ctx, "mail.card_layout.icon_fields") }</strong> { i18n.T(ctx, "mail.card_layout.icon_fields_rule") }</p>
 								}
 							}
 						</div>
@@ -1168,7 +1160,7 @@ templ MailCardLayoutDialog() {
 			@dialog.Footer() {
 				@dialog.Close() {
 					@button.Button(button.Props{Class: "h-8 px-3 text-xs"}) {
-						Done
+						{ i18n.T(ctx, "common.done") }
 					}
 				}
 			}
@@ -1277,13 +1269,13 @@ templ MailListCardItem(accounts []models.Account, email models.Email, position i
 			<div class="mail-list-card-zone mail-list-card-zone-body" data-mail-card-zone="body">
 				if len(email.To) > 0 {
 					<p data-mail-card-field="to" class="text-xs text-black dark:text-foreground truncate leading-snug">
-						<span class="font-medium text-muted-foreground">To</span>
+						<span class="font-medium text-muted-foreground">{ i18n.T(ctx, "mail.field.to") }</span>
 						{ contactsDisplay(email.To, senderDisplayMode) }
 					</p>
 				}
 				if len(email.CC) > 0 {
 					<p data-mail-card-field="cc" class="text-xs text-black dark:text-foreground truncate leading-snug">
-						<span class="font-medium text-muted-foreground">Cc</span>
+						<span class="font-medium text-muted-foreground">{ i18n.T(ctx, "mail.field.cc") }</span>
 						{ contactsDisplay(email.CC, senderDisplayMode) }
 					</p>
 				}
@@ -1316,7 +1308,7 @@ templ MailListCardItem(accounts []models.Account, email models.Email, position i
 			<div class="mail-list-card-zone mail-list-card-zone-status" data-mail-card-zone="status"></div>
 			<div class="mail-list-card-zone mail-list-card-zone-corner" data-mail-card-zone="corner">
 				if email.IsStarred {
-					<button class="star-btn shrink-0" data-email-id={ email.ID } data-mail-card-field="starred" aria-label="Unstar">
+					<button class="star-btn shrink-0" data-email-id={ email.ID } data-mail-card-field="starred" aria-label={ i18n.T(ctx, "mail.actions.unstar") }>
 						@icon.Star(icon.Props{Class: "size-3.5 text-amber-500 fill-amber-500 shrink-0 drop-shadow-[0_1px_1px_rgba(180,120,0,0.4)]"})
 					</button>
 				} else {
@@ -1363,7 +1355,7 @@ templ MailListTableItem(email models.Email, position int, selectedEmail *models.
 			</div>
 			<div class="flex items-center justify-center text-muted-foreground" data-mail-table-cell="starred">
 				if email.IsStarred {
-					<button class="star-btn" data-email-id={ email.ID } aria-label="Unstar">
+					<button class="star-btn" data-email-id={ email.ID } aria-label={ i18n.T(ctx, "mail.actions.unstar") }>
 						@icon.Star(icon.Props{Class: "size-3.5 text-amber-500 fill-amber-500"})
 					</button>
 				} else {
@@ -1424,7 +1416,7 @@ templ MailListTableItem(email models.Email, position int, selectedEmail *models.
 			</div>
 			<div class="flex items-center justify-end gap-1.5 shrink-0 text-muted-foreground tabular-nums" data-mail-table-cell="date">
 				if !email.IsRead {
-					<span class="size-2 shrink-0 rounded-full bg-primary shadow-[0_0_6px_rgba(199,123,48,0.4)]" aria-label="Unread"></span>
+					<span class="size-2 shrink-0 rounded-full bg-primary shadow-[0_0_6px_rgba(199,123,48,0.4)]" aria-label={ i18n.T(ctx, "mail.state.unread") }></span>
 				}
 				<span class={ templ.Classes("min-w-12 text-right", templ.KV("text-primary font-medium", !email.IsRead)) }>
 					@mailListDate(email.Date, email.DateWithTime)
@@ -1439,8 +1431,8 @@ templ MailListEmpty() {
 		<div class="empty-icon-box size-16 rounded-2xl bg-muted/50 flex items-center justify-center mb-4 raised">
 			@icon.Inbox(icon.Props{Class: "size-7 text-muted-foreground opacity-40"})
 		</div>
-		<h3 class="font-semibold text-sm mb-1">No emails</h3>
-		<p class="text-xs text-muted-foreground">Your inbox is empty</p>
+		<h3 class="font-semibold text-sm mb-1">{ i18n.T(ctx, "mail.empty.title") }</h3>
+		<p class="text-xs text-muted-foreground">{ i18n.T(ctx, "mail.empty.description") }</p>
 	</div>
 }
 
@@ -1504,7 +1496,7 @@ templ MailListThreadSubItems(items []models.ThreadItem, senderDisplayMode string
 							</div>
 							<div class="flex items-center justify-center shrink-0" data-mail-table-cell="starred">
 								if item.IsStarred {
-									<button class="star-btn" data-email-id={ item.ID } aria-label="Unstar">
+									<button class="star-btn" data-email-id={ item.ID } aria-label={ i18n.T(ctx, "mail.actions.unstar") }>
 										@icon.Star(icon.Props{Class: "size-3 text-amber-500 fill-amber-500 drop-shadow-[0_1px_1px_rgba(180,120,0,0.4)]"})
 									</button>
 								} else {
@@ -1563,7 +1555,7 @@ templ mailToolbarSpamButton(spamFolder bool) {
 					Disabled: true,
 					Attributes: templ.Attributes{
 						"data-mail-selection-action": mailSpamAction(spamFolder),
-						"aria-label":                 mailSpamLabel(spamFolder),
+						"aria-label":                 mailSpamLabel(ctx, spamFolder),
 						"data-mail-spam-toggle":      "",
 						"data-mail-not-spam-class":   mailNotSpamButtonClass,
 					},
@@ -1582,9 +1574,9 @@ templ mailToolbarSpamButton(spamFolder bool) {
 			}) {
 				<span data-mail-spam-tooltip>
 					if spamFolder {
-						Not spam
+						{ i18n.T(ctx, "mail.actions.not_spam") }
 					} else {
-						Report spam
+						{ i18n.T(ctx, "mail.actions.report_spam") }
 					}
 				</span>
 			}
@@ -1592,11 +1584,11 @@ templ mailToolbarSpamButton(spamFolder bool) {
 	</div>
 }
 
-func mailSpamLabel(spamFolder bool) string {
+func mailSpamLabel(ctx context.Context, spamFolder bool) string {
 	if spamFolder {
-		return "Mark selected messages as not spam"
+		return i18n.T(ctx, "mail.selection.not_spam")
 	}
-	return "Report selected messages as spam"
+	return i18n.T(ctx, "mail.selection.spam")
 }
 
 // mailRowCheck is a row's checkbox, shown left of the row while the list is
@@ -1605,7 +1597,7 @@ templ mailRowCheck() {
 	<div class="mail-row-check" data-mail-row-check>
 		@checkbox.Checkbox(checkbox.Props{
 			Class:      "mail-row-check-input",
-			Attributes: templ.Attributes{"tabindex": "-1", "aria-label": "Select message"},
+			Attributes: templ.Attributes{"tabindex": "-1", "aria-label": i18n.T(ctx, "mail.select.message")},
 		})
 	</div>
 }

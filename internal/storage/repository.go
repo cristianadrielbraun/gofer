@@ -5112,6 +5112,7 @@ func (db *DB) getFolders(ctx context.Context, accountID string) ([]models.Folder
 		}
 		fr.folder.Role = role
 		fr.folder.IsSystem = role != "custom"
+		fr.folder.Name = i18n.FolderName(ctx, role, fr.folder.Name)
 		flat = append(flat, fr)
 	}
 

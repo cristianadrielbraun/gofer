@@ -210,3 +210,19 @@ func format(message string, args []any) string {
 	}
 	return strings.NewReplacer(pairs...).Replace(message)
 }
+
+// LanguageName names a language, such as "de" or "zh-CN", in the context's
+// language: "German", "Alemán". Each name is a "language.name.<code>"
+// message; a language without one shows its code.
+func LanguageName(ctx context.Context, code string) string {
+	key := "language.name." + strings.ToLower(strings.TrimSpace(code))
+	if name := T(ctx, key); name != key {
+		return name
+	}
+	if base, _, ok := strings.Cut(key, "-"); ok {
+		if name := T(ctx, base); name != base {
+			return name
+		}
+	}
+	return code
+}

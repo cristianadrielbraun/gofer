@@ -210,3 +210,19 @@ func TestScriptHasOnlyBrowserMessagesWithEnglishFilledIn(t *testing.T) {
 		t.Fatalf("version = %q", version)
 	}
 }
+
+func TestLanguageNames(t *testing.T) {
+	en, es := WithLocale(context.Background(), English), WithLocale(context.Background(), "es")
+	cases := []struct{ got, want string }{
+		{LanguageName(en, "de"), "German"},
+		{LanguageName(en, "zh-CN"), "Chinese"},
+		{LanguageName(es, "de"), "Alemán"},
+		{LanguageName(es, "en"), "Inglés"},
+		{LanguageName(es, "zh-CN"), "Chino"},
+	}
+	for _, c := range cases {
+		if c.got != c.want {
+			t.Errorf("got %q, want %q", c.got, c.want)
+		}
+	}
+}

@@ -1,6 +1,7 @@
 package views
 
 import (
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"fmt"
 	"net/url"
 	"strings"
@@ -1508,35 +1509,35 @@ templ ContactsListPane(contacts []models.Contact, selected *models.Contact, filt
 		</div>
 		<div class="contacts-list-toolbar relative flex items-center gap-1 px-4 py-1.5">
 			@ContactsSelectAllControl()
-			<div class="relative inline-flex h-7 shrink-0 rounded-lg border border-border bg-background p-0.5 gap-0.5" data-contact-list-view-toggle>
+			<div class="relative inline-grid h-7 shrink-0 grid-cols-2 rounded-lg border border-border bg-background p-0.5 gap-0.5" data-contact-list-view-toggle>
 				<div class="absolute top-0.5 bottom-0.5 left-0.5 w-[calc(50%-2px)] rounded-md border border-border bg-card shadow-sm transition-transform duration-200 ease-out" style={ contactViewIndicatorStyle(filters.View) } data-contact-list-view-indicator></div>
 				<button
 					type="button"
 					data-contact-list-view-button="cards"
 					aria-pressed={ fmt.Sprintf("%t", contactViewMode(filters.View) == "cards") }
-					aria-label="Cards view"
+					aria-label={ i18n.T(ctx, "mail.view.cards_label") }
 					class={
-						"relative z-10 inline-flex h-6 items-center gap-1 px-2 rounded-md text-xs font-medium transition-colors duration-200",
+						"relative z-10 inline-flex h-6 items-center justify-center gap-1 px-2 rounded-md text-xs font-medium transition-colors duration-200",
 						templ.KV("text-foreground", contactViewMode(filters.View) == "cards"),
 						templ.KV("text-muted-foreground hover:text-foreground", contactViewMode(filters.View) != "cards"),
 					}
 				>
 					@icon.LayoutList(icon.Props{Class: "size-3.5"})
-					Cards
+					{ i18n.T(ctx, "mail.view.cards") }
 				</button>
 				<button
 					type="button"
 					data-contact-list-view-button="table"
 					aria-pressed={ fmt.Sprintf("%t", contactViewMode(filters.View) == "table") }
-					aria-label="Table view"
+					aria-label={ i18n.T(ctx, "mail.view.table_label") }
 					class={
-						"relative z-10 inline-flex h-6 items-center gap-1 px-2 rounded-md text-xs font-medium transition-colors duration-200",
+						"relative z-10 inline-flex h-6 items-center justify-center gap-1 px-2 rounded-md text-xs font-medium transition-colors duration-200",
 						templ.KV("text-foreground", contactViewMode(filters.View) == "table"),
 						templ.KV("text-muted-foreground hover:text-foreground", contactViewMode(filters.View) != "table"),
 					}
 				>
 					@icon.Table2(icon.Props{Class: "size-3.5"})
-					Table
+					{ i18n.T(ctx, "mail.view.table") }
 				</button>
 			</div>
 			@dropdown.Dropdown() {

@@ -1,6 +1,8 @@
 package views
 
 import (
+	"context"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"encoding/json"
 	"fmt"
 
@@ -15,40 +17,34 @@ func mailSearchScopeJSON(scope *models.MailSearchScope) string {
 	return string(value)
 }
 
-func mailSearchFolderSelectionLabel(scope *models.MailSearchScope) string {
+func mailSearchFolderSelectionLabel(ctx context.Context, scope *models.MailSearchScope) string {
 	if scope == nil || scope.Kind != models.MailSearchFolders {
-		return "Choose folders…"
+		return i18n.T(ctx, "mail.search.scope.choose_folders")
 	}
-	label := fmt.Sprintf("%d folders", len(scope.FolderIDs))
-	if len(scope.FolderIDs) == 1 {
-		label = "1 folder"
-	}
+	label := i18n.N(ctx, "mail.search.scope.folders", len(scope.FolderIDs))
 	if scope.IncludeDescendants {
-		label += " + subfolders"
+		label = i18n.T(ctx, "mail.search.scope.with_subfolders", "folders", label)
 	}
 	return label
 }
 
 // mailSearchScopeLabel names the scope on the search bar's scope button.
-func mailSearchScopeLabel(accounts []models.Account, scope *models.MailSearchScope) string {
+func mailSearchScopeLabel(ctx context.Context, accounts []models.Account, scope *models.MailSearchScope) string {
 	if scope == nil {
-		return "This folder"
+		return i18n.T(ctx, "mail.search.scope.current")
 	}
 	switch scope.Kind {
 	case models.MailSearchAll:
-		return "All accounts"
+		return i18n.T(ctx, "mail.search.scope.all")
 	case models.MailSearchAccount:
 		for _, account := range accounts {
 			if account.ID == scope.AccountID {
 				return accountTitle(account)
 			}
 		}
-		return "One account"
+		return i18n.T(ctx, "mail.search.scope.one_account")
 	}
-	if len(scope.FolderIDs) == 1 {
-		return "1 folder"
-	}
-	return fmt.Sprintf("%d folders", len(scope.FolderIDs))
+	return i18n.N(ctx, "mail.search.scope.folders", len(scope.FolderIDs))
 }
 
 // mailSearchScopeKind names a scope as the scope menu's options do.

@@ -1,6 +1,7 @@
 package views
 
 import (
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"strings"
 	"github.com/cristianadrielbraun/gofer/components/button"
 	"github.com/cristianadrielbraun/gofer/components/checkbox"
@@ -21,31 +22,31 @@ templ MailSearchScopeMenu(accounts []models.Account, activeFolder string, filter
 			@dropdown.Trigger() {
 				// The search bar's left part, in the card color and slightly raised
 				// over the sunken field.
-				<button type="button" class="mail-search-scope-trigger relative flex h-full items-center gap-1.5 rounded-l-lg border-r border-border/60 bg-card pl-2.5 pr-2 text-xs font-semibold text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.35),1px_0_3px_rgba(0,0,0,0.08)] hover:bg-accent focus-visible:bg-accent focus-visible:outline-none" aria-label={ "Search in: " + mailSearchScopeLabel(accounts, scope) } data-mail-scope-trigger>
+				<button type="button" class="mail-search-scope-trigger relative flex h-full items-center gap-1.5 rounded-l-lg border-r border-border/60 bg-card pl-2.5 pr-2 text-xs font-semibold text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.35),1px_0_3px_rgba(0,0,0,0.08)] hover:bg-accent focus-visible:bg-accent focus-visible:outline-none" aria-label={ i18n.T(ctx, "mail.search.scope.label", "scope", mailSearchScopeLabel(ctx, accounts, scope)) } data-mail-scope-trigger>
 					@mailSearchScopeIcon(scope)
-					<span class="mail-search-scope-label max-w-[9rem] truncate">{ mailSearchScopeLabel(accounts, scope) }</span>
+					<span class="mail-search-scope-label max-w-[9rem] truncate">{ mailSearchScopeLabel(ctx, accounts, scope) }</span>
 					@icon.ChevronDown(icon.Props{Class: "size-3.5 shrink-0 text-muted-foreground"})
 				</button>
 			}
-			@dropdown.Content(dropdown.ContentProps{Class: "mobile-sheet w-64 max-h-none overflow-visible", Attributes: templ.Attributes{"role": "menu", "aria-label": "Search in"}}) {
+			@dropdown.Content(dropdown.ContentProps{Class: "mobile-sheet w-64 max-h-none overflow-visible", Attributes: templ.Attributes{"role": "menu", "aria-label": i18n.T(ctx, "mail.search.scope.menu")}}) {
 				// The scope choices scroll on their own, so the footer below them
 				// always shows.
 				<div class="max-h-[min(24rem,70dvh)] overflow-y-auto overflow-x-hidden">
-				@mailSearchScopeItem("current", "This folder", scope == nil)
-				@mailSearchScopeItem("all", "All accounts", scope != nil && scope.Kind == models.MailSearchAll)
+				@mailSearchScopeItem("current", i18n.T(ctx, "mail.search.scope.current"), scope == nil)
+				@mailSearchScopeItem("all", i18n.T(ctx, "mail.search.scope.all"), scope != nil && scope.Kind == models.MailSearchAll)
 				@dropdown.Item(dropdown.ItemProps{Class: "justify-start gap-2", Attributes: templ.Attributes{"data-mail-scope-option": "folders"}}) {
 					@icon.FolderTree(icon.Props{Class: "size-4 shrink-0 text-muted-foreground"})
 					<span class="min-w-0 flex-1 truncate" data-mail-scope-folders-label>
 						if scope != nil && scope.Kind == models.MailSearchFolders {
-							Edit folders ({ mailSearchFolderSelectionLabel(scope) })
+							{ i18n.T(ctx, "mail.search.scope.edit_folders", "folders", mailSearchFolderSelectionLabel(ctx, scope)) }
 						} else {
-							Choose folders…
+							{ i18n.T(ctx, "mail.search.scope.choose_folders") }
 						}
 					</span>
 				}
 				if len(accounts) > 0 {
 					@dropdown.Label(dropdown.LabelProps{Class: "px-2 pt-2 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground"}) {
-						Accounts
+						{ i18n.T(ctx, "settings.section.accounts.title") }
 					}
 					for _, account := range accounts {
 						if !account.Hidden {
@@ -64,7 +65,7 @@ templ MailSearchScopeMenu(accounts []models.Account, activeFolder string, filter
 							@icon.Check(icon.Props{Class: "size-3"})
 						</span>
 					</span>
-					Leave out Spam and Trash
+					{ i18n.T(ctx, "mail.search.scope.exclude") }
 				}
 				if disabledLocalFolders(accounts) {
 					// Disabled Local folders stay out of every search unless asked for.
@@ -79,15 +80,15 @@ templ MailSearchScopeMenu(accounts []models.Account, activeFolder string, filter
 								@icon.Check(icon.Props{Class: "size-3"})
 							</span>
 						</span>
-						<span class="min-w-0 flex-1">Include Local folders</span>
+						<span class="min-w-0 flex-1">{ i18n.T(ctx, "mail.search.scope.include_local") }</span>
 						@tooltip.Tooltip() {
 							@tooltip.Trigger(tooltip.TriggerProps{Class: "inline-flex"}) {
-								<span class="flex size-5 shrink-0 items-center justify-center text-muted-foreground" aria-label="About Local folders in search">
+								<span class="flex size-5 shrink-0 items-center justify-center text-muted-foreground" aria-label={ i18n.T(ctx, "mail.search.scope.local_about") }>
 									@icon.Info(icon.Props{Class: "size-3.5"})
 								</span>
 							}
 							@tooltip.Content(tooltip.ContentProps{Position: tooltip.PositionLeft, ShowArrow: true, Class: "max-w-56 px-3 py-1.5 text-xs"}) {
-								Local folders are disabled, but their mail is still in Gofer. Tick this to search it without enabling them.
+								{ i18n.T(ctx, "mail.search.scope.local_help") }
 							}
 						}
 					}
@@ -134,51 +135,51 @@ templ mailSearchScopeIcon(scope *models.MailSearchScope) {
 type mailSearchCommand struct {
 	Insert        string
 	Example       string
-	Meaning       string
+	Meaning       string // a message key
 	Conversations bool
 }
 
 type mailSearchCommandGroup struct {
-	Title    string
+	Title    string // a message key
 	Commands []mailSearchCommand
 }
 
 var mailSearchCommandGroups = []mailSearchCommandGroup{
-	{"People", []mailSearchCommand{
-		{Insert: "from:", Example: "from:anna", Meaning: "Sender's name or address"},
-		{Insert: "to:", Example: "to:sales@example.com", Meaning: "A recipient in To"},
-		{Insert: "cc:", Example: "cc:anna", Meaning: "A recipient in Cc"},
-		{Insert: "bcc:", Example: "bcc:anna", Meaning: "A recipient in Bcc"},
-		{Insert: "contact:", Example: "contact:anna", Meaning: "Mail to or from a contact"},
-		{Insert: "domain:", Example: "domain:example.com", Meaning: "Sender's domain"},
-		{Insert: "to-domain:", Example: "to-domain:example.com", Meaning: "A recipient's domain"},
+	{"mail.search.group.people", []mailSearchCommand{
+		{Insert: "from:", Example: "from:anna", Meaning: "mail.search.cmd.from"},
+		{Insert: "to:", Example: "to:sales@example.com", Meaning: "mail.search.cmd.to"},
+		{Insert: "cc:", Example: "cc:anna", Meaning: "mail.search.cmd.cc"},
+		{Insert: "bcc:", Example: "bcc:anna", Meaning: "mail.search.cmd.bcc"},
+		{Insert: "contact:", Example: "contact:anna", Meaning: "mail.search.cmd.contact"},
+		{Insert: "domain:", Example: "domain:example.com", Meaning: "mail.search.cmd.domain"},
+		{Insert: "to-domain:", Example: "to-domain:example.com", Meaning: "mail.search.cmd.to_domain"},
 	}},
-	{"Content", []mailSearchCommand{
-		{Insert: "subject:", Example: "subject:invoice", Meaning: "Words in the subject"},
-		{Insert: "body:", Example: "body:receipt", Meaning: "Words in the message"},
-		{Insert: "attachment:", Example: "attachment:report.pdf", Meaning: "An attachment's file name"},
-		{Insert: "filetype:", Example: "filetype:pdf", Meaning: "pdf, image, document, spreadsheet, presentation, archive, audio, video, or any extension"},
-		{Insert: "tag:", Example: "tag:work", Meaning: "A tag or label"},
+	{"mail.search.group.content", []mailSearchCommand{
+		{Insert: "subject:", Example: "subject:invoice", Meaning: "mail.search.cmd.subject"},
+		{Insert: "body:", Example: "body:receipt", Meaning: "mail.search.cmd.body"},
+		{Insert: "attachment:", Example: "attachment:report.pdf", Meaning: "mail.search.cmd.attachment"},
+		{Insert: "filetype:", Example: "filetype:pdf", Meaning: "mail.search.cmd.filetype"},
+		{Insert: "tag:", Example: "tag:work", Meaning: "mail.search.cmd.tag"},
 	}},
-	{"Size", []mailSearchCommand{
-		{Insert: "larger:", Example: "larger:5mb", Meaning: "At least this size; MB unless it says KB or GB"},
-		{Insert: "smaller:", Example: "smaller:500kb", Meaning: "At most this size"},
+	{"mail.search.group.size", []mailSearchCommand{
+		{Insert: "larger:", Example: "larger:5mb", Meaning: "mail.search.cmd.larger"},
+		{Insert: "smaller:", Example: "smaller:500kb", Meaning: "mail.search.cmd.smaller"},
 	}},
-	{"Where and when", []mailSearchCommand{
-		{Insert: "account:", Example: "account:me@example.com", Meaning: "One of your accounts"},
-		{Insert: "after:", Example: "after:2026-10-01", Meaning: "On or after a date"},
-		{Insert: "before:", Example: "before:2026-10-31", Meaning: "On or before a date"},
+	{"mail.search.group.where", []mailSearchCommand{
+		{Insert: "account:", Example: "account:me@example.com", Meaning: "mail.search.cmd.account"},
+		{Insert: "after:", Example: "after:2026-10-01", Meaning: "mail.search.cmd.after"},
+		{Insert: "before:", Example: "before:2026-10-31", Meaning: "mail.search.cmd.before"},
 	}},
-	{"State", []mailSearchCommand{
-		{Insert: "is:unread", Example: "is:unread", Meaning: "Unread"},
-		{Insert: "is:read", Example: "is:read", Meaning: "Read"},
-		{Insert: "is:starred", Example: "is:starred", Meaning: "Starred"},
-		{Insert: "has:attachment", Example: "has:attachment", Meaning: "With attachments"},
-		{Insert: "no:attachment", Example: "no:attachment", Meaning: "Without attachments"},
-		{Insert: "has:tags", Example: "has:tags", Meaning: "With any tag or label"},
-		{Insert: "no:tags", Example: "no:tags", Meaning: "Without tags or labels"},
-		{Insert: "has:thread", Example: "has:thread", Meaning: "In a conversation", Conversations: true},
-		{Insert: "no:thread", Example: "no:thread", Meaning: "Not in a conversation", Conversations: true},
+	{"mail.search.group.state", []mailSearchCommand{
+		{Insert: "is:unread", Example: "is:unread", Meaning: "mail.search.cmd.is_unread"},
+		{Insert: "is:read", Example: "is:read", Meaning: "mail.search.cmd.is_read"},
+		{Insert: "is:starred", Example: "is:starred", Meaning: "mail.search.cmd.is_starred"},
+		{Insert: "has:attachment", Example: "has:attachment", Meaning: "mail.search.cmd.has_attachment"},
+		{Insert: "no:attachment", Example: "no:attachment", Meaning: "mail.search.cmd.no_attachment"},
+		{Insert: "has:tags", Example: "has:tags", Meaning: "mail.search.cmd.has_tags"},
+		{Insert: "no:tags", Example: "no:tags", Meaning: "mail.search.cmd.no_tags"},
+		{Insert: "has:thread", Example: "has:thread", Meaning: "mail.search.cmd.has_thread", Conversations: true},
+		{Insert: "no:thread", Example: "no:thread", Meaning: "mail.search.cmd.no_thread", Conversations: true},
 	}},
 }
 
@@ -187,27 +188,27 @@ var mailSearchCommandGroups = []mailSearchCommandGroup{
 templ MailSearchHelp(conversations bool) {
 	@popover.Root(popover.RootProps{ID: "mail-search-help", Class: "flex shrink-0"}) {
 		@popover.Trigger(popover.TriggerProps{Class: "flex"}) {
-			<button type="button" class="mail-search-help-trigger flex h-full items-center rounded-r-lg px-2.5 text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:bg-accent focus-visible:outline-none" aria-label="Search commands" data-mail-search-help>
+			<button type="button" class="mail-search-help-trigger flex h-full items-center rounded-r-lg px-2.5 text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:bg-accent focus-visible:outline-none" aria-label={ i18n.T(ctx, "mail.search.commands") } data-mail-search-help>
 				@icon.CircleQuestionMark(icon.Props{Class: "size-3.5"})
 			</button>
 		}
-		@popover.Content(popover.ContentProps{Placement: popover.PlacementBottomEnd, Offset: 8, Exclusive: true, Class: "mobile-sheet z-[70] w-[min(28rem,calc(100vw-1.5rem))] max-h-[min(32rem,75dvh)] overflow-y-auto p-0", Attributes: templ.Attributes{"aria-label": "Search commands"}}) {
+		@popover.Content(popover.ContentProps{Placement: popover.PlacementBottomEnd, Offset: 8, Exclusive: true, Class: "mobile-sheet z-[70] w-[min(28rem,calc(100vw-1.5rem))] max-h-[min(32rem,75dvh)] overflow-y-auto p-0", Attributes: templ.Attributes{"aria-label": i18n.T(ctx, "mail.search.commands")}}) {
 			<div class="border-b border-border px-4 py-3">
-				<h3 class="text-sm font-semibold text-foreground">Search commands</h3>
-				<p class="mt-0.5 text-xs text-muted-foreground">Type them in the search, then press Enter. Put values with spaces in quotes.</p>
+				<h3 class="text-sm font-semibold text-foreground">{ i18n.T(ctx, "mail.search.commands") }</h3>
+				<p class="mt-0.5 text-xs text-muted-foreground">{ i18n.T(ctx, "mail.search.commands_help") }</p>
 			</div>
 			// One grid for every row, so all the meanings start in one column.
 			<div class="grid grid-cols-[auto_minmax(0,1fr)] gap-y-3 p-2">
 				for _, group := range mailSearchCommandGroups {
 					<section class="col-span-2 grid grid-cols-subgrid">
-						<h4 class="col-span-2 px-2 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{ group.Title }</h4>
+						<h4 class="col-span-2 px-2 pb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, group.Title) }</h4>
 						for _, command := range group.Commands {
 							if command.Conversations && !conversations {
 								continue
 							}
 							<button type="button" class="col-span-2 grid grid-cols-subgrid items-baseline gap-x-4 rounded-md px-2 py-1.5 text-left hover:bg-accent focus-visible:bg-accent focus-visible:outline-none" data-mail-search-command={ command.Insert }>
 								<code class="whitespace-nowrap font-mono text-xs text-foreground">{ command.Example }</code>
-								<span class="text-xs text-muted-foreground">{ command.Meaning }</span>
+								<span class="text-xs text-muted-foreground">{ i18n.T(ctx, command.Meaning) }</span>
 							</button>
 						}
 					</section>
@@ -222,13 +223,13 @@ templ MailSearchHelp(conversations bool) {
 // for some commands, like file types and accounts) and types the chosen one in.
 templ MailSearchSuggestions(conversations bool) {
 	@popover.Content(popover.ContentProps{Placement: popover.PlacementBottomStart, Offset: 6, DisableESC: true, Class: "z-[70] max-w-[calc(100vw-1.5rem)] p-1", Attributes: templ.Attributes{"data-mail-search-suggest-content": ""}}) {
-		<div id="mail-search-suggestions" role="listbox" aria-label="Search commands" class="max-h-[min(20rem,50dvh)] overflow-y-auto" data-mail-search-suggestions>
+		<div id="mail-search-suggestions" role="listbox" aria-label={ i18n.T(ctx, "mail.search.commands") } class="max-h-[min(20rem,50dvh)] overflow-y-auto" data-mail-search-suggestions>
 			for _, group := range mailSearchCommandGroups {
 				for _, command := range group.Commands {
 					if command.Conversations && !conversations {
 						continue
 					}
-					@mailSearchSuggestion(command.Insert, command.Meaning)
+					@mailSearchSuggestion(command.Insert, i18n.T(ctx, command.Meaning))
 				}
 			}
 		</div>
@@ -247,17 +248,17 @@ templ MailSearchControls(accounts []models.Account) {
 	{{ accounts = mailAccounts(accounts) }}
 	<a href="/mail/search" class="hidden" data-mail-scope-navigation aria-hidden="true" tabindex="-1"></a>
 	@dialog.Dialog(dialog.Props{ID: "mail-search-folders-dialog"}) {
-		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-lg max-h-[calc(100dvh-2rem)] [&>[data-tui-dialog-panel]]:flex [&>[data-tui-dialog-panel]]:max-h-[calc(100dvh-2rem)] [&>[data-tui-dialog-panel]]:min-h-0 [&>[data-tui-dialog-panel]]:flex-col [&>[data-tui-dialog-panel]]:gap-0 [&>[data-tui-dialog-panel]]:p-0", Attributes: templ.Attributes{"aria-label": "Choose folders to search"}}) {
+		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-lg max-h-[calc(100dvh-2rem)] [&>[data-tui-dialog-panel]]:flex [&>[data-tui-dialog-panel]]:max-h-[calc(100dvh-2rem)] [&>[data-tui-dialog-panel]]:min-h-0 [&>[data-tui-dialog-panel]]:flex-col [&>[data-tui-dialog-panel]]:gap-0 [&>[data-tui-dialog-panel]]:p-0", Attributes: templ.Attributes{"aria-label": i18n.T(ctx, "mail.search.folders.title")}}) {
 			@dialog.Header(dialog.HeaderProps{Class: "shrink-0 px-6 pt-6 pb-4"}) {
 				@dialog.Title() {
-					Choose folders to search
+					{ i18n.T(ctx, "mail.search.folders.title") }
 				}
 				@dialog.Description() {
-					Pick folders from any of your accounts.
+					{ i18n.T(ctx, "mail.search.folders.help") }
 				}
 				<div class="relative">
 					@icon.Search(icon.Props{Class: "absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground"})
-					<input type="search" placeholder="Find a folder or account" aria-label="Find a folder or account" autocomplete="off" class="h-9 w-full rounded-md border border-input bg-background pl-9 pr-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring" data-mail-scope-folder-search/>
+					<input type="search" placeholder={ i18n.T(ctx, "mail.search.folders.find") } aria-label={ i18n.T(ctx, "mail.search.folders.find") } autocomplete="off" class="h-9 w-full rounded-md border border-input bg-background pl-9 pr-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring" data-mail-scope-folder-search/>
 				</div>
 			}
 			<div class="min-h-0 flex-1 overflow-y-auto overscroll-contain border-y border-border" data-mail-scope-folder-list>
@@ -272,22 +273,22 @@ templ MailSearchControls(accounts []models.Account) {
 						}
 					</section>
 				}
-				<p class="hidden px-6 py-4 text-sm text-muted-foreground" data-mail-scope-folder-empty>No matching folders.</p>
+				<p class="hidden px-6 py-4 text-sm text-muted-foreground" data-mail-scope-folder-empty>{ i18n.T(ctx, "mail.search.folders.none") }</p>
 			</div>
 			@dialog.Footer(dialog.FooterProps{Class: "shrink-0 flex-col items-stretch px-6 py-4 sm:items-center sm:justify-between"}) {
 				<div class="min-w-0 space-y-1">
 					<label class="flex items-center gap-2 text-sm">
 						@checkbox.Checkbox(checkbox.Props{Checked: true, Attributes: templ.Attributes{"data-mail-scope-descendants": ""}})
-						Include subfolders
+						{ i18n.T(ctx, "mail.search.folders.descendants") }
 					</label>
-					<p class="text-xs text-muted-foreground" role="status" data-mail-scope-folder-status>Select up to 200 folders. Only locally synced mail is searched.</p>
+					<p class="text-xs text-muted-foreground" role="status" data-mail-scope-folder-status>{ i18n.T(ctx, "mail.search.folders.status") }</p>
 				</div>
 				<div class="flex shrink-0 justify-end gap-2">
 					@button.Button(button.Props{Variant: button.VariantOutline, Attributes: templ.Attributes{"data-mail-scope-cancel": ""}}) {
-						Cancel
+						{ i18n.T(ctx, "common.cancel") }
 					}
 					@button.Button(button.Props{Disabled: true, Attributes: templ.Attributes{"data-mail-scope-apply": ""}}) {
-						Search selected folders
+						{ i18n.T(ctx, "mail.search.folders.apply") }
 					}
 				</div>
 			}

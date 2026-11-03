@@ -1,6 +1,7 @@
 package views
 
 import (
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"github.com/cristianadrielbraun/gofer/internal/assetver"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/themecolors"
@@ -36,7 +37,7 @@ templ Layout(accounts []models.Account, activeFolder string, emails []models.Ema
 			<meta charset="UTF-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 			@I18nScripts()
-			<title>Gofer - Email</title>
+			<title>{ i18n.T(ctx, "page.title", "page", i18n.T(ctx, "app.mail")) }</title>
 			@AppIcon()
 			@FontFaces()
 			@SavedPanelSizeStyle()
@@ -101,18 +102,18 @@ templ MailSyncProgressDialog() {
 	@dialog.Dialog(dialog.Props{ID: "mail-sync-progress-dialog"}) {
 		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-2xl max-h-[calc(100vh-2rem)]"}) {
 			@dialog.Header() {
-				@dialog.Title() { Mail sync progress }
+				@dialog.Title() { { i18n.T(ctx, "mail.sync.dialog.title") } }
 				@dialog.Description() {
 					<span class="inline-flex items-center gap-2">
-						<span data-mail-sync-dialog-subtitle>Waiting for sync details...</span>
-						<button type="button" class="hidden text-xs font-medium text-muted-foreground underline underline-offset-2 hover:text-foreground disabled:pointer-events-none disabled:opacity-60" data-mail-sync-cancel>Cancel</button>
+						<span data-mail-sync-dialog-subtitle>{ i18n.T(ctx, "mail.sync.dialog.waiting") }</span>
+						<button type="button" class="hidden text-xs font-medium text-muted-foreground underline underline-offset-2 hover:text-foreground disabled:pointer-events-none disabled:opacity-60" data-mail-sync-cancel>{ i18n.T(ctx, "common.cancel") }</button>
 					</span>
 				}
 			}
 			<div class="min-h-0 space-y-4">
 				<div class="space-y-2">
 					<div class="flex items-center justify-between gap-3 text-xs font-medium text-muted-foreground">
-						<span data-mail-sync-dialog-summary>Preparing...</span>
+						<span data-mail-sync-dialog-summary>{ i18n.T(ctx, "mail.sync.dialog.preparing") }</span>
 						<span data-mail-sync-dialog-percent>0%</span>
 					</div>
 					<div class="h-2 overflow-hidden rounded-full bg-muted">
@@ -132,7 +133,7 @@ templ SettingsLayout(accounts []models.Account, syncSettings models.SyncSettings
 			<meta charset="UTF-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 			@I18nScripts()
-			<title>Gofer - Settings</title>
+			<title>{ i18n.T(ctx, "page.title", "page", i18n.T(ctx, "settings.section.default.title")) }</title>
 			@AppIcon()
 			@FontFaces()
 			@SavedPanelSizeStyle()
@@ -245,7 +246,7 @@ templ ContactsLayout(accounts []models.Account, contacts []models.Contact, selec
 			<meta charset="UTF-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 			@I18nScripts()
-			<title>Gofer - Contacts</title>
+			<title>{ i18n.T(ctx, "page.title", "page", i18n.T(ctx, "contacts.title")) }</title>
 			@AppIcon()
 			@FontFaces()
 			@SavedPanelSizeStyle()
@@ -336,7 +337,7 @@ templ AdminLayout(uiSettings map[string]string, userData AdminUsersData, avatarS
 			<meta charset="UTF-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 			@I18nScripts()
-			<title>Gofer - Admin</title>
+			<title>{ i18n.T(ctx, "page.title", "page", i18n.T(ctx, "admin.title")) }</title>
 			@AppIcon()
 			@FontFaces()
 			@SavedPanelSizeStyle()

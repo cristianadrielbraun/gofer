@@ -1,8 +1,8 @@
 package views
 
 import (
-	"context"
 	"bytes"
+	"context"
 	"html"
 	"regexp"
 	"strings"

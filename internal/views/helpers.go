@@ -64,13 +64,13 @@ func unifiedFolderAccountEnabled(settings map[string]string, folderID, accountID
 	return uiSettingGet(settings, unifiedFolderAccountSettingKey(folderID, accountID), "true") != "false"
 }
 
-func folderDisplayName(folderID string) string {
+func folderDisplayName(ctx context.Context, folderID string) string {
 	for _, folder := range unifiedFolderOptions() {
 		if folder.ID == folderID {
-			return folder.Name
+			return i18n.FolderName(ctx, folder.ID, folder.Name)
 		}
 	}
-	return "Inbox"
+	return i18n.T(ctx, "folder.inbox")
 }
 
 func mailRoleIsSpam(role string) bool {
@@ -158,12 +158,12 @@ func mailMoveTargets(folders []models.Folder) []mailMoveTarget {
 
 // mailMoveAccountProblem says why another account can't take an email from
 // the Move dialog, or nothing when it can.
-func mailMoveAccountProblem(account models.Account, own bool) string {
+func mailMoveAccountProblem(ctx context.Context, account models.Account, own bool) string {
 	switch {
 	case own:
 		return ""
 	case account.ReconnectPending:
-		return "Needs its password"
+		return i18n.T(ctx, "mail.move.needs_password")
 	}
 	return ""
 }
@@ -212,11 +212,11 @@ func mailDeleteActionClass(size, normal string, permanent bool) string {
 	return size + " " + normal
 }
 
-func mailArchiveSelectionLabel(unarchive bool) string {
+func mailArchiveSelectionLabel(ctx context.Context, unarchive bool) string {
 	if unarchive {
-		return "Move selected messages to Inbox"
+		return i18n.T(ctx, "mail.selection.unarchive")
 	}
-	return "Archive selected messages"
+	return i18n.T(ctx, "mail.selection.archive")
 }
 
 func mailHiddenClass(class string, hidden bool) string {
@@ -252,24 +252,24 @@ func mailDeleteAllFolder(activeFolder string, accounts []models.Account) string 
 
 // Nothing is selected at first, so Delete starts out acting on the whole
 // folder where it can. app.js keeps these in step with the selection.
-func mailDeleteAllLabel(folder string) string {
+func mailDeleteAllLabel(ctx context.Context, folder string) string {
 	switch folder {
 	case "trash":
-		return "Empty trash permanently"
+		return i18n.T(ctx, "mail.selection.empty_trash")
 	case "spam":
-		return "Move all spam to Trash"
+		return i18n.T(ctx, "mail.selection.spam_to_trash")
 	}
-	return "Delete selected messages"
+	return i18n.T(ctx, "mail.selection.delete")
 }
 
-func mailDeleteAllTooltip(folder string) string {
+func mailDeleteAllTooltip(ctx context.Context, folder string) string {
 	switch folder {
 	case "trash":
-		return "Empty trash permanently"
+		return i18n.T(ctx, "mail.selection.empty_trash")
 	case "spam":
-		return "Move all to Trash"
+		return i18n.T(ctx, "mail.folder_menu.spam_to_trash")
 	}
-	return "Delete"
+	return i18n.T(ctx, "shortcuts.delete")
 }
 
 func mailViewPartialURL(emailID, folderID string, single bool) templ.SafeURL {
@@ -955,41 +955,12 @@ func translationProviderSettingValue(value string) string {
 	}
 }
 
-func translationLanguageSettingLabel(value string) string {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "ar":
-		return "Arabic"
-	case "cs":
-		return "Czech"
-	case "de":
-		return "German"
-	case "en", "":
-		return "English"
-	case "es":
-		return "Spanish"
-	case "fr":
-		return "French"
-	case "it":
-		return "Italian"
-	case "ja":
-		return "Japanese"
-	case "ko":
-		return "Korean"
-	case "nl":
-		return "Dutch"
-	case "pl":
-		return "Polish"
-	case "pt":
-		return "Portuguese"
-	case "ru":
-		return "Russian"
-	case "uk":
-		return "Ukrainian"
-	case "zh-cn", "zh":
-		return "Chinese"
-	default:
-		return value
+func translationLanguageSettingLabel(ctx context.Context, value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		value = "en"
 	}
+	return i18n.LanguageName(ctx, value)
 }
 
 type translationLanguageOption struct {
@@ -997,8 +968,8 @@ type translationLanguageOption struct {
 	Label string
 }
 
-func translationLanguageOptions() []translationLanguageOption {
-	return []translationLanguageOption{
+func translationLanguageOptions(ctx context.Context) []translationLanguageOption {
+	options := []translationLanguageOption{
 		{Value: "en", Label: "English"},
 		{Value: "cs", Label: "Czech"},
 		{Value: "de", Label: "German"},
@@ -1013,6 +984,10 @@ func translationLanguageOptions() []translationLanguageOption {
 		{Value: "ja", Label: "Japanese"},
 		{Value: "ko", Label: "Korean"},
 	}
+	for i := range options {
+		options[i].Label = i18n.LanguageName(ctx, options[i].Value)
+	}
+	return options
 }
 
 func notificationModeSettingLabel(mode string) string {
@@ -1138,16 +1113,16 @@ func mailListPaginationPage(windowStart int, pageSize int) int {
 	return (windowStart / pageSize) + 1
 }
 
-func mailListPaginationRangeLabel(windowStart int, itemCount int, totalCount int) string {
+func mailListPaginationRangeLabel(ctx context.Context, windowStart int, itemCount int, totalCount int) string {
 	if totalCount <= 0 || itemCount <= 0 {
-		return "No messages"
+		return i18n.T(ctx, "mail.pagination.none")
 	}
 	start := windowStart + 1
 	end := windowStart + itemCount
 	if end > totalCount {
 		end = totalCount
 	}
-	return fmt.Sprintf("%d-%d of %d", start, end, totalCount)
+	return i18n.T(ctx, "mail.pagination.range", "start", i18n.Number(ctx, start), "end", i18n.Number(ctx, end), "total", i18n.Number(ctx, totalCount))
 }
 
 func autoMarkReadSettingLabel(value string) string {
