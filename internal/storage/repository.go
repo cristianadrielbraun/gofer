@@ -4818,7 +4818,7 @@ func (db *DB) GetFolderHighestUID(ctx context.Context, folderID string) (uint32,
 // a mail list.
 func (db *DB) GetAccountNames(ctx context.Context, userID string) ([]models.Account, error) {
 	rows, err := db.Read().QueryContext(ctx,
-		`SELECT id, email_address, display_name FROM accounts
+		`SELECT id, provider, email_address, display_name FROM accounts
 		 WHERE user_id = ? AND COALESCE(is_deleting, 0) = 0
 		 ORDER BY id`, userID)
 	if err != nil {
@@ -4828,9 +4828,10 @@ func (db *DB) GetAccountNames(ctx context.Context, userID string) ([]models.Acco
 	var accounts []models.Account
 	for rows.Next() {
 		var a models.Account
-		if err := rows.Scan(&a.ID, &a.Email, &a.Name); err != nil {
+		if err := rows.Scan(&a.ID, &a.Provider, &a.Email, &a.Name); err != nil {
 			return nil, fmt.Errorf("scan account name: %w", err)
 		}
+		a.Name = i18n.AccountName(ctx, a.Provider, a.Name)
 		accounts = append(accounts, a)
 	}
 	return accounts, rows.Err()
@@ -4877,6 +4878,7 @@ func (db *DB) GetAccounts(ctx context.Context, userID string) ([]models.Account,
 		if err := rows.Scan(&a.ID, &a.Provider, &a.Email, &a.Name, &a.Color, &a.Initials, &isDeleting, &emailSyncEnabled, &a.EmailSyncError, &a.EmailSyncErrorAt, &a.Hidden, &contactSyncEnabled, &a.ContactSyncProvider, &calendarSyncEnabled, &imapHost, &authMethod, &smtpHost, &a.DAVService, &a.DAVLogin, &a.DAVServer); err != nil {
 			return nil, fmt.Errorf("scan account: %w", err)
 		}
+		a.Name = i18n.AccountName(ctx, a.Provider, a.Name)
 		if providers.IsICloudAccount(a.Provider, authMethod, imapHost) {
 			a.MailService = providers.MailServiceICloud
 		}
@@ -4951,6 +4953,7 @@ func (db *DB) GetAccountsIncludingDeleting(ctx context.Context, userID string) (
 		if err := rows.Scan(&a.ID, &a.Provider, &a.Email, &a.Name, &a.Color, &a.Initials, &isDeleting, &emailSyncEnabled, &a.EmailSyncError, &a.EmailSyncErrorAt, &a.Hidden, &contactSyncEnabled, &a.ContactSyncProvider, &calendarSyncEnabled, &imapHost, &authMethod, &a.DAVService, &a.DAVLogin, &a.DAVServer); err != nil {
 			return nil, fmt.Errorf("scan account: %w", err)
 		}
+		a.Name = i18n.AccountName(ctx, a.Provider, a.Name)
 		if providers.IsICloudAccount(a.Provider, authMethod, imapHost) {
 			a.MailService = providers.MailServiceICloud
 		}

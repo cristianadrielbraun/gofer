@@ -2,6 +2,7 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const path = require('node:path')
 const vm = require('node:vm')
+const loadI18n = require('./i18n-test-helper.cjs')
 
 const source = fs.readFileSync(path.join(__dirname, '../assets/js/app.js'), 'utf8')
 const start = source.indexOf('document.addEventListener("gofer-request-blocked"')
@@ -9,13 +10,13 @@ const end = source.indexOf('\n})', start) + 3
 assert(start > 0 && end > start)
 let notify
 const toasts = []
-vm.runInNewContext(source.slice(start, end), {
+vm.runInNewContext(source.slice(start, end), loadI18n({
   document: {addEventListener(name, callback) {
     assert.equal(name, 'gofer-request-blocked')
     notify = callback
   }},
   showGoferToast(options) { toasts.push(options) },
-})
+}))
 
 const explanation = 'Cross-origin request blocked. Check GOFER_BASE_URL, including https:// and the port.'
 // HTMX wraps a string from HX-Trigger JSON in detail.value, even on a 403.

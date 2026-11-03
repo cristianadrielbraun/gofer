@@ -50,7 +50,7 @@ registerAppServiceWorker()
 document.addEventListener("gofer-request-blocked", function (event) {
   showGoferToast({
     id: "gofer-request-blocked",
-    title: "Request blocked",
+    title: goferT("js.request_blocked"),
     description: event.detail.value,
     dismissible: true,
     variant: "error",
@@ -3321,7 +3321,7 @@ document.addEventListener("DOMContentLoaded", function () {
         var tagAccount = link.getAttribute("data-sidebar-tag-account") || ""
         var labelID = link.getAttribute("data-sidebar-tag-id") || ""
         if (!labelID) return null
-        return { kind: "tag", tag: true, unifiedTag: link.hasAttribute("data-tag-appearance-unified"), folderID: labelID, labelID: labelID, accountID: tagAccount, provider: sidebarAccountProvider(tagAccount), name: link.getAttribute("data-sidebar-tag-label") || "this label" }
+        return { kind: "tag", tag: true, unifiedTag: link.hasAttribute("data-tag-appearance-unified"), folderID: labelID, labelID: labelID, accountID: tagAccount, provider: sidebarAccountProvider(tagAccount), name: link.getAttribute("data-sidebar-tag-label") || goferT("js.mail.this_label") }
       }
       if (link && body.contains(link)) {
         var role = String(link.dataset.folderRole || "").toLowerCase()
@@ -3329,13 +3329,13 @@ document.addEventListener("DOMContentLoaded", function () {
         var name = link.querySelector(".flex-1")
         var folderAccount = link.dataset.mailDropAccount || ""
         // Unified folders belong to no single account.
-        return { kind: "folder", folderID: decodeURIComponent(path), accountID: folderAccount, provider: sidebarAccountProvider(folderAccount), role: role, virtual: link.hasAttribute("data-folder-appearance-virtual"), inTrash: sidebarFolderInTrash(link), name: name ? name.textContent.trim() : "this folder" }
+        return { kind: "folder", folderID: decodeURIComponent(path), accountID: folderAccount, provider: sidebarAccountProvider(folderAccount), role: role, virtual: link.hasAttribute("data-folder-appearance-virtual"), inTrash: sidebarFolderInTrash(link), name: name ? name.textContent.trim() : goferT("js.mail.this_folder") }
       }
       var toggle = el.closest("[data-sidebar-account-toggle]")
       var accountID = toggle && toggle.getAttribute("data-sidebar-account-toggle")
       if (accountID && accountID !== "__unified__" && body.contains(toggle)) {
         var title = toggle.querySelector(".flex-1")
-        return { kind: "account", accountID: accountID, provider: sidebarAccountProvider(accountID), name: title ? title.textContent.trim() : "this account" }
+        return { kind: "account", accountID: accountID, provider: sidebarAccountProvider(accountID), name: title ? title.textContent.trim() : goferT("js.accounts.this_account") }
       }
       return null
     }
@@ -6699,7 +6699,7 @@ document.addEventListener("DOMContentLoaded", function () {
     card.dataset.accountDeleting = "true"
     var actions = card.querySelector("[data-account-actions]")
     if (!actions) return
-    actions.innerHTML = '<button type="button" data-account-deleting-status role="status" aria-live="polite" disabled class="inline-flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-400 px-2.5 py-1.5 rounded-md border border-amber-300/40 dark:border-amber-500/30 bg-amber-100/50 dark:bg-amber-500/10 cursor-default"><svg class="size-3.5 animate-spin" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>Deleting…</button>'
+    actions.innerHTML = '<button type="button" data-account-deleting-status role="status" aria-live="polite" disabled class="inline-flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-400 px-2.5 py-1.5 rounded-md border border-amber-300/40 dark:border-amber-500/30 bg-amber-100/50 dark:bg-amber-500/10 cursor-default"><svg class="size-3.5 animate-spin" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>' + goferT("js.accounts.deleting") + '</button>'
   }
 
   function setupAccountDeletionTracking() {
@@ -6709,15 +6709,15 @@ document.addEventListener("DOMContentLoaded", function () {
 
     function accountEmail(accountId) {
       var card = document.getElementById("account-card-" + accountId)
-      return card && card.dataset.accountEmail ? card.dataset.accountEmail : "this account"
+      return card && card.dataset.accountEmail ? card.dataset.accountEmail : goferT("js.accounts.this_account")
     }
 
     function showDeletionStarted(accountId) {
       if (typeof showGoferToast !== "function") return
       showGoferToast({
         id: deletionToastId(accountId),
-        title: "Deleting account…",
-        description: "Removing " + accountEmail(accountId) + ". You can leave this page; cleanup will continue in the background.",
+        title: goferT("js.accounts.delete_started_title"),
+        description: goferT("js.accounts.delete_started", { email: accountEmail(accountId) }),
         variant: "default",
         icon: "info",
         position: "bottom-right",
@@ -6740,8 +6740,8 @@ document.addEventListener("DOMContentLoaded", function () {
       if (typeof showGoferToast === "function") {
         showGoferToast({
           id: deletionToastId(accountId),
-          title: "Account deleted",
-          description: email + " and its local data were removed from Gofer.",
+          title: goferT("js.accounts.deleted_title"),
+          description: goferT("js.accounts.deleted", { email: email }),
           variant: "success",
           icon: "success",
           position: "bottom-right",
@@ -6808,7 +6808,7 @@ document.addEventListener("DOMContentLoaded", function () {
       if (!button) return
       button.dataset.originalContent = button.innerHTML
       button.disabled = true
-      button.innerHTML = '<svg class="size-4 animate-spin" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>Starting…'
+      button.innerHTML = '<svg class="size-4 animate-spin" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>' + goferT("js.accounts.delete_starting")
     })
 
     document.body.addEventListener("htmx:afterRequest", function (evt) {
@@ -6830,8 +6830,8 @@ document.addEventListener("DOMContentLoaded", function () {
       if (typeof showGoferToast === "function") {
         showGoferToast({
           id: deletionToastId(accountId),
-          title: "Could not delete account",
-          description: "Gofer could not start account cleanup. Please try again.",
+          title: goferT("js.accounts.delete_failed_title"),
+          description: goferT("js.accounts.delete_failed"),
           variant: "error",
           icon: "error",
           position: "bottom-right",
@@ -6850,22 +6850,22 @@ document.addEventListener("DOMContentLoaded", function () {
     var added = params.get("account_added") === "1"
     var reconnected = params.get("account_reconnected") === "1"
     var errors = {
-      oauth_invalid_state: "This authorization link is no longer valid. Start connecting the account again.",
-      oauth_expired_state: "Account authorization expired. Start connecting the account again.",
-      oauth_session_mismatch: "Finish authorization in the same browser session that started it.",
-      oauth_no_code: "The provider did not complete authorization. Please try again.",
-      oauth_exchange_failed: "Gofer could not complete authorization with the provider. Please try again.",
-      oauth_device_failed: "Gofer could not start Microsoft sign-in. Please try again.",
-      oauth_device_declined: "Sign-in was cancelled at Microsoft. Start connecting the account again.",
-      oauth_userinfo_failed: "Gofer could not identify the authorized mailbox. Please try again.",
-      oauth_email_mismatch: "The authorized email address differs from the mailbox you chose. Choose the matching account and try again.",
-      oauth_identity_mismatch: "The authorized provider account differs from this mailbox. Reconnect using its original provider account.",
-      oauth_store_failed: "Gofer could not save the mailbox authorization. Reconnect the account to try again.",
-      oauth_metadata_failed: "Authorization was saved, but account details could not be updated. Reconnect the account to try again.",
-      oauth_sync_failed: "Authorization was saved, but synchronization could not start. Try syncing the account again.",
-      create_failed: "Gofer could not save this account. Review your existing accounts and try again.",
-      mail_allowlist_provider: "Your Gofer administrator doesn't allow mailboxes from this provider.",
-      mail_allowlist_domain: "Your Gofer administrator doesn't allow mailboxes with this address's domain.",
+      oauth_invalid_state: goferT("js.accounts.connect_error.oauth_invalid_state"),
+      oauth_expired_state: goferT("js.accounts.connect_error.oauth_expired_state"),
+      oauth_session_mismatch: goferT("js.accounts.connect_error.oauth_session_mismatch"),
+      oauth_no_code: goferT("js.accounts.connect_error.oauth_no_code"),
+      oauth_exchange_failed: goferT("js.accounts.connect_error.oauth_exchange_failed"),
+      oauth_device_failed: goferT("js.accounts.connect_error.oauth_device_failed"),
+      oauth_device_declined: goferT("js.accounts.connect_error.oauth_device_declined"),
+      oauth_userinfo_failed: goferT("js.accounts.connect_error.oauth_userinfo_failed"),
+      oauth_email_mismatch: goferT("js.accounts.connect_error.oauth_email_mismatch"),
+      oauth_identity_mismatch: goferT("js.accounts.connect_error.oauth_identity_mismatch"),
+      oauth_store_failed: goferT("js.accounts.connect_error.oauth_store_failed"),
+      oauth_metadata_failed: goferT("js.accounts.connect_error.oauth_metadata_failed"),
+      oauth_sync_failed: goferT("js.accounts.connect_error.oauth_sync_failed"),
+      create_failed: goferT("js.accounts.connect_error.create_failed"),
+      mail_allowlist_provider: goferT("js.accounts.connect_error.mail_allowlist_provider"),
+      mail_allowlist_domain: goferT("js.accounts.connect_error.mail_allowlist_domain"),
     }
     var errorCode = params.get("error")
     var errorMessage = Object.prototype.hasOwnProperty.call(errors, errorCode) ? errors[errorCode] : ""
@@ -6874,10 +6874,10 @@ document.addEventListener("DOMContentLoaded", function () {
     if (typeof showGoferToast === "function") {
       showGoferToast({
         id: "account-connection-toast",
-        title: errorMessage ? "Could not connect account" : (added ? "Account added" : "Account reconnected"),
+        title: errorMessage ? goferT("js.accounts.connect_failed_title") : (added ? goferT("js.accounts.added_title") : goferT("js.accounts.reconnected_title")),
         description: errorMessage || (added
-          ? "The account was added successfully. Initial synchronization has started."
-          : "The account was reconnected successfully. Synchronization has resumed."),
+          ? goferT("js.accounts.added")
+          : goferT("js.accounts.reconnected")),
         variant: errorMessage ? "error" : "success",
         icon: errorMessage ? "error" : "success",
         position: "bottom-right",
@@ -7382,11 +7382,11 @@ document.addEventListener("DOMContentLoaded", function () {
     }
     var labels = document.querySelectorAll("[data-desktop-notifications-status]")
     for (var j = 0; j < labels.length; j++) {
-      if (!enabled || mode === "off") labels[j].textContent = "Notifications are off."
-      else if (permission === "denied") labels[j].textContent = "Notifications are blocked in this browser."
-      else if (supported) labels[j].textContent = "Web Push is available in this browser."
-      else if (browserNotificationsSupported()) labels[j].textContent = "Browser-tab notifications are available while Gofer is open."
-      else labels[j].textContent = "No notification method is available for this browser/origin."
+      if (!enabled || mode === "off") labels[j].textContent = goferT("js.notify.status.off")
+      else if (permission === "denied") labels[j].textContent = goferT("js.notify.status.blocked")
+      else if (supported) labels[j].textContent = goferT("js.notify.status.web_push")
+      else if (browserNotificationsSupported()) labels[j].textContent = goferT("js.notify.status.browser_tab")
+      else labels[j].textContent = goferT("js.notify.status.none")
     }
     // The switch may have been turned off here without a change event.
     if (window.goferSyncSettingDependents) window.goferSyncSettingDependents()
@@ -7437,8 +7437,8 @@ document.addEventListener("DOMContentLoaded", function () {
         setNotificationActiveMethod("none")
         showGoferToast({
           id: "desktop-notifications-toast",
-          title: "Notifications unavailable",
-          description: err && err.message ? err.message : "Could not enable Web Push notifications.",
+          title: goferT("js.notify.unavailable_title"),
+          description: err && err.message ? err.message : goferT("js.notify.enable_failed"),
           variant: "warning",
           icon: "warning",
           position: "bottom-right",
@@ -7455,13 +7455,13 @@ document.addEventListener("DOMContentLoaded", function () {
       button.setAttribute("data-busy", "")
       var saved = window.GoferSettings ? GoferSettings.saveNow() : Promise.resolve()
       saved.then(function (res) {
-        if (window.GoferSettings && (!res || !res.ok)) throw new Error("Could not save notification settings. Try again before sending a test.")
+        if (window.GoferSettings && (!res || !res.ok)) throw new Error(goferT("js.notify.save_before_test"))
         return sendTestNotification()
       }).then(function () {
         showGoferToast({
           id: "desktop-notifications-test-toast",
-          title: "Test notification sent",
-          description: "It should appear in a moment. If it does not, check your system's notification settings.",
+          title: goferT("js.notify.test_sent_title"),
+          description: goferT("js.notify.test_sent"),
           variant: "success",
           icon: "success",
           position: "bottom-right",
@@ -7471,8 +7471,8 @@ document.addEventListener("DOMContentLoaded", function () {
       }).catch(function (err) {
         showGoferToast({
           id: "desktop-notifications-test-toast",
-          title: "Test notification failed",
-          description: err && err.message ? err.message : "Could not send the test notification.",
+          title: goferT("js.notify.test_failed_title"),
+          description: err && err.message ? err.message : goferT("js.notify.test_failed"),
           variant: "warning",
           icon: "warning",
           position: "bottom-right",
@@ -7513,12 +7513,12 @@ document.addEventListener("DOMContentLoaded", function () {
 
   function setNotificationActiveMethod(method) {
     _notificationActiveMethod = method || "none"
-    var label = "None"
-    if (_notificationActiveMethod === "off") label = "Off"
-    else if (_notificationActiveMethod === "web_push") label = "Web Push"
-    else if (_notificationActiveMethod === "browser_tab") label = "Browser tab"
+    var label = goferT("js.notify.method.none")
+    if (_notificationActiveMethod === "off") label = goferT("js.notify.method.off")
+    else if (_notificationActiveMethod === "web_push") label = goferT("js.notify.method.web_push")
+    else if (_notificationActiveMethod === "browser_tab") label = goferT("js.notify.method.browser_tab")
     var nodes = document.querySelectorAll("[data-notification-active-method]")
-    for (var i = 0; i < nodes.length; i++) nodes[i].textContent = "Active method: " + label
+    for (var i = 0; i < nodes.length; i++) nodes[i].textContent = goferT("js.notify.active_method", { method: label })
     var testable = _notificationActiveMethod === "web_push" || _notificationActiveMethod === "browser_tab"
     var tests = document.querySelectorAll("[data-desktop-notifications-test]")
     for (var j = 0; j < tests.length; j++) {
@@ -7531,11 +7531,11 @@ document.addEventListener("DOMContentLoaded", function () {
   // browser-tab notifications are shown by the page itself.
   function sendTestNotification() {
     if (_notificationActiveMethod === "web_push") {
-      if (!("serviceWorker" in navigator)) return Promise.reject(new Error("This browser does not support Web Push."))
+      if (!("serviceWorker" in navigator)) return Promise.reject(new Error(goferT("js.notify.no_web_push")))
       return navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" }).then(waitForNotificationWorker).then(function (registration) {
         return registration ? registration.pushManager.getSubscription() : null
       }).then(function (subscription) {
-        if (!subscription) throw new Error("This browser has no push subscription. Turn notifications off and on again to register it.")
+        if (!subscription) throw new Error(goferT("js.notify.no_subscription"))
         return fetch("/api/push/test", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -7544,13 +7544,13 @@ document.addEventListener("DOMContentLoaded", function () {
       }).then(function (res) {
         if (res.ok) return
         return res.text().then(function (message) {
-          throw new Error((message || "").trim() || "Could not send the test notification.")
+          throw new Error((message || "").trim() || goferT("js.notify.test_failed"))
         })
       })
     }
     if (_notificationActiveMethod === "browser_tab") {
       if (!browserNotificationsSupported() || Notification.permission !== "granted") {
-        return Promise.reject(new Error("Notification permission was not granted."))
+        return Promise.reject(new Error(goferT("js.notify.permission_denied")))
       }
       var appearance = newMailNotificationAppearance(notificationAppearanceExample(), 1)
       return window.GoferNotificationAvatar.render(appearance.icon).then(function (circularIcon) {
@@ -7568,7 +7568,7 @@ document.addEventListener("DOMContentLoaded", function () {
         return Promise.resolve()
       })
     }
-    return Promise.reject(new Error("Turn on desktop notifications first."))
+    return Promise.reject(new Error(goferT("js.notify.turn_on_first")))
   }
 
   function requestNotificationPermission(prompt) {
@@ -7608,7 +7608,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
   function activateBrowserTabNotifications(prompt) {
     return requestNotificationPermission(prompt).then(function (permission) {
-      if (permission !== "granted") throw new Error("Notification permission was not granted.")
+      if (permission !== "granted") throw new Error(goferT("js.notify.permission_denied"))
       return deleteWebPushSubscription().catch(function () {})
     }).then(function () {
       setNotificationActiveMethod("browser_tab")
@@ -7634,11 +7634,11 @@ document.addEventListener("DOMContentLoaded", function () {
 
   function waitForNotificationWorker(registration) {
     var worker = registration.installing || registration.waiting || registration.active
-    if (!worker) return Promise.reject(new Error("The notification service worker is unavailable."))
+    if (!worker) return Promise.reject(new Error(goferT("js.notify.worker_unavailable")))
     if (worker.state === "activated") return Promise.resolve(registration)
     return new Promise(function (resolve, reject) {
       var timer = setTimeout(function () {
-        finish(new Error("The notification update is taking too long. Try again in a moment."))
+        finish(new Error(goferT("js.notify.worker_slow")))
       }, 10000)
       function finish(err) {
         clearTimeout(timer)
@@ -7648,7 +7648,7 @@ document.addEventListener("DOMContentLoaded", function () {
       }
       function changed() {
         if (worker.state === "activated") finish()
-        else if (worker.state === "redundant") finish(new Error("The notification service worker could not activate. Try again."))
+        else if (worker.state === "redundant") finish(new Error(goferT("js.notify.worker_failed")))
       }
       worker.addEventListener("statechange", changed)
       changed()
@@ -7656,15 +7656,15 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 
   function ensureWebPushSubscription(prompt) {
-    if (!webPushSupported()) return Promise.reject(new Error("Web Push requires HTTPS or localhost in a supported browser."))
+    if (!webPushSupported()) return Promise.reject(new Error(goferT("js.notify.needs_https")))
     return requestNotificationPermission(prompt).then(function (permission) {
-      if (permission !== "granted") throw new Error("Notification permission was not granted.")
+      if (permission !== "granted") throw new Error(goferT("js.notify.permission_denied"))
       return fetch("/api/push/vapid-public-key")
     }).then(function (res) {
-      if (!res.ok) throw new Error("Could not load push configuration.")
+      if (!res.ok) throw new Error(goferT("js.notify.config_failed"))
       return res.json()
     }).then(function (data) {
-      if (!data.public_key) throw new Error("Web Push is not configured on this server.")
+      if (!data.public_key) throw new Error(goferT("js.notify.not_configured"))
       return navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" }).then(waitForNotificationWorker).then(function (registration) {
         return registration.pushManager.getSubscription().then(function (existing) {
           if (existing) return existing
@@ -7680,7 +7680,7 @@ document.addEventListener("DOMContentLoaded", function () {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(subscription),
       }).then(function (res) {
-        if (!res.ok) throw new Error("Could not save push subscription.")
+        if (!res.ok) throw new Error(goferT("js.notify.subscription_failed"))
         return subscription
       })
     })
@@ -9171,7 +9171,7 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 
   function readPanePendingHTML(mode) {
-    var label = mode === "contacts" ? "Loading contacts..." : "Loading message..."
+    var label = mode === "contacts" ? goferT("js.contacts.pending") : goferT("js.mail.view.pending")
     return '<div class="flex flex-col h-full p-2"><div class="surface-paper rounded-md flex flex-col h-full overflow-hidden"><div class="flex items-center justify-between px-6 py-2.5"><div class="flex items-center gap-1"><div class="size-8 rounded-md bg-ink/[0.03] border border-ink/6"></div><div class="size-8 rounded-md bg-ink/[0.03] border border-ink/6"></div></div><div class="h-4 w-20 rounded bg-ink/5 animate-pulse"></div></div><div class="h-px bg-gradient-to-r from-transparent via-amber-900/10 to-transparent"></div><div class="flex-1 overflow-y-auto"><div class="mx-auto px-8 py-6"><div class="flex items-center gap-2 text-sm text-muted-foreground"><div class="size-4 border-2 border-ink/15 border-t-ink/45 rounded-full animate-spin"></div><span>' + label + '</span></div><div class="space-y-3 mt-5"><div class="h-4 w-full rounded bg-ink/5 animate-pulse"></div><div class="h-4 w-11/12 rounded bg-ink/5 animate-pulse"></div><div class="h-4 w-4/5 rounded bg-ink/5 animate-pulse"></div></div></div></div></div></div>'
   }
 
@@ -9885,7 +9885,7 @@ document.addEventListener("DOMContentLoaded", function () {
       if (heading && preview.subject) heading.textContent = preview.subject
       var count = mailViewTriggerThreadCount(trigger)
       var countLabel = threadFrame.querySelector("[data-thread-count]")
-      if (countLabel && count > 1) countLabel.textContent = count + " messages in this thread"
+      if (countLabel && count > 1) countLabel.textContent = goferTn("js.mail.thread.count", count)
       threadList.innerHTML = mailViewThreadSkeletonCards(count, senderHTML, bodyHTML)
       threadList.scrollTop = 0
       scrollThreadSkeletonToOpen(threadList)
@@ -11396,7 +11396,7 @@ function mailSyncErrorSummaryHTML(issues) {
     html += '<div class="rounded-md border border-sidebar-border/70 bg-sidebar-accent/20 px-2 py-1.5">' +
       '<div class="truncate font-semibold">' + _escapeComposeHTML(name) + '</div>' +
       (email ? '<div class="truncate text-[11px] opacity-70">' + _escapeComposeHTML(email) + '</div>' : '') +
-      (formattedAt ? '<div class="mt-1 opacity-85">Last failure: ' + _escapeComposeHTML(formattedAt) + '</div>' : '') +
+      (formattedAt ? '<div class="mt-1 opacity-85">' + _escapeComposeHTML(goferT("js.sync.last_failure", { time: formattedAt })) + '</div>' : '') +
       '<div class="mt-1 break-words opacity-90">' + _escapeComposeHTML(message) + '</div>' +
     '</div>'
   }
@@ -11708,7 +11708,7 @@ function _mailSyncAccountCardHTML(account) {
     '<div class="flex items-center justify-between gap-3">' +
       '<div class="min-w-0"><div class="truncate text-sm font-semibold">' + _escapeComposeHTML(account.label) + '</div>' +
       '<div class="mt-1 truncate text-xs text-muted-foreground">' + _escapeComposeHTML(folderMeta) + '</div>' +
-      (account.currentFolderLabel && account.status === "syncing" ? '<div class="mt-1 truncate text-xs text-muted-foreground">Current: ' + _escapeComposeHTML(account.currentFolderLabel) + '</div>' : '') +
+      (account.currentFolderLabel && account.status === "syncing" ? '<div class="mt-1 truncate text-xs text-muted-foreground">' + _escapeComposeHTML(goferT("js.sync.current_folder", { folder: account.currentFolderLabel })) + '</div>' : '') +
       (account.error ? '<div class="mt-1 truncate text-xs text-destructive">' + _escapeComposeHTML(account.error) + '</div>' : '') + '</div>' +
       '<div class="shrink-0 text-xs font-medium ' + _mailSyncStatusClass(account.status) + '">' + _mailSyncStatusLabel(account.status) + '</div>' +
     '</div>' +
@@ -19182,7 +19182,7 @@ function chooseComposeCloseAction(form, anchor, popoverId) {
     var panel = document.createElement("div")
     panel.className = "compose-close-choice compose-close-choice-floating"
     panel.setAttribute("popover", "auto")
-    panel.innerHTML = '<h2>Close compose?</h2><p>Keep this message as a draft, discard it permanently, or continue editing.</p>'
+    panel.innerHTML = '<h2>' + _escapeComposeHTML(goferT("js.compose.close.title")) + '</h2><p>' + _escapeComposeHTML(goferT("js.compose.close.description")) + '</p>'
     var settled = false
     function finish(action) {
       if (settled) return
@@ -21166,7 +21166,7 @@ function applyLabelsDialog() {
   changes.forEach(function (change) {
     run = run.then(function () {
       return postLabelChange(change.add ? "/api/messages/label" : "/api/messages/unlabel", state.targets, change.name, state.folderID)
-        .catch(function (err) { failures.push(change.name + ": " + (err && err.reason ? err.reason : "please try again.")) })
+        .catch(function (err) { failures.push(change.name + ": " + (err && err.reason ? err.reason : goferT("js.common.please_try_again"))) })
     })
   })
   run.then(function () {
@@ -21470,7 +21470,7 @@ function createMoveLabel(emailId, thread) {
     return postLabelChange("/api/messages/label", targets, name, mailActionCurrentFolderID()).then(function () {
       if (window.goferRefreshSidebarAccount) window.goferRefreshSidebarAccount(account)
       if (selection && typeof selection.done === "function") selection.done()
-      showGoferToast({ title: "Added the “" + name + "” label", variant: "success", icon: "success", position: "bottom-right", duration: 3000, dismissible: true })
+      showGoferToast({ title: goferT("js.mail.labels.added", { name: name }), variant: "success", icon: "success", position: "bottom-right", duration: 3000, dismissible: true })
     }).catch(function (err) {
       showGoferToast({ title: goferT("js.mail.labels.add_failed"), description: err && err.reason ? err.reason : goferT("js.common.please_try_again"), variant: "error", icon: "error", duration: 8000 })
     })

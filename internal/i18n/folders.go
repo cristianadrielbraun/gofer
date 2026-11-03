@@ -26,3 +26,17 @@ func FolderName(ctx context.Context, role, name string) string {
 	}
 	return name
 }
+
+// LocalFoldersName is the English name Gofer gives each user's Local folders
+// account, the one with no mail server behind it.
+const LocalFoldersName = "Local folders"
+
+// AccountName shows an account's name in the context's language. Local
+// folders still called by the name Gofer gave it is translated; every other
+// name is kept as it is.
+func AccountName(ctx context.Context, provider, name string) string {
+	if provider == "local" && name == LocalFoldersName {
+		return T(ctx, "account.local_folders")
+	}
+	return name
+}

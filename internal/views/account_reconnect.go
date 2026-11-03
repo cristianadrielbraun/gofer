@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/a-h/templ"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 )
 
@@ -53,77 +54,78 @@ func editAccountNeeds(data models.EditAccountData, login string) bool {
 	return slices.Contains(data.ReconnectNeeds, login)
 }
 
-func reconnectLoginLabel(login string) string {
+// reconnectLoginName names a login in the page's language.
+func reconnectLoginName(ctx context.Context, login string) string {
 	switch login {
 	case reconnectContacts:
-		return "Contacts"
+		return i18n.T(ctx, "settings.reconnect.contacts")
 	case reconnectCalendar:
-		return "Calendar"
+		return i18n.T(ctx, "settings.reconnect.calendar")
 	default:
-		return "Mail"
+		return i18n.T(ctx, "settings.reconnect.mail")
 	}
 }
 
-func reconnectLoginLabels(needs []string) string {
+func reconnectLoginNames(ctx context.Context, needs []string) string {
 	labels := make([]string, 0, len(needs))
 	for _, login := range needs {
-		labels = append(labels, reconnectLoginLabel(login))
+		labels = append(labels, reconnectLoginName(ctx, login))
 	}
-	return joinWithAnd(labels)
+	return settingsJoinAnd(ctx, labels)
 }
 
-func accountReconnectPendingMessage(account models.Account) string {
+func accountReconnectPendingMessage(ctx context.Context, account models.Account) string {
 	needs := account.ReconnectNeeds
 	switch {
 	case slices.Contains(needs, reconnectSignIn):
-		return "Imported from a profile. Sign in again to start syncing."
+		return i18n.T(ctx, "settings.reconnect.pending_sign_in")
 	case len(needs) == 1 && needs[0] == reconnectMail:
-		return "Imported from a profile. Enter its password to start syncing."
+		return i18n.T(ctx, "settings.reconnect.pending_password")
 	case slices.Contains(needs, reconnectMail):
-		return "Imported from a profile. Enter its passwords for " + reconnectLoginLabels(needs) + " to start syncing."
+		return i18n.T(ctx, "settings.reconnect.pending_passwords", "services", reconnectLoginNames(ctx, needs))
 	case len(needs) == 1:
-		return reconnectLoginLabel(needs[0]) + " still needs its password."
+		return i18n.T(ctx, "settings.reconnect.still_needs_one", "service", reconnectLoginName(ctx, needs[0]))
 	default:
-		return reconnectLoginLabels(needs) + " still need their passwords."
+		return i18n.T(ctx, "settings.reconnect.still_needs_many", "services", reconnectLoginNames(ctx, needs))
 	}
 }
 
-func accountReconnectButtonLabel(account models.Account) string {
+func accountReconnectButtonLabel(ctx context.Context, account models.Account) string {
 	if len(account.ReconnectNeeds) > 1 {
-		return "Enter passwords"
+		return i18n.T(ctx, "settings.reconnect.enter_passwords")
 	}
-	return "Enter password"
+	return i18n.T(ctx, "settings.reconnect.enter_password")
 }
 
 // editAccountReconnectSteps names where each missing password goes, for the
 // note at the top of the edit dialog.
-func editAccountReconnectSteps(data models.EditAccountData) []string {
+func editAccountReconnectSteps(ctx context.Context, data models.EditAccountData) []string {
 	var steps []string
 	for _, login := range data.ReconnectNeeds {
 		switch login {
 		case reconnectMail:
 			if editAccountIsICloud(data) {
-				steps = append(steps, "Mail sync")
+				steps = append(steps, i18n.T(ctx, "settings.wizard.mail_sync"))
 			} else if data.ReconnectSMTP {
-				steps = append(steps, "Incoming and Outgoing")
+				steps = append(steps, settingsJoinAnd(ctx, []string{i18n.T(ctx, "settings.wizard.incoming"), i18n.T(ctx, "settings.wizard.outgoing")}))
 			} else {
-				steps = append(steps, "Incoming")
+				steps = append(steps, i18n.T(ctx, "settings.wizard.incoming"))
 			}
 		case reconnectContacts:
-			steps = append(steps, "Contacts")
+			steps = append(steps, i18n.T(ctx, "settings.wizard.contacts"))
 		case reconnectCalendar:
-			steps = append(steps, "Calendar")
+			steps = append(steps, i18n.T(ctx, "settings.wizard.calendar"))
 		}
 	}
 	return steps
 }
 
-func editAccountReconnectNote(data models.EditAccountData) string {
-	steps := editAccountReconnectSteps(data)
+func editAccountReconnectNote(ctx context.Context, data models.EditAccountData) string {
+	steps := editAccountReconnectSteps(ctx, data)
 	if len(steps) <= 1 && editAccountNeeds(data, reconnectMail) {
-		return "This account was imported from a profile without its password. Enter it in " + strings.Join(steps, "") + ", marked with !, then test and save to start syncing."
+		return i18n.T(ctx, "settings.reconnect.edit_note_one", "step", strings.Join(steps, ""))
 	}
-	return "This account was imported from a profile without its passwords. Enter them in the steps marked with ! (" + joinWithAnd(steps) + "), in any order. Each service starts syncing once its password is saved."
+	return i18n.T(ctx, "settings.reconnect.edit_note_many", "steps", settingsJoinAnd(ctx, steps))
 }
 
 func reconnectRequiredAttrs(login string, required bool) templ.Attributes {

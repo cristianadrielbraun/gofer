@@ -111,7 +111,7 @@ var GoferSettings;
       var theme = JSON.parse(_cache.custom_theme || "null");
       if (!theme || !theme.seed) return [];
       var colors = JSON.parse(_cache.theme_colors_custom || "null");
-      return [Object.assign({ id: "theme1", name: "My theme" }, theme, colors ? { colors: colors } : {})];
+      return [Object.assign({ id: "theme1", name: goferT("js.settings.theme.default_name") }, theme, colors ? { colors: colors } : {})];
     } catch (_) {
       return [];
     }

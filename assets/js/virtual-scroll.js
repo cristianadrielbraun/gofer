@@ -2746,7 +2746,7 @@ class VirtualMailList {
     if (this.bannerEl) return
     this.bannerEl = document.createElement("div")
     this.bannerEl.className = "new-email-banner"
-    this.bannerEl.textContent = this.newEmailCount + " new email" + (this.newEmailCount !== 1 ? "s" : "")
+    this.bannerEl.textContent = goferTn("js.mail.list.new_emails", this.newEmailCount)
     this.bannerEl.addEventListener("click", function () {
       self.container.scrollTop = 0
       self.refreshCurrentFolder({ rebase: true }).catch(function () {})

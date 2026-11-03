@@ -41,7 +41,7 @@ func TestEditAccountDialogHidesICloudServerSettings(t *testing.T) {
 		"App-specific password",
 		"iCloud Mail syncs and sends with an app-specific password",
 		"data-wizard-skip-sending",
-		"iCloud contacts use this account's Apple Account email and app-specific password.",
+		"Apple Account email and app-specific password. If contact sync reports a sign-in problem",
 		`name="base_url" value="https://contacts.icloud.com"`,
 		"iCloud Calendar access",
 		`name="caldav_url" value="https://caldav.icloud.com"`,

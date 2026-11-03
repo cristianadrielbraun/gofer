@@ -27,7 +27,7 @@
       if (!popup) return;
       event.preventDefault();
       popup.focus();
-      if (status) status.textContent = "Code copied. Paste it in the Microsoft window.";
+      if (status) status.textContent = goferT("js.settings.microsoft.code_copied");
     });
   }
 
@@ -58,15 +58,15 @@
       const result = await response.json();
       if (result.status === "done") {
         closePopup();
-        if (status) status.textContent = "Finishing…";
+        if (status) status.textContent = goferT("js.settings.microsoft.finishing");
         window.location.assign(result.redirect || "/settings/accounts");
         return;
       }
-      if (failures > 0 && status) status.textContent = "Waiting for you to finish signing in…";
+      if (failures > 0 && status) status.textContent = goferT("js.settings.microsoft.waiting");
       failures = 0;
     } catch (error) {
       failures += 1;
-      if (status) status.textContent = "Can't reach Gofer. Retrying…";
+      if (status) status.textContent = goferT("js.settings.microsoft.unreachable");
     }
     window.setTimeout(poll, interval * Math.min(failures + 1, 4));
   }

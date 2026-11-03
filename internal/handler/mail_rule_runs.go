@@ -142,7 +142,7 @@ func (h *Handler) tellMailRuleRun(job *mailRuleRunJob, force bool) {
 		"job": d.JobID, "seq": d.Seq, "rule": d.Rule.ID, "rule_name": d.Rule.Name, "state": d.State,
 		"total": d.Total, "scanned": d.Scanned, "matches": d.Matches,
 		"processed": d.Processed, "changed": d.Changed, "unchanged": d.Unchanged, "failed": d.Failed,
-		"error": d.Error, "notice": views.MailRuleRunDoneNotice(d),
+		"error": d.Error, "notice": views.MailRuleRunDoneNotice(context.Background(), d),
 	}})
 }
 
@@ -357,7 +357,7 @@ func (h *Handler) recordMailRuleRun(job *mailRuleRunJob, changed map[string]int)
 	defer cancel()
 	err := h.withMailRuleStore(ctx, job.owner, func(db *storage.DB, _ func(string) bool) ([]storage.FolderRef, error) {
 		for accountID, n := range changed {
-			detail := fmt.Sprintf("Run by hand on %s: changed %s", d.ScopeName, views.MailRuleMessages(n))
+			detail := fmt.Sprintf("Run by hand on %s: changed %s", d.ScopeName, views.MailRuleMessages(context.Background(), n))
 			if err := db.RecordMailRuleRunSummary(ctx, job.owner, d.Rule.ID, accountID, detail, n); err != nil {
 				return nil, err
 			}
@@ -436,7 +436,7 @@ func (h *Handler) handleMailRuleRunDialog(w http.ResponseWriter, r *http.Request
 	}
 	job := h.mailRuleRuns.latest(owner, data.Rules[index].ID)
 	if job == nil || h.mailRuleRuns.snapshot(job).State != models.MailRuleRunRunning {
-		job = h.startMailRuleCount(owner, data.Rules[index], "role:inbox", views.MailRuleRunScopeName("role:inbox", data.Accounts))
+		job = h.startMailRuleCount(owner, data.Rules[index], "role:inbox", views.MailRuleRunScopeName(ctx, "role:inbox", data.Accounts))
 	}
 	h.renderMailRuleRun(w, r, data, job, true)
 }
@@ -464,7 +464,7 @@ func (h *Handler) handleMailRuleRunScope(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	_, scope := mailRuleRunScope(strings.TrimSpace(r.FormValue("scope")))
-	job := h.startMailRuleCount(owner, data.Rules[index], scope, views.MailRuleRunScopeName(scope, data.Accounts))
+	job := h.startMailRuleCount(owner, data.Rules[index], scope, views.MailRuleRunScopeName(ctx, scope, data.Accounts))
 	h.renderMailRuleRun(w, r, data, job, false)
 }
 

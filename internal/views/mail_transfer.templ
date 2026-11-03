@@ -1,6 +1,8 @@
 package views
 
 import (
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
+	"context"
 	"fmt"
 	"strings"
 
@@ -87,7 +89,7 @@ templ mailTransferAccountSelect(name, label string, accounts []MailImportAccount
 					"data-mail-transfer-account": name,
 				},
 			}) {
-				@selectbox.Value(selectbox.ValueProps{Placeholder: "Choose an account"})
+				@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "transfer.choose_account")})
 			}
 			@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
 				@selectbox.Group() {
@@ -123,23 +125,23 @@ templ MailTransferForm(data MailTransferFormData) {
 	>
 		@dataDialogScroll("space-y-4 pb-4") {
 			if len(data.Sources) < 2 {
-				<p class="text-xs text-muted-foreground">Add a second mail account to copy or move mail between them.</p>
+				<p class="text-xs text-muted-foreground">{ i18n.T(ctx, "transfer.move.need_two") }</p>
 			} else {
 				<div class="flex flex-col gap-3 sm:flex-row sm:items-end">
-					@mailTransferAccountSelect("from", "From", data.Sources, data.SourceID)
+					@mailTransferAccountSelect("from", i18n.T(ctx, "transfer.move.from"), data.Sources, data.SourceID)
 					<span class="hidden pb-2 text-muted-foreground sm:block">
 						@icon.ArrowRight(icon.Props{Class: "size-4"})
 					</span>
-					@mailTransferAccountSelect("to", "To", data.Targets, data.TargetID)
+					@mailTransferAccountSelect("to", i18n.T(ctx, "transfer.move.to"), data.Targets, data.TargetID)
 				</div>
-				<div class="space-y-2" role="radiogroup" aria-label="Copy or move">
+				<div class="space-y-2" role="radiogroup" aria-label={ i18n.T(ctx, "transfer.move.mode_label") }>
 					<label class="flex items-start gap-2.5 text-sm text-foreground">
 						<span class="mt-0.5 flex shrink-0">
 							@radio.Radio(radio.Props{Name: "mode", Value: "copy", Checked: data.Mode != "move" && data.Mode != "move-delete"})
 						</span>
 						<span>
-							<span class="font-medium">Copy</span>
-							<span class="block text-xs text-muted-foreground mt-0.5">The messages stay in both accounts.</span>
+							<span class="font-medium">{ i18n.T(ctx, "mail.to_account.copy") }</span>
+							<span class="block text-xs text-muted-foreground mt-0.5">{ i18n.T(ctx, "transfer.move.copy_detail") }</span>
 						</span>
 					</label>
 					<label class="flex items-start gap-2.5 text-sm text-foreground">
@@ -147,10 +149,10 @@ templ MailTransferForm(data MailTransferFormData) {
 							@radio.Radio(radio.Props{Name: "mode", Value: "move", Checked: data.Mode == "move"})
 						</span>
 						<span>
-							<span class="font-medium">Move</span>
+							<span class="font-medium">{ i18n.T(ctx, "mail.to_account.move") }</span>
 							<span class="block text-xs text-muted-foreground mt-0.5">
 								if data.SourceEmail != "" {
-									{ "Each message is deleted from " + data.SourceEmail + " once its copy is saved. Deleted messages go to its Trash, so you can get them back until it's emptied; messages moved from Trash are deleted for good." }
+									{ i18n.T(ctx, "transfer.move.move_detail", "account", data.SourceEmail) }
 								}
 							</span>
 						</span>
@@ -160,10 +162,10 @@ templ MailTransferForm(data MailTransferFormData) {
 							@radio.Radio(radio.Props{Name: "mode", Value: "move-delete", Checked: data.Mode == "move-delete"})
 						</span>
 						<span>
-							<span class="font-medium">Move and delete permanently</span>
+							<span class="font-medium">{ i18n.T(ctx, "mail.to_account.move_delete") }</span>
 							<span class="block text-xs text-muted-foreground mt-0.5">
 								if data.SourceEmail != "" {
-									{ "Each message is deleted for good from " + data.SourceEmail + " once its copy is saved, with no copy left in its Trash." }
+									{ i18n.T(ctx, "transfer.move.move_delete_detail", "account", data.SourceEmail) }
 								}
 							</span>
 						</span>
@@ -174,19 +176,19 @@ templ MailTransferForm(data MailTransferFormData) {
 				}
 				if data.SourceID != "" && data.TargetID != "" && data.SourceID != data.TargetID {
 					if len(data.Folders) == 0 {
-						<p class="text-xs text-muted-foreground">This account has no folders with mail yet.</p>
+						<p class="text-xs text-muted-foreground">{ i18n.T(ctx, "transfer.move.no_folders") }</p>
 					} else {
 						<div class="space-y-2">
 							<label class="flex items-center gap-2.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-								@checkbox.Checkbox(checkbox.Props{Group: "mail-transfer-folders", GroupParent: true, Checked: true, Attributes: templ.Attributes{"aria-label": "All folders"}})
-								Folders and where they go
+								@checkbox.Checkbox(checkbox.Props{Group: "mail-transfer-folders", GroupParent: true, Checked: true, Attributes: templ.Attributes{"aria-label": i18n.T(ctx, "transfer.all_folders")}})
+								{ i18n.T(ctx, "transfer.move.folders") }
 							</label>
 							<div class="divide-y divide-border/60 rounded-md border border-border/60 bg-background">
 								for _, folder := range data.Folders {
 									@mailTransferFolderRow(folder, data.Destination)
 								}
 							</div>
-							<p class="text-xs text-muted-foreground">Spam and Trash are left out unless you choose them. Messages already in the destination folder aren't copied again.</p>
+							<p class="text-xs text-muted-foreground">{ i18n.T(ctx, "transfer.move.spam_trash") }</p>
 						</div>
 					}
 				}
@@ -194,7 +196,7 @@ templ MailTransferForm(data MailTransferFormData) {
 		}
 		if mailTransferCanStart(data) {
 			@dataDialogFooter() {
-				<button type="submit" class={ profilePrimaryButtonClass } data-mail-transfer-start>Start</button>
+				<button type="submit" class={ profilePrimaryButtonClass } data-mail-transfer-start>{ i18n.T(ctx, "transfer.move.start") }</button>
 			}
 		}
 	</form>
@@ -210,18 +212,18 @@ templ mailTransferFolderRow(folder MailTransferFolder, destination []MailImportF
 			@checkbox.Checkbox(checkbox.Props{Name: "folder", Value: folder.ID, Group: "mail-transfer-folders", Checked: mailExportFolderChecked(MailExportFolder{Role: folder.Role})})
 			<span class="min-w-0">
 				<span class="block truncate text-sm text-foreground">{ folder.Path }</span>
-				<span class="block text-xs text-muted-foreground">{ mailExportCount(folder.Messages, "message", "messages") }</span>
+				<span class="block text-xs text-muted-foreground">{ mailExportCount(ctx, folder.Messages) }</span>
 			</span>
 		</label>
 		<span class="flex min-w-0 flex-col gap-1.5 sm:w-64 sm:shrink-0">
-			@mailFolderTargetSelect("target:"+folder.ID, "Destination for "+folder.Path, destination, folder.Target, false)
+			@mailFolderTargetSelect("target:"+folder.ID, i18n.T(ctx, "transfer.move.destination_for", "name", folder.Path), destination, folder.Target, false)
 			<input
 				type="text"
 				name={ "new:" + folder.ID }
 				value={ folder.NewName }
-				placeholder="Folder name"
+				placeholder={ i18n.T(ctx, "transfer.folder_name") }
 				required?={ folder.Target == "new" }
-				aria-label={ "New folder for " + folder.Path }
+				aria-label={ i18n.T(ctx, "transfer.new_folder_for", "name", folder.Path) }
 				class={ "h-8 w-full rounded-md border border-input bg-background px-2 text-xs text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/30", templ.KV("hidden", folder.Target != "new") }
 				data-mail-import-new-name
 			/>
@@ -240,7 +242,7 @@ templ MailTransferJobs(jobs []MailTransferJob) {
 		}
 	>
 		if len(jobs) > 0 {
-			<p class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Transfers</p>
+			<p class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "transfer.move.jobs") }</p>
 			for _, job := range jobs {
 				@mailTransferJobRow(job)
 			}
@@ -266,17 +268,17 @@ templ mailTransferJobRow(job MailTransferJob) {
 					@icon.ArrowRight(icon.Props{Class: "size-3.5 shrink-0 text-muted-foreground"})
 					<span class="truncate">{ job.Target }</span>
 				</span>
-				<span class="block text-xs text-muted-foreground">{ mailTransferJobStatus(job) }</span>
+				<span class="block text-xs text-muted-foreground">{ mailTransferJobStatus(ctx, job) }</span>
 			</span>
 			<span class="flex shrink-0 flex-wrap gap-2">
 				switch job.State {
 					case "running":
-						<button type="button" class={ profileButtonClass } hx-post={ "/api/mail/transfers/" + job.ID + "/cancel" } hx-target="#mail-transfer-jobs" hx-swap="outerHTML">Cancel</button>
+						<button type="button" class={ profileButtonClass } hx-post={ "/api/mail/transfers/" + job.ID + "/cancel" } hx-target="#mail-transfer-jobs" hx-swap="outerHTML">{ i18n.T(ctx, "common.cancel") }</button>
 					case "paused":
-						<button type="button" class={ profilePrimaryButtonClass } hx-post={ "/api/mail/transfers/" + job.ID + "/resume" } hx-target="#mail-transfer-jobs" hx-swap="outerHTML">Continue</button>
-						<button type="button" class={ profileButtonClass } hx-post={ "/api/mail/transfers/" + job.ID + "/delete" } hx-target="#mail-transfer-jobs" hx-swap="outerHTML">Remove</button>
+						<button type="button" class={ profilePrimaryButtonClass } hx-post={ "/api/mail/transfers/" + job.ID + "/resume" } hx-target="#mail-transfer-jobs" hx-swap="outerHTML">{ i18n.T(ctx, "common.continue") }</button>
+						<button type="button" class={ profileButtonClass } hx-post={ "/api/mail/transfers/" + job.ID + "/delete" } hx-target="#mail-transfer-jobs" hx-swap="outerHTML">{ i18n.T(ctx, "transfer.remove") }</button>
 					default:
-						<button type="button" class={ profileButtonClass } hx-post={ "/api/mail/transfers/" + job.ID + "/delete" } hx-target="#mail-transfer-jobs" hx-swap="outerHTML">Remove</button>
+						<button type="button" class={ profileButtonClass } hx-post={ "/api/mail/transfers/" + job.ID + "/delete" } hx-target="#mail-transfer-jobs" hx-swap="outerHTML">{ i18n.T(ctx, "transfer.remove") }</button>
 				}
 			</span>
 		</div>
@@ -290,7 +292,7 @@ templ mailTransferJobRow(job MailTransferJob) {
 		}
 		if len(job.Skipped) > 0 && job.State != "running" {
 			<details class="text-xs text-muted-foreground">
-				<summary class="cursor-pointer">{ mailExportCount(job.Failed, "message", "messages") } could not be copied</summary>
+				<summary class="cursor-pointer">{ mailExportCountOf(ctx, "transfer.move.failed_summary", job.Failed) }</summary>
 				<ul class="mt-1 list-disc space-y-0.5 pl-5">
 					for _, skipped := range job.Skipped {
 						<li>{ skipped }</li>
@@ -309,42 +311,42 @@ func mailTransferProgressStyle(job MailTransferJob) templ.SafeCSS {
 	return templ.SafeCSS(fmt.Sprintf("width: %d%%;", percent))
 }
 
-func mailTransferJobStatus(job MailTransferJob) string {
-	verb := "Copying"
-	if job.Move {
-		verb = "Moving"
-	}
+func mailTransferJobStatus(ctx context.Context, job MailTransferJob) string {
 	var parts []string
 	switch job.State {
 	case "running":
 		switch {
 		case job.Waiting:
-			parts = append(parts, "Waiting for other transfers to finish")
+			parts = append(parts, i18n.T(ctx, "transfer.move.status.waiting"))
 		case job.Folder != "":
-			parts = append(parts, fmt.Sprintf("%s %s… %s of %s", verb, job.Folder, mailExportNumber(job.Processed), mailExportCount(job.Total, "message", "messages")))
+			key := "transfer.move.status.copying"
+			if job.Move {
+				key = "transfer.move.status.moving"
+			}
+			parts = append(parts, i18n.T(ctx, key, "folder", job.Folder, "done", i18n.Number(ctx, job.Processed), "total", mailExportCount(ctx, job.Total)))
 		default:
-			parts = append(parts, "Starting…")
+			parts = append(parts, i18n.T(ctx, "transfer.status.starting"))
 		}
 	case "paused":
-		parts = append(parts, fmt.Sprintf("Paused at %s of %s", mailExportNumber(job.Processed), mailExportCount(job.Total, "message", "messages")))
+		parts = append(parts, mailTransferPausedStatus(ctx, job.Processed, job.Total))
 	case "canceled":
-		parts = append(parts, fmt.Sprintf("Canceled after %s", mailExportCount(job.Copied, "message", "messages")))
+		parts = append(parts, i18n.T(ctx, "transfer.status.canceled_after", "total", mailExportCount(ctx, job.Copied)))
 	default:
-		parts = append(parts, mailExportCount(job.Copied, "message", "messages")+" copied")
+		parts = append(parts, mailExportCountOf(ctx, "transfer.move.status.copied", job.Copied))
 		if job.Duplicates > 0 {
-			parts = append(parts, mailExportNumber(job.Duplicates)+" already there")
+			parts = append(parts, mailExportCountOf(ctx, "transfer.status.already_there", job.Duplicates))
 		}
 		if job.Failed > 0 {
-			parts = append(parts, mailExportNumber(job.Failed)+" could not be copied")
+			parts = append(parts, mailExportCountOf(ctx, "transfer.move.status.failed", job.Failed))
 		}
 	}
 	if job.Move && job.Deleted > 0 {
-		deleted := "deleted from"
+		key := "transfer.move.status.deleted"
 		if job.ForGood {
-			deleted = "deleted for good from"
+			key = "transfer.move.status.deleted_for_good"
 		}
-		parts = append(parts, fmt.Sprintf("%s %s %s", mailExportNumber(job.Deleted), deleted, job.Source))
+		parts = append(parts, i18n.N(ctx, key, job.Deleted, "count", i18n.Number(ctx, job.Deleted), "account", job.Source))
 	}
-	parts = append(parts, "started "+job.Started)
+	parts = append(parts, i18n.T(ctx, "transfer.status.started", "date", job.Started))
 	return strings.Join(parts, " · ")
 }

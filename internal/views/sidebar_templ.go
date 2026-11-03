@@ -2742,9 +2742,9 @@ func SidebarSyncControls(accounts []models.Account, activeApp string) templ.Comp
 							return templ_7745c5c3_Err
 						}
 						var templ_7745c5c3_Var126 string
-						templ_7745c5c3_Var126, templ_7745c5c3_Err = templ.JoinStringErrs(accountAddress(account))
+						templ_7745c5c3_Var126, templ_7745c5c3_Err = templ.JoinStringErrs(accountAddressIn(ctx, account))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 636, Col: 100}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 636, Col: 107}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var126))
 						if templ_7745c5c3_Err != nil {
@@ -3090,9 +3090,9 @@ func SidebarSyncControls(accounts []models.Account, activeApp string) templ.Comp
 									return templ_7745c5c3_Err
 								}
 								var templ_7745c5c3_Var143 string
-								templ_7745c5c3_Var143, templ_7745c5c3_Err = templ.JoinStringErrs(accountAddress(account))
+								templ_7745c5c3_Var143, templ_7745c5c3_Err = templ.JoinStringErrs(accountAddressIn(ctx, account))
 								if templ_7745c5c3_Err != nil {
-									return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 717, Col: 102}
+									return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 717, Col: 109}
 								}
 								_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var143))
 								if templ_7745c5c3_Err != nil {

@@ -382,41 +382,6 @@ func calendarAgendaStatusDotClass(month CalendarMonthData) string {
 	return "size-2 rounded-full bg-muted-foreground/50"
 }
 
-func calendarAgendaStatusLabel(month CalendarMonthData) string {
-	if month.Syncing {
-		return "Refreshing calendars"
-	}
-	if month.SyncError {
-		return "Calendar sync needs attention"
-	}
-	if month.LastSyncedAt != nil && month.PendingSources == 0 {
-		return "Calendar synchronized"
-	}
-	if month.HasSources {
-		return "Calendar sync pending"
-	}
-	return "Ready for calendar connections"
-}
-
-func calendarAgendaStatusDetail(ctx context.Context, month CalendarMonthData) string {
-	if month.Syncing {
-		return "Fetching events from your selected calendars."
-	}
-	if month.SyncError {
-		return "Previously cached events remain available. " + month.SyncMessage
-	}
-	if month.SyncMessage != "" {
-		return month.SyncMessage
-	}
-	if month.LastSyncedAt != nil && month.PendingSources == 0 {
-		return "Last synced " + i18n.Dates(ctx).Time(month.LastSyncedAt.In(month.Month.Location())) + ". Background refresh is enabled."
-	}
-	if month.HasSources {
-		return "Waiting for the first successful refresh. Cached events remain available."
-	}
-	return "Choose calendars in account setup to show their events here."
-}
-
 func calendarSyncMessageClass(month CalendarMonthData) string {
 	if month.Syncing {
 		return "inline-flex items-center gap-1.5 text-muted-foreground"

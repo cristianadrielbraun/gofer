@@ -107,7 +107,7 @@ func TestMailRuleSettingsRoutes(t *testing.T) {
 	// A rule for every account moves mail to any account's folders, and can
 	// make a folder in one of them.
 	rec = identityRequest(t, h, h.handleMailRuleForm, http.MethodPost, "/api/settings/rules/form", nil, mailRuleForm(map[string]string{"account_ids": "all", "act_kind": "move"}), true)
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `data-mail-rule-new-folder="victim-account"`) || !strings.Contains(rec.Body.String(), "In the message's account") {
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `data-mail-rule-new-folder="victim-account"`) || !strings.Contains(rec.Body.String(), "In the message&#39;s account") {
 		t.Fatalf("move for every account = %d %q", rec.Code, rec.Body.String())
 	}
 	if rules, _ := db.ListMailRules(ctx, "owner"); len(rules) != 0 {

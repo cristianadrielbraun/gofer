@@ -54,7 +54,7 @@ func TestJMAPConnectionDialogUsesTheJMAPResult(t *testing.T) {
 		t.Fatal(err)
 	}
 	html := out.String()
-	if strings.Count(html, `data-account-test-service=`) != 1 || !strings.Contains(html, `data-account-test-service="jmap"`) || !strings.Contains(html, "Checking JMAP mail access...") {
+	if strings.Count(html, `data-account-test-service=`) != 1 || !strings.Contains(html, `data-account-test-service="jmap"`) || !strings.Contains(html, "Checking JMAP mail access…") {
 		t.Fatalf("connection dialog does not match the JMAP result: %s", html)
 	}
 	for _, unwanted := range []string{`data-account-test-service="imap"`, `data-account-test-service="smtp"`} {

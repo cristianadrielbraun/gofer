@@ -8,12 +8,14 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 )
 
 // LocalFoldersName is the name of the Local folders account, the one account
 // each user has whose mail stays on the Gofer server with no mail server
 // behind it.
-const LocalFoldersName = "Local folders"
+const LocalFoldersName = i18n.LocalFoldersName
 
 // localProvider is providers.ProviderLocal, which storage can't import.
 const localProvider = "local"

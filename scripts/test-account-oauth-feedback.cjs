@@ -2,6 +2,7 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const path = require('node:path')
 const vm = require('node:vm')
+const loadI18n = require('./i18n-test-helper.cjs')
 
 const source = fs.readFileSync(path.join(__dirname, '../assets/js/app.js'), 'utf8')
 const start = source.indexOf('  function setupAccountResultFeedback() {')
@@ -10,14 +11,14 @@ assert(start >= 0 && end > start)
 
 function feedback(search) {
   const toasts = [], replacements = []
-  const context = vm.createContext({
+  const context = vm.createContext(loadI18n({
     URLSearchParams,
     window: {
       location: {search, pathname: '/settings/accounts', hash: '#mail'},
       history: {state: {keep: true}, replaceState(state, title, url) { replacements.push({state, url}) }},
     },
     showGoferToast(toast) { toasts.push(toast) },
-  })
+  }))
   vm.runInContext(source.slice(start, end) + '\nsetupAccountResultFeedback()', context)
   return {toasts, replacements}
 }

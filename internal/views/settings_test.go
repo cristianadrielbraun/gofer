@@ -925,7 +925,7 @@ func TestAccountDiscoveryRequiresExplicitCandidateSelection(t *testing.T) {
 	if strings.Contains(script, "applyMailDiscoveryCandidate(0);") {
 		t.Fatal("mail discovery still automatically applies the first candidate")
 	}
-	if !strings.Contains(script, "Choose a configuration to apply") {
+	if !strings.Contains(script, "js.settings.discovery.choose") {
 		t.Fatal("mail discovery does not ask the user to choose a candidate")
 	}
 }
