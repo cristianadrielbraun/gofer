@@ -2349,6 +2349,7 @@
   "js.mail.body.cannot_download": "This message couldn't be downloaded from the mail server.",
   "js.mail.body.downloading": "Downloading…",
   "js.mail.body.failed": "Couldn't load this message",
+  "js.mail.body.no_response": "The message loaded but didn't finish showing. A browser extension or a proxy in front of Gofer may be blocking its scripts.",
   "js.mail.body.large": "Large message",
   "js.mail.body.oversize": "Message too large",
   "js.mail.body.reconnect": "Reconnect account",

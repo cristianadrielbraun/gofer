@@ -1676,16 +1676,24 @@ func (h *Handler) handleEmailBody(w http.ResponseWriter, r *http.Request) {
 	original := r.URL.Query().Get("mode") == "original"
 	loadRemote := r.URL.Query().Get("remote") == "true"
 	var body []byte
+	// A failed download is kept so that, when nothing is saved either, the
+	// reading pane is told why. A bare 404 would leave it waiting for a body
+	// that never reports its height.
+	var fetchErr error
+	var fetchAccountID string
 	if msgID > 0 && !h.db.IsBodyFetchedInternal(ctx, msgID) {
 		info, err := h.db.GetMessageFetchInfoForUser(ctx, msgID, userID)
 		if err == nil && info != nil {
+			fetchAccountID = info.AccountID
 			parsed, err := h.fetchParsedBody(message.WithDownloadLimit(ctx, message.AutoDownloadMaxBytes), msgID, info.AccountID)
 			var tooLarge *message.TooLargeError
 			if errors.As(err, &tooLarge) {
 				h.writeEmailBodyError(w, ctx, userID, emailID, info.AccountID, err)
 				return
 			}
-			if err == nil {
+			if err != nil {
+				fetchErr = err
+			} else {
 				if original {
 					body = originalBodyFromParsedMessage(parsed, msgID)
 				} else {
@@ -1705,7 +1713,13 @@ func (h *Handler) handleEmailBody(w http.ResponseWriter, r *http.Request) {
 			body, err = h.db.GetEmailBodyForUser(ctx, emailID, userID)
 		}
 		if err != nil || body == nil {
-			http.NotFound(w, r)
+			switch {
+			case fetchErr != nil:
+				err = fetchErr
+			case err == nil:
+				err = errors.New("message body is not saved yet")
+			}
+			h.writeEmailBodyError(w, ctx, userID, emailID, fetchAccountID, err)
 			return
 		}
 	}

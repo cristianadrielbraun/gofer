@@ -56,7 +56,7 @@ func (h *Handler) writeEmailBodyError(w http.ResponseWriter, ctx context.Context
 			failure.Message = data.EmailAddress + " needs to be reconnected before this message can be downloaded."
 		}
 	default:
-		log.Printf("routed account operation failed: %v", err)
+		log.Printf("message %s body unavailable: %v", emailID, err)
 		failure.Detail = err.Error()
 	}
 	failure.Message, failure.Detail = serverText(ctx, failure.Message), serverText(ctx, failure.Detail)

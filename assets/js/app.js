@@ -22055,6 +22055,7 @@ window.addEventListener("message", function (e) {
   if (e.data.type === "emailBodyResize") {
     var height = Number(e.data.height)
     if (!isFinite(height) || height < 0) return
+    iframe._bodyReported = true
     iframe.style.height = Math.ceil(height) + "px"
     // A collapsed thread message isn't laid out, so its body reports a height
     // for no width at all. Expanding it waits for a report at its real width.
@@ -22073,12 +22074,30 @@ window.addEventListener("message", function (e) {
     if (banner) banner.classList.remove("hidden")
   }
   if (e.data.type === "emailBodyError") {
+    iframe._bodyReported = true
     showEmailBodyError(Object.assign({}, e.data, { emailId: emailId }))
   }
   if (e.data.type === "emailOpenFile") {
     downloadEmailFile(emailId, e.data.href)
   }
 })
+
+// A body that loaded but never reported its height or an error would leave
+// the reader waiting forever. That happens when something keeps the body's own
+// scripts from running, such as a browser extension or a proxy that changes
+// the page's security policy, so after a short wait the pane says so. A report
+// that still arrives later removes the explanation again.
+document.addEventListener("load", function (e) {
+  var iframe = e.target
+  if (!iframe || !iframe.matches || !iframe.matches("[data-email-body-frame]")) return
+  if (!iframe.dataset.bodySrc && !iframe.getAttribute("src")) return
+  clearTimeout(iframe._bodySilenceTimer)
+  if (iframe._bodyReported) return
+  iframe._bodySilenceTimer = setTimeout(function () {
+    if (iframe._bodyReported || !iframe.isConnected) return
+    showEmailBodyError({ emailId: iframe.getAttribute("data-email-id"), kind: "failed", message: goferT("js.mail.body.no_response") })
+  }, 2000)
+}, true)
 
 // The body iframe stays hidden until it reports a height, so a failed load
 // replaces the loader with an explanation here instead.
@@ -22274,6 +22293,8 @@ function applyEmailBodyTheme(targetFrame) {
 // and the current address is kept in data-body-src, since src then goes stale.
 function setEmailBodyFrameSrc(iframe, url) {
   var absolute = new URL(url, window.location.origin).toString()
+  iframe._bodyReported = false
+  clearTimeout(iframe._bodySilenceTimer)
   if (iframe.getAttribute("src") && iframe.contentWindow) {
     try {
       iframe.contentWindow.location.replace(absolute)
