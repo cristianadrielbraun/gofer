@@ -22,6 +22,10 @@ templ ComposeDialog(accounts []models.Account) {
 	{{ accounts = sendingAccounts(accounts) }}
 	@dialog.Dialog(dialog.Props{
 		ID: "compose-dialog",
+		// A click outside or Esc goes through discardComposeDialog, like the
+		// close button, so a draft is never dropped without asking.
+		DisableClickAway: true,
+		DisableESC:       true,
 		Class: "[&_[data-tui-dialog-panel]]:!flex [&_[data-tui-dialog-panel]]:flex-col [&_[data-tui-dialog-panel]]:h-full [&_[data-tui-dialog-panel]]:min-h-0 [&_[data-tui-dialog-panel]]:gap-3",
 	}) {
 		@dialog.Trigger() {

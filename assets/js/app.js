@@ -17524,6 +17524,9 @@ function handleComposeRecipientKeydown(event) {
     return
   }
   if (event.key === "Escape") {
+    var openBox = field && field.querySelector ? field.querySelector("[data-compose-recipient-suggestions]") : null
+    // Esc closes the suggestions first, not the whole compose dialog.
+    if (openBox && !openBox.hidden) event.preventDefault()
     _hideComposeRecipientSuggestions(field)
     return
   }
@@ -22892,7 +22895,19 @@ function refetchBody(emailId) {
 
   function _observeComposeDialog() {
     var root = document.getElementById("compose-dialog")
-    if (root) _composeObserver.observe(root, { attributes: true, attributeFilter: ["data-tui-dialog-open"] })
+    if (!root) return
+    _composeObserver.observe(root, { attributes: true, attributeFilter: ["data-tui-dialog-open"] })
+    // The dialog ignores clicks outside and Esc on its own; both close it the
+    // way its close button does, which asks about a draft and frees the
+    // sidebar's Compose button again.
+    var content = root.querySelector("[data-tui-dialog-content]")
+    if (!content) return
+    content.addEventListener("click", function (event) {
+      if (event.target === content && content.open) discardComposeDialog()
+    })
+    content.addEventListener("cancel", function () {
+      if (content.open) discardComposeDialog()
+    })
   }
 
   if (document.readyState === "loading") {
