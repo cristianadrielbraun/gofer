@@ -2712,7 +2712,8 @@ html:root[data-theme="express"] :is([data-calendar-month-event], [data-calendar-
 }
 
 /* The folder that will take the dragged mail is selected, as in a tree. */
-[data-theme="express"] aside a[data-mail-drop-active] {
+[data-theme="express"] aside a[data-mail-drop-active],
+[data-theme="express"] aside [data-sidebar-account-toggle][data-mail-drop-active] {
   border-radius: 0;
   background: var(--xp-select);
   color: var(--xp-select-foreground);

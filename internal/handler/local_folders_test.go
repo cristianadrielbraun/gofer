@@ -3,6 +3,8 @@ package handler
 import (
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -209,5 +211,86 @@ func TestLocalFoldersWriterSavesMail(t *testing.T) {
 	}
 	if err := db.Read().QueryRow(`SELECT COUNT(*) FROM message_recipients WHERE message_id = ? AND email = 'owner@example.com'`, id).Scan(&recipients); err != nil || recipients != 1 {
 		t.Fatalf("recipients = %d, %v", recipients, err)
+	}
+}
+
+// A Local folder moves with its subfolders inside another folder or back to
+// the top, and never into itself, its own subfolders or next to a folder of
+// the same name. The Move folder dialog offers only the places it can go.
+func TestMoveLocalFolders(t *testing.T) {
+	h, db := newAccountOwnershipTestHandler(t)
+	ctx := auth.ContextWithUser(t.Context(), &auth.User{ID: "owner", Username: "owner"})
+	account, err := db.EnsureLocalFoldersAccount(t.Context(), "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mk := func(parent, name string) string {
+		t.Helper()
+		made, err := h.createFolder(ctx, "owner", account, parent, name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return made.ID
+	}
+	trips := mk("", "Trips")
+	spain := mk(trips, "Spain")
+	ferries := mk(spain, "Ferries")
+	archive := mk("", "Archive 2025")
+	move := func(id, parent string) *httptest.ResponseRecorder {
+		return identityRequest(t, h, h.handleMoveFolderTo, http.MethodPost, "/", map[string]string{"id": id}, url.Values{"parent": {parent}}, true)
+	}
+
+	rec := identityRequest(t, h, h.handleFolderMoveDialog, http.MethodGet, "/", map[string]string{"id": trips}, nil, true)
+	body := rec.Body.String()
+	if rec.Code != http.StatusOK || !strings.Contains(body, `id="folder-move-dialog"`) || !strings.Contains(body, "Archive 2025") {
+		t.Fatalf("dialog = %d %q", rec.Code, body)
+	}
+	for _, id := range []string{trips, spain, ferries} {
+		if !regexp.MustCompile(`<button[^>]* disabled [^>]*data-folder-move-parent="` + id + `"`).MatchString(body) {
+			t.Errorf("dialog lets %s be picked", id)
+		}
+	}
+	if regexp.MustCompile(`<button[^>]* disabled [^>]*data-folder-move-parent="` + archive + `"`).MatchString(body) {
+		t.Error("dialog doesn't let Archive 2025 be picked")
+	}
+
+	if rec := move(trips, spain); rec.Code != http.StatusBadRequest {
+		t.Fatalf("into own subfolder = %d %q", rec.Code, rec.Body.String())
+	}
+	if rec := move(trips, trips); rec.Code != http.StatusBadRequest {
+		t.Fatalf("into itself = %d", rec.Code)
+	}
+	if rec := move(trips, archive); rec.Code != http.StatusOK {
+		t.Fatalf("into Archive 2025 = %d %q", rec.Code, rec.Body.String())
+	}
+	moved, _, err := h.managedFolder(ctx, "owner", ferries)
+	if err != nil || moved.RemoteID != "Archive 2025/Trips/Spain/Ferries" {
+		t.Fatalf("ferries after move = %+v %v", moved, err)
+	}
+	if rec := move(spain, ""); rec.Code != http.StatusOK {
+		t.Fatalf("to the top = %d %q", rec.Code, rec.Body.String())
+	}
+	top, _, err := h.managedFolder(ctx, "owner", spain)
+	if err != nil || top.ParentID != "" || top.RemoteID != "Spain" {
+		t.Fatalf("spain at the top = %+v %v", top, err)
+	}
+	mk(trips, "Spain")
+	if rec := move(spain, trips); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "already there") {
+		t.Fatalf("onto a name in use = %d %q", rec.Code, rec.Body.String())
+	}
+	if rec := move(storage.LocalFolderID(account, "trash"), archive); rec.Code != http.StatusBadRequest {
+		t.Fatalf("Trash moved = %d", rec.Code)
+	}
+	if rec := identityRequest(t, h, h.handleMoveFolderTo, http.MethodPost, "/", map[string]string{"id": spain}, url.Values{"parent": {""}}, false); rec.Code != http.StatusNotFound {
+		t.Fatalf("someone else's folder = %d", rec.Code)
+	}
+
+	// Mail servers' folders don't move this way yet.
+	if _, err := db.Write().ExecContext(t.Context(), `INSERT INTO folders (id, account_id, parent_id, remote_id, name, role, selectable, sort_order) VALUES
+		('f-plans', 'victim-account', NULL, 'Plans', 'Plans', 'custom', 1, 0)`); err != nil {
+		t.Fatal(err)
+	}
+	if rec := move("f-plans", ""); rec.Code != http.StatusBadRequest {
+		t.Fatalf("IMAP folder moved = %d", rec.Code)
 	}
 }

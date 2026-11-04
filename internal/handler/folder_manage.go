@@ -579,6 +579,106 @@ func (h *Handler) handleRestoreFolder(w http.ResponseWriter, r *http.Request) {
 	writeFolderJSON(w, folderChange{ID: folder.ID})
 }
 
+// handleFolderMoveDialog renders the dialog that picks where a folder moves
+// to: the top of its account or any folder that isn't the folder itself or
+// inside it.
+func (h *Handler) handleFolderMoveDialog(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	owner := h.userID(ctx)
+	folder, provider, err := h.managedFolder(ctx, owner, r.PathValue("id"))
+	if err == nil {
+		err = checkFolderMovable(folder, provider)
+	}
+	var data models.FolderMoveData
+	if err == nil {
+		err = h.withProfileAccount(ctx, owner, folder.AccountID, func(accounts *config.AccountStore, db *storage.DB) error {
+			account, err := accounts.GetAccountByIDForUser(ctx, owner, folder.AccountID)
+			if err != nil {
+				return err
+			}
+			if account == nil || account.IsDeleting {
+				return errFolderAccount
+			}
+			data.Account = *account
+			data.Folders, err = db.AccountFolderTree(ctx, folder.AccountID)
+			return err
+		})
+	}
+	if err != nil {
+		writeFolderError(w, r, "load the folders", err)
+		return
+	}
+	data.FolderID, data.FolderName, data.ParentID = folder.ID, folder.Name, folder.ParentID
+	w.Header().Set("Content-Type", "text/html")
+	views.FolderMoveDialog(data).Render(ctx, w)
+}
+
+// handleMoveFolderTo moves a folder, with what's in it, inside the folder
+// named by "parent", or to the top of its account when it's empty.
+func (h *Handler) handleMoveFolderTo(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	owner := h.userID(ctx)
+	folder, provider, err := h.managedFolder(ctx, owner, r.PathValue("id"))
+	if err == nil {
+		err = h.moveFolderTo(ctx, owner, folder, provider, strings.TrimSpace(r.PostFormValue("parent")))
+	}
+	if err != nil {
+		writeFolderError(w, r, "move the folder", err)
+		return
+	}
+	h.folderMailboxesChanged(ctx, owner, folder.AccountID)
+	writeFolderJSON(w, folderChange{ID: folder.ID, Name: folder.Name})
+}
+
+// checkFolderMovable says whether a folder can be moved to another place in
+// its account. For now only Local folders can, since they change nothing on
+// a mail server.
+func checkFolderMovable(folder storage.ManagedFolder, provider string) error {
+	if provider != providers.ProviderLocal {
+		return folderRefusal("Only Local folders can be moved for now.")
+	}
+	return checkFolderChangeable(folder, "moved")
+}
+
+func (h *Handler) moveFolderTo(ctx context.Context, owner string, folder storage.ManagedFolder, provider, parentID string) error {
+	if err := checkFolderMovable(folder, provider); err != nil {
+		return err
+	}
+	if parentID == folder.ParentID {
+		return nil
+	}
+	var target *storage.ManagedFolder
+	if parentID != "" {
+		if parentID == folder.ID {
+			return folderRefusal("A folder can't be moved into itself.")
+		}
+		for _, child := range folder.Descendants {
+			if child.ID == parentID {
+				return folderRefusal("A folder can't be moved into one of its own subfolders.")
+			}
+		}
+		parent, _, err := h.managedFolder(ctx, owner, parentID)
+		if err != nil {
+			return err
+		}
+		if parent.AccountID != folder.AccountID {
+			return storage.ErrFolderNotManaged
+		}
+		target = &parent
+	}
+	err := h.withProfileAccount(ctx, owner, folder.AccountID, func(_ *config.AccountStore, db *storage.DB) error {
+		taken, err := db.FolderNameTaken(ctx, folder.AccountID, parentID, folder.Name, folder.ID)
+		if err == nil && taken {
+			err = folderRefusal("A folder named “" + folder.Name + "” is already there.")
+		}
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	return h.moveFolder(ctx, owner, folder, provider, target)
+}
+
 // freeFolderName returns name, or name with a number after it, so no other
 // folder under parentID has it.
 func (h *Handler) freeFolderName(ctx context.Context, owner, accountID, parentID, name, exceptID string) (string, error) {

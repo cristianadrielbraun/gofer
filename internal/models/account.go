@@ -249,6 +249,17 @@ type FoldersData struct {
 	Labels  []Label
 }
 
+// FolderMoveData is the dialog that picks where one of an account's
+// folders moves to.
+type FolderMoveData struct {
+	Account    Account
+	Folders    []Folder
+	FolderID   string
+	FolderName string
+	// ParentID is the folder it's in now, or "" at the top.
+	ParentID string
+}
+
 // FolderRole is one role of an account's folders. Chosen is the ID of the
 // folder given it by hand; without one, Detected names the folder the server
 // gave it, if any.

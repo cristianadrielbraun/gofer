@@ -435,6 +435,8 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 		private("POST /api/folders/{id}/rename", routed.handleRenameFolder)
 		private("POST /api/folders/{id}/delete", routed.handleDeleteFolder)
 		private("POST /api/folders/{id}/restore", routed.handleRestoreFolder)
+		private("GET /api/folders/{id}/move", routed.handleFolderMoveDialog)
+		private("POST /api/folders/{id}/move", routed.handleMoveFolderTo)
 		private("POST /api/folders/{id}/trash-folders/delete", routed.handleDeleteTrashFolders)
 		private("POST /api/accounts/{id}/labels", routed.handleCreateLabel)
 		private("GET /api/labels/{id}/manage", routed.handleLabelInfo)

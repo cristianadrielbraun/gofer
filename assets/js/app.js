@@ -1882,6 +1882,7 @@ document.addEventListener("DOMContentLoaded", function () {
     syncReaderArchiveAvailability()
     setupMailKeyboardShortcuts()
     setupMailDragAndDrop()
+    setupFolderDragAndDrop()
     setupMailContextMenu()
     setupSidebarContextMenu()
     setupContactsSelection()
@@ -3381,6 +3382,8 @@ document.addEventListener("DOMContentLoaded", function () {
         "rename-folder": target.kind === "folder" && !!target.accountID && target.provider !== "gmail" && target.role === "custom",
         "delete-folder": target.kind === "folder" && !!target.accountID && target.provider !== "gmail" && target.role === "custom",
         "restore-folder": target.kind === "folder" && !!target.accountID && target.provider !== "gmail" && target.role === "custom" && target.inTrash,
+        // Only Local folders move for now: they change nothing on a server.
+        "move-folder": target.kind === "folder" && !!target.accountID && target.provider === "local" && target.role === "custom",
         "rename-label": target.kind === "tag" && target.provider === "gmail",
         "delete-label": target.kind === "tag" && target.provider === "gmail",
       }
@@ -3417,6 +3420,7 @@ document.addEventListener("DOMContentLoaded", function () {
       else if (action === "rename-folder") renameMailFolder(target)
       else if (action === "delete-folder") deleteMailFolder(target)
       else if (action === "restore-folder") restoreMailFolder(target)
+      else if (action === "move-folder") openFolderMoveDialog(target)
       else if (action === "new-label") createGmailLabel(target.accountID)
       else if (action === "rename-label") renameGmailLabel(target)
       else if (action === "delete-label") deleteGmailLabel(target)
@@ -3481,6 +3485,7 @@ document.addEventListener("DOMContentLoaded", function () {
       "rename-folder": renameMailFolder,
       "delete-folder": deleteMailFolder,
       "restore-folder": restoreMailFolder,
+      "move-folder": openFolderMoveDialog,
       "new-label": function (t) { createGmailLabel(t.accountID) },
       "rename-label": renameGmailLabel,
       "delete-label": deleteGmailLabel,
@@ -3597,6 +3602,43 @@ document.addEventListener("DOMContentLoaded", function () {
         })
       })
     }
+
+    // A Local folder moves, with what's in it, inside another of its
+    // account's folders or to the top: picked in the Move folder dialog
+    // (folder_move.templ) or by dragging it in the sidebar.
+    function openFolderMoveDialog(target) {
+      if (!target.folderID || folderChangeBusy) return
+      fetch("/api/folders/" + encodeURIComponent(target.folderID) + "/move", { headers: { Accept: "text/html" } })
+        .then(function (response) {
+          if (!response.ok) return postFolderChangeError(response)
+          return response.text()
+        })
+        .then(function (html) {
+          var host = document.getElementById("folder-move-dialog-host")
+          if (!host) {
+            host = document.createElement("div")
+            host.id = "folder-move-dialog-host"
+            document.body.appendChild(host)
+          }
+          host.innerHTML = html
+          if (window.tui && window.tui.dialog) window.tui.dialog.open("folder-move-dialog")
+        })
+        .catch(function (err) {
+          showGoferToast({ id: "mail-folder-move", title: goferT("js.folders.move_failed"), description: err && err.message ? err.message : goferT("js.common.try_again"), variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
+        })
+    }
+
+    // moveMailFolder moves the folder inside parentID, or to the top of its
+    // account when parentID is "". placeName names where it went.
+    function moveMailFolder(target, parentID, placeName) {
+      if (!target.folderID || folderChangeBusy) return
+      return runFolderChange("mail-folder-move", goferT("js.folders.move_failed"), function () {
+        return postFolderChange("/api/folders/" + encodeURIComponent(target.folderID) + "/move", { parent: parentID || "" }).then(function () {
+          folderChangeDone("mail-folder-move", goferT("js.folders.moved_into", { name: target.name, folder: placeName }), target.accountID, false)
+        })
+      })
+    }
+    window.goferMoveMailFolder = moveMailFolder
 
     function createGmailLabel(accountID) {
       if (!accountID || folderChangeBusy) return
@@ -4538,6 +4580,142 @@ document.addEventListener("DOMContentLoaded", function () {
     var MAIL_DROP_COMBINED_FOLDERS = { inbox: true, archive: true, spam: true, trash: true }
     var MAIL_DROP_REFUSED_ROLES = { starred: true, sent: true, drafts: true, scheduled: true }
     var MAIL_DROP_EXPAND_DELAY = 600
+
+    // A Local folder dragged in the sidebar moves inside the folder it's
+    // dropped on, or to the top when dropped on its account's name. Other
+    // accounts' folders keep the browser's own link dragging.
+    function setupFolderDragAndDrop() {
+      if (document.body._goferFolderDragBound) return
+      document.body._goferFolderDragBound = true
+
+      var drag = null
+      var activeTarget = null
+      var expandGroup = null
+      var expandTimer = null
+
+      function folderLink(el) {
+        return el && el.closest ? el.closest("aside a[data-mail-drop-folder][data-mail-drop-account]") : null
+      }
+
+      function linkName(link) {
+        var name = link && link.querySelector(".flex-1")
+        return name ? name.textContent.trim() : ""
+      }
+
+      // The element holding a folder's row and the folders inside it.
+      function folderBranch(link) {
+        var group = link.closest("[data-sidebar-folder]")
+        return group && group.querySelector(":scope > a[data-sidebar-folder-row]") === link ? group : link
+      }
+
+      function parentFolderID(link) {
+        var children = link.closest("[data-sidebar-folder-children]")
+        var row = children && children.parentElement ? children.parentElement.querySelector(":scope > a[data-sidebar-folder-row]") : null
+        return row ? row.getAttribute("data-mail-drop-folder") || "" : ""
+      }
+
+      // Where a drop on el would put the dragged folder, or null when it
+      // can't go there: into itself, a folder inside it, where it is now or
+      // another account.
+      function dropPlace(el) {
+        if (!drag || !el || !el.closest) return null
+        var toggle = el.closest("aside [data-sidebar-account-toggle]")
+        if (toggle) {
+          if (toggle.getAttribute("data-sidebar-account-toggle") !== drag.accountID || drag.parentID === "") return null
+          return { element: toggle, parentID: "", name: drag.accountName }
+        }
+        var link = folderLink(el)
+        if (!link || link.getAttribute("data-mail-drop-account") !== drag.accountID) return null
+        var id = link.getAttribute("data-mail-drop-folder") || ""
+        if (!id || id === drag.parentID || drag.branch.contains(link)) return null
+        if (String(link.dataset.folderRole || "").toLowerCase() === "starred") return null
+        return { element: link, parentID: id, name: linkName(link) }
+      }
+
+      function setActiveTarget(element) {
+        if (activeTarget === element) return
+        if (activeTarget) activeTarget.removeAttribute("data-mail-drop-active")
+        activeTarget = element
+        if (activeTarget) activeTarget.setAttribute("data-mail-drop-active", "")
+      }
+
+      // Hovering a collapsed folder for a moment opens it, as for mail.
+      function scheduleExpand(el) {
+        var toggle = el && el.closest ? el.closest("aside [data-sidebar-folder-toggle]") : null
+        var group = toggle ? toggle.closest('[data-sidebar-folder][data-sidebar-folder-collapsed="true"]') : null
+        if (group === expandGroup) return
+        clearTimeout(expandTimer)
+        expandGroup = group
+        if (!group) return
+        expandTimer = setTimeout(function () {
+          group.setAttribute("data-sidebar-folder-collapsed", "false")
+          toggle.setAttribute("aria-expanded", "true")
+          expandGroup = null
+        }, MAIL_DROP_EXPAND_DELAY)
+      }
+
+      function endDrag() {
+        if (drag) {
+          drag.branch.removeAttribute("data-folder-dragging")
+          if (drag.aside) drag.aside.removeAttribute("data-folder-drag-active")
+          if (drag.home) drag.home.removeAttribute("data-folder-drag-home")
+        }
+        setActiveTarget(null)
+        clearTimeout(expandTimer)
+        expandGroup = null
+        drag = null
+      }
+
+      document.addEventListener("dragstart", function (e) {
+        var link = folderLink(e.target)
+        if (!link || !e.dataTransfer) return
+        var accountID = link.getAttribute("data-mail-drop-account") || ""
+        if (sidebarAccountProvider(accountID) !== "local" || String(link.dataset.folderRole || "").toLowerCase() !== "custom") return
+        var toggle = document.querySelector('aside [data-sidebar-account-toggle="' + cssEscape(accountID) + '"]')
+        drag = {
+          link: link,
+          accountID: accountID,
+          accountName: linkName(toggle),
+          folderID: link.getAttribute("data-mail-drop-folder") || "",
+          name: linkName(link),
+          parentID: parentFolderID(link),
+          branch: folderBranch(link),
+          aside: link.closest("aside"),
+          home: link.closest("[data-sidebar-account]"),
+        }
+        e.dataTransfer.effectAllowed = "move"
+        e.dataTransfer.setData("application/x-gofer-folder", drag.folderID)
+        // The folder can only go elsewhere in its own account, so everything
+        // else in the sidebar, the unified folders too, greys out meanwhile.
+        drag.branch.setAttribute("data-folder-dragging", "")
+        if (drag.aside) drag.aside.setAttribute("data-folder-drag-active", "")
+        if (drag.home) drag.home.setAttribute("data-folder-drag-home", "")
+      })
+
+      document.addEventListener("dragover", function (e) {
+        if (!drag) return
+        scheduleExpand(e.target)
+        var place = dropPlace(e.target)
+        setActiveTarget(place ? place.element : null)
+        if (!place) return
+        e.preventDefault()
+        e.dataTransfer.dropEffect = "move"
+      })
+
+      document.addEventListener("drop", function (e) {
+        if (!drag) return
+        var place = dropPlace(e.target)
+        if (!place) return
+        e.preventDefault()
+        var target = { folderID: drag.folderID, accountID: drag.accountID, name: drag.name }
+        endDrag()
+        moveMailFolder(target, place.parentID, place.name)
+      })
+
+      document.addEventListener("dragend", function () {
+        if (drag) endDrag()
+      })
+    }
 
     function setupMailDragAndDrop() {
       if (document.body._goferMailDragBound) return
@@ -21796,6 +21974,33 @@ function manageFolderAction(button) {
     tag: button.hasAttribute("data-tag-appearance"),
     unifiedTag: button.hasAttribute("data-tag-appearance-unified"),
   })
+}
+
+// The Move folder dialog (folder_move.templ): clicking a place only selects
+// it; Move does the move.
+function selectFolderMoveTarget(button) {
+  var dialog = document.getElementById("folder-move-dialog")
+  if (!dialog || !button || button.disabled) return
+  dialog.querySelectorAll('[data-folder-move-parent][aria-selected="true"]').forEach(function (other) {
+    other.setAttribute("aria-selected", "false")
+  })
+  button.setAttribute("aria-selected", "true")
+  var confirm = dialog.querySelector("[data-folder-move-confirm]")
+  if (confirm) confirm.disabled = false
+}
+
+function confirmFolderMove() {
+  var list = document.querySelector("#folder-move-dialog [data-folder-move-list]")
+  var selected = list && list.querySelector('[data-folder-move-parent][aria-selected="true"]')
+  if (!selected || !window.goferMoveMailFolder) return
+  var parentID = selected.getAttribute("data-folder-move-parent") || ""
+  var name = selected.querySelector(".flex-1")
+  if (window.tui && window.tui.dialog) window.tui.dialog.close("folder-move-dialog")
+  window.goferMoveMailFolder(
+    { folderID: list.getAttribute("data-folder-move-id"), accountID: list.getAttribute("data-folder-move-account"), name: list.getAttribute("data-folder-move-name") },
+    parentID,
+    parentID ? (name ? name.textContent.trim() : "") : list.getAttribute("data-folder-move-account-name") || ""
+  )
 }
 
 // New label in the Move dialog of a Gmail email adds a new label to it:

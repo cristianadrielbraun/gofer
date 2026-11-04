@@ -96,6 +96,9 @@ templ SidebarContextMenu() {
 			@sidebarContextItem("rename-label", i18n.T(ctx, "mail.folder_menu.rename_label"), "") {
 				@icon.Pencil(icon.Props{Class: "size-4"})
 			}
+			@sidebarContextItem("move-folder", i18n.T(ctx, "mail.folder_menu.move_folder"), "") {
+				@icon.FolderInput(icon.Props{Class: "size-4"})
+			}
 			@sidebarContextItem("restore-folder", i18n.T(ctx, "mail.folder_menu.restore_folder"), "") {
 				@icon.FolderOutput(icon.Props{Class: "size-4"})
 			}

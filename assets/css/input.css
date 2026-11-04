@@ -7422,6 +7422,17 @@ html:not([data-theme="express"]) [data-mode-dark-tip] {
   text-align: center;
 }
 
+/* A Local folder being dragged to another place in the sidebar, with the
+   folders inside it. It can only go elsewhere in its own account, so every
+   other account and the unified folders grey out until it's dropped. */
+aside [data-folder-dragging] {
+  opacity: 0.5;
+}
+aside[data-folder-drag-active] :is(a[data-mail-drop-folder], [data-sidebar-account-toggle], [data-sidebar-tag-filter]):not([data-folder-drag-home] *) {
+  opacity: 0.35;
+  filter: grayscale(1);
+}
+
 .mail-list-item[data-mail-dragging] {
   opacity: 0.45;
 }
@@ -7516,7 +7527,8 @@ html:not([data-theme="express"]) [data-mode-dark-tip] {
   }
 }
 
-aside a[data-mail-drop-active] {
+aside a[data-mail-drop-active],
+aside [data-sidebar-account-toggle][data-mail-drop-active] {
   background: color-mix(in srgb, var(--sidebar-primary) 15%, transparent);
   color: var(--sidebar-primary);
   box-shadow: inset 0 0 0 1px var(--sidebar-primary);
