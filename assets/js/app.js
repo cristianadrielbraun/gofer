@@ -293,6 +293,7 @@ document.addEventListener("DOMContentLoaded", function () {
         trash: !!(scroll && scroll.dataset.trash === "1"),
         query: search ? search.value || "" : "",
         source: form && form.querySelector('[name="source"]') ? form.querySelector('[name="source"]').value || "" : "",
+        storedIn: form && form.querySelector('[name="stored_in"]') ? form.querySelector('[name="stored_in"]').value || "" : "",
         saveTarget: form && form.querySelector('[name="save_target"]') ? form.querySelector('[name="save_target"]').value || "" : "",
         activity: form && form.querySelector('[name="activity"]') ? form.querySelector('[name="activity"]').value || "" : "",
         sortBy: sortForm && sortForm.querySelector('[name="sort_by"]') ? sortForm.querySelector('[name="sort_by"]').value || "updated" : "updated",
@@ -304,7 +305,7 @@ document.addEventListener("DOMContentLoaded", function () {
     var settingContactFilters = false
 
     function syncFilterUI(filters) {
-      var count = (filters.source ? 1 : 0) + (filters.saveTarget ? 1 : 0) + (filters.activity ? 1 : 0)
+      var count = (filters.source ? 1 : 0) + (filters.storedIn ? 1 : 0) + (filters.saveTarget ? 1 : 0) + (filters.activity ? 1 : 0)
       syncActiveFilterChips(filters)
       var button = document.querySelector("[data-contact-filter-trigger]")
       if (!button) return
@@ -331,20 +332,25 @@ document.addEventListener("DOMContentLoaded", function () {
 
     function activeFilterPills(filters) {
       var pills = []
-      function label(name, value) {
+      // A filter can hold several values, separated by commas, and its pill
+      // names all of them.
+      function label(name, values) {
         var input = document.querySelector('[data-contact-filter-form] input[name="' + name + '"]')
         var container = input && input.closest(".select-container")
         var items = container ? container.querySelectorAll("[data-tui-selectbox-value]") : []
-        for (var i = 0; i < items.length; i++) {
-          if (items[i].getAttribute("data-tui-selectbox-value") !== value) continue
-          var text = items[i].querySelector(".select-item-text")
-          if (text) return text.textContent.trim()
-        }
-        return value
+        return String(values || "").split(",").filter(Boolean).map(function (value) {
+          for (var i = 0; i < items.length; i++) {
+            if (items[i].getAttribute("data-tui-selectbox-value") !== value) continue
+            var text = items[i].querySelector(".select-item-text")
+            if (text) return text.textContent.trim()
+          }
+          return value
+        }).join(", ")
       }
+      if (filters.storedIn) pills.push({ name: "stored_in", text: goferT("js.contacts.filter.stored_in", { place: label("stored_in", filters.storedIn) }) })
       if (filters.source) pills.push({ name: "source", text: goferT("js.contacts.filter.origin", { source: label("source", filters.source) }) })
       if (filters.saveTarget) pills.push({ name: "save_target", text: label("save_target", filters.saveTarget) })
-      if (filters.activity) pills.push({ name: "activity", text: filters.activity === "seen" ? goferT("js.contacts.filter.seen") : goferT("js.contacts.filter.no_messages") })
+      if (filters.activity) pills.push({ name: "activity", text: filters.activity.split(",").filter(Boolean).map(function (value) { return value === "seen" ? goferT("js.contacts.filter.seen") : goferT("js.contacts.filter.no_messages") }).join(", ") })
       return pills
     }
 
@@ -366,20 +372,34 @@ document.addEventListener("DOMContentLoaded", function () {
       strip.querySelectorAll("[data-contact-active-filter-key]").forEach(function (pill) {
         existing[pill.getAttribute("data-contact-active-filter-key")] = true
       })
-      var html = '<div class="mail-active-filter-visible">'
+      // Each pill is the server's own, tooltip included, from its template.
+      var template = document.querySelector("[data-contact-active-filter-pill-template]")
+      var visible = document.createElement("div")
+      visible.className = "mail-active-filter-visible"
       pills.forEach(function (pill) {
         var key = pill.name + ":" + pill.text
-        var text = escapeHTML(pill.text)
-        html += '<button type="button" data-contact-active-filter-remove="' + pill.name + '" data-contact-active-filter-key="' + escapeHTML(key) + '" title="' + text + '" aria-label="' + escapeHTML(goferT("js.contacts.filter.remove", { filter: pill.text })) + '" class="mail-active-filter-pill' + (existing[key] ? " mail-active-filter-pill-stable" : "") + '">' +
-          '<span class="mail-active-filter-pill-label">' + text + '</span><span class="mail-active-filter-pill-remove">x</span></button>'
+        var node = template && template.content.firstElementChild ? template.content.firstElementChild.cloneNode(true) : null
+        var button = node && node.querySelector("[data-contact-active-filter-remove]")
+        if (!button) return
+        button.setAttribute("data-contact-active-filter-remove", pill.name)
+        button.setAttribute("data-contact-active-filter-key", key)
+        button.setAttribute("aria-label", goferT("js.contacts.filter.remove", { filter: pill.text }))
+        button.classList.toggle("mail-active-filter-pill-stable", !!existing[key])
+        var label = button.querySelector(".mail-active-filter-pill-label")
+        if (label) label.textContent = pill.text
+        var tip = node.querySelector("[data-contact-active-filter-tooltip]")
+        if (tip) tip.textContent = pill.text
+        visible.appendChild(node)
       })
-      strip.innerHTML = html + "</div>"
+      strip.replaceChildren(visible)
       strip.classList.remove("hidden")
     }
 
     // The sidebar item that stands for the filters, as the server picks it.
     function sidebarTargetFor(filters) {
       if (filters.trash) return "trash"
+      // A sidebar item stands for one place, never several.
+      if (filters.storedIn || /,/.test(filters.source || "") || /,/.test(filters.saveTarget || "")) return "-"
       if (!filters.source) return filters.saveTarget
       if (filters.saveTarget) return "-"
       return /^(synced:|book:)/.test(filters.source) ? "source:" + filters.source : "-"
@@ -391,7 +411,7 @@ document.addEventListener("DOMContentLoaded", function () {
       var list = remove && currentList()
       if (!list) return
       e.preventDefault()
-      var field = { source: "source", save_target: "saveTarget", activity: "activity" }[remove.getAttribute("data-contact-active-filter-remove")]
+      var field = { source: "source", stored_in: "storedIn", save_target: "saveTarget", activity: "activity" }[remove.getAttribute("data-contact-active-filter-remove")]
       if (!field) return
       var motion = !window.matchMedia("(prefers-reduced-motion: reduce)").matches
       if (motion) remove.classList.add("mail-active-filter-pill-exiting")
@@ -422,6 +442,7 @@ document.addEventListener("DOMContentLoaded", function () {
         if (params.get("trash") === "1") return "trash"
         var saveTarget = params.get("save_target") || ""
         var source = params.get("source") || ""
+        if (params.get("stored_in") || /,/.test(source) || /,/.test(saveTarget)) return "-"
         if (!source) return saveTarget
         if (saveTarget) return "-"
         return /^(synced:|book:)/.test(source) ? "source:" + source : "-"
@@ -468,7 +489,7 @@ document.addEventListener("DOMContentLoaded", function () {
       if (!list) return
       var filters = readFilters()
       syncFilterUI(filters)
-      setContactsSidebarActive(filters.trash ? "trash" : filters.saveTarget)
+      setContactsSidebarActive(filters.trash ? "trash" : filters.storedIn || /,/.test(filters.saveTarget || "") ? "-" : filters.saveTarget)
       list.applyFilters(filters).catch(function () {})
     }
 
@@ -497,7 +518,7 @@ document.addEventListener("DOMContentLoaded", function () {
       e.preventDefault()
       e.stopImmediatePropagation()
       var source = target.indexOf("source:") === 0 ? target.slice(7) : ""
-      var values = { source: source, save_target: target === "trash" || source ? "" : target, activity: "" }
+      var values = { source: source, stored_in: "", save_target: target === "trash" || source ? "" : target, activity: "" }
       var form = document.querySelector("[data-contact-filter-form]")
       if (form) {
         // Setting a select's value also moves its selection and the text shown.
@@ -518,6 +539,7 @@ document.addEventListener("DOMContentLoaded", function () {
       // list would disagree with the sidebar.
       var filters = readFilters()
       filters.source = values.source
+      filters.storedIn = ""
       filters.saveTarget = values.save_target
       filters.activity = ""
       filters.trash = false
@@ -576,7 +598,7 @@ document.addEventListener("DOMContentLoaded", function () {
         if (search) search.value = ""
         var form = document.querySelector("[data-contact-filter-form]")
         if (form) {
-          var inputs = form.querySelectorAll('input[name="source"], input[name="save_target"], input[name="activity"]')
+          var inputs = form.querySelectorAll('input[name="source"], input[name="stored_in"], input[name="save_target"], input[name="activity"]')
           for (var ci = 0; ci < inputs.length; ci++) inputs[ci].value = ""
           var selectedItems = form.querySelectorAll("[data-tui-selectbox-selected='true']")
           for (var si = 0; si < selectedItems.length; si++) selectedItems[si].setAttribute("data-tui-selectbox-selected", "false")
@@ -2676,7 +2698,7 @@ document.addEventListener("DOMContentLoaded", function () {
     function contactSelectAllKey(list) {
       if (!list) return ""
       var filters = list.filters || {}
-      return JSON.stringify([!!filters.trash, filters.query || "", filters.source || "", filters.saveTarget || "", filters.activity || "", filters.sortBy || "", filters.sortOrder || ""])
+      return JSON.stringify([!!filters.trash, filters.query || "", filters.source || "", filters.storedIn || "", filters.saveTarget || "", filters.activity || "", filters.sortBy || "", filters.sortOrder || ""])
     }
 
     function setContactSelected(info, selected) {
@@ -16357,6 +16379,170 @@ document.addEventListener("submit", function (event) {
     done()
     if (creating) refreshCalendarSidebar()
     showGoferToast({ title: goferT("js.calendar.import.failed"), description: error && error.message ? error.message : goferT("js.common.please_try_again"), variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
+  })
+})
+
+// Import vCard: choosing a file asks the server how many of its contacts are
+// already in Gofer, and when some are, the dialog asks whether to update them
+// or leave them as they are. The import then shows its progress as it saves,
+// and a toast says what it did.
+var contactsImportCheck = 0
+
+function contactsImportResetChoice(form) {
+  var existing = form.querySelector("[data-contacts-import-existing]")
+  var checking = form.querySelector("[data-contacts-import-checking]")
+  if (existing) existing.hidden = true
+  if (checking) checking.hidden = true
+  var skip = form.querySelector("input[name='existing'][value='skip']")
+  if (skip) skip.checked = true
+}
+
+function contactsImportTargets(form) {
+  var body = new FormData()
+  form.querySelectorAll("input[name='save_targets']").forEach(function (input) {
+    if (input.value) body.append("save_targets", input.value)
+  })
+  return body
+}
+
+document.addEventListener("change", function (event) {
+  if (!event.target.matches || !event.target.matches("[data-contacts-import-file]")) return
+  var form = event.target.closest("[data-contacts-import-form]")
+  if (!form) return
+  var check = ++contactsImportCheck
+  contactsImportResetChoice(form)
+  var file = event.target.files && event.target.files[0]
+  if (!file) return
+  var checking = form.querySelector("[data-contacts-import-checking]")
+  if (checking) checking.hidden = false
+  var body = contactsImportTargets(form)
+  body.append("vcard", file)
+  body.append("preview", "1")
+  fetch("/api/contacts/import", { method: "POST", headers: { Accept: "application/json" }, body: body })
+    .then(function (response) {
+      if (!response.ok) return response.text().then(function (text) { throw new Error((text || "").trim() || goferT("js.common.please_try_again")) })
+      return response.json()
+    })
+    .then(function (preview) {
+      if (check !== contactsImportCheck) return
+      if (checking) checking.hidden = true
+      var existing = preview.existing || 0
+      if (!existing) return
+      var summary = form.querySelector("[data-contacts-import-existing-summary]")
+      if (summary) summary.textContent = goferTn("js.contacts.import.existing_summary", existing, { total: goferNumber(preview.total || 0) })
+      var box = form.querySelector("[data-contacts-import-existing]")
+      if (box) box.hidden = false
+    })
+    .catch(function (error) {
+      if (check !== contactsImportCheck) return
+      if (checking) checking.hidden = true
+      showGoferToast({ title: goferT("js.contacts.import.failed"), description: error && error.message ? error.message : goferT("js.common.please_try_again"), variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
+    })
+})
+
+document.addEventListener("submit", function (event) {
+  var form = event.target.closest && event.target.closest("[data-contacts-import-form]")
+  if (!form) return
+  event.preventDefault()
+  var fileInput = form.querySelector("[data-contacts-import-file]")
+  var file = fileInput && fileInput.files && fileInput.files[0]
+  if (!file) {
+    showGoferToast({ title: goferT("js.contacts.import.failed"), description: goferT("js.contacts.import.no_file"), variant: "error", icon: "error", position: "bottom-right", duration: 5000, dismissible: true })
+    return
+  }
+  var body = contactsImportTargets(form)
+  body.append("vcard", file)
+  var choice = form.querySelector("input[name='existing']:checked")
+  body.append("existing", choice ? choice.value : "skip")
+  var submit = form.querySelector("[data-contacts-import-submit]")
+  var label = form.querySelector("[data-contacts-import-submit-label]")
+  var submitText = label ? label.textContent : ""
+  var progress = form.querySelector("[data-contacts-import-progress]")
+  var progressCount = form.querySelector("[data-contacts-import-progress-count]")
+  var progressBar = form.querySelector("[data-contacts-import-progress-bar]")
+  var showProgress = function (done, total) {
+    if (progress) progress.hidden = false
+    if (progressCount) progressCount.textContent = total ? goferT("js.contacts.import.progress", { done: goferNumber(done), total: goferNumber(total) }) : ""
+    var percent = total ? Math.round(done / total * 100) : 0
+    if (progressBar) {
+      progressBar.setAttribute("aria-valuenow", String(percent))
+      var indicator = progressBar.querySelector("[data-tui-progress-indicator]")
+      if (indicator) indicator.style.width = percent + "%"
+    }
+  }
+  var finish = function () {
+    if (submit) { submit.disabled = false; submit.removeAttribute("aria-busy") }
+    if (label) label.textContent = submitText
+    showProgress(0, 0)
+    if (progress) progress.hidden = true
+  }
+  if (submit) { submit.disabled = true; submit.setAttribute("aria-busy", "true") }
+  if (label) label.textContent = goferT("js.contacts.import.importing")
+  showProgress(0, 0)
+  // The server answers with JSON lines while it saves: progress, then the
+  // result or an error. An error before it starts is a plain text answer.
+  var readImport = function (response) {
+    if (!response.ok) return response.text().then(function (text) { throw new Error((text || "").trim() || goferT("js.common.please_try_again")) })
+    if ((response.headers.get("Content-Type") || "").indexOf("application/x-ndjson") !== 0 || !response.body) return response.json()
+    var reader = response.body.getReader()
+    var decoder = new TextDecoder()
+    var buffered = ""
+    var last = null
+    var handle = function (text) {
+      if (!text.trim()) return
+      var message = JSON.parse(text)
+      if (message.error) throw new Error(message.error)
+      if (typeof message.total === "number") {
+        showProgress(message.done, message.total)
+        return
+      }
+      last = message
+    }
+    var pump = function () {
+      return reader.read().then(function (chunk) {
+        if (chunk.done) {
+          handle(buffered)
+          if (!last) throw new Error(goferT("js.contacts.import.stopped"))
+          return last
+        }
+        buffered += decoder.decode(chunk.value, { stream: true })
+        var lines = buffered.split("\n")
+        buffered = lines.pop()
+        lines.forEach(handle)
+        return pump()
+      })
+    }
+    return pump()
+  }
+  var refreshList = function () {
+    var scroll = document.getElementById("contacts-list-scroll")
+    var list = scroll && scroll._virtualContactsList
+    if (list && typeof list.applyFilters === "function") list.applyFilters(list.filters).catch(function () {})
+  }
+  fetch("/api/contacts/import", {
+    method: "POST",
+    headers: { Accept: "application/x-ndjson, application/json" },
+    body: body,
+  }).then(readImport).then(function (result) {
+    finish()
+    if (window.tui && window.tui.dialog) window.tui.dialog.close("contacts-import-dialog")
+    form.reset()
+    contactsImportResetChoice(form)
+    var added = result.added || 0
+    var updated = result.updated || 0
+    var skipped = result.skipped || 0
+    var title = added || (!updated && !skipped)
+      ? goferTn("js.contacts.import.done", added)
+      : updated ? goferTn("js.contacts.import.updated_title", updated) : goferT("js.contacts.import.nothing_new")
+    var notes = []
+    if (updated && added) notes.push(goferTn("js.contacts.import.updated", updated))
+    if (skipped) notes.push(goferTn("js.contacts.import.skipped", skipped))
+    showGoferToast({ title: title, description: notes.join(" "), variant: "success", icon: "success", position: "bottom-right", duration: notes.length ? 6000 : 4000, dismissible: true })
+    if (added || updated) refreshList()
+  }).catch(function (error) {
+    finish()
+    showGoferToast({ title: goferT("js.contacts.import.failed"), description: error && error.message ? error.message : goferT("js.common.please_try_again"), variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
+    refreshList()
   })
 })
 

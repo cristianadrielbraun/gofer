@@ -3131,6 +3131,7 @@ class VirtualContactsList {
     return {
       query: this.container.dataset.query || "",
       source: this.container.dataset.source || "",
+      storedIn: this.container.dataset.storedIn || "",
       saveTarget: this.container.dataset.saveTarget || "",
       activity: this.container.dataset.activity || "",
       trash: this.container.dataset.trash === "1",
@@ -3517,6 +3518,7 @@ class VirtualContactsList {
     filters = filters || this.filters
     if (filters.query) params.set("q", filters.query)
     if (filters.source) params.set("source", filters.source)
+    if (filters.storedIn) params.set("stored_in", filters.storedIn)
     if (filters.saveTarget) params.set("save_target", filters.saveTarget)
     if (filters.activity) params.set("activity", filters.activity)
     if (filters.trash) params.set("trash", "1")
@@ -3667,6 +3669,7 @@ class VirtualContactsList {
     var nextFilters = {
       query: (filters.query || "").trim(),
       source: (filters.source || "").trim(),
+      storedIn: (filters.storedIn || "").trim(),
       saveTarget: (filters.saveTarget || "").trim(),
       activity: (filters.activity || "").trim(),
       trash: !!filters.trash,
@@ -3712,6 +3715,7 @@ class VirtualContactsList {
     var params = new URLSearchParams()
     if (this.filters.query) params.set("q", this.filters.query)
     if (this.filters.source) params.set("source", this.filters.source)
+    if (this.filters.storedIn) params.set("stored_in", this.filters.storedIn)
     if (this.filters.saveTarget) params.set("save_target", this.filters.saveTarget)
     if (this.filters.activity) params.set("activity", this.filters.activity)
     if (this.filters.trash) params.set("trash", "1")

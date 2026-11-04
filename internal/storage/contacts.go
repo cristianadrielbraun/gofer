@@ -561,45 +561,81 @@ func contactProfileFilterSQL(userID string, filters models.ContactFilters) (stri
 			WHERE email.profile_id = p.id AND email.user_id = p.user_id AND email.kind = 'email'
 		))`
 	}
-	switch filters.Source {
-	case "manual":
-		where += ` AND p.origin = 'manual'`
-	case "observed":
-		where += ` AND p.origin = 'observed'`
-	case "synced":
-		where += ` AND p.origin LIKE 'synced:%'`
-	default:
-		if strings.HasPrefix(filters.Source, "synced:") {
-			where += ` AND p.origin = ?`
-			args = append(args, filters.Source)
-		} else if bookID, ok := strings.CutPrefix(filters.Source, "book:"); ok && bookID != "" {
-			// Origin only records the account, so a book's own imports are the
-			// contacts from that account with a synced card in the book. Cards
-			// pushed into the book from elsewhere fail the origin check.
-			where += ` AND EXISTS (
+	// Each filter matches a contact that matches any of its values.
+	anyOf := func(clauses []string) {
+		if len(clauses) > 0 {
+			where += ` AND (` + strings.Join(clauses, ` OR `) + `)`
+		}
+	}
+	var clauses []string
+	for _, source := range models.ContactFilterValues(filters.Source) {
+		switch source {
+		case "manual":
+			clauses = append(clauses, `p.origin = 'manual'`)
+		case "observed":
+			clauses = append(clauses, `p.origin = 'observed'`)
+		case "synced":
+			clauses = append(clauses, `p.origin LIKE 'synced:%'`)
+		default:
+			if strings.HasPrefix(source, "synced:") {
+				clauses = append(clauses, `p.origin = ?`)
+				args = append(args, source)
+			} else if bookID, ok := strings.CutPrefix(source, "book:"); ok && bookID != "" {
+				// Origin only records the account, so a book's own imports are the
+				// contacts from that account with a synced card in the book. Cards
+				// pushed into the book from elsewhere fail the origin check.
+				clauses = append(clauses, `EXISTS (
 				SELECT 1 FROM contact_cards cc
 				JOIN account_contact_address_books b ON b.id = cc.address_book_id AND b.user_id = cc.user_id
 				WHERE cc.user_id = p.user_id AND cc.profile_id = p.id AND cc.kind = 'provider' AND cc.is_deleted = 0
 				  AND cc.address_book_id = ? AND p.origin = 'synced:' || b.account_id
-			)`
+			)`)
+				args = append(args, bookID)
+			}
+		}
+	}
+	anyOf(clauses)
+
+	activity := models.ContactFilterValues(filters.Activity)
+	if len(activity) == 1 {
+		// Both values together match every contact.
+		messages := `COALESCE((SELECT SUM(co.message_count) FROM contact_observations co WHERE co.user_id = p.user_id AND co.profile_id = p.id AND co.is_suppressed = 0), 0)`
+		if activity[0] == "none" {
+			where += ` AND ` + messages + ` = 0`
+		} else if activity[0] == "seen" {
+			where += ` AND ` + messages + ` > 0`
+		}
+	}
+
+	clauses = nil
+	for _, target := range models.ContactFilterValues(filters.SaveTarget) {
+		if target == "local" {
+			clauses = append(clauses, `EXISTS (SELECT 1 FROM contact_cards cc WHERE cc.user_id = p.user_id AND cc.profile_id = p.id AND cc.kind = 'local' AND cc.is_deleted = 0)`)
+		} else if accountID, ok := strings.CutPrefix(target, "account:"); ok && accountID != "" {
+			clauses = append(clauses, `EXISTS (SELECT 1 FROM contact_sync_memberships csm WHERE csm.user_id = p.user_id AND csm.profile_id = p.id AND csm.account_id = ? AND csm.enabled = 1)`)
+			args = append(args, accountID)
+		} else if bookID, ok := strings.CutPrefix(target, "book:"); ok && bookID != "" {
+			clauses = append(clauses, `EXISTS (SELECT 1 FROM contact_sync_memberships csm WHERE csm.user_id = p.user_id AND csm.profile_id = p.id AND csm.address_book_id = ? AND csm.enabled = 1)`)
 			args = append(args, bookID)
 		}
 	}
-	if filters.Activity == "none" {
-		where += ` AND COALESCE((SELECT SUM(co.message_count) FROM contact_observations co WHERE co.user_id = p.user_id AND co.profile_id = p.id AND co.is_suppressed = 0), 0) = 0`
-	} else if filters.Activity == "seen" {
-		where += ` AND COALESCE((SELECT SUM(co.message_count) FROM contact_observations co WHERE co.user_id = p.user_id AND co.profile_id = p.id AND co.is_suppressed = 0), 0) > 0`
+	anyOf(clauses)
+
+	// Stored in is where a copy of the contact really is, its cards, unlike
+	// the sync locations above, which are only where Gofer Sync would write.
+	clauses = nil
+	for _, place := range models.ContactFilterValues(filters.StoredIn) {
+		if place == "local" {
+			clauses = append(clauses, `EXISTS (SELECT 1 FROM contact_cards cc WHERE cc.user_id = p.user_id AND cc.profile_id = p.id AND cc.kind = 'local' AND cc.is_deleted = 0)`)
+		} else if accountID, ok := strings.CutPrefix(place, "account:"); ok && accountID != "" {
+			clauses = append(clauses, `EXISTS (SELECT 1 FROM contact_cards cc WHERE cc.user_id = p.user_id AND cc.profile_id = p.id AND cc.kind = 'provider' AND cc.is_deleted = 0 AND cc.account_id = ?)`)
+			args = append(args, accountID)
+		} else if bookID, ok := strings.CutPrefix(place, "book:"); ok && bookID != "" {
+			clauses = append(clauses, `EXISTS (SELECT 1 FROM contact_cards cc WHERE cc.user_id = p.user_id AND cc.profile_id = p.id AND cc.kind = 'provider' AND cc.is_deleted = 0 AND cc.address_book_id = ?)`)
+			args = append(args, bookID)
+		}
 	}
-	saveTarget := strings.TrimSpace(filters.SaveTarget)
-	if saveTarget == "local" {
-		where += ` AND EXISTS (SELECT 1 FROM contact_cards cc WHERE cc.user_id = p.user_id AND cc.profile_id = p.id AND cc.kind = 'local' AND cc.is_deleted = 0)`
-	} else if accountID, ok := strings.CutPrefix(saveTarget, "account:"); ok && accountID != "" {
-		where += ` AND EXISTS (SELECT 1 FROM contact_sync_memberships csm WHERE csm.user_id = p.user_id AND csm.profile_id = p.id AND csm.account_id = ? AND csm.enabled = 1)`
-		args = append(args, accountID)
-	} else if bookID, ok := strings.CutPrefix(saveTarget, "book:"); ok && bookID != "" {
-		where += ` AND EXISTS (SELECT 1 FROM contact_sync_memberships csm WHERE csm.user_id = p.user_id AND csm.profile_id = p.id AND csm.address_book_id = ? AND csm.enabled = 1)`
-		args = append(args, bookID)
-	}
+	anyOf(clauses)
 	return where, args
 }
 

@@ -287,6 +287,10 @@ type ContactAddressBook struct {
 // it is deleted for good.
 const ContactTrashRetentionDays = 30
 
+// ContactFilters narrows the contacts list. Source, StoredIn, SaveTarget and
+// Activity each hold one value or several separated by commas: a contact
+// matches a filter when it matches any of its values, and the list when it
+// matches every filter.
 type ContactFilters struct {
 	// Trash lists the contacts in the Trash instead of the others.
 	Trash      bool
@@ -294,10 +298,39 @@ type ContactFilters struct {
 	WithEmail  bool // only contacts that can be written to, for address suggestions
 	Source     string
 	SaveTarget string
-	Activity   string
-	View       string
-	SortBy     string
-	SortOrder  string
+	// StoredIn keeps the contacts with a copy in this place: "local" for
+	// Gofer Local, "account:<id>" or "book:<id>" for a copy on the account.
+	StoredIn  string
+	Activity  string
+	View      string
+	SortBy    string
+	SortOrder string
+}
+
+// ContactFilterValues splits a contacts filter into its values, without
+// blanks or repeats.
+func ContactFilterValues(filter string) []string {
+	var values []string
+	seen := make(map[string]bool)
+	for _, value := range strings.Split(filter, ",") {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		values = append(values, value)
+	}
+	return values
+}
+
+// ContactFilterHas says whether value is one of the filter's values.
+func ContactFilterHas(filter, value string) bool {
+	for _, have := range ContactFilterValues(filter) {
+		if have == value {
+			return true
+		}
+	}
+	return false
 }
 
 type Label struct {

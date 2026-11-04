@@ -1,14 +1,11 @@
 package handler
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
-	"io"
 	"log"
 	"net/http"
 	"net/url"
@@ -70,59 +67,41 @@ func (h *Handler) handleUserUnifyContact(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *Handler) handleUserImportContacts(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, contactImportMaxBytes+(128<<10))
-	if err := r.ParseMultipartForm(contactImportMaxBytes); err != nil {
-		http.Error(w, i18n.T(r.Context(), "server.error.invalid_vcard_import"), http.StatusBadRequest)
-		return
-	}
-	if r.MultipartForm != nil {
-		defer r.MultipartForm.RemoveAll()
-	}
-	file, _, err := r.FormFile("vcard")
-	if err != nil {
-		http.Error(w, i18n.T(r.Context(), "server.error.missing_vcard_file"), http.StatusBadRequest)
-		return
-	}
-	defer file.Close()
-	data, err := io.ReadAll(io.LimitReader(file, contactImportMaxBytes+1))
-	if err != nil || int64(len(data)) > contactImportMaxBytes {
-		http.Error(w, i18n.T(r.Context(), "server.error.vcard_file_is_too_large"), http.StatusBadRequest)
-		return
-	}
 	// The editor snapshot applies the owned destination allowlist. vCard imports
 	// retain the existing disabled-sync behavior and never perform provider HTTP.
-	contacts, err := parseVCardContacts(bytes.NewReader(data), strings.Split(r.FormValue("save_targets"), ","))
-	if err != nil {
-		http.Error(w, serverText(r.Context(), err.Error()), http.StatusBadRequest)
+	request, ok := readContactImport(w, r, func(raw string) []string { return strings.Split(raw, ",") })
+	if !ok {
 		return
 	}
-	owner, imported := h.userID(r.Context()), 0
-	err = h.userIMAP.RunUserServiceWork(r.Context(), owner, func(ctx context.Context) error {
-		for _, contact := range contacts {
-			snapshot, err := h.userAccounts.SnapshotContactEdit(ctx, owner, contact)
-			if err != nil {
+	owner := h.userID(r.Context())
+	if request.preview {
+		previewContactImport(w, r, request.contacts, func(email string) (inUse bool, err error) {
+			err = h.userAccounts.WithUser(r.Context(), owner, func(_ *config.AccountStore, db *storage.DB) error {
+				inUse, err = db.ContactEmailInUse(r.Context(), owner, email)
 				return err
-			}
-			if _, err := h.userAccounts.SaveContactEdit(ctx, snapshot, false); err != nil {
-				return err
-			}
-			imported++
-		}
-		return nil
-	})
-	if err != nil && imported < len(contacts) {
-		if imported == 0 {
-			userContactEditError(w, r, err)
-		} else {
-			noun := "contacts"
-			if imported == 1 {
-				noun = "contact"
-			}
-			http.Error(w, fmt.Sprintf("Import stopped after saving %d %s. The remaining contacts were not saved.", imported, noun), http.StatusServiceUnavailable)
-		}
+			})
+			return inUse, err
+		})
 		return
 	}
-	http.Redirect(w, r, fmt.Sprintf("/contacts?imported=%d", imported), http.StatusSeeOther)
+	run := func(work func(context.Context) error) error {
+		return h.userIMAP.RunUserServiceWork(r.Context(), owner, work)
+	}
+	save := func(ctx context.Context, contact models.Contact, skipExisting bool) (bool, bool, error) {
+		snapshot, err := h.userAccounts.SnapshotContactEdit(ctx, owner, contact)
+		if err != nil {
+			return false, false, err
+		}
+		existed := snapshot.Previous() != nil
+		if existed && skipExisting {
+			return true, false, nil
+		}
+		if _, err := h.userAccounts.SaveContactEdit(ctx, snapshot, false); err != nil {
+			return existed, false, err
+		}
+		return existed, true, nil
+	}
+	runContactImport(w, r, request, run, save, userContactEditError)
 }
 
 func (h *Handler) handleUserSaveContact(w http.ResponseWriter, r *http.Request) {

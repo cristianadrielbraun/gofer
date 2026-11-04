@@ -101,6 +101,17 @@ func contactEditIdentityQuery(ctx context.Context, query contactProfileQuery, ow
 	return id, err
 }
 
+// ContactEmailInUse says whether a contact that isn't deleted already has
+// email, the same match a save uses to update a contact instead of adding one.
+func (db *DB) ContactEmailInUse(ctx context.Context, owner, email string) (bool, error) {
+	normalized := normalizeContactEmail(strings.TrimSpace(email))
+	if owner == "" || normalized == "" {
+		return false, nil
+	}
+	id, err := contactEditIdentityQuery(ctx, db.Read(), owner, normalized)
+	return id != "", err
+}
+
 // Match the editor's allowlist: invalid or disabled destinations are omitted,
 // and an empty selection becomes Local. The writer rechecks accepted locations.
 func contactEditTargetsQuery(ctx context.Context, query contactProfileQuery, owner string, targets []string) ([]string, []string, error) {

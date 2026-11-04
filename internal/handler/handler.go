@@ -1139,26 +1139,38 @@ func (h *Handler) parseContactFilters(r *http.Request) models.ContactFilters {
 	q := r.URL.Query()
 	filters := models.ContactFilters{
 		Query:      strings.TrimSpace(q.Get("q")),
-		Source:     strings.TrimSpace(q.Get("source")),
-		SaveTarget: strings.TrimSpace(q.Get("save_target")),
-		Activity:   strings.TrimSpace(q.Get("activity")),
+		Source:     contactFilterParam(q["source"], contactSourceFilterValid),
+		SaveTarget: contactFilterParam(q["save_target"], contactPlaceFilterValid),
+		StoredIn:   contactFilterParam(q["stored_in"], contactPlaceFilterValid),
+		Activity:   contactFilterParam(q["activity"], func(value string) bool { return value == "seen" || value == "none" }),
 		View:       contactViewMode(q.Get("view")),
 		SortBy:     strings.TrimSpace(q.Get("sort_by")),
 		SortOrder:  strings.TrimSpace(q.Get("sort_order")),
 		Trash:      q.Get("trash") == "1",
 	}
-	if filters.Source != "manual" && filters.Source != "observed" && filters.Source != "synced" && !strings.HasPrefix(filters.Source, "synced:") && !strings.HasPrefix(filters.Source, "book:") {
-		filters.Source = ""
-	}
-	if filters.Activity != "seen" && filters.Activity != "none" {
-		filters.Activity = ""
-	}
-	if filters.SaveTarget != "local" && !strings.HasPrefix(filters.SaveTarget, "account:") && !strings.HasPrefix(filters.SaveTarget, "book:") {
-		filters.SaveTarget = ""
-	}
 	filters.SortBy = normalizeContactSortBy(filters.SortBy)
 	filters.SortOrder = normalizeSortOrder(filters.SortOrder)
 	return filters
+}
+
+// contactFilterParam keeps the valid values of a contacts filter, given
+// once with commas between them or as the parameter repeated.
+func contactFilterParam(raw []string, valid func(string) bool) string {
+	var kept []string
+	for _, value := range models.ContactFilterValues(strings.Join(raw, ",")) {
+		if valid(value) {
+			kept = append(kept, value)
+		}
+	}
+	return strings.Join(kept, ",")
+}
+
+func contactSourceFilterValid(value string) bool {
+	return value == "manual" || value == "observed" || value == "synced" || strings.HasPrefix(value, "synced:") || strings.HasPrefix(value, "book:")
+}
+
+func contactPlaceFilterValid(value string) bool {
+	return value == "local" || strings.HasPrefix(value, "account:") || strings.HasPrefix(value, "book:")
 }
 
 func applyContactSortDefaults(filters models.ContactFilters, r *http.Request, settings map[string]string) models.ContactFilters {
@@ -1487,42 +1499,35 @@ func serveVCard(w http.ResponseWriter, r *http.Request, filename string, contact
 
 func (h *Handler) handleImportContacts(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	// ParseMultipartForm only caps what it keeps in memory; the rest of an
-	// unbounded body would go to temporary files.
-	r.Body = http.MaxBytesReader(w, r.Body, contactImportMaxBytes+(128<<10))
-	if err := r.ParseMultipartForm(contactImportMaxBytes); err != nil {
-		http.Error(w, i18n.T(r.Context(), "server.error.invalid_vcard_import_alt"), http.StatusBadRequest)
+	request, ok := readContactImport(w, r, func(raw string) []string { return h.contactSaveTargets(ctx, raw) })
+	if !ok {
 		return
 	}
-	file, _, err := r.FormFile("vcard")
-	if err != nil {
-		http.Error(w, i18n.T(r.Context(), "server.error.missing_vcard_file_alt"), http.StatusBadRequest)
+	owner := h.userID(ctx)
+	inUse := func(email string) (bool, error) { return h.db.ContactEmailInUse(ctx, owner, email) }
+	if request.preview {
+		previewContactImport(w, r, request.contacts, inUse)
 		return
 	}
-	defer file.Close()
-
-	data, err := io.ReadAll(io.LimitReader(file, contactImportMaxBytes+1))
-	if err != nil || int64(len(data)) > contactImportMaxBytes {
-		http.Error(w, i18n.T(r.Context(), "server.error.vcard_file_is_too_large"), http.StatusBadRequest)
-		return
-	}
-
-	contacts, err := parseVCardContacts(bytes.NewReader(data), h.contactSaveTargets(ctx, r.FormValue("save_targets")))
-	if err != nil {
-		http.Error(w, serverText(r.Context(), err.Error()), http.StatusBadRequest)
-		return
-	}
-	imported := 0
-	for _, contact := range contacts {
-		saved, err := h.db.SaveContact(ctx, h.userID(ctx), contact)
+	run := func(work func(context.Context) error) error { return work(ctx) }
+	save := func(ctx context.Context, contact models.Contact, skipExisting bool) (bool, bool, error) {
+		existed, err := inUse(contact.Email)
 		if err != nil {
-			http.Error(w, i18n.T(r.Context(), "server.error.failed_to_import_contacts"), http.StatusInternalServerError)
-			return
+			return false, false, err
 		}
-		h.scheduleContactAccountSync(ctx, h.userID(ctx), saved, nil)
-		imported++
+		if existed && skipExisting {
+			return true, false, nil
+		}
+		saved, err := h.db.SaveContact(ctx, owner, contact)
+		if err != nil {
+			return existed, false, err
+		}
+		h.scheduleContactAccountSync(ctx, owner, saved, nil)
+		return existed, true, nil
 	}
-	http.Redirect(w, r, fmt.Sprintf("/contacts?imported=%d", imported), http.StatusSeeOther)
+	runContactImport(w, r, request, run, save, func(w http.ResponseWriter, r *http.Request, _ error) {
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_import_contacts"), http.StatusInternalServerError)
+	})
 }
 
 func (h *Handler) handleUnifyContact(w http.ResponseWriter, r *http.Request) {

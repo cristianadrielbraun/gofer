@@ -1473,6 +1473,21 @@ input[role="switch"] + .gofer-switch-track::after {
   animation: mailActiveFilterDropOut 140ms cubic-bezier(0.4, 0, 0.2, 1) both;
 }
 
+/* A contacts pill names every value of its filter, account names included,
+   so it takes the room the row has, and pills share it once they don't fit. */
+.contacts-active-filter-strip .mail-active-filter-pill {
+  flex: 0 1 auto;
+  min-width: 4rem;
+  max-width: 100%;
+}
+
+/* Room at the sides as well, for the border and shadow of a pill as wide
+   as the row, kept out of the alignment with the search above. */
+.contacts-active-filter-strip .mail-active-filter-visible {
+  padding-inline: 2px;
+  margin-inline: -2px;
+}
+
 .mail-active-filter-pill-label {
   min-width: 0;
   overflow: hidden;

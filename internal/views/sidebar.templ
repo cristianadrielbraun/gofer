@@ -334,11 +334,15 @@ func contactSidebarURL(filters models.ContactFilters, target string) string {
 }
 
 // contactSidebarActiveTarget is the sidebar target the filters match, or
-// "-" when they mix an origin with a sync location and no item matches.
+// "-" when no item matches: an origin mixed with a sync location, or a
+// Stored in filter, which no sidebar item stands for.
 func contactSidebarActiveTarget(filters models.ContactFilters) string {
 	switch {
 	case filters.Trash:
 		return "trash"
+	case filters.StoredIn != "", strings.Contains(filters.Source, ","), strings.Contains(filters.SaveTarget, ","):
+		// A sidebar item stands for one place, never several.
+		return "-"
 	case filters.Source == "":
 		return filters.SaveTarget
 	case filters.SaveTarget != "":

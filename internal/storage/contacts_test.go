@@ -4,6 +4,7 @@ import (
 	"context"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"testing"
 	"time"
 
@@ -937,6 +938,75 @@ func TestListContactsFilters(t *testing.T) {
 	contacts, err = db.ListContacts(ctx, "default", models.ContactFilters{Activity: "none"}, 10, 0)
 	if err != nil || len(contacts) != 1 || contacts[0].ID != manual.ID {
 		t.Fatalf("no messages filter = %#v, %v; want manual contact", contacts, err)
+	}
+}
+
+// Stored in follows the copies a contact really has, not the places Gofer
+// Sync would write it to.
+func TestListContactsStoredInFilter(t *testing.T) {
+	ctx := context.Background()
+	db := newContactsTestDB(t)
+
+	planned, err := db.SaveContact(ctx, "default", models.Contact{Name: "Planned", Email: "planned@example.com", SaveTargets: []string{"account:acc"}})
+	if err != nil {
+		t.Fatalf("SaveContact(planned) error = %v", err)
+	}
+	local, err := db.SaveContact(ctx, "default", models.Contact{Name: "Local", Email: "local@example.com", SaveTargets: []string{"local"}})
+	if err != nil {
+		t.Fatalf("SaveContact(local) error = %v", err)
+	}
+	stored, err := db.SaveContact(ctx, "default", models.Contact{Name: "Stored", Email: "stored@example.com", SaveTargets: []string{"account:other"}})
+	if err != nil {
+		t.Fatalf("SaveContact(stored) error = %v", err)
+	}
+	if err := db.UpsertContactSource(ctx, ContactSource{UserID: "default", ContactID: stored.ID, Provider: "carddav", AccountID: "acc", AddressBookID: "book-1", RemoteID: "remote-1"}); err != nil {
+		t.Fatalf("UpsertContactSource() error = %v", err)
+	}
+
+	ids := func(filters models.ContactFilters) []string {
+		t.Helper()
+		contacts, err := db.ListContacts(ctx, "default", filters, 10, 0)
+		if err != nil {
+			t.Fatalf("ListContacts(%+v) error = %v", filters, err)
+		}
+		count, err := db.CountContacts(ctx, "default", filters)
+		if err != nil || count != len(contacts) {
+			t.Fatalf("CountContacts(%+v) = %d, %v; list has %d", filters, count, err, len(contacts))
+		}
+		out := make([]string, 0, len(contacts))
+		for _, contact := range contacts {
+			out = append(out, contact.ID)
+		}
+		return out
+	}
+	for _, filter := range []string{"account:acc", "book:book-1"} {
+		if got := ids(models.ContactFilters{StoredIn: filter}); len(got) != 1 || got[0] != stored.ID {
+			t.Fatalf("stored in %s = %v, want only the contact with a card there", filter, got)
+		}
+	}
+	if got := ids(models.ContactFilters{StoredIn: "local"}); len(got) != 1 || got[0] != local.ID {
+		t.Fatalf("stored in local = %v, want only the Gofer Local contact", got)
+	}
+	if got := ids(models.ContactFilters{StoredIn: "account:other"}); len(got) != 0 {
+		t.Fatalf("stored in a sync location with no copy = %v, want none", got)
+	}
+	if got := ids(models.ContactFilters{SaveTarget: "account:acc"}); len(got) != 1 || got[0] != planned.ID {
+		t.Fatalf("sync location filter = %v, want the planned contact", got)
+	}
+
+	// Several values in one filter match a contact in any of them; filters
+	// together match only the contacts in all of them.
+	if got := ids(models.ContactFilters{StoredIn: "local,book:book-1"}); len(got) != 2 || !slices.Contains(got, local.ID) || !slices.Contains(got, stored.ID) {
+		t.Fatalf("stored in local or the book = %v, want the local and stored contacts", got)
+	}
+	if got := ids(models.ContactFilters{StoredIn: "local,book:book-1", SaveTarget: "account:other"}); len(got) != 1 || got[0] != stored.ID {
+		t.Fatalf("stored in and sync location together = %v, want only the stored contact", got)
+	}
+	if got := ids(models.ContactFilters{Activity: "seen,none"}); len(got) != 3 {
+		t.Fatalf("seen or no messages = %v, want every contact", got)
+	}
+	if got := ids(models.ContactFilters{Source: "manual,observed"}); len(got) != 3 {
+		t.Fatalf("manual or observed origin = %v, want every contact", got)
 	}
 }
 

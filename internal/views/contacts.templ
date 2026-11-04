@@ -14,6 +14,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/components/icon"
 	"github.com/cristianadrielbraun/gofer/components/input"
 	"github.com/cristianadrielbraun/gofer/components/popover"
+	"github.com/cristianadrielbraun/gofer/components/progress"
 	"github.com/cristianadrielbraun/gofer/components/radio"
 	"github.com/cristianadrielbraun/gofer/components/selectbox"
 	switchcomp "github.com/cristianadrielbraun/gofer/components/switch"
@@ -348,6 +349,52 @@ func contactReadOnlyMirrorLabels(ctx context.Context, contact *models.Contact, p
 		}
 	}
 	return labels
+}
+
+// contactStoredInLabels names the places that really hold a copy of the
+// contact: Gofer Local, then each account or address book with its card.
+func contactStoredInLabels(ctx context.Context, profile *models.ContactProfile, accounts []models.Account) []string {
+	labels := []string{}
+	if profile == nil {
+		return labels
+	}
+	seen := map[string]bool{}
+	for _, card := range profile.Cards {
+		if !card.IsDeleted && card.Kind == "local" {
+			labels = appendUniqueContactReadLabel(labels, seen, i18n.T(ctx, "contacts.origin.local"))
+			break
+		}
+	}
+	for _, card := range profile.Cards {
+		if card.IsDeleted || card.Kind != "provider" {
+			continue
+		}
+		target := "account:" + card.AccountID
+		if card.AddressBookID != "" {
+			target = "book:" + card.AddressBookID
+		}
+		labels = appendUniqueContactReadLabel(labels, seen, contactStoredInPlaceLabel(ctx, target, card.AccountID, accounts))
+	}
+	return labels
+}
+
+// contactStoredInPlaceLabel names an account or address book as the filters
+// do; a book the account no longer lists still names the account.
+func contactStoredInPlaceLabel(ctx context.Context, target, accountID string, accounts []models.Account) string {
+	for _, account := range accounts {
+		if account.ID != accountID {
+			continue
+		}
+		if bookID, ok := strings.CutPrefix(target, "book:"); ok {
+			for _, book := range account.ContactAddressBooks {
+				if book.ID == bookID {
+					return accountContactOriginLabel(ctx, account) + " / " + contactAddressBookDisplayName(ctx, book)
+				}
+			}
+		}
+		return accountContactOriginLabel(ctx, account)
+	}
+	return i18n.T(ctx, "contacts.origin.unavailable_account")
 }
 
 func contactProfileSyncEnabled(profile *models.ContactProfile) bool {
@@ -757,7 +804,7 @@ func contactViewIndicatorStyle(mode string) string {
 // contactFiltersActiveCount is how many filters the Filters button counts.
 func contactFiltersActiveCount(filters models.ContactFilters) int {
 	count := 0
-	for _, value := range []string{filters.Source, filters.SaveTarget, filters.Activity} {
+	for _, value := range []string{filters.Source, filters.StoredIn, filters.SaveTarget, filters.Activity} {
 		if value != "" {
 			count++
 		}
@@ -864,12 +911,15 @@ func contactMessageCountTitle(ctx context.Context, count int) string {
 }
 
 func contactFiltersActive(filters models.ContactFilters) bool {
-	return filters.Source != "" || filters.SaveTarget != "" || filters.Activity != ""
+	return filters.Source != "" || filters.StoredIn != "" || filters.SaveTarget != "" || filters.Activity != ""
 }
 
 func contactFilterCount(filters models.ContactFilters) int {
 	count := 0
 	if filters.Source != "" {
+		count++
+	}
+	if filters.StoredIn != "" {
 		count++
 	}
 	if filters.SaveTarget != "" {
@@ -891,6 +941,9 @@ func contactFilterValues(filters models.ContactFilters) url.Values {
 	}
 	if filters.Source != "" {
 		values.Set("source", filters.Source)
+	}
+	if filters.StoredIn != "" {
+		values.Set("stored_in", filters.StoredIn)
 	}
 	if filters.SaveTarget != "" {
 		values.Set("save_target", filters.SaveTarget)
@@ -1423,6 +1476,7 @@ templ ContactsListPane(contacts []models.Contact, selected *models.Contact, filt
 						<input type="hidden" name="trash" value="1"/>
 					}
 					<input type="hidden" name="source" value={ filters.Source }/>
+					<input type="hidden" name="stored_in" value={ filters.StoredIn }/>
 					<input type="hidden" name="save_target" value={ filters.SaveTarget }/>
 					<input type="hidden" name="activity" value={ filters.Activity }/>
 					<input type="hidden" name="view" value={ contactViewMode(filters.View) }/>
@@ -1450,7 +1504,7 @@ templ ContactsListPane(contacts []models.Contact, selected *models.Contact, filt
 								}
 							}
 						}
-						@dropdown.Content(dropdown.ContentProps{Placement: dropdown.PlacementBottomEnd, Class: "mobile-sheet w-[26rem] max-w-[calc(100vw-2rem)] normal-case tracking-normal p-3"}) {
+						@dropdown.Content(dropdown.ContentProps{Placement: dropdown.PlacementBottomEnd, Class: "mobile-sheet w-[26rem] max-w-[calc(100vw-2rem)] max-h-none normal-case tracking-normal p-3"}) {
 							<form action="/contacts" method="get" class="space-y-3" data-contact-filter-form>
 								if filters.Trash {
 									<input type="hidden" name="trash" value="1"/>
@@ -1459,36 +1513,57 @@ templ ContactsListPane(contacts []models.Contact, selected *models.Contact, filt
 								<input type="hidden" name="view" value={ contactViewMode(filters.View) }/>
 								<input type="hidden" name="sort_by" value={ filters.SortBy }/>
 								<input type="hidden" name="sort_order" value={ filters.SortOrder }/>
-								<div class="flex items-center justify-between gap-2">
-									<div class="text-xs font-semibold text-muted-foreground">{ i18n.T(ctx, "contacts.filters.quick") }</div>
+								<div class="flex items-center justify-end gap-2">
 									<a href={ contactsURL(models.ContactFilters{Trash: filters.Trash, Query: filters.Query, View: filters.View, SortBy: filters.SortBy, SortOrder: filters.SortOrder}, "") } class="text-[11px] font-medium text-muted-foreground hover:text-foreground" data-contact-filter-clear>{ i18n.T(ctx, "common.clear") }</a>
 								</div>
 								<div class="space-y-1 text-[11px] font-medium text-muted-foreground">
-									<span>{ i18n.T(ctx, "contacts.filters.origin") }</span>
-									@selectbox.SelectBox() {
-										@selectbox.Trigger(selectbox.TriggerProps{Name: "source", Class: "h-8 bg-background text-xs", DisableClear: true}) {
-											@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "contacts.filters.any_origin")})
+									<span>{ i18n.T(ctx, "contacts.stored_in") }</span>
+									@selectbox.SelectBox(selectbox.Props{Multiple: true}) {
+										@selectbox.Trigger(selectbox.TriggerProps{Name: "stored_in", Class: "h-8 bg-background text-xs", Multiple: true, ShowPills: true, DisableClear: true, SelectedCountText: i18n.T(ctx, "contacts.filters.selected_count")}) {
+											@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "contacts.filters.anywhere"), Multiple: true, Class: "text-left"})
 										}
 										@selectbox.Content(selectbox.ContentProps{NoSearch: true, DisableExclusive: true}) {
-											@selectbox.Item(selectbox.ItemProps{Value: "", Selected: filters.Source == ""}) {
-												{ i18n.T(ctx, "contacts.filters.any_origin") }
+											@selectbox.Item(selectbox.ItemProps{Value: "local", Selected: models.ContactFilterHas(filters.StoredIn, "local")}) {
+												{ i18n.T(ctx, "contacts.origin.local") }
 											}
-											@selectbox.Item(selectbox.ItemProps{Value: "manual", Selected: filters.Source == "manual"}) {
+											for _, account := range accounts {
+												if !account.IsDeleting && accountContactSyncCapable(account) {
+													@selectbox.Item(selectbox.ItemProps{Value: contactSaveTargetValue(account), Selected: models.ContactFilterHas(filters.StoredIn, contactSaveTargetValue(account))}) {
+														{ accountContactSaveLabel(account) }
+													}
+													for _, book := range account.ContactAddressBooks {
+														@selectbox.Item(selectbox.ItemProps{Value: contactBookTargetValue(book), Selected: models.ContactFilterHas(filters.StoredIn, contactBookTargetValue(book))}) {
+															{ accountContactOriginLabel(ctx, account) } / { contactAddressBookDisplayName(ctx, book) }
+														}
+													}
+												}
+											}
+										}
+									}
+								</div>
+								<div class="space-y-1 text-[11px] font-medium text-muted-foreground">
+									<span>{ i18n.T(ctx, "contacts.filters.origin") }</span>
+									@selectbox.SelectBox(selectbox.Props{Multiple: true}) {
+										@selectbox.Trigger(selectbox.TriggerProps{Name: "source", Class: "h-8 bg-background text-xs", Multiple: true, ShowPills: true, DisableClear: true, SelectedCountText: i18n.T(ctx, "contacts.filters.selected_count")}) {
+											@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "contacts.filters.any_origin"), Multiple: true, Class: "text-left"})
+										}
+										@selectbox.Content(selectbox.ContentProps{NoSearch: true, DisableExclusive: true}) {
+											@selectbox.Item(selectbox.ItemProps{Value: "manual", Selected: models.ContactFilterHas(filters.Source, "manual")}) {
 												{ i18n.T(ctx, "contacts.origin.manual") }
 											}
-											@selectbox.Item(selectbox.ItemProps{Value: "observed", Selected: filters.Source == "observed"}) {
+											@selectbox.Item(selectbox.ItemProps{Value: "observed", Selected: models.ContactFilterHas(filters.Source, "observed")}) {
 												{ i18n.T(ctx, "contacts.origin.observed") }
 											}
-											@selectbox.Item(selectbox.ItemProps{Value: "synced", Selected: filters.Source == "synced"}) {
+											@selectbox.Item(selectbox.ItemProps{Value: "synced", Selected: models.ContactFilterHas(filters.Source, "synced")}) {
 												{ contactOriginFilterLabel(ctx, "synced", accounts) }
 											}
 											for _, account := range accounts {
 												if !account.IsDeleting && accountContactSyncCapable(account) {
-													@selectbox.Item(selectbox.ItemProps{Value: "synced:" + account.ID, Selected: filters.Source == "synced:"+account.ID}) {
+													@selectbox.Item(selectbox.ItemProps{Value: "synced:" + account.ID, Selected: models.ContactFilterHas(filters.Source, "synced:"+account.ID)}) {
 														{ contactOriginFilterLabel(ctx, "synced:"+account.ID, accounts) }
 													}
 													for _, book := range account.ContactAddressBooks {
-														@selectbox.Item(selectbox.ItemProps{Value: "book:" + book.ID, Selected: filters.Source == "book:"+book.ID}) {
+														@selectbox.Item(selectbox.ItemProps{Value: "book:" + book.ID, Selected: models.ContactFilterHas(filters.Source, "book:"+book.ID)}) {
 															{ contactOriginFilterLabel(ctx, "book:"+book.ID, accounts) }
 														}
 													}
@@ -1499,24 +1574,21 @@ templ ContactsListPane(contacts []models.Contact, selected *models.Contact, filt
 								</div>
 								<div class="space-y-1 text-[11px] font-medium text-muted-foreground">
 									<span>{ i18n.T(ctx, "contacts.sync.locations") }</span>
-									@selectbox.SelectBox() {
-										@selectbox.Trigger(selectbox.TriggerProps{Name: "save_target", Class: "h-8 bg-background text-xs", DisableClear: true}) {
-											@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "contacts.filters.any_location")})
+									@selectbox.SelectBox(selectbox.Props{Multiple: true}) {
+										@selectbox.Trigger(selectbox.TriggerProps{Name: "save_target", Class: "h-8 bg-background text-xs", Multiple: true, ShowPills: true, DisableClear: true, SelectedCountText: i18n.T(ctx, "contacts.filters.selected_count")}) {
+											@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "contacts.filters.any_location"), Multiple: true, Class: "text-left"})
 										}
 										@selectbox.Content(selectbox.ContentProps{NoSearch: true, DisableExclusive: true}) {
-											@selectbox.Item(selectbox.ItemProps{Value: "", Selected: filters.SaveTarget == ""}) {
-												{ i18n.T(ctx, "contacts.filters.any_location") }
-											}
-											@selectbox.Item(selectbox.ItemProps{Value: "local", Selected: filters.SaveTarget == "local"}) {
+											@selectbox.Item(selectbox.ItemProps{Value: "local", Selected: models.ContactFilterHas(filters.SaveTarget, "local")}) {
 												{ i18n.T(ctx, "contacts.origin.local") }
 											}
 											for _, account := range accounts {
 												if !account.IsDeleting && accountContactSyncCapable(account) {
-													@selectbox.Item(selectbox.ItemProps{Value: contactSaveTargetValue(account), Selected: filters.SaveTarget == contactSaveTargetValue(account)}) {
+													@selectbox.Item(selectbox.ItemProps{Value: contactSaveTargetValue(account), Selected: models.ContactFilterHas(filters.SaveTarget, contactSaveTargetValue(account))}) {
 														{ accountContactSaveLabel(account) }
 													}
 													for _, book := range account.ContactAddressBooks {
-														@selectbox.Item(selectbox.ItemProps{Value: contactBookTargetValue(book), Selected: filters.SaveTarget == contactBookTargetValue(book)}) {
+														@selectbox.Item(selectbox.ItemProps{Value: contactBookTargetValue(book), Selected: models.ContactFilterHas(filters.SaveTarget, contactBookTargetValue(book))}) {
 															{ accountContactOriginLabel(ctx, account) } / { contactAddressBookDisplayName(ctx, book) }
 														}
 													}
@@ -1527,24 +1599,20 @@ templ ContactsListPane(contacts []models.Contact, selected *models.Contact, filt
 								</div>
 								<div class="space-y-1 text-[11px] font-medium text-muted-foreground">
 									<span>{ i18n.T(ctx, "contacts.filters.activity") }</span>
-									@selectbox.SelectBox() {
-										@selectbox.Trigger(selectbox.TriggerProps{Name: "activity", Class: "h-8 bg-background text-xs", DisableClear: true}) {
-											@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "contacts.filters.any_activity")})
+									@selectbox.SelectBox(selectbox.Props{Multiple: true}) {
+										@selectbox.Trigger(selectbox.TriggerProps{Name: "activity", Class: "h-8 bg-background text-xs", Multiple: true, ShowPills: true, DisableClear: true, SelectedCountText: i18n.T(ctx, "contacts.filters.selected_count")}) {
+											@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "contacts.filters.any_activity"), Multiple: true, Class: "text-left"})
 										}
 										@selectbox.Content(selectbox.ContentProps{NoSearch: true, DisableExclusive: true}) {
-											@selectbox.Item(selectbox.ItemProps{Value: "", Selected: filters.Activity == ""}) {
-												{ i18n.T(ctx, "contacts.filters.any_activity") }
-											}
-											@selectbox.Item(selectbox.ItemProps{Value: "seen", Selected: filters.Activity == "seen"}) {
+											@selectbox.Item(selectbox.ItemProps{Value: "seen", Selected: models.ContactFilterHas(filters.Activity, "seen")}) {
 												{ i18n.T(ctx, "contacts.filters.seen") }
 											}
-											@selectbox.Item(selectbox.ItemProps{Value: "none", Selected: filters.Activity == "none"}) {
+											@selectbox.Item(selectbox.ItemProps{Value: "none", Selected: models.ContactFilterHas(filters.Activity, "none")}) {
 												{ i18n.T(ctx, "contacts.filters.no_messages") }
 											}
 										}
 									}
 								</div>
-								<button type="submit" class="inline-flex h-8 w-full items-center justify-center rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground hover:bg-primary/90">{ i18n.T(ctx, "contacts.filters.apply") }</button>
 							</form>
 						}
 					}
@@ -1552,21 +1620,28 @@ templ ContactsListPane(contacts []models.Contact, selected *models.Contact, filt
 			</div>
 			// Under the search, as the mail list's active filter strip. It stays in
 			// the page, collapsed, so the pills open and close it smoothly.
-			<div data-contact-active-filter-pills class={ "mail-active-filter-strip", templ.KV("hidden", !contactFiltersActive(filters)) } aria-label={ i18n.T(ctx, "mail.filters.active") }>
+			<div data-contact-active-filter-pills class={ "mail-active-filter-strip contacts-active-filter-strip", templ.KV("hidden", !contactFiltersActive(filters)) } aria-label={ i18n.T(ctx, "mail.filters.active") }>
 				if contactFiltersActive(filters) {
 					<div class="mail-active-filter-visible">
+						if filters.StoredIn != "" {
+							@contactActiveFilterPill("stored_in", i18n.T(ctx, "contacts.filters.stored_in_pill", "place", contactPlaceFilterLabels(ctx, filters.StoredIn, accounts)))
+						}
 						if filters.Source != "" {
-							@contactActiveFilterPill("source", i18n.T(ctx, "contacts.filters.origin_pill", "origin", contactOriginFilterLabel(ctx, filters.Source, accounts)))
+							@contactActiveFilterPill("source", i18n.T(ctx, "contacts.filters.origin_pill", "origin", contactOriginFilterLabels(ctx, filters.Source, accounts)))
 						}
 						if filters.SaveTarget != "" {
-							@contactActiveFilterPill("save_target", contactSaveTargetLabel(ctx, filters.SaveTarget, accounts))
+							@contactActiveFilterPill("save_target", contactPlaceFilterLabels(ctx, filters.SaveTarget, accounts))
 						}
 						if filters.Activity != "" {
-							@contactActiveFilterPill("activity", contactActivityFilterLabel(ctx, filters.Activity))
+							@contactActiveFilterPill("activity", contactActivityFilterLabels(ctx, filters.Activity))
 						}
 					</div>
 				}
 			</div>
+			// app.js draws the pills again from this one as the filters change.
+			<template data-contact-active-filter-pill-template>
+				@contactActiveFilterPill("", "")
+			</template>
 			</div>
 		</div>
 		<div class="contacts-list-toolbar relative flex items-center gap-1 px-4 py-1.5">
@@ -1654,6 +1729,7 @@ templ ContactsListPane(contacts []models.Contact, selected *models.Contact, filt
 			data-sort-by={ filters.SortBy }
 			data-sort-order={ filters.SortOrder }
 			data-source={ filters.Source }
+			data-stored-in={ filters.StoredIn }
 			data-save-target={ filters.SaveTarget }
 			data-activity={ filters.Activity }
 			if filters.Trash {
@@ -2008,10 +2084,10 @@ templ ContactsImportDialog(accounts []models.Account) {
 					{ i18n.T(ctx, "contacts.import.description") }
 				}
 			}
-			<form action="/api/contacts/import" method="post" enctype="multipart/form-data" class="space-y-4">
+			<form action="/api/contacts/import" method="post" enctype="multipart/form-data" class="space-y-4" data-contacts-import-form>
 				<div class="space-y-1.5">
 					<label class="block text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.import.file") }</label>
-					<input type="file" name="vcard" accept=".vcf,text/vcard,text/x-vcard" required class="block w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground file:mr-3 file:rounded-md file:border-0 file:bg-primary file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-primary-foreground hover:file:bg-primary/90"/>
+					<input type="file" name="vcard" accept=".vcf,text/vcard,text/x-vcard" required data-contacts-import-file class="block w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground file:mr-3 file:rounded-md file:border-0 file:bg-primary file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-primary-foreground hover:file:bg-primary/90"/>
 					<p class="text-xs text-muted-foreground">{ i18n.T(ctx, "contacts.import.supports") }</p>
 				</div>
 				<div class="space-y-1.5">
@@ -2041,13 +2117,46 @@ templ ContactsImportDialog(accounts []models.Account) {
 						}
 					}
 				</div>
+				// Once a file is chosen, Gofer counts its contacts already in
+				// Gofer and asks what to do with them.
+				<p class="text-xs text-muted-foreground" aria-live="polite" data-contacts-import-checking hidden>{ i18n.T(ctx, "contacts.import.checking") }</p>
+				<div class="space-y-3 rounded-lg border border-border bg-muted/40 p-3" data-contacts-import-existing hidden>
+					<p class="text-sm text-foreground" aria-live="polite" data-contacts-import-existing-summary></p>
+					<div class="space-y-2" role="radiogroup" aria-label={ i18n.T(ctx, "contacts.import.existing_label") }>
+						<label class="flex items-start gap-2.5 text-sm text-foreground">
+							<span class="mt-0.5 flex shrink-0">
+								@radio.Radio(radio.Props{Name: "existing", Value: "skip", Checked: true})
+							</span>
+							<span>
+								<span class="font-medium">{ i18n.T(ctx, "contacts.import.existing_skip") }</span>
+								<span class="block text-xs text-muted-foreground mt-0.5">{ i18n.T(ctx, "contacts.import.existing_skip_detail") }</span>
+							</span>
+						</label>
+						<label class="flex items-start gap-2.5 text-sm text-foreground">
+							<span class="mt-0.5 flex shrink-0">
+								@radio.Radio(radio.Props{Name: "existing", Value: "update"})
+							</span>
+							<span>
+								<span class="font-medium">{ i18n.T(ctx, "contacts.import.existing_update") }</span>
+								<span class="block text-xs text-muted-foreground mt-0.5">{ i18n.T(ctx, "contacts.import.existing_update_detail") }</span>
+							</span>
+						</label>
+					</div>
+				</div>
+				<div class="space-y-1.5" data-contacts-import-progress hidden>
+					<div class="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+						<span data-contacts-import-progress-label aria-live="polite">{ i18n.T(ctx, "contacts.import.saving") }</span>
+						<span class="tabular-nums" data-contacts-import-progress-count></span>
+					</div>
+					@progress.Progress(progress.Props{Max: 100, Value: 0, Size: progress.SizeSm, Attributes: templ.Attributes{"data-contacts-import-progress-bar": "", "aria-label": i18n.T(ctx, "contacts.import.progress")}})
+				</div>
 				@dialog.Footer() {
 					@dialog.Close(dialog.CloseProps{For: "contacts-import-dialog"}) {
 						<button type="button" class="inline-flex h-9 items-center justify-center rounded-md border border-border px-3 text-sm font-semibold text-muted-foreground hover:bg-accent hover:text-foreground">{ i18n.T(ctx, "common.cancel") }</button>
 					}
-					<button type="submit" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-md bg-primary px-3 text-sm font-semibold text-primary-foreground hover:bg-primary/90">
+					<button type="submit" data-contacts-import-submit class="inline-flex h-9 items-center justify-center gap-1.5 rounded-md bg-primary px-3 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-70">
 						@icon.Upload(icon.Props{Class: "size-4"})
-						{ i18n.T(ctx, "contacts.import.submit") }
+						<span data-contacts-import-submit-label>{ i18n.T(ctx, "contacts.import.submit") }</span>
 					</button>
 				}
 			</form>
@@ -2160,6 +2269,7 @@ templ ContactReadOnlyContactInfo(contact models.Contact) {
 templ ContactReadOnlySyncInfo(contact models.Contact, profile *models.ContactProfile, syncQueued bool, accounts []models.Account) {
 	{{ originLabel := contactReadOnlyOriginLabel(ctx, contact, profile, accounts) }}
 	{{ targetLabels := contactReadOnlyMirrorLabels(ctx, &contact, profile, accounts) }}
+	{{ storedLabels := contactStoredInLabels(ctx, profile, accounts) }}
 	<section class="rounded-lg border border-ink/10 bg-ink/[0.02]">
 		<div class="flex flex-wrap items-center justify-between gap-3 border-b border-ink/10 px-4 py-3">
 			<div class="flex flex-wrap items-center gap-2">
@@ -2179,6 +2289,7 @@ templ ContactReadOnlySyncInfo(contact models.Contact, profile *models.ContactPro
 			}
 		</div>
 		<div class="grid gap-x-6 px-4 lg:grid-cols-2">
+			@ContactReadOnlyPillListField(i18n.T(ctx, "contacts.stored_in"), storedLabels)
 			@ContactReadOnlyPillListField(i18n.T(ctx, "contacts.sync.locations"), targetLabels)
 			@ContactReadOnlyTextField(i18n.T(ctx, "contacts.filters.origin"), originLabel)
 			@ContactReadOnlySyncStatusField(contactReadOnlySyncStatus(ctx, contact, syncQueued))
@@ -3201,11 +3312,46 @@ templ ContactRecentActivity(contact models.Contact, emails []models.Email) {
 
 // contactActiveFilterPill is one active filter in the strip under the search,
 // the mail list's pill. Choosing it removes that filter.
+// contactActiveFilterPill is a pill that drops its filter, with a tooltip
+// for the whole text, which a long pill cuts short.
 templ contactActiveFilterPill(name string, text string) {
-	<button type="button" data-contact-active-filter-remove={ name } data-contact-active-filter-key={ name + ":" + text } title={ text } aria-label={ i18n.T(ctx, "contacts.filters.remove_pill", "filter", text) } class="mail-active-filter-pill mail-active-filter-pill-stable">
-		<span class="mail-active-filter-pill-label">{ text }</span>
-		<span class="mail-active-filter-pill-remove">x</span>
-	</button>
+	@tooltip.Tooltip() {
+		@tooltip.Trigger() {
+			<button type="button" data-contact-active-filter-remove={ name } data-contact-active-filter-key={ name + ":" + text } aria-label={ i18n.T(ctx, "contacts.filters.remove_pill", "filter", text) } class="mail-active-filter-pill mail-active-filter-pill-stable">
+				<span class="mail-active-filter-pill-label">{ text }</span>
+				<span class="mail-active-filter-pill-remove">x</span>
+			</button>
+		}
+		// The pill row keeps its text on one line; the tooltip wraps instead.
+		@tooltip.Content(tooltip.ContentProps{Position: tooltip.PositionBottom, ShowArrow: true, Class: "max-w-[min(28rem,calc(100vw-2rem))] whitespace-normal break-words"}) {
+			<span data-contact-active-filter-tooltip>{ text }</span>
+		}
+	}
+}
+
+// The filter pills name every value of their filter.
+func contactPlaceFilterLabels(ctx context.Context, filter string, accounts []models.Account) string {
+	var labels []string
+	for _, value := range models.ContactFilterValues(filter) {
+		labels = append(labels, contactSaveTargetLabel(ctx, value, accounts))
+	}
+	return strings.Join(labels, ", ")
+}
+
+func contactOriginFilterLabels(ctx context.Context, filter string, accounts []models.Account) string {
+	var labels []string
+	for _, value := range models.ContactFilterValues(filter) {
+		labels = append(labels, contactOriginFilterLabel(ctx, value, accounts))
+	}
+	return strings.Join(labels, ", ")
+}
+
+func contactActivityFilterLabels(ctx context.Context, filter string) string {
+	var labels []string
+	for _, value := range models.ContactFilterValues(filter) {
+		labels = append(labels, contactActivityFilterLabel(ctx, value))
+	}
+	return strings.Join(labels, ", ")
 }
 
 func contactActivityFilterLabel(ctx context.Context, activity string) string {
