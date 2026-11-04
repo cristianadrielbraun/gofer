@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"net/http"
 	"net/url"
 
@@ -11,15 +12,15 @@ import (
 func (h *Handler) testOutlookGraphMail(ctx context.Context, accountID string) []models.ConnectionTestResult {
 	result := models.ConnectionTestResult{
 		Service: "graph",
-		Message: "Microsoft Graph mail",
+		Message: i18n.T(ctx, "server.msg.microsoft_graph_mail"),
 	}
 	if h.mailCredentials() == nil {
-		result.Error = "Microsoft Graph auth is not configured"
+		result.Error = i18n.T(ctx, "server.msg.microsoft_graph_auth_is_not_configured")
 		return []models.ConnectionTestResult{result}
 	}
 	token, err := h.mailCredentials().GetMicrosoftGraphMailTokenForAccount(ctx, accountID)
 	if err != nil {
-		result.Error = err.Error()
+		result.Error = serverText(ctx, err.Error())
 		return []models.ConnectionTestResult{result}
 	}
 	var response struct {
@@ -30,11 +31,11 @@ func (h *Handler) testOutlookGraphMail(ctx context.Context, accountID string) []
 	if err := runAccountConnectionTest(ctx, accountConnectionTestRetryDelay, func() error {
 		return h.doOutlookJSON(ctx, http.MethodGet, outlookGraphMailFoldersProbeEndpoint(), token, nil, &response)
 	}); err != nil {
-		result.Error = err.Error()
+		result.Error = serverText(ctx, err.Error())
 		return []models.ConnectionTestResult{result}
 	}
 	result.Success = true
-	result.Message = "Microsoft Graph mail access successful"
+	result.Message = i18n.T(ctx, "server.msg.microsoft_graph_mail_access_successful")
 	return []models.ConnectionTestResult{result}
 }
 

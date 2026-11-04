@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"net/http"
 	"strconv"
 	"strings"
@@ -29,7 +30,7 @@ func (h *Handler) handleUserTranslation(w http.ResponseWriter, r *http.Request, 
 		if document {
 			http.NotFound(w, r)
 		} else {
-			http.Error(w, "invalid message id", 400)
+			http.Error(w, i18n.T(r.Context(), "server.error.invalid_message_id"), 400)
 		}
 		return
 	}
@@ -41,7 +42,7 @@ func (h *Handler) handleUserTranslation(w http.ResponseWriter, r *http.Request, 
 			// Empty and malformed optional preferences keep the previous defaults.
 			var tooLarge *http.MaxBytesError
 			if errors.As(err, &tooLarge) {
-				http.Error(w, "translation request is too large", 413)
+				http.Error(w, i18n.T(r.Context(), "server.error.translation_request_is_too_large"), 413)
 				return
 			}
 		}
@@ -132,7 +133,7 @@ func (h *Handler) handleUserTranslation(w http.ResponseWriter, r *http.Request, 
 		if document {
 			h.writeTranslatedEmailError(w, r.PathValue("id"), err.Error(), status)
 		} else {
-			http.Error(w, err.Error(), status)
+			http.Error(w, serverText(ctx, err.Error()), status)
 		}
 		return
 	}
@@ -144,5 +145,5 @@ func (h *Handler) handleUserTranslation(w http.ResponseWriter, r *http.Request, 
 	if translatedHTML != "" {
 		translatedText = plainTextFromHTML(translatedHTML)
 	}
-	h.writeTranslationResult(w, result, text, translatedText, translatedHTML)
+	h.writeTranslationResult(w, r, result, text, translatedText, translatedHTML)
 }

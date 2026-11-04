@@ -1,6 +1,8 @@
 package views
 
 import (
+	"context"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"strings"
 
 	"github.com/cristianadrielbraun/gofer/components/button"
@@ -31,9 +33,9 @@ templ MailToAccountDialog(data MailToAccountDialogData) {
 			@dialog.Header() {
 				@dialog.Title() {
 					if data.Problem != "" {
-						Can't move these emails there
+						{ i18n.T(ctx, "mail.to_account.cannot") }
 					} else {
-						Move to another account?
+						{ i18n.T(ctx, "mail.to_account.title") }
 					}
 				}
 			}
@@ -44,21 +46,22 @@ templ MailToAccountDialog(data MailToAccountDialogData) {
 					<div class="flex items-start gap-2.5 rounded-md border border-amber-500/40 bg-amber-500/10 p-3">
 						@icon.TriangleAlert(icon.Props{Class: "mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400"})
 						<p>
-							{ mailToAccountSummary(data) }
+							{ mailToAccountSummary(ctx, data) }
 						</p>
 					</div>
-					<div class="space-y-2" role="radiogroup" aria-label="Move or copy" data-mail-to-account-modes>
-						@mailToAccountMode("move", "Move", "Each email is copied to "+data.Target+", then deleted from "+strings.Join(data.Sources, " and ")+" into its Trash, so you can get it back until Trash is emptied.", mode)
-						@mailToAccountMode("move-delete", "Move and delete permanently", "Each email is copied to "+data.Target+", then deleted from "+strings.Join(data.Sources, " and ")+" for good, with no copy left in its Trash.", mode)
-						@mailToAccountMode("copy", "Copy", strings.Join(data.Sources, " and ")+" keeps the emails, and "+data.Target+" gets a copy.", mode)
+					<div class="space-y-2" role="radiogroup" aria-label={ i18n.T(ctx, "mail.to_account.mode_label") } data-mail-to-account-modes>
+						{{ sources := mailToAccountSources(ctx, data.Sources) }}
+						@mailToAccountMode("move", i18n.T(ctx, "mail.to_account.move"), i18n.T(ctx, "mail.to_account.move_detail", "target", data.Target, "sources", sources), mode)
+						@mailToAccountMode("move-delete", i18n.T(ctx, "mail.to_account.move_delete"), i18n.T(ctx, "mail.to_account.move_delete_detail", "target", data.Target, "sources", sources), mode)
+						@mailToAccountMode("copy", i18n.T(ctx, "mail.to_account.copy"), i18n.T(ctx, "mail.to_account.copy_detail", "target", data.Target, "sources", sources), mode)
 					</div>
-					<p class="text-xs text-muted-foreground">This runs in the background. You can follow it in Settings, under Export and import.</p>
+					<p class="text-xs text-muted-foreground">{ i18n.T(ctx, "mail.to_account.background") }</p>
 				</div>
 			}
 			@dialog.Footer() {
 				@dialog.Close() {
 					@button.Button(button.Props{Variant: button.VariantOutline, Class: "h-8 px-3 text-xs"}) {
-						Cancel
+						{ i18n.T(ctx, "common.cancel") }
 					}
 				}
 				if data.Problem == "" {
@@ -66,7 +69,7 @@ templ MailToAccountDialog(data MailToAccountDialogData) {
 						Class:      "h-8 px-3 text-xs",
 						Attributes: templ.Attributes{"data-mail-to-account-confirm": "", "data-on-click": onAction("confirmMessagesToAccount")},
 					}) {
-						{ mailToAccountModeButton(mode) }
+						{ mailToAccountModeButton(ctx, mode) }
 					}
 				}
 			}
@@ -81,7 +84,7 @@ templ mailToAccountMode(value, label, detail, selected string) {
 				Name:       "mail-to-account-mode",
 				Value:      value,
 				Checked:    value == selected,
-				Attributes: templ.Attributes{"data-mail-to-account-mode": value, "data-mail-to-account-button": mailToAccountModeButton(value), "data-on-change": onAction("chooseMessagesToAccountMode", actionElement)},
+				Attributes: templ.Attributes{"data-mail-to-account-mode": value, "data-mail-to-account-button": mailToAccountModeButton(ctx, value), "data-on-change": onAction("chooseMessagesToAccountMode", actionElement)},
 			})
 		</span>
 		<span>
@@ -101,22 +104,28 @@ func mailToAccountDefaultMode(data MailToAccountDialogData) string {
 }
 
 // mailToAccountModeButton is the confirm button's label for a choice.
-func mailToAccountModeButton(mode string) string {
+func mailToAccountModeButton(ctx context.Context, mode string) string {
 	switch mode {
 	case "move-delete":
-		return "Move and delete"
+		return i18n.T(ctx, "mail.to_account.button_move_delete")
 	case "copy":
-		return "Copy"
+		return i18n.T(ctx, "mail.to_account.copy")
 	}
-	return "Move"
+	return i18n.T(ctx, "mail.to_account.move")
 }
 
-func mailToAccountSummary(data MailToAccountDialogData) string {
-	emails := mailExportCount(data.Count, "email", "emails")
-	if data.Count <= 0 {
-		emails = "These emails"
-	} else if data.Count == 1 {
-		emails = "This email"
+// mailToAccountSources joins the accounts the emails come from: "a and b".
+func mailToAccountSources(ctx context.Context, sources []string) string {
+	if len(sources) < 2 {
+		return strings.Join(sources, "")
 	}
-	return emails + " will go from " + strings.Join(data.Sources, " and ") + " to " + data.Folder + " in " + data.Target + ", a different account."
+	return i18n.T(ctx, "mail.to_account.and", "first", strings.Join(sources[:len(sources)-1], ", "), "last", sources[len(sources)-1])
+}
+
+func mailToAccountSummary(ctx context.Context, data MailToAccountDialogData) string {
+	args := []any{"sources", mailToAccountSources(ctx, data.Sources), "folder", data.Folder, "target", data.Target}
+	if data.Count <= 0 {
+		return i18n.T(ctx, "mail.to_account.summary_some", args...)
+	}
+	return i18n.N(ctx, "mail.to_account.summary", data.Count, append(args, "count", i18n.Number(ctx, data.Count))...)
 }

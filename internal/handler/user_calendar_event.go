@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"net/http"
 	"strings"
 	"time"
@@ -23,7 +24,7 @@ func (h *Handler) userCalendarWriteAuthorized(ctx context.Context, source storag
 	return h.userCredentials != nil && h.userCredentials.CalendarWriteAuthorizedForUser(ctx, source.UserID, source.AccountID, source.Provider)
 }
 
-func userCalendarDetailAccess(details *views.CalendarEventDetails, event storage.CalendarEvent, source storage.CalendarSource, authorized bool) {
+func userCalendarDetailAccess(ctx context.Context, details *views.CalendarEventDetails, event storage.CalendarEvent, source storage.CalendarSource, authorized bool) {
 	series := calendarEventIsSeries(event)
 	reason := calendarEventEditRestriction(event)
 	if reason == "" {
@@ -32,7 +33,7 @@ func userCalendarDetailAccess(details *views.CalendarEventDetails, event storage
 	if reason == "" && !authorized {
 		reason = "Reconnect this account from Accounts to grant Calendar write access."
 	}
-	details.CanEdit, details.EditUnavailableReason = reason == "", reason
+	details.CanEdit, details.EditUnavailableReason = reason == "", serverText(ctx, reason)
 	details.EditSeries = details.CanEdit && series
 	deleteReason := calendarEventDeleteRestriction(event)
 	if deleteReason == "" {
@@ -60,9 +61,9 @@ func userCalendarEventError(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, sql.ErrNoRows), errors.Is(err, storage.ErrAccountRoute):
 		http.NotFound(w, r)
 	case errors.Is(err, storage.ErrCalendarEventChanged), errors.Is(err, config.ErrAccountServicesChanged):
-		http.Error(w, "Calendar changed. Refresh and reopen the event.", http.StatusConflict)
+		http.Error(w, i18n.T(r.Context(), "server.error.calendar_changed_refresh_and_reopen_the_event"), http.StatusConflict)
 	default:
-		http.Error(w, "Calendar event is temporarily unavailable.", http.StatusServiceUnavailable)
+		http.Error(w, i18n.T(r.Context(), "server.error.calendar_event_is_temporarily_unavailable"), http.StatusServiceUnavailable)
 	}
 }
 
@@ -75,7 +76,7 @@ func (h *Handler) userCalendarEventDetails(ctx context.Context, owner, id string
 	if deliveryOnly && !calendarDeliveryAvailable(event) {
 		return details, nil, sql.ErrNoRows
 	}
-	details = calendarEventDetails(event)
+	details = calendarEventDetails(ctx, event)
 	err = h.userAccounts.WithAccountForUser(ctx, owner, source.AccountID, func(_ *config.AccountStore, db *storage.DB) error {
 		location = viewsCalendarLocation(db.GetUISettings(ctx, owner))
 		if calendarDeliveryAvailable(event) {
@@ -87,7 +88,7 @@ func (h *Handler) userCalendarEventDetails(ctx context.Context, owner, id string
 				if deliveryOnly {
 					return deliveryErr
 				}
-				data.Error = "Delivery status is temporarily unavailable."
+				data.Error = i18n.T(ctx, "server.msg.delivery_status_is_temporarily_unavailable")
 			}
 			details.Delivery = &data
 		}
@@ -97,7 +98,7 @@ func (h *Handler) userCalendarEventDetails(ctx context.Context, owner, id string
 		return details, nil, err
 	}
 	if !deliveryOnly {
-		userCalendarDetailAccess(&details, event, source, h.userCalendarWriteAuthorized(ctx, source))
+		userCalendarDetailAccess(ctx, &details, event, source, h.userCalendarWriteAuthorized(ctx, source))
 	}
 	// Reacquire and validate after any intervening cache/configuration wait.
 	err = h.userAccounts.ValidateCalendarEvent(ctx, snapshot)
@@ -115,7 +116,7 @@ func (h *Handler) handleUserCalendarDeliveryStatus(w http.ResponseWriter, r *htt
 func (h *Handler) renderUserCalendarEvent(w http.ResponseWriter, r *http.Request, deliveryOnly bool) {
 	id := strings.TrimSpace(r.PathValue("id"))
 	if id == "" {
-		http.Error(w, "event id required", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.event_id_required"), http.StatusBadRequest)
 		return
 	}
 	var details views.CalendarEventDetails
@@ -137,7 +138,7 @@ func (h *Handler) renderUserCalendarEvent(w http.ResponseWriter, r *http.Request
 		err = views.CalendarEventDialog(details, location).Render(r.Context(), w)
 	}
 	if err != nil {
-		http.Error(w, "could not render calendar event", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.could_not_render_calendar_event"), http.StatusInternalServerError)
 	}
 }
 
@@ -202,12 +203,12 @@ func (h *Handler) handleUserNewCalendarEvent(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	if formErr != nil {
-		http.Error(w, formErr.Error(), http.StatusBadRequest)
+		http.Error(w, serverText(r.Context(), formErr.Error()), http.StatusBadRequest)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "private, no-store")
 	if err := views.CalendarCreateDialog(data).Render(r.Context(), w); err != nil {
-		http.Error(w, "could not open new event", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.could_not_open_new_event"), http.StatusInternalServerError)
 	}
 }

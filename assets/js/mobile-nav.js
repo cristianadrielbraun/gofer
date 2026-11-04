@@ -227,8 +227,8 @@
     var state = running ? "running" : (problem ? opts.variant : "")
     if (state) bar.setAttribute("data-mobile-sync", state)
     else bar.removeAttribute("data-mobile-sync")
-    status.textContent = running ? "Syncing…" : (problem ? (opts.title || "Sync problem") : "")
-    status.setAttribute("aria-label", status.textContent ? status.textContent + ", show sync progress" : "")
+    status.textContent = running ? goferT("js.mobile.syncing") : (problem ? (opts.title || goferT("js.mobile.sync_problem")) : "")
+    status.setAttribute("aria-label", status.textContent ? goferT("js.mobile.sync_label", { status: status.textContent }) : "")
     if (!running && problem) {
       syncTimer = setTimeout(function () {
         bar.removeAttribute("data-mobile-sync")

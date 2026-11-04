@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"net/http"
 	"net/url"
 	"strings"
@@ -156,7 +157,7 @@ func (h *Handler) calendarTeamsDraftRequest(w http.ResponseWriter, r *http.Reque
 	w.Header().Set("Cache-Control", "private, no-store")
 	fail := func(status int, message string) {
 		w.WriteHeader(status)
-		_ = json.NewEncoder(w).Encode(map[string]any{"error": message})
+		_ = json.NewEncoder(w).Encode(map[string]any{"error": serverText(r.Context(), message)})
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 4096)
 	if r.ParseForm() != nil {
@@ -192,7 +193,7 @@ func (h *Handler) calendarTeamsDraftRequest(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if !calendarSourceWritable(source) || !h.calendarWriteAuthorized(ctx, source) {
-		fail(403, "Reconnect this account from Accounts to grant Calendar write access.")
+		fail(403, i18n.T(r.Context(), "server.msg.reconnect_this_account_from_accounts_to_grant"))
 		return
 	}
 	unlock, err := h.lockCalendarCreate(ctx, source)

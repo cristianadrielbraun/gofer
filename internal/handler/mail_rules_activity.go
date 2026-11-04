@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"log"
 	"net/http"
 	"strconv"
@@ -56,7 +57,7 @@ func (h *Handler) renderMailRuleActivity(w http.ResponseWriter, r *http.Request,
 	data, err := h.loadMailRuleActivity(r)
 	if err != nil {
 		log.Printf("mail rule activity of %s: %v", h.userID(r.Context()), err)
-		http.Error(w, "failed to load the activity", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_load_the_activity"), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html")
@@ -83,7 +84,7 @@ func (h *Handler) handleMailRuleActivityList(w http.ResponseWriter, r *http.Requ
 func (h *Handler) handleClearMailRuleActivity(w http.ResponseWriter, r *http.Request) {
 	if err := h.db.ClearMailRuleRunsGuarded(r.Context(), h.userID(r.Context()), h.signatureGuard); err != nil {
 		log.Printf("clear mail rule activity of %s: %v", h.userID(r.Context()), err)
-		http.Error(w, "failed to clear the activity", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_clear_the_activity"), http.StatusInternalServerError)
 		return
 	}
 	h.renderMailRuleActivity(w, r, false)

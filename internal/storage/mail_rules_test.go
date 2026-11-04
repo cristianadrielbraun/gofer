@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"github.com/cristianadrielbraun/gofer/internal/mailrules"
 	"strings"
 	"testing"
 	"time"
@@ -295,8 +296,8 @@ func TestApplyPendingMailRulesActs(t *testing.T) {
 			t.Fatalf("run = %+v", run)
 		}
 	}
-	if !strings.Contains(runs[2].Detail, "moved to “Receipts”") || !strings.Contains(runs[2].Detail, "marked as read") {
-		t.Fatalf("receipt detail = %q", runs[2].Detail)
+	if detail := mailrules.DetailText(context.Background(), runs[2].Detail); !strings.Contains(detail, "moved to “Receipts”") || !strings.Contains(detail, "marked as read") {
+		t.Fatalf("receipt detail = %q", detail)
 	}
 
 	// Each arrival is looked at once.
@@ -323,7 +324,7 @@ func TestMailRulesStopAndMoveOnce(t *testing.T) {
 		t.Fatalf("message is in %q", got)
 	}
 	runs := ruleRuns(t, db)
-	if len(runs) != 2 || runs[0].RuleName != "Trash" || runs[0].Status != models.MailRuleRunSkipped || !strings.Contains(runs[0].Detail, "already moved by") {
+	if len(runs) != 2 || runs[0].RuleName != "Trash" || runs[0].Status != models.MailRuleRunSkipped || !strings.Contains(mailrules.DetailText(context.Background(), runs[0].Detail), "already moved by") {
 		t.Fatalf("runs = %+v", runs)
 	}
 }
@@ -345,7 +346,7 @@ func TestMailRulesLeaveOwnMailAndMissingFolders(t *testing.T) {
 		t.Fatal("rules moved mail they should have left")
 	}
 	runs := ruleRuns(t, db)
-	if len(runs) != 1 || runs[0].MessageID != missing || runs[0].Status != models.MailRuleRunSkipped || !strings.Contains(runs[0].Detail, "“Receipts” is gone") {
+	if len(runs) != 1 || runs[0].MessageID != missing || runs[0].Status != models.MailRuleRunSkipped || !strings.Contains(mailrules.DetailText(context.Background(), runs[0].Detail), "“Receipts” is gone") {
 		t.Fatalf("runs = %+v", runs)
 	}
 }

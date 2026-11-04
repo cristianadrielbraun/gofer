@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"log"
 	"net/http"
 	"strconv"
@@ -200,7 +201,7 @@ func jmapChosenAddressBooks(r *http.Request, available []jmap.AddressBook) []mod
 func writeJMAPContactBooks(w http.ResponseWriter, r *http.Request, books []jmap.AddressBook, create *davCreate, err error) {
 	if !strings.Contains(r.Header.Get("Accept"), "application/x-ndjson") {
 		if err != nil {
-			writeJSONError(w, http.StatusBadRequest, err.Error())
+			writeJSONError(w, r, http.StatusBadRequest, err.Error())
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -211,9 +212,9 @@ func writeJMAPContactBooks(w http.ResponseWriter, r *http.Request, books []jmap.
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	encoder := json.NewEncoder(w)
-	_ = encoder.Encode(map[string]any{"type": "start", "message": "Looking up JMAP address books..."})
+	_ = encoder.Encode(map[string]any{"type": "start", "message": i18n.T(r.Context(), "server.msg.looking_up_jmap_address_books")})
 	if err != nil {
-		_ = encoder.Encode(map[string]any{"type": "error", "error": err.Error()})
+		_ = encoder.Encode(map[string]any{"type": "error", "error": serverText(r.Context(), err.Error())})
 		return
 	}
 	done := cardDAVDiscoveryResult(jmapFormAddressBooks(books), create)
@@ -287,23 +288,23 @@ func (h *Handler) saveJMAPContactSync(w http.ResponseWriter, r *http.Request, us
 			available, err = mail.JMAPAddressBooks(ctx, mailCfg, password)
 		}
 		if err != nil {
-			htmlStatus(w, http.StatusBadRequest, "JMAP contacts save failed: "+err.Error())
+			htmlStatus(w, r, http.StatusBadRequest, "JMAP contacts save failed: "+err.Error())
 			return
 		}
 		cfg.AddressBooks = jmapChosenAddressBooks(r, available)
 		if len(cfg.AddressBooks) == 0 {
-			htmlStatus(w, http.StatusBadRequest, "Choose at least one JMAP address book.")
+			htmlStatus(w, r, http.StatusBadRequest, i18n.T(r.Context(), "server.msg.choose_at_least_one_jmap_address_book"))
 			return
 		}
 		cfg.Enabled = true
 	}
 	if err := h.accountStore.SaveContactSyncConfig(ctx, userID, accountID, cfg, ""); err != nil {
-		htmlStatus(w, http.StatusInternalServerError, "Could not save contact sync settings.")
+		htmlStatus(w, r, http.StatusInternalServerError, "Could not save contact sync settings.")
 		return
 	}
 	w.Header().Set("X-Gofer-Contact-Sync-Enabled", strconv.FormatBool(cfg.Enabled))
 	if !cfg.Enabled {
-		htmlStatus(w, http.StatusOK, "Contact sync is disabled for this account.")
+		htmlStatus(w, r, http.StatusOK, "Contact sync is disabled for this account.")
 		return
 	}
 	go func() {
@@ -380,7 +381,7 @@ func (h *Handler) saveUserJMAPContactSync(w http.ResponseWriter, r *http.Request
 			}
 			cfg.AddressBooks = jmapChosenAddressBooks(r, available)
 			if len(cfg.AddressBooks) == 0 {
-				inputMessage = "Choose at least one JMAP address book."
+				inputMessage = i18n.T(ctx, "server.msg.choose_at_least_one_jmap_address_book")
 				return nil
 			}
 			cfg.Enabled = true
@@ -392,16 +393,16 @@ func (h *Handler) saveUserJMAPContactSync(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if inputMessage != "" {
-		htmlStatus(w, http.StatusBadRequest, inputMessage)
+		htmlStatus(w, r, http.StatusBadRequest, inputMessage)
 		return
 	}
 	if err := h.WakeUserContactAccount(r.Context(), owner, id); err != nil {
-		htmlStatus(w, http.StatusServiceUnavailable, "Contact settings saved; worker refresh failed, retry saving.")
+		htmlStatus(w, r, http.StatusServiceUnavailable, "Contact settings saved; worker refresh failed, retry saving.")
 		return
 	}
 	w.Header().Set("X-Gofer-Contact-Sync-Enabled", strconv.FormatBool(cfg.Enabled))
 	if !cfg.Enabled {
-		htmlStatus(w, http.StatusOK, "Contact sync is disabled for this account.")
+		htmlStatus(w, r, http.StatusOK, "Contact sync is disabled for this account.")
 		return
 	}
 	htmlContactSyncSaved(w, id, cfg)

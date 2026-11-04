@@ -130,7 +130,7 @@ func (h *Handler) handleUserCalendarReplyAction(w http.ResponseWriter, r *http.R
 	if err != nil {
 		var failure userCalendarFormFailure
 		if errors.As(err, &failure) {
-			http.Error(w, failure.message, failure.status)
+			http.Error(w, serverText(r.Context(), failure.message), failure.status)
 		} else {
 			http.NotFound(w, r)
 		}

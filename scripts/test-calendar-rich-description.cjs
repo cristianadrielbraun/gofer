@@ -1,6 +1,7 @@
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const vm = require('node:vm')
+const loadI18n = require('./i18n-test-helper.cjs')
 const source = fs.readFileSync(require('node:path').join(__dirname, '../assets/js/app.js'), 'utf8')
 function fn(name) {
   const start = source.indexOf('function ' + name + '(')
@@ -30,6 +31,7 @@ const runtime = vm.createContext({
   _sanitizeComposeHTML(html) { return html }, _composeEditorText(node) { return node.innerText },
   _saveComposeSelection(node) { saved.push(node) }, _restoreComposeSelection(node) { restored.push(node) },
 })
+loadI18n(runtime)
 vm.runInContext(['syncCalendarDescription', 'calendarDescriptionSelection', 'promptForLink', 'calendarDescriptionExec'].map(fn).join('\n'), runtime)
 runtime.syncCalendarDescription(editor)
 assert.equal(fields.description_html.value, editor.innerHTML, 'send HTML, not only the visible text')

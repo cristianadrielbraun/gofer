@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"io"
 	"net/http"
 	"strings"
@@ -17,7 +18,7 @@ import (
 func (h *Handler) handleUserCalendarDeliveryRetry(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1024))
 	if r.URL.RawQuery != "" || err != nil || len(body) != 0 {
-		http.Error(w, "Invalid invitation retry request.", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_invitation_retry_request"), http.StatusBadRequest)
 		return
 	}
 	owner, id, sendID := h.userID(r.Context()), strings.TrimSpace(r.PathValue("id")), strings.TrimSpace(r.PathValue("sendID"))
@@ -88,6 +89,6 @@ func (h *Handler) handleUserCalendarDeliveryRetry(w http.ResponseWriter, r *http
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "private, no-store")
 	if err := views.CalendarEventGuests(details).Render(r.Context(), w); err != nil {
-		http.Error(w, "could not render event delivery", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.could_not_render_event_delivery"), http.StatusInternalServerError)
 	}
 }

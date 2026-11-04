@@ -1,6 +1,7 @@
 package views
 
 import (
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"fmt"
 	"strings"
 	"time"
@@ -32,26 +33,26 @@ templ ComposeDialog(accounts []models.Account) {
 		}) {
 			@dialog.Header() {
 				@dialog.Title() {
-					<span data-compose-title>New message</span>
+					<span data-compose-title>{ i18n.T(ctx, "compose.new_message") }</span>
 				}
 			}
 			<div class="compose-dialog-corner absolute top-4 right-4 flex items-center gap-1">
-				<button type="button" data-on-click='["expandToPane"]' class="hidden lg:inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors px-3 py-1.5 rounded-md hover:bg-accent" aria-label="Compose inline">
+				<button type="button" data-on-click='["expandToPane"]' class="hidden lg:inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors px-3 py-1.5 rounded-md hover:bg-accent" aria-label={ i18n.T(ctx, "compose.inline") }>
 					@icon.PanelLeftOpen(icon.Props{Class: "size-3.5"})
-					Compose inline
+					{ i18n.T(ctx, "compose.inline") }
 				</button>
 				@tooltip.Tooltip() {
 					@tooltip.Trigger() {
-						<button type="button" data-on-click='["discardComposeDialog"]' class="flex items-center justify-center size-7 rounded text-muted-foreground opacity-70 transition-opacity hover:opacity-100 hover:bg-accent focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 ring-offset-background [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4" aria-label="Discard draft">
+						<button type="button" data-on-click='["discardComposeDialog"]' class="flex items-center justify-center size-7 rounded text-muted-foreground opacity-70 transition-opacity hover:opacity-100 hover:bg-accent focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 ring-offset-background [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4" aria-label={ i18n.T(ctx, "mail.draft.discard") }>
 							@icon.X()
-							<span class="sr-only">Discard draft</span>
+							<span class="sr-only">{ i18n.T(ctx, "mail.draft.discard") }</span>
 						</button>
 					}
 					@tooltip.Content(tooltip.ContentProps{
 						Position:  tooltip.PositionBottom,
 						ShowArrow: true,
 					}) {
-						Discard draft
+						{ i18n.T(ctx, "mail.draft.discard") }
 					}
 				}
 			</div>
@@ -66,7 +67,7 @@ templ ComposeDialog(accounts []models.Account) {
 				<input type="hidden" name="references" id="compose-references" value=""/>
 				<div class="compose-dialog-fields space-y-1">
 					<div class="compose-from-row flex items-center gap-2" data-compose-from-row>
-						<label class="text-xs text-muted-foreground font-medium w-8 shrink-0">From</label>
+						<label class="text-xs text-muted-foreground font-medium w-8 shrink-0">{ i18n.T(ctx, "mail.filters.from") }</label>
 						@dropdown.Dropdown() {
 							@dropdown.Trigger() {
 								<button type="button" id="compose-from-trigger" class="compose-from-trigger flex items-center gap-1 text-sm text-foreground transition-colors px-1.5 py-0.5 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background">
@@ -81,20 +82,20 @@ templ ComposeDialog(accounts []models.Account) {
 					</div>
 					@composeOneTimeFromRow(accounts, "dialog")
 					<div class="compose-to-row">
-						@ComposeField("To", "to", "recipient@example.com")
+						@ComposeField(i18n.T(ctx, "mail.field.to"), "to", "recipient@example.com")
 						@ComposeCcBccButtons()
 					</div>
 					<div id="cc-field" class="hidden">
-						@ComposeField("Cc", "cc", "")
+						@ComposeField(i18n.T(ctx, "mail.field.cc"), "cc", "")
 					</div>
 					<div id="bcc-field" class="hidden">
-						@ComposeField("Bcc", "bcc", "")
+						@ComposeField(i18n.T(ctx, "mail.field.bcc"), "bcc", "")
 					</div>
 				</div>
 			<div class="compose-subject-row border-t pt-2">
 				@input.Input(input.Props{
 					Name:        "subject",
-					Placeholder: "Subject",
+					Placeholder: i18n.T(ctx, "mail.column.subject"),
 					Class:       "compose-input h-8 font-semibold placeholder:font-normal",
 				})
 			</div>
@@ -105,11 +106,11 @@ templ ComposeDialog(accounts []models.Account) {
 			@dialog.Footer(dialog.FooterProps{Class: "compose-dialog-footer"}) {
 				<div class="flex items-center justify-between w-full gap-3">
 					<div class="flex items-center gap-2 min-w-0">
-					<button type="button" data-on-click='["saveComposeDraft",false,false]' class="inline-flex min-w-28 items-center justify-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-all duration-200 px-3 py-1.5 rounded-md border border-border hover:bg-accent" data-compose-draft-button data-compose-draft-state="default">
+					<button type="button" data-on-click='["saveComposeDraft",false,false]' class="inline-flex min-w-28 items-center whitespace-nowrap justify-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-all duration-200 px-3 py-1.5 rounded-md border border-border hover:bg-accent" data-compose-draft-button data-compose-draft-state="default">
 						<span class="inline-flex transition-transform duration-200" data-compose-draft-icon>
 							@icon.Save(icon.Props{Class: "size-3.5"})
 						</span>
-						<span data-compose-draft-label>Save Draft</span>
+						<span data-compose-draft-label>{ i18n.T(ctx, "compose.save_draft_button") }</span>
 					</button>
 					</div>
 					<div class="flex items-center gap-2">
@@ -120,7 +121,7 @@ templ ComposeDialog(accounts []models.Account) {
 							data-on-click='["sendCompose"]'
 						>
 							@icon.Send(icon.Props{Class: "size-3.5"})
-							Send
+							{ i18n.T(ctx, "compose.send") }
 						</button>
 					</div>
 				</div>
@@ -131,15 +132,17 @@ templ ComposeDialog(accounts []models.Account) {
 		@dialog.Trigger() {
 			<span></span>
 		}
-		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-md"}) {
+		// The dialog is as wide as its buttons, which never wrap; the text
+		// wraps within that width instead of setting it.
+		@dialog.Content(dialog.ContentProps{Class: "sm:w-max sm:min-w-[28rem] sm:max-w-[calc(100%-2rem)]"}) {
 			@dialog.Header() {
-				@dialog.Title() { Close compose? }
-				@dialog.Description() { Keep this message as a draft, discard it permanently, or continue editing. }
+				@dialog.Title(dialog.TitleProps{Class: "sm:w-0 sm:min-w-full"}) { { i18n.T(ctx, "compose.close.title") } }
+				@dialog.Description(dialog.DescriptionProps{Class: "sm:w-0 sm:min-w-full"}) { { i18n.T(ctx, "compose.close.description") } }
 			}
 			@dialog.Footer() {
-				<button type="button" data-compose-close-action="cancel" class="rounded-md px-3 py-2 text-sm font-semibold hover:bg-accent hover:text-accent-foreground">Cancel</button>
-				<button type="button" data-compose-close-action="discard" class="rounded-md px-3 py-2 text-sm font-semibold hover:bg-accent hover:text-accent-foreground">Exit and discard</button>
-				<button type="button" data-compose-close-action="keep" class="rounded-md bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90">Exit and keep draft</button>
+				<button type="button" data-compose-close-action="cancel" class="whitespace-nowrap rounded-md px-3 py-2 text-sm font-semibold hover:bg-accent hover:text-accent-foreground">{ i18n.T(ctx, "common.cancel") }</button>
+				<button type="button" data-compose-close-action="discard" class="whitespace-nowrap rounded-md px-3 py-2 text-sm font-semibold hover:bg-accent hover:text-accent-foreground">{ i18n.T(ctx, "compose.close.discard") }</button>
+				<button type="button" data-compose-close-action="keep" class="whitespace-nowrap rounded-md bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90">{ i18n.T(ctx, "compose.close.keep") }</button>
 			}
 		}
 	}
@@ -154,13 +157,13 @@ templ ComposeCcBccButtons() {
 			type="button"
 			class="text-[11px] text-muted-foreground hover:text-foreground transition-colors px-1.5 py-0.5 rounded hover:bg-accent"
 			data-on-click='["goferShowComposeRecipientField","cc-field","cc-btn"]'
-		>Cc</button>
+		>{ i18n.T(ctx, "mail.field.cc") }</button>
 		<button
 			id="bcc-btn"
 			type="button"
 			class="text-[11px] text-muted-foreground hover:text-foreground transition-colors px-1.5 py-0.5 rounded hover:bg-accent"
 			data-on-click='["goferShowComposeRecipientField","bcc-field","bcc-btn"]'
-		>Bcc</button>
+		>{ i18n.T(ctx, "mail.field.bcc") }</button>
 	</div>
 }
 
@@ -169,19 +172,19 @@ templ ComposeCcBccButtons() {
 // it replaces stay in the page (hidden) and keep their behaviour.
 templ ComposeMobileBar() {
 	<div class="compose-mobile-bar" data-compose-mobile-bar>
-		<button type="button" class="compose-mobile-bar-button" data-on-click='["discardComposeDialog"]' aria-label="Close compose">
+		<button type="button" class="compose-mobile-bar-button" data-on-click='["discardComposeDialog"]' aria-label={ i18n.T(ctx, "compose.close.label") }>
 			@icon.X(icon.Props{Class: "size-5"})
 		</button>
 		<div class="compose-mobile-bar-heading">
-			<span class="compose-mobile-bar-title" data-compose-title>New message</span>
+			<span class="compose-mobile-bar-title" data-compose-title>{ i18n.T(ctx, "compose.new_message") }</span>
 			<span class="compose-mobile-bar-status" data-compose-mobile-status aria-live="polite"></span>
 		</div>
-		<button type="button" class="compose-mobile-bar-button" data-on-click='["triggerComposeAttachmentUpload","$this"]' aria-label="Attach files">
+		<button type="button" class="compose-mobile-bar-button" data-on-click='["triggerComposeAttachmentUpload","$this"]' aria-label={ i18n.T(ctx, "compose.attach") }>
 			@icon.Paperclip(icon.Props{Class: "size-5"})
 		</button>
 		@dropdown.Dropdown() {
 			@dropdown.Trigger() {
-				<button type="button" class="compose-mobile-bar-button" aria-label="More compose options">
+				<button type="button" class="compose-mobile-bar-button" aria-label={ i18n.T(ctx, "compose.more") }>
 					@icon.EllipsisVertical(icon.Props{Class: "size-5"})
 				</button>
 			}
@@ -189,18 +192,18 @@ templ ComposeMobileBar() {
 				@dropdown.Item(dropdown.ItemProps{Attributes: templ.Attributes{"data-on-click": onAction("saveComposeDraft", false, false)}}) {
 					<span class="flex items-center gap-2">
 						@icon.Save(icon.Props{Class: "size-4"})
-						Save draft
+						{ i18n.T(ctx, "compose.save_draft") }
 					</span>
 				}
 				@dropdown.Item(dropdown.ItemProps{Attributes: templ.Attributes{"data-compose-mobile-send-later": ""}}) {
 					<span class="flex items-center gap-2">
 						@icon.CalendarClock(icon.Props{Class: "size-4"})
-						Send later
+						{ i18n.T(ctx, "compose.send_later") }
 					</span>
 				}
 			}
 		}
-		<button type="button" class="compose-mobile-bar-send" data-on-click='["sendCompose"]' aria-label="Send" data-compose-mobile-send>
+		<button type="button" class="compose-mobile-bar-send" data-on-click='["sendCompose"]' aria-label={ i18n.T(ctx, "compose.send") } data-compose-mobile-send>
 			@icon.Send(icon.Props{Class: "size-5"})
 		</button>
 	</div>
@@ -218,7 +221,7 @@ templ ComposeToolbar() {
 				Position:  tooltip.PositionBottom,
 				ShowArrow: true,
 			}) {
-				Bold
+				{ i18n.T(ctx, "compose.format.bold") }
 			}
 		}
 		@tooltip.Tooltip() {
@@ -231,7 +234,7 @@ templ ComposeToolbar() {
 				Position:  tooltip.PositionBottom,
 				ShowArrow: true,
 			}) {
-				Italic
+				{ i18n.T(ctx, "compose.format.italic") }
 			}
 		}
 		@tooltip.Tooltip() {
@@ -244,7 +247,7 @@ templ ComposeToolbar() {
 				Position:  tooltip.PositionBottom,
 				ShowArrow: true,
 			}) {
-				Underline
+				{ i18n.T(ctx, "compose.format.underline") }
 			}
 		}
 		@tooltip.Tooltip() {
@@ -257,7 +260,7 @@ templ ComposeToolbar() {
 				Position:  tooltip.PositionBottom,
 				ShowArrow: true,
 			}) {
-				Strikethrough
+				{ i18n.T(ctx, "compose.format.strike") }
 			}
 		}
 		<div class="w-px h-4 bg-border mx-0.5"></div>
@@ -271,7 +274,7 @@ templ ComposeToolbar() {
 				Position:  tooltip.PositionBottom,
 				ShowArrow: true,
 			}) {
-				Bullet list
+				{ i18n.T(ctx, "compose.format.bullets") }
 			}
 		}
 		@tooltip.Tooltip() {
@@ -284,7 +287,7 @@ templ ComposeToolbar() {
 				Position:  tooltip.PositionBottom,
 				ShowArrow: true,
 			}) {
-				Numbered list
+				{ i18n.T(ctx, "compose.format.numbers") }
 			}
 		}
 		<div class="w-px h-4 bg-border mx-0.5"></div>
@@ -298,7 +301,7 @@ templ ComposeToolbar() {
 				Position:  tooltip.PositionBottom,
 				ShowArrow: true,
 			}) {
-				Attach file (max 25 MB each, 35 MB total)
+				{ i18n.T(ctx, "compose.attach_tip") }
 			}
 		}
 		@tooltip.Tooltip() {
@@ -311,7 +314,7 @@ templ ComposeToolbar() {
 				Position:  tooltip.PositionBottom,
 				ShowArrow: true,
 			}) {
-				Insert image
+				{ i18n.T(ctx, "compose.format.image") }
 			}
 		}
 		@tooltip.Tooltip() {
@@ -324,7 +327,7 @@ templ ComposeToolbar() {
 				Position:  tooltip.PositionBottom,
 				ShowArrow: true,
 			}) {
-				Insert link
+				{ i18n.T(ctx, "compose.format.link") }
 			}
 		}
 		@tooltip.Tooltip() {
@@ -337,13 +340,13 @@ templ ComposeToolbar() {
 				Position:  tooltip.PositionBottom,
 				ShowArrow: true,
 			}) {
-				Insert signature
+				{ i18n.T(ctx, "compose.format.signature") }
 			}
 		}
 		<div class="w-px h-4 bg-border mx-0.5"></div>
 		@tooltip.Tooltip() {
 			@tooltip.Trigger() {
-				<button type="button" class="flex items-center justify-center size-7 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors" data-on-click='["composeExec","$this","formatBlock","blockquote"]' aria-label="Quote">
+				<button type="button" class="flex items-center justify-center size-7 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors" data-on-click='["composeExec","$this","formatBlock","blockquote"]' aria-label={ i18n.T(ctx, "compose.format.quote") }>
 					@icon.Quote(icon.Props{Class: "size-3.5"})
 				</button>
 			}
@@ -351,12 +354,12 @@ templ ComposeToolbar() {
 				Position:  tooltip.PositionBottom,
 				ShowArrow: true,
 			}) {
-				Quote
+				{ i18n.T(ctx, "compose.format.quote") }
 			}
 		}
 		@tooltip.Tooltip() {
 			@tooltip.Trigger() {
-				<button type="button" class="flex items-center justify-center size-7 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors" data-on-click='["composeExec","$this","formatBlock","pre"]' aria-label="Code block">
+				<button type="button" class="flex items-center justify-center size-7 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors" data-on-click='["composeExec","$this","formatBlock","pre"]' aria-label={ i18n.T(ctx, "compose.format.code") }>
 					@icon.Code(icon.Props{Class: "size-3.5"})
 				</button>
 			}
@@ -364,7 +367,7 @@ templ ComposeToolbar() {
 				Position:  tooltip.PositionBottom,
 				ShowArrow: true,
 			}) {
-				Code block
+				{ i18n.T(ctx, "compose.format.code") }
 			}
 		}
 	</div>
@@ -378,9 +381,9 @@ templ ComposeRichEditor() {
 			class="compose-rich-editor min-h-[190px] h-full px-3 py-2 text-sm leading-6 outline-none"
 			contenteditable="true"
 			role="textbox"
-			aria-label="Message body"
+			aria-label={ i18n.T(ctx, "compose.body") }
 			data-compose-editor
-			data-placeholder="Write your message..."
+			data-placeholder={ i18n.T(ctx, "compose.body_placeholder") }
 			data-on-input='["composeChanged","$this"]'
 			data-on-keyup='["updateComposeToolbar","$this"]'
 			data-on-mouseup='["updateComposeToolbar","$this"]'
@@ -395,8 +398,8 @@ templ ComposeAttachments() {
 		<input type="file" multiple class="hidden" data-compose-attachment-input data-on-change='["uploadComposeAttachments","$files","$this"]'/>
 		<input type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml,image/bmp,image/x-icon" class="hidden" data-compose-inline-input data-on-change='["uploadComposeInlineImages","$files","$this"]'/>
 		<div class="mb-2 flex items-center justify-between gap-2 text-[11px] font-medium text-muted-foreground" data-compose-attachment-header>
-			<span data-compose-attachment-summary>Max 25 MB per file, 35 MB total</span>
-			<button type="button" class="rounded px-1.5 py-0.5 text-muted-foreground hover:bg-accent hover:text-foreground" data-on-click='["toggleComposeAttachments","$this"]' data-compose-attachment-toggle>Hide</button>
+			<span data-compose-attachment-summary>{ i18n.T(ctx, "compose.attachments.limits") }</span>
+			<button type="button" class="rounded px-1.5 py-0.5 text-muted-foreground hover:bg-accent hover:text-foreground" data-on-click='["toggleComposeAttachments","$this"]' data-compose-attachment-toggle>{ i18n.T(ctx, "common.hide") }</button>
 		</div>
 		<div class="flex flex-wrap gap-2" data-compose-attachment-list></div>
 	</div>
@@ -410,14 +413,14 @@ templ ComposeSchedulePopover(fromPane bool, buttonClass string) {
 	@popover.Root(popover.RootProps{Class: "inline-flex"}) {
 		@popover.Trigger() {
 			if fromPane {
-				<button type="button" data-on-click='["prepareComposeSchedule","$this",true]' class={ buttonClass } title="Schedule send">
+				<button type="button" data-on-click='["prepareComposeSchedule","$this",true]' class={ buttonClass } title={ i18n.T(ctx, "compose.schedule.title") } data-compose-schedule-trigger>
 					@icon.CalendarClock(icon.Props{Class: "size-3.5"})
-					Send later
+					{ i18n.T(ctx, "compose.send_later") }
 				</button>
 			} else {
-				<button type="button" data-on-click='["prepareComposeSchedule","$this",false]' class={ buttonClass } title="Schedule send">
+				<button type="button" data-on-click='["prepareComposeSchedule","$this",false]' class={ buttonClass } title={ i18n.T(ctx, "compose.schedule.title") } data-compose-schedule-trigger>
 					@icon.CalendarClock(icon.Props{Class: "size-3.5"})
-					Send later
+					{ i18n.T(ctx, "compose.send_later") }
 				</button>
 			}
 		}
@@ -425,20 +428,20 @@ templ ComposeSchedulePopover(fromPane bool, buttonClass string) {
 			<div data-compose-schedule-panel data-compose-schedule-pane?={ fromPane }>
 				<div class="mb-2 flex items-center justify-between gap-3">
 					<div>
-						<div class="text-sm font-semibold text-popover-foreground">Schedule send</div>
-						<p class="text-[11px] text-muted-foreground">Pick a date and local time.</p>
+						<div class="text-sm font-semibold text-popover-foreground">{ i18n.T(ctx, "compose.schedule.title") }</div>
+						<p class="text-[11px] text-muted-foreground">{ i18n.T(ctx, "compose.schedule.help") }</p>
 					</div>
 					@icon.CalendarClock(icon.Props{Class: "size-4 text-muted-foreground"})
 				</div>
 				<div class="inline-flex rounded-lg border border-border/70 bg-background/35 p-2">
 					@calendar.Calendar(calendar.Props{ID: "compose-" + suffix + "schedule-calendar", Name: "compose_" + suffix + "schedule_date", Class: "[--cell-size:1.75rem]", HideHiddenInput: false, MinYear: time.Now().Year(), MaxYear: time.Now().Year() + 10})
 				</div>
-				<label class="mt-3 block text-xs font-medium text-muted-foreground" for={ "compose-" + suffix + "schedule-hour" }>Send time</label>
+				<label class="mt-3 block text-xs font-medium text-muted-foreground" for={ "compose-" + suffix + "schedule-hour" }>{ i18n.T(ctx, "compose.schedule.time") }</label>
 				<div class="mt-1 flex items-center gap-2">
 					<div class="flex shrink-0 items-center gap-1.5">
 						@selectbox.SelectBox(selectbox.Props{ID: "compose-" + suffix + "schedule-hour", Class: "w-[4.25rem]", Attributes: templ.Attributes{"data-compose-schedule-hour": ""}}) {
 							@selectbox.Trigger(selectbox.TriggerProps{DisableClear: true, Class: "h-9 px-2 font-mono text-sm tabular-nums"}) {
-								@selectbox.Value(selectbox.ValueProps{Placeholder: "HH", Class: "font-mono text-sm tabular-nums"})
+								@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "compose.schedule.hh"), Class: "font-mono text-sm tabular-nums"})
 							}
 							@selectbox.Content(selectbox.ContentProps{NoSearch: true, DisableExclusive: true, Class: "[&>div>div]:max-h-52"}) {
 								@selectbox.Group(selectbox.GroupProps{Attributes: selectbox.LazyItems(scheduleTimeItems(24, 1))}) {
@@ -451,7 +454,7 @@ templ ComposeSchedulePopover(fromPane bool, buttonClass string) {
 						<span class="text-sm font-semibold text-muted-foreground">:</span>
 						@selectbox.SelectBox(selectbox.Props{ID: "compose-" + suffix + "schedule-minute", Class: "w-[4.25rem]", Attributes: templ.Attributes{"data-compose-schedule-minute": ""}}) {
 							@selectbox.Trigger(selectbox.TriggerProps{DisableClear: true, Class: "h-9 px-2 font-mono text-sm tabular-nums"}) {
-								@selectbox.Value(selectbox.ValueProps{Placeholder: "MM", Class: "font-mono text-sm tabular-nums"})
+								@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "compose.schedule.mm"), Class: "font-mono text-sm tabular-nums"})
 							}
 							@selectbox.Content(selectbox.ContentProps{NoSearch: true, DisableExclusive: true, Class: "[&>div>div]:max-h-52"}) {
 								@selectbox.Group(selectbox.GroupProps{Attributes: selectbox.LazyItems(scheduleTimeItems(60, 5))}) {
@@ -462,16 +465,16 @@ templ ComposeSchedulePopover(fromPane bool, buttonClass string) {
 							}
 						}
 					</div>
-					<div class="flex h-9 min-w-0 flex-1 items-center justify-end text-xs font-medium text-muted-foreground" title="Local timezone">
+					<div class="flex h-9 min-w-0 flex-1 items-center justify-end text-xs font-medium text-muted-foreground" title={ i18n.T(ctx, "compose.schedule.timezone") }>
 						<span class="truncate" data-compose-schedule-timezone>UTC</span>
 					</div>
 				</div>
 				<div class="mt-3 flex items-center justify-end gap-2">
-					<button type="button" class="rounded-md px-2.5 py-1.5 text-xs font-semibold text-muted-foreground hover:bg-accent hover:text-foreground" data-on-click='["closeComposeSchedulePopover","$this"]'>Cancel</button>
+					<button type="button" class="rounded-md px-2.5 py-1.5 text-xs font-semibold text-muted-foreground hover:bg-accent hover:text-foreground" data-on-click='["closeComposeSchedulePopover","$this"]'>{ i18n.T(ctx, "common.cancel") }</button>
 					if fromPane {
-						<button type="button" class="btn-skeuo rounded-md px-3 py-1.5 text-xs font-semibold" data-on-click='["scheduleCompose",true,"$this"]'>Schedule</button>
+						<button type="button" class="btn-skeuo rounded-md px-3 py-1.5 text-xs font-semibold" data-on-click='["scheduleCompose",true,"$this"]'>{ i18n.T(ctx, "compose.schedule.confirm") }</button>
 					} else {
-						<button type="button" class="btn-skeuo rounded-md px-3 py-1.5 text-xs font-semibold" data-on-click='["scheduleCompose",false,"$this"]'>Schedule</button>
+						<button type="button" class="btn-skeuo rounded-md px-3 py-1.5 text-xs font-semibold" data-on-click='["scheduleCompose",false,"$this"]'>{ i18n.T(ctx, "compose.schedule.confirm") }</button>
 					}
 				</div>
 			</div>
@@ -516,7 +519,7 @@ templ composeFromMenuItems(accounts []models.Account, scope string) {
 			}) {
 				@composeFromAddressText(acc.Name, acc.Email)
 				@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: "shrink-0 px-1.5 py-0 text-[10px] font-medium leading-4 opacity-80"}) {
-					main
+					{ i18n.T(ctx, "compose.from.main") }
 				}
 			}
 			for _, identity := range acc.Identities {
@@ -538,7 +541,7 @@ templ composeFromMenuItems(accounts []models.Account, scope string) {
 			}
 		}
 	}
-	if composeHasOneTimeFrom(accounts) {
+	if composeHasOneTimeFrom(ctx, accounts) {
 		@dropdown.Separator()
 		@dropdown.Item(dropdown.ItemProps{
 			Class: "compose-from-item select-item group relative justify-start gap-2 py-1 pr-3 text-[13px] font-normal outline-none transition-colors duration-150",
@@ -550,7 +553,7 @@ templ composeFromMenuItems(accounts []models.Account, scope string) {
 			},
 		}) {
 			@icon.PenLine(icon.Props{Class: "size-3.5 shrink-0 opacity-70"})
-			<span class="min-w-0 truncate select-item-text">Custom From…</span>
+			<span class="min-w-0 truncate select-item-text">{ i18n.T(ctx, "compose.from.custom") }</span>
 		}
 	}
 }
@@ -559,7 +562,7 @@ templ composeFromMenuItems(accounts []models.Account, scope string) {
 // name, its address, and which server sends it. It shows once "Custom
 // From…" is picked in the From menu.
 templ composeOneTimeFromRow(accounts []models.Account, scope string) {
-	if composeHasOneTimeFrom(accounts) {
+	if composeHasOneTimeFrom(ctx, accounts) {
 		<div class="compose-one-time-from hidden" data-compose-one-time-from data-compose-account-scope={ scope }>
 			<input type="hidden" name="one_time_from" value="" data-compose-one-time-active/>
 			<input type="hidden" name="send_via" value="" data-compose-one-time-send-via/>
@@ -569,22 +572,22 @@ templ composeOneTimeFromRow(accounts []models.Account, scope string) {
 				<div class="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
 					@input.Input(input.Props{
 						Name:        "from_name",
-						Placeholder: "Display name",
+						Placeholder: i18n.T(ctx, "compose.from.display_name"),
 						Class:       "compose-input h-8",
-						Attributes:  templ.Attributes{"aria-label": "Display name", "autocomplete": "off", "data-compose-one-time-name": "", "data-on-input": onAction("changeComposeOneTimeFrom", actionElement)},
+						Attributes:  templ.Attributes{"aria-label": i18n.T(ctx, "compose.from.display_name"), "autocomplete": "off", "data-compose-one-time-name": "", "data-on-input": onAction("changeComposeOneTimeFrom", actionElement)},
 					})
 					@input.Input(input.Props{
 						Name:        "from_email",
 						Type:        input.TypeEmail,
-						Placeholder: "Email address",
+						Placeholder: i18n.T(ctx, "compose.from.email"),
 						Class:       "compose-input h-8",
-						Attributes:  templ.Attributes{"aria-label": "Email address", "autocomplete": "off", "spellcheck": "false", "data-compose-one-time-email": "", "data-on-input": onAction("changeComposeOneTimeFrom", actionElement), "data-on-blur": onAction("checkComposeOneTimeFrom", actionElement)},
+						Attributes:  templ.Attributes{"aria-label": i18n.T(ctx, "compose.from.email"), "autocomplete": "off", "spellcheck": "false", "data-compose-one-time-email": "", "data-on-input": onAction("changeComposeOneTimeFrom", actionElement), "data-on-blur": onAction("checkComposeOneTimeFrom", actionElement)},
 					})
 					<div class="flex min-w-0 items-center gap-2 sm:col-span-2">
-						<span class="shrink-0 text-xs text-muted-foreground">Send via</span>
+						<span class="shrink-0 text-xs text-muted-foreground">{ i18n.T(ctx, "compose.from.send_via") }</span>
 						@selectbox.SelectBox(selectbox.Props{Class: "min-w-0 flex-1", Attributes: templ.Attributes{"data-compose-send-via": ""}}) {
 							@selectbox.Trigger(selectbox.TriggerProps{Class: "h-8 text-[13px]", DisableClear: true, Required: true}) {
-								@selectbox.Value(selectbox.ValueProps{Placeholder: "Choose a server", Class: "truncate"})
+								@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "compose.from.choose_server"), Class: "truncate"})
 							}
 							@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
 								for i, acc := range accounts {
@@ -593,7 +596,7 @@ templ composeOneTimeFromRow(accounts []models.Account, scope string) {
 											<div class="account-color-marker size-2 shrink-0" style={ accountColorStyle(acc.Color) }></div>
 											<span class="truncate">{ contactSidebarAccountName(acc) }</span>
 										}
-										for _, route := range composeFromRoutes(acc) {
+										for _, route := range composeFromRoutes(ctx, acc) {
 											@selectbox.Item(selectbox.ItemProps{
 												Value:    route.Key,
 												Disabled: route.Reason != "",
@@ -653,40 +656,40 @@ templ ComposePane(accounts []models.Account) {
 		<div class="surface-paper rounded-md flex flex-col h-full overflow-hidden">
 			<div class="flex items-center justify-between px-6 py-2.5">
 				<div class="flex items-center gap-2">
-					<h2 class="font-semibold text-sm" data-compose-title>New message</h2>
+					<h2 class="font-semibold text-sm" data-compose-title>{ i18n.T(ctx, "compose.new_message") }</h2>
 				</div>
 				<div class="flex items-center gap-1" id="compose-pane-size-buttons">
 					@popover.Root(popover.RootProps{ID: "compose-pane-close-choice-popover"}) {
 						@popover.Trigger(popover.TriggerProps{TriggerType: popover.TriggerTypeManual}) {
-							<button type="button" data-on-click='["discardComposePane","$this"]' class="flex items-center justify-center size-8 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/5 transition-colors" aria-label="Discard draft" title="Discard draft">
+							<button type="button" data-on-click='["discardComposePane","$this"]' class="flex items-center justify-center size-8 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/5 transition-colors" aria-label={ i18n.T(ctx, "mail.draft.discard") } title={ i18n.T(ctx, "mail.draft.discard") }>
 								@icon.Trash2(icon.Props{Class: "size-4"})
 							</button>
 						}
-						@popover.Content(popover.ContentProps{Placement: popover.PlacementBottomEnd, ShowArrow: true, Class: "w-[28rem] p-4"}) {
+						@popover.Content(popover.ContentProps{Placement: popover.PlacementBottomEnd, ShowArrow: true, Class: "w-max min-w-[min(28rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] p-4"}) {
 							<div class="compose-close-choice" data-compose-close-choice>
-								<h2>Close compose?</h2>
-								<p>Keep this message as a draft, discard it permanently, or continue editing.</p>
+								<h2>{ i18n.T(ctx, "compose.close.title") }</h2>
+								<p>{ i18n.T(ctx, "compose.close.description") }</p>
 								<div class="compose-close-choice-actions compose-close-choice-actions-nowrap">
-									<button type="button" class="compose-close-choice-primary" data-compose-close-action="keep">Exit and keep draft</button>
-									<button type="button" data-compose-close-action="discard">Exit and discard</button>
-									<button type="button" data-compose-close-action="cancel">Cancel</button>
+									<button type="button" class="compose-close-choice-primary" data-compose-close-action="keep">{ i18n.T(ctx, "compose.close.keep") }</button>
+									<button type="button" data-compose-close-action="discard">{ i18n.T(ctx, "compose.close.discard") }</button>
+									<button type="button" data-compose-close-action="cancel">{ i18n.T(ctx, "common.cancel") }</button>
 								</div>
 							</div>
 						}
 					}
 					<span id="pane-btns-normal" class="flex items-center gap-1">
-						<button type="button" data-on-click='["expandComposeFullWidth"]' class="flex items-center justify-center size-8 rounded text-muted-foreground hover:text-ink hover:bg-ink/5 transition-colors" title="Full width">
+						<button type="button" data-on-click='["expandComposeFullWidth"]' class="flex items-center justify-center size-8 rounded text-muted-foreground hover:text-ink hover:bg-ink/5 transition-colors" title={ i18n.T(ctx, "compose.full_width") }>
 							@icon.UnfoldHorizontal(icon.Props{Class: "size-4 compose-pane-size-icon transition-transform"})
 						</button>
-						<button type="button" data-on-click='["collapseToDialog"]' class="flex items-center justify-center size-8 rounded text-muted-foreground hover:text-ink hover:bg-ink/5 transition-colors" title="Compose in dialog">
+						<button type="button" data-on-click='["collapseToDialog"]' class="flex items-center justify-center size-8 rounded text-muted-foreground hover:text-ink hover:bg-ink/5 transition-colors" title={ i18n.T(ctx, "compose.in_dialog") }>
 							@icon.SquareArrowOutUpLeft(icon.Props{Class: "size-4"})
 						</button>
 					</span>
 					<span id="pane-btns-full" class="flex items-center gap-1" style="display:none">
-						<button type="button" data-on-click='["collapseComposeFullWidth"]' class="flex items-center justify-center size-8 rounded text-muted-foreground hover:text-ink hover:bg-ink/5 transition-colors" title="Normal width">
+						<button type="button" data-on-click='["collapseComposeFullWidth"]' class="flex items-center justify-center size-8 rounded text-muted-foreground hover:text-ink hover:bg-ink/5 transition-colors" title={ i18n.T(ctx, "compose.normal_width") }>
 							@icon.FoldHorizontal(icon.Props{Class: "size-4 compose-pane-size-icon transition-transform"})
 						</button>
-						<button type="button" data-on-click='["collapseToDialog"]' class="flex items-center justify-center size-8 rounded text-muted-foreground hover:text-ink hover:bg-ink/5 transition-colors" title="Compose in dialog">
+						<button type="button" data-on-click='["collapseToDialog"]' class="flex items-center justify-center size-8 rounded text-muted-foreground hover:text-ink hover:bg-ink/5 transition-colors" title={ i18n.T(ctx, "compose.in_dialog") }>
 							@icon.SquareArrowOutUpLeft(icon.Props{Class: "size-4"})
 						</button>
 					</span>
@@ -705,7 +708,7 @@ templ ComposePane(accounts []models.Account) {
 						<input type="hidden" name="references" id="compose-pane-references" value=""/>
 					<div class="space-y-1">
 						<div class="flex items-center gap-2" data-compose-from-row>
-							<label class="text-xs text-muted-foreground font-medium w-8 shrink-0">From</label>
+							<label class="text-xs text-muted-foreground font-medium w-8 shrink-0">{ i18n.T(ctx, "mail.filters.from") }</label>
 							@dropdown.Dropdown() {
 								@dropdown.Trigger() {
 									<button type="button" id="compose-pane-from-trigger" class="compose-from-trigger flex items-center gap-1 text-sm text-foreground transition-colors px-1.5 py-0.5 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background">
@@ -719,12 +722,12 @@ templ ComposePane(accounts []models.Account) {
 							}
 						</div>
 						@composeOneTimeFromRow(accounts, "pane")
-						@ComposeField("To", "to", "recipient@example.com")
+						@ComposeField(i18n.T(ctx, "mail.field.to"), "to", "recipient@example.com")
 						<div id="pane-cc-field" class="hidden">
-							@ComposeField("Cc", "cc", "")
+							@ComposeField(i18n.T(ctx, "mail.field.cc"), "cc", "")
 						</div>
 						<div id="pane-bcc-field" class="hidden">
-							@ComposeField("Bcc", "bcc", "")
+							@ComposeField(i18n.T(ctx, "mail.field.bcc"), "bcc", "")
 						</div>
 							<div id="pane-cc-bcc-buttons" class="flex items-center gap-2 pt-1">
 								<button
@@ -732,19 +735,19 @@ templ ComposePane(accounts []models.Account) {
 									type="button"
 									class="text-[11px] text-muted-foreground hover:text-foreground transition-colors px-1.5 py-0.5 rounded hover:bg-accent"
 									data-on-click='["goferShowComposeRecipientField","pane-cc-field","pane-cc-btn"]'
-								>Cc</button>
+								>{ i18n.T(ctx, "mail.field.cc") }</button>
 								<button
 									id="pane-bcc-btn"
 									type="button"
 									class="text-[11px] text-muted-foreground hover:text-foreground transition-colors px-1.5 py-0.5 rounded hover:bg-accent"
 									data-on-click='["goferShowComposeRecipientField","pane-bcc-field","pane-bcc-btn"]'
-								>Bcc</button>
+								>{ i18n.T(ctx, "mail.field.bcc") }</button>
 							</div>
 						</div>
 					<div class="border-t pt-2">
 						@input.Input(input.Props{
 							Name:        "subject",
-							Placeholder: "Subject",
+							Placeholder: i18n.T(ctx, "mail.column.subject"),
 							Class:       "compose-input h-8 font-semibold placeholder:font-normal",
 						})
 					</div>
@@ -757,11 +760,11 @@ templ ComposePane(accounts []models.Account) {
 			<div class="px-6 py-3 border-t border-ink/6">
 				<div class="flex items-center justify-between">
 					<div class="flex items-center gap-2 min-w-0">
-						<button type="button" data-on-click='["saveComposeDraft",true,false]' class="inline-flex min-w-28 items-center justify-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-all duration-200 px-3 py-1.5 rounded-md border border-border hover:bg-accent" data-compose-draft-button data-compose-draft-state="default">
+						<button type="button" data-on-click='["saveComposeDraft",true,false]' class="inline-flex min-w-28 items-center whitespace-nowrap justify-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-all duration-200 px-3 py-1.5 rounded-md border border-border hover:bg-accent" data-compose-draft-button data-compose-draft-state="default">
 							<span class="inline-flex transition-transform duration-200" data-compose-draft-icon>
 								@icon.Save(icon.Props{Class: "size-3.5"})
 							</span>
-							<span data-compose-draft-label>Save Draft</span>
+							<span data-compose-draft-label>{ i18n.T(ctx, "compose.save_draft_button") }</span>
 						</button>
 					</div>
 						<div class="flex items-center gap-2">
@@ -772,7 +775,7 @@ templ ComposePane(accounts []models.Account) {
 								data-on-click='["sendCompose",true]'
 							>
 								@icon.Send(icon.Props{Class: "size-3.5"})
-								Send
+								{ i18n.T(ctx, "compose.send") }
 							</button>
 						</div>
 				</div>

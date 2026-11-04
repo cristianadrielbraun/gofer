@@ -16,7 +16,7 @@ func (h *Handler) handleUserCalendarForward(w http.ResponseWriter, r *http.Reque
 	r.Body = http.MaxBytesReader(w, r.Body, 16384)
 	recipients, comment, err := parseCalendarForwardForm(r)
 	if err != nil {
-		calendarForwardError(w, err)
+		calendarForwardError(w, r, err)
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), calendarSourceTimeout)
@@ -63,10 +63,10 @@ func (h *Handler) handleUserCalendarForward(w http.ResponseWriter, r *http.Reque
 	if err != nil {
 		var form userCalendarFormFailure
 		if errors.As(err, &form) {
-			calendarUpdateFailure(w, form.status, form.message, false, false)
+			calendarUpdateFailure(w, r, form.status, form.message, false, false)
 			return
 		}
-		calendarForwardError(w, err)
+		calendarForwardError(w, r, err)
 		return
 	}
 	if delivery == "email" {

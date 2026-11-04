@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"errors"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"log"
 	"net/http"
 	"strconv"
@@ -15,13 +16,11 @@ import (
 
 const (
 	recoveryLoginFormMaximumBytes = 4 << 10
-	recoveryCodeFailureMessage    = "That recovery code is invalid or has already been used."
-	recoveryRepairServiceMessage  = "Unable to continue account recovery right now. Please try again."
 )
 
 func (h *Handler) handleRecoveryCodeLogin(w http.ResponseWriter, r *http.Request) {
 	if !h.auth.IsEnabled() {
-		http.Error(w, "not found", http.StatusNotFound)
+		http.Error(w, i18n.T(r.Context(), "server.error.not_found"), http.StatusNotFound)
 		return
 	}
 	if r.URL.RawQuery != "" {
@@ -31,7 +30,7 @@ func (h *Handler) handleRecoveryCodeLogin(w http.ResponseWriter, r *http.Request
 	active, err := h.hasLoginChallenge(r, auth.ChallengePurposeMFA)
 	if err != nil {
 		log.Printf("read recovery-code login challenge: %v", err)
-		http.Error(w, "failed to load account recovery", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_load_account_recovery"), http.StatusInternalServerError)
 		return
 	}
 	if !active {
@@ -44,7 +43,7 @@ func (h *Handler) handleRecoveryCodeLogin(w http.ResponseWriter, r *http.Request
 
 func (h *Handler) handleRecoveryCodeLoginSubmit(w http.ResponseWriter, r *http.Request) {
 	if !h.auth.IsEnabled() {
-		http.Error(w, "not found", http.StatusNotFound)
+		http.Error(w, i18n.T(r.Context(), "server.error.not_found"), http.StatusNotFound)
 		return
 	}
 	if r.URL.RawQuery != "" {
@@ -53,7 +52,7 @@ func (h *Handler) handleRecoveryCodeLoginSubmit(w http.ResponseWriter, r *http.R
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, recoveryLoginFormMaximumBytes)
 	if err := r.ParseForm(); err != nil {
-		h.renderRecoveryCodeLoginPage(w, r, http.StatusBadRequest, recoveryCodeFailureMessage)
+		h.renderRecoveryCodeLoginPage(w, r, http.StatusBadRequest, i18n.T(r.Context(), "auth.recovery.code_invalid"))
 		return
 	}
 	challenge, err := h.auth.StartRecoveryCodeRepair(r.Context(), auth.RecoveryCodeLoginOptions{
@@ -71,21 +70,21 @@ func (h *Handler) handleRecoveryCodeLoginSubmit(w http.ResponseWriter, r *http.R
 				retrySeconds = 1
 			}
 			w.Header().Set("Retry-After", strconv.FormatInt(retrySeconds, 10))
-			h.renderRecoveryCodeLoginPage(w, r, http.StatusTooManyRequests, recoveryCodeFailureMessage)
+			h.renderRecoveryCodeLoginPage(w, r, http.StatusTooManyRequests, i18n.T(r.Context(), "auth.recovery.code_invalid"))
 		case errors.As(err, &validationError) && !validationError.Terminal:
-			h.renderRecoveryCodeLoginPage(w, r, http.StatusUnauthorized, recoveryCodeFailureMessage)
+			h.renderRecoveryCodeLoginPage(w, r, http.StatusUnauthorized, i18n.T(r.Context(), "auth.recovery.code_invalid"))
 		case errors.Is(err, auth.ErrRecoveryCodeLoginChallengeInvalid), errors.As(err, &validationError):
 			auth.ClearPreAuthCookie(w, h.auth.Config().SecureCookies)
 			http.Redirect(w, r, "/login?error=recovery", http.StatusSeeOther)
 		default:
 			log.Printf("start recovery-code factor repair: %v", err)
-			h.renderRecoveryCodeLoginPage(w, r, http.StatusInternalServerError, recoveryRepairServiceMessage)
+			h.renderRecoveryCodeLoginPage(w, r, http.StatusInternalServerError, i18n.T(r.Context(), "auth.recovery.unavailable"))
 		}
 		return
 	}
 	if challenge == nil || challenge.Token == "" {
 		log.Printf("recovery-code factor repair returned no challenge")
-		h.renderRecoveryCodeLoginPage(w, r, http.StatusInternalServerError, recoveryRepairServiceMessage)
+		h.renderRecoveryCodeLoginPage(w, r, http.StatusInternalServerError, i18n.T(r.Context(), "auth.recovery.unavailable"))
 		return
 	}
 	auth.SetPreAuthCookie(
@@ -97,7 +96,7 @@ func (h *Handler) handleRecoveryCodeLoginSubmit(w http.ResponseWriter, r *http.R
 
 func (h *Handler) handleRecoveryRepairMFA(w http.ResponseWriter, r *http.Request) {
 	if !h.auth.IsEnabled() {
-		http.Error(w, "not found", http.StatusNotFound)
+		http.Error(w, i18n.T(r.Context(), "server.error.not_found"), http.StatusNotFound)
 		return
 	}
 	if r.URL.RawQuery != "" {
@@ -118,7 +117,7 @@ func (h *Handler) handleRecoveryRepairMFA(w http.ResponseWriter, r *http.Request
 
 func (h *Handler) handleRecoveryRepairMFASubmit(w http.ResponseWriter, r *http.Request) {
 	if !h.auth.IsEnabled() {
-		http.Error(w, "not found", http.StatusNotFound)
+		http.Error(w, i18n.T(r.Context(), "server.error.not_found"), http.StatusNotFound)
 		return
 	}
 	if r.URL.RawQuery != "" {
@@ -127,7 +126,7 @@ func (h *Handler) handleRecoveryRepairMFASubmit(w http.ResponseWriter, r *http.R
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, recoveryLoginFormMaximumBytes)
 	if err := r.ParseForm(); err != nil {
-		h.renderCurrentRecoveryRepairMFA(w, r, http.StatusBadRequest, "That authenticator code is invalid.")
+		h.renderCurrentRecoveryRepairMFA(w, r, http.StatusBadRequest, i18n.T(r.Context(), "auth.mfa.code_invalid"))
 		return
 	}
 	var state *auth.RecoveryRepairState
@@ -142,25 +141,25 @@ func (h *Handler) handleRecoveryRepairMFASubmit(w http.ResponseWriter, r *http.R
 			r.Context(), auth.GetPreAuthToken(r), h.auth.Config().BaseURL,
 		)
 	default:
-		h.renderCurrentRecoveryRepairMFA(w, r, http.StatusUnprocessableEntity, "Choose a valid authenticator-repair action.")
+		h.renderCurrentRecoveryRepairMFA(w, r, http.StatusUnprocessableEntity, i18n.T(r.Context(), "auth.mfa.repair_action"))
 		return
 	}
 	if err != nil {
 		var validationError *auth.RecoveryRepairTOTPValidationError
 		switch {
 		case errors.As(err, &validationError) && !validationError.Terminal:
-			h.renderCurrentRecoveryRepairMFA(w, r, http.StatusUnprocessableEntity, "That authenticator code is invalid or has already been used.")
+			h.renderCurrentRecoveryRepairMFA(w, r, http.StatusUnprocessableEntity, i18n.T(r.Context(), "auth.mfa.code_invalid_used"))
 		case errors.Is(err, auth.ErrRecoveryRepairInvalid), errors.Is(err, auth.ErrRecoveryRepairStateChanged), errors.As(err, &validationError):
 			auth.ClearPreAuthCookie(w, h.auth.Config().SecureCookies)
 			http.Redirect(w, r, "/login?error=recovery", http.StatusSeeOther)
 		default:
 			log.Printf("update recovery-repair authenticator: %v", err)
-			h.renderCurrentRecoveryRepairMFA(w, r, http.StatusInternalServerError, recoveryRepairServiceMessage)
+			h.renderCurrentRecoveryRepairMFA(w, r, http.StatusInternalServerError, i18n.T(r.Context(), "auth.recovery.unavailable"))
 		}
 		return
 	}
 	if state == nil {
-		h.renderCurrentRecoveryRepairMFA(w, r, http.StatusInternalServerError, recoveryRepairServiceMessage)
+		h.renderCurrentRecoveryRepairMFA(w, r, http.StatusInternalServerError, i18n.T(r.Context(), "auth.recovery.unavailable"))
 		return
 	}
 	if state.TOTPConfirmed {
@@ -172,7 +171,7 @@ func (h *Handler) handleRecoveryRepairMFASubmit(w http.ResponseWriter, r *http.R
 
 func (h *Handler) handleRecoveryRepairCodes(w http.ResponseWriter, r *http.Request) {
 	if !h.auth.IsEnabled() {
-		http.Error(w, "not found", http.StatusNotFound)
+		http.Error(w, i18n.T(r.Context(), "server.error.not_found"), http.StatusNotFound)
 		return
 	}
 	if r.URL.RawQuery != "" {
@@ -193,7 +192,7 @@ func (h *Handler) handleRecoveryRepairCodes(w http.ResponseWriter, r *http.Reque
 
 func (h *Handler) handleRecoveryRepairCodesSubmit(w http.ResponseWriter, r *http.Request) {
 	if !h.auth.IsEnabled() {
-		http.Error(w, "not found", http.StatusNotFound)
+		http.Error(w, i18n.T(r.Context(), "server.error.not_found"), http.StatusNotFound)
 		return
 	}
 	if r.URL.RawQuery != "" {
@@ -202,7 +201,7 @@ func (h *Handler) handleRecoveryRepairCodesSubmit(w http.ResponseWriter, r *http
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, recoveryLoginFormMaximumBytes)
 	if err := r.ParseForm(); err != nil {
-		h.renderCurrentRecoveryRepairCodes(w, r, http.StatusBadRequest, "Unable to read that recovery-code request.")
+		h.renderCurrentRecoveryRepairCodes(w, r, http.StatusBadRequest, i18n.T(r.Context(), "auth.recovery.request_unreadable"))
 		return
 	}
 	switch r.PostFormValue("action") {
@@ -218,7 +217,7 @@ func (h *Handler) handleRecoveryRepairCodesSubmit(w http.ResponseWriter, r *http
 			}
 			handleErr := h.handleRecoveryRepairOperationError(w, r, err, "generate recovery-repair codes")
 			if !handleErr {
-				h.renderCurrentRecoveryRepairCodes(w, r, http.StatusInternalServerError, recoveryRepairServiceMessage)
+				h.renderCurrentRecoveryRepairCodes(w, r, http.StatusInternalServerError, i18n.T(r.Context(), "auth.recovery.unavailable"))
 			}
 			return
 		}
@@ -234,18 +233,18 @@ func (h *Handler) handleRecoveryRepairCodesSubmit(w http.ResponseWriter, r *http
 		if err != nil {
 			switch {
 			case errors.Is(err, auth.ErrRecoveryRepairBatchRequired):
-				h.renderCurrentRecoveryRepairCodes(w, r, http.StatusUnprocessableEntity, "Confirm that you saved the new recovery codes before continuing.")
+				h.renderCurrentRecoveryRepairCodes(w, r, http.StatusUnprocessableEntity, i18n.T(r.Context(), "auth.recovery.confirm_saved_new"))
 			case errors.Is(err, auth.ErrRecoveryRepairStateChanged):
 				http.Redirect(w, r, "/login/recovery/codes", http.StatusSeeOther)
 			default:
 				if !h.handleRecoveryRepairOperationError(w, r, err, "complete recovery repair") {
-					h.renderCurrentRecoveryRepairCodes(w, r, http.StatusInternalServerError, recoveryRepairServiceMessage)
+					h.renderCurrentRecoveryRepairCodes(w, r, http.StatusInternalServerError, i18n.T(r.Context(), "auth.recovery.unavailable"))
 				}
 			}
 			return
 		}
 		if session == nil {
-			h.renderCurrentRecoveryRepairCodes(w, r, http.StatusInternalServerError, recoveryRepairServiceMessage)
+			h.renderCurrentRecoveryRepairCodes(w, r, http.StatusInternalServerError, i18n.T(r.Context(), "auth.recovery.unavailable"))
 			return
 		}
 		auth.ClearPreAuthCookie(w, h.auth.Config().SecureCookies)
@@ -260,7 +259,7 @@ func (h *Handler) handleRecoveryRepairCodesSubmit(w http.ResponseWriter, r *http
 		}
 		http.Redirect(w, r, returnTo, http.StatusSeeOther)
 	default:
-		h.renderCurrentRecoveryRepairCodes(w, r, http.StatusUnprocessableEntity, "Choose a valid recovery-code action.")
+		h.renderCurrentRecoveryRepairCodes(w, r, http.StatusUnprocessableEntity, i18n.T(r.Context(), "auth.recovery.action"))
 	}
 }
 
@@ -288,7 +287,7 @@ func (h *Handler) handleRecoveryRepairAccessError(w http.ResponseWriter, r *http
 	}
 	log.Printf("%s: %v", operation, err)
 	auth.ClearPreAuthCookie(w, h.auth.Config().SecureCookies)
-	http.Error(w, "failed to load account recovery", http.StatusInternalServerError)
+	http.Error(w, i18n.T(r.Context(), "server.error.failed_to_load_account_recovery"), http.StatusInternalServerError)
 }
 
 func (h *Handler) handleRecoveryRepairOperationError(w http.ResponseWriter, r *http.Request, err error, operation string) bool {
@@ -326,7 +325,7 @@ func (h *Handler) renderRecoveryCodeLoginPage(w http.ResponseWriter, r *http.Req
 	var page bytes.Buffer
 	if err := views.RecoveryCodeLoginPage(message).Render(r.Context(), &page); err != nil {
 		log.Printf("render recovery-code login page: %v", err)
-		http.Error(w, "failed to render account recovery", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_render_account_recovery"), http.StatusInternalServerError)
 		return
 	}
 	writeNoStoreHTML(w, status, &page)
@@ -336,7 +335,7 @@ func (h *Handler) renderRecoveryRepairMFAPage(w http.ResponseWriter, r *http.Req
 	var page bytes.Buffer
 	if err := views.RecoveryRepairMFAPage(data).Render(r.Context(), &page); err != nil {
 		log.Printf("render recovery-repair authenticator page: %v", err)
-		http.Error(w, "failed to render authenticator repair", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_render_authenticator_repair"), http.StatusInternalServerError)
 		return
 	}
 	writeNoStoreHTML(w, status, &page)
@@ -346,7 +345,7 @@ func (h *Handler) renderRecoveryRepairCodesPage(w http.ResponseWriter, r *http.R
 	var page bytes.Buffer
 	if err := views.RecoveryRepairCodesPage(data).Render(r.Context(), &page); err != nil {
 		log.Printf("render recovery-repair code page: %v", err)
-		http.Error(w, "failed to render recovery codes", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_render_recovery_codes"), http.StatusInternalServerError)
 		return
 	}
 	writeNoStoreHTML(w, status, &page)

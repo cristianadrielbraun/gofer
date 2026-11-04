@@ -1,7 +1,8 @@
 package views
 
 import (
-	"fmt"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
+	"context"
 	"strconv"
 
 	"github.com/cristianadrielbraun/gofer/components/checkbox"
@@ -74,12 +75,12 @@ templ ProfileImportUploadForm(message string) {
 			hx-swap="innerHTML"
 			class="space-y-1.5"
 		>
-			<label for="profile-import-file" class="block text-sm font-medium text-foreground">Profile file</label>
+			<label for="profile-import-file" class="block text-sm font-medium text-foreground">{ i18n.T(ctx, "transfer.profile.file") }</label>
 			<div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
 				<input id="profile-import-file" type="file" name="profile" accept=".json,application/json" required class="profile-file-input block h-8 w-full min-w-0 flex-1 rounded-md border border-input bg-background p-[3px] text-xs text-foreground file:mr-3 file:h-full file:cursor-pointer file:rounded file:border-0 file:bg-primary file:px-3 file:text-xs file:font-medium file:text-primary-foreground hover:file:bg-primary/90"/>
 				<button type="submit" class={ profileButtonClass }>
 					@icon.Upload(icon.Props{Class: "size-3.5"})
-					Review import
+					{ i18n.T(ctx, "transfer.profile.review") }
 				</button>
 			</div>
 			if message != "" {
@@ -89,37 +90,37 @@ templ ProfileImportUploadForm(message string) {
 	}
 }
 
-func profileImportStatusLabel(status string) string {
+func profileImportStatusLabel(ctx context.Context, status string) string {
 	switch status {
 	case "exists":
-		return "Already connected"
+		return i18n.T(ctx, "transfer.profile.status.exists")
 	case "unsupported":
-		return "Not available here"
+		return i18n.T(ctx, "transfer.profile.status.unsupported")
 	default:
-		return "Needs reconnecting"
+		return i18n.T(ctx, "transfer.profile.status.new")
 	}
 }
 
-func profileImportStatusDescription(account ProfileImportAccount) string {
+func profileImportStatusDescription(ctx context.Context, account ProfileImportAccount) string {
 	switch account.Status {
 	case "exists":
 		if account.Provider == providers.ProviderDAV {
-			return "This account is already in Gofer. Replacing its settings keeps its password."
+			return i18n.T(ctx, "transfer.profile.exists_dav")
 		}
 		if account.CanReplace {
-			return "This mailbox is already in Gofer. Replacing its settings keeps its password, sign-in and mail."
+			return i18n.T(ctx, "transfer.profile.exists_replace")
 		}
-		return "This mailbox is already in Gofer, connected another way, so it is skipped."
+		return i18n.T(ctx, "transfer.profile.exists_other")
 	case "unsupported":
-		return accountProviderName(account.Provider) + " sign-in is not set up on this installation."
+		return i18n.T(ctx, "transfer.profile.unsupported", "provider", accountProviderName(account.Provider))
 	}
 	switch {
 	case account.Provider == "gmail" || account.Provider == "outlook":
-		return "Added with sync off. Sign in again to start syncing."
+		return i18n.T(ctx, "transfer.profile.added_sign_in")
 	case len(account.Needs) > 1:
-		return "Added with sync off. Enter its passwords for " + reconnectLoginLabels(account.Needs) + " to start syncing."
+		return i18n.T(ctx, "transfer.profile.added_passwords", "logins", reconnectLoginNames(ctx, account.Needs))
 	}
-	return "Added with sync off. Enter its password to start syncing."
+	return i18n.T(ctx, "transfer.profile.added_password")
 }
 
 templ ProfileImportPreview(data ProfileImportPreviewData) {
@@ -133,17 +134,17 @@ templ ProfileImportPreview(data ProfileImportPreviewData) {
 		@dataDialogScroll("space-y-5 pb-4") {
 			<textarea name="profile" hidden>{ data.Profile }</textarea>
 			if data.ExportedAt != "" {
-				<p class="text-xs text-muted-foreground">Exported { data.ExportedAt }.</p>
+				<p class="text-xs text-muted-foreground">{ i18n.T(ctx, "transfer.profile.exported_at", "date", data.ExportedAt) }</p>
 			}
 			<div class="space-y-3">
 				if data.HasPreferences {
-					@profileImportSection("preferences", "Preferences", "Appearance, layout, compose, notification, sync and regional settings. They replace your current ones.", true)
+					@profileImportSection("preferences", i18n.T(ctx, "transfer.profile.preferences"), i18n.T(ctx, "transfer.profile.preferences_detail"), true)
 				}
 				if len(data.Signatures) > 0 {
-					@profileImportSection("signatures", profileCount(len(data.Signatures), "signature", "signatures"), profileSignatureNames(data.Signatures), true)
+					@profileImportSection("signatures", i18n.N(ctx, "transfer.profile.signatures", len(data.Signatures)), profileSignatureNames(ctx, data.Signatures), true)
 				}
 				if data.Contacts > 0 {
-					@profileImportSection("contacts", profileCount(data.Contacts, "contact", "contacts"), profileContactsDescription(data), true)
+					@profileImportSection("contacts", i18n.N(ctx, "transfer.profile.contacts", data.Contacts), profileContactsDescription(ctx, data), true)
 				}
 			</div>
 			if len(data.Conflicts) > 0 {
@@ -151,12 +152,12 @@ templ ProfileImportPreview(data ProfileImportPreviewData) {
 			}
 			if len(data.Accounts) > 0 {
 				<div class="space-y-2">
-					<p class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Accounts</p>
+					<p class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "transfer.profile.accounts") }</p>
 					for _, account := range data.Accounts {
 						<div class={ "flex flex-wrap items-start gap-3 rounded-lg border border-border/60 bg-background/40 p-3", templ.KV("opacity-60", account.Status != "new" && !account.CanReplace) } data-profile-import-account={ account.Email }>
 							if account.CanReplace {
 								@profileAccountSummary(account)
-								@profileConflictChoices("account_action:"+account.Ref, "skip", false, "Replace settings")
+								@profileConflictChoices("account_action:"+account.Ref, "skip", false, i18n.T(ctx, "transfer.profile.replace_settings"))
 							} else {
 								<label class="flex min-w-0 flex-1 items-start gap-3">
 									@checkbox.Checkbox(checkbox.Props{Name: "account", Value: account.Ref, Checked: account.Status == "new", Disabled: account.Status != "new"})
@@ -170,31 +171,31 @@ templ ProfileImportPreview(data ProfileImportPreviewData) {
 		}
 		@dataDialogFooter() {
 			<button type="button" class={ profileButtonClass } hx-get="/api/profile/import/upload" hx-target="#profile-import-panel" hx-swap="innerHTML">
-				Cancel
+				{ i18n.T(ctx, "common.cancel") }
 			</button>
 			<button type="submit" class={ profilePrimaryButtonClass } data-profile-import-submit>
 				@icon.Upload(icon.Props{Class: "size-3.5"})
-				Import
+				{ i18n.T(ctx, "transfer.profile.import_button") }
 			</button>
 		}
 	</form>
 }
 
-func profileContactsDescription(data ProfileImportPreviewData) string {
+func profileContactsDescription(ctx context.Context, data ProfileImportPreviewData) string {
 	if len(data.Conflicts) == 0 {
-		return "Added to your Gofer contacts."
+		return i18n.T(ctx, "transfer.profile.contacts_added")
 	}
-	return "Added to your Gofer contacts. Choose below what to do with the ones you may already have."
+	return i18n.T(ctx, "transfer.profile.contacts_added_conflicts")
 }
 
 // profileConflictChoices lets the person skip something that is already in
 // Gofer, replace it, or keep both when that is possible.
 templ profileConflictChoices(name string, selected string, keepBoth bool, replaceLabel string) {
 	<span class="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-foreground sm:ml-auto" role="radiogroup" data-profile-conflict-choices>
-		@profileConflictChoice(name, "skip", "Skip", selected)
+		@profileConflictChoice(name, "skip", i18n.T(ctx, "transfer.profile.skip"), selected)
 		@profileConflictChoice(name, "replace", replaceLabel, selected)
 		if keepBoth {
-			@profileConflictChoice(name, "add", "Keep both", selected)
+			@profileConflictChoice(name, "add", i18n.T(ctx, "transfer.profile.keep_both"), selected)
 		}
 	</span>
 }
@@ -210,13 +211,13 @@ templ profileContactConflicts(conflicts []ProfileImportContactConflict) {
 	<div class="space-y-2" data-profile-contact-conflicts>
 		<div class="flex flex-wrap items-end justify-between gap-2">
 			<div>
-				<p class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{ profileConflictsHeading(len(conflicts)) }</p>
-				<p class="text-xs text-muted-foreground">Replacing a contact keeps where it syncs. Contacts that share an email address can't both be kept.</p>
+				<p class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.N(ctx, "transfer.profile.conflicts", len(conflicts)) }</p>
+				<p class="text-xs text-muted-foreground">{ i18n.T(ctx, "transfer.profile.conflicts_note") }</p>
 			</div>
 			<span class="flex items-center gap-2 text-xs text-muted-foreground">
-				For all:
-				<button type="button" class={ profileButtonClass } data-on-click='["setProfileConflictChoices", "$this", "skip"]'>Skip</button>
-				<button type="button" class={ profileButtonClass } data-on-click='["setProfileConflictChoices", "$this", "replace"]'>Replace</button>
+				{ i18n.T(ctx, "transfer.profile.for_all") }
+				<button type="button" class={ profileButtonClass } data-on-click='["setProfileConflictChoices", "$this", "skip"]'>{ i18n.T(ctx, "transfer.profile.skip") }</button>
+				<button type="button" class={ profileButtonClass } data-on-click='["setProfileConflictChoices", "$this", "replace"]'>{ i18n.T(ctx, "transfer.profile.replace") }</button>
 			</span>
 		</div>
 		<div class="max-h-80 space-y-2 overflow-y-auto">
@@ -224,39 +225,32 @@ templ profileContactConflicts(conflicts []ProfileImportContactConflict) {
 				<div class="flex flex-wrap items-center gap-3 rounded-lg border border-border/60 bg-background/40 p-3" data-profile-contact-conflict={ strconv.Itoa(conflict.Index) }>
 					<div class="grid min-w-0 flex-1 gap-2 sm:grid-cols-2">
 						<div class="min-w-0">
-							<p class="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">In the profile</p>
+							<p class="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{ i18n.T(ctx, "transfer.profile.in_profile") }</p>
 							<p class="truncate text-sm font-medium text-foreground">{ conflict.Name }</p>
 							if conflict.Detail != "" {
 								<p class="truncate text-xs text-muted-foreground">{ conflict.Detail }</p>
 							}
 						</div>
 						<div class="min-w-0">
-							<p class="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{ profileConflictExistingLabel(conflict) }</p>
+							<p class="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{ profileConflictExistingLabel(ctx, conflict) }</p>
 							<p class="truncate text-sm font-medium text-foreground">{ conflict.ExistingName }</p>
 							if conflict.ExistingDetail != "" {
 								<p class="truncate text-xs text-muted-foreground">{ conflict.ExistingDetail }</p>
 							}
 						</div>
 					</div>
-					@profileConflictChoices("contact_action:"+strconv.Itoa(conflict.Index), conflict.Default, !conflict.ByEmail, "Replace")
+					@profileConflictChoices("contact_action:"+strconv.Itoa(conflict.Index), conflict.Default, !conflict.ByEmail, i18n.T(ctx, "transfer.profile.replace"))
 				</div>
 			}
 		</div>
 	</div>
 }
 
-func profileConflictsHeading(n int) string {
-	if n == 1 {
-		return "1 contact may already be in Gofer"
-	}
-	return strconv.Itoa(n) + " contacts may already be in Gofer"
-}
-
-func profileConflictExistingLabel(conflict ProfileImportContactConflict) string {
+func profileConflictExistingLabel(ctx context.Context, conflict ProfileImportContactConflict) string {
 	if conflict.ByEmail {
-		return "In Gofer, same email"
+		return i18n.T(ctx, "transfer.profile.same_email")
 	}
-	return "In Gofer, same name"
+	return i18n.T(ctx, "transfer.profile.same_name")
 }
 
 templ profileAccountSummary(account ProfileImportAccount) {
@@ -273,8 +267,8 @@ templ profileAccountSummary(account ProfileImportAccount) {
 			<span class="block truncate text-xs text-muted-foreground">{ account.Email }</span>
 		}
 		<span class="mt-1 block text-xs text-muted-foreground">
-			<span class="font-medium">{ profileImportStatusLabel(account.Status) }.</span>
-			{ profileImportStatusDescription(account) }
+			<span class="font-medium">{ profileImportStatusLabel(ctx, account.Status) }.</span>
+			{ profileImportStatusDescription(ctx, account) }
 		</span>
 	</span>
 }
@@ -289,40 +283,12 @@ templ profileImportSection(name string, title string, description string, checke
 	</label>
 }
 
-func profileCount(n int, singular, plural string) string {
-	if n == 1 {
-		return "1 " + singular
-	}
-	return strconv.Itoa(n) + " " + plural
-}
-
-func profileSignatureNames(names []string) string {
+func profileSignatureNames(ctx context.Context, names []string) string {
 	const shown = 4
 	if len(names) <= shown {
-		return joinWithAnd(names)
+		return settingsJoinAnd(ctx, names)
 	}
-	return joinWithAnd(append(append([]string{}, names[:shown]...), fmt.Sprintf("%d more", len(names)-shown)))
-}
-
-func joinWithAnd(items []string) string {
-	switch len(items) {
-	case 0:
-		return ""
-	case 1:
-		return items[0]
-	}
-	out := ""
-	for i, item := range items {
-		switch {
-		case i == 0:
-			out = item
-		case i == len(items)-1:
-			out += " and " + item
-		default:
-			out += ", " + item
-		}
-	}
-	return out
+	return settingsJoinAnd(ctx, append(append([]string{}, names[:shown]...), i18n.T(ctx, "transfer.profile.more", "count", len(names)-shown)))
 }
 
 func profileAccountLabel(account ProfileImportAccount) string {
@@ -338,28 +304,28 @@ templ ProfileImportResult(result ProfileImportResultData) {
 			<div class="flex items-start gap-2.5">
 				@icon.CircleCheck(icon.Props{Class: "mt-0.5 size-4 shrink-0 text-emerald-600 dark:text-emerald-400"})
 				<div class="min-w-0 space-y-1 text-sm text-foreground">
-					<p class="font-medium">Profile imported.</p>
+					<p class="font-medium">{ i18n.T(ctx, "transfer.profile.imported") }</p>
 					<ul class="space-y-0.5 text-xs text-muted-foreground">
 						if result.Preferences {
-							<li>Preferences applied. Reload Gofer to see all of them.</li>
+							<li>{ i18n.T(ctx, "transfer.profile.result.preferences") }</li>
 						}
 						if result.Signatures > 0 {
-							<li>{ profileCount(result.Signatures, "signature", "signatures") } added.</li>
+							<li>{ i18n.N(ctx, "transfer.profile.result.signatures", result.Signatures) }</li>
 						}
 						if result.Contacts > 0 {
-							<li>{ profileCount(result.Contacts, "contact", "contacts") } added.</li>
+							<li>{ i18n.N(ctx, "transfer.profile.result.contacts", result.Contacts) }</li>
 						}
 						if result.ContactsReplaced > 0 {
-							<li>{ profileCount(result.ContactsReplaced, "contact", "contacts") } replaced.</li>
+							<li>{ i18n.N(ctx, "transfer.profile.result.replaced", result.ContactsReplaced) }</li>
 						}
 						if result.ContactsSkipped > 0 {
-							<li>{ profileCount(result.ContactsSkipped, "contact", "contacts") } skipped.</li>
+							<li>{ i18n.N(ctx, "transfer.profile.result.skipped", result.ContactsSkipped) }</li>
 						}
 						if len(result.Accounts) > 0 {
-							<li>{ profileCount(len(result.Accounts), "account", "accounts") } added: { joinWithAnd(result.Accounts) }. Reconnect them in Accounts to start syncing.</li>
+							<li>{ i18n.N(ctx, "transfer.profile.result.accounts", len(result.Accounts), "accounts", settingsJoinAnd(ctx, result.Accounts)) }</li>
 						}
 						if len(result.AccountsReplaced) > 0 {
-							<li>Settings replaced for { joinWithAnd(result.AccountsReplaced) }.</li>
+							<li>{ i18n.T(ctx, "transfer.profile.result.settings_replaced", "accounts", settingsJoinAnd(ctx, result.AccountsReplaced)) }</li>
 						}
 					</ul>
 				</div>
@@ -367,31 +333,27 @@ templ ProfileImportResult(result ProfileImportResultData) {
 			if len(result.AccountFailures) > 0 {
 				<div class="flex items-start gap-2.5 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-xs text-destructive" role="alert">
 					@icon.TriangleAlert(icon.Props{Class: "mt-0.5 size-3.5 shrink-0"})
-					<p>{ profileAccountFailureMessage(result.AccountFailures) }</p>
+					<p>{ profileAccountFailureMessage(ctx, result.AccountFailures) }</p>
 				</div>
 			}
 		}
 		@dataDialogFooter() {
 			<button type="button" class={ profileButtonClass } hx-get="/api/profile/import/upload" hx-target="#profile-import-panel" hx-swap="innerHTML">
-				Import another
+				{ i18n.T(ctx, "transfer.profile.import_another") }
 			</button>
 			if len(result.Accounts) > 0 {
 				<a href="/settings/accounts" class={ profilePrimaryButtonClass }>
-					Go to Accounts
+					{ i18n.T(ctx, "transfer.profile.go_accounts") }
 				</a>
 			} else if result.Preferences {
 				<a href="/settings/export-import" class={ profilePrimaryButtonClass }>
-					Reload
+					{ i18n.T(ctx, "transfer.profile.reload") }
 				</a>
 			}
 		}
 	</div>
 }
 
-func profileAccountFailureMessage(emails []string) string {
-	pronoun := "them"
-	if len(emails) == 1 {
-		pronoun = "it"
-	}
-	return "Could not add " + joinWithAnd(emails) + ". Add " + pronoun + " from Accounts instead."
+func profileAccountFailureMessage(ctx context.Context, emails []string) string {
+	return i18n.N(ctx, "transfer.profile.result.failures", len(emails), "accounts", settingsJoinAnd(ctx, emails))
 }

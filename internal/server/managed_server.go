@@ -173,7 +173,7 @@ func newManagedApplication(parent context.Context, path string, maxOpen int) (re
 	app.auth.StartSessionCleanup(ctx)
 	app.flows.StartCleanup(ctx)
 	app.notifications.Start(ctx)
-	app.handler = app.httpConfig.ClientNetworkMiddleware(authConfig.Enabled, app.httpConfig.Middleware(handler.CompressResponses(app.auth.Middleware(views.WithListViewCookie(mux)))))
+	app.handler = app.httpConfig.ClientNetworkMiddleware(authConfig.Enabled, app.httpConfig.Middleware(handler.CompressResponses(app.auth.Middleware(app.mailbox.LocaleMiddleware(views.WithListViewCookie(mux))))))
 	return app, nil
 }
 

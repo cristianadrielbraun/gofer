@@ -3,6 +3,7 @@ package handler
 import (
 	"database/sql"
 	"errors"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"net/http"
 	"strings"
 
@@ -13,14 +14,14 @@ func (h *Handler) handleSaveAccountCalendarSources(w http.ResponseWriter, r *htt
 	ctx := r.Context()
 	accountID := strings.TrimSpace(r.PathValue("id"))
 	if accountID == "" {
-		http.Error(w, "account id required", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.account_id_required"), http.StatusBadRequest)
 		return
 	}
 	if !h.requireOwnedAccount(w, r, accountID) {
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "invalid calendar source selection", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_calendar_source_selection"), http.StatusBadRequest)
 		return
 	}
 
@@ -31,21 +32,21 @@ func (h *Handler) handleSaveAccountCalendarSources(w http.ResponseWriter, r *htt
 			return
 		}
 		if strings.Contains(err.Error(), "does not belong to account") {
-			http.Error(w, "invalid calendar source selection", http.StatusBadRequest)
+			http.Error(w, i18n.T(r.Context(), "server.error.invalid_calendar_source_selection"), http.StatusBadRequest)
 			return
 		}
-		http.Error(w, "Could not save calendar source selection.", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.could_not_save_calendar_source_selection"), http.StatusInternalServerError)
 		return
 	}
 
 	data, err := h.accountStore.GetEditData(ctx, accountID)
 	if err != nil {
-		http.Error(w, "account not found", http.StatusNotFound)
+		http.Error(w, i18n.T(r.Context(), "server.error.account_not_found"), http.StatusNotFound)
 		return
 	}
 	h.markCalendarCreateAccess(ctx, data)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := views.CalendarSyncSettingsResult(*data, "Calendar sources saved.", false).Render(ctx, w); err != nil {
-		http.Error(w, "failed to render calendar source selection", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_render_calendar_source_selection"), http.StatusInternalServerError)
 	}
 }

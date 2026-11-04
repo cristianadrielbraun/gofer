@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -221,13 +222,13 @@ var errMailTransferDelete = errors.New("delete moved messages")
 func mailTransferErrorText(err error) string {
 	switch {
 	case errors.Is(err, storage.ErrAccountRoute), errors.Is(err, os.ErrNotExist):
-		return "One of the accounts is no longer available."
+		return i18n.Translate(i18n.English, "jobs.transfer.account_gone")
 	case errors.Is(err, errMailImportAccount):
-		return "Gofer could not sign in to the account the messages go to. Check its settings, then continue."
+		return i18n.Translate(i18n.English, "jobs.transfer.sign_in")
 	case errors.Is(err, errMailTransferDelete):
-		return "The copies are saved, but the originals could not be deleted. Continue to try again."
+		return i18n.Translate(i18n.English, "jobs.transfer.delete")
 	default:
-		return "Stopped after several messages in a row could not be copied: " + err.Error()
+		return i18n.Translate(i18n.English, "jobs.transfer.stopped", "error", err.Error())
 	}
 }
 

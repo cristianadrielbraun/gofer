@@ -1,0 +1,15 @@
+package views
+
+import (
+	"github.com/cristianadrielbraun/gofer/internal/assetver"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
+)
+
+// I18nScripts loads the page language's messages for scripts and the
+// goferT/goferTn helpers that read them. It goes in each page's head, before
+// any script that shows text.
+templ I18nScripts() {
+	<script src={ i18n.ScriptURL(ctx) }></script>
+	{{ dateFormat, timeFormat := i18n.DatePrefs(ctx) }}
+	<script src={ assetver.URL("/assets/js/i18n.js") } data-date-format={ dateFormat } data-time-format={ timeFormat }></script>
+}

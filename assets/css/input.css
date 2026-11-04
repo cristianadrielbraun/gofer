@@ -566,7 +566,7 @@
 
 #compose-form.compose-drop-active::after,
 [data-compose-pane].compose-drop-active::after {
-  content: "Drop files to attach";
+  content: attr(data-drop-label);
   position: absolute;
   inset: -0.35rem;
   z-index: 30;
@@ -593,7 +593,9 @@
   top: 50%;
   left: 50%;
   margin: 0;
-  width: min(30rem, calc(100% - 2rem));
+  width: max-content;
+  min-width: min(30rem, calc(100% - 2rem));
+  max-width: calc(100% - 2rem);
   height: fit-content;
   transform: translate(-50%, -50%);
   border: 1px solid var(--border);
@@ -607,6 +609,14 @@
   margin: 0;
   font-size: 1rem;
   font-weight: 750;
+}
+
+/* The choice is as wide as its buttons; the text wraps within that width
+   instead of setting it. */
+.compose-close-choice h2,
+.compose-close-choice p {
+  width: 0;
+  min-width: 100%;
 }
 
 .compose-close-choice p {
@@ -2580,7 +2590,7 @@ html:not([data-theme="express"]) [data-view-mode="table"] .mail-list-item > a {
 }
 
 .mail-card-layout-field-group-items:empty::before {
-  content: "None";
+  content: attr(data-empty-label);
   color: var(--color-muted-foreground);
   font-size: 0.6875rem;
   line-height: 1rem;

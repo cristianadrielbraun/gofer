@@ -44,7 +44,8 @@
     
     if (use12Hours) {
       const h = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
-      return `${pad(h)}:${pad(minute)} ${hour >= 12 ? 'PM' : 'AM'}`;
+      const marker = hour >= 12 ? 'pm' : 'am';
+      return `${pad(h)}:${pad(minute)} ${window.goferT ? window.goferT('date.' + marker) : marker.toUpperCase()}`;
     }
     return `${pad(hour)}:${pad(minute)}`;
   }

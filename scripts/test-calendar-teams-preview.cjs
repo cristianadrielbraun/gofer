@@ -1,4 +1,5 @@
 const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm')
+const loadI18n = require('./i18n-test-helper.cjs')
 const source=fs.readFileSync(require('node:path').join(__dirname,'../assets/js/app.js'),'utf8')
 function helper(name){const a=source.indexOf('function '+name+'('),b=source.indexOf('\n}',a);assert(a>0&&b>a);return source.slice(a,b+2)}
 function node(){return {value:'',hidden:false,disabled:false,textContent:'',removeAttribute(name){delete this[name]}}}
@@ -8,6 +9,7 @@ const panel={hidden:true,querySelector(selector){return elements[selector]}}
 const form={isConnected:true,dataset:{},querySelector(selector){return {'[data-calendar-meeting-provider="teams_meeting"]':panel,'[name="teams_meeting"]':toggle,'[name="source_id"]':calendar,'[name="all_day"]':{checked:true},'[name="repeat_frequency"]':{value:'none'},'[name="start_date"]':{value:'2026-10-05'},'[name="end_date"]':{value:'2026-10-05'},'[name="timezone"]':{value:'UTC'},...elements}[selector]}}
 const requests=[],timers=[];let ids=0,error=''
 const context=vm.createContext({URLSearchParams,AbortController,window:{crypto:{randomUUID(){return 'teams-'+(++ids)}}},setTimeout(fn,ms){const timer={fn,ms};timers.push(timer);return timer},clearTimeout(timer){const i=timers.indexOf(timer);if(i!==-1)timers.splice(i,1)},fetch(url,options){if(url.endsWith('/discard')){requests.push({url,options});return Promise.resolve()};return new Promise((resolve,reject)=>requests.push({url,options,resolve,reject}))},updateCalendarCreateForm(){context.updateCalendarTeamsPreview(form,false)},adjustCalendarCreateAllDayRange(){},setCalendarCreateError(_form,message){error=message}})
+loadI18n(context)
 vm.runInContext(['updateCalendarTeamsPreview','prepareCalendarMeetPreview','retryCalendarTeamsPreview','abandonCalendarTeamsPreview','validateCalendarCreatePickers'].map(helper).join('\n'),context)
 const settle=()=>new Promise(resolve=>setImmediate(resolve))
 function respond(r,data,ok=true){r.resolve({ok,json(){return Promise.resolve(data)}})}

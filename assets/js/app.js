@@ -50,7 +50,7 @@ registerAppServiceWorker()
 document.addEventListener("gofer-request-blocked", function (event) {
   showGoferToast({
     id: "gofer-request-blocked",
-    title: "Request blocked",
+    title: goferT("js.request_blocked"),
     description: event.detail.value,
     dismissible: true,
     variant: "error",
@@ -301,7 +301,7 @@ document.addEventListener("DOMContentLoaded", function () {
     function syncFilterUI(filters) {
       var count = (filters.source ? 1 : 0) + (filters.saveTarget ? 1 : 0) + (filters.activity ? 1 : 0)
       syncActiveFilterChips(filters)
-      var button = document.querySelector('[aria-label="Filter contacts"]')
+      var button = document.querySelector("[data-contact-filter-trigger]")
       if (!button) return
       button.dataset.active = count > 0 ? "true" : "false"
       // The count is the pill after the icon; the first span is the "Filters" label.
@@ -337,9 +337,9 @@ document.addEventListener("DOMContentLoaded", function () {
         }
         return value
       }
-      if (filters.source) pills.push({ name: "source", text: "Origin: " + label("source", filters.source) })
+      if (filters.source) pills.push({ name: "source", text: goferT("js.contacts.filter.origin", { source: label("source", filters.source) }) })
       if (filters.saveTarget) pills.push({ name: "save_target", text: label("save_target", filters.saveTarget) })
-      if (filters.activity) pills.push({ name: "activity", text: filters.activity === "seen" ? "Seen in mail" : "No messages" })
+      if (filters.activity) pills.push({ name: "activity", text: filters.activity === "seen" ? goferT("js.contacts.filter.seen") : goferT("js.contacts.filter.no_messages") })
       return pills
     }
 
@@ -365,7 +365,7 @@ document.addEventListener("DOMContentLoaded", function () {
       pills.forEach(function (pill) {
         var key = pill.name + ":" + pill.text
         var text = escapeHTML(pill.text)
-        html += '<button type="button" data-contact-active-filter-remove="' + pill.name + '" data-contact-active-filter-key="' + escapeHTML(key) + '" title="' + text + '" aria-label="Remove filter: ' + text + '" class="mail-active-filter-pill' + (existing[key] ? " mail-active-filter-pill-stable" : "") + '">' +
+        html += '<button type="button" data-contact-active-filter-remove="' + pill.name + '" data-contact-active-filter-key="' + escapeHTML(key) + '" title="' + text + '" aria-label="' + escapeHTML(goferT("js.contacts.filter.remove", { filter: pill.text })) + '" class="mail-active-filter-pill' + (existing[key] ? " mail-active-filter-pill-stable" : "") + '">' +
           '<span class="mail-active-filter-pill-label">' + text + '</span><span class="mail-active-filter-pill-remove">x</span></button>'
       })
       strip.innerHTML = html + "</div>"
@@ -661,10 +661,10 @@ document.addEventListener("DOMContentLoaded", function () {
           return
         }
         window.goferConfirm({
-          title: "Discard your changes?",
-          message: "The changes you made to this contact aren't saved.",
-          confirmLabel: "Discard changes",
-          cancelLabel: "Keep editing",
+          title: goferT("js.contacts.discard.title"),
+          message: goferT("js.contacts.discard.message"),
+          confirmLabel: goferT("js.contacts.discard.confirm"),
+          cancelLabel: goferT("js.contacts.discard.keep"),
           destructive: true,
         }).then(function (confirmed) {
           if (confirmed) closeEditor()
@@ -770,14 +770,14 @@ document.addEventListener("DOMContentLoaded", function () {
         method: "POST",
         headers: { "Accept": "application/json" },
       }).then(function (res) {
-        if (!res.ok) return res.text().then(function (text) { throw new Error((text || "Could not start Gofer Sync").trim()) })
+        if (!res.ok) return res.text().then(function (text) { throw new Error((text || goferT("js.contacts.sync.start_failed")).trim()) })
         return res.json()
       }).then(function (data) {
         updateContactSyncLiveState({ contact_id: contactID, status: (data && data.status) || "pending" })
         showGoferToast({
           id: "contact-sync-toast",
-          title: "Gofer Sync queued",
-          description: "The selected locations will be synchronized now.",
+          title: goferT("js.contacts.sync.queued"),
+          description: goferT("js.contacts.sync.queued_now"),
           variant: "info",
           icon: "spinner",
           position: "bottom-right",
@@ -788,8 +788,8 @@ document.addEventListener("DOMContentLoaded", function () {
         setContactSyncButtonsBusy(contactID, false)
         showGoferToast({
           id: "contact-sync-toast",
-          title: "Could not start Gofer Sync",
-          description: err && err.message ? err.message : "The contact could not be queued for synchronization.",
+          title: goferT("js.contacts.sync.start_failed"),
+          description: err && err.message ? err.message : goferT("js.contacts.sync.queue_failed"),
           variant: "error",
           icon: "error",
           position: "bottom-right",
@@ -847,10 +847,10 @@ document.addEventListener("DOMContentLoaded", function () {
     function loadContactSyncSetupBody(url) {
       if (!url) return
       fetch(url, { headers: { "Accept": "text/html" } }).then(function (res) {
-        if (!res.ok) return res.text().then(function (text) { throw new Error(text || "Could not search sync locations") })
+        if (!res.ok) return res.text().then(function (text) { throw new Error(text || goferT("js.contacts.sync_setup.search_failed")) })
         return res.text()
       }).then(renderContactSyncSetupBody).catch(function (err) {
-        showGoferToast({ id: "contact-sync-setup-error", title: "Sync setup failed", description: err.message || "Could not search sync locations.", variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
+        showGoferToast({ id: "contact-sync-setup-error", title: goferT("js.contacts.sync_setup.failed"), description: err.message || goferT("js.contacts.sync_setup.search_failed"), variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
       })
     }
 
@@ -867,12 +867,12 @@ document.addEventListener("DOMContentLoaded", function () {
       searchURL.searchParams.set("query", query)
       button.disabled = true
       fetch(searchURL.pathname + searchURL.search, { headers: { "Accept": "text/html" } }).then(function (res) {
-        if (!res.ok) return res.text().then(function (text) { throw new Error(text || "Could not search this account") })
+        if (!res.ok) return res.text().then(function (text) { throw new Error(text || goferT("js.contacts.sync_setup.account_search_failed")) })
         return res.text()
       }).then(function (html) {
         location.outerHTML = html
       }).catch(function (err) {
-        showGoferToast({ id: "contact-sync-location-search-error", title: "Account search failed", description: err.message || "Could not search this account.", variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
+        showGoferToast({ id: "contact-sync-location-search-error", title: goferT("js.contacts.sync_setup.account_search_title"), description: err.message || goferT("js.contacts.sync_setup.account_search_failed"), variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
       }).finally(function () {
         if (button.isConnected) button.disabled = false
       })
@@ -888,12 +888,12 @@ document.addEventListener("DOMContentLoaded", function () {
 
     function loadContactSyncSetup(url, replaceDialogID) {
       fetch(url, { headers: { "Accept": "text/html" } }).then(function (res) {
-        if (!res.ok) return res.text().then(function (text) { throw new Error(text || "Could not load sync setup") })
+        if (!res.ok) return res.text().then(function (text) { throw new Error(text || goferT("js.contacts.sync_setup.load_failed")) })
         return res.text()
       }).then(function (html) {
         renderContactSyncSetup(html, replaceDialogID || "")
       }).catch(function (err) {
-        showGoferToast({ id: "contact-sync-setup-error", title: "Sync setup failed", description: err.message || "Could not load sync setup.", variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
+        showGoferToast({ id: "contact-sync-setup-error", title: goferT("js.contacts.sync_setup.failed"), description: err.message || goferT("js.contacts.sync_setup.load_failed"), variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
       })
     }
 
@@ -905,7 +905,7 @@ document.addEventListener("DOMContentLoaded", function () {
         body: new URLSearchParams(new FormData(form)),
         headers: { "Accept": confirming ? "application/json" : "text/html", "Content-Type": "application/x-www-form-urlencoded" },
       }).then(function (res) {
-        if (!res.ok) return res.text().then(function (text) { throw new Error(text || "Sync setup failed") })
+        if (!res.ok) return res.text().then(function (text) { throw new Error(text || goferT("js.contacts.sync_setup.failed")) })
         return confirming ? res.json() : res.text()
       }).then(function (data) {
         if (!confirming) {
@@ -918,9 +918,9 @@ document.addEventListener("DOMContentLoaded", function () {
         var syncQueued = !!data.contact_sync_queued
         if (data.contact_id) refreshContactsDetail(data.contact_id, null, syncQueued)
         if (syncQueued) setupSSE()
-        showGoferToast({ id: "contact-sync-toast", title: "Gofer Sync enabled", description: syncQueued ? "The resolved contact is being synchronized across all selected locations." : "Sync is enabled for the selected locations.", variant: "success", icon: "success", position: "bottom-right", duration: 5000, dismissible: true })
+        showGoferToast({ id: "contact-sync-toast", title: goferT("js.contacts.sync.enabled"), description: syncQueued ? goferT("js.contacts.sync.enabled_running") : goferT("js.contacts.sync.enabled_detail"), variant: "success", icon: "success", position: "bottom-right", duration: 5000, dismissible: true })
       }).catch(function (err) {
-        showGoferToast({ id: "contact-sync-setup-error", title: "Sync setup failed", description: err.message || "Could not finish sync setup.", variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
+        showGoferToast({ id: "contact-sync-setup-error", title: goferT("js.contacts.sync_setup.failed"), description: err.message || goferT("js.contacts.sync_setup.finish_failed"), variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
       }).finally(function () {
         if (submit) submit.disabled = false
       })
@@ -942,7 +942,7 @@ document.addEventListener("DOMContentLoaded", function () {
         if (!image) {
           image = document.createElement("img")
           image.setAttribute("data-avatar-image", "")
-          image.alt = "Contact profile picture"
+          image.alt = goferT("js.contacts.avatar.alt")
           image.className = "absolute inset-0 size-full object-cover"
           preview.appendChild(image)
         }
@@ -954,11 +954,11 @@ document.addEventListener("DOMContentLoaded", function () {
           remove.classList.add("inline-flex")
         }
         if (status) {
-          status.textContent = "New picture ready"
+          status.textContent = goferT("js.contacts.avatar.ready")
           status.classList.remove("hidden", "text-muted-foreground")
           status.classList.add("text-emerald-700")
         }
-        if (chooseLabel) chooseLabel.textContent = "Replace"
+        if (chooseLabel) chooseLabel.textContent = goferT("js.contacts.avatar.replace")
       } else {
         if (image) image.remove()
         showContactAvatarFallback(preview)
@@ -967,23 +967,23 @@ document.addEventListener("DOMContentLoaded", function () {
           remove.classList.remove("inline-flex")
         }
         if (status) {
-          status.textContent = "Picture will be removed"
+          status.textContent = goferT("js.contacts.avatar.will_remove")
           status.classList.remove("hidden")
           status.classList.remove("text-emerald-700")
           status.classList.add("text-muted-foreground")
         }
-        if (chooseLabel) chooseLabel.textContent = "Choose image"
+        if (chooseLabel) chooseLabel.textContent = goferT("js.contacts.avatar.choose")
       }
     }
 
     function prepareContactAvatar(file, editor) {
       if (!file || !editor) return
       if (["image/jpeg", "image/png", "image/webp"].indexOf(file.type) === -1) {
-        showGoferToast({ id: "contact-avatar-error", title: "Unsupported picture", description: "Choose a JPEG, PNG, or WebP image.", variant: "error", icon: "error", position: "bottom-right", duration: 5000, dismissible: true })
+        showGoferToast({ id: "contact-avatar-error", title: goferT("js.contacts.avatar.unsupported"), description: goferT("js.contacts.avatar.unsupported_detail"), variant: "error", icon: "error", position: "bottom-right", duration: 5000, dismissible: true })
         return
       }
       if (file.size > 8 * 1024 * 1024) {
-        showGoferToast({ id: "contact-avatar-error", title: "Picture is too large", description: "Choose an image smaller than 8 MB.", variant: "error", icon: "error", position: "bottom-right", duration: 5000, dismissible: true })
+        showGoferToast({ id: "contact-avatar-error", title: goferT("js.contacts.avatar.too_large"), description: goferT("js.contacts.avatar.too_large_detail", { size: goferNumber(8) + " MB" }), variant: "error", icon: "error", position: "bottom-right", duration: 5000, dismissible: true })
         return
       }
       var objectURL = URL.createObjectURL(file)
@@ -1006,7 +1006,7 @@ document.addEventListener("DOMContentLoaded", function () {
       }
       image.onerror = function () {
         URL.revokeObjectURL(objectURL)
-        showGoferToast({ id: "contact-avatar-error", title: "Could not read picture", description: "The selected image appears to be invalid.", variant: "error", icon: "error", position: "bottom-right", duration: 5000, dismissible: true })
+        showGoferToast({ id: "contact-avatar-error", title: goferT("js.contacts.avatar.read_failed"), description: goferT("js.contacts.avatar.invalid"), variant: "error", icon: "error", position: "bottom-right", duration: 5000, dismissible: true })
       }
       image.src = objectURL
     }
@@ -1058,7 +1058,7 @@ document.addEventListener("DOMContentLoaded", function () {
         },
       }).then(function (res) {
         if (!res.ok) {
-          return res.text().then(function (text) { throw new Error(text || "Save failed") })
+          return res.text().then(function (text) { throw new Error(text || goferT("js.contacts.save.failed_short")) })
         }
         return res.json()
       }).then(function (data) {
@@ -1080,8 +1080,8 @@ document.addEventListener("DOMContentLoaded", function () {
           setupSSE()
           showGoferToast({
             id: "contact-sync-toast",
-            title: "Contact saved",
-            description: "Gofer Sync is updating the selected locations...",
+            title: goferT("js.contacts.save.saved"),
+            description: goferT("js.contacts.save.syncing"),
             variant: "info",
             icon: "spinner",
             position: "bottom-right",
@@ -1091,8 +1091,8 @@ document.addEventListener("DOMContentLoaded", function () {
         } else {
           showGoferToast({
             id: "contact-save-toast",
-            title: "Contact saved",
-            description: "The aggregate profile has been updated.",
+            title: goferT("js.contacts.save.saved"),
+            description: goferT("js.contacts.save.updated"),
             variant: "success",
             icon: "success",
             position: "bottom-right",
@@ -1103,8 +1103,8 @@ document.addEventListener("DOMContentLoaded", function () {
       }).catch(function (err) {
         showGoferToast({
           id: "contact-save-toast",
-          title: "Contact save failed",
-          description: err && err.message ? err.message : "Could not save contact.",
+          title: goferT("js.contacts.save.failed"),
+          description: err && err.message ? err.message : goferT("js.contacts.save.failed_detail"),
           variant: "error",
           icon: "error",
           position: "bottom-right",
@@ -1146,7 +1146,7 @@ document.addEventListener("DOMContentLoaded", function () {
           targets.setAttribute("aria-disabled", enabled ? "false" : "true")
         }
         if (label) {
-          label.textContent = enabled ? "Enabled" : "Disabled"
+          label.textContent = enabled ? goferT("js.contacts.sync.state_on") : goferT("js.contacts.sync.state_off")
           label.classList.toggle("border-emerald-500/20", enabled)
           label.classList.toggle("bg-emerald-500/[0.08]", enabled)
           label.classList.toggle("text-emerald-700", enabled)
@@ -1247,9 +1247,9 @@ document.addEventListener("DOMContentLoaded", function () {
     function languageLabel(code) {
       var normalized = normalizeTranslationLanguageCode(code)
       for (var i = 0; i < translationLanguages.length; i++) {
-        if (translationLanguages[i].code === normalized) return translationLanguages[i].label
+        if (translationLanguages[i].code === normalized) return goferT("language.name." + normalized.split("-")[0])
       }
-      return code || "selected language"
+      return code || goferT("js.mail.translate.selected_language")
     }
 
     function translationEnabled() {
@@ -1270,7 +1270,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
     function idleButtonLabel() {
       var target = targetLanguage()
-      return target ? "Translate to " + languageLabel(target) : "Translate"
+      return target ? goferT("js.mail.translate.to_language", { language: languageLabel(target) }) : goferT("js.mail.translate.button")
     }
 
     function activeTargetLanguage(emailId) {
@@ -1294,21 +1294,21 @@ document.addEventListener("DOMContentLoaded", function () {
       var shell = button.closest("[data-email-translation-button]")
       var text = idleButtonLabel()
       var translated = state === "translated"
-      if (state === "loading") text = "Translating..."
-      if (state === "error") text = "Translation failed"
-      if (translated) text = "Show original"
+      if (state === "loading") text = goferT("js.mail.translate.loading")
+      if (state === "error") text = goferT("js.mail.translate.failed")
+      if (translated) text = goferT("js.mail.translate.show_original")
       if (label && label.textContent !== text) label.textContent = text
       button.disabled = state === "loading"
       button.dataset.translationState = state
       button.dataset.translated = translated ? "true" : "false"
       if (shell) shell.dataset.translated = translated ? "true" : "false"
       button.setAttribute("aria-pressed", translated ? "true" : "false")
-      button.setAttribute("aria-label", translated ? "Show original email" : idleButtonLabel())
+      button.setAttribute("aria-label", translated ? goferT("js.mail.translate.show_original_email") : idleButtonLabel())
       button.classList.toggle("opacity-60", state === "loading")
       syncTranslationIconButtons(emailId, state)
       syncTranslationLanguageItems(emailId)
       if (translated && data) {
-        button.title = "Translated to " + languageLabel(activeTargetLanguage(emailId))
+        button.title = goferT("js.mail.translate.translated_to", { language: languageLabel(activeTargetLanguage(emailId)) })
       } else {
         button.removeAttribute("title")
       }
@@ -1321,7 +1321,7 @@ document.addEventListener("DOMContentLoaded", function () {
         buttons[i].disabled = state === "loading"
         buttons[i].dataset.translated = translated ? "true" : "false"
         buttons[i].setAttribute("aria-pressed", translated ? "true" : "false")
-        buttons[i].setAttribute("aria-label", translated ? "Show original email" : idleButtonLabel())
+        buttons[i].setAttribute("aria-label", translated ? goferT("js.mail.translate.show_original_email") : idleButtonLabel())
         buttons[i].classList.toggle("opacity-60", state === "loading")
         var shell = buttons[i].closest("[data-translate-email-icon-shell]")
         if (shell) shell.dataset.translated = translated ? "true" : "false"
@@ -2207,7 +2207,7 @@ document.addEventListener("DOMContentLoaded", function () {
         }
         if (el.dataset.action !== action) {
           el.dataset.action = action
-          el.innerHTML = action ? icons[action] + "<span>" + (action === "archive" ? "Archive" : "Delete") + "</span>" : ""
+          el.innerHTML = action ? icons[action] + "<span>" + (action === "archive" ? goferT("js.mail.action.archive") : goferT("js.mail.action.delete")) + "</span>" : ""
         }
         return el
       }
@@ -2489,7 +2489,7 @@ document.addEventListener("DOMContentLoaded", function () {
       }
       var countLabel = root.querySelector("[data-mail-context-count]")
       if (countLabel) {
-        countLabel.textContent = formatMailCount(count) + " messages"
+        countLabel.textContent = goferTn("js.mail.count.messages", count)
         countLabel.hidden = single
       }
       var replies = root.querySelector('[data-mail-context-group="reply"]')
@@ -2501,11 +2501,11 @@ document.addEventListener("DOMContentLoaded", function () {
       var spamGroup = root.querySelector('[data-mail-context-group="spam"]')
       if (spamGroup) spamGroup.hidden = single
       var unread = mailToolbarActionUndoes("read")
-      setMailContextItem(root, "read", unread ? "Mark as unread" : "Mark as read", unread ? "unread" : "read")
+      setMailContextItem(root, "read", unread ? goferT("js.mail.action.mark_unread") : goferT("js.mail.action.mark_read"), unread ? "unread" : "read")
       var unstar = mailToolbarActionUndoes("star")
-      setMailContextItem(root, "star", unstar ? "Unstar" : "Star", unstar ? "unstar" : "star")
+      setMailContextItem(root, "star", unstar ? goferT("js.mail.action.unstar") : goferT("js.mail.action.star"), unstar ? "unstar" : "star")
       var unarchive = mailFolderIsArchive(folderID)
-      var archiveItem = setMailContextItem(root, "archive", unarchive ? "Move to Inbox" : "Archive", unarchive ? "unarchive" : "archive")
+      var archiveItem = setMailContextItem(root, "archive", unarchive ? goferT("js.mail.action.move_to_inbox") : goferT("js.mail.action.archive"), unarchive ? "unarchive" : "archive")
       markArchiveUnavailable(archiveItem, !unarchive && selectionWithoutArchive(Array.from(selectedMailIds)).length > 0)
       var spam = mailFolderIsSpam(folderID)
       showMailContextItem(root, "spam", !spam)
@@ -2514,7 +2514,7 @@ document.addEventListener("DOMContentLoaded", function () {
       // use it when they're all from one account; otherwise they're dragged.
       showMailContextItem(root, "move", single || selectedMailAccount() !== "")
       var permanent = mailFolderIsTrash(folderID)
-      var remove = setMailContextItem(root, "delete", permanent ? "Permanently delete" : "Delete")
+      var remove = setMailContextItem(root, "delete", permanent ? goferT("js.mail.action.delete_permanently") : goferT("js.mail.action.delete"))
       if (remove) remove.classList.toggle("text-destructive", permanent)
     }
 
@@ -2750,7 +2750,7 @@ document.addEventListener("DOMContentLoaded", function () {
       shell.querySelectorAll("[data-contact-select-all-toggle]").forEach(function (toggle) {
         toggle.checked = state === "all"
         toggle.indeterminate = state === "some"
-        toggle.setAttribute("aria-label", counted > 0 ? "Deselect all contacts" : "Select all contacts")
+        toggle.setAttribute("aria-label", counted > 0 ? goferT("js.contacts.deselect_all") : goferT("js.contacts.select_all"))
       })
 
       var banner = shell.querySelector("[data-contact-select-all-banner]")
@@ -2759,14 +2759,14 @@ document.addEventListener("DOMContentLoaded", function () {
       var text = ""
       if (contactSelectAllMatching) {
         text = contactSelectAllMatching.truncated
-          ? "The first " + formatMailCount(contactSelectAllMatching.total) + " contacts in this list are selected."
-          : "All " + formatMailCount(contactSelectAllMatching.total) + " contacts in this list are selected."
+          ? goferTn("js.contacts.selected.first", contactSelectAllMatching.total)
+          : goferTn("js.contacts.selected.all_list", contactSelectAllMatching.total)
       } else if (allLoaded && total > loaded.length) {
-        text = "All " + formatMailCount(loaded.length) + " loaded contacts are selected."
+        text = goferTn("js.contacts.selected.all_loaded", loaded.length)
       } else if (allLoaded) {
-        text = "All " + formatMailCount(counted) + " contacts are selected."
+        text = goferTn("js.contacts.selected.all", counted)
       } else if (counted > 0) {
-        text = formatMailCount(counted) + " selected."
+        text = goferTn("js.contacts.selected.some", counted)
       }
       banner.classList.toggle("hidden", !text)
       banner.classList.toggle("flex", !!text)
@@ -2776,7 +2776,7 @@ document.addEventListener("DOMContentLoaded", function () {
       if (more) {
         var canSelectAll = counted > 0 && !contactSelectAllMatching && total > counted
         more.classList.toggle("hidden", !canSelectAll)
-        more.textContent = contactSelectAllLoading ? "Selecting\u2026" : "Select all " + formatMailCount(total) + " in this list"
+        more.textContent = contactSelectAllLoading ? goferT("js.mail.selecting") : goferTn("js.contacts.select_all_in_list", total)
         more.disabled = contactSelectAllLoading
       }
     }
@@ -2829,7 +2829,7 @@ document.addEventListener("DOMContentLoaded", function () {
         })
         .catch(function (err) {
           console.warn(err)
-          showGoferToast({ id: "contact-select-all-error", title: "Couldn't select every contact", description: "Try again in a moment.", variant: "error", icon: "error", position: "bottom-right", duration: 6000, dismissible: true })
+          showGoferToast({ id: "contact-select-all-error", title: goferT("js.contacts.select_all_failed"), description: goferT("js.common.try_again"), variant: "error", icon: "error", position: "bottom-right", duration: 6000, dismissible: true })
         })
         .finally(function () {
           contactSelectAllLoading = false
@@ -2850,13 +2850,13 @@ document.addEventListener("DOMContentLoaded", function () {
         recipients.push(info.name && info.name !== info.email ? '"' + info.name.replace(/["\\]/g, "") + '" <' + info.email + ">" : info.email)
       })
       if (!recipients.length) {
-        showGoferToast({ id: "contact-compose-none", title: "No email addresses", description: "None of the selected contacts has an email address.", variant: "info", icon: "info", position: "bottom-right", duration: 5000, dismissible: true })
+        showGoferToast({ id: "contact-compose-none", title: goferT("js.contacts.compose.none"), description: goferT("js.contacts.compose.none_detail"), variant: "info", icon: "info", position: "bottom-right", duration: 5000, dismissible: true })
         return
       }
       var values = parseMailtoIntent("mailto:" + recipients.map(encodeURIComponent).join(","))
       if (values) openComposePrefill(values, "new")
       if (missing) {
-        showGoferToast({ id: "contact-compose-missing", title: formatMailCount(missing) + (missing === 1 ? " contact has" : " contacts have") + " no email address", description: "They were left out of the recipients.", variant: "info", icon: "info", position: "bottom-right", duration: 5000, dismissible: true })
+        showGoferToast({ id: "contact-compose-missing", title: goferTn("js.contacts.compose.no_address", missing), description: goferT("js.contacts.compose.left_out"), variant: "info", icon: "info", position: "bottom-right", duration: 5000, dismissible: true })
       }
     }
 
@@ -2893,16 +2893,13 @@ document.addEventListener("DOMContentLoaded", function () {
       if (typeof htmx !== "undefined") htmx.trigger(document.body, "contacts-trash-changed")
     }
 
-    function contactCountLabel(count) {
-      return formatMailCount(count) + (count === 1 ? " contact" : " contacts")
-    }
 
     function postContactIDs(url, ids) {
       var body = new URLSearchParams()
       ids.forEach(function (id) { body.append("id", id) })
       return fetch(url, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" }, body: body.toString() })
         .then(function (response) {
-          if (!response.ok) return response.text().then(function (text) { throw new Error(text.trim() || "Request failed") })
+          if (!response.ok) return response.text().then(function (text) { throw new Error(text.trim() || goferT("js.contacts.request_failed")) })
           return response.json()
         })
     }
@@ -2920,14 +2917,14 @@ document.addEventListener("DOMContentLoaded", function () {
           refreshContactsAfterTrashChange()
           showGoferToast({
             id: "contacts-trashed",
-            title: moved === 1 && who ? "Moved to Trash" : contactCountLabel(moved) + " moved to Trash",
+            title: moved === 1 && who ? goferT("js.contacts.trash.moved_one") : goferTn("js.contacts.trash.moved", moved),
             description: moved === 1 && who ? who : "",
             variant: "success",
             icon: "success",
             position: "bottom-right",
             duration: 8000,
             dismissible: true,
-            secondaryActionLabel: "Undo",
+            secondaryActionLabel: goferT("js.contacts.undo"),
             onSecondaryAction: function () {
               dismissGoferToast(document.getElementById("contacts-trashed"))
               restoreContacts(ids, who)
@@ -2935,7 +2932,7 @@ document.addEventListener("DOMContentLoaded", function () {
           })
         })
         .catch(function (err) {
-          showGoferToast({ id: "contacts-trashed", title: "Couldn't move to Trash", description: err.message, variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
+          showGoferToast({ id: "contacts-trashed", title: goferT("js.contacts.trash.move_failed"), description: err.message, variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
         })
         .finally(function () {
           contactDeleteBusy = false
@@ -2952,10 +2949,10 @@ document.addEventListener("DOMContentLoaded", function () {
           var restored = (result && result.restored) || 0
           clearContactSelection()
           refreshContactsAfterTrashChange()
-          showGoferToast({ id: "contacts-restored", title: restored === 1 && who ? "Restored" : contactCountLabel(restored) + " restored", description: restored === 1 && who ? who : "", variant: "success", icon: "success", position: "bottom-right", duration: 4000, dismissible: true })
+          showGoferToast({ id: "contacts-restored", title: restored === 1 && who ? goferT("js.contacts.trash.restored_one") : goferTn("js.contacts.trash.restored", restored), description: restored === 1 && who ? who : "", variant: "success", icon: "success", position: "bottom-right", duration: 4000, dismissible: true })
         })
         .catch(function (err) {
-          showGoferToast({ id: "contacts-restored", title: "Couldn't restore", description: err.message, variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
+          showGoferToast({ id: "contacts-restored", title: goferT("js.contacts.trash.restore_failed"), description: err.message, variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
         })
         .finally(function () {
           contactDeleteBusy = false
@@ -2980,15 +2977,17 @@ document.addEventListener("DOMContentLoaded", function () {
         else if (info.synced !== false) unknown++
       })
       var single = ids.length === 1 ? (contacts.get(ids[0]) || {}) : null
-      var who = single ? single.name || single.email || "This contact" : contactCountLabel(ids.length)
+      var message = single
+        ? goferT("js.contacts.forever.message_named", { name: single.name || single.email || goferT("js.contacts.forever.this_contact") })
+        : goferTn("js.contacts.forever.message", ids.length)
       var note = synced
-        ? (ids.length === 1 ? " It is also removed from the address books it syncs with." : " " + formatMailCount(synced) + (synced === 1 ? " of them is" : " of them are") + " also removed from the address books " + (synced === 1 ? "it syncs" : "they sync") + " with.")
-        : unknown ? " Any synced with an address book are also removed there." : ""
+        ? (ids.length === 1 ? goferT("js.contacts.forever.note_synced_single") : goferTn("js.contacts.forever.note_synced", synced))
+        : unknown ? goferT("js.contacts.forever.note_unknown") : ""
       return window.goferConfirm({
-        title: title || (ids.length === 1 ? "Delete this contact forever?" : "Delete " + contactCountLabel(ids.length) + " forever?"),
-        message: who + " will be deleted and can't be restored." + note,
+        title: title || (ids.length === 1 ? goferT("js.contacts.forever.title_single") : goferTn("js.contacts.forever.title", ids.length)),
+        message: note ? message + " " + note : message,
         destructive: true,
-        confirmLabel: "Delete forever",
+        confirmLabel: goferT("js.contacts.forever.confirm"),
       }).then(function (accepted) {
         if (!accepted) return
         contactDeleteBusy = true
@@ -2999,7 +2998,7 @@ document.addEventListener("DOMContentLoaded", function () {
         for (var i = 0; i < ids.length; i += CONTACT_DELETE_BATCH) batches.push(ids.slice(i, i + CONTACT_DELETE_BATCH))
         var progress = function () {
           if (ids.length <= CONTACT_DELETE_BATCH) return
-          showGoferToast({ id: "contacts-deleting", title: "Deleting contacts…", description: formatMailCount(deleted + failed.length) + " of " + formatMailCount(ids.length) + " done.", variant: "info", icon: "spinner", position: "bottom-right", duration: 0, dismissible: false })
+          showGoferToast({ id: "contacts-deleting", title: goferT("js.contacts.forever.deleting"), description: goferT("js.contacts.forever.progress", { done: formatMailCount(deleted + failed.length), total: formatMailCount(ids.length) }), variant: "info", icon: "spinner", position: "bottom-right", duration: 0, dismissible: false })
         }
         progress()
         var run = Promise.resolve()
@@ -3024,10 +3023,10 @@ document.addEventListener("DOMContentLoaded", function () {
             clearContactSelection()
             refreshContactsAfterTrashChange()
             if (!failed.length) {
-              showGoferToast({ id: "contacts-deleted", title: contactCountLabel(deleted) + " deleted forever", variant: "success", icon: "success", position: "bottom-right", duration: 4000, dismissible: true })
+              showGoferToast({ id: "contacts-deleted", title: goferTn("js.contacts.forever.deleted", deleted), variant: "success", icon: "success", position: "bottom-right", duration: 4000, dismissible: true })
               return
             }
-            showGoferToast({ id: "contacts-deleted", title: formatMailCount(deleted) + " deleted, " + formatMailCount(failed.length) + " not", description: (name ? name + ": " : "") + first.error, variant: deleted ? "warning" : "error", icon: deleted ? "warning" : "error", position: "bottom-right", duration: 10000, dismissible: true })
+            showGoferToast({ id: "contacts-deleted", title: goferT("js.contacts.forever.partial", { deleted: formatMailCount(deleted), failed: formatMailCount(failed.length) }), description: (name ? name + ": " : "") + first.error, variant: deleted ? "warning" : "error", icon: deleted ? "warning" : "error", position: "bottom-right", duration: 10000, dismissible: true })
           })
           .finally(function () {
             contactDeleteBusy = false
@@ -3041,7 +3040,7 @@ document.addEventListener("DOMContentLoaded", function () {
       if (contactDeleteBusy) return
       fetch("/api/contacts/ids?trash=1", { headers: { Accept: "application/json" } })
         .then(function (response) {
-          if (!response.ok) throw new Error("The Trash couldn't be read.")
+          if (!response.ok) throw new Error(goferT("js.contacts.trash.read_failed"))
           return response.json()
         })
         .then(function (data) {
@@ -3054,10 +3053,10 @@ document.addEventListener("DOMContentLoaded", function () {
             refreshContactsAfterTrashChange()
             return
           }
-          return deleteContactsForever(ids, contacts, "Empty the Trash?")
+          return deleteContactsForever(ids, contacts, goferT("js.contacts.trash.empty_title"))
         })
         .catch(function (err) {
-          showGoferToast({ id: "contacts-deleted", title: "Couldn't empty the Trash", description: err.message, variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
+          showGoferToast({ id: "contacts-deleted", title: goferT("js.contacts.trash.empty_failed"), description: err.message, variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
         })
     }
 
@@ -3201,7 +3200,7 @@ document.addEventListener("DOMContentLoaded", function () {
         }
         root._contactsContextTarget = target
         var title = root.querySelector("[data-contacts-context-title]")
-        if (title) title.textContent = target.multiple ? formatMailCount(selectedContactIds.size) + " contacts" : target.name || target.email || "Contact"
+        if (title) title.textContent = target.multiple ? goferTn("js.contacts.count", selectedContactIds.size) : target.name || target.email || goferT("js.contacts.contact")
         var emailGroup = root.querySelector('[data-contacts-context-group="email"]')
         if (emailGroup) emailGroup.hidden = !target.email && !target.multiple
         var single = { "copy-email": true, messages: true, edit: true }
@@ -3281,11 +3280,11 @@ document.addEventListener("DOMContentLoaded", function () {
 
     function copyContactEmail(email) {
       var done = function () {
-        showGoferToast({ id: "contact-email-copied", title: "Email address copied", description: email, variant: "success", icon: "success", position: "bottom-right", duration: 3000, dismissible: true })
+        showGoferToast({ id: "contact-email-copied", title: goferT("js.contacts.email_copied"), description: email, variant: "success", icon: "success", position: "bottom-right", duration: 3000, dismissible: true })
       }
       if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(email).then(done).catch(function () {
-          showGoferToast({ id: "contact-email-copied", title: "Couldn't copy the address", description: email, variant: "error", icon: "error", position: "bottom-right", duration: 6000, dismissible: true })
+          showGoferToast({ id: "contact-email-copied", title: goferT("js.contacts.email_copy_failed"), description: email, variant: "error", icon: "error", position: "bottom-right", duration: 6000, dismissible: true })
         })
       }
     }
@@ -3322,7 +3321,7 @@ document.addEventListener("DOMContentLoaded", function () {
         var tagAccount = link.getAttribute("data-sidebar-tag-account") || ""
         var labelID = link.getAttribute("data-sidebar-tag-id") || ""
         if (!labelID) return null
-        return { kind: "tag", tag: true, unifiedTag: link.hasAttribute("data-tag-appearance-unified"), folderID: labelID, labelID: labelID, accountID: tagAccount, provider: sidebarAccountProvider(tagAccount), name: link.getAttribute("data-sidebar-tag-label") || "this label" }
+        return { kind: "tag", tag: true, unifiedTag: link.hasAttribute("data-tag-appearance-unified"), folderID: labelID, labelID: labelID, accountID: tagAccount, provider: sidebarAccountProvider(tagAccount), name: link.getAttribute("data-sidebar-tag-label") || goferT("js.mail.this_label") }
       }
       if (link && body.contains(link)) {
         var role = String(link.dataset.folderRole || "").toLowerCase()
@@ -3330,13 +3329,13 @@ document.addEventListener("DOMContentLoaded", function () {
         var name = link.querySelector(".flex-1")
         var folderAccount = link.dataset.mailDropAccount || ""
         // Unified folders belong to no single account.
-        return { kind: "folder", folderID: decodeURIComponent(path), accountID: folderAccount, provider: sidebarAccountProvider(folderAccount), role: role, virtual: link.hasAttribute("data-folder-appearance-virtual"), inTrash: sidebarFolderInTrash(link), name: name ? name.textContent.trim() : "this folder" }
+        return { kind: "folder", folderID: decodeURIComponent(path), accountID: folderAccount, provider: sidebarAccountProvider(folderAccount), role: role, virtual: link.hasAttribute("data-folder-appearance-virtual"), inTrash: sidebarFolderInTrash(link), name: name ? name.textContent.trim() : goferT("js.mail.this_folder") }
       }
       var toggle = el.closest("[data-sidebar-account-toggle]")
       var accountID = toggle && toggle.getAttribute("data-sidebar-account-toggle")
       if (accountID && accountID !== "__unified__" && body.contains(toggle)) {
         var title = toggle.querySelector(".flex-1")
-        return { kind: "account", accountID: accountID, provider: sidebarAccountProvider(accountID), name: title ? title.textContent.trim() : "this account" }
+        return { kind: "account", accountID: accountID, provider: sidebarAccountProvider(accountID), name: title ? title.textContent.trim() : goferT("js.accounts.this_account") }
       }
       return null
     }
@@ -3434,14 +3433,14 @@ document.addEventListener("DOMContentLoaded", function () {
     // Throws the refusal a failed folder change answered with.
     function postFolderChangeError(response) {
       return response.text().then(function (text) {
-        if (response.status === 404) throw new Error("It's no longer there. Refresh the page to see the folders as they are.")
-        throw new Error(response.status >= 500 && response.status !== 502 ? "Try again in a moment." : (text || "").trim())
+        if (response.status === 404) throw new Error(goferT("js.folders.gone"))
+        throw new Error(response.status >= 500 && response.status !== 502 ? goferT("js.common.try_again") : (text || "").trim())
       })
     }
 
     function getFolderInfo(url) {
       return fetch(url, { headers: { Accept: "application/json" } }).then(function (response) {
-        if (!response.ok) throw new Error("Try again in a moment.")
+        if (!response.ok) throw new Error(goferT("js.common.try_again"))
         return response.json()
       })
     }
@@ -3452,7 +3451,7 @@ document.addEventListener("DOMContentLoaded", function () {
       return work()
         .catch(function (err) {
           console.warn(err)
-          showGoferToast({ id: id, title: failure, description: err && err.message ? err.message : "Try again in a moment.", variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
+          showGoferToast({ id: id, title: failure, description: err && err.message ? err.message : goferT("js.common.try_again"), variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
         })
         .finally(function () { folderChangeBusy = false })
     }
@@ -3482,8 +3481,9 @@ document.addEventListener("DOMContentLoaded", function () {
       "delete-label": deleteGmailLabel,
     }
 
-    function folderCount(n, one, many) {
-      return n === 1 ? "1 " + one : n + " " + many
+    // folderCount writes a count with key's .one or .other form.
+    function folderCount(n, key) {
+      return goferTn(key, n)
     }
 
     // createMailFolder asks for a name and creates the folder. It resolves to
@@ -3492,16 +3492,16 @@ document.addEventListener("DOMContentLoaded", function () {
     function createMailFolder(accountID, parentID, parentName, options) {
       if (!accountID || folderChangeBusy) return Promise.resolve(null)
       return window.goferPrompt({
-        title: (options && options.title) || (parentID ? "New folder in " + parentName : "New folder"),
-        label: "Folder name",
-        confirmLabel: "Create folder",
+        title: (options && options.title) || (parentID ? goferT("js.folders.new_in", { folder: parentName }) : goferT("js.folders.new")),
+        label: goferT("js.folders.name"),
+        confirmLabel: goferT("js.folders.create"),
       }).then(function (name) {
         if (name === null || !name.trim()) return null
         var created = null
-        var change = runFolderChange("mail-folder-create", "Couldn't create the folder", function () {
+        var change = runFolderChange("mail-folder-create", goferT("js.folders.create_failed"), function () {
           return postFolderChange("/api/accounts/" + encodeURIComponent(accountID) + "/folders", { name: name, parent: parentID || "" }).then(function (data) {
             created = data && data.id ? data : null
-            folderChangeDone("mail-folder-create", "Created “" + (data && data.name || name.trim()) + "”", accountID, false)
+            folderChangeDone("mail-folder-create", goferT("js.folders.created", { name: data && data.name || name.trim() }), accountID, false)
           })
         })
         return change ? change.then(function () { return created }) : null
@@ -3511,15 +3511,15 @@ document.addEventListener("DOMContentLoaded", function () {
     function renameMailFolder(target) {
       if (!target.folderID || folderChangeBusy) return
       window.goferPrompt({
-        title: "Rename folder",
-        label: "Folder name",
+        title: goferT("js.folders.rename"),
+        label: goferT("js.folders.name"),
         value: target.name,
-        confirmLabel: "Rename",
+        confirmLabel: goferT("js.common.rename"),
       }).then(function (name) {
         if (name === null || !name.trim() || name.trim() === target.name) return
-        return runFolderChange("mail-folder-rename", "Couldn't rename the folder", function () {
+        return runFolderChange("mail-folder-rename", goferT("js.folders.rename_failed"), function () {
           return postFolderChange("/api/folders/" + encodeURIComponent(target.folderID) + "/rename", { name: name }).then(function () {
-            folderChangeDone("mail-folder-rename", "Folder renamed", target.accountID, false)
+            folderChangeDone("mail-folder-rename", goferT("js.folders.renamed"), target.accountID, false)
           })
         })
       })
@@ -3531,31 +3531,30 @@ document.addEventListener("DOMContentLoaded", function () {
     function deleteMailFolder(target) {
       if (!target.folderID || folderChangeBusy) return
       getFolderInfo("/api/folders/" + encodeURIComponent(target.folderID) + "/manage").then(function (info) {
-        var inside = [folderCount(info.messages || 0, "message", "messages")]
-        if (info.subfolders) inside.push(folderCount(info.subfolders, "subfolder", "subfolders"))
-        inside = inside.join(" and ")
+        var inside = folderCount(info.messages || 0, "js.mail.count.messages")
+        if (info.subfolders) inside = goferT("js.common.and", { first: inside, second: folderCount(info.subfolders, "js.folders.count.subfolders") })
         var gone = (info.ids || [info.id]).indexOf(currentSidebarActiveFolder())
         if (info.trash_name) {
           return window.goferConfirm({
-            title: "Delete folder?",
-            message: "“" + info.name + "” moves to " + info.trash_name + ", with its " + inside + ". You can move it back out from there.",
-            confirmLabel: "Move to " + info.trash_name,
+            title: goferT("js.folders.delete_title"),
+            message: goferT("js.folders.delete_to_trash", { name: info.name, trash: info.trash_name, inside: inside }),
+            confirmLabel: goferT("js.folders.move_to", { folder: info.trash_name }),
             destructive: true,
           }).then(function (accepted) {
             if (!accepted) return
             return sendFolderDelete(target, info, gone >= 0, false)
           })
         }
-        var why = info.in_trash ? "It's in Trash already, so it" : "This account has no Trash folder, so it"
-        return confirmPermanentFolderDelete(target, info, why + " is deleted from the mail server with its " + inside + ". This can't be undone.", gone >= 0)
+        var why = info.in_trash ? "js.folders.delete_in_trash" : "js.folders.delete_no_trash"
+        return confirmPermanentFolderDelete(target, info, goferT(why, { inside: inside }), gone >= 0)
       }).catch(function (err) {
         console.warn(err)
-        showGoferToast({ id: "mail-folder-delete", title: "Couldn't delete the folder", description: "Try again in a moment.", variant: "error", icon: "error", position: "bottom-right", duration: 6000, dismissible: true })
+        showGoferToast({ id: "mail-folder-delete", title: goferT("js.folders.delete_failed"), description: goferT("js.common.try_again"), variant: "error", icon: "error", position: "bottom-right", duration: 6000, dismissible: true })
       })
     }
 
     function confirmPermanentFolderDelete(target, info, message, gone) {
-      return window.goferConfirm({ title: "Delete “" + info.name + "” for good?", message: message, confirmLabel: "Delete for good", destructive: true }).then(function (accepted) {
+      return window.goferConfirm({ title: goferT("js.folders.delete_forever_title", { name: info.name }), message: message, confirmLabel: goferT("js.folders.delete_forever"), destructive: true }).then(function (accepted) {
         if (!accepted) return
         return sendFolderDelete(target, info, gone, true)
       })
@@ -3563,7 +3562,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
     function sendFolderDelete(target, info, gone, permanent) {
       var refused = null
-      var run = runFolderChange("mail-folder-delete", "Couldn't delete the folder", function () {
+      var run = runFolderChange("mail-folder-delete", goferT("js.folders.delete_failed"), function () {
         var body = new URLSearchParams()
         if (permanent) body.set("permanent", "1")
         return fetch("/api/folders/" + encodeURIComponent(target.folderID) + "/delete", { method: "POST", headers: { Accept: "application/json" }, body: body }).then(function (response) {
@@ -3572,7 +3571,7 @@ document.addEventListener("DOMContentLoaded", function () {
           // Leave a folder that's gone for the account's inbox.
           var inbox = gone && document.querySelector('[data-sidebar-account="' + cssEscape(target.accountID) + '"] a[data-folder-role="inbox"]')
           if (inbox) inbox.click()
-          folderChangeDone("mail-folder-delete", permanent ? "Deleted “" + info.name + "”" : "Moved “" + info.name + "” to " + (info.trash_name || "Trash"), target.accountID, false)
+          folderChangeDone("mail-folder-delete", permanent ? goferT("js.folders.deleted", { name: info.name }) : goferT("js.folders.moved_to", { name: info.name, folder: info.trash_name || goferT("js.folders.trash") }), target.accountID, false)
         })
       })
       if (!run) return
@@ -3580,16 +3579,16 @@ document.addEventListener("DOMContentLoaded", function () {
         // The folder couldn't go into Trash: say why, and offer the
         // permanent delete instead.
         if (refused !== null) {
-          return confirmPermanentFolderDelete(target, info, refused + " Delete it from the mail server instead? This can't be undone.", gone)
+          return confirmPermanentFolderDelete(target, info, goferT("js.folders.delete_refused", { reason: refused }), gone)
         }
       })
     }
 
     function restoreMailFolder(target) {
       if (!target.folderID || folderChangeBusy) return
-      return runFolderChange("mail-folder-restore", "Couldn't move the folder out of Trash", function () {
+      return runFolderChange("mail-folder-restore", goferT("js.folders.restore_failed"), function () {
         return postFolderChange("/api/folders/" + encodeURIComponent(target.folderID) + "/restore", {}).then(function () {
-          folderChangeDone("mail-folder-restore", "Moved “" + target.name + "” out of Trash", target.accountID, false)
+          folderChangeDone("mail-folder-restore", goferT("js.folders.restored", { name: target.name }), target.accountID, false)
         })
       })
     }
@@ -3597,15 +3596,15 @@ document.addEventListener("DOMContentLoaded", function () {
     function createGmailLabel(accountID) {
       if (!accountID || folderChangeBusy) return
       window.goferPrompt({
-        title: "New label",
-        message: "Gmail has labels instead of folders. The new label shows under Tags, and you can add it to messages like any other tag. To put it inside another label, name it like Work/Projects.",
-        label: "Label name",
-        confirmLabel: "Create label",
+        title: goferT("js.labels.new"),
+        message: goferT("js.labels.new_help"),
+        label: goferT("js.labels.name"),
+        confirmLabel: goferT("js.labels.create"),
       }).then(function (name) {
         if (name === null || !name.trim()) return
-        return runFolderChange("mail-label-create", "Couldn't create the label", function () {
+        return runFolderChange("mail-label-create", goferT("js.labels.create_failed"), function () {
           return postFolderChange("/api/accounts/" + encodeURIComponent(accountID) + "/labels", { name: name }).then(function (data) {
-            folderChangeDone("mail-label-create", "Created the “" + (data && data.name || name.trim()) + "” label", accountID, false)
+            folderChangeDone("mail-label-create", goferT("js.labels.created", { name: data && data.name || name.trim() }), accountID, false)
           })
         })
       })
@@ -3614,16 +3613,16 @@ document.addEventListener("DOMContentLoaded", function () {
     function renameGmailLabel(target) {
       if (!target.labelID || folderChangeBusy) return
       window.goferPrompt({
-        title: "Rename label",
-        message: "The label is renamed in Gmail, along with any labels inside it.",
-        label: "Label name",
+        title: goferT("js.labels.rename"),
+        message: goferT("js.labels.rename_help"),
+        label: goferT("js.labels.name"),
         value: target.name,
-        confirmLabel: "Rename",
+        confirmLabel: goferT("js.common.rename"),
       }).then(function (name) {
         if (name === null || !name.trim() || name.trim() === target.name) return
-        return runFolderChange("mail-label-rename", "Couldn't rename the label", function () {
+        return runFolderChange("mail-label-rename", goferT("js.labels.rename_failed"), function () {
           return postFolderChange("/api/labels/" + encodeURIComponent(target.labelID) + "/rename", { name: name }).then(function () {
-            folderChangeDone("mail-label-rename", "Label renamed", target.accountID, true)
+            folderChangeDone("mail-label-rename", goferT("js.labels.renamed"), target.accountID, true)
           })
         })
       })
@@ -3632,23 +3631,23 @@ document.addEventListener("DOMContentLoaded", function () {
     function deleteGmailLabel(target) {
       if (!target.labelID || folderChangeBusy) return
       getFolderInfo("/api/labels/" + encodeURIComponent(target.labelID) + "/manage").then(function (info) {
-        var nested = info.nested ? ", with the " + folderCount(info.nested, "label", "labels") + " inside it" : ""
+        var message = info.nested ? goferT("js.labels.delete_nested", { name: info.name, nested: folderCount(info.nested, "js.labels.count") }) : goferT("js.labels.delete_message", { name: info.name })
         return window.goferConfirm({
-          title: "Delete label?",
-          message: "The “" + info.name + "” label is deleted from Gmail" + nested + ". Its messages stay in Gmail, without the label.",
-          confirmLabel: "Delete label",
+          title: goferT("js.labels.delete_title"),
+          message: message,
+          confirmLabel: goferT("js.labels.delete"),
           destructive: true,
         }).then(function (accepted) {
           if (!accepted) return
-          return runFolderChange("mail-label-delete", "Couldn't delete the label", function () {
+          return runFolderChange("mail-label-delete", goferT("js.labels.delete_failed"), function () {
             return postFolderChange("/api/labels/" + encodeURIComponent(target.labelID) + "/delete", {}).then(function () {
-              folderChangeDone("mail-label-delete", "Deleted the “" + info.name + "” label", target.accountID, true)
+              folderChangeDone("mail-label-delete", goferT("js.labels.deleted", { name: info.name }), target.accountID, true)
             })
           })
         })
       }).catch(function (err) {
         console.warn(err)
-        showGoferToast({ id: "mail-label-delete", title: "Couldn't delete the label", description: "Try again in a moment.", variant: "error", icon: "error", position: "bottom-right", duration: 6000, dismissible: true })
+        showGoferToast({ id: "mail-label-delete", title: goferT("js.labels.delete_failed"), description: goferT("js.common.try_again"), variant: "error", icon: "error", position: "bottom-right", duration: 6000, dismissible: true })
       })
     }
 
@@ -3657,9 +3656,9 @@ document.addEventListener("DOMContentLoaded", function () {
     function markAllReadInMailFolder(folderID, name) {
       if (!folderID || markAllReadBusy) return
       window.goferConfirm({
-        title: "Mark all as read?",
-        message: "Every unread message in " + name + " will be marked as read.",
-        confirmLabel: "Mark all as read",
+        title: goferT("js.mail.mark_all.title"),
+        message: goferT("js.mail.mark_all.message", { folder: name }),
+        confirmLabel: goferT("js.mail.mark_all.confirm"),
       }).then(function (accepted) {
         if (!accepted) return
         markAllReadBusy = true
@@ -3671,7 +3670,7 @@ document.addEventListener("DOMContentLoaded", function () {
           })
           .then(function (data) {
             if (!data || !data.marked) {
-              showGoferToast({ id: "mail-mark-all-read", title: "Nothing to mark", description: "There are no unread messages in " + name + ".", variant: "info", icon: "info", position: "bottom-right", duration: 4000, dismissible: true })
+              showGoferToast({ id: "mail-mark-all-read", title: goferT("js.mail.mark_all.nothing"), description: goferT("js.mail.mark_all.none", { folder: name }), variant: "info", icon: "info", position: "bottom-right", duration: 4000, dismissible: true })
               return
             }
             if (virtualMailList && typeof virtualMailList.refreshCurrentFolder === "function") {
@@ -3679,12 +3678,12 @@ document.addEventListener("DOMContentLoaded", function () {
             }
             refreshSidebarUnread()
             if (data.skipped_accounts) {
-              showGoferToast({ id: "mail-mark-all-read-skipped", title: "Some accounts were left unread", description: "Changes for one or more accounts can't be sent yet.", variant: "warning", position: "bottom-right", duration: 8000, dismissible: true })
+              showGoferToast({ id: "mail-mark-all-read-skipped", title: goferT("js.mail.mark_all.skipped"), description: goferT("js.mail.changes_pending"), variant: "warning", position: "bottom-right", duration: 8000, dismissible: true })
             }
           })
           .catch(function (err) {
             console.warn(err)
-            showGoferToast({ id: "mail-mark-all-read-error", title: "Couldn't mark the messages as read", description: "Try again in a moment.", variant: "error", icon: "error", position: "bottom-right", duration: 6000, dismissible: true })
+            showGoferToast({ id: "mail-mark-all-read-error", title: goferT("js.mail.mark_all.failed"), description: goferT("js.common.try_again"), variant: "error", icon: "error", position: "bottom-right", duration: 6000, dismissible: true })
           })
           .finally(function () {
             markAllReadBusy = false
@@ -3707,11 +3706,11 @@ document.addEventListener("DOMContentLoaded", function () {
           if (open === emailId && typeof htmx !== "undefined") {
             htmx.ajax("GET", mailViewRequestURL(emailId), { target: "#mail-view", swap: "innerHTML" })
           }
-          showGoferToast({ id: "mail-refetch", title: "Message fetched again", variant: "success", icon: "success", position: "bottom-right", duration: 3000, dismissible: true })
+          showGoferToast({ id: "mail-refetch", title: goferT("js.mail.refetched"), variant: "success", icon: "success", position: "bottom-right", duration: 3000, dismissible: true })
         })
         .catch(function (err) {
           console.warn(err)
-          showGoferToast({ id: "mail-refetch-error", title: "Couldn't fetch the message again", description: "Try again in a moment.", variant: "error", icon: "error", position: "bottom-right", duration: 6000, dismissible: true })
+          showGoferToast({ id: "mail-refetch-error", title: goferT("js.mail.refetch_failed"), description: goferT("js.common.try_again"), variant: "error", icon: "error", position: "bottom-right", duration: 6000, dismissible: true })
         })
     }
 
@@ -3854,7 +3853,7 @@ document.addEventListener("DOMContentLoaded", function () {
         })
         .catch(function (err) {
           console.warn(err)
-          showGoferToast({ id: "mail-select-all-error", title: "Couldn't select every message", description: "Try again in a moment.", variant: "error", icon: "error", position: "bottom-right", duration: 6000, dismissible: true })
+          showGoferToast({ id: "mail-select-all-error", title: goferT("js.mail.select_all_failed"), description: goferT("js.common.try_again"), variant: "error", icon: "error", position: "bottom-right", duration: 6000, dismissible: true })
         })
         .finally(function () {
           mailSelectAllLoading = false
@@ -3863,7 +3862,7 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     function formatMailCount(n) {
-      return Number(n || 0).toLocaleString()
+      return goferNumber(Number(n || 0))
     }
 
     // Opening a message selects it, so keyboard actions reach it. A single message
@@ -3892,7 +3891,7 @@ document.addEventListener("DOMContentLoaded", function () {
       for (var i = 0; i < toggles.length; i++) {
         toggles[i].checked = state === "all"
         toggles[i].indeterminate = state === "some"
-        toggles[i].setAttribute("aria-label", count > 0 ? "Deselect all messages" : "Select all messages")
+        toggles[i].setAttribute("aria-label", count > 0 ? goferT("js.mail.deselect_all") : goferT("js.mail.select_all"))
       }
 
       var banner = document.querySelector("[data-mail-select-all-banner]")
@@ -3901,14 +3900,14 @@ document.addEventListener("DOMContentLoaded", function () {
       var text = ""
       if (mailSelectAllMatching) {
         text = mailSelectAllMatching.truncated
-          ? "The first " + formatMailCount(mailSelectAllMatching.total) + " messages in this list are selected."
-          : "All " + formatMailCount(mailSelectAllMatching.total) + " messages in this list are selected."
+          ? goferTn("js.mail.selected.first", mailSelectAllMatching.total)
+          : goferTn("js.mail.selected.all_list", mailSelectAllMatching.total)
       } else if (allLoaded && total > loaded.length) {
-        text = "All " + formatMailCount(loaded.length) + " loaded messages are selected."
+        text = goferTn("js.mail.selected.all_loaded", loaded.length)
       } else if (allLoaded) {
-        text = "All " + formatMailCount(count) + " messages are selected."
+        text = goferTn("js.mail.selected.all", count)
       } else if (count > 0) {
-        text = formatMailCount(count) + " selected."
+        text = goferTn("js.mail.selected.some", count)
       }
       var canSelectAll = count > 0 && !mailSelectAllMatching && total > count
       // The banner folds open and shut; while it shuts it keeps its last words.
@@ -3922,7 +3921,7 @@ document.addEventListener("DOMContentLoaded", function () {
         // The button's own inline-flex outranks hidden, so it goes too.
         button.classList.toggle("hidden", !canSelectAll)
         button.classList.toggle("inline-flex", canSelectAll)
-        button.textContent = mailSelectAllLoading ? "Selecting\u2026" : "Select all " + formatMailCount(total) + " in this list"
+        button.textContent = mailSelectAllLoading ? goferT("js.mail.selecting") : goferTn("js.mail.select_all_in_list", total)
         button.disabled = mailSelectAllLoading
       }
     }
@@ -4002,10 +4001,10 @@ document.addEventListener("DOMContentLoaded", function () {
       var permanent = button.dataset.mailDeletePermanent === "true"
       button.toggleAttribute("data-mail-delete-all", whole)
       if (whole) button.disabled = mailSelectionBusy
-      button.setAttribute("aria-label", whole ? all.label : permanent ? "Permanently delete selected messages" : "Delete selected messages")
+      button.setAttribute("aria-label", whole ? all.label : permanent ? goferT("js.mail.selection.delete_permanently") : goferT("js.mail.selection.delete"))
       var root = button.closest("[data-tui-popover-root]")
       var tooltip = root && root.querySelector("[data-mail-delete-tooltip]")
-      if (tooltip) tooltip.textContent = whole ? all.tooltip : permanent ? "Permanently delete" : "Delete"
+      if (tooltip) tooltip.textContent = whole ? all.tooltip : permanent ? goferT("js.mail.action.delete_permanently") : goferT("js.mail.action.delete")
     }
 
     // Where the Delete slot sits while it shows, or null while it is hidden.
@@ -4077,10 +4076,10 @@ document.addEventListener("DOMContentLoaded", function () {
           })
           .then(function (data) {
             if (data && data.skipped_folders) {
-              showGoferToast({ id: "mail-delete-all-folders", title: "Some folders in Trash weren't deleted", description: "Try again in a moment.", variant: "warning", position: "bottom-right", duration: 8000, dismissible: true })
+              showGoferToast({ id: "mail-delete-all-folders", title: goferT("js.mail.delete_all.folders_left"), description: goferT("js.common.try_again"), variant: "warning", position: "bottom-right", duration: 8000, dismissible: true })
             }
             if (data && !data.removed && data.folders_deleted) {
-              showGoferToast({ id: "mail-delete-all-folders-done", title: "Deleted " + folderCount(data.folders_deleted, "folder", "folders") + " in Trash", variant: "success", icon: "success", position: "bottom-right", duration: 3000, dismissible: true })
+              showGoferToast({ id: "mail-delete-all-folders-done", title: goferT("js.folders.deleted_in_trash", { folders: folderCount(data.folders_deleted, "js.folders.count.folders") }), variant: "success", icon: "success", position: "bottom-right", duration: 3000, dismissible: true })
               return
             }
             if (!data || !data.removed) {
@@ -4097,12 +4096,12 @@ document.addEventListener("DOMContentLoaded", function () {
             }
             refreshSidebarUnread()
             if (data.skipped_accounts || data.no_trash) {
-              showGoferToast({ id: "mail-delete-all-partial", title: all.partial, description: data.no_trash ? all.noTrash : "Changes for one or more accounts can't be sent yet.", variant: "warning", position: "bottom-right", duration: 8000, dismissible: true })
+              showGoferToast({ id: "mail-delete-all-partial", title: all.partial, description: data.no_trash ? all.noTrash : goferT("js.mail.changes_pending"), variant: "warning", position: "bottom-right", duration: 8000, dismissible: true })
             }
           })
           .catch(function (err) {
             console.warn(err)
-            showGoferToast({ id: "mail-delete-all-error", title: all.failed, description: "Try again in a moment.", variant: "error", icon: "error", position: "bottom-right", duration: 6000, dismissible: true })
+            showGoferToast({ id: "mail-delete-all-error", title: all.failed, description: goferT("js.common.try_again"), variant: "error", icon: "error", position: "bottom-right", duration: 6000, dismissible: true })
           })
           .finally(function () {
             mailSelectionBusy = false
@@ -4120,8 +4119,8 @@ document.addEventListener("DOMContentLoaded", function () {
         allRead = selected.length > 0 && selected.every(function (row) { return row.read })
         allStarred = selected.length > 0 && selected.every(function (row) { return row.starred })
       }
-      syncMailSelectionToggle("read", allRead, "unread", "Mark as unread", "Mark as read", "Mark selected messages as unread", "Mark selected messages as read")
-      syncMailSelectionToggle("star", allStarred, "unstar", "Unstar", "Star", "Unstar selected messages", "Star selected messages")
+      syncMailSelectionToggle("read", allRead, "unread", goferT("js.mail.action.mark_unread"), goferT("js.mail.action.mark_read"), goferT("js.mail.selection.mark_unread"), goferT("js.mail.selection.mark_read"))
+      syncMailSelectionToggle("star", allStarred, "unstar", goferT("js.mail.action.unstar"), goferT("js.mail.action.star"), goferT("js.mail.selection.unstar"), goferT("js.mail.selection.star"))
     }
 
     function syncMailSelectionToggle(action, undo, undoName, undoTip, doTip, undoLabel, doLabel) {
@@ -4837,8 +4836,8 @@ document.addEventListener("DOMContentLoaded", function () {
         endDrag()
         if (refusedTarget) {
           showGoferToast({
-            title: "Can't move these emails there",
-            description: "Some of them are already in that account. Move them separately.",
+            title: goferT("js.mail.drag.refused"),
+            description: goferT("js.mail.drag.refused_help"),
             variant: "warning",
             duration: 4000,
           })
@@ -4860,8 +4859,8 @@ document.addEventListener("DOMContentLoaded", function () {
       run.then(function () {
         showMailMovedToast(targets, folderID)
       }, function (err) {
-        var reason = err && err.reason ? err.reason : "Please try again."
-        showGoferToast({ title: "Couldn't move the emails", description: reason, variant: "error", icon: "error", duration: 8000 })
+        var reason = err && err.reason ? err.reason : goferT("js.common.please_try_again")
+        showGoferToast({ title: goferT("js.mail.move_failed"), description: reason, variant: "error", icon: "error", duration: 8000 })
       }).then(function () {
         if (virtualMailList && typeof virtualMailList.refreshCurrentFolder === "function") {
           virtualMailList.refreshCurrentFolder({ noAnimation: true }).catch(function () {})
@@ -4880,7 +4879,7 @@ document.addEventListener("DOMContentLoaded", function () {
         if (response.ok) return
         return response.text().then(function (text) {
           var err = new Error("move failed")
-          err.reason = String(text || "").trim() || "The server answered " + response.status + "."
+          err.reason = String(text || "").trim() || goferT("js.common.server_answered", { status: response.status })
           throw err
         })
       })
@@ -5320,30 +5319,30 @@ document.addEventListener("DOMContentLoaded", function () {
 
     function advancedFilterDefs() {
       return [
-        { key: "participant", name: "participant", label: "Contact" },
-        { key: "accountId", name: "account_id", label: "Account" },
-        { key: "afterDate", name: "after_date", label: "After" },
-        { key: "beforeDate", name: "before_date", label: "Before" },
-        { key: "from", name: "from", label: "From" },
-        { key: "fromDomain", name: "from_domain", label: "From domain" },
-        { key: "to", name: "to", label: "Recipients" },
-        { key: "recipientType", name: "recipient_type", label: "Recipient type" },
-        { key: "recipientDomain", name: "recipient_domain", label: "Recipient domain" },
-        { key: "subject", name: "subject", label: "Subject" },
-        { key: "body", name: "body", label: "Body" },
-        { key: "attachment", name: "attachment", label: "Attachment" },
-        { key: "attachmentType", name: "attachment_type", label: "Attachment type" },
-        { key: "minSizeMB", name: "min_size_mb", label: "Minimum size" },
-        { key: "maxSizeMB", name: "max_size_mb", label: "Maximum size" },
-        { key: "tag", name: "tag", label: "Tag" },
-        { key: "unread", name: "unread", label: "Unread" },
-        { key: "read", name: "read", label: "Read" },
-        { key: "attachments", name: "attachments", label: "Has attachments" },
-        { key: "noAttachments", name: "no_attachments", label: "No attachments" },
-        { key: "hasTags", name: "has_tags", label: "Has tags" },
-        { key: "noTags", name: "no_tags", label: "No tags" },
-        { key: "threadsOnly", name: "threads_only", label: "Threads only" },
-        { key: "noThreads", name: "no_threads", label: "Single messages" },
+        { key: "participant", name: "participant", label: goferT("js.mail.filters.participant") },
+        { key: "accountId", name: "account_id", label: goferT("js.mail.filters.account_id") },
+        { key: "afterDate", name: "after_date", label: goferT("js.mail.filters.after") },
+        { key: "beforeDate", name: "before_date", label: goferT("js.mail.filters.before") },
+        { key: "from", name: "from", label: goferT("js.mail.filters.from") },
+        { key: "fromDomain", name: "from_domain", label: goferT("js.mail.filters.from_domain") },
+        { key: "to", name: "to", label: goferT("js.mail.filters.to") },
+        { key: "recipientType", name: "recipient_type", label: goferT("js.mail.filters.recipient_type") },
+        { key: "recipientDomain", name: "recipient_domain", label: goferT("js.mail.filters.recipient_domain") },
+        { key: "subject", name: "subject", label: goferT("js.mail.filters.subject") },
+        { key: "body", name: "body", label: goferT("js.mail.filters.body") },
+        { key: "attachment", name: "attachment", label: goferT("js.mail.filters.attachment") },
+        { key: "attachmentType", name: "attachment_type", label: goferT("js.mail.filters.attachment_type") },
+        { key: "minSizeMB", name: "min_size_mb", label: goferT("js.mail.filters.min_size_mb") },
+        { key: "maxSizeMB", name: "max_size_mb", label: goferT("js.mail.filters.max_size_mb") },
+        { key: "tag", name: "tag", label: goferT("js.mail.filters.tag") },
+        { key: "unread", name: "unread", label: goferT("js.mail.filters.flag.unread") },
+        { key: "read", name: "read", label: goferT("js.mail.filters.flag.read") },
+        { key: "attachments", name: "attachments", label: goferT("js.mail.filters.flag.attachments") },
+        { key: "noAttachments", name: "no_attachments", label: goferT("js.mail.filters.flag.no_attachments") },
+        { key: "hasTags", name: "has_tags", label: goferT("js.mail.filters.flag.has_tags") },
+        { key: "noTags", name: "no_tags", label: goferT("js.mail.filters.flag.no_tags") },
+        { key: "threadsOnly", name: "threads_only", label: goferT("js.mail.filters.flag.threads_only") },
+        { key: "noThreads", name: "no_threads", label: goferT("js.mail.filters.flag.no_threads") },
       ]
     }
 
@@ -5471,46 +5470,53 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     function activePillDefs(filters) {
+      var L = function (key) { return goferT("js.mail.filters." + key) }
       filters = filters || emptyFilters()
       var pills = []
       var query = (filters.query || committedQuery || "").trim()
-      if (query) pills.push({ name: "q", label: "Search", value: query })
-      if (filters.unread) pills.push({ name: "unread", label: "Status", value: "Unread" })
-      if (filters.read) pills.push({ name: "read", label: "Status", value: "Read" })
-      if (filters.starred) pills.push({ name: "starred", label: "Starred" })
-      if (filters.attachments) pills.push({ name: "attachments", label: "Attachments", value: "Yes" })
-      if (filters.noAttachments) pills.push({ name: "no_attachments", label: "Attachments", value: "No" })
-      if (filters.hasTags) pills.push({ name: "has_tags", label: "Tags", value: "Yes" })
-      if (filters.noTags) pills.push({ name: "no_tags", label: "Tags", value: "No" })
-      if (filters.threadsOnly) pills.push({ name: "threads_only", label: "Threads", value: "Yes" })
-      if (filters.noThreads) pills.push({ name: "no_threads", label: "Threads", value: "No" })
-      if (filters.participant) pills.push({ name: "participant", label: "Contact", value: filters.participant })
-      if (filters.accountId) pills.push({ name: "account_id", label: "Account", value: displayValueForAdvanced("account_id", filters.accountId) })
-      if (filters.afterDate) pills.push({ name: "after_date", label: "After", value: filters.afterDate })
-      if (filters.beforeDate) pills.push({ name: "before_date", label: "Before", value: filters.beforeDate })
-      if (filters.from) pills.push({ name: "from", label: "From", value: filters.from })
-      if (filters.fromDomain) pills.push({ name: "from_domain", label: "From domain", value: filters.fromDomain })
-      if (filters.to) pills.push({ name: "to", label: "Recipients", value: filters.to })
-      if (filters.recipientType) pills.push({ name: "recipient_type", label: "Recipient type", value: filters.recipientType.toUpperCase() })
-      if (filters.recipientDomain) pills.push({ name: "recipient_domain", label: "Recipient domain", value: filters.recipientDomain })
-      if (filters.subject) pills.push({ name: "subject", label: "Subject", value: filters.subject })
-      if (filters.body) pills.push({ name: "body", label: "Body", value: filters.body })
-      if (filters.attachment) pills.push({ name: "attachment", label: "Attachment", value: filters.attachment })
-      if (filters.attachmentType) pills.push({ name: "attachment_type", label: "Attachment type", value: attachmentTypeLabel(filters.attachmentType, filters.attachmentExtension) })
-      if (filters.minSizeMB) pills.push({ name: "min_size_mb", label: "Minimum size", value: filters.minSizeMB + " MB" })
-      if (filters.maxSizeMB) pills.push({ name: "max_size_mb", label: "Maximum size", value: filters.maxSizeMB + " MB" })
-      if (filters.tag) pills.push({ name: "tag", label: "Tag", value: filters.tag })
+      if (query) pills.push({ name: "q", label: L("search"), value: query })
+      if (filters.unread) pills.push({ name: "unread", label: L("status"), value: L("unread") })
+      if (filters.read) pills.push({ name: "read", label: L("status"), value: L("read") })
+      if (filters.starred) pills.push({ name: "starred", label: L("starred") })
+      if (filters.attachments) pills.push({ name: "attachments", label: L("attachments"), value: L("yes") })
+      if (filters.noAttachments) pills.push({ name: "no_attachments", label: L("attachments"), value: L("no") })
+      if (filters.hasTags) pills.push({ name: "has_tags", label: L("tags"), value: L("yes") })
+      if (filters.noTags) pills.push({ name: "no_tags", label: L("tags"), value: L("no") })
+      if (filters.threadsOnly) pills.push({ name: "threads_only", label: L("threads"), value: L("yes") })
+      if (filters.noThreads) pills.push({ name: "no_threads", label: L("threads"), value: L("no") })
+      if (filters.participant) pills.push({ name: "participant", label: L("participant"), value: filters.participant })
+      if (filters.accountId) pills.push({ name: "account_id", label: L("account_id"), value: displayValueForAdvanced("account_id", filters.accountId) })
+      if (filters.afterDate) pills.push({ name: "after_date", label: L("after"), value: filterDateText(filters.afterDate) })
+      if (filters.beforeDate) pills.push({ name: "before_date", label: L("before"), value: filterDateText(filters.beforeDate) })
+      if (filters.from) pills.push({ name: "from", label: L("from"), value: filters.from })
+      if (filters.fromDomain) pills.push({ name: "from_domain", label: L("from_domain"), value: filters.fromDomain })
+      if (filters.to) pills.push({ name: "to", label: L("to"), value: filters.to })
+      if (filters.recipientType) pills.push({ name: "recipient_type", label: L("recipient_type"), value: filters.recipientType.toUpperCase() })
+      if (filters.recipientDomain) pills.push({ name: "recipient_domain", label: L("recipient_domain"), value: filters.recipientDomain })
+      if (filters.subject) pills.push({ name: "subject", label: L("subject"), value: filters.subject })
+      if (filters.body) pills.push({ name: "body", label: L("body"), value: filters.body })
+      if (filters.attachment) pills.push({ name: "attachment", label: L("attachment"), value: filters.attachment })
+      if (filters.attachmentType) pills.push({ name: "attachment_type", label: L("attachment_type"), value: attachmentTypeLabel(filters.attachmentType, filters.attachmentExtension) })
+      if (filters.minSizeMB) pills.push({ name: "min_size_mb", label: L("min_size_mb"), value: filters.minSizeMB + " MB" })
+      if (filters.maxSizeMB) pills.push({ name: "max_size_mb", label: L("max_size_mb"), value: filters.maxSizeMB + " MB" })
+      if (filters.tag) pills.push({ name: "tag", label: L("tag"), value: filters.tag })
       return pills
     }
 
     function attachmentTypeLabel(type, extension) {
       if (type === "custom") return "." + extension
       if (type === "pdf") return "PDF"
-      return type.charAt(0).toUpperCase() + type.slice(1)
+      return goferT("js.mail.filters.type." + type)
+    }
+
+    // A filter's date, as the date format writes it, or "Any date".
+    function filterDateText(value) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(value || "")) return value || goferT("js.mail.filters.any_date")
+      return goferDates.date(value + "T12:00:00Z", "UTC")
     }
 
     function activePillText(pill) {
-      return pill.value ? (pill.label + ": " + pill.value) : pill.label
+      return pill.value ? goferT("js.mail.filters.pill", { label: pill.label, value: pill.value }) : pill.label
     }
 
     function activePillKey(pill) {
@@ -5629,7 +5635,7 @@ document.addEventListener("DOMContentLoaded", function () {
       var summary = document.querySelector("[data-mail-filters-applied]")
       if (summary) {
         var countLabel = summary.querySelector("[data-mail-filters-applied-count]")
-        if (countLabel) countLabel.textContent = pills.length === 1 ? "1 filter applied" : pills.length + " filters applied"
+        if (countLabel) countLabel.textContent = goferTn("js.mail.filters.applied", pills.length)
         summary.classList.toggle("hidden", pills.length === 0)
       }
       var list = document.querySelector("[data-mail-filters-applied-list]")
@@ -5640,7 +5646,7 @@ document.addEventListener("DOMContentLoaded", function () {
           html += '<div class="mail-filters-applied-row">' +
             '<div class="mail-filters-applied-row-text"><span class="mail-filters-applied-row-label">' + escapeHTML(pill.label) + '</span>' +
             (pill.value ? '<span class="mail-filters-applied-row-value">' + escapeHTML(String(pill.value)) + '</span>' : "") + '</div>' +
-            '<button type="button" class="mail-filters-applied-row-remove" data-mail-active-filter-remove="' + escapeHTML(pill.name) + '" aria-label="Remove ' + escapeHTML(activePillText(pill)) + '">' +
+            '<button type="button" class="mail-filters-applied-row-remove" data-mail-active-filter-remove="' + escapeHTML(pill.name) + '" aria-label="' + escapeHTML(goferT("js.mail.filters.remove", { filter: activePillText(pill) })) + '">' +
             '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>' +
             '</button></div>'
         }
@@ -5703,7 +5709,7 @@ document.addEventListener("DOMContentLoaded", function () {
         var pillClass = existingKeys[key] ? "mail-active-filter-pill mail-active-filter-pill-stable" : "mail-active-filter-pill"
         html += activePillButtonHTML(pill, 'data-mail-active-filter-pill="' + escapeHTML(JSON.stringify(pill)) + '" data-mail-active-filter-key="' + escapeHTML(key) + '"', pillClass)
       }
-      html += '</div><button type="button" data-mail-active-filter-overflow class="mail-active-filter-overflow ' + (hadOverflow ? "mail-active-filter-overflow-stable " : "") + 'hidden" aria-expanded="false" aria-label="Show hidden filters">+0</button>'
+      html += '</div><button type="button" data-mail-active-filter-overflow class="mail-active-filter-overflow ' + (hadOverflow ? "mail-active-filter-overflow-stable " : "") + 'hidden" aria-expanded="false" aria-label="' + escapeHTML(goferT("js.mail.filters.show_hidden")) + '">+0</button>'
       bar.innerHTML = html
       if (wasShowing) {
         bar.style.transition = "none"
@@ -5726,7 +5732,7 @@ document.addEventListener("DOMContentLoaded", function () {
         else inputs[i].value = ""
       }
       var displays = form.querySelectorAll("[data-mail-date-display]")
-      for (var j = 0; j < displays.length; j++) displays[j].textContent = "Any date"
+      for (var j = 0; j < displays.length; j++) displays[j].textContent = filterDateText("")
       var calendars = form.querySelectorAll("[data-tui-calendar-container]")
       for (var k = 0; k < calendars.length; k++) {
         calendars[k].removeAttribute("data-tui-calendar-selected-date")
@@ -5799,8 +5805,8 @@ document.addEventListener("DOMContentLoaded", function () {
     function syncMailFolderHeading(filters) {
       var heading = document.getElementById("mail-folder-name")
       if (!heading) return
-      var defaultName = heading.getAttribute("data-mail-folder-default-name") || "Inbox"
-      heading.textContent = window.GoferMailSearch && window.GoferMailSearch.scope() ? "Search results" : filters && filters.participant ? "All mail" : defaultName
+      var defaultName = heading.getAttribute("data-mail-folder-default-name") || goferT("js.mail.inbox")
+      heading.textContent = window.GoferMailSearch && window.GoferMailSearch.scope() ? goferT("js.mail.search_results") : filters && filters.participant ? goferT("js.mail.all_mail") : defaultName
     }
 
     function clearAdvancedFilter(name) {
@@ -5812,7 +5818,7 @@ document.addEventListener("DOMContentLoaded", function () {
         else input.value = ""
       }
       var dateDisplay = form.querySelector('[data-mail-date-display="' + name + '"]')
-      if (dateDisplay) dateDisplay.textContent = "Any date"
+      if (dateDisplay) dateDisplay.textContent = filterDateText("")
       var selectRoot = input && input.closest(".select-container")
       if (selectRoot) {
         var valueEl = selectRoot.querySelector("[data-tui-selectbox-placeholder]")
@@ -5958,14 +5964,14 @@ document.addEventListener("DOMContentLoaded", function () {
 
       var customEmail = contactFilterEmail(query)
       if (customEmail && !seen[customEmail.toLowerCase()]) {
-        options.appendChild(contactFilterOption(customEmail, customEmail + " — use this address", selected.toLowerCase() === customEmail.toLowerCase()))
+        options.appendChild(contactFilterOption(customEmail, goferT("js.contacts.picker.use_address", { email: customEmail }), selected.toLowerCase() === customEmail.toLowerCase()))
         count++
       }
       if (!count && selected && (!query || selected.toLowerCase().indexOf(String(query).toLowerCase()) >= 0)) {
         options.appendChild(contactFilterOption(selected, selected, true))
         count++
       }
-      if (!count) contactFilterStatus(options, query ? "No matching contacts." : "Type at least 2 characters to search contacts.")
+      if (!count) contactFilterStatus(options, query ? goferT("js.contacts.picker.no_match") : goferT("js.contacts.picker.type_more"))
     }
 
     function setContactFilterValue(value) {
@@ -5977,7 +5983,7 @@ document.addEventListener("DOMContentLoaded", function () {
       contactFilterSearchSequence++
       options.innerHTML = ""
       if (value) options.appendChild(contactFilterOption(value, value, true))
-      else contactFilterStatus(options, "Type at least 2 characters to search contacts.")
+      else contactFilterStatus(options, goferT("js.contacts.picker.type_more"))
       input.value = value
       input.dispatchEvent(new Event("input", { bubbles: true }))
       return true
@@ -5995,7 +6001,7 @@ document.addEventListener("DOMContentLoaded", function () {
         return
       }
       options.innerHTML = ""
-      contactFilterStatus(options, "Searching contacts…")
+      contactFilterStatus(options, goferT("js.contacts.picker.searching"))
       contactFilterSearchTimer = window.setTimeout(function () {
         contactFilterSearchTimer = null
         fetch("/api/contacts/search?q=" + encodeURIComponent(query), { headers: { "Accept": "application/json" } })
@@ -6007,7 +6013,7 @@ document.addEventListener("DOMContentLoaded", function () {
           .catch(function () {
             if (sequence !== contactFilterSearchSequence) return
             options.innerHTML = ""
-            contactFilterStatus(options, "Contacts could not be loaded.")
+            contactFilterStatus(options, goferT("js.contacts.picker.load_failed"))
           })
       }, 160)
     }
@@ -6019,7 +6025,7 @@ document.addEventListener("DOMContentLoaded", function () {
       if (input.type === "checkbox") input.checked = value === true || value === "1" || value === "true"
       else input.value = value
       var dateDisplay = form.querySelector('[data-mail-date-display="' + name + '"]')
-      if (dateDisplay) dateDisplay.textContent = value || "Any date"
+      if (dateDisplay) dateDisplay.textContent = filterDateText(value)
       return true
     }
 
@@ -6230,7 +6236,7 @@ document.addEventListener("DOMContentLoaded", function () {
         // Small screens swap in a shorter placeholder (see mobile-nav.js).
         search.placeholder = search.hasAttribute("data-desktop-placeholder")
           ? search.getAttribute("data-mobile-placeholder")
-          : "Search mail"
+          : goferT("js.mail.search_placeholder")
       }
       renderActivePills()
       syncFilterButton(readFilters())
@@ -6461,7 +6467,7 @@ document.addEventListener("DOMContentLoaded", function () {
         var values = key === "filetype" ? SEARCH_FILETYPES : key === "account" ? searchAccountValues() : []
         values.forEach(function (v) {
           if (v.toLowerCase().indexOf(value) !== 0 || v.toLowerCase() === value) return
-          shown.push(searchSuggestValueItem(list, key + ":" + v, key === "filetype" ? "File type" : "Account"))
+          shown.push(searchSuggestValueItem(list, key + ":" + v, key === "filetype" ? goferT("js.mail.search.file_type") : goferT("js.mail.filters.account_id")))
         })
       } else {
         list.querySelectorAll("[data-mail-search-suggestion]").forEach(function (item) { item.classList.add("hidden") })
@@ -6605,7 +6611,7 @@ document.addEventListener("DOMContentLoaded", function () {
       var hidden = container.closest("[data-tui-calendar-wrapper]") && container.closest("[data-tui-calendar-wrapper]").querySelector("[data-tui-calendar-hidden-input]")
       if (!hidden || !hidden.name) return
       var display = document.querySelector('[data-mail-date-display="' + hidden.name + '"]')
-      if (display) display.textContent = hidden.value || "Any date"
+      if (display) display.textContent = filterDateText(hidden.value)
       syncAdvancedFilterCount()
     })
 
@@ -6693,7 +6699,7 @@ document.addEventListener("DOMContentLoaded", function () {
     card.dataset.accountDeleting = "true"
     var actions = card.querySelector("[data-account-actions]")
     if (!actions) return
-    actions.innerHTML = '<button type="button" data-account-deleting-status role="status" aria-live="polite" disabled class="inline-flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-400 px-2.5 py-1.5 rounded-md border border-amber-300/40 dark:border-amber-500/30 bg-amber-100/50 dark:bg-amber-500/10 cursor-default"><svg class="size-3.5 animate-spin" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>Deleting…</button>'
+    actions.innerHTML = '<button type="button" data-account-deleting-status role="status" aria-live="polite" disabled class="inline-flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-400 px-2.5 py-1.5 rounded-md border border-amber-300/40 dark:border-amber-500/30 bg-amber-100/50 dark:bg-amber-500/10 cursor-default"><svg class="size-3.5 animate-spin" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>' + goferT("js.accounts.deleting") + '</button>'
   }
 
   function setupAccountDeletionTracking() {
@@ -6703,15 +6709,15 @@ document.addEventListener("DOMContentLoaded", function () {
 
     function accountEmail(accountId) {
       var card = document.getElementById("account-card-" + accountId)
-      return card && card.dataset.accountEmail ? card.dataset.accountEmail : "this account"
+      return card && card.dataset.accountEmail ? card.dataset.accountEmail : goferT("js.accounts.this_account")
     }
 
     function showDeletionStarted(accountId) {
       if (typeof showGoferToast !== "function") return
       showGoferToast({
         id: deletionToastId(accountId),
-        title: "Deleting account…",
-        description: "Removing " + accountEmail(accountId) + ". You can leave this page; cleanup will continue in the background.",
+        title: goferT("js.accounts.delete_started_title"),
+        description: goferT("js.accounts.delete_started", { email: accountEmail(accountId) }),
         variant: "default",
         icon: "info",
         position: "bottom-right",
@@ -6734,8 +6740,8 @@ document.addEventListener("DOMContentLoaded", function () {
       if (typeof showGoferToast === "function") {
         showGoferToast({
           id: deletionToastId(accountId),
-          title: "Account deleted",
-          description: email + " and its local data were removed from Gofer.",
+          title: goferT("js.accounts.deleted_title"),
+          description: goferT("js.accounts.deleted", { email: email }),
           variant: "success",
           icon: "success",
           position: "bottom-right",
@@ -6802,7 +6808,7 @@ document.addEventListener("DOMContentLoaded", function () {
       if (!button) return
       button.dataset.originalContent = button.innerHTML
       button.disabled = true
-      button.innerHTML = '<svg class="size-4 animate-spin" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>Starting…'
+      button.innerHTML = '<svg class="size-4 animate-spin" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>' + goferT("js.accounts.delete_starting")
     })
 
     document.body.addEventListener("htmx:afterRequest", function (evt) {
@@ -6824,8 +6830,8 @@ document.addEventListener("DOMContentLoaded", function () {
       if (typeof showGoferToast === "function") {
         showGoferToast({
           id: deletionToastId(accountId),
-          title: "Could not delete account",
-          description: "Gofer could not start account cleanup. Please try again.",
+          title: goferT("js.accounts.delete_failed_title"),
+          description: goferT("js.accounts.delete_failed"),
           variant: "error",
           icon: "error",
           position: "bottom-right",
@@ -6844,22 +6850,22 @@ document.addEventListener("DOMContentLoaded", function () {
     var added = params.get("account_added") === "1"
     var reconnected = params.get("account_reconnected") === "1"
     var errors = {
-      oauth_invalid_state: "This authorization link is no longer valid. Start connecting the account again.",
-      oauth_expired_state: "Account authorization expired. Start connecting the account again.",
-      oauth_session_mismatch: "Finish authorization in the same browser session that started it.",
-      oauth_no_code: "The provider did not complete authorization. Please try again.",
-      oauth_exchange_failed: "Gofer could not complete authorization with the provider. Please try again.",
-      oauth_device_failed: "Gofer could not start Microsoft sign-in. Please try again.",
-      oauth_device_declined: "Sign-in was cancelled at Microsoft. Start connecting the account again.",
-      oauth_userinfo_failed: "Gofer could not identify the authorized mailbox. Please try again.",
-      oauth_email_mismatch: "The authorized email address differs from the mailbox you chose. Choose the matching account and try again.",
-      oauth_identity_mismatch: "The authorized provider account differs from this mailbox. Reconnect using its original provider account.",
-      oauth_store_failed: "Gofer could not save the mailbox authorization. Reconnect the account to try again.",
-      oauth_metadata_failed: "Authorization was saved, but account details could not be updated. Reconnect the account to try again.",
-      oauth_sync_failed: "Authorization was saved, but synchronization could not start. Try syncing the account again.",
-      create_failed: "Gofer could not save this account. Review your existing accounts and try again.",
-      mail_allowlist_provider: "Your Gofer administrator doesn't allow mailboxes from this provider.",
-      mail_allowlist_domain: "Your Gofer administrator doesn't allow mailboxes with this address's domain.",
+      oauth_invalid_state: goferT("js.accounts.connect_error.oauth_invalid_state"),
+      oauth_expired_state: goferT("js.accounts.connect_error.oauth_expired_state"),
+      oauth_session_mismatch: goferT("js.accounts.connect_error.oauth_session_mismatch"),
+      oauth_no_code: goferT("js.accounts.connect_error.oauth_no_code"),
+      oauth_exchange_failed: goferT("js.accounts.connect_error.oauth_exchange_failed"),
+      oauth_device_failed: goferT("js.accounts.connect_error.oauth_device_failed"),
+      oauth_device_declined: goferT("js.accounts.connect_error.oauth_device_declined"),
+      oauth_userinfo_failed: goferT("js.accounts.connect_error.oauth_userinfo_failed"),
+      oauth_email_mismatch: goferT("js.accounts.connect_error.oauth_email_mismatch"),
+      oauth_identity_mismatch: goferT("js.accounts.connect_error.oauth_identity_mismatch"),
+      oauth_store_failed: goferT("js.accounts.connect_error.oauth_store_failed"),
+      oauth_metadata_failed: goferT("js.accounts.connect_error.oauth_metadata_failed"),
+      oauth_sync_failed: goferT("js.accounts.connect_error.oauth_sync_failed"),
+      create_failed: goferT("js.accounts.connect_error.create_failed"),
+      mail_allowlist_provider: goferT("js.accounts.connect_error.mail_allowlist_provider"),
+      mail_allowlist_domain: goferT("js.accounts.connect_error.mail_allowlist_domain"),
     }
     var errorCode = params.get("error")
     var errorMessage = Object.prototype.hasOwnProperty.call(errors, errorCode) ? errors[errorCode] : ""
@@ -6868,10 +6874,10 @@ document.addEventListener("DOMContentLoaded", function () {
     if (typeof showGoferToast === "function") {
       showGoferToast({
         id: "account-connection-toast",
-        title: errorMessage ? "Could not connect account" : (added ? "Account added" : "Account reconnected"),
+        title: errorMessage ? goferT("js.accounts.connect_failed_title") : (added ? goferT("js.accounts.added_title") : goferT("js.accounts.reconnected_title")),
         description: errorMessage || (added
-          ? "The account was added successfully. Initial synchronization has started."
-          : "The account was reconnected successfully. Synchronization has resumed."),
+          ? goferT("js.accounts.added")
+          : goferT("js.accounts.reconnected")),
         variant: errorMessage ? "error" : "success",
         icon: errorMessage ? "error" : "success",
         position: "bottom-right",
@@ -6905,9 +6911,9 @@ document.addEventListener("DOMContentLoaded", function () {
         '<button type="button" data-processing-card class="absolute right-0 bottom-0 rounded-[var(--radius)] border border-border bg-card/95 text-card-foreground shadow-lg px-3 py-2.5 text-left transition-all duration-210 ease-in-out origin-bottom-right">' +
           '<div class="flex items-start justify-between gap-3">' +
             '<div class="min-w-0" data-processing-content-wrap>' +
-              '<p data-processing-title class="text-[12px] font-semibold leading-5 text-amber-600 dark:text-amber-400 inline-flex items-center gap-1.5"><span class="inline-block size-2 rounded-full bg-amber-500 animate-pulse"></span><span>Processing structure</span></p>' +
+              '<p data-processing-title class="text-[12px] font-semibold leading-5 text-amber-600 dark:text-amber-400 inline-flex items-center gap-1.5"><span class="inline-block size-2 rounded-full bg-amber-500 animate-pulse"></span><span>' + goferT("js.mail.processing_title") + '</span></p>' +
               '<p data-processing-text class="text-[11px] leading-4 text-muted-foreground mt-0.5 transition-opacity duration-180 ease-out"></p>' +
-              '<p data-processing-mini-text class="hidden text-[11px] leading-4 text-muted-foreground mt-0 items-center gap-1.5"><span class="inline-block size-2 rounded-full bg-amber-500 animate-pulse"></span><span>Processing...</span></p>' +
+              '<p data-processing-mini-text class="hidden text-[11px] leading-4 text-muted-foreground mt-0 items-center gap-1.5"><span class="inline-block size-2 rounded-full bg-amber-500 animate-pulse"></span><span>' + goferT("js.mail.processing_short") + '</span></p>' +
             '</div>' +
             '<span data-processing-minimize class="shrink-0 rounded p-1 hover:bg-muted" aria-hidden="true">' +
               '<svg xmlns="http://www.w3.org/2000/svg" class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/></svg>' +
@@ -7012,10 +7018,10 @@ document.addEventListener("DOMContentLoaded", function () {
         return
       }
       var progress = ""
-      if (state.total > 0) progress = " (" + (state.processed || 0) + "/" + state.total + ")"
+      if (state.total > 0) progress = " (" + goferNumber(state.processed || 0) + "/" + goferNumber(state.total) + ")"
       var text = widget.querySelector("[data-processing-text]")
       if (text) {
-        expandedBodyText = "This may take longer the first time while your mailbox is organized." + progress
+        expandedBodyText = goferT("js.mail.processing") + progress
         if (!minimized) {
           text.textContent = expandedBodyText
         }
@@ -7376,11 +7382,11 @@ document.addEventListener("DOMContentLoaded", function () {
     }
     var labels = document.querySelectorAll("[data-desktop-notifications-status]")
     for (var j = 0; j < labels.length; j++) {
-      if (!enabled || mode === "off") labels[j].textContent = "Notifications are off."
-      else if (permission === "denied") labels[j].textContent = "Notifications are blocked in this browser."
-      else if (supported) labels[j].textContent = "Web Push is available in this browser."
-      else if (browserNotificationsSupported()) labels[j].textContent = "Browser-tab notifications are available while Gofer is open."
-      else labels[j].textContent = "No notification method is available for this browser/origin."
+      if (!enabled || mode === "off") labels[j].textContent = goferT("js.notify.status.off")
+      else if (permission === "denied") labels[j].textContent = goferT("js.notify.status.blocked")
+      else if (supported) labels[j].textContent = goferT("js.notify.status.web_push")
+      else if (browserNotificationsSupported()) labels[j].textContent = goferT("js.notify.status.browser_tab")
+      else labels[j].textContent = goferT("js.notify.status.none")
     }
     // The switch may have been turned off here without a change event.
     if (window.goferSyncSettingDependents) window.goferSyncSettingDependents()
@@ -7431,8 +7437,8 @@ document.addEventListener("DOMContentLoaded", function () {
         setNotificationActiveMethod("none")
         showGoferToast({
           id: "desktop-notifications-toast",
-          title: "Notifications unavailable",
-          description: err && err.message ? err.message : "Could not enable Web Push notifications.",
+          title: goferT("js.notify.unavailable_title"),
+          description: err && err.message ? err.message : goferT("js.notify.enable_failed"),
           variant: "warning",
           icon: "warning",
           position: "bottom-right",
@@ -7449,13 +7455,13 @@ document.addEventListener("DOMContentLoaded", function () {
       button.setAttribute("data-busy", "")
       var saved = window.GoferSettings ? GoferSettings.saveNow() : Promise.resolve()
       saved.then(function (res) {
-        if (window.GoferSettings && (!res || !res.ok)) throw new Error("Could not save notification settings. Try again before sending a test.")
+        if (window.GoferSettings && (!res || !res.ok)) throw new Error(goferT("js.notify.save_before_test"))
         return sendTestNotification()
       }).then(function () {
         showGoferToast({
           id: "desktop-notifications-test-toast",
-          title: "Test notification sent",
-          description: "It should appear in a moment. If it does not, check your system's notification settings.",
+          title: goferT("js.notify.test_sent_title"),
+          description: goferT("js.notify.test_sent"),
           variant: "success",
           icon: "success",
           position: "bottom-right",
@@ -7465,8 +7471,8 @@ document.addEventListener("DOMContentLoaded", function () {
       }).catch(function (err) {
         showGoferToast({
           id: "desktop-notifications-test-toast",
-          title: "Test notification failed",
-          description: err && err.message ? err.message : "Could not send the test notification.",
+          title: goferT("js.notify.test_failed_title"),
+          description: err && err.message ? err.message : goferT("js.notify.test_failed"),
           variant: "warning",
           icon: "warning",
           position: "bottom-right",
@@ -7507,12 +7513,12 @@ document.addEventListener("DOMContentLoaded", function () {
 
   function setNotificationActiveMethod(method) {
     _notificationActiveMethod = method || "none"
-    var label = "None"
-    if (_notificationActiveMethod === "off") label = "Off"
-    else if (_notificationActiveMethod === "web_push") label = "Web Push"
-    else if (_notificationActiveMethod === "browser_tab") label = "Browser tab"
+    var label = goferT("js.notify.method.none")
+    if (_notificationActiveMethod === "off") label = goferT("js.notify.method.off")
+    else if (_notificationActiveMethod === "web_push") label = goferT("js.notify.method.web_push")
+    else if (_notificationActiveMethod === "browser_tab") label = goferT("js.notify.method.browser_tab")
     var nodes = document.querySelectorAll("[data-notification-active-method]")
-    for (var i = 0; i < nodes.length; i++) nodes[i].textContent = "Active method: " + label
+    for (var i = 0; i < nodes.length; i++) nodes[i].textContent = goferT("js.notify.active_method", { method: label })
     var testable = _notificationActiveMethod === "web_push" || _notificationActiveMethod === "browser_tab"
     var tests = document.querySelectorAll("[data-desktop-notifications-test]")
     for (var j = 0; j < tests.length; j++) {
@@ -7525,11 +7531,11 @@ document.addEventListener("DOMContentLoaded", function () {
   // browser-tab notifications are shown by the page itself.
   function sendTestNotification() {
     if (_notificationActiveMethod === "web_push") {
-      if (!("serviceWorker" in navigator)) return Promise.reject(new Error("This browser does not support Web Push."))
+      if (!("serviceWorker" in navigator)) return Promise.reject(new Error(goferT("js.notify.no_web_push")))
       return navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" }).then(waitForNotificationWorker).then(function (registration) {
         return registration ? registration.pushManager.getSubscription() : null
       }).then(function (subscription) {
-        if (!subscription) throw new Error("This browser has no push subscription. Turn notifications off and on again to register it.")
+        if (!subscription) throw new Error(goferT("js.notify.no_subscription"))
         return fetch("/api/push/test", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -7538,13 +7544,13 @@ document.addEventListener("DOMContentLoaded", function () {
       }).then(function (res) {
         if (res.ok) return
         return res.text().then(function (message) {
-          throw new Error((message || "").trim() || "Could not send the test notification.")
+          throw new Error((message || "").trim() || goferT("js.notify.test_failed"))
         })
       })
     }
     if (_notificationActiveMethod === "browser_tab") {
       if (!browserNotificationsSupported() || Notification.permission !== "granted") {
-        return Promise.reject(new Error("Notification permission was not granted."))
+        return Promise.reject(new Error(goferT("js.notify.permission_denied")))
       }
       var appearance = newMailNotificationAppearance(notificationAppearanceExample(), 1)
       return window.GoferNotificationAvatar.render(appearance.icon).then(function (circularIcon) {
@@ -7562,7 +7568,7 @@ document.addEventListener("DOMContentLoaded", function () {
         return Promise.resolve()
       })
     }
-    return Promise.reject(new Error("Turn on desktop notifications first."))
+    return Promise.reject(new Error(goferT("js.notify.turn_on_first")))
   }
 
   function requestNotificationPermission(prompt) {
@@ -7602,7 +7608,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
   function activateBrowserTabNotifications(prompt) {
     return requestNotificationPermission(prompt).then(function (permission) {
-      if (permission !== "granted") throw new Error("Notification permission was not granted.")
+      if (permission !== "granted") throw new Error(goferT("js.notify.permission_denied"))
       return deleteWebPushSubscription().catch(function () {})
     }).then(function () {
       setNotificationActiveMethod("browser_tab")
@@ -7628,11 +7634,11 @@ document.addEventListener("DOMContentLoaded", function () {
 
   function waitForNotificationWorker(registration) {
     var worker = registration.installing || registration.waiting || registration.active
-    if (!worker) return Promise.reject(new Error("The notification service worker is unavailable."))
+    if (!worker) return Promise.reject(new Error(goferT("js.notify.worker_unavailable")))
     if (worker.state === "activated") return Promise.resolve(registration)
     return new Promise(function (resolve, reject) {
       var timer = setTimeout(function () {
-        finish(new Error("The notification update is taking too long. Try again in a moment."))
+        finish(new Error(goferT("js.notify.worker_slow")))
       }, 10000)
       function finish(err) {
         clearTimeout(timer)
@@ -7642,7 +7648,7 @@ document.addEventListener("DOMContentLoaded", function () {
       }
       function changed() {
         if (worker.state === "activated") finish()
-        else if (worker.state === "redundant") finish(new Error("The notification service worker could not activate. Try again."))
+        else if (worker.state === "redundant") finish(new Error(goferT("js.notify.worker_failed")))
       }
       worker.addEventListener("statechange", changed)
       changed()
@@ -7650,15 +7656,15 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 
   function ensureWebPushSubscription(prompt) {
-    if (!webPushSupported()) return Promise.reject(new Error("Web Push requires HTTPS or localhost in a supported browser."))
+    if (!webPushSupported()) return Promise.reject(new Error(goferT("js.notify.needs_https")))
     return requestNotificationPermission(prompt).then(function (permission) {
-      if (permission !== "granted") throw new Error("Notification permission was not granted.")
+      if (permission !== "granted") throw new Error(goferT("js.notify.permission_denied"))
       return fetch("/api/push/vapid-public-key")
     }).then(function (res) {
-      if (!res.ok) throw new Error("Could not load push configuration.")
+      if (!res.ok) throw new Error(goferT("js.notify.config_failed"))
       return res.json()
     }).then(function (data) {
-      if (!data.public_key) throw new Error("Web Push is not configured on this server.")
+      if (!data.public_key) throw new Error(goferT("js.notify.not_configured"))
       return navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" }).then(waitForNotificationWorker).then(function (registration) {
         return registration.pushManager.getSubscription().then(function (existing) {
           if (existing) return existing
@@ -7674,7 +7680,7 @@ document.addEventListener("DOMContentLoaded", function () {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(subscription),
       }).then(function (res) {
-        if (!res.ok) throw new Error("Could not save push subscription.")
+        if (!res.ok) throw new Error(goferT("js.notify.subscription_failed"))
         return subscription
       })
     })
@@ -7722,15 +7728,15 @@ document.addEventListener("DOMContentLoaded", function () {
   // Keep this formatter in sync with internal/notifications/appearance.go.
   function newMailNotificationAppearance(data, unreadCount) {
     var setting = function (key) { return window.GoferSettings ? GoferSettings.get(key) : null }
-    var sender = String(data.from_name || "").trim() || String(data.from_email || "").trim() || "New mail"
-    var subject = String(data.subject || "").trim() || "(no subject)"
-    var folder = String(data.folder_name || "").trim() || "Inbox"
-    var countTitle = unreadCount === 1 ? "1 new message" : unreadCount + " new messages"
-    var title = sender + (unreadCount > 1 ? " · +" + (unreadCount - 1) + " more" : "")
+    var sender = String(data.from_name || "").trim() || String(data.from_email || "").trim() || goferT("js.notify.new_mail")
+    var subject = String(data.subject || "").trim() || goferT("js.mail.no_subject")
+    var folder = String(data.folder_name || "").trim() || goferT("js.mail.inbox")
+    var countTitle = goferTn("js.notify.new_messages", unreadCount)
+    var title = unreadCount > 1 ? goferT("js.notify.title_more", { sender: sender, count: unreadCount - 1 }) : sender
     if (setting("notification_title") === "sender") title = sender
     else if (setting("notification_title") === "gofer") title = "Gofer"
     else if (setting("notification_title") === "count") title = countTitle
-    var body = unreadCount === 1 ? subject : sender + ": " + subject + " - " + folder
+    var body = unreadCount === 1 ? subject : goferT("js.notify.body_many", { sender: sender, subject: subject, folder: folder })
     if (setting("notification_content") === "hidden") body = ""
     else if (setting("notification_content") === "preview") {
       var preview = String(data.preview || "").replace(/\s+/g, " ").trim()
@@ -7743,7 +7749,7 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 
   function notificationAppearanceExample() {
-    return { from_name: "Alex Smith", subject: "Tomorrow's meeting", preview: "Hi! Shall we meet at 10 tomorrow?", folder_name: "Inbox", avatar_url: "/assets/notification-avatar.png" }
+    return { from_name: "Alex Smith", subject: goferT("js.notify.example_subject"), preview: goferT("js.notify.example_preview"), folder_name: goferT("js.mail.inbox"), avatar_url: "/assets/notification-avatar.png" }
   }
 
   function updateNotificationAppearancePreview() {
@@ -7771,7 +7777,7 @@ document.addEventListener("DOMContentLoaded", function () {
     if (unreadCount <= 0) return
 
     var appearance = newMailNotificationAppearance(data, unreadCount)
-    var folderName = String(data.folder_name || "Inbox")
+    var folderName = String(data.folder_name || goferT("js.mail.inbox"))
 
     return window.GoferNotificationAvatar.render(appearance.icon).then(function (circularIcon) {
       var notification = new Notification(appearance.title, {
@@ -7814,10 +7820,10 @@ document.addEventListener("DOMContentLoaded", function () {
     if (!detail) return false
     var status = String((data && data.status) || "")
     var statusLabel = ""
-    if (status === "pending") statusLabel = "Sync pending"
-    else if (status === "running") statusLabel = "Syncing"
-    else if (status === "done") statusLabel = "Synced"
-    else if (status === "error") statusLabel = "Sync failed"
+    if (status === "pending") statusLabel = goferT("js.contacts.sync.status.pending")
+    else if (status === "running") statusLabel = goferT("js.contacts.sync.status.running")
+    else if (status === "done") statusLabel = goferT("js.contacts.sync.status.done")
+    else if (status === "error") statusLabel = goferT("js.contacts.sync.status.error")
     if (statusLabel) {
       var statusNodes = detail.querySelectorAll("[data-contact-sync-operation-status]")
       for (var i = 0; i < statusNodes.length; i++) statusNodes[i].textContent = statusLabel
@@ -7840,32 +7846,32 @@ document.addEventListener("DOMContentLoaded", function () {
     if (["contact_sync_queued", "contact_sync_started", "contact_synced", "contact_sync_failed"].indexOf(eventType) === -1) return
     if (!updateContactSyncLiveState(data)) return
     var retryScheduled = eventType === "contact_sync_failed" && data.status === "pending"
-    var title = "Gofer Sync queued"
-    var description = data.message || "The contact is waiting to be synchronized."
+    var title = goferT("js.contacts.sync.queued")
+    var description = data.message || goferT("js.contacts.sync.waiting")
     var variant = "info"
     var icon = "spinner"
     var duration = 0
     var dismissible = false
     if (eventType === "contact_sync_started") {
-      title = "Gofer Sync in progress"
-      description = data.message || "The selected locations are being synchronized."
+      title = goferT("js.contacts.sync.in_progress")
+      description = data.message || goferT("js.contacts.sync.in_progress_detail")
     } else if (eventType === "contact_synced") {
-      title = "Gofer Sync complete"
-      description = data.message || "The contact is synchronized across all selected locations."
+      title = goferT("js.contacts.sync.complete")
+      description = data.message || goferT("js.contacts.sync.complete_detail")
       variant = "success"
       icon = "success"
       duration = 3500
       dismissible = true
     } else if (retryScheduled) {
-      title = "Gofer Sync will retry"
-      description = data.error || data.message || "A location could not be updated yet. Gofer will retry automatically."
+      title = goferT("js.contacts.sync.retry")
+      description = data.error || data.message || goferT("js.contacts.sync.retry_detail")
       variant = "warning"
       icon = "spinner"
       duration = 7000
       dismissible = true
     } else if (eventType === "contact_sync_failed") {
-      title = "Gofer Sync failed"
-      description = data.error || data.message || "The selected locations could not be synchronized."
+      title = goferT("js.contacts.sync.failed")
+      description = data.error || data.message || goferT("js.contacts.sync.failed_detail")
       variant = "error"
       icon = "error"
       duration = 8000
@@ -8524,7 +8530,7 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 
   function showMailContentLoading(mainContent, folderLink) {
-    var folderName = textFrom(folderLink, ".flex-1") || "Mail"
+    var folderName = textFrom(folderLink, ".flex-1") || goferT("js.app.mail")
     var count = textFrom(folderLink, "[data-folder-unread]")
     mainContent.innerHTML = '<div id="mail-list" class="w-full lg:flex flex-col border-r border-border bg-card h-full overflow-hidden">' +
       '<div class="mail-list-header px-4 py-4 space-y-3">' +
@@ -8550,15 +8556,15 @@ document.addEventListener("DOMContentLoaded", function () {
       '<div class="flex-1 overflow-y-auto px-2 py-2 flex items-center justify-center">' +
       '<div class="flex items-center gap-2 text-sm text-muted-foreground">' +
       '<div class="size-4 border-2 border-muted-foreground/30 border-t-muted-foreground rounded-full animate-spin"></div>' +
-      '<span>Loading content...</span>' +
+      '<span>' + goferT("js.common.loading_content") + '</span>' +
       '</div>' +
       '</div>' +
       '</div>' +
       '<div class="resize-handle" data-panel="maillist" draggable="false"></div>' +
       '<div id="mail-view" class="hidden lg:flex flex-1 flex-col min-w-0 bg-background surface-desk" data-mail-reader>' +
       '<div class="flex flex-col items-center justify-center h-full text-center p-8" data-mail-view-empty>' +
-      '<h3 class="text-lg font-semibold mb-2">Select an email</h3>' +
-      '<p class="text-sm text-muted-foreground">Choose a message from the list to read it.</p>' +
+      '<h3 class="text-lg font-semibold mb-2">' + goferT("js.mail.view.empty_title") + '</h3>' +
+      '<p class="text-sm text-muted-foreground">' + goferT("js.mail.view.empty_description") + '</p>' +
       '</div>' +
       '</div>'
     if (typeof initResizeHandles === "function") initResizeHandles()
@@ -8626,7 +8632,8 @@ document.addEventListener("DOMContentLoaded", function () {
         }
         var indicator = group.querySelector("[data-mail-list-view-indicator]")
         if (indicator) {
-          indicator.style.transform = mode === "table" ? "translateX(100%)" : "translateX(0)"
+          // As mailListViewIndicatorStyle places it: one button and the gap.
+          indicator.style.transform = mode === "table" ? "translateX(calc(100% + 2px))" : "translateX(0)"
         }
       }
 
@@ -8657,9 +8664,9 @@ document.addEventListener("DOMContentLoaded", function () {
       }
     }
 
-    if (mode === "contacts") document.title = "Gofer - Contacts"
-    else if (mode === "calendar") document.title = "Gofer - Calendar"
-    else if (mode === "mail") document.title = "Gofer - Email"
+    if (mode === "contacts") document.title = goferT("js.page.title", { page: goferT("js.app.contacts") })
+    else if (mode === "calendar") document.title = goferT("js.page.title", { page: goferT("js.app.calendar") })
+    else if (mode === "mail") document.title = goferT("js.page.title", { page: goferT("js.app.mail") })
   }
 
   // Mail and Contacts reopen where they were left: the folder or filters,
@@ -8878,7 +8885,7 @@ document.addEventListener("DOMContentLoaded", function () {
       var mode = request.goferAppSwitchMode
       restore()
       endAppSwitch()
-      if (event.type !== "htmx:sendAbort") showGoferToast({ title: "Could not load " + mode, description: "Please try again.", variant: "error", icon: "error" })
+      if (event.type !== "htmx:sendAbort") showGoferToast({ title: goferT("js.app.load_failed." + mode), description: goferT("js.common.please_try_again"), variant: "error", icon: "error" })
     }
     document.body.addEventListener("htmx:afterRequest", completed)
     document.body.addEventListener("htmx:sendAbort", completed)
@@ -8901,12 +8908,12 @@ document.addEventListener("DOMContentLoaded", function () {
     if (mode === "contacts") {
       html += '<div class="inline-flex w-full items-stretch rounded-lg shadow-sm">'
       html += '<div class="btn-skeuo flex h-10 min-w-0 flex-1 items-center justify-center gap-2 rounded-l-lg rounded-r-none text-sm font-semibold text-sidebar-primary-foreground opacity-75">'
-      html += pendingSidebarIcon("user-plus", "size-4") + '<span>New contact</span></div>'
+      html += pendingSidebarIcon("user-plus", "size-4") + '<span>' + goferT("js.contacts.new") + '</span></div>'
       html += '<div class="btn-skeuo inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-l-none rounded-r-lg border-l border-sidebar-border/70 text-sidebar-primary-foreground opacity-75">'
       html += pendingSidebarIcon("ellipsis-vertical", "size-4") + '</div></div>'
     } else {
       html += '<div class="btn-skeuo flex h-10 w-full items-center justify-center gap-2 rounded-lg text-sm font-semibold text-sidebar-primary-foreground opacity-75">'
-      html += pendingSidebarIcon("pen", "size-4") + '<span>Compose</span></div>'
+      html += pendingSidebarIcon("pen", "size-4") + '<span>' + goferT("js.mail.compose") + '</span></div>'
     }
     html += '</div>'
     html += '<hr class="divider-etched mx-4"><nav class="flex-1 overflow-y-auto px-3 pt-2 pb-3">'
@@ -8966,11 +8973,11 @@ document.addEventListener("DOMContentLoaded", function () {
   function pendingMailSearchHTML() {
     return '<div class="mail-list-search-input-wrap groove flex min-w-0 items-stretch rounded-lg border border-border/50 bg-background opacity-70">' +
         '<div class="mail-search-scope flex shrink-0"><span class="mail-search-scope-trigger relative flex h-full items-center gap-1.5 rounded-l-lg border-r border-border/60 bg-card pl-2.5 pr-2 text-xs font-semibold text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.35),1px_0_3px_rgba(0,0,0,0.08)]">' +
-          pendingIcon("size-3.5 shrink-0") + '<span class="mail-search-scope-label">This folder</span>' + pendingIcon("size-3.5 shrink-0") +
+          pendingIcon("size-3.5 shrink-0") + '<span class="mail-search-scope-label">' + goferT("js.mail.search.scope_current") + '</span>' + pendingIcon("size-3.5 shrink-0") +
         '</span></div>' +
         '<div class="mail-list-search-field relative min-w-0 flex-1">' +
           '<span class="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 rounded-sm bg-muted-foreground/30"></span>' +
-          '<input type="text" disabled placeholder="Search mail" class="h-9 w-full bg-transparent pl-8 pr-2 text-sm outline-none"/>' +
+          '<input type="text" disabled placeholder="' + goferT("js.mail.search_placeholder").replace(/"/g, "&quot;") + '" class="h-9 w-full bg-transparent pl-8 pr-2 text-sm outline-none"/>' +
         '</div>' +
         '<span class="flex shrink-0 items-center px-2.5 text-muted-foreground">' + pendingIcon("size-3.5") + '</span>' +
       '</div>'
@@ -8979,7 +8986,7 @@ document.addEventListener("DOMContentLoaded", function () {
   // pendingFiltersButtonHTML mirrors the Filters button beside the mail and
   // contacts searches (mailListFilterButtonClass).
   function pendingFiltersButtonHTML() {
-    return '<button type="button" disabled class="mail-list-advanced-filter-button relative inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border bg-card px-2.5 text-xs font-semibold text-foreground shadow-xs opacity-70 dark:border-input dark:bg-card"><span>Filters</span>' + pendingIcon("size-3.5") + '</button>'
+    return '<button type="button" disabled class="mail-list-advanced-filter-button relative inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border bg-card px-2.5 text-xs font-semibold text-foreground shadow-xs opacity-70 dark:border-input dark:bg-card"><span>' + goferT("js.mail.filters.title") + '</span>' + pendingIcon("size-3.5") + '</button>'
   }
 
   // The mail list's Cards/Table switch sits in a capsule with the layout
@@ -8988,8 +8995,8 @@ document.addEventListener("DOMContentLoaded", function () {
     var cardsClass = viewMode === "cards" ? "text-foreground" : "text-muted-foreground"
     var tableClass = viewMode === "table" ? "text-foreground" : "text-muted-foreground"
     var buttons =
-      '<button type="button" disabled class="relative z-10 inline-flex h-6 items-center gap-1 px-2 rounded-md text-xs font-medium ' + cardsClass + '">' + pendingIcon("size-3.5") + 'Cards</button>' +
-      '<button type="button" disabled class="relative z-10 inline-flex h-6 items-center gap-1 px-2 rounded-md text-xs font-medium ' + tableClass + '">' + pendingIcon("size-3.5") + 'Table</button>'
+      '<button type="button" disabled class="relative z-10 inline-flex h-6 items-center justify-center gap-1 px-2 rounded-md text-xs font-medium ' + cardsClass + '">' + pendingIcon("size-3.5") + goferT("js.mail.view.cards") + '</button>' +
+      '<button type="button" disabled class="relative z-10 inline-flex h-6 items-center justify-center gap-1 px-2 rounded-md text-xs font-medium ' + tableClass + '">' + pendingIcon("size-3.5") + goferT("js.mail.view.table") + '</button>'
     if (!withLayoutButton) {
       var plainIndicator = viewMode === "table" ? "transform:translateX(100%)" : "transform:translateX(0)"
       return '<div class="relative inline-flex h-7 shrink-0 rounded-lg border border-border bg-background p-0.5 gap-0.5" aria-hidden="true">' +
@@ -8999,7 +9006,7 @@ document.addEventListener("DOMContentLoaded", function () {
     }
     var indicator = viewMode === "table" ? "transform:translateX(calc(100% + 2px))" : "transform:translateX(0)"
     return '<div class="inline-flex h-7 shrink-0 items-center rounded-lg border border-border bg-background p-0.5 gap-0.5" data-mail-list-view-capsule aria-hidden="true">' +
-      '<div class="relative inline-flex h-6 gap-0.5">' +
+      '<div class="relative inline-grid h-6 grid-cols-2 gap-0.5">' +
       '<div class="absolute inset-y-0 left-0 w-[calc(50%-1px)] rounded-md border border-border bg-card shadow-sm transition-transform duration-200 ease-out" style="' + indicator + '"></div>' +
       buttons +
       '</div>' +
@@ -9010,7 +9017,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
   function mailPendingHeaderHTML() {
     return '<div class="mail-list-header px-4 py-4 space-y-3">' +
-      '<div class="mail-list-title-row flex items-center justify-between"><div class="mail-list-title flex items-center gap-2 min-w-0"><h2 id="mail-folder-name" class="text-lg font-bold tracking-tight" style="font-family: var(--font-serif)">Inbox</h2><span id="mail-folder-count" class="inline-flex h-5 min-w-10 items-center justify-center rounded-full bg-muted px-2 text-xs font-medium text-muted-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)] animate-pulse"></span></div></div>' +
+      '<div class="mail-list-title-row flex items-center justify-between"><div class="mail-list-title flex items-center gap-2 min-w-0"><h2 id="mail-folder-name" class="text-lg font-bold tracking-tight" style="font-family: var(--font-serif)">' + goferT("js.mail.inbox") + '</h2><span id="mail-folder-count" class="inline-flex h-5 min-w-10 items-center justify-center rounded-full bg-muted px-2 text-xs font-medium text-muted-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)] animate-pulse"></span></div></div>' +
       '<div class="mail-list-search-section"><div class="mail-list-search-primary">' + pendingMailSearchHTML() +
         '<div class="mail-list-search-actions">' + pendingFiltersButtonHTML() + '</div></div></div>' +
     '</div>'
@@ -9018,10 +9025,10 @@ document.addEventListener("DOMContentLoaded", function () {
 
   function contactsPendingHeaderHTML() {
     return '<div class="px-4 py-4 space-y-3">' +
-      '<div class="flex items-center justify-between"><div class="flex items-center gap-2"><h2 class="text-lg font-bold tracking-tight" style="font-family: var(--font-serif)" data-contacts-title>Contacts</h2><span id="contacts-count" class="inline-flex h-5 min-w-10 items-center justify-center rounded-md bg-muted px-2 text-xs font-medium text-muted-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)] animate-pulse"></span></div></div>' +
+      '<div class="flex items-center justify-between"><div class="flex items-center gap-2"><h2 class="text-lg font-bold tracking-tight" style="font-family: var(--font-serif)" data-contacts-title>' + goferT("js.contacts.title") + '</h2><span id="contacts-count" class="inline-flex h-5 min-w-10 items-center justify-center rounded-md bg-muted px-2 text-xs font-medium text-muted-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)] animate-pulse"></span></div></div>' +
       '<div class="flex items-center gap-2"><div class="relative groove rounded-lg flex-1 min-w-0">' +
         '<span class="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 rounded-sm bg-muted-foreground/30"></span>' +
-        '<input type="search" disabled placeholder="Search contacts" class="h-9 w-full rounded-lg border border-border/50 bg-background pl-8 pr-3 text-sm text-foreground placeholder:text-muted-foreground opacity-70"/>' +
+        '<input type="search" disabled placeholder="' + goferT("js.contacts.search") + '" class="h-9 w-full rounded-lg border border-border/50 bg-background pl-8 pr-3 text-sm text-foreground placeholder:text-muted-foreground opacity-70"/>' +
       '</div>' +
       pendingFiltersButtonHTML() +
       '</div>' +
@@ -9030,8 +9037,8 @@ document.addEventListener("DOMContentLoaded", function () {
 
   // Mirrors mailSortLabel in maillist.templ.
   function mailSortLabelText(sortBy) {
-    var labels = { sender: "Sender", subject: "Subject", size: "Size", unread: "Unread first", starred: "Starred first", attachments: "Attachments first" }
-    return labels[sortBy] || "Date"
+    var known = { sender: true, subject: true, size: true, unread: true, starred: true, attachments: true }
+    return goferT("js.mail.sort." + (known[sortBy] ? sortBy : "date"))
   }
 
   function mailPendingToolbarHTML(viewMode) {
@@ -9052,7 +9059,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
   function contactsPendingToolbarHTML(viewMode) {
     var sortBy = window.GoferSettings ? GoferSettings.get("contacts_list_sort_by") : "updated"
-    var sortLabel = sortBy === "name" ? "Name" : (sortBy === "last_interaction" ? "Last interaction" : "Recently updated")
+    var sortLabel = sortBy === "name" ? goferT("js.contacts.sort.name") : (sortBy === "last_interaction" ? goferT("js.contacts.sort.last_interaction") : goferT("js.contacts.sort.updated"))
     // Mirrors the contacts toolbar: select-all, the view and sort; filters
     // sit beside the search.
     return '<div class="flex items-center gap-1 px-4 py-1.5">' +
@@ -9068,20 +9075,20 @@ document.addEventListener("DOMContentLoaded", function () {
 
   function mailPendingTableHeaderHTML() {
     return '<div class="mail-list-table-header mail-list-table-grid grid items-center gap-3 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground bg-card/95 border-b border-border/70 sticky top-0 z-20 backdrop-blur-sm">' +
-      '<div class="mail-list-table-heading flex items-center justify-center" data-mail-table-column="0" data-mail-table-column-id="accountMarker" data-mail-table-cell="accountMarker" title="Account Marker"><span class="account-color-marker size-2.5 bg-muted"></span><span class="mail-list-column-separator"></span></div>' +
-      '<div class="mail-list-table-heading text-center" data-mail-table-column="1" data-mail-table-column-id="starred" data-mail-table-cell="starred" title="Starred">' + pendingIcon("mx-auto size-3") + '<span class="mail-list-column-separator"></span></div>' +
-      '<div class="mail-list-table-heading text-center" data-mail-table-column="2" data-mail-table-column-id="attachment" data-mail-table-cell="attachment" title="Attachment">' + pendingIcon("mx-auto size-3") + '<span class="mail-list-column-separator"></span></div>' +
-      '<div class="mail-list-table-heading flex items-center justify-center" data-mail-table-column="3" data-mail-table-column-id="thread" data-mail-table-cell="thread" title="Thread">' + pendingIcon("size-3") + '<span class="mail-list-column-separator"></span></div>' +
-      '<div class="mail-list-table-heading pl-1" data-mail-table-column="4" data-mail-table-column-id="from" data-mail-table-cell="from">From<span class="mail-list-column-resize" data-mail-table-resize="4"></span></div>' +
-      '<div class="mail-list-table-heading" data-mail-table-column="5" data-mail-table-column-id="to" data-mail-table-cell="to">To<span class="mail-list-column-resize" data-mail-table-resize="5"></span></div>' +
-      '<div class="mail-list-table-heading" data-mail-table-column="6" data-mail-table-column-id="subject" data-mail-table-cell="subject">Subject<span class="mail-list-column-resize" data-mail-table-resize="6"></span></div>' +
-      '<div class="mail-list-table-heading min-w-12 text-right" data-mail-table-column="7" data-mail-table-column-id="date" data-mail-table-cell="date">Date</div>' +
+      '<div class="mail-list-table-heading flex items-center justify-center" data-mail-table-column="0" data-mail-table-column-id="accountMarker" data-mail-table-cell="accountMarker" title="' + goferT("js.mail.column.accountMarker") + '"><span class="account-color-marker size-2.5 bg-muted"></span><span class="mail-list-column-separator"></span></div>' +
+      '<div class="mail-list-table-heading text-center" data-mail-table-column="1" data-mail-table-column-id="starred" data-mail-table-cell="starred" title="' + goferT("js.mail.column.starred") + '">' + pendingIcon("mx-auto size-3") + '<span class="mail-list-column-separator"></span></div>' +
+      '<div class="mail-list-table-heading text-center" data-mail-table-column="2" data-mail-table-column-id="attachment" data-mail-table-cell="attachment" title="' + goferT("js.mail.column.attachment") + '">' + pendingIcon("mx-auto size-3") + '<span class="mail-list-column-separator"></span></div>' +
+      '<div class="mail-list-table-heading flex items-center justify-center" data-mail-table-column="3" data-mail-table-column-id="thread" data-mail-table-cell="thread" title="' + goferT("js.mail.column.thread") + '">' + pendingIcon("size-3") + '<span class="mail-list-column-separator"></span></div>' +
+      '<div class="mail-list-table-heading pl-1" data-mail-table-column="4" data-mail-table-column-id="from" data-mail-table-cell="from">' + goferT("js.mail.column.from") + '<span class="mail-list-column-resize" data-mail-table-resize="4"></span></div>' +
+      '<div class="mail-list-table-heading" data-mail-table-column="5" data-mail-table-column-id="to" data-mail-table-cell="to">' + goferT("js.mail.column.to") + '<span class="mail-list-column-resize" data-mail-table-resize="5"></span></div>' +
+      '<div class="mail-list-table-heading" data-mail-table-column="6" data-mail-table-column-id="subject" data-mail-table-cell="subject">' + goferT("js.mail.column.subject") + '<span class="mail-list-column-resize" data-mail-table-resize="6"></span></div>' +
+      '<div class="mail-list-table-heading min-w-12 text-right" data-mail-table-column="7" data-mail-table-column-id="date" data-mail-table-cell="date">' + goferT("js.mail.column.date") + '</div>' +
     '</div>'
   }
 
   function contactsPendingTableHeaderHTML() {
     return '<div class="mail-list-table-header mail-list-table-grid grid items-center gap-3 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground bg-card/95 border-b border-border/70 sticky top-0 z-20 backdrop-blur-sm" style="--mail-list-table-columns:minmax(10rem,1.4fr) minmax(8rem,0.9fr) minmax(3.5rem,auto)">' +
-      '<div class="mail-list-table-heading">Name</div><div class="mail-list-table-heading">Origin</div><div class="mail-list-table-heading min-w-12 text-right">Msgs</div>' +
+      '<div class="mail-list-table-heading">' + goferT("js.contacts.column.name") + '</div><div class="mail-list-table-heading">' + goferT("js.contacts.column.origin") + '</div><div class="mail-list-table-heading min-w-12 text-right">' + goferT("js.contacts.column.messages") + '</div>' +
     '</div>'
   }
 
@@ -9164,7 +9171,7 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 
   function readPanePendingHTML(mode) {
-    var label = mode === "contacts" ? "Loading contacts..." : "Loading message..."
+    var label = mode === "contacts" ? goferT("js.contacts.pending") : goferT("js.mail.view.pending")
     return '<div class="flex flex-col h-full p-2"><div class="surface-paper rounded-md flex flex-col h-full overflow-hidden"><div class="flex items-center justify-between px-6 py-2.5"><div class="flex items-center gap-1"><div class="size-8 rounded-md bg-ink/[0.03] border border-ink/6"></div><div class="size-8 rounded-md bg-ink/[0.03] border border-ink/6"></div></div><div class="h-4 w-20 rounded bg-ink/5 animate-pulse"></div></div><div class="h-px bg-gradient-to-r from-transparent via-amber-900/10 to-transparent"></div><div class="flex-1 overflow-y-auto"><div class="mx-auto px-8 py-6"><div class="flex items-center gap-2 text-sm text-muted-foreground"><div class="size-4 border-2 border-ink/15 border-t-ink/45 rounded-full animate-spin"></div><span>' + label + '</span></div><div class="space-y-3 mt-5"><div class="h-4 w-full rounded bg-ink/5 animate-pulse"></div><div class="h-4 w-11/12 rounded bg-ink/5 animate-pulse"></div><div class="h-4 w-4/5 rounded bg-ink/5 animate-pulse"></div></div></div></div></div></div>'
   }
 
@@ -9522,7 +9529,7 @@ document.addEventListener("DOMContentLoaded", function () {
     return {
       initials: fallback ? fallback.textContent.trim() : "",
       avatar: avatar && !avatar.classList.contains("hidden") ? (avatar.currentSrc || avatar.getAttribute("src") || "") : "",
-      name: name || email || "Loading contact",
+      name: name || email || goferT("js.contacts.loading"),
       email: email,
     }
   }
@@ -9560,11 +9567,11 @@ document.addEventListener("DOMContentLoaded", function () {
     return '<div class="w-full rounded-lg border border-ink/10 bg-ink/[0.025] p-4">' +
       '<div class="mb-3 flex items-center justify-between gap-3">' +
         '<div>' +
-          '<h2 class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Recent activity</h2>' +
-          '<p class="mt-1 text-xs text-muted-foreground">Latest emails involving this contact.</p>' +
+          '<h2 class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">' + goferT("js.contacts.recent.title") + '</h2>' +
+          '<p class="mt-1 text-xs text-muted-foreground">' + goferT("js.contacts.recent.detail") + '</p>' +
         '</div>' +
         '<div class="flex shrink-0 items-center gap-2">' +
-          '<span class="rounded bg-ink/[0.05] px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Top 10</span>' +
+          '<span class="rounded bg-ink/[0.05] px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">' + goferT("js.contacts.recent.top", { count: goferNumber(10) }) + '</span>' +
           '<div class="h-7 w-16 rounded-md border border-ink/10 bg-paper/45"></div>' +
         '</div>' +
       '</div>' +
@@ -9578,21 +9585,21 @@ document.addEventListener("DOMContentLoaded", function () {
     var preview = getContactRowPreview(trigger) || {}
     var initials = escapeHTML(preview.initials || "")
     var avatar = escapeHTML(preview.avatar || "")
-    var name = escapeHTML(preview.name || "Loading contact")
+    var name = escapeHTML(preview.name || goferT("js.contacts.loading"))
     var avatarHTML = avatar
       ? '<div class="size-14 shrink-0 overflow-hidden rounded-full bg-ink/5 shadow-[0_8px_22px_rgba(0,0,0,0.16)]"><img src="' + avatar + '" alt="" class="block size-full object-cover"/></div>'
       : '<div class="flex size-14 shrink-0 items-center justify-center rounded-full bg-gradient-to-b from-amber-700/70 to-amber-900/70 text-base font-bold text-amber-100 shadow-[0_8px_22px_rgba(0,0,0,0.16)]">' + initials + '</div>'
     detail.setAttribute("aria-busy", "true")
     detail.innerHTML =
       '<div class="surface-paper rounded-md flex flex-col h-full overflow-hidden" data-contact-detail-loading>' +
-        '<span class="sr-only" role="status">Loading contact details</span>' +
+        '<span class="sr-only" role="status">' + goferT("js.contacts.loading_details") + '</span>' +
         '<div class="shrink-0 border-b border-ink/10 bg-paper/70 px-5 py-4 sm:px-7">' +
           '<div class="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">' +
             '<div class="flex min-w-0 items-start gap-4">' +
               avatarHTML +
               '<div class="min-w-0 pt-0.5">' +
                 '<h1 class="min-w-0 truncate text-2xl font-bold leading-tight tracking-tight text-ink" style="font-family: var(--font-serif)">' + name + '</h1>' +
-                '<div class="mt-1 text-sm text-muted-foreground">Contact entry</div>' +
+                '<div class="mt-1 text-sm text-muted-foreground">' + goferT("js.contacts.entry") + '</div>' +
               '</div>' +
             '</div>' +
             '<div class="flex flex-wrap items-center gap-2 xl:justify-end" aria-hidden="true">' +
@@ -9606,16 +9613,16 @@ document.addEventListener("DOMContentLoaded", function () {
         '<div class="flex-1 overflow-y-auto">' +
           '<div class="w-full space-y-5 px-5 py-5 sm:px-7" aria-hidden="true">' +
             '<section class="rounded-lg border border-ink/10 bg-ink/[0.02]">' +
-              contactDetailSkeletonSectionHeader("Contact") +
+              contactDetailSkeletonSectionHeader(goferT("js.contacts.contact")) +
               '<div class="grid gap-x-6 px-4 lg:grid-cols-2">' +
-                contactDetailSkeletonField("Name", "w-40") +
-                contactDetailSkeletonField("Email", "w-52") +
-                contactDetailSkeletonField("Additional emails", "w-24") +
-                contactDetailSkeletonField("Phone", "w-28") +
-                contactDetailSkeletonField("Additional phones", "w-24") +
-                contactDetailSkeletonField("Title", "w-32") +
-                contactDetailSkeletonField("Organization", "w-36") +
-                contactDetailSkeletonField("Notes", "w-48") +
+                contactDetailSkeletonField(goferT("js.contacts.field.name"), "w-40") +
+                contactDetailSkeletonField(goferT("js.contacts.field.email"), "w-52") +
+                contactDetailSkeletonField(goferT("js.contacts.field.additional_emails"), "w-24") +
+                contactDetailSkeletonField(goferT("js.contacts.field.phone"), "w-28") +
+                contactDetailSkeletonField(goferT("js.contacts.field.additional_phones"), "w-24") +
+                contactDetailSkeletonField(goferT("js.contacts.field.title"), "w-32") +
+                contactDetailSkeletonField(goferT("js.contacts.field.organization"), "w-36") +
+                contactDetailSkeletonField(goferT("js.contacts.field.notes"), "w-48") +
               '</div>' +
             '</section>' +
             '<section class="rounded-lg border border-ink/10 bg-ink/[0.02]">' +
@@ -9628,20 +9635,20 @@ document.addEventListener("DOMContentLoaded", function () {
                 '<div class="h-7 w-24 rounded-md border border-ink/10 bg-ink/[0.025] animate-pulse"></div>' +
               '</div>' +
               '<div class="grid gap-x-6 px-4 lg:grid-cols-2">' +
-                contactDetailSkeletonField("Sync locations", "w-16", "lg:col-span-2") +
-                contactDetailSkeletonField("Origin", "w-24") +
-                contactDetailSkeletonField("Sync status", "w-20") +
-                contactDetailSkeletonField("Sync updated", "w-32") +
-                contactDetailSkeletonField("Sync error", "w-24") +
+                contactDetailSkeletonField(goferT("js.contacts.field.sync_locations"), "w-16", "lg:col-span-2") +
+                contactDetailSkeletonField(goferT("js.contacts.field.origin"), "w-24") +
+                contactDetailSkeletonField(goferT("js.contacts.field.sync_status"), "w-20") +
+                contactDetailSkeletonField(goferT("js.contacts.field.sync_updated"), "w-32") +
+                contactDetailSkeletonField(goferT("js.contacts.field.sync_error"), "w-24") +
               '</div>' +
             '</section>' +
             '<section class="rounded-lg border border-ink/10 bg-ink/[0.02]">' +
-              contactDetailSkeletonSectionHeader("Activity") +
+              contactDetailSkeletonSectionHeader(goferT("js.contacts.field.activity")) +
               '<div class="grid gap-x-6 px-4 sm:grid-cols-2 xl:grid-cols-4">' +
-                contactDetailSkeletonField("Messages", "w-10") +
-                contactDetailSkeletonField("Last seen", "w-28") +
-                contactDetailSkeletonField("Added to Gofer", "w-24") +
-                contactDetailSkeletonField("Contact updated", "w-24") +
+                contactDetailSkeletonField(goferT("js.contacts.field.messages"), "w-10") +
+                contactDetailSkeletonField(goferT("js.contacts.field.last_seen"), "w-28") +
+                contactDetailSkeletonField(goferT("js.contacts.field.added"), "w-24") +
+                contactDetailSkeletonField(goferT("js.contacts.field.updated"), "w-24") +
               '</div>' +
             '</section>' +
             contactDetailRecentActivitySkeleton() +
@@ -9724,7 +9731,7 @@ document.addEventListener("DOMContentLoaded", function () {
     var toolbarHTML =
       '<div class="mail-view-toolbar flex items-center justify-between px-6 py-2.5">' +
         '<div class="mail-view-actions flex items-center gap-1 min-w-0">' +
-          '<button type="button" class="mobile-back-button h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-ink/5" data-on-click=\'["closeMobileMailView"]\' aria-label="Back to list">' + mailViewSkeletonIcon("arrow-left", "size-5") + '</button>' +
+          '<button type="button" class="mobile-back-button h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-ink/5" data-on-click=\'["closeMobileMailView"]\' aria-label="' + goferT("js.mail.view.back") + '">' + mailViewSkeletonIcon("arrow-left", "size-5") + '</button>' +
           mailViewSkeletonToolbarButton("archive") +
           mailViewSkeletonToolbarButton("trash-2") +
           '<div>' + mailViewSkeletonToolbarButton("shield-alert").replace('<button ', '<button data-mail-action="spam" ') + '</div>' +
@@ -9739,7 +9746,7 @@ document.addEventListener("DOMContentLoaded", function () {
     var threadCount = mailViewTriggerThreadCount(trigger)
     if (threadCount > 1) {
       mailView.innerHTML =
-        '<div class="mail-view-frame flex flex-col h-full" aria-busy="true" aria-label="Loading conversation">' +
+        '<div class="mail-view-frame flex flex-col h-full" aria-busy="true" aria-label="' + goferT("js.mail.view.loading_thread") + '">' +
           '<div class="mail-view-thread-frame flex flex-col h-full">' +
             '<div class="mail-view-thread-toolbar surface-paper rounded-md shrink-0">' +
               toolbarHTML +
@@ -9758,7 +9765,7 @@ document.addEventListener("DOMContentLoaded", function () {
       return
     }
     mailView.innerHTML =
-      '<div class="mail-view-frame flex flex-col h-full" aria-busy="true" aria-label="Loading message">' +
+      '<div class="mail-view-frame flex flex-col h-full" aria-busy="true" aria-label="' + goferT("js.mail.view.loading") + '">' +
         '<div class="surface-paper rounded-md flex flex-col h-full overflow-hidden">' +
           '<div class="mail-view-message-header shrink-0">' +
           toolbarHTML +
@@ -9773,9 +9780,9 @@ document.addEventListener("DOMContentLoaded", function () {
           '</div>' +
           '<div class="px-6 py-3 border-t border-ink/6">' +
             '<div class="mail-view-reply-actions flex items-center gap-2">' +
-              mailViewSkeletonReplyButton("reply", "Reply") +
-              mailViewSkeletonReplyButton("reply-all", "Reply All") +
-              mailViewSkeletonReplyButton("forward", "Forward") +
+              mailViewSkeletonReplyButton("reply", goferT("js.mail.action.reply")) +
+              mailViewSkeletonReplyButton("reply-all", goferT("js.mail.action.reply_all")) +
+              mailViewSkeletonReplyButton("forward", goferT("js.mail.action.forward")) +
             '</div>' +
           '</div>' +
         '</div>' +
@@ -9794,7 +9801,7 @@ document.addEventListener("DOMContentLoaded", function () {
   function mailViewSkeletonThreadCount(count) {
     return '<div class="flex items-center gap-2">' +
       '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-3.5 text-muted-foreground" aria-hidden="true"><path d="M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z"/><path d="M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1"/></svg>' +
-      '<span class="text-xs font-medium text-muted-foreground" data-thread-count>' + count + ' messages in this thread</span>' +
+      '<span class="text-xs font-medium text-muted-foreground" data-thread-count>' + goferTn("js.mail.thread.count", count) + '</span>' +
       '<span class="text-xs text-ink/20">|</span>' +
       '<span class="h-3 w-16 rounded bg-ink/5 animate-pulse"></span>' +
     '</div>'
@@ -9826,7 +9833,7 @@ document.addEventListener("DOMContentLoaded", function () {
         '<div class="mail-view-content mx-auto px-8 py-6">' +
           (open ? senderHTML.replace("mail-view-sender", "mail-view-thread-sender") : closedSender) +
           actions +
-          '<div class="mt-4 flex items-center gap-1.5 text-xs text-muted-foreground/60 select-none"><span class="size-3.5"></span>' + (open ? 'Hide email' : 'Show email') + '</div>' +
+          '<div class="mt-4 flex items-center gap-1.5 text-xs text-muted-foreground/60 select-none"><span class="size-3.5"></span>' + (open ? goferT("js.mail.thread.hide") : goferT("js.mail.thread.show")) + '</div>' +
           (open ? '<div class="mt-3">' + bodyHTML + '</div>' : '') +
         '</div></article></div>'
     }
@@ -9878,7 +9885,7 @@ document.addEventListener("DOMContentLoaded", function () {
       if (heading && preview.subject) heading.textContent = preview.subject
       var count = mailViewTriggerThreadCount(trigger)
       var countLabel = threadFrame.querySelector("[data-thread-count]")
-      if (countLabel && count > 1) countLabel.textContent = count + " messages in this thread"
+      if (countLabel && count > 1) countLabel.textContent = goferTn("js.mail.thread.count", count)
       threadList.innerHTML = mailViewThreadSkeletonCards(count, senderHTML, bodyHTML)
       threadList.scrollTop = 0
       scrollThreadSkeletonToOpen(threadList)
@@ -9958,18 +9965,18 @@ function outgoingStatusEscape(value) {
 function outgoingSendStatusLabel(summary) {
   if (!summary) return ""
   if (summary.status === "pending") {
-    if (Number(summary.attempt_count) > 0) return "Retrying"
-    if (summary.is_scheduled) return "Scheduled"
-    return "Queued"
+    if (Number(summary.attempt_count) > 0) return goferT("js.outgoing.status.retrying")
+    if (summary.is_scheduled) return goferT("js.outgoing.status.scheduled")
+    return goferT("js.outgoing.status.queued")
   }
-  if (summary.status === "sending") return "Sending"
-  if (summary.status === "failed") return "Failed"
-  if (summary.status === "ambiguous") return "Needs review"
-  if (summary.status === "canceled") return "Canceled"
+  if (summary.status === "sending") return goferT("js.outgoing.status.sending")
+  if (summary.status === "failed") return goferT("js.outgoing.status.failed")
+  if (summary.status === "ambiguous") return goferT("js.outgoing.status.ambiguous")
+  if (summary.status === "canceled") return goferT("js.outgoing.status.canceled")
   if (summary.status === "sent") {
-    if (summary.sent_copy_status === "pending" || summary.sent_copy_status === "copying") return "Sent copy pending"
-    if (summary.sent_copy_status === "failed") return "Sent copy failed"
-    if (summary.sent_copy_status === "ambiguous") return "Sent copy needs review"
+    if (summary.sent_copy_status === "pending" || summary.sent_copy_status === "copying") return goferT("js.outgoing.status.copy_pending")
+    if (summary.sent_copy_status === "failed") return goferT("js.outgoing.status.copy_failed")
+    if (summary.sent_copy_status === "ambiguous") return goferT("js.outgoing.status.copy_ambiguous")
   }
   return ""
 }
@@ -9998,11 +10005,11 @@ function outgoingSendStatusMarkup(summary) {
   var title = error ? " title=\"" + outgoingStatusEscape(error) + "\"" : ""
   var html = '<span data-outgoing-status="" class="inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-medium ' + outgoingSendStatusClasses(summary) + '"' + title + '>' + outgoingStatusEscape(label) + '</span>'
   var actions = []
-  if (summary.can_retry) actions.push({ action: "retry", label: "Retry" })
-  if (summary.can_retry_now && (Number(summary.attempt_count) > 0 || summary.is_scheduled)) actions.push({ action: "retry-now", label: summary.is_scheduled ? "Send now" : "Try now" })
-  if (summary.can_cancel) actions.push({ action: "cancel", label: "Cancel" })
+  if (summary.can_retry) actions.push({ action: "retry", label: goferT("js.outgoing.retry"), aria: goferT("js.outgoing.retry_label") })
+  if (summary.can_retry_now && (Number(summary.attempt_count) > 0 || summary.is_scheduled)) actions.push({ action: "retry-now", label: summary.is_scheduled ? goferT("js.outgoing.send_now") : goferT("js.outgoing.try_now"), aria: summary.is_scheduled ? goferT("js.outgoing.send_now_label") : goferT("js.outgoing.try_now_label") })
+  if (summary.can_cancel) actions.push({ action: "cancel", label: goferT("js.common.cancel"), aria: goferT("js.outgoing.cancel_label") })
   for (var i = 0; i < actions.length; i++) {
-    html += '<button type="button" data-outgoing-action="' + actions[i].action + '" data-outgoing-id="' + outgoingStatusEscape(summary.id) + '" class="text-[10px] font-medium underline decoration-dotted underline-offset-2 hover:no-underline" aria-label="' + outgoingStatusEscape(actions[i].label) + ' outgoing message">' + outgoingStatusEscape(actions[i].label) + '</button>'
+    html += '<button type="button" data-outgoing-action="' + actions[i].action + '" data-outgoing-id="' + outgoingStatusEscape(summary.id) + '" class="text-[10px] font-medium underline decoration-dotted underline-offset-2 hover:no-underline" aria-label="' + outgoingStatusEscape(actions[i].aria) + '">' + outgoingStatusEscape(actions[i].label) + '</button>'
   }
   return '<span class="inline-flex items-center gap-1.5" data-outgoing-status-group="">' + html + '</span>'
 }
@@ -10109,23 +10116,23 @@ function showComposeSendResult(data) {
     showMissingSentFolderToast(data.account_id)
     handleComposeSendResult("sent", data)
   } else if (data.status === "sent") {
-    showSendStatus("sent", "Message sent")
+    showSendStatus("sent", goferT("js.compose.sent"))
     if (data.from_warning) {
-      showGoferToast({ id: "compose-from-warning-" + (data.send_id || ""), title: "Sent from another address", description: data.from_warning, variant: "warning", position: "bottom-right", duration: 15000, dismissible: true })
+      showGoferToast({ id: "compose-from-warning-" + (data.send_id || ""), title: goferT("js.compose.sent_other_address"), description: data.from_warning, variant: "warning", position: "bottom-right", duration: 15000, dismissible: true })
     }
     handleComposeSendResult("sent", data)
   } else if (data.status === "retrying") {
     var retrySeconds = Math.max(1, Number(data.retry_in_seconds) || 60)
     var retryMinutes = Math.max(1, Math.ceil(retrySeconds / 60))
-    var retryText = data.error || "The provider could not send the message yet."
-    retryText += " Gofer will try again in " + retryMinutes + (retryMinutes === 1 ? " minute." : " minutes.")
+    var retryText = data.error || goferT("js.compose.retry_reason")
+    retryText += " " + goferTn("js.compose.retry_in", retryMinutes)
     showSendStatus("retrying", retryText)
     handleComposeSendResult("retrying", data)
   } else if (data.status === "ambiguous") {
-    showSendStatus("ambiguous", data.error || "Send status unknown")
+    showSendStatus("ambiguous", data.error || goferT("js.compose.status_unknown"))
     handleComposeSendResult("ambiguous", data)
   } else {
-    showSendStatus("failed", data.error || "Failed to send")
+    showSendStatus("failed", data.error || goferT("js.compose.send_failed"))
     handleComposeSendResult("failed", data)
   }
 }
@@ -10188,14 +10195,15 @@ var _outgoingMissingSentNoticed = {}
 function noticeMissingSentFolder(summary) {
   if (!_outgoingSentHere[summary.id]) return
   if (summary.status !== "sent" || summary.sent_copy_status !== "failed" || _outgoingMissingSentNoticed[summary.id]) return
-  if (String(summary.sent_copy_last_error || "").indexOf("This account has no Sent folder.") === -1) return
+  // The server marks this failure, whatever language its text is in.
+  if (!summary.sent_copy_no_sent_folder) return
   _outgoingMissingSentNoticed[summary.id] = true
   showMissingSentFolderToast(summary.account_id)
 }
 
 function showMissingSentFolderToast(accountID) {
-  showMissingFolderToast({ account: accountID, role: "sent" }, "Message sent, but not saved", {
-    description: "This account has no Sent folder, so the message wasn't saved to one. Choose a Sent folder and Gofer will save it there.",
+  showMissingFolderToast({ account: accountID, role: "sent" }, goferT("js.compose.sent_not_saved"), {
+    description: goferT("js.compose.sent_not_saved_help"),
     variant: "warning", icon: "warning",
   })
 }
@@ -10282,9 +10290,9 @@ function outgoingSendAction(action, id, button) {
   var summary = _outgoingSendStatusByID[id]
   if (action === "retry" && summary && summary.ambiguous_warning_required) {
     window.goferConfirm({
-      title: "Send this message again?",
-      message: "Gofer lost the connection after sending it, so it may already have been delivered. Check Sent before retrying: retrying can send a duplicate.",
-      confirmLabel: "Send again",
+      title: goferT("js.outgoing.resend.title"),
+      message: goferT("js.outgoing.resend.message"),
+      confirmLabel: goferT("js.outgoing.resend.confirm"),
     }).then(function (confirmed) {
       if (confirmed) runOutgoingSendAction(action, id, button, true)
     })
@@ -10304,20 +10312,20 @@ function runOutgoingSendAction(action, id, button, confirm) {
   fetch(endpoint, options)
     .then(function (response) {
       return response.json().catch(function () { return {} }).then(function (data) {
-        if (!response.ok) throw new Error(data.error || "Could not update outgoing send")
+        if (!response.ok) throw new Error(data.error || goferT("js.outgoing.update_failed"))
         return data
       })
     })
     .then(function (next) {
       applyOutgoingSendSummary(next)
       recoverComposeOutgoingSend(next)
-      if (next.status === "canceled") showSendStatus("canceled", "The message remains available as a draft.")
-      else showSendStatus("sending", next.status === "pending" ? "Message queued" : "Updating message status...")
+      if (next.status === "canceled") showSendStatus("canceled", goferT("js.outgoing.canceled_draft"))
+      else showSendStatus("sending", next.status === "pending" ? goferT("js.outgoing.queued") : goferT("js.outgoing.updating"))
       if (!outgoingSendSummaryIsTerminal(next)) startOutgoingSendPolling(next.id)
       scheduleOutgoingSendStatusLoad()
     })
     .catch(function (error) {
-      showSendStatus("failed", error && error.message ? error.message : "Could not update outgoing send")
+      showSendStatus("failed", error && error.message ? error.message : goferT("js.outgoing.update_failed"))
     })
     .finally(function () {
       if (button) button.disabled = false
@@ -10366,7 +10374,7 @@ function setupMailOperationActions() {
       headers: { "Accept": "application/json" },
     }).then(function (response) {
       return response.json().catch(function () { return {} }).then(function (data) {
-        if (!response.ok) throw new Error(data.error || "Could not retry mail operation")
+        if (!response.ok) throw new Error(data.error || goferT("js.operations.retry_failed"))
         return data
       })
     }).then(function () {
@@ -10376,11 +10384,11 @@ function setupMailOperationActions() {
         window.location.reload()
       }
       if (typeof showGoferToast === "function") {
-        showGoferToast({ id: "mail-operation-toast", title: "Mail operation queued", description: "Gofer will try the provider operation again.", variant: "success", icon: "success", position: "bottom-right", duration: 4500, dismissible: true })
+        showGoferToast({ id: "mail-operation-toast", title: goferT("js.operations.queued"), description: goferT("js.operations.queued_help"), variant: "success", icon: "success", position: "bottom-right", duration: 4500, dismissible: true })
       }
     }).catch(function (error) {
       if (typeof showGoferToast === "function") {
-        showGoferToast({ id: "mail-operation-toast", title: "Could not retry operation", description: error && error.message ? error.message : "The operation was not changed.", variant: "error", icon: "error", position: "bottom-right", duration: 7000, dismissible: true })
+        showGoferToast({ id: "mail-operation-toast", title: goferT("js.operations.retry_failed_title"), description: error && error.message ? error.message : goferT("js.operations.unchanged"), variant: "error", icon: "error", position: "bottom-right", duration: 7000, dismissible: true })
       }
       button.disabled = false
     })
@@ -10408,8 +10416,8 @@ function setMailViewEmptyNow() {
           '<svg class="mail-empty-icon size-9 text-muted-foreground opacity-30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 7-8.991 5.727a2 2 0 0 1-2.009 0L2 7"/><rect x="2" y="4" width="20" height="16" rx="2"/></svg>' +
         '</div>' +
         '<div>' +
-          '<h3 class="font-semibold mb-1">Select an email</h3>' +
-          '<p class="text-sm text-muted-foreground">Choose an email from the list to read it</p>' +
+          '<h3 class="font-semibold mb-1">' + goferT("js.mail.view.empty_title") + '</h3>' +
+          '<p class="text-sm text-muted-foreground">' + goferT("js.mail.view.empty_description") + '</p>' +
         '</div>' +
       '</div>' +
     '</div>'
@@ -10537,13 +10545,13 @@ function hideSendStatus() {
 }
 
 function _composeToastConfig(status) {
-  if (status === "sent") return { title: "Message sent", variant: "success", icon: "success" }
-  if (status === "canceled") return { title: "Send canceled", variant: "info", icon: "info" }
-  if (status === "scheduled") return { title: "Message scheduled", variant: "success", icon: "success" }
-  if (status === "sending") return { title: "Working...", variant: "info", icon: "spinner" }
-  if (status === "retrying") return { title: "Send delayed", variant: "warning", icon: "warning" }
-  if (status === "ambiguous") return { title: "Needs review", variant: "warning", icon: "warning" }
-  return { title: "Action failed", variant: "error", icon: "error" }
+  if (status === "sent") return { title: goferT("js.compose.sent"), variant: "success", icon: "success" }
+  if (status === "canceled") return { title: goferT("js.compose.toast.canceled"), variant: "info", icon: "info" }
+  if (status === "scheduled") return { title: goferT("js.compose.toast.scheduled"), variant: "success", icon: "success" }
+  if (status === "sending") return { title: goferT("js.compose.toast.working"), variant: "info", icon: "spinner" }
+  if (status === "retrying") return { title: goferT("js.compose.toast.delayed"), variant: "warning", icon: "warning" }
+  if (status === "ambiguous") return { title: goferT("js.outgoing.status.ambiguous"), variant: "warning", icon: "warning" }
+  return { title: goferT("js.compose.toast.failed"), variant: "error", icon: "error" }
 }
 
 function _goferToastIcon(icon) {
@@ -10637,7 +10645,7 @@ function showGoferToast(opts) {
         progressHTML +
         actionHTML +
       '</span>' +
-      (opts.dismissible ? '<button type="button" class="gofer-toast-dismiss" aria-label="Close" data-tui-toast-dismiss>x</button>' : '') +
+      (opts.dismissible ? '<button type="button" class="gofer-toast-dismiss" aria-label="' + _escapeComposeHTML(goferT("js.common.close")) + '" data-tui-toast-dismiss>x</button>' : '') +
     '</div>'
   var dismiss = toast.querySelector("[data-tui-toast-dismiss]")
   if (dismiss) dismiss.addEventListener("click", function () { dismissGoferToast(toast) })
@@ -10741,10 +10749,10 @@ var _mailSyncRunID = ""
 var _mailSyncActive = false
 var _mailSyncCancelRequested = false
 var _mailSyncState = createMailSyncProgressState("")
-var _mailSyncForceTooltipText = "Force sync, including IDLE folders."
-var _mailSyncScheduledTooltipText = "Scheduled sync running. IDLE folders are not included."
-var _mailSyncForceAriaLabel = "Force sync all mail, including IDLE folders"
-var _mailSyncScheduledAriaLabel = "Scheduled sync running, IDLE folders not included"
+var _mailSyncForceTooltipText = goferT("js.sync.force_tip")
+var _mailSyncScheduledTooltipText = goferT("js.sync.scheduled_tip")
+var _mailSyncForceAriaLabel = goferT("js.sync.force_label")
+var _mailSyncScheduledAriaLabel = goferT("js.sync.scheduled_label")
 
 function createMailSyncProgressState(runID) {
   return {
@@ -10912,15 +10920,15 @@ function updateMailSyncAggregateFromRuns() {
 }
 
 function _mailSyncRunningTitle(data) {
-  if (_mailSyncHasActiveRunMode("repair") && _mailSyncHasActiveRunMode("sync")) return "Repair and sync running"
-  return _mailSyncModeFromData(data) === "repair" ? "Repairing Gmail" : "Syncing mail"
+  if (_mailSyncHasActiveRunMode("repair") && _mailSyncHasActiveRunMode("sync")) return goferT("js.sync.repair_and_sync")
+  return _mailSyncModeFromData(data) === "repair" ? goferT("js.sync.repairing_gmail") : goferT("js.sync.syncing_mail")
 }
 
 function _mailSyncCompleteTitle(status, data) {
   if (_mailSyncModeFromData(data) !== "repair") {
-    return status === "cancelled" ? "Mail sync cancelled" : (status === "error" ? "Mail sync failed" : (status === "partial" ? "Mail sync partly finished" : "Mail synced"))
+    return status === "cancelled" ? goferT("js.sync.sync_cancelled") : (status === "error" ? goferT("js.sync.sync_failed") : (status === "partial" ? goferT("js.sync.sync_partial") : goferT("js.sync.synced")))
   }
-  return status === "cancelled" ? "Gmail repair cancelled" : (status === "error" ? "Gmail repair failed" : (status === "partial" ? "Gmail repair partly finished" : "Gmail repair complete"))
+  return status === "cancelled" ? goferT("js.sync.repair_cancelled") : (status === "error" ? goferT("js.sync.repair_failed") : (status === "partial" ? goferT("js.sync.repair_partial") : goferT("js.sync.repair_complete")))
 }
 
 function setupMailSyncSidebarControls() {
@@ -10962,8 +10970,8 @@ function cancelMailSync() {
   renderMailSyncProgressDialog()
   showMailSyncToast({
     id: "mail-sync-toast",
-    title: "Cancelling mail sync",
-    description: "Stopping the foreground sync...",
+    title: goferT("js.sync.cancelling"),
+    description: goferT("js.sync.stopping"),
     variant: "info",
     icon: "spinner",
     position: "bottom-right",
@@ -10975,8 +10983,8 @@ function cancelMailSync() {
     renderMailSyncProgressDialog()
     showGoferToast({
       id: "mail-sync-toast",
-      title: "Could not cancel sync",
-      description: "Try again in a moment.",
+      title: goferT("js.sync.cancel_failed"),
+      description: goferT("js.common.try_again"),
       variant: "error",
       icon: "error",
       position: "bottom-right",
@@ -11007,7 +11015,7 @@ function _mailSyncHasField(data, key) {
 function _mailSyncIdleExclusionLabel(count) {
   count = _mailSyncCount(count)
   if (!count) return ""
-  return "excluding " + count + " IDLE " + (count === 1 ? "folder" : "folders")
+  return goferTn("js.sync.excluding_idle", count)
 }
 
 function _mailSyncAppendIdleExclusion(text, count) {
@@ -11028,7 +11036,7 @@ function _mailSyncTotalExcludedIdleFolders() {
 }
 
 function _mailSyncAccountsLabel(count) {
-  return count === 1 ? "1 account" : count + " accounts"
+  return goferTn("js.sync.accounts", count)
 }
 
 function _mailSyncIsScheduledKind(kind) {
@@ -11095,9 +11103,9 @@ function showMailSyncToast(opts) {
   opts = opts || {}
   opts.width = opts.width || "min(24rem, calc(100vw - 2rem))"
   opts.onClick = openMailSyncProgressDialog
-  opts.actionLabel = opts.actionLabel || "View progress"
+  opts.actionLabel = opts.actionLabel || goferT("js.sync.view_progress")
   if (opts.cancelable && !_mailSyncCancelRequested) {
-    opts.secondaryActionLabel = opts.secondaryActionLabel || "Cancel"
+    opts.secondaryActionLabel = opts.secondaryActionLabel || goferT("js.common.cancel")
     opts.onSecondaryAction = opts.onSecondaryAction || cancelMailSync
     opts.secondaryActionDisabled = !(_mailSyncRunID || _mailSyncState.runID)
   }
@@ -11105,13 +11113,13 @@ function showMailSyncToast(opts) {
 }
 
 function _mailSyncStatusLabel(status) {
-  if (status === "synced" || status === "complete") return "Done"
-  if (status === "cancelled") return "Cancelled"
-  if (status === "error") return "Failed"
-  if (status === "skipped") return "Already running"
-  if (status === "queued") return "Queued"
-  if (status === "syncing") return "Syncing"
-  return "Waiting"
+  if (status === "synced" || status === "complete") return goferT("js.sync.status.done")
+  if (status === "cancelled") return goferT("js.sync.status.cancelled")
+  if (status === "error") return goferT("js.sync.status.failed")
+  if (status === "skipped") return goferT("js.sync.status.running")
+  if (status === "queued") return goferT("js.sync.status.queued")
+  if (status === "syncing") return goferT("js.sync.status.syncing")
+  return goferT("js.sync.status.waiting")
 }
 
 function _mailSyncStatusClass(status) {
@@ -11128,7 +11136,7 @@ function _mailSyncAccountLabel(accountID) {
     var label = sections[i].querySelector("[data-sidebar-account-toggle] .flex-1")
     if (label && label.textContent.trim()) return label.textContent.trim()
   }
-  return accountID || "Account"
+  return accountID || goferT("js.sync.account")
 }
 
 function _mailSyncAccountEmail(accountID) {
@@ -11149,7 +11157,7 @@ function _mailSyncFolderLabel(folderID, role) {
     if (label && label.textContent.trim()) return label.textContent.trim()
   }
   if (role) return role.charAt(0).toUpperCase() + role.slice(1)
-  return folderID || "Folder"
+  return folderID || goferT("js.sync.folder")
 }
 
 function _mailSyncAccountFolderTotal(accountID) {
@@ -11185,15 +11193,15 @@ function _mailSyncAccountFolderMeta(account) {
   var total = _mailSyncCount(account.totalFolders) || account.folderOrder.length
   var done = Math.min(_mailSyncCount(account.syncedFolders), total)
   var idleExcluded = _mailSyncCount(account.excludedIdleFolders)
-  if (account.status === "queued") return "Waiting for account"
-  if (account.status === "skipped" && /repair/i.test(account.error || "")) return "Skipped because repair is running"
-  if (account.status === "skipped") return "Already running"
-  if (!total && idleExcluded) return _mailSyncAppendIdleExclusion(account.status === "syncing" ? "Checking folders..." : "No polled folders", idleExcluded)
-  if (account.status === "cancelled") return total ? _mailSyncAppendIdleExclusion("Cancelled after " + done + " of " + total + " folders", idleExcluded) : "Cancelled"
-  if (account.status === "error") return total ? _mailSyncAppendIdleExclusion(done + " of " + total + " folders before error", idleExcluded) : _mailSyncAppendIdleExclusion("Sync failed", idleExcluded)
-  if (!total) return account.status === "syncing" ? "Checking folders..." : _mailSyncStatusLabel(account.status)
-  var label = account.status === "syncing" ? "Refreshing " : "Refreshed "
-  return _mailSyncAppendIdleExclusion(label + done + " of " + total + " folders", idleExcluded)
+  if (account.status === "queued") return goferT("js.sync.meta.waiting")
+  if (account.status === "skipped" && /repair/i.test(account.error || "")) return goferT("js.sync.meta.skipped_repair")
+  if (account.status === "skipped") return goferT("js.sync.status.running")
+  if (!total && idleExcluded) return _mailSyncAppendIdleExclusion(account.status === "syncing" ? goferT("js.sync.meta.checking") : goferT("js.sync.meta.no_polled"), idleExcluded)
+  if (account.status === "cancelled") return total ? _mailSyncAppendIdleExclusion(goferT("js.sync.meta.cancelled_after", { done: done, total: total }), idleExcluded) : goferT("js.sync.status.cancelled")
+  if (account.status === "error") return total ? _mailSyncAppendIdleExclusion(goferT("js.sync.meta.before_error", { done: done, total: total }), idleExcluded) : _mailSyncAppendIdleExclusion(goferT("js.sync.failed"), idleExcluded)
+  if (!total) return account.status === "syncing" ? goferT("js.sync.meta.checking") : _mailSyncStatusLabel(account.status)
+  var label = goferT(account.status === "syncing" ? "js.sync.meta.refreshing" : "js.sync.meta.refreshed", { done: done, total: total })
+  return _mailSyncAppendIdleExclusion(label, idleExcluded)
 }
 
 function mailSyncHasActiveAccounts() {
@@ -11240,7 +11248,7 @@ function upsertMailSyncIssue(issue) {
   var email = String(issue.email || "").trim()
   _mailSyncIssuesByAccount[issue.id] = {
     id: issue.id,
-    name: name || existing.name || _mailSyncAccountLabel(issue.id) || "Account",
+    name: name || existing.name || _mailSyncAccountLabel(issue.id) || goferT("js.sync.account"),
     email: email || existing.email || _mailSyncAccountEmail(issue.id) || "",
     message: String(issue.message || "").trim(),
     failedAt: String(issue.failedAt || existing.failedAt || "").trim(),
@@ -11311,7 +11319,7 @@ function applyMailSyncIssueStatus(data) {
       id: data.account_id,
       name: data.account_name || data.name || "",
       email: data.account_email || data.email || "",
-      message: data.error || data.message || "Sync failed",
+      message: data.error || data.message || goferT("js.sync.failed"),
       failedAt: data.failed_at || data.email_sync_error_at || "",
     })
     updateMailSyncErrorIndicator()
@@ -11342,7 +11350,7 @@ function updateSettingsAccountSyncError(data) {
       continue
     }
 
-    var message = String(data.error || data.message || "Sync failed").trim()
+    var message = String(data.error || data.message || goferT("js.sync.failed")).trim()
     var failedAt = String(data.failed_at || data.email_sync_error_at || "").trim()
     var messageNode = node.querySelector("[data-settings-account-sync-error-message]")
     if (messageNode) messageNode.textContent = message
@@ -11368,14 +11376,14 @@ function updateSettingsAccountSyncError(data) {
 
 function mailSyncErrorSummaryHTML(issues) {
   if (!issues.length) {
-    return '<div class="text-xs text-sidebar-foreground">No current mail sync issues.</div>'
+    return '<div class="text-xs text-sidebar-foreground">' + goferT("js.sync.no_issues") + '</div>'
   }
-  var html = '<div class="font-semibold">Mail sync issues</div><div class="space-y-2">'
+  var html = '<div class="font-semibold">' + goferT("js.sync.issues") + '</div><div class="space-y-2">'
   for (var i = 0; i < issues.length; i++) {
     var issue = issues[i]
-    var name = issue.name || "Account"
+    var name = issue.name || goferT("js.sync.account")
     var email = issue.email || ""
-    var message = issue.message || "Sync failed"
+    var message = issue.message || goferT("js.sync.failed")
     var failedAt = issue.failedAt || ""
     var date = parseMailSyncUTCInstant(failedAt)
     var formattedAt = date ? formatGoferDateTime(date, {
@@ -11389,7 +11397,7 @@ function mailSyncErrorSummaryHTML(issues) {
     html += '<div class="rounded-md border border-sidebar-border/70 bg-sidebar-accent/20 px-2 py-1.5">' +
       '<div class="truncate font-semibold">' + _escapeComposeHTML(name) + '</div>' +
       (email ? '<div class="truncate text-[11px] opacity-70">' + _escapeComposeHTML(email) + '</div>' : '') +
-      (formattedAt ? '<div class="mt-1 opacity-85">Last failure: ' + _escapeComposeHTML(formattedAt) + '</div>' : '') +
+      (formattedAt ? '<div class="mt-1 opacity-85">' + _escapeComposeHTML(goferT("js.sync.last_failure", { time: formattedAt })) + '</div>' : '') +
       '<div class="mt-1 break-words opacity-90">' + _escapeComposeHTML(message) + '</div>' +
     '</div>'
   }
@@ -11403,7 +11411,7 @@ function updateMailSyncErrorIndicator(root) {
   var issues = mailSyncIssueList()
   var count = issues.length
   indicator.hidden = count === 0
-  indicator.setAttribute("aria-label", count + " mail sync issue" + (count === 1 ? "" : "s"))
+  indicator.setAttribute("aria-label", goferTn("js.sync.issues", count))
   indicator.removeAttribute("title")
   var summary = document.querySelector("[data-mail-sync-error-summary]")
   if (summary) summary.innerHTML = mailSyncErrorSummaryHTML(issues)
@@ -11599,7 +11607,7 @@ function handleAccountSyncStatus(data) {
   applyMailSyncAccountPayload(account, data)
   if (status === "error") {
     account.status = "error"
-    account.error = data.error || account.error || "Sync failed"
+    account.error = data.error || account.error || goferT("js.sync.failed")
     _mailSyncState.failures = Math.max(_mailSyncState.failures || 0, 1)
     var indicator = document.querySelector("[data-mail-sync-error-indicator]")
     if (indicator) indicator.hidden = false
@@ -11666,16 +11674,16 @@ function closeMailSyncProgressDialog() {
 }
 
 function _mailSyncModeLabel(mode) {
-  return mode === "repair" ? "Repairing Gmail" : "Regular sync"
+  return mode === "repair" ? goferT("js.sync.repairing_gmail") : goferT("js.sync.regular")
 }
 
 function _mailSyncModeDescription(mode, total, done, active) {
   if (mode === "repair") {
-    if (active) return total ? "Repairing " + done + " of " + total + " accounts" : "Repairing Gmail account"
-    return total ? "Repaired " + done + " of " + total + " accounts" : "Repair complete"
+    if (active) return total ? goferT("js.sync.mode.repairing", { done: done, total: total }) : goferT("js.sync.mode.repairing_one")
+    return total ? goferT("js.sync.mode.repaired", { done: done, total: total }) : goferT("js.sync.mode.repair_complete")
   }
-  if (active) return total ? "Syncing " + done + " of " + total + " accounts" : "Syncing available accounts"
-  return total ? "Synced " + done + " of " + total + " accounts" : "Sync complete"
+  if (active) return total ? goferT("js.sync.mode.syncing", { done: done, total: total }) : goferT("js.sync.mode.syncing_all")
+  return total ? goferT("js.sync.mode.synced", { done: done, total: total }) : goferT("js.sync.mode.complete")
 }
 
 function _mailSyncRunTotalsForMode(mode) {
@@ -11701,7 +11709,7 @@ function _mailSyncAccountCardHTML(account) {
     '<div class="flex items-center justify-between gap-3">' +
       '<div class="min-w-0"><div class="truncate text-sm font-semibold">' + _escapeComposeHTML(account.label) + '</div>' +
       '<div class="mt-1 truncate text-xs text-muted-foreground">' + _escapeComposeHTML(folderMeta) + '</div>' +
-      (account.currentFolderLabel && account.status === "syncing" ? '<div class="mt-1 truncate text-xs text-muted-foreground">Current: ' + _escapeComposeHTML(account.currentFolderLabel) + '</div>' : '') +
+      (account.currentFolderLabel && account.status === "syncing" ? '<div class="mt-1 truncate text-xs text-muted-foreground">' + _escapeComposeHTML(goferT("js.sync.current_folder", { folder: account.currentFolderLabel })) + '</div>' : '') +
       (account.error ? '<div class="mt-1 truncate text-xs text-destructive">' + _escapeComposeHTML(account.error) + '</div>' : '') + '</div>' +
       '<div class="shrink-0 text-xs font-medium ' + _mailSyncStatusClass(account.status) + '">' + _mailSyncStatusLabel(account.status) + '</div>' +
     '</div>' +
@@ -11716,13 +11724,13 @@ function renderMailSyncProgressDialog() {
   var total = _mailSyncState.total || _mailSyncState.accountOrder.length
   var done = _mailSyncState.done || 0
   var pct = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : (_mailSyncState.active ? 5 : 100)
-  var subtitle = "Sync finished with issues"
-  if (_mailSyncState.active) subtitle = "Sync is running"
-  else if (_mailSyncState.status === "ok") subtitle = "Sync finished"
-  else if (_mailSyncState.status === "cancelled") subtitle = "Sync cancelled"
-  else if (_mailSyncState.status === "already-running") subtitle = "Mail sync is already running"
-  else if (_mailSyncState.status === "error" && total === 0) subtitle = "Sync could not start"
-  if (_mailSyncState.parallelism > 1 && _mailSyncState.active) subtitle += ", up to " + _mailSyncState.parallelism + " accounts at a time"
+  var subtitle = goferT("js.sync.dialog.issues")
+  if (_mailSyncState.active) subtitle = goferT("js.sync.dialog.running")
+  else if (_mailSyncState.status === "ok") subtitle = goferT("js.sync.dialog.finished")
+  else if (_mailSyncState.status === "cancelled") subtitle = goferT("js.sync.dialog.cancelled")
+  else if (_mailSyncState.status === "already-running") subtitle = goferT("js.sync.dialog.already")
+  else if (_mailSyncState.status === "error" && total === 0) subtitle = goferT("js.sync.dialog.not_started")
+  if (_mailSyncState.parallelism > 1 && _mailSyncState.active) subtitle = goferT("js.sync.dialog.parallel", { text: subtitle, count: _mailSyncState.parallelism })
   var subtitleEl = dialog.querySelector("[data-mail-sync-dialog-subtitle]")
   var summaryEl = dialog.querySelector("[data-mail-sync-dialog-summary]")
   var percentEl = dialog.querySelector("[data-mail-sync-dialog-percent]")
@@ -11732,11 +11740,11 @@ function renderMailSyncProgressDialog() {
   if (summaryEl) {
     var idleExcluded = _mailSyncTotalExcludedIdleFolders()
     var summaryText = ""
-    if (total) summaryText = done + " of " + total + " accounts checked"
-    else if (_mailSyncState.active) summaryText = "Preparing account sync..."
-    else if (_mailSyncState.status === "already-running") summaryText = "Another sync is already running."
-    else if (_mailSyncState.status === "error") summaryText = "Could not start mail sync."
-    else summaryText = "No account progress available."
+    if (total) summaryText = goferT("js.sync.dialog.checked", { done: done, total: total })
+    else if (_mailSyncState.active) summaryText = goferT("js.sync.dialog.preparing")
+    else if (_mailSyncState.status === "already-running") summaryText = goferT("js.sync.dialog.another")
+    else if (_mailSyncState.status === "error") summaryText = goferT("js.sync.dialog.start_failed")
+    else summaryText = goferT("js.sync.dialog.no_progress")
     summaryEl.textContent = _mailSyncAppendIdleExclusion(summaryText, idleExcluded)
   }
   if (percentEl) percentEl.textContent = pct + "%"
@@ -11745,7 +11753,7 @@ function renderMailSyncProgressDialog() {
   for (var cancelIndex = 0; cancelIndex < cancelButtons.length; cancelIndex++) {
     cancelButtons[cancelIndex].classList.toggle("hidden", !canCancel)
     cancelButtons[cancelIndex].disabled = _mailSyncCancelRequested
-    cancelButtons[cancelIndex].textContent = _mailSyncCancelRequested ? "Cancelling..." : "Cancel"
+    cancelButtons[cancelIndex].textContent = _mailSyncCancelRequested ? goferT("js.sync.cancelling_short") : goferT("js.common.cancel")
   }
 
   var accountsEl = dialog.querySelector("[data-mail-sync-dialog-accounts]")
@@ -11754,7 +11762,7 @@ function renderMailSyncProgressDialog() {
     return (_mailSyncState.accounts[a].index || 0) - (_mailSyncState.accounts[b].index || 0)
   })
   if (!ids.length) {
-    accountsEl.innerHTML = '<div class="rounded-lg border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">Waiting for account progress...</div>'
+    accountsEl.innerHTML = '<div class="rounded-lg border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">' + goferT("js.sync.waiting_progress") + '</div>'
     return
   }
   var html = ""
@@ -11844,7 +11852,7 @@ function handleMailSidebarSyncStart(context, mode) {
   showMailSyncToast({
     id: "mail-sync-toast",
     title: _mailSyncRunningTitle({ mode: mode }),
-    description: mode === "repair" ? "Preparing Gmail repair..." : "Checking connected mailboxes...",
+    description: mode === "repair" ? goferT("js.sync.preparing_repair") : goferT("js.sync.checking_mailboxes"),
     variant: "info",
     icon: "spinner",
     position: "bottom-right",
@@ -11857,7 +11865,7 @@ function handleMailSidebarSyncStart(context, mode) {
 function handleMailSidebarSyncResult(event) {
   var xhr = event && event.detail ? event.detail.xhr : null
   var ok = !!(event && event.detail && event.detail.successful) && (!xhr || xhr.getResponseHeader("X-Gofer-Status") !== "error")
-  var message = _goferResponseText(xhr, "Mail sync started.")
+  var message = _goferResponseText(xhr, goferT("js.sync.started"))
   var mode = xhr ? (xhr.getResponseHeader("X-Gofer-Mail-Sync-Mode") || "") : ""
   if (mode) _mailSyncState.mode = _mailSyncModeFromData({ mode: mode })
   if (!ok) {
@@ -11869,7 +11877,7 @@ function handleMailSidebarSyncResult(event) {
     if (!_mailSyncState.active) _mailSyncScopedBusyAccountID = ""
     showGoferToast({
       id: "mail-sync-toast",
-      title: "Mail sync failed",
+      title: goferT("js.sync.sync_failed"),
       description: message,
       variant: "error",
       icon: "error",
@@ -11889,7 +11897,7 @@ function handleMailSidebarSyncResult(event) {
     if (!_mailSyncState.active) _mailSyncScopedBusyAccountID = ""
     showGoferToast({
       id: "mail-sync-toast",
-      title: "Mail sync already running",
+      title: goferT("js.sync.already_title"),
       description: message,
       variant: "info",
       icon: "info",
@@ -11945,14 +11953,14 @@ function handleMailManualSyncEvent(phase, data) {
     var variant = status === "error" ? "error" : (status === "partial" || status === "cancelled" ? "warning" : "success")
     var icon = status === "error" ? "error" : (status === "partial" || status === "cancelled" ? "warning" : "success")
     var repairMode = _mailSyncModeFromData(data) === "repair"
-    var description = (repairMode ? "Repaired " : "Checked ") + _mailSyncAccountsLabel(total || done) + "."
-    if (status === "cancelled" && total) description = "Stopped after " + (repairMode ? "repairing " : "checking ") + done + " of " + total + " accounts."
-    else if (status === "cancelled") description = repairMode ? "Gmail repair was stopped." : "Mail sync was stopped."
-    if (failures > 0 && skipped > 0) description += " " + failures + " failed, " + skipped + " already running."
-    else if (failures > 0) description += " " + failures + " failed."
-    else if (skipped > 0) description += " " + skipped + " already running."
-    if (cancelled > 0) description += " " + cancelled + " cancelled."
-    if (notDone > 0) description += " " + notDone + " did not finish."
+    var description = goferT(repairMode ? "js.sync.done.repaired" : "js.sync.done.checked", { accounts: _mailSyncAccountsLabel(total || done) })
+    if (status === "cancelled" && total) description = goferT(repairMode ? "js.sync.done.stopped_repairing" : "js.sync.done.stopped_checking", { done: done, total: total })
+    else if (status === "cancelled") description = repairMode ? goferT("js.sync.done.repair_stopped") : goferT("js.sync.done.sync_stopped")
+    if (failures > 0 && skipped > 0) description += " " + goferT("js.sync.done.failed_running", { failures: failures, skipped: skipped })
+    else if (failures > 0) description += " " + goferT("js.sync.done.failed", { count: failures })
+    else if (skipped > 0) description += " " + goferT("js.sync.done.running", { count: skipped })
+    if (cancelled > 0) description += " " + goferT("js.sync.done.cancelled", { count: cancelled })
+    if (notDone > 0) description += " " + goferT("js.sync.done.not_finished", { count: notDone })
     _mailSyncActive = false
     _mailSyncCancelRequested = false
     updateMailSyncAggregateFromRuns()
@@ -11962,7 +11970,7 @@ function handleMailManualSyncEvent(phase, data) {
       showMailSyncToast({
         id: "mail-sync-toast",
         title: _mailSyncRunningTitle(data),
-        description: "Another mail activity is still running.",
+        description: goferT("js.sync.another_activity"),
         variant: "info",
         icon: "spinner",
         position: "bottom-right",
@@ -11986,20 +11994,20 @@ function handleMailManualSyncEvent(phase, data) {
   }
 
   var repairMode = _mailSyncModeFromData(data) === "repair"
-  var message = (repairMode ? "Repairing " : "Checking ") + _mailSyncAccountsLabel(total || 1) + "..."
+  var message = goferT(repairMode ? "js.sync.toast.repairing" : "js.sync.toast.checking", { accounts: _mailSyncAccountsLabel(total || 1) })
   if (phase === "started" && parallelism > 1 && total > 1) {
-    message = (repairMode ? "Repairing " : "Checking ") + _mailSyncAccountsLabel(total) + ", up to " + parallelism + " at a time..."
+    message = goferT(repairMode ? "js.sync.toast.repairing_parallel" : "js.sync.toast.checking_parallel", { accounts: _mailSyncAccountsLabel(total), count: parallelism })
   }
   if (phase === "progress") {
-    if (data.status === "syncing" && index && total) message = (repairMode ? "Repairing account " : "Checking account ") + index + " of " + total + "..."
-    else if (data.status === "skipped") message = "Account already syncing (" + done + " / " + total + ")."
-    else if (data.status === "error") message = "Account failed (" + done + " / " + total + ")."
-    else if (done && total) message = "Checked " + done + " of " + total + " accounts."
+    if (data.status === "syncing" && index && total) message = goferT(repairMode ? "js.sync.toast.repairing_account" : "js.sync.toast.checking_account", { index: index, total: total })
+    else if (data.status === "skipped") message = goferT("js.sync.toast.skipped", { done: done, total: total })
+    else if (data.status === "error") message = goferT("js.sync.toast.account_failed", { done: done, total: total })
+    else if (done && total) message = goferT("js.sync.toast.checked", { done: done, total: total })
   }
   showMailSyncToast({
     id: "mail-sync-toast",
-    title: _mailSyncCancelRequested ? (repairMode ? "Cancelling Gmail repair" : "Cancelling mail sync") : _mailSyncRunningTitle(data),
-    description: _mailSyncCancelRequested ? "Stopping the foreground sync..." : message,
+    title: _mailSyncCancelRequested ? (repairMode ? goferT("js.sync.cancelling_repair") : goferT("js.sync.cancelling")) : _mailSyncRunningTitle(data),
+    description: _mailSyncCancelRequested ? goferT("js.sync.stopping") : message,
     variant: "info",
     icon: "spinner",
     position: "bottom-right",
@@ -12097,16 +12105,11 @@ function calendarLoadingPeriodLabel(view, date) {
   if (!/^\d{4}-\d{2}(?:-\d{2})?$/.test(date || "")) return ""
   var at = new Date(date.length === 7 ? date + "-01T12:00:00Z" : date + "T12:00:00Z")
   if (isNaN(at.getTime())) return ""
-  function label(day, year) {
-    return day.toLocaleDateString("en-US", { timeZone: "UTC", month: "short", day: "numeric", year: year ? "numeric" : undefined })
-  }
-  if (view !== "week") return at.toLocaleDateString("en-US", { timeZone: "UTC", month: "long", year: "numeric" })
+  if (view !== "week") return goferDates.monthYear(at, "UTC")
   at.setUTCDate(at.getUTCDate() - (at.getUTCDay() + 6) % 7)
   var end = new Date(at.getTime())
   end.setUTCDate(end.getUTCDate() + 6)
-  if (at.getUTCFullYear() !== end.getUTCFullYear()) return label(at, true) + " – " + label(end, true)
-  if (at.getUTCMonth() !== end.getUTCMonth()) return label(at, false) + " – " + label(end, true)
-  return label(at, false) + "–" + end.getUTCDate() + ", " + end.getUTCFullYear()
+  return goferDates.dateRange(at, end, "UTC")
 }
 
 function showCalendarContentPending(event) {
@@ -12160,7 +12163,8 @@ function showCalendarContentPending(event) {
       number.className = "inline-flex size-6 items-center justify-center sm:size-7"
       number.replaceChildren()
     }
-    day.querySelectorAll("span").forEach(function (span) { if (span.textContent === "Today") span.remove() })
+    // The "Today" badge, found by its look: its text follows the language.
+    day.querySelectorAll("span.uppercase.text-primary").forEach(function (span) { span.remove() })
   })
   // The incoming week's dates are known from the link, so its headers can slide in
   // with them before the response arrives.
@@ -12222,7 +12226,7 @@ function handleCalendarContentResult(event) {
       replaceAppPaneContents(document.getElementById("mail-view"), _calendarContentPrevious.agenda, false)
       if (window.htmx) window.htmx.process(calendar)
       initializeCalendarDaySelection()
-      if (event.type !== "htmx:sendAbort") showGoferToast({ title: "Could not load calendar", description: "Please try again.", variant: "error", icon: "error" })
+      if (event.type !== "htmx:sendAbort") showGoferToast({ title: goferT("js.calendar.load_failed"), description: goferT("js.common.please_try_again"), variant: "error", icon: "error" })
     }
   }
   _calendarContentRequest = null
@@ -12361,13 +12365,13 @@ function initializeCalendarVisibility() {
     var only = document.querySelector('[data-calendar-visibility-only="' + CSS.escape(input.dataset.calendarVisibility) + '"]')
     if (only) {
       var showsAll = calendarSourceIsOnlyVisible(input.dataset.calendarVisibility)
-      only.setAttribute("aria-label", showsAll ? "Show all calendars" : "Show only " + (label ? label.textContent : "this calendar"))
+      only.setAttribute("aria-label", showsAll ? goferT("js.calendar.visibility.show_all") : label ? goferT("js.calendar.visibility.show_only_named", { calendar: label.textContent }) : goferT("js.calendar.visibility.show_only"))
       only.querySelectorAll("[data-calendar-only-icon]").forEach(function (icon) {
         icon.hidden = (icon.dataset.calendarOnlyIcon === "all") !== showsAll
       })
       // Found by source ID: the tooltip popover may live outside the row.
       var tip = document.querySelector('[data-calendar-only-tooltip="' + CSS.escape(input.dataset.calendarVisibility) + '"]')
-      if (tip) tip.textContent = showsAll ? "Show all calendars" : "Show only this calendar"
+      if (tip) tip.textContent = showsAll ? goferT("js.calendar.visibility.show_all") : goferT("js.calendar.visibility.show_only")
     }
   })
   document.querySelectorAll("#calendar-main [data-calendar-week-all-day], #calendar-main [data-calendar-week-event], #calendar-main [data-calendar-day-dot]").forEach(function (node) {
@@ -12387,7 +12391,7 @@ function saveCalendarVisibility(sourceID, state, force) {
     headers: { "Content-Type": "application/json", "Accept": "application/json" },
     body: JSON.stringify({ visible: visible }),
   }).then(function (response) {
-    if (!response.ok) throw new Error("Could not save calendar visibility")
+    if (!response.ok) throw new Error(goferT("js.calendar.visibility.save_failed"))
     state.confirmed = visible
     state.saving = false
     initializeCalendarVisibility()
@@ -12402,7 +12406,7 @@ function saveCalendarVisibility(sourceID, state, force) {
     }
     state.visible = state.confirmed
     initializeCalendarDaySelection()
-    showGoferToast({ title: "Could not save calendar visibility", description: "Your previous choice has been restored. Please try again.", variant: "error", icon: "error", position: "bottom-right", duration: 6000, dismissible: true })
+    showGoferToast({ title: goferT("js.calendar.visibility.save_failed"), description: goferT("js.calendar.visibility.restored"), variant: "error", icon: "error", position: "bottom-right", duration: 6000, dismissible: true })
   })
 }
 
@@ -12484,19 +12488,19 @@ function initializeCalendarDaySelection() {
     if (show) visible++
     fadeInCalendarAgendaEvent(event, show)
   })
-  agenda.querySelector("#calendar-agenda-heading").textContent = selected ? selected.dataset.calendarDayTitle : "All events"
+  agenda.querySelector("#calendar-agenda-heading").textContent = selected ? selected.dataset.calendarDayTitle : goferT("js.calendar.agenda.all")
   agenda.querySelector("[data-calendar-agenda-context]").textContent = selected ?
-    visible + (visible === 1 ? " event" : " events") : calendar.dataset.calendarMonthLabel
+    goferTn("js.calendar.events", visible) : calendar.dataset.calendarMonthLabel
   agenda.querySelector("[data-calendar-agenda-clear]").hidden = !selected
   agenda.querySelector("#calendar-agenda-list").hidden = visible === 0
   agenda.querySelector("[data-calendar-agenda-empty]").hidden = visible !== 0
   var sources = Array.from(document.querySelectorAll("[data-calendar-visibility]"))
   var allHidden = sources.length > 0 && sources.every(function (input) { return !_calendarSourceIsVisible(input) })
-  agenda.querySelector("[data-calendar-agenda-empty-title]").textContent = allHidden ? "All calendars are hidden" : selected ? "No events for this day" : "No events"
+  agenda.querySelector("[data-calendar-agenda-empty-title]").textContent = allHidden ? goferT("js.calendar.agenda.all_hidden") : selected ? goferT("js.calendar.agenda.none_day") : goferT("js.calendar.agenda.none")
   agenda.querySelector("[data-calendar-agenda-empty-detail]").textContent = allHidden ?
-    "Show a calendar in the sidebar to see its events." : selected ?
-    "Nothing is scheduled on this day." :
-    calendar.dataset.calendarView === "week" ? "Nothing is scheduled this week." : "Nothing is scheduled this month."
+    goferT("js.calendar.agenda.all_hidden_detail") : selected ?
+    goferT("js.calendar.agenda.none_day_detail") :
+    calendar.dataset.calendarView === "week" ? goferT("js.calendar.agenda.none_week") : goferT("js.calendar.agenda.none_month")
   // Switch views around the selected date rather than an unrelated week.
   var focusDate = selected ? selected.dataset.calendarDay : calendar.dataset.calendarDate
   calendar.querySelectorAll("[data-calendar-view-switch]").forEach(function (link) {
@@ -12883,7 +12887,7 @@ function layoutCalendarMonth(calendar) {
         if (show) visible++
       })
       day.overflow.hidden = day.buttons.length <= visible
-      day.overflow.textContent = "+" + (day.buttons.length - visible) + " more"
+      day.overflow.textContent = goferT("js.calendar.more_events", { count: day.buttons.length - visible })
     })
   })
 }
@@ -12941,14 +12945,14 @@ function initializeCalendarWeekScroll() {
     var text = row.querySelector("[data-calendar-week-hour-text]")
     row.style.height = axis.heights[hour] + "px"
     text.hidden = false
-    text.textContent = String(hour).padStart(2, "0") + ":00"
+    text.textContent = goferDates.hourLabel(hour)
     text.title = ""
     if (_calendarWeekZoom === 0 && !axis.expanded[hour]) {
       var end = hour + 1
       while (end < 24 && !axis.expanded[end]) end++
       text.hidden = (hour > 0 && !axis.expanded[hour - 1]) || axis.offsets[end] - axis.offsets[hour] < 15
-      text.textContent = String(hour).padStart(2, "0") + "–" + String(end).padStart(2, "0")
-      text.title = "Empty hours condensed. Zoom in to expand."
+      text.textContent = goferDates.hourRange(hour, end)
+      text.title = goferT("js.calendar.week.condensed")
     } else if (axis.heights[hour] < 15) text.hidden = hour % 2 !== 0
   })
   grid.querySelectorAll("[data-calendar-timed-column]").forEach(function (column) {
@@ -12974,7 +12978,7 @@ function initializeCalendarWeekScroll() {
   } else if (previousAxis) scroller.scrollTop = previousTop * axis.height / previousAxis.height
   if (!wasInitialized) scroller.scrollLeft = saved ? saved.left : 0
   var status = calendar.querySelector("[data-calendar-week-scale-status]")
-  if (status) status.textContent = _calendarWeekZoom === 0 ? "Fit · Empty hours condensed" : "Zoom · " + Math.round(axis.height / 24) + " px/hour"
+  if (status) status.textContent = _calendarWeekZoom === 0 ? goferT("js.calendar.week.zoom_fit") : goferT("js.calendar.week.zoom_level", { size: goferNumber(Math.round(axis.height / 24)) })
   calendar.querySelectorAll("[data-calendar-week-zoom]").forEach(function (button) {
     var action = button.dataset.calendarWeekZoom
     button.disabled = action === "out" ? _calendarWeekZoom === 0 : action === "in" && _calendarWeekZoom === 3
@@ -13632,8 +13636,8 @@ document.body.addEventListener("htmx:afterRequest", function (event) {
   }
   clearCalendarEventLoading(xhr, true)
   showGoferToast({
-    title: "Could not open event",
-    description: xhr.status === 404 ? "This event is no longer available. Refresh calendars and try again." : "Event details could not be loaded. Please try again.",
+    title: goferT("js.calendar.event.open_failed"),
+    description: xhr.status === 404 ? goferT("js.calendar.event.gone") : goferT("js.calendar.event.load_failed"),
     variant: "error", icon: "error", position: "bottom-right", duration: 6000, dismissible: true,
   })
 })
@@ -13793,7 +13797,7 @@ document.body.addEventListener("htmx:afterRequest", function (event) {
   _calendarCreateDialogRequest = null
   if (!current) return
   if (!event.detail.successful) {
-    showGoferToast({title: xhr.goferCalendarEdit ? "Could not open Edit event" : "Could not open New event", description: "Please try again.", variant: "error", icon: "error", duration: 5000})
+    showGoferToast({title: xhr.goferCalendarEdit ? goferT("js.calendar.edit.open_failed") : goferT("js.calendar.create.open_failed"), description: goferT("js.common.please_try_again"), variant: "error", icon: "error", duration: 5000})
     return
   }
   if (!xhr.goferCalendarCreateSwapped) return
@@ -13862,24 +13866,29 @@ function updateCalendarRecurrenceForm(form, locked) {
   if (!repeating) return
   var interval = form.querySelector('[name="repeat_interval"]').value
   var unit = {daily: "day", weekly: "week", monthly: "month", yearly: "year"}[frequency.value]
-  form.querySelector("[data-calendar-repeat-unit]").textContent = unit + (interval === "1" ? "" : "s")
-  var summary = "Every " + (interval || "…") + " " + unit + (interval === "1" ? "" : "s")
+  // A field still being typed has no number yet; it reads as "…".
+  var counted = function (key, value, params) {
+    var n = /^\d+$/.test(value) ? Number(value) : NaN
+    return isNaN(n) ? goferT(key + ".other", Object.assign({ count: "…" }, params)) : goferTn(key, n, params)
+  }
+  form.querySelector("[data-calendar-repeat-unit]").textContent = goferTn("js.calendar.repeat.unit." + unit, interval === "1" ? 1 : 2)
+  var summary = counted("js.calendar.repeat.every." + unit, interval)
   var start = form.querySelector('[name="start_date"]').value
   var date = /^\d{4}-\d{2}-\d{2}$/.test(start) ? new Date(start + "T12:00:00Z") : null
   if (date && !isNaN(date.getTime())) {
-    if (frequency.value === "weekly") summary += " on " + date.toLocaleDateString(undefined, {weekday: "long", timeZone: "UTC"})
-    if (frequency.value === "monthly") summary += " on day " + date.getUTCDate()
-    if (frequency.value === "yearly") summary += " on " + date.toLocaleDateString(undefined, {month: "long", day: "numeric", timeZone: "UTC"})
+    if (frequency.value === "weekly") summary = goferT("js.calendar.repeat.on_weekday", { every: summary, weekday: goferDates.weekdayName(date.getUTCDay()) })
+    if (frequency.value === "monthly") summary = goferT("js.calendar.repeat.on_day", { every: summary, day: goferNumber(date.getUTCDate()) })
+    if (frequency.value === "yearly") summary = goferT("js.calendar.repeat.on_date", { every: summary, date: goferDates.longDateNoYear(date, "UTC") })
   }
-  if (ending === "count") {
-    var count = form.querySelector('[name="repeat_count"]').value
-    summary += ", " + (count || "…") + (count === "1" ? " occurrence" : " occurrences including the first")
-  }
-  if (ending === "until") summary += ", through " + (form.querySelector('[name="repeat_until"]').value || "the selected date")
-  if (ending === "never") summary += ", with no end date"
-  summary += "."
-  if (date && (frequency.value === "monthly" || frequency.value === "yearly") && date.getUTCDate() > 28) summary += " Uses the last day in shorter months."
-  if (!form.querySelector('[name="all_day"]').checked) summary += " Times follow " + form.querySelector('[name="timezone"]').value + "."
+  if (ending === "count") summary = counted("js.calendar.repeat.end_count", form.querySelector('[name="repeat_count"]').value, { rule: summary })
+  else if (ending === "until") {
+    var until = form.querySelector('[name="repeat_until"]').value
+    var untilDate = /^\d{4}-\d{2}-\d{2}$/.test(until) ? new Date(until + "T12:00:00Z") : null
+    summary = untilDate && !isNaN(untilDate.getTime()) ? goferT("js.calendar.repeat.end_until", { rule: summary, date: goferDates.date(untilDate, "UTC") }) : goferT("js.calendar.repeat.end_until_unset", { rule: summary })
+  } else if (ending === "never") summary = goferT("js.calendar.repeat.end_never", { rule: summary })
+  else summary = goferT("js.calendar.repeat.plain", { rule: summary })
+  if (date && (frequency.value === "monthly" || frequency.value === "yearly") && date.getUTCDate() > 28) summary += " " + goferT("js.calendar.repeat.last_day")
+  if (!form.querySelector('[name="all_day"]').checked) summary += " " + goferT("js.calendar.repeat.timezone", { timezone: form.querySelector('[name="timezone"]').value })
   form.querySelector("[data-calendar-repeat-summary]").textContent = summary
 }
 
@@ -13942,10 +13951,10 @@ function calendarDescriptionExec(el, command, value) {
 // link, or nothing.
 function promptForLink() {
   return window.goferPrompt({
-    title: "Add a link",
-    label: "Web address or email address",
-    placeholder: "example.com or name@example.com",
-    confirmLabel: "Add link",
+    title: goferT("js.compose.link.title"),
+    label: goferT("js.compose.link.label"),
+    placeholder: goferT("js.compose.link.placeholder"),
+    confirmLabel: goferT("js.compose.link.confirm"),
   }).then(function (value) {
     value = String(value || "").trim()
     if (!value) return ""
@@ -14036,7 +14045,7 @@ function setCalendarDescriptionExpanded(form, expanded) {
   body.style.opacity = expanded ? "0" : state.bodyOpacity || "1"
   form._calendarDescriptionExpanded = expanded
   var button = editor.querySelector("[data-calendar-description-toggle]")
-  var label = expanded ? "Collapse description" : "Expand description"
+  var label = expanded ? goferT("js.calendar.description.collapse") : goferT("js.calendar.description.expand")
   button.setAttribute("aria-expanded", String(expanded))
   button.setAttribute("aria-label", label)
   button.title = label
@@ -14177,7 +14186,7 @@ function updateCalendarMeetPreview(form, locked) {
     prepareCalendarMeetPreview(form, state)
   }
   input.value = state.status === "ready" ? state.id : ""
-  panel.querySelector("[data-calendar-meet-status]").textContent = state.status === "loading" ? "Generating Google Meet link…" : state.status === "error" ? state.error : ""
+  panel.querySelector("[data-calendar-meet-status]").textContent = state.status === "loading" ? goferT("js.calendar.meet.generating") : state.status === "error" ? state.error : ""
   var link = panel.querySelector("[data-calendar-meet-link]")
   link.hidden = state.status !== "ready"
   var anchor = panel.querySelector("[data-calendar-meet-url]")
@@ -14232,7 +14241,7 @@ function updateCalendarTeamsPreview(form, locked) {
     prepareCalendarMeetPreview(form, state)
   }
   input.value = state.status === "ready" ? state.id : ""
-  panel.querySelector("[data-calendar-meet-status]").textContent = state.status === "loading" ? "Generating Teams link…" : state.status === "error" ? state.error : ""
+  panel.querySelector("[data-calendar-meet-status]").textContent = state.status === "loading" ? goferT("js.calendar.teams.generating") : state.status === "error" ? state.error : ""
   panel.querySelector("[data-calendar-meet-link]").hidden = state.status !== "ready"
   var anchor = panel.querySelector("[data-calendar-meet-url]")
   anchor.textContent = state.url
@@ -14266,7 +14275,7 @@ function prepareCalendarMeetPreview(form, state) {
   var timeout
   var deadline = new Promise(function (_, reject) {
     timeout = setTimeout(function () {
-      reject(new Error(label + " link generation timed out. Retry to check the same link again."))
+      reject(new Error(goferT("js.calendar.meeting.timed_out", { provider: label })))
       controller.abort()
     }, Math.max(0, Math.min(35000, state.deadline - Date.now())))
   })
@@ -14276,14 +14285,14 @@ function prepareCalendarMeetPreview(form, state) {
     .finally(function () { clearTimeout(timeout) })
     .then(function (result) {
       if (!form.isConnected || form[key] !== state) return
-      if (!result.ok) throw new Error(result.data.error || "Could not generate the " + label + " link. Retry.")
-      if (result.data.source_id !== state.source || result.data.draft_id !== state.id) throw new Error("The meeting request changed. Retry.")
+      if (!result.ok) throw new Error(result.data.error || goferT("js.calendar.meeting.failed", { provider: label }))
+      if (result.data.source_id !== state.source || result.data.draft_id !== state.id) throw new Error(goferT("js.calendar.meeting.changed"))
       if (result.data.pending && state.attempts < 5) {
         setTimeout(function () { if (form.isConnected && form[key] === state) prepareCalendarMeetPreview(form, state) }, 750)
         return
       }
       var validURL = teams ? /^https:\/\/(?:teams\.microsoft\.com|teams\.live\.com|teams\.cloud\.microsoft)\/(?:meet|l\/meetup-join)\/[^\s<>"']+$/i : /^https:\/\/meet\.google\.com\/[a-z]{3}-[a-z]{4}-[a-z]{3}(?:\?[^\s]*)?$/
-      if (!validURL.test(result.data.join_url || "")) throw new Error(label + " is still preparing the link. Retry to check it again.")
+      if (!validURL.test(result.data.join_url || "")) throw new Error(goferT("js.calendar.meeting.preparing", { provider: label }))
       state.status = "ready"
       state.url = result.data.join_url
       updateCalendarCreateForm(form)
@@ -14291,7 +14300,7 @@ function prepareCalendarMeetPreview(form, state) {
     .catch(function (error) {
       if (!form.isConnected || form[key] !== state) return
       state.status = "error"
-      state.error = error.message || "Could not generate the " + label + " link. Retry."
+      state.error = error.message || goferT("js.calendar.meeting.failed", { provider: label })
       updateCalendarCreateForm(form)
     })
 }
@@ -14333,7 +14342,7 @@ function calendarReplaceFailure(result, fallback) {
 // meeting. Each step uses the ordinary create and delete requests.
 function replaceCalendarTeamsMeeting(form) {
   if (!form.querySelector("[data-calendar-teams-replace-confirm]").checked) {
-    setCalendarCreateError(form, "Confirm that you want to replace this meeting, or turn Teams back on.")
+    setCalendarCreateError(form, goferT("js.calendar.teams_replace.confirm_first"))
     form.querySelector("[data-calendar-teams-replace-confirm]").focus()
     return Promise.resolve()
   }
@@ -14354,8 +14363,8 @@ function replaceCalendarTeamsMeeting(form) {
     .then(json)
     .then(function (created) {
       if (!created.ok || !(created.data.event_id || created.data.series_id)) {
-        var message = calendarReplaceFailure(created, "Could not create the copy without Teams.")
-        setCalendarCreateError(form, message + (created.data && created.data.uncertain ? " Save again to check without creating a second copy." : " Nothing was changed."))
+        var message = calendarReplaceFailure(created, goferT("js.calendar.teams_replace.copy_failed"))
+        setCalendarCreateError(form, message + " " + (created.data && created.data.uncertain ? goferT("js.calendar.teams_replace.save_again") : goferT("js.calendar.teams_replace.unchanged")))
         return
       }
       return fetch(form.action + "?" + form.dataset.calendarTeamsReplaceDelete, {method: "DELETE", headers: {"Accept": "application/json"}})
@@ -14364,22 +14373,22 @@ function replaceCalendarTeamsMeeting(form) {
           if (!deleted.ok || deleted.data.deleted !== true) {
             // The copy exists; never retry the whole replacement from here.
             form._calendarCreateConflict = true
-            setCalendarCreateError(form, "The copy without Teams was created, but the original Teams meeting could not be deleted: " + calendarReplaceFailure(deleted, "the result could not be confirmed.") + " Open the original meeting and delete it yourself.")
+            setCalendarCreateError(form, goferT("js.calendar.teams_replace.delete_failed", { reason: calendarReplaceFailure(deleted, goferT("js.calendar.teams_replace.unconfirmed_reason")) }))
             scheduleCalendarCacheRefresh()
             return
           }
           if (form.isConnected && window.tui && window.tui.dialog) window.tui.dialog.close("calendar-create-dialog")
-          showGoferToast({title: "Meeting replaced", description: "A copy without Teams was created and the original deleted. Guests were sent a cancellation and a new invitation.", variant: "success", icon: "success", duration: 6000})
+          showGoferToast({title: goferT("js.calendar.teams_replace.done"), description: goferT("js.calendar.teams_replace.done_detail"), variant: "success", icon: "success", duration: 6000})
           scheduleCalendarCacheRefresh()
         })
         .catch(function () {
           form._calendarCreateConflict = true
-          setCalendarCreateError(form, "The copy without Teams was created, but deleting the original could not be confirmed. Refresh calendars and delete the original Teams meeting if it's still there.")
+          setCalendarCreateError(form, goferT("js.calendar.teams_replace.delete_unconfirmed"))
           scheduleCalendarCacheRefresh()
         })
     })
     .catch(function () {
-      setCalendarCreateError(form, "Creating the copy could not be confirmed. Save again to check without creating a second copy.")
+      setCalendarCreateError(form, goferT("js.calendar.teams_replace.create_unconfirmed"))
     })
     .finally(function () { form._calendarCreateBusy = false; updateCalendarCreateForm(form) })
 }
@@ -14399,8 +14408,8 @@ function copyCalendarMeetLink(button) {
   var link = button.closest("[data-calendar-meet-preview]").querySelector("[data-calendar-meet-url]")
   if (!link || !link.href || !navigator.clipboard) return
   navigator.clipboard.writeText(link.href).then(function () {
-    button.textContent = "Copied"
-    setTimeout(function () { if (button.isConnected) button.textContent = "Copy link" }, 1500)
+    button.textContent = goferT("js.calendar.meeting.copied")
+    setTimeout(function () { if (button.isConnected) button.textContent = goferT("js.calendar.meeting.copy_link") }, 1500)
   }).catch(function () {})
 }
 
@@ -14493,13 +14502,13 @@ function updateCalendarCreateForm(form) {
   var dateHelp = form.querySelector("[data-calendar-create-date-help]")
   dateHelp.hidden = !allDay
   dateHelp.textContent = form._calendarCreateDateAdjusted ?
-    "End date adjusted to the start date: it can’t end earlier." :
-    "The end date is included in an all-day event."
+    goferT("js.calendar.create.end_adjusted") :
+    goferT("js.calendar.create.end_included")
   var access = form.querySelector("[data-calendar-create-access]")
   access.hidden = !!allowed
-  access.textContent = editing ? "This calendar is no longer writable. Refresh calendars and reopen the event to check access." : !writable ?
-    "No writable calendar is configured. Choose calendars in Accounts first." :
-    "This account has read-only Calendar access. Reconnect it from Accounts to grant event creation permission."
+  access.textContent = editing ? goferT("js.calendar.create.no_longer_writable") : !writable ?
+    goferT("js.calendar.create.no_writable") :
+    goferT("js.calendar.create.read_only")
   var submit = form.querySelector("[data-calendar-create-submit]")
   var meetToggle = form.querySelector('[name="google_meet_meeting"]')
   var meetDraft = form.querySelector('[name="google_meet_draft_id"]')
@@ -14510,7 +14519,7 @@ function updateCalendarCreateForm(form) {
   submit.disabled = (editing ? locked || !allowed : busy || (!uncertain && !allowed)) || (!uncertain && (meetNotReady || teamsNotReady))
   submit.setAttribute("aria-busy", busy ? "true" : "false")
   form.querySelector("[data-calendar-create-spinner]").hidden = !busy
-  form.querySelector("[data-calendar-create-submit-label]").textContent = editing ? (busy ? "Saving..." : calendarTeamsReplacing(form) ? "Replace meeting" : form.dataset.calendarEditSeries === "true" ? "Save series" : "Save changes") : busy ? "Creating…" : uncertain ? "Retry safely" : "Create event"
+  form.querySelector("[data-calendar-create-submit-label]").textContent = editing ? (busy ? goferT("js.calendar.create.saving") : calendarTeamsReplacing(form) ? goferT("js.calendar.create.replace_meeting") : form.dataset.calendarEditSeries === "true" ? goferT("js.calendar.create.save_series") : goferT("js.calendar.create.save_changes")) : busy ? goferT("js.calendar.create.creating") : uncertain ? goferT("js.calendar.create.retry_safely") : goferT("js.calendar.create.create")
   form.setAttribute("aria-busy", busy ? "true" : "false")
 }
 
@@ -14800,12 +14809,12 @@ function validateCalendarCreatePickers(form) {
   var meet = form.querySelector('[name="google_meet_meeting"]')
   var meetDraft = form.querySelector('[name="google_meet_draft_id"]')
   if (meet && meet.checked && !meet.disabled && (!meetDraft || !meetDraft.value)) {
-    setCalendarCreateError(form, "Wait for the Google Meet link before saving, or turn Google Meet off.")
+    setCalendarCreateError(form, goferT("js.calendar.create.wait_meet"))
     return false
   }
   var teamsDraft = form.querySelector('[name="teams_draft_id"]')
   if (!(form.dataset && form.dataset.calendarEventId) && teams && teams.checked && !teams.disabled && (!teamsDraft || !teamsDraft.value)) {
-    setCalendarCreateError(form, "Wait for the Teams link before saving, or turn Teams off.")
+    setCalendarCreateError(form, goferT("js.calendar.create.wait_teams"))
     return false
   }
   var until = repeat && repeat.value !== "none" && form.querySelector('[name="repeat_end"]').value === "until"
@@ -14813,13 +14822,13 @@ function validateCalendarCreatePickers(form) {
   for (var i = 0; i < fields.length; i++) {
     var input = form.querySelector('[name="' + fields[i] + '"]')
     if (input && input.value) continue
-    setCalendarCreateError(form, fields[i] === "repeat_until" ? "Choose the last date the series can start." : "Choose a " + fields[i].replace("_", " ").replace("timezone", "time zone") + ".")
+    setCalendarCreateError(form, goferT("js.calendar.create.missing." + fields[i]))
     var trigger = form.querySelector("#calendar-create-" + fields[i].replace(/_/g, "-"))
     if (trigger) trigger.focus()
     return false
   }
   if (until && form.querySelector('[name="repeat_until"]').value < form.querySelector('[name="start_date"]').value) {
-    setCalendarCreateError(form, "The repeat end date must be on or after the event’s start date.")
+    setCalendarCreateError(form, goferT("js.calendar.create.until_before_start"))
     form.querySelector("#calendar-create-repeat-until").focus()
     return false
   }
@@ -14872,8 +14881,8 @@ function submitCalendarCreate(form) {
           if (result.data.request_id) form.querySelector('[name="request_id"]').value = result.data.request_id
           else if (window.crypto && typeof window.crypto.randomUUID === "function") form.querySelector('[name="request_id"]').value = window.crypto.randomUUID()
         }
-        var message = result.data.error || (editing ? "Could not update this event." : "Could not create this event. Try again.")
-        if (editing && (form._calendarCreateUncertain || form._calendarCreateConflict) && !result.data.error) message += " Refresh calendars and reopen this event to verify the saved details before editing again."
+        var message = result.data.error || (editing ? goferT("js.calendar.edit.failed") : goferT("js.calendar.create.failed"))
+        if (editing && (form._calendarCreateUncertain || form._calendarCreateConflict) && !result.data.error) message += " " + goferT("js.calendar.edit.verify")
         setCalendarCreateError(form, message)
         return
       }
@@ -14883,12 +14892,12 @@ function submitCalendarCreate(form) {
       // Close only this form; a delayed save must not close a newer dialog.
       if (form.isConnected && window.tui && window.tui.dialog) window.tui.dialog.close("calendar-create-dialog")
       var warning = result.data.teams_unconfirmed || result.data.google_meet_unconfirmed || result.data.refresh_pending
-      showGoferToast({title: editing ? (form.dataset.calendarEditSeries === "true" ? "Series updated" : "Event updated") : result.data.series_id ? "Recurring event created" : "Event created", description: result.data.teams_unconfirmed ? "Event saved, but Microsoft did not confirm a Teams link. Check the event in Outlook; do not create it again." : result.data.google_meet_unconfirmed ? "Event saved, but its Google Meet link is not ready. Refresh the calendar or check Google Calendar; do not create it again." : result.data.refresh_pending ? "Series saved. Its occurrences could not refresh yet; refresh the calendar to load them." : result.data.notify_guests ? "Meeting saved. Guest notifications are being delivered." : result.data.hidden ? "Saved to a hidden calendar. Enable its visibility to see it." : "Saved to your calendar.", variant: warning ? "warning" : "success", icon: warning ? "warning" : "success", duration: warning ? 10000 : 4500})
+      showGoferToast({title: editing ? (form.dataset.calendarEditSeries === "true" ? goferT("js.calendar.saved.series_updated") : goferT("js.calendar.saved.event_updated")) : result.data.series_id ? goferT("js.calendar.saved.recurring_created") : goferT("js.calendar.saved.event_created"), description: result.data.teams_unconfirmed ? goferT("js.calendar.saved.teams_unconfirmed") : result.data.google_meet_unconfirmed ? goferT("js.calendar.saved.meet_unconfirmed") : result.data.refresh_pending ? goferT("js.calendar.saved.refresh_pending") : result.data.notify_guests ? goferT("js.calendar.saved.notifying") : result.data.hidden ? goferT("js.calendar.saved.hidden") : goferT("js.calendar.saved.to_calendar"), variant: warning ? "warning" : "success", icon: warning ? "warning" : "success", duration: warning ? 10000 : 4500})
       scheduleCalendarCacheRefresh()
     })
     .catch(function () {
       form._calendarCreateUncertain = true
-      setCalendarCreateError(form, editing ? "The save result could not be confirmed. Refresh calendars and reopen this event to verify the saved details before editing again." : "The result could not be confirmed. Retry this same event to check without creating a duplicate.")
+      setCalendarCreateError(form, editing ? goferT("js.calendar.edit.unconfirmed") : goferT("js.calendar.create.unconfirmed"))
     })
     .finally(function () { form._calendarCreateBusy = false; updateCalendarCreateForm(form) })
 }
@@ -14948,7 +14957,7 @@ function updateCalendarResponseForm(form) {
   })
   var progress = form.querySelector("[data-calendar-response-progress]")
   if (!form._calendarResponseHelp) form._calendarResponseHelp = progress.textContent
-  progress.textContent = busy ? "Sending your response…" : form._calendarResponseLoader ? "Checking invitation…" : form._calendarResponseHelp
+  progress.textContent = busy ? goferT("js.calendar.response.sending") : form._calendarResponseLoader ? goferT("js.calendar.response.checking") : form._calendarResponseHelp
 }
 
 function setCalendarResponseError(form, message) {
@@ -14995,7 +15004,7 @@ document.body.addEventListener("htmx:afterRequest", function (event) {
     if (loading._calendarResponseLoader !== xhr) return
     delete loading._calendarResponseLoader
     if (!event.detail.successful && loading.isConnected) {
-      var message = xhr.status >= 400 && xhr.status < 500 && xhr.responseText && xhr.responseText.length < 600 ? xhr.responseText.trim() : "Could not check your response. Reopen the invitation or try the scope again."
+      var message = xhr.status >= 400 && xhr.status < 500 && xhr.responseText && xhr.responseText.length < 600 ? xhr.responseText.trim() : goferT("js.calendar.response.check_failed")
       setCalendarResponseError(loading, message)
       updateCalendarResponseForm(loading)
     }
@@ -15010,7 +15019,7 @@ document.body.addEventListener("htmx:afterRequest", function (event) {
     var result = JSON.parse(xhr.responseText)
     if (!event.detail.successful) {
       form._calendarResponseBlocked = !!result.uncertain || !!result.conflict
-      setCalendarResponseError(form, result.error || "Could not send your response. Try again.")
+      setCalendarResponseError(form, result.error || goferT("js.calendar.response.failed"))
     } else {
       if ((result.responded !== true && result.pending !== true) || (result.responded === true && result.pending === true) || result.event_id !== form.dataset.calendarEventId || result.scope !== request.scope || result.response !== request.response) throw new Error("Unconfirmed response")
       form._calendarResponseBlocked = true
@@ -15021,10 +15030,10 @@ document.body.addEventListener("htmx:afterRequest", function (event) {
         var deliveryDialog = form.closest("[data-tui-dialog]")
         if (form.isConnected && deliveryRoot && (!deliveryDialog || (deliveryDialog.open && !deliveryDialog.hasAttribute("data-tui-dialog-closing")))) {
           window.htmx.ajax("GET", "/api/calendar/replies/" + result.delivery_id, { target: deliveryRoot, swap: "innerHTML" }).catch(function () {
-            setCalendarResponseError(form, "Reply queued. Reopen this invitation to check delivery; do not send it again.")
+            setCalendarResponseError(form, goferT("js.calendar.response.queued_check"))
           })
         }
-        showGoferToast({title: "Reply queued", description: "The email reply will send in the background. Reopen the invitation to check delivery.", variant: "info", duration: 5000})
+        showGoferToast({title: goferT("js.calendar.response.queued"), description: goferT("js.calendar.response.queued_detail"), variant: "info", duration: 5000})
         return
       }
       var responseDialog = form.closest("[data-tui-dialog]")
@@ -15044,22 +15053,22 @@ document.body.addEventListener("htmx:afterRequest", function (event) {
           }
         }
         if (pending) {
-          form._calendarResponseHelp = "Response submitted. Refresh to check its status before responding again."
+          form._calendarResponseHelp = goferT("js.calendar.response.submitted_help")
           form.querySelector("[data-calendar-response-progress]").hidden = false
         } else {
           window.htmx.ajax("GET", mailFooter.getAttribute("hx-get"), {target: mailFooter, swap: "innerHTML"}).catch(function () {
-            form._calendarResponseHelp = "Response saved. Refresh to update the event information."
+            form._calendarResponseHelp = goferT("js.calendar.response.saved_help")
             form.querySelector("[data-calendar-response-progress]").hidden = false
             updateCalendarResponseForm(form)
           })
         }
       }
-      showGoferToast({title: result.pending ? "Response submitted" : "Response saved", description: result.pending ? "The provider is still processing your reply. Refresh the calendar to check its status; don't send it again." : result.refresh_pending ? "Your response was confirmed, but the calendar could not refresh yet." : request.scope === "series" ? "Your response to the series was confirmed." : "Your response was confirmed.", variant: pending ? "warning" : "success", icon: pending ? "warning" : "success", duration: pending ? 8000 : 4500})
+      showGoferToast({title: result.pending ? goferT("js.calendar.response.submitted") : goferT("js.calendar.response.saved"), description: result.pending ? goferT("js.calendar.response.processing") : result.refresh_pending ? goferT("js.calendar.response.confirmed_no_refresh") : request.scope === "series" ? goferT("js.calendar.response.confirmed_series") : goferT("js.calendar.response.confirmed"), variant: pending ? "warning" : "success", icon: pending ? "warning" : "success", duration: pending ? 8000 : 4500})
       scheduleCalendarCacheRefresh()
     }
   } catch (_) {
     form._calendarResponseBlocked = true
-    setCalendarResponseError(form, "The response could not be confirmed. Refresh the calendar and reopen the invitation before trying again.")
+    setCalendarResponseError(form, goferT("js.calendar.response.unconfirmed"))
   }
   updateCalendarResponseForm(form)
 })
@@ -15072,7 +15081,7 @@ function updateCalendarDeleteForm(form) {
   form.querySelector("[data-calendar-delete-cancel]").disabled = busy
   form.querySelector("[data-calendar-delete-spinner]").hidden = !busy
   form.querySelectorAll("[data-calendar-delete-load]").forEach(function (button) { button.disabled = locked })
-  form.querySelector("[data-calendar-delete-label]").textContent = busy ? "Deleting…" : form.dataset.calendarDeleteSeries === "true" ? "Delete series" : "Delete event"
+  form.querySelector("[data-calendar-delete-label]").textContent = busy ? goferT("js.calendar.delete.deleting") : form.dataset.calendarDeleteSeries === "true" ? goferT("js.calendar.delete.series") : goferT("js.calendar.delete.event")
   var root = form.closest("[data-tui-dialog]")
   if (root) root.querySelectorAll("[data-calendar-edit-trigger], [data-calendar-delete-trigger]").forEach(function (button) { button.disabled = locked })
 }
@@ -15106,15 +15115,15 @@ document.addEventListener("submit", function (event) {
       return response.json().then(function (data) { return {ok: response.ok, data: data} })
     })
     .then(function (result) {
-      if (!result.ok || result.data.forwarded !== true) { fail(result.data.error || "Could not forward the invitation."); return }
+      if (!result.ok || result.data.forwarded !== true) { fail(result.data.error || goferT("js.calendar.forward.failed")); return }
       form._calendarForwardBusy = false
       submit.disabled = false
       form.reset()
       var root = form.closest("[data-tui-popover-root]")
       if (root && window.tui && window.tui.popover) window.tui.popover.closeElement(root)
-      showGoferToast({title: "Invitation forwarded", description: result.data.delivery === "email" ? "It's being sent from your account." : "Sent by Microsoft.", variant: "success", icon: "success", duration: 3500})
+      showGoferToast({title: goferT("js.calendar.forward.done"), description: result.data.delivery === "email" ? goferT("js.calendar.forward.from_account") : goferT("js.calendar.forward.by_microsoft"), variant: "success", icon: "success", duration: 3500})
     })
-    .catch(function () { fail("Could not forward the invitation. Check your connection and try again.") })
+    .catch(function () { fail(goferT("js.calendar.forward.offline")) })
 })
 
 document.addEventListener("click", function (event) {
@@ -15170,7 +15179,7 @@ document.body.addEventListener("htmx:afterRequest", function (event) {
     delete loading._calendarDeleteLoader
     if (!event.detail.successful && loading.isConnected) {
       loading.querySelector("[data-calendar-delete-check]").hidden = true
-      var message = xhr.status >= 400 && xhr.status < 500 && xhr.responseText && xhr.responseText.length < 600 ? xhr.responseText.trim() : "Could not check the selection. Choose the scope again or reopen this confirmation to retry."
+      var message = xhr.status >= 400 && xhr.status < 500 && xhr.responseText && xhr.responseText.length < 600 ? xhr.responseText.trim() : goferT("js.calendar.delete.check_failed")
       setCalendarDeleteError(loading, message)
       updateCalendarDeleteForm(loading)
     }
@@ -15186,7 +15195,7 @@ document.body.addEventListener("htmx:afterRequest", function (event) {
     var result = JSON.parse(xhr.responseText)
     if (!event.detail.successful) {
       form._calendarDeleteBlocked = !!result.uncertain || !!result.conflict
-      setCalendarDeleteError(form, result.error || (form._calendarDeleteBlocked ? "Refresh the calendar and reopen the event before trying again." : "Could not delete the event. Try again."))
+      setCalendarDeleteError(form, result.error || (form._calendarDeleteBlocked ? goferT("js.calendar.refresh_reopen") : goferT("js.calendar.delete.failed")))
     } else {
       if (result.deleted !== true || result.event_id !== form.dataset.calendarEventId) throw new Error("Unconfirmed deletion")
       if (form.dataset.calendarDeleteSeries === "true" && (!result.series_id || result.series_id !== form.dataset.calendarDeleteSeriesId)) throw new Error("Unconfirmed series deletion")
@@ -15196,12 +15205,12 @@ document.body.addEventListener("htmx:afterRequest", function (event) {
         if (window.tui.popover) window.tui.popover.closeElement(form)
         if (window.tui.dialog) window.tui.dialog.close(form.closest("[data-tui-dialog]"))
       }
-      showGoferToast({title: form.dataset.calendarDeleteSeries === "true" ? "Series deleted" : "Event deleted", description: form.dataset.calendarDeleteSeries === "true" ? "All occurrences were removed from your calendar." : form.dataset.calendarDeleteOccurrence === "true" ? "Only this occurrence was removed. The rest of the series is unchanged." : "Removed from your calendar.", variant: "success", icon: "success", duration: 4500})
+      showGoferToast({title: form.dataset.calendarDeleteSeries === "true" ? goferT("js.calendar.delete.series_done") : goferT("js.calendar.delete.done"), description: form.dataset.calendarDeleteSeries === "true" ? goferT("js.calendar.delete.series_done_detail") : form.dataset.calendarDeleteOccurrence === "true" ? goferT("js.calendar.delete.occurrence_done") : goferT("js.calendar.delete.removed"), variant: "success", icon: "success", duration: 4500})
       scheduleCalendarCacheRefresh()
     }
   } catch (_) {
     form._calendarDeleteBlocked = true
-    setCalendarDeleteError(form, "The deletion could not be confirmed. Refresh the calendar and reopen the event before trying again.")
+    setCalendarDeleteError(form, goferT("js.calendar.delete.unconfirmed"))
   }
   updateCalendarDeleteForm(form)
 })
@@ -15306,7 +15315,8 @@ document.addEventListener("contextmenu", function (event) {
   var context = {id: eventID, trigger: trigger, actions: null}
   _calendarContext = context
   var title = root.querySelector("[data-calendar-context-title]")
-  if (title) title.textContent = trigger.getAttribute("title") || (trigger.getAttribute("aria-label") || "").replace(/^Open (all-day )?event: /, "") || "Event"
+  var eventText = trigger.querySelector("[data-calendar-event-text]")
+  if (title) title.textContent = trigger.getAttribute("title") || (eventText ? eventText.textContent.trim() : "") || goferT("js.calendar.event.fallback")
   var loading = root.querySelector("[data-calendar-context-loading]")
   fillCalendarContextMenu(root, null)
   if (loading) loading.hidden = true
@@ -15427,7 +15437,7 @@ function openCalendarContextEditor(context, scope) {
 
 function calendarContextLabel(context) {
   var title = document.querySelector("#calendar-context-menu [data-calendar-context-title]")
-  return title && title.textContent ? title.textContent : "This event"
+  return title && title.textContent ? title.textContent : goferT("js.calendar.event.this")
 }
 
 // One event, or one occurrence of a series: asked here, then deleted as the
@@ -15439,10 +15449,10 @@ function deleteCalendarContextEvent(context, occurrence) {
     return
   }
   window.goferConfirm({
-    title: occurrence ? "Delete this occurrence?" : "Delete this event?",
-    message: calendarContextLabel(context) + (occurrence ? " will be removed. The rest of the series is unchanged." : " will be removed from your calendar."),
+    title: occurrence ? goferT("js.calendar.delete.confirm_occurrence") : goferT("js.calendar.delete.confirm_event"),
+    message: goferT(occurrence ? "js.calendar.delete.confirm_occurrence_detail" : "js.calendar.delete.confirm_event_detail", { event: calendarContextLabel(context) }),
     destructive: true,
-    confirmLabel: "Delete event",
+    confirmLabel: goferT("js.calendar.delete.event"),
   }).then(function (accepted) {
     if (!accepted) return
     var params = new URLSearchParams({version: a.delete_version})
@@ -15454,15 +15464,15 @@ function deleteCalendarContextEvent(context, occurrence) {
       .then(function (answer) {
         var result = answer.result || {}
         if (!answer.ok) {
-          showGoferToast({title: "Couldn't delete the event", description: result.error || (result.uncertain || result.conflict ? "Refresh the calendar and reopen the event before trying again." : "Try again."), variant: "error", icon: "error", duration: 8000})
+          showGoferToast({title: goferT("js.calendar.delete.failed_title"), description: result.error || (result.uncertain || result.conflict ? goferT("js.calendar.refresh_reopen") : goferT("js.calendar.try_again")), variant: "error", icon: "error", duration: 8000})
           return
         }
         if (result.deleted !== true || result.event_id !== context.id || (occurrence && result.scope !== "occurrence")) throw new Error("Unconfirmed deletion")
-        showGoferToast({title: "Event deleted", description: occurrence ? "Only this occurrence was removed. The rest of the series is unchanged." : "Removed from your calendar.", variant: "success", icon: "success", duration: 4500})
+        showGoferToast({title: goferT("js.calendar.delete.done"), description: occurrence ? goferT("js.calendar.delete.occurrence_done") : goferT("js.calendar.delete.removed"), variant: "success", icon: "success", duration: 4500})
         scheduleCalendarCacheRefresh()
       })
       .catch(function () {
-        showGoferToast({title: "Deletion not confirmed", description: "Refresh the calendar and reopen the event before trying again.", variant: "error", icon: "error", duration: 8000})
+        showGoferToast({title: goferT("js.calendar.delete.not_confirmed"), description: goferT("js.calendar.refresh_reopen"), variant: "error", icon: "error", duration: 8000})
       })
   })
 }
@@ -15512,20 +15522,20 @@ function sendCalendarContextResponse(context, response) {
     .then(function (answer) {
       var result = answer.result || {}
       if (!answer.ok) {
-        showGoferToast({title: "Couldn't send your response", description: result.error || (result.uncertain || result.conflict ? "Refresh the calendar and reopen the invitation before trying again." : "Try again."), variant: "error", icon: "error", duration: 8000})
+        showGoferToast({title: goferT("js.calendar.response.failed_title"), description: result.error || (result.uncertain || result.conflict ? goferT("js.calendar.response.refresh_reopen") : goferT("js.calendar.try_again")), variant: "error", icon: "error", duration: 8000})
         return
       }
       if ((result.responded !== true && result.pending !== true) || (result.responded === true && result.pending === true) || result.event_id !== context.id || result.scope !== state.scope || result.response !== response) throw new Error("Unconfirmed response")
       if (result.delivery === "email") {
-        showGoferToast({title: "Reply queued", description: "The email reply will send in the background. Reopen the invitation to check delivery.", variant: "info", duration: 5000})
+        showGoferToast({title: goferT("js.calendar.response.queued"), description: goferT("js.calendar.response.queued_detail"), variant: "info", duration: 5000})
         return
       }
       var pending = result.pending || result.refresh_pending
-      showGoferToast({title: result.pending ? "Response submitted" : "Response saved", description: result.pending ? "The provider is still processing your reply. Refresh the calendar to check its status; don't send it again." : result.refresh_pending ? "Your response was confirmed, but the calendar could not refresh yet." : state.scope === "series" ? "Your response to the series was confirmed." : "Your response was confirmed.", variant: pending ? "warning" : "success", icon: pending ? "warning" : "success", duration: pending ? 8000 : 4500})
+      showGoferToast({title: result.pending ? goferT("js.calendar.response.submitted") : goferT("js.calendar.response.saved"), description: result.pending ? goferT("js.calendar.response.processing") : result.refresh_pending ? goferT("js.calendar.response.confirmed_no_refresh") : state.scope === "series" ? goferT("js.calendar.response.confirmed_series") : goferT("js.calendar.response.confirmed"), variant: pending ? "warning" : "success", icon: pending ? "warning" : "success", duration: pending ? 8000 : 4500})
       scheduleCalendarCacheRefresh()
     })
     .catch(function () {
-      showGoferToast({title: "Response not confirmed", description: "Refresh the calendar and reopen the invitation before trying again.", variant: "error", icon: "error", duration: 8000})
+      showGoferToast({title: goferT("js.calendar.response.not_confirmed"), description: goferT("js.calendar.response.refresh_reopen"), variant: "error", icon: "error", duration: 8000})
     })
 }
 
@@ -15549,10 +15559,8 @@ function formatCalendarSyncTime(value, full) {
   if (!value || isNaN(at.getTime())) return ""
   var calendar = document.getElementById("calendar-main")
   var zone = calendar && calendar.dataset.calendarTimezone
-  var options = { hour: "2-digit", minute: "2-digit", hour12: false }
-  if (full) { options.year = "numeric"; options.month = "short"; options.day = "numeric" }
-  if (zone && zone !== "Local" && zone !== "local") options.timeZone = zone
-  try { return at.toLocaleString("en-GB", options) } catch (_) { delete options.timeZone; return at.toLocaleString("en-GB", options) }
+  if (!zone || zone === "Local" || zone === "local") zone = undefined
+  return full ? goferDates.dateTime(at, zone) : goferDates.time(at, zone)
 }
 
 function updateCalendarSyncPresentation() {
@@ -15579,10 +15587,10 @@ function updateCalendarSyncPresentation() {
     node.dataset.calendarNextAttempt = state.next_attempt_at || ""
     var iconState = state.state === "ok" && !state.last_synced_at ? "pending" : state.state
     node.querySelectorAll("[data-calendar-source-sync-icon]").forEach(function (icon) { icon.hidden = icon.dataset.calendarSourceSyncIcon !== iconState })
-    var title = state.state === "syncing" ? "Refreshing calendar…" : state.state === "failed" ?
-      "Refresh failed: " + (state.error || "Could not connect.") + " Cached events remain available." : state.last_synced_at ?
-      "Last synced " + formatCalendarSyncTime(state.last_synced_at, true) : "Waiting for first refresh"
-    if (state.state === "failed" && state.next_attempt_at) title += " Retrying at " + formatCalendarSyncTime(state.next_attempt_at, false) + "."
+    var title = state.state === "syncing" ? goferT("js.calendar.sync.refreshing_one") : state.state === "failed" ?
+      goferT("js.calendar.sync.source_failed", { error: state.error || goferT("js.calendar.sync.could_not_connect") }) : state.last_synced_at ?
+      goferT("js.calendar.sync.last", { time: formatCalendarSyncTime(state.last_synced_at, true) }) : goferT("js.calendar.sync.waiting")
+    if (state.state === "failed" && state.next_attempt_at) title += " " + goferT("js.calendar.sync.retrying_at", { time: formatCalendarSyncTime(state.next_attempt_at, false) })
     node.title = title
     node.setAttribute("aria-label", title)
     sources.push(state)
@@ -15600,22 +15608,22 @@ function updateCalendarSyncPresentation() {
   }, Infinity)
   var synced = !pending && isFinite(last)
   _setCalendarSyncBusy(busy)
-  var message = busy ? "Refreshing calendars…" : failed ? failed + " calendar(s) could not refresh. Retrying automatically." :
-    synced ? "Last synced " + formatCalendarSyncTime(last, false) : "Waiting for first refresh"
+  var message = busy ? goferT("js.calendar.sync.refreshing") : failed ? goferTn("js.calendar.sync.failed_count", failed) :
+    synced ? goferT("js.calendar.sync.last", { time: formatCalendarSyncTime(last, false) }) : goferT("js.calendar.sync.waiting")
   document.querySelectorAll("[data-calendar-sync-status]").forEach(function (node) {
     node.textContent = message
     node.parentElement.className = "inline-flex items-center gap-1.5 " + (busy ? "text-muted-foreground" : failed ? "text-destructive" : synced ? "text-emerald-700 dark:text-emerald-300" : "text-muted-foreground")
   })
   document.querySelectorAll("[data-calendar-sync-label]").forEach(function (node) {
-    node.textContent = busy ? "Refreshing calendars" : failed ? "Calendar sync needs attention" : synced ? "Calendar synchronized" : "Calendar sync pending"
+    node.textContent = busy ? goferT("js.calendar.sync.label.busy") : failed ? goferT("js.calendar.sync.label.failed") : synced ? goferT("js.calendar.sync.label.synced") : goferT("js.calendar.sync.label.pending")
     node.parentElement.className = "flex items-center gap-2 text-xs font-semibold " + (!busy && failed ? "text-destructive" : "text-foreground")
   })
   document.querySelectorAll("[data-calendar-sync-dot]").forEach(function (node) {
     node.className = "size-2 rounded-full " + (busy ? "bg-primary animate-pulse" : failed ? "bg-destructive" : synced ? "bg-emerald-500" : "bg-muted-foreground/50")
   })
   document.querySelectorAll("[data-calendar-sync-detail]").forEach(function (node) {
-    node.textContent = busy ? "Fetching events from your selected calendars." : failed ? "Previously cached events remain available. " + message :
-      synced ? message + ". Background refresh is enabled." : "Waiting for the first successful refresh. Cached events remain available."
+    node.textContent = busy ? goferT("js.calendar.sync.detail.busy") : failed ? goferT("js.calendar.sync.detail.failed", { status: message }) :
+      synced ? goferT("js.calendar.sync.detail.synced", { time: formatCalendarSyncTime(last, false) }) : goferT("js.calendar.sync.detail.pending")
   })
 }
 
@@ -15690,7 +15698,7 @@ document.addEventListener("click", function (event) {
     headers: { "Accept": "text/plain" },
   }).then(function (response) {
     if (response.ok) return
-    return response.text().then(function (text) { throw new Error((text || "").trim() || "Please try again.") })
+    return response.text().then(function (text) { throw new Error((text || "").trim() || goferT("js.common.please_try_again")) })
   }).then(function () {
     refreshCalendarSidebar()
     scheduleCalendarCacheRefresh()
@@ -15698,7 +15706,7 @@ document.addEventListener("click", function (event) {
     button.disabled = false
     button.removeAttribute("aria-busy")
     if (icon) icon.classList.remove("animate-pulse")
-    showGoferToast({ title: start ? "Could not sync this calendar" : "Could not stop syncing this calendar", description: error && error.message ? error.message : "Please try again.", variant: "error", icon: "error", position: "bottom-right", duration: 6000, dismissible: true })
+    showGoferToast({ title: start ? goferT("js.calendar.source.sync_failed") : goferT("js.calendar.source.stop_failed"), description: error && error.message ? error.message : goferT("js.common.please_try_again"), variant: "error", icon: "error", position: "bottom-right", duration: 6000, dismissible: true })
   })
 })
 
@@ -15707,15 +15715,13 @@ document.addEventListener("click", function (event) {
 // can't change the account's own calendar list, and offers to sign the
 // account in again allowing it, coming back to this page.
 function offerFullCalendarAccess(data, action) {
-  var name = data.calendarSourceName || "this calendar"
+  var name = data.calendarSourceName || goferT("js.calendar.source.this")
   var personal = action === "rename-mine" || action === "remove"
-  var doing = { "delete": "delete", "rename-mine": "rename", remove: "remove" }[action] || "rename"
+  var doing = { "delete": "delete", "rename-mine": "rename_mine", remove: "remove" }[action] || "rename"
   window.goferConfirm({
-    title: "Allow Gofer to " + doing + " “" + name + "”" + (personal ? " just for you" : "") + "?",
-    message: personal
-      ? "Google lets Gofer change your calendar list only with full calendar access. Allow it to rename or remove “" + name + "” and other calendars shared with you, just for you, from here: Google asks you to sign in again and confirm, then brings you back."
-      : "Google lets Gofer rename and delete only the calendars it created. Allow full calendar access to manage “" + name + "” and every other calendar you own from here: Google asks you to sign in again and confirm, then brings you back.",
-    confirmLabel: "Allow full calendar access",
+    title: goferT("js.calendar.access.title." + doing, { calendar: name }),
+    message: goferT(personal ? "js.calendar.access.personal" : "js.calendar.access.owned", { calendar: name }),
+    confirmLabel: goferT("js.calendar.access.allow"),
   }).then(function (accepted) {
     if (!accepted) return
     var form = document.createElement("form")
@@ -15755,31 +15761,33 @@ document.addEventListener("click", function (event) {
   var personal = button.hasAttribute("data-calendar-source-rename-mine") || button.hasAttribute("data-calendar-source-remove")
   var rename = button.hasAttribute("data-calendar-source-rename") || button.hasAttribute("data-calendar-source-rename-mine")
   var sourceID = button.dataset.calendarSourceRename || button.dataset.calendarSourceDelete || button.dataset.calendarSourceRenameMine || button.dataset.calendarSourceRemove
-  var name = button.dataset.calendarSourceName || "this calendar"
+  var name = button.dataset.calendarSourceName || goferT("js.calendar.source.this")
   var ask = personal && rename
     ? window.goferPrompt({
-      title: "Rename just for you",
-      message: "Only you see this name, in Gofer and in Google Calendar on this account. Its owner and everyone else it's shared with still see the calendar's own name.",
-      label: "Calendar name", value: name, confirmLabel: "Rename",
+      title: goferT("js.calendar.source.rename_mine"),
+      message: goferT("js.calendar.source.rename_mine_detail"),
+      label: goferT("js.calendar.source.name"), value: name, confirmLabel: goferT("js.common.rename"),
     }).then(function (next) {
       next = (next || "").trim()
       return next && next !== name ? { method: "PATCH", body: JSON.stringify({ name: next, just_for_me: true }) } : null
     })
     : personal
     ? window.goferConfirm({
-      title: "Remove “" + name + "” from your list?",
-      message: "“" + name + "” disappears from Gofer and from Google Calendar on this account. The calendar and its events stay as they are for its owner and everyone else it's shared with, and you can add it again in Google Calendar.",
-      confirmLabel: "Remove from your list",
+      title: goferT("js.calendar.source.remove_title", { calendar: name }),
+      message: goferT("js.calendar.source.remove_detail", { calendar: name }),
+      confirmLabel: goferT("js.calendar.source.remove"),
     }).then(function (accepted) { return accepted ? { method: "DELETE", query: "?just_for_me=1" } : null })
     : rename
-    ? window.goferPrompt({ title: "Rename calendar", label: "Calendar name", value: name, confirmLabel: "Rename" }).then(function (next) {
+    ? window.goferPrompt({ title: goferT("js.calendar.source.rename"), label: goferT("js.calendar.source.name"), value: name, confirmLabel: goferT("js.common.rename") }).then(function (next) {
       next = (next || "").trim()
       return next && next !== name ? { method: "PATCH", body: JSON.stringify({ name: next }) } : null
     })
     : window.goferConfirm({
-      title: "Delete “" + name + "”?",
-      message: "“" + name + "” and all its events are deleted from " + (button.dataset.calendarProvider || "its server") + ", for every app and device that uses it. This can't be undone.",
-      confirmLabel: "Delete calendar",
+      title: goferT("js.calendar.source.delete_title", { calendar: name }),
+      message: button.dataset.calendarProvider
+        ? goferT("js.calendar.source.delete_detail", { calendar: name, provider: button.dataset.calendarProvider })
+        : goferT("js.calendar.source.delete_detail_server", { calendar: name }),
+      confirmLabel: goferT("js.calendar.source.delete"),
       destructive: true,
     }).then(function (accepted) { return accepted ? { method: "DELETE" } : null })
   ask.then(function (request) {
@@ -15792,17 +15800,17 @@ document.addEventListener("click", function (event) {
       if (response.ok) {
         refreshCalendarSidebar()
         scheduleCalendarCacheRefresh()
-        showGoferToast({ title: rename ? "Calendar renamed" : personal ? "Calendar removed from your list" : "Calendar deleted", variant: "success", icon: "success", position: "bottom-right", duration: 3000, dismissible: true })
+        showGoferToast({ title: rename ? goferT("js.calendar.source.renamed") : personal ? goferT("js.calendar.source.removed") : goferT("js.calendar.source.deleted"), variant: "success", icon: "success", position: "bottom-right", duration: 3000, dismissible: true })
         return
       }
       if (response.headers.get("X-Gofer-Needs-Calendar-Access") === "google") {
         offerFullCalendarAccess(button.dataset, personal ? (rename ? "rename-mine" : "remove") : rename ? "rename" : "delete")
         return
       }
-      return response.text().then(function (text) { throw new Error((text || "").trim() || "Please try again.") })
+      return response.text().then(function (text) { throw new Error((text || "").trim() || goferT("js.common.please_try_again")) })
     })
   }).catch(function (error) {
-    showGoferToast({ title: rename ? "Could not rename the calendar" : personal ? "Could not remove the calendar" : "Could not delete the calendar", description: error && error.message ? error.message : "Please try again.", variant: "error", icon: "error", position: "bottom-right", duration: 6000, dismissible: true })
+    showGoferToast({ title: rename ? goferT("js.calendar.source.rename_failed") : personal ? goferT("js.calendar.source.remove_failed") : goferT("js.calendar.source.delete_failed"), description: error && error.message ? error.message : goferT("js.common.please_try_again"), variant: "error", icon: "error", position: "bottom-right", duration: 6000, dismissible: true })
   })
 })
 
@@ -15832,7 +15840,7 @@ function updateCalendarImportNameField(form) {
 function downloadCalendarExport(href) {
   var filename = "calendar.ics"
   return fetch(href, { headers: { "Accept": "text/calendar" } }).then(function (response) {
-    if (!response.ok) return response.text().then(function (text) { throw new Error((text || "").trim() || "Please try again.") })
+    if (!response.ok) return response.text().then(function (text) { throw new Error((text || "").trim() || goferT("js.common.please_try_again")) })
     var match = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(response.headers.get("Content-Disposition") || "")
     if (match) { try { filename = decodeURIComponent(match[1]) } catch (e) { filename = match[1] } }
     return response.blob()
@@ -15900,9 +15908,9 @@ document.addEventListener("submit", function (event) {
   var target = (form.querySelector("input[name='target']") || {}).value || ""
   var nameInput = form.querySelector("[data-calendar-import-name]")
   var name = nameInput ? nameInput.value.trim() : ""
-  var problem = !file ? "Choose an .ics file." : !target ? "Choose a calendar to import into." : target.indexOf("account:") === 0 && !name ? "Enter a name for the new calendar." : ""
+  var problem = !file ? goferT("js.calendar.import.no_file") : !target ? goferT("js.calendar.import.no_target") : target.indexOf("account:") === 0 && !name ? goferT("js.calendar.import.no_name") : ""
   if (problem) {
-    showGoferToast({ title: "Could not import the events", description: problem, variant: "error", icon: "error", position: "bottom-right", duration: 5000, dismissible: true })
+    showGoferToast({ title: goferT("js.calendar.import.failed"), description: problem, variant: "error", icon: "error", position: "bottom-right", duration: 5000, dismissible: true })
     return
   }
   var creating = target.indexOf("account:") === 0
@@ -15918,7 +15926,7 @@ document.addEventListener("submit", function (event) {
   var showProgress = function (done, total, text) {
     if (progress) progress.hidden = false
     if (progressLabel) progressLabel.textContent = text
-    if (progressCount) progressCount.textContent = total ? done + " of " + total : ""
+    if (progressCount) progressCount.textContent = total ? goferT("js.calendar.import.progress", { done: goferNumber(done), total: goferNumber(total) }) : ""
     var percent = total ? Math.round(done / total * 100) : 0
     if (progressBar) {
       progressBar.setAttribute("aria-valuenow", String(percent))
@@ -15927,17 +15935,17 @@ document.addEventListener("submit", function (event) {
     }
   }
   if (submit) { submit.disabled = true; submit.setAttribute("aria-busy", "true") }
-  if (label) label.textContent = "Importing…"
-  showProgress(0, 0, creating ? "Creating the calendar…" : "Signing in to the calendar…")
+  if (label) label.textContent = goferT("js.calendar.import.importing")
+  showProgress(0, 0, creating ? goferT("js.calendar.import.creating") : goferT("js.calendar.import.signing_in"))
   var done = function () {
     if (submit) { submit.disabled = false; submit.removeAttribute("aria-busy") }
-    if (label) label.textContent = "Import events"
+    if (label) label.textContent = goferT("js.calendar.import.submit")
     if (progress) progress.hidden = true
   }
   // The server answers with JSON lines while it imports: progress, then the
   // result or an error. An error before it starts is a plain text answer.
   var readImport = function (response) {
-    if (!response.ok) return response.text().then(function (text) { throw new Error((text || "").trim() || "Please try again.") })
+    if (!response.ok) return response.text().then(function (text) { throw new Error((text || "").trim() || goferT("js.common.please_try_again")) })
     if ((response.headers.get("Content-Type") || "").indexOf("application/x-ndjson") !== 0 || !response.body) return response.json()
     var reader = response.body.getReader()
     var decoder = new TextDecoder()
@@ -15948,7 +15956,7 @@ document.addEventListener("submit", function (event) {
       var message = JSON.parse(text)
       if (message.error) throw new Error(message.error)
       if (typeof message.total === "number") {
-        showProgress(message.done, message.total, "Adding events to the calendar…")
+        showProgress(message.done, message.total, goferT("js.calendar.import.adding"))
         return
       }
       last = message
@@ -15957,7 +15965,7 @@ document.addEventListener("submit", function (event) {
       return reader.read().then(function (chunk) {
         if (chunk.done) {
           handle(buffered)
-          if (!last) throw new Error("The import stopped before it finished. Importing the file again skips the events already added.")
+          if (!last) throw new Error(goferT("js.calendar.import.stopped"))
           return last
         }
         buffered += decoder.decode(chunk.value, { stream: true })
@@ -15979,15 +15987,15 @@ document.addEventListener("submit", function (event) {
     var added = result.added || 0
     var existing = result.existing || 0
     var failed = result.failed || 0
-    var into = result.calendar ? (result.created ? " into the new calendar “" + result.calendar + "”" : " into “" + result.calendar + "”") : ""
+    var doneKey = result.calendar ? (result.created ? "js.calendar.import.done_new" : "js.calendar.import.done_into") : "js.calendar.import.done"
     // Events already there are left as they are; ones the calendar couldn't
     // take are counted apart, with why the first of them failed.
     var notes = []
-    if (existing) notes.push(existing === 1 ? "1 event was already in the calendar." : existing + " events were already in the calendar.")
-    if (failed) notes.push((failed === 1 ? "1 event couldn't be imported. " : failed + " events couldn't be imported. ") + (result.reason || ""))
+    if (existing) notes.push(goferTn("js.calendar.import.existing", existing))
+    if (failed) notes.push(goferTn("js.calendar.import.failed_count", failed) + " " + (result.reason || ""))
     var warning = failed > 0
     showGoferToast({
-      title: (added === 1 ? "1 event imported" : added + " events imported") + into,
+      title: goferTn(doneKey, added, { calendar: result.calendar || "" }),
       description: notes.join(" ").trim(),
       variant: warning ? "warning" : "success", icon: warning ? "warning" : "success", position: "bottom-right", duration: failed ? 12000 : existing ? 6000 : 4000, dismissible: true,
     })
@@ -15998,7 +16006,7 @@ document.addEventListener("submit", function (event) {
   }).catch(function (error) {
     done()
     if (creating) refreshCalendarSidebar()
-    showGoferToast({ title: "Could not import the events", description: error && error.message ? error.message : "Please try again.", variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
+    showGoferToast({ title: goferT("js.calendar.import.failed"), description: error && error.message ? error.message : goferT("js.common.please_try_again"), variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
   })
 })
 
@@ -16013,7 +16021,7 @@ document.addEventListener("submit", function (event) {
   downloadCalendarExport("/api/calendar/sources/" + encodeURIComponent(sourceID) + "/export").then(function () {
     if (window.tui && window.tui.dialog) window.tui.dialog.close("calendar-export-dialog")
   }).catch(function (error) {
-    showGoferToast({ title: "Could not export the calendar", description: error && error.message ? error.message : "Please try again.", variant: "error", icon: "error", position: "bottom-right", duration: 6000, dismissible: true })
+    showGoferToast({ title: goferT("js.calendar.export.failed"), description: error && error.message ? error.message : goferT("js.common.please_try_again"), variant: "error", icon: "error", position: "bottom-right", duration: 6000, dismissible: true })
   }).then(function () {
     if (submit) submit.disabled = false
   })
@@ -16024,7 +16032,7 @@ document.addEventListener("click", function (event) {
   if (!link) return
   event.preventDefault()
   downloadCalendarExport(link.getAttribute("href")).catch(function (error) {
-    showGoferToast({ title: "Could not export the calendar", description: error && error.message ? error.message : "Please try again.", variant: "error", icon: "error", position: "bottom-right", duration: 6000, dismissible: true })
+    showGoferToast({ title: goferT("js.calendar.export.failed"), description: error && error.message ? error.message : goferT("js.common.please_try_again"), variant: "error", icon: "error", position: "bottom-right", duration: 6000, dismissible: true })
   })
 })
 
@@ -16108,18 +16116,18 @@ function _setCalendarSyncBusy(busy) {
   })
   if (!busy) return
   document.querySelectorAll("[data-calendar-sync-status]").forEach(function (status) {
-    status.textContent = "Refreshing calendars…"
+    status.textContent = goferT("js.calendar.sync.refreshing")
     status.parentElement.className = "inline-flex items-center gap-1.5 text-muted-foreground"
   })
   document.querySelectorAll("[data-calendar-sync-label]").forEach(function (label) {
-    label.textContent = "Refreshing calendars"
+    label.textContent = goferT("js.calendar.sync.label.busy")
     label.parentElement.className = "flex items-center gap-2 text-xs font-semibold text-foreground"
   })
   document.querySelectorAll("[data-calendar-sync-dot]").forEach(function (dot) {
     dot.className = "size-2 rounded-full bg-primary animate-pulse"
   })
   document.querySelectorAll("[data-calendar-sync-detail]").forEach(function (detail) {
-    detail.textContent = "Fetching events from your selected calendars."
+    detail.textContent = goferT("js.calendar.sync.detail.busy")
   })
 }
 
@@ -16158,13 +16166,13 @@ function handleCalendarSyncResult(event) {
   updateCalendarSyncPresentation()
   if (_calendarCacheRefreshPending) scheduleCalendarCacheRefresh()
   if (event.detail.successful) return
-  var message = "Calendar refresh failed. Cached events are still available."
+  var message = goferT("js.calendar.sync.refresh_failed_detail")
   document.querySelectorAll("[data-calendar-sync-status]").forEach(function (status) {
     status.textContent = message
     status.parentElement.className = "inline-flex items-center gap-1.5 text-destructive"
   })
   document.querySelectorAll("[data-calendar-sync-label]").forEach(function (label) {
-    label.textContent = "Calendar refresh failed"
+    label.textContent = goferT("js.calendar.sync.refresh_failed")
     label.parentElement.className = "flex items-center gap-2 text-xs font-semibold text-destructive"
   })
   document.querySelectorAll("[data-calendar-sync-dot]").forEach(function (dot) {
@@ -16185,8 +16193,8 @@ function handleContactSidebarSyncStart(event) {
   var label = _contactSidebarSyncButtonLabel(button)
   showGoferToast({
     id: "contact-sync-toast",
-    title: "Syncing contacts",
-    description: label ? "Checking " + label + " address books..." : "Checking connected address books...",
+    title: goferT("js.contacts.sidebar_sync.title"),
+    description: label ? goferT("js.contacts.sidebar_sync.checking_account", { account: label }) : goferT("js.contacts.sidebar_sync.checking"),
     variant: "info",
     icon: "spinner",
     position: "bottom-right",
@@ -16201,7 +16209,7 @@ function handleContactSidebarSyncResult(event) {
   _setContactSidebarSyncButtonBusy(button, false)
   _contactSidebarSyncActiveButton = null
   var ok = !!(event && event.detail && event.detail.successful) && (!xhr || xhr.getResponseHeader("X-Gofer-Status") !== "error")
-  var message = "Contact sync finished."
+  var message = goferT("js.contacts.sidebar_sync.finished")
   if (xhr && xhr.responseText) {
     var div = document.createElement("div")
     div.innerHTML = xhr.responseText
@@ -16209,7 +16217,7 @@ function handleContactSidebarSyncResult(event) {
   }
   showGoferToast({
     id: "contact-sync-toast",
-    title: ok ? "Contacts synced" : "Contact sync failed",
+    title: ok ? goferT("js.contacts.sidebar_sync.done") : goferT("js.contacts.sidebar_sync.failed"),
     description: message,
     variant: ok ? "success" : "error",
     icon: ok ? "success" : "error",
@@ -16467,7 +16475,7 @@ function _renderComposeOneTimeDisplay(form) {
   if (!row || !display) return
   var name = String(row.querySelector("[data-compose-one-time-name]").value || "").trim()
   var email = String(row.querySelector("[data-compose-one-time-email]").value || "").trim()
-  if (!email) display.textContent = "Custom From"
+  if (!email) display.textContent = goferT("js.compose.from.custom")
   else display.textContent = (name ? name + " <" : "") + email + (name ? ">" : "")
 }
 
@@ -16477,14 +16485,14 @@ function composeOneTimeFromError(form) {
   if (!composeOneTimeActive(form)) return ""
   var row = composeOneTimeRow(form)
   var email = String(row.querySelector("[data-compose-one-time-email]").value || "").trim()
-  if (!email) return "Enter the address to send from."
-  if (!_isComposeRecipientValid(email) || email.indexOf("*") >= 0) return "Enter a valid address to send from."
+  if (!email) return goferT("js.compose.from.need_address")
+  if (!_isComposeRecipientValid(email) || email.indexOf("*") >= 0) return goferT("js.compose.from.invalid")
   var route = _selectedComposeOneTimeRoute(row)
-  if (!route) return "Choose a server to send it."
+  if (!route) return goferT("js.compose.from.need_server")
   if (route.dataset.fromKind === "domains") {
     var domain = email.slice(email.lastIndexOf("@") + 1).toLowerCase()
     var domains = String(route.dataset.fromDomains || "").toLowerCase().split(/\s+/).filter(Boolean)
-    if (domains.indexOf(domain) < 0) return "This server sends only from addresses at " + domains.join(", ") + "."
+    if (domains.indexOf(domain) < 0) return goferT("js.compose.from.domains_only", { domains: domains.join(", ") })
   }
   return ""
 }
@@ -16645,7 +16653,7 @@ function composeModeForForm(form) {
 
 // The compose title names the kind of message being written. Reply-all is stored as
 // compose mode "reply", so the form also keeps the kind it was opened as.
-var COMPOSE_TITLES = { "new": "New message", reply: "Reply", "reply-all": "Reply all", forward: "Forward" }
+var COMPOSE_TITLES = { "new": goferT("js.compose.title.new"), reply: goferT("js.mail.action.reply"), "reply-all": goferT("js.mail.action.reply_all"), forward: goferT("js.mail.action.forward") }
 
 function setComposeKind(form, kind) {
   if (!form) return
@@ -16874,14 +16882,14 @@ function showComposeSignaturePicker(el) {
     if (!signatures.length) {
       var empty = document.createElement("div")
       empty.className = "px-3 py-2 text-xs text-muted-foreground"
-      empty.textContent = "No signatures configured"
+      empty.textContent = goferT("js.compose.signature.none")
       menu.appendChild(empty)
     }
     for (var i = 0; i < signatures.length; i++) {
       ;(function (sig) {
         var btn = document.createElement("button")
         btn.type = "button"
-        btn.textContent = sig.name || "Signature"
+        btn.textContent = sig.name || goferT("js.compose.signature.untitled")
         btn.onclick = function () {
           closeComposeSignatureMenu()
           if (insertComposeSignature(form, sig, "manual")) _markComposeDirty(form)
@@ -17019,7 +17027,7 @@ function _renderComposeRecipientSuggestions(input, results) {
     main.className = "compose-recipient-suggestion-main"
     var name = document.createElement("span")
     name.className = "compose-recipient-suggestion-name"
-    name.textContent = item.name || item.email || "Contact"
+    name.textContent = item.name || item.email || goferT("js.compose.suggest.contact")
     var email = document.createElement("span")
     email.className = "compose-recipient-suggestion-email"
     email.textContent = item.email || ""
@@ -17092,7 +17100,7 @@ function _makeComposeRecipientChip(value) {
   var remove = document.createElement("button")
   remove.type = "button"
   remove.className = "compose-recipient-remove"
-  remove.setAttribute("aria-label", "Remove recipient")
+  remove.setAttribute("aria-label", goferT("js.compose.recipient.remove"))
   remove.textContent = "x"
   remove.onclick = function () {
     var field = chip.closest("[data-compose-recipient-field]")
@@ -17479,7 +17487,7 @@ function _composeHTMLForEditor(html, inlineImages) {
     imgs[j].dataset.size = String(att.size || 0)
     imgs[j].dataset.previewUrl = att.preview_url || ""
     imgs[j].src = att.preview_url
-    if (!imgs[j].alt) imgs[j].alt = att.filename || "Inline image"
+    if (!imgs[j].alt) imgs[j].alt = att.filename || goferT("js.compose.image.inline")
   }
   return template.innerHTML
 }
@@ -17644,7 +17652,7 @@ function _composeDraftButton(form) {
   return root ? root.querySelector("[data-compose-draft-button]") : null
 }
 
-var COMPOSE_MOBILE_DRAFT_STATUS = { saving: "Saving draft…", saved: "Draft saved", failed: "Draft not saved", empty: "Nothing to save" }
+var COMPOSE_MOBILE_DRAFT_STATUS = { saving: goferT("js.compose.draft.saving_long"), saved: goferT("js.compose.draft.saved_long"), failed: goferT("js.compose.draft.failed_long"), empty: goferT("js.compose.draft.empty") }
 
 function _setComposeDraftButtonState(form, state) {
   // The phone compose bar has no draft button; it shows the same states under its title.
@@ -17662,11 +17670,11 @@ function _setComposeDraftButtonState(form, state) {
   button.disabled = state === "saving"
 
   if (label) {
-    if (state === "saving") label.textContent = "Saving..."
-    else if (state === "saved") label.textContent = "Saved"
-    else if (state === "failed") label.textContent = "Save failed"
-    else if (state === "empty") label.textContent = "Nothing to save"
-    else label.textContent = "Save Draft"
+    if (state === "saving") label.textContent = goferT("js.compose.draft.saving")
+    else if (state === "saved") label.textContent = goferT("js.compose.draft.saved")
+    else if (state === "failed") label.textContent = goferT("js.compose.draft.failed")
+    else if (state === "empty") label.textContent = goferT("js.compose.draft.empty")
+    else label.textContent = goferT("js.compose.draft.save")
   }
 
   if (state === "saved" || state === "failed" || state === "empty") {
@@ -17796,9 +17804,9 @@ function updateComposeSendState(form) {
   button.classList.toggle("opacity-60", disabled)
   button.classList.toggle("cursor-not-allowed", disabled)
   if (sending) {
-    button.title = "Sending..."
+    button.title = goferT("js.compose.sending")
   } else if (pending > 0) {
-    button.title = "Waiting for uploads to finish"
+    button.title = goferT("js.compose.uploads_waiting")
   } else if (form.dataset.composeOutgoingStatus) {
     button.title = form.dataset.composeOutgoingStatus
   } else {
@@ -17815,7 +17823,7 @@ function changeComposeUploadCount(form, delta, label) {
 
 function composeUploadFailed(form, message) {
   if (form) form.dataset.composeUploadFailed = "true"
-  showSendStatus("failed", message || "Upload failed")
+  showSendStatus("failed", message || goferT("js.compose.upload.failed"))
 }
 
 function finishComposeSendSuccess(state) {
@@ -17826,6 +17834,7 @@ function finishComposeSendSuccess(state) {
   _composeSendState = null
   setTimeout(function () {
     if (state.fromPane) {
+      collapseComposeFullWidth()
       setMailViewEmpty()
       _updateComposeBtn(false)
     } else {
@@ -17851,14 +17860,14 @@ function handleComposeSendResult(status, data) {
   if (status === "retrying") {
     if (form) {
       _setComposeSending(form, false)
-      form.dataset.composeOutgoingStatus = "Retrying"
+      form.dataset.composeOutgoingStatus = goferT("js.outgoing.status.retrying")
       form.dataset.composeDirty = "true"
     }
     return
   }
   if (form) {
     _setComposeSending(form, false)
-    form.dataset.composeOutgoingStatus = status === "ambiguous" ? "Needs review" : "Failed"
+    form.dataset.composeOutgoingStatus = status === "ambiguous" ? goferT("js.outgoing.status.ambiguous") : goferT("js.outgoing.status.failed")
     form.dataset.composeDirty = "true"
   }
   _composeSendState = null
@@ -17904,9 +17913,9 @@ function saveComposeDraft(fromPane, auto) {
   }).then(function (r) {
     if (!r.ok) {
       var missing = missingFolderFromResponse(r)
-      if (missing) showMissingFolderToast(missing, "Couldn't save the draft", { description: "This account has no Drafts folder. The draft stays open here." })
+      if (missing) showMissingFolderToast(missing, goferT("js.compose.draft.no_folder"), { description: goferT("js.compose.draft.no_folder_help") })
       return r.json().catch(function () { return {} }).then(function (data) {
-        var err = new Error(data.error || "Failed to save draft")
+        var err = new Error(data.error || goferT("js.compose.draft.save_failed"))
         err.toastShown = !!missing
         throw err
       })
@@ -17923,7 +17932,7 @@ function saveComposeDraft(fromPane, auto) {
     form.dataset.composeDirty = "true"
     _setComposeDraftButtonState(form, "failed")
     form._composeManualDraftSave = false
-    if (!(err && err.toastShown)) showSendStatus("failed", err && err.message ? err.message : "Failed to save draft")
+    if (!(err && err.toastShown)) showSendStatus("failed", err && err.message ? err.message : goferT("js.compose.draft.save_failed"))
     return false
   })
 }
@@ -17981,7 +17990,7 @@ function uploadComposeInlineImages(files, input) {
   if (!form || !files || !files.length) return
   Array.prototype.forEach.call(files, function (file) {
     if (!_composeFileLooksImage(file)) {
-      composeUploadFailed(form, "Could not insert " + ((file && file.name) || "file") + " inline: only image files can be inserted inline. Attach this file instead.")
+      composeUploadFailed(form, goferT("js.compose.upload.not_image", { name: (file && file.name) || goferT("js.compose.upload.file") }))
       return
     }
     if (!validateComposeUploadFile(form, file)) return
@@ -18043,30 +18052,29 @@ function estimateComposeEncodedSize(form) {
 function validateComposeMessageSize(form) {
   var estimated = estimateComposeEncodedSize(form)
   if (estimated <= COMPOSE_MESSAGE_MAX_BYTES) return true
-  showSendStatus("failed", "Message is too large: estimated " + formatComposeAttachmentSize(estimated) + " after encoding. The send limit is " + _composeMessageLimitLabel() + " total, including attachments.")
+  showSendStatus("failed", goferT("js.compose.message_too_large", { size: formatComposeAttachmentSize(estimated), limit: _composeMessageLimitLabel() }))
   return false
 }
 
 function validateComposeUploadFile(form, file) {
   if (!file) return false
   if (file.size > COMPOSE_ATTACHMENT_MAX_BYTES) {
-    composeUploadFailed(form, (file.name || "File") + " is too large: " + formatComposeAttachmentSize(file.size) + ". The limit is " + _composeUploadLimitLabel() + " per file.")
+    composeUploadFailed(form, goferT("js.compose.upload.too_large", { name: file.name || goferT("js.compose.upload.file"), size: formatComposeAttachmentSize(file.size), limit: _composeUploadLimitLabel() }))
     return false
   }
   return true
 }
 
 function composeUploadErrorMessage(action, file, err) {
-  var name = (file && file.name) || "file"
-  var verb = action === "insert" ? "insert" : "attach"
-  var reason = err && err.message ? String(err.message) : "The upload did not complete."
-  if (/too large/i.test(reason)) {
-    return "Could not " + verb + " " + name + ": the file exceeds the " + _composeUploadLimitLabel() + " per-file limit."
-  }
-  if (/cancel/i.test(reason)) return "Could not " + verb + " " + name + ": the upload was cancelled."
-  if (/previewed inline/i.test(reason)) return "Could not insert " + name + " inline: this image type cannot be previewed inline. Attach it instead."
-  if (/network|failed/i.test(reason)) return "Could not " + verb + " " + name + ": upload failed before the server accepted it. Check your connection and try again."
-  return "Could not " + verb + " " + name + ": " + reason
+  // The reasons tested here are the upload's own English errors.
+  var name = (file && file.name) || goferT("js.compose.upload.file")
+  var key = action === "insert" ? "js.compose.upload.insert_failed" : "js.compose.upload.attach_failed"
+  var reason = err && err.message ? String(err.message) : goferT("js.compose.upload.incomplete")
+  if (/too large/i.test(reason)) reason = goferT("js.compose.upload.reason_too_large", { limit: _composeUploadLimitLabel() })
+  else if (/cancel/i.test(reason)) reason = goferT("js.compose.upload.reason_cancelled")
+  else if (/previewed inline/i.test(reason)) return goferT("js.compose.upload.no_preview", { name: name })
+  else if (/network|failed/i.test(reason)) reason = goferT("js.compose.upload.reason_network")
+  return goferT(key, { name: name, reason: reason })
 }
 
 function uploadComposeAttachmentFile(file, pendingChip) {
@@ -18149,8 +18157,11 @@ function _composeFileLooksImage(file) {
 
 function _setComposeDropActive(form, active) {
   if (!form) return
+  // The drop overlay's text is drawn by CSS from data-drop-label.
+  form.dataset.dropLabel = goferT("js.compose.drop_files")
   form.classList.toggle("compose-drop-active", !!active)
   var pane = form.id === "compose-pane-form" && form.closest ? form.closest("[data-compose-pane]") : null
+  if (pane) pane.dataset.dropLabel = form.dataset.dropLabel
   if (pane) pane.classList.toggle("compose-drop-active", !!active)
   if (active) _composeDropForm = form
   else if (_composeDropForm === form) _composeDropForm = null
@@ -18257,8 +18268,8 @@ function _showComposeImageDropChoice(form, images, event) {
     uploadComposeAttachments(images, form)
     return
   }
-  root.querySelector("[data-compose-drop-label]").textContent = images.length === 1 ? "Add the image to the message, or attach it?" : "Add the " + images.length + " images to the message, or attach them?"
-  root.querySelector("[data-compose-drop-limit]").textContent = "Max " + _composeUploadLimitLabel() + " per file, " + _composeMessageLimitLabel() + " total"
+  root.querySelector("[data-compose-drop-label]").textContent = goferTn("js.compose.drop.question", images.length)
+  root.querySelector("[data-compose-drop-limit]").textContent = goferT("js.compose.drop.limit", { file: _composeUploadLimitLabel(), total: _composeMessageLimitLabel() })
   // It sits in the middle of the form: the popover hangs centred below its
   // anchor, so once open the anchor rises by half the popover's height.
   var rect = form.getBoundingClientRect()
@@ -18372,7 +18383,7 @@ function insertComposeInlineImage(form, att) {
 
   var img = document.createElement("img")
   img.src = att.preview_url
-  img.alt = att.filename || "Inline image"
+  img.alt = att.filename || goferT("js.compose.image.inline")
   img.loading = "lazy"
   img.dataset.composeInlineImage = ""
   img.dataset.attachmentId = att.id || ""
@@ -18471,12 +18482,12 @@ function _ensureComposeInlineImageToolbar() {
   var toolbar = document.createElement("div")
   toolbar.className = "compose-inline-image-toolbar hidden"
   toolbar.setAttribute("contenteditable", "false")
-  toolbar.appendChild(_composeInlineImageToolbarButton("smaller", "Smaller", "M5 12h14"))
-  toolbar.appendChild(_composeInlineImageToolbarButton("larger", "Larger", "M12 5v14M5 12h14"))
-  toolbar.appendChild(_composeInlineImageToolbarButton("rotate", "Rotate", "M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6"))
-  toolbar.appendChild(_composeInlineImageToolbarButton("flip", "Flip", "M12 3v18M5 7l5 5-5 5V7Zm14 0l-5 5 5 5V7Z"))
-  toolbar.appendChild(_composeInlineImageToolbarButton("attach", "Attach", "M21.44 11.05 12 20.5a6 6 0 0 1-8.49-8.49l9.9-9.9a4 4 0 0 1 5.66 5.66l-9.9 9.9a2 2 0 1 1-2.83-2.83l8.49-8.49"))
-  toolbar.appendChild(_composeInlineImageToolbarButton("remove", "Remove", "M18 6 6 18M6 6l12 12"))
+  toolbar.appendChild(_composeInlineImageToolbarButton("smaller", goferT("js.compose.image.smaller"), "M5 12h14"))
+  toolbar.appendChild(_composeInlineImageToolbarButton("larger", goferT("js.compose.image.larger"), "M12 5v14M5 12h14"))
+  toolbar.appendChild(_composeInlineImageToolbarButton("rotate", goferT("js.compose.image.rotate"), "M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6"))
+  toolbar.appendChild(_composeInlineImageToolbarButton("flip", goferT("js.compose.image.flip"), "M12 3v18M5 7l5 5-5 5V7Zm14 0l-5 5 5 5V7Z"))
+  toolbar.appendChild(_composeInlineImageToolbarButton("attach", goferT("js.compose.image.attach"), "M21.44 11.05 12 20.5a6 6 0 0 1-8.49-8.49l9.9-9.9a4 4 0 0 1 5.66 5.66l-9.9 9.9a2 2 0 1 1-2.83-2.83l8.49-8.49"))
+  toolbar.appendChild(_composeInlineImageToolbarButton("remove", goferT("js.compose.image.remove"), "M18 6 6 18M6 6l12 12"))
   toolbar.addEventListener("mousedown", function (event) { event.preventDefault() })
   toolbar.addEventListener("click", function (event) {
     var button = event.target && event.target.closest ? event.target.closest("[data-compose-inline-action]") : null
@@ -18597,17 +18608,17 @@ function composeAttachmentKind(att) {
     }
     return false
   }
-  if (contentType.indexOf("image/") === 0 || hasExt([".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp", ".ico"])) return { kind: "image", label: "IMG", title: "Image file" }
-  if (contentType === "application/pdf" || hasExt([".pdf"])) return { kind: "pdf", label: "PDF", title: "PDF document" }
-  if (contentType.indexOf("spreadsheet") >= 0 || contentType.indexOf("excel") >= 0 || contentType === "text/csv" || hasExt([".xls", ".xlsx", ".csv", ".ods"])) return { kind: "sheet", label: hasExt([".csv"]) ? "CSV" : "XLS", title: "Spreadsheet" }
-  if (contentType.indexOf("word") >= 0 || hasExt([".doc", ".docx", ".odt", ".rtf"])) return { kind: "doc", label: "DOC", title: "Document" }
-  if (contentType.indexOf("presentation") >= 0 || contentType.indexOf("powerpoint") >= 0 || hasExt([".ppt", ".pptx", ".odp"])) return { kind: "deck", label: "PPT", title: "Presentation" }
-  if (contentType.indexOf("zip") >= 0 || contentType.indexOf("compressed") >= 0 || contentType.indexOf("tar") >= 0 || hasExt([".zip", ".rar", ".7z", ".tar", ".gz", ".tgz", ".bz2"])) return { kind: "archive", label: "ZIP", title: "Archive" }
-  if (contentType.indexOf("audio/") === 0 || hasExt([".mp3", ".wav", ".m4a", ".ogg", ".flac"])) return { kind: "audio", label: "AUD", title: "Audio file" }
-  if (contentType.indexOf("video/") === 0 || hasExt([".mp4", ".mov", ".avi", ".webm", ".mkv"])) return { kind: "video", label: "VID", title: "Video file" }
-  if (hasExt([".json", ".xml", ".html", ".css", ".js", ".ts", ".go", ".py", ".rb", ".java", ".c", ".cpp", ".sh"])) return { kind: "code", label: "DEV", title: "Code file" }
-  if (contentType.indexOf("text/") === 0 || hasExt([".txt", ".md", ".log"])) return { kind: "text", label: "TXT", title: "Text file" }
-  return { kind: "file", label: "FILE", title: "File" }
+  if (contentType.indexOf("image/") === 0 || hasExt([".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp", ".ico"])) return { kind: "image", label: "IMG", title: goferT("js.compose.kind.image") }
+  if (contentType === "application/pdf" || hasExt([".pdf"])) return { kind: "pdf", label: "PDF", title: goferT("js.compose.kind.pdf") }
+  if (contentType.indexOf("spreadsheet") >= 0 || contentType.indexOf("excel") >= 0 || contentType === "text/csv" || hasExt([".xls", ".xlsx", ".csv", ".ods"])) return { kind: "sheet", label: hasExt([".csv"]) ? "CSV" : "XLS", title: goferT("js.compose.kind.sheet") }
+  if (contentType.indexOf("word") >= 0 || hasExt([".doc", ".docx", ".odt", ".rtf"])) return { kind: "doc", label: "DOC", title: goferT("js.compose.kind.doc") }
+  if (contentType.indexOf("presentation") >= 0 || contentType.indexOf("powerpoint") >= 0 || hasExt([".ppt", ".pptx", ".odp"])) return { kind: "deck", label: "PPT", title: goferT("js.compose.kind.deck") }
+  if (contentType.indexOf("zip") >= 0 || contentType.indexOf("compressed") >= 0 || contentType.indexOf("tar") >= 0 || hasExt([".zip", ".rar", ".7z", ".tar", ".gz", ".tgz", ".bz2"])) return { kind: "archive", label: "ZIP", title: goferT("js.compose.kind.archive") }
+  if (contentType.indexOf("audio/") === 0 || hasExt([".mp3", ".wav", ".m4a", ".ogg", ".flac"])) return { kind: "audio", label: "AUD", title: goferT("js.compose.kind.audio") }
+  if (contentType.indexOf("video/") === 0 || hasExt([".mp4", ".mov", ".avi", ".webm", ".mkv"])) return { kind: "video", label: "VID", title: goferT("js.compose.kind.video") }
+  if (hasExt([".json", ".xml", ".html", ".css", ".js", ".ts", ".go", ".py", ".rb", ".java", ".c", ".cpp", ".sh"])) return { kind: "code", label: "DEV", title: goferT("js.compose.kind.code") }
+  if (contentType.indexOf("text/") === 0 || hasExt([".txt", ".md", ".log"])) return { kind: "text", label: "TXT", title: goferT("js.compose.kind.text") }
+  return { kind: "file", label: "FILE", title: goferT("js.compose.kind.file") }
 }
 
 function toggleComposeAttachments(el) {
@@ -18634,14 +18645,14 @@ function updateComposeAttachmentSummary(form) {
   for (var p = 0; p < pending.length; p++) totalSize += Number(pending[p].dataset.size || 0)
   if (summary) {
     if (totalCount) {
-      summary.textContent = totalCount + " " + (totalCount === 1 ? "attachment" : "attachments") + " · " + formatComposeAttachmentSize(totalSize) + (pending.length ? " · " + pending.length + " uploading" : "") + " · Max 35 MB total"
+      summary.textContent = goferTn("js.compose.attachments.count", totalCount) + " · " + formatComposeAttachmentSize(totalSize) + (pending.length ? " · " + goferTn("js.compose.attachments.uploading", pending.length) : "") + " · " + goferT("js.compose.attachments.max_total")
     } else {
-      summary.textContent = "Max 25 MB per file, 35 MB total"
+      summary.textContent = goferT("js.compose.attachments.limits")
     }
   }
   if (toggle) {
     var collapsed = wrap.dataset.composeAttachmentsCollapsed === "true"
-    toggle.textContent = collapsed ? "Show" : "Hide"
+    toggle.textContent = collapsed ? goferT("js.compose.attachments.show") : goferT("js.compose.attachments.hide")
     toggle.classList.toggle("hidden", totalCount === 0)
   }
 }
@@ -18706,11 +18717,11 @@ function addComposeAttachment(form, att) {
 
   var label = document.createElement("span")
   label.className = "truncate"
-  label.textContent = (att.filename || "attachment") + (att.size ? " (" + formatComposeAttachmentSize(att.size) + ")" : "")
+  label.textContent = (att.filename || goferT("js.compose.attachment.unnamed")) + (att.size ? " (" + formatComposeAttachmentSize(att.size) + ")" : "")
   var remove = document.createElement("button")
   remove.type = "button"
   remove.className = "compose-attachment-remove"
-  remove.setAttribute("aria-label", "Remove attachment")
+  remove.setAttribute("aria-label", goferT("js.compose.attachment.remove"))
   remove.textContent = "x"
   remove.onclick = function () { removeComposeAttachment(item) }
   item.appendChild(label)
@@ -18718,7 +18729,7 @@ function addComposeAttachment(form, att) {
     var actions = document.createElement("button")
     actions.type = "button"
     actions.className = "compose-attachment-actions"
-    actions.setAttribute("aria-label", "Attachment actions")
+    actions.setAttribute("aria-label", goferT("js.compose.attachment.actions"))
     actions.textContent = "⋯"
     actions.onclick = function (event) {
       event.preventDefault()
@@ -18747,7 +18758,7 @@ function showComposeAttachmentActions(item) {
   menu.className = "compose-attachment-menu"
   var convert = document.createElement("button")
   convert.type = "button"
-  convert.textContent = "Insert inline"
+  convert.textContent = goferT("js.compose.attachment.insert_inline")
   convert.onclick = function () {
     closeComposeAttachmentActions()
     convertComposeAttachmentToInline(item)
@@ -18791,7 +18802,8 @@ function addComposePendingAttachment(form, file, inline) {
   var label = document.createElement("span")
   label.className = "truncate"
   label.dataset.composeUploadLabel = ""
-  label.textContent = (inline ? "Inserting " : "Uploading ") + ((file && file.name) || "file")
+  item.dataset.composeUploadName = (file && file.name) || goferT("js.compose.upload.file")
+  label.textContent = goferT(inline ? "js.compose.upload.inserting" : "js.compose.upload.uploading", { name: item.dataset.composeUploadName })
   item.appendChild(label)
 
   var progress = document.createElement("span")
@@ -18803,8 +18815,8 @@ function addComposePendingAttachment(form, file, inline) {
   var cancel = document.createElement("button")
   cancel.type = "button"
   cancel.className = "compose-attachment-cancel"
-  cancel.setAttribute("aria-label", "Cancel upload")
-  cancel.textContent = "Cancel"
+  cancel.setAttribute("aria-label", goferT("js.compose.upload.cancel"))
+  cancel.textContent = goferT("js.common.cancel")
   cancel.onclick = function () {
     if (item._composeCancelUpload) item._composeCancelUpload()
   }
@@ -18839,13 +18851,13 @@ function failComposePendingAttachment(item) {
   item.classList.add("compose-attachment-failed")
   var label = item.querySelector("[data-compose-upload-label]")
   var progress = item.querySelector("[data-compose-upload-progress]")
-  if (label) label.textContent = label.textContent.replace(/^(Uploading|Inserting)\s+/, "Failed ")
-  if (progress) progress.textContent = "Failed"
+  if (label) label.textContent = goferT("js.compose.upload.failed_name", { name: item.dataset.composeUploadName || "" })
+  if (progress) progress.textContent = goferT("js.outgoing.status.failed")
   if (!item.querySelector("button")) {
     var remove = document.createElement("button")
     remove.type = "button"
     remove.className = "compose-attachment-remove"
-    remove.setAttribute("aria-label", "Dismiss failed upload")
+    remove.setAttribute("aria-label", goferT("js.compose.upload.dismiss"))
     remove.textContent = "x"
     remove.onclick = function () { removeComposePendingAttachment(item) }
     item.appendChild(remove)
@@ -18880,7 +18892,7 @@ function removeComposeAttachment(item, keepFile) {
 
 function formatComposeAttachmentSize(size) {
   size = Number(size || 0)
-  if (size >= 1024 * 1024) return (size / (1024 * 1024)).toFixed(1) + " MB"
+  if (size >= 1024 * 1024) return (size / (1024 * 1024)).toFixed(1).replace(".", goferT("number.decimal")) + " MB"
   if (size >= 1024) return Math.round(size / 1024) + " KB"
   return size + " B"
 }
@@ -19004,10 +19016,10 @@ function _activeComposeCanBeReplaced() {
   var form = document.querySelector("[data-compose-pane] #compose-pane-form") || document.getElementById("compose-form")
   if (!form || form.dataset.composeDirty !== "true" || !_composeHasDraftContent(form)) return Promise.resolve(true)
   return window.goferConfirm({
-    title: "Replace the unsaved draft?",
-    message: "The message you're writing has changes that aren't saved.",
-    confirmLabel: "Replace draft",
-    cancelLabel: "Keep writing",
+    title: goferT("js.compose.replace.title"),
+    message: goferT("js.compose.replace.message"),
+    confirmLabel: goferT("js.compose.replace.confirm"),
+    cancelLabel: goferT("js.compose.replace.cancel"),
     destructive: true,
   })
 }
@@ -19030,7 +19042,7 @@ function continueEditingDraft(emailId) {
 function loadDraftIntoCompose(emailId) {
   fetch("/api/drafts/" + encodeURIComponent(emailId))
     .then(function (r) {
-      if (!r.ok) throw new Error("Failed to load draft")
+      if (!r.ok) throw new Error(goferT("js.compose.draft.load_failed"))
       return r.json()
     })
 	.then(function (draft) {
@@ -19058,15 +19070,15 @@ function loadDraftIntoCompose(emailId) {
       if (window.tui && window.tui.dialog) window.tui.dialog.open("compose-dialog")
     })
     .catch(function (err) {
-      showSendStatus("failed", err && err.message ? err.message : "Failed to load draft")
+      showSendStatus("failed", err && err.message ? err.message : goferT("js.compose.draft.load_failed"))
     })
 }
 
 function discardReadPaneDraft(emailId) {
   window.goferConfirm({
-    title: "Discard this draft?",
-    message: "It's deleted from your drafts.",
-    confirmLabel: "Discard draft",
+    title: goferT("js.compose.discard.title"),
+    message: goferT("js.compose.discard.message"),
+    confirmLabel: goferT("js.compose.discard.confirm"),
     destructive: true,
   }).then(function (confirmed) {
     if (confirmed) deleteReadPaneDraft(emailId)
@@ -19076,7 +19088,7 @@ function discardReadPaneDraft(emailId) {
 function deleteReadPaneDraft(emailId) {
   fetch("/api/drafts/" + encodeURIComponent(emailId), { method: "DELETE" })
     .then(function (r) {
-      if (!r.ok) throw new Error("Failed to discard draft")
+      if (!r.ok) throw new Error(goferT("js.compose.discard.failed"))
       if (window.goferRefreshSidebarUnread) window.goferRefreshSidebarUnread()
       // In a thread, only the draft goes; the rest of the thread stays open.
       var card = document.querySelector('[data-thread-card="' + CSS.escape(String(emailId)) + '"]')
@@ -19086,13 +19098,13 @@ function deleteReadPaneDraft(emailId) {
         slot.remove()
         var remaining = list.querySelectorAll("[data-thread-slot]").length
         var count = document.querySelector("[data-thread-count]")
-        if (count) count.textContent = remaining === 1 ? "1 message in this thread" : remaining + " messages in this thread"
+        if (count) count.textContent = goferTn("js.mail.thread.count", remaining)
         return
       }
       setMailViewEmpty()
     })
     .catch(function (err) {
-      showSendStatus("failed", err && err.message ? err.message : "Failed to discard draft")
+      showSendStatus("failed", err && err.message ? err.message : goferT("js.compose.discard.failed"))
     })
 }
 
@@ -19174,7 +19186,7 @@ function chooseComposeCloseAction(form, anchor, popoverId) {
     var panel = document.createElement("div")
     panel.className = "compose-close-choice compose-close-choice-floating"
     panel.setAttribute("popover", "auto")
-    panel.innerHTML = '<h2>Close compose?</h2><p>Keep this message as a draft, discard it permanently, or continue editing.</p>'
+    panel.innerHTML = '<h2>' + _escapeComposeHTML(goferT("js.compose.close.title")) + '</h2><p>' + _escapeComposeHTML(goferT("js.compose.close.description")) + '</p>'
     var settled = false
     function finish(action) {
       if (settled) return
@@ -19197,9 +19209,9 @@ function chooseComposeCloseAction(form, anchor, popoverId) {
     }
     var actions = document.createElement("div")
     actions.className = "compose-close-choice-actions"
-    actions.appendChild(button("Exit and keep draft", "keep", true))
-    actions.appendChild(button("Exit and discard", "discard", false))
-    actions.appendChild(button("Cancel", "cancel", false))
+    actions.appendChild(button(goferT("js.compose.close.keep"), "keep", true))
+    actions.appendChild(button(goferT("js.compose.close.discard"), "discard", false))
+    actions.appendChild(button(goferT("js.common.cancel"), "cancel", false))
     panel.appendChild(actions)
     panel.addEventListener("click", function (event) {
       var btn = event.target && event.target.closest ? event.target.closest("[data-compose-close-action]") : null
@@ -19218,7 +19230,7 @@ function chooseComposeCloseAction(form, anchor, popoverId) {
 document.addEventListener("click", function (e) {
   if (!e.target || !e.target.closest || !e.target.closest("[data-compose-mobile-send-later]")) return
   setTimeout(function () {
-    var trigger = document.querySelector('#compose-dialog .compose-dialog-footer [title="Schedule send"]')
+    var trigger = document.querySelector('#compose-dialog .compose-dialog-footer [data-compose-schedule-trigger]')
     if (trigger) trigger.click()
   }, 0)
 })
@@ -19266,13 +19278,13 @@ function sendCompose(fromPane) {
   var form = document.getElementById(formId)
   if (!form) return
   if (_composePendingUploads(form) > 0) {
-    showSendStatus("failed", "Wait for uploads to finish before sending")
+    showSendStatus("failed", goferT("js.compose.send.wait_uploads"))
     updateComposeSendState(form)
     return
   }
   if (form.dataset.composeSending === "true") return
   if (!finalizeComposeRecipients(form)) {
-    showSendStatus("failed", "Fix invalid recipient addresses before sending")
+    showSendStatus("failed", goferT("js.compose.send.invalid_recipients"))
     return
   }
   if (!validateComposeOneTimeFrom(form)) return
@@ -19281,7 +19293,7 @@ function sendCompose(fromPane) {
 
   var toField = form.querySelector('input[name="to"]')
   if (!toField || !toField.value.trim()) {
-    showSendStatus("failed", "Please enter at least one recipient.")
+    showSendStatus("failed", goferT("js.compose.send.no_recipients"))
     return
   }
 
@@ -19291,7 +19303,7 @@ function sendCompose(fromPane) {
     if (inputs[i].name && !_composeSkipsField(form, inputs[i])) params.append(inputs[i].name, inputs[i].value)
   }
 
-  showSendStatus("sending", "Sending...")
+  showSendStatus("sending", goferT("js.compose.sending"))
   _setComposeSending(form, true)
   delete form.dataset.composeOutgoingStatus
   _composeSendState = { formId: form.id, fromPane: !!fromPane }
@@ -19303,7 +19315,7 @@ function sendCompose(fromPane) {
   }).then(function (r) {
     if (!r.ok) {
       return r.json().catch(function () { return {} }).then(function (data) {
-        throw new Error(data.error || "Failed to send message")
+        throw new Error(data.error || goferT("js.compose.send.failed"))
       })
     }
     return r.json().catch(function () { return {} })
@@ -19320,7 +19332,7 @@ function sendCompose(fromPane) {
     _setComposeSending(form, false)
     _composeSendState = null
     form.dataset.composeDirty = "true"
-    showSendStatus("failed", err && err.message ? err.message : "Failed to connect to server")
+    showSendStatus("failed", err && err.message ? err.message : goferT("js.compose.send.no_server"))
   })
 }
 
@@ -19473,16 +19485,20 @@ function timezoneOffsetLabel(timezone, date) {
   return "UTC" + sign + hours + (minutes ? ":" + pad2(minutes) : "")
 }
 
+// formatGoferDateTime writes a moment in the user's time zone and date
+// format: the date without its year unless options.year is set, then the
+// time, then the zone's short name when options.timeZoneName is set.
 function formatGoferDateTime(date, options) {
   options = options || {}
+  var zone = getGoferTimezone()
   try {
-    return new Intl.DateTimeFormat(undefined, Object.assign({
-      timeZone: getGoferTimezone(),
-      month: "short",
-      day: "numeric",
-      hour: "numeric",
-      minute: "2-digit"
-    }, options)).format(date)
+    var text = options.year ? goferDates.dateTime(date, zone) : goferDates.shortDateTime(date, zone)
+    if (options.timeZoneName) {
+      var name = new Intl.DateTimeFormat(window.goferLocale || "en-US", { timeZone: zone, timeZoneName: "short" }).formatToParts(date)
+        .filter(function (part) { return part.type === "timeZoneName" })[0]
+      if (name) text += " " + name.value
+    }
+    return text
   } catch (_) {
     return date.toLocaleString()
   }
@@ -19525,7 +19541,7 @@ function updateComposeScheduleTimezone(panel) {
   if (!timezoneEl) return
   var label = timezoneOffsetLabel(getGoferTimezone(), new Date())
   timezoneEl.textContent = label
-  timezoneEl.parentElement.title = "Timezone: " + getGoferTimezone() + " (" + label + ")"
+  timezoneEl.parentElement.title = goferT("js.compose.schedule.timezone", { zone: getGoferTimezone(), label: label })
 }
 
 function scheduleCompose(fromPane, trigger) {
@@ -19533,12 +19549,12 @@ function scheduleCompose(fromPane, trigger) {
   var form = document.getElementById(formId)
   if (!form) return
   if (_composePendingUploads(form) > 0) {
-    showSendStatus("failed", "Wait for uploads to finish before scheduling")
+    showSendStatus("failed", goferT("js.compose.schedule.wait_uploads"))
     return
   }
   if (form.dataset.composeSending === "true") return
   if (!finalizeComposeRecipients(form)) {
-    showSendStatus("failed", "Fix invalid recipient addresses before scheduling")
+    showSendStatus("failed", goferT("js.compose.schedule.invalid_recipients"))
     return
   }
   if (!validateComposeOneTimeFrom(form)) return
@@ -19547,7 +19563,7 @@ function scheduleCompose(fromPane, trigger) {
 
   var toField = form.querySelector('input[name="to"]')
   if (!toField || !toField.value.trim()) {
-    showSendStatus("failed", "Please enter at least one recipient.")
+    showSendStatus("failed", goferT("js.compose.send.no_recipients"))
     return
   }
 
@@ -19559,20 +19575,20 @@ function scheduleCompose(fromPane, trigger) {
   var minuteValue = timeInputs.minute && timeInputs.minute.value
   var timeValue = hourValue && minuteValue ? hourValue + ":" + minuteValue : ""
   if (!dateValue) {
-    showSendStatus("failed", "Choose a send date")
+    showSendStatus("failed", goferT("js.compose.schedule.need_date"))
     return
   }
   if (!timeValue) {
-    showSendStatus("failed", "Choose a send time")
+    showSendStatus("failed", goferT("js.compose.schedule.need_time"))
     return
   }
   var scheduledAt = zonedDateTimeToDate(dateValue, hourValue, minuteValue, getGoferTimezone())
   if (isNaN(scheduledAt.getTime())) {
-    showSendStatus("failed", "Choose a valid schedule time")
+    showSendStatus("failed", goferT("js.compose.schedule.invalid_time"))
     return
   }
   if (scheduledAt.getTime() <= Date.now() + 30000) {
-    showSendStatus("failed", "Choose a time at least 1 minute in the future.")
+    showSendStatus("failed", goferT("js.compose.schedule.too_soon"))
     return
   }
   var params = new URLSearchParams()
@@ -19586,7 +19602,7 @@ function scheduleCompose(fromPane, trigger) {
   params.set("schedule_timezone", getGoferTimezone())
 
   closeComposeSchedulePopover(trigger)
-  showSendStatus("sending", "Scheduling...")
+  showSendStatus("sending", goferT("js.compose.schedule.scheduling"))
   _setComposeSending(form, true)
 
   fetch("/compose/schedule", {
@@ -19596,9 +19612,9 @@ function scheduleCompose(fromPane, trigger) {
   }).then(function (r) {
     if (!r.ok) {
       var missing = missingFolderFromResponse(r)
-      if (missing) showMissingFolderToast(missing, "Couldn't schedule the message", { description: "Scheduling saves the message as a draft first, and this account has no Drafts folder. Send it now, or choose a Drafts folder." })
+      if (missing) showMissingFolderToast(missing, goferT("js.compose.schedule.no_drafts"), { description: goferT("js.compose.schedule.no_drafts_help") })
       return r.json().catch(function () { return {} }).then(function (data) {
-        var err = new Error(data.error || "Failed to schedule message")
+        var err = new Error(data.error || goferT("js.compose.schedule.failed"))
         err.toastShown = !!missing
         throw err
       })
@@ -19608,9 +19624,10 @@ function scheduleCompose(fromPane, trigger) {
     _setComposeSending(form, false)
     form.dataset.composeDirty = "false"
     var labelDate = data && data.scheduled_for ? new Date(data.scheduled_for) : scheduledAt
-    showSendStatus("scheduled", "Will send " + formatGoferDateTime(labelDate))
+    showSendStatus("scheduled", goferT("js.compose.schedule.will_send", { when: formatGoferDateTime(labelDate) }))
     setTimeout(function () {
       if (fromPane) {
+        collapseComposeFullWidth()
         setMailViewEmpty()
         _updateComposeBtn(false)
       } else {
@@ -19625,7 +19642,7 @@ function scheduleCompose(fromPane, trigger) {
     if (err && err.toastShown) {
       hideSendStatus()
     } else {
-      showSendStatus("failed", err && err.message ? err.message : "Failed to schedule message")
+      showSendStatus("failed", err && err.message ? err.message : goferT("js.compose.schedule.failed"))
     }
   })
 }
@@ -19713,9 +19730,16 @@ function setComposeAccount(form, accountId, identityId) {
   }
 }
 
+// composeQuoteAttribution is the line above a quoted reply, written in the
+// sender's language like the date in it.
+function composeQuoteAttribution(source, fromLine) {
+  if (source.date) return goferT("js.compose.quote.wrote_on", { date: source.date, from: fromLine })
+  return goferT("js.compose.quote.wrote", { from: fromLine })
+}
+
 function composeReplyPlain(source) {
   var fromLine = composeAddress(source.from_name, source.from_email)
-  var header = source.date ? "On " + source.date + ", " + fromLine + " wrote:" : fromLine + " wrote:"
+  var header = composeQuoteAttribution(source, fromLine)
   var quotedBody = String(source.body || "").split("\n").map(function (line) { return "> " + line }).join("\n")
   return "\n\n" + header + "\n" + quotedBody
 }
@@ -19728,29 +19752,29 @@ function composeSourceBodyHTML(source) {
 
 function composeReplyHTML(source) {
   var fromLine = composeAddress(source.from_name, source.from_email)
-  var header = source.date ? "On " + source.date + ", " + fromLine + " wrote:" : fromLine + " wrote:"
+  var header = composeQuoteAttribution(source, fromLine)
   return "<p><br></p><p>" + _escapeComposeHTML(header) + "</p><blockquote>" + composeSourceBodyHTML(source) + "</blockquote>"
+}
+
+// composeForwardLines is the block above a forwarded message: a drawn rule
+// and the message's headers, labeled in the sender's language.
+function composeForwardLines(source, fromLine) {
+  var lines = ["---------- " + goferT("js.compose.forward.title") + " ----------"]
+  if (fromLine) lines.push(goferT("js.compose.forward.from") + " " + fromLine)
+  if (source.date) lines.push(goferT("js.compose.forward.date") + " " + source.date)
+  if (source.subject) lines.push(goferT("js.compose.forward.subject") + " " + source.subject)
+  if (source.to) lines.push(goferT("js.compose.forward.to") + " " + source.to)
+  if (source.cc) lines.push(goferT("js.compose.forward.cc") + " " + source.cc)
+  return lines
 }
 
 function composeForwardPlain(source) {
   var fromLine = composeAddress(source.from_name, source.from_email)
-  var header = "\n\n---------- Forwarded message ----------"
-  if (fromLine) header += "\nFrom: " + fromLine
-  if (source.date) header += "\nDate: " + source.date
-  if (source.subject) header += "\nSubject: " + source.subject
-  if (source.to) header += "\nTo: " + source.to
-  if (source.cc) header += "\nCc: " + source.cc
-  return header + "\n\n" + (source.body || "")
+  return "\n\n" + composeForwardLines(source, fromLine).join("\n") + "\n\n" + (source.body || "")
 }
 
 function composeForwardHTML(source) {
-  var lines = ["---------- Forwarded message ----------"]
-  var fromLine = composeAddress(source.from_name, source.from_email)
-  if (fromLine) lines.push("From: " + fromLine)
-  if (source.date) lines.push("Date: " + source.date)
-  if (source.subject) lines.push("Subject: " + source.subject)
-  if (source.to) lines.push("To: " + source.to)
-  if (source.cc) lines.push("Cc: " + source.cc)
+  var lines = composeForwardLines(source, composeAddress(source.from_name, source.from_email))
   return "<p><br></p><div>" + lines.map(_escapeComposeHTML).join("<br>") + "</div><br><div>" + composeSourceBodyHTML(source) + "</div>"
 }
 
@@ -19803,7 +19827,7 @@ function composeValuesFromSource(source, mode) {
     vals.references = composeReferencesForReply(source)
     vals._ccVisible = !!vals.cc
   } else {
-    vals.subject = /^Fwd:/i.test(source.subject || "") ? source.subject : "Fwd: " + (source.subject || "")
+    vals.subject = /^(Fwd?|RV):/i.test(source.subject || "") ? source.subject : "Fwd: " + (source.subject || "")
     vals.body = composeForwardPlain(source)
     vals.html_body = composeForwardHTML(source)
     vals.attachments = source.attachments || []
@@ -19962,8 +19986,8 @@ function setupMailtoIntent() {
     if (typeof showGoferToast === "function") {
       showGoferToast({
         id: "mailto-intent-error",
-        title: "Could not open email link",
-        description: "The mail link is invalid or too large.",
+        title: goferT("js.mail.mailto.failed"),
+        description: goferT("js.mail.mailto.invalid"),
         variant: "error",
         icon: "error",
         position: "bottom-right",
@@ -19987,8 +20011,8 @@ function setupMailtoIntent() {
     if (typeof showGoferToast === "function") {
       showGoferToast({
         id: "mailto-handler-confirmed",
-        title: "Gofer opened the email link",
-        description: "Email-link handling was confirmed on this browser.",
+        title: goferT("js.mail.mailto.opened"),
+        description: goferT("js.mail.mailto.confirmed"),
         variant: "success",
         icon: "success",
         position: "bottom-right",
@@ -20010,14 +20034,14 @@ function handleReply(el, mode) {
   if (!bar) return
   fetch(composeSourceURL(bar))
     .then(function (r) {
-      if (!r.ok) throw new Error("Failed to load message")
+      if (!r.ok) throw new Error(goferT("js.mail.reply.load_failed"))
       return r.json()
     })
     .then(function (source) {
       openComposePrefill(composeValuesFromSource(source, mode), mode)
     })
     .catch(function (err) {
-      showSendStatus("failed", err && err.message ? err.message : "Failed to start reply")
+      showSendStatus("failed", err && err.message ? err.message : goferT("js.mail.reply.failed"))
     })
 }
 
@@ -20037,7 +20061,7 @@ function openNewCompose() {
 function composeOpeningHTML() {
   return '<div class="flex flex-1 w-full min-w-0 flex-col items-center justify-center h-full text-center p-8">' +
     '<div class="size-5 border-2 border-muted-foreground/30 border-t-muted-foreground rounded-full animate-spin mb-3"></div>' +
-    '<p class="text-sm text-muted-foreground">Opening compose...</p>' +
+    '<p class="text-sm text-muted-foreground">' + goferT("js.compose.opening") + '</p>' +
     '</div>'
 }
 
@@ -20065,7 +20089,7 @@ function composeOpeningShellHTML() {
     '<div class="px-4 py-4 space-y-3">' +
       '<div class="flex items-center justify-between">' +
         '<div class="flex items-center gap-2">' +
-          '<h2 class="text-lg font-bold tracking-tight" style="font-family: var(--font-serif)">Inbox</h2>' +
+          '<h2 class="text-lg font-bold tracking-tight" style="font-family: var(--font-serif)">' + goferT("js.mail.inbox") + '</h2>' +
           '<span class="h-5 w-10 rounded-full bg-muted animate-pulse"></span>' +
         '</div>' +
         '<div class="h-8 w-8 rounded-md bg-muted/50"></div>' +
@@ -20083,7 +20107,7 @@ function composeOpeningShellHTML() {
     '<div class="flex-1 overflow-y-auto px-2 py-2 flex items-center justify-center">' +
       '<div class="flex items-center gap-2 text-sm text-muted-foreground">' +
         '<div class="size-4 border-2 border-muted-foreground/30 border-t-muted-foreground rounded-full animate-spin"></div>' +
-        '<span>Loading messages...</span>' +
+        '<span>' + goferT("js.mail.list.loading") + '</span>' +
       '</div>' +
     '</div>' +
   '</div>' +
@@ -20352,22 +20376,22 @@ function restoreOptimisticMailRemoval(emailId, vml) {
 function failMailDelete(emailId, vml, err, permanentURL) {
   restoreOptimisticMailRemoval(emailId, vml)
   if (err && err.missingFolder && err.missingFolder.role === "trash") {
-    showMissingFolderToast(err.missingFolder, "Couldn't delete the email", {
-      secondaryActionLabel: "Delete permanently",
+    showMissingFolderToast(err.missingFolder, goferT("js.mail.delete.failed"), {
+      secondaryActionLabel: goferT("js.mail.delete.permanently"),
       onSecondaryAction: function () { confirmPermanentMailDelete(emailId, permanentURL) },
     })
     return
   }
-  var reason = err && err.reason ? err.reason : "Try again in a moment."
-  showGoferToast({ id: "mail-delete-error", title: "Couldn't delete the email", description: reason, variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
+  var reason = err && err.reason ? err.reason : goferT("js.common.try_again")
+  showGoferToast({ id: "mail-delete-error", title: goferT("js.mail.delete.failed"), description: reason, variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
 }
 
 // Deleting for good can't be undone, so the toast asks once more.
 function confirmPermanentMailDelete(emailId, permanentURL) {
   showGoferToast({
-    id: "mail-missing-folder", title: "Delete the email permanently?", description: "It won't go to a Trash folder, and it can't be undone.",
+    id: "mail-missing-folder", title: goferTn("js.mail.delete.confirm_title", 1), description: goferT("js.mail.delete.no_trash"),
     variant: "warning", icon: "warning", position: "bottom-right", duration: 10000, dismissible: true,
-    secondaryActionLabel: "Delete permanently",
+    secondaryActionLabel: goferT("js.mail.delete.permanently"),
     onSecondaryAction: function () {
       dismissGoferToast(document.getElementById("mail-missing-folder"))
       var vml = beginOptimisticMailRemoval(emailId)
@@ -20389,10 +20413,10 @@ function confirmPermanentSearchDelete(targets) {
   var one = targets.length === 1
   showGoferToast({
     id: "mail-search-permanent-delete",
-    title: one ? "Delete the email permanently?" : "Delete " + targets.length.toLocaleString() + " emails permanently?",
-    description: (one ? "It's" : "They're") + " already in Trash, so this can't be undone.",
+    title: goferTn("js.mail.delete.confirm_title", targets.length),
+    description: goferTn("js.mail.delete.in_trash", targets.length),
     variant: "warning", icon: "warning", position: "bottom-right", duration: 10000, dismissible: true,
-    secondaryActionLabel: "Delete permanently",
+    secondaryActionLabel: goferT("js.mail.delete.permanently"),
     onSecondaryAction: function () {
       dismissGoferToast(document.getElementById("mail-search-permanent-delete"))
       var run = Promise.resolve()
@@ -20411,8 +20435,8 @@ function confirmPermanentSearchDelete(targets) {
       }).then(function () {
         if (window.goferRefreshSidebarUnread) window.goferRefreshSidebarUnread()
       }).catch(function (err) {
-        var reason = err && err.reason ? err.reason : "Try again in a moment."
-        showGoferToast({ id: "mail-delete-error", title: "Couldn't delete the email", description: reason, variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
+        var reason = err && err.reason ? err.reason : goferT("js.common.try_again")
+        showGoferToast({ id: "mail-delete-error", title: goferT("js.mail.delete.failed"), description: reason, variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
       })
     },
   })
@@ -20435,8 +20459,8 @@ function showMailActionSkippedToast(action, totals) {
   var missing = totals && totals.missingFolder
   if (!missing) return
   var count = action === "delete" ? totals.no_trash : (action === "archive" ? totals.no_archive : totals.failed)
-  var verb = action === "delete" ? "deleted" : (action === "archive" ? "archived" : "marked as spam")
-  var title = count ? Number(count).toLocaleString() + (count === 1 ? " email wasn't " : " emails weren't ") + verb : "Some emails weren't " + verb
+  var verb = action === "delete" ? "deleted" : (action === "archive" ? "archived" : "spam")
+  var title = count ? goferTn("js.mail.skipped." + verb, Number(count)) : goferT("js.mail.skipped." + verb + ".some")
   showMissingFolderToast(missing, title)
 }
 
@@ -20448,16 +20472,17 @@ function missingFolderFromResponse(response) {
   return parts.length === 2 && parts[0] && parts[1] ? { account: parts[0], role: parts[1] } : null
 }
 
-var MISSING_FOLDER_LABELS = { sent: "Sent", drafts: "Drafts", trash: "Trash", junk: "Spam", archive: "Archive" }
+var MISSING_FOLDER_ROLES = { sent: true, drafts: true, trash: true, junk: true, archive: true }
 
 // showMissingFolderToast says an account has no folder for a role and offers
 // to choose one. extra adds to the toast, such as a way around it.
 function showMissingFolderToast(missing, title, extra) {
-  var label = MISSING_FOLDER_LABELS[missing.role] || missing.role
+  var known = MISSING_FOLDER_ROLES[missing.role]
   var toast = {
-    id: "mail-missing-folder", title: title, description: "This account has no " + label + " folder.",
+    id: "mail-missing-folder", title: title,
+    description: known ? goferT("js.mail.missing_folder." + missing.role) : goferT("js.mail.missing_folder.other", { role: missing.role }),
     variant: "error", icon: "error", position: "bottom-right", duration: 10000, dismissible: true,
-    actionLabel: "Choose " + (missing.role === "archive" ? "an " : "a ") + label + " folder",
+    actionLabel: known ? goferT("js.mail.missing_folder.choose_" + missing.role) : goferT("js.mail.missing_folder.choose_other", { role: missing.role }),
     onClick: function () { openFolderRolesSettings(missing.account) },
   }
   for (var key in extra || {}) toast[key] = extra[key]
@@ -20492,8 +20517,7 @@ function mailDeleteIsPermanent() {
 }
 
 function showMailDeletedToast(thread, permanent) {
-  var what = thread ? "the conversation" : "the email"
-  var title = permanent ? "Deleted " + what + " permanently" : "Moved " + what + " to Trash"
+  var title = goferT("js.mail.deleted." + (thread ? "thread" : "email") + (permanent ? "_permanently" : "_to_trash"))
   showGoferToast({ id: "mail-deleted", title: title, variant: "success", icon: "success", position: "bottom-right", duration: 3000, dismissible: true })
 }
 
@@ -20530,11 +20554,12 @@ function markArchiveUnavailable(control, unavailable) {
   var root = control.closest("[data-tui-popover-root]")
   var tooltip = root && root.querySelector("[data-mail-archive-tooltip]")
   if (!tooltip) return
-  if (unavailable && tooltip.textContent !== "Can't archive") {
+  var cannot = goferT("js.mail.archive.cannot")
+  if (unavailable && tooltip.textContent !== cannot) {
     tooltip.dataset.archiveLabel = tooltip.textContent
-    tooltip.textContent = "Can't archive"
-  } else if (!unavailable && tooltip.textContent === "Can't archive") {
-    tooltip.textContent = tooltip.dataset.archiveLabel || "Archive"
+    tooltip.textContent = cannot
+  } else if (!unavailable && tooltip.textContent === cannot) {
+    tooltip.textContent = tooltip.dataset.archiveLabel || goferT("js.mail.action.archive")
   }
 }
 
@@ -20574,16 +20599,16 @@ function showArchiveUnavailable(anchor, missing, archiveRest) {
   var name = single ? mailAccountName(missing[0]) : ""
   var title = document.createElement("h2")
   title.id = "archive-unavailable-title"
-  title.textContent = archiveRest ? "Some of these emails can't be archived" : "Can't archive"
+  title.textContent = archiveRest ? goferT("js.mail.archive.some_cannot") : goferT("js.mail.archive.cannot")
   var text = document.createElement("p")
   if (archiveRest) {
     text.textContent = single
-      ? "The mailbox of some of the selected emails" + (name ? ", " + name + "," : "") + " has no Archive folder."
-      : "The mailboxes of some of the selected emails have no Archive folder."
+      ? (name ? goferT("js.mail.archive.rest_one_named", { name: name }) : goferT("js.mail.archive.rest_one"))
+      : goferT("js.mail.archive.rest_many")
   } else {
     text.textContent = single
-      ? (name ? name + " has" : "This account has") + " no Archive folder. Choose one, or create it, to archive its email."
-      : "These accounts have no Archive folder. Choose one, or create it, for each."
+      ? (name ? goferT("js.mail.archive.none_named", { name: name }) : goferT("js.mail.archive.none"))
+      : goferT("js.mail.archive.none_many")
   }
   panel.appendChild(title)
   panel.appendChild(text)
@@ -20594,7 +20619,7 @@ function showArchiveUnavailable(anchor, missing, archiveRest) {
     var choose = document.createElement("button")
     choose.type = "button"
     var accountName = mailAccountName(accountID)
-    choose.textContent = single || !accountName ? "Choose an Archive folder" : "Choose one for " + accountName
+    choose.textContent = single || !accountName ? goferT("js.mail.missing_folder.choose_archive") : goferT("js.mail.archive.choose_for", { name: accountName })
     choose.addEventListener("click", function () {
       closeArchiveUnavailable()
       openFolderRolesSettings(accountID)
@@ -20605,7 +20630,7 @@ function showArchiveUnavailable(anchor, missing, archiveRest) {
     var rest = document.createElement("button")
     rest.type = "button"
     rest.className = "archive-unavailable-primary"
-    rest.textContent = "Archive the others"
+    rest.textContent = goferT("js.mail.archive.others")
     rest.addEventListener("click", function () {
       closeArchiveUnavailable()
       archiveRest()
@@ -20672,7 +20697,7 @@ function archiveThread(emailId, button) {
   fetch("/api/messages/" + emailId + "/thread/archive", { method: "POST" })
     .then(function (response) {
       var missing = missingFolderFromResponse(response)
-      if (missing) showMissingFolderToast(missing, "Couldn't archive the email")
+      if (missing) showMissingFolderToast(missing, goferT("js.mail.archive.failed"))
       var mailView = document.getElementById("mail-view")
       if (mailView) setMailViewEmpty()
       var container = document.getElementById("mail-list-scroll")
@@ -20737,7 +20762,7 @@ function runScopedMailAction(emailId, action, thread, extra) {
     var controller = container && container._virtualMailList
     if (controller) return controller.refreshCurrentFolder({ noAnimation: true })
   }).then(function () { if (window.goferRefreshSidebarUnread) window.goferRefreshSidebarUnread() }).catch(function () {
-    showGoferToast({ title: "Couldn't change the selected mail", variant: "error", duration: 5000 })
+    showGoferToast({ title: goferT("js.mail.scoped.failed"), variant: "error", duration: 5000 })
   })
 }
 
@@ -20758,27 +20783,27 @@ function mailActionCurrentFolderID() {
 // emptied for good, Spam goes to Trash.
 var MAIL_DELETE_ALL = {
   trash: {
-    tooltip: "Empty trash permanently",
-    label: "Empty trash permanently",
-    title: "Empty trash?",
-    message: "Every message and folder in Trash will be deleted permanently. This can't be undone.",
+    tooltip: goferT("js.mail.delete_all.trash.tooltip"),
+    label: goferT("js.mail.delete_all.trash.tooltip"),
+    title: goferT("js.mail.delete_all.trash.title"),
+    message: goferT("js.mail.delete_all.trash.message"),
     destructive: true,
-    confirm: "Empty trash",
-    failed: "Couldn't empty the trash",
-    alreadyEmpty: "Trash is already empty",
-    partial: "Some accounts' Trash wasn't emptied",
+    confirm: goferT("js.mail.delete_all.trash.confirm"),
+    failed: goferT("js.mail.delete_all.trash.failed"),
+    alreadyEmpty: goferT("js.mail.delete_all.trash.alreadyempty"),
+    partial: goferT("js.mail.delete_all.trash.partial"),
   },
   spam: {
-    tooltip: "Move all to Trash",
-    label: "Move all spam to Trash",
-    title: "Move all spam to Trash?",
-    message: "Every message in Spam will be moved to Trash.",
+    tooltip: goferT("js.mail.delete_all.spam.tooltip"),
+    label: goferT("js.mail.delete_all.spam.label"),
+    title: goferT("js.mail.delete_all.spam.title"),
+    message: goferT("js.mail.delete_all.spam.message"),
     destructive: false,
-    confirm: "Move to Trash",
-    failed: "Couldn't move the spam to Trash",
-    alreadyEmpty: "Spam is already empty",
-    partial: "Some accounts' spam wasn't moved",
-    noTrash: "An account has no Trash folder, so its spam stayed where it is.",
+    confirm: goferT("js.mail.delete_all.spam.confirm"),
+    failed: goferT("js.mail.delete_all.spam.failed"),
+    alreadyEmpty: goferT("js.mail.delete_all.spam.alreadyempty"),
+    partial: goferT("js.mail.delete_all.spam.partial"),
+    noTrash: goferT("js.mail.delete_all.spam.notrash"),
   },
 }
 
@@ -20840,14 +20865,14 @@ function syncMailArchiveActionState() {
   var button = document.querySelector('[data-mail-selection-action="archive"]')
   if (!button) return
   var unarchive = mailFolderIsArchive(mailActionCurrentFolderID())
-  button.setAttribute("aria-label", unarchive ? "Move selected messages to Inbox" : "Archive selected messages")
+  button.setAttribute("aria-label", unarchive ? goferT("js.mail.selection.unarchive") : goferT("js.mail.selection.archive"))
   var archiveIcon = button.querySelector("[data-mail-archive-icon]")
   var inboxIcon = button.querySelector("[data-mail-unarchive-icon]")
   if (archiveIcon) archiveIcon.classList.toggle("hidden", unarchive)
   if (inboxIcon) inboxIcon.classList.toggle("hidden", !unarchive)
   var root = button.closest("[data-tui-popover-root]")
   var tooltip = root && root.querySelector("[data-mail-archive-tooltip]")
-  if (tooltip) tooltip.textContent = unarchive ? "Move to Inbox" : "Archive"
+  if (tooltip) tooltip.textContent = unarchive ? goferT("js.mail.action.move_to_inbox") : goferT("js.mail.action.archive")
 }
 
 // folderID is the folder the list is switching to, when it is not loaded yet.
@@ -20878,7 +20903,7 @@ function syncSidebarUnreadRollups(root) {
     }
     var rolledUp = group.getAttribute("data-sidebar-folder-collapsed") === "true" && below > 0
     var total = String(sidebarUnreadCount(own) + below)
-    var title = below === 1 ? "1 unread in subfolders" : below + " unread in subfolders"
+    var title = goferTn("js.mail.unread_in_subfolders", below)
     if (rollup.hidden !== !rolledUp) rollup.hidden = !rolledUp
     if (rollup.style.display !== (rolledUp ? "flex" : "")) rollup.style.display = rolledUp ? "flex" : ""
     if (rolledUp && rollup.textContent !== total) rollup.textContent = total
@@ -20927,10 +20952,10 @@ function syncMailDeleteActionState(folderID) {
   button.dataset.mailDeletePermanent = permanent ? "true" : "false"
   // Trash and Spam keep Delete in the toolbar to act on the whole folder.
   button.dataset.mailDeleteAllFolder = permanent ? "trash" : mailFolderIsSpam(folderID) ? "spam" : ""
-  button.setAttribute("aria-label", permanent ? "Permanently delete selected messages" : "Delete selected messages")
+  button.setAttribute("aria-label", permanent ? goferT("js.mail.selection.delete_permanently") : goferT("js.mail.selection.delete"))
   var root = button.closest("[data-tui-popover-root]")
   var tooltip = root && root.querySelector("[data-mail-delete-tooltip]")
-  if (tooltip) tooltip.textContent = permanent ? "Permanently delete" : "Delete"
+  if (tooltip) tooltip.textContent = permanent ? goferT("js.mail.action.delete_permanently") : goferT("js.mail.action.delete")
   // Entering Trash or Spam with nothing selected turns Delete into a whole-folder action.
   if (typeof window.syncMailDeleteAllAction === "function") window.syncMailDeleteAllAction()
   syncMailSpamActionState(folderID)
@@ -20949,10 +20974,10 @@ function syncMailSpamActionState(folderID) {
     var highlight = toggle.getAttribute("data-mail-not-spam-class")
     if (!highlight) continue
     highlight.split(/\s+/).forEach(function (name) { if (name) toggle.classList.toggle(name, spam) })
-    toggle.setAttribute("aria-label", spam ? "Mark selected messages as not spam" : "Report selected messages as spam")
+    toggle.setAttribute("aria-label", spam ? goferT("js.mail.selection.not_spam") : goferT("js.mail.selection.spam"))
     var root = toggle.closest("[data-tui-popover-root]")
     var tooltip = root && root.querySelector("[data-mail-spam-tooltip]")
-    if (tooltip) tooltip.textContent = spam ? "Not spam" : "Report spam"
+    if (tooltip) tooltip.textContent = spam ? goferT("js.mail.action.not_spam") : goferT("js.mail.action.report_spam")
   }
 }
 
@@ -20974,7 +20999,7 @@ function markSpamState(emailId, notSpam, thread) {
   })
     .then(function (response) {
       var missing = missingFolderFromResponse(response)
-      if (missing) showMissingFolderToast(missing, "Couldn't mark the email as spam")
+      if (missing) showMissingFolderToast(missing, goferT("js.mail.spam.failed"))
       var mailView = document.getElementById("mail-view")
       if (mailView) setMailViewEmpty()
       var container = document.getElementById("mail-list-scroll")
@@ -21032,7 +21057,7 @@ function openLabelsDialog(targets, done) {
       if (search) setTimeout(function () { search.focus() }, 0)
     })
     .catch(function () {
-      showGoferToast({ title: "Couldn't open labels", description: "Please try again.", variant: "error", icon: "error", duration: 5000 })
+      showGoferToast({ title: goferT("js.mail.labels.open_failed"), description: goferT("js.common.please_try_again"), variant: "error", icon: "error", duration: 5000 })
     })
 }
 
@@ -21152,12 +21177,12 @@ function applyLabelsDialog() {
   changes.forEach(function (change) {
     run = run.then(function () {
       return postLabelChange(change.add ? "/api/messages/label" : "/api/messages/unlabel", state.targets, change.name, state.folderID)
-        .catch(function (err) { failures.push(change.name + ": " + (err && err.reason ? err.reason : "please try again.")) })
+        .catch(function (err) { failures.push(change.name + ": " + (err && err.reason ? err.reason : goferT("js.common.please_try_again"))) })
     })
   })
   run.then(function () {
     if (failures.length) {
-      showGoferToast({ title: "Some labels weren't changed", description: failures.join(" "), variant: "error", icon: "error", duration: 8000 })
+      showGoferToast({ title: goferT("js.mail.labels.some_failed"), description: failures.join(" "), variant: "error", icon: "error", duration: 8000 })
     }
     if (typeof state.done === "function") state.done()
   })
@@ -21182,7 +21207,7 @@ function postLabelChunk(path, targets, label, folderID) {
     if (response.ok) return
     return response.text().then(function (text) {
       var err = new Error("label change failed")
-      err.reason = String(text || "").trim() || "The server answered " + response.status + "."
+      err.reason = String(text || "").trim() || goferT("js.common.server_answered", { status: response.status })
       throw err
     })
   })
@@ -21217,7 +21242,7 @@ function moveMessage(emailId, folderId, thread) {
   moveMessagesOutOfFolder(emailId, "/api/messages/move", { targets: targets, folder_id: folderId, source_folder_id: mailActionCurrentFolderID() }, {
     moved: function () { showMailMovedToast(targets, folderId) },
     failed: function (reason) {
-      showGoferToast({ title: thread ? "Couldn't move the conversation" : "Couldn't move the email", description: reason, variant: "error", icon: "error", duration: 8000 })
+      showGoferToast({ title: thread ? goferT("js.mail.move.thread_failed") : goferT("js.mail.move.email_failed"), description: reason, variant: "error", icon: "error", duration: 8000 })
     },
   })
 }
@@ -21225,13 +21250,11 @@ function moveMessage(emailId, folderId, thread) {
 // showMailMovedToast says where emails moved within their account went.
 function showMailMovedToast(targets, folderID) {
   var link = document.querySelector('[data-mail-drop-folder="' + CSS.escape(folderID) + '"] .flex-1.truncate')
-  var where = link && link.textContent.trim() ? " to " + link.textContent.trim() : ""
+  var folder = link && link.textContent.trim() ? link.textContent.trim() : ""
   var count = mailToAccountCount(targets)
-  var title
-  if (count === 1) title = "Moved the email" + where
-  else if (count > 1) title = "Moved " + Number(count).toLocaleString() + " emails" + where
-  else if (targets.length === 1) title = "Moved the conversation" + where
-  else title = "Moved " + Number(targets.length).toLocaleString() + " conversations" + where
+  var key = count > 0 ? "js.mail.moved.emails" : "js.mail.moved.threads"
+  var n = count > 0 ? Number(count) : targets.length
+  var title = folder ? goferTn(key + "_to", n, { folder: folder }) : goferTn(key, n)
   showGoferToast({ id: "mail-moved", title: title, variant: "success", icon: "success", position: "bottom-right", duration: 3000, dismissible: true })
 }
 
@@ -21252,7 +21275,7 @@ function moveMessagesOutOfFolder(emailId, path, body, report) {
       if (!response.ok) {
         return response.text().then(function (text) {
           var err = new Error("move failed")
-          err.reason = String(text || "").trim() || "The server answered " + response.status + "."
+          err.reason = String(text || "").trim() || goferT("js.common.server_answered", { status: response.status })
           throw err
         })
       }
@@ -21261,7 +21284,7 @@ function moveMessagesOutOfFolder(emailId, path, body, report) {
     })
     .catch(function (err) {
       restoreOptimisticMailRemoval(emailId, vml)
-      if (report) report.failed(err && err.reason ? err.reason : "Please try again.")
+      if (report) report.failed(err && err.reason ? err.reason : goferT("js.common.please_try_again"))
     })
 }
 
@@ -21297,7 +21320,7 @@ function openMoveDialog(emailId, thread, selection) {
       if (moveDialogSelection) {
         var title = host.querySelector("[data-tui-dialog-title], h2")
         var count = mailToAccountCount(moveDialogSelection.targets)
-        if (title) title.textContent = count ? "Move " + Number(count).toLocaleString() + " emails to" : "Move the selected conversations to"
+        if (title) title.textContent = count ? goferTn("js.mail.move.title", Number(count)) : goferT("js.mail.move.title_threads")
       }
       if (window.tui && window.tui.dialog) {
         window.tui.dialog.open("mail-move-dialog")
@@ -21319,7 +21342,7 @@ function printEmail(emailId) {
   if (previous) previous.remove()
   var frame = document.createElement("iframe")
   frame.id = "email-print-frame"
-  frame.title = "Print"
+  frame.title = goferT("js.mail.print")
   frame.tabIndex = -1
   frame.setAttribute("aria-hidden", "true")
   frame.setAttribute("sandbox", "allow-scripts allow-modals")
@@ -21339,7 +21362,7 @@ function openMessageSource(emailId) {
   fetch("/email/" + encodeURIComponent(emailId) + "/source")
     .then(function (response) {
       if (!response.ok) {
-        return response.text().then(function (text) { throw new Error(text.trim() || "The message source couldn't be loaded.") })
+        return response.text().then(function (text) { throw new Error(text.trim() || goferT("js.mail.source.load_failed")) })
       }
       return response.text()
     })
@@ -21361,7 +21384,7 @@ function openMessageSource(emailId) {
       }
     })
     .catch(function (err) {
-      showGoferToast({ id: "mail-source-error", title: "Couldn't show the source", description: err.message, variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
+      showGoferToast({ id: "mail-source-error", title: goferT("js.mail.source.failed"), description: err.message, variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
     })
 }
 
@@ -21446,11 +21469,11 @@ function createMoveLabel(emailId, thread) {
     closeMoveDialog()
   }).then(function () {
     return window.goferPrompt({
-      title: "New label",
-      message: "Gmail has labels instead of folders. The new label is added to " + (many ? "the selected emails, which stay where they are" : "the email, which stays where it is") + ", and shows under Tags. To put it inside another label, name it like Work/Projects.",
-      label: "Label name",
+      title: goferT("js.labels.new"),
+      message: many ? goferT("js.mail.labels.move_new_many") : goferT("js.mail.labels.move_new_one"),
+      label: goferT("js.labels.name"),
       value: suggested,
-      confirmLabel: "Add label",
+      confirmLabel: goferT("js.mail.labels.add"),
     })
   }).then(function (name) {
     name = name === null ? "" : name.trim()
@@ -21458,9 +21481,9 @@ function createMoveLabel(emailId, thread) {
     return postLabelChange("/api/messages/label", targets, name, mailActionCurrentFolderID()).then(function () {
       if (window.goferRefreshSidebarAccount) window.goferRefreshSidebarAccount(account)
       if (selection && typeof selection.done === "function") selection.done()
-      showGoferToast({ title: "Added the “" + name + "” label", variant: "success", icon: "success", position: "bottom-right", duration: 3000, dismissible: true })
+      showGoferToast({ title: goferT("js.mail.labels.added", { name: name }), variant: "success", icon: "success", position: "bottom-right", duration: 3000, dismissible: true })
     }).catch(function (err) {
-      showGoferToast({ title: "Couldn't add the label", description: err && err.reason ? err.reason : "Please try again.", variant: "error", icon: "error", duration: 8000 })
+      showGoferToast({ title: goferT("js.mail.labels.add_failed"), description: err && err.reason ? err.reason : goferT("js.common.please_try_again"), variant: "error", icon: "error", duration: 8000 })
     })
   })
 }
@@ -21488,14 +21511,14 @@ function startMoveFolderCreate(button) {
   var input = document.createElement("input")
   input.type = "text"
   input.autocomplete = "off"
-  input.placeholder = "Folder name"
-  input.setAttribute("aria-label", "New folder name")
+  input.placeholder = goferT("js.folders.name")
+  input.setAttribute("aria-label", goferT("js.mail.move.new_folder_name"))
   input.className = "h-7 min-w-0 flex-1 rounded-md border border-input bg-background px-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
   input.value = search ? search.value.trim() : ""
   var create = document.createElement("button")
   create.type = "submit"
   create.className = "h-7 shrink-0 rounded-md bg-primary px-2.5 text-xs font-medium text-primary-foreground disabled:opacity-50"
-  create.textContent = "Create"
+  create.textContent = goferT("js.mail.move.create")
   var problem = document.createElement("p")
   problem.className = "mt-1 hidden text-xs text-destructive"
   line.appendChild(input)
@@ -21529,18 +21552,18 @@ function startMoveFolderCreate(button) {
       .then(function (response) {
         if (response.ok) return response.json()
         return response.text().then(function (text) {
-          throw new Error(response.status >= 500 && response.status !== 502 ? "Couldn't create the folder. Please try again." : String(text || "").trim())
+          throw new Error(response.status >= 500 && response.status !== 502 ? goferT("js.mail.move.create_failed") : String(text || "").trim())
         })
       })
       .then(function (made) {
-        if (!made || !made.id) throw new Error("Couldn't create the folder. Please try again.")
+        if (!made || !made.id) throw new Error(goferT("js.mail.move.create_failed"))
         if (window.goferRefreshSidebarAccount) window.goferRefreshSidebarAccount(account)
         return reloadMoveDialogList(made.id)
       })
       .catch(function (err) {
         create.disabled = false
         input.disabled = false
-        problem.textContent = err && err.message ? err.message : "Couldn't create the folder. Please try again."
+        problem.textContent = err && err.message ? err.message : goferT("js.mail.move.create_failed")
         problem.classList.remove("hidden")
         input.focus()
       })
@@ -21579,7 +21602,7 @@ function reloadMoveDialogList(folderID) {
     })
     .catch(function () {
       closeMoveDialog()
-      showGoferToast({ title: "The folder was made", description: "Open Move again to choose it.", variant: "info", icon: "info", duration: 6000 })
+      showGoferToast({ title: goferT("js.mail.move.folder_made"), description: goferT("js.mail.move.open_again"), variant: "info", icon: "info", duration: 6000 })
     })
 }
 
@@ -21627,7 +21650,7 @@ function openMessagesToAccount(pending) {
     })
     .catch(function () {
       pendingMessagesToAccount = null
-      showGoferToast({ title: "Couldn't move the emails", description: "Please try again.", variant: "error", icon: "error", duration: 6000 })
+      showGoferToast({ title: goferT("js.mail.move_failed"), description: goferT("js.common.please_try_again"), variant: "error", icon: "error", duration: 6000 })
     })
 }
 
@@ -21644,7 +21667,7 @@ function closeMessagesToAccountDialog() {
 // chooseMessagesToAccountMode names the confirm button after the choice.
 function chooseMessagesToAccountMode(input) {
   var button = document.querySelector("#mail-to-account-dialog [data-mail-to-account-confirm]")
-  if (button && input && input.checked) button.textContent = input.getAttribute("data-mail-to-account-button") || "Move"
+  if (button && input && input.checked) button.textContent = input.getAttribute("data-mail-to-account-button") || goferT("js.mail.move.confirm")
 }
 
 function confirmMessagesToAccount(mode) {
@@ -21665,7 +21688,7 @@ function confirmMessagesToAccount(mode) {
       if (response.ok) return response.json()
       return response.text().then(function (text) {
         var err = new Error("transfer failed")
-        err.reason = String(text || "").trim() || "The server answered " + response.status + "."
+        err.reason = String(text || "").trim() || goferT("js.common.server_answered", { status: response.status })
         throw err
       })
     })
@@ -21674,8 +21697,8 @@ function confirmMessagesToAccount(mode) {
       followMailTransfers(result, mode === "copy")
     })
     .catch(function (err) {
-      var reason = err && err.reason ? err.reason : "Please try again."
-      showGoferToast({ title: "Couldn't move the emails", description: reason, variant: "error", icon: "error", duration: 8000 })
+      var reason = err && err.reason ? err.reason : goferT("js.common.please_try_again")
+      showGoferToast({ title: goferT("js.mail.move_failed"), description: reason, variant: "error", icon: "error", duration: 8000 })
     })
 }
 
@@ -21708,7 +21731,7 @@ function followMailTransfers(result, copy) {
   if (!ids.length) return
   var entry = {
     key: ids[0], ids: ids, copy: copy, account: result.account, folder: result.folder,
-    emails: mailTransferNumber(result.messages) + (result.messages === 1 ? " email" : " emails"),
+    emails: goferTn("js.mail.count.emails", result.messages),
     hidden: false,
   }
   storeMailTransfer(entry)
@@ -21736,7 +21759,7 @@ function followMailTransfer(entry, resumed) {
   var canceling = false
   // A reload starts counting from what's deleted by then.
   var deleted = resumed ? -1 : 0
-  var line = "Starting…"
+  var line = goferT("js.mail.transfer.starting")
   var progress = 0
 
   function showToast() {
@@ -21746,13 +21769,13 @@ function followMailTransfer(entry, resumed) {
       return
     }
     if (toast && toast.isConnected) {
-      updateGoferToast(toast, { description: canceling ? "Canceling…" : line, progress: progress })
+      updateGoferToast(toast, { description: canceling ? goferT("js.mail.transfer.canceling") : line, progress: progress })
       return
     }
     toast = showGoferToast({
       id: toastID,
-      title: (entry.copy ? "Copying " : "Moving ") + entry.emails + " to " + entry.account,
-      description: canceling ? "Canceling…" : line,
+      title: goferT(entry.copy ? "js.mail.transfer.copying" : "js.mail.transfer.moving", { emails: entry.emails, account: entry.account }),
+      description: canceling ? goferT("js.mail.transfer.canceling") : line,
       variant: "info",
       icon: "spinner",
       position: "bottom-right",
@@ -21760,9 +21783,9 @@ function followMailTransfer(entry, resumed) {
       width: "min(24rem, calc(100vw - 2rem))",
       progress: progress,
       actions: [
-        { label: "Details", onClick: function () { window.location.href = "/settings/export-import" } },
-        { label: "Cancel", onClick: cancel },
-        { label: "Hide", onClick: hide },
+        { label: goferT("js.mail.transfer.details"), onClick: function () { window.location.href = "/settings/export-import" } },
+        { label: goferT("js.common.cancel"), onClick: cancel },
+        { label: goferT("js.compose.attachments.hide"), onClick: hide },
       ],
     })
   }
@@ -21823,9 +21846,10 @@ function followMailTransfer(entry, resumed) {
         if (deleted >= 0 && sum.deleted > deleted) refreshMailListAfterTransfer()
         deleted = sum.deleted
         if (running) {
-          line = waiting ? "Waiting for other transfers to finish"
-            : sum.total ? (folder ? (entry.copy ? "Copying " : "Moving ") + folder + "… " : "") + mailTransferNumber(sum.processed) + " of " + mailTransferNumber(sum.total) + " messages"
-            : "Starting…"
+          var counted = goferT("js.mail.transfer.progress", { done: mailTransferNumber(sum.processed), total: mailTransferNumber(sum.total) })
+          line = waiting ? goferT("js.mail.transfer.waiting")
+            : sum.total ? (folder ? goferT(entry.copy ? "js.mail.transfer.copying_folder" : "js.mail.transfer.moving_folder", { folder: folder }) + " " : "") + counted
+            : goferT("js.mail.transfer.starting")
           progress = sum.total ? sum.processed * 100 / sum.total : 0
           showToast()
           setTimeout(poll, mailTransferPollDelay)
@@ -21850,7 +21874,7 @@ function followMailTransfer(entry, resumed) {
 }
 
 function mailTransferNumber(n) {
-  return Number(n || 0).toLocaleString()
+  return goferNumber(Number(n || 0))
 }
 
 function refreshMailListAfterTransfer() {
@@ -21862,13 +21886,13 @@ function refreshMailListAfterTransfer() {
 }
 
 function showMailTransferResult(toastID, sum, info) {
-  var messages = function (n) { return mailTransferNumber(n) + (n === 1 ? " email" : " emails") }
-  var details = { label: "Details", onClick: function () { window.location.href = "/settings/export-import" } }
+  var messages = function (n) { return goferTn("js.mail.count.emails", n) }
+  var details = { label: goferT("js.mail.transfer.details"), onClick: function () { window.location.href = "/settings/export-import" } }
   if (info.paused) {
     showGoferToast({
       id: toastID,
-      title: info.copy ? "Couldn't finish copying the emails" : "Couldn't finish moving the emails",
-      description: (info.problem ? info.problem + " " : "") + "You can continue it in Settings, under Export and import.",
+      title: info.copy ? goferT("js.mail.transfer.copy_paused") : goferT("js.mail.transfer.move_paused"),
+      description: (info.problem ? info.problem + " " : "") + goferT("js.mail.transfer.continue"),
       variant: "error", icon: "error", position: "bottom-right", duration: 0, dismissible: true, actions: [details],
     })
     return
@@ -21876,19 +21900,19 @@ function showMailTransferResult(toastID, sum, info) {
   if (info.canceled) {
     showGoferToast({
       id: toastID,
-      title: info.copy ? "Copying canceled" : "Move canceled",
-      description: messages(sum.copied) + " reached " + info.account + " before it stopped.",
+      title: info.copy ? goferT("js.mail.transfer.copy_canceled") : goferT("js.mail.transfer.move_canceled"),
+      description: goferT("js.mail.transfer.reached", { emails: messages(sum.copied), account: info.account }),
       variant: "info", icon: "info", position: "bottom-right", duration: 8000, dismissible: true,
     })
     return
   }
   var notes = []
-  if (sum.duplicates) notes.push(messages(sum.duplicates) + (sum.duplicates === 1 ? " was" : " were") + " already there.")
-  if (sum.failed) notes.push(messages(sum.failed) + " couldn't be copied and stayed where " + (sum.failed === 1 ? "it was." : "they were."))
+  if (sum.duplicates) notes.push(goferTn("js.mail.transfer.duplicates", sum.duplicates))
+  if (sum.failed) notes.push(goferTn("js.mail.transfer.failed", sum.failed))
   showGoferToast({
     id: toastID,
-    title: (info.copy ? "Copied " : "Moved ") + info.emails + " to " + info.account,
-    description: notes.length ? notes.join(" ") : "They're in " + info.folder + ".",
+    title: goferT(info.copy ? "js.mail.transfer.copied" : "js.mail.transfer.moved", { emails: info.emails, account: info.account }),
+    description: notes.length ? notes.join(" ") : goferT("js.mail.transfer.in_folder", { folder: info.folder }),
     variant: sum.failed ? "warning" : "success",
     icon: sum.failed ? "warning" : "success",
     position: "bottom-right",
@@ -21925,7 +21949,7 @@ function filterMoveFolders(input) {
     var newRow = account.querySelector("[data-mail-move-new-row][data-mail-move-create-account]")
     if (newRow) {
       var label = newRow.querySelector(".flex-1")
-      if (label) label.textContent = typed ? "New folder “" + typed + "”…" : "New folder…"
+      if (label) label.textContent = typed ? goferT("js.mail.move.new_folder_named", { name: typed }) : goferT("js.mail.move.new_folder")
     }
     account.classList.toggle("hidden", !accountVisible && !newRow)
   })
@@ -22073,9 +22097,9 @@ function showEmailBodyError(failure) {
   card.className = "my-2 rounded-lg border border-ink/10 bg-ink/[0.02] px-4 py-3.5"
   var title = document.createElement("p")
   title.className = "text-[13px] font-medium text-ink"
-  title.textContent = failure.kind === "missing" ? "Message unavailable" :
-    failure.kind === "large" ? "Large message" :
-    failure.kind === "oversize" ? "Message too large" : "Couldn't load this message"
+  title.textContent = failure.kind === "missing" ? goferT("js.mail.body.unavailable") :
+    failure.kind === "large" ? goferT("js.mail.body.large") :
+    failure.kind === "oversize" ? goferT("js.mail.body.oversize") : goferT("js.mail.body.failed")
   var message = document.createElement("p")
   message.className = "mt-1 text-xs leading-relaxed text-muted-foreground"
   message.textContent = failure.message || ""
@@ -22107,24 +22131,24 @@ function showEmailBodyError(failure) {
     var reconnect = document.createElement("button")
     reconnect.type = "submit"
     reconnect.className = buttonClass + " bg-ink/[0.04]"
-    reconnect.textContent = "Reconnect account"
+    reconnect.textContent = goferT("js.mail.body.reconnect")
     form.appendChild(reconnect)
     actions.appendChild(form)
   } else if (failure.kind === "reconnect") {
     var settings = document.createElement("a")
     settings.href = "/settings/accounts"
     settings.className = buttonClass
-    settings.textContent = "Open account settings"
+    settings.textContent = goferT("js.mail.body.settings")
     actions.appendChild(settings)
   }
   if (failure.kind === "large") {
     var full = document.createElement("button")
     full.type = "button"
     full.className = buttonClass + " bg-ink/[0.04]"
-    full.textContent = "Show full message"
+    full.textContent = goferT("js.mail.body.show_full")
     full.addEventListener("click", function () {
       full.disabled = true
-      full.textContent = "Downloading…"
+      full.textContent = goferT("js.mail.body.downloading")
       fetch("/api/messages/" + encodeURIComponent(emailId) + "/download-full", { method: "POST" })
         .then(function (r) {
           if (r.ok) return null
@@ -22143,14 +22167,14 @@ function showEmailBodyError(failure) {
             }
             return
           }
-          message.textContent = String(problem || "").trim() || "This message couldn't be downloaded from the mail server."
+          message.textContent = String(problem || "").trim() || goferT("js.mail.body.cannot_download")
           full.disabled = false
-          full.textContent = "Show full message"
+          full.textContent = goferT("js.mail.body.show_full")
         })
         .catch(function () {
-          message.textContent = "This message couldn't be downloaded from the mail server."
+          message.textContent = goferT("js.mail.body.cannot_download")
           full.disabled = false
-          full.textContent = "Show full message"
+          full.textContent = goferT("js.mail.body.show_full")
         })
     })
     actions.appendChild(full)
@@ -22158,7 +22182,7 @@ function showEmailBodyError(failure) {
     var retry = document.createElement("button")
     retry.type = "button"
     retry.className = buttonClass
-    retry.textContent = "Try again"
+    retry.textContent = goferT("js.mail.body.retry")
     retry.addEventListener("click", function () {
       if (failure.accountId) delete accountsNeedingReconnect[failure.accountId]
       applyEmailBodyTheme(iframe)
@@ -22410,8 +22434,7 @@ function updateEmailBodySchemeButton(iframe, baseTheme, theme, bodyMode) {
   }
   var btn = emailId ? document.querySelector('[data-force-email-scheme="' + emailId + '"]') : document.querySelector("[data-force-email-scheme]")
   if (!btn) return
-  var label = "Showing " + theme + " email body."
-  if (mode === "original") label = "Showing original email style."
+  var label = goferT(mode === "original" ? "js.mail.body_style.showing_original" : (theme === "light" ? "js.mail.body_style.showing_light" : "js.mail.body_style.showing_dark"))
   btn.setAttribute("aria-label", label)
   updateEmailBodyModeToggle(emailId, mode, label)
   var tooltipEl = btn.closest("[data-tui-popover-root]")
@@ -22780,6 +22803,14 @@ function collapseComposeFullWidth() {
   mailList.style.overflow = "hidden"
   mailList.style.transition = axis + " 0.3s cubic-bezier(0.4,0,0.2,1), opacity 0.25s ease, border-width 0.3s ease"
 
+  // Keep the list's content hidden while the pane is still too narrow for it
+  // (it would wrap and then jump); fade it in once the pane has its size.
+  var contentKids = Array.prototype.slice.call(mailList.children)
+  contentKids.forEach(function (kid) {
+    kid.style.transition = "none"
+    kid.style.opacity = "0"
+  })
+
   for (var i = 0; i < resizeHandles.length; i++) {
     resizeHandles[i].style.display = resizeHandles[i]._savedDisplay || ""
     delete resizeHandles[i]._savedDisplay
@@ -22814,6 +22845,17 @@ function collapseComposeFullWidth() {
       resizeHandles[i].style.transition = ""
       resizeHandles[i].style.opacity = ""
     }
+    void mailList.offsetHeight
+    contentKids.forEach(function (kid) {
+      kid.style.transition = "opacity 0.3s ease"
+      kid.style.opacity = "1"
+    })
+    setTimeout(function () {
+      contentKids.forEach(function (kid) {
+        kid.style.transition = ""
+        kid.style.opacity = ""
+      })
+    }, 350)
   }
   mailList.addEventListener("transitionend", onEnd)
 
@@ -23032,7 +23074,7 @@ function collapseComposeFullWidth() {
     var label = frame && frame.querySelector('[data-thread-expand-all-label]')
     if (!label) return
     var closed = frame.querySelector('details[data-thread-details]:not([open])')
-    label.textContent = closed ? 'Expand all' : 'Collapse all'
+    label.textContent = closed ? goferT("js.mail.thread.expand_all") : goferT("js.mail.thread.collapse_all")
   }
 
   document.addEventListener('click', function (e) {
@@ -23115,7 +23157,7 @@ function collapseComposeFullWidth() {
     if (!sourceURL) return
 
     preview.src = sourceURL
-    preview.alt = trigger.getAttribute('data-contact-avatar-preview-alt') || source.alt || 'Profile picture'
+    preview.alt = trigger.getAttribute('data-contact-avatar-preview-alt') || source.alt || goferT("js.mail.avatar.alt")
     if (window.console && window.console.info) {
       window.console.info('[Gofer] contact avatar preview', {
         originalURL: originalURL,
@@ -23294,7 +23336,7 @@ function calendarAddISODays(iso, days) {
 
 function calendarMinuteLabel(minute) {
   minute = ((Math.round(minute) % 1440) + 1440) % 1440
-  return String(Math.floor(minute / 60)).padStart(2, "0") + ":" + String(minute % 60).padStart(2, "0")
+  return goferDates.clockTime(Math.floor(minute / 60), minute % 60)
 }
 
 function calendarDragAnimates() {
@@ -23484,7 +23526,7 @@ function finishCalendarDrag(drag, drop) {
   var when = drag.cardTime ? drag.cardTime.textContent : ""
   if (drag.resize) {
     var dayStart = calendarDayStartMs(drag.column.dataset.calendarTimedColumn)
-    when = "Ends at " + calendarMinuteLabel((change.end - dayStart) / 60000)
+    when = goferT("js.calendar.move.ends_at", { time: calendarMinuteLabel((change.end - dayStart) / 60000) })
   }
   var revert = placeCalendarDrop(drag, change)
   moveCalendarEvent(drag.el, change, revert, {x: drag.dropX, y: drag.dropY, when: when, resize: !!drag.resize})
@@ -23664,7 +23706,7 @@ function calendarZonedFields(ms, zone) {
 function moveCalendarEvent(el, change, revert, point) {
   var undo = function (message) {
     revert()
-    if (message) showGoferToast({title: "Event not moved", description: message, variant: "error", icon: "error", duration: 8000, dismissible: true})
+    if (message) showGoferToast({title: goferT("js.calendar.move.not_moved"), description: message, variant: "error", icon: "error", duration: 8000, dismissible: true})
   }
   var url = "/api/calendar/events/" + encodeURIComponent(el.dataset.calendarMove) + "/edit" + (el.dataset.calendarMoveOccurrence === "true" ? "?scope=occurrence" : "")
   fetch(url, {headers: {"Accept": "text/html"}})
@@ -23672,9 +23714,9 @@ function moveCalendarEvent(el, change, revert, point) {
       return response.text().then(function (text) { return {ok: response.ok, text: text} })
     })
     .then(function (result) {
-      if (!result.ok) { undo(result.text.trim().length < 300 ? result.text.trim() : "This event can't be edited right now."); return }
+      if (!result.ok) { undo(result.text.trim().length < 300 ? result.text.trim() : goferT("js.calendar.move.cannot_edit")); return }
       var form = new DOMParser().parseFromString(result.text, "text/html").querySelector("[data-calendar-create-form]")
-      if (!form) { undo("This event can't be edited right now."); return }
+      if (!form) { undo(goferT("js.calendar.move.cannot_edit")); return }
       // The editor enables these before saving, too.
       ["source_id", "version", "request_id", "edit_scope"].forEach(function (name) {
         var input = form.querySelector('[name="' + name + '"]')
@@ -23685,12 +23727,12 @@ function moveCalendarEvent(el, change, revert, point) {
       var back = {id: el.dataset.calendarMove, occurrence: el.dataset.calendarMoveOccurrence === "true", fields: {}}
       ;["start_date", "start_time", "end_date", "end_time", "timezone"].forEach(function (name) { back.fields[name] = fields.get(name) })
       if (change.start === undefined) {
-        if (fields.get("all_day") !== "true") { undo("This event is no longer an all-day event. Refresh the calendar."); return }
+        if (fields.get("all_day") !== "true") { undo(goferT("js.calendar.move.not_all_day")); return }
         fields.set("start_date", calendarAddISODays(fields.get("start_date"), change.days))
         fields.set("end_date", calendarAddISODays(fields.get("end_date"), change.days))
       } else {
         var zone = fields.get("timezone")
-        if (fields.get("all_day") === "true" || !zone) { undo("This event's times changed. Refresh the calendar."); return }
+        if (fields.get("all_day") === "true" || !zone) { undo(goferT("js.calendar.move.times_changed")); return }
         var start = calendarZonedFields(change.start, zone), end = calendarZonedFields(change.end, zone)
         fields.set("start_date", start.date)
         fields.set("start_time", start.time)
@@ -23703,7 +23745,7 @@ function moveCalendarEvent(el, change, revert, point) {
       // Ask first, where the event was dropped; guests are sent the change.
       confirmCalendarMove(point, guests, save, function () { undo() })
     })
-    .catch(function () { undo("Could not load the event. Try again.") })
+    .catch(function () { undo(goferT("js.calendar.move.load_failed")) })
 }
 
 // back, when given, is where the event was: the message that it moved offers
@@ -23715,17 +23757,17 @@ function saveCalendarMove(action, fields, undo, back) {
     })
     .then(function (result) {
       if (!result.ok || result.data.saved !== true) {
-        var message = result.data.error || "Could not move the event."
-        if (result.data.confirm === "reset_series_dates") message = "Open the series in the editor to change its time."
+        var message = result.data.error || goferT("js.calendar.move.failed")
+        if (result.data.confirm === "reset_series_dates") message = goferT("js.calendar.move.open_series")
         undo(message)
         if (result.data.uncertain || result.data.conflict) scheduleCalendarCacheRefresh()
         return
       }
-      var description = result.data.notify_guests ? "Guest notifications are being delivered." : "Saved to your calendar."
+      var description = result.data.notify_guests ? goferT("js.calendar.move.notifying") : goferT("js.calendar.saved.to_calendar")
       if (!back) {
-        showGoferToast({title: "Move undone", description: description, variant: "success", icon: "success", duration: 3500})
+        showGoferToast({title: goferT("js.calendar.move.undone"), description: description, variant: "success", icon: "success", duration: 3500})
       } else {
-        var toast = showGoferToast({title: "Event moved", description: description, variant: "success", icon: "success", duration: 10000, secondaryActionLabel: "Undo", onSecondaryAction: function () {
+        var toast = showGoferToast({title: goferT("js.calendar.move.moved"), description: description, variant: "success", icon: "success", duration: 10000, secondaryActionLabel: goferT("js.calendar.undo"), onSecondaryAction: function () {
           var card = toast && toast.querySelector(".gofer-toast-card")
           var at = card ? card.getBoundingClientRect() : null
           if (toast) dismissGoferToast(toast)
@@ -23735,7 +23777,7 @@ function saveCalendarMove(action, fields, undo, back) {
       scheduleCalendarCacheRefresh()
     })
     .catch(function () {
-      undo("The move could not be confirmed. Refresh the calendar to check the event.")
+      undo(goferT("js.calendar.move.unconfirmed"))
       scheduleCalendarCacheRefresh()
     })
 }
@@ -23744,7 +23786,7 @@ function saveCalendarMove(action, fields, undo, back) {
 // since, so the editor's form is read again for its new version.
 function undoCalendarMove(back, at) {
   var fail = function (message) {
-    showGoferToast({title: "Move not undone", description: message, variant: "error", icon: "error", duration: 8000, dismissible: true})
+    showGoferToast({title: goferT("js.calendar.move.not_undone"), description: message, variant: "error", icon: "error", duration: 8000, dismissible: true})
   }
   var url = "/api/calendar/events/" + encodeURIComponent(back.id) + "/edit" + (back.occurrence ? "?scope=occurrence" : "")
   fetch(url, {headers: {"Accept": "text/html"}})
@@ -23752,9 +23794,9 @@ function undoCalendarMove(back, at) {
       return response.text().then(function (text) { return {ok: response.ok, text: text} })
     })
     .then(function (result) {
-      if (!result.ok) { fail(result.text.trim().length < 300 ? result.text.trim() : "This event can't be edited right now."); return }
+      if (!result.ok) { fail(result.text.trim().length < 300 ? result.text.trim() : goferT("js.calendar.move.cannot_edit")); return }
       var form = new DOMParser().parseFromString(result.text, "text/html").querySelector("[data-calendar-create-form]")
-      if (!form) { fail("This event can't be edited right now."); return }
+      if (!form) { fail(goferT("js.calendar.move.cannot_edit")); return }
       ;["source_id", "version", "request_id", "edit_scope"].forEach(function (name) {
         var input = form.querySelector('[name="' + name + '"]')
         if (input) input.disabled = false
@@ -23766,9 +23808,9 @@ function undoCalendarMove(back, at) {
       var save = function () { saveCalendarMove(form.getAttribute("action"), fields, fail) }
       if (!back.guests) { save(); return }
       // Guests are sent the old time again, so ask first, where the message was.
-      confirmCalendarMove({x: at ? at.left : NaN, y: at ? at.top : NaN, title: "Move this meeting back?", detail: "Guests will be sent the old time.", action: "Move back and notify guests"}, true, save, function () {})
+      confirmCalendarMove({x: at ? at.left : NaN, y: at ? at.top : NaN, title: goferT("js.calendar.move.back_title"), detail: goferT("js.calendar.move.back_detail"), action: goferT("js.calendar.move.back_action")}, true, save, function () {})
     })
-    .catch(function () { fail("Could not load the event. Try again.") })
+    .catch(function () { fail(goferT("js.calendar.move.load_failed")) })
 }
 
 // Asks, next to where an event was dropped, before it is moved; a meeting's
@@ -23781,9 +23823,9 @@ function confirmCalendarMove(point, guests, move, cancel) {
     cancel()
     return
   }
-  var title = point.title || (guests ? "Move this meeting?" : point.resize ? "Change when this event ends?" : "Move this event?")
-  var detail = (point.detail || ((point.when ? point.when + ". " : "") + (guests ? "Guests will be sent the new time." : ""))).trim()
-  var action = point.action || (guests ? "Move and notify guests" : point.resize ? "Save" : "Move")
+  var title = point.title || (guests ? goferT("js.calendar.move.meeting_title") : point.resize ? goferT("js.calendar.move.resize_title") : goferT("js.calendar.move.event_title"))
+  var detail = (point.detail || ((point.when ? point.when + ". " : "") + (guests ? goferT("js.calendar.move.guests_new_time") : ""))).trim()
+  var action = point.action || (guests ? goferT("js.calendar.move.notify_action") : point.resize ? goferT("js.common.save") : goferT("js.calendar.move.action"))
   root.querySelector("[data-calendar-move-title]").textContent = title
   var detailLine = root.querySelector("[data-calendar-move-detail]")
   detailLine.textContent = detail

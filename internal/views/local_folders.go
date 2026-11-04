@@ -1,6 +1,8 @@
 package views
 
 import (
+	"context"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
 )
@@ -36,11 +38,11 @@ func connectedAccounts(accounts []models.Account) []models.Account {
 }
 
 // mailboxSizeWhere says where the mail the size dialog counts is kept.
-func mailboxSizeWhere(account models.Account) string {
+func mailboxSizeWhere(ctx context.Context, account models.Account) string {
 	if accountIsLocalFolders(account) {
-		return "in Local folders"
+		return i18n.T(ctx, "mail.size.where_local")
 	}
-	return "on the mail server"
+	return i18n.T(ctx, "mail.size.where_server")
 }
 
 // accountTitle names an account where its address would show: the address,

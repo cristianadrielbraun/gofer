@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"log"
 	"net/http"
 	"slices"
@@ -59,7 +60,7 @@ func (h *Handler) loadMailRulesData(w http.ResponseWriter, r *http.Request) (mod
 	data, err := mailRulesData(r.Context(), h.db, h.userID(r.Context()))
 	if err != nil {
 		log.Printf("mail rules of %s: %v", h.userID(r.Context()), err)
-		http.Error(w, "failed to load rules", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_load_rules"), http.StatusInternalServerError)
 		return models.MailRulesData{}, false
 	}
 	return data, true
@@ -134,7 +135,7 @@ func newMailRuleDraft() models.MailRule {
 // saved.
 func (h *Handler) handleMailRuleForm(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "invalid form data", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_form_data"), http.StatusBadRequest)
 		return
 	}
 	data, ok := h.loadMailRulesData(w, r)
@@ -327,7 +328,7 @@ func mailRuleFolderFromValue(value string) *models.MailRuleFolderTarget {
 // rule shows why, with the form as it was sent.
 func (h *Handler) handleSaveMailRule(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "invalid form data", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_form_data"), http.StatusBadRequest)
 		return
 	}
 	rule, _ := mailRuleFromForm(r)
@@ -343,17 +344,17 @@ func (h *Handler) handleSaveMailRule(w http.ResponseWriter, r *http.Request) {
 	if saveErr != nil {
 		switch {
 		case errors.Is(saveErr, sql.ErrNoRows):
-			data.Error = "That account is no longer here. Choose another."
+			data.Error = i18n.T(r.Context(), "server.msg.that_account_is_no_longer_here_choose")
 		case errors.Is(saveErr, storage.ErrMailRuleFolder):
-			data.Error = "A folder condition names a folder of an account the rule isn't for, or a folder that is gone. Choose the folder again."
+			data.Error = i18n.T(r.Context(), "server.msg.a_folder_condition_names_a_folder_of")
 		case errors.Is(saveErr, storage.ErrTooManyMailRules):
-			data.Error = sentence(saveErr.Error())
+			data.Error = serverText(r.Context(), sentence(saveErr.Error()))
 		default:
 			if mailrules.Validate(&rule) == nil {
 				log.Printf("save mail rule: %v", saveErr)
-				data.Error = "The rule could not be saved."
+				data.Error = i18n.T(r.Context(), "server.msg.the_rule_could_not_be_saved")
 			} else {
-				data.Error = sentence(saveErr.Error())
+				data.Error = serverText(r.Context(), sentence(saveErr.Error()))
 			}
 		}
 		rule, forGoodChosen := mailRuleFromForm(r)
@@ -392,7 +393,7 @@ func (h *Handler) handleDeleteMailRule(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		log.Printf("delete mail rule %s: %v", r.PathValue("id"), err)
-		data.Error = "The rule could not be deleted."
+		data.Error = i18n.T(r.Context(), "server.msg.the_rule_could_not_be_deleted")
 	}
 	h.renderMailRulesPanel(w, r, data)
 }
@@ -400,7 +401,7 @@ func (h *Handler) handleDeleteMailRule(w http.ResponseWriter, r *http.Request) {
 // handleMailRuleEnabled makes a rule active or inactive.
 func (h *Handler) handleMailRuleEnabled(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "invalid form data", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_form_data"), http.StatusBadRequest)
 		return
 	}
 	err := h.db.SetMailRuleEnabledGuarded(r.Context(), h.userID(r.Context()), r.PathValue("id"), r.FormValue("enabled") != "", h.signatureGuard)
@@ -419,7 +420,7 @@ func (h *Handler) handleMailRuleEnabled(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	log.Printf("make mail rule %s active or inactive: %v", r.PathValue("id"), err)
-	data.Error = "The rule could not be made active or inactive."
+	data.Error = i18n.T(r.Context(), "server.msg.the_rule_could_not_be_made_active")
 	w.Header().Set("HX-Retarget", "#mail-rules-panel")
 	w.Header().Set("HX-Reswap", "outerHTML")
 	h.renderMailRulesPanel(w, r, data)
@@ -430,7 +431,7 @@ func (h *Handler) handleMailRuleEnabled(w http.ResponseWriter, r *http.Request) 
 // can reload the rules and try again.
 func (h *Handler) handleMailRuleOrder(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "invalid form data", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_form_data"), http.StatusBadRequest)
 		return
 	}
 	ids := r.PostForm["rule_id"]
@@ -439,12 +440,12 @@ func (h *Handler) handleMailRuleOrder(w http.ResponseWriter, r *http.Request) {
 	}
 	err := h.db.SetMailRuleOrderGuarded(r.Context(), h.userID(r.Context()), ids, h.signatureGuard)
 	if errors.Is(err, storage.ErrMailRuleOrderChanged) {
-		http.Error(w, "Your rules changed. Reload the page and try again.", http.StatusConflict)
+		http.Error(w, i18n.T(r.Context(), "server.error.your_rules_changed_reload_the_page_and"), http.StatusConflict)
 		return
 	}
 	if err != nil {
 		log.Printf("order mail rules: %v", err)
-		http.Error(w, "failed to save the order", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_save_the_order"), http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

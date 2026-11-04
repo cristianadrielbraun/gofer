@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"log"
 	"net/http"
 	"strconv"
@@ -43,8 +44,8 @@ func (h *Handler) writeEmailBodyError(w http.ResponseWriter, ctx context.Context
 	case isPermanentOAuthError(err):
 		log.Printf("routed account needs reconnect: %v", err)
 		failure.Kind, status = "reconnect", http.StatusConflict
-		failure.Message = "This account needs to be reconnected before this message can be downloaded."
-		failure.Detail = "The " + oauthReconnectReason(err) + "."
+		failure.Message = i18n.T(ctx, "server.msg.this_account_needs_to_be_reconnected_before")
+		failure.Detail = sentence(oauthReconnectReason(err))
 		failure.AccountID = accountID
 		if accountID == "" || h.userAccounts == nil {
 			break
@@ -58,6 +59,7 @@ func (h *Handler) writeEmailBodyError(w http.ResponseWriter, ctx context.Context
 		log.Printf("routed account operation failed: %v", err)
 		failure.Detail = err.Error()
 	}
+	failure.Message, failure.Detail = serverText(ctx, failure.Message), serverText(ctx, failure.Detail)
 	payload, _ := json.Marshal(failure) // HTML-escaped, safe inside <script>.
 	nonce := setEmailBodyDocumentHeaders(w)
 	if failure.Kind == "reconnect" {

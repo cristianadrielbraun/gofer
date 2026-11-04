@@ -2,8 +2,10 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"errors"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"log"
 	"net/http"
 	"strings"
@@ -20,7 +22,6 @@ const (
 	setupRecoveryPath        = "/setup/recovery"
 	setupReviewPath          = "/setup/review"
 	setupFormMaximumBytes    = 8 << 10
-	setupTokenFailureMessage = "That setup token is invalid or no longer active."
 	setupTokenServiceMessage = "Unable to verify the setup token right now. Please try again."
 )
 
@@ -28,11 +29,11 @@ func (h *Handler) handleSetup(w http.ResponseWriter, r *http.Request) {
 	state, err := h.auth.SetupState(r.Context())
 	if err != nil {
 		log.Printf("read setup entry state: %v", err)
-		h.renderSetupPage(w, r, http.StatusInternalServerError, setupTokenServiceMessage)
+		h.renderSetupPage(w, r, http.StatusInternalServerError, i18n.T(r.Context(), "auth.setup.token_unavailable"))
 		return
 	}
 	if state.Initialized {
-		h.writeSetupNotFound(w)
+		h.writeSetupNotFound(w, r)
 		return
 	}
 	if r.URL.RawQuery != "" {
@@ -46,7 +47,7 @@ func (h *Handler) handleSetup(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("read setup access challenge: %v", err)
 		auth.ClearPreAuthCookie(w, h.auth.Config().SecureCookies)
-		h.renderSetupPage(w, r, http.StatusInternalServerError, setupTokenServiceMessage)
+		h.renderSetupPage(w, r, http.StatusInternalServerError, i18n.T(r.Context(), "auth.setup.token_unavailable"))
 		return
 	}
 	if challenge != nil {
@@ -60,11 +61,11 @@ func (h *Handler) handleSetupSubmit(w http.ResponseWriter, r *http.Request) {
 	state, err := h.auth.SetupState(r.Context())
 	if err != nil {
 		log.Printf("read setup submission state: %v", err)
-		h.renderSetupPage(w, r, http.StatusInternalServerError, setupTokenServiceMessage)
+		h.renderSetupPage(w, r, http.StatusInternalServerError, i18n.T(r.Context(), "auth.setup.token_unavailable"))
 		return
 	}
 	if state.Initialized {
-		h.writeSetupNotFound(w)
+		h.writeSetupNotFound(w, r)
 		return
 	}
 	if r.URL.RawQuery != "" {
@@ -73,7 +74,7 @@ func (h *Handler) handleSetupSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, setupFormMaximumBytes)
 	if err := r.ParseForm(); err != nil {
-		h.renderSetupPage(w, r, http.StatusUnauthorized, setupTokenFailureMessage)
+		h.renderSetupPage(w, r, http.StatusUnauthorized, i18n.T(r.Context(), "auth.setup.token_invalid"))
 		return
 	}
 	challenge, err := h.auth.BeginSetup(r.Context(), auth.BeginSetupOptions{
@@ -82,18 +83,18 @@ func (h *Handler) handleSetupSubmit(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		switch {
 		case errors.Is(err, auth.ErrSetupAlreadyInitialized):
-			h.writeSetupNotFound(w)
+			h.writeSetupNotFound(w, r)
 		case errors.Is(err, auth.ErrSetupTokenInvalid):
-			h.renderSetupPage(w, r, http.StatusUnauthorized, setupTokenFailureMessage)
+			h.renderSetupPage(w, r, http.StatusUnauthorized, i18n.T(r.Context(), "auth.setup.token_invalid"))
 		default:
 			log.Printf("verify setup token: %v", err)
-			h.renderSetupPage(w, r, http.StatusInternalServerError, setupTokenServiceMessage)
+			h.renderSetupPage(w, r, http.StatusInternalServerError, i18n.T(r.Context(), "auth.setup.token_unavailable"))
 		}
 		return
 	}
 	if challenge == nil {
 		log.Printf("setup token verification returned no access challenge")
-		h.renderSetupPage(w, r, http.StatusInternalServerError, setupTokenServiceMessage)
+		h.renderSetupPage(w, r, http.StatusInternalServerError, i18n.T(r.Context(), "auth.setup.token_unavailable"))
 		return
 	}
 
@@ -112,11 +113,11 @@ func (h *Handler) handleSetupPassword(w http.ResponseWriter, r *http.Request) {
 	state, err := h.auth.SetupState(r.Context())
 	if err != nil {
 		log.Printf("read setup password state: %v", err)
-		h.writeSetupServiceFailure(w)
+		h.writeSetupServiceFailure(w, r)
 		return
 	}
 	if state.Initialized {
-		h.writeSetupNotFound(w)
+		h.writeSetupNotFound(w, r)
 		return
 	}
 	if r.URL.RawQuery != "" {
@@ -133,7 +134,7 @@ func (h *Handler) handleSetupPassword(w http.ResponseWriter, r *http.Request) {
 			http.Redirect(w, r, setupOwnerPath, http.StatusSeeOther)
 		default:
 			log.Printf("read setup password owner draft: %v", err)
-			h.writeSetupServiceFailure(w)
+			h.writeSetupServiceFailure(w, r)
 		}
 		return
 	}
@@ -148,11 +149,11 @@ func (h *Handler) handleSetupPasswordSubmit(w http.ResponseWriter, r *http.Reque
 	state, err := h.auth.SetupState(r.Context())
 	if err != nil {
 		log.Printf("read setup password submission state: %v", err)
-		h.writeSetupServiceFailure(w)
+		h.writeSetupServiceFailure(w, r)
 		return
 	}
 	if state.Initialized {
-		h.writeSetupNotFound(w)
+		h.writeSetupNotFound(w, r)
 		return
 	}
 	if r.URL.RawQuery != "" {
@@ -162,7 +163,7 @@ func (h *Handler) handleSetupPasswordSubmit(w http.ResponseWriter, r *http.Reque
 	r.Body = http.MaxBytesReader(w, r.Body, setupFormMaximumBytes)
 	if err := r.ParseForm(); err != nil {
 		h.renderSubmittedSetupPassword(w, r, http.StatusUnprocessableEntity, views.SetupPasswordData{
-			Errors: map[string]string{"form": "The submitted password form is too large or invalid."},
+			Errors: map[string]string{"form": i18n.T(r.Context(), "auth.setup.password_form")},
 		})
 		return
 	}
@@ -181,7 +182,7 @@ func (h *Handler) handleSetupPasswordSubmit(w http.ResponseWriter, r *http.Reque
 			h.renderSubmittedSetupPassword(w, r, http.StatusUnprocessableEntity, views.SetupPasswordData{Errors: validationErr.Fields})
 		default:
 			log.Printf("save setup password draft: %v", err)
-			h.writeSetupServiceFailure(w)
+			h.writeSetupServiceFailure(w, r)
 		}
 		return
 	}
@@ -194,11 +195,11 @@ func (h *Handler) handleSetupMFA(w http.ResponseWriter, r *http.Request) {
 	state, err := h.auth.SetupState(r.Context())
 	if err != nil {
 		log.Printf("read setup MFA state: %v", err)
-		h.writeSetupServiceFailure(w)
+		h.writeSetupServiceFailure(w, r)
 		return
 	}
 	if state.Initialized {
-		h.writeSetupNotFound(w)
+		h.writeSetupNotFound(w, r)
 		return
 	}
 	if r.URL.RawQuery != "" {
@@ -217,11 +218,11 @@ func (h *Handler) handleSetupMFASubmit(w http.ResponseWriter, r *http.Request) {
 	state, err := h.auth.SetupState(r.Context())
 	if err != nil {
 		log.Printf("read setup MFA submission state: %v", err)
-		h.writeSetupServiceFailure(w)
+		h.writeSetupServiceFailure(w, r)
 		return
 	}
 	if state.Initialized {
-		h.writeSetupNotFound(w)
+		h.writeSetupNotFound(w, r)
 		return
 	}
 	if r.URL.RawQuery != "" {
@@ -231,7 +232,7 @@ func (h *Handler) handleSetupMFASubmit(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, setupFormMaximumBytes)
 	if err := r.ParseForm(); err != nil {
 		h.renderSubmittedSetupMFA(w, r, http.StatusUnprocessableEntity, map[string]string{
-			"form": "The submitted authenticator form is too large or invalid.",
+			"form": i18n.T(r.Context(), "auth.setup.totp_form"),
 		})
 		return
 	}
@@ -243,7 +244,7 @@ func (h *Handler) handleSetupMFASubmit(w http.ResponseWriter, r *http.Request) {
 		_, err = h.auth.ConfirmSetupTOTP(r.Context(), auth.GetPreAuthToken(r), h.auth.Config().BaseURL, r.PostFormValue("code"))
 	default:
 		h.renderSubmittedSetupMFA(w, r, http.StatusUnprocessableEntity, map[string]string{
-			"form": "Choose a valid authenticator setup action.",
+			"form": i18n.T(r.Context(), "auth.setup.totp_action"),
 		})
 		return
 	}
@@ -272,7 +273,7 @@ func (h *Handler) handleSetupMFAAccessError(w http.ResponseWriter, r *http.Reque
 		http.Redirect(w, r, setupPasswordPath, http.StatusSeeOther)
 	default:
 		log.Printf("%s: %v", operation, err)
-		h.writeSetupServiceFailure(w)
+		h.writeSetupServiceFailure(w, r)
 	}
 }
 
@@ -280,11 +281,11 @@ func (h *Handler) handleSetupRecovery(w http.ResponseWriter, r *http.Request) {
 	state, err := h.auth.SetupState(r.Context())
 	if err != nil {
 		log.Printf("read setup recovery state: %v", err)
-		h.writeSetupServiceFailure(w)
+		h.writeSetupServiceFailure(w, r)
 		return
 	}
 	if state.Initialized {
-		h.writeSetupNotFound(w)
+		h.writeSetupNotFound(w, r)
 		return
 	}
 	if r.URL.RawQuery != "" {
@@ -303,11 +304,11 @@ func (h *Handler) handleSetupRecoverySubmit(w http.ResponseWriter, r *http.Reque
 	state, err := h.auth.SetupState(r.Context())
 	if err != nil {
 		log.Printf("read setup recovery submission state: %v", err)
-		h.writeSetupServiceFailure(w)
+		h.writeSetupServiceFailure(w, r)
 		return
 	}
 	if state.Initialized {
-		h.writeSetupNotFound(w)
+		h.writeSetupNotFound(w, r)
 		return
 	}
 	if r.URL.RawQuery != "" {
@@ -317,7 +318,7 @@ func (h *Handler) handleSetupRecoverySubmit(w http.ResponseWriter, r *http.Reque
 	r.Body = http.MaxBytesReader(w, r.Body, setupFormMaximumBytes)
 	if err := r.ParseForm(); err != nil {
 		h.renderSubmittedSetupRecovery(w, r, http.StatusUnprocessableEntity, map[string]string{
-			"form": "The submitted recovery-code form is too large or invalid.",
+			"form": i18n.T(r.Context(), "auth.setup.recovery_form"),
 		})
 		return
 	}
@@ -344,7 +345,7 @@ func (h *Handler) handleSetupRecoverySubmit(w http.ResponseWriter, r *http.Reque
 		)
 	default:
 		h.renderSubmittedSetupRecovery(w, r, http.StatusUnprocessableEntity, map[string]string{
-			"form": "Choose a valid recovery-code setup action.",
+			"form": i18n.T(r.Context(), "auth.setup.recovery_action"),
 		})
 		return
 	}
@@ -375,7 +376,7 @@ func (h *Handler) handleSetupRecoveryAccessError(w http.ResponseWriter, r *http.
 		http.Redirect(w, r, setupRecoveryPath, http.StatusSeeOther)
 	default:
 		log.Printf("%s: %v", operation, err)
-		h.writeSetupServiceFailure(w)
+		h.writeSetupServiceFailure(w, r)
 	}
 }
 
@@ -383,11 +384,11 @@ func (h *Handler) handleSetupReview(w http.ResponseWriter, r *http.Request) {
 	state, err := h.auth.SetupState(r.Context())
 	if err != nil {
 		log.Printf("read final setup review state: %v", err)
-		h.writeSetupServiceFailure(w)
+		h.writeSetupServiceFailure(w, r)
 		return
 	}
 	if state.Initialized {
-		h.writeSetupNotFound(w)
+		h.writeSetupNotFound(w, r)
 		return
 	}
 	if r.URL.RawQuery != "" {
@@ -403,18 +404,18 @@ func (h *Handler) handleSetupReview(w http.ResponseWriter, r *http.Request) {
 	if review.BlockedMessage != "" {
 		status = http.StatusConflict
 	}
-	h.renderSetupReviewPage(w, r, status, setupReviewViewData(review))
+	h.renderSetupReviewPage(w, r, status, setupReviewViewData(r.Context(), review))
 }
 
 func (h *Handler) handleSetupReviewSubmit(w http.ResponseWriter, r *http.Request) {
 	state, err := h.auth.SetupState(r.Context())
 	if err != nil {
 		log.Printf("read final setup submission state: %v", err)
-		h.writeSetupServiceFailure(w)
+		h.writeSetupServiceFailure(w, r)
 		return
 	}
 	if state.Initialized {
-		h.writeSetupNotFound(w)
+		h.writeSetupNotFound(w, r)
 		return
 	}
 	if r.URL.RawQuery != "" {
@@ -423,11 +424,11 @@ func (h *Handler) handleSetupReviewSubmit(w http.ResponseWriter, r *http.Request
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, setupFormMaximumBytes)
 	if err := r.ParseForm(); err != nil {
-		h.renderSubmittedSetupReview(w, r, http.StatusUnprocessableEntity, "The submitted completion form is too large or invalid.")
+		h.renderSubmittedSetupReview(w, r, http.StatusUnprocessableEntity, i18n.T(r.Context(), "auth.setup.completion_form"))
 		return
 	}
 	if r.PostFormValue("action") != "complete" {
-		h.renderSubmittedSetupReview(w, r, http.StatusUnprocessableEntity, "Choose the explicit setup completion action.")
+		h.renderSubmittedSetupReview(w, r, http.StatusUnprocessableEntity, i18n.T(r.Context(), "auth.setup.completion_action"))
 		return
 	}
 	result, err := h.auth.CompleteSetup(r.Context(), auth.CompleteSetupOptions{
@@ -436,9 +437,9 @@ func (h *Handler) handleSetupReviewSubmit(w http.ResponseWriter, r *http.Request
 	if err != nil {
 		switch {
 		case errors.Is(err, auth.ErrSetupAlreadyInitialized):
-			h.writeSetupNotFound(w)
+			h.writeSetupNotFound(w, r)
 		case errors.Is(err, auth.ErrSetupCompletionBlocked):
-			h.renderSubmittedSetupReview(w, r, http.StatusConflict, "Setup remains uninitialized because mailbox ownership requires local repair.")
+			h.renderSubmittedSetupReview(w, r, http.StatusConflict, i18n.T(r.Context(), "auth.setup.completion_blocked"))
 		default:
 			h.handleSetupReviewAccessError(w, r, err)
 		}
@@ -446,7 +447,7 @@ func (h *Handler) handleSetupReviewSubmit(w http.ResponseWriter, r *http.Request
 	}
 	if result == nil || result.Session == nil || result.Session.Token == "" || result.OwnerUserID == "" {
 		log.Printf("final setup completion returned an invalid result")
-		h.writeSetupServiceFailure(w)
+		h.writeSetupServiceFailure(w, r)
 		return
 	}
 
@@ -473,7 +474,7 @@ func (h *Handler) handleSetupReviewAccessError(w http.ResponseWriter, r *http.Re
 		http.Redirect(w, r, setupRecoveryPath, http.StatusSeeOther)
 	default:
 		log.Printf("read final setup review: %v", err)
-		h.writeSetupServiceFailure(w)
+		h.writeSetupServiceFailure(w, r)
 	}
 }
 
@@ -485,11 +486,11 @@ func (h *Handler) handleSetupOwner(w http.ResponseWriter, r *http.Request) {
 	state, err := h.auth.SetupState(r.Context())
 	if err != nil {
 		log.Printf("read protected setup state: %v", err)
-		h.writeSetupServiceFailure(w)
+		h.writeSetupServiceFailure(w, r)
 		return
 	}
 	if state.Initialized {
-		h.writeSetupNotFound(w)
+		h.writeSetupNotFound(w, r)
 		return
 	}
 	if r.URL.RawQuery != "" {
@@ -507,12 +508,12 @@ func (h *Handler) handleSetupOwner(w http.ResponseWriter, r *http.Request) {
 		}
 		if errors.Is(err, auth.ErrSetupOwnerBlocked) {
 			h.renderSetupOwnerPage(w, r, http.StatusConflict, views.SetupOwnerData{
-				BlockedMessage: "Gofer found an ambiguous or unbounded existing-user topology.",
+				BlockedMessage: i18n.T(r.Context(), "auth.setup.topology_blocked"),
 			})
 			return
 		}
 		log.Printf("read protected setup owner state: %v", err)
-		h.writeSetupServiceFailure(w)
+		h.writeSetupServiceFailure(w, r)
 		return
 	}
 	h.renderSetupOwnerPage(w, r, http.StatusOK, setupOwnerViewData(ownerState, views.SetupOwnerFormData{}))
@@ -526,11 +527,11 @@ func (h *Handler) handleSetupOwnerSubmit(w http.ResponseWriter, r *http.Request)
 	state, err := h.auth.SetupState(r.Context())
 	if err != nil {
 		log.Printf("read setup owner submission state: %v", err)
-		h.writeSetupServiceFailure(w)
+		h.writeSetupServiceFailure(w, r)
 		return
 	}
 	if state.Initialized {
-		h.writeSetupNotFound(w)
+		h.writeSetupNotFound(w, r)
 		return
 	}
 	if r.URL.RawQuery != "" {
@@ -540,7 +541,7 @@ func (h *Handler) handleSetupOwnerSubmit(w http.ResponseWriter, r *http.Request)
 	r.Body = http.MaxBytesReader(w, r.Body, setupFormMaximumBytes)
 	if err := r.ParseForm(); err != nil {
 		h.renderSubmittedSetupOwner(w, r, http.StatusUnprocessableEntity, views.SetupOwnerFormData{
-			Errors: map[string]string{"form": "The submitted owner profile is too large or invalid."},
+			Errors: map[string]string{"form": i18n.T(r.Context(), "auth.setup.owner_form")},
 		})
 		return
 	}
@@ -560,14 +561,14 @@ func (h *Handler) handleSetupOwnerSubmit(w http.ResponseWriter, r *http.Request)
 			http.Redirect(w, r, setupPath, http.StatusSeeOther)
 		case errors.Is(err, auth.ErrSetupOwnerBlocked):
 			h.renderSetupOwnerPage(w, r, http.StatusConflict, views.SetupOwnerData{
-				BlockedMessage: "Gofer found an ambiguous or unbounded existing-user topology.",
+				BlockedMessage: i18n.T(r.Context(), "auth.setup.topology_blocked"),
 			})
 		case errors.As(err, &validationErr):
 			form.Errors = validationErr.Fields
 			h.renderSubmittedSetupOwner(w, r, http.StatusUnprocessableEntity, form)
 		default:
 			log.Printf("save setup owner draft: %v", err)
-			h.writeSetupServiceFailure(w)
+			h.writeSetupServiceFailure(w, r)
 		}
 		return
 	}
@@ -586,52 +587,56 @@ func (h *Handler) renderSubmittedSetupOwner(w http.ResponseWriter, r *http.Reque
 		}
 		if errors.Is(err, auth.ErrSetupOwnerBlocked) {
 			h.renderSetupOwnerPage(w, r, http.StatusConflict, views.SetupOwnerData{
-				BlockedMessage: "Gofer found an ambiguous or unbounded existing-user topology.",
+				BlockedMessage: i18n.T(r.Context(), "auth.setup.topology_blocked"),
 			})
 			return
 		}
 		log.Printf("reload setup owner form: %v", err)
-		h.writeSetupServiceFailure(w)
+		h.writeSetupServiceFailure(w, r)
 		return
 	}
 	h.renderSetupOwnerPage(w, r, status, setupOwnerViewData(ownerState, form))
 }
 
 func (h *Handler) renderSetupOwnerPage(w http.ResponseWriter, r *http.Request, status int, data views.SetupOwnerData) {
+	data.Form.Errors = authFields(r.Context(), data.Form.Errors)
 	var page bytes.Buffer
 	if err := views.SeparatedSetupOwnerPage(data).Render(r.Context(), &page); err != nil {
 		log.Printf("render protected setup owner page: %v", err)
-		h.writeSetupServiceFailure(w)
+		h.writeSetupServiceFailure(w, r)
 		return
 	}
 	writeSetupPage(w, status, &page)
 }
 
 func (h *Handler) renderSetupPasswordPage(w http.ResponseWriter, r *http.Request, status int, data views.SetupPasswordData) {
+	data.Errors = authFields(r.Context(), data.Errors)
 	var page bytes.Buffer
 	if err := views.SetupPasswordPage(data).Render(r.Context(), &page); err != nil {
 		log.Printf("render protected setup password page: %v", err)
-		h.writeSetupServiceFailure(w)
+		h.writeSetupServiceFailure(w, r)
 		return
 	}
 	writeSetupPage(w, status, &page)
 }
 
 func (h *Handler) renderSetupMFAPage(w http.ResponseWriter, r *http.Request, status int, data views.SetupMFAData) {
+	data.Errors = authFields(r.Context(), data.Errors)
 	var page bytes.Buffer
 	if err := views.SetupMFAPage(data).Render(r.Context(), &page); err != nil {
 		log.Printf("render protected setup MFA page: %v", err)
-		h.writeSetupServiceFailure(w)
+		h.writeSetupServiceFailure(w, r)
 		return
 	}
 	writeSetupPage(w, status, &page)
 }
 
 func (h *Handler) renderSetupRecoveryPage(w http.ResponseWriter, r *http.Request, status int, data views.SetupRecoveryData) {
+	data.Errors = authFields(r.Context(), data.Errors)
 	var page bytes.Buffer
 	if err := views.SetupRecoveryPage(data).Render(r.Context(), &page); err != nil {
 		log.Printf("render protected setup recovery page: %v", err)
-		h.writeSetupServiceFailure(w)
+		h.writeSetupServiceFailure(w, r)
 		return
 	}
 	writeSetupPage(w, status, &page)
@@ -641,7 +646,7 @@ func (h *Handler) renderSetupReviewPage(w http.ResponseWriter, r *http.Request, 
 	var page bytes.Buffer
 	if err := views.SetupReviewPage(data).Render(r.Context(), &page); err != nil {
 		log.Printf("render final setup review page: %v", err)
-		h.writeSetupServiceFailure(w)
+		h.writeSetupServiceFailure(w, r)
 		return
 	}
 	writeSetupPage(w, status, &page)
@@ -653,7 +658,7 @@ func (h *Handler) renderSubmittedSetupReview(w http.ResponseWriter, r *http.Requ
 		h.handleSetupReviewAccessError(w, r, err)
 		return
 	}
-	data := setupReviewViewData(review)
+	data := setupReviewViewData(r.Context(), review)
 	data.CompletionError = message
 	if review.BlockedMessage != "" {
 		status = http.StatusConflict
@@ -661,8 +666,8 @@ func (h *Handler) renderSubmittedSetupReview(w http.ResponseWriter, r *http.Requ
 	h.renderSetupReviewPage(w, r, status, data)
 }
 
-func setupReviewViewData(review *auth.SetupReview) views.SetupReviewData {
-	return views.SetupReviewData{
+func setupReviewViewData(ctx context.Context, review *auth.SetupReview) views.SetupReviewData {
+	data := views.SetupReviewData{
 		TopologyKind: string(review.TopologyKind), Mode: string(review.Mode),
 		TargetUserID: review.TargetUserID,
 		CurrentName:  review.CurrentName, CurrentUsername: review.CurrentUsername,
@@ -678,6 +683,11 @@ func setupReviewViewData(review *auth.SetupReview) views.SetupReviewData {
 		CreatesNewOwner: review.CreatesNewOwner, ClaimsLegacyDefault: review.ClaimsLegacyDefault,
 		ClaimsExistingUser: review.ClaimsExistingUser, BlockedMessage: review.BlockedMessage,
 	}
+	// Auth writes this one in English, with the count; say it again here.
+	if data.BlockedMessage != "" && review.UnassignedMailboxCount > 0 {
+		data.BlockedMessage = i18n.N(ctx, "auth.setup.unassigned_mailboxes", int(review.UnassignedMailboxCount), "count", i18n.Number(ctx, int(review.UnassignedMailboxCount)))
+	}
+	return data
 }
 
 func (h *Handler) renderSubmittedSetupRecovery(w http.ResponseWriter, r *http.Request, status int, errors map[string]string) {
@@ -728,7 +738,7 @@ func (h *Handler) renderSubmittedSetupPassword(w http.ResponseWriter, r *http.Re
 			http.Redirect(w, r, setupOwnerPath, http.StatusSeeOther)
 		default:
 			log.Printf("read setup password owner draft after submission: %v", err)
-			h.writeSetupServiceFailure(w)
+			h.writeSetupServiceFailure(w, r)
 		}
 		return
 	}
@@ -790,22 +800,22 @@ func (h *Handler) renderSetupPage(w http.ResponseWriter, r *http.Request, status
 	var page bytes.Buffer
 	if err := views.SetupTokenPage(views.SetupTokenData{Message: message}).Render(r.Context(), &page); err != nil {
 		log.Printf("render setup token page: %v", err)
-		h.writeSetupServiceFailure(w)
+		h.writeSetupServiceFailure(w, r)
 		return
 	}
 	writeSetupPage(w, status, &page)
 }
 
-func (h *Handler) writeSetupNotFound(w http.ResponseWriter) {
+func (h *Handler) writeSetupNotFound(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Referrer-Policy", "no-referrer")
-	http.Error(w, "not found", http.StatusNotFound)
+	http.Error(w, i18n.T(r.Context(), "server.error.not_found"), http.StatusNotFound)
 }
 
-func (h *Handler) writeSetupServiceFailure(w http.ResponseWriter) {
+func (h *Handler) writeSetupServiceFailure(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Referrer-Policy", "no-referrer")
-	http.Error(w, setupTokenServiceMessage, http.StatusInternalServerError)
+	http.Error(w, i18n.T(r.Context(), "server.setup.token_unavailable"), http.StatusInternalServerError)
 }
 
 func (h *Handler) redirectSetupWithoutQuery(w http.ResponseWriter, r *http.Request) {

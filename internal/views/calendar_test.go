@@ -2,6 +2,7 @@ package views
 
 import (
 	"bytes"
+	"context"
 	"strings"
 	"testing"
 	"time"
@@ -16,8 +17,8 @@ func TestCalendarMonthDataBuildsMondayFirstGrid(t *testing.T) {
 	}
 
 	month := NewCalendarMonthData(time.Date(2026, time.September, 17, 12, 0, 0, 0, location))
-	if month.MonthLabel != "September 2026" {
-		t.Fatalf("month label = %q, want September 2026", month.MonthLabel)
+	if calendarPeriodLabel(context.Background(), month) != "September 2026" {
+		t.Fatalf("month label = %q, want September 2026", calendarPeriodLabel(context.Background(), month))
 	}
 	if len(month.Weeks) != 5 {
 		t.Fatalf("week count = %d, want 5", len(month.Weeks))
@@ -109,7 +110,7 @@ func TestCalendarTitleBarMatchesMailAndContacts(t *testing.T) {
 			t.Fatal("Calendar title bar is missing")
 		}
 		header := html[start:end]
-		for _, want := range []string{data.MonthLabel, "text-lg font-bold tracking-tight", "px-4 py-4", `data-calendar-navigate="-1"`, `data-calendar-navigate="1"`, "data-calendar-view-nav"} {
+		for _, want := range []string{calendarPeriodLabel(context.Background(), data), "text-lg font-bold tracking-tight", "px-4 py-4", `data-calendar-navigate="-1"`, `data-calendar-navigate="1"`, "data-calendar-view-nav"} {
 			if !strings.Contains(header, want) {
 				t.Errorf("%s title bar is missing %q", data.View, want)
 			}
@@ -137,7 +138,7 @@ func TestCalendarPageRendersTimedAndAllDayEvents(t *testing.T) {
 	}
 
 	html := output.String()
-	for _, expected := range []string{`Planning`, `09:00`, `Holiday`, `All day`, `data-calendar-sync-status`, `Last synced 09:00`} {
+	for _, expected := range []string{`Planning`, `9:00 AM`, `Holiday`, `All day`, `data-calendar-sync-status`, `Last synced 9:00 AM`} {
 		if !strings.Contains(html, expected) {
 			t.Fatalf("calendar page missing rendered event content %q: %s", expected, html)
 		}

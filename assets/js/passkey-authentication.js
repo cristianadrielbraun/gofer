@@ -72,11 +72,11 @@
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
       if (!window.PublicKeyCredential || !navigator.credentials?.get) {
-        status.textContent = `This browser does not support passkeys. ${form.dataset.fallback || ""}`.trim();
+        status.textContent = `${goferT("js.signin.passkey.unsupported")} ${form.dataset.fallback || ""}`.trim();
         return;
       }
       submit.disabled = true;
-      status.textContent = "Waiting for your device or security key…";
+      status.textContent = goferT("js.signin.passkey.waiting");
       try {
         const body = new URLSearchParams();
         if (form.dataset.identifierSource) {
@@ -96,13 +96,13 @@
           body,
         });
         if (!start.ok) {
-          throw new Error(await readError(start, "Unable to start passkey verification."));
+          throw new Error(await readError(start, goferT("js.signin.passkey.start_failed")));
         }
         const credential = await navigator.credentials.get(parseRequestOptions(await start.json()));
         if (!credential) {
-          throw new Error("No passkey was selected.");
+          throw new Error(goferT("js.signin.passkey.none_selected"));
         }
-        status.textContent = "Verifying the passkey…";
+        status.textContent = goferT("js.signin.passkey.verifying");
         const finishHeaders = { "Content-Type": "application/json" };
         if (form.dataset.finishCsrf) {
           finishHeaders["X-CSRF-Token"] = form.dataset.finishCsrf;
@@ -114,15 +114,15 @@
           body: JSON.stringify(serializeAssertion(credential)),
         });
         if (!finish.ok) {
-          throw new Error(await readError(finish, "Unable to verify this passkey."));
+          throw new Error(await readError(finish, goferT("js.signin.passkey.verify_failed")));
         }
         const result = await finish.json();
         window.location.assign(form.dataset.successRedirect || result.redirect || "/");
       } catch (error) {
         if (error?.name === "NotAllowedError") {
-          status.textContent = `Passkey verification was cancelled or timed out. ${form.dataset.fallback || ""}`.trim();
+          status.textContent = `${goferT("js.signin.passkey.cancelled")} ${form.dataset.fallback || ""}`.trim();
         } else {
-          status.textContent = error?.message || `Unable to verify this passkey. ${form.dataset.fallback || ""}`.trim();
+          status.textContent = error?.message || `${goferT("js.signin.passkey.verify_failed")} ${form.dataset.fallback || ""}`.trim();
         }
         submit.disabled = false;
       }

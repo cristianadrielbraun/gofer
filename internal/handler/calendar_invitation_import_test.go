@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net/http"
@@ -156,7 +157,7 @@ func TestMailCalendarInvitationOffer(t *testing.T) {
 	item := mailCalendarEvent{UID: "invite-uid", Method: "REQUEST", Summary: "Planning", Organizer: "host@example.com", Invited: true, Start: &start, End: &end, Modified: &newer}
 	cached := storage.CalendarEvent{ID: "event", SourceProvider: "caldav", Summary: "Planning", StartAt: &start, EndAt: &end, OrganizerEmail: "host@example.com", AccountEmail: "guest@example.com", ProviderUpdatedAt: &saved}
 	label := func(item mailCalendarEvent, candidates []storage.CalendarEvent, sources []storage.CalendarSource) string {
-		if offer := mailCalendarInvitationOffer(item, candidates, sources, "account", "guest@example.com"); offer != nil {
+		if offer := mailCalendarInvitationOffer(context.Background(), item, candidates, sources, "account", "guest@example.com"); offer != nil {
 			return offer.Label
 		}
 		return ""
@@ -214,10 +215,10 @@ func TestMailCalendarInvitationCardShowsTheNewDetails(t *testing.T) {
 	saved, newer := time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC), time.Date(2026, 10, 2, 9, 0, 0, 0, time.UTC)
 	cached := storage.CalendarEvent{ID: "event", SourceProvider: "caldav", Summary: "Planning", StartAt: &old, EndAt: &oldEnd, OrganizerEmail: "host@example.com", AccountEmail: "guest@example.com", ProviderUpdatedAt: &saved}
 	item := mailCalendarEvent{UID: "invite-uid", Method: "REQUEST", Summary: "Planning", Organizer: "host@example.com", Invited: true, Start: &moved, End: &movedEnd, Modified: &newer}
-	card := mailCalendarEventCard(item, cached, true, time.UTC, "1", func(storage.CalendarEvent) bool { return true })
+	card := mailCalendarEventCard(context.Background(), item, cached, true, time.UTC, "1", func(storage.CalendarEvent) bool { return true })
 	before := card.Time
-	mailCalendarInvitationCard(&card, item, []storage.CalendarEvent{cached}, sources, "account", "guest@example.com", time.UTC)
-	if card.Invitation == nil || card.Invitation.Label != "Update in calendar" || card.Time == before || card.Time != mailCalendarCard(item, time.UTC).Time {
+	mailCalendarInvitationCard(context.Background(), &card, item, []storage.CalendarEvent{cached}, sources, "account", "guest@example.com", time.UTC)
+	if card.Invitation == nil || card.Invitation.Label != "Update in calendar" || card.Time == before || card.Time != mailCalendarCard(context.Background(), item, time.UTC).Time {
 		t.Fatalf("card shows %q (was %q), offer %+v", card.Time, before, card.Invitation)
 	}
 }

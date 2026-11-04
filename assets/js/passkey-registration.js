@@ -88,11 +88,11 @@
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
       if (!window.PublicKeyCredential || !navigator.credentials?.create) {
-        status.textContent = "This browser does not support passkey registration.";
+        status.textContent = goferT("js.settings.passkey.unsupported");
         return;
       }
       submit.disabled = true;
-      status.textContent = "Waiting for your device or security key…";
+      status.textContent = goferT("js.settings.passkey.waiting");
       try {
         const body = new URLSearchParams(new FormData(form));
         const start = await fetch(form.dataset.startPath, {
@@ -105,14 +105,14 @@
           body,
         });
         if (!start.ok) {
-          throw new Error(await readError(start, "Unable to start passkey registration."));
+          throw new Error(await readError(start, goferT("js.settings.passkey.start_failed")));
         }
         const options = parseCreationOptions(await start.json());
         const credential = await navigator.credentials.create(options);
         if (!credential) {
-          throw new Error("No passkey was created.");
+          throw new Error(goferT("js.settings.passkey.none_created"));
         }
-        status.textContent = "Saving the new passkey…";
+        status.textContent = goferT("js.settings.passkey.saving");
         const finish = await fetch(form.dataset.finishPath, {
           method: "POST",
           credentials: "same-origin",
@@ -123,15 +123,15 @@
           body: JSON.stringify(serializeCredential(credential)),
         });
         if (!finish.ok) {
-          throw new Error(await readError(finish, "Unable to save this passkey."));
+          throw new Error(await readError(finish, goferT("js.settings.passkey.save_failed")));
         }
         const result = await finish.json();
         window.location.assign(result.redirect || "/settings/security?passkey_added=1");
       } catch (error) {
         if (error?.name === "NotAllowedError") {
-          status.textContent = "Passkey creation was cancelled or timed out. You can try again.";
+          status.textContent = goferT("js.settings.passkey.cancelled");
         } else {
-          status.textContent = error?.message || "Unable to add a passkey.";
+          status.textContent = error?.message || goferT("js.settings.passkey.add_failed");
         }
         submit.disabled = false;
       }

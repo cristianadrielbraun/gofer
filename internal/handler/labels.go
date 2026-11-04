@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"log"
 	"net/http"
 	"net/url"
@@ -27,12 +28,12 @@ type labelMutationResult struct {
 func (h *Handler) handleLabelMessages(w http.ResponseWriter, r *http.Request) {
 	payload, err := decodeMessageBulkRequest(r)
 	if err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_request_body"), http.StatusBadRequest)
 		return
 	}
 	labelName := strings.TrimSpace(payload.Label)
 	if labelName == "" {
-		http.Error(w, "label required", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.label_required"), http.StatusBadRequest)
 		return
 	}
 
@@ -44,7 +45,7 @@ func (h *Handler) handleLabelMessages(w http.ResponseWriter, r *http.Request) {
 	}
 	result := h.applyLabelToTargets(ctx, targets, labelName)
 	if result.Messages == 0 && result.Failed > 0 {
-		http.Error(w, "label could not be applied", http.StatusBadGateway)
+		http.Error(w, i18n.T(r.Context(), "server.error.label_could_not_be_applied"), http.StatusBadGateway)
 		return
 	}
 
@@ -61,12 +62,12 @@ func (h *Handler) handleLabelMessages(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) handleUnlabelMessages(w http.ResponseWriter, r *http.Request) {
 	payload, err := decodeMessageBulkRequest(r)
 	if err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_request_body"), http.StatusBadRequest)
 		return
 	}
 	labelName := strings.TrimSpace(payload.Label)
 	if labelName == "" {
-		http.Error(w, "label required", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.label_required"), http.StatusBadRequest)
 		return
 	}
 
@@ -78,7 +79,7 @@ func (h *Handler) handleUnlabelMessages(w http.ResponseWriter, r *http.Request) 
 	}
 	result := h.removeLabelFromTargets(ctx, targets, labelName)
 	if result.Messages == 0 && result.Failed > 0 {
-		http.Error(w, "label could not be removed", http.StatusBadGateway)
+		http.Error(w, i18n.T(r.Context(), "server.error.label_could_not_be_removed"), http.StatusBadGateway)
 		return
 	}
 
@@ -94,7 +95,7 @@ func (h *Handler) handleUnlabelMessages(w http.ResponseWriter, r *http.Request) 
 
 func (h *Handler) handleLabelMessage(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "invalid form data", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_form_data"), http.StatusBadRequest)
 		return
 	}
 	labelName := strings.TrimSpace(r.FormValue("label"))
@@ -115,7 +116,7 @@ func (h *Handler) handleLabelMessage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if labelName == "" {
-		http.Error(w, "label required", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.label_required"), http.StatusBadRequest)
 		return
 	}
 
@@ -131,7 +132,7 @@ func (h *Handler) handleLabelMessage(w http.ResponseWriter, r *http.Request) {
 	}
 	result := h.applyLabelToTargets(ctx, targets, labelName)
 	if result.Messages == 0 && result.Failed > 0 {
-		http.Error(w, "label could not be applied", http.StatusBadGateway)
+		http.Error(w, i18n.T(r.Context(), "server.error.label_could_not_be_applied"), http.StatusBadGateway)
 		return
 	}
 
@@ -147,7 +148,7 @@ func (h *Handler) handleLabelMessage(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handleUnlabelMessage(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "invalid form data", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_form_data"), http.StatusBadRequest)
 		return
 	}
 	labelName := strings.TrimSpace(r.FormValue("label"))
@@ -168,7 +169,7 @@ func (h *Handler) handleUnlabelMessage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if labelName == "" {
-		http.Error(w, "label required", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.label_required"), http.StatusBadRequest)
 		return
 	}
 
@@ -184,7 +185,7 @@ func (h *Handler) handleUnlabelMessage(w http.ResponseWriter, r *http.Request) {
 	}
 	result := h.removeLabelFromTargets(ctx, targets, labelName)
 	if result.Messages == 0 && result.Failed > 0 {
-		http.Error(w, "label could not be removed", http.StatusBadGateway)
+		http.Error(w, i18n.T(r.Context(), "server.error.label_could_not_be_removed"), http.StatusBadGateway)
 		return
 	}
 

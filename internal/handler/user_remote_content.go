@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -17,18 +18,18 @@ import (
 func (h *Handler) handleUserAllowRemoteContent(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil || id <= 0 {
-		http.Error(w, "invalid id", 400)
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_id"), 400)
 		return
 	}
 	var request struct {
 		Mode string `json:"mode"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10)).Decode(&request); err != nil {
-		http.Error(w, "invalid body", 400)
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_body"), 400)
 		return
 	}
 	if request.Mode != "once" && request.Mode != "email" && request.Mode != "sender" {
-		http.Error(w, "invalid mode", 400)
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_mode"), 400)
 		return
 	}
 	ctx, owner := r.Context(), h.userID(r.Context())
@@ -111,7 +112,7 @@ func (h *Handler) handleUserAllowRemoteContent(w http.ResponseWriter, r *http.Re
 		return h.publishUserRemoteContent(ctx, before, path, request.Mode)
 	})
 	if errors.Is(err, storage.ErrMessageContentChanged) {
-		http.Error(w, err.Error(), 409)
+		http.Error(w, serverText(ctx, err.Error()), 409)
 		return
 	}
 	if err != nil {

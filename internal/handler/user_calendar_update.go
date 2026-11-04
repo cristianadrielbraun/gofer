@@ -15,16 +15,16 @@ import (
 func (h *Handler) handleUserUpdateCalendarEvent(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 384<<10)
 	if r.URL.RawQuery != "" {
-		calendarUpdateFailure(w, 400, "Event details could not be read.", false, false)
+		calendarUpdateFailure(w, r, 400, "Event details could not be read.", false, false)
 		return
 	}
 	draft, version, err := parseCalendarUpdateDraft(r)
 	if err != nil {
-		calendarUpdateFailure(w, 400, err.Error(), false, false)
+		calendarUpdateFailure(w, r, 400, err.Error(), false, false)
 		return
 	}
 	if draft.TeamsDraftID != "" {
-		calendarUpdateFailure(w, 400, "Prepared Teams links can only be used for new events.", false, false)
+		calendarUpdateFailure(w, r, 400, "Prepared Teams links can only be used for new events.", false, false)
 		return
 	}
 	series, instance := r.PostForm.Get("edit_scope") == "series", r.PostForm.Get("edit_scope") == "occurrence"
@@ -186,7 +186,7 @@ func (h *Handler) handleUserUpdateCalendarEvent(w http.ResponseWriter, r *http.R
 		return nil
 	})
 	if err != nil {
-		userCalendarMutationError(w, err, attempt.uncertain)
+		userCalendarMutationError(w, r, err, attempt.uncertain)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")

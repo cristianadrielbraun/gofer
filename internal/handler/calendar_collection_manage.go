@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"io"
 	"log"
 	"net/http"
@@ -199,7 +200,7 @@ func (h *Handler) handleCalendarSourceManage(w http.ResponseWriter, r *http.Requ
 	sourceID, owner := strings.TrimSpace(r.PathValue("id")), h.userID(r.Context())
 	change, err := readCalendarChange(w, r)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, serverText(r.Context(), err.Error()), http.StatusBadRequest)
 		return
 	}
 	if h.userStorage != nil {
@@ -209,17 +210,17 @@ func (h *Handler) handleCalendarSourceManage(w http.ResponseWriter, r *http.Requ
 	}
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
-		http.Error(w, "This calendar is no longer synced. Refresh the page.", http.StatusNotFound)
+		http.Error(w, i18n.T(r.Context(), "server.error.this_calendar_is_no_longer_synced_refresh"), http.StatusNotFound)
 	case errors.Is(err, storage.ErrAccountRoute) || errors.Is(err, storage.ErrUserStoreOwner):
 		userAccountError(w, r, err)
 	case errors.As(err, new(errCalendarUndeletable)):
-		http.Error(w, err.Error(), http.StatusConflict)
+		http.Error(w, i18n.Stored(r.Context(), "calendar.undeletable.", err.Error()), http.StatusConflict)
 	case errors.Is(err, errGoogleCalendarNeedsAccess) || errors.Is(err, errGoogleCalendarListNeedsAccess):
 		// The page offers to sign in again with full calendar access.
 		w.Header().Set("X-Gofer-Needs-Calendar-Access", "google")
-		http.Error(w, err.Error(), http.StatusForbidden)
+		http.Error(w, serverText(r.Context(), err.Error()), http.StatusForbidden)
 	case err != nil:
-		http.Error(w, err.Error(), http.StatusBadGateway)
+		http.Error(w, serverText(r.Context(), err.Error()), http.StatusBadGateway)
 	default:
 		w.WriteHeader(http.StatusNoContent)
 	}

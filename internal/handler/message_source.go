@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bytes"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"log"
 	"mime"
 	"net/http"
@@ -29,9 +30,9 @@ func (h *Handler) readMessageSource(w http.ResponseWriter, r *http.Request) (int
 	}
 	data, err := h.fetchRawMessage(ctx, msgID)
 	if err != nil || data == nil {
-		if err == nil || !writeMessageTooLarge(w, err) {
+		if err == nil || !writeMessageTooLarge(w, r, err) {
 			log.Printf("message source %d: %v", msgID, err)
-			http.Error(w, "This message couldn't be downloaded from the mail server.", http.StatusServiceUnavailable)
+			http.Error(w, i18n.T(r.Context(), "server.error.this_message_couldn_t_be_downloaded_from"), http.StatusServiceUnavailable)
 		}
 		return 0, nil, false
 	}
@@ -43,7 +44,7 @@ func (h *Handler) readMessageSource(w http.ResponseWriter, r *http.Request) (int
 func (h *Handler) readUserMessageSource(w http.ResponseWriter, r *http.Request) (int64, []byte, bool) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil || id <= 0 {
-		http.Error(w, "invalid message id", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_message_id"), http.StatusBadRequest)
 		return 0, nil, false
 	}
 	data, err := h.userIMAP.ReadRawMessageForExport(r.Context(), h.userID(r.Context()), id, true)

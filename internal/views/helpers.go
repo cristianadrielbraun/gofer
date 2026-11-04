@@ -1,6 +1,7 @@
 package views
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"math/rand"
@@ -16,6 +17,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/themecolors"
 
 	"github.com/a-h/templ"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 )
 
 // jmapAccountPaused is a JMAP account while JMAP is turned off: Gofer keeps
@@ -62,13 +64,13 @@ func unifiedFolderAccountEnabled(settings map[string]string, folderID, accountID
 	return uiSettingGet(settings, unifiedFolderAccountSettingKey(folderID, accountID), "true") != "false"
 }
 
-func folderDisplayName(folderID string) string {
+func folderDisplayName(ctx context.Context, folderID string) string {
 	for _, folder := range unifiedFolderOptions() {
 		if folder.ID == folderID {
-			return folder.Name
+			return i18n.FolderName(ctx, folder.ID, folder.Name)
 		}
 	}
-	return "Inbox"
+	return i18n.T(ctx, "folder.inbox")
 }
 
 func mailRoleIsSpam(role string) bool {
@@ -156,12 +158,12 @@ func mailMoveTargets(folders []models.Folder) []mailMoveTarget {
 
 // mailMoveAccountProblem says why another account can't take an email from
 // the Move dialog, or nothing when it can.
-func mailMoveAccountProblem(account models.Account, own bool) string {
+func mailMoveAccountProblem(ctx context.Context, account models.Account, own bool) string {
 	switch {
 	case own:
 		return ""
 	case account.ReconnectPending:
-		return "Needs its password"
+		return i18n.T(ctx, "mail.move.needs_password")
 	}
 	return ""
 }
@@ -210,11 +212,11 @@ func mailDeleteActionClass(size, normal string, permanent bool) string {
 	return size + " " + normal
 }
 
-func mailArchiveSelectionLabel(unarchive bool) string {
+func mailArchiveSelectionLabel(ctx context.Context, unarchive bool) string {
 	if unarchive {
-		return "Move selected messages to Inbox"
+		return i18n.T(ctx, "mail.selection.unarchive")
 	}
-	return "Archive selected messages"
+	return i18n.T(ctx, "mail.selection.archive")
 }
 
 func mailHiddenClass(class string, hidden bool) string {
@@ -250,24 +252,24 @@ func mailDeleteAllFolder(activeFolder string, accounts []models.Account) string 
 
 // Nothing is selected at first, so Delete starts out acting on the whole
 // folder where it can. app.js keeps these in step with the selection.
-func mailDeleteAllLabel(folder string) string {
+func mailDeleteAllLabel(ctx context.Context, folder string) string {
 	switch folder {
 	case "trash":
-		return "Empty trash permanently"
+		return i18n.T(ctx, "mail.selection.empty_trash")
 	case "spam":
-		return "Move all spam to Trash"
+		return i18n.T(ctx, "mail.selection.spam_to_trash")
 	}
-	return "Delete selected messages"
+	return i18n.T(ctx, "mail.selection.delete")
 }
 
-func mailDeleteAllTooltip(folder string) string {
+func mailDeleteAllTooltip(ctx context.Context, folder string) string {
 	switch folder {
 	case "trash":
-		return "Empty trash permanently"
+		return i18n.T(ctx, "mail.selection.empty_trash")
 	case "spam":
-		return "Move all to Trash"
+		return i18n.T(ctx, "mail.folder_menu.spam_to_trash")
 	}
-	return "Delete"
+	return i18n.T(ctx, "shortcuts.delete")
 }
 
 func mailViewPartialURL(emailID, folderID string, single bool) templ.SafeURL {
@@ -356,12 +358,14 @@ func uiSettingsLocation(settings map[string]string) *time.Location {
 	return time.Local
 }
 
-func formatAccountSyncErrorAt(raw string, settings map[string]string) string {
+func formatAccountSyncErrorAt(ctx context.Context, raw string, settings map[string]string) string {
 	t, ok := parseAccountSyncErrorAt(raw)
 	if !ok {
 		return strings.TrimSpace(raw)
 	}
-	return t.In(uiSettingsLocation(settings)).Format("Jan 2, 2006 15:04 MST")
+	t = t.In(uiSettingsLocation(settings))
+	zone, _ := t.Zone()
+	return i18n.Dates(ctx).DateTime(t) + " " + zone
 }
 
 func parseAccountSyncErrorAt(raw string) (time.Time, bool) {
@@ -698,20 +702,6 @@ func customThemeCSS(settings map[string]string) string {
 	return theme.CSS()
 }
 
-// themeStyleLabel is a style's name as Settings shows it.
-func themeStyleLabel(style string) string {
-	switch style {
-	case "minimal":
-		return "Minimal"
-	case "express":
-		return "Express"
-	case themebuilder.StyleName:
-		return "Custom"
-	default:
-		return "Classic"
-	}
-}
-
 // themeLookAttributes are the page's look: data-depth="flat" for the flat
 // look and data-corners="square" for square controls. Minimal has both, a
 // Custom theme what it was built with, and Classic and Express neither.
@@ -869,28 +859,6 @@ func contactAvatarThreadFallback(isCurrent bool) string {
 	return "bg-ink/[0.06] text-ink/40"
 }
 
-func senderDisplaySettingLabel(mode string) string {
-	switch mode {
-	case "email":
-		return "Only email"
-	case "both":
-		return "Name and email"
-	default:
-		return "Only name"
-	}
-}
-
-func defaultComposeViewSettingLabel(view string) string {
-	switch view {
-	case "pane":
-		return "Inline, one pane"
-	case "full":
-		return "Inline, expanded"
-	default:
-		return "Dialog"
-	}
-}
-
 // mailPaneLayout is "side", "stacked", or "list": the message list alone,
 // with a message opened in its place.
 func mailPaneLayout(value string) string {
@@ -920,28 +888,6 @@ func mailPaneLayoutClass(value string) string {
 	return "flex flex-1 min-w-0"
 }
 
-func mailPaneLayoutSettingLabel(value string) string {
-	switch mailPaneLayout(value) {
-	case "stacked":
-		return "Stacked"
-	case "list":
-		return "No reading pane"
-	}
-	return "Side by side"
-}
-
-func translationProviderSettingLabel(value string) string {
-	switch translationProviderSettingValue(value) {
-	case "google_web_basic":
-		return "Google Web Translate (Basic)"
-	default:
-		if strings.TrimSpace(value) == "" {
-			return "Google Web Translate (Basic)"
-		}
-		return strings.TrimSpace(value)
-	}
-}
-
 func translationProviderSettingValue(value string) string {
 	switch strings.ReplaceAll(strings.ToLower(strings.TrimSpace(value)), "-", "_") {
 	case "", "google", "google_web", "google_web_basic", "google_translate":
@@ -951,41 +897,12 @@ func translationProviderSettingValue(value string) string {
 	}
 }
 
-func translationLanguageSettingLabel(value string) string {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "ar":
-		return "Arabic"
-	case "cs":
-		return "Czech"
-	case "de":
-		return "German"
-	case "en", "":
-		return "English"
-	case "es":
-		return "Spanish"
-	case "fr":
-		return "French"
-	case "it":
-		return "Italian"
-	case "ja":
-		return "Japanese"
-	case "ko":
-		return "Korean"
-	case "nl":
-		return "Dutch"
-	case "pl":
-		return "Polish"
-	case "pt":
-		return "Portuguese"
-	case "ru":
-		return "Russian"
-	case "uk":
-		return "Ukrainian"
-	case "zh-cn", "zh":
-		return "Chinese"
-	default:
-		return value
+func translationLanguageSettingLabel(ctx context.Context, value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		value = "en"
 	}
+	return i18n.LanguageName(ctx, value)
 }
 
 type translationLanguageOption struct {
@@ -993,8 +910,8 @@ type translationLanguageOption struct {
 	Label string
 }
 
-func translationLanguageOptions() []translationLanguageOption {
-	return []translationLanguageOption{
+func translationLanguageOptions(ctx context.Context) []translationLanguageOption {
+	options := []translationLanguageOption{
 		{Value: "en", Label: "English"},
 		{Value: "cs", Label: "Czech"},
 		{Value: "de", Label: "German"},
@@ -1009,51 +926,10 @@ func translationLanguageOptions() []translationLanguageOption {
 		{Value: "ja", Label: "Japanese"},
 		{Value: "ko", Label: "Korean"},
 	}
-}
-
-func notificationModeSettingLabel(mode string) string {
-	switch mode {
-	case "web_push":
-		return "Web Push"
-	case "browser_tab":
-		return "Browser tab"
-	case "off":
-		return "Off"
-	default:
-		return "Auto"
+	for i := range options {
+		options[i].Label = i18n.LanguageName(ctx, options[i].Value)
 	}
-}
-
-func composeAutosaveDebounceLabel(value string) string {
-	switch value {
-	case "3":
-		return "3 seconds"
-	case "10":
-		return "10 seconds"
-	case "15":
-		return "15 seconds"
-	case "1":
-		return "1 second"
-	default:
-		return "5 seconds"
-	}
-}
-
-func composeAutosaveConditionsLabel(settings map[string]string) string {
-	value := uiSettingGet(settings, "compose_autosave_conditions", "chars,attachment")
-	if value == "" {
-		return "No conditions"
-	}
-	count := 0
-	for _, part := range strings.Split(value, ",") {
-		if strings.TrimSpace(part) != "" {
-			count++
-		}
-	}
-	if count == 1 {
-		return "1 condition"
-	}
-	return fmt.Sprintf("%d conditions", count)
+	return options
 }
 
 func signatureTotal(data []models.AccountSignatureData) int {
@@ -1079,15 +955,6 @@ func signatureAssignmentCount(data []models.AccountSignatureData) int {
 	return count
 }
 
-func signatureName(signatures []models.Signature, id string) string {
-	for _, sig := range signatures {
-		if sig.ID == id {
-			return sig.Name
-		}
-	}
-	return "No signature"
-}
-
 func mailListViewMode(mode string) string {
 	if mode == "table" {
 		return "table"
@@ -1109,13 +976,6 @@ func mailListNavigationMode(mode string) string {
 	return "infinite"
 }
 
-func mailListNavigationSettingLabel(value string) string {
-	if mailListNavigationMode(value) == "pagination" {
-		return "Pagination"
-	}
-	return "Infinite scroll"
-}
-
 func mailListPaginationPageSize() int {
 	return 50
 }
@@ -1134,33 +994,16 @@ func mailListPaginationPage(windowStart int, pageSize int) int {
 	return (windowStart / pageSize) + 1
 }
 
-func mailListPaginationRangeLabel(windowStart int, itemCount int, totalCount int) string {
+func mailListPaginationRangeLabel(ctx context.Context, windowStart int, itemCount int, totalCount int) string {
 	if totalCount <= 0 || itemCount <= 0 {
-		return "No messages"
+		return i18n.T(ctx, "mail.pagination.none")
 	}
 	start := windowStart + 1
 	end := windowStart + itemCount
 	if end > totalCount {
 		end = totalCount
 	}
-	return fmt.Sprintf("%d-%d of %d", start, end, totalCount)
-}
-
-func autoMarkReadSettingLabel(value string) string {
-	switch value {
-	case "0":
-		return "Immediately"
-	case "5":
-		return "After 5 seconds"
-	case "10":
-		return "After 10 seconds"
-	case "2":
-		return "After 2 seconds"
-	case "never":
-		return "Never"
-	default:
-		return "Immediately"
-	}
+	return i18n.T(ctx, "mail.pagination.range", "start", i18n.Number(ctx, start), "end", i18n.Number(ctx, end), "total", i18n.Number(ctx, totalCount))
 }
 
 // GroupConversations reports whether mail lists show each conversation
@@ -1175,13 +1018,6 @@ func ThreadNewestFirst(settings map[string]string) bool {
 	return uiSettingGet(settings, "thread_order", "newest") != "oldest"
 }
 
-func threadOrderSettingLabel(value string) string {
-	if value == "oldest" {
-		return "Oldest first"
-	}
-	return "Newest first"
-}
-
 // EmailBodyStyle is how message bodies look until one is switched in the
 // reading pane: "theme" follows the app's color mode, "dark" and "light"
 // recolor the message, and "original" shows it as sent.
@@ -1191,18 +1027,6 @@ func EmailBodyStyle(settings map[string]string) string {
 		return value
 	}
 	return "theme"
-}
-
-func emailBodyStyleSettingLabel(value string) string {
-	switch value {
-	case "dark":
-		return "Dark"
-	case "light":
-		return "Light"
-	case "original":
-		return "Original"
-	}
-	return "Follow theme"
 }
 
 func accountColorStyle(color string) string {
@@ -1235,42 +1059,6 @@ func accountColorOptions() []string {
 
 func accountColorSelected(current, option string) bool {
 	return accountColorValue(current) == accountColorValue(option)
-}
-
-func calendarSourceName(source models.CalendarSource) string {
-	if name := strings.TrimSpace(source.Name); name != "" {
-		return name
-	}
-	if source.IsPrimary {
-		return "Primary calendar"
-	}
-	return "Untitled calendar"
-}
-
-func calendarSourceDetails(source models.CalendarSource) string {
-	details := make([]string, 0, 2)
-	if timeZone := strings.TrimSpace(source.TimeZone); timeZone != "" {
-		details = append(details, timeZone)
-	}
-	if accessRole := strings.TrimSpace(source.AccessRole); accessRole != "" {
-		details = append(details, calendarSourceAccessLabel(accessRole))
-	}
-	return strings.Join(details, " · ")
-}
-
-func calendarSourceAccessLabel(accessRole string) string {
-	switch strings.ToLower(strings.TrimSpace(accessRole)) {
-	case "owner":
-		return "Owner"
-	case "writer":
-		return "Can edit"
-	case "reader":
-		return "Read only"
-	case "freebusyreader":
-		return "Availability only"
-	default:
-		return accessRole
-	}
 }
 
 func accountMarkerStyle(accounts []models.Account) string {

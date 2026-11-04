@@ -1,6 +1,11 @@
 package views
 
-import "encoding/json"
+import (
+	"context"
+	"encoding/json"
+
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
+)
 
 type MailCalendarEventData struct {
 	Kind, Summary, Date, Time, Location, Organizer, OrganizerName, Status, JoinURL, EventID, Note string
@@ -15,14 +20,10 @@ type MailCalendarInvitation struct {
 	Label, Note, UID, SourceID string
 }
 
-func mailCalendarResponseMessage(status string) string {
+func mailCalendarResponseMessage(ctx context.Context, status string) string {
 	switch status {
-	case "accepted":
-		return "You already accepted this meeting."
-	case "tentative":
-		return "You already replied \"Maybe\" to this meeting."
-	case "declined":
-		return "You already rejected this meeting."
+	case "accepted", "tentative", "declined":
+		return i18n.T(ctx, "calendar.mail_response."+status)
 	default:
 		return ""
 	}

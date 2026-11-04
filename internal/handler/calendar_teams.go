@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"net/http"
 	"net/url"
 	"strings"
@@ -102,7 +103,7 @@ func (h *Handler) handleCalendarTeamsOptions(w http.ResponseWriter, r *http.Requ
 	userID := h.userID(ctx)
 	sources, err := h.db.ListSelectedCalendarSources(ctx, userID)
 	if err != nil {
-		http.Error(w, "Could not check this calendar.", 500)
+		http.Error(w, i18n.T(r.Context(), "server.error.could_not_check_this_calendar"), 500)
 		return
 	}
 	var source storage.CalendarSource

@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"log"
 	"net"
 	"net/http"
@@ -72,20 +73,22 @@ func (h *Handler) accountServerNotes(ctx context.Context, protocol, host string,
 	label := strings.ToUpper(protocol)
 	endpoint := net.JoinHostPort(host, strconv.Itoa(port))
 	notes := []accountServerNote{}
-	blocked := func(text, exception string) accountServerNote {
+	// blocked says why Gofer won't connect, and which exception, kind
+	// "private" or "plaintext", would let it.
+	blocked := func(text, kind string) accountServerNote {
 		note := accountServerNote{Level: "blocked", Text: text}
 		if link := h.mailSecuritySettingsURL(); link != "" {
-			note.Text += " Add " + exception + " for " + endpoint + " under Mail security."
-			note.Link, note.LinkText = link, "Open Mail security"
+			note.Text += " " + i18n.T(ctx, "server.check.add_"+kind, "protocol", label, "endpoint", endpoint)
+			note.Link, note.LinkText = link, i18n.T(ctx, "js.settings.identity.open_mail_security")
 		} else {
-			note.Text += " Ask your Gofer administrator to add " + exception + " for " + endpoint + "."
+			note.Text += " " + i18n.T(ctx, "server.check.ask_"+kind, "protocol", label, "endpoint", endpoint)
 		}
 		return note
 	}
 
 	// No exception lets in a server the allowed mail servers leave out.
 	if err := h.checkMailServer(ctx, host); storage.IsMailAllowlistError(err) {
-		return append(notes, accountServerNote{Level: "blocked", Text: err.Error()})
+		return append(notes, accountServerNote{Level: "blocked", Text: serverText(ctx, err.Error())})
 	} else if err != nil {
 		log.Printf("account server check: allowed mail servers for %s: %v", endpoint, err)
 	}
@@ -98,9 +101,9 @@ func (h *Handler) accountServerNotes(ctx context.Context, protocol, host string,
 		case err != nil:
 			log.Printf("account server check: private target exception for %s %s: %v", protocol, endpoint, err)
 		case allowed:
-			notes = append(notes, accountServerNote{Level: "approved", Text: "This server is on a private network and is approved under Mail security."})
+			notes = append(notes, accountServerNote{Level: "approved", Text: i18n.T(ctx, "server.msg.this_server_is_on_a_private_network")})
 		default:
-			notes = append(notes, blocked("This server is on a private network, so Gofer won't connect to it yet.", "an "+label+" private target exception"))
+			notes = append(notes, blocked(i18n.T(ctx, "server.check.private_blocked"), "private"))
 		}
 	}
 	if tlsMode == "plaintext" {
@@ -109,9 +112,9 @@ func (h *Handler) accountServerNotes(ctx context.Context, protocol, host string,
 		case err != nil:
 			log.Printf("account server check: plaintext exception for %s %s: %v", protocol, endpoint, err)
 		case allowed:
-			notes = append(notes, accountServerNote{Level: "approved", Text: "Unencrypted " + label + " to this server is approved under Mail security."})
+			notes = append(notes, accountServerNote{Level: "approved", Text: i18n.T(ctx, "server.check.plaintext_approved", "protocol", label)})
 		default:
-			notes = append(notes, blocked("Gofer won't connect to this server without encryption yet.", "an unencrypted "+label+" exception"))
+			notes = append(notes, blocked(i18n.T(ctx, "server.check.plaintext_blocked"), "plaintext"))
 		}
 	}
 	return notes

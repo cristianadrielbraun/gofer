@@ -1,6 +1,7 @@
 package views
 
 import (
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"time"
 	"strconv"
 	"github.com/cristianadrielbraun/gofer/components/button"
@@ -25,7 +26,7 @@ templ CalendarEventDialog(details CalendarEventDetails, location *time.Location)
 				<span class="mt-2 size-3 shrink-0 rounded-[3px]" style={ calendarEventColorStyle(event) } aria-hidden="true"></span>
 				<div class="min-w-0 flex-1">
 					@dialog.Title(dialog.TitleProps{ID: "calendar-event-details-title", Class: "break-words text-xl font-semibold leading-snug tracking-tight [overflow-wrap:anywhere]", Attributes: templ.Attributes{"style": "font-family: var(--font-serif)"}}) {
-						{ calendarEventSummary(event) }
+						{ calendarEventSummary(ctx, event) }
 					}
 					if event.SourceName != "" {
 						<p class="mt-1 break-words text-xs text-muted-foreground">{ event.SourceName }</p>
@@ -38,19 +39,19 @@ templ CalendarEventDialog(details CalendarEventDetails, location *time.Location)
 								@popover.Trigger() {
 									@button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeSm, Class: "font-semibold", Attributes: templ.Attributes{"data-calendar-edit-trigger": "", "aria-haspopup": "menu"}}) {
 										@icon.Pencil(icon.Props{Class: "size-3.5"})
-										Edit
+										{ i18n.T(ctx, "calendar.edit") }
 										@icon.ChevronDown(icon.Props{Class: "size-3.5 text-muted-foreground"})
 									}
 								}
 								@popover.Content(popover.ContentProps{Placement: popover.PlacementBottomEnd, Class: "mobile-sheet w-44 p-1"}) {
-									@CalendarEventEditAction(details, "This event", "occurrence", true)
-									@CalendarEventEditAction(details, "Entire series", "series", true)
+									@CalendarEventEditAction(details, i18n.T(ctx, "calendar.this_event"), "occurrence", true)
+									@CalendarEventEditAction(details, i18n.T(ctx, "calendar.entire_series"), "series", true)
 								}
 							}
 						} else if details.EditSeries {
-							@CalendarEventEditAction(details, "Edit series", "series", false)
+							@CalendarEventEditAction(details, i18n.T(ctx, "calendar.edit_series"), "series", false)
 						} else {
-							@CalendarEventEditAction(details, "Edit", "", false)
+							@CalendarEventEditAction(details, i18n.T(ctx, "calendar.edit"), "", false)
 						}
 					}
 					if details.Forward != "" {
@@ -58,9 +59,9 @@ templ CalendarEventDialog(details CalendarEventDetails, location *time.Location)
 					}
 					if details.CanDelete {
 						{{
-							deleteLabel := "Delete event"
+							deleteLabel := i18n.T(ctx, "calendar.delete_event")
 							if details.DeleteSeries && !details.HasOccurrence {
-								deleteLabel = "Delete series"
+								deleteLabel = i18n.T(ctx, "calendar.delete_series")
 							}
 							deleteAttrs := templ.Attributes{"data-calendar-delete-trigger": "", "aria-haspopup": "dialog", "aria-controls": "calendar-event-delete-confirmation-content", "aria-label": deleteLabel, "title": deleteLabel}
 							if details.DeleteSeries && !details.HasOccurrence {
@@ -88,16 +89,16 @@ templ CalendarEventDialog(details CalendarEventDetails, location *time.Location)
 							}
 						}
 					}
-					@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeIcon, Class: "size-8 text-muted-foreground", Attributes: templ.Attributes{"data-tui-dialog-close": "", "aria-label": "Close event details", "title": "Close"}}) {
+					@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeIcon, Class: "size-8 text-muted-foreground", Attributes: templ.Attributes{"data-tui-dialog-close": "", "aria-label": i18n.T(ctx, "calendar.event.close"), "title": i18n.T(ctx, "common.close")}}) {
 						@icon.X(icon.Props{Class: "size-4"})
 					}
 				</div>
 			</header>
-			<div class="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain px-5 pb-6 text-sm [overflow-wrap:anywhere] sm:px-6" role="region" aria-label="Event information" tabindex="0" data-calendar-event-details-body>
+			<div class="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain px-5 pb-6 text-sm [overflow-wrap:anywhere] sm:px-6" role="region" aria-label={ i18n.T(ctx, "calendar.event.information") } tabindex="0" data-calendar-event-details-body>
 				@calendarDialogRow(icon.Clock3(icon.Props{Class: "size-4"}), "pt-0.5") {
-					<p class="font-medium">{ calendarEventDetailsDate(event, location) }</p>
+					<p class="font-medium">{ calendarEventDetailsDate(ctx, event, location) }</p>
 					<p class="mt-0.5 text-muted-foreground">
-						{ calendarEventAgendaTimeLabel(event, location) }
+						{ calendarEventAgendaTimeLabel(ctx, event, location) }
 						if timezone := calendarEventDetailsTimeZone(event, location); timezone != "" {
 							<span aria-hidden="true">·</span> { timezone }
 						}
@@ -107,12 +108,12 @@ templ CalendarEventDialog(details CalendarEventDetails, location *time.Location)
 					@calendarDialogRow(icon.Video(icon.Props{Class: "size-4"}), "pt-0.5 sm:pt-2") {
 						<div class="flex min-w-0 flex-col items-start gap-2 sm:flex-row sm:items-center sm:gap-3" data-calendar-meeting-section>
 							if calendar.TeamsJoinURL(joinURL) != "" {
-								<p class="min-w-0 flex-1 text-sm leading-5 text-muted-foreground">This is a Microsoft Teams meeting</p>
+								<p class="min-w-0 flex-1 text-sm leading-5 text-muted-foreground">{ i18n.T(ctx, "calendar.event.teams_meeting") }</p>
 							} else if calendar.GoogleMeetJoinURL(joinURL) != "" {
-								<p class="min-w-0 flex-1 text-sm leading-5 text-muted-foreground">This is a Google Meet meeting</p>
+								<p class="min-w-0 flex-1 text-sm leading-5 text-muted-foreground">{ i18n.T(ctx, "calendar.event.meet_meeting") }</p>
 							}
 							@button.Button(button.Props{Href: joinURL, Target: "_blank", Variant: button.VariantOutline, Size: button.SizeSm, Class: "shrink-0 font-semibold", Attributes: templ.Attributes{"rel": "noopener noreferrer", "data-calendar-join-meeting": ""}}) {
-								Join meeting
+								{ i18n.T(ctx, "calendar.join_meeting") }
 								@icon.ExternalLink(icon.Props{Class: "size-3.5"})
 							}
 						</div>
@@ -120,29 +121,29 @@ templ CalendarEventDialog(details CalendarEventDetails, location *time.Location)
 				}
 				if details.ShowAs != "" {
 					@calendarDialogRow(icon.CalendarCheck(icon.Props{Class: "size-4"}), "pt-0.5") {
-						<p><span class="sr-only">Show as: </span>{ details.ShowAs }</p>
+						<p><span class="sr-only">{ i18n.T(ctx, "calendar.event.show_as_prefix") } </span>{ details.ShowAs }</p>
 					}
 				}
 				if details.Private {
 					@calendarDialogRow(icon.Lock(icon.Props{Class: "size-4"}), "pt-0.5") {
-						<p>Private</p>
+						<p>{ i18n.T(ctx, "calendar.private") }</p>
 					}
 				}
 				if details.Reminder != "" {
 					@calendarDialogRow(icon.Bell(icon.Props{Class: "size-4"}), "pt-0.5") {
-						<p><span class="sr-only">Reminder: </span>{ details.Reminder }</p>
+						<p><span class="sr-only">{ i18n.T(ctx, "calendar.event.reminder_prefix") } </span>{ details.Reminder }</p>
 					}
 				}
 				if event.Location != "" {
 					@calendarDialogRow(icon.MapPin(icon.Props{Class: "size-4"}), "pt-0.5") {
-						<p class="sr-only">Location</p>
+						<p class="sr-only">{ i18n.T(ctx, "calendar.location") }</p>
 						<p class="whitespace-pre-wrap">{ event.Location }</p>
 					}
 				}
 				if organizer && !calendarOrganizerListed(details) {
 					@calendarDialogRow(icon.UserRound(icon.Props{Class: "size-4"}), "pt-0.5") {
 						@CalendarParticipantIdentity(details.Organizer)
-						<p class="mt-0.5 text-xs text-muted-foreground">Organizer</p>
+						<p class="mt-0.5 text-xs text-muted-foreground">{ i18n.T(ctx, "calendar.participant.organizer") }</p>
 					}
 				}
 				if len(details.Attendees) > 0 || details.Delivery != nil {
@@ -152,7 +153,7 @@ templ CalendarEventDialog(details CalendarEventDetails, location *time.Location)
 				}
 				if details.Description != "" {
 					@calendarDialogRow(icon.TextAlignStart(icon.Props{Class: "size-4"}), "pt-0.5") {
-						<h3 class="sr-only">Description</h3>
+						<h3 class="sr-only">{ i18n.T(ctx, "calendar.description") }</h3>
 						if details.DescriptionHTML != "" {
 							<div class="calendar-rich-description leading-relaxed">@templ.Raw(calendar.SanitizeDescriptionHTML(details.DescriptionHTML))</div>
 						} else {
@@ -164,14 +165,14 @@ templ CalendarEventDialog(details CalendarEventDetails, location *time.Location)
 					@calendarDialogRow(icon.Lock(icon.Props{Class: "size-3.5"}), "pt-px") {
 						<p class="text-xs leading-relaxed text-muted-foreground" data-calendar-edit-unavailable>
 							if details.Response != nil {
-								Meeting details are read-only.
+								{ i18n.T(ctx, "calendar.event.meeting_read_only") }
 							} else {
-								Read-only.
+								{ i18n.T(ctx, "calendar.event.read_only") }
 							}
 							if details.EditUnavailableReason != "" {
 								{ details.EditUnavailableReason }
 							} else {
-								Editing is unavailable for this event.
+								{ i18n.T(ctx, "calendar.event.edit_unavailable") }
 							}
 						</p>
 					}
@@ -196,28 +197,23 @@ templ CalendarEventGuests(details CalendarEventDetails) {
 	<section id="calendar-event-guests" aria-labelledby="calendar-event-guests-heading" { attrs... }>
 		<div class="flex flex-wrap items-baseline gap-x-2">
 			<h3 id="calendar-event-guests-heading" class="font-medium">
-				{ strconv.Itoa(len(details.Attendees)) }
-				if len(details.Attendees) == 1 {
-					guest
-				} else {
-					guests
-				}
+				{ i18n.N(ctx, "calendar.guests.count", len(details.Attendees), "count", i18n.Number(ctx, len(details.Attendees))) }
 			</h3>
-			<p class="text-xs text-muted-foreground">{ calendarGuestSummary(details.Attendees) }</p>
+			<p class="text-xs text-muted-foreground">{ calendarGuestSummary(ctx, details.Attendees) }</p>
 		</div>
 		<ul class="mt-3 space-y-3">
 			for _, person := range details.Attendees {
-				{{ response := calendarParticipantResponse(person) }}
+				{{ response := calendarParticipantResponse(ctx, person) }}
 				<li class="flex items-center gap-3">
 					<span class="relative flex size-8 shrink-0 items-center justify-center rounded-full bg-foreground/10 text-[11px] font-semibold text-muted-foreground" aria-hidden="true">
 						{ calendarParticipantInitials(person) }
 						<span class={ calendarParticipantBadgeClass(person) } title={ response }>
-							switch response {
-								case "Accepted", "Organizer":
+							switch calendarParticipantState(person) {
+								case "accepted", "organizer":
 									@icon.Check(icon.Props{Class: "size-2.5 [stroke-width:3.5]"})
-								case "Declined":
+								case "declined":
 									@icon.X(icon.Props{Class: "size-2.5 [stroke-width:3.5]"})
-								case "Tentative":
+								case "tentative":
 									?
 							}
 						</span>
@@ -226,10 +222,10 @@ templ CalendarEventGuests(details CalendarEventDetails) {
 						<p class="truncate font-medium">
 							{ calendarParticipantName(person) }
 							if calendarSameParticipant(person, details.Organizer) {
-								<span class="ml-1 text-xs font-normal text-muted-foreground">Organizer</span>
+								<span class="ml-1 text-xs font-normal text-muted-foreground">{ i18n.T(ctx, "calendar.participant.organizer") }</span>
 							}
 							if person.Optional {
-								<span class="ml-1 text-xs font-normal text-muted-foreground">Optional</span>
+								<span class="ml-1 text-xs font-normal text-muted-foreground">{ i18n.T(ctx, "calendar.guest.optional") }</span>
 							}
 						</p>
 						if person.Name != "" && person.Email != "" && person.Name != person.Email {
@@ -250,35 +246,35 @@ templ CalendarEventGuests(details CalendarEventDetails) {
 templ CalendarEventForward(details CalendarEventDetails) {
 	@popover.Root(popover.RootProps{ID: "calendar-event-forward"}) {
 		@popover.Trigger() {
-			@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeIcon, Class: "size-8 text-muted-foreground", Attributes: templ.Attributes{"data-calendar-forward-trigger": "", "aria-haspopup": "dialog", "aria-controls": "calendar-event-forward-content", "aria-label": "Forward invitation", "title": "Forward invitation"}}) {
+			@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeIcon, Class: "size-8 text-muted-foreground", Attributes: templ.Attributes{"data-calendar-forward-trigger": "", "aria-haspopup": "dialog", "aria-controls": "calendar-event-forward-content", "aria-label": i18n.T(ctx, "calendar.forward.title"), "title": i18n.T(ctx, "calendar.forward.title")}}) {
 				@icon.Forward(icon.Props{Class: "size-4"})
 			}
 		}
 		@popover.Content(popover.ContentProps{ID: "calendar-event-forward-content", Placement: popover.PlacementBottomEnd, Class: "mobile-sheet w-80 p-4", Attributes: templ.Attributes{"role": "dialog", "aria-labelledby": "calendar-event-forward-title"}}) {
 			<form class="space-y-3" data-calendar-forward-form action={ templ.SafeURL(calendarEventDetailsURL(details.Event.ID) + "/forward") }>
-				<h3 id="calendar-event-forward-title" class="font-semibold">Forward invitation</h3>
+				<h3 id="calendar-event-forward-title" class="font-semibold">{ i18n.T(ctx, "calendar.forward.title") }</h3>
 				<div class="space-y-1.5">
-					<label for="calendar-forward-recipients" class="text-xs font-medium">To</label>
-					<input id="calendar-forward-recipients" name="recipients" type="text" required autocomplete="off" placeholder="Email addresses" class="h-8 w-full rounded-md border border-input bg-background px-2.5 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"/>
+					<label for="calendar-forward-recipients" class="text-xs font-medium">{ i18n.T(ctx, "calendar.forward.to") }</label>
+					<input id="calendar-forward-recipients" name="recipients" type="text" required autocomplete="off" placeholder={ i18n.T(ctx, "calendar.forward.recipients") } class="h-8 w-full rounded-md border border-input bg-background px-2.5 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"/>
 				</div>
 				<div class="space-y-1.5">
-					<label for="calendar-forward-comment" class="text-xs font-medium">Message <span class="font-normal text-muted-foreground">(optional)</span></label>
+					<label for="calendar-forward-comment" class="text-xs font-medium">{ i18n.T(ctx, "calendar.forward.message") } <span class="font-normal text-muted-foreground">{ i18n.T(ctx, "calendar.forward.optional") }</span></label>
 					<textarea id="calendar-forward-comment" name="comment" rows="2" class="w-full resize-none rounded-md border border-input bg-background px-2.5 py-1.5 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"></textarea>
 				</div>
 				<p class="text-xs leading-relaxed text-muted-foreground">
 					if details.Forward != "outlook" {
-						Gofer emails the invitation from this account. The organizer isn't told until the new guests answer.
+						{ i18n.T(ctx, "calendar.forward.caldav_note") }
 					} else {
-						Microsoft sends the invitation. With a work or school account, it also tells the organizer.
+						{ i18n.T(ctx, "calendar.forward.outlook_note") }
 					}
 				</p>
 				<p data-calendar-forward-error hidden role="alert" class="text-xs leading-relaxed text-destructive"></p>
 				<div class="flex justify-end gap-2">
 					@button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeSm, Attributes: templ.Attributes{"data-calendar-forward-cancel": ""}}) {
-						Cancel
+						{ i18n.T(ctx, "common.cancel") }
 					}
 					@button.Button(button.Props{Type: button.TypeSubmit, Size: button.SizeSm, Attributes: templ.Attributes{"data-calendar-forward-submit": ""}}) {
-						Forward
+						{ i18n.T(ctx, "calendar.forward.submit") }
 					}
 				</div>
 			</form>
@@ -308,17 +304,17 @@ templ CalendarEventEditAction(details CalendarEventDetails, text, scope string, 
 
 templ CalendarEventDeleteConfirmation(details CalendarEventDetails) {
 	{{
-		params, title, submitLabel := "version", "Delete this event?", "Delete event"
+		params, title, submitLabel := "version", i18n.T(ctx, "calendar.delete.title_event"), i18n.T(ctx, "calendar.delete_event")
 		ready := details.DeleteVersion != ""
 		if details.DeleteSeries {
-			params, title, submitLabel = "version,scope,series_id", "Delete the entire series?", "Delete series"
+			params, title, submitLabel = "version,scope,series_id", i18n.T(ctx, "calendar.delete.title_series"), i18n.T(ctx, "calendar.delete_series")
 		} else if details.DeleteOccurrence {
-			params, title = "version,scope", "Delete this occurrence?"
+			params, title = "version,scope", i18n.T(ctx, "calendar.delete.title_occurrence")
 		}
 	}}
 	<form data-calendar-delete-form data-calendar-event-id={ details.Event.ID } data-calendar-delete-series={ strconv.FormatBool(details.DeleteSeries) } data-calendar-delete-occurrence={ strconv.FormatBool(details.DeleteOccurrence) } data-calendar-delete-series-id={ details.DeleteSeriesID } data-calendar-delete-ready={ strconv.FormatBool(ready) } hx-delete={ calendarEventDetailsURL(details.Event.ID) } hx-params={ params } hx-swap="none" hx-sync="this:drop">
 		if details.HasOccurrence {
-			<div class="mb-3 grid grid-cols-2 gap-2" role="group" aria-label="Delete scope">
+			<div class="mb-3 grid grid-cols-2 gap-2" role="group" aria-label={ i18n.T(ctx, "calendar.delete.scope") }>
 				for _, scope := range []string{"occurrence", "series"} {
 					{{
 						selected := (scope == "series") == details.DeleteSeries
@@ -332,9 +328,9 @@ templ CalendarEventDeleteConfirmation(details CalendarEventDetails) {
 						"hx-sync": "closest [data-tui-popover-root]:replace",
 					}}) {
 						if scope == "series" {
-							Entire series
+							{ i18n.T(ctx, "calendar.entire_series") }
 						} else {
-							This event
+							{ i18n.T(ctx, "calendar.this_event") }
 						}
 					}
 				}
@@ -348,27 +344,27 @@ templ CalendarEventDeleteConfirmation(details CalendarEventDetails) {
 			<input type="hidden" name="scope" value="occurrence"/>
 		}
 		<h3 id="calendar-event-delete-title" class="font-semibold">{ title }</h3>
-		<p class="mt-2 break-words text-sm font-medium">{ calendarEventSummary(details.Event) }</p>
+		<p class="mt-2 break-words text-sm font-medium">{ calendarEventSummary(ctx, details.Event) }</p>
 		<p id="calendar-event-delete-description" class="mt-2 text-xs leading-relaxed text-muted-foreground">
 			if details.DeleteSeries {
-				This deletes all occurrences, including past and future events, from your calendar provider—not just Gofer. You can’t undo this in Gofer.
+				{ i18n.T(ctx, "calendar.delete.series_note") }
 			} else if details.DeleteOccurrence {
-				Only this occurrence will be removed from your calendar provider. The rest of the series stays unchanged. You can’t undo this in Gofer.
+				{ i18n.T(ctx, "calendar.delete.occurrence_note") }
 			} else {
-				This deletes the event from your calendar provider, not just Gofer. You can’t undo this in Gofer.
+				{ i18n.T(ctx, "calendar.delete.event_note") }
 			}
 			if len(details.Attendees) > 0 {
-				Guests will receive a cancellation.
+				{ i18n.T(ctx, "calendar.delete.guests_note") }
 			}
 		</p>
 		<p data-calendar-delete-check hidden?={ ready } role="status" class="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
 			@icon.LoaderCircle(icon.Props{Class: "size-3 animate-spin"})
-			Checking the selection…
+			{ i18n.T(ctx, "calendar.delete.checking") }
 		</p>
 		<p data-calendar-delete-error hidden role="alert" tabindex="-1" class="mt-3 text-xs leading-relaxed text-destructive"></p>
 		<div class="mt-4 flex justify-end gap-2">
 			@button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeSm, Attributes: templ.Attributes{"data-calendar-delete-cancel": ""}}) {
-				Cancel
+				{ i18n.T(ctx, "common.cancel") }
 			}
 			@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantDestructive, Size: button.SizeSm, Disabled: !ready, Attributes: templ.Attributes{"data-calendar-delete-submit": ""}}) {
 				<span data-calendar-delete-spinner hidden>
@@ -400,17 +396,17 @@ templ CalendarEventLoadingDialog() {
     <span class="mt-2 size-3 shrink-0 rounded-[3px] bg-muted-foreground/40" aria-hidden="true"></span>
     <div class="min-w-0 flex-1">
      @dialog.Title(dialog.TitleProps{ID: "calendar-event-details-title", Class: "break-words text-xl font-semibold leading-snug tracking-tight [overflow-wrap:anywhere]", Attributes: templ.Attributes{"style": "font-family: var(--font-serif)"}}) {
-      Event
+      { i18n.T(ctx, "calendar.event.title") }
      }
     </div>
     <div class="-mt-1 -mr-2 shrink-0">
-     @button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeIcon, Class: "size-8 text-muted-foreground", Attributes: templ.Attributes{"data-tui-dialog-close": "", "aria-label": "Close event details", "title": "Close"}}) {
+     @button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeIcon, Class: "size-8 text-muted-foreground", Attributes: templ.Attributes{"data-tui-dialog-close": "", "aria-label": i18n.T(ctx, "calendar.event.close"), "title": i18n.T(ctx, "common.close")}}) {
       @icon.X(icon.Props{Class: "size-4"})
      }
     </div>
    </header>
    <div data-calendar-event-loading class="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 pb-6 text-sm sm:px-6">
-    <p role="status" aria-live="polite" class="text-muted-foreground">Loading event details…</p>
+    <p role="status" aria-live="polite" class="text-muted-foreground">{ i18n.T(ctx, "calendar.event.loading") }</p>
     <div aria-hidden="true" class="space-y-5 motion-safe:animate-pulse">
      <div class="space-y-2"><div class="h-4 w-3/4 rounded bg-muted"></div><div class="h-3 w-1/2 rounded bg-muted"></div></div>
      <div class="h-4 w-1/2 rounded bg-muted"></div>

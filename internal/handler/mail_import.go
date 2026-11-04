@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"io"
 	"log"
 	"mime/multipart"
@@ -486,11 +487,11 @@ func (h *Handler) runMailImport(ctx context.Context, job *mailImportJob) {
 func mailImportErrorText(err error) string {
 	switch {
 	case errors.Is(err, storage.ErrAccountRoute), errors.Is(err, os.ErrNotExist):
-		return "The account is no longer available."
+		return i18n.Translate(i18n.English, "jobs.account_gone")
 	case errors.Is(err, errMailImportAccount):
-		return "Gofer could not sign in to the account. Check its settings, then continue."
+		return i18n.Translate(i18n.English, "jobs.import.sign_in")
 	default:
-		return "Stopped after several messages in a row could not be uploaded: " + err.Error()
+		return i18n.Translate(i18n.English, "jobs.import.stopped", "error", err.Error())
 	}
 }
 

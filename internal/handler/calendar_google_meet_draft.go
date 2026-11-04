@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"net/http"
 	"net/url"
 	"time"
@@ -149,7 +150,7 @@ func (h *Handler) handleCalendarGoogleMeetDraft(w http.ResponseWriter, r *http.R
 	w.Header().Set("Cache-Control", "private, no-store")
 	fail := func(status int, message string) {
 		w.WriteHeader(status)
-		_ = json.NewEncoder(w).Encode(map[string]any{"error": message})
+		_ = json.NewEncoder(w).Encode(map[string]any{"error": serverText(r.Context(), message)})
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 4096)
 	if r.ParseForm() != nil {
@@ -185,7 +186,7 @@ func (h *Handler) handleCalendarGoogleMeetDraft(w http.ResponseWriter, r *http.R
 		return
 	}
 	if !calendarSourceWritable(source) || !h.calendarWriteAuthorized(r.Context(), source) {
-		fail(403, "Reconnect this account from Accounts to grant Calendar write access.")
+		fail(403, i18n.T(r.Context(), "server.msg.reconnect_this_account_from_accounts_to_grant"))
 		return
 	}
 	if eventID := r.PostForm.Get("event_id"); eventID != "" {

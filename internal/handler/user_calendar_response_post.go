@@ -25,12 +25,12 @@ func (e userCalendarResponseFailure) Error() string { return e.message }
 func (h *Handler) handleUserCalendarResponse(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 8192)
 	if r.URL.RawQuery != "" || r.ParseForm() != nil || len(r.PostForm) != 3 || len(r.PostForm["scope"]) != 1 || len(r.PostForm["response"]) != 1 || len(r.PostForm["version"]) != 1 {
-		calendarUpdateFailure(w, http.StatusBadRequest, "Invalid response form. Reopen the invitation.", false, false)
+		calendarUpdateFailure(w, r, http.StatusBadRequest, "Invalid response form. Reopen the invitation.", false, false)
 		return
 	}
 	scope, response, version := r.PostForm.Get("scope"), r.PostForm.Get("response"), r.PostForm.Get("version")
 	if (response != "accepted" && response != "tentative" && response != "declined") || strings.TrimSpace(version) == "" || len(version) > 2048 {
-		calendarUpdateFailure(w, http.StatusBadRequest, "Choose Accept, Maybe or Decline and reopen the invitation if its version is missing.", false, false)
+		calendarUpdateFailure(w, r, http.StatusBadRequest, "Choose Accept, Maybe or Decline and reopen the invitation if its version is missing.", false, false)
 		return
 	}
 	// Keep the accepted form operation alive if its browser disconnects, while
@@ -152,15 +152,15 @@ func (h *Handler) handleUserCalendarResponse(w http.ResponseWriter, r *http.Requ
 	if err != nil {
 		var failure userCalendarResponseFailure
 		if errors.As(err, &failure) {
-			calendarUpdateFailure(w, failure.status, failure.message, failure.uncertain, failure.refresh)
+			calendarUpdateFailure(w, r, failure.status, failure.message, failure.uncertain, failure.refresh)
 			return
 		}
 		var form userCalendarFormFailure
 		if errors.As(err, &form) {
-			calendarUpdateFailure(w, form.status, form.message, attempt.uncertain, false)
+			calendarUpdateFailure(w, r, form.status, form.message, attempt.uncertain, false)
 			return
 		}
-		calendarUpdateFailure(w, http.StatusServiceUnavailable, "Calendar access or settings changed. Refresh and reopen this invitation.", attempt.uncertain || result.Pending, true)
+		calendarUpdateFailure(w, r, http.StatusServiceUnavailable, "Calendar access or settings changed. Refresh and reopen this invitation.", attempt.uncertain || result.Pending, true)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")

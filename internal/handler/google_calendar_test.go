@@ -157,7 +157,7 @@ func TestHandleDiscoverAccountCalendarsStoresSourcesAndRendersStatus(t *testing.
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d body = %q, want success", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), "Discovered 1 Google calendar source(s)") {
+	if !strings.Contains(rec.Body.String(), "Discovered 1 Google calendar source.") {
 		t.Fatalf("response body = %q, want discovery status", rec.Body.String())
 	}
 	sources, err := db.ListCalendarSourcesForAccount(t.Context(), "default", "gmail-account")

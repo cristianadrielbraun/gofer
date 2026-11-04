@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"io"
 	"net/http"
 	"strings"
@@ -19,7 +20,7 @@ func (h *Handler) handleCalendarVisibility(w http.ResponseWriter, r *http.Reques
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024))
 	decoder.DisallowUnknownFields()
 	if sourceID == "" || decoder.Decode(&request) != nil || request.Visible == nil || decoder.Decode(&struct{}{}) != io.EOF {
-		http.Error(w, "invalid calendar visibility", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_calendar_visibility"), http.StatusBadRequest)
 		return
 	}
 	var err error
@@ -39,7 +40,7 @@ func (h *Handler) handleCalendarVisibility(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if err != nil {
-		http.Error(w, "could not save calendar visibility", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.could_not_save_calendar_visibility"), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")

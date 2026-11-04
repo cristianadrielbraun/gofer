@@ -1,0 +1,55 @@
+// Replies and forwards quote the message in the sender's language: the
+// "wrote:" line and the forward block's labels. "Re:" and "Fwd:" stay as every
+// mail program reads them.
+const assert = require('node:assert/strict')
+const fs = require('node:fs')
+const path = require('node:path')
+const vm = require('node:vm')
+const loadI18n = require('./i18n-test-helper.cjs')
+const source = fs.readFileSync(path.join(__dirname, '../assets/js/app.js'), 'utf8')
+const slice = (start, end) => source.slice(source.indexOf(start), source.indexOf(end))
+
+const code = [
+  slice('function composeQuoteAttribution(', 'function composeReferencesForReply('),
+  slice('function composeReferencesForReply(', 'function focusComposePrefill('),
+].join('\n')
+
+function run(locale) {
+  const context = vm.createContext({
+    composeAddress: (name, email) => name ? name + ' <' + email + '>' : email,
+    composeAccountEmail: () => 'me@example.test',
+    composeDedupeAddresses: parts => parts.filter(Boolean).join(', '),
+    composeNormalizeMessageID: id => id,
+    _sanitizeComposeHTML: html => html,
+    _composePlainToHTML: text => text,
+    _escapeComposeHTML: text => String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'),
+  })
+  loadI18n(context, locale)
+  vm.runInContext(code, context)
+  return context
+}
+
+const message = {account_id: 'a', subject: 'Plans', from_name: 'Ana', from_email: 'ana@example.test', date: 'D', to: 'me@example.test', body: 'Hi'}
+
+const en = run('en')
+let reply = en.composeValuesFromSource(message, 'reply')
+assert.equal(reply.subject, 'Re: Plans')
+assert.match(reply.body, /\nOn D, Ana <ana@example\.test> wrote:\n> Hi$/)
+let forward = en.composeValuesFromSource(message, 'forward')
+assert.equal(forward.subject, 'Fwd: Plans')
+assert.match(forward.body, /---------- Forwarded message ----------\nFrom: Ana <ana@example\.test>\nDate: D\nSubject: Plans\nTo: me@example\.test\n\nHi$/)
+
+const es = run('es')
+reply = es.composeValuesFromSource(message, 'reply')
+assert.equal(reply.subject, 'Re: Plans')
+assert.match(reply.body, /\nEl D, Ana <ana@example\.test> escribió:\n> Hi$/)
+assert.match(reply.html_body, /El D, Ana &lt;ana@example\.test&gt; escribió:/)
+assert.match(es.composeValuesFromSource({...message, date: ''}, 'reply').body, /\nAna <ana@example\.test> escribió:\n/)
+forward = es.composeValuesFromSource(message, 'forward')
+assert.equal(forward.subject, 'Fwd: Plans')
+assert.match(forward.body, /---------- Mensaje reenviado ----------\nDe: Ana <ana@example\.test>\nFecha: D\nAsunto: Plans\nPara: me@example\.test\n\nHi$/)
+assert.match(forward.html_body, /Mensaje reenviado/)
+// A forward already marked by Outlook in Spanish gets no second prefix.
+assert.equal(es.composeValuesFromSource({...message, subject: 'RV: Plans'}, 'forward').subject, 'RV: Plans')
+
+console.log('compose quote language: ok')

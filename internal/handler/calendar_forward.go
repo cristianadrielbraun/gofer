@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"github.com/cristianadrielbraun/gofer/internal/mail/message"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
@@ -148,7 +149,7 @@ func (h *Handler) emailCalendarForward(ctx context.Context, source storage.Calen
 	if err != nil {
 		return err
 	}
-	msg := calendarForwardMessage(account.Name, account.Email, summary, comment, body, recipients)
+	msg := calendarForwardMessage(i18n.ForUser(ctx, source.UserID), account.Name, account.Email, summary, comment, body, recipients)
 	raw, err := buildOutgoingMIME(transport, msg)
 	if err != nil {
 		return err
@@ -240,20 +241,20 @@ func calendarForwardICS(source *ical.Calendar, recipients []*mail.Address) (stri
 	return encodeCalendarReply(cal)
 }
 
-func calendarForwardMessage(fromName, fromEmail, summary, comment, invitation string, recipients []*mail.Address) *message.OutgoingMessage {
+func calendarForwardMessage(ctx context.Context, fromName, fromEmail, summary, comment, invitation string, recipients []*mail.Address) *message.OutgoingMessage {
 	summary = strings.TrimSpace(strings.NewReplacer("\r", " ", "\n", " ").Replace(summary))
 	if summary == "" {
-		summary = "Meeting"
+		summary = i18n.T(ctx, "mail.outgoing.calendar.meeting")
 	}
 	sender := strings.TrimSpace(fromName)
 	if sender == "" {
 		sender = fromEmail
 	}
-	text := sender + " forwarded you an invitation: " + summary
+	text := i18n.T(ctx, "mail.outgoing.calendar.forwarded", "sender", sender, "summary", summary)
 	if comment != "" {
 		text = comment + "\n\n" + text
 	}
-	msg := &message.OutgoingMessage{FromName: fromName, FromEmail: fromEmail, Subject: "Fwd: Invitation: " + summary, TextBody: text, CalendarForward: invitation, MessageID: message.NewMessageID(), Date: time.Now().UTC()}
+	msg := &message.OutgoingMessage{FromName: fromName, FromEmail: fromEmail, Subject: "Fwd: " + i18n.T(ctx, "mail.outgoing.calendar.invitation", "summary", summary), TextBody: text, CalendarForward: invitation, MessageID: message.NewMessageID(), Date: time.Now().UTC()}
 	msg.To = append(msg.To, recipients...)
 	return msg
 }
@@ -264,33 +265,33 @@ func calendarForwardDone(w http.ResponseWriter, delivery string) {
 	_ = json.NewEncoder(w).Encode(map[string]any{"forwarded": true, "delivery": delivery})
 }
 
-func calendarForwardError(w http.ResponseWriter, err error) {
+func calendarForwardError(w http.ResponseWriter, r *http.Request, err error) {
 	var failure calendarForwardFailure
 	if errors.As(err, &failure) {
-		calendarUpdateFailure(w, failure.status, failure.message, false, false)
+		calendarUpdateFailure(w, r, failure.status, failure.message, false, false)
 		return
 	}
 	var configuration calendarReplyConfigurationError
 	if errors.As(err, &configuration) {
-		calendarUpdateFailure(w, http.StatusBadRequest, configuration.Error(), false, false)
+		calendarUpdateFailure(w, r, http.StatusBadRequest, configuration.Error(), false, false)
 		return
 	}
 	if errors.Is(err, errCalendarUpdateConflict) || errors.Is(err, errCalendarNotInvitation) {
-		calendarUpdateFailure(w, http.StatusConflict, "This invitation changed. Reopen it before forwarding; nothing was sent.", false, true)
+		calendarUpdateFailure(w, r, http.StatusConflict, "This invitation changed. Reopen it before forwarding; nothing was sent.", false, true)
 		return
 	}
 	if calendarCreateUncertain(err) {
-		calendarUpdateFailure(w, http.StatusBadGateway, "The forward could not be confirmed. Check your sent invitations before trying again.", true, false)
+		calendarUpdateFailure(w, r, http.StatusBadGateway, "The forward could not be confirmed. Check your sent invitations before trying again.", true, false)
 		return
 	}
-	calendarUpdateFailure(w, http.StatusBadGateway, "Could not forward the invitation. Check Calendar access and try again.", false, false)
+	calendarUpdateFailure(w, r, http.StatusBadGateway, "Could not forward the invitation. Check Calendar access and try again.", false, false)
 }
 
 func (h *Handler) handleCalendarForward(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 16384)
 	recipients, comment, err := parseCalendarForwardForm(r)
 	if err != nil {
-		calendarForwardError(w, err)
+		calendarForwardError(w, r, err)
 		return
 	}
 	userID := h.userID(r.Context())
@@ -298,29 +299,29 @@ func (h *Handler) handleCalendarForward(w http.ResponseWriter, r *http.Request) 
 	defer cancel()
 	event, err := h.db.GetCalendarEvent(ctx, userID, r.PathValue("id"))
 	if err != nil {
-		calendarUpdateFailure(w, http.StatusNotFound, "This invitation is no longer available. Refresh the calendar.", false, true)
+		calendarUpdateFailure(w, r, http.StatusNotFound, "This invitation is no longer available. Refresh the calendar.", false, true)
 		return
 	}
 	source, err := h.calendarResponseAccess(ctx, event)
 	if err != nil || !calendarForwardProvider(source.Provider) {
-		calendarUpdateFailure(w, http.StatusForbidden, "Forwarding is unavailable for this event.", false, false)
+		calendarUpdateFailure(w, r, http.StatusForbidden, "Forwarding is unavailable for this event.", false, false)
 		return
 	}
 	if storage.CalendarSourceMailServer(source.Provider) {
 		if cfg, err := h.accountStore.GetConfig(ctx, source.AccountID); err != nil || !accountSendsEmail(cfg) {
-			calendarUpdateFailure(w, http.StatusBadRequest, "Forwarding sends the invitation by email. Configure SMTP for this account first.", false, false)
+			calendarUpdateFailure(w, r, http.StatusBadRequest, "Forwarding sends the invitation by email. Configure SMTP for this account first.", false, false)
 			return
 		}
 	}
 	if source.Provider == providers.ProviderGmail {
 		if cfg, err := h.accountStore.GetConfig(ctx, source.AccountID); err != nil || outgoingTransportForConfig(cfg) != storage.OutgoingTransportGmail {
-			calendarUpdateFailure(w, http.StatusBadRequest, "Forwarding sends the invitation by email, and this account can't send mail.", false, false)
+			calendarUpdateFailure(w, r, http.StatusBadRequest, "Forwarding sends the invitation by email, and this account can't send mail.", false, false)
 			return
 		}
 	}
 	target, err := h.readCalendarResponse(ctx, source, event, calendarForwardScope(event))
 	if err != nil {
-		calendarForwardError(w, err)
+		calendarForwardError(w, r, err)
 		return
 	}
 	delivery, err := h.forwardCalendarInvitation(ctx, source, target, recipients, comment, func(input storage.QueueOutgoingSendInput) error {
@@ -328,7 +329,7 @@ func (h *Handler) handleCalendarForward(w http.ResponseWriter, r *http.Request) 
 		return err
 	})
 	if err != nil {
-		calendarForwardError(w, err)
+		calendarForwardError(w, r, err)
 		return
 	}
 	if delivery == "email" {

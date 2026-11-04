@@ -2,6 +2,7 @@ package handler
 
 import (
 	"fmt"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"net/http"
 	"time"
 
@@ -16,7 +17,7 @@ const sseKeepaliveInterval = 20 * time.Second
 func (h *Handler) handleUserSSE(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		http.Error(w, "streaming not supported", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.streaming_not_supported"), http.StatusInternalServerError)
 		return
 	}
 	ctx, owner := r.Context(), h.userID(r.Context())
@@ -60,7 +61,7 @@ func (h *Handler) handleUserSSE(w http.ResponseWriter, r *http.Request) {
 				return true
 			}
 		}
-		writeSSEEvent(w, flusher, event)
+		writeSSEEvent(ctx, w, flusher, event)
 		return true
 	}
 	for _, event := range manual {

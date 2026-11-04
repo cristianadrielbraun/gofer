@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"net/http"
 	"strings"
 
@@ -25,7 +26,7 @@ func calendarNotificationBelongsToEvent(d storage.CalendarNotificationDelivery, 
 }
 
 func (h *Handler) calendarDeliveryData(ctx context.Context, e storage.CalendarEvent) (views.CalendarDeliveryData, error) {
-	data := views.CalendarDeliveryData{EventID: e.ID, EmptyNote: "No email-delivery record. Your calendar server may handle invitations directly."}
+	data := views.CalendarDeliveryData{EventID: e.ID, EmptyNote: i18n.T(ctx, "server.msg.no_email_delivery_record_your_calendar_server")}
 	if !storage.CalendarSourceMailServer(e.SourceProvider) {
 		provider := "your calendar provider"
 		if e.SourceProvider == "gmail" {
@@ -34,7 +35,7 @@ func (h *Handler) calendarDeliveryData(ctx context.Context, e storage.CalendarEv
 		if e.SourceProvider == "outlook" {
 			provider = "Microsoft Calendar"
 		}
-		data.EmptyNote = "Invitation delivery is managed by " + provider + ". Guest responses reflect the last calendar sync."
+		data.EmptyNote = i18n.T(ctx, "server.pattern.delivery_managed", "provider", provider)
 		return data, nil
 	}
 	deliveries, err := h.db.ListCalendarNotificationDeliveries(ctx, e.UserID, e.ID)
@@ -59,29 +60,29 @@ func (h *Handler) calendarDeliveryData(ctx context.Context, e storage.CalendarEv
 			continue
 		}
 		row := views.CalendarDeliveryRow{ID: d.ID, Recipient: strings.Join(recipients, ", "), State: d.Status, CanRetry: d.Status == storage.OutgoingSendFailed}
-		kind := "Invitation/update"
+		kind := "invitation"
 		if d.Method == "CANCEL" {
-			kind = "Guest cancellation"
+			kind = "cancellation"
 		}
 		switch d.Status {
 		case storage.OutgoingSendPending:
-			row.Label = kind + " queued"
-			row.Note = "Waiting to send; temporary failures retry automatically."
+			row.Label = i18n.T(ctx, "server.delivery."+kind+".queued")
+			row.Note = i18n.T(ctx, "server.msg.waiting_to_send_temporary_failures_retry_automatically")
 		case storage.OutgoingSendSending:
-			row.Label = "Sending " + strings.ToLower(kind) + "…"
-			row.Note = "Delivery is in progress."
+			row.Label = i18n.T(ctx, "server.delivery."+kind+".sending")
+			row.Note = i18n.T(ctx, "server.msg.delivery_is_in_progress")
 		case storage.OutgoingSendSent:
-			row.Label = kind + " sent"
-			row.Note = "Accepted by the sending mail server."
+			row.Label = i18n.T(ctx, "server.delivery."+kind+".sent")
+			row.Note = i18n.T(ctx, "server.msg.accepted_by_the_sending_mail_server")
 		case storage.OutgoingSendFailed:
-			row.Label = kind + " failed"
-			row.Note = "Not sent. Check this account’s sending settings and refresh the calendar before retrying."
+			row.Label = i18n.T(ctx, "server.delivery."+kind+".failed")
+			row.Note = i18n.T(ctx, "server.msg.not_sent_check_this_account_s_sending")
 		case storage.OutgoingSendAmbiguous:
-			row.Label = kind + " delivery uncertain"
-			row.Note = "It may already have been sent. Check Sent before taking further action; resending could duplicate it."
+			row.Label = i18n.T(ctx, "server.delivery."+kind+".uncertain")
+			row.Note = i18n.T(ctx, "server.msg.it_may_already_have_been_sent_check")
 		case storage.OutgoingSendCanceled:
-			row.Label = kind + " canceled"
-			row.Note = "This queued delivery was canceled."
+			row.Label = i18n.T(ctx, "server.delivery."+kind+".canceled")
+			row.Note = i18n.T(ctx, "server.msg.this_queued_delivery_was_canceled")
 		default:
 			continue
 		}
@@ -97,23 +98,23 @@ func (h *Handler) calendarDeliveryData(ctx context.Context, e storage.CalendarEv
 		switch d.Reason {
 		case "processing":
 			row.State = "processing"
-			row.Label = "Processing guest reply…"
-			row.Note = "Verifying the sender and current meeting before applying the response."
+			row.Label = i18n.T(ctx, "server.msg.processing_guest_reply")
+			row.Note = i18n.T(ctx, "server.msg.verifying_the_sender_and_current_meeting_before")
 		case "verification_pending":
-			row.Label = "Reply verification waiting to retry"
-			row.Note = "Sender verification is temporarily unavailable. The guest’s RSVP is unchanged."
+			row.Label = i18n.T(ctx, "server.msg.reply_verification_waiting_to_retry")
+			row.Note = i18n.T(ctx, "server.msg.sender_verification_is_temporarily_unavailable_the_guest")
 		case "unverified":
-			row.Label = "Guest reply could not be verified"
-			row.Note = "The email’s sender could not be authenticated. It remains in Mail; the guest’s RSVP is unchanged."
+			row.Label = i18n.T(ctx, "server.msg.guest_reply_could_not_be_verified")
+			row.Note = i18n.T(ctx, "server.msg.the_email_s_sender_could_not_be")
 		case "retry":
-			row.Label = "Guest reply waiting to retry"
-			row.Note = "The calendar update could not be confirmed. Gofer will retry automatically."
+			row.Label = i18n.T(ctx, "server.msg.guest_reply_waiting_to_retry")
+			row.Note = i18n.T(ctx, "server.msg.the_calendar_update_could_not_be_confirmed")
 		case "not_applied":
-			row.Label = "Guest reply not applied"
-			row.Note = "The reply is outdated, the meeting changed, or this reply is unsupported. The email remains in Mail."
+			row.Label = i18n.T(ctx, "server.msg.guest_reply_not_applied")
+			row.Note = i18n.T(ctx, "server.msg.the_reply_is_outdated_the_meeting_changed")
 		case "applied":
-			row.Label = "Guest reply processed"
-			row.Note = "The response was confirmed on the calendar server."
+			row.Label = i18n.T(ctx, "server.msg.guest_reply_processed")
+			row.Note = i18n.T(ctx, "server.msg.the_response_was_confirmed_on_the_calendar")
 		default:
 			continue
 		}
@@ -129,7 +130,7 @@ func (h *Handler) calendarDeliveryEvent(w http.ResponseWriter, r *http.Request) 
 		return e, false
 	}
 	if err != nil {
-		http.Error(w, "could not load event delivery", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.could_not_load_event_delivery"), http.StatusInternalServerError)
 		return e, false
 	}
 	return e, true
@@ -138,15 +139,15 @@ func (h *Handler) calendarDeliveryEvent(w http.ResponseWriter, r *http.Request) 
 func (h *Handler) renderCalendarDelivery(w http.ResponseWriter, r *http.Request, e storage.CalendarEvent, note string) {
 	data, err := h.calendarDeliveryData(r.Context(), e)
 	if err != nil {
-		http.Error(w, "could not load event delivery", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.could_not_load_event_delivery"), http.StatusInternalServerError)
 		return
 	}
-	data.Error = note
+	data.Error = serverText(r.Context(), note)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "private, no-store")
-	details := views.CalendarEventDetails{Event: calendarViewEvent(e), Organizer: views.CalendarEventParticipant{Name: e.OrganizerName, Email: e.OrganizerEmail}, Attendees: calendarEventParticipants(e.AttendeesJSON), Delivery: &data}
+	details := views.CalendarEventDetails{Event: calendarViewEvent(r.Context(), e), Organizer: views.CalendarEventParticipant{Name: e.OrganizerName, Email: e.OrganizerEmail}, Attendees: calendarEventParticipants(e.AttendeesJSON), Delivery: &data}
 	if err := views.CalendarEventGuests(details).Render(r.Context(), w); err != nil {
-		http.Error(w, "could not render event delivery", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.could_not_render_event_delivery"), http.StatusInternalServerError)
 	}
 }
 
@@ -165,7 +166,7 @@ func (h *Handler) handleCalendarDeliveryRetry(w http.ResponseWriter, r *http.Req
 	}
 	deliveries, err := h.db.ListCalendarNotificationDeliveries(r.Context(), e.UserID, e.ID)
 	if err != nil {
-		http.Error(w, "could not load invitation delivery", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.could_not_load_invitation_delivery"), http.StatusInternalServerError)
 		return
 	}
 	var target *storage.CalendarNotificationDelivery

@@ -1,9 +1,10 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"net/http"
 	"strings"
 	"time"
@@ -26,9 +27,9 @@ func (h *Handler) handleCalendar(w http.ResponseWriter, r *http.Request) {
 		sources, sourceErr := local.db.ListSelectedCalendarSources(ctx, userID)
 		if sourceErr != nil {
 			month.SyncError = true
-			month.SyncMessage = "Could not load configured calendars."
+			month.SyncMessage = i18n.T(r.Context(), "server.msg.could_not_load_configured_calendars")
 		} else {
-			applyCalendarSyncSummary(&month, sources)
+			applyCalendarSyncSummary(r.Context(), &month, sources)
 			windowStart, windowEnd := calendarVisibleWindow(month)
 			if r.URL.Query().Get("cache") != "1" {
 				for _, source := range sources {
@@ -42,9 +43,9 @@ func (h *Handler) handleCalendar(w http.ResponseWriter, r *http.Request) {
 		windowStart, windowEnd := calendarVisibleWindow(month)
 		if events, eventsErr := local.db.ListCalendarEvents(ctx, userID, windowStart, windowEnd); eventsErr != nil {
 			month.SyncError = true
-			month.SyncMessage = "Calendar cache failed: " + eventsErr.Error()
+			month.SyncMessage = serverText(r.Context(), "Calendar cache failed: "+eventsErr.Error())
 		} else {
-			month.Events = calendarViewEvents(events, sources)
+			month.Events = calendarViewEvents(r.Context(), events, sources)
 		}
 
 		if r.Header.Get("HX-Request") == "true" {
@@ -68,14 +69,14 @@ func (h *Handler) handleCalendarSync(w http.ResponseWriter, r *http.Request) {
 	userID := h.userID(ctx)
 	uiSettings := h.db.GetUISettings(ctx, userID)
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "invalid calendar refresh request", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_calendar_refresh_request"), http.StatusBadRequest)
 		return
 	}
 	values := r.URL.Query()
 	for _, field := range []struct{ name, layout string }{{"month", "2006-01"}, {"date", "2006-01-02"}} {
 		if value := strings.TrimSpace(r.FormValue(field.name)); value != "" {
 			if _, err := time.Parse(field.layout, value); err != nil {
-				http.Error(w, "invalid calendar "+field.name, http.StatusBadRequest)
+				http.Error(w, i18n.T(r.Context(), "server.error.invalid_calendar_"+field.name), http.StatusBadRequest)
 				return
 			}
 			values.Set(field.name, value)
@@ -83,7 +84,7 @@ func (h *Handler) handleCalendarSync(w http.ResponseWriter, r *http.Request) {
 	}
 	if value := strings.TrimSpace(r.FormValue("view")); value != "" {
 		if value != "month" && value != "week" {
-			http.Error(w, "invalid calendar view", http.StatusBadRequest)
+			http.Error(w, i18n.T(r.Context(), "server.error.invalid_calendar_view"), http.StatusBadRequest)
 			return
 		}
 		values.Set("view", value)
@@ -95,32 +96,32 @@ func (h *Handler) handleCalendarSync(w http.ResponseWriter, r *http.Request) {
 	h.refreshCalendarLists(ctx, userID, accountID)
 	synced, syncErr := h.syncCalendarScopedWindow(ctx, userID, windowStart, windowEnd, "", accountID)
 	if errors.Is(syncErr, errCalendarAccountNotConfigured) {
-		http.Error(w, syncErr.Error(), http.StatusNotFound)
+		http.Error(w, serverText(r.Context(), syncErr.Error()), http.StatusNotFound)
 		return
 	}
 	sources, sourceErr := h.db.ListSelectedCalendarSources(ctx, userID)
-	applyCalendarSyncSummary(&month, sources)
+	applyCalendarSyncSummary(r.Context(), &month, sources)
 	if syncErr == nil {
 		syncErr = sourceErr
 	}
 	if syncErr != nil {
 		month.SyncError = true
-		month.SyncMessage = "Calendar refresh failed: " + syncErr.Error()
+		month.SyncMessage = calendarRefreshFailureText(r.Context(), syncErr)
 	} else if month.HasSources {
-		month.SyncMessage = fmt.Sprintf("Synced %d event(s) · Updated %s", synced, time.Now().In(month.Month.Location()).Format("15:04"))
+		month.SyncMessage = i18n.N(r.Context(), "server.calendar.synced", synced, "count", i18n.Number(r.Context(), synced), "time", i18n.Dates(r.Context()).Time(time.Now().In(month.Month.Location())))
 	}
 	if events, err := h.db.ListCalendarEvents(ctx, userID, windowStart, windowEnd); err != nil {
 		month.SyncError = true
-		month.SyncMessage = "Could not load cached calendar events."
+		month.SyncMessage = i18n.T(r.Context(), "server.msg.could_not_load_cached_calendar_events")
 	} else {
-		month.Events = calendarViewEvents(events, sources)
+		month.Events = calendarViewEvents(r.Context(), events, sources)
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if month.SyncError {
 		w.Header().Set("X-Gofer-Status", "error")
 	}
 	if err := views.CalendarPage(month, uiSettings).Render(ctx, w); err != nil {
-		http.Error(w, "failed to render calendar refresh", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_render_calendar_refresh"), http.StatusInternalServerError)
 	}
 }
 
@@ -143,7 +144,7 @@ func calendarSourceNeedsRefresh(source storage.CalendarSource, start, end, now t
 		source.WindowStart.After(start) || source.WindowEnd.Before(end) || now.Sub(*source.LastSuccessAt) >= interval
 }
 
-func applyCalendarSyncSummary(month *views.CalendarMonthData, sources []storage.CalendarSource) {
+func applyCalendarSyncSummary(ctx context.Context, month *views.CalendarMonthData, sources []storage.CalendarSource) {
 	month.HasSources = len(sources) > 0
 	month.AllSourcesHidden = calendarSourcesAllHidden(sources)
 	failed := 0
@@ -167,18 +168,18 @@ func applyCalendarSyncSummary(month *views.CalendarMonthData, sources []storage.
 	}
 	if failed > 0 {
 		month.SyncError = true
-		month.SyncMessage = fmt.Sprintf("%d calendar(s) could not refresh. Retrying automatically.", failed)
+		month.SyncMessage = i18n.N(ctx, "server.calendar.refresh_failed_count", failed, "count", i18n.Number(ctx, failed))
 	}
 }
 
-func calendarViewEvents(events []storage.CalendarEvent, sources []storage.CalendarSource) []views.CalendarEvent {
+func calendarViewEvents(ctx context.Context, events []storage.CalendarEvent, sources []storage.CalendarSource) []views.CalendarEvent {
 	byID := make(map[string]storage.CalendarSource, len(sources))
 	for _, source := range sources {
 		byID[source.ID] = source
 	}
 	result := make([]views.CalendarEvent, 0, len(events))
 	for _, event := range events {
-		view := calendarViewEvent(event)
+		view := calendarViewEvent(ctx, event)
 		if source, ok := byID[event.SourceID]; ok {
 			view.Movable, view.Occurrence = calendarEventMovable(event, source), event.SeriesRemoteID != ""
 		}
@@ -212,7 +213,7 @@ func calendarSourcesAllHidden(sources []storage.CalendarSource) bool {
 	return true
 }
 
-func calendarViewEvent(event storage.CalendarEvent) views.CalendarEvent {
+func calendarViewEvent(ctx context.Context, event storage.CalendarEvent) views.CalendarEvent {
 	response := event.ResponseStatus
 	if response == "" && storage.CalendarSourceMailServer(event.SourceProvider) {
 		response = calendarCachedCalDAVResponse(event)
@@ -225,7 +226,7 @@ func calendarViewEvent(event storage.CalendarEvent) views.CalendarEvent {
 		SourceColor:    event.SourceColor,
 		Summary:        event.Summary,
 		Location:       event.Location,
-		Meeting:        calendarMeetingLabel(event),
+		Meeting:        calendarMeetingLabel(ctx, event),
 		Status:         event.Status,
 		ResponseStatus: response,
 		AllDay:         event.AllDay,
@@ -321,13 +322,13 @@ func viewsCalendarLocation(uiSettings map[string]string) *time.Location {
 	return time.Local
 }
 
-func calendarMeetingLabel(event storage.CalendarEvent) string {
+func calendarMeetingLabel(ctx context.Context, event storage.CalendarEvent) string {
 	joinURL := calendar.MeetingJoinURL(string(calendarOutlookCachedMeetingJSON(event)))
 	switch {
 	case calendar.TeamsJoinURL(joinURL) != "":
-		return "Microsoft Teams meeting"
+		return i18n.T(ctx, "server.calendar.teams_meeting")
 	case calendar.GoogleMeetJoinURL(joinURL) != "":
-		return "Google Meet meeting"
+		return i18n.T(ctx, "calendar.meet.title")
 	}
 	return ""
 }

@@ -33,14 +33,14 @@ func TestAdminUsersViewDataSummarizesStateRoleAndCurrentUser(t *testing.T) {
 	if data.Total != 3 || data.Active != 1 || data.Pending != 1 || data.Disabled != 1 || data.Administrators != 2 || len(data.Users) != 3 {
 		t.Fatalf("adminUsersViewData() = %#v", data)
 	}
-	if !data.Users[0].Current || data.Users[0].Status != "Active" || data.Users[0].Role != "Management administrator" ||
-		data.Users[1].Current || data.Users[1].Status != "Pending" || data.Users[1].Role != "Webmail user" ||
-		data.Users[2].Status != "Disabled" || data.Users[2].Role != "Management administrator" {
+	if !data.Users[0].Current || data.Users[0].Status != "active" || data.Users[0].Role != "management_admin" ||
+		data.Users[1].Current || data.Users[1].Status != "pending" || data.Users[1].Role != "webmail_user" ||
+		data.Users[2].Status != "disabled" || data.Users[2].Role != "management_admin" {
 		t.Fatalf("admin user rows = %#v", data.Users)
 	}
-	if data.Users[0].MFALabel != "Required" || data.Users[0].MFADetail != "Management policy" || data.Users[0].MFAPolicyPath != "" ||
-		data.Users[1].MFALabel != "Optional" || data.Users[1].MFAPolicyPath != "/admin/users/pending/mfa-policy" ||
-		data.Users[2].MFALabel != "Required" || data.Users[2].MFAPolicyPath != "" {
+	if data.Users[0].MFALabel != "required" || data.Users[0].MFADetail != "management_policy" || data.Users[0].MFAPolicyPath != "" ||
+		data.Users[1].MFALabel != "optional" || data.Users[1].MFAPolicyPath != "/admin/users/pending/mfa-policy" ||
+		data.Users[2].MFALabel != "required" || data.Users[2].MFAPolicyPath != "" {
 		t.Fatalf("admin user MFA policy rows = %#v", data.Users)
 	}
 	if data.Users[0].StatusPath != "" || data.Users[1].StatusPath != "" ||
@@ -101,7 +101,7 @@ func TestAdministratorCanPermanentlyDeleteDisabledWebmailUserAndLocalData(t *tes
 	for _, want := range []string{
 		"Delete permanently", "Permanently delete Delete.Target?", `action="` + path + `"`,
 		"Gofer will permanently remove", "Remote provider data is not changed",
-		"This screen cannot export another user's private mail", "Redacted security-event records are retained",
+		"This screen cannot export another user&#39;s private mail", "Redacted security-event records are retained",
 		`name="confirmation"`, "Delete user and local data",
 	} {
 		if !strings.Contains(page.Body.String(), want) {
@@ -225,8 +225,8 @@ func TestAdminUsersViewDataReflectsInstanceAndIndividualMFAPolicies(t *testing.T
 		{ID: "individual-user", Username: "individual", Status: auth.UserStatusActive, UserType: auth.UserTypeWebmail, MFARequired: true},
 	}
 	data := adminUsersViewData(users, "admin", auth.InstanceMFAPolicyAllUsers)
-	if data.Users[0].MFALabel != "Required" || data.Users[0].MFADetail != "Instance policy" || data.Users[0].MFAPolicyPath != "" ||
-		data.Users[1].MFALabel != "Required" || data.Users[1].MFADetail != "Individual policy" ||
+	if data.Users[0].MFALabel != "required" || data.Users[0].MFADetail != "instance_policy" || data.Users[0].MFAPolicyPath != "" ||
+		data.Users[1].MFALabel != "required" || data.Users[1].MFADetail != "individual_policy" ||
 		data.Users[1].MFAPolicyPath != "/admin/users/individual-user/mfa-policy" {
 		t.Fatalf("instance and individual MFA rows = %#v", data.Users)
 	}

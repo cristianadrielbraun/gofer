@@ -153,7 +153,7 @@ func TestAdministratorSecurityActivityRendersSanitizedPaginatedInstanceEvents(t 
 	}
 	filteredHTML := filtered.Body.String()
 	for _, want := range []string{
-		"matching events", "Failures", "Sign-in attempt failed", "target-user",
+		"matching event", "Failures", "Sign-in attempt failed", "target-user",
 	} {
 		if !strings.Contains(filteredHTML, want) {
 			t.Fatalf("filtered administrator activity omitted %q: %q", want, filteredHTML)

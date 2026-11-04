@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"database/sql"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"net/http"
 	"strings"
 	"time"
@@ -51,7 +52,7 @@ func (h *Handler) userSignatureHandler(selectHandler func(*Handler) http.Handler
 			// Parse before leasing storage, using the same bound as compose.
 			r.Body = http.MaxBytesReader(w, r.Body, 2*composeAttachmentMaxBytes+1<<20)
 			if err := r.ParseForm(); err != nil {
-				http.Error(w, "invalid form data", http.StatusBadRequest)
+				http.Error(w, i18n.T(r.Context(), "server.error.invalid_form_data"), http.StatusBadRequest)
 				return
 			}
 		}

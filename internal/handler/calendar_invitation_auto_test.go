@@ -41,19 +41,19 @@ func TestForwardedMailInvitation(t *testing.T) {
 	sources := []storage.CalendarSource{{ID: "source", AccountID: "account", Provider: "caldav", Name: "Work", AccessRole: "owner"}}
 	cached := []storage.CalendarEvent{{ID: "cached", SourceProvider: "caldav"}}
 	item := mailCalendarEvent{UID: "invite-uid", Method: "REQUEST", Organizer: "host@example.com", From: "friend@example.org", Invited: true}
-	if offer := mailCalendarInvitationOffer(item, nil, sources, "account", "guest@example.com"); offer == nil || offer.SourceID != "source" || !strings.HasPrefix(offer.Note, "Forwarded by friend@example.org.") {
+	if offer := mailCalendarInvitationOffer(context.Background(), item, nil, sources, "account", "guest@example.com"); offer == nil || offer.SourceID != "source" || !strings.HasPrefix(offer.Note, "Forwarded by friend@example.org.") {
 		t.Fatalf("forwarded offer: %+v", offer)
 	}
 	item.Modified = &time.Time{}
-	if offer := mailCalendarInvitationOffer(item, cached, sources, "account", "guest@example.com"); offer != nil {
+	if offer := mailCalendarInvitationOffer(context.Background(), item, cached, sources, "account", "guest@example.com"); offer != nil {
 		t.Fatalf("forwarded update offered: %+v", offer)
 	}
 	item.Method = "CANCEL"
-	if offer := mailCalendarInvitationOffer(item, cached, sources, "account", "guest@example.com"); offer != nil {
+	if offer := mailCalendarInvitationOffer(context.Background(), item, cached, sources, "account", "guest@example.com"); offer != nil {
 		t.Fatalf("forwarded cancellation offered: %+v", offer)
 	}
 	item.From = "host@example.com"
-	if offer := mailCalendarInvitationOffer(item, cached, sources, "account", "guest@example.com"); offer == nil || offer.Label != "Remove from calendar" {
+	if offer := mailCalendarInvitationOffer(context.Background(), item, cached, sources, "account", "guest@example.com"); offer == nil || offer.Label != "Remove from calendar" {
 		t.Fatalf("organizer's cancellation: %+v", offer)
 	}
 }

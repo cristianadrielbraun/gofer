@@ -296,14 +296,14 @@
       var danger = root.querySelector("[data-app-confirm-accept-destructive]")
       var cancel = root.querySelector("[data-app-confirm-cancel]")
       var accept = options.destructive ? danger : plain
-      title.textContent = options.title || "Are you sure?"
+      title.textContent = options.title || goferT("js.common.are_you_sure")
       message.textContent = options.message || ""
       message.hidden = !options.message
       // Buttons set their own display, which outranks a hidden class.
       plain.style.display = options.destructive ? "none" : ""
       danger.style.display = options.destructive ? "" : "none"
-      accept.textContent = options.confirmLabel || (options.destructive ? "Delete" : "Continue")
-      cancel.textContent = options.cancelLabel || "Cancel"
+      accept.textContent = options.confirmLabel || (options.destructive ? goferT("js.mail.action.delete") : goferT("js.common.continue"))
+      cancel.textContent = options.cancelLabel || goferT("js.common.cancel")
       var accepted = false
       accept.onclick = function () {
         accepted = true
@@ -333,7 +333,7 @@
       message.textContent = options.message || ""
       message.hidden = !options.message
       root.querySelector("[data-app-prompt-label]").textContent = options.label || ""
-      root.querySelector("[data-app-prompt-accept]").textContent = options.confirmLabel || "OK"
+      root.querySelector("[data-app-prompt-accept]").textContent = options.confirmLabel || goferT("js.common.ok")
       input.value = options.value || ""
       input.placeholder = options.placeholder || ""
       var value = null
@@ -537,7 +537,7 @@
     window.goferConfirm({
       title: split > 0 ? question.slice(0, split + 1) : question,
       message: split > 0 ? question.slice(split + 2) : "",
-      confirmLabel: form.getAttribute("data-confirm-action") || "Continue",
+      confirmLabel: form.getAttribute("data-confirm-action") || goferT("js.common.continue"),
       destructive: form.hasAttribute("data-confirm-destructive"),
     }).then(function (confirmed) {
       if (!confirmed) return
@@ -638,13 +638,13 @@
     var body = root.querySelector("[data-folder-appearance-body]")
     var title = root.querySelector("[data-folder-appearance-title]")
     var description = root.querySelector("[data-folder-appearance-description]")
-    if (title) title.textContent = target.tag ? "Tag appearance" : (target.virtual ? "View appearance" : "Folder appearance")
-    if (description) description.textContent = target.tag ? "Customize this tag’s appearance in Gofer." : (target.virtual ? "Customize this view’s appearance in Gofer." : "Customize this folder’s appearance in Gofer.")
-    body.textContent = "Loading appearance…"
+    if (title) title.textContent = target.tag ? goferT("js.appearance.tag_title") : (target.virtual ? goferT("js.appearance.view_title") : goferT("js.appearance.folder_title"))
+    if (description) description.textContent = target.tag ? goferT("js.appearance.tag_help") : (target.virtual ? goferT("js.appearance.view_help") : goferT("js.appearance.folder_help"))
+    body.textContent = goferT("js.appearance.loading")
     window.tui.dialog.open("folder-appearance-dialog")
     fetch(appearanceURL(target.folderID, target.virtual, target.tag, target.unifiedTag), { headers: { Accept: "text/html" } })
       .then(function (response) {
-        if (!response.ok) throw new Error(response.status === 404 ? "This item is no longer available." : "Couldn't load appearance. Try again.")
+        if (!response.ok) throw new Error(response.status === 404 ? goferT("js.appearance.gone") : goferT("js.appearance.load_failed"))
         return response.text()
       })
       .then(function (html) { if (token === request) body.innerHTML = html })
@@ -686,14 +686,14 @@
     error.hidden = true
     saving = true
     save.disabled = true
-    save.textContent = "Saving…"
+    save.textContent = goferT("js.appearance.saving")
     var fields = new URLSearchParams({ color: color })
     if (chosenIcon) fields.set("icon", chosenIcon.value)
     if (style) fields.set("style", style)
     fetch(appearanceURL(form.dataset.folderId, form.hasAttribute("data-folder-appearance-virtual"), form.hasAttribute("data-tag-appearance"), form.hasAttribute("data-tag-appearance-unified")), {
       method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" }, body: fields.toString(),
     }).then(function (response) {
-      if (!response.ok) throw new Error(response.status === 404 ? "This item is no longer available." : "Couldn't save appearance. Try again.")
+      if (!response.ok) throw new Error(response.status === 404 ? goferT("js.appearance.gone") : goferT("js.appearance.save_failed"))
       return response.json()
     }).then(function (data) {
       document.querySelectorAll("[data-folder-appearance-icon]").forEach(function (icon) {
@@ -715,7 +715,7 @@
     }).finally(function () {
       saving = false
       save.disabled = false
-      save.textContent = "Save"
+      save.textContent = goferT("js.common.save")
     })
   })
 })()

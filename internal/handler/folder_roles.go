@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"errors"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"log"
 	"net/http"
 	"slices"
@@ -34,7 +35,7 @@ func (h *Handler) loadFolderRolesData(w http.ResponseWriter, r *http.Request) (m
 	accountID := r.PathValue("id")
 	if _, err := h.ownedAccount(ctx, accountID); err != nil {
 		log.Printf("folder roles account=%s: %v", accountID, err)
-		http.Error(w, "failed to load account", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_load_account"), http.StatusInternalServerError)
 		return models.FolderRolesData{}, false
 	}
 	data, err := folderRolesData(ctx, h.accountStore, h.db, h.userID(ctx), accountID)
@@ -44,7 +45,7 @@ func (h *Handler) loadFolderRolesData(w http.ResponseWriter, r *http.Request) (m
 	}
 	if err != nil {
 		log.Printf("folder roles account=%s: %v", accountID, err)
-		http.Error(w, "failed to load folders", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_load_folders"), http.StatusInternalServerError)
 		return models.FolderRolesData{}, false
 	}
 	return data, true
@@ -107,7 +108,7 @@ func (h *Handler) handleManageFolderRoles(w http.ResponseWriter, r *http.Request
 // change shows why, with the choices as they were.
 func (h *Handler) handleSaveFolderRoles(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "invalid form data", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_form_data"), http.StatusBadRequest)
 		return
 	}
 	data, ok := h.loadFolderRolesData(w, r)
@@ -125,13 +126,13 @@ func (h *Handler) handleSaveFolderRoles(w http.ResponseWriter, r *http.Request) 
 		for i := range data.Roles {
 			data.Roles[i].Chosen = choices[data.Roles[i].Role]
 		}
-		data.Error = "Give each folder one role at most."
+		data.Error = i18n.T(r.Context(), "server.msg.give_each_folder_one_role_at_most")
 		h.renderFolderRolesPanel(w, r, data)
 		return
 	}
 	if err != nil {
 		log.Printf("save folder roles account=%s: %v", data.Account.ID, err)
-		http.Error(w, "failed to save folder roles", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_save_folder_roles"), http.StatusInternalServerError)
 		return
 	}
 	if data, ok = h.loadFolderRolesData(w, r); !ok {
@@ -181,14 +182,14 @@ func (h *Handler) handleCreateFolderRoleFolder(w http.ResponseWriter, r *http.Re
 		return
 	}
 	if !slices.Contains(storage.ChoosableFolderRoles, role) {
-		http.Error(w, "unknown folder role", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.unknown_folder_role"), http.StatusBadRequest)
 		return
 	}
 	// The connection is made with no account store held, as with sending.
 	name, err := createRoleFolder(ctx, cfg, password, role)
 	if err != nil {
 		log.Printf("create %s folder account=%s: %v", role, accountID, err)
-		data.Error = "Couldn't create the folder: " + err.Error()
+		data.Error = serverText(r.Context(), "Couldn't create the folder: "+err.Error())
 	} else {
 		data.Created = name
 	}

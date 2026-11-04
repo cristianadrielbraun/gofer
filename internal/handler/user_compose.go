@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"io"
 	"log"
 	"net/http"
@@ -32,7 +33,7 @@ func (h *Handler) userComposeHandler(selectHandler func(*Handler) http.HandlerFu
 		// its handler; compose uses URL-encoded forms, uploads use their own route.
 		if r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/compose") {
 			if err := r.ParseForm(); err != nil {
-				writeComposeJSONError(w, 400, "invalid form data")
+				writeComposeJSONError(w, r, 400, "invalid form data")
 				return
 			}
 		}
@@ -40,7 +41,7 @@ func (h *Handler) userComposeHandler(selectHandler func(*Handler) http.HandlerFu
 			// A slow request body must not hold the owner's cache lease.
 			data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 64<<10))
 			if err != nil {
-				writeOutgoingSendError(w, 400, "invalid outgoing request", false)
+				writeOutgoingSendError(w, r, 400, "invalid outgoing request", false)
 				return
 			}
 			r.Body = io.NopCloser(bytes.NewReader(data))
@@ -63,7 +64,7 @@ func (h *Handler) userComposeHandler(selectHandler func(*Handler) http.HandlerFu
 		})
 		if err != nil {
 			log.Printf("user compose unavailable: %v", err)
-			http.Error(w, "mailbox unavailable", 503)
+			http.Error(w, i18n.T(r.Context(), "server.error.mailbox_unavailable"), 503)
 			return
 		}
 		for _, event := range state.events {
@@ -259,12 +260,12 @@ func (h *Handler) handleUserDiscardDraft(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if draftID == "" {
-		writeComposeJSONError(w, 400, "draft id is required")
+		writeComposeJSONError(w, r, 400, "draft id is required")
 		return
 	}
 	folder, err := h.db.DiscardIMAPDraft(r.Context(), accountID, draftID)
 	if err != nil {
-		writeComposeJSONError(w, 500, "failed to discard draft")
+		writeComposeJSONError(w, r, 500, i18n.T(r.Context(), "server.msg.failed_to_discard_draft"))
 		return
 	}
 	if folder != "" {

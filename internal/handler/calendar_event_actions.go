@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"net/http"
 	"strings"
 
@@ -63,7 +64,7 @@ func writeCalendarEventActions(w http.ResponseWriter, details views.CalendarEven
 func (h *Handler) handleCalendarEventActions(w http.ResponseWriter, r *http.Request) {
 	eventID := strings.TrimSpace(r.PathValue("id"))
 	if eventID == "" {
-		http.Error(w, "event id required", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.event_id_required"), http.StatusBadRequest)
 		return
 	}
 	details, err := h.sharedCalendarEventDetails(r.Context(), h.userID(r.Context()), eventID)
@@ -72,7 +73,7 @@ func (h *Handler) handleCalendarEventActions(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	if err != nil {
-		http.Error(w, "could not load calendar event", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.could_not_load_calendar_event"), http.StatusInternalServerError)
 		return
 	}
 	writeCalendarEventActions(w, details)
@@ -81,7 +82,7 @@ func (h *Handler) handleCalendarEventActions(w http.ResponseWriter, r *http.Requ
 func (h *Handler) handleUserCalendarEventActions(w http.ResponseWriter, r *http.Request) {
 	eventID := strings.TrimSpace(r.PathValue("id"))
 	if eventID == "" {
-		http.Error(w, "event id required", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.event_id_required"), http.StatusBadRequest)
 		return
 	}
 	var details views.CalendarEventDetails

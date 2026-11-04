@@ -47,7 +47,7 @@ func TestATrashedContactsPageIsReadOnly(t *testing.T) {
 	html := renderForTest(t, func(out *bytes.Buffer) error {
 		return ContactsDetail(&contact, nil, false, false, nil).Render(context.Background(), out)
 	})
-	for _, want := range []string{"It's deleted for good on Oct 31, 2026", `data-contact-restore="c1"`, `data-contact-delete-forever="c1"`} {
+	for _, want := range []string{"deleted for good on Oct 31, 2026", `data-contact-restore="c1"`, `data-contact-delete-forever="c1"`} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("trashed contact page missing %q", want)
 		}

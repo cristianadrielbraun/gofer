@@ -1,6 +1,7 @@
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const vm = require('node:vm')
+const loadI18n = require('./i18n-test-helper.cjs')
 const path = require('node:path')
 const source = fs.readFileSync(path.join(__dirname, '../assets/js/app.js'), 'utf8')
 function fixture() {
@@ -26,6 +27,7 @@ function fixture() {
   _calendarSourceIsVisible() {return visible}, showGoferToast(toast) {toasts.push(toast)},
   setTimeout(fn,delay) {assert.equal(delay,250);timers.set(++timerID,fn);return timerID}, clearTimeout(id) {timers.delete(id)},
  })
+ loadI18n(context)
  vm.runInContext(source.slice(source.indexOf('var _calendarEventRequest = null'), source.indexOf('var _calendarCreateDialogRequest = null')), context)
  function fire(type,detail) {for (const fn of handlers[type] || []) fn({detail})}
  function begin(title = 'Planning <b>literal title</b>') {

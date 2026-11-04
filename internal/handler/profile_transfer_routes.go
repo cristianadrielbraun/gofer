@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"errors"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"io"
 	"log"
 	"net/http"
@@ -34,12 +35,12 @@ func (h *Handler) handleExportProfile(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		log.Printf("profile export: %v", err)
-		http.Error(w, "could not export profile", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.could_not_export_profile"), http.StatusInternalServerError)
 		return
 	}
 	data, err := json.MarshalIndent(file, "", "  ")
 	if err != nil {
-		http.Error(w, "could not export profile", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.could_not_export_profile"), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -110,7 +111,7 @@ func (h *Handler) handlePreviewProfileImport(w http.ResponseWriter, r *http.Requ
 		HasPreferences: len(file.Preferences.UI) > 0 || file.Preferences.SyncIntervalMinutes != "" || file.Preferences.IdleFolders != "" || len(file.Preferences.AllowedSenders) > 0,
 	}
 	if exported, err := time.Parse(time.RFC3339, file.ExportedAt); err == nil {
-		preview.ExportedAt = exported.Format("January 2, 2006")
+		preview.ExportedAt = i18n.Dates(r.Context()).LongMonthDate(exported)
 	}
 	for _, signature := range file.Signatures {
 		if strings.TrimSpace(signature.HTMLBody) != "" || strings.TrimSpace(signature.TextBody) != "" {

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"io"
 	"log"
 	"net/http"
@@ -86,7 +87,7 @@ func (h *Handler) userMessageMutationHandler(selectHandler func(*Handler) http.H
 		// upload must not occupy the owner's store or a shared cache slot.
 		payload, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 64<<10))
 		if err != nil {
-			http.Error(w, "invalid request body", http.StatusBadRequest)
+			http.Error(w, i18n.T(r.Context(), "server.error.invalid_request_body"), http.StatusBadRequest)
 			return
 		}
 		r.Body = io.NopCloser(bytes.NewReader(payload))
@@ -103,7 +104,7 @@ func (h *Handler) userMessageMutationHandler(selectHandler func(*Handler) http.H
 		})
 		if err != nil {
 			log.Printf("user mail changes unavailable: %v", err)
-			http.Error(w, "mailbox unavailable", http.StatusServiceUnavailable)
+			http.Error(w, i18n.T(r.Context(), "server.error.mailbox_unavailable"), http.StatusServiceUnavailable)
 			return
 		}
 		if !h.deliverUserMutations(ctx, state) {
@@ -218,11 +219,11 @@ func (h *Handler) queueUserSpamTargets(w http.ResponseWriter, r *http.Request, t
 		h.publishSpamMutation(target.Infos, destination)
 	}
 	if messages == 0 && noSpam > 0 && noSpam == len(targets) {
-		http.Error(w, noSpamFolderMessage, http.StatusBadRequest)
+		http.Error(w, serverText(r.Context(), noSpamFolderMessage), http.StatusBadRequest)
 		return
 	}
 	if messages == 0 && failed > 0 {
-		http.Error(w, "spam action could not be saved", http.StatusBadGateway)
+		http.Error(w, i18n.T(r.Context(), "server.error.spam_action_could_not_be_saved"), http.StatusBadGateway)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")

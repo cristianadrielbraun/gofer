@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"net/http"
 	"net/url"
 	"strings"
@@ -115,7 +116,7 @@ func (h *Handler) handleCalendarResponseForm(w http.ResponseWriter, r *http.Requ
 	defer cancel()
 	event, err := h.db.GetCalendarEvent(ctx, h.userID(ctx), r.PathValue("id"))
 	if err != nil {
-		http.Error(w, "This event is unavailable. Refresh the calendar.", http.StatusNotFound)
+		http.Error(w, i18n.T(r.Context(), "server.error.this_event_is_unavailable_refresh_the_calendar"), http.StatusNotFound)
 		return
 	}
 	query, err := url.ParseQuery(r.URL.RawQuery)
@@ -129,12 +130,12 @@ func (h *Handler) handleCalendarResponseForm(w http.ResponseWriter, r *http.Requ
 		expectedFields++
 	}
 	if err != nil || len(query) != expectedFields || len(query["scope"]) != 1 || (mailID != "" && len(query["mail_id"]) != 1) || (hasEditing && (mailID == "" || len(editing) != 1 || editing[0] != "1")) || !calendarResponseScopeValid(event, query.Get("scope")) {
-		http.Error(w, "Choose This event or Entire series before responding.", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.choose_this_event_or_entire_series_before"), http.StatusBadRequest)
 		return
 	}
 	source, err := h.calendarResponseAccess(ctx, event)
 	if err != nil {
-		http.Error(w, "Calendar response access could not be verified. Check this account's Calendar write access.", http.StatusForbidden)
+		http.Error(w, i18n.T(r.Context(), "server.error.calendar_response_access_could_not_be_verified"), http.StatusForbidden)
 		return
 	}
 	if mailID != "" {
@@ -152,7 +153,7 @@ func (h *Handler) handleCalendarResponseForm(w http.ResponseWriter, r *http.Requ
 			}
 		}
 		if !verified {
-			http.Error(w, "This email does not match this account's invitation.", http.StatusForbidden)
+			http.Error(w, i18n.T(r.Context(), "server.error.this_email_does_not_match_this_account"), http.StatusForbidden)
 			return
 		}
 	}
@@ -163,7 +164,7 @@ func (h *Handler) handleCalendarResponseForm(w http.ResponseWriter, r *http.Requ
 			return
 		}
 		if !errors.Is(err, sql.ErrNoRows) {
-			http.Error(w, "Could not check reply delivery.", http.StatusServiceUnavailable)
+			http.Error(w, i18n.T(r.Context(), "server.error.could_not_check_reply_delivery"), http.StatusServiceUnavailable)
 			return
 		}
 	}
@@ -178,11 +179,11 @@ func (h *Handler) handleCalendarResponseForm(w http.ResponseWriter, r *http.Requ
 		if errors.As(err, &configuration) {
 			message = configuration.Error()
 		}
-		http.Error(w, message, http.StatusConflict)
+		http.Error(w, serverText(r.Context(), message), http.StatusConflict)
 		return
 	}
 	if (target.OccurrenceVersion != "" && target.OccurrenceVersion != event.ETag) || (query.Get("scope") != "series" && target.Event.ETag != event.ETag) {
-		http.Error(w, "This invitation changed. Refresh the calendar and reopen it before responding.", http.StatusConflict)
+		http.Error(w, i18n.T(r.Context(), "server.error.this_invitation_changed_refresh_the_calendar_and"), http.StatusConflict)
 		return
 	}
 	data := calendarResponseData(event)
@@ -198,75 +199,75 @@ func (h *Handler) handleCalendarResponseForm(w http.ResponseWriter, r *http.Requ
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if mailID != "" {
 		if err := views.MailCalendarResponseForm(data).Render(ctx, w); err != nil {
-			http.Error(w, "Could not open invitation response controls.", http.StatusInternalServerError)
+			http.Error(w, i18n.T(r.Context(), "server.error.could_not_open_invitation_response_controls"), http.StatusInternalServerError)
 		}
 		return
 	}
 	if err := views.CalendarResponseForm(data).Render(ctx, w); err != nil {
-		http.Error(w, "Could not open invitation response controls.", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.could_not_open_invitation_response_controls"), http.StatusInternalServerError)
 	}
 }
 
 func (h *Handler) handleCalendarResponse(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 8192)
 	if r.URL.RawQuery != "" || r.ParseForm() != nil || len(r.PostForm) != 3 || len(r.PostForm["scope"]) != 1 || len(r.PostForm["response"]) != 1 || len(r.PostForm["version"]) != 1 {
-		calendarUpdateFailure(w, http.StatusBadRequest, "Invalid response form. Reopen the invitation.", false, false)
+		calendarUpdateFailure(w, r, http.StatusBadRequest, "Invalid response form. Reopen the invitation.", false, false)
 		return
 	}
 	scope, response, version := r.PostForm.Get("scope"), r.PostForm.Get("response"), r.PostForm.Get("version")
 	if (response != "accepted" && response != "tentative" && response != "declined") || strings.TrimSpace(version) == "" || len(version) > 2048 {
-		calendarUpdateFailure(w, http.StatusBadRequest, "Choose Accept, Maybe or Decline and reopen the invitation if its version is missing.", false, false)
+		calendarUpdateFailure(w, r, http.StatusBadRequest, "Choose Accept, Maybe or Decline and reopen the invitation if its version is missing.", false, false)
 		return
 	}
 	userID := h.userID(r.Context())
 	event, err := h.db.GetCalendarEvent(r.Context(), userID, r.PathValue("id"))
 	if err != nil {
-		calendarUpdateFailure(w, http.StatusNotFound, "This invitation is no longer available. Refresh the calendar.", false, true)
+		calendarUpdateFailure(w, r, http.StatusNotFound, "This invitation is no longer available. Refresh the calendar.", false, true)
 		return
 	}
 	if !calendarResponseScopeValid(event, scope) {
-		calendarUpdateFailure(w, http.StatusBadRequest, "Choose This event or Entire series before responding.", false, false)
+		calendarUpdateFailure(w, r, http.StatusBadRequest, "Choose This event or Entire series before responding.", false, false)
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), calendarSourceTimeout)
 	defer cancel()
 	unlock, err := h.lockCalendarCreate(ctx, storage.CalendarSource{ID: event.SourceID, UserID: userID})
 	if err != nil {
-		calendarUpdateFailure(w, http.StatusServiceUnavailable, "Calendar is still refreshing. Try again.", false, false)
+		calendarUpdateFailure(w, r, http.StatusServiceUnavailable, "Calendar is still refreshing. Try again.", false, false)
 		return
 	}
 	defer unlock()
 	event, err = h.db.GetCalendarEvent(ctx, userID, event.ID)
 	if err != nil || !calendarResponseScopeValid(event, scope) {
-		calendarUpdateFailure(w, http.StatusConflict, "This invitation changed. Refresh and reopen it.", false, true)
+		calendarUpdateFailure(w, r, http.StatusConflict, "This invitation changed. Refresh and reopen it.", false, true)
 		return
 	}
 	source, err := h.calendarResponseAccess(ctx, event)
 	if err != nil {
-		calendarUpdateFailure(w, http.StatusForbidden, "Responding is unavailable. Check this account's Calendar write access.", false, false)
+		calendarUpdateFailure(w, r, http.StatusForbidden, "Responding is unavailable. Check this account's Calendar write access.", false, false)
 		return
 	}
 	if storage.CalendarSourceMailServer(source.Provider) {
 		_, pendingErr := h.db.UnresolvedCalendarReply(ctx, event.UserID, source.ID, calendarReplyResource(event))
 		if !errors.Is(pendingErr, sql.ErrNoRows) {
-			calendarUpdateFailure(w, http.StatusConflict, "An email reply is already being processed. Reopen this invitation to check delivery before responding again.", true, true)
+			calendarUpdateFailure(w, r, http.StatusConflict, "An email reply is already being processed. Reopen this invitation to check delivery before responding again.", true, true)
 			return
 		}
 	}
 	target, err := h.readCalendarResponse(ctx, source, event, scope)
 	var configuration calendarReplyConfigurationError
 	if errors.As(err, &configuration) {
-		calendarUpdateFailure(w, http.StatusBadRequest, configuration.Error(), false, false)
+		calendarUpdateFailure(w, r, http.StatusBadRequest, configuration.Error(), false, false)
 		return
 	}
 	if err != nil || target.Event.ETag != version || target.Event.ResponseStatus == "" || (scope != "series" && event.ETag != version) || (target.OccurrenceVersion != "" && target.OccurrenceVersion != event.ETag) {
-		calendarUpdateFailure(w, http.StatusConflict, "This invitation changed or could not be verified. Reopen it before responding; nothing was sent.", false, true)
+		calendarUpdateFailure(w, r, http.StatusConflict, "This invitation changed or could not be verified. Reopen it before responding; nothing was sent.", false, true)
 		return
 	}
 	result := calendarResponseResult{Event: target.Event}
 	if target.Event.ResponseStatus != response {
 		if err := h.db.BeginCalendarResponse(ctx, userID, source.ID, target.Event.RemoteID, version, response); err != nil {
-			calendarUpdateFailure(w, http.StatusConflict, "A response may already have been sent for this version. Check it in your calendar provider, then refresh Gofer; it will not resend automatically.", true, true)
+			calendarUpdateFailure(w, r, http.StatusConflict, "A response may already have been sent for this version. Check it in your calendar provider, then refresh Gofer; it will not resend automatically.", true, true)
 			return
 		}
 		if h.calendarSendResponse != nil {
@@ -305,12 +306,12 @@ func (h *Handler) handleCalendarResponse(w http.ResponseWriter, r *http.Request)
 			if errors.Is(err, errCalendarUpdateConflict) {
 				message = "This invitation changed. Reopen it before responding; nothing was sent."
 			}
-			calendarUpdateFailure(w, http.StatusBadGateway, message, uncertain, errors.Is(err, errCalendarUpdateConflict))
+			calendarUpdateFailure(w, r, http.StatusBadGateway, message, uncertain, errors.Is(err, errCalendarUpdateConflict))
 			return
 		}
 	}
 	if !result.Pending && (result.Event.RemoteID != target.Event.RemoteID || result.Event.SeriesRemoteID != target.Event.SeriesRemoteID || result.Event.ResponseStatus != response || result.Event.ETag == "") {
-		calendarUpdateFailure(w, http.StatusBadGateway, "The provider's response could not be confirmed. Refresh and reopen the invitation before trying again.", true, false)
+		calendarUpdateFailure(w, r, http.StatusBadGateway, "The provider's response could not be confirmed. Refresh and reopen the invitation before trying again.", true, false)
 		return
 	}
 	refreshPending := result.Pending

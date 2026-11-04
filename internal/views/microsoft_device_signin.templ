@@ -8,6 +8,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/components/copybutton"
 	"github.com/cristianadrielbraun/gofer/components/icon"
 	"github.com/cristianadrielbraun/gofer/internal/assetver"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 )
 
 type MicrosoftDeviceSignInData struct {
@@ -22,11 +23,12 @@ type MicrosoftDeviceSignInData struct {
 
 templ MicrosoftDeviceSignInPage(data MicrosoftDeviceSignInData) {
 	<!DOCTYPE html>
-	<html lang="en" class="dark" data-theme="classic">
+	<html lang={ pageLang(ctx) } class="dark" data-theme="classic">
 		<head>
 			<meta charset="UTF-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-			<title>Gofer - Connect Outlook</title>
+			@I18nScripts()
+			<title>{ i18n.T(ctx, "signin.title.device") }</title>
 			@AppIcon()
 			<link rel="stylesheet" href={ assetver.URL("/assets/css/output.css") }/>
 			@copybutton.Script()
@@ -46,35 +48,35 @@ templ MicrosoftDeviceSignInPage(data MicrosoftDeviceSignInData) {
 					<div class="flex items-start gap-3">
 						@AccountProviderIcon("outlook", "size-6 shrink-0 mt-1")
 						<div>
-							<h1 class="text-2xl font-bold">Connect Outlook</h1>
-							<p class="mt-2 text-sm text-muted-foreground">Sign in at Microsoft with the code below. This page continues on its own when you finish.</p>
+							<h1 class="text-2xl font-bold">{ i18n.T(ctx, "signin.device.title") }</h1>
+							<p class="mt-2 text-sm text-muted-foreground">{ i18n.T(ctx, "signin.device.description") }</p>
 						</div>
 					</div>
 					<ol class="space-y-5">
 						<li class="space-y-2">
-							<p class="text-sm font-semibold">1. Copy your code</p>
+							<p class="text-sm font-semibold">{ i18n.T(ctx, "signin.device.step_copy") }</p>
 							<div class="relative flex items-center justify-center rounded-lg border border-border bg-accent/50 px-12 py-4">
 								<span id="microsoft-device-code" class="font-mono text-2xl font-semibold tracking-[0.35em] pl-[0.35em] select-all">{ data.UserCode }</span>
 								<div class="absolute right-2 top-1/2 -translate-y-1/2">
-									@copybutton.CopyButton(copybutton.Props{TargetID: "microsoft-device-code", Attrs: templ.Attributes{"aria-label": "Copy code"}})
+									@copybutton.CopyButton(copybutton.Props{TargetID: "microsoft-device-code", Attrs: templ.Attributes{"aria-label": i18n.T(ctx, "signin.device.copy")}})
 								</div>
 							</div>
 						</li>
 						<li class="space-y-2">
-							<p class="text-sm font-semibold">2. Paste it at Microsoft</p>
+							<p class="text-sm font-semibold">{ i18n.T(ctx, "signin.device.step_paste") }</p>
 							@button.Button(button.Props{Href: data.VerificationURI, Target: "_blank", FullWidth: true, Attributes: templ.Attributes{"rel": "noopener noreferrer", "data-device-signin-open": true}}) {
-								Copy code and open Microsoft
+								{ i18n.T(ctx, "signin.device.open") }
 								@icon.ExternalLink(icon.Props{Class: "size-4"})
 							}
-							<p class="text-xs text-muted-foreground break-words">Or go to { data.VerificationURI } on any device.</p>
+							<p class="text-xs text-muted-foreground break-words">{ i18n.T(ctx, "signin.device.or_go", "url", data.VerificationURI) }</p>
 						</li>
 					</ol>
 					<p id="microsoft-device-status" role="status" aria-live="polite" class="flex items-center gap-2 text-sm text-muted-foreground">
 						@icon.LoaderCircle(icon.Props{Class: "size-4 animate-spin"})
-						<span data-status-text>Waiting for you to finish signing in…</span>
+						<span data-status-text>{ i18n.T(ctx, "signin.device.waiting") }</span>
 					</p>
 					@button.Button(button.Props{Href: "/settings/accounts", Variant: button.VariantOutline, FullWidth: true}) {
-						Cancel
+						{ i18n.T(ctx, "common.cancel") }
 					}
 				</div>
 			</main>

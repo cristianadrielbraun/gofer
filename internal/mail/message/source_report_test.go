@@ -64,3 +64,23 @@ func TestAnalyzeSourceUsesReceivedSPF(t *testing.T) {
 		t.Fatalf("checks = %+v", report.Checks)
 	}
 }
+
+// Pages in other languages write each warning from its key and values.
+func TestAnalyzeSourceWarningsCarryTheirMessage(t *testing.T) {
+	raw := "Return-Path: <x@bulk.example.org>\r\n" +
+		"Authentication-Results: mx.example.net; spf=softfail smtp.mailfrom=bulk.example.org\r\n" +
+		"From: \"support@bank.example\" <alerts@example.biz>\r\n" +
+		"Reply-To: <collect@example.info>\r\n" +
+		"X-Spam-Flag: YES\r\n\r\nBody\r\n"
+	report := AnalyzeSource([]byte(raw))
+	for _, warning := range report.Warnings {
+		if warning.Key == "" || len(warning.Args)%2 != 0 {
+			t.Errorf("warning %q has key %q and args %v", warning.Text, warning.Key, warning.Args)
+		}
+	}
+	for _, fact := range report.Facts {
+		if fact.Label == "Envelope sender" && fact.Key != "mail.source.fact.envelope_sender" {
+			t.Errorf("envelope sender fact key = %q", fact.Key)
+		}
+	}
+}

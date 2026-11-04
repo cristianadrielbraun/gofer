@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"log"
 	"net/http"
 	"strconv"
@@ -125,7 +126,18 @@ func (s *Service) handleNewMail(ctx context.Context, event mail.Event) {
 		}
 		return
 	}
-	title, message, icon := newMailNotificationAppearance(event.Payload, unreadCount, settings)
+	// The push is written in the owner's language, with the folder's
+	// translated name while it keeps the one sync gave it.
+	userCtx := i18n.ForUser(ctx, userID)
+	payload := event.Payload
+	if name := stringPayload(payload, "folder_name"); name != "" {
+		payload = make(map[string]any, len(event.Payload))
+		for key, value := range event.Payload {
+			payload[key] = value
+		}
+		payload["folder_name"] = i18n.FolderName(userCtx, event.FolderRole, name)
+	}
+	title, message, icon := newMailNotificationAppearance(userCtx, payload, unreadCount, settings)
 	if settings["desktop_notifications"] != "true" {
 		return
 	}
@@ -267,29 +279,29 @@ func roleSuppressesNotification(role string) bool {
 	}
 }
 
-func newMailNotificationText(payload map[string]any, unreadCount int) (string, string) {
+func newMailNotificationText(ctx context.Context, payload map[string]any, unreadCount int) (string, string) {
 	sender := strings.TrimSpace(stringPayload(payload, "from_name"))
 	if sender == "" {
 		sender = strings.TrimSpace(stringPayload(payload, "from_email"))
 	}
 	if sender == "" {
-		sender = "New mail"
+		sender = i18n.T(ctx, "js.notify.new_mail")
 	}
 
-	subject := strings.TrimSpace(stringPayload(payload, "subject"))
+	subject := i18n.Subject(ctx, strings.TrimSpace(stringPayload(payload, "subject")))
 	if subject == "" {
-		subject = "(no subject)"
+		subject = i18n.T(ctx, "js.mail.no_subject")
 	}
 
 	folder := strings.TrimSpace(stringPayload(payload, "folder_name"))
 	if folder == "" {
-		folder = "Inbox"
+		folder = i18n.T(ctx, "js.mail.inbox")
 	}
 
 	if unreadCount == 1 {
 		return sender, subject
 	}
-	return strconv.Itoa(unreadCount) + " new messages", sender + ": " + subject + " - " + folder
+	return i18n.N(ctx, "js.notify.new_messages", unreadCount), i18n.T(ctx, "js.notify.body_many", "sender", sender, "subject", subject, "folder", folder)
 }
 
 func newMailNotificationIcon(payload map[string]any) string {
@@ -374,7 +386,8 @@ func (s *Service) SendTestPush(ctx context.Context, userID, endpoint string) err
 	if err != nil {
 		return err
 	}
-	title, body, icon := newMailNotificationAppearance(notificationAppearanceExample(), 1, settings)
+	userCtx := i18n.ForUser(ctx, userID)
+	title, body, icon := newMailNotificationAppearance(userCtx, notificationAppearanceExample(userCtx), 1, settings)
 	payload, err := json.Marshal(map[string]any{
 		"title": title,
 		"body":  body,

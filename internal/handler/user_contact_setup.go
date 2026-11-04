@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"log"
 	"net/http"
 	"strings"
@@ -13,7 +14,7 @@ import (
 func (h *Handler) handleUserConfirmContactSyncSetup(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 128<<10)
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Invalid conflict choices", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_conflict_choices"), http.StatusBadRequest)
 		return
 	}
 	selected := contactSetupPreferredFields(r)

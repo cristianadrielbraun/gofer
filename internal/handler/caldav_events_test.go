@@ -264,7 +264,7 @@ func TestCalDAVCalendarRefreshPreservesCacheAndAccountScope(t *testing.T) {
 				return rec
 			}
 			rec := refresh()
-			if rec.Code != http.StatusOK || rec.Header().Get("X-Gofer-Status") == "error" || strings.Contains(rec.Body.String(), "data-calendar-auto-sync") || !strings.Contains(rec.Body.String(), "Synced 3 event(s)") {
+			if rec.Code != http.StatusOK || rec.Header().Get("X-Gofer-Status") == "error" || strings.Contains(rec.Body.String(), "data-calendar-auto-sync") || !strings.Contains(rec.Body.String(), "Synced 3 events") {
 				t.Fatalf("refresh status=%d header=%s body=%s", rec.Code, rec.Header().Get("X-Gofer-Status"), rec.Body.String())
 			}
 			start := time.Date(2026, time.September, 1, 0, 0, 0, 0, time.UTC)

@@ -2,6 +2,7 @@ package views
 
 import (
 	"bytes"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -30,7 +31,7 @@ func TestLoginPageUsesAccessibleLocalPasswordForm(t *testing.T) {
 	if strings.Contains(html, `person"@example.com`) || !strings.Contains(html, `person&#34;@example.com`) {
 		t.Fatalf("login identifier was not safely escaped: %q", html)
 	}
-	if strings.Contains(html, "https://") || strings.Contains(html, "/auth/google") || strings.Contains(html, "/auth/microsoft") {
+	if loadsRemoteResource(html) || strings.Contains(html, "/auth/google") || strings.Contains(html, "/auth/microsoft") {
 		t.Fatalf("local-only login page contains external/provider content: %q", html)
 	}
 }
@@ -116,7 +117,7 @@ func TestLoginMFAContinuationPageUsesOnlyLocalResources(t *testing.T) {
 			t.Fatalf("MFA continuation page missing %q: %q", required, html)
 		}
 	}
-	if strings.Contains(html, "https://") {
+	if loadsRemoteResource(html) {
 		t.Fatalf("MFA continuation page loads a remote resource: %q", html)
 	}
 }
@@ -134,7 +135,7 @@ func TestRecoveryLoginAndRepairPagesAreAccessibleLocalAndExplicit(t *testing.T) 
 			t.Fatalf("recovery-code page missing %q: %q", required, recovery.String())
 		}
 	}
-	if strings.Contains(recovery.String(), "https://") {
+	if loadsRemoteResource(recovery.String()) {
 		t.Fatalf("recovery-code page loads a remote resource: %q", recovery.String())
 	}
 
@@ -155,7 +156,7 @@ func TestRecoveryLoginAndRepairPagesAreAccessibleLocalAndExplicit(t *testing.T) 
 			t.Fatalf("recovery-repair MFA page missing %q: %q", required, mfa.String())
 		}
 	}
-	if strings.Contains(mfa.String(), "https://") {
+	if loadsRemoteResource(mfa.String()) {
 		t.Fatalf("recovery-repair MFA page loads a remote resource: %q", mfa.String())
 	}
 
@@ -175,7 +176,7 @@ func TestRecoveryLoginAndRepairPagesAreAccessibleLocalAndExplicit(t *testing.T) 
 			t.Fatalf("recovery-repair codes page missing %q: %q", required, codes.String())
 		}
 	}
-	if strings.Contains(codes.String(), "https://") {
+	if loadsRemoteResource(codes.String()) {
 		t.Fatalf("recovery-repair codes page loads a remote resource: %q", codes.String())
 	}
 }
@@ -198,7 +199,7 @@ func TestRequiredMFAEnrollmentPagesRemainSessionlessAndLocal(t *testing.T) {
 			t.Fatalf("required MFA enrollment page missing %q: %q", required, enrollment.String())
 		}
 	}
-	if strings.Contains(enrollment.String(), "https://") {
+	if loadsRemoteResource(enrollment.String()) {
 		t.Fatalf("required MFA enrollment page loads a remote resource: %q", enrollment.String())
 	}
 
@@ -217,7 +218,7 @@ func TestRequiredMFAEnrollmentPagesRemainSessionlessAndLocal(t *testing.T) {
 			t.Fatalf("required MFA recovery page missing %q: %q", required, codes.String())
 		}
 	}
-	if strings.Contains(codes.String(), "https://") {
+	if loadsRemoteResource(codes.String()) {
 		t.Fatalf("required MFA recovery page loads a remote resource: %q", codes.String())
 	}
 }
@@ -239,5 +240,30 @@ func TestLoginMFAConfirmationEscapesProviderAndKeepsVerificationRequired(t *test
 		if !strings.Contains(html, "Enter your authenticator app code to finish signing in.") || strings.Contains(html, "Your password was accepted") {
 			t.Fatal("confirmation misrepresents completed authentication")
 		}
+	}
+}
+
+// remoteResource matches HTML that makes the browser fetch from another
+// site: a script, image, frame or stylesheet, or a CSS url(). Plain links,
+// such as the version's link to GitHub, fetch nothing until followed.
+var remoteResource = regexp.MustCompile(`(?i)\bsrc(set)?="https?://|<link\b[^>]*\bhref="https?://|url\(['"]?https?://`)
+
+func loadsRemoteResource(html string) bool {
+	return remoteResource.MatchString(html)
+}
+
+func TestLoadsRemoteResourceCatchesFetchesButNotLinks(t *testing.T) {
+	for _, html := range []string{
+		`<script src="https://cdn.example/x.js"></script>`,
+		`<img srcset="https://cdn.example/a.png 2x">`,
+		`<link rel="stylesheet" href="https://fonts.example/css">`,
+		`<div style="background:url('https://cdn.example/bg.png')"></div>`,
+	} {
+		if !loadsRemoteResource(html) {
+			t.Fatalf("missed a remote fetch: %s", html)
+		}
+	}
+	if loadsRemoteResource(`<a href="https://github.com/cristianadrielbraun/gofer/releases/tag/v1.0.0">Gofer v1.0.0</a>`) {
+		t.Fatal("a plain link counted as a remote fetch")
 	}
 }

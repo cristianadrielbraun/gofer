@@ -23,30 +23,30 @@ type userCalendarMutationFailure struct {
 
 func (e userCalendarMutationFailure) Error() string { return e.message }
 
-func userCalendarMutationError(w http.ResponseWriter, err error, uncertain bool) {
+func userCalendarMutationError(w http.ResponseWriter, r *http.Request, err error, uncertain bool) {
 	if errors.Is(err, errCalendarSeriesDatesReset) {
-		calendarSeriesResetFailure(w)
+		calendarSeriesResetFailure(w, r)
 		return
 	}
 	var failure userCalendarMutationFailure
 	if errors.As(err, &failure) {
-		calendarUpdateFailure(w, failure.status, failure.message, failure.uncertain, failure.conflict)
+		calendarUpdateFailure(w, r, failure.status, failure.message, failure.uncertain, failure.conflict)
 		return
 	}
 	var form userCalendarFormFailure
 	if errors.As(err, &form) {
-		calendarUpdateFailure(w, form.status, form.message, false, false)
+		calendarUpdateFailure(w, r, form.status, form.message, false, false)
 		return
 	}
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
-		calendarUpdateFailure(w, 404, "This event is no longer available. Refresh the calendar.", false, true)
+		calendarUpdateFailure(w, r, 404, "This event is no longer available. Refresh the calendar.", false, true)
 	case errors.Is(err, storage.ErrCalendarEventChanged), errors.Is(err, storage.ErrCalendarSourceChanged), errors.Is(err, config.ErrAccountServicesChanged), errors.Is(err, mailauth.ErrMailboxAuthorizationChanged):
-		calendarUpdateFailure(w, 409, "Calendar access or event details changed. Refresh the calendar and reopen the event.", false, true)
+		calendarUpdateFailure(w, r, 409, "Calendar access or event details changed. Refresh the calendar and reopen the event.", false, true)
 	case errors.Is(err, storage.ErrUserStoreOwner), errors.Is(err, storage.ErrAccountRoute):
-		calendarUpdateFailure(w, 403, "This account is no longer available.", false, false)
+		calendarUpdateFailure(w, r, 403, "This account is no longer available.", false, false)
 	default:
-		calendarUpdateFailure(w, 503, "Calendar is unavailable. Refresh it and check the event before trying again.", uncertain, false)
+		calendarUpdateFailure(w, r, 503, "Calendar is unavailable. Refresh it and check the event before trying again.", uncertain, false)
 	}
 }
 
@@ -59,7 +59,7 @@ func (h *Handler) handleUserDeleteCalendarEvent(w http.ResponseWriter, r *http.R
 	seriesIDs := values["series_id"]
 	validFields := (len(values) == 1 && !scoped) || (len(values) == 2 && instance) || (len(values) == 3 && series && len(seriesIDs) == 1 && seriesIDs[0] != "" && len(seriesIDs[0]) <= 4096)
 	if err != nil || !validFields || len(versions) != 1 || strings.TrimSpace(versions[0]) == "" || len(versions[0]) > 2048 {
-		calendarUpdateFailure(w, 400, "Event version is missing or invalid. Reopen the event.", false, false)
+		calendarUpdateFailure(w, r, 400, "Event version is missing or invalid. Reopen the event.", false, false)
 		return
 	}
 	owner, version := h.userID(r.Context()), versions[0]
@@ -161,7 +161,7 @@ func (h *Handler) handleUserDeleteCalendarEvent(w http.ResponseWriter, r *http.R
 		return nil
 	})
 	if err != nil {
-		userCalendarMutationError(w, err, attempt.uncertain)
+		userCalendarMutationError(w, r, err, attempt.uncertain)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")

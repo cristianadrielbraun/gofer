@@ -1,6 +1,7 @@
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const vm = require('node:vm')
+const loadI18n = require('./i18n-test-helper.cjs')
 const source = fs.readFileSync(require('node:path').join(__dirname, '../assets/js/app.js'), 'utf8')
 function helper(name) {
  const start = source.indexOf('function ' + name + '('), end = source.indexOf('\n}', start)
@@ -15,6 +16,7 @@ const form={isConnected:true,dataset:{},querySelector(selector){return {'[name="
 const requests=[],timers=[],copied=[]
 let ids=0,error=''
 const context=vm.createContext({URLSearchParams,AbortController,window:{crypto:{randomUUID(){return 'draft-'+(++ids)}}},navigator:{clipboard:{writeText(value){copied.push(value);return Promise.resolve()}}},setTimeout(fn,ms){const timer={fn,ms};timers.push(timer);return timer},clearTimeout(timer){const i=timers.indexOf(timer);if(i!==-1)timers.splice(i,1)},fetch(url,options){return new Promise((resolve,reject)=>requests.push({url,options,resolve,reject}))},updateCalendarCreateForm(){context.updateCalendarMeetPreview(form,false)},adjustCalendarCreateAllDayRange(){},setCalendarCreateError(_form,message){error=message}})
+loadI18n(context)
 vm.runInContext(['updateCalendarMeetPreview','prepareCalendarMeetPreview','retryCalendarMeetPreview','copyCalendarMeetLink','validateCalendarCreatePickers'].map(helper).join('\n'),context)
 function respond(request,data,ok=true){request.resolve({ok,json(){return Promise.resolve(data)}})}
 async function settle(){await new Promise(resolve=>setImmediate(resolve))}

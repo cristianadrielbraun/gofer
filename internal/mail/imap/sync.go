@@ -13,6 +13,7 @@ import (
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapclient"
 
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"github.com/cristianadrielbraun/gofer/internal/mail/keywords"
 	"github.com/cristianadrielbraun/gofer/internal/mail/message"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
@@ -59,7 +60,7 @@ func finalizeSyncMessage(syncMsg *storage.SyncMessage, folderID string, dates me
 		syncMsg.MessageID = fmt.Sprintf("<%s-%d@sync.gofer>", folderID, syncMsg.RemoteUID)
 	}
 	if syncMsg.Subject == "" {
-		syncMsg.Subject = "(no subject)"
+		syncMsg.Subject = i18n.NoSubject
 	}
 	syncMsg.Snippet = truncate(syncMsg.Subject, 200)
 }

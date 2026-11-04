@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/calendar"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
@@ -24,6 +25,50 @@ type calendarCredentials struct {
 }
 
 var errCalendarAccountNotConfigured = errors.New("no calendars are configured for this account")
+
+// calendarSourceFailure is why one calendar didn't refresh, named after it.
+type calendarSourceFailure struct {
+	name string
+	err  error
+}
+
+func (e calendarSourceFailure) Error() string { return e.name + ": " + e.err.Error() }
+func (e calendarSourceFailure) Unwrap() error { return e.err }
+
+// calendarSourceFailures is the first calendar that didn't refresh and how
+// many others didn't either.
+type calendarSourceFailures struct {
+	first error
+	more  int
+}
+
+func (e calendarSourceFailures) Error() string {
+	return fmt.Sprintf("%v (and %d more errors)", e.first, e.more)
+}
+func (e calendarSourceFailures) Unwrap() error { return e.first }
+
+// calendarRefreshFailureText says in ctx's language why calendars didn't
+// refresh: each calendar's name with the reason, which stays as it came when
+// a calendar server wrote it.
+func calendarRefreshFailureText(ctx context.Context, err error) string {
+	var detail func(err error) string
+	detail = func(err error) string {
+		switch failure := err.(type) {
+		case calendarSourceFailures:
+			return i18n.N(ctx, "server.calendar.more_errors", failure.more, "error", detail(failure.first), "count", i18n.Number(ctx, failure.more))
+		case calendarSourceFailure:
+			return failure.name + ": " + serverText(ctx, failure.err.Error())
+		case interface{ Unwrap() []error }:
+			parts := make([]string, 0, len(failure.Unwrap()))
+			for _, part := range failure.Unwrap() {
+				parts = append(parts, detail(part))
+			}
+			return strings.Join(parts, "\n")
+		}
+		return serverText(ctx, err.Error())
+	}
+	return i18n.T(ctx, "server.prefix.calendar_refresh_failed", "detail", detail(err))
+}
 
 func (h *Handler) syncCalendarWindow(ctx context.Context, userID string, start, end time.Time) (int, error) {
 	return h.syncCalendarProviderWindow(ctx, userID, start, end, "")
@@ -53,14 +98,14 @@ func (h *Handler) syncCalendarScopedWindow(ctx context.Context, userID string, s
 		count, err := h.syncCalendarSource(ctx, source, start, end, false, credentials)
 		total += count
 		if err != nil {
-			failures = append(failures, fmt.Errorf("%s: %w", source.Name, err))
+			failures = append(failures, calendarSourceFailure{source.Name, err})
 		}
 	}
 	if !matched {
 		return 0, errCalendarAccountNotConfigured
 	}
 	if len(failures) > 1 {
-		return total, fmt.Errorf("%w (and %d more errors)", failures[0], len(failures)-1)
+		return total, calendarSourceFailures{failures[0], len(failures) - 1}
 	}
 	if len(failures) == 1 {
 		return total, failures[0]

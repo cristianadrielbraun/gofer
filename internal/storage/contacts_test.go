@@ -1135,7 +1135,7 @@ func TestFormatContactTimeReadsEveryStoredForm(t *testing.T) {
 		"2014-12-22T17:50:37Z",
 		"2014-12-22 17:50:37",
 	} {
-		if got := formatContactTime(raw, time.UTC); got != "Dec 22, 2014" {
+		if got := formatContactTime(context.Background(), raw, time.UTC); got != "Dec 22, 2014" {
 			t.Errorf("formatContactTime(%q) = %q, want Dec 22, 2014", raw, got)
 		}
 	}

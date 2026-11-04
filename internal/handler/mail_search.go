@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"net/http"
 	"strconv"
 	"strings"
@@ -176,7 +177,7 @@ func (h *Handler) handleMailSearchItems(w http.ResponseWriter, r *http.Request) 
 func (h *Handler) handleMailSearchIDs(w http.ResponseWriter, r *http.Request) {
 	scope, err := parseMailSearchScope(r)
 	if err != nil {
-		http.Error(w, "invalid mail search scope", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_mail_search_scope"), http.StatusBadRequest)
 		return
 	}
 	result := mailItemIDsResponse{IDs: []mailItemID{}}
@@ -203,7 +204,7 @@ func (h *Handler) handleMailSearchIDs(w http.ResponseWriter, r *http.Request) {
 		if errors.Is(err, storage.ErrMailSearchScope) || errors.Is(err, storage.ErrAccountRoute) || errors.Is(err, sql.ErrNoRows) {
 			http.NotFound(w, r)
 		} else {
-			http.Error(w, "mailbox unavailable", http.StatusServiceUnavailable)
+			http.Error(w, i18n.T(r.Context(), "server.error.mailbox_unavailable"), http.StatusServiceUnavailable)
 		}
 		return
 	}

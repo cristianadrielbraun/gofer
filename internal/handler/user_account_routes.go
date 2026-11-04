@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"log"
 	"net/http"
 	"strings"
@@ -129,22 +130,22 @@ func (h *Handler) handleUserEditAccount(w http.ResponseWriter, r *http.Request) 
 
 func (h *Handler) handleUserCreateAccount(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "invalid form", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_form"), http.StatusBadRequest)
 		return
 	}
 	req := accountRequestFromForm(r)
 	if req.Provider == providers.ProviderJMAP {
 		if err := h.prepareJMAPAccount(r, &req); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			http.Error(w, serverText(r.Context(), err.Error()), http.StatusBadRequest)
 			return
 		}
 	} else if req.EmailAddress == "" || req.IMAPHost == "" || req.SMTPHost == "" || req.Username == "" || req.Password == "" {
-		http.Error(w, "all required fields must be filled in", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.all_required_fields_must_be_filled_in"), http.StatusBadRequest)
 		return
 	}
 	// OAuth mailboxes must come through the session-bound authorization callback.
 	if (req.Provider != "" && req.Provider != "imap" && req.Provider != providers.ProviderJMAP) || (req.AuthMethod != "" && req.AuthMethod != "plain") {
-		http.Error(w, "this account connection method is not available yet", http.StatusNotImplemented)
+		http.Error(w, i18n.T(r.Context(), "server.error.this_account_connection_method_is_not_available"), http.StatusNotImplemented)
 		return
 	}
 	account, err := h.userAccounts.CreateAccount(r.Context(), h.userID(r.Context()), &req)
@@ -161,7 +162,7 @@ func (h *Handler) handleUserCreateAccount(w http.ResponseWriter, r *http.Request
 		return h.userAccountHooks.Created(r.Context(), account.ID)
 	}); err != nil {
 		log.Printf("routed account %s created but worker start failed: %v", account.ID, err)
-		http.Error(w, "account saved; synchronization could not be started", http.StatusServiceUnavailable)
+		http.Error(w, i18n.T(r.Context(), "server.error.account_saved_synchronization_could_not_be_started"), http.StatusServiceUnavailable)
 		return
 	}
 	data, err := h.userEditData(r.Context(), h.userID(r.Context()), account.ID)
@@ -181,7 +182,7 @@ func (h *Handler) handleUserUpdateAccount(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "invalid form", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_form"), http.StatusBadRequest)
 		return
 	}
 	req := accountRequestFromForm(r)
@@ -193,7 +194,7 @@ func (h *Handler) handleUserUpdateAccount(w http.ResponseWriter, r *http.Request
 	}
 	if existing.AuthMethod == "oauth2" && (existing.Provider == "gmail" || existing.Provider == "outlook") {
 		if req.Provider != existing.Provider || req.AuthMethod != "oauth2" || (req.EmailAddress != "" && !strings.EqualFold(req.EmailAddress, existing.EmailAddress)) {
-			http.Error(w, "authorize this mailbox again to change its connection", http.StatusBadRequest)
+			http.Error(w, i18n.T(r.Context(), "server.error.authorize_this_mailbox_again_to_change_its"), http.StatusBadRequest)
 			return
 		}
 		req.EmailAddress, req.ProviderAccountID = existing.EmailAddress, existing.ProviderAccountID
@@ -207,16 +208,16 @@ func (h *Handler) handleUserUpdateAccount(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if (req.Provider != "imap" && req.Provider != providers.ProviderJMAP) || req.Provider != existing.Provider || req.AuthMethod != "plain" || existing.AuthMethod != "plain" {
-		http.Error(w, "this account connection method is not available yet", http.StatusNotImplemented)
+		http.Error(w, i18n.T(r.Context(), "server.error.this_account_connection_method_is_not_available"), http.StatusNotImplemented)
 		return
 	}
 	if req.Provider == providers.ProviderJMAP {
 		if err := h.resolveJMAPAccountChanges(r, id, &req); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			http.Error(w, serverText(r.Context(), err.Error()), http.StatusBadRequest)
 			return
 		}
 	} else if req.EmailAddress == "" || req.IMAPHost == "" || req.SMTPHost == "" || req.Username == "" {
-		http.Error(w, "all required fields must be filled in", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.all_required_fields_must_be_filled_in"), http.StatusBadRequest)
 		return
 	}
 	if err := h.userAccounts.UpdateAccount(r.Context(), owner, id, &req); err != nil {
@@ -231,7 +232,7 @@ func (h *Handler) handleUserUpdateAccount(w http.ResponseWriter, r *http.Request
 		return h.userAccountHooks.Updated(r.Context(), id)
 	}); err != nil {
 		log.Printf("routed account %s updated but worker restart failed: %v", id, err)
-		http.Error(w, "account saved; synchronization could not be restarted", http.StatusServiceUnavailable)
+		http.Error(w, i18n.T(r.Context(), "server.error.account_saved_synchronization_could_not_be_restarted"), http.StatusServiceUnavailable)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -240,12 +241,12 @@ func (h *Handler) handleUserUpdateAccount(w http.ResponseWriter, r *http.Request
 
 func (h *Handler) handleUserAccountColor(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "invalid form", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_form"), http.StatusBadRequest)
 		return
 	}
 	color, ok := normalizeAccountColor(r.FormValue("color"))
 	if !ok {
-		http.Error(w, "choose a valid hex color", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.choose_a_valid_hex_color"), http.StatusBadRequest)
 		return
 	}
 	owner, id := h.userID(r.Context()), r.PathValue("id")
@@ -303,7 +304,7 @@ func (h *Handler) handleUserDeleteAccount(w http.ResponseWriter, r *http.Request
 			return
 		}
 		if provider == providers.ProviderLocal {
-			http.Error(w, localFoldersNoDelete, http.StatusConflict)
+			http.Error(w, serverText(r.Context(), localFoldersNoDelete), http.StatusConflict)
 			return
 		}
 	}
@@ -326,7 +327,7 @@ func (h *Handler) handleUserDeleteAccount(w http.ResponseWriter, r *http.Request
 	if len(h.userDeletions) >= 4 {
 		h.accountDeleteMu.Unlock()
 		w.Header().Set("Retry-After", "1")
-		http.Error(w, "account cleanup busy; retry deletion", http.StatusServiceUnavailable)
+		http.Error(w, i18n.T(r.Context(), "server.error.account_cleanup_busy_retry_deletion"), http.StatusServiceUnavailable)
 		return
 	}
 	job := &userAccountDeletionJob{ready: make(chan struct{})}
@@ -370,22 +371,22 @@ func userAccountError(w http.ResponseWriter, r *http.Request, err error) {
 		return
 	}
 	if errors.Is(err, config.ErrMailboxExists) {
-		http.Error(w, "This mailbox is already connected to Gofer.", http.StatusConflict)
+		http.Error(w, i18n.T(r.Context(), "server.error.this_mailbox_is_already_connected_to_gofer"), http.StatusConflict)
 		return
 	}
 	if storage.IsMailAllowlistError(err) {
-		http.Error(w, err.Error(), http.StatusForbidden)
+		http.Error(w, serverText(r.Context(), err.Error()), http.StatusForbidden)
 		return
 	}
 	if isPermanentOAuthError(err) {
 		// Retrying cannot help until the user grants access again.
 		log.Printf("routed account needs reconnect: %v", err)
 		w.Header().Set(accountReconnectHeader, "true")
-		http.Error(w, "Reconnect account: "+oauthReconnectReason(err), http.StatusConflict)
+		http.Error(w, serverText(r.Context(), "Reconnect account: "+oauthReconnectReason(err)), http.StatusConflict)
 		return
 	}
 	log.Printf("routed account operation failed: %v", err)
-	http.Error(w, "account operation unavailable", http.StatusServiceUnavailable)
+	http.Error(w, i18n.T(r.Context(), "server.error.account_operation_unavailable"), http.StatusServiceUnavailable)
 }
 
 // accountReconnectHeader marks responses whose account must be reconnected.

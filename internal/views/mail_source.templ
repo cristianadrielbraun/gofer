@@ -1,7 +1,10 @@
 package views
 
 import (
+	"context"
 	"fmt"
+
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 
 	"github.com/cristianadrielbraun/gofer/components/button"
 	"github.com/cristianadrielbraun/gofer/components/dialog"
@@ -19,27 +22,27 @@ templ MailSourceDialog(emailID string, report message.SourceReport, source strin
 			<div class="flex h-[85vh] min-h-0 flex-col gap-4">
 				@dialog.Header() {
 					@dialog.Title() {
-						Message source
+						{ i18n.T(ctx, "mail.source.title") }
 					}
 					@dialog.Description() {
-						What the headers say about where this message came from. Gofer reads the results the receiving server recorded; it doesn't check the signatures itself.
+						{ i18n.T(ctx, "mail.source.description") }
 					}
 				}
 				@tabs.Tabs(tabs.Props{Class: "min-h-0 flex-1"}) {
 					@tabs.List(tabs.ListProps{Class: "self-start"}) {
 						@tabs.Trigger(tabs.TriggerProps{Value: "overview", IsActive: true}) {
-							Overview
+							{ i18n.T(ctx, "mail.source.overview") }
 						}
 						@tabs.Trigger(tabs.TriggerProps{Value: "headers"}) {
-							{ fmt.Sprintf("Headers (%d)", len(report.Headers)) }
+							{ i18n.T(ctx, "mail.source.headers", "count", len(report.Headers)) }
 						}
 					}
 					@tabs.Content(tabs.ContentProps{Value: "overview", IsActive: true, Class: "flex min-h-0 flex-col gap-4 overflow-y-auto pr-1"}) {
 						@mailSourceSummary(report)
 						<section class="flex min-h-[24rem] flex-1 flex-col gap-2">
-							<h3 class="text-sm font-semibold text-foreground">Source</h3>
+							<h3 class="text-sm font-semibold text-foreground">{ i18n.T(ctx, "mail.source.source") }</h3>
 							if truncated {
-								<p class="text-xs text-muted-foreground">This message is long, so only its beginning is shown. View raw opens all of it.</p>
+								<p class="text-xs text-muted-foreground">{ i18n.T(ctx, "mail.source.truncated") }</p>
 							}
 							<pre class="mail-source-text min-h-0 flex-1 overflow-auto whitespace-pre-wrap break-all rounded-md border border-border p-3 font-mono text-xs text-foreground">{ source }</pre>
 						</section>
@@ -62,15 +65,15 @@ templ MailSourceDialog(emailID string, report message.SourceReport, source strin
 				@dialog.Footer() {
 					@button.Button(button.Props{Variant: button.VariantOutline, Class: "h-8 px-3 text-xs", Href: "/api/messages/" + emailID + "/source?download=1"}) {
 						@icon.Download(icon.Props{Class: "size-3.5"})
-						Download .eml
+						{ i18n.T(ctx, "mail.source.download") }
 					}
 					@button.Button(button.Props{Variant: button.VariantOutline, Class: "h-8 px-3 text-xs", Href: "/api/messages/" + emailID + "/source", Target: "_blank"}) {
 						@icon.ExternalLink(icon.Props{Class: "size-3.5"})
-						View raw
+						{ i18n.T(ctx, "mail.source.raw") }
 					}
 					@dialog.Close() {
 						@button.Button(button.Props{Class: "h-8 px-3 text-xs"}) {
-							Close
+							{ i18n.T(ctx, "common.close") }
 						}
 					}
 				}
@@ -85,7 +88,7 @@ templ mailSourceSummary(report message.SourceReport) {
 	<div class="flex shrink-0 flex-col gap-4">
 		if len(report.Warnings) > 0 {
 			<section class="flex flex-col gap-2">
-				<h3 class="text-sm font-semibold text-foreground">Warnings</h3>
+				<h3 class="text-sm font-semibold text-foreground">{ i18n.T(ctx, "mail.source.warnings") }</h3>
 				for _, warning := range report.Warnings {
 					<div class={ "flex items-start gap-2 rounded-md border px-3 py-2 text-sm", templ.KV("border-destructive/40 bg-destructive/10 text-destructive", warning.Serious), templ.KV("border-border bg-muted/50 text-foreground", !warning.Serious) }>
 						if warning.Serious {
@@ -93,21 +96,21 @@ templ mailSourceSummary(report message.SourceReport) {
 						} else {
 							@icon.Info(icon.Props{Class: "mt-0.5 size-4 shrink-0 text-muted-foreground"})
 						}
-						<span>{ warning.Text }</span>
+						<span>{ mailSourceWarningText(ctx, warning) }</span>
 					</div>
 				}
 			</section>
 		} else {
 			<div class="flex items-center gap-2 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-800 dark:text-emerald-200">
 				@icon.ShieldCheck(icon.Props{Class: "size-4 shrink-0"})
-				Nothing in the headers looks inconsistent.
+				{ i18n.T(ctx, "mail.source.consistent") }
 			</div>
 		}
 		<div class="grid gap-4 lg:grid-cols-2">
 			<div class="flex flex-col gap-4">
 				<section class="flex flex-col gap-2">
 					if len(report.Checks) == 0 {
-						<p class="text-sm text-muted-foreground">No results were recorded.</p>
+						<p class="text-sm text-muted-foreground">{ i18n.T(ctx, "mail.source.no_results") }</p>
 					} else {
 						<div class="flex flex-col gap-2">
 							for _, check := range report.Checks {
@@ -126,18 +129,18 @@ templ mailSourceSummary(report message.SourceReport) {
 				</section>
 			</div>
 			<section class="flex flex-col gap-2">
-				<h3 class="text-sm font-semibold text-foreground">Details</h3>
+				<h3 class="text-sm font-semibold text-foreground">{ i18n.T(ctx, "mail.source.details") }</h3>
 				<div class="overflow-hidden rounded-md border border-border">
 					<table class="w-full text-left text-xs">
 						<tbody>
 							for _, fact := range report.Facts {
 								<tr class="border-b border-border align-top">
-									<th class="mail-source-label whitespace-nowrap px-3 py-1.5 font-medium text-muted-foreground">{ fact.Label }</th>
+									<th class="mail-source-label whitespace-nowrap px-3 py-1.5 font-medium text-muted-foreground">{ mailSourceFactLabel(ctx, fact) }</th>
 									<td class="w-full break-all px-3 py-1.5 text-foreground">{ fact.Value }</td>
 								</tr>
 							}
 							<tr class="align-top">
-								<th class="mail-source-label whitespace-nowrap px-3 py-1.5 font-medium text-muted-foreground">Servers passed</th>
+								<th class="mail-source-label whitespace-nowrap px-3 py-1.5 font-medium text-muted-foreground">{ i18n.T(ctx, "mail.source.hops") }</th>
 								<td class="w-full px-3 py-1.5 text-foreground">{ fmt.Sprint(report.Hops) }</td>
 							</tr>
 						</tbody>
@@ -146,4 +149,21 @@ templ mailSourceSummary(report message.SourceReport) {
 			</section>
 		</div>
 	</div>
+}
+
+// mailSourceWarningText writes a warning in the page's language.
+func mailSourceWarningText(ctx context.Context, warning message.SourceWarning) string {
+	if warning.Key == "" {
+		return warning.Text
+	}
+	return i18n.T(ctx, warning.Key, warning.Args...)
+}
+
+// mailSourceFactLabel names a fact in the page's language; header names such
+// as From stay as they are written in mail.
+func mailSourceFactLabel(ctx context.Context, fact message.SourceFact) string {
+	if fact.Key == "" {
+		return fact.Label
+	}
+	return i18n.T(ctx, fact.Key)
 }

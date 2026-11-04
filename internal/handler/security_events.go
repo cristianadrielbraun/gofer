@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -10,38 +11,39 @@ import (
 	"strings"
 
 	"github.com/cristianadrielbraun/gofer/internal/auth"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"github.com/cristianadrielbraun/gofer/internal/views"
 )
 
 const securityActivityPath = "/settings/security/activity"
 
-func securityEventViewData(events []auth.SecurityEventSummary) []views.SecurityEventData {
+func securityEventViewData(ctx context.Context, events []auth.SecurityEventSummary) []views.SecurityEventData {
 	result := make([]views.SecurityEventData, 0, len(events))
 	for _, event := range events {
 		view := views.SecurityEventData{
-			Title:      securityEventTitle(event.EventType, event.Success),
-			Detail:     securityEventDetail(event.Reason, event.Success),
-			OccurredAt: formatSecuritySessionTime(event.OccurredAt),
-			Status:     "Failed",
+			Title:      securityEventTitle(ctx, event.EventType, event.Success),
+			Detail:     securityEventDetail(ctx, event.Reason, event.Success),
+			OccurredAt: formatSecuritySessionTime(ctx, event.OccurredAt),
+			Status:     i18n.T(ctx, "security.event.status.failed"),
 			Successful: event.Success,
 		}
 		if event.Success {
-			view.Status = "Completed"
+			view.Status = i18n.T(ctx, "security.event.status.completed")
 		}
 		if strings.TrimSpace(event.UserAgent) != "" {
-			view.Client = securitySessionClientLabel(event.UserAgent)
+			view.Client = securitySessionClientLabel(ctx, event.UserAgent)
 		}
 		result = append(result, view)
 	}
 	return result
 }
 
-func securityActivityPageViewData(page *auth.SecurityEventPage) views.SecurityActivityPageData {
+func securityActivityPageViewData(ctx context.Context, page *auth.SecurityEventPage) views.SecurityActivityPageData {
 	if page == nil {
 		return views.SecurityActivityPageData{}
 	}
 	result := views.SecurityActivityPageData{
-		Events:       securityEventViewData(page.Events),
+		Events:       securityEventViewData(ctx, page.Events),
 		TotalEvents:  page.TotalEvents,
 		Page:         page.Page,
 		TotalPages:   page.TotalPages,
@@ -86,7 +88,7 @@ func (h *Handler) handleSecurityActivityPage(w http.ResponseWriter, r *http.Requ
 	}
 	requestedPage, err := parseSecurityActivityPage(r)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, serverText(r.Context(), err.Error()), http.StatusBadRequest)
 		return
 	}
 	page, err := h.auth.ListSecurityEventPage(r.Context(), auth.GetSessionToken(r), requestedPage)
@@ -103,129 +105,129 @@ func (h *Handler) handleSecurityActivityPage(w http.ResponseWriter, r *http.Requ
 	}
 	if err != nil {
 		log.Printf("load security activity page: %v", err)
-		http.Error(w, "failed to load security activity", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_load_security_activity"), http.StatusInternalServerError)
 		return
 	}
 	var output bytes.Buffer
-	if err := views.SecurityActivityDialogPage(securityActivityPageViewData(page)).Render(r.Context(), &output); err != nil {
+	if err := views.SecurityActivityDialogPage(securityActivityPageViewData(r.Context(), page)).Render(r.Context(), &output); err != nil {
 		log.Printf("render security activity page: %v", err)
-		http.Error(w, "failed to render security activity", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_render_security_activity"), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = output.WriteTo(w)
 }
 
-func securityEventTitle(eventType auth.AuthEventType, success bool) string {
+func securityEventTitle(ctx context.Context, eventType auth.AuthEventType, success bool) string {
 	switch eventType {
 	case auth.AuthEventPrimaryVerified:
-		return "Sign-in verified; authenticator app code pending"
+		return i18n.T(ctx, "security.event.title.primary_verified")
 	case auth.AuthEventLoginSucceeded:
 		if success {
-			return "Signed in"
+			return i18n.T(ctx, "security.event.title.signed_in")
 		}
-		return "Sign-in attempt failed"
+		return i18n.T(ctx, "security.event.title.sign_in_failed")
 	case auth.AuthEventLoginFailed:
-		return "Sign-in attempt failed"
+		return i18n.T(ctx, "security.event.title.sign_in_failed")
 	case auth.AuthEventSessionRevoked:
 		if success {
-			return "Session signed out"
+			return i18n.T(ctx, "security.event.title.signed_out")
 		}
-		return "Session sign-out failed"
+		return i18n.T(ctx, "security.event.title.sign_out_failed")
 	case auth.AuthEventUserDisabled:
-		return "Account disabled"
+		return i18n.T(ctx, "security.event.title.account_disabled")
 	case auth.AuthEventUserEnabled:
-		return "Account enabled"
+		return i18n.T(ctx, "security.event.title.account_enabled")
 	case auth.AuthEventUserDeletionStarted:
-		return "User deletion started"
+		return i18n.T(ctx, "security.event.title.deletion_started")
 	case auth.AuthEventUserDeleted:
-		return "User deleted"
+		return i18n.T(ctx, "security.event.title.user_deleted")
 	case auth.AuthEventPasswordChangeRequired:
-		return "Password change required"
+		return i18n.T(ctx, "security.event.title.password_change_required")
 	case auth.AuthEventCredentialChanged:
 		if success {
-			return "Security credential changed"
+			return i18n.T(ctx, "security.event.title.credential_changed")
 		}
-		return "Credential change failed"
+		return i18n.T(ctx, "security.event.title.credential_change_failed")
 	case auth.AuthEventRecoveryUsed:
-		return "Recovery code used"
+		return i18n.T(ctx, "security.event.title.recovery_code_used")
 	case auth.AuthEventEnrollmentIssued:
-		return "Enrollment invitation issued"
+		return i18n.T(ctx, "security.event.title.invitation_issued")
 	case auth.AuthEventEnrollmentRevoked:
-		return "Enrollment invitation revoked"
+		return i18n.T(ctx, "security.event.title.invitation_revoked")
 	case auth.AuthEventEnrollmentCompleted:
 		if success {
-			return "Account enrollment completed"
+			return i18n.T(ctx, "security.event.title.enrollment_completed")
 		}
-		return "Account enrollment failed"
+		return i18n.T(ctx, "security.event.title.enrollment_failed")
 	case auth.AuthEventCredentialResetRequested:
-		return "Password reset requested"
+		return i18n.T(ctx, "security.event.title.reset_requested")
 	case auth.AuthEventCredentialResetCompleted:
-		return "Credential reset completed"
+		return i18n.T(ctx, "security.event.title.reset_completed")
 	case auth.AuthEventLocalRecoveryStarted:
-		return "Local account recovery started"
+		return i18n.T(ctx, "security.event.title.local_recovery")
 	case auth.AuthEventSetupTokenIssued:
-		return "Setup access issued"
+		return i18n.T(ctx, "security.event.title.setup_issued")
 	case auth.AuthEventSetupTokenRotated:
-		return "Setup access rotated"
+		return i18n.T(ctx, "security.event.title.setup_rotated")
 	case auth.AuthEventSetupTokenVerified:
-		return "Setup access verified"
+		return i18n.T(ctx, "security.event.title.setup_verified")
 	case auth.AuthEventSetupTokenVerificationFailed:
-		return "Setup verification failed"
+		return i18n.T(ctx, "security.event.title.setup_failed")
 	case auth.AuthEventSetupCompleted:
-		return "Initial security setup completed"
+		return i18n.T(ctx, "security.event.title.setup_completed")
 	case auth.AuthEventStepUpSucceeded:
-		return "Security verification completed"
+		return i18n.T(ctx, "security.event.title.step_up_succeeded")
 	case auth.AuthEventStepUpFailed:
-		return "Security verification failed"
+		return i18n.T(ctx, "security.event.title.step_up_failed")
 	case auth.AuthEventSecurityPolicyChanged:
-		return "Security policy changed"
+		return i18n.T(ctx, "security.event.title.policy_changed")
 	case auth.AuthEventIdentityLinked:
 		if success {
-			return "Sign-in identity connected"
+			return i18n.T(ctx, "security.event.title.identity_linked")
 		}
-		return "Identity connection failed"
+		return i18n.T(ctx, "security.event.title.identity_link_failed")
 	case auth.AuthEventIdentityUnlinked:
 		if success {
-			return "Sign-in identity disconnected"
+			return i18n.T(ctx, "security.event.title.identity_unlinked")
 		}
-		return "Identity disconnection failed"
+		return i18n.T(ctx, "security.event.title.identity_unlink_failed")
 	default:
 		if success {
-			return "Security activity completed"
+			return i18n.T(ctx, "security.event.title.activity_completed")
 		}
-		return "Security activity failed"
+		return i18n.T(ctx, "security.event.title.activity_failed")
 	}
 }
 
-func securityEventDetail(reason auth.AuthEventReason, success bool) string {
+func securityEventDetail(ctx context.Context, reason auth.AuthEventReason, success bool) string {
 	switch reason {
 	case auth.AuthEventReasonInvalidCredentials:
-		return "The submitted verification was not accepted."
+		return i18n.T(ctx, "security.event.detail.invalid_credentials")
 	case auth.AuthEventReasonUserInactive:
-		return "The account was not active."
+		return i18n.T(ctx, "security.event.detail.user_inactive")
 	case auth.AuthEventReasonChallengeExpired:
-		return "The security request expired."
+		return i18n.T(ctx, "security.event.detail.challenge_expired")
 	case auth.AuthEventReasonChallengeConsumed:
-		return "A one-time security request was completed."
+		return i18n.T(ctx, "security.event.detail.challenge_consumed")
 	case auth.AuthEventReasonChallengeVerified:
-		return "A verified security request was completed."
+		return i18n.T(ctx, "security.event.detail.challenge_verified")
 	case auth.AuthEventReasonThrottled:
-		return "Too many attempts were made."
+		return i18n.T(ctx, "security.event.detail.throttled")
 	case auth.AuthEventReasonPolicyRequired:
-		return "Additional security requirements applied."
+		return i18n.T(ctx, "security.event.detail.policy_required")
 	case auth.AuthEventReasonAdministratorAction:
-		return "Performed by an administrator."
+		return i18n.T(ctx, "security.event.detail.administrator_action")
 	case auth.AuthEventReasonUserAction:
-		return "Requested from this account."
+		return i18n.T(ctx, "security.event.detail.user_action")
 	case auth.AuthEventReasonLocalOperator:
-		return "Performed through local recovery tools."
+		return i18n.T(ctx, "security.event.detail.local_operator")
 	case auth.AuthEventReasonSystemInitialization:
-		return "Performed during initial setup."
+		return i18n.T(ctx, "security.event.detail.system_initialization")
 	default:
 		if success {
-			return "Completed successfully."
+			return i18n.T(ctx, "security.event.detail.completed")
 		}
-		return "The attempt did not complete."
+		return i18n.T(ctx, "security.event.detail.not_completed")
 	}
 }

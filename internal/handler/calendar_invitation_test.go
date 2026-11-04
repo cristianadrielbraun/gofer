@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -10,7 +11,7 @@ import (
 func TestCalendarViewEventPreservesResponse(t *testing.T) {
 	for _, status := range []string{"", "organizer", "needsAction", "tentative", "declined", "accepted"} {
 		event := storage.CalendarEvent{ResponseStatus: status, SourceColor: "#4285f4", SourceHidden: true}
-		view := calendarViewEvent(event)
+		view := calendarViewEvent(context.Background(), event)
 		if view.ResponseStatus != status || view.SourceColor != event.SourceColor || !view.SourceHidden {
 			t.Fatalf("response %q lost response or source presentation", status)
 		}
@@ -34,7 +35,7 @@ func TestCalendarViewCalDAVResponseMatchesOnlyLinkedMailbox(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			event := storage.CalendarEvent{SourceProvider: "caldav", AccountEmail: "me@example.com", OrganizerEmail: test.organizer, AttendeesJSON: test.attendees, ResponseStatus: test.cached}
-			if got := calendarViewEvent(event).ResponseStatus; got != test.want {
+			if got := calendarViewEvent(context.Background(), event).ResponseStatus; got != test.want {
 				t.Fatalf("response = %q, want %q", got, test.want)
 			}
 			if event.ResponseStatus != test.cached {
@@ -53,7 +54,7 @@ func TestCalendarCachedResponseIncludesAccountContext(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if event.AccountEmail != "one@example.com" || event.SourceProvider != "caldav" || calendarViewEvent(event).ResponseStatus != "tentative" {
+	if event.AccountEmail != "one@example.com" || event.SourceProvider != "caldav" || calendarViewEvent(context.Background(), event).ResponseStatus != "tentative" {
 		t.Fatal("cached CalDAV event lost the mailbox context needed for response presentation")
 	}
 	events, err := h.db.ListCalendarEvents(t.Context(), "one", event.StartAt.Add(-time.Hour), event.EndAt.Add(time.Hour))
@@ -61,7 +62,7 @@ func TestCalendarCachedResponseIncludesAccountContext(t *testing.T) {
 		t.Fatalf("list cached events: count=%d, error=%v", len(events), err)
 	}
 	for _, cached := range events {
-		if cached.ID == event.ID && calendarViewEvent(cached).ResponseStatus != "tentative" {
+		if cached.ID == event.ID && calendarViewEvent(context.Background(), cached).ResponseStatus != "tentative" {
 			t.Fatal("calendar list lost the cached response")
 		}
 	}

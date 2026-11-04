@@ -10,6 +10,7 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"io"
 	"log"
 	"mime"
@@ -469,14 +470,14 @@ func calendarTransferError(w http.ResponseWriter, r *http.Request, err error, fa
 	var problem calendarTransferProblem
 	switch {
 	case errors.As(err, &problem):
-		http.Error(w, problem.Error(), http.StatusBadRequest)
+		http.Error(w, serverText(r.Context(), problem.Error()), http.StatusBadRequest)
 	case errors.Is(err, sql.ErrNoRows), errors.Is(err, storage.ErrCalendarSourceChanged):
-		http.Error(w, "This calendar is no longer synced. Refresh the page.", http.StatusNotFound)
+		http.Error(w, i18n.T(r.Context(), "server.error.this_calendar_is_no_longer_synced_refresh"), http.StatusNotFound)
 	case errors.Is(err, storage.ErrAccountRoute) || errors.Is(err, storage.ErrUserStoreOwner):
 		userAccountError(w, r, err)
 	default:
 		log.Printf("calendar %s: %v", r.PathValue("id"), err)
-		http.Error(w, failed, http.StatusBadGateway)
+		http.Error(w, serverText(r.Context(), failed), http.StatusBadGateway)
 	}
 }
 
@@ -485,12 +486,12 @@ func calendarTransferError(w http.ResponseWriter, r *http.Request, err error, fa
 func readCalendarImport(w http.ResponseWriter, r *http.Request) ([]*ical.Calendar, bool) {
 	data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, calendarImportMaxSize))
 	if err != nil {
-		http.Error(w, "The file is larger than 10 MB. Split it into smaller files.", http.StatusRequestEntityTooLarge)
+		http.Error(w, i18n.T(r.Context(), "server.error.the_file_is_larger_than_10_mb"), http.StatusRequestEntityTooLarge)
 		return nil, false
 	}
 	resources, err := calendarImportResources(data)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, serverText(r.Context(), err.Error()), http.StatusBadRequest)
 		return nil, false
 	}
 	return resources, true
@@ -516,16 +517,16 @@ func (h *Handler) handleCalendarImport(w http.ResponseWriter, r *http.Request) {
 	sourceID, accountID := strings.TrimSpace(query.Get("source")), strings.TrimSpace(query.Get("account"))
 	name := strings.TrimSpace(query.Get("name"))
 	if (sourceID == "") == (accountID == "") {
-		http.Error(w, "Choose a calendar to import into.", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.choose_a_calendar_to_import_into"), http.StatusBadRequest)
 		return
 	}
 	if accountID != "" {
 		if name == "" {
-			http.Error(w, "Enter a name for the new calendar.", http.StatusBadRequest)
+			http.Error(w, i18n.T(r.Context(), "server.error.enter_a_name_for_the_new_calendar"), http.StatusBadRequest)
 			return
 		}
 		if err := checkCollectionName(name); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			http.Error(w, serverText(r.Context(), err.Error()), http.StatusBadRequest)
 			return
 		}
 		if h.userStorage == nil && !h.requireOwnedAccount(w, r, accountID) {
@@ -606,7 +607,7 @@ func (h *Handler) importIntoCalendarSource(w http.ResponseWriter, r *http.Reques
 		if errors.As(err, &problem) {
 			failed = problem.Error()
 		}
-		line(map[string]string{"error": failed})
+		line(map[string]string{"error": serverText(ctx, failed)})
 		return
 	}
 	if !streaming {
@@ -614,6 +615,7 @@ func (h *Handler) importIntoCalendarSource(w http.ResponseWriter, r *http.Reques
 		_ = encoder.Encode(result)
 		return
 	}
+	result.Reason = serverText(ctx, result.Reason)
 	line(result)
 }
 

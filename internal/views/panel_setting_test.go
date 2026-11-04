@@ -1,6 +1,9 @@
 package views
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
 func TestPanelSettingKeepsSectionsApart(t *testing.T) {
 	settings := map[string]string{
@@ -48,7 +51,7 @@ func TestPaneLayoutListIsMailOnly(t *testing.T) {
 			t.Errorf("PaneLayout(%s) = %q, want %q", section, got, want)
 		}
 	}
-	if got := mailPaneLayoutSettingLabel("list"); got != "No reading pane" {
+	if got := paneLayoutLabel(context.Background(), "list"); got != "No reading pane" {
 		t.Errorf("label = %q", got)
 	}
 }

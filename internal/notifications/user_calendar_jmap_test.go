@@ -105,7 +105,7 @@ func TestUserJMAPCalendarDiscoveryAndSync(t *testing.T) {
 
 	for _, owner := range []string{"alice", "bob"} {
 		response := f.request(owner, "POST", "/api/accounts/"+f.accounts[owner].ID+"/calendar/discover", "calendar_protocol=jmap")
-		if response.Code != 200 || !strings.Contains(response.Body.String(), "Discovered 2 JMAP calendar(s)") {
+		if response.Code != 200 || !strings.Contains(response.Body.String(), "Discovered 2 JMAP calendars") {
 			t.Fatalf("%s discovery = %d %s", owner, response.Code, response.Body.String())
 		}
 		response = f.request(owner, "POST", "/api/calendar/sync", url.Values{"month": {"2026-10"}, "account_id": {f.accounts[owner].ID}}.Encode())
@@ -238,7 +238,7 @@ func newOwnedJMAPCalendarLive(t *testing.T) (*userStorageFixture, storage.Calend
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r := f.request("alice", "POST", "/api/accounts/"+account.ID+"/calendar/discover", "calendar_protocol=jmap"); r.Code != 200 || !strings.Contains(r.Body.String(), "JMAP calendar(s)") {
+	if r := f.request("alice", "POST", "/api/accounts/"+account.ID+"/calendar/discover", "calendar_protocol=jmap"); r.Code != 200 || !strings.Contains(r.Body.String(), "JMAP calendar") {
 		t.Fatalf("discovery = %d %s", r.Code, r.Body.String())
 	}
 	var source storage.CalendarSource

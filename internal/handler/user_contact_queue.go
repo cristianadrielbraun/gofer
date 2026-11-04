@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"errors"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"log"
 	"net/http"
 	"strings"
@@ -29,12 +30,12 @@ func (h *Handler) handleUserSyncContactNow(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if !contact.GoferSyncEnabled {
-		http.Error(w, "Gofer Sync is disabled for this contact", http.StatusConflict)
+		http.Error(w, i18n.T(r.Context(), "server.error.gofer_sync_is_disabled_for_this_contact"), http.StatusConflict)
 		return
 	}
 	if _, err := h.userAccounts.EnqueueContactSyncForUser(ctx, owner, id); err != nil {
 		if errors.Is(err, storage.ErrContactSyncUnavailable) {
-			http.Error(w, "No enabled sync locations are available", http.StatusConflict)
+			http.Error(w, i18n.T(r.Context(), "server.error.no_enabled_sync_locations_are_available"), http.StatusConflict)
 		} else {
 			userAccountError(w, r, err)
 		}

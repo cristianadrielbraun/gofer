@@ -17,7 +17,7 @@ func TestComposeOneTimeFromRoutes(t *testing.T) {
 			{ID: "deals", AccountID: "mail", Email: "deals@example.org", SMTPHost: "SMTP.example.org", SMTPPort: 587, SMTPUsername: "shop"},
 			{ID: "alias", AccountID: "mail", Email: "alias@example.com"},
 		}}
-	routes := composeFromRoutes(gmail)
+	routes := composeFromRoutes(context.Background(), gmail)
 	if len(routes) != 2 {
 		t.Fatalf("routes = %+v, want the account's and one shared identity server", routes)
 	}
@@ -26,11 +26,11 @@ func TestComposeOneTimeFromRoutes(t *testing.T) {
 	}
 
 	jmap := models.Account{ID: "home", Provider: providers.ProviderJMAP, Email: "sam@example.net", FromRule: providers.AccountFromRule(providers.ProviderJMAP, "", []string{"example.net"})}
-	if route := composeFromRoutes(jmap)[0]; route.Reason != "" || route.Warns() || route.Domains() != "example.net" || !strings.Contains(route.Note, "example.net") {
+	if route := composeFromRoutes(context.Background(), jmap)[0]; route.Reason != "" || route.Warns() || route.Domains() != "example.net" || !strings.Contains(route.Note, "example.net") {
 		t.Fatalf("JMAP route = %+v", route)
 	}
 	jmapListed := models.Account{ID: "other", Provider: providers.ProviderJMAP, Email: "kai@example.net", FromRule: providers.AccountFromRule(providers.ProviderJMAP, "", nil)}
-	if composeHasOneTimeFrom([]models.Account{jmapListed}) {
+	if composeHasOneTimeFrom(context.Background(), []models.Account{jmapListed}) {
 		t.Fatal("an account that sends only from its listed addresses offers a one-time From")
 	}
 

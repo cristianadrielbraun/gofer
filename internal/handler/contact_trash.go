@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"log"
 	"net/http"
 	"strings"
@@ -89,7 +90,7 @@ func (h *Handler) contactTrashError(w http.ResponseWriter, r *http.Request, err 
 		return
 	}
 	log.Printf("contacts: trash: %v", err)
-	http.Error(w, "contacts unavailable", http.StatusInternalServerError)
+	http.Error(w, i18n.T(r.Context(), "server.error.contacts_unavailable"), http.StatusInternalServerError)
 }
 
 // handleDeleteContact moves a contact to the Trash.
@@ -117,16 +118,16 @@ func (h *Handler) handleDeleteContactForever(w http.ResponseWriter, r *http.Requ
 	case err == nil:
 		http.Redirect(w, r, "/contacts?trash=1", http.StatusSeeOther)
 	case errors.Is(err, errContactNotInTrash):
-		http.Error(w, "This contact was restored from the Trash.", http.StatusConflict)
+		http.Error(w, i18n.T(r.Context(), "server.error.this_contact_was_restored_from_the_trash"), http.StatusConflict)
 	case errors.As(err, &syncErr):
-		http.Error(w, "Contact sync delete failed: "+syncErr.err.Error(), http.StatusBadGateway)
+		http.Error(w, serverText(r.Context(), "Contact sync delete failed: "+syncErr.err.Error()), http.StatusBadGateway)
 	case h.userStorage == nil && errors.Is(err, sql.ErrNoRows):
 		http.NotFound(w, r)
 	case h.userStorage == nil:
 		log.Printf("contacts: delete forever: %v", err)
-		http.Error(w, "delete failed", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.delete_failed"), http.StatusInternalServerError)
 	case errors.As(err, &provider) && !errors.Is(err, storage.ErrContactEditChanged) && !errors.Is(err, config.ErrAccountServicesChanged) && !errors.Is(err, storage.ErrAccountRoute) && !errors.Is(err, storage.ErrUserStoreOwner) && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded):
-		http.Error(w, "Contact sync delete failed: "+err.Error(), http.StatusBadGateway)
+		http.Error(w, serverText(r.Context(), "Contact sync delete failed: "+err.Error()), http.StatusBadGateway)
 	default:
 		userContactEditError(w, r, err)
 	}
@@ -142,7 +143,7 @@ func (h *Handler) handleContactTrashCount(w http.ResponseWriter, r *http.Request
 		count, err = db.CountContacts(ctx, userID, models.ContactFilters{Trash: true})
 		return err
 	}); err != nil {
-		http.Error(w, "contacts unavailable", http.StatusServiceUnavailable)
+		http.Error(w, i18n.T(r.Context(), "server.error.contacts_unavailable"), http.StatusServiceUnavailable)
 		return
 	}
 	w.Header().Set("Cache-Control", "private, no-store")
@@ -200,7 +201,7 @@ func (h *Handler) handleDeleteContactsForever(w http.ResponseWriter, r *http.Req
 		h.contactTrashError(w, r, err)
 		return
 	}
-	writeContactBulkDeleteResult(w, result)
+	writeContactBulkDeleteResult(w, r, result)
 }
 
 // purgeContactTrash deletes for good the user's contacts that have been in

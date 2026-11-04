@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -13,7 +14,7 @@ import (
 
 func TestSecurityEventViewDataUsesOnlyFriendlyBoundedFields(t *testing.T) {
 	now := time.Date(2026, time.August, 19, 18, 0, 0, 0, time.Local)
-	viewData := securityEventViewData([]auth.SecurityEventSummary{
+	viewData := securityEventViewData(context.Background(), []auth.SecurityEventSummary{
 		{
 			OccurredAt: now, EventType: auth.AuthEventIdentityLinked, Success: true,
 			Reason:    auth.AuthEventReasonChallengeVerified,
@@ -29,11 +30,11 @@ func TestSecurityEventViewDataUsesOnlyFriendlyBoundedFields(t *testing.T) {
 		},
 	})
 	if len(viewData) != 3 {
-		t.Fatalf("securityEventViewData() = %#v", viewData)
+		t.Fatalf("securityEventViewData(context.Background(), ) = %#v", viewData)
 	}
 	if viewData[0].Title != "Sign-in identity connected" ||
 		viewData[0].Detail != "A verified security request was completed." ||
-		viewData[0].OccurredAt != "Aug 19, 2026 at 6:00 PM" ||
+		viewData[0].OccurredAt != "Aug 19, 2026, 6:00 PM" ||
 		viewData[0].Client != "Chrome on Linux" || viewData[0].Status != "Completed" || !viewData[0].Successful {
 		t.Fatalf("successful security event view = %#v", viewData[0])
 	}
@@ -50,7 +51,7 @@ func TestSecurityEventViewDataUsesOnlyFriendlyBoundedFields(t *testing.T) {
 }
 
 func TestSecurityActivityPageViewDataBuildsBoundedPagination(t *testing.T) {
-	data := securityActivityPageViewData(&auth.SecurityEventPage{
+	data := securityActivityPageViewData(context.Background(), &auth.SecurityEventPage{
 		Events:      make([]auth.SecurityEventSummary, 5),
 		TotalEvents: 45,
 		Page:        3,
@@ -60,11 +61,11 @@ func TestSecurityActivityPageViewDataBuildsBoundedPagination(t *testing.T) {
 	if data.TotalEvents != 45 || data.Page != 3 || data.TotalPages != 3 ||
 		data.FirstEvent != 41 || data.LastEvent != 45 || !data.HasPrevious || data.HasNext ||
 		data.PreviousPage != 2 || data.NextPage != 4 || len(data.Events) != 5 {
-		t.Fatalf("securityActivityPageViewData() = %#v", data)
+		t.Fatalf("securityActivityPageViewData(context.Background(), ) = %#v", data)
 	}
-	empty := securityActivityPageViewData(&auth.SecurityEventPage{Page: 1, TotalPages: 1, PageSize: 20})
+	empty := securityActivityPageViewData(context.Background(), &auth.SecurityEventPage{Page: 1, TotalPages: 1, PageSize: 20})
 	if empty.FirstEvent != 0 || empty.LastEvent != 0 || empty.HasPrevious || empty.HasNext {
-		t.Fatalf("empty securityActivityPageViewData() = %#v", empty)
+		t.Fatalf("empty securityActivityPageViewData(context.Background(), ) = %#v", empty)
 	}
 }
 
@@ -116,7 +117,7 @@ func TestSecurityEventTitleCoversKnownEventTypesWithoutRawEnumLabels(t *testing.
 		auth.AuthEventIdentityLinked,
 		auth.AuthEventIdentityUnlinked,
 	} {
-		title := securityEventTitle(eventType, true)
+		title := securityEventTitle(context.Background(), eventType, true)
 		if strings.TrimSpace(title) == "" || strings.Contains(title, string(eventType)) {
 			t.Fatalf("securityEventTitle(%q) = %q", eventType, title)
 		}

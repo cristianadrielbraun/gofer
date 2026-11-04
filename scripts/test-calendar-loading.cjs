@@ -2,6 +2,7 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const path = require('node:path')
 const vm = require('node:vm')
+const loadI18n = require('./i18n-test-helper.cjs')
 const source = fs.readFileSync(path.join(__dirname, '../assets/js/app.js'), 'utf8')
 function helper(name) {
   const start = source.indexOf('function ' + name + '(')
@@ -10,6 +11,7 @@ function helper(name) {
   return source.slice(start, end + 2)
 }
 const context = vm.createContext({})
+loadI18n(context)
 vm.runInContext(['calendarLoadingWeekCount', 'calendarLoadingPeriodLabel'].map(helper).join('\n'), context)
 for (const [month, rows] of [['2027-02', 4], ['2026-09', 5], ['2026-03', 6], ['2024-02', 5], ['2028-02', 5]]) {
   assert.equal(context.calendarLoadingWeekCount(month), rows, 'Skeleton must match the actual Monday-first row count')

@@ -46,7 +46,7 @@ function handleAccountTestStart(event) {
 
 	dialog.dataset.accountTestRun = String((Number(dialog.dataset.accountTestRun) || 0) + 1)
 	dialog.querySelectorAll("[data-account-test-service]").forEach(function (section) {
-    setAccountTestService(section, "testing", section.dataset.accountTestLoadingLabel || "Testing connection...", "")
+    setAccountTestService(section, "testing", section.dataset.accountTestLoadingLabel || goferT("js.settings.account.testing"), "")
   })
   accountTestRetryButtons(dialog).forEach(function (button) { button.disabled = true })
 }
@@ -79,13 +79,13 @@ function handleAccountTestResult(event) {
     window.setTimeout(function () {
       if ((Number(dialog.dataset.accountTestRun) || 0) !== run) return
       if (!results) {
-        setAccountTestService(section, "error", "Test could not be completed", "Try again or review the account credentials.")
+        setAccountTestService(section, "error", goferT("js.settings.account.test_incomplete"), goferT("js.settings.account.test_incomplete_detail"))
       } else if (!result) {
-        setAccountTestService(section, "error", "No result returned", "The service check did not report a status.")
+        setAccountTestService(section, "error", goferT("js.settings.account.test_no_result"), goferT("js.settings.account.test_no_result_detail"))
       } else if (result.success) {
-        setAccountTestService(section, "success", result.message || "Connection successful", "", result.warning)
+        setAccountTestService(section, "success", result.message || goferT("js.settings.account.test_ok"), "", result.warning)
       } else {
-        setAccountTestService(section, "error", result.error || "Connection failed", result.message || "")
+        setAccountTestService(section, "error", result.error || goferT("js.settings.account.test_failed"), result.message || "")
       }
     }, index * 160)
   })
@@ -107,7 +107,7 @@ function _settingsEventElement(event) {
 function handleEditAccountSaveStart(event) {
   var form = _settingsEventElement(event)
   if (!form || form.id !== "edit-account-form") return
-  if (typeof editAccountTest !== "undefined") editAccountTest.saving("Saving changes...")
+  if (typeof editAccountTest !== "undefined") editAccountTest.saving(goferT("js.settings.account.saving_changes"))
 }
 
 function handleEditAccountSaveResult(event) {
@@ -126,7 +126,7 @@ function handleEditAccountSaveResult(event) {
   }
   var message = errorCard ? (errorCard.querySelector("p") || errorCard).textContent : (xhr && xhr.responseText ? xhr.responseText.trim() : "")
   if (status) status.textContent = ""
-  editAccountTest.saveFailed(message || "Could not save the changes.")
+  editAccountTest.saveFailed(message || goferT("js.settings.account.save_failed"))
 }
 
 function _calendarDiscoveryForm(event) {
@@ -183,7 +183,7 @@ function _setCalendarDiscoveryBusy(form, busy) {
   if (busy) {
     var originalLabel = label ? label.textContent.trim() : ""
     button.dataset.calendarDiscoveryOriginalLabel = originalLabel
-    if (label) label.textContent = autodiscover ? "Searching..." : originalLabel.indexOf("Discover") === 0 ? "Discovering..." : "Refreshing..."
+    if (label) label.textContent = autodiscover ? goferT("js.settings.calendar.searching") : button.hasAttribute("data-calendar-discovery-refresh") ? goferT("js.settings.calendar.refreshing") : goferT("js.settings.calendar.discovering")
   } else if (label && button.dataset.calendarDiscoveryOriginalLabel) {
     label.textContent = button.dataset.calendarDiscoveryOriginalLabel
     delete button.dataset.calendarDiscoveryOriginalLabel
@@ -218,7 +218,7 @@ function _calendarCreateBusy(form, busy) {
   var button = form.querySelector("[data-calendar-create-submit]")
   if (!button) return
   var label = button.querySelector("[data-calendar-create-label]")
-  if (label) label.textContent = busy ? "Creating..." : "Create"
+  if (label) label.textContent = busy ? goferT("js.settings.calendar.creating") : goferT("js.settings.calendar.create")
   button.disabled = !!busy
   button.setAttribute("aria-busy", busy ? "true" : "false")
 }
@@ -265,7 +265,7 @@ function handleCalendarSourceSaveStart(event) {
   if (!form) return
   var root = form.closest ? form.closest("#add-account-dialog,#edit-account-dialog") : null
   if (root) form.dataset.calendarWizardRootId = root.id
-  _calendarSourceStatus(form, "Saving calendar selection...", false)
+  _calendarSourceStatus(form, goferT("js.settings.calendar.saving_selection"), false)
 }
 
 function handleCalendarSourceSaveResult(event) {
@@ -286,8 +286,8 @@ function handleCalendarSourceSaveResult(event) {
   }
 
   if (toggle && toggle.dataset.wizardServiceInitialEnabled !== "true") toggle.checked = false
-  var message = xhr && xhr.responseText ? xhr.responseText.trim() : "Could not save calendar source selection."
-  _calendarSourceStatus(form, message || "Could not save calendar source selection.", true)
+  var message = xhr && xhr.responseText ? xhr.responseText.trim() : ""
+  _calendarSourceStatus(form, message || goferT("js.settings.calendar.save_selection_failed"), true)
 }
 
 // Sets every contact conflict in a profile import to the same choice. A
@@ -318,9 +318,9 @@ document.addEventListener("submit", function (event) {
 
 function confirmSignatureDelete(name) {
   return window.goferConfirm({
-    title: "Delete " + name + "?",
-    message: "Accounts using it will stop inserting it.",
-    confirmLabel: "Delete signature",
+    title: goferT("js.settings.signature.delete_title", { name: name }),
+    message: goferT("js.settings.signature.delete_message"),
+    confirmLabel: goferT("js.settings.signature.delete"),
     destructive: true,
   })
 }
@@ -346,7 +346,7 @@ document.addEventListener("htmx:xhr:progress", function (event) {
   var status = form.querySelector("[data-mail-import-upload-status]")
   if (!status) return
   var percent = Math.floor((detail.loaded * 100) / detail.total)
-  status.textContent = percent < 100 ? "Uploading… " + percent + "%" : "Reading the messages…"
+  status.textContent = percent < 100 ? goferT("js.settings.import.uploading", { percent: percent }) : goferT("js.settings.import.reading")
 })
 
 // An identity's SMTP server fields show while "Another SMTP server" is chosen.
@@ -493,7 +493,7 @@ function renderAccountServerCheck(target, notes) {
       link.target = "_blank"
       link.rel = "noopener"
       link.className = "font-semibold underline underline-offset-2"
-      link.textContent = note.link_text || "Open Mail security"
+      link.textContent = note.link_text || goferT("js.settings.identity.open_mail_security")
       line.appendChild(document.createTextNode(" "))
       line.appendChild(link)
     }
@@ -596,29 +596,29 @@ function saveAccountColor(picker, rawColor, source) {
   var accountId = picker.getAttribute("data-account-id") || ""
   var color = normalizeAccountColorInput(rawColor)
   if (!accountId || !color) {
-    setAccountColorStatus(picker, "Invalid", true)
+    setAccountColorStatus(picker, goferT("js.settings.color.invalid"), true)
     return
   }
 
   setAccountColorSaving(picker, true)
-  setAccountColorStatus(picker, "Saving", false)
+  setAccountColorStatus(picker, goferT("js.settings.status.saving"), false)
   fetch("/api/accounts/" + encodeURIComponent(accountId) + "/color", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json" },
     body: new URLSearchParams({ color: color }).toString()
   }).then(function (res) {
     return res.json().catch(function () { return {} }).then(function (data) {
-      if (!res.ok) throw new Error(data.error || "Failed to update color")
+      if (!res.ok) throw new Error(data.error || goferT("js.settings.color.failed"))
       return data
     })
   }).then(function (data) {
     var nextColor = normalizeAccountColorInput(data.color) || color
     updateAccountColorUI(accountId, nextColor)
-    setAccountColorStatus(picker, "Saved", false)
+    setAccountColorStatus(picker, goferT("js.settings.status.saved"), false)
     closeAccountColorPopover(source)
     setTimeout(function () { setAccountColorStatus(picker, "", false) }, 1800)
   }).catch(function (err) {
-    setAccountColorStatus(picker, err && err.message ? err.message : "Failed", true)
+    setAccountColorStatus(picker, err && err.message ? err.message : goferT("js.settings.status.failed"), true)
   }).finally(function () {
     setAccountColorSaving(picker, false)
   })
@@ -746,7 +746,7 @@ function saveAccountOrder(list, previous) {
   }).then(function (res) {
     if (res.ok) return
     if (res.status === 409) {
-      showGoferToast({ title: "Your accounts changed", description: "The list was reloaded. Put the accounts in order again.", variant: "error", icon: "error", duration: 6000 })
+      showGoferToast({ title: goferT("js.settings.order.accounts_changed"), description: goferT("js.settings.order.accounts_reloaded"), variant: "error", icon: "error", duration: 6000 })
       if (window.htmx) window.htmx.ajax("GET", "/settings/accounts", { target: "#settings-content", select: "#settings-content", swap: "outerHTML" })
       return
     }
@@ -754,7 +754,7 @@ function saveAccountOrder(list, previous) {
   }).catch(function () {
     restoreOrder(accountOrder, list, previous)
     syncAccountOrderControls()
-    showGoferToast({ title: "Could not save the account order", description: "Check your connection and try again.", variant: "error", icon: "error", duration: 6000 })
+    showGoferToast({ title: goferT("js.settings.order.accounts_failed"), description: goferT("js.settings.check_connection"), variant: "error", icon: "error", duration: 6000 })
   })
 }
 
@@ -770,14 +770,14 @@ function saveMailRuleOrder(list, previous) {
   }).then(function (res) {
     if (res.ok) return
     if (res.status === 409) {
-      showGoferToast({ title: "Your rules changed", description: "The list was reloaded. Put the rules in order again.", variant: "error", icon: "error", duration: 6000 })
+      showGoferToast({ title: goferT("js.settings.order.rules_changed"), description: goferT("js.settings.order.rules_reloaded"), variant: "error", icon: "error", duration: 6000 })
       if (window.htmx) window.htmx.ajax("GET", "/api/settings/rules/panel", { target: "#mail-rules-panel", swap: "outerHTML" })
       return
     }
     throw new Error("save rule order: " + res.status)
   }).catch(function () {
     restoreOrder(mailRuleOrder, list, previous)
-    showGoferToast({ title: "Could not save the rule order", description: "Check your connection and try again.", variant: "error", icon: "error", duration: 6000 })
+    showGoferToast({ title: goferT("js.settings.order.rules_failed"), description: goferT("js.settings.check_connection"), variant: "error", icon: "error", duration: 6000 })
   })
 }
 
@@ -1079,7 +1079,7 @@ function showMailRuleRun(run, drawn) {
   }
   view.querySelectorAll("[data-mail-rule-run-field]").forEach(function (field) {
     var n = Number(run[field.getAttribute("data-mail-rule-run-field")]) || 0
-    field.textContent = n.toLocaleString("en-US")
+    field.textContent = goferNumber(n)
   })
   return true
 }
@@ -1089,9 +1089,9 @@ document.addEventListener("gofer:mail-rule-run", function (e) {
   mailRuleRunLatest[run.job] = run
   if (showMailRuleRun(run)) return
   if (run.state === "done") {
-    showGoferToast({ id: "mail-rule-run-" + run.job, title: "“" + run.rule_name + "” finished", description: run.notice, variant: "success", icon: "success", position: "bottom-right", duration: 8000, dismissible: true })
+    showGoferToast({ id: "mail-rule-run-" + run.job, title: goferT("js.settings.rules.run_finished", { rule: run.rule_name }), description: run.notice, variant: "success", icon: "success", position: "bottom-right", duration: 8000, dismissible: true })
   } else if (run.state === "error") {
-    showGoferToast({ id: "mail-rule-run-" + run.job, title: "“" + run.rule_name + "” stopped", description: run.error, variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
+    showGoferToast({ id: "mail-rule-run-" + run.job, title: goferT("js.settings.rules.run_stopped", { rule: run.rule_name }), description: run.error, variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
   }
 })
 
@@ -1113,9 +1113,9 @@ document.addEventListener("click", function (e) {
   if (!button || typeof window.goferConfirm !== "function" || !window.htmx) return
   e.preventDefault()
   window.goferConfirm({
-    title: "Clear the activity?",
-    message: "Gofer forgets what your rules did so far. The rules and your mail stay as they are.",
-    confirmLabel: "Clear activity",
+    title: goferT("js.settings.rules.clear_title"),
+    message: goferT("js.settings.rules.clear_message"),
+    confirmLabel: goferT("js.settings.rules.clear"),
     destructive: true,
   }).then(function (accepted) {
     if (!accepted || !document.getElementById("mail-rule-activity-list")) return
@@ -1129,9 +1129,9 @@ document.addEventListener("click", function (e) {
   if (!button || typeof window.goferConfirm !== "function" || !window.htmx) return
   e.preventDefault()
   window.goferConfirm({
-    title: "Delete rule?",
-    message: "“" + button.getAttribute("data-mail-rule-name") + "” stops acting on new mail. What it already did to messages stays as it is.",
-    confirmLabel: "Delete rule",
+    title: goferT("js.settings.rules.delete_title"),
+    message: goferT("js.settings.rules.delete_message", { rule: button.getAttribute("data-mail-rule-name") }),
+    confirmLabel: goferT("js.settings.rules.delete"),
     destructive: true,
   }).then(function (accepted) {
     if (!accepted || !document.getElementById("mail-rules-panel")) return
@@ -1159,7 +1159,7 @@ document.addEventListener("click", function (e) {
   if (content && window.tui && window.tui.popover && window.tui.popover.closeElement) window.tui.popover.closeElement(content)
   var parent = button.getAttribute("data-mail-rule-new-folder-parent") || ""
   var parentName = button.getAttribute("data-mail-rule-new-folder-parent-name") || ""
-  var title = parent ? "New subfolder in " + parentName : "New folder"
+  var title = parent ? goferT("js.settings.rules.new_subfolder", { folder: parentName }) : goferT("js.folders.new")
   window.goferCreateMailFolder(button.getAttribute("data-mail-rule-new-folder"), parent, parentName, { title: title }).then(function (folder) {
     if (!folder || !input || !body || !body.isConnected || !window.htmx) return
     input.value = "id:" + folder.id
@@ -1464,16 +1464,16 @@ function setupAccountSignaturesManager(manager) {
     }
 
     if (e.target.closest("[data-signature-delete]")) {
-      var signatureName = row.getAttribute("data-signature-name") || "this signature"
+      var signatureName = row.getAttribute("data-signature-name") || goferT("js.settings.signature.this")
       var signatureID = row.getAttribute("data-signature-id") || ""
       confirmSignatureDelete(signatureName).then(function (confirmed) {
         if (!confirmed) return
         fetch("/api/signatures/" + encodeURIComponent(signatureID), { method: "DELETE" })
-          .then(function (r) { if (!r.ok) throw new Error("Failed to delete signature") })
+          .then(function (r) { if (!r.ok) throw new Error(goferT("js.settings.signature.delete_failed")) })
           .then(reloadDialog)
           .catch(function (err) {
             var status = form && form.querySelector("[data-signature-save-status]")
-            if (status) status.textContent = err && err.message ? err.message : "Failed to delete signature"
+            if (status) status.textContent = err && err.message ? err.message : goferT("js.settings.signature.delete_failed")
           })
       })
     }
@@ -1487,17 +1487,17 @@ function setupAccountSignaturesManager(manager) {
     var status = form && form.querySelector("[data-signature-save-status]")
     var signatureID = (id && id.value) || ""
     if (!signatureID) {
-      if (status) status.textContent = "Choose a signature to delete"
+      if (status) status.textContent = goferT("js.settings.signature.choose")
       return
     }
-    var signatureName = (name && name.value) || "this signature"
+    var signatureName = (name && name.value) || goferT("js.settings.signature.this")
     confirmSignatureDelete(signatureName).then(function (confirmed) {
       if (!confirmed) return
       fetch("/api/signatures/" + encodeURIComponent(signatureID), { method: "DELETE" })
-        .then(function (r) { if (!r.ok) throw new Error("Failed to delete signature") })
+        .then(function (r) { if (!r.ok) throw new Error(goferT("js.settings.signature.delete_failed")) })
         .then(reloadDialog)
         .catch(function (err) {
-          if (status) status.textContent = err && err.message ? err.message : "Failed to delete signature"
+          if (status) status.textContent = err && err.message ? err.message : goferT("js.settings.signature.delete_failed")
         })
     })
   })
@@ -1509,16 +1509,16 @@ function setupAccountSignaturesManager(manager) {
       if (source && !source.classList.contains("hidden")) applySignatureSource(form)
       else if (editor) syncSignatureEditor(editor)
       var status = form.querySelector("[data-signature-save-status]")
-      if (status) status.textContent = "Saving..."
+      if (status) status.textContent = goferT("js.settings.status.saving_dots")
       fetch("/api/signatures", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json" },
         body: new URLSearchParams(new FormData(form)).toString()
       }).then(function (r) {
-        if (!r.ok) return r.json().catch(function () { return {} }).then(function (data) { throw new Error(data.error || "Failed to save signature") })
+        if (!r.ok) return r.json().catch(function () { return {} }).then(function (data) { throw new Error(data.error || goferT("js.settings.signature.save_failed")) })
         return r.json()
       }).then(reloadDialog).catch(function (err) {
-        if (status) status.textContent = err && err.message ? err.message : "Failed to save signature"
+        if (status) status.textContent = err && err.message ? err.message : goferT("js.settings.signature.save_failed")
       })
     })
   }
@@ -1529,17 +1529,17 @@ function setupAccountSignaturesManager(manager) {
       e.preventDefault()
       var formAccountId = settingsForm.getAttribute("data-account-id") || accountId
       var status = settingsForm.querySelector("[data-signature-settings-status]")
-      if (status) status.textContent = "Saving..."
+      if (status) status.textContent = goferT("js.settings.status.saving_dots")
       fetch("/api/accounts/" + encodeURIComponent(formAccountId) + "/signature-settings", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json" },
         body: new URLSearchParams(new FormData(settingsForm)).toString()
       }).then(function (r) {
-        if (!r.ok) throw new Error("Failed to save assignments")
-        if (status) status.textContent = "Saved"
+        if (!r.ok) throw new Error(goferT("js.settings.signature.assign_failed"))
+        if (status) status.textContent = goferT("js.settings.status.saved")
         setTimeout(function () { if (status) status.textContent = "" }, 2000)
       }).catch(function (err) {
-        if (status) status.textContent = err && err.message ? err.message : "Failed to save assignments"
+        if (status) status.textContent = err && err.message ? err.message : goferT("js.settings.signature.assign_failed")
       })
     })
     })(settingsForms[sf])
@@ -1719,13 +1719,13 @@ function refreshEmailLinkHandler() {
   if (!window.isSecureContext) {
     button.disabled = true
     if (testButton) testButton.disabled = true
-    status.textContent = "Available when Gofer is served over HTTPS or from localhost."
+    status.textContent = goferT("js.settings.mailto.needs_https")
     return
   }
   if (!navigator.registerProtocolHandler) {
     button.disabled = true
     if (testButton) testButton.disabled = true
-    status.textContent = "This browser does not support registering web email clients."
+    status.textContent = goferT("js.settings.mailto.unsupported")
     return
   }
 
@@ -1733,11 +1733,11 @@ function refreshEmailLinkHandler() {
   if (testButton) testButton.disabled = false
   var state = readEmailLinkHandlerState()
   if (state === "confirmed") {
-    status.textContent = "Previously confirmed on this browser. You can test it again if your browser settings have changed."
+    status.textContent = goferT("js.settings.mailto.confirmed")
   } else if (state === "requested") {
-    status.textContent = "Registration was requested on this browser. Test an email link to confirm it."
+    status.textContent = goferT("js.settings.mailto.requested")
   } else {
-    status.textContent = "Your browser will ask you to confirm. Installed Gofer apps can also handle links from other applications."
+    status.textContent = goferT("js.settings.mailto.ask")
   }
 }
 
@@ -1788,8 +1788,8 @@ function setupEmailLinkHandler() {
       if (typeof showGoferToast === "function") {
         showGoferToast({
           id: "mailto-handler-registration",
-          title: "Email-link registration requested",
-          description: "Confirm the request in your browser to open mail links with Gofer.",
+          title: goferT("js.settings.mailto.requested_title"),
+          description: goferT("js.settings.mailto.requested_detail"),
           variant: "success",
           icon: "success",
           position: "bottom-right",
@@ -1798,12 +1798,12 @@ function setupEmailLinkHandler() {
         })
       }
     } catch (error) {
-      if (status) status.textContent = "Gofer could not request registration in this browser."
+      if (status) status.textContent = goferT("js.settings.mailto.request_failed")
       if (typeof showGoferToast === "function") {
         showGoferToast({
           id: "mailto-handler-registration",
-          title: "Could not register Gofer",
-          description: error && error.message ? error.message : "Check your browser's protocol-handler settings and try again.",
+          title: goferT("js.settings.mailto.failed_title"),
+          description: error && error.message ? error.message : goferT("js.settings.mailto.failed_detail"),
           variant: "error",
           icon: "error",
           position: "bottom-right",
@@ -1946,9 +1946,12 @@ goferOnContent("#mail-operations-content[data-mail-operations-refresh]", functio
   var label = content.querySelector("[data-mail-operations-countdown]")
   var seconds = parseInt(content.getAttribute("data-mail-operations-refresh"), 10) || 15
   var timer = null
-  function countDown(prefix) {
+  function countDown(failed) {
     var left = seconds
-    if (label) label.textContent = prefix + "Auto refresh in " + left + "s"
+    var show = function () {
+      if (label) label.textContent = goferT(failed ? "js.settings.operations.refresh_failed_in" : "js.settings.operations.refresh_in", { seconds: left })
+    }
+    show()
     timer = setInterval(function () {
       if (!content.isConnected) {
         clearInterval(timer)
@@ -1956,7 +1959,7 @@ goferOnContent("#mail-operations-content[data-mail-operations-refresh]", functio
       }
       if (left > 0) left--
       if (left > 0) {
-        if (label) label.textContent = prefix + "Auto refresh in " + left + "s"
+        show()
         return
       }
       if (document.hidden) return
@@ -1966,12 +1969,12 @@ goferOnContent("#mail-operations-content[data-mail-operations-refresh]", functio
   }
   content.addEventListener("htmx:beforeRequest", function () {
     clearInterval(timer)
-    if (label) label.textContent = "Refreshing..."
+    if (label) label.textContent = goferT("js.settings.calendar.refreshing")
   })
   content.addEventListener("htmx:afterRequest", function (event) {
-    if (event.detail && !event.detail.successful && content.isConnected) countDown("Couldn't refresh. ")
+    if (event.detail && !event.detail.successful && content.isConnected) countDown(true)
   })
-  countDown("")
+  countDown(false)
 })
 
 // /settings/accounts?folder_roles=<account> opens that account's folder roles,
@@ -2024,8 +2027,8 @@ function showAboutUpdateCheckFailure(e) {
   message.className = "text-destructive"
   var xhr = e.detail && e.detail.xhr
   message.textContent = xhr && xhr.status
-    ? "Could not check for updates (the server answered " + xhr.status + ")."
-    : "Could not reach Gofer to check for updates."
+    ? goferT("js.settings.about.update_failed_status", { status: xhr.status })
+    : goferT("js.settings.about.update_unreachable")
   status.replaceChildren(message)
 }
 document.addEventListener("htmx:responseError", showAboutUpdateCheckFailure)

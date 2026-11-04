@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 )
 
@@ -314,7 +315,7 @@ ORDER BY updated_at DESC`, args...)
 		if accounts[accountID] == nil {
 			accounts[accountID] = &models.MailOperationAdminAccountCount{
 				AccountID:    operation.AccountID,
-				AccountLabel: maskMailOperationAccount(operation.AccountEmail),
+				AccountLabel: maskMailOperationAccount(ctx, operation.AccountEmail),
 				Provider:     operation.Provider,
 			}
 		}
@@ -357,10 +358,10 @@ ORDER BY updated_at DESC`, args...)
 	return status, nil
 }
 
-func maskMailOperationAccount(email string) string {
+func maskMailOperationAccount(ctx context.Context, email string) string {
 	email = strings.TrimSpace(email)
 	if email == "" {
-		return "Unknown account"
+		return i18n.T(ctx, "contacts.origin.unknown_account")
 	}
 	at := strings.LastIndex(email, "@")
 	if at <= 0 || at == len(email)-1 {

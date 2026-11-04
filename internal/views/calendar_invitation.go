@@ -1,6 +1,11 @@
 package views
 
-import "strings"
+import (
+	"context"
+	"strings"
+
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
+)
 
 // A missing response is unknown, not an unanswered invitation. In particular,
 // an organizer's event must not inherit any guest's response styling.
@@ -17,24 +22,24 @@ func calendarEventResponseState(event CalendarEvent) string {
 	}
 }
 
-func calendarEventResponseLabel(event CalendarEvent) string {
+func calendarEventResponseLabel(ctx context.Context, event CalendarEvent) string {
 	switch calendarEventResponseState(event) {
 	case "pending":
-		return "Awaiting response"
+		return i18n.T(ctx, "calendar.response.awaiting")
 	case "tentative":
-		return "Maybe"
+		return i18n.T(ctx, "calendar.response.maybe")
 	case "declined":
-		return "Declined"
+		return i18n.T(ctx, "calendar.response.declined")
 	case "accepted":
-		return "Accepted"
+		return i18n.T(ctx, "calendar.response.accepted")
 	default:
 		return ""
 	}
 }
 
-func calendarEventResponseSummary(event CalendarEvent) string {
-	summary := calendarEventSummary(event)
-	if response := calendarEventResponseLabel(event); response != "" {
+func calendarEventResponseSummary(ctx context.Context, event CalendarEvent) string {
+	summary := calendarEventSummary(ctx, event)
+	if response := calendarEventResponseLabel(ctx, event); response != "" {
 		summary += " · " + response
 	}
 	return summary

@@ -372,29 +372,29 @@ func (r *mailRuleRunner) run(ctx context.Context, messageID int64, arrival, trig
 		if !rule.Match(m.facts) {
 			continue
 		}
-		done, skipped, failures := []string{}, []string{}, []string{}
+		done, skipped, failures := []mailrules.Note{}, []mailrules.Note{}, []mailrules.Note{}
 		// Flags and labels go first, while the message is still where it
 		// arrived; a move carries them along.
 		for _, action := range orderedMailRuleActions(rule.Actions) {
 			if mailrules.MovesMessage(action.Kind) && moved != "" {
-				skipped = append(skipped, "not moved: "+moved)
+				skipped = append(skipped, mailrules.NewNote("already_moved_by", "rule", moved))
 				continue
 			}
-			text, err := r.apply(ctx, m, arrival, action, outcome)
+			note, err := r.apply(ctx, m, arrival, action, outcome)
 			if ctx.Err() != nil {
 				return outcome, ctx.Err()
 			}
 			switch {
 			case errors.Is(err, errMailRuleSkip):
-				skipped = append(skipped, text)
+				skipped = append(skipped, note)
 			case err != nil:
-				failures = append(failures, text+": "+err.Error())
+				failures = append(failures, mailrules.Failed(note, err))
 			default:
-				if text != "" {
-					done = append(done, text)
+				if note.Key != "" {
+					done = append(done, note)
 				}
 				if mailrules.MovesMessage(action.Kind) {
-					moved = "already moved by “" + rule.Name + "”"
+					moved = rule.Name
 				}
 			}
 		}
@@ -404,7 +404,7 @@ func (r *mailRuleRunner) run(ctx context.Context, messageID int64, arrival, trig
 		} else if len(done) == 0 {
 			status = models.MailRuleRunSkipped
 		}
-		detail := strings.Join(append(append(failures, done...), skipped...), "; ")
+		detail := mailrules.EncodeNotes(append(append(failures, done...), skipped...)...)
 		if status == models.MailRuleRunFailed {
 			r.failed++
 		}
@@ -451,48 +451,48 @@ func orderedMailRuleActions(actions []models.MailRuleAction) []models.MailRuleAc
 var errMailRuleSkip = errors.New("skipped")
 
 // apply does one action and says what it did, in words for the activity.
-func (r *mailRuleRunner) apply(ctx context.Context, m *mailRuleMessage, arrival string, action models.MailRuleAction, outcome MailRuleOutcome) (string, error) {
-	if text, needless := r.needless(m, arrival, action); needless {
-		return text, errMailRuleSkip
+func (r *mailRuleRunner) apply(ctx context.Context, m *mailRuleMessage, arrival string, action models.MailRuleAction, outcome MailRuleOutcome) (mailrules.Note, error) {
+	if note, needless := r.needless(m, arrival, action); needless {
+		return note, errMailRuleSkip
 	}
 	switch action.Kind {
 	case models.MailRuleActionMarkRead:
 		if err := r.db.SetMessagesReadAndQueueForUser(ctx, []int64{m.id}, true, r.owner); err != nil {
-			return "mark as read", err
+			return mailrules.NewNote("mark_read"), err
 		}
 		m.isRead = true
 		outcome.Read[m.normalizedID] = true
 		r.touch(m, outcome)
-		return "marked as read", nil
+		return mailrules.NewNote("marked_read"), nil
 	case models.MailRuleActionStar:
 		if err := r.db.SetMessagesStarredAndQueueForUser(ctx, []int64{m.id}, true, r.owner); err != nil {
-			return "star", err
+			return mailrules.NewNote("star"), err
 		}
 		m.isStarred = true
 		r.touch(m, outcome)
-		return "starred", nil
+		return mailrules.NewNote("starred"), nil
 	case models.MailRuleActionLabel:
 		info, err := r.mutationInfo(ctx, m, r.source(m, arrival))
 		if err != nil {
-			return "add label “" + action.Label + "”", err
+			return mailrules.NewNote("add_label", "label", action.Label), err
 		}
 		if err := r.db.QueueUserLabels(ctx, r.owner, []ThreadMessageMutationInfo{info}, action.Label, LabelMutationAdd); err != nil {
-			return "add label “" + action.Label + "”", err
+			return mailrules.NewNote("add_label", "label", action.Label), err
 		}
 		m.labels[strings.ToLower(strings.TrimSpace(action.Label))] = true
 		r.touch(m, outcome)
-		return "labeled “" + action.Label + "”", nil
+		return mailrules.NewNote("labeled", "label", action.Label), nil
 	}
 
 	if target := moveTarget(action); r.otherAccount(target) {
 		return r.queueTransfer(ctx, m, arrival, action, target)
 	}
-	verb := map[string]string{
+	verb := mailrules.NewNote(map[string]string{
 		models.MailRuleActionMove:    "move",
 		models.MailRuleActionArchive: "archive",
-		models.MailRuleActionTrash:   "move to Trash",
-		models.MailRuleActionSpam:    "mark as spam",
-	}[action.Kind]
+		models.MailRuleActionTrash:   "trash",
+		models.MailRuleActionSpam:    "spam",
+	}[action.Kind])
 	destination, _ := r.findFolder(moveTarget(action))
 	source := r.source(m, arrival)
 	if action.Kind == models.MailRuleActionSpam && (r.provider == "imap" || r.provider == providers.ProviderJMAP) {
@@ -513,13 +513,13 @@ func (r *mailRuleRunner) apply(ctx context.Context, m *mailRuleMessage, arrival 
 	r.touch(m, outcome)
 	switch action.Kind {
 	case models.MailRuleActionTrash:
-		return "moved to Trash", nil
+		return mailrules.NewNote("moved_trash"), nil
 	case models.MailRuleActionSpam:
-		return "marked as spam", nil
+		return mailrules.NewNote("marked_spam"), nil
 	case models.MailRuleActionArchive:
-		return "archived", nil
+		return mailrules.NewNote("archived"), nil
 	}
-	return "moved to “" + destination.name + "”", nil
+	return mailrules.NewNote("moved_to", "folder", destination.name, "role", destination.role), nil
 }
 
 // moveTarget is the folder an action that moves mail moves it to.
@@ -541,17 +541,17 @@ func moveTarget(action models.MailRuleAction) models.MailRuleFolderTarget {
 
 // needless reports whether an action would leave the message as it is, and
 // says why.
-func (r *mailRuleRunner) needless(m *mailRuleMessage, arrival string, action models.MailRuleAction) (string, bool) {
+func (r *mailRuleRunner) needless(m *mailRuleMessage, arrival string, action models.MailRuleAction) (mailrules.Note, bool) {
 	switch action.Kind {
 	case models.MailRuleActionMarkRead:
-		return "already read", m.isRead
+		return mailrules.NewNote("already_read"), m.isRead
 	case models.MailRuleActionStar:
-		return "already starred", m.isStarred
+		return mailrules.NewNote("already_starred"), m.isStarred
 	case models.MailRuleActionLabel:
-		return "already labeled “" + action.Label + "”", m.labels[strings.ToLower(strings.TrimSpace(action.Label))]
+		return mailrules.NewNote("already_labeled", "label", action.Label), m.labels[strings.ToLower(strings.TrimSpace(action.Label))]
 	case models.MailRuleActionMove, models.MailRuleActionArchive, models.MailRuleActionTrash, models.MailRuleActionSpam:
 	default:
-		return action.Kind + ": unknown action", true
+		return mailrules.NewNote("unknown_action", "action", action.Kind), true
 	}
 	target := moveTarget(action)
 	if r.otherAccount(target) {
@@ -559,23 +559,22 @@ func (r *mailRuleRunner) needless(m *mailRuleMessage, arrival string, action mod
 	}
 	destination, ok := r.findFolder(target)
 	if !ok {
-		name := target.Path
-		if name == "" {
-			name = map[string]string{"archive": "an Archive", "trash": "a Trash", "junk": "a Spam", "inbox": "an Inbox"}[target.Role]
-			if name == "" {
-				name = "that"
+		if target.Path == "" {
+			switch target.Role {
+			case "archive", "trash", "junk", "inbox":
+				return mailrules.NewNote("no_folder_" + target.Role), true
 			}
-			return "not moved: the account has no " + name + " folder", true
+			return mailrules.NewNote("no_folder"), true
 		}
-		return "not moved: the folder “" + name + "” is gone", true
+		return mailrules.NewNote("folder_gone", "folder", target.Path), true
 	}
 	source := r.source(m, arrival)
 	for _, folder := range m.facts.Folders {
 		if folder.ID == destination.id && (source == destination.id || len(m.facts.Folders) == 1) {
-			return "already in “" + destination.name + "”", true
+			return mailrules.NewNote("already_in", "folder", destination.name, "role", destination.role), true
 		}
 	}
-	return "not moved: the message is in no folder", source == ""
+	return mailrules.NewNote("in_no_folder"), source == ""
 }
 
 func (r *mailRuleRunner) touch(m *mailRuleMessage, outcome MailRuleOutcome) {

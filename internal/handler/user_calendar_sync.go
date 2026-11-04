@@ -3,7 +3,7 @@ package handler
 import (
 	"context"
 	"errors"
-	"fmt"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"log"
 	"net/http"
 	"strings"
@@ -283,7 +283,7 @@ func (h *Handler) syncUserCalendarWindow(ctx context.Context, owner string, star
 			completed, err := h.syncUserCalendarSource(ctx, source, start, end, scheduled, forced)
 			count += completed
 			if err != nil {
-				failures = append(failures, fmt.Errorf("%s: %w", source.Name, err))
+				failures = append(failures, calendarSourceFailure{source.Name, err})
 			}
 		}
 		if !matched {
@@ -297,14 +297,14 @@ func (h *Handler) syncUserCalendarWindow(ctx context.Context, owner string, star
 func (h *Handler) handleUserCalendarSync(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "invalid calendar refresh request", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_calendar_refresh_request"), http.StatusBadRequest)
 		return
 	}
 	values := r.URL.Query()
 	for _, field := range []struct{ name, layout string }{{"month", "2006-01"}, {"date", "2006-01-02"}} {
 		if value := strings.TrimSpace(r.FormValue(field.name)); value != "" {
 			if _, err := time.Parse(field.layout, value); err != nil {
-				http.Error(w, "invalid calendar "+field.name, http.StatusBadRequest)
+				http.Error(w, i18n.T(r.Context(), "server.error.invalid_calendar_"+field.name), http.StatusBadRequest)
 				return
 			}
 			values.Set(field.name, value)
@@ -312,7 +312,7 @@ func (h *Handler) handleUserCalendarSync(w http.ResponseWriter, r *http.Request)
 	}
 	if view := strings.TrimSpace(r.FormValue("view")); view != "" {
 		if view != "month" && view != "week" {
-			http.Error(w, "invalid calendar view", http.StatusBadRequest)
+			http.Error(w, i18n.T(r.Context(), "server.error.invalid_calendar_view"), http.StatusBadRequest)
 			return
 		}
 		values.Set("view", view)
@@ -333,7 +333,7 @@ func (h *Handler) handleUserCalendarSync(w http.ResponseWriter, r *http.Request)
 	h.refreshUserCalendarLists(ctx, owner, strings.TrimSpace(r.FormValue("account_id")))
 	count, syncErr := h.syncUserCalendarWindow(ctx, owner, start, end, strings.TrimSpace(r.FormValue("account_id")), false, false)
 	if errors.Is(syncErr, errCalendarAccountNotConfigured) {
-		http.Error(w, syncErr.Error(), http.StatusNotFound)
+		http.Error(w, serverText(r.Context(), syncErr.Error()), http.StatusNotFound)
 		return
 	}
 	if errors.Is(syncErr, storage.ErrAccountRoute) || errors.Is(syncErr, storage.ErrUserStoreOwner) || errors.Is(syncErr, context.Canceled) {
@@ -341,7 +341,7 @@ func (h *Handler) handleUserCalendarSync(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if errors.Is(syncErr, storage.ErrCalendarSyncChanged) || errors.Is(syncErr, config.ErrAccountServicesChanged) || errors.Is(syncErr, mailauth.ErrMailboxAuthorizationChanged) {
-		http.Error(w, "Calendar access or settings changed; retry refresh.", http.StatusConflict)
+		http.Error(w, i18n.T(r.Context(), "server.error.calendar_access_or_settings_changed_retry_refresh"), http.StatusConflict)
 		return
 	}
 	readErr := h.userAccounts.WithUser(ctx, owner, func(_ *config.AccountStore, db *storage.DB) error {
@@ -349,12 +349,12 @@ func (h *Handler) handleUserCalendarSync(w http.ResponseWriter, r *http.Request)
 		if err != nil {
 			return err
 		}
-		applyCalendarSyncSummary(&month, sources)
+		applyCalendarSyncSummary(r.Context(), &month, sources)
 		events, err := db.ListCalendarEvents(ctx, owner, start, end)
 		if err != nil {
 			return err
 		}
-		month.Events = calendarViewEvents(events, sources)
+		month.Events = calendarViewEvents(r.Context(), events, sources)
 		return nil
 	})
 	if readErr != nil {
@@ -363,9 +363,9 @@ func (h *Handler) handleUserCalendarSync(w http.ResponseWriter, r *http.Request)
 	}
 	if syncErr != nil {
 		month.SyncError = true
-		month.SyncMessage = "Calendar refresh failed: " + syncErr.Error()
+		month.SyncMessage = calendarRefreshFailureText(r.Context(), syncErr)
 	} else if month.HasSources {
-		month.SyncMessage = fmt.Sprintf("Synced %d event(s) · Updated %s", count, time.Now().In(month.Month.Location()).Format("15:04"))
+		month.SyncMessage = i18n.N(r.Context(), "server.calendar.synced", count, "count", i18n.Number(r.Context(), count), "time", i18n.Dates(r.Context()).Time(time.Now().In(month.Month.Location())))
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if month.SyncError {

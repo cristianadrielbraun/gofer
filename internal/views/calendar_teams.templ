@@ -1,6 +1,7 @@
 package views
 
 import (
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"github.com/cristianadrielbraun/gofer/components/button"
 	"github.com/cristianadrielbraun/gofer/components/icon"
 	"github.com/cristianadrielbraun/gofer/components/label"
@@ -11,12 +12,12 @@ import (
 templ CalendarTeamsOption(data CalendarTeamsData) {
 	{{ available := data.State == "available" || data.State == "available-default" }}
 	{{ name := "teams_meeting" }}
-	{{ title := "Teams meeting" }}
+	{{ title := i18n.T(ctx, "calendar.teams.title") }}
 	{{ id := "calendar-create-teams" }}
-	{{ retryLabel := "Retry Teams availability check" }}
+	{{ retryLabel := i18n.T(ctx, "calendar.teams.retry") }}
 	if data.Provider == "gmail" {
-		{{ name, title, id = "google_meet_meeting", "Google Meet meeting", "calendar-create-google-meet" }}
-		{{ retryLabel = "Retry Google Meet availability check" }}
+		{{ name, title, id = "google_meet_meeting", i18n.T(ctx, "calendar.meet.title"), "calendar-create-google-meet" }}
+		{{ retryLabel = i18n.T(ctx, "calendar.meet.retry") }}
 	}
 	// An existing Meet conference can be removed: the switch drives a hidden
 	// field so turning it off submits false. Teams cannot be turned off.
@@ -57,33 +58,33 @@ templ CalendarTeamsOption(data CalendarTeamsData) {
 				<div data-calendar-meet-link hidden class="flex min-w-0 items-center gap-2">
 					<a data-calendar-meet-url target="_blank" rel="noopener noreferrer" class="min-w-0 break-all text-sm underline underline-offset-4"></a>
 					@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeSm, Attributes: templ.Attributes{"data-calendar-meet-copy": "", "data-on-click": onAction("copyCalendarMeetLink", actionElement)}}) {
-						Copy link
+						{ i18n.T(ctx, "calendar.meet.copy_link") }
 					}
 				</div>
 				@button.Button(button.Props{Variant: button.VariantGhost, Size: button.SizeSm, Attributes: templ.Attributes{"data-calendar-meet-prepare-retry": "", "hidden": true, "data-on-click": retryAction}}) {
-					Retry
+					{ i18n.T(ctx, "calendar.retry") }
 				}
 			</div>
 		} else if data.Provider == "gmail" && data.JoinURL != "" {
 			<a data-calendar-meet-existing-link href={ templ.SafeURL(data.JoinURL) } target="_blank" rel="noopener noreferrer" class="mt-2 block break-all text-sm underline underline-offset-4">{ data.JoinURL }</a>
 		}
 		if removable {
-			<p data-calendar-meet-removal hidden role="status" class="mt-2 text-xs text-muted-foreground">The Meet link is removed when you save. Guests are sent the update.</p>
+			<p data-calendar-meet-removal hidden role="status" class="mt-2 text-xs text-muted-foreground">{ i18n.T(ctx, "calendar.meet.removal") }</p>
 		}
 		if replaceable {
 			<div data-calendar-teams-replace hidden role="status" class="mt-2 space-y-2 rounded-md border border-border bg-muted/40 p-3 text-xs leading-relaxed text-muted-foreground">
-				<p class="font-medium text-foreground">Microsoft doesn’t allow turning Teams off on a meeting.</p>
-				<p>Instead, Gofer can replace it: when you save, it creates a copy of this meeting without Teams, then deletes this one.</p>
+				<p class="font-medium text-foreground">{ i18n.T(ctx, "calendar.teams.replace.title") }</p>
+				<p>{ i18n.T(ctx, "calendar.teams.replace.intro") }</p>
 				<ul class="list-disc space-y-1 pl-4">
-					<li>Guests get a cancellation for this meeting and an invitation to the copy, so their replies start over.</li>
+					<li>{ i18n.T(ctx, "calendar.teams.replace.guests") }</li>
 					if data.Series {
-						<li>The whole series is created again from its first date. Changes made to single dates aren’t kept.</li>
+						<li>{ i18n.T(ctx, "calendar.teams.replace.series") }</li>
 					}
-					<li>The description is copied without Microsoft’s Teams joining details, which would point to the deleted meeting.</li>
+					<li>{ i18n.T(ctx, "calendar.teams.replace.description") }</li>
 				</ul>
 				<label class="flex items-start gap-2 text-foreground">
 					<input type="checkbox" class="mt-0.5" data-calendar-teams-replace-confirm/>
-					<span>Replace this meeting with a copy without Teams</span>
+					<span>{ i18n.T(ctx, "calendar.teams.replace.confirm") }</span>
 				</label>
 			</div>
 		}

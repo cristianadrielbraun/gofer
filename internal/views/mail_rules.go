@@ -1,7 +1,7 @@
 package views
 
 import (
-	"fmt"
+	"context"
 	"github.com/a-h/templ"
 	"net/url"
 	"slices"
@@ -11,20 +11,22 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"github.com/cristianadrielbraun/gofer/internal/mailrules"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 )
 
 // mailRuleFields are the parts of a message a condition can test, in the
 // order the form offers them.
-var mailRuleFields = []struct{ value, label string }{
-	{models.MailRuleFieldFrom, "From"},
-	{models.MailRuleFieldTo, "To"},
-	{models.MailRuleFieldCC, "Cc"},
-	{models.MailRuleFieldRecipients, "To or Cc"},
-	{models.MailRuleFieldSubject, "Subject"},
-	{models.MailRuleFieldListID, "Mailing list"},
-	{models.MailRuleFieldFolder, "Folder"},
+// Each one's label is the message "rules.field.<value>".
+var mailRuleFields = []string{
+	models.MailRuleFieldFrom,
+	models.MailRuleFieldTo,
+	models.MailRuleFieldCC,
+	models.MailRuleFieldRecipients,
+	models.MailRuleFieldSubject,
+	models.MailRuleFieldListID,
+	models.MailRuleFieldFolder,
 }
 
 // MailRuleTextOperators are the comparisons a condition on text can make.
@@ -33,53 +35,48 @@ var MailRuleTextOperators = []string{
 	models.MailRuleOpStartsWith, models.MailRuleOpEndsWith, models.MailRuleOpMatches,
 }
 
-var mailRuleOperatorLabels = map[string]string{
-	models.MailRuleOpContains:    "contains",
-	models.MailRuleOpNotContains: "doesn't contain",
-	models.MailRuleOpIs:          "is",
-	models.MailRuleOpIsNot:       "isn't",
-	models.MailRuleOpStartsWith:  "starts with",
-	models.MailRuleOpEndsWith:    "ends with",
-	models.MailRuleOpMatches:     "matches pattern",
-}
-
 // mailRuleActionKinds are the things a rule can do, in the order the form
-// offers them.
-var mailRuleActionKinds = []struct{ value, label string }{
-	{models.MailRuleActionMove, "Move to folder"},
-	{models.MailRuleActionArchive, "Archive"},
-	{models.MailRuleActionTrash, "Move to Trash"},
-	{models.MailRuleActionSpam, "Mark as spam"},
-	{models.MailRuleActionMarkRead, "Mark as read"},
-	{models.MailRuleActionStar, "Star"},
-	{models.MailRuleActionLabel, "Add label"},
+// offers them. Each one's label is the message "rules.action.<kind>".
+var mailRuleActionKinds = []string{
+	models.MailRuleActionMove,
+	models.MailRuleActionArchive,
+	models.MailRuleActionTrash,
+	models.MailRuleActionSpam,
+	models.MailRuleActionMarkRead,
+	models.MailRuleActionStar,
+	models.MailRuleActionLabel,
 }
 
+// mailRuleRoleLabels holds the message naming each folder every account
+// has.
 var mailRuleRoleLabels = map[string]string{
-	"inbox": "Inbox", "archive": "Archive", "trash": "Trash", "junk": "Spam", "sent": "Sent", "drafts": "Drafts",
+	"inbox": "folder.inbox", "archive": "folder.archive", "trash": "folder.trash", "junk": "folder.spam", "sent": "folder.sent", "drafts": "folder.drafts",
 }
 
-func mailRuleFieldLabel(field string) string {
-	for _, f := range mailRuleFields {
-		if f.value == field {
-			return f.label
-		}
+func mailRuleRoleLabel(ctx context.Context, role string) string {
+	if key, ok := mailRuleRoleLabels[role]; ok {
+		return i18n.T(ctx, key)
+	}
+	return role
+}
+
+func mailRuleFieldLabel(ctx context.Context, field string) string {
+	if slices.Contains(mailRuleFields, field) {
+		return i18n.T(ctx, "rules.field."+field)
 	}
 	return field
 }
 
-func mailRuleOperatorLabel(operator string) string {
-	if label, ok := mailRuleOperatorLabels[operator]; ok {
-		return label
+func mailRuleOperatorLabel(ctx context.Context, operator string) string {
+	if slices.Contains(MailRuleTextOperators, operator) {
+		return i18n.T(ctx, "rules.op."+operator)
 	}
 	return operator
 }
 
-func mailRuleActionLabel(kind string) string {
-	for _, k := range mailRuleActionKinds {
-		if k.value == kind {
-			return k.label
-		}
+func mailRuleActionLabel(ctx context.Context, kind string) string {
+	if slices.Contains(mailRuleActionKinds, kind) {
+		return i18n.T(ctx, "rules.action."+kind)
 	}
 	return kind
 }
@@ -98,24 +95,24 @@ func mailRuleFolderValue(target *models.MailRuleFolderTarget) string {
 }
 
 // mailRuleFolderName names a folder a rule points at.
-func mailRuleFolderName(target *models.MailRuleFolderTarget, accounts []models.MailRuleAccount) string {
+func mailRuleFolderName(ctx context.Context, target *models.MailRuleFolderTarget, accounts []models.MailRuleAccount) string {
 	if target == nil {
-		return "a folder"
+		return i18n.T(ctx, "rules.folder.unknown")
 	}
 	if target.Role != "" {
-		return mailRuleRoleLabels[target.Role]
+		return mailRuleRoleLabel(ctx, target.Role)
 	}
 	for _, account := range accounts {
 		for _, folder := range account.Folders {
 			if folder.ID == target.FolderID {
-				return mailRuleFolderChoiceName(folder) + " in " + mailRuleAccountTitle(account)
+				return i18n.T(ctx, "rules.folder.in_account", "folder", mailRuleFolderChoiceName(folder), "account", mailRuleAccountTitle(account))
 			}
 		}
 	}
 	if target.Path != "" {
 		return target.Path
 	}
-	return "a folder that is gone"
+	return i18n.T(ctx, "rules.folder.gone")
 }
 
 // mailRuleAccountTitle names an account: its address, or its name when it
@@ -166,28 +163,20 @@ func mailRuleOwnFolders(accounts []models.MailRuleAccount, accountID string) []m
 	return folders
 }
 
-// mailRuleConditionText says what a condition tests, in words.
-func mailRuleConditionText(condition models.MailRuleCondition, accounts []models.MailRuleAccount) string {
-	if condition.Field == models.MailRuleFieldFolder {
-		return "Folder " + mailRuleOperatorLabel(condition.Operator) + " " + mailRuleFolderName(condition.Folder, accounts)
-	}
-	return mailRuleFieldLabel(condition.Field) + " " + mailRuleOperatorLabel(condition.Operator) + " “" + condition.Value + "”"
-}
-
 // mailRuleRunSummary is the rule's summary in its run dialog.
-func mailRuleRunSummary(rule models.MailRule, accounts []models.MailRuleAccount) string {
-	return mailRuleListSummary(rule, accounts)
+func mailRuleRunSummary(ctx context.Context, rule models.MailRule, accounts []models.MailRuleAccount) string {
+	return mailRuleListSummary(ctx, rule, accounts)
 }
 
 // mailRuleActionText says what an action does, in words.
-func mailRuleActionText(action models.MailRuleAction, accounts []models.MailRuleAccount) string {
+func mailRuleActionText(ctx context.Context, action models.MailRuleAction, accounts []models.MailRuleAccount) string {
 	switch action.Kind {
 	case models.MailRuleActionMove:
-		return "Move to " + mailRuleFolderName(action.Folder, accounts)
+		return i18n.T(ctx, "rules.action_text.move", "folder", mailRuleFolderName(ctx, action.Folder, accounts))
 	case models.MailRuleActionLabel:
-		return "Add label “" + action.Label + "”"
+		return i18n.T(ctx, "rules.action_text.label", "label", action.Label)
 	}
-	return mailRuleActionLabel(action.Kind)
+	return mailRuleActionLabel(ctx, action.Kind)
 }
 
 type mailRuleIndexedCondition struct {
@@ -214,35 +203,32 @@ const mailRuleCompactControl = "bg-background h-8 md:text-xs"
 
 // mailRuleListSummary says in a line who a rule is for, how much it tests
 // and what it does: "All accounts · 3 conditions in 2 groups · Archive".
-func mailRuleListSummary(rule models.MailRule, accounts []models.MailRuleAccount) string {
-	return mailRuleAccountName(rule, accounts) + " · " + mailRuleConditionsCount(rule) + " · " + mailRuleActionsText(rule, accounts)
+func mailRuleListSummary(ctx context.Context, rule models.MailRule, accounts []models.MailRuleAccount) string {
+	return mailRuleAccountName(ctx, rule, accounts) + " · " + mailRuleConditionsCount(ctx, rule) + " · " + mailRuleActionsText(ctx, rule, accounts)
 }
 
 // mailRuleConditionsCount counts a rule's conditions, and its groups when
 // it has more than one: "1 condition", "3 conditions in 2 groups".
-func mailRuleConditionsCount(rule models.MailRule) string {
-	count := fmt.Sprintf("%d conditions", len(rule.Conditions))
-	if len(rule.Conditions) == 1 {
-		count = "1 condition"
-	}
+func mailRuleConditionsCount(ctx context.Context, rule models.MailRule) string {
+	count := i18n.N(ctx, "rules.conditions", len(rule.Conditions))
 	if groups := len(mailRuleConditionGroups(rule)); groups > 1 {
-		count += fmt.Sprintf(" in %d groups", groups)
+		return i18n.T(ctx, "rules.conditions_in_groups", "conditions", count, "groups", groups)
 	}
 	return count
 }
 
-func mailRuleActionsText(rule models.MailRule, accounts []models.MailRuleAccount) string {
+func mailRuleActionsText(ctx context.Context, rule models.MailRule, accounts []models.MailRuleAccount) string {
 	actions := make([]string, 0, len(rule.Actions))
 	for _, action := range rule.Actions {
-		actions = append(actions, mailRuleActionText(action, accounts))
+		actions = append(actions, mailRuleActionText(ctx, action, accounts))
 	}
 	return strings.Join(actions, ", ")
 }
 
 // mailRuleAccountName says which accounts a rule is for.
-func mailRuleAccountName(rule models.MailRule, accounts []models.MailRuleAccount) string {
+func mailRuleAccountName(ctx context.Context, rule models.MailRule, accounts []models.MailRuleAccount) string {
 	if !rule.AccountsChosen {
-		return "All accounts"
+		return i18n.T(ctx, "rules.accounts.all")
 	}
 	var names []string
 	for _, account := range accounts {
@@ -250,13 +236,15 @@ func mailRuleAccountName(rule models.MailRule, accounts []models.MailRuleAccount
 			names = append(names, mailRuleAccountTitle(account))
 		}
 	}
-	switch {
-	case len(names) == 0:
-		return "No accounts to watch"
-	case len(names) <= 2:
-		return strings.Join(names, " and ")
+	switch len(names) {
+	case 0:
+		return i18n.T(ctx, "rules.accounts.none")
+	case 1:
+		return names[0]
+	case 2:
+		return i18n.T(ctx, "rules.accounts.two", "first", names[0], "second", names[1])
 	}
-	return fmt.Sprintf("%d accounts", len(names))
+	return i18n.T(ctx, "rules.accounts.many", "count", len(names))
 }
 
 // mailRuleAccountColor is the color of the one account a rule is for, or
@@ -275,19 +263,19 @@ func mailRuleAccountColor(rule models.MailRule, accounts []models.MailRuleAccoun
 
 // mailRuleRunScopes are the folders a rule can be run on: a role in every
 // account it is for, then each account's own folders.
-func mailRuleRunScopes(rule models.MailRule, accounts []models.MailRuleAccount) (roles []struct{ value, label string }, own []models.MailRuleAccount) {
+func mailRuleRunScopes(ctx context.Context, rule models.MailRule, accounts []models.MailRuleAccount) (roles []struct{ value, label string }, own []models.MailRuleAccount) {
 	watched := 0
 	for _, account := range accounts {
 		if mailRuleWatchable(account) && rule.WatchesAccount(account.ID) {
 			watched++
 		}
 	}
-	every := ""
-	if watched > 1 {
-		every = " (each account)"
-	}
 	for _, role := range []string{"inbox", "archive", "junk", "trash"} {
-		roles = append(roles, struct{ value, label string }{"role:" + role, mailRuleRoleLabels[role] + every})
+		label := mailRuleRoleLabel(ctx, role)
+		if watched > 1 {
+			label = i18n.T(ctx, "rules.run.each_account", "folder", label)
+		}
+		roles = append(roles, struct{ value, label string }{"role:" + role, label})
 	}
 	for _, account := range accounts {
 		if !mailRuleWatchable(account) || !rule.WatchesAccount(account.ID) {
@@ -301,45 +289,28 @@ func mailRuleRunScopes(rule models.MailRule, accounts []models.MailRuleAccount) 
 }
 
 // MailRuleRunScopeName names the folder chosen for a run.
-func MailRuleRunScopeName(scope string, accounts []models.MailRuleAccount) string {
+func MailRuleRunScopeName(ctx context.Context, scope string, accounts []models.MailRuleAccount) string {
 	kind, rest, _ := strings.Cut(scope, ":")
 	if kind == "role" {
-		return mailRuleRoleLabels[rest]
+		return mailRuleRoleLabel(ctx, rest)
 	}
-	return mailRuleFolderName(&models.MailRuleFolderTarget{FolderID: rest}, accounts)
+	return mailRuleFolderName(ctx, &models.MailRuleFolderTarget{FolderID: rest}, accounts)
 }
 
-// mailRuleCount writes a count with its thousands apart: 12,345.
-func mailRuleCount(n int) string {
-	digits := strconv.Itoa(n)
-	if n < 0 || len(digits) <= 3 {
-		return digits
-	}
-	var b strings.Builder
-	for i, digit := range digits {
-		if i > 0 && (len(digits)-i)%3 == 0 {
-			b.WriteByte(',')
-		}
-		b.WriteRune(digit)
-	}
-	return b.String()
+// mailRuleCount writes a count with the language's digit grouping: 12,345.
+func mailRuleCount(ctx context.Context, n int) string {
+	return i18n.Number(ctx, n)
 }
 
 // MailRuleMessages counts messages in words: "1 message", "2,500 messages".
-func MailRuleMessages(n int) string {
-	if n == 1 {
-		return "1 message"
-	}
-	return mailRuleCount(n) + " messages"
+func MailRuleMessages(ctx context.Context, n int) string {
+	return mailRuleCountOf(ctx, "rules.messages", n)
 }
 
-// mailRuleMessagesWord is "message" or "messages", for a count shown
-// apart.
-func mailRuleMessagesWord(n int) string {
-	if n == 1 {
-		return "message"
-	}
-	return "messages"
+// mailRuleCountOf fills a counted message with n, written with the
+// language's digit grouping.
+func mailRuleCountOf(ctx context.Context, key string, n int, args ...any) string {
+	return i18n.N(ctx, key, n, append([]any{"count", mailRuleCount(ctx, n)}, args...)...)
 }
 
 // mailRuleRunScopeOpen reports whether the folder of a run can still be
@@ -358,16 +329,16 @@ func mailRuleDialogWidth(data models.MailRulesData) string {
 }
 
 // MailRuleRunDoneNotice says what a finished run by hand did.
-func MailRuleRunDoneNotice(run models.MailRuleRunData) string {
+func MailRuleRunDoneNotice(ctx context.Context, run models.MailRuleRunData) string {
 	if run.Changed == 0 {
-		return "Nothing changed: the messages had moved, or no longer needed the rule."
+		return i18n.T(ctx, "rules.run.done.nothing")
 	}
-	notice := "Changed " + MailRuleMessages(run.Changed) + " in " + run.ScopeName + "."
+	notice := mailRuleCountOf(ctx, "rules.run.done.changed", run.Changed, "scope", run.ScopeName)
 	if run.Unchanged > 0 {
-		notice += " " + MailRuleMessages(run.Unchanged) + " had moved, or no longer needed it."
+		notice += " " + mailRuleCountOf(ctx, "rules.run.done.unchanged", run.Unchanged)
 	}
 	if run.Failed > 0 {
-		notice += " " + MailRuleMessages(run.Failed) + " couldn't be changed; the rule's activity says why."
+		notice += " " + mailRuleCountOf(ctx, "rules.run.done.failed", run.Failed)
 	}
 	return notice
 }
@@ -417,39 +388,49 @@ func mailRuleSentence(text string) string {
 	return string(unicode.ToUpper(first)) + text[size:]
 }
 
+// mailRuleActivityRuleName names an entry's rule; a rule deleted before a
+// run by hand finished has no name stored.
+func mailRuleActivityRuleName(ctx context.Context, run models.MailRuleRun) string {
+	if run.RuleName == "" {
+		return i18n.T(ctx, "rules.activity.deleted_rule")
+	}
+	return run.RuleName
+}
+
 // mailRuleActivityDetail says, under an entry, which rule it was and what
 // it did: "Newsletters · From news@example.com · Archived".
-func mailRuleActivityDetail(run models.MailRuleRun) string {
-	parts := []string{run.RuleName}
+func mailRuleActivityDetail(ctx context.Context, run models.MailRuleRun) string {
+	parts := []string{mailRuleActivityRuleName(ctx, run)}
 	if run.MessageID == 0 {
 		if run.Trigger == models.MailRuleTriggerManual {
-			parts = append(parts, "Run by hand")
+			parts = append(parts, i18n.T(ctx, "rules.activity.by_hand"))
 		}
 		return strings.Join(parts, " · ")
 	}
 	if run.FromEmail != "" {
-		parts = append(parts, "From "+run.FromEmail)
+		parts = append(parts, i18n.T(ctx, "rules.activity.from", "email", run.FromEmail))
 	}
 	if run.Trigger == models.MailRuleTriggerManual {
-		parts = append(parts, "Run by hand")
+		parts = append(parts, i18n.T(ctx, "rules.activity.by_hand"))
 	}
 	if run.Detail != "" {
-		parts = append(parts, mailRuleSentence(run.Detail))
+		parts = append(parts, mailRuleSentence(mailrules.DetailText(ctx, run.Detail)))
 	}
 	return strings.Join(parts, " · ")
 }
 
 // mailRuleActivityTime says when an entry happened: the time today, the
 // day this year, or the date.
-func mailRuleActivityTime(at, now time.Time) string {
+func mailRuleActivityTime(ctx context.Context, at, now time.Time) string {
 	now = now.In(at.Location())
+	dates := i18n.Dates(ctx)
 	switch {
 	case at.Year() == now.Year() && at.YearDay() == now.YearDay():
-		return at.Format("15:04")
+		return dates.Time(at)
 	case at.Year() == now.Year():
-		return at.Format("Jan 2, 15:04")
+		return dates.ShortDateTime(at)
 	}
-	return at.Format("Jan 2, 2006")
+	return dates.Date(at)
 }
 
 // mailRuleActivityMessageURL opens the message an entry names, in a folder
@@ -474,8 +455,8 @@ func mailRuleActivityMorePath(data models.MailRuleActivityData) string {
 // mailRuleFolderTriggerAttributes names the folder picker for screen readers.
 // A move's picker draws the form again when it changes, to offer what
 // happens to mail moved from another account.
-func mailRuleFolderTriggerAttributes(forMove bool) templ.Attributes {
-	attributes := templ.Attributes{"aria-label": "Folder"}
+func mailRuleFolderTriggerAttributes(ctx context.Context, forMove bool) templ.Attributes {
+	attributes := templ.Attributes{"aria-label": i18n.T(ctx, "rules.field.folder")}
 	if forMove {
 		attributes["data-mail-rule-rerender"] = ""
 	}

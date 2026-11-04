@@ -1,6 +1,7 @@
 package views
 
 import (
+	"context"
 	"net/url"
 	"strconv"
 	"strings"
@@ -9,6 +10,8 @@ import (
 	"github.com/a-h/templ"
 
 	"github.com/cristianadrielbraun/gofer/internal/models"
+
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 )
 
 type CalendarDay struct {
@@ -29,7 +32,6 @@ type CalendarMonthData struct {
 	DateKey          string
 	PeriodKey        string
 	Month            time.Time
-	MonthLabel       string
 	MonthKey         string
 	PreviousMonthKey string
 	NextMonthKey     string
@@ -125,7 +127,6 @@ func NewCalendarMonthData(at time.Time) CalendarMonthData {
 		DateKey:          at.Format("2006-01-02"),
 		PeriodKey:        monthKey,
 		Month:            month,
-		MonthLabel:       month.Format("January 2006"),
 		MonthKey:         monthKey,
 		PreviousMonthKey: month.AddDate(0, -1, 0).Format("2006-01"),
 		NextMonthKey:     month.AddDate(0, 1, 0).Format("2006-01"),
@@ -150,15 +151,27 @@ func calendarMonthURL(monthKey string) string {
 	return "/calendar"
 }
 
-func calendarWeekdayLabel(index int) string {
-	return []string{"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"}[index%7]
+// calendarPeriodLabel is the calendar's title: the month, or the days of the
+// week on screen.
+func calendarPeriodLabel(ctx context.Context, month CalendarMonthData) string {
+	dates := i18n.Dates(ctx)
+	if month.View == "week" && len(month.Weeks) > 0 && len(month.Weeks[0].Days) > 0 {
+		days := month.Weeks[0].Days
+		return dates.DateRange(days[0].Date, days[len(days)-1].Date)
+	}
+	return dates.MonthYear(month.Month)
 }
 
-func calendarDayLabel(day CalendarDay) string {
+// calendarWeekdayLabel names a column of a week that starts on Monday.
+func calendarWeekdayLabel(ctx context.Context, index int) string {
+	return i18n.Dates(ctx).WeekdayShortName(time.Weekday((index + 1) % 7))
+}
+
+func calendarDayLabel(ctx context.Context, day CalendarDay) string {
 	if !day.InMonth {
-		return day.Date.Format("Monday, January 2, 2006") + ", outside this month"
+		return i18n.T(ctx, "calendar.day_outside_month", "date", i18n.Dates(ctx).LongDate(day.Date))
 	}
-	return day.Date.Format("Monday, January 2, 2006")
+	return i18n.Dates(ctx).LongDate(day.Date)
 }
 
 func calendarDayClass(day CalendarDay) string {
@@ -270,18 +283,18 @@ func calendarVisibleEventCount(events []CalendarEvent) int {
 	return count
 }
 
-func calendarSourceDisplayName(source models.AccountCalendarSource) string {
+func calendarSourceDisplayName(ctx context.Context, source models.AccountCalendarSource) string {
 	if name := strings.TrimSpace(source.Name); name != "" {
 		return name
 	}
-	return "Untitled calendar"
+	return i18n.T(ctx, "calendar.untitled_calendar")
 }
 
-func calendarEventSummary(event CalendarEvent) string {
+func calendarEventSummary(ctx context.Context, event CalendarEvent) string {
 	if summary := strings.TrimSpace(event.Summary); summary != "" {
 		return summary
 	}
-	return "Untitled event"
+	return i18n.T(ctx, "calendar.untitled_event")
 }
 
 func calendarEventColorStyle(event CalendarEvent) string {
@@ -292,40 +305,41 @@ func calendarEventColorStyle(event CalendarEvent) string {
 	return "background-color: " + accountColorValue(color) + ";"
 }
 
-func calendarEventTimeLabel(event CalendarEvent, location *time.Location) string {
+func calendarEventTimeLabel(ctx context.Context, event CalendarEvent, location *time.Location) string {
 	if event.AllDay {
-		return "All day"
+		return i18n.T(ctx, "calendar.all_day")
 	}
 	if event.StartAt == nil {
 		return ""
 	}
-	return event.StartAt.In(location).Format("15:04")
+	return i18n.Dates(ctx).Time(event.StartAt.In(location))
 }
 
-func calendarEventAgendaDateLabel(event CalendarEvent, location *time.Location) string {
+func calendarEventAgendaDateLabel(ctx context.Context, event CalendarEvent, location *time.Location) string {
 	if event.AllDay {
 		if parsed, err := time.ParseInLocation("2006-01-02", event.StartDate, location); err == nil {
-			return parsed.Format("Mon, Jan 2")
+			return i18n.Dates(ctx).WeekdayShortDate(parsed)
 		}
 		return event.StartDate
 	}
 	if event.StartAt == nil {
 		return ""
 	}
-	return event.StartAt.In(location).Format("Mon, Jan 2")
+	return i18n.Dates(ctx).WeekdayShortDate(event.StartAt.In(location))
 }
 
-func calendarEventAgendaTimeLabel(event CalendarEvent, location *time.Location) string {
+func calendarEventAgendaTimeLabel(ctx context.Context, event CalendarEvent, location *time.Location) string {
 	if event.AllDay {
-		return "All day"
+		return i18n.T(ctx, "calendar.all_day")
 	}
 	if event.StartAt == nil {
 		return ""
 	}
+	dates := i18n.Dates(ctx)
 	if event.EndAt == nil || event.EndAt.Equal(*event.StartAt) {
-		return event.StartAt.In(location).Format("15:04")
+		return dates.Time(event.StartAt.In(location))
 	}
-	return event.StartAt.In(location).Format("15:04") + "–" + event.EndAt.In(location).Format("15:04")
+	return dates.TimeRange(event.StartAt.In(location), event.EndAt.In(location))
 }
 
 func calendarEventMeta(event CalendarEvent) string {
@@ -368,41 +382,6 @@ func calendarAgendaStatusDotClass(month CalendarMonthData) string {
 	return "size-2 rounded-full bg-muted-foreground/50"
 }
 
-func calendarAgendaStatusLabel(month CalendarMonthData) string {
-	if month.Syncing {
-		return "Refreshing calendars"
-	}
-	if month.SyncError {
-		return "Calendar sync needs attention"
-	}
-	if month.LastSyncedAt != nil && month.PendingSources == 0 {
-		return "Calendar synchronized"
-	}
-	if month.HasSources {
-		return "Calendar sync pending"
-	}
-	return "Ready for calendar connections"
-}
-
-func calendarAgendaStatusDetail(month CalendarMonthData) string {
-	if month.Syncing {
-		return "Fetching events from your selected calendars."
-	}
-	if month.SyncError {
-		return "Previously cached events remain available. " + month.SyncMessage
-	}
-	if month.SyncMessage != "" {
-		return month.SyncMessage
-	}
-	if month.LastSyncedAt != nil && month.PendingSources == 0 {
-		return "Last synced " + month.LastSyncedAt.In(month.Month.Location()).Format("15:04") + ". Background refresh is enabled."
-	}
-	if month.HasSources {
-		return "Waiting for the first successful refresh. Cached events remain available."
-	}
-	return "Choose calendars in account setup to show their events here."
-}
-
 func calendarSyncMessageClass(month CalendarMonthData) string {
 	if month.Syncing {
 		return "inline-flex items-center gap-1.5 text-muted-foreground"
@@ -416,44 +395,44 @@ func calendarSyncMessageClass(month CalendarMonthData) string {
 	return "inline-flex items-center gap-1.5 text-muted-foreground"
 }
 
-func calendarSyncMessage(month CalendarMonthData) string {
+func calendarSyncMessage(ctx context.Context, month CalendarMonthData) string {
 	if month.Syncing {
-		return "Refreshing calendars…"
+		return i18n.T(ctx, "calendar.status.refreshing_all")
 	}
 	if month.SyncMessage != "" {
 		return month.SyncMessage
 	}
 	if month.LastSyncedAt != nil && month.PendingSources == 0 {
-		return "Last synced " + month.LastSyncedAt.In(month.Month.Location()).Format("15:04")
+		return i18n.T(ctx, "calendar.status.last_synced", "time", i18n.Dates(ctx).Time(month.LastSyncedAt.In(month.Month.Location())))
 	}
 	if month.HasSources {
-		return "Waiting for first refresh"
+		return i18n.T(ctx, "calendar.status.waiting_first")
 	}
-	return "Choose calendars in account setup to get started"
+	return i18n.T(ctx, "calendar.status.choose_calendars")
 }
 
-func calendarSourceSyncTitle(source models.AccountCalendarSource) string {
+func calendarSourceSyncTitle(ctx context.Context, source models.AccountCalendarSource) string {
 	switch source.SyncState {
 	case "syncing":
-		return "Refreshing calendar…"
+		return i18n.T(ctx, "calendar.status.refreshing_one")
 	case "failed":
-		return "Refresh failed: " + source.SyncError + ". Cached events remain available; retrying automatically."
+		return i18n.T(ctx, "calendar.status.failed", "error", i18n.ServerText(ctx, source.SyncError))
 	case "ok":
 		if source.LastSyncedAt != "" {
-			return "Last synced " + source.LastSyncedAt
+			return i18n.T(ctx, "calendar.status.last_synced", "time", source.LastSyncedAt)
 		}
 	}
-	return "Waiting for first refresh"
+	return i18n.T(ctx, "calendar.status.waiting_first")
 }
 
-func calendarAccountDisplayName(account models.Account) string {
+func calendarAccountName(ctx context.Context, account models.Account) string {
 	if name := strings.TrimSpace(account.Name); name != "" {
 		return name
 	}
 	if email := strings.TrimSpace(account.Email); email != "" {
 		return email
 	}
-	return "Connected account"
+	return i18n.T(ctx, "calendar.connected_account")
 }
 
 func calendarConfiguredAccounts(accounts []models.Account) []models.Account {
@@ -528,16 +507,16 @@ func calendarPersonalItemAttributes(state, action string, account models.Account
 
 // calendarSourceHome names where a calendar lives, for saying what deleting
 // it deletes from.
-func calendarSourceHome(source models.AccountCalendarSource) string {
+func calendarSourceHome(ctx context.Context, source models.AccountCalendarSource) string {
 	switch source.Provider {
 	case "gmail":
 		return "Google Calendar"
 	case "outlook":
 		return "Outlook"
 	case "jmap":
-		return "the account's JMAP server"
+		return i18n.T(ctx, "calendar.home.jmap")
 	}
-	return "the account's CalDAV server"
+	return i18n.T(ctx, "calendar.home.caldav")
 }
 
 func calendarAccountProviderLabel(account models.Account) string {
@@ -587,7 +566,7 @@ func calendarTransferProvider(provider string) bool {
 
 // calendarTransferCalendars are the synced calendars of the accounts that
 // Gofer can import into (writable only) and export.
-func calendarTransferCalendars(accounts []models.Account, writable bool) []calendarTransferChoice {
+func calendarTransferCalendars(ctx context.Context, accounts []models.Account, writable bool) []calendarTransferChoice {
 	var choices []calendarTransferChoice
 	for _, account := range calendarConfiguredAccounts(accounts) {
 		for _, source := range account.CalendarSources {
@@ -597,7 +576,7 @@ func calendarTransferCalendars(accounts []models.Account, writable bool) []calen
 			if writable && !calendarTransferWritable(source) {
 				continue
 			}
-			choices = append(choices, calendarTransferChoice{Value: "source:" + source.ID, Label: calendarAccountDisplayName(account) + " / " + calendarSourceDisplayName(source), SourceID: source.ID})
+			choices = append(choices, calendarTransferChoice{Value: "source:" + source.ID, Label: calendarAccountName(ctx, account) + " / " + calendarSourceDisplayName(ctx, source), SourceID: source.ID})
 		}
 	}
 	return choices
@@ -612,7 +591,7 @@ func calendarTransferWritable(source models.AccountCalendarSource) bool {
 
 // calendarTransferNewTargets are the accounts that sync calendars, where an
 // import can make a new calendar.
-func calendarTransferNewTargets(accounts []models.Account) []calendarTransferChoice {
+func calendarTransferNewTargets(ctx context.Context, accounts []models.Account) []calendarTransferChoice {
 	var choices []calendarTransferChoice
 	for _, account := range calendarConfiguredAccounts(accounts) {
 		syncs := false
@@ -622,10 +601,11 @@ func calendarTransferNewTargets(accounts []models.Account) []calendarTransferCho
 			}
 		}
 		if syncs {
-			choice := calendarTransferChoice{Value: "account:" + account.ID, Label: "New calendar in " + calendarAccountDisplayName(account)}
+			name := calendarAccountName(ctx, account)
+			choice := calendarTransferChoice{Value: "account:" + account.ID, Label: i18n.T(ctx, "calendar.transfer.new_in", "account", name)}
 			if account.CalendarCreateNeedsReconnect {
 				// Its sign-in can't make calendars until it is reconnected.
-				choice.Label += " (reconnect the account first)"
+				choice.Label = i18n.T(ctx, "calendar.transfer.new_in_reconnect", "account", name)
 				choice.Disabled = true
 			}
 			choices = append(choices, choice)

@@ -28,20 +28,20 @@
       corner: 3,
     }
     var fieldLabels = {
-      avatar: "Avatar",
-      thread: "Thread count",
-      from: "Sender",
-      account: "Account",
-      accountMarker: "Account marker",
-      to: "Recipient",
-      cc: "CC",
-      date: "Date",
-      subject: "Subject",
-      preview: "Preview",
-      labels: "Labels",
-      attachment: "Attachment",
-      starred: "Star",
-      unread: "Unread dot",
+      avatar: goferT("js.mail.card_field.avatar"),
+      thread: goferT("js.mail.card_field.thread"),
+      from: goferT("js.mail.card_field.from"),
+      account: goferT("js.mail.card_field.account"),
+      accountMarker: goferT("js.mail.card_field.accountMarker"),
+      to: goferT("js.mail.card_field.to"),
+      cc: goferT("js.mail.card_field.cc"),
+      date: goferT("js.mail.card_field.date"),
+      subject: goferT("js.mail.card_field.subject"),
+      preview: goferT("js.mail.card_field.preview"),
+      labels: goferT("js.mail.card_field.labels"),
+      attachment: goferT("js.mail.card_field.attachment"),
+      starred: goferT("js.mail.card_field.starred"),
+      unread: goferT("js.mail.card_field.unread"),
     }
     // Fields with their own options, opened from a ⚙ on the field's token.
     var fieldsWithOptions = { date: true, account: true }
@@ -336,7 +336,7 @@
       options.className = "mail-card-layout-token-options"
       options.setAttribute("role", "button")
       options.setAttribute("tabindex", "0")
-      options.setAttribute("aria-label", (fieldLabels[id] || id) + " options")
+      options.setAttribute("aria-label", goferT("js.mail.card_layout.field_options", { field: fieldLabels[id] || id }))
       options.setAttribute("aria-expanded", "false")
       options.dataset.mailCardLayoutTokenOptions = id
       options.innerHTML = GEAR_SVG
@@ -391,7 +391,7 @@
     }
 
     function categoryLabel(category) {
-      return category === "icon" ? "Icon-only fields" : "Text fields"
+      return category === "icon" ? goferT("js.mail.card_layout.icon_fields") : goferT("js.mail.card_layout.text_fields")
     }
 
     function createHiddenFieldGroup(category) {
@@ -407,6 +407,8 @@
       var list = document.createElement("div")
       list.className = "mail-card-layout-token-list mail-card-layout-field-group-items"
       list.dataset.mailCardLayoutCategoryList = category
+      // CSS shows this when the group is empty.
+      list.dataset.emptyLabel = goferT("js.mail.card_layout.none")
       group.appendChild(list)
 
       return group
@@ -513,7 +515,7 @@
       if (!dialog) return
       var count = visibleCount(dialog)
       var limit = dialog.querySelector("[data-mail-card-layout-limit]")
-      if (limit) limit.textContent = count + " fields"
+      if (limit) limit.textContent = goferTn("js.mail.card_layout.fields", count)
 
       var hidden = hiddenTray(dialog)
       var hiddenTokens = hidden ? hidden.querySelectorAll("[data-mail-card-layout-token]") : []
@@ -525,7 +527,7 @@
         hiddenTokens[i].classList.toggle("mail-card-layout-token-disabled", !canShow)
         hiddenTokens[i].dataset.mailCardLayoutTooltip = canShow
           ? fieldLabels[id] || id || ""
-          : "No compatible slot available"
+          : goferT("js.mail.card_layout.no_slot")
         hiddenTokens[i].removeAttribute("title")
       }
     }

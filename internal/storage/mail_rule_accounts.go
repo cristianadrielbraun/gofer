@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"github.com/cristianadrielbraun/gofer/internal/mailrules"
 	"strings"
 
 	"github.com/cristianadrielbraun/gofer/internal/models"
@@ -129,20 +130,19 @@ func (r *mailRuleRunner) otherAccount(target models.MailRuleFolderTarget) bool {
 }
 
 // transferNeedless is needless for a move to another account's folder.
-func (r *mailRuleRunner) transferNeedless(m *mailRuleMessage, arrival string, target models.MailRuleFolderTarget) (string, bool) {
+func (r *mailRuleRunner) transferNeedless(m *mailRuleMessage, arrival string, target models.MailRuleFolderTarget) (mailrules.Note, bool) {
 	folder, _, err := r.otherFolder(context.Background(), target)
 	if err != nil {
-		name := target.Path
-		if name == "" {
-			name = "chosen"
+		if target.Path == "" {
+			return mailrules.NewNote("chosen_folder_gone"), true
 		}
-		return "not moved: the folder “" + name + "” is gone", true
+		return mailrules.NewNote("folder_gone", "folder", target.Path), true
 	}
 	var queued bool
 	if err := r.db.Read().QueryRow(`SELECT EXISTS(SELECT 1 FROM mail_rule_transfers WHERE message_id = ? AND target_folder_id = ?)`, m.id, folder.id).Scan(&queued); err == nil && queued {
-		return "already on its way to “" + folder.name + "”", true
+		return mailrules.NewNote("on_its_way", "folder", folder.name, "role", folder.role), true
 	}
-	return "not moved: the message is in no folder", r.source(m, arrival) == ""
+	return mailrules.NewNote("in_no_folder"), r.source(m, arrival) == ""
 }
 
 // otherFolder finds a folder of another of the owner's accounts, by ID or by
@@ -165,18 +165,18 @@ func (r *mailRuleRunner) otherFolder(ctx context.Context, target models.MailRule
 
 // queueTransfer sets a message aside to be moved to another account's
 // folder, which copies it there and then deletes it here.
-func (r *mailRuleRunner) queueTransfer(ctx context.Context, m *mailRuleMessage, arrival string, action models.MailRuleAction, target models.MailRuleFolderTarget) (string, error) {
+func (r *mailRuleRunner) queueTransfer(ctx context.Context, m *mailRuleMessage, arrival string, action models.MailRuleAction, target models.MailRuleFolderTarget) (mailrules.Note, error) {
 	folder, account, err := r.otherFolder(ctx, target)
 	if err != nil {
-		return "move", err
+		return mailrules.NewNote("move"), err
 	}
 	if _, err := r.db.Write().ExecContext(ctx, `
 		INSERT OR IGNORE INTO mail_rule_transfers (user_id, message_id, source_account_id, source_folder_id, target_folder_id, for_good)
 		VALUES (?, ?, ?, ?, ?, ?)`, r.owner, m.id, r.accountID, r.source(m, arrival), folder.id, action.ForGood); err != nil {
-		return "move", err
+		return mailrules.NewNote("move"), err
 	}
 	r.transfers = true
-	return "moving to “" + folder.name + "” in " + account, nil
+	return mailrules.NewNote("moving_to", "folder", folder.name, "role", folder.role, "account", account), nil
 }
 
 // MailRuleTransfer is a message a rule moves to another account's folder.

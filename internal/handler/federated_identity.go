@@ -1,7 +1,9 @@
 package handler
 
 import (
+	"context"
 	"errors"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"log"
 	"net/http"
 	"net/url"
@@ -271,13 +273,13 @@ func (h *Handler) handleSecurityOIDCIdentityUnlink(w http.ResponseWriter, r *htt
 	http.Redirect(w, r, "/settings/security?oidc_unlinked=1", http.StatusSeeOther)
 }
 
-func federatedIdentityViewData(identities []auth.FederatedIdentitySummary) []views.FederatedIdentityData {
+func federatedIdentityViewData(ctx context.Context, identities []auth.FederatedIdentitySummary) []views.FederatedIdentityData {
 	result := make([]views.FederatedIdentityData, 0, len(identities))
 	for _, identity := range identities {
 		view := views.FederatedIdentityData{
 			ID: identity.ID, Provider: identity.Provider,
-			Email: identity.Email, LinkedAt: identity.LinkedAt.Local().Format("Jan 2, 2006"),
-			CanUnlink: identity.CanUnlink, UnlinkReason: identity.UnlinkReason,
+			Email: identity.Email, LinkedAt: i18n.Dates(ctx).Date(identity.LinkedAt.Local()),
+			CanUnlink: identity.CanUnlink, UnlinkReason: authText(ctx, identity.UnlinkReason),
 		}
 		if identity.Provider == "google" {
 			view.UnlinkPath = securityGoogleIdentityUnlinkPath(identity.ID)
@@ -287,7 +289,7 @@ func federatedIdentityViewData(identities []auth.FederatedIdentitySummary) []vie
 			view.UnlinkPath = securityOIDCIdentityUnlinkPath(identity.ID)
 		}
 		if identity.LastUsedAt != nil {
-			view.LastUsedAt = identity.LastUsedAt.Local().Format("Jan 2, 2006")
+			view.LastUsedAt = i18n.Dates(ctx).Date(identity.LastUsedAt.Local())
 		}
 		result = append(result, view)
 	}

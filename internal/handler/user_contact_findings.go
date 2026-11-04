@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"net/http"
 	"net/url"
 	"sort"
@@ -66,7 +67,7 @@ func (h *Handler) handleUserContactSyncSetupFindings(w http.ResponseWriter, r *h
 				return err
 			}
 			if searchErr != nil {
-				location.Error = searchErr.Error()
+				location.Error = serverText(ctx, searchErr.Error())
 			}
 			setup.Locations = append(setup.Locations, location)
 		}
@@ -79,12 +80,12 @@ func (h *Handler) handleUserContactSyncSetupFindings(w http.ResponseWriter, r *h
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if filter != "" {
 		if err := views.ContactSyncSetupLocation(setup.Contact.ID, setup.Locations[0]).Render(r.Context(), w); err != nil {
-			http.Error(w, "Could not render contact sync findings", 500)
+			http.Error(w, i18n.T(r.Context(), "server.error.could_not_render_contact_sync_findings"), 500)
 		}
 		return
 	}
 	if err := views.ContactSyncSetupDiscover(setup).Render(r.Context(), w); err != nil {
-		http.Error(w, "Could not render contact sync findings", 500)
+		http.Error(w, i18n.T(r.Context(), "server.error.could_not_render_contact_sync_findings"), 500)
 	}
 }
 

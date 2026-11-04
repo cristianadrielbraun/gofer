@@ -2,6 +2,7 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const path = require('node:path')
 const vm = require('node:vm')
+const loadI18n = require('./i18n-test-helper.cjs')
 
 const source = fs.readFileSync(path.join(__dirname, '../assets/js/app.js'), 'utf8')
 const start = source.indexOf('  function setupMailFilters() {')
@@ -82,6 +83,7 @@ const window = {
 }
 const context = vm.createContext({document, window, URLSearchParams, virtualMailList: null,
   setTimeout: window.setTimeout, clearTimeout: window.clearTimeout})
+loadI18n(context)
 vm.runInContext(fs.readFileSync(path.join(__dirname, '../assets/js/virtual-scroll.js'), 'utf8'), context)
 vm.runInContext(source.slice(start, end) + '\nsetupMailFilters()', context)
 context.virtualMailList = {

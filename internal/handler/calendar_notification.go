@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/calendar"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"github.com/cristianadrielbraun/gofer/internal/mail/message"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
@@ -134,11 +135,12 @@ func (h *Handler) queueCalendarNotification(ctx context.Context, source storage.
 		summaryEvent = cal.Events()[0].Component
 	}
 	summary, _ := summaryEvent.Props.Text("SUMMARY")
-	label := "Invitation"
+	subjectKey := "mail.outgoing.calendar.invitation"
 	if method == "CANCEL" {
-		label = "Canceled"
+		subjectKey = "mail.outgoing.calendar.canceled"
 	}
-	msg := &message.OutgoingMessage{FromName: account.Name, FromEmail: account.Email, Subject: label + ": " + strings.NewReplacer("\r", " ", "\n", " ").Replace(summary), TextBody: label + ": " + summary,
+	textCtx := i18n.ForUser(ctx, source.UserID)
+	msg := &message.OutgoingMessage{FromName: account.Name, FromEmail: account.Email, Subject: i18n.T(textCtx, subjectKey, "summary", strings.NewReplacer("\r", " ", "\n", " ").Replace(summary)), TextBody: i18n.T(textCtx, subjectKey, "summary", summary),
 		MessageID: message.NewMessageID(), Date: time.Now().UTC(), CalendarNotification: &message.CalendarNotification{UserID: source.UserID, SourceID: source.ID, ResourceID: endpoint, Method: method, Calendar: body, ExpectedCalendar: desired, Deleted: deleted}}
 	for _, guest := range guests {
 		msg.To = append(msg.To, &mail.Address{Name: guest.Name, Address: guest.Email})

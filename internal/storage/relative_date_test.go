@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"context"
 	"testing"
 	"time"
 )
@@ -19,7 +20,7 @@ func TestFormatRelativeDateWithTime(t *testing.T) {
 		{"earlier year", time.Date(2024, 12, 31, 23, 59, 0, 0, loc), "Dec 31, 2024, 11:59 PM"},
 	}
 	for _, tc := range cases {
-		if got := formatRelativeDateWithTime(tc.at, now, loc); got != tc.want {
+		if got := formatRelativeDateWithTime(context.Background(), tc.at, now, loc); got != tc.want {
 			t.Errorf("%s: got %q, want %q", tc.name, got, tc.want)
 		}
 	}

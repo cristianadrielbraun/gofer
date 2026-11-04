@@ -73,16 +73,16 @@ func writeFolderError(w http.ResponseWriter, r *http.Request, action string, err
 	var trashRefusal folderTrashRefusal
 	switch {
 	case errors.As(err, &trashRefusal):
-		http.Error(w, string(trashRefusal), http.StatusConflict)
+		http.Error(w, serverText(r.Context(), string(trashRefusal)), http.StatusConflict)
 	case errors.As(err, &refusal):
-		http.Error(w, string(refusal), http.StatusBadRequest)
+		http.Error(w, serverText(r.Context(), string(refusal)), http.StatusBadRequest)
 	case errors.Is(err, storage.ErrFolderNotManaged), errors.Is(err, errFolderAccount):
 		http.NotFound(w, r)
 	case errors.Is(err, errFolderServer):
-		http.Error(w, err.Error(), http.StatusBadGateway)
+		http.Error(w, serverText(r.Context(), err.Error()), http.StatusBadGateway)
 	default:
 		log.Printf("%s: %v", action, err)
-		http.Error(w, "Couldn't "+action+".", http.StatusInternalServerError)
+		http.Error(w, serverText(r.Context(), "Couldn't "+action+"."), http.StatusInternalServerError)
 	}
 }
 

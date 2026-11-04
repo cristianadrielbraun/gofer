@@ -1,6 +1,7 @@
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const vm = require('node:vm')
+const loadI18n = require('./i18n-test-helper.cjs')
 const source = fs.readFileSync(require('node:path').join(__dirname, '../assets/js/app.js'), 'utf8')
 function fn(name) {
   const start = source.indexOf('function ' + name + '(')
@@ -13,6 +14,7 @@ let cleared = 0, focused = 0
 const input = {value: '"Last, First" <first@example.com>, sec', disabled: false, dispatchEvent(event) { events.push(event.type) }, focus() { focused++ }}
 const form = {querySelector(selector) { return selector === '[name="guests"]' ? input : {replaceChildren() { cleared++ }} }}
 const runtime = vm.createContext({window: {htmx: {trigger(node, type) { aborts.push([node, type]) }}}, Event: class { constructor(type) { this.type = type } }})
+loadI18n(runtime)
 vm.runInContext(fn('updateCalendarGuestDropdown') + '\n' + fn('selectCalendarGuest'), runtime)
 runtime.selectCalendarGuest({closest() { return form }, dataset: {calendarGuestValue: 'Second <second@example.com>'}})
 assert.equal(input.value, '"Last, First" <first@example.com>, Second <second@example.com>, ')
@@ -33,6 +35,7 @@ const guestInput = {disabled: false, setAttribute(name, value) { attributes[name
 const dropdownForm = {querySelector(selector) { return selector === '[name="guests"]' ? guestInput : selector === '#calendar-guests-dropdown' ? root : list }}
 const dropdownDocument = {activeElement: guestInput}
 const dropdownRuntime = vm.createContext({document: dropdownDocument, window: {tui: {popover: {open(id) { dropdownCalls.push(['open', id]) }, close(id) { dropdownCalls.push(['close', id]) }, isOpen() { return true }}}}})
+loadI18n(dropdownRuntime)
 vm.runInContext(fn('updateCalendarGuestDropdown') + '\n' + fn('handleCalendarGuestKeydown'), dropdownRuntime)
 dropdownRuntime.updateCalendarGuestDropdown(dropdownForm)
 assert.equal(content.style.width, '384px', 'dropdown must match the guest field width')
@@ -54,6 +57,7 @@ const fields = {
   start_date: {value: '2026-10-25'}, end_date: {value: '2026-10-25'}, timezone: {value: 'Europe/Berlin'}, start_time: {value: '09:00'}, end_time: {value: '10:00'},
 }
 const recurrenceRuntime = vm.createContext({adjustCalendarCreateAllDayRange() {}, setCalendarCreateError(form, message) { error = message }})
+loadI18n(recurrenceRuntime)
 vm.runInContext(fn('validateCalendarCreatePickers'), recurrenceRuntime)
 const repeatForm = {querySelector(selector) { const match = selector.match(/name="([^"]+)"/); return match ? fields[match[1]] : {focus() { focused++ }} }}
 assert.equal(recurrenceRuntime.validateCalendarCreatePickers(repeatForm), true, 'meetings with guests can repeat')

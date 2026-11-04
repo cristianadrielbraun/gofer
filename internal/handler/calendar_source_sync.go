@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"net/http"
 	"strings"
 	"time"
@@ -20,7 +21,7 @@ func (h *Handler) handleCalendarSourceSync(w http.ResponseWriter, r *http.Reques
 	start := r.Method != http.MethodDelete
 	sourceID, owner := strings.TrimSpace(r.PathValue("id")), h.userID(r.Context())
 	if sourceID == "" {
-		http.Error(w, "calendar required", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.calendar_required"), http.StatusBadRequest)
 		return
 	}
 	var err error
@@ -54,11 +55,11 @@ func (h *Handler) handleCalendarSourceSync(w http.ResponseWriter, r *http.Reques
 	case errors.Is(err, sql.ErrNoRows):
 		http.NotFound(w, r)
 	case errors.Is(err, storage.ErrCalendarSourceSelection):
-		http.Error(w, "This calendar is no longer offered. Refresh the page.", http.StatusConflict)
+		http.Error(w, i18n.T(r.Context(), "server.error.this_calendar_is_no_longer_offered_refresh"), http.StatusConflict)
 	case err != nil && h.userStorage != nil:
 		userAccountError(w, r, err)
 	case err != nil:
-		http.Error(w, "Could not change whether this calendar syncs.", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.could_not_change_whether_this_calendar_syncs"), http.StatusInternalServerError)
 	default:
 		w.WriteHeader(http.StatusNoContent)
 	}

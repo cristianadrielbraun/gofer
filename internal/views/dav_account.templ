@@ -1,6 +1,8 @@
 package views
 
 import (
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
+	"context"
 	"net/url"
 	"strings"
 
@@ -57,16 +59,16 @@ func mailAccounts(accounts []models.Account) []models.Account {
 	return out
 }
 
-// accountAddress is the line under an account's name: its email address, or
-// for an account with no mail, its login on its server.
-func accountAddress(account models.Account) string {
+// accountAddressIn is the line under an account's name: its email address,
+// or for an account with no mail, its login on its server.
+func accountAddressIn(ctx context.Context, account models.Account) string {
 	if !accountHasNoMail(account) {
 		return account.Email
 	}
 	host := davServerHost(account.DAVServer)
 	switch {
 	case account.DAVLogin != "" && host != "":
-		return account.DAVLogin + " on " + host
+		return i18n.T(ctx, "dav.login_on_host", "login", account.DAVLogin, "host", host)
 	case host != "":
 		return host
 	}
@@ -82,11 +84,11 @@ func davServerHost(server string) string {
 }
 
 // accountNoMailLabel names what an account with no mail is.
-func accountNoMailLabel(account models.Account) string {
+func accountNoMailLabel(ctx context.Context, account models.Account) string {
 	if account.DAVService == davServiceContacts {
-		return "Contacts only"
+		return i18n.T(ctx, "dav.contacts_only")
 	}
-	return "Calendar only"
+	return i18n.T(ctx, "dav.calendar_only")
 }
 
 func davDialogID(data DAVAccountDialogData) string {
@@ -106,23 +108,23 @@ templ SettingsAddAccountButton() {
 				Class: "btn-skeuo shrink-0 rounded-r-none",
 			}) {
 				@icon.Plus(icon.Props{Class: "size-4"})
-				Add Account
+				{ i18n.T(ctx, "dav.add_account") }
 			}
 		}
 		@dropdown.Dropdown() {
 			@dropdown.Trigger() {
-				<button type="button" class="btn-skeuo inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-l-none rounded-r-md border-l border-primary-foreground/25 text-primary-foreground" aria-label="More ways to add an account">
+				<button type="button" class="btn-skeuo inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-l-none rounded-r-md border-l border-primary-foreground/25 text-primary-foreground" aria-label={ i18n.T(ctx, "dav.more_ways") }>
 					@icon.EllipsisVertical(icon.Props{Class: "size-4"})
 				</button>
 			}
 			@dropdown.Content(dropdown.ContentProps{Placement: dropdown.PlacementBottomEnd, Class: "w-48 normal-case tracking-normal"}) {
 				@dropdown.Item(dropdown.ItemProps{Class: "justify-start gap-2", Attributes: templ.Attributes{"type": "button", "data-on-click": onAction("openDAVAccountDialog", davServiceCalendar)}}) {
 					@icon.CalendarDays(icon.Props{Class: "size-4 text-muted-foreground"})
-					Calendar only
+					{ i18n.T(ctx, "dav.calendar_only") }
 				}
 				@dropdown.Item(dropdown.ItemProps{Class: "justify-start gap-2", Attributes: templ.Attributes{"type": "button", "data-on-click": onAction("openDAVAccountDialog", davServiceContacts)}}) {
 					@icon.BookUser(icon.Props{Class: "size-4 text-muted-foreground"})
-					Contacts only
+					{ i18n.T(ctx, "dav.contacts_only") }
 				}
 			}
 		}
@@ -145,13 +147,13 @@ templ DAVAccountDialog(data DAVAccountDialogData) {
 					if editing {
 						{ data.Name }
 					} else {
-						<span data-dav-mode="calendar">Add a calendar-only account</span>
-						<span data-dav-mode="contacts">Add a contacts-only account</span>
+						<span data-dav-mode="calendar">{ i18n.T(ctx, "dav.add_calendar_title") }</span>
+						<span data-dav-mode="contacts">{ i18n.T(ctx, "dav.add_contacts_title") }</span>
 					}
 				}
 				@dialog.Description() {
-					<span data-dav-mode="calendar">Calendars from a CalDAV server, such as Radicale, Davis or Nextcloud.</span>
-					<span data-dav-mode="contacts">Address books from a CardDAV server, such as Radicale, Davis or Nextcloud.</span>
+					<span data-dav-mode="calendar">{ i18n.T(ctx, "dav.calendar_description") }</span>
+					<span data-dav-mode="contacts">{ i18n.T(ctx, "dav.contacts_description") }</span>
 				}
 			}
 			<form class={ dataDialogFormClass } data-dav-account-form novalidate>
@@ -160,26 +162,26 @@ templ DAVAccountDialog(data DAVAccountDialogData) {
 					if data.NeedsPassword {
 						<p class="flex items-start gap-2 rounded-lg border border-amber-300/50 bg-amber-100/50 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300" data-dav-account-needs-password>
 							@icon.KeyRound(icon.Props{Class: "mt-0.5 size-3.5 shrink-0"})
-							<span>Imported from a profile. Enter its password and save to start syncing.</span>
+							<span>{ i18n.T(ctx, "dav.needs_password") }</span>
 						</p>
 					}
 					<div>
-						<label class="mb-1.5 block text-xs font-medium text-muted-foreground">Name <span class="font-normal">(optional)</span></label>
-						@input.Input(input.Props{Name: "display_name", Type: input.TypeText, Value: data.Name, Placeholder: "The server's name"})
+						<label class="mb-1.5 block text-xs font-medium text-muted-foreground">{ i18n.T(ctx, "contacts.field.name") } <span class="font-normal">{ i18n.T(ctx, "identities.optional") }</span></label>
+						@input.Input(input.Props{Name: "display_name", Type: input.TypeText, Value: data.Name, Placeholder: i18n.T(ctx, "dav.name_placeholder")})
 					</div>
 					<div>
-						<label class="mb-1.5 block text-xs font-medium text-muted-foreground">Server URL</label>
+						<label class="mb-1.5 block text-xs font-medium text-muted-foreground">{ i18n.T(ctx, "dav.server_url") }</label>
 						@input.Input(input.Props{Name: "server_url", Type: input.TypeURL, Value: data.ServerURL, Placeholder: "https://dav.example.com/", Required: true, Attributes: templ.Attributes{"data-dav-login": ""}})
 					</div>
 					<div class="grid gap-3 sm:grid-cols-2">
 						<div>
-							<label class="mb-1.5 block text-xs font-medium text-muted-foreground">Username</label>
+							<label class="mb-1.5 block text-xs font-medium text-muted-foreground">{ i18n.T(ctx, "identities.username") }</label>
 							@input.Input(input.Props{Name: "username", Type: input.TypeText, Value: data.Username, Required: true, Attributes: templ.Attributes{"autocomplete": "username", "data-dav-login": ""}})
 						</div>
 						<div>
-							<label class="mb-1.5 block text-xs font-medium text-muted-foreground">Password or app password</label>
+							<label class="mb-1.5 block text-xs font-medium text-muted-foreground">{ i18n.T(ctx, "dav.password") }</label>
 							if editing && !data.NeedsPassword {
-								@input.Input(input.Props{Name: "password", Type: input.TypePassword, Placeholder: "Leave blank to keep current", Attributes: templ.Attributes{"autocomplete": "current-password", "data-dav-login": ""}})
+								@input.Input(input.Props{Name: "password", Type: input.TypePassword, Placeholder: i18n.T(ctx, "dav.password_keep"), Attributes: templ.Attributes{"autocomplete": "current-password", "data-dav-login": ""}})
 							} else {
 								@input.Input(input.Props{Name: "password", Type: input.TypePassword, Placeholder: "••••••••", Required: true, Attributes: templ.Attributes{"autocomplete": "current-password", "data-dav-login": ""}})
 							}
@@ -188,8 +190,8 @@ templ DAVAccountDialog(data DAVAccountDialogData) {
 					<div class="flex justify-end">
 						<button type="button" data-on-click='["findDAVItems","$this"]' data-dav-account-action class="inline-flex h-8 items-center gap-1.5 rounded-md border border-primary/30 bg-primary/10 px-3 text-xs font-semibold text-primary transition-colors hover:border-primary/45 hover:bg-primary/15 disabled:pointer-events-none disabled:opacity-60">
 							@icon.Search(icon.Props{Class: "size-3.5"})
-							<span data-dav-mode="calendar">Find calendars</span>
-							<span data-dav-mode="contacts">Find address books</span>
+							<span data-dav-mode="calendar">{ i18n.T(ctx, "dav.find_calendars") }</span>
+							<span data-dav-mode="contacts">{ i18n.T(ctx, "dav.find_address_books") }</span>
 						</button>
 					</div>
 					<div data-dav-account-status aria-live="polite" class="empty:hidden"></div>
@@ -203,17 +205,17 @@ templ DAVAccountDialog(data DAVAccountDialogData) {
 					if editing {
 						<button type="button" data-on-click={ onAction("openAddMailChooser", data.AccountID, data.Name) } class="mr-auto inline-flex items-center justify-center gap-1.5 rounded-lg border border-border px-3 py-2 text-sm font-medium transition-colors hover:bg-accent">
 							@icon.MailPlus(icon.Props{Class: "size-4"})
-							Add email
+							{ i18n.T(ctx, "dav.add_email") }
 						</button>
 					}
 					@dialog.Close() {
-						<button type="button" class="inline-flex items-center justify-center gap-1.5 rounded-lg border border-border px-4 py-2 text-sm font-medium transition-colors hover:bg-accent">Cancel</button>
+						<button type="button" class="inline-flex items-center justify-center gap-1.5 rounded-lg border border-border px-4 py-2 text-sm font-medium transition-colors hover:bg-accent">{ i18n.T(ctx, "common.cancel") }</button>
 					}
 					<button type="submit" data-dav-account-save data-dav-account-action disabled?={ len(data.Items) == 0 } class="inline-flex items-center justify-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50">
 						if editing {
-							Save
+							{ i18n.T(ctx, "common.save") }
 						} else {
-							Create account
+							{ i18n.T(ctx, "dav.create_account") }
 						}
 					</button>
 				}
@@ -229,22 +231,22 @@ templ DAVItems(service string, items []DAVItem) {
 		if len(items) == 0 {
 			<div class="text-xs font-semibold text-foreground">
 				if service == davServiceContacts {
-					No address books on this server yet
+					{ i18n.T(ctx, "dav.no_address_books") }
 				} else {
-					No calendars on this server yet
+					{ i18n.T(ctx, "dav.no_calendars") }
 				}
 			</div>
-			<p class="mt-1 text-[11px] leading-relaxed text-muted-foreground">Create one to sync. It is made on the server, so your other apps see it too.</p>
+			<p class="mt-1 text-[11px] leading-relaxed text-muted-foreground">{ i18n.T(ctx, "dav.create_one") }</p>
 		} else {
 			<div class="text-xs font-semibold text-foreground">
 				if service == davServiceContacts {
-					Address books to sync
+					{ i18n.T(ctx, "dav.address_books_to_sync") }
 				} else {
-					Calendars to sync
+					{ i18n.T(ctx, "dav.calendars_to_sync") }
 				}
 			</div>
 			if service == davServiceContacts {
-				<p class="mt-1 text-[11px] leading-relaxed text-muted-foreground">New contacts go into the default one.</p>
+				<p class="mt-1 text-[11px] leading-relaxed text-muted-foreground">{ i18n.T(ctx, "dav.default_note") }</p>
 			}
 		}
 		<div class="mt-3 max-h-64 space-y-2 overflow-y-auto overscroll-contain pr-1 empty:hidden">
@@ -264,12 +266,12 @@ templ DAVItems(service string, items []DAVItem) {
 						if service == davServiceContacts {
 							<span class="mt-2 inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
 								@radio.Radio(radio.Props{Name: "default_item", Value: item.ID, Checked: item.Default || (!davItemsHaveDefault(items) && i == 0)})
-								Default for new contacts
+								{ i18n.T(ctx, "dav.default_for_new") }
 							</span>
 						}
 					</span>
 					if item.Primary {
-						<span class="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">Primary</span>
+						<span class="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">{ i18n.T(ctx, "dav.primary") }</span>
 					}
 					if service == davServiceContacts {
 						@AddressBookActions(item.ID, item.Name, nil)
@@ -281,20 +283,20 @@ templ DAVItems(service string, items []DAVItem) {
 			<div class="min-w-0 flex-1">
 				<label class="mb-1.5 block text-xs font-medium text-muted-foreground">
 					if service == davServiceContacts {
-						New address book
+						{ i18n.T(ctx, "dav.new_address_book") }
 					} else {
-						New calendar
+						{ i18n.T(ctx, "dav.new_calendar") }
 					}
 				</label>
 				if service == davServiceContacts {
-					@input.Input(input.Props{Name: "dav_new_name", Type: input.TypeText, Placeholder: "Address book name", Attributes: templ.Attributes{"maxlength": "100", "autocomplete": "off", "data-dav-new-name": ""}})
+					@input.Input(input.Props{Name: "dav_new_name", Type: input.TypeText, Placeholder: i18n.T(ctx, "dav.address_book_name"), Attributes: templ.Attributes{"maxlength": "100", "autocomplete": "off", "data-dav-new-name": ""}})
 				} else {
-					@input.Input(input.Props{Name: "dav_new_name", Type: input.TypeText, Placeholder: "Calendar name", Attributes: templ.Attributes{"maxlength": "100", "autocomplete": "off", "data-dav-new-name": ""}})
+					@input.Input(input.Props{Name: "dav_new_name", Type: input.TypeText, Placeholder: i18n.T(ctx, "dav.calendar_name"), Attributes: templ.Attributes{"maxlength": "100", "autocomplete": "off", "data-dav-new-name": ""}})
 				}
 			</div>
 			<button type="button" data-on-click='["createDAVItem","$this"]' data-dav-account-action class="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md border border-primary/30 bg-primary/10 px-3 text-xs font-semibold text-primary transition-colors hover:border-primary/45 hover:bg-primary/15 disabled:pointer-events-none disabled:opacity-60">
 				@icon.Plus(icon.Props{Class: "size-3.5"})
-				Create
+				{ i18n.T(ctx, "dav.create") }
 			</button>
 		</div>
 	</div>
@@ -313,7 +315,7 @@ func davItemsHaveDefault(items []DAVItem) bool {
 // is, such as "Calendar only".
 templ AccountNoMailBadge(account models.Account) {
 	<span class="inline-flex shrink-0 items-center rounded-md border border-border/70 bg-muted/40 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground" data-account-no-mail>
-		{ accountNoMailLabel(account) }
+		{ accountNoMailLabel(ctx, account) }
 	</span>
 }
 
@@ -327,7 +329,7 @@ templ AccountAddMailButton(accountID string, name string, class string) {
 		class={ class }
 	>
 		@icon.MailPlus(icon.Props{Class: "size-3.5"})
-		Add email
+		{ i18n.T(ctx, "dav.add_email") }
 	</button>
 }
 
@@ -338,17 +340,17 @@ templ ChooseMailTypeDialog() {
 		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-md"}) {
 			@dialog.Header() {
 				@dialog.Title() {
-					Add email
+					{ i18n.T(ctx, "dav.add_email") }
 				}
 				@dialog.Description() {
-					Choose how <span class="font-medium text-foreground" data-add-mail-account-name></span> gets its mail. It then becomes a full account and keeps what it syncs now.
+					{ i18n.T(ctx, "dav.choose_mail_before") } <span class="font-medium text-foreground" data-add-mail-account-name></span>{ i18n.T(ctx, "dav.choose_mail_after") }
 				}
 			}
 			<div class="space-y-3 px-1 pt-2 pb-4">
-				@chooseMailTypeOption("", "imap", "IMAP / SMTP", "Any provider with manual server settings")
-				@chooseMailTypeOption(providers.MailServiceICloud, providers.MailServiceICloud, "iCloud", "Sign in with an app-specific password")
+				@chooseMailTypeOption("", "imap", "IMAP / SMTP", i18n.T(ctx, "dav.type_imap"))
+				@chooseMailTypeOption(providers.MailServiceICloud, providers.MailServiceICloud, "iCloud", i18n.T(ctx, "dav.type_icloud"))
 				if providers.JMAPEnabled() {
-					@chooseMailTypeOption(providers.ProviderJMAP, providers.ProviderJMAP, "JMAP", "Modern mail servers such as Stalwart")
+					@chooseMailTypeOption(providers.ProviderJMAP, providers.ProviderJMAP, "JMAP", i18n.T(ctx, "dav.type_jmap"))
 				}
 			</div>
 		}

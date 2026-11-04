@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"errors"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"net/http"
 	"net/url"
 	"strings"
@@ -32,7 +33,7 @@ func (h *Handler) handleUserContactSyncSetup(w http.ResponseWriter, r *http.Requ
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := views.ContactSyncSetupDialog(models.ContactSyncSetup{Contact: snapshot.Contact(), Phase: "searching", SearchMode: "automatic"}).Render(r.Context(), w); err != nil {
-		http.Error(w, "Could not render contact sync setup", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.could_not_render_contact_sync_setup"), http.StatusInternalServerError)
 	}
 }
 
@@ -88,7 +89,7 @@ func (h *Handler) selectedUserContactValue(ctx context.Context, owner string, sn
 func (h *Handler) handleUserPreviewContactSyncSetup(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 128<<10)
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Invalid setup choices", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_setup_choices"), http.StatusBadRequest)
 		return
 	}
 	keys := map[string]string{}
@@ -124,7 +125,7 @@ func (h *Handler) handleUserPreviewContactSyncSetup(w http.ResponseWriter, r *ht
 	if err != nil && result.Contact.ID == "" {
 		var provider userContactPreviewProviderError
 		if errors.As(err, &provider) && !errors.Is(err, storage.ErrContactEditChanged) && !errors.Is(err, config.ErrAccountServicesChanged) && !errors.Is(err, storage.ErrAccountRoute) && !errors.Is(err, storage.ErrUserStoreOwner) && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
-			http.Error(w, "Could not use the selected contact: "+err.Error(), http.StatusBadGateway)
+			http.Error(w, serverText(r.Context(), "Could not use the selected contact: "+err.Error()), http.StatusBadGateway)
 		} else {
 			userContactEditError(w, r, err)
 		}
@@ -136,6 +137,6 @@ func (h *Handler) handleUserPreviewContactSyncSetup(w http.ResponseWriter, r *ht
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := views.ContactSyncSetupResolve(setup).Render(r.Context(), w); err != nil {
-		http.Error(w, "Could not render conflict review", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.could_not_render_conflict_review"), http.StatusInternalServerError)
 	}
 }

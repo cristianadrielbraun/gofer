@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"io"
 	"os"
 	"path/filepath"
@@ -250,9 +251,9 @@ func (h *Handler) runMailExport(ctx context.Context, job *mailExportJob) {
 func mailExportErrorText(err error) string {
 	switch {
 	case errors.Is(err, storage.ErrAccountRoute), errors.Is(err, os.ErrNotExist):
-		return "The account is no longer available."
+		return i18n.Translate(i18n.English, "jobs.account_gone")
 	default:
-		return "Stopped after several messages in a row could not be downloaded: " + err.Error()
+		return i18n.Translate(i18n.English, "jobs.export.stopped", "error", err.Error())
 	}
 }
 

@@ -1,7 +1,9 @@
 package handler
 
 import (
+	"context"
 	"errors"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"log"
 	"net/http"
 	"os"
@@ -22,9 +24,9 @@ func (h *Handler) registerMailExportRoutes(register func(string, http.HandlerFun
 	register("GET /api/mail/exports/{id}/download", h.handleDownloadMailExport)
 }
 
-func (h *Handler) mailExportsAvailable(w http.ResponseWriter) bool {
+func (h *Handler) mailExportsAvailable(w http.ResponseWriter, r *http.Request) bool {
 	if h.mailExports == nil {
-		http.Error(w, "mail export is not available", http.StatusServiceUnavailable)
+		http.Error(w, i18n.T(r.Context(), "server.error.mail_export_is_not_available"), http.StatusServiceUnavailable)
 		return false
 	}
 	return true
@@ -56,7 +58,7 @@ func mailJobStarted(w http.ResponseWriter, dialogID string) {
 	w.Header().Set("HX-Trigger", `{"gofer-close-dialog":"`+dialogID+`","mail-jobs-changed":true}`)
 }
 
-func (h *Handler) mailExportJobViews(owner string) ([]views.MailExportJob, error) {
+func (h *Handler) mailExportJobViews(ctx context.Context, owner string) ([]views.MailExportJob, error) {
 	jobs, err := h.mailExports.jobs(owner)
 	if err != nil {
 		return nil, err
@@ -67,7 +69,7 @@ func (h *Handler) mailExportJobViews(owner string) ([]views.MailExportJob, error
 		view := views.MailExportJob{
 			ID: job.ID, Account: job.AccountEmail, State: job.State, Error: job.Error,
 			Processed: processed, Total: total, Exported: job.written(), Failed: job.Failed, NotSaved: job.NotSaved,
-			SavedOnly: job.LocalOnly, Started: job.CreatedAt.Local().Format("Jan 2, 15:04"),
+			SavedOnly: job.LocalOnly, Started: i18n.Dates(ctx).ShortDateTime(job.CreatedAt.Local()),
 		}
 		if job.State == mailJobRunning && h.mailExports.isWaiting(job.ID) {
 			view.Waiting = true
@@ -75,7 +77,7 @@ func (h *Handler) mailExportJobViews(owner string) ([]views.MailExportJob, error
 			view.Folder = folder.Path
 		}
 		for _, skipped := range job.Skipped {
-			view.Skipped = append(view.Skipped, skipped.Folder+": "+skipped.Reason)
+			view.Skipped = append(view.Skipped, skipped.Folder+": "+serverText(ctx, skipped.Reason))
 		}
 		result = append(result, view)
 	}
@@ -86,7 +88,7 @@ func (h *Handler) renderMailExportPanel(w http.ResponseWriter, r *http.Request, 
 	data, err := h.mailExportPanelData(r, message)
 	if err != nil {
 		log.Printf("mail export: %v", err)
-		http.Error(w, "could not list exports", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.could_not_list_exports"), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -94,10 +96,10 @@ func (h *Handler) renderMailExportPanel(w http.ResponseWriter, r *http.Request, 
 }
 
 func (h *Handler) renderMailExportJobs(w http.ResponseWriter, r *http.Request) {
-	jobs, err := h.mailExportJobViews(h.userID(r.Context()))
+	jobs, err := h.mailExportJobViews(r.Context(), h.userID(r.Context()))
 	if err != nil {
 		log.Printf("mail export: %v", err)
-		http.Error(w, "could not list exports", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.could_not_list_exports"), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -105,21 +107,21 @@ func (h *Handler) renderMailExportJobs(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleMailExports(w http.ResponseWriter, r *http.Request) {
-	if !h.mailExportsAvailable(w) {
+	if !h.mailExportsAvailable(w, r) {
 		return
 	}
 	h.renderMailExportPanel(w, r, "")
 }
 
 func (h *Handler) handleMailExportJobs(w http.ResponseWriter, r *http.Request) {
-	if !h.mailExportsAvailable(w) {
+	if !h.mailExportsAvailable(w, r) {
 		return
 	}
 	h.renderMailExportJobs(w, r)
 }
 
 func (h *Handler) handleNewMailExport(w http.ResponseWriter, r *http.Request) {
-	if !h.mailExportsAvailable(w) {
+	if !h.mailExportsAvailable(w, r) {
 		return
 	}
 	ctx, owner := r.Context(), h.userID(r.Context())
@@ -132,7 +134,7 @@ func (h *Handler) handleNewMailExport(w http.ResponseWriter, r *http.Request) {
 	folders, err := h.mailExportFolders(ctx, owner, account.ID)
 	if err != nil {
 		log.Printf("mail export: list folders: %v", err)
-		data.Message = "The account's folders could not be listed."
+		data.Message = i18n.T(r.Context(), "server.msg.the_account_s_folders_could_not_be")
 	}
 	for _, folder := range folders {
 		data.Folders = append(data.Folders, views.MailExportFolder{ID: folder.ID, Path: folder.Path, Role: folder.Role, Messages: folder.Messages})
@@ -142,11 +144,11 @@ func (h *Handler) handleNewMailExport(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleStartMailExport(w http.ResponseWriter, r *http.Request) {
-	if !h.mailExportsAvailable(w) {
+	if !h.mailExportsAvailable(w, r) {
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "bad request", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.bad_request"), http.StatusBadRequest)
 		return
 	}
 	ctx, owner := r.Context(), h.userID(r.Context())
@@ -183,7 +185,7 @@ func (h *Handler) handleDeleteMailExport(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *Handler) changeMailExport(w http.ResponseWriter, r *http.Request, change func(*mailExportJob)) {
-	if !h.mailExportsAvailable(w) {
+	if !h.mailExportsAvailable(w, r) {
 		return
 	}
 	job, err := h.mailExports.loadOwned(h.userID(r.Context()), r.PathValue("id"))
@@ -196,7 +198,7 @@ func (h *Handler) changeMailExport(w http.ResponseWriter, r *http.Request, chang
 }
 
 func (h *Handler) handleDownloadMailExport(w http.ResponseWriter, r *http.Request) {
-	if !h.mailExportsAvailable(w) {
+	if !h.mailExportsAvailable(w, r) {
 		return
 	}
 	job, err := h.mailExports.loadOwned(h.userID(r.Context()), r.PathValue("id"))
@@ -205,7 +207,7 @@ func (h *Handler) handleDownloadMailExport(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if err != nil {
-		http.Error(w, "could not read export", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.could_not_read_export"), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/zip")

@@ -2,9 +2,13 @@ package httpguard
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"strings"
+	"unicode/utf16"
+
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 )
 
 func (c *Config) Middleware(next http.Handler) http.Handler {
@@ -13,7 +17,7 @@ func (c *Config) Middleware(next http.Handler) http.Handler {
 		r = c.withClientAddress(r)
 
 		if !c.trustsHost(r.Host) {
-			requestBlocked(w, r, "Request host is not trusted. Check that GOFER_BASE_URL matches the URL used to open Gofer, including http:// or https:// and the port.", http.StatusMisdirectedRequest)
+			requestBlocked(w, r, "httpguard.untrusted_host", http.StatusMisdirectedRequest)
 			return
 		}
 		// Browsers send policy reports on their own, without the headers the
@@ -27,7 +31,7 @@ func (c *Config) Middleware(next http.Handler) http.Handler {
 			return
 		}
 		if requiresSameOrigin(r) && !c.isSameOriginRequest(r) {
-			requestBlocked(w, r, "Cross-origin request blocked. Check that GOFER_BASE_URL matches the URL used to open Gofer, including http:// or https:// and the port. If Gofer is behind a reverse proxy, use its public URL. Update the setting and restart Gofer before trying again.", http.StatusForbidden)
+			requestBlocked(w, r, "httpguard.cross_origin", http.StatusForbidden)
 			return
 		}
 
@@ -37,11 +41,15 @@ func (c *Config) Middleware(next http.Handler) http.Handler {
 
 // HTMX does not display error response bodies. Send a separate notification
 // while keeping the rejection status and leaving the current form intact.
-func requestBlocked(w http.ResponseWriter, r *http.Request, message string, status int) {
-	log.Printf("HTTP guard: %s %s: %s", r.Method, r.URL.Path, message)
+// requestBlocked refuses r with the message under key. The guard runs before
+// the signed-in language is known, so the message follows the language
+// cookie or the browser; the log keeps the English.
+func requestBlocked(w http.ResponseWriter, r *http.Request, key string, status int) {
+	log.Printf("HTTP guard: %s %s: %s", r.Method, r.URL.Path, i18n.Translate(i18n.English, key))
+	message := i18n.Translate(i18n.FromRequest(r), key)
 	if r.Header.Get("HX-Request") == "true" {
 		trigger, _ := json.Marshal(map[string]string{"gofer-request-blocked": message})
-		w.Header().Set("HX-Trigger", string(trigger))
+		w.Header().Set("HX-Trigger", asciiJSON(trigger))
 	}
 	http.Error(w, message, status)
 }
@@ -93,4 +101,24 @@ func setSecurityHeaders(w http.ResponseWriter) {
 	headers.Set("Referrer-Policy", "same-origin")
 	headers.Set("X-Content-Type-Options", "nosniff")
 	headers.Set("X-Frame-Options", "SAMEORIGIN")
+}
+
+// asciiJSON escapes the non-ASCII characters of encoded JSON, such as the
+// accents of a translated message, since browsers read header bytes as
+// Latin-1.
+func asciiJSON(encoded []byte) string {
+	var b strings.Builder
+	for _, r := range string(encoded) {
+		if r < 0x80 {
+			b.WriteRune(r)
+			continue
+		}
+		if r > 0xFFFF {
+			high, low := utf16.EncodeRune(r)
+			fmt.Fprintf(&b, "\\u%04x\\u%04x", high, low)
+			continue
+		}
+		fmt.Fprintf(&b, "\\u%04x", r)
+	}
+	return b.String()
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"log"
 	"net/http"
 
@@ -54,7 +55,7 @@ func (h *Handler) renderMailboxView(w http.ResponseWriter, r *http.Request, ctx 
 	})
 	if err != nil {
 		if errors.Is(err, errInvalidMailSearch) {
-			http.Error(w, "invalid mail search scope", http.StatusBadRequest)
+			http.Error(w, i18n.T(r.Context(), "server.error.invalid_mail_search_scope"), http.StatusBadRequest)
 			return
 		}
 		if errors.Is(err, storage.ErrMailSearchScope) {
@@ -70,7 +71,7 @@ func (h *Handler) renderMailboxView(w http.ResponseWriter, r *http.Request, ctx 
 			return
 		}
 		log.Printf("mailbox view unavailable: %v", err)
-		http.Error(w, "mailbox unavailable", http.StatusServiceUnavailable)
+		http.Error(w, i18n.T(r.Context(), "server.error.mailbox_unavailable"), http.StatusServiceUnavailable)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

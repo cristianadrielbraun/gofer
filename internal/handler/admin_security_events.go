@@ -2,8 +2,9 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"errors"
-	"fmt"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"log"
 	"net/http"
 	"net/url"
@@ -17,7 +18,7 @@ import (
 const adminSecurityActivityPath = "/admin/activity"
 const adminSecurityActivityRetentionPath = "/admin/activity/retention"
 
-func adminSecurityActivityViewData(page *auth.AdministratorSecurityEventPage) views.AdminSecurityActivityData {
+func adminSecurityActivityViewData(ctx context.Context, page *auth.AdministratorSecurityEventPage) views.AdminSecurityActivityData {
 	data := views.AdminSecurityActivityData{ManagedMode: true}
 	if page == nil {
 		return data
@@ -33,21 +34,21 @@ func adminSecurityActivityViewData(page *auth.AdministratorSecurityEventPage) vi
 	for _, event := range page.Events {
 		actor := strings.TrimSpace(event.ActorUsername)
 		if actor == "" {
-			actor = "System"
+			actor = i18n.T(ctx, "security.event.actor.system")
 		}
 		subject := strings.TrimSpace(event.SubjectUsername)
 		if subject == "" {
-			subject = "Instance"
+			subject = i18n.T(ctx, "security.event.subject.instance")
 		}
-		status := "Failed"
+		status := i18n.T(ctx, "security.event.status.failed")
 		if event.Success {
-			status = "Completed"
+			status = i18n.T(ctx, "security.event.status.completed")
 		}
 		data.Events = append(data.Events, views.AdminSecurityActivityEventData{
-			Title:          securityEventTitle(event.EventType, event.Success),
-			Detail:         securityEventDetail(event.Reason, event.Success),
-			OccurredAt:     formatSecuritySessionTime(event.OccurredAt),
-			Client:         securitySessionClientLabel(event.UserAgent),
+			Title:          securityEventTitle(ctx, event.EventType, event.Success),
+			Detail:         securityEventDetail(ctx, event.Reason, event.Success),
+			OccurredAt:     formatSecuritySessionTime(ctx, event.OccurredAt),
+			Client:         securitySessionClientLabel(ctx, event.UserAgent),
 			Status:         status,
 			Actor:          actor,
 			Subject:        subject,
@@ -87,12 +88,12 @@ func (h *Handler) handleAdminSecurityActivity(w http.ResponseWriter, r *http.Req
 	setAdminSecurityActivityHeaders(w)
 	requestedPage, err := parseSecurityActivityPage(r)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, serverText(r.Context(), err.Error()), http.StatusBadRequest)
 		return
 	}
 	filter, err := parseAdminSecurityActivityFilter(r)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, serverText(r.Context(), err.Error()), http.StatusBadRequest)
 		return
 	}
 
@@ -110,7 +111,7 @@ func (h *Handler) handleAdminSecurityActivity(w http.ResponseWriter, r *http.Req
 		}
 		if accessErr != nil {
 			log.Printf("authorize administrator security activity: %v", accessErr)
-			http.Error(w, "failed to authorize administrator security activity", http.StatusInternalServerError)
+			http.Error(w, i18n.T(r.Context(), "server.error.failed_to_authorize_administrator_security_activity"), http.StatusInternalServerError)
 			return
 		}
 		if !access.StepUpFresh {
@@ -136,7 +137,7 @@ func (h *Handler) handleAdminSecurityActivity(w http.ResponseWriter, r *http.Req
 			retention, retentionErr := h.auth.AuthenticationEventRetention(r.Context())
 			if retentionErr != nil {
 				log.Printf("load authentication event retention: %v", retentionErr)
-				http.Error(w, "failed to load administrator security activity", http.StatusInternalServerError)
+				http.Error(w, i18n.T(r.Context(), "server.error.failed_to_load_administrator_security_activity"), http.StatusInternalServerError)
 				return
 			}
 			page, loadErr := h.auth.ListAdministratorSecurityEventPage(
@@ -144,7 +145,7 @@ func (h *Handler) handleAdminSecurityActivity(w http.ResponseWriter, r *http.Req
 			)
 			switch {
 			case loadErr == nil:
-				data = adminSecurityActivityViewData(page)
+				data = adminSecurityActivityViewData(r.Context(), page)
 				data.Filter = string(filter)
 				data.RetentionDays = retention.Days
 				data.RetentionMinimumDays = auth.MinimumAuthenticationEventRetentionDays
@@ -160,11 +161,11 @@ func (h *Handler) handleAdminSecurityActivity(w http.ResponseWriter, r *http.Req
 					r.Context(), access, adminSecurityActivityReturnTo(requestedPage, filter), true,
 				)
 			case errors.Is(loadErr, auth.ErrAdministratorRequired):
-				http.Error(w, "admin access required", http.StatusForbidden)
+				http.Error(w, i18n.T(r.Context(), "server.error.admin_access_required"), http.StatusForbidden)
 				return
 			default:
 				log.Printf("load administrator security activity: %v", loadErr)
-				http.Error(w, "failed to load administrator security activity", http.StatusInternalServerError)
+				http.Error(w, i18n.T(r.Context(), "server.error.failed_to_load_administrator_security_activity"), http.StatusInternalServerError)
 				return
 			}
 		}
@@ -186,7 +187,7 @@ func (h *Handler) handleAdminSecurityActivity(w http.ResponseWriter, r *http.Req
 	}
 	if err != nil {
 		log.Printf("render administrator security activity: %v", err)
-		http.Error(w, "failed to render administrator security activity", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_render_administrator_security_activity"), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -195,11 +196,11 @@ func (h *Handler) handleAdminSecurityActivity(w http.ResponseWriter, r *http.Req
 
 func (h *Handler) handleSetAuthenticationEventRetention(w http.ResponseWriter, r *http.Request) {
 	if h.auth == nil || !h.auth.IsEnabled() {
-		http.Error(w, "managed authentication is required", http.StatusForbidden)
+		http.Error(w, i18n.T(r.Context(), "server.error.managed_authentication_is_required"), http.StatusForbidden)
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		redirectAdminSecurityActivity(w, r, "", "Invalid form data.", false)
+		redirectAdminSecurityActivity(w, r, "", i18n.T(r.Context(), "auth.admin.form_invalid"), false)
 		return
 	}
 	days, err := strconv.Atoi(strings.TrimSpace(r.FormValue("days")))
@@ -207,11 +208,7 @@ func (h *Handler) handleSetAuthenticationEventRetention(w http.ResponseWriter, r
 		days > auth.MaximumAuthenticationEventRetentionDays {
 		redirectAdminSecurityActivity(
 			w, r, "",
-			fmt.Sprintf(
-				"Enter a retention period between %d and %d days.",
-				auth.MinimumAuthenticationEventRetentionDays,
-				auth.MaximumAuthenticationEventRetentionDays,
-			),
+			i18n.T(r.Context(), "auth.admin.retention.invalid", "min", i18n.Number(r.Context(), auth.MinimumAuthenticationEventRetentionDays), "max", i18n.Number(r.Context(), auth.MaximumAuthenticationEventRetentionDays)),
 			false,
 		)
 		return
@@ -219,7 +216,7 @@ func (h *Handler) handleSetAuthenticationEventRetention(w http.ResponseWriter, r
 	currentUser := auth.GetCurrentUser(r.Context())
 	currentSession := auth.GetCurrentSession(r.Context())
 	if currentUser == nil || currentSession == nil {
-		http.Error(w, "admin access required", http.StatusForbidden)
+		http.Error(w, i18n.T(r.Context(), "server.error.admin_access_required"), http.StatusForbidden)
 		return
 	}
 	result, err := h.auth.SetAuthenticationEventRetention(
@@ -232,30 +229,26 @@ func (h *Handler) handleSetAuthenticationEventRetention(w http.ResponseWriter, r
 		if result.Changed {
 			h.wakeAuthenticationEventRetention()
 			redirectAdminSecurityActivity(
-				w, r, fmt.Sprintf("Security activity will now be retained for %d days.", days), "", false,
+				w, r, i18n.N(r.Context(), "auth.admin.retention.changed", days, "count", i18n.Number(r.Context(), days)), "", false,
 			)
 			return
 		}
 		redirectAdminSecurityActivity(
-			w, r, fmt.Sprintf("Security activity retention is already %d days.", days), "", false,
+			w, r, i18n.N(r.Context(), "auth.admin.retention.unchanged", days, "count", i18n.Number(r.Context(), days)), "", false,
 		)
 	case errors.Is(err, auth.ErrRecentStepUpRequired):
 		redirectAdminSecurityActivity(w, r, "", "", true)
 	case errors.Is(err, auth.ErrAdministratorRequired):
-		http.Error(w, "admin access required", http.StatusForbidden)
+		http.Error(w, i18n.T(r.Context(), "server.error.admin_access_required"), http.StatusForbidden)
 	case errors.Is(err, auth.ErrAuthenticationEventRetentionInvalid):
 		redirectAdminSecurityActivity(
 			w, r, "",
-			fmt.Sprintf(
-				"Enter a retention period between %d and %d days.",
-				auth.MinimumAuthenticationEventRetentionDays,
-				auth.MaximumAuthenticationEventRetentionDays,
-			),
+			i18n.T(r.Context(), "auth.admin.retention.invalid", "min", i18n.Number(r.Context(), auth.MinimumAuthenticationEventRetentionDays), "max", i18n.Number(r.Context(), auth.MaximumAuthenticationEventRetentionDays)),
 			false,
 		)
 	default:
 		log.Printf("set authentication event retention: %v", err)
-		http.Error(w, "failed to update security activity retention", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_update_security_activity_retention"), http.StatusInternalServerError)
 	}
 }
 

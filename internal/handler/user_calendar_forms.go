@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"net/http"
 	"strings"
 	"time"
@@ -26,15 +27,15 @@ func (e userCalendarFormFailure) Error() string { return e.message }
 func userCalendarFormError(w http.ResponseWriter, r *http.Request, err error) {
 	var failure userCalendarFormFailure
 	if errors.As(err, &failure) {
-		http.Error(w, failure.message, failure.status)
+		http.Error(w, serverText(r.Context(), failure.message), failure.status)
 		return
 	}
 	if errors.Is(err, errCalendarUpdateUnsupported) {
-		http.Error(w, err.Error(), http.StatusConflict)
+		http.Error(w, serverText(r.Context(), err.Error()), http.StatusConflict)
 		return
 	}
 	if errors.Is(err, mailauth.ErrMailboxAuthorizationChanged) {
-		http.Error(w, "Calendar write access changed. Reopen the event.", http.StatusConflict)
+		http.Error(w, i18n.T(r.Context(), "server.error.calendar_write_access_changed_reopen_the_event"), http.StatusConflict)
 		return
 	}
 	userCalendarEventError(w, r, err)
@@ -53,7 +54,7 @@ func (p *userCalendarRequest) mutationAccess(ctx context.Context, deleting bool)
 		reason = calendarDeleteReason(reason)
 	}
 	if reason == "" && !p.h.userCalendarWriteAuthorized(ctx, source) {
-		reason = "Reconnect this account from Accounts to grant Calendar write access."
+		reason = i18n.T(ctx, "server.msg.reconnect_this_account_from_accounts_to_grant")
 	}
 	if reason != "" {
 		return userCalendarFormFailure{http.StatusForbidden, reason}
@@ -191,7 +192,7 @@ func (h *Handler) handleUserEditCalendarEvent(w http.ResponseWriter, r *http.Req
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := views.CalendarCreateDialog(data).Render(r.Context(), w); err != nil {
-		http.Error(w, "Could not open the event editor.", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.could_not_open_the_event_editor"), http.StatusInternalServerError)
 	}
 }
 
@@ -223,13 +224,13 @@ func (h *Handler) renderUserCalendarDeleteConfirmation(w http.ResponseWriter, r 
 			if err := calendarOccurrenceExistingRestriction(event); err != nil {
 				return userCalendarFormFailure{http.StatusForbidden, "This occurrence cannot be deleted. Refresh the calendar and check its write access."}
 			}
-			details = views.CalendarEventDetails{Event: calendarViewEvent(event), HasOccurrence: true, CanDelete: true, DeleteOccurrence: true, DeleteVersion: event.ETag, Attendees: calendarEventParticipants(event.AttendeesJSON)}
+			details = views.CalendarEventDetails{Event: calendarViewEvent(ctx, event), HasOccurrence: true, CanDelete: true, DeleteOccurrence: true, DeleteVersion: event.ETag, Attendees: calendarEventParticipants(event.AttendeesJSON)}
 		} else {
 			master, err := p.readSeries(ctx, true)
 			if err != nil {
 				return err
 			}
-			details = views.CalendarEventDetails{Event: calendarViewEvent(master), HasOccurrence: event.SeriesRemoteID != "", DeleteSeries: true, CanDelete: true, DeleteVersion: master.ETag, DeleteSeriesID: master.RemoteID, Attendees: calendarEventParticipants(master.AttendeesJSON)}
+			details = views.CalendarEventDetails{Event: calendarViewEvent(ctx, master), HasOccurrence: event.SeriesRemoteID != "", DeleteSeries: true, CanDelete: true, DeleteVersion: master.ETag, DeleteSeriesID: master.RemoteID, Attendees: calendarEventParticipants(master.AttendeesJSON)}
 		}
 		return p.mutationAccess(ctx, true)
 	})
@@ -239,6 +240,6 @@ func (h *Handler) renderUserCalendarDeleteConfirmation(w http.ResponseWriter, r 
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := views.CalendarEventDeleteConfirmation(details).Render(r.Context(), w); err != nil {
-		http.Error(w, "Could not open the confirmation.", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.could_not_open_the_confirmation"), http.StatusInternalServerError)
 	}
 }

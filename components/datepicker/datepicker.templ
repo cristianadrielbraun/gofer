@@ -3,6 +3,7 @@
 package datepicker
 
 import (
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"github.com/cristianadrielbraun/gofer/components/button"
 	"github.com/cristianadrielbraun/gofer/components/calendar"
 	"github.com/cristianadrielbraun/gofer/components/card"
@@ -62,7 +63,11 @@ templ DatePicker(props ...Props) {
 			p.Name = p.ID
 		}
 		if p.Placeholder == "" {
-			p.Placeholder = "Select a date"
+			p.Placeholder = i18n.T(ctx, "components.select_date")
+		}
+		if p.LocaleTag == "" {
+			// Gofer: the page's language, so month and day names match it.
+			p.LocaleTag = LocaleTag(i18n.Lang(ctx))
 		}
 		if p.LocaleTag == "" {
 			p.LocaleTag = LocaleDefaultTag

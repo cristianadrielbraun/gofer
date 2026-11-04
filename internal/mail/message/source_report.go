@@ -51,6 +51,9 @@ func (c SourceCheck) Failed() bool {
 type SourceFact struct {
 	Label string
 	Value string
+	// Key names the label's message for pages in other languages; header
+	// names such as From have none and read the same everywhere.
+	Key string
 }
 
 // SourceWarning is a sign that the message may not be what it claims. Serious
@@ -59,6 +62,10 @@ type SourceFact struct {
 type SourceWarning struct {
 	Text    string
 	Serious bool
+	// Key and Args are Text's message and its values, for pages in other
+	// languages.
+	Key  string
+	Args []any
 }
 
 var authResultPattern = regexp.MustCompile(`(?i)\b(spf|dkim|dmarc|arc|bimi)\s*=\s*([a-z]+)([^;]*)`)
@@ -69,7 +76,7 @@ func AnalyzeSource(raw []byte) SourceReport {
 	var report SourceReport
 	header, err := textproto.NewReader(bufio.NewReader(io.MultiReader(bytes.NewReader(raw), strings.NewReader("\r\n\r\n")))).ReadMIMEHeader()
 	if err != nil && len(header) == 0 {
-		report.Warnings = append(report.Warnings, SourceWarning{Text: "The headers of this message couldn't be read."})
+		report.Warnings = append(report.Warnings, SourceWarning{Text: "The headers of this message couldn't be read.", Key: "mail.source.warning.unreadable"})
 		return report
 	}
 	report.Headers = orderedHeaders(raw)
@@ -80,19 +87,23 @@ func AnalyzeSource(raw []byte) SourceReport {
 	returnPath := strings.Trim(strings.TrimSpace(header.Get("Return-Path")), "<>")
 	replyTo := firstAddress(header.Get("Reply-To"))
 
-	addFact := func(label, value string) {
+	addFact := func(label, value string, key ...string) {
 		if value = strings.TrimSpace(value); value != "" {
-			report.Facts = append(report.Facts, SourceFact{Label: label, Value: value})
+			fact := SourceFact{Label: label, Value: value}
+			if len(key) > 0 {
+				fact.Key = key[0]
+			}
+			report.Facts = append(report.Facts, fact)
 		}
 	}
 	addFact("From", DecodeHeader(header.Get("From")))
-	addFact("Envelope sender", returnPath)
+	addFact("Envelope sender", returnPath, "mail.source.fact.envelope_sender")
 	addFact("Reply-To", DecodeHeader(header.Get("Reply-To")))
 	addFact("Sender", DecodeHeader(header.Get("Sender")))
 	addFact("Date", header.Get("Date"))
 	addFact("Message-ID", header.Get("Message-ID"))
-	addFact("Mailer", firstNonEmpty(header.Get("X-Mailer"), header.Get("User-Agent")))
-	addFact("Spam score", firstNonEmpty(header.Get("X-Spam-Status"), header.Get("X-Spam-Score")))
+	addFact("Mailer", firstNonEmpty(header.Get("X-Mailer"), header.Get("User-Agent")), "mail.source.fact.mailer")
+	addFact("Spam score", firstNonEmpty(header.Get("X-Spam-Status"), header.Get("X-Spam-Score")), "mail.source.fact.spam_score")
 
 	// The topmost results were recorded by the server that delivered the
 	// message to this mailbox; older ones further down may be forged.
@@ -121,44 +132,44 @@ func AnalyzeSource(raw []byte) SourceReport {
 			signers = append(signers, tags["d"]+" (selector "+tags["s"]+")")
 		}
 	}
-	addFact("DKIM signed by", strings.Join(signers, ", "))
+	addFact("DKIM signed by", strings.Join(signers, ", "), "mail.source.fact.dkim_signed_by")
 
-	warn := func(serious bool, text string) {
-		report.Warnings = append(report.Warnings, SourceWarning{Text: text, Serious: serious})
+	warn := func(serious bool, text, key string, args ...any) {
+		report.Warnings = append(report.Warnings, SourceWarning{Text: text, Serious: serious, Key: key, Args: args})
 	}
 	for _, check := range report.Checks {
 		if check.Failed() && (check.Method == "SPF" || check.Method == "DKIM" || check.Method == "DMARC") {
-			warn(true, check.Method+" check result is \""+check.Result+"\": the sending server may not be allowed to send for this domain.")
+			warn(true, check.Method+" check result is \""+check.Result+"\": the sending server may not be allowed to send for this domain.", "mail.source.warning.check_failed", "method", check.Method, "result", check.Result)
 		}
 	}
 	if len(report.Checks) == 0 {
-		warn(false, "No authentication results were recorded by the receiving server.")
+		warn(false, "No authentication results were recorded by the receiving server.", "mail.source.warning.no_auth_results")
 	}
 	if from == "" {
-		warn(true, "The message has no valid From address.")
+		warn(true, "The message has no valid From address.", "mail.source.warning.no_from")
 	}
 	if rpDomain := addressDomain(returnPath); fromDomain != "" && rpDomain != "" && !sameOrganization(fromDomain, rpDomain) {
-		warn(false, "The envelope sender ("+rpDomain+") is a different domain than the From address ("+fromDomain+"). Mailing lists and sending services do this too.")
+		warn(false, "The envelope sender ("+rpDomain+") is a different domain than the From address ("+fromDomain+"). Mailing lists and sending services do this too.", "mail.source.warning.envelope_domain", "envelope", rpDomain, "from", fromDomain)
 	}
 	if replyDomain := addressDomain(replyTo); fromDomain != "" && replyDomain != "" && !sameOrganization(fromDomain, replyDomain) {
-		warn(true, "Replies go to a different domain ("+replyDomain+") than the one the message is from ("+fromDomain+").")
+		warn(true, "Replies go to a different domain ("+replyDomain+") than the one the message is from ("+fromDomain+").", "mail.source.warning.reply_domain", "reply", replyDomain, "from", fromDomain)
 	}
 	if fromDomain != "" && len(dkimDomains) > 0 && !anyAligned(fromDomain, dkimDomains) {
-		warn(false, "The DKIM signature is from "+strings.Join(dkimDomains, ", ")+", not from the domain of the From address ("+fromDomain+").")
+		warn(false, "The DKIM signature is from "+strings.Join(dkimDomains, ", ")+", not from the domain of the From address ("+fromDomain+").", "mail.source.warning.dkim_domain", "signers", strings.Join(dkimDomains, ", "), "from", fromDomain)
 	}
 	if name := fromDisplayName(header.Get("From")); name != "" {
 		if shown := firstAddress(name); shown != "" && !strings.EqualFold(shown, from) {
-			warn(true, "The sender's name shows the address "+shown+", but the message is really from "+from+".")
+			warn(true, "The sender's name shows the address "+shown+", but the message is really from "+from+".", "mail.source.warning.name_address", "shown", shown, "from", from)
 		}
 	}
 	if header.Get("Message-ID") == "" {
-		warn(false, "The message has no Message-ID.")
+		warn(false, "The message has no Message-ID.", "mail.source.warning.no_message_id")
 	}
 	if date, err := mail.ParseDate(header.Get("Date")); err == nil && date.After(time.Now().Add(24*time.Hour)) {
-		warn(false, "The message is dated in the future.")
+		warn(false, "The message is dated in the future.", "mail.source.warning.future_date")
 	}
 	if strings.EqualFold(strings.TrimSpace(header.Get("X-Spam-Flag")), "yes") || strings.HasPrefix(strings.ToLower(strings.TrimSpace(header.Get("X-Spam-Status"))), "yes") {
-		warn(true, "The mail server marked this message as spam.")
+		warn(true, "The mail server marked this message as spam.", "mail.source.warning.marked_spam")
 	}
 	return report
 }

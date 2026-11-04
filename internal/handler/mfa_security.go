@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/base64"
 	"errors"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"log"
 	"net/http"
 	"strconv"
@@ -22,12 +23,11 @@ const (
 	securityRecoveryRevokePath   = "/settings/security/recovery/revoke"
 	securityManagementCancelPath = "/settings/security/management/cancel"
 	securityManagementFormBytes  = 8 << 10
-	securityTOTPFailureMessage   = "That authenticator code is invalid or has already been used."
 )
 
 func (h *Handler) handleSecurityStepUp(w http.ResponseWriter, r *http.Request) {
 	jsonResponse := securityVerificationJSONRequested(r)
-	if !h.parseSecurityManagementForm(w, r, "Unable to read the verification form. Please try again.") {
+	if !h.parseSecurityManagementForm(w, r, i18n.T(r.Context(), "auth.security.verification_form")) {
 		return
 	}
 	err := h.auth.VerifySecurityTOTPStepUp(
@@ -45,29 +45,29 @@ func (h *Handler) handleSecurityStepUp(w http.ResponseWriter, r *http.Request) {
 			}
 			w.Header().Set("Retry-After", strconv.FormatInt(retrySeconds, 10))
 			if jsonResponse {
-				writeSecurityVerificationJSONError(w, http.StatusTooManyRequests, securityTOTPFailureMessage)
+				writeSecurityVerificationJSONError(w, http.StatusTooManyRequests, i18n.T(r.Context(), "auth.mfa.code_invalid_used"))
 			} else {
-				h.renderSecurityManagementError(w, r, http.StatusTooManyRequests, securityTOTPFailureMessage)
+				h.renderSecurityManagementError(w, r, http.StatusTooManyRequests, i18n.T(r.Context(), "auth.mfa.code_invalid_used"))
 			}
 		case errors.As(err, &validationError):
 			if jsonResponse {
-				writeSecurityVerificationJSONError(w, http.StatusUnprocessableEntity, securityTOTPFailureMessage)
+				writeSecurityVerificationJSONError(w, http.StatusUnprocessableEntity, i18n.T(r.Context(), "auth.mfa.code_invalid_used"))
 			} else {
-				h.renderSecurityManagementError(w, r, http.StatusUnprocessableEntity, securityTOTPFailureMessage)
+				h.renderSecurityManagementError(w, r, http.StatusUnprocessableEntity, i18n.T(r.Context(), "auth.mfa.code_invalid_used"))
 			}
 		case errors.Is(err, auth.ErrSecuritySessionInvalid):
 			auth.ClearSessionCookie(w, h.auth.Config().SecureCookies)
 			if jsonResponse {
-				writeSecurityVerificationJSONError(w, http.StatusUnauthorized, "Your session expired. Sign in again.")
+				writeSecurityVerificationJSONError(w, http.StatusUnauthorized, i18n.T(r.Context(), "auth.session_expired"))
 			} else {
 				http.Redirect(w, r, "/login", http.StatusSeeOther)
 			}
 		default:
 			log.Printf("verify security settings step-up: %v", err)
 			if jsonResponse {
-				writeSecurityVerificationJSONError(w, http.StatusInternalServerError, "Unable to verify this session right now. Please try again.")
+				writeSecurityVerificationJSONError(w, http.StatusInternalServerError, i18n.T(r.Context(), "auth.security.verify_unavailable"))
 			} else {
-				h.renderSecurityManagementError(w, r, http.StatusInternalServerError, "Unable to verify this session right now. Please try again.")
+				h.renderSecurityManagementError(w, r, http.StatusInternalServerError, i18n.T(r.Context(), "auth.security.verify_unavailable"))
 			}
 		}
 		return
@@ -84,7 +84,7 @@ func (h *Handler) handleSecurityStepUp(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleSecurityTOTPStart(w http.ResponseWriter, r *http.Request) {
-	if !h.parseSecurityManagementForm(w, r, "Unable to read the authenticator request. Please try again.") {
+	if !h.parseSecurityManagementForm(w, r, i18n.T(r.Context(), "auth.security.totp_request")) {
 		return
 	}
 	state, err := h.auth.StartTOTPManagement(r.Context(), auth.GetSessionToken(r), h.auth.Config().BaseURL)
@@ -94,7 +94,7 @@ func (h *Handler) handleSecurityTOTPStart(w http.ResponseWriter, r *http.Request
 	}
 	if state == nil || state.Challenge == nil || state.Challenge.Token == "" {
 		log.Printf("start TOTP management returned no challenge")
-		h.renderSecurityManagementError(w, r, http.StatusInternalServerError, "Unable to update the authenticator right now. Please try again.")
+		h.renderSecurityManagementError(w, r, http.StatusInternalServerError, i18n.T(r.Context(), "auth.security.totp_update_unavailable"))
 		return
 	}
 	auth.SetSecurityChallengeCookie(
@@ -109,7 +109,7 @@ func (h *Handler) handleSecurityTOTPStart(w http.ResponseWriter, r *http.Request
 }
 
 func (h *Handler) handleSecurityTOTPConfirm(w http.ResponseWriter, r *http.Request) {
-	if !h.parseSecurityManagementForm(w, r, "Unable to read the authenticator form. Please try again.") {
+	if !h.parseSecurityManagementForm(w, r, i18n.T(r.Context(), "auth.security.totp_form")) {
 		return
 	}
 	state, _ := h.auth.GetTOTPManagement(
@@ -129,9 +129,9 @@ func (h *Handler) handleSecurityTOTPConfirm(w http.ResponseWriter, r *http.Reque
 				retrySeconds = 1
 			}
 			w.Header().Set("Retry-After", strconv.FormatInt(retrySeconds, 10))
-			h.renderSecurityManagementError(w, r, http.StatusTooManyRequests, securityTOTPFailureMessage)
+			h.renderSecurityManagementError(w, r, http.StatusTooManyRequests, i18n.T(r.Context(), "auth.mfa.code_invalid_used"))
 		case errors.As(err, &validationError) && !validationError.Terminal:
-			h.renderSecurityManagementError(w, r, http.StatusUnprocessableEntity, securityTOTPFailureMessage)
+			h.renderSecurityManagementError(w, r, http.StatusUnprocessableEntity, i18n.T(r.Context(), "auth.mfa.code_invalid_used"))
 		case errors.Is(err, auth.ErrRecentStepUpRequired):
 			auth.ClearSecurityChallengeCookie(w, h.auth.Config().SecureCookies)
 			http.Redirect(w, r, "/settings/security?verify=1", http.StatusSeeOther)
@@ -144,12 +144,12 @@ func (h *Handler) handleSecurityTOTPConfirm(w http.ResponseWriter, r *http.Reque
 			http.Redirect(w, r, "/settings/security?challenge_expired=1", http.StatusSeeOther)
 		default:
 			log.Printf("confirm TOTP management: %v", err)
-			h.renderSecurityManagementError(w, r, http.StatusInternalServerError, "Unable to update the authenticator right now. Please try again.")
+			h.renderSecurityManagementError(w, r, http.StatusInternalServerError, i18n.T(r.Context(), "auth.security.totp_update_unavailable"))
 		}
 		return
 	}
 	if session == nil || session.Token == "" {
-		h.renderSecurityManagementError(w, r, http.StatusInternalServerError, "Unable to update the authenticator right now. Please try again.")
+		h.renderSecurityManagementError(w, r, http.StatusInternalServerError, i18n.T(r.Context(), "auth.security.totp_update_unavailable"))
 		return
 	}
 	auth.ClearSecurityChallengeCookie(w, h.auth.Config().SecureCookies)
@@ -162,14 +162,14 @@ func (h *Handler) handleSecurityTOTPConfirm(w http.ResponseWriter, r *http.Reque
 }
 
 func (h *Handler) handleSecurityTOTPDisable(w http.ResponseWriter, r *http.Request) {
-	if !h.parseSecurityManagementForm(w, r, "Unable to read the authenticator request. Please try again.") {
+	if !h.parseSecurityManagementForm(w, r, i18n.T(r.Context(), "auth.security.totp_request")) {
 		return
 	}
 	session, err := h.auth.DisableTOTP(r.Context(), auth.GetSessionToken(r), r.UserAgent())
 	if err != nil {
 		switch {
 		case errors.Is(err, auth.ErrLastAuthenticator):
-			h.renderSecurityManagementError(w, r, http.StatusConflict, "Add another strong authenticator before disabling this one.")
+			h.renderSecurityManagementError(w, r, http.StatusConflict, i18n.T(r.Context(), "auth.security.totp_add_another"))
 		case errors.Is(err, auth.ErrRecentStepUpRequired):
 			http.Redirect(w, r, "/settings/security?verify=1", http.StatusSeeOther)
 		case errors.Is(err, auth.ErrSecuritySessionInvalid):
@@ -177,12 +177,12 @@ func (h *Handler) handleSecurityTOTPDisable(w http.ResponseWriter, r *http.Reque
 			http.Redirect(w, r, "/login", http.StatusSeeOther)
 		default:
 			log.Printf("disable TOTP authenticator: %v", err)
-			h.renderSecurityManagementError(w, r, http.StatusInternalServerError, "Unable to disable the authenticator right now. Please try again.")
+			h.renderSecurityManagementError(w, r, http.StatusInternalServerError, i18n.T(r.Context(), "auth.security.totp_disable_unavailable"))
 		}
 		return
 	}
 	if session == nil || session.Token == "" {
-		h.renderSecurityManagementError(w, r, http.StatusInternalServerError, "Unable to disable the authenticator right now. Please try again.")
+		h.renderSecurityManagementError(w, r, http.StatusInternalServerError, i18n.T(r.Context(), "auth.security.totp_disable_unavailable"))
 		return
 	}
 	auth.ClearSecurityChallengeCookie(w, h.auth.Config().SecureCookies)
@@ -191,7 +191,7 @@ func (h *Handler) handleSecurityTOTPDisable(w http.ResponseWriter, r *http.Reque
 }
 
 func (h *Handler) handleSecurityRecoveryStart(w http.ResponseWriter, r *http.Request) {
-	if !h.parseSecurityManagementForm(w, r, "Unable to read the recovery-code request. Please try again.") {
+	if !h.parseSecurityManagementForm(w, r, i18n.T(r.Context(), "auth.security.recovery_request")) {
 		return
 	}
 	batch, err := h.auth.StartRecoveryCodeReplacement(r.Context(), auth.GetSessionToken(r), h.auth.Config().BaseURL)
@@ -201,7 +201,7 @@ func (h *Handler) handleSecurityRecoveryStart(w http.ResponseWriter, r *http.Req
 	}
 	if batch == nil || batch.Challenge == nil || batch.Challenge.Token == "" {
 		log.Printf("start recovery-code replacement returned no challenge")
-		h.renderSecurityManagementError(w, r, http.StatusInternalServerError, "Unable to generate recovery codes right now. Please try again.")
+		h.renderSecurityManagementError(w, r, http.StatusInternalServerError, i18n.T(r.Context(), "auth.security.recovery_generate_unavailable"))
 		return
 	}
 	auth.SetSecurityChallengeCookie(
@@ -216,7 +216,7 @@ func (h *Handler) handleSecurityRecoveryStart(w http.ResponseWriter, r *http.Req
 }
 
 func (h *Handler) handleSecurityRecoveryComplete(w http.ResponseWriter, r *http.Request) {
-	if !h.parseSecurityManagementForm(w, r, "Unable to read the recovery-code form. Please try again.") {
+	if !h.parseSecurityManagementForm(w, r, i18n.T(r.Context(), "auth.security.recovery_form")) {
 		return
 	}
 	err := h.auth.CompleteRecoveryCodeReplacement(
@@ -226,7 +226,7 @@ func (h *Handler) handleSecurityRecoveryComplete(w http.ResponseWriter, r *http.
 	if err != nil {
 		switch {
 		case errors.Is(err, auth.ErrRecoveryManagementRequired):
-			h.renderSecurityManagementError(w, r, http.StatusUnprocessableEntity, "Confirm that you saved the new recovery codes before replacing the old batch.")
+			h.renderSecurityManagementError(w, r, http.StatusUnprocessableEntity, i18n.T(r.Context(), "auth.security.recovery_confirm_replace"))
 		case errors.Is(err, auth.ErrRecentStepUpRequired):
 			auth.ClearSecurityChallengeCookie(w, h.auth.Config().SecureCookies)
 			http.Redirect(w, r, "/settings/security?verify=1", http.StatusSeeOther)
@@ -239,7 +239,7 @@ func (h *Handler) handleSecurityRecoveryComplete(w http.ResponseWriter, r *http.
 			http.Redirect(w, r, "/settings/security?challenge_expired=1", http.StatusSeeOther)
 		default:
 			log.Printf("complete recovery-code replacement: %v", err)
-			h.renderSecurityManagementError(w, r, http.StatusInternalServerError, "Unable to replace recovery codes right now. The previous codes remain active.")
+			h.renderSecurityManagementError(w, r, http.StatusInternalServerError, i18n.T(r.Context(), "auth.security.recovery_replace_unavailable"))
 		}
 		return
 	}
@@ -248,7 +248,7 @@ func (h *Handler) handleSecurityRecoveryComplete(w http.ResponseWriter, r *http.
 }
 
 func (h *Handler) handleSecurityRecoveryRevoke(w http.ResponseWriter, r *http.Request) {
-	if !h.parseSecurityManagementForm(w, r, "Unable to read the recovery-code request. Please try again.") {
+	if !h.parseSecurityManagementForm(w, r, i18n.T(r.Context(), "auth.security.recovery_request")) {
 		return
 	}
 	_, err := h.auth.RevokeRecoveryCodes(r.Context(), auth.GetSessionToken(r), r.UserAgent())
@@ -261,7 +261,7 @@ func (h *Handler) handleSecurityRecoveryRevoke(w http.ResponseWriter, r *http.Re
 }
 
 func (h *Handler) handleSecurityManagementCancel(w http.ResponseWriter, r *http.Request) {
-	if !h.parseSecurityManagementForm(w, r, "Unable to read the cancellation request. Please try again.") {
+	if !h.parseSecurityManagementForm(w, r, i18n.T(r.Context(), "auth.security.cancel_request")) {
 		return
 	}
 	token := auth.GetSecurityChallengeToken(r)
@@ -293,10 +293,10 @@ func (h *Handler) handleSecurityManagementOperationError(w http.ResponseWriter, 
 		auth.ClearSessionCookie(w, h.auth.Config().SecureCookies)
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 	case errors.Is(err, auth.ErrTOTPManagementUnavailable):
-		h.renderSecurityManagementError(w, r, http.StatusConflict, "An active authenticator is required for this action.")
+		h.renderSecurityManagementError(w, r, http.StatusConflict, i18n.T(r.Context(), "auth.security.totp_required"))
 	default:
 		log.Printf("%s: %v", operation, err)
-		h.renderSecurityManagementError(w, r, http.StatusInternalServerError, "Unable to update security settings right now. Please try again.")
+		h.renderSecurityManagementError(w, r, http.StatusInternalServerError, i18n.T(r.Context(), "auth.security.update_unavailable"))
 	}
 }
 

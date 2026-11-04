@@ -494,7 +494,7 @@ func TestCalendarListNamesOnlineMeetingProvider(t *testing.T) {
 		{storage.CalendarEvent{SourceProvider: "outlook", OnlineMeetingJSON: `{"joinUrl":"https://teams.live.com/meet/123"}`}, "Microsoft Teams meeting"},
 		{storage.CalendarEvent{SourceProvider: "gmail", OnlineMeetingJSON: `{}`}, ""},
 	} {
-		if got := calendarViewEvent(tc.event).Meeting; got != tc.want {
+		if got := calendarViewEvent(context.Background(), tc.event).Meeting; got != tc.want {
 			t.Errorf("meeting label = %q, want %q", got, tc.want)
 		}
 	}

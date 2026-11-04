@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"log"
 	"net/http"
 
@@ -23,7 +24,7 @@ func (h *Handler) handleEmptyFolder(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		log.Printf("empty folder: resolve folder: %v", err)
-		http.Error(w, "mailbox unavailable", http.StatusServiceUnavailable)
+		http.Error(w, i18n.T(r.Context(), "server.error.mailbox_unavailable"), http.StatusServiceUnavailable)
 		return
 	}
 	// With per-user storage, an account whose changes can't be delivered
@@ -38,14 +39,14 @@ func (h *Handler) handleEmptyFolder(w http.ResponseWriter, r *http.Request) {
 	})
 	switch {
 	case errors.Is(err, storage.ErrFolderNotEmptiable):
-		http.Error(w, "Only Trash and Spam can be emptied.", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.only_trash_and_spam_can_be_emptied"), http.StatusBadRequest)
 		return
 	case errors.Is(err, sql.ErrNoRows):
 		http.NotFound(w, r)
 		return
 	case err != nil:
 		log.Printf("empty folder %s: %v", folderID, err)
-		http.Error(w, "failed to empty folder", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_empty_folder"), http.StatusInternalServerError)
 		return
 	}
 	if result.Removed == 0 && refused != nil {

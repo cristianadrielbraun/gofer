@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"fmt"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"log"
 	"net/http"
 	"net/url"
@@ -42,6 +42,8 @@ func adminUserInvitationRotatePath(reference string) string {
 	return adminUserInvitationPath + "/" + reference + "/rotate"
 }
 
+// adminUsersViewData lists the users for the admin page. Status, role and
+// two-step sign-in are codes, which the page names in its language.
 func adminUsersViewData(users []auth.AdministratorUserSummary, currentUserID string, instancePolicy auth.InstanceMFAPolicy) views.AdminUsersData {
 	data := views.AdminUsersData{Users: make([]views.AdminUserData, 0, len(users)), Total: len(users)}
 	for _, user := range users {
@@ -50,13 +52,13 @@ func adminUsersViewData(users []auth.AdministratorUserSummary, currentUserID str
 			PasswordChangeRequired:   user.PasswordChangeRequired,
 			ID:                       user.ID,
 			Username:                 user.Username,
-			Status:                   "Disabled",
-			Role:                     "Webmail user",
+			Status:                   "disabled",
+			Role:                     "webmail_user",
 			Current:                  user.ID == currentUserID,
 			InvitationState:          string(user.InvitationState),
 			InvitationExpiresAt:      user.InvitationExpiresAt,
-			MFALabel:                 "Optional",
-			MFADetail:                "User choice",
+			MFALabel:                 "optional",
+			MFADetail:                "user_choice",
 			MFARequired:              user.MFARequired,
 			PasswordResetRequestedAt: user.PasswordResetRequestedAt,
 			DeletionPending:          user.DeletionPending,
@@ -67,13 +69,13 @@ func adminUsersViewData(users []auth.AdministratorUserSummary, currentUserID str
 		}
 		switch user.Status {
 		case auth.UserStatusActive:
-			view.Status = "Active"
+			view.Status = "active"
 			data.Active++
 			if !view.Current && !user.DeletionPending {
 				view.StatusPath = adminUserStatusPath(user.ID)
 			}
 		case auth.UserStatusPending:
-			view.Status = "Pending"
+			view.Status = "pending"
 			data.Pending++
 		case auth.UserStatusDisabled:
 			data.Disabled++
@@ -90,25 +92,25 @@ func adminUsersViewData(users []auth.AdministratorUserSummary, currentUserID str
 			view.DeletionPath = adminUserDeletionPath(user.ID)
 		}
 		if user.IsAdmin {
-			view.Role = "Management administrator"
+			view.Role = "management_admin"
 			data.Administrators++
 		} else if user.UserType == auth.UserTypeManagement {
-			view.Role = "Management user"
+			view.Role = "management_user"
 		}
 		if user.UserType == auth.UserTypeWebmail && user.IsAdmin {
-			view.Role = "Legacy mixed account"
+			view.Role = "legacy"
 		}
 		switch {
 		case user.UserType == auth.UserTypeManagement:
-			view.MFALabel = "Required"
-			view.MFADetail = "Management policy"
+			view.MFALabel = "required"
+			view.MFADetail = "management_policy"
 		case user.MFARequired:
-			view.MFALabel = "Required"
-			view.MFADetail = "Individual policy"
+			view.MFALabel = "required"
+			view.MFADetail = "individual_policy"
 			view.MFAPolicyPath = adminUserMFAPolicyPath(user.ID)
 		case instancePolicy.RequiresAllUsers():
-			view.MFALabel = "Required"
-			view.MFADetail = "Instance policy"
+			view.MFALabel = "required"
+			view.MFADetail = "instance_policy"
 		default:
 			view.MFAPolicyPath = adminUserMFAPolicyPath(user.ID)
 		}
@@ -133,11 +135,11 @@ func (h *Handler) handleCreateAdminUserInvitation(w http.ResponseWriter, r *http
 	currentUser := auth.GetCurrentUser(ctx)
 	currentSession := auth.GetCurrentSession(ctx)
 	if currentUser == nil || currentSession == nil || h.auth == nil || !h.auth.IsEnabled() {
-		http.Error(w, "admin access required", http.StatusForbidden)
+		http.Error(w, i18n.T(r.Context(), "server.error.admin_access_required"), http.StatusForbidden)
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, "Invalid invitation form data.")
+		h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, i18n.T(r.Context(), "auth.admin.users.invitation_form_invalid"))
 		return
 	}
 	form := views.AdminUserInvitationFormData{
@@ -151,15 +153,15 @@ func (h *Handler) handleCreateAdminUserInvitation(w http.ResponseWriter, r *http
 		var validationErr *auth.AdministratorUserInvitationValidationError
 		switch {
 		case errors.As(err, &validationErr):
-			form.FieldErrors = validationErr.Fields
-			h.renderAdminUsers(w, r, http.StatusBadRequest, form, nil, "Correct the highlighted invitation details.")
+			form.FieldErrors = authFields(r.Context(), validationErr.Fields)
+			h.renderAdminUsers(w, r, http.StatusBadRequest, form, nil, i18n.T(r.Context(), "auth.admin.users.invitation_fix"))
 		case errors.Is(err, auth.ErrRecentStepUpRequired):
-			h.renderAdminUsers(w, r, http.StatusForbidden, form, nil, "Verify this administrator session before creating an invitation.")
+			h.renderAdminUsers(w, r, http.StatusForbidden, form, nil, i18n.T(r.Context(), "auth.admin.verify.create_invitation"))
 		case errors.Is(err, auth.ErrAdministratorRequired):
-			http.Error(w, "admin access required", http.StatusForbidden)
+			http.Error(w, i18n.T(r.Context(), "server.error.admin_access_required"), http.StatusForbidden)
 		default:
 			log.Printf("create administrator user invitation: %v", err)
-			h.renderAdminUsers(w, r, http.StatusInternalServerError, form, nil, "Unable to create the invitation right now.")
+			h.renderAdminUsers(w, r, http.StatusInternalServerError, form, nil, i18n.T(r.Context(), "auth.admin.users.invitation_create_failed"))
 		}
 		return
 	}
@@ -176,7 +178,7 @@ func (h *Handler) handleRevokeAdminUserInvitation(w http.ResponseWriter, r *http
 	currentUser := auth.GetCurrentUser(ctx)
 	currentSession := auth.GetCurrentSession(ctx)
 	if currentUser == nil || currentSession == nil || h.auth == nil || !h.auth.IsEnabled() {
-		http.Error(w, "admin access required", http.StatusForbidden)
+		http.Error(w, i18n.T(r.Context(), "server.error.admin_access_required"), http.StatusForbidden)
 		return
 	}
 	err := h.auth.RevokeAdministratorUserInvitation(
@@ -185,19 +187,19 @@ func (h *Handler) handleRevokeAdminUserInvitation(w http.ResponseWriter, r *http
 	if err != nil {
 		switch {
 		case errors.Is(err, auth.ErrRecentStepUpRequired):
-			h.renderAdminUsers(w, r, http.StatusForbidden, views.AdminUserInvitationFormData{}, nil, "Verify this administrator session before revoking an invitation.")
+			h.renderAdminUsers(w, r, http.StatusForbidden, views.AdminUserInvitationFormData{}, nil, i18n.T(r.Context(), "auth.admin.verify.revoke_invitation"))
 		case errors.Is(err, auth.ErrAdministratorRequired):
-			http.Error(w, "admin access required", http.StatusForbidden)
+			http.Error(w, i18n.T(r.Context(), "server.error.admin_access_required"), http.StatusForbidden)
 		case errors.Is(err, auth.ErrAdministratorUserInvitationTargetInvalid),
 			errors.Is(err, auth.ErrAdministratorUserInvitationNotActive):
-			h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, "This invitation is no longer active. Refresh the page and try again.")
+			h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, i18n.T(r.Context(), "auth.admin.users.invitation_inactive"))
 		default:
 			log.Printf("revoke administrator user invitation: %v", err)
-			h.renderAdminUsers(w, r, http.StatusInternalServerError, views.AdminUserInvitationFormData{}, nil, "Unable to revoke the invitation right now.")
+			h.renderAdminUsers(w, r, http.StatusInternalServerError, views.AdminUserInvitationFormData{}, nil, i18n.T(r.Context(), "auth.admin.users.invitation_revoke_failed"))
 		}
 		return
 	}
-	redirectAdminUsers(w, r, "Invitation revoked.")
+	redirectAdminUsers(w, r, i18n.T(r.Context(), "auth.admin.users.invitation_revoked"))
 }
 
 func (h *Handler) handleRotateAdminUserInvitation(w http.ResponseWriter, r *http.Request) {
@@ -205,7 +207,7 @@ func (h *Handler) handleRotateAdminUserInvitation(w http.ResponseWriter, r *http
 	currentUser := auth.GetCurrentUser(ctx)
 	currentSession := auth.GetCurrentSession(ctx)
 	if currentUser == nil || currentSession == nil || h.auth == nil || !h.auth.IsEnabled() {
-		http.Error(w, "admin access required", http.StatusForbidden)
+		http.Error(w, i18n.T(r.Context(), "server.error.admin_access_required"), http.StatusForbidden)
 		return
 	}
 	invitation, err := h.auth.RotateAdministratorUserInvitation(ctx, auth.RotateAdministratorUserInvitationOptions{
@@ -215,14 +217,14 @@ func (h *Handler) handleRotateAdminUserInvitation(w http.ResponseWriter, r *http
 	if err != nil {
 		switch {
 		case errors.Is(err, auth.ErrRecentStepUpRequired):
-			h.renderAdminUsers(w, r, http.StatusForbidden, views.AdminUserInvitationFormData{}, nil, "Verify this administrator session before issuing a replacement invitation.")
+			h.renderAdminUsers(w, r, http.StatusForbidden, views.AdminUserInvitationFormData{}, nil, i18n.T(r.Context(), "auth.admin.verify.replace_invitation"))
 		case errors.Is(err, auth.ErrAdministratorRequired):
-			http.Error(w, "admin access required", http.StatusForbidden)
+			http.Error(w, i18n.T(r.Context(), "server.error.admin_access_required"), http.StatusForbidden)
 		case errors.Is(err, auth.ErrAdministratorUserInvitationTargetInvalid):
-			h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, "This invitation target is no longer available. Refresh the page and try again.")
+			h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, i18n.T(r.Context(), "auth.admin.users.invitation_target_gone"))
 		default:
 			log.Printf("rotate administrator user invitation: %v", err)
-			h.renderAdminUsers(w, r, http.StatusInternalServerError, views.AdminUserInvitationFormData{}, nil, "Unable to issue a replacement invitation right now.")
+			h.renderAdminUsers(w, r, http.StatusInternalServerError, views.AdminUserInvitationFormData{}, nil, i18n.T(r.Context(), "auth.admin.users.invitation_replace_failed"))
 		}
 		return
 	}
@@ -240,11 +242,11 @@ func (h *Handler) handleSetAdminUserMFAPolicy(w http.ResponseWriter, r *http.Req
 	currentUser := auth.GetCurrentUser(ctx)
 	currentSession := auth.GetCurrentSession(ctx)
 	if currentUser == nil || currentSession == nil || h.auth == nil || !h.auth.IsEnabled() {
-		http.Error(w, "admin access required", http.StatusForbidden)
+		http.Error(w, i18n.T(r.Context(), "server.error.admin_access_required"), http.StatusForbidden)
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, "Invalid two-factor authentication request.")
+		h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, i18n.T(r.Context(), "auth.admin.users.mfa_request_invalid"))
 		return
 	}
 	var required bool
@@ -253,7 +255,7 @@ func (h *Handler) handleSetAdminUserMFAPolicy(w http.ResponseWriter, r *http.Req
 		required = true
 	case "false":
 	default:
-		h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, "Invalid two-factor authentication request.")
+		h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, i18n.T(r.Context(), "auth.admin.users.mfa_request_invalid"))
 		return
 	}
 	result, err := h.auth.SetAdministratorUserMFAPolicy(ctx, auth.SetAdministratorUserMFAPolicyOptions{
@@ -263,26 +265,26 @@ func (h *Handler) handleSetAdminUserMFAPolicy(w http.ResponseWriter, r *http.Req
 	if err != nil {
 		switch {
 		case errors.Is(err, auth.ErrRecentStepUpRequired):
-			h.renderAdminUsers(w, r, http.StatusForbidden, views.AdminUserInvitationFormData{}, nil, "Verify this administrator session before changing a user's two-factor authentication requirement.")
+			h.renderAdminUsers(w, r, http.StatusForbidden, views.AdminUserInvitationFormData{}, nil, i18n.T(r.Context(), "auth.admin.verify.mfa_requirement"))
 		case errors.Is(err, auth.ErrAdministratorRequired):
-			http.Error(w, "admin access required", http.StatusForbidden)
+			http.Error(w, i18n.T(r.Context(), "server.error.admin_access_required"), http.StatusForbidden)
 		case errors.Is(err, auth.ErrAdministratorUserMFATargetInvalid):
-			h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, "This webmail user is no longer available. Refresh the page and try again.")
+			h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, i18n.T(r.Context(), "auth.admin.users.user_gone"))
 		default:
 			log.Printf("set administrator user MFA policy: %v", err)
-			h.renderAdminUsers(w, r, http.StatusInternalServerError, views.AdminUserInvitationFormData{}, nil, "Unable to change the user's two-factor authentication requirement right now.")
+			h.renderAdminUsers(w, r, http.StatusInternalServerError, views.AdminUserInvitationFormData{}, nil, i18n.T(r.Context(), "auth.admin.users.mfa_change_failed"))
 		}
 		return
 	}
 	if !result.Changed {
-		redirectAdminUsers(w, r, "The user's two-factor authentication requirement was already up to date.")
+		redirectAdminUsers(w, r, i18n.T(r.Context(), "auth.admin.users.mfa_unchanged"))
 		return
 	}
 	if result.Required {
-		redirectAdminUsers(w, r, "Two-factor authentication is now required for this user's next sign-in. Existing sessions and factors were left unchanged.")
+		redirectAdminUsers(w, r, i18n.T(r.Context(), "auth.admin.users.mfa_required"))
 		return
 	}
-	redirectAdminUsers(w, r, "The individual two-factor authentication requirement was cleared. Existing sessions and factors were left unchanged.")
+	redirectAdminUsers(w, r, i18n.T(r.Context(), "auth.admin.users.mfa_cleared"))
 }
 
 func (h *Handler) handleSetAdminUserStatus(w http.ResponseWriter, r *http.Request) {
@@ -296,11 +298,11 @@ func (h *Handler) handleSetAdminUserStatus(w http.ResponseWriter, r *http.Reques
 	currentUser := auth.GetCurrentUser(ctx)
 	currentSession := auth.GetCurrentSession(ctx)
 	if currentUser == nil || currentSession == nil || h.auth == nil || !h.auth.IsEnabled() {
-		http.Error(w, "admin access required", http.StatusForbidden)
+		http.Error(w, i18n.T(r.Context(), "server.error.admin_access_required"), http.StatusForbidden)
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, "Invalid user status request.")
+		h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, i18n.T(r.Context(), "auth.admin.users.status_request_invalid"))
 		return
 	}
 	var status auth.UserStatus
@@ -310,7 +312,7 @@ func (h *Handler) handleSetAdminUserStatus(w http.ResponseWriter, r *http.Reques
 	case string(auth.UserStatusDisabled):
 		status = auth.UserStatusDisabled
 	default:
-		h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, "Invalid user status request.")
+		h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, i18n.T(r.Context(), "auth.admin.users.status_request_invalid"))
 		return
 	}
 	result, err := h.auth.SetAdministratorUserStatus(ctx, auth.SetAdministratorUserStatusOptions{
@@ -320,42 +322,40 @@ func (h *Handler) handleSetAdminUserStatus(w http.ResponseWriter, r *http.Reques
 	if err != nil {
 		switch {
 		case errors.Is(err, auth.ErrRecentStepUpRequired):
-			h.renderAdminUsers(w, r, http.StatusForbidden, views.AdminUserInvitationFormData{}, nil, "Verify this administrator session before changing a user's access.")
+			h.renderAdminUsers(w, r, http.StatusForbidden, views.AdminUserInvitationFormData{}, nil, i18n.T(r.Context(), "auth.admin.verify.user_access"))
 		case errors.Is(err, auth.ErrAdministratorRequired):
-			http.Error(w, "admin access required", http.StatusForbidden)
+			http.Error(w, i18n.T(r.Context(), "server.error.admin_access_required"), http.StatusForbidden)
 		case errors.Is(err, auth.ErrLastActiveAdmin):
-			h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, "The last active management administrator cannot be disabled.")
+			h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, i18n.T(r.Context(), "auth.admin.users.last_admin"))
 		case errors.Is(err, auth.ErrInstanceMFAEnrollmentNeeded):
-			h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, "This user needs an authenticator app before they can be enabled while two-factor authentication is required.")
+			h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, i18n.T(r.Context(), "auth.admin.users.needs_totp"))
 		case errors.Is(err, auth.ErrAdministratorUserStatusInvalid),
 			errors.Is(err, auth.ErrAdministratorUserStatusTargetInvalid):
-			h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, "This user is no longer available for that action. Refresh the page and try again.")
+			h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, i18n.T(r.Context(), "auth.admin.users.user_unavailable"))
 		default:
 			log.Printf("set administrator user status: %v", err)
-			h.renderAdminUsers(w, r, http.StatusInternalServerError, views.AdminUserInvitationFormData{}, nil, "Unable to change the user's access right now.")
+			h.renderAdminUsers(w, r, http.StatusInternalServerError, views.AdminUserInvitationFormData{}, nil, i18n.T(r.Context(), "auth.admin.users.access_change_failed"))
 		}
 		return
 	}
 	if err := h.refreshOwnedUserStatus(ctx, r.PathValue("userID"), result.Status); err != nil {
 		log.Printf("refresh user status services: %v", err)
-		h.renderAdminUsers(w, r, http.StatusServiceUnavailable, views.AdminUserInvitationFormData{}, nil, "User access changed, but background services could not be refreshed. Retry this action.")
+		h.renderAdminUsers(w, r, http.StatusServiceUnavailable, views.AdminUserInvitationFormData{}, nil, i18n.T(r.Context(), "auth.admin.users.access_refresh_failed"))
 		return
 	}
 	if !result.Changed {
-		redirectAdminUsers(w, r, "The user's access was already up to date.")
+		redirectAdminUsers(w, r, i18n.T(r.Context(), "auth.admin.users.access_unchanged"))
 		return
 	}
 	if result.Status == auth.UserStatusDisabled {
-		notice := "User disabled. Their data and credentials were preserved."
-		if result.RevokedSessions == 1 {
-			notice = "User disabled and 1 active session revoked. Their data and credentials were preserved."
-		} else if result.RevokedSessions > 1 {
-			notice = fmt.Sprintf("User disabled and %d active sessions revoked. Their data and credentials were preserved.", result.RevokedSessions)
+		notice := i18n.T(r.Context(), "auth.admin.users.disabled")
+		if result.RevokedSessions > 0 {
+			notice = i18n.N(r.Context(), "auth.admin.users.disabled_sessions", int(result.RevokedSessions), "count", i18n.Number(r.Context(), int(result.RevokedSessions)))
 		}
 		redirectAdminUsers(w, r, notice)
 		return
 	}
-	redirectAdminUsers(w, r, "User enabled. Existing credentials were preserved, and previously revoked sessions remain signed out.")
+	redirectAdminUsers(w, r, i18n.T(r.Context(), "auth.admin.users.enabled"))
 }
 
 func (h *Handler) handleIssueAdminUserCredentialReset(w http.ResponseWriter, r *http.Request) {
@@ -363,26 +363,26 @@ func (h *Handler) handleIssueAdminUserCredentialReset(w http.ResponseWriter, r *
 	currentUser := auth.GetCurrentUser(ctx)
 	currentSession := auth.GetCurrentSession(ctx)
 	if currentUser == nil || currentSession == nil || h.auth == nil || !h.auth.IsEnabled() {
-		http.Error(w, "admin access required", http.StatusForbidden)
+		http.Error(w, i18n.T(r.Context(), "server.error.admin_access_required"), http.StatusForbidden)
 		return
 	}
 	targetUser, err := h.auth.GetUserByID(ctx, r.PathValue("userID"))
 	if err != nil {
 		log.Printf("load administrator credential-reset target: %v", err)
-		h.renderAdminUsers(w, r, http.StatusInternalServerError, views.AdminUserInvitationFormData{}, nil, "Unable to generate a reset token right now.")
+		h.renderAdminUsers(w, r, http.StatusInternalServerError, views.AdminUserInvitationFormData{}, nil, i18n.T(r.Context(), "auth.admin.users.reset_failed"))
 		return
 	}
 	if targetUser == nil || targetUser.UserType != auth.UserTypeWebmail || targetUser.IsAdmin ||
 		(targetUser.Status != auth.UserStatusActive && targetUser.Status != auth.UserStatusDisabled) {
-		h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, "This webmail user is no longer available for password reset. Refresh the page and try again.")
+		h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, i18n.T(r.Context(), "auth.admin.users.reset_user_gone"))
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Invalid reset form.", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "auth.admin.users.reset_form_invalid"), http.StatusBadRequest)
 		return
 	}
 	if _, present := r.PostForm["require_password_change"]; present {
-		http.Error(w, "Use the separate password-change action.", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "auth.admin.users.use_password_change"), http.StatusBadRequest)
 		return
 	}
 	token, err := h.auth.IssueEnrollmentToken(ctx, auth.IssueEnrollmentTokenOptions{
@@ -392,14 +392,14 @@ func (h *Handler) handleIssueAdminUserCredentialReset(w http.ResponseWriter, r *
 	if err != nil {
 		switch {
 		case errors.Is(err, auth.ErrRecentStepUpRequired):
-			h.renderAdminUsers(w, r, http.StatusForbidden, views.AdminUserInvitationFormData{}, nil, "Verify this administrator session before generating a password-reset token.")
+			h.renderAdminUsers(w, r, http.StatusForbidden, views.AdminUserInvitationFormData{}, nil, i18n.T(r.Context(), "auth.admin.verify.reset_token"))
 		case errors.Is(err, auth.ErrAdministratorRequired):
-			http.Error(w, "admin access required", http.StatusForbidden)
+			http.Error(w, i18n.T(r.Context(), "server.error.admin_access_required"), http.StatusForbidden)
 		case errors.Is(err, auth.ErrEnrollmentTokenTargetInvalid):
-			h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, "This webmail user is no longer available for password reset. Refresh the page and try again.")
+			h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, i18n.T(r.Context(), "auth.admin.users.reset_user_gone"))
 		default:
 			log.Printf("issue administrator user credential reset: %v", err)
-			h.renderAdminUsers(w, r, http.StatusInternalServerError, views.AdminUserInvitationFormData{}, nil, "Unable to generate a reset token right now.")
+			h.renderAdminUsers(w, r, http.StatusInternalServerError, views.AdminUserInvitationFormData{}, nil, i18n.T(r.Context(), "auth.admin.users.reset_failed"))
 		}
 		return
 	}
@@ -416,18 +416,18 @@ func (h *Handler) handleDeleteAdminUser(w http.ResponseWriter, r *http.Request) 
 	currentUser := auth.GetCurrentUser(ctx)
 	currentSession := auth.GetCurrentSession(ctx)
 	if currentUser == nil || currentSession == nil || h.auth == nil || !h.auth.IsEnabled() {
-		http.Error(w, "admin access required", http.StatusForbidden)
+		http.Error(w, i18n.T(r.Context(), "server.error.admin_access_required"), http.StatusForbidden)
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, "Invalid user deletion request.")
+		h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, i18n.T(r.Context(), "auth.admin.users.delete_request_invalid"))
 		return
 	}
 	var owned *userRemovalWorker
 	if h.ownedMailbox != nil {
 		owned = h.removalWorker()
 		if owned == nil || owned.ctx.Err() != nil {
-			http.Error(w, "user deletion runtime unavailable; retry later", http.StatusServiceUnavailable)
+			http.Error(w, i18n.T(r.Context(), "server.error.user_deletion_runtime_unavailable_retry_later"), http.StatusServiceUnavailable)
 			return
 		}
 	}
@@ -438,16 +438,16 @@ func (h *Handler) handleDeleteAdminUser(w http.ResponseWriter, r *http.Request) 
 	if err != nil {
 		switch {
 		case errors.Is(err, auth.ErrRecentStepUpRequired):
-			h.renderAdminUsers(w, r, http.StatusForbidden, views.AdminUserInvitationFormData{}, nil, "Verify this administrator session before deleting a user.")
+			h.renderAdminUsers(w, r, http.StatusForbidden, views.AdminUserInvitationFormData{}, nil, i18n.T(r.Context(), "auth.admin.verify.delete_user"))
 		case errors.Is(err, auth.ErrAdministratorRequired):
-			http.Error(w, "admin access required", http.StatusForbidden)
+			http.Error(w, i18n.T(r.Context(), "server.error.admin_access_required"), http.StatusForbidden)
 		case errors.Is(err, auth.ErrAdministratorUserDeletionConfirmationInvalid):
-			h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, "Type the exact username to confirm permanent deletion.")
+			h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, i18n.T(r.Context(), "auth.admin.users.delete_confirm"))
 		case errors.Is(err, auth.ErrAdministratorUserDeletionTargetInvalid):
-			h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, "Only a disabled standard webmail user can be deleted. Refresh the page and try again.")
+			h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, i18n.T(r.Context(), "auth.admin.users.delete_only_disabled"))
 		default:
 			log.Printf("prepare administrator user deletion: %v", err)
-			h.renderAdminUsers(w, r, http.StatusInternalServerError, views.AdminUserInvitationFormData{}, nil, "Unable to start user deletion right now.")
+			h.renderAdminUsers(w, r, http.StatusInternalServerError, views.AdminUserInvitationFormData{}, nil, i18n.T(r.Context(), "auth.admin.users.delete_failed"))
 		}
 		return
 	}
@@ -455,14 +455,14 @@ func (h *Handler) handleDeleteAdminUser(w http.ResponseWriter, r *http.Request) 
 		owned.h.userIMAP.StopUser(result.TargetUserID)
 		err := owned.enqueue(userRemovalJob{owner: result.TargetUserID, actorSession: currentSession.ID})
 		if errors.Is(err, errUserRemovalBusy) {
-			redirectAdminUsers(w, r, "User deletion is pending. Gofer will retry the local cleanup automatically.")
+			redirectAdminUsers(w, r, i18n.T(r.Context(), "auth.admin.users.delete_pending"))
 			return
 		}
 		if err != nil {
-			http.Error(w, "User deletion is pending, but cleanup stopped. Retry after the runtime restarts.", http.StatusServiceUnavailable)
+			http.Error(w, i18n.T(r.Context(), "auth.admin.users.delete_stopped"), http.StatusServiceUnavailable)
 			return
 		}
-		redirectAdminUsers(w, r, "User deletion started. Gofer is permanently removing the user's local data.")
+		redirectAdminUsers(w, r, i18n.T(r.Context(), "auth.admin.users.delete_started"))
 		return
 	}
 	for _, accountID := range result.AccountIDs {
@@ -481,10 +481,10 @@ func (h *Handler) handleDeleteAdminUser(w http.ResponseWriter, r *http.Request) 
 	}(result.TargetUserID, currentSession.ID)
 
 	if result.Resumed {
-		redirectAdminUsers(w, r, "User deletion resumed. Gofer is retrying the local data cleanup.")
+		redirectAdminUsers(w, r, i18n.T(r.Context(), "auth.admin.users.delete_resumed"))
 		return
 	}
-	redirectAdminUsers(w, r, "User deletion started. Gofer is permanently removing the user's local data.")
+	redirectAdminUsers(w, r, i18n.T(r.Context(), "auth.admin.users.delete_started"))
 }
 
 func redirectAdminUsers(w http.ResponseWriter, r *http.Request, notice string) {
@@ -513,23 +513,23 @@ func (h *Handler) renderAdminUsersPage(w http.ResponseWriter, r *http.Request, s
 	currentUser := auth.GetCurrentUser(ctx)
 	currentSession := auth.GetCurrentSession(ctx)
 	if currentUser == nil || currentSession == nil || h.auth == nil {
-		http.Error(w, "admin access required", http.StatusForbidden)
+		http.Error(w, i18n.T(r.Context(), "server.error.admin_access_required"), http.StatusForbidden)
 		return
 	}
 	users, err := h.auth.ListAdministratorUsersForSession(ctx, currentUser.ID, currentSession.ID)
 	if errors.Is(err, auth.ErrAdministratorRequired) {
-		http.Error(w, "admin access required", http.StatusForbidden)
+		http.Error(w, i18n.T(r.Context(), "server.error.admin_access_required"), http.StatusForbidden)
 		return
 	}
 	if err != nil {
 		log.Printf("load administrator users: %v", err)
-		http.Error(w, "failed to load administrator users", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_load_administrator_users"), http.StatusInternalServerError)
 		return
 	}
 	policy, err := h.auth.InstanceSecurityPolicy(ctx)
 	if err != nil {
 		log.Printf("load administrator user MFA policy: %v", err)
-		http.Error(w, "failed to load administrator users", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_load_administrator_users"), http.StatusInternalServerError)
 		return
 	}
 	data := adminUsersViewData(users, currentUser.ID, policy.MFA)
@@ -579,7 +579,7 @@ func (h *Handler) renderAdminUsersPage(w http.ResponseWriter, r *http.Request, s
 			return
 		default:
 			log.Printf("load administrator invitation verification state: %v", accessErr)
-			http.Error(w, "failed to verify administrator session", http.StatusInternalServerError)
+			http.Error(w, i18n.T(r.Context(), "server.error.failed_to_verify_administrator_session"), http.StatusInternalServerError)
 			return
 		}
 	}
@@ -619,7 +619,7 @@ func (h *Handler) renderAdminUsersPage(w http.ResponseWriter, r *http.Request, s
 	}
 	if err != nil {
 		log.Printf("render administrator users: %v", err)
-		http.Error(w, "failed to render administrator users", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_render_administrator_users"), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")

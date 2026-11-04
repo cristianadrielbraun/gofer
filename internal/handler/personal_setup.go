@@ -3,6 +3,7 @@ package handler
 import (
 	"bytes"
 	"errors"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"log"
 	"net/http"
 
@@ -13,11 +14,11 @@ import (
 func (h *Handler) handlePersonalSetup(w http.ResponseWriter, r *http.Request) {
 	state, err := h.auth.SetupState(r.Context())
 	if err != nil {
-		h.writeSetupServiceFailure(w)
+		h.writeSetupServiceFailure(w, r)
 		return
 	}
 	if state.Initialized {
-		h.writeSetupNotFound(w)
+		h.writeSetupNotFound(w, r)
 		return
 	}
 	if r.URL.RawQuery != "" {
@@ -26,7 +27,7 @@ func (h *Handler) handlePersonalSetup(w http.ResponseWriter, r *http.Request) {
 	}
 	access, err := h.auth.GetActiveSetupAccess(r.Context(), auth.GetPreAuthToken(r), h.auth.Config().BaseURL)
 	if err != nil {
-		h.writeSetupServiceFailure(w)
+		h.writeSetupServiceFailure(w, r)
 		return
 	}
 	if access == nil {
@@ -38,7 +39,7 @@ func (h *Handler) handlePersonalSetup(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
 		r.Body = http.MaxBytesReader(w, r.Body, setupFormMaximumBytes)
 		if err := r.ParseForm(); err != nil {
-			h.writeSetupServiceFailure(w)
+			h.writeSetupServiceFailure(w, r)
 			return
 		}
 		data.Name = r.PostFormValue("name")
@@ -61,19 +62,20 @@ func (h *Handler) handlePersonalSetup(w http.ResponseWriter, r *http.Request) {
 			data.Errors = passwordErr.Fields
 		case errors.Is(err, auth.ErrPersonalSetupBlocked):
 			status = http.StatusConflict
-			data.Errors = map[string]string{"form": "This database is not an unprotected personal profile. Use its original authentication mode."}
+			data.Errors = map[string]string{"form": i18n.T(r.Context(), "auth.personal.blocked")}
 		case errors.Is(err, auth.ErrSetupAccessInvalid), errors.Is(err, auth.ErrSetupAlreadyInitialized):
 			http.Redirect(w, r, setupPath, http.StatusSeeOther)
 			return
 		default:
 			log.Printf("complete personal setup: %v", err)
-			h.writeSetupServiceFailure(w)
+			h.writeSetupServiceFailure(w, r)
 			return
 		}
 	}
+	data.Errors = authFields(r.Context(), data.Errors)
 	var page bytes.Buffer
 	if err := views.PersonalSetupPage(data).Render(r.Context(), &page); err != nil {
-		h.writeSetupServiceFailure(w)
+		h.writeSetupServiceFailure(w, r)
 		return
 	}
 	writeSetupPage(w, status, &page)

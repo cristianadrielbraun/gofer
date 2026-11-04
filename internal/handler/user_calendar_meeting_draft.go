@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"net/http"
 	"time"
 
@@ -155,7 +156,7 @@ func (h *Handler) userCalendarMeetingDraftRequest(w http.ResponseWriter, r *http
 	w.Header().Set("Cache-Control", "private, no-store")
 	fail := func(status int, message string) {
 		w.WriteHeader(status)
-		_ = json.NewEncoder(w).Encode(map[string]any{"error": message})
+		_ = json.NewEncoder(w).Encode(map[string]any{"error": serverText(r.Context(), message)})
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 4096)
 	if r.URL.RawQuery != "" || r.ParseForm() != nil {
@@ -187,7 +188,7 @@ func (h *Handler) userCalendarMeetingDraftRequest(w http.ResponseWriter, r *http
 			return userCalendarFormFailure{404, "This calendar is unavailable."}
 		}
 		if !calendarSourceWritable(source.Source()) || !h.userCalendarWriteAuthorized(ctx, source.Source()) {
-			return userCalendarFormFailure{403, "Reconnect this account from Accounts to grant Calendar write access."}
+			return userCalendarFormFailure{403, i18n.T(ctx, "server.msg.reconnect_this_account_from_accounts_to_grant")}
 		}
 		p := &userCalendarRequest{h: h, source: source}
 		if eventID := r.PostForm.Get("event_id"); eventID != "" {

@@ -1,7 +1,9 @@
 package views
 
 import (
+	"context"
 	"fmt"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 
 	"github.com/cristianadrielbraun/gofer/components/dialog"
@@ -16,10 +18,10 @@ templ FolderRolesDialog(data models.FolderRolesData) {
 		@dialog.Content(dialog.ContentProps{Class: "mobile-page-dialog sm:max-w-xl"}) {
 			@dialog.Header() {
 				@dialog.Title() {
-					Folder roles
+					{ i18n.T(ctx, "settings.account.folder_roles") }
 				}
 				@dialog.Description() {
-					Choose which folder Gofer uses for each role. Roles are detected automatically; change one only if it's wrong or missing.
+					{ i18n.T(ctx, "settings.folder_roles.description") }
 				}
 			}
 			@FolderRolesPanel(data)
@@ -27,42 +29,11 @@ templ FolderRolesDialog(data models.FolderRolesData) {
 	}
 }
 
-func folderRoleLabel(role string) string {
-	switch role {
-	case "sent":
-		return "Sent"
-	case "drafts":
-		return "Drafts"
-	case "trash":
-		return "Trash"
-	case "junk":
-		return "Spam"
-	case "archive":
-		return "Archive"
-	}
-	return role
-}
-
-func folderRoleArticle(role string) string {
-	if role == "archive" {
-		return "an"
-	}
-	return "a"
-}
-
 // folderRoleMissing says what doesn't work while a role has no folder.
-func folderRoleMissing(role string) string {
+func folderRoleMissing(ctx context.Context, role string) string {
 	switch role {
-	case "sent":
-		return "Sent mail isn't saved to the server."
-	case "drafts":
-		return "Drafts can't be saved, and mail can't be scheduled."
-	case "trash":
-		return "Mail can't be deleted."
-	case "junk":
-		return "Mail can't be marked as spam."
-	case "archive":
-		return "Mail can't be archived."
+	case "sent", "drafts", "trash", "junk", "archive":
+		return i18n.T(ctx, "settings.folder_roles.missing."+role)
 	}
 	return ""
 }
@@ -106,8 +77,8 @@ templ FolderRolesPanel(data models.FolderRolesData) {
 						@icon.Inbox(icon.Props{Class: "size-4"})
 					</span>
 					<div class="min-w-0 flex-1">
-						<p class="text-sm font-medium">Inbox</p>
-						<p class="text-xs text-muted-foreground">Always the server's INBOX.</p>
+						<p class="text-sm font-medium">{ i18n.T(ctx, "folder.inbox") }</p>
+						<p class="text-xs text-muted-foreground">{ i18n.T(ctx, "settings.folder_roles.inbox_fixed") }</p>
 					</div>
 					<div class="flex h-9 w-48 shrink-0 items-center gap-2 rounded-md border border-border bg-muted/40 px-3 text-sm text-muted-foreground sm:w-56">
 						@icon.Lock(icon.Props{Class: "size-3.5 shrink-0"})
@@ -123,15 +94,15 @@ templ FolderRolesPanel(data models.FolderRolesData) {
 			if data.Error != "" {
 				<p class="text-xs text-destructive" role="alert" data-folder-roles-error>{ data.Error }</p>
 			} else if data.Saved {
-				<p class="text-xs text-muted-foreground" role="status" data-folder-roles-saved>Saved. The account is syncing to apply the roles.</p>
+				<p class="text-xs text-muted-foreground" role="status" data-folder-roles-saved>{ i18n.T(ctx, "settings.folder_roles.saved") }</p>
 			} else if data.Created != "" {
-				<p class="text-xs text-muted-foreground" role="status" data-folder-roles-created>Created “{ data.Created }”. The account is syncing to pick it up.</p>
+				<p class="text-xs text-muted-foreground" role="status" data-folder-roles-created>{ i18n.T(ctx, "settings.folder_roles.created", "folder", data.Created) }</p>
 			} else {
-				<p class="text-xs text-muted-foreground">Your choices stay in Gofer; other mail apps aren't affected.</p>
+				<p class="text-xs text-muted-foreground">{ i18n.T(ctx, "settings.folder_roles.local_note") }</p>
 			}
 			<button type="submit" class="btn-skeuo inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold">
 				@icon.Save(icon.Props{Class: "size-3.5"})
-				Save
+				{ i18n.T(ctx, "common.save") }
 			</button>
 		</div>
 		if data.Saved {
@@ -161,13 +132,13 @@ templ folderRoleRow(data models.FolderRolesData, role models.FolderRole) {
 			@folderRoleIcon(role.Role)
 		</span>
 		<div class="min-w-0 flex-1">
-			<p class="text-sm font-medium">{ folderRoleLabel(role.Role) }</p>
+			<p class="text-sm font-medium">{ folderRoleName(ctx, role.Role) }</p>
 			if role.Chosen != "" {
-				<p class="text-xs text-muted-foreground">Chosen by you.</p>
+				<p class="text-xs text-muted-foreground">{ i18n.T(ctx, "settings.folder_roles.chosen") }</p>
 			} else if role.Detected != "" {
-				<p class="truncate text-xs text-muted-foreground">Detected: { role.Detected }</p>
+				<p class="truncate text-xs text-muted-foreground">{ i18n.T(ctx, "settings.folder_roles.detected", "folder", role.Detected) }</p>
 			} else {
-				<p class="text-xs text-destructive" data-folder-role-missing>Not found. { folderRoleMissing(role.Role) }</p>
+				<p class="text-xs text-destructive" data-folder-role-missing>{ i18n.T(ctx, "settings.folder_roles.not_found", "effect", folderRoleMissing(ctx, role.Role)) }</p>
 				// Until the sync after creating one, the folder isn't listed.
 				if data.Created == "" {
 					<button
@@ -179,17 +150,17 @@ templ folderRoleRow(data models.FolderRolesData, role models.FolderRole) {
 						hx-disabled-elt="this"
 						data-folder-role-create={ role.Role }
 					>
-						Create { folderRoleArticle(role.Role) } { folderRoleLabel(role.Role) } folder
+						{ i18n.T(ctx, "settings.folder_roles.create", "folder", folderRoleName(ctx, role.Role)) }
 					</button>
 				}
 			}
 		</div>
 		@selectbox.SelectBox(selectbox.Props{Class: "settings-select w-48 shrink-0 sm:w-56"}) {
 			@selectbox.Trigger(selectbox.TriggerProps{Name: "role_" + role.Role, Class: "bg-background", DisableClear: true}) {
-				@selectbox.Value(selectbox.ValueProps{Placeholder: "Automatic"})
+				@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "settings.folder_roles.automatic")})
 			}
 			@selectbox.Content(selectbox.ContentProps{NoSearch: len(data.Folders) < 10, Class: "mobile-sheet"}) {
-				@selectbox.Item(selectbox.ItemProps{Value: "", Selected: role.Chosen == ""}) { Automatic }
+				@selectbox.Item(selectbox.ItemProps{Value: "", Selected: role.Chosen == ""}) { { i18n.T(ctx, "settings.folder_roles.automatic") } }
 				for _, folder := range data.Folders {
 					@selectbox.Item(selectbox.ItemProps{Value: folder.ID, Selected: folder.ID == role.Chosen}) { { folder.Name } }
 				}

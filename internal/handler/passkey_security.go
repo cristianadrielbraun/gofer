@@ -1,8 +1,10 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"io"
 	"log"
 	"net/http"
@@ -27,21 +29,21 @@ func (h *Handler) handleSecurityPasskeyStart(w http.ResponseWriter, r *http.Requ
 	if err != nil {
 		switch {
 		case errors.Is(err, auth.ErrPasskeyNameInvalid):
-			writePasskeyJSONError(w, http.StatusUnprocessableEntity, "Enter a passkey name between 1 and 64 characters.")
+			writePasskeyJSONErrorFor(w, r, http.StatusUnprocessableEntity, "Enter a passkey name between 1 and 64 characters.")
 		case errors.Is(err, auth.ErrRecentStepUpRequired):
-			writePasskeyJSONError(w, http.StatusForbidden, "Verify this session before adding a passkey.")
+			writePasskeyJSONErrorFor(w, r, http.StatusForbidden, "Verify this session before adding a passkey.")
 		case errors.Is(err, auth.ErrSecuritySessionInvalid):
 			auth.ClearSessionCookie(w, h.auth.Config().SecureCookies)
-			writePasskeyJSONError(w, http.StatusUnauthorized, "Your session expired. Sign in again.")
+			writePasskeyJSONErrorFor(w, r, http.StatusUnauthorized, "Your session expired. Sign in again.")
 		default:
 			log.Printf("start passkey registration: %v", err)
-			writePasskeyJSONError(w, http.StatusInternalServerError, "Unable to start passkey registration right now.")
+			writePasskeyJSONErrorFor(w, r, http.StatusInternalServerError, "Unable to start passkey registration right now.")
 		}
 		return
 	}
 	if options == nil || options.Challenge == nil || options.Challenge.Token == "" || len(options.CreationJSON) == 0 {
 		log.Printf("start passkey registration returned incomplete options")
-		writePasskeyJSONError(w, http.StatusInternalServerError, "Unable to start passkey registration right now.")
+		writePasskeyJSONErrorFor(w, r, http.StatusInternalServerError, "Unable to start passkey registration right now.")
 		return
 	}
 	auth.SetSecurityChallengeCookie(
@@ -58,7 +60,7 @@ func (h *Handler) handleSecurityPasskeyFinish(w http.ResponseWriter, r *http.Req
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	responseJSON, err := io.ReadAll(r.Body)
 	if err != nil {
-		writePasskeyJSONError(w, http.StatusBadRequest, "Unable to read the passkey response. Start again.")
+		writePasskeyJSONErrorFor(w, r, http.StatusBadRequest, "Unable to read the passkey response. Start again.")
 		return
 	}
 	_, err = h.auth.FinishPasskeyRegistration(
@@ -70,23 +72,23 @@ func (h *Handler) handleSecurityPasskeyFinish(w http.ResponseWriter, r *http.Req
 		switch {
 		case errors.As(err, &validationError):
 			auth.ClearSecurityChallengeCookie(w, h.auth.Config().SecureCookies)
-			writePasskeyJSONError(w, http.StatusUnprocessableEntity, "The passkey response was not accepted. Start again.")
+			writePasskeyJSONErrorFor(w, r, http.StatusUnprocessableEntity, "The passkey response was not accepted. Start again.")
 		case errors.Is(err, auth.ErrPasskeyDuplicate):
 			auth.ClearSecurityChallengeCookie(w, h.auth.Config().SecureCookies)
-			writePasskeyJSONError(w, http.StatusConflict, "That passkey is already registered.")
+			writePasskeyJSONErrorFor(w, r, http.StatusConflict, "That passkey is already registered.")
 		case errors.Is(err, auth.ErrRecentStepUpRequired):
 			auth.ClearSecurityChallengeCookie(w, h.auth.Config().SecureCookies)
-			writePasskeyJSONError(w, http.StatusForbidden, "Session verification expired. Verify again, then start over.")
+			writePasskeyJSONErrorFor(w, r, http.StatusForbidden, "Session verification expired. Verify again, then start over.")
 		case errors.Is(err, auth.ErrPasskeyRegistrationInvalid):
 			auth.ClearSecurityChallengeCookie(w, h.auth.Config().SecureCookies)
-			writePasskeyJSONError(w, http.StatusGone, "That passkey request expired or was already used. Start again.")
+			writePasskeyJSONErrorFor(w, r, http.StatusGone, "That passkey request expired or was already used. Start again.")
 		case errors.Is(err, auth.ErrSecuritySessionInvalid):
 			auth.ClearSessionCookie(w, h.auth.Config().SecureCookies)
 			auth.ClearSecurityChallengeCookie(w, h.auth.Config().SecureCookies)
-			writePasskeyJSONError(w, http.StatusUnauthorized, "Your session expired. Sign in again.")
+			writePasskeyJSONErrorFor(w, r, http.StatusUnauthorized, "Your session expired. Sign in again.")
 		default:
 			log.Printf("finish passkey registration: %v", err)
-			writePasskeyJSONError(w, http.StatusInternalServerError, "Unable to save this passkey right now.")
+			writePasskeyJSONErrorFor(w, r, http.StatusInternalServerError, "Unable to save this passkey right now.")
 		}
 		return
 	}
@@ -129,6 +131,11 @@ func (h *Handler) handleSecurityPasskeyRemove(w http.ResponseWriter, r *http.Req
 	http.Redirect(w, r, "/settings/security?passkey_removed=1", http.StatusSeeOther)
 }
 
+// writePasskeyJSONErrorFor is writePasskeyJSONError in the request's language.
+func writePasskeyJSONErrorFor(w http.ResponseWriter, r *http.Request, status int, message string) {
+	writePasskeyJSONError(w, status, serverText(r.Context(), message))
+}
+
 func writePasskeyJSONError(w http.ResponseWriter, status int, message string) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", "application/json")
@@ -136,30 +143,30 @@ func writePasskeyJSONError(w http.ResponseWriter, status int, message string) {
 	_ = json.NewEncoder(w).Encode(map[string]string{"error": message})
 }
 
-func passkeySecurityViewData(passkeys []auth.PasskeyCredentialSummary) []views.PasskeySecurityData {
+func passkeySecurityViewData(ctx context.Context, passkeys []auth.PasskeyCredentialSummary) []views.PasskeySecurityData {
 	result := make([]views.PasskeySecurityData, 0, len(passkeys))
 	for _, passkey := range passkeys {
-		details := "Passkey"
+		details := i18n.T(ctx, "security.passkey")
 		switch passkey.Attachment {
 		case "platform":
-			details = "This device"
+			details = i18n.T(ctx, "server.passkey.this_device")
 		case "cross-platform":
-			details = "Security key or another device"
+			details = i18n.T(ctx, "server.passkey.security_key")
 		}
 		if passkey.BackupState {
-			details += ", synced"
+			details += ", " + i18n.T(ctx, "server.passkey.synced")
 		} else if passkey.BackupEligible {
-			details += ", sync capable"
+			details += ", " + i18n.T(ctx, "server.passkey.sync_capable")
 		} else if len(passkey.Transports) > 0 {
 			details += ", " + strings.Join(passkey.Transports, "/")
 		}
 		view := views.PasskeySecurityData{
 			ID: passkey.ID, Name: passkey.Name, Details: details,
-			CreatedAt: passkey.CreatedAt.Local().Format("Jan 2, 2006"),
-			CanRemove: passkey.CanRemove, RemoveReason: passkey.RemoveReason,
+			CreatedAt: i18n.Dates(ctx).Date(passkey.CreatedAt.Local()),
+			CanRemove: passkey.CanRemove, RemoveReason: authText(ctx, passkey.RemoveReason),
 		}
 		if passkey.LastUsedAt != nil {
-			view.LastUsedAt = passkey.LastUsedAt.Local().Format("Jan 2, 2006")
+			view.LastUsedAt = i18n.Dates(ctx).Date(passkey.LastUsedAt.Local())
 		}
 		result = append(result, view)
 	}

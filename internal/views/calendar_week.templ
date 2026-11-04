@@ -1,5 +1,7 @@
 package views
 
+import "github.com/cristianadrielbraun/gofer/internal/i18n"
+
 import (
 	"strconv"
 	"time"
@@ -11,9 +13,9 @@ templ CalendarWeekGrid(data CalendarMonthData) {
 			<div class="grid grid-cols-[56px_repeat(7,minmax(0,1fr))] border-b border-border bg-muted/35">
 				<div class="flex items-end justify-center overflow-hidden px-1 pb-3 text-[10px] font-semibold text-muted-foreground" title={ data.Month.Location().String() } data-calendar-week-timezone>{ data.Weeks[0].Days[0].Date.Format("MST") }</div>
 				for _, day := range data.Weeks[0].Days {
-					<div class={ calendarWeekColumnClass(day) } data-calendar-day={ day.ISODate } data-calendar-day-selected="false" data-calendar-day-start={ day.Date.Format(time.RFC3339) } data-calendar-day-end={ day.Date.AddDate(0, 0, 1).Format(time.RFC3339) } data-calendar-day-title={ day.Date.Format("Monday, January 2") }>
-						<button type="button" disabled?={ data.Loading } data-calendar-select-day={ day.ISODate } aria-label={ "Show events for " + day.Date.Format("Monday, January 2, 2006") } aria-pressed="false" aria-controls="calendar-agenda-list" class="flex w-full flex-col items-center gap-1 px-1 py-2 transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
-							<span class="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{ day.Date.Format("Mon") }</span>
+					<div class={ calendarWeekColumnClass(day) } data-calendar-day={ day.ISODate } data-calendar-day-selected="false" data-calendar-day-start={ day.Date.Format(time.RFC3339) } data-calendar-day-end={ day.Date.AddDate(0, 0, 1).Format(time.RFC3339) } data-calendar-day-title={ i18n.Dates(ctx).LongDateNoYear(day.Date) }>
+						<button type="button" disabled?={ data.Loading } data-calendar-select-day={ day.ISODate } aria-label={ i18n.T(ctx, "calendar.show_day_events", "date", i18n.Dates(ctx).LongDate(day.Date)) } aria-pressed="false" aria-controls="calendar-agenda-list" class="flex w-full flex-col items-center gap-1 px-1 py-2 transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring">
+							<span class="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{ i18n.Dates(ctx).WeekdayShortName(day.Date.Weekday()) }</span>
 							<span class={ calendarDayNumberClass(day) }>{ day.DayNumber }</span>
 							// Rendered while loading too (empty), so the header keeps its height.
 							@CalendarDayDots(calendarEventsForDay(day, data.Events))
@@ -22,17 +24,17 @@ templ CalendarWeekGrid(data CalendarMonthData) {
 				}
 			</div>
 			<div class="grid max-h-36 grid-cols-[56px_repeat(7,minmax(0,1fr))] overflow-y-auto" data-calendar-all-day-row>
-				<div class="px-1 py-3 text-center text-[10px] font-semibold text-muted-foreground">All day</div>
+				<div class="px-1 py-3 text-center text-[10px] font-semibold text-muted-foreground">{ i18n.T(ctx, "calendar.all_day") }</div>
 				for dayIndex, day := range data.Weeks[0].Days {
 					<div class={ calendarWeekColumnClass(day) + " grid grid-cols-1 content-start gap-1 p-1.5" } data-calendar-all-day-column={ day.ISODate }>
 						if !data.Loading {
 							for _, event := range calendarAllDayEvents(day, data.Events) {
 								{{ continuesBefore := event.StartDate < day.ISODate
 continuesAfter := event.EndDate > day.Date.AddDate(0, 0, 1).Format("2006-01-02") }}
-								<button type="button" hidden?={ event.SourceHidden } data-calendar-source-id={ event.SourceID } data-calendar-source-hidden={ strconv.FormatBool(event.SourceHidden) } data-calendar-response-state={ calendarEventResponseState(event) } data-calendar-event-trigger { calendarMoveAttributes(event)... } data-calendar-week-all-day={ event.ID } data-calendar-event-all-day="true" data-calendar-event-start-date={ event.StartDate } data-calendar-event-end-date={ event.EndDate } data-calendar-continues-before?={ continuesBefore } data-calendar-continues-after?={ continuesAfter } class="group relative z-10 flex w-full min-w-0 items-center gap-1.5 rounded border border-border bg-primary/[0.06] px-1.5 py-1 text-left text-[10px] font-semibold leading-tight transition-colors hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" title={ calendarEventResponseSummary(event) } aria-label={ "Open all-day event: " + calendarEventResponseSummary(event) } aria-haspopup="dialog" aria-controls="calendar-event-details-content" hx-get={ calendarEventDetailsURL(event.ID) } hx-target="#app-pane-dialogs" hx-swap="innerHTML" hx-sync="#app-pane-dialogs:replace" hx-disabled-elt="this">
+								<button type="button" hidden?={ event.SourceHidden } data-calendar-source-id={ event.SourceID } data-calendar-source-hidden={ strconv.FormatBool(event.SourceHidden) } data-calendar-response-state={ calendarEventResponseState(event) } data-calendar-event-trigger { calendarMoveAttributes(event)... } data-calendar-week-all-day={ event.ID } data-calendar-event-all-day="true" data-calendar-event-start-date={ event.StartDate } data-calendar-event-end-date={ event.EndDate } data-calendar-continues-before?={ continuesBefore } data-calendar-continues-after?={ continuesAfter } class="group relative z-10 flex w-full min-w-0 items-center gap-1.5 rounded border border-border bg-primary/[0.06] px-1.5 py-1 text-left text-[10px] font-semibold leading-tight transition-colors hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" title={ calendarEventResponseSummary(ctx, event) } aria-label={ i18n.T(ctx, "calendar.open_all_day_event", "event", calendarEventResponseSummary(ctx, event)) } aria-haspopup="dialog" aria-controls="calendar-event-details-content" hx-get={ calendarEventDetailsURL(event.ID) } hx-target="#app-pane-dialogs" hx-swap="innerHTML" hx-sync="#app-pane-dialogs:replace" hx-disabled-elt="this">
 									<span class={ "flex min-w-0 flex-1 items-center gap-1.5", templ.KV("invisible", continuesBefore && dayIndex > 0) }>
 										<span class="size-1.5 shrink-0 rounded-full" style={ calendarEventColorStyle(event) }></span>
-										<span class="min-w-0 flex-1 truncate" data-calendar-event-summary><span data-calendar-event-text>{ calendarEventSummary(event) }</span></span>
+										<span class="min-w-0 flex-1 truncate" data-calendar-event-summary><span data-calendar-event-text>{ calendarEventSummary(ctx, event) }</span></span>
 										@CalendarEventResponseIndicator(event, true)
 									</span>
 								</button>
@@ -45,11 +47,11 @@ continuesAfter := event.EndDate > day.Date.AddDate(0, 0, 1).Format("2006-01-02")
 		<div class="grid min-h-0 flex-1 grid-cols-[56px_repeat(7,minmax(0,1fr))]" data-calendar-week-timeline>
 			<div class="relative text-[10px] font-medium tabular-nums text-muted-foreground" aria-hidden="true">
 				for hour := 0; hour < 24; hour++ {
-					<div class="relative pr-2 text-right" style="height:calc(100% / 24);" data-calendar-week-hour-label={ strconv.Itoa(hour) }><span class="absolute right-2 top-0.5 whitespace-nowrap" data-calendar-week-hour-text>{ calendarHourLabel(hour) }</span></div>
+					<div class="relative pr-2 text-right" style="height:calc(100% / 24);" data-calendar-week-hour-label={ strconv.Itoa(hour) }><span class="absolute right-2 top-0.5 whitespace-nowrap" data-calendar-week-hour-text>{ calendarHourLabel(ctx, hour) }</span></div>
 				}
 			</div>
 			for _, day := range data.Weeks[0].Days {
-				<div class={ calendarWeekColumnClass(day) } data-calendar-timed-column={ day.ISODate } aria-label={ "Timed events for " + day.Date.Format("Monday, January 2") }>
+				<div class={ calendarWeekColumnClass(day) } data-calendar-timed-column={ day.ISODate } aria-label={ i18n.T(ctx, "calendar.week.timed_events", "date", i18n.Dates(ctx).LongDateNoYear(day.Date)) }>
 					<div class="pointer-events-none absolute inset-0" aria-hidden="true">
 						for hour := 0; hour < 24; hour++ {
 							<div class="border-t border-border/70" style="height:calc(100% / 24);" data-calendar-week-hour={ strconv.Itoa(hour) }><div class="h-1/2 border-b border-dashed border-border/40" data-calendar-half-hour></div></div>
@@ -57,13 +59,13 @@ continuesAfter := event.EndDate > day.Date.AddDate(0, 0, 1).Format("2006-01-02")
 					</div>
 					if !data.Loading {
 						for _, block := range calendarTimedBlocks(day, data.Events) {
-							<button type="button" hidden?={ block.Event.SourceHidden } data-calendar-source-id={ block.Event.SourceID } data-calendar-source-hidden={ strconv.FormatBool(block.Event.SourceHidden) } data-calendar-response-state={ calendarEventResponseState(block.Event) } data-calendar-event-trigger { calendarMoveAttributes(block.Event)... } data-calendar-week-event={ block.Event.ID } data-calendar-week-start={ strconv.FormatFloat(block.StartMinute, 'f', 3, 64) } data-calendar-week-end={ strconv.FormatFloat(block.EndMinute, 'f', 3, 64) } class="group absolute z-10 flex min-w-0 flex-col items-stretch justify-start overflow-hidden rounded border border-border bg-card px-1.5 py-0.5 text-left text-[10px] leading-tight shadow-sm transition-colors hover:bg-accent focus-visible:z-20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" style={ calendarTimedBlockStyle(block) } title={ calendarEventResponseSummary(block.Event) + " · " + block.TimeLabel } aria-label={ "Open event: " + calendarEventResponseSummary(block.Event) + ", " + day.Date.Format("Monday, January 2") + ", " + block.TimeLabel } aria-haspopup="dialog" aria-controls="calendar-event-details-content" hx-get={ calendarEventDetailsURL(block.Event.ID) } hx-target="#app-pane-dialogs" hx-swap="innerHTML" hx-sync="#app-pane-dialogs:replace" hx-disabled-elt="this">
+							<button type="button" hidden?={ block.Event.SourceHidden } data-calendar-source-id={ block.Event.SourceID } data-calendar-source-hidden={ strconv.FormatBool(block.Event.SourceHidden) } data-calendar-response-state={ calendarEventResponseState(block.Event) } data-calendar-event-trigger { calendarMoveAttributes(block.Event)... } data-calendar-week-event={ block.Event.ID } data-calendar-week-start={ strconv.FormatFloat(block.StartMinute, 'f', 3, 64) } data-calendar-week-end={ strconv.FormatFloat(block.EndMinute, 'f', 3, 64) } class="group absolute z-10 flex min-w-0 flex-col items-stretch justify-start overflow-hidden rounded border border-border bg-card px-1.5 py-0.5 text-left text-[10px] leading-tight shadow-sm transition-colors hover:bg-accent focus-visible:z-20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" style={ calendarTimedBlockStyle(block) } title={ calendarEventResponseSummary(ctx, block.Event) + " · " + calendarTimedBlockRange(ctx, block) } aria-label={ i18n.T(ctx, "calendar.open_event", "event", calendarEventResponseSummary(ctx, block.Event) + ", " + i18n.Dates(ctx).LongDateNoYear(day.Date) + ", " + calendarTimedBlockRange(ctx, block)) } aria-haspopup="dialog" aria-controls="calendar-event-details-content" hx-get={ calendarEventDetailsURL(block.Event.ID) } hx-target="#app-pane-dialogs" hx-swap="innerHTML" hx-sync="#app-pane-dialogs:replace" hx-disabled-elt="this">
 								<div class="flex min-w-0 items-center gap-1">
 									<span class="size-1.5 shrink-0 rounded-full" style={ calendarEventColorStyle(block.Event) }></span>
-									<span class="min-w-0 flex-1 truncate font-bold" data-calendar-event-summary><span data-calendar-event-text>{ calendarEventSummary(block.Event) }</span></span>
+									<span class="min-w-0 flex-1 truncate font-bold" data-calendar-event-summary><span data-calendar-event-text>{ calendarEventSummary(ctx, block.Event) }</span></span>
 									@CalendarEventResponseIndicator(block.Event, true)
 								</div>
-								<p hidden?={ calendarTimedBlockShort(block) } data-calendar-week-event-time class="mt-0.5 truncate font-semibold text-primary">{ calendarTimedBlockTimeLabel(block) }</p>
+								<p hidden?={ calendarTimedBlockShort(block) } data-calendar-week-event-time class="mt-0.5 truncate font-semibold text-primary">{ calendarTimedBlockTimeLabel(ctx, block) }</p>
 								if calendarBlockResizable(block, day) {
 									<span class="absolute inset-x-0 bottom-0 h-1.5 cursor-ns-resize" data-calendar-resize aria-hidden="true"></span>
 								}

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"io"
 	"log"
 	"net/http"
@@ -23,9 +24,9 @@ func userContactEditError(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, sql.ErrNoRows):
 		http.NotFound(w, r)
 	case errors.Is(err, storage.ErrContactEditInvalid), errors.Is(err, storage.ErrContactEmailInvalid), errors.Is(err, storage.ErrContactSetupInvalid):
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, serverText(r.Context(), err.Error()), http.StatusBadRequest)
 	case errors.Is(err, storage.ErrContactEditChanged), errors.Is(err, config.ErrAccountServicesChanged):
-		http.Error(w, "Contact or sync locations changed; reload the contact and retry.", http.StatusConflict)
+		http.Error(w, i18n.T(r.Context(), "server.error.contact_or_sync_locations_changed_reload_the"), http.StatusConflict)
 	default:
 		userAccountError(w, r, err)
 	}
@@ -71,7 +72,7 @@ func (h *Handler) handleUserUnifyContact(w http.ResponseWriter, r *http.Request)
 func (h *Handler) handleUserImportContacts(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, contactImportMaxBytes+(128<<10))
 	if err := r.ParseMultipartForm(contactImportMaxBytes); err != nil {
-		http.Error(w, "Invalid vCard import", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_vcard_import"), http.StatusBadRequest)
 		return
 	}
 	if r.MultipartForm != nil {
@@ -79,20 +80,20 @@ func (h *Handler) handleUserImportContacts(w http.ResponseWriter, r *http.Reques
 	}
 	file, _, err := r.FormFile("vcard")
 	if err != nil {
-		http.Error(w, "Missing vCard file", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.missing_vcard_file"), http.StatusBadRequest)
 		return
 	}
 	defer file.Close()
 	data, err := io.ReadAll(io.LimitReader(file, contactImportMaxBytes+1))
 	if err != nil || int64(len(data)) > contactImportMaxBytes {
-		http.Error(w, "vCard file is too large", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.vcard_file_is_too_large"), http.StatusBadRequest)
 		return
 	}
 	// The editor snapshot applies the owned destination allowlist. vCard imports
 	// retain the existing disabled-sync behavior and never perform provider HTTP.
 	contacts, err := parseVCardContacts(bytes.NewReader(data), strings.Split(r.FormValue("save_targets"), ","))
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, serverText(r.Context(), err.Error()), http.StatusBadRequest)
 		return
 	}
 	owner, imported := h.userID(r.Context()), 0
@@ -128,12 +129,12 @@ func (h *Handler) handleUserSaveContact(w http.ResponseWriter, r *http.Request) 
 	// Include an encoded maximum-size avatar plus ordinary editor fields.
 	r.Body = http.MaxBytesReader(w, r.Body, 4*contactAvatarMaxBytes+(128<<10))
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "bad request", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.bad_request"), http.StatusBadRequest)
 		return
 	}
 	contact, err := contactFromForm(r, strings.Split(r.FormValue("save_targets"), ","))
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, serverText(r.Context(), err.Error()), http.StatusBadRequest)
 		return
 	}
 	owner := h.userID(r.Context())

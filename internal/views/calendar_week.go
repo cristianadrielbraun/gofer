@@ -1,11 +1,14 @@
 package views
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"net/url"
 	"sort"
 	"time"
+
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 )
 
 const calendarWeekHourHeight = 64
@@ -18,10 +21,8 @@ func NewCalendarWeekData(at time.Time) CalendarMonthData {
 	data := NewCalendarMonthData(at)
 	date := time.Date(at.Year(), at.Month(), at.Day(), 0, 0, 0, 0, at.Location())
 	start := date.AddDate(0, 0, -((int(date.Weekday()) + 6) % 7))
-	end := start.AddDate(0, 0, 6)
 	data.View = "week"
 	data.PeriodKey = "week:" + start.Format("2006-01-02")
-	data.MonthLabel = calendarWeekRangeLabel(start, end)
 	week := CalendarWeek{}
 	for index := 0; index < 7; index++ {
 		day := start.AddDate(0, 0, index)
@@ -33,16 +34,6 @@ func NewCalendarWeekData(at time.Time) CalendarMonthData {
 	}
 	data.Weeks = []CalendarWeek{week}
 	return data
-}
-
-func calendarWeekRangeLabel(start, end time.Time) string {
-	if start.Year() != end.Year() {
-		return start.Format("Jan 2, 2006") + " – " + end.Format("Jan 2, 2006")
-	}
-	if start.Month() != end.Month() {
-		return start.Format("Jan 2") + " – " + end.Format("Jan 2, 2006")
-	}
-	return start.Format("Jan 2") + "–" + end.Format("2, 2006")
 }
 
 func calendarViewURL(view, date string) string {
@@ -67,11 +58,13 @@ func calendarNavigationURL(data CalendarMonthData, direction int) string {
 	return calendarMonthURL(data.Month.AddDate(0, direction, 0).Format("2006-01"))
 }
 
-func calendarNavigationLabel(data CalendarMonthData, direction string) string {
+// calendarNavigationLabel names the previous or next arrow; direction is
+// "previous" or "next".
+func calendarNavigationLabel(ctx context.Context, data CalendarMonthData, direction string) string {
 	if data.View == "week" {
-		return direction + " week"
+		return i18n.T(ctx, "calendar.nav."+direction+"_week")
 	}
-	return direction + " month"
+	return i18n.T(ctx, "calendar.nav."+direction+"_month")
 }
 
 func calendarViewSwitchClass(active bool) string {
@@ -117,7 +110,9 @@ type CalendarTimedBlock struct {
 	EndMinute   float64
 	Column      int
 	Columns     int
-	TimeLabel   string
+	// Zone names the time zone when the day changes offset, so the times
+	// say which side of the change they are on.
+	Zone string
 }
 
 // Split at local midnights and timezone changes. In particular, an event
@@ -155,14 +150,13 @@ func calendarTimedBlocks(day CalendarDay, events []CalendarEvent) []CalendarTime
 					endMinute = calendarWallMinute(localEnd)
 				}
 			}
-			label := calendarMinuteLabel(startMinute) + "–" + calendarMinuteLabel(endMinute)
+			zone := ""
 			_, startOffset := dayStart.Zone()
 			_, endOffset := dayEnd.Add(-time.Nanosecond).Zone()
 			if startOffset != endOffset {
-				zone, _ := start.Zone()
-				label += " " + zone
+				zone, _ = start.Zone()
 			}
-			blocks = append(blocks, CalendarTimedBlock{Event: event, StartMinute: startMinute, EndMinute: endMinute, TimeLabel: label})
+			blocks = append(blocks, CalendarTimedBlock{Event: event, StartMinute: startMinute, EndMinute: endMinute, Zone: zone})
 			if !partEnd.Before(end) {
 				break
 			}
@@ -212,9 +206,9 @@ func calendarWallMinute(at time.Time) float64 {
 	return float64(at.Hour()*60+at.Minute()) + float64(at.Second())/60
 }
 
-func calendarMinuteLabel(minute float64) string {
+func calendarMinuteLabel(ctx context.Context, minute float64) string {
 	value := int(math.Round(minute))
-	return fmt.Sprintf("%02d:%02d", value/60, value%60)
+	return i18n.Dates(ctx).ClockTime(value/60, value%60)
 }
 
 func calendarBlockStart(block CalendarTimedBlock) float64 {
@@ -234,15 +228,27 @@ func calendarTimedBlockShort(block CalendarTimedBlock) bool {
 	return calendarBlockEnd(block)-calendarBlockStart(block) < 45
 }
 
-func calendarTimedBlockTimeLabel(block CalendarTimedBlock) string {
-	if block.Columns > 1 {
-		return calendarMinuteLabel(block.StartMinute)
+// calendarTimedBlockRange is a block's times, with its zone on days that
+// change offset.
+func calendarTimedBlockRange(ctx context.Context, block CalendarTimedBlock) string {
+	label := i18n.T(ctx, "date.pattern.time_range", "start", calendarMinuteLabel(ctx, block.StartMinute), "end", calendarMinuteLabel(ctx, block.EndMinute))
+	if block.Zone != "" {
+		label += " " + block.Zone
 	}
-	return block.TimeLabel
+	return label
 }
 
-func calendarHourLabel(hour int) string {
-	return fmt.Sprintf("%02d:00", hour)
+// calendarTimedBlockTimeLabel is the time shown inside a block: only its
+// start when it shares the column with others.
+func calendarTimedBlockTimeLabel(ctx context.Context, block CalendarTimedBlock) string {
+	if block.Columns > 1 {
+		return calendarMinuteLabel(ctx, block.StartMinute)
+	}
+	return calendarTimedBlockRange(ctx, block)
+}
+
+func calendarHourLabel(ctx context.Context, hour int) string {
+	return i18n.Dates(ctx).HourLabel(hour)
 }
 
 func calendarWeekColumnClass(day CalendarDay) string {

@@ -1,11 +1,13 @@
 package views
 
 import (
+	"context"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
 	"unicode"
+
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 )
 
 type CalendarEventDetails struct {
@@ -58,28 +60,28 @@ type CalendarReplyData struct {
 	ID, EventID, Scope, State, SendStatus, Note string
 }
 
-func calendarResponseLabel(status string) string {
+func calendarResponseLabel(ctx context.Context, status string) string {
 	switch status {
 	case "accepted":
-		return "Accepted"
+		return i18n.T(ctx, "calendar.response.accepted")
 	case "tentative":
-		return "Maybe"
+		return i18n.T(ctx, "calendar.response.maybe")
 	case "declined":
-		return "Declined"
+		return i18n.T(ctx, "calendar.response.declined")
 	default:
-		return "Not answered"
+		return i18n.T(ctx, "calendar.response.not_answered")
 	}
 }
 
 // calendarResponseChoiceLabel names a reply as the reply menus offer it.
-func calendarResponseChoiceLabel(status string) string {
+func calendarResponseChoiceLabel(ctx context.Context, status string) string {
 	switch status {
 	case "accepted":
-		return "Accept"
+		return i18n.T(ctx, "calendar.response.accept")
 	case "tentative":
-		return "Maybe"
+		return i18n.T(ctx, "calendar.response.maybe")
 	case "declined":
-		return "Decline"
+		return i18n.T(ctx, "calendar.response.decline")
 	}
 	return status
 }
@@ -103,7 +105,7 @@ func calendarEventEditURL(details CalendarEventDetails) string {
 	return endpoint
 }
 
-func calendarEventDetailsDate(event CalendarEvent, location *time.Location) string {
+func calendarEventDetailsDate(ctx context.Context, event CalendarEvent, location *time.Location) string {
 	var start, end time.Time
 	if event.AllDay {
 		var err error
@@ -122,12 +124,13 @@ func calendarEventDetailsDate(event CalendarEvent, location *time.Location) stri
 		}
 	}
 	if start.IsZero() {
-		return "Date unavailable"
+		return i18n.T(ctx, "calendar.event.date_unavailable")
 	}
+	dates := i18n.Dates(ctx)
 	if end.IsZero() || sameCalendarDate(start, end) {
-		return start.Format("Monday, January 2, 2006")
+		return dates.LongDate(start)
 	}
-	return start.Format("Mon, Jan 2, 2006") + " – " + end.Format("Mon, Jan 2, 2006")
+	return dates.Range(dates.WeekdayDate(start), dates.WeekdayDate(end))
 }
 
 func calendarEventDetailsTimeZone(event CalendarEvent, location *time.Location) string {
@@ -154,32 +157,32 @@ func calendarParticipantName(person CalendarEventParticipant) string {
 	return strings.TrimSpace(person.Email)
 }
 
-func calendarParticipantResponse(person CalendarEventParticipant) string {
-	switch strings.ToLower(strings.TrimSpace(person.ResponseStatus)) {
-	case "accepted":
-		return "Accepted"
-	case "declined":
-		return "Declined"
+// calendarParticipantState is a guest's answer: accepted, declined,
+// tentative, organizer, delegated or none.
+func calendarParticipantState(person CalendarEventParticipant) string {
+	switch status := strings.ToLower(strings.TrimSpace(person.ResponseStatus)); status {
+	case "accepted", "declined", "organizer", "delegated":
+		return status
 	case "tentative", "tentativelyaccepted":
-		return "Tentative"
-	case "organizer":
-		return "Organizer"
-	case "delegated":
-		return "Delegated"
+		return "tentative"
 	default:
-		return "No response"
+		return "none"
 	}
+}
+
+func calendarParticipantResponse(ctx context.Context, person CalendarEventParticipant) string {
+	return i18n.T(ctx, "calendar.participant."+calendarParticipantState(person))
 }
 
 // calendarParticipantBadgeClass colors the small status disc on a guest's avatar.
 func calendarParticipantBadgeClass(person CalendarEventParticipant) string {
 	base := "absolute -right-0.5 -bottom-0.5 flex size-3.5 items-center justify-center rounded-full text-[9px] font-bold leading-none ring-2 ring-card"
-	switch calendarParticipantResponse(person) {
-	case "Accepted", "Organizer":
+	switch calendarParticipantState(person) {
+	case "accepted", "organizer":
 		return base + " bg-emerald-600 text-white dark:bg-emerald-500"
-	case "Declined":
+	case "declined":
 		return base + " bg-destructive text-white"
-	case "Tentative":
+	case "tentative":
 		return base + " bg-amber-500 text-white"
 	default:
 		return base + " bg-muted-foreground/60 text-card"
@@ -225,21 +228,21 @@ func calendarOrganizerListed(details CalendarEventDetails) bool {
 }
 
 // calendarGuestSummary tallies responses, e.g. "2 yes · 1 maybe · 1 awaiting".
-func calendarGuestSummary(attendees []CalendarEventParticipant) string {
+func calendarGuestSummary(ctx context.Context, attendees []CalendarEventParticipant) string {
 	counts := map[string]int{}
 	for _, person := range attendees {
-		counts[calendarParticipantResponse(person)]++
+		counts[calendarParticipantState(person)]++
 	}
 	var parts []string
-	for _, tally := range [][2]string{{"Accepted", "yes"}, {"Organizer", "yes"}, {"Tentative", "maybe"}, {"Declined", "no"}, {"Delegated", "delegated"}, {"No response", "awaiting"}} {
+	for _, tally := range [][2]string{{"accepted", "yes"}, {"organizer", "yes"}, {"tentative", "maybe"}, {"declined", "no"}, {"delegated", "delegated"}, {"none", "awaiting"}} {
 		if n := counts[tally[0]]; n > 0 {
-			if tally[0] == "Organizer" && counts["Accepted"] > 0 {
+			if tally[0] == "organizer" && counts["accepted"] > 0 {
 				continue
 			}
-			if tally[0] == "Accepted" {
-				n += counts["Organizer"]
+			if tally[0] == "accepted" {
+				n += counts["organizer"]
 			}
-			parts = append(parts, strconv.Itoa(n)+" "+tally[1])
+			parts = append(parts, i18n.T(ctx, "calendar.guests.tally."+tally[1], "count", i18n.Number(ctx, n)))
 		}
 	}
 	return strings.Join(parts, " · ")

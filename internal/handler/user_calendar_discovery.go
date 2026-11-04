@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"log"
 	"net/http"
 	"net/url"
@@ -371,7 +372,7 @@ func (p *userCalendarRequest) calDAVLogin(form url.Values) (baseURL, username, p
 func (h *Handler) handleUserDiscoverCalendars(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "invalid calendar discovery request", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_calendar_discovery_request"), http.StatusBadRequest)
 		return
 	}
 	owner, id := h.userID(r.Context()), strings.TrimSpace(r.PathValue("id"))
@@ -384,7 +385,7 @@ func (h *Handler) handleUserDiscoverCalendars(w http.ResponseWriter, r *http.Req
 	}
 	if err != nil {
 		if errors.Is(err, storage.ErrCalendarDiscoveryChanged) || errors.Is(err, config.ErrAccountServicesChanged) || errors.Is(err, mailauth.ErrMailboxAuthorizationChanged) {
-			http.Error(w, "Calendar access or settings changed; retry discovery.", http.StatusConflict)
+			http.Error(w, i18n.T(r.Context(), "server.error.calendar_access_or_settings_changed_retry_discovery"), http.StatusConflict)
 		} else {
 			userAccountError(w, r, err)
 		}
@@ -406,7 +407,7 @@ func (h *Handler) handleUserDiscoverCalendars(w http.ResponseWriter, r *http.Req
 	}
 	data.CalendarSync.FoundNone = result.foundNone
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := views.CalendarSyncSettingsResult(*data, message, result.failed).Render(r.Context(), w); err != nil {
+	if err := views.CalendarSyncSettingsResult(*data, serverText(r.Context(), message), result.failed).Render(r.Context(), w); err != nil {
 		log.Printf("owned calendar: render discovery: %v", err)
 	}
 }

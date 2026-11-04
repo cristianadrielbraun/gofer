@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"errors"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"io"
 	"log"
 	"net/http"
@@ -24,12 +25,12 @@ const (
 
 func (h *Handler) handleLoginPasskeyStart(w http.ResponseWriter, r *http.Request) {
 	if !h.auth.IsEnabled() {
-		http.Error(w, "not found", http.StatusNotFound)
+		http.Error(w, i18n.T(r.Context(), "server.error.not_found"), http.StatusNotFound)
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, passkeyLoginStartMaximumBytes)
 	if err := r.ParseForm(); err != nil {
-		writePasskeyJSONError(w, http.StatusBadRequest, passkeyLoginFailureMessage)
+		writePasskeyJSONErrorFor(w, r, http.StatusBadRequest, passkeyLoginFailureMessage)
 		return
 	}
 	options, err := h.auth.StartPasskeyLogin(
@@ -41,18 +42,18 @@ func (h *Handler) handleLoginPasskeyStart(w http.ResponseWriter, r *http.Request
 		switch {
 		case errors.As(err, &throttleError):
 			setPasskeyRetryAfter(w, throttleError)
-			writePasskeyJSONError(w, http.StatusTooManyRequests, passkeyLoginFailureMessage)
+			writePasskeyJSONErrorFor(w, r, http.StatusTooManyRequests, passkeyLoginFailureMessage)
 		case errors.Is(err, auth.ErrPasskeyAuthenticationUnavailable):
-			writePasskeyJSONError(w, http.StatusUnprocessableEntity, passkeyLoginFailureMessage)
+			writePasskeyJSONErrorFor(w, r, http.StatusUnprocessableEntity, passkeyLoginFailureMessage)
 		default:
 			log.Printf("start passkey login: %v", err)
-			writePasskeyJSONError(w, http.StatusInternalServerError, "Unable to start passkey sign-in right now.")
+			writePasskeyJSONErrorFor(w, r, http.StatusInternalServerError, "Unable to start passkey sign-in right now.")
 		}
 		return
 	}
 	if options == nil || options.Challenge == nil || options.Challenge.Token == "" || len(options.RequestJSON) == 0 {
 		log.Printf("start passkey login returned incomplete options")
-		writePasskeyJSONError(w, http.StatusInternalServerError, "Unable to start passkey sign-in right now.")
+		writePasskeyJSONErrorFor(w, r, http.StatusInternalServerError, "Unable to start passkey sign-in right now.")
 		return
 	}
 	auth.SetPasskeyLoginChallengeCookie(
@@ -67,13 +68,13 @@ func (h *Handler) handleLoginPasskeyStart(w http.ResponseWriter, r *http.Request
 
 func (h *Handler) handleLoginPasskeyFinish(w http.ResponseWriter, r *http.Request) {
 	if !h.auth.IsEnabled() {
-		http.Error(w, "not found", http.StatusNotFound)
+		http.Error(w, i18n.T(r.Context(), "server.error.not_found"), http.StatusNotFound)
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, passkeyAssertionMaximumBytes)
 	responseJSON, err := io.ReadAll(r.Body)
 	if err != nil {
-		writePasskeyJSONError(w, http.StatusBadRequest, passkeyLoginFailureMessage)
+		writePasskeyJSONErrorFor(w, r, http.StatusBadRequest, passkeyLoginFailureMessage)
 		return
 	}
 	result, err := h.auth.FinishPasskeyLogin(
@@ -87,19 +88,19 @@ func (h *Handler) handleLoginPasskeyFinish(w http.ResponseWriter, r *http.Reques
 		case errors.As(err, &throttleError):
 			auth.ClearPasskeyLoginChallengeCookie(w, h.auth.Config().SecureCookies)
 			setPasskeyRetryAfter(w, throttleError)
-			writePasskeyJSONError(w, http.StatusTooManyRequests, passkeyLoginFailureMessage)
+			writePasskeyJSONErrorFor(w, r, http.StatusTooManyRequests, passkeyLoginFailureMessage)
 		case errors.Is(err, auth.ErrPasskeyCloneWarning):
 			auth.ClearPasskeyLoginChallengeCookie(w, h.auth.Config().SecureCookies)
-			writePasskeyJSONError(w, http.StatusUnauthorized, "This passkey can no longer be used safely. Sign in another way and replace it.")
+			writePasskeyJSONErrorFor(w, r, http.StatusUnauthorized, "This passkey can no longer be used safely. Sign in another way and replace it.")
 		case errors.As(err, &validationError):
 			auth.ClearPasskeyLoginChallengeCookie(w, h.auth.Config().SecureCookies)
-			writePasskeyJSONError(w, http.StatusUnauthorized, passkeyLoginFailureMessage)
+			writePasskeyJSONErrorFor(w, r, http.StatusUnauthorized, passkeyLoginFailureMessage)
 		case errors.Is(err, auth.ErrPasskeyAuthenticationInvalid):
 			auth.ClearPasskeyLoginChallengeCookie(w, h.auth.Config().SecureCookies)
-			writePasskeyJSONError(w, http.StatusGone, "That passkey request expired or was already used. Start again or use your password.")
+			writePasskeyJSONErrorFor(w, r, http.StatusGone, "That passkey request expired or was already used. Start again or use your password.")
 		default:
 			log.Printf("finish passkey login: %v", err)
-			writePasskeyJSONError(w, http.StatusInternalServerError, "Unable to complete passkey sign-in right now.")
+			writePasskeyJSONErrorFor(w, r, http.StatusInternalServerError, "Unable to complete passkey sign-in right now.")
 		}
 		return
 	}
@@ -119,7 +120,7 @@ func (h *Handler) handleLoginPasskeyFinish(w http.ResponseWriter, r *http.Reques
 	}
 	if result == nil || result.Session == nil || result.Session.Token == "" || result.PreAuthChallenge != nil {
 		log.Printf("passkey login returned no session")
-		writePasskeyJSONError(w, http.StatusInternalServerError, "Unable to complete passkey sign-in right now.")
+		writePasskeyJSONErrorFor(w, r, http.StatusInternalServerError, "Unable to complete passkey sign-in right now.")
 		return
 	}
 	auth.ClearPasskeyLoginChallengeCookie(w, h.auth.Config().SecureCookies)
@@ -147,21 +148,21 @@ func (h *Handler) handleSecurityPasskeyStepUpStart(w http.ResponseWriter, r *htt
 		switch {
 		case errors.As(err, &throttleError):
 			setPasskeyRetryAfter(w, throttleError)
-			writePasskeyJSONError(w, http.StatusTooManyRequests, passkeyLoginFailureMessage)
+			writePasskeyJSONErrorFor(w, r, http.StatusTooManyRequests, passkeyLoginFailureMessage)
 		case errors.Is(err, auth.ErrPasskeyAuthenticationUnavailable):
-			writePasskeyJSONError(w, http.StatusConflict, "No usable passkey is registered for this account. Use your authenticator code.")
+			writePasskeyJSONErrorFor(w, r, http.StatusConflict, "No usable passkey is registered for this account. Use your authenticator code.")
 		case errors.Is(err, auth.ErrSecuritySessionInvalid):
 			auth.ClearSessionCookie(w, h.auth.Config().SecureCookies)
-			writePasskeyJSONError(w, http.StatusUnauthorized, "Your session expired. Sign in again.")
+			writePasskeyJSONErrorFor(w, r, http.StatusUnauthorized, "Your session expired. Sign in again.")
 		default:
 			log.Printf("start passkey security step-up: %v", err)
-			writePasskeyJSONError(w, http.StatusInternalServerError, "Unable to start passkey verification right now.")
+			writePasskeyJSONErrorFor(w, r, http.StatusInternalServerError, "Unable to start passkey verification right now.")
 		}
 		return
 	}
 	if options == nil || options.Challenge == nil || options.Challenge.Token == "" || len(options.RequestJSON) == 0 {
 		log.Printf("start passkey security step-up returned incomplete options")
-		writePasskeyJSONError(w, http.StatusInternalServerError, "Unable to start passkey verification right now.")
+		writePasskeyJSONErrorFor(w, r, http.StatusInternalServerError, "Unable to start passkey verification right now.")
 		return
 	}
 	auth.SetSecurityChallengeCookie(
@@ -178,7 +179,7 @@ func (h *Handler) handleSecurityPasskeyStepUpFinish(w http.ResponseWriter, r *ht
 	r.Body = http.MaxBytesReader(w, r.Body, passkeyAssertionMaximumBytes)
 	responseJSON, err := io.ReadAll(r.Body)
 	if err != nil {
-		writePasskeyJSONError(w, http.StatusBadRequest, passkeyLoginFailureMessage)
+		writePasskeyJSONErrorFor(w, r, http.StatusBadRequest, passkeyLoginFailureMessage)
 		return
 	}
 	err = h.auth.FinishPasskeyStepUp(
@@ -192,23 +193,23 @@ func (h *Handler) handleSecurityPasskeyStepUpFinish(w http.ResponseWriter, r *ht
 		case errors.As(err, &throttleError):
 			auth.ClearSecurityChallengeCookie(w, h.auth.Config().SecureCookies)
 			setPasskeyRetryAfter(w, throttleError)
-			writePasskeyJSONError(w, http.StatusTooManyRequests, passkeyLoginFailureMessage)
+			writePasskeyJSONErrorFor(w, r, http.StatusTooManyRequests, passkeyLoginFailureMessage)
 		case errors.Is(err, auth.ErrPasskeyCloneWarning):
 			auth.ClearSecurityChallengeCookie(w, h.auth.Config().SecureCookies)
-			writePasskeyJSONError(w, http.StatusUnauthorized, "This passkey can no longer be used safely. Use your authenticator code and replace it.")
+			writePasskeyJSONErrorFor(w, r, http.StatusUnauthorized, "This passkey can no longer be used safely. Use your authenticator code and replace it.")
 		case errors.As(err, &validationError):
 			auth.ClearSecurityChallengeCookie(w, h.auth.Config().SecureCookies)
-			writePasskeyJSONError(w, http.StatusUnauthorized, passkeyLoginFailureMessage)
+			writePasskeyJSONErrorFor(w, r, http.StatusUnauthorized, passkeyLoginFailureMessage)
 		case errors.Is(err, auth.ErrPasskeyAuthenticationInvalid):
 			auth.ClearSecurityChallengeCookie(w, h.auth.Config().SecureCookies)
-			writePasskeyJSONError(w, http.StatusGone, "That passkey request expired or was already used. Start again.")
+			writePasskeyJSONErrorFor(w, r, http.StatusGone, "That passkey request expired or was already used. Start again.")
 		case errors.Is(err, auth.ErrSecuritySessionInvalid):
 			auth.ClearSessionCookie(w, h.auth.Config().SecureCookies)
 			auth.ClearSecurityChallengeCookie(w, h.auth.Config().SecureCookies)
-			writePasskeyJSONError(w, http.StatusUnauthorized, "Your session expired. Sign in again.")
+			writePasskeyJSONErrorFor(w, r, http.StatusUnauthorized, "Your session expired. Sign in again.")
 		default:
 			log.Printf("finish passkey security step-up: %v", err)
-			writePasskeyJSONError(w, http.StatusInternalServerError, "Unable to verify this session right now.")
+			writePasskeyJSONErrorFor(w, r, http.StatusInternalServerError, "Unable to verify this session right now.")
 		}
 		return
 	}

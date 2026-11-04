@@ -12,7 +12,7 @@
       if (submit) submit.disabled = true
       if (status) {
         status.classList.remove("text-destructive")
-        status.textContent = "Verifying…"
+        status.textContent = goferT("js.admin.verify.verifying")
       }
 
       fetch(form.action, {
@@ -22,13 +22,13 @@
         body: new URLSearchParams(new FormData(form)),
       }).then(function (response) {
         return response.json().catch(function () { return {} }).then(function (result) {
-          if (!response.ok) throw new Error(result.error || "Unable to verify this session right now.")
+          if (!response.ok) throw new Error(result.error || goferT("js.admin.verify.failed"))
           window.location.assign(result.redirect || form.dataset.successRedirect || window.location.href)
         })
       }).catch(function (error) {
         if (status) {
           status.classList.add("text-destructive")
-          status.textContent = error && error.message ? error.message : "Unable to verify this session right now."
+          status.textContent = error && error.message ? error.message : goferT("js.admin.verify.failed")
         }
         if (submit) submit.disabled = false
       })
@@ -94,7 +94,10 @@
     if (!main || !indicator) return
 
     var label = indicator.querySelector("[data-admin-navigation-loading-label]")
-    if (label) label.textContent = "Loading " + (link.getAttribute("data-admin-navigation-label") || "section") + "…"
+    if (label) {
+      var section = link.getAttribute("data-admin-navigation-label")
+      label.textContent = section ? goferT("js.admin.loading_section", { section: section }) : goferT("js.admin.loading")
+    }
     main.setAttribute("aria-busy", "true")
     link.setAttribute("aria-busy", "true")
     indicator.classList.remove("hidden")
@@ -162,7 +165,7 @@
   }
 
   function fmtNumber(value) {
-    return String(value || 0)
+    return goferNumber(value || 0)
   }
 
   function filterValue(node, fallback) {
@@ -177,10 +180,10 @@
   }
 
   function fmtTime(value) {
-    if (!value || value === "0001-01-01T00:00:00Z") return "Never"
+    if (!value || value === "0001-01-01T00:00:00Z") return goferT("js.admin.never")
     var date = new Date(value)
-    if (isNaN(date.getTime())) return "Never"
-    return date.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })
+    if (isNaN(date.getTime())) return goferT("js.admin.never")
+    return goferDates.shortDateTime(date)
   }
 
   function latestAvatarError(status) {
@@ -190,7 +193,7 @@
         if (errors[i] && errors[i].message) return errors[i].message
       }
     }
-    return (status && status.backfill && status.backfill.last_error) || "None"
+    return (status && status.backfill && status.backfill.last_error) || goferT("js.admin.none")
   }
 
   function escapeHTML(value) {
@@ -208,6 +211,13 @@
     if (status === "skipped") return "bg-blue-500/12 text-blue-700 dark:text-blue-300"
     if (status === "error") return "bg-red-500/12 text-red-700 dark:text-red-300"
     return "bg-muted text-muted-foreground"
+  }
+
+  // avatarStatusLabel names an avatar check status; one the catalog doesn't
+  // know is shown as the server sent it.
+  var AVATAR_STATUSES = ["found", "missing", "skipped", "error", "unchecked", "pending", "unknown"]
+  function avatarStatusLabel(status) {
+    return AVATAR_STATUSES.indexOf(status) >= 0 ? goferT("js.admin.avatars.status." + status) : status
   }
 
   function plainStatusClass(status) {
@@ -244,26 +254,26 @@
   }
 
   function contactRunDescription(backfill) {
-    if (backfill && backfill.in_progress) return "The instance backfill is scanning stored messages for every webmail user and creating missing discovered contacts."
-    if (backfill && backfill.last_error) return "Last backfill failed. Review the event log and server logs before retrying."
-    return "Backfill scans stored messages across the instance for senders and recipients not already represented as contacts."
+    if (backfill && backfill.in_progress) return goferT("js.admin.contacts.run.running")
+    if (backfill && backfill.last_error) return goferT("js.admin.contacts.run.failed")
+    return goferT("js.admin.contacts.run.idle")
   }
 
   function contactRunLabel(backfill) {
-    if (backfill && backfill.in_progress) return "Backfilling"
-    if (backfill && backfill.last_error) return "Error"
-    return "Idle"
+    if (backfill && backfill.in_progress) return goferT("js.admin.contacts.state.running")
+    if (backfill && backfill.last_error) return goferT("js.admin.contacts.state.error")
+    return goferT("js.admin.state.idle")
   }
 
   function contactEventLabel(eventType) {
     var labels = {
-      backfill_forced: "Backfill requested",
-      backfill_started: "Backfill started",
-      backfill_completed: "Backfill completed",
-      manual_contact_added: "Manual contact added",
-      observed_contact_added: "Observed contact added",
-      contact_deleted: "Contact deleted",
-      observed_contacts_deleted: "Discovered contacts deleted",
+      backfill_forced: goferT("js.admin.contacts.event.backfill_forced"),
+      backfill_started: goferT("js.admin.contacts.event.backfill_started"),
+      backfill_completed: goferT("js.admin.contacts.event.backfill_completed"),
+      manual_contact_added: goferT("js.admin.contacts.event.manual_contact_added"),
+      observed_contact_added: goferT("js.admin.contacts.event.observed_contact_added"),
+      contact_deleted: goferT("js.admin.contacts.event.contact_deleted"),
+      observed_contacts_deleted: goferT("js.admin.contacts.event.observed_contacts_deleted"),
     }
     return labels[eventType] || String(eventType || "event").replace(/_/g, " ").replace(/\b\w/g, function (ch) { return ch.toUpperCase() })
   }
@@ -279,7 +289,7 @@
     event = event || {}
     return '<div class="grid grid-cols-[10rem_minmax(15rem,1fr)_12rem_8rem_minmax(18rem,1.3fr)] gap-3 border-b border-border/70 bg-background/55 px-4 py-3 text-sm odd:bg-background/70 hover:bg-accent/35">' +
       '<div class="text-xs font-medium text-muted-foreground">' + escapeHTML(fmtTime(event.created_at)) + '</div>' +
-      '<div class="min-w-0"><div class="truncate font-medium text-foreground">' + escapeHTML(event.username || "Unknown user") + '</div><div class="truncate text-xs text-muted-foreground">' + escapeHTML(event.email || "System event") + '</div></div>' +
+      '<div class="min-w-0"><div class="truncate font-medium text-foreground">' + escapeHTML(event.username || goferT("js.admin.unknown_user")) + '</div><div class="truncate text-xs text-muted-foreground">' + escapeHTML(event.email || goferT("js.admin.system_event")) + '</div></div>' +
       '<div><span class="inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ' + contactEventClass(event.type) + '">' + escapeHTML(contactEventLabel(event.type)) + '</span></div>' +
       '<div class="text-sm font-semibold tabular-nums text-foreground">' + escapeHTML(fmtNumber(event.count)) + '</div>' +
       '<div class="min-w-0 truncate text-sm text-muted-foreground">' + escapeHTML(event.message || "") + '</div>' +
@@ -292,7 +302,7 @@
     var progressText = qs("[data-contact-progress-text]", root)
     var progressPct = qs("[data-contact-progress-percent]", root)
     var progressBar = qs("[data-contact-progress-bar]", root)
-    if (progressText) progressText.textContent = fmtNumber(backfill.processed) + " of " + fmtNumber(backfill.total) + " processed"
+    if (progressText) progressText.textContent = goferT("js.admin.progress", { done: fmtNumber(backfill.processed), total: fmtNumber(backfill.total) })
     if (progressPct) progressPct.textContent = pct + "%"
     if (progressBar) progressBar.style.width = pct + "%"
     var state = qs("[data-contact-state]", root)
@@ -306,7 +316,7 @@
     if (button) button.disabled = !!backfill.in_progress
     setDetail("contacts_started", fmtTime(backfill.started_at))
     setDetail("contacts_finished", fmtTime(backfill.finished_at))
-    setDetail("contacts_last_error", backfill.last_error || "None")
+    setDetail("contacts_last_error", backfill.last_error || goferT("js.admin.none"))
   }
 
   function renderContactStatus(status) {
@@ -321,10 +331,10 @@
     setDetail("contacts_last_backfill", fmtTime(status.last_backfill))
     var events = status.recent_events || []
     var count = qs("[data-contact-event-count]", root)
-    if (count) count.textContent = events.length + " recent events"
+    if (count) count.textContent = goferTn("js.admin.contacts.recent_events", events.length, { count: fmtNumber(events.length) })
     var viewport = qs("[data-contact-event-viewport]", root)
     if (viewport) {
-      viewport.innerHTML = events.length ? events.map(renderContactEventRow).join("") : '<div class="px-4 py-8 text-center text-sm text-muted-foreground">No contact activity has been recorded yet.</div>'
+      viewport.innerHTML = events.length ? events.map(renderContactEventRow).join("") : '<div class="px-4 py-8 text-center text-sm text-muted-foreground">' + escapeHTML(goferT("js.admin.contacts.no_activity")) + '</div>'
     }
   }
 
@@ -398,11 +408,11 @@
     var running = !!backfill.in_progress
     var canceling = running && !!backfill.cancel_requested
     var canceled = !running && !!backfill.canceled
-    state.textContent = canceling ? "Canceling" : (running ? (backfill.mode === "manual" ? "Full recheck" : "Due check") : (canceled ? "Canceled" : "Idle"))
+    state.textContent = canceling ? goferT("js.admin.avatars.state.canceling") : (running ? (backfill.mode === "manual" ? goferT("js.admin.avatars.state.full") : goferT("js.admin.avatars.state.due")) : (canceled ? goferT("js.admin.avatars.state.canceled") : goferT("js.admin.state.idle")))
     state.className = "inline-flex w-fit shrink-0 items-center rounded-md px-2.5 py-1 text-[11px] font-semibold " + (canceling || canceled ? "bg-red-500/12 text-red-700 dark:text-red-300" : (running ? "bg-amber-500/12 text-amber-700 dark:text-amber-300" : "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300"))
     var description = qs("[data-avatar-run-description]", root)
     if (description) {
-      description.textContent = canceling ? "Cancel requested. In-flight avatar checks are stopping safely." : (running ? (backfill.mode === "manual" ? "Manual full recheck across all known senders, regardless of retry or expiration state." : "Scheduled due check for pending, retryable, or expired sender avatars.") : (canceled ? "Last run was canceled. Scheduled due checks will continue normally." : "Scheduled checks only process pending, retryable, or expired senders. Use Force full recheck to scan every known sender."))
+      description.textContent = canceling ? goferT("js.admin.avatars.run.canceling") : (running ? (backfill.mode === "manual" ? goferT("js.admin.avatars.run.full") : goferT("js.admin.avatars.run.due")) : (canceled ? goferT("js.admin.avatars.run.canceled") : goferT("js.admin.avatars.run.idle")))
     }
     var button = document.querySelector('form[action="/admin/avatar-backfill/recheck"] button')
     if (button) button.disabled = running
@@ -418,7 +428,7 @@
     var progressText = qs("[data-avatar-progress-text]", root)
     var progressPct = qs("[data-avatar-progress-percent]", root)
     var progressBar = qs("[data-avatar-progress-bar]", root)
-    if (progressText) progressText.textContent = fmtNumber(backfill.processed) + " of " + fmtNumber(backfill.total) + " processed"
+    if (progressText) progressText.textContent = goferT("js.admin.progress", { done: fmtNumber(backfill.processed), total: fmtNumber(backfill.total) })
     if (progressPct) progressPct.textContent = pct + "%"
     if (progressBar) progressBar.style.width = pct + "%"
     setState(backfill)
@@ -620,7 +630,7 @@
       this.isLoading = false
       this.totalCount = 0
       this.itemsContainer.innerHTML = ""
-      this.setLoader("Loading senders...")
+      this.setLoader(goferT("js.admin.avatars.loading_senders"))
       if (resetScroll) this.container.scrollTop = 0
       this.loadNext(true)
     }
@@ -642,12 +652,12 @@
       ;(item.providers || []).forEach(function (provider) { providerByName.set(provider.provider, provider) })
 		var providerCells = this.providerColumns.map(function (name) {
 			var provider = providerByName.get(name)
-			if (!provider) return '<div class="text-xs text-muted-foreground">not attempted</div>'
-			return '<div class="min-w-0 text-sm font-medium ' + plainStatusClass(provider.status) + '">' + escapeHTML(provider.status || "unchecked") + '</div>'
+			if (!provider) return '<div class="text-xs text-muted-foreground">' + escapeHTML(goferT("js.admin.avatars.not_attempted")) + '</div>'
+			return '<div class="min-w-0 text-sm font-medium ' + plainStatusClass(provider.status) + '">' + escapeHTML(avatarStatusLabel(provider.status || "unchecked")) + '</div>'
 		}, this).join('')
       return '<div class="grid h-[76px] min-w-[48rem] items-center gap-1.5 border-b border-border/70 bg-background/55 px-4 py-2 text-sm odd:bg-background/70 hover:bg-accent/35" style="grid-template-columns:' + columns + '">' +
-        '<div class="flex min-w-0 items-center gap-3">' + avatar + '<div class="min-w-0"><div class="truncate font-medium text-foreground">' + escapeHTML(item.email || "Unknown sender") + '</div><div class="mt-0.5 truncate text-xs text-muted-foreground">' + escapeHTML(item.email_hash || "") + '</div></div></div>' +
-        '<div class="truncate text-sm font-medium text-foreground">' + escapeHTML(inUse.source || "none") + '</div>' +
+        '<div class="flex min-w-0 items-center gap-3">' + avatar + '<div class="min-w-0"><div class="truncate font-medium text-foreground">' + escapeHTML(item.email || goferT("js.admin.unknown_sender")) + '</div><div class="mt-0.5 truncate text-xs text-muted-foreground">' + escapeHTML(item.email_hash || "") + '</div></div></div>' +
+        '<div class="truncate text-sm font-medium text-foreground">' + escapeHTML(inUse.source || goferT("js.admin.avatars.source_none")) + '</div>' +
         providerCells +
       '</div>'
     }
@@ -657,7 +667,7 @@
     }
 
     providerLabel(provider) {
-      if (!provider) return "Provider"
+      if (!provider) return goferT("js.admin.avatars.provider")
       return provider.replace(/_/g, " ").replace(/\b\w/g, function (ch) { return ch.toUpperCase() })
     }
 
@@ -680,7 +690,7 @@
       var header = qs("[data-avatar-sender-header]", root)
       if (!header) return
       header.style.gridTemplateColumns = this.gridTemplateColumns()
-      header.innerHTML = '<div>Sender</div><div>In use</div>' + this.providerColumns.map(function (provider) {
+      header.innerHTML = '<div>' + escapeHTML(goferT("js.admin.avatars.column.sender")) + '</div><div>' + escapeHTML(goferT("js.admin.avatars.column.in_use")) + '</div>' + this.providerColumns.map(function (provider) {
         return '<div>' + escapeHTML(this.providerLabel(provider)) + '</div>'
       }, this).join('')
     }
@@ -703,7 +713,7 @@
     updateProviderSelect(input, current) {
       var selected = this.providerColumns.indexOf(current) >= 0 ? current : "all"
       if (input.tagName === "SELECT") {
-        input.innerHTML = '<option value="all">All providers</option>' + this.providerColumns.map(function (provider) {
+        input.innerHTML = '<option value="all">' + escapeHTML(goferT("js.admin.avatars.all_providers")) + '</option>' + this.providerColumns.map(function (provider) {
           return '<option value="' + escapeHTML(provider) + '">' + escapeHTML(this.providerLabel(provider)) + '</option>'
         }, this).join('')
         input.value = selected
@@ -714,13 +724,13 @@
       var container = input.closest(".select-container")
       var valueNode = trigger && trigger.querySelector(".select-value")
       if (valueNode) {
-        valueNode.textContent = selected === "all" ? "All providers" : this.providerLabel(selected)
+        valueNode.textContent = selected === "all" ? goferT("js.admin.avatars.all_providers") : this.providerLabel(selected)
         valueNode.classList.remove("text-muted-foreground")
       }
       var content = container && container.querySelector("[data-tui-selectbox-content]")
       var list = content && content.querySelector(".select-item") && content.querySelector(".select-item").parentElement
       if (!list) return
-      list.innerHTML = this.selectboxItemHTML("all", "All providers", selected === "all") + this.providerColumns.map(function (provider) {
+      list.innerHTML = this.selectboxItemHTML("all", goferT("js.admin.avatars.all_providers"), selected === "all") + this.providerColumns.map(function (provider) {
         return this.selectboxItemHTML(provider, this.providerLabel(provider), selected === provider)
       }, this).join("")
     }
@@ -762,7 +772,7 @@
       var offset = this.nextOffset
       var limit = this.pageSize
       this.isLoading = true
-      this.setLoader(this.items.length === 0 ? "Loading senders..." : "Loading more senders...")
+      this.setLoader(this.items.length === 0 ? goferT("js.admin.avatars.loading_senders") : goferT("js.admin.avatars.loading_more_senders"))
       var params = new URLSearchParams()
       params.set("offset", offset)
       params.set("limit", limit)
@@ -783,14 +793,14 @@
           self.updateCount()
           if (offset === 0) self.renderItems()
           else self.appendItems(items)
-          if (self.items.length === 0) self.setLoader("No senders match the current filters.")
-          else if (self.hasMore) self.setLoader("Scroll for more senders")
+          if (self.items.length === 0) self.setLoader(goferT("js.admin.avatars.no_senders"))
+          else if (self.hasMore) self.setLoader(goferT("js.admin.avatars.more_senders"))
           else self.setLoader("")
           if (self.hasMore && self.isVisible()) setTimeout(function () { self.maybeLoadMore() }, 0)
         })
         .catch(function () {
           if (initial) self.itemsContainer.innerHTML = ""
-          self.setLoader("Unable to load sender avatars.")
+          self.setLoader(goferT("js.admin.avatars.senders_failed"))
         })
         .finally(function () { self.isLoading = false })
     }
@@ -798,7 +808,7 @@
     updateCount() {
       var node = qs("[data-avatar-log-count]", root)
       if (!node) return
-      node.textContent = this.totalCount === 1 ? "1 matching sender" : fmtNumber(this.totalCount) + " matching senders"
+      node.textContent = goferTn("js.admin.avatars.matching_senders", this.totalCount, { count: fmtNumber(this.totalCount) })
     }
 
     providersFromResponse(providers, items) {
@@ -861,7 +871,7 @@
       this.isLoading = false
       this.totalCount = 0
       this.itemsContainer.innerHTML = ""
-      this.setLoader("Loading events...")
+      this.setLoader(goferT("js.admin.avatars.loading_events"))
       if (resetScroll) this.container.scrollTop = 0
       this.loadNext(true)
     }
@@ -874,9 +884,9 @@
       var details = item.message ? escapeHTML(item.message) : ""
       return '<div class="grid min-h-[64px] min-w-[58rem] grid-cols-[10rem_minmax(15rem,1fr)_8rem_8rem_minmax(18rem,1.3fr)] items-center gap-3 border-b border-border/70 bg-background/55 px-4 py-2 text-sm odd:bg-background/70 hover:bg-accent/35">' +
         '<div class="text-xs font-medium text-muted-foreground">' + escapeHTML(fmtTime(item.created_at)) + '</div>' +
-        '<div class="min-w-0 truncate font-medium text-foreground">' + escapeHTML(item.email || "Unknown sender") + '</div>' +
-        '<div class="truncate text-xs font-semibold uppercase tracking-wider text-muted-foreground">' + escapeHTML(item.provider || "unknown") + '</div>' +
-        '<div class="text-sm text-foreground">' + escapeHTML(item.status || "unknown") + '</div>' +
+        '<div class="min-w-0 truncate font-medium text-foreground">' + escapeHTML(item.email || goferT("js.admin.unknown_sender")) + '</div>' +
+        '<div class="truncate text-xs font-semibold uppercase tracking-wider text-muted-foreground">' + escapeHTML(item.provider || goferT("js.admin.avatars.status.unknown")) + '</div>' +
+        '<div class="text-sm text-foreground">' + escapeHTML(avatarStatusLabel(item.status || "unknown")) + '</div>' +
         '<div class="min-w-0 ' + detailClass + '">' + details + '</div>' +
       '</div>'
     }
@@ -915,7 +925,7 @@
       var offset = this.nextOffset
       var limit = this.pageSize
       this.isLoading = true
-      this.setLoader(this.items.length === 0 ? "Loading events..." : "Loading more events...")
+      this.setLoader(this.items.length === 0 ? goferT("js.admin.avatars.loading_events") : goferT("js.admin.avatars.loading_more_events"))
       var params = new URLSearchParams()
       params.set("offset", offset)
       params.set("limit", limit)
@@ -935,14 +945,14 @@
           self.updateCount()
           if (offset === 0) self.renderItems()
           else self.appendItems(items)
-          if (self.items.length === 0) self.setLoader("No events match the current filters.")
-          else if (self.hasMore) self.setLoader("Scroll for more events")
+          if (self.items.length === 0) self.setLoader(goferT("js.admin.avatars.no_events"))
+          else if (self.hasMore) self.setLoader(goferT("js.admin.avatars.more_events"))
           else self.setLoader("")
           if (self.hasMore && self.isVisible()) setTimeout(function () { self.maybeLoadMore() }, 0)
         })
         .catch(function () {
           if (initial) self.itemsContainer.innerHTML = ""
-          self.setLoader("Unable to load events.")
+          self.setLoader(goferT("js.admin.avatars.events_failed"))
         })
         .finally(function () { self.isLoading = false })
     }
@@ -950,7 +960,7 @@
     updateCount() {
       var node = qs("[data-avatar-event-count]", root)
       if (!node) return
-      node.textContent = this.totalCount === 1 ? "1 matching event" : fmtNumber(this.totalCount) + " matching events"
+      node.textContent = goferTn("js.admin.avatars.matching_events", this.totalCount, { count: fmtNumber(this.totalCount) })
     }
   }
 

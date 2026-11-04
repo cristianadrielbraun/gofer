@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"log"
 	"net/http"
 	"slices"
@@ -27,7 +28,7 @@ func (h *Handler) loadAccountIdentitiesData(w http.ResponseWriter, r *http.Reque
 	account, err := h.ownedAccount(ctx, accountID)
 	if err != nil {
 		log.Printf("identities account=%s: %v", accountID, err)
-		http.Error(w, "failed to load account", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_load_account"), http.StatusInternalServerError)
 		return models.AccountIdentitiesData{}, false
 	}
 	if account == nil {
@@ -37,17 +38,17 @@ func (h *Handler) loadAccountIdentitiesData(w http.ResponseWriter, r *http.Reque
 	userID := h.userID(ctx)
 	identities, err := h.db.ListAccountIdentities(ctx, userID, accountID)
 	if err != nil {
-		http.Error(w, "failed to load identities", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_load_identities"), http.StatusInternalServerError)
 		return models.AccountIdentitiesData{}, false
 	}
 	signatures, err := h.db.ListSignatures(ctx, userID)
 	if err != nil {
-		http.Error(w, "failed to load signatures", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_load_signatures"), http.StatusInternalServerError)
 		return models.AccountIdentitiesData{}, false
 	}
 	domains, err := h.db.CatchAllIdentityDomains(ctx, userID, accountID)
 	if err != nil {
-		http.Error(w, "failed to load identities", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_load_identities"), http.StatusInternalServerError)
 		return models.AccountIdentitiesData{}, false
 	}
 	rule := providers.AccountFromRule(account.Provider, "", domains)
@@ -107,7 +108,7 @@ func (h *Handler) renderAccountIdentitiesPanel(w http.ResponseWriter, r *http.Re
 // A refused change shows its reason with the form as it was sent.
 func (h *Handler) handleSaveAccountIdentity(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "invalid form data", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_form_data"), http.StatusBadRequest)
 		return
 	}
 	identity, password, formErr := identityFromForm(r)
@@ -123,7 +124,7 @@ func (h *Handler) handleSaveAccountIdentity(w http.ResponseWriter, r *http.Reque
 			return
 		}
 		if err != nil {
-			http.Error(w, "failed to load identity", http.StatusInternalServerError)
+			http.Error(w, i18n.T(r.Context(), "server.error.failed_to_load_identity"), http.StatusInternalServerError)
 			return
 		}
 		if current.Source == models.IdentitySourceProvider {
@@ -154,13 +155,13 @@ func (h *Handler) handleSaveAccountIdentity(w http.ResponseWriter, r *http.Reque
 	}
 	if saveErr != nil {
 		if errors.Is(saveErr, storage.ErrProviderIdentity) {
-			data.Error = "Only the signature of an identity from the provider can be changed here."
+			data.Error = i18n.T(r.Context(), "server.msg.only_the_signature_of_an_identity_from")
 		} else if errors.Is(saveErr, storage.ErrIdentityAddressNotAllowed) {
-			data.Error = "The provider does not let this account send as " + strings.TrimSpace(identity.Email) + ". Send it through another SMTP server instead."
+			data.Error = i18n.T(r.Context(), "server.pattern.send_as_denied", "address", strings.TrimSpace(identity.Email))
 		} else if errors.Is(saveErr, storage.ErrIdentitySMTPNotSupported) {
-			data.Error = "This identity can't send through its own server."
+			data.Error = i18n.T(r.Context(), "server.msg.this_identity_can_t_send_through_its")
 		} else {
-			data.Error = saveErr.Error()
+			data.Error = serverText(r.Context(), saveErr.Error())
 		}
 		data.Editing = identity
 		data.Adding = identity.ID == ""
@@ -185,10 +186,10 @@ func (h *Handler) handleDeleteAccountIdentity(w http.ResponseWriter, r *http.Req
 		return
 	}
 	if errors.Is(err, storage.ErrProviderIdentity) {
-		data.Error = "An identity from the provider can only be removed at the provider."
+		data.Error = i18n.T(r.Context(), "server.msg.an_identity_from_the_provider_can_only")
 	} else if err != nil {
 		log.Printf("delete identity account=%s: %v", r.PathValue("id"), err)
-		data.Error = "The identity could not be deleted."
+		data.Error = i18n.T(r.Context(), "server.msg.the_identity_could_not_be_deleted")
 	}
 	h.renderAccountIdentitiesPanel(w, r, data)
 }
@@ -196,7 +197,7 @@ func (h *Handler) handleDeleteAccountIdentity(w http.ResponseWriter, r *http.Req
 // handleMoveAccountIdentity moves an identity one place up or down.
 func (h *Handler) handleMoveAccountIdentity(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "invalid form data", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_form_data"), http.StatusBadRequest)
 		return
 	}
 	data, ok := h.loadAccountIdentitiesData(w, r)
@@ -220,7 +221,7 @@ func (h *Handler) handleMoveAccountIdentity(w http.ResponseWriter, r *http.Reque
 		ids[from], ids[to] = ids[to], ids[from]
 		if err := h.db.SetAccountIdentityOrderGuarded(r.Context(), h.userID(r.Context()), data.Account.ID, ids, h.signatureGuard); err != nil {
 			log.Printf("order identities account=%s: %v", data.Account.ID, err)
-			data.Error = "The identities could not be reordered."
+			data.Error = i18n.T(r.Context(), "server.msg.the_identities_could_not_be_reordered")
 		} else if data, ok = h.loadAccountIdentitiesData(w, r); !ok {
 			return
 		}
@@ -266,10 +267,10 @@ func (h *Handler) refreshedAccountIdentitiesPanel(refreshErr error) http.Handler
 		switch {
 		case refreshErr == nil:
 		case errors.Is(refreshErr, mail.ErrProviderIdentitiesUnsupported):
-			data.RefreshError = "This provider does not list the addresses it can send from."
+			data.RefreshError = i18n.T(r.Context(), "server.msg.this_provider_does_not_list_the_addresses")
 		default:
 			log.Printf("refresh identities account=%s: %v", data.Account.ID, refreshErr)
-			data.RefreshError = "The provider could not be asked for its addresses. Try again later."
+			data.RefreshError = i18n.T(r.Context(), "server.msg.the_provider_could_not_be_asked_for")
 		}
 		h.renderAccountIdentitiesPanel(w, r, data)
 	}
@@ -366,9 +367,9 @@ func (t identitySMTPTest) run(ctx context.Context) models.ConnectionTestResult {
 		return smtpclient.TestConnection(ctx, t.cfg, t.password)
 	})
 	if err != nil {
-		result.Error = sanitizeOutgoingErrorText(err.Error())
+		result.Error = serverText(ctx, sanitizeOutgoingErrorText(err.Error()))
 	} else {
-		result.Success, result.Message = true, "Connected and logged in to "+t.cfg.SMTPHost+"."
+		result.Success, result.Message = true, i18n.T(ctx, "server.pattern.smtp_connected", "host", t.cfg.SMTPHost)
 	}
 	return result
 }
@@ -401,7 +402,7 @@ func (h *Handler) handleTestIdentitySMTP(w http.ResponseWriter, r *http.Request)
 // released.
 func (h *Handler) handleUserTestIdentitySMTP(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "invalid form data", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_form_data"), http.StatusBadRequest)
 		return
 	}
 	owner := h.userID(r.Context())

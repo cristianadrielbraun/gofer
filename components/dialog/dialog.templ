@@ -3,6 +3,7 @@
 package dialog
 
 import (
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"context"
 	"github.com/cristianadrielbraun/gofer/components/icon"
 	"github.com/cristianadrielbraun/gofer/utils"
@@ -172,11 +173,11 @@ templ Content(props ...ContentProps) {
 						"[&_svg:not([class*='size-'])]:size-4",
 					) }
 					data-tui-dialog-close
-					aria-label="Close"
+					aria-label={ i18n.T(ctx, "common.close") }
 					type="button"
 				>
 					@icon.X()
-					<span class="sr-only">Close</span>
+					<span class="sr-only">{ i18n.T(ctx, "common.close") }</span>
 				</button>
 			}
 		</div>

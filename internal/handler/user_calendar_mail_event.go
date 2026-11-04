@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"net/http"
 	"strconv"
 	"time"
@@ -126,7 +127,7 @@ func (h *Handler) renderUserMailCalendarFooter(ctx context.Context, w http.Respo
 				allowed = calendarResponseRestriction(event, source) == "" && h.userCalendarWriteAuthorized(ctx, source)
 				snapshots = append(snapshots, snapshot)
 			}
-			card := mailCalendarEventCard(item, event, snapshot != nil, location, emailID, func(storage.CalendarEvent) bool { return allowed })
+			card := mailCalendarEventCard(ctx, item, event, snapshot != nil, location, emailID, func(storage.CalendarEvent) bool { return allowed })
 			var candidates []storage.CalendarEvent
 			var sources []storage.CalendarSource
 			if err := h.userAccounts.WithAccountForUser(ctx, h.userID(ctx), raw.AccountID(), func(_ *config.AccountStore, db *storage.DB) error {
@@ -136,7 +137,7 @@ func (h *Handler) renderUserMailCalendarFooter(ctx context.Context, w http.Respo
 			}); err != nil {
 				return err
 			}
-			mailCalendarInvitationCard(&card, item, candidates, sources, raw.AccountID(), raw.EmailAddress(), location)
+			mailCalendarInvitationCard(ctx, &card, item, candidates, sources, raw.AccountID(), raw.EmailAddress(), location)
 			if note != "" && item.UID == uid {
 				card.Note, card.Invitation = note, nil
 			}
@@ -160,7 +161,7 @@ func (h *Handler) renderUserMailCalendarFooter(ctx context.Context, w http.Respo
 // calendar of the owner's account, or updates or removes the event it is for.
 func (h *Handler) handleUserMailCalendarInvitation(w http.ResponseWriter, r *http.Request) {
 	if r.ParseForm() != nil {
-		http.Error(w, "The request could not be read.", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.the_request_could_not_be_read"), http.StatusBadRequest)
 		return
 	}
 	uid, sourceID := r.PostForm.Get("uid"), r.PostForm.Get("source_id")

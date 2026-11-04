@@ -1,13 +1,14 @@
 package views
 
 import (
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"net/url"
 	"github.com/cristianadrielbraun/gofer/components/button"
 	"github.com/cristianadrielbraun/gofer/components/icon"
 )
 
 templ CalendarDeliveryStatus(data CalendarDeliveryData) {
-	<section id="calendar-event-delivery" class="mt-3 border-t border-border/60 pt-3 text-xs" aria-label="Invitation delivery and incoming replies">
+	<section id="calendar-event-delivery" class="mt-3 border-t border-border/60 pt-3 text-xs" aria-label={ i18n.T(ctx, "calendar.delivery.label") }>
 		if len(data.Rows) == 0 {
 			<p class="text-muted-foreground">{ data.EmptyNote }</p>
 		} else {
@@ -34,17 +35,17 @@ templ CalendarDeliveryStatus(data CalendarDeliveryData) {
 							@button.Button(button.Props{Type: button.TypeButton, Variant: button.VariantOutline, Size: button.SizeSm, Class: "h-7 shrink-0 px-2 text-xs", Attributes: templ.Attributes{
 								"hx-post": calendarEventDetailsURL(data.EventID) + "/delivery/" + url.PathEscape(row.ID) + "/retry",
 								"hx-target": "#calendar-event-guests", "hx-swap": "outerHTML", "hx-sync": "#calendar-event-guests:replace",
-								"hx-disabled-elt": "this", "hx-params": "none", "aria-label": "Retry invitation delivery to " + row.Recipient,
+								"hx-disabled-elt": "this", "hx-params": "none", "aria-label": i18n.T(ctx, "calendar.delivery.retry_to", "recipient", row.Recipient),
 							}}) {
-								<span class="[[disabled]_&]:hidden">Retry</span>
-								<span class="hidden [[disabled]_&]:inline">Retrying…</span>
+								<span class="[[disabled]_&]:hidden">{ i18n.T(ctx, "calendar.retry") }</span>
+								<span class="hidden [[disabled]_&]:inline">{ i18n.T(ctx, "calendar.retrying") }</span>
 							}
 						}
 					</div>
 				}
 			</div>
 			if data.HasEmailDelivery {
-				<p class="mt-2 text-[11px] leading-relaxed text-muted-foreground">Sent means the mail server accepted the invitation—not that the guest accepted it.</p>
+				<p class="mt-2 text-[11px] leading-relaxed text-muted-foreground">{ i18n.T(ctx, "calendar.delivery.sent_note") }</p>
 			}
 		}
 		if data.Error != "" {

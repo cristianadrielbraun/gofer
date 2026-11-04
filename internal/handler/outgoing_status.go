@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
 
@@ -15,20 +16,23 @@ import (
 // an outbox row. In particular, it never includes the stored MIME payload or
 // the SMTP envelope.
 type outgoingSendSummaryResponse struct {
-	ID                    string `json:"id"`
-	AccountID             string `json:"account_id"`
-	MessageID             int64  `json:"message_id,omitempty"`
-	DraftID               string `json:"draft_id,omitempty"`
-	Transport             string `json:"transport"`
-	Status                string `json:"status"`
-	AttemptCount          int    `json:"attempt_count"`
-	LastError             string `json:"last_error,omitempty"`
-	SendAfter             string `json:"send_after,omitempty"`
-	NextAttemptAt         string `json:"next_attempt_at,omitempty"`
-	IsScheduled           bool   `json:"is_scheduled"`
-	SentCopyStatus        string `json:"sent_copy_status"`
-	SentCopyAttemptCount  int    `json:"sent_copy_attempt_count"`
-	SentCopyLastError     string `json:"sent_copy_last_error,omitempty"`
+	ID                   string `json:"id"`
+	AccountID            string `json:"account_id"`
+	MessageID            int64  `json:"message_id,omitempty"`
+	DraftID              string `json:"draft_id,omitempty"`
+	Transport            string `json:"transport"`
+	Status               string `json:"status"`
+	AttemptCount         int    `json:"attempt_count"`
+	LastError            string `json:"last_error,omitempty"`
+	SendAfter            string `json:"send_after,omitempty"`
+	NextAttemptAt        string `json:"next_attempt_at,omitempty"`
+	IsScheduled          bool   `json:"is_scheduled"`
+	SentCopyStatus       string `json:"sent_copy_status"`
+	SentCopyAttemptCount int    `json:"sent_copy_attempt_count"`
+	SentCopyLastError    string `json:"sent_copy_last_error,omitempty"`
+	// SentCopyNoSentFolder marks a Sent copy that failed because the account
+	// has no Sent folder, so the page can offer to choose one.
+	SentCopyNoSentFolder  bool   `json:"sent_copy_no_sent_folder,omitempty"`
 	SentCopyNextAttemptAt string `json:"sent_copy_next_attempt_at,omitempty"`
 	CreatedAt             string `json:"created_at,omitempty"`
 	UpdatedAt             string `json:"updated_at,omitempty"`
@@ -70,6 +74,7 @@ func outgoingSendSummaryResponseFrom(summary storage.OutgoingSendSummary) outgoi
 		SentCopyStatus:        summary.SentCopyStatus,
 		SentCopyAttemptCount:  summary.SentCopyAttempts,
 		SentCopyLastError:     summary.SentCopyLastError,
+		SentCopyNoSentFolder:  strings.Contains(summary.SentCopyLastError, models.NoSentFolderError),
 		SentCopyNextAttemptAt: outgoingSendTime(summary.SentCopyNextTry),
 		CreatedAt:             outgoingSendTime(summary.CreatedAt),
 		UpdatedAt:             outgoingSendTime(summary.UpdatedAt),
@@ -88,9 +93,9 @@ func writeOutgoingSendJSON(w http.ResponseWriter, status int, value any) {
 	_ = json.NewEncoder(w).Encode(value)
 }
 
-func writeOutgoingSendError(w http.ResponseWriter, status int, message string, ambiguous bool) {
+func writeOutgoingSendError(w http.ResponseWriter, r *http.Request, status int, message string, ambiguous bool) {
 	writeOutgoingSendJSON(w, status, map[string]any{
-		"error":                      message,
+		"error":                      serverText(r.Context(), message),
 		"ambiguous_warning_required": ambiguous,
 	})
 }
@@ -98,7 +103,7 @@ func writeOutgoingSendError(w http.ResponseWriter, status int, message string, a
 func (h *Handler) handleOutgoingSendList(w http.ResponseWriter, r *http.Request) {
 	summaries, err := h.db.ListOutgoingSendSummariesForUser(r.Context(), h.userID(r.Context()))
 	if err != nil {
-		writeOutgoingSendError(w, http.StatusInternalServerError, "failed to load outgoing send status", false)
+		writeOutgoingSendError(w, r, http.StatusInternalServerError, "failed to load outgoing send status", false)
 		return
 	}
 	response := outgoingSendListResponse{Sends: make([]outgoingSendSummaryResponse, 0, len(summaries))}
@@ -111,7 +116,7 @@ func (h *Handler) handleOutgoingSendList(w http.ResponseWriter, r *http.Request)
 func (h *Handler) handleOutgoingSendGet(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSpace(r.PathValue("id"))
 	if id == "" {
-		writeOutgoingSendError(w, http.StatusBadRequest, "outgoing send id is required", false)
+		writeOutgoingSendError(w, r, http.StatusBadRequest, "outgoing send id is required", false)
 		return
 	}
 	summary, err := h.db.GetOutgoingSendSummaryForUser(r.Context(), h.userID(r.Context()), id)
@@ -120,7 +125,7 @@ func (h *Handler) handleOutgoingSendGet(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if err != nil {
-		writeOutgoingSendError(w, http.StatusInternalServerError, "failed to load outgoing send status", false)
+		writeOutgoingSendError(w, r, http.StatusInternalServerError, "failed to load outgoing send status", false)
 		return
 	}
 	writeOutgoingSendJSON(w, http.StatusOK, outgoingSendSummaryResponseFrom(summary))
@@ -145,12 +150,12 @@ func (h *Handler) parseOutgoingSendConfirmation(r *http.Request) (bool, error) {
 func (h *Handler) handleOutgoingSendRetry(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSpace(r.PathValue("id"))
 	if id == "" {
-		writeOutgoingSendError(w, http.StatusBadRequest, "outgoing send id is required", false)
+		writeOutgoingSendError(w, r, http.StatusBadRequest, "outgoing send id is required", false)
 		return
 	}
 	confirm, err := h.parseOutgoingSendConfirmation(r)
 	if err != nil {
-		writeOutgoingSendError(w, http.StatusBadRequest, "invalid retry request", false)
+		writeOutgoingSendError(w, r, http.StatusBadRequest, "invalid retry request", false)
 		return
 	}
 	send, err := h.db.RetryOutgoingSend(r.Context(), h.userID(r.Context()), id, confirm)
@@ -159,15 +164,15 @@ func (h *Handler) handleOutgoingSendRetry(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if errors.Is(err, storage.ErrOutgoingSendAmbiguousConfirmation) {
-		writeOutgoingSendError(w, http.StatusConflict, "Gofer lost the connection after sending this message, so it may already have been delivered. Check Sent before retrying. Retrying can send a duplicate.", true)
+		writeOutgoingSendError(w, r, http.StatusConflict, "Gofer lost the connection after sending this message, so it may already have been delivered. Check Sent before retrying. Retrying can send a duplicate.", true)
 		return
 	}
 	if errors.Is(err, storage.ErrOutgoingSendNotRetryable) {
-		writeOutgoingSendError(w, http.StatusConflict, "this outgoing send cannot be retried in its current state", false)
+		writeOutgoingSendError(w, r, http.StatusConflict, "this outgoing send cannot be retried in its current state", false)
 		return
 	}
 	if err != nil {
-		writeOutgoingSendError(w, http.StatusInternalServerError, "failed to retry outgoing send", false)
+		writeOutgoingSendError(w, r, http.StatusInternalServerError, "failed to retry outgoing send", false)
 		return
 	}
 	h.signalOutgoingWorker()
@@ -180,7 +185,7 @@ func (h *Handler) handleOutgoingSendRetry(w http.ResponseWriter, r *http.Request
 func (h *Handler) handleOutgoingSendRetryNow(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSpace(r.PathValue("id"))
 	if id == "" {
-		writeOutgoingSendError(w, http.StatusBadRequest, "outgoing send id is required", false)
+		writeOutgoingSendError(w, r, http.StatusBadRequest, "outgoing send id is required", false)
 		return
 	}
 	send, err := h.db.RetryOutgoingSendNow(r.Context(), h.userID(r.Context()), id)
@@ -189,11 +194,11 @@ func (h *Handler) handleOutgoingSendRetryNow(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	if errors.Is(err, storage.ErrOutgoingSendNotRetryable) {
-		writeOutgoingSendError(w, http.StatusConflict, "this outgoing send cannot be retried now", false)
+		writeOutgoingSendError(w, r, http.StatusConflict, "this outgoing send cannot be retried now", false)
 		return
 	}
 	if err != nil {
-		writeOutgoingSendError(w, http.StatusInternalServerError, "failed to retry outgoing send now", false)
+		writeOutgoingSendError(w, r, http.StatusInternalServerError, "failed to retry outgoing send now", false)
 		return
 	}
 	h.signalOutgoingWorker()
@@ -206,7 +211,7 @@ func (h *Handler) handleOutgoingSendRetryNow(w http.ResponseWriter, r *http.Requ
 func (h *Handler) handleOutgoingSendCancel(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSpace(r.PathValue("id"))
 	if id == "" {
-		writeOutgoingSendError(w, http.StatusBadRequest, "outgoing send id is required", false)
+		writeOutgoingSendError(w, r, http.StatusBadRequest, "outgoing send id is required", false)
 		return
 	}
 	send, err := h.db.CancelOutgoingSend(r.Context(), h.userID(r.Context()), id)
@@ -215,11 +220,11 @@ func (h *Handler) handleOutgoingSendCancel(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if errors.Is(err, storage.ErrOutgoingSendNotCancelable) {
-		writeOutgoingSendError(w, http.StatusConflict, "this outgoing send cannot be canceled in its current state", false)
+		writeOutgoingSendError(w, r, http.StatusConflict, "this outgoing send cannot be canceled in its current state", false)
 		return
 	}
 	if err != nil {
-		writeOutgoingSendError(w, http.StatusInternalServerError, "failed to cancel outgoing send", false)
+		writeOutgoingSendError(w, r, http.StatusInternalServerError, "failed to cancel outgoing send", false)
 		return
 	}
 	h.writeOutgoingSendResponse(w, r, send)
@@ -232,7 +237,7 @@ func (h *Handler) writeOutgoingSendResponse(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if err != nil {
-		writeOutgoingSendError(w, http.StatusInternalServerError, "failed to load outgoing send status", false)
+		writeOutgoingSendError(w, r, http.StatusInternalServerError, "failed to load outgoing send status", false)
 		return
 	}
 	writeOutgoingSendJSON(w, http.StatusOK, outgoingSendSummaryResponseFrom(summary))

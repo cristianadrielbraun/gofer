@@ -2,6 +2,7 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const path = require('node:path')
 const vm = require('node:vm')
+const loadI18n = require('./i18n-test-helper.cjs')
 
 const source = fs.readFileSync(path.join(__dirname, '../assets/js/settings-page.js'), 'utf8')
 function between(start, end) {
@@ -58,6 +59,7 @@ function fixture({enabled = true, changed = false} = {}) {
       return new Promise((resolve, reject) => { resolveRequest = resolve; rejectRequest = reject })
     },
   })
+  loadI18n(context)
   vm.runInContext(footerSource + saveSource + navigationSource + stepsSource, context)
   return {context, root, toggle, toasts, steps, actions, requests, footer, unsaved,
     resolve: response => resolveRequest(response), reject: error => rejectRequest(error),

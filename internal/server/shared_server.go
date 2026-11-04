@@ -205,7 +205,7 @@ func RunShared(rootCtx context.Context) error {
 	h.StartAccountDeletionCleanup(ctx)
 
 	compress := handler.CompressResponses
-	var handler http.Handler = views.WithListViewCookie(mux)
+	var handler http.Handler = h.LocaleMiddleware(views.WithListViewCookie(mux))
 	handler = authManager.Middleware(handler)
 	handler = compress(handler)
 	handler = httpConfig.Middleware(handler)

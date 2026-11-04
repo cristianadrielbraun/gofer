@@ -63,18 +63,18 @@ func (p *userCalendarRequest) prepareCreateDispatch(ctx context.Context) error {
 func (h *Handler) handleUserCreateCalendarEvent(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 384<<10)
 	if r.URL.RawQuery != "" || r.ParseForm() != nil {
-		calendarCreateFailure(w, 400, "Event details could not be read.", false)
+		calendarCreateFailure(w, r, 400, "Event details could not be read.", false)
 		return
 	}
 	r.Form = r.PostForm
 	draft, err := parseCalendarEventDraft(r)
 	if err != nil {
-		calendarCreateFailure(w, 400, err.Error(), false)
+		calendarCreateFailure(w, r, 400, err.Error(), false)
 		return
 	}
 	sourceID := r.PostForm.Get("source_id")
 	if sourceID == "" || len(sourceID) > 4096 {
-		calendarCreateFailure(w, 400, "Choose a configured calendar.", false)
+		calendarCreateFailure(w, r, 400, "Choose a configured calendar.", false)
 		return
 	}
 	owner := h.userID(r.Context())
@@ -213,15 +213,15 @@ func (h *Handler) handleUserCreateCalendarEvent(w http.ResponseWriter, r *http.R
 		var form userCalendarFormFailure
 		switch {
 		case errors.As(err, &failure):
-			calendarCreateFailure(w, failure.status, failure.message, failure.uncertain)
+			calendarCreateFailure(w, r, failure.status, failure.message, failure.uncertain)
 		case errors.As(err, &form):
-			calendarCreateFailure(w, form.status, form.message, attempt.uncertain)
+			calendarCreateFailure(w, r, form.status, form.message, attempt.uncertain)
 		case errors.Is(err, sql.ErrNoRows):
-			calendarCreateFailure(w, 404, "This calendar is no longer configured.", attempt.uncertain)
+			calendarCreateFailure(w, r, 404, "This calendar is no longer configured.", attempt.uncertain)
 		case errors.Is(err, storage.ErrCalendarCreateConflict), errors.Is(err, storage.ErrCalendarSourceChanged), errors.Is(err, config.ErrAccountServicesChanged), errors.Is(err, mailauth.ErrMailboxAuthorizationChanged):
-			calendarCreateFailure(w, 409, "Calendar configuration or this event request changed. Reopen New event.", attempt.uncertain)
+			calendarCreateFailure(w, r, 409, "Calendar configuration or this event request changed. Reopen New event.", attempt.uncertain)
 		default:
-			calendarCreateFailure(w, 503, "Calendar is unavailable. Retry this same event when access is restored.", attempt.uncertain)
+			calendarCreateFailure(w, r, 503, "Calendar is unavailable. Retry this same event when access is restored.", attempt.uncertain)
 		}
 		return
 	}
