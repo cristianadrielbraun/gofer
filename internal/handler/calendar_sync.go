@@ -133,6 +133,8 @@ func (h *Handler) fetchCalendarSource(ctx context.Context, source storage.Calend
 		return listCalDAVCalendarEvents(ctx, source, credential.username, credential.password, query)
 	case storage.CalendarSourceProviderJMAP:
 		return listJMAPCalendarEvents(ctx, source, credential.jmap, credential.password, query)
+	case storage.CalendarSourceProviderICS:
+		return listCalendarFeedEvents(ctx, source, query)
 	default:
 		return calendar.EventPage{}, fmt.Errorf("this calendar provider is not supported")
 	}
@@ -247,6 +249,8 @@ func (h *Handler) calendarCredentialsForSource(ctx context.Context, userID strin
 	case storage.CalendarSourceProviderJMAP:
 		result.jmap, result.password, result.err = h.jmapAccountConnection(ctx, source.AccountID)
 		result.baseURL, result.username = jmapCalendarDAVOrigin, "jmap"
+	case storage.CalendarSourceProviderICS:
+		// A subscription's feed needs no sign-in.
 	default:
 		result.err = fmt.Errorf("this calendar provider is not supported")
 	}

@@ -1449,7 +1449,7 @@ CREATE TABLE IF NOT EXISTS calendar_sources (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-    provider TEXT NOT NULL CHECK (provider IN ('gmail', 'outlook', 'caldav', 'jmap')),
+    provider TEXT NOT NULL CHECK (provider IN ('gmail', 'outlook', 'caldav', 'jmap', 'ics')),
     remote_id TEXT NOT NULL,
     name TEXT NOT NULL DEFAULT '',
     description TEXT NOT NULL DEFAULT '',
@@ -1463,6 +1463,7 @@ CREATE TABLE IF NOT EXISTS calendar_sources (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     created_in_gofer INTEGER NOT NULL DEFAULT 0,
+    refresh_minutes INTEGER NOT NULL DEFAULT 0,
     UNIQUE (account_id, remote_id)
 );
 
@@ -1859,4 +1860,4 @@ CREATE TABLE IF NOT EXISTS mail_rule_runs (
 );
 CREATE INDEX IF NOT EXISTS idx_mail_rule_runs_user ON mail_rule_runs(user_id, id);
 
-INSERT OR REPLACE INTO schema_version (version) VALUES (135);
+INSERT OR REPLACE INTO schema_version (version) VALUES (136);

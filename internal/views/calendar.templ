@@ -107,7 +107,7 @@ templ CalendarSidebarContent(accounts []models.Account, loading bool) {
 							@icon.EllipsisVertical(icon.Props{Class: "size-4"})
 						</button>
 					}
-					@dropdown.Content(dropdown.ContentProps{Placement: dropdown.PlacementBottomEnd, Class: "w-48 normal-case tracking-normal"}) {
+					@dropdown.Content(dropdown.ContentProps{Placement: dropdown.PlacementBottomEnd, Class: "w-max min-w-48 whitespace-nowrap normal-case tracking-normal"}) {
 						@dropdown.Item(dropdown.ItemProps{Class: "justify-start gap-2", Attributes: templ.Attributes{"type": "button", "data-calendar-import-open": ""}}) {
 							<span class="inline-flex text-muted-foreground">
 								@icon.Upload(icon.Props{Class: "size-4"})
@@ -120,11 +120,19 @@ templ CalendarSidebarContent(accounts []models.Account, loading bool) {
 							</span>
 							{ i18n.T(ctx, "calendar.export.menu") }
 						}
+						@dropdown.Separator()
+						@dropdown.Item(dropdown.ItemProps{Class: "justify-start gap-2", Attributes: templ.Attributes{"type": "button", "data-calendar-subscription-add": ""}}) {
+							<span class="inline-flex text-muted-foreground">
+								@icon.Rss(icon.Props{Class: "size-4"})
+							</span>
+							{ i18n.T(ctx, "calendar.subscription.menu") }
+						}
 					}
 				}
 			</div>
 			@CalendarImportDialog(accounts)
 			@CalendarExportDialog(accounts)
+			@CalendarSubscriptionDialog()
 		</div>
 		<hr class="divider-etched mx-4"/>
 		<nav class="flex min-h-0 flex-1 flex-col overflow-y-auto px-3 pt-3 pb-3">
@@ -148,82 +156,7 @@ templ CalendarSidebarContent(accounts []models.Account, loading bool) {
 					</div>
 					<div class="mb-2 space-y-0.5" role="group" aria-label={ i18n.T(ctx, "calendar.calendars_for", "account", calendarAccountName(ctx, account)) }>
 						for _, source := range account.CalendarSources {
-							<label class="group flex min-h-8 cursor-pointer items-center gap-2.5 rounded-md py-1.5 pl-7 pr-2.5 text-[12px] text-sidebar-foreground transition-colors hover:bg-sidebar-accent/60 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-sidebar-ring" data-calendar-source-row>
-								<span class="inline-flex shrink-0">
-									@checkbox.Checkbox(checkbox.Props{
-										ID:      "calendar-visible-" + source.ID,
-										Checked: !source.IsHidden, Disabled: loading,
-										Class: "size-3.5 border-sidebar-border checked:border-sidebar-primary checked:bg-sidebar-primary",
-										Attributes: templ.Attributes{
-											"data-calendar-visibility":    source.ID,
-											"data-calendar-source-id":     source.ID,
-											"data-calendar-source-hidden": strconv.FormatBool(source.IsHidden),
-											"aria-label":                  i18n.T(ctx, "calendar.source.show", "calendar", calendarSourceDisplayName(ctx, source)),
-										},
-									})
-								</span>
-								<span class="size-2 shrink-0 rounded-full" style={ calendarEventColorStyle(CalendarEvent{SourceColor: source.Color}) }></span>
-								<span class={ "min-w-0 flex-1 truncate", templ.KV("opacity-50", source.IsHidden) } data-calendar-source-name title={ calendarSourceDisplayName(ctx, source) }>{ calendarSourceDisplayName(ctx, source) }</span>
-								// Its menu: show only this calendar (or all of them again when it
-								// already is the only one shown), or stop syncing it. Appears on
-								// hover or keyboard focus, and stays while the menu is open.
-								@dropdown.Dropdown() {
-									@dropdown.Trigger() {
-										<button type="button" disabled?={ loading } data-calendar-source-menu={ source.ID } aria-label={ i18n.T(ctx, "calendar.source.options", "calendar", calendarSourceDisplayName(ctx, source)) } class="inline-flex size-6 shrink-0 items-center justify-center rounded text-sidebar-foreground opacity-0 transition-opacity hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:opacity-100 group-hover:opacity-100 aria-expanded:opacity-100 disabled:pointer-events-none">
-											@icon.Ellipsis(icon.Props{Class: "size-3.5"})
-										</button>
-									}
-									@dropdown.Content(dropdown.ContentProps{Placement: dropdown.PlacementBottomEnd, Class: "w-52 normal-case tracking-normal"}) {
-										@dropdown.Item(dropdown.ItemProps{Class: "justify-start gap-2", Attributes: templ.Attributes{"type": "button", "data-calendar-visibility-only": source.ID}}) {
-											<span class="inline-flex text-muted-foreground" data-calendar-only-icon="only">
-												@icon.Focus(icon.Props{Class: "size-4"})
-											</span>
-											<span class="inline-flex text-muted-foreground" data-calendar-only-icon="all" hidden>
-												@icon.Eye(icon.Props{Class: "size-4"})
-											</span>
-											<span data-calendar-only-tooltip={ source.ID }>{ i18n.T(ctx, "calendar.source.show_only") }</span>
-										}
-										@dropdown.Separator()
-										@dropdown.Item(dropdown.ItemProps{Class: "justify-start gap-2", Attributes: templ.Attributes{"type": "button", "data-calendar-source-stop": source.ID}}) {
-											<span class="inline-flex text-muted-foreground">
-												@icon.CircleMinus(icon.Props{Class: "size-4"})
-											</span>
-											{ i18n.T(ctx, "calendar.source.stop_syncing") }
-										}
-										if calendarTransferProvider(source.Provider) {
-											// Import adds the events of an .ics file to this
-											// calendar, when it can be written to; Export
-											// downloads all of its events as one.
-											@dropdown.Separator()
-											if calendarTransferWritable(source) {
-												@dropdown.Item(dropdown.ItemProps{Class: "justify-start gap-2", Attributes: templ.Attributes{"type": "button", "data-calendar-import-open": source.ID}}) {
-													<span class="inline-flex text-muted-foreground">
-														@icon.Upload(icon.Props{Class: "size-4"})
-													</span>
-													{ i18n.T(ctx, "calendar.import.menu") }
-												}
-											}
-											@dropdown.Item(dropdown.ItemProps{Href: "/api/calendar/sources/" + source.ID + "/export", Class: "justify-start gap-2", Attributes: templ.Attributes{"download": "", "data-calendar-source-export": source.ID}}) {
-												<span class="inline-flex text-muted-foreground">
-													@icon.Download(icon.Props{Class: "size-4"})
-												</span>
-												{ i18n.T(ctx, "calendar.source.export_ics") }
-											}
-										}
-										@dropdown.Separator()
-										// Rename and Delete change the calendar on its provider, for
-										// every app, not only in Gofer.
-										@CalendarSourceManageItems(account, source)
-									}
-								}
-								// The same 24px slot as the "Other calendars" count and buttons,
-								// so the icons at the end of every row line up.
-								<span class="relative inline-flex size-6 shrink-0 items-center justify-center">
-									@CalendarSourceSyncIndicator(source, loading)
-									<span data-calendar-visibility-status class="absolute inset-0 inline-flex items-center justify-center opacity-0" aria-hidden="true">@icon.LoaderCircle(icon.Props{Class: "size-3 animate-spin"})
-</span>
-								</span>
-							</label>
+							@calendarSourceRow(account, source, loading)
 						}
 					</div>
 					if len(account.OtherCalendarSources) > 0 {
@@ -231,8 +164,142 @@ templ CalendarSidebarContent(accounts []models.Account, loading bool) {
 					}
 				}
 			}
+			if subscriptions, home := calendarSubscriptions(accounts); len(subscriptions) > 0 {
+				<div class="flex items-center gap-2.5 rounded-md py-2 pl-2.5 pr-2.5 text-[13px] text-sidebar-foreground" data-calendar-subscriptions>
+					<span class="inline-flex size-2.5 shrink-0 items-center justify-center text-sidebar-foreground">
+						@icon.Rss(icon.Props{Class: "size-3"})
+					</span>
+					<div class="min-w-0 flex-1">
+						<div class="truncate font-medium">{ i18n.T(ctx, "calendar.subscription.title") }</div>
+						<div class="truncate text-[11px] text-sidebar-foreground">{ i18n.T(ctx, "calendar.subscription.kind") }</div>
+					</div>
+					@tooltip.Tooltip() {
+						@tooltip.Trigger() {
+							@button.Button(button.Props{
+								Variant:  button.VariantGhost,
+								Size:     button.SizeIcon,
+								Class:    "size-6 shrink-0 rounded text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+								Disabled: loading,
+								Attributes: templ.Attributes{
+									"data-calendar-subscription-add": "",
+									"aria-label":                     i18n.T(ctx, "calendar.subscription.add"),
+								},
+							}) {
+								@icon.Plus(icon.Props{Class: "size-3.5"})
+							}
+						}
+						@tooltip.Content(tooltip.ContentProps{Position: tooltip.PositionRight, ShowArrow: true}) {
+							{ i18n.T(ctx, "calendar.subscription.add") }
+						}
+					}
+				</div>
+				<div class="mb-2 space-y-0.5" role="group" aria-label={ i18n.T(ctx, "calendar.subscription.title") }>
+					for _, source := range subscriptions {
+						@calendarSourceRow(home, source, loading)
+					}
+				</div>
+			}
 		</nav>
 	</div>
+}
+
+// calendarSourceRow is one synced calendar in the sidebar: its visibility
+// checkbox, color, name, menu and refresh state.
+templ calendarSourceRow(account models.Account, source models.AccountCalendarSource, loading bool) {
+	<label class="group flex min-h-8 cursor-pointer items-center gap-2.5 rounded-md py-1.5 pl-7 pr-2.5 text-[12px] text-sidebar-foreground transition-colors hover:bg-sidebar-accent/60 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-sidebar-ring" data-calendar-source-row>
+		<span class="inline-flex shrink-0">
+			@checkbox.Checkbox(checkbox.Props{
+				ID:      "calendar-visible-" + source.ID,
+				Checked: !source.IsHidden, Disabled: loading,
+				Class: "size-3.5 border-sidebar-border checked:border-sidebar-primary checked:bg-sidebar-primary",
+				Attributes: templ.Attributes{
+					"data-calendar-visibility":    source.ID,
+					"data-calendar-source-id":     source.ID,
+					"data-calendar-source-hidden": strconv.FormatBool(source.IsHidden),
+					"aria-label":                  i18n.T(ctx, "calendar.source.show", "calendar", calendarSourceDisplayName(ctx, source)),
+				},
+			})
+		</span>
+		<span class="size-2 shrink-0 rounded-full" style={ calendarEventColorStyle(CalendarEvent{SourceColor: source.Color}) }></span>
+		<span class={ "min-w-0 flex-1 truncate", templ.KV("opacity-50", source.IsHidden) } data-calendar-source-name title={ calendarSourceDisplayName(ctx, source) }>{ calendarSourceDisplayName(ctx, source) }</span>
+		// Its menu: show only this calendar (or all of them again when it
+		// already is the only one shown), or stop syncing it; a
+		// subscription's is changed or removed instead. Appears on hover or
+		// keyboard focus, and stays while the menu is open.
+		@dropdown.Dropdown() {
+			@dropdown.Trigger() {
+				<button type="button" disabled?={ loading } data-calendar-source-menu={ source.ID } aria-label={ i18n.T(ctx, "calendar.source.options", "calendar", calendarSourceDisplayName(ctx, source)) } class="inline-flex size-6 shrink-0 items-center justify-center rounded text-sidebar-foreground opacity-0 transition-opacity hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:opacity-100 group-hover:opacity-100 aria-expanded:opacity-100 disabled:pointer-events-none">
+					@icon.Ellipsis(icon.Props{Class: "size-3.5"})
+				</button>
+			}
+			@dropdown.Content(dropdown.ContentProps{Placement: dropdown.PlacementBottomEnd, Class: "w-52 normal-case tracking-normal"}) {
+				@dropdown.Item(dropdown.ItemProps{Class: "justify-start gap-2", Attributes: templ.Attributes{"type": "button", "data-calendar-visibility-only": source.ID}}) {
+					<span class="inline-flex text-muted-foreground" data-calendar-only-icon="only">
+						@icon.Focus(icon.Props{Class: "size-4"})
+					</span>
+					<span class="inline-flex text-muted-foreground" data-calendar-only-icon="all" hidden>
+						@icon.Eye(icon.Props{Class: "size-4"})
+					</span>
+					<span data-calendar-only-tooltip={ source.ID }>{ i18n.T(ctx, "calendar.source.show_only") }</span>
+				}
+				if source.Provider == "ics" {
+					// A subscription is changed and removed only in Gofer.
+					@dropdown.Separator()
+					@dropdown.Item(dropdown.ItemProps{Class: "justify-start gap-2", Attributes: calendarSubscriptionEditAttributes(source)}) {
+						<span class="inline-flex text-muted-foreground">
+							@icon.Pencil(icon.Props{Class: "size-4"})
+						</span>
+						{ i18n.T(ctx, "calendar.subscription.edit") }
+					}
+					@dropdown.Item(dropdown.ItemProps{Class: "justify-start gap-2 text-destructive hover:text-destructive focus:text-destructive", Attributes: templ.Attributes{"type": "button", "data-calendar-subscription-remove": source.ID, "data-calendar-source-name": calendarSourceDisplayName(ctx, source)}}) {
+						<span class="inline-flex">
+							@icon.Trash2(icon.Props{Class: "size-4"})
+						</span>
+						{ i18n.T(ctx, "calendar.subscription.remove") }
+					}
+				} else {
+					@dropdown.Separator()
+					@dropdown.Item(dropdown.ItemProps{Class: "justify-start gap-2", Attributes: templ.Attributes{"type": "button", "data-calendar-source-stop": source.ID}}) {
+						<span class="inline-flex text-muted-foreground">
+							@icon.CircleMinus(icon.Props{Class: "size-4"})
+						</span>
+						{ i18n.T(ctx, "calendar.source.stop_syncing") }
+					}
+					if calendarTransferProvider(source.Provider) {
+						// Import adds the events of an .ics file to this
+						// calendar, when it can be written to; Export
+						// downloads all of its events as one.
+						@dropdown.Separator()
+						if calendarTransferWritable(source) {
+							@dropdown.Item(dropdown.ItemProps{Class: "justify-start gap-2", Attributes: templ.Attributes{"type": "button", "data-calendar-import-open": source.ID}}) {
+								<span class="inline-flex text-muted-foreground">
+									@icon.Upload(icon.Props{Class: "size-4"})
+								</span>
+								{ i18n.T(ctx, "calendar.import.menu") }
+							}
+						}
+						@dropdown.Item(dropdown.ItemProps{Href: "/api/calendar/sources/" + source.ID + "/export", Class: "justify-start gap-2", Attributes: templ.Attributes{"download": "", "data-calendar-source-export": source.ID}}) {
+							<span class="inline-flex text-muted-foreground">
+								@icon.Download(icon.Props{Class: "size-4"})
+							</span>
+							{ i18n.T(ctx, "calendar.source.export_ics") }
+						}
+					}
+					@dropdown.Separator()
+					// Rename and Delete change the calendar on its provider, for
+					// every app, not only in Gofer.
+					@CalendarSourceManageItems(account, source)
+				}
+			}
+		}
+		// The same 24px slot as the "Other calendars" count and buttons,
+		// so the icons at the end of every row line up.
+		<span class="relative inline-flex size-6 shrink-0 items-center justify-center">
+			@CalendarSourceSyncIndicator(source, loading)
+			<span data-calendar-visibility-status class="absolute inset-0 inline-flex items-center justify-center opacity-0" aria-hidden="true">@icon.LoaderCircle(icon.Props{Class: "size-3 animate-spin"})
+</span>
+		</span>
+	</label>
 }
 
 // CalendarImportDialog imports an .ics file's events into a synced CalDAV
@@ -360,6 +427,95 @@ templ CalendarExportDialog(accounts []models.Account) {
 					}
 				</form>
 			}
+		}
+	}
+}
+
+// CalendarSubscriptionDialog subscribes to a calendar feed by its address,
+// or changes a subscription, which the page fills in. The name and color
+// may be left for the feed to suggest.
+templ CalendarSubscriptionDialog() {
+	@dialog.Dialog(dialog.Props{ID: "calendar-subscription-dialog"}) {
+		@dialog.Content(dialog.ContentProps{Class: "data-dialog max-h-[calc(100dvh-2rem)] [&>[data-tui-dialog-panel]]:flex [&>[data-tui-dialog-panel]]:max-h-[calc(100dvh-2rem)] [&>[data-tui-dialog-panel]]:min-h-0 [&>[data-tui-dialog-panel]]:flex-col [&>[data-tui-dialog-panel]]:gap-0 [&>[data-tui-dialog-panel]]:p-0 sm:max-w-lg normal-case tracking-normal"}) {
+			@dialog.Header(dialog.HeaderProps{Class: "shrink-0 px-6 pt-6 pb-4"}) {
+				@dialog.Title() {
+					<span data-calendar-subscription-mode="add">{ i18n.T(ctx, "calendar.subscription.add_title") }</span>
+					<span data-calendar-subscription-mode="edit" hidden>{ i18n.T(ctx, "calendar.subscription.edit_title") }</span>
+				}
+				@dialog.Description() {
+					{ i18n.T(ctx, "calendar.subscription.description") }
+				}
+			}
+			<form class={ dataDialogFormClass } data-calendar-subscription-form novalidate>
+				<input type="hidden" name="id" value="" data-calendar-subscription-id/>
+				@dataDialogScroll("space-y-4 pb-4") {
+					<div class="space-y-1.5">
+						<label for="calendar-subscription-url" class="block text-xs font-medium text-muted-foreground">{ i18n.T(ctx, "calendar.subscription.url") }</label>
+						@input.Input(input.Props{ID: "calendar-subscription-url", Name: "url", Type: input.TypeURL, Placeholder: i18n.T(ctx, "calendar.subscription.url_placeholder"), Required: true, Attributes: templ.Attributes{"autocomplete": "off", "spellcheck": "false", "data-calendar-subscription-url": ""}})
+						<p class="text-xs text-muted-foreground">{ i18n.T(ctx, "calendar.subscription.url_help") }</p>
+					</div>
+					<div class="space-y-1.5">
+						<label for="calendar-subscription-name" class="block text-xs font-medium text-muted-foreground">{ i18n.T(ctx, "calendar.subscription.name") } <span class="font-normal">{ i18n.T(ctx, "identities.optional") }</span></label>
+						@input.Input(input.Props{ID: "calendar-subscription-name", Name: "name", Type: input.TypeText, Placeholder: i18n.T(ctx, "calendar.subscription.name_placeholder"), Attributes: templ.Attributes{"maxlength": "100", "autocomplete": "off", "data-calendar-subscription-name": ""}})
+					</div>
+					<div class="space-y-1.5">
+						<span class="block text-xs font-medium text-muted-foreground">{ i18n.T(ctx, "calendar.subscription.color") }</span>
+						<input type="hidden" name="color" value="" data-calendar-subscription-color/>
+						<div class="flex flex-wrap gap-2" role="group" aria-label={ i18n.T(ctx, "calendar.subscription.color") }>
+							<button
+								type="button"
+								class="account-color-swatch inline-flex size-7 items-center justify-center rounded-full border border-dashed border-border text-muted-foreground transition-transform hover:scale-110 focus-visible:outline-none"
+								data-calendar-subscription-color-option=""
+								data-account-color-active="true"
+								aria-pressed="true"
+								aria-label={ i18n.T(ctx, "calendar.subscription.color_feed") }
+								title={ i18n.T(ctx, "calendar.subscription.color_feed") }
+							>
+								@icon.Rss(icon.Props{Class: "size-3.5"})
+							</button>
+							for _, color := range accountColorOptions() {
+								<button
+									type="button"
+									class="account-color-swatch size-7 rounded-full transition-transform hover:scale-110 focus-visible:outline-none"
+									style={ accountColorStyle(color) }
+									data-calendar-subscription-color-option={ color }
+									data-account-color-active="false"
+									aria-pressed="false"
+									aria-label={ i18n.T(ctx, "settings.account.color_use", "color", color) }
+								></button>
+							}
+						</div>
+					</div>
+					<div class="space-y-1.5">
+						<span class="block text-xs font-medium text-muted-foreground">{ i18n.T(ctx, "calendar.subscription.refresh") }</span>
+						@selectbox.SelectBox() {
+							@selectbox.Trigger(selectbox.TriggerProps{Name: "refresh_minutes", Class: "h-10 bg-background", Required: true, DisableClear: true, Attributes: templ.Attributes{"value": strconv.Itoa(calendarSubscriptionDefaultRefresh()), "data-calendar-subscription-refresh": strconv.Itoa(calendarSubscriptionDefaultRefresh())}}) {
+								@selectbox.Value(selectbox.ValueProps{Class: "text-left"})
+							}
+							@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+								for _, minutes := range calendarSubscriptionRefreshChoices() {
+									@selectbox.Item(selectbox.ItemProps{Value: strconv.Itoa(minutes), Selected: minutes == calendarSubscriptionDefaultRefresh()}) {
+										{ calendarSubscriptionRefreshLabel(ctx, minutes) }
+									}
+								}
+							}
+						}
+					</div>
+					<p class="flex items-start gap-2 text-xs text-muted-foreground">
+						@icon.Info(icon.Props{Class: "mt-0.5 size-3.5 shrink-0"})
+						<span>{ i18n.T(ctx, "calendar.subscription.read_only") }</span>
+					</p>
+				}
+				@dataDialogFooter() {
+					@dialog.Close() {
+						<button type="button" class="inline-flex items-center justify-center gap-1.5 rounded-lg border border-border px-4 py-2 text-sm font-medium transition-colors hover:bg-accent">{ i18n.T(ctx, "common.cancel") }</button>
+					}
+					<button type="submit" data-calendar-subscription-submit class="inline-flex items-center justify-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50">
+						<span data-calendar-subscription-mode="add">{ i18n.T(ctx, "calendar.subscription.subscribe") }</span>
+						<span data-calendar-subscription-mode="edit" hidden>{ i18n.T(ctx, "common.save") }</span>
+					</button>
+				}
+			</form>
 		}
 	}
 }

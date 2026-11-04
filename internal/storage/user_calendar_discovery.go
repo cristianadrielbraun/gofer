@@ -77,7 +77,11 @@ func calendarDiscoverySnapshotTx(ctx context.Context, tx *sql.Tx, owner, account
 			}
 		}
 	}
-	if snapshot.provider != "gmail" && snapshot.provider != "outlook" && !CalendarSourceMailServer(snapshot.provider) {
+	if snapshot.provider == localProvider {
+		// Local folders hold the user's calendar subscriptions.
+		snapshot.provider = CalendarSourceProviderICS
+	}
+	if snapshot.provider != "gmail" && snapshot.provider != "outlook" && snapshot.provider != CalendarSourceProviderICS && !CalendarSourceMailServer(snapshot.provider) {
 		return nil, ErrAccountRoute
 	}
 	rows, err := tx.QueryContext(ctx, `SELECT id,user_id,account_id,provider,remote_id,name,description,timezone,color,access_role,is_primary,is_selected,is_deleted

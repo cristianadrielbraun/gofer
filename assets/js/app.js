@@ -15929,6 +15929,129 @@ document.addEventListener("click", function (event) {
   if (window.tui && window.tui.dialog) window.tui.dialog.open("calendar-export-dialog")
 })
 
+// Subscribe to a calendar… opens the subscription dialog empty, and a
+// subscription's Edit opens it filled in with its settings. The server reads
+// a new address before saving it, which can take a moment.
+function setCalendarSubscriptionColor(form, color) {
+  var input = form.querySelector("[data-calendar-subscription-color]")
+  if (input) input.value = color || ""
+  form.querySelectorAll("[data-calendar-subscription-color-option]").forEach(function (option) {
+    var active = (option.dataset.calendarSubscriptionColorOption || "").toLowerCase() === (color || "").toLowerCase()
+    option.setAttribute("data-account-color-active", active ? "true" : "false")
+    option.setAttribute("aria-pressed", active ? "true" : "false")
+  })
+}
+
+function openCalendarSubscriptionDialog(data) {
+  var form = document.querySelector("#calendar-subscription-dialog [data-calendar-subscription-form]")
+  if (!form) return
+  var editing = !!data.id
+  form.reset()
+  form.querySelector("[data-calendar-subscription-id]").value = data.id || ""
+  form.querySelector("[data-calendar-subscription-url]").value = data.url || ""
+  form.querySelector("[data-calendar-subscription-name]").value = data.name || ""
+  var refresh = form.querySelector("input[name='refresh_minutes']")
+  if (refresh) refresh.value = data.minutes && data.minutes !== "0" ? data.minutes : refresh.dataset.calendarSubscriptionRefresh || "60"
+  setCalendarSubscriptionColor(form, data.color || "")
+  document.querySelectorAll("#calendar-subscription-dialog [data-calendar-subscription-mode]").forEach(function (part) {
+    part.hidden = part.dataset.calendarSubscriptionMode !== (editing ? "edit" : "add")
+  })
+  if (window.tui && window.tui.dialog) window.tui.dialog.open("calendar-subscription-dialog")
+}
+
+document.addEventListener("click", function (event) {
+  var add = event.target.closest && event.target.closest("[data-calendar-subscription-add]")
+  var edit = !add && event.target.closest && event.target.closest("[data-calendar-subscription-edit]")
+  if (!add && !edit) return
+  event.preventDefault()
+  if (add) { openCalendarSubscriptionDialog({}); return }
+  openCalendarSubscriptionDialog({
+    id: edit.dataset.calendarSubscriptionEdit,
+    url: edit.dataset.calendarSubscriptionUrl,
+    name: edit.dataset.calendarSubscriptionName,
+    color: edit.dataset.calendarSubscriptionColor,
+    minutes: edit.dataset.calendarSubscriptionMinutes,
+  })
+})
+
+document.addEventListener("click", function (event) {
+  var option = event.target.closest && event.target.closest("[data-calendar-subscription-color-option]")
+  if (!option) return
+  event.preventDefault()
+  var form = option.closest("[data-calendar-subscription-form]")
+  if (form) setCalendarSubscriptionColor(form, option.dataset.calendarSubscriptionColorOption || "")
+})
+
+document.addEventListener("submit", function (event) {
+  var form = event.target.closest && event.target.closest("[data-calendar-subscription-form]")
+  if (!form) return
+  event.preventDefault()
+  var id = form.querySelector("[data-calendar-subscription-id]").value
+  var url = form.querySelector("[data-calendar-subscription-url]").value.trim()
+  var failed = id ? goferT("js.calendar.subscription.save_failed") : goferT("js.calendar.subscription.add_failed")
+  if (!url) {
+    showGoferToast({ title: failed, description: goferT("js.calendar.subscription.no_url"), variant: "error", icon: "error", position: "bottom-right", duration: 5000, dismissible: true })
+    return
+  }
+  var submit = form.querySelector("[data-calendar-subscription-submit]")
+  var labels = submit ? Array.from(submit.querySelectorAll("[data-calendar-subscription-mode]")) : []
+  var shown = labels.filter(function (label) { return !label.hidden })[0]
+  var label = shown ? shown.textContent : ""
+  if (submit) { submit.disabled = true; submit.setAttribute("aria-busy", "true") }
+  if (shown) shown.textContent = goferT("js.calendar.subscription.checking")
+  var done = function () {
+    if (submit) { submit.disabled = false; submit.removeAttribute("aria-busy") }
+    if (shown) shown.textContent = label
+  }
+  fetch(id ? "/api/calendar/subscriptions/" + encodeURIComponent(id) : "/api/calendar/subscriptions", {
+    method: id ? "PATCH" : "POST",
+    headers: { "Content-Type": "application/json", "Accept": "application/json, text/plain" },
+    body: JSON.stringify({
+      url: url,
+      name: form.querySelector("[data-calendar-subscription-name]").value.trim(),
+      color: form.querySelector("[data-calendar-subscription-color]").value,
+      refresh_minutes: parseInt((form.querySelector("input[name='refresh_minutes']") || {}).value || "0", 10) || 0,
+    }),
+  }).then(function (response) {
+    if (!response.ok) return response.text().then(function (text) { throw new Error((text || "").trim() || goferT("js.common.please_try_again")) })
+    return id ? null : response.json()
+  }).then(function (added) {
+    done()
+    if (window.tui && window.tui.dialog) window.tui.dialog.close("calendar-subscription-dialog")
+    refreshCalendarSidebar()
+    scheduleCalendarCacheRefresh()
+    showGoferToast({ title: added ? goferT("js.calendar.subscription.added", { calendar: added.name || url }) : goferT("js.calendar.subscription.saved"), variant: "success", icon: "success", position: "bottom-right", duration: 3000, dismissible: true })
+  }).catch(function (error) {
+    done()
+    showGoferToast({ title: failed, description: error && error.message ? error.message : goferT("js.common.please_try_again"), variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
+  })
+})
+
+// Remove subscription drops it and its events from Gofer, after asking.
+document.addEventListener("click", function (event) {
+  var button = event.target.closest && event.target.closest("[data-calendar-subscription-remove]")
+  if (!button || button.disabled) return
+  event.preventDefault()
+  var sourceID = button.dataset.calendarSubscriptionRemove
+  var name = button.dataset.calendarSourceName || goferT("js.calendar.source.this")
+  window.goferConfirm({
+    title: goferT("js.calendar.subscription.remove_title", { calendar: name }),
+    message: goferT("js.calendar.subscription.remove_detail"),
+    confirmLabel: goferT("js.calendar.subscription.remove"),
+    destructive: true,
+  }).then(function (accepted) {
+    if (!accepted) return
+    return fetch("/api/calendar/subscriptions/" + encodeURIComponent(sourceID), { method: "DELETE", headers: { "Accept": "text/plain" } }).then(function (response) {
+      if (!response.ok) return response.text().then(function (text) { throw new Error((text || "").trim() || goferT("js.common.please_try_again")) })
+      refreshCalendarSidebar()
+      scheduleCalendarCacheRefresh()
+      showGoferToast({ title: goferT("js.calendar.subscription.removed"), variant: "success", icon: "success", position: "bottom-right", duration: 3000, dismissible: true })
+    })
+  }).catch(function (error) {
+    showGoferToast({ title: goferT("js.calendar.subscription.remove_failed"), description: error && error.message ? error.message : goferT("js.common.please_try_again"), variant: "error", icon: "error", position: "bottom-right", duration: 6000, dismissible: true })
+  })
+})
+
 document.addEventListener("change", function (event) {
   var form = event.target.closest && event.target.closest("[data-calendar-import-form]")
   if (!form) return

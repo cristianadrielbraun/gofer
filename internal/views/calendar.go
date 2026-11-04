@@ -438,7 +438,8 @@ func calendarAccountName(ctx context.Context, account models.Account) string {
 func calendarConfiguredAccounts(accounts []models.Account) []models.Account {
 	configured := make([]models.Account, 0, len(accounts))
 	for _, account := range accounts {
-		if account.IsDeleting || (!account.CalendarSyncEnabled && len(account.OtherCalendarSources) == 0) {
+		// Local folders hold only subscriptions, listed apart.
+		if account.IsDeleting || account.Provider == "local" || (!account.CalendarSyncEnabled && len(account.OtherCalendarSources) == 0) {
 			continue
 		}
 		configured = append(configured, account)
@@ -629,4 +630,52 @@ func calendarTransferFirstTarget(targets []calendarTransferChoice) int {
 		}
 	}
 	return -1
+}
+
+// calendarSubscriptions are the synced subscriptions to calendar feeds,
+// which belong to Local folders, and that account.
+func calendarSubscriptions(accounts []models.Account) ([]models.AccountCalendarSource, models.Account) {
+	for _, account := range accounts {
+		if account.Provider != "local" || account.IsDeleting {
+			continue
+		}
+		var sources []models.AccountCalendarSource
+		for _, source := range account.CalendarSources {
+			if source.Provider == "ics" {
+				sources = append(sources, source)
+			}
+		}
+		return sources, account
+	}
+	return nil, models.Account{}
+}
+
+// calendarSubscriptionEditAttributes open the subscription dialog filled in
+// with a subscription's settings.
+func calendarSubscriptionEditAttributes(source models.AccountCalendarSource) templ.Attributes {
+	return templ.Attributes{
+		"type":                              "button",
+		"data-calendar-subscription-edit":   source.ID,
+		"data-calendar-subscription-url":    source.SubscriptionURL,
+		"data-calendar-subscription-name":   source.Name,
+		"data-calendar-subscription-color":  source.Color,
+		"data-calendar-subscription-minutes": strconv.Itoa(source.RefreshMinutes),
+	}
+}
+
+func calendarSubscriptionRefreshChoices() []int { return models.CalendarSubscriptionRefreshChoices }
+
+func calendarSubscriptionDefaultRefresh() int { return models.CalendarSubscriptionDefaultRefresh }
+
+// calendarSubscriptionRefreshLabel names a refresh interval: "Every 15
+// minutes", "Every hour", "Every 6 hours".
+func calendarSubscriptionRefreshLabel(ctx context.Context, minutes int) string {
+	switch {
+	case minutes < 60:
+		return i18n.N(ctx, "calendar.subscription.every_minutes", minutes, "count", i18n.Number(ctx, minutes))
+	case minutes == 1440:
+		return i18n.T(ctx, "calendar.subscription.every_day")
+	default:
+		return i18n.N(ctx, "calendar.subscription.every_hours", minutes/60, "count", i18n.Number(ctx, minutes/60))
+	}
 }

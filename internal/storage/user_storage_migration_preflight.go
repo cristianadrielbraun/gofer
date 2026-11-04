@@ -131,7 +131,7 @@ func InspectUserStorageMigration(ctx context.Context, sourcePath string) (UserSt
 }
 
 func migrationSharedVersionSupported(version int) bool {
-	return version >= 105 && version <= 135
+	return version >= 105 && version <= 136
 }
 
 // These recognized shared schemas differ only in the explicitly handled push
@@ -437,7 +437,9 @@ func migrationSourceColumns(ctx context.Context, tx *sql.Tx, table *UserStorageM
 	} else if table.Name == "messages" && version < 132 {
 		missing = []string{"list_id"}
 	} else if table.Name == "calendar_sources" && version < 133 {
-		missing = []string{"created_in_gofer"}
+		missing = []string{"created_in_gofer", "refresh_minutes"}
+	} else if table.Name == "calendar_sources" && version < 136 {
+		missing = []string{"refresh_minutes"}
 	} else if table.Name == "accounts" && version < 134 {
 		missing = []string{"hidden"}
 	} else if table.Name == "mail_rules" && version < 135 {

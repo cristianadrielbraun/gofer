@@ -159,7 +159,9 @@ func calendarChanged(source storage.CalendarSource, mark calendarChangeMark, get
 // now: downloaded before, not being downloaded, not due for its regular
 // refresh, and not asked within the last minute.
 func calendarChangeDue(source storage.CalendarSource, mark calendarChangeMark, known bool, now time.Time) bool {
-	return known && source.SyncState != "syncing" && source.NextAttemptAt != nil && source.NextAttemptAt.After(now) && now.Sub(mark.checked) >= calendarQuickCheckInterval-calendarChangeSkew
+	// A subscription's feed can't say whether it changed without being
+	// downloaded, so it waits for its refresh.
+	return known && source.Provider != storage.CalendarSourceProviderICS && source.SyncState != "syncing" && source.NextAttemptAt != nil && source.NextAttemptAt.After(now) && now.Sub(mark.checked) >= calendarQuickCheckInterval-calendarChangeSkew
 }
 
 // checkUserCalendarChanges downloads again those of an account's calendars

@@ -158,6 +158,21 @@ func (h *Handler) userAccountHasCalDAVCalendar(ctx context.Context, owner, accou
 	return found
 }
 
+// userAccountHasProviderCalendar reports whether the account syncs a
+// calendar its provider lists, rather than only subscriptions, which have no
+// calendar list to read again.
+func (h *Handler) userAccountHasProviderCalendar(ctx context.Context, owner, account string) bool {
+	found := false
+	_ = h.userAccounts.WithAccountForUser(ctx, owner, account, func(_ *config.AccountStore, db *storage.DB) error {
+		sources, err := db.ListSelectedCalendarSources(ctx, owner)
+		for _, source := range sources {
+			found = found || (source.AccountID == account && source.Provider != storage.CalendarSourceProviderICS)
+		}
+		return err
+	})
+	return found
+}
+
 func (h *Handler) signalUserCalendar() {
 	h.calendarSyncMu.Lock()
 	w := h.userCalendarWorkers
@@ -391,7 +406,7 @@ func (w *userCalendarWorkers) process(parent context.Context, job userCalendarJo
 	_, syncErr := w.h.syncUserCalendarWindow(ctx, job.owner, start, end, job.account, true, forced)
 	if !errors.Is(syncErr, errCalendarAccountNotConfigured) {
 		w.report(ctx, "refresh account", syncErr)
-		if w.h.calendarListDue(job.account, time.Now(), calendarSourceGone(checkErr) || calendarSourceGone(syncErr)) {
+		if w.h.userAccountHasProviderCalendar(ctx, job.owner, job.account) && w.h.calendarListDue(job.account, time.Now(), calendarSourceGone(checkErr) || calendarSourceGone(syncErr)) {
 			_, listErr := w.h.runUserCalendarDiscovery(ctx, job.owner, job.account, nil, nil, true)
 			w.report(ctx, "refresh calendar list", listErr)
 		}

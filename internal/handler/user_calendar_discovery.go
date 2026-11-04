@@ -432,6 +432,9 @@ func (h *Handler) runUserCalendarDiscovery(parent context.Context, owner, id str
 		if err != nil {
 			return err
 		}
+		if snapshot.Provider() == storage.CalendarSourceProviderICS {
+			return nil // Subscriptions have no calendar list to read.
+		}
 		if background {
 			form = backgroundCalendarDiscoveryForm(snapshot)
 		} else if protocol := calendarDiscoveryProtocolFor(form.Get("calendar_protocol"), snapshot.Provider()); protocol != snapshot.Provider() {

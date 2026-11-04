@@ -61,6 +61,12 @@ type Account struct {
 }
 
 // AccountCalendarSource is sidebar metadata, not account sync configuration.
+// Calendar subscriptions are read again every RefreshMinutes; these are the
+// choices offered, and the one a new subscription starts with.
+var CalendarSubscriptionRefreshChoices = []int{15, 30, 60, 360, 720, 1440}
+
+const CalendarSubscriptionDefaultRefresh = 60
+
 type AccountCalendarSource struct {
 	ID            string
 	Name          string
@@ -71,7 +77,8 @@ type AccountCalendarSource struct {
 	SyncError     string
 	LastSyncedAt  string
 	NextAttemptAt string
-	// Provider is where the calendar lives: gmail, outlook, caldav or jmap.
+	// Provider is where the calendar lives: gmail, outlook, caldav or jmap,
+	// or ics for a subscription to a calendar feed.
 	Provider string
 	// Undeletable says why the calendar can't be deleted, such as a Google
 	// or Microsoft account's main calendar; empty when it can.
@@ -80,6 +87,9 @@ type AccountCalendarSource struct {
 	// "reader", and CreatedInGofer is set when it was created from Gofer.
 	AccessRole     string
 	CreatedInGofer bool
+	// A subscription's feed URL and how often it is read, in minutes.
+	SubscriptionURL string
+	RefreshMinutes  int
 }
 
 type Folder struct {

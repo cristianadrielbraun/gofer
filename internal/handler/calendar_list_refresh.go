@@ -122,6 +122,10 @@ func calendarListSources(ctx context.Context, db *storage.DB, owner, accountID s
 	seen := map[string]bool{}
 	var out []storage.CalendarSource
 	for _, source := range append(selected, others...) {
+		// Subscriptions have no calendar list to read again.
+		if source.Provider == storage.CalendarSourceProviderICS {
+			continue
+		}
 		if seen[source.AccountID] || (accountID != "" && source.AccountID != accountID) {
 			continue
 		}

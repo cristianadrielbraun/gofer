@@ -81,6 +81,8 @@ func (p *userCalendarRequest) fetchEvents(ctx context.Context, query calendar.Ev
 		}
 		ctx = context.WithValue(ctx, calendarDiscoveryDAVGuardKey{}, calendarDiscoveryDAVCallbacks{ready: p.ready, failure: p.recordRetry})
 		return listCalDAVCalendarEvents(ctx, source, username, password, query)
+	case storage.CalendarSourceProviderICS:
+		return listCalendarFeedEvents(ctx, source, query)
 	case storage.CalendarSourceProviderJMAP:
 		cfg, password, err := p.jmapConnection(ctx)
 		if err != nil {
@@ -157,6 +159,9 @@ func (h *Handler) performUserCalendarSourceSync(parent context.Context, source s
 		}
 		if current == nil {
 			return storage.ErrCalendarSyncChanged
+		}
+		if current.Provider == storage.CalendarSourceProviderICS && current.RefreshMinutes > 0 {
+			interval = time.Duration(current.RefreshMinutes) * time.Minute
 		}
 		// An active in-process source flight was skipped above. A remaining
 		// syncing row is interrupted work; a new guarded attempt supersedes it.

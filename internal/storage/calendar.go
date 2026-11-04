@@ -45,6 +45,9 @@ type CalendarSource struct {
 	WindowEnd     *time.Time
 	// CreatedInGofer is set for a calendar created from Gofer.
 	CreatedInGofer bool
+	// RefreshMinutes is how often a calendar subscription is read again;
+	// other calendars follow the owner's sync interval and leave it 0.
+	RefreshMinutes int
 }
 
 // UndeletableReason says why the calendar can't be deleted from its
@@ -415,7 +418,7 @@ func (db *DB) listSelectedCalendarSources(ctx context.Context, userID string, in
 		       source.is_selected, source.is_deleted, source.is_hidden,
 		       COALESCE(sync.state, 'pending'), COALESCE(sync.attempt_count, 0), COALESCE(sync.last_error, ''),
 		       sync.last_started_at, sync.last_success_at, sync.next_attempt_at,
-		       sync.window_start, sync.window_end, source.created_in_gofer
+		       sync.window_start, sync.window_end, source.created_in_gofer, source.refresh_minutes
 		FROM calendar_sources source
 		JOIN accounts account ON account.id = source.account_id
 		LEFT JOIN calendar_sync_state sync ON sync.source_id = source.id
@@ -439,7 +442,7 @@ func (db *DB) listSelectedCalendarSources(ctx context.Context, userID string, in
 			&source.ID, &source.UserID, &source.AccountID, &source.Provider,
 			&source.RemoteID, &source.Name, &source.Description, &source.TimeZone,
 			&source.Color, &source.AccessRole, &isPrimary, &isSelected, &isDeleted, &isHidden,
-			&source.SyncState, &source.SyncAttempt, &source.SyncError, &started, &success, &next, &windowStart, &windowEnd, &source.CreatedInGofer,
+			&source.SyncState, &source.SyncAttempt, &source.SyncError, &started, &success, &next, &windowStart, &windowEnd, &source.CreatedInGofer, &source.RefreshMinutes,
 		); err != nil {
 			return nil, err
 		}

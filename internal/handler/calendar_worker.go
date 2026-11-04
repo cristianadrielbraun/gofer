@@ -60,6 +60,15 @@ func (h *Handler) calendarSyncInterval(ctx context.Context, userID string) time.
 	return time.Duration(minutes) * time.Minute
 }
 
+// calendarSourceInterval is how long a calendar waits for its next refresh:
+// a subscription its own interval, others the owner's sync interval.
+func (h *Handler) calendarSourceInterval(ctx context.Context, source storage.CalendarSource) time.Duration {
+	if source.Provider == storage.CalendarSourceProviderICS && source.RefreshMinutes > 0 {
+		return time.Duration(source.RefreshMinutes) * time.Minute
+	}
+	return h.calendarSyncInterval(ctx, source.UserID)
+}
+
 func calendarBackgroundWindow(now time.Time, location *time.Location) (time.Time, time.Time) {
 	now = now.In(location)
 	month := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, location)
@@ -112,7 +121,7 @@ func (h *Handler) runCalendarSyncTick(ctx context.Context, now time.Time) {
 						log.Printf("calendar sync %s: %v", source.ID, err)
 					}
 				}
-				if ctx.Err() == nil && h.calendarListDue(source.AccountID, time.Now(), calendarSourceGone(err)) {
+				if ctx.Err() == nil && source.Provider != storage.CalendarSourceProviderICS && h.calendarListDue(source.AccountID, time.Now(), calendarSourceGone(err)) {
 					if err := h.refreshCalendarList(ctx, source, credentials); err != nil && ctx.Err() == nil {
 						log.Printf("calendar list %s: %v", source.AccountID, err)
 					}
@@ -244,7 +253,7 @@ func (h *Handler) performCalendarSourceSync(parent context.Context, source stora
 			log.Printf("calendar sync %s: record failure: %v", source.ID, markErr)
 		}
 	}
-	if scheduleErr := h.db.ScheduleCalendarSync(stateCtx, source.UserID, source.ID, time.Now().Add(h.calendarSyncInterval(stateCtx, source.UserID))); scheduleErr != nil {
+	if scheduleErr := h.db.ScheduleCalendarSync(stateCtx, source.UserID, source.ID, time.Now().Add(h.calendarSourceInterval(stateCtx, source))); scheduleErr != nil {
 		log.Printf("calendar sync %s: schedule next refresh: %v", source.ID, scheduleErr)
 	}
 	h.publishCalendarSync(stateCtx, source, err == nil)
