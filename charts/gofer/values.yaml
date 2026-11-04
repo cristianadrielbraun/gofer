@@ -49,6 +49,8 @@ config:
   # Optional allowlist of client networks (GOFER_ALLOWED_CIDRS).
   allowedCidrs: ""
   allowInsecureLan: false
+  # Let custom themes use Google Fonts, fetched and served by Gofer itself.
+  googleFonts: false
   # Extra non-secret GOFER_* variables.
   extraEnv: {}
 

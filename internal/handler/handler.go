@@ -735,6 +735,7 @@ func setupAssetsRoutes(mux *http.ServeMux) {
 		w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
 		serveServiceWorker(w, r)
 	})
+	setupGoogleFontsRoutes(mux)
 }
 
 func (h *Handler) handleIndex(w http.ResponseWriter, r *http.Request) {
