@@ -2092,6 +2092,8 @@
   "js.compose.opening": "Opening compose...",
   "js.compose.quote.wrote": "{from} wrote:",
   "js.compose.quote.wrote_on": "On {date}, {from} wrote:",
+  "js.compose.recipient.more.one": "Show 1 more recipient",
+  "js.compose.recipient.more.other": "Show {count} more recipients",
   "js.compose.recipient.remove": "Remove recipient",
   "js.compose.replace.cancel": "Keep writing",
   "js.compose.replace.confirm": "Replace draft",

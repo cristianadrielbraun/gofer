@@ -17274,8 +17274,9 @@ function _makeComposeRecipientChip(value) {
   remove.className = "compose-recipient-remove"
   remove.setAttribute("aria-label", goferT("js.compose.recipient.remove"))
   remove.textContent = "x"
+  // Keep focus where it is, so removing a chip does not fold the field.
+  remove.onmousedown = function (event) { event.preventDefault() }
   remove.onclick = function () {
-    var field = chip.closest("[data-compose-recipient-field]")
     removeComposeRecipientChip(chip)
   }
   chip.appendChild(label)
@@ -17289,7 +17290,7 @@ function removeComposeRecipientChip(chip) {
   chip.dataset.removing = "true"
   chip.classList.add("compose-recipient-chip-removing")
   setTimeout(function () {
-    chip.remove()
+    _composeRecipientFlip(field, function () { chip.remove() })
     _syncComposeRecipientField(field)
     _markComposeDirty(_composeFormFrom(field))
   }, 140)
@@ -17299,19 +17300,190 @@ function renderComposeRecipientField(field, value) {
   if (!field) return
   var input = field.querySelector("[data-compose-recipient-input]")
   if (!input) return
-  var existing = field.querySelectorAll("[data-compose-recipient-chip]")
-  for (var i = 0; i < existing.length; i++) existing[i].remove()
-  var seen = {}
-  var tokens = _splitComposeRecipients(value)
-  for (var t = 0; t < tokens.length; t++) {
-    var email = _composeRecipientEmail(tokens[t])
-    if (seen[email]) continue
-    seen[email] = true
-    field.insertBefore(_makeComposeRecipientChip(tokens[t]), input)
-  }
-  input.textContent = ""
+  _composeRecipientFlip(field, function () {
+    var existing = field.querySelectorAll("[data-compose-recipient-chip]")
+    for (var i = 0; i < existing.length; i++) existing[i].remove()
+    var seen = {}
+    var tokens = _splitComposeRecipients(value)
+    for (var t = 0; t < tokens.length; t++) {
+      var email = _composeRecipientEmail(tokens[t])
+      if (seen[email]) continue
+      seen[email] = true
+      input.parentNode.insertBefore(_makeComposeRecipientChip(tokens[t]), input)
+    }
+    input.textContent = ""
+  })
   _syncComposeRecipientField(field)
 }
+
+// _composeRecipientFlip runs mutate, which may rebuild the field's chips,
+// then slides every chip that was already there from its old spot to its new
+// one and lays the field out again, so nothing jumps. Rebuilt chips are
+// matched by address and skip the pop-in that only new chips get.
+function _composeRecipientFlip(field, mutate) {
+  var box = field && field.querySelector ? field.querySelector("[data-compose-recipient-chips]") : null
+  if (!box || !box.offsetWidth) {
+    mutate()
+    _composeRecipientLayout(field)
+    return
+  }
+  var before = {}
+  var old = box.querySelectorAll("[data-compose-recipient-chip]")
+  for (var i = 0; i < old.length; i++) {
+    if (old[i].dataset.removing === "true") continue
+    var key = _composeRecipientEmail(old[i].dataset.value || "")
+    ;(before[key] = before[key] || []).push(old[i].getBoundingClientRect())
+  }
+  var input = box.querySelector("[data-compose-recipient-input]")
+  var inputRect = input ? input.getBoundingClientRect() : null
+  mutate()
+  _composeRecipientLayout(field)
+  var chips = box.querySelectorAll("[data-compose-recipient-chip]")
+  for (var c = 0; c < chips.length; c++) {
+    var list = before[_composeRecipientEmail(chips[c].dataset.value || "")]
+    if (!list || !list.length) continue
+    var from = list.shift()
+    chips[c].style.animation = "none"
+    _composeRecipientSlide(chips[c], from)
+  }
+  if (input && inputRect) _composeRecipientSlide(input, inputRect)
+}
+
+function _composeRecipientSlide(el, from) {
+  if (!el.animate) return
+  var to = el.getBoundingClientRect()
+  var dx = from.left - to.left
+  var dy = from.top - to.top
+  if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return
+  el.animate([
+    { transform: "translate(" + dx + "px, " + dy + "px)" },
+    { transform: "translate(0, 0)" }
+  ], { duration: 180, easing: "ease" })
+}
+
+function _composeRecipientMoreChip(box) {
+  var more = box.querySelector("[data-compose-recipient-more]")
+  if (more) return more
+  more = document.createElement("button")
+  more.type = "button"
+  more.className = "compose-recipient-more"
+  more.dataset.composeRecipientMore = ""
+  more.tabIndex = -1
+  // A click on the field focuses its input, which unfolds it.
+  more.onmousedown = function (event) { event.preventDefault() }
+  box.appendChild(more)
+  return more
+}
+
+var _composeRecipientResize = typeof ResizeObserver === "function" ? new ResizeObserver(function (entries) {
+  for (var i = 0; i < entries.length; i++) {
+    var field = entries[i].target
+    var width = Math.round(entries[i].contentRect.width)
+    if (field._composeRecipientWidth === width) continue
+    field._composeRecipientWidth = width
+    _composeRecipientLayout(field)
+  }
+}) : null
+
+// _composeRecipientLayout sizes the chip area: every line while the field
+// has focus, otherwise the first line with a "+N" chip for the rest. The
+// height always moves from where it is now, so the change is animated.
+function _composeRecipientLayout(field) {
+  var box = field && field.querySelector ? field.querySelector("[data-compose-recipient-chips]") : null
+  if (!box) return
+  if (_composeRecipientResize && !field._composeRecipientObserved) {
+    field._composeRecipientObserved = true
+    _composeRecipientResize.observe(field)
+  }
+  if (!box.offsetWidth) return
+  var expanded = field.dataset.expanded === "true"
+  var more = _composeRecipientMoreChip(box)
+  var chips = []
+  var all = box.querySelectorAll("[data-compose-recipient-chip]")
+  for (var i = 0; i < all.length; i++) {
+    all[i].style.maxWidth = ""
+    if (all[i].dataset.removing !== "true") chips.push(all[i])
+  }
+
+  var start = box.getBoundingClientRect().height
+  box.style.height = "auto"
+  var natural = box.offsetHeight
+
+  // The first line ends where an item no longer overlaps it vertically.
+  var items = chips.slice()
+  var input = box.querySelector("[data-compose-recipient-input]")
+  if (input) items.push(input)
+  var rowBottom = 0
+  var firstRow = []
+  for (var r = 0; r < items.length; r++) {
+    var top = items[r].offsetTop
+    if (r > 0 && top >= rowBottom - 1) break
+    rowBottom = Math.max(rowBottom, top + items[r].offsetHeight)
+    firstRow.push(items[r])
+  }
+
+  var hidden = 0
+  var hide = {}
+  if (!expanded) {
+    for (var h = 0; h < chips.length; h++) {
+      if (firstRow.indexOf(chips[h]) < 0) {
+        hide[h] = true
+        hidden++
+      }
+    }
+    if (hidden) {
+      // Make room for the "+N" chip at the end of the first line.
+      var gap = 6
+      for (var pass = 0; pass < 2; pass++) {
+        more.textContent = "+" + hidden
+        var limit = box.clientWidth - more.offsetWidth - gap
+        for (var k = 0; k < chips.length; k++) {
+          if (hide[k]) continue
+          if (chips[k].offsetLeft + chips[k].offsetWidth <= limit) continue
+          if (k === 0) {
+            // A lone long first chip shrinks instead of leaving only "+N".
+            chips[k].style.maxWidth = Math.max(limit, 48) + "px"
+            continue
+          }
+          hide[k] = true
+          hidden++
+        }
+      }
+      more.textContent = "+" + hidden
+      more.setAttribute("aria-label", goferTn("js.compose.recipient.more", hidden))
+      if (chips[0]) more.style.top = chips[0].offsetTop + "px"
+    }
+  }
+  for (var m = 0; m < chips.length; m++) {
+    if (hide[m]) chips[m].dataset.collapsedHidden = "true"
+    else delete chips[m].dataset.collapsedHidden
+  }
+  more.dataset.shown = hidden ? "true" : "false"
+
+  var target = expanded || !items.length ? natural : Math.min(natural, rowBottom)
+  box.style.height = start + "px"
+  if (start > 0) void box.offsetHeight
+  box.style.height = target + "px"
+}
+
+function _setComposeRecipientExpanded(field, expanded) {
+  if (!field || (field.dataset.expanded === "true") === expanded) return
+  field.dataset.expanded = expanded ? "true" : "false"
+  _composeRecipientLayout(field)
+}
+
+document.addEventListener("focusin", function (event) {
+  var field = event.target && event.target.closest ? event.target.closest("[data-compose-recipient-field]") : null
+  if (field) _setComposeRecipientExpanded(field, true)
+})
+
+document.addEventListener("focusout", function (event) {
+  var field = event.target && event.target.closest ? event.target.closest("[data-compose-recipient-field]") : null
+  if (!field) return
+  setTimeout(function () {
+    if (!field.contains(document.activeElement)) _setComposeRecipientExpanded(field, false)
+  }, 0)
+})
 
 function renderComposeRecipientFields(form) {
   if (!form) return
@@ -17373,7 +17545,11 @@ function handleComposeRecipientKeydown(event) {
 function handleComposeRecipientInput(input) {
   var text = input.textContent || ""
   if (/[;,\n]/.test(text)) finalizeComposeRecipientInput(input)
-  else _scheduleComposeRecipientSuggestions(input)
+  else {
+    _scheduleComposeRecipientSuggestions(input)
+    // Typing can wrap the input onto a new line.
+    _composeRecipientLayout(input.closest("[data-compose-recipient-field]"))
+  }
 }
 
 function finalizeComposeRecipients(form) {

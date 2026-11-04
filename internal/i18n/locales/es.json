@@ -2092,6 +2092,8 @@
   "js.compose.opening": "Abriendo la redacción...",
   "js.compose.quote.wrote": "{from} escribió:",
   "js.compose.quote.wrote_on": "El {date}, {from} escribió:",
+  "js.compose.recipient.more.one": "Mostrar 1 destinatario más",
+  "js.compose.recipient.more.other": "Mostrar {count} destinatarios más",
   "js.compose.recipient.remove": "Quitar el destinatario",
   "js.compose.replace.cancel": "Seguir escribiendo",
   "js.compose.replace.confirm": "Reemplazar el borrador",
