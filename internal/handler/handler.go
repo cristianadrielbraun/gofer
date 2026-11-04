@@ -1726,7 +1726,7 @@ func (h *Handler) handleEmailBody(w http.ResponseWriter, r *http.Request) {
 	body = h.signMessageFileLinks(r.Context(), body, userID, msgID)
 
 	nonce := setEmailBodyDocumentHeaders(w)
-	doc := buildBodyDocument(body, emailResizeScript(emailID), theme, bg, fg, link, original, emailBodyTextSize(r), nonce)
+	doc := buildBodyDocument(r.Context(), body, emailResizeScript(emailID), theme, bg, fg, link, original, emailBodyTextSize(r), nonce)
 	if !loadRemote {
 		doc = append(doc, scriptWithNonce(remoteImagesDetectScript(emailID), nonce)...)
 	}
@@ -1891,12 +1891,12 @@ func emailBodyTextSize(r *http.Request) int {
 	return 14
 }
 
-func buildBodyDocument(body []byte, resizeScript []byte, theme string, bgColor string, fgColor string, linkColor string, original bool, textSize int, nonce string) []byte {
+func buildBodyDocument(ctx context.Context, body []byte, resizeScript []byte, theme string, bgColor string, fgColor string, linkColor string, original bool, textSize int, nonce string) []byte {
 	nonced := func(script []byte) string { return string(scriptWithNonce(script, nonce)) }
 	s := string(body)
 	lower := strings.ToLower(s)
 	isDark := theme == "dark"
-	injection := nonced(emailExternalLinksScript()) + nonced(emailQuoteScript()) + nonced(resizeScript)
+	injection := nonced(emailExternalLinksScript()) + nonced(emailQuoteScript(ctx)) + nonced(resizeScript)
 
 	if original {
 		if strings.Contains(lower, "<html") {

@@ -132,15 +132,17 @@ templ ComposeDialog(accounts []models.Account) {
 		@dialog.Trigger() {
 			<span></span>
 		}
-		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-md"}) {
+		// The dialog is as wide as its buttons, which never wrap; the text
+		// wraps within that width instead of setting it.
+		@dialog.Content(dialog.ContentProps{Class: "sm:w-max sm:min-w-[28rem] sm:max-w-[calc(100%-2rem)]"}) {
 			@dialog.Header() {
-				@dialog.Title() { { i18n.T(ctx, "compose.close.title") } }
-				@dialog.Description() { { i18n.T(ctx, "compose.close.description") } }
+				@dialog.Title(dialog.TitleProps{Class: "sm:w-0 sm:min-w-full"}) { { i18n.T(ctx, "compose.close.title") } }
+				@dialog.Description(dialog.DescriptionProps{Class: "sm:w-0 sm:min-w-full"}) { { i18n.T(ctx, "compose.close.description") } }
 			}
 			@dialog.Footer() {
-				<button type="button" data-compose-close-action="cancel" class="rounded-md px-3 py-2 text-sm font-semibold hover:bg-accent hover:text-accent-foreground">{ i18n.T(ctx, "common.cancel") }</button>
-				<button type="button" data-compose-close-action="discard" class="rounded-md px-3 py-2 text-sm font-semibold hover:bg-accent hover:text-accent-foreground">{ i18n.T(ctx, "compose.close.discard") }</button>
-				<button type="button" data-compose-close-action="keep" class="rounded-md bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90">{ i18n.T(ctx, "compose.close.keep") }</button>
+				<button type="button" data-compose-close-action="cancel" class="whitespace-nowrap rounded-md px-3 py-2 text-sm font-semibold hover:bg-accent hover:text-accent-foreground">{ i18n.T(ctx, "common.cancel") }</button>
+				<button type="button" data-compose-close-action="discard" class="whitespace-nowrap rounded-md px-3 py-2 text-sm font-semibold hover:bg-accent hover:text-accent-foreground">{ i18n.T(ctx, "compose.close.discard") }</button>
+				<button type="button" data-compose-close-action="keep" class="whitespace-nowrap rounded-md bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90">{ i18n.T(ctx, "compose.close.keep") }</button>
 			}
 		}
 	}
@@ -663,7 +665,7 @@ templ ComposePane(accounts []models.Account) {
 								@icon.Trash2(icon.Props{Class: "size-4"})
 							</button>
 						}
-						@popover.Content(popover.ContentProps{Placement: popover.PlacementBottomEnd, ShowArrow: true, Class: "w-[28rem] p-4"}) {
+						@popover.Content(popover.ContentProps{Placement: popover.PlacementBottomEnd, ShowArrow: true, Class: "w-max min-w-[min(28rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] p-4"}) {
 							<div class="compose-close-choice" data-compose-close-choice>
 								<h2>{ i18n.T(ctx, "compose.close.title") }</h2>
 								<p>{ i18n.T(ctx, "compose.close.description") }</p>

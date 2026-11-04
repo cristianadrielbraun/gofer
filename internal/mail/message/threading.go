@@ -146,7 +146,8 @@ func BaseSubject(subject string) string {
 		}
 		if strings.HasPrefix(lower, "re:") {
 			s = strings.TrimSpace(s[3:])
-		} else if strings.HasPrefix(lower, "fw:") {
+		} else if strings.HasPrefix(lower, "fw:") || strings.HasPrefix(lower, "rv:") {
+			// "RV:" is how Outlook in Spanish marks a forward.
 			s = strings.TrimSpace(s[3:])
 		} else if strings.HasPrefix(lower, "fwd:") {
 			s = strings.TrimSpace(s[4:])
@@ -165,7 +166,7 @@ func BaseSubject(subject string) string {
 
 func IsReplyOrForwardSubject(subject string) bool {
 	s := strings.ToLower(strings.TrimSpace(subject))
-	return strings.HasPrefix(s, "re:") || strings.HasPrefix(s, "fw:") || strings.HasPrefix(s, "fwd:") || strings.HasSuffix(s, "(fwd)") || strings.HasPrefix(s, "[fwd:") || strings.HasPrefix(s, "re[") || strings.HasPrefix(s, "fw[")
+	return strings.HasPrefix(s, "re:") || strings.HasPrefix(s, "fw:") || strings.HasPrefix(s, "rv:") || strings.HasPrefix(s, "fwd:") || strings.HasSuffix(s, "(fwd)") || strings.HasPrefix(s, "[fwd:") || strings.HasPrefix(s, "re[") || strings.HasPrefix(s, "fw[")
 }
 
 func collapseSpaces(s string) string {

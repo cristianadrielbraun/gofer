@@ -19727,9 +19727,16 @@ function setComposeAccount(form, accountId, identityId) {
   }
 }
 
+// composeQuoteAttribution is the line above a quoted reply, written in the
+// sender's language like the date in it.
+function composeQuoteAttribution(source, fromLine) {
+  if (source.date) return goferT("js.compose.quote.wrote_on", { date: source.date, from: fromLine })
+  return goferT("js.compose.quote.wrote", { from: fromLine })
+}
+
 function composeReplyPlain(source) {
   var fromLine = composeAddress(source.from_name, source.from_email)
-  var header = source.date ? "On " + source.date + ", " + fromLine + " wrote:" : fromLine + " wrote:"
+  var header = composeQuoteAttribution(source, fromLine)
   var quotedBody = String(source.body || "").split("\n").map(function (line) { return "> " + line }).join("\n")
   return "\n\n" + header + "\n" + quotedBody
 }
@@ -19742,29 +19749,29 @@ function composeSourceBodyHTML(source) {
 
 function composeReplyHTML(source) {
   var fromLine = composeAddress(source.from_name, source.from_email)
-  var header = source.date ? "On " + source.date + ", " + fromLine + " wrote:" : fromLine + " wrote:"
+  var header = composeQuoteAttribution(source, fromLine)
   return "<p><br></p><p>" + _escapeComposeHTML(header) + "</p><blockquote>" + composeSourceBodyHTML(source) + "</blockquote>"
+}
+
+// composeForwardLines is the block above a forwarded message: a drawn rule
+// and the message's headers, labeled in the sender's language.
+function composeForwardLines(source, fromLine) {
+  var lines = ["---------- " + goferT("js.compose.forward.title") + " ----------"]
+  if (fromLine) lines.push(goferT("js.compose.forward.from") + " " + fromLine)
+  if (source.date) lines.push(goferT("js.compose.forward.date") + " " + source.date)
+  if (source.subject) lines.push(goferT("js.compose.forward.subject") + " " + source.subject)
+  if (source.to) lines.push(goferT("js.compose.forward.to") + " " + source.to)
+  if (source.cc) lines.push(goferT("js.compose.forward.cc") + " " + source.cc)
+  return lines
 }
 
 function composeForwardPlain(source) {
   var fromLine = composeAddress(source.from_name, source.from_email)
-  var header = "\n\n---------- Forwarded message ----------"
-  if (fromLine) header += "\nFrom: " + fromLine
-  if (source.date) header += "\nDate: " + source.date
-  if (source.subject) header += "\nSubject: " + source.subject
-  if (source.to) header += "\nTo: " + source.to
-  if (source.cc) header += "\nCc: " + source.cc
-  return header + "\n\n" + (source.body || "")
+  return "\n\n" + composeForwardLines(source, fromLine).join("\n") + "\n\n" + (source.body || "")
 }
 
 function composeForwardHTML(source) {
-  var lines = ["---------- Forwarded message ----------"]
-  var fromLine = composeAddress(source.from_name, source.from_email)
-  if (fromLine) lines.push("From: " + fromLine)
-  if (source.date) lines.push("Date: " + source.date)
-  if (source.subject) lines.push("Subject: " + source.subject)
-  if (source.to) lines.push("To: " + source.to)
-  if (source.cc) lines.push("Cc: " + source.cc)
+  var lines = composeForwardLines(source, composeAddress(source.from_name, source.from_email))
   return "<p><br></p><div>" + lines.map(_escapeComposeHTML).join("<br>") + "</div><br><div>" + composeSourceBodyHTML(source) + "</div>"
 }
 
@@ -19817,7 +19824,7 @@ function composeValuesFromSource(source, mode) {
     vals.references = composeReferencesForReply(source)
     vals._ccVisible = !!vals.cc
   } else {
-    vals.subject = /^Fwd:/i.test(source.subject || "") ? source.subject : "Fwd: " + (source.subject || "")
+    vals.subject = /^(Fwd?|RV):/i.test(source.subject || "") ? source.subject : "Fwd: " + (source.subject || "")
     vals.body = composeForwardPlain(source)
     vals.html_body = composeForwardHTML(source)
     vals.attachments = source.attachments || []

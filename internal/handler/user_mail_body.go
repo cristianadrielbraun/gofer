@@ -120,7 +120,7 @@ load:
 	body = message.MarkThreadQuote(body, quoteSources)
 	body = h.signMessageFileLinks(r.Context(), body, owner, number)
 	nonce := setEmailBodyDocumentHeaders(w)
-	doc := buildBodyDocument(body, emailResizeScript(id), r.URL.Query().Get("theme"), r.URL.Query().Get("bg"), r.URL.Query().Get("fg"), r.URL.Query().Get("link"), original, emailBodyTextSize(r), nonce)
+	doc := buildBodyDocument(r.Context(), body, emailResizeScript(id), r.URL.Query().Get("theme"), r.URL.Query().Get("bg"), r.URL.Query().Get("fg"), r.URL.Query().Get("link"), original, emailBodyTextSize(r), nonce)
 	if !remote {
 		doc = append(doc, scriptWithNonce(remoteImagesDetectScript(id), nonce)...)
 	}

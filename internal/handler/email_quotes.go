@@ -2,6 +2,9 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
+
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 
 	"github.com/cristianadrielbraun/gofer/internal/mail/message"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
@@ -21,11 +24,13 @@ import (
 // written between quotes stay visible. Outlook-style headers start a quote that
 // runs to the end, since those clients never write inside it. Quotes with
 // nothing written above them are left alone.
-func emailQuoteScript() []byte {
+func emailQuoteScript(ctx context.Context) []byte {
+	labels, _ := json.Marshal(map[string]string{"show": i18n.T(ctx, "mail.quote.show"), "hide": i18n.T(ctx, "mail.quote.hide")})
 	return []byte(`<script>(function(){
 var HEADERS='#divRplyFwdMsg,#appendonsend,.OutlookMessageHeader,#zwchr,[id$="reference-message-container"],div[style*="border-top:solid #E1E1E1" i],div[style*="border-top: solid #E1E1E1" i],div[style*="border-top:solid #B5C4DF" i],div[style*="border-top: solid #B5C4DF" i]';
 var MARKERS=HEADERS+',.gmail_quote_container,.gmail_quote,blockquote[type="cite"],.moz-cite-prefix,.yahoo_quoted,.protonmail_quote';
 var RULE=/[-_=*]{5,}/,LABEL=/^\s*[^\s:：]{1,30}(\s[^\s:：]{1,30}){0,2}\s*[:：]\s*\S/;
+var L=` + string(labels) + `;
 var body=document.body;if(!body)return;
 function text(n){return(n.textContent||'').replace(/\s+/g,' ').trim()}
 function attribution(t){return t.length>0&&t.length<=300&&/[:：]$/.test(t)}
@@ -44,12 +49,12 @@ function forwarded(el){return RULE.test(text(el).slice(0,200))}
 function usable(el,header){if(!header&&forwarded(el))return false;if(!any(siblings(el,'previousSibling'),true))return false;if(header)return true;var next=siblings(el,'nextSibling');for(var i=0;i<next.length;i++)if(!quoted(next[i]))return false;return true}
 function collapse(el,nodes){var hidden=[];nodes.forEach(function(n){if(n.nodeType===3){if(!/\S/.test(n.nodeValue))return;var s=document.createElement('span');n.parentNode.insertBefore(s,n);s.appendChild(n);n=s}if(n.nodeType!==1||ignored(n))return;hidden.push(n)});if(!hidden.length)return;
 var wrap=document.createElement('div');wrap.setAttribute('data-gofer-quote-toggle','');wrap.style.cssText='margin:10px 0;line-height:1';
-var b=document.createElement('button');b.type='button';b.title='Show quoted text';b.setAttribute('aria-expanded','false');
+var b=document.createElement('button');b.type='button';b.title=L.show;b.setAttribute('aria-expanded','false');
 // Drawn dots, unlike a text ellipsis, sit in the exact middle of the button.
 b.innerHTML='<svg width="16" height="4" viewBox="0 0 16 4" aria-hidden="true" style="display:block"><circle cx="2" cy="2" r="1.75" fill="currentColor"/><circle cx="8" cy="2" r="1.75" fill="currentColor"/><circle cx="14" cy="2" r="1.75" fill="currentColor"/></svg>';
 b.style.cssText='display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;height:18px;padding:0 8px;margin:0;border-radius:6px;border:1px solid currentColor;background:transparent;color:inherit;opacity:.5;cursor:pointer';
 wrap.appendChild(b);el.parentNode.insertBefore(wrap,el);
-function set(open){hidden.forEach(function(n){if(open)n.style.removeProperty('display');else n.style.setProperty('display','none','important')});b.setAttribute('aria-expanded',open?'true':'false');b.title=open?'Hide quoted text':'Show quoted text'}
+function set(open){hidden.forEach(function(n){if(open)n.style.removeProperty('display');else n.style.setProperty('display','none','important')});b.setAttribute('aria-expanded',open?'true':'false');b.title=open?L.hide:L.show}
 b.addEventListener('click',function(){set(b.getAttribute('aria-expanded')!=='true')});set(false)}
 function marked(){var m=body.querySelector('[data-gofer-quote-start]');if(!m)return false;collapse(m,[m].concat(siblings(m,'nextSibling')));return true}
 function html(){var found=body.querySelectorAll(MARKERS),seen=[];for(var j=0;j<found.length;j++){var s=start(found[j]);if(seen.indexOf(s)!==-1)continue;seen.push(s);if(usable(s,found[j].matches(HEADERS))){collapse(s,[s].concat(siblings(s,'nextSibling')));return true}}return false}

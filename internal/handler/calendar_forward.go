@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"github.com/cristianadrielbraun/gofer/internal/mail/message"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
@@ -148,7 +149,7 @@ func (h *Handler) emailCalendarForward(ctx context.Context, source storage.Calen
 	if err != nil {
 		return err
 	}
-	msg := calendarForwardMessage(account.Name, account.Email, summary, comment, body, recipients)
+	msg := calendarForwardMessage(i18n.ForUser(ctx, source.UserID), account.Name, account.Email, summary, comment, body, recipients)
 	raw, err := buildOutgoingMIME(transport, msg)
 	if err != nil {
 		return err
@@ -240,20 +241,20 @@ func calendarForwardICS(source *ical.Calendar, recipients []*mail.Address) (stri
 	return encodeCalendarReply(cal)
 }
 
-func calendarForwardMessage(fromName, fromEmail, summary, comment, invitation string, recipients []*mail.Address) *message.OutgoingMessage {
+func calendarForwardMessage(ctx context.Context, fromName, fromEmail, summary, comment, invitation string, recipients []*mail.Address) *message.OutgoingMessage {
 	summary = strings.TrimSpace(strings.NewReplacer("\r", " ", "\n", " ").Replace(summary))
 	if summary == "" {
-		summary = "Meeting"
+		summary = i18n.T(ctx, "mail.outgoing.calendar.meeting")
 	}
 	sender := strings.TrimSpace(fromName)
 	if sender == "" {
 		sender = fromEmail
 	}
-	text := sender + " forwarded you an invitation: " + summary
+	text := i18n.T(ctx, "mail.outgoing.calendar.forwarded", "sender", sender, "summary", summary)
 	if comment != "" {
 		text = comment + "\n\n" + text
 	}
-	msg := &message.OutgoingMessage{FromName: fromName, FromEmail: fromEmail, Subject: "Fwd: Invitation: " + summary, TextBody: text, CalendarForward: invitation, MessageID: message.NewMessageID(), Date: time.Now().UTC()}
+	msg := &message.OutgoingMessage{FromName: fromName, FromEmail: fromEmail, Subject: "Fwd: " + i18n.T(ctx, "mail.outgoing.calendar.invitation", "summary", summary), TextBody: text, CalendarForward: invitation, MessageID: message.NewMessageID(), Date: time.Now().UTC()}
 	msg.To = append(msg.To, recipients...)
 	return msg
 }
