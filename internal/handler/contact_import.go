@@ -279,35 +279,49 @@ func runContactImport(w http.ResponseWriter, r *http.Request, request contactImp
 		return
 	}
 	if len(operations) > 0 {
-		deadline := time.Now().Add(contactImportWriteTimeout)
 		line(progressLine{Phase: "writing", Total: len(operations)})
-		for {
-			progress, err := store.progress(ctx, operations)
-			if err != nil {
-				break
-			}
-			result.Written, result.Retrying, result.Failed = progress.Done, progress.Retrying, progress.Failed
-			result.Reason = serverText(r.Context(), progress.Reason)
+		progress := waitContactOperations(ctx, operations, time.Now().Add(contactImportWriteTimeout), store.deliver, store.progress, func(progress storage.ContactOperationProgress) {
 			line(progressLine{Phase: "writing", Done: len(operations) - progress.Waiting, Total: len(operations)})
-			if progress.Waiting == 0 || ctx.Err() != nil || time.Now().After(deadline) {
-				// What is still waiting goes on in the background.
-				result.Retrying += progress.Waiting
-				break
-			}
-			if !store.deliver(ctx) {
-				// The background worker holds the rest; check again shortly.
-				select {
-				case <-ctx.Done():
-				case <-time.After(250 * time.Millisecond):
-				}
-			}
-		}
+		})
+		result.Written, result.Failed = progress.Done, progress.Failed
+		// What is still waiting goes on in the background.
+		result.Retrying = progress.Retrying + progress.Waiting
+		result.Reason = serverText(r.Context(), progress.Reason)
 	}
 	if !started {
 		http.Redirect(w, r, fmt.Sprintf("/contacts?imported=%d", result.Added+result.Updated), http.StatusSeeOther)
 		return
 	}
 	line(result)
+}
+
+// waitContactOperations runs queued contact operations, the request's own
+// and any others due, until the ids are all finished or have failed once,
+// or deadline passes; report hears each step. It gives their last state:
+// the ones still waiting then carry on in the background.
+func waitContactOperations(ctx context.Context, ids []string, deadline time.Time, deliver func(context.Context) bool, read func(context.Context, []string) (storage.ContactOperationProgress, error), report func(storage.ContactOperationProgress)) storage.ContactOperationProgress {
+	var last storage.ContactOperationProgress
+	last.Waiting = len(ids)
+	for {
+		progress, err := read(ctx, ids)
+		if err != nil {
+			return last
+		}
+		last = progress
+		if report != nil {
+			report(progress)
+		}
+		if progress.Waiting == 0 || ctx.Err() != nil || time.Now().After(deadline) {
+			return progress
+		}
+		if !deliver(ctx) {
+			// The background worker holds the rest; check again shortly.
+			select {
+			case <-ctx.Done():
+			case <-time.After(250 * time.Millisecond):
+			}
+		}
+	}
 }
 
 func contactImportStopped(ctx context.Context, saved int) string {

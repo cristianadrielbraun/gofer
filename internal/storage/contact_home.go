@@ -238,3 +238,33 @@ func contactHomeForAccountTx(ctx context.Context, tx *sql.Tx, userID, profileID,
 	_, err := tx.ExecContext(ctx, `UPDATE contact_profiles SET home = 'book:' || ? WHERE user_id = ? AND id = ? AND home = 'account:' || ?`, bookID, userID, profileID, accountID)
 	return err
 }
+
+// TakeOverContact makes to the contact from was, before from is deleted in
+// a move: to keeps from's origin and creation date, and the mail Gofer saw
+// for from now counts for to, so deleting from never stops Gofer collecting
+// that address again.
+func (db *DB) TakeOverContact(ctx context.Context, owner, from, to string) error {
+	tx, err := db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, `UPDATE contact_profiles SET
+		origin = (SELECT origin FROM contact_profiles WHERE user_id = ? AND id = ?),
+		created_at = (SELECT created_at FROM contact_profiles WHERE user_id = ? AND id = ?),
+		updated_at = CURRENT_TIMESTAMP
+		WHERE user_id = ? AND id = ? AND EXISTS (SELECT 1 FROM contact_profiles WHERE user_id = ? AND id = ?)`,
+		owner, from, owner, from, owner, to, owner, from)
+	if err != nil {
+		return err
+	}
+	if changed, err := result.RowsAffected(); err != nil {
+		return err
+	} else if changed != 1 {
+		return sql.ErrNoRows
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE contact_observations SET profile_id = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ? AND profile_id = ?`, to, owner, from); err != nil {
+		return err
+	}
+	return tx.Commit()
+}

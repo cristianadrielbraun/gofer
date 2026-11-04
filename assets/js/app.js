@@ -16490,6 +16490,56 @@ document.addEventListener("change", function (event) {
   if (event.target.matches("[data-contacts-import-file]") || event.target.matches("input[name='store_in']")) contactsImportPreview(form)
 })
 
+// Move and Duplicate send a contact to another place, from its page. A move
+// waits until the contact is written there; both then open the contact.
+document.addEventListener("submit", function (event) {
+  var form = event.target.closest && event.target.closest("[data-contact-place-form]")
+  if (!form) return
+  event.preventDefault()
+  var move = form.getAttribute("data-contact-place-action") === "move"
+  var input = form.querySelector("input[name='place']")
+  var place = input ? input.value : ""
+  var failed = move ? goferT("js.contacts.place.move_failed") : goferT("js.contacts.place.duplicate_failed")
+  if (!place) {
+    showGoferToast({ title: failed, description: goferT("js.contacts.place.no_place"), variant: "error", icon: "error", position: "bottom-right", duration: 5000, dismissible: true })
+    return
+  }
+  var item = form.querySelector('.select-item[data-tui-selectbox-value="' + CSS.escape(place) + '"] .select-item-text')
+  var placeName = item ? item.textContent.trim() : place
+  var submit = form.querySelector("[data-contact-place-submit]")
+  var label = form.querySelector("[data-contact-place-submit-label]")
+  var labelText = label ? label.textContent : ""
+  if (submit) { submit.disabled = true; submit.setAttribute("aria-busy", "true") }
+  if (label) label.textContent = move ? goferT("js.contacts.place.moving") : goferT("js.contacts.place.duplicating")
+  var done = function () {
+    if (submit) { submit.disabled = false; submit.removeAttribute("aria-busy") }
+    if (label) label.textContent = labelText
+  }
+  var body = new URLSearchParams()
+  body.set("place", place)
+  fetch("/api/contacts/" + encodeURIComponent(form.getAttribute("data-contact-id")) + "/" + (move ? "move" : "duplicate"), {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
+    body: body.toString(),
+  }).then(function (response) {
+    if (!response.ok) return response.text().then(function (text) { throw new Error((text || "").trim() || goferT("js.common.please_try_again")) })
+    return response.json()
+  }).then(function (result) {
+    done()
+    var dialogID = form.getAttribute("data-contact-place-dialog")
+    if (dialogID && window.tui && window.tui.dialog) window.tui.dialog.close(dialogID)
+    showGoferToast({
+      title: goferT(move ? "js.contacts.place.moved" : "js.contacts.place.duplicated", { place: placeName }),
+      description: result.writing ? goferT("js.contacts.place.writing") : "",
+      variant: "success", icon: "success", position: "bottom-right", duration: 5000, dismissible: true,
+    })
+    if (result.location) window.location.href = result.location
+  }).catch(function (error) {
+    done()
+    showGoferToast({ title: failed, description: error && error.message ? error.message : goferT("js.common.please_try_again"), variant: "error", icon: "error", position: "bottom-right", duration: 10000, dismissible: true })
+  })
+})
+
 // A new contact's sync places leave out the place it is created in.
 document.addEventListener("change", function (event) {
   if (!event.target.matches || !event.target.matches("input[name='stored_in']")) return

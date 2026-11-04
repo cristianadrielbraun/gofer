@@ -520,6 +520,8 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/contacts/{id}/unify", h.handleUnifyContact)
 	mux.HandleFunc("POST /api/contacts/{id}/delete", h.handleDeleteContact)
 	mux.HandleFunc("POST /api/contacts/{id}/delete-forever", h.handleDeleteContactForever)
+	mux.HandleFunc("POST /api/contacts/{id}/move", h.handleMoveContact)
+	mux.HandleFunc("POST /api/contacts/{id}/duplicate", h.handleDuplicateContact)
 	mux.HandleFunc("POST /api/accounts/discover", h.handleDiscoverAccount)
 	mux.HandleFunc("POST /api/accounts/order", h.handleAccountOrder)
 	mux.HandleFunc("GET /api/accounts/server-check", h.handleAccountServerCheck)

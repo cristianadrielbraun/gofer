@@ -409,6 +409,8 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 		private("POST /api/contacts/{id}/unify", routed.handleUserUnifyContact)
 		private("POST /api/contacts/{id}/delete", routed.handleDeleteContact)
 		private("POST /api/contacts/{id}/delete-forever", routed.handleDeleteContactForever)
+		private("POST /api/contacts/{id}/move", routed.handleMoveContact)
+		private("POST /api/contacts/{id}/duplicate", routed.handleDuplicateContact)
 		private("POST /api/settings/contacts/suppressed/clear", routed.handleUserClearSuppressedContacts)
 		private("POST /api/settings/contacts/suppressed/{id}/clear", routed.handleUserClearSuppressedContact)
 		private("POST /api/settings/contacts/delete-observed", routed.handleUserDeleteObservedContacts)

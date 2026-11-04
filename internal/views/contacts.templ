@@ -2276,6 +2276,10 @@ templ ContactEditor(contact *models.Contact, profile *models.ContactProfile, syn
 			</div>
 			if contact.TrashedAt == "" {
 				@ContactEditDialog(*contact, profile, accounts)
+				if !contact.GoferSyncEnabled {
+					@ContactPlaceDialog(*contact, accounts, true)
+				}
+				@ContactPlaceDialog(*contact, accounts, false)
 			}
 		} else {
 			<div class="flex-1 overflow-y-auto">
@@ -2634,9 +2638,11 @@ templ ContactEditorHeader(contact *models.Contact, profile *models.ContactProfil
 						@icon.Undo2(icon.Props{Class: "size-3.5"})
 						{ i18n.T(ctx, "contacts.action.restore") }
 					</button>
-					<a href={ fmt.Sprintf("/api/contacts/%s/export", contact.ID) } class="size-9 rounded-md flex items-center justify-center text-muted-foreground hover:text-ink hover:bg-ink/5 transition-colors" aria-label={ i18n.T(ctx, "contacts.action.export") }>
-						@icon.Download(icon.Props{Class: "size-4"})
-					</a>
+					@contactHeaderTooltip(i18n.T(ctx, "contacts.action.export")) {
+						<a href={ fmt.Sprintf("/api/contacts/%s/export", contact.ID) } class="size-9 rounded-md flex items-center justify-center text-muted-foreground hover:text-ink hover:bg-ink/5 transition-colors" aria-label={ i18n.T(ctx, "contacts.action.export") }>
+							@icon.Download(icon.Props{Class: "size-4"})
+						</a>
+					}
 					<button type="button" class="inline-flex h-9 items-center gap-1.5 rounded-md px-3 text-sm font-semibold text-muted-foreground transition-colors hover:text-destructive hover:bg-destructive/10" data-contact-delete-forever={ contact.ID } data-contact-name={ contact.Name } data-contact-email={ strings.TrimSpace(contact.Email) } data-contact-synced={ fmt.Sprintf("%t", len(contact.SourceBooks) > 0) }>
 						@icon.Trash2(icon.Props{Class: "size-4"})
 						{ i18n.T(ctx, "contacts.action.delete_forever") }
@@ -2651,20 +2657,154 @@ templ ContactEditorHeader(contact *models.Contact, profile *models.ContactProfil
 						</button>
 					}
 					if strings.TrimSpace(contact.Email) != "" {
-						<a href={ "mailto:" + contact.Email } class="size-9 rounded-md flex items-center justify-center text-muted-foreground hover:text-ink hover:bg-ink/5 transition-colors" aria-label={ i18n.T(ctx, "contacts.action.email") }>
-							@icon.Mail(icon.Props{Class: "size-4"})
+						@contactHeaderTooltip(i18n.T(ctx, "contacts.action.email")) {
+							<a href={ "mailto:" + contact.Email } class="size-9 rounded-md flex items-center justify-center text-muted-foreground hover:text-ink hover:bg-ink/5 transition-colors" aria-label={ i18n.T(ctx, "contacts.action.email") }>
+								@icon.Mail(icon.Props{Class: "size-4"})
+							</a>
+						}
+					}
+					@contactPlaceActionButton(contactPlaceDialogID(*contact, true), i18n.T(ctx, "contacts.action.move"), contact.GoferSyncEnabled) {
+						@icon.FolderInput(icon.Props{Class: "size-4"})
+					}
+					@contactPlaceActionButton(contactPlaceDialogID(*contact, false), i18n.T(ctx, "contacts.action.duplicate"), false) {
+						@icon.CopyPlus(icon.Props{Class: "size-4"})
+					}
+					@contactHeaderTooltip(i18n.T(ctx, "contacts.action.export")) {
+						<a href={ fmt.Sprintf("/api/contacts/%s/export", contact.ID) } class="size-9 rounded-md flex items-center justify-center text-muted-foreground hover:text-ink hover:bg-ink/5 transition-colors" aria-label={ i18n.T(ctx, "contacts.action.export") }>
+							@icon.Download(icon.Props{Class: "size-4"})
 						</a>
 					}
-					<a href={ fmt.Sprintf("/api/contacts/%s/export", contact.ID) } class="size-9 rounded-md flex items-center justify-center text-muted-foreground hover:text-ink hover:bg-ink/5 transition-colors" aria-label={ i18n.T(ctx, "contacts.action.export") }>
-						@icon.Download(icon.Props{Class: "size-4"})
-					</a>
-					<button type="submit" form={ "delete-contact-" + contact.ID } class="size-9 rounded-md flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors" aria-label={ i18n.T(ctx, "contacts.action.trash") }>
-						@icon.Trash2(icon.Props{Class: "size-4"})
-					</button>
+					@contactHeaderTooltip(i18n.T(ctx, "contacts.action.trash")) {
+						<button type="submit" form={ "delete-contact-" + contact.ID } class="size-9 rounded-md flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors" aria-label={ i18n.T(ctx, "contacts.action.trash") }>
+							@icon.Trash2(icon.Props{Class: "size-4"})
+						</button>
+					}
 				}
 			</div>
 		</div>
 	</div>
+}
+
+func contactPlaceAction(move bool) string {
+	if move {
+		return "move"
+	}
+	return "duplicate"
+}
+
+func contactPlaceDialogID(contact models.Contact, move bool) string {
+	if move {
+		return "contact-move-" + contact.ID
+	}
+	return "contact-duplicate-" + contact.ID
+}
+
+// contactPlaceActionButton opens a contact's Move or Duplicate dialog. Move
+// is off for a contact with Gofer Sync on, which is in each of its places.
+templ contactPlaceActionButton(dialogID, label string, disabled bool) {
+	// The tooltip goes right around the button: it places itself by the
+	// size of what it wraps, and a dialog trigger has none of its own.
+	if disabled {
+		@contactHeaderTooltip(i18n.T(ctx, "contacts.place.move_synced")) {
+			<button type="button" disabled class="size-9 rounded-md flex items-center justify-center text-muted-foreground/50 cursor-not-allowed" aria-label={ label }>
+				{ children... }
+			</button>
+		}
+	} else {
+		@dialog.Trigger(dialog.TriggerProps{For: dialogID}) {
+			@contactHeaderTooltip(label) {
+				<button type="button" class="size-9 rounded-md flex items-center justify-center text-muted-foreground hover:text-ink hover:bg-ink/5 transition-colors" aria-label={ label }>
+					{ children... }
+				</button>
+			}
+		}
+	}
+}
+
+// contactHeaderTooltip names an icon button in a contact's header.
+templ contactHeaderTooltip(text string) {
+	@tooltip.Tooltip() {
+		@tooltip.Trigger() {
+			{ children... }
+		}
+		@tooltip.Content(tooltip.ContentProps{Position: tooltip.PositionBottom, ShowArrow: true, Class: "max-w-[min(20rem,calc(100vw-2rem))] whitespace-normal"}) {
+			{ text }
+		}
+	}
+}
+
+// ContactPlaceDialog moves a contact to another place, or makes an
+// independent copy of it there.
+templ ContactPlaceDialog(contact models.Contact, accounts []models.Account, move bool) {
+	{{ dialogID := contactPlaceDialogID(contact, move) }}
+	{{ home := contactHome(&contact) }}
+	@dialog.Dialog(dialog.Props{ID: dialogID}) {
+		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-lg normal-case tracking-normal"}) {
+			@dialog.Header() {
+				@dialog.Title() {
+					if move {
+						{ i18n.T(ctx, "contacts.place.move_title", "name", contactDisplay(contact)) }
+					} else {
+						{ i18n.T(ctx, "contacts.place.duplicate_title", "name", contactDisplay(contact)) }
+					}
+				}
+				@dialog.Description() {
+					if move {
+						{ i18n.T(ctx, "contacts.place.move_description") }
+					} else {
+						{ i18n.T(ctx, "contacts.place.duplicate_description") }
+					}
+				}
+			}
+			<form class="space-y-4" data-contact-place-form data-contact-id={ contact.ID } data-contact-place-action={ contactPlaceAction(move) } data-contact-place-dialog={ dialogID }>
+				<div class="space-y-1.5">
+					<label class="block text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.place.to") }</label>
+					@selectbox.SelectBox() {
+						@selectbox.Trigger(selectbox.TriggerProps{Name: "place", Class: "h-10 bg-background", DisableClear: true}) {
+							@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "contacts.place.choose"), Class: "text-left"})
+						}
+						@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+							if home != "local" {
+								@selectbox.Item(selectbox.ItemProps{Value: "local"}) {
+									{ i18n.T(ctx, "contacts.origin.local") }
+								}
+							}
+							for _, account := range accounts {
+								if !account.IsDeleting && accountContactSyncCapable(account) {
+									if len(account.ContactAddressBooks) == 0 && home != contactSaveTargetValue(account) {
+										@selectbox.Item(selectbox.ItemProps{Value: contactSaveTargetValue(account)}) {
+											{ accountContactSaveLabel(account) }
+										}
+									}
+									for _, book := range account.ContactAddressBooks {
+										if home != contactBookTargetValue(book) {
+											@selectbox.Item(selectbox.ItemProps{Value: contactBookTargetValue(book)}) {
+												{ accountContactOriginLabel(ctx, account) } / { contactAddressBookDisplayName(ctx, book) }
+											}
+										}
+									}
+								}
+							}
+						}
+					}
+				</div>
+				@dialog.Footer() {
+					@dialog.Close(dialog.CloseProps{For: dialogID}) {
+						<button type="button" class="inline-flex h-9 items-center justify-center rounded-md border border-border px-3 text-sm font-semibold text-muted-foreground hover:bg-accent hover:text-foreground">{ i18n.T(ctx, "common.cancel") }</button>
+					}
+					<button type="submit" data-contact-place-submit class="inline-flex h-9 items-center justify-center gap-1.5 rounded-md bg-primary px-3 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-70">
+						if move {
+							@icon.FolderInput(icon.Props{Class: "size-4"})
+							<span data-contact-place-submit-label>{ i18n.T(ctx, "contacts.action.move") }</span>
+						} else {
+							@icon.CopyPlus(icon.Props{Class: "size-4"})
+							<span data-contact-place-submit-label>{ i18n.T(ctx, "contacts.action.duplicate") }</span>
+						}
+					</button>
+				}
+			</form>
+		}
+	}
 }
 
 templ ContactEditDialog(contact models.Contact, profile *models.ContactProfile, accounts []models.Account) {
