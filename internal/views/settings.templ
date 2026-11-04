@@ -6059,12 +6059,6 @@ templ ConnectionTestResults(results []models.ConnectionTestResult, accountID str
 	</div>
 }
 
-// mailOperationTypeLabel names an operation type in English, for the admin
-// pages until they are translated.
-func mailOperationTypeLabel(operationType string) string {
-	return mailOperationKindLabel(i18n.WithLocale(context.Background(), i18n.English), operationType)
-}
-
 func mailOperationKindLabel(ctx context.Context, operationType string) string {
 	switch operationType {
 	case models.MailOperationMessageMutation:

@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/cristianadrielbraun/gofer/components/button"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 )
 
 type SetupTokenData struct {
@@ -105,18 +106,19 @@ templ SetupTokenPage(data SetupTokenData) {
 			<meta charset="UTF-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 			@I18nScripts()
-			<title>Gofer - Initial Setup</title>
+			<title>{ i18n.T(ctx, "setup.title.token") }</title>
 			@AppIcon()
 			<link rel="stylesheet" href={ assetver.URL("/assets/css/output.css") }/>
 			<script src={ assetver.URL("/assets/js/actions.js") }></script>
 		</head>
 		<body class="bg-background text-foreground antialiased surface-desk">
+			@PublicPageCorners()
 			<main class="min-h-screen flex items-center justify-center p-4">
 				<div class="w-full max-w-sm">
 					<div class="text-center mb-8">
 						<img src={ assetver.URL("/assets/logo.svg") } alt="Gofer" class="h-12 w-auto mx-auto"/>
-						<h1 class="mt-6 text-2xl font-semibold">Set up Gofer</h1>
-						<p class="mt-2 text-sm text-muted-foreground">Enter the private token shown on the machine running Gofer.</p>
+						<h1 class="mt-6 text-2xl font-semibold">{ i18n.T(ctx, "setup.token.title") }</h1>
+						<p class="mt-2 text-sm text-muted-foreground">{ i18n.T(ctx, "setup.token.description") }</p>
 					</div>
 					if data.Message != "" {
 						<div id="setup-token-error" role="alert" aria-live="polite" class="bg-destructive/10 border border-destructive/20 text-destructive rounded-lg px-4 py-3 text-sm mb-6">
@@ -125,7 +127,7 @@ templ SetupTokenPage(data SetupTokenData) {
 					}
 					<form method="post" action="/setup" class="space-y-4">
 						<div class="space-y-2">
-							<label for="setup-token" class="text-sm font-medium">Setup token</label>
+							<label for="setup-token" class="text-sm font-medium">{ i18n.T(ctx, "setup.token.label") }</label>
 							<input
 								id="setup-token"
 								name="token"
@@ -143,10 +145,10 @@ templ SetupTokenPage(data SetupTokenData) {
 							/>
 						</div>
 						@button.Button(button.Props{Type: button.TypeSubmit, FullWidth: true}) {
-							Continue securely
+							{ i18n.T(ctx, "setup.token.continue") }
 						}
 					</form>
-					<p class="mt-6 text-center text-xs text-muted-foreground">The token is sent only when you submit this form. It is never included in the page URL or saved by Gofer in browser storage.</p>
+					<p class="mt-6 text-center text-xs text-muted-foreground">{ i18n.T(ctx, "setup.token.note") }</p>
 				</div>
 			</main>
 		</body>
@@ -160,44 +162,45 @@ templ SetupOwnerPage(data SetupOwnerData) {
 			<meta charset="UTF-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 			@I18nScripts()
-			<title>Gofer - Set Up Owner</title>
+			<title>{ i18n.T(ctx, "setup.title.owner") }</title>
 			@AppIcon()
 			<link rel="stylesheet" href={ assetver.URL("/assets/css/output.css") }/>
 			<script src={ assetver.URL("/assets/js/actions.js") }></script>
 		</head>
 		<body class="bg-background text-foreground antialiased surface-desk">
+			@PublicPageCorners()
 			<main class="min-h-screen flex items-center justify-center p-4 py-10">
 				<div class="w-full max-w-2xl">
 					<div class="text-center mb-8">
 						<img src={ assetver.URL("/assets/logo.svg") } alt="Gofer" class="h-12 w-auto mx-auto"/>
-						<p class="mt-5 text-xs font-medium uppercase tracking-widest text-success">Setup access verified</p>
+						<p class="mt-5 text-xs font-medium uppercase tracking-widest text-success">{ i18n.T(ctx, "setup.owner.verified") }</p>
 						if data.Kind == "fresh" {
-							<h1 class="mt-2 text-2xl font-semibold">Create the first owner</h1>
-							<p class="mt-2 text-sm text-muted-foreground">This installation has no Gofer users yet.</p>
+							<h1 class="mt-2 text-2xl font-semibold">{ i18n.T(ctx, "setup.owner.fresh_title") }</h1>
+							<p class="mt-2 text-sm text-muted-foreground">{ i18n.T(ctx, "setup.owner.fresh_description") }</p>
 						} else if data.Kind == "legacy_default" {
-							<h1 class="mt-2 text-2xl font-semibold">Claim your existing Gofer data</h1>
-							<p class="mt-2 text-sm text-muted-foreground">The legacy local user will become the real owner without changing its stable ID.</p>
+							<h1 class="mt-2 text-2xl font-semibold">{ i18n.T(ctx, "setup.owner.legacy_title") }</h1>
+							<p class="mt-2 text-sm text-muted-foreground">{ i18n.T(ctx, "setup.owner.legacy_description") }</p>
 						} else {
-							<h1 class="mt-2 text-2xl font-semibold">Choose the Gofer owner</h1>
-							<p class="mt-2 text-sm text-muted-foreground">Select an existing user explicitly, or create a separate owner.</p>
+							<h1 class="mt-2 text-2xl font-semibold">{ i18n.T(ctx, "setup.owner.choose_title") }</h1>
+							<p class="mt-2 text-sm text-muted-foreground">{ i18n.T(ctx, "setup.owner.choose_description") }</p>
 						}
 					</div>
 					if data.DraftSaved {
 						<div role="status" aria-live="polite" class="mb-6 rounded-lg border border-success/25 bg-success/10 px-4 py-3">
-							<p class="text-sm font-medium text-success">Owner profile ready for security enrollment</p>
-							<p class="mt-1 text-xs text-muted-foreground">The encrypted draft is tied to this setup session. No user, role, credential, or owned data has been changed yet.</p>
+							<p class="text-sm font-medium text-success">{ i18n.T(ctx, "setup.owner.draft_saved") }</p>
+							<p class="mt-1 text-xs text-muted-foreground">{ i18n.T(ctx, "setup.owner.draft_note") }</p>
 						</div>
 					}
 					if data.DraftStale {
 						<div role="alert" class="mb-6 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm">
-							Existing users changed after this draft was saved. Review and save the owner selection again.
+							{ i18n.T(ctx, "setup.owner.draft_stale") }
 						</div>
 					}
 					if data.BlockedMessage != "" {
 						<div role="alert" class="rounded-xl border border-destructive/25 bg-destructive/10 p-6">
-							<h2 class="text-lg font-semibold">Owner setup needs local repair</h2>
+							<h2 class="text-lg font-semibold">{ i18n.T(ctx, "setup.owner.blocked_title") }</h2>
 							<p class="mt-2 text-sm text-muted-foreground">{ data.BlockedMessage }</p>
-							<p class="mt-3 text-sm text-muted-foreground">Stop Gofer, run <code class="font-mono">gofer auth users list</code> locally, and resolve duplicate or excessive user records before rotating the setup token and trying again. Gofer will not guess an owner or merge records.</p>
+							<p class="mt-3 text-sm text-muted-foreground">{ i18n.T(ctx, "setup.owner.repair_before") } <code class="font-mono">gofer auth users list</code> { i18n.T(ctx, "setup.owner.repair_after") }</p>
 						</div>
 					}
 					if data.BlockedMessage == "" {
@@ -210,16 +213,16 @@ templ SetupOwnerPage(data SetupOwnerData) {
 						} else if data.Kind == "legacy_default" {
 							<input type="hidden" name="owner_target" value="existing:default"/>
 							<div class="rounded-lg border border-border bg-muted/30 p-4">
-								<p class="text-sm font-medium">Existing local data stays attached</p>
-								<p class="mt-1 text-xs text-muted-foreground">Mail accounts, settings, contacts, messages, drafts, and queued operations keep using user ID <code class="font-mono">default</code>. Nothing is copied or reassigned.</p>
+								<p class="text-sm font-medium">{ i18n.T(ctx, "setup.owner.legacy_kept_title") }</p>
+								<p class="mt-1 text-xs text-muted-foreground">{ i18n.T(ctx, "setup.owner.legacy_kept_before") } <code class="font-mono">default</code>{ i18n.T(ctx, "setup.owner.legacy_kept_after") }</p>
 							</div>
 						} else {
 							<fieldset class="space-y-3" aria-describedby="owner-target-help">
-								<legend class="text-sm font-medium">Owner target</legend>
-								<p id="owner-target-help" class="text-xs text-muted-foreground">Selecting an existing user preserves every resource already attached to that exact user ID.</p>
+								<legend class="text-sm font-medium">{ i18n.T(ctx, "setup.owner.target") }</legend>
+								<p id="owner-target-help" class="text-xs text-muted-foreground">{ i18n.T(ctx, "setup.owner.target_help") }</p>
 								<label class="flex cursor-pointer gap-3 rounded-lg border border-border p-4">
 									<input type="radio" name="owner_target" value="create" checked?={ data.Form.Target == "create" } required class="mt-1"/>
-									<span><span class="block text-sm font-medium">Create a new owner</span><span class="mt-1 block text-xs text-muted-foreground">Existing users and their data remain unchanged.</span></span>
+									<span><span class="block text-sm font-medium">{ i18n.T(ctx, "setup.owner.create_new") }</span><span class="mt-1 block text-xs text-muted-foreground">{ i18n.T(ctx, "setup.owner.create_new_note") }</span></span>
 								</label>
 								for _, candidate := range data.Candidates {
 									<label class="flex cursor-pointer gap-3 rounded-lg border border-border p-4">
@@ -228,15 +231,15 @@ templ SetupOwnerPage(data SetupOwnerData) {
 											if candidate.Name != "" {
 												<span class="block text-sm font-medium">{ candidate.Name }</span>
 											} else {
-												<span class="block text-sm font-medium">Unnamed Gofer user</span>
+												<span class="block text-sm font-medium">{ i18n.T(ctx, "setup.owner.unnamed") }</span>
 											}
-											<span class="mt-1 block break-all text-xs text-muted-foreground">{ "@" + candidate.Username } · ID <code class="font-mono">{ candidate.ID }</code></span>
+											<span class="mt-1 block break-all text-xs text-muted-foreground">{ "@" + candidate.Username } · { i18n.T(ctx, "setup.owner.id") } <code class="font-mono">{ candidate.ID }</code></span>
 											<span class="mt-1 block text-xs text-muted-foreground">
-												{ fmt.Sprintf("%d mail accounts · %d legacy sessions · %s", candidate.MailboxCount, candidate.LegacySessions, candidate.Status) }
+												{ i18n.N(ctx, "setup.owner.mail_accounts", int(candidate.MailboxCount)) } · { i18n.N(ctx, "setup.owner.legacy_sessions", int(candidate.LegacySessions)) } · { candidate.Status }
 												if candidate.IsAdmin {
-													· administrator
+													· { i18n.T(ctx, "setup.role.admin") }
 												} else {
-													· standard user
+													· { i18n.T(ctx, "setup.role.standard") }
 												}
 											</span>
 										</span>
@@ -248,25 +251,25 @@ templ SetupOwnerPage(data SetupOwnerData) {
 							</fieldset>
 						}
 						<div>
-							<h2 class="text-sm font-medium">Owner profile and login identifier</h2>
+							<h2 class="text-sm font-medium">{ i18n.T(ctx, "setup.owner.profile_title") }</h2>
 							if data.Kind == "fresh" {
-								<p class="mt-1 text-xs text-muted-foreground">These values identify the first real Gofer user.</p>
+								<p class="mt-1 text-xs text-muted-foreground">{ i18n.T(ctx, "setup.owner.profile_fresh") }</p>
 							} else {
-								<p class="mt-1 text-xs text-muted-foreground">For an existing target, these values replace its current profile only when final enrollment succeeds.</p>
+								<p class="mt-1 text-xs text-muted-foreground">{ i18n.T(ctx, "setup.owner.profile_existing") }</p>
 							}
 						</div>
 						<div class="space-y-4">
 							<div class="space-y-2">
-								<label for="owner-name" class="text-sm font-medium">Display name</label>
+								<label for="owner-name" class="text-sm font-medium">{ i18n.T(ctx, "setup.owner.display_name") }</label>
 								<input id="owner-name" name="name" type="text" value={ data.Form.Name } autocomplete="name" maxlength="100" required aria-invalid={ fmt.Sprintf("%t", data.Form.Errors["name"] != "") } aria-describedby={ setupOwnerDescription("", "owner-name-error", data.Form.Errors["name"] != "") } class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50 aria-[invalid=true]:border-destructive"/>
 								if data.Form.Errors["name"] != "" {
 									<p id="owner-name-error" role="alert" class="text-sm text-destructive">{ data.Form.Errors["name"] }</p>
 								}
 							</div>
 							<div class="space-y-2">
-								<label for="owner-username" class="text-sm font-medium">Username</label>
+								<label for="owner-username" class="text-sm font-medium">{ i18n.T(ctx, "signin.username") }</label>
 								<input id="owner-username" name="username" type="text" value={ data.Form.Username } autocomplete="username" autocapitalize="none" spellcheck="false" minlength="3" maxlength="32" required aria-invalid={ fmt.Sprintf("%t", data.Form.Errors["username"] != "") } aria-describedby={ setupOwnerDescription("owner-username-help", "owner-username-error", data.Form.Errors["username"] != "") } class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50 aria-[invalid=true]:border-destructive"/>
-								<p id="owner-username-help" class="text-xs text-muted-foreground">3–32 ASCII letters, numbers, periods, underscores, or hyphens.</p>
+								<p id="owner-username-help" class="text-xs text-muted-foreground">{ i18n.T(ctx, "setup.owner.username_help") }</p>
 								if data.Form.Errors["username"] != "" {
 									<p id="owner-username-error" role="alert" class="text-sm text-destructive">{ data.Form.Errors["username"] }</p>
 								}
@@ -274,18 +277,18 @@ templ SetupOwnerPage(data SetupOwnerData) {
 						</div>
 						@button.Button(button.Props{Type: button.TypeSubmit, FullWidth: true}) {
 							if data.DraftSaved {
-								Save changes
+								{ i18n.T(ctx, "setup.owner.save_changes") }
 							} else {
-								Save owner profile
+								{ i18n.T(ctx, "setup.owner.save") }
 							}
 						}
 						if data.DraftSaved {
-							<a href="/setup/password" class="flex h-9 w-full items-center justify-center rounded-md border border-border px-4 text-sm font-medium transition-colors hover:bg-accent">Continue to password</a>
+							<a href="/setup/password" class="flex h-9 w-full items-center justify-center rounded-md border border-border px-4 text-sm font-medium transition-colors hover:bg-accent">{ i18n.T(ctx, "setup.owner.continue") }</a>
 						}
-						<p class="text-center text-xs text-muted-foreground">Next, you will choose a sign-in credential and enroll the required administrator security factor.</p>
+						<p class="text-center text-xs text-muted-foreground">{ i18n.T(ctx, "setup.owner.next") }</p>
 					</form>
 					}
-					<p class="mt-6 text-center text-xs text-muted-foreground">Setup access expires after ten minutes. The setup token remains active until final enrollment completes; rotating it discards this encrypted draft.</p>
+					<p class="mt-6 text-center text-xs text-muted-foreground">{ i18n.T(ctx, "setup.owner.expiry") }</p>
 				</div>
 			</main>
 		</body>
@@ -299,24 +302,25 @@ templ SetupPasswordPage(data SetupPasswordData) {
 			<meta charset="UTF-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 			@I18nScripts()
-			<title>Gofer - Set Owner Password</title>
+			<title>{ i18n.T(ctx, "setup.title.password") }</title>
 			@AppIcon()
 			<link rel="stylesheet" href={ assetver.URL("/assets/css/output.css") }/>
 			<script src={ assetver.URL("/assets/js/actions.js") }></script>
 		</head>
 		<body class="bg-background text-foreground antialiased surface-desk">
+			@PublicPageCorners()
 			<main class="min-h-screen flex items-center justify-center p-4 py-10">
 				<div class="w-full max-w-md">
 					<div class="text-center mb-8">
 						<img src={ assetver.URL("/assets/logo.svg") } alt="Gofer" class="h-12 w-auto mx-auto"/>
-						<p class="mt-5 text-xs font-medium uppercase tracking-widest text-success">Owner profile ready</p>
-						<h1 class="mt-2 text-2xl font-semibold">Choose the owner password</h1>
-						<p class="mt-2 text-sm text-muted-foreground">Use a unique passphrase that is not used for your email account or another service.</p>
+						<p class="mt-5 text-xs font-medium uppercase tracking-widest text-success">{ i18n.T(ctx, "setup.password.ready_badge") }</p>
+						<h1 class="mt-2 text-2xl font-semibold">{ i18n.T(ctx, "setup.password.title") }</h1>
+						<p class="mt-2 text-sm text-muted-foreground">{ i18n.T(ctx, "setup.password.description") }</p>
 					</div>
 					if data.PasswordReady {
 						<div role="status" aria-live="polite" class="mb-6 rounded-lg border border-success/25 bg-success/10 px-4 py-3">
-							<p class="text-sm font-medium text-success">Owner password ready for final enrollment</p>
-							<p class="mt-1 text-xs text-muted-foreground">Only its Argon2id hash is inside the encrypted setup draft. No credential or user has been created yet.</p>
+							<p class="text-sm font-medium text-success">{ i18n.T(ctx, "setup.password.ready") }</p>
+							<p class="mt-1 text-xs text-muted-foreground">{ i18n.T(ctx, "setup.password.ready_note") }</p>
 						</div>
 					}
 					<form method="post" action="/setup/password" class="space-y-5 rounded-xl border border-border bg-card p-6">
@@ -324,15 +328,15 @@ templ SetupPasswordPage(data SetupPasswordData) {
 							<p role="alert" class="rounded-lg border border-destructive/25 bg-destructive/10 px-4 py-3 text-sm text-destructive">{ data.Errors["form"] }</p>
 						}
 						<div class="space-y-2">
-							<label for="owner-password" class="text-sm font-medium">Password</label>
+							<label for="owner-password" class="text-sm font-medium">{ i18n.T(ctx, "signin.password") }</label>
 							<input id="owner-password" name="password" type="password" autocomplete="new-password" minlength="15" maxlength="256" required autofocus aria-invalid={ fmt.Sprintf("%t", data.Errors["password"] != "") } aria-describedby={ setupOwnerDescription("owner-password-help", "owner-password-error", data.Errors["password"] != "") } class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50 aria-[invalid=true]:border-destructive"/>
-							<p id="owner-password-help" class="text-xs text-muted-foreground">At least 15 characters. Common, compromised, and owner-specific passwords are rejected.</p>
+							<p id="owner-password-help" class="text-xs text-muted-foreground">{ i18n.T(ctx, "setup.password.help") }</p>
 							if data.Errors["password"] != "" {
 								<p id="owner-password-error" role="alert" class="text-sm text-destructive">{ data.Errors["password"] }</p>
 							}
 						</div>
 						<div class="space-y-2">
-							<label for="owner-password-confirmation" class="text-sm font-medium">Confirm password</label>
+							<label for="owner-password-confirmation" class="text-sm font-medium">{ i18n.T(ctx, "setup.password.confirm") }</label>
 							<input id="owner-password-confirmation" name="password_confirmation" type="password" autocomplete="new-password" minlength="15" maxlength="256" required aria-invalid={ fmt.Sprintf("%t", data.Errors["confirmation"] != "") } aria-describedby={ setupOwnerDescription("", "owner-password-confirmation-error", data.Errors["confirmation"] != "") } class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50 aria-[invalid=true]:border-destructive"/>
 							if data.Errors["confirmation"] != "" {
 								<p id="owner-password-confirmation-error" role="alert" class="text-sm text-destructive">{ data.Errors["confirmation"] }</p>
@@ -340,23 +344,23 @@ templ SetupPasswordPage(data SetupPasswordData) {
 						</div>
 						@button.Button(button.Props{Type: button.TypeSubmit, FullWidth: true}) {
 							if data.PasswordReady {
-								Replace prepared password
+								{ i18n.T(ctx, "setup.password.replace") }
 							} else {
-								Save owner password
+								{ i18n.T(ctx, "setup.password.save") }
 							}
 						}
-						<a href="/setup/owner" class="flex h-9 w-full items-center justify-center rounded-md px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">Back to owner profile</a>
-						<p class="text-center text-xs text-muted-foreground">Next, the owner must set up an authenticator app and recovery codes before setup can complete.</p>
+						<a href="/setup/owner" class="flex h-9 w-full items-center justify-center rounded-md px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">{ i18n.T(ctx, "setup.password.back") }</a>
+						<p class="text-center text-xs text-muted-foreground">{ i18n.T(ctx, "setup.password.next") }</p>
 					</form>
 					if data.PasswordReady {
 						<form method="post" action="/setup/mfa" class="mt-4">
 							<input type="hidden" name="action" value="start"/>
 							@button.Button(button.Props{Type: button.TypeSubmit, FullWidth: true}) {
-								Continue to authenticator setup
+								{ i18n.T(ctx, "setup.password.continue") }
 							}
 						</form>
 					}
-					<p class="mt-6 text-center text-xs text-muted-foreground">Passwords are never echoed, logged, placed in URLs, or stored in browser storage.</p>
+					<p class="mt-6 text-center text-xs text-muted-foreground">{ i18n.T(ctx, "setup.password.note") }</p>
 				</div>
 			</main>
 		</body>
@@ -370,50 +374,51 @@ templ SetupMFAPage(data SetupMFAData) {
 			<meta charset="UTF-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 			@I18nScripts()
-			<title>Gofer - Set Up Owner Two-Factor Authentication</title>
+			<title>{ i18n.T(ctx, "setup.title.mfa") }</title>
 			@AppIcon()
 			<link rel="stylesheet" href={ assetver.URL("/assets/css/output.css") }/>
 			<script src={ assetver.URL("/assets/js/actions.js") }></script>
 		</head>
 		<body class="bg-background text-foreground antialiased surface-desk">
+			@PublicPageCorners()
 			<main class="min-h-screen flex items-center justify-center p-4 py-10">
 				<div class="w-full max-w-lg">
 					<div class="text-center mb-8">
 						<img src={ assetver.URL("/assets/logo.svg") } alt="Gofer" class="h-12 w-auto mx-auto"/>
-						<p class="mt-5 text-xs font-medium uppercase tracking-widest text-success">Password ready</p>
-						<h1 class="mt-2 text-2xl font-semibold">Secure the owner account</h1>
-						<p class="mt-2 text-sm text-muted-foreground">Add Gofer to an authenticator app, then confirm one current code.</p>
+						<p class="mt-5 text-xs font-medium uppercase tracking-widest text-success">{ i18n.T(ctx, "setup.mfa.ready_badge") }</p>
+						<h1 class="mt-2 text-2xl font-semibold">{ i18n.T(ctx, "setup.mfa.title") }</h1>
+						<p class="mt-2 text-sm text-muted-foreground">{ i18n.T(ctx, "setup.mfa.description") }</p>
 					</div>
 					if data.TOTPReady {
 						<div role="status" aria-live="polite" class="rounded-xl border border-success/25 bg-success/10 px-5 py-4">
-							<p class="text-sm font-medium text-success">Authenticator verified for final enrollment</p>
-							<p class="mt-1 text-xs text-muted-foreground">The encrypted setup draft now contains the seed and accepted time step. No authenticator, user, or session has been created yet.</p>
+							<p class="text-sm font-medium text-success">{ i18n.T(ctx, "setup.mfa.verified") }</p>
+							<p class="mt-1 text-xs text-muted-foreground">{ i18n.T(ctx, "setup.mfa.verified_note") }</p>
 						</div>
 						<div class="mt-4 rounded-xl border border-border bg-card p-5">
-							<p class="text-sm font-medium">Next: recovery codes</p>
-							<p class="mt-1 text-xs text-muted-foreground">Gofer will generate a single-use recovery batch and require acknowledgement before final setup can commit.</p>
+							<p class="text-sm font-medium">{ i18n.T(ctx, "setup.mfa.next_title") }</p>
+							<p class="mt-1 text-xs text-muted-foreground">{ i18n.T(ctx, "setup.mfa.next") }</p>
 						</div>
-						<a href="/setup/recovery" class="mt-4 flex h-10 w-full items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90">Continue to recovery codes</a>
+						<a href="/setup/recovery" class="mt-4 flex h-10 w-full items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90">{ i18n.T(ctx, "setup.mfa.continue") }</a>
 						<form method="post" action="/setup/mfa" class="mt-2">
 							<input type="hidden" name="action" value="restart"/>
-							<button type="submit" class="flex h-9 w-full items-center justify-center rounded-md px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">Replace this authenticator setup</button>
+							<button type="submit" class="flex h-9 w-full items-center justify-center rounded-md px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">{ i18n.T(ctx, "setup.mfa.replace") }</button>
 						</form>
 					} else {
 						<div class="rounded-xl border border-border bg-card p-6">
 							<div class="grid gap-6 sm:grid-cols-[auto_1fr] sm:items-center">
 								<div class="rounded-lg bg-white p-3">
-									<img src={ data.QRCodeDataURL } alt="QR code containing the Gofer authenticator setup key" width="192" height="192" class="h-48 w-48"/>
+									<img src={ data.QRCodeDataURL } alt={ i18n.T(ctx, "setup.mfa.qr_alt") } width="192" height="192" class="h-48 w-48"/>
 								</div>
 								<div class="space-y-3">
 									<div>
-										<p class="text-sm font-medium">1. Scan the QR code</p>
-										<p class="mt-1 text-xs text-muted-foreground">Use any RFC 6238-compatible authenticator app.</p>
+										<p class="text-sm font-medium">{ i18n.T(ctx, "setup.mfa.step_scan") }</p>
+										<p class="mt-1 text-xs text-muted-foreground">{ i18n.T(ctx, "setup.mfa.scan_help") }</p>
 									</div>
 									<div>
-										<p class="text-sm font-medium">Or enter this setup key</p>
-										<code class="mt-2 block break-all rounded-md bg-muted px-3 py-2 font-mono text-xs" aria-label="Manual authenticator setup key">{ data.ManualKey }</code>
+										<p class="text-sm font-medium">{ i18n.T(ctx, "setup.mfa.enter_key") }</p>
+										<code class="mt-2 block break-all rounded-md bg-muted px-3 py-2 font-mono text-xs" aria-label={ i18n.T(ctx, "setup.mfa.key_label") }>{ data.ManualKey }</code>
 									</div>
-									<p class="text-xs text-muted-foreground">{ data.Algorithm }, { fmt.Sprintf("%d digits", data.Digits) }, every { fmt.Sprintf("%d seconds", data.Period) }</p>
+									<p class="text-xs text-muted-foreground">{ i18n.T(ctx, "setup.mfa.parameters", "algorithm", data.Algorithm, "digits", data.Digits, "period", data.Period) }</p>
 								</div>
 							</div>
 							<form method="post" action="/setup/mfa" class="mt-6 space-y-4">
@@ -422,25 +427,25 @@ templ SetupMFAPage(data SetupMFAData) {
 									<p role="alert" class="rounded-lg border border-destructive/25 bg-destructive/10 px-4 py-3 text-sm text-destructive">{ data.Errors["form"] }</p>
 								}
 								<div class="space-y-2">
-									<label for="setup-mfa-code" class="text-sm font-medium">2. Enter the current six-digit code</label>
+									<label for="setup-mfa-code" class="text-sm font-medium">{ i18n.T(ctx, "setup.mfa.step_code") }</label>
 									<input id="setup-mfa-code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" minlength="6" maxlength="6" required autofocus aria-invalid={ fmt.Sprintf("%t", data.Errors["code"] != "") } aria-describedby={ setupOwnerDescription("setup-mfa-code-help", "setup-mfa-code-error", data.Errors["code"] != "") } class="flex h-11 w-full rounded-md border border-input bg-background px-3 py-2 text-center font-mono text-lg tracking-[0.35em] outline-none focus-visible:ring-2 focus-visible:ring-ring/50 aria-[invalid=true]:border-destructive"/>
-									<p id="setup-mfa-code-help" class="text-xs text-muted-foreground">Codes from the immediately previous or next 30-second window are accepted for small clock differences.</p>
+									<p id="setup-mfa-code-help" class="text-xs text-muted-foreground">{ i18n.T(ctx, "setup.mfa.code_help") }</p>
 									if data.Errors["code"] != "" {
 										<p id="setup-mfa-code-error" role="alert" class="text-sm text-destructive">{ data.Errors["code"] }</p>
 									}
 								</div>
 								@button.Button(button.Props{Type: button.TypeSubmit, FullWidth: true}) {
-									Verify authenticator
+									{ i18n.T(ctx, "signin.totp.verify") }
 								}
 							</form>
 							<form method="post" action="/setup/mfa" class="mt-2">
 								<input type="hidden" name="action" value="restart"/>
-								<button type="submit" class="flex h-9 w-full items-center justify-center rounded-md px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">Generate a new setup key</button>
+								<button type="submit" class="flex h-9 w-full items-center justify-center rounded-md px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">{ i18n.T(ctx, "setup.mfa.new_key") }</button>
 							</form>
 						</div>
 					}
-					<a href="/setup/password" class="mt-4 flex h-9 w-full items-center justify-center rounded-md px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">Back to owner password</a>
-					<p class="mt-6 text-center text-xs text-muted-foreground">The setup key is encrypted in the short-lived setup draft and is never sent to a third-party QR service.</p>
+					<a href="/setup/password" class="mt-4 flex h-9 w-full items-center justify-center rounded-md px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">{ i18n.T(ctx, "setup.mfa.back") }</a>
+					<p class="mt-6 text-center text-xs text-muted-foreground">{ i18n.T(ctx, "setup.mfa.note") }</p>
 				</div>
 			</main>
 		</body>
@@ -454,43 +459,44 @@ templ SetupRecoveryPage(data SetupRecoveryData) {
 			<meta charset="UTF-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 			@I18nScripts()
-			<title>Gofer - Save Owner Recovery Codes</title>
+			<title>{ i18n.T(ctx, "setup.title.recovery") }</title>
 			@AppIcon()
 			<link rel="stylesheet" href={ assetver.URL("/assets/css/output.css") }/>
 			<script src={ assetver.URL("/assets/js/actions.js") }></script>
 		</head>
 		<body class="bg-background text-foreground antialiased surface-desk">
+			@PublicPageCorners()
 			<main class="min-h-screen flex items-center justify-center p-4 py-10">
 				<div class="w-full max-w-lg">
 					<div class="text-center mb-8">
 						<img src={ assetver.URL("/assets/logo.svg") } alt="Gofer" class="h-12 w-auto mx-auto"/>
-						<p class="mt-5 text-xs font-medium uppercase tracking-widest text-success">Authenticator verified</p>
-						<h1 class="mt-2 text-2xl font-semibold">Save the owner recovery codes</h1>
-						<p class="mt-2 text-sm text-muted-foreground">Each code can recover access once if the authenticator is unavailable.</p>
+						<p class="mt-5 text-xs font-medium uppercase tracking-widest text-success">{ i18n.T(ctx, "signin.codes.verified") }</p>
+						<h1 class="mt-2 text-2xl font-semibold">{ i18n.T(ctx, "setup.recovery.title") }</h1>
+						<p class="mt-2 text-sm text-muted-foreground">{ i18n.T(ctx, "setup.recovery.description") }</p>
 					</div>
 					if data.Errors["form"] != "" {
 						<p role="alert" class="mb-4 rounded-lg border border-destructive/25 bg-destructive/10 px-4 py-3 text-sm text-destructive">{ data.Errors["form"] }</p>
 					}
 					if data.Acknowledged {
 						<div role="status" aria-live="polite" class="rounded-xl border border-success/25 bg-success/10 px-5 py-4">
-							<p class="text-sm font-medium text-success">Recovery codes acknowledged for final enrollment</p>
-							<p class="mt-1 text-xs text-muted-foreground">Only the code hashes remain in the encrypted setup draft. No recovery credential or user has been created yet.</p>
+							<p class="text-sm font-medium text-success">{ i18n.T(ctx, "setup.recovery.acknowledged") }</p>
+							<p class="mt-1 text-xs text-muted-foreground">{ i18n.T(ctx, "setup.recovery.acknowledged_note") }</p>
 						</div>
 						<div class="mt-4 rounded-xl border border-border bg-card p-5">
-							<p class="text-sm font-medium">Next: final setup review</p>
-							<p class="mt-1 text-xs text-muted-foreground">The next step will review the owner and migration impact before anything is committed.</p>
+							<p class="text-sm font-medium">{ i18n.T(ctx, "setup.recovery.next_title") }</p>
+							<p class="mt-1 text-xs text-muted-foreground">{ i18n.T(ctx, "setup.recovery.next") }</p>
 						</div>
-						<a href="/setup/review" class="mt-4 flex h-10 w-full items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90">Review final setup</a>
+						<a href="/setup/review" class="mt-4 flex h-10 w-full items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90">{ i18n.T(ctx, "setup.recovery.review") }</a>
 						<form method="post" action="/setup/recovery" class="mt-2">
 							<input type="hidden" name="action" value="regenerate"/>
-							<button type="submit" class="flex h-9 w-full items-center justify-center rounded-md px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">Replace recovery codes</button>
+							<button type="submit" class="flex h-9 w-full items-center justify-center rounded-md px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">{ i18n.T(ctx, "setup.recovery.replace") }</button>
 						</form>
 					} else if len(data.Codes) > 0 {
 						<div role="alert" class="rounded-lg border border-warning/30 bg-warning/10 px-4 py-3">
-							<p class="text-sm font-medium text-warning">These codes are shown only in this response</p>
-							<p class="mt-1 text-xs text-muted-foreground">Copy them to a password manager or print this page now. Gofer cannot display this batch again.</p>
+							<p class="text-sm font-medium text-warning">{ i18n.T(ctx, "signin.codes.shown_once") }</p>
+							<p class="mt-1 text-xs text-muted-foreground">{ i18n.T(ctx, "setup.recovery.copy") }</p>
 						</div>
-						<div class="mt-4 grid gap-2 rounded-xl border border-border bg-card p-5 sm:grid-cols-2" aria-label="Owner recovery codes">
+						<div class="mt-4 grid gap-2 rounded-xl border border-border bg-card p-5 sm:grid-cols-2" aria-label={ i18n.T(ctx, "setup.recovery.codes_label") }>
 							for _, code := range data.Codes {
 								<code class="select-all rounded-md bg-muted px-3 py-2 text-center font-mono text-sm tracking-wide">{ code }</code>
 							}
@@ -498,24 +504,24 @@ templ SetupRecoveryPage(data SetupRecoveryData) {
 						@setupRecoveryAcknowledgement(data)
 					} else if data.Generated {
 						<div class="rounded-xl border border-border bg-card p-6">
-							<p class="text-sm font-medium">Recovery codes were already shown</p>
-							<p class="mt-1 text-xs text-muted-foreground">If you saved that batch, acknowledge it below. If not, generate a replacement; the current pending batch will no longer be usable.</p>
+							<p class="text-sm font-medium">{ i18n.T(ctx, "setup.recovery.already_shown") }</p>
+							<p class="mt-1 text-xs text-muted-foreground">{ i18n.T(ctx, "setup.recovery.already_shown_note") }</p>
 						</div>
 						@setupRecoveryAcknowledgement(data)
 					} else {
 						<div class="rounded-xl border border-border bg-card p-6">
-							<p class="text-sm font-medium">Create an offline fallback</p>
-							<p class="mt-1 text-xs text-muted-foreground">Gofer will generate ten 120-bit pseudorandom codes locally. Their plaintext will appear once; only hashes enter the encrypted setup draft.</p>
+							<p class="text-sm font-medium">{ i18n.T(ctx, "setup.recovery.create_title") }</p>
+							<p class="mt-1 text-xs text-muted-foreground">{ i18n.T(ctx, "setup.recovery.create_note") }</p>
 							<form method="post" action="/setup/recovery" class="mt-5">
 								<input type="hidden" name="action" value="generate"/>
 								@button.Button(button.Props{Type: button.TypeSubmit, FullWidth: true}) {
-									Generate recovery codes
+									{ i18n.T(ctx, "signin.codes.generate") }
 								}
 							</form>
 						</div>
 					}
-					<a href="/setup/mfa" class="mt-4 flex h-9 w-full items-center justify-center rounded-md px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">Back to authenticator setup</a>
-					<p class="mt-6 text-center text-xs text-muted-foreground">Recovery codes are never logged, placed in URLs, stored in browser storage, or retained as retrievable plaintext.</p>
+					<a href="/setup/mfa" class="mt-4 flex h-9 w-full items-center justify-center rounded-md px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">{ i18n.T(ctx, "setup.recovery.back") }</a>
+					<p class="mt-6 text-center text-xs text-muted-foreground">{ i18n.T(ctx, "setup.recovery.note") }</p>
 				</div>
 			</main>
 		</body>
@@ -529,107 +535,108 @@ templ SetupReviewPage(data SetupReviewData) {
 			<meta charset="UTF-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 			@I18nScripts()
-			<title>Gofer - Review Owner Setup</title>
+			<title>{ i18n.T(ctx, "setup.title.review") }</title>
 			@AppIcon()
 			<link rel="stylesheet" href={ assetver.URL("/assets/css/output.css") }/>
 			<script src={ assetver.URL("/assets/js/actions.js") }></script>
 		</head>
 		<body class="bg-background text-foreground antialiased surface-desk">
+			@PublicPageCorners()
 			<main class="min-h-screen flex justify-center p-4 py-10">
 				<div class="w-full max-w-2xl">
 					<div class="text-center mb-8">
 						<img src={ assetver.URL("/assets/logo.svg") } alt="Gofer" class="h-12 w-auto mx-auto"/>
-						<p class="mt-5 text-xs font-medium uppercase tracking-widest text-success">Security enrollment ready</p>
-						<h1 class="mt-2 text-2xl font-semibold">Review owner setup</h1>
-						<p class="mt-2 text-sm text-muted-foreground">Confirm exactly what the final transaction will change before mandatory authentication is initialized.</p>
+						<p class="mt-5 text-xs font-medium uppercase tracking-widest text-success">{ i18n.T(ctx, "setup.review.ready_badge") }</p>
+						<h1 class="mt-2 text-2xl font-semibold">{ i18n.T(ctx, "setup.review.title") }</h1>
+						<p class="mt-2 text-sm text-muted-foreground">{ i18n.T(ctx, "setup.review.description") }</p>
 					</div>
 					if data.BlockedMessage != "" {
 						<div role="alert" class="mb-5 rounded-xl border border-destructive/25 bg-destructive/10 p-5">
-							<p class="text-sm font-medium text-destructive">Setup completion is blocked</p>
+							<p class="text-sm font-medium text-destructive">{ i18n.T(ctx, "setup.review.blocked") }</p>
 							<p class="mt-1 text-sm text-muted-foreground">{ data.BlockedMessage }</p>
-							<p class="mt-2 text-xs text-muted-foreground">Gofer will not guess, delete, merge, or reassign private mailbox data. Repair the ownership records locally from a backup before retrying.</p>
+							<p class="mt-2 text-xs text-muted-foreground">{ i18n.T(ctx, "setup.review.blocked_note") }</p>
 						</div>
 					}
 					if data.CompletionError != "" {
 						<div role="alert" class="mb-5 rounded-xl border border-destructive/25 bg-destructive/10 p-5">
-							<p class="text-sm font-medium text-destructive">Setup was not completed</p>
+							<p class="text-sm font-medium text-destructive">{ i18n.T(ctx, "setup.review.failed") }</p>
 							<p class="mt-1 text-sm text-muted-foreground">{ data.CompletionError }</p>
 						</div>
 					}
 					<section aria-labelledby="review-owner-heading" class="rounded-xl border border-border bg-card p-6">
-						<h2 id="review-owner-heading" class="text-base font-semibold">Owner identity</h2>
+						<h2 id="review-owner-heading" class="text-base font-semibold">{ i18n.T(ctx, "setup.review.owner_identity") }</h2>
 						if data.CreatesNewOwner {
-							<p class="mt-2 text-sm">Create a new active owner and administrator. A stable user ID will be generated inside the final transaction.</p>
+							<p class="mt-2 text-sm">{ i18n.T(ctx, "setup.review.create_owner") }</p>
 						} else {
-							<p class="mt-2 text-sm">Update user <code class="font-mono">{ data.TargetUserID }</code> in place, then make that same user active, owner, and administrator.</p>
+							<p class="mt-2 text-sm">{ i18n.T(ctx, "setup.review.update_user_before") } <code class="font-mono">{ data.TargetUserID }</code> { i18n.T(ctx, "setup.review.update_user_after") }</p>
 							<dl class="mt-4 grid gap-3 text-sm sm:grid-cols-2">
-								<div><dt class="text-xs text-muted-foreground">Current profile</dt><dd class="mt-1 break-words">{ data.CurrentName } · { "@" + data.CurrentUsername }</dd></div>
+								<div><dt class="text-xs text-muted-foreground">{ i18n.T(ctx, "setup.review.current_profile") }</dt><dd class="mt-1 break-words">{ data.CurrentName } · { "@" + data.CurrentUsername }</dd></div>
 								<div>
-									<dt class="text-xs text-muted-foreground">Current access</dt>
+									<dt class="text-xs text-muted-foreground">{ i18n.T(ctx, "setup.review.current_access") }</dt>
 									<dd class="mt-1">
 										{ data.CurrentStatus } ·
 										if data.CurrentIsAdmin {
-											administrator
+											{ i18n.T(ctx, "setup.role.admin") }
 										} else {
-											standard user
+											{ i18n.T(ctx, "setup.role.standard") }
 										}
 									</dd>
 								</div>
 							</dl>
 						}
 						<dl class="mt-4 grid gap-3 text-sm sm:grid-cols-2">
-							<div><dt class="text-xs text-muted-foreground">Reviewed name</dt><dd class="mt-1 break-words">{ data.OwnerName }</dd></div>
-							<div><dt class="text-xs text-muted-foreground">Username</dt><dd class="mt-1 break-all">{ data.OwnerUsername }</dd></div>
+							<div><dt class="text-xs text-muted-foreground">{ i18n.T(ctx, "setup.review.name") }</dt><dd class="mt-1 break-words">{ data.OwnerName }</dd></div>
+							<div><dt class="text-xs text-muted-foreground">{ i18n.T(ctx, "signin.username") }</dt><dd class="mt-1 break-all">{ data.OwnerUsername }</dd></div>
 						</dl>
 					</section>
 					<section aria-labelledby="review-security-heading" class="mt-4 rounded-xl border border-border bg-card p-6">
-						<h2 id="review-security-heading" class="text-base font-semibold">Prepared security</h2>
+						<h2 id="review-security-heading" class="text-base font-semibold">{ i18n.T(ctx, "setup.review.security") }</h2>
 						<ul class="mt-3 space-y-2 text-sm">
-							<li>Owner password prepared; { fmt.Sprintf("%d existing password credential(s) will be replaced", data.ExistingPasswordCredentials) }.</li>
-							<li>Authenticator verified; { fmt.Sprintf("%d active authenticator app(s) will be replaced", data.ReplacedTOTPs) }.</li>
-							<li>Recovery batch acknowledged; { fmt.Sprintf("%d unused recovery code(s) will be replaced", data.ReplacedRecoveryCodes) }.</li>
-							<li>{ fmt.Sprintf("%d active passkey(s) and %d app-login identity record(s) remain attached to the same user", data.RetainedPasskeys, data.RetainedIdentities) }.</li>
+							<li>{ i18n.N(ctx, "setup.review.passwords", int(data.ExistingPasswordCredentials)) }</li>
+							<li>{ i18n.N(ctx, "setup.review.totps", int(data.ReplacedTOTPs)) }</li>
+							<li>{ i18n.N(ctx, "setup.review.recovery", int(data.ReplacedRecoveryCodes)) }</li>
+							<li>{ i18n.N(ctx, "setup.review.passkeys", int(data.RetainedPasskeys)) } { i18n.N(ctx, "setup.review.identities", int(data.RetainedIdentities)) }</li>
 						</ul>
-						<p class="mt-3 text-xs text-muted-foreground">No password hash, authenticator seed, accepted code, recovery code, recovery hash, or batch identifier is displayed here.</p>
+						<p class="mt-3 text-xs text-muted-foreground">{ i18n.T(ctx, "setup.review.security_note") }</p>
 					</section>
 					<section aria-labelledby="review-migration-heading" class="mt-4 rounded-xl border border-border bg-card p-6">
-						<h2 id="review-migration-heading" class="text-base font-semibold">Migration impact</h2>
+						<h2 id="review-migration-heading" class="text-base font-semibold">{ i18n.T(ctx, "setup.review.migration") }</h2>
 						if data.ClaimsLegacyDefault {
-							<p class="mt-2 text-sm">Claim the legacy <code class="font-mono">default</code> user in place. Its stable ID and all attached resources remain unchanged.</p>
+							<p class="mt-2 text-sm">{ i18n.T(ctx, "setup.review.claim_legacy_before") } <code class="font-mono">default</code> { i18n.T(ctx, "setup.review.claim_legacy_after") }</p>
 						} else if data.ClaimsExistingUser {
-							<p class="mt-2 text-sm">Claim the selected existing user in place. Other users and every resource attached to their IDs remain unchanged.</p>
+							<p class="mt-2 text-sm">{ i18n.T(ctx, "setup.review.claim_existing") }</p>
 						} else if data.ExistingUserCount > 0 {
-							<p class="mt-2 text-sm">Add a new owner. All existing users and resources remain attached to their current IDs.</p>
+							<p class="mt-2 text-sm">{ i18n.T(ctx, "setup.review.add_owner") }</p>
 						} else {
-							<p class="mt-2 text-sm">Initialize a fresh owner without creating or claiming a synthetic default user.</p>
+							<p class="mt-2 text-sm">{ i18n.T(ctx, "setup.review.fresh_owner") }</p>
 						}
 						<ul class="mt-3 space-y-2 text-sm">
-							<li>{ fmt.Sprintf("%d mail account record(s) exist; %d are attached to valid user IDs and remain there", data.TotalMailboxCount, data.TotalMailboxCount-data.UnassignedMailboxCount) }.</li>
+							<li>{ i18n.N(ctx, "setup.review.mailboxes", int(data.TotalMailboxCount), "attached", data.TotalMailboxCount-data.UnassignedMailboxCount) }</li>
 							if data.UnassignedMailboxCount > 0 {
-								<li class="text-destructive">{ fmt.Sprintf("%d mail account(s) have no valid user owner and block completion", data.UnassignedMailboxCount) }.</li>
+								<li class="text-destructive">{ i18n.N(ctx, "setup.review.unassigned", int(data.UnassignedMailboxCount)) }</li>
 							}
 							if !data.CreatesNewOwner {
-								<li>{ fmt.Sprintf("%d mail account(s) are already attached to the selected owner ID", data.TargetMailboxCount) }.</li>
+								<li>{ i18n.N(ctx, "setup.review.target_mailboxes", int(data.TargetMailboxCount)) }</li>
 							}
-							<li>{ fmt.Sprintf("%d currently unrevoked session(s) across the instance will be revoked at cutover", data.UnrevokedSessionCount) }.</li>
+							<li>{ i18n.N(ctx, "setup.review.sessions", int(data.UnrevokedSessionCount)) }</li>
 							if data.TargetLegacySessions > 0 {
-								<li>{ fmt.Sprintf("The selected user has %d legacy session record(s)", data.TargetLegacySessions) }.</li>
+								<li>{ i18n.N(ctx, "setup.review.target_sessions", int(data.TargetLegacySessions)) }</li>
 							}
 						</ul>
 					</section>
 					<div role="status" aria-live="polite" class="mt-4 rounded-xl border border-info/25 bg-info/10 p-5">
-						<p class="text-sm font-medium">Review only — nothing has been committed</p>
-						<p class="mt-1 text-xs text-muted-foreground">Authentication remains uninitialized, the setup token remains active, and no user, credential, role, session, event, or ownership row has changed. Completing setup applies the reviewed changes in one atomic transaction.</p>
+						<p class="text-sm font-medium">{ i18n.T(ctx, "setup.review.only") }</p>
+						<p class="mt-1 text-xs text-muted-foreground">{ i18n.T(ctx, "setup.review.only_note") }</p>
 					</div>
 					if data.BlockedMessage == "" {
 						<form method="post" action="/setup/review" class="mt-4 rounded-xl border border-success/25 bg-success/10 p-5">
 							<input type="hidden" name="action" value="complete"/>
-							<p class="text-sm font-medium">Ready to initialize mandatory authentication</p>
-							<p class="mt-1 text-xs text-muted-foreground">This commits the reviewed owner and security factors, revokes every pre-cutover session, consumes setup access, and signs you in as the owner. If any database operation fails, none of those changes are kept.</p>
-							<button type="submit" class="mt-4 flex h-10 w-full items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90">Complete setup and sign in</button>
+							<p class="text-sm font-medium">{ i18n.T(ctx, "setup.review.ready") }</p>
+							<p class="mt-1 text-xs text-muted-foreground">{ i18n.T(ctx, "setup.review.ready_note") }</p>
+							<button type="submit" class="mt-4 flex h-10 w-full items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90">{ i18n.T(ctx, "setup.review.complete") }</button>
 						</form>
 					}
-					<a href="/setup/recovery" class="mt-4 flex h-9 w-full items-center justify-center rounded-md px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">Back to recovery codes</a>
+					<a href="/setup/recovery" class="mt-4 flex h-9 w-full items-center justify-center rounded-md px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">{ i18n.T(ctx, "setup.review.back") }</a>
 				</div>
 			</main>
 		</body>
@@ -642,18 +649,18 @@ templ setupRecoveryAcknowledgement(data SetupRecoveryData) {
 		<input type="hidden" name="batch_id" value={ data.BatchID }/>
 		<label for="setup-recovery-saved" class="flex items-start gap-3 text-sm">
 			<input id="setup-recovery-saved" name="saved" type="checkbox" value="yes" required aria-invalid={ fmt.Sprintf("%t", data.Errors["saved"] != "") } aria-describedby={ setupOwnerDescription("setup-recovery-saved-help", "setup-recovery-saved-error", data.Errors["saved"] != "") } class="mt-0.5 h-4 w-4 rounded border-input"/>
-			<span>I saved these recovery codes somewhere secure and understand they cannot be displayed again.</span>
+			<span>{ i18n.T(ctx, "setup.recovery.ack") }</span>
 		</label>
-		<p id="setup-recovery-saved-help" class="text-xs text-muted-foreground">This acknowledgement is bound to the exact current batch. Replacing the batch requires a new acknowledgement.</p>
+		<p id="setup-recovery-saved-help" class="text-xs text-muted-foreground">{ i18n.T(ctx, "setup.recovery.ack_help") }</p>
 		if data.Errors["saved"] != "" {
 			<p id="setup-recovery-saved-error" role="alert" class="text-sm text-destructive">{ data.Errors["saved"] }</p>
 		}
 		@button.Button(button.Props{Type: button.TypeSubmit, FullWidth: true}) {
-			Acknowledge saved recovery codes
+			{ i18n.T(ctx, "setup.recovery.ack_button") }
 		}
 	</form>
 	<form method="post" action="/setup/recovery" class="mt-2">
 		<input type="hidden" name="action" value="regenerate"/>
-		<button type="submit" class="flex h-9 w-full items-center justify-center rounded-md px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">Generate replacement codes</button>
+		<button type="submit" class="flex h-9 w-full items-center justify-center rounded-md px-4 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">{ i18n.T(ctx, "setup.recovery.regenerate") }</button>
 	</form>
 }

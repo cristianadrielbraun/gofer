@@ -36,6 +36,7 @@ func (h *Handler) LocaleMiddleware(next http.Handler) http.Handler {
 		locale := i18n.FromRequest(r)
 		var prefs regionalPrefs
 		if user := auth.GetCurrentUser(r.Context()); user != nil && strings.TrimSpace(user.ID) != "" {
+			h.savePickedLanguage(w, r, user.ID)
 			prefs = h.savedRegionalPrefs(r.Context(), user.ID)
 			if saved, ok := i18n.FromSetting(prefs.language); ok {
 				locale = saved
@@ -44,6 +45,31 @@ func (h *Handler) LocaleMiddleware(next http.Handler) http.Handler {
 		ctx := i18n.WithDatePrefs(i18n.WithLocale(r.Context(), locale), prefs.dateFormat, prefs.timeFormat)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+// savePickedLanguage saves the language picked on a page shown before sign-in
+// as the signed-in user's language, replacing any they had saved, since it is
+// their latest choice. The pick is used once: its mark is cleared either way.
+func (h *Handler) savePickedLanguage(w http.ResponseWriter, r *http.Request, userID string) {
+	if _, err := r.Cookie(i18n.PickCookieName); err != nil {
+		return
+	}
+	http.SetCookie(w, &http.Cookie{Name: i18n.PickCookieName, Value: "", Path: "/", MaxAge: -1, SameSite: http.SameSiteLaxMode})
+	cookie, err := r.Cookie(i18n.CookieName)
+	if err != nil {
+		return
+	}
+	locale, ok := i18n.Parse(cookie.Value)
+	if !ok {
+		return
+	}
+	updates := map[string]string{i18n.SettingKey: string(locale)}
+	if err := h.withUserDB(r.Context(), userID, func(db *storage.DB) error {
+		return db.MergeUISettings(r.Context(), userID, updates)
+	}); err != nil {
+		return
+	}
+	rememberSavedRegional(userID, updates)
 }
 
 func (h *Handler) savedRegionalPrefs(ctx context.Context, userID string) regionalPrefs {

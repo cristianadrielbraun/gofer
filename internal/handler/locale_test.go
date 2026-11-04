@@ -126,3 +126,47 @@ func TestLocaleMiddlewareCarriesTheDateSettings(t *testing.T) {
 		t.Fatalf("date settings = %q %q", format, clock)
 	}
 }
+
+func TestLanguagePickedBeforeSignInIsSavedOnce(t *testing.T) {
+	h := localeTestHandler(t)
+	if err := h.db.MergeUISettings(context.Background(), "locale-user", map[string]string{i18n.SettingKey: "en"}); err != nil {
+		t.Fatal(err)
+	}
+	forgetSavedRegional("locale-user")
+
+	request := func(signedIn, picked bool) (i18n.Locale, *httptest.ResponseRecorder) {
+		var got i18n.Locale
+		next := http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) { got = i18n.FromContext(r.Context()) })
+		r := httptest.NewRequest(http.MethodGet, "/", nil)
+		r.AddCookie(&http.Cookie{Name: i18n.CookieName, Value: "es"})
+		if picked {
+			r.AddCookie(&http.Cookie{Name: i18n.PickCookieName, Value: "1"})
+		}
+		if signedIn {
+			r = r.WithContext(auth.ContextWithUser(r.Context(), &auth.User{ID: "locale-user"}))
+		}
+		w := httptest.NewRecorder()
+		h.LocaleMiddleware(next).ServeHTTP(w, r)
+		return got, w
+	}
+
+	// Signed out, the pick only shows the page in that language.
+	if got, w := request(false, true); got != "es" || strings.Contains(w.Header().Get("Set-Cookie"), i18n.PickCookieName) {
+		t.Fatalf("signed out: %q, Set-Cookie %q", got, w.Header().Get("Set-Cookie"))
+	}
+	// The cookie alone, as kept after signing out, doesn't change a saved language.
+	if got, _ := request(true, false); got != i18n.English {
+		t.Fatalf("cookie without a pick: %q", got)
+	}
+	// A pick replaces the saved language once the user is signed in, and is cleared.
+	got, w := request(true, true)
+	if got != "es" {
+		t.Fatalf("after signing in with a pick: %q", got)
+	}
+	if setCookie := w.Header().Get("Set-Cookie"); !strings.Contains(setCookie, i18n.PickCookieName+"=") || !strings.Contains(setCookie, "Max-Age=0") {
+		t.Fatalf("pick not cleared: %q", setCookie)
+	}
+	if saved := h.db.GetUISettings(context.Background(), "locale-user")[i18n.SettingKey]; saved != "es" {
+		t.Fatalf("saved language = %q", saved)
+	}
+}

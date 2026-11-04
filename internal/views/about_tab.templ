@@ -2,7 +2,7 @@ package views
 
 import (
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
-	"strconv"
+	"strings"
 
 	"github.com/cristianadrielbraun/gofer/components/button"
 	"github.com/cristianadrielbraun/gofer/components/collapsible"
@@ -20,45 +20,45 @@ templ SettingsAboutTab(info buildinfo.Info) {
 	<div class="mt-6 space-y-6" data-settings-about>
 		<div class="settings-card bg-card rounded-lg border p-6 space-y-5">
 			<div>
-				<h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-1">Version</h3>
+				<h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-1">{ i18n.T(ctx, "about.version.title") }</h3>
 				<p class="text-xs text-muted-foreground leading-relaxed">
 					if info.Release() {
-						This is a release build of Gofer.
+						{ i18n.T(ctx, "about.version.release") }
 					} else {
-						This copy of Gofer was built from source.
+						{ i18n.T(ctx, "about.version.source") }
 					}
 				</p>
 			</div>
 			<dl class="settings-row border-t border-border/60 pt-5 grid grid-cols-[auto_1fr] gap-x-6 gap-y-3 text-sm">
 				if info.Release() {
-					@aboutField("Release") {
+					@aboutField(i18n.T(ctx, "about.field.release")) {
 						<a href={ templ.SafeURL(goferRepositoryURL + "/releases/tag/" + info.Version) } target="_blank" rel="noopener noreferrer" class="font-medium text-foreground hover:text-primary" data-about-version>{ info.Version }</a>
 					}
 				} else {
-					@aboutField("Version") {
-						<span class="font-medium text-foreground" data-about-version>Development build</span>
+					@aboutField(i18n.T(ctx, "about.version.title")) {
+						<span class="font-medium text-foreground" data-about-version>{ i18n.T(ctx, "about.version.development") }</span>
 					}
 				}
 				if info.Branch != "" {
-					@aboutField("Branch") {
+					@aboutField(i18n.T(ctx, "about.field.branch")) {
 						<span class="font-mono" data-about-branch>{ info.Branch }</span>
 					}
 				}
 				if info.Commit != "" {
-					@aboutField("Commit") {
+					@aboutField(i18n.T(ctx, "about.field.commit")) {
 						<a href={ templ.SafeURL(goferRepositoryURL + "/commit/" + info.Commit) } target="_blank" rel="noopener noreferrer" class="font-mono text-foreground hover:text-primary" title={ info.Commit } data-about-commit>{ info.ShortCommit() }</a>
 						if info.Modified {
-							<span class="ml-2 text-xs text-muted-foreground">with uncommitted changes</span>
+							<span class="ml-2 text-xs text-muted-foreground">{ i18n.T(ctx, "about.field.modified") }</span>
 						}
 					}
 				}
 				if !info.CommitTime.IsZero() {
-					@aboutField("Commit date") {
+					@aboutField(i18n.T(ctx, "about.field.commit_date")) {
 						<time datetime={ info.CommitTime.UTC().Format("2006-01-02T15:04:05Z") }>{ i18n.Dates(ctx).LongMonthDate(info.CommitTime.UTC()) }</time>
 					}
 				}
 				if info.GoVersion != "" {
-					@aboutField("Built with") {
+					@aboutField(i18n.T(ctx, "about.field.built_with")) {
 						<span class="font-mono">{ info.GoVersion }</span>
 					}
 				}
@@ -66,19 +66,19 @@ templ SettingsAboutTab(info buildinfo.Info) {
 			<div class="settings-row border-t border-border/60 pt-5">
 				<a href={ templ.SafeURL(goferRepositoryURL) } target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1.5 text-sm text-foreground hover:text-primary">
 					@icon.Github(icon.Props{Class: "size-4"})
-					Gofer on GitHub
+					{ i18n.T(ctx, "about.github") }
 					@icon.ExternalLink(icon.Props{Class: "size-3.5 text-muted-foreground"})
 				</a>
 			</div>
 		</div>
 		<div class="settings-card bg-card rounded-lg border p-6 space-y-5">
 			<div>
-				<h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-1">Updates</h3>
+				<h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-1">{ i18n.T(ctx, "about.updates.title") }</h3>
 				<p class="text-xs text-muted-foreground leading-relaxed">
 					if info.Release() {
-						Gofer never checks on its own. Checking asks GitHub for the latest release.
+						{ i18n.T(ctx, "about.updates.release") }
 					} else {
-						Gofer never checks on its own. Checking asks GitHub for commits on { updatecheck.Base } that this build does not have, whichever branch it was built from.
+						{ i18n.T(ctx, "about.updates.source", "base", updatecheck.Base) }
 					}
 				</p>
 			</div>
@@ -91,10 +91,10 @@ templ SettingsAboutTab(info buildinfo.Info) {
 templ aboutLibraries(bundled, modules []attribution.Library) {
 	<div class="settings-card bg-card rounded-lg border p-6 space-y-5" data-about-libraries>
 		<div>
-			<h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-1">Open-source software</h3>
+			<h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-1">{ i18n.T(ctx, "about.libraries.title") }</h3>
 			<p class="text-xs text-muted-foreground leading-relaxed">
-				Gofer is built on the work of these projects.
-				<a href="/settings/about/licenses" target="_blank" class="text-primary hover:underline">Read the full license texts</a>.
+				{ i18n.T(ctx, "about.libraries.description") }
+				<a href="/settings/about/licenses" target="_blank" class="text-primary hover:underline">{ i18n.T(ctx, "about.libraries.licenses") }</a>.
 			</p>
 		</div>
 		<div class="settings-row border-t border-border/60 pt-5">
@@ -105,7 +105,7 @@ templ aboutLibraries(bundled, modules []attribution.Library) {
 				@collapsible.Trigger(collapsible.TriggerProps{Class: "group cursor-pointer"}) {
 					<button type="button" class="inline-flex items-center gap-1.5 text-sm text-foreground hover:text-primary">
 						@icon.ChevronRight(icon.Props{Class: "size-4 transition-transform group-aria-expanded:rotate-90"})
-						{ strconv.Itoa(len(modules)) } Go modules
+						{ i18n.T(ctx, "about.libraries.go_modules", "count", i18n.Number(ctx, len(modules))) }
 					</button>
 				}
 				@collapsible.Content() {
@@ -141,7 +141,7 @@ templ AboutUpdateCheck(result *updatecheck.Result, errMsg string) {
 				if errMsg != "" {
 					<p class="text-destructive">{ errMsg }</p>
 				} else if result == nil {
-					<p class="text-muted-foreground">Not checked yet.</p>
+					<p class="text-muted-foreground">{ i18n.T(ctx, "about.updates.not_checked") }</p>
 				} else if result.Source {
 					@aboutSourceStatus(*result)
 				} else {
@@ -161,15 +161,15 @@ templ AboutUpdateCheck(result *updatecheck.Result, errMsg string) {
 			}) {
 				@icon.RefreshCw(icon.Props{Class: "size-3.5 group-[.htmx-request]:animate-spin"})
 				if result == nil && errMsg == "" {
-					Check for updates
+					{ i18n.T(ctx, "about.updates.check") }
 				} else {
-					Check again
+					{ i18n.T(ctx, "about.updates.check_again") }
 				}
 			}
 		</div>
 		if result != nil && !result.Source && result.Available && result.Latest.Notes != "" {
 			<div class="rounded-md border border-border/60 bg-muted/30 p-3 max-h-64 overflow-y-auto">
-				<p class="text-xs font-medium text-muted-foreground mb-2">Release notes</p>
+				<p class="text-xs font-medium text-muted-foreground mb-2">{ i18n.T(ctx, "about.updates.notes") }</p>
 				<div class="text-xs text-foreground whitespace-pre-wrap break-words leading-relaxed" data-about-release-notes>{ result.Latest.Notes }</div>
 			</div>
 		}
@@ -191,25 +191,25 @@ templ AboutUpdateCheck(result *updatecheck.Result, errMsg string) {
 
 templ aboutReleaseStatus(r updatecheck.Result) {
 	if r.Latest.Tag == "" {
-		<p class="text-muted-foreground">No releases are published yet.</p>
+		<p class="text-muted-foreground">{ i18n.T(ctx, "about.updates.no_releases") }</p>
 	} else if r.Available {
 		<p class="font-medium text-foreground">
-			<a href={ templ.URL(r.Latest.URL) } target="_blank" rel="noopener noreferrer" class="text-primary hover:underline">{ r.Latest.Tag }</a> is available.
+			@messageWithLink(i18n.T(ctx, "about.updates.available"), "{version}", templ.URL(r.Latest.URL), r.Latest.Tag, "text-primary hover:underline")
 		</p>
 		if !r.Latest.PublishedAt.IsZero() {
-			<p class="text-xs text-muted-foreground mt-0.5">Released { i18n.Dates(ctx).LongMonthDate(r.Latest.PublishedAt.UTC()) }</p>
+			<p class="text-xs text-muted-foreground mt-0.5">{ i18n.T(ctx, "about.updates.released", "date", i18n.Dates(ctx).LongMonthDate(r.Latest.PublishedAt.UTC())) }</p>
 		}
 	} else {
-		<p class="text-foreground">Gofer is up to date.</p>
+		<p class="text-foreground">{ i18n.T(ctx, "about.updates.up_to_date") }</p>
 	}
 }
 
 templ aboutSourceStatus(r updatecheck.Result) {
 	if r.Unknown {
-		<p class="text-foreground">This build has local commits that are not on GitHub, so it cannot be compared with { updatecheck.Base }.</p>
+		<p class="text-foreground">{ i18n.T(ctx, "about.updates.unknown", "base", updatecheck.Base) }</p>
 		if r.Head.SHA != "" {
 			<p class="text-xs text-muted-foreground mt-1" data-about-master-head>
-				Latest on { updatecheck.Base }:
+				{ i18n.T(ctx, "about.updates.latest_on", "base", updatecheck.Base) }
 				<a href={ templ.URL(r.Head.URL) } target="_blank" rel="noopener noreferrer" class="font-mono hover:text-primary">{ shortSHA(r.Head.SHA) }</a>
 				{ r.Head.Title }
 				if !r.Head.Date.IsZero() {
@@ -219,24 +219,27 @@ templ aboutSourceStatus(r updatecheck.Result) {
 		}
 	} else if r.Available {
 		<p class="font-medium text-foreground">
-			Compared with { updatecheck.Base }:
-			if r.Behind == 1 {
-				1 newer commit.
-			} else {
-				{ strconv.Itoa(r.Behind) } newer commits.
-			}
+			{ i18n.T(ctx, "about.updates.compared", "base", updatecheck.Base) }
+			{ i18n.N(ctx, "about.updates.newer", r.Behind, "count", i18n.Number(ctx, r.Behind)) }
 			if r.CompareURL != "" {
-				<a href={ templ.URL(r.CompareURL) } target="_blank" rel="noopener noreferrer" class="ml-1 font-normal text-primary hover:underline">See all changes</a>
+				<a href={ templ.URL(r.CompareURL) } target="_blank" rel="noopener noreferrer" class="ml-1 font-normal text-primary hover:underline">{ i18n.T(ctx, "about.updates.see_all") }</a>
 			}
 		</p>
 		if r.Diverged {
-			<p class="text-xs text-muted-foreground mt-0.5">This build also has commits that are not on { updatecheck.Base }.</p>
+			<p class="text-xs text-muted-foreground mt-0.5">{ i18n.T(ctx, "about.updates.also_diverged", "base", updatecheck.Base) }</p>
 		}
 	} else if r.Diverged {
-		<p class="text-foreground">Compared with { updatecheck.Base }: this build has commits that are not on it, and nothing new there.</p>
+		<p class="text-foreground">{ i18n.T(ctx, "about.updates.diverged", "base", updatecheck.Base) }</p>
 	} else {
-		<p class="text-foreground">Compared with { updatecheck.Base }: this build has everything on it.</p>
+		<p class="text-foreground">{ i18n.T(ctx, "about.updates.current", "base", updatecheck.Base) }</p>
 	}
+}
+
+// messageWithLink shows a translated message with a link in place of its
+// placeholder, wherever the language puts it.
+templ messageWithLink(message, placeholder string, href templ.SafeURL, label, class string) {
+	{{ before, after, _ := strings.Cut(message, placeholder) }}
+	{ before }<a href={ href } target="_blank" rel="noopener noreferrer" class={ class }>{ label }</a>{ after }
 }
 
 func shortSHA(sha string) string {

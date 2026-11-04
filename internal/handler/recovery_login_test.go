@@ -132,7 +132,7 @@ func TestRecoveryCodeLoginRequiresFactorRepairBeforeIssuingSession(t *testing.T)
 	mfaPage := httptest.NewRecorder()
 	stack.ServeHTTP(mfaPage, request)
 	if mfaPage.Code != http.StatusOK || !strings.Contains(mfaPage.Body.String(), "Replace your authenticator") ||
-		!strings.Contains(mfaPage.Body.String(), "data:image/png;base64,") || strings.Contains(mfaPage.Body.String(), "https://") {
+		!strings.Contains(mfaPage.Body.String(), "data:image/png;base64,") || regexp.MustCompile(`(?i)\bsrc(set)?="https?://|<link\b[^>]*\bhref="https?://|url\(['"]?https?://`).MatchString(mfaPage.Body.String()) {
 		t.Fatalf("repair MFA page = %d %q", mfaPage.Code, mfaPage.Body.String())
 	}
 	repairState, err := manager.GetRecoveryRepairState(t.Context(), repairCookie.Value, "https://gofer.example")

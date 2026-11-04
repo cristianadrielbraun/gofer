@@ -3,6 +3,7 @@ package views
 import (
 	"github.com/cristianadrielbraun/gofer/internal/assetver"
 	"github.com/cristianadrielbraun/gofer/components/button"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 )
 
 type InvitationEnrollmentData struct {
@@ -21,18 +22,19 @@ templ InvitationEnrollmentPage(data InvitationEnrollmentData) {
 			<meta charset="UTF-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 			@I18nScripts()
-			<title>Gofer - Accept Invitation</title>
+			<title>{ i18n.T(ctx, "signin.title.invite") }</title>
 			@AppIcon()
 			<link rel="stylesheet" href={ assetver.URL("/assets/css/output.css") }/>
 			<script src={ assetver.URL("/assets/js/actions.js") }></script>
 		</head>
 		<body class="bg-background text-foreground antialiased surface-desk">
+			@PublicPageCorners()
 			<main class="min-h-screen flex items-center justify-center p-4">
 				<div class="w-full max-w-sm">
 					<div class="text-center mb-8">
 						<img src={ assetver.URL("/assets/logo.svg") } alt="Gofer" class="h-12 w-auto mx-auto"/>
-						<h1 class="mt-6 text-2xl font-semibold">Accept your Gofer invitation</h1>
-						<p class="mt-2 text-sm text-muted-foreground">Use the private invitation token provided by your administrator. It can be used only once.</p>
+						<h1 class="mt-6 text-2xl font-semibold">{ i18n.T(ctx, "signin.enroll_invite.title") }</h1>
+						<p class="mt-2 text-sm text-muted-foreground">{ i18n.T(ctx, "signin.enroll_invite.description") }</p>
 					</div>
 					if data.Message != "" {
 						<div id="enrollment-error" role="alert" aria-live="polite" class="bg-destructive/10 border border-destructive/20 text-destructive rounded-lg px-4 py-3 text-sm mb-6">
@@ -41,7 +43,7 @@ templ InvitationEnrollmentPage(data InvitationEnrollmentData) {
 					}
 					<form method="post" action="/account/enroll" class="space-y-4">
 						<div class="space-y-2">
-							<label for="enrollment-token" class="text-sm font-medium">Invitation token</label>
+							<label for="enrollment-token" class="text-sm font-medium">{ i18n.T(ctx, "signin.enroll_invite.token") }</label>
 							<input
 								id="enrollment-token"
 								name="token"
@@ -59,11 +61,11 @@ templ InvitationEnrollmentPage(data InvitationEnrollmentData) {
 								}
 								class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none transition-shadow placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 aria-[invalid=true]:border-destructive aria-[invalid=true]:ring-destructive/20"
 							/>
-							<p id="enrollment-token-help" class="text-xs leading-relaxed text-muted-foreground"><span class="font-semibold text-foreground">Required for both options below.</span> Enter the invitation token before choosing how to sign in.</p>
+							<p id="enrollment-token-help" class="text-xs leading-relaxed text-muted-foreground"><span class="font-semibold text-foreground">{ i18n.T(ctx, "signin.enroll_invite.token_required") }</span> { i18n.T(ctx, "signin.enroll_invite.token_help") }</p>
 						</div>
-						<p class="pt-2 text-sm font-semibold">Choose how to sign in</p>
+						<p class="pt-2 text-sm font-semibold">{ i18n.T(ctx, "signin.enroll_invite.choose") }</p>
 						<div class="space-y-2">
-							<label for="enrollment-password" class="text-sm font-medium">Create password</label>
+							<label for="enrollment-password" class="text-sm font-medium">{ i18n.T(ctx, "signin.enroll_invite.create_password") }</label>
 							<input
 								id="enrollment-password"
 								name="new_password"
@@ -75,10 +77,10 @@ templ InvitationEnrollmentPage(data InvitationEnrollmentData) {
 								aria-describedby="enrollment-password-help"
 								class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none transition-shadow placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
 							/>
-							<p id="enrollment-password-help" class="text-xs text-muted-foreground">Use at least 15 characters. Spaces and Unicode are supported.</p>
+							<p id="enrollment-password-help" class="text-xs text-muted-foreground">{ i18n.T(ctx, "signin.password_help") }</p>
 						</div>
 						<div class="space-y-2">
-							<label for="enrollment-password-confirmation" class="text-sm font-medium">Confirm password</label>
+							<label for="enrollment-password-confirmation" class="text-sm font-medium">{ i18n.T(ctx, "setup.password.confirm") }</label>
 							<input
 								id="enrollment-password-confirmation"
 								name="confirm_password"
@@ -91,28 +93,28 @@ templ InvitationEnrollmentPage(data InvitationEnrollmentData) {
 							/>
 						</div>
 						@button.Button(button.Props{Type: button.TypeSubmit, FullWidth: true}) {
-							Accept invitation with password
+							{ i18n.T(ctx, "signin.enroll_invite.with_password") }
 						}
 						if data.GoogleLoginAvailable {
 							<div class="relative py-1" aria-hidden="true">
 								<div class="absolute inset-0 flex items-center"><div class="w-full border-t border-border"></div></div>
-								<div class="relative flex justify-center"><span class="bg-background px-3 text-xs uppercase tracking-wide text-muted-foreground">or</span></div>
+								<div class="relative flex justify-center"><span class="bg-background px-3 text-xs uppercase tracking-wide text-muted-foreground">{ i18n.T(ctx, "signin.or") }</span></div>
 							</div>
 							@button.Button(button.Props{
 								Type: button.TypeSubmit, Variant: button.VariantOutline, FullWidth: true,
 								Attributes: templ.Attributes{"formaction": "/account/enroll/google", "formnovalidate": true},
 							}) {
-								Accept invitation with Google
+								{ i18n.T(ctx, "signin.enroll_invite.with_google") }
 							}
 							<p class="text-xs leading-relaxed text-muted-foreground">
-								This uses the invitation token entered above. Google is used only to sign in to Gofer; it does not connect your Gmail mailbox or grant Gofer access to mail, contacts, or calendars.
+								{ i18n.T(ctx, "signin.enroll_invite.google_note") }
 							</p>
 						}
 					</form>
-					<p class="mt-6 text-center text-xs text-muted-foreground">The invitation token and password are sent only when you submit this form. They are never included in the page URL.</p>
+					<p class="mt-6 text-center text-xs text-muted-foreground">{ i18n.T(ctx, "signin.enroll_invite.note") }</p>
 					<div class="mt-4">
 						@button.Button(button.Props{Href: "/login", Variant: button.VariantOutline, FullWidth: true}) {
-							Back to sign in
+							{ i18n.T(ctx, "signin.back") }
 						}
 					</div>
 				</div>
@@ -128,18 +130,19 @@ templ CredentialRedemptionPage(data CredentialRedemptionData) {
 			<meta charset="UTF-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 			@I18nScripts()
-			<title>Gofer - Reset Password</title>
+			<title>{ i18n.T(ctx, "signin.title.redeem") }</title>
 			@AppIcon()
 			<link rel="stylesheet" href={ assetver.URL("/assets/css/output.css") }/>
 			<script src={ assetver.URL("/assets/js/actions.js") }></script>
 		</head>
 		<body class="bg-background text-foreground antialiased surface-desk">
+			@PublicPageCorners()
 			<main class="min-h-screen flex items-center justify-center p-4">
 				<div class="w-full max-w-sm">
 					<div class="text-center mb-8">
 						<img src={ assetver.URL("/assets/logo.svg") } alt="Gofer" class="h-12 w-auto mx-auto"/>
-						<h1 class="mt-6 text-2xl font-semibold">Reset your Gofer password</h1>
-						<p class="mt-2 text-sm text-muted-foreground">Use the private reset token provided by your administrator. It can be used only once.</p>
+						<h1 class="mt-6 text-2xl font-semibold">{ i18n.T(ctx, "signin.redeem.title") }</h1>
+						<p class="mt-2 text-sm text-muted-foreground">{ i18n.T(ctx, "signin.redeem.description") }</p>
 					</div>
 					if data.Message != "" {
 						<div id="redemption-error" role="alert" aria-live="polite" class="bg-destructive/10 border border-destructive/20 text-destructive rounded-lg px-4 py-3 text-sm mb-6">
@@ -148,7 +151,7 @@ templ CredentialRedemptionPage(data CredentialRedemptionData) {
 					}
 					<form method="post" action="/account/redeem" class="space-y-4">
 						<div class="space-y-2">
-							<label for="redemption-token" class="text-sm font-medium">Reset token</label>
+							<label for="redemption-token" class="text-sm font-medium">{ i18n.T(ctx, "signin.redeem.token") }</label>
 							<input
 								id="redemption-token"
 								name="token"
@@ -166,7 +169,7 @@ templ CredentialRedemptionPage(data CredentialRedemptionData) {
 							/>
 						</div>
 						<div class="space-y-2">
-							<label for="redemption-password" class="text-sm font-medium">New password</label>
+							<label for="redemption-password" class="text-sm font-medium">{ i18n.T(ctx, "signin.change.new") }</label>
 							<input
 								id="redemption-password"
 								name="new_password"
@@ -178,10 +181,10 @@ templ CredentialRedemptionPage(data CredentialRedemptionData) {
 								aria-describedby="redemption-password-help"
 								class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none transition-shadow placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
 							/>
-							<p id="redemption-password-help" class="text-xs text-muted-foreground">Use at least 15 characters. Spaces and Unicode are supported.</p>
+							<p id="redemption-password-help" class="text-xs text-muted-foreground">{ i18n.T(ctx, "signin.password_help") }</p>
 						</div>
 						<div class="space-y-2">
-							<label for="redemption-password-confirmation" class="text-sm font-medium">Confirm new password</label>
+							<label for="redemption-password-confirmation" class="text-sm font-medium">{ i18n.T(ctx, "signin.change.confirm") }</label>
 							<input
 								id="redemption-password-confirmation"
 								name="confirm_password"
@@ -194,13 +197,13 @@ templ CredentialRedemptionPage(data CredentialRedemptionData) {
 							/>
 						</div>
 						@button.Button(button.Props{Type: button.TypeSubmit, FullWidth: true}) {
-							Reset password
+							{ i18n.T(ctx, "signin.redeem.submit") }
 						}
 					</form>
-					<p class="mt-6 text-center text-xs text-muted-foreground">The reset token and password are sent only when you submit this form. They are never included in the page URL.</p>
+					<p class="mt-6 text-center text-xs text-muted-foreground">{ i18n.T(ctx, "signin.redeem.note") }</p>
 					<div class="mt-4">
 						@button.Button(button.Props{Href: "/login", Variant: button.VariantOutline, FullWidth: true}) {
-							Back to sign in
+							{ i18n.T(ctx, "signin.back") }
 						}
 					</div>
 				</div>
@@ -210,11 +213,11 @@ templ CredentialRedemptionPage(data CredentialRedemptionData) {
 }
 
 templ InvitationEnrollmentCompletePage() {
-	@passwordTokenCompletePage("Invitation accepted", "Your invitation has been consumed and your Gofer account is ready. Sign in with your new password.")
+	@passwordTokenCompletePage(i18n.T(ctx, "signin.enroll_invite.done_title"), i18n.T(ctx, "signin.enroll_invite.done"))
 }
 
 templ CredentialRedemptionCompletePage() {
-	@passwordTokenCompletePage("Password reset", "Your reset token has been consumed. Sign in with your new password.")
+	@passwordTokenCompletePage(i18n.T(ctx, "signin.redeem.done_title"), i18n.T(ctx, "signin.redeem.done"))
 }
 
 templ passwordTokenCompletePage(title string, message string) {
@@ -230,6 +233,7 @@ templ passwordTokenCompletePage(title string, message string) {
 			<script src={ assetver.URL("/assets/js/actions.js") }></script>
 		</head>
 		<body class="bg-background text-foreground antialiased surface-desk">
+			@PublicPageCorners()
 			<main class="min-h-screen flex items-center justify-center p-4">
 				<div class="w-full max-w-sm text-center">
 					<img src={ assetver.URL("/assets/logo.svg") } alt="Gofer" class="h-12 w-auto mx-auto"/>
@@ -239,7 +243,7 @@ templ passwordTokenCompletePage(title string, message string) {
 					</div>
 					<div class="mt-8">
 						@button.Button(button.Props{Href: "/login", FullWidth: true}) {
-							Back to sign in
+							{ i18n.T(ctx, "signin.back") }
 						}
 					</div>
 				</div>

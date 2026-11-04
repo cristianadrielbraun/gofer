@@ -46,7 +46,7 @@ func TestSetupOwnerPageIsAccessibleAndLocal(t *testing.T) {
 	html := output.String()
 	for _, want := range []string{
 		"Setup access verified", "Choose the Gofer owner", `action="/setup/owner"`,
-		`name="owner_target"`, `value="existing:person-id"`, "2 mail accounts", "1 legacy sessions",
+		`name="owner_target"`, `value="existing:person-id"`, "2 mail accounts", "1 legacy session",
 		`autocomplete="username"`, `role="alert"`, `&lt;script&gt;alert`,
 		"No user, role, credential, or owned data has been changed yet", `href="/setup/password"`,
 	} {
@@ -113,7 +113,7 @@ func TestSetupMFAPageIsAccessibleLocalAndEscapesErrors(t *testing.T) {
 			t.Fatalf("setup MFA page missing %q", want)
 		}
 	}
-	if strings.Contains(html, message) || strings.Contains(html, "fonts.googleapis.com") || strings.Contains(html, "fonts.gstatic.com") || strings.Contains(html, "https://") {
+	if strings.Contains(html, message) || strings.Contains(html, "fonts.googleapis.com") || strings.Contains(html, "fonts.gstatic.com") || loadsRemoteResource(html) {
 		t.Fatal("setup MFA page rendered unsafe or remote content")
 	}
 }
@@ -166,7 +166,7 @@ func TestSetupRecoveryPageDisplaysPlaintextBatchOnceAndEscapesErrors(t *testing.
 			t.Fatalf("setup recovery page missing %q", want)
 		}
 	}
-	if strings.Contains(html, message) || strings.Contains(html, "fonts.googleapis.com") || strings.Contains(html, "fonts.gstatic.com") || strings.Contains(html, "https://") {
+	if strings.Contains(html, message) || strings.Contains(html, "fonts.googleapis.com") || strings.Contains(html, "fonts.gstatic.com") || loadsRemoteResource(html) {
 		t.Fatal("setup recovery page rendered unsafe or remote content")
 	}
 }
@@ -234,13 +234,13 @@ func TestSetupReviewPageIsAccessibleLocalAndEscapesIdentity(t *testing.T) {
 		"Review owner setup", `aria-labelledby="review-owner-heading"`,
 		`aria-labelledby="review-security-heading"`, `aria-labelledby="review-migration-heading"`,
 		"existing-user", "Current Person", "disabled", "standard user", `&lt;script&gt;alert`,
-		"1 existing password credential(s) will be replaced",
-		"1 active authenticator app(s) will be replaced",
-		"8 unused recovery code(s) will be replaced",
-		"2 active passkey(s) and 1 app-login identity record(s) remain attached",
-		"Claim the selected existing user in place", "3 mail account record(s) exist; 3 are attached to valid user IDs",
-		"2 mail account(s) are already attached", "4 currently unrevoked session(s)",
-		"1 legacy session record(s)", "Review only — nothing has been committed",
+		"1 existing password credential will be replaced",
+		"1 active authenticator app will be replaced",
+		"8 unused recovery codes will be replaced",
+		"2 active passkeys stay attached to the same user.", "1 app-login identity record stays attached",
+		"Claim the selected existing user in place", "3 mail account records exist; 3 of them are attached to valid user IDs",
+		"2 mail accounts are already attached", "4 unrevoked sessions across the instance",
+		"1 legacy session record.", "Review only — nothing has been committed",
 		`role="status"`, `aria-live="polite"`, `href="/setup/recovery"`,
 		`method="post" action="/setup/review"`, `name="action" value="complete"`,
 		"Ready to initialize mandatory authentication", "Complete setup and sign in",
@@ -251,7 +251,7 @@ func TestSetupReviewPageIsAccessibleLocalAndEscapesIdentity(t *testing.T) {
 		}
 	}
 	if strings.Contains(html, message) || strings.Contains(html, `name="batch_id"`) ||
-		strings.Contains(html, "fonts.googleapis.com") || strings.Contains(html, "fonts.gstatic.com") || strings.Contains(html, "https://") {
+		strings.Contains(html, "fonts.googleapis.com") || strings.Contains(html, "fonts.gstatic.com") || loadsRemoteResource(html) {
 		t.Fatal("setup review page rendered unsafe, remote, or mutating content")
 	}
 }
@@ -281,7 +281,7 @@ func TestSetupReviewFreshAndBlockedImpactAreExplicit(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"Setup completion is blocked", "One mailbox has no valid owner", "1 mail account(s) have no valid user owner", "will not guess, delete, merge, or reassign",
+		"Setup completion is blocked", "One mailbox has no valid owner", "1 mail account has no valid user owner", "will not guess, delete, merge, or reassign",
 	} {
 		if !strings.Contains(blocked.String(), want) {
 			t.Fatalf("blocked setup review missing %q", want)

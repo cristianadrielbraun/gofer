@@ -101,7 +101,7 @@ func TestAdministratorCanPermanentlyDeleteDisabledWebmailUserAndLocalData(t *tes
 	for _, want := range []string{
 		"Delete permanently", "Permanently delete Delete.Target?", `action="` + path + `"`,
 		"Gofer will permanently remove", "Remote provider data is not changed",
-		"This screen cannot export another user's private mail", "Redacted security-event records are retained",
+		"This screen cannot export another user&#39;s private mail", "Redacted security-event records are retained",
 		`name="confirmation"`, "Delete user and local data",
 	} {
 		if !strings.Contains(page.Body.String(), want) {

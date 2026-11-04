@@ -915,12 +915,12 @@ func TestSetupReviewIsSecretFreeReadOnlyAndShowsExactFreshImpact(t *testing.T) {
 	for _, want := range []string{
 		"Review owner setup", "Create a new active owner and administrator",
 		"Owner", "owner", "Prepared security",
-		"0 existing password credential(s) will be replaced",
-		"0 active authenticator app(s) will be replaced",
-		"0 unused recovery code(s) will be replaced",
-		"0 active passkey(s) and 0 app-login identity record(s) remain attached",
+		"0 existing password credentials will be replaced",
+		"0 active authenticator apps will be replaced",
+		"0 unused recovery codes will be replaced",
+		"0 active passkeys stay attached to the same user.", "0 app-login identity records stay attached",
 		"Initialize a fresh owner without creating or claiming a synthetic default user",
-		"0 currently unrevoked session(s) across the instance will be revoked at cutover",
+		"0 unrevoked sessions across the instance will be revoked at cutover",
 		"Review only — nothing has been committed", `href="/setup/recovery"`,
 		`method="post" action="/setup/review"`, "Complete setup and sign in",
 	} {

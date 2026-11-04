@@ -27,6 +27,9 @@ const (
 	English Locale = "en"
 	// CookieName holds a chosen language for pages shown before sign-in.
 	CookieName = "gofer_lang"
+	// PickCookieName marks a language picked on a page shown before
+	// sign-in, which is then saved as the user's language once they sign in.
+	PickCookieName = "gofer_lang_pick"
 	// SettingKey is the UI setting that holds a user's language. An empty
 	// value or "auto" follows the browser.
 	SettingKey = "language"
