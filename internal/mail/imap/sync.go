@@ -194,6 +194,14 @@ func (c *Client) SyncFolder(ctx context.Context, folderID, remoteName string, op
 								})
 							}
 						}
+						for _, addr := range item.Envelope.Bcc {
+							if email := addr.Addr(); email != "" {
+								syncMsg.BCCRecipients = append(syncMsg.BCCRecipients, storage.Recipient{
+									Name:  message.DecodeHeader(addr.Name),
+									Email: email,
+								})
+							}
+						}
 					}
 				case imapclient.FetchItemDataFlags:
 					syncMsg.Labels = labelsFromFlags(item.Flags)
@@ -359,6 +367,14 @@ func (c *Client) SyncFolderIncremental(ctx context.Context, folderID, remoteName
 					for _, addr := range item.Envelope.Cc {
 						if email := addr.Addr(); email != "" {
 							syncMsg.CCRecipients = append(syncMsg.CCRecipients, storage.Recipient{
+								Name:  message.DecodeHeader(addr.Name),
+								Email: email,
+							})
+						}
+					}
+					for _, addr := range item.Envelope.Bcc {
+						if email := addr.Addr(); email != "" {
+							syncMsg.BCCRecipients = append(syncMsg.BCCRecipients, storage.Recipient{
 								Name:  message.DecodeHeader(addr.Name),
 								Email: email,
 							})

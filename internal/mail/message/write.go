@@ -407,6 +407,63 @@ func ParseAddressList(s string) ([]*mail.Address, error) {
 	return addrs, nil
 }
 
+// ParseDraftAddressList reads the addresses of a draft, which may still hold
+// an entry that is not an address yet, such as a half-typed name. Every
+// entry is read on its own and the ones that are not addresses are left out,
+// so one of them does not lose the rest of the list.
+func ParseDraftAddressList(s string) []*mail.Address {
+	if addrs, err := ParseAddressList(s); err == nil {
+		return addrs
+	}
+	var addrs []*mail.Address
+	for _, entry := range splitAddressEntries(s) {
+		if parsed, err := mail.ParseAddressList(entry); err == nil {
+			addrs = append(addrs, parsed...)
+		}
+	}
+	return addrs
+}
+
+// splitAddressEntries splits an address list at the commas between entries,
+// not at those inside a quoted name, a comment or an angle address.
+func splitAddressEntries(s string) []string {
+	var entries []string
+	start, depth := 0, 0
+	quoted, escaped, angle := false, false, false
+	add := func(end int) {
+		if entry := strings.TrimSpace(s[start:end]); entry != "" {
+			entries = append(entries, entry)
+		}
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case escaped:
+			escaped = false
+		case c == '\\' && (quoted || depth > 0):
+			escaped = true
+		case quoted:
+			quoted = c != '"'
+		case c == '"':
+			quoted = true
+		case c == '(':
+			depth++
+		case c == ')' && depth > 0:
+			depth--
+		case depth > 0:
+		case c == '<':
+			angle = true
+		case c == '>':
+			angle = false
+		case c == ',' && !angle:
+			add(i)
+			start = i + 1
+		}
+	}
+	add(len(s))
+	return entries
+}
+
 func AllRecipients(msg *OutgoingMessage) []string {
 	var recipients []string
 	for _, a := range msg.To {

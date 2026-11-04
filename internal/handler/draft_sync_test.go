@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -213,4 +214,63 @@ func TestHandleComposeDraftWithoutDraftsFolderSaysWhy(t *testing.T) {
 	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "This account has no Drafts folder.") || rec.Header().Get(missingFolderHeader) != "victim-account drafts" {
 		t.Fatalf("status = %d body = %q header = %q", rec.Code, rec.Body.String(), rec.Header().Get(missingFolderHeader))
 	}
+}
+
+func TestHandleComposeDraftKeepsRecipientsBesideHalfTypedOne(t *testing.T) {
+	h, db := newAccountOwnershipTestHandler(t)
+	h.blobStore = store.NewBlobStore(filepath.Join(t.TempDir(), "blobs"))
+	h.syncer = mailpkg.NewSyncOrchestrator(db, h.accountStore, h.blobStore, nil)
+	if err := db.UpsertFolders(t.Context(), []storage.UpsertFolderInput{{
+		ID: "victim-drafts", AccountID: "victim-account", RemoteID: "Drafts", Name: "Drafts", Role: "drafts", Selectable: true,
+	}}); err != nil {
+		t.Fatalf("UpsertFolders() error = %v", err)
+	}
+	form := url.Values{
+		"account_id": {"victim-account"},
+		"to":         {"ana@example.com, bru"},
+		"cc":         {"cara"},
+		"bcc":        {"hidden@example.com, dav"},
+		"subject":    {"Half typed"},
+		"body":       {"Draft body"},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/compose/draft", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	ctx := auth.ContextWithUser(req.Context(), &auth.User{ID: "owner", Username: "owner"})
+	req = req.WithContext(ctx)
+	rec := httptest.NewRecorder()
+
+	h.handleComposeDraft(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %q", rec.Code, rec.Body.String())
+	}
+	var response map[string]string
+	if err := json.NewDecoder(rec.Body).Decode(&response); err != nil || response["draft_id"] == "" {
+		t.Fatalf("response = %#v, %v", response, err)
+	}
+	localID, err := db.GetMessageLocalIDByInternetIDInternal(t.Context(), "victim-account", response["draft_id"])
+	if err != nil || localID == 0 {
+		t.Fatalf("draft not saved: %d %v", localID, err)
+	}
+	email, err := db.GetEmailByIDForUser(t.Context(), strconv.FormatInt(localID, 10), "owner")
+	if err != nil || email == nil {
+		t.Fatalf("GetEmailByIDForUser() = %v, %v", email, err)
+	}
+	if got := contactsToAddressList(email.To); got != "ana@example.com" {
+		t.Fatalf("saved To = %q", got)
+	}
+	if got := contactsToAddressList(email.CC); got != "" {
+		t.Fatalf("saved Cc = %q", got)
+	}
+	if got := contactsToAddressList(email.BCC); got != "hidden@example.com" {
+		t.Fatalf("saved Bcc = %q", got)
+	}
+	var raw []byte
+	if err := db.Read().QueryRow(`SELECT mime_data FROM imap_draft_operations WHERE account_id = 'victim-account'`).Scan(&raw); err != nil {
+		t.Fatalf("query queued draft operation: %v", err)
+	}
+	if !strings.Contains(string(raw), "To: <ana@example.com>") {
+		t.Fatalf("queued draft has no To:\n%s", raw)
+	}
+	assertMIMEHeaders(t, raw, "Half typed", "", "hidden@example.com")
 }

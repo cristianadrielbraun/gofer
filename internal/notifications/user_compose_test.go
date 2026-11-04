@@ -670,3 +670,33 @@ func TestUserComposeBackgroundUsesDurableScheduledDeadline(t *testing.T) {
 		t.Fatalf("schedule accepted at %v before %s", accepted, due)
 	}
 }
+
+func TestUserComposeDraftOpensWhenBodyIsNotDownloaded(t *testing.T) {
+	f, _, _ := newUserComposeFixture(t)
+	form := url.Values{"draft_id": {"<body-later@example.com>"}, "to": {"ana@example.com"}, "bcc": {"bruno@example.com"}, "subject": {"Body later"}, "body": {"draft body from the server"}}
+	f.compose(t, "alice", "/compose/draft", form)
+	if err := f.imap.Sync(t.Context(), "alice", f.accounts["alice"].ID); err != nil {
+		t.Fatal(err)
+	}
+	var localID int64
+	if err := f.routing.WithUser(t.Context(), "alice", func(db *storage.DB) error {
+		var err error
+		localID, err = db.GetMessageLocalIDByInternetIDInternal(t.Context(), f.accounts["alice"].ID, form.Get("draft_id"))
+		if err != nil {
+			return err
+		}
+		// As a draft synced from the server before its body was downloaded.
+		_, err = db.Write().Exec(`UPDATE messages SET body_text_path=NULL,body_html_path=NULL,raw_path=NULL WHERE id=?`, localID)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	rec := f.request("alice", http.MethodGet, fmt.Sprintf("/api/drafts/%d", localID), "")
+	var draft map[string]any
+	if rec.Code != 200 || json.Unmarshal(rec.Body.Bytes(), &draft) != nil {
+		t.Fatalf("draft read: %d %s", rec.Code, rec.Body.String())
+	}
+	if draft["body"] != "draft body from the server" || draft["to"] != "ana@example.com" || draft["bcc"] != "bruno@example.com" {
+		t.Fatalf("draft = %v", draft)
+	}
+}

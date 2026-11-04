@@ -40,6 +40,7 @@ import (
 	"math/rand"
 	"mime"
 	"net/http"
+	netmail "net/mail"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -5388,6 +5389,9 @@ func (h *Handler) saveComposeDraftFromForm(ctx context.Context, r *http.Request)
 		return composeDraftSaveResult{}, &composeRequestError{status: http.StatusBadRequest, message: err.Error()}
 	}
 
+	toAddrs := message.ParseDraftAddressList(r.FormValue("to"))
+	ccAddrs := message.ParseDraftAddressList(r.FormValue("cc"))
+	bccAddrs := message.ParseDraftAddressList(r.FormValue("bcc"))
 	msgID, err := h.db.SaveDraftMessage(ctx, storage.DraftMessageInput{
 		AccountID:         accountID,
 		FolderID:          draftFolderID,
@@ -5398,9 +5402,9 @@ func (h *Handler) saveComposeDraftFromForm(ctx context.Context, r *http.Request)
 		FromName:          sender.Name,
 		FromEmail:         sender.Email,
 		Snippet:           snippet,
-		ToRecipients:      parseDraftRecipients(r.FormValue("to")),
-		CCRecipients:      parseDraftRecipients(r.FormValue("cc")),
-		BCCRecipients:     parseDraftRecipients(r.FormValue("bcc")),
+		ToRecipients:      draftRecipients(toAddrs),
+		CCRecipients:      draftRecipients(ccAddrs),
+		BCCRecipients:     draftRecipients(bccAddrs),
 		Date:              time.Now().UTC(),
 	})
 	if err != nil {
@@ -5420,9 +5424,6 @@ func (h *Handler) saveComposeDraftFromForm(ctx context.Context, r *http.Request)
 	}
 	_ = h.db.UpdateMessageBodyInternal(ctx, msgID, textPath, htmlPath, "", snippet, 0)
 	_ = h.db.ReplaceAttachmentsInternal(ctx, msgID, attachmentRows)
-	toAddrs, _ := message.ParseAddressList(r.FormValue("to"))
-	ccAddrs, _ := message.ParseAddressList(r.FormValue("cc"))
-	bccAddrs, _ := message.ParseAddressList(r.FormValue("bcc"))
 	providerDraft := &message.OutgoingMessage{
 		To:          toAddrs,
 		CC:          ccAddrs,
@@ -5525,11 +5526,7 @@ func (h *Handler) handleDiscardComposeDraft(w http.ResponseWriter, r *http.Reque
 	json.NewEncoder(w).Encode(map[string]string{"status": "discarded"})
 }
 
-func parseDraftRecipients(raw string) []storage.Recipient {
-	addrs, err := message.ParseAddressList(raw)
-	if err != nil {
-		return nil
-	}
+func draftRecipients(addrs []*netmail.Address) []storage.Recipient {
 	recipients := make([]storage.Recipient, 0, len(addrs))
 	for _, addr := range addrs {
 		recipients = append(recipients, storage.Recipient{Name: addr.Name, Email: addr.Address})
@@ -5774,7 +5771,8 @@ func (h *Handler) handleGetDraft(w http.ResponseWriter, r *http.Request) {
 	// A draft picked up from a thread may not have been opened yet, so its
 	// body may not be downloaded. Without it the editor would open with only
 	// the preview text.
-	if msgID, err := strconv.ParseInt(email.ID, 10, 64); err == nil && !h.db.IsBodyFetchedInternal(r.Context(), msgID) {
+	// Per-user storage fetched it before this handler ran (userComposeHandler).
+	if msgID, err := strconv.ParseInt(email.ID, 10, 64); err == nil && h.userMutationState == nil && !h.db.IsBodyFetchedInternal(r.Context(), msgID) {
 		h.ensureBodyFetched(r.Context(), msgID, email.AccountID)
 		if fetched, err := h.db.GetEmailByIDForUser(r.Context(), email.ID, h.userID(r.Context())); err == nil && fetched != nil && fetched.IsDraft {
 			email = fetched

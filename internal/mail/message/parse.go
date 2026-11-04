@@ -33,6 +33,7 @@ type ParsedMessage struct {
 	FromEmail   string
 	To          []Recipient
 	CC          []Recipient
+	BCC         []Recipient
 	DateSent    time.Time
 	TextBody    string
 	HTMLBody    []byte
@@ -112,6 +113,14 @@ func ParseMessage(ctx context.Context, r io.Reader, blobStore *store.BlobStore, 
 	if ccList, err := header.AddressList("Cc"); err == nil {
 		for _, addr := range ccList {
 			parsed.CC = append(parsed.CC, Recipient{Name: DecodeHeader(addr.Name), Email: addr.Address})
+		}
+	}
+
+	// Only a copy kept by its sender has Bcc, such as a draft or a sent
+	// message.
+	if bccList, err := header.AddressList("Bcc"); err == nil {
+		for _, addr := range bccList {
+			parsed.BCC = append(parsed.BCC, Recipient{Name: DecodeHeader(addr.Name), Email: addr.Address})
 		}
 	}
 

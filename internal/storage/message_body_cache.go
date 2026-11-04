@@ -82,10 +82,17 @@ func (db *DB) SaveMessageBodyCache(ctx context.Context, id int64, accountID stri
 	if err != nil {
 		return err
 	}
-	for _, table := range []string{"attachments", "message_recipients"} {
-		if _, err := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE message_id=?`, id); err != nil {
-			return err
-		}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM attachments WHERE message_id=?`, id); err != nil {
+		return err
+	}
+	// A copy without Bcc keeps the Bcc saved before: a provider may leave it
+	// out of the message it hands over even when the draft has one.
+	clearSQL := `DELETE FROM message_recipients WHERE message_id=? AND kind IN ('to','cc')`
+	if len(p.BCC) > 0 {
+		clearSQL = `DELETE FROM message_recipients WHERE message_id=?`
+	}
+	if _, err := tx.ExecContext(ctx, clearSQL, id); err != nil {
+		return err
 	}
 	for _, a := range p.Attachments {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO attachments(message_id,filename,content_type,size_bytes,content_id,inline,storage_path) VALUES(?,?,?,?,?,?,?)`, id, a.Filename, a.ContentType, a.Size, a.ContentID, a.Inline, a.BlobPath); err != nil {
@@ -95,7 +102,7 @@ func (db *DB) SaveMessageBodyCache(ctx context.Context, id int64, accountID stri
 	for _, list := range []struct {
 		kind       string
 		recipients []mailmessage.Recipient
-	}{{"to", p.To}, {"cc", p.CC}} {
+	}{{"to", p.To}, {"cc", p.CC}, {"bcc", p.BCC}} {
 		for _, r := range list.recipients {
 			if _, err := tx.ExecContext(ctx, `INSERT INTO message_recipients(message_id,kind,name,email) VALUES(?,?,?,?)`, id, list.kind, r.Name, r.Email); err != nil {
 				return err

@@ -951,6 +951,7 @@ type SyncMessage struct {
 	LabelProvider    string
 	ToRecipients     []Recipient
 	CCRecipients     []Recipient
+	BCCRecipients    []Recipient
 	SizeBytes        int64
 	ListID           string
 	// Arrived marks mail that just came in, as opposed to mail a first or
@@ -1709,6 +1710,11 @@ func (db *DB) UpsertSyncMessages(ctx context.Context, msgs []SyncMessage) error 
 			for _, r := range m.CCRecipients {
 				if _, err := recipStmt.ExecContext(ctx, msgID, "cc", r.Name, r.Email); err != nil {
 					return fmt.Errorf("insert cc: %w", err)
+				}
+			}
+			for _, r := range m.BCCRecipients {
+				if _, err := recipStmt.ExecContext(ctx, msgID, "bcc", r.Name, r.Email); err != nil {
+					return fmt.Errorf("insert bcc: %w", err)
 				}
 			}
 			if isNew {
