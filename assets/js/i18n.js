@@ -44,8 +44,6 @@
     "auto": {},
     "d-mmm-yyyy": { order: "dmy" },
     "mmm-d-yyyy": { order: "mdy" },
-    "ddd-d-mmm-yyyy": { order: "dmy", weekday: true },
-    "ddd-mmm-d-yyyy": { order: "mdy", weekday: true },
     "dd/mm/yyyy": { order: "dmy", numeric: true, separator: "/" },
     "mm/dd/yyyy": { order: "mdy", numeric: true, separator: "/" },
     "dd-mm-yyyy": { order: "dmy", numeric: true, separator: "-" },
@@ -137,8 +135,8 @@
     monthShortName: function (month) { return t("date.month_short." + month) },
     weekdayName: function (weekday) { return t("date.weekday." + weekday) },
     weekdayShortName: function (weekday) { return t("date.weekday_short." + weekday) },
-    date: function (date, zone) { var p = parts(date, zone); return format.weekday ? withWeekday(p, compact(p, true)) : compact(p, true) },
-    shortDate: function (date, zone) { var p = parts(date, zone); return format.weekday ? withWeekday(p, compact(p, false)) : compact(p, false) },
+    date: function (date, zone) { var p = parts(date, zone); return compact(p, true) },
+    shortDate: function (date, zone) { var p = parts(date, zone); return compact(p, false) },
     weekdayDate: function (date, zone) { var p = parts(date, zone); return withWeekday(p, compact(p, true)) },
     weekdayShortDate: function (date, zone) { var p = parts(date, zone); return withWeekday(p, compact(p, false)) },
     longDate: function (date, zone) {
@@ -170,7 +168,7 @@
     dateRange: function (start, end, zone) {
       var a = parts(start, zone), b = parts(end, zone), d = window.goferDates
       if (a.year !== b.year) return d.range(d.date(start, zone), d.date(end, zone))
-      if (a.month !== b.month || format.numeric || format.weekday) return d.range(d.shortDate(start, zone), d.date(end, zone))
+      if (a.month !== b.month || format.numeric) return d.range(d.shortDate(start, zone), d.date(end, zone))
       var days = t("date.pattern.day_range", { start: a.day, end: b.day })
       if (order === "mdy") return monthShort(a) + " " + days + ", " + a.year
       return days + " " + monthShort(a) + " " + a.year

@@ -1125,8 +1125,16 @@
       GoferSettings.set('timezone', timezone.value);
     }
     var language = e.target.closest('[data-language-input]');
-    if (language && typeof GoferSettings !== 'undefined') {
+    if (language && language.value && typeof GoferSettings !== 'undefined') {
       GoferSettings.set('language', language.value);
+    }
+    var dateFormat = e.target.closest('[data-date-format-input]');
+    if (dateFormat && dateFormat.value && typeof GoferSettings !== 'undefined') {
+      GoferSettings.set('date_format', dateFormat.value);
+    }
+    var timeFormat = e.target.closest('[data-time-format-input]');
+    if (timeFormat && timeFormat.value && typeof GoferSettings !== 'undefined') {
+      GoferSettings.set('time_format', timeFormat.value);
     }
   });
 })();

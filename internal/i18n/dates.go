@@ -33,16 +33,12 @@ type DateFormat struct {
 	// Numeric writes the month as a number, joined by Separator.
 	Numeric   bool
 	Separator string
-	// Weekday starts compact dates with the weekday, as in "Mon, 2 Nov".
-	Weekday bool
 }
 
 var dateFormats = []DateFormat{
 	{ID: "auto"},
 	{ID: "d-mmm-yyyy", Order: "dmy"},
 	{ID: "mmm-d-yyyy", Order: "mdy"},
-	{ID: "ddd-d-mmm-yyyy", Order: "dmy", Weekday: true},
-	{ID: "ddd-mmm-d-yyyy", Order: "mdy", Weekday: true},
 	{ID: "dd/mm/yyyy", Order: "dmy", Numeric: true, Separator: "/"},
 	{ID: "mm/dd/yyyy", Order: "mdy", Numeric: true, Separator: "/"},
 	{ID: "dd-mm-yyyy", Order: "dmy", Numeric: true, Separator: "-"},
@@ -197,17 +193,11 @@ func (f DateFormatter) withWeekday(t time.Time, date string) string {
 
 // Date writes a date with its year: "Nov 2, 2026", "2 nov 2026", "02-11-2026".
 func (f DateFormatter) Date(t time.Time) string {
-	if f.format.Weekday {
-		return f.withWeekday(t, f.compact(t, true))
-	}
 	return f.compact(t, true)
 }
 
 // ShortDate writes a date without its year: "Nov 2", "2 nov", "02-11".
 func (f DateFormatter) ShortDate(t time.Time) string {
-	if f.format.Weekday {
-		return f.withWeekday(t, f.compact(t, false))
-	}
 	return f.compact(t, false)
 }
 
@@ -319,7 +309,7 @@ func (f DateFormatter) DateRange(start, end time.Time) string {
 	if start.Year() != end.Year() {
 		return f.Range(f.Date(start), f.Date(end))
 	}
-	if start.Month() != end.Month() || f.format.Numeric || f.format.Weekday {
+	if start.Month() != end.Month() || f.format.Numeric {
 		return f.Range(f.ShortDate(start), f.Date(end))
 	}
 	month, year := f.MonthShortName(start.Month()), strconv.Itoa(start.Year())

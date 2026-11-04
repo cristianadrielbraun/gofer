@@ -805,8 +805,10 @@ var GoferSettings;
         detail: { key: key, value: value, oldValue: oldValue },
       }));
 
-      // The page is drawn in the time zone and language, so reload it.
-      if ((key === "timezone" && oldValue !== value) || (key === "language" && (oldValue || "auto") !== (value || "auto"))) {
+      // The page is drawn in the time zone, language and date formats, so
+      // reload it.
+      var drawn = key === "language" || key === "date_format" || key === "time_format";
+      if ((key === "timezone" && oldValue !== value) || (drawn && (oldValue || "auto") !== (value || "auto"))) {
         if (_saveTimer) clearTimeout(_saveTimer);
         persistSettingsNow().finally(function () {
           window.location.reload();

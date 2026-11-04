@@ -631,7 +631,7 @@ templ SettingsRegionalTab(uiSettings map[string]string) {
 				</div>
 				<div class="w-full shrink-0 sm:w-64" data-language-picker>
 					@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
-						@selectbox.Trigger(selectbox.TriggerProps{Name: i18n.SettingKey, Class: "bg-background", DisableClear: true, Attributes: templ.Attributes{"data-language-input": ""}}) {
+						@selectbox.Trigger(selectbox.TriggerProps{Name: i18n.SettingKey, Class: "bg-background", DisableClear: true, Required: true, Attributes: templ.Attributes{"data-language-input": ""}}) {
 							@selectbox.Value() {
 								{ languageSettingLabel(ctx, uiSettingGet(uiSettings, i18n.SettingKey, "auto")) }
 							}
@@ -651,12 +651,56 @@ templ SettingsRegionalTab(uiSettings map[string]string) {
 			</div>
 			<div class="settings-row border-t border-border/60 pt-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
 				<div class="min-w-0">
+					<h4 class="text-sm font-medium text-foreground">{ i18n.T(ctx, "settings.regional.date_format.title") }</h4>
+					<p class="text-xs text-muted-foreground mt-1">{ i18n.T(ctx, "settings.regional.date_format.description") }</p>
+				</div>
+				<div class="w-full shrink-0 sm:w-64" data-date-format-picker>
+					@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
+						@selectbox.Trigger(selectbox.TriggerProps{Name: i18n.DateFormatSettingKey, Class: "bg-background", DisableClear: true, Required: true, Attributes: templ.Attributes{"data-date-format-input": ""}}) {
+							@selectbox.Value() {
+								{ dateFormatLabel(ctx, dateFormatSetting(uiSettings)) }
+							}
+						}
+						@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
+							for _, format := range i18n.DateFormats() {
+								@selectbox.Item(selectbox.ItemProps{Value: format.ID, Selected: format.ID == dateFormatSetting(uiSettings)}) {
+									{ dateFormatLabel(ctx, format.ID) }
+								}
+							}
+						}
+					}
+				</div>
+			</div>
+			<div class="settings-row border-t border-border/60 pt-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+				<div class="min-w-0">
+					<h4 class="text-sm font-medium text-foreground">{ i18n.T(ctx, "settings.regional.time_format.title") }</h4>
+					<p class="text-xs text-muted-foreground mt-1">{ i18n.T(ctx, "settings.regional.time_format.description") }</p>
+				</div>
+				<div class="w-full shrink-0 sm:w-64" data-time-format-picker>
+					@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
+						@selectbox.Trigger(selectbox.TriggerProps{Name: i18n.TimeFormatSettingKey, Class: "bg-background", DisableClear: true, Required: true, Attributes: templ.Attributes{"data-time-format-input": ""}}) {
+							@selectbox.Value() {
+								{ timeFormatLabel(ctx, timeFormatSetting(uiSettings)) }
+							}
+						}
+						@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
+							for _, format := range i18n.TimeFormats() {
+								@selectbox.Item(selectbox.ItemProps{Value: format, Selected: format == timeFormatSetting(uiSettings)}) {
+									{ timeFormatLabel(ctx, format) }
+								}
+							}
+						}
+					}
+				</div>
+			</div>
+			<div class="settings-row border-t border-border/60 pt-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+				<div class="min-w-0">
 					<h4 class="text-sm font-medium text-foreground">{ i18n.T(ctx, "settings.regional.timezone.title") }</h4>
 					<p class="text-xs text-muted-foreground mt-1">{ i18n.T(ctx, "settings.regional.timezone.description") }</p>
 				</div>
 				<div class="w-full shrink-0 sm:w-64" data-timezone-picker data-current-timezone={ uiSettingGet(uiSettings, "timezone", "local") }>
 					@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
-						@selectbox.Trigger(selectbox.TriggerProps{Name: "timezone", Class: "bg-background", DisableClear: true, Attributes: templ.Attributes{"data-timezone-input": ""}}) {
+						@selectbox.Trigger(selectbox.TriggerProps{Name: "timezone", Class: "bg-background", DisableClear: true, Required: true, Attributes: templ.Attributes{"data-timezone-input": ""}}) {
 							@selectbox.Value() {
 								{ uiSettingGet(uiSettings, "timezone", i18n.T(ctx, "settings.regional.timezone.detecting")) }
 							}
@@ -689,6 +733,46 @@ func languageSettingLabel(ctx context.Context, setting string) string {
 		return i18n.NativeName(locale)
 	}
 	return i18n.T(ctx, "settings.regional.language.auto")
+}
+
+// The date and time format choices are shown as a sample, so people pick
+// what they see. December 31 shows whether the day or the month comes first.
+func formatSampleTime() time.Time {
+	return time.Date(time.Now().Year(), time.December, 31, 21, 30, 0, 0, time.UTC)
+}
+
+// dateFormatSetting is the saved date_format, or "auto" for one Gofer
+// doesn't have.
+func dateFormatSetting(uiSettings map[string]string) string {
+	setting := uiSettingGet(uiSettings, i18n.DateFormatSettingKey, "auto")
+	for _, format := range i18n.DateFormats() {
+		if format.ID == setting {
+			return setting
+		}
+	}
+	return "auto"
+}
+
+func dateFormatLabel(ctx context.Context, id string) string {
+	sample := i18n.NewDateFormatter(i18n.FromContext(ctx), id, "auto").Date(formatSampleTime())
+	if id == "auto" {
+		return i18n.T(ctx, "settings.regional.format.auto", "sample", sample)
+	}
+	return sample
+}
+
+// timeFormatSetting is the saved time_format, or "auto".
+func timeFormatSetting(uiSettings map[string]string) string {
+	setting := uiSettingGet(uiSettings, i18n.TimeFormatSettingKey, "auto")
+	if setting == "12h" || setting == "24h" {
+		return setting
+	}
+	return "auto"
+}
+
+func timeFormatLabel(ctx context.Context, id string) string {
+	sample := i18n.NewDateFormatter(i18n.FromContext(ctx), "auto", id).Time(formatSampleTime())
+	return i18n.T(ctx, "settings.regional.time_format."+id, "sample", sample)
 }
 
 templ SettingsAdvancedTab(uiSettings map[string]string) {

@@ -65,9 +65,7 @@ func TestDateFormatsOverrideTheLanguage(t *testing.T) {
 		{English, "dd.mm.yyyy", "", "02.11.2026", "02.11", "02.11.2026, 3:04 PM"},
 		{English, "yyyy-mm-dd", "", "2026-11-02", "11-02", "2026-11-02, 3:04 PM"},
 		{English, "d-mmm-yyyy", "", "2 Nov 2026", "2 Nov", "2 Nov 2026, 3:04 PM"},
-		{English, "ddd-d-mmm-yyyy", "", "Mon, 2 Nov 2026", "Mon, 2 Nov", "Mon, 2 Nov 2026, 3:04 PM"},
 		{"es", "mmm-d-yyyy", "12h", "nov 2, 2026", "nov 2", "nov 2, 2026, 3:04 p. m."},
-		{"es", "ddd-d-mmm-yyyy", "", "lun, 2 nov 2026", "lun, 2 nov", "lun, 2 nov 2026, 15:04"},
 		{"es", "unknown", "nonsense", "2 nov 2026", "2 nov", "2 nov 2026, 15:04"},
 	}
 	for _, c := range cases {

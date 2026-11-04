@@ -54,7 +54,6 @@ const formats = [
   ['mm/dd/yyyy', 'auto', '11/02/2026', '11/02', '11/02/2026, 3:04 PM'],
   ['dd.mm.yyyy', 'auto', '02.11.2026', '02.11', '02.11.2026, 3:04 PM'],
   ['yyyy-mm-dd', 'auto', '2026-11-02', '11-02', '2026-11-02, 3:04 PM'],
-  ['ddd-d-mmm-yyyy', 'auto', 'Mon, 2 Nov 2026', 'Mon, 2 Nov', 'Mon, 2 Nov 2026, 3:04 PM'],
 ]
 for (const [format, clock, date, short, dateTime] of formats) {
   w = load('en', format, clock)
