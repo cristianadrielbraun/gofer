@@ -109,6 +109,17 @@ func paneLayoutLabel(ctx context.Context, value string) string {
 	return i18n.T(ctx, "settings.panes.side")
 }
 
+func titleUnreadCountLabel(ctx context.Context, scope string) string {
+	switch scope {
+	case "all":
+		return i18n.T(ctx, "settings.title_unread.all")
+	case "off":
+		return i18n.T(ctx, "settings.title_unread.off")
+	default:
+		return i18n.T(ctx, "settings.title_unread.inboxes")
+	}
+}
+
 func notificationModeLabel(ctx context.Context, mode string) string {
 	switch mode {
 	case "web_push":

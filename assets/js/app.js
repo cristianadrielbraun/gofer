@@ -119,6 +119,10 @@ document.addEventListener("DOMContentLoaded", function () {
   var preserveMailListSelectionFor = null
   var initialMailReaderLoader = null
   var selectedMailIds = new Set()
+  // The tab title shows the unread count: the counts last fetched, and the
+  // title Gofer wrote with the count, to tell it from one written since.
+  var titleUnreadCounts = null
+  var titleUnreadWritten = null
   // The contacts list's selection, kept by setupContactsSelection.
   var selectedContactIds = new Set()
   // What the list shows of each selected contact, for writing to it.
@@ -254,6 +258,7 @@ document.addEventListener("DOMContentLoaded", function () {
   setupMailSyncCancelControls()
   setupDesktopNotifications()
   setupSidebarSyncErrorTimes()
+  setupTitleUnreadCount()
   refreshSidebarUnread()
 
   function setupContactsList() {
@@ -8215,6 +8220,8 @@ document.addEventListener("DOMContentLoaded", function () {
   window.refreshSidebarUnread = refreshSidebarUnread
   function refreshSidebarUnread() {
     fetch("/api/folders/unread").then(function (r) { return r.json() }).then(function (counts) {
+      titleUnreadCounts = counts
+      applyTitleUnreadCount()
       var badges = document.querySelectorAll("[data-folder-unread]")
       for (var i = 0; i < badges.length; i++) {
         var badge = badges[i]
@@ -8246,6 +8253,48 @@ document.addEventListener("DOMContentLoaded", function () {
     }).catch(function () {})
   }
   window.goferRefreshSidebarUnread = refreshSidebarUnread
+
+  // The tab title starts with the unread count, "(3) Gofer - Mail", so a
+  // pinned tab marks new mail. Settings choose the inboxes, every folder but
+  // Sent, Drafts, Spam and Trash, or no count.
+  function setupTitleUnreadCount() {
+    // Pages write their own titles as the person moves around; each gets
+    // the count again.
+    new MutationObserver(function () {
+      if (document.title !== titleUnreadWritten) applyTitleUnreadCount()
+    }).observe(document.head, { subtree: true, childList: true, characterData: true })
+    document.addEventListener("change", function (e) {
+      var input = e.target && e.target.closest ? e.target.closest('input[name="title_unread_count"]') : null
+      if (!input || !input.value || !window.GoferSettings) return
+      GoferSettings.set("title_unread_count", input.value)
+      applyTitleUnreadCount()
+      // Every folder's count comes only once the server has the setting.
+      if (input.value === "all") GoferSettings.saveNow().then(refreshSidebarUnread)
+    })
+  }
+
+  function titleUnreadPattern() {
+    var parts = goferT("js.page.title_unread", { count: "\u0000", title: "\u0001" }).split(/(\u0000|\u0001)/)
+    var source = parts.map(function (part) {
+      if (part === "\u0000") return "\\d+\\+?"
+      if (part === "\u0001") return "([\\s\\S]*)"
+      return part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+    }).join("")
+    return new RegExp("^" + source + "$")
+  }
+
+  function applyTitleUnreadCount() {
+    var title = document.title
+    // A title saved with an older count, as going back restores, loses it.
+    var counted = titleUnreadPattern().exec(title)
+    var base = counted ? counted[1] : title
+    var scope = (window.GoferSettings && GoferSettings.get("title_unread_count")) || "inboxes"
+    var n = 0
+    if (titleUnreadCounts && scope !== "off") n = Number(titleUnreadCounts[scope === "all" ? "all" : "inbox"] || 0)
+    var next = n > 0 ? goferT("js.page.title_unread", { count: n > 99 ? "99+" : String(n), title: base }) : base
+    titleUnreadWritten = next
+    if (next !== title) document.title = next
+  }
 
   function initVirtualScroll() {
     var container = document.getElementById("mail-list-scroll")

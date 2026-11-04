@@ -4805,6 +4805,22 @@ func (db *DB) GetAllFolderUnreadCounts(ctx context.Context, userID string) (map[
 	return result, nil
 }
 
+// CountUnreadOutsideSkippedFolders counts the user's unread messages in every
+// folder but Sent, Drafts, Spam and Trash, for the tab title. A message in
+// several folders, such as a Gmail label and All Mail, counts once.
+func (db *DB) CountUnreadOutsideSkippedFolders(ctx context.Context, userID string) (int, error) {
+	var count int
+	err := db.Read().QueryRowContext(ctx,
+		`SELECT COUNT(DISTINCT mfs.message_id)
+		 FROM message_folder_state mfs
+		 JOIN folders f ON mfs.folder_id = f.id
+		 JOIN accounts a ON f.account_id = a.id
+		 WHERE a.user_id = ? AND COALESCE(a.is_deleting, 0) = 0 AND COALESCE(a.email_sync_enabled, 1) = 1
+		   AND COALESCE(f.role, '') NOT IN ('sent', 'drafts', 'spam', 'junk', 'trash')
+		   AND mfs.is_deleted = 0 AND mfs.is_read = 0`, userID).Scan(&count)
+	return count, err
+}
+
 func (db *DB) GetFolderHighestUID(ctx context.Context, folderID string) (uint32, error) {
 	var uid uint32
 	err := db.Read().QueryRowContext(ctx,
@@ -8764,6 +8780,7 @@ func defaultUISettings() map[string]string {
 		"notification_title":                "auto",
 		"notification_content":              "subject",
 		"notification_icon":                 "avatar",
+		"title_unread_count":                "inboxes",
 		"mail_card_fields":                  "avatar,thread,from,account,to,attachment,date,subject,preview,labels,starred",
 		"mail_card_layout":                  "railTop:avatar|header:account,from,date|meta:attachment|railMiddle:|body:to|bodyBottom:subject|status:|railBottom:thread|footer:preview,labels|corner:starred|hidden:accountMarker,unread,cc",
 		"mail_card_date_time":               "false",

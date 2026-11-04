@@ -3286,3 +3286,52 @@ func TestGetAccountNamesListsOnlyTheUsersActiveAccounts(t *testing.T) {
 		t.Fatalf("GetAccountNames() = %s, want %s", got, want)
 	}
 }
+
+func TestCountUnreadOutsideSkippedFolders(t *testing.T) {
+	ctx := context.Background()
+	db := newContactsTestDB(t)
+
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO accounts (id, user_id, provider, email_address) VALUES ('acc', 'default', 'gmail', 'user@example.com')`); err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	var folders []UpsertFolderInput
+	for _, role := range []string{"inbox", "archive", "sent", "spam", "trash", "drafts"} {
+		folders = append(folders, UpsertFolderInput{ID: "acc_" + role, AccountID: "acc", RemoteID: role, ProviderRemoteID: role, Name: role, Role: role, Selectable: true})
+	}
+	folders = append(folders, UpsertFolderInput{ID: "acc_label", AccountID: "acc", RemoteID: "Projects", ProviderRemoteID: "Projects", Name: "Projects", Selectable: true})
+	if err := db.UpsertFolders(ctx, folders); err != nil {
+		t.Fatalf("UpsertFolders() error = %v", err)
+	}
+
+	now := time.Now()
+	message := func(id, folder string, read bool) ProviderSyncMessage {
+		return ProviderSyncMessage{
+			AccountID: "acc", FolderID: folder, ProviderMessageID: id, InternetMessageID: "<" + id + "@example.com>",
+			Subject: "Message " + id, FromEmail: "sender@example.com", DateSent: now, DateReceived: now, IsRead: read,
+		}
+	}
+	// "both" is in the inbox, a label and All Mail, and counts once.
+	for _, msg := range []ProviderSyncMessage{
+		message("both", "acc_inbox", false),
+		message("both", "acc_label", false),
+		message("both", "acc_archive", false),
+		message("archived", "acc_archive", false),
+		message("read", "acc_archive", true),
+		message("sent", "acc_sent", false),
+		message("spam", "acc_spam", false),
+		message("trash", "acc_trash", false),
+		message("draft", "acc_drafts", false),
+	} {
+		if _, err := db.UpsertProviderSyncMessages(ctx, []ProviderSyncMessage{msg}); err != nil {
+			t.Fatalf("UpsertProviderSyncMessages(%s) error = %v", msg.ProviderMessageID, err)
+		}
+	}
+
+	got, err := db.CountUnreadOutsideSkippedFolders(ctx, "default")
+	if err != nil {
+		t.Fatalf("CountUnreadOutsideSkippedFolders() error = %v", err)
+	}
+	if got != 2 {
+		t.Fatalf("CountUnreadOutsideSkippedFolders() = %d, want 2", got)
+	}
+}

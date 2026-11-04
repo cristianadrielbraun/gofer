@@ -5014,7 +5014,17 @@ func (h *Handler) handleFolderUnreadCounts(w http.ResponseWriter, r *http.Reques
 	var counts map[string]int
 	err := h.withUserDB(r.Context(), h.userID(r.Context()), func(db *storage.DB) error {
 		var err error
-		counts, err = db.GetAllFolderUnreadCounts(r.Context(), h.userID(r.Context()))
+		userID := h.userID(r.Context())
+		counts, err = db.GetAllFolderUnreadCounts(r.Context(), userID)
+		if err != nil {
+			return err
+		}
+		// The tab title can count every folder rather than the inboxes,
+		// which the folder counts can't give without counting a message
+		// once per label.
+		if db.GetUISettings(r.Context(), userID)["title_unread_count"] == "all" {
+			counts["all"], err = db.CountUnreadOutsideSkippedFolders(r.Context(), userID)
+		}
 		return err
 	})
 	if err != nil {

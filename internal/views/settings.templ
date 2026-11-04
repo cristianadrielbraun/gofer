@@ -900,6 +900,26 @@ templ SettingsAdvancedTab(uiSettings map[string]string) {
 					<p class="text-xs text-muted-foreground mt-2">{ i18n.T(ctx, "settings.notifications.sample_avatar") } <a href="https://github.com/golang-samples/gopher-vector" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">{ i18n.T(ctx, "settings.notifications.sample_avatar_credit") }</a> · <a href="https://creativecommons.org/licenses/by/3.0/" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">CC BY 3.0</a>.</p>
 				</div>
 			</div>
+			<div class="settings-row border-t border-border/60 pt-5 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
+				<div class="min-w-0">
+					<span id="title_unread_count-label" class="text-sm font-medium text-foreground">{ i18n.T(ctx, "settings.title_unread.title") }</span>
+					<p class="text-xs text-muted-foreground mt-1 leading-relaxed">{ i18n.T(ctx, "settings.title_unread.description") }</p>
+				</div>
+				<div class="w-full sm:w-44 shrink-0">
+					@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
+						@selectbox.Trigger(selectbox.TriggerProps{Name: "title_unread_count", Class: "bg-background", DisableClear: true, Required: true, Attributes: templ.Attributes{"aria-labelledby": "title_unread_count-label"}}) {
+							@selectbox.Value(selectbox.ValueProps{}) {
+								{ titleUnreadCountLabel(ctx, uiSettingGet(uiSettings, "title_unread_count", "inboxes")) }
+							}
+						}
+						@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
+							@selectbox.Item(selectbox.ItemProps{Value: "inboxes", Selected: uiSettingGet(uiSettings, "title_unread_count", "inboxes") == "inboxes"}) { { i18n.T(ctx, "settings.title_unread.inboxes") } }
+							@selectbox.Item(selectbox.ItemProps{Value: "all", Selected: uiSettingGet(uiSettings, "title_unread_count", "inboxes") == "all"}) { { i18n.T(ctx, "settings.title_unread.all") } }
+							@selectbox.Item(selectbox.ItemProps{Value: "off", Selected: uiSettingGet(uiSettings, "title_unread_count", "inboxes") == "off"}) { { i18n.T(ctx, "settings.title_unread.off") } }
+						}
+					}
+				</div>
+			</div>
 			<div class="settings-row border-t border-border/60 pt-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
 				<div class="min-w-0">
 					<h4 class="text-sm font-medium text-foreground">{ i18n.T(ctx, "settings.mailto.title") }</h4>
