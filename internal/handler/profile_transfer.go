@@ -199,7 +199,9 @@ func exportProfile(ctx context.Context, store *config.AccountStore, db *storage.
 
 	accountRefs := make(map[string]string, len(accounts))
 	for i, account := range accounts {
-		if account.IsDeleting {
+		// Local folders have no sign-in to carry; their mail is backed up
+		// with a mail export instead.
+		if account.IsDeleting || account.Provider == providers.ProviderLocal {
 			continue
 		}
 		ref := "@account:" + strconv.Itoa(i+1) + "@"
@@ -404,6 +406,15 @@ func parseProfile(data []byte) (*profileFile, error) {
 	if file.Version > profileVersion {
 		return nil, errors.New("This profile was exported by a newer version of Gofer. Update Gofer to import it.")
 	}
+	// Profiles exported before Local folders were left out list them; every
+	// installation has its own, so they are skipped.
+	kept := file.Accounts[:0]
+	for _, account := range file.Accounts {
+		if account.Provider != providers.ProviderLocal {
+			kept = append(kept, account)
+		}
+	}
+	file.Accounts = kept
 	refs := make(map[string]bool, len(file.Accounts))
 	for _, account := range file.Accounts {
 		if !profileAccountRefPattern.MatchString(account.Ref) || profileAccountRefPattern.FindString(account.Ref) != account.Ref || refs[account.Ref] {

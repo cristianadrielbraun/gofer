@@ -891,3 +891,44 @@ func TestProfileCalendarOnlyAccountRoundTrip(t *testing.T) {
 		t.Fatalf("calendars after the password = %+v, %v", calendar, err)
 	}
 }
+
+// Local folders stay out of a profile, and a profile exported while they
+// were still listed imports without them.
+func TestProfileWithLocalFolders(t *testing.T) {
+	source := newProfileTestHandler(t)
+	seedProfileSource(t, source)
+	if _, err := source.db.EnsureLocalFoldersAccount(t.Context(), "default"); err != nil {
+		t.Fatal(err)
+	}
+	file, err := parseProfile(exportProfileForTest(t, source, false))
+	if err != nil {
+		t.Fatalf("profile with Local folders: %v", err)
+	}
+	for _, account := range file.Accounts {
+		if account.Provider == "local" {
+			t.Fatalf("export lists Local folders: %+v", account)
+		}
+	}
+	count := len(file.Accounts)
+
+	file.Accounts = append(file.Accounts, profileAccount{Ref: "@account:9@", Provider: "local", DisplayName: "Local folders"})
+	data, err := json.Marshal(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old, err := parseProfile(data)
+	if err != nil {
+		t.Fatalf("older profile listing Local folders: %v", err)
+	}
+	if len(old.Accounts) != count {
+		t.Fatalf("older profile accounts = %+v", old.Accounts)
+	}
+	target := newProfileTestHandler(t)
+	options := profileImportOptions{Preferences: true, Accounts: map[string]bool{}}
+	for _, account := range old.Accounts {
+		options.Accounts[account.Ref] = true
+	}
+	if _, err := target.importProfile(t.Context(), "default", old, options); err != nil {
+		t.Fatal(err)
+	}
+}
