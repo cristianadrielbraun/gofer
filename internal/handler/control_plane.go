@@ -94,6 +94,8 @@ func (h *Handler) registerAdministrationRoutes(mux *http.ServeMux) {
 	adminRoute("GET /admin/operations", h.handleAdminOperations)
 	adminRoute("GET /admin/operations/{$}", h.handleAdminOperations)
 	adminRoute("GET /admin/security", h.handleAdminSecurity)
+	adminRoute("GET /admin/branding", h.handleAdminBranding)
+	adminRoute("POST /admin/branding", h.handleSaveAdminBranding)
 	adminRoute("POST /admin/security/http-discovery", h.handleAddHTTPDiscoveryException)
 	adminRoute("POST /admin/security/plaintext", h.handleAddPlaintextTransportException)
 	adminRoute("POST /admin/security/private-target", h.handleAddPrivateTargetException)

@@ -1093,3 +1093,42 @@
   setupSSE()
   refreshStatus()
 })()
+
+// The branding form uploads files
+;(function () {
+  "use strict"
+
+  document.addEventListener("change", function (event) {
+    var input = event.target
+    if (!input || !input.matches || !input.matches("[data-admin-branding-file]")) return
+    var preview = document.querySelector('[data-admin-branding-preview="' + input.dataset.adminBrandingFile + '"]')
+    var file = input.files && input.files[0]
+    if (preview && file) preview.src = URL.createObjectURL(file)
+  })
+
+  document.addEventListener("submit", function (event) {
+    var form = event.target
+    if (!form || !form.matches || !form.matches("[data-admin-branding-form]")) return
+    event.preventDefault()
+    var submit = form.querySelector("button[type='submit']")
+    var status = form.querySelector("[data-admin-branding-status]")
+    if (submit) submit.disabled = true
+    if (status) status.textContent = ""
+    fetch(form.action, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "X-CSRF-Token": form.dataset.csrf || "" },
+      body: new FormData(form),
+    }).then(function (response) {
+      if (response.redirected) {
+        window.location.assign(response.url)
+        return
+      }
+      if (!response.ok) throw new Error(goferT("js.admin.branding.failed"))
+      window.location.reload()
+    }).catch(function (error) {
+      if (status) status.textContent = error && error.message ? error.message : goferT("js.admin.branding.failed")
+      if (submit) submit.disabled = false
+    })
+  })
+})()

@@ -6,6 +6,7 @@ import (
 	"crypto/subtle"
 	"encoding/base32"
 	"fmt"
+	"github.com/cristianadrielbraun/gofer/internal/branding"
 	"image/png"
 	"strings"
 	"time"
@@ -41,7 +42,7 @@ func newTOTPKey(accountName, randomMaterial string) (*otp.Key, error) {
 	}
 	digest := sha256.Sum256([]byte(randomMaterial))
 	return totp.Generate(totp.GenerateOpts{
-		Issuer:      totpIssuer,
+		Issuer:      branding.Name(),
 		AccountName: accountName,
 		Period:      totpPeriodSeconds,
 		Secret:      digest[:totpSecretByteCount],
@@ -56,7 +57,7 @@ func restoreTOTPKey(accountName, secret string) (*otp.Key, error) {
 		return nil, fmt.Errorf("decode TOTP secret")
 	}
 	return totp.Generate(totp.GenerateOpts{
-		Issuer:      totpIssuer,
+		Issuer:      branding.Name(),
 		AccountName: accountName,
 		Period:      totpPeriodSeconds,
 		Secret:      decoded,

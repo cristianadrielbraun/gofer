@@ -24,8 +24,9 @@ import (
 )
 
 templ AppIcon() {
-	<link rel="icon" type="image/svg+xml" href={ assetver.URL("/assets/logo.svg") }/>
-	<link rel="manifest" href={ assetver.URL("/assets/manifest.webmanifest") }/>
+	<link rel="icon" type={ brandFaviconType() } href={ brandFaviconURL() } data-brand-favicon/>
+	<link rel="manifest" href={ manifestURL() }/>
+	<meta name="gofer-brand" data-name={ brandName() } data-icon={ brandIconURL() }/>
 }
 
 templ Layout(accounts []models.Account, activeFolder string, emails []models.Email, selectedEmail *models.Email, totalCount int, scrollCount int, windowStart int, uiSettings map[string]string, selectedThread []models.ThreadItem, initialEmailID string, scheduledCount int, filters models.EmailFilters) {
@@ -87,6 +88,7 @@ templ Layout(accounts []models.Account, activeFolder string, emails []models.Ema
 			<script src={ assetver.URL("/assets/js/htmx.min.js") }></script>
 			<script src={ assetver.URL("/assets/js/mail-search.js") }></script>
 			<script src={ assetver.URL("/assets/js/virtual-scroll.js") }></script>
+			<script src={ assetver.URL("/assets/js/unread-badge.js") }></script>
 			<script src={ assetver.URL("/assets/js/app.js") }></script>
 			<script src={ assetver.URL("/assets/js/settings.js") }></script>
 			<script src={ assetver.URL("/assets/js/settings-page.js") }></script>
@@ -187,6 +189,7 @@ templ SettingsRuntime(accounts []models.Account) {
 	<script src={ assetver.URL("/assets/js/htmx.min.js") }></script>
 	<script src={ assetver.URL("/assets/js/mail-search.js") }></script>
 	<script src={ assetver.URL("/assets/js/virtual-scroll.js") }></script>
+	<script src={ assetver.URL("/assets/js/unread-badge.js") }></script>
 	<script src={ assetver.URL("/assets/js/app.js") }></script>
 	<script src={ assetver.URL("/assets/js/settings.js") }></script>
 	<script src={ assetver.URL("/assets/js/settings-page.js") }></script>
@@ -283,6 +286,7 @@ templ ContactsLayout(accounts []models.Account, contacts []models.Contact, selec
 			<script src={ assetver.URL("/assets/js/htmx.min.js") }></script>
 			<script src={ assetver.URL("/assets/js/mail-search.js") }></script>
 			<script src={ assetver.URL("/assets/js/virtual-scroll.js") }></script>
+			<script src={ assetver.URL("/assets/js/unread-badge.js") }></script>
 			<script src={ assetver.URL("/assets/js/app.js") }></script>
 			<script src={ assetver.URL("/assets/js/settings.js") }></script>
 			<script src={ assetver.URL("/assets/js/settings-page.js") }></script>

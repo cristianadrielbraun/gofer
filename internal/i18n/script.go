@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"strings"
 	"sync"
+
+	"github.com/cristianadrielbraun/gofer/internal/branding"
 )
 
 // ScriptPrefix is where each language's browser catalog is served, as
@@ -34,24 +36,32 @@ type script struct {
 	version string
 }
 
-var scripts sync.Map // Locale -> script
+// scriptKey tells catalogs apart by language and by the installation's name,
+// which the messages carry.
+type scriptKey struct {
+	locale   Locale
+	branding string
+}
+
+var scripts sync.Map // scriptKey -> script
 
 // Script returns the browser catalog for locale: a script that sets
 // window.GOFER_I18N, and its content version.
 func Script(locale Locale) ([]byte, string) {
-	if cached, ok := scripts.Load(locale); ok {
+	key := scriptKey{locale, branding.Version()}
+	if cached, ok := scripts.Load(key); ok {
 		s := cached.(script)
 		return s.body, s.version
 	}
 	messages := map[string]string{}
 	for key, message := range catalogs[English] {
 		if forScripts(key) {
-			messages[key] = message
+			messages[key] = withAppName(message)
 		}
 	}
 	for key, message := range catalogs[locale] {
 		if forScripts(key) && message != "" {
-			messages[key] = message
+			messages[key] = withAppName(message)
 		}
 	}
 	data, err := json.Marshal(struct {
@@ -65,7 +75,7 @@ func Script(locale Locale) ([]byte, string) {
 	body = append(body, ";\n"...)
 	sum := sha256.Sum256(body)
 	s := script{body: body, version: hex.EncodeToString(sum[:])[:12]}
-	scripts.Store(locale, s)
+	scripts.Store(key, s)
 	return s.body, s.version
 }
 

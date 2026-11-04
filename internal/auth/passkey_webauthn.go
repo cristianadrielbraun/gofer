@@ -3,6 +3,7 @@ package auth
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/cristianadrielbraun/gofer/internal/branding"
 	"net"
 	"net/url"
 	"strings"
@@ -87,7 +88,7 @@ func newPasskeyWebAuthn(origin string) (*webauthn.WebAuthn, error) {
 		return nil, err
 	}
 	instance, err := webauthn.New(&webauthn.Config{
-		RPDisplayName:         "Gofer",
+		RPDisplayName:         branding.Name(),
 		RPID:                  rpID,
 		RPOrigins:             []string{canonicalOrigin},
 		AttestationPreference: protocol.PreferNoAttestation,

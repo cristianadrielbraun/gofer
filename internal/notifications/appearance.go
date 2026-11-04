@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	"github.com/cristianadrielbraun/gofer/internal/branding"
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
 )
 
@@ -16,7 +17,7 @@ func newMailNotificationAppearance(ctx context.Context, payload map[string]any, 
 	case "sender":
 		title, _ = newMailNotificationText(ctx, payload, 1)
 	case "gofer":
-		title = "Gofer"
+		title = branding.Name()
 	case "count":
 		title = i18n.N(ctx, "js.notify.new_messages", unreadCount)
 	default:
@@ -37,7 +38,7 @@ func newMailNotificationAppearance(ctx context.Context, payload map[string]any, 
 			body += "\n" + preview
 		}
 	}
-	icon = "/assets/logo.png"
+	icon = branding.IconURL()
 	if settings["notification_icon"] != "gofer" {
 		if senderIcon := newMailNotificationIcon(payload); senderIcon != "" {
 			icon = senderIcon

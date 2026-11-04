@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"github.com/a-h/templ"
 	"github.com/cristianadrielbraun/gofer/internal/assetver"
+	"github.com/cristianadrielbraun/gofer/internal/branding"
 	"github.com/cristianadrielbraun/gofer/internal/auth"
 	avatarresolver "github.com/cristianadrielbraun/gofer/internal/avatar"
 	"github.com/cristianadrielbraun/gofer/internal/calendar"
@@ -253,6 +254,7 @@ func New(db *storage.DB, accountStore *config.AccountStore, syncer *mail.SyncOrc
 	})
 	h.useSavedRegionalForBackground()
 	i18n.SetServerTextTranslator(serverText)
+	loadBranding(context.Background(), db)
 	return h
 }
 
@@ -725,6 +727,9 @@ func setupAssetsRoutes(mux *http.ServeMux) {
 	})
 
 	mux.Handle("GET /assets/", http.StripPrefix("/assets/", assetHandler))
+	mux.HandleFunc("GET /assets/manifest.webmanifest", serveManifest(assetFileSystem()))
+	mux.HandleFunc("GET "+branding.LogoPath, serveBrandingImage(func(s branding.Settings) branding.Image { return s.Logo }))
+	mux.HandleFunc("GET "+branding.FaviconPath, serveBrandingImage(func(s branding.Settings) branding.Image { return s.Favicon }))
 	mux.HandleFunc("GET "+i18n.ScriptPrefix+"{file}", serveLocaleScript)
 	mux.HandleFunc("GET /sw.js", func(w http.ResponseWriter, r *http.Request) {
 		if isDevelopment {

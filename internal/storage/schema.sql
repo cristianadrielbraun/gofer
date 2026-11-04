@@ -1860,4 +1860,15 @@ CREATE TABLE IF NOT EXISTS mail_rule_runs (
 );
 CREATE INDEX IF NOT EXISTS idx_mail_rule_runs_user ON mail_rule_runs(user_id, id);
 
-INSERT OR REPLACE INTO schema_version (version) VALUES (136);
+CREATE TABLE IF NOT EXISTS installation_branding (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    name TEXT NOT NULL DEFAULT '',
+    logo BLOB,
+    logo_type TEXT NOT NULL DEFAULT '',
+    favicon BLOB,
+    favicon_type TEXT NOT NULL DEFAULT '',
+    updated_at DATETIME,
+    updated_by TEXT NOT NULL DEFAULT ''
+);
+
+INSERT OR REPLACE INTO schema_version (version) VALUES (137);

@@ -58,7 +58,7 @@ templ LoginPage(data LoginPageData) {
 			<div class="min-h-screen flex items-center justify-center p-4">
 				<div class="w-full max-w-sm">
 					<div class="text-center mb-10">
-						<img src={ assetver.URL("/assets/logo.svg") } alt="Gofer" class="h-12 w-auto mx-auto"/>
+						<img src={ brandLogoURL() } alt={ brandName() } class="h-12 w-auto mx-auto"/>
 						<p class="text-muted-foreground mt-2 text-sm">{ i18n.T(ctx, "signin.tagline") }</p>
 					</div>
 					if data.ErrorMessage != "" {
@@ -232,7 +232,7 @@ templ LoginMFAContinuationPage(errorMessage string, factors LoginMFAFactors) {
 			<main class="min-h-screen flex items-center justify-center p-4">
 				<div class="w-full max-w-sm">
 					<div class="text-center">
-						<img src={ assetver.URL("/assets/logo.svg") } alt="Gofer" class="h-12 w-auto mx-auto"/>
+						<img src={ brandLogoURL() } alt={ brandName() } class="h-12 w-auto mx-auto"/>
 						<h1 class="mt-8 text-2xl font-semibold">{ i18n.T(ctx, "signin.mfa.title") }</h1>
 						<p class="mt-3 text-sm text-muted-foreground">{ i18n.T(ctx, "signin.mfa.description") }</p>
 					</div>
@@ -302,7 +302,7 @@ templ RecoveryCodeLoginPage(errorMessage string) {
 			<main class="min-h-screen flex items-center justify-center p-4">
 				<div class="w-full max-w-sm">
 					<div class="text-center">
-						<img src={ assetver.URL("/assets/logo.svg") } alt="Gofer" class="h-12 w-auto mx-auto"/>
+						<img src={ brandLogoURL() } alt={ brandName() } class="h-12 w-auto mx-auto"/>
 						<h1 class="mt-8 text-2xl font-semibold">{ i18n.T(ctx, "signin.recovery.title") }</h1>
 						<p class="mt-3 text-sm text-muted-foreground">{ i18n.T(ctx, "signin.recovery.description") }</p>
 					</div>
@@ -361,7 +361,7 @@ templ RecoveryRepairMFAPage(data RecoveryRepairMFAData) {
 			<main class="min-h-screen flex items-center justify-center p-4 py-10">
 				<div class="w-full max-w-lg">
 					<div class="text-center mb-8">
-						<img src={ assetver.URL("/assets/logo.svg") } alt="Gofer" class="h-12 w-auto mx-auto"/>
+						<img src={ brandLogoURL() } alt={ brandName() } class="h-12 w-auto mx-auto"/>
 						<p class="mt-5 text-xs font-medium uppercase tracking-widest text-warning">{ i18n.T(ctx, "signin.repair.accepted") }</p>
 						<h1 class="mt-2 text-2xl font-semibold">{ i18n.T(ctx, "signin.repair.title") }</h1>
 						<p class="mt-2 text-sm text-muted-foreground">{ i18n.T(ctx, "signin.repair.description") }</p>
@@ -419,7 +419,7 @@ templ MFAEnrollmentPage(data MFAEnrollmentData) {
 			<main class="min-h-screen flex items-center justify-center p-4 py-10">
 				<div class="w-full max-w-lg">
 					<div class="text-center mb-8">
-						<img src={ assetver.URL("/assets/logo.svg") } alt="Gofer" class="h-12 w-auto mx-auto"/>
+						<img src={ brandLogoURL() } alt={ brandName() } class="h-12 w-auto mx-auto"/>
 						<p class="mt-5 text-xs font-medium uppercase tracking-widest text-warning">{ i18n.T(ctx, "signin.enroll.required") }</p>
 						<h1 class="mt-2 text-2xl font-semibold">{ i18n.T(ctx, "signin.enroll.title") }</h1>
 						<p class="mt-2 text-sm text-muted-foreground">{ i18n.T(ctx, "signin.enroll.description") }</p>
@@ -477,7 +477,7 @@ templ MFAEnrollmentCodesPage(data MFAEnrollmentCodesData) {
 			<main class="min-h-screen flex items-center justify-center p-4 py-10">
 				<div class="w-full max-w-lg">
 					<div class="text-center mb-8">
-						<img src={ assetver.URL("/assets/logo.svg") } alt="Gofer" class="h-12 w-auto mx-auto"/>
+						<img src={ brandLogoURL() } alt={ brandName() } class="h-12 w-auto mx-auto"/>
 						<p class="mt-5 text-xs font-medium uppercase tracking-widest text-success">{ i18n.T(ctx, "signin.codes.verified") }</p>
 						<h1 class="mt-2 text-2xl font-semibold">{ i18n.T(ctx, "signin.codes.title") }</h1>
 						<p class="mt-2 text-sm text-muted-foreground">{ i18n.T(ctx, "signin.codes.description") }</p>
@@ -551,7 +551,7 @@ templ RecoveryRepairCodesPage(data RecoveryRepairCodesData) {
 			<main class="min-h-screen flex items-center justify-center p-4 py-10">
 				<div class="w-full max-w-lg">
 					<div class="text-center mb-8">
-						<img src={ assetver.URL("/assets/logo.svg") } alt="Gofer" class="h-12 w-auto mx-auto"/>
+						<img src={ brandLogoURL() } alt={ brandName() } class="h-12 w-auto mx-auto"/>
 						<p class="mt-5 text-xs font-medium uppercase tracking-widest text-success">{ i18n.T(ctx, "signin.repair_codes.verified") }</p>
 						<h1 class="mt-2 text-2xl font-semibold">{ i18n.T(ctx, "signin.repair_codes.title") }</h1>
 						<p class="mt-2 text-sm text-muted-foreground">{ i18n.T(ctx, "signin.repair_codes.description") }</p>

@@ -1,0 +1,124 @@
+package views
+
+import (
+	"github.com/cristianadrielbraun/gofer/components/button"
+	"github.com/cristianadrielbraun/gofer/components/icon"
+	"github.com/cristianadrielbraun/gofer/internal/branding"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
+	"github.com/cristianadrielbraun/gofer/internal/models"
+)
+
+// AdminBrandingData is what the branding page shows.
+type AdminBrandingData struct {
+	Name           string
+	HasLogo        bool
+	HasFavicon     bool
+	CSRFToken      string
+	Notice         string
+	Error          string
+	StepUpRequired bool
+}
+
+// ManagementAdminBrandingLayout is the branding page with the management shell.
+func ManagementAdminBrandingLayout(uiSettings map[string]string, data AdminBrandingData, verification ...AdminSecurityVerificationData) templ.Component {
+	return managementAdminLayout(uiSettings, "branding", models.AdminWebmailScope{}, AdminBrandingPage(data, adminSecurityVerificationValue(verification)))
+}
+
+// AdminBrandingPartial is the branding page for in-place navigation.
+templ AdminBrandingPartial(data AdminBrandingData, verification ...AdminSecurityVerificationData) {
+	<div id="main-content" class="relative flex min-h-0 min-w-0 flex-1">
+		@AdminNavigationLoading()
+		@AdminBrandingPage(data, adminSecurityVerificationValue(verification))
+	</div>
+}
+
+func adminBrandingMaxImageKB() int { return branding.MaxImageBytes >> 10 }
+
+templ AdminBrandingPage(data AdminBrandingData, verification ...AdminSecurityVerificationData) {
+	<div class="flex-1 flex flex-col min-w-0 overflow-hidden">
+		<div class="flex-1 overflow-y-auto">
+			<div class="max-w-3xl px-6 py-8 lg:px-8 lg:py-10">
+				<div class="mb-7">
+					<h2 class="text-2xl font-bold text-foreground" style="font-family: var(--font-serif)">{ i18n.T(ctx, "admin.nav.branding") }</h2>
+					<p class="mt-1 max-w-2xl text-sm text-muted-foreground">{ i18n.T(ctx, "admin.branding.description") }</p>
+				</div>
+				if data.Notice != "" {
+					<div class="mb-5 rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-sm font-medium text-emerald-800 dark:text-emerald-200">{ data.Notice }</div>
+				}
+				if data.Error != "" {
+					<div class="mb-5 rounded-lg border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm font-medium text-red-800 dark:text-red-200">{ data.Error }</div>
+				}
+				if data.StepUpRequired {
+					<div role="alert" class="mb-5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-900 dark:text-amber-100">
+						<p class="font-semibold">{ i18n.T(ctx, "admin.verify.required") }</p>
+						<p class="mt-1">{ i18n.T(ctx, "admin.branding.verify") }</p>
+						<div class="mt-3">
+							@AdminSecurityVerificationTrigger(adminSecurityVerificationValue(verification), i18n.T(ctx, "admin.verify.now"))
+						</div>
+					</div>
+				}
+				<form
+					action="/admin/branding"
+					method="post"
+					enctype="multipart/form-data"
+					class="space-y-6"
+					data-admin-branding-form
+					data-csrf={ data.CSRFToken }
+				>
+					<section class="rounded-lg border border-border bg-card p-5">
+						<label for="branding-name" class="text-sm font-semibold text-foreground">{ i18n.T(ctx, "admin.branding.name") }</label>
+						<p class="mt-1 text-xs text-muted-foreground">{ i18n.T(ctx, "admin.branding.name_help") }</p>
+						<input
+							id="branding-name"
+							name="name"
+							type="text"
+							maxlength="40"
+							value={ data.Name }
+							placeholder={ branding.DefaultName }
+							class="mt-3 h-9 w-full max-w-sm rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+						/>
+					</section>
+					@adminBrandingImageField("logo", i18n.T(ctx, "admin.branding.logo"), i18n.T(ctx, "admin.branding.logo_help"), brandLogoURL(), data.HasLogo)
+					@adminBrandingImageField("favicon", i18n.T(ctx, "admin.branding.favicon"), i18n.T(ctx, "admin.branding.favicon_help"), brandFaviconURL(), data.HasFavicon)
+					<p class="text-xs text-muted-foreground">{ i18n.T(ctx, "admin.branding.image_limits", "size", i18n.Number(ctx, adminBrandingMaxImageKB())) }</p>
+					<p class="text-sm text-destructive" data-admin-branding-status role="status"></p>
+					<div class="flex justify-end">
+						@button.Button(button.Props{Type: button.TypeSubmit}) {
+							{ i18n.T(ctx, "admin.branding.save") }
+						}
+					</div>
+				</form>
+			</div>
+		</div>
+	</div>
+	@AdminSecurityVerificationDialog(adminSecurityVerificationValue(verification))
+}
+
+templ adminBrandingImageField(field, label, help, currentURL string, custom bool) {
+	<section class="rounded-lg border border-border bg-card p-5">
+		<div class="flex items-start gap-4">
+			<div class="flex size-16 shrink-0 items-center justify-center rounded-md border border-border bg-background">
+				<img src={ currentURL } alt="" class="max-h-12 max-w-12" data-admin-branding-preview={ field }/>
+			</div>
+			<div class="min-w-0 flex-1">
+				<label for={ "branding-" + field } class="text-sm font-semibold text-foreground">{ label }</label>
+				<p class="mt-1 text-xs text-muted-foreground">{ help }</p>
+				<input
+					id={ "branding-" + field }
+					name={ field }
+					type="file"
+					accept="image/png,image/svg+xml,image/webp,image/jpeg,image/x-icon,.ico"
+					class="mt-3 block w-full text-sm text-muted-foreground file:mr-3 file:rounded-md file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-secondary-foreground"
+					data-admin-branding-file={ field }
+				/>
+				if custom {
+					<label class="mt-3 inline-flex items-center gap-2 text-sm text-foreground">
+						<input type="checkbox" name={ "reset_" + field } value="yes" class="size-4 rounded border-input"/>
+						@icon.RotateCcw(icon.Props{Class: "size-3.5 text-muted-foreground"})
+						{ i18n.T(ctx, "admin.branding.reset") }
+					</label>
+				}
+			</div>
+		</div>
+	</section>
+}

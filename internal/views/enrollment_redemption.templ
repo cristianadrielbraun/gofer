@@ -32,7 +32,7 @@ templ InvitationEnrollmentPage(data InvitationEnrollmentData) {
 			<main class="min-h-screen flex items-center justify-center p-4">
 				<div class="w-full max-w-sm">
 					<div class="text-center mb-8">
-						<img src={ assetver.URL("/assets/logo.svg") } alt="Gofer" class="h-12 w-auto mx-auto"/>
+						<img src={ brandLogoURL() } alt={ brandName() } class="h-12 w-auto mx-auto"/>
 						<h1 class="mt-6 text-2xl font-semibold">{ i18n.T(ctx, "signin.enroll_invite.title") }</h1>
 						<p class="mt-2 text-sm text-muted-foreground">{ i18n.T(ctx, "signin.enroll_invite.description") }</p>
 					</div>
@@ -140,7 +140,7 @@ templ CredentialRedemptionPage(data CredentialRedemptionData) {
 			<main class="min-h-screen flex items-center justify-center p-4">
 				<div class="w-full max-w-sm">
 					<div class="text-center mb-8">
-						<img src={ assetver.URL("/assets/logo.svg") } alt="Gofer" class="h-12 w-auto mx-auto"/>
+						<img src={ brandLogoURL() } alt={ brandName() } class="h-12 w-auto mx-auto"/>
 						<h1 class="mt-6 text-2xl font-semibold">{ i18n.T(ctx, "signin.redeem.title") }</h1>
 						<p class="mt-2 text-sm text-muted-foreground">{ i18n.T(ctx, "signin.redeem.description") }</p>
 					</div>
@@ -236,7 +236,7 @@ templ passwordTokenCompletePage(title string, message string) {
 			@PublicPageCorners()
 			<main class="min-h-screen flex items-center justify-center p-4">
 				<div class="w-full max-w-sm text-center">
-					<img src={ assetver.URL("/assets/logo.svg") } alt="Gofer" class="h-12 w-auto mx-auto"/>
+					<img src={ brandLogoURL() } alt={ brandName() } class="h-12 w-auto mx-auto"/>
 					<div role="status" class="mt-8 rounded-lg border border-success/25 bg-success/10 px-5 py-6">
 						<h1 class="text-2xl font-semibold">{ title }</h1>
 						<p class="mt-3 text-sm text-muted-foreground">{ message }</p>

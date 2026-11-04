@@ -7887,6 +7887,18 @@ document.addEventListener("DOMContentLoaded", function () {
     })
   }
 
+  function goferBrandMeta() {
+    try { return document.querySelector('meta[name="gofer-brand"]') } catch (_) { return null }
+  }
+  function goferBrandName() {
+    var meta = goferBrandMeta()
+    return (meta && meta.dataset && meta.dataset.name) || "Gofer"
+  }
+  function goferBrandIcon() {
+    var meta = goferBrandMeta()
+    return (meta && meta.dataset && meta.dataset.icon) || "/assets/logo.png"
+  }
+
   // An event reminder shows in the open page, and as a browser notification
   // when that's the chosen method (push notifications come from the server).
   function showCalendarReminder(data) {
@@ -7896,7 +7908,7 @@ document.addEventListener("DOMContentLoaded", function () {
     var notification = new Notification(String(data.title), {
       body: String(data.body || ""),
       tag: String(data.tag || "gofer-calendar-reminder"),
-      icon: "/assets/logo.png",
+      icon: goferBrandIcon(),
       badge: "/assets/logo.png",
       requireInteraction: true,
       data: { url: String(data.url || "/calendar") },
@@ -7917,7 +7929,7 @@ document.addEventListener("DOMContentLoaded", function () {
     var countTitle = goferTn("js.notify.new_messages", unreadCount)
     var title = unreadCount > 1 ? goferT("js.notify.title_more", { sender: sender, count: unreadCount - 1 }) : sender
     if (setting("notification_title") === "sender") title = sender
-    else if (setting("notification_title") === "gofer") title = "Gofer"
+    else if (setting("notification_title") === "gofer") title = goferBrandName()
     else if (setting("notification_title") === "count") title = countTitle
     var body = unreadCount === 1 ? subject : goferT("js.notify.body_many", { sender: sender, subject: subject, folder: folder })
     if (setting("notification_content") === "hidden") body = ""
@@ -7927,7 +7939,7 @@ document.addEventListener("DOMContentLoaded", function () {
       if (chars.length > 180) preview = chars.slice(0, 180).join("") + "…"
       if (preview) body += "\n" + preview
     }
-    var icon = setting("notification_icon") === "gofer" ? "/assets/logo.png" : String(data.avatar_url || data.icon || "/assets/logo.png")
+    var icon = setting("notification_icon") === "gofer" ? goferBrandIcon() : String(data.avatar_url || data.icon || goferBrandIcon())
     return { title: title, body: body, icon: icon }
   }
 
@@ -7944,7 +7956,11 @@ document.addEventListener("DOMContentLoaded", function () {
     })
     var avatar = !window.GoferSettings || GoferSettings.get("notification_icon") !== "gofer"
     document.querySelectorAll("[data-notification-preview-avatar]").forEach(function (node) { node.hidden = !avatar; node.classList.toggle("hidden", !avatar) })
-    document.querySelectorAll("[data-notification-preview-logo]").forEach(function (node) { node.hidden = avatar; node.classList.toggle("hidden", avatar) })
+    document.querySelectorAll("[data-notification-preview-logo]").forEach(function (node) {
+      if (node.getAttribute("src") !== goferBrandIcon()) node.setAttribute("src", goferBrandIcon())
+      node.hidden = avatar
+      node.classList.toggle("hidden", avatar)
+    })
   }
 
   function showBrowserTabNewMailNotification(data) {
@@ -8472,6 +8488,7 @@ document.addEventListener("DOMContentLoaded", function () {
     var next = n > 0 ? goferT("js.page.title_unread", { count: n > 99 ? "99+" : String(n), title: base }) : base
     titleUnreadWritten = next
     if (next !== title) document.title = next
+    if (typeof window.goferUpdateUnreadBadge === "function") window.goferUpdateUnreadBadge(n)
   }
 
   function initVirtualScroll() {

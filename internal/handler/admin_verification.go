@@ -70,7 +70,7 @@ func adminSecurityVerificationReturnTo(value string) string {
 			return ""
 		}
 		return "/admin/users?" + url.Values{key: {target}}.Encode()
-	case "/admin/security":
+	case "/admin/security", adminBrandingPath:
 		if parsed.RawQuery != "" {
 			return ""
 		}

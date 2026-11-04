@@ -24,13 +24,13 @@ func escaped(value string) string { return templ.EscapeString(value) }
 
 func ManagementLoginPage(errorMessage, identifier string) templ.Component {
 	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
-		if err := writeHTML(w, `<!DOCTYPE html><html lang="`, escaped(pageLang(ctx)), `" class="dark" data-theme="classic"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>`, escaped(i18n.T(ctx, "admin.login.page_title")), `</title><link rel="icon" type="image/svg+xml" href="/assets/logo.svg"><link rel="stylesheet" href="/assets/css/output.css"></head><body class="bg-background text-foreground antialiased surface-desk">`); err != nil {
+		if err := writeHTML(w, `<!DOCTYPE html><html lang="`, escaped(pageLang(ctx)), `" class="dark" data-theme="classic"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>`, escaped(i18n.T(ctx, "admin.login.page_title")), `</title><link rel="icon" type="`, escaped(brandFaviconType()), `" href="`, escaped(brandFaviconURL()), `"><link rel="stylesheet" href="/assets/css/output.css"></head><body class="bg-background text-foreground antialiased surface-desk">`); err != nil {
 			return err
 		}
 		if err := PublicPageCorners().Render(ctx, w); err != nil {
 			return err
 		}
-		if err := writeHTML(w, `<main class="min-h-screen flex items-center justify-center p-4"><div class="w-full max-w-sm"><div class="text-center mb-8"><img src="/assets/logo.svg" alt="Gofer" class="h-12 w-auto mx-auto"><p class="mt-5 text-xs font-semibold uppercase tracking-[0.2em] text-primary">`, escaped(i18n.T(ctx, "admin.management")), `</p><h1 class="mt-2 text-2xl font-semibold">`, escaped(i18n.T(ctx, "admin.login.title")), `</h1><p class="mt-2 text-sm text-muted-foreground">`, escaped(i18n.T(ctx, "admin.login.separate")), `</p></div>`); err != nil {
+		if err := writeHTML(w, `<main class="min-h-screen flex items-center justify-center p-4"><div class="w-full max-w-sm"><div class="text-center mb-8"><img src="`, escaped(brandLogoURL()), `" alt="`, escaped(brandName()), `" class="h-12 w-auto mx-auto"><p class="mt-5 text-xs font-semibold uppercase tracking-[0.2em] text-primary">`, escaped(i18n.T(ctx, "admin.management")), `</p><h1 class="mt-2 text-2xl font-semibold">`, escaped(i18n.T(ctx, "admin.login.title")), `</h1><p class="mt-2 text-sm text-muted-foreground">`, escaped(i18n.T(ctx, "admin.login.separate")), `</p></div>`); err != nil {
 			return err
 		}
 		if errorMessage != "" {
@@ -44,13 +44,13 @@ func ManagementLoginPage(errorMessage, identifier string) templ.Component {
 
 func ManagementMFAContinuationPage(errorMessage string) templ.Component {
 	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
-		if err := writeHTML(w, `<!DOCTYPE html><html lang="`, escaped(pageLang(ctx)), `" class="dark" data-theme="classic"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>`, escaped(i18n.T(ctx, "admin.mfa.page_title")), `</title><link rel="icon" type="image/svg+xml" href="/assets/logo.svg"><link rel="stylesheet" href="/assets/css/output.css"></head><body class="bg-background text-foreground antialiased surface-desk">`); err != nil {
+		if err := writeHTML(w, `<!DOCTYPE html><html lang="`, escaped(pageLang(ctx)), `" class="dark" data-theme="classic"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>`, escaped(i18n.T(ctx, "admin.mfa.page_title")), `</title><link rel="icon" type="`, escaped(brandFaviconType()), `" href="`, escaped(brandFaviconURL()), `"><link rel="stylesheet" href="/assets/css/output.css"></head><body class="bg-background text-foreground antialiased surface-desk">`); err != nil {
 			return err
 		}
 		if err := PublicPageCorners().Render(ctx, w); err != nil {
 			return err
 		}
-		if err := writeHTML(w, `<main class="min-h-screen flex items-center justify-center p-4"><div class="w-full max-w-sm"><div class="text-center"><img src="/assets/logo.svg" alt="Gofer" class="h-12 w-auto mx-auto"><p class="mt-5 text-xs font-semibold uppercase tracking-[0.2em] text-primary">`, escaped(i18n.T(ctx, "admin.management")), `</p><h1 class="mt-2 text-2xl font-semibold">`, escaped(i18n.T(ctx, "admin.mfa.title")), `</h1><p class="mt-3 text-sm text-muted-foreground">`, escaped(i18n.T(ctx, "admin.mfa.description")), `</p></div>`); err != nil {
+		if err := writeHTML(w, `<main class="min-h-screen flex items-center justify-center p-4"><div class="w-full max-w-sm"><div class="text-center"><img src="`, escaped(brandLogoURL()), `" alt="`, escaped(brandName()), `" class="h-12 w-auto mx-auto"><p class="mt-5 text-xs font-semibold uppercase tracking-[0.2em] text-primary">`, escaped(i18n.T(ctx, "admin.management")), `</p><h1 class="mt-2 text-2xl font-semibold">`, escaped(i18n.T(ctx, "admin.mfa.title")), `</h1><p class="mt-3 text-sm text-muted-foreground">`, escaped(i18n.T(ctx, "admin.mfa.description")), `</p></div>`); err != nil {
 			return err
 		}
 		if errorMessage != "" {
@@ -96,6 +96,7 @@ func managementNavigationItems(ctx context.Context, managedAuthentication bool) 
 		managementNavigationItem{path: "/admin/labels", key: "labels", label: i18n.T(ctx, "admin.nav.labels"), mobileLabel: i18n.T(ctx, "admin.nav.labels")},
 		managementNavigationItem{path: "/admin/operations", key: "operations", label: i18n.T(ctx, "admin.nav.operations"), mobileLabel: i18n.T(ctx, "admin.nav.operations_short")},
 		managementNavigationItem{path: "/admin/security", key: "security", label: i18n.T(ctx, "admin.nav.security"), mobileLabel: i18n.T(ctx, "admin.nav.security")},
+		managementNavigationItem{path: "/admin/branding", key: "branding", label: i18n.T(ctx, "admin.nav.branding"), mobileLabel: i18n.T(ctx, "admin.nav.branding")},
 	)
 	if managedAuthentication {
 		items = append(items, managementNavigationItem{
@@ -126,7 +127,7 @@ func renderManagementSidebar(ctx context.Context, w io.Writer, active string, sc
 	if !managedAuthentication {
 		workspaceDescription = i18n.T(ctx, "admin.workspace.local")
 	}
-	if err := writeHTML(w, `<aside class="hidden lg:flex w-64 shrink-0 flex-col border-r border-border bg-card/75 backdrop-blur-sm"><div class="border-b border-border px-5 py-5"><a href="/admin" class="inline-flex items-center gap-2.5 text-foreground hover:text-primary"><img src="/assets/logo.svg" alt="Gofer" class="h-8 w-8 shrink-0"><span class="text-lg font-bold tracking-tight" style="font-family:var(--font-serif)">Gofer Admin</span></a><p class="mt-2 text-xs leading-relaxed text-muted-foreground">`, escaped(workspaceDescription), `</p></div><nav class="flex-1 space-y-1 px-3 py-4">`); err != nil {
+	if err := writeHTML(w, `<aside class="hidden lg:flex w-64 shrink-0 flex-col border-r border-border bg-card/75 backdrop-blur-sm"><div class="border-b border-border px-5 py-5"><a href="/admin" class="inline-flex items-center gap-2.5 text-foreground hover:text-primary"><img src="`, escaped(brandLogoURL()), `" alt="`, escaped(brandName()), `" class="h-8 w-8 shrink-0"><span class="text-lg font-bold tracking-tight" style="font-family:var(--font-serif)">`, escaped(brandAdminName()), `</span></a><p class="mt-2 text-xs leading-relaxed text-muted-foreground">`, escaped(workspaceDescription), `</p></div><nav class="flex-1 space-y-1 px-3 py-4">`); err != nil {
 		return err
 	}
 	for _, item := range items {
@@ -152,7 +153,7 @@ func renderManagementMobileNav(ctx context.Context, w io.Writer, active string, 
 	if !managedAuthentication {
 		modeLabel = i18n.T(ctx, "admin.mode_local")
 	}
-	if err := writeHTML(w, `<header class="lg:hidden shrink-0 border-b border-border bg-card"><div class="flex items-center justify-between px-4 py-3"><a href="/admin" class="font-bold text-foreground" style="font-family:var(--font-serif)">Gofer Admin</a><span class="text-xs font-semibold uppercase tracking-wider text-primary">`, escaped(modeLabel), `</span></div><nav class="flex gap-1 overflow-x-auto px-3 pb-3" aria-label="`, escaped(i18n.T(ctx, "admin.sections")), `">`); err != nil {
+	if err := writeHTML(w, `<header class="lg:hidden shrink-0 border-b border-border bg-card"><div class="flex items-center justify-between px-4 py-3"><a href="/admin" class="font-bold text-foreground" style="font-family:var(--font-serif)">`, escaped(brandAdminName()), `</a><span class="text-xs font-semibold uppercase tracking-wider text-primary">`, escaped(modeLabel), `</span></div><nav class="flex gap-1 overflow-x-auto px-3 pb-3" aria-label="`, escaped(i18n.T(ctx, "admin.sections")), `">`); err != nil {
 		return err
 	}
 	for _, item := range items {
@@ -197,7 +198,7 @@ func ManagementAdminActivityLayout(uiSettings map[string]string, data AdminSecur
 
 func managementAdminLayout(uiSettings map[string]string, activeSection string, scope models.AdminWebmailScope, content templ.Component) templ.Component {
 	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
-		if err := writeHTML(w, `<!DOCTYPE html><html lang="`, escaped(pageLang(ctx)), `" class="`, escaped(themeClass(uiSettings)), `" data-theme="`, escaped(themeStyle(uiSettings)), `"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>`, escaped(i18n.T(ctx, "admin.page_title")), `</title><link rel="icon" type="image/svg+xml" href="/assets/logo.svg"><link rel="stylesheet" href="/assets/css/output.css">`); err != nil {
+		if err := writeHTML(w, `<!DOCTYPE html><html lang="`, escaped(pageLang(ctx)), `" class="`, escaped(themeClass(uiSettings)), `" data-theme="`, escaped(themeStyle(uiSettings)), `"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>`, escaped(i18n.T(ctx, "admin.page_title")), `</title><link rel="icon" type="`, escaped(brandFaviconType()), `" href="`, escaped(brandFaviconURL()), `"><link rel="stylesheet" href="/assets/css/output.css">`); err != nil {
 			return err
 		}
 		if err := I18nScripts().Render(ctx, w); err != nil {
@@ -233,7 +234,7 @@ func managementAdminLayout(uiSettings map[string]string, activeSection string, s
 
 func ManagementSecurityLayout(uiSettings map[string]string, content templ.Component) templ.Component {
 	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
-		if err := writeHTML(w, `<!DOCTYPE html><html lang="`, escaped(pageLang(ctx)), `" class="`, escaped(themeClass(uiSettings)), `" data-theme="`, escaped(themeStyle(uiSettings)), `"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>`, escaped(i18n.T(ctx, "admin.security_page_title")), `</title><link rel="icon" type="image/svg+xml" href="/assets/logo.svg"><link rel="stylesheet" href="/assets/css/output.css">`); err != nil {
+		if err := writeHTML(w, `<!DOCTYPE html><html lang="`, escaped(pageLang(ctx)), `" class="`, escaped(themeClass(uiSettings)), `" data-theme="`, escaped(themeStyle(uiSettings)), `"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>`, escaped(i18n.T(ctx, "admin.security_page_title")), `</title><link rel="icon" type="`, escaped(brandFaviconType()), `" href="`, escaped(brandFaviconURL()), `"><link rel="stylesheet" href="/assets/css/output.css">`); err != nil {
 			return err
 		}
 		if err := I18nScripts().Render(ctx, w); err != nil {
@@ -266,13 +267,13 @@ func ManagementSecurityLayout(uiSettings map[string]string, content templ.Compon
 
 func SeparatedSetupOwnerPage(data SetupOwnerData) templ.Component {
 	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
-		if err := writeHTML(w, `<!DOCTYPE html><html lang="`, escaped(pageLang(ctx)), `" class="dark" data-theme="classic"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>`, escaped(i18n.T(ctx, "admin.owner.page_title")), `</title><link rel="icon" type="image/svg+xml" href="/assets/logo.svg"><link rel="stylesheet" href="/assets/css/output.css"></head><body class="bg-background text-foreground antialiased surface-desk">`); err != nil {
+		if err := writeHTML(w, `<!DOCTYPE html><html lang="`, escaped(pageLang(ctx)), `" class="dark" data-theme="classic"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>`, escaped(i18n.T(ctx, "admin.owner.page_title")), `</title><link rel="icon" type="`, escaped(brandFaviconType()), `" href="`, escaped(brandFaviconURL()), `"><link rel="stylesheet" href="/assets/css/output.css"></head><body class="bg-background text-foreground antialiased surface-desk">`); err != nil {
 			return err
 		}
 		if err := PublicPageCorners().Render(ctx, w); err != nil {
 			return err
 		}
-		if err := writeHTML(w, `<main class="min-h-screen flex items-center justify-center p-4 py-10"><div class="w-full max-w-2xl"><div class="text-center mb-8"><img src="/assets/logo.svg" alt="Gofer" class="h-12 w-auto mx-auto"><p class="mt-5 text-xs font-medium uppercase tracking-widest text-success">`, escaped(i18n.T(ctx, "admin.owner.verified")), `</p><h1 class="mt-2 text-2xl font-semibold">`, escaped(i18n.T(ctx, "admin.owner.title")), `</h1><p class="mt-2 text-sm text-muted-foreground">`, escaped(i18n.T(ctx, "admin.owner.description")), `</p></div>`); err != nil {
+		if err := writeHTML(w, `<main class="min-h-screen flex items-center justify-center p-4 py-10"><div class="w-full max-w-2xl"><div class="text-center mb-8"><img src="`, escaped(brandLogoURL()), `" alt="`, escaped(brandName()), `" class="h-12 w-auto mx-auto"><p class="mt-5 text-xs font-medium uppercase tracking-widest text-success">`, escaped(i18n.T(ctx, "admin.owner.verified")), `</p><h1 class="mt-2 text-2xl font-semibold">`, escaped(i18n.T(ctx, "admin.owner.title")), `</h1><p class="mt-2 text-sm text-muted-foreground">`, escaped(i18n.T(ctx, "admin.owner.description")), `</p></div>`); err != nil {
 			return err
 		}
 		if data.DraftSaved {

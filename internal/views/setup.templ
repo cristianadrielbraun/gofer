@@ -116,7 +116,7 @@ templ SetupTokenPage(data SetupTokenData) {
 			<main class="min-h-screen flex items-center justify-center p-4">
 				<div class="w-full max-w-sm">
 					<div class="text-center mb-8">
-						<img src={ assetver.URL("/assets/logo.svg") } alt="Gofer" class="h-12 w-auto mx-auto"/>
+						<img src={ brandLogoURL() } alt={ brandName() } class="h-12 w-auto mx-auto"/>
 						<h1 class="mt-6 text-2xl font-semibold">{ i18n.T(ctx, "setup.token.title") }</h1>
 						<p class="mt-2 text-sm text-muted-foreground">{ i18n.T(ctx, "setup.token.description") }</p>
 					</div>
@@ -172,7 +172,7 @@ templ SetupOwnerPage(data SetupOwnerData) {
 			<main class="min-h-screen flex items-center justify-center p-4 py-10">
 				<div class="w-full max-w-2xl">
 					<div class="text-center mb-8">
-						<img src={ assetver.URL("/assets/logo.svg") } alt="Gofer" class="h-12 w-auto mx-auto"/>
+						<img src={ brandLogoURL() } alt={ brandName() } class="h-12 w-auto mx-auto"/>
 						<p class="mt-5 text-xs font-medium uppercase tracking-widest text-success">{ i18n.T(ctx, "setup.owner.verified") }</p>
 						if data.Kind == "fresh" {
 							<h1 class="mt-2 text-2xl font-semibold">{ i18n.T(ctx, "setup.owner.fresh_title") }</h1>
@@ -312,7 +312,7 @@ templ SetupPasswordPage(data SetupPasswordData) {
 			<main class="min-h-screen flex items-center justify-center p-4 py-10">
 				<div class="w-full max-w-md">
 					<div class="text-center mb-8">
-						<img src={ assetver.URL("/assets/logo.svg") } alt="Gofer" class="h-12 w-auto mx-auto"/>
+						<img src={ brandLogoURL() } alt={ brandName() } class="h-12 w-auto mx-auto"/>
 						<p class="mt-5 text-xs font-medium uppercase tracking-widest text-success">{ i18n.T(ctx, "setup.password.ready_badge") }</p>
 						<h1 class="mt-2 text-2xl font-semibold">{ i18n.T(ctx, "setup.password.title") }</h1>
 						<p class="mt-2 text-sm text-muted-foreground">{ i18n.T(ctx, "setup.password.description") }</p>
@@ -384,7 +384,7 @@ templ SetupMFAPage(data SetupMFAData) {
 			<main class="min-h-screen flex items-center justify-center p-4 py-10">
 				<div class="w-full max-w-lg">
 					<div class="text-center mb-8">
-						<img src={ assetver.URL("/assets/logo.svg") } alt="Gofer" class="h-12 w-auto mx-auto"/>
+						<img src={ brandLogoURL() } alt={ brandName() } class="h-12 w-auto mx-auto"/>
 						<p class="mt-5 text-xs font-medium uppercase tracking-widest text-success">{ i18n.T(ctx, "setup.mfa.ready_badge") }</p>
 						<h1 class="mt-2 text-2xl font-semibold">{ i18n.T(ctx, "setup.mfa.title") }</h1>
 						<p class="mt-2 text-sm text-muted-foreground">{ i18n.T(ctx, "setup.mfa.description") }</p>
@@ -469,7 +469,7 @@ templ SetupRecoveryPage(data SetupRecoveryData) {
 			<main class="min-h-screen flex items-center justify-center p-4 py-10">
 				<div class="w-full max-w-lg">
 					<div class="text-center mb-8">
-						<img src={ assetver.URL("/assets/logo.svg") } alt="Gofer" class="h-12 w-auto mx-auto"/>
+						<img src={ brandLogoURL() } alt={ brandName() } class="h-12 w-auto mx-auto"/>
 						<p class="mt-5 text-xs font-medium uppercase tracking-widest text-success">{ i18n.T(ctx, "signin.codes.verified") }</p>
 						<h1 class="mt-2 text-2xl font-semibold">{ i18n.T(ctx, "setup.recovery.title") }</h1>
 						<p class="mt-2 text-sm text-muted-foreground">{ i18n.T(ctx, "setup.recovery.description") }</p>
@@ -545,7 +545,7 @@ templ SetupReviewPage(data SetupReviewData) {
 			<main class="min-h-screen flex justify-center p-4 py-10">
 				<div class="w-full max-w-2xl">
 					<div class="text-center mb-8">
-						<img src={ assetver.URL("/assets/logo.svg") } alt="Gofer" class="h-12 w-auto mx-auto"/>
+						<img src={ brandLogoURL() } alt={ brandName() } class="h-12 w-auto mx-auto"/>
 						<p class="mt-5 text-xs font-medium uppercase tracking-widest text-success">{ i18n.T(ctx, "setup.review.ready_badge") }</p>
 						<h1 class="mt-2 text-2xl font-semibold">{ i18n.T(ctx, "setup.review.title") }</h1>
 						<p class="mt-2 text-sm text-muted-foreground">{ i18n.T(ctx, "setup.review.description") }</p>

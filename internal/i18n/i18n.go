@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/cristianadrielbraun/gofer/internal/branding"
 	"golang.org/x/text/language"
 )
 
@@ -183,13 +184,20 @@ func TranslateCount(locale Locale, key string, count int, args ...any) string {
 
 func lookup(locale Locale, key string) string {
 	if message, ok := catalogs[locale][key]; ok && message != "" {
-		return message
+		return withAppName(message)
 	}
 	if message, ok := catalogs[English][key]; ok {
-		return message
+		return withAppName(message)
 	}
 	// Showing the key makes a missing message easy to spot and to find.
 	return key
+}
+
+func withAppName(message string) string {
+	if !branding.Customized() || !strings.Contains(message, branding.DefaultName) {
+		return message
+	}
+	return strings.ReplaceAll(message, branding.DefaultName, branding.Name())
 }
 
 // pluralForm returns the CLDR plural category for count. English and Spanish

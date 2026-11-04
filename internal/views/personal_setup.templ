@@ -29,7 +29,7 @@ templ PersonalSetupPage(data PersonalSetupData) {
    <main class="min-h-screen flex items-center justify-center p-4 py-10">
     <div class="w-full max-w-md">
      <div class="text-center mb-8">
-      <img src={ assetver.URL("/assets/logo.svg") } alt="Gofer" class="h-12 w-auto mx-auto"/>
+      <img src={ brandLogoURL() } alt={ brandName() } class="h-12 w-auto mx-auto"/>
       <h1 class="mt-6 text-2xl font-semibold">{ i18n.T(ctx, "setup.personal.title") }</h1>
       <p class="mt-2 text-sm text-muted-foreground">{ i18n.T(ctx, "setup.personal.description") }</p>
      </div>

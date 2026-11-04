@@ -1104,7 +1104,7 @@ func contactCardAccountLabel(ctx context.Context, card models.ContactCard, accou
 	if card.AddressBookID != "" {
 		return i18n.T(ctx, "contacts.card_account.book", "id", card.AddressBookID)
 	}
-	return "Gofer"
+	return brandName()
 }
 
 func contactFieldKindLabel(ctx context.Context, kind string) string {
@@ -2667,7 +2667,7 @@ templ ContactLegacySourcePanel(contact *models.Contact, accounts []models.Accoun
 						}
 					</div>
 				} else {
-					<div class="mt-1 text-sm font-medium text-ink">Gofer</div>
+					<div class="mt-1 text-sm font-medium text-ink">{ brandName() }</div>
 					<div class="mt-0.5 text-xs text-muted-foreground">{ i18n.T(ctx, "contacts.sync.local_editable") }</div>
 				}
 			</div>
