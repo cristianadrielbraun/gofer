@@ -2,25 +2,31 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const path = require('node:path')
 const vm = require('node:vm')
+const loadI18n = require('./i18n-test-helper.cjs')
 
 const page = fs.readFileSync(path.join(__dirname, '../assets/js/settings-page.js'), 'utf8')
 const start = page.indexOf('function maybeGoAddContacts() {')
 const end = page.indexOf('function syncWizardServiceContent(', start)
 assert(start >= 0 && end > start)
 
-for (const created of [false, true]) {
+// Creating an account, or adding email to a calendar-only or contacts-only
+// one, both say mail is syncing and move on to contacts.
+for (const [created, addingMail] of [[false, false], [true, false], [true, true]]) {
   const messages = []
   let syncs = 0
   const context = vm.createContext({
     addAccountCreated: () => created,
+    addingMailToAccount: () => addingMail,
     syncAddContactStep() { syncs++ },
     addAccountTest: {saved(message) { messages.push(message) }},
     document: {getElementById: () => ({dataset: {mailService: 'jmap'}})},
   })
+  loadI18n(context)
   vm.runInContext(page.slice(start, end) + '\nmaybeGoAddContacts()', context)
   assert.equal(messages.length, created ? 1 : 0)
   assert.equal(syncs, created ? 1 : 0)
   if (created) {
+    assert.match(messages[0], addingMail ? /^Email added\./ : /^Account created\./)
     assert.match(messages[0], /Mail is syncing now/)
     assert.doesNotMatch(messages[0], /unavailable|not available|isn't available/)
   }
