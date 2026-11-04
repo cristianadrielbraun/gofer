@@ -149,7 +149,9 @@ func calendarCalDAVOccurrenceResource(cal *ical.Calendar, headers http.Header, e
 }
 
 // Ask the provider to prove membership at the resource version we just read.
-// Never guess recurrence dates locally, or send an instance fragment as a URL.
+// Don't guess recurrence dates from what Gofer has stored, or send an instance
+// fragment as a URL. A server that can't expand is read as stored, at that
+// version, and expanded by Gofer.
 func calendarCalDAVVerifyOccurrence(ctx context.Context, source storage.CalendarSource, username, password string, existing storage.CalendarEvent, meeting ...bool) error {
 	component, err := calendarCalDAVReadOccurrence(ctx, source, username, password, existing)
 	if err != nil {
@@ -184,8 +186,26 @@ func calendarCalDAVReadOccurrence(ctx context.Context, source storage.CalendarSo
 	resource, _ := url.Parse(existing.SeriesRemoteID)
 	var href bytes.Buffer
 	_ = xml.EscapeText(&href, []byte(resource.EscapedPath()))
-	body := fmt.Sprintf(`<c:calendar-multiget xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav"><d:prop><d:getetag/><c:calendar-data><c:expand start="%s" end="%s"/></c:calendar-data></d:prop><d:href>%s</d:href></c:calendar-multiget>`, start.Add(-24*time.Hour).UTC().Format("20060102T150405Z"), end.Add(24*time.Hour).UTC().Format("20060102T150405Z"), href.String())
-	multi, err := calDAVRequest(ctx, "REPORT", source.RemoteID, username, password, "1", body, 30*time.Second)
+	windowStart, windowEnd := start.Add(-24*time.Hour), end.Add(24*time.Hour)
+	multiget := func(data string) string {
+		return `<c:calendar-multiget xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav"><d:prop><d:getetag/>` + data + `</d:prop><d:href>` + href.String() + `</d:href></c:calendar-multiget>`
+	}
+	expandedByServer := !calDAVExpandRefusedFor(source.RemoteID)
+	var multi davMultiStatus
+	var err error
+	if expandedByServer {
+		multi, err = calDAVRequest(ctx, "REPORT", source.RemoteID, username, password, "1",
+			multiget(fmt.Sprintf(`<c:calendar-data><c:expand start="%s" end="%s"/></c:calendar-data>`, windowStart.UTC().Format("20060102T150405Z"), windowEnd.UTC().Format("20060102T150405Z"))), 30*time.Second)
+		if calDAVServerCannotExpand(err) {
+			expandedByServer = false
+		}
+	}
+	if !expandedByServer {
+		multi, err = calDAVRequest(ctx, "REPORT", source.RemoteID, username, password, "1", multiget(`<c:calendar-data/>`), 30*time.Second)
+		if err == nil {
+			rememberCalDAVExpandRefused(source.RemoteID)
+		}
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -212,17 +232,33 @@ func calendarCalDAVReadOccurrence(ctx context.Context, source storage.CalendarSo
 	if etag != existing.ETag {
 		return nil, errCalendarUpdateConflict
 	}
-	cal, err := calendarUpdateDecodeICS([]byte(data))
-	if err != nil {
-		return nil, err
-	}
-	matches := 0
-	var selected *ical.Component
-	for _, event := range cal.Events() {
-		remote, err := normalizeCalDAVEvent(event, resolved, etag, time.UTC)
+	var occurrences []jmapOccurrence
+	if expandedByServer {
+		cal, err := calendarUpdateDecodeICS([]byte(data))
 		if err != nil {
 			return nil, err
 		}
+		for _, event := range cal.Events() {
+			remote, err := normalizeCalDAVEvent(event, resolved, etag, time.UTC)
+			if err != nil {
+				return nil, err
+			}
+			occurrences = append(occurrences, jmapOccurrence{component: event.Component, remote: remote})
+		}
+	} else {
+		// Floating times are read in the calendar's zone, as the sync read them.
+		location := time.UTC
+		if zone, err := time.LoadLocation(source.TimeZone); err == nil && source.TimeZone != "" {
+			location = zone
+		}
+		if occurrences, err = expandCalDAVResource(data, resolved, etag, windowStart, windowEnd, location); err != nil {
+			return nil, err
+		}
+	}
+	matches := 0
+	var selected *ical.Component
+	for _, occurrence := range occurrences {
+		remote := occurrence.remote
 		if remote.SeriesRemoteID == "" {
 			key := remote.StartDate
 			if !remote.AllDay && remote.StartAt != nil {
@@ -236,7 +272,7 @@ func calendarCalDAVReadOccurrence(ctx context.Context, source storage.CalendarSo
 				return nil, errCalendarUpdateConflict
 			}
 			matches++
-			selected = event.Component
+			selected = occurrence.component
 		}
 	}
 	if matches != 1 {

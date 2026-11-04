@@ -101,12 +101,31 @@ func listCalDAVCalendarEvents(ctx context.Context, source storage.CalendarSource
 	end := query.WindowEnd.UTC().Format("20060102T150405Z")
 	// RFC 4791 section 9.6.5 expands recurrence sets, including exceptions,
 	// into individual instances in this bounded window, with zoned times in UTC.
-	body := fmt.Sprintf(`<?xml version="1.0" encoding="utf-8"?>
+	// A server that can't do that is asked for the events as stored, and
+	// Gofer expands them itself.
+	calendarQuery := func(data string) string {
+		return fmt.Sprintf(`<?xml version="1.0" encoding="utf-8"?>
 <c:calendar-query xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
- <d:prop><d:getetag/><c:calendar-data><c:expand start="%s" end="%s"/></c:calendar-data></d:prop>
+ <d:prop><d:getetag/>%s</d:prop>
  <c:filter><c:comp-filter name="VCALENDAR"><c:comp-filter name="VEVENT"><c:time-range start="%s" end="%s"/></c:comp-filter></c:comp-filter></c:filter>
-</c:calendar-query>`, start, end, start, end)
-	multi, err := calDAVRequest(ctx, "REPORT", source.RemoteID, username, password, "1", body, 30*time.Second)
+</c:calendar-query>`, data, start, end)
+	}
+	expandedByServer := !calDAVExpandRefusedFor(source.RemoteID)
+	var multi davMultiStatus
+	var err error
+	if expandedByServer {
+		multi, err = calDAVRequest(ctx, "REPORT", source.RemoteID, username, password, "1",
+			calendarQuery(fmt.Sprintf(`<c:calendar-data><c:expand start="%s" end="%s"/></c:calendar-data>`, start, end)), 30*time.Second)
+		if calDAVServerCannotExpand(err) {
+			expandedByServer = false
+		}
+	}
+	if !expandedByServer {
+		multi, err = calDAVRequest(ctx, "REPORT", source.RemoteID, username, password, "1", calendarQuery(`<c:calendar-data/>`), 30*time.Second)
+		if err == nil {
+			rememberCalDAVExpandRefused(source.RemoteID)
+		}
+	}
 	if err != nil {
 		return calendar.EventPage{}, err
 	}
@@ -146,7 +165,16 @@ func listCalDAVCalendarEvents(ctx context.Context, source storage.CalendarSource
 		if err != nil {
 			return calendar.EventPage{}, err
 		}
-		events, err := parseCalDAVEvents(href, etag, data, location)
+		var events []calendar.RemoteEvent
+		if expandedByServer {
+			events, err = parseCalDAVEvents(href, etag, data, location)
+		} else {
+			var occurrences []jmapOccurrence
+			occurrences, err = expandCalDAVResource(data, href, etag, query.WindowStart, query.WindowEnd, location)
+			for _, occurrence := range occurrences {
+				events = append(events, occurrence.remote)
+			}
+		}
 		if err != nil {
 			return calendar.EventPage{}, fmt.Errorf("read CalDAV event: %w", err)
 		}
@@ -154,8 +182,10 @@ func listCalDAVCalendarEvents(ctx context.Context, source storage.CalendarSource
 	}
 	// The server's expansion of a series with dates changed on their own
 	// isn't trusted; Gofer expands those from the stored event.
-	if err := expandCalDAVChangedSeries(ctx, source, username, password, resources, query.WindowStart, query.WindowEnd, location); err != nil {
-		return calendar.EventPage{}, err
+	if expandedByServer {
+		if err := expandCalDAVChangedSeries(ctx, source, username, password, resources, query.WindowStart, query.WindowEnd, location); err != nil {
+			return calendar.EventPage{}, err
+		}
 	}
 	for _, resource := range resources {
 		for _, event := range resource.events {
@@ -172,8 +202,11 @@ func listCalDAVCalendarEvents(ctx context.Context, source storage.CalendarSource
 	// RFC 4791 allows the initial expanded occurrence to omit RECURRENCE-ID.
 	// Read minimal original metadata in batches so it is not mistaken for a
 	// standalone event, even when the next recurrence is outside this window.
-	if err := identifyCalDAVInitialOccurrences(ctx, source, username, password, page.Events); err != nil {
-		return calendar.EventPage{}, err
+	// Gofer's own expansion marks every occurrence already.
+	if expandedByServer {
+		if err := identifyCalDAVInitialOccurrences(ctx, source, username, password, page.Events); err != nil {
+			return calendar.EventPage{}, err
+		}
 	}
 	clear(seen)
 	for _, event := range page.Events {
@@ -421,7 +454,16 @@ func calDAVPersonEmail(value string) string {
 }
 
 func calDAVCalendarTimeZone(data string) string {
-	if strings.TrimSpace(data) == "" {
+	data = strings.TrimSpace(data)
+	if data == "" {
+		return ""
+	}
+	// Baïkal stores the bare name, such as "Europe/Zurich", where the
+	// property should hold a VCALENDAR with the zone in it.
+	if !strings.ContainsAny(data, "\r\n:") {
+		if location, err := time.LoadLocation(data); err == nil && location.String() != "Local" {
+			return data
+		}
 		return ""
 	}
 	cal, err := ical.NewDecoder(strings.NewReader(data)).Decode()

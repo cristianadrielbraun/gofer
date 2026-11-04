@@ -96,7 +96,7 @@ func (g davPlaintextGuard) RoundTrip(req *http.Request) (*http.Response, error) 
 	default:
 		return nil, fmt.Errorf("%s does not support %q URLs", g.service, req.URL.Scheme)
 	}
-	return davHTTPTransport.RoundTrip(req)
+	return davDigestRoundTrip(davHTTPTransport, req)
 }
 
 // jmapServerAddress is a JMAP account's server address, its scheme, host and
