@@ -2375,6 +2375,8 @@ func accountProviderName(provider string) string {
 		return "JMAP"
 	case providers.ProviderDAV:
 		return "DAV"
+	case providers.ProviderLocal:
+		return "Local"
 	default:
 		return "IMAP"
 	}
@@ -2405,6 +2407,8 @@ templ AccountProviderIcon(provider string, class string) {
 		</svg>
 	} else if strings.TrimSpace(provider) == providers.ProviderDAV {
 		@icon.Server(icon.Props{Class: class})
+	} else if strings.TrimSpace(provider) == providers.ProviderLocal {
+		@icon.Monitor(icon.Props{Class: class})
 	} else {
 		@icon.Mail(icon.Props{Class: class})
 	}
