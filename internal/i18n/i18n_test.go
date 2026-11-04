@@ -14,8 +14,11 @@ import (
 
 func TestLocalesStartWithEnglish(t *testing.T) {
 	got := Locales()
-	if len(got) < 2 || got[0] != English || !slices.Contains(got, Locale("es")) {
-		t.Fatalf("Locales() = %v, want English first and Spanish present", got)
+	if len(got) < 3 || got[0] != English || !slices.Contains(got, Locale("es")) || !slices.Contains(got, Locale("pt-br")) {
+		t.Fatalf("Locales() = %v, want English first and Spanish and Brazilian Portuguese present", got)
+	}
+	if locale, ok := Parse("pt-BR"); !ok || locale != "pt-br" {
+		t.Fatalf("Parse(pt-BR) = %q, %v", locale, ok)
 	}
 }
 
@@ -28,6 +31,10 @@ func TestMatchPicksTheBestCatalog(t *testing.T) {
 		"fr-FR,es;q=0.5,en;q=0.4":  "es",
 		"en-GB,en;q=0.9,es;q=0.8":  English,
 		"de-CH, de;q=0.9, *;q=0.5": English,
+		"pt-BR,pt;q=0.9,en;q=0.8":  "pt-br",
+		"pt":                       "pt-br",
+		"pt-PT":                    "pt-br",
+		"fr-FR,pt;q=0.5,en;q=0.4":  "pt-br",
 	}
 	for header, want := range cases {
 		if got := Match(header); got != want {
