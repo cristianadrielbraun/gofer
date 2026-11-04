@@ -27,6 +27,7 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 	if h.auth == nil || !h.auth.IsEnabled() || h.auth.Config().AuthenticationMode() != auth.ModeManaged {
 		return errors.New("user storage routes require managed authentication")
 	}
+	h.settingsRouting = routing
 	if len(options) > 1 {
 		return errors.New("only one user storage options value is supported")
 	}

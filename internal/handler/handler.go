@@ -54,6 +54,7 @@ import (
 type Handler struct {
 	db                         *storage.DB
 	userStorage                *storage.AccountRouting
+	settingsRouting            *storage.AccountRouting // users' own settings stores, for the base handler (see withSettingsDB)
 	ownedMailbox               *Handler
 	userIMAP                   *mail.UserIMAP
 	userCredentials            *mailauth.UserCredentials

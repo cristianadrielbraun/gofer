@@ -67,7 +67,7 @@ func (h *Handler) savePickedLanguage(w http.ResponseWriter, r *http.Request, use
 		return
 	}
 	updates := map[string]string{i18n.SettingKey: string(locale)}
-	if err := h.withUserDB(r.Context(), userID, func(db *storage.DB) error {
+	if err := h.withSettingsDB(r.Context(), userID, func(db *storage.DB) error {
 		return db.MergeUISettings(r.Context(), userID, updates)
 	}); err != nil {
 		return
@@ -92,7 +92,7 @@ func (h *Handler) savedRegionalPrefs(ctx context.Context, userID string) regiona
 		return cached.(regionalPrefs)
 	}
 	var prefs regionalPrefs
-	if err := h.withUserDB(ctx, userID, func(db *storage.DB) error {
+	if err := h.withSettingsDB(ctx, userID, func(db *storage.DB) error {
 		settings := db.GetUISettings(ctx, userID)
 		prefs = regionalPrefs{settings[i18n.SettingKey], settings[i18n.DateFormatSettingKey], settings[i18n.TimeFormatSettingKey]}
 		return nil
@@ -155,4 +155,13 @@ func serveLocaleScript(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
 	_, _ = w.Write(body)
+}
+
+// withSettingsDB runs fn on the database that holds userID's own settings:
+// their own store when settings are kept per user, else the handler's.
+func (h *Handler) withSettingsDB(ctx context.Context, userID string, fn func(*storage.DB) error) error {
+	if h.userStorage == nil && h.settingsRouting != nil {
+		return h.settingsRouting.WithUser(ctx, userID, fn)
+	}
+	return h.withUserDB(ctx, userID, fn)
 }
