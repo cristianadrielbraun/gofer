@@ -330,7 +330,9 @@ func (s *userMailDeliveryScope) copySent(ctx context.Context, send storage.Outgo
 	if snapshot.MessageID == "" {
 		return errors.New("Sent message identity is unavailable")
 	}
-	client, err := imapclient.NewContextClient(ctx, s.cfg, s.password)
+	// A pooled session spares a login per operation; some servers, like
+	// Yahoo, limit how often an account may log in.
+	client, err := imapclient.DefaultPool.Get(ctx, s.cfg, s.password)
 	if err != nil {
 		return err
 	}
@@ -556,7 +558,9 @@ func (s *userMailDeliveryScope) draft(ctx context.Context) (bool, error) {
 }
 
 func (s *userMailDeliveryScope) syncDraft(ctx context.Context, op storage.IMAPDraftOperation) error {
-	client, err := imapclient.NewContextClient(ctx, s.cfg, s.password)
+	// A pooled session spares a login per operation; some servers, like
+	// Yahoo, limit how often an account may log in.
+	client, err := imapclient.DefaultPool.Get(ctx, s.cfg, s.password)
 	if err != nil {
 		return err
 	}
@@ -588,9 +592,14 @@ func (s *userMailDeliveryScope) syncDraft(ctx context.Context, op storage.IMAPDr
 	if op.Kind != storage.IMAPDraftOperationUpsert {
 		return fmt.Errorf("unsupported draft operation %s", op.Kind)
 	}
-	uid, validity, err := client.FindUIDByHeaderWithValidity(ctx, state.FolderRemoteName, imapDraftRevisionHeader, op.RevisionToken)
-	if err != nil {
-		return err
+	// A pending revision was never sent, so only a retried one can already
+	// be on the server.
+	var uid, validity uint32
+	if op.Status != storage.IMAPDraftStatusPending {
+		uid, validity, err = client.FindUIDByHeaderWithValidity(ctx, state.FolderRemoteName, imapDraftRevisionHeader, op.RevisionToken)
+		if err != nil {
+			return err
+		}
 	}
 	if uid == 0 {
 		result, err := client.AppendMessage(ctx, state.FolderRemoteName, op.MIMEData, []goimap.Flag{goimap.FlagSeen, goimap.FlagDraft}, op.MessageDate)

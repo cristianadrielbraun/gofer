@@ -206,7 +206,7 @@ func New(db *storage.DB, accountStore *config.AccountStore, syncer *mail.SyncOrc
 		mailRuleRuns:           newMailRuleRuns(),
 		authEventRetentionWake: make(chan struct{}, 1),
 		sentCopyIMAPFactory: func(ctx context.Context, cfg *models.AccountConfig, password string) (sentCopyIMAPClient, error) {
-			return imap.NewClient(ctx, cfg, password)
+			return imap.DefaultPool.Get(ctx, cfg, password)
 		},
 		messageMutationIMAPFactory: func(ctx context.Context, cfg *models.AccountConfig, password string) (messageMutationIMAPClient, error) {
 			return imap.NewClient(ctx, cfg, password)

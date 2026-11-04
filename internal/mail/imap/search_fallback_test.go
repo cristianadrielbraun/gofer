@@ -26,6 +26,18 @@ import (
 // result while passing every other command through, as some servers do.
 func startInboxServer(t *testing.T, count int, emptySearch bool) (*models.AccountConfig, []uint32, *commandRecorder) {
 	t.Helper()
+	return startInboxServerWith(t, count, func(tag, command string) (string, bool) {
+		if emptySearch && strings.EqualFold(command, "UID SEARCH ALL") {
+			return "* SEARCH\r\n" + tag + " OK SEARCH completed.\r\n", true
+		}
+		return "", false
+	})
+}
+
+// startInboxServerWith is startInboxServer with the proxy answering any
+// command intercept handles instead of passing it through.
+func startInboxServerWith(t *testing.T, count int, intercept func(tag, command string) (string, bool)) (*models.AccountConfig, []uint32, *commandRecorder) {
+	t.Helper()
 	mem := imapmemserver.New()
 	user := imapmemserver.NewUser("user@example.com", "secret")
 	if err := user.Create("INBOX", nil); err != nil {
@@ -114,11 +126,13 @@ func startInboxServer(t *testing.T, count int, emptySearch bool) (*models.Accoun
 						return
 					}
 					_, _ = recorder.write([]byte(line))
-					if fields := strings.Fields(line); emptySearch && len(fields) == 4 && strings.EqualFold(strings.Join(fields[1:], " "), "UID SEARCH ALL") {
-						writeMu.Lock()
-						_, _ = io.WriteString(down, "* SEARCH\r\n"+fields[0]+" OK SEARCH completed.\r\n")
-						writeMu.Unlock()
-						continue
+					if fields := strings.Fields(line); len(fields) > 1 {
+						if reply, ok := intercept(fields[0], strings.Join(fields[1:], " ")); ok {
+							writeMu.Lock()
+							_, _ = io.WriteString(down, reply)
+							writeMu.Unlock()
+							continue
+						}
 					}
 					if _, err := io.WriteString(up, line); err != nil {
 						return
@@ -200,5 +214,48 @@ func TestClientListsNoUIDsInEmptyMailboxWithoutFallback(t *testing.T) {
 	}
 	if strings.Contains(strings.ToUpper(recorder.String()), "UID FETCH") {
 		t.Fatalf("empty mailbox fell back to UID FETCH; client sent:\n%s", recorder.String())
+	}
+}
+
+func TestClientFindsHeaderWhenServerRefusesHeaderSearch(t *testing.T) {
+	tests := []struct {
+		name         string
+		refuse       bool
+		wantFallback bool
+	}{
+		{name: "compliant server", refuse: false, wantFallback: false},
+		{name: "server refuses SEARCH HEADER", refuse: true, wantFallback: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg, uids, recorder := startInboxServerWith(t, 3, func(tag, command string) (string, bool) {
+				if tt.refuse && strings.HasPrefix(strings.ToUpper(command), "UID SEARCH HEADER") {
+					return tag + " BAD [CANNOT] UID SEARCH The given search command is not supported right now\r\n", true
+				}
+				return "", false
+			})
+			client, err := NewClient(context.Background(), cfg, "secret")
+			if err != nil {
+				t.Fatalf("NewClient() error = %v", err)
+			}
+			defer client.Close()
+
+			uid, validity, err := client.FindUIDByMessageIDWithValidity(context.Background(), "INBOX", "<inbox-1@example.com>")
+			if err != nil {
+				t.Fatalf("FindUIDByMessageIDWithValidity() error = %v", err)
+			}
+			if uid != uids[1] || validity == 0 {
+				t.Fatalf("FindUIDByMessageIDWithValidity() = %d, %d; want %d with a UIDVALIDITY", uid, validity, uids[1])
+			}
+			uid, _, err = client.FindUIDByMessageIDWithValidity(context.Background(), "INBOX", "<missing@example.com>")
+			if err != nil || uid != 0 {
+				t.Fatalf("FindUIDByMessageIDWithValidity(missing) = %d, %v; want 0, nil", uid, err)
+			}
+
+			fellBack := strings.Contains(strings.ToUpper(recorder.String()), "HEADER.FIELDS (\"MESSAGE-ID\")")
+			if fellBack != tt.wantFallback {
+				t.Fatalf("read headers = %v, want %v; client sent:\n%s", fellBack, tt.wantFallback, recorder.String())
+			}
+		})
 	}
 }

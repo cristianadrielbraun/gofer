@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
+	imapclient "github.com/cristianadrielbraun/gofer/internal/mail/imap"
 )
 
 // Many messages a user sees start deep in the handlers as English text,
@@ -248,6 +249,13 @@ var serverTextPatterns = []struct {
 	}},
 	{regexp.MustCompile(`^(.+?) Refresh the calendar and reopen the event\.$`), func(ctx context.Context, m []string) string {
 		return i18n.T(ctx, "server.pattern.refresh_reopen", "detail", serverTextOf(ctx, m[1]))
+	}},
+	{regexp.MustCompile(`^` + regexp.QuoteMeta(imapclient.LoginCooldownMessage) + `(?: \((.+)\))?$`), func(ctx context.Context, m []string) string {
+		// The first refusal carries the server's own words.
+		if m[1] != "" {
+			return i18n.T(ctx, "server.pattern.imap_login_limited_detail", "detail", m[1])
+		}
+		return i18n.T(ctx, "server.error.imap_login_limited")
 	}},
 	{regexp.MustCompile(`^connect to (\S+?): (.+)$`), func(ctx context.Context, m []string) string {
 		return i18n.T(ctx, "server.pattern.connect_to", "host", m[1], "detail", serverTextOf(ctx, m[2]))

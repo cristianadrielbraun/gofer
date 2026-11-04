@@ -495,7 +495,7 @@ func (h *Handler) reconcileSentCopy(parent context.Context, send storage.Outgoin
 	factory := h.sentCopyIMAPFactory
 	if factory == nil {
 		factory = func(ctx context.Context, cfg *models.AccountConfig, password string) (sentCopyIMAPClient, error) {
-			return imapclient.NewClient(ctx, cfg, password)
+			return imapclient.DefaultPool.Get(ctx, cfg, password)
 		}
 	}
 	client, err := factory(parent, cfg, password)

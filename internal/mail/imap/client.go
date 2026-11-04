@@ -79,6 +79,9 @@ func connectWithContext(ctx context.Context, cfg *models.AccountConfig, password
 		return nil, fmt.Errorf("IMAP OAuth authentication is not allowed over a plaintext connection")
 	}
 	options = secureClientOptions(cfg.IMAPHost, options)
+	if err := defaultLoginCooldowns.check(cfg); err != nil {
+		return nil, err
+	}
 
 	addr := net.JoinHostPort(cfg.IMAPHost, strconv.Itoa(cfg.IMAPPort))
 
@@ -130,6 +133,7 @@ func connectWithContext(ctx context.Context, cfg *models.AccountConfig, password
 		err = c.Authenticate(saslClient)
 	}
 
+	err = defaultLoginCooldowns.record(cfg, err)
 	if err != nil {
 		c.Close()
 		return nil, fmt.Errorf("authenticate: %w", err)

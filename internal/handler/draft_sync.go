@@ -96,7 +96,7 @@ func (h *Handler) reconcileIMAPDraftOperation(ctx context.Context, operation sto
 	factory := h.sentCopyIMAPFactory
 	if factory == nil {
 		factory = func(ctx context.Context, cfg *models.AccountConfig, password string) (sentCopyIMAPClient, error) {
-			return imapclient.NewClient(ctx, cfg, password)
+			return imapclient.DefaultPool.Get(ctx, cfg, password)
 		}
 	}
 	client, err := factory(ctx, cfg, password)
