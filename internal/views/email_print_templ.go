@@ -9,17 +9,18 @@ import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
 import (
-	"github.com/cristianadrielbraun/gofer/internal/i18n"
+	"context"
 	"strings"
 
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 )
 
-func emailPrintSubject(email *models.Email) string {
+func emailPrintSubject(ctx context.Context, email *models.Email) string {
 	if subject := strings.TrimSpace(email.Subject); subject != "" {
-		return subject
+		return i18n.Subject(ctx, subject)
 	}
-	return "(no subject)"
+	return i18n.T(ctx, "mail.no_subject")
 }
 
 // emailPrintAttachments names the files attached to the message, leaving out
@@ -63,9 +64,9 @@ func EmailPrintHeader(email *models.Email) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var2 string
-		templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.JoinStringErrs(emailPrintSubject(email))
+		templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.JoinStringErrs(emailPrintSubject(ctx, email))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/email_print.templ`, Line: 34, Col: 94}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/email_print.templ`, Line: 35, Col: 99}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var2))
 		if templ_7745c5c3_Err != nil {
@@ -143,7 +144,7 @@ func emailPrintRow(label, value string) templ.Component {
 		var templ_7745c5c3_Var4 string
 		templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/email_print.templ`, Line: 56, Col: 101}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/email_print.templ`, Line: 57, Col: 101}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 		if templ_7745c5c3_Err != nil {
@@ -156,7 +157,7 @@ func emailPrintRow(label, value string) templ.Component {
 		var templ_7745c5c3_Var5 string
 		templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(value)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/email_print.templ`, Line: 57, Col: 62}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/email_print.templ`, Line: 58, Col: 62}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 		if templ_7745c5c3_Err != nil {

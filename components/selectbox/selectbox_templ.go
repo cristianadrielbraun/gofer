@@ -916,7 +916,7 @@ func Content(props ...ContentProps) templ.Component {
 				templ_7745c5c3_Err = input.Input(input.Props{
 					Type:        input.TypeSearch,
 					Class:       "pl-8",
-					Placeholder: utils.IfElse(p.SearchPlaceholder != "", p.SearchPlaceholder, "Search..."),
+					Placeholder: utils.IfElse(p.SearchPlaceholder != "", p.SearchPlaceholder, i18n.T(ctx, "components.search")),
 					Attributes: templ.Attributes{
 						"data-tui-selectbox-search": "",
 					},

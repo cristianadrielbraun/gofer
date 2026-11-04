@@ -4992,9 +4992,9 @@ func mailRuleActivityEntry(run models.MailRuleRun, now time.Time) templ.Componen
 			}
 		} else if run.Subject != "" {
 			var templ_7745c5c3_Var271 string
-			templ_7745c5c3_Var271, templ_7745c5c3_Err = templ.JoinStringErrs(run.Subject)
+			templ_7745c5c3_Var271, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.Subject(ctx, run.Subject))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 972, Col: 17}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_rules.templ`, Line: 972, Col: 36}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var271))
 			if templ_7745c5c3_Err != nil {

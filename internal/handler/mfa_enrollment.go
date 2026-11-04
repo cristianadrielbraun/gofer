@@ -14,7 +14,7 @@ import (
 
 func (h *Handler) handleMFAEnrollment(w http.ResponseWriter, r *http.Request) {
 	if !h.auth.IsEnabled() {
-		http.Error(w, "not found", http.StatusNotFound)
+		http.Error(w, i18n.T(r.Context(), "server.error.not_found"), http.StatusNotFound)
 		return
 	}
 	if r.URL.RawQuery != "" {
@@ -35,7 +35,7 @@ func (h *Handler) handleMFAEnrollment(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handleMFAEnrollmentSubmit(w http.ResponseWriter, r *http.Request) {
 	if !h.auth.IsEnabled() {
-		http.Error(w, "not found", http.StatusNotFound)
+		http.Error(w, i18n.T(r.Context(), "server.error.not_found"), http.StatusNotFound)
 		return
 	}
 	if r.URL.RawQuery != "" {
@@ -88,7 +88,7 @@ func (h *Handler) handleMFAEnrollmentSubmit(w http.ResponseWriter, r *http.Reque
 
 func (h *Handler) handleMFAEnrollmentCodes(w http.ResponseWriter, r *http.Request) {
 	if !h.auth.IsEnabled() {
-		http.Error(w, "not found", http.StatusNotFound)
+		http.Error(w, i18n.T(r.Context(), "server.error.not_found"), http.StatusNotFound)
 		return
 	}
 	if r.URL.RawQuery != "" {
@@ -109,7 +109,7 @@ func (h *Handler) handleMFAEnrollmentCodes(w http.ResponseWriter, r *http.Reques
 
 func (h *Handler) handleMFAEnrollmentCodesSubmit(w http.ResponseWriter, r *http.Request) {
 	if !h.auth.IsEnabled() {
-		http.Error(w, "not found", http.StatusNotFound)
+		http.Error(w, i18n.T(r.Context(), "server.error.not_found"), http.StatusNotFound)
 		return
 	}
 	if r.URL.RawQuery != "" {
@@ -189,7 +189,7 @@ func (h *Handler) handleMFAEnrollmentAccessError(w http.ResponseWriter, r *http.
 	}
 	log.Printf("%s: %v", operation, err)
 	auth.ClearPreAuthCookie(w, h.auth.Config().SecureCookies)
-	http.Error(w, "failed to load MFA enrollment", http.StatusInternalServerError)
+	http.Error(w, i18n.T(r.Context(), "server.error.failed_to_load_mfa_enrollment"), http.StatusInternalServerError)
 }
 
 func (h *Handler) handleMFAEnrollmentOperationError(w http.ResponseWriter, r *http.Request, err error, operation string) bool {
@@ -227,7 +227,7 @@ func (h *Handler) renderMFAEnrollmentPage(w http.ResponseWriter, r *http.Request
 	var page bytes.Buffer
 	if err := views.MFAEnrollmentPage(data).Render(r.Context(), &page); err != nil {
 		log.Printf("render required MFA enrollment page: %v", err)
-		http.Error(w, "failed to render MFA enrollment", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_render_mfa_enrollment"), http.StatusInternalServerError)
 		return
 	}
 	writeNoStoreHTML(w, status, &page)
@@ -237,7 +237,7 @@ func (h *Handler) renderMFAEnrollmentCodesPage(w http.ResponseWriter, r *http.Re
 	var page bytes.Buffer
 	if err := views.MFAEnrollmentCodesPage(data).Render(r.Context(), &page); err != nil {
 		log.Printf("render required MFA recovery-code page: %v", err)
-		http.Error(w, "failed to render recovery codes", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_render_recovery_codes"), http.StatusInternalServerError)
 		return
 	}
 	writeNoStoreHTML(w, status, &page)

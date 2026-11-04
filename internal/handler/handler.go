@@ -250,6 +250,7 @@ func New(db *storage.DB, accountStore *config.AccountStore, syncer *mail.SyncOrc
 		})
 	})
 	h.useSavedRegionalForBackground()
+	i18n.SetServerTextTranslator(serverText)
 	return h
 }
 
@@ -1443,7 +1444,7 @@ func (h *Handler) handleExportContacts(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_export_contacts"), http.StatusInternalServerError)
 		return
 	}
-	serveVCard(w, "gofer-contacts.vcf", contacts)
+	serveVCard(w, r, "gofer-contacts.vcf", contacts)
 }
 
 func (h *Handler) handleExportContact(w http.ResponseWriter, r *http.Request) {
@@ -1462,13 +1463,13 @@ func (h *Handler) handleExportContact(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	serveVCard(w, contactVCardFilename(*contact), []models.Contact{*contact})
+	serveVCard(w, r, contactVCardFilename(*contact), []models.Contact{*contact})
 }
 
-func serveVCard(w http.ResponseWriter, filename string, contacts []models.Contact) {
+func serveVCard(w http.ResponseWriter, r *http.Request, filename string, contacts []models.Contact) {
 	data, err := renderVCard4(contacts)
 	if err != nil {
-		http.Error(w, "failed to render vCard", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_render_vcard"), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "text/vcard; charset=utf-8")
@@ -1894,6 +1895,10 @@ func emailBodyTextSize(r *http.Request) int {
 func buildBodyDocument(ctx context.Context, body []byte, resizeScript []byte, theme string, bgColor string, fgColor string, linkColor string, original bool, textSize int, nonce string) []byte {
 	nonced := func(script []byte) string { return string(scriptWithNonce(script, nonce)) }
 	s := string(body)
+	// A message that only carries a calendar file has a saved English body.
+	if strings.Contains(s, ">"+i18n.CalendarOnlyBody+"<") {
+		s = strings.Replace(s, ">"+i18n.CalendarOnlyBody+"<", ">"+template.HTMLEscapeString(i18n.T(ctx, "mail.calendar_only_body"))+"<", 1)
+	}
 	lower := strings.ToLower(s)
 	isDark := theme == "dark"
 	injection := nonced(emailExternalLinksScript()) + nonced(emailQuoteScript(ctx)) + nonced(resizeScript)
@@ -2851,6 +2856,13 @@ func (h *Handler) handleDiscoverAccount(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// The notes say how each candidate was found, written in English by the
+	// discovery package.
+	for i := range candidates {
+		for j, note := range candidates[i].Notes {
+			candidates[i].Notes[j] = i18n.Stored(ctx, "discovery.note.", note)
+		}
+	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"candidates": candidates,
@@ -2860,7 +2872,7 @@ func (h *Handler) handleDiscoverAccount(w http.ResponseWriter, r *http.Request) 
 func (h *Handler) handleCreateAccount(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		w.Header().Set("Content-Type", "text/html")
-		views.AccountFormError("Invalid form data").Render(r.Context(), w)
+		views.AccountFormError(serverText(r.Context(), "Invalid form data")).Render(r.Context(), w)
 		return
 	}
 
@@ -2869,23 +2881,23 @@ func (h *Handler) handleCreateAccount(w http.ResponseWriter, r *http.Request) {
 	if req.Provider == providers.ProviderJMAP {
 		if err := h.prepareJMAPAccount(r, &req); err != nil {
 			w.Header().Set("Content-Type", "text/html")
-			views.AccountFormError(err.Error()).Render(r.Context(), w)
+			views.AccountFormError(serverText(r.Context(), err.Error())).Render(r.Context(), w)
 			return
 		}
 	} else if req.EmailAddress == "" || req.IMAPHost == "" || req.SMTPHost == "" || req.Username == "" {
 		w.Header().Set("Content-Type", "application/html")
-		views.AccountFormError("All required fields must be filled in").Render(r.Context(), w)
+		views.AccountFormError(serverText(r.Context(), "All required fields must be filled in")).Render(r.Context(), w)
 		return
 	}
 	if req.AuthMethod != "oauth2" && req.Password == "" {
 		w.Header().Set("Content-Type", "text/html")
-		views.AccountFormError("Password is required for PLAIN auth").Render(r.Context(), w)
+		views.AccountFormError(serverText(r.Context(), "Password is required for PLAIN auth")).Render(r.Context(), w)
 		return
 	}
 
 	if err := h.cleanupDeletingAccountForCreate(r.Context(), h.userID(r.Context()), req.EmailAddress); err != nil {
 		w.Header().Set("Content-Type", "text/html")
-		views.AccountFormError(fmt.Sprintf("Failed to clean up deleting account: %v", err)).Render(r.Context(), w)
+		views.AccountFormError(serverText(r.Context(), fmt.Sprintf("Failed to clean up deleting account: %v", err))).Render(r.Context(), w)
 		return
 	}
 
@@ -2896,7 +2908,7 @@ func (h *Handler) handleCreateAccount(w http.ResponseWriter, r *http.Request) {
 		if errors.Is(err, config.ErrMailboxExists) {
 			message = "This mailbox is already connected to Gofer."
 		}
-		views.AccountFormError(message).Render(r.Context(), w)
+		views.AccountFormError(serverText(r.Context(), message)).Render(r.Context(), w)
 		return
 	}
 
@@ -2932,7 +2944,7 @@ func (h *Handler) handleGetEditAccount(w http.ResponseWriter, r *http.Request) {
 
 	data, err := h.accountStore.GetEditData(r.Context(), accountID)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("get account: %v", err), http.StatusNotFound)
+		http.Error(w, serverText(r.Context(), fmt.Sprintf("get account: %v", err)), http.StatusNotFound)
 		return
 	}
 	h.markCalendarCreateAccess(r.Context(), data)
@@ -2949,7 +2961,7 @@ func (h *Handler) handleUpdateAccount(w http.ResponseWriter, r *http.Request) {
 	accountID := r.PathValue("id")
 	if accountID == "" {
 		w.Header().Set("Content-Type", "text/html")
-		views.AccountFormError("Account ID is required").Render(r.Context(), w)
+		views.AccountFormError(serverText(r.Context(), "Account ID is required")).Render(r.Context(), w)
 		return
 	}
 	if !h.requireOwnedAccount(w, r, accountID) {
@@ -2958,7 +2970,7 @@ func (h *Handler) handleUpdateAccount(w http.ResponseWriter, r *http.Request) {
 
 	if err := r.ParseForm(); err != nil {
 		w.Header().Set("Content-Type", "text/html")
-		views.AccountFormError("Invalid form data").Render(r.Context(), w)
+		views.AccountFormError(serverText(r.Context(), "Invalid form data")).Render(r.Context(), w)
 		return
 	}
 
@@ -2968,24 +2980,24 @@ func (h *Handler) handleUpdateAccount(w http.ResponseWriter, r *http.Request) {
 		strings.EqualFold(strings.TrimSpace(req.Provider), providers.ProviderOutlook) {
 		if strings.TrimSpace(req.EmailAddress) == "" {
 			w.Header().Set("Content-Type", "text/html")
-			views.AccountFormError("Email address is required").Render(r.Context(), w)
+			views.AccountFormError(serverText(r.Context(), "Email address is required")).Render(r.Context(), w)
 			return
 		}
 	} else if req.Provider == providers.ProviderJMAP {
 		if err := h.resolveJMAPAccountChanges(r, accountID, &req); err != nil {
 			w.Header().Set("Content-Type", "text/html")
-			views.AccountFormError(err.Error()).Render(r.Context(), w)
+			views.AccountFormError(serverText(r.Context(), err.Error())).Render(r.Context(), w)
 			return
 		}
 	} else if req.EmailAddress == "" || req.IMAPHost == "" || req.SMTPHost == "" || req.Username == "" {
 		w.Header().Set("Content-Type", "text/html")
-		views.AccountFormError("All required fields must be filled in").Render(r.Context(), w)
+		views.AccountFormError(serverText(r.Context(), "All required fields must be filled in")).Render(r.Context(), w)
 		return
 	}
 
 	if err := h.accountStore.UpdateAccount(r.Context(), accountID, &req); err != nil {
 		w.Header().Set("Content-Type", "text/html")
-		views.AccountFormError(fmt.Sprintf("Failed to update account: %v", err)).Render(r.Context(), w)
+		views.AccountFormError(serverText(r.Context(), fmt.Sprintf("Failed to update account: %v", err))).Render(r.Context(), w)
 		return
 	}
 	if err := h.resolveImportedMailLogin(w, r.Context(), h.userID(r.Context()), accountID, &req); err != nil {
@@ -3347,7 +3359,7 @@ func (h *Handler) handleDeleteAccount(w http.ResponseWriter, r *http.Request) {
 	h.closeBodyClient(accountID)
 	h.syncer.StopAccount(accountID)
 	if err := h.accountStore.MarkAccountDeleting(r.Context(), accountID); err != nil {
-		http.Error(w, fmt.Sprintf("mark account deleting: %v", err), http.StatusInternalServerError)
+		http.Error(w, serverText(r.Context(), fmt.Sprintf("mark account deleting: %v", err)), http.StatusInternalServerError)
 		return
 	}
 
@@ -3395,7 +3407,7 @@ func (h *Handler) handleTestAccount(w http.ResponseWriter, r *http.Request) {
 
 	cfg, err := h.accountStore.GetConfig(r.Context(), accountID)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("get config: %v", err), http.StatusNotFound)
+		http.Error(w, serverText(r.Context(), fmt.Sprintf("get config: %v", err)), http.StatusNotFound)
 		return
 	}
 
@@ -3413,7 +3425,7 @@ func (h *Handler) handleTestAccount(w http.ResponseWriter, r *http.Request) {
 		}
 		password, err := h.accountStore.DecryptPassword(r.Context(), accountID)
 		if err != nil {
-			http.Error(w, fmt.Sprintf("get credentials: %v", err), http.StatusInternalServerError)
+			http.Error(w, serverText(r.Context(), fmt.Sprintf("get credentials: %v", err)), http.StatusInternalServerError)
 			return
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
@@ -3424,7 +3436,7 @@ func (h *Handler) handleTestAccount(w http.ResponseWriter, r *http.Request) {
 
 	password, err := h.resolvePassword(r.Context(), cfg, accountID)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("get credentials: %v", err), http.StatusInternalServerError)
+		http.Error(w, serverText(r.Context(), fmt.Sprintf("get credentials: %v", err)), http.StatusInternalServerError)
 		return
 	}
 
@@ -3449,7 +3461,7 @@ func (h *Handler) handleTestAccount(w http.ResponseWriter, r *http.Request) {
 	if cfg.SmtpUsername != "" {
 		smtpPw, err := h.accountStore.DecryptSmtpPassword(r.Context(), accountID)
 		if err != nil {
-			http.Error(w, fmt.Sprintf("decrypt smtp password: %v", err), http.StatusInternalServerError)
+			http.Error(w, serverText(r.Context(), fmt.Sprintf("decrypt smtp password: %v", err)), http.StatusInternalServerError)
 			return
 		}
 		smtpPassword = smtpPw
@@ -4283,7 +4295,7 @@ func (h *Handler) handleTestPush(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, i18n.T(r.Context(), "server.error.web_push_is_not_set_up_for_alt"), http.StatusConflict)
 			return
 		}
-		http.Error(w, "Could not send the test notification: "+err.Error(), http.StatusBadGateway)
+		http.Error(w, serverText(r.Context(), "Could not send the test notification: "+err.Error()), http.StatusBadGateway)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -4880,7 +4892,7 @@ func (h *Handler) handleSSE(w http.ResponseWriter, r *http.Request) {
 		if !sseEventVisible(event, userID, accountSet, isAdmin) {
 			return false
 		}
-		writeSSEEvent(w, flusher, event)
+		writeSSEEvent(r.Context(), w, flusher, event)
 		return true
 	}
 

@@ -303,7 +303,7 @@ templ MailViewThreadContent(email *models.Email, thread []models.ThreadItem) {
 			<div class="h-px bg-gradient-to-r from-transparent via-amber-900/10 to-transparent"></div>
 			<div class="mail-view-content mx-auto px-8 pt-4 pb-3">
 				<div class="mail-view-subject-row flex items-start justify-between gap-4 mb-1">
-					<h1 class="text-xl font-bold tracking-tight text-ink min-w-0" style="font-family: var(--font-serif)">{ email.Subject }</h1>
+					<h1 class="text-xl font-bold tracking-tight text-ink min-w-0" style="font-family: var(--font-serif)">{ i18n.Subject(ctx, email.Subject) }</h1>
 					@MailViewMobileLabels(email)
 				</div>
 				<div class="flex items-center gap-2">
@@ -1046,7 +1046,7 @@ templ MailViewSender(email *models.Email) {
 		}
 	</div>
 	<div class="mail-view-subject-row flex items-start justify-between gap-4 mt-5">
-		<h1 class="text-xl font-bold tracking-tight text-ink min-w-0" style="font-family: var(--font-serif)">{ email.Subject }</h1>
+		<h1 class="text-xl font-bold tracking-tight text-ink min-w-0" style="font-family: var(--font-serif)">{ i18n.Subject(ctx, email.Subject) }</h1>
 		@MailViewMobileLabels(email)
 	</div>
 }

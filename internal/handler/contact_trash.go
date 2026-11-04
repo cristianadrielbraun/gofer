@@ -120,14 +120,14 @@ func (h *Handler) handleDeleteContactForever(w http.ResponseWriter, r *http.Requ
 	case errors.Is(err, errContactNotInTrash):
 		http.Error(w, i18n.T(r.Context(), "server.error.this_contact_was_restored_from_the_trash"), http.StatusConflict)
 	case errors.As(err, &syncErr):
-		http.Error(w, "Contact sync delete failed: "+syncErr.err.Error(), http.StatusBadGateway)
+		http.Error(w, serverText(r.Context(), "Contact sync delete failed: "+syncErr.err.Error()), http.StatusBadGateway)
 	case h.userStorage == nil && errors.Is(err, sql.ErrNoRows):
 		http.NotFound(w, r)
 	case h.userStorage == nil:
 		log.Printf("contacts: delete forever: %v", err)
 		http.Error(w, i18n.T(r.Context(), "server.error.delete_failed"), http.StatusInternalServerError)
 	case errors.As(err, &provider) && !errors.Is(err, storage.ErrContactEditChanged) && !errors.Is(err, config.ErrAccountServicesChanged) && !errors.Is(err, storage.ErrAccountRoute) && !errors.Is(err, storage.ErrUserStoreOwner) && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded):
-		http.Error(w, "Contact sync delete failed: "+err.Error(), http.StatusBadGateway)
+		http.Error(w, serverText(r.Context(), "Contact sync delete failed: "+err.Error()), http.StatusBadGateway)
 	default:
 		userContactEditError(w, r, err)
 	}
@@ -201,7 +201,7 @@ func (h *Handler) handleDeleteContactsForever(w http.ResponseWriter, r *http.Req
 		h.contactTrashError(w, r, err)
 		return
 	}
-	writeContactBulkDeleteResult(w, result)
+	writeContactBulkDeleteResult(w, r, result)
 }
 
 // purgeContactTrash deletes for good the user's contacts that have been in

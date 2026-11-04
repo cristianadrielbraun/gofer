@@ -8681,9 +8681,9 @@ func syncFolderPill(f models.FolderSyncStatus, interval int, accountID string) t
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var499 string
-				templ_7745c5c3_Var499, templ_7745c5c3_Err = templ.JoinStringErrs(idleFallbackTooltip(f))
+				templ_7745c5c3_Var499, templ_7745c5c3_Err = templ.JoinStringErrs(idleFallbackTooltip(ctx, f))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 1510, Col: 68}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/settings.templ`, Line: 1510, Col: 73}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var499))
 				if templ_7745c5c3_Err != nil {
@@ -8721,18 +8721,18 @@ func hasIDLEFallback(f models.FolderSyncStatus) bool {
 	return strings.TrimSpace(f.IDLEFallbackReason) != ""
 }
 
-func idleFallbackTooltip(f models.FolderSyncStatus) string {
+// idleFallbackTooltip says why a folder fell back to polling. The reasons
+// sync gives in English are translated; one from elsewhere stays as it is.
+func idleFallbackTooltip(ctx context.Context, f models.FolderSyncStatus) string {
 	if strings.TrimSpace(f.IDLEFallbackReason) == "" {
 		return ""
 	}
-	message := fmt.Sprintf("%s was moved to polling because %s.", syncFolderDisplayName(f), strings.TrimSuffix(strings.TrimSpace(f.IDLEFallbackReason), "."))
+	reason := i18n.Stored(ctx, "sync.fallback_reason.", strings.TrimSuffix(strings.TrimSpace(f.IDLEFallbackReason), "."))
+	message := i18n.T(ctx, "js.settings.sync.fallback", "folder", syncFolderDisplayName(f), "reason", reason)
 	if retryAt, err := time.Parse(time.RFC3339, f.IDLERetryAt); err == nil && retryAt.After(time.Now()) {
 		remaining := time.Until(retryAt)
 		minutes := max(1, int((remaining+time.Minute-1)/time.Minute))
-		if minutes == 1 {
-			return message + " Gofer will try again in 1 minute."
-		}
-		return fmt.Sprintf("%s Gofer will try again in %d minutes.", message, minutes)
+		return message + " " + i18n.N(ctx, "js.compose.retry_in", minutes, "count", minutes)
 	}
 	return message
 }

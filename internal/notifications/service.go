@@ -288,7 +288,7 @@ func newMailNotificationText(ctx context.Context, payload map[string]any, unread
 		sender = i18n.T(ctx, "js.notify.new_mail")
 	}
 
-	subject := strings.TrimSpace(stringPayload(payload, "subject"))
+	subject := i18n.Subject(ctx, strings.TrimSpace(stringPayload(payload, "subject")))
 	if subject == "" {
 		subject = i18n.T(ctx, "js.mail.no_subject")
 	}

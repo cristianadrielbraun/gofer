@@ -57,7 +57,7 @@ func (h *Handler) handleAdminLoginSubmit(w http.ResponseWriter, r *http.Request)
 
 func (h *Handler) handlePasswordLoginSubmit(w http.ResponseWriter, r *http.Request, requiredType auth.UserType) {
 	if !h.auth.IsEnabled() {
-		http.Error(w, "not found", http.StatusNotFound)
+		http.Error(w, i18n.T(r.Context(), "server.error.not_found"), http.StatusNotFound)
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, loginFormMaximumBytes)
@@ -142,14 +142,14 @@ func (h *Handler) handleLoginMFA(w http.ResponseWriter, r *http.Request) {
 	} else if !errors.Is(enrollmentErr, auth.ErrMFAEnrollmentInvalid) {
 		log.Printf("read required MFA enrollment continuation: %v", enrollmentErr)
 		auth.ClearPreAuthCookie(w, h.auth.Config().SecureCookies)
-		http.Error(w, "failed to load MFA enrollment", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_load_mfa_enrollment"), http.StatusInternalServerError)
 		return
 	}
 	challenge, err := h.auth.GetActiveMFAChallenge(r.Context(), token, h.auth.Config().BaseURL)
 	if err != nil {
 		log.Printf("read MFA continuation: %v", err)
 		auth.ClearPreAuthCookie(w, h.auth.Config().SecureCookies)
-		http.Error(w, "failed to load additional verification", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_load_additional_verification"), http.StatusInternalServerError)
 		return
 	}
 	if challenge == nil {
@@ -166,7 +166,7 @@ func (h *Handler) handleLoginMFA(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handleLoginMFASubmit(w http.ResponseWriter, r *http.Request) {
 	if !h.auth.IsEnabled() {
-		http.Error(w, "not found", http.StatusNotFound)
+		http.Error(w, i18n.T(r.Context(), "server.error.not_found"), http.StatusNotFound)
 		return
 	}
 	if r.URL.RawQuery != "" {
@@ -258,7 +258,7 @@ func (h *Handler) renderLoginPage(w http.ResponseWriter, r *http.Request, status
 	var page bytes.Buffer
 	if err := views.LoginPage(data).Render(r.Context(), &page); err != nil {
 		log.Printf("render login page: %v", err)
-		http.Error(w, "failed to render sign-in page", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_render_sign_in_page"), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
@@ -271,7 +271,7 @@ func (h *Handler) renderLoginPage(w http.ResponseWriter, r *http.Request, status
 // A failed lookup offers only the password.
 func (h *Handler) handleLoginMethods(w http.ResponseWriter, r *http.Request) {
 	if !h.auth.IsEnabled() {
-		http.Error(w, "not found", http.StatusNotFound)
+		http.Error(w, i18n.T(r.Context(), "server.error.not_found"), http.StatusNotFound)
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, loginFormMaximumBytes)
@@ -293,7 +293,7 @@ func (h *Handler) renderAdminLoginPage(w http.ResponseWriter, r *http.Request, s
 	var page bytes.Buffer
 	if err := views.ManagementLoginPage(message, identifier).Render(r.Context(), &page); err != nil {
 		log.Printf("render admin sign-in page: %v", err)
-		http.Error(w, "failed to render admin sign-in page", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_render_admin_sign_in_page"), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
@@ -336,7 +336,7 @@ func (h *Handler) renderLoginMFAContinuationPage(w http.ResponseWriter, r *http.
 	}
 	if err := component.Render(r.Context(), &page); err != nil {
 		log.Printf("render password MFA continuation page: %v", err)
-		http.Error(w, "failed to render additional verification page", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_render_additional_verification_page"), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")

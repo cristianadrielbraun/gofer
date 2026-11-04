@@ -112,7 +112,7 @@ func (h *Handler) handleCalendarSeriesDeleteConfirmation(w http.ResponseWriter, 
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	details := views.CalendarEventDetails{Event: calendarViewEvent(master), HasOccurrence: event.SeriesRemoteID != "", DeleteSeries: true, CanDelete: true, DeleteVersion: master.ETag, DeleteSeriesID: master.RemoteID, Attendees: calendarEventParticipants(master.AttendeesJSON)}
+	details := views.CalendarEventDetails{Event: calendarViewEvent(ctx, master), HasOccurrence: event.SeriesRemoteID != "", DeleteSeries: true, CanDelete: true, DeleteVersion: master.ETag, DeleteSeriesID: master.RemoteID, Attendees: calendarEventParticipants(master.AttendeesJSON)}
 	if err := views.CalendarEventDeleteConfirmation(details).Render(ctx, w); err != nil {
 		http.Error(w, i18n.T(r.Context(), "server.error.could_not_open_the_confirmation"), http.StatusInternalServerError)
 	}
@@ -135,7 +135,7 @@ func (h *Handler) handleCalendarOccurrenceDeleteConfirmation(w http.ResponseWrit
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	details := views.CalendarEventDetails{Event: calendarViewEvent(event), HasOccurrence: true, CanDelete: true, DeleteOccurrence: true, DeleteVersion: event.ETag, Attendees: calendarEventParticipants(event.AttendeesJSON)}
+	details := views.CalendarEventDetails{Event: calendarViewEvent(r.Context(), event), HasOccurrence: true, CanDelete: true, DeleteOccurrence: true, DeleteVersion: event.ETag, Attendees: calendarEventParticipants(event.AttendeesJSON)}
 	if err := views.CalendarEventDeleteConfirmation(details).Render(r.Context(), w); err != nil {
 		http.Error(w, i18n.T(r.Context(), "server.error.could_not_open_the_confirmation"), http.StatusInternalServerError)
 	}

@@ -125,7 +125,7 @@ func (h *Handler) handleUserPreviewContactSyncSetup(w http.ResponseWriter, r *ht
 	if err != nil && result.Contact.ID == "" {
 		var provider userContactPreviewProviderError
 		if errors.As(err, &provider) && !errors.Is(err, storage.ErrContactEditChanged) && !errors.Is(err, config.ErrAccountServicesChanged) && !errors.Is(err, storage.ErrAccountRoute) && !errors.Is(err, storage.ErrUserStoreOwner) && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
-			http.Error(w, "Could not use the selected contact: "+err.Error(), http.StatusBadGateway)
+			http.Error(w, serverText(r.Context(), "Could not use the selected contact: "+err.Error()), http.StatusBadGateway)
 		} else {
 			userContactEditError(w, r, err)
 		}

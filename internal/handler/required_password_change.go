@@ -83,7 +83,7 @@ func (h *Handler) handleRequiredPasswordChangeSubmit(w http.ResponseWriter, r *h
 func (h *Handler) handleRequireUserPasswordChange(w http.ResponseWriter, r *http.Request) {
 	user, session := auth.GetCurrentUser(r.Context()), auth.GetCurrentSession(r.Context())
 	if user == nil || session == nil || h.auth == nil || !h.auth.IsEnabled() {
-		http.Error(w, "admin access required", http.StatusForbidden)
+		http.Error(w, i18n.T(r.Context(), "server.error.admin_access_required"), http.StatusForbidden)
 		return
 	}
 	err := h.auth.RequirePasswordChange(r.Context(), auth.RequirePasswordChangeOptions{UserID: r.PathValue("userID"), CreatedBy: user.ID, ActorSessionID: session.ID})
@@ -92,7 +92,7 @@ func (h *Handler) handleRequireUserPasswordChange(w http.ResponseWriter, r *http
 		case errors.Is(err, auth.ErrRecentStepUpRequired):
 			h.renderAdminUsers(w, r, http.StatusForbidden, views.AdminUserInvitationFormData{}, nil, i18n.T(r.Context(), "auth.admin.verify.require_password"))
 		case errors.Is(err, auth.ErrAdministratorRequired):
-			http.Error(w, "admin access required", http.StatusForbidden)
+			http.Error(w, i18n.T(r.Context(), "server.error.admin_access_required"), http.StatusForbidden)
 		case errors.Is(err, auth.ErrEnrollmentTokenTargetInvalid):
 			http.NotFound(w, r)
 		default:

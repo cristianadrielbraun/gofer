@@ -369,7 +369,7 @@ func (t identitySMTPTest) run(ctx context.Context) models.ConnectionTestResult {
 	if err != nil {
 		result.Error = serverText(ctx, sanitizeOutgoingErrorText(err.Error()))
 	} else {
-		result.Success, result.Message = true, "Connected and logged in to "+t.cfg.SMTPHost+"."
+		result.Success, result.Message = true, i18n.T(ctx, "server.pattern.smtp_connected", "host", t.cfg.SMTPHost)
 	}
 	return result
 }

@@ -135,7 +135,7 @@ func (h *Handler) handleCreateAdminUserInvitation(w http.ResponseWriter, r *http
 	currentUser := auth.GetCurrentUser(ctx)
 	currentSession := auth.GetCurrentSession(ctx)
 	if currentUser == nil || currentSession == nil || h.auth == nil || !h.auth.IsEnabled() {
-		http.Error(w, "admin access required", http.StatusForbidden)
+		http.Error(w, i18n.T(r.Context(), "server.error.admin_access_required"), http.StatusForbidden)
 		return
 	}
 	if err := r.ParseForm(); err != nil {
@@ -158,7 +158,7 @@ func (h *Handler) handleCreateAdminUserInvitation(w http.ResponseWriter, r *http
 		case errors.Is(err, auth.ErrRecentStepUpRequired):
 			h.renderAdminUsers(w, r, http.StatusForbidden, form, nil, i18n.T(r.Context(), "auth.admin.verify.create_invitation"))
 		case errors.Is(err, auth.ErrAdministratorRequired):
-			http.Error(w, "admin access required", http.StatusForbidden)
+			http.Error(w, i18n.T(r.Context(), "server.error.admin_access_required"), http.StatusForbidden)
 		default:
 			log.Printf("create administrator user invitation: %v", err)
 			h.renderAdminUsers(w, r, http.StatusInternalServerError, form, nil, i18n.T(r.Context(), "auth.admin.users.invitation_create_failed"))
@@ -178,7 +178,7 @@ func (h *Handler) handleRevokeAdminUserInvitation(w http.ResponseWriter, r *http
 	currentUser := auth.GetCurrentUser(ctx)
 	currentSession := auth.GetCurrentSession(ctx)
 	if currentUser == nil || currentSession == nil || h.auth == nil || !h.auth.IsEnabled() {
-		http.Error(w, "admin access required", http.StatusForbidden)
+		http.Error(w, i18n.T(r.Context(), "server.error.admin_access_required"), http.StatusForbidden)
 		return
 	}
 	err := h.auth.RevokeAdministratorUserInvitation(
@@ -189,7 +189,7 @@ func (h *Handler) handleRevokeAdminUserInvitation(w http.ResponseWriter, r *http
 		case errors.Is(err, auth.ErrRecentStepUpRequired):
 			h.renderAdminUsers(w, r, http.StatusForbidden, views.AdminUserInvitationFormData{}, nil, i18n.T(r.Context(), "auth.admin.verify.revoke_invitation"))
 		case errors.Is(err, auth.ErrAdministratorRequired):
-			http.Error(w, "admin access required", http.StatusForbidden)
+			http.Error(w, i18n.T(r.Context(), "server.error.admin_access_required"), http.StatusForbidden)
 		case errors.Is(err, auth.ErrAdministratorUserInvitationTargetInvalid),
 			errors.Is(err, auth.ErrAdministratorUserInvitationNotActive):
 			h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, i18n.T(r.Context(), "auth.admin.users.invitation_inactive"))
@@ -207,7 +207,7 @@ func (h *Handler) handleRotateAdminUserInvitation(w http.ResponseWriter, r *http
 	currentUser := auth.GetCurrentUser(ctx)
 	currentSession := auth.GetCurrentSession(ctx)
 	if currentUser == nil || currentSession == nil || h.auth == nil || !h.auth.IsEnabled() {
-		http.Error(w, "admin access required", http.StatusForbidden)
+		http.Error(w, i18n.T(r.Context(), "server.error.admin_access_required"), http.StatusForbidden)
 		return
 	}
 	invitation, err := h.auth.RotateAdministratorUserInvitation(ctx, auth.RotateAdministratorUserInvitationOptions{
@@ -219,7 +219,7 @@ func (h *Handler) handleRotateAdminUserInvitation(w http.ResponseWriter, r *http
 		case errors.Is(err, auth.ErrRecentStepUpRequired):
 			h.renderAdminUsers(w, r, http.StatusForbidden, views.AdminUserInvitationFormData{}, nil, i18n.T(r.Context(), "auth.admin.verify.replace_invitation"))
 		case errors.Is(err, auth.ErrAdministratorRequired):
-			http.Error(w, "admin access required", http.StatusForbidden)
+			http.Error(w, i18n.T(r.Context(), "server.error.admin_access_required"), http.StatusForbidden)
 		case errors.Is(err, auth.ErrAdministratorUserInvitationTargetInvalid):
 			h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, i18n.T(r.Context(), "auth.admin.users.invitation_target_gone"))
 		default:
@@ -242,7 +242,7 @@ func (h *Handler) handleSetAdminUserMFAPolicy(w http.ResponseWriter, r *http.Req
 	currentUser := auth.GetCurrentUser(ctx)
 	currentSession := auth.GetCurrentSession(ctx)
 	if currentUser == nil || currentSession == nil || h.auth == nil || !h.auth.IsEnabled() {
-		http.Error(w, "admin access required", http.StatusForbidden)
+		http.Error(w, i18n.T(r.Context(), "server.error.admin_access_required"), http.StatusForbidden)
 		return
 	}
 	if err := r.ParseForm(); err != nil {
@@ -267,7 +267,7 @@ func (h *Handler) handleSetAdminUserMFAPolicy(w http.ResponseWriter, r *http.Req
 		case errors.Is(err, auth.ErrRecentStepUpRequired):
 			h.renderAdminUsers(w, r, http.StatusForbidden, views.AdminUserInvitationFormData{}, nil, i18n.T(r.Context(), "auth.admin.verify.mfa_requirement"))
 		case errors.Is(err, auth.ErrAdministratorRequired):
-			http.Error(w, "admin access required", http.StatusForbidden)
+			http.Error(w, i18n.T(r.Context(), "server.error.admin_access_required"), http.StatusForbidden)
 		case errors.Is(err, auth.ErrAdministratorUserMFATargetInvalid):
 			h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, i18n.T(r.Context(), "auth.admin.users.user_gone"))
 		default:
@@ -298,7 +298,7 @@ func (h *Handler) handleSetAdminUserStatus(w http.ResponseWriter, r *http.Reques
 	currentUser := auth.GetCurrentUser(ctx)
 	currentSession := auth.GetCurrentSession(ctx)
 	if currentUser == nil || currentSession == nil || h.auth == nil || !h.auth.IsEnabled() {
-		http.Error(w, "admin access required", http.StatusForbidden)
+		http.Error(w, i18n.T(r.Context(), "server.error.admin_access_required"), http.StatusForbidden)
 		return
 	}
 	if err := r.ParseForm(); err != nil {
@@ -324,7 +324,7 @@ func (h *Handler) handleSetAdminUserStatus(w http.ResponseWriter, r *http.Reques
 		case errors.Is(err, auth.ErrRecentStepUpRequired):
 			h.renderAdminUsers(w, r, http.StatusForbidden, views.AdminUserInvitationFormData{}, nil, i18n.T(r.Context(), "auth.admin.verify.user_access"))
 		case errors.Is(err, auth.ErrAdministratorRequired):
-			http.Error(w, "admin access required", http.StatusForbidden)
+			http.Error(w, i18n.T(r.Context(), "server.error.admin_access_required"), http.StatusForbidden)
 		case errors.Is(err, auth.ErrLastActiveAdmin):
 			h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, i18n.T(r.Context(), "auth.admin.users.last_admin"))
 		case errors.Is(err, auth.ErrInstanceMFAEnrollmentNeeded):
@@ -363,7 +363,7 @@ func (h *Handler) handleIssueAdminUserCredentialReset(w http.ResponseWriter, r *
 	currentUser := auth.GetCurrentUser(ctx)
 	currentSession := auth.GetCurrentSession(ctx)
 	if currentUser == nil || currentSession == nil || h.auth == nil || !h.auth.IsEnabled() {
-		http.Error(w, "admin access required", http.StatusForbidden)
+		http.Error(w, i18n.T(r.Context(), "server.error.admin_access_required"), http.StatusForbidden)
 		return
 	}
 	targetUser, err := h.auth.GetUserByID(ctx, r.PathValue("userID"))
@@ -394,7 +394,7 @@ func (h *Handler) handleIssueAdminUserCredentialReset(w http.ResponseWriter, r *
 		case errors.Is(err, auth.ErrRecentStepUpRequired):
 			h.renderAdminUsers(w, r, http.StatusForbidden, views.AdminUserInvitationFormData{}, nil, i18n.T(r.Context(), "auth.admin.verify.reset_token"))
 		case errors.Is(err, auth.ErrAdministratorRequired):
-			http.Error(w, "admin access required", http.StatusForbidden)
+			http.Error(w, i18n.T(r.Context(), "server.error.admin_access_required"), http.StatusForbidden)
 		case errors.Is(err, auth.ErrEnrollmentTokenTargetInvalid):
 			h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, i18n.T(r.Context(), "auth.admin.users.reset_user_gone"))
 		default:
@@ -416,7 +416,7 @@ func (h *Handler) handleDeleteAdminUser(w http.ResponseWriter, r *http.Request) 
 	currentUser := auth.GetCurrentUser(ctx)
 	currentSession := auth.GetCurrentSession(ctx)
 	if currentUser == nil || currentSession == nil || h.auth == nil || !h.auth.IsEnabled() {
-		http.Error(w, "admin access required", http.StatusForbidden)
+		http.Error(w, i18n.T(r.Context(), "server.error.admin_access_required"), http.StatusForbidden)
 		return
 	}
 	if err := r.ParseForm(); err != nil {
@@ -427,7 +427,7 @@ func (h *Handler) handleDeleteAdminUser(w http.ResponseWriter, r *http.Request) 
 	if h.ownedMailbox != nil {
 		owned = h.removalWorker()
 		if owned == nil || owned.ctx.Err() != nil {
-			http.Error(w, "user deletion runtime unavailable; retry later", http.StatusServiceUnavailable)
+			http.Error(w, i18n.T(r.Context(), "server.error.user_deletion_runtime_unavailable_retry_later"), http.StatusServiceUnavailable)
 			return
 		}
 	}
@@ -440,7 +440,7 @@ func (h *Handler) handleDeleteAdminUser(w http.ResponseWriter, r *http.Request) 
 		case errors.Is(err, auth.ErrRecentStepUpRequired):
 			h.renderAdminUsers(w, r, http.StatusForbidden, views.AdminUserInvitationFormData{}, nil, i18n.T(r.Context(), "auth.admin.verify.delete_user"))
 		case errors.Is(err, auth.ErrAdministratorRequired):
-			http.Error(w, "admin access required", http.StatusForbidden)
+			http.Error(w, i18n.T(r.Context(), "server.error.admin_access_required"), http.StatusForbidden)
 		case errors.Is(err, auth.ErrAdministratorUserDeletionConfirmationInvalid):
 			h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, i18n.T(r.Context(), "auth.admin.users.delete_confirm"))
 		case errors.Is(err, auth.ErrAdministratorUserDeletionTargetInvalid):
@@ -513,23 +513,23 @@ func (h *Handler) renderAdminUsersPage(w http.ResponseWriter, r *http.Request, s
 	currentUser := auth.GetCurrentUser(ctx)
 	currentSession := auth.GetCurrentSession(ctx)
 	if currentUser == nil || currentSession == nil || h.auth == nil {
-		http.Error(w, "admin access required", http.StatusForbidden)
+		http.Error(w, i18n.T(r.Context(), "server.error.admin_access_required"), http.StatusForbidden)
 		return
 	}
 	users, err := h.auth.ListAdministratorUsersForSession(ctx, currentUser.ID, currentSession.ID)
 	if errors.Is(err, auth.ErrAdministratorRequired) {
-		http.Error(w, "admin access required", http.StatusForbidden)
+		http.Error(w, i18n.T(r.Context(), "server.error.admin_access_required"), http.StatusForbidden)
 		return
 	}
 	if err != nil {
 		log.Printf("load administrator users: %v", err)
-		http.Error(w, "failed to load administrator users", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_load_administrator_users"), http.StatusInternalServerError)
 		return
 	}
 	policy, err := h.auth.InstanceSecurityPolicy(ctx)
 	if err != nil {
 		log.Printf("load administrator user MFA policy: %v", err)
-		http.Error(w, "failed to load administrator users", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_load_administrator_users"), http.StatusInternalServerError)
 		return
 	}
 	data := adminUsersViewData(users, currentUser.ID, policy.MFA)
@@ -579,7 +579,7 @@ func (h *Handler) renderAdminUsersPage(w http.ResponseWriter, r *http.Request, s
 			return
 		default:
 			log.Printf("load administrator invitation verification state: %v", accessErr)
-			http.Error(w, "failed to verify administrator session", http.StatusInternalServerError)
+			http.Error(w, i18n.T(r.Context(), "server.error.failed_to_verify_administrator_session"), http.StatusInternalServerError)
 			return
 		}
 	}
@@ -619,7 +619,7 @@ func (h *Handler) renderAdminUsersPage(w http.ResponseWriter, r *http.Request, s
 	}
 	if err != nil {
 		log.Printf("render administrator users: %v", err)
-		http.Error(w, "failed to render administrator users", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_render_administrator_users"), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")

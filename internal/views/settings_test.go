@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
+	"github.com/cristianadrielbraun/gofer/internal/mail/message"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/themebuilder"
 )
@@ -418,7 +420,7 @@ func TestSyncFolderPillHidesWarningWithoutFallbackReason(t *testing.T) {
 }
 
 func TestIdleFallbackTooltipIncludesTemporaryRetry(t *testing.T) {
-	text := idleFallbackTooltip(models.FolderSyncStatus{
+	text := idleFallbackTooltip(context.Background(), models.FolderSyncStatus{
 		Name:               "INBOX",
 		RemoteID:           "INBOX",
 		IDLEFallbackReason: "the IDLE connection was closed",
@@ -426,6 +428,14 @@ func TestIdleFallbackTooltipIncludesTemporaryRetry(t *testing.T) {
 	})
 	if !strings.Contains(text, "INBOX was moved to polling because the IDLE connection was closed.") || !strings.Contains(text, "Gofer will try again in") {
 		t.Fatalf("idleFallbackTooltip() = %q", text)
+	}
+	spanish := idleFallbackTooltip(i18n.WithLocale(context.Background(), "es"), models.FolderSyncStatus{
+		Name:               "INBOX",
+		RemoteID:           "INBOX",
+		IDLEFallbackReason: "the IDLE connection was closed",
+	})
+	if spanish != "INBOX pasó a consulta periódica porque se cerró la conexión IDLE." {
+		t.Fatalf("Spanish idleFallbackTooltip() = %q", spanish)
 	}
 }
 
@@ -1427,5 +1437,16 @@ func TestCalendarManageState(t *testing.T) {
 	}
 	if other := render(models.Account{}, models.AccountCalendarSource{ID: "s3", Provider: "caldav", AccessRole: "reader"}); !strings.Contains(other, "Only its owner") || strings.Contains(other, "just for you") {
 		t.Fatalf("CalDAV shared = %s", other)
+	}
+}
+
+func TestMailSourceWarningsFollowTheLanguage(t *testing.T) {
+	ctx := i18n.WithLocale(context.Background(), "es")
+	warning := message.SourceWarning{Text: "Replies go to a different domain (b.example) than the one the message is from (a.example).", Key: "mail.source.warning.reply_domain", Args: []any{"reply", "b.example", "from", "a.example"}}
+	if got := mailSourceWarningText(ctx, warning); got != "Las respuestas van a un dominio (b.example) distinto del que envía el mensaje (a.example)." {
+		t.Fatalf("mailSourceWarningText() = %q", got)
+	}
+	if got := mailSourceFactLabel(ctx, message.SourceFact{Label: "From", Value: "a@a.example"}); got != "From" {
+		t.Fatalf("header label = %q, want it unchanged", got)
 	}
 }

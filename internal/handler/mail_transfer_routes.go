@@ -32,9 +32,9 @@ func (h *Handler) registerMailTransferRoutes(register func(string, http.HandlerF
 	register("POST /api/messages/to-account", h.handleMessagesToAccount)
 }
 
-func (h *Handler) mailTransfersAvailable(w http.ResponseWriter) bool {
+func (h *Handler) mailTransfersAvailable(w http.ResponseWriter, r *http.Request) bool {
 	if h.mailTransfers == nil {
-		http.Error(w, "mail transfer is not available", http.StatusServiceUnavailable)
+		http.Error(w, i18n.T(r.Context(), "server.error.mail_transfer_is_not_available"), http.StatusServiceUnavailable)
 		return false
 	}
 	return true
@@ -162,9 +162,9 @@ func (h *Handler) mailTransferJobViews(ctx context.Context, owner string) ([]vie
 		for _, skipped := range job.Skipped {
 			subject := skipped.Subject
 			if subject == "" {
-				subject = "(no subject)"
+				subject = i18n.T(ctx, "mail.no_subject")
 			}
-			view.Skipped = append(view.Skipped, skipped.Source+": "+subject+" ("+skipped.Reason+")")
+			view.Skipped = append(view.Skipped, skipped.Source+": "+subject+" ("+serverText(ctx, skipped.Reason)+")")
 		}
 		result = append(result, view)
 	}
@@ -194,14 +194,14 @@ func (h *Handler) renderMailTransferJobs(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *Handler) handleMailTransfers(w http.ResponseWriter, r *http.Request) {
-	if !h.mailTransfersAvailable(w) {
+	if !h.mailTransfersAvailable(w, r) {
 		return
 	}
 	h.renderMailTransferPanel(w, r, url.Values{}, "")
 }
 
 func (h *Handler) handleMailTransferJobs(w http.ResponseWriter, r *http.Request) {
-	if !h.mailTransfersAvailable(w) {
+	if !h.mailTransfersAvailable(w, r) {
 		return
 	}
 	h.renderMailTransferJobs(w, r)
@@ -226,7 +226,7 @@ type mailTransferStatus struct {
 // handleMailTransferStatus answers for the transfers named by id; one that
 // was removed meanwhile is left out.
 func (h *Handler) handleMailTransferStatus(w http.ResponseWriter, r *http.Request) {
-	if !h.mailTransfersAvailable(w) {
+	if !h.mailTransfersAvailable(w, r) {
 		return
 	}
 	owner := h.userID(r.Context())
@@ -253,7 +253,7 @@ func (h *Handler) handleMailTransferStatus(w http.ResponseWriter, r *http.Reques
 }
 
 func (h *Handler) handleNewMailTransfer(w http.ResponseWriter, r *http.Request) {
-	if !h.mailTransfersAvailable(w) {
+	if !h.mailTransfersAvailable(w, r) {
 		return
 	}
 	form, err := h.mailTransferFormData(r, r.URL.Query(), "")
@@ -267,7 +267,7 @@ func (h *Handler) handleNewMailTransfer(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *Handler) handleStartMailTransfer(w http.ResponseWriter, r *http.Request) {
-	if !h.mailTransfersAvailable(w) {
+	if !h.mailTransfersAvailable(w, r) {
 		return
 	}
 	if err := r.ParseForm(); err != nil {
@@ -319,7 +319,7 @@ func (h *Handler) handleDeleteMailTransfer(w http.ResponseWriter, r *http.Reques
 }
 
 func (h *Handler) changeMailTransfer(w http.ResponseWriter, r *http.Request, change func(*mailTransferJob)) {
-	if !h.mailTransfersAvailable(w) {
+	if !h.mailTransfersAvailable(w, r) {
 		return
 	}
 	job, err := h.mailTransfers.loadOwned(h.userID(r.Context()), r.PathValue("id"))
@@ -358,7 +358,7 @@ func (h *Handler) mailTransferDestination(ctx context.Context, owner, folderID s
 // handleMessagesToAccountDialog asks before messages go to another account,
 // naming both accounts.
 func (h *Handler) handleMessagesToAccountDialog(w http.ResponseWriter, r *http.Request) {
-	if !h.mailTransfersAvailable(w) {
+	if !h.mailTransfersAvailable(w, r) {
 		return
 	}
 	ctx, owner := r.Context(), h.userID(r.Context())
@@ -404,7 +404,7 @@ func (h *Handler) handleMessagesToAccountDialog(w http.ResponseWriter, r *http.R
 // list into a folder of another account, as a transfer for each account
 // they come from.
 func (h *Handler) handleMessagesToAccount(w http.ResponseWriter, r *http.Request) {
-	if !h.mailTransfersAvailable(w) {
+	if !h.mailTransfersAvailable(w, r) {
 		return
 	}
 	var payload struct {
@@ -422,7 +422,7 @@ func (h *Handler) handleMessagesToAccount(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if problem := mailImportAccountProblem(target); problem != "" {
-		http.Error(w, target.Email+": "+problem, http.StatusBadRequest)
+		http.Error(w, target.Email+": "+serverText(r.Context(), problem), http.StatusBadRequest)
 		return
 	}
 	var infos []storage.ThreadMessageMutationInfo
@@ -447,7 +447,7 @@ func (h *Handler) handleMessagesToAccount(w http.ResponseWriter, r *http.Request
 	bySource := map[string]map[string][]int64{}
 	for _, info := range infos {
 		if info.AccountID == target.ID {
-			http.Error(w, "Some of these emails are already in "+target.Email+". Move them separately.", http.StatusBadRequest)
+			http.Error(w, i18n.T(r.Context(), "server.pattern.transfer_already_in", "account", target.Email), http.StatusBadRequest)
 			return
 		}
 		if bySource[info.AccountID] == nil {

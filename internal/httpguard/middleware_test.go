@@ -400,3 +400,34 @@ func TestMiddlewareKeepsLoopbackHostsWithLANBaseURL(t *testing.T) {
 		})
 	}
 }
+
+// A refusal follows the browser's language. Its HTMX trigger header keeps
+// the accents as JSON escapes, since browsers read header bytes as Latin-1.
+func TestRequestBlockedFollowsTheBrowserLanguage(t *testing.T) {
+	cfg, err := newConfig("0.0.0.0:8090", "https://mail.example.test", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := cfg.Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	request := httptest.NewRequest(http.MethodPost, "https://mail.example.test/api/settings/ui", strings.NewReader("{}"))
+	request.Header.Set("Origin", "https://other.example.test")
+	request.Header.Set("Accept-Language", "es-AR,es;q=0.9")
+	request.Header.Set("HX-Request", "true")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusForbidden || !strings.Contains(response.Body.String(), "Se bloqueó una solicitud de otro origen") {
+		t.Fatalf("status=%d body=%q", response.Code, response.Body.String())
+	}
+	trigger := response.Header().Get("HX-Trigger")
+	for _, r := range trigger {
+		if r >= 0x80 {
+			t.Fatalf("trigger header has non-ASCII text: %q", trigger)
+		}
+	}
+	var decoded map[string]string
+	if err := json.Unmarshal([]byte(trigger), &decoded); err != nil || !strings.HasPrefix(decoded["gofer-request-blocked"], "Se bloqueó") {
+		t.Fatalf("trigger = %q (%v)", trigger, err)
+	}
+}

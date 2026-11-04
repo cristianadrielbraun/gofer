@@ -89,19 +89,19 @@ func (h *Handler) handleTranslateMessage(w http.ResponseWriter, r *http.Request)
 	if translatedHTML != "" {
 		translatedText = plainTextFromHTML(translatedHTML)
 	}
-	h.writeTranslationResult(w, result, text, translatedText, translatedHTML)
+	h.writeTranslationResult(w, r, result, text, translatedText, translatedHTML)
 }
 
-func (h *Handler) writeTranslationResult(w http.ResponseWriter, result translation.Result, text, translatedText, translatedHTML string) {
+func (h *Handler) writeTranslationResult(w http.ResponseWriter, r *http.Request, result translation.Result, text, translatedText, translatedHTML string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	_ = json.NewEncoder(w).Encode(translateMessageResponse{
 		Status:           "ok",
 		Provider:         result.Provider,
-		ProviderLabel:    translationProviderLabel(result.Provider),
+		ProviderLabel:    translationProviderLabel(r.Context(), result.Provider),
 		SourceLanguage:   result.DetectedLanguage,
 		TargetLanguage:   result.TargetLanguage,
-		TargetLabel:      translationLanguageLabel(result.TargetLanguage),
+		TargetLabel:      translationLanguageLabel(r.Context(), result.TargetLanguage),
 		Text:             translatedText,
 		HTML:             translatedHTML,
 		OriginalLength:   len([]rune(text)),
@@ -448,50 +448,22 @@ func plainTextFromHTML(value string) string {
 	return translationManyNewlineRE.ReplaceAllString(value, "\n\n")
 }
 
-func translationProviderLabel(provider string) string {
+func translationProviderLabel(ctx context.Context, provider string) string {
 	switch provider {
 	case translation.ProviderGoogleWebBasic, translation.ProviderGoogleWebLegacy:
-		return "Google Web Translate (Basic)"
+		return i18n.T(ctx, "settings.translation.google_basic")
 	default:
 		return provider
 	}
 }
 
-func translationLanguageLabel(code string) string {
+func translationLanguageLabel(ctx context.Context, code string) string {
 	switch strings.ToLower(code) {
-	case "ar":
-		return "Arabic"
-	case "cs":
-		return "Czech"
-	case "de":
-		return "German"
-	case "en":
-		return "English"
-	case "es":
-		return "Spanish"
-	case "fr":
-		return "French"
-	case "it":
-		return "Italian"
-	case "ja":
-		return "Japanese"
-	case "ko":
-		return "Korean"
-	case "nl":
-		return "Dutch"
-	case "pl":
-		return "Polish"
-	case "pt":
-		return "Portuguese"
-	case "ru":
-		return "Russian"
-	case "uk":
-		return "Ukrainian"
-	case "zh-cn", "zh":
-		return "Chinese"
+	case "ar", "cs", "de", "en", "es", "fr", "it", "ja", "ko", "nl", "pl", "pt", "ru", "uk", "zh-cn", "zh":
+		return i18n.LanguageName(ctx, strings.TrimSuffix(strings.ToLower(code), "-cn"))
 	default:
 		if strings.TrimSpace(code) == "" {
-			return "selected language"
+			return i18n.T(ctx, "server.translation.selected_language")
 		}
 		return code
 	}

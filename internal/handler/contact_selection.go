@@ -120,7 +120,7 @@ func (h *Handler) handleExportSelectedContacts(w http.ResponseWriter, r *http.Re
 	if len(contacts) == 1 {
 		filename = contactVCardFilename(contacts[0])
 	}
-	serveVCard(w, filename, contacts)
+	serveVCard(w, r, filename, contacts)
 }
 
 // contactBulkDeleteResult says what deleting contacts for good did: how many
@@ -162,9 +162,12 @@ func contactDeleteFailureMessage(id string, err error) string {
 	return "It couldn't be deleted."
 }
 
-func writeContactBulkDeleteResult(w http.ResponseWriter, result contactBulkDeleteResult) {
+func writeContactBulkDeleteResult(w http.ResponseWriter, r *http.Request, result contactBulkDeleteResult) {
 	if result.Failed == nil {
 		result.Failed = []contactDeleteFailure{}
+	}
+	for i := range result.Failed {
+		result.Failed[i].Error = serverText(r.Context(), result.Failed[i].Error)
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(result)

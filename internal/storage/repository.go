@@ -1939,7 +1939,7 @@ func (db *DB) UpsertProviderSyncMessages(ctx context.Context, msgs []ProviderSyn
 			inReplyTo = ids[0]
 		}
 		if m.Subject == "" {
-			m.Subject = "(no subject)"
+			m.Subject = i18n.NoSubject
 		}
 		normalizedSubject := normalizeSubject(m.Subject)
 		hasDateSent := !m.DateSent.IsZero()
@@ -1988,7 +1988,7 @@ func (db *DB) UpsertProviderSyncMessages(ctx context.Context, msgs []ProviderSyn
 				m.InternetMessageID, m.InternetMessageID, m.InternetMessageID, m.InternetMessageID,
 				messageIDNorm, messageIDNorm,
 				m.Subject, m.Subject, m.Subject, m.Subject,
-				normalizedSubject, normalizedSubject, normalizeSubject("(no subject)"), normalizedSubject, normalizedSubject,
+				normalizedSubject, normalizedSubject, normalizeSubject(i18n.NoSubject), normalizedSubject, normalizedSubject,
 				m.FromName, m.FromName, m.FromEmail, m.FromEmail,
 				boolInt(hasDateSent), dateSentDB, dateSentDB,
 				boolInt(hasDateReceived), dateReceivedDB, dateReceivedDB,

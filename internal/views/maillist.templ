@@ -1288,11 +1288,11 @@ templ MailListCardItem(accounts []models.Account, email models.Email, position i
 						templ.KV("text-black dark:text-foreground", email.IsRead),
 					}
 					data-mail-card-field="subject"
-				>{ email.Subject }</p>
+				>{ i18n.Subject(ctx, email.Subject) }</p>
 			</div>
 			<div class="mail-list-card-zone mail-list-card-zone-footer" data-mail-card-zone="footer">
 				<p class="min-w-0 flex-1 text-[13px] text-black dark:text-foreground truncate leading-normal" data-mail-card-field="preview">
-					{ email.Preview }
+					{ i18n.Preview(ctx, email.Preview) }
 				</p>
 				if len(email.Labels) > 0 {
 					// One field for all labels, so it moves and sizes as a unit.
@@ -1404,7 +1404,7 @@ templ MailListTableItem(email models.Email, position int, selectedEmail *models.
 							templ.KV("font-medium text-foreground", !email.IsRead),
 							templ.KV("text-muted-foreground", email.IsRead),
 						}
-					>{ email.Subject }</span>
+					>{ i18n.Subject(ctx, email.Subject) }</span>
 				</div>
 				if len(email.Labels) > 0 {
 					for _, label := range email.Labels {
@@ -1511,7 +1511,7 @@ templ MailListThreadSubItems(items []models.ThreadItem, senderDisplayMode string
 								</span>
 							</div>
 						</div>
-						<p class="text-[11px] text-muted-foreground truncate leading-relaxed" data-mail-table-cell="subject">{ item.Preview }</p>
+						<p class="text-[11px] text-muted-foreground truncate leading-relaxed" data-mail-table-cell="subject">{ i18n.Preview(ctx, item.Preview) }</p>
 					</div>
 					if !item.IsRead {
 						<div class="w-1.5 h-1.5 rounded-full bg-primary shrink-0"></div>

@@ -13,7 +13,7 @@ templ TagAppearanceIcon(label models.Label) {
 }
 
 templ TagAppearanceButton(label models.Label) {
-	<button type="button" class="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" title={ "Appearance of " + label.Name } aria-label={ "Appearance of " + label.Name } data-folder-action="folder-appearance" data-folder-id={ label.ID } data-folder-account={ label.AccountID } data-folder-name={ label.Name } data-tag-appearance data-tag-appearance-unified?={ label.IsUnified } data-on-click={ onAction("manageFolderAction", actionElement) }>
+	<button type="button" class="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" title={ i18n.T(ctx, "appearance.of", "name", label.Name) } aria-label={ i18n.T(ctx, "appearance.of", "name", label.Name) } data-folder-action="folder-appearance" data-folder-id={ label.ID } data-folder-account={ label.AccountID } data-folder-name={ label.Name } data-tag-appearance data-tag-appearance-unified?={ label.IsUnified } data-on-click={ onAction("manageFolderAction", actionElement) }>
 		@icon.Palette(icon.Props{Class: "size-3.5"})
 	</button>
 }

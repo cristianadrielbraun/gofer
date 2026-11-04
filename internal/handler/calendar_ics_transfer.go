@@ -615,6 +615,7 @@ func (h *Handler) importIntoCalendarSource(w http.ResponseWriter, r *http.Reques
 		_ = encoder.Encode(result)
 		return
 	}
+	result.Reason = serverText(ctx, result.Reason)
 	line(result)
 }
 

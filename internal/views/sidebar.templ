@@ -811,7 +811,7 @@ templ SidebarMailSyncErrorSummaryTooltip(accounts []models.Account) {
 							if strings.TrimSpace(account.EmailSyncErrorAt) != "" {
 								<div class="mt-1 opacity-85">{ i18n.T(ctx, "mail.sync.last_failure", "time", formatAccountSyncErrorAt(ctx, account.EmailSyncErrorAt, nil)) }</div>
 							}
-							<div class="mt-1 break-words opacity-90">{ strings.TrimSpace(account.EmailSyncError) }</div>
+							<div class="mt-1 break-words opacity-90">{ i18n.ServerText(ctx, strings.TrimSpace(account.EmailSyncError)) }</div>
 						</div>
 					}
 				}
@@ -1075,7 +1075,7 @@ templ SidebarAccountSyncErrorTooltip(account models.Account, uiSettings map[stri
 				data-account-sync-error={ account.ID }
 				data-account-sync-error-name={ account.Name }
 				data-account-sync-error-email={ account.Email }
-				data-account-sync-error-message={ strings.TrimSpace(account.EmailSyncError) }
+				data-account-sync-error-message={ i18n.ServerText(ctx, strings.TrimSpace(account.EmailSyncError)) }
 				data-account-sync-error-failed-at={ strings.TrimSpace(account.EmailSyncErrorAt) }
 				class="inline-flex size-5 shrink-0 items-center justify-center rounded-md text-destructive"
 				aria-label={ i18n.T(ctx, "mail.sync.failed") }
@@ -1094,7 +1094,7 @@ templ SidebarAccountSyncErrorTooltip(account models.Account, uiSettings map[stri
 						</span>
 					</div>
 				}
-				<div class="break-words opacity-90">{ i18n.T(ctx, "mail.sync.details", "details", strings.TrimSpace(account.EmailSyncError)) }</div>
+				<div class="break-words opacity-90">{ i18n.T(ctx, "mail.sync.details", "details", i18n.ServerText(ctx, strings.TrimSpace(account.EmailSyncError))) }</div>
 			</div>
 		}
 	}
@@ -1208,8 +1208,8 @@ templ SidebarFooter() {
 						<p class="mt-0.5 text-[11px] leading-relaxed text-sidebar-foreground">{ i18n.T(ctx, "shortcuts.description") }</p>
 					</div>
 					<div class="space-y-1 text-[12px] leading-relaxed">
-						@SidebarShortcutHint(i18n.T(ctx, "shortcuts.next"), "j / Down")
-						@SidebarShortcutHint(i18n.T(ctx, "shortcuts.previous"), "k / Up")
+						@SidebarShortcutHint(i18n.T(ctx, "shortcuts.next"), "j / "+i18n.T(ctx, "shortcuts.key.down"))
+						@SidebarShortcutHint(i18n.T(ctx, "shortcuts.previous"), "k / "+i18n.T(ctx, "shortcuts.key.up"))
 						@SidebarShortcutHint(i18n.T(ctx, "shortcuts.open"), "Enter / o")
 						@SidebarShortcutHint(i18n.T(ctx, "shortcuts.search"), "/")
 						@SidebarShortcutHint(i18n.T(ctx, "shortcuts.compose"), "c")
@@ -1217,7 +1217,7 @@ templ SidebarFooter() {
 						@SidebarShortcutHint(i18n.T(ctx, "shortcuts.reply_all"), "a")
 						@SidebarShortcutHint(i18n.T(ctx, "shortcuts.forward"), "f")
 						@SidebarShortcutHint(i18n.T(ctx, "shortcuts.archive"), "e")
-						@SidebarShortcutHint(i18n.T(ctx, "shortcuts.delete"), "Del / #")
+						@SidebarShortcutHint(i18n.T(ctx, "shortcuts.delete"), i18n.T(ctx, "shortcuts.key.delete")+" / #")
 						@SidebarShortcutHint(i18n.T(ctx, "shortcuts.star"), "s")
 						@SidebarShortcutHint(i18n.T(ctx, "shortcuts.toggle_read"), "u")
 						@SidebarShortcutHint(i18n.T(ctx, "shortcuts.select_all"), "Ctrl+A")

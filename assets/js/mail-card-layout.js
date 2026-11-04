@@ -336,7 +336,7 @@
       options.className = "mail-card-layout-token-options"
       options.setAttribute("role", "button")
       options.setAttribute("tabindex", "0")
-      options.setAttribute("aria-label", (fieldLabels[id] || id) + " options")
+      options.setAttribute("aria-label", goferT("js.mail.card_layout.field_options", { field: fieldLabels[id] || id }))
       options.setAttribute("aria-expanded", "false")
       options.dataset.mailCardLayoutTokenOptions = id
       options.innerHTML = GEAR_SVG
@@ -407,6 +407,8 @@
       var list = document.createElement("div")
       list.className = "mail-card-layout-token-list mail-card-layout-field-group-items"
       list.dataset.mailCardLayoutCategoryList = category
+      // CSS shows this when the group is empty.
+      list.dataset.emptyLabel = goferT("js.mail.card_layout.none")
       group.appendChild(list)
 
       return group
@@ -513,7 +515,7 @@
       if (!dialog) return
       var count = visibleCount(dialog)
       var limit = dialog.querySelector("[data-mail-card-layout-limit]")
-      if (limit) limit.textContent = count + " fields"
+      if (limit) limit.textContent = goferTn("js.mail.card_layout.fields", count)
 
       var hidden = hiddenTray(dialog)
       var hiddenTokens = hidden ? hidden.querySelectorAll("[data-mail-card-layout-token]") : []

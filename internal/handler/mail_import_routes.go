@@ -23,9 +23,9 @@ func (h *Handler) registerMailImportRoutes(register func(string, http.HandlerFun
 	register("POST /api/mail/imports/{id}/delete", h.handleDeleteMailImport)
 }
 
-func (h *Handler) mailImportsAvailable(w http.ResponseWriter) bool {
+func (h *Handler) mailImportsAvailable(w http.ResponseWriter, r *http.Request) bool {
 	if h.mailImports == nil {
-		http.Error(w, "mail import is not available", http.StatusServiceUnavailable)
+		http.Error(w, i18n.T(r.Context(), "server.error.mail_import_is_not_available"), http.StatusServiceUnavailable)
 		return false
 	}
 	return true
@@ -52,9 +52,9 @@ func (h *Handler) mailImportJobViews(ctx context.Context, owner string) ([]views
 		for _, skipped := range job.Skipped {
 			subject := skipped.Subject
 			if subject == "" {
-				subject = "(no subject)"
+				subject = i18n.T(ctx, "mail.no_subject")
 			}
-			view.Skipped = append(view.Skipped, skipped.Source+": "+subject+" ("+skipped.Reason+")")
+			view.Skipped = append(view.Skipped, skipped.Source+": "+subject+" ("+serverText(ctx, skipped.Reason)+")")
 		}
 		result = append(result, view)
 	}
@@ -86,14 +86,14 @@ func (h *Handler) renderMailImportJobs(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleMailImports(w http.ResponseWriter, r *http.Request) {
-	if !h.mailImportsAvailable(w) {
+	if !h.mailImportsAvailable(w, r) {
 		return
 	}
 	h.renderMailImportPanel(w, r, "")
 }
 
 func (h *Handler) handleMailImportJobs(w http.ResponseWriter, r *http.Request) {
-	if !h.mailImportsAvailable(w) {
+	if !h.mailImportsAvailable(w, r) {
 		return
 	}
 	h.renderMailImportJobs(w, r)
@@ -105,7 +105,7 @@ func renderMailImportUploadError(w http.ResponseWriter, r *http.Request, message
 }
 
 func (h *Handler) handleUploadMailImport(w http.ResponseWriter, r *http.Request) {
-	if !h.mailImportsAvailable(w) {
+	if !h.mailImportsAvailable(w, r) {
 		return
 	}
 	reader, err := r.MultipartReader()
@@ -152,13 +152,13 @@ func (h *Handler) renderMailImportReview(w http.ResponseWriter, r *http.Request,
 			continue
 		}
 		problem := mailImportAccountProblem(account)
-		data.Accounts = append(data.Accounts, views.MailImportAccount{MailExportAccount: mailExportAccountView(account), Problem: problem})
+		data.Accounts = append(data.Accounts, views.MailImportAccount{MailExportAccount: mailExportAccountView(account), Problem: serverText(r.Context(), problem)})
 		if problem == "" && (account.ID == accountID || (accountID == "" && chosen == nil)) {
 			chosen = &accounts[i]
 		}
 	}
 	for i, source := range job.Sources {
-		data.Sources = append(data.Sources, views.MailImportSource{Index: i, Name: source.Name, Path: source.Path, Messages: source.Messages})
+		data.Sources = append(data.Sources, views.MailImportSource{Index: i, Name: serverText(r.Context(), source.Name), Path: source.Path, Messages: source.Messages})
 	}
 	if chosen != nil {
 		data.AccountID = chosen.ID
@@ -183,7 +183,7 @@ func (h *Handler) renderMailImportReview(w http.ResponseWriter, r *http.Request,
 }
 
 func (h *Handler) handleReviewMailImport(w http.ResponseWriter, r *http.Request) {
-	if !h.mailImportsAvailable(w) {
+	if !h.mailImportsAvailable(w, r) {
 		return
 	}
 	job, err := h.mailImports.loadOwned(h.userID(r.Context()), r.PathValue("id"))
@@ -195,7 +195,7 @@ func (h *Handler) handleReviewMailImport(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *Handler) handleStartMailImport(w http.ResponseWriter, r *http.Request) {
-	if !h.mailImportsAvailable(w) {
+	if !h.mailImportsAvailable(w, r) {
 		return
 	}
 	if err := r.ParseForm(); err != nil {
@@ -250,7 +250,7 @@ func (h *Handler) handleDeleteMailImport(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *Handler) changeMailImport(w http.ResponseWriter, r *http.Request, change func(*mailImportJob)) {
-	if !h.mailImportsAvailable(w) {
+	if !h.mailImportsAvailable(w, r) {
 		return
 	}
 	job, err := h.mailImports.loadOwned(h.userID(r.Context()), r.PathValue("id"))

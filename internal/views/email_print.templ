@@ -1,17 +1,18 @@
 package views
 
 import (
-	"github.com/cristianadrielbraun/gofer/internal/i18n"
+	"context"
 	"strings"
 
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 )
 
-func emailPrintSubject(email *models.Email) string {
+func emailPrintSubject(ctx context.Context, email *models.Email) string {
 	if subject := strings.TrimSpace(email.Subject); subject != "" {
-		return subject
+		return i18n.Subject(ctx, subject)
 	}
-	return "(no subject)"
+	return i18n.T(ctx, "mail.no_subject")
 }
 
 // emailPrintAttachments names the files attached to the message, leaving out
@@ -31,7 +32,7 @@ func emailPrintAttachments(email *models.Email) string {
 // since it goes into the message's own document.
 templ EmailPrintHeader(email *models.Email) {
 	<div data-gofer-print-header style="font: 13px/1.5 system-ui, -apple-system, 'Segoe UI', sans-serif; color: #111; margin: 0 0 16px; padding: 0 0 12px; border-bottom: 1px solid #ccc;">
-		<div style="font-size: 20px; font-weight: 600; margin: 0 0 10px;">{ emailPrintSubject(email) }</div>
+		<div style="font-size: 20px; font-weight: 600; margin: 0 0 10px;">{ emailPrintSubject(ctx, email) }</div>
 		<table style="border-collapse: collapse; font: inherit; color: inherit;">
 			@emailPrintRow(i18n.T(ctx, "mail.filters.from"), formatContacts([]models.Contact{email.From}))
 			if len(email.To) > 0 {

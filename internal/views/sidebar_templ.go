@@ -3455,9 +3455,9 @@ func SidebarMailSyncErrorSummaryTooltip(accounts []models.Account) templ.Compone
 							return templ_7745c5c3_Err
 						}
 						var templ_7745c5c3_Var160 string
-						templ_7745c5c3_Var160, templ_7745c5c3_Err = templ.JoinStringErrs(strings.TrimSpace(account.EmailSyncError))
+						templ_7745c5c3_Var160, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.ServerText(ctx, strings.TrimSpace(account.EmailSyncError)))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 814, Col: 91}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 814, Col: 113}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var160))
 						if templ_7745c5c3_Err != nil {
@@ -4833,9 +4833,9 @@ func SidebarAccountSyncErrorTooltip(account models.Account, uiSettings map[strin
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var233 string
-				templ_7745c5c3_Var233, templ_7745c5c3_Err = templ.JoinStringErrs(strings.TrimSpace(account.EmailSyncError))
+				templ_7745c5c3_Var233, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.ServerText(ctx, strings.TrimSpace(account.EmailSyncError)))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1078, Col: 79}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1078, Col: 101}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var233))
 				if templ_7745c5c3_Err != nil {
@@ -4968,9 +4968,9 @@ func SidebarAccountSyncErrorTooltip(account models.Account, uiSettings map[strin
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var241 string
-				templ_7745c5c3_Var241, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "mail.sync.details", "details", strings.TrimSpace(account.EmailSyncError)))
+				templ_7745c5c3_Var241, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "mail.sync.details", "details", i18n.ServerText(ctx, strings.TrimSpace(account.EmailSyncError))))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1097, Col: 128}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/sidebar.templ`, Line: 1097, Col: 150}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var241))
 				if templ_7745c5c3_Err != nil {
@@ -5580,11 +5580,11 @@ func SidebarFooter() templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = SidebarShortcutHint(i18n.T(ctx, "shortcuts.next"), "j / Down").Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = SidebarShortcutHint(i18n.T(ctx, "shortcuts.next"), "j / "+i18n.T(ctx, "shortcuts.key.down")).Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = SidebarShortcutHint(i18n.T(ctx, "shortcuts.previous"), "k / Up").Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = SidebarShortcutHint(i18n.T(ctx, "shortcuts.previous"), "k / "+i18n.T(ctx, "shortcuts.key.up")).Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -5616,7 +5616,7 @@ func SidebarFooter() templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = SidebarShortcutHint(i18n.T(ctx, "shortcuts.delete"), "Del / #").Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = SidebarShortcutHint(i18n.T(ctx, "shortcuts.delete"), i18n.T(ctx, "shortcuts.key.delete")+" / #").Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}

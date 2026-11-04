@@ -566,7 +566,7 @@
 
 #compose-form.compose-drop-active::after,
 [data-compose-pane].compose-drop-active::after {
-  content: "Drop files to attach";
+  content: attr(data-drop-label);
   position: absolute;
   inset: -0.35rem;
   z-index: 30;
@@ -2590,7 +2590,7 @@ html:not([data-theme="express"]) [data-view-mode="table"] .mail-list-item > a {
 }
 
 .mail-card-layout-field-group-items:empty::before {
-  content: "None";
+  content: attr(data-empty-label);
   color: var(--color-muted-foreground);
   font-size: 0.6875rem;
   line-height: 1rem;

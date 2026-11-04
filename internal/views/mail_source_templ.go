@@ -9,7 +9,9 @@ import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
 import (
+	"context"
 	"fmt"
+
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
 
 	"github.com/cristianadrielbraun/gofer/components/button"
@@ -98,7 +100,7 @@ func MailSourceDialog(emailID string, report message.SourceReport, source string
 						var templ_7745c5c3_Var6 string
 						templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "mail.source.title"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_source.templ`, Line: 23, Col: 40}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_source.templ`, Line: 25, Col: 40}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
 						if templ_7745c5c3_Err != nil {
@@ -129,7 +131,7 @@ func MailSourceDialog(emailID string, report message.SourceReport, source string
 						var templ_7745c5c3_Var8 string
 						templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "mail.source.description"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_source.templ`, Line: 26, Col: 46}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_source.templ`, Line: 28, Col: 46}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 						if templ_7745c5c3_Err != nil {
@@ -186,7 +188,7 @@ func MailSourceDialog(emailID string, report message.SourceReport, source string
 							var templ_7745c5c3_Var12 string
 							templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "mail.source.overview"))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_source.templ`, Line: 32, Col: 44}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_source.templ`, Line: 34, Col: 44}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
 							if templ_7745c5c3_Err != nil {
@@ -217,7 +219,7 @@ func MailSourceDialog(emailID string, report message.SourceReport, source string
 							var templ_7745c5c3_Var14 string
 							templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "mail.source.headers", "count", len(report.Headers)))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_source.templ`, Line: 35, Col: 73}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_source.templ`, Line: 37, Col: 73}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var14))
 							if templ_7745c5c3_Err != nil {
@@ -262,7 +264,7 @@ func MailSourceDialog(emailID string, report message.SourceReport, source string
 						var templ_7745c5c3_Var16 string
 						templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "mail.source.source"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_source.templ`, Line: 41, Col: 92}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_source.templ`, Line: 43, Col: 92}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
 						if templ_7745c5c3_Err != nil {
@@ -280,7 +282,7 @@ func MailSourceDialog(emailID string, report message.SourceReport, source string
 							var templ_7745c5c3_Var17 string
 							templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "mail.source.truncated"))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_source.templ`, Line: 43, Col: 87}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_source.templ`, Line: 45, Col: 87}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var17))
 							if templ_7745c5c3_Err != nil {
@@ -298,7 +300,7 @@ func MailSourceDialog(emailID string, report message.SourceReport, source string
 						var templ_7745c5c3_Var18 string
 						templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.JoinStringErrs(source)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_source.templ`, Line: 45, Col: 174}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_source.templ`, Line: 47, Col: 174}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var18))
 						if templ_7745c5c3_Err != nil {
@@ -342,7 +344,7 @@ func MailSourceDialog(emailID string, report message.SourceReport, source string
 							var templ_7745c5c3_Var20 string
 							templ_7745c5c3_Var20, templ_7745c5c3_Err = templ.JoinStringErrs(header.Name)
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_source.templ`, Line: 54, Col: 124}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_source.templ`, Line: 56, Col: 124}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var20))
 							if templ_7745c5c3_Err != nil {
@@ -355,7 +357,7 @@ func MailSourceDialog(emailID string, report message.SourceReport, source string
 							var templ_7745c5c3_Var21 string
 							templ_7745c5c3_Var21, templ_7745c5c3_Err = templ.JoinStringErrs(header.Value)
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_source.templ`, Line: 55, Col: 98}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_source.templ`, Line: 57, Col: 98}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var21))
 							if templ_7745c5c3_Err != nil {
@@ -417,7 +419,7 @@ func MailSourceDialog(emailID string, report message.SourceReport, source string
 						var templ_7745c5c3_Var24 string
 						templ_7745c5c3_Var24, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "mail.source.download"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_source.templ`, Line: 66, Col: 43}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_source.templ`, Line: 68, Col: 43}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var24))
 						if templ_7745c5c3_Err != nil {
@@ -456,7 +458,7 @@ func MailSourceDialog(emailID string, report message.SourceReport, source string
 						var templ_7745c5c3_Var26 string
 						templ_7745c5c3_Var26, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "mail.source.raw"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_source.templ`, Line: 70, Col: 38}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_source.templ`, Line: 72, Col: 38}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var26))
 						if templ_7745c5c3_Err != nil {
@@ -499,7 +501,7 @@ func MailSourceDialog(emailID string, report message.SourceReport, source string
 							var templ_7745c5c3_Var29 string
 							templ_7745c5c3_Var29, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "common.close"))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_source.templ`, Line: 74, Col: 36}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_source.templ`, Line: 76, Col: 36}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var29))
 							if templ_7745c5c3_Err != nil {
@@ -578,7 +580,7 @@ func mailSourceSummary(report message.SourceReport) templ.Component {
 			var templ_7745c5c3_Var31 string
 			templ_7745c5c3_Var31, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "mail.source.warnings"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_source.templ`, Line: 89, Col: 91}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_source.templ`, Line: 91, Col: 91}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var31))
 			if templ_7745c5c3_Err != nil {
@@ -627,9 +629,9 @@ func mailSourceSummary(report message.SourceReport) templ.Component {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var34 string
-				templ_7745c5c3_Var34, templ_7745c5c3_Err = templ.JoinStringErrs(warning.Text)
+				templ_7745c5c3_Var34, templ_7745c5c3_Err = templ.JoinStringErrs(mailSourceWarningText(ctx, warning))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_source.templ`, Line: 97, Col: 26}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_source.templ`, Line: 99, Col: 49}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var34))
 				if templ_7745c5c3_Err != nil {
@@ -656,7 +658,7 @@ func mailSourceSummary(report message.SourceReport) templ.Component {
 			var templ_7745c5c3_Var35 string
 			templ_7745c5c3_Var35, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "mail.source.consistent"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_source.templ`, Line: 104, Col: 43}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_source.templ`, Line: 106, Col: 43}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var35))
 			if templ_7745c5c3_Err != nil {
@@ -679,7 +681,7 @@ func mailSourceSummary(report message.SourceReport) templ.Component {
 			var templ_7745c5c3_Var36 string
 			templ_7745c5c3_Var36, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "mail.source.no_results"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_source.templ`, Line: 111, Col: 86}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_source.templ`, Line: 113, Col: 86}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var36))
 			if templ_7745c5c3_Err != nil {
@@ -702,7 +704,7 @@ func mailSourceSummary(report message.SourceReport) templ.Component {
 				var templ_7745c5c3_Var37 string
 				templ_7745c5c3_Var37, templ_7745c5c3_Err = templ.JoinStringErrs(check.Method)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_source.templ`, Line: 117, Col: 76}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_source.templ`, Line: 119, Col: 76}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var37))
 				if templ_7745c5c3_Err != nil {
@@ -737,7 +739,7 @@ func mailSourceSummary(report message.SourceReport) templ.Component {
 				var templ_7745c5c3_Var40 string
 				templ_7745c5c3_Var40, templ_7745c5c3_Err = templ.JoinStringErrs(check.Result)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_source.templ`, Line: 118, Col: 321}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_source.templ`, Line: 120, Col: 321}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var40))
 				if templ_7745c5c3_Err != nil {
@@ -755,7 +757,7 @@ func mailSourceSummary(report message.SourceReport) templ.Component {
 					var templ_7745c5c3_Var41 string
 					templ_7745c5c3_Var41, templ_7745c5c3_Err = templ.JoinStringErrs(check.Detail)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_source.templ`, Line: 121, Col: 92}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_source.templ`, Line: 123, Col: 92}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var41))
 					if templ_7745c5c3_Err != nil {
@@ -783,7 +785,7 @@ func mailSourceSummary(report message.SourceReport) templ.Component {
 		var templ_7745c5c3_Var42 string
 		templ_7745c5c3_Var42, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "mail.source.details"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_source.templ`, Line: 130, Col: 90}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_source.templ`, Line: 132, Col: 90}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var42))
 		if templ_7745c5c3_Err != nil {
@@ -799,9 +801,9 @@ func mailSourceSummary(report message.SourceReport) templ.Component {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var43 string
-			templ_7745c5c3_Var43, templ_7745c5c3_Err = templ.JoinStringErrs(fact.Label)
+			templ_7745c5c3_Var43, templ_7745c5c3_Err = templ.JoinStringErrs(mailSourceFactLabel(ctx, fact))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_source.templ`, Line: 136, Col: 115}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_source.templ`, Line: 138, Col: 135}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var43))
 			if templ_7745c5c3_Err != nil {
@@ -814,7 +816,7 @@ func mailSourceSummary(report message.SourceReport) templ.Component {
 			var templ_7745c5c3_Var44 string
 			templ_7745c5c3_Var44, templ_7745c5c3_Err = templ.JoinStringErrs(fact.Value)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_source.templ`, Line: 137, Col: 78}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_source.templ`, Line: 139, Col: 78}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var44))
 			if templ_7745c5c3_Err != nil {
@@ -832,7 +834,7 @@ func mailSourceSummary(report message.SourceReport) templ.Component {
 		var templ_7745c5c3_Var45 string
 		templ_7745c5c3_Var45, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "mail.source.hops"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_source.templ`, Line: 141, Col: 135}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_source.templ`, Line: 143, Col: 135}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var45))
 		if templ_7745c5c3_Err != nil {
@@ -845,7 +847,7 @@ func mailSourceSummary(report message.SourceReport) templ.Component {
 		var templ_7745c5c3_Var46 string
 		templ_7745c5c3_Var46, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprint(report.Hops))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_source.templ`, Line: 142, Col: 80}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_source.templ`, Line: 144, Col: 80}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var46))
 		if templ_7745c5c3_Err != nil {
@@ -857,6 +859,23 @@ func mailSourceSummary(report message.SourceReport) templ.Component {
 		}
 		return nil
 	})
+}
+
+// mailSourceWarningText writes a warning in the page's language.
+func mailSourceWarningText(ctx context.Context, warning message.SourceWarning) string {
+	if warning.Key == "" {
+		return warning.Text
+	}
+	return i18n.T(ctx, warning.Key, warning.Args...)
+}
+
+// mailSourceFactLabel names a fact in the page's language; header names such
+// as From stay as they are written in mail.
+func mailSourceFactLabel(ctx context.Context, fact message.SourceFact) string {
+	if fact.Key == "" {
+		return fact.Label
+	}
+	return i18n.T(ctx, fact.Key)
 }
 
 var _ = templruntime.GeneratedTemplate

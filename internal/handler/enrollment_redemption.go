@@ -118,7 +118,7 @@ func (h *Handler) handlePasswordTokenSubmit(
 	render passwordTokenPageRenderer,
 ) {
 	if !h.auth.IsEnabled() {
-		http.Error(w, "not found", http.StatusNotFound)
+		http.Error(w, i18n.T(r.Context(), "server.error.not_found"), http.StatusNotFound)
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, enrollmentRedemptionFormMaximumBytes)
@@ -179,7 +179,7 @@ func (h *Handler) renderPasswordTokenCompletion(w http.ResponseWriter, r *http.R
 	var page bytes.Buffer
 	if err := component.Render(r.Context(), &page); err != nil {
 		log.Printf("render password token completion: %v", err)
-		http.Error(w, "failed to render password confirmation", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_render_password_confirmation"), http.StatusInternalServerError)
 		return
 	}
 	writeEnrollmentRedemptionPage(w, http.StatusOK, &page)
@@ -191,7 +191,7 @@ func (h *Handler) renderInvitationEnrollmentPage(w http.ResponseWriter, r *http.
 		Message: message, GoogleLoginAvailable: h.auth.HasGoogleLogin(),
 	}).Render(r.Context(), &page); err != nil {
 		log.Printf("render invitation enrollment page: %v", err)
-		http.Error(w, "failed to render invitation form", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_render_invitation_form"), http.StatusInternalServerError)
 		return
 	}
 	writeEnrollmentRedemptionPage(w, status, &page)
@@ -201,7 +201,7 @@ func (h *Handler) renderCredentialRedemptionPage(w http.ResponseWriter, r *http.
 	var page bytes.Buffer
 	if err := views.CredentialRedemptionPage(views.CredentialRedemptionData{Message: message}).Render(r.Context(), &page); err != nil {
 		log.Printf("render credential redemption page: %v", err)
-		http.Error(w, "failed to render password reset form", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_render_password_reset_form"), http.StatusInternalServerError)
 		return
 	}
 	writeEnrollmentRedemptionPage(w, status, &page)

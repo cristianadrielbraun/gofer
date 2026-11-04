@@ -145,5 +145,5 @@ func (h *Handler) handleUserTranslation(w http.ResponseWriter, r *http.Request, 
 	if translatedHTML != "" {
 		translatedText = plainTextFromHTML(translatedHTML)
 	}
-	h.writeTranslationResult(w, result, text, translatedText, translatedHTML)
+	h.writeTranslationResult(w, r, result, text, translatedText, translatedHTML)
 }

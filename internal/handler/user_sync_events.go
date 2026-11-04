@@ -61,7 +61,7 @@ func (h *Handler) handleUserSSE(w http.ResponseWriter, r *http.Request) {
 				return true
 			}
 		}
-		writeSSEEvent(w, flusher, event)
+		writeSSEEvent(ctx, w, flusher, event)
 		return true
 	}
 	for _, event := range manual {

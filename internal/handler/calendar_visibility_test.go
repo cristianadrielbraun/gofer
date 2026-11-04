@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -53,7 +54,7 @@ func TestHandleCalendarVisibilityValidatesAndScopesChanges(t *testing.T) {
 	if err != nil || len(sources) != 1 || sources[0].IsHidden {
 		t.Fatal("rejected request changed visibility or sync selection")
 	}
-	if mapped := calendarViewEvent(storage.CalendarEvent{SourceID: "work", SourceHidden: true}); mapped.SourceID != "work" || !mapped.SourceHidden {
+	if mapped := calendarViewEvent(context.Background(), storage.CalendarEvent{SourceID: "work", SourceHidden: true}); mapped.SourceID != "work" || !mapped.SourceHidden {
 		t.Fatal("source visibility missing from event presentation")
 	}
 }

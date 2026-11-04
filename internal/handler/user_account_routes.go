@@ -382,7 +382,7 @@ func userAccountError(w http.ResponseWriter, r *http.Request, err error) {
 		// Retrying cannot help until the user grants access again.
 		log.Printf("routed account needs reconnect: %v", err)
 		w.Header().Set(accountReconnectHeader, "true")
-		http.Error(w, "Reconnect account: "+oauthReconnectReason(err), http.StatusConflict)
+		http.Error(w, serverText(r.Context(), "Reconnect account: "+oauthReconnectReason(err)), http.StatusConflict)
 		return
 	}
 	log.Printf("routed account operation failed: %v", err)

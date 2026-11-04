@@ -333,7 +333,7 @@
       message.textContent = options.message || ""
       message.hidden = !options.message
       root.querySelector("[data-app-prompt-label]").textContent = options.label || ""
-      root.querySelector("[data-app-prompt-accept]").textContent = options.confirmLabel || "OK"
+      root.querySelector("[data-app-prompt-accept]").textContent = options.confirmLabel || goferT("js.common.ok")
       input.value = options.value || ""
       input.placeholder = options.placeholder || ""
       var value = null

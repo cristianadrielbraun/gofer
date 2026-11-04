@@ -83,9 +83,9 @@ func securitySessionViewData(ctx context.Context, list *auth.SecuritySessionList
 	result := make([]views.SecuritySessionData, 0, len(list.Sessions))
 	for _, session := range list.Sessions {
 		view := views.SecuritySessionData{
-			Client:         securitySessionClientLabel(session.UserAgent),
-			Authentication: securitySessionAuthenticationLabel(session.AuthenticationMethod, oidcName),
-			Assurance:      securitySessionAssuranceLabel(session.AssuranceLevel),
+			Client:         securitySessionClientLabel(ctx, session.UserAgent),
+			Authentication: securitySessionAuthenticationLabel(ctx, session.AuthenticationMethod, oidcName),
+			Assurance:      securitySessionAssuranceLabel(ctx, session.AssuranceLevel),
 			SignedInAt:     formatSecuritySessionTime(ctx, session.AuthenticatedAt),
 			LastActiveAt:   formatSecuritySessionTime(ctx, session.LastUsedAt),
 			Current:        session.Current,
@@ -102,16 +102,16 @@ func securitySessionViewData(ctx context.Context, list *auth.SecuritySessionList
 	return result, list.Truncated
 }
 
-func securitySessionAuthenticationLabel(method auth.AuthenticationMethod, oidcName string) string {
+func securitySessionAuthenticationLabel(ctx context.Context, method auth.AuthenticationMethod, oidcName string) string {
 	switch method {
 	case auth.AuthenticationMethodPassword:
-		return "Password"
+		return i18n.T(ctx, "signin.password")
 	case auth.AuthenticationMethodPasskey:
-		return "Passkey"
+		return i18n.T(ctx, "security.passkey")
 	case auth.AuthenticationMethodTOTP:
-		return "Authenticator app"
+		return i18n.T(ctx, "server.session.authenticator_app")
 	case auth.AuthenticationMethodRecoveryCode:
-		return "Recovery code"
+		return i18n.T(ctx, "signin.recovery.code_label")
 	case auth.AuthenticationMethodFederatedGoogle:
 		return "Google"
 	case auth.AuthenticationMethodFederatedMicrosoft:
@@ -122,23 +122,23 @@ func securitySessionAuthenticationLabel(method auth.AuthenticationMethod, oidcNa
 		}
 		return "OpenID Connect"
 	default:
-		return "Existing sign-in"
+		return i18n.T(ctx, "server.session.existing_signin")
 	}
 }
 
-func securitySessionAssuranceLabel(level auth.AssuranceLevel) string {
+func securitySessionAssuranceLabel(ctx context.Context, level auth.AssuranceLevel) string {
 	switch level {
 	// A passkey on its own is one factor, like a password.
 	case auth.AssuranceLevelSingleFactor, auth.AssuranceLevelPhishingResistant:
-		return "Single factor"
+		return i18n.T(ctx, "server.session.single_factor")
 	case auth.AssuranceLevelMultiFactor:
-		return "Two-factor"
+		return i18n.T(ctx, "server.session.two_factor")
 	default:
-		return "Legacy assurance"
+		return i18n.T(ctx, "server.session.legacy_assurance")
 	}
 }
 
-func securitySessionClientLabel(userAgent string) string {
+func securitySessionClientLabel(ctx context.Context, userAgent string) string {
 	normalized := strings.Map(func(value rune) rune {
 		if unicode.IsControl(value) {
 			return ' '
@@ -147,7 +147,7 @@ func securitySessionClientLabel(userAgent string) string {
 	}, strings.ToValidUTF8(userAgent, ""))
 	normalized = strings.Join(strings.Fields(normalized), " ")
 	if normalized == "" {
-		return "Unknown browser or device"
+		return i18n.T(ctx, "server.session.unknown_client")
 	}
 	lower := strings.ToLower(normalized)
 	browser := ""
@@ -167,7 +167,7 @@ func securitySessionClientLabel(userAgent string) string {
 	case strings.Contains(lower, "wget/"):
 		browser = "Wget"
 	case strings.Contains(lower, "go-http-client/"):
-		browser = "Go HTTP client"
+		browser = i18n.T(ctx, "server.session.go_http_client")
 	case strings.Contains(lower, "postmanruntime/"):
 		browser = "Postman"
 	}
@@ -189,7 +189,7 @@ func securitySessionClientLabel(userAgent string) string {
 		platform = "Linux"
 	}
 	if browser != "" && platform != "" {
-		return browser + " on " + platform
+		return i18n.T(ctx, "server.session.browser_on_platform", "browser", browser, "platform", platform)
 	}
 	if browser != "" {
 		return browser

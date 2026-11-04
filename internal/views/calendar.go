@@ -416,7 +416,7 @@ func calendarSourceSyncTitle(ctx context.Context, source models.AccountCalendarS
 	case "syncing":
 		return i18n.T(ctx, "calendar.status.refreshing_one")
 	case "failed":
-		return i18n.T(ctx, "calendar.status.failed", "error", source.SyncError)
+		return i18n.T(ctx, "calendar.status.failed", "error", i18n.ServerText(ctx, source.SyncError))
 	case "ok":
 		if source.LastSyncedAt != "" {
 			return i18n.T(ctx, "calendar.status.last_synced", "time", source.LastSyncedAt)

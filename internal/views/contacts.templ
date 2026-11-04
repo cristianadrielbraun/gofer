@@ -973,7 +973,7 @@ func contactActivitySubject(ctx context.Context, email models.Email) string {
 	if strings.TrimSpace(email.Subject) == "" {
 		return i18n.T(ctx, "contacts.activity.no_subject")
 	}
-	return email.Subject
+	return i18n.Subject(ctx, email.Subject)
 }
 
 func contactSaveTargetLabel(ctx context.Context, target string, accounts []models.Account) string {
@@ -1289,6 +1289,8 @@ func contactInsightDisplayTitle(ctx context.Context, insight models.ContactInsig
 			return i18n.T(ctx, "contacts.insight.field_override", "field", strings.ToLower(contactFieldKindLabel(ctx, insight.Field)))
 		}
 		return i18n.T(ctx, "contacts.insight.override")
+	case "multi_source":
+		return i18n.T(ctx, "contacts.insight.multi_source")
 	default:
 		return insight.Title
 	}
@@ -1304,6 +1306,9 @@ func contactInsightDisplayMessage(ctx context.Context, insight models.ContactIns
 		return i18n.T(ctx, "contacts.insight.conflict_detail")
 	case "manual_override":
 		return i18n.T(ctx, "contacts.insight.override_detail")
+	case "multi_source":
+		// Its counts come from the English message storage writes.
+		return i18n.Stored(ctx, "contacts.insight.multi_source_detail", insight.Message)
 	default:
 		return insight.Message
 	}
@@ -2178,7 +2183,7 @@ templ ContactReadOnlySyncInfo(contact models.Contact, profile *models.ContactPro
 			@ContactReadOnlyTextField(i18n.T(ctx, "contacts.filters.origin"), originLabel)
 			@ContactReadOnlySyncStatusField(contactReadOnlySyncStatus(ctx, contact, syncQueued))
 			@ContactReadOnlyTextField(i18n.T(ctx, "contacts.sync.updated"), contact.SyncUpdatedAt)
-			@ContactReadOnlyLongField(i18n.T(ctx, "contacts.sync.error"), contact.SyncError)
+			@ContactReadOnlyLongField(i18n.T(ctx, "contacts.sync.error"), i18n.ServerText(ctx, contact.SyncError))
 		</div>
 	</section>
 }
@@ -2702,7 +2707,7 @@ templ ContactSyncStatusNotice(contact models.Contact) {
 			}
 		</div>
 		if contact.SyncStatus == "error" && contact.SyncError != "" {
-			<p class="leading-relaxed opacity-80">{ contact.SyncError }</p>
+			<p class="leading-relaxed opacity-80">{ i18n.ServerText(ctx, contact.SyncError) }</p>
 		}
 	</div>
 }
@@ -3184,7 +3189,7 @@ templ ContactRecentActivity(contact models.Contact, emails []models.Email) {
 								<span class="shrink-0 text-xs tabular-nums text-muted-foreground">{ email.Date }</span>
 							</div>
 							if email.Preview != "" {
-								<p class="mt-0.5 line-clamp-1 text-xs leading-relaxed text-muted-foreground">{ email.Preview }</p>
+								<p class="mt-0.5 line-clamp-1 text-xs leading-relaxed text-muted-foreground">{ i18n.Preview(ctx, email.Preview) }</p>
 							}
 						</div>
 					</a>

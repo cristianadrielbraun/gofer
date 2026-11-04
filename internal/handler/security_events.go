@@ -31,7 +31,7 @@ func securityEventViewData(ctx context.Context, events []auth.SecurityEventSumma
 			view.Status = i18n.T(ctx, "security.event.status.completed")
 		}
 		if strings.TrimSpace(event.UserAgent) != "" {
-			view.Client = securitySessionClientLabel(event.UserAgent)
+			view.Client = securitySessionClientLabel(ctx, event.UserAgent)
 		}
 		result = append(result, view)
 	}

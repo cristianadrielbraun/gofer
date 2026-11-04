@@ -33,7 +33,7 @@ func (h *Handler) handleSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if state.Initialized {
-		h.writeSetupNotFound(w)
+		h.writeSetupNotFound(w, r)
 		return
 	}
 	if r.URL.RawQuery != "" {
@@ -65,7 +65,7 @@ func (h *Handler) handleSetupSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if state.Initialized {
-		h.writeSetupNotFound(w)
+		h.writeSetupNotFound(w, r)
 		return
 	}
 	if r.URL.RawQuery != "" {
@@ -83,7 +83,7 @@ func (h *Handler) handleSetupSubmit(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		switch {
 		case errors.Is(err, auth.ErrSetupAlreadyInitialized):
-			h.writeSetupNotFound(w)
+			h.writeSetupNotFound(w, r)
 		case errors.Is(err, auth.ErrSetupTokenInvalid):
 			h.renderSetupPage(w, r, http.StatusUnauthorized, i18n.T(r.Context(), "auth.setup.token_invalid"))
 		default:
@@ -113,11 +113,11 @@ func (h *Handler) handleSetupPassword(w http.ResponseWriter, r *http.Request) {
 	state, err := h.auth.SetupState(r.Context())
 	if err != nil {
 		log.Printf("read setup password state: %v", err)
-		h.writeSetupServiceFailure(w)
+		h.writeSetupServiceFailure(w, r)
 		return
 	}
 	if state.Initialized {
-		h.writeSetupNotFound(w)
+		h.writeSetupNotFound(w, r)
 		return
 	}
 	if r.URL.RawQuery != "" {
@@ -134,7 +134,7 @@ func (h *Handler) handleSetupPassword(w http.ResponseWriter, r *http.Request) {
 			http.Redirect(w, r, setupOwnerPath, http.StatusSeeOther)
 		default:
 			log.Printf("read setup password owner draft: %v", err)
-			h.writeSetupServiceFailure(w)
+			h.writeSetupServiceFailure(w, r)
 		}
 		return
 	}
@@ -149,11 +149,11 @@ func (h *Handler) handleSetupPasswordSubmit(w http.ResponseWriter, r *http.Reque
 	state, err := h.auth.SetupState(r.Context())
 	if err != nil {
 		log.Printf("read setup password submission state: %v", err)
-		h.writeSetupServiceFailure(w)
+		h.writeSetupServiceFailure(w, r)
 		return
 	}
 	if state.Initialized {
-		h.writeSetupNotFound(w)
+		h.writeSetupNotFound(w, r)
 		return
 	}
 	if r.URL.RawQuery != "" {
@@ -182,7 +182,7 @@ func (h *Handler) handleSetupPasswordSubmit(w http.ResponseWriter, r *http.Reque
 			h.renderSubmittedSetupPassword(w, r, http.StatusUnprocessableEntity, views.SetupPasswordData{Errors: validationErr.Fields})
 		default:
 			log.Printf("save setup password draft: %v", err)
-			h.writeSetupServiceFailure(w)
+			h.writeSetupServiceFailure(w, r)
 		}
 		return
 	}
@@ -195,11 +195,11 @@ func (h *Handler) handleSetupMFA(w http.ResponseWriter, r *http.Request) {
 	state, err := h.auth.SetupState(r.Context())
 	if err != nil {
 		log.Printf("read setup MFA state: %v", err)
-		h.writeSetupServiceFailure(w)
+		h.writeSetupServiceFailure(w, r)
 		return
 	}
 	if state.Initialized {
-		h.writeSetupNotFound(w)
+		h.writeSetupNotFound(w, r)
 		return
 	}
 	if r.URL.RawQuery != "" {
@@ -218,11 +218,11 @@ func (h *Handler) handleSetupMFASubmit(w http.ResponseWriter, r *http.Request) {
 	state, err := h.auth.SetupState(r.Context())
 	if err != nil {
 		log.Printf("read setup MFA submission state: %v", err)
-		h.writeSetupServiceFailure(w)
+		h.writeSetupServiceFailure(w, r)
 		return
 	}
 	if state.Initialized {
-		h.writeSetupNotFound(w)
+		h.writeSetupNotFound(w, r)
 		return
 	}
 	if r.URL.RawQuery != "" {
@@ -273,7 +273,7 @@ func (h *Handler) handleSetupMFAAccessError(w http.ResponseWriter, r *http.Reque
 		http.Redirect(w, r, setupPasswordPath, http.StatusSeeOther)
 	default:
 		log.Printf("%s: %v", operation, err)
-		h.writeSetupServiceFailure(w)
+		h.writeSetupServiceFailure(w, r)
 	}
 }
 
@@ -281,11 +281,11 @@ func (h *Handler) handleSetupRecovery(w http.ResponseWriter, r *http.Request) {
 	state, err := h.auth.SetupState(r.Context())
 	if err != nil {
 		log.Printf("read setup recovery state: %v", err)
-		h.writeSetupServiceFailure(w)
+		h.writeSetupServiceFailure(w, r)
 		return
 	}
 	if state.Initialized {
-		h.writeSetupNotFound(w)
+		h.writeSetupNotFound(w, r)
 		return
 	}
 	if r.URL.RawQuery != "" {
@@ -304,11 +304,11 @@ func (h *Handler) handleSetupRecoverySubmit(w http.ResponseWriter, r *http.Reque
 	state, err := h.auth.SetupState(r.Context())
 	if err != nil {
 		log.Printf("read setup recovery submission state: %v", err)
-		h.writeSetupServiceFailure(w)
+		h.writeSetupServiceFailure(w, r)
 		return
 	}
 	if state.Initialized {
-		h.writeSetupNotFound(w)
+		h.writeSetupNotFound(w, r)
 		return
 	}
 	if r.URL.RawQuery != "" {
@@ -376,7 +376,7 @@ func (h *Handler) handleSetupRecoveryAccessError(w http.ResponseWriter, r *http.
 		http.Redirect(w, r, setupRecoveryPath, http.StatusSeeOther)
 	default:
 		log.Printf("%s: %v", operation, err)
-		h.writeSetupServiceFailure(w)
+		h.writeSetupServiceFailure(w, r)
 	}
 }
 
@@ -384,11 +384,11 @@ func (h *Handler) handleSetupReview(w http.ResponseWriter, r *http.Request) {
 	state, err := h.auth.SetupState(r.Context())
 	if err != nil {
 		log.Printf("read final setup review state: %v", err)
-		h.writeSetupServiceFailure(w)
+		h.writeSetupServiceFailure(w, r)
 		return
 	}
 	if state.Initialized {
-		h.writeSetupNotFound(w)
+		h.writeSetupNotFound(w, r)
 		return
 	}
 	if r.URL.RawQuery != "" {
@@ -411,11 +411,11 @@ func (h *Handler) handleSetupReviewSubmit(w http.ResponseWriter, r *http.Request
 	state, err := h.auth.SetupState(r.Context())
 	if err != nil {
 		log.Printf("read final setup submission state: %v", err)
-		h.writeSetupServiceFailure(w)
+		h.writeSetupServiceFailure(w, r)
 		return
 	}
 	if state.Initialized {
-		h.writeSetupNotFound(w)
+		h.writeSetupNotFound(w, r)
 		return
 	}
 	if r.URL.RawQuery != "" {
@@ -437,7 +437,7 @@ func (h *Handler) handleSetupReviewSubmit(w http.ResponseWriter, r *http.Request
 	if err != nil {
 		switch {
 		case errors.Is(err, auth.ErrSetupAlreadyInitialized):
-			h.writeSetupNotFound(w)
+			h.writeSetupNotFound(w, r)
 		case errors.Is(err, auth.ErrSetupCompletionBlocked):
 			h.renderSubmittedSetupReview(w, r, http.StatusConflict, i18n.T(r.Context(), "auth.setup.completion_blocked"))
 		default:
@@ -447,7 +447,7 @@ func (h *Handler) handleSetupReviewSubmit(w http.ResponseWriter, r *http.Request
 	}
 	if result == nil || result.Session == nil || result.Session.Token == "" || result.OwnerUserID == "" {
 		log.Printf("final setup completion returned an invalid result")
-		h.writeSetupServiceFailure(w)
+		h.writeSetupServiceFailure(w, r)
 		return
 	}
 
@@ -474,7 +474,7 @@ func (h *Handler) handleSetupReviewAccessError(w http.ResponseWriter, r *http.Re
 		http.Redirect(w, r, setupRecoveryPath, http.StatusSeeOther)
 	default:
 		log.Printf("read final setup review: %v", err)
-		h.writeSetupServiceFailure(w)
+		h.writeSetupServiceFailure(w, r)
 	}
 }
 
@@ -486,11 +486,11 @@ func (h *Handler) handleSetupOwner(w http.ResponseWriter, r *http.Request) {
 	state, err := h.auth.SetupState(r.Context())
 	if err != nil {
 		log.Printf("read protected setup state: %v", err)
-		h.writeSetupServiceFailure(w)
+		h.writeSetupServiceFailure(w, r)
 		return
 	}
 	if state.Initialized {
-		h.writeSetupNotFound(w)
+		h.writeSetupNotFound(w, r)
 		return
 	}
 	if r.URL.RawQuery != "" {
@@ -513,7 +513,7 @@ func (h *Handler) handleSetupOwner(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		log.Printf("read protected setup owner state: %v", err)
-		h.writeSetupServiceFailure(w)
+		h.writeSetupServiceFailure(w, r)
 		return
 	}
 	h.renderSetupOwnerPage(w, r, http.StatusOK, setupOwnerViewData(ownerState, views.SetupOwnerFormData{}))
@@ -527,11 +527,11 @@ func (h *Handler) handleSetupOwnerSubmit(w http.ResponseWriter, r *http.Request)
 	state, err := h.auth.SetupState(r.Context())
 	if err != nil {
 		log.Printf("read setup owner submission state: %v", err)
-		h.writeSetupServiceFailure(w)
+		h.writeSetupServiceFailure(w, r)
 		return
 	}
 	if state.Initialized {
-		h.writeSetupNotFound(w)
+		h.writeSetupNotFound(w, r)
 		return
 	}
 	if r.URL.RawQuery != "" {
@@ -568,7 +568,7 @@ func (h *Handler) handleSetupOwnerSubmit(w http.ResponseWriter, r *http.Request)
 			h.renderSubmittedSetupOwner(w, r, http.StatusUnprocessableEntity, form)
 		default:
 			log.Printf("save setup owner draft: %v", err)
-			h.writeSetupServiceFailure(w)
+			h.writeSetupServiceFailure(w, r)
 		}
 		return
 	}
@@ -592,7 +592,7 @@ func (h *Handler) renderSubmittedSetupOwner(w http.ResponseWriter, r *http.Reque
 			return
 		}
 		log.Printf("reload setup owner form: %v", err)
-		h.writeSetupServiceFailure(w)
+		h.writeSetupServiceFailure(w, r)
 		return
 	}
 	h.renderSetupOwnerPage(w, r, status, setupOwnerViewData(ownerState, form))
@@ -603,7 +603,7 @@ func (h *Handler) renderSetupOwnerPage(w http.ResponseWriter, r *http.Request, s
 	var page bytes.Buffer
 	if err := views.SeparatedSetupOwnerPage(data).Render(r.Context(), &page); err != nil {
 		log.Printf("render protected setup owner page: %v", err)
-		h.writeSetupServiceFailure(w)
+		h.writeSetupServiceFailure(w, r)
 		return
 	}
 	writeSetupPage(w, status, &page)
@@ -614,7 +614,7 @@ func (h *Handler) renderSetupPasswordPage(w http.ResponseWriter, r *http.Request
 	var page bytes.Buffer
 	if err := views.SetupPasswordPage(data).Render(r.Context(), &page); err != nil {
 		log.Printf("render protected setup password page: %v", err)
-		h.writeSetupServiceFailure(w)
+		h.writeSetupServiceFailure(w, r)
 		return
 	}
 	writeSetupPage(w, status, &page)
@@ -625,7 +625,7 @@ func (h *Handler) renderSetupMFAPage(w http.ResponseWriter, r *http.Request, sta
 	var page bytes.Buffer
 	if err := views.SetupMFAPage(data).Render(r.Context(), &page); err != nil {
 		log.Printf("render protected setup MFA page: %v", err)
-		h.writeSetupServiceFailure(w)
+		h.writeSetupServiceFailure(w, r)
 		return
 	}
 	writeSetupPage(w, status, &page)
@@ -636,7 +636,7 @@ func (h *Handler) renderSetupRecoveryPage(w http.ResponseWriter, r *http.Request
 	var page bytes.Buffer
 	if err := views.SetupRecoveryPage(data).Render(r.Context(), &page); err != nil {
 		log.Printf("render protected setup recovery page: %v", err)
-		h.writeSetupServiceFailure(w)
+		h.writeSetupServiceFailure(w, r)
 		return
 	}
 	writeSetupPage(w, status, &page)
@@ -646,7 +646,7 @@ func (h *Handler) renderSetupReviewPage(w http.ResponseWriter, r *http.Request, 
 	var page bytes.Buffer
 	if err := views.SetupReviewPage(data).Render(r.Context(), &page); err != nil {
 		log.Printf("render final setup review page: %v", err)
-		h.writeSetupServiceFailure(w)
+		h.writeSetupServiceFailure(w, r)
 		return
 	}
 	writeSetupPage(w, status, &page)
@@ -738,7 +738,7 @@ func (h *Handler) renderSubmittedSetupPassword(w http.ResponseWriter, r *http.Re
 			http.Redirect(w, r, setupOwnerPath, http.StatusSeeOther)
 		default:
 			log.Printf("read setup password owner draft after submission: %v", err)
-			h.writeSetupServiceFailure(w)
+			h.writeSetupServiceFailure(w, r)
 		}
 		return
 	}
@@ -800,22 +800,22 @@ func (h *Handler) renderSetupPage(w http.ResponseWriter, r *http.Request, status
 	var page bytes.Buffer
 	if err := views.SetupTokenPage(views.SetupTokenData{Message: message}).Render(r.Context(), &page); err != nil {
 		log.Printf("render setup token page: %v", err)
-		h.writeSetupServiceFailure(w)
+		h.writeSetupServiceFailure(w, r)
 		return
 	}
 	writeSetupPage(w, status, &page)
 }
 
-func (h *Handler) writeSetupNotFound(w http.ResponseWriter) {
+func (h *Handler) writeSetupNotFound(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Referrer-Policy", "no-referrer")
-	http.Error(w, "not found", http.StatusNotFound)
+	http.Error(w, i18n.T(r.Context(), "server.error.not_found"), http.StatusNotFound)
 }
 
-func (h *Handler) writeSetupServiceFailure(w http.ResponseWriter) {
+func (h *Handler) writeSetupServiceFailure(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Referrer-Policy", "no-referrer")
-	http.Error(w, setupTokenServiceMessage, http.StatusInternalServerError)
+	http.Error(w, i18n.T(r.Context(), "server.setup.token_unavailable"), http.StatusInternalServerError)
 }
 
 func (h *Handler) redirectSetupWithoutQuery(w http.ResponseWriter, r *http.Request) {

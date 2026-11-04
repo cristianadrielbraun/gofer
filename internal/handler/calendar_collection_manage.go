@@ -214,7 +214,7 @@ func (h *Handler) handleCalendarSourceManage(w http.ResponseWriter, r *http.Requ
 	case errors.Is(err, storage.ErrAccountRoute) || errors.Is(err, storage.ErrUserStoreOwner):
 		userAccountError(w, r, err)
 	case errors.As(err, new(errCalendarUndeletable)):
-		http.Error(w, serverText(r.Context(), err.Error()), http.StatusConflict)
+		http.Error(w, i18n.Stored(r.Context(), "calendar.undeletable.", err.Error()), http.StatusConflict)
 	case errors.Is(err, errGoogleCalendarNeedsAccess) || errors.Is(err, errGoogleCalendarListNeedsAccess):
 		// The page offers to sign in again with full calendar access.
 		w.Header().Set("X-Gofer-Needs-Calendar-Access", "google")

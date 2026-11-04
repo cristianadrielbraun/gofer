@@ -145,7 +145,7 @@ func (h *Handler) renderCalendarDelivery(w http.ResponseWriter, r *http.Request,
 	data.Error = serverText(r.Context(), note)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "private, no-store")
-	details := views.CalendarEventDetails{Event: calendarViewEvent(e), Organizer: views.CalendarEventParticipant{Name: e.OrganizerName, Email: e.OrganizerEmail}, Attendees: calendarEventParticipants(e.AttendeesJSON), Delivery: &data}
+	details := views.CalendarEventDetails{Event: calendarViewEvent(r.Context(), e), Organizer: views.CalendarEventParticipant{Name: e.OrganizerName, Email: e.OrganizerEmail}, Attendees: calendarEventParticipants(e.AttendeesJSON), Delivery: &data}
 	if err := views.CalendarEventGuests(details).Render(r.Context(), w); err != nil {
 		http.Error(w, i18n.T(r.Context(), "server.error.could_not_render_event_delivery"), http.StatusInternalServerError)
 	}

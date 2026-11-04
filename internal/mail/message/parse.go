@@ -15,6 +15,7 @@ import (
 	"github.com/emersion/go-message/mail"
 	xhtml "golang.org/x/net/html"
 
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"github.com/cristianadrielbraun/gofer/internal/store"
 )
 
@@ -85,7 +86,7 @@ func ParseMessage(ctx context.Context, r io.Reader, blobStore *store.BlobStore, 
 	parsed.MessageID, _ = header.MessageID()
 	parsed.Subject, _ = header.Subject()
 	if parsed.Subject == "" {
-		parsed.Subject = "(no subject)"
+		parsed.Subject = i18n.NoSubject
 	}
 
 	if ids := ParseMessageIDs(header.Get("In-Reply-To")); len(ids) > 0 {
@@ -229,7 +230,7 @@ func ParseMessage(ctx context.Context, r io.Reader, blobStore *store.BlobStore, 
 		for _, attachment := range parsed.Attachments {
 			if attachment.ContentType == "text/calendar" {
 				// Calendar-only messages still need a readable, cacheable body.
-				parsed.TextBody = "Calendar file attached."
+				parsed.TextBody = i18n.CalendarOnlyBody
 				break
 			}
 		}

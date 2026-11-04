@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"github.com/cristianadrielbraun/gofer/internal/mail/imap"
 	"github.com/cristianadrielbraun/gofer/internal/mail/message"
 	"github.com/cristianadrielbraun/gofer/internal/models"
@@ -1471,7 +1472,7 @@ func gmailAPIMessageToProviderSyncs(accountID string, msg gmailAPIMessage, label
 		BCCRecipients:     recipients("bcc"),
 	}
 	if base.Subject == "" {
-		base.Subject = "(no subject)"
+		base.Subject = i18n.NoSubject
 	}
 
 	var out []storage.ProviderSyncMessage

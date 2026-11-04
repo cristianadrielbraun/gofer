@@ -45,7 +45,7 @@ func (h *Handler) writeEmailBodyError(w http.ResponseWriter, ctx context.Context
 		log.Printf("routed account needs reconnect: %v", err)
 		failure.Kind, status = "reconnect", http.StatusConflict
 		failure.Message = i18n.T(ctx, "server.msg.this_account_needs_to_be_reconnected_before")
-		failure.Detail = "The " + oauthReconnectReason(err) + "."
+		failure.Detail = sentence(oauthReconnectReason(err))
 		failure.AccountID = accountID
 		if accountID == "" || h.userAccounts == nil {
 			break

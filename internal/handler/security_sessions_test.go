@@ -81,12 +81,12 @@ func TestSecuritySessionClientLabelRecognizesCommonBrowsersAndBoundsFallback(t *
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if got := securitySessionClientLabel(test.userAgent); got != test.want {
+			if got := securitySessionClientLabel(context.Background(), test.userAgent); got != test.want {
 				t.Fatalf("securitySessionClientLabel() = %q, want %q", got, test.want)
 			}
 		})
 	}
-	if got := securitySessionClientLabel(strings.Repeat("界", 120)); len([]rune(got)) != 96 || !strings.HasSuffix(got, "…") {
+	if got := securitySessionClientLabel(context.Background(), strings.Repeat("界", 120)); len([]rune(got)) != 96 || !strings.HasSuffix(got, "…") {
 		t.Fatalf("bounded fallback = %q (%d runes)", got, len([]rune(got)))
 	}
 }

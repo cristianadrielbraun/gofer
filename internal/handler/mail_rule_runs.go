@@ -451,7 +451,7 @@ func (h *Handler) handleMailRuleRunDialog(w http.ResponseWriter, r *http.Request
 func (h *Handler) handleMailRuleRunScope(w http.ResponseWriter, r *http.Request) {
 	ctx, owner := r.Context(), h.userID(r.Context())
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "invalid form data", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_form_data"), http.StatusBadRequest)
 		return
 	}
 	data, err := h.mailRuleRunDialogData(ctx, owner)

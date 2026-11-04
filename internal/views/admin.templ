@@ -2306,8 +2306,8 @@ func adminAttemptEmail(ctx context.Context, email string) string {
 	return email
 }
 
-func adminAttemptMessage(message string) string {
-	return message
+func adminAttemptMessage(ctx context.Context, message string) string {
+	return i18n.ServerText(ctx, message)
 }
 
 func adminHasMore(attempts []models.AvatarAttemptLog) string {
@@ -2451,6 +2451,16 @@ func adminContactEventLabel(ctx context.Context, eventType string) string {
 		return i18n.T(ctx, "admin.contacts.event.contacts_trashed")
 	case "contacts_restored":
 		return i18n.T(ctx, "admin.contacts.event.contacts_restored")
+	case "contact_sync_queued":
+		return i18n.T(ctx, "admin.contacts.event.contact_sync_queued")
+	case "contact_sync_started":
+		return i18n.T(ctx, "admin.contacts.event.contact_sync_started")
+	case "contact_synced":
+		return i18n.T(ctx, "admin.contacts.event.contact_synced")
+	case "contact_sync_failed":
+		return i18n.T(ctx, "admin.contacts.event.contact_sync_failed")
+	case "provider_contacts_synced":
+		return i18n.T(ctx, "admin.contacts.event.provider_contacts_synced")
 	default:
 		return strings.Title(strings.ReplaceAll(eventType, "_", " "))
 	}
@@ -2962,7 +2972,7 @@ templ AdminContactEventRow(event models.ContactActivityEvent) {
 		</div>
 		<div><span class={ "inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold", adminContactEventClass(event.Type) }>{ adminContactEventLabel(ctx, event.Type) }</span></div>
 		<div class="text-sm font-semibold tabular-nums text-foreground">{ i18n.Number(ctx, event.Count) }</div>
-		<div class="min-w-0 truncate text-sm text-muted-foreground">{ event.Message }</div>
+		<div class="min-w-0 truncate text-sm text-muted-foreground">{ i18n.Stored(ctx, "admin.contacts.message.", event.Message) }</div>
 	</div>
 }
 
@@ -2982,9 +2992,9 @@ templ AdminAttemptRow(attempt models.AvatarAttemptLog, errorMode bool) {
 		<div class="min-w-0">
 			<div class="truncate font-medium text-foreground">{ adminAttemptEmail(ctx, attempt.Email) }</div>
 			if errorMode {
-				<div class="mt-0.5 whitespace-pre-wrap break-words text-xs text-muted-foreground">{ adminAttemptMessage(attempt.Message) }</div>
+				<div class="mt-0.5 whitespace-pre-wrap break-words text-xs text-muted-foreground">{ adminAttemptMessage(ctx, attempt.Message) }</div>
 			} else if attempt.Message != "" {
-				<div class="mt-0.5 truncate text-xs text-muted-foreground">{ attempt.Message }</div>
+				<div class="mt-0.5 truncate text-xs text-muted-foreground">{ adminAttemptMessage(ctx, attempt.Message) }</div>
 			}
 		</div>
 		<div class="text-xs font-medium text-muted-foreground lg:text-right">{ adminTime(ctx, attempt.CreatedAt) }</div>

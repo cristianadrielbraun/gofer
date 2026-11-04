@@ -77,9 +77,9 @@ func TagAppearanceButton(label models.Label) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var3 string
-		templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs("Appearance of " + label.Name)
+		templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "appearance.of", "name", label.Name))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/tag_appearance.templ`, Line: 16, Col: 269}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/tag_appearance.templ`, Line: 16, Col: 288}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
 		if templ_7745c5c3_Err != nil {
@@ -90,9 +90,9 @@ func TagAppearanceButton(label models.Label) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var4 string
-		templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs("Appearance of " + label.Name)
+		templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "appearance.of", "name", label.Name))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/tag_appearance.templ`, Line: 16, Col: 314}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/tag_appearance.templ`, Line: 16, Col: 352}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 		if templ_7745c5c3_Err != nil {
@@ -105,7 +105,7 @@ func TagAppearanceButton(label models.Label) templ.Component {
 		var templ_7745c5c3_Var5 string
 		templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(label.ID)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/tag_appearance.templ`, Line: 16, Col: 381}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/tag_appearance.templ`, Line: 16, Col: 419}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 		if templ_7745c5c3_Err != nil {
@@ -118,7 +118,7 @@ func TagAppearanceButton(label models.Label) templ.Component {
 		var templ_7745c5c3_Var6 string
 		templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(label.AccountID)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/tag_appearance.templ`, Line: 16, Col: 421}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/tag_appearance.templ`, Line: 16, Col: 459}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
 		if templ_7745c5c3_Err != nil {
@@ -131,7 +131,7 @@ func TagAppearanceButton(label models.Label) templ.Component {
 		var templ_7745c5c3_Var7 string
 		templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(label.Name)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/tag_appearance.templ`, Line: 16, Col: 453}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/tag_appearance.templ`, Line: 16, Col: 491}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 		if templ_7745c5c3_Err != nil {
@@ -154,7 +154,7 @@ func TagAppearanceButton(label models.Label) templ.Component {
 		var templ_7745c5c3_Var8 string
 		templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(onAction("manageFolderAction", actionElement))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/tag_appearance.templ`, Line: 16, Col: 586}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/tag_appearance.templ`, Line: 16, Col: 624}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 		if templ_7745c5c3_Err != nil {

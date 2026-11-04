@@ -29,7 +29,7 @@ func newMailNotificationAppearance(ctx context.Context, payload map[string]any, 
 	case "hidden":
 		body = ""
 	case "preview":
-		preview := strings.Join(strings.Fields(stringPayload(payload, "preview")), " ")
+		preview := i18n.Preview(ctx, strings.Join(strings.Fields(stringPayload(payload, "preview")), " "))
 		if chars := []rune(preview); len(chars) > 180 {
 			preview = string(chars[:180]) + "…"
 		}

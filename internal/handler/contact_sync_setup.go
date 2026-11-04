@@ -112,7 +112,7 @@ func (h *Handler) handlePreviewContactSyncSetup(w http.ResponseWriter, r *http.R
 		}
 		candidate, source, err := h.loadContactSyncSetupCandidate(ctx, userID, account, key)
 		if err != nil {
-			http.Error(w, fmt.Sprintf("Could not use the selected contact from %s: %v", account.Email, err), http.StatusBadGateway)
+			http.Error(w, i18n.T(r.Context(), "server.pattern.selected_contact_from_failed", "account", account.Email, "detail", serverText(r.Context(), err.Error())), http.StatusBadGateway)
 			return
 		}
 		if err := h.db.ReplaceSyncedContactFieldsForProfile(ctx, userID, contactID, accountID, candidate); err != nil {
@@ -166,7 +166,7 @@ func (h *Handler) handleConfirmContactSyncSetup(w http.ResponseWriter, r *http.R
 	}
 	selectedFields := contactSetupPreferredFields(r)
 	if err := h.db.InitializeContactCanonicalFields(ctx, userID, contactID, selectedFields); err != nil {
-		http.Error(w, "Could not initialize synchronized contact values: "+err.Error(), http.StatusBadRequest)
+		http.Error(w, serverText(r.Context(), "Could not initialize synchronized contact values: "+err.Error()), http.StatusBadRequest)
 		return
 	}
 	if err := h.db.SetContactProfileSyncEnabled(ctx, userID, contactID, true); err != nil {

@@ -192,7 +192,7 @@
     
     const isMultiple = trigger.getAttribute('data-tui-selectbox-multiple') === 'true';
     const showPills = trigger.getAttribute('data-tui-selectbox-show-pills') === 'true';
-    const placeholder = valueEl.getAttribute('data-tui-selectbox-placeholder') || 'Select...';
+    const placeholder = valueEl.getAttribute('data-tui-selectbox-placeholder') || (window.goferT ? window.goferT('js.selectbox.placeholder') : 'Select...');
     
     let selectedItems = content.querySelectorAll('.select-item[data-tui-selectbox-selected="true"]');
 
@@ -261,12 +261,12 @@
           
           // If the pills don't fit on one line, show the count instead
           if (selectedItems.length > 1 && contentWidth > containerWidth - 10) {
-            const countText = trigger.getAttribute('data-tui-selectbox-selected-count-text') || '{n} items selected';
+            const countText = trigger.getAttribute('data-tui-selectbox-selected-count-text') || (window.goferT ? window.goferT('js.selectbox.items_selected', { n: '{n}' }) : '{n} items selected');
             valueEl.textContent = countText.replace('{n}', selectedItems.length);
           }
         });
       } else {
-        const countText = trigger.getAttribute('data-tui-selectbox-selected-count-text') || '{n} items selected';
+        const countText = trigger.getAttribute('data-tui-selectbox-selected-count-text') || (window.goferT ? window.goferT('js.selectbox.items_selected', { n: '{n}' }) : '{n} items selected');
         valueEl.textContent = countText.replace('{n}', selectedItems.length);
       }
       

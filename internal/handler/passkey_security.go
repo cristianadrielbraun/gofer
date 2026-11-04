@@ -146,17 +146,17 @@ func writePasskeyJSONError(w http.ResponseWriter, status int, message string) {
 func passkeySecurityViewData(ctx context.Context, passkeys []auth.PasskeyCredentialSummary) []views.PasskeySecurityData {
 	result := make([]views.PasskeySecurityData, 0, len(passkeys))
 	for _, passkey := range passkeys {
-		details := "Passkey"
+		details := i18n.T(ctx, "security.passkey")
 		switch passkey.Attachment {
 		case "platform":
-			details = "This device"
+			details = i18n.T(ctx, "server.passkey.this_device")
 		case "cross-platform":
-			details = "Security key or another device"
+			details = i18n.T(ctx, "server.passkey.security_key")
 		}
 		if passkey.BackupState {
-			details += ", synced"
+			details += ", " + i18n.T(ctx, "server.passkey.synced")
 		} else if passkey.BackupEligible {
-			details += ", sync capable"
+			details += ", " + i18n.T(ctx, "server.passkey.sync_capable")
 		} else if len(passkey.Transports) > 0 {
 			details += ", " + strings.Join(passkey.Transports, "/")
 		}

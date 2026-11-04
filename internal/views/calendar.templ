@@ -443,7 +443,7 @@ templ CalendarSourceManageItems(account models.Account, source models.AccountCal
 					</span>
 					<span class="flex flex-col">
 						{ i18n.T(ctx, "calendar.source.delete") }
-						<span class="text-xs text-muted-foreground">{ source.Undeletable }</span>
+						<span class="text-xs text-muted-foreground">{ i18n.Stored(ctx, "calendar.undeletable.", source.Undeletable) }</span>
 					</span>
 				}
 			} else {

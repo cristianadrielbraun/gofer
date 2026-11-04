@@ -45,12 +45,12 @@ func (h *Handler) handleAdmin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		http.Error(w, "failed to load webmail accounts", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_load_webmail_accounts"), http.StatusInternalServerError)
 		return
 	}
 	avatarStatus, err := h.avatarStatus(ctx, scope)
 	if err != nil {
-		http.Error(w, "failed to get admin status", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_get_admin_status"), http.StatusInternalServerError)
 		return
 	}
 
@@ -72,12 +72,12 @@ func (h *Handler) handleAdminContacts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		http.Error(w, "failed to load webmail accounts", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_load_webmail_accounts"), http.StatusInternalServerError)
 		return
 	}
 	contactStatus, err := h.contactAdminStatus(ctx, scope)
 	if err != nil {
-		http.Error(w, "failed to get contact admin status", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_get_contact_admin_status"), http.StatusInternalServerError)
 		return
 	}
 
@@ -99,12 +99,12 @@ func (h *Handler) handleAdminLabels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		http.Error(w, "failed to load webmail accounts", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_load_webmail_accounts"), http.StatusInternalServerError)
 		return
 	}
 	labelStatus, err := h.labelAdminStatus(ctx, scope)
 	if err != nil {
-		http.Error(w, "failed to get label admin status", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_get_label_admin_status"), http.StatusInternalServerError)
 		return
 	}
 
@@ -138,13 +138,13 @@ func (h *Handler) handleAdminSecurity(w http.ResponseWriter, r *http.Request) {
 			return
 		default:
 			log.Printf("admin mail security: verify session: %v", accessErr)
-			http.Error(w, "failed to verify admin session", http.StatusInternalServerError)
+			http.Error(w, i18n.T(r.Context(), "server.error.failed_to_verify_admin_session"), http.StatusInternalServerError)
 			return
 		}
 	}
 	exceptions, err := h.mailSecurityExceptions(ctx)
 	if err != nil {
-		http.Error(w, "failed to load mail security exceptions", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_load_mail_security_exceptions"), http.StatusInternalServerError)
 		return
 	}
 	data := models.MailSecurityAdminData{
@@ -168,7 +168,7 @@ func (h *Handler) handleAdminSecurity(w http.ResponseWriter, r *http.Request) {
 	}
 	if data.Allowlist, err = h.mailAllowlistAdminData(ctx, data.CSRFTokens); err != nil {
 		log.Printf("admin mail security: load allowed mail lists: %v", err)
-		http.Error(w, "failed to load the allowed mail lists", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_load_the_allowed_mail_lists"), http.StatusInternalServerError)
 		return
 	}
 	if data.Allowlist != nil {
@@ -412,7 +412,7 @@ func (h *Handler) requireRecentAdminSecurityStepUp(w http.ResponseWriter, r *htt
 		}
 	default:
 		log.Printf("admin mail security: verify sensitive action: %v", err)
-		http.Error(w, "failed to verify admin session", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_verify_admin_session"), http.StatusInternalServerError)
 	}
 	return false
 }
@@ -517,12 +517,12 @@ func (h *Handler) handleContactAdminStatus(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if err != nil {
-		http.Error(w, "failed to load webmail accounts", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_load_webmail_accounts"), http.StatusInternalServerError)
 		return
 	}
 	status, err := h.contactAdminStatus(r.Context(), scope)
 	if err != nil {
-		http.Error(w, "failed to get contact admin status", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_get_contact_admin_status"), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -536,12 +536,12 @@ func (h *Handler) handleLabelAdminStatus(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if err != nil {
-		http.Error(w, "failed to load webmail accounts", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_load_webmail_accounts"), http.StatusInternalServerError)
 		return
 	}
 	status, err := h.labelAdminStatus(r.Context(), scope)
 	if err != nil {
-		http.Error(w, "failed to get label admin status", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_get_label_admin_status"), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -615,7 +615,7 @@ func (h *Handler) handleForceContactBackfill(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	if err != nil {
-		http.Error(w, "failed to load webmail accounts", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_load_webmail_accounts"), http.StatusInternalServerError)
 		return
 	}
 	started := false

@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -178,7 +179,7 @@ func TestCalendarEventMovable(t *testing.T) {
 	plain := storage.CalendarEvent{ID: "plain", SourceID: "source", RemoteID: "plain", ETag: `"v1"`, Summary: "Review", StartAt: &start, EndAt: &end}
 	occurrence := plain
 	occurrence.ID, occurrence.RemoteID, occurrence.SeriesRemoteID = "date", "series_20261103", "series"
-	views := calendarViewEvents([]storage.CalendarEvent{plain, occurrence, {ID: "elsewhere", SourceID: "other", ETag: `"v1"`, StartAt: &start, EndAt: &end}}, []storage.CalendarSource{owned})
+	views := calendarViewEvents(context.Background(), []storage.CalendarEvent{plain, occurrence, {ID: "elsewhere", SourceID: "other", ETag: `"v1"`, StartAt: &start, EndAt: &end}}, []storage.CalendarSource{owned})
 	if !views[0].Movable || views[0].Occurrence || !views[1].Movable || !views[1].Occurrence || views[2].Movable {
 		t.Fatalf("movable: %+v", views)
 	}

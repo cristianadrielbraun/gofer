@@ -67,7 +67,7 @@ func (h *Handler) handleUserContactSyncSetupFindings(w http.ResponseWriter, r *h
 				return err
 			}
 			if searchErr != nil {
-				location.Error = searchErr.Error()
+				location.Error = serverText(ctx, searchErr.Error())
 			}
 			setup.Locations = append(setup.Locations, location)
 		}

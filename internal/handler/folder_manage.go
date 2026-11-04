@@ -82,7 +82,7 @@ func writeFolderError(w http.ResponseWriter, r *http.Request, action string, err
 		http.Error(w, serverText(r.Context(), err.Error()), http.StatusBadGateway)
 	default:
 		log.Printf("%s: %v", action, err)
-		http.Error(w, "Couldn't "+action+".", http.StatusInternalServerError)
+		http.Error(w, serverText(r.Context(), "Couldn't "+action+"."), http.StatusInternalServerError)
 	}
 }
 

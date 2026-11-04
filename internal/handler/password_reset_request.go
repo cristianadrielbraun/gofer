@@ -49,7 +49,7 @@ func (h *Handler) renderPasswordResetRequestPage(w http.ResponseWriter, r *http.
 	var page bytes.Buffer
 	if err := views.PasswordResetRequestPage(data).Render(r.Context(), &page); err != nil {
 		log.Printf("render password reset request: %v", err)
-		http.Error(w, "failed to render password reset request", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_render_password_reset_request"), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")

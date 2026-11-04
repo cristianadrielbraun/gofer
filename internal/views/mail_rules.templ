@@ -969,7 +969,7 @@ templ mailRuleActivityEntry(run models.MailRuleRun, now time.Time) {
 			if run.MessageID == 0 {
 				{ mailRuleSentence(mailrules.DetailText(ctx, run.Detail)) }
 			} else if run.Subject != "" {
-				{ run.Subject }
+				{ i18n.Subject(ctx, run.Subject) }
 			} else {
 				<span class="text-muted-foreground">{ i18n.T(ctx, "rules.activity.no_subject") }</span>
 			}

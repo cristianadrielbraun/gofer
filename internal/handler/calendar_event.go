@@ -90,7 +90,7 @@ func calendarEventDetails(ctx context.Context, event storage.CalendarEvent) view
 		Reminder:        reminder,
 		ShowAs:          calendarShowAsDetail(ctx, event.ShowAs),
 		Private:         event.Private,
-		Event:           calendarViewEvent(event),
+		Event:           calendarViewEvent(ctx, event),
 		Description:     calendarDescriptionText(event.Description),
 		DescriptionHTML: calendar.DescriptionHTML(event.Description),
 		JoinURL:         calendar.MeetingJoinURLWithDescription(string(calendarOutlookCachedMeetingJSON(event)), event.Description),

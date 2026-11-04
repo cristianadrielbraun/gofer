@@ -12887,7 +12887,7 @@ function layoutCalendarMonth(calendar) {
         if (show) visible++
       })
       day.overflow.hidden = day.buttons.length <= visible
-      day.overflow.textContent = "+" + (day.buttons.length - visible) + " more"
+      day.overflow.textContent = goferT("js.calendar.more_events", { count: day.buttons.length - visible })
     })
   })
 }
@@ -18157,8 +18157,11 @@ function _composeFileLooksImage(file) {
 
 function _setComposeDropActive(form, active) {
   if (!form) return
+  // The drop overlay's text is drawn by CSS from data-drop-label.
+  form.dataset.dropLabel = goferT("js.compose.drop_files")
   form.classList.toggle("compose-drop-active", !!active)
   var pane = form.id === "compose-pane-form" && form.closest ? form.closest("[data-compose-pane]") : null
+  if (pane) pane.dataset.dropLabel = form.dataset.dropLabel
   if (pane) pane.classList.toggle("compose-drop-active", !!active)
   if (active) _composeDropForm = form
   else if (_composeDropForm === form) _composeDropForm = null
@@ -18714,7 +18717,7 @@ function addComposeAttachment(form, att) {
 
   var label = document.createElement("span")
   label.className = "truncate"
-  label.textContent = (att.filename || "attachment") + (att.size ? " (" + formatComposeAttachmentSize(att.size) + ")" : "")
+  label.textContent = (att.filename || goferT("js.compose.attachment.unnamed")) + (att.size ? " (" + formatComposeAttachmentSize(att.size) + ")" : "")
   var remove = document.createElement("button")
   remove.type = "button"
   remove.className = "compose-attachment-remove"
@@ -19491,7 +19494,7 @@ function formatGoferDateTime(date, options) {
   try {
     var text = options.year ? goferDates.dateTime(date, zone) : goferDates.shortDateTime(date, zone)
     if (options.timeZoneName) {
-      var name = new Intl.DateTimeFormat("en-US", { timeZone: zone, timeZoneName: "short" }).formatToParts(date)
+      var name = new Intl.DateTimeFormat(window.goferLocale || "en-US", { timeZone: zone, timeZoneName: "short" }).formatToParts(date)
         .filter(function (part) { return part.type === "timeZoneName" })[0]
       if (name) text += " " + name.value
     }

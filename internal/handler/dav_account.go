@@ -300,7 +300,7 @@ func (h *Handler) handleCreateDAVAccount(w http.ResponseWriter, r *http.Request)
 	w.Header().Set("X-Gofer-Account-ID", account.ID)
 	if err := h.saveDAVAccountServices(r.Context(), owner, account.ID, form, found); err != nil {
 		log.Printf("routed account %s: save %s after creating it: %v", account.ID, form.service, err)
-		http.Error(w, "The account was created, but its "+form.service+" could not be saved. Open Edit to choose them again.", http.StatusServiceUnavailable)
+		http.Error(w, i18n.T(r.Context(), "server.error.dav_services_not_saved_"+form.service), http.StatusServiceUnavailable)
 		return
 	}
 	if h.userAccounts == nil {
