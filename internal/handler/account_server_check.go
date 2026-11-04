@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"log"
 	"net"
 	"net/http"
@@ -98,7 +99,7 @@ func (h *Handler) accountServerNotes(ctx context.Context, protocol, host string,
 		case err != nil:
 			log.Printf("account server check: private target exception for %s %s: %v", protocol, endpoint, err)
 		case allowed:
-			notes = append(notes, accountServerNote{Level: "approved", Text: "This server is on a private network and is approved under Mail security."})
+			notes = append(notes, accountServerNote{Level: "approved", Text: i18n.T(ctx, "server.msg.this_server_is_on_a_private_network")})
 		default:
 			notes = append(notes, blocked("This server is on a private network, so Gofer won't connect to it yet.", "an "+label+" private target exception"))
 		}

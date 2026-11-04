@@ -36,21 +36,21 @@ func mustMailID(value string) int64 {
 }
 
 func mailCalendarCard(ctx context.Context, item mailCalendarEvent, location *time.Location) views.MailCalendarEventData {
-	data := views.MailCalendarEventData{Summary: item.Summary, Location: item.Location, Organizer: item.Organizer, OrganizerName: item.OrganizerName, Status: item.Reply, JoinURL: item.JoinURL, Kind: "Event"}
+	data := views.MailCalendarEventData{Summary: item.Summary, Location: item.Location, Organizer: item.Organizer, OrganizerName: item.OrganizerName, Status: item.Reply, JoinURL: item.JoinURL, Kind: i18n.T(ctx, "server.msg.event")}
 	if data.Summary == "" {
-		data.Summary = "Untitled event"
+		data.Summary = i18n.T(ctx, "server.msg.untitled_event")
 	}
 	switch item.Method {
 	case "REQUEST":
-		data.Kind = "Invitation"
+		data.Kind = i18n.T(ctx, "server.msg.invitation")
 	case "REPLY":
-		data.Kind = "Invitation response"
+		data.Kind = i18n.T(ctx, "server.msg.invitation_response")
 	case "CANCEL":
-		data.Kind = "Cancelled event"
+		data.Kind = i18n.T(ctx, "server.msg.cancelled_event")
 		data.JoinURL = ""
 	}
 	if item.Cancelled {
-		data.Kind, data.JoinURL = "Cancelled event", ""
+		data.Kind, data.JoinURL = i18n.T(ctx, "server.msg.cancelled_event"), ""
 	}
 	if item.AllDay && item.StartDate != "" {
 		if start, err := time.Parse("2006-01-02", item.StartDate); err == nil {
@@ -387,7 +387,7 @@ func (h *Handler) renderMailCalendarFooter(ctx context.Context, w http.ResponseW
 // An invitation with changes not in the calendar yet shows the email's details,
 // not the calendar's older ones.
 func mailCalendarInvitationCard(ctx context.Context, card *views.MailCalendarEventData, item mailCalendarEvent, candidates []storage.CalendarEvent, sources []storage.CalendarSource, accountID, address string, location *time.Location) {
-	card.Invitation = mailCalendarInvitationOffer(item, candidates, sources, accountID, address)
+	card.Invitation = mailCalendarInvitationOffer(ctx, item, candidates, sources, accountID, address)
 	if card.Invitation != nil && card.Invitation.SourceID != "" {
 		card.Note = "" // Instead of "could not be matched to an event".
 	}
@@ -401,7 +401,7 @@ func mailCalendarInvitationCard(ctx context.Context, card *views.MailCalendarEve
 // calendar, or updates or removes the event it is for, then shows the card.
 func (h *Handler) handleMailCalendarInvitation(w http.ResponseWriter, r *http.Request) {
 	if r.ParseForm() != nil {
-		http.Error(w, "The request could not be read.", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.the_request_could_not_be_read"), http.StatusBadRequest)
 		return
 	}
 	uid, sourceID := r.PostForm.Get("uid"), r.PostForm.Get("source_id")
@@ -548,11 +548,11 @@ func mailCalendarEventCard(ctx context.Context, item mailCalendarEvent, event st
 		}
 	}
 	if item.Method == "REQUEST" && item.Invited && !item.Cancelled && (!matched || event.Status != "cancelled") {
-		card.Note = "This invitation could not be matched to an event in this account's selected calendars. Refresh to try again."
+		card.Note = i18n.T(ctx, "server.msg.this_invitation_could_not_be_matched_to")
 		if matched && item.Organizer == "" {
-			card.Note = "This invitation is missing organizer details."
+			card.Note = i18n.T(ctx, "server.msg.this_invitation_is_missing_organizer_details")
 		} else if matched && event.ResponseStatus == "organizer" {
-			card.Note = "You organize this event."
+			card.Note = i18n.T(ctx, "server.msg.you_organize_this_event")
 		}
 		if matched && item.Organizer != "" && event.ResponseStatus != "organizer" {
 			if authorized(event) {
@@ -564,7 +564,7 @@ func mailCalendarEventCard(ctx context.Context, item mailCalendarEvent, event st
 				}
 				card.Response, card.Note = &data, ""
 			} else {
-				card.Note = "Responding requires Calendar write access for this account."
+				card.Note = i18n.T(ctx, "server.msg.responding_requires_calendar_write_access_for_this")
 			}
 		}
 	}

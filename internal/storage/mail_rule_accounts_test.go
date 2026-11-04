@@ -1,7 +1,9 @@
 package storage
 
 import (
+	"context"
 	"errors"
+	"github.com/cristianadrielbraun/gofer/internal/mailrules"
 	"slices"
 	"testing"
 
@@ -115,7 +117,7 @@ func TestMailRuleQueuesMoveToAnotherAccount(t *testing.T) {
 		t.Fatalf("announced = %v", announced)
 	}
 	runs := ruleRuns(t, db)
-	if len(runs) != 1 || runs[0].Detail != "moving to “Keep” in sky@example.org" {
+	if len(runs) != 1 || mailrules.DetailText(context.Background(), runs[0].Detail) != "moving to “Keep” in sky@example.org" {
 		t.Fatalf("activity = %+v", runs)
 	}
 	if err := db.DeleteMailRuleTransfers(ctx, "default", []int64{queued[0].ID}); err != nil {

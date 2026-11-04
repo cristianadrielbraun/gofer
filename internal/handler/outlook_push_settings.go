@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"errors"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"log"
 	"net/http"
 	"strings"
@@ -64,7 +65,7 @@ func (h *Handler) outlookPushSettings(ctx context.Context, accountID string) *mo
 func (h *Handler) handleOutlookPushSetting(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 4<<10)
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "invalid form", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_form"), http.StatusBadRequest)
 		return
 	}
 	var enabled bool
@@ -73,7 +74,7 @@ func (h *Handler) handleOutlookPushSetting(w http.ResponseWriter, r *http.Reques
 		enabled = true
 	case "false":
 	default:
-		http.Error(w, "invalid choice", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_choice"), http.StatusBadRequest)
 		return
 	}
 	ctx, owner, id := r.Context(), h.userID(r.Context()), strings.TrimSpace(r.PathValue("id"))

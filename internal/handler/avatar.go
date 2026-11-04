@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"io"
 	"log"
 	"net"
@@ -1132,12 +1133,12 @@ func (h *Handler) handleAvatarStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		http.Error(w, "failed to load webmail accounts", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_load_webmail_accounts"), http.StatusInternalServerError)
 		return
 	}
 	status, err := h.avatarStatus(r.Context(), scope)
 	if err != nil {
-		http.Error(w, "failed to get avatar status", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_get_avatar_status"), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -1157,7 +1158,7 @@ func (h *Handler) handleAvatarImage(w http.ResponseWriter, r *http.Request) {
 		return err
 	})
 	if err != nil {
-		http.Error(w, "failed to load avatar", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_load_avatar"), http.StatusInternalServerError)
 		return
 	}
 	h.serveAvatarImage(w, r, rec)
@@ -1171,7 +1172,7 @@ func (h *Handler) handleAdminAvatarImage(w http.ResponseWriter, r *http.Request)
 	}
 	rec, err := h.db.GetSenderAvatarByHash(r.Context(), hash)
 	if err != nil {
-		http.Error(w, "failed to load avatar", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_load_avatar"), http.StatusInternalServerError)
 		return
 	}
 	h.serveAvatarImage(w, r, rec)
@@ -1241,12 +1242,12 @@ func (h *Handler) handleProviderAvatarImage(w http.ResponseWriter, r *http.Reque
 	rawURL := strings.TrimSpace(r.URL.Query().Get("url"))
 	parsed, err := url.Parse(rawURL)
 	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || !isAllowedProviderAvatarHost(parsed.Hostname()) {
-		http.Error(w, "unsupported provider avatar", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.unsupported_provider_avatar"), http.StatusBadRequest)
 		return
 	}
 	visible, err := h.providerAvatarVisible(r.Context(), rawURL)
 	if err != nil {
-		http.Error(w, "failed to authorize provider avatar", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_authorize_provider_avatar"), http.StatusInternalServerError)
 		return
 	}
 	if !visible {
@@ -1258,7 +1259,7 @@ func (h *Handler) handleProviderAvatarImage(w http.ResponseWriter, r *http.Reque
 	if r.URL.Query().Get("size") == "large" {
 		if large, ok := views.GoogleAvatarLargeURL(rawURL); ok {
 			if parsed, err = url.Parse(large); err != nil {
-				http.Error(w, "invalid provider avatar", http.StatusBadRequest)
+				http.Error(w, i18n.T(r.Context(), "server.error.invalid_provider_avatar"), http.StatusBadRequest)
 				return
 			}
 		}
@@ -1266,7 +1267,7 @@ func (h *Handler) handleProviderAvatarImage(w http.ResponseWriter, r *http.Reque
 
 	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, parsed.String(), nil)
 	if err != nil {
-		http.Error(w, "invalid provider avatar", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_provider_avatar"), http.StatusBadRequest)
 		return
 	}
 	req.Header.Set("Accept", "image/avif,image/webp,image/png,image/jpeg,image/gif,*/*;q=0.8")
@@ -1276,12 +1277,12 @@ func (h *Handler) handleProviderAvatarImage(w http.ResponseWriter, r *http.Reque
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		http.Error(w, "failed to fetch provider avatar", http.StatusBadGateway)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_fetch_provider_avatar"), http.StatusBadGateway)
 		return
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		http.Error(w, "provider avatar unavailable", http.StatusBadGateway)
+		http.Error(w, i18n.T(r.Context(), "server.error.provider_avatar_unavailable"), http.StatusBadGateway)
 		return
 	}
 
@@ -1289,13 +1290,13 @@ func (h *Handler) handleProviderAvatarImage(w http.ResponseWriter, r *http.Reque
 	switch contentType {
 	case "image/avif", "image/gif", "image/jpeg", "image/png", "image/webp":
 	default:
-		http.Error(w, "provider avatar is not a supported image", http.StatusUnsupportedMediaType)
+		http.Error(w, i18n.T(r.Context(), "server.error.provider_avatar_is_not_a_supported_image"), http.StatusUnsupportedMediaType)
 		return
 	}
 
 	data, err := io.ReadAll(io.LimitReader(resp.Body, providerAvatarMaxBytes+1))
 	if err != nil {
-		http.Error(w, "failed to read provider avatar", http.StatusBadGateway)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_read_provider_avatar"), http.StatusBadGateway)
 		return
 	}
 	if len(data) == 0 {
@@ -1303,7 +1304,7 @@ func (h *Handler) handleProviderAvatarImage(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if len(data) > providerAvatarMaxBytes {
-		http.Error(w, "provider avatar is too large", http.StatusRequestEntityTooLarge)
+		http.Error(w, i18n.T(r.Context(), "server.error.provider_avatar_is_too_large"), http.StatusRequestEntityTooLarge)
 		return
 	}
 	if h.userStorage != nil {
@@ -1328,7 +1329,7 @@ func (h *Handler) handleAvatarWarmup(w http.ResponseWriter, r *http.Request) {
 	}
 	var req avatarWarmupRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10)).Decode(&req); err != nil {
-		http.Error(w, "invalid warmup request", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_warmup_request"), http.StatusBadRequest)
 		return
 	}
 	queued := 0
@@ -1359,7 +1360,7 @@ func (h *Handler) handleAvatarWarmup(w http.ResponseWriter, r *http.Request) {
 		seen[hash] = struct{}{}
 		visible, err := h.senderAvatarVisible(r.Context(), email)
 		if err != nil {
-			http.Error(w, "failed to authorize avatar warmup candidates", http.StatusInternalServerError)
+			http.Error(w, i18n.T(r.Context(), "server.error.failed_to_authorize_avatar_warmup_candidates"), http.StatusInternalServerError)
 			return
 		}
 		if !visible {
@@ -1375,7 +1376,7 @@ func (h *Handler) handleAvatarWarmup(w http.ResponseWriter, r *http.Request) {
 		}
 		candidate, ok, forceRetry, attemptCapped, err := cache.avatarWarmupCandidate(r.Context(), email, hash)
 		if err != nil {
-			http.Error(w, "failed to inspect avatar warmup candidates", http.StatusInternalServerError)
+			http.Error(w, i18n.T(r.Context(), "server.error.failed_to_inspect_avatar_warmup_candidates"), http.StatusInternalServerError)
 			return
 		}
 		if attemptCapped {
@@ -1512,12 +1513,12 @@ func (h *Handler) handleAvatarAttempts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		http.Error(w, "failed to load webmail accounts", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_load_webmail_accounts"), http.StatusInternalServerError)
 		return
 	}
 	read, err := h.beginAdminAvatarRead(r.Context(), scope)
 	if err != nil {
-		http.Error(w, "failed to read avatar visibility", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_read_avatar_visibility"), http.StatusInternalServerError)
 		return
 	}
 	defer read.close()
@@ -1545,7 +1546,7 @@ func (h *Handler) handleAvatarAttempts(w http.ResponseWriter, r *http.Request) {
 		Offset:        offset,
 	})
 	if err != nil {
-		http.Error(w, "failed to get avatar attempt logs", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_get_avatar_attempt_logs"), http.StatusInternalServerError)
 		return
 	}
 	items := make([]models.AvatarAttemptLog, 0, len(logs))
@@ -1559,7 +1560,7 @@ func (h *Handler) handleAvatarAttempts(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	if err := read.validate(); err != nil {
-		http.Error(w, "avatar access expired", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.avatar_access_expired"), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -1578,12 +1579,12 @@ func (h *Handler) handleAvatarSenders(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		http.Error(w, "failed to load webmail accounts", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_load_webmail_accounts"), http.StatusInternalServerError)
 		return
 	}
 	read, err := h.beginAdminAvatarRead(r.Context(), scope)
 	if err != nil {
-		http.Error(w, "failed to read avatar visibility", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_read_avatar_visibility"), http.StatusInternalServerError)
 		return
 	}
 	defer read.close()
@@ -1611,12 +1612,12 @@ func (h *Handler) handleAvatarSenders(w http.ResponseWriter, r *http.Request) {
 		Offset:        offset,
 	})
 	if err != nil {
-		http.Error(w, "failed to get avatar senders", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_get_avatar_senders"), http.StatusInternalServerError)
 		return
 	}
 	providers, err := h.db.GetAvatarProviderNames(read.ctx)
 	if err != nil {
-		http.Error(w, "failed to get avatar providers", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_get_avatar_providers"), http.StatusInternalServerError)
 		return
 	}
 	providers = orderedAvatarProviderNames(providers)
@@ -1626,7 +1627,7 @@ func (h *Handler) handleAvatarSenders(w http.ResponseWriter, r *http.Request) {
 	}
 	providerContactAvatars, err := h.adminProviderContactAvatars(read.ctx, scope, emails)
 	if err != nil {
-		http.Error(w, "failed to get provider contact avatars", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_get_provider_contact_avatars"), http.StatusInternalServerError)
 		return
 	}
 	items := make([]models.AvatarSenderRow, 0, len(rows))
@@ -1676,7 +1677,7 @@ func (h *Handler) handleAvatarSenders(w http.ResponseWriter, r *http.Request) {
 		items = append(items, item)
 	}
 	if err := read.validate(); err != nil {
-		http.Error(w, "avatar access expired", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.avatar_access_expired"), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -1705,7 +1706,7 @@ func (h *Handler) handleRecheckAvatarSender(w http.ResponseWriter, r *http.Reque
 		if errors.Is(err, storage.ErrUserDiagnosticsAccess) {
 			status = http.StatusForbidden
 		}
-		http.Error(w, "avatar recheck unavailable", status)
+		http.Error(w, i18n.T(r.Context(), "server.error.avatar_recheck_unavailable"), status)
 	}
 	if h.ownedMailbox != nil {
 		var cancel context.CancelFunc
@@ -1713,7 +1714,7 @@ func (h *Handler) handleRecheckAvatarSender(w http.ResponseWriter, r *http.Reque
 		defer cancel()
 		user := auth.GetCurrentUser(ctx)
 		if user == nil {
-			http.Error(w, "administrator access required", http.StatusForbidden)
+			http.Error(w, i18n.T(r.Context(), "server.error.administrator_access_required"), http.StatusForbidden)
 			return
 		}
 		actor := storage.DiagnosticsActor{ID: user.ID, AuthVersion: user.AuthVersion}

@@ -279,7 +279,7 @@ func federatedIdentityViewData(ctx context.Context, identities []auth.FederatedI
 		view := views.FederatedIdentityData{
 			ID: identity.ID, Provider: identity.Provider,
 			Email: identity.Email, LinkedAt: i18n.Dates(ctx).Date(identity.LinkedAt.Local()),
-			CanUnlink: identity.CanUnlink, UnlinkReason: identity.UnlinkReason,
+			CanUnlink: identity.CanUnlink, UnlinkReason: authText(ctx, identity.UnlinkReason),
 		}
 		if identity.Provider == "google" {
 			view.UnlinkPath = securityGoogleIdentityUnlinkPath(identity.ID)

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -90,7 +91,7 @@ func (h *Handler) calendarEventMutationAccess(ctx context.Context, event storage
 			return source, reason, nil
 		}
 		if !injectedWriter && !h.calendarWriteAuthorized(ctx, source) {
-			return source, "Reconnect this account from Accounts to grant Calendar write access.", nil
+			return source, i18n.T(ctx, "server.msg.reconnect_this_account_from_accounts_to_grant"), nil
 		}
 		return source, "", nil
 	}
@@ -106,28 +107,28 @@ func (h *Handler) handleEditCalendarEvent(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if err != nil {
-		http.Error(w, "Could not load this event.", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.could_not_load_this_event"), http.StatusInternalServerError)
 		return
 	}
 	source, reason, err := h.calendarEventEditAccess(r.Context(), event)
 	if err != nil {
-		http.Error(w, "Could not verify the calendar.", http.StatusConflict)
+		http.Error(w, i18n.T(r.Context(), "server.error.could_not_verify_the_calendar"), http.StatusConflict)
 		return
 	}
 	if reason != "" {
-		http.Error(w, reason, http.StatusForbidden)
+		http.Error(w, serverText(r.Context(), reason), http.StatusForbidden)
 		return
 	}
 	scopes := r.URL.Query()["scope"]
 	occurrence := len(scopes) == 1 && scopes[0] == "occurrence"
 	series := calendarEventIsSeries(event) && len(scopes) == 1 && scopes[0] == "series"
 	if (len(scopes) != 0 && !series && !occurrence) || (occurrence && event.SeriesRemoteID == "") || (calendarEventIsSeries(event) && !series && !occurrence) {
-		http.Error(w, "Choose This event or Entire series to edit a recurring event.", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.choose_this_event_or_entire_series_to"), http.StatusBadRequest)
 		return
 	}
 	if occurrence {
 		if err := calendarOccurrenceExistingRestriction(event); err != nil {
-			http.Error(w, err.Error(), http.StatusConflict)
+			http.Error(w, serverText(r.Context(), err.Error()), http.StatusConflict)
 			return
 		}
 		if calendarOccurrenceNeedsSeriesZone(event, source) {
@@ -141,7 +142,7 @@ func (h *Handler) handleEditCalendarEvent(w http.ResponseWriter, r *http.Request
 	var repeat *calendar.RecurrenceDraft
 	if series {
 		if r.URL.Query().Get("scope") != "series" {
-			http.Error(w, "Choose Edit series to change all occurrences.", http.StatusBadRequest)
+			http.Error(w, i18n.T(r.Context(), "server.error.choose_edit_series_to_change_all_occurrences"), http.StatusBadRequest)
 			return
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
@@ -152,7 +153,7 @@ func (h *Handler) handleEditCalendarEvent(w http.ResponseWriter, r *http.Request
 			if errors.Is(err, errCalendarUpdateUnsupported) {
 				message = err.Error()
 			}
-			http.Error(w, message, http.StatusConflict)
+			http.Error(w, serverText(r.Context(), message), http.StatusConflict)
 			return
 		}
 		draft, _ := calendarSeriesDraft(calendar.RemoteEvent{AllDay: event.AllDay, StartDate: event.StartDate, EndDate: event.EndDate, StartAt: event.StartAt, EndAt: event.EndAt, StartTimeZone: event.StartTimeZone, Recurrence: json.RawMessage(event.RecurrenceJSON)})
@@ -160,7 +161,7 @@ func (h *Handler) handleEditCalendarEvent(w http.ResponseWriter, r *http.Request
 	}
 	accounts, err := h.db.GetAccounts(r.Context(), userID)
 	if err != nil {
-		http.Error(w, "Could not load the calendar account.", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.could_not_load_the_calendar_account"), http.StatusInternalServerError)
 		return
 	}
 	accountName := ""
@@ -175,12 +176,12 @@ func (h *Handler) handleEditCalendarEvent(w http.ResponseWriter, r *http.Request
 	location := viewsCalendarLocation(h.db.GetUISettings(r.Context(), userID))
 	data, err := calendarEditData(event, source, accountName, location, series, occurrence, repeat)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusConflict)
+		http.Error(w, serverText(r.Context(), err.Error()), http.StatusConflict)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := views.CalendarCreateDialog(data).Render(r.Context(), w); err != nil {
-		http.Error(w, "Could not open the event editor.", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.could_not_open_the_event_editor"), http.StatusInternalServerError)
 	}
 }
 
@@ -278,18 +279,18 @@ func parseCalendarUpdateDraft(r *http.Request) (calendar.EventDraft, string, err
 var errCalendarSeriesDatesReset = errors.New("Changing the time or repeat of this series resets the dates changed one by one: their own changes are discarded, removed dates come back, and guests get the whole series again.")
 
 // calendarSeriesResetFailure asks the dialog to confirm, then save again.
-func calendarSeriesResetFailure(w http.ResponseWriter) {
+func calendarSeriesResetFailure(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "private, no-store")
 	w.WriteHeader(http.StatusConflict)
-	_ = json.NewEncoder(w).Encode(map[string]any{"error": errCalendarSeriesDatesReset.Error(), "confirm": "reset_series_dates", "uncertain": false, "conflict": false})
+	_ = json.NewEncoder(w).Encode(map[string]any{"error": serverText(r.Context(), errCalendarSeriesDatesReset.Error()), "confirm": "reset_series_dates", "uncertain": false, "conflict": false})
 }
 
-func calendarUpdateFailure(w http.ResponseWriter, status int, message string, uncertain, conflict bool) {
+func calendarUpdateFailure(w http.ResponseWriter, r *http.Request, status int, message string, uncertain, conflict bool) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "private, no-store")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]any{"error": message, "uncertain": uncertain, "conflict": conflict})
+	_ = json.NewEncoder(w).Encode(map[string]any{"error": serverText(r.Context(), message), "uncertain": uncertain, "conflict": conflict})
 }
 
 func (h *Handler) updateCalendarProviderEvent(ctx context.Context, source storage.CalendarSource, event storage.CalendarEvent, draft calendar.EventDraft, series bool, occurrenceScope ...bool) (calendar.RemoteEvent, error) {
@@ -359,39 +360,39 @@ func (h *Handler) handleUpdateCalendarEvent(w http.ResponseWriter, r *http.Reque
 	r.Body = http.MaxBytesReader(w, r.Body, 384<<10) // Bounded HTML + plain fallback, including URL-encoding overhead.
 	draft, version, err := parseCalendarUpdateDraft(r)
 	if err != nil {
-		calendarUpdateFailure(w, http.StatusBadRequest, err.Error(), false, false)
+		calendarUpdateFailure(w, r, http.StatusBadRequest, err.Error(), false, false)
 		return
 	}
 	if draft.TeamsDraftID != "" {
-		calendarUpdateFailure(w, 400, "Prepared Teams links can only be used for new events.", false, false)
+		calendarUpdateFailure(w, r, 400, "Prepared Teams links can only be used for new events.", false, false)
 		return
 	}
 	userID := h.userID(r.Context())
 	event, err := h.db.GetCalendarEvent(r.Context(), userID, r.PathValue("id"))
 	if errors.Is(err, sql.ErrNoRows) {
-		calendarUpdateFailure(w, http.StatusNotFound, "This event is no longer available.", false, true)
+		calendarUpdateFailure(w, r, http.StatusNotFound, "This event is no longer available.", false, true)
 		return
 	}
 	if err != nil {
-		calendarUpdateFailure(w, http.StatusInternalServerError, "Could not load this event.", false, false)
+		calendarUpdateFailure(w, r, http.StatusInternalServerError, "Could not load this event.", false, false)
 		return
 	}
 	if draft.GoogleMeetMeeting && event.SourceProvider != providers.ProviderGmail {
-		calendarUpdateFailure(w, 400, "Google Meet meetings require a supported Google calendar.", false, false)
+		calendarUpdateFailure(w, r, 400, "Google Meet meetings require a supported Google calendar.", false, false)
 		return
 	}
 	if draft.TeamsMeeting && event.SourceProvider != providers.ProviderOutlook {
-		calendarUpdateFailure(w, 400, "Teams meetings require a supported Outlook calendar.", false, false)
+		calendarUpdateFailure(w, r, 400, "Teams meetings require a supported Outlook calendar.", false, false)
 		return
 	}
 	if r.PostForm.Get("source_id") != event.SourceID {
-		calendarUpdateFailure(w, http.StatusBadRequest, "Editing cannot move an event to another calendar.", false, false)
+		calendarUpdateFailure(w, r, http.StatusBadRequest, "Editing cannot move an event to another calendar.", false, false)
 		return
 	}
 	series := r.PostForm.Get("edit_scope") == "series"
 	instance := r.PostForm.Get("edit_scope") == "occurrence"
 	if (series || instance) != calendarEventIsSeries(event) || (series && draft.Recurrence == nil) || (instance && (event.SeriesRemoteID == "" || draft.Recurrence != nil)) {
-		calendarUpdateFailure(w, http.StatusBadRequest, "Choose This event or Entire series. Only Entire series can change repeat settings.", false, false)
+		calendarUpdateFailure(w, r, http.StatusBadRequest, "Choose This event or Entire series. Only Entire series can change repeat settings.", false, false)
 		return
 	}
 	// The shared source gate serializes writes with cache reconciliation. Finish
@@ -400,13 +401,13 @@ func (h *Handler) handleUpdateCalendarEvent(w http.ResponseWriter, r *http.Reque
 	defer cancel()
 	unlock, err := h.lockCalendarCreate(ctx, storage.CalendarSource{ID: event.SourceID, UserID: userID})
 	if err != nil {
-		calendarUpdateFailure(w, http.StatusServiceUnavailable, "Calendar is still refreshing. Try again.", false, false)
+		calendarUpdateFailure(w, r, http.StatusServiceUnavailable, "Calendar is still refreshing. Try again.", false, false)
 		return
 	}
 	defer unlock()
 	event, err = h.db.GetCalendarEvent(ctx, userID, event.ID)
 	if err != nil || (!series && event.ETag != version) || (series || instance) != calendarEventIsSeries(event) || (instance && event.SeriesRemoteID == "") {
-		calendarUpdateFailure(w, http.StatusConflict, "This event changed. Refresh the calendar and reopen it before saving.", false, true)
+		calendarUpdateFailure(w, r, http.StatusConflict, "This event changed. Refresh the calendar and reopen it before saving.", false, true)
 		return
 	}
 	source, reason, err := h.calendarEventEditAccess(ctx, event)
@@ -414,7 +415,7 @@ func (h *Handler) handleUpdateCalendarEvent(w http.ResponseWriter, r *http.Reque
 		if reason == "" {
 			reason = "The calendar configuration changed. Reopen the event."
 		}
-		calendarUpdateFailure(w, http.StatusForbidden, reason, false, false)
+		calendarUpdateFailure(w, r, http.StatusForbidden, reason, false, false)
 		return
 	}
 	occurrence := event
@@ -429,7 +430,7 @@ func (h *Handler) handleUpdateCalendarEvent(w http.ResponseWriter, r *http.Reque
 			if errors.Is(err, errCalendarUpdateUnsupported) {
 				message = err.Error()
 			}
-			calendarUpdateFailure(w, http.StatusConflict, message, false, true)
+			calendarUpdateFailure(w, r, http.StatusConflict, message, false, true)
 			return
 		}
 	}
@@ -444,7 +445,7 @@ func (h *Handler) handleUpdateCalendarEvent(w http.ResponseWriter, r *http.Reque
 		}
 	}
 	if err := h.attachCalendarMeetDraft(ctx, source, &draft, "event:"+event.ID); err != nil {
-		calendarUpdateFailure(w, 409, "The Google Meet link could not be loaded. Toggle Google Meet off and on to prepare it again.", false, false)
+		calendarUpdateFailure(w, r, 409, "The Google Meet link could not be loaded. Toggle Google Meet off and on to prepare it again.", false, false)
 		return
 	}
 	remote, err := h.updateCalendarProviderEvent(ctx, source, event, draft, series, instance)
@@ -454,24 +455,24 @@ func (h *Handler) handleUpdateCalendarEvent(w http.ResponseWriter, r *http.Reque
 		var configuration calendarReplyConfigurationError
 		switch {
 		case errors.Is(err, errCalendarSeriesDatesReset):
-			calendarSeriesResetFailure(w)
+			calendarSeriesResetFailure(w, r)
 		case errors.As(err, &configuration):
-			calendarUpdateFailure(w, http.StatusBadRequest, configuration.Error(), false, false)
+			calendarUpdateFailure(w, r, http.StatusBadRequest, configuration.Error(), false, false)
 		case errors.Is(err, errCalendarOccurrenceBoundary):
-			calendarUpdateFailure(w, http.StatusBadRequest, err.Error(), false, false)
+			calendarUpdateFailure(w, r, http.StatusBadRequest, err.Error(), false, false)
 		case errors.Is(err, errCalendarUpdateConflict):
-			calendarUpdateFailure(w, http.StatusConflict, "This event changed at the provider. Refresh the calendar and reopen it; your changes were not applied.", false, true)
+			calendarUpdateFailure(w, r, http.StatusConflict, "This event changed at the provider. Refresh the calendar and reopen it; your changes were not applied.", false, true)
 		case errors.Is(err, errCalendarUpdateUnsupported):
-			calendarUpdateFailure(w, http.StatusForbidden, err.Error()+" Refresh the calendar and reopen the event.", false, true)
+			calendarUpdateFailure(w, r, http.StatusForbidden, err.Error()+" Refresh the calendar and reopen the event.", false, true)
 		case errors.As(err, &provider) && (provider.Status == 404 || provider.Status == 410):
-			calendarUpdateFailure(w, http.StatusConflict, "This event is no longer available at the provider. Refresh the calendar.", false, true)
+			calendarUpdateFailure(w, r, http.StatusConflict, "This event is no longer available at the provider. Refresh the calendar.", false, true)
 		default:
 			uncertain := !errors.As(err, &preflight) && calendarCreateUncertain(err)
 			message := "Could not update the event. Check Calendar write access and try again."
 			if uncertain {
 				message = "The save could not be confirmed. Refresh the calendar and reopen the event to check before making further changes."
 			}
-			calendarUpdateFailure(w, http.StatusBadGateway, message, uncertain, false)
+			calendarUpdateFailure(w, r, http.StatusBadGateway, message, uncertain, false)
 		}
 		return
 	}
@@ -484,7 +485,7 @@ func (h *Handler) handleUpdateCalendarEvent(w http.ResponseWriter, r *http.Reque
 		restriction = calendarOccurrenceRestriction(confirmed, event.SeriesRemoteID)
 	}
 	if remote.RemoteID != event.RemoteID || strings.TrimSpace(remote.ETag) == "" || restriction != "" || ((draft.Recurrence != nil || instance) && !calendarUpdateMatchesDraft(remote, draft)) {
-		calendarUpdateFailure(w, http.StatusBadGateway, "The provider's saved event could not be confirmed. Refresh the calendar and reopen the event.", true, false)
+		calendarUpdateFailure(w, r, http.StatusBadGateway, "The provider's saved event could not be confirmed. Refresh the calendar and reopen the event.", true, false)
 		return
 	}
 	stored := calendarStorageEvent(userID, source.ID, remote)
@@ -504,7 +505,7 @@ func (h *Handler) handleUpdateCalendarEvent(w http.ResponseWriter, r *http.Reque
 		err = h.db.CompleteCalendarUpdate(ctx, userID, event.ID, source.ID, version, stored)
 	}
 	if err != nil {
-		calendarUpdateFailure(w, http.StatusServiceUnavailable, "The provider saved the event, but the local update could not finish. Refresh the calendar and reopen the event.", true, false)
+		calendarUpdateFailure(w, r, http.StatusServiceUnavailable, "The provider saved the event, but the local update could not finish. Refresh the calendar and reopen the event.", true, false)
 		return
 	}
 	if h.syncer != nil {

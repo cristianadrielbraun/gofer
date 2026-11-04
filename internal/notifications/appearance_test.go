@@ -1,6 +1,7 @@
 package notifications
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"testing"
@@ -23,7 +24,7 @@ func TestNewMailNotificationAppearance(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.Name, func(t *testing.T) {
-			title, body, icon := newMailNotificationAppearance(tc.Payload, tc.Count, tc.Settings)
+			title, body, icon := newMailNotificationAppearance(context.Background(), tc.Payload, tc.Count, tc.Settings)
 			if title != tc.Title || body != tc.Body || icon != tc.Icon {
 				t.Fatalf("got %q, %q, %q; want %q, %q, %q", title, body, icon, tc.Title, tc.Body, tc.Icon)
 			}

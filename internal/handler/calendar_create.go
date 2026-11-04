@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"net/http"
 	stdmail "net/mail"
 	"sort"
@@ -43,12 +44,12 @@ func (h *Handler) handleNewCalendarEvent(w http.ResponseWriter, r *http.Request)
 	ctx, userID := r.Context(), h.userID(r.Context())
 	sources, err := h.db.ListSelectedCalendarSources(ctx, userID)
 	if err != nil {
-		http.Error(w, "could not load configured calendars", 500)
+		http.Error(w, i18n.T(r.Context(), "server.error.could_not_load_configured_calendars"), 500)
 		return
 	}
 	accounts, err := h.db.GetAccounts(ctx, userID)
 	if err != nil {
-		http.Error(w, "could not load calendar accounts", 500)
+		http.Error(w, i18n.T(r.Context(), "server.error.could_not_load_calendar_accounts"), 500)
 		return
 	}
 	accountNames := make(map[string]string)
@@ -64,13 +65,13 @@ func (h *Handler) handleNewCalendarEvent(w http.ResponseWriter, r *http.Request)
 		err = calendarNewEventRange(&data, r.URL.Query().Get("start"), r.URL.Query().Get("end"), location)
 	}
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, serverText(r.Context(), err.Error()), http.StatusBadRequest)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "private, no-store")
 	if err := views.CalendarCreateDialog(data).Render(ctx, w); err != nil {
-		http.Error(w, "could not open new event", 500)
+		http.Error(w, i18n.T(r.Context(), "server.error.could_not_open_new_event"), 500)
 	}
 }
 
@@ -394,11 +395,11 @@ func (h *Handler) createCalendarProviderEvent(ctx context.Context, source storag
 	return calendar.RemoteEvent{}, calendarCreateProviderError{http.StatusBadRequest}
 }
 
-func calendarCreateFailure(w http.ResponseWriter, status int, message string, uncertain bool) {
+func calendarCreateFailure(w http.ResponseWriter, r *http.Request, status int, message string, uncertain bool) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "private, no-store")
 	w.WriteHeader(status)
-	response := map[string]any{"error": message, "uncertain": uncertain}
+	response := map[string]any{"error": serverText(r.Context(), message), "uncertain": uncertain}
 	if !uncertain {
 		response["request_id"] = uuid.NewString()
 	}
@@ -408,18 +409,18 @@ func calendarCreateFailure(w http.ResponseWriter, status int, message string, un
 func (h *Handler) handleCreateCalendarEvent(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 384<<10) // Bounded HTML + plain fallback, including URL-encoding overhead.
 	if err := r.ParseForm(); err != nil {
-		calendarCreateFailure(w, 400, "Event details could not be read.", false)
+		calendarCreateFailure(w, r, 400, "Event details could not be read.", false)
 		return
 	}
 	draft, err := parseCalendarEventDraft(r)
 	if err != nil {
-		calendarCreateFailure(w, 400, err.Error(), false)
+		calendarCreateFailure(w, r, 400, err.Error(), false)
 		return
 	}
 	userID := h.userID(r.Context())
 	sources, err := h.db.ListSelectedCalendarSources(r.Context(), userID)
 	if err != nil {
-		calendarCreateFailure(w, 500, "Could not load configured calendars.", false)
+		calendarCreateFailure(w, r, 500, i18n.T(r.Context(), "server.msg.could_not_load_configured_calendars"), false)
 		return
 	}
 	var source storage.CalendarSource
@@ -430,35 +431,35 @@ func (h *Handler) handleCreateCalendarEvent(w http.ResponseWriter, r *http.Reque
 		}
 	}
 	if source.ID == "" {
-		calendarCreateFailure(w, 404, "This calendar is no longer configured.", false)
+		calendarCreateFailure(w, r, 404, "This calendar is no longer configured.", false)
 		return
 	}
 	if draft.GoogleMeetMeeting && source.Provider != providers.ProviderGmail {
-		calendarCreateFailure(w, 400, "Google Meet meetings require a supported Google calendar.", false)
+		calendarCreateFailure(w, r, 400, "Google Meet meetings require a supported Google calendar.", false)
 		return
 	}
 	if draft.TeamsMeeting && source.Provider != providers.ProviderOutlook {
-		calendarCreateFailure(w, 400, "Teams meetings require a supported Outlook calendar.", false)
+		calendarCreateFailure(w, r, 400, "Teams meetings require a supported Outlook calendar.", false)
 		return
 	}
 	if !calendarSourceWritable(source) {
-		calendarCreateFailure(w, 403, "This calendar is read-only. Choose a writable calendar.", false)
+		calendarCreateFailure(w, r, 403, "This calendar is read-only. Choose a writable calendar.", false)
 		return
 	}
 	if !h.calendarWriteAuthorized(r.Context(), source) {
-		calendarCreateFailure(w, 403, "This account has read-only Calendar access. Reconnect it from Accounts to grant event creation permission.", false)
+		calendarCreateFailure(w, r, 403, "This account has read-only Calendar access. Reconnect it from Accounts to grant event creation permission.", false)
 		return
 	}
 	if len(draft.Guests) > 0 {
 		account, err := h.calendarReplyAccount(r.Context(), source)
 		if err != nil || calendarReplyAddress("mailto:"+account.Email) == "" {
-			calendarCreateFailure(w, 400, "A valid account sending address is required to invite guests.", false)
+			calendarCreateFailure(w, r, 400, "A valid account sending address is required to invite guests.", false)
 			return
 		}
 		draft.OrganizerEmail, draft.OrganizerName = strings.ToLower(account.Email), account.Name
 		for _, guest := range draft.Guests {
 			if strings.EqualFold(guest.Email, account.Email) {
-				calendarCreateFailure(w, 400, "You are already the organizer; add other people as guests.", false)
+				calendarCreateFailure(w, r, 400, "You are already the organizer; add other people as guests.", false)
 				return
 			}
 		}
@@ -469,14 +470,14 @@ func (h *Handler) handleCreateCalendarEvent(w http.ResponseWriter, r *http.Reque
 	defer cancel()
 	unlock, err := h.lockCalendarCreate(ctx, source)
 	if err != nil {
-		calendarCreateFailure(w, 503, "Calendar is still refreshing. Try again.", false)
+		calendarCreateFailure(w, r, 503, "Calendar is still refreshing. Try again.", false)
 		return
 	}
 	defer unlock()
 	// Recheck access after waiting behind a refresh or another creation.
 	current, err := h.db.ListSelectedCalendarSources(ctx, userID)
 	if err != nil {
-		calendarCreateFailure(w, 500, "Could not verify the calendar.", false)
+		calendarCreateFailure(w, r, 500, "Could not verify the calendar.", false)
 		return
 	}
 	found := false
@@ -488,23 +489,23 @@ func (h *Handler) handleCreateCalendarEvent(w http.ResponseWriter, r *http.Reque
 		}
 	}
 	if !found || !calendarSourceWritable(source) {
-		calendarCreateFailure(w, 409, "Calendar configuration changed. Reopen New event.", false)
+		calendarCreateFailure(w, r, 409, "Calendar configuration changed. Reopen New event.", false)
 		return
 	}
 	hash := calendarDraftHash(draft)
 	result, err := h.db.BeginCalendarCreate(ctx, userID, source.ID, draft.RequestID, hash)
 	if err != nil {
-		calendarCreateFailure(w, 409, "This event request is no longer valid. Reopen New event.", false)
+		calendarCreateFailure(w, r, 409, "This event request is no longer valid. Reopen New event.", false)
 		return
 	}
 	replayed := result.RemoteID != ""
 	if !replayed {
 		if err := h.attachCalendarTeamsDraft(ctx, source, &draft); err != nil {
-			calendarCreateFailure(w, 409, "The Teams link could not be loaded. Toggle Teams off and on to prepare it again.", false)
+			calendarCreateFailure(w, r, 409, "The Teams link could not be loaded. Toggle Teams off and on to prepare it again.", false)
 			return
 		}
 		if err := h.attachCalendarMeetDraft(ctx, source, &draft, "create:"+draft.RequestID); err != nil {
-			calendarCreateFailure(w, 409, "The Google Meet link could not be loaded. Toggle Google Meet off and on to prepare it again.", false)
+			calendarCreateFailure(w, r, 409, "The Google Meet link could not be loaded. Toggle Google Meet off and on to prepare it again.", false)
 			return
 		}
 		remote, createErr := h.createCalendarProviderEvent(ctx, source, draft)
@@ -525,12 +526,12 @@ func (h *Handler) handleCreateCalendarEvent(w http.ResponseWriter, r *http.Reque
 			if uncertain {
 				message = "The provider's response could not be confirmed. Retry this same event to check without creating a duplicate."
 			}
-			calendarCreateFailure(w, 502, message, uncertain)
+			calendarCreateFailure(w, r, 502, message, uncertain)
 			return
 		}
 		if draft.Recurrence != nil {
 			if remote.Deleted || remote.SeriesRemoteID != "" || !calendarUpdateHasDetails(remote.Recurrence) {
-				calendarCreateFailure(w, 502, "The provider did not confirm the series. Retry this same event to verify it safely.", true)
+				calendarCreateFailure(w, r, 502, "The provider did not confirm the series. Retry this same event to verify it safely.", true)
 				return
 			}
 			result, err = h.db.CompleteCalendarSeriesCreate(ctx, userID, source.ID, draft.RequestID, hash, remote.RemoteID)
@@ -538,7 +539,7 @@ func (h *Handler) handleCreateCalendarEvent(w http.ResponseWriter, r *http.Reque
 			result, err = h.db.CompleteCalendarCreate(ctx, userID, source.ID, draft.RequestID, hash, calendarStorageEvent(userID, source.ID, remote))
 		}
 		if err != nil {
-			calendarCreateFailure(w, 503, "The provider created the event, but the local update could not finish. Retry this same event to recover it without a duplicate.", true)
+			calendarCreateFailure(w, r, 503, "The provider created the event, but the local update could not finish. Retry this same event to recover it without a duplicate.", true)
 			return
 		}
 		// This is an event change, not a fabricated successful full sync.

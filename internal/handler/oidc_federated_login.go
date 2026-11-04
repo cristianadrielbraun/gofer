@@ -2,6 +2,7 @@ package handler
 
 import (
 	"errors"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"log"
 	"net/http"
 	"strings"
@@ -11,7 +12,7 @@ import (
 
 func (h *Handler) handleOIDCRedirect(w http.ResponseWriter, r *http.Request) {
 	if !h.auth.IsEnabled() || !h.auth.HasOIDCLogin() {
-		http.Error(w, "auth not enabled", http.StatusNotFound)
+		http.Error(w, i18n.T(r.Context(), "server.error.auth_not_enabled"), http.StatusNotFound)
 		return
 	}
 	clearLegacyOAuthStateCookie(w, h.auth.Config().SecureCookies)
@@ -19,7 +20,7 @@ func (h *Handler) handleOIDCRedirect(w http.ResponseWriter, r *http.Request) {
 		err := h.auth.TerminateOIDCAuthorizationChallenge(r.Context(), previousToken)
 		auth.ClearPreAuthCookie(w, h.auth.Config().SecureCookies)
 		if err != nil && !errors.Is(err, auth.ErrPreAuthChallengeInvalid) {
-			http.Error(w, "failed to initialize authentication", http.StatusInternalServerError)
+			http.Error(w, i18n.T(r.Context(), "server.error.failed_to_initialize_authentication"), http.StatusInternalServerError)
 			return
 		}
 	}
@@ -27,7 +28,7 @@ func (h *Handler) handleOIDCRedirect(w http.ResponseWriter, r *http.Request) {
 	start, err := h.auth.BeginOIDCLogin(r.Context())
 	if err != nil {
 		log.Printf("OIDC application login could not start: reason=challenge_initialization_failed")
-		http.Error(w, "failed to initialize authentication", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_initialize_authentication"), http.StatusInternalServerError)
 		return
 	}
 	challenge := start.Challenge
@@ -37,7 +38,7 @@ func (h *Handler) handleOIDCRedirect(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 	if !h.auth.IsEnabled() || !h.auth.HasOIDCLogin() {
-		http.Error(w, "auth not enabled", http.StatusNotFound)
+		http.Error(w, i18n.T(r.Context(), "server.error.auth_not_enabled"), http.StatusNotFound)
 		return
 	}
 	clearLegacyOAuthStateCookie(w, h.auth.Config().SecureCookies)

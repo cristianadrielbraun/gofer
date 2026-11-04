@@ -157,7 +157,7 @@ func TestMailCalendarInvitationOffer(t *testing.T) {
 	item := mailCalendarEvent{UID: "invite-uid", Method: "REQUEST", Summary: "Planning", Organizer: "host@example.com", Invited: true, Start: &start, End: &end, Modified: &newer}
 	cached := storage.CalendarEvent{ID: "event", SourceProvider: "caldav", Summary: "Planning", StartAt: &start, EndAt: &end, OrganizerEmail: "host@example.com", AccountEmail: "guest@example.com", ProviderUpdatedAt: &saved}
 	label := func(item mailCalendarEvent, candidates []storage.CalendarEvent, sources []storage.CalendarSource) string {
-		if offer := mailCalendarInvitationOffer(item, candidates, sources, "account", "guest@example.com"); offer != nil {
+		if offer := mailCalendarInvitationOffer(context.Background(), item, candidates, sources, "account", "guest@example.com"); offer != nil {
 			return offer.Label
 		}
 		return ""

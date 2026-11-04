@@ -1,10 +1,10 @@
 package handler
 
 import (
-	"context"
 	"bytes"
+	"context"
 	"errors"
-	"fmt"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"log"
 	"net/http"
 	"net/url"
@@ -34,19 +34,19 @@ func adminSecurityActivityViewData(ctx context.Context, page *auth.Administrator
 	for _, event := range page.Events {
 		actor := strings.TrimSpace(event.ActorUsername)
 		if actor == "" {
-			actor = "System"
+			actor = i18n.T(ctx, "security.event.actor.system")
 		}
 		subject := strings.TrimSpace(event.SubjectUsername)
 		if subject == "" {
-			subject = "Instance"
+			subject = i18n.T(ctx, "security.event.subject.instance")
 		}
-		status := "Failed"
+		status := i18n.T(ctx, "security.event.status.failed")
 		if event.Success {
-			status = "Completed"
+			status = i18n.T(ctx, "security.event.status.completed")
 		}
 		data.Events = append(data.Events, views.AdminSecurityActivityEventData{
-			Title:          securityEventTitle(event.EventType, event.Success),
-			Detail:         securityEventDetail(event.Reason, event.Success),
+			Title:          securityEventTitle(ctx, event.EventType, event.Success),
+			Detail:         securityEventDetail(ctx, event.Reason, event.Success),
 			OccurredAt:     formatSecuritySessionTime(ctx, event.OccurredAt),
 			Client:         securitySessionClientLabel(event.UserAgent),
 			Status:         status,
@@ -200,7 +200,7 @@ func (h *Handler) handleSetAuthenticationEventRetention(w http.ResponseWriter, r
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		redirectAdminSecurityActivity(w, r, "", "Invalid form data.", false)
+		redirectAdminSecurityActivity(w, r, "", i18n.T(r.Context(), "auth.admin.form_invalid"), false)
 		return
 	}
 	days, err := strconv.Atoi(strings.TrimSpace(r.FormValue("days")))
@@ -208,11 +208,7 @@ func (h *Handler) handleSetAuthenticationEventRetention(w http.ResponseWriter, r
 		days > auth.MaximumAuthenticationEventRetentionDays {
 		redirectAdminSecurityActivity(
 			w, r, "",
-			fmt.Sprintf(
-				"Enter a retention period between %d and %d days.",
-				auth.MinimumAuthenticationEventRetentionDays,
-				auth.MaximumAuthenticationEventRetentionDays,
-			),
+			i18n.T(r.Context(), "auth.admin.retention.invalid", "min", i18n.Number(r.Context(), auth.MinimumAuthenticationEventRetentionDays), "max", i18n.Number(r.Context(), auth.MaximumAuthenticationEventRetentionDays)),
 			false,
 		)
 		return
@@ -233,12 +229,12 @@ func (h *Handler) handleSetAuthenticationEventRetention(w http.ResponseWriter, r
 		if result.Changed {
 			h.wakeAuthenticationEventRetention()
 			redirectAdminSecurityActivity(
-				w, r, fmt.Sprintf("Security activity will now be retained for %d days.", days), "", false,
+				w, r, i18n.N(r.Context(), "auth.admin.retention.changed", days, "count", i18n.Number(r.Context(), days)), "", false,
 			)
 			return
 		}
 		redirectAdminSecurityActivity(
-			w, r, fmt.Sprintf("Security activity retention is already %d days.", days), "", false,
+			w, r, i18n.N(r.Context(), "auth.admin.retention.unchanged", days, "count", i18n.Number(r.Context(), days)), "", false,
 		)
 	case errors.Is(err, auth.ErrRecentStepUpRequired):
 		redirectAdminSecurityActivity(w, r, "", "", true)
@@ -247,11 +243,7 @@ func (h *Handler) handleSetAuthenticationEventRetention(w http.ResponseWriter, r
 	case errors.Is(err, auth.ErrAuthenticationEventRetentionInvalid):
 		redirectAdminSecurityActivity(
 			w, r, "",
-			fmt.Sprintf(
-				"Enter a retention period between %d and %d days.",
-				auth.MinimumAuthenticationEventRetentionDays,
-				auth.MaximumAuthenticationEventRetentionDays,
-			),
+			i18n.T(r.Context(), "auth.admin.retention.invalid", "min", i18n.Number(r.Context(), auth.MinimumAuthenticationEventRetentionDays), "max", i18n.Number(r.Context(), auth.MaximumAuthenticationEventRetentionDays)),
 			false,
 		)
 	default:

@@ -10195,7 +10195,8 @@ var _outgoingMissingSentNoticed = {}
 function noticeMissingSentFolder(summary) {
   if (!_outgoingSentHere[summary.id]) return
   if (summary.status !== "sent" || summary.sent_copy_status !== "failed" || _outgoingMissingSentNoticed[summary.id]) return
-  if (String(summary.sent_copy_last_error || "").indexOf("This account has no Sent folder.") === -1) return
+  // The server marks this failure, whatever language its text is in.
+  if (!summary.sent_copy_no_sent_folder) return
   _outgoingMissingSentNoticed[summary.id] = true
   showMissingSentFolderToast(summary.account_id)
 }

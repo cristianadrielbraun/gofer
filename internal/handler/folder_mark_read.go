@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"log"
 	"net/http"
 
@@ -23,7 +24,7 @@ func (h *Handler) handleMarkFolderRead(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		log.Printf("mark folder read: resolve folder: %v", err)
-		http.Error(w, "mailbox unavailable", http.StatusServiceUnavailable)
+		http.Error(w, i18n.T(r.Context(), "server.error.mailbox_unavailable"), http.StatusServiceUnavailable)
 		return
 	}
 	// With per-user storage, an account whose changes can't be delivered
@@ -37,12 +38,12 @@ func (h *Handler) handleMarkFolderRead(w http.ResponseWriter, r *http.Request) {
 		return err == nil
 	})
 	if errors.Is(err, storage.ErrFolderNotMarkable) {
-		http.Error(w, "This folder can't be marked as read.", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.this_folder_can_t_be_marked_as"), http.StatusBadRequest)
 		return
 	}
 	if err != nil {
 		log.Printf("mark folder read %s: %v", folderID, err)
-		http.Error(w, "failed to mark folder as read", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_mark_folder_as_read"), http.StatusInternalServerError)
 		return
 	}
 	if result.Marked == 0 && refused != nil {

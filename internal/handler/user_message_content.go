@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"errors"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"net/http"
 	"strconv"
 
@@ -23,7 +24,7 @@ func (h *Handler) handleUserRefetchBody(w http.ResponseWriter, r *http.Request) 
 func (h *Handler) handleUserFetchBody(w http.ResponseWriter, r *http.Request, force bool) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil || id <= 0 {
-		http.Error(w, "invalid message id", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_message_id"), http.StatusBadRequest)
 		return
 	}
 	if force {
@@ -32,7 +33,7 @@ func (h *Handler) handleUserFetchBody(w http.ResponseWriter, r *http.Request, fo
 		err = h.userIMAP.EnsureBody(r.Context(), h.userID(r.Context()), id)
 	}
 	if err != nil {
-		if writeMessageTooLarge(w, err) {
+		if writeMessageTooLarge(w, r, err) {
 			return
 		}
 		userAccountError(w, r, err)
@@ -52,11 +53,11 @@ func (h *Handler) handleUserFetchBody(w http.ResponseWriter, r *http.Request, fo
 func (h *Handler) handleUserDownloadFullBody(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil || id <= 0 {
-		http.Error(w, "invalid message id", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_message_id"), http.StatusBadRequest)
 		return
 	}
 	if err := h.userIMAP.EnsureFullBody(r.Context(), h.userID(r.Context()), id); err != nil {
-		if writeMessageTooLarge(w, err) {
+		if writeMessageTooLarge(w, r, err) {
 			return
 		}
 		userAccountError(w, r, err)
@@ -66,7 +67,7 @@ func (h *Handler) handleUserDownloadFullBody(w http.ResponseWriter, r *http.Requ
 }
 
 // writeMessageTooLarge answers a full download that was still too large.
-func writeMessageTooLarge(w http.ResponseWriter, err error) bool {
+func writeMessageTooLarge(w http.ResponseWriter, r *http.Request, err error) bool {
 	var tooLarge *message.TooLargeError
 	if !errors.As(err, &tooLarge) {
 		return false
@@ -75,6 +76,6 @@ func writeMessageTooLarge(w http.ResponseWriter, err error) bool {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]string{"message": text})
+	_ = json.NewEncoder(w).Encode(map[string]string{"message": serverText(r.Context(), text)})
 	return true
 }

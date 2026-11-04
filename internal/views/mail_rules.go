@@ -388,10 +388,19 @@ func mailRuleSentence(text string) string {
 	return string(unicode.ToUpper(first)) + text[size:]
 }
 
+// mailRuleActivityRuleName names an entry's rule; a rule deleted before a
+// run by hand finished has no name stored.
+func mailRuleActivityRuleName(ctx context.Context, run models.MailRuleRun) string {
+	if run.RuleName == "" {
+		return i18n.T(ctx, "rules.activity.deleted_rule")
+	}
+	return run.RuleName
+}
+
 // mailRuleActivityDetail says, under an entry, which rule it was and what
 // it did: "Newsletters · From news@example.com · Archived".
 func mailRuleActivityDetail(ctx context.Context, run models.MailRuleRun) string {
-	parts := []string{run.RuleName}
+	parts := []string{mailRuleActivityRuleName(ctx, run)}
 	if run.MessageID == 0 {
 		if run.Trigger == models.MailRuleTriggerManual {
 			parts = append(parts, i18n.T(ctx, "rules.activity.by_hand"))
@@ -405,7 +414,7 @@ func mailRuleActivityDetail(ctx context.Context, run models.MailRuleRun) string 
 		parts = append(parts, i18n.T(ctx, "rules.activity.by_hand"))
 	}
 	if run.Detail != "" {
-		parts = append(parts, mailRuleSentence(run.Detail))
+		parts = append(parts, mailRuleSentence(mailrules.DetailText(ctx, run.Detail)))
 	}
 	return strings.Join(parts, " · ")
 }

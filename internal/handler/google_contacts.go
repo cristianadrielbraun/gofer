@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"html"
 	"io"
 	"log"
@@ -120,7 +121,7 @@ func (h *Handler) accountSupportsContactSync(ctx context.Context, userID string,
 
 func (h *Handler) handleSyncAccountContacts(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		htmlStatus(w, http.StatusBadRequest, "Invalid sync request.")
+		htmlStatus(w, r, http.StatusBadRequest, "Invalid sync request.")
 		return
 	}
 
@@ -129,11 +130,11 @@ func (h *Handler) handleSyncAccountContacts(w http.ResponseWriter, r *http.Reque
 	accountID := strings.TrimSpace(r.FormValue("account_id"))
 	accounts, err := h.contactSyncAccounts(ctx, userID, accountID)
 	if err != nil {
-		htmlStatus(w, http.StatusInternalServerError, "Could not find contact-sync accounts.")
+		htmlStatus(w, r, http.StatusInternalServerError, "Could not find contact-sync accounts.")
 		return
 	}
 	if len(accounts) == 0 {
-		htmlStatus(w, http.StatusBadRequest, "Connect an account with contact sync before syncing contacts.")
+		htmlStatus(w, r, http.StatusBadRequest, "Connect an account with contact sync before syncing contacts.")
 		return
 	}
 
@@ -149,20 +150,20 @@ func (h *Handler) handleSyncAccountContacts(w http.ResponseWriter, r *http.Reque
 	}
 
 	if len(failures) == len(accounts) {
-		htmlStatus(w, http.StatusBadGateway, "Contact sync failed: "+strings.Join(failures, "; "))
+		htmlStatus(w, r, http.StatusBadGateway, "Contact sync failed: "+strings.Join(failures, "; "))
 		return
 	}
 
 	_ = h.db.LogContactActivity(ctx, userID, "provider_contacts_synced", "", "Account contacts synced", totalImported)
 	if len(failures) > 0 {
-		htmlStatus(w, http.StatusOK, fmt.Sprintf("Contacts partially synced: %d imported or updated. Failed: %s", totalImported, strings.Join(failures, "; ")))
+		htmlStatus(w, r, http.StatusOK, fmt.Sprintf("Contacts partially synced: %d imported or updated. Failed: %s", totalImported, strings.Join(failures, "; ")))
 		return
 	}
 	if len(accounts) == 1 {
-		htmlStatus(w, http.StatusOK, fmt.Sprintf("Contacts synced for %s: %d imported or updated.", accounts[0].Email, totalImported))
+		htmlStatus(w, r, http.StatusOK, fmt.Sprintf("Contacts synced for %s: %d imported or updated.", accounts[0].Email, totalImported))
 		return
 	}
-	htmlStatus(w, http.StatusOK, fmt.Sprintf("Contacts synced across %d accounts: %d imported or updated.", len(accounts), totalImported))
+	htmlStatus(w, r, http.StatusOK, fmt.Sprintf("Contacts synced across %d accounts: %d imported or updated.", len(accounts), totalImported))
 }
 
 func (h *Handler) handleSyncGmailContacts(w http.ResponseWriter, r *http.Request) {
@@ -626,7 +627,7 @@ func (h *Handler) handleSyncContactNow(w http.ResponseWriter, r *http.Request) {
 	contactID := strings.TrimSpace(r.PathValue("id"))
 	contact, err := h.db.GetContact(ctx, userID, contactID)
 	if err != nil {
-		http.Error(w, "Could not load contact", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.could_not_load_contact"), http.StatusInternalServerError)
 		return
 	}
 	if contact == nil {
@@ -634,11 +635,11 @@ func (h *Handler) handleSyncContactNow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !contact.GoferSyncEnabled {
-		http.Error(w, "Gofer Sync is disabled for this contact", http.StatusConflict)
+		http.Error(w, i18n.T(r.Context(), "server.error.gofer_sync_is_disabled_for_this_contact"), http.StatusConflict)
 		return
 	}
 	if !h.scheduleContactAccountSync(ctx, userID, *contact, nil) {
-		http.Error(w, "No enabled sync locations are available", http.StatusConflict)
+		http.Error(w, i18n.T(r.Context(), "server.error.no_enabled_sync_locations_are_available"), http.StatusConflict)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -1194,7 +1195,7 @@ func isGoogleNotFound(err error, apiErr *googleAPIError) bool {
 	return false
 }
 
-func htmlStatus(w http.ResponseWriter, status int, message string) {
+func htmlStatus(w http.ResponseWriter, r *http.Request, status int, message string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if status >= 400 {
 		w.Header().Set("X-Gofer-Status", "error")
@@ -1205,5 +1206,5 @@ func htmlStatus(w http.ResponseWriter, status int, message string) {
 		status = http.StatusOK
 	}
 	w.WriteHeader(status)
-	_, _ = w.Write([]byte(`<div class="rounded-md border border-border bg-background px-3 py-2 text-xs text-muted-foreground">` + html.EscapeString(message) + `</div>`))
+	_, _ = w.Write([]byte(`<div class="rounded-md border border-border bg-background px-3 py-2 text-xs text-muted-foreground">` + html.EscapeString(serverText(r.Context(), message)) + `</div>`))
 }

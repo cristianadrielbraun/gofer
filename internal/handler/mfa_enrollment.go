@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"errors"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"log"
 	"net/http"
 
@@ -43,7 +44,7 @@ func (h *Handler) handleMFAEnrollmentSubmit(w http.ResponseWriter, r *http.Reque
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, recoveryLoginFormMaximumBytes)
 	if err := r.ParseForm(); err != nil {
-		h.renderCurrentMFAEnrollment(w, r, http.StatusBadRequest, "That authenticator code is invalid.")
+		h.renderCurrentMFAEnrollment(w, r, http.StatusBadRequest, i18n.T(r.Context(), "auth.mfa.code_invalid"))
 		return
 	}
 	var state *auth.MFAEnrollmentState
@@ -58,24 +59,24 @@ func (h *Handler) handleMFAEnrollmentSubmit(w http.ResponseWriter, r *http.Reque
 			r.Context(), auth.GetPreAuthToken(r), h.auth.Config().BaseURL,
 		)
 	default:
-		h.renderCurrentMFAEnrollment(w, r, http.StatusUnprocessableEntity, "Choose a valid authenticator-enrollment action.")
+		h.renderCurrentMFAEnrollment(w, r, http.StatusUnprocessableEntity, i18n.T(r.Context(), "auth.mfa.enrollment_action"))
 		return
 	}
 	if err != nil {
 		var validationError *auth.MFAEnrollmentTOTPValidationError
 		switch {
 		case errors.As(err, &validationError) && !validationError.Terminal:
-			h.renderCurrentMFAEnrollment(w, r, http.StatusUnprocessableEntity, "That authenticator code is invalid or has already been used.")
+			h.renderCurrentMFAEnrollment(w, r, http.StatusUnprocessableEntity, i18n.T(r.Context(), "auth.mfa.code_invalid_used"))
 		case errors.Is(err, auth.ErrMFAEnrollmentInvalid), errors.Is(err, auth.ErrMFAEnrollmentStateChanged), errors.As(err, &validationError):
 			h.handleMFAEnrollmentAccessError(w, r, err, "update required MFA enrollment")
 		default:
 			log.Printf("update required MFA enrollment: %v", err)
-			h.renderCurrentMFAEnrollment(w, r, http.StatusInternalServerError, loginServiceMessage)
+			h.renderCurrentMFAEnrollment(w, r, http.StatusInternalServerError, i18n.T(r.Context(), "auth.login.unavailable"))
 		}
 		return
 	}
 	if state == nil {
-		h.renderCurrentMFAEnrollment(w, r, http.StatusInternalServerError, loginServiceMessage)
+		h.renderCurrentMFAEnrollment(w, r, http.StatusInternalServerError, i18n.T(r.Context(), "auth.login.unavailable"))
 		return
 	}
 	if state.TOTPConfirmed {
@@ -117,7 +118,7 @@ func (h *Handler) handleMFAEnrollmentCodesSubmit(w http.ResponseWriter, r *http.
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, recoveryLoginFormMaximumBytes)
 	if err := r.ParseForm(); err != nil {
-		h.renderCurrentMFAEnrollmentCodes(w, r, http.StatusBadRequest, "Unable to read that recovery-code request.")
+		h.renderCurrentMFAEnrollmentCodes(w, r, http.StatusBadRequest, i18n.T(r.Context(), "auth.recovery.request_unreadable"))
 		return
 	}
 	switch r.PostFormValue("action") {
@@ -132,7 +133,7 @@ func (h *Handler) handleMFAEnrollmentCodesSubmit(w http.ResponseWriter, r *http.
 				return
 			}
 			if !h.handleMFAEnrollmentOperationError(w, r, err, "generate required MFA recovery codes") {
-				h.renderCurrentMFAEnrollmentCodes(w, r, http.StatusInternalServerError, loginServiceMessage)
+				h.renderCurrentMFAEnrollmentCodes(w, r, http.StatusInternalServerError, i18n.T(r.Context(), "auth.login.unavailable"))
 			}
 			return
 		}
@@ -148,18 +149,18 @@ func (h *Handler) handleMFAEnrollmentCodesSubmit(w http.ResponseWriter, r *http.
 		if err != nil {
 			switch {
 			case errors.Is(err, auth.ErrMFAEnrollmentBatchRequired):
-				h.renderCurrentMFAEnrollmentCodes(w, r, http.StatusUnprocessableEntity, "Confirm that you saved the recovery codes before continuing.")
+				h.renderCurrentMFAEnrollmentCodes(w, r, http.StatusUnprocessableEntity, i18n.T(r.Context(), "auth.recovery.confirm_saved"))
 			case errors.Is(err, auth.ErrMFAEnrollmentStateChanged):
 				http.Redirect(w, r, "/login/mfa/enroll/codes", http.StatusSeeOther)
 			default:
 				if !h.handleMFAEnrollmentOperationError(w, r, err, "complete required MFA enrollment") {
-					h.renderCurrentMFAEnrollmentCodes(w, r, http.StatusInternalServerError, loginServiceMessage)
+					h.renderCurrentMFAEnrollmentCodes(w, r, http.StatusInternalServerError, i18n.T(r.Context(), "auth.login.unavailable"))
 				}
 			}
 			return
 		}
 		if session == nil {
-			h.renderCurrentMFAEnrollmentCodes(w, r, http.StatusInternalServerError, loginServiceMessage)
+			h.renderCurrentMFAEnrollmentCodes(w, r, http.StatusInternalServerError, i18n.T(r.Context(), "auth.login.unavailable"))
 			return
 		}
 		auth.ClearPreAuthCookie(w, h.auth.Config().SecureCookies)
@@ -172,7 +173,7 @@ func (h *Handler) handleMFAEnrollmentCodesSubmit(w http.ResponseWriter, r *http.
 		auth.ClearReturnToCookie(w, h.auth.Config().SecureCookies)
 		http.Redirect(w, r, returnTo, http.StatusSeeOther)
 	default:
-		h.renderCurrentMFAEnrollmentCodes(w, r, http.StatusUnprocessableEntity, "Choose a valid recovery-code action.")
+		h.renderCurrentMFAEnrollmentCodes(w, r, http.StatusUnprocessableEntity, i18n.T(r.Context(), "auth.recovery.action"))
 	}
 }
 

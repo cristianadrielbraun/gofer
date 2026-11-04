@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"log"
 	"sync"
 	"time"
@@ -59,20 +60,24 @@ func (s *calendarReminderState) first(owner string, due storage.CalendarReminder
 
 // calendarReminderEvent is the notification for a due reminder.
 func calendarReminderEvent(owner string, due storage.CalendarReminderDue, location *time.Location, accountID string) mail.Event {
+	// Written in the owner's language and time format, as no page asked for it.
+	ctx := i18n.ForUser(context.Background(), owner)
+	dates := i18n.Dates(ctx)
 	event := due.Event
 	title := event.Summary
 	if title == "" {
-		title = "Untitled event"
+		title = i18n.T(ctx, "calendar.untitled_event")
 	}
 	start := event.StartAt.In(location)
-	when := "Starts now"
+	when := i18n.T(ctx, "push.reminder.starts_now")
 	if minutes := *event.ReminderMinutes; minutes > 0 {
-		when = "In " + views.CalendarReminderSpan(context.Background(), minutes)
+		when = i18n.T(ctx, "push.reminder.in", "span", views.CalendarReminderSpan(ctx, minutes))
 	}
-	body := when + " · " + start.Format("15:04")
+	clock := dates.Time(start)
 	if event.EndAt != nil {
-		body += "–" + event.EndAt.In(location).Format("15:04")
+		clock = dates.TimeRange(start, event.EndAt.In(location))
 	}
+	body := i18n.T(ctx, "push.reminder.body", "when", when, "time", clock)
 	if event.Location != "" {
 		body += " · " + event.Location
 	}

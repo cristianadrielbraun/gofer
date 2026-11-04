@@ -90,9 +90,9 @@ func TestAdminUsersPageRendersStatesRolesAndEscapesProfileMetadata(t *testing.T)
 	data := AdminUsersData{
 		Total: 3, Active: 1, Pending: 1, Disabled: 1, Administrators: 2,
 		Users: []AdminUserData{
-			{ID: "current-id", Username: "owner", Status: "Active", Role: "Administrator", Current: true},
-			{ID: "pending-id", Username: `<script>pending</script>`, Status: "Pending", Role: "User"},
-			{ID: "disabled-id", Username: "disabled", Status: "Disabled", Role: "Administrator"},
+			{ID: "current-id", Username: "owner", Status: "active", Role: "Administrator", Current: true},
+			{ID: "pending-id", Username: `<script>pending</script>`, Status: "pending", Role: "User"},
+			{ID: "disabled-id", Username: "disabled", Status: "disabled", Role: "Administrator"},
 		},
 	}
 	var out bytes.Buffer
@@ -125,7 +125,7 @@ func TestAdminUsersPageRendersProtectedInvitationLifecycleActions(t *testing.T) 
 	revokePath := "/admin/users/invitations/" + reference + "/revoke"
 	data := AdminUsersData{Users: []AdminUserData{{
 		ID: "pending-internal-id", Username: "pending.user",
-		Status: "Pending", Role: "Webmail user", InvitationState: "active",
+		Status: "pending", Role: "webmail_user", InvitationState: "active",
 		InvitationExpiresAt:  &expiresAt,
 		InvitationRevokePath: revokePath, InvitationRevokeCSRFToken: strings.Repeat("b", 64),
 		InvitationRotatePath: rotatePath, InvitationRotateCSRFToken: strings.Repeat("c", 64),
@@ -154,13 +154,13 @@ func TestAdminUsersPageRendersProtectedIndividualMFAPolicyActions(t *testing.T) 
 	csrf := strings.Repeat("d", 64)
 	data := AdminUsersData{Users: []AdminUserData{
 		{
-			ID: "optional-user", Username: "optional.user", Status: "Active", Role: "Webmail user",
-			MFALabel: "Optional", MFADetail: "User choice",
+			ID: "optional-user", Username: "optional.user", Status: "active", Role: "webmail_user",
+			MFALabel: "optional", MFADetail: "user_choice",
 			MFAPolicyPath: "/admin/users/optional-user/mfa-policy", MFAPolicyCSRFToken: csrf,
 		},
 		{
-			ID: "required-user", Username: "required.user", Status: "Active", Role: "Webmail user",
-			MFALabel: "Required", MFADetail: "Individual policy", MFARequired: true,
+			ID: "required-user", Username: "required.user", Status: "active", Role: "webmail_user",
+			MFALabel: "required", MFADetail: "individual_policy", MFARequired: true,
 			MFAPolicyPath: "/admin/users/required-user/mfa-policy", MFAPolicyCSRFToken: csrf,
 		},
 	}}
@@ -191,11 +191,11 @@ func TestAdminUsersPageRendersProtectedUserStatusActions(t *testing.T) {
 	disabledCSRF := strings.Repeat("f", 64)
 	data := AdminUsersData{Users: []AdminUserData{
 		{
-			ID: "active-user", Username: "active.user", Status: "Active", Role: "Webmail user",
+			ID: "active-user", Username: "active.user", Status: "active", Role: "webmail_user",
 			StatusPath: "/admin/users/active-user/status", StatusCSRFToken: activeCSRF,
 		},
 		{
-			ID: "disabled-user", Username: "disabled.user", Status: "Disabled", Role: "Webmail user",
+			ID: "disabled-user", Username: "disabled.user", Status: "disabled", Role: "webmail_user",
 			StatusPath: "/admin/users/disabled-user/status", StatusCSRFToken: disabledCSRF,
 		},
 	}}
@@ -219,7 +219,7 @@ func TestAdminUsersPageRendersProtectedUserStatusActions(t *testing.T) {
 
 func TestAdminUsersPageDisablesUserStatusActionsUntilRecentVerification(t *testing.T) {
 	data := AdminUsersData{StepUpRequired: true, Users: []AdminUserData{{
-		ID: "active-user", Username: "active.user", Status: "Active", Role: "Webmail user",
+		ID: "active-user", Username: "active.user", Status: "active", Role: "webmail_user",
 		StatusPath: "/admin/users/active-user/status", StatusCSRFToken: strings.Repeat("a", 64),
 	}}}
 	var out bytes.Buffer
@@ -246,7 +246,7 @@ func TestAdminUsersPageRendersProtectedCredentialResetActionAndOneTimeResult(t *
 	expiresAt := time.Date(2026, time.August, 29, 14, 30, 0, 0, time.Local)
 	data := AdminUsersData{
 		Users: []AdminUserData{{
-			ID: "webmail-user", Username: "webmail.user", Status: "Active", Role: "Webmail user",
+			ID: "webmail-user", Username: "webmail.user", Status: "active", Role: "webmail_user",
 			CredentialResetPath: "/admin/users/webmail-user/credential-reset", CredentialResetCSRFToken: csrfToken,
 		}},
 		CredentialReset: &AdminUserCredentialResetData{
@@ -281,7 +281,7 @@ func TestAdminUsersPageRendersProtectedCredentialResetActionAndOneTimeResult(t *
 func TestAdminUsersPageHighlightsRequestedPasswordReset(t *testing.T) {
 	requestedAt := time.Date(2026, time.August, 29, 14, 15, 0, 0, time.Local)
 	data := AdminUsersData{Users: []AdminUserData{{
-		ID: "requested-user", Username: "requested.user", Status: "Disabled", Role: "Webmail user",
+		ID: "requested-user", Username: "requested.user", Status: "disabled", Role: "webmail_user",
 		CredentialResetPath:      "/admin/users/requested-user/credential-reset",
 		CredentialResetCSRFToken: strings.Repeat("r", 64), PasswordResetRequestedAt: &requestedAt,
 	}}}

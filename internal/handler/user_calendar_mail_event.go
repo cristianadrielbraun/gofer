@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"net/http"
 	"strconv"
 	"time"
@@ -160,7 +161,7 @@ func (h *Handler) renderUserMailCalendarFooter(ctx context.Context, w http.Respo
 // calendar of the owner's account, or updates or removes the event it is for.
 func (h *Handler) handleUserMailCalendarInvitation(w http.ResponseWriter, r *http.Request) {
 	if r.ParseForm() != nil {
-		http.Error(w, "The request could not be read.", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.the_request_could_not_be_read"), http.StatusBadRequest)
 		return
 	}
 	uid, sourceID := r.PostForm.Get("uid"), r.PostForm.Get("source_id")

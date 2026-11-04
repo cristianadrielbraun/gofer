@@ -88,7 +88,7 @@ func (h *Handler) renderMailExportPanel(w http.ResponseWriter, r *http.Request, 
 	data, err := h.mailExportPanelData(r, message)
 	if err != nil {
 		log.Printf("mail export: %v", err)
-		http.Error(w, "could not list exports", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.could_not_list_exports"), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -99,7 +99,7 @@ func (h *Handler) renderMailExportJobs(w http.ResponseWriter, r *http.Request) {
 	jobs, err := h.mailExportJobViews(r.Context(), h.userID(r.Context()))
 	if err != nil {
 		log.Printf("mail export: %v", err)
-		http.Error(w, "could not list exports", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.could_not_list_exports"), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -134,7 +134,7 @@ func (h *Handler) handleNewMailExport(w http.ResponseWriter, r *http.Request) {
 	folders, err := h.mailExportFolders(ctx, owner, account.ID)
 	if err != nil {
 		log.Printf("mail export: list folders: %v", err)
-		data.Message = "The account's folders could not be listed."
+		data.Message = i18n.T(r.Context(), "server.msg.the_account_s_folders_could_not_be")
 	}
 	for _, folder := range folders {
 		data.Folders = append(data.Folders, views.MailExportFolder{ID: folder.ID, Path: folder.Path, Role: folder.Role, Messages: folder.Messages})
@@ -148,7 +148,7 @@ func (h *Handler) handleStartMailExport(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "bad request", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.bad_request"), http.StatusBadRequest)
 		return
 	}
 	ctx, owner := r.Context(), h.userID(r.Context())
@@ -207,7 +207,7 @@ func (h *Handler) handleDownloadMailExport(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if err != nil {
-		http.Error(w, "could not read export", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.could_not_read_export"), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/zip")

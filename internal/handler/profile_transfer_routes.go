@@ -35,12 +35,12 @@ func (h *Handler) handleExportProfile(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		log.Printf("profile export: %v", err)
-		http.Error(w, "could not export profile", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.could_not_export_profile"), http.StatusInternalServerError)
 		return
 	}
 	data, err := json.MarshalIndent(file, "", "  ")
 	if err != nil {
-		http.Error(w, "could not export profile", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.could_not_export_profile"), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")

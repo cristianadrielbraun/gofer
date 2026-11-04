@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"errors"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"log"
 	"net/http"
 	"strings"
@@ -19,12 +20,12 @@ import (
 
 func (h *Handler) handleUserAccountOAuthAuthorize(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "invalid form data", 400)
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_form_data"), 400)
 		return
 	}
 	provider := strings.TrimSpace(r.FormValue("provider"))
 	if _, err := h.userCredentials.AccountAuthorizationURL(provider, "", false); err != nil {
-		http.Error(w, err.Error(), 400)
+		http.Error(w, serverText(r.Context(), err.Error()), 400)
 		return
 	}
 	owner := h.userID(r.Context())
@@ -55,7 +56,7 @@ func (h *Handler) handleUserAccountOAuthAuthorize(w http.ResponseWriter, r *http
 	}
 	state, err := h.userCredentials.CreateAccountOAuthFlow(r.Context(), owner, auth.GetSessionToken(r), provider, form)
 	if err != nil {
-		http.Error(w, "could not start account authorization", 503)
+		http.Error(w, i18n.T(r.Context(), "server.error.could_not_start_account_authorization"), 503)
 		return
 	}
 	if provider == providers.ProviderOutlook && h.userCredentials.UsesMicrosoftDeviceCode() {
@@ -69,7 +70,7 @@ func (h *Handler) handleUserAccountOAuthAuthorize(w http.ResponseWriter, r *http
 	}
 	location, err := h.userCredentials.AccountAuthorizationURL(provider, state, r.FormValue("calendar_access") == "full")
 	if err != nil {
-		http.Error(w, "mailbox OAuth provider is not configured", 400)
+		http.Error(w, i18n.T(r.Context(), "server.error.mailbox_oauth_provider_is_not_configured"), 400)
 		return
 	}
 	http.Redirect(w, r, location, http.StatusSeeOther)

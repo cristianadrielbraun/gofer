@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"io"
 	"log"
 	"net/http"
@@ -39,7 +40,7 @@ func (h *Handler) handleMarkMessagesNotSpam(w http.ResponseWriter, r *http.Reque
 func (h *Handler) handleMarkMessagesSpamState(w http.ResponseWriter, r *http.Request, disposition spamDisposition) {
 	payload, err := decodeMessageBulkRequest(r)
 	if err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_request_body"), http.StatusBadRequest)
 		return
 	}
 
@@ -135,10 +136,10 @@ func (h *Handler) handleMarkMessagesSpamState(w http.ResponseWriter, r *http.Req
 
 	if updatedMessages == 0 && firstErr != nil {
 		if errors.Is(firstErr, errNoSpamFolder) {
-			http.Error(w, noSpamFolderMessage, http.StatusBadRequest)
+			http.Error(w, serverText(r.Context(), noSpamFolderMessage), http.StatusBadRequest)
 			return
 		}
-		http.Error(w, firstErr.Error(), http.StatusBadGateway)
+		http.Error(w, serverText(r.Context(), firstErr.Error()), http.StatusBadGateway)
 		return
 	}
 

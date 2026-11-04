@@ -41,6 +41,9 @@ func (h *Handler) LocaleMiddleware(next http.Handler) http.Handler {
 			if saved, ok := i18n.FromSetting(prefs.language); ok {
 				locale = saved
 			}
+			// Work done later for this user, such as a push, writes in the
+			// language this page used.
+			i18n.RememberUser(user.ID, locale, prefs.dateFormat, prefs.timeFormat)
 		}
 		ctx := i18n.WithDatePrefs(i18n.WithLocale(r.Context(), locale), prefs.dateFormat, prefs.timeFormat)
 		next.ServeHTTP(w, r.WithContext(ctx))
@@ -70,6 +73,18 @@ func (h *Handler) savePickedLanguage(w http.ResponseWriter, r *http.Request, use
 		return
 	}
 	rememberSavedRegional(userID, updates)
+}
+
+// useSavedRegionalForBackground lets work done outside a request find a
+// user's saved language and date settings.
+func (h *Handler) useSavedRegionalForBackground() {
+	i18n.SetUserPrefsLoader(func(ctx context.Context, userID string) (string, string, string, bool) {
+		if h.db == nil {
+			return "", "", "", false
+		}
+		prefs := h.savedRegionalPrefs(ctx, userID)
+		return prefs.language, prefs.dateFormat, prefs.timeFormat, true
+	})
 }
 
 func (h *Handler) savedRegionalPrefs(ctx context.Context, userID string) regionalPrefs {

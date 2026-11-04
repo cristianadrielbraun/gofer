@@ -3,6 +3,7 @@ package handler
 import (
 	"bytes"
 	"errors"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"log"
 	"net/http"
 
@@ -61,7 +62,7 @@ func (h *Handler) handlePersonalSetup(w http.ResponseWriter, r *http.Request) {
 			data.Errors = passwordErr.Fields
 		case errors.Is(err, auth.ErrPersonalSetupBlocked):
 			status = http.StatusConflict
-			data.Errors = map[string]string{"form": "This database is not an unprotected personal profile. Use its original authentication mode."}
+			data.Errors = map[string]string{"form": i18n.T(r.Context(), "auth.personal.blocked")}
 		case errors.Is(err, auth.ErrSetupAccessInvalid), errors.Is(err, auth.ErrSetupAlreadyInitialized):
 			http.Redirect(w, r, setupPath, http.StatusSeeOther)
 			return
@@ -71,6 +72,7 @@ func (h *Handler) handlePersonalSetup(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	data.Errors = authFields(r.Context(), data.Errors)
 	var page bytes.Buffer
 	if err := views.PersonalSetupPage(data).Render(r.Context(), &page); err != nil {
 		h.writeSetupServiceFailure(w)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"log"
 	"net/http"
 	"net/url"
@@ -430,7 +431,7 @@ func (h *Handler) handleDiscoverAccountCalendars(w http.ResponseWriter, r *http.
 	ctx := r.Context()
 	accountID := strings.TrimSpace(r.PathValue("id"))
 	if accountID == "" {
-		http.Error(w, "account id required", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.account_id_required"), http.StatusBadRequest)
 		return
 	}
 	if !h.requireOwnedAccount(w, r, accountID) {
@@ -439,7 +440,7 @@ func (h *Handler) handleDiscoverAccountCalendars(w http.ResponseWriter, r *http.
 
 	data, err := h.accountStore.GetEditData(ctx, accountID)
 	if err != nil {
-		http.Error(w, "account not found", http.StatusNotFound)
+		http.Error(w, i18n.T(r.Context(), "server.error.account_not_found"), http.StatusNotFound)
 		return
 	}
 	statusMessage := ""
@@ -462,8 +463,8 @@ func (h *Handler) handleDiscoverAccountCalendars(w http.ResponseWriter, r *http.
 	}
 	h.markCalendarCreateAccess(ctx, data)
 
-	if err := views.CalendarSyncSettingsResult(*data, statusMessage, statusError).Render(ctx, w); err != nil {
-		http.Error(w, "failed to render calendar discovery result", http.StatusInternalServerError)
+	if err := views.CalendarSyncSettingsResult(*data, serverText(r.Context(), statusMessage), statusError).Render(ctx, w); err != nil {
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_render_calendar_discovery_result"), http.StatusInternalServerError)
 	}
 }
 
@@ -475,13 +476,13 @@ func (h *Handler) discoverAccountCalendars(ctx context.Context, w http.ResponseW
 	switch data.Provider {
 	case providers.ProviderGmail:
 		if h.mailCredentials() == nil || !h.mailCredentials().HasGoogleOAuth() {
-			statusMessage = "Google OAuth is not configured for this Gofer instance."
+			statusMessage = i18n.T(r.Context(), "server.msg.google_oauth_is_not_configured_for_this")
 			statusError = true
 			break
 		}
 		accessToken, tokenErr := h.mailCredentials().GetGoogleCalendarTokenForAccount(ctx, accountID)
 		if tokenErr != nil {
-			statusMessage = "Google Calendar access is missing. Reconnect this account from its actions menu, then discover calendars again."
+			statusMessage = i18n.T(r.Context(), "server.msg.google_calendar_access_is_missing_reconnect_this")
 			statusError = true
 			break
 		}
@@ -509,13 +510,13 @@ func (h *Handler) discoverAccountCalendars(ctx context.Context, w http.ResponseW
 		discoverySucceeded = true
 	case providers.ProviderOutlook:
 		if h.mailCredentials() == nil || !h.mailCredentials().HasMicrosoftOAuth() {
-			statusMessage = "Microsoft OAuth is not configured for this Gofer instance."
+			statusMessage = i18n.T(r.Context(), "server.msg.microsoft_oauth_is_not_configured_for_this")
 			statusError = true
 			break
 		}
 		accessToken, tokenErr := h.mailCredentials().GetMicrosoftGraphCalendarTokenForAccount(ctx, accountID)
 		if tokenErr != nil {
-			statusMessage = "Microsoft Calendar access is missing. Reconnect this account from its actions menu, then discover calendars again."
+			statusMessage = i18n.T(r.Context(), "server.msg.microsoft_calendar_access_is_missing_reconnect_this")
 			statusError = true
 			break
 		}
@@ -537,7 +538,7 @@ func (h *Handler) discoverAccountCalendars(ctx context.Context, w http.ResponseW
 		discoverySucceeded = true
 	case providers.ProviderIMAP, providers.ProviderJMAP:
 		if err := r.ParseForm(); err != nil {
-			statusMessage = "Calendar discovery failed: the CalDAV server URL could not be read."
+			statusMessage = i18n.T(r.Context(), "server.msg.calendar_discovery_failed_the_caldav_server_url")
 			statusError = true
 			break
 		}
@@ -570,7 +571,7 @@ func (h *Handler) discoverAccountCalendars(ctx context.Context, w http.ResponseW
 			}
 			password, err = h.accountStore.DecryptPassword(ctx, accountID)
 			if err != nil || strings.TrimSpace(password) == "" {
-				statusMessage = "CalDAV discovery needs this mailbox's password or app password."
+				statusMessage = i18n.T(r.Context(), "server.msg.caldav_discovery_needs_this_mailbox_s_password")
 				statusError = true
 				break
 			}
@@ -583,13 +584,13 @@ func (h *Handler) discoverAccountCalendars(ctx context.Context, w http.ResponseW
 			if strings.TrimSpace(password) == "" {
 				password, err = h.accountStore.CalDAVPassword(ctx, userID, accountID)
 				if err != nil {
-					statusMessage = "Could not read the saved CalDAV password."
+					statusMessage = i18n.T(r.Context(), "server.msg.could_not_read_the_saved_caldav_password")
 					statusError = true
 					break
 				}
 			}
 			if username == "" || strings.TrimSpace(password) == "" {
-				statusMessage = "Enter the CalDAV username and password or use the incoming-mail credentials."
+				statusMessage = i18n.T(r.Context(), "server.msg.enter_the_caldav_username_and_password_or")
 				statusError = true
 				break
 			}
@@ -620,13 +621,13 @@ func (h *Handler) discoverAccountCalendars(ctx context.Context, w http.ResponseW
 			break
 		}
 		if saveErr := h.accountStore.SaveCalDAVConfig(ctx, userID, accountID, normalizedBaseURL, username, password, useAccountCredentials); saveErr != nil {
-			statusMessage = "Calendars were found, but the CalDAV settings could not be saved."
+			statusMessage = i18n.T(r.Context(), "server.msg.calendars_were_found_but_the_caldav_settings")
 			statusError = true
 			break
 		}
 		data.CalendarSync.CalDAVBaseURL = normalizedBaseURL
 		if storeErr := h.db.ReplaceCalendarSources(ctx, userID, accountID, storage.CalendarSourceProviderCalDAV, calendars); storeErr != nil {
-			statusMessage = "Could not save the discovered CalDAV calendars."
+			statusMessage = i18n.T(r.Context(), "server.msg.could_not_save_the_discovered_caldav_calendars")
 			statusError = true
 			break
 		}
@@ -642,7 +643,7 @@ func (h *Handler) discoverAccountCalendars(ctx context.Context, w http.ResponseW
 			}
 		}
 	default:
-		statusMessage = "Calendar discovery is not available for this account type."
+		statusMessage = i18n.T(r.Context(), "server.msg.calendar_discovery_is_not_available_for_this")
 		statusError = true
 	}
 	return statusMessage, statusError, discoverySucceeded

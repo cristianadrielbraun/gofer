@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"log"
 	"net/http"
 	"net/mail"
@@ -305,14 +306,14 @@ func (h *Handler) handleCalendarReplyAction(w http.ResponseWriter, r *http.Reque
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 1024)
 	if r.URL.RawQuery != "" || r.ParseForm() != nil || len(r.PostForm) != 1 || len(r.PostForm["action"]) != 1 || (job.State != "pending" && job.State != "conflict") {
-		http.Error(w, "Invalid reply action.", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_reply_action"), http.StatusBadRequest)
 		return
 	}
 	switch r.PostForm.Get("action") {
 	case "retry", "resend-confirmed":
 		confirmed := r.PostForm.Get("action") == "resend-confirmed"
 		if job.State != "pending" || (!confirmed && job.SendStatus != storage.OutgoingSendFailed) || (confirmed && job.SendStatus != storage.OutgoingSendAmbiguous) {
-			http.Error(w, "This reply cannot be retried safely.", http.StatusConflict)
+			http.Error(w, i18n.T(r.Context(), "server.error.this_reply_cannot_be_retried_safely"), http.StatusConflict)
 			return
 		}
 		_, err = h.db.RetryOutgoingSend(ctx, job.UserID, job.ID, confirmed)
@@ -328,12 +329,12 @@ func (h *Handler) handleCalendarReplyAction(w http.ResponseWriter, r *http.Reque
 		}
 	case "dismiss":
 		if job.State != "conflict" {
-			http.Error(w, "This notice is not ready to dismiss.", http.StatusConflict)
+			http.Error(w, i18n.T(r.Context(), "server.error.this_notice_is_not_ready_to_dismiss"), http.StatusConflict)
 			return
 		}
 		err = h.db.DismissCalendarReplyConflict(ctx, job.UserID, job.ID)
 	default:
-		http.Error(w, "Invalid reply action.", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_reply_action"), http.StatusBadRequest)
 		return
 	}
 	note := ""

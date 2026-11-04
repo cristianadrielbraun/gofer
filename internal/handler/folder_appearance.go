@@ -2,6 +2,7 @@ package handler
 
 import (
 	"errors"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"net/http"
 	"strings"
 
@@ -58,31 +59,31 @@ func readFolderAppearance(w http.ResponseWriter, r *http.Request) (folderAppeara
 	var input folderAppearanceInput
 	r.Body = http.MaxBytesReader(w, r.Body, 4096)
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Invalid appearance.", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_appearance"), http.StatusBadRequest)
 		return input, false
 	}
 	for key := range r.PostForm {
 		if key != "color" && key != "icon" && key != "style" {
-			http.Error(w, "Invalid folder appearance.", http.StatusBadRequest)
+			http.Error(w, i18n.T(r.Context(), "server.error.invalid_folder_appearance"), http.StatusBadRequest)
 			return input, false
 		}
 	}
 	colors, ok := r.PostForm["color"]
 	if !ok || len(colors) != 1 || !models.ValidFolderColor(colors[0]) {
-		http.Error(w, "Choose a valid folder color.", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.choose_a_valid_folder_color"), http.StatusBadRequest)
 		return input, false
 	}
 	input.Color = strings.ToLower(colors[0])
 	if icons, present := r.PostForm["icon"]; present {
 		if len(icons) != 1 || !models.ValidFolderIcon(icons[0]) {
-			http.Error(w, "Choose an available folder icon.", http.StatusBadRequest)
+			http.Error(w, i18n.T(r.Context(), "server.error.choose_an_available_folder_icon"), http.StatusBadRequest)
 			return input, false
 		}
 		input.Icon = &icons[0]
 	}
 	if styles, present := r.PostForm["style"]; present {
 		if len(styles) != 1 || !models.ValidFolderIconStyle(styles[0]) {
-			http.Error(w, "Choose an outlined or filled icon style.", http.StatusBadRequest)
+			http.Error(w, i18n.T(r.Context(), "server.error.choose_an_outlined_or_filled_icon_style"), http.StatusBadRequest)
 			return input, false
 		}
 		input.Style = &styles[0]
@@ -104,7 +105,7 @@ func (h *Handler) handleSaveFolderAppearance(w http.ResponseWriter, r *http.Requ
 		})
 	}
 	if errors.Is(err, storage.ErrFolderColor) || errors.Is(err, storage.ErrFolderIcon) || errors.Is(err, storage.ErrFolderIconStyle) {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, serverText(r.Context(), err.Error()), http.StatusBadRequest)
 		return
 	}
 	if err != nil {
@@ -152,7 +153,7 @@ func (h *Handler) handleSaveVirtualFolderAppearance(w http.ResponseWriter, r *ht
 		return
 	}
 	if input.Icon != nil {
-		http.Error(w, "This view's symbol cannot be changed.", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.this_view_s_symbol_cannot_be_changed"), http.StatusBadRequest)
 		return
 	}
 	ctx := r.Context()

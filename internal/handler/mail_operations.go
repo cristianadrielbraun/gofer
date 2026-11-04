@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"net/http"
 	"strings"
 	"time"
@@ -113,7 +114,7 @@ func (h *Handler) handleSettingsMailOperationsContent(w http.ResponseWriter, r *
 	w.Header().Set("Cache-Control", "no-store")
 	status, err := h.mailOperationsStatus(r.Context())
 	if err != nil {
-		http.Error(w, "failed to load mail operations", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_load_mail_operations"), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -144,7 +145,7 @@ func (h *Handler) mailOperationsStatus(ctx context.Context) (models.MailOperatio
 func (h *Handler) handleRetryMailOperation(w http.ResponseWriter, r *http.Request) {
 	operationID := strings.TrimSpace(r.PathValue("id"))
 	if operationID == "" {
-		writeMailOperationsJSON(w, http.StatusBadRequest, map[string]string{"error": "operation id is required"})
+		writeMailOperationsJSON(w, http.StatusBadRequest, map[string]string{"error": i18n.T(r.Context(), "server.msg.operation_id_is_required")})
 		return
 	}
 	operation, err := h.db.RetryMailOperationForUser(r.Context(), h.userID(r.Context()), operationID)
@@ -153,11 +154,11 @@ func (h *Handler) handleRetryMailOperation(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if errors.Is(err, storage.ErrMailOperationNotRetryable) {
-		writeMailOperationsJSON(w, http.StatusConflict, map[string]string{"error": "this mail operation cannot be retried in its current state"})
+		writeMailOperationsJSON(w, http.StatusConflict, map[string]string{"error": i18n.T(r.Context(), "server.msg.this_mail_operation_cannot_be_retried_in")})
 		return
 	}
 	if err != nil {
-		writeMailOperationsJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to retry mail operation"})
+		writeMailOperationsJSON(w, http.StatusInternalServerError, map[string]string{"error": i18n.T(r.Context(), "server.msg.failed_to_retry_mail_operation")})
 		return
 	}
 	h.signalMailOperation(operation)
@@ -171,12 +172,12 @@ func (h *Handler) handleAdminMailOperationsStatus(w http.ResponseWriter, r *http
 		return
 	}
 	if err != nil {
-		http.Error(w, "failed to load webmail accounts", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_load_webmail_accounts"), http.StatusInternalServerError)
 		return
 	}
 	status, err := h.mailOperationsAdminStatus(r.Context(), scope)
 	if err != nil {
-		http.Error(w, "failed to get mail operation status", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_get_mail_operation_status"), http.StatusInternalServerError)
 		return
 	}
 	writeMailOperationsJSON(w, http.StatusOK, status)
@@ -189,12 +190,12 @@ func (h *Handler) handleAdminOperations(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if err != nil {
-		http.Error(w, "failed to load webmail accounts", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_load_webmail_accounts"), http.StatusInternalServerError)
 		return
 	}
 	status, err := h.mailOperationsAdminStatus(r.Context(), scope)
 	if err != nil {
-		http.Error(w, "failed to get mail operation status", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_get_mail_operation_status"), http.StatusInternalServerError)
 		return
 	}
 	uiSettings := h.db.GetUISettings(r.Context(), h.userID(r.Context()))

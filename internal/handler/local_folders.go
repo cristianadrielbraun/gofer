@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"net/http"
 	"sync"
 
@@ -59,7 +60,7 @@ func localFoldersShownValue(r *http.Request) (bool, error) {
 func (h *Handler) handleLocalFoldersShown(w http.ResponseWriter, r *http.Request) {
 	shown, err := localFoldersShownValue(r)
 	if err != nil {
-		http.Error(w, "invalid form", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_form"), http.StatusBadRequest)
 		return
 	}
 	if err := h.accountStore.SetLocalFoldersHidden(r.Context(), h.userID(r.Context()), r.PathValue("id"), !shown); err != nil {
@@ -67,7 +68,7 @@ func (h *Handler) handleLocalFoldersShown(w http.ResponseWriter, r *http.Request
 			http.NotFound(w, r)
 			return
 		}
-		http.Error(w, "couldn't save the change", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.couldn_t_save_the_change"), http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -78,7 +79,7 @@ func (h *Handler) handleLocalFoldersShown(w http.ResponseWriter, r *http.Request
 func (h *Handler) handleUserLocalFoldersShown(w http.ResponseWriter, r *http.Request) {
 	shown, err := localFoldersShownValue(r)
 	if err != nil {
-		http.Error(w, "invalid form", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_form"), http.StatusBadRequest)
 		return
 	}
 	owner, id := h.userID(r.Context()), r.PathValue("id")

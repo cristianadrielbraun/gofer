@@ -117,7 +117,7 @@ func TestSecurityEventTitleCoversKnownEventTypesWithoutRawEnumLabels(t *testing.
 		auth.AuthEventIdentityLinked,
 		auth.AuthEventIdentityUnlinked,
 	} {
-		title := securityEventTitle(eventType, true)
+		title := securityEventTitle(context.Background(), eventType, true)
 		if strings.TrimSpace(title) == "" || strings.Contains(title, string(eventType)) {
 			t.Fatalf("securityEventTitle(%q) = %q", eventType, title)
 		}

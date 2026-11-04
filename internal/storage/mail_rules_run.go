@@ -300,7 +300,8 @@ func (db *DB) RunMailRuleNow(ctx context.Context, userID, ruleID string, scope M
 func (db *DB) RecordMailRuleRunSummary(ctx context.Context, userID, ruleID, accountID, detail string, changed int) error {
 	rule, err := db.GetMailRule(ctx, userID, ruleID)
 	if errors.Is(err, sql.ErrNoRows) {
-		rule = models.MailRule{ID: ruleID, Name: "A deleted rule"}
+		// No name: the activity names a deleted rule in the reader's language.
+		rule = models.MailRule{ID: ruleID}
 	} else if err != nil {
 		return err
 	}

@@ -445,7 +445,7 @@ func ownedCardDAVSync(ctx context.Context, cfg models.ContactSyncConfig, passwor
 
 func (h *Handler) handleUserSyncAccountContacts(w http.ResponseWriter, r *http.Request) {
 	if err := parseUserContactSetupForm(w, r); err != nil {
-		htmlStatus(w, http.StatusBadRequest, "Invalid sync request.")
+		htmlStatus(w, r, http.StatusBadRequest, "Invalid sync request.")
 		return
 	}
 	owner := h.userID(r.Context())
@@ -475,7 +475,7 @@ func (h *Handler) handleUserSyncAccountContacts(w http.ResponseWriter, r *http.R
 		}
 	}
 	if len(accounts) == 0 {
-		htmlStatus(w, http.StatusBadRequest, "Connect an account with contact sync before syncing contacts.")
+		htmlStatus(w, r, http.StatusBadRequest, "Connect an account with contact sync before syncing contacts.")
 		return
 	}
 	total := 0
@@ -489,19 +489,19 @@ func (h *Handler) handleUserSyncAccountContacts(w http.ResponseWriter, r *http.R
 		total += imported
 	}
 	if len(failures) == len(accounts) {
-		htmlStatus(w, http.StatusBadGateway, "Contact sync failed: "+strings.Join(failures, "; "))
+		htmlStatus(w, r, http.StatusBadGateway, "Contact sync failed: "+strings.Join(failures, "; "))
 		return
 	}
 	_ = h.withUserDB(r.Context(), owner, func(db *storage.DB) error {
 		return db.LogContactActivity(r.Context(), owner, "provider_contacts_synced", "", "Account contacts synced", total)
 	})
 	if len(failures) > 0 {
-		htmlStatus(w, http.StatusOK, fmt.Sprintf("Contacts partially synced: %d imported or updated. Failed: %s", total, strings.Join(failures, "; ")))
+		htmlStatus(w, r, http.StatusOK, fmt.Sprintf("Contacts partially synced: %d imported or updated. Failed: %s", total, strings.Join(failures, "; ")))
 		return
 	}
 	if len(accounts) == 1 {
-		htmlStatus(w, http.StatusOK, fmt.Sprintf("Contacts synced for %s: %d imported or updated.", accounts[0].Email, total))
+		htmlStatus(w, r, http.StatusOK, fmt.Sprintf("Contacts synced for %s: %d imported or updated.", accounts[0].Email, total))
 		return
 	}
-	htmlStatus(w, http.StatusOK, fmt.Sprintf("Contacts synced across %d accounts: %d imported or updated.", len(accounts), total))
+	htmlStatus(w, r, http.StatusOK, fmt.Sprintf("Contacts synced across %d accounts: %d imported or updated.", len(accounts), total))
 }

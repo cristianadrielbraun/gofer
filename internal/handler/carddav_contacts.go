@@ -7,6 +7,7 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"html"
 	"io"
 	"log"
@@ -141,14 +142,14 @@ func (h *Handler) handleSaveAccountContactSync(w http.ResponseWriter, r *http.Re
 	userID := h.userID(ctx)
 	accountID := r.PathValue("id")
 	if accountID == "" {
-		htmlStatus(w, http.StatusBadRequest, "Account is required.")
+		htmlStatus(w, r, http.StatusBadRequest, "Account is required.")
 		return
 	}
 	if !h.requireOwnedAccount(w, r, accountID) {
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		htmlStatus(w, http.StatusBadRequest, "Invalid contact sync settings.")
+		htmlStatus(w, r, http.StatusBadRequest, "Invalid contact sync settings.")
 		return
 	}
 	if jmapContactSetupRequested(r) {
@@ -171,7 +172,7 @@ func (h *Handler) handleSaveAccountContactSync(w http.ResponseWriter, r *http.Re
 		if cfg.Username == "" || r.FormValue("use_account_credentials") == "1" {
 			accountEmail, accountUsername, _, _, _, err := h.contactSyncAccountIdentity(ctx, userID, accountID)
 			if err != nil {
-				htmlStatus(w, http.StatusBadRequest, "Account is required.")
+				htmlStatus(w, r, http.StatusBadRequest, "Account is required.")
 				return
 			}
 			cfg.Username = accountUsername
@@ -184,14 +185,14 @@ func (h *Handler) handleSaveAccountContactSync(w http.ResponseWriter, r *http.Re
 			cfg.AddressBooks = contactSyncAddressBooksFromURL(cfg.AddressBookURL)
 		}
 		if len(cfg.AddressBooks) == 0 || cfg.Username == "" {
-			htmlStatus(w, http.StatusBadRequest, "Choose at least one CardDAV address book and enter a username.")
+			htmlStatus(w, r, http.StatusBadRequest, i18n.T(r.Context(), "server.msg.choose_at_least_one_carddav_address_book"))
 			return
 		}
 		if password == "" {
 			var err error
 			password, err = h.contactSyncPasswordOrAccount(ctx, userID, accountID, "")
 			if err != nil || password == "" {
-				htmlStatus(w, http.StatusBadRequest, "CardDAV password is required.")
+				htmlStatus(w, r, http.StatusBadRequest, i18n.T(r.Context(), "server.msg.carddav_password_is_required"))
 				return
 			}
 		}
@@ -199,13 +200,13 @@ func (h *Handler) handleSaveAccountContactSync(w http.ResponseWriter, r *http.Re
 			bookCfg := cfg
 			bookCfg.AddressBookURL = book.URL
 			if err := testCardDAVAddressBook(ctx, bookCfg, password); err != nil {
-				htmlStatus(w, http.StatusBadRequest, "CardDAV save failed: could not connect to "+contactAddressBookLabel(book)+": "+err.Error())
+				htmlStatus(w, r, http.StatusBadRequest, "CardDAV save failed: could not connect to "+contactAddressBookLabel(book)+": "+err.Error())
 				return
 			}
 		}
 	}
 	if err := h.accountStore.SaveContactSyncConfig(ctx, userID, accountID, cfg, password); err != nil {
-		htmlStatus(w, http.StatusInternalServerError, "Could not save contact sync settings.")
+		htmlStatus(w, r, http.StatusInternalServerError, "Could not save contact sync settings.")
 		return
 	}
 	if cfg.Enabled && (r.FormValue("password") != "" || r.FormValue("use_account_credentials") == "1") {
@@ -217,7 +218,7 @@ func (h *Handler) handleSaveAccountContactSync(w http.ResponseWriter, r *http.Re
 	}
 	w.Header().Set("X-Gofer-Contact-Sync-Enabled", strconv.FormatBool(cfg.Enabled))
 	if !cfg.Enabled {
-		htmlStatus(w, http.StatusOK, "Contact sync is disabled for this account.")
+		htmlStatus(w, r, http.StatusOK, "Contact sync is disabled for this account.")
 		return
 	}
 	go func() {
@@ -303,14 +304,14 @@ func (h *Handler) handleTestAccountContactSync(w http.ResponseWriter, r *http.Re
 	userID := h.userID(ctx)
 	accountID := r.PathValue("id")
 	if accountID == "" {
-		htmlStatus(w, http.StatusBadRequest, "Account is required.")
+		htmlStatus(w, r, http.StatusBadRequest, "Account is required.")
 		return
 	}
 	if !h.requireOwnedAccount(w, r, accountID) {
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		htmlStatus(w, http.StatusBadRequest, "Invalid contact sync test.")
+		htmlStatus(w, r, http.StatusBadRequest, "Invalid contact sync test.")
 		return
 	}
 
@@ -333,23 +334,23 @@ func (h *Handler) handleTestAccountContactSync(w http.ResponseWriter, r *http.Re
 		var err error
 		password, err = h.contactSyncPasswordOrAccount(ctx, userID, accountID, "")
 		if err != nil || password == "" {
-			htmlStatus(w, http.StatusBadRequest, "Enter the CardDAV password before testing.")
+			htmlStatus(w, r, http.StatusBadRequest, "Enter the CardDAV password before testing.")
 			return
 		}
 	}
 	if len(cfg.AddressBooks) == 0 {
-		htmlStatus(w, http.StatusBadRequest, "Choose at least one CardDAV address book before testing.")
+		htmlStatus(w, r, http.StatusBadRequest, "Choose at least one CardDAV address book before testing.")
 		return
 	}
 	for _, book := range cfg.AddressBooks {
 		bookCfg := cfg
 		bookCfg.AddressBookURL = book.URL
 		if err := testCardDAVAddressBook(ctx, bookCfg, password); err != nil {
-			htmlStatus(w, http.StatusOK, "CardDAV test failed: "+err.Error())
+			htmlStatus(w, r, http.StatusOK, "CardDAV test failed: "+err.Error())
 			return
 		}
 	}
-	htmlStatus(w, http.StatusOK, "CardDAV connection succeeded.")
+	htmlStatus(w, r, http.StatusOK, "CardDAV connection succeeded.")
 }
 
 func contactSyncAddressBooksFromForm(r *http.Request, fallbackURL string) []models.ContactAddressBook {
@@ -405,14 +406,14 @@ func (h *Handler) handleDiscoverAccountContactSync(w http.ResponseWriter, r *htt
 	userID := h.userID(ctx)
 	accountID := r.PathValue("id")
 	if accountID == "" {
-		writeJSONError(w, http.StatusBadRequest, "account is required")
+		writeJSONError(w, r, http.StatusBadRequest, "account is required")
 		return
 	}
 	if !h.requireOwnedAccount(w, r, accountID) {
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		writeJSONError(w, http.StatusBadRequest, "invalid discovery request")
+		writeJSONError(w, r, http.StatusBadRequest, "invalid discovery request")
 		return
 	}
 	if jmapContactSetupRequested(r) {
@@ -427,7 +428,7 @@ func (h *Handler) handleDiscoverAccountContactSync(w http.ResponseWriter, r *htt
 	username := strings.TrimSpace(r.FormValue("username"))
 	accountEmail, accountUsername, imapHost, smtpHost, jmapSessionURL, err := h.contactSyncAccountIdentity(ctx, userID, accountID)
 	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, "account is required")
+		writeJSONError(w, r, http.StatusBadRequest, "account is required")
 		return
 	}
 	if username == "" {
@@ -441,20 +442,20 @@ func (h *Handler) handleDiscoverAccountContactSync(w http.ResponseWriter, r *htt
 	if autodiscover {
 		candidates = contactSyncDiscoveryCandidates(baseURL, jmapServerAddress(jmapSessionURL), imapHost, smtpHost, username, accountEmail)
 	} else if len(candidates) == 0 {
-		writeJSONError(w, http.StatusBadRequest, "enter a CardDAV base URL, or use Attempt URL autodiscover")
+		writeJSONError(w, r, http.StatusBadRequest, "enter a CardDAV base URL, or use Attempt URL autodiscover")
 		return
 	}
 	password := r.FormValue("password")
 	if password == "" {
 		password, err = h.contactSyncPasswordOrAccount(ctx, userID, accountID, "")
 		if err != nil || password == "" {
-			writeJSONError(w, http.StatusBadRequest, "enter the CardDAV password before discovery")
+			writeJSONError(w, r, http.StatusBadRequest, "enter the CardDAV password before discovery")
 			return
 		}
 	}
 	create, err := davChangeFromForm(r)
 	if err != nil {
-		writeJSONError(w, http.StatusBadRequest, err.Error())
+		writeJSONError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -467,7 +468,7 @@ func (h *Handler) handleDiscoverAccountContactSync(w http.ResponseWriter, r *htt
 	books, err := discoverCardDAVAddressBooksCandidates(ctx, candidates, username, password, nil, autodiscover, create)
 	if err != nil {
 		log.Printf("contacts carddav discover %s: failed: %v", accountID, err)
-		writeJSONError(w, http.StatusBadRequest, err.Error())
+		writeJSONError(w, r, http.StatusBadRequest, err.Error())
 		return
 	}
 	h.dropDeletedAddressBook(ctx, userID, accountID, create)
@@ -499,13 +500,13 @@ func (h *Handler) streamCardDAVDiscovery(w http.ResponseWriter, ctx context.Cont
 		}
 	}
 
-	writeEvent(map[string]any{"type": "start", "message": "Preparing CardDAV discovery..."})
+	writeEvent(map[string]any{"type": "start", "message": i18n.T(ctx, "server.msg.preparing_carddav_discovery")})
 	books, err := discoverCardDAVAddressBooksCandidates(ctx, candidates, username, password, func(completed, total int, endpoint string) {
 		writeEvent(map[string]any{"type": "progress", "completed": completed, "total": total, "endpoint": endpoint})
 	}, autodiscover, create)
 	if err != nil {
 		log.Printf("contacts carddav discover %s: failed: %v", accountID, err)
-		writeEvent(map[string]any{"type": "error", "error": err.Error()})
+		writeEvent(map[string]any{"type": "error", "error": serverText(ctx, err.Error())})
 		return
 	}
 	h.dropDeletedAddressBook(ctx, h.userID(ctx), accountID, create)
@@ -1854,10 +1855,10 @@ func (r davResponse) etag() string {
 	return ""
 }
 
-func writeJSONError(w http.ResponseWriter, status int, message string) {
+func writeJSONError(w http.ResponseWriter, r *http.Request, status int, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]string{"error": message})
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": serverText(r.Context(), message)})
 }
 
 func isCardDAVStatus(err error, statuses ...int) bool {

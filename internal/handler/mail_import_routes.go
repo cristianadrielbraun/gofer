@@ -78,7 +78,7 @@ func (h *Handler) renderMailImportJobs(w http.ResponseWriter, r *http.Request) {
 	jobs, err := h.mailImportJobViews(r.Context(), h.userID(r.Context()))
 	if err != nil {
 		log.Printf("mail import: %v", err)
-		http.Error(w, "could not list imports", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.could_not_list_imports"), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -139,7 +139,7 @@ func (h *Handler) renderMailImportReview(w http.ResponseWriter, r *http.Request,
 	accounts, err := h.mailExportAccounts(ctx, job.Owner)
 	if err != nil {
 		log.Printf("mail import: list accounts: %v", err)
-		http.Error(w, "could not list accounts", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.could_not_list_accounts"), http.StatusInternalServerError)
 		return
 	}
 	data := views.MailImportReviewData{ID: job.ID, ExportedFrom: job.ExportedFrom, Message: message}
@@ -165,7 +165,7 @@ func (h *Handler) renderMailImportReview(w http.ResponseWriter, r *http.Request,
 		folders, err := h.mailExportFolders(ctx, job.Owner, chosen.ID)
 		if err != nil {
 			log.Printf("mail import: list folders: %v", err)
-			data.Message = "The account's folders could not be listed."
+			data.Message = i18n.T(r.Context(), "server.msg.the_account_s_folders_could_not_be")
 		}
 		targets := mailImportTargets(chosen.Provider, folders)
 		for _, folder := range targets {
@@ -199,7 +199,7 @@ func (h *Handler) handleStartMailImport(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "bad request", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.bad_request"), http.StatusBadRequest)
 		return
 	}
 	ctx, owner := r.Context(), h.userID(r.Context())

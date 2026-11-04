@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"errors"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"log"
 	"net/http"
 	"sort"
@@ -118,7 +119,7 @@ func (h *Handler) mailAllowlistRefusals(ctx context.Context) ([]models.AdminWebm
 		for _, account := range data.Transports {
 			if err := list.CheckMailboxTransports(account); err != nil {
 				refused = append(refused, mailAllowlistRefusal{owner: owner.ID, MailAllowlistRefusedAccount: models.MailAllowlistRefusedAccount{
-					ID: account.ID, Email: account.Email, Username: owner.Username, Reason: mailAllowlistRefusalReason(err)}})
+					ID: account.ID, Email: account.Email, Username: owner.Username, Reason: mailAllowlistRefusalReason(ctx, err)}})
 			}
 		}
 		return nil
@@ -134,18 +135,18 @@ func (h *Handler) mailAllowlistRefusals(ctx context.Context) ([]models.AdminWebm
 
 // mailAllowlistRefusalReason says, for the administrator, which rule a
 // mailbox breaks.
-func mailAllowlistRefusalReason(err error) string {
+func mailAllowlistRefusalReason(ctx context.Context, err error) string {
 	var refusal *storage.MailAllowlistError
 	if !errors.As(err, &refusal) {
 		return err.Error()
 	}
 	switch refusal.Rule {
 	case storage.MailAllowlistDomain:
-		return "@" + refusal.Value + " isn't an allowed domain"
+		return i18n.T(ctx, "auth.allowlist.refused_domain", "domain", refusal.Value)
 	case storage.MailAllowlistProvider:
-		return refusal.Value + " isn't allowed"
+		return i18n.T(ctx, "auth.allowlist.refused_provider", "provider", refusal.Value)
 	default:
-		return refusal.Value + " isn't an allowed server"
+		return i18n.T(ctx, "auth.allowlist.refused_server", "server", refusal.Value)
 	}
 }
 
@@ -164,17 +165,17 @@ func (h *Handler) changeMailAllowlist(w http.ResponseWriter, r *http.Request, ch
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		h.redirectAdminSecurity(w, r, "", "Invalid form data.")
+		h.redirectAdminSecurity(w, r, "", i18n.T(r.Context(), "auth.admin.form_invalid"))
 		return
 	}
 	if err := h.validateMailSecurityAdministrator(ctx); err != nil {
-		h.redirectAdminSecurity(w, r, "", "Administrator access is no longer available.")
+		h.redirectAdminSecurity(w, r, "", i18n.T(r.Context(), "auth.admin.access_lost"))
 		return
 	}
 	_, before, err := h.mailAllowlistRefusals(ctx)
 	if err != nil {
 		log.Printf("allowed mail lists: list refused mailboxes: %v", err)
-		h.redirectAdminSecurity(w, r, "", "Could not check the mailboxes the lists apply to.")
+		h.redirectAdminSecurity(w, r, "", i18n.T(r.Context(), "auth.allowlist.check_failed"))
 		return
 	}
 	notice, err := change(ctx, h.userID(ctx))
@@ -228,18 +229,18 @@ func (h *Handler) addMailAllowlistEntry(w http.ResponseWriter, r *http.Request, 
 		value, err := h.db.AddMailAllowlistEntry(ctx, kind, r.FormValue("value"), admin)
 		if errors.Is(err, storage.ErrMailAllowlistEntry) {
 			if kind == storage.MailAllowlistDomain {
-				return "", errors.New("Enter a domain, such as example.org, or *.example.org for the domains below it.")
+				return "", errors.New(i18n.T(r.Context(), "auth.allowlist.domain_invalid"))
 			}
-			return "", errors.New("Enter a host name or IP address, such as imap.example.org, or *.example.org for the hosts below it.")
+			return "", errors.New(i18n.T(r.Context(), "auth.allowlist.server_invalid"))
 		}
 		if err != nil {
 			log.Printf("allowed mail lists: add %s: %v", kind, err)
-			return "", errors.New("Could not add it to the list.")
+			return "", errors.New(i18n.T(r.Context(), "auth.allowlist.add_failed"))
 		}
 		if kind == storage.MailAllowlistDomain {
-			return "Mailboxes with @" + value + " addresses are now allowed.", nil
+			return i18n.T(r.Context(), "auth.allowlist.domain_added", "domain", value), nil
 		}
-		return "Mailboxes can now connect to " + value + ".", nil
+		return i18n.T(r.Context(), "auth.allowlist.server_added", "server", value), nil
 	})
 }
 
@@ -247,9 +248,9 @@ func (h *Handler) handleDeleteMailAllowlistEntry(w http.ResponseWriter, r *http.
 	h.changeMailAllowlist(w, r, func(ctx context.Context, _ string) (string, error) {
 		if err := h.db.DeleteMailAllowlistEntry(ctx, r.PathValue("id")); err != nil {
 			log.Printf("allowed mail lists: remove entry: %v", err)
-			return "", errors.New("Could not remove it from the list.")
+			return "", errors.New(i18n.T(r.Context(), "auth.allowlist.remove_failed"))
 		}
-		return "Removed from the list.", nil
+		return i18n.T(r.Context(), "auth.allowlist.removed"), nil
 	})
 }
 
@@ -258,20 +259,20 @@ func (h *Handler) handleSetMailAllowlistProvider(w http.ResponseWriter, r *http.
 		provider := strings.TrimSpace(r.FormValue("provider"))
 		allowed := r.FormValue("allowed") == "true"
 		if provider != providers.ProviderGmail && provider != providers.ProviderOutlook {
-			return "", errors.New("Choose Gmail or Outlook.")
+			return "", errors.New(i18n.T(r.Context(), "auth.allowlist.choose_provider"))
 		}
 		if err := h.db.SetMailAllowlistProvider(ctx, provider, allowed, admin); err != nil {
 			log.Printf("allowed mail lists: set %s: %v", provider, err)
-			return "", errors.New("Could not change it.")
+			return "", errors.New(i18n.T(r.Context(), "auth.allowlist.change_failed"))
 		}
 		name := "Gmail"
 		if provider == providers.ProviderOutlook {
 			name = "Outlook"
 		}
 		if allowed {
-			return name + " mailboxes are now allowed.", nil
+			return i18n.T(r.Context(), "auth.allowlist.provider_allowed", "provider", name), nil
 		}
-		return name + " mailboxes are no longer allowed while the servers are limited.", nil
+		return i18n.T(r.Context(), "auth.allowlist.provider_blocked", "provider", name), nil
 	})
 }
 
@@ -282,7 +283,7 @@ func (h *Handler) handleSetMailAllowlistExempt(w http.ResponseWriter, r *http.Re
 		users, err := h.db.ListAdminWebmailUsers(ctx)
 		if err != nil {
 			log.Printf("allowed mail lists: list users: %v", err)
-			return "", errors.New("Could not change it.")
+			return "", errors.New(i18n.T(r.Context(), "auth.allowlist.change_failed"))
 		}
 		username := ""
 		for _, user := range users {
@@ -291,16 +292,16 @@ func (h *Handler) handleSetMailAllowlistExempt(w http.ResponseWriter, r *http.Re
 			}
 		}
 		if username == "" {
-			return "", errors.New("Choose a webmail user.")
+			return "", errors.New(i18n.T(r.Context(), "auth.allowlist.choose_user"))
 		}
 		if err := h.db.SetMailAllowlistExempt(ctx, userID, exempt, admin); err != nil {
 			log.Printf("allowed mail lists: exempt %s: %v", userID, err)
-			return "", errors.New("Could not change it.")
+			return "", errors.New(i18n.T(r.Context(), "auth.allowlist.change_failed"))
 		}
 		if exempt {
-			return "The lists no longer apply to " + username + ".", nil
+			return i18n.T(r.Context(), "auth.allowlist.exempt", "user", username), nil
 		}
-		return "The lists apply to " + username + " again.", nil
+		return i18n.T(r.Context(), "auth.allowlist.unexempt", "user", username), nil
 	})
 }
 

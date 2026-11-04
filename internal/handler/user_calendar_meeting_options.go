@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"net/http"
 	"net/url"
 	"time"
@@ -17,12 +18,12 @@ func (h *Handler) handleUserCalendarMeetingOptions(w http.ResponseWriter, r *htt
 	w.Header().Set("Cache-Control", "private, no-store")
 	query, err := url.ParseQuery(r.URL.RawQuery)
 	if err != nil || len(query["source_id"]) != 1 || query.Get("source_id") == "" || len(query["event_id"]) > 1 || len(query["edit_scope"]) > 1 {
-		http.Error(w, "Choose a calendar before checking meeting availability.", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.choose_a_calendar_before_checking_meeting_availability"), http.StatusBadRequest)
 		return
 	}
 	for key := range query {
 		if key != "source_id" && key != "event_id" && key != "edit_scope" {
-			http.Error(w, "Invalid meeting availability request.", http.StatusBadRequest)
+			http.Error(w, i18n.T(r.Context(), "server.error.invalid_meeting_availability_request"), http.StatusBadRequest)
 			return
 		}
 	}
@@ -59,7 +60,7 @@ func (h *Handler) handleUserCalendarMeetingOptions(w http.ResponseWriter, r *htt
 			p = &userCalendarRequest{h: h, event: eventSnapshot}
 			event, selected := eventSnapshot.Event(), eventSnapshot.Source()
 			details := views.CalendarEventDetails{}
-			userCalendarDetailAccess(&details, event, selected, h.userCalendarWriteAuthorized(ctx, selected))
+			userCalendarDetailAccess(ctx, &details, event, selected, h.userCalendarWriteAuthorized(ctx, selected))
 			if !details.CanEdit {
 				data.State = "unavailable"
 			} else if selected.Provider == "gmail" && calendarStoredGoogleMeet(event) {
@@ -96,7 +97,7 @@ func (h *Handler) handleUserCalendarMeetingOptions(w http.ResponseWriter, r *htt
 		return
 	}
 	if err := views.CalendarTeamsOption(data).Render(ctx, w); err != nil {
-		http.Error(w, "Could not show meeting availability.", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.could_not_show_meeting_availability"), http.StatusInternalServerError)
 	}
 }
 

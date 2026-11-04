@@ -105,7 +105,7 @@ func (h *Handler) mailTransferFormData(r *http.Request, values url.Values, messa
 	}
 	if data.SourceID == "" || data.TargetID == "" {
 		if data.Message == "" {
-			data.Message = "Mail needs an account to come from and another to go into, both connected."
+			data.Message = i18n.T(r.Context(), "server.msg.mail_needs_an_account_to_come_from")
 		}
 		return data, nil
 	}
@@ -175,7 +175,7 @@ func (h *Handler) renderMailTransferPanel(w http.ResponseWriter, r *http.Request
 	form, err := h.mailTransferFormData(r, values, message)
 	if err != nil {
 		log.Printf("mail transfer: %v", err)
-		http.Error(w, "could not list accounts", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.could_not_list_accounts"), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -186,7 +186,7 @@ func (h *Handler) renderMailTransferJobs(w http.ResponseWriter, r *http.Request)
 	jobs, err := h.mailTransferJobViews(r.Context(), h.userID(r.Context()))
 	if err != nil {
 		log.Printf("mail transfer: %v", err)
-		http.Error(w, "could not list transfers", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.could_not_list_transfers"), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -259,7 +259,7 @@ func (h *Handler) handleNewMailTransfer(w http.ResponseWriter, r *http.Request) 
 	form, err := h.mailTransferFormData(r, r.URL.Query(), "")
 	if err != nil {
 		log.Printf("mail transfer: %v", err)
-		http.Error(w, "could not list accounts", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.could_not_list_accounts"), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -271,7 +271,7 @@ func (h *Handler) handleStartMailTransfer(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "bad request", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.bad_request"), http.StatusBadRequest)
 		return
 	}
 	ctx, owner := r.Context(), h.userID(r.Context())
@@ -370,7 +370,7 @@ func (h *Handler) handleMessagesToAccountDialog(w http.ResponseWriter, r *http.R
 		log.Printf("mail transfer: find folder: %v", err)
 	}
 	if !found {
-		data.Problem = "That folder can't take mail from another account."
+		data.Problem = i18n.T(r.Context(), "server.error.that_folder_can_t_take_mail_from_another")
 	} else {
 		data.Target, data.Folder = target.Email, folder.Path
 		data.ToLocal = target.Provider == providers.ProviderLocal
@@ -394,7 +394,7 @@ func (h *Handler) handleMessagesToAccountDialog(w http.ResponseWriter, r *http.R
 		}
 	}
 	if len(data.Sources) == 0 && data.Problem == "" {
-		data.Problem = "These emails are already in that account."
+		data.Problem = i18n.T(r.Context(), "server.msg.these_emails_are_already_in_that_account")
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = views.MailToAccountDialog(data).Render(ctx, w)
@@ -412,13 +412,13 @@ func (h *Handler) handleMessagesToAccount(w http.ResponseWriter, r *http.Request
 		Mode string `json:"mode"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<20)).Decode(&payload); err != nil || len(payload.Targets) == 0 {
-		http.Error(w, "No emails were chosen.", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.no_emails_were_chosen"), http.StatusBadRequest)
 		return
 	}
 	ctx, owner := r.Context(), h.userID(r.Context())
 	target, destination, found, err := h.mailTransferDestination(ctx, owner, payload.FolderID)
 	if err != nil || !found {
-		http.Error(w, "That folder can't take mail from another account.", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.that_folder_can_t_take_mail_from"), http.StatusBadRequest)
 		return
 	}
 	if problem := mailImportAccountProblem(target); problem != "" {
@@ -460,7 +460,7 @@ func (h *Handler) handleMessagesToAccount(w http.ResponseWriter, r *http.Request
 	for accountID := range bySource {
 		source, ok, err := h.mailExportAccount(ctx, owner, accountID)
 		if err != nil || !ok || mailTransferSourceProblem(source) != "" {
-			http.Error(w, "One of the accounts these emails are in can't be read right now.", http.StatusBadRequest)
+			http.Error(w, i18n.T(r.Context(), "server.error.one_of_the_accounts_these_emails_are"), http.StatusBadRequest)
 			return
 		}
 		sources[accountID] = source
@@ -470,7 +470,7 @@ func (h *Handler) handleMessagesToAccount(w http.ResponseWriter, r *http.Request
 		job, err := h.mailTransferMessages(ctx, owner, sources[accountID], target, destination, ids, mode)
 		if err != nil {
 			log.Printf("mail transfer: start from the message list: %v", err)
-			http.Error(w, "The emails could not be sent to the other account.", http.StatusInternalServerError)
+			http.Error(w, i18n.T(r.Context(), "server.error.the_emails_could_not_be_sent_to"), http.StatusInternalServerError)
 			return
 		}
 		started = append(started, job.ID)

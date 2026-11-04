@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"log"
 	"net/http"
 	"strings"
@@ -21,7 +22,7 @@ func (h *Handler) handleUserRetryMailOperation(w http.ResponseWriter, r *http.Re
 	defer stop()
 	owner, id := h.userID(ctx), strings.TrimSpace(r.PathValue("id"))
 	if id == "" {
-		writeMailOperationsJSON(w, 400, map[string]string{"error": "operation id is required"})
+		writeMailOperationsJSON(w, 400, map[string]string{"error": i18n.T(r.Context(), "server.msg.operation_id_is_required")})
 		return
 	}
 	// Resolve the account, release this lease, then enter the account lifecycle
@@ -65,7 +66,7 @@ func (h *Handler) handleUserRetryMailOperation(w http.ResponseWriter, r *http.Re
 		return
 	}
 	if errors.Is(err, storage.ErrMailOperationNotRetryable) {
-		writeMailOperationsJSON(w, 409, map[string]string{"error": "this mail operation cannot be retried in its current state"})
+		writeMailOperationsJSON(w, 409, map[string]string{"error": i18n.T(r.Context(), "server.msg.this_mail_operation_cannot_be_retried_in")})
 		return
 	}
 	if err != nil {

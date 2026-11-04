@@ -96,7 +96,7 @@ func (h *Handler) renderMicrosoftDeviceSignIn(w http.ResponseWriter, r *http.Req
 // ends, then {"status":"done","redirect":...} with where the browser goes next.
 func (h *Handler) pollMicrosoftDeviceSignIn(w http.ResponseWriter, r *http.Request, signIns microsoftDeviceSignIns, owner string, finish func(context.Context, *mailauth.AccountOAuthFlow, *oauth2.Token) string) {
 	if err := r.ParseForm(); err != nil {
-		writeJSONError(w, http.StatusBadRequest, "invalid form data")
+		writeJSONError(w, r, http.StatusBadRequest, "invalid form data")
 		return
 	}
 	state := r.PostFormValue("state")

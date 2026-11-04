@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	stdhtml "html"
 	"net/http"
 	"regexp"
@@ -47,13 +48,13 @@ func (h *Handler) handleTranslateMessage(w http.ResponseWriter, r *http.Request)
 	emailID := r.PathValue("id")
 	msgID, err := strconv.ParseInt(emailID, 10, 64)
 	if emailID == "" || err != nil || msgID <= 0 {
-		http.Error(w, "invalid message id", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_message_id"), http.StatusBadRequest)
 		return
 	}
 
 	ctx := r.Context()
 	if !h.userOwnsMessage(ctx, msgID) {
-		http.Error(w, "message not found", http.StatusNotFound)
+		http.Error(w, i18n.T(r.Context(), "server.error.message_not_found"), http.StatusNotFound)
 		return
 	}
 
@@ -66,7 +67,7 @@ func (h *Handler) handleTranslateMessage(w http.ResponseWriter, r *http.Request)
 	providerName := normalizeTranslationProvider(firstNonEmptyString(req.Provider, settings["translation_provider"]))
 	provider, ok := h.translationProvider(providerName)
 	if !ok {
-		http.Error(w, "translation provider is not configured", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.translation_provider_is_not_configured"), http.StatusBadRequest)
 		return
 	}
 
@@ -75,13 +76,13 @@ func (h *Handler) handleTranslateMessage(w http.ResponseWriter, r *http.Request)
 
 	text, htmlSource, err := h.messageTranslationSource(ctx, emailID, msgID)
 	if err != nil {
-		http.Error(w, "message body unavailable", http.StatusNotFound)
+		http.Error(w, i18n.T(r.Context(), "server.error.message_body_unavailable"), http.StatusNotFound)
 		return
 	}
 
 	result, translatedHTML, err := translateMessageBody(ctx, provider, sourceLanguage, targetLanguage, text, htmlSource)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadGateway)
+		http.Error(w, serverText(r.Context(), err.Error()), http.StatusBadGateway)
 		return
 	}
 	translatedText := result.Text

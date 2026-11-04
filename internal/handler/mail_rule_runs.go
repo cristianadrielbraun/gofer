@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
+	"github.com/cristianadrielbraun/gofer/internal/mailrules"
 	"log"
 	"net/http"
 	"slices"
@@ -138,11 +140,13 @@ func (h *Handler) tellMailRuleRun(job *mailRuleRunJob, force bool) {
 	if events == nil {
 		return
 	}
+	// No page asked for this; it's written in the owner's language.
+	ownerCtx := i18n.ForUser(context.Background(), job.owner)
 	events.Publish(mail.Event{Type: mail.EventMailRuleRun, UserID: job.owner, Payload: map[string]any{
 		"job": d.JobID, "seq": d.Seq, "rule": d.Rule.ID, "rule_name": d.Rule.Name, "state": d.State,
 		"total": d.Total, "scanned": d.Scanned, "matches": d.Matches,
 		"processed": d.Processed, "changed": d.Changed, "unchanged": d.Unchanged, "failed": d.Failed,
-		"error": d.Error, "notice": views.MailRuleRunDoneNotice(context.Background(), d),
+		"error": i18n.Stored(ownerCtx, "jobs.", d.Error), "notice": views.MailRuleRunDoneNotice(ownerCtx, d),
 	}})
 }
 
@@ -357,7 +361,7 @@ func (h *Handler) recordMailRuleRun(job *mailRuleRunJob, changed map[string]int)
 	defer cancel()
 	err := h.withMailRuleStore(ctx, job.owner, func(db *storage.DB, _ func(string) bool) ([]storage.FolderRef, error) {
 		for accountID, n := range changed {
-			detail := fmt.Sprintf("Run by hand on %s: changed %s", d.ScopeName, views.MailRuleMessages(context.Background(), n))
+			detail := mailrules.EncodeNotes(mailrules.CountNote("run_by_hand", n, "scope", d.ScopeName))
 			if err := db.RecordMailRuleRunSummary(ctx, job.owner, d.Rule.ID, accountID, detail, n); err != nil {
 				return nil, err
 			}
@@ -383,13 +387,15 @@ func (h *Handler) failMailRuleRun(job *mailRuleRunJob, what string, err error) {
 		job.data.State = models.MailRuleRunError
 		switch {
 		case errors.Is(err, storage.ErrMailRuleRunFolder):
-			job.data.Error = "No account this rule is for has that folder."
+			// Saved in English and written in the reader's language when
+			// shown, like the other jobs' errors.
+			job.data.Error = i18n.Translate(i18n.English, "jobs.rule_run.no_folder")
 		case errors.Is(err, sql.ErrNoRows):
-			job.data.Error = "The rule is gone."
+			job.data.Error = i18n.Translate(i18n.English, "jobs.rule_run.gone")
 		case what == "count":
-			job.data.Error = "The folder could not be checked. Try again."
+			job.data.Error = i18n.Translate(i18n.English, "jobs.rule_run.count_failed")
 		default:
-			job.data.Error = "The rule stopped before it got through every message. Run it again for the rest."
+			job.data.Error = i18n.Translate(i18n.English, "jobs.rule_run.stopped")
 		}
 		job.matches, job.cancel = nil, nil
 	})

@@ -236,7 +236,7 @@ templ mailExportJobRow(job MailExportJob) {
 			</div>
 		}
 		if job.Error != "" {
-			<p class="text-xs text-destructive">{ job.Error }</p>
+			<p class="text-xs text-destructive">{ i18n.Stored(ctx, "jobs.", job.Error) }</p>
 		}
 		if len(job.Skipped) > 0 && job.State != "running" {
 			<details class="text-xs text-muted-foreground">

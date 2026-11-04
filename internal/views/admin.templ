@@ -157,38 +157,32 @@ func adminUserUsername(ctx context.Context, username string) string {
 // handler sets in English (or as a lowercase status), in the page's language.
 func adminValueLabel(ctx context.Context, value string) string {
 	switch value {
-	case "Active":
+	case "active", "Active":
 		return i18n.T(ctx, "admin.value.active")
-	case "Pending":
+	case "pending", "Pending":
 		return i18n.T(ctx, "admin.value.pending")
-	case "Disabled":
+	case "disabled", "Disabled":
 		return i18n.T(ctx, "admin.value.disabled")
-	case "Webmail user":
+	case "webmail_user", "Webmail user":
 		return i18n.T(ctx, "admin.value.webmail_user")
-	case "Management administrator":
+	case "management_admin", "Management administrator":
 		return i18n.T(ctx, "admin.value.management_admin")
-	case "Management user":
+	case "management_user", "Management user":
 		return i18n.T(ctx, "admin.value.management_user")
-	case "Legacy mixed account":
+	case "legacy", "Legacy mixed account":
 		return i18n.T(ctx, "admin.value.legacy")
-	case "Optional":
+	case "optional", "Optional":
 		return i18n.T(ctx, "admin.value.optional")
-	case "Required":
+	case "required", "Required":
 		return i18n.T(ctx, "admin.value.required")
-	case "User choice":
+	case "user_choice", "User choice":
 		return i18n.T(ctx, "admin.value.user_choice")
-	case "Management policy":
+	case "management_policy", "Management policy":
 		return i18n.T(ctx, "admin.value.management_policy")
-	case "Individual policy":
+	case "individual_policy", "Individual policy":
 		return i18n.T(ctx, "admin.value.individual_policy")
-	case "Instance policy":
+	case "instance_policy", "Instance policy":
 		return i18n.T(ctx, "admin.value.instance_policy")
-	case "active":
-		return i18n.T(ctx, "admin.value.active")
-	case "pending":
-		return i18n.T(ctx, "admin.value.pending")
-	case "disabled":
-		return i18n.T(ctx, "admin.value.disabled")
 	}
 	return value
 }
@@ -805,9 +799,9 @@ templ AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificat
 												<span
 													class={
 														"inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold",
-														templ.KV("border-emerald-500/30 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200", user.Status == "Active"),
-														templ.KV("border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-200", user.Status == "Pending"),
-														templ.KV("border-destructive/30 bg-destructive/10 text-destructive", user.Status == "Disabled"),
+														templ.KV("border-emerald-500/30 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200", user.Status == "active"),
+														templ.KV("border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-200", user.Status == "pending"),
+														templ.KV("border-destructive/30 bg-destructive/10 text-destructive", user.Status == "disabled"),
 													}
 												>
 													if user.DeletionPending {
@@ -830,8 +824,8 @@ templ AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificat
 												<span
 													class={
 														"inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold",
-														templ.KV("border-primary/30 bg-primary/10 text-primary", user.MFALabel == "Required"),
-														templ.KV("border-border bg-muted text-muted-foreground", user.MFALabel != "Required"),
+														templ.KV("border-primary/30 bg-primary/10 text-primary", user.MFALabel == "required"),
+														templ.KV("border-border bg-muted text-muted-foreground", user.MFALabel != "required"),
 													}
 												>{ adminValueLabel(ctx, user.MFALabel) }</span>
 												<p class="mt-1 whitespace-nowrap text-xs text-muted-foreground">{ adminValueLabel(ctx, user.MFADetail) }</p>
@@ -1052,7 +1046,7 @@ templ AdminUserStatusAction(user AdminUserData, stepUpRequired bool) {
 		{{ statusDialogID := adminUserStatusDialogID(user) }}
 		@dialog.Trigger(dialog.TriggerProps{For: statusDialogID}) {
 			@button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeSm, Disabled: stepUpRequired || user.StatusCSRFToken == ""}) {
-				if user.Status == "Disabled" {
+				if user.Status == "disabled" {
 					{ i18n.T(ctx, "admin.users.enable") }
 				} else {
 					{ i18n.T(ctx, "admin.users.disable") }
@@ -1063,14 +1057,14 @@ templ AdminUserStatusAction(user AdminUserData, stepUpRequired bool) {
 			@dialog.Content() {
 				@dialog.Header() {
 					@dialog.Title() {
-						if user.Status == "Disabled" {
+						if user.Status == "disabled" {
 							{ i18n.T(ctx, "admin.users.enable_title", "user", adminUserUsername(ctx, user.Username)) }
 						} else {
 							{ i18n.T(ctx, "admin.users.disable_title", "user", adminUserUsername(ctx, user.Username)) }
 						}
 					}
 					@dialog.Description() {
-						if user.Status == "Disabled" {
+						if user.Status == "disabled" {
 							{ i18n.T(ctx, "admin.users.enable_detail") }
 						} else {
 							{ i18n.T(ctx, "admin.users.disable_detail") }
@@ -1079,7 +1073,7 @@ templ AdminUserStatusAction(user AdminUserData, stepUpRequired bool) {
 				}
 				<form method="post" action={ user.StatusPath }>
 					<input type="hidden" name="_csrf" value={ user.StatusCSRFToken }/>
-					if user.Status == "Disabled" {
+					if user.Status == "disabled" {
 						<input type="hidden" name="status" value="active"/>
 					} else {
 						<input type="hidden" name="status" value="disabled"/>
@@ -1090,7 +1084,7 @@ templ AdminUserStatusAction(user AdminUserData, stepUpRequired bool) {
 								{ i18n.T(ctx, "common.cancel") }
 							}
 						}
-						if user.Status == "Disabled" {
+						if user.Status == "disabled" {
 							@button.Button(button.Props{Type: button.TypeSubmit}) {
 								{ i18n.T(ctx, "admin.users.enable_button") }
 							}

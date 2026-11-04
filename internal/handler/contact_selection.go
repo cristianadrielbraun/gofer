@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"log"
 	"net/http"
 	"strings"
@@ -28,7 +29,7 @@ const contactBulkDeleteLimit = 100
 func postedContactIDs(w http.ResponseWriter, r *http.Request, limit int) ([]string, bool) {
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_request_body"), http.StatusBadRequest)
 		return nil, false
 	}
 	var ids []string
@@ -40,7 +41,7 @@ func postedContactIDs(w http.ResponseWriter, r *http.Request, limit int) ([]stri
 		}
 	}
 	if len(ids) == 0 || len(ids) > limit {
-		http.Error(w, "choose some contacts, but not too many at once", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.choose_some_contacts_but_not_too_many"), http.StatusBadRequest)
 		return nil, false
 	}
 	return ids, true
@@ -76,7 +77,7 @@ func (h *Handler) handleContactIDs(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		log.Printf("contact ids unavailable: %v", err)
-		http.Error(w, "contacts unavailable", http.StatusServiceUnavailable)
+		http.Error(w, i18n.T(r.Context(), "server.error.contacts_unavailable"), http.StatusServiceUnavailable)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -108,7 +109,7 @@ func (h *Handler) handleExportSelectedContacts(w http.ResponseWriter, r *http.Re
 		return nil
 	})
 	if err != nil {
-		http.Error(w, "failed to export contacts", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_export_contacts"), http.StatusInternalServerError)
 		return
 	}
 	if len(contacts) == 0 {

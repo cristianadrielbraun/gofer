@@ -2,6 +2,7 @@ package handler
 
 import (
 	"errors"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"net/http"
 	"strings"
 
@@ -14,7 +15,7 @@ import (
 func (h *Handler) handleAccountOrder(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "invalid form", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_form"), http.StatusBadRequest)
 		return
 	}
 	ids := r.PostForm["account_id"]
@@ -26,7 +27,7 @@ func (h *Handler) handleAccountOrder(w http.ResponseWriter, r *http.Request) {
 		return db.SetAccountOrder(ctx, owner, ids)
 	})
 	if errors.Is(err, storage.ErrAccountOrderChanged) {
-		http.Error(w, "Your accounts changed. Reload the page and try again.", http.StatusConflict)
+		http.Error(w, i18n.T(r.Context(), "server.error.your_accounts_changed_reload_the_page_and"), http.StatusConflict)
 		return
 	}
 	if err != nil {

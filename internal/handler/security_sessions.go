@@ -213,7 +213,7 @@ func (h *Handler) handleSecuritySessionHistory(w http.ResponseWriter, r *http.Re
 	}
 	page, err := parseSecurityActivityPage(r)
 	if err != nil {
-		http.Error(w, "Invalid page", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_page"), http.StatusBadRequest)
 		return
 	}
 	list, err := h.auth.ListSecuritySessionPage(r.Context(), auth.GetSessionToken(r), max(int64(2), page))
@@ -230,7 +230,7 @@ func (h *Handler) handleSecuritySessionHistory(w http.ResponseWriter, r *http.Re
 	}
 	if err != nil {
 		log.Printf("load session history: %v", err)
-		http.Error(w, "Unable to load session history", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.unable_to_load_session_history"), http.StatusInternalServerError)
 		return
 	}
 	sessions, _ := securitySessionViewData(r.Context(), list, h.auth.OIDCLoginName())
@@ -246,7 +246,7 @@ func (h *Handler) handleSecuritySessionHistory(w http.ResponseWriter, r *http.Re
 	}
 	var output bytes.Buffer
 	if err := views.SecuritySessionHistoryPage(sessions, csrf, list.Page, list.TotalPages).Render(r.Context(), &output); err != nil {
-		http.Error(w, "Unable to render session history", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.unable_to_render_session_history"), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

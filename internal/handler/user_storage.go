@@ -10,6 +10,7 @@ import (
 
 	"github.com/cristianadrielbraun/gofer/internal/auth"
 	"github.com/cristianadrielbraun/gofer/internal/config"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"github.com/cristianadrielbraun/gofer/internal/mail"
 	"github.com/cristianadrielbraun/gofer/internal/mailauth"
 	"github.com/cristianadrielbraun/gofer/internal/models"
@@ -120,7 +121,7 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 	privateHandler := func(pattern string, handler http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			if err := routing.ValidateUser(r.Context(), routed.userID(r.Context())); err != nil {
-				http.Error(w, "user storage unavailable", http.StatusForbidden)
+				http.Error(w, i18n.T(r.Context(), "server.error.user_storage_unavailable"), http.StatusForbidden)
 				return
 			}
 			// Protect copied file paths for local reads and compose publication.
@@ -170,7 +171,7 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 			if routed.blobStore != nil && needsFiles {
 				release, err := routed.blobStore.PinUserFiles(r.Context(), routed.userID(r.Context()))
 				if err != nil {
-					http.Error(w, "user files unavailable", 503)
+					http.Error(w, i18n.T(r.Context(), "server.error.user_files_unavailable"), 503)
 					return
 				}
 				defer func() {
@@ -183,7 +184,7 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 				// this request waited. Recheck before file-only writes as well as
 				// database operations; the earlier check is no longer sufficient.
 				if err := routing.ValidateUser(r.Context(), routed.userID(r.Context())); err != nil {
-					http.Error(w, "user storage unavailable", http.StatusForbidden)
+					http.Error(w, i18n.T(r.Context(), "server.error.user_storage_unavailable"), http.StatusForbidden)
 					return
 				}
 			}
@@ -258,7 +259,7 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 		if routed.blobStore != nil {
 			release, err := routed.blobStore.PinUserFiles(r.Context(), owner)
 			if err != nil {
-				http.Error(w, "user files unavailable", http.StatusServiceUnavailable)
+				http.Error(w, i18n.T(r.Context(), "server.error.user_files_unavailable"), http.StatusServiceUnavailable)
 				return
 			}
 			defer release()

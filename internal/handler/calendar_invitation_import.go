@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"github.com/cristianadrielbraun/gofer/internal/mail/message"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 	"github.com/cristianadrielbraun/gofer/internal/views"
@@ -375,7 +376,7 @@ func applyCalDAVInvitation(ctx context.Context, source storage.CalendarSource, c
 // event it is for, or remove that event. Nil when the event is in another
 // kind of calendar, which handles invitations itself, or is the account's own.
 // A forwarded invitation can only be added.
-func mailCalendarInvitationOffer(item mailCalendarEvent, candidates []storage.CalendarEvent, sources []storage.CalendarSource, accountID, account string) *views.MailCalendarInvitation {
+func mailCalendarInvitationOffer(ctx context.Context, item mailCalendarEvent, candidates []storage.CalendarEvent, sources []storage.CalendarSource, accountID, account string) *views.MailCalendarInvitation {
 	if item.Organizer == "" || strings.EqualFold(item.Organizer, account) || (item.Method != "REQUEST" && item.Method != "CANCEL") {
 		return nil
 	}
@@ -401,17 +402,17 @@ func mailCalendarInvitationOffer(item mailCalendarEvent, candidates []storage.Ca
 	forwarded := item.From != "" && !strings.EqualFold(item.From, item.Organizer)
 	switch {
 	case item.Method == "REQUEST" && item.Invited && !item.Cancelled && len(existing) == 0:
-		note := "Add it to " + writable[0].Name + " to see it there and answer it."
+		note := i18n.T(ctx, "server.msg.invitation_add_to", "calendar", writable[0].Name)
 		if forwarded {
-			note = "Forwarded by " + item.From + ". " + note
+			note = i18n.T(ctx, "server.msg.invitation_forwarded_by", "sender", item.From) + " " + note
 		}
-		return &views.MailCalendarInvitation{Label: "Add to calendar", Note: note, UID: item.UID, SourceID: writable[0].ID}
+		return &views.MailCalendarInvitation{Label: i18n.T(ctx, "server.msg.add_to_calendar"), Note: note, UID: item.UID, SourceID: writable[0].ID}
 	case forwarded:
 		return nil
 	case item.Method == "REQUEST" && item.Invited && !item.Cancelled && mailCalendarInvitationChanged(item, existing):
-		return &views.MailCalendarInvitation{Label: "Update in calendar", Note: "This invitation has changes that aren't in your calendar yet.", UID: item.UID}
+		return &views.MailCalendarInvitation{Label: i18n.T(ctx, "server.msg.update_in_calendar"), Note: i18n.T(ctx, "server.msg.this_invitation_has_changes_that_aren_t"), UID: item.UID}
 	case item.Method == "CANCEL" && len(existing) > 0:
-		return &views.MailCalendarInvitation{Label: "Remove from calendar", Note: "The organizer cancelled this event.", UID: item.UID}
+		return &views.MailCalendarInvitation{Label: i18n.T(ctx, "server.msg.remove_from_calendar"), Note: i18n.T(ctx, "server.msg.the_organizer_cancelled_this_event"), UID: item.UID}
 	}
 	return nil
 }

@@ -264,33 +264,33 @@ func calendarForwardDone(w http.ResponseWriter, delivery string) {
 	_ = json.NewEncoder(w).Encode(map[string]any{"forwarded": true, "delivery": delivery})
 }
 
-func calendarForwardError(w http.ResponseWriter, err error) {
+func calendarForwardError(w http.ResponseWriter, r *http.Request, err error) {
 	var failure calendarForwardFailure
 	if errors.As(err, &failure) {
-		calendarUpdateFailure(w, failure.status, failure.message, false, false)
+		calendarUpdateFailure(w, r, failure.status, failure.message, false, false)
 		return
 	}
 	var configuration calendarReplyConfigurationError
 	if errors.As(err, &configuration) {
-		calendarUpdateFailure(w, http.StatusBadRequest, configuration.Error(), false, false)
+		calendarUpdateFailure(w, r, http.StatusBadRequest, configuration.Error(), false, false)
 		return
 	}
 	if errors.Is(err, errCalendarUpdateConflict) || errors.Is(err, errCalendarNotInvitation) {
-		calendarUpdateFailure(w, http.StatusConflict, "This invitation changed. Reopen it before forwarding; nothing was sent.", false, true)
+		calendarUpdateFailure(w, r, http.StatusConflict, "This invitation changed. Reopen it before forwarding; nothing was sent.", false, true)
 		return
 	}
 	if calendarCreateUncertain(err) {
-		calendarUpdateFailure(w, http.StatusBadGateway, "The forward could not be confirmed. Check your sent invitations before trying again.", true, false)
+		calendarUpdateFailure(w, r, http.StatusBadGateway, "The forward could not be confirmed. Check your sent invitations before trying again.", true, false)
 		return
 	}
-	calendarUpdateFailure(w, http.StatusBadGateway, "Could not forward the invitation. Check Calendar access and try again.", false, false)
+	calendarUpdateFailure(w, r, http.StatusBadGateway, "Could not forward the invitation. Check Calendar access and try again.", false, false)
 }
 
 func (h *Handler) handleCalendarForward(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 16384)
 	recipients, comment, err := parseCalendarForwardForm(r)
 	if err != nil {
-		calendarForwardError(w, err)
+		calendarForwardError(w, r, err)
 		return
 	}
 	userID := h.userID(r.Context())
@@ -298,29 +298,29 @@ func (h *Handler) handleCalendarForward(w http.ResponseWriter, r *http.Request) 
 	defer cancel()
 	event, err := h.db.GetCalendarEvent(ctx, userID, r.PathValue("id"))
 	if err != nil {
-		calendarUpdateFailure(w, http.StatusNotFound, "This invitation is no longer available. Refresh the calendar.", false, true)
+		calendarUpdateFailure(w, r, http.StatusNotFound, "This invitation is no longer available. Refresh the calendar.", false, true)
 		return
 	}
 	source, err := h.calendarResponseAccess(ctx, event)
 	if err != nil || !calendarForwardProvider(source.Provider) {
-		calendarUpdateFailure(w, http.StatusForbidden, "Forwarding is unavailable for this event.", false, false)
+		calendarUpdateFailure(w, r, http.StatusForbidden, "Forwarding is unavailable for this event.", false, false)
 		return
 	}
 	if storage.CalendarSourceMailServer(source.Provider) {
 		if cfg, err := h.accountStore.GetConfig(ctx, source.AccountID); err != nil || !accountSendsEmail(cfg) {
-			calendarUpdateFailure(w, http.StatusBadRequest, "Forwarding sends the invitation by email. Configure SMTP for this account first.", false, false)
+			calendarUpdateFailure(w, r, http.StatusBadRequest, "Forwarding sends the invitation by email. Configure SMTP for this account first.", false, false)
 			return
 		}
 	}
 	if source.Provider == providers.ProviderGmail {
 		if cfg, err := h.accountStore.GetConfig(ctx, source.AccountID); err != nil || outgoingTransportForConfig(cfg) != storage.OutgoingTransportGmail {
-			calendarUpdateFailure(w, http.StatusBadRequest, "Forwarding sends the invitation by email, and this account can't send mail.", false, false)
+			calendarUpdateFailure(w, r, http.StatusBadRequest, "Forwarding sends the invitation by email, and this account can't send mail.", false, false)
 			return
 		}
 	}
 	target, err := h.readCalendarResponse(ctx, source, event, calendarForwardScope(event))
 	if err != nil {
-		calendarForwardError(w, err)
+		calendarForwardError(w, r, err)
 		return
 	}
 	delivery, err := h.forwardCalendarInvitation(ctx, source, target, recipients, comment, func(input storage.QueueOutgoingSendInput) error {
@@ -328,7 +328,7 @@ func (h *Handler) handleCalendarForward(w http.ResponseWriter, r *http.Request) 
 		return err
 	})
 	if err != nil {
-		calendarForwardError(w, err)
+		calendarForwardError(w, r, err)
 		return
 	}
 	if delivery == "email" {

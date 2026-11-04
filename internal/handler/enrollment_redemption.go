@@ -3,6 +3,7 @@ package handler
 import (
 	"bytes"
 	"errors"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"log"
 	"net/http"
 
@@ -18,11 +19,6 @@ const (
 	credentialRedemptionPath             = "/account/redeem"
 	credentialRedemptionCompletePath     = "/account/redeem/complete"
 	enrollmentRedemptionFormMaximumBytes = 12 << 10
-
-	invitationEnrollmentFailureMessage     = "That invitation token is invalid or no longer active."
-	credentialRedemptionFailureMessage     = "That reset token is invalid or no longer active."
-	enrollmentRedemptionServiceMessage     = "Unable to set the password right now. Please try again."
-	enrollmentRedemptionMFARequiredMessage = "This account must set up an authenticator app before it can be activated. Contact an administrator to finish two-factor authentication setup."
 )
 
 func (h *Handler) handleInvitationEnrollment(w http.ResponseWriter, r *http.Request) {
@@ -32,7 +28,7 @@ func (h *Handler) handleInvitationEnrollment(w http.ResponseWriter, r *http.Requ
 	}
 	message := ""
 	if r.URL.Query().Get("google_failed") == "1" {
-		message = "Unable to complete Google sign-in with that invitation. The invitation was not consumed; please try again."
+		message = i18n.T(r.Context(), "auth.invitation.google_failed")
 	}
 	h.renderInvitationEnrollmentPage(w, r, http.StatusOK, message)
 }
@@ -44,7 +40,7 @@ func (h *Handler) handleInvitationGoogleEnrollment(w http.ResponseWriter, r *htt
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, enrollmentRedemptionFormMaximumBytes)
 	if err := r.ParseForm(); err != nil {
-		h.renderInvitationEnrollmentPage(w, r, http.StatusBadRequest, invitationEnrollmentFailureMessage)
+		h.renderInvitationEnrollmentPage(w, r, http.StatusBadRequest, i18n.T(r.Context(), "auth.invitation.invalid"))
 		return
 	}
 	clearLegacyOAuthStateCookie(w, h.auth.Config().SecureCookies)
@@ -53,7 +49,7 @@ func (h *Handler) handleInvitationGoogleEnrollment(w http.ResponseWriter, r *htt
 		auth.ClearPreAuthCookie(w, h.auth.Config().SecureCookies)
 		if err != nil && !errors.Is(err, auth.ErrPreAuthChallengeInvalid) {
 			log.Printf("replace Google enrollment challenge: %v", err)
-			h.renderInvitationEnrollmentPage(w, r, http.StatusInternalServerError, enrollmentRedemptionServiceMessage)
+			h.renderInvitationEnrollmentPage(w, r, http.StatusInternalServerError, i18n.T(r.Context(), "auth.enrollment.unavailable"))
 			return
 		}
 	}
@@ -62,18 +58,18 @@ func (h *Handler) handleInvitationGoogleEnrollment(w http.ResponseWriter, r *htt
 	if err != nil {
 		switch {
 		case errors.Is(err, auth.ErrEnrollmentTokenInvalid):
-			h.renderInvitationEnrollmentPage(w, r, http.StatusBadRequest, invitationEnrollmentFailureMessage)
+			h.renderInvitationEnrollmentPage(w, r, http.StatusBadRequest, i18n.T(r.Context(), "auth.invitation.invalid"))
 		case errors.Is(err, auth.ErrInstanceMFAEnrollmentNeeded):
-			h.renderInvitationEnrollmentPage(w, r, http.StatusConflict, enrollmentRedemptionMFARequiredMessage)
+			h.renderInvitationEnrollmentPage(w, r, http.StatusConflict, i18n.T(r.Context(), "auth.enrollment.mfa_required"))
 		default:
 			log.Printf("start Google invitation enrollment: %v", err)
-			h.renderInvitationEnrollmentPage(w, r, http.StatusInternalServerError, enrollmentRedemptionServiceMessage)
+			h.renderInvitationEnrollmentPage(w, r, http.StatusInternalServerError, i18n.T(r.Context(), "auth.enrollment.unavailable"))
 		}
 		return
 	}
 	if start == nil || start.Challenge == nil || start.Challenge.Token == "" {
 		log.Printf("start Google invitation enrollment returned incomplete authorization")
-		h.renderInvitationEnrollmentPage(w, r, http.StatusInternalServerError, enrollmentRedemptionServiceMessage)
+		h.renderInvitationEnrollmentPage(w, r, http.StatusInternalServerError, i18n.T(r.Context(), "auth.enrollment.unavailable"))
 		return
 	}
 	auth.SetPreAuthCookie(
@@ -88,7 +84,7 @@ func (h *Handler) handleInvitationEnrollmentSubmit(w http.ResponseWriter, r *htt
 		w, r,
 		auth.EnrollmentTokenPurposeEnrollment,
 		invitationEnrollmentCompletePath,
-		invitationEnrollmentFailureMessage,
+		i18n.T(r.Context(), "auth.invitation.invalid"),
 		h.renderInvitationEnrollmentPage,
 	)
 }
@@ -106,7 +102,7 @@ func (h *Handler) handleCredentialRedemptionSubmit(w http.ResponseWriter, r *htt
 		w, r,
 		auth.EnrollmentTokenPurposeCredentialReset,
 		credentialRedemptionCompletePath,
-		credentialRedemptionFailureMessage,
+		i18n.T(r.Context(), "auth.reset.token_invalid"),
 		h.renderCredentialRedemptionPage,
 	)
 }
@@ -132,7 +128,7 @@ func (h *Handler) handlePasswordTokenSubmit(
 	}
 	newPassword := r.PostFormValue("new_password")
 	if newPassword != r.PostFormValue("confirm_password") {
-		render(w, r, http.StatusBadRequest, "The new password fields do not match.")
+		render(w, r, http.StatusBadRequest, i18n.T(r.Context(), "auth.password.mismatch"))
 		return
 	}
 
@@ -150,12 +146,12 @@ func (h *Handler) handlePasswordTokenSubmit(
 			errors.Is(err, auth.ErrPasswordTooShort),
 			errors.Is(err, auth.ErrPasswordTooLong),
 			errors.Is(err, auth.ErrPasswordCommon):
-			render(w, r, http.StatusBadRequest, err.Error())
+			render(w, r, http.StatusBadRequest, authText(r.Context(), err.Error()))
 		case errors.Is(err, auth.ErrInstanceMFAEnrollmentNeeded):
-			render(w, r, http.StatusConflict, enrollmentRedemptionMFARequiredMessage)
+			render(w, r, http.StatusConflict, i18n.T(r.Context(), "auth.enrollment.mfa_required"))
 		default:
 			log.Printf("redeem %s token: %v", purpose, err)
-			render(w, r, http.StatusInternalServerError, enrollmentRedemptionServiceMessage)
+			render(w, r, http.StatusInternalServerError, i18n.T(r.Context(), "auth.enrollment.unavailable"))
 		}
 		return
 	}

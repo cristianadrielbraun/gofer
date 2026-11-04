@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/cristianadrielbraun/gofer/internal/mailrules"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 
 	"github.com/cristianadrielbraun/gofer/components/badge"
@@ -783,7 +784,7 @@ templ mailRuleRunView(data models.MailRulesData) {
 							}
 						</p>
 					default:
-						<p class="text-sm text-destructive" role="alert" data-mail-rule-error>{ run.Error }</p>
+						<p class="text-sm text-destructive" role="alert" data-mail-rule-error>{ i18n.Stored(ctx, "jobs.", run.Error) }</p>
 				}
 			</div>
 		}
@@ -966,7 +967,7 @@ templ mailRuleActivityEntry(run models.MailRuleRun, now time.Time) {
 	<span class="min-w-0 flex-1">
 		<span class="block truncate text-sm">
 			if run.MessageID == 0 {
-				{ mailRuleSentence(run.Detail) }
+				{ mailRuleSentence(mailrules.DetailText(ctx, run.Detail)) }
 			} else if run.Subject != "" {
 				{ run.Subject }
 			} else {

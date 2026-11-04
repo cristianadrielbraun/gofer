@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"net/http"
 
 	"github.com/cristianadrielbraun/gofer/internal/models"
@@ -43,7 +44,7 @@ func (h *Handler) saveTagAppearance(w http.ResponseWriter, r *http.Request, unif
 		return
 	}
 	if input.Icon != nil {
-		http.Error(w, "Tag symbols cannot be changed.", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.tag_symbols_cannot_be_changed"), http.StatusBadRequest)
 		return
 	}
 	ctx := r.Context()

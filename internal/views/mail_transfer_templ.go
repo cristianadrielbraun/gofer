@@ -1238,9 +1238,9 @@ func mailTransferJobRow(job MailTransferJob) templ.Component {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var65 string
-			templ_7745c5c3_Var65, templ_7745c5c3_Err = templ.JoinStringErrs(job.Error)
+			templ_7745c5c3_Var65, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.Stored(ctx, "jobs.", job.Error))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_transfer.templ`, Line: 291, Col: 50}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/mail_transfer.templ`, Line: 291, Col: 77}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var65))
 			if templ_7745c5c3_Err != nil {

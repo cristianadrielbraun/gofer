@@ -251,7 +251,7 @@ func TestJMAPCalendarDiscoveryAndSyncForTheSharedStore(t *testing.T) {
 	req.SetPathValue("id", account.ID)
 	rec := httptest.NewRecorder()
 	h.handleDiscoverAccountCalendars(rec, ownerRequest(req))
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Discovered 2 JMAP calendar(s)") {
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Discovered 2 JMAP calendars.") {
 		t.Fatalf("discovery = %d %s", rec.Code, rec.Body.String())
 	}
 	sources, err := db.ListCalendarSourcesForAccount(t.Context(), "owner", account.ID)

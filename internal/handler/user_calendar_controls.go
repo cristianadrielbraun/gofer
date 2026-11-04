@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"errors"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"log"
 	"net/http"
 	"strings"
@@ -16,7 +17,7 @@ import (
 func (h *Handler) handleUserSaveCalendarSources(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
 	if err := r.ParseForm(); err != nil || len(r.PostForm["source_id"]) > 256 {
-		http.Error(w, "invalid calendar source selection", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_calendar_source_selection"), http.StatusBadRequest)
 		return
 	}
 	owner, id := h.userID(r.Context()), strings.TrimSpace(r.PathValue("id"))
@@ -29,7 +30,7 @@ func (h *Handler) handleUserSaveCalendarSources(w http.ResponseWriter, r *http.R
 	})
 	if err != nil {
 		if errors.Is(err, storage.ErrCalendarSourceSelection) {
-			http.Error(w, "invalid calendar source selection", http.StatusBadRequest)
+			http.Error(w, i18n.T(r.Context(), "server.error.invalid_calendar_source_selection"), http.StatusBadRequest)
 		} else {
 			userAccountError(w, r, err)
 		}
@@ -61,7 +62,7 @@ func (h *Handler) handleUserCalendarService(w http.ResponseWriter, r *http.Reque
 	})
 	if err != nil {
 		if errors.Is(err, storage.ErrCalendarSourcesNotConfigured) {
-			http.Error(w, "Discover at least one calendar before enabling Calendar.", http.StatusConflict)
+			http.Error(w, i18n.T(r.Context(), "server.error.discover_at_least_one_calendar_before_enabling"), http.StatusConflict)
 			return
 		}
 		userAccountError(w, r, err)

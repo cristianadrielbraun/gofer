@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"log"
 	"net/http"
 	"strconv"
@@ -30,7 +31,7 @@ func contactTestConfig(r *http.Request, owner, id string) models.ContactSyncConf
 }
 func userContactSetupError(w http.ResponseWriter, r *http.Request, err error) {
 	if errors.Is(err, config.ErrAccountServicesChanged) {
-		http.Error(w, "Account settings changed; retry the connection test or discovery.", http.StatusConflict)
+		http.Error(w, i18n.T(r.Context(), "server.error.account_settings_changed_retry_the_connection_test"), http.StatusConflict)
 		return
 	}
 	userAccountError(w, r, err)
@@ -47,7 +48,7 @@ func parseUserContactSetupForm(w http.ResponseWriter, r *http.Request) error {
 
 func (h *Handler) handleUserSaveAccountContactSync(w http.ResponseWriter, r *http.Request) {
 	if err := parseUserContactSetupForm(w, r); err != nil {
-		htmlStatus(w, http.StatusBadRequest, "Invalid contact sync settings.")
+		htmlStatus(w, r, http.StatusBadRequest, "Invalid contact sync settings.")
 		return
 	}
 	owner, id := h.userID(r.Context()), r.PathValue("id")
@@ -73,12 +74,12 @@ func (h *Handler) handleUserSaveAccountContactSync(w http.ResponseWriter, r *htt
 				}
 			}
 			if len(cfg.AddressBooks) == 0 || cfg.Username == "" {
-				inputMessage = "Choose at least one CardDAV address book and enter a username."
+				inputMessage = i18n.T(ctx, "server.msg.choose_at_least_one_carddav_address_book")
 				return nil
 			}
 			password, err = snapshot.ContactSyncPassword(password)
 			if err != nil || password == "" {
-				inputMessage = "CardDAV password is required."
+				inputMessage = i18n.T(ctx, "server.msg.carddav_password_is_required")
 				return nil
 			}
 			for _, book := range cfg.AddressBooks {
@@ -97,7 +98,7 @@ func (h *Handler) handleUserSaveAccountContactSync(w http.ResponseWriter, r *htt
 		return
 	}
 	if inputMessage != "" {
-		htmlStatus(w, http.StatusBadRequest, inputMessage)
+		htmlStatus(w, r, http.StatusBadRequest, inputMessage)
 		return
 	}
 	if cfg.Enabled && (r.FormValue("password") != "" || r.FormValue("use_account_credentials") == "1") {
@@ -108,12 +109,12 @@ func (h *Handler) handleUserSaveAccountContactSync(w http.ResponseWriter, r *htt
 		}
 	}
 	if err := h.WakeUserContactAccount(r.Context(), owner, id); err != nil {
-		htmlStatus(w, http.StatusServiceUnavailable, "Contact settings saved; worker refresh failed, retry saving.")
+		htmlStatus(w, r, http.StatusServiceUnavailable, "Contact settings saved; worker refresh failed, retry saving.")
 		return
 	}
 	w.Header().Set("X-Gofer-Contact-Sync-Enabled", strconv.FormatBool(cfg.Enabled))
 	if !cfg.Enabled {
-		htmlStatus(w, http.StatusOK, "Contact sync is disabled for this account.")
+		htmlStatus(w, r, http.StatusOK, "Contact sync is disabled for this account.")
 		return
 	}
 	htmlContactSyncSaved(w, id, cfg)
@@ -121,7 +122,7 @@ func (h *Handler) handleUserSaveAccountContactSync(w http.ResponseWriter, r *htt
 
 func (h *Handler) handleUserTestAccountContactSync(w http.ResponseWriter, r *http.Request) {
 	if err := parseUserContactSetupForm(w, r); err != nil {
-		htmlStatus(w, http.StatusBadRequest, "Invalid contact sync test.")
+		htmlStatus(w, r, http.StatusBadRequest, "Invalid contact sync test.")
 		return
 	}
 	owner, id := h.userID(r.Context()), r.PathValue("id")
@@ -160,15 +161,15 @@ func (h *Handler) handleUserTestAccountContactSync(w http.ResponseWriter, r *htt
 		return
 	}
 	if inputStatus != 0 {
-		htmlStatus(w, inputStatus, result)
+		htmlStatus(w, r, inputStatus, result)
 		return
 	}
-	htmlStatus(w, http.StatusOK, result)
+	htmlStatus(w, r, http.StatusOK, result)
 }
 
 func (h *Handler) handleUserDiscoverAccountContactSync(w http.ResponseWriter, r *http.Request) {
 	if err := parseUserContactSetupForm(w, r); err != nil {
-		writeJSONError(w, http.StatusBadRequest, "invalid discovery request")
+		writeJSONError(w, r, http.StatusBadRequest, "invalid discovery request")
 		return
 	}
 	owner, id := h.userID(r.Context()), r.PathValue("id")
@@ -200,17 +201,17 @@ func (h *Handler) handleUserDiscoverAccountContactSync(w http.ResponseWriter, r 
 		if autodiscover {
 			candidates = contactSyncDiscoveryCandidates(baseURL, jmapServerAddress(identity.JMAPSessionURL), identity.IMAPHost, identity.SMTPHost, username, identity.EmailAddress)
 		} else if len(candidates) == 0 {
-			writeJSONError(w, http.StatusBadRequest, "enter a CardDAV base URL, or use Attempt URL autodiscover")
+			writeJSONError(w, r, http.StatusBadRequest, "enter a CardDAV base URL, or use Attempt URL autodiscover")
 			return nil
 		}
 		password, err := snapshot.ContactSyncPassword(r.FormValue("password"))
 		if err != nil || password == "" {
-			writeJSONError(w, http.StatusBadRequest, "enter the CardDAV password before discovery")
+			writeJSONError(w, r, http.StatusBadRequest, "enter the CardDAV password before discovery")
 			return nil
 		}
 		create, err := davChangeFromForm(r)
 		if err != nil {
-			writeJSONError(w, http.StatusBadRequest, err.Error())
+			writeJSONError(w, r, http.StatusBadRequest, err.Error())
 			return nil
 		}
 		if streaming {
@@ -222,7 +223,7 @@ func (h *Handler) handleUserDiscoverAccountContactSync(w http.ResponseWriter, r 
 			return err
 		}
 		if discoveryErr != nil {
-			writeJSONError(w, http.StatusBadRequest, discoveryErr.Error())
+			writeJSONError(w, r, http.StatusBadRequest, discoveryErr.Error())
 			return nil
 		}
 		if err := h.dropUserDeletedAddressBook(ctx, snapshot, create); err != nil {
@@ -258,7 +259,7 @@ func (h *Handler) streamUserCardDAVDiscovery(w http.ResponseWriter, parent conte
 			flusher.Flush()
 		}
 	}
-	writeEvent(map[string]any{"type": "start", "message": "Preparing CardDAV discovery..."})
+	writeEvent(map[string]any{"type": "start", "message": i18n.T(parent, "server.msg.preparing_carddav_discovery")})
 	books, discoveryErr := discoverCardDAVAddressBooksCandidates(ctx, candidates, username, password, func(completed, total int, endpoint string) {
 		if ctx.Err() != nil {
 			return
@@ -269,15 +270,15 @@ func (h *Handler) streamUserCardDAVDiscovery(w http.ResponseWriter, parent conte
 		return writeErr
 	}
 	if err := h.userAccounts.ValidateContactServices(ctx, snapshot); err != nil {
-		writeEvent(map[string]any{"type": "error", "error": "Account settings changed or the connection was cancelled; retry discovery."})
+		writeEvent(map[string]any{"type": "error", "error": i18n.T(parent, "server.msg.account_settings_changed_or_the_connection_was")})
 		return err
 	}
 	if discoveryErr != nil {
-		writeEvent(map[string]any{"type": "error", "error": discoveryErr.Error()})
+		writeEvent(map[string]any{"type": "error", "error": serverText(parent, discoveryErr.Error())})
 		return writeErr
 	}
 	if err := h.dropUserDeletedAddressBook(ctx, snapshot, create); err != nil {
-		writeEvent(map[string]any{"type": "error", "error": "The address book was deleted, but its account's contact sync could not be updated; retry discovery."})
+		writeEvent(map[string]any{"type": "error", "error": i18n.T(parent, "server.msg.the_address_book_was_deleted_but_its")})
 		return err
 	}
 	done := cardDAVDiscoveryResult(books, create)

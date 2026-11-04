@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"net/http"
 	"net/url"
 	"time"
@@ -224,6 +225,6 @@ func (h *Handler) handleUserCalendarResponseForm(w http.ResponseWriter, r *http.
 		err = views.CalendarResponseForm(data).Render(ctx, w)
 	}
 	if err != nil {
-		http.Error(w, "Could not open invitation response controls.", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.could_not_open_invitation_response_controls"), http.StatusInternalServerError)
 	}
 }

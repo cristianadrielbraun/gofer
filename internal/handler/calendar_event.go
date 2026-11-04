@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"net/http"
 	"regexp"
 	"strings"
@@ -20,7 +21,7 @@ func (h *Handler) handleCalendarEvent(w http.ResponseWriter, r *http.Request) {
 	userID := h.userID(ctx)
 	eventID := strings.TrimSpace(r.PathValue("id"))
 	if eventID == "" {
-		http.Error(w, "event id required", http.StatusBadRequest)
+		http.Error(w, i18n.T(r.Context(), "server.error.event_id_required"), http.StatusBadRequest)
 		return
 	}
 	details, err := h.sharedCalendarEventDetails(ctx, userID, eventID)
@@ -29,14 +30,14 @@ func (h *Handler) handleCalendarEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		http.Error(w, "could not load calendar event", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.could_not_load_calendar_event"), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "private, no-store")
 	location := viewsCalendarLocation(h.db.GetUISettings(ctx, userID))
 	if err := views.CalendarEventDialog(details, location).Render(ctx, w); err != nil {
-		http.Error(w, "could not render calendar event", http.StatusInternalServerError)
+		http.Error(w, i18n.T(r.Context(), "server.error.could_not_render_calendar_event"), http.StatusInternalServerError)
 	}
 }
 
@@ -51,16 +52,16 @@ func (h *Handler) sharedCalendarEventDetails(ctx context.Context, userID, eventI
 	if calendarDeliveryAvailable(event) {
 		data, err := h.calendarDeliveryData(ctx, event)
 		if err != nil {
-			data.Error = "Delivery status is temporarily unavailable."
+			data.Error = i18n.T(ctx, "server.msg.delivery_status_is_temporarily_unavailable")
 		}
 		details.Delivery = &data
 	}
 	_, reason, accessErr := h.calendarEventEditAccess(ctx, event)
 	details.CanEdit = accessErr == nil && reason == ""
 	details.EditSeries = details.CanEdit && calendarEventIsSeries(event)
-	details.EditUnavailableReason = reason
+	details.EditUnavailableReason = serverText(ctx, reason)
 	if accessErr != nil {
-		details.EditUnavailableReason = "Calendar write access could not be verified."
+		details.EditUnavailableReason = i18n.T(ctx, "server.msg.calendar_write_access_could_not_be_verified")
 	}
 	_, deleteReason, deleteErr := h.calendarEventDeleteAccess(ctx, event)
 	details.CanDelete = deleteErr == nil && deleteReason == ""

@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"context"
+	"github.com/cristianadrielbraun/gofer/internal/mailrules"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -263,7 +265,7 @@ func TestMailRuleSettingsRoutes(t *testing.T) {
 		t.Fatalf("run events = %v", states)
 	}
 	runs, err := db.ListMailRuleRuns(ctx, "owner", 0)
-	if err != nil || len(runs) != 1 || runs[0].Trigger != models.MailRuleTriggerManual || runs[0].Detail != "Run by hand on Inbox: changed 1 message" {
+	if err != nil || len(runs) != 1 || runs[0].Trigger != models.MailRuleTriggerManual || mailrules.DetailText(context.Background(), runs[0].Detail) != "Run by hand on Inbox: changed 1 message" {
 		t.Fatalf("activity = %+v, %v", runs, err)
 	}
 

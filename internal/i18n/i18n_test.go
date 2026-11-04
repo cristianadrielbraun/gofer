@@ -235,3 +235,30 @@ func TestLanguageNames(t *testing.T) {
 		}
 	}
 }
+
+func TestForUserPrefersTheLastPageThenTheSavedChoice(t *testing.T) {
+	ctx := context.Background()
+	SetUserPrefsLoader(func(_ context.Context, userID string) (string, string, string, bool) {
+		if userID == "saved-es" {
+			return "es", "dd/mm/yyyy", "24h", true
+		}
+		return "auto", "", "", true
+	})
+	t.Cleanup(func() { SetUserPrefsLoader(nil) })
+
+	if got := FromContext(ForUser(ctx, "nobody")); got != English {
+		t.Fatalf("automatic with no page seen: %q", got)
+	}
+	saved := ForUser(ctx, "saved-es")
+	if got := FromContext(saved); got != "es" {
+		t.Fatalf("saved Spanish: %q", got)
+	}
+	if df, tf := DatePrefs(saved); df != "dd/mm/yyyy" || tf != "24h" {
+		t.Fatalf("saved date settings: %q %q", df, tf)
+	}
+	RememberUser("seen-user", "es", "", "")
+	t.Cleanup(func() { seenUsers.Delete("seen-user") })
+	if got := FromContext(ForUser(ctx, "seen-user")); got != "es" {
+		t.Fatalf("last page's language: %q", got)
+	}
+}

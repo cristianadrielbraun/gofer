@@ -166,7 +166,7 @@ func (h *Handler) processCalendarInvitationMessage(ctx context.Context, candidat
 		if err != nil {
 			return nil, err
 		}
-		return mailCalendarInvitationOffer(item, candidates, sources, accountID, address), nil
+		return mailCalendarInvitationOffer(ctx, item, candidates, sources, accountID, address), nil
 	}, func(invitation mailInvitation, uid, sourceID string) error {
 		err := h.applyMailInvitation(ctx, accountID, invitation, uid, sourceID)
 		applied = applied || err == nil
@@ -248,7 +248,7 @@ func (h *Handler) processUserCalendarInvitation(ctx context.Context, candidate s
 			if err != nil {
 				return nil, err
 			}
-			return mailCalendarInvitationOffer(item, candidates, sources, candidate.AccountID, raw.EmailAddress()), nil
+			return mailCalendarInvitationOffer(ctx, item, candidates, sources, candidate.AccountID, raw.EmailAddress()), nil
 		}, func(invitation mailInvitation, uid, sourceID string) error {
 			err := h.applyUserMailInvitation(ctx, candidate.UserID, candidate.AccountID, invitation, uid, sourceID)
 			applied = applied || err == nil
