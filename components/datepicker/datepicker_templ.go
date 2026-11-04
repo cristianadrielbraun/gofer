@@ -92,7 +92,7 @@ func DatePicker(props ...Props) templ.Component {
 			p.Name = p.ID
 		}
 		if p.Placeholder == "" {
-			p.Placeholder = "Select a date"
+			p.Placeholder = i18n.T(ctx, "components.select_date")
 		}
 		if p.LocaleTag == "" {
 			// Gofer: the page's language, so month and day names match it.

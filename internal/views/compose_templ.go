@@ -515,7 +515,7 @@ func ComposeDialog(accounts []models.Account) templ.Component {
 						}()
 					}
 					ctx = templ.InitializeContext(ctx)
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 29, "<div class=\"flex items-center justify-between w-full gap-3\"><div class=\"flex items-center gap-2 min-w-0\"><button type=\"button\" data-on-click='[\"saveComposeDraft\",false,false]' class=\"inline-flex min-w-28 items-center justify-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-all duration-200 px-3 py-1.5 rounded-md border border-border hover:bg-accent\" data-compose-draft-button data-compose-draft-state=\"default\"><span class=\"inline-flex transition-transform duration-200\" data-compose-draft-icon>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 29, "<div class=\"flex items-center justify-between w-full gap-3\"><div class=\"flex items-center gap-2 min-w-0\"><button type=\"button\" data-on-click='[\"saveComposeDraft\",false,false]' class=\"inline-flex min-w-28 items-center whitespace-nowrap justify-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-all duration-200 px-3 py-1.5 rounded-md border border-border hover:bg-accent\" data-compose-draft-button data-compose-draft-state=\"default\"><span class=\"inline-flex transition-transform duration-200\" data-compose-draft-icon>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -4089,7 +4089,7 @@ func ComposePane(accounts []models.Account) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 212, "</div></div></div><div class=\"px-6 py-3 border-t border-ink/6\"><div class=\"flex items-center justify-between\"><div class=\"flex items-center gap-2 min-w-0\"><button type=\"button\" data-on-click='[\"saveComposeDraft\",true,false]' class=\"inline-flex min-w-28 items-center justify-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-all duration-200 px-3 py-1.5 rounded-md border border-border hover:bg-accent\" data-compose-draft-button data-compose-draft-state=\"default\"><span class=\"inline-flex transition-transform duration-200\" data-compose-draft-icon>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 212, "</div></div></div><div class=\"px-6 py-3 border-t border-ink/6\"><div class=\"flex items-center justify-between\"><div class=\"flex items-center gap-2 min-w-0\"><button type=\"button\" data-on-click='[\"saveComposeDraft\",true,false]' class=\"inline-flex min-w-28 items-center whitespace-nowrap justify-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-all duration-200 px-3 py-1.5 rounded-md border border-border hover:bg-accent\" data-compose-draft-button data-compose-draft-state=\"default\"><span class=\"inline-flex transition-transform duration-200\" data-compose-draft-icon>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

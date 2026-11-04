@@ -3,6 +3,7 @@
 package selectbox
 
 import (
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"github.com/cristianadrielbraun/gofer/components/button"
 	"github.com/cristianadrielbraun/gofer/components/icon"
 	"github.com/cristianadrielbraun/gofer/components/input"
@@ -227,7 +228,7 @@ templ Trigger(props ...TriggerProps) {
 				<span
 					class="ml-1 hidden cursor-pointer text-muted-foreground hover:text-foreground"
 					data-tui-selectbox-clear-trigger
-					aria-label="Clear selection"
+					aria-label={ i18n.T(ctx, "components.clear_selection") }
 					role="button"
 				>
 					@icon.CircleX(icon.Props{Class: "size-3.5"})

@@ -3614,7 +3614,7 @@ templ AddAccountDialog() {
 				#add-account-dialog:not([data-add-mail]) [data-add-mail-only],
 				#add-account-dialog[data-add-mail] [data-add-account-only] { display:none !important; }
 			</style>
-			<div class="account-wizard-shell grid gap-4 pt-2 md:grid-cols-[14.5rem_minmax(0,1fr)]">
+			<div class="account-wizard-shell grid gap-4 pt-2 md:grid-cols-[16rem_minmax(0,1fr)]">
 		@AccountWizardAddSidebar()
 				<div id="wizard-viewport" class="account-wizard-viewport">
 					<div id="wizard-track" class="flex items-start transition-transform duration-300 ease-in-out" style="width: 600%">
@@ -3932,19 +3932,19 @@ templ AddAccountDialog() {
 templ AccountWizardAddSidebar() {
 	<aside class="rounded-lg border border-border bg-muted/25 p-2 md:min-h-[28rem]">
 		<div class="mb-2 px-2">
-			<div class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "settings.wizard.setup_sections") }</div>
+			<div class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "settings.wizard.services") }</div>
 			<p class="mt-0.5 text-[11px] leading-snug text-muted-foreground">{ i18n.T(ctx, "settings.wizard.sections_hint") }</p>
 		</div>
 		@AccountWizardAddEmailSection()
-		@AccountWizardTopStep("wizardGo", 4, "2", i18n.T(ctx, "settings.wizard.contacts"), i18n.T(ctx, "settings.wizard.sync_contacts"), true, true, "", "contacts", false, false, templ.Attributes{"data-add-contact-sync-switch": ""})
-		@AccountWizardTopStep("wizardGo", 5, "3", i18n.T(ctx, "settings.wizard.calendar"), i18n.T(ctx, "settings.wizard.sync_calendars"), true, true, "", "calendar", false, false, nil)
+		@AccountWizardTopStep("wizardGo", 4, "2", i18n.T(ctx, "settings.wizard.contacts"), i18n.T(ctx, "settings.wizard.contacts_description"), true, true, "", "contacts", false, false, templ.Attributes{"data-add-contact-sync-switch": ""})
+		@AccountWizardTopStep("wizardGo", 5, "3", i18n.T(ctx, "settings.wizard.calendar"), i18n.T(ctx, "settings.wizard.calendar_description"), true, true, "", "calendar", false, false, nil)
 	</aside>
 }
 
 templ AccountWizardEditSidebar(data models.EditAccountData) {
 	<aside class="rounded-lg border border-border bg-muted/25 p-2 md:min-h-[28rem]">
 		<div class="mb-2 px-2">
-			<div class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "settings.wizard.settings_sections") }</div>
+			<div class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "settings.wizard.services") }</div>
 			<p class="mt-0.5 text-[11px] leading-snug text-muted-foreground">{ i18n.T(ctx, "settings.wizard.sections_hint") }</p>
 		</div>
 		{{ emailEnabled := data.EmailSyncEnabled || data.ReconnectPending }}
@@ -3957,8 +3957,8 @@ templ AccountWizardEditSidebar(data models.EditAccountData) {
 		} else {
 			@AccountWizardEmailSection("editWizardGo", data.AccountID, emailEnabled, false, true, i18n.T(ctx, "settings.wizard.test_save"))
 		}
-		@AccountWizardTopStep("editWizardGo", 4, "2", i18n.T(ctx, "settings.wizard.contacts"), i18n.T(ctx, "settings.wizard.sync_contacts"), false, true, data.AccountID, "contacts", data.ContactSync.Enabled || data.ReconnectContacts, false, nil)
-		@AccountWizardTopStep("editWizardGo", 5, "3", i18n.T(ctx, "settings.wizard.calendar"), i18n.T(ctx, "settings.wizard.sync_calendars"), false, true, data.AccountID, "calendar", data.CalendarSync.Enabled || data.ReconnectCalendar, false, nil)
+		@AccountWizardTopStep("editWizardGo", 4, "2", i18n.T(ctx, "settings.wizard.contacts"), i18n.T(ctx, "settings.wizard.contacts_description"), false, true, data.AccountID, "contacts", data.ContactSync.Enabled || data.ReconnectContacts, false, nil)
+		@AccountWizardTopStep("editWizardGo", 5, "3", i18n.T(ctx, "settings.wizard.calendar"), i18n.T(ctx, "settings.wizard.calendar_description"), false, true, data.AccountID, "calendar", data.CalendarSync.Enabled || data.ReconnectCalendar, false, nil)
 	</aside>
 }
 
@@ -4386,7 +4386,7 @@ templ EditAccountDialog(data models.EditAccountData) {
 					}
 				</p>
 			}
-			<div class="account-wizard-shell grid gap-4 pt-2 md:grid-cols-[14.5rem_minmax(0,1fr)]">
+			<div class="account-wizard-shell grid gap-4 pt-2 md:grid-cols-[16rem_minmax(0,1fr)]">
 		if editAccountSkipsSending(data) {
 			<div data-wizard-skip-sending hidden></div>
 		}

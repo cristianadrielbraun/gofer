@@ -46,7 +46,7 @@
         );
       const originalText = tooltipText?.textContent;
       if (tooltipText) {
-        tooltipText.textContent = "Copied!";
+        tooltipText.textContent = window.goferT ? window.goferT("js.common.copied") : "Copied!";
       }
 
       setTimeout(() => {

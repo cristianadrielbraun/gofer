@@ -38,12 +38,12 @@ templ CalendarDescriptionEditor(data CalendarCreateData) {
 								}
 						}
 						@dropdown.Content() {
-							@dropdown.Item(dropdown.ItemProps{Attributes: templ.Attributes{"data-on-click": onAction("calendarDescriptionExec", actionElement, "formatBlock", "p")}}) { i18n.T(ctx, "calendar.format.paragraph") }
-							@dropdown.Item(dropdown.ItemProps{Attributes: templ.Attributes{"data-on-click": onAction("calendarDescriptionExec", actionElement, "formatBlock", "h3")}}) { i18n.T(ctx, "calendar.format.heading") }
-							@dropdown.Item(dropdown.ItemProps{Attributes: templ.Attributes{"data-on-click": onAction("calendarDescriptionExec", actionElement, "formatBlock", "blockquote")}}) { i18n.T(ctx, "calendar.format.quote") }
-							@dropdown.Item(dropdown.ItemProps{Attributes: templ.Attributes{"data-on-click": onAction("calendarDescriptionExec", actionElement, "formatBlock", "pre")}}) { i18n.T(ctx, "calendar.format.code") }
+							@dropdown.Item(dropdown.ItemProps{Attributes: templ.Attributes{"data-on-click": onAction("calendarDescriptionExec", actionElement, "formatBlock", "p")}}) { { i18n.T(ctx, "calendar.format.paragraph") } }
+							@dropdown.Item(dropdown.ItemProps{Attributes: templ.Attributes{"data-on-click": onAction("calendarDescriptionExec", actionElement, "formatBlock", "h3")}}) { { i18n.T(ctx, "calendar.format.heading") } }
+							@dropdown.Item(dropdown.ItemProps{Attributes: templ.Attributes{"data-on-click": onAction("calendarDescriptionExec", actionElement, "formatBlock", "blockquote")}}) { { i18n.T(ctx, "calendar.format.quote") } }
+							@dropdown.Item(dropdown.ItemProps{Attributes: templ.Attributes{"data-on-click": onAction("calendarDescriptionExec", actionElement, "formatBlock", "pre")}}) { { i18n.T(ctx, "calendar.format.code") } }
 							@dropdown.Separator()
-							@dropdown.Item(dropdown.ItemProps{Attributes: templ.Attributes{"data-on-click": onAction("calendarDescriptionExec", actionElement, "removeFormat")}}) { i18n.T(ctx, "calendar.format.clear") }
+							@dropdown.Item(dropdown.ItemProps{Attributes: templ.Attributes{"data-on-click": onAction("calendarDescriptionExec", actionElement, "removeFormat")}}) { { i18n.T(ctx, "calendar.format.clear") } }
 						}
 					}
 					@button.Button(button.Props{Type: button.TypeButton, Variant: button.VariantGhost, Size: button.SizeIcon, Class: "absolute top-1 right-1 size-7 text-muted-foreground", Attributes: templ.Attributes{"data-calendar-description-toggle": "", "aria-label": i18n.T(ctx, "calendar.description.expand"), "title": i18n.T(ctx, "calendar.description.expand"), "aria-controls": "calendar-create-description", "aria-expanded": "false", "data-on-click": onAction("toggleCalendarDescription", actionClosest("[data-calendar-create-form]"))}}) {

@@ -3,6 +3,7 @@
 package timepicker
 
 import (
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"fmt"
 	"github.com/cristianadrielbraun/gofer/components/button"
 	"github.com/cristianadrielbraun/gofer/components/card"
@@ -44,13 +45,13 @@ templ TimePicker(props ...Props) {
 			p.Name = p.ID
 		}
 		if p.Placeholder == "" {
-			p.Placeholder = "Select time"
+			p.Placeholder = i18n.T(ctx, "components.select_time")
 		}
 		if p.AMLabel == "" {
-			p.AMLabel = "AM"
+			p.AMLabel = i18n.T(ctx, "date.am")
 		}
 		if p.PMLabel == "" {
-			p.PMLabel = "PM"
+			p.PMLabel = i18n.T(ctx, "date.pm")
 		}
 		if p.Step <= 0 {
 			p.Step = 1
@@ -140,7 +141,7 @@ templ TimePicker(props ...Props) {
 							<div class="grid grid-cols-2 gap-3 mb-4">
 								// Hour selection
 								<div class="space-y-2">
-									<label class="text-sm font-medium">Hour</label>
+									<label class="text-sm font-medium">{ i18n.T(ctx, "components.hour") }</label>
 									<div class="max-h-32 overflow-y-auto border rounded-md bg-background">
 										<div data-tui-timepicker-hour-list="true" class="p-1 space-y-0.5">
 											if p.Use12Hours {
@@ -181,7 +182,7 @@ templ TimePicker(props ...Props) {
 								</div>
 								// Minute selection
 								<div class="space-y-2">
-									<label class="text-sm font-medium">Minute</label>
+									<label class="text-sm font-medium">{ i18n.T(ctx, "components.minute") }</label>
 									<div class="max-h-32 overflow-y-auto border rounded-md bg-background">
 										<div data-tui-timepicker-minute-list="true" class="p-1 space-y-0.5">
 											for minute := 0; minute < 60; minute += p.Step {
@@ -230,7 +231,7 @@ templ TimePicker(props ...Props) {
 										"data-tui-timepicker-done": "true",
 									},
 								}) {
-									Done
+									{ i18n.T(ctx, "common.done") }
 								}
 							</div>
 						</div>

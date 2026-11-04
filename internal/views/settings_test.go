@@ -604,7 +604,7 @@ func TestAccountDialogsIncludeCalendarServiceSection(t *testing.T) {
 	}
 	for _, want := range []string{
 		"Calendar",
-		"Sync calendars",
+		"Meetings and events",
 		`data-wizard-service-switch="calendar"`,
 		`data-wizard-step="4"`,
 		`data-wizard-step="5"`,

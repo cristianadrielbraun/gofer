@@ -3,6 +3,7 @@
 package toast
 
 import (
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"github.com/cristianadrielbraun/gofer/components/button"
 	"github.com/cristianadrielbraun/gofer/components/icon"
 	"github.com/cristianadrielbraun/gofer/utils"
@@ -133,7 +134,7 @@ templ Toast(props ...Props) {
 					Size:    button.SizeIcon,
 					Variant: button.VariantGhost,
 					Attributes: templ.Attributes{
-						"aria-label":             "Close",
+						"aria-label":             i18n.T(ctx, "common.close"),
 						"data-tui-toast-dismiss": "",
 						"type":                   "button",
 					},

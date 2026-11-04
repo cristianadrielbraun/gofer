@@ -145,7 +145,7 @@ templ Calendar(props ...Props) {
 						@selectbox.Trigger(selectbox.TriggerProps{ID: p.ID + "-month-select", Class: "h-7 px-2 text-sm", DisableClear: true, Attributes: templ.Attributes{"data-tui-calendar-month-select": "", "value": strconv.Itoa(currentMonth)}}) {
 							@selectbox.Value(selectbox.ValueProps{ID: p.ID + "-month-value", Placeholder: monthNames[currentMonth]})
 						}
-						@selectbox.Content(selectbox.ContentProps{NoSearch: true, DisableExclusive: true, Attributes: templ.Attributes{"aria-label": "Choose the Month"}}) {
+						@selectbox.Content(selectbox.ContentProps{NoSearch: true, DisableExclusive: true, Attributes: templ.Attributes{"aria-label": i18n.T(ctx, "components.choose_month")}}) {
 							@selectbox.Group(selectbox.GroupProps{Attributes: selectbox.LazyItems(monthMenuItems(monthNames))}) {
 								@selectbox.Item(selectbox.ItemProps{Value: strconv.Itoa(currentMonth), Selected: true, Attributes: templ.Attributes{"data-tui-calendar-month-index": strconv.Itoa(currentMonth)}}) { { monthNames[currentMonth] } }
 							}
@@ -155,7 +155,7 @@ templ Calendar(props ...Props) {
 						@selectbox.Trigger(selectbox.TriggerProps{ID: p.ID + "-year-select", Class: "h-7 px-2 text-sm", DisableClear: true, Attributes: templ.Attributes{"data-tui-calendar-year-select": "", "value": strconv.Itoa(currentYear)}}) {
 							@selectbox.Value(selectbox.ValueProps{ID: p.ID + "-year-value", Placeholder: strconv.Itoa(currentYear)})
 						}
-						@selectbox.Content(selectbox.ContentProps{NoSearch: true, DisableExclusive: true, Attributes: templ.Attributes{"aria-label": "Choose the Year"}}) {
+						@selectbox.Content(selectbox.ContentProps{NoSearch: true, DisableExclusive: true, Attributes: templ.Attributes{"aria-label": i18n.T(ctx, "components.choose_year")}}) {
 							@selectbox.Group(selectbox.GroupProps{Attributes: selectbox.LazyItems(yearMenuItems(p))}) {
 								@selectbox.Item(selectbox.ItemProps{Value: strconv.Itoa(currentYear), Selected: true}) { { strconv.Itoa(currentYear) } }
 							}

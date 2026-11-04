@@ -154,7 +154,8 @@ func adminUserUsername(ctx context.Context, username string) string {
 }
 
 // adminValueLabel shows a user's status, role or 2FA value, which the
-// handler sets in English (or as a lowercase status), in the page's language.
+// handler sends as a code, in the page's language. The English names are
+// what the handler sent before codes.
 func adminValueLabel(ctx context.Context, value string) string {
 	switch value {
 	case "active", "Active":
@@ -815,8 +816,8 @@ templ AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificat
 												<span
 													class={
 														"inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold",
-														templ.KV("border-primary/30 bg-primary/10 text-primary", user.Role == "Administrator"),
-														templ.KV("border-border bg-muted text-muted-foreground", user.Role == "User"),
+														templ.KV("border-primary/30 bg-primary/10 text-primary", user.Role == "management_admin"),
+														templ.KV("border-border bg-muted text-muted-foreground", user.Role == "management_user"),
 													}
 												>{ adminValueLabel(ctx, user.Role) }</span>
 											</td>
@@ -1958,7 +1959,7 @@ templ AdminPage(status models.AvatarStatus, activeTab string) {
 									{ i18n.T(ctx, "admin.avatars.cancel") }
 								</button>
 							</form>
-							<a href={ adminScopeURL("/api/admin/avatars/status", status.Scope) } class="rounded-md border border-border bg-card px-3 py-2 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">{ i18n.T(ctx, "admin.raw_json") }</a>
+							<a href={ adminScopeURL("/api/admin/avatars/status", status.Scope) } class="whitespace-nowrap rounded-md border border-border bg-card px-3 py-2 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">{ i18n.T(ctx, "admin.raw_json") }</a>
 						</div>
 					</div>
 				</div>
@@ -2603,7 +2604,7 @@ templ AdminLabelsPage(status models.LabelAdminStatus) {
 					</div>
 					<div class="flex w-full flex-col items-end gap-3 lg:w-auto">
 						@AdminWebmailScopeFilter(status.Scope, "/admin/labels")
-						<a href={ adminScopeURL("/api/admin/labels/status", status.Scope) } class="w-fit rounded-md border border-border bg-background px-3 py-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">{ i18n.T(ctx, "admin.raw_json") }</a>
+						<a href={ adminScopeURL("/api/admin/labels/status", status.Scope) } class="w-fit whitespace-nowrap rounded-md border border-border bg-background px-3 py-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">{ i18n.T(ctx, "admin.raw_json") }</a>
 					</div>
 				</div>
 				<div class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -2866,7 +2867,7 @@ templ AdminContactsPage(status models.ContactAdminStatus) {
 									<div class={ adminPanelTitleClass() }>{ i18n.T(ctx, "admin.contacts.account_sync") }</div>
 									<p class="mt-1 text-sm text-muted-foreground">{ i18n.T(ctx, "admin.contacts.account_sync_detail") }</p>
 								</div>
-								<a href="/api/admin/contacts/status" class="w-fit rounded-md border border-border bg-background px-3 py-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">{ i18n.T(ctx, "admin.raw_json") }</a>
+								<a href="/api/admin/contacts/status" class="w-fit whitespace-nowrap rounded-md border border-border bg-background px-3 py-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">{ i18n.T(ctx, "admin.raw_json") }</a>
 							</div>
 							if len(status.AccountSync) == 0 {
 								<div class="rounded-lg border border-dashed border-border bg-background/35 px-4 py-8 text-center text-sm text-muted-foreground">{ i18n.T(ctx, "admin.contacts.no_sync") }</div>
