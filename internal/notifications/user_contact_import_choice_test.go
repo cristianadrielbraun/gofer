@@ -18,7 +18,7 @@ import (
 func requestContactImportForm(ctx context.Context, f *userStorageFixture, owner string, fields map[string]string, wire string) *httptest.ResponseRecorder {
 	var body bytes.Buffer
 	form := multipart.NewWriter(&body)
-	_ = form.WriteField("save_targets", "local")
+	_ = form.WriteField("store_in", "local")
 	for name, value := range fields {
 		_ = form.WriteField(name, value)
 	}

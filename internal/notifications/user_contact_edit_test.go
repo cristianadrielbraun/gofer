@@ -150,11 +150,12 @@ func TestUserContactEditHTTPSetupNewIdentityAndForeignLocations(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	// A no-ID save of an existing email preserves the legacy setup flow.
+	// A no-ID save of an existing email is a new contact beside it: contacts
+	// share addresses, each in its own place. It keeps the setup flow.
 	form.Set("email", "alice-contact@example.com")
 	response = requestContactEditor(t.Context(), f, "alice", "/api/contacts", form)
-	if response.Code != 200 || !strings.Contains(response.Body.String(), `"contact_id":"same-contact-id"`) || !strings.Contains(response.Body.String(), "contact_sync_setup_url") {
-		t.Fatal("identity lookup changed setup behavior", response.Code, response.Body.String())
+	if response.Code != 200 || strings.Contains(response.Body.String(), `"contact_id":"same-contact-id"`) || !strings.Contains(response.Body.String(), "contact_sync_setup_url") {
+		t.Fatal("new contact with an existing address", response.Code, response.Body.String())
 	}
 	for _, missing := range []string{"does-not-exist", id} {
 		response = requestContactEditor(t.Context(), f, "bob", "/api/contacts?id="+missing, editorForm("bob"))

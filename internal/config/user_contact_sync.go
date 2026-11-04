@@ -213,3 +213,13 @@ func (s *UserAccountStore) PublishContactSyncVersion(ctx context.Context, d *Use
 		return db.PublishUserContactSyncVersion(ctx, d.destination, remoteID, etag, s.serviceGuard(ctx, d.services, true))
 	})
 }
+
+// EnqueueContactStore queues the one write that stores an imported contact
+// in target, an account or address book of the owner's.
+func (s *UserAccountStore) EnqueueContactStore(ctx context.Context, owner, profile, target string) (id string, err error) {
+	err = s.WithUser(ctx, owner, func(_ *AccountStore, db *storage.DB) error {
+		id, err = db.EnqueueUserContactStore(ctx, owner, profile, target, s.contactSyncOwnerGuard(ctx, owner))
+		return err
+	})
+	return id, err
+}

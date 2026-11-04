@@ -164,8 +164,11 @@ type Contact struct {
 	Notes                 string
 	Initials              string
 	Source                string
-	IsManual              bool
-	IsDeleted             bool
+	// StoredIn is the contact's home: "local", "account:<id>" or
+	// "book:<id>". On a new contact it is where the contact goes to live.
+	StoredIn  string
+	IsManual  bool
+	IsDeleted bool
 	// TrashedAt is when the contact went to the Trash, and TrashPurgeAt when
 	// it is deleted for good from there, formatted for showing.
 	TrashedAt        string
@@ -306,6 +309,10 @@ type ContactFilters struct {
 	SortBy    string
 	SortOrder string
 }
+
+// ContactOriginImported is the origin of a contact a vCard import created.
+// A save sets it from Contact.Source; an existing contact keeps its own.
+const ContactOriginImported = "imported"
 
 // ContactFilterValues splits a contacts filter into its values, without
 // blanks or repeats.

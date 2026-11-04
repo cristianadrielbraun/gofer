@@ -377,7 +377,8 @@ func profileLocalContacts(ctx context.Context, db *storage.DB, owner string) ([]
 	}
 	var contacts []models.Contact
 	for _, row := range listed {
-		if !row.IsManual || row.IsDeleted || len(row.SourceBooks) > 0 {
+		// Imported contacts that only Gofer holds are kept like manual ones.
+		if (!row.IsManual && row.Source != models.ContactOriginImported) || row.IsDeleted || len(row.SourceBooks) > 0 {
 			continue
 		}
 		contact, err := db.GetContact(ctx, owner, row.ID)
@@ -605,12 +606,14 @@ func findProfileContactConflicts(ctx context.Context, db *storage.DB, owner stri
 			if strings.TrimSpace(email) == "" {
 				continue
 			}
-			profile, err := db.FindContactProfileByIdentity(ctx, owner, "email", email)
+			// A profile's contacts come back into Gofer Local; one with the
+			// address elsewhere is another contact.
+			id, err := db.ContactInPlace(ctx, owner, email, "local")
 			if err != nil {
 				return nil, err
 			}
-			if profile != nil {
-				existingID, byEmail = profile.ID, true
+			if id != "" {
+				existingID, byEmail = id, true
 				break
 			}
 		}

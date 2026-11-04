@@ -1166,7 +1166,7 @@ func contactFilterParam(raw []string, valid func(string) bool) string {
 }
 
 func contactSourceFilterValid(value string) bool {
-	return value == "manual" || value == "observed" || value == "synced" || strings.HasPrefix(value, "synced:") || strings.HasPrefix(value, "book:")
+	return value == "manual" || value == "observed" || value == models.ContactOriginImported || value == "synced" || strings.HasPrefix(value, "synced:") || strings.HasPrefix(value, "book:")
 }
 
 func contactPlaceFilterValid(value string) bool {
@@ -1220,6 +1220,15 @@ func (h *Handler) handleSaveContact(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, serverText(r.Context(), err.Error()), http.StatusBadRequest)
 		return
 	}
+	// A new contact lives where it was asked to, when that is a place it can
+	// be saved to; an existing one keeps its home.
+	if contact.ID == "" {
+		if targets := h.contactSaveTargets(ctx, contact.StoredIn); len(targets) != 1 || targets[0] != contact.StoredIn {
+			contact.StoredIn = "local"
+		}
+	} else {
+		contact.StoredIn = ""
+	}
 	var previous *models.Contact
 	if contact.ID != "" {
 		if trashed, err := h.db.ContactInTrash(ctx, userID, contact.ID); err != nil {
@@ -1253,6 +1262,17 @@ func (h *Handler) handleSaveContact(w http.ResponseWriter, r *http.Request) {
 	syncQueued := false
 	if !setupRequired {
 		syncQueued = h.scheduleContactAccountSync(ctx, userID, saved, previous)
+	}
+	// A contact living on an account is written there: a new one now, and an
+	// edit to one whatever Gofer Sync says. With Gofer Sync on, its sync
+	// writes it there with its other places.
+	if saved.StoredIn != "" && saved.StoredIn != "local" && !saved.GoferSyncEnabled {
+		if _, err := h.db.EnqueueContactStoreOperation(ctx, userID, saved, saved.StoredIn); err != nil {
+			log.Printf("contacts: store new contact %s: %v", saved.ID, err)
+		} else {
+			syncQueued = true
+			h.signalContactSyncOperationWorker()
+		}
 	}
 	if strings.Contains(r.Header.Get("Accept"), "application/json") {
 		w.Header().Set("Content-Type", "application/json")
@@ -1301,6 +1321,8 @@ func contactFromForm(r *http.Request, targets []string) (models.Contact, error) 
 		Notes:                 strings.TrimSpace(r.FormValue("notes")),
 		GoferSyncEnabled:      r.FormValue("sync_enabled") == "on",
 		SaveTargets:           targets,
+		// Where a new contact goes to live; the handlers check it.
+		StoredIn: strings.TrimSpace(r.FormValue("stored_in")),
 		AvatarURL:             avatarURL,
 		RemoveAvatar:          removeAvatar,
 	}
@@ -1445,9 +1467,7 @@ func (h *Handler) contactSaveTargets(ctx context.Context, raw string) []string {
 			targets = append(targets, target)
 		}
 	}
-	if len(targets) == 0 {
-		targets = []string{"local"}
-	}
+	// Nothing chosen is nothing: a contact's home says where it lives.
 	return targets
 }
 
@@ -1498,36 +1518,77 @@ func serveVCard(w http.ResponseWriter, r *http.Request, filename string, contact
 }
 
 func (h *Handler) handleImportContacts(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	request, ok := readContactImport(w, r, func(raw string) []string { return h.contactSaveTargets(ctx, raw) })
+	// Read the owner only once the form is in: an oversized upload is
+	// refused before anything else.
+	owner := func(ctx context.Context) string { return h.userID(ctx) }
+	store := contactImportStore{
+		accepted: func(ctx context.Context, place string) (bool, error) {
+			targets := h.contactSaveTargets(ctx, place)
+			return len(targets) == 1 && targets[0] == place, nil
+		},
+		storedIn: func(ctx context.Context, email, place string) (bool, error) {
+			return h.db.ContactStoredIn(ctx, owner(ctx), email, place)
+		},
+		run: func(ctx context.Context, work func(context.Context) error) error { return work(ctx) },
+		save: func(ctx context.Context, contact models.Contact, request contactImportRequest) (contactImportSaved, error) {
+			var result contactImportSaved
+			owner := owner(ctx)
+			// Only a contact already in the store place is the same contact;
+			// one with the address elsewhere is another, left alone.
+			inPlace, err := h.db.ContactInPlace(ctx, owner, contact.Email, request.storeIn)
+			if err != nil {
+				return result, err
+			}
+			result.existed = inPlace != ""
+			if result.existed && request.skipExisting {
+				return result, nil
+			}
+			var previous *models.Contact
+			if inPlace != "" {
+				if previous, err = h.db.GetContact(ctx, owner, inPlace); err != nil {
+					return result, err
+				}
+				contact.ID = inPlace
+			}
+			contact = importedContact(contact, previous, request)
+			saved, err := h.db.SaveContact(ctx, owner, contact)
+			if err != nil {
+				return result, err
+			}
+			result.saved = true
+			if contactImportNeedsStore(saved, request) {
+				result.operation, err = h.db.EnqueueContactStoreOperation(ctx, owner, saved, request.storeIn)
+			} else if h.contactNeedsAccountSync(ctx, owner, saved, previous) {
+				result.operation, err = h.db.EnqueueContactSyncOperation(ctx, owner, saved, previous)
+			}
+			return result, err
+		},
+		deliver: func(ctx context.Context) bool {
+			ops, err := h.db.ClaimContactSyncOperations(ctx, 1, 5*time.Minute)
+			if err != nil || len(ops) == 0 {
+				return false
+			}
+			h.processContactSyncOperation(ctx, ops[0])
+			return true
+		},
+		progress: func(ctx context.Context, ids []string) (storage.ContactOperationProgress, error) {
+			return h.db.ContactOperationProgress(ctx, owner(ctx), ids)
+		},
+		fail: func(w http.ResponseWriter, r *http.Request, _ error) {
+			http.Error(w, i18n.T(r.Context(), "server.error.failed_to_import_contacts"), http.StatusInternalServerError)
+		},
+	}
+	request, ok := readContactImport(w, r, store)
 	if !ok {
 		return
 	}
-	owner := h.userID(ctx)
-	inUse := func(email string) (bool, error) { return h.db.ContactEmailInUse(ctx, owner, email) }
 	if request.preview {
-		previewContactImport(w, r, request.contacts, inUse)
+		previewContactImport(w, r, request, store)
 		return
 	}
-	run := func(work func(context.Context) error) error { return work(ctx) }
-	save := func(ctx context.Context, contact models.Contact, skipExisting bool) (bool, bool, error) {
-		existed, err := inUse(contact.Email)
-		if err != nil {
-			return false, false, err
-		}
-		if existed && skipExisting {
-			return true, false, nil
-		}
-		saved, err := h.db.SaveContact(ctx, owner, contact)
-		if err != nil {
-			return existed, false, err
-		}
-		h.scheduleContactAccountSync(ctx, owner, saved, nil)
-		return existed, true, nil
-	}
-	runContactImport(w, r, request, run, save, func(w http.ResponseWriter, r *http.Request, _ error) {
-		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_import_contacts"), http.StatusInternalServerError)
-	})
+	runContactImport(w, r, request, store)
+	// Writes that failed once are tried again by the worker.
+	h.signalContactSyncOperationWorker()
 }
 
 func (h *Handler) handleUnifyContact(w http.ResponseWriter, r *http.Request) {

@@ -67,41 +67,93 @@ func (h *Handler) handleUserUnifyContact(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *Handler) handleUserImportContacts(w http.ResponseWriter, r *http.Request) {
-	// The editor snapshot applies the owned destination allowlist. vCard imports
-	// retain the existing disabled-sync behavior and never perform provider HTTP.
-	request, ok := readContactImport(w, r, func(raw string) []string { return strings.Split(raw, ",") })
+	owner := h.userID(r.Context())
+	withDB := func(ctx context.Context, read func(*storage.DB) error) error {
+		return h.userAccounts.WithUser(ctx, owner, func(_ *config.AccountStore, db *storage.DB) error { return read(db) })
+	}
+	store := contactImportStore{
+		accepted: func(ctx context.Context, place string) (ok bool, err error) {
+			err = withDB(ctx, func(db *storage.DB) error {
+				ok, err = db.ContactPlaceAccepted(ctx, owner, place)
+				return err
+			})
+			return ok, err
+		},
+		storedIn: func(ctx context.Context, email, place string) (ok bool, err error) {
+			err = withDB(ctx, func(db *storage.DB) error {
+				ok, err = db.ContactStoredIn(ctx, owner, email, place)
+				return err
+			})
+			return ok, err
+		},
+		run: func(ctx context.Context, work func(context.Context) error) error {
+			return h.userIMAP.RunUserServiceWork(ctx, owner, work)
+		},
+		// The editor snapshot applies the owned destination allowlist and
+		// rereads the contact before it is saved.
+		save: func(ctx context.Context, contact models.Contact, request contactImportRequest) (contactImportSaved, error) {
+			var result contactImportSaved
+			// Only a contact already in the store place is the same contact;
+			// one with the address elsewhere is another, left alone.
+			var inPlace string
+			if err := withDB(ctx, func(db *storage.DB) error {
+				var err error
+				inPlace, err = db.ContactInPlace(ctx, owner, contact.Email, request.storeIn)
+				return err
+			}); err != nil {
+				return result, err
+			}
+			result.existed = inPlace != ""
+			if result.existed && request.skipExisting {
+				return result, nil
+			}
+			contact.ID = inPlace
+			first, err := h.userAccounts.SnapshotContactEdit(ctx, owner, importedContact(contact, nil, request))
+			if err != nil {
+				return result, err
+			}
+			snapshot := first
+			if previous := first.Previous(); previous != nil {
+				if snapshot, err = h.userAccounts.SnapshotContactEdit(ctx, owner, importedContact(contact, previous, request)); err != nil {
+					return result, err
+				}
+			}
+			saved, err := h.userAccounts.SaveContactEdit(ctx, snapshot, false)
+			if err != nil {
+				return result, err
+			}
+			result.saved, result.operation = true, saved.OperationID
+			if contactImportNeedsStore(snapshot.Contact(), request) {
+				result.operation, err = h.userAccounts.EnqueueContactStore(ctx, owner, saved.Contact.ID, request.storeIn)
+			}
+			return result, err
+		},
+		deliver: func(ctx context.Context) bool {
+			processed, _ := h.ProcessUserContactSyncOperations(ctx, owner, 1)
+			return processed > 0
+		},
+		progress: func(ctx context.Context, ids []string) (progress storage.ContactOperationProgress, err error) {
+			err = withDB(ctx, func(db *storage.DB) error {
+				progress, err = db.ContactOperationProgress(ctx, owner, ids)
+				return err
+			})
+			return progress, err
+		},
+		fail: userContactEditError,
+	}
+	request, ok := readContactImport(w, r, store)
 	if !ok {
 		return
 	}
-	owner := h.userID(r.Context())
 	if request.preview {
-		previewContactImport(w, r, request.contacts, func(email string) (inUse bool, err error) {
-			err = h.userAccounts.WithUser(r.Context(), owner, func(_ *config.AccountStore, db *storage.DB) error {
-				inUse, err = db.ContactEmailInUse(r.Context(), owner, email)
-				return err
-			})
-			return inUse, err
-		})
+		previewContactImport(w, r, request, store)
 		return
 	}
-	run := func(work func(context.Context) error) error {
-		return h.userIMAP.RunUserServiceWork(r.Context(), owner, work)
+	runContactImport(w, r, request, store)
+	// Writes that failed once are tried again by the worker.
+	if err := h.WakeUserContactQueue(context.WithoutCancel(r.Context()), owner); err != nil {
+		log.Printf("owned contacts: wake import queue: %v", err)
 	}
-	save := func(ctx context.Context, contact models.Contact, skipExisting bool) (bool, bool, error) {
-		snapshot, err := h.userAccounts.SnapshotContactEdit(ctx, owner, contact)
-		if err != nil {
-			return false, false, err
-		}
-		existed := snapshot.Previous() != nil
-		if existed && skipExisting {
-			return true, false, nil
-		}
-		if _, err := h.userAccounts.SaveContactEdit(ctx, snapshot, false); err != nil {
-			return existed, false, err
-		}
-		return existed, true, nil
-	}
-	runContactImport(w, r, request, run, save, userContactEditError)
 }
 
 func (h *Handler) handleUserSaveContact(w http.ResponseWriter, r *http.Request) {
@@ -117,13 +169,29 @@ func (h *Handler) handleUserSaveContact(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	owner := h.userID(r.Context())
+	// A new contact lives where it was asked to, when that is a place it can
+	// be saved to; an existing one keeps its home.
+	if contact.ID == "" {
+		accepted := false
+		if err := h.userAccounts.WithUser(r.Context(), owner, func(_ *config.AccountStore, db *storage.DB) error {
+			var err error
+			accepted, err = db.ContactPlaceAccepted(r.Context(), owner, contact.StoredIn)
+			return err
+		}); err != nil || !accepted {
+			contact.StoredIn = "local"
+		}
+	} else {
+		contact.StoredIn = ""
+	}
 	var result storage.ContactEditResult
 	var previous *models.Contact
+	created := false
 	err = h.userIMAP.RunUserServiceWork(r.Context(), owner, func(ctx context.Context) error {
 		snapshot, err := h.userAccounts.SnapshotContactEdit(ctx, owner, contact)
 		if err != nil {
 			return err
 		}
+		created = snapshot.Previous() == nil
 		if contact.ID != "" {
 			previous = snapshot.Previous()
 		}
@@ -146,6 +214,22 @@ func (h *Handler) handleUserSaveContact(w http.ResponseWriter, r *http.Request) 
 				return err
 			}); err != nil && ctx.Err() == nil {
 				log.Printf("owned contacts: hydrate saved contact: %v", err)
+			}
+		}
+		// A contact living on an account is written there: a new one now, and
+		// an edit to one whatever Gofer Sync says. With Gofer Sync on, its
+		// sync writes it there with its other places.
+		home := contact.StoredIn
+		if !created {
+			home = result.Contact.StoredIn
+		}
+		if home != "" && home != "local" && !result.Contact.GoferSyncEnabled {
+			id, err := h.userAccounts.EnqueueContactStore(ctx, owner, result.Contact.ID, home)
+			if err != nil && ctx.Err() == nil {
+				log.Printf("owned contacts: store new contact: %v", err)
+			}
+			if result.OperationID == "" {
+				result.OperationID = id
 			}
 		}
 		if result.OperationID != "" {

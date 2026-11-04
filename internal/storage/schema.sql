@@ -1267,7 +1267,8 @@ CREATE TABLE IF NOT EXISTS contact_profiles (
     is_deleted INTEGER NOT NULL DEFAULT 0,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    trashed_at DATETIME
+    trashed_at DATETIME,
+    home TEXT NOT NULL DEFAULT ''
 );
 
 CREATE INDEX IF NOT EXISTS idx_contact_profiles_trash
@@ -1361,7 +1362,7 @@ CREATE TABLE IF NOT EXISTS contact_identities (
     confidence REAL NOT NULL DEFAULT 1.0,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (user_id, kind, normalized_value)
+    PRIMARY KEY (user_id, kind, normalized_value, profile_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_contact_identities_profile
@@ -1860,4 +1861,4 @@ CREATE TABLE IF NOT EXISTS mail_rule_runs (
 );
 CREATE INDEX IF NOT EXISTS idx_mail_rule_runs_user ON mail_rule_runs(user_id, id);
 
-INSERT OR REPLACE INTO schema_version (version) VALUES (136);
+INSERT OR REPLACE INTO schema_version (version) VALUES (138);

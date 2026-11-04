@@ -360,6 +360,8 @@ func (h *Handler) upsertInboundSyncedContact(ctx context.Context, userID, provid
 		}
 		if source != nil {
 			profileID = source.ContactID
+		} else if profileID, err = h.db.ContactOfRemovedCard(ctx, userID, provider, accountID, remoteID); err != nil {
+			return "", false, err
 		}
 		// A contact in the Trash still has its address-book copy; leave it
 		// alone rather than bring it back as a new contact.
@@ -499,7 +501,15 @@ func (h *Handler) syncContactToAccountTargets(ctx context.Context, userID string
 	if !contact.GoferSyncEnabled || contact.ID == "" || !contact.HasDetails() {
 		return nil
 	}
+	return h.pushContactToTargets(ctx, userID, contact, excludedAccountID)
+}
 
+// pushContactToTargets writes contact to every account its SaveTargets
+// name, Gofer Sync on or off; callers decide whether it should go.
+func (h *Handler) pushContactToTargets(ctx context.Context, userID string, contact models.Contact, excludedAccountID string) error {
+	if contact.ID == "" || !contact.HasDetails() {
+		return nil
+	}
 	desired, err := h.contactTargetAccountSet(ctx, userID, contact.SaveTargets)
 	if err != nil {
 		return err
@@ -721,6 +731,10 @@ func (h *Handler) processContactSyncOperation(parent context.Context, op storage
 		return
 	}
 	contact = *current
+	if store := strings.TrimSpace(op.Payload.StoreTarget); store != "" {
+		h.processContactStoreOperation(ctx, op, contact, store)
+		return
+	}
 	if !contact.GoferSyncEnabled {
 		if err := h.db.MarkContactSyncOperationSuccess(context.Background(), op.ID); err != nil {
 			log.Printf("contacts sync operation %s: cancel disabled sync: %v", op.ID, err)
@@ -752,6 +766,25 @@ func (h *Handler) processContactSyncOperation(parent context.Context, op storage
 		log.Printf("contacts sync operation %s: mark success: %v", op.ID, err)
 	}
 	logSyncResult("contact_synced", "done", "Gofer Sync complete", "")
+}
+
+// processContactStoreOperation writes an imported contact once to the one
+// place it is stored in, whether or not Gofer Sync is on for it.
+func (h *Handler) processContactStoreOperation(ctx context.Context, op storage.ContactSyncOperation, contact models.Contact, store string) {
+	contact.SaveTargets = []string{store}
+	if err := h.pushContactToTargets(ctx, op.UserID, contact, ""); err != nil {
+		retry := op.AttemptCount < 3
+		if markErr := h.db.MarkContactSyncOperationError(context.Background(), op.ID, err.Error(), retry); markErr != nil {
+			log.Printf("contacts store operation %s: mark error: %v", op.ID, markErr)
+		}
+		if retry {
+			h.signalContactSyncOperationWorker()
+		}
+		return
+	}
+	if err := h.db.MarkContactSyncOperationSuccess(context.Background(), op.ID); err != nil {
+		log.Printf("contacts store operation %s: mark success: %v", op.ID, err)
+	}
 }
 
 func (h *Handler) contactNeedsAccountSync(ctx context.Context, userID string, contact models.Contact, previous *models.Contact) bool {

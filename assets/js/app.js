@@ -9337,7 +9337,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
   function contactsPendingTableHeaderHTML() {
     return '<div class="mail-list-table-header mail-list-table-grid grid items-center gap-3 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground bg-card/95 border-b border-border/70 sticky top-0 z-20 backdrop-blur-sm" style="--mail-list-table-columns:minmax(10rem,1.4fr) minmax(8rem,0.9fr) minmax(3.5rem,auto)">' +
-      '<div class="mail-list-table-heading">' + goferT("js.contacts.column.name") + '</div><div class="mail-list-table-heading">' + goferT("js.contacts.column.origin") + '</div><div class="mail-list-table-heading min-w-12 text-right">' + goferT("js.contacts.column.messages") + '</div>' +
+      '<div class="mail-list-table-heading">' + goferT("js.contacts.column.name") + '</div><div class="mail-list-table-heading">' + goferT("js.contacts.column.stored_in") + '</div><div class="mail-list-table-heading min-w-12 text-right">' + goferT("js.contacts.column.messages") + '</div>' +
     '</div>'
   }
 
@@ -16382,10 +16382,12 @@ document.addEventListener("submit", function (event) {
   })
 })
 
-// Import vCard: choosing a file asks the server how many of its contacts are
-// already in Gofer, and when some are, the dialog asks whether to update them
-// or leave them as they are. The import then shows its progress as it saves,
-// and a toast says what it did.
+// Import vCard: the contacts go to one place, Store in, and with the Gofer
+// Sync switch on also sync with more places. Choosing the file or the place
+// asks the server how many of the file's contacts are already there, and
+// when some are, the dialog asks whether to update them or leave them as
+// they are. The import then shows its progress as it saves the contacts and
+// writes them to the accounts, and a toast says what it did.
 var contactsImportCheck = 0
 
 function contactsImportResetChoice(form) {
@@ -16397,26 +16399,33 @@ function contactsImportResetChoice(form) {
   if (skip) skip.checked = true
 }
 
-function contactsImportTargets(form) {
+function contactsImportValue(form, name) {
+  var input = form.querySelector("input[name='" + name + "']")
+  return input ? input.value || "" : ""
+}
+
+// The places the import uses, as the server reads them.
+function contactsImportBody(form, file) {
   var body = new FormData()
-  form.querySelectorAll("input[name='save_targets']").forEach(function (input) {
-    if (input.value) body.append("save_targets", input.value)
-  })
+  body.append("vcard", file)
+  body.append("store_in", contactsImportValue(form, "store_in") || "local")
+  var sync = form.querySelector("[data-contacts-import-sync]")
+  if (sync && sync.checked) {
+    body.append("gofer_sync", "1")
+    body.append("sync_with", contactsImportValue(form, "sync_with"))
+  }
   return body
 }
 
-document.addEventListener("change", function (event) {
-  if (!event.target.matches || !event.target.matches("[data-contacts-import-file]")) return
-  var form = event.target.closest("[data-contacts-import-form]")
-  if (!form) return
+function contactsImportPreview(form) {
   var check = ++contactsImportCheck
   contactsImportResetChoice(form)
-  var file = event.target.files && event.target.files[0]
+  var fileInput = form.querySelector("[data-contacts-import-file]")
+  var file = fileInput && fileInput.files && fileInput.files[0]
   if (!file) return
   var checking = form.querySelector("[data-contacts-import-checking]")
   if (checking) checking.hidden = false
-  var body = contactsImportTargets(form)
-  body.append("vcard", file)
+  var body = contactsImportBody(form, file)
   body.append("preview", "1")
   fetch("/api/contacts/import", { method: "POST", headers: { Accept: "application/json" }, body: body })
     .then(function (response) {
@@ -16438,6 +16447,54 @@ document.addEventListener("change", function (event) {
       if (checking) checking.hidden = true
       showGoferToast({ title: goferT("js.contacts.import.failed"), description: error && error.message ? error.message : goferT("js.common.please_try_again"), variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
     })
+}
+
+function contactsImportShowSyncPlaces(form) {
+  var sync = form.querySelector("[data-contacts-import-sync]")
+  var places = form.querySelector("[data-contacts-import-sync-places]")
+  if (places) places.hidden = !(sync && sync.checked)
+  contactsImportExcludeStore(form)
+}
+
+// The contacts already live in the Store in place, so syncing them there
+// too means nothing: it leaves the places to sync with, and the selection.
+function contactsImportExcludeStore(form) {
+  excludeContactHomeFromSyncPlaces(form, contactsImportValue(form, "store_in") || "local", "sync_with")
+}
+
+// excludeContactHomeFromSyncPlaces hides home from the sync places select
+// named name, and takes it out of the selection: the import's, and the new
+// contact form's.
+function excludeContactHomeFromSyncPlaces(form, store, name) {
+  var input = form.querySelector("input[name='" + name + "']")
+  var container = input && input.closest(".select-container")
+  if (!container) return
+  container.querySelectorAll(".select-item[data-tui-selectbox-value]").forEach(function (item) {
+    item.style.display = item.getAttribute("data-tui-selectbox-value") === store ? "none" : ""
+  })
+  var chosen = input.value ? input.value.split(",") : []
+  if (chosen.indexOf(store) < 0) return
+  input.value = chosen.filter(function (value) { return value !== store }).join(",")
+  input.dispatchEvent(new Event("input", { bubbles: true }))
+}
+
+document.addEventListener("change", function (event) {
+  var form = event.target.closest && event.target.closest("[data-contacts-import-form]")
+  if (!form) return
+  if (event.target.matches("[data-contacts-import-sync]")) {
+    contactsImportShowSyncPlaces(form)
+    return
+  }
+  if (event.target.matches("input[name='store_in']")) contactsImportExcludeStore(form)
+  // What is already there depends on the file and on the place.
+  if (event.target.matches("[data-contacts-import-file]") || event.target.matches("input[name='store_in']")) contactsImportPreview(form)
+})
+
+// A new contact's sync places leave out the place it is created in.
+document.addEventListener("change", function (event) {
+  if (!event.target.matches || !event.target.matches("input[name='stored_in']")) return
+  var form = event.target.closest("[data-contact-editor-form]")
+  if (form) excludeContactHomeFromSyncPlaces(form, event.target.value || "local", "save_targets")
 })
 
 document.addEventListener("submit", function (event) {
@@ -16450,18 +16507,19 @@ document.addEventListener("submit", function (event) {
     showGoferToast({ title: goferT("js.contacts.import.failed"), description: goferT("js.contacts.import.no_file"), variant: "error", icon: "error", position: "bottom-right", duration: 5000, dismissible: true })
     return
   }
-  var body = contactsImportTargets(form)
-  body.append("vcard", file)
+  var body = contactsImportBody(form, file)
   var choice = form.querySelector("input[name='existing']:checked")
   body.append("existing", choice ? choice.value : "skip")
   var submit = form.querySelector("[data-contacts-import-submit]")
   var label = form.querySelector("[data-contacts-import-submit-label]")
   var submitText = label ? label.textContent : ""
   var progress = form.querySelector("[data-contacts-import-progress]")
+  var progressLabel = form.querySelector("[data-contacts-import-progress-label]")
   var progressCount = form.querySelector("[data-contacts-import-progress-count]")
   var progressBar = form.querySelector("[data-contacts-import-progress-bar]")
-  var showProgress = function (done, total) {
+  var showProgress = function (done, total, phase) {
     if (progress) progress.hidden = false
+    if (progressLabel) progressLabel.textContent = phase === "writing" ? goferT("js.contacts.import.writing") : goferT("js.contacts.import.saving")
     if (progressCount) progressCount.textContent = total ? goferT("js.contacts.import.progress", { done: goferNumber(done), total: goferNumber(total) }) : ""
     var percent = total ? Math.round(done / total * 100) : 0
     if (progressBar) {
@@ -16479,8 +16537,9 @@ document.addEventListener("submit", function (event) {
   if (submit) { submit.disabled = true; submit.setAttribute("aria-busy", "true") }
   if (label) label.textContent = goferT("js.contacts.import.importing")
   showProgress(0, 0)
-  // The server answers with JSON lines while it saves: progress, then the
-  // result or an error. An error before it starts is a plain text answer.
+  // The server answers with JSON lines while it works: progress, as it saves
+  // the contacts and then as it writes them to the accounts, then the result
+  // or an error. An error before it starts is a plain text answer.
   var readImport = function (response) {
     if (!response.ok) return response.text().then(function (text) { throw new Error((text || "").trim() || goferT("js.common.please_try_again")) })
     if ((response.headers.get("Content-Type") || "").indexOf("application/x-ndjson") !== 0 || !response.body) return response.json()
@@ -16492,8 +16551,8 @@ document.addEventListener("submit", function (event) {
       if (!text.trim()) return
       var message = JSON.parse(text)
       if (message.error) throw new Error(message.error)
-      if (typeof message.total === "number") {
-        showProgress(message.done, message.total)
+      if (message.phase) {
+        showProgress(message.done, message.total, message.phase)
         return
       }
       last = message
@@ -16526,18 +16585,26 @@ document.addEventListener("submit", function (event) {
   }).then(readImport).then(function (result) {
     finish()
     if (window.tui && window.tui.dialog) window.tui.dialog.close("contacts-import-dialog")
-    form.reset()
+    // The places stay chosen for the next file.
+    if (fileInput) fileInput.value = ""
     contactsImportResetChoice(form)
     var added = result.added || 0
     var updated = result.updated || 0
     var skipped = result.skipped || 0
+    var retrying = result.retrying || 0
+    var failed = result.failed || 0
     var title = added || (!updated && !skipped)
       ? goferTn("js.contacts.import.done", added)
       : updated ? goferTn("js.contacts.import.updated_title", updated) : goferT("js.contacts.import.nothing_new")
     var notes = []
     if (updated && added) notes.push(goferTn("js.contacts.import.updated", updated))
     if (skipped) notes.push(goferTn("js.contacts.import.skipped", skipped))
-    showGoferToast({ title: title, description: notes.join(" "), variant: "success", icon: "success", position: "bottom-right", duration: notes.length ? 6000 : 4000, dismissible: true })
+    // Writes to accounts that failed are counted apart, with why one did.
+    if (failed) notes.push(goferTn("js.contacts.import.write_failed", failed))
+    if (retrying) notes.push(goferTn("js.contacts.import.retrying", retrying))
+    if ((failed || retrying) && result.reason) notes.push(result.reason)
+    var warning = failed > 0 || retrying > 0
+    showGoferToast({ title: title, description: notes.join(" "), variant: warning ? "warning" : "success", icon: warning ? "warning" : "success", position: "bottom-right", duration: warning ? 12000 : notes.length ? 6000 : 4000, dismissible: true })
     if (added || updated) refreshList()
   }).catch(function (error) {
     finish()

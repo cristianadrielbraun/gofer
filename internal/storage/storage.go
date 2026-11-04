@@ -57,7 +57,7 @@ type ThreadingState struct {
 	Total      int  `json:"total"`
 }
 
-const CurrentSchemaVersion = 136
+const CurrentSchemaVersion = 138
 
 func New(dbPath string) (*DB, error) {
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
@@ -92,6 +92,11 @@ func New(dbPath string) (*DB, error) {
 		write.Close()
 		read.Close()
 		return nil, fmt.Errorf("repair conversation summary triggers: %w", err)
+	}
+	if err := repairContactHomes(db.write); err != nil {
+		write.Close()
+		read.Close()
+		return nil, fmt.Errorf("repair contact homes: %w", err)
 	}
 	log.Printf("storage: schema migration check complete")
 	log.Printf("storage: threading backfill deferred to background startup worker")
@@ -1121,6 +1126,16 @@ func (db *DB) migrate() error {
 	if currentVersion <= 135 {
 		if err := migrateV135ToV136(db.write); err != nil {
 			return fmt.Errorf("migrate v135 to v136: %w", err)
+		}
+	}
+	if currentVersion <= 136 {
+		if err := migrateV136ToV137(db.write); err != nil {
+			return fmt.Errorf("migrate v136 to v137: %w", err)
+		}
+	}
+	if currentVersion <= 137 {
+		if err := migrateV137ToV138(db.write); err != nil {
+			return fmt.Errorf("migrate v137 to v138: %w", err)
 		}
 	}
 

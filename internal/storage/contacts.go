@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -39,6 +40,10 @@ type ContactSyncOperationPayload struct {
 	Contact           models.Contact  `json:"contact"`
 	Previous          *models.Contact `json:"previous,omitempty"`
 	ExcludedAccountID string          `json:"excluded_account_id,omitempty"`
+	// StoreTarget makes the operation write the contact once to this one
+	// place, "account:<id>" or "book:<id>", Gofer Sync on or off: where a
+	// vCard import stores its contacts. Its memberships are left out.
+	StoreTarget string `json:"store_target,omitempty"`
 }
 
 type ContactSyncOperation struct {
@@ -481,9 +486,9 @@ func (db *DB) listProfileContacts(ctx context.Context, userID string, filters mo
 		       p.avatar_url, p.is_deleted,
 		       p.origin AS source,
 		       CASE WHEN p.origin = 'manual' THEN 1 ELSE 0 END AS is_manual,
-		       COALESCE((SELECT SUM(co.message_count) FROM contact_observations co WHERE co.user_id = p.user_id AND co.profile_id = p.id AND co.is_suppressed = 0), 0) AS message_count,
-		       (SELECT MAX(co.last_seen_at) FROM contact_observations co WHERE co.user_id = p.user_id AND co.profile_id = p.id AND co.is_suppressed = 0) AS last_seen_at,
-		       p.created_at, p.updated_at, p.trashed_at
+		       COALESCE((SELECT SUM(co.message_count) FROM contact_identities ci INDEXED BY idx_contact_identities_profile JOIN contact_observations co ON co.user_id = ci.user_id AND co.normalized_email = ci.normalized_value AND co.is_suppressed = 0 WHERE ci.user_id = p.user_id AND ci.profile_id = p.id AND ci.kind = 'email'), 0) AS message_count,
+		       (SELECT MAX(co.last_seen_at) FROM contact_identities ci INDEXED BY idx_contact_identities_profile JOIN contact_observations co ON co.user_id = ci.user_id AND co.normalized_email = ci.normalized_value AND co.is_suppressed = 0 WHERE ci.user_id = p.user_id AND ci.profile_id = p.id AND ci.kind = 'email') AS last_seen_at,
+		       p.created_at, p.updated_at, p.trashed_at, p.home
 		FROM contact_profiles p
 		WHERE `+where+`
 		ORDER BY `+contactListOrderSQL(filters, true)+`
@@ -574,6 +579,8 @@ func contactProfileFilterSQL(userID string, filters models.ContactFilters) (stri
 			clauses = append(clauses, `p.origin = 'manual'`)
 		case "observed":
 			clauses = append(clauses, `p.origin = 'observed'`)
+		case models.ContactOriginImported:
+			clauses = append(clauses, `p.origin = 'imported'`)
 		case "synced":
 			clauses = append(clauses, `p.origin LIKE 'synced:%'`)
 		default:
@@ -599,7 +606,7 @@ func contactProfileFilterSQL(userID string, filters models.ContactFilters) (stri
 	activity := models.ContactFilterValues(filters.Activity)
 	if len(activity) == 1 {
 		// Both values together match every contact.
-		messages := `COALESCE((SELECT SUM(co.message_count) FROM contact_observations co WHERE co.user_id = p.user_id AND co.profile_id = p.id AND co.is_suppressed = 0), 0)`
+		messages := `COALESCE((SELECT SUM(co.message_count) FROM contact_identities ci INDEXED BY idx_contact_identities_profile JOIN contact_observations co ON co.user_id = ci.user_id AND co.normalized_email = ci.normalized_value AND co.is_suppressed = 0 WHERE ci.user_id = p.user_id AND ci.profile_id = p.id AND ci.kind = 'email'), 0)`
 		if activity[0] == "none" {
 			where += ` AND ` + messages + ` = 0`
 		} else if activity[0] == "seen" {
@@ -645,7 +652,7 @@ func scanProfileContactRow(ctx context.Context, scanner interface{ Scan(dest ...
 	var messageCount int
 	var source string
 	var lastSeen, createdAt, updatedAt, trashedAt sql.NullString
-	if err := scanner.Scan(&c.ID, &c.Name, &c.Email, &c.Phone, &c.AvatarURL, &isDeleted, &source, &isManual, &messageCount, &lastSeen, &createdAt, &updatedAt, &trashedAt); err != nil {
+	if err := scanner.Scan(&c.ID, &c.Name, &c.Email, &c.Phone, &c.AvatarURL, &isDeleted, &source, &isManual, &messageCount, &lastSeen, &createdAt, &updatedAt, &trashedAt, &c.StoredIn); err != nil {
 		return c, err
 	}
 	if trashedAt.Valid {
@@ -685,7 +692,7 @@ func contactListOrderSQL(filters models.ContactFilters, profile bool) string {
 	if profile {
 		nameColumn = "p.display_name"
 		updatedColumn = "p.updated_at"
-		lastSeenColumn = "(SELECT MAX(co.last_seen_at) FROM contact_observations co WHERE co.user_id = p.user_id AND co.profile_id = p.id AND co.is_suppressed = 0)"
+		lastSeenColumn = "(SELECT MAX(co.last_seen_at) FROM contact_identities ci INDEXED BY idx_contact_identities_profile JOIN contact_observations co ON co.user_id = ci.user_id AND co.normalized_email = ci.normalized_value AND co.is_suppressed = 0 WHERE ci.user_id = p.user_id AND ci.profile_id = p.id AND ci.kind = 'email')"
 	}
 	switch filters.SortBy {
 	case "name":
@@ -733,11 +740,26 @@ func (db *DB) SearchContacts(ctx context.Context, userID, query string, limit in
 	if query == "" {
 		return nil, nil
 	}
-	contacts, err := db.listProfileContacts(ctx, userID, models.ContactFilters{Query: query, WithEmail: true}, limit)
+	// Several contacts may share an address; it is suggested once, from the
+	// contact changed last. Ask for more to fill the limit after that.
+	contacts, err := db.listProfileContacts(ctx, userID, models.ContactFilters{Query: query, WithEmail: true}, limit*3)
 	if err != nil {
 		return nil, err
 	}
 	sortContactsForList(contacts, models.ContactFilters{SortBy: "updated", SortOrder: "desc"})
+	seen := make(map[string]bool, len(contacts))
+	unique := contacts[:0]
+	for _, contact := range contacts {
+		email := normalizeContactEmail(contact.Email)
+		if email != "" {
+			if seen[email] {
+				continue
+			}
+			seen[email] = true
+		}
+		unique = append(unique, contact)
+	}
+	contacts = unique
 	if len(contacts) > limit {
 		contacts = contacts[:limit]
 	}
@@ -925,6 +947,10 @@ func (db *DB) getContactWithProfile(ctx context.Context, userID, contactID strin
 	return &contact, profile, nil
 }
 
+// Mail activity belongs to an address: every contact with it shows the
+// messages exchanged with it. The queries go from a contact's addresses,
+// INDEXED BY its identities by contact, to the one observation of each:
+// SQLite otherwise walks every address of the user for every contact.
 func (db *DB) contactFromProfile(ctx context.Context, userID string, profile models.ContactProfile) (models.Contact, error) {
 	contact := contactValuesFromProfile(ctx, profile)
 	if strings.TrimSpace(contact.AvatarURL) == "" {
@@ -934,8 +960,8 @@ func (db *DB) contactFromProfile(ctx context.Context, userID string, profile mod
 	var lastSeen sql.NullString
 	if err := db.Read().QueryRowContext(ctx, `
 		SELECT
-			COALESCE((SELECT SUM(co.message_count) FROM contact_observations co WHERE co.user_id = ? AND co.profile_id = ? AND co.is_suppressed = 0), 0),
-			(SELECT MAX(co.last_seen_at) FROM contact_observations co WHERE co.user_id = ? AND co.profile_id = ? AND co.is_suppressed = 0)`,
+			COALESCE((SELECT SUM(co.message_count) FROM contact_identities ci INDEXED BY idx_contact_identities_profile JOIN contact_observations co ON co.user_id = ci.user_id AND co.normalized_email = ci.normalized_value AND co.is_suppressed = 0 WHERE ci.user_id = ? AND ci.profile_id = ? AND ci.kind = 'email'), 0),
+			(SELECT MAX(co.last_seen_at) FROM contact_identities ci INDEXED BY idx_contact_identities_profile JOIN contact_observations co ON co.user_id = ci.user_id AND co.normalized_email = ci.normalized_value AND co.is_suppressed = 0 WHERE ci.user_id = ? AND ci.profile_id = ? AND ci.kind = 'email')`,
 		userID, profile.ID, userID, profile.ID).Scan(&messageCount, &lastSeen); err != nil {
 		return contact, err
 	}
@@ -973,6 +999,7 @@ func contactValuesFromProfile(ctx context.Context, profile models.ContactProfile
 		Email:            profile.PrimaryEmail,
 		AvatarURL:        strings.TrimSpace(profile.AvatarURL),
 		Source:           profile.Origin,
+		StoredIn:         profile.Home,
 		IsManual:         profile.Origin == "manual",
 		GoferSyncEnabled: profile.SyncEnabled,
 		IsDeleted:        profile.IsDeleted,
@@ -1022,26 +1049,10 @@ func contactValuesFromProfile(ctx context.Context, profile models.ContactProfile
 }
 
 func (db *DB) providerContactAvatarFallback(ctx context.Context, userID string, profile models.ContactProfile, email string) string {
-	normalized := normalizeContactEmail(email)
+	// Each contact is its own: another one with the address doesn't lend
+	// it its photo, only this contact's own copies on accounts do.
 	if userID == "" {
 		return ""
-	}
-	if normalized != "" {
-		var avatarURL string
-		err := db.Read().QueryRowContext(ctx, `
-			SELECT cp.avatar_url
-			FROM contact_identities ci
-			JOIN contact_profiles cp ON cp.id = ci.profile_id AND cp.user_id = ci.user_id
-			WHERE ci.user_id = ?
-			  AND ci.kind = 'email'
-			  AND ci.normalized_value = ?
-			  AND cp.is_deleted = 0
-			  AND cp.avatar_url != ''
-			ORDER BY CASE WHEN cp.id = ? THEN 0 ELSE 1 END, cp.updated_at DESC
-			LIMIT 1`, userID, normalized, profile.ID).Scan(&avatarURL)
-		if err == nil && strings.TrimSpace(avatarURL) != "" {
-			return strings.TrimSpace(avatarURL)
-		}
 	}
 	for _, card := range profile.Cards {
 		if card.IsDeleted || strings.TrimSpace(card.Provider) == "" || strings.TrimSpace(card.AccountID) == "" || strings.TrimSpace(card.RemoteID) == "" {
@@ -1410,6 +1421,9 @@ func upsertContactCardTx(ctx context.Context, tx *sql.Tx, card models.ContactCar
 		card.ID, card.UserID, card.ProfileID, card.Kind, card.Provider, card.AccountID, card.AddressBookID, card.RemoteID, card.Etag, card.RawPayload, card.RawPayloadType, card.SyncStatus, card.LastError); err != nil {
 		return err
 	}
+	if card.Kind == "provider" {
+		return contactHomeForAccountTx(ctx, tx, card.UserID, card.ProfileID, card.AccountID, card.AddressBookID)
+	}
 	return nil
 }
 
@@ -1518,11 +1532,31 @@ type contactSyncWriter interface {
 	ExecContext(context.Context, string, ...any) (sql.Result, error)
 }
 
+// EnqueueContactStoreOperation queues the one write of contact to target,
+// an account or address book, that stores an imported contact there.
+func (db *DB) EnqueueContactStoreOperation(ctx context.Context, userID string, contact models.Contact, target string) (string, error) {
+	if !contactStoreTargetValid(target) {
+		return "", ErrContactPublication
+	}
+	return enqueueContactOperation(ctx, db.Write(), userID, contact, ContactSyncOperationPayload{Contact: contact, StoreTarget: strings.TrimSpace(target)})
+}
+
+func contactStoreTargetValid(target string) bool {
+	target = strings.TrimSpace(target)
+	account, accountOK := strings.CutPrefix(target, "account:")
+	book, bookOK := strings.CutPrefix(target, "book:")
+	return (accountOK && account != "") || (bookOK && book != "")
+}
+
 func enqueueContactSyncOperation(ctx context.Context, writer contactSyncWriter, userID string, contact models.Contact, previous *models.Contact, excludedAccountID string) (string, error) {
+	return enqueueContactOperation(ctx, writer, userID, contact, ContactSyncOperationPayload{Contact: contact, Previous: previous, ExcludedAccountID: strings.TrimSpace(excludedAccountID)})
+}
+
+func enqueueContactOperation(ctx context.Context, writer contactSyncWriter, userID string, contact models.Contact, op ContactSyncOperationPayload) (string, error) {
 	if userID == "" || strings.TrimSpace(contact.ID) == "" || !contact.HasDetails() {
 		return "", nil
 	}
-	payload, err := json.Marshal(ContactSyncOperationPayload{Contact: contact, Previous: previous, ExcludedAccountID: strings.TrimSpace(excludedAccountID)})
+	payload, err := json.Marshal(op)
 	if err != nil {
 		return "", err
 	}
@@ -1778,14 +1812,9 @@ func (db *DB) SaveContact(ctx context.Context, userID string, contact models.Con
 		return models.Contact{}, ErrContactEmpty
 	}
 	name := contact.FallbackName()
+	// A contact without an ID is a new one, whatever its address: contacts
+	// may share one, each living in its own place.
 	contactID := strings.TrimSpace(contact.ID)
-	if contactID == "" && normalized != "" {
-		if existing, err := db.FindContactProfileByIdentity(ctx, userID, "email", normalized); err != nil {
-			return models.Contact{}, err
-		} else if existing != nil {
-			contactID = existing.ID
-		}
-	}
 	created := false
 	var existingProfile *models.ContactProfile
 	if contactID == "" {
@@ -1843,6 +1872,11 @@ func contactProfileForSave(userID string, contact models.Contact, existingProfil
 		SyncEnabled:  contact.GoferSyncEnabled,
 		Cards:        nil,
 	}
+	// Origin and home are written only when the contact is created.
+	if strings.TrimSpace(contact.Source) == models.ContactOriginImported {
+		profile.Origin = models.ContactOriginImported
+	}
+	profile.Home = strings.TrimSpace(contact.StoredIn)
 	if email != "" {
 		profile.Fields = append(profile.Fields, models.ContactField{
 			Kind:      "email",
@@ -1854,6 +1888,27 @@ func contactProfileForSave(userID string, contact models.Contact, existingProfil
 	}
 	profile.Fields = append(profile.Fields, models.ContactField{Kind: "name", Value: name, IsPrimary: true, Source: "manual"})
 	targets := normalizeContactSaveTargets(contact.SaveTargets)
+	// An account home stays among the places Gofer Sync writes to, so a
+	// change made anywhere reaches it too; a Local home keeps its card.
+	home := strings.TrimSpace(contact.StoredIn)
+	if existingProfile != nil && existingProfile.Home != "" {
+		home = existingProfile.Home
+	}
+	if home != "" && home != contactHomeLocal && contactStoreTargetValid(home) && !slices.Contains(targets, home) {
+		targets = append(targets, home)
+	}
+	// Places left empty used to mean Gofer Local. The home now says where a
+	// contact lives, so one living elsewhere gets a Local copy only when Local
+	// is chosen.
+	explicitLocal := false
+	for _, target := range contact.SaveTargets {
+		if strings.TrimSpace(target) == "local" {
+			explicitLocal = true
+		}
+	}
+	if home != "" && home != contactHomeLocal && !explicitLocal {
+		targets = slices.DeleteFunc(targets, func(target string) bool { return target == "local" })
+	}
 	localSelected := false
 	for _, target := range targets {
 		if target == "local" {
@@ -1997,15 +2052,21 @@ func upsertSyncedContactTx(ctx context.Context, tx *sql.Tx, userID, accountID, p
 			return "", false, false, err
 		}
 	}
-	// Without an email address there is nothing safe to match on: a phone
-	// number or name can be shared. Such a provider card becomes its own
-	// contact, and later pulls find it again by its remote ID.
-	if contactID == "" && normalized != "" {
+	// A contact is one copy in one home, so the same address on another
+	// contact is no match: this one joins a contact only when Gofer Sync
+	// links that contact to this account and it has no copy here yet. Any
+	// other becomes its own contact, and later pulls find it again by its
+	// remote ID.
+	if contactID == "" && normalized != "" && accountID != "" {
 		err = tx.QueryRowContext(ctx, `
 			SELECT ci.profile_id, cp.display_name
 			FROM contact_identities ci
 			JOIN contact_profiles cp ON cp.id = ci.profile_id AND cp.user_id = ci.user_id
-			WHERE ci.user_id = ? AND ci.kind = 'email' AND ci.normalized_value = ? AND cp.is_deleted = 0`, userID, normalized).Scan(&contactID, &currentDisplay)
+			WHERE ci.user_id = ? AND ci.kind = 'email' AND ci.normalized_value = ? AND cp.is_deleted = 0 AND cp.sync_enabled = 1
+			  AND EXISTS (SELECT 1 FROM contact_sync_memberships m WHERE m.user_id = cp.user_id AND m.profile_id = cp.id AND m.account_id = ? AND m.enabled = 1)
+			  AND NOT EXISTS (SELECT 1 FROM contact_cards c WHERE c.user_id = cp.user_id AND c.profile_id = cp.id AND c.kind = 'provider' AND c.account_id = ? AND c.is_deleted = 0)
+			ORDER BY cp.created_at, cp.id
+			LIMIT 1`, userID, normalized, accountID, accountID).Scan(&contactID, &currentDisplay)
 		if err != nil && err != sql.ErrNoRows {
 			return "", false, false, err
 		}
@@ -2013,9 +2074,15 @@ func upsertSyncedContactTx(ctx context.Context, tx *sql.Tx, userID, accountID, p
 	created := false
 	if contactID == "" {
 		contactID = uuid.NewString()
+		// A contact first found on an account lives there; the copy that
+		// follows names its address book.
+		home := contactHomeLocal
+		if accountID != "" {
+			home = "account:" + accountID
+		}
 		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO contact_profiles (id, user_id, display_name, sort_name, primary_email, avatar_url, origin, is_deleted)
-			VALUES (?, ?, ?, ?, ?, ?, ?, 0)`, contactID, userID, display, display, email, avatarURL, source); err != nil {
+			INSERT INTO contact_profiles (id, user_id, display_name, sort_name, primary_email, avatar_url, origin, is_deleted, home)
+			VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)`, contactID, userID, display, display, email, avatarURL, source, home); err != nil {
 			return "", false, false, err
 		}
 		created = true
@@ -2032,16 +2099,20 @@ func upsertSyncedContactTx(ctx context.Context, tx *sql.Tx, userID, accountID, p
 		if manualCount > 0 || (strings.TrimSpace(currentDisplay) != "" && normalizeContactEmail(currentDisplay) != normalized) {
 			display = currentDisplay
 		}
+		home := contactHomeLocal
+		if accountID != "" {
+			home = "account:" + accountID
+		}
 		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO contact_profiles (id, user_id, display_name, sort_name, primary_email, avatar_url, origin, is_deleted)
-			VALUES (?, ?, ?, ?, ?, ?, ?, 0)
+			INSERT INTO contact_profiles (id, user_id, display_name, sort_name, primary_email, avatar_url, origin, is_deleted, home)
+			VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)
 			ON CONFLICT(id) DO UPDATE SET
 				display_name = excluded.display_name,
 				sort_name = excluded.sort_name,
 				primary_email = CASE WHEN contact_profiles.primary_email = '' THEN excluded.primary_email ELSE contact_profiles.primary_email END,
 				avatar_url = CASE WHEN excluded.avatar_url != '' THEN excluded.avatar_url ELSE contact_profiles.avatar_url END,
 				is_deleted = 0,
-				updated_at = CURRENT_TIMESTAMP`, contactID, userID, display, display, email, avatarURL, source); err != nil {
+				updated_at = CURRENT_TIMESTAMP`, contactID, userID, display, display, email, avatarURL, source, home); err != nil {
 			return "", false, false, err
 		}
 	}
@@ -2057,8 +2128,7 @@ func upsertSyncedContactTx(ctx context.Context, tx *sql.Tx, userID, accountID, p
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO contact_identities (user_id, profile_id, kind, normalized_value, confidence)
 			VALUES (?, ?, 'email', ?, 0.9)
-			ON CONFLICT(user_id, kind, normalized_value) DO UPDATE SET
-				profile_id = excluded.profile_id,
+			ON CONFLICT(user_id, kind, normalized_value, profile_id) DO UPDATE SET
 				confidence = MAX(contact_identities.confidence, excluded.confidence),
 				updated_at = CURRENT_TIMESTAMP`, userID, contactID, normalized); err != nil {
 			return "", false, false, err
@@ -2760,9 +2830,11 @@ func (db *DB) upsertObservedContactTx(ctx context.Context, tx *sql.Tx, userID, n
 	}
 
 	if profileID == "" {
+		// Any contact with the address will do: mail activity belongs to the
+		// address and shows on every contact that has it.
 		err := tx.QueryRowContext(ctx, `SELECT ci.profile_id FROM contact_identities ci
  JOIN contact_profiles cp ON cp.id=ci.profile_id AND cp.user_id=ci.user_id
- WHERE ci.user_id=? AND ci.kind='email' AND ci.normalized_value=? AND cp.is_deleted=0`, userID, normalized).Scan(&profileID)
+ WHERE ci.user_id=? AND ci.kind='email' AND ci.normalized_value=? AND cp.is_deleted=0 ORDER BY cp.created_at, cp.id LIMIT 1`, userID, normalized).Scan(&profileID)
 		if err != nil && err != sql.ErrNoRows {
 			return false, err
 		}

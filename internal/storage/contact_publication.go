@@ -349,7 +349,25 @@ func inboundContactProfileTx(ctx context.Context, tx *sql.Tx, owner, account, pr
 		}
 		preferred = id
 	}
-	return preferred, rows.Err()
+	if err := rows.Err(); err != nil || preferred != "" {
+		return preferred, err
+	}
+	return contactOfRemovedCardTx(ctx, tx, owner, account, provider, remote)
+}
+
+// contactOfRemovedCardTx gives the contact a removed copy with this remote
+// ID belonged to: a copy that comes back is the same contact, not a new one
+// that happens to share its address.
+func contactOfRemovedCardTx(ctx context.Context, query contactProfileQuery, owner, account, provider, remote string) (string, error) {
+	var id string
+	err := query.QueryRowContext(ctx, `SELECT c.profile_id FROM contact_cards c
+ JOIN contact_profiles p ON p.user_id = c.user_id AND p.id = c.profile_id AND p.is_deleted = 0
+ WHERE c.user_id=? AND c.account_id=? AND c.provider=? AND c.remote_id=? AND c.kind='provider' AND c.is_deleted=1
+ ORDER BY c.updated_at DESC, c.id LIMIT 1`, owner, account, provider, remote).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return id, err
 }
 
 func inboundContactFanoutTx(ctx context.Context, tx *sql.Tx, owner, profile, excluded string) (bool, error) {
@@ -363,4 +381,13 @@ func inboundContactFanoutTx(ctx context.Context, tx *sql.Tx, owner, profile, exc
  AND (m.address_book_id='' OR EXISTS(SELECT 1 FROM account_contact_address_books b
  WHERE b.id=m.address_book_id AND b.account_id=a.id AND b.user_id=m.user_id)))`, owner, profile, excluded).Scan(&needed)
 	return needed == 1, err
+}
+
+// ContactOfRemovedCard gives the contact a removed copy with this remote ID
+// belonged to, or "".
+func (db *DB) ContactOfRemovedCard(ctx context.Context, owner, provider, account, remote string) (string, error) {
+	if strings.TrimSpace(remote) == "" {
+		return "", nil
+	}
+	return contactOfRemovedCardTx(ctx, db.Read(), owner, account, provider, remote)
 }

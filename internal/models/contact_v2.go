@@ -9,7 +9,10 @@ type ContactProfile struct {
 	AvatarURL    string
 	Notes        string
 	Origin       string
-	SyncEnabled  bool
+	// Home is where the contact lives: "local", "account:<id>" or
+	// "book:<id>". It is never empty once saved.
+	Home        string
+	SyncEnabled bool
 	IsDeleted    bool
 	// TrashedAt is when the profile went to the Trash, while it is there.
 	// A deleted profile out of the Trash is deleted for good.

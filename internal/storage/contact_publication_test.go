@@ -95,6 +95,11 @@ func TestInboundContactPublicationStableRemoteIdentityAndManualFields(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The contact already has its copy on the account: a contact is matched
+	// by its copies, never by an address another contact may share.
+	if err := db.UpsertContactSource(t.Context(), ContactSource{UserID: "default", ContactID: profile.ID, Provider: "gmail", AccountID: "source", RemoteID: "people/1", Etag: "linked"}); err != nil {
+		t.Fatal(err)
+	}
 	first := publishTestContact(t, db, InboundContact{Contact: models.Contact{ID: "untrusted-profile", Name: "Provider name", Email: "old@example.com", Phone: "provider-phone", AvatarURL: "provider-avatar"}, RemoteID: "people/1", Etag: "old"})
 	if first.ProfileID != profile.ID || first.Created {
 		t.Fatalf("manual identity changed: %+v", first)

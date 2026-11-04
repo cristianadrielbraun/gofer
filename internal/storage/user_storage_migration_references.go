@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"strings"
 )
 
 // These references deliberately have no FK: historical snapshots may outlive a
@@ -54,6 +55,19 @@ func migrationSourcePayloads(ctx context.Context, tx *sql.Tx) error {
 		if err := migrationEmbeddedReference(ctx, tx, owner, "contact_profiles", payload.Contact.ID); err != nil {
 			rows.Close()
 			return err
+		}
+		// A store place is a grant, unlike the snapshots above: the workers
+		// write to it without a membership, so it must stay the owner's.
+		if account, ok := strings.CutPrefix(payload.StoreTarget, "account:"); ok {
+			if err := migrationEmbeddedReference(ctx, tx, owner, "accounts", account); err != nil {
+				rows.Close()
+				return err
+			}
+		} else if book, ok := strings.CutPrefix(payload.StoreTarget, "book:"); ok {
+			if err := migrationEmbeddedReference(ctx, tx, owner, "account_contact_address_books", book); err != nil {
+				rows.Close()
+				return err
+			}
 		}
 	}
 	if err := rows.Err(); err != nil {

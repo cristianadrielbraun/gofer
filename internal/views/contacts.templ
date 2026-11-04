@@ -5,6 +5,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"fmt"
 	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/cristianadrielbraun/gofer/components/button"
@@ -327,22 +328,33 @@ func contactReadOnlyOriginLabel(ctx context.Context, contact models.Contact, pro
 func contactReadOnlyMirrorLabels(ctx context.Context, contact *models.Contact, profile *models.ContactProfile, accounts []models.Account) []string {
 	labels := []string{}
 	seen := map[string]bool{}
+	// The home is under Stored in; the sync locations are the other places.
+	home := contactHome(contact)
+	if profile != nil && strings.TrimSpace(profile.Home) != "" {
+		home = strings.TrimSpace(profile.Home)
+	}
 	if profile != nil {
-		for _, card := range profile.Cards {
-			if !card.IsDeleted && card.Kind == "local" {
-				labels = appendUniqueContactReadLabel(labels, seen, i18n.T(ctx, "contacts.origin.local"))
-				break
+		if home != "local" {
+			for _, card := range profile.Cards {
+				if !card.IsDeleted && card.Kind == "local" {
+					labels = appendUniqueContactReadLabel(labels, seen, i18n.T(ctx, "contacts.origin.local"))
+					break
+				}
 			}
 		}
 		for _, membership := range profile.SyncMemberships {
-			if membership.Enabled {
+			place := "account:" + membership.AccountID
+			if membership.AddressBookID != "" {
+				place = "book:" + membership.AddressBookID
+			}
+			if membership.Enabled && place != home {
 				labels = appendUniqueContactReadLabel(labels, seen, contactSyncMembershipLabel(ctx, membership, accounts))
 			}
 		}
 	}
 	if contact != nil {
 		for _, target := range contact.SaveTargets {
-			if strings.TrimSpace(target) == "" {
+			if target = strings.TrimSpace(target); target == "" || target == home {
 				continue
 			}
 			labels = appendUniqueContactReadLabel(labels, seen, contactSaveTargetLabel(ctx, target, accounts))
@@ -351,29 +363,91 @@ func contactReadOnlyMirrorLabels(ctx context.Context, contact *models.Contact, p
 	return labels
 }
 
-// contactStoredInLabels names the places that really hold a copy of the
-// contact: Gofer Local, then each account or address book with its card.
+// contactHome is where a contact lives, Gofer Local for one not saved yet.
+func contactHome(contact *models.Contact) string {
+	if contact == nil || strings.TrimSpace(contact.StoredIn) == "" {
+		return "local"
+	}
+	return strings.TrimSpace(contact.StoredIn)
+}
+
+// contactHomeIs says whether place is the home of a saved contact. A new
+// contact has every place listed: its form hides the one chosen as home.
+func contactHomeIs(contact *models.Contact, place string) bool {
+	return contact != nil && strings.TrimSpace(contact.ID) != "" && contactHome(contact) == place
+}
+
+// contactNewHomeItemAttributes hides Gofer Local among a new contact's sync
+// places: it is where the contact starts out living.
+func contactNewHomeItemAttributes(contact *models.Contact) templ.Attributes {
+	if contact == nil || strings.TrimSpace(contact.ID) == "" {
+		return templ.Attributes{"style": "display:none"}
+	}
+	return nil
+}
+
+// contactStoredInLabels names the places that hold the contact: its home
+// first, said to be on its way while its copy is still being written, then
+// every other place with a copy.
 func contactStoredInLabels(ctx context.Context, profile *models.ContactProfile, accounts []models.Account) []string {
 	labels := []string{}
 	if profile == nil {
 		return labels
 	}
 	seen := map[string]bool{}
+	home := strings.TrimSpace(profile.Home)
+	var places []string
 	for _, card := range profile.Cards {
-		if !card.IsDeleted && card.Kind == "local" {
-			labels = appendUniqueContactReadLabel(labels, seen, i18n.T(ctx, "contacts.origin.local"))
-			break
-		}
-	}
-	for _, card := range profile.Cards {
-		if card.IsDeleted || card.Kind != "provider" {
+		if card.IsDeleted {
 			continue
 		}
-		target := "account:" + card.AccountID
-		if card.AddressBookID != "" {
-			target = "book:" + card.AddressBookID
+		switch {
+		case card.Kind == "local":
+			places = append(places, "local")
+		case card.Kind == "provider":
+			place := "account:" + card.AccountID
+			if card.AddressBookID != "" {
+				place = "book:" + card.AddressBookID
+			}
+			places = append(places, place)
 		}
-		labels = appendUniqueContactReadLabel(labels, seen, contactStoredInPlaceLabel(ctx, target, card.AccountID, accounts))
+	}
+	accountOf := func(place string) string {
+		for _, card := range profile.Cards {
+			if card.Kind == "provider" && (place == "account:"+card.AccountID || place == "book:"+card.AddressBookID) {
+				return card.AccountID
+			}
+		}
+		if account, ok := strings.CutPrefix(place, "account:"); ok {
+			return account
+		}
+		if book, ok := strings.CutPrefix(place, "book:"); ok {
+			for _, account := range accounts {
+				for _, candidate := range account.ContactAddressBooks {
+					if candidate.ID == book {
+						return account.ID
+					}
+				}
+			}
+		}
+		return ""
+	}
+	label := func(place string) string {
+		if place == "local" {
+			return i18n.T(ctx, "contacts.origin.local")
+		}
+		return contactStoredInPlaceLabel(ctx, place, accountOf(place), accounts)
+	}
+	if home != "" {
+		text := label(home)
+		if !slices.Contains(places, home) {
+			text = i18n.T(ctx, "contacts.stored_in_writing", "place", text)
+		}
+		labels = appendUniqueContactReadLabel(labels, seen, text)
+		seen[label(home)] = true
+	}
+	for _, place := range places {
+		labels = appendUniqueContactReadLabel(labels, seen, label(place))
 	}
 	return labels
 }
@@ -726,6 +800,8 @@ func contactSourceLabel(ctx context.Context, source string, isManual bool, accou
 		return i18n.T(ctx, "contacts.origin.observed")
 	case "manual":
 		return i18n.T(ctx, "contacts.origin.manual")
+	case models.ContactOriginImported:
+		return i18n.T(ctx, "contacts.origin.imported_file")
 	case "synced":
 		return i18n.T(ctx, "contacts.origin.imported_any")
 	case "provider:gmail":
@@ -812,83 +888,36 @@ func contactFiltersActiveCount(filters models.ContactFilters) int {
 	return count
 }
 
-// contactAccountMarker is an account a contact syncs with: its name and
-// color, and a title naming its address books too.
-type contactAccountMarker struct {
-	Name  string
-	Color string
-	Title string
-}
-
-// contactAccountMarkers gives one marker per account a contact syncs with,
-// in the order its address books come, or for a contact imported from an
-// account, that account's.
-func contactAccountMarkers(ctx context.Context, contact models.Contact, accounts []models.Account) []contactAccountMarker {
-	byID := make(map[string]models.Account, len(accounts))
-	for _, account := range accounts {
-		byID[account.ID] = account
-	}
-	var order []string
-	books := make(map[string][]string)
-	for _, book := range contact.SourceBooks {
-		if _, known := byID[book.AccountID]; !known {
-			continue
-		}
-		if _, seen := books[book.AccountID]; !seen {
-			order = append(order, book.AccountID)
-		}
-		books[book.AccountID] = append(books[book.AccountID], contactAddressBookDisplayName(ctx, book))
-	}
-	if accountID, ok := strings.CutPrefix(contact.Source, "synced:"); ok && len(order) == 0 {
-		if _, known := byID[accountID]; known {
-			order = append(order, accountID)
-		}
-	}
-	markers := make([]contactAccountMarker, 0, len(order))
-	for _, id := range order {
-		account := byID[id]
-		title := accountContactOriginLabel(ctx, account)
-		if names := books[id]; len(names) > 0 {
-			title += " / " + strings.Join(names, ", ")
-		}
-		markers = append(markers, contactAccountMarker{Name: accountContactOriginLabel(ctx, account), Color: account.Color, Title: title})
-	}
-	return markers
-}
-
-// contactOrigin is where a contact card says the contact comes from.
+// contactOrigin is how the list shows where a contact lives.
 type contactOrigin struct {
 	Label string
 	Title string
-	// Color is the account's, for a contact one of them holds.
+	// Color is the account's, for a contact living on one.
 	Color string
 }
 
-// contactCardOrigin names the account a contact belongs to, the first and how
-// many more when it is in several, or else how it got into Gofer: observed
-// in mail, added by hand.
-func contactCardOrigin(ctx context.Context, contact models.Contact, accounts []models.Account) contactOrigin {
-	if markers := contactAccountMarkers(ctx, contact, accounts); len(markers) > 0 {
-		origin := contactOrigin{Label: markers[0].Name, Color: markers[0].Color}
-		titles := make([]string, 0, len(markers))
-		for _, marker := range markers {
-			titles = append(titles, marker.Title)
-		}
-		if len(markers) > 1 {
-			origin.Label += fmt.Sprintf(" +%d", len(markers)-1)
-		}
-		origin.Title = strings.Join(titles, "\n")
-		return origin
+// contactCardHome names where a contact lives, its Stored in: Gofer Local,
+// or the account, with its color, and the address book in the title.
+func contactCardHome(ctx context.Context, contact models.Contact, accounts []models.Account) contactOrigin {
+	home := strings.TrimSpace(contact.StoredIn)
+	if home == "" || home == "local" {
+		label := i18n.T(ctx, "contacts.origin.local")
+		return contactOrigin{Label: label, Title: i18n.T(ctx, "contacts.stored_in_title", "place", label)}
 	}
-	label := contactSourceLabel(ctx, contact.Source, contact.IsManual, accounts)
-	title := label
-	switch {
-	case contact.IsManual || contact.Source == "manual":
-		title = i18n.T(ctx, "contacts.origin.manual_title")
-	case contact.Source == "observed":
-		title = i18n.T(ctx, "contacts.origin.observed_title")
+	for _, account := range accounts {
+		if home == "account:"+account.ID {
+			label := accountContactOriginLabel(ctx, account)
+			return contactOrigin{Label: label, Title: i18n.T(ctx, "contacts.stored_in_title", "place", label), Color: account.Color}
+		}
+		for _, book := range account.ContactAddressBooks {
+			if home == "book:"+book.ID {
+				label := accountContactOriginLabel(ctx, account)
+				return contactOrigin{Label: label, Title: i18n.T(ctx, "contacts.stored_in_title", "place", label+" / "+contactAddressBookDisplayName(ctx, book)), Color: account.Color}
+			}
+		}
 	}
-	return contactOrigin{Label: label, Title: title}
+	label := i18n.T(ctx, "contacts.origin.unavailable_account")
+	return contactOrigin{Label: label, Title: label}
 }
 
 // contactCardDate is the date a contact card shows: when the contact was last
@@ -1554,6 +1583,9 @@ templ ContactsListPane(contacts []models.Contact, selected *models.Contact, filt
 											@selectbox.Item(selectbox.ItemProps{Value: "observed", Selected: models.ContactFilterHas(filters.Source, "observed")}) {
 												{ i18n.T(ctx, "contacts.origin.observed") }
 											}
+											@selectbox.Item(selectbox.ItemProps{Value: models.ContactOriginImported, Selected: models.ContactFilterHas(filters.Source, models.ContactOriginImported)}) {
+												{ i18n.T(ctx, "contacts.origin.imported_file") }
+											}
 											@selectbox.Item(selectbox.ItemProps{Value: "synced", Selected: models.ContactFilterHas(filters.Source, "synced")}) {
 												{ contactOriginFilterLabel(ctx, "synced", accounts) }
 											}
@@ -1991,7 +2023,7 @@ templ ContactListCard(contact models.Contact, filters models.ContactFilters, sel
 			<div class="mail-list-card-zone mail-list-card-zone-body" data-mail-card-zone="body">
 				<p class="truncate text-[13px] text-muted-foreground" data-contact-email data-mail-card-field="subject">{ contactListDetail(contact) }</p>
 				<span class="ml-auto flex shrink-0 items-center gap-2" data-mail-card-field="preview">
-					{{ origin := contactCardOrigin(ctx, contact, accounts) }}
+					{{ origin := contactCardHome(ctx, contact, accounts) }}
 					<span class="inline-flex max-w-[9rem] items-center gap-1 rounded-full border border-border bg-background px-1.5 py-px text-[10px] font-medium text-muted-foreground" title={ origin.Title }>
 						if origin.Color != "" {
 							<span class="account-color-marker size-2 shrink-0" style={ accountColorStyle(origin.Color) } aria-hidden="true"></span>
@@ -2010,7 +2042,7 @@ templ ContactListCard(contact models.Contact, filters models.ContactFilters, sel
 templ ContactListTableHeader() {
 	<div class="mail-list-table-header mail-list-table-grid grid items-center gap-3 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground bg-card/95 border-b border-border/70 sticky top-0 z-20 backdrop-blur-sm" style={ contactListTableGridStyle() }>
 		<div class="mail-list-table-heading">{ i18n.T(ctx, "contacts.field.name") }</div>
-		<div class="mail-list-table-heading">{ i18n.T(ctx, "contacts.filters.origin") }</div>
+		<div class="mail-list-table-heading">{ i18n.T(ctx, "contacts.stored_in") }</div>
 		<div class="mail-list-table-heading min-w-12 text-right">{ i18n.T(ctx, "contacts.list.messages_short") }</div>
 	</div>
 }
@@ -2043,12 +2075,12 @@ templ ContactListTableRow(contact models.Contact, filters models.ContactFilters,
 					<div class="truncate text-xs text-muted-foreground" data-contact-email>{ contactListDetail(contact) }</div>
 				</div>
 			</div>
-			<div class="truncate text-xs text-muted-foreground">
-				if len(contact.SourceBooks) > 0 {
-					{ i18n.N(ctx, "contacts.list.books", len(contact.SourceBooks)) }
-				} else {
-					{ contactSourceLabel(ctx, contact.Source, contact.IsManual, accounts) }
+			{{ home := contactCardHome(ctx, contact, accounts) }}
+			<div class="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground" title={ home.Title }>
+				if home.Color != "" {
+					<span class="account-color-marker size-2 shrink-0" style={ accountColorStyle(home.Color) } aria-hidden="true"></span>
 				}
+				<span class="truncate">{ home.Label }</span>
 			</div>
 			<div class="text-right text-xs tabular-nums text-muted-foreground">{ fmt.Sprintf("%d", contact.MessageCount) }</div>
 		</a>
@@ -2073,6 +2105,25 @@ templ ContactsItemsFragment(contacts []models.Contact, selected *models.Contact,
 	</div>
 }
 
+// contactImportPlaceItems are the accounts and address books an import can
+// store contacts in or sync them with.
+templ contactImportPlaceItems(accounts []models.Account) {
+	for _, account := range accounts {
+		if !account.IsDeleting && accountContactSyncCapable(account) {
+			if len(account.ContactAddressBooks) == 0 {
+				@selectbox.Item(selectbox.ItemProps{Value: contactSaveTargetValue(account)}) {
+					{ accountContactSaveLabel(account) }
+				}
+			}
+			for _, book := range account.ContactAddressBooks {
+				@selectbox.Item(selectbox.ItemProps{Value: contactBookTargetValue(book)}) {
+					{ accountContactOriginLabel(ctx, account) } / { contactAddressBookDisplayName(ctx, book) }
+				}
+			}
+		}
+	}
+}
+
 templ ContactsImportDialog(accounts []models.Account) {
 	@dialog.Dialog(dialog.Props{ID: "contacts-import-dialog"}) {
 		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-xl"}) {
@@ -2091,34 +2142,22 @@ templ ContactsImportDialog(accounts []models.Account) {
 					<p class="text-xs text-muted-foreground">{ i18n.T(ctx, "contacts.import.supports") }</p>
 				</div>
 				<div class="space-y-1.5">
-					<label class="block text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.import.sync_with") }</label>
-					@selectbox.SelectBox(selectbox.Props{Multiple: true}) {
-						@selectbox.Trigger(selectbox.TriggerProps{Name: "save_targets", Class: "h-10 bg-background", Multiple: true, ShowPills: true, DisableClear: true, SelectedCountText: i18n.T(ctx, "contacts.import.accounts_selected")}) {
-							@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "contacts.import.gofer_local"), Multiple: true, Class: "text-left"})
+					<label class="block text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.import.store_in") }</label>
+					@selectbox.SelectBox() {
+						@selectbox.Trigger(selectbox.TriggerProps{Name: "store_in", Class: "h-10 bg-background", Required: true, DisableClear: true, Attributes: templ.Attributes{"data-contacts-import-store": ""}}) {
+							@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "contacts.import.gofer_local"), Class: "text-left"})
 						}
 						@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
 							@selectbox.Item(selectbox.ItemProps{Value: "local", Selected: true}) {
 								{ i18n.T(ctx, "contacts.import.gofer_local") }
 							}
-							for _, account := range accounts {
-								if !account.IsDeleting && accountContactSyncCapable(account) {
-									if len(account.ContactAddressBooks) == 0 {
-										@selectbox.Item(selectbox.ItemProps{Value: contactSaveTargetValue(account)}) {
-											{ accountContactSaveLabel(account) }
-										}
-									}
-									for _, book := range account.ContactAddressBooks {
-										@selectbox.Item(selectbox.ItemProps{Value: contactBookTargetValue(book)}) {
-											{ accountContactOriginLabel(ctx, account) } / { contactAddressBookDisplayName(ctx, book) }
-										}
-									}
-								}
-							}
+							@contactImportPlaceItems(accounts)
 						}
 					}
+					<p class="text-xs text-muted-foreground">{ i18n.T(ctx, "contacts.import.store_in_help") }</p>
 				</div>
-				// Once a file is chosen, Gofer counts its contacts already in
-				// Gofer and asks what to do with them.
+				// Once a file is chosen, Gofer counts its contacts already in the
+				// place they go to, and asks what to do with them.
 				<p class="text-xs text-muted-foreground" aria-live="polite" data-contacts-import-checking hidden>{ i18n.T(ctx, "contacts.import.checking") }</p>
 				<div class="space-y-3 rounded-lg border border-border bg-muted/40 p-3" data-contacts-import-existing hidden>
 					<p class="text-sm text-foreground" aria-live="polite" data-contacts-import-existing-summary></p>
@@ -2141,6 +2180,31 @@ templ ContactsImportDialog(accounts []models.Account) {
 								<span class="block text-xs text-muted-foreground mt-0.5">{ i18n.T(ctx, "contacts.import.existing_update_detail") }</span>
 							</span>
 						</label>
+					</div>
+				</div>
+				// Gofer Sync replicates the contacts to more places; picking them
+				// only makes sense with it on, so the switch shows them.
+				<div class="space-y-3 rounded-lg border border-border p-3">
+					<div class="flex items-start justify-between gap-3">
+						<div class="min-w-0">
+							<label for="contacts-import-gofer-sync" class="block text-sm font-medium text-foreground">{ i18n.T(ctx, "contacts.import.gofer_sync") }</label>
+							<p class="mt-0.5 text-xs text-muted-foreground">{ i18n.T(ctx, "contacts.import.gofer_sync_help") }</p>
+						</div>
+						@switchcomp.Switch(switchcomp.Props{ID: "contacts-import-gofer-sync", Name: "gofer_sync", Value: "1", Attributes: templ.Attributes{"data-contacts-import-sync": ""}})
+					</div>
+					<div class="space-y-1.5" data-contacts-import-sync-places hidden>
+						<label class="block text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.import.sync_with") }</label>
+						@selectbox.SelectBox(selectbox.Props{Multiple: true}) {
+							@selectbox.Trigger(selectbox.TriggerProps{Name: "sync_with", Class: "h-10 bg-background", Multiple: true, ShowPills: true, DisableClear: true, SelectedCountText: i18n.T(ctx, "contacts.import.accounts_selected")}) {
+								@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "contacts.import.sync_with_none"), Multiple: true, Class: "text-left"})
+							}
+							@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+								@selectbox.Item(selectbox.ItemProps{Value: "local"}) {
+									{ i18n.T(ctx, "contacts.import.gofer_local") }
+								}
+								@contactImportPlaceItems(accounts)
+							}
+						}
 					</div>
 				</div>
 				<div class="space-y-1.5" data-contacts-import-progress hidden>
@@ -2769,6 +2833,25 @@ templ ContactLegacySourcePanel(contact *models.Contact, accounts []models.Accoun
 			</div>
 		</div>
 		<div class="space-y-4 p-4">
+			if contact == nil {
+				// A new contact is created where it will live: Gofer Local,
+				// or an account it is written to.
+				<div class="w-full">
+					<label class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.stored_in") }</label>
+					@selectbox.SelectBox() {
+						@selectbox.Trigger(selectbox.TriggerProps{Name: "stored_in", Class: "h-10 border-ink/10 bg-ink/[0.04] text-ink", Required: true, DisableClear: true, Attributes: templ.Attributes{"data-contact-stored-in": ""}}) {
+							@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "contacts.origin.local"), Class: "text-left"})
+						}
+						@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+							@selectbox.Item(selectbox.ItemProps{Value: "local", Selected: true}) {
+								{ i18n.T(ctx, "contacts.origin.local") }
+							}
+							@contactImportPlaceItems(accounts)
+						}
+					}
+					<p class="mt-1.5 text-xs leading-relaxed text-muted-foreground">{ i18n.T(ctx, "contacts.stored_in_help") }</p>
+				</div>
+			} else {
 			<div class="rounded-md border border-ink/10 bg-paper/35 px-3 py-2.5">
 				<div class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.sync.source") }</div>
 				if contact != nil && len(contact.SourceBooks) > 0 {
@@ -2782,6 +2865,7 @@ templ ContactLegacySourcePanel(contact *models.Contact, accounts []models.Accoun
 					<div class="mt-0.5 text-xs text-muted-foreground">{ i18n.T(ctx, "contacts.sync.local_editable") }</div>
 				}
 			</div>
+			}
 			<div class="w-full">
 				@ContactSyncTargetsSelect(contact, accounts, contact != nil && contact.GoferSyncEnabled)
 			</div>
@@ -2831,19 +2915,27 @@ templ ContactSyncTargetsSelect(contact *models.Contact, accounts []models.Accoun
 				@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "contacts.sync.no_locations"), Multiple: true, Class: "text-left"})
 			}
 			@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
-				@selectbox.Item(selectbox.ItemProps{Value: "local", Selected: contactSaveTargetSelected(contact, "local")}) {
-					{ i18n.T(ctx, "contacts.origin.local") }
+				// The contact already lives in its home: Gofer Sync copies it to
+				// the other places.
+				// A new contact starts out in Gofer Local, so its form hides Local
+				// until another place is chosen for it.
+				if !contactHomeIs(contact, "local") {
+					@selectbox.Item(selectbox.ItemProps{Value: "local", Selected: contactSaveTargetSelected(contact, "local"), Attributes: contactNewHomeItemAttributes(contact)}) {
+						{ i18n.T(ctx, "contacts.origin.local") }
+					}
 				}
 				for _, account := range accounts {
 					if !account.IsDeleting && accountContactSyncCapable(account) {
-						if len(account.ContactAddressBooks) == 0 {
+						if len(account.ContactAddressBooks) == 0 && !contactHomeIs(contact, contactSaveTargetValue(account)) {
 							@selectbox.Item(selectbox.ItemProps{Value: contactSaveTargetValue(account), Selected: contactSaveTargetSelected(contact, contactSaveTargetValue(account))}) {
 								{ accountContactSaveLabel(account) }
 							}
 						}
 						for _, book := range account.ContactAddressBooks {
-							@selectbox.Item(selectbox.ItemProps{Value: contactBookTargetValue(book), Selected: contactSaveTargetSelected(contact, contactBookTargetValue(book))}) {
-								{ accountContactOriginLabel(ctx, account) } / { contactAddressBookDisplayName(ctx, book) }
+							if !contactHomeIs(contact, contactBookTargetValue(book)) {
+								@selectbox.Item(selectbox.ItemProps{Value: contactBookTargetValue(book), Selected: contactSaveTargetSelected(contact, contactBookTargetValue(book))}) {
+									{ accountContactOriginLabel(ctx, account) } / { contactAddressBookDisplayName(ctx, book) }
+								}
 							}
 						}
 					}

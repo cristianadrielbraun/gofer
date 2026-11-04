@@ -802,8 +802,16 @@ func TestSyncedProviderChangeBecomesCanonicalOnceAndUnchangedReadbackDoesNotEcho
 	if err != nil {
 		t.Fatalf("first provider upsert: %v", err)
 	}
-	if _, _, err := db.UpsertSyncedContactFromContact(ctx, "default", "acc-b", models.Contact{Name: "Jane", Email: "jane@example.com", Phone: "+1 555 0200"}); err != nil {
-		t.Fatalf("second provider upsert: %v", err)
+	// Gofer Sync links the contact to the second account, so the copy found
+	// there joins it rather than becoming a contact of its own.
+	if err := db.ReplaceContactSyncMemberships(ctx, "default", contactID, []string{"account:acc-a", "account:acc-b"}); err != nil {
+		t.Fatalf("ReplaceContactSyncMemberships() error = %v", err)
+	}
+	if err := db.SetContactProfileSyncEnabled(ctx, "default", contactID, true); err != nil {
+		t.Fatalf("SetContactProfileSyncEnabled() error = %v", err)
+	}
+	if linked, _, err := db.UpsertSyncedContactFromContact(ctx, "default", "acc-b", models.Contact{Name: "Jane", Email: "jane@example.com", Phone: "+1 555 0200"}); err != nil || linked != contactID {
+		t.Fatalf("second provider upsert = %q, %v; want the linked contact", linked, err)
 	}
 	profile, err := db.GetContactProfile(ctx, "default", contactID)
 	if err != nil {
@@ -931,6 +939,24 @@ func TestListContactsFilters(t *testing.T) {
 	if err != nil || len(contacts) != 1 || contacts[0].ID != manual.ID {
 		t.Fatalf("save target filter = %#v, %v; want manual contact", contacts, err)
 	}
+	imported, err := db.SaveContact(ctx, "default", models.Contact{Name: "Imported", Email: "imported@example.com", Source: models.ContactOriginImported})
+	if err != nil {
+		t.Fatalf("SaveContact(imported) error = %v", err)
+	}
+	contacts, err = db.ListContacts(ctx, "default", models.ContactFilters{Source: models.ContactOriginImported}, 10, 0)
+	if err != nil || len(contacts) != 1 || contacts[0].ID != imported.ID || contacts[0].Source != models.ContactOriginImported || contacts[0].IsManual {
+		t.Fatalf("imported filter = %#v, %v; want the imported contact", contacts, err)
+	}
+	// A later save that says imported again leaves the origin it has.
+	if _, err := db.SaveContact(ctx, "default", models.Contact{ID: manual.ID, Name: "Manual", Email: "manual@example.com", Source: models.ContactOriginImported, SaveTargets: []string{"account:acc"}}); err != nil {
+		t.Fatalf("SaveContact(manual again) error = %v", err)
+	}
+	if got, err := db.GetContact(ctx, "default", manual.ID); err != nil || got == nil || !got.IsManual {
+		t.Fatalf("manual contact after an imported save = %#v, %v; want it still manual", got, err)
+	}
+	if err := db.DeleteContact(ctx, "default", imported.ID, false); err != nil {
+		t.Fatalf("DeleteContact(imported) error = %v", err)
+	}
 	contacts, err = db.ListContacts(ctx, "default", models.ContactFilters{Activity: "seen"}, 10, 0)
 	if err != nil || len(contacts) != 1 || contacts[0].Email != "observed@example.com" {
 		t.Fatalf("seen filter = %#v, %v; want observed contact", contacts, err)
@@ -984,8 +1010,9 @@ func TestListContactsStoredInFilter(t *testing.T) {
 			t.Fatalf("stored in %s = %v, want only the contact with a card there", filter, got)
 		}
 	}
-	if got := ids(models.ContactFilters{StoredIn: "local"}); len(got) != 1 || got[0] != local.ID {
-		t.Fatalf("stored in local = %v, want only the Gofer Local contact", got)
+	// Every contact saved without another home lives in Gofer Local.
+	if got := ids(models.ContactFilters{StoredIn: "local"}); len(got) != 3 || !slices.Contains(got, local.ID) {
+		t.Fatalf("stored in local = %v, want every contact", got)
 	}
 	if got := ids(models.ContactFilters{StoredIn: "account:other"}); len(got) != 0 {
 		t.Fatalf("stored in a sync location with no copy = %v, want none", got)
@@ -996,8 +1023,8 @@ func TestListContactsStoredInFilter(t *testing.T) {
 
 	// Several values in one filter match a contact in any of them; filters
 	// together match only the contacts in all of them.
-	if got := ids(models.ContactFilters{StoredIn: "local,book:book-1"}); len(got) != 2 || !slices.Contains(got, local.ID) || !slices.Contains(got, stored.ID) {
-		t.Fatalf("stored in local or the book = %v, want the local and stored contacts", got)
+	if got := ids(models.ContactFilters{StoredIn: "account:acc,book:book-1"}); len(got) != 1 || got[0] != stored.ID {
+		t.Fatalf("stored in the account or the book = %v, want the stored contact", got)
 	}
 	if got := ids(models.ContactFilters{StoredIn: "local,book:book-1", SaveTarget: "account:other"}); len(got) != 1 || got[0] != stored.ID {
 		t.Fatalf("stored in and sync location together = %v, want only the stored contact", got)
