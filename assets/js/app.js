@@ -548,7 +548,8 @@ document.addEventListener("DOMContentLoaded", function () {
       filters.storedIn = ""
       filters.saveTarget = values.save_target
       filters.activity = ""
-      filters.trash = false
+      // Only Trash itself stays in the Trash; any other item leaves it.
+      filters.trash = target === "trash"
       filters.unresolved = false
       var unresolvedSwitch = form && form.querySelector('input[name="unresolved"]')
       if (unresolvedSwitch) unresolvedSwitch.checked = false

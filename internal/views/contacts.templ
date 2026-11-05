@@ -1936,7 +1936,7 @@ templ ContactsSelectionActions(trash bool) {
 				@icon.Undo2(icon.Props{Class: "size-3.5"})
 			}
 			@contactSelectionAction("restore-to", i18n.T(ctx, "contacts.action.restore_to"), i18n.T(ctx, "contacts.action.restore_to"), "") {
-				@icon.FolderInput(icon.Props{Class: "size-3.5"})
+				@icon.Redo2(icon.Props{Class: "size-3.5"})
 			}
 			@contactSelectionAction("delete-forever", i18n.T(ctx, "contacts.action.delete_forever"), i18n.T(ctx, "contacts.selection.delete_forever"), "hover:bg-destructive/10 hover:text-destructive") {
 				@icon.Trash2(icon.Props{Class: "size-3.5"})
@@ -2020,7 +2020,7 @@ templ ContactsContextMenu(trash bool) {
 					@icon.Undo2(icon.Props{Class: "size-4"})
 				}
 				@contactsContextItem("restore-to", i18n.T(ctx, "contacts.action.restore_to"), "") {
-					@icon.Undo2(icon.Props{Class: "size-4"})
+					@icon.Redo2(icon.Props{Class: "size-4"})
 				}
 				@dropdown.Separator()
 				@contactsContextItem("delete-forever", i18n.T(ctx, "contacts.action.delete_forever_menu"), "text-destructive "+menuDestructiveClass) {
@@ -2861,7 +2861,7 @@ templ ContactEditorHeader(contact *models.Contact, profile *models.ContactProfil
 							@dropdown.Content(dropdown.ContentProps{Placement: dropdown.PlacementBottomEnd, Class: "w-44 normal-case tracking-normal"}) {
 								@dropdown.Item(dropdown.ItemProps{Attributes: templ.Attributes{"data-contact-restore-to": contact.ID, "data-contact-name": contact.Name}}) {
 									<span class="flex items-center gap-2">
-										@icon.Undo2(icon.Props{Class: "size-4 text-muted-foreground"})
+										@icon.Redo2(icon.Props{Class: "size-4 text-muted-foreground"})
 										{ i18n.T(ctx, "contacts.action.restore_to") }
 									</span>
 								}
@@ -3113,7 +3113,7 @@ templ ContactRestorePlaceDialog(accounts []models.Account) {
 						<button type="button" class="inline-flex h-9 items-center justify-center rounded-md border border-border px-3 text-sm font-semibold text-muted-foreground hover:bg-accent hover:text-foreground">{ i18n.T(ctx, "common.cancel") }</button>
 					}
 					<button type="submit" data-contacts-restore-place-submit class="inline-flex h-9 items-center justify-center gap-1.5 rounded-md bg-primary px-3 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-70">
-						@icon.Undo2(icon.Props{Class: "size-4"})
+						@icon.Redo2(icon.Props{Class: "size-4"})
 						{ i18n.T(ctx, "contacts.action.restore") }
 					</button>
 				}
