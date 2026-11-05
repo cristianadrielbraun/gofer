@@ -65,6 +65,7 @@
   }
 
   function sync() {
+    if (typeof syncSidebarTagLinks === "function") syncSidebarTagLinks()
     var controls = document.querySelector("[data-mail-search-controls]")
     if (!controls) return
     var selected = scope()

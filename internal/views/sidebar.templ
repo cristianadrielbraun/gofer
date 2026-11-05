@@ -1024,12 +1024,9 @@ templ SidebarTagGroup(labels []models.Label, activeFolder string, filters models
 }
 
 templ SidebarTagFilterLink(label models.Label, folderID string, activeFolder string, filters models.EmailFilters, accountID string) {
-	{{ active := sidebarTagActive(activeFolder, folderID, filters, label, accountID) }}
+	{{ active := sidebarTagActive(activeFolder, filters, label, accountID) }}
 	<a
 		href={ sidebarTagFilterURL(folderID, label, accountID) }
-		hx-get={ sidebarTagFilterURL(folderID, label, accountID) }
-		hx-target="#mail-list"
-		hx-swap="outerHTML settle:0s"
 		data-sidebar-tag-filter
 		data-sidebar-tag-label={ strings.TrimSpace(label.Name) }
 		data-sidebar-tag-id={ label.ID }

@@ -604,18 +604,29 @@ func unifiedSidebarLabels(accounts []models.Account, settings map[string]string)
 
 func sidebarTagBaseFolder(activeFolder string) string {
 	folder := strings.TrimSpace(activeFolder)
-	if folder == "" || folder == "scheduled" {
+	if folder == "" || folder == "scheduled" || folder == "search" {
 		return "inbox"
 	}
 	return folder
 }
 
+// sidebarTagFilterURL lists a tag's mail wherever it is: every folder of the
+// tag's account, or of every account for a unified tag, except Spam and
+// Trash. It is a search, which goes back to folderID when it ends.
 func sidebarTagFilterURL(folderID string, label models.Label, accountID string) templ.SafeURL {
-	folderID = sidebarTagBaseFolder(folderID)
 	values := url.Values{}
+	accountID = strings.TrimSpace(accountID)
+	if accountID != "" {
+		values.Set("scope", string(models.MailSearchAccount))
+		values.Set("scope_account_id", accountID)
+	} else {
+		values.Set("scope", string(models.MailSearchAll))
+	}
+	values.Set("exclude_spam_trash", "1")
+	values.Set("search_from", sidebarTagBaseFolder(folderID))
 	values.Set("tag", strings.TrimSpace(label.Name))
-	if strings.TrimSpace(accountID) != "" {
-		values.Set("tag_account_id", strings.TrimSpace(accountID))
+	if accountID != "" {
+		values.Set("tag_account_id", accountID)
 		if providerID := strings.TrimSpace(label.ProviderID); providerID != "" {
 			values.Set("tag_provider_id", providerID)
 			if providerType := strings.TrimSpace(label.ProviderType); providerType != "" {
@@ -623,25 +634,35 @@ func sidebarTagFilterURL(folderID string, label models.Label, accountID string) 
 			}
 		}
 	}
-	return templ.URL("/folder/" + url.PathEscape(folderID) + "?" + values.Encode())
+	return templ.URL("/mail/search?" + values.Encode())
 }
 
-func sidebarTagActive(activeFolder string, folderID string, filters models.EmailFilters, label models.Label, accountID string) bool {
-	if strings.TrimSpace(activeFolder) != sidebarTagBaseFolder(folderID) {
+// sidebarTagActive reports whether the open search is the tag's own list.
+func sidebarTagActive(activeFolder string, filters models.EmailFilters, label models.Label, accountID string) bool {
+	if strings.TrimSpace(activeFolder) != "search" || filters.SearchScope == nil {
 		return false
 	}
 	if !strings.EqualFold(strings.TrimSpace(filters.Tag), strings.TrimSpace(label.Name)) {
 		return false
 	}
-	return strings.TrimSpace(filters.TagAccountID) == strings.TrimSpace(accountID)
+	accountID = strings.TrimSpace(accountID)
+	if strings.TrimSpace(filters.TagAccountID) != accountID {
+		return false
+	}
+	scope := filters.SearchScope
+	if accountID == "" {
+		return scope.Kind == models.MailSearchAll
+	}
+	return scope.Kind == models.MailSearchAccount && scope.AccountID == accountID
 }
 
+// A tag's own list is a search; a folder filtered by a tag is not.
 func sidebarAccountHasActiveTag(accountID string, filters models.EmailFilters) bool {
-	return strings.TrimSpace(filters.Tag) != "" && strings.TrimSpace(filters.TagAccountID) == strings.TrimSpace(accountID)
+	return filters.SearchScope != nil && strings.TrimSpace(filters.Tag) != "" && strings.TrimSpace(filters.TagAccountID) == strings.TrimSpace(accountID)
 }
 
 func sidebarUnifiedHasActiveTag(filters models.EmailFilters) bool {
-	return strings.TrimSpace(filters.Tag) != "" && strings.TrimSpace(filters.TagAccountID) == ""
+	return filters.SearchScope != nil && strings.TrimSpace(filters.Tag) != "" && strings.TrimSpace(filters.TagAccountID) == ""
 }
 
 func sidebarTagGroupActive(filters models.EmailFilters, accountID string) bool {

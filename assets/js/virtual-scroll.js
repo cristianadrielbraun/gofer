@@ -4158,6 +4158,7 @@ window.addEventListener("popstate", function (e) {
     var target = window.location.pathname
     if (/^\/folder\//.test(target)) target = "/folder/" + target.split("/")[2] + "/full"
     var search = window.location.search
+    if (typeof syncSidebarTagLinks === "function") syncSidebarTagLinks()
     // Let all history listeners advance request ownership before starting
     // this navigation, so its own response isn't mistaken for a stale page.
     // Moving into or out of search clears the old list first.
@@ -4180,7 +4181,7 @@ window.addEventListener("popstate", function (e) {
       htmx.ajax("GET", window.location.pathname + window.location.search, {target: "#main-content", swap: "outerHTML"})
     }
     var contactsLink = document.querySelector("[data-sidebar-contacts-link]")
-    var folderLinks = document.querySelectorAll("aside a[hx-get^='/folder/']")
+    var folderLinks = document.querySelectorAll("aside a[hx-get^='/folder/'], aside a[data-sidebar-tag-filter]")
     for (var c = 0; c < folderLinks.length; c++) {
       folderLinks[c].classList.remove("bg-sidebar-accent", "text-sidebar-primary", "font-medium")
       folderLinks[c].classList.add("text-sidebar-foreground", "hover:bg-sidebar-accent/60", "hover:text-sidebar-accent-foreground")
@@ -4213,7 +4214,7 @@ window.addEventListener("popstate", function (e) {
   var updateSidebarActive = function () {
     var sidebar = document.querySelector("aside")
     if (!sidebar) return
-    var sidebarLinks = sidebar.querySelectorAll("a[hx-get^='/folder/']")
+    var sidebarLinks = sidebar.querySelectorAll("a[hx-get^='/folder/'], a[data-sidebar-tag-filter]")
     for (var i = 0; i < sidebarLinks.length; i++) {
       sidebarLinks[i].classList.remove(
         "bg-sidebar-accent",

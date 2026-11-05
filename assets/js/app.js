@@ -1973,7 +1973,7 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     function sectionHasActiveFolder(section) {
-      return section.hasAttribute("data-sidebar-account-active") || !!section.querySelector('a[hx-get^="/folder/"].bg-sidebar-accent')
+      return section.hasAttribute("data-sidebar-account-active") || !!section.querySelector('a[hx-get^="/folder/"].bg-sidebar-accent, a[data-sidebar-tag-filter].bg-sidebar-accent')
     }
 
     function tagGroupHasActiveTag(group) {
@@ -4104,7 +4104,7 @@ document.addEventListener("DOMContentLoaded", function () {
     function sidebarContextTarget(el) {
       var body = el.closest('[data-sidebar-app-body="mail"]')
       if (!body) return null
-      var link = el.closest('a[hx-get^="/folder/"]')
+      var link = el.closest('a[hx-get^="/folder/"], a[data-sidebar-tag-filter]')
       if (link && body.contains(link) && link.hasAttribute("data-sidebar-tag-filter")) {
         // Appearance is available for account tags and the combined tag filter.
         var tagAccount = link.getAttribute("data-sidebar-tag-account") || ""
@@ -9345,7 +9345,7 @@ document.addEventListener("DOMContentLoaded", function () {
     sidebar._goferFolderClicks = true
 
     function clearFolderActiveState() {
-      var sidebarLinks = sidebar.querySelectorAll("a[hx-get^='/folder/']")
+      var sidebarLinks = sidebar.querySelectorAll("a[hx-get^='/folder/'], a[data-sidebar-tag-filter]")
       for (var i = 0; i < sidebarLinks.length; i++) {
         sidebarLinks[i].classList.remove("bg-sidebar-accent", "text-sidebar-primary", "font-medium")
         sidebarLinks[i].classList.add("text-sidebar-foreground", "hover:bg-sidebar-accent/60", "hover:text-sidebar-accent-foreground")
@@ -9476,6 +9476,16 @@ document.addEventListener("DOMContentLoaded", function () {
         return
       }
 
+      var tagLink = e.target.closest("a[data-sidebar-tag-filter]")
+      if (tagLink) {
+        if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
+        e.preventDefault()
+        e.stopPropagation()
+        e.stopImmediatePropagation()
+        openSidebarTag(tagLink)
+        return
+      }
+
       var link = e.target.closest('a[hx-get^="/folder/"]')
       if (!link) return
 
@@ -9551,6 +9561,46 @@ document.addEventListener("DOMContentLoaded", function () {
         }).catch(function () {})
       }
     }, true)
+  }
+
+  // openSidebarTag lists a tag's mail wherever it is, as a search over the
+  // tag's account (or every account) that leaves out Spam and Trash. Ending
+  // the search goes back to the folder it started from.
+  function openSidebarTag(link) {
+    var url = new URL(link.getAttribute("href"), window.location.origin)
+    var origin = ""
+    if (window.location.pathname === "/mail/search") origin = new URLSearchParams(window.location.search).get("search_from") || ""
+    else if (virtualMailList && virtualMailList.folderID && virtualMailList.folderID !== "search") origin = virtualMailList.folderID
+    if (origin) url.searchParams.set("search_from", origin)
+    var address = url.pathname + url.search
+    document.dispatchEvent(new CustomEvent("gofer:mail-folder-clicked", { detail: { folderID: "search" } }))
+    if (document.querySelector("[data-compose-pane]")) {
+      collapseComposeFullWidth()
+      setMailViewEmpty()
+      _updateComposeBtn(false)
+    }
+    history.pushState({ folder: "search", email: null }, "", address)
+    setContactsActive(false)
+    syncSidebarTagLinks()
+
+    var mainContent = document.getElementById("main-content")
+    var isOnSettings = mainContent && mainContent.querySelector("[data-settings-page]")
+    var isOnContacts = !!document.getElementById("contacts-list-scroll")
+    var mailListDetached = !virtualMailList || !virtualMailList.container || !document.body.contains(virtualMailList.container)
+    var loadSearch = function () {
+      if (typeof htmx !== "undefined") htmx.ajax("GET", address, {target: "#main-content", swap: "outerHTML"})
+    }
+    virtualContactsList = null
+    if (!isOnSettings && !isOnContacts && !mailListDetached && window.GoferMailSearch) {
+      var leaving = virtualMailList
+      window.GoferMailSearch.replaceList(leaving, address).catch(function () {
+        leaving.cancelTransitionClear()
+        loadSearch()
+      })
+      return
+    }
+    if (mainContent) showMailContentLoading(mainContent, link)
+    loadSearch()
   }
 
   function showMailContentLoading(mainContent, folderLink) {
@@ -12110,6 +12160,60 @@ function _mailSyncAccountEmail(accountID) {
     if (rows.length > 1 && rows[1].textContent.trim()) return rows[1].textContent.trim()
   }
   return ""
+}
+
+// syncSidebarTagLinks marks the sidebar tag whose list is open: a search
+// with the link's own scope and tag. Then no folder is marked; elsewhere no
+// tag is.
+function syncSidebarTagLinks() {
+  var aside = document.querySelector("aside")
+  if (!aside) return
+  var onSearch = window.location.pathname === "/mail/search"
+  var current = new URLSearchParams(window.location.search)
+  var keys = ["scope", "scope_account_id", "exclude_spam_trash", "tag", "tag_account_id"]
+  var links = aside.querySelectorAll("a[data-sidebar-tag-filter]")
+  var active = null
+  for (var i = 0; i < links.length && onSearch; i++) {
+    var params
+    try {
+      params = new URL(links[i].getAttribute("href") || "", window.location.origin).searchParams
+    } catch (_) {
+      continue
+    }
+    var same = true
+    for (var k = 0; k < keys.length && same; k++) same = (params.get(keys[k]) || "") === (current.get(keys[k]) || "")
+    if (same) {
+      active = links[i]
+      break
+    }
+  }
+  var marked = active ? aside.querySelectorAll("a[hx-get^='/folder/'], a[data-sidebar-tag-filter], [data-sidebar-folder-row]") : links
+  for (var m = 0; m < marked.length; m++) {
+    if (marked[m] === active || !marked[m].classList.contains("bg-sidebar-accent")) continue
+    marked[m].classList.remove("bg-sidebar-accent", "text-sidebar-primary", "font-medium")
+    marked[m].classList.add("text-sidebar-foreground", "hover:bg-sidebar-accent/60", "hover:text-sidebar-accent-foreground")
+    var badge = marked[m].querySelector("[data-folder-unread]")
+    if (badge) {
+      badge.classList.remove("bg-sidebar-primary/20", "text-sidebar-primary")
+      badge.classList.add("bg-sidebar-accent", "text-sidebar-foreground")
+    }
+  }
+  var groups = aside.querySelectorAll("[data-sidebar-tag-group]")
+  for (var g = 0; g < groups.length; g++) {
+    if (!active || !groups[g].contains(active)) groups[g].removeAttribute("data-sidebar-tag-active")
+  }
+  if (!active) return
+  var folderGroups = aside.querySelectorAll("[data-sidebar-folder]")
+  for (var f = 0; f < folderGroups.length; f++) folderGroups[f].removeAttribute("data-sidebar-folder-active")
+  active.classList.add("bg-sidebar-accent", "text-sidebar-primary", "font-medium")
+  active.classList.remove("text-sidebar-foreground", "hover:bg-sidebar-accent/60", "hover:text-sidebar-accent-foreground")
+  var group = active.closest("[data-sidebar-tag-group]")
+  if (group) {
+    group.setAttribute("data-sidebar-tag-active", "")
+    group.setAttribute("data-sidebar-tag-collapsed", "false")
+    var toggle = group.querySelector("[data-sidebar-tag-toggle]")
+    if (toggle) toggle.setAttribute("aria-expanded", "true")
+  }
 }
 
 function _mailSyncFolderLabel(folderID, role) {
