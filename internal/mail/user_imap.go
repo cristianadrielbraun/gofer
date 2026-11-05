@@ -74,6 +74,9 @@ type UserIMAP struct {
 	// outlookServiceChange refreshes the calendars and contacts Microsoft
 	// announced changes for.
 	outlookServiceChange OutlookServiceChange
+	// jmapContactsChange refreshes the contacts a JMAP server pushed changes
+	// for.
+	jmapContactsChange JMAPContactsChange
 }
 type userIMAPJob struct{ owner, account string }
 type userIMAPKey struct {

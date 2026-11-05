@@ -2,7 +2,6 @@ package handler
 
 import (
 	"context"
-	"errors"
 	"log"
 	"time"
 
@@ -23,12 +22,10 @@ func (h *Handler) OutlookServiceChanged(ctx context.Context, service mail.Outloo
 		switch {
 		case h.userStorage != nil && service == mail.OutlookPushCalendar:
 			err = h.wakeUserCalendarAccountID(ctx, accountID)
-		case h.userStorage != nil && service == mail.OutlookPushContacts:
-			err = h.wakeUserContactAccountID(ctx, accountID)
+		case service == mail.OutlookPushContacts:
+			err = h.contactsChangedOnProvider(ctx, accountID)
 		case service == mail.OutlookPushCalendar:
 			err = h.scheduleOutlookCalendarsNow(ctx, accountID)
-		case service == mail.OutlookPushContacts:
-			h.syncOutlookContactsNow(accountID)
 		}
 		if err != nil && ctx.Err() == nil {
 			log.Printf("outlook webhook account=%s %s: refresh: %v", accountID, service, err)
@@ -80,16 +77,4 @@ func (h *Handler) scheduleOutlookCalendarsNow(ctx context.Context, accountID str
 		}
 	}
 	return nil
-}
-
-// syncOutlookContactsNow pulls the shared store account's contacts, unless a
-// pull is already running.
-func (h *Handler) syncOutlookContactsNow(accountID string) {
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-		defer cancel()
-		if _, err := h.SyncContactAccount(ctx, accountID); err != nil && !errors.Is(err, errContactSyncAlreadyRunning) {
-			log.Printf("outlook webhook account=%s contacts: refresh: %v", accountID, err)
-		}
-	}()
 }

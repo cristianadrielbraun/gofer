@@ -315,6 +315,32 @@ func TestJMAPContactSyncSetupAndPull(t *testing.T) {
 	if cfg, _ := h.accountStore.GetContactSyncConfig(t.Context(), "owner", account.ID); cfg.LastSyncToken != "s2" {
 		t.Fatalf("state after changes = %q", cfg.LastSyncToken)
 	}
+
+	// A push from the server pulls the changes. One that comes while a pull
+	// is running, which may have read the server before the change, waits
+	// for it to end and pulls anyway.
+	retry := contactPushRetry
+	contactPushRetry = 10 * time.Millisecond
+	t.Cleanup(func() { contactPushRetry = retry })
+	fake.set("s3", map[string]string{
+		"c4": `{"id": "c4", "addressBookIds": {"B1": true}, "name": {"full": "Ines Marlow"}, "emails": {"e": {"address": "ines.marlow@example.test"}}}`,
+	}, map[string]any{"accountId": "a1", "oldState": "s2", "newState": "s3", "hasMoreChanges": false,
+		"created": []string{"c4"}, "updated": []string{}, "destroyed": []string{}})
+	if !h.beginContactSync(account.ID) {
+		t.Fatal("a pull is still running")
+	}
+	h.JMAPContactsChanged(t.Context(), account.ID)
+	time.Sleep(100 * time.Millisecond)
+	if source("c4") {
+		t.Fatal("pulled while another pull was running")
+	}
+	h.endContactSync(account.ID)
+	for deadline := time.Now().Add(5 * time.Second); !source("c4"); {
+		if time.Now().After(deadline) {
+			t.Fatal("the push pulled nothing after the running pull ended")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 }
 
 func TestUserJMAPContactPullPublishesToTheOwnersStore(t *testing.T) {

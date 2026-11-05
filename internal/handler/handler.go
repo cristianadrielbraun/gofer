@@ -108,6 +108,7 @@ type Handler struct {
 	contactBackfillState       models.ContactBackfillState
 	contactSyncMu              sync.Mutex
 	contactSyncRunning         map[string]struct{}
+	contactPushSyncs           map[string]bool // accounts pulling after a push; true: pull again (contact_push.go)
 	contactSyncQueue           chan struct{}
 	userContactWorkers         *userContactWorkers
 	calendarWorkerOnce         sync.Once

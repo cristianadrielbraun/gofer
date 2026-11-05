@@ -89,6 +89,9 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 		if err := option.IMAP.SetMailQueue(&userMailDelivery{h: routed}); err != nil {
 			return err
 		}
+		// Provider pushes reach the handler that routes to the owners' stores.
+		option.IMAP.OnOutlookServiceChange(routed.OutlookServiceChanged)
+		option.IMAP.OnJMAPContactsChange(routed.JMAPContactsChanged)
 		created, updated := routed.userAccountHooks.Created, routed.userAccountHooks.Updated
 		routed.userAccountHooks.Created = func(ctx context.Context, id string) error {
 			return errors.Join(created(ctx, id), routed.wakeUserContactAccountID(ctx, id), routed.wakeUserCalendarAccountID(ctx, id))

@@ -175,6 +175,9 @@ type SyncOrchestrator struct {
 	// outlookServiceChange refreshes the calendars and contacts Microsoft
 	// announced changes for.
 	outlookServiceChange OutlookServiceChange
+	// jmapContactsChange refreshes the contacts a JMAP server pushed changes
+	// for.
+	jmapContactsChange JMAPContactsChange
 }
 
 func newAccountSyncSlots(limit int) chan struct{} {
@@ -752,9 +755,13 @@ func (o *SyncOrchestrator) startIDLEWatchers(ctx context.Context, accountID stri
 				continue
 			}
 			folderID, remoteName := folder.ID, folder.RemoteID
-			watchers = append(watchers, NewJMAPPushWatcher(cfg, password,
+			watcher := NewJMAPPushWatcher(cfg, password,
 				func() { o.requestPushSync(watcherCtx, accountID) },
-				func(status imap.IdleWatcherStatus) { o.updateIDLEFolderStatus(accountID, folderID, remoteName, status) }))
+				func(status imap.IdleWatcherStatus) { o.updateIDLEFolderStatus(accountID, folderID, remoteName, status) })
+			if change := o.jmapContactsChange; change != nil {
+				watcher.WithContacts(func() { change(watcherCtx, accountID) })
+			}
+			watchers = append(watchers, watcher)
 			folderIDs[folderID] = true
 			continue
 		}
