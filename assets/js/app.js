@@ -3436,7 +3436,8 @@ document.addEventListener("DOMContentLoaded", function () {
           if (window.tui && window.tui.dialog) window.tui.dialog.close("contacts-resolver-dialog")
           var count = Number(result && result.kept) || 0
           if (count) {
-            showGoferToast({ id: "contact-unresolved-kept", title: goferTn("js.contacts.unresolved.kept_count", count), description: goferT("js.contacts.unresolved.kept_detail"), variant: "success", icon: "success", position: "bottom-right", duration: 5000, dismissible: true })
+            // Their sync goes on now, and its toasts take this one's place.
+            showGoferToast({ id: "contact-sync-toast", title: goferTn("js.contacts.unresolved.kept_count", count), description: goferT("js.contacts.unresolved.kept_detail"), variant: "success", icon: "success", position: "bottom-right", duration: 5000, dismissible: true })
             refreshContactsAfterTrashChange()
             choices.keep.forEach(function (item) { refreshOpenContactDetail(item.id) })
           }
@@ -8313,6 +8314,8 @@ document.addEventListener("DOMContentLoaded", function () {
       duration = 8000
       dismissible = true
     }
+    // The server's message can be the title itself.
+    if (description === title) description = ""
     showGoferToast({
       id: "contact-sync-toast",
       title: title,
