@@ -186,7 +186,12 @@ func (h *Handler) handleUserSaveContact(w http.ResponseWriter, r *http.Request) 
 	var result storage.ContactEditResult
 	var previous *models.Contact
 	created := false
+	removeFailed := ""
 	err = h.userIMAP.RunUserServiceWork(r.Context(), owner, func(ctx context.Context) error {
+		syncPlaces, err := h.contactSyncPlaces(ctx, owner, contact.ID)
+		if err != nil {
+			return err
+		}
 		snapshot, err := h.userAccounts.SnapshotContactEdit(ctx, owner, contact)
 		if err != nil {
 			return err
@@ -237,6 +242,13 @@ func (h *Handler) handleUserSaveContact(w http.ResponseWriter, r *http.Request) 
 				log.Printf("owned contacts: wake committed editor sync: %v", err)
 			}
 		}
+		// A place taken out of Gofer Sync no longer holds the contact.
+		if !created {
+			if err := h.removeDroppedSyncPlaces(ctx, owner, result.Contact.ID, result.Contact.StoredIn, syncPlaces); err != nil {
+				log.Printf("owned contacts: remove %s from dropped sync places: %v", result.Contact.ID, err)
+				removeFailed = contactDeleteFailureMessage(result.Contact.ID, err)
+			}
+		}
 		return nil
 	})
 	if err != nil && result.Contact.ID == "" {
@@ -249,6 +261,9 @@ func (h *Handler) handleUserSaveContact(w http.ResponseWriter, r *http.Request) 
 		response := map[string]any{"ok": true, "contact_id": saved.ID, "location": "/contacts?contact=" + saved.ID,
 			"contact_sync_queued": result.OperationID != "", "refresh_detail": previous != nil,
 			"avatar_hash": saved.AvatarHash, "avatar_url": saved.AvatarURL}
+		if removeFailed != "" {
+			response["contact_place_remove_failed"] = serverText(r.Context(), removeFailed)
+		}
 		if result.SetupDeferred {
 			response["contact_sync_setup_url"] = "/api/contacts/" + url.PathEscape(saved.ID) + "/sync-setup"
 		}

@@ -386,9 +386,9 @@ func contactNewHomeItemAttributes(contact *models.Contact) templ.Attributes {
 	return nil
 }
 
-// contactStoredInLabels names the places that hold the contact: its home
-// first, said to be on its way while its copy is still being written, then
-// every other place with a copy.
+// contactStoredInLabels names where the contact lives: its home, said to be
+// on its way while its copy is still being written. Its Gofer Sync places
+// are listed apart.
 func contactStoredInLabels(ctx context.Context, profile *models.ContactProfile, accounts []models.Account) []string {
 	labels := []string{}
 	if profile == nil {
@@ -396,6 +396,9 @@ func contactStoredInLabels(ctx context.Context, profile *models.ContactProfile, 
 	}
 	seen := map[string]bool{}
 	home := strings.TrimSpace(profile.Home)
+	if home == "" {
+		home = "local"
+	}
 	var places []string
 	for _, card := range profile.Cards {
 		if card.IsDeleted {
@@ -444,12 +447,14 @@ func contactStoredInLabels(ctx context.Context, profile *models.ContactProfile, 
 			text = i18n.T(ctx, "contacts.stored_in_writing", "place", text)
 		}
 		labels = appendUniqueContactReadLabel(labels, seen, text)
-		seen[label(home)] = true
-	}
-	for _, place := range places {
-		labels = appendUniqueContactReadLabel(labels, seen, label(place))
 	}
 	return labels
+}
+
+// ContactPlaceLabel names an account or address book as the contacts list
+// does, for messages the server writes.
+func ContactPlaceLabel(ctx context.Context, place, accountID string, accounts []models.Account) string {
+	return contactStoredInPlaceLabel(ctx, place, accountID, accounts)
 }
 
 // contactStoredInPlaceLabel names an account or address book as the filters
@@ -826,6 +831,22 @@ func contactBookTargetValue(book models.ContactAddressBook) string {
 
 func accountContactSyncCapable(account models.Account) bool {
 	return account.ContactSyncEnabled
+}
+
+// contactInitialSyncPlaces lists the accounts and address books a saved
+// contact syncs with, for the editor to warn before one taken out loses its
+// copy.
+func contactInitialSyncPlaces(contact *models.Contact) string {
+	if contact == nil || strings.TrimSpace(contact.ID) == "" {
+		return ""
+	}
+	var places []string
+	for _, target := range contact.SaveTargets {
+		if target != "local" && target != contactHome(contact) {
+			places = append(places, target)
+		}
+	}
+	return strings.Join(places, ",")
 }
 
 func contactSaveTargetSelected(contact *models.Contact, target string) bool {
@@ -3048,7 +3069,7 @@ templ ContactSyncStatusNotice(contact models.Contact) {
 }
 
 templ ContactSyncTargetsSelect(contact *models.Contact, accounts []models.Account, syncEnabled bool) {
-	<div class={ contactSyncTargetsClass(syncEnabled) } data-contact-sync-targets aria-disabled={ fmt.Sprintf("%t", !syncEnabled) }>
+	<div class={ contactSyncTargetsClass(syncEnabled) } data-contact-sync-targets data-contact-sync-initial={ contactInitialSyncPlaces(contact) } aria-disabled={ fmt.Sprintf("%t", !syncEnabled) }>
 		<label class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.sync.locations") }</label>
 		@selectbox.SelectBox(selectbox.Props{Multiple: true}) {
 			@selectbox.Trigger(selectbox.TriggerProps{Name: "save_targets", Class: "h-10 border-ink/10 bg-ink/[0.04] text-ink", Multiple: true, ShowPills: true, DisableClear: true, SelectedCountText: i18n.T(ctx, "contacts.sync.locations_selected")}) {

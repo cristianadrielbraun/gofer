@@ -505,6 +505,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/contacts/export", h.handleExportSelectedContacts)
 	mux.HandleFunc("POST /api/contacts/bulk-delete", h.handleTrashContacts)
 	mux.HandleFunc("POST /api/contacts/trash/restore", h.handleRestoreContacts)
+	mux.HandleFunc("POST /api/contacts/trash/places", h.handleContactTrashPlaces)
 	mux.HandleFunc("GET /contacts/trash-count", h.handleContactTrashCount)
 	mux.HandleFunc("POST /api/contacts/trash/delete", h.handleDeleteContactsForever)
 	mux.HandleFunc("GET /api/contacts/ids", h.handleContactIDs)
@@ -1242,6 +1243,11 @@ func (h *Handler) handleSaveContact(w http.ResponseWriter, r *http.Request) {
 		}
 		previous, _ = h.db.GetContact(ctx, userID, contact.ID)
 	}
+	syncPlaces, err := h.contactSyncPlaces(ctx, userID, contact.ID)
+	if err != nil {
+		http.Error(w, i18n.T(r.Context(), "server.error.save_failed"), http.StatusInternalServerError)
+		return
+	}
 	setupRequired := contactSyncSetupRequired(contact, previous)
 	if setupRequired {
 		contact.GoferSyncEnabled = false
@@ -1276,6 +1282,14 @@ func (h *Handler) handleSaveContact(w http.ResponseWriter, r *http.Request) {
 			h.signalContactSyncOperationWorker()
 		}
 	}
+	// A place taken out of Gofer Sync no longer holds the contact.
+	removeFailed := ""
+	if previous != nil {
+		if err := h.removeDroppedSyncPlaces(ctx, userID, saved.ID, saved.StoredIn, syncPlaces); err != nil {
+			log.Printf("contacts: remove %s from dropped sync places: %v", saved.ID, err)
+			removeFailed = contactDeleteFailureMessage(saved.ID, err)
+		}
+	}
 	if strings.Contains(r.Header.Get("Accept"), "application/json") {
 		w.Header().Set("Content-Type", "application/json")
 		response := map[string]any{
@@ -1289,6 +1303,9 @@ func (h *Handler) handleSaveContact(w http.ResponseWriter, r *http.Request) {
 		}
 		if setupRequired {
 			response["contact_sync_setup_url"] = "/api/contacts/" + url.PathEscape(saved.ID) + "/sync-setup"
+		}
+		if removeFailed != "" {
+			response["contact_place_remove_failed"] = serverText(r.Context(), removeFailed)
 		}
 		_ = json.NewEncoder(w).Encode(response)
 		return
@@ -1324,9 +1341,9 @@ func contactFromForm(r *http.Request, targets []string) (models.Contact, error) 
 		GoferSyncEnabled:      r.FormValue("sync_enabled") == "on",
 		SaveTargets:           targets,
 		// Where a new contact goes to live; the handlers check it.
-		StoredIn: strings.TrimSpace(r.FormValue("stored_in")),
-		AvatarURL:             avatarURL,
-		RemoveAvatar:          removeAvatar,
+		StoredIn:     strings.TrimSpace(r.FormValue("stored_in")),
+		AvatarURL:    avatarURL,
+		RemoveAvatar: removeAvatar,
 	}
 	// The email address is optional. If only an additional one is filled in,
 	// it becomes the main one.

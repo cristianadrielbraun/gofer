@@ -1066,8 +1066,45 @@ document.addEventListener("DOMContentLoaded", function () {
       for (var j = 0; j < emails.length; j++) emails[j].textContent = detail
     }
 
+    // contactRemovedSyncPlaces names the accounts and address books taken
+    // out of a saved contact's Gofer Sync in its form: saving deletes the
+    // contact there.
+    function contactRemovedSyncPlaces(form) {
+      var field = form.querySelector("[data-contact-sync-targets]")
+      var initial = field ? (field.getAttribute("data-contact-sync-initial") || "") : ""
+      if (!initial) return []
+      var input = form.querySelector('input[name="save_targets"]')
+      var current = (input ? input.value : "").split(",").map(function (value) { return value.trim() })
+      var labels = []
+      initial.split(",").forEach(function (place) {
+        place = place.trim()
+        if (!place || current.indexOf(place) !== -1) return
+        var item = field.querySelector('[data-tui-selectbox-value="' + CSS.escape(place) + '"]') || document.querySelector('[data-tui-selectbox-value="' + CSS.escape(place) + '"]')
+        labels.push(item ? item.textContent.replace(/\s+/g, " ").trim() : place)
+      })
+      return labels
+    }
+
     function saveContactEditor(form, submitter) {
       if (!form || form.dataset.saving === "true") return
+      var removed = contactRemovedSyncPlaces(form)
+      if (removed.length && form.dataset.syncPlacesConfirmed !== "true") {
+        window.goferConfirm({
+          title: goferT("js.contacts.sync.remove_places_title"),
+          message: goferTn("js.contacts.sync.remove_places", removed.length, { places: removed.join(", ") }),
+          confirmLabel: goferT("js.contacts.sync.remove_places_confirm"),
+          destructive: true,
+        }).then(function (confirmed) {
+          if (!confirmed) return
+          form.dataset.syncPlacesConfirmed = "true"
+          try {
+            saveContactEditor(form, submitter)
+          } finally {
+            delete form.dataset.syncPlacesConfirmed
+          }
+        })
+        return
+      }
       form.dataset.saving = "true"
       var submit = submitter && submitter.matches && submitter.matches('button[type="submit"]') ? submitter : form.querySelector('button[type="submit"]')
       if (submit) submit.disabled = true
@@ -1099,6 +1136,9 @@ document.addEventListener("DOMContentLoaded", function () {
         if (data && data.contact_id) updateContactListPreview(data.contact_id, form)
         if (data && data.refresh_detail && data.contact_id) {
           refreshContactsDetail(data.contact_id, form, syncQueued)
+        }
+        if (data && data.contact_place_remove_failed) {
+          showGoferToast({ id: "contact-place-remove-error", title: goferT("js.contacts.save.place_remove_failed"), description: data.contact_place_remove_failed, variant: "error", icon: "error", position: "bottom-right", duration: 10000, dismissible: true })
         }
         if (syncSetupURL) {
           var editDialogID = form.getAttribute("data-contact-edit-dialog") || ""
@@ -2932,31 +2972,72 @@ document.addEventListener("DOMContentLoaded", function () {
         })
     }
 
-    // Moves contacts to the Trash, in Gofer only, without asking: the toast
-    // offers to undo it. who names a single contact.
+    // Moves contacts to the Trash, deleting them where they live: their
+    // copies on accounts go first. When some have copies on accounts the user
+    // is told where and asked; the toast offers to undo it, which writes them
+    // back. who names a single contact.
     function moveContactsToTrash(ids, who) {
       if (!ids.length || contactDeleteBusy) return
       contactDeleteBusy = true
       syncContactSelection()
-      postContactIDs("/api/contacts/bulk-delete", ids)
+      postContactIDs("/api/contacts/trash/places", ids)
+        .then(function (copies) {
+          var places = (copies && copies.places) || []
+          if (!places.length) return true
+          var count = (copies && copies.contacts) || 0
+          return window.goferConfirm({
+            title: ids.length === 1 ? goferT("js.contacts.trash.confirm_title_single") : goferTn("js.contacts.trash.confirm_title", ids.length),
+            message: (count === 1 ? goferT("js.contacts.trash.confirm_places_single", { places: places.join(", ") }) : goferTn("js.contacts.trash.confirm_places", count, { places: places.join(", ") })) + " " + goferT(ids.length === 1 ? "js.contacts.trash.confirm_restore_single" : "js.contacts.trash.confirm_restore"),
+            destructive: true,
+            confirmLabel: goferT("js.contacts.trash.confirm"),
+          })
+        })
+        .then(function (accepted) {
+          if (!accepted) return null
+          var moved = 0
+          var failed = []
+          var batches = []
+          for (var i = 0; i < ids.length; i += CONTACT_DELETE_BATCH) batches.push(ids.slice(i, i + CONTACT_DELETE_BATCH))
+          var progress = function () {
+            if (ids.length <= CONTACT_DELETE_BATCH) return
+            showGoferToast({ id: "contacts-trashed", title: goferT("js.contacts.trash.moving"), description: goferT("js.contacts.forever.progress", { done: formatMailCount(moved + failed.length), total: formatMailCount(ids.length) }), variant: "info", icon: "spinner", position: "bottom-right", duration: 0, dismissible: false })
+          }
+          progress()
+          var run = Promise.resolve()
+          batches.forEach(function (batch) {
+            run = run.then(function () {
+              return postContactIDs("/api/contacts/bulk-delete", batch).then(function (result) {
+                moved += (result && result.trashed) || 0
+                ;((result && result.failed) || []).forEach(function (failure) { failed.push(failure) })
+                progress()
+              })
+            })
+          })
+          return run.then(function () { return { moved: moved, failed: failed } })
+        })
         .then(function (result) {
-          var moved = (result && result.trashed) || 0
+          if (!result) return
+          var moved = result.moved
+          var failed = result.failed
           clearContactSelection()
           refreshContactsAfterTrashChange()
+          var trashedIDs = ids.filter(function (id) { return !failed.some(function (failure) { return failure.id === id }) })
+          var description = moved === 1 && who ? who : ""
+          if (failed.length) description = (description ? description + " " : "") + goferTn("js.contacts.trash.failed_count", failed.length) + " " + (failed[0].error || "")
           showGoferToast({
             id: "contacts-trashed",
             title: moved === 1 && who ? goferT("js.contacts.trash.moved_one") : goferTn("js.contacts.trash.moved", moved),
-            description: moved === 1 && who ? who : "",
-            variant: "success",
-            icon: "success",
+            description: description.trim(),
+            variant: failed.length ? "warning" : "success",
+            icon: failed.length ? "warning" : "success",
             position: "bottom-right",
-            duration: 8000,
+            duration: failed.length ? 12000 : 8000,
             dismissible: true,
-            secondaryActionLabel: goferT("js.contacts.undo"),
-            onSecondaryAction: function () {
+            secondaryActionLabel: moved ? goferT("js.contacts.undo") : "",
+            onSecondaryAction: moved ? function () {
               dismissGoferToast(document.getElementById("contacts-trashed"))
-              restoreContacts(ids, who)
-            },
+              restoreContacts(trashedIDs, who)
+            } : null,
           })
         })
         .catch(function (err) {

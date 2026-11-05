@@ -846,27 +846,32 @@ func (h *Handler) gmailTargetAccountSet(ctx context.Context, userID string, targ
 }
 
 func (h *Handler) deleteContactFromAccounts(ctx context.Context, userID string, contact models.Contact) error {
+	return h.deleteContactFromAccountsIn(ctx, userID, contact, nil)
+}
+
+// deleteContactFromAccountsIn deletes the contact's copies that only
+// accepts, every copy when it is nil.
+func (h *Handler) deleteContactFromAccountsIn(ctx context.Context, userID string, contact models.Contact, only func(storage.ContactSource) bool) error {
 	if contact.ID == "" {
 		return nil
 	}
-	if err := h.deleteContactSourcesFromProvider(ctx, userID, contact, providers.ProviderGmail); err != nil {
-		return err
+	for _, provider := range []string{providers.ProviderGmail, providers.ProviderOutlook, providers.ProviderCardDAV, providers.ProviderJMAP} {
+		if err := h.deleteContactSourcesFromProvider(ctx, userID, contact, provider, only); err != nil {
+			return err
+		}
 	}
-	if err := h.deleteContactSourcesFromProvider(ctx, userID, contact, providers.ProviderOutlook); err != nil {
-		return err
-	}
-	if err := h.deleteContactSourcesFromProvider(ctx, userID, contact, providers.ProviderCardDAV); err != nil {
-		return err
-	}
-	return h.deleteContactSourcesFromProvider(ctx, userID, contact, providers.ProviderJMAP)
+	return nil
 }
 
-func (h *Handler) deleteContactSourcesFromProvider(ctx context.Context, userID string, contact models.Contact, provider string) error {
+func (h *Handler) deleteContactSourcesFromProvider(ctx context.Context, userID string, contact models.Contact, provider string, only func(storage.ContactSource) bool) error {
 	sources, err := h.db.GetContactSources(ctx, userID, contact.ID, provider)
 	if err != nil {
 		return err
 	}
 	for _, source := range sources {
+		if only != nil && !only(source) {
+			continue
+		}
 		if strings.TrimSpace(source.RemoteID) == "" {
 			if err := h.db.DeleteContactSource(ctx, userID, contact.ID, provider, source.AccountID); err != nil {
 				return err
