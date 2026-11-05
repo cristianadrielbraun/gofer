@@ -8151,6 +8151,26 @@ document.addEventListener("DOMContentLoaded", function () {
     })
   }
 
+  // Contacts to resolve show as a browser notification too when that's the
+  // chosen method and the page is out of sight; push comes from the server.
+  function showBrowserTabContactsUnresolved(title) {
+    if (!notificationsEnabled() || _notificationActiveMethod !== "browser_tab") return
+    if (!browserNotificationsSupported() || Notification.permission !== "granted") return
+    if (!document.hidden && document.hasFocus && document.hasFocus()) return
+    var notification = new Notification(title, {
+      body: goferT("js.contacts.unresolved.arrived_detail"),
+      tag: "gofer-contacts-unresolved",
+      icon: "/assets/logo.png",
+      badge: "/assets/logo.png",
+    })
+    notification.onclick = function () {
+      window.focus()
+      if (document.querySelector("[data-contacts-sidebar-unresolved]")) document.body.dispatchEvent(new CustomEvent("contacts-open-resolver"))
+      else window.location.href = "/contacts?resolve=1"
+      notification.close()
+    }
+  }
+
   // An event reminder shows in the open page, and as a browser notification
   // when that's the chosen method (push notifications come from the server).
   function showCalendarReminder(data) {
@@ -8284,9 +8304,10 @@ document.addEventListener("DOMContentLoaded", function () {
   function handleContactsUnresolvedEvent(data) {
     var count = Number(data.event_count || 0) || 1
     var name = String(data.email || "")
+    var title = count === 1 && name ? goferT("js.contacts.unresolved.arrived_one", { name: name }) : goferTn("js.contacts.unresolved.arrived", count)
     showGoferToast({
       id: "contacts-unresolved",
-      title: count === 1 && name ? goferT("js.contacts.unresolved.arrived_one", { name: name }) : goferTn("js.contacts.unresolved.arrived", count),
+      title: title,
       description: goferT("js.contacts.unresolved.arrived_detail"),
       variant: "warning",
       icon: "warning",
@@ -8298,6 +8319,7 @@ document.addEventListener("DOMContentLoaded", function () {
         else window.location.href = "/contacts?resolve=1"
       } }],
     })
+    showBrowserTabContactsUnresolved(title)
     // The contacts list reloads itself on this; the sidebar's count too.
     document.body.dispatchEvent(new CustomEvent("contacts-unresolved-changed"))
     if (data.contact_id) refreshOpenContactDetail(data.contact_id)
