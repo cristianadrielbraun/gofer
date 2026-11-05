@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 
@@ -43,10 +44,14 @@ func (h *Handler) handleContactResolver(w http.ResponseWriter, r *http.Request) 
 	ctx := r.Context()
 	owner := h.userID(ctx)
 	var contacts []models.Contact
+	var homes map[string]storage.ContactNewHome
 	var accounts []models.Account
 	if err := h.withUserDB(ctx, owner, func(db *storage.DB) error {
 		var err error
 		if contacts, err = db.ListUnresolvedContacts(ctx, owner, contactResolverLimit); err != nil {
+			return err
+		}
+		if homes, err = db.ContactNewHomes(ctx, owner, contacts); err != nil {
 			return err
 		}
 		accounts, err = db.GetAccounts(ctx, owner)
@@ -56,12 +61,19 @@ func (h *Handler) handleContactResolver(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	w.Header().Set("Cache-Control", "private, no-store")
-	views.ContactResolverDialog(contacts, accounts).Render(ctx, w)
+	choices := make(map[string]views.ContactNewHomeChoice, len(homes))
+	for id, home := range homes {
+		choices[id] = views.ContactNewHomeChoice{Places: home.Choices, Default: home.Default}
+	}
+	views.ContactResolverDialog(contacts, choices, accounts).Render(ctx, w)
 }
 
 // handleKeepContactsWithoutDeletedPlaces keeps the posted contacts without
-// the places that deleted them, and lets their sync go on with the rest. It
-// gives how many were kept; ones already resolved are left out.
+// the places that deleted them, and lets their sync go on with the rest. A
+// contact whose home deleted it moves to the main location posted as
+// "home:<id>", or to its default one. It gives how many were kept, ones
+// already resolved left out, and how many stayed to resolve because the
+// posted main location no longer fits.
 func (h *Handler) handleKeepContactsWithoutDeletedPlaces(w http.ResponseWriter, r *http.Request) {
 	ids, ok := postedContactIDs(w, r, contactResolverLimit)
 	if !ok {
@@ -70,10 +82,17 @@ func (h *Handler) handleKeepContactsWithoutDeletedPlaces(w http.ResponseWriter, 
 	ctx := r.Context()
 	owner := h.userID(ctx)
 	var kept []string
+	stale := 0
 	err := h.runContactWork(ctx, owner, func(ctx context.Context) error {
 		return h.withUserDB(ctx, owner, func(db *storage.DB) error {
 			for _, id := range ids {
-				done, err := db.KeepContactWithoutDeletedPlaces(ctx, owner, id)
+				done, err := db.KeepContactWithoutDeletedPlaces(ctx, owner, id, r.PostForm.Get("home:"+id))
+				if errors.Is(err, storage.ErrContactNewHomeGone) {
+					// Its places changed since the dialog opened: it stays to
+					// resolve, and the others go on.
+					stale++
+					continue
+				}
 				if err != nil {
 					return err
 				}
@@ -94,7 +113,7 @@ func (h *Handler) handleKeepContactsWithoutDeletedPlaces(w http.ResponseWriter, 
 		h.resumeContactSync(context.WithoutCancel(ctx), owner, id)
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{"kept": len(kept)})
+	_ = json.NewEncoder(w).Encode(map[string]any{"kept": len(kept), "stale": stale})
 }
 
 // contactWaitsToResolve says whether a contact waits to be resolved: it is

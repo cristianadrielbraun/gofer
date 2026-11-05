@@ -2,7 +2,9 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -70,7 +72,7 @@ func TestSyncedContactDeletedInAPlaceWaitsToBeResolved(t *testing.T) {
 		t.Fatal("its writes went on", ops, err)
 	}
 
-	if kept, err := db.KeepContactWithoutDeletedPlaces(ctx, "default", id); err != nil || !kept {
+	if kept, err := db.KeepContactWithoutDeletedPlaces(ctx, "default", id, ""); err != nil || !kept {
 		t.Fatal("keep", kept, err)
 	}
 	if listed, _ := db.ListContacts(ctx, "default", models.ContactFilters{}, 50, 0); len(listed) != 1 || len(listed[0].DeletedFrom) != 0 {
@@ -91,7 +93,7 @@ func TestSyncedContactDeletedInAPlaceWaitsToBeResolved(t *testing.T) {
 	if ops, err := db.ClaimContactSyncOperations(ctx, 10, time.Minute); err != nil || len(ops) != 1 {
 		t.Fatal("its writes didn't go on", ops, err)
 	}
-	if kept, err := db.KeepContactWithoutDeletedPlaces(ctx, "default", id); err != nil || kept {
+	if kept, err := db.KeepContactWithoutDeletedPlaces(ctx, "default", id, ""); err != nil || kept {
 		t.Fatal("kept twice", kept, err)
 	}
 }
@@ -107,10 +109,84 @@ func TestKeptContactWithoutItsHomeMovesToAnotherPlace(t *testing.T) {
 	if trashed, _ := db.ContactInTrash(ctx, "default", id); trashed {
 		t.Fatal("a synced contact went to the Trash")
 	}
-	if kept, err := db.KeepContactWithoutDeletedPlaces(ctx, "default", id); err != nil || !kept {
+	if kept, err := db.KeepContactWithoutDeletedPlaces(ctx, "default", id, ""); err != nil || !kept {
 		t.Fatal("keep", kept, err)
 	}
 	if contact, _ := db.GetContact(ctx, "default", id); contact == nil || contact.StoredIn != "account:target" {
+		t.Fatal("home", contact)
+	}
+}
+
+// Kept without its home, a contact can move to a place chosen among Gofer
+// Local and the places that still have it. A place that no longer qualifies
+// is refused and the contact stays to resolve.
+func TestKeptContactWithoutItsHomeMovesToTheChosenPlace(t *testing.T) {
+	ctx := context.Background()
+	db := newInboundContactFixture(t)
+	id := newUnresolvedTestContact(t, db)
+	if err := db.RemoveDeletedContactSource(ctx, "default", "gmail", "source", "people/ines"); err != nil {
+		t.Fatal(err)
+	}
+	contacts, err := db.ListUnresolvedContacts(ctx, "default", 10)
+	if err != nil || len(contacts) != 1 {
+		t.Fatal("to resolve", contacts, err)
+	}
+	homes, err := db.ContactNewHomes(ctx, "default", contacts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := homes[id]
+	if !slices.Equal(got.Choices, []string{"local", "account:target"}) || got.Default != "account:target" {
+		t.Fatalf("new homes = %+v, want Local or the target, the target by default", got)
+	}
+
+	if kept, err := db.KeepContactWithoutDeletedPlaces(ctx, "default", id, "account:source"); !errors.Is(err, ErrContactNewHomeGone) || kept {
+		t.Fatal("kept in the place that deleted it", kept, err)
+	}
+	if count, _ := db.CountUnresolvedContacts(ctx, "default"); count != 1 {
+		t.Fatal("a refused choice resolved it", count)
+	}
+	if kept, err := db.KeepContactWithoutDeletedPlaces(ctx, "default", id, "local"); err != nil || !kept {
+		t.Fatal("keep", kept, err)
+	}
+	contact, err := db.GetContact(ctx, "default", id)
+	if err != nil || contact == nil || contact.StoredIn != "local" {
+		t.Fatal("home", contact, err)
+	}
+	profile, err := db.GetContactProfile(ctx, "default", id)
+	if err != nil || profile == nil {
+		t.Fatal(err)
+	}
+	local := false
+	for _, card := range profile.Cards {
+		local = local || (card.Kind == "local" && !card.IsDeleted)
+	}
+	if !local {
+		t.Fatal("moved to Gofer Local without a Local copy")
+	}
+}
+
+// A contact deleted only in a sync location keeps its home: there is
+// nothing to choose.
+func TestContactDeletedInASyncLocationHasNoNewHome(t *testing.T) {
+	ctx := context.Background()
+	db := newInboundContactFixture(t)
+	id := newUnresolvedTestContact(t, db)
+	if err := db.RemoveDeletedContactSource(ctx, "default", "outlook", "target", "ines-target"); err != nil {
+		t.Fatal(err)
+	}
+	contacts, err := db.ListUnresolvedContacts(ctx, "default", 10)
+	if err != nil || len(contacts) != 1 {
+		t.Fatal("to resolve", contacts, err)
+	}
+	if homes, err := db.ContactNewHomes(ctx, "default", contacts); err != nil || len(homes) != 0 {
+		t.Fatal("new homes", homes, err)
+	}
+	// A home posted anyway is ignored.
+	if kept, err := db.KeepContactWithoutDeletedPlaces(ctx, "default", id, "local"); err != nil || !kept {
+		t.Fatal("keep", kept, err)
+	}
+	if contact, _ := db.GetContact(ctx, "default", id); contact == nil || contact.StoredIn != "account:source" {
 		t.Fatal("home", contact)
 	}
 }

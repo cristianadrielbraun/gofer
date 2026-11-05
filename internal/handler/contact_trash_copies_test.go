@@ -206,6 +206,51 @@ func TestSharedUnresolvedContactCountAndKeep(t *testing.T) {
 	}
 }
 
+// Deleted by its home, a contact to resolve is kept in the main location
+// chosen in the resolver; a choice that no longer fits leaves it to resolve.
+func TestSharedKeepContactWithoutItsHomeInTheChosenPlace(t *testing.T) {
+	ctx := context.Background()
+	h, db := newGmailAPITestHandler(t, ctx)
+	saved, err := db.SaveContact(ctx, "default", models.Contact{Name: "Teo Brand", Email: "teo@example.com", StoredIn: "account:acc", GoferSyncEnabled: true, SaveTargets: []string{"local"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.UpsertContactSource(ctx, storage.ContactSource{UserID: "default", ContactID: saved.ID, Provider: "gmail", AccountID: "acc", RemoteID: "people/teo"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.RemoveDeletedContactSource(ctx, "default", "gmail", "acc", "people/teo"); err != nil {
+		t.Fatal(err)
+	}
+	resolver := httptest.NewRequest("GET", "/contacts/resolver", nil)
+	resolver = resolver.WithContext(auth.ContextWithUser(resolver.Context(), &auth.User{ID: "default"}))
+	dialog := httptest.NewRecorder()
+	h.handleContactResolver(dialog, resolver)
+	if body := dialog.Body.String(); dialog.Code != 200 || !strings.Contains(body, `name="home:`+saved.ID+`"`) || !strings.Contains(body, "data-contacts-resolver-home") {
+		t.Fatal("resolver offers no new main location", dialog.Code, body)
+	}
+	keep := func(home string) string {
+		form := url.Values{"id": {saved.ID}, "home:" + saved.ID: {home}}
+		r := httptest.NewRequest("POST", "/api/contacts/unresolved/keep", strings.NewReader(form.Encode()))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		r = r.WithContext(auth.ContextWithUser(r.Context(), &auth.User{ID: "default"}))
+		w := httptest.NewRecorder()
+		h.handleKeepContactsWithoutDeletedPlaces(w, r)
+		if w.Code != 200 {
+			t.Fatal("keep", w.Code, w.Body.String())
+		}
+		return w.Body.String()
+	}
+	if got := keep("account:acc"); !strings.Contains(got, `"kept":0`) || !strings.Contains(got, `"stale":1`) {
+		t.Fatal("kept in the place that deleted it", got)
+	}
+	if got := keep("local"); !strings.Contains(got, `"kept":1`) || !strings.Contains(got, `"stale":0`) {
+		t.Fatal("keep", got)
+	}
+	if contact, err := db.GetContact(ctx, "default", saved.ID); err != nil || contact == nil || contact.StoredIn != "local" {
+		t.Fatal("home", contact, err)
+	}
+}
+
 // Restored to another place, a contact is written there, and lives there.
 func TestSharedRestoreToAnotherPlaceWritesItThere(t *testing.T) {
 	ctx := context.Background()

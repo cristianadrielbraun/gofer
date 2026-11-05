@@ -633,18 +633,23 @@ func contactProfileFilterSQL(userID string, filters models.ContactFilters) (stri
 	}
 	anyOf(clauses)
 
-	// Stored in is where a copy of the contact really is, its cards, unlike
-	// the sync locations above, which are only where Gofer Sync would write.
+	// Stored in is the contact's home, its main location, as the list shows
+	// it. A copy Gofer Sync writes elsewhere doesn't count, and a home whose
+	// copy the provider deleted still does, so the contact stays findable
+	// while that deletion is to be resolved. An account also matches the
+	// contacts living in one of its address books.
 	clauses = nil
 	for _, place := range models.ContactFilterValues(filters.StoredIn) {
-		if place == "local" {
-			clauses = append(clauses, `EXISTS (SELECT 1 FROM contact_cards cc WHERE cc.user_id = p.user_id AND cc.profile_id = p.id AND cc.kind = 'local' AND cc.is_deleted = 0)`)
+		if place == contactHomeLocal {
+			clauses = append(clauses, `p.home = 'local'`)
 		} else if accountID, ok := strings.CutPrefix(place, "account:"); ok && accountID != "" {
-			clauses = append(clauses, `EXISTS (SELECT 1 FROM contact_cards cc WHERE cc.user_id = p.user_id AND cc.profile_id = p.id AND cc.kind = 'provider' AND cc.is_deleted = 0 AND cc.account_id = ?)`)
-			args = append(args, accountID)
+			clauses = append(clauses, `(p.home = ? OR p.home IN (
+				SELECT 'book:' || b.id FROM account_contact_address_books b WHERE b.user_id = p.user_id AND b.account_id = ?
+			))`)
+			args = append(args, place, accountID)
 		} else if bookID, ok := strings.CutPrefix(place, "book:"); ok && bookID != "" {
-			clauses = append(clauses, `EXISTS (SELECT 1 FROM contact_cards cc WHERE cc.user_id = p.user_id AND cc.profile_id = p.id AND cc.kind = 'provider' AND cc.is_deleted = 0 AND cc.address_book_id = ?)`)
-			args = append(args, bookID)
+			clauses = append(clauses, `p.home = ?`)
+			args = append(args, place)
 		}
 	}
 	anyOf(clauses)

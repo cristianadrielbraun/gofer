@@ -967,25 +967,38 @@ func TestListContactsFilters(t *testing.T) {
 	}
 }
 
-// Stored in follows the copies a contact really has, not the places Gofer
-// Sync would write it to.
+// Stored in follows a contact's home, as the list's main location column
+// shows it, not the copies Gofer Sync writes elsewhere.
 func TestListContactsStoredInFilter(t *testing.T) {
 	ctx := context.Background()
 	db := newContactsTestDB(t)
-
-	planned, err := db.SaveContact(ctx, "default", models.Contact{Name: "Planned", Email: "planned@example.com", SaveTargets: []string{"account:acc"}})
-	if err != nil {
-		t.Fatalf("SaveContact(planned) error = %v", err)
+	if _, err := db.Write().Exec(`
+		INSERT INTO accounts(id,user_id,provider,email_address) VALUES
+			('acc','default','imap','acc@example.com'),('other','default','imap','other@example.com');
+		INSERT INTO account_contact_address_books(account_id,user_id,id,url) VALUES('acc','default','book-1','https://dav.test/book-1/');`); err != nil {
+		t.Fatal(err)
 	}
-	local, err := db.SaveContact(ctx, "default", models.Contact{Name: "Local", Email: "local@example.com", SaveTargets: []string{"local"}})
+
+	local, err := db.SaveContact(ctx, "default", models.Contact{Name: "Lina Local", Email: "lina@example.com"})
 	if err != nil {
 		t.Fatalf("SaveContact(local) error = %v", err)
 	}
-	stored, err := db.SaveContact(ctx, "default", models.Contact{Name: "Stored", Email: "stored@example.com", SaveTargets: []string{"account:other"}})
+	inAccount, err := db.SaveContact(ctx, "default", models.Contact{Name: "Arno Account", Email: "arno@example.com", StoredIn: "account:acc"})
 	if err != nil {
-		t.Fatalf("SaveContact(stored) error = %v", err)
+		t.Fatalf("SaveContact(account) error = %v", err)
 	}
-	if err := db.UpsertContactSource(ctx, ContactSource{UserID: "default", ContactID: stored.ID, Provider: "carddav", AccountID: "acc", AddressBookID: "book-1", RemoteID: "remote-1"}); err != nil {
+	// No card in the book: its copy may be gone on the provider, waiting to
+	// be resolved, and the contact still lives there.
+	inBook, err := db.SaveContact(ctx, "default", models.Contact{Name: "Bea Book", Email: "bea@example.com", StoredIn: "book:book-1"})
+	if err != nil {
+		t.Fatalf("SaveContact(book) error = %v", err)
+	}
+	// Lives in Local and is copied to another account.
+	copied, err := db.SaveContact(ctx, "default", models.Contact{Name: "Cora Copy", Email: "cora@example.com", StoredIn: "local", GoferSyncEnabled: true, SaveTargets: []string{"local", "account:other"}})
+	if err != nil {
+		t.Fatalf("SaveContact(copied) error = %v", err)
+	}
+	if err := db.UpsertContactSource(ctx, ContactSource{UserID: "default", ContactID: copied.ID, Provider: "carddav", AccountID: "other", RemoteID: "remote-1"}); err != nil {
 		t.Fatalf("UpsertContactSource() error = %v", err)
 	}
 
@@ -1003,37 +1016,34 @@ func TestListContactsStoredInFilter(t *testing.T) {
 		for _, contact := range contacts {
 			out = append(out, contact.ID)
 		}
+		slices.Sort(out)
 		return out
 	}
-	for _, filter := range []string{"account:acc", "book:book-1"} {
-		if got := ids(models.ContactFilters{StoredIn: filter}); len(got) != 1 || got[0] != stored.ID {
-			t.Fatalf("stored in %s = %v, want only the contact with a card there", filter, got)
+	sorted := func(values ...string) []string {
+		slices.Sort(values)
+		return values
+	}
+	for _, tc := range []struct {
+		filters models.ContactFilters
+		want    []string
+	}{
+		{models.ContactFilters{StoredIn: "local"}, sorted(local.ID, copied.ID)},
+		// An account matches the contacts living in its address books too.
+		{models.ContactFilters{StoredIn: "account:acc"}, sorted(inAccount.ID, inBook.ID)},
+		{models.ContactFilters{StoredIn: "book:book-1"}, sorted(inBook.ID)},
+		// A copy elsewhere is not a home: the sync location filter finds it.
+		{models.ContactFilters{StoredIn: "account:other"}, sorted()},
+		{models.ContactFilters{SaveTarget: "account:other"}, sorted(copied.ID)},
+		// Several values in one filter match a contact in any of them;
+		// filters together match only the contacts in all of them.
+		{models.ContactFilters{StoredIn: "local,book:book-1"}, sorted(local.ID, copied.ID, inBook.ID)},
+		{models.ContactFilters{StoredIn: "local,book:book-1", SaveTarget: "account:other"}, sorted(copied.ID)},
+		{models.ContactFilters{Activity: "seen,none"}, sorted(local.ID, inAccount.ID, inBook.ID, copied.ID)},
+		{models.ContactFilters{Source: "manual,observed"}, sorted(local.ID, inAccount.ID, inBook.ID, copied.ID)},
+	} {
+		if got := ids(tc.filters); !slices.Equal(got, tc.want) {
+			t.Errorf("ListContacts(%+v) = %v, want %v", tc.filters, got, tc.want)
 		}
-	}
-	// Every contact saved without another home lives in Gofer Local.
-	if got := ids(models.ContactFilters{StoredIn: "local"}); len(got) != 3 || !slices.Contains(got, local.ID) {
-		t.Fatalf("stored in local = %v, want every contact", got)
-	}
-	if got := ids(models.ContactFilters{StoredIn: "account:other"}); len(got) != 0 {
-		t.Fatalf("stored in a sync location with no copy = %v, want none", got)
-	}
-	if got := ids(models.ContactFilters{SaveTarget: "account:acc"}); len(got) != 1 || got[0] != planned.ID {
-		t.Fatalf("sync location filter = %v, want the planned contact", got)
-	}
-
-	// Several values in one filter match a contact in any of them; filters
-	// together match only the contacts in all of them.
-	if got := ids(models.ContactFilters{StoredIn: "account:acc,book:book-1"}); len(got) != 1 || got[0] != stored.ID {
-		t.Fatalf("stored in the account or the book = %v, want the stored contact", got)
-	}
-	if got := ids(models.ContactFilters{StoredIn: "local,book:book-1", SaveTarget: "account:other"}); len(got) != 1 || got[0] != stored.ID {
-		t.Fatalf("stored in and sync location together = %v, want only the stored contact", got)
-	}
-	if got := ids(models.ContactFilters{Activity: "seen,none"}); len(got) != 3 {
-		t.Fatalf("seen or no messages = %v, want every contact", got)
-	}
-	if got := ids(models.ContactFilters{Source: "manual,observed"}); len(got) != 3 {
-		t.Fatalf("manual or observed origin = %v, want every contact", got)
 	}
 }
 

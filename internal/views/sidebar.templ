@@ -294,7 +294,7 @@ templ ContactsTrashCount(count int) {
 }
 
 templ ContactsSidebarBookItem(book models.ContactAddressBook, filters models.ContactFilters) {
-	{{ target := "source:book:" + book.ID }}
+	{{ target := "stored_in:book:" + book.ID }}
 	{{ active := contactSidebarActiveTarget(filters) == target }}
 	<a
 		href={ templ.URL(contactSidebarURL(filters, target)) }
@@ -318,7 +318,7 @@ templ ContactsSidebarBookItem(book models.ContactAddressBook, filters models.Con
 }
 
 templ ContactsSidebarAccountItem(account models.Account, filters models.ContactFilters) {
-	{{ target := "source:synced:" + account.ID }}
+	{{ target := "stored_in:account:" + account.ID }}
 	{{ active := contactSidebarActiveTarget(filters) == target }}
 	<a
 		href={ templ.URL(contactSidebarURL(filters, target)) }
@@ -342,8 +342,8 @@ templ ContactsSidebarAccountItem(account models.Account, filters models.ContactF
 }
 
 // Sidebar targets name one contact filter: "trash" lists the Trash,
-// "source:<origin>" filters by origin (accounts and address books), anything
-// else by sync location.
+// "stored_in:<place>" filters by main location (accounts and address books),
+// anything else by sync location ("" for all, "local" for Gofer Local).
 func contactSidebarURL(filters models.ContactFilters, target string) string {
 	values := url.Values{}
 	if strings.TrimSpace(filters.Query) != "" {
@@ -351,8 +351,8 @@ func contactSidebarURL(filters models.ContactFilters, target string) string {
 	}
 	if target == "trash" {
 		values.Set("trash", "1")
-	} else if source, ok := strings.CutPrefix(target, "source:"); ok {
-		values.Set("source", source)
+	} else if place, ok := strings.CutPrefix(target, "stored_in:"); ok {
+		values.Set("stored_in", place)
 	} else if target != "" {
 		values.Set("save_target", target)
 	}
@@ -366,8 +366,8 @@ func contactSidebarURL(filters models.ContactFilters, target string) string {
 }
 
 // contactSidebarActiveTarget is the sidebar target the filters match, or
-// "-" when no item matches: an origin mixed with a sync location, or a
-// Stored in filter, which no sidebar item stands for.
+// "-" when no item matches: several places, an origin, or a main location
+// mixed with a sync location. Mirrored by sidebarTargetFor in app.js.
 func contactSidebarActiveTarget(filters models.ContactFilters) string {
 	switch {
 	case filters.Trash:
@@ -375,17 +375,18 @@ func contactSidebarActiveTarget(filters models.ContactFilters) string {
 	case filters.Unresolved:
 		// No sidebar item lists only the contacts to resolve.
 		return "-"
-	case filters.StoredIn != "", strings.Contains(filters.Source, ","), strings.Contains(filters.SaveTarget, ","):
+	case strings.Contains(filters.StoredIn, ","), strings.Contains(filters.SaveTarget, ","):
 		// A sidebar item stands for one place, never several.
 		return "-"
-	case filters.Source == "":
+	case filters.Source != "":
+		// No sidebar item filters by origin.
+		return "-"
+	case filters.StoredIn == "":
 		return filters.SaveTarget
 	case filters.SaveTarget != "":
 		return "-"
-	case strings.HasPrefix(filters.Source, "synced:"), strings.HasPrefix(filters.Source, "book:"):
-		return "source:" + filters.Source
 	default:
-		return "-"
+		return "stored_in:" + filters.StoredIn
 	}
 }
 
@@ -406,12 +407,12 @@ func contactSidebarAccountSectionID(account models.Account) string {
 }
 
 func contactSidebarAccountActive(account models.Account, filters models.ContactFilters) bool {
-	target := strings.TrimSpace(filters.SaveTarget)
-	if target == "account:"+account.ID {
+	target := contactSidebarActiveTarget(filters)
+	if target == "stored_in:account:"+account.ID {
 		return true
 	}
 	for _, book := range account.ContactAddressBooks {
-		if target == "book:"+book.ID {
+		if target == "stored_in:book:"+book.ID {
 			return true
 		}
 	}

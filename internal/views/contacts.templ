@@ -387,9 +387,10 @@ func contactNewHomeItemAttributes(contact *models.Contact) templ.Attributes {
 }
 
 // contactStoredInLabels names where the contact lives: its home, said to be
-// on its way while its copy is still being written. Its Gofer Sync places
-// are listed apart.
-func contactStoredInLabels(ctx context.Context, profile *models.ContactProfile, accounts []models.Account) []string {
+// on its way while its copy is still being written, or deleted there when the
+// home is among the places that deleted it (deletedFrom) and the deletion
+// waits to be resolved. Its Gofer Sync places are listed apart.
+func contactStoredInLabels(ctx context.Context, profile *models.ContactProfile, deletedFrom []string, accounts []models.Account) []string {
 	labels := []string{}
 	if profile == nil {
 		return labels
@@ -443,7 +444,10 @@ func contactStoredInLabels(ctx context.Context, profile *models.ContactProfile, 
 	}
 	if home != "" {
 		text := label(home)
-		if !slices.Contains(places, home) {
+		switch {
+		case slices.Contains(deletedFrom, home):
+			text = i18n.T(ctx, "contacts.stored_in_deleted", "place", text)
+		case !slices.Contains(places, home):
 			text = i18n.T(ctx, "contacts.stored_in_writing", "place", text)
 		}
 		labels = appendUniqueContactReadLabel(labels, seen, text)
@@ -2512,7 +2516,14 @@ templ ContactUnresolvedNotice(contact models.Contact, accounts []models.Account)
 // ContactResolverDialog lists the synced contacts that one of their places
 // deleted, to choose for each at once: keep it without those places, delete
 // it everywhere, or leave it for later.
-templ ContactResolverDialog(contacts []models.Contact, accounts []models.Account) {
+// ContactNewHomeChoice is where a contact to resolve whose home deleted it
+// can live once kept: Places, with Default chosen at first.
+type ContactNewHomeChoice struct {
+	Places  []string
+	Default string
+}
+
+templ ContactResolverDialog(contacts []models.Contact, newHomes map[string]ContactNewHomeChoice, accounts []models.Account) {
 	@dialog.Dialog(dialog.Props{ID: "contacts-resolver-dialog"}) {
 		@dialog.Content(dialog.ContentProps{Class: "data-dialog max-h-[calc(100dvh-2rem)] normal-case tracking-normal sm:max-w-2xl [&>[data-tui-dialog-panel]]:flex [&>[data-tui-dialog-panel]]:max-h-[calc(100dvh-2rem)] [&>[data-tui-dialog-panel]]:min-h-0 [&>[data-tui-dialog-panel]]:flex-col [&>[data-tui-dialog-panel]]:gap-0 [&>[data-tui-dialog-panel]]:p-0"}) {
 			@dialog.Header(dialog.HeaderProps{Class: "shrink-0 px-6 pt-6 pb-4"}) {
@@ -2540,7 +2551,7 @@ templ ContactResolverDialog(contacts []models.Contact, accounts []models.Account
 						</div>
 						for _, contact := range contacts {
 							{{ places := strings.Join(contactPlaceNames(ctx, contact.DeletedFrom, accounts), ", ") }}
-							<fieldset class="space-y-2.5 rounded-lg border border-ink/10 bg-ink/[0.02] p-3" data-contacts-resolver-case={ contact.ID } data-contact-name={ contactDisplay(contact) }>
+							<fieldset class="rounded-lg border border-ink/10 bg-ink/[0.02] p-3" data-contacts-resolver-case={ contact.ID } data-contact-name={ contactDisplay(contact) }>
 								<div class="min-w-0">
 									<div class="truncate text-sm font-semibold text-foreground">{ contactDisplay(contact) }</div>
 									if strings.TrimSpace(contact.Email) != "" && strings.TrimSpace(contact.Email) != contactDisplay(contact) {
@@ -2548,7 +2559,7 @@ templ ContactResolverDialog(contacts []models.Contact, accounts []models.Account
 									}
 									<p class="mt-1 text-xs text-amber-800 dark:text-amber-200">{ i18n.T(ctx, "contacts.unresolved.notice_title", "places", places) }</p>
 								</div>
-								<div class="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:gap-x-5" role="radiogroup" aria-label={ contactDisplay(contact) }>
+								<div class="mt-2.5 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:gap-x-5" role="radiogroup" aria-label={ contactDisplay(contact) }>
 									<label class="flex items-center gap-2 text-sm text-foreground">
 										@radio.Radio(radio.Props{Name: "resolve-" + contact.ID, Value: "keep"})
 										<span>{ i18n.T(ctx, "contacts.unresolved.keep") }</span>
@@ -2562,6 +2573,27 @@ templ ContactResolverDialog(contacts []models.Contact, accounts []models.Account
 										<span>{ i18n.T(ctx, "contacts.unresolved.later") }</span>
 									</label>
 								</div>
+								// Its home deleted it: kept, it needs another one. Shown
+								// while Keep is chosen, opening and closing smoothly; its
+								// gap above is padding so it closes with it.
+								if newHome, ok := newHomes[contact.ID]; ok {
+									{{ names := contactPlaceNames(ctx, newHome.Places, accounts) }}
+									<div class="space-y-1 pt-2.5" hidden data-contacts-resolver-home>
+										<span class="block text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.unresolved.new_home") }</span>
+										@selectbox.SelectBox() {
+											@selectbox.Trigger(selectbox.TriggerProps{Name: "home:" + contact.ID, Class: "h-9 bg-background text-sm", DisableClear: true}) {
+												@selectbox.Value(selectbox.ValueProps{Class: "text-left"})
+											}
+											@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+												for i, place := range newHome.Places {
+													@selectbox.Item(selectbox.ItemProps{Value: place, Selected: place == newHome.Default}) {
+														{ names[i] }
+													}
+												}
+											}
+										}
+									</div>
+								}
 							</fieldset>
 						}
 					}
@@ -2579,11 +2611,15 @@ templ ContactResolverDialog(contacts []models.Contact, accounts []models.Account
 	}
 }
 
-// contactPlaceNames names accounts and address books as the contacts list
-// does.
+// contactPlaceNames names Gofer Local, accounts and address books as the
+// contacts list does.
 func contactPlaceNames(ctx context.Context, places []string, accounts []models.Account) []string {
 	names := make([]string, 0, len(places))
 	for _, place := range places {
+		if place == "local" {
+			names = append(names, i18n.T(ctx, "contacts.origin.local"))
+			continue
+		}
 		accountID, _ := strings.CutPrefix(place, "account:")
 		if book, ok := strings.CutPrefix(place, "book:"); ok {
 			accountID = ""
@@ -2609,7 +2645,7 @@ templ ContactReadOnlyContactInfo(contact models.Contact, profile *models.Contact
 		<div class="grid gap-x-6 px-4 lg:grid-cols-2">
 			// Where the contact exists, its own; Gofer Sync adds more places.
 			<div class="lg:col-span-2">
-				@ContactReadOnlyPillListField(i18n.T(ctx, "contacts.stored_in"), contactStoredInLabels(ctx, profile, accounts))
+				@ContactReadOnlyPillListField(i18n.T(ctx, "contacts.stored_in"), contactStoredInLabels(ctx, profile, contact.DeletedFrom, accounts))
 			</div>
 			@ContactReadOnlyTextField(i18n.T(ctx, "contacts.field.name"), contact.Name)
 			@ContactReadOnlyLinkedField(i18n.T(ctx, "contacts.field.email"), contact.Email, contact.EmailLabel, "mailto:")

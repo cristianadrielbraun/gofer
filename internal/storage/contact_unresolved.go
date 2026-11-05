@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"slices"
 	"sort"
 	"strings"
 
@@ -230,23 +231,25 @@ func (db *DB) CountUnresolvedContacts(ctx context.Context, userID string) (int, 
 
 // KeepContactWithoutDeletedPlaces resolves a contact by keeping it without
 // the places that deleted it: they leave its Gofer Sync, and its sync goes
-// on with the rest. When its home was one of them, it moves to a place that
-// still has it, else to Gofer Local. It says whether the contact was still
-// to resolve.
-func (db *DB) KeepContactWithoutDeletedPlaces(ctx context.Context, userID, profileID string) (bool, error) {
+// on with the rest. When its home was one of them, it moves to newHome, one
+// of its ContactNewHomes choices, or when newHome is empty to the default
+// one; a newHome no longer among them gives ErrContactNewHomeGone. newHome
+// is ignored when the home stays. It says whether the contact was still to
+// resolve.
+func (db *DB) KeepContactWithoutDeletedPlaces(ctx context.Context, userID, profileID, newHome string) (bool, error) {
 	tx, err := db.Write().BeginTx(ctx, nil)
 	if err != nil {
 		return false, err
 	}
 	defer tx.Rollback()
-	kept, err := keepContactWithoutDeletedPlacesTx(ctx, tx, userID, profileID)
+	kept, err := keepContactWithoutDeletedPlacesTx(ctx, tx, userID, profileID, newHome)
 	if err != nil || !kept {
 		return false, err
 	}
 	return true, tx.Commit()
 }
 
-func keepContactWithoutDeletedPlacesTx(ctx context.Context, tx *sql.Tx, userID, profileID string) (bool, error) {
+func keepContactWithoutDeletedPlacesTx(ctx context.Context, tx *sql.Tx, userID, profileID, newHome string) (bool, error) {
 	var home string
 	if err := tx.QueryRowContext(ctx, `SELECT home FROM contact_profiles WHERE user_id = ? AND id = ? AND is_deleted = 0`, userID, profileID).Scan(&home); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -286,9 +289,15 @@ func keepContactWithoutDeletedPlacesTx(ctx context.Context, tx *sql.Tx, userID, 
 		}
 	}
 	if deleted[home] {
-		next, err := contactNextHomeTx(ctx, tx, userID, profileID, deleted)
+		choices, next, err := contactNewHomeChoices(ctx, tx, userID, profileID, deleted)
 		if err != nil {
 			return false, err
+		}
+		if newHome = strings.TrimSpace(newHome); newHome != "" {
+			if !slices.Contains(choices, newHome) {
+				return false, ErrContactNewHomeGone
+			}
+			next = newHome
 		}
 		if _, err := tx.ExecContext(ctx, `UPDATE contact_profiles SET home = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ? AND id = ?`, next, userID, profileID); err != nil {
 			return false, err
@@ -305,43 +314,80 @@ func keepContactWithoutDeletedPlacesTx(ctx context.Context, tx *sql.Tx, userID, 
 	return true, nil
 }
 
-// contactNextHomeTx picks where a contact lives once its home deleted it:
-// Gofer Local when it has a Local copy, else the first place with Gofer Sync
-// on that still has its copy, else Gofer Local.
-func contactNextHomeTx(ctx context.Context, tx *sql.Tx, userID, profileID string, deleted map[string]bool) (string, error) {
+// ErrContactNewHomeGone is a new home chosen for a contact kept without
+// its home that is no longer among the places it could live in.
+var ErrContactNewHomeGone = errors.New("the chosen main location is no longer available")
+
+type contactPlaceQuerier interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+// contactNewHomeChoices gives where a contact can live once its home
+// deleted it: Gofer Local, and each place with Gofer Sync on that still has
+// its copy. The default is Gofer Local when it has a Local copy, else the
+// first of those places, else Gofer Local.
+func contactNewHomeChoices(ctx context.Context, q contactPlaceQuerier, userID, profileID string, deleted map[string]bool) ([]string, string, error) {
 	var local int
-	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM contact_cards WHERE user_id = ? AND profile_id = ? AND kind = 'local' AND is_deleted = 0)`, userID, profileID).Scan(&local); err != nil {
-		return "", err
+	if err := q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM contact_cards WHERE user_id = ? AND profile_id = ? AND kind = 'local' AND is_deleted = 0)`, userID, profileID).Scan(&local); err != nil {
+		return nil, "", err
 	}
-	if local == 1 {
-		return "local", nil
-	}
-	rows, err := tx.QueryContext(ctx, `SELECT DISTINCT c.account_id, c.address_book_id FROM contact_cards c
+	rows, err := q.QueryContext(ctx, `SELECT DISTINCT c.account_id, c.address_book_id FROM contact_cards c
 		JOIN contact_sync_memberships m ON m.user_id = c.user_id AND m.profile_id = c.profile_id AND m.enabled = 1
 		  AND m.account_id = c.account_id AND m.address_book_id = c.address_book_id
 		WHERE c.user_id = ? AND c.profile_id = ? AND c.kind = 'provider' AND c.is_deleted = 0 AND c.account_id <> ''`, userID, profileID)
 	if err != nil {
-		return "", err
+		return nil, "", err
 	}
 	defer rows.Close()
 	var places []string
 	for rows.Next() {
 		var account, book string
 		if err := rows.Scan(&account, &book); err != nil {
-			return "", err
+			return nil, "", err
 		}
-		if place := contactCardPlaceOf(account, book); !deleted[place] {
+		if place := contactCardPlaceOf(account, book); !deleted[place] && !slices.Contains(places, place) {
 			places = append(places, place)
 		}
 	}
 	if err := rows.Err(); err != nil {
-		return "", err
-	}
-	if len(places) == 0 {
-		return "local", nil
+		return nil, "", err
 	}
 	sort.Strings(places)
-	return places[0], nil
+	choices := append([]string{contactHomeLocal}, places...)
+	if local == 0 && len(places) > 0 {
+		return choices, places[0], nil
+	}
+	return choices, contactHomeLocal, nil
+}
+
+// ContactNewHome is where a contact to resolve can live once it is kept
+// without its home, and where it goes when none is chosen.
+type ContactNewHome struct {
+	Choices []string
+	Default string
+}
+
+// ContactNewHomes gives, for each listed contact whose home is among the
+// places that deleted it, where it can live once kept without them. The
+// others keep their home and are left out.
+func (db *DB) ContactNewHomes(ctx context.Context, userID string, contacts []models.Contact) (map[string]ContactNewHome, error) {
+	homes := make(map[string]ContactNewHome)
+	for _, contact := range contacts {
+		if !slices.Contains(contact.DeletedFrom, contact.StoredIn) {
+			continue
+		}
+		deleted := make(map[string]bool, len(contact.DeletedFrom))
+		for _, place := range contact.DeletedFrom {
+			deleted[place] = true
+		}
+		choices, def, err := contactNewHomeChoices(ctx, db.Read(), userID, contact.ID, deleted)
+		if err != nil {
+			return nil, err
+		}
+		homes[contact.ID] = ContactNewHome{Choices: choices, Default: def}
+	}
+	return homes, nil
 }
 
 // ListUnresolvedContacts lists the contacts still to resolve, each with the

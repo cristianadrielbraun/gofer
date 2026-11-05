@@ -571,15 +571,20 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     // The sidebar item that stands for the filters, as the server picks it.
+    // Mirrors contactSidebarActiveTarget in sidebar.templ.
     function sidebarTargetFor(filters) {
       if (filters.trash) return "trash"
       // No sidebar item lists only the contacts to resolve.
       if (filters.unresolved) return "-"
+      var storedIn = filters.storedIn || ""
+      var saveTarget = filters.saveTarget || ""
       // A sidebar item stands for one place, never several.
-      if (filters.storedIn || /,/.test(filters.source || "") || /,/.test(filters.saveTarget || "")) return "-"
-      if (!filters.source) return filters.saveTarget
-      if (filters.saveTarget) return "-"
-      return /^(synced:|book:)/.test(filters.source) ? "source:" + filters.source : "-"
+      if (/,/.test(storedIn) || /,/.test(saveTarget)) return "-"
+      // No sidebar item filters by origin.
+      if (filters.source) return "-"
+      if (!storedIn) return saveTarget
+      if (saveTarget) return "-"
+      return "stored_in:" + storedIn
     }
 
     // Choosing a pill drops that filter, after the pill's exit.
@@ -615,16 +620,14 @@ document.addEventListener("DOMContentLoaded", function () {
 
     function contactSidebarTargetFromURL(url) {
       try {
-        // Mirrors contactSidebarActiveTarget in sidebar.templ.
         var params = new URL(url || window.location.href, window.location.origin).searchParams
-        if (params.get("trash") === "1") return "trash"
-        if (params.get("unresolved") === "1") return "-"
-        var saveTarget = params.get("save_target") || ""
-        var source = params.get("source") || ""
-        if (params.get("stored_in") || /,/.test(source) || /,/.test(saveTarget)) return "-"
-        if (!source) return saveTarget
-        if (saveTarget) return "-"
-        return /^(synced:|book:)/.test(source) ? "source:" + source : "-"
+        return sidebarTargetFor({
+          trash: params.get("trash") === "1",
+          unresolved: params.get("unresolved") === "1",
+          source: params.get("source") || "",
+          storedIn: params.get("stored_in") || "",
+          saveTarget: params.get("save_target") || "",
+        })
       } catch (_) {
         return ""
       }
@@ -668,7 +671,7 @@ document.addEventListener("DOMContentLoaded", function () {
       if (!list) return
       var filters = readFilters()
       syncFilterUI(filters)
-      setContactsSidebarActive(filters.trash ? "trash" : filters.unresolved || filters.storedIn || /,/.test(filters.saveTarget || "") ? "-" : filters.saveTarget)
+      setContactsSidebarActive(sidebarTargetFor(filters))
       list.applyFilters(filters).catch(function () {})
     }
 
@@ -696,8 +699,8 @@ document.addEventListener("DOMContentLoaded", function () {
       if ((target === "trash") !== (scroll.dataset.trash === "1")) return
       e.preventDefault()
       e.stopImmediatePropagation()
-      var source = target.indexOf("source:") === 0 ? target.slice(7) : ""
-      var values = { source: source, stored_in: "", save_target: target === "trash" || source ? "" : target, activity: "" }
+      var storedIn = target.indexOf("stored_in:") === 0 ? target.slice(10) : ""
+      var values = { source: "", stored_in: storedIn, save_target: target === "trash" || storedIn ? "" : target, activity: "" }
       var form = document.querySelector("[data-contact-filter-form]")
       if (form) {
         // Setting a select's value also moves its selection and the text shown.
@@ -717,8 +720,8 @@ document.addEventListener("DOMContentLoaded", function () {
       // select without a matching entry would drop its value and the pill and
       // list would disagree with the sidebar.
       var filters = readFilters()
-      filters.source = values.source
-      filters.storedIn = ""
+      filters.source = ""
+      filters.storedIn = values.stored_in
       filters.saveTarget = values.save_target
       filters.activity = ""
       // Only Trash itself stays in the Trash; any other item leaves it.
@@ -3736,9 +3739,38 @@ document.addEventListener("DOMContentLoaded", function () {
         form.querySelectorAll("[data-contacts-resolver-case]").forEach(function (item) {
           var checked = item.querySelector('input[type="radio"]:checked')
           var choice = checked ? checked.value : "later"
-          if (choice === "keep" || choice === "delete") choices[choice].push({ id: item.getAttribute("data-contacts-resolver-case"), name: item.getAttribute("data-contact-name") || "" })
+          if (choice !== "keep" && choice !== "delete") return
+          var id = item.getAttribute("data-contacts-resolver-case")
+          // Kept without its home, it moves to the main location chosen here.
+          var home = choice === "keep" ? item.querySelector('[data-contacts-resolver-home] input[type="hidden"]') : null
+          choices[choice].push({ id: id, name: item.getAttribute("data-contact-name") || "", home: home ? home.value : "" })
         })
         return choices
+      }
+
+      // A contact kept without its main location shows where it moves,
+      // growing its card open as the new contact dialog grows its rows.
+      function syncContactResolverHomes(form) {
+        form.querySelectorAll("[data-contacts-resolver-case]").forEach(function (item) {
+          var home = item.querySelector("[data-contacts-resolver-home]")
+          if (!home) return
+          var keep = !!item.querySelector('input[type="radio"][value="keep"]:checked')
+          if (keep) {
+            // Chosen again while still closing: it stays open.
+            if (home._contactCollapse) {
+              var closing = home._contactCollapse
+              home._contactCollapse = null
+              closing.cancel()
+              home.style.overflow = ""
+            }
+            if (home.hidden) {
+              home.hidden = false
+              animateContactRowHeight(home, true)
+            }
+          } else if (!home.hidden && !home._contactCollapse) {
+            collapseContactSection(home, function () { home.hidden = true })
+          }
+        })
       }
 
       function updateContactResolverApply(form) {
@@ -3761,12 +3793,15 @@ document.addEventListener("DOMContentLoaded", function () {
         var form = all.closest("[data-contacts-resolver-form]")
         var choice = all.getAttribute("data-contacts-resolver-all")
         form.querySelectorAll('input[type="radio"][value="' + choice + '"]').forEach(function (input) { input.checked = true })
+        syncContactResolverHomes(form)
         updateContactResolverApply(form)
       })
 
       document.addEventListener("change", function (e) {
         var form = e.target.closest && e.target.closest("[data-contacts-resolver-form]")
-        if (form) updateContactResolverApply(form)
+        if (!form) return
+        syncContactResolverHomes(form)
+        updateContactResolverApply(form)
       })
 
       // Kept ones go first; the ones to delete everywhere then go to the
@@ -3780,7 +3815,9 @@ document.addEventListener("DOMContentLoaded", function () {
         var apply = form.querySelector("[data-contacts-resolver-apply]")
         if (apply) apply.disabled = true
         var ids = function (items) { return items.map(function (item) { return item.id }) }
-        var kept = choices.keep.length ? postContactIDs("/api/contacts/unresolved/keep", ids(choices.keep)) : Promise.resolve({ kept: 0 })
+        var homes = {}
+        choices.keep.forEach(function (item) { if (item.home) homes["home:" + item.id] = item.home })
+        var kept = choices.keep.length ? postContactIDs("/api/contacts/unresolved/keep", ids(choices.keep), homes) : Promise.resolve({ kept: 0 })
         kept.then(function (result) {
           if (window.tui && window.tui.dialog) window.tui.dialog.close("contacts-resolver-dialog")
           var count = Number(result && result.kept) || 0
@@ -3789,6 +3826,11 @@ document.addEventListener("DOMContentLoaded", function () {
             showGoferToast({ id: "contact-sync-toast", title: goferTn("js.contacts.unresolved.kept_count", count), description: goferT("js.contacts.unresolved.kept_detail"), variant: "success", icon: "success", position: "bottom-right", duration: 5000, dismissible: true })
             refreshContactsAfterTrashChange()
             choices.keep.forEach(function (item) { refreshOpenContactDetail(item.id) })
+          }
+          var stale = Number(result && result.stale) || 0
+          if (stale) {
+            // Their places changed since the dialog opened; they stay to resolve.
+            showGoferToast({ id: "contact-unresolved-stale", title: goferTn("js.contacts.unresolved.stale_count", stale), description: goferT("js.contacts.unresolved.stale_detail"), variant: "warning", icon: "warning", position: "bottom-right", duration: 8000, dismissible: true })
           }
           if (choices.delete.length) moveContactsToTrash(ids(choices.delete), choices.delete.length === 1 ? choices.delete[0].name : "")
         }).catch(function (err) {
