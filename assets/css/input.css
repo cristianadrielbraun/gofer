@@ -1757,6 +1757,14 @@ html[data-theme="classic"] .mail-list-search-input-wrap {
   opacity: 0;
 }
 
+/* In the contact page's header only the spacer gives way: the actions keep
+   their size, so a lack of room shows as overflow, which folds them whole,
+   and each folds back to its real width. */
+.contact-header-actions > :not(.contact-header-spacer),
+.contact-header-actions .mail-toolbar-collapsible :is(button, a) {
+  flex-shrink: 0;
+}
+
 @container (max-width: 360px) {
   .mail-list-header {
     padding-inline: 0.75rem;
@@ -5705,6 +5713,8 @@ body.mail-list-column-resizing {
   #contacts-detail .contact-header-actions {
     order: -1;
     flex: none;
+    /* Its gap here is smaller: a folded action takes back as much. */
+    --collapse-gap: 0.25rem;
     position: sticky;
     top: 0;
     z-index: 5;

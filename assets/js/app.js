@@ -83,6 +83,179 @@ window.matchMedia("(min-width: 1024px)").addEventListener("change", function () 
   if (contacts) useListLayoutForScreen(contacts._virtualContactsList, "contacts_list_view", true)
 })
 
+// A contact form row added or removed grows open or closes itself, its
+// gap above included, and the dialog follows; the dialog's own resize
+// animation waits meanwhile.
+function animateContactRowHeight(row, opening, done) {
+  var form = row && row.closest && row.closest("form")
+  var resize = form && form._calendarDialogResize
+  if (!row || typeof row.animate !== "function" ||
+      (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches)) {
+    if (done) done()
+    return
+  }
+  if (resize) resize.paused = true
+  var style = getComputedStyle(row)
+  var full = { height: row.offsetHeight + "px", paddingTop: style.paddingTop, opacity: 1 }
+  var closed = { height: "0px", paddingTop: "0px", opacity: 0 }
+  row.style.overflow = "hidden"
+  var animation = row.animate(opening ? [closed, full] : [full, closed], { duration: 200, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)", fill: opening ? "none" : "forwards" })
+  animation.onfinish = animation.oncancel = function () {
+    row.style.overflow = ""
+    if (done) done()
+    if (resize && form._calendarDialogResize === resize) resize.sync()
+  }
+}
+
+// Toolbars that fold their parts away as their room runs out: the mail
+// list's, and the contact page's header. Each says which parts are folded
+// at each step; toolbarFoldStep finds the first step that fits, from widths
+// alone: toggling states to measure them would cut short the animation of a
+// step that is still sliding. Folding parts are .mail-toolbar-collapsible,
+// folded with data-mail-collapsed.
+
+// toolbarFoldWidth is a folding part's full width, to the fraction of a
+// pixel. scrollWidth rounds, and a label capped at the rounded width lost
+// part of a pixel, moving everything after it.
+function toolbarFoldWidth(el) {
+  var range = document.createRange()
+  range.selectNodeContents(el)
+  // A range around buttons can measure 0 (no text inside), which capped
+  // the action buttons at max-width 0; scrollWidth still sees them.
+  return Math.max(range.getBoundingClientRect().width, el.scrollWidth)
+}
+
+// toolbarFoldParts gives each folding part with the width it takes now
+// (mid-animation, maybe) and the width it takes when shown, both counting
+// the flex gap beside it.
+function toolbarFoldParts(states) {
+  var parts = []
+  states.forEach(function (_, el) {
+    var gap = parseFloat(getComputedStyle(el.parentElement).columnGap) || 0
+    var margin = parseFloat(getComputedStyle(el).marginLeft) || 0
+    var width = toolbarFoldWidth(el)
+    if (el.style.getPropertyValue("--collapse-width") !== width + "px") el.style.setProperty("--collapse-width", width + "px")
+    parts.push({ el: el, current: el.offsetWidth + gap + margin, full: width + gap })
+  })
+  return parts
+}
+
+// toolbarFoldStep gives the first of steps at which the toolbar fits, or
+// steps when none does. statesAt(step) is a Map of each folding part to
+// whether it's folded then. The spacer only fills what's left over.
+function toolbarFoldStep(toolbar, spacer, steps, statesAt) {
+  var parts = toolbarFoldParts(statesAt(0))
+  var spacerExtra = spacer && spacer.offsetParent ? spacer.offsetWidth - (parseFloat(getComputedStyle(spacer).minWidth) || 0) : 0
+  // The width everything but the folding parts needs.
+  var fixed = Math.max(toolbar.scrollWidth, toolbar.clientWidth) - spacerExtra
+  for (var i = 0; i < parts.length; i++) fixed -= parts[i].current
+  var step = 0
+  for (; step < steps; step++) {
+    var needed = fixed
+    var states = statesAt(step)
+    for (var j = 0; j < parts.length; j++) {
+      if (!states.get(parts[j].el)) needed += parts[j].full
+    }
+    if (needed <= toolbar.clientWidth) break
+  }
+  return step
+}
+
+// The contact page's header folds its actions into a ⋮ menu as its room
+// runs out, as the mail list's toolbar does: Export first, then Duplicate,
+// Move, Email and Trash; Edit stays. Each step is worked out from widths
+// alone, so a step still sliding isn't cut short.
+var CONTACT_OVERFLOW_RANKS = 5
+var contactOverflowObserver = null
+var contactOverflowObserved = null
+
+// contactHeaderFoldStates says which actions are folded at a step: the
+// ranks up to it, with the ⋮ menu shown once one is.
+function contactHeaderFoldStates(actions, step) {
+  var states = new Map()
+  actions.querySelectorAll(":scope > [data-contact-overflow-rank]").forEach(function (button) {
+    states.set(button, parseInt(button.getAttribute("data-contact-overflow-rank"), 10) <= step)
+  })
+  var menu = actions.querySelector(":scope > [data-contact-overflow-menu]")
+  if (menu) states.set(menu, step === 0)
+  return states
+}
+
+function syncContactHeaderOverflow() {
+  var actions = document.querySelector("#contacts-detail [data-contact-header-actions]")
+  if (actions && actions !== contactOverflowObserved && typeof ResizeObserver === "function") {
+    if (!contactOverflowObserver) contactOverflowObserver = new ResizeObserver(function () { syncContactHeaderOverflow() })
+    contactOverflowObserver.disconnect()
+    contactOverflowObserver.observe(actions)
+    contactOverflowObserved = actions
+  }
+  if (!actions || actions.offsetParent === null || !actions.querySelector(":scope > [data-contact-overflow-menu]")) return
+  var spacer = actions.querySelector(":scope > .contact-header-spacer")
+  var step = toolbarFoldStep(actions, spacer, CONTACT_OVERFLOW_RANKS, function (step) {
+    return contactHeaderFoldStates(actions, step)
+  })
+  if (step === actions._contactFolded) return
+  actions._contactFolded = step
+  contactHeaderFoldStates(actions, step).forEach(function (collapsed, el) {
+    el.toggleAttribute("data-mail-collapsed", collapsed)
+  })
+  document.querySelectorAll("#contacts-detail [data-contact-overflow-menu-item]").forEach(function (item) {
+    item.style.display = parseInt(item.getAttribute("data-contact-overflow-rank"), 10) <= step ? "" : "none"
+  })
+}
+
+// A folded Move or Duplicate opens its dialog from the ⋮ menu, and a
+// folded Trash submits the form its button does.
+document.addEventListener("click", function (e) {
+  var item = e.target.closest && e.target.closest("[data-contact-open-dialog], [data-contact-submit-form]")
+  if (!item || item.hasAttribute("disabled") || item.getAttribute("aria-disabled") === "true") return
+  e.preventDefault()
+  var formID = item.getAttribute("data-contact-submit-form")
+  if (formID) {
+    var form = document.getElementById(formID)
+    if (form && typeof form.requestSubmit === "function") form.requestSubmit()
+    return
+  }
+  if (window.tui && window.tui.dialog) window.tui.dialog.open(item.getAttribute("data-contact-open-dialog"))
+})
+
+document.addEventListener("DOMContentLoaded", syncContactHeaderOverflow)
+document.addEventListener("htmx:afterSettle", function () { syncContactHeaderOverflow() })
+
+// collapseContactSection closes part of a contact form, padding and divider
+// included, and hides it once closed; the dialog follows as it shrinks.
+function collapseContactSection(section, done) {
+  var form = section && section.closest && section.closest("form")
+  var resize = form && form._calendarDialogResize
+  if (!section || typeof section.animate !== "function" ||
+      (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches)) {
+    if (done) done()
+    return
+  }
+  if (resize) resize.paused = true
+  var style = getComputedStyle(section)
+  var open = { height: section.offsetHeight + "px", paddingTop: style.paddingTop, paddingBottom: style.paddingBottom, borderTopWidth: style.borderTopWidth, opacity: 1 }
+  var closed = { height: "0px", paddingTop: "0px", paddingBottom: "0px", borderTopWidth: "0px", opacity: 0 }
+  section.style.overflow = "hidden"
+  var animation = section.animate([open, closed], { duration: 200, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)", fill: "forwards" })
+  section._contactCollapse = animation
+  animation.onfinish = function () {
+    if (section._contactCollapse !== animation) return
+    section._contactCollapse = null
+    if (done) done()
+    // Hidden now, it drops the closed frame so it opens at its own size.
+    animation.cancel()
+    section.style.overflow = ""
+    if (resize && form._calendarDialogResize === resize) resize.sync()
+  }
+}
+
+// fadeOutContactRow removes a contact form row once it has closed.
+function fadeOutContactRow(row) {
+  if (!row) return
+  animateContactRowHeight(row, false, function () { row.remove() })
+}
+
 function animateSectionContent(section) {
   if (!section || typeof section.animate !== "function" ||
       (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches)) return
@@ -298,7 +471,7 @@ document.addEventListener("DOMContentLoaded", function () {
         activity: form && form.querySelector('[name="activity"]') ? form.querySelector('[name="activity"]').value || "" : "",
         unresolved: !!(form && form.querySelector('[name="unresolved"]') && form.querySelector('[name="unresolved"]').checked),
         sortBy: sortForm && sortForm.querySelector('[name="sort_by"]') ? sortForm.querySelector('[name="sort_by"]').value || "updated" : "updated",
-        sortOrder: sortForm && sortForm.querySelector('[name="sort_order"]') ? sortForm.querySelector('[name="sort_order"]').value || "desc" : "desc",
+        sortOrder: (sortForm && sortForm.querySelector('[name="sort_order"]:checked') || {}).value || "desc",
       }
     }
 
@@ -631,6 +804,7 @@ document.addEventListener("DOMContentLoaded", function () {
         if (list && template && template.content) {
           var node = template.content.firstElementChild.cloneNode(true)
           list.appendChild(node)
+          animateContactRowHeight(node, true)
           var input = node.querySelector("input")
           if (input) input.focus()
         }
@@ -641,7 +815,7 @@ document.addEventListener("DOMContentLoaded", function () {
       if (removeContactValue) {
         e.preventDefault()
         var valueRow = removeContactValue.closest("[data-contact-value-row]")
-        if (valueRow) valueRow.remove()
+        if (valueRow) fadeOutContactRow(valueRow)
         return
       }
 
@@ -675,6 +849,9 @@ document.addEventListener("DOMContentLoaded", function () {
           var editDialog = editDialogID ? document.getElementById(editDialogID) : null
           var editForm = editDialog && editDialog.querySelector("[data-contact-edit-form]")
           if (editForm) editForm.dataset.initialState = contactEditorState(editForm)
+          // Fields added or removed, and Gofer Sync opened or closed, resize
+          // the dialog smoothly, as the event dialog does.
+          if (editForm) initializeCalendarDialogResize(editForm)
         }, 0)
         return
       }
@@ -795,7 +972,7 @@ document.addEventListener("DOMContentLoaded", function () {
       e.preventDefault()
       if (e.target.matches("[data-contact-sort-form]") && window.GoferSettings) {
         var contactSortBy = e.target.querySelector('[name="sort_by"]')
-        var contactSortOrder = e.target.querySelector('[name="sort_order"]')
+        var contactSortOrder = e.target.querySelector('[name="sort_order"]:checked')
         GoferSettings.set("contacts_list_sort_by", contactSortBy ? contactSortBy.value || "updated" : "updated")
         GoferSettings.set("contacts_list_sort_order", contactSortOrder ? contactSortOrder.value || "desc" : "desc")
       }
@@ -1264,6 +1441,25 @@ document.addEventListener("DOMContentLoaded", function () {
         var targets = form && form.querySelector("[data-contact-sync-targets]")
         var label = form && form.querySelector("[data-contact-sync-state-label]")
         var enabled = e.target.checked
+        var syncBody = e.target.closest("section") && e.target.closest("section").querySelector("[data-contact-sync-body]")
+        if (syncBody) {
+          if (enabled) {
+            // Turned back on while still closing: it stays open.
+            if (syncBody._contactCollapse) {
+              var closing = syncBody._contactCollapse
+              syncBody._contactCollapse = null
+              closing.cancel()
+              syncBody.style.overflow = ""
+              if (form && form._calendarDialogResize) form._calendarDialogResize.sync()
+            }
+            if (syncBody.hidden) {
+              syncBody.hidden = false
+              animateSectionContent(syncBody)
+            }
+          } else if (!syncBody.hidden && !syncBody._contactCollapse) {
+            collapseContactSection(syncBody, function () { syncBody.hidden = true })
+          }
+        }
         if (targets) {
           targets.classList.toggle("pointer-events-none", !enabled)
           targets.classList.toggle("select-none", !enabled)
@@ -2843,6 +3039,71 @@ document.addEventListener("DOMContentLoaded", function () {
       }
     }
 
+    // The contacts list's toolbar folds as the mail list's does, on the same
+    // shared code: the sort label goes first, then Export, Duplicate, Move,
+    // Email and Trash move into the ⋮ menu, and last the Cards/Table words
+    // leave only their icons.
+    var CONTACT_LIST_RANKS = 5
+    var CONTACT_LIST_STEPS = CONTACT_LIST_RANKS + 2
+    var contactListObserver = null
+    var contactListObserved = null
+
+    function contactListFoldStates(toolbar, actions, step) {
+      var states = new Map()
+      var sortLabel = toolbar.querySelector("[data-contact-sort-label]")
+      if (sortLabel) states.set(sortLabel, step >= 1)
+      if (actions) {
+        var folded = Math.min(Math.max(step - 1, 0), CONTACT_LIST_RANKS)
+        actions.querySelectorAll(":scope > [data-contact-list-rank]").forEach(function (part) {
+          states.set(part, parseInt(part.getAttribute("data-contact-list-rank"), 10) <= folded)
+        })
+        var menu = actions.querySelector(":scope > [data-contact-list-menu]")
+        if (menu) states.set(menu, folded === 0)
+      }
+      var hideViewLabels = actions ? step >= CONTACT_LIST_STEPS : step >= 2
+      toolbar.querySelectorAll("[data-contact-view-label]").forEach(function (label) { states.set(label, hideViewLabels) })
+      return states
+    }
+
+    function syncContactListOverflow() {
+      var toolbar = document.querySelector("#mail-list[data-contact-list-shell] .contacts-list-toolbar")
+      if (toolbar && toolbar !== contactListObserved && typeof ResizeObserver === "function") {
+        if (!contactListObserver) contactListObserver = new ResizeObserver(function () { syncContactListOverflow() })
+        contactListObserver.disconnect()
+        contactListObserver.observe(toolbar)
+        contactListObserved = toolbar
+      }
+      if (!toolbar || toolbar.offsetParent === null) return
+      // The actions stay rendered while hidden, so ask the list whether they show.
+      var shell = toolbar.closest("#mail-list")
+      var actions = shell && shell.hasAttribute("data-contact-has-selection") ? toolbar.querySelector("[data-contact-selection-actions]:has([data-contact-list-menu])") : null
+      var spacer = toolbar.querySelector(".contacts-list-toolbar-spacer")
+      var step = toolbarFoldStep(toolbar, spacer, CONTACT_LIST_STEPS, function (step) {
+        return contactListFoldStates(toolbar, actions, step)
+      })
+      toolbar._contactListStep = step
+      contactListFoldStates(toolbar, actions, step).forEach(function (collapsed, el) {
+        el.toggleAttribute("data-mail-collapsed", collapsed)
+      })
+      // Hidden, the actions wait unfolded with ⋮ hidden, so they never show
+      // a fold left from another width.
+      if (!actions) {
+        toolbar.querySelectorAll("[data-contact-list-rank]").forEach(function (part) { part.removeAttribute("data-mail-collapsed") })
+        var hiddenMenu = toolbar.querySelector("[data-contact-list-menu]")
+        if (hiddenMenu) hiddenMenu.setAttribute("data-mail-collapsed", "")
+      }
+      var folded = actions ? Math.min(Math.max(step - 1, 0), CONTACT_LIST_RANKS) : 0
+      document.querySelectorAll("[data-contact-list-menu-item]").forEach(function (item) {
+        item.style.display = parseInt(item.getAttribute("data-contact-list-rank"), 10) <= folded ? "" : "none"
+      })
+    }
+
+    // The toolbar folds when the page shows it, as well as as it resizes, and
+    // again once fonts load, which can change its widths without resizing it.
+    syncContactListOverflow()
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { syncContactListOverflow() })
+    document.body.addEventListener("htmx:afterSettle", function () { syncContactListOverflow() })
+
     function syncContactSelection() {
       var list = contactsListController()
       var shell = document.querySelector("[data-contact-list-shell]")
@@ -2865,8 +3126,11 @@ document.addEventListener("DOMContentLoaded", function () {
       }
       var count = selectedContactIds.size
       shell.toggleAttribute("data-contact-has-selection", count > 0)
-      shell.querySelectorAll("[data-contact-selection-action]").forEach(function (button) {
-        button.disabled = count === 0 || contactSelectAllLoading || contactDeleteBusy
+      syncContactListOverflow()
+      document.querySelectorAll("#mail-list [data-contact-selection-action], [data-contact-list-menu-item]").forEach(function (button) {
+        // Edit, Move and Duplicate act on one contact.
+        var single = ["edit", "move", "duplicate"].indexOf(button.getAttribute("data-contact-selection-action")) !== -1
+        button.disabled = count === 0 || (single && count !== 1) || contactSelectAllLoading || contactDeleteBusy
       })
 
       var counted = contactSelectionCounts() ? count : 0
@@ -3323,7 +3587,11 @@ document.addEventListener("DOMContentLoaded", function () {
         var action = e.target.closest("[data-contact-selection-action]")
         if (action && !action.disabled) {
           var name = action.getAttribute("data-contact-selection-action")
-          if (name === "compose") composeToSelectedContacts()
+          var only = selectedContactIds.size === 1 ? Array.from(selectedContactIds)[0] : ""
+          if (name === "edit" && only) openContactEditor(only)
+          else if (name === "move" && only) openContactPageDialog(only, "contact-move-" + only)
+          else if (name === "duplicate" && only) openContactPageDialog(only, "contact-duplicate-" + only)
+          else if (name === "compose") composeToSelectedContacts()
           else if (name === "export") exportSelectedContacts(Array.from(selectedContactIds))
           else if (name === "delete") moveContactsToTrash(Array.from(selectedContactIds))
           else if (name === "restore") restoreContacts(Array.from(selectedContactIds))
@@ -3609,15 +3877,36 @@ document.addEventListener("DOMContentLoaded", function () {
     // The edit dialog belongs to the contact's page, so a contact that isn't
     // open is opened first, as clicking it would, and edited once it shows.
     function openContactEditor(contactID) {
-      var dialogID = "contact-edit-" + contactID
+      openContactPageDialog(contactID, "contact-edit-" + contactID)
+    }
+
+    // Opens one of a contact's page dialogs (edit, move, duplicate), opening
+    // the contact first when it isn't. A Move its page blocks says why.
+    function openContactPageDialog(contactID, dialogID) {
+      var blocked = function () {
+        var item = document.querySelector('#contacts-detail[data-contact-detail-id="' + cssEscape(contactID) + '"] [data-contact-open-dialog="' + cssEscape(dialogID) + '"]')
+        var reason = item && item.getAttribute("title")
+        if (!reason) return false
+        showGoferToast({ id: "contact-dialog-blocked", title: reason, variant: "warning", icon: "warning", position: "bottom-right", duration: 6000, dismissible: true })
+        return true
+      }
       if (document.getElementById(dialogID)) {
         window.tui.dialog.open(dialogID)
         return
       }
+      if (blocked()) return
       var link = document.querySelector('#contacts-list-scroll .mail-list-item[data-contact-id="' + cssEscape(contactID) + '"] [data-contact-list-item]')
       if (!link) return
       var settled = function () {
-        if (!document.getElementById(dialogID)) return
+        if (!document.getElementById(dialogID)) {
+          // The contact opened, without this dialog: it's blocked.
+          if (document.querySelector('#contacts-detail[data-contact-detail-id="' + cssEscape(contactID) + '"]')) {
+            document.body.removeEventListener("htmx:afterSettle", settled)
+            clearTimeout(giveUp)
+            blocked()
+          }
+          return
+        }
         document.body.removeEventListener("htmx:afterSettle", settled)
         clearTimeout(giveUp)
         window.tui.dialog.open(dialogID)
@@ -4516,59 +4805,21 @@ document.addEventListener("DOMContentLoaded", function () {
       // The actions stay rendered while hidden, so ask the list whether they show.
       var mailList = document.getElementById("mail-list")
       var actions = mailList && (mailList.hasAttribute("data-mail-has-selection") || mailList.hasAttribute("data-mail-selecting")) ? toolbar.querySelector("[data-mail-selection-actions]") : null
-      // Work out the step from widths alone: toggling states to measure them
-      // would cut short the animation of a step that is still sliding.
-      var parts = mailToolbarCollapsibles(toolbar, actions)
       var spacer = toolbar.querySelector(".mail-list-toolbar-spacer")
-      var spacerExtra = spacer && spacer.offsetParent ? spacer.offsetWidth - (parseFloat(getComputedStyle(spacer).minWidth) || 0) : 0
-      // The width everything but the collapsible parts needs.
-      var fixed = Math.max(toolbar.scrollWidth, toolbar.clientWidth) - spacerExtra
-      for (var i = 0; i < parts.length; i++) fixed -= parts[i].current
-      var step = 0
-      for (; step < MAIL_COMPRESS_STEPS; step++) {
-        var needed = fixed
-        var states = mailToolbarCollapsedStates(toolbar, actions, step)
-        for (var j = 0; j < parts.length; j++) {
-          if (!states.get(parts[j].el)) needed += parts[j].full
-        }
-        if (needed <= toolbar.clientWidth) break
-      }
+      var step = toolbarFoldStep(toolbar, spacer, MAIL_COMPRESS_STEPS, function (step) {
+        return mailToolbarCollapsedStates(toolbar, actions, step)
+      })
       if (step !== toolbar._mailCompressStep) setMailToolbarCompressed(toolbar, actions, step)
       toolbar._mailCompressStep = step
     }
 
-    // mailToolbarLabelWidth is a collapsible label's full width, to the
-    // fraction of a pixel. scrollWidth rounds, and a label capped at the
-    // rounded width lost part of a pixel, moving everything after it.
-    function mailToolbarLabelWidth(el) {
-      var range = document.createRange()
-      range.selectNodeContents(el)
-      // A range around buttons can measure 0 (no text inside), which capped
-      // the action buttons at max-width 0; scrollWidth still sees them.
-      return Math.max(range.getBoundingClientRect().width, el.scrollWidth)
-    }
-
-    // Each collapsible part with the width it takes now (mid-animation, maybe)
-    // and the width it takes when shown, both counting the flex gap beside it.
-    function mailToolbarCollapsibles(toolbar, actions) {
-      var parts = []
-      var states = mailToolbarCollapsedStates(toolbar, actions, 0)
-      states.forEach(function (_, el) {
-        var gap = parseFloat(getComputedStyle(el.parentElement).columnGap) || 0
-        var margin = parseFloat(getComputedStyle(el).marginLeft) || 0
-        var width = mailToolbarLabelWidth(el)
-        if (el.style.getPropertyValue("--collapse-width") !== width + "px") el.style.setProperty("--collapse-width", width + "px")
-        parts.push({ el: el, current: el.offsetWidth + gap + margin, full: width + gap })
-      })
-      return parts
-    }
 
     // Changes the sort label's text while its width slides to the new size.
     function animateMailSortLabel(text) {
       var label = document.querySelector("[data-mail-sort-label]")
       if (!label || label.textContent === text) return
       label.textContent = text
-      label.style.setProperty("--collapse-width", mailToolbarLabelWidth(label) + "px")
+      label.style.setProperty("--collapse-width", toolbarFoldWidth(label) + "px")
       syncMailActionOverflow()
     }
 
@@ -15137,7 +15388,8 @@ function initializeCalendarDialogResize(form) {
   if (!form || form._calendarDialogResize || !form.closest || typeof MutationObserver === "undefined") return
   var dialog = form.closest("dialog")
   if (!dialog || !dialog.animate) return
-  var body = form.querySelector("[data-calendar-create-body]")
+  // The calendar event dialog's body, or any dialog's marked to resize.
+  var body = form.querySelector("[data-calendar-create-body], [data-dialog-resize-body]")
   var panel = dialog.querySelector && dialog.querySelector("[data-tui-dialog-panel]")
   var gutter = body && body.style.scrollbarGutter
   // Keep field widths stable as the animated viewport gains/loses scrolling.
@@ -15252,7 +15504,15 @@ function initializeCalendarDialogResize(form) {
     }
   }
   function schedule() {
+    // Paused while a row animates its own height: the dialog follows it.
+    if (state.paused) return
     if (!state.frame) state.frame = requestAnimationFrame(measure)
+  }
+  // After a paused change, takes the dialog and its rows as they are now.
+  state.sync = function () {
+    state.paused = false
+    state.height = dialog.open ? height() : 0
+    state.layout = layout()
   }
   state.mutations = new MutationObserver(schedule)
   state.mutations.observe(form, {subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ["hidden", "class", "style"]})

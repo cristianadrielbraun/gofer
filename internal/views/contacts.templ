@@ -1769,7 +1769,7 @@ templ ContactsListPane(contacts []models.Contact, selected *models.Contact, filt
 					}
 				>
 					@icon.LayoutList(icon.Props{Class: "size-3.5"})
-					{ i18n.T(ctx, "mail.view.cards") }
+					<span class="mail-toolbar-collapsible" style="--collapse-gap: 0.25rem" data-contact-view-label>{ i18n.T(ctx, "mail.view.cards") }</span>
 				</button>
 				<button
 					type="button"
@@ -1783,14 +1783,14 @@ templ ContactsListPane(contacts []models.Contact, selected *models.Contact, filt
 					}
 				>
 					@icon.Table2(icon.Props{Class: "size-3.5"})
-					{ i18n.T(ctx, "mail.view.table") }
+					<span class="mail-toolbar-collapsible" style="--collapse-gap: 0.25rem" data-contact-view-label>{ i18n.T(ctx, "mail.view.table") }</span>
 				</button>
 			</div>
 			@dropdown.Dropdown() {
 				@dropdown.Trigger() {
 					<button type="button" data-contact-sort-trigger class="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground" aria-label={ i18n.T(ctx, "contacts.sort.label") }>
 						@icon.ArrowUpDown(icon.Props{Class: "size-3.5"})
-						<span class="hidden sm:inline">{ contactSortLabel(ctx, filters) }</span>
+						<span class="mail-toolbar-collapsible" style="--collapse-gap: 0.375rem" data-contact-sort-label>{ contactSortLabel(ctx, filters) }</span>
 					</button>
 				}
 				@dropdown.Content(dropdown.ContentProps{Placement: dropdown.PlacementBottomEnd, Class: "mobile-sheet w-64 normal-case tracking-normal p-3"}) {
@@ -1808,19 +1808,18 @@ templ ContactsListPane(contacts []models.Contact, selected *models.Contact, filt
 						</div>
 						<div class="space-y-1 text-[11px] font-medium text-muted-foreground">
 							<span>{ i18n.T(ctx, "mail.sort.order") }</span>
-							@selectbox.SelectBox() {
-								@selectbox.Trigger(selectbox.TriggerProps{Name: "sort_order", Class: "h-8 bg-background text-xs", DisableClear: true}) { @selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "mail.sort.descending")}) }
-								@selectbox.Content(selectbox.ContentProps{NoSearch: true, DisableExclusive: true}) {
-									@selectbox.Item(selectbox.ItemProps{Value: "desc", Selected: filters.SortOrder == "" || filters.SortOrder == "desc"}) { { i18n.T(ctx, "mail.sort.descending") } }
-									@selectbox.Item(selectbox.ItemProps{Value: "asc", Selected: filters.SortOrder == "asc"}) { { i18n.T(ctx, "mail.sort.ascending") } }
-								}
-							}
+							// The mail list's own order switch.
+							<div class="mail-sort-order grid h-8 grid-cols-2 gap-0.5 rounded-lg border border-border bg-background p-0.5" role="radiogroup" aria-label={ i18n.T(ctx, "mail.sort.order") }>
+								<div class="mail-sort-order-indicator rounded-md border border-border bg-card shadow-sm" aria-hidden="true"></div>
+								@mailSortOrderOption("desc", i18n.T(ctx, "mail.sort.descending"), filters.SortOrder != "asc")
+								@mailSortOrderOption("asc", i18n.T(ctx, "mail.sort.ascending"), filters.SortOrder == "asc")
+							</div>
 						</div>
 						<button type="submit" class="inline-flex h-8 w-full items-center justify-center rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground hover:bg-primary/90">{ i18n.T(ctx, "mail.sort.apply") }</button>
 					</form>
 				}
 			}
-			<div class="flex-1"></div>
+			<div class="contacts-list-toolbar-spacer flex-1"></div>
 			@ContactsSelectionActions(filters.Trash)
 		</div>
 		if filters.Trash {
@@ -1950,17 +1949,81 @@ templ ContactsSelectionActions(trash bool) {
 			}
 		</div>
 	} else {
+	// The contact page's actions, in its order: Edit, Move and Duplicate
+	// act on one contact at a time. As the toolbar runs out of room they fold
+	// into ⋮ as the mail list's do: Export first, Trash last; Edit stays.
 	<div class="items-center gap-1" data-contact-selection-actions>
-		@contactSelectionAction("compose", i18n.T(ctx, "compose.new_message"), i18n.T(ctx, "contacts.selection.compose"), "") {
-			@icon.Pen(icon.Props{Class: "size-3.5"})
+		@contactSelectionAction("edit", i18n.T(ctx, "contacts.action.edit_label"), i18n.T(ctx, "contacts.action.edit_label"), "") {
+			@icon.Pencil(icon.Props{Class: "size-3.5"})
 		}
-		@contactSelectionAction("export", i18n.T(ctx, "contacts.action.export_many"), i18n.T(ctx, "contacts.selection.export"), "") {
-			@icon.Download(icon.Props{Class: "size-3.5"})
-		}
-		@contactSelectionAction("delete", i18n.T(ctx, "contacts.action.trash"), i18n.T(ctx, "contacts.selection.trash"), "hover:bg-destructive/10 hover:text-destructive") {
-			@icon.Trash2(icon.Props{Class: "size-3.5"})
-		}
+		<div class="mail-toolbar-collapsible" data-contact-list-rank="4">
+			@contactSelectionAction("compose", i18n.T(ctx, "compose.new_message"), i18n.T(ctx, "contacts.selection.compose"), "") {
+				@icon.Mail(icon.Props{Class: "size-3.5"})
+			}
+		</div>
+		<div class="mail-toolbar-collapsible" data-contact-list-rank="3">
+			@contactSelectionAction("move", i18n.T(ctx, "contacts.action.move"), i18n.T(ctx, "contacts.action.move"), "") {
+				@icon.FolderInput(icon.Props{Class: "size-3.5"})
+			}
+		</div>
+		<div class="mail-toolbar-collapsible" data-contact-list-rank="2">
+			@contactSelectionAction("duplicate", i18n.T(ctx, "contacts.action.duplicate"), i18n.T(ctx, "contacts.action.duplicate"), "") {
+				@icon.CopyPlus(icon.Props{Class: "size-3.5"})
+			}
+		</div>
+		<div class="mail-toolbar-collapsible" data-contact-list-rank="1">
+			@contactSelectionAction("export", i18n.T(ctx, "contacts.action.export_many"), i18n.T(ctx, "contacts.selection.export"), "") {
+				@icon.Download(icon.Props{Class: "size-3.5"})
+			}
+		</div>
+		<div class="mail-toolbar-collapsible" data-contact-list-rank="5">
+			@contactSelectionAction("delete", i18n.T(ctx, "contacts.action.trash"), i18n.T(ctx, "contacts.selection.trash"), "hover:bg-destructive/10 hover:text-destructive") {
+				@icon.Trash2(icon.Props{Class: "size-3.5"})
+			}
+		</div>
+		<div class="mail-toolbar-collapsible" data-mail-collapsed data-contact-list-menu>
+			@dropdown.Dropdown() {
+				@dropdown.Trigger() {
+					@button.Button(button.Props{
+						Variant:    button.VariantGhost,
+						Size:       button.SizeIcon,
+						Class:      "h-7 w-7",
+						Attributes: templ.Attributes{"aria-label": i18n.T(ctx, "common.more_actions")},
+					}) {
+						@icon.EllipsisVertical(icon.Props{Class: "size-3.5"})
+					}
+				}
+				@dropdown.Content(dropdown.ContentProps{Class: "mobile-sheet w-48 normal-case tracking-normal", Placement: dropdown.PlacementBottomEnd}) {
+					@contactListMenuItem("compose", "4", i18n.T(ctx, "contacts.selection.compose"), "") {
+						@icon.Mail(icon.Props{Class: "size-4"})
+					}
+					@contactListMenuItem("move", "3", i18n.T(ctx, "contacts.action.move"), "") {
+						@icon.FolderInput(icon.Props{Class: "size-4"})
+					}
+					@contactListMenuItem("duplicate", "2", i18n.T(ctx, "contacts.action.duplicate"), "") {
+						@icon.CopyPlus(icon.Props{Class: "size-4"})
+					}
+					@contactListMenuItem("export", "1", i18n.T(ctx, "contacts.action.export_many"), "") {
+						@icon.Download(icon.Props{Class: "size-4"})
+					}
+					@contactListMenuItem("delete", "5", i18n.T(ctx, "contacts.action.trash"), "text-destructive "+menuDestructiveClass) {
+						@icon.Trash2(icon.Props{Class: "size-4"})
+					}
+				}
+			}
+		</div>
 	</div>
+	}
+}
+
+// contactListMenuItem is a selection action folded into the list's ⋮ menu;
+// it carries the action's name, so the same click handler runs it.
+templ contactListMenuItem(action, rank, label, class string) {
+	@dropdown.Item(dropdown.ItemProps{Class: class, Attributes: templ.Attributes{"data-contact-selection-action": action, "data-contact-list-rank": rank, "data-contact-list-menu-item": ""}}) {
+		<span class="flex items-center gap-2">
+			{ children... }
+			{ label }
+		</span>
 	}
 }
 
@@ -2403,7 +2466,7 @@ templ ContactEditor(contact *models.Contact, profile *models.ContactProfile, syn
 			<div class="flex-1 overflow-y-auto">
 				<form id="contact-editor-form" action={ contactFormAction(contact) } method="post" class="flex min-h-full flex-col" data-contact-editor-form>
 					<div class="w-full flex-1 space-y-5 px-5 py-5 sm:px-7">
-						@ContactEditorCoreFields(contact)
+						@ContactEditorCoreFields(contact, accounts)
 						@ContactLegacySourcePanel(contact, accounts)
 					</div>
 					@ContactEditorSaveActions()
@@ -2681,7 +2744,7 @@ templ ContactReadOnlySyncStatusField(value string) {
 	</div>
 }
 
-templ ContactEditorCoreFields(contact *models.Contact) {
+templ ContactEditorCoreFields(contact *models.Contact, accounts []models.Account) {
 	{{ hasAvatar := contact != nil && strings.TrimSpace(contact.AvatarURL) != "" }}
 	<section class="rounded-lg border border-ink/10 bg-ink/[0.02]" data-contact-avatar-editor>
 		<input type="hidden" name="avatar_action" value="preserve" data-contact-avatar-action/>
@@ -2707,13 +2770,17 @@ templ ContactEditorCoreFields(contact *models.Contact) {
 					</span>
 				</button>
 				<div class="min-w-0">
-					<h2 class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.view.contact") }</h2>
+					<h2 class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.avatar.title") }</h2>
 					<p class="mt-0.5 text-[11px] text-muted-foreground">{ i18n.T(ctx, "contacts.avatar.change_hint") }</p>
 				</div>
 			</div>
-			<div class="flex shrink-0 items-center gap-2">
+			<div class="flex shrink-0 items-center gap-3">
 				<span class="hidden text-xs font-medium text-emerald-700" data-contact-avatar-status>{ i18n.T(ctx, "contacts.avatar.ready") }</span>
 				<button type="button" class={ "h-7 items-center rounded-md px-2 text-[11px] font-semibold text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive " + contactEditAvatarRemoveClass(hasAvatar) } data-contact-avatar-remove>{ i18n.T(ctx, "contacts.avatar.remove") }</button>
+				// A new contact chooses where it exists here, with its photo.
+				if contact == nil {
+					@contactNewHomePicker(accounts)
+				}
 			</div>
 		</div>
 		// One column, each field the dialog's width; title and organization,
@@ -2721,23 +2788,23 @@ templ ContactEditorCoreFields(contact *models.Contact) {
 		<div class="space-y-4 p-4">
 				<div>
 					<label class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.field.name") }</label>
-					<input type="text" name="name" value={ contactFormName(contact) } placeholder={ i18n.T(ctx, "contacts.placeholder.name") } class="h-10 w-full rounded-lg border border-ink/10 bg-ink/[0.04] px-3 text-sm text-ink placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ink/10"/>
+					<input type="text" name="name" value={ contactFormName(contact) } placeholder={ i18n.T(ctx, "contacts.placeholder.name") } class="h-8 w-full rounded-md border border-ink/10 bg-ink/[0.04] px-2.5 text-[13px] text-ink placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ink/10"/>
 				</div>
 				@ContactEmailFields(contact)
 				@ContactPhoneFields(contact)
 				<div class="grid gap-4 sm:grid-cols-2">
 					<div>
 						<label class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.field.title") }</label>
-						<input type="text" name="title" value={ contactFormTitle(contact) } placeholder={ i18n.T(ctx, "contacts.placeholder.title") } class="h-10 w-full rounded-lg border border-ink/10 bg-ink/[0.04] px-3 text-sm text-ink placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ink/10"/>
+						<input type="text" name="title" value={ contactFormTitle(contact) } placeholder={ i18n.T(ctx, "contacts.placeholder.title") } class="h-8 w-full rounded-md border border-ink/10 bg-ink/[0.04] px-2.5 text-[13px] text-ink placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ink/10"/>
 					</div>
 					<div>
 						<label class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.field.organization") }</label>
-						<input type="text" name="organization" value={ contactFormOrganization(contact) } placeholder={ i18n.T(ctx, "contacts.placeholder.organization") } class="h-10 w-full rounded-lg border border-ink/10 bg-ink/[0.04] px-3 text-sm text-ink placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ink/10"/>
+						<input type="text" name="organization" value={ contactFormOrganization(contact) } placeholder={ i18n.T(ctx, "contacts.placeholder.organization") } class="h-8 w-full rounded-md border border-ink/10 bg-ink/[0.04] px-2.5 text-[13px] text-ink placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ink/10"/>
 					</div>
 				</div>
 				<div>
 					<label class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.field.notes") }</label>
-					<textarea name="notes" rows="5" placeholder={ i18n.T(ctx, "contacts.placeholder.notes") } class="min-h-28 w-full resize-y rounded-lg border border-ink/10 bg-ink/[0.04] px-3 py-2 text-sm text-ink placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ink/10">{ contactFormNotes(contact) }</textarea>
+					<textarea name="notes" rows="5" placeholder={ i18n.T(ctx, "contacts.placeholder.notes") } class="min-h-24 w-full resize-y rounded-md border border-ink/10 bg-ink/[0.04] px-2.5 py-1.5 text-[13px] text-ink placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ink/10">{ contactFormNotes(contact) }</textarea>
 				</div>
 		</div>
 	</section>
@@ -2747,30 +2814,30 @@ templ ContactEmailFields(contact *models.Contact) {
 	<div class="space-y-2">
 		<div class="flex items-center justify-between gap-3">
 			<label class="block text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.field.email") }</label>
-			<button type="button" class="inline-flex h-7 items-center gap-1 rounded-md border border-ink/10 bg-ink/[0.025] px-2 text-[11px] font-medium text-muted-foreground hover:bg-ink/[0.06] hover:text-ink" data-contact-add-value="additional_emails" aria-label={ i18n.T(ctx, "contacts.edit.add_email") }>
+			<button type="button" class="inline-flex h-6 items-center gap-1 rounded-md border border-ink/10 bg-ink/[0.025] px-2 text-[11px] font-medium text-muted-foreground hover:bg-ink/[0.06] hover:text-ink" data-contact-add-value="additional_emails" aria-label={ i18n.T(ctx, "contacts.edit.add_email") }>
 				@icon.Plus(icon.Props{Class: "size-3.5"})
 				{ i18n.T(ctx, "contacts.edit.add") }
 			</button>
 		</div>
 		<template data-contact-value-template="additional_emails">
-			<div class="flex items-center gap-2" data-contact-value-row>
-				<input type="email" name="additional_emails" placeholder="jane@work.example" class="h-10 min-w-0 flex-1 rounded-lg border border-ink/10 bg-ink/[0.04] px-3 text-sm text-ink placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ink/10"/>
+			<div class="flex items-center gap-2 pt-2" data-contact-value-row>
+				<input type="email" name="additional_emails" placeholder="jane@work.example" class="h-8 min-w-0 flex-1 rounded-md border border-ink/10 bg-ink/[0.04] px-2.5 text-[13px] text-ink placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ink/10"/>
 				@ContactLabelSelect("additional_email_labels", "other", contactEmailLabelOptions("other"), i18n.T(ctx, "contacts.edit.email_label"))
-				<button type="button" class="size-8 shrink-0 rounded-md border border-ink/10 bg-ink/[0.025] text-muted-foreground hover:bg-ink/[0.06] hover:text-ink" data-contact-remove-value aria-label={ i18n.T(ctx, "contacts.edit.remove_email") }>
+				<button type="button" class="size-7 shrink-0 rounded-md border border-ink/10 bg-ink/[0.025] text-muted-foreground hover:bg-ink/[0.06] hover:text-ink" data-contact-remove-value aria-label={ i18n.T(ctx, "contacts.edit.remove_email") }>
 					@icon.X(icon.Props{Class: "mx-auto size-4"})
 				</button>
 			</div>
 		</template>
-		<div class="space-y-2" data-contact-value-list="additional_emails">
+		<div data-contact-value-list="additional_emails">
 			<div class="flex items-center gap-2">
-				<input type="email" name="email" value={ contactFormEmail(contact) } placeholder="jane@example.com" class="h-10 min-w-0 flex-1 rounded-lg border border-ink/10 bg-ink/[0.04] px-3 text-sm text-ink placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ink/10"/>
+				<input type="email" name="email" value={ contactFormEmail(contact) } placeholder="jane@example.com" class="h-8 min-w-0 flex-1 rounded-md border border-ink/10 bg-ink/[0.04] px-2.5 text-[13px] text-ink placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ink/10"/>
 				@ContactLabelSelect("email_label", contactFormEmailLabel(contact), contactEmailLabelOptions(contactFormEmailLabel(contact)), i18n.T(ctx, "contacts.edit.email_label"))
 			</div>
 			for i, email := range contactAdditionalEmails(contact) {
-				<div class="flex items-center gap-2" data-contact-value-row>
-					<input type="email" name="additional_emails" value={ email } placeholder="jane@work.example" class="h-10 min-w-0 flex-1 rounded-lg border border-ink/10 bg-ink/[0.04] px-3 text-sm text-ink placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ink/10"/>
+				<div class="flex items-center gap-2 pt-2" data-contact-value-row>
+					<input type="email" name="additional_emails" value={ email } placeholder="jane@work.example" class="h-8 min-w-0 flex-1 rounded-md border border-ink/10 bg-ink/[0.04] px-2.5 text-[13px] text-ink placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ink/10"/>
 					@ContactLabelSelect("additional_email_labels", contactAdditionalEmailLabel(contact, i), contactEmailLabelOptions(contactAdditionalEmailLabel(contact, i)), i18n.T(ctx, "contacts.edit.email_label"))
-					<button type="button" class="size-8 shrink-0 rounded-md border border-ink/10 bg-ink/[0.025] text-muted-foreground hover:bg-ink/[0.06] hover:text-ink" data-contact-remove-value aria-label={ i18n.T(ctx, "contacts.edit.remove_email") }>
+					<button type="button" class="size-7 shrink-0 rounded-md border border-ink/10 bg-ink/[0.025] text-muted-foreground hover:bg-ink/[0.06] hover:text-ink" data-contact-remove-value aria-label={ i18n.T(ctx, "contacts.edit.remove_email") }>
 						@icon.X(icon.Props{Class: "mx-auto size-4"})
 					</button>
 				</div>
@@ -2783,30 +2850,30 @@ templ ContactPhoneFields(contact *models.Contact) {
 	<div class="space-y-2">
 		<div class="flex items-center justify-between gap-3">
 			<label class="block text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.field.phone") }</label>
-			<button type="button" class="inline-flex h-7 items-center gap-1 rounded-md border border-ink/10 bg-ink/[0.025] px-2 text-[11px] font-medium text-muted-foreground hover:bg-ink/[0.06] hover:text-ink" data-contact-add-value="additional_phones" aria-label={ i18n.T(ctx, "contacts.edit.add_phone") }>
+			<button type="button" class="inline-flex h-6 items-center gap-1 rounded-md border border-ink/10 bg-ink/[0.025] px-2 text-[11px] font-medium text-muted-foreground hover:bg-ink/[0.06] hover:text-ink" data-contact-add-value="additional_phones" aria-label={ i18n.T(ctx, "contacts.edit.add_phone") }>
 				@icon.Plus(icon.Props{Class: "size-3.5"})
 				{ i18n.T(ctx, "contacts.edit.add") }
 			</button>
 		</div>
 		<template data-contact-value-template="additional_phones">
-			<div class="flex items-center gap-2" data-contact-value-row>
-				<input type="tel" name="additional_phones" placeholder="+1 555 0101" class="h-10 min-w-0 flex-1 rounded-lg border border-ink/10 bg-ink/[0.04] px-3 text-sm text-ink placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ink/10"/>
+			<div class="flex items-center gap-2 pt-2" data-contact-value-row>
+				<input type="tel" name="additional_phones" placeholder="+1 555 0101" class="h-8 min-w-0 flex-1 rounded-md border border-ink/10 bg-ink/[0.04] px-2.5 text-[13px] text-ink placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ink/10"/>
 				@ContactLabelSelect("additional_phone_labels", "other", contactPhoneLabelOptions("other"), i18n.T(ctx, "contacts.edit.phone_label"))
-				<button type="button" class="size-8 shrink-0 rounded-md border border-ink/10 bg-ink/[0.025] text-muted-foreground hover:bg-ink/[0.06] hover:text-ink" data-contact-remove-value aria-label={ i18n.T(ctx, "contacts.edit.remove_phone") }>
+				<button type="button" class="size-7 shrink-0 rounded-md border border-ink/10 bg-ink/[0.025] text-muted-foreground hover:bg-ink/[0.06] hover:text-ink" data-contact-remove-value aria-label={ i18n.T(ctx, "contacts.edit.remove_phone") }>
 					@icon.X(icon.Props{Class: "mx-auto size-4"})
 				</button>
 			</div>
 		</template>
-		<div class="space-y-2" data-contact-value-list="additional_phones">
+		<div data-contact-value-list="additional_phones">
 			<div class="flex items-center gap-2">
-				<input type="tel" name="phone" value={ contactFormPhone(contact) } placeholder="+1 555 0100" class="h-10 min-w-0 flex-1 rounded-lg border border-ink/10 bg-ink/[0.04] px-3 text-sm text-ink placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ink/10"/>
+				<input type="tel" name="phone" value={ contactFormPhone(contact) } placeholder="+1 555 0100" class="h-8 min-w-0 flex-1 rounded-md border border-ink/10 bg-ink/[0.04] px-2.5 text-[13px] text-ink placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ink/10"/>
 				@ContactLabelSelect("phone_label", contactFormPhoneLabel(contact), contactPhoneLabelOptions(contactFormPhoneLabel(contact)), i18n.T(ctx, "contacts.edit.phone_label"))
 			</div>
 			for i, phone := range contactAdditionalPhones(contact) {
-				<div class="flex items-center gap-2" data-contact-value-row>
-					<input type="tel" name="additional_phones" value={ phone } placeholder="+1 555 0101" class="h-10 min-w-0 flex-1 rounded-lg border border-ink/10 bg-ink/[0.04] px-3 text-sm text-ink placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ink/10"/>
+				<div class="flex items-center gap-2 pt-2" data-contact-value-row>
+					<input type="tel" name="additional_phones" value={ phone } placeholder="+1 555 0101" class="h-8 min-w-0 flex-1 rounded-md border border-ink/10 bg-ink/[0.04] px-2.5 text-[13px] text-ink placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ink/10"/>
 					@ContactLabelSelect("additional_phone_labels", contactAdditionalPhoneLabel(contact, i), contactPhoneLabelOptions(contactAdditionalPhoneLabel(contact, i)), i18n.T(ctx, "contacts.edit.phone_label"))
-					<button type="button" class="size-8 shrink-0 rounded-md border border-ink/10 bg-ink/[0.025] text-muted-foreground hover:bg-ink/[0.06] hover:text-ink" data-contact-remove-value aria-label={ i18n.T(ctx, "contacts.edit.remove_phone") }>
+					<button type="button" class="size-7 shrink-0 rounded-md border border-ink/10 bg-ink/[0.025] text-muted-foreground hover:bg-ink/[0.06] hover:text-ink" data-contact-remove-value aria-label={ i18n.T(ctx, "contacts.edit.remove_phone") }>
 						@icon.X(icon.Props{Class: "mx-auto size-4"})
 					</button>
 				</div>
@@ -2818,7 +2885,7 @@ templ ContactPhoneFields(contact *models.Contact) {
 templ ContactEditorHeader(contact *models.Contact, profile *models.ContactProfile, accounts []models.Account) {
 	<div class="contact-editor-header shrink-0 border-b border-ink/10 bg-paper/70 px-5 py-4 sm:px-7">
 		<div class="contact-editor-header-inner flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-			<div class="contact-header-identity flex min-w-0 items-start gap-4">
+			<div class="contact-header-identity flex min-w-0 items-start gap-4 xl:max-w-[60%] xl:shrink-0">
 				if contact != nil {
 					@ContactHeaderAvatar(*contact)
 				} else {
@@ -2850,11 +2917,13 @@ templ ContactEditorHeader(contact *models.Contact, profile *models.ContactProfil
 					</div>
 				</div>
 			</div>
-			<div class="contact-header-actions flex flex-wrap items-center gap-2 xl:justify-end">
+			// A toolbar like the mail list's: its spacer pushes the actions to
+			// the right, and the actions fold into ⋮ as the room runs out.
+			<div class="contact-header-actions flex min-w-0 flex-nowrap items-center gap-1 xl:flex-1" data-contact-header-actions>
 				<button type="button" class="contact-header-back hidden" data-on-click='["closeMobileContactView"]' aria-label={ i18n.T(ctx, "contacts.view.back") }>
 					@icon.ArrowLeft(icon.Props{Class: "size-5"})
 				</button>
-				<div class="contact-header-spacer hidden"></div>
+				<div class="contact-header-spacer min-w-0 flex-1"></div>
 				if contact != nil && contact.TrashedAt != "" {
 					<div class="flex shrink-0 items-center gap-2">
 					// Restore, with Restore to… beside it, as New contact has its own.
@@ -2880,7 +2949,7 @@ templ ContactEditorHeader(contact *models.Contact, profile *models.ContactProfil
 						}
 					</div>
 					@contactHeaderTooltip(i18n.T(ctx, "contacts.action.export")) {
-						<a href={ fmt.Sprintf("/api/contacts/%s/export", contact.ID) } class="size-9 rounded-md flex items-center justify-center text-muted-foreground hover:text-ink hover:bg-ink/5 transition-colors" aria-label={ i18n.T(ctx, "contacts.action.export") }>
+						<a href={ fmt.Sprintf("/api/contacts/%s/export", contact.ID) } class="size-8 rounded-md flex items-center justify-center text-muted-foreground hover:text-ink hover:bg-ink/5 transition-colors" aria-label={ i18n.T(ctx, "contacts.action.export") }>
 							@icon.Download(icon.Props{Class: "size-4"})
 						</a>
 					}
@@ -2894,45 +2963,109 @@ templ ContactEditorHeader(contact *models.Contact, profile *models.ContactProfil
 					// A contact to resolve waits as it is: it is resolved first.
 					if len(contact.DeletedFrom) > 0 {
 						@contactHeaderTooltip(i18n.T(ctx, "contacts.unresolved.resolve_first")) {
-							<button type="button" disabled class="inline-flex h-9 cursor-not-allowed items-center gap-1.5 rounded-md border border-ink/10 bg-ink/[0.025] px-3 text-sm font-semibold text-muted-foreground/50" aria-label={ i18n.T(ctx, "contacts.action.edit_label") }>
-								@icon.Pencil(icon.Props{Class: "size-3.5"})
-								{ i18n.T(ctx, "contacts.action.edit") }
+							<button type="button" disabled class="size-8 rounded-md flex items-center justify-center text-muted-foreground/50 cursor-not-allowed" aria-label={ i18n.T(ctx, "contacts.action.edit_label") }>
+								@icon.Pencil(icon.Props{Class: "size-4"})
 							</button>
 						}
 					} else {
+						// An icon like the others; the tooltip goes right around the
+						// button, the dialog trigger outside it.
 						@dialog.Trigger(dialog.TriggerProps{For: editDialogID}) {
-							<button type="button" class="inline-flex h-9 items-center gap-1.5 rounded-md border border-ink/10 bg-ink/[0.025] px-3 text-sm font-semibold text-muted-foreground transition-colors hover:bg-ink/[0.06] hover:text-ink" aria-label={ i18n.T(ctx, "contacts.action.edit_label") } data-contact-edit-trigger data-contact-edit-dialog={ editDialogID }>
-								@icon.Pencil(icon.Props{Class: "size-3.5"})
-								{ i18n.T(ctx, "contacts.action.edit") }
-							</button>
+							@contactHeaderTooltip(i18n.T(ctx, "contacts.action.edit_label")) {
+								<button type="button" class="size-8 rounded-md flex items-center justify-center text-muted-foreground hover:text-ink hover:bg-ink/5 transition-colors" aria-label={ i18n.T(ctx, "contacts.action.edit_label") } data-contact-edit-trigger data-contact-edit-dialog={ editDialogID }>
+									@icon.Pencil(icon.Props{Class: "size-4"})
+								</button>
+							}
 						}
 					}
+					// As space runs out these fold into the ⋮ menu, as the mail
+					// list's toolbar does: Export first, Email last.
 					if strings.TrimSpace(contact.Email) != "" {
-						@contactHeaderTooltip(i18n.T(ctx, "contacts.action.email")) {
-							<a href={ "mailto:" + contact.Email } class="size-9 rounded-md flex items-center justify-center text-muted-foreground hover:text-ink hover:bg-ink/5 transition-colors" aria-label={ i18n.T(ctx, "contacts.action.email") }>
-								@icon.Mail(icon.Props{Class: "size-4"})
+						<div class="mail-toolbar-collapsible" data-contact-overflow-rank="4">
+							@contactHeaderTooltip(i18n.T(ctx, "contacts.action.email")) {
+								<a href={ "mailto:" + contact.Email } class="size-8 rounded-md flex items-center justify-center text-muted-foreground hover:text-ink hover:bg-ink/5 transition-colors" aria-label={ i18n.T(ctx, "contacts.action.email") }>
+									@icon.Mail(icon.Props{Class: "size-4"})
+								</a>
+							}
+						</div>
+					}
+					<div class="mail-toolbar-collapsible" data-contact-overflow-rank="3">
+						@contactPlaceActionButton(contactPlaceDialogID(*contact, true), i18n.T(ctx, "contacts.action.move"), contactMoveBlocked(ctx, *contact)) {
+							@icon.FolderInput(icon.Props{Class: "size-4"})
+						}
+					</div>
+					<div class="mail-toolbar-collapsible" data-contact-overflow-rank="2">
+						@contactPlaceActionButton(contactPlaceDialogID(*contact, false), i18n.T(ctx, "contacts.action.duplicate"), contactUnresolvedBlocked(ctx, *contact)) {
+							@icon.CopyPlus(icon.Props{Class: "size-4"})
+						}
+					</div>
+					<div class="mail-toolbar-collapsible" data-contact-overflow-rank="1">
+						@contactHeaderTooltip(i18n.T(ctx, "contacts.action.export")) {
+							<a href={ fmt.Sprintf("/api/contacts/%s/export", contact.ID) } class="size-8 rounded-md flex items-center justify-center text-muted-foreground hover:text-ink hover:bg-ink/5 transition-colors" aria-label={ i18n.T(ctx, "contacts.action.export") }>
+								@icon.Download(icon.Props{Class: "size-4"})
 							</a>
 						}
-					}
-					@contactPlaceActionButton(contactPlaceDialogID(*contact, true), i18n.T(ctx, "contacts.action.move"), contactMoveBlocked(ctx, *contact)) {
-						@icon.FolderInput(icon.Props{Class: "size-4"})
-					}
-					@contactPlaceActionButton(contactPlaceDialogID(*contact, false), i18n.T(ctx, "contacts.action.duplicate"), contactUnresolvedBlocked(ctx, *contact)) {
-						@icon.CopyPlus(icon.Props{Class: "size-4"})
-					}
-					@contactHeaderTooltip(i18n.T(ctx, "contacts.action.export")) {
-						<a href={ fmt.Sprintf("/api/contacts/%s/export", contact.ID) } class="size-9 rounded-md flex items-center justify-center text-muted-foreground hover:text-ink hover:bg-ink/5 transition-colors" aria-label={ i18n.T(ctx, "contacts.action.export") }>
-							@icon.Download(icon.Props{Class: "size-4"})
-						</a>
-					}
-					@contactHeaderTooltip(i18n.T(ctx, "contacts.action.trash")) {
-						<button type="submit" form={ "delete-contact-" + contact.ID } class="size-9 rounded-md flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors" aria-label={ i18n.T(ctx, "contacts.action.trash") }>
-							@icon.Trash2(icon.Props{Class: "size-4"})
-						</button>
-					}
+					</div>
+					<div class="mail-toolbar-collapsible" data-contact-overflow-rank="5">
+						@contactHeaderTooltip(i18n.T(ctx, "contacts.action.trash")) {
+							<button type="submit" form={ "delete-contact-" + contact.ID } class="size-8 rounded-md flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors" aria-label={ i18n.T(ctx, "contacts.action.trash") }>
+								@icon.Trash2(icon.Props{Class: "size-4"})
+							</button>
+						}
+					</div>
+					// Last, as the mail toolbar's.
+					@contactHeaderOverflowMenu(*contact)
 				}
 			</div>
 		</div>
+	</div>
+}
+
+// contactHeaderOverflowMenu holds the header's actions that no longer fit
+// beside it; app.js shows each one as its button folds away.
+templ contactHeaderOverflowMenu(contact models.Contact) {
+	<div class="mail-toolbar-collapsible" data-mail-collapsed data-contact-overflow-menu>
+		@dropdown.Dropdown() {
+			@dropdown.Trigger() {
+				<button type="button" class="size-8 rounded-md flex items-center justify-center text-muted-foreground hover:text-ink hover:bg-ink/5 transition-colors" aria-label={ i18n.T(ctx, "common.more_actions") }>
+					@icon.EllipsisVertical(icon.Props{Class: "size-4"})
+				</button>
+			}
+			@dropdown.Content(dropdown.ContentProps{Class: "mobile-sheet w-48 normal-case tracking-normal", Placement: dropdown.PlacementBottomEnd}) {
+				if strings.TrimSpace(contact.Email) != "" {
+					@dropdown.Item(dropdown.ItemProps{Href: "mailto:" + contact.Email, Attributes: templ.Attributes{"data-contact-overflow-rank": "4", "data-contact-overflow-menu-item": ""}}) {
+						<span class="flex items-center gap-2">
+							@icon.Mail(icon.Props{Class: "size-4"})
+							{ i18n.T(ctx, "contacts.action.email") }
+						</span>
+					}
+				}
+				@dropdown.Item(dropdown.ItemProps{Disabled: contactMoveBlocked(ctx, contact) != "", Attributes: templ.Attributes{"data-contact-overflow-rank": "3", "data-contact-overflow-menu-item": "", "data-contact-open-dialog": contactPlaceDialogID(contact, true), "title": contactMoveBlocked(ctx, contact)}}) {
+					<span class="flex items-center gap-2">
+						@icon.FolderInput(icon.Props{Class: "size-4"})
+						{ i18n.T(ctx, "contacts.action.move") }
+					</span>
+				}
+				@dropdown.Item(dropdown.ItemProps{Disabled: contactUnresolvedBlocked(ctx, contact) != "", Attributes: templ.Attributes{"data-contact-overflow-rank": "2", "data-contact-overflow-menu-item": "", "data-contact-open-dialog": contactPlaceDialogID(contact, false), "title": contactUnresolvedBlocked(ctx, contact)}}) {
+					<span class="flex items-center gap-2">
+						@icon.CopyPlus(icon.Props{Class: "size-4"})
+						{ i18n.T(ctx, "contacts.action.duplicate") }
+					</span>
+				}
+				@dropdown.Item(dropdown.ItemProps{Href: fmt.Sprintf("/api/contacts/%s/export", contact.ID), Attributes: templ.Attributes{"data-contact-overflow-rank": "1", "data-contact-overflow-menu-item": ""}}) {
+					<span class="flex items-center gap-2">
+						@icon.Download(icon.Props{Class: "size-4"})
+						{ i18n.T(ctx, "contacts.action.export") }
+					</span>
+				}
+				@dropdown.Item(dropdown.ItemProps{Class: "text-destructive " + menuDestructiveClass, Attributes: templ.Attributes{"data-contact-overflow-rank": "5", "data-contact-overflow-menu-item": "", "data-contact-submit-form": "delete-contact-" + contact.ID}}) {
+					<span class="flex items-center gap-2">
+						@icon.Trash2(icon.Props{Class: "size-4"})
+						{ i18n.T(ctx, "contacts.action.trash") }
+					</span>
+				}
+			}
+		}
 	</div>
 }
 
@@ -2978,14 +3111,14 @@ templ contactPlaceActionButton(dialogID, label string, blocked string) {
 	// size of what it wraps, and a dialog trigger has none of its own.
 	if blocked != "" {
 		@contactHeaderTooltip(blocked) {
-			<button type="button" disabled class="size-9 rounded-md flex items-center justify-center text-muted-foreground/50 cursor-not-allowed" aria-label={ label }>
+			<button type="button" disabled class="size-8 rounded-md flex items-center justify-center text-muted-foreground/50 cursor-not-allowed" aria-label={ label }>
 				{ children... }
 			</button>
 		}
 	} else {
 		@dialog.Trigger(dialog.TriggerProps{For: dialogID}) {
 			@contactHeaderTooltip(label) {
-				<button type="button" class="size-9 rounded-md flex items-center justify-center text-muted-foreground hover:text-ink hover:bg-ink/5 transition-colors" aria-label={ label }>
+				<button type="button" class="size-8 rounded-md flex items-center justify-center text-muted-foreground hover:text-ink hover:bg-ink/5 transition-colors" aria-label={ label }>
 					{ children... }
 				</button>
 			}
@@ -2995,14 +3128,19 @@ templ contactPlaceActionButton(dialogID, label string, blocked string) {
 
 // goferSyncInfo explains Gofer Sync beside its name: people don't know it.
 templ goferSyncInfo() {
+	@contactInfoTip(i18n.T(ctx, "contacts.sync.info"))
+}
+
+// contactInfoTip is an info icon with text that explains what's beside it.
+templ contactInfoTip(text string) {
 	@tooltip.Tooltip() {
 		@tooltip.Trigger() {
-			<span class="inline-flex size-4 cursor-help items-center justify-center text-muted-foreground hover:text-ink" tabindex="0" aria-label={ i18n.T(ctx, "contacts.sync.info") } data-gofer-sync-info>
+			<span class="inline-flex size-4 cursor-help items-center justify-center text-muted-foreground hover:text-ink" tabindex="0" aria-label={ text }>
 				@icon.Info(icon.Props{Class: "size-3.5"})
 			</span>
 		}
 		@tooltip.Content(tooltip.ContentProps{Position: tooltip.PositionBottom, ShowArrow: true, Class: "max-w-[min(20rem,calc(100vw-2rem))] whitespace-normal text-left normal-case tracking-normal font-normal"}) {
-			{ i18n.T(ctx, "contacts.sync.info") }
+			{ text }
 		}
 	}
 }
@@ -3147,30 +3285,28 @@ templ ContactRestorePlaceDialog(accounts []models.Account) {
 	}
 }
 
-// ContactNewHomeSection chooses a new contact's main location, where it is
-// created: Gofer Local, or an account it is written to. It is the contact's
-// own, apart from Gofer Sync, which adds more places.
-templ ContactNewHomeSection(accounts []models.Account) {
-	<section class="rounded-lg border border-ink/10 bg-ink/[0.02]">
-		<div class="flex items-center gap-2 border-b border-ink/10 px-4 py-3">
+// contactNewHomePicker chooses a new contact's main location, where it is
+// created: Gofer Local, or an account it is written to. It sits in the
+// contact's header, apart from Gofer Sync, which adds more places.
+templ contactNewHomePicker(accounts []models.Account) {
+	<div class="w-80 max-w-[55vw]">
+		<div class="mb-1 flex items-center gap-1.5">
 			@icon.MapPin(icon.Props{Class: "size-3.5 text-muted-foreground"})
-			<h2 class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.stored_in") }</h2>
+			<span class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.stored_in") }</span>
+			@contactInfoTip(i18n.T(ctx, "contacts.stored_in_help"))
 		</div>
-		<div class="p-4">
-			@selectbox.SelectBox() {
-				@selectbox.Trigger(selectbox.TriggerProps{Name: "stored_in", Class: "h-10 border-ink/10 bg-ink/[0.04] text-ink", Required: true, DisableClear: true, Attributes: templ.Attributes{"data-contact-stored-in": ""}}) {
-					@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "contacts.origin.local"), Class: "text-left"})
-				}
-				@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
-					@selectbox.Item(selectbox.ItemProps{Value: "local", Selected: true}) {
-						{ i18n.T(ctx, "contacts.origin.local") }
-					}
-					@contactImportPlaceItems(accounts)
-				}
+		@selectbox.SelectBox() {
+			@selectbox.Trigger(selectbox.TriggerProps{Name: "stored_in", Class: "h-8 border-ink/10 bg-ink/[0.04] text-[13px] text-ink", Required: true, DisableClear: true, Attributes: templ.Attributes{"data-contact-stored-in": ""}}) {
+				@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "contacts.origin.local"), Class: "text-left"})
 			}
-			<p class="mt-1.5 text-xs leading-relaxed text-muted-foreground">{ i18n.T(ctx, "contacts.stored_in_help") }</p>
-		</div>
-	</section>
+			@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+				@selectbox.Item(selectbox.ItemProps{Value: "local", Selected: true}) {
+					{ i18n.T(ctx, "contacts.origin.local") }
+				}
+				@contactImportPlaceItems(accounts)
+			}
+		}
+	</div>
 }
 
 // contactNewDialogID is the dialog a new contact is made in.
@@ -3205,9 +3341,8 @@ templ ContactNewDialog(accounts []models.Account, open bool) {
 						@icon.X(icon.Props{Class: "size-4"})
 					</button>
 				</div>
-				<div class="min-h-0 space-y-5 overflow-y-auto px-5 py-5 sm:px-6">
-					@ContactEditorCoreFields(nil)
-					@ContactNewHomeSection(accounts)
+				<div class="min-h-0 space-y-5 overflow-y-auto px-5 py-5 sm:px-6" data-dialog-resize-body>
+					@ContactEditorCoreFields(nil, accounts)
 					@ContactLegacySourcePanel(nil, accounts)
 				</div>
 				<div class="flex flex-col-reverse gap-2 border-t border-ink/10 bg-paper/90 px-5 py-3 backdrop-blur sm:flex-row sm:items-center sm:justify-end sm:px-6">
@@ -3249,8 +3384,8 @@ templ ContactEditDialog(contact models.Contact, profile *models.ContactProfile, 
 						@icon.X(icon.Props{Class: "size-4"})
 					</button>
 				</div>
-				<div class="min-h-0 space-y-5 overflow-y-auto px-5 py-5 sm:px-6">
-					@ContactEditorCoreFields(&contact)
+				<div class="min-h-0 space-y-5 overflow-y-auto px-5 py-5 sm:px-6" data-dialog-resize-body>
+					@ContactEditorCoreFields(&contact, nil)
 					@ContactEditSyncPanel(&contact, profile, accounts)
 				</div>
 				<div class="flex flex-col-reverse gap-2 border-t border-ink/10 bg-paper/90 px-5 py-3 backdrop-blur sm:flex-row sm:items-center sm:justify-end sm:px-6">
@@ -3267,7 +3402,7 @@ templ ContactEditDialog(contact models.Contact, profile *models.ContactProfile, 
 
 templ ContactEditSyncPanel(contact *models.Contact, profile *models.ContactProfile, accounts []models.Account) {
 	<section class="rounded-lg border border-ink/10 bg-ink/[0.02]">
-		<div class="flex flex-wrap items-center justify-between gap-3 border-b border-ink/10 px-4 py-3">
+		<div class="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
 			<div class="inline-flex items-center gap-2">
 				@icon.Route(icon.Props{Class: "size-3.5 text-muted-foreground"})
 				<h2 class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.sync.title") }</h2>
@@ -3285,7 +3420,8 @@ templ ContactEditSyncPanel(contact *models.Contact, profile *models.ContactProfi
 				})
 			</div>
 		</div>
-		<div class="space-y-4 p-4">
+		// With Gofer Sync off the panel is its header alone.
+		<div class="space-y-4 border-t border-ink/10 p-4" hidden?={ !contactProfileSyncEnabled(profile) } data-contact-sync-body>
 			<div class="rounded-md border border-ink/10 bg-paper/35 px-3 py-2.5">
 				<div class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.filters.origin") }</div>
 				if profile != nil {
@@ -3371,7 +3507,7 @@ templ ContactEditorSaveActions() {
 
 templ ContactLegacySourcePanel(contact *models.Contact, accounts []models.Account) {
 	<section class="rounded-lg border border-ink/10 bg-ink/[0.02]">
-		<div class="flex flex-wrap items-center justify-between gap-3 border-b border-ink/10 px-4 py-3">
+		<div class="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
 			<div class="inline-flex items-center gap-2">
 				@icon.Route(icon.Props{Class: "size-3.5 text-muted-foreground"})
 				<h2 class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.sync.title") }</h2>
@@ -3389,7 +3525,8 @@ templ ContactLegacySourcePanel(contact *models.Contact, accounts []models.Accoun
 				})
 			</div>
 		</div>
-		<div class="space-y-4 p-4">
+		// With Gofer Sync off the panel is its header alone.
+		<div class="space-y-4 border-t border-ink/10 p-4" hidden?={ contact == nil || !contact.GoferSyncEnabled } data-contact-sync-body>
 			if contact != nil {
 			<div class="rounded-md border border-ink/10 bg-paper/35 px-3 py-2.5">
 				<div class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.sync.source") }</div>
@@ -3451,7 +3588,7 @@ templ ContactSyncTargetsSelect(contact *models.Contact, accounts []models.Accoun
 	<div class={ contactSyncTargetsClass(syncEnabled) } data-contact-sync-targets data-contact-sync-initial={ contactInitialSyncPlaces(contact) } aria-disabled={ fmt.Sprintf("%t", !syncEnabled) }>
 		<label class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.sync.locations") }</label>
 		@selectbox.SelectBox(selectbox.Props{Multiple: true}) {
-			@selectbox.Trigger(selectbox.TriggerProps{Name: "save_targets", Class: "h-10 border-ink/10 bg-ink/[0.04] text-ink", Multiple: true, ShowPills: true, DisableClear: true, SelectedCountText: i18n.T(ctx, "contacts.sync.locations_selected")}) {
+			@selectbox.Trigger(selectbox.TriggerProps{Name: "save_targets", Class: "min-h-8 h-auto border-ink/10 bg-ink/[0.04] py-1 text-[13px] text-ink", Multiple: true, ShowPills: true, DisableClear: true, SelectedCountText: i18n.T(ctx, "contacts.sync.locations_selected")}) {
 				@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "contacts.sync.no_locations"), Multiple: true, Class: "text-left"})
 			}
 			@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
@@ -3708,7 +3845,7 @@ templ ContactSyncQueuedNotice() {
 templ ContactLabelSelect(name string, value string, options []string, ariaLabel string) {
 	<div class="w-36 shrink-0" aria-label={ ariaLabel }>
 		@selectbox.SelectBox() {
-			@selectbox.Trigger(selectbox.TriggerProps{Name: name, Class: "h-10 border-ink/10 bg-ink/[0.04] px-2 text-xs font-medium uppercase tracking-wide text-muted-foreground", DisableClear: true}) {
+			@selectbox.Trigger(selectbox.TriggerProps{Name: name, Class: "h-8 border-ink/10 bg-ink/[0.04] px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground", DisableClear: true}) {
 				@selectbox.Value(selectbox.ValueProps{Placeholder: contactLabelName(ctx, value), Class: "text-xs font-medium uppercase tracking-wide text-muted-foreground"})
 			}
 			@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "min-w-36"}) {
