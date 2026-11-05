@@ -600,3 +600,51 @@ func TestUserContactDroppedSyncPlaceDeletesItsCopy(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// In managed storage a contact to resolve is its owner's alone: the count
+// and keeping it touch only the owner's database.
+func TestUserContactUnresolvedCountAndKeep(t *testing.T) {
+	f, _, _ := newOwnedContactDeleteFixture(t, "gmail")
+	if err := f.routing.WithUser(t.Context(), "alice", func(db *storage.DB) error {
+		_, err := db.Write().Exec(`INSERT INTO contact_remote_deletions (user_id, profile_id, place, account_id) VALUES ('alice', 'same-delete-profile', ?, ?)`, "account:"+f.accounts["alice"].ID, f.accounts["alice"].ID)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	count := func(owner string) string {
+		return strings.TrimSpace(f.request(owner, http.MethodGet, "/contacts/unresolved-count", "").Body.String())
+	}
+	if got := count("alice"); !strings.Contains(got, ">1<") {
+		t.Fatal("alice count", got)
+	}
+	if got := count("bob"); got != "" {
+		t.Fatal("bob count", got)
+	}
+	if response := f.request("bob", http.MethodGet, "/contacts/resolver", ""); response.Code != http.StatusOK || strings.Contains(response.Body.String(), "same-delete-profile") {
+		t.Fatal("bob sees alice's contact to resolve", response.Code)
+	}
+	if response := f.request("alice", http.MethodGet, "/contacts/resolver", ""); response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `data-contacts-resolver-case="same-delete-profile"`) {
+		t.Fatal("alice's resolver", response.Code, response.Body.String())
+	}
+	if response := f.request("bob", http.MethodPost, "/api/contacts/unresolved/keep", "id=same-delete-profile"); response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"kept":0`) {
+		t.Fatal("bob kept alice's contact", response.Code, response.Body.String())
+	}
+	if response := f.request("alice", http.MethodPost, "/api/contacts/unresolved/keep", "id=same-delete-profile"); response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"kept":1`) {
+		t.Fatal("keep", response.Code, response.Body.String())
+	}
+	if got := count("alice"); got != "" {
+		t.Fatal("alice count after keep", got)
+	}
+	if err := f.routing.WithUser(t.Context(), "alice", func(db *storage.DB) error {
+		var enabled int
+		if err := db.Read().QueryRow(`SELECT COUNT(*) FROM contact_sync_memberships WHERE profile_id='same-delete-profile' AND account_id=? AND enabled=1`, f.accounts["alice"].ID).Scan(&enabled); err != nil {
+			return err
+		}
+		if enabled != 0 {
+			t.Fatal("still syncs with the place that deleted it")
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}

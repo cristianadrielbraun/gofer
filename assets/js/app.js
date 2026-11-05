@@ -296,6 +296,7 @@ document.addEventListener("DOMContentLoaded", function () {
         storedIn: form && form.querySelector('[name="stored_in"]') ? form.querySelector('[name="stored_in"]').value || "" : "",
         saveTarget: form && form.querySelector('[name="save_target"]') ? form.querySelector('[name="save_target"]').value || "" : "",
         activity: form && form.querySelector('[name="activity"]') ? form.querySelector('[name="activity"]').value || "" : "",
+        unresolved: !!(form && form.querySelector('[name="unresolved"]') && form.querySelector('[name="unresolved"]').checked),
         sortBy: sortForm && sortForm.querySelector('[name="sort_by"]') ? sortForm.querySelector('[name="sort_by"]').value || "updated" : "updated",
         sortOrder: sortForm && sortForm.querySelector('[name="sort_order"]') ? sortForm.querySelector('[name="sort_order"]').value || "desc" : "desc",
       }
@@ -305,7 +306,7 @@ document.addEventListener("DOMContentLoaded", function () {
     var settingContactFilters = false
 
     function syncFilterUI(filters) {
-      var count = (filters.source ? 1 : 0) + (filters.storedIn ? 1 : 0) + (filters.saveTarget ? 1 : 0) + (filters.activity ? 1 : 0)
+      var count = (filters.source ? 1 : 0) + (filters.storedIn ? 1 : 0) + (filters.saveTarget ? 1 : 0) + (filters.activity ? 1 : 0) + (filters.unresolved ? 1 : 0)
       syncActiveFilterChips(filters)
       var button = document.querySelector("[data-contact-filter-trigger]")
       if (!button) return
@@ -351,6 +352,7 @@ document.addEventListener("DOMContentLoaded", function () {
       if (filters.source) pills.push({ name: "source", text: goferT("js.contacts.filter.origin", { source: label("source", filters.source) }) })
       if (filters.saveTarget) pills.push({ name: "save_target", text: label("save_target", filters.saveTarget) })
       if (filters.activity) pills.push({ name: "activity", text: filters.activity.split(",").filter(Boolean).map(function (value) { return value === "seen" ? goferT("js.contacts.filter.seen") : goferT("js.contacts.filter.no_messages") }).join(", ") })
+      if (filters.unresolved) pills.push({ name: "unresolved", text: goferT("js.contacts.filter.unresolved") })
       return pills
     }
 
@@ -398,6 +400,8 @@ document.addEventListener("DOMContentLoaded", function () {
     // The sidebar item that stands for the filters, as the server picks it.
     function sidebarTargetFor(filters) {
       if (filters.trash) return "trash"
+      // No sidebar item lists only the contacts to resolve.
+      if (filters.unresolved) return "-"
       // A sidebar item stands for one place, never several.
       if (filters.storedIn || /,/.test(filters.source || "") || /,/.test(filters.saveTarget || "")) return "-"
       if (!filters.source) return filters.saveTarget
@@ -411,19 +415,20 @@ document.addEventListener("DOMContentLoaded", function () {
       var list = remove && currentList()
       if (!list) return
       e.preventDefault()
-      var field = { source: "source", stored_in: "storedIn", save_target: "saveTarget", activity: "activity" }[remove.getAttribute("data-contact-active-filter-remove")]
+      var field = { source: "source", stored_in: "storedIn", save_target: "saveTarget", activity: "activity", unresolved: "unresolved" }[remove.getAttribute("data-contact-active-filter-remove")]
       if (!field) return
       var motion = !window.matchMedia("(prefers-reduced-motion: reduce)").matches
       if (motion) remove.classList.add("mail-active-filter-pill-exiting")
       setTimeout(function () {
         var filters = Object.assign({}, list.filters)
-        filters[field] = ""
+        filters[field] = field === "unresolved" ? false : ""
         var form = document.querySelector("[data-contact-filter-form]")
         var input = form && form.querySelector('input[name="' + remove.getAttribute("data-contact-active-filter-remove") + '"]')
         if (input) {
           settingContactFilters = true
           try {
-            input.value = ""
+            if (input.type === "checkbox") input.checked = false
+            else input.value = ""
             input.dispatchEvent(new Event("input", { bubbles: true }))
           } finally {
             settingContactFilters = false
@@ -440,6 +445,7 @@ document.addEventListener("DOMContentLoaded", function () {
         // Mirrors contactSidebarActiveTarget in sidebar.templ.
         var params = new URL(url || window.location.href, window.location.origin).searchParams
         if (params.get("trash") === "1") return "trash"
+        if (params.get("unresolved") === "1") return "-"
         var saveTarget = params.get("save_target") || ""
         var source = params.get("source") || ""
         if (params.get("stored_in") || /,/.test(source) || /,/.test(saveTarget)) return "-"
@@ -489,7 +495,7 @@ document.addEventListener("DOMContentLoaded", function () {
       if (!list) return
       var filters = readFilters()
       syncFilterUI(filters)
-      setContactsSidebarActive(filters.trash ? "trash" : filters.storedIn || /,/.test(filters.saveTarget || "") ? "-" : filters.saveTarget)
+      setContactsSidebarActive(filters.trash ? "trash" : filters.unresolved || filters.storedIn || /,/.test(filters.saveTarget || "") ? "-" : filters.saveTarget)
       list.applyFilters(filters).catch(function () {})
     }
 
@@ -543,6 +549,9 @@ document.addEventListener("DOMContentLoaded", function () {
       filters.saveTarget = values.save_target
       filters.activity = ""
       filters.trash = false
+      filters.unresolved = false
+      var unresolvedSwitch = form && form.querySelector('input[name="unresolved"]')
+      if (unresolvedSwitch) unresolvedSwitch.checked = false
       syncFilterUI(filters)
       setContactsSidebarActive(target)
       list.applyFilters(filters).catch(function () {})
@@ -600,6 +609,8 @@ document.addEventListener("DOMContentLoaded", function () {
         if (form) {
           var inputs = form.querySelectorAll('input[name="source"], input[name="stored_in"], input[name="save_target"], input[name="activity"]')
           for (var ci = 0; ci < inputs.length; ci++) inputs[ci].value = ""
+          var unresolvedInput = form.querySelector('input[name="unresolved"]')
+          if (unresolvedInput) unresolvedInput.checked = false
           var selectedItems = form.querySelectorAll("[data-tui-selectbox-selected='true']")
           for (var si = 0; si < selectedItems.length; si++) selectedItems[si].setAttribute("data-tui-selectbox-selected", "false")
           var placeholders = form.querySelectorAll("[data-tui-selectbox-placeholder]")
@@ -2738,7 +2749,7 @@ document.addEventListener("DOMContentLoaded", function () {
     function contactSelectAllKey(list) {
       if (!list) return ""
       var filters = list.filters || {}
-      return JSON.stringify([!!filters.trash, filters.query || "", filters.source || "", filters.storedIn || "", filters.saveTarget || "", filters.activity || "", filters.sortBy || "", filters.sortOrder || ""])
+      return JSON.stringify([!!filters.trash, !!filters.unresolved, filters.query || "", filters.source || "", filters.storedIn || "", filters.saveTarget || "", filters.activity || "", filters.sortBy || "", filters.sortOrder || ""])
     }
 
     function setContactSelected(info, selected) {
@@ -3334,6 +3345,117 @@ document.addEventListener("DOMContentLoaded", function () {
         if (e.target && e.target.closest && e.target.closest("#contacts-context-menu")) return
         close()
       }, true)
+
+      // Contacts that went to Por resolver leave the list.
+      document.body.addEventListener("contacts-unresolved-changed", function () {
+        var list = contactsListController()
+        if (list && typeof list.applyFilters === "function") list.applyFilters(list.filters).catch(function () {})
+      })
+
+      // The resolver lists the synced contacts that one of their places
+      // deleted, to keep each without those places or delete it everywhere.
+      function contactResolverHost() {
+        var host = document.getElementById("contacts-resolver-host")
+        if (host) return host
+        host = document.createElement("div")
+        host.id = "contacts-resolver-host"
+        document.body.appendChild(host)
+        return host
+      }
+
+      function openContactResolver() {
+        fetch("/contacts/resolver", { headers: { Accept: "text/html" } })
+          .then(function (response) {
+            if (!response.ok) return response.text().then(function (text) { throw new Error(text.trim() || goferT("js.contacts.request_failed")) })
+            return response.text()
+          })
+          .then(function (html) {
+            var host = contactResolverHost()
+            if (window.tui && window.tui.dialog && window.tui.dialog.isOpen("contacts-resolver-dialog")) window.tui.dialog.close("contacts-resolver-dialog")
+            host.innerHTML = html
+            window.requestAnimationFrame(function () {
+              if (window.tui && window.tui.dialog) window.tui.dialog.open("contacts-resolver-dialog")
+            })
+          })
+          .catch(function (err) {
+            showGoferToast({ id: "contacts-resolver-error", title: goferT("js.contacts.unresolved.load_failed"), description: err.message, variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
+          })
+      }
+
+      function contactResolverChoices(form) {
+        var choices = { keep: [], delete: [] }
+        form.querySelectorAll("[data-contacts-resolver-case]").forEach(function (item) {
+          var checked = item.querySelector('input[type="radio"]:checked')
+          var choice = checked ? checked.value : "later"
+          if (choice === "keep" || choice === "delete") choices[choice].push({ id: item.getAttribute("data-contacts-resolver-case"), name: item.getAttribute("data-contact-name") || "" })
+        })
+        return choices
+      }
+
+      function updateContactResolverApply(form) {
+        var apply = form && form.querySelector("[data-contacts-resolver-apply]")
+        if (!apply) return
+        var choices = contactResolverChoices(form)
+        apply.disabled = !(choices.keep.length || choices.delete.length)
+      }
+
+      document.addEventListener("click", function (e) {
+        var opener = e.target.closest && e.target.closest("[data-contacts-open-resolver]")
+        if (opener) {
+          e.preventDefault()
+          openContactResolver()
+          return
+        }
+        var all = e.target.closest && e.target.closest("[data-contacts-resolver-all]")
+        if (!all) return
+        e.preventDefault()
+        var form = all.closest("[data-contacts-resolver-form]")
+        var choice = all.getAttribute("data-contacts-resolver-all")
+        form.querySelectorAll('input[type="radio"][value="' + choice + '"]').forEach(function (input) { input.checked = true })
+        updateContactResolverApply(form)
+      })
+
+      document.addEventListener("change", function (e) {
+        var form = e.target.closest && e.target.closest("[data-contacts-resolver-form]")
+        if (form) updateContactResolverApply(form)
+      })
+
+      // Kept ones go first; the ones to delete everywhere then go to the
+      // Trash as from the list, with its warning naming their places.
+      document.addEventListener("submit", function (e) {
+        var form = e.target.closest && e.target.closest("[data-contacts-resolver-form]")
+        if (!form) return
+        e.preventDefault()
+        var choices = contactResolverChoices(form)
+        if (!choices.keep.length && !choices.delete.length) return
+        var apply = form.querySelector("[data-contacts-resolver-apply]")
+        if (apply) apply.disabled = true
+        var ids = function (items) { return items.map(function (item) { return item.id }) }
+        var kept = choices.keep.length ? postContactIDs("/api/contacts/unresolved/keep", ids(choices.keep)) : Promise.resolve({ kept: 0 })
+        kept.then(function (result) {
+          if (window.tui && window.tui.dialog) window.tui.dialog.close("contacts-resolver-dialog")
+          var count = Number(result && result.kept) || 0
+          if (count) {
+            showGoferToast({ id: "contact-unresolved-kept", title: goferTn("js.contacts.unresolved.kept_count", count), description: goferT("js.contacts.unresolved.kept_detail"), variant: "success", icon: "success", position: "bottom-right", duration: 5000, dismissible: true })
+            refreshContactsAfterTrashChange()
+            choices.keep.forEach(function (item) { refreshOpenContactDetail(item.id) })
+          }
+          if (choices.delete.length) moveContactsToTrash(ids(choices.delete), choices.delete.length === 1 ? choices.delete[0].name : "")
+        }).catch(function (err) {
+          if (apply) apply.disabled = false
+          showGoferToast({ id: "contact-unresolved-kept", title: goferT("js.contacts.unresolved.keep_failed"), description: err.message, variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
+        })
+      })
+
+      // The notification about contacts to resolve opens the resolver here,
+      // and from other pages comes here with ?resolve=1.
+      document.body.addEventListener("contacts-open-resolver", openContactResolver)
+      if (new URLSearchParams(window.location.search).get("resolve") === "1" && document.querySelector("[data-contacts-sidebar-unresolved]")) {
+        var resolveURL = new URL(window.location.href)
+        resolveURL.searchParams.delete("resolve")
+        history.replaceState(history.state, "", resolveURL.pathname + resolveURL.search + resolveURL.hash)
+        openContactResolver()
+      }
 
       // The contact page's Delete moves it to the Trash, as the menu does.
       document.addEventListener("submit", function (e) {
@@ -8118,6 +8240,30 @@ document.addEventListener("DOMContentLoaded", function () {
     return true
   }
 
+  // Synced contacts that one of their places deleted wait in Por resolver:
+  // say so, and bring the list and the sidebar's count up to date.
+  function handleContactsUnresolvedEvent(data) {
+    var count = Number(data.event_count || 0) || 1
+    var name = String(data.email || "")
+    showGoferToast({
+      id: "contacts-unresolved",
+      title: count === 1 && name ? goferT("js.contacts.unresolved.arrived_one", { name: name }) : goferTn("js.contacts.unresolved.arrived", count),
+      description: goferT("js.contacts.unresolved.arrived_detail"),
+      variant: "warning",
+      icon: "warning",
+      position: "bottom-right",
+      duration: 0,
+      dismissible: true,
+      actions: [{ label: goferT("js.contacts.unresolved.open"), onClick: function () {
+        if (document.querySelector("[data-contacts-sidebar-unresolved]")) document.body.dispatchEvent(new CustomEvent("contacts-open-resolver"))
+        else window.location.href = "/contacts?resolve=1"
+      } }],
+    })
+    // The contacts list reloads itself on this; the sidebar's count too.
+    document.body.dispatchEvent(new CustomEvent("contacts-unresolved-changed"))
+    if (data.contact_id) refreshOpenContactDetail(data.contact_id)
+  }
+
   function refreshOpenContactDetail(contactID) {
     var detail = openContactDetail(contactID)
     if (!detail || typeof htmx === "undefined") return
@@ -8129,6 +8275,10 @@ document.addEventListener("DOMContentLoaded", function () {
 
   function handleContactActivityEvent(data) {
     var eventType = String((data && data.event_type) || "")
+    if (eventType === "contacts_unresolved") {
+      handleContactsUnresolvedEvent(data)
+      return
+    }
     if (["contact_sync_queued", "contact_sync_started", "contact_synced", "contact_sync_failed"].indexOf(eventType) === -1) return
     if (!updateContactSyncLiveState(data)) return
     var retryScheduled = eventType === "contact_sync_failed" && data.status === "pending"

@@ -173,6 +173,9 @@ type Contact struct {
 	// it is deleted for good from there, formatted for showing.
 	TrashedAt        string
 	TrashPurgeAt     string
+	// DeletedFrom are the places, "account:<id>" or "book:<id>", that
+	// deleted a contact with Gofer Sync on, while it waits to be resolved.
+	DeletedFrom      []string
 	MessageCount     int
 	CreatedAt        string
 	LastSeenAt       string
@@ -296,7 +299,10 @@ const ContactTrashRetentionDays = 30
 // matches every filter.
 type ContactFilters struct {
 	// Trash lists the contacts in the Trash instead of the others.
-	Trash      bool
+	Trash bool
+	// Unresolved lists the contacts with Gofer Sync on that one of their
+	// places deleted, still to resolve, instead of the others.
+	Unresolved bool
 	Query      string
 	WithEmail  bool // only contacts that can be written to, for address suggestions
 	Source     string

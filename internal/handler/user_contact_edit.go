@@ -169,6 +169,10 @@ func (h *Handler) handleUserSaveContact(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	owner := h.userID(r.Context())
+	if h.contactWaitsToResolve(r.Context(), owner, contact.ID) {
+		http.Error(w, i18n.T(r.Context(), "server.error.resolve_contact_first"), http.StatusConflict)
+		return
+	}
 	// A new contact lives where it was asked to, when that is a place it can
 	// be saved to; an existing one keeps its home.
 	if contact.ID == "" {

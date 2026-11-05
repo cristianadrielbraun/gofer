@@ -163,6 +163,7 @@ templ ContactsSidebarBody(accounts []models.Account, activeFolder string, uiSett
 		// Below the scrolling address books, always in view.
 		<div class="shrink-0 px-3 pb-2" data-contacts-sidebar-trash>
 			<hr class="divider-etched mx-1 mb-2"/>
+			@ContactsSidebarUnresolvedItem()
 			@ContactsSidebarTrashItem(filters)
 		</div>
 	</div>
@@ -253,6 +254,33 @@ templ ContactsSidebarTrashItem(filters models.ContactFilters) {
 	</a>
 }
 
+// ContactsSidebarUnresolvedItem opens the resolver, which lists the synced
+// contacts that one of their places deleted. It shows only while there are
+// some: its count loads on its own, and again whenever contacts go to the
+// Trash, leave it or are resolved.
+templ ContactsSidebarUnresolvedItem() {
+	<button
+		type="button"
+		data-contacts-open-resolver
+		data-contacts-sidebar-unresolved
+		class="flex items-center gap-2.5 w-full px-2.5 py-1.5 rounded-md text-[13px] text-left transition-all duration-150 mb-1 text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground [&:not(:has([data-contacts-unresolved-number]))]:hidden"
+	>
+		<span class="flex size-5 shrink-0 items-center justify-center rounded text-sidebar-foreground">
+			@icon.TriangleAlert(icon.Props{Class: "size-4"})
+		</span>
+		<span class="flex-1 truncate">{ i18n.T(ctx, "contacts.unresolved.title") }</span>
+		<span hx-get="/contacts/unresolved-count" hx-trigger="load, contacts-trash-changed from:body, contacts-unresolved-changed from:body" hx-target="this" hx-swap="innerHTML" data-contacts-unresolved-count></span>
+	</button>
+}
+
+// ContactsUnresolvedCount is the count beside the sidebar's Por resolver,
+// none when nothing waits. It is solid to stand out on every theme.
+templ ContactsUnresolvedCount(count int) {
+	if count > 0 {
+		<span class="flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-600 px-1.5 text-[11px] font-semibold tabular-nums text-white dark:bg-amber-400 dark:text-amber-950" data-contacts-unresolved-number>{ fmt.Sprint(count) }</span>
+	}
+}
+
 // ContactsTrashCount is the count beside the sidebar's Trash, none when it
 // is empty.
 templ ContactsTrashCount(count int) {
@@ -340,6 +368,9 @@ func contactSidebarActiveTarget(filters models.ContactFilters) string {
 	switch {
 	case filters.Trash:
 		return "trash"
+	case filters.Unresolved:
+		// No sidebar item lists only the contacts to resolve.
+		return "-"
 	case filters.StoredIn != "", strings.Contains(filters.Source, ","), strings.Contains(filters.SaveTarget, ","):
 		// A sidebar item stands for one place, never several.
 		return "-"

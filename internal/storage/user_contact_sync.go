@@ -133,7 +133,7 @@ func (db *DB) ClaimUserContactSyncOperations(ctx context.Context, owner string, 
 	cutoff := now.Add(-lockTimeout).Format(time.RFC3339Nano)
 	rows, err := tx.QueryContext(ctx, `SELECT id FROM contact_sync_operations
  WHERE user_id=? AND (status='pending' OR (status='running' AND julianday(replace(locked_at,' +0000 UTC',''))<=julianday(?)))
- AND julianday(replace(next_attempt_at,' +0000 UTC',''))<=julianday('now')
+ AND julianday(replace(next_attempt_at,' +0000 UTC',''))<=julianday('now') AND `+contactOperationNotPausedSQL+`
  ORDER BY created_at,id LIMIT ?`, owner, cutoff, limit)
 	if err != nil {
 		return nil, err
@@ -790,7 +790,7 @@ func (db *DB) NextUserContactSyncAttempt(ctx context.Context, owner string, lock
 	}
 	var next, locked sqliteNullTime
 	var status string
-	err := db.Read().QueryRowContext(ctx, `SELECT next_attempt_at,locked_at,status FROM contact_sync_operations WHERE user_id=? AND status IN ('pending','running')
+	err := db.Read().QueryRowContext(ctx, `SELECT next_attempt_at,locked_at,status FROM contact_sync_operations WHERE user_id=? AND status IN ('pending','running') AND `+contactOperationNotPausedSQL+`
  ORDER BY CASE WHEN status='running' THEN max(julianday(replace(next_attempt_at,' +0000 UTC','')),julianday(replace(locked_at,' +0000 UTC',''))+?)
  ELSE julianday(replace(next_attempt_at,' +0000 UTC','')) END LIMIT 1`, owner, lockTimeout.Hours()/24).Scan(&next, &locked, &status)
 	if errors.Is(err, sql.ErrNoRows) {

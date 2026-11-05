@@ -490,6 +490,7 @@ func (m *UserStores) openUserStore(ctx context.Context, owner userStoreOwner, cr
 		// OpenExisting has checked the schema version, as did the identity
 		// check before any writer opened the file.
 		db.senderAvatarCache = m.system
+		db.contactHookSource = m.system
 		if err := ensureUserOAuthBoundary(ctx, db); err != nil {
 			db.Close()
 			return nil, err
@@ -553,6 +554,7 @@ func (m *UserStores) openUserStore(ctx context.Context, owner userStoreOwner, cr
 	if err == nil {
 		opened.userMailDelivery = true
 		opened.senderAvatarCache = m.system
+		opened.contactHookSource = m.system
 	}
 	return opened, err
 }

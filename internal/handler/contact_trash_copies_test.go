@@ -144,3 +144,63 @@ func TestSharedDroppedSyncPlaceDeletesItsCopy(t *testing.T) {
 		t.Fatal("the home lost its copy", stored, err)
 	}
 }
+
+// A synced contact deleted in one of its places shows in the sidebar's Por
+// resolver count until it is kept without that place.
+func TestSharedUnresolvedContactCountAndKeep(t *testing.T) {
+	ctx := context.Background()
+	h, db := newGmailAPITestHandler(t, ctx)
+	saved, err := db.SaveContact(ctx, "default", models.Contact{Name: "Ines Varga", Email: "ines@example.com", StoredIn: "local", GoferSyncEnabled: true, SaveTargets: []string{"account:acc"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.UpsertContactSource(ctx, storage.ContactSource{UserID: "default", ContactID: saved.ID, Provider: "gmail", AccountID: "acc", RemoteID: "people/ines"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.RemoveDeletedContactSource(ctx, "default", "gmail", "acc", "people/ines"); err != nil {
+		t.Fatal(err)
+	}
+	count := func() string {
+		r := httptest.NewRequest("GET", "/contacts/unresolved-count", nil)
+		r = r.WithContext(auth.ContextWithUser(r.Context(), &auth.User{ID: "default"}))
+		w := httptest.NewRecorder()
+		h.handleUnresolvedContactCount(w, r)
+		return strings.TrimSpace(w.Body.String())
+	}
+	if got := count(); !strings.Contains(got, ">1<") {
+		t.Fatal("count", got)
+	}
+	// It can't be edited while it waits.
+	edit := httptest.NewRequest("POST", "/api/contacts?id="+url.QueryEscape(saved.ID), strings.NewReader(url.Values{"name": {"Ines V"}, "email": {"ines@example.com"}, "sync_enabled": {"on"}}.Encode()))
+	edit.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	edit = edit.WithContext(auth.ContextWithUser(edit.Context(), &auth.User{ID: "default"}))
+	edited := httptest.NewRecorder()
+	h.handleSaveContact(edited, edit)
+	if edited.Code != http.StatusConflict {
+		t.Fatal("edited while to resolve", edited.Code, edited.Body.String())
+	}
+	resolver := httptest.NewRequest("GET", "/contacts/resolver", nil)
+	resolver = resolver.WithContext(auth.ContextWithUser(resolver.Context(), &auth.User{ID: "default"}))
+	dialog := httptest.NewRecorder()
+	h.handleContactResolver(dialog, resolver)
+	if dialog.Code != 200 || !strings.Contains(dialog.Body.String(), "Ines Varga") || !strings.Contains(dialog.Body.String(), `data-contacts-resolver-case="`+saved.ID+`"`) {
+		t.Fatal("resolver", dialog.Code, dialog.Body.String())
+	}
+	keep := func() string {
+		w := httptest.NewRecorder()
+		h.handleKeepContactsWithoutDeletedPlaces(w, contactIDsRequest(t, "/api/contacts/unresolved/keep", saved.ID))
+		if w.Code != 200 {
+			t.Fatal("keep", w.Code, w.Body.String())
+		}
+		return w.Body.String()
+	}
+	if got := keep(); !strings.Contains(got, `"kept":1`) {
+		t.Fatal("keep", got)
+	}
+	if got := count(); got != "" {
+		t.Fatal("count after keep", got)
+	}
+	if got := keep(); !strings.Contains(got, `"kept":0`) {
+		t.Fatal("keep again", got)
+	}
+}

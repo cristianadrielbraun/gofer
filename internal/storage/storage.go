@@ -34,6 +34,9 @@ type DB struct {
 	contactHook       func(ContactActivityNotification)
 	userMailDelivery  bool
 	senderAvatarCache *DB // immutable installation cache reference on owned stores
+	// contactHookSource is the system database on owned stores: its hook
+	// sends their contact activity to the owner's pages.
+	contactHookSource *DB
 	// mailAllowlist holds the allowed mail lists once read, until this
 	// database changes them.
 	mailAllowlist atomic.Pointer[MailAllowlist]
@@ -57,7 +60,7 @@ type ThreadingState struct {
 	Total      int  `json:"total"`
 }
 
-const CurrentSchemaVersion = 138
+const CurrentSchemaVersion = 139
 
 func New(dbPath string) (*DB, error) {
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
@@ -211,6 +214,11 @@ func (db *DB) notifyContactActivity(event ContactActivityNotification) {
 	db.contactHookMu.RLock()
 	hook := db.contactHook
 	db.contactHookMu.RUnlock()
+	if hook == nil && db.contactHookSource != nil {
+		db.contactHookSource.contactHookMu.RLock()
+		hook = db.contactHookSource.contactHook
+		db.contactHookSource.contactHookMu.RUnlock()
+	}
 	if hook != nil {
 		hook(event)
 	}
@@ -1136,6 +1144,11 @@ func (db *DB) migrate() error {
 	if currentVersion <= 137 {
 		if err := migrateV137ToV138(db.write); err != nil {
 			return fmt.Errorf("migrate v137 to v138: %w", err)
+		}
+	}
+	if currentVersion <= 138 {
+		if err := migrateV138ToV139(db.write); err != nil {
+			return fmt.Errorf("migrate v138 to v139: %w", err)
 		}
 	}
 

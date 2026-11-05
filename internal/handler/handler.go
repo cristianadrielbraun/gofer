@@ -507,6 +507,9 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/contacts/trash/restore", h.handleRestoreContacts)
 	mux.HandleFunc("POST /api/contacts/trash/places", h.handleContactTrashPlaces)
 	mux.HandleFunc("GET /contacts/trash-count", h.handleContactTrashCount)
+	mux.HandleFunc("GET /contacts/unresolved-count", h.handleUnresolvedContactCount)
+	mux.HandleFunc("GET /contacts/resolver", h.handleContactResolver)
+	mux.HandleFunc("POST /api/contacts/unresolved/keep", h.handleKeepContactsWithoutDeletedPlaces)
 	mux.HandleFunc("POST /api/contacts/trash/delete", h.handleDeleteContactsForever)
 	mux.HandleFunc("GET /api/contacts/ids", h.handleContactIDs)
 	mux.HandleFunc("GET /api/contacts/{id}/export", h.handleExportContact)
@@ -1151,6 +1154,7 @@ func (h *Handler) parseContactFilters(r *http.Request) models.ContactFilters {
 		SortOrder:  strings.TrimSpace(q.Get("sort_order")),
 		Trash:      q.Get("trash") == "1",
 	}
+	filters.Unresolved = !filters.Trash && q.Get("unresolved") == "1"
 	filters.SortBy = normalizeContactSortBy(filters.SortBy)
 	filters.SortOrder = normalizeSortOrder(filters.SortOrder)
 	return filters
@@ -1231,6 +1235,10 @@ func (h *Handler) handleSaveContact(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		contact.StoredIn = ""
+	}
+	if h.contactWaitsToResolve(ctx, userID, contact.ID) {
+		http.Error(w, i18n.T(r.Context(), "server.error.resolve_contact_first"), http.StatusConflict)
+		return
 	}
 	var previous *models.Contact
 	if contact.ID != "" {

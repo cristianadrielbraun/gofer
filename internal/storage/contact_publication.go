@@ -179,7 +179,8 @@ func (db *DB) PublishInboundContactBook(ctx context.Context, owner, account stri
 			seen[remote] = true
 		}
 	}
-	return db.publishInboundContacts(ctx, owner, account, "carddav", inputs, guard, func(tx *sql.Tx) error {
+	var unresolved []string
+	results, err := db.publishInboundContacts(ctx, owner, account, "carddav", inputs, guard, func(tx *sql.Tx) error {
 		if err := inboundContactBookTx(ctx, tx, owner, account, "carddav", book.ID); err != nil {
 			return err
 		}
@@ -194,21 +195,22 @@ func (db *DB) PublishInboundContactBook(ctx context.Context, owner, account stri
 		if configured != 1 {
 			return ErrContactPublication
 		}
-		rows, err := tx.QueryContext(ctx, `SELECT id,remote_id,profile_id FROM contact_cards WHERE user_id=? AND account_id=? AND provider='carddav' AND kind='provider'
+		rows, err := tx.QueryContext(ctx, `SELECT id,remote_id,profile_id,address_book_id FROM contact_cards WHERE user_id=? AND account_id=? AND provider='carddav' AND kind='provider'
  AND (address_book_id=? OR address_book_id='')`, owner, account, book.ID)
 		if err != nil {
 			return err
 		}
-		var remove, profiles []string
+		var remove []string
+		var lost []removedContactCard
 		for rows.Next() {
-			var id, remote, profile string
-			if err := rows.Scan(&id, &remote, &profile); err != nil {
+			var id, remote, profile, book string
+			if err := rows.Scan(&id, &remote, &profile, &book); err != nil {
 				rows.Close()
 				return err
 			}
 			if inScope(remote) && (deleted[remote] || (page.Full && !seen[remote])) {
 				remove = append(remove, id)
-				profiles = append(profiles, profile)
+				lost = append(lost, removedContactCard{profile: profile, account: account, book: book})
 			}
 		}
 		err = rows.Err()
@@ -221,7 +223,7 @@ func (db *DB) PublishInboundContactBook(ctx context.Context, owner, account stri
 				return err
 			}
 		}
-		if _, err := trashContactsDeletedAtHomeTx(ctx, tx, owner, profiles); err != nil {
+		if _, unresolved, err = contactsLostCopiesTx(ctx, tx, owner, lost); err != nil {
 			return err
 		}
 		if book.ID == "" {
@@ -234,6 +236,10 @@ func (db *DB) PublishInboundContactBook(ctx context.Context, owner, account stri
 		}
 		return checkpoint(tx)
 	})
+	if err == nil {
+		db.logContactsUnresolved(ctx, owner, unresolved)
+	}
+	return results, err
 }
 
 // InboundJMAPContactPage is one JMAP contacts pull. Each contact's
@@ -268,21 +274,23 @@ func (db *DB) PublishInboundJMAPContacts(ctx context.Context, owner, account str
 		}
 		seen[remote] = true
 	}
-	return db.publishInboundContacts(ctx, owner, account, "jmap", page.Contacts, guard, func(tx *sql.Tx) error {
-		rows, err := tx.QueryContext(ctx, `SELECT id,remote_id,profile_id FROM contact_cards WHERE user_id=? AND account_id=? AND provider='jmap' AND kind='provider'`, owner, account)
+	var unresolved []string
+	results, err := db.publishInboundContacts(ctx, owner, account, "jmap", page.Contacts, guard, func(tx *sql.Tx) error {
+		rows, err := tx.QueryContext(ctx, `SELECT id,remote_id,profile_id,address_book_id FROM contact_cards WHERE user_id=? AND account_id=? AND provider='jmap' AND kind='provider'`, owner, account)
 		if err != nil {
 			return err
 		}
-		var remove, profiles []string
+		var remove []string
+		var lost []removedContactCard
 		for rows.Next() {
-			var id, remote, profile string
-			if err := rows.Scan(&id, &remote, &profile); err != nil {
+			var id, remote, profile, book string
+			if err := rows.Scan(&id, &remote, &profile, &book); err != nil {
 				rows.Close()
 				return err
 			}
 			if deleted[remote] || (page.Full && !seen[remote]) {
 				remove = append(remove, id)
-				profiles = append(profiles, profile)
+				lost = append(lost, removedContactCard{profile: profile, account: account, book: book})
 			}
 		}
 		err = rows.Err()
@@ -295,7 +303,7 @@ func (db *DB) PublishInboundJMAPContacts(ctx context.Context, owner, account str
 				return err
 			}
 		}
-		if _, err := trashContactsDeletedAtHomeTx(ctx, tx, owner, profiles); err != nil {
+		if _, unresolved, err = contactsLostCopiesTx(ctx, tx, owner, lost); err != nil {
 			return err
 		}
 		result, err := tx.ExecContext(ctx, `UPDATE account_contact_sync_configs SET last_sync_token=?,last_success_at=CURRENT_TIMESTAMP,last_error='',updated_at=CURRENT_TIMESTAMP
@@ -308,6 +316,10 @@ func (db *DB) PublishInboundJMAPContacts(ctx context.Context, owner, account str
 		}
 		return checkpoint(tx)
 	})
+	if err == nil {
+		db.logContactsUnresolved(ctx, owner, unresolved)
+	}
+	return results, err
 }
 
 func inboundContactBookTx(ctx context.Context, tx *sql.Tx, owner, account, provider, book string) error {

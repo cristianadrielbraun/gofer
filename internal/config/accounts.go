@@ -1500,6 +1500,12 @@ func (s *AccountStore) DeleteAccountWithProgress(ctx context.Context, accountID 
 			      )`,
 		},
 		{
+			step:  "delete contacts to resolve",
+			table: "contact_remote_deletions",
+			sql: `DELETE FROM contact_remote_deletions
+			      WHERE rowid IN (SELECT rowid FROM contact_remote_deletions WHERE account_id = ? LIMIT ?)`,
+		},
+		{
 			step:  "delete contact conflicts",
 			table: "contact_conflicts",
 			sql: `DELETE FROM contact_conflicts

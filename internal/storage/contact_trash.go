@@ -132,96 +132,52 @@ func trashContactTx(ctx context.Context, tx *sql.Tx, userID, id string) (bool, e
 	if count, _ := result.RowsAffected(); count != 1 {
 		return false, nil
 	}
-	_, err = tx.ExecContext(ctx, `
+	if _, err := tx.ExecContext(ctx, `
 		UPDATE contact_sync_operations SET status = 'done', locked_at = NULL, last_error = '', updated_at = CURRENT_TIMESTAMP
-		WHERE user_id = ? AND contact_id = ? AND status IN ('pending', 'running')`, userID, id)
+		WHERE user_id = ? AND contact_id = ? AND status IN ('pending', 'running')`, userID, id); err != nil {
+		return false, err
+	}
+	// A contact still to resolve is resolved by going to the Trash.
+	_, err = tx.ExecContext(ctx, `DELETE FROM contact_remote_deletions WHERE user_id = ? AND profile_id = ?`, userID, id)
 	return err == nil, err
 }
 
 // A contact deleted on the account it lives on, with Gofer Sync off, goes
 // to the Trash like mail deleted there: its home no longer has it. Restoring
-// it writes it back there.
-
-// trashContactsDeletedAtHomeTx moves to the Trash those of the contacts
-// whose copies just went that have Gofer Sync off and no copy left in their
-// home. It gives how many went.
-func trashContactsDeletedAtHomeTx(ctx context.Context, tx *sql.Tx, userID string, profiles []string) (int, error) {
-	trashed := 0
-	seen := map[string]bool{}
-	for _, id := range profiles {
-		if id == "" || seen[id] {
-			continue
-		}
-		seen[id] = true
-		var home string
-		var syncEnabled, deleted int
-		err := tx.QueryRowContext(ctx, `SELECT home, sync_enabled, is_deleted FROM contact_profiles WHERE user_id = ? AND id = ?`, userID, id).Scan(&home, &syncEnabled, &deleted)
-		if errors.Is(err, sql.ErrNoRows) {
-			continue
-		}
-		if err != nil {
-			return trashed, err
-		}
-		if deleted == 1 || syncEnabled == 1 {
-			continue
-		}
-		var match string
-		var arg string
-		if account, ok := strings.CutPrefix(home, "account:"); ok {
-			match, arg = `account_id = ?`, account
-		} else if book, ok := strings.CutPrefix(home, "book:"); ok {
-			match, arg = `address_book_id = ?`, book
-		} else {
-			continue
-		}
-		var present int
-		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM contact_cards WHERE user_id = ? AND profile_id = ? AND kind = 'provider' AND is_deleted = 0 AND `+match+`)`, userID, id, arg).Scan(&present); err != nil {
-			return trashed, err
-		}
-		if present == 1 {
-			continue
-		}
-		went, err := trashContactTx(ctx, tx, userID, id)
-		if err != nil {
-			return trashed, err
-		}
-		if went {
-			trashed++
-		}
-	}
-	return trashed, nil
-}
+// it writes it back there. One with Gofer Sync on goes to be resolved; see
+// contact_unresolved.go.
 
 // RemoveDeletedContactSource forgets a copy deleted on its account. A
-// contact that lived there with Gofer Sync off goes to the Trash with it.
+// contact that lived there with Gofer Sync off goes to the Trash with it,
+// and one with Gofer Sync on goes to be resolved.
 func (db *DB) RemoveDeletedContactSource(ctx context.Context, userID, provider, accountID, remoteID string) error {
 	tx, err := db.Write().BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	rows, err := tx.QueryContext(ctx, `SELECT profile_id FROM contact_cards WHERE user_id = ? AND provider = ? AND account_id = ? AND remote_id = ? AND kind = 'provider'`, userID, provider, accountID, remoteID)
+	rows, err := tx.QueryContext(ctx, `SELECT profile_id, account_id, address_book_id FROM contact_cards WHERE user_id = ? AND provider = ? AND account_id = ? AND remote_id = ? AND kind = 'provider' AND is_deleted = 0`, userID, provider, accountID, remoteID)
 	if err != nil {
 		return err
 	}
-	var profiles []string
+	var cards []removedContactCard
 	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
+		var card removedContactCard
+		if err := rows.Scan(&card.profile, &card.account, &card.book); err != nil {
 			rows.Close()
 			return err
 		}
-		profiles = append(profiles, id)
+		cards = append(cards, card)
 	}
 	err = rows.Err()
 	rows.Close()
-	if err != nil || len(profiles) == 0 {
+	if err != nil || len(cards) == 0 {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM contact_cards WHERE user_id = ? AND provider = ? AND account_id = ? AND remote_id = ? AND kind = 'provider'`, userID, provider, accountID, remoteID); err != nil {
 		return err
 	}
-	trashed, err := trashContactsDeletedAtHomeTx(ctx, tx, userID, profiles)
+	trashed, unresolved, err := contactsLostCopiesTx(ctx, tx, userID, cards)
 	if err != nil {
 		return err
 	}
@@ -231,6 +187,7 @@ func (db *DB) RemoveDeletedContactSource(ctx context.Context, userID, provider, 
 	if trashed > 0 {
 		_ = db.LogContactActivity(ctx, userID, "contacts_trashed", "", "Contacts moved to Trash", trashed)
 	}
+	db.logContactsUnresolved(ctx, userID, unresolved)
 	return nil
 }
 

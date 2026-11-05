@@ -488,7 +488,8 @@ func (db *DB) listProfileContacts(ctx context.Context, userID string, filters mo
 		       CASE WHEN p.origin = 'manual' THEN 1 ELSE 0 END AS is_manual,
 		       COALESCE((SELECT SUM(co.message_count) FROM contact_identities ci INDEXED BY idx_contact_identities_profile JOIN contact_observations co ON co.user_id = ci.user_id AND co.normalized_email = ci.normalized_value AND co.is_suppressed = 0 WHERE ci.user_id = p.user_id AND ci.profile_id = p.id AND ci.kind = 'email'), 0) AS message_count,
 		       (SELECT MAX(co.last_seen_at) FROM contact_identities ci INDEXED BY idx_contact_identities_profile JOIN contact_observations co ON co.user_id = ci.user_id AND co.normalized_email = ci.normalized_value AND co.is_suppressed = 0 WHERE ci.user_id = p.user_id AND ci.profile_id = p.id AND ci.kind = 'email') AS last_seen_at,
-		       p.created_at, p.updated_at, p.trashed_at, p.home
+		       p.created_at, p.updated_at, p.trashed_at, p.home,
+		       COALESCE((SELECT group_concat(d.place, ',') FROM contact_remote_deletions d WHERE d.user_id = p.user_id AND d.profile_id = p.id), '') AS deleted_from
 		FROM contact_profiles p
 		WHERE `+where+`
 		ORDER BY `+contactListOrderSQL(filters, true)+`
@@ -543,9 +544,13 @@ func profileContactsIncluded(filters models.ContactFilters) bool {
 
 func contactProfileFilterSQL(userID string, filters models.ContactFilters) (string, []any) {
 	query := strings.TrimSpace(filters.Query)
+	// Contacts still to resolve are listed with the others, marked; the
+	// Unresolved filter lists them alone.
 	where := `p.user_id = ? AND p.is_deleted = 0`
 	if filters.Trash {
 		where = `p.user_id = ? AND p.is_deleted = 1 AND p.trashed_at IS NOT NULL`
+	} else if filters.Unresolved {
+		where = `p.user_id = ? AND p.is_deleted = 0 AND ` + contactUnresolvedSQL("p")
 	}
 	args := []any{userID}
 	if query != "" {
@@ -652,8 +657,12 @@ func scanProfileContactRow(ctx context.Context, scanner interface{ Scan(dest ...
 	var messageCount int
 	var source string
 	var lastSeen, createdAt, updatedAt, trashedAt sql.NullString
-	if err := scanner.Scan(&c.ID, &c.Name, &c.Email, &c.Phone, &c.AvatarURL, &isDeleted, &source, &isManual, &messageCount, &lastSeen, &createdAt, &updatedAt, &trashedAt, &c.StoredIn); err != nil {
+	var deletedFrom string
+	if err := scanner.Scan(&c.ID, &c.Name, &c.Email, &c.Phone, &c.AvatarURL, &isDeleted, &source, &isManual, &messageCount, &lastSeen, &createdAt, &updatedAt, &trashedAt, &c.StoredIn, &deletedFrom); err != nil {
 		return c, err
+	}
+	if deletedFrom != "" {
+		c.DeletedFrom = strings.Split(deletedFrom, ",")
 	}
 	if trashedAt.Valid {
 		c.TrashedAt, c.TrashPurgeAt = contactTrashDates(ctx, trashedAt.String, loc)
@@ -944,6 +953,11 @@ func (db *DB) getContactWithProfile(ctx context.Context, userID, contactID strin
 	contact.SaveTargets, _ = db.GetContactSaveTargets(ctx, userID, contactID)
 	_ = db.hydrateContactAddressBooks(ctx, userID, &contact)
 	_ = db.hydrateContactSyncState(ctx, userID, &contact)
+	if deletions, err := db.ContactRemoteDeletions(ctx, userID, contactID); err == nil {
+		for _, deletion := range deletions {
+			contact.DeletedFrom = append(contact.DeletedFrom, deletion.Place)
+		}
+	}
 	return &contact, profile, nil
 }
 
@@ -1593,6 +1607,7 @@ func (db *DB) ClaimContactSyncOperations(ctx context.Context, limit int, lockTim
 		WHERE (status = 'pending' OR (status = 'running' AND locked_at <= ?))
 		  AND next_attempt_at <= CURRENT_TIMESTAMP
 		  AND EXISTS (SELECT 1 FROM users u WHERE u.id = contact_sync_operations.user_id AND u.status = 'active')
+		  AND `+contactOperationNotPausedSQL+`
 		ORDER BY created_at
 		LIMIT ?`, cutoff, limit)
 	if err != nil {

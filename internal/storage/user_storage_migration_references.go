@@ -15,6 +15,7 @@ var userStorageMigrationOptionalLinks = []migrationLink{
 	{"contact_cards", "accounts", []string{"account_id"}, []string{"id"}},
 	{"contact_cards", "account_contact_address_books", []string{"address_book_id"}, []string{"id"}},
 	{"contact_conflicts", "accounts", []string{"account_id"}, []string{"id"}},
+	{"contact_remote_deletions", "accounts", []string{"account_id"}, []string{"id"}},
 	{"contact_sync_memberships", "accounts", []string{"account_id"}, []string{"id"}},
 	{"contact_sync_memberships", "account_contact_address_books", []string{"address_book_id"}, []string{"id"}},
 	{"contact_observations", "contact_profiles", []string{"profile_id"}, []string{"id"}},

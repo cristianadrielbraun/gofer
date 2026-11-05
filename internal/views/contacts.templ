@@ -709,6 +709,28 @@ func contactProfileSyncLabel(ctx context.Context, profile *models.ContactProfile
 	return contactSyncEnabledLabel(ctx, contactProfileSyncEnabled(profile))
 }
 
+// contactSyncPaused says whether a contact's Gofer Sync is on but waits for
+// it to be resolved.
+func contactSyncPaused(contact models.Contact, profile *models.ContactProfile) bool {
+	return contactProfileSyncEnabled(profile) && len(contact.DeletedFrom) > 0
+}
+
+// contactSyncStateLabel is the Gofer Sync section's badge: on, off, or on
+// and paused while the contact waits to be resolved.
+func contactSyncStateLabel(ctx context.Context, contact models.Contact, profile *models.ContactProfile) string {
+	if contactSyncPaused(contact, profile) {
+		return i18n.T(ctx, "contacts.sync.enabled_paused")
+	}
+	return contactProfileSyncLabel(ctx, profile)
+}
+
+func contactSyncStateBadgeClass(contact models.Contact, profile *models.ContactProfile) string {
+	if contactSyncPaused(contact, profile) {
+		return "rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-wider transition-colors border-amber-500/30 bg-amber-500/[0.10] text-amber-800 dark:text-amber-200"
+	}
+	return contactSyncEnabledBadgeClass(contactProfileSyncEnabled(profile))
+}
+
 func contactSyncLabel(ctx context.Context, contact *models.Contact) string {
 	return contactSyncEnabledLabel(ctx, contact != nil && contact.GoferSyncEnabled)
 }
@@ -898,6 +920,12 @@ func contactViewIndicatorStyle(mode string) string {
 	return "transform:translateX(0)"
 }
 
+// contactFiltersActiveExcept says whether a filter other than the contacts
+// to resolve, or a search, narrows the list.
+func contactFiltersActiveExcept(filters models.ContactFilters) bool {
+	return filters.Source != "" || filters.StoredIn != "" || filters.SaveTarget != "" || filters.Activity != "" || strings.TrimSpace(filters.Query) != ""
+}
+
 // contactFiltersActiveCount is how many filters the Filters button counts.
 func contactFiltersActiveCount(filters models.ContactFilters) int {
 	count := 0
@@ -905,6 +933,9 @@ func contactFiltersActiveCount(filters models.ContactFilters) int {
 		if value != "" {
 			count++
 		}
+	}
+	if filters.Unresolved {
+		count++
 	}
 	return count
 }
@@ -961,7 +992,7 @@ func contactMessageCountTitle(ctx context.Context, count int) string {
 }
 
 func contactFiltersActive(filters models.ContactFilters) bool {
-	return filters.Source != "" || filters.StoredIn != "" || filters.SaveTarget != "" || filters.Activity != ""
+	return filters.Source != "" || filters.StoredIn != "" || filters.SaveTarget != "" || filters.Activity != "" || filters.Unresolved
 }
 
 func contactFilterCount(filters models.ContactFilters) int {
@@ -978,6 +1009,9 @@ func contactFilterCount(filters models.ContactFilters) int {
 	if filters.Activity != "" {
 		count++
 	}
+	if filters.Unresolved {
+		count++
+	}
 	return count
 }
 
@@ -985,6 +1019,9 @@ func contactFilterValues(filters models.ContactFilters) url.Values {
 	values := url.Values{}
 	if filters.Trash {
 		values.Set("trash", "1")
+	}
+	if filters.Unresolved {
+		values.Set("unresolved", "1")
 	}
 	if strings.TrimSpace(filters.Query) != "" {
 		values.Set("q", strings.TrimSpace(filters.Query))
@@ -1529,6 +1566,9 @@ templ ContactsListPane(contacts []models.Contact, selected *models.Contact, filt
 					<input type="hidden" name="stored_in" value={ filters.StoredIn }/>
 					<input type="hidden" name="save_target" value={ filters.SaveTarget }/>
 					<input type="hidden" name="activity" value={ filters.Activity }/>
+					if filters.Unresolved {
+						<input type="hidden" name="unresolved" value="1"/>
+					}
 					<input type="hidden" name="view" value={ contactViewMode(filters.View) }/>
 					<input type="hidden" name="sort_by" value={ filters.SortBy }/>
 					<input type="hidden" name="sort_order" value={ filters.SortOrder }/>
@@ -1666,6 +1706,14 @@ templ ContactsListPane(contacts []models.Contact, selected *models.Contact, filt
 										}
 									}
 								</div>
+								// Contacts to resolve are left out of the list; this shows them
+								// in it instead. The Trash has none.
+								if !filters.Trash {
+									<div class="flex items-center justify-between gap-3 pt-1">
+										<label for="contacts-filter-unresolved" class="text-[11px] font-medium text-muted-foreground">{ i18n.T(ctx, "contacts.filters.unresolved") }</label>
+										@switchcomp.Switch(switchcomp.Props{ID: "contacts-filter-unresolved", Name: "unresolved", Value: "1", Checked: filters.Unresolved, Attributes: templ.Attributes{"data-contact-filter-unresolved": ""}})
+									</div>
+								}
 							</form>
 						}
 					}
@@ -1687,6 +1735,9 @@ templ ContactsListPane(contacts []models.Contact, selected *models.Contact, filt
 						}
 						if filters.Activity != "" {
 							@contactActiveFilterPill("activity", contactActivityFilterLabels(ctx, filters.Activity))
+						}
+						if filters.Unresolved {
+							@contactActiveFilterPill("unresolved", i18n.T(ctx, "contacts.filters.unresolved_pill"))
 						}
 					</div>
 				}
@@ -1788,9 +1839,20 @@ templ ContactsListPane(contacts []models.Contact, selected *models.Contact, filt
 			if filters.Trash {
 				data-trash="1"
 			}
+			if filters.Unresolved {
+				data-unresolved="1"
+			}
 		>
 			if totalCount < 0 {
 				@NavigationLoadingContent()
+			} else if len(contacts) == 0 && filters.Unresolved && !contactFiltersActiveExcept(filters) {
+				<div class="flex flex-col items-center justify-center py-20 px-4 text-center">
+					<div class="empty-icon-box size-16 rounded-2xl bg-muted/50 flex items-center justify-center mb-4 raised">
+						@icon.CircleCheck(icon.Props{Class: "size-5"})
+					</div>
+					<h3 class="font-semibold text-sm mb-1">{ i18n.T(ctx, "contacts.unresolved.empty_title") }</h3>
+					<p class="text-xs text-muted-foreground">{ i18n.T(ctx, "contacts.unresolved.empty_detail") }</p>
+				</div>
 			} else if len(contacts) == 0 && filters.Trash {
 				<div class="flex flex-col items-center justify-center py-20 px-4 text-center">
 					<div class="empty-icon-box size-16 rounded-2xl bg-muted/50 flex items-center justify-center mb-4 raised">
@@ -2029,6 +2091,7 @@ templ ContactListCard(contact models.Contact, filters models.ContactFilters, sel
 			</div>
 			<div class="mail-list-card-zone mail-list-card-zone-header" data-mail-card-zone="header">
 				<span class="truncate text-sm text-foreground" data-mail-card-field="from">
+					@contactUnresolvedMark(contact, accounts)
 					<span class="font-semibold" data-contact-name>{ contact.Name }</span>
 					if org := strings.TrimSpace(contact.Organization); org != "" && org != strings.TrimSpace(contact.Name) {
 						<span class="text-muted-foreground"> · { org }</span>
@@ -2058,6 +2121,18 @@ templ ContactListCard(contact models.Contact, filters models.ContactFilters, sel
 			</div>
 		</a>
 	</div>
+}
+
+// contactUnresolvedMark marks a contact in the list that waits to be
+// resolved, saying which places deleted it.
+templ contactUnresolvedMark(contact models.Contact, accounts []models.Account) {
+	if len(contact.DeletedFrom) > 0 {
+		@contactHeaderTooltip(i18n.T(ctx, "contacts.unresolved.mark", "places", strings.Join(contactPlaceNames(ctx, contact.DeletedFrom, accounts), ", "))) {
+			<span class="inline-flex shrink-0 align-[-2px] text-amber-600 dark:text-amber-400" data-contact-unresolved-mark aria-label={ i18n.T(ctx, "contacts.unresolved.title") }>
+				@icon.TriangleAlert(icon.Props{Class: "size-3.5"})
+			</span>
+		}
+	}
 }
 
 templ ContactListTableHeader() {
@@ -2092,7 +2167,10 @@ templ ContactListTableRow(contact models.Contact, filters models.ContactFilters,
 					@ContactAvatar(contact, "size-6 rounded-full text-[10px] font-semibold", "bg-gradient-to-b from-amber-700/70 to-amber-900/70 text-amber-100")
 				</div>
 				<div class="min-w-0">
-					<div class="truncate font-semibold text-foreground" data-contact-name>{ contact.Name }</div>
+					<div class="flex min-w-0 items-center gap-1">
+						@contactUnresolvedMark(contact, accounts)
+						<div class="truncate font-semibold text-foreground" data-contact-name>{ contact.Name }</div>
+					</div>
 					<div class="truncate text-xs text-muted-foreground" data-contact-email>{ contactListDetail(contact) }</div>
 				</div>
 			</div>
@@ -2329,11 +2407,115 @@ templ ContactReadOnlyView(contact models.Contact, profile *models.ContactProfile
 				</p>
 			</div>
 		}
+		if len(contact.DeletedFrom) > 0 && contact.TrashedAt == "" {
+			@ContactUnresolvedNotice(contact, accounts)
+		}
 		@ContactReadOnlyContactInfo(contact)
 		@ContactReadOnlySyncInfo(contact, profile, syncQueued, accounts)
 		@ContactReadOnlyActivityInfo(contact)
 		@ContactRecentActivityLoader(contact)
 	</div>
+}
+
+// ContactUnresolvedNotice tells that places a synced contact lives in
+// deleted it, and opens the resolver, where it is resolved with the others.
+templ ContactUnresolvedNotice(contact models.Contact, accounts []models.Account) {
+	<div class={ "flex items-center gap-2 rounded-md border px-3 py-1.5 text-xs " + contactInsightSeverityClass("warning") } data-contact-unresolved-notice={ contact.ID }>
+		@icon.TriangleAlert(icon.Props{Class: "size-3.5 shrink-0"})
+		<p class="min-w-0 flex-1">{ i18n.T(ctx, "contacts.unresolved.banner", "places", strings.Join(contactPlaceNames(ctx, contact.DeletedFrom, accounts), ", ")) }</p>
+		<button type="button" class="shrink-0 font-semibold underline underline-offset-2 hover:opacity-80" data-contacts-open-resolver>{ i18n.T(ctx, "contacts.unresolved.open") }</button>
+	</div>
+}
+
+// ContactResolverDialog lists the synced contacts that one of their places
+// deleted, to choose for each at once: keep it without those places, delete
+// it everywhere, or leave it for later.
+templ ContactResolverDialog(contacts []models.Contact, accounts []models.Account) {
+	@dialog.Dialog(dialog.Props{ID: "contacts-resolver-dialog"}) {
+		@dialog.Content(dialog.ContentProps{Class: "data-dialog max-h-[calc(100dvh-2rem)] normal-case tracking-normal sm:max-w-2xl [&>[data-tui-dialog-panel]]:flex [&>[data-tui-dialog-panel]]:max-h-[calc(100dvh-2rem)] [&>[data-tui-dialog-panel]]:min-h-0 [&>[data-tui-dialog-panel]]:flex-col [&>[data-tui-dialog-panel]]:gap-0 [&>[data-tui-dialog-panel]]:p-0"}) {
+			@dialog.Header(dialog.HeaderProps{Class: "shrink-0 px-6 pt-6 pb-4"}) {
+				@dialog.Title() {
+					{ i18n.T(ctx, "contacts.unresolved.title") }
+				}
+				@dialog.Description() {
+					{ i18n.T(ctx, "contacts.unresolved.note") }
+				}
+			}
+			<form class={ dataDialogFormClass } data-contacts-resolver-form>
+				@dataDialogScroll("space-y-3 pb-4") {
+					if len(contacts) == 0 {
+						<div class="flex flex-col items-center justify-center py-10 text-center">
+							@icon.CircleCheck(icon.Props{Class: "mb-3 size-6 text-muted-foreground"})
+							<h3 class="mb-1 text-sm font-semibold">{ i18n.T(ctx, "contacts.unresolved.empty_title") }</h3>
+							<p class="text-xs text-muted-foreground">{ i18n.T(ctx, "contacts.unresolved.empty_detail") }</p>
+						</div>
+					} else {
+						<div class="flex flex-wrap items-center justify-end gap-x-3 gap-y-1 text-xs">
+							<span class="text-muted-foreground">{ i18n.T(ctx, "contacts.unresolved.for_all") }</span>
+							<button type="button" class="font-semibold underline-offset-2 hover:underline" data-contacts-resolver-all="keep">{ i18n.T(ctx, "contacts.unresolved.keep_short") }</button>
+							<button type="button" class="font-semibold text-destructive underline-offset-2 hover:underline" data-contacts-resolver-all="delete">{ i18n.T(ctx, "contacts.unresolved.delete_everywhere") }</button>
+							<button type="button" class="font-semibold text-muted-foreground underline-offset-2 hover:underline" data-contacts-resolver-all="later">{ i18n.T(ctx, "contacts.unresolved.later") }</button>
+						</div>
+						for _, contact := range contacts {
+							{{ places := strings.Join(contactPlaceNames(ctx, contact.DeletedFrom, accounts), ", ") }}
+							<fieldset class="space-y-2.5 rounded-lg border border-ink/10 bg-ink/[0.02] p-3" data-contacts-resolver-case={ contact.ID } data-contact-name={ contactDisplay(contact) }>
+								<div class="min-w-0">
+									<div class="truncate text-sm font-semibold text-foreground">{ contactDisplay(contact) }</div>
+									if strings.TrimSpace(contact.Email) != "" && strings.TrimSpace(contact.Email) != contactDisplay(contact) {
+										<div class="truncate text-xs text-muted-foreground">{ contact.Email }</div>
+									}
+									<p class="mt-1 text-xs text-amber-800 dark:text-amber-200">{ i18n.T(ctx, "contacts.unresolved.notice_title", "places", places) }</p>
+								</div>
+								<div class="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:gap-x-5" role="radiogroup" aria-label={ contactDisplay(contact) }>
+									<label class="flex items-center gap-2 text-sm text-foreground">
+										@radio.Radio(radio.Props{Name: "resolve-" + contact.ID, Value: "keep"})
+										<span>{ i18n.T(ctx, "contacts.unresolved.keep") }</span>
+									</label>
+									<label class="flex items-center gap-2 text-sm text-foreground">
+										@radio.Radio(radio.Props{Name: "resolve-" + contact.ID, Value: "delete"})
+										<span>{ i18n.T(ctx, "contacts.unresolved.delete_everywhere") }</span>
+									</label>
+									<label class="flex items-center gap-2 text-sm text-muted-foreground">
+										@radio.Radio(radio.Props{Name: "resolve-" + contact.ID, Value: "later", Checked: true})
+										<span>{ i18n.T(ctx, "contacts.unresolved.later") }</span>
+									</label>
+								</div>
+							</fieldset>
+						}
+					}
+				}
+				@dataDialogFooter() {
+					@dialog.Close(dialog.CloseProps{For: "contacts-resolver-dialog"}) {
+						<button type="button" class="inline-flex h-9 items-center justify-center rounded-md border border-border px-3 text-sm font-semibold text-muted-foreground hover:bg-accent hover:text-foreground">{ i18n.T(ctx, "common.cancel") }</button>
+					}
+					<button type="submit" disabled data-contacts-resolver-apply class="inline-flex h-9 items-center justify-center gap-1.5 rounded-md bg-primary px-3 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50">
+						{ i18n.T(ctx, "contacts.unresolved.apply") }
+					</button>
+				}
+			</form>
+		}
+	}
+}
+
+// contactPlaceNames names accounts and address books as the contacts list
+// does.
+func contactPlaceNames(ctx context.Context, places []string, accounts []models.Account) []string {
+	names := make([]string, 0, len(places))
+	for _, place := range places {
+		accountID, _ := strings.CutPrefix(place, "account:")
+		if book, ok := strings.CutPrefix(place, "book:"); ok {
+			accountID = ""
+			for _, account := range accounts {
+				for _, candidate := range account.ContactAddressBooks {
+					if candidate.ID == book {
+						accountID = account.ID
+					}
+				}
+			}
+		}
+		names = append(names, contactStoredInPlaceLabel(ctx, place, accountID, accounts))
+	}
+	return names
 }
 
 templ ContactReadOnlyContactInfo(contact models.Contact) {
@@ -2364,12 +2546,12 @@ templ ContactReadOnlySyncInfo(contact models.Contact, profile *models.ContactPro
 			<div class="flex flex-wrap items-center gap-2">
 				@icon.Route(icon.Props{Class: "size-3.5 text-muted-foreground"})
 				<h2 class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.sync.title") }</h2>
-				<span class={ contactSyncEnabledBadgeClass(contactProfileSyncEnabled(profile)) } data-contact-sync-enabled-status>{ contactProfileSyncLabel(ctx, profile) }</span>
+				<span class={ contactSyncStateBadgeClass(contact, profile) } data-contact-sync-enabled-status>{ contactSyncStateLabel(ctx, contact, profile) }</span>
 			</div>
 			@button.Button(button.Props{
 				Variant: button.VariantOutline,
 				Size: button.SizeSm,
-				Disabled: contact.TrashedAt != "" || !contactProfileSyncEnabled(profile) || contactSyncOperationActive(contact, syncQueued),
+				Disabled: contact.TrashedAt != "" || len(contact.DeletedFrom) > 0 || !contactProfileSyncEnabled(profile) || contactSyncOperationActive(contact, syncQueued),
 				Class: "h-7 gap-1.5 border-ink/10 bg-ink/[0.025] px-2.5 text-xs text-muted-foreground shadow-none",
 				Attributes: templ.Attributes{"data-contact-sync-now": "", "data-contact-id": contact.ID, "aria-label": i18n.T(ctx, "contacts.sync.now_label")},
 			}) {
@@ -2671,11 +2853,21 @@ templ ContactEditorHeader(contact *models.Contact, profile *models.ContactProfil
 					</div>
 				} else if contact != nil {
 					{{ editDialogID := contactEditDialogID(*contact) }}
-					@dialog.Trigger(dialog.TriggerProps{For: editDialogID}) {
-						<button type="button" class="inline-flex h-9 items-center gap-1.5 rounded-md border border-ink/10 bg-ink/[0.025] px-3 text-sm font-semibold text-muted-foreground transition-colors hover:bg-ink/[0.06] hover:text-ink" aria-label={ i18n.T(ctx, "contacts.action.edit_label") } data-contact-edit-trigger data-contact-edit-dialog={ editDialogID }>
-							@icon.Pencil(icon.Props{Class: "size-3.5"})
-							{ i18n.T(ctx, "contacts.action.edit") }
-						</button>
+					// A contact to resolve waits as it is: it is resolved first.
+					if len(contact.DeletedFrom) > 0 {
+						@contactHeaderTooltip(i18n.T(ctx, "contacts.unresolved.resolve_first")) {
+							<button type="button" disabled class="inline-flex h-9 cursor-not-allowed items-center gap-1.5 rounded-md border border-ink/10 bg-ink/[0.025] px-3 text-sm font-semibold text-muted-foreground/50" aria-label={ i18n.T(ctx, "contacts.action.edit_label") }>
+								@icon.Pencil(icon.Props{Class: "size-3.5"})
+								{ i18n.T(ctx, "contacts.action.edit") }
+							</button>
+						}
+					} else {
+						@dialog.Trigger(dialog.TriggerProps{For: editDialogID}) {
+							<button type="button" class="inline-flex h-9 items-center gap-1.5 rounded-md border border-ink/10 bg-ink/[0.025] px-3 text-sm font-semibold text-muted-foreground transition-colors hover:bg-ink/[0.06] hover:text-ink" aria-label={ i18n.T(ctx, "contacts.action.edit_label") } data-contact-edit-trigger data-contact-edit-dialog={ editDialogID }>
+								@icon.Pencil(icon.Props{Class: "size-3.5"})
+								{ i18n.T(ctx, "contacts.action.edit") }
+							</button>
+						}
 					}
 					if strings.TrimSpace(contact.Email) != "" {
 						@contactHeaderTooltip(i18n.T(ctx, "contacts.action.email")) {
@@ -2684,10 +2876,10 @@ templ ContactEditorHeader(contact *models.Contact, profile *models.ContactProfil
 							</a>
 						}
 					}
-					@contactPlaceActionButton(contactPlaceDialogID(*contact, true), i18n.T(ctx, "contacts.action.move"), contact.GoferSyncEnabled) {
+					@contactPlaceActionButton(contactPlaceDialogID(*contact, true), i18n.T(ctx, "contacts.action.move"), contactMoveBlocked(ctx, *contact)) {
 						@icon.FolderInput(icon.Props{Class: "size-4"})
 					}
-					@contactPlaceActionButton(contactPlaceDialogID(*contact, false), i18n.T(ctx, "contacts.action.duplicate"), false) {
+					@contactPlaceActionButton(contactPlaceDialogID(*contact, false), i18n.T(ctx, "contacts.action.duplicate"), contactUnresolvedBlocked(ctx, *contact)) {
 						@icon.CopyPlus(icon.Props{Class: "size-4"})
 					}
 					@contactHeaderTooltip(i18n.T(ctx, "contacts.action.export")) {
@@ -2720,13 +2912,34 @@ func contactPlaceDialogID(contact models.Contact, move bool) string {
 	return "contact-duplicate-" + contact.ID
 }
 
-// contactPlaceActionButton opens a contact's Move or Duplicate dialog. Move
-// is off for a contact with Gofer Sync on, which is in each of its places.
-templ contactPlaceActionButton(dialogID, label string, disabled bool) {
+// contactUnresolvedBlocked says why an action waits for a contact to be
+// resolved, nothing when it doesn't.
+func contactUnresolvedBlocked(ctx context.Context, contact models.Contact) string {
+	if len(contact.DeletedFrom) > 0 {
+		return i18n.T(ctx, "contacts.unresolved.resolve_first")
+	}
+	return ""
+}
+
+// contactMoveBlocked says why a contact can't move: it waits to be resolved,
+// or it has Gofer Sync on and so is in each of its places.
+func contactMoveBlocked(ctx context.Context, contact models.Contact) string {
+	if reason := contactUnresolvedBlocked(ctx, contact); reason != "" {
+		return reason
+	}
+	if contact.GoferSyncEnabled {
+		return i18n.T(ctx, "contacts.place.move_synced")
+	}
+	return ""
+}
+
+// contactPlaceActionButton opens a contact's Move or Duplicate dialog, or
+// says why it can't, when blocked.
+templ contactPlaceActionButton(dialogID, label string, blocked string) {
 	// The tooltip goes right around the button: it places itself by the
 	// size of what it wraps, and a dialog trigger has none of its own.
-	if disabled {
-		@contactHeaderTooltip(i18n.T(ctx, "contacts.place.move_synced")) {
+	if blocked != "" {
+		@contactHeaderTooltip(blocked) {
 			<button type="button" disabled class="size-9 rounded-md flex items-center justify-center text-muted-foreground/50 cursor-not-allowed" aria-label={ label }>
 				{ children... }
 			</button>

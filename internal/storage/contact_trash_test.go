@@ -240,5 +240,9 @@ func TestContactDeletedAtHomeGoesToTheTrash(t *testing.T) {
 		if !inTrash(t, db, results[0].ProfileID) || inTrash(t, db, results[1].ProfileID) {
 			t.Fatal("trash", inTrash(t, db, results[0].ProfileID), inTrash(t, db, results[1].ProfileID))
 		}
+		// The synced one waits to be resolved instead.
+		if deletions, err := db.ContactRemoteDeletions(t.Context(), "default", results[1].ProfileID); err != nil || len(deletions) != 1 || deletions[0].Place != "book:dav-book" {
+			t.Fatal("to resolve", deletions, err)
+		}
 	})
 }

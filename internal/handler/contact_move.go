@@ -63,6 +63,10 @@ func (h *Handler) placeContactCopy(w http.ResponseWriter, r *http.Request, move 
 		http.Error(w, i18n.T(r.Context(), "server.error.choose_another_place_for_the_contact"), http.StatusBadRequest)
 		return
 	}
+	if h.contactWaitsToResolve(ctx, owner, id) {
+		http.Error(w, i18n.T(r.Context(), "server.error.resolve_contact_first"), http.StatusConflict)
+		return
+	}
 	if move && original.GoferSyncEnabled {
 		http.Error(w, i18n.T(r.Context(), "server.error.turn_off_gofer_sync_to_move_contact"), http.StatusConflict)
 		return
