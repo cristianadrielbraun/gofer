@@ -28,6 +28,14 @@ func SanitizeOriginalHTML(input []byte) []byte {
 	return SanitizeHTML(input)
 }
 
+// SanitizeOutgoingHTML cleans HTML the user wrote to send or keep as a
+// draft. It drops what SanitizeHTML drops, but remote images and other
+// remote content stay as plain web addresses: recipients load them as with
+// any message, and blocking them would send the message without them.
+func SanitizeOutgoingHTML(input []byte) []byte {
+	return RestoreRemoteContent(SanitizeHTML(input), func(remoteURL string) string { return remoteURL })
+}
+
 func RewriteCIDReferences(html []byte, cidToURL map[string]string) []byte {
 	if len(cidToURL) == 0 {
 		return html

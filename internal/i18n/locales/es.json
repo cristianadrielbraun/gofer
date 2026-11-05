@@ -1213,6 +1213,8 @@
   "compose.more": "Más opciones de redacción",
   "compose.new_message": "Mensaje nuevo",
   "compose.normal_width": "Ancho normal",
+  "compose.remote_images.include": "Incluir las imágenes",
+  "compose.remote_images.left_out": "Las imágenes remotas del mensaje original no se incluyen porque su contenido remoto está bloqueado",
   "compose.save_draft": "Guardar borrador",
   "compose.save_draft_button": "Guardar borrador",
   "compose.schedule.confirm": "Programar",

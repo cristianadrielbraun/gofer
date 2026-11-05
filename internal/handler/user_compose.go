@@ -134,7 +134,7 @@ func (h *Handler) saveUserComposeDraft(ctx context.Context, r *http.Request) (co
 	}
 	body, html := r.FormValue("body"), strings.TrimSpace(r.FormValue("html_body"))
 	if html != "" {
-		html = string(message.SanitizeHTML([]byte(html)))
+		html = string(message.SanitizeOutgoingHTML([]byte(html)))
 	}
 	attachments, _, err := h.collectComposeAttachments(r)
 	if err != nil {

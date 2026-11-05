@@ -1213,6 +1213,8 @@
   "compose.more": "More compose options",
   "compose.new_message": "New message",
   "compose.normal_width": "Normal width",
+  "compose.remote_images.include": "Include images",
+  "compose.remote_images.left_out": "Remote images from the original message aren't included because its remote content is blocked",
   "compose.save_draft": "Save draft",
   "compose.save_draft_button": "Save Draft",
   "compose.schedule.confirm": "Schedule",

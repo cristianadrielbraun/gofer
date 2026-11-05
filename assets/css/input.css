@@ -903,7 +903,7 @@
   font-size: 0.85em;
 }
 
-.compose-rich-editor img[data-compose-inline-image] {
+.compose-rich-editor img[data-compose-inline-image]:not([data-compose-inline-quoted]) {
   display: block;
   max-width: 100%;
   height: auto;
@@ -917,6 +917,10 @@
 .compose-rich-editor img[data-compose-inline-image].compose-inline-image-selected {
   outline: 2px solid color-mix(in srgb, var(--primary) 70%, transparent);
   outline-offset: 3px;
+}
+
+.compose-rich-editor img[data-compose-remote-src] {
+  display: none;
 }
 
 .compose-inline-image-toolbar {

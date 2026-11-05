@@ -17990,6 +17990,7 @@ function resetComposeForm(fromPane, skipCleanup) {
   var editor = form.querySelector("[data-compose-editor]")
   if (editor) editor.innerHTML = ""
   syncComposeInlineImageInputs(form)
+  syncComposeRemoteImagesNotice(form)
   var recipientFields = form.querySelectorAll("[data-compose-recipient-field]")
   for (var i = 0; i < recipientFields.length; i++) renderComposeRecipientField(recipientFields[i], "")
   renderComposeAttachments(form, [])
@@ -18938,10 +18939,10 @@ function _sanitizeComposeHTML(html, allowDataImages) {
         continue
       }
       if (tag === "IMG") {
-        var imgAllowed = { src: true, alt: true, title: true, width: true, height: true, style: true, "data-compose-inline-image": true, "data-attachment-id": true, "data-existing-attachment-id": true, "data-content-id": true, "data-filename": true, "data-content-type": true, "data-size": true, "data-preview-url": true, "data-remote-src": true }
+        var imgAllowed = { src: true, alt: true, title: true, width: true, height: true, style: true, "data-compose-inline-image": true, "data-attachment-id": true, "data-existing-attachment-id": true, "data-content-id": true, "data-filename": true, "data-content-type": true, "data-size": true, "data-preview-url": true, "data-remote-src": true, "data-compose-remote-src": true, "data-compose-inline-quoted": true }
         if (!imgAllowed[name]) node.removeAttribute(attr.name)
         if (name === "style") {
-          var safeStyle = node.hasAttribute("data-compose-inline-image") ? _sanitizeComposeImageStyle(attr.value) : _sanitizeComposeStyle(attr.value)
+          var safeStyle = node.hasAttribute("data-compose-inline-image") && !node.hasAttribute("data-compose-inline-quoted") ? _sanitizeComposeImageStyle(attr.value) : _sanitizeComposeStyle(attr.value)
           if (safeStyle) node.setAttribute("style", safeStyle)
           else node.removeAttribute("style")
         }
@@ -18971,6 +18972,12 @@ function _sanitizeComposeHTML(html, allowDataImages) {
       if (!src && /^https?:/i.test(remoteSrc)) {
         src = remoteSrc
         node.setAttribute("src", src)
+      }
+      // A quoted remote image left out until the user includes it.
+      if (!src && /^https?:/i.test(node.getAttribute("data-compose-remote-src") || "")) {
+        node.removeAttribute("src")
+        node.removeAttribute("data-remote-src")
+        continue
       }
       var dataImage = allowDataImages && /^data:image\/(png|jpe?g|gif|webp|bmp|svg\+xml)[;,]/i.test(src)
       if (!dataImage && !/^(cid:|https?:|\/api\/attachments\/|\/api\/inline-content\/|\/compose\/attachments\/|\/api\/remote-assets\/)/i.test(src)) {
@@ -19014,8 +19021,13 @@ function _composeHTMLForSending(editor) {
     imgs[i].removeAttribute("data-content-type")
     imgs[i].removeAttribute("data-size")
     imgs[i].removeAttribute("data-preview-url")
+    imgs[i].removeAttribute("data-compose-inline-quoted")
     imgs[i].classList.remove("compose-inline-image-selected")
   }
+  // Remote images the user did not include, and any image still on a Gofer
+  // address, which the recipient could not load.
+  var leftOut = template.content.querySelectorAll("img[data-compose-remote-src], img[src^='/']")
+  for (var k = 0; k < leftOut.length; k++) leftOut[k].remove()
   return _sanitizeComposeHTML(template.innerHTML).trim()
 }
 
@@ -19060,7 +19072,9 @@ function syncComposeEditor(editor) {
 
 function composeChanged(editor) {
   syncComposeEditor(editor)
-  _markComposeDirty(_composeFormFrom(editor))
+  var form = _composeFormFrom(editor)
+  syncComposeRemoteImagesNotice(form)
+  _markComposeDirty(form)
 }
 
 function _syncComposeFormEditor(form) {
@@ -19280,7 +19294,7 @@ function composeAutosaveEligible(form) {
   for (var r = 0; r < recipientInputs.length; r++) text += " " + (recipientInputs[r].textContent || "")
   var checks = {
     chars: text.replace(/\s+/g, "").length >= composeAutosaveMinChars(),
-    attachment: !!form.querySelector("[data-compose-attachment], [data-compose-editor] img[data-compose-inline-image]"),
+    attachment: !!form.querySelector("[data-compose-attachment], [data-compose-editor] img[data-compose-inline-image]:not([data-compose-inline-quoted])"),
     to: !!String((form.querySelector('input[name="to"]') || {}).value || "").trim() || !!String((form.querySelector('[data-recipient-name="to"] [data-compose-recipient-input]') || {}).textContent || "").trim()
   }
   for (var c = 0; c < conditions.length; c++) {
@@ -21299,10 +21313,73 @@ function composeReplyPlain(source) {
   return "\n\n" + header + "\n" + quotedBody
 }
 
+// composeSourceRemoteAllowed says whether the reader loaded the quoted
+// message's remote content: always for it or its sender, or just now in the
+// reading pane.
+function composeSourceRemoteAllowed(source) {
+  if (source.remote_allowed) return true
+  if (!source.email_id) return false
+  var frame = document.querySelector('[data-email-body-frame][data-email-id="' + CSS.escape(String(source.email_id)) + '"]')
+  return !!(frame && frame.dataset.remoteLoaded === "true")
+}
+
+// _composeHoldRemoteImages keeps a quoted message's remote images out of the
+// editor, so nothing loads from the sender, until the user includes them.
+function _composeHoldRemoteImages(html) {
+  var template = document.createElement("template")
+  template.innerHTML = html || ""
+  var imgs = template.content.querySelectorAll("img")
+  for (var i = 0; i < imgs.length; i++) {
+    var remote = imgs[i].getAttribute("data-remote-src") || ""
+    var src = imgs[i].getAttribute("src") || ""
+    if (!remote && /^https?:/i.test(src)) remote = src
+    if (!/^https?:/i.test(remote)) continue
+    imgs[i].setAttribute("data-compose-remote-src", remote)
+    imgs[i].removeAttribute("data-remote-src")
+    imgs[i].removeAttribute("src")
+  }
+  return template.innerHTML
+}
+
+// _composeQuotedInlineImages marks the quoted message's own inline images.
+// They are sent again as inline parts but keep the message's look, unlike
+// the images the user inserts.
+function _composeQuotedInlineImages(html) {
+  var template = document.createElement("template")
+  template.innerHTML = html || ""
+  var imgs = template.content.querySelectorAll("img[data-compose-inline-image]")
+  for (var i = 0; i < imgs.length; i++) imgs[i].setAttribute("data-compose-inline-quoted", "")
+  return template.innerHTML
+}
+
 function composeSourceBodyHTML(source) {
-  var html = source.html_body ? _sanitizeComposeHTML(source.html_body) : ""
+  var raw = source.html_body || ""
+  if (raw && !composeSourceRemoteAllowed(source)) raw = _composeHoldRemoteImages(raw)
+  var html = raw ? _composeQuotedInlineImages(_composeHTMLForEditor(_sanitizeComposeHTML(raw), source.inline_images || [])) : ""
   if (html && html.trim()) return html
   return _composePlainToHTML(source.body || "")
+}
+
+function syncComposeRemoteImagesNotice(form) {
+  var notice = form && form.querySelector("[data-compose-remote-images-notice]")
+  if (!notice) return
+  var held = !!form.querySelector("[data-compose-editor] img[data-compose-remote-src]")
+  notice.classList.toggle("hidden", !held)
+}
+
+// includeComposeRemoteImages puts back the quoted message's remote images,
+// as plain links to where the sender keeps them.
+function includeComposeRemoteImages(button) {
+  var form = _composeFormFrom(button)
+  if (!form) return
+  var imgs = form.querySelectorAll("[data-compose-editor] img[data-compose-remote-src]")
+  for (var i = 0; i < imgs.length; i++) {
+    imgs[i].setAttribute("src", imgs[i].getAttribute("data-compose-remote-src"))
+    imgs[i].removeAttribute("data-compose-remote-src")
+  }
+  syncComposeRemoteImagesNotice(form)
+  var editor = form.querySelector("[data-compose-editor]")
+  if (editor) composeChanged(editor)
 }
 
 function composeReplyHTML(source) {
@@ -21433,6 +21510,7 @@ function writeComposePrefill(form, vals, prefix, mode) {
   setComposeAccount(form, vals.account_id, vals.identity_id)
   syncComposeOneTimeFrom(form)
   applyDefaultComposeSignature(form, true)
+  syncComposeRemoteImagesNotice(form)
   focusComposePrefill(form, mode)
 }
 

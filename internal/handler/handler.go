@@ -5496,7 +5496,7 @@ func (h *Handler) saveComposeDraftFromForm(ctx context.Context, r *http.Request)
 	body := r.FormValue("body")
 	htmlBody := strings.TrimSpace(r.FormValue("html_body"))
 	if htmlBody != "" {
-		htmlBody = string(message.SanitizeHTML([]byte(htmlBody)))
+		htmlBody = string(message.SanitizeOutgoingHTML([]byte(htmlBody)))
 	}
 	subject := r.FormValue("subject")
 	snippet := sentSnippet(body, subject)
@@ -5778,6 +5778,16 @@ func formValueAt(values []string, idx int, fallback string) string {
 	return fallback
 }
 
+type composeSourceAttachment struct {
+	ID          int64  `json:"id"`
+	Filename    string `json:"filename"`
+	ContentType string `json:"content_type"`
+	Size        int64  `json:"size"`
+	Existing    bool   `json:"existing"`
+	PreviewURL  string `json:"preview_url"`
+	ContentID   string `json:"content_id,omitempty"`
+}
+
 func (h *Handler) handleComposeSource(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	// The message comes by its local id from the message list, or by its
@@ -5821,17 +5831,23 @@ func (h *Handler) handleComposeSource(w http.ResponseWriter, r *http.Request) {
 			email = fetched
 		}
 	}
-	type composeSourceAttachment struct {
-		ID          int64  `json:"id"`
-		Filename    string `json:"filename"`
-		ContentType string `json:"content_type"`
-		Size        int64  `json:"size"`
-		Existing    bool   `json:"existing"`
-		PreviewURL  string `json:"preview_url"`
-	}
 	attachments := make([]composeSourceAttachment, 0, len(email.Attachments))
+	inlineImages := make([]composeSourceAttachment, 0)
 	for _, att := range email.Attachments {
 		if att.Inline {
+			// The quoted body names these parts by cid:, and compose
+			// sends them along again as the message's own inline parts.
+			if att.ContentID != "" {
+				inlineImages = append(inlineImages, composeSourceAttachment{
+					ID:          att.ID,
+					Filename:    att.Filename,
+					ContentType: att.ContentType,
+					Size:        att.SizeBytes,
+					Existing:    true,
+					PreviewURL:  attachmentPreviewURL(att.ID, att.ContentType, att.Filename),
+					ContentID:   att.ContentID,
+				})
+			}
 			continue
 		}
 		attachments = append(attachments, composeSourceAttachment{
@@ -5850,6 +5866,14 @@ func (h *Handler) handleComposeSource(w http.ResponseWriter, r *http.Request) {
 	if htmlBody == "" {
 		htmlBody = email.HTMLBody
 	}
+	htmlBody = composeSourceCIDReferences(htmlBody, localID, inlineImages)
+	// Remote images in the quoted message are sent only when the reader
+	// already chose to load the message's remote content, as they do it in
+	// the reading pane.
+	remoteAllowed := h.db.IsRemoteContentAllowedForMessageForUser(r.Context(), localID, userID)
+	if !remoteAllowed && email.From.Email != "" {
+		remoteAllowed = h.db.IsRemoteContentAllowedForSenderForUser(r.Context(), email.From.Email, userID)
+	}
 	identityID := ""
 	ownEmails := []string{}
 	if account, err := h.ownedAccount(r.Context(), email.AccountID); err == nil && account != nil {
@@ -5864,21 +5888,36 @@ func (h *Handler) handleComposeSource(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
-		"account_id":  email.AccountID,
-		"identity_id": identityID,
-		"own_emails":  ownEmails,
-		"message_id":  email.InternetMessageID,
-		"references":  email.References,
-		"subject":     email.Subject,
-		"from_name":   email.From.Name,
-		"from_email":  email.From.Email,
-		"date":        email.DateFull,
-		"to":          contactsToAddressList(email.To),
-		"cc":          contactsToAddressList(email.CC),
-		"body":        email.TextBody,
-		"html_body":   htmlBody,
-		"attachments": attachments,
+		"account_id":     email.AccountID,
+		"identity_id":    identityID,
+		"own_emails":     ownEmails,
+		"message_id":     email.InternetMessageID,
+		"references":     email.References,
+		"subject":        email.Subject,
+		"from_name":      email.From.Name,
+		"from_email":     email.From.Email,
+		"date":           email.DateFull,
+		"to":             contactsToAddressList(email.To),
+		"cc":             contactsToAddressList(email.CC),
+		"body":           email.TextBody,
+		"html_body":      htmlBody,
+		"attachments":    attachments,
+		"email_id":       email.ID,
+		"inline_images":  inlineImages,
+		"remote_allowed": remoteAllowed,
 	})
+}
+
+// composeSourceCIDReferences turns the quoted message's inline parts back
+// from their Gofer addresses to cid: references, which compose attaches
+// again. A Gofer address would reach the recipient as a broken link.
+func composeSourceCIDReferences(body string, messageID int64, inlineImages []composeSourceAttachment) string {
+	for _, att := range inlineImages {
+		local := inlineContentURL(messageID, att.ContentID)
+		body = strings.ReplaceAll(body, local, "cid:"+att.ContentID)
+		body = strings.ReplaceAll(body, html.EscapeString(local), "cid:"+html.EscapeString(att.ContentID))
+	}
+	return body
 }
 
 func (h *Handler) handleGetDraft(w http.ResponseWriter, r *http.Request) {
@@ -6062,7 +6101,7 @@ func (h *Handler) handleCompose(w http.ResponseWriter, r *http.Request) {
 	body := r.FormValue("body")
 	htmlBody := strings.TrimSpace(r.FormValue("html_body"))
 	if htmlBody != "" {
-		htmlBody = string(message.SanitizeHTML([]byte(htmlBody)))
+		htmlBody = string(message.SanitizeOutgoingHTML([]byte(htmlBody)))
 		if !strings.Contains(strings.ToLower(htmlBody), "<html") {
 			htmlBody = "<html><body>" + htmlBody + "</body></html>"
 		}
