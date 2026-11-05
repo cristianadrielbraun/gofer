@@ -80,6 +80,111 @@ function slideRowsInWholePixels(nodes, duration, offsetY, delay, stagger) {
   requestAnimationFrame(frame)
 }
 
+// Rows of the other layout, shared by the mail and contacts lists. Each list
+// fetches the rows it loads again in the other layout while idle, so a switch
+// between cards and table is made from them with no request. A list gives:
+//   otherViewRows (Map), otherViewGeneration, otherViewPending, otherViewTimer
+//   otherViewRowSelector  the rows in a reply, such as ".mail-list-item[data-email-id]"
+//   otherViewRowId(el)    a row's id
+//   otherViewURL(viewMode, start, limit)
+//   otherViewEnabled()    false where the list doesn't fetch ahead
+//   otherViewReplyAttrs() extra attributes for a reply built from stored rows
+// and cache (position to { id, html }) and totalCount, as both lists have.
+var otherViewRowsMethods = {
+  otherViewMode() {
+    return this.viewMode === "table" ? "cards" : "table"
+  },
+
+  // Called when the rows change meaning, such as a new folder or filters.
+  // otherViewGeneration tells a late fetch so.
+  dropOtherViewRows() {
+    this.otherViewRows.clear()
+    this.otherViewGeneration++
+    this.otherViewPending = []
+    if (this.otherViewTimer) clearTimeout(this.otherViewTimer)
+    this.otherViewTimer = null
+  },
+
+  // queueOtherViewRows fetches a range just loaded again in the other layout
+  // once the page is idle, so a switch finds it ready. Ranges loaded close
+  // together go in one quiet batch.
+  queueOtherViewRows(start, end) {
+    if (!this.otherViewEnabled()) return
+    this.otherViewPending.push([start, end])
+    if (this.otherViewTimer) return
+    var list = this
+    this.otherViewTimer = setTimeout(function () {
+      list.otherViewTimer = null
+      var idle = window.requestIdleCallback || function (fn) { return setTimeout(fn, 0) }
+      idle(function () { list.fetchOtherViewRows() })
+    }, 400)
+  },
+
+  async fetchOtherViewRows() {
+    var ranges = this.otherViewPending
+    this.otherViewPending = []
+    var generation = this.otherViewGeneration
+    var mode = this.otherViewMode()
+    for (var i = 0; i < ranges.length; i++) {
+      var start = ranges[i][0]
+      var end = ranges[i][1]
+      try {
+        var html = await this.fetchHTML(this.otherViewURL(mode, start, end - start + 1))
+        if (generation !== this.otherViewGeneration || mode !== this.otherViewMode()) return
+        var template = document.createElement("template")
+        template.innerHTML = html
+        var rows = template.content.querySelectorAll(this.otherViewRowSelector)
+        for (var j = 0; j < rows.length; j++) this.otherViewRows.set(mode + ":" + this.otherViewRowId(rows[j]), rows[j].outerHTML)
+      } catch (_) {
+        // A switch then asks the server, as before.
+      }
+    }
+  },
+
+  // otherViewReply builds, from the other layout's stored rows, the reply the
+  // server would give for the rows from rangeStart to rangeEnd, as one reply
+  // for each run of them stored, or null when the rows on screen, first to
+  // last, aren't all stored. Rows further away load from the server as they
+  // used to, so none shows a state older than the refresh that follows. The
+  // current layout's rows are all kept for switching back.
+  otherViewReply(viewMode, first, last, rangeStart, rangeEnd) {
+    for (var pos = first; pos <= last; pos++) {
+      var item = this.cache.get(pos)
+      if (!item || !item.id || !this.otherViewRows.has(viewMode + ":" + item.id)) return null
+    }
+    var positions = Array.from(this.cache.keys()).sort(function (a, b) { return a - b })
+    var replies = []
+    var run = null
+    var template = document.createElement("template")
+    for (var i = 0; i < positions.length; i++) {
+      var p = positions[i]
+      var cached = this.cache.get(p)
+      var stored = cached && cached.id ? this.otherViewRows.get(viewMode + ":" + cached.id) : null
+      if (cached && cached.id && cached.html) this.otherViewRows.set(this.viewMode + ":" + cached.id, cached.html)
+      if (!stored || p < rangeStart || p > rangeEnd) {
+        run = null
+        continue
+      }
+      template.innerHTML = stored
+      var row = template.content.firstElementChild
+      if (!row) continue
+      row.dataset.position = String(p)
+      if (!run || run.end !== p - 1) {
+        run = { start: p, end: p, rows: [] }
+        replies.push(run)
+      }
+      run.end = p
+      run.rows.push(row.outerHTML)
+    }
+    var list = this
+    return replies.map(function (r) {
+      return '<div data-local-view-switch data-view-mode="' + viewMode + '" data-total-count="' + list.totalCount + '"' +
+        list.otherViewReplyAttrs() + ' data-window-start="' + r.start + '" data-window-end="' + r.end + '">' +
+        r.rows.join("") + "</div>"
+    })
+  },
+}
+
 class VirtualMailList {
   constructor(container, options) {
     this.container = container
@@ -95,9 +200,8 @@ class VirtualMailList {
 
     this.cache = new Map()
     this.indexById = new Map()
-    // Rows of the other layout, by "<view mode>:<email id>", fetched while
-    // idle so switching between cards and table needs no request. Dropped
-    // with the folder or filters; otherViewGeneration tells a late fetch so.
+    // Rows of the other layout, by "<view mode>:<email id>" (otherViewRowsMethods).
+    this.otherViewRowSelector = ".mail-list-item[data-email-id]"
     this.otherViewRows = new Map()
     this.otherViewGeneration = 0
     this.otherViewPending = []
@@ -1551,95 +1655,20 @@ class VirtualMailList {
     }
   }
 
-  otherViewMode() {
-    return this.viewMode === "table" ? "cards" : "table"
+  otherViewRowId(el) {
+    return el.dataset.emailId
   }
 
-  dropOtherViewRows() {
-    this.otherViewRows.clear()
-    this.otherViewGeneration++
-    this.otherViewPending = []
-    if (this.otherViewTimer) clearTimeout(this.otherViewTimer)
-    this.otherViewTimer = null
+  otherViewURL(viewMode, start, limit) {
+    return this.itemsURLForView(viewMode, start, limit)
   }
 
-  // queueOtherViewRows fetches a range just loaded again in the other layout
-  // once the page is idle, so a switch finds it ready. Ranges loaded close
-  // together go in one quiet batch.
-  queueOtherViewRows(start, end) {
-    if (this.navigationMode === "pagination") return
-    this.otherViewPending.push([start, end])
-    if (this.otherViewTimer) return
-    var list = this
-    this.otherViewTimer = setTimeout(function () {
-      list.otherViewTimer = null
-      var idle = window.requestIdleCallback || function (fn) { return setTimeout(fn, 0) }
-      idle(function () { list.fetchOtherViewRows() })
-    }, 400)
+  otherViewEnabled() {
+    return this.navigationMode !== "pagination"
   }
 
-  async fetchOtherViewRows() {
-    var ranges = this.otherViewPending
-    this.otherViewPending = []
-    var generation = this.otherViewGeneration
-    var mode = this.otherViewMode()
-    for (var i = 0; i < ranges.length; i++) {
-      var start = ranges[i][0]
-      var end = ranges[i][1]
-      try {
-        var html = await this.fetchHTML(this.itemsURLForView(mode, start, end - start + 1))
-        if (generation !== this.otherViewGeneration || mode !== this.otherViewMode()) return
-        var template = document.createElement("template")
-        template.innerHTML = html
-        var rows = template.content.querySelectorAll(".mail-list-item[data-email-id]")
-        for (var j = 0; j < rows.length; j++) this.otherViewRows.set(mode + ":" + rows[j].dataset.emailId, rows[j].outerHTML)
-      } catch (_) {
-        // A switch then asks the server, as before.
-      }
-    }
-  }
-
-  // otherViewReply builds, from the other layout's stored rows, the reply the
-  // server would give for the rows from rangeStart to rangeEnd, as one reply
-  // for each run of them stored, or null when the rows on screen, first to
-  // last, aren't all stored. Rows further away load from the server as they
-  // used to, so none shows a state older than the refresh that follows. The
-  // current layout's rows are all kept for switching back.
-  otherViewReply(viewMode, first, last, rangeStart, rangeEnd) {
-    for (var pos = first; pos <= last; pos++) {
-      var item = this.cache.get(pos)
-      if (!item || !item.id || !this.otherViewRows.has(viewMode + ":" + item.id)) return null
-    }
-    var positions = Array.from(this.cache.keys()).sort(function (a, b) { return a - b })
-    var replies = []
-    var run = null
-    var template = document.createElement("template")
-    for (var i = 0; i < positions.length; i++) {
-      var p = positions[i]
-      var cached = this.cache.get(p)
-      var stored = cached && cached.id ? this.otherViewRows.get(viewMode + ":" + cached.id) : null
-      if (cached && cached.id && cached.html) this.otherViewRows.set(this.viewMode + ":" + cached.id, cached.html)
-      if (!stored || p < rangeStart || p > rangeEnd) {
-        run = null
-        continue
-      }
-      template.innerHTML = stored
-      var row = template.content.firstElementChild
-      if (!row) continue
-      row.dataset.position = String(p)
-      if (!run || run.end !== p - 1) {
-        run = { start: p, end: p, rows: [] }
-        replies.push(run)
-      }
-      run.end = p
-      run.rows.push(row.outerHTML)
-    }
-    var list = this
-    return replies.map(function (r) {
-      return '<div data-local-view-switch data-view-mode="' + viewMode + '" data-total-count="' + list.totalCount +
-        '" data-display-total-count="' + list.displayTotalCount + '" data-window-start="' + r.start + '" data-window-end="' + r.end + '">' +
-        r.rows.join("") + "</div>"
-    })
+  otherViewReplyAttrs() {
+    return ' data-display-total-count="' + this.displayTotalCount + '"'
   }
 
   updateEffectiveCount(options) {
@@ -3111,6 +3140,12 @@ class VirtualContactsList {
     this.prevFirst = null
     this.prevLast = null
     this.transitionOverlay = null
+    // Rows of the other layout, by "<view mode>:<contact id>" (otherViewRowsMethods).
+    this.otherViewRowSelector = ".mail-list-item[data-contact-id]"
+    this.otherViewRows = new Map()
+    this.otherViewGeneration = 0
+    this.otherViewPending = []
+    this.otherViewTimer = null
     this.container.style.overflowAnchor = "none"
     this.bindEvents()
   }
@@ -3553,10 +3588,14 @@ class VirtualContactsList {
     }
     var start = parseInt(root.dataset.windowStart)
     var end = parseInt(root.dataset.windowEnd)
-    if (!isNaN(start) && !isNaN(end) && end >= start) this.addLoadedRange(start, end)
     if (fromDOM && this.cache.size > 0 && (isNaN(start) || isNaN(end))) {
       var positions = Array.from(this.cache.keys())
-      this.addLoadedRange(Math.min.apply(null, positions), Math.max.apply(null, positions))
+      start = Math.min.apply(null, positions)
+      end = Math.max.apply(null, positions)
+    }
+    if (!isNaN(start) && !isNaN(end) && end >= start) {
+      this.addLoadedRange(start, end)
+      if (!root.hasAttribute("data-local-view-switch")) this.queueOtherViewRows(start, end)
     }
     this.updateFrontiers()
     this.updateEffectiveCount()
@@ -3625,6 +3664,22 @@ class VirtualContactsList {
     return String(value).replace(/"/g, '\\"')
   }
 
+  otherViewRowId(el) {
+    return el.dataset.contactId
+  }
+
+  otherViewURL(viewMode, start, limit) {
+    return this.itemsURLFor(viewMode, this.filters, start, limit)
+  }
+
+  otherViewEnabled() {
+    return true
+  }
+
+  otherViewReplyAttrs() {
+    return ""
+  }
+
   onContactSelected(contactId) {
     this.selectedContactId = contactId
     this.syncSelectionClasses(this.itemsContainer)
@@ -3649,6 +3704,29 @@ class VirtualContactsList {
     var anchorRatio = oldItemHeight > 0 ? Math.min(1, anchorOffset / oldItemHeight) : 0
     var rangeStart = Math.max(0, anchorIndex - this.overscan)
     var rangeEnd = Math.min(this.totalCount - 1, rangeStart + this.chunkSize - 1)
+    // With the rows on screen fetched in this layout already, the switch is
+    // made here, and the server is asked afterwards only to catch rows that
+    // changed meanwhile. A quiet switch asks the server, as the mail list does.
+    var firstShown = anchorIndex
+    var lastShown = Math.min(this.totalCount - 1, Math.floor((this.container.scrollTop + this.container.clientHeight) / Math.max(1, oldItemHeight)))
+    var local = !quiet && lastShown >= firstShown ? this.otherViewReply(viewMode, firstShown, lastShown, rangeStart, rangeEnd) : null
+    if (local && local.length) {
+      this.setViewMode(viewMode, false)
+      for (var r = 0; r < local.length; r++) this.ingestHTML(local[r])
+      this.container.scrollTop = anchorIndex * this.itemHeight + Math.round(anchorRatio * this.itemHeight)
+      this.render()
+      this.animateListTransition(transition, { enterFrom: -8, exitTo: 14, animateHeight: true })
+      this.updateURLForState()
+      var list = this
+      this.fetchHTML(this.itemsURLFor(viewMode, this.filters, rangeStart, rangeEnd - rangeStart + 1)).then(function (html) {
+        if (list.viewMode !== viewMode) return
+        list.ingestHTML(html)
+        list.prevFirst = null
+        list.prevLast = null
+        list.render()
+      }).catch(function () {})
+      return
+    }
     try {
       var html = await this.fetchHTML(this.itemsURLFor(viewMode, this.filters, rangeStart, rangeEnd - rangeStart + 1))
       this.setViewMode(viewMode, false)
@@ -3683,6 +3761,7 @@ class VirtualContactsList {
     var previousSelected = this.selectedContactId
     var html = await this.fetchHTML(this.itemsURLFor(this.viewMode, nextFilters, 0, this.chunkSize))
     this.filters = nextFilters
+    this.dropOtherViewRows()
     this.resetRows()
     this.ingestHTML(html)
     if (previousSelected && this.indexById.has(previousSelected)) this.selectedContactId = previousSelected
@@ -4043,6 +4122,8 @@ class VirtualContactsList {
   }
 }
 
+Object.assign(VirtualMailList.prototype, otherViewRowsMethods)
+Object.assign(VirtualContactsList.prototype, otherViewRowsMethods)
 window.VirtualMailList = VirtualMailList
 window.VirtualContactsList = VirtualContactsList
 
