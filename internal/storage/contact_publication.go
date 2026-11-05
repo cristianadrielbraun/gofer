@@ -411,3 +411,132 @@ func (db *DB) ContactOfRemovedCard(ctx context.Context, owner, provider, account
 	}
 	return contactOfRemovedCardTx(ctx, db.Read(), owner, account, provider, remote)
 }
+
+// InboundContactChangePage is one page of the changes Gmail or Outlook
+// report for an account's contacts since its last sync: contacts added or
+// changed, and the remote IDs of ones deleted. SyncToken, on the last page
+// only, is where the next sync starts from: a Google sync token or an
+// Outlook delta link.
+type InboundContactChangePage struct {
+	Contacts         []InboundContact
+	DeletedRemoteIDs []string
+	SyncToken        string
+}
+
+// PublishInboundContactChanges commits a page of Gmail or Outlook changes
+// like PublishInboundContacts, settling the contacts deleted there as a
+// CardDAV pull does, and keeps the page's sync token with them.
+func (db *DB) PublishInboundContactChanges(ctx context.Context, owner, account, provider string, page InboundContactChangePage, guard, checkpoint func(*sql.Tx) error) ([]InboundContactResult, error) {
+	if provider != "gmail" && provider != "outlook" {
+		return nil, ErrContactPublication
+	}
+	deleted := make(map[string]bool, len(page.DeletedRemoteIDs))
+	for _, remote := range page.DeletedRemoteIDs {
+		if remote = strings.TrimSpace(remote); remote != "" {
+			deleted[remote] = true
+		}
+	}
+	for _, input := range page.Contacts {
+		if deleted[strings.TrimSpace(input.RemoteID)] {
+			return nil, ErrContactPublication
+		}
+	}
+	var unresolved []string
+	results, err := db.publishInboundContacts(ctx, owner, account, provider, page.Contacts, guard, func(tx *sql.Tx) error {
+		trashed, waiting, err := contactsDeletedOnAccountTx(ctx, tx, owner, account, provider, deleted)
+		if err != nil {
+			return err
+		}
+		unresolved = waiting
+		if trashed > 0 {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO contact_activity_events(user_id,event_type,email,message,event_count) VALUES(?,?,?,?,?)`, owner, "contacts_trashed", "", "Contacts moved to Trash", trashed); err != nil {
+				return err
+			}
+		}
+		if token := strings.TrimSpace(page.SyncToken); token != "" {
+			if err := saveContactSyncTokenTx(ctx, tx, owner, account, provider, token); err != nil {
+				return err
+			}
+		}
+		if checkpoint != nil {
+			return checkpoint(tx)
+		}
+		return nil
+	})
+	if err == nil {
+		db.logContactsUnresolved(ctx, owner, unresolved)
+	}
+	return results, err
+}
+
+// contactsDeletedOnAccountTx forgets the account's copies with these remote
+// IDs and settles their contacts: to the Trash, or to be resolved.
+func contactsDeletedOnAccountTx(ctx context.Context, tx *sql.Tx, owner, account, provider string, deleted map[string]bool) (int, []string, error) {
+	if len(deleted) == 0 {
+		return 0, nil, nil
+	}
+	var lost []removedContactCard
+	for remote := range deleted {
+		rows, err := tx.QueryContext(ctx, `SELECT id, profile_id, address_book_id FROM contact_cards WHERE user_id=? AND account_id=? AND provider=? AND kind='provider' AND remote_id=?`, owner, account, provider, remote)
+		if err != nil {
+			return 0, nil, err
+		}
+		var ids []string
+		for rows.Next() {
+			var id string
+			card := removedContactCard{account: account}
+			if err := rows.Scan(&id, &card.profile, &card.book); err != nil {
+				rows.Close()
+				return 0, nil, err
+			}
+			ids = append(ids, id)
+			lost = append(lost, card)
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return 0, nil, err
+		}
+		for _, id := range ids {
+			if _, err := tx.ExecContext(ctx, `DELETE FROM contact_cards WHERE id=? AND user_id=? AND account_id=?`, id, owner, account); err != nil {
+				return 0, nil, err
+			}
+		}
+	}
+	return contactsLostCopiesTx(ctx, tx, owner, lost)
+}
+
+// saveContactSyncTokenTx keeps where an account's next contacts sync
+// starts from.
+func saveContactSyncTokenTx(ctx context.Context, tx *sql.Tx, owner, account, provider, token string) error {
+	_, err := tx.ExecContext(ctx, `INSERT INTO account_contact_sync_configs (account_id, user_id, provider, enabled, last_sync_token)
+		VALUES (?, ?, ?, 1, ?)
+		ON CONFLICT(account_id) DO UPDATE SET last_sync_token = excluded.last_sync_token, updated_at = CURRENT_TIMESTAMP
+		WHERE account_contact_sync_configs.user_id = excluded.user_id`, account, owner, provider, token)
+	return err
+}
+
+// SaveContactSyncToken keeps where an account's next contacts sync starts
+// from, for the shared store's Gmail and Outlook pulls.
+func (db *DB) SaveContactSyncToken(ctx context.Context, owner, account, provider, token string) error {
+	tx, err := db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := saveContactSyncTokenTx(ctx, tx, owner, account, provider, strings.TrimSpace(token)); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// ContactSyncToken gives where an account's next contacts sync starts from,
+// for the shared store's Gmail and Outlook pulls.
+func (db *DB) ContactSyncToken(ctx context.Context, owner, account string) (string, error) {
+	var token string
+	err := db.Read().QueryRowContext(ctx, `SELECT last_sync_token FROM account_contact_sync_configs WHERE account_id=? AND user_id=?`, account, owner).Scan(&token)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return token, err
+}

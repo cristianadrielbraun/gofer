@@ -233,3 +233,59 @@ func TestContactSyncRequiresExplicitEnablement(t *testing.T) {
 		t.Fatal("enabled contact with an account target did not request provider sync")
 	}
 }
+
+// Gmail syncs from its sync token: the next sync gets only the changes, a
+// deleted person among them, and an expired token starts over.
+func TestSyncGooglePeopleFollowsSyncToken(t *testing.T) {
+	ctx := context.Background()
+	h, db := newGmailAPITestHandler(t, ctx)
+	expire := false
+	var tokens []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		query := r.URL.Query()
+		if r.URL.Path != "/people/me/connections" || query.Get("requestSyncToken") != "true" {
+			t.Errorf("unexpected request %s", r.URL.String())
+		}
+		tokens = append(tokens, query.Get("syncToken"))
+		switch {
+		case query.Get("syncToken") == "":
+			_, _ = w.Write([]byte(`{"connections": [{"resourceName": "people/rosa", "etag": "e1", "names": [{"displayName": "Rosa Imbert"}], "emailAddresses": [{"value": "rosa@example.com"}]}], "nextSyncToken": "token-one"}`))
+		case expire:
+			w.WriteHeader(http.StatusGone)
+			_, _ = w.Write([]byte(`{"error": {"code": 410, "message": "Sync token is expired.", "status": "EXPIRED_SYNC_TOKEN"}}`))
+		default:
+			_, _ = w.Write([]byte(`{"connections": [{"resourceName": "people/rosa", "metadata": {"deleted": true}}], "nextSyncToken": "token-two"}`))
+		}
+	}))
+	defer server.Close()
+	previous := googlePeopleAPIBaseURL
+	googlePeopleAPIBaseURL = server.URL
+	t.Cleanup(func() { googlePeopleAPIBaseURL = previous })
+
+	if imported, err := h.syncGooglePeopleConnections(ctx, "default", "acc", "gmail-token"); err != nil || imported != 1 {
+		t.Fatal("first sync", imported, err)
+	}
+	found, err := db.SearchContacts(ctx, "default", "rosa@example.com", 5)
+	if err != nil || len(found) != 1 {
+		t.Fatal("imported", found, err)
+	}
+	// An expired token starts over with every person, and ends with a new one.
+	expire = true
+	if _, err := h.syncGooglePeopleConnections(ctx, "default", "acc", "gmail-token"); err != nil {
+		t.Fatal("expired sync", err)
+	}
+	if strings.Join(tokens, ",") != ",token-one," {
+		t.Fatal("tokens sent", tokens)
+	}
+	expire = false
+	if _, err := h.syncGooglePeopleConnections(ctx, "default", "acc", "gmail-token"); err != nil {
+		t.Fatal("changes sync", err)
+	}
+	if trashed, err := db.ContactInTrash(ctx, "default", found[0].ID); err != nil || !trashed {
+		t.Fatal("the person deleted in Gmail isn't in the Trash", trashed, err)
+	}
+	if token, _ := db.ContactSyncToken(ctx, "default", "acc"); token != "token-two" {
+		t.Fatal("token", token)
+	}
+}

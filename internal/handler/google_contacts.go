@@ -23,6 +23,9 @@ import (
 type googlePeopleResponse struct {
 	Connections   []googlePerson `json:"connections"`
 	NextPageToken string         `json:"nextPageToken"`
+	// NextSyncToken, on the last page of a listing asked for one, is where
+	// the next sync of changes starts.
+	NextSyncToken string `json:"nextSyncToken,omitempty"`
 }
 
 type googleSearchContactsResponse struct {
@@ -42,6 +45,12 @@ type googlePerson struct {
 	Organizations  []googleOrganization `json:"organizations,omitempty"`
 	Biographies    []googleBiography    `json:"biographies,omitempty"`
 	Photos         []googlePhoto        `json:"photos,omitempty"`
+	// Metadata.Deleted marks a person deleted since the sync token.
+	Metadata *googlePersonMetadata `json:"metadata,omitempty"`
+}
+
+type googlePersonMetadata struct {
+	Deleted bool `json:"deleted,omitempty"`
 }
 
 type googleName struct {
@@ -245,49 +254,42 @@ func (h *Handler) pullContactAccount(ctx context.Context, userID string, account
 	}
 }
 
+// syncGooglePeopleConnections pulls the contacts that changed in Gmail
+// since the last sync, and settles the ones deleted there, for the shared
+// store.
 func (h *Handler) syncGooglePeopleConnections(ctx context.Context, userID, accountID, accessToken string) (int, error) {
+	syncToken, err := h.db.ContactSyncToken(ctx, userID, accountID)
+	if err != nil {
+		return 0, err
+	}
 	client := &http.Client{Timeout: 30 * time.Second}
-	pageToken := ""
-	imported := 0
-
-	for {
-		values := url.Values{}
-		values.Set("personFields", googleContactPersonFields())
-		values.Set("pageSize", "1000")
-		if pageToken != "" {
-			values.Set("pageToken", pageToken)
-		}
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, googlePeopleAPIBaseURL+"/people/me/connections?"+values.Encode(), nil)
+	get := func(endpoint string, out any) error {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 		if err != nil {
-			return imported, err
+			return err
 		}
 		req.Header.Set("Authorization", "Bearer "+accessToken)
-
 		resp, err := client.Do(req)
 		if err != nil {
-			return imported, err
+			return err
 		}
+		defer resp.Body.Close()
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			body, _ := io.ReadAll(resp.Body)
-			resp.Body.Close()
-			return imported, fmt.Errorf("people api returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+			return newGoogleAPIError(resp, body)
 		}
-
-		var people googlePeopleResponse
-		decodeErr := json.NewDecoder(resp.Body).Decode(&people)
-		resp.Body.Close()
-		if decodeErr != nil {
-			return imported, decodeErr
-		}
-
-		for _, person := range people.Connections {
+		return json.NewDecoder(resp.Body).Decode(out)
+	}
+	imported := 0
+	err = googleContactChanges(ctx, get, syncToken, func(people []googlePerson, deleted []string, next string) error {
+		for _, person := range people {
 			contact := googleContactFromPerson(person)
 			if !contact.HasDetails() {
 				continue
 			}
 			contactID, canonicalChanged, err := h.upsertInboundSyncedContact(ctx, userID, providers.ProviderGmail, accountID, person.ResourceName, contact)
 			if err != nil {
-				return imported, err
+				return err
 			}
 			if contactID != "" && strings.TrimSpace(person.ResourceName) != "" {
 				if err := h.db.UpsertContactSource(ctx, storage.ContactSource{
@@ -298,23 +300,27 @@ func (h *Handler) syncGooglePeopleConnections(ctx context.Context, userID, accou
 					RemoteID:  person.ResourceName,
 					Etag:      person.Etag,
 				}); err != nil {
-					return imported, err
+					return err
 				}
 			}
 			if canonicalChanged {
 				if err := h.scheduleInboundContactFanout(ctx, userID, contactID, accountID); err != nil {
-					return imported, err
+					return err
 				}
 			}
 			imported++
 		}
-
-		pageToken = people.NextPageToken
-		if pageToken == "" {
-			break
+		for _, remoteID := range deleted {
+			if err := h.db.RemoveDeletedContactSource(ctx, userID, providers.ProviderGmail, accountID, remoteID); err != nil {
+				return err
+			}
 		}
-	}
-	return imported, nil
+		if next != "" {
+			return h.db.SaveContactSyncToken(ctx, userID, accountID, providers.ProviderGmail, next)
+		}
+		return nil
+	})
+	return imported, err
 }
 
 func (h *Handler) scheduleInboundContactFanout(ctx context.Context, userID, contactID, sourceAccountID string) error {

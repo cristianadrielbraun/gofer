@@ -164,3 +164,41 @@ func TestMigrateV138ToV139AddsContactsToResolve(t *testing.T) {
 		t.Fatal("version", version, err)
 	}
 }
+
+// A Gmail or Outlook page of changes settles the contacts deleted there,
+// as a CardDAV pull does, and keeps its sync token.
+func TestInboundContactChangesSettleDeletedContacts(t *testing.T) {
+	ctx := context.Background()
+	db := newInboundContactFixture(t)
+	page := func(provider, account string, changes InboundContactChangePage) {
+		t.Helper()
+		if _, err := db.PublishInboundContactChanges(ctx, "default", account, provider, changes, inboundTestGuard, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	page("gmail", "source", InboundContactChangePage{Contacts: []InboundContact{{Contact: models.Contact{Name: "Teo Brandt", Email: "teo@example.com"}, RemoteID: "people/teo"}}, SyncToken: "token-one"})
+	found, err := db.SearchContacts(ctx, "default", "teo@example.com", 5)
+	if err != nil || len(found) != 1 {
+		t.Fatal("published", found, err)
+	}
+	synced := newUnresolvedTestContact(t, db)
+
+	page("gmail", "source", InboundContactChangePage{DeletedRemoteIDs: []string{"people/teo"}, SyncToken: "token-two"})
+	if trashed, _ := db.ContactInTrash(ctx, "default", found[0].ID); !trashed {
+		t.Fatal("the contact deleted in Gmail isn't in the Trash")
+	}
+	var token string
+	if err := db.Read().QueryRow(`SELECT last_sync_token FROM account_contact_sync_configs WHERE account_id='source'`).Scan(&token); err != nil || token != "token-two" {
+		t.Fatal("token", token, err)
+	}
+	// A page without a token keeps the last one.
+	page("gmail", "source", InboundContactChangePage{})
+	if err := db.Read().QueryRow(`SELECT last_sync_token FROM account_contact_sync_configs WHERE account_id='source'`).Scan(&token); err != nil || token != "token-two" {
+		t.Fatal("token kept", token, err)
+	}
+
+	page("outlook", "target", InboundContactChangePage{DeletedRemoteIDs: []string{"ines-target"}, SyncToken: "delta-one"})
+	if deletions, err := db.ContactRemoteDeletions(ctx, "default", synced); err != nil || len(deletions) != 1 || deletions[0].Place != "account:target" {
+		t.Fatal("the synced contact deleted in Outlook isn't to resolve", deletions, err)
+	}
+}
