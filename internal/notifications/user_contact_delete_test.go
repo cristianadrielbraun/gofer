@@ -648,3 +648,29 @@ func TestUserContactUnresolvedCountAndKeep(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// In managed storage, a contact restored to another place lives there.
+func TestUserContactRestoreToAnotherPlace(t *testing.T) {
+	f, _, _ := newOwnedContactDeleteFixture(t, "gmail")
+	if err := f.routing.WithUser(t.Context(), "alice", func(db *storage.DB) error {
+		_, err := db.TrashContacts(t.Context(), "alice", []string{"same-delete-profile"})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if response := f.request("alice", http.MethodPost, "/api/contacts/trash/restore", "id=same-delete-profile&place=local"); response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"restored":1`) {
+		t.Fatal("restore", response.Code, response.Body.String())
+	}
+	if err := f.routing.WithUser(t.Context(), "alice", func(db *storage.DB) error {
+		var home string
+		if err := db.Read().QueryRow(`SELECT home FROM contact_profiles WHERE id='same-delete-profile'`).Scan(&home); err != nil {
+			return err
+		}
+		if home != "local" {
+			t.Fatal("home", home)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}

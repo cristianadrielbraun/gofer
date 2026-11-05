@@ -48,12 +48,14 @@ func (h *Handler) moveContactsToTrash(ctx context.Context, owner string, ids []s
 	return count, err
 }
 
-func (h *Handler) restoreContacts(ctx context.Context, owner string, ids []string) (count int, err error) {
+// restoreContacts brings contacts back from the Trash, to live in place
+// when it is set, else where they lived.
+func (h *Handler) restoreContacts(ctx context.Context, owner string, ids []string, place string) (count int, err error) {
 	if h.userStorage == nil {
-		return h.db.RestoreContacts(ctx, owner, ids)
+		return h.db.RestoreContactsTo(ctx, owner, ids, place)
 	}
 	err = h.userIMAP.RunUserServiceWork(ctx, owner, func(ctx context.Context) error {
-		count, err = h.userAccounts.RestoreContacts(ctx, owner, ids)
+		count, err = h.userAccounts.RestoreContactsTo(ctx, owner, ids, place)
 		return err
 	})
 	return count, err
@@ -179,12 +181,20 @@ func (h *Handler) handleRestoreContacts(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	owner := h.userID(r.Context())
-	count, err := h.restoreContacts(r.Context(), owner, ids)
+	// A place makes the restored contacts live there instead.
+	place := strings.TrimSpace(r.FormValue("place"))
+	if place != "" {
+		if accepted, err := h.contactPlaceAccepted(r.Context(), owner, place); err != nil || !accepted {
+			http.Error(w, i18n.T(r.Context(), "server.error.choose_another_place_for_the_contact"), http.StatusBadRequest)
+			return
+		}
+	}
+	count, err := h.restoreContacts(r.Context(), owner, ids, place)
 	if err != nil {
 		h.contactTrashError(w, r, err)
 		return
 	}
-	// Restored contacts go back where they live.
+	// Restored contacts are written where they live now.
 	h.writeBackRestoredContacts(context.WithoutCancel(r.Context()), owner, ids)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]int{"restored": count})

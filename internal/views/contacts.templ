@@ -1818,6 +1818,9 @@ templ ContactsListPane(contacts []models.Contact, selected *models.Contact, filt
 			<div class="flex-1"></div>
 			@ContactsSelectionActions(filters.Trash)
 		</div>
+		if filters.Trash {
+			@ContactRestorePlaceDialog(accounts)
+		}
 		@ContactsSelectAllBanner()
 		<hr class="divider-etched"/>
 		<div
@@ -1932,6 +1935,9 @@ templ ContactsSelectionActions(trash bool) {
 			@contactSelectionAction("restore", i18n.T(ctx, "contacts.action.restore"), i18n.T(ctx, "contacts.selection.restore"), "") {
 				@icon.Undo2(icon.Props{Class: "size-3.5"})
 			}
+			@contactSelectionAction("restore-to", i18n.T(ctx, "contacts.action.restore_to"), i18n.T(ctx, "contacts.action.restore_to"), "") {
+				@icon.FolderInput(icon.Props{Class: "size-3.5"})
+			}
 			@contactSelectionAction("delete-forever", i18n.T(ctx, "contacts.action.delete_forever"), i18n.T(ctx, "contacts.selection.delete_forever"), "hover:bg-destructive/10 hover:text-destructive") {
 				@icon.Trash2(icon.Props{Class: "size-3.5"})
 			}
@@ -2011,6 +2017,9 @@ templ ContactsContextMenu(trash bool) {
 			@dropdown.Label(dropdown.LabelProps{Class: "truncate text-xs font-medium text-muted-foreground", Attributes: templ.Attributes{"data-contacts-context-title": ""}})
 			if trash {
 				@contactsContextItem("restore", i18n.T(ctx, "contacts.action.restore"), "") {
+					@icon.Undo2(icon.Props{Class: "size-4"})
+				}
+				@contactsContextItem("restore-to", i18n.T(ctx, "contacts.action.restore_to"), "") {
 					@icon.Undo2(icon.Props{Class: "size-4"})
 				}
 				@dropdown.Separator()
@@ -2837,10 +2846,28 @@ templ ContactEditorHeader(contact *models.Contact, profile *models.ContactProfil
 				<div class="contact-header-spacer hidden"></div>
 				if contact != nil && contact.TrashedAt != "" {
 					<div class="flex shrink-0 items-center gap-2">
-					<button type="button" class="inline-flex h-9 items-center gap-1.5 rounded-md border border-ink/10 bg-ink/[0.025] px-3 text-sm font-semibold text-muted-foreground transition-colors hover:bg-ink/[0.06] hover:text-ink" data-contact-restore={ contact.ID } data-contact-name={ contact.Name }>
-						@icon.Undo2(icon.Props{Class: "size-3.5"})
-						{ i18n.T(ctx, "contacts.action.restore") }
-					</button>
+					// Restore, with Restore to… beside it, as New contact has its own.
+					<div class="inline-flex items-stretch">
+						<button type="button" class="inline-flex h-9 items-center gap-1.5 rounded-l-md rounded-r-none border border-ink/10 bg-ink/[0.025] px-3 text-sm font-semibold text-muted-foreground transition-colors hover:bg-ink/[0.06] hover:text-ink" data-contact-restore={ contact.ID } data-contact-name={ contact.Name }>
+							@icon.Undo2(icon.Props{Class: "size-3.5"})
+							{ i18n.T(ctx, "contacts.action.restore") }
+						</button>
+						@dropdown.Dropdown() {
+							@dropdown.Trigger() {
+								<button type="button" class="inline-flex h-9 w-8 items-center justify-center rounded-l-none rounded-r-md border border-l-0 border-ink/10 bg-ink/[0.025] text-muted-foreground transition-colors hover:bg-ink/[0.06] hover:text-ink" aria-label={ i18n.T(ctx, "contacts.actions") }>
+									@icon.EllipsisVertical(icon.Props{Class: "size-4"})
+								</button>
+							}
+							@dropdown.Content(dropdown.ContentProps{Placement: dropdown.PlacementBottomEnd, Class: "w-44 normal-case tracking-normal"}) {
+								@dropdown.Item(dropdown.ItemProps{Attributes: templ.Attributes{"data-contact-restore-to": contact.ID, "data-contact-name": contact.Name}}) {
+									<span class="flex items-center gap-2">
+										@icon.Undo2(icon.Props{Class: "size-4 text-muted-foreground"})
+										{ i18n.T(ctx, "contacts.action.restore_to") }
+									</span>
+								}
+							}
+						}
+					</div>
 					@contactHeaderTooltip(i18n.T(ctx, "contacts.action.export")) {
 						<a href={ fmt.Sprintf("/api/contacts/%s/export", contact.ID) } class="size-9 rounded-md flex items-center justify-center text-muted-foreground hover:text-ink hover:bg-ink/5 transition-colors" aria-label={ i18n.T(ctx, "contacts.action.export") }>
 							@icon.Download(icon.Props{Class: "size-4"})
@@ -3034,6 +3061,60 @@ templ ContactPlaceDialog(contact models.Contact, accounts []models.Account, move
 							@icon.CopyPlus(icon.Props{Class: "size-4"})
 							<span data-contact-place-submit-label>{ i18n.T(ctx, "contacts.action.duplicate") }</span>
 						}
+					</button>
+				}
+			</form>
+		}
+	}
+}
+
+// ContactRestorePlaceDialog restores contacts from the Trash to another
+// place, which becomes where they live. app.js fills in which contacts.
+templ ContactRestorePlaceDialog(accounts []models.Account) {
+	@dialog.Dialog(dialog.Props{ID: "contacts-restore-place-dialog"}) {
+		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-lg normal-case tracking-normal"}) {
+			@dialog.Header() {
+				@dialog.Title() {
+					<span data-contacts-restore-place-title>{ i18n.T(ctx, "contacts.action.restore_to") }</span>
+				}
+				@dialog.Description() {
+					{ i18n.T(ctx, "contacts.place.restore_description") }
+				}
+			}
+			<form class="space-y-4" data-contacts-restore-place-form>
+				<div>
+					@selectbox.SelectBox() {
+						@selectbox.Trigger(selectbox.TriggerProps{Name: "place", Class: "h-10 bg-background", DisableClear: true}) {
+							@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "contacts.place.choose"), Class: "text-left"})
+						}
+						@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+							@selectbox.Item(selectbox.ItemProps{Value: "local"}) {
+								{ i18n.T(ctx, "contacts.origin.local") }
+							}
+							for _, account := range accounts {
+								if !account.IsDeleting && accountContactSyncCapable(account) {
+									if len(account.ContactAddressBooks) == 0 {
+										@selectbox.Item(selectbox.ItemProps{Value: contactSaveTargetValue(account)}) {
+											{ accountContactSaveLabel(account) }
+										}
+									}
+									for _, book := range account.ContactAddressBooks {
+										@selectbox.Item(selectbox.ItemProps{Value: contactBookTargetValue(book)}) {
+											{ accountContactOriginLabel(ctx, account) } / { contactAddressBookDisplayName(ctx, book) }
+										}
+									}
+								}
+							}
+						}
+					}
+				</div>
+				@dialog.Footer() {
+					@dialog.Close(dialog.CloseProps{For: "contacts-restore-place-dialog"}) {
+						<button type="button" class="inline-flex h-9 items-center justify-center rounded-md border border-border px-3 text-sm font-semibold text-muted-foreground hover:bg-accent hover:text-foreground">{ i18n.T(ctx, "common.cancel") }</button>
+					}
+					<button type="submit" data-contacts-restore-place-submit class="inline-flex h-9 items-center justify-center gap-1.5 rounded-md bg-primary px-3 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-70">
+						@icon.Undo2(icon.Props{Class: "size-4"})
+						{ i18n.T(ctx, "contacts.action.restore") }
 					</button>
 				}
 			</form>

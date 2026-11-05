@@ -2973,9 +2973,10 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
 
-    function postContactIDs(url, ids) {
+    function postContactIDs(url, ids, extra) {
       var body = new URLSearchParams()
       ids.forEach(function (id) { body.append("id", id) })
+      Object.keys(extra || {}).forEach(function (name) { body.set(name, extra[name]) })
       return fetch(url, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" }, body: body.toString() })
         .then(function (response) {
           if (!response.ok) return response.text().then(function (text) { throw new Error(text.trim() || goferT("js.contacts.request_failed")) })
@@ -3060,11 +3061,38 @@ document.addEventListener("DOMContentLoaded", function () {
         })
     }
 
-    function restoreContacts(ids, who) {
+    // Restores contacts from the Trash where they lived, or to live in place
+    // when it is given.
+    // Restore to… asks where the contacts go to live, then restores them there.
+    var contactRestorePlace = null
+
+    function openContactRestorePlace(ids, who) {
+      var dialog = document.getElementById("contacts-restore-place-dialog")
+      if (!ids.length || !dialog || !window.tui || !window.tui.dialog) return
+      contactRestorePlace = { ids: ids, who: who }
+      var title = dialog.querySelector("[data-contacts-restore-place-title]")
+      if (title) title.textContent = ids.length === 1 && who ? goferT("js.contacts.trash.restore_to_one", { name: who }) : goferTn("js.contacts.trash.restore_to", ids.length)
+      window.tui.dialog.open("contacts-restore-place-dialog")
+    }
+
+    document.addEventListener("submit", function (e) {
+      var form = e.target.closest && e.target.closest("[data-contacts-restore-place-form]")
+      if (!form) return
+      e.preventDefault()
+      var input = form.querySelector('input[name="place"]')
+      var place = input ? input.value : ""
+      if (!place || !contactRestorePlace) return
+      var pending = contactRestorePlace
+      contactRestorePlace = null
+      if (window.tui && window.tui.dialog) window.tui.dialog.close("contacts-restore-place-dialog")
+      restoreContacts(pending.ids, pending.who, place)
+    })
+
+    function restoreContacts(ids, who, place) {
       if (!ids.length || contactDeleteBusy) return
       contactDeleteBusy = true
       syncContactSelection()
-      postContactIDs("/api/contacts/trash/restore", ids)
+      postContactIDs("/api/contacts/trash/restore", ids, place ? { place: place } : null)
         .then(function (result) {
           var restored = (result && result.restored) || 0
           clearContactSelection()
@@ -3252,6 +3280,7 @@ document.addEventListener("DOMContentLoaded", function () {
           else if (name === "export") exportSelectedContacts(Array.from(selectedContactIds))
           else if (name === "delete") moveContactsToTrash(Array.from(selectedContactIds))
           else if (name === "restore") restoreContacts(Array.from(selectedContactIds))
+          else if (name === "restore-to") openContactRestorePlace(Array.from(selectedContactIds), "")
           else if (name === "delete-forever") deleteContactsForever(Array.from(selectedContactIds), selectedContactInfo)
           return
         }
@@ -3261,6 +3290,11 @@ document.addEventListener("DOMContentLoaded", function () {
           return
         }
         // The contact page's own buttons, for a contact in the Trash.
+        var restoreTo = e.target.closest("[data-contact-restore-to]")
+        if (restoreTo) {
+          openContactRestorePlace([restoreTo.getAttribute("data-contact-restore-to")], restoreTo.getAttribute("data-contact-name") || "")
+          return
+        }
         var restore = e.target.closest("[data-contact-restore]")
         if (restore) {
           restoreContacts([restore.getAttribute("data-contact-restore")], restore.getAttribute("data-contact-name") || "")
@@ -3486,6 +3520,8 @@ document.addEventListener("DOMContentLoaded", function () {
         moveContactsToTrash(Array.from(selectedContactIds))
       } else if (target.multiple && action === "restore") {
         restoreContacts(Array.from(selectedContactIds))
+      } else if (target.multiple && action === "restore-to") {
+        openContactRestorePlace(Array.from(selectedContactIds), "")
       } else if (target.multiple && action === "delete-forever") {
         deleteContactsForever(Array.from(selectedContactIds), selectedContactInfo)
       } else if (action === "compose" && target.email) {
@@ -3505,6 +3541,8 @@ document.addEventListener("DOMContentLoaded", function () {
         moveContactsToTrash([target.id], target.name || target.email)
       } else if (action === "restore") {
         restoreContacts([target.id], target.name || target.email)
+      } else if (action === "restore-to") {
+        openContactRestorePlace([target.id], target.name || target.email)
       } else if (action === "delete-forever") {
         deleteContactsForever([target.id], new Map([[target.id, target]]))
       }

@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -202,5 +203,41 @@ func TestSharedUnresolvedContactCountAndKeep(t *testing.T) {
 	}
 	if got := keep(); !strings.Contains(got, `"kept":0`) {
 		t.Fatal("keep again", got)
+	}
+}
+
+// Restored to another place, a contact is written there, and lives there.
+func TestSharedRestoreToAnotherPlaceWritesItThere(t *testing.T) {
+	ctx := context.Background()
+	h, db := newGmailAPITestHandler(t, ctx)
+	saved, err := db.SaveContact(ctx, "default", models.Contact{Name: "Lena Vos", Email: "lena@example.com", StoredIn: "local"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.TrashContacts(ctx, "default", []string{saved.ID}); err != nil {
+		t.Fatal(err)
+	}
+	restore := func(place string) *httptest.ResponseRecorder {
+		r := contactIDsRequest(t, "/api/contacts/trash/restore", saved.ID)
+		form := url.Values{"id": {saved.ID}, "place": {place}}
+		r.Body = io.NopCloser(strings.NewReader(form.Encode()))
+		r.ContentLength = int64(len(form.Encode()))
+		w := httptest.NewRecorder()
+		h.handleRestoreContacts(w, r)
+		return w
+	}
+	if w := restore("account:someone-else"); w.Code != http.StatusBadRequest {
+		t.Fatal("unknown place accepted", w.Code, w.Body.String())
+	}
+	if w := restore("account:acc"); w.Code != 200 || !strings.Contains(w.Body.String(), `"restored":1`) {
+		t.Fatal("restore", w.Code, w.Body.String())
+	}
+	contact, err := db.GetContact(ctx, "default", saved.ID)
+	if err != nil || contact == nil || contact.StoredIn != "account:acc" {
+		t.Fatal("home", contact, err)
+	}
+	ops, err := db.ClaimContactSyncOperations(ctx, 5, time.Minute)
+	if err != nil || len(ops) != 1 || ops[0].Payload.StoreTarget != "account:acc" {
+		t.Fatal("written there", ops, err)
 	}
 }
