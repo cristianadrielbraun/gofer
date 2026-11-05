@@ -12,10 +12,22 @@ import (
 )
 
 func renderVCard4(contacts []models.Contact) ([]byte, error) {
+	return renderVCard(contacts, "4.0")
+}
+
+// renderCardDAVVCard writes a contact for a CardDAV address book as vCard
+// 3.0, the version every CardDAV server must take: iCloud refuses 4.0 with
+// 400 Bad Request. The fields Gofer writes are the same in both.
+func renderCardDAVVCard(contact models.Contact) ([]byte, error) {
+	return renderVCard([]models.Contact{contact}, "3.0")
+}
+
+func renderVCard(contacts []models.Contact, version string) ([]byte, error) {
 	var b bytes.Buffer
 	enc := emersionvcard.NewEncoder(&b)
 	for _, contact := range contacts {
 		card := contactVCard(contact)
+		card.SetValue(emersionvcard.FieldVersion, version)
 		if err := enc.Encode(card); err != nil {
 			return nil, err
 		}

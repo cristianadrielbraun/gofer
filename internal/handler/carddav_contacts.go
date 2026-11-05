@@ -16,6 +16,7 @@ import (
 	"net/netip"
 	"net/url"
 	"path"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -758,7 +759,7 @@ func (h *Handler) pushContactToCardDAVBook(ctx context.Context, userID string, c
 		}
 	}
 
-	body, err := renderVCard4([]models.Contact{contact})
+	body, err := renderCardDAVVCard(contact)
 	if err != nil {
 		return err
 	}
@@ -1113,7 +1114,7 @@ func cardDAVAddressBookMultiget(ctx context.Context, cfg models.ContactSyncConfi
 			continue
 		}
 		body.WriteString(`<d:href>`)
-		body.WriteString(xmlEscapeText(href))
+		body.WriteString(xmlEscapeText(cardDAVHrefPath(href)))
 		body.WriteString(`</d:href>`)
 	}
 	body.WriteString(`</card:addressbook-multiget>`)
@@ -1129,14 +1130,30 @@ func cardDAVAddressBookMultiget(ctx context.Context, cfg models.ContactSyncConfi
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return nil, cardDAVHTTPError{Status: resp.StatusCode, Body: string(body), RetryAt: providerRetryAfter(resp)}
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		logCardDAVRefusal(req, []byte(body.String()), resp, respBody)
+		return nil, cardDAVHTTPError{Status: resp.StatusCode, Body: string(respBody), RetryAt: providerRetryAfter(resp)}
 	}
 	multi, err := decodeDAVMultiStatus(resp.Body)
 	if err != nil {
 		return nil, err
 	}
 	return multi.Responses, nil
+}
+
+// cardDAVHrefPath names a card by its path, as servers name it themselves:
+// iCloud refuses a multiget naming a card by its full URL with 400 Bad
+// Request.
+func cardDAVHrefPath(href string) string {
+	parsed, err := url.Parse(href)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return href
+	}
+	path := parsed.EscapedPath()
+	if parsed.RawQuery != "" {
+		path += "?" + parsed.RawQuery
+	}
+	return path
 }
 
 func cardDAVFetchContact(ctx context.Context, cfg models.ContactSyncConfig, password, remoteID string) (davResponse, error) {
@@ -1755,10 +1772,36 @@ func cardDAVPut(ctx context.Context, cfg models.ContactSyncConfig, password, rem
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return "", cardDAVHTTPError{Status: resp.StatusCode, Body: string(body), RetryAt: providerRetryAfter(resp)}
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		logCardDAVRefusal(req, body, resp, respBody)
+		return "", cardDAVHTTPError{Status: resp.StatusCode, Body: string(respBody), RetryAt: providerRetryAfter(resp)}
 	}
 	return resp.Header.Get("ETag"), nil
+}
+
+// logCardDAVRefusal logs a request an address book refused as malformed,
+// with what was sent and the whole answer: servers such as iCloud give no
+// reason beyond "Bad Request". The login is left out.
+func logCardDAVRefusal(req *http.Request, sent []byte, resp *http.Response, answer []byte) {
+	if resp.StatusCode != http.StatusBadRequest && resp.StatusCode != http.StatusUnsupportedMediaType && resp.StatusCode != http.StatusUnprocessableEntity {
+		return
+	}
+	headers := func(h http.Header) string {
+		var lines []string
+		for name, values := range h {
+			if strings.EqualFold(name, "Authorization") || strings.EqualFold(name, "Set-Cookie") || strings.EqualFold(name, "Cookie") {
+				continue
+			}
+			lines = append(lines, name+": "+strings.Join(values, ", "))
+		}
+		sort.Strings(lines)
+		return strings.Join(lines, " | ")
+	}
+	if len(sent) > 4096 {
+		sent = sent[:4096]
+	}
+	log.Printf("carddav: %s %s refused with %d\n  request headers: %s\n  request body: %q\n  response headers: %s\n  response body: %q",
+		req.Method, req.URL.String(), resp.StatusCode, headers(req.Header), sent, headers(resp.Header), answer)
 }
 
 func cardDAVDelete(ctx context.Context, cfg models.ContactSyncConfig, password, remoteID, etag string) error {
