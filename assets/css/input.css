@@ -2066,9 +2066,11 @@ html #mail-list .thread-sub-item > .mail-row-check ~ a {
 
 /* Selected table rows get a real border, crisper than an inset shadow at
    fractional scaling: 1px on top, right and bottom, a 3px bar on the left.
-   The padding shrinks by the same amounts so the text doesn't move, and the
-   row above drops its divider so the top edge isn't doubled. Express has its
-   own selected rows. */
+   It is drawn on a layer over the row, so the row's padding stays as it is
+   and nothing in it moves: Chrome rounds border widths to whole screen pixels
+   but not padding, so a border in the row's own box shifted some columns by
+   a fraction of a pixel. The row above drops its divider so the top edge
+   isn't doubled. Express has its own selected rows. */
 html:not([data-theme="express"]) [data-view-mode="table"] .mail-list-item:has(> a.envelope-active),
 html:not([data-theme="express"]) [data-view-mode="table"] .mail-list-item[data-mail-selected],
 html:not([data-theme="express"]) [data-view-mode="table"] .mail-list-item:has(+ .mail-list-item > a.envelope-active),
@@ -2079,16 +2081,28 @@ html:not([data-theme="express"]) [data-view-mode="table"] .mail-list-item:has(+ 
 html:not([data-theme="express"]) [data-view-mode="table"] .mail-list-item > a.envelope-active,
 html:not([data-theme="express"]) [data-view-mode="table"] .mail-list-item[data-mail-selected] > a,
 html:not([data-theme="express"]) [data-view-mode="table"] .mail-list-item > a[data-mail-selected] {
-  border: 1px solid var(--table-pick-edge, color-mix(in srgb, var(--color-foreground) 25%, var(--color-accent)));
-  border-left: 3px solid var(--table-pick-bar, var(--color-primary));
-  padding: calc(0.375rem - 1px) calc(0.75rem - 1px) calc(0.375rem - 1px) calc(0.75rem - 3px);
+  position: relative;
+  /* No border of its own, even where a theme gives selected rows one
+     (Minimal's .envelope-active): it would move the columns. */
+  border: 0;
   box-shadow: none;
 }
 
-/* Only the background and text color animate on table rows, so the border
-   and padding swap in one step instead of sliding the text. The border color
-   doesn't animate either: unselected rows have none, so it would fade in from
-   the text color and flash white in dark themes. */
+html:not([data-theme="express"]) [data-view-mode="table"] .mail-list-item > a.envelope-active::after,
+html:not([data-theme="express"]) [data-view-mode="table"] .mail-list-item[data-mail-selected] > a::after,
+html:not([data-theme="express"]) [data-view-mode="table"] .mail-list-item > a[data-mail-selected]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border: 1px solid var(--table-pick-edge, color-mix(in srgb, var(--color-foreground) 25%, var(--color-accent)));
+  border-left: 3px solid var(--table-pick-bar, var(--color-primary));
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+/* Only the background and text color animate on table rows. The border
+   color doesn't: unselected rows have none, so it would fade in from the
+   text color and flash white in dark themes. */
 html:not([data-theme="express"]) [data-view-mode="table"] .mail-list-item > a {
   transition-property: background-color, color, margin-left;
 }
