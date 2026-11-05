@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"database/sql"
 	"path/filepath"
 	"testing"
 	"time"
@@ -179,4 +180,65 @@ func TestDeletingATrashedContactForGoodEmptiesItFromTheTrash(t *testing.T) {
 	if restored, err := db.RestoreContacts(ctx, "default", []string{id}); err != nil || restored != 0 {
 		t.Fatalf("restoring a deleted contact = %d, %v; want 0", restored, err)
 	}
+}
+
+// A contact deleted on the account it lives on goes to the Trash when Gofer
+// Sync is off; one with Gofer Sync on, or living elsewhere, only loses that
+// copy.
+func TestContactDeletedAtHomeGoesToTheTrash(t *testing.T) {
+	inTrash := func(t *testing.T, db *DB, id string) bool {
+		t.Helper()
+		trashed, err := db.ContactInTrash(t.Context(), "default", id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return trashed
+	}
+	t.Run("shared", func(t *testing.T) {
+		db := newInboundContactFixture(t)
+		home := publishTestContact(t, db, InboundContact{Contact: models.Contact{Email: "home@example.com"}, RemoteID: "people/home"})
+		synced := publishTestContact(t, db, InboundContact{Contact: models.Contact{Email: "synced@example.com"}, RemoteID: "people/synced"})
+		if _, err := db.Write().Exec(`UPDATE contact_profiles SET sync_enabled=1 WHERE id=?`, synced.ProfileID); err != nil {
+			t.Fatal(err)
+		}
+		local, err := db.SaveContact(t.Context(), "default", models.Contact{Name: "Local Lou", Email: "local@example.com", StoredIn: "local"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := db.UpsertContactSource(t.Context(), ContactSource{UserID: "default", ContactID: local.ID, Provider: "gmail", AccountID: "source", RemoteID: "people/local"}); err != nil {
+			t.Fatal(err)
+		}
+		for _, remote := range []string{"people/home", "people/synced", "people/local"} {
+			if err := db.RemoveDeletedContactSource(t.Context(), "default", "gmail", "source", remote); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if !inTrash(t, db, home.ProfileID) || inTrash(t, db, synced.ProfileID) || inTrash(t, db, local.ID) {
+			t.Fatal("trash", inTrash(t, db, home.ProfileID), inTrash(t, db, synced.ProfileID), inTrash(t, db, local.ID))
+		}
+	})
+	t.Run("book", func(t *testing.T) {
+		db := newInboundContactFixture(t)
+		book := models.ContactAddressBook{ID: "dav-book", URL: "https://dav.test/book/"}
+		results, err := db.PublishInboundContactBook(t.Context(), "default", "dav", book, InboundContactBookPage{
+			Contacts: []InboundContact{
+				{Contact: models.Contact{Email: "home@example.com"}, RemoteID: "https://dav.test/book/home.vcf"},
+				{Contact: models.Contact{Email: "synced@example.com"}, RemoteID: "https://dav.test/book/synced.vcf"},
+			}, SyncToken: "one",
+		}, inboundTestGuard, func(*sql.Tx) error { return nil })
+		if err != nil || len(results) != 2 {
+			t.Fatal(results, err)
+		}
+		if _, err := db.Write().Exec(`UPDATE contact_profiles SET sync_enabled=1 WHERE id=?`, results[1].ProfileID); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.PublishInboundContactBook(t.Context(), "default", "dav", book, InboundContactBookPage{
+			DeletedRemoteIDs: []string{"https://dav.test/book/home.vcf", "https://dav.test/book/synced.vcf"}, SyncToken: "two",
+		}, inboundTestGuard, func(*sql.Tx) error { return nil }); err != nil {
+			t.Fatal(err)
+		}
+		if !inTrash(t, db, results[0].ProfileID) || inTrash(t, db, results[1].ProfileID) {
+			t.Fatal("trash", inTrash(t, db, results[0].ProfileID), inTrash(t, db, results[1].ProfileID))
+		}
+	})
 }

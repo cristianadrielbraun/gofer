@@ -194,20 +194,21 @@ func (db *DB) PublishInboundContactBook(ctx context.Context, owner, account stri
 		if configured != 1 {
 			return ErrContactPublication
 		}
-		rows, err := tx.QueryContext(ctx, `SELECT id,remote_id FROM contact_cards WHERE user_id=? AND account_id=? AND provider='carddav' AND kind='provider'
+		rows, err := tx.QueryContext(ctx, `SELECT id,remote_id,profile_id FROM contact_cards WHERE user_id=? AND account_id=? AND provider='carddav' AND kind='provider'
  AND (address_book_id=? OR address_book_id='')`, owner, account, book.ID)
 		if err != nil {
 			return err
 		}
-		var remove []string
+		var remove, profiles []string
 		for rows.Next() {
-			var id, remote string
-			if err := rows.Scan(&id, &remote); err != nil {
+			var id, remote, profile string
+			if err := rows.Scan(&id, &remote, &profile); err != nil {
 				rows.Close()
 				return err
 			}
 			if inScope(remote) && (deleted[remote] || (page.Full && !seen[remote])) {
 				remove = append(remove, id)
+				profiles = append(profiles, profile)
 			}
 		}
 		err = rows.Err()
@@ -219,6 +220,9 @@ func (db *DB) PublishInboundContactBook(ctx context.Context, owner, account stri
 			if _, err := tx.ExecContext(ctx, `DELETE FROM contact_cards WHERE id=? AND user_id=? AND account_id=?`, id, owner, account); err != nil {
 				return err
 			}
+		}
+		if _, err := trashContactsDeletedAtHomeTx(ctx, tx, owner, profiles); err != nil {
+			return err
 		}
 		if book.ID == "" {
 			_, err = tx.ExecContext(ctx, `UPDATE account_contact_sync_configs SET last_sync_token=?,last_success_at=CURRENT_TIMESTAMP,last_error='',updated_at=CURRENT_TIMESTAMP WHERE user_id=? AND account_id=?`, strings.TrimSpace(page.SyncToken), owner, account)
@@ -265,19 +269,20 @@ func (db *DB) PublishInboundJMAPContacts(ctx context.Context, owner, account str
 		seen[remote] = true
 	}
 	return db.publishInboundContacts(ctx, owner, account, "jmap", page.Contacts, guard, func(tx *sql.Tx) error {
-		rows, err := tx.QueryContext(ctx, `SELECT id,remote_id FROM contact_cards WHERE user_id=? AND account_id=? AND provider='jmap' AND kind='provider'`, owner, account)
+		rows, err := tx.QueryContext(ctx, `SELECT id,remote_id,profile_id FROM contact_cards WHERE user_id=? AND account_id=? AND provider='jmap' AND kind='provider'`, owner, account)
 		if err != nil {
 			return err
 		}
-		var remove []string
+		var remove, profiles []string
 		for rows.Next() {
-			var id, remote string
-			if err := rows.Scan(&id, &remote); err != nil {
+			var id, remote, profile string
+			if err := rows.Scan(&id, &remote, &profile); err != nil {
 				rows.Close()
 				return err
 			}
 			if deleted[remote] || (page.Full && !seen[remote]) {
 				remove = append(remove, id)
+				profiles = append(profiles, profile)
 			}
 		}
 		err = rows.Err()
@@ -289,6 +294,9 @@ func (db *DB) PublishInboundJMAPContacts(ctx context.Context, owner, account str
 			if _, err := tx.ExecContext(ctx, `DELETE FROM contact_cards WHERE id=? AND user_id=? AND account_id=?`, id, owner, account); err != nil {
 				return err
 			}
+		}
+		if _, err := trashContactsDeletedAtHomeTx(ctx, tx, owner, profiles); err != nil {
+			return err
 		}
 		result, err := tx.ExecContext(ctx, `UPDATE account_contact_sync_configs SET last_sync_token=?,last_success_at=CURRENT_TIMESTAMP,last_error='',updated_at=CURRENT_TIMESTAMP
  WHERE user_id=? AND account_id=? AND provider='jmap' AND enabled=1`, strings.TrimSpace(page.SyncToken), owner, account)

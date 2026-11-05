@@ -579,7 +579,7 @@ func (h *Handler) syncCardDAVContacts(ctx context.Context, userID string, accoun
 			remoteID := absoluteDAVHref(bookCfg.AddressBookURL, response.Href)
 			if response.deleted() {
 				if remoteID != "" {
-					if err := h.db.DeleteContactSourceByRemoteID(ctx, userID, providers.ProviderCardDAV, account.ID, remoteID); err != nil {
+					if err := h.db.RemoveDeletedContactSource(ctx, userID, providers.ProviderCardDAV, account.ID, remoteID); err != nil {
 						return imported, err
 					}
 				}
@@ -650,7 +650,7 @@ func (h *Handler) pruneMissingCardDAVSourcesForBook(ctx context.Context, userID,
 		if remoteID == "" || seenRemoteIDs[remoteID] {
 			continue
 		}
-		if err := h.db.DeleteContactSourceByRemoteID(ctx, userID, providers.ProviderCardDAV, accountID, remoteID); err != nil {
+		if err := h.db.RemoveDeletedContactSource(ctx, userID, providers.ProviderCardDAV, accountID, remoteID); err != nil {
 			return err
 		}
 	}

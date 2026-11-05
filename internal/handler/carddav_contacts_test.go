@@ -203,7 +203,7 @@ func TestCardDAVSyncFallsBackToFullQuery(t *testing.T) {
 	}
 }
 
-func TestPruneMissingCardDAVSourcesRemovesTargetOnly(t *testing.T) {
+func TestPruneMissingCardDAVSourcesTrashesContactLivingThere(t *testing.T) {
 	ctx := context.Background()
 	db, err := storage.New(filepath.Join(t.TempDir(), "gofer.db"))
 	if err != nil {
@@ -234,14 +234,9 @@ func TestPruneMissingCardDAVSourcesRemovesTargetOnly(t *testing.T) {
 	if source != nil {
 		t.Fatalf("stale source still exists: %#v", source)
 	}
-	contact, err := db.GetContact(ctx, "default", contactID)
-	if err != nil || contact == nil {
-		t.Fatalf("GetContact() = %#v, %v; want contact kept", contact, err)
-	}
-	for _, target := range contact.SaveTargets {
-		if target == "account:acc" {
-			t.Fatalf("stale account target still present: %#v", contact.SaveTargets)
-		}
+	// It lived on that account with Gofer Sync off: it goes to the Trash.
+	if trashed, err := db.ContactInTrash(ctx, "default", contactID); err != nil || !trashed {
+		t.Fatalf("ContactInTrash() = %v, %v; want the contact in the Trash", trashed, err)
 	}
 }
 
