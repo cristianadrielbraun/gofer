@@ -125,10 +125,14 @@ templ ContactsSidebarBody(accounts []models.Account, activeFolder string, uiSett
 	<div id="sidebar-app-body" class="flex min-h-0 flex-1 flex-col" data-sidebar-app-body="contacts">
 		<div class="px-4 pb-4" data-sidebar-create>
 			<div class="inline-flex w-full items-stretch rounded-lg shadow-sm">
-				<a href="/contacts?new=1" hx-get="/contacts?new=1" hx-target="#main-content" hx-swap="outerHTML" hx-push-url="/contacts?new=1" class="btn-skeuo flex h-10 min-w-0 flex-1 items-center justify-center gap-2 rounded-l-lg rounded-r-none text-sidebar-primary-foreground font-semibold text-sm">
-					@icon.UserPlus(icon.Props{Class: "size-4"})
-					{ i18n.T(ctx, "contacts.new") }
-				</a>
+				// The new contact dialog is on the contacts page, over the contact
+				// being read.
+				@dialog.Trigger(dialog.TriggerProps{For: contactNewDialogID, Class: "flex min-w-0 flex-1"}) {
+					<button type="button" class="btn-skeuo flex h-10 min-w-0 flex-1 items-center justify-center gap-2 rounded-l-lg rounded-r-none text-sidebar-primary-foreground font-semibold text-sm" data-contact-edit-trigger data-contact-edit-dialog={ contactNewDialogID }>
+						@icon.UserPlus(icon.Props{Class: "size-4"})
+						{ i18n.T(ctx, "contacts.new") }
+					</button>
+				}
 				@dropdown.Dropdown() {
 					@dropdown.Trigger() {
 						<button type="button" class="btn-skeuo inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-l-none rounded-r-lg border-l border-sidebar-border/70 text-sidebar-primary-foreground" aria-label={ i18n.T(ctx, "contacts.actions") }>

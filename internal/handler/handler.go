@@ -1044,6 +1044,10 @@ func (h *Handler) handleContacts(w http.ResponseWriter, r *http.Request) {
 				return nil, sql.ErrNoRows
 			}
 			return views.ContactRecentActivity(*selected, local.recentContactActivity(ctx, userID, selected)), nil
+		case "new-contact":
+			// A fresh dialog for the next new contact.
+			accounts, _ := local.db.GetAccounts(ctx, userID)
+			return views.ContactNewDialog(accounts, false), nil
 		case "detail":
 			var selected *models.Contact
 			var profile *models.ContactProfile

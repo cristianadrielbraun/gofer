@@ -871,9 +871,12 @@ func contactInitialSyncPlaces(contact *models.Contact) string {
 	return strings.Join(places, ",")
 }
 
+// contactSaveTargetSelected says whether target is among a contact's Gofer
+// Sync places. Its home never is: the contact is there already, and a new
+// contact starts with none.
 func contactSaveTargetSelected(contact *models.Contact, target string) bool {
-	if contact == nil || len(contact.SaveTargets) == 0 {
-		return target == "local"
+	if contact == nil || strings.TrimSpace(contact.ID) == "" || target == contactHome(contact) {
+		return false
 	}
 	for _, selected := range contact.SaveTargets {
 		if selected == target {
@@ -1517,7 +1520,9 @@ templ ContactsPage(contacts []models.Contact, selected *models.Contact, selected
 	<div id="main-content" class={ mailPaneLayoutClass(PaneLayout(uiSettings, "contacts")) + " bg-background" } data-mail-pane-layout={ PaneLayout(uiSettings, "contacts") }>
 		@ContactsListPane(contacts, selected, filters, totalCount, PanelSetting(uiSettings, "contacts", "mail_list_width", "50%"), accounts)
 		@ResizeHandle("maillist")
-		@ContactsViewPane(selected, selectedProfile, showNew, syncQueued, accounts)
+		@ContactsViewPane(selected, selectedProfile, false, syncQueued, accounts)
+		// A new contact is made in a dialog, over the contact being read.
+		@ContactNewDialog(accounts, showNew)
 	</div>
 }
 
@@ -1883,9 +1888,11 @@ templ ContactsListPane(contacts []models.Contact, selected *models.Contact, filt
 				}
 			}
 		</div>
-		<a href="/contacts?new=1" hx-get="/contacts?new=1" hx-target="#main-content" hx-swap="outerHTML" hx-push-url="/contacts?new=1" class="mobile-compose-fab" aria-label={ i18n.T(ctx, "contacts.new") }>
-			@icon.UserPlus(icon.Props{Class: "size-5"})
-		</a>
+		@dialog.Trigger(dialog.TriggerProps{For: contactNewDialogID}) {
+			<button type="button" class="mobile-compose-fab" aria-label={ i18n.T(ctx, "contacts.new") } data-contact-edit-trigger data-contact-edit-dialog={ contactNewDialogID }>
+				@icon.UserPlus(icon.Props{Class: "size-5"})
+			</button>
+		}
 		@ContactsContextMenu(filters.Trash)
 	</section>
 }
@@ -2295,7 +2302,10 @@ templ ContactsImportDialog(accounts []models.Account) {
 				<div class="space-y-3 rounded-lg border border-border p-3">
 					<div class="flex items-start justify-between gap-3">
 						<div class="min-w-0">
-							<label for="contacts-import-gofer-sync" class="block text-sm font-medium text-foreground">{ i18n.T(ctx, "contacts.import.gofer_sync") }</label>
+							<div class="flex items-center gap-1.5">
+								<label for="contacts-import-gofer-sync" class="block text-sm font-medium text-foreground">{ i18n.T(ctx, "contacts.import.gofer_sync") }</label>
+								@goferSyncInfo()
+							</div>
 							<p class="mt-0.5 text-xs text-muted-foreground">{ i18n.T(ctx, "contacts.import.gofer_sync_help") }</p>
 						</div>
 						@switchcomp.Switch(switchcomp.Props{ID: "contacts-import-gofer-sync", Name: "gofer_sync", Value: "1", Attributes: templ.Attributes{"data-contacts-import-sync": ""}})
@@ -2419,7 +2429,7 @@ templ ContactReadOnlyView(contact models.Contact, profile *models.ContactProfile
 		if len(contact.DeletedFrom) > 0 && contact.TrashedAt == "" {
 			@ContactUnresolvedNotice(contact, accounts)
 		}
-		@ContactReadOnlyContactInfo(contact)
+		@ContactReadOnlyContactInfo(contact, profile, accounts)
 		@ContactReadOnlySyncInfo(contact, profile, syncQueued, accounts)
 		@ContactReadOnlyActivityInfo(contact)
 		@ContactRecentActivityLoader(contact)
@@ -2527,13 +2537,17 @@ func contactPlaceNames(ctx context.Context, places []string, accounts []models.A
 	return names
 }
 
-templ ContactReadOnlyContactInfo(contact models.Contact) {
+templ ContactReadOnlyContactInfo(contact models.Contact, profile *models.ContactProfile, accounts []models.Account) {
 	<section class="rounded-lg border border-ink/10 bg-ink/[0.02]">
 		<div class="flex items-center gap-2 border-b border-ink/10 px-4 py-3">
 			@icon.IdCard(icon.Props{Class: "size-3.5 text-muted-foreground"})
 			<h2 class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.view.contact") }</h2>
 		</div>
 		<div class="grid gap-x-6 px-4 lg:grid-cols-2">
+			// Where the contact exists, its own; Gofer Sync adds more places.
+			<div class="lg:col-span-2">
+				@ContactReadOnlyPillListField(i18n.T(ctx, "contacts.stored_in"), contactStoredInLabels(ctx, profile, accounts))
+			</div>
 			@ContactReadOnlyTextField(i18n.T(ctx, "contacts.field.name"), contact.Name)
 			@ContactReadOnlyLinkedField(i18n.T(ctx, "contacts.field.email"), contact.Email, contact.EmailLabel, "mailto:")
 			@ContactReadOnlyListField(i18n.T(ctx, "contacts.field.additional_emails"), contact.AdditionalEmails, contact.AdditionalEmailLabels, "alternate", "mailto:")
@@ -2549,12 +2563,12 @@ templ ContactReadOnlyContactInfo(contact models.Contact) {
 templ ContactReadOnlySyncInfo(contact models.Contact, profile *models.ContactProfile, syncQueued bool, accounts []models.Account) {
 	{{ originLabel := contactReadOnlyOriginLabel(ctx, contact, profile, accounts) }}
 	{{ targetLabels := contactReadOnlyMirrorLabels(ctx, &contact, profile, accounts) }}
-	{{ storedLabels := contactStoredInLabels(ctx, profile, accounts) }}
 	<section class="rounded-lg border border-ink/10 bg-ink/[0.02]">
 		<div class="flex flex-wrap items-center justify-between gap-3 border-b border-ink/10 px-4 py-3">
 			<div class="flex flex-wrap items-center gap-2">
 				@icon.Route(icon.Props{Class: "size-3.5 text-muted-foreground"})
 				<h2 class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.sync.title") }</h2>
+				@goferSyncInfo()
 				<span class={ contactSyncStateBadgeClass(contact, profile) } data-contact-sync-enabled-status>{ contactSyncStateLabel(ctx, contact, profile) }</span>
 			</div>
 			@button.Button(button.Props{
@@ -2569,7 +2583,6 @@ templ ContactReadOnlySyncInfo(contact models.Contact, profile *models.ContactPro
 			}
 		</div>
 		<div class="grid gap-x-6 px-4 lg:grid-cols-2">
-			@ContactReadOnlyPillListField(i18n.T(ctx, "contacts.stored_in"), storedLabels)
 			@ContactReadOnlyPillListField(i18n.T(ctx, "contacts.sync.locations"), targetLabels)
 			@ContactReadOnlyTextField(i18n.T(ctx, "contacts.filters.origin"), originLabel)
 			@ContactReadOnlySyncStatusField(contactReadOnlySyncStatus(ctx, contact, syncQueued))
@@ -2703,17 +2716,16 @@ templ ContactEditorCoreFields(contact *models.Contact) {
 				<button type="button" class={ "h-7 items-center rounded-md px-2 text-[11px] font-semibold text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive " + contactEditAvatarRemoveClass(hasAvatar) } data-contact-avatar-remove>{ i18n.T(ctx, "contacts.avatar.remove") }</button>
 			</div>
 		</div>
-		<div class="grid gap-6 p-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
-			<div class="min-w-0 space-y-4">
+		// One column, each field the dialog's width; title and organization,
+		// both short, share a row.
+		<div class="space-y-4 p-4">
 				<div>
 					<label class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.field.name") }</label>
 					<input type="text" name="name" value={ contactFormName(contact) } placeholder={ i18n.T(ctx, "contacts.placeholder.name") } class="h-10 w-full rounded-lg border border-ink/10 bg-ink/[0.04] px-3 text-sm text-ink placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ink/10"/>
 				</div>
 				@ContactEmailFields(contact)
 				@ContactPhoneFields(contact)
-			</div>
-			<div class="min-w-0 space-y-4">
-				<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+				<div class="grid gap-4 sm:grid-cols-2">
 					<div>
 						<label class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.field.title") }</label>
 						<input type="text" name="title" value={ contactFormTitle(contact) } placeholder={ i18n.T(ctx, "contacts.placeholder.title") } class="h-10 w-full rounded-lg border border-ink/10 bg-ink/[0.04] px-3 text-sm text-ink placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ink/10"/>
@@ -2725,9 +2737,8 @@ templ ContactEditorCoreFields(contact *models.Contact) {
 				</div>
 				<div>
 					<label class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.field.notes") }</label>
-					<textarea name="notes" rows="7" placeholder={ i18n.T(ctx, "contacts.placeholder.notes") } class="min-h-40 w-full resize-y rounded-lg border border-ink/10 bg-ink/[0.04] px-3 py-2 text-sm text-ink placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ink/10">{ contactFormNotes(contact) }</textarea>
+					<textarea name="notes" rows="5" placeholder={ i18n.T(ctx, "contacts.placeholder.notes") } class="min-h-28 w-full resize-y rounded-lg border border-ink/10 bg-ink/[0.04] px-3 py-2 text-sm text-ink placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ink/10">{ contactFormNotes(contact) }</textarea>
 				</div>
-			</div>
 		</div>
 	</section>
 }
@@ -2982,6 +2993,20 @@ templ contactPlaceActionButton(dialogID, label string, blocked string) {
 	}
 }
 
+// goferSyncInfo explains Gofer Sync beside its name: people don't know it.
+templ goferSyncInfo() {
+	@tooltip.Tooltip() {
+		@tooltip.Trigger() {
+			<span class="inline-flex size-4 cursor-help items-center justify-center text-muted-foreground hover:text-ink" tabindex="0" aria-label={ i18n.T(ctx, "contacts.sync.info") } data-gofer-sync-info>
+				@icon.Info(icon.Props{Class: "size-3.5"})
+			</span>
+		}
+		@tooltip.Content(tooltip.ContentProps{Position: tooltip.PositionBottom, ShowArrow: true, Class: "max-w-[min(20rem,calc(100vw-2rem))] whitespace-normal text-left normal-case tracking-normal font-normal"}) {
+			{ i18n.T(ctx, "contacts.sync.info") }
+		}
+	}
+}
+
 // contactHeaderTooltip names an icon button in a contact's header.
 templ contactHeaderTooltip(text string) {
 	@tooltip.Tooltip() {
@@ -3122,6 +3147,81 @@ templ ContactRestorePlaceDialog(accounts []models.Account) {
 	}
 }
 
+// ContactNewHomeSection chooses a new contact's main location, where it is
+// created: Gofer Local, or an account it is written to. It is the contact's
+// own, apart from Gofer Sync, which adds more places.
+templ ContactNewHomeSection(accounts []models.Account) {
+	<section class="rounded-lg border border-ink/10 bg-ink/[0.02]">
+		<div class="flex items-center gap-2 border-b border-ink/10 px-4 py-3">
+			@icon.MapPin(icon.Props{Class: "size-3.5 text-muted-foreground"})
+			<h2 class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.stored_in") }</h2>
+		</div>
+		<div class="p-4">
+			@selectbox.SelectBox() {
+				@selectbox.Trigger(selectbox.TriggerProps{Name: "stored_in", Class: "h-10 border-ink/10 bg-ink/[0.04] text-ink", Required: true, DisableClear: true, Attributes: templ.Attributes{"data-contact-stored-in": ""}}) {
+					@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "contacts.origin.local"), Class: "text-left"})
+				}
+				@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+					@selectbox.Item(selectbox.ItemProps{Value: "local", Selected: true}) {
+						{ i18n.T(ctx, "contacts.origin.local") }
+					}
+					@contactImportPlaceItems(accounts)
+				}
+			}
+			<p class="mt-1.5 text-xs leading-relaxed text-muted-foreground">{ i18n.T(ctx, "contacts.stored_in_help") }</p>
+		</div>
+	</section>
+}
+
+// contactNewDialogID is the dialog a new contact is made in.
+const contactNewDialogID = "contact-new-dialog"
+
+// ContactNewDialog makes a new contact, in the dialog an existing one is
+// edited in: its details, where it is stored and its Gofer Sync places. It
+// opens on its own for /contacts?new=1.
+templ ContactNewDialog(accounts []models.Account, open bool) {
+	@dialog.Dialog(dialog.Props{ID: contactNewDialogID, Open: open, DisableClickAway: true, DisableESC: true}) {
+		@dialog.Content(dialog.ContentProps{HideCloseButton: true, Class: "mobile-fullscreen-dialog max-h-[calc(100vh-2rem)] sm:max-w-3xl [&_[data-tui-dialog-panel]]:gap-0 [&_[data-tui-dialog-panel]]:p-0"}) {
+			<form
+				id="contact-new-form"
+				action={ contactFormAction(nil) }
+				method="post"
+				class="grid max-h-[calc(100vh-2rem)] min-h-0 grid-rows-[auto_minmax(0,1fr)_auto]"
+				data-contact-editor-form
+				data-contact-edit-form
+				data-contact-new-form
+				data-contact-edit-dialog={ contactNewDialogID }
+			>
+				<div class="flex items-start justify-between gap-4 border-b border-ink/10 px-5 py-4 sm:px-6">
+					@dialog.Header(dialog.HeaderProps{Class: "min-w-0"}) {
+						@dialog.Title(dialog.TitleProps{Class: "truncate text-xl font-semibold text-ink"}) {
+							{ i18n.T(ctx, "contacts.new") }
+						}
+						@dialog.Description(dialog.DescriptionProps{Class: "text-sm text-muted-foreground"}) {
+							{ i18n.T(ctx, "contacts.new_description") }
+						}
+					}
+					<button type="button" class="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-ink/[0.06] hover:text-ink" aria-label={ i18n.T(ctx, "contacts.edit.close") } data-contact-editor-cancel>
+						@icon.X(icon.Props{Class: "size-4"})
+					</button>
+				</div>
+				<div class="min-h-0 space-y-5 overflow-y-auto px-5 py-5 sm:px-6">
+					@ContactEditorCoreFields(nil)
+					@ContactNewHomeSection(accounts)
+					@ContactLegacySourcePanel(nil, accounts)
+				</div>
+				<div class="flex flex-col-reverse gap-2 border-t border-ink/10 bg-paper/90 px-5 py-3 backdrop-blur sm:flex-row sm:items-center sm:justify-end sm:px-6">
+					<button type="button" class="inline-flex h-9 items-center justify-center rounded-lg border border-ink/10 bg-paper px-4 text-sm font-semibold text-muted-foreground transition-colors hover:bg-ink/[0.04] hover:text-ink" data-contact-editor-cancel>{ i18n.T(ctx, "common.cancel") }</button>
+					<button type="submit" class="btn-skeuo inline-flex h-9 items-center justify-center gap-1.5 rounded-lg px-4 text-sm font-semibold">
+						@icon.UserPlus(icon.Props{Class: "size-4"})
+						{ i18n.T(ctx, "contacts.new_save") }
+					</button>
+				</div>
+			</form>
+		}
+	}
+}
+
 templ ContactEditDialog(contact models.Contact, profile *models.ContactProfile, accounts []models.Account) {
 	{{ dialogID := contactEditDialogID(contact) }}
 	@dialog.Dialog(dialog.Props{ID: dialogID, DisableClickAway: true, DisableESC: true}) {
@@ -3171,6 +3271,7 @@ templ ContactEditSyncPanel(contact *models.Contact, profile *models.ContactProfi
 			<div class="inline-flex items-center gap-2">
 				@icon.Route(icon.Props{Class: "size-3.5 text-muted-foreground"})
 				<h2 class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.sync.title") }</h2>
+				@goferSyncInfo()
 			</div>
 			<div class="flex items-center gap-2">
 				<span class={ contactSyncEnabledBadgeClass(contactProfileSyncEnabled(profile)) } data-contact-sync-state-label>
@@ -3274,6 +3375,7 @@ templ ContactLegacySourcePanel(contact *models.Contact, accounts []models.Accoun
 			<div class="inline-flex items-center gap-2">
 				@icon.Route(icon.Props{Class: "size-3.5 text-muted-foreground"})
 				<h2 class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.sync.title") }</h2>
+				@goferSyncInfo()
 			</div>
 			<div class="flex items-center gap-2">
 				<span class={ contactSyncEnabledBadgeClass(contact != nil && contact.GoferSyncEnabled) } data-contact-sync-state-label>
@@ -3288,25 +3390,7 @@ templ ContactLegacySourcePanel(contact *models.Contact, accounts []models.Accoun
 			</div>
 		</div>
 		<div class="space-y-4 p-4">
-			if contact == nil {
-				// A new contact is created where it will live: Gofer Local,
-				// or an account it is written to.
-				<div class="w-full">
-					<label class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.stored_in") }</label>
-					@selectbox.SelectBox() {
-						@selectbox.Trigger(selectbox.TriggerProps{Name: "stored_in", Class: "h-10 border-ink/10 bg-ink/[0.04] text-ink", Required: true, DisableClear: true, Attributes: templ.Attributes{"data-contact-stored-in": ""}}) {
-							@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "contacts.origin.local"), Class: "text-left"})
-						}
-						@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
-							@selectbox.Item(selectbox.ItemProps{Value: "local", Selected: true}) {
-								{ i18n.T(ctx, "contacts.origin.local") }
-							}
-							@contactImportPlaceItems(accounts)
-						}
-					}
-					<p class="mt-1.5 text-xs leading-relaxed text-muted-foreground">{ i18n.T(ctx, "contacts.stored_in_help") }</p>
-				</div>
-			} else {
+			if contact != nil {
 			<div class="rounded-md border border-ink/10 bg-paper/35 px-3 py-2.5">
 				<div class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.sync.source") }</div>
 				if contact != nil && len(contact.SourceBooks) > 0 {
@@ -3334,6 +3418,7 @@ templ ContactProfileInsight(profile models.ContactProfile, contact *models.Conta
 			<div class="inline-flex items-center gap-2">
 				@icon.Route(icon.Props{Class: "size-3.5 text-muted-foreground"})
 				<h2 class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.sync.title") }</h2>
+				@goferSyncInfo()
 			</div>
 			<span class={ contactSyncEnabledBadgeClass(profile.SyncEnabled) }>{ contactUnifiedStatusLabel(ctx, profile) }</span>
 		</div>
@@ -3621,12 +3706,12 @@ templ ContactSyncQueuedNotice() {
 }
 
 templ ContactLabelSelect(name string, value string, options []string, ariaLabel string) {
-	<div class="w-24 shrink-0" aria-label={ ariaLabel }>
+	<div class="w-36 shrink-0" aria-label={ ariaLabel }>
 		@selectbox.SelectBox() {
 			@selectbox.Trigger(selectbox.TriggerProps{Name: name, Class: "h-10 border-ink/10 bg-ink/[0.04] px-2 text-xs font-medium uppercase tracking-wide text-muted-foreground", DisableClear: true}) {
 				@selectbox.Value(selectbox.ValueProps{Placeholder: contactLabelName(ctx, value), Class: "text-xs font-medium uppercase tracking-wide text-muted-foreground"})
 			}
-			@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "min-w-24"}) {
+			@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "min-w-36"}) {
 				for _, option := range options {
 					@selectbox.Item(selectbox.ItemProps{Value: option, Selected: option == value, Class: "text-xs uppercase tracking-wide"}) {
 						{ contactLabelName(ctx, option) }

@@ -679,6 +679,17 @@ document.addEventListener("DOMContentLoaded", function () {
         return
       }
 
+      // A click outside a contact's edit or new contact dialog is its
+      // Cancel: it closes, asking first when something was typed. templui's
+      // own click-away is off for them, so nothing is lost by a stray click.
+      if (e.target && e.target.tagName === "DIALOG") {
+        var outsideCancel = e.target.querySelector("[data-contact-edit-form] [data-contact-editor-cancel]")
+        if (outsideCancel) {
+          outsideCancel.click()
+          return
+        }
+      }
+
       var cancelContactEdit = e.target.closest && e.target.closest("[data-contact-editor-cancel]")
       if (cancelContactEdit) {
         e.preventDefault()
@@ -689,6 +700,10 @@ document.addEventListener("DOMContentLoaded", function () {
         var closeEditor = function () {
           var cancelDialogID = cancelForm.getAttribute("data-contact-edit-dialog") || ""
           if (cancelDialogID && window.tui && window.tui.dialog) window.tui.dialog.close(cancelDialogID)
+          // The next new contact starts from an empty dialog.
+          if (hasChanges && cancelForm.hasAttribute("data-contact-new-form")) {
+            window.setTimeout(replaceNewContactDialog, 220)
+          }
           if (hasChanges && cancelForm.dataset.contactId) {
             window.setTimeout(function () {
               refreshContactsDetail(cancelForm.dataset.contactId, null, false)
@@ -1097,6 +1112,25 @@ document.addEventListener("DOMContentLoaded", function () {
       return labels
     }
 
+    // Puts an empty new contact dialog in place of the one used.
+    function replaceNewContactDialog() {
+      var current = document.getElementById("contact-new-dialog")
+      if (!current) return
+      fetch("/contacts?partial=new-contact", { headers: { Accept: "text/html", "HX-Request": "true" } })
+        .then(function (response) { return response.ok ? response.text() : "" })
+        .then(function (html) {
+          if (!html) return
+          var holder = document.createElement("div")
+          holder.innerHTML = html
+          var fresh = holder.querySelector("#contact-new-dialog")
+          if (fresh && current.isConnected) {
+            current.replaceWith(fresh)
+            if (typeof htmx !== "undefined") htmx.process(fresh)
+          }
+        })
+        .catch(function () {})
+    }
+
     function saveContactEditor(form, submitter) {
       if (!form || form.dataset.saving === "true") return
       var removed = contactRemovedSyncPlaces(form)
@@ -1138,6 +1172,18 @@ document.addEventListener("DOMContentLoaded", function () {
         }
         return res.json()
       }).then(function (data) {
+        // A contact made in the new contact dialog opens once it's saved,
+        // with the list showing it and an empty dialog for the next one.
+        if (form.hasAttribute("data-contact-new-form") && data && data.contact_id && !data.contact_sync_setup_url) {
+          if (window.tui && window.tui.dialog) window.tui.dialog.close(form.getAttribute("data-contact-edit-dialog"))
+          var newLocation = data.location || "/contacts?contact=" + encodeURIComponent(data.contact_id)
+          window.setTimeout(function () {
+            if (typeof htmx === "undefined") { window.location.href = newLocation; return }
+            htmx.ajax("GET", newLocation, { target: "#main-content", swap: "outerHTML" }).then(function () {
+              history.pushState({ contacts: true, contact: data.contact_id }, "", newLocation)
+            })
+          }, 220)
+        }
         if (data && data.contact_id) {
           form.action = "/api/contacts?id=" + encodeURIComponent(data.contact_id)
           if (data.location) history.replaceState({ contacts: true, contact: data.contact_id }, "", data.location)
