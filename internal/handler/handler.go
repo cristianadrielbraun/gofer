@@ -2905,9 +2905,19 @@ func emailFiltersActive(filters models.EmailFilters) bool {
 
 func (h *Handler) resolveFolderID(ctx context.Context, userID, requested string) (string, error) {
 	if requested == "" {
-		requested = "inbox"
+		requested = h.defaultMailFolder(ctx, userID)
 	}
 	return h.db.ResolveFolderIDForUser(ctx, userID, requested)
+}
+
+// defaultMailFolder is the folder opened when none is asked for, the first
+// one the sidebar shows (views.DefaultMailFolder).
+func (h *Handler) defaultMailFolder(ctx context.Context, userID string) string {
+	accounts, err := h.db.GetAccounts(ctx, userID)
+	if err != nil {
+		return "inbox"
+	}
+	return views.DefaultMailFolder(accounts, h.db.GetUISettings(ctx, userID))
 }
 
 func (h *Handler) handleThreadSubItems(w http.ResponseWriter, r *http.Request) {

@@ -623,3 +623,22 @@ func TestSidebarFolderTreeFolderTagFilterLeavesTagInactive(t *testing.T) {
 	}
 }
 
+// With the unified Inbox in the sidebar, the mail page opens it; without it,
+// the first folder of the first account the sidebar shows.
+func TestDefaultMailFolderIsTheFirstFolderShown(t *testing.T) {
+	accounts := []models.Account{
+		{ID: "hidden", EmailSyncEnabled: true, Hidden: true, Folders: []models.Folder{{ID: "hidden-inbox", Role: "inbox"}}},
+		{ID: "acc-a", EmailSyncEnabled: true, Folders: []models.Folder{{ID: "a-archive", Role: "archive"}, {ID: "a-inbox", Role: "inbox"}}},
+	}
+	if got := DefaultMailFolder(accounts, map[string]string{}); got != "inbox" {
+		t.Fatalf("with unified folders = %q, want the unified inbox", got)
+	}
+	for name, settings := range map[string]map[string]string{
+		"unified folders off": {"unified_folders_enabled": "false"},
+		"unified inbox off":   {"unified_folder_inbox_enabled": "false"},
+	} {
+		if got := DefaultMailFolder(accounts, settings); got != "a-archive" {
+			t.Fatalf("%s = %q, want the first account's first folder", name, got)
+		}
+	}
+}

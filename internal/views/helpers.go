@@ -42,6 +42,25 @@ func unifiedFolderOptions() []unifiedFolderOption {
 	return options
 }
 
+// DefaultMailFolder is the folder the mail page opens when none is asked
+// for: the unified Inbox while the sidebar shows it, else the first folder of
+// the first account the sidebar shows.
+func DefaultMailFolder(accounts []models.Account, settings map[string]string) string {
+	if uiSettingGet(settings, "unified_folders_enabled", "true") != "false" {
+		for _, folder := range unifiedFolders(accounts, settings) {
+			if folder.ID == "inbox" {
+				return "inbox"
+			}
+		}
+	}
+	for _, account := range accounts {
+		if account.EmailSyncEnabled && !account.IsDeleting && !account.Hidden && len(account.Folders) > 0 {
+			return account.Folders[0].ID
+		}
+	}
+	return "inbox"
+}
+
 // unifiedFolderOptionsInOrder lists the unified folders in the order the
 // sidebar shows them.
 func unifiedFolderOptionsInOrder(settings map[string]string) []unifiedFolderOption {
