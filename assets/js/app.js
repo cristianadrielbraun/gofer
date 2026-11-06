@@ -1,5 +1,8 @@
 // Gofer's pages run no inline code, so htmx needn't evaluate any either.
 if (window.htmx) window.htmx.config.allowEval = false
+// Back and Forward are navigation.js's: htmx's copy of the page in
+// localStorage, written on every pushed address, would never be read.
+if (window.htmx) window.htmx.config.historyCacheSize = 0
 
 function setupPageRequestOwnership() {
   if (window._goferPageRequestOwnershipReady) return
