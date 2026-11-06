@@ -2389,6 +2389,7 @@ func (o *SyncOrchestrator) syncAccount(ctx context.Context, accountID string, in
 	if err != nil {
 		return err
 	}
+	folders = imapFoldersWithParents(folders)
 
 	choices, err := o.imapRepository().FolderRoleChoices(ctx, accountID)
 	if err != nil {
@@ -2721,6 +2722,42 @@ func (o *SyncOrchestrator) reconcileAndRefresh(ctx context.Context, client *imap
 		expectedUIDValidity = currentUIDValidity
 	}
 	return o.refreshFlags(ctx, client, accountID, folder, expectedUIDValidity)
+}
+
+// imapFoldersWithParents adds the parents a server leaves out of its
+// listing: some list "INBOX.Projects.Clients" but not "INBOX.Projects",
+// which was never created as a folder of its own. Without it the child has
+// nowhere to go and shows at the top under its full name. Each missing
+// parent comes just before its first child, as a folder that holds no mail.
+func imapFoldersWithParents(folders []imap.FolderInfo) []imap.FolderInfo {
+	known := make(map[string]bool, len(folders))
+	for _, f := range folders {
+		known[f.Name] = true
+	}
+	out := make([]imap.FolderInfo, 0, len(folders))
+	for _, f := range folders {
+		if f.Delimiter != 0 {
+			delimiter := string(f.Delimiter)
+			var missing []imap.FolderInfo
+			for parent := f.Name; ; {
+				i := strings.LastIndex(parent, delimiter)
+				if i <= 0 {
+					break
+				}
+				parent = parent[:i]
+				if known[parent] {
+					break
+				}
+				known[parent] = true
+				missing = append(missing, imap.FolderInfo{Name: parent, Delimiter: f.Delimiter, Role: "custom"})
+			}
+			for i := len(missing) - 1; i >= 0; i-- {
+				out = append(out, missing[i])
+			}
+		}
+		out = append(out, f)
+	}
+	return out
 }
 
 // imapFolderInputs turns an IMAP folder listing into the folder rows to save.
