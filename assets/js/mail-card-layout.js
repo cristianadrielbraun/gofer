@@ -1204,6 +1204,8 @@
         phone: "js.contacts.card_field.phone",
         home: "js.contacts.card_field.home",
         date: "js.contacts.card_field.date",
+        created: "js.contacts.card_field.created",
+        edited: "js.contacts.card_field.edited",
         messages: "js.contacts.card_field.messages",
         notes: "js.contacts.card_field.notes",
         sync: "js.contacts.card_field.sync",

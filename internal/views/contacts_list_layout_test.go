@@ -12,14 +12,14 @@ import (
 // A contact card has each field the card layout can place, and the table
 // row a cell for each column the column menu can show.
 func TestContactListRowsHaveEveryLayoutField(t *testing.T) {
-	contact := models.Contact{ID: "c1", Name: "Nora Vale", Email: "nora@work.example", Phone: "+1 555 0100", Organization: "Vale Studio", Title: "Editor", Notes: "Prefers\nmornings", StoredIn: "local", MessageCount: 3, LastSeenAt: "Mar 3", GoferSyncEnabled: true, SyncStatus: "error", SyncError: "book is read-only"}
+	contact := models.Contact{ID: "c1", Name: "Nora Vale", Email: "nora@work.example", Phone: "+1 555 0100", Organization: "Vale Studio", Title: "Editor", Notes: "Prefers\nmornings", StoredIn: "local", MessageCount: 3, LastSeenAt: "Mar 3", CreatedAt: "Jan 5", UpdatedAt: "Feb 9", GoferSyncEnabled: true, SyncStatus: "error", SyncError: "book is read-only"}
 	card := renderForTest(t, func(out *bytes.Buffer) error {
 		return ContactListCard(contact, models.ContactFilters{}, nil, nil, 0).Render(context.Background(), out)
 	})
 	if !strings.Contains(card, "data-contact-card-layout-scope") || !strings.Contains(card, `data-mail-card-zone="hidden"`) {
 		t.Error("the card can't be laid out")
 	}
-	for _, field := range []string{"avatar", "name", "organization", "title", "email", "phone", "home", "date", "notes", "messages", "sync"} {
+	for _, field := range []string{"avatar", "name", "organization", "title", "email", "phone", "home", "date", "created", "edited", "notes", "messages", "sync"} {
 		if !strings.Contains(card, `data-mail-card-field="`+field+`"`) {
 			t.Errorf("card has no %s field", field)
 		}
@@ -36,6 +36,17 @@ func TestContactListRowsHaveEveryLayoutField(t *testing.T) {
 		}
 		if !strings.Contains(header, `data-mail-table-column-id="`+column+`"`) {
 			t.Errorf("header has no %s heading", column)
+		}
+	}
+	// Cards say which date each is; the table leaves that to its headings.
+	for _, want := range []string{">Last mail on Mar 3<", ">Created on Jan 5<", ">Edited on Feb 9<"} {
+		if !strings.Contains(card, want) {
+			t.Errorf("card has no %q", want)
+		}
+	}
+	for _, want := range []string{`data-mail-table-cell="date">Mar 3<`, `data-mail-table-cell="created">Jan 5<`, `data-mail-table-cell="edited">Feb 9<`} {
+		if !strings.Contains(row, want) {
+			t.Errorf("row has no %q", want)
 		}
 	}
 	// Notes on one line; a failed sync says why.

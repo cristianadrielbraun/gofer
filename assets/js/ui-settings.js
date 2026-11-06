@@ -406,6 +406,14 @@ var GoferSettings;
 
     function ratios(value) {
       var parts = value ? String(value).split(",") : [];
+      if (spec.legacyColumnIds && parts.length === spec.legacyColumnIds.length && parts.length !== spec.columns.length) {
+        // Each saved width goes to its column; the new ones get their default.
+        var defaults = spec.defaultWidths.split(",");
+        parts = ids.map(function (id, i) {
+          var old = spec.legacyColumnIds.indexOf(id);
+          return old === -1 ? defaults[i] : parts[old];
+        });
+      }
       if (parts.length !== spec.columns.length) parts = spec.defaultWidths.split(",");
       var values = [];
       for (var i = 0; i < parts.length; i++) {
@@ -536,14 +544,16 @@ var GoferSettings;
 
   // A contact card is one or two lines beside the avatar. Each line has text
   // at its start (header, body), text at its end (headerEnd, bodyEnd) and a
-  // slot for icons after it. The default is the card as it always was: the
-  // name and organization with the message count, then the address, with the
-  // main location and date at the end.
+  // slot for icons after it. By default: the name and organization with the
+  // message count and Gofer Sync, then the address, with the main location
+  // and the date it was created at the end.
   var CONTACT_CARD = cardLayoutModel({
-    fields: ["avatar", "name", "organization", "title", "email", "phone", "home", "date", "notes", "messages", "sync"],
-    defaultFields: "avatar,name,organization,messages,email,home,date",
+    // "date" is the Interaction field (last mail); it kept its id when Created
+    // and Edited joined it, so saved layouts keep it where it was.
+    fields: ["avatar", "name", "organization", "title", "email", "phone", "home", "date", "created", "edited", "notes", "messages", "sync"],
+    defaultFields: "avatar,name,organization,messages,sync,email,home,created",
     zones: ["railTop", "header", "headerEnd", "meta", "body", "bodyEnd", "status", "hidden"],
-    defaultLayout: "railTop:avatar|header:name,organization|headerEnd:|meta:messages|body:email|bodyEnd:home,date|status:|hidden:title,phone,notes,sync",
+    defaultLayout: "railTop:avatar|header:name,organization|headerEnd:|meta:messages,sync|body:email|bodyEnd:home,created|status:|hidden:title,phone,date,edited,notes",
     // Layouts saved before lines had an end kept the main location and date
     // at the start of the line, where the card showed them at its end: they
     // move to the end, so the card looks the same.
@@ -557,7 +567,8 @@ var GoferSettings;
         });
       });
     },
-    legacyDefaults: [],
+    // The default before Created was a field, saved as it came.
+    legacyDefaults: ["railTop:avatar|header:name,organization|headerEnd:|meta:messages|body:email|bodyEnd:home,date|status:|hidden:title,phone,notes,sync"],
     iconFields: { avatar: true, messages: true, sync: true },
     // The avatar is as tall as the card, so it only fits its own slot; moved
     // to the other side, it flips the card (contacts_card_mirrored).
@@ -573,10 +584,12 @@ var GoferSettings;
       email: "body",
       home: "bodyEnd",
       date: "bodyEnd",
+      created: "bodyEnd",
+      edited: "bodyEnd",
       title: "header",
       phone: "body",
       notes: "body",
-      sync: "status",
+      sync: "meta",
     },
     fallbackZone: "body",
     fallbackField: "name",
@@ -616,11 +629,15 @@ var GoferSettings;
       { id: "home", min: 64 },
       { id: "messages", min: 56 },
       { id: "date", min: 56 },
+      { id: "created", min: 56 },
+      { id: "edited", min: 56 },
       { id: "notes", min: 80 },
       { id: "sync", min: 72 },
     ],
     defaultIds: ["name", "email", "home", "messages"],
-    defaultWidths: "3,2,2,3,2,2,0.8,1.4,3,1.4",
+    defaultWidths: "3,2,2,3,2,2,0.8,1.4,1.4,1.4,3,1.4",
+    // Widths saved before Created and Edited were columns.
+    legacyColumnIds: ["name", "organization", "title", "email", "phone", "home", "messages", "date", "notes", "sync"],
     fallbackId: "name",
     scrollId: "contacts-list-scroll",
     columnsKey: "contacts_table_columns",

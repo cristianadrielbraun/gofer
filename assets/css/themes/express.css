@@ -1525,6 +1525,17 @@ html:root[data-theme="express"] :is(.account-wizard-card-footer, .account-wizard
   --xp-icon-paths: hidden;
 }
 
+/* A contact's Gofer Sync icon in the list: Tango's blue arrows turned green
+   when it is on, grey when off, as the other themes colour it. */
+[data-theme="express"] [data-contact-sync-on="true"] svg[data-lucide="route"] {
+  filter: hue-rotate(-95deg);
+}
+
+[data-theme="express"] [data-contact-sync-on="false"] svg[data-lucide="route"] {
+  filter: grayscale(1);
+  opacity: 0.6;
+}
+
 [data-theme="express"] svg[data-lucide="cloud-upload"] {
   --xp-icon: image-set(url("/assets/icons/express/go-up-16.png") 1x, url("/assets/icons/express/go-up-32.png") 2x);
   --xp-icon-paths: hidden;

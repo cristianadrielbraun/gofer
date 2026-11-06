@@ -3148,7 +3148,7 @@ html:not([data-theme="express"]) [data-view-mode="table"] .mail-list-item > a {
 
 /* The contacts list hides the card fields and table columns the user leaves
    out (ui-settings.js); until it has said which, the ones hidden by default. */
-#contacts-list-scroll:not([data-contact-card-hidden]) :is([data-mail-card-field="title"], [data-mail-card-field="phone"], [data-mail-card-field="notes"], [data-mail-card-field="sync"]),
+#contacts-list-scroll:not([data-contact-card-hidden]) :is([data-mail-card-field="title"], [data-mail-card-field="phone"], [data-mail-card-field="date"], [data-mail-card-field="edited"], [data-mail-card-field="notes"]),
 #contacts-list-scroll[data-contact-card-hidden~="avatar"] [data-mail-card-field="avatar"],
 #contacts-list-scroll[data-contact-card-hidden~="name"] [data-mail-card-field="name"],
 #contacts-list-scroll[data-contact-card-hidden~="organization"] [data-mail-card-field="organization"],
@@ -3157,13 +3157,15 @@ html:not([data-theme="express"]) [data-view-mode="table"] .mail-list-item > a {
 #contacts-list-scroll[data-contact-card-hidden~="phone"] [data-mail-card-field="phone"],
 #contacts-list-scroll[data-contact-card-hidden~="home"] [data-mail-card-field="home"],
 #contacts-list-scroll[data-contact-card-hidden~="date"] [data-mail-card-field="date"],
+#contacts-list-scroll[data-contact-card-hidden~="created"] [data-mail-card-field="created"],
+#contacts-list-scroll[data-contact-card-hidden~="edited"] [data-mail-card-field="edited"],
 #contacts-list-scroll[data-contact-card-hidden~="messages"] [data-mail-card-field="messages"],
 #contacts-list-scroll[data-contact-card-hidden~="notes"] [data-mail-card-field="notes"],
 #contacts-list-scroll[data-contact-card-hidden~="sync"] [data-mail-card-field="sync"] {
   display: none !important;
 }
 
-#contacts-list-scroll:not([data-mail-table-columns]) :is([data-mail-table-cell="organization"], [data-mail-table-cell="title"], [data-mail-table-cell="phone"], [data-mail-table-cell="date"], [data-mail-table-cell="notes"], [data-mail-table-cell="sync"]),
+#contacts-list-scroll:not([data-mail-table-columns]) :is([data-mail-table-cell="organization"], [data-mail-table-cell="title"], [data-mail-table-cell="phone"], [data-mail-table-cell="date"], [data-mail-table-cell="created"], [data-mail-table-cell="edited"], [data-mail-table-cell="notes"], [data-mail-table-cell="sync"]),
 #contacts-list-scroll[data-mail-table-hidden~="name"] [data-mail-table-cell="name"],
 #contacts-list-scroll[data-mail-table-hidden~="organization"] [data-mail-table-cell="organization"],
 #contacts-list-scroll[data-mail-table-hidden~="title"] [data-mail-table-cell="title"],
@@ -3172,6 +3174,8 @@ html:not([data-theme="express"]) [data-view-mode="table"] .mail-list-item > a {
 #contacts-list-scroll[data-mail-table-hidden~="home"] [data-mail-table-cell="home"],
 #contacts-list-scroll[data-mail-table-hidden~="messages"] [data-mail-table-cell="messages"],
 #contacts-list-scroll[data-mail-table-hidden~="date"] [data-mail-table-cell="date"],
+#contacts-list-scroll[data-mail-table-hidden~="created"] [data-mail-table-cell="created"],
+#contacts-list-scroll[data-mail-table-hidden~="edited"] [data-mail-table-cell="edited"],
 #contacts-list-scroll[data-mail-table-hidden~="notes"] [data-mail-table-cell="notes"],
 #contacts-list-scroll[data-mail-table-hidden~="sync"] [data-mail-table-cell="sync"] {
   display: none;

@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/cristianadrielbraun/gofer/components/button"
 	"github.com/cristianadrielbraun/gofer/components/checkbox"
@@ -979,19 +980,39 @@ func contactCardHome(ctx context.Context, contact models.Contact, accounts []mod
 	return contactOrigin{Label: label, Title: label}
 }
 
-// contactCardDate is the date a contact card shows: when the contact was last
-// seen in mail, or else when it was added, with what it means.
-func contactCardDate(ctx context.Context, contact models.Contact) (string, string) {
+// contactListDate is a date a contact's card or row shows: the date alone
+// (Date, for the table, under its column's name), saying what it is (Text,
+// for the card) and in full (Title).
+type contactListDate struct {
+	Date  string
+	Text  string
+	Title string
+}
+
+// contactInteractionDate is the Interaction field: when the contact was last
+// in mail, or, in the Trash, when it was moved there.
+func contactInteractionDate(ctx context.Context, contact models.Contact) contactListDate {
 	if trashed := strings.TrimSpace(contact.TrashedAt); trashed != "" {
-		return trashed, i18n.T(ctx, "contacts.card.trashed", "date", trashed, "purge", contact.TrashPurgeAt)
+		return contactListDate{Date: trashed, Text: i18n.T(ctx, "contacts.card.trashed_on", "date", trashed), Title: i18n.T(ctx, "contacts.card.trashed", "date", trashed, "purge", contact.TrashPurgeAt)}
 	}
-	if seen := strings.TrimSpace(contact.LastSeenAt); seen != "" {
-		return seen, i18n.T(ctx, "contacts.card.last_seen", "date", seen)
+	return contactDatedAs(ctx, "contacts.card.last_mail_on", contact.LastSeenAt)
+}
+
+// contactCardLayoutSampleDate is the layout editor's sample card's date, days
+// from today, as the list writes dates.
+func contactCardLayoutSampleDate(ctx context.Context, days int) string {
+	return i18n.Dates(ctx).Date(time.Now().AddDate(0, 0, days))
+}
+
+// contactDatedAs is date said with key ("Created on {date}"), or nothing
+// without a date.
+func contactDatedAs(ctx context.Context, key, date string) contactListDate {
+	date = strings.TrimSpace(date)
+	if date == "" {
+		return contactListDate{}
 	}
-	if added := strings.TrimSpace(contact.CreatedAt); added != "" {
-		return added, i18n.T(ctx, "contacts.card.added", "date", added)
-	}
-	return "", ""
+	text := i18n.T(ctx, key, "date", date)
+	return contactListDate{Date: date, Text: text, Title: text}
 }
 
 func contactMessageCountTitle(ctx context.Context, count int) string {
@@ -1131,17 +1152,20 @@ func contactListSyncClass(contact models.Contact) string {
 	}
 }
 
-// contactListSyncIcon shows how a contact's Gofer Sync stands, off included.
+// contactListSyncIcon is Gofer Sync's icon, as its section on the contact's
+// page has it. A cloud read as "not synced", even for a contact that is just
+// in its main location; the colour tells on from off.
 templ contactListSyncIcon(contact models.Contact) {
-	if !contact.GoferSyncEnabled {
-		@icon.CloudOff(icon.Props{Class: "size-3.5 shrink-0"})
-	} else if contact.SyncStatus == "done" {
-		@icon.CloudCheck(icon.Props{Class: "size-3.5 shrink-0"})
-	} else if contact.SyncStatus == "error" {
-		@icon.CloudAlert(icon.Props{Class: "size-3.5 shrink-0"})
-	} else {
-		@icon.CloudSync(icon.Props{Class: "size-3.5 shrink-0"})
+	@icon.Route(icon.Props{Class: "size-3.5 shrink-0"})
+}
+
+// contactCardSyncClass colours a card's Gofer Sync icon: green when it is on,
+// grey when off. How a sync went is in its title, and in the table.
+func contactCardSyncClass(contact models.Contact) string {
+	if contact.GoferSyncEnabled {
+		return "text-emerald-600 dark:text-emerald-400"
 	}
+	return "text-muted-foreground"
 }
 
 // contactListOrganization is the organization the list shows beside a
@@ -2428,6 +2452,9 @@ templ ContactListCard(contact models.Contact, filters models.ContactFilters, sel
 							{ fmt.Sprint(contact.MessageCount) }
 						</span>
 					}
+					<span class={ "inline-flex shrink-0 items-center " + contactCardSyncClass(contact) } title={ contactListSyncTitle(ctx, contact) } aria-label={ contactListSyncTitle(ctx, contact) } data-mail-card-field="sync" data-contact-sync-on={ fmt.Sprintf("%t", contact.GoferSyncEnabled) }>
+						@contactListSyncIcon(contact)
+					</span>
 				</div>
 			</div>
 			<div class="contact-card-line" data-contact-card-line="2">
@@ -2448,15 +2475,20 @@ templ ContactListCard(contact models.Contact, filters models.ContactFilters, sel
 						}
 						<span class="truncate">{ origin.Label }</span>
 					</span>
-					if date, label := contactCardDate(ctx, contact); date != "" {
-						<span class="text-xs tabular-nums text-muted-foreground" title={ label } data-mail-card-field="date">{ date }</span>
+					for _, field := range []struct {
+						id   string
+						date contactListDate
+					}{
+						{"date", contactInteractionDate(ctx, contact)},
+						{"created", contactDatedAs(ctx, "contacts.card.created_on", contact.CreatedAt)},
+						{"edited", contactDatedAs(ctx, "contacts.card.edited_on", contact.UpdatedAt)},
+					} {
+						if field.date.Text != "" {
+							<span class="truncate text-xs tabular-nums text-muted-foreground" title={ field.date.Title } data-mail-card-field={ field.id }>{ field.date.Text }</span>
+						}
 					}
 				</div>
-				<div class="mail-list-card-zone mail-list-card-zone-status" data-mail-card-zone="status">
-					<span class={ "inline-flex shrink-0 items-center " + contactListSyncClass(contact) } title={ contactListSyncTitle(ctx, contact) } aria-label={ contactListSyncTitle(ctx, contact) } data-mail-card-field="sync">
-						@contactListSyncIcon(contact)
-					</span>
-				</div>
+				<div class="mail-list-card-zone mail-list-card-zone-status" data-mail-card-zone="status"></div>
 			</div>
 			<div class="hidden" data-mail-card-zone="hidden"></div>
 		</a>
@@ -2516,6 +2548,9 @@ templ ContactCardLayoutDialog() {
 					@icon.Mail(icon.Props{Class: "size-3"})
 					12
 				</span>
+				<span data-mail-card-field="sync" data-contact-sync-on="true" class="inline-flex shrink-0 items-center text-emerald-600 dark:text-emerald-400">
+					@icon.Route(icon.Props{Class: "size-3.5 shrink-0"})
+				</span>
 			</div>
 		</div>
 		<div class="contact-card-line" data-contact-card-line="2">
@@ -2532,14 +2567,12 @@ templ ContactCardLayoutDialog() {
 					<span class="account-color-marker size-2 shrink-0 bg-primary" aria-hidden="true"></span>
 					<span class="truncate">{ i18n.T(ctx, "mail.card_layout.sample_account") }</span>
 				</span>
-				<span data-mail-card-field="date" class="text-xs tabular-nums text-muted-foreground">{ i18n.T(ctx, "date.yesterday") }</span>
+				<span data-mail-card-field="date" class="truncate text-xs tabular-nums text-muted-foreground">{ i18n.T(ctx, "contacts.card.last_mail_on", "date", contactCardLayoutSampleDate(ctx, -1)) }</span>
+				<span data-mail-card-field="created" class="truncate text-xs tabular-nums text-muted-foreground">{ i18n.T(ctx, "contacts.card.created_on", "date", contactCardLayoutSampleDate(ctx, -400)) }</span>
+				<span data-mail-card-field="edited" class="truncate text-xs tabular-nums text-muted-foreground">{ i18n.T(ctx, "contacts.card.edited_on", "date", contactCardLayoutSampleDate(ctx, -30)) }</span>
 			</div>
 			</div>
-			<div class="mail-list-card-zone mail-list-card-zone-status" data-mail-card-zone="status" data-mail-card-layout-zone-items="status" data-mail-card-layout-dropzone="status">
-				<span data-mail-card-field="sync" class="inline-flex shrink-0 items-center text-emerald-600 dark:text-emerald-400">
-					@icon.CloudCheck(icon.Props{Class: "size-3.5 shrink-0"})
-				</span>
-			</div>
+			<div class="mail-list-card-zone mail-list-card-zone-status" data-mail-card-zone="status" data-mail-card-layout-zone-items="status" data-mail-card-layout-dropzone="status"></div>
 		</div>
 	}
 }
@@ -2581,7 +2614,7 @@ templ contactUnresolvedMark(contact models.Contact, accounts []models.Account) {
 // shown, and how wide, is the user's (contacts_table_columns and
 // contacts_table_column_widths, through ui-settings.js); the list hides the
 // rest. Every row has every cell.
-var contactTableColumns = []string{"name", "organization", "title", "email", "phone", "home", "messages", "date", "notes", "sync"}
+var contactTableColumns = []string{"name", "organization", "title", "email", "phone", "home", "messages", "date", "created", "edited", "notes", "sync"}
 
 func contactTableColumnLabel(ctx context.Context, id string) string {
 	return i18n.T(ctx, "contacts.column."+id)
@@ -2643,10 +2676,18 @@ templ ContactListTableRow(contact models.Contact, filters models.ContactFilters,
 				<span class="truncate">{ home.Label }</span>
 			</div>
 			<div class="text-right tabular-nums text-muted-foreground" data-mail-table-cell="messages">{ fmt.Sprintf("%d", contact.MessageCount) }</div>
-			{{ date, dateLabel := contactCardDate(ctx, contact) }}
-			<div class="truncate tabular-nums text-muted-foreground" title={ dateLabel } data-mail-table-cell="date">{ date }</div>
+			for _, cell := range []struct {
+				id   string
+				date contactListDate
+			}{
+				{"date", contactInteractionDate(ctx, contact)},
+				{"created", contactDatedAs(ctx, "contacts.card.created_on", contact.CreatedAt)},
+				{"edited", contactDatedAs(ctx, "contacts.card.edited_on", contact.UpdatedAt)},
+			} {
+				<div class="truncate tabular-nums text-muted-foreground" title={ cell.date.Title } data-mail-table-cell={ cell.id }>{ cell.date.Date }</div>
+			}
 			<div class="truncate text-muted-foreground" title={ contactListNotes(contact) } data-mail-table-cell="notes">{ contactListNotes(contact) }</div>
-			<div class={ "flex min-w-0 items-center gap-1.5 " + contactListSyncClass(contact) } title={ contactListSyncTitle(ctx, contact) } data-mail-table-cell="sync">
+			<div class={ "flex min-w-0 items-center gap-1.5 " + contactListSyncClass(contact) } title={ contactListSyncTitle(ctx, contact) } data-mail-table-cell="sync" data-contact-sync-on={ fmt.Sprintf("%t", contact.GoferSyncEnabled) }>
 				@contactListSyncIcon(contact)
 				<span class="truncate">{ contactListSyncLabel(ctx, contact) }</span>
 			</div>

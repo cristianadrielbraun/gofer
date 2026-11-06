@@ -4233,14 +4233,14 @@ function contactCardSkeletonHTML(index) {
       '<div class="mail-list-card-zone mail-list-card-zone-header" data-mail-card-zone="header">' + bar("name", nameWidths[i], "h-3.5") +
         (i % 2 === 0 ? bar("organization", "4.5rem") : "") + (i === 1 ? bar("title", "3.5rem") : "") + '</div>' +
       '<div class="mail-list-card-zone mail-list-card-zone-header-end" data-mail-card-zone="headerEnd"></div>' +
-      '<div class="mail-list-card-zone mail-list-card-zone-meta" data-mail-card-zone="meta">' + (i % 3 === 0 ? bar("messages", "1.5rem") : "") + '</div>' +
+      '<div class="mail-list-card-zone mail-list-card-zone-meta" data-mail-card-zone="meta">' + (i % 3 === 0 ? bar("messages", "1.5rem") : "") + '<span data-mail-card-field="sync" class="inline-flex size-3.5 shrink-0 rounded bg-muted animate-pulse"></span></div>' +
     '</div>' +
     '<div class="contact-card-line" data-contact-card-line="2">' +
       '<div class="mail-list-card-zone mail-list-card-zone-body" data-mail-card-zone="body">' + bar("email", emailWidths[i]) +
         (i % 2 === 1 ? bar("phone", "5rem") : "") + (i === 2 ? bar("notes", "6rem") : "") + '</div>' +
       '<div class="mail-list-card-zone mail-list-card-zone-body-end" data-mail-card-zone="bodyEnd">' +
-        '<span data-mail-card-field="home" class="h-4 w-16 rounded-lg border border-border bg-background animate-pulse"></span>' + bar("date", "3rem") + '</div>' +
-      '<div class="mail-list-card-zone mail-list-card-zone-status" data-mail-card-zone="status"><span data-mail-card-field="sync" class="inline-flex size-3.5 shrink-0 rounded bg-muted animate-pulse"></span></div>' +
+        '<span data-mail-card-field="home" class="h-4 w-16 rounded-lg border border-border bg-background animate-pulse"></span>' + bar("date", "3rem") + bar("created", "3rem") + bar("edited", "3rem") + '</div>' +
+      '<div class="mail-list-card-zone mail-list-card-zone-status" data-mail-card-zone="status"></div>' +
     '</div>' +
     '<div class="hidden" data-mail-card-zone="hidden"></div>' +
   '</div></div>'
