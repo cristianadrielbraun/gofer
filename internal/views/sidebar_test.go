@@ -489,7 +489,7 @@ func TestSidebarFolderTreeCollapsesFolderChildrenFromSettings(t *testing.T) {
 		t.Fatalf("SidebarFolderTree.Render() parent active error = %v", err)
 	}
 	html = parentActive.String()
-	if !strings.Contains(html, `class="flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] transition-all duration-150 bg-sidebar-accent text-sidebar-primary font-medium" data-sidebar-folder-row`) {
+	if !strings.Contains(html, `class="flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] transition-colors duration-150 bg-sidebar-accent text-sidebar-primary font-medium" data-sidebar-folder-row`) {
 		t.Fatalf("active parent folder should style the whole row including the toggle: %s", html)
 	}
 }

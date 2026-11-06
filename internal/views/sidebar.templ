@@ -1033,7 +1033,9 @@ templ SidebarTagFilterLink(label models.Label, folderID string, activeFolder str
 		data-sidebar-tag-account={ strings.TrimSpace(accountID) }
 		data-tag-appearance-unified?={ label.IsUnified }
 		class={
-			"flex items-center gap-2.5 w-full rounded-md px-2.5 py-1.5 text-[13px] transition-all duration-150",
+			// Colors only: a weight that eases re-lays its text out every
+			// frame, which stalls whatever else is moving then.
+			"flex items-center gap-2.5 w-full rounded-md px-2.5 py-1.5 text-[13px] transition-colors duration-150",
 			templ.KV("bg-sidebar-accent text-sidebar-primary font-medium", active),
 			templ.KV("text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground", !active),
 		}
@@ -1066,7 +1068,7 @@ templ SidebarFolderItem(folder models.Folder, activeFolder string, accountID str
 				data-mail-drop-folder={ folder.ID }
 				data-mail-drop-account={ accountID }
 				class={
-					"flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] transition-all duration-150",
+					"flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] transition-colors duration-150",
 					templ.KV("bg-sidebar-accent text-sidebar-primary font-medium", activeFolder == folder.ID),
 					templ.KV("text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground", activeFolder != folder.ID),
 				}
@@ -1124,7 +1126,8 @@ templ SidebarFolderLink(folder models.Folder, activeFolder string, accountID str
 		data-mail-drop-folder={ folder.ID }
 		data-mail-drop-account={ accountID }
 		class={
-			"flex min-w-0 flex-1 items-center gap-2.5 w-full px-2.5 py-1.5 rounded-md text-[13px] transition-all duration-150",
+			// Colors only, as a tag's link.
+			"flex min-w-0 flex-1 items-center gap-2.5 w-full px-2.5 py-1.5 rounded-md text-[13px] transition-colors duration-150",
 			templ.KV("bg-sidebar-accent text-sidebar-primary font-medium", activeFolder == folder.ID),
 			templ.KV("text-sidebar-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground", activeFolder != folder.ID),
 		}

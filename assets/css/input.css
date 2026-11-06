@@ -1398,28 +1398,37 @@ input[role="switch"] + .gofer-switch-track::after {
   gap: 0.5rem;
 }
 
+/* The strip opens by its height alone, the gap under the search included,
+   and its pills sit where they end up from the start, so opening moves only
+   what is below it. */
 .mail-active-filter-strip {
   position: relative;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 0.25rem;
   width: 100%;
   min-width: 0;
-  height: 2rem;
-  margin-top: 0.5rem;
+  height: 2.5rem;
   opacity: 1;
   white-space: nowrap;
   overflow: visible;
   transition:
     height 180ms cubic-bezier(0.2, 0.8, 0.2, 1),
-    margin-top 180ms cubic-bezier(0.2, 0.8, 0.2, 1),
     opacity 140ms ease-out;
+}
+
+.mail-active-filter-strip > .mail-active-filter-visible {
+  margin-top: 0.5rem;
+}
+
+/* Level with the pills, which their row pads by 2px. */
+.mail-active-filter-strip > .mail-active-filter-overflow {
+  margin-top: calc(0.5rem + 2px);
 }
 
 .mail-active-filter-strip.hidden {
   display: flex;
   height: 0;
-  margin-top: 0;
   opacity: 0;
   overflow: hidden;
   pointer-events: none;
@@ -1454,7 +1463,9 @@ input[role="switch"] + .gofer-switch-track::after {
   font-weight: 600;
   line-height: 1;
   box-shadow: 0 1px 2px rgba(0,0,0,0.06);
-  animation: mailActiveFilterDropIn 160ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  /* It fades in where it stays, once the strip has mostly opened, so it
+     never shows over the toolbar below. */
+  animation: mailActiveFilterDropIn 180ms ease-out 60ms both;
 }
 
 .mail-active-filter-pill:hover,
@@ -1543,11 +1554,9 @@ input[role="switch"] + .gofer-switch-track::after {
 @keyframes mailActiveFilterDropIn {
   from {
     opacity: 0;
-    transform: translateY(-0.25rem) scale(0.98);
   }
   to {
     opacity: 1;
-    transform: translateY(0) scale(1);
   }
 }
 
@@ -5148,6 +5157,22 @@ body.mail-list-column-resizing {
   #mail-list[data-mail-list-view] .mail-active-filter-strip:not(.hidden) {
     padding: 0.5rem 0.75rem;
     border-bottom: 1px solid color-mix(in srgb, var(--color-border) 60%, transparent);
+  }
+
+  /* The strip pads itself here, so it keeps its gap outside, as before. */
+  #mail-list[data-mail-list-view] .mail-active-filter-strip {
+    align-items: center;
+    height: 2rem;
+    margin-top: 0.5rem;
+  }
+
+  #mail-list[data-mail-list-view] .mail-active-filter-strip.hidden {
+    height: 0;
+    margin-top: 0;
+  }
+
+  #mail-list[data-mail-list-view] .mail-active-filter-strip > :is(.mail-active-filter-visible, .mail-active-filter-overflow) {
+    margin-top: 0;
   }
 
   #mail-list[data-mail-list-view] > .divider-etched {

@@ -6620,6 +6620,15 @@ document.addEventListener("DOMContentLoaded", function () {
         hadOverflow = hadOverflow || wasShowing
       }
       bar._mailPillsRendered = true
+      // The same pills drawn again stay as they are, so the ones still
+      // dropping in carry on rather than showing at once in a strip that is
+      // still opening.
+      var showing = Array.prototype.map.call(bar.querySelectorAll("[data-mail-active-filter-key]"), function (pill) { return pill.getAttribute("data-mail-active-filter-key") || "" })
+      if (!replacedBar && pills.length && !bar.classList.contains("hidden") && !bar.querySelector(".mail-active-filter-pill-exiting") &&
+        showing.join("\n") === pills.map(activePillKey).join("\n")) {
+        scheduleActivePillOverflow(bar)
+        return
+      }
       shownPillKeys = Object.create(null)
       if (!pills.length) {
         hideActivePillBar(bar, panel)
@@ -7127,10 +7136,15 @@ document.addEventListener("DOMContentLoaded", function () {
       else if (name === "has_tags" || name === "no_tags") setFilterTriState("tags", "")
       else if (name === "threads_only" || name === "no_threads") setFilterTriState("threads", "")
       else clearAdvancedFilter(name)
+      // A tag's search results keep the tag apart too, as the sidebar link
+      // gave it (setSidebarTag), and it would come back with every request.
+      var scoped = !!(window.GoferMailSearch && window.GoferMailSearch.scope())
+      if (name === "tag" && scoped && virtualMailList && typeof virtualMailList.setSidebarTag === "function") virtualMailList.setSidebarTag(null)
       syncAdvancedFilterCount()
       // Clearing the search in search results goes back to the folder it
-      // started from, keeping any other filters.
-      if (name === "q" && window.GoferMailSearch && window.GoferMailSearch.scope()) {
+      // started from, keeping any other filters; so does clearing a tag's
+      // search of its tag, when nothing else is left to search for.
+      if (scoped && (name === "q" || (name === "tag" && activeFilterCount(readFilters()) === 0))) {
         renderActivePills()
         window.GoferMailSearch.navigate(null)
         return
@@ -7154,10 +7168,17 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     function initSearchStateFromInput() {
-      if (virtualMailList && virtualMailList.filters) syncFilterControls(virtualMailList.filters)
+      // Right after a swap the list may still be the one that left, and the
+      // new one, which knows the page's filters, draws the pills as it starts.
+      // Drawing them here first, from the old list or the new page's form,
+      // would drop the pills still showing, and the new list would then drop
+      // them in again.
+      var live = virtualMailList && virtualMailList.container && document.body.contains(virtualMailList.container)
+      var starting = !live && !!document.getElementById("mail-list-scroll")
+      if (live && virtualMailList.filters) syncFilterControls(virtualMailList.filters)
       var search = document.querySelector("[data-mail-search-input]")
       committedQuery = search ? (search.dataset.mailCommittedQuery || search.value || "").trim() : ""
-      committedParticipant = virtualMailList && virtualMailList.filters ? (virtualMailList.filters.participant || "").trim() : committedParticipant
+      committedParticipant = live && virtualMailList.filters ? (virtualMailList.filters.participant || "").trim() : committedParticipant
       if (search) {
         search.dataset.mailCommittedQuery = committedQuery
         search.value = ""
@@ -7166,12 +7187,19 @@ document.addEventListener("DOMContentLoaded", function () {
           ? search.getAttribute("data-mobile-placeholder")
           : goferT("js.mail.search_placeholder")
       }
-      renderActivePills()
+      if (!starting) renderActivePills()
       syncFilterButton(readFilters())
     }
 
     window.readMailFilters = function () {
       return readFilters()
+    }
+    // showMailFilterPills shows the pills of a list about to load, as a
+    // typed search does, so the strip opens on the idle page rather than
+    // while the new list is being built; the pills then stay put across the
+    // swap (see renderActivePills).
+    window.showMailFilterPills = function (filters) {
+      renderActivePills(Object.assign(emptyFilters(), filters))
     }
     window.syncMailFilterControls = syncFilterControls
 
@@ -9579,9 +9607,10 @@ document.addEventListener("DOMContentLoaded", function () {
       setMailViewEmpty()
       _updateComposeBtn(false)
     }
-    history.pushState({ folder: "search", email: null }, "", address)
-    setContactsActive(false)
-    syncSidebarTagLinks()
+    syncSidebarTagLinks(address)
+    // The tag's pill shows now, as with a typed search, not after the swap.
+    var tag = url.searchParams.get("tag") || ""
+    if (tag && window.showMailFilterPills) window.showMailFilterPills({ tag: tag })
 
     var mainContent = document.getElementById("main-content")
     var isOnSettings = mainContent && mainContent.querySelector("[data-settings-page]")
@@ -9592,6 +9621,11 @@ document.addEventListener("DOMContentLoaded", function () {
     }
     virtualContactsList = null
     if (!isOnSettings && !isOnContacts && !mailListDetached && window.GoferMailSearch) {
+      // The list becomes the tag's search results in place, as a typed
+      // search changes its rows, rather than the mail pane being replaced;
+      // it moves to the address once they are in.
+      if (window.GoferMailSearch.enter(virtualMailList, address)) return
+      history.pushState({ folder: "search", email: null }, "", address)
       var leaving = virtualMailList
       window.GoferMailSearch.replaceList(leaving, address).catch(function () {
         leaving.cancelTransitionClear()
@@ -9599,6 +9633,7 @@ document.addEventListener("DOMContentLoaded", function () {
       })
       return
     }
+    history.pushState({ folder: "search", email: null }, "", address)
     if (mainContent) showMailContentLoading(mainContent, link)
     loadSearch()
   }
@@ -12164,12 +12199,13 @@ function _mailSyncAccountEmail(accountID) {
 
 // syncSidebarTagLinks marks the sidebar tag whose list is open: a search
 // with the link's own scope and tag. Then no folder is marked; elsewhere no
-// tag is.
-function syncSidebarTagLinks() {
+// tag is. address is the list's, when the page isn't at it yet.
+function syncSidebarTagLinks(address) {
   var aside = document.querySelector("aside")
   if (!aside) return
-  var onSearch = window.location.pathname === "/mail/search"
-  var current = new URLSearchParams(window.location.search)
+  var at = new URL(address || window.location.href, window.location.origin)
+  var onSearch = at.pathname === "/mail/search"
+  var current = at.searchParams
   var keys = ["scope", "scope_account_id", "exclude_spam_trash", "tag", "tag_account_id"]
   var links = aside.querySelectorAll("a[data-sidebar-tag-filter]")
   var active = null

@@ -2115,7 +2115,10 @@ class VirtualMailList {
   }
 
   async switchFolder(folderID, pushState) {
-    if (folderID !== "search") this.searchScope = null
+    if (folderID !== "search") {
+      this.searchScope = null
+      this.searchFrom = null
+    }
     if (window.GoferMailSearch) window.GoferMailSearch.sync()
     if (pushState === undefined) pushState = true
     if (this.navigationMode === "pagination") {
@@ -2518,9 +2521,11 @@ class VirtualMailList {
     }
   }
 
-  readFiltersFromURL() {
+  // readFiltersFromURL reads the filters of an address's query, the page's
+  // own by default.
+  readFiltersFromURL(search) {
     var filters = this.emptyFilters()
-    var params = new URLSearchParams(window.location.search)
+    var params = new URLSearchParams(search === undefined ? window.location.search : search)
     filters.unread = params.get("unread") === "1"
     filters.starred = params.get("starred") === "1"
     filters.attachments = params.get("attachments") === "1"
@@ -2575,8 +2580,8 @@ class VirtualMailList {
     }
   }
 
-  readSidebarTagFromURL() {
-    var params = new URLSearchParams(window.location.search)
+  readSidebarTagFromURL(search) {
+    var params = new URLSearchParams(search === undefined ? window.location.search : search)
     var label = (params.get("tag") || "").trim()
     return {
       label: label,
@@ -2644,7 +2649,9 @@ class VirtualMailList {
     if (tag.label === filterTag && tag.providerId) params.set("tag_provider_id", tag.providerId)
     if (tag.label === filterTag && tag.providerId && tag.providerType) params.set("tag_provider_type", tag.providerType)
     if (this.searchScope && window.GoferMailSearch) {
-      var origin = new URLSearchParams(window.location.search).get("search_from")
+      // A search switched to in place knows the folder it started from before
+      // the address does (GoferMailSearch.enter).
+      var origin = this.searchFrom || new URLSearchParams(window.location.search).get("search_from")
       if (origin) params.set("search_from", origin)
       return window.GoferMailSearch.scopeURL("?" + params.toString(), this.searchScope).slice(1)
     }
@@ -2693,7 +2700,8 @@ class VirtualMailList {
       this.prevLast = null
       this.render()
       this.syncSelectionClasses(this.itemsContainer)
-      this.replaceUrl()
+      if (options && options.pushUrl) this.pushUrl()
+      else this.replaceUrl()
       this.updateFilteredSelection(previousSelectedPaginated)
       if (replacing) this.fanInRows()
       return
@@ -2729,8 +2737,14 @@ class VirtualMailList {
     } else {
       this.animateListTransition(transition)
     }
+    // options.pushUrl, for a search switched to in place, moves to its
+    // address only now that its rows are in, as a typed search's address
+    // changes: an address that changes sooner sets off work elsewhere (a
+    // password manager rescanning the page, say) while the list is moving.
+    // The header follows the address.
+    if (options && options.pushUrl) this.pushUrl()
+    else this.replaceUrl()
     this.updateHeader()
-    this.replaceUrl()
     this.updateFilteredSelection(previousSelected)
   }
 
@@ -2800,7 +2814,10 @@ class VirtualMailList {
   updateHeader() {
     if (window.GoferMailSearch) window.GoferMailSearch.sync()
     var nameEl = document.getElementById("mail-folder-name")
-    if (nameEl) {
+    // Search results are named so, a tag's among them, as the server does.
+    if (nameEl && this.searchScope) {
+      nameEl.textContent = goferT("js.mail.search_results")
+    } else if (nameEl) {
       var link = null
       var tag = this.sidebarTag || this.emptySidebarTag()
       if (tag.label) {
