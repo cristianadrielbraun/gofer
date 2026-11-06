@@ -67,13 +67,38 @@ function phoneListLayout() {
   return !window.matchMedia("(min-width: 1024px)").matches
 }
 
+// The layout a list opens in: always cards on a phone; otherwise the one the
+// address asks for (?view=, which the server drew), or else the saved one.
+// Crossing the breakpoint goes back to the saved one.
 function useListLayoutForScreen(list, settingKey, resized) {
   if (!list || typeof list.switchViewMode !== "function") return
   var saved = window.GoferSettings ? GoferSettings.get(settingKey) : ""
-  var mode = phoneListLayout() ? "cards" : (saved === "table" ? "table" : "cards")
+  var asked = resized ? "" : new URLSearchParams(window.location.search).get("view")
+  var wanted = asked === "table" || asked === "cards" ? asked : saved
+  var mode = phoneListLayout() ? "cards" : (wanted === "table" ? "table" : "cards")
+  syncListViewToggle(mode)
   // Crossing the breakpoint swaps the layout directly; the user's own toggle animates.
   if (list.viewMode !== mode) list.switchViewMode(mode, { quiet: !!resized }).catch(function () {})
   else if (resized && typeof list.refreshRowMetrics === "function") list.refreshRowMetrics()
+}
+
+// Shows the Cards/Table switches of the mail and contacts lists on mode.
+function syncListViewToggle(mode) {
+  [["data-mail-list-view-toggle", "data-mail-list-view-button", "data-mail-list-view-indicator"],
+    ["data-contact-list-view-toggle", "data-contact-list-view-button", "data-contact-list-view-indicator"]].forEach(function (attrs) {
+    document.querySelectorAll("[" + attrs[0] + "]").forEach(function (group) {
+      group.querySelectorAll("[" + attrs[1] + "]").forEach(function (button) {
+        var active = button.getAttribute(attrs[1]) === mode
+        button.classList.toggle("text-foreground", active)
+        button.classList.toggle("text-muted-foreground", !active)
+        button.classList.toggle("hover:text-foreground", !active)
+        button.setAttribute("aria-pressed", active ? "true" : "false")
+      })
+      var indicator = group.querySelector("[" + attrs[2] + "]")
+      // As the server places it: one button and the gap between them.
+      if (indicator) indicator.style.transform = mode === "table" ? "translateX(calc(100% + 2px))" : "translateX(0)"
+    })
+  })
 }
 
 window.matchMedia("(min-width: 1024px)").addEventListener("change", function () {
@@ -754,21 +779,7 @@ document.addEventListener("DOMContentLoaded", function () {
         e.preventDefault()
         var mode = viewBtn.getAttribute("data-contact-list-view-button") === "table" ? "table" : "cards"
         if (window.GoferSettings) GoferSettings.set("contacts_list_view", mode)
-        var group = viewBtn.closest("[data-contact-list-view-toggle]")
-        if (group) {
-          var buttons = group.querySelectorAll("[data-contact-list-view-button]")
-          for (var i = 0; i < buttons.length; i++) {
-            var active = buttons[i] === viewBtn
-            buttons[i].classList.toggle("text-foreground", active)
-            buttons[i].classList.toggle("text-muted-foreground", !active)
-            buttons[i].classList.toggle("hover:text-foreground", !active)
-            buttons[i].setAttribute("aria-pressed", active ? "true" : "false")
-          }
-          var indicator = group.querySelector("[data-contact-list-view-indicator]")
-          // As contactViewIndicatorStyle places it: the toggle's padding already
-          // keeps it clear of the border, unlike mail's unpadded one.
-          if (indicator) indicator.style.transform = mode === "table" ? "translateX(100%)" : "translateX(0)"
-        }
+        syncListViewToggle(mode)
         var list = currentList()
         if (list) list.switchViewMode(mode).catch(function () {})
         return
@@ -9500,22 +9511,7 @@ document.addEventListener("DOMContentLoaded", function () {
         window.applyMailCardFieldSettings(scroll)
       }
 
-      var group = btn.closest("[data-mail-list-view-toggle]")
-      if (group) {
-        var buttons = group.querySelectorAll("[data-mail-list-view-button]")
-        for (var i = 0; i < buttons.length; i++) {
-          var isActive = buttons[i] === btn
-          buttons[i].classList.toggle("text-foreground", isActive)
-          buttons[i].classList.toggle("text-muted-foreground", !isActive)
-          buttons[i].classList.toggle("hover:text-foreground", !isActive)
-          buttons[i].setAttribute("aria-pressed", isActive ? "true" : "false")
-        }
-        var indicator = group.querySelector("[data-mail-list-view-indicator]")
-        if (indicator) {
-          // As mailListViewIndicatorStyle places it: one button and the gap.
-          indicator.style.transform = mode === "table" ? "translateX(calc(100% + 2px))" : "translateX(0)"
-        }
-      }
+      syncListViewToggle(mode)
 
       var vml = scroll && scroll._virtualMailList
       if (vml && typeof vml.switchViewMode === "function") {
