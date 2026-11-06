@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -219,6 +220,31 @@ func TestObservedContactManualNameWins(t *testing.T) {
 	}
 	if got == nil || got.Name != "Janet Manual" {
 		t.Fatalf("manual name after observed update = %#v, want Janet Manual", got)
+	}
+}
+
+// New mail from a contact is activity, sorted by Interaction; it must not
+// move the contact up the Updated order.
+func TestObservedMailDoesNotTouchContactUpdated(t *testing.T) {
+	ctx := context.Background()
+	db := newContactsTestDB(t)
+
+	if err := db.UpsertObservedContact(ctx, "default", "Nora Pellet", "nora@example.com", time.Now()); err != nil {
+		t.Fatalf("UpsertObservedContact() error = %v", err)
+	}
+	const old = "2020-01-02 03:04:05"
+	if _, err := db.Write().ExecContext(ctx, `UPDATE contact_profiles SET updated_at = ? WHERE user_id = 'default'`, old); err != nil {
+		t.Fatalf("set updated_at: %v", err)
+	}
+	if err := db.UpsertObservedContact(ctx, "default", "Nora Pellet", "nora@example.com", time.Now()); err != nil {
+		t.Fatalf("second UpsertObservedContact() error = %v", err)
+	}
+	var updated string
+	if err := db.Write().QueryRowContext(ctx, `SELECT updated_at FROM contact_profiles WHERE user_id = 'default' AND is_deleted = 0`).Scan(&updated); err != nil {
+		t.Fatalf("read updated_at: %v", err)
+	}
+	if !strings.HasPrefix(strings.ReplaceAll(updated, "T", " "), old) {
+		t.Fatalf("updated_at after new mail = %q, want %q kept", updated, old)
 	}
 }
 

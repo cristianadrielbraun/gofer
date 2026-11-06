@@ -3006,7 +3006,9 @@ func (db *DB) upsertObservedContactTx(ctx context.Context, tx *sql.Tx, userID, n
 				WHERE user_id = ? AND normalized_email = ?`, count, seenAt, seenAt, userID, normalized)
 			return false, err
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE contact_profiles SET is_deleted = 0, updated_at = CURRENT_TIMESTAMP WHERE user_id = ? AND id = ?`, userID, profileID); err != nil {
+		// Mail is activity, not an edit: only bringing back a deleted contact
+		// counts as updating it.
+		if _, err := tx.ExecContext(ctx, `UPDATE contact_profiles SET is_deleted = 0, updated_at = CURRENT_TIMESTAMP WHERE user_id = ? AND id = ? AND is_deleted = 1`, userID, profileID); err != nil {
 			return false, err
 		}
 		var manualCount int
@@ -3019,7 +3021,7 @@ func (db *DB) upsertObservedContactTx(ctx context.Context, tx *sql.Tx, userID, n
 			return false, err
 		}
 		if manualCount == 0 && (strings.TrimSpace(currentDisplay) == "" || normalizeContactEmail(currentDisplay) == normalized) {
-			if _, err := tx.ExecContext(ctx, `UPDATE contact_profiles SET display_name = ?, sort_name = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ? AND id = ?`, display, display, userID, profileID); err != nil {
+			if _, err := tx.ExecContext(ctx, `UPDATE contact_profiles SET display_name = ?, sort_name = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ? AND id = ? AND (display_name <> ? OR sort_name <> ?)`, display, display, userID, profileID, display, display); err != nil {
 				return false, err
 			}
 		}
