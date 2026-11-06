@@ -3968,28 +3968,6 @@ body.mail-list-column-resizing {
   background: var(--paper);
 }
 
-/* Newly inserted message content settles in without moving the reader's chrome.
-   This covers both the loading preview and the single-message/thread response. */
-@media (prefers-reduced-motion: no-preference) {
-  #mail-view[data-mail-reader] .mail-view-content {
-    animation: mail-reader-content-in 160ms ease-out;
-  }
-}
-
-/* So does a contact opened from the list, while one switches to the next
-   (app.js sets data-contact-switching), once: when it arrives, not its
-   skeleton before it. Later updates of it stay still. */
-@media (prefers-reduced-motion: no-preference) {
-  #mail-view[data-mail-reader][data-contact-switching] .contact-readonly:not([data-contact-skeleton-body]) {
-    animation: mail-reader-content-in 160ms ease-out;
-  }
-}
-
-@keyframes mail-reader-content-in {
-  from { opacity: 0.65; transform: translateY(3px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
 /* A single message's toolbar, sender and subject stay put above its scrolling
    body, dropping the paper shadow a thread's toolbar sheet casts over its
    messages. Themes without that shadow still get the line underneath, and so

@@ -11044,17 +11044,14 @@ document.addEventListener("DOMContentLoaded", function () {
   // showContactsDetailLoading draws the contact being opened while it loads,
   // from ContactDetailSkeleton in contacts.templ, with what the list row
   // knows. As the mail reader does, a contact already open keeps its header
-  // and frame: only its name, avatar and body change, and the body settles in
-  // (see #mail-view[data-contact-switching] in input.css).
+  // and frame: only its name, avatar and body change.
   function showContactsDetailLoading(trigger) {
     var detail = document.getElementById("contacts-detail")
     var template = document.querySelector("template[data-contact-detail-skeleton]")
     if (!detail || !template) return
     var preview = getContactRowPreview(trigger) || {}
     var skeleton = template.content.firstElementChild.cloneNode(true)
-    var mailView = detail.closest("#mail-view")
     detail.setAttribute("aria-busy", "true")
-    if (mailView) mailView.setAttribute("data-contact-switching", "")
     var open = detail.querySelector(".contact-editor")
     var scroll = open && open.querySelector(":scope > [data-contact-detail-scroll]")
     var header = open && open.querySelector(":scope > .contact-editor-header")
@@ -11080,17 +11077,6 @@ document.addEventListener("DOMContentLoaded", function () {
     skeleton.querySelector("[data-contact-skeleton-name]").textContent = preview.name || goferT("js.contacts.loading")
     detail.replaceChildren(skeleton)
   }
-
-  // The contact that loaded settles in; later updates of it don't move.
-  document.body.addEventListener("htmx:afterSettle", function (evt) {
-    var target = evt.detail && evt.detail.target
-    if (!(evt.target && evt.target.id === "contacts-detail") && !(target && target.id === "contacts-detail")) return
-    var mailView = document.querySelector("#mail-view[data-contact-switching]")
-    if (!mailView) return
-    setTimeout(function () {
-      if (!document.querySelector('#contacts-detail[aria-busy="true"]')) mailView.removeAttribute("data-contact-switching")
-    }, 200)
-  })
 
   var MAIL_VIEW_SKELETON_ICONS = {
     "arrow-left": '<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>',
