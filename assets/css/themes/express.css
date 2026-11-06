@@ -3,8 +3,11 @@
    navy selection and title-bar gradients. Light is the original look; dark
    keeps the same materials in charcoal. */
 
-/* Wine's Tahoma replacement (LGPL, see assets/fonts/README.md). Only
-   downloaded when the theme is active and Tahoma isn't installed. */
+/* Wine's Tahoma replacement (LGPL, see assets/fonts/README.md), downloaded
+   when the theme is active. It comes before an installed Tahoma: Linux
+   systems often have this same Wine font installed with its bitmap strikes
+   (8 to 16px), which Chrome draws instead of the outlines and blurs at any
+   display scale but 1. This copy has the strikes removed. */
 @font-face {
   font-family: "Express Tahoma";
   src: url("/assets/fonts/wine-tahoma.woff2") format("woff2");
@@ -72,7 +75,7 @@
   --xp-bevel-out: inset -1px -1px 0 var(--xp-dark), inset 1px 1px 0 var(--xp-light), inset -2px -2px 0 var(--xp-mid), inset 2px 2px 0 var(--xp-face);
   --xp-bevel-in: inset 1px 1px 0 var(--xp-mid), inset -1px -1px 0 var(--xp-light), inset 2px 2px 0 var(--xp-dark), inset -2px -2px 0 var(--xp-face);
   --xp-bevel-pressed: inset 1px 1px 0 var(--xp-dark), inset -1px -1px 0 var(--xp-light), inset 2px 2px 0 var(--xp-mid), inset -2px -2px 0 var(--xp-face);
-  --xp-font: Tahoma, "Express Tahoma", Verdana, "DejaVu Sans", "Segoe UI", sans-serif;
+  --xp-font: "Express Tahoma", Tahoma, Verdana, "DejaVu Sans", "Segoe UI", sans-serif;
 
   --font-sans: var(--xp-font);
   --font-serif: var(--xp-font);
