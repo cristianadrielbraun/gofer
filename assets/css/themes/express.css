@@ -1930,10 +1930,22 @@ html:root[data-theme="express"] :is([data-calendar-month-event], [data-calendar-
 /* Laid out like a contact's Properties window: a silver panel, group boxes,
    and each value in a white read-only field. */
 [data-theme="express"] #contacts-detail > .surface-paper {
+  position: relative;
   border-radius: 0;
   background: var(--background);
   color: var(--foreground);
+  box-shadow: none;
+}
+
+/* The raised edge is drawn over the content: as the panel's own shadow, the
+   buttons and tags scrolled under it covered it. */
+[data-theme="express"] #contacts-detail > .surface-paper::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 40;
   box-shadow: var(--xp-bevel-out);
+  pointer-events: none;
 }
 
 [data-theme="express"] #contacts-detail .contact-editor-header {
