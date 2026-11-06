@@ -7976,6 +7976,38 @@ document.addEventListener("DOMContentLoaded", function () {
     document.addEventListener("focusin", function (e) {
       prefetchRow(e.target && e.target.closest && e.target.closest(".mail-list-item[data-email-id]"))
     })
+
+    // A finger resting on a row for a moment starts fetching its body, so
+    // the server is already getting it from the mail server when the tap
+    // opens the message. A scroll starts with a touch too: the browser
+    // cancels the pointer when it scrolls, and that drops the fetch.
+    var touchPrefetchDelay = 60
+    var touchPrefetchTimer = null
+    var touchPrefetchRow = null
+    function clearTouchPrefetch() {
+      if (touchPrefetchTimer) clearTimeout(touchPrefetchTimer)
+      touchPrefetchTimer = null
+      touchPrefetchRow = null
+    }
+    document.addEventListener("pointerdown", function (e) {
+      if (e.pointerType !== "touch" && e.pointerType !== "pen") return
+      clearTouchPrefetch()
+      var row = e.target && e.target.closest && e.target.closest("#mail-list-scroll .mail-list-item[data-email-id]")
+      if (!row || e.target.closest(".star-btn, [data-thread-toggle], [data-mail-row-check]")) return
+      touchPrefetchRow = row
+      touchPrefetchTimer = setTimeout(function () {
+        clearTouchPrefetch()
+        prefetchRow(row)
+      }, touchPrefetchDelay)
+    }, { passive: true })
+    document.addEventListener("pointercancel", clearTouchPrefetch, { passive: true })
+    document.addEventListener("pointerup", function () {
+      // A quick tap ends before the delay; it opens the message, so the
+      // body is wanted now. A scroll never gets here: it cancels first.
+      var row = touchPrefetchRow
+      clearTouchPrefetch()
+      if (row) prefetchRow(row)
+    }, { passive: true })
   }
 
   function markAccountDeleting(accountId) {
