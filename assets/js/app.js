@@ -577,14 +577,11 @@ document.addEventListener("DOMContentLoaded", function () {
       // No sidebar item lists only the contacts to resolve.
       if (filters.unresolved) return "-"
       var storedIn = filters.storedIn || ""
-      var saveTarget = filters.saveTarget || ""
       // A sidebar item stands for one place, never several.
-      if (/,/.test(storedIn) || /,/.test(saveTarget)) return "-"
-      // No sidebar item filters by origin.
-      if (filters.source) return "-"
-      if (!storedIn) return saveTarget
-      if (saveTarget) return "-"
-      return "stored_in:" + storedIn
+      if (/,/.test(storedIn)) return "-"
+      // No sidebar item filters by origin or sync location.
+      if (filters.source || filters.saveTarget) return "-"
+      return storedIn ? "stored_in:" + storedIn : ""
     }
 
     // Choosing a pill drops that filter, after the pill's exit.
@@ -700,7 +697,7 @@ document.addEventListener("DOMContentLoaded", function () {
       e.preventDefault()
       e.stopImmediatePropagation()
       var storedIn = target.indexOf("stored_in:") === 0 ? target.slice(10) : ""
-      var values = { source: "", stored_in: storedIn, save_target: target === "trash" || storedIn ? "" : target, activity: "" }
+      var values = { source: "", stored_in: storedIn, save_target: "", activity: "" }
       var form = document.querySelector("[data-contact-filter-form]")
       if (form) {
         // Setting a select's value also moves its selection and the text shown.

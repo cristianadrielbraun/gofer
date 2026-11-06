@@ -1482,7 +1482,7 @@ html:root[data-theme="express"] :is(.account-wizard-card-footer, .account-wizard
   --xp-icon-paths: hidden;
 }
 
-[data-theme="express"] [data-contact-sidebar-target="local"] svg[data-lucide] {
+[data-theme="express"] [data-contact-sidebar-target="stored_in:local"] svg[data-lucide] {
   --xp-icon: image-set(url("/assets/icons/express/computer-16.png") 1x, url("/assets/icons/express/computer-32.png") 2x);
   --xp-icon-paths: hidden;
 }

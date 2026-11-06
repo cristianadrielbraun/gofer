@@ -15,6 +15,9 @@ func TestContactsSidebarPlaceItemsFilterByMainLocation(t *testing.T) {
 	if got := contactSidebarURL(models.ContactFilters{Query: "ana"}, "stored_in:book:b1"); got != "/contacts?q=ana&stored_in=book%3Ab1" {
 		t.Fatalf("book URL = %q", got)
 	}
+	if got := contactSidebarURL(models.ContactFilters{}, "stored_in:local"); got != "/contacts?stored_in=local" {
+		t.Fatalf("local URL = %q", got)
+	}
 	if got := contactSidebarURL(models.ContactFilters{View: "table"}, "stored_in:account:g1"); got != "/contacts?stored_in=account%3Ag1&view=table" {
 		t.Fatalf("account URL = %q", got)
 	}
@@ -24,9 +27,11 @@ func TestContactsSidebarPlaceItemsFilterByMainLocation(t *testing.T) {
 	}{
 		{models.ContactFilters{StoredIn: "book:b1"}, "stored_in:book:b1"},
 		{models.ContactFilters{StoredIn: "account:g1"}, "stored_in:account:g1"},
-		{models.ContactFilters{SaveTarget: "local"}, "local"},
+		{models.ContactFilters{StoredIn: "local"}, "stored_in:local"},
 		{models.ContactFilters{}, ""},
-		// Nothing in the sidebar stands for an origin or several places.
+		// Nothing in the sidebar stands for an origin, a sync location or
+		// several places.
+		{models.ContactFilters{SaveTarget: "local"}, "-"},
 		{models.ContactFilters{Source: "book:b1"}, "-"},
 		{models.ContactFilters{StoredIn: "book:b1,book:b2"}, "-"},
 		{models.ContactFilters{StoredIn: "book:b1", SaveTarget: "local"}, "-"},
@@ -49,13 +54,14 @@ func TestContactsSidebarPlaceItemsFilterByMainLocation(t *testing.T) {
 		`data-contact-sidebar-target="stored_in:book:b1"`,
 		`data-contact-sidebar-target="stored_in:account:g1"`,
 		`hx-get="/contacts?stored_in=book%3Ab1"`,
+		`data-contact-sidebar-target="stored_in:local"`,
 	} {
 		if !strings.Contains(html, want) {
 			t.Errorf("sidebar missing %q", want)
 		}
 	}
-	if strings.Contains(html, "source=") {
-		t.Error("a sidebar item still filters by origin")
+	if strings.Contains(html, "source=") || strings.Contains(html, "save_target=") {
+		t.Error("a sidebar item still filters by origin or sync location")
 	}
 	if !contactSidebarAccountActive(accounts[0], filters) || contactSidebarAccountActive(accounts[1], filters) {
 		t.Error("only the account holding the chosen book is active")
