@@ -1857,7 +1857,7 @@ templ ContactsListPane(contacts []models.Contact, selected *models.Contact, filt
 					<span class="mail-toolbar-collapsible" style="--collapse-gap: 0.25rem" data-contact-view-label>{ i18n.T(ctx, "mail.view.table") }</span>
 				</button>
 			</div>
-			<div class="mx-0.5 h-4 w-px bg-border" aria-hidden="true"></div>
+			<div class="mx-0.5 h-4 w-px bg-border" data-contact-list-view-divider aria-hidden="true"></div>
 			@ContactListLayoutSelector()
 			</div>
 			@dropdown.Dropdown() {
@@ -3035,9 +3035,7 @@ templ ContactReadOnlyContactInfo(contact models.Contact, profile *models.Contact
 		</div>
 		<div class="grid gap-x-6 px-4 lg:grid-cols-2">
 			// Where the contact exists, its own; Gofer Sync adds more places.
-			<div class="lg:col-span-2">
-				@ContactReadOnlyPillListField(i18n.T(ctx, "contacts.stored_in"), contactStoredInLabels(ctx, profile, contact.DeletedFrom, accounts))
-			</div>
+			@ContactReadOnlyPillListField(i18n.T(ctx, "contacts.stored_in"), contactStoredInLabels(ctx, profile, contact.DeletedFrom, accounts))
 			@ContactReadOnlyTextField(i18n.T(ctx, "contacts.field.name"), contact.Name)
 			@ContactReadOnlyLinkedField(i18n.T(ctx, "contacts.field.email"), contact.Email, contact.EmailLabel, "mailto:")
 			@ContactReadOnlyListField(i18n.T(ctx, "contacts.field.additional_emails"), contact.AdditionalEmails, contact.AdditionalEmailLabels, "alternate", "mailto:")
