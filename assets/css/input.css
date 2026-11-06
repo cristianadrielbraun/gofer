@@ -4931,16 +4931,23 @@ body.mail-list-column-resizing {
     height: 1.125rem;
   }
 
-  #mail-view[data-mail-reader] .mail-view-message-actions [data-translate-email-icon-shell] {
+  #mail-view[data-mail-reader] .mail-view-message-actions :is([data-translate-email-icon-shell], [data-remote-content-banner]) {
     height: 2.5rem;
   }
 
-  #mail-view[data-mail-reader] .mail-view-message-actions [data-translate-email-icon-shell] button {
+  #mail-view[data-mail-reader] .mail-view-message-actions :is([data-translate-email-icon-shell], [data-remote-content-banner]) > button {
     min-width: 2.25rem;
   }
 
-  #mail-view[data-mail-reader] .mail-view-message-actions .email-translation-language-trigger {
-    min-width: 1.5rem;
+  /* The menu arrows stay narrow beside their icon, not a button of their own. */
+  #mail-view[data-mail-reader] .mail-view-message-actions :is(.email-translation-language-trigger, .remote-content-menu-trigger) {
+    min-width: 1rem;
+    width: 1rem;
+  }
+
+  #mail-view[data-mail-reader] .mail-view-message-actions :is(.email-translation-language-trigger, .remote-content-menu-trigger) svg {
+    width: 0.75rem;
+    height: 0.75rem;
   }
 
   /* A thread message's reply buttons don't fit beside its other actions, so they

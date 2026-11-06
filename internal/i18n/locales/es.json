@@ -3465,6 +3465,7 @@
   "mail.quote.show": "Mostrar texto citado",
   "mail.remote.always_email": "Siempre en este correo",
   "mail.remote.always_sender": "Siempre de este remitente",
+  "mail.remote.choose": "Mostrar siempre el contenido",
   "mail.remote.blocked": "El contenido remoto está bloqueado para proteger tu privacidad",
   "mail.remote.show": "Mostrar el contenido",
   "mail.search.close": "Cerrar la búsqueda",

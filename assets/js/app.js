@@ -24550,8 +24550,8 @@ window.addEventListener("message", function (e) {
     }
   }
   if (e.data.type === "remoteContentBlocked") {
-    var banner = document.querySelector('[data-remote-content-banner="' + emailId + '"]')
-    if (banner) banner.classList.remove("hidden")
+    var banners = document.querySelectorAll('[data-remote-content-banner="' + emailId + '"]')
+    for (var b = 0; b < banners.length; b++) banners[b].classList.remove("hidden")
   }
   if (e.data.type === "emailBodyError") {
     iframe._bodyReported = true
@@ -24798,14 +24798,19 @@ function loadRemoteContent(emailId) {
   var url = new URL(src, window.location.origin)
   url.searchParams.set("remote", "true")
   setEmailBodyFrameSrc(iframe, url.toString())
-  var banner = document.querySelector('[data-remote-content-banner="' + emailId + '"]')
-  if (banner) banner.remove()
+  removeRemoteContentBanners(emailId)
   iframe.dataset.remoteLoaded = "true"
+}
+
+// removeRemoteContentBanners removes both versions of a message's blocked
+// images notice: the wide bar and the small screens' icon.
+function removeRemoteContentBanners(emailId) {
+  var banners = document.querySelectorAll('[data-remote-content-banner="' + emailId + '"]')
+  for (var i = 0; i < banners.length; i++) banners[i].remove()
 }
 
 function allowRemoteContent(emailId, mode) {
   var iframe = document.querySelector('[data-email-body-frame][data-email-id="' + emailId + '"]')
-  var banner = document.querySelector('[data-remote-content-banner="' + emailId + '"]')
 
   fetch("/api/remote-content/" + emailId + "/allow", {
     method: "POST",
@@ -24814,7 +24819,7 @@ function allowRemoteContent(emailId, mode) {
   })
     .then(function (r) { return r.json() })
     .then(function () {
-      if (banner) banner.remove()
+      removeRemoteContentBanners(emailId)
       if (iframe) iframe.dataset.remoteLoaded = "true"
       if (iframe && emailBodyFrameSrc(iframe)) {
         var url = new URL(emailBodyFrameSrc(iframe), window.location.origin)

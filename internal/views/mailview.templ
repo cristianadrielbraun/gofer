@@ -270,10 +270,6 @@ templ MailViewContent(email *models.Email, thread []models.ThreadItem) {
 					<div class="h-px bg-gradient-to-r from-transparent via-amber-900/10 to-transparent"></div>
 					<div class="mail-view-content mx-auto px-8 py-6" data-mail-view-header>
 						@MailViewSender(email)
-						<div class="mail-view-mobile-tools mail-view-message-actions mt-2 -mr-1 flex items-center justify-end gap-0.5 lg:hidden">
-							@EmailBodyStyleCycleButton(email.ID)
-							@EmailTranslateIconButton(email.ID)
-						</div>
 					</div>
 				</div>
 				<div class="flex-1 overflow-y-auto" data-mail-view-scroll>
@@ -571,10 +567,6 @@ templ MailViewThreadItemMiniHeader(item *models.ThreadItem) {
 				}
 			}
 		}
-		<div class="flex items-center gap-0.5 lg:hidden">
-			@EmailBodyStyleCycleButton(item.ID)
-			@EmailTranslateIconButton(item.ID)
-		</div>
 		@MailViewThreadItemQuickReply(item)
 	</div>
 }
@@ -660,7 +652,7 @@ templ EmailBodyStyleTabs(emailID string, global bool, listHeight string, trigger
 }
 
 // EmailBodyStyleCycleButton steps the message body through dark, light and original. Small
-// screens show it beside the message's other small actions.
+// screens show it above the body, in mailViewBodyTools.
 templ EmailBodyStyleCycleButton(emailID string) {
 	@button.Button(button.Props{
 		Variant: button.VariantGhost,
@@ -1122,8 +1114,70 @@ templ remoteContentNoticeButton(attrs templ.Attributes, label string) {
 	</button>
 }
 
+// mailViewBodyTools is the small screens' row above a message body, in place
+// of the wide images notice and the style and translation controls: the
+// blocked images icon on the left, the body style and translation icons on
+// the right.
+templ mailViewBodyTools(emailID string) {
+	<div class="mail-view-body-tools mail-view-message-actions -mx-1 mb-3 flex items-center gap-0.5 lg:hidden">
+		@RemoteContentIconButton(emailID)
+		<div class="ml-auto flex items-center gap-0.5">
+			@EmailBodyStyleCycleButton(emailID)
+			@EmailTranslateIconButton(emailID)
+		</div>
+	</div>
+}
+
+// RemoteContentIconButton is the small screens' blocked images notice, built
+// like EmailTranslateIconButton: the icon shows the content, the menu keeps
+// showing it for this message or this sender. It stays hidden until the body
+// reports blocked content, like the wide notice.
+templ RemoteContentIconButton(emailID string) {
+	<div data-remote-content-banner={ emailID } class="hidden inline-flex [&.hidden]:hidden h-7 overflow-hidden rounded-md bg-amber-50/70 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400">
+		<button type="button" data-load-remote={ emailID } aria-label={ i18n.T(ctx, "mail.remote.show") } class="inline-flex h-full items-center pl-1.5 pr-0.5 transition-colors hover:text-amber-800 dark:hover:text-amber-300">
+			@icon.ImageOff(icon.Props{Class: "size-3.5"})
+		</button>
+		@dropdown.Dropdown() {
+			@dropdown.Trigger() {
+				<button type="button" class="remote-content-menu-trigger inline-flex h-full w-5 items-center justify-center pr-0.5 transition-colors hover:text-amber-800 dark:hover:text-amber-300" aria-label={ i18n.T(ctx, "mail.remote.choose") }>
+					@icon.ChevronDown(icon.Props{Class: "size-3"})
+				</button>
+			}
+			@dropdown.Content(dropdown.ContentProps{
+				Placement: dropdown.PlacementBottomStart,
+				Class:     "mobile-sheet w-56",
+			}) {
+				@dropdown.Label(dropdown.LabelProps{Class: "text-xs font-normal text-muted-foreground"}) { { i18n.T(ctx, "mail.remote.blocked") } }
+				@remoteContentAllowItems(emailID)
+			}
+		}
+	</div>
+}
+
+// remoteContentAllowItems keep showing a message's remote content, for this
+// message or for its sender. Both versions of the notice use them.
+templ remoteContentAllowItems(emailID string) {
+	@dropdown.Item(dropdown.ItemProps{
+		Attributes: templ.Attributes{"data-allow-remote": emailID, "data-allow-mode": "email"},
+	}) {
+		<span class="flex items-center gap-2">
+			@icon.Mail(icon.Props{Class: "size-3.5"})
+			<span class="text-xs">{ i18n.T(ctx, "mail.remote.always_email") }</span>
+		</span>
+	}
+	@dropdown.Item(dropdown.ItemProps{
+		Attributes: templ.Attributes{"data-allow-remote": emailID, "data-allow-mode": "sender"},
+	}) {
+		<span class="flex items-center gap-2">
+			@icon.User(icon.Props{Class: "size-3.5"})
+			<span class="text-xs">{ i18n.T(ctx, "mail.remote.always_sender") }</span>
+		</span>
+	}
+}
+
 templ MailViewBodyByID(emailID string) {
-	@RemoteContentNotice(templ.Attributes{"data-remote-content-banner": emailID}, "mb-3", i18n.T(ctx, "mail.remote.blocked"), false) {
+	@mailViewBodyTools(emailID)
+	@RemoteContentNotice(templ.Attributes{"data-remote-content-banner": emailID}, "mb-3 max-lg:hidden", i18n.T(ctx, "mail.remote.blocked"), false) {
 			<div class="flex shrink-0 items-center">
 				@remoteContentNoticeButton(templ.Attributes{"data-load-remote": emailID}, i18n.T(ctx, "mail.remote.show"))
 				@dropdown.Dropdown() {
@@ -1135,22 +1189,7 @@ templ MailViewBodyByID(emailID string) {
 					@dropdown.Content(dropdown.ContentProps{
 						Placement: dropdown.PlacementBottomEnd,
 					}) {
-						@dropdown.Item(dropdown.ItemProps{
-							Attributes: templ.Attributes{"data-allow-remote": emailID, "data-allow-mode": "email"},
-						}) {
-							<span class="flex items-center gap-2">
-								@icon.Mail(icon.Props{Class: "size-3.5"})
-								<span class="text-xs">{ i18n.T(ctx, "mail.remote.always_email") }</span>
-							</span>
-						}
-						@dropdown.Item(dropdown.ItemProps{
-							Attributes: templ.Attributes{"data-allow-remote": emailID, "data-allow-mode": "sender"},
-						}) {
-							<span class="flex items-center gap-2">
-								@icon.User(icon.Props{Class: "size-3.5"})
-								<span class="text-xs">{ i18n.T(ctx, "mail.remote.always_sender") }</span>
-							</span>
-						}
+						@remoteContentAllowItems(emailID)
 					}
 				}
 			</div>
