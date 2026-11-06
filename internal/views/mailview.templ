@@ -260,6 +260,7 @@ templ mailViewLoadingReplyButton(label string) {
 
 templ MailViewContent(email *models.Email, thread []models.ThreadItem) {
 	<div class="mail-view-frame flex flex-col h-full">
+		@translationLanguageItems()
 		if len(thread) > 1 {
 			@MailViewThreadContent(email, thread)
 		} else {
@@ -684,6 +685,26 @@ templ EmailBodyStyleCycleButton(emailID string) {
 	}
 }
 
+// translationLanguageItems are the translation menus' languages, sent once
+// for the whole reader rather than in two menus per message, which made a
+// conversation's page several times larger. app.js copies them into a menu
+// the first time it is about to open (fillTranslationLanguageMenu).
+templ translationLanguageItems() {
+	<template data-translation-language-items>
+		for _, language := range translationLanguageOptions(ctx) {
+			@dropdown.Item(dropdown.ItemProps{
+				Class: "email-translation-language-item text-xs group relative justify-start pr-8 font-light outline-none transition-colors duration-150",
+				Attributes: templ.Attributes{
+					"data-translation-language":          language.Value,
+					"data-translation-language-selected": "false",
+				},
+			}) {
+				<span>{ language.Label }</span>
+			}
+		}
+	</template>
+}
+
 // EmailTranslateIconButton is the small-screen version of the translation control: an icon
 // that translates the message or shows the original again, and a menu of languages. It
 // shares the desktop control's behavior and its colors while a translation is shown.
@@ -701,20 +722,9 @@ templ EmailTranslateIconButton(emailID string) {
 			@dropdown.Content(dropdown.ContentProps{
 				Placement: dropdown.PlacementBottomEnd,
 				Class:     "mobile-sheet email-translation-language-menu w-40 normal-case tracking-normal",
+				Attributes: templ.Attributes{"data-translation-language-menu": emailID},
 			}) {
 				@dropdown.Label(dropdown.LabelProps{Class: "text-xs text-muted-foreground"}) { { i18n.T(ctx, "mail.translate.to") } }
-				for _, language := range translationLanguageOptions(ctx) {
-					@dropdown.Item(dropdown.ItemProps{
-						Class: "email-translation-language-item text-xs group relative justify-start pr-8 font-light outline-none transition-colors duration-150",
-						Attributes: templ.Attributes{
-							"data-translate-email-language":     emailID,
-							"data-translation-language":          language.Value,
-							"data-translation-language-selected": "false",
-						},
-					}) {
-						<span>{ language.Label }</span>
-					}
-				}
 			}
 		}
 	</div>
@@ -1163,20 +1173,9 @@ templ MailViewBodyByID(emailID string) {
 							@dropdown.Content(dropdown.ContentProps{
 								Placement: dropdown.PlacementBottomEnd,
 								Class:     "email-translation-language-menu w-40 normal-case tracking-normal",
+								Attributes: templ.Attributes{"data-translation-language-menu": emailID},
 							}) {
 								@dropdown.Label(dropdown.LabelProps{Class: "text-xs text-muted-foreground"}) { { i18n.T(ctx, "mail.translate.to") } }
-								for _, language := range translationLanguageOptions(ctx) {
-									@dropdown.Item(dropdown.ItemProps{
-										Class: "email-translation-language-item text-xs group relative justify-start pr-8 font-light outline-none transition-colors duration-150",
-										Attributes: templ.Attributes{
-											"data-translate-email-language":     emailID,
-											"data-translation-language":          language.Value,
-											"data-translation-language-selected": "false",
-										},
-									}) {
-										<span>{ language.Label }</span>
-									}
-								}
 							}
 						}
 				</div>

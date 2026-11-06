@@ -1810,6 +1810,30 @@ document.addEventListener("DOMContentLoaded", function () {
       return frame && frame.dataset.translationTargetLanguage ? frame.dataset.translationTargetLanguage : targetLanguage()
     }
 
+    // fillTranslationLanguageMenu copies the reader's languages into a
+    // message's menu, the first time it is about to open (see
+    // translationLanguageItems in mailview.templ).
+    function fillTranslationLanguageMenu(trigger) {
+      var root = trigger.closest("[data-tui-popover-root]")
+      var menu = root && root.querySelector(":scope > [data-translation-language-menu]")
+      if (!menu || menu.querySelector("[data-translation-language]")) return
+      var source = document.querySelector("template[data-translation-language-items]")
+      if (!source) return
+      var emailId = menu.getAttribute("data-translation-language-menu")
+      var items = source.content.cloneNode(true)
+      items.querySelectorAll("[data-translation-language]").forEach(function (item) {
+        item.setAttribute("data-translate-email-language", emailId)
+      })
+      menu.appendChild(items)
+      syncTranslationLanguageItems(emailId)
+    }
+    ;["pointerdown", "keydown", "focusin"].forEach(function (type) {
+      document.addEventListener(type, function (e) {
+        var trigger = e.target.closest && e.target.closest(".email-translation-language-trigger")
+        if (trigger) fillTranslationLanguageMenu(trigger)
+      }, true)
+    })
+
     function syncTranslationLanguageItems(emailId) {
       if (!emailId) return
       var active = normalizeTranslationLanguageCode(activeTargetLanguage(emailId))
