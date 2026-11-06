@@ -2147,6 +2147,12 @@ html:not([data-theme="express"]) [data-view-mode="table"] .mail-list-item > a {
   min-width: 0;
 }
 
+/* The contacts sidebar's Other address books shows its discovery button
+   while it looks for books, not only on hover. */
+[data-contact-other-books][data-contact-other-books-state="loading"] [data-contact-other-books-discover] {
+  opacity: 1;
+}
+
 /* The card layout and column buttons sit centered in the view capsule, as
    the Cards/Table switch does; as plain blocks they were a text line tall,
    with the button at its top. */

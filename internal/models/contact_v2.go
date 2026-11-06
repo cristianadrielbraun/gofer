@@ -50,7 +50,10 @@ type ContactInsight struct {
 }
 
 type ContactSyncSetup struct {
-	Contact        Contact
+	Contact Contact
+	// HomeLabel names the contact's main location, as the contacts list
+	// names places.
+	HomeLabel      string
 	Phase          string
 	SearchMode     string
 	SearchQuery    string

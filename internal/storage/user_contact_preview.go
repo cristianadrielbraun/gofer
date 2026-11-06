@@ -215,7 +215,23 @@ func (db *DB) ReadUserContactSetupCandidates(ctx context.Context, setup *Contact
 	if !approved {
 		return nil, ErrContactSetupInvalid
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT DISTINCT p.id FROM contact_profiles p JOIN contact_cards c ON c.profile_id=p.id AND c.user_id=p.user_id WHERE p.user_id=? AND p.is_deleted=0 AND p.id>? AND c.kind='provider' AND c.account_id=? AND c.provider=? AND c.is_deleted=0 ORDER BY p.id LIMIT 200`, setup.owner, after, account, provider)
+	// The contact itself is no copy to join, and copies count only in the
+	// address books it is to sync with, when it names any of this account.
+	query := `SELECT DISTINCT p.id FROM contact_profiles p JOIN contact_cards c ON c.profile_id=p.id AND c.user_id=p.user_id WHERE p.user_id=? AND p.is_deleted=0 AND p.id>? AND p.id<>? AND c.kind='provider' AND c.account_id=? AND c.provider=? AND c.is_deleted=0`
+	args := []any{setup.owner, after, setup.id, account, provider}
+	var books []any
+	for _, target := range setup.request.SaveTargets {
+		if bookID, ok := strings.CutPrefix(strings.TrimSpace(target), "book:"); ok && bookID != "" && "book:"+bookID != strings.TrimSpace(setup.request.StoredIn) {
+			books = append(books, bookID)
+		}
+	}
+	if len(books) > 0 {
+		in := sqlPlaceholders(len(books))
+		query += ` AND (c.address_book_id IN (` + in + `) OR NOT EXISTS (SELECT 1 FROM account_contact_address_books b WHERE b.user_id=p.user_id AND b.account_id=c.account_id AND b.id IN (` + in + `)))`
+		args = append(args, books...)
+		args = append(args, books...)
+	}
+	rows, err := tx.QueryContext(ctx, query+` ORDER BY p.id LIMIT 200`, args...)
 	if err != nil {
 		return nil, err
 	}

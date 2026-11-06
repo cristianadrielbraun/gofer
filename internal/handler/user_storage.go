@@ -219,6 +219,9 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 	private("POST /api/push/test", routed.handleTestPush)
 	private("GET /api/contacts/search", routed.handleContactSearch)
 	private("GET /api/contacts/export", routed.handleExportContacts)
+	private("GET /api/contacts/books/{id}/usage", routed.handleContactBookUsage)
+	private("GET /api/contacts/books/{id}/movers", routed.handleContactBookMovers)
+	private("POST /api/contacts/books/{id}/release", routed.handleReleaseContactBook)
 	private("POST /api/contacts/export", routed.handleExportSelectedContacts)
 	private("POST /api/contacts/bulk-delete", routed.handleTrashContacts)
 	private("POST /api/contacts/trash/restore", routed.handleRestoreContacts)
@@ -401,6 +404,7 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 		private("POST /api/accounts/{id}/contacts/sync", routed.handleUserSaveAccountContactSync)
 		private("POST /api/accounts/{id}/contacts/sync/test", routed.handleUserTestAccountContactSync)
 		private("POST /api/accounts/{id}/contacts/sync/discover", routed.handleUserDiscoverAccountContactSync)
+		private("GET /api/accounts/{id}/contacts/books", routed.handleContactAccountBooks)
 		if option.Accounts != nil {
 			private("POST /api/accounts/dav/find", routed.handleFindDAVItems)
 			private("POST /api/accounts/dav", routed.handleCreateDAVAccount)

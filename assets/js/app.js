@@ -871,6 +871,14 @@ document.addEventListener("DOMContentLoaded", function () {
       // Cancel: it closes, asking first when something was typed. templui's
       // own click-away is off for them, so nothing is lost by a stray click.
       if (e.target && e.target.tagName === "DIALOG") {
+        // Showing the Gofer Sync setup, it closes as is: the contact was
+        // saved before it, and Gofer Sync just stays off.
+        var outsideSetup = e.target.querySelector(":scope > [data-contact-sync-setup-morph]")
+        var setupMorph = outsideSetup && outsideSetup._morph
+        if (setupMorph && window.tui && window.tui.dialog) {
+          window.tui.dialog.close(setupMorph.editDialog.id)
+          return
+        }
         var outsideCancel = e.target.querySelector("[data-contact-edit-form] [data-contact-editor-cancel]")
         if (outsideCancel) {
           outsideCancel.click()
@@ -917,6 +925,13 @@ document.addEventListener("DOMContentLoaded", function () {
       var cancelSyncSetup = e.target.closest && e.target.closest("[data-contact-sync-setup-cancel]")
       if (cancelSyncSetup) {
         e.preventDefault()
+        // Back to the contact's form, Gofer Sync still switched on there and
+        // not saved.
+        var morph = contactSyncSetupMorph()
+        if (morph) {
+          unmorphContactSyncSetup(morph, true)
+          return
+        }
         if (window.tui && window.tui.dialog) window.tui.dialog.close("contact-sync-setup-dialog")
         window.setTimeout(function () {
           var host = document.getElementById("contact-sync-setup-host")
@@ -1054,7 +1069,88 @@ document.addEventListener("DOMContentLoaded", function () {
       return host
     }
 
+    // Setting up Gofer Sync after saving turns the contact's own dialog into
+    // the setup, resizing it smoothly as the calendar's event dialog grows
+    // into its editor, instead of closing it and opening another; Back to
+    // edit turns it back. The setup's content keeps its id, so its handlers
+    // find it as in its own dialog.
+    function contactSyncSetupMorph() {
+      var wrapper = document.querySelector("[data-contact-sync-setup-morph]")
+      return wrapper && wrapper._morph
+    }
+
+    function morphIntoContactSyncSetup(editDialog, html) {
+      var content = editDialog && editDialog.querySelector("[data-tui-dialog-content]")
+      var editPanel = content && content.querySelector(":scope > [data-tui-dialog-panel]")
+      var setup = new DOMParser().parseFromString(html, "text/html").querySelector("#contact-sync-setup-dialog [data-tui-dialog-content]")
+      var setupPanel = setup && setup.querySelector(":scope > [data-tui-dialog-panel]")
+      if (!content || !editPanel || !setupPanel || !content.open) return false
+      var previous = contactSyncSetupMorph()
+      if (previous && previous.content === content) {
+        // Another step of the same setup replaces the one shown.
+        previous.wrapper.replaceChildren(setupPanel)
+        startContactSyncSetupSearch(previous.wrapper)
+        return true
+      }
+      var form = editPanel.querySelector("form")
+      var resize = form && form._calendarDialogResize
+      if (resize) resize.paused = true
+      var from = content.getBoundingClientRect()
+      var transition = content.style.transitionProperty
+      content.style.transitionProperty = "none"
+      var wrapper = document.createElement("div")
+      wrapper.id = "contact-sync-setup-dialog"
+      wrapper.className = "contents"
+      wrapper.setAttribute("data-contact-sync-setup-morph", "")
+      wrapper.appendChild(setupPanel)
+      // The form leaves the dialog meanwhile, kept as it is: the setup is the
+      // dialog's only panel, which flipDialogResize hides while the frame
+      // resizes and then fades in, as in the calendar's.
+      var morph = { content: content, editPanel: editPanel, wrapper: wrapper, className: content.className, form: form, editDialog: editDialog, slot: document.createComment("contact form") }
+      wrapper._morph = morph
+      editPanel.replaceWith(morph.slot)
+      content.className = setup.className
+      content.setAttribute("data-tui-dialog-open", "true")
+      content.appendChild(wrapper)
+      var to = content.getBoundingClientRect()
+      content.style.transitionProperty = transition
+      morph.shown = contactSyncSetupResize(content, from, to)
+      // Closed while the setup shows, it opens on the contact next time.
+      morph.onClose = function () { window.setTimeout(function () { unmorphContactSyncSetup(morph, false) }, 220) }
+      content.addEventListener("close", morph.onClose, { once: true })
+      startContactSyncSetupSearch(wrapper)
+      return true
+    }
+
+    // Resizes the dialog as flipDialogResize does, answering once its content
+    // shows again: a resize started before then would take the hidden
+    // content for the shown one.
+    function contactSyncSetupResize(content, from, to) {
+      return new Promise(function (resolve) {
+        if (!flipDialogResize(content, from, to, resolve)) resolve()
+      })
+    }
+
+    function unmorphContactSyncSetup(morph, animate) {
+      if (!morph || !morph.wrapper.isConnected) return
+      var content = morph.content
+      var from = animate ? content.getBoundingClientRect() : null
+      var transition = content.style.transitionProperty
+      content.style.transitionProperty = "none"
+      morph.wrapper.remove()
+      content.className = morph.className
+      content.setAttribute("data-tui-dialog-open", content.open ? "true" : "false")
+      morph.slot.replaceWith(morph.editPanel)
+      var to = from ? content.getBoundingClientRect() : null
+      content.style.transitionProperty = transition
+      content.removeEventListener("close", morph.onClose)
+      if (from) flipDialogResize(content, from, to)
+      var resize = morph.form && morph.form._calendarDialogResize
+      if (resize && morph.form._calendarDialogResize === resize) resize.sync()
+    }
+
     function renderContactSyncSetup(html, replaceDialogID) {
+      if (replaceDialogID && morphIntoContactSyncSetup(document.getElementById(replaceDialogID), html)) return
       var host = contactSyncSetupHost()
       if (window.tui && window.tui.dialog && window.tui.dialog.isOpen("contact-sync-setup-dialog")) {
         window.tui.dialog.close("contact-sync-setup-dialog")
@@ -1082,8 +1178,28 @@ document.addEventListener("DOMContentLoaded", function () {
         renderContactSyncSetup(html)
         return
       }
-      body.innerHTML = html
-      startContactSyncSetupSearch(body)
+      var morph = contactSyncSetupMorph()
+      if (!morph) {
+        body.innerHTML = html
+        startContactSyncSetupSearch(body)
+        return
+      }
+      // In the contact's dialog, the next step (the copies found, then their
+      // review) resizes it as the first did, once that resize has ended: a
+      // change during one would make it jump.
+      var settled = morph.shown || Promise.resolve()
+      morph.shown = settled.then(function () {
+        if (!body.isConnected) return
+        var content = morph.content
+        var from = content.getBoundingClientRect()
+        var transition = content.style.transitionProperty
+        content.style.transitionProperty = "none"
+        body.innerHTML = html
+        var to = content.getBoundingClientRect()
+        content.style.transitionProperty = transition
+        startContactSyncSetupSearch(body)
+        return contactSyncSetupResize(content, from, to)
+      })
     }
 
     function loadContactSyncSetupBody(url) {
@@ -1154,7 +1270,11 @@ document.addEventListener("DOMContentLoaded", function () {
           renderContactSyncSetupBody(data)
           return
         }
-        if (window.tui && window.tui.dialog) window.tui.dialog.close("contact-sync-setup-dialog")
+        var morph = contactSyncSetupMorph()
+        if (morph && window.tui && window.tui.dialog) {
+          // The contact's dialog closes; it opens on the contact next time.
+          window.tui.dialog.close(morph.editDialog.id)
+        } else if (window.tui && window.tui.dialog) window.tui.dialog.close("contact-sync-setup-dialog")
         var host = document.getElementById("contact-sync-setup-host")
         if (host) window.setTimeout(function () { host.remove() }, 220)
         var syncQueued = !!data.contact_sync_queued
@@ -1381,12 +1501,22 @@ document.addEventListener("DOMContentLoaded", function () {
         if (data && data.avatar_hash) updateVisibleAvatars(data.avatar_hash, data.avatar_url || "")
         if (data && data.contact_id) updateContactListPreview(data.contact_id, form)
         if (data && data.refresh_detail && data.contact_id) {
-          refreshContactsDetail(data.contact_id, form, syncQueued)
+          // The contact's dialog is inside its page: with the Gofer Sync
+          // setup to show in it, the page is drawn again once it closes.
+          var openDialog = syncSetupURL && form.closest("dialog")
+          if (openDialog && openDialog.open) {
+            openDialog.addEventListener("close", function () { refreshContactsDetail(data.contact_id, null, false) }, { once: true })
+          } else {
+            refreshContactsDetail(data.contact_id, form, syncQueued)
+          }
         }
         if (data && data.contact_place_remove_failed) {
           showGoferToast({ id: "contact-place-remove-error", title: goferT("js.contacts.save.place_remove_failed"), description: data.contact_place_remove_failed, variant: "error", icon: "error", position: "bottom-right", duration: 10000, dismissible: true })
         }
         if (syncSetupURL) {
+          // Everything but Gofer Sync is saved: back from the setup, only
+          // Gofer Sync is unsaved, and closing the form doesn't ask.
+          form.dataset.initialState = contactEditorState(form)
           var editDialogID = form.getAttribute("data-contact-edit-dialog") || ""
           loadContactSyncSetup(syncSetupURL, editDialogID)
         } else if (syncQueued) {
@@ -25602,3 +25732,857 @@ document.addEventListener("scroll", function (event) {
   // exactly 0 left the shadow up after the body had visibly reached the top.
   header.toggleAttribute("data-scrolled", scroll.scrollTop > 8)
 }, true)
+
+// The contacts sidebar's menu: a right-click on Gofer Local, an account, an
+// address book or an account's heading, or the ⋯ shown on hover, opens the
+// items that apply there (ContactsSidebarContextMenu).
+var CONTACTS_SIDEBAR_MENU = "contacts-sidebar-context-menu"
+
+function contactsSidebarRow(el) {
+  var row = el && el.closest && el.closest('[data-sidebar-app-body="contacts"] [data-contact-sidebar-row]')
+  if (!row) return null
+  return {
+    row: row,
+    kind: row.dataset.contactSidebarKind || "",
+    place: row.dataset.contactSidebarPlace || "",
+    accountID: row.dataset.contactSidebarAccount || "",
+    bookID: row.dataset.contactSidebarBook || "",
+    provider: row.dataset.contactSidebarProvider || "",
+    name: row.dataset.contactSidebarName || "",
+  }
+}
+
+function contactsSidebarHasBooks(provider) {
+  return provider === "carddav" || provider === "jmap"
+}
+
+function openContactsSidebarMenu(target, x, y, button) {
+  var root = document.getElementById(CONTACTS_SIDEBAR_MENU)
+  if (!root || !window.tui || !window.tui.popover) return false
+  var place = target.kind === "local" || target.kind === "account" || target.kind === "book"
+  var shown = {
+    "new-here": target.kind === "all" || place,
+    "import-here": target.kind === "all" || place,
+    "export-here": place,
+    "export-all": target.kind === "all",
+    "sync-now": !!target.accountID,
+    "find-books": target.kind === "heading" && contactsSidebarHasBooks(target.provider),
+    "account-settings": !!target.accountID,
+    "stop-syncing": target.kind === "book",
+  }
+  var items = root.querySelectorAll("[data-sidebar-context-action]")
+  for (var i = 0; i < items.length; i++) items[i].hidden = !shown[items[i].getAttribute("data-sidebar-context-action")]
+  var title = root.querySelector("[data-sidebar-context-title]")
+  if (title) title.textContent = target.name
+  root._contactsSidebarTarget = target
+  window.tui.popover.close(CONTACTS_SIDEBAR_MENU)
+  // From the ⋯ it opens to the left of it, under it; from a right-click,
+  // to the right of the pointer.
+  var content = root.querySelector("[data-tui-popover-content]")
+  if (content) content.setAttribute("data-tui-popover-placement", button ? "bottom-end" : "bottom-start")
+  placePointPopover(root, x, y)
+  window.tui.popover.open(CONTACTS_SIDEBAR_MENU)
+  var opened = root._contactsSidebarButton
+  if (opened) opened.setAttribute("aria-expanded", "false")
+  root._contactsSidebarButton = button || null
+  if (button) button.setAttribute("aria-expanded", "true")
+  return true
+}
+
+function closeContactsSidebarMenu() {
+  var root = document.getElementById(CONTACTS_SIDEBAR_MENU)
+  if (!root || !window.tui || !window.tui.popover || !window.tui.popover.isOpen(CONTACTS_SIDEBAR_MENU)) return
+  window.tui.popover.close(CONTACTS_SIDEBAR_MENU)
+  if (root._contactsSidebarButton) root._contactsSidebarButton.setAttribute("aria-expanded", "false")
+  root._contactsSidebarButton = null
+}
+
+document.addEventListener("contextmenu", function (event) {
+  var target = window.matchMedia("(max-width: 1023.98px)").matches ? null : contactsSidebarRow(event.target)
+  if (!target) {
+    if (!(event.target.closest && event.target.closest("#" + CONTACTS_SIDEBAR_MENU))) closeContactsSidebarMenu()
+    return
+  }
+  if (openContactsSidebarMenu(target, event.clientX, event.clientY)) event.preventDefault()
+})
+
+document.addEventListener("click", function (event) {
+  var button = event.target.closest && event.target.closest("[data-contact-sidebar-menu]")
+  if (button) {
+    event.preventDefault()
+    event.stopPropagation()
+    if (button.getAttribute("aria-expanded") === "true") {
+      closeContactsSidebarMenu()
+      return
+    }
+    var rect = button.getBoundingClientRect()
+    openContactsSidebarMenu(contactsSidebarRow(button), rect.right, rect.bottom + 2, button)
+    return
+  }
+  var item = event.target.closest && event.target.closest("#" + CONTACTS_SIDEBAR_MENU + " [data-sidebar-context-action]")
+  if (!item) return
+  event.preventDefault()
+  var root = document.getElementById(CONTACTS_SIDEBAR_MENU)
+  var target = root && root._contactsSidebarTarget
+  closeContactsSidebarMenu()
+  if (target) runContactsSidebarAction(item.getAttribute("data-sidebar-context-action"), target)
+}, true)
+
+document.addEventListener("pointerdown", function (event) {
+  if (event.target.closest && (event.target.closest("#" + CONTACTS_SIDEBAR_MENU) || event.target.closest("[data-contact-sidebar-menu]"))) return
+  closeContactsSidebarMenu()
+}, true)
+
+function runContactsSidebarAction(action, target) {
+  var place = target.place
+  if (action === "new-here") openNewContactIn(place)
+  else if (action === "import-here") openContactImportIn(place)
+  else if (action === "export-here") window.location.assign("/api/contacts/export?stored_in=" + encodeURIComponent(place))
+  else if (action === "export-all") window.location.assign("/api/contacts/export")
+  else if (action === "sync-now") syncContactAccountNow(target)
+  else if (action === "find-books") openContactOtherBooks(target.accountID, true)
+  else if (action === "account-settings") window.location.assign("/settings/accounts?edit=" + encodeURIComponent(target.accountID))
+  else if (action === "stop-syncing") openContactBookStop(target)
+}
+
+// Chooses a place in one of the contact forms' main location selects; the
+// select shows it, and the form follows as when it is picked by hand.
+// The sidebar and the forms list the same places, from the same accounts.
+function chooseContactPlace(input, place) {
+  if (!input || !place) return
+  input.value = place
+  input.dispatchEvent(new Event("change", { bubbles: true }))
+}
+
+// The new contact dialog, with its main location set to the place.
+function openNewContactIn(place) {
+  var trigger = document.querySelector('[data-sidebar-create] [data-contact-edit-trigger]')
+  if (!trigger) return
+  trigger.click()
+  if (!place) return
+  window.setTimeout(function () {
+    var form = document.querySelector("[data-contact-new-form]")
+    chooseContactPlace(form && form.querySelector('input[name="stored_in"]'), place)
+  }, 0)
+}
+
+// The vCard import dialog, importing into the place.
+function openContactImportIn(place) {
+  if (!window.tui || !window.tui.dialog) return
+  window.tui.dialog.open("contacts-import-dialog")
+  if (!place) return
+  window.setTimeout(function () {
+    var dialog = document.getElementById("contacts-import-dialog")
+    chooseContactPlace(dialog && dialog.querySelector('input[name="store_in"]'), place)
+  }, 0)
+}
+
+function syncContactAccountNow(target) {
+  var body = new URLSearchParams()
+  body.set("account_id", target.accountID)
+  fetch("/api/settings/contacts/accounts/sync", { method: "POST", body: body }).then(function (response) {
+    if (!response.ok) return response.text().then(function (text) { throw new Error(text.trim()) })
+    showGoferToast({ id: "contacts-account-sync", title: goferT("js.contacts.sidebar.sync_started", { account: target.name }), variant: "success", icon: "success", position: "bottom-right", duration: 4000, dismissible: true })
+  }).catch(function (err) {
+    showGoferToast({ id: "contacts-account-sync", title: goferT("js.contacts.sidebar.sync_failed"), description: err.message, variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
+  })
+}
+
+// Draws the contacts sidebar again, as the server has it now: after Gofer
+// starts or stops syncing an address book.
+function refreshContactsSidebar() {
+  return fetch(window.location.pathname + window.location.search, { headers: { "HX-Request": "true", "HX-Target": "mail-list" } })
+    .then(function (response) { return response.ok ? response.text() : "" })
+    .then(function (html) {
+      var fresh = html && new DOMParser().parseFromString(html, "text/html").getElementById("sidebar-app-body")
+      var current = document.getElementById("sidebar-app-body")
+      if (!fresh || !current || current.dataset.sidebarAppBody !== "contacts") return
+      current.replaceWith(fresh)
+      if (typeof htmx !== "undefined") htmx.process(fresh)
+    })
+}
+
+// The account's books on its server, as the account's contact sync form
+// saves them: its connection, the books Gofer syncs, and the others.
+function fetchContactAccountBooks(accountID) {
+  return fetch("/api/accounts/" + encodeURIComponent(accountID) + "/contacts/books", { headers: { Accept: "application/json" } }).then(function (response) {
+    return response.json().catch(function () { return {} }).then(function (data) {
+      if (!response.ok) throw new Error(data.error || goferT("js.contacts.other_books.failed"))
+      return data
+    })
+  })
+}
+
+// Saves which books the account syncs, through its contact sync settings:
+// none turns contact sync off for the account.
+function saveContactAccountBooks(accountID, info, books) {
+  var body = new URLSearchParams()
+  if (info.provider === "jmap") body.set("provider", "jmap")
+  if (books.length) {
+    if (info.provider !== "jmap") {
+      body.set("base_url", info.base_url || "")
+      body.set("username", info.username || "")
+    }
+    var defaultBook = books.filter(function (book) { return book.default })[0] || books[0]
+    books.forEach(function (book) {
+      body.append("addressbook_url", book.url)
+      body.append("addressbook_id", book.id || "")
+      body.append("addressbook_name", book.name || "")
+    })
+    body.set("default_addressbook_url", defaultBook.url)
+  }
+  return fetch("/api/accounts/" + encodeURIComponent(accountID) + "/contacts/sync", { method: "POST", body: body }).then(function (response) {
+    return response.text().then(function (text) {
+      if (!response.ok || response.headers.get("X-Gofer-Status") === "error") throw new Error(new DOMParser().parseFromString(text, "text/html").body.textContent.trim())
+    })
+  })
+}
+
+// Other address books: opening the section, or its discovery button, asks
+// the server which books it has besides the synced ones. The section opens
+// and closes as the calendar's Other calendars do (collapsible.js).
+function openContactOtherBooks(accountID, refresh) {
+  var section = document.querySelector('[data-contact-other-books="' + CSS.escape(accountID) + '"]')
+  if (!section) return
+  if (section.getAttribute("data-tui-collapsible-state") !== "open") {
+    var trigger = section.querySelector("[data-contact-other-books-toggle]")
+    if (trigger) trigger.click()
+  }
+  if (section.dataset.contactOtherBooksState === "loaded" && !refresh) return
+  discoverContactOtherBooks(section, accountID)
+}
+
+function contactOtherBooksMessage(section, text) {
+  var list = section.querySelector("[data-contact-other-books-list]")
+  var template = section.querySelector("template[data-contact-other-books-message-template]")
+  list.textContent = ""
+  var message = template.content.firstElementChild.cloneNode(true)
+  message.textContent = text
+  list.appendChild(message)
+}
+
+function discoverContactOtherBooks(section, accountID) {
+  if (section.dataset.contactOtherBooksState === "loading") return
+  section.dataset.contactOtherBooksState = "loading"
+  var icon = section.querySelector("[data-contact-other-books-discover-icon]")
+  if (icon) icon.classList.add("animate-pulse")
+  contactOtherBooksMessage(section, goferT("js.contacts.other_books.loading"))
+  fetchContactAccountBooks(accountID).then(function (info) {
+    section._contactBooks = info
+    section.dataset.contactOtherBooksState = "loaded"
+    var count = section.querySelector("[data-contact-other-books-count]")
+    if (count) count.textContent = info.other.length ? String(info.other.length) : ""
+    if (!info.other.length) {
+      contactOtherBooksMessage(section, goferT("js.contacts.other_books.none"))
+      return
+    }
+    var list = section.querySelector("[data-contact-other-books-list]")
+    var template = section.querySelector("template[data-contact-other-book-template]")
+    list.textContent = ""
+    info.other.forEach(function (book) {
+      var row = template.content.firstElementChild.cloneNode(true)
+      var name = book.name || book.url
+      row.querySelector("[data-contact-other-book-name]").textContent = name
+      row.querySelector("[data-contact-other-book-name]").title = name
+      var button = row.querySelector("[data-contact-other-book-sync]")
+      button.setAttribute("aria-label", goferT("js.contacts.other_books.sync", { book: name }))
+      button.title = goferT("js.contacts.other_books.sync", { book: name })
+      button.addEventListener("click", function () { startSyncingContactBook(section, accountID, book, button) })
+      list.appendChild(row)
+    })
+  }).catch(function (err) {
+    section.dataset.contactOtherBooksState = "idle"
+    contactOtherBooksMessage(section, err.message || goferT("js.contacts.other_books.failed"))
+  }).finally(function () {
+    if (icon) icon.classList.remove("animate-pulse")
+  })
+}
+
+function startSyncingContactBook(section, accountID, book, button) {
+  var info = section._contactBooks
+  if (!info || button.disabled) return
+  button.disabled = true
+  button.classList.add("animate-pulse")
+  var name = book.name || book.url
+  var books = info.synced.concat([{ url: book.url, name: book.name }])
+  saveContactAccountBooks(accountID, info, books).then(function () {
+    showGoferToast({ id: "contacts-book-sync", title: goferT("js.contacts.other_books.started", { book: name }), variant: "success", icon: "success", position: "bottom-right", duration: 4000, dismissible: true })
+    return refreshContactsSidebar()
+  }).catch(function (err) {
+    button.disabled = false
+    button.classList.remove("animate-pulse")
+    showGoferToast({ id: "contacts-book-sync", title: goferT("js.contacts.other_books.start_failed", { book: name }), description: err.message, variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
+  })
+}
+
+document.addEventListener("click", function (event) {
+  var toggle = event.target.closest && event.target.closest("[data-contact-other-books-toggle]")
+  var discover = !toggle && event.target.closest && event.target.closest("[data-contact-other-books-discover]")
+  var section = (toggle || discover) && (toggle || discover).closest("[data-contact-other-books]")
+  if (!section) return
+  var accountID = section.dataset.contactOtherBooks
+  if (discover) {
+    event.preventDefault()
+    openContactOtherBooks(accountID, true)
+    return
+  }
+  // collapsible.js has opened or closed it by now; opened, it fills in.
+  window.setTimeout(function () {
+    if (section.getAttribute("data-tui-collapsible-state") === "open" && section.dataset.contactOtherBooksState === "idle") discoverContactOtherBooks(section, accountID)
+  }, 0)
+})
+
+// Stop syncing: says how many contacts the address book holds and asks what
+// happens to the ones living there. Removing them first needs a new main
+// location for each that also lives in other places: the dialog grows into
+// a sorter of those contacts and back, as the calendar's event dialog grows
+// into its editor. Then the book leaves the account's synced books, and
+// Gofer lets go of its copies as chosen.
+
+// The name the sidebar gives a place: the account and the book, for a book.
+function contactPlaceLabel(place) {
+  if (place === "local") return goferT("js.contacts.book_sort.local")
+  var row = document.querySelector('[data-contact-sidebar-row][data-contact-sidebar-place="' + CSS.escape(place) + '"]')
+  if (!row) return place === "local" ? goferT("js.contacts.book_sort.local") : place
+  var name = row.dataset.contactSidebarName || ""
+  if (row.dataset.contactSidebarKind !== "book") return name
+  var heading = row.closest("[data-sidebar-account]")
+  heading = heading && heading.querySelector('[data-contact-sidebar-kind="heading"]')
+  return heading ? heading.dataset.contactSidebarName + " / " + name : name
+}
+
+function contactBookStopState(dialog) {
+  return dialog && dialog._contactsBookStop
+}
+
+function openContactBookStop(target) {
+  var dialog = document.getElementById("contacts-book-stop-dialog")
+  if (!dialog || !window.tui || !window.tui.dialog) return
+  var state = { target: target, usage: null, movers: [], placed: new Map(), selected: new Set(), anchor: null }
+  dialog._contactsBookStop = state
+  showContactBookStopStep(dialog, "confirm", false)
+  dialog.querySelector("[data-contacts-book-stop-title]").textContent = goferT("js.contacts.book_stop.title", { book: target.name })
+  var living = dialog.querySelector("[data-contacts-book-stop-living]")
+  living.textContent = goferT("js.contacts.loading")
+  dialog.querySelector("[data-contacts-book-stop-choice]").hidden = true
+  dialog.querySelector("[data-contacts-book-stop-copies]").hidden = true
+  dialog.querySelector("[data-contacts-book-stop-last]").hidden = document.querySelectorAll('[data-contact-sidebar-kind="book"][data-contact-sidebar-account="' + CSS.escape(target.accountID) + '"]').length > 1
+  var remove = dialog.querySelector('input[name="release"][value="remove"]')
+  if (remove) remove.checked = true
+  syncContactBookStop(dialog)
+  window.tui.dialog.open("contacts-book-stop-dialog")
+  var bookPath = "/api/contacts/books/" + encodeURIComponent(target.bookID)
+  Promise.all([
+    fetch(bookPath + "/usage", { headers: { Accept: "application/json" } }).then(function (response) { if (!response.ok) throw new Error(); return response.json() }),
+    fetch(bookPath + "/movers", { headers: { Accept: "application/json" } }).then(function (response) { if (!response.ok) throw new Error(); return response.json() }),
+  ]).then(function (results) {
+    if (contactBookStopState(dialog) !== state) return
+    var usage = results[0]
+    state.usage = usage
+    state.movers = results[1] || []
+    living.textContent = usage.living ? goferTn("js.contacts.book_stop.living", usage.living) : goferT("js.contacts.book_stop.living_none")
+    dialog.querySelector("[data-contacts-book-stop-choice]").hidden = !usage.living
+    var copies = dialog.querySelector("[data-contacts-book-stop-copies]")
+    copies.hidden = !usage.copies_only
+    if (usage.copies_only) copies.textContent = goferTn("js.contacts.book_stop.copies", usage.copies_only)
+    syncContactBookStop(dialog)
+  }).catch(function () {
+    if (contactBookStopState(dialog) !== state) return
+    living.textContent = goferT("js.contacts.book_stop.usage_failed")
+  })
+}
+
+// The contacts still to place: listed, in the sorter, until each has a new
+// main location.
+function contactBookPending(state) {
+  return state.movers.filter(function (mover) { return !state.placed.has(mover.id) })
+}
+
+function contactBookRelease(dialog) {
+  var checked = dialog.querySelector('input[name="release"]:checked')
+  return checked ? checked.value : "remove"
+}
+
+// Shows the confirmation as the choice and the sorting stand: removing needs
+// every contact living elsewhere too placed before Stop syncing can be used.
+function syncContactBookStop(dialog) {
+  var state = contactBookStopState(dialog)
+  if (!state) return
+  var confirm = dialog.querySelector("[data-contacts-book-stop-confirm]")
+  var line = dialog.querySelector("[data-contacts-book-stop-movers]")
+  var text = dialog.querySelector("[data-contacts-book-stop-movers-text]")
+  var open = dialog.querySelector("[data-contacts-book-stop-sort-open]")
+  var pending = contactBookPending(state).length
+  var removing = contactBookRelease(dialog) === "remove"
+  line.hidden = !state.movers.length
+  if (state.movers.length) {
+    text.textContent = pending ? goferTn("js.contacts.book_stop.movers_pending", state.movers.length) : goferTn("js.contacts.book_stop.movers_placed", state.movers.length)
+    text.classList.toggle("text-amber-700", !!pending)
+    text.classList.toggle("dark:text-amber-300", !!pending)
+    text.classList.toggle("text-muted-foreground", !pending)
+    open.textContent = pending ? goferT("js.contacts.book_stop.choose") : goferT("js.contacts.book_stop.change")
+  }
+  confirm.disabled = !state.usage || (removing && pending > 0)
+}
+
+// Switches the dialog between its confirmation and its sorter, its frame
+// resizing smoothly (flipDialogResize) while the new view fades in.
+function showContactBookStopStep(dialog, step, animate) {
+  var content = dialog.querySelector("[data-contacts-book-stop-content]")
+  var from = animate && content ? content.getBoundingClientRect() : null
+  var transition = content ? content.style.transitionProperty : ""
+  if (content) content.style.transitionProperty = "none"
+  dialog.querySelectorAll("[data-contacts-book-stop-step]").forEach(function (view) { view.hidden = view.dataset.contactsBookStopStep !== step })
+  if (content) {
+    content.classList.toggle("sm:max-w-xl", step === "confirm")
+    content.classList.toggle("sm:max-w-5xl", step === "sort")
+  }
+  var to = from ? content.getBoundingClientRect() : null
+  if (content) content.style.transitionProperty = transition
+  if (from) flipDialogResize(content, from, to)
+}
+
+function openContactBookSort(dialog) {
+  var state = contactBookStopState(dialog)
+  if (!state || !state.movers.length) return
+  state.selected = new Set()
+  state.anchor = null
+  state.placedSelected = new Map()
+  state.placedAnchor = new Map()
+  state.rows = new Map()
+  dialog.querySelector("[data-contacts-book-sort-search]").value = ""
+  dialog.querySelector("[data-contacts-book-sort-list]").textContent = ""
+  buildContactBookPlaces(dialog)
+  renderContactBookSort(dialog, false)
+  showContactBookStopStep(dialog, "sort", true)
+}
+
+// The places the contacts to sort can go: Gofer Local, which takes anyone,
+// then every other place any of them has a copy in.
+function contactBookPlaces(state) {
+  var places = ["local"]
+  state.movers.forEach(function (mover) {
+    mover.places.forEach(function (place) { if (places.indexOf(place) === -1) places.push(place) })
+  })
+  return places
+}
+
+function contactBookCanGo(mover, place) {
+  return mover.places.indexOf(place) !== -1
+}
+
+function contactBookMover(state, id) {
+  for (var i = 0; i < state.movers.length; i++) if (state.movers[i].id === id) return state.movers[i]
+  return null
+}
+
+// The sorter keeps its rows and place cards while it is open and changes
+// them in place, so what changes animates: rows leave one list and enter
+// another, labels and buttons change smoothly.
+function contactBookSortMotion() {
+  return !(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches)
+}
+
+function setContactBookLabel(el, text, animate) {
+  if (!el || el.textContent === text) return
+  el.textContent = text
+  if (animate && el.animate && contactBookSortMotion()) {
+    el.animate([{ opacity: 0, transform: "translateY(3px)" }, { opacity: 1, transform: "none" }], { duration: 160, easing: "ease-out" })
+  }
+}
+
+function buildContactBookPlaces(dialog) {
+  var state = contactBookStopState(dialog)
+  var container = dialog.querySelector("[data-contacts-book-sort-place-list]")
+  var template = dialog.querySelector("template[data-contacts-book-sort-place-template]")
+  container.textContent = ""
+  state.cards = new Map()
+  contactBookPlaces(state).forEach(function (place) {
+    var card = template.content.firstElementChild.cloneNode(true)
+    card.dataset.place = place
+    card.querySelector("[data-contacts-book-sort-place-name]").textContent = contactPlaceLabel(place)
+    card.querySelector("[data-contacts-book-sort-place-local-note]").hidden = place !== "local"
+    var list = card.querySelector("[data-contacts-book-sort-placed]")
+    list.setAttribute("aria-label", contactPlaceLabel(place))
+    state.cards.set(place, { card: card, list: list, rows: new Map() })
+    state.placedSelected.set(place, new Set())
+    container.appendChild(card)
+  })
+}
+
+function contactBookRow(dialog, mover, place) {
+  var template = dialog.querySelector("template[data-contacts-book-sort-row-template]")
+  var row = template.content.firstElementChild.cloneNode(true)
+  row.dataset.id = mover.id
+  if (place) row.dataset.place = place
+  row.querySelector("[data-contacts-book-sort-row-name]").textContent = mover.name || goferT("js.contacts.no_name")
+  var copies = (mover.copies || []).map(contactPlaceLabel).join(", ")
+  var tip = row.querySelector("[data-contacts-book-sort-row-tip]")
+  if (copies) {
+    row.querySelector("[data-contacts-book-sort-row-copies]").textContent = " · " + copies
+    tip.querySelector("[data-contacts-book-sort-row-tip-text]").textContent = copies
+  } else {
+    tip.remove()
+  }
+  return row
+}
+
+// Makes a list show the given contacts, in order. Rows that arrive drop in
+// where they belong, one after another, as the contacts list fans in its
+// rows; rows already there slide to their new places; rows that leave close
+// up, or, while others arrive, simply go.
+function syncContactBookList(container, movers, cache, make, selected, animate) {
+  var motion = animate && contactBookSortMotion()
+  var wanted = new Set(movers.map(function (mover) { return mover.id }))
+  var arriving = movers.filter(function (mover) { return !cache.has(mover.id) }).length > 0
+  var before = new Map()
+  if (motion) cache.forEach(function (row, id) { if (wanted.has(id)) before.set(id, row.getBoundingClientRect().top) })
+  cache.forEach(function (row, id) {
+    if (wanted.has(id)) return
+    cache.delete(id)
+    if (!motion || arriving || !row.animate) {
+      row.remove()
+      return
+    }
+    row.dataset.leaving = "true"
+    row.setAttribute("aria-hidden", "true")
+    var height = row.offsetHeight
+    var leave = row.animate([
+      { height: height + "px", opacity: 1 },
+      { height: "0px", opacity: 0, paddingTop: "0px", paddingBottom: "0px", marginTop: "0px" },
+    ], { duration: 180, easing: "ease-in", fill: "forwards" })
+    leave.onfinish = function () { row.remove() }
+  })
+  var ref = container.firstElementChild
+  var entered = []
+  movers.forEach(function (mover) {
+    var row = cache.get(mover.id)
+    if (!row) {
+      row = make(mover)
+      cache.set(mover.id, row)
+      entered.push(row)
+    }
+    while (ref && ref.dataset.leaving) ref = ref.nextElementSibling
+    if (ref === row) ref = ref.nextElementSibling
+    else container.insertBefore(row, ref)
+    row.setAttribute("aria-selected", selected.has(mover.id) ? "true" : "false")
+  })
+  if (!motion) return
+  before.forEach(function (top, id) {
+    var row = cache.get(id)
+    var dy = top - row.getBoundingClientRect().top
+    if (row.animate && Math.abs(dy) >= 1) row.animate([{ translate: "0 " + dy + "px" }, { translate: "0 0" }], { duration: 200, easing: "ease-out" })
+  })
+  entered.forEach(function (row, i) {
+    if (!row.animate) return
+    row.animate([
+      { opacity: 0, translate: "0 -18px", scale: "1.01" },
+      { opacity: 1, offset: 0.55 },
+      { opacity: 1, translate: "0 0", scale: "1" },
+    ], { duration: 220, delay: Math.min(150, i * 25), easing: "cubic-bezier(0, 0, 0.6, 1)", fill: "backwards" })
+  })
+}
+
+function renderContactBookSort(dialog, animate) {
+  var state = contactBookStopState(dialog)
+  if (!state) return
+  var query = dialog.querySelector("[data-contacts-book-sort-search]").value.trim().toLowerCase()
+  var pending = contactBookPending(state)
+  var shown = query ? pending.filter(function (mover) { return (mover.name || "").toLowerCase().indexOf(query) !== -1 }) : pending
+  state.shown = shown
+  state.selected.forEach(function (id) { if (state.placed.has(id)) state.selected.delete(id) })
+  var list = dialog.querySelector("[data-contacts-book-sort-list]")
+  syncContactBookList(list, shown, state.rows, function (mover) { return contactBookRow(dialog, mover, "") }, state.selected, animate)
+  dialog.querySelector("[data-contacts-book-sort-empty]").hidden = !!pending.length
+  list.hidden = !pending.length
+  setContactBookLabel(dialog.querySelector("[data-contacts-book-sort-pending-count]"), String(pending.length), animate)
+  setContactBookLabel(dialog.querySelector("[data-contacts-book-sort-selected]"), state.selected.size ? goferTn("js.contacts.book_sort.selected", state.selected.size) : "", animate)
+  setContactBookLabel(dialog.querySelector("[data-contacts-book-sort-select-all]"), shown.length && shown.every(function (mover) { return state.selected.has(mover.id) }) ? goferT("js.contacts.book_sort.select_none") : goferT("js.contacts.book_sort.select_all"), animate)
+  renderContactBookPlaces(dialog, animate)
+  dialog.querySelector("[data-contacts-book-sort-done]").disabled = pending.length > 0
+  dialog.querySelector("[data-contacts-book-sort-rest-local]").disabled = pending.length === 0
+}
+
+// setContactBookHint gives a destination's button the tooltip saying why
+// it can't take the contacts, or, with no text, none at all.
+function setContactBookHint(button, text) {
+  var trigger = button.closest("[data-contacts-book-sort-hint]")
+  if (!trigger) return
+  var root = trigger.closest("[data-tui-popover-root]")
+  root.querySelector("[data-contacts-book-sort-hint-text]").textContent = text
+  trigger.setAttribute("data-tui-popover-type", text ? "hover" : "manual")
+  if (!text && window.tui && window.tui.popover) window.tui.popover.closeElement(root)
+}
+
+function renderContactBookPlaces(dialog, animate) {
+  var state = contactBookStopState(dialog)
+  var pending = contactBookPending(state)
+  var selected = pending.filter(function (mover) { return state.selected.has(mover.id) })
+  state.cards.forEach(function (entry, place) {
+    var card = entry.card
+    var here = state.movers.filter(function (mover) { return state.placed.get(mover.id) === place })
+    var picked = state.placedSelected.get(place)
+    picked.forEach(function (id) { if (state.placed.get(id) !== place) picked.delete(id) })
+    setContactBookLabel(card.querySelector("[data-contacts-book-sort-place-count]"), here.length ? goferTn("js.contacts.book_sort.placed", here.length) : "", animate)
+    var canSelected = selected.filter(function (mover) { return contactBookCanGo(mover, place) }).length
+    var canAll = pending.filter(function (mover) { return contactBookCanGo(mover, place) }).length
+    var move = card.querySelector("[data-contacts-book-sort-move]")
+    setContactBookLabel(move.querySelector("[data-contacts-book-sort-label]"), !selected.length ? goferT("js.contacts.book_sort.move_none") : canSelected < selected.length ? goferT("js.contacts.book_sort.move_some", { count: canSelected, total: selected.length }) : goferTn("js.contacts.book_sort.move", canSelected), animate)
+    move.disabled = !canSelected
+    var name = contactPlaceLabel(place)
+    setContactBookHint(move, canSelected < selected.length ? goferTn("js.contacts.book_sort.no_copy_selected", selected.length - canSelected, { place: name }) : "")
+    var moveAll = card.querySelector("[data-contacts-book-sort-move-all]")
+    setContactBookLabel(moveAll.querySelector("[data-contacts-book-sort-label]"), canAll ? goferTn("js.contacts.book_sort.move_all", canAll) : goferT("js.contacts.book_sort.move_all_none"), animate)
+    moveAll.disabled = !canAll
+    setContactBookHint(moveAll, pending.length && !canAll ? goferT("js.contacts.book_sort.no_copy_pending", { place: name }) : "")
+    var show = card.querySelector("[data-contacts-book-sort-show]")
+    show.disabled = !here.length
+    if (!here.length) setContactBookPlacedOpen(card, false)
+    syncContactBookList(entry.list, here, entry.rows, function (mover) { return contactBookRow(dialog, mover, place) }, picked, animate)
+    setContactBookLabel(card.querySelector("[data-contacts-book-sort-placed-select-all]"), here.length && here.every(function (mover) { return picked.has(mover.id) }) ? goferT("js.contacts.book_sort.select_none") : goferT("js.contacts.book_sort.select_all"), animate)
+    var back = card.querySelector("[data-contacts-book-sort-unplace-selected]")
+    setContactBookLabel(back.querySelector("[data-contacts-book-sort-label]"), picked.size ? goferTn("js.contacts.book_sort.unplace_selected", picked.size) : goferT("js.contacts.book_sort.unplace_none"), animate)
+    back.disabled = !picked.size
+  })
+}
+
+function setContactBookPlacedOpen(card, open) {
+  var show = card.querySelector("[data-contacts-book-sort-show]")
+  var wrap = card.querySelector("[data-contacts-book-sort-placed-wrap]")
+  show.setAttribute("aria-expanded", open ? "true" : "false")
+  wrap.toggleAttribute("data-open", open)
+}
+
+// Places the given contacts that can live in the place; the others stay to
+// sort, still selected.
+function placeContactBookMovers(dialog, movers, place) {
+  var state = contactBookStopState(dialog)
+  movers.forEach(function (mover) {
+    if (!contactBookCanGo(mover, place)) return
+    state.placed.set(mover.id, place)
+    state.selected.delete(mover.id)
+  })
+  renderContactBookSort(dialog, true)
+}
+
+// Selecting as the contacts list does: a click selects one, or clears it
+// when it is the only one selected; Ctrl or Cmd adds or removes one, Shift a
+// range from the last one clicked.
+function selectContactBookRows(selected, ids, anchor, id, event) {
+  if (event.shiftKey && anchor && ids.indexOf(anchor) !== -1) {
+    var from = ids.indexOf(anchor), to = ids.indexOf(id)
+    if (!(event.ctrlKey || event.metaKey)) selected.clear()
+    ids.slice(Math.min(from, to), Math.max(from, to) + 1).forEach(function (each) { selected.add(each) })
+    return anchor
+  }
+  if (event.ctrlKey || event.metaKey) {
+    if (selected.has(id)) selected.delete(id); else selected.add(id)
+    return id
+  }
+  if (selected.size === 1 && selected.has(id)) {
+    selected.clear()
+    return null
+  }
+  selected.clear()
+  selected.add(id)
+  return id
+}
+
+document.addEventListener("click", function (event) {
+  var dialog = event.target.closest && event.target.closest("#contacts-book-stop-dialog")
+  var state = contactBookStopState(dialog)
+  if (!state) return
+  if (event.target.closest("[data-contacts-book-stop-sort-open]")) {
+    event.preventDefault()
+    openContactBookSort(dialog)
+    return
+  }
+  if (event.target.closest("[data-contacts-book-sort-done]")) {
+    showContactBookStopStep(dialog, "confirm", true)
+    syncContactBookStop(dialog)
+    return
+  }
+  if (event.target.closest("[data-contacts-book-sort-rest-local]")) {
+    placeContactBookMovers(dialog, contactBookPending(state), "local")
+    return
+  }
+  if (event.target.closest("[data-contacts-book-sort-select-all]")) {
+    var all = state.shown.every(function (mover) { return state.selected.has(mover.id) })
+    state.shown.forEach(function (mover) { if (all) state.selected.delete(mover.id); else state.selected.add(mover.id) })
+    renderContactBookSort(dialog, true)
+    return
+  }
+  var card = event.target.closest("[data-contacts-book-sort-place]")
+  var place = card && card.dataset.place
+  if (card && event.target.closest("[data-contacts-book-sort-move]")) {
+    placeContactBookMovers(dialog, contactBookPending(state).filter(function (mover) { return state.selected.has(mover.id) }), place)
+    return
+  }
+  if (card && event.target.closest("[data-contacts-book-sort-move-all]")) {
+    placeContactBookMovers(dialog, contactBookPending(state), place)
+    return
+  }
+  if (card && event.target.closest("[data-contacts-book-sort-show]")) {
+    setContactBookPlacedOpen(card, card.querySelector("[data-contacts-book-sort-show]").getAttribute("aria-expanded") !== "true")
+    return
+  }
+  if (card && event.target.closest("[data-contacts-book-sort-placed-select-all]")) {
+    var picked = state.placedSelected.get(place)
+    var here = state.movers.filter(function (mover) { return state.placed.get(mover.id) === place })
+    var every = here.every(function (mover) { return picked.has(mover.id) })
+    here.forEach(function (mover) { if (every) picked.delete(mover.id); else picked.add(mover.id) })
+    renderContactBookSort(dialog, true)
+    return
+  }
+  if (card && event.target.closest("[data-contacts-book-sort-unplace-selected]")) {
+    state.placedSelected.get(place).forEach(function (id) { state.placed.delete(id) })
+    state.placedSelected.get(place).clear()
+    renderContactBookSort(dialog, true)
+    return
+  }
+  var row = event.target.closest("[data-contacts-book-sort-row]")
+  if (!row || row.dataset.leaving) return
+  if (row.dataset.place) {
+    var rowPlace = row.dataset.place
+    var placedIDs = state.movers.filter(function (mover) { return state.placed.get(mover.id) === rowPlace }).map(function (mover) { return mover.id })
+    state.placedAnchor.set(rowPlace, selectContactBookRows(state.placedSelected.get(rowPlace), placedIDs, state.placedAnchor.get(rowPlace), row.dataset.id, event))
+  } else {
+    state.anchor = selectContactBookRows(state.selected, state.shown.map(function (mover) { return mover.id }), state.anchor, row.dataset.id, event)
+  }
+  renderContactBookSort(dialog, true)
+})
+
+document.addEventListener("input", function (event) {
+  if (!event.target.matches || !event.target.matches("#contacts-book-stop-dialog [data-contacts-book-sort-search]")) return
+  renderContactBookSort(event.target.closest("#contacts-book-stop-dialog"), false)
+})
+
+document.addEventListener("change", function (event) {
+  if (!event.target.matches || !event.target.matches('#contacts-book-stop-dialog input[name="release"]')) return
+  syncContactBookStop(event.target.closest("#contacts-book-stop-dialog"))
+})
+
+// Dragging selected contacts onto a place moves the ones it can take; the
+// places that can take none dim meanwhile.
+document.addEventListener("dragstart", function (event) {
+  var row = event.target.closest && event.target.closest("#contacts-book-stop-dialog [data-contacts-book-sort-row]:not([data-place])")
+  if (!row) return
+  var dialog = row.closest("#contacts-book-stop-dialog")
+  var state = contactBookStopState(dialog)
+  if (window.tui && window.tui.popover) window.tui.popover.closeElement(row.querySelector("[data-tui-popover-root]"))
+  if (!state.selected.has(row.dataset.id)) {
+    state.selected.clear()
+    state.selected.add(row.dataset.id)
+    state.anchor = row.dataset.id
+    renderContactBookSort(dialog, true)
+  }
+  state.dragging = Array.from(state.selected)
+  event.dataTransfer.effectAllowed = "move"
+  event.dataTransfer.setData("text/plain", goferTn("js.contacts.book_sort.selected", state.dragging.length))
+  dialog.querySelectorAll("[data-contacts-book-sort-place]").forEach(function (card) {
+    var can = state.dragging.some(function (id) { var mover = contactBookMover(state, id); return mover && contactBookCanGo(mover, card.dataset.place) })
+    card.dataset.drop = can ? "" : "no"
+  })
+})
+
+function contactBookDropCard(event) {
+  var card = event.target.closest && event.target.closest("#contacts-book-stop-dialog [data-contacts-book-sort-place]")
+  var state = card && contactBookStopState(card.closest("#contacts-book-stop-dialog"))
+  return state && state.dragging && card.dataset.drop !== "no" ? card : null
+}
+
+document.addEventListener("dragover", function (event) {
+  var card = contactBookDropCard(event)
+  if (!card) return
+  event.preventDefault()
+  event.dataTransfer.dropEffect = "move"
+  card.closest("[data-contacts-book-sort-place-list]").querySelectorAll('[data-drop="ok"]').forEach(function (other) { if (other !== card) other.dataset.drop = "" })
+  card.dataset.drop = "ok"
+})
+
+document.addEventListener("drop", function (event) {
+  var card = contactBookDropCard(event)
+  if (!card) return
+  event.preventDefault()
+  var dialog = card.closest("#contacts-book-stop-dialog")
+  var state = contactBookStopState(dialog)
+  var movers = state.dragging.map(function (id) { return contactBookMover(state, id) }).filter(Boolean)
+  state.dragging = null
+  placeContactBookMovers(dialog, movers, card.dataset.place)
+})
+
+document.addEventListener("dragend", function (event) {
+  var dialog = event.target.closest && event.target.closest("#contacts-book-stop-dialog")
+  var state = contactBookStopState(dialog)
+  if (!state) return
+  state.dragging = null
+  dialog.querySelectorAll("[data-contacts-book-sort-place]").forEach(function (card) { card.dataset.drop = "" })
+})
+
+document.addEventListener("submit", function (event) {
+  var form = event.target.closest && event.target.closest("[data-contacts-book-stop-form]")
+  if (!form) return
+  event.preventDefault()
+  var dialog = form.closest("#contacts-book-stop-dialog")
+  var state = contactBookStopState(dialog)
+  var confirm = form.querySelector("[data-contacts-book-stop-confirm]")
+  if (!state || confirm.disabled) return
+  var target = state.target
+  var release = contactBookRelease(dialog)
+  confirm.disabled = true
+  fetchContactAccountBooks(target.accountID).then(function (info) {
+    var books = info.synced.filter(function (book) { return book.id !== target.bookID })
+    return saveContactAccountBooks(target.accountID, info, books)
+  }).then(function () {
+    var body = new URLSearchParams()
+    body.set("release", release)
+    if (release === "remove") state.placed.forEach(function (place, id) { body.set("home:" + id, place) })
+    return fetch("/api/contacts/books/" + encodeURIComponent(target.bookID) + "/release", { method: "POST", body: body }).then(function (response) {
+      if (!response.ok) throw new Error(goferT("js.contacts.request_failed"))
+    })
+  }).then(function () {
+    if (window.tui && window.tui.dialog) window.tui.dialog.close("contacts-book-stop-dialog")
+    showGoferToast({ id: "contacts-book-stop", title: goferT("js.contacts.book_stop.done", { book: target.name }), variant: "success", icon: "success", position: "bottom-right", duration: 4000, dismissible: true })
+    refreshContactsSidebar()
+    var scroll = document.getElementById("contacts-list-scroll")
+    var list = scroll && scroll._virtualContactsList
+    // Contacts may have moved, or left Gofer.
+    if (list && typeof list.applyFilters === "function") list.applyFilters(Object.assign({}, list.filters)).catch(function () {})
+    document.body.dispatchEvent(new CustomEvent("contacts-trash-changed", { bubbles: true }))
+  }).catch(function (err) {
+    syncContactBookStop(dialog)
+    showGoferToast({ id: "contacts-book-stop", title: goferT("js.contacts.book_stop.failed", { book: target.name }), description: err.message, variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
+  })
+})
+
+// A contact form's save button says "Set up Gofer Sync" when saving opens
+// its setup, as the server decides (contactSyncSetupRequired): Gofer Sync
+// turned on, or a place other than Gofer Local added to it. Anything else
+// keeps its own label.
+function contactSaveOpensSyncSetup(form) {
+  var toggle = form.querySelector("[data-contact-sync-enabled]")
+  if (!toggle || !toggle.checked) return false
+  if (form.dataset.contactSyncWas !== "true") return true
+  var was = (form.dataset.contactSyncWasPlaces || "").split(",")
+  var input = form.querySelector('input[name="save_targets"]')
+  return (input ? input.value.split(",") : []).some(function (place) {
+    place = place.trim()
+    return place && place !== "local" && was.indexOf(place) === -1
+  })
+}
+
+function syncContactSaveLabel(form) {
+  var setup = contactSaveOpensSyncSetup(form)
+  form.querySelectorAll("[data-contact-save-label]").forEach(function (label) {
+    var shown = (label.dataset.contactSaveLabel === "setup") === setup
+    label.dataset.shown = shown ? "true" : "false"
+    label.setAttribute("aria-hidden", shown ? "false" : "true")
+  })
+}
+
+;["change", "input"].forEach(function (type) {
+  document.addEventListener(type, function (event) {
+    var form = event.target.closest && event.target.closest("[data-contact-edit-form]")
+    if (form && form.querySelector("[data-contact-save-label]")) syncContactSaveLabel(form)
+  })
+})

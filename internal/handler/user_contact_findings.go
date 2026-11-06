@@ -31,6 +31,7 @@ func (h *Handler) handleUserContactSyncSetupFindings(w http.ResponseWriter, r *h
 			return err
 		}
 		setup = models.ContactSyncSetup{Contact: snapshot.Contact(), Phase: "discover", SearchMode: mode, SearchQuery: query}
+		setup.HomeLabel = h.contactSetupHomeLabel(ctx, owner, setup.Contact)
 		queries := []string{setup.Contact.Email, setup.Contact.Phone, setup.Contact.Name}
 		switch mode {
 		case "email":
@@ -48,11 +49,15 @@ func (h *Handler) handleUserContactSyncSetupFindings(w http.ResponseWriter, r *h
 				return sql.ErrNoRows
 			}
 		}
+		besides := h.contactSetupAccountsBesidesHome(ctx, owner, setup.Contact)
 		for _, service := range services {
 			if filter != "" && service.AccountID() != filter {
 				continue
 			}
-			location := models.ContactSyncSetupLocation{AccountID: service.AccountID(), Label: service.Identity().EmailAddress, Provider: service.ContactConfig().Provider}
+			if !besides[service.AccountID()] {
+				continue
+			}
+			location := models.ContactSyncSetupLocation{AccountID: service.AccountID(), Label: h.contactSetupLocationLabel(ctx, owner, setup.Contact, service.AccountID(), service.Identity().EmailAddress), Provider: service.ContactConfig().Provider}
 			searchErr := h.userIMAP.RunAccountService(ctx, owner, service.AccountID(), mail.AccountServiceContacts, 2*time.Minute, func(ctx context.Context) error {
 				var err error
 				location.Candidates, err = h.searchUserContactSetup(ctx, snapshot, service, queries)

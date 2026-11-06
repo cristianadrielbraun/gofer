@@ -543,6 +543,10 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/accounts/{id}/contacts/sync", h.handleSaveAccountContactSync)
 	mux.HandleFunc("POST /api/accounts/{id}/contacts/sync/test", h.handleTestAccountContactSync)
 	mux.HandleFunc("POST /api/accounts/{id}/contacts/sync/discover", h.handleDiscoverAccountContactSync)
+	mux.HandleFunc("GET /api/accounts/{id}/contacts/books", h.handleContactAccountBooks)
+	mux.HandleFunc("GET /api/contacts/books/{id}/usage", h.handleContactBookUsage)
+	mux.HandleFunc("GET /api/contacts/books/{id}/movers", h.handleContactBookMovers)
+	mux.HandleFunc("POST /api/contacts/books/{id}/release", h.handleReleaseContactBook)
 	mux.HandleFunc("POST /api/accounts/dav/find", h.handleFindDAVItems)
 	mux.HandleFunc("POST /api/accounts/dav", h.handleCreateDAVAccount)
 	mux.HandleFunc("POST /api/accounts/{id}/dav/find", h.handleFindDAVItems)
@@ -1503,13 +1507,28 @@ func (h *Handler) contactSaveTargets(ctx context.Context, raw string) []string {
 	return targets
 }
 
+// handleExportContacts downloads every contact as one vCard file, or, with
+// ?stored_in, the contacts whose main location is that place.
 func (h *Handler) handleExportContacts(w http.ResponseWriter, r *http.Request) {
 	userID := h.userID(r.Context())
+	place := strings.TrimSpace(r.URL.Query().Get("stored_in"))
 	var contacts []models.Contact
 	err := h.withUserDB(r.Context(), userID, func(db *storage.DB) error {
 		var err error
 		contacts, err = db.ListContactsForExport(r.Context(), userID)
-		return err
+		if err != nil || place == "" {
+			return err
+		}
+		there, _, err := db.ListContactsForSelection(r.Context(), userID, models.ContactFilters{StoredIn: place}, 1<<20)
+		if err != nil {
+			return err
+		}
+		keep := make(map[string]bool, len(there))
+		for _, contact := range there {
+			keep[contact.ID] = true
+		}
+		contacts = slices.DeleteFunc(contacts, func(contact models.Contact) bool { return !keep[contact.ID] })
+		return nil
 	})
 	if err != nil {
 		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_export_contacts"), http.StatusInternalServerError)

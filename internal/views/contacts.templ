@@ -2383,6 +2383,27 @@ templ ContactCardLayoutDialog() {
 	}
 }
 
+// contactSaveLabels is a contact form's save button text: its own, or, once
+// saving would open the Gofer Sync setup (Gofer Sync turned on, or a place
+// added to it), "Set up Gofer Sync". app.js shows the one that applies; the
+// labels share one spot, so the button keeps its width as they change.
+templ contactSaveLabels(label string, newContact bool) {
+	<span class="login-submit-labels">
+		<span class="login-submit-label inline-flex items-center justify-center gap-1.5" data-contact-save-label="save" data-shown="true">
+			if newContact {
+				@icon.UserPlus(icon.Props{Class: "size-4"})
+			} else {
+				@icon.Save(icon.Props{Class: "size-4"})
+			}
+			{ label }
+		</span>
+		<span class="login-submit-label inline-flex items-center justify-center gap-1.5" data-contact-save-label="setup" data-shown="false" aria-hidden="true">
+			@icon.CloudSync(icon.Props{Class: "size-4"})
+			{ i18n.T(ctx, "contacts.edit.setup_sync") }
+		</span>
+	</span>
+}
+
 // contactUnresolvedMark marks a contact in the list that waits to be
 // resolved, saying which places deleted it.
 templ contactUnresolvedMark(contact models.Contact, accounts []models.Account) {
@@ -2815,6 +2836,15 @@ templ ContactResolverDialog(contacts []models.Contact, newHomes map[string]Conta
 
 // contactPlaceNames names Gofer Local, accounts and address books as the
 // contacts list does.
+// ContactHomeLabel names a contact's main location as the contacts list
+// names places; no main location is Gofer Local.
+func ContactHomeLabel(ctx context.Context, place string, accounts []models.Account) string {
+	if strings.TrimSpace(place) == "" {
+		place = "local"
+	}
+	return contactPlaceNames(ctx, []string{place}, accounts)[0]
+}
+
 func contactPlaceNames(ctx context.Context, places []string, accounts []models.Account) []string {
 	names := make([]string, 0, len(places))
 	for _, place := range places {
@@ -3586,8 +3616,7 @@ templ ContactNewDialog(accounts []models.Account, open bool) {
 				<div class="flex flex-col-reverse gap-2 border-t border-ink/10 bg-paper/90 px-5 py-3 backdrop-blur sm:flex-row sm:items-center sm:justify-end sm:px-6">
 					<button type="button" class="inline-flex h-9 items-center justify-center rounded-lg border border-ink/10 bg-paper px-4 text-sm font-semibold text-muted-foreground transition-colors hover:bg-ink/[0.04] hover:text-ink" data-contact-editor-cancel>{ i18n.T(ctx, "common.cancel") }</button>
 					<button type="submit" class="btn-skeuo inline-flex h-9 items-center justify-center gap-1.5 rounded-lg px-4 text-sm font-semibold">
-						@icon.UserPlus(icon.Props{Class: "size-4"})
-						{ i18n.T(ctx, "contacts.new_save") }
+						@contactSaveLabels(i18n.T(ctx, "contacts.new_save"), true)
 					</button>
 				</div>
 			</form>
@@ -3608,6 +3637,8 @@ templ ContactEditDialog(contact models.Contact, profile *models.ContactProfile, 
 				data-contact-edit-form
 				data-contact-id={ contact.ID }
 				data-contact-edit-dialog={ dialogID }
+				data-contact-sync-was={ fmt.Sprint(contact.GoferSyncEnabled) }
+				data-contact-sync-was-places={ strings.Join(contact.SaveTargets, ",") }
 			>
 				<div class="flex items-start justify-between gap-4 border-b border-ink/10 px-5 py-4 sm:px-6">
 					@dialog.Header(dialog.HeaderProps{Class: "min-w-0"}) {
@@ -3629,8 +3660,7 @@ templ ContactEditDialog(contact models.Contact, profile *models.ContactProfile, 
 				<div class="flex flex-col-reverse gap-2 border-t border-ink/10 bg-paper/90 px-5 py-3 backdrop-blur sm:flex-row sm:items-center sm:justify-end sm:px-6">
 					<button type="button" class="inline-flex h-9 items-center justify-center rounded-lg border border-ink/10 bg-paper px-4 text-sm font-semibold text-muted-foreground transition-colors hover:bg-ink/[0.04] hover:text-ink" data-contact-editor-cancel>{ i18n.T(ctx, "common.cancel") }</button>
 					<button type="submit" class="btn-skeuo inline-flex h-9 items-center justify-center gap-1.5 rounded-lg px-4 text-sm font-semibold">
-						@icon.Save(icon.Props{Class: "size-4"})
-						{ i18n.T(ctx, "contacts.edit.save") }
+						@contactSaveLabels(i18n.T(ctx, "contacts.edit.save"), false)
 					</button>
 				</div>
 			</form>
@@ -3896,7 +3926,9 @@ templ ContactSyncSetupDialog(setup models.ContactSyncSetup) {
 }
 
 templ ContactSyncSetupSearching(setup models.ContactSyncSetup) {
-	<div class="flex min-h-0 flex-1 items-center justify-center overflow-y-auto px-6 py-10" data-contact-sync-setup-auto-search={ fmt.Sprintf("/api/contacts/%s/sync-setup/findings?mode=automatic", setup.Contact.ID) }>
+	// As tall as the copies found for one place, about the least the next
+	// step shows, so the dialog grows little when they arrive.
+	<div class="flex min-h-[18.5rem] flex-1 items-center justify-center overflow-y-auto px-6 py-10" data-contact-sync-setup-auto-search={ fmt.Sprintf("/api/contacts/%s/sync-setup/findings?mode=automatic", setup.Contact.ID) }>
 		<div class="max-w-sm text-center">
 			<div class="mx-auto flex size-11 items-center justify-center rounded-full bg-ink/[0.04] text-muted-foreground">
 				@icon.LoaderCircle(icon.Props{Class: "size-5 animate-spin"})
@@ -3913,8 +3945,14 @@ templ ContactSyncSetupDiscover(setup models.ContactSyncSetup) {
 		<div class="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-6">
 			<form id={ selectionFormID } method="post" action={ fmt.Sprintf("/api/contacts/%s/sync-setup/preview", setup.Contact.ID) } class="space-y-3" data-contact-sync-setup-form>
 			<div class="rounded-lg border border-ink/10 bg-paper/45 px-4 py-3">
-				<div class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.origin.local") }</div>
-				<div class="mt-1 text-sm font-semibold text-ink">{ contactDisplay(setup.Contact) }</div>
+				<div class="flex min-w-0 items-center gap-2">
+					<span class="truncate text-sm font-semibold text-ink">{ contactDisplay(setup.Contact) }</span>
+					// Where the contact lives, as the reading pane's Main location
+					// shows it.
+					if setup.HomeLabel != "" {
+						<span class="shrink-0 rounded border border-ink/10 bg-ink/[0.04] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground" title={ i18n.T(ctx, "contacts.stored_in_title", "place", setup.HomeLabel) }>{ setup.HomeLabel }</span>
+					}
+				</div>
 				<div class="text-xs text-muted-foreground">{ contactListDetail(setup.Contact) }</div>
 			</div>
 				for _, location := range setup.Locations {
