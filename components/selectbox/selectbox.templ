@@ -49,6 +49,9 @@ type ContentProps struct {
 	NoSearch          bool
 	SearchPlaceholder string
 	DisableExclusive  bool
+	// ListClass is merged into the scrolling list, such as a taller max-h-*
+	// for a long menu.
+	ListClass string
 }
 
 type GroupProps struct {
@@ -303,7 +306,7 @@ templ Content(props ...ContentProps) {
 				</div>
 			</div>
 		}
-		<div class="max-h-[300px] overflow-y-auto">
+		<div class={ utils.TwMerge("max-h-[300px] overflow-y-auto", p.ListClass) }>
 			{ children... }
 		</div>
 	}

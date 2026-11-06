@@ -15,6 +15,7 @@ import (
 	avatarresolver "github.com/cristianadrielbraun/gofer/internal/avatar"
 	"github.com/cristianadrielbraun/gofer/internal/calendar"
 	"github.com/cristianadrielbraun/gofer/internal/config"
+	"github.com/cristianadrielbraun/gofer/internal/googlefonts"
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	mail "github.com/cristianadrielbraun/gofer/internal/mail"
 	mailautodiscover "github.com/cristianadrielbraun/gofer/internal/mail/autodiscover"
@@ -4262,6 +4263,7 @@ func (h *Handler) handleSaveUISettings(w http.ResponseWriter, r *http.Request) {
 	normalizeThemeColorSettings(updates)
 	normalizeCustomThemeSetting(updates)
 	normalizeCustomThemesSetting(updates)
+	normalizeFontSettings(updates)
 
 	userID := h.userID(r.Context())
 	if err := h.withUserDB(r.Context(), userID, func(db *storage.DB) error {
@@ -4325,6 +4327,24 @@ func normalizeCustomThemesSetting(updates map[string]string) {
 	}
 	if id, ok := updates[themebuilder.ActiveKey]; ok && id != "" && !themebuilder.ValidID(id) {
 		delete(updates, themebuilder.ActiveKey)
+	}
+}
+
+// normalizeFontSettings trims the chosen font families and drops a name
+// googlefonts refuses. An empty value is kept: it goes back to the built-in
+// font.
+func normalizeFontSettings(updates map[string]string) {
+	for _, key := range []string{googlefonts.BodySetting, googlefonts.HeadingSetting} {
+		raw, ok := updates[key]
+		if !ok {
+			continue
+		}
+		name := strings.TrimSpace(raw)
+		if name != "" && !googlefonts.ValidName(name) {
+			delete(updates, key)
+			continue
+		}
+		updates[key] = name
 	}
 }
 

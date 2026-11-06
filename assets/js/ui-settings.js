@@ -840,6 +840,20 @@ var GoferSettings;
   window.getMailCardVisibleFieldsFromLayout = MAIL_CARD.visibleIdsFromLayout;
   window.serializeMailCardLayout = MAIL_CARD.serialize;
 
+  // The chosen fonts' CSS comes from the server, which loads them through
+  // Gofer; the page's head carries it from the start.
+  var fontChoiceSeq = 0;
+  function applyFontChoice() {
+    var style = document.querySelector("style[data-font-choice]");
+    if (!style) return;
+    var seq = ++fontChoiceSeq;
+    var query = new URLSearchParams({ body: _cache.body_font || "", heading: _cache.heading_font || "" });
+    fetch("/fonts/google/choice.css?" + query.toString(), { credentials: "same-origin" })
+      .then(function (res) { return res.ok ? res.text() : Promise.reject(res.status); })
+      .then(function (css) { if (seq === fontChoiceSeq) style.textContent = css; })
+      .catch(function () {});
+  }
+
   function applySetting(key, value) {
     if (key === "theme") {
       applyTheme(value);
@@ -854,6 +868,7 @@ var GoferSettings;
       applyThemeStyle("custom");
       if (typeof applyEmailBodyTheme === "function") applyEmailBodyTheme();
     }
+    if (key === "body_font" || key === "heading_font") applyFontChoice();
     if (isPanelSizeKey(key)) {
       var sidebarWidth = parseInt(panelSetting("sidebar_width"), 10);
       var sidebar = document.querySelector("aside");

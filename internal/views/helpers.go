@@ -744,6 +744,15 @@ func themeStyle(settings map[string]string) string {
 	return style
 }
 
+// fontPickerValue is a font setting as its picker's value: "default" for the
+// built-in font.
+func fontPickerValue(value string) string {
+	if value == "" {
+		return "default"
+	}
+	return value
+}
+
 // customThemeSaved reports whether a Custom theme exists to choose.
 func customThemeSaved(settings map[string]string) bool {
 	_, ok := themebuilder.FromSettings(settings)

@@ -3,6 +3,7 @@ package views
 import (
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"github.com/cristianadrielbraun/gofer/internal/assetver"
+	"github.com/cristianadrielbraun/gofer/internal/googlefonts"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/themecolors"
 
@@ -406,6 +407,8 @@ templ ResizeHandle(panel string) {
 templ ThemeColorsStyle(uiSettings map[string]string) {
 	// The Custom theme's palette comes first, so its hand edits win.
 	@templ.Raw(`<style data-custom-theme>` + customThemeCSS(uiSettings) + `</style>`)
+	// The chosen fonts follow, for every style but Express.
+	@templ.Raw(`<style data-font-choice>` + googlefonts.ChoiceCSS(uiSettingGet(uiSettings, googlefonts.BodySetting, ""), uiSettingGet(uiSettings, googlefonts.HeadingSetting, "")) + `</style>`)
 	for _, style := range themecolors.Styles {
 		@templ.Raw(`<style data-theme-colors="` + style + `">` + themeColorsCSS(uiSettings, style) + `</style>`)
 	}

@@ -3,7 +3,6 @@ package themebuilder
 import (
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"sort"
 	"strings"
 )
@@ -43,16 +42,6 @@ type Theme struct {
 	// Depth is "raised", with Classic's shadows and bevels, or "flat".
 	Depth   string `json:"depth"`
 	Corners string `json:"corners"`
-	BodyFont    string `json:"bodyFont,omitempty"`
-	HeadingFont string `json:"headingFont,omitempty"`
-}
-
-var FontStylesheet func(families ...string) string
-
-var fontNamePattern = regexp.MustCompile(`^[A-Za-z0-9]+( [A-Za-z0-9]+)*$`)
-
-func validFontName(name string) bool {
-	return name == "" || (len(name) <= 60 && fontNamePattern.MatchString(name))
 }
 
 // Preset is a suggested seed color in the builder.
@@ -133,11 +122,6 @@ func Parse(raw string) (Theme, bool) {
 	if _, ok := radii[t.Corners]; !ok {
 		return Theme{}, false
 	}
-	t.BodyFont = strings.TrimSpace(t.BodyFont)
-	t.HeadingFont = strings.TrimSpace(t.HeadingFont)
-	if !validFontName(t.BodyFont) || !validFontName(t.HeadingFont) {
-		return Theme{}, false
-	}
 	return t, true
 }
 
@@ -182,7 +166,6 @@ func (t Theme) CSS() string {
 	scope := fmt.Sprintf(`[data-theme="%s"]`, StyleName)
 	values := palette[t.Mode]
 	var b strings.Builder
-	b.WriteString(t.fontCSS(scope))
 	fmt.Fprintf(&b, "%s{--radius:%s;}", scope, radii[t.Corners])
 	// The .dark form outranks the built-in styles' .dark rules.
 	fmt.Fprintf(&b, "%s,%s.dark{", scope, scope)
@@ -197,27 +180,6 @@ func (t Theme) CSS() string {
 	b.WriteString(probe + "{")
 	for _, name := range []string{"copper", "paper", "paper-foreground"} {
 		fmt.Fprintf(&b, "--%s:%s;", name, palette[other][name])
-	}
-	b.WriteString("}")
-	return b.String()
-}
-
-func (t Theme) fontCSS(scope string) string {
-	if FontStylesheet == nil || (t.BodyFont == "" && t.HeadingFont == "") {
-		return ""
-	}
-	href := FontStylesheet(t.BodyFont, t.HeadingFont)
-	if href == "" {
-		return ""
-	}
-	var b strings.Builder
-	fmt.Fprintf(&b, "@import url(%q);%s{", href, scope)
-	if t.BodyFont != "" {
-		family := fmt.Sprintf(`"%s","Nunito Sans",ui-sans-serif,system-ui,sans-serif`, t.BodyFont)
-		fmt.Fprintf(&b, "--font-sans:%s;--default-font-family:%s;", family, family)
-	}
-	if t.HeadingFont != "" {
-		fmt.Fprintf(&b, `--font-serif:"%s","Fraunces",ui-serif,Georgia,serif;`, t.HeadingFont)
 	}
 	b.WriteString("}")
 	return b.String()

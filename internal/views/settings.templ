@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
+	"github.com/cristianadrielbraun/gofer/internal/googlefonts"
 	"github.com/cristianadrielbraun/gofer/internal/buildinfo"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
@@ -531,6 +532,9 @@ templ SettingsAppearanceTab(uiSettings map[string]string) {
 				@CustomThemeDialog()
 				@CustomThemeDeleteDialog()
 			</div>
+			if googlefonts.Enabled() {
+				@fontSettingsCard(uiSettings)
+			}
 			<div class="settings-card bg-card rounded-lg border p-6 space-y-5">
 				<div>
 					<h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-1">{ i18n.T(ctx, "settings.messages.title") }</h3>
@@ -571,6 +575,56 @@ templ SettingsAppearanceTab(uiSettings map[string]string) {
 				@paneLayoutSettingRow("calendar_pane_layout", i18n.T(ctx, "settings.panes.calendar"), i18n.T(ctx, "settings.panes.calendar_description"), PaneLayout(uiSettings, "calendar"))
 			</div>
 		</div>
+}
+
+// fontSettingsCard picks the text and heading fonts from the Google Fonts
+// library for every style but Express, which keeps its own font.
+templ fontSettingsCard(uiSettings map[string]string) {
+	{{ express := themeStyle(uiSettings) == "express" }}
+	<div class="settings-card bg-card rounded-lg border p-6 space-y-5" data-font-settings>
+		<div>
+			<h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-1">{ i18n.T(ctx, "settings.appearance.fonts.title") }</h3>
+			<p class="text-xs text-muted-foreground">{ i18n.T(ctx, "settings.appearance.fonts.description") }</p>
+			<p class={ "mt-2 text-xs text-muted-foreground", templ.KV("hidden", !express) } data-font-settings-express>{ i18n.T(ctx, "settings.appearance.fonts.express") }</p>
+		</div>
+		@fontSettingRow(googlefonts.BodySetting, i18n.T(ctx, "settings.appearance.fonts.body"), i18n.T(ctx, "settings.appearance.fonts.body_description"), "Nunito Sans", uiSettingGet(uiSettings, googlefonts.BodySetting, ""), express)
+		@fontSettingRow(googlefonts.HeadingSetting, i18n.T(ctx, "settings.appearance.fonts.heading"), i18n.T(ctx, "settings.appearance.fonts.heading_description"), "Fraunces", uiSettingGet(uiSettings, googlefonts.HeadingSetting, ""), express)
+	</div>
+}
+
+// fontSettingRow is one font's picker. The page sends the built-in font and
+// the chosen one; settings-page.js adds the rest of the library when it has
+// the list, and draws each name in its font as it comes into view. The
+// built-in font is "default" in the menu and "" when saved.
+templ fontSettingRow(setting, title, description, builtIn, value string, disabled bool) {
+	{{ defaultLabel := i18n.T(ctx, "settings.appearance.fonts.default", "font", builtIn) }}
+	<div class={ "settings-row border-t border-border/60 pt-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between", templ.KV("opacity-50", disabled) } data-font-setting-row>
+		<div class="min-w-0">
+			<h4 class="text-sm font-medium text-foreground">{ title }</h4>
+			<p class="text-xs text-muted-foreground mt-1">{ description }</p>
+		</div>
+		<div class="w-full shrink-0 sm:w-64" data-font-picker>
+			@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
+				@selectbox.Trigger(selectbox.TriggerProps{Name: setting, Class: "bg-background", DisableClear: true, Required: true, Disabled: disabled, Attributes: templ.Attributes{"data-font-setting": setting, "value": fontPickerValue(value)}}) {
+					@selectbox.Value(selectbox.ValueProps{Placeholder: defaultLabel}) {
+						if value == "" {
+							{ defaultLabel }
+						} else {
+							{ value }
+						}
+					}
+				}
+				@selectbox.Content(selectbox.ContentProps{SearchPlaceholder: i18n.T(ctx, "settings.appearance.fonts.search"), Class: "mobile-sheet", ListClass: "max-h-[min(900px,60vh)]"}) {
+					@selectbox.Group(selectbox.GroupProps{Attributes: templ.Attributes{"data-font-options": "", "data-font-builtin": builtIn}}) {
+						@selectbox.Item(selectbox.ItemProps{Value: "default", Selected: value == ""}) { { defaultLabel } }
+						if value != "" {
+							@selectbox.Item(selectbox.ItemProps{Value: value, Selected: true}) { { value } }
+						}
+					}
+				}
+			}
+		</div>
+	</div>
 }
 
 templ mailSingleClickOpenSetting(uiSettings map[string]string) {
@@ -2751,9 +2805,6 @@ templ CustomThemeDialog() {
 					@customThemeChoice(i18n.T(ctx, "settings.theme.sidebar"), "", "sidebar", []customThemeOption{{"darker", i18n.T(ctx, "settings.theme.sidebar.darker")}, {"lighter", i18n.T(ctx, "settings.theme.sidebar.lighter")}})
 					@customThemeChoice(i18n.T(ctx, "settings.theme.depth"), "", "depth", []customThemeOption{{"raised", i18n.T(ctx, "settings.theme.depth.raised")}, {"flat", i18n.T(ctx, "settings.theme.depth.flat")}})
 					@customThemeChoice(i18n.T(ctx, "settings.theme.corners"), "", "corners", []customThemeOption{{"square", i18n.T(ctx, "settings.theme.corners.square")}, {"small", i18n.T(ctx, "settings.theme.corners.small")}, {"medium", i18n.T(ctx, "settings.theme.corners.medium")}, {"large", i18n.T(ctx, "settings.theme.corners.large")}})
-					if themebuilder.FontStylesheet != nil {
-						@customThemeFonts()
-					}
 					<p class="hidden rounded-md border border-border bg-muted/60 px-3 py-2 text-xs text-muted-foreground" data-custom-theme-reset-warning></p>
 				</div>
 				<div class="flex min-w-0 flex-col gap-2 [justify-content:safe_center] md:min-h-0 md:overflow-y-auto">
@@ -2778,35 +2829,6 @@ templ CustomThemeDialog() {
 			}
 		}
 	}
-}
-
-templ customThemeFonts() {
-	<fieldset class="space-y-3" data-custom-theme-fonts>
-		<legend class="mb-1 text-sm font-semibold text-foreground">{ i18n.T(ctx, "settings.theme.fonts") }</legend>
-		<p class="text-xs text-muted-foreground">{ i18n.T(ctx, "settings.theme.fonts_hint") }</p>
-		@customThemeFontField("bodyFont", i18n.T(ctx, "settings.theme.font.body"), "Nunito Sans")
-		@customThemeFontField("headingFont", i18n.T(ctx, "settings.theme.font.heading"), "Fraunces")
-		<datalist id="custom-theme-font-list" data-custom-theme-font-list></datalist>
-		<p class="hidden text-xs text-destructive" data-custom-theme-font-error>{ i18n.T(ctx, "settings.theme.font.unknown") }</p>
-	</fieldset>
-}
-
-templ customThemeFontField(field, label, builtIn string) {
-	<div class="space-y-1.5">
-		<label for={ "custom-theme-" + field } class="text-xs font-medium text-muted-foreground">{ label }</label>
-		@input.Input(input.Props{
-			ID:          "custom-theme-" + field,
-			Type:        input.TypeText,
-			Placeholder: i18n.T(ctx, "settings.theme.font.default", "font", builtIn),
-			Attributes: templ.Attributes{
-				"list":                    "custom-theme-font-list",
-				"autocomplete":            "off",
-				"spellcheck":              "false",
-				"maxlength":               "60",
-				"data-custom-theme-font":  field,
-			},
-		})
-	</div>
 }
 
 // customThemeSwatches are the suggested colors, each marked with attribute,

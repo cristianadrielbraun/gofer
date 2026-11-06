@@ -5,6 +5,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/cristianadrielbraun/gofer/internal/googlefonts"
 )
 
 func TestNormalizeThemeColorSettings(t *testing.T) {
@@ -130,5 +132,24 @@ func TestCustomThemeCSSPreview(t *testing.T) {
 	}
 	if rec := post(`{"seed":"#16a34a","sidebar":"light","depth":"raised","corners":"9px"}`); rec.Code != http.StatusBadRequest {
 		t.Fatalf("bad corners: status %d", rec.Code)
+	}
+}
+
+func TestNormalizeFontSettings(t *testing.T) {
+	updates := map[string]string{
+		googlefonts.BodySetting:    "  Inter ",
+		googlefonts.HeadingSetting: `Inter";}body{color:red`,
+	}
+	normalizeFontSettings(updates)
+	if got := updates[googlefonts.BodySetting]; got != "Inter" {
+		t.Errorf("body font = %q, want Inter", got)
+	}
+	if _, ok := updates[googlefonts.HeadingSetting]; ok {
+		t.Errorf("unsafe heading font kept: %q", updates[googlefonts.HeadingSetting])
+	}
+	cleared := map[string]string{googlefonts.BodySetting: ""}
+	normalizeFontSettings(cleared)
+	if got, ok := cleared[googlefonts.BodySetting]; !ok || got != "" {
+		t.Errorf("clearing the body font = %q, %v; want it kept empty", got, ok)
 	}
 }

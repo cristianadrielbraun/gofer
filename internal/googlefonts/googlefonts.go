@@ -30,6 +30,18 @@ const (
 	FilePrefix = "/fonts/google/file/"
 	
 	ListPath = "/api/fonts/google"
+	// ChoicePath serves ChoiceCSS, so Settings can show a new font choice
+	// without a reload.
+	ChoicePath = "/fonts/google/choice.css"
+	// PreviewPath serves a family drawn only well enough to show its own
+	// name, under PreviewPrefix plus its name, for the Settings font menus.
+	PreviewPath   = "/fonts/google/preview.css"
+	PreviewPrefix = "Gofer Preview "
+
+	// BodySetting and HeadingSetting are the UI settings that hold the
+	// chosen text and heading families; empty means the built-in font.
+	BodySetting    = "body_font"
+	HeadingSetting = "heading_font"
 
 	metadataURL = "https://fonts.google.com/metadata/fonts"
 	cssURL      = "https://fonts.googleapis.com/css2"
@@ -57,6 +69,10 @@ var (
 	familyNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9 ]{0,59}$`)
 	filePathPattern   = regexp.MustCompile(`^s/[a-z0-9]+/v[0-9]+/[A-Za-z0-9_\-]+\.woff2$`)
 	gstaticURLPattern = regexp.MustCompile(`https://fonts\.gstatic\.com/(s/[a-z0-9]+/v[0-9]+/[A-Za-z0-9_\-]+\.woff2)`)
+	// A stylesheet for a few letters points at /l/font?kit=…&skey=…&v=…,
+	// which Gofer serves as l/<kit>/<skey>/<v>.woff2.
+	subsetURLPattern  = regexp.MustCompile(`https://fonts\.gstatic\.com/l/font\?kit=([A-Za-z0-9_\-]+)&(?:amp;)?skey=([0-9a-f]+)&(?:amp;)?v=(v[0-9]+)`)
+	subsetPathPattern = regexp.MustCompile(`^l/([A-Za-z0-9_\-]+)/([0-9a-f]+)/(v[0-9]+)\.woff2$`)
 )
 
 func ValidName(name string) bool {
@@ -85,6 +101,37 @@ func StylesheetURL(families ...string) string {
 		return ""
 	}
 	return CSSPath + "?" + values.Encode()
+}
+
+// ChoiceCSS loads the chosen families through Gofer and makes them the page's
+// text and heading fonts, or is "" when the library is off or nothing is
+// chosen. Express keeps its own font. Names that ValidName refuses are
+// ignored, which also keeps them from breaking out of the CSS string.
+func ChoiceCSS(body, heading string) string {
+	if !Enabled() {
+		return ""
+	}
+	if !ValidName(body) {
+		body = ""
+	}
+	if !ValidName(heading) {
+		heading = ""
+	}
+	href := StylesheetURL(body, heading)
+	if href == "" {
+		return ""
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, `@import url(%q);:root:not([data-theme="express"]){`, href)
+	if body != "" {
+		family := fmt.Sprintf(`"%s","Nunito Sans",ui-sans-serif,system-ui,sans-serif`, body)
+		fmt.Fprintf(&b, "--font-sans:%s;--default-font-family:%s;", family, family)
+	}
+	if heading != "" {
+		fmt.Fprintf(&b, `--font-serif:"%s","Fraunces",ui-serif,Georgia,serif;`, heading)
+	}
+	b.WriteString("}")
+	return b.String()
 }
 
 type Library struct {
@@ -117,6 +164,8 @@ func (l *Library) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET "+ListPath, l.serveList)
 	mux.HandleFunc("GET "+CSSPath, l.serveCSS)
+	mux.HandleFunc("GET "+ChoicePath, serveChoice)
+	mux.HandleFunc("GET "+PreviewPath, l.servePreview)
 	mux.HandleFunc("GET "+FilePrefix+"{path...}", l.serveFile)
 	return mux
 }
@@ -150,6 +199,28 @@ func (l *Library) serveCSS(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/css; charset=utf-8")
 	w.Header().Set("Cache-Control", "public, max-age=86400")
 	_, _ = w.Write(css)
+}
+
+func (l *Library) servePreview(w http.ResponseWriter, r *http.Request) {
+	css, err := l.Preview(r.Context(), r.URL.Query().Get("family"))
+	switch {
+	case errors.Is(err, ErrUnknownFamily):
+		http.NotFound(w, r)
+		return
+	case err != nil:
+		http.Error(w, "stylesheet unavailable", http.StatusBadGateway)
+		return
+	}
+	w.Header().Set("Content-Type", "text/css; charset=utf-8")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	_, _ = w.Write(css)
+}
+
+func serveChoice(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query()
+	w.Header().Set("Content-Type", "text/css; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	_, _ = io.WriteString(w, ChoiceCSS(query.Get("body"), query.Get("heading")))
 }
 
 func (l *Library) serveFile(w http.ResponseWriter, r *http.Request) {
@@ -309,9 +380,53 @@ func (l *Library) Stylesheet(ctx context.Context, names ...string) ([]byte, erro
 	})
 }
 
+// previewWeight is the weight a preview is drawn in: regular when the family
+// has it, else its first, or 0 when the metadata lists none.
+func (f Family) previewWeight() int {
+	for _, weight := range f.weights {
+		if weight == 400 {
+			return 400
+		}
+	}
+	if len(f.weights) > 0 {
+		return f.weights[0]
+	}
+	return 0
+}
+
+// Preview is a stylesheet for the family with only the letters of its name,
+// a few KB, named PreviewPrefix plus the family so it never stands in for the
+// family itself on the page.
+func (l *Library) Preview(ctx context.Context, name string) ([]byte, error) {
+	families, err := l.loadFamilies(ctx)
+	if err != nil {
+		return nil, err
+	}
+	family, ok := families[name]
+	if !ok {
+		return nil, ErrUnknownFamily
+	}
+	query := family.Name
+	if weight := family.previewWeight(); weight != 0 {
+		query += ":wght@" + strconv.Itoa(weight)
+	}
+	values := url.Values{"family": {query}, "text": {family.Name}, "display": {"swap"}}
+	sum := sha256.Sum256([]byte(query))
+	file := "preview-" + hex.EncodeToString(sum[:12]) + ".css"
+	return l.cached(ctx, file, cssMaxAge, func(ctx context.Context) ([]byte, error) {
+		css, err := l.get(ctx, cssURL+"?"+values.Encode(), maxBodyBytes)
+		if err != nil {
+			return nil, err
+		}
+		css = RewriteCSS(css)
+		return bytes.ReplaceAll(css, []byte("font-family: '"+family.Name+"'"), []byte("font-family: '"+PreviewPrefix+family.Name+"'")), nil
+	})
+}
+
 // RewriteCSS points a stylesheet's font URLs to the local server, and removes @import and absolute URLs
 func RewriteCSS(css []byte) []byte {
 	css = gstaticURLPattern.ReplaceAll(css, []byte(FilePrefix+"$1"))
+	css = subsetURLPattern.ReplaceAll(css, []byte(FilePrefix+"l/$1/$2/$3.woff2"))
 	var out bytes.Buffer
 	for _, line := range bytes.SplitAfter(css, []byte("\n")) {
 		trimmed := bytes.TrimSpace(line)
@@ -325,12 +440,18 @@ func RewriteCSS(css []byte) []byte {
 
 // File is a font file, fetched once and kept.
 func (l *Library) File(ctx context.Context, path string) ([]byte, error) {
-	if !filePathPattern.MatchString(path) || strings.Contains(path, "..") {
+	upstream := fileOrigin + path
+	if subset := subsetPathPattern.FindStringSubmatch(path); subset != nil {
+		upstream = fileOrigin + "l/font?" + url.Values{"kit": {subset[1]}, "skey": {subset[2]}, "v": {subset[3]}}.Encode()
+	} else if !filePathPattern.MatchString(path) {
+		return nil, ErrBadPath
+	}
+	if strings.Contains(path, "..") {
 		return nil, ErrBadPath
 	}
 	name := "file-" + strings.ReplaceAll(path, "/", "_")
 	return l.cached(ctx, name, 0, func(ctx context.Context) ([]byte, error) {
-		data, err := l.get(ctx, fileOrigin+path, maxFileBytes)
+		data, err := l.get(ctx, upstream, maxFileBytes)
 		if err != nil {
 			return nil, err
 		}

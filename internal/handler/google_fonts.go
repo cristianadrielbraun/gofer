@@ -6,7 +6,6 @@ import (
 	"sync"
 
 	"github.com/cristianadrielbraun/gofer/internal/googlefonts"
-	"github.com/cristianadrielbraun/gofer/internal/themebuilder"
 )
 
 var (
@@ -20,8 +19,7 @@ func googleFonts() *googlefonts.Library {
 			return
 		}
 		googleFontsLibrary = googlefonts.New(googlefonts.CacheDir(), nil)
-		themebuilder.FontStylesheet = googlefonts.StylesheetURL
-		log.Printf("google fonts: themes can use the Google Fonts library, served through Gofer")
+		log.Printf("google fonts: Appearance can use the Google Fonts library, served through Gofer")
 	})
 	return googleFontsLibrary
 }
@@ -34,5 +32,7 @@ func setupGoogleFontsRoutes(mux *http.ServeMux) {
 	handler := library.Handler()
 	mux.Handle("GET "+googlefonts.ListPath, handler)
 	mux.Handle("GET "+googlefonts.CSSPath, handler)
+	mux.Handle("GET "+googlefonts.ChoicePath, handler)
+	mux.Handle("GET "+googlefonts.PreviewPath, handler)
 	mux.Handle("GET "+googlefonts.FilePrefix, handler)
 }

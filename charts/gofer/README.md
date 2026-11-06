@@ -37,7 +37,7 @@ helm install gofer oci://ghcr.io/cristianadrielbraun/charts/gofer \
 | `config.authMode` | `personal` | `open`, `personal` or `managed`. |
 | `config.trustedProxyCidrs` | `""` | Ingress/proxy CIDRs, so client IPs are honored. |
 | `config.allowedCidrs` | `""` | Optional client network allowlist. |
-| `config.googleFonts` | `false` | Let custom themes use Google Fonts, served through Gofer. |
+| `config.googleFonts` | `false` | Let people pick Google Fonts under Appearance, served through Gofer. |
 | `config.extraEnv` | `{}` | Extra non-secret `GOFER_*` variables. |
 | `secret.existingSecret` | `""` | Secret containing all secret variables. |
 | `secret.env` | `{}` | Extra secret variables (OAuth, VAPID), when not using `existingSecret`. |

@@ -177,6 +177,108 @@
   });
 })();
 
+// Fonts. The text and heading fonts come from the Google Fonts library. Each
+// picker arrives with the built-in font and the chosen one; the rest of the
+// library is added once the server has listed it. "default" is the built-in
+// font, saved as "". Express keeps its own font, so the pickers are greyed out
+// while it is the style.
+(function() {
+  // The list is fetched once and shared by every copy of the card, since
+  // Appearance is drawn again when themes change.
+  var loading = null;
+
+  function fill(picker) {
+    var group = picker.querySelector('[data-font-options]');
+    if (!group) return;
+    if (!loading) {
+      loading = fetch('/api/fonts/google', { credentials: 'same-origin' })
+        .then(function(res) { return res.ok ? res.json() : Promise.reject(res.status); })
+        .catch(function() { loading = null; return []; });
+    }
+    loading.then(function(families) {
+      if (!families.length) return;
+      var builtIn = group.querySelector('[data-tui-selectbox-value="default"] .select-item-text');
+      var entries = [['default', builtIn ? builtIn.textContent.trim() : 'default']];
+      families.forEach(function(family) { entries.push([family.family, family.family]); });
+      // selectbox.js builds the items when the menu is first opened.
+      group.setAttribute('data-tui-selectbox-lazy-items', JSON.stringify(entries));
+    });
+  }
+
+  function syncExpress(style) {
+    var card = document.querySelector('[data-font-settings]');
+    if (!card) return;
+    var express = style === 'express';
+    var note = card.querySelector('[data-font-settings-express]');
+    if (note) note.classList.toggle('hidden', !express);
+    card.querySelectorAll('[data-font-setting-row]').forEach(function(row) {
+      row.classList.toggle('opacity-50', express);
+    });
+    card.querySelectorAll('button.select-trigger').forEach(function(trigger) {
+      trigger.disabled = express;
+    });
+  }
+
+  // Each name is drawn in its own font once it scrolls into view, from a
+  // stylesheet with just the letters of the name (see googlefonts.Preview).
+  var previewed = {};
+  var observer = 'IntersectionObserver' in window ? new IntersectionObserver(function(entries) {
+    entries.forEach(function(entry) {
+      if (!entry.isIntersecting) return;
+      observer.unobserve(entry.target);
+      preview(entry.target);
+    });
+  }) : null;
+
+  function preview(item) {
+    var name = item.getAttribute('data-tui-selectbox-value');
+    var text = item.querySelector('.select-item-text');
+    if (!name || !text) return;
+    if (name === 'default') {
+      var group = item.closest('[data-font-options]');
+      var builtIn = group && group.getAttribute('data-font-builtin');
+      if (builtIn) text.style.fontFamily = '"' + builtIn + '"';
+      return;
+    }
+    if (!previewed[name]) {
+      previewed[name] = true;
+      var link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = '/fonts/google/preview.css?family=' + encodeURIComponent(name);
+      link.setAttribute('data-font-preview', '');
+      document.head.appendChild(link);
+    }
+    text.style.fontFamily = '"Gofer Preview ' + name + '", var(--font-sans)';
+  }
+
+  function watch(picker) {
+    if (!observer) return;
+    picker.querySelectorAll('[data-font-options] .select-item').forEach(function(item) {
+      if (item._fontPreviewWatched) return;
+      item._fontPreviewWatched = true;
+      observer.observe(item);
+    });
+  }
+
+  goferOnContent('[data-font-picker]', fill);
+  // selectbox.js adds the library's items as the menu opens, so they are
+  // watched right after.
+  ['pointerdown', 'keydown', 'focusin'].forEach(function(type) {
+    document.addEventListener(type, function(e) {
+      var trigger = e.target.closest && e.target.closest('[data-font-picker] button.select-trigger');
+      if (trigger) setTimeout(function() { watch(trigger.closest('[data-font-picker]')); }, 0);
+    });
+  });
+  document.addEventListener('change', function(e) {
+    var input = e.target.closest && e.target.closest('input[data-font-setting]');
+    if (!input || !input.value || typeof GoferSettings === 'undefined') return;
+    GoferSettings.set(input.getAttribute('data-font-setting'), input.value === 'default' ? '' : input.value);
+  });
+  document.body.addEventListener('gofer:settings-changed', function(e) {
+    if (e.detail && e.detail.key === 'theme_style') syncExpress(e.detail.value);
+  });
+})();
+
 // Style colors. A style's changed colors are saved as theme_colors_<style>,
 // and every edit is previewed on the page with CSS from the server. Closing
 // the editor without saving puts the page back as it was.
@@ -538,8 +640,6 @@
         sidebar: theme.sidebar === 'light' || theme.sidebar === 'lighter' ? 'lighter' : 'darker',
         depth: theme.depth,
         corners: theme.corners,
-        bodyFont: theme.bodyFont || '',
-        headingFont: theme.headingFont || '',
       };
     }
     var minimal = document.documentElement.getAttribute('data-theme') === 'minimal';
@@ -553,8 +653,6 @@
       sidebar: minimal ? 'lighter' : 'darker',
       depth: minimal ? 'flat' : 'raised',
       corners: minimal ? 'square' : 'medium',
-      bodyFont: '',
-      headingFont: '',
     };
   }
 
@@ -702,9 +800,6 @@
     root.querySelectorAll('[data-custom-theme-field]').forEach(function(input) {
       input.checked = editing[input.getAttribute('data-custom-theme-field')] === input.value;
     });
-    root.querySelectorAll('[data-custom-theme-font]').forEach(function(input) {
-      if (document.activeElement !== input) input.value = editing[input.getAttribute('data-custom-theme-font')] || '';
-    });
     // No tint has no strength to choose, so the choice is greyed out.
     var strength = root.querySelector('[data-custom-theme-choice="strength"]');
     if (strength) {
@@ -757,7 +852,7 @@
       if (seq !== frameSeq || !editing) return;
       var head = ['<meta charset="utf-8">'];
       document.querySelectorAll('head link[rel="stylesheet"], head style').forEach(function(node) {
-        if (node.matches('style[data-custom-theme], style[data-theme-colors]')) return;
+        if (node.matches('style[data-custom-theme], style[data-theme-colors], link[data-font-preview]')) return;
         if (node.tagName === 'LINK') head.push('<link rel="stylesheet" href="' + attribute(node.href) + '">');
         else head.push('<style>' + node.textContent + '</style>');
       });
@@ -858,7 +953,6 @@
     if (name) name.value = editingId ? savedTheme().name : defaultName();
     watchClose(root);
     render();
-    loadFonts(root);
     loadFrame();
     window.tui.dialog.open(BUILDER_ID);
     // Opening focuses the name field, which scrolls the choices past their
@@ -974,7 +1068,7 @@
     var theme = findTheme(id);
     if (!theme) return;
     var choices = {};
-    FIELDS.concat(['seed', 'secondary', 'bodyFont', 'headingFont']).forEach(function(key) { choices[key] = theme[key]; });
+    FIELDS.concat(['seed', 'secondary']).forEach(function(key) { choices[key] = theme[key]; });
     var edits = fetch('/api/settings/theme-colors.css', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -986,39 +1080,6 @@
       GoferSettings.set('custom_theme_active', id);
       GoferSettings.set('theme_style', 'custom');
     }).catch(function() {});
-  }
-
-  var fontFamilies = null;
-  function loadFonts(root) {
-    var list = root.querySelector('[data-custom-theme-font-list]');
-    if (!list || fontFamilies) return;
-    fontFamilies = {};
-    fetch('/api/fonts/google', { credentials: 'same-origin' })
-      .then(function(res) { return res.ok ? res.json() : Promise.reject(res.status); })
-      .then(function(families) {
-        var fragment = document.createDocumentFragment();
-        families.forEach(function(family) {
-          fontFamilies[family.family] = true;
-          var option = document.createElement('option');
-          option.value = family.family;
-          option.label = family.category || '';
-          fragment.appendChild(option);
-        });
-        list.appendChild(fragment);
-      })
-      .catch(function() { fontFamilies = null; });
-  }
-
-  function pickFont(input) {
-    var root = builder();
-    var error = root && root.querySelector('[data-custom-theme-font-error]');
-    var name = input.value.replace(/\s+/g, ' ').trim();
-    var known = name === '' || (fontFamilies && fontFamilies[name]);
-    if (error) error.classList.toggle('hidden', !!known);
-    if (!known) return;
-    var change = {};
-    change[input.getAttribute('data-custom-theme-font')] = name;
-    update(change);
   }
 
   function update(change) {
@@ -1091,10 +1152,6 @@
     if (!e.target.matches) return;
     if (e.target.matches('input[name="theme_style"][data-custom-theme-id]')) {
       choose(e.target.getAttribute('data-custom-theme-id'));
-      return;
-    }
-    if (e.target.matches('[data-custom-theme-font]')) {
-      pickFont(e.target);
       return;
     }
     if (!e.target.matches('[data-custom-theme-field]')) return;
