@@ -83,6 +83,7 @@
         var current = document.getElementById(pane.id)
         if (current && current !== pane) current.replaceWith(pane)
       })
+      revivePageTriggers(kept[back.mode])
       delete kept[back.mode]
     }
     previous = null
@@ -109,7 +110,7 @@
     var panes = [document.getElementById("sidebar-app-body"), document.getElementById("sidebar-sync-controls")].filter(Boolean)
     var roots = panes.concat([main], dialogs ? [dialogs] : [])
     if (roots.some(function (root) { return root.hasAttribute("inert") || root.querySelector('[aria-busy="true"], [hx-trigger*="every"]') })) {
-      delete kept[mode]
+      dropKept(mode)
       return
     }
     var children = Array.from(main.childNodes)
@@ -125,6 +126,7 @@
         return all.concat([root].concat(Array.from(root.querySelectorAll("*"))).filter(function (node) { return node.scrollTop || node.scrollLeft }).map(function (node) { return { node: node, top: node.scrollTop, left: node.scrollLeft } }))
       }, []),
     }
+    watchPageTriggers(entry, roots)
     // The next section fills these same panes in place, so the kept ones
     // leave the page and empty copies of them take their place.
     panes.forEach(function (pane) { pane.replaceWith(pane.cloneNode(false)) })
@@ -133,6 +135,56 @@
     kept[mode] = entry
     // Requests the section had going were just called off.
     stale[mode] = busy ? { content: true } : {}
+  }
+
+  // An element that loads again on an event of the whole page (hx-trigger
+  // "… from:body") stops listening for good if the event comes while it is
+  // off the page: HTMX drops a listener whose element it can't find. So a
+  // kept section notes when one of those events comes, and its elements
+  // start listening again when it is back (revivePageTriggers), loading once.
+  function watchPageTriggers(entry, roots) {
+    var nodes = []
+    var events = {}
+    roots.forEach(function (root) {
+      root.querySelectorAll('[hx-trigger*="from:"]').forEach(function (node) {
+        var found = false
+        node.getAttribute("hx-trigger").split(",").forEach(function (part) {
+          var words = part.trim().split(/\s+/)
+          var from = words.filter(function (word) { return word.indexOf("from:") === 0 })[0]
+          var target = from === "from:body" ? document.body : from === "from:document" ? document : from === "from:window" ? window : null
+          if (!target || !words[0]) return
+          found = true
+          events[from + " " + words[0]] = { target: target, name: words[0] }
+        })
+        if (found) nodes.push(node)
+      })
+    })
+    entry.triggers = { nodes: nodes, fired: false, listeners: [] }
+    Object.keys(events).forEach(function (key) {
+      var event = events[key]
+      var listener = function () { entry.triggers.fired = true }
+      event.target.addEventListener(event.name, listener, true)
+      entry.triggers.listeners.push({ target: event.target, name: event.name, listener: listener })
+    })
+  }
+
+  // Lets a kept section go without showing it again.
+  function dropKept(mode) {
+    var entry = kept[mode]
+    if (entry && entry.triggers) entry.triggers.listeners.forEach(function (watch) { watch.target.removeEventListener(watch.name, watch.listener, true) })
+    delete kept[mode]
+  }
+
+  function revivePageTriggers(entry) {
+    var triggers = entry.triggers
+    if (!triggers) return
+    triggers.listeners.forEach(function (watch) { watch.target.removeEventListener(watch.name, watch.listener, true) })
+    if (!triggers.fired || !window.htmx) return
+    // A changed attribute makes HTMX set the element up afresh.
+    triggers.nodes.forEach(function (node) {
+      node.setAttribute("data-kept-revived", String(Date.now()))
+      htmx.process(node)
+    })
   }
 
   function markStale(mode, part) {
@@ -157,6 +209,7 @@
     main.replaceChildren.apply(main, entry.main.children)
     if (dialogs) dialogs.replaceChildren.apply(dialogs, entry.dialogs)
     entry.scroll.forEach(function (scroll) { scroll.node.scrollTop = scroll.top; scroll.node.scrollLeft = scroll.left })
+    revivePageTriggers(entry)
     var marks = stale[destination.mode] || {}
     delete stale[destination.mode]
     // A new day moves the calendar's today.
@@ -253,15 +306,14 @@
     }
     window.GoferAppNavigation.remember()
     var entry = kept[destination.mode]
-    // The contacts sidebar has no refresh of its own yet.
-    var reusable = entry && entry.address === destination.address && !(destination.mode === "contacts" && stale.contacts && stale.contacts.sidebar)
+    var reusable = entry && entry.address === destination.address
     // Taken before the section leaves the page, so a failed switch puts
     // back the section itself.
     if (!reusable && !previous) previous = snapshot()
     // Settings can change accounts, folders and anything else a section
     // shows, so the sections load again after it.
     if (destination.mode === "settings") {
-      kept = {}
+      Object.keys(kept).forEach(dropKept)
       stale = {}
     } else if (liveSection() !== destination.mode) keepSection(busy)
     if (reusable) {
@@ -368,7 +420,7 @@
     var key = event.detail && event.detail.key
     if (/_(width|height)$/.test(key || "")) return
     var here = liveSection()
-    Object.keys(kept).forEach(function (mode) { if (mode !== here) delete kept[mode] })
+    Object.keys(kept).forEach(function (mode) { if (mode !== here) dropKept(mode) })
   })
 
   // A kept section's panes, off the page, for live updates to reach.

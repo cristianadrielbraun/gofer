@@ -231,6 +231,12 @@ func New(db *storage.DB, accountStore *config.AccountStore, syncer *mail.SyncOrc
 	if syncer != nil {
 		syncer.SetMutationWake(h.signalMessageMutationWorker)
 	}
+	db.SetContactChangeHook(func(userID string) {
+		if h.syncer == nil {
+			return
+		}
+		h.syncer.Events().Publish(mail.Event{Type: mail.EventContactsChanged, UserID: userID})
+	})
 	db.SetContactActivityHook(func(event storage.ContactActivityNotification) {
 		if h.syncer == nil {
 			return

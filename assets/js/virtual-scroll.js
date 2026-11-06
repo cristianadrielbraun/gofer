@@ -3184,12 +3184,67 @@ class VirtualContactsList {
     var self = this
     var rafId = null
     this.container.addEventListener("scroll", function () {
+      self.lastScrollTop = self.container.scrollTop
       if (rafId) return
       rafId = requestAnimationFrame(function () {
         self.render()
         rafId = null
       })
     })
+  }
+
+  // Where the list is scrolled. Off the page, where it reads 0, it is where
+  // it was last seen.
+  viewTop() {
+    return this.container.isConnected ? this.container.scrollTop : (this.lastScrollTop || 0)
+  }
+
+  // The request refreshInPlace makes: the rows around those in view.
+  refreshURL() {
+    var first = Math.max(0, Math.floor(this.viewTop() / this.itemHeight) - this.overscan)
+    return this.itemsURL(first, this.chunkSize)
+  }
+
+  // Brings the rows around those in view up to date where the list is
+  // scrolled, for live updates, with nothing moving. Rows anywhere else may
+  // have shifted, so they are dropped and load again when scrolled to. Rows
+  // fetched ahead for this same request (a list kept off screen) are applied
+  // at once. Resolves to whether the selected contact's row changed.
+  async refreshInPlace(options) {
+    options = options || {}
+    if (this.refreshInFlight) {
+      this.refreshQueued = true
+      return this.refreshInFlight
+    }
+    var self = this
+    this.refreshInFlight = (async function () {
+      var html = typeof options.html === "string" ? options.html : await self.fetchHTML(self.refreshURL())
+      var selected = self.selectedContactId
+      var selectedPos = selected ? self.indexById.get(selected) : undefined
+      var before = selectedPos !== undefined && self.cache.get(selectedPos)
+      var top = self.container.scrollTop
+      self.dropOtherViewRows()
+      self.resetRows()
+      self.ingestHTML(html)
+      // Scrolled back before the first draw, which would otherwise ask for
+      // the rows at the top.
+      if (self.itemsContainer) self.itemsContainer.style.height = self.totalHeight() + "px"
+      self.container.scrollTop = top
+      self.render()
+      if (!before) return false
+      var afterPos = self.indexById.get(selected)
+      var after = afterPos !== undefined && self.cache.get(afterPos)
+      return !after || after.html !== before.html
+    })()
+    try {
+      return await this.refreshInFlight
+    } finally {
+      this.refreshInFlight = null
+      if (this.refreshQueued) {
+        this.refreshQueued = false
+        this.refreshInPlace().catch(function () {})
+      }
+    }
   }
 
   readFiltersFromContainer() {

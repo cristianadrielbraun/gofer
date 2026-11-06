@@ -328,12 +328,14 @@ document.addEventListener("DOMContentLoaded", function () {
   // How long a list's rows take to drop in: the last row's delay plus the
   // drop (fanInRows in virtual-scroll.js).
   var LIST_FAN_IN_MS = 150 + 220
-  // Mail's list fetched ahead while it is kept off screen (prefetchKeptMail):
-  // how many changes came, and the fetch under way.
-  var keptMailChanges = 0
-  var keptMailPrefetchTimer = null
-  var keptMailPrefetching = false
-  var keptMailPrefetchAgain = false
+  // Lists fetched ahead while kept off screen (prefetchKept): how many
+  // changes came, and the fetch under way.
+  var keptPrefetch = {
+    mail: { changes: 0, timer: null, busy: false, again: false },
+    contacts: { changes: 0, timer: null, busy: false, again: false },
+  }
+  // Gathers a burst of contacts-changed events into one refresh.
+  var contactsChangeTimer = null
   // Mail's and Contacts' sidebars as last left (rememberSectionSidebar).
   var lastSectionSidebars = {}
   // The tab title shows the unread count: the counts last fetched, and the
@@ -427,14 +429,14 @@ document.addEventListener("DOMContentLoaded", function () {
       stale = stale || {}
       var list = mode === "mail" ? virtualMailList : mode === "contacts" ? virtualContactsList : null
       var drops = !!(list && typeof list.fanInRows === "function" && !list.prefersReducedMotion())
-      if (mode === "mail") {
-        stale = keptMailRefresh(virtualMailList, stale)
-        applyActiveFolderSyncState()
-        if (stale.content && virtualMailList && virtualMailList.navigationMode !== "pagination") {
-          catchUpKeptMail(virtualMailList, drops, stale)
+      if (mode === "mail" || mode === "contacts") {
+        stale = applyKeptRows(mode, list, stale)
+        if (mode === "mail") applyActiveFolderSyncState()
+        if (stale.content && list && list.navigationMode !== "pagination") {
+          catchUpKept(mode, list, drops, stale)
           return
         }
-        flushPendingSyncEvents()
+        if (mode === "mail") flushPendingSyncEvents()
       }
       if (mode === "calendar") initializeCalendarDaySelection()
       // The rows drop in as they do when the section arrives from the server.
@@ -3958,10 +3960,10 @@ document.addEventListener("DOMContentLoaded", function () {
         close()
       }, true)
 
-      // Contacts that went to Por resolver leave the list.
+      // Contacts that went to Por resolver leave the list, in place.
       document.body.addEventListener("contacts-unresolved-changed", function () {
         var list = contactsListController()
-        if (list && typeof list.applyFilters === "function") list.applyFilters(list.filters).catch(function () {})
+        if (list && list.container && list.container.isConnected && typeof list.refreshInPlace === "function") refreshLiveContacts(list)
       })
 
       // The resolver lists the synced contacts that one of their places
@@ -8214,6 +8216,10 @@ document.addEventListener("DOMContentLoaded", function () {
       processingStatusHandler.render(data)
     })
 
+    source.addEventListener("contacts-changed", function () {
+      handleContactsChanged()
+    })
+
     source.addEventListener("contact-activity", function (e) {
       var data
       try { data = JSON.parse(e.data) } catch (_) { return }
@@ -10521,10 +10527,8 @@ document.addEventListener("DOMContentLoaded", function () {
       if (stale.content) scheduleCalendarCacheRefresh()
       if (stale.sidebar) refreshCalendarSidebar()
     } else if (mode === "contacts") {
-      // Contacts have no live updates yet, so the list is reloaded once; only
-      // near its top, where reloading (which starts from the top) moves nothing.
-      var list = virtualContactsList
-      if (list && list.container && list.container.scrollTop < (list.itemHeight || 100) * 2) list.applyFilters(list.filters).catch(function () {})
+      if (stale.sidebar) refreshContactsSidebarCounts()
+      if (stale.content && virtualContactsList) refreshLiveContacts(virtualContactsList)
     }
   }
 
@@ -10532,85 +10536,127 @@ document.addEventListener("DOMContentLoaded", function () {
   // it; it refreshes when shown again.
   function markKeptStale(mode, part) {
     if (window.GoferNavigation && GoferNavigation.markStale) GoferNavigation.markStale(mode, part)
-    if (mode === "mail" && part !== "sidebar") prefetchKeptMail()
+    if ((mode === "mail" || mode === "contacts") && part !== "sidebar") prefetchKept(mode)
   }
 
-  // Mail's list kept off screen, if any.
-  function keptMailList() {
-    var panes = window.GoferNavigation && GoferNavigation.keptPanes ? GoferNavigation.keptPanes("mail") : []
+  // The list of Mail or Contacts kept off screen, if any.
+  function keptList(mode) {
+    var id = mode === "mail" ? "mail-list-scroll" : "contacts-list-scroll"
+    var panes = window.GoferNavigation && GoferNavigation.keptPanes ? GoferNavigation.keptPanes(mode) : []
     for (var i = 0; i < panes.length; i++) {
-      var scroll = panes[i].id === "mail-list-scroll" ? panes[i] : panes[i].querySelector("#mail-list-scroll")
-      if (scroll && scroll._virtualMailList) return scroll._virtualMailList
+      var scroll = panes[i].id === id ? panes[i] : panes[i].querySelector("#" + id)
+      var list = scroll && (mode === "mail" ? scroll._virtualMailList : scroll._virtualContactsList)
+      if (list) return list
     }
     return null
   }
 
-  // While Mail is kept off screen, what changed in its list is fetched
-  // ahead, a moment after the last change. Coming back applies it before the rows drop in, laid out
-  // against the list's own scroll (keptMailRefresh). Laying the list out
-  // while off the page would not work: it reads as scrolled to the top and
-  // as tall as nothing.
-  function prefetchKeptMail() {
-    keptMailChanges++
-    clearTimeout(keptMailPrefetchTimer)
-    keptMailPrefetchTimer = setTimeout(function run() {
-      keptMailPrefetchTimer = null
-      var vml = keptMailList()
-      if (!vml || vml.navigationMode === "pagination") return
-      if (keptMailPrefetching) { keptMailPrefetchAgain = true; return }
-      keptMailPrefetching = true
-      var changes = keptMailChanges
-      var url = vml.refreshURL()
-      vml.fetchHTML(url).then(function (html) {
+  // Puts rows fetched for a list in, without moving it: Mail's own refresh,
+  // or Contacts' (which says whether the open contact's row changed).
+  function applyListRows(mode, list, html) {
+    if (mode === "contacts") return refreshLiveContacts(list, html)
+    // New mail it would have replayed is in already.
+    pendingSyncEvents = pendingSyncEvents.filter(function (event) { return !matchesActiveFolder(list.folderID, event.folderId, event.folderRole) })
+    return list.refreshCurrentFolder({ noAnimation: true, rebase: mailListNearTop(list), html: html }).catch(function () {})
+  }
+
+  // While Mail or Contacts is kept off screen, what changed in its list is
+  // fetched ahead, a moment after the last change. Coming back applies it
+  // before the rows drop in, laid out against the list's own scroll
+  // (applyKeptRows). Laying the list out while off the page would not work:
+  // it reads as scrolled to the top and as tall as nothing.
+  function prefetchKept(mode) {
+    var state = keptPrefetch[mode]
+    state.changes++
+    clearTimeout(state.timer)
+    state.timer = setTimeout(function run() {
+      state.timer = null
+      var list = keptList(mode)
+      if (!list || list.navigationMode === "pagination") return
+      if (state.busy) { state.again = true; return }
+      state.busy = true
+      var changes = state.changes
+      var url = list.refreshURL()
+      list.fetchHTML(url).then(function (html) {
         // Shown again meanwhile: it refreshes on screen instead.
-        if (!vml.container.isConnected) vml.keptRefresh = { url: url, html: html, changes: changes }
+        if (!list.container.isConnected) list.keptRefresh = { url: url, html: html, changes: changes }
       }).catch(function () {}).then(function () {
-        keptMailPrefetching = false
-        if (keptMailPrefetchAgain) {
-          keptMailPrefetchAgain = false
+        state.busy = false
+        if (state.again) {
+          state.again = false
           run()
         }
       })
     }, 200)
   }
 
-  // Mail came back with changes its rows fetched ahead don't have yet: they
-  // are fetched now and the list drops in with them, as if they had always
-  // been there, rather than dropping in and then taking new mail in on top.
-  // A slow answer doesn't hold the list past a moment after the slide; it
-  // then drops in as it was and takes the rows quietly when they come.
-  function catchUpKeptMail(vml, drops, stale) {
-    pendingSyncEvents = pendingSyncEvents.filter(function (event) { return !matchesActiveFolder(vml.folderID, event.folderId, event.folderRole) })
+  // Applies the rows fetched while the list was away, if they are for the
+  // list as it stands; returns what is still stale after them.
+  function applyKeptRows(mode, list, stale) {
+    var ahead = list && list.keptRefresh
+    if (list) delete list.keptRefresh
+    if (!stale.content || !ahead || ahead.url !== list.refreshURL()) return stale
+    applyListRows(mode, list, ahead.html)
+    // Counts reached the kept sidebar as they came (refreshSidebarUnread);
+    // Contacts' are fetched on return (refreshKeptSection).
+    return { sidebar: stale.sidebar, content: ahead.changes !== keptPrefetch[mode].changes }
+  }
+
+  // The list came back with changes its rows fetched ahead don't have yet:
+  // they are fetched now and the list drops in with them, as if they had
+  // always been there, rather than dropping in and then taking them in on
+  // top. A slow answer doesn't hold the list past a moment after the slide;
+  // it then drops in as it was and takes the rows quietly when they come.
+  function catchUpKept(mode, list, drops, stale) {
+    if (mode === "mail") pendingSyncEvents = pendingSyncEvents.filter(function (event) { return !matchesActiveFolder(list.folderID, event.folderId, event.folderRole) })
     var rest = { sidebar: stale.sidebar }
     var shown = false
     var show = function () {
       if (shown) return
       shown = true
-      if (drops) vml.fanInRows()
-      else document.documentElement.classList.remove("mail-list-entering")
-      setTimeout(function () { refreshKeptSection("mail", rest) }, drops ? LIST_FAN_IN_MS : 0)
+      document.documentElement.classList.remove("mail-list-entering")
+      if (drops) list.fanInRows()
+      setTimeout(function () { refreshKeptSection(mode, rest) }, drops ? LIST_FAN_IN_MS : 0)
     }
     document.documentElement.classList.add("mail-list-entering")
     var sliding = typeof appPanelsSlideRemaining === "function" ? appPanelsSlideRemaining() : 0
     setTimeout(show, Math.max(sliding, APP_SWITCH_MS) + 300)
-    vml.fetchHTML(vml.refreshURL()).then(function (html) {
-      if (vml !== virtualMailList) return
-      vml.refreshCurrentFolder({ noAnimation: true, rebase: mailListNearTop(vml), html: html }).catch(function () {})
+    list.fetchHTML(list.refreshURL()).then(function (html) {
+      if (list !== (mode === "mail" ? virtualMailList : virtualContactsList)) return
+      applyListRows(mode, list, html)
       show()
     }).catch(show)
   }
 
-  // Applies the rows fetched while Mail was away, if they are for the list
-  // as it stands; returns what is still stale after them.
-  function keptMailRefresh(vml, stale) {
-    var ahead = vml && vml.keptRefresh
-    if (vml) delete vml.keptRefresh
-    if (!stale.content || !ahead || ahead.url !== vml.refreshURL()) return stale
-    vml.refreshCurrentFolder({ noAnimation: true, rebase: mailListNearTop(vml), html: ahead.html }).catch(function () {})
-    // New mail it would have replayed is in already.
-    pendingSyncEvents = pendingSyncEvents.filter(function (event) { return !matchesActiveFolder(vml.folderID, event.folderId, event.folderRole) })
-    // The counts reached the kept sidebar as they came (refreshSidebarUnread).
-    return { sidebar: stale.sidebar, content: ahead.changes !== keptMailChanges }
+  // Contacts changed (contacts-changed): the list and the sidebar's counts
+  // update in place when on screen, and a kept Contacts when it is back.
+  function handleContactsChanged() {
+    var list = virtualContactsList
+    if (!list || !list.container || !list.container.isConnected) {
+      markKeptStale("contacts", "all")
+      return
+    }
+    clearTimeout(contactsChangeTimer)
+    contactsChangeTimer = setTimeout(function () {
+      contactsChangeTimer = null
+      if (list === virtualContactsList && list.container.isConnected) refreshLiveContacts(list)
+      refreshContactsSidebarCounts()
+    }, 150)
+  }
+
+  // Refreshes the contacts list in place, and the open contact when its row
+  // changed, unless it is being edited (refreshOpenContactDetail).
+  function refreshLiveContacts(list, html) {
+    return list.refreshInPlace(typeof html === "string" ? { html: html } : {}).then(function (changed) {
+      if (changed && list.selectedContactId) refreshOpenContactDetail(list.selectedContactId)
+    }).catch(function () {})
+  }
+
+  function refreshContactsSidebarCounts() {
+    if (!window.htmx) return
+    document.querySelectorAll("[data-contacts-trash-count], [data-contacts-unresolved-count]").forEach(function (count) {
+      htmx.ajax("GET", count.getAttribute("hx-get"), { target: count, swap: "innerHTML" })
+    })
   }
 
   function placeSwitchSidebarEarly(response, source) {

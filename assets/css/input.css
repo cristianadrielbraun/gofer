@@ -8037,8 +8037,9 @@ aside [data-sidebar-account-toggle][data-mail-drop-active] {
 }
 
 /* A list replacing another (search results and folders) keeps its rows
-   hidden until they fan in; see fanInRows in virtual-scroll.js. */
-.mail-list-entering #mail-list-scroll .mail-list-item {
+   hidden until they fan in; see fanInRows in virtual-scroll.js. So does a
+   list kept off screen while it catches up (catchUpKept in app.js). */
+.mail-list-entering :is(#mail-list-scroll, #contacts-list-scroll) .mail-list-item {
   opacity: 0;
 }
 

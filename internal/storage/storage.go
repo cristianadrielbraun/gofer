@@ -40,6 +40,10 @@ type DB struct {
 	// mailAllowlist holds the allowed mail lists once read, until this
 	// database changes them.
 	mailAllowlist atomic.Pointer[MailAllowlist]
+	// contactChangeHook and contactWatch tell open pages whose contacts
+	// changed (contact_changes.go).
+	contactChangeHook func(userID string)
+	contactWatch      *contactChangeWatch
 }
 
 type ContactActivityNotification struct {
@@ -67,8 +71,10 @@ func New(dbPath string) (*DB, error) {
 		return nil, fmt.Errorf("create db directory: %w", err)
 	}
 
+	watch := watchContactChanges(dbPath)
 	write, err := openDB(dbPath, writePoolOption)
 	if err != nil {
+		unwatchContactChanges(dbPath, watch)
 		return nil, fmt.Errorf("open write connection: %w", err)
 	}
 	write.SetMaxOpenConns(1)
@@ -76,31 +82,31 @@ func New(dbPath string) (*DB, error) {
 	read, err := openDB(dbPath, readPoolOption)
 	if err != nil {
 		write.Close()
+		unwatchContactChanges(dbPath, watch)
 		return nil, fmt.Errorf("open read connection: %w", err)
 	}
 	read.SetMaxOpenConns(4)
 
 	db := &DB{
-		write: write,
-		read:  read,
-		path:  dbPath,
+		write:        write,
+		read:         read,
+		path:         dbPath,
+		contactWatch: watch,
 	}
 
 	if err := db.migrate(); err != nil {
-		write.Close()
-		read.Close()
+		db.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
 	if err := repairFolderThreadTriggers(db.write); err != nil {
-		write.Close()
-		read.Close()
+		db.Close()
 		return nil, fmt.Errorf("repair conversation summary triggers: %w", err)
 	}
 	if err := repairContactHomes(db.write); err != nil {
-		write.Close()
-		read.Close()
+		db.Close()
 		return nil, fmt.Errorf("repair contact homes: %w", err)
 	}
+	db.watchContactTables()
 	log.Printf("storage: schema migration check complete")
 	log.Printf("storage: threading backfill deferred to background startup worker")
 
@@ -144,18 +150,21 @@ func OpenExisting(dbPath string) (*DB, error) {
 	if err := requireExistingDatabase(dbPath); err != nil {
 		return nil, err
 	}
+	watch := watchContactChanges(dbPath)
 	write, err := openDB(dbPath, writePoolOption)
 	if err != nil {
+		unwatchContactChanges(dbPath, watch)
 		return nil, fmt.Errorf("open write connection: %w", err)
 	}
 	write.SetMaxOpenConns(1)
 	read, err := openDB(dbPath, readPoolOption)
 	if err != nil {
 		write.Close()
+		unwatchContactChanges(dbPath, watch)
 		return nil, fmt.Errorf("open read connection: %w", err)
 	}
 	read.SetMaxOpenConns(4)
-	db := &DB{write: write, read: read, path: dbPath}
+	db := &DB{write: write, read: read, path: dbPath, contactWatch: watch}
 	if err := db.requireCurrentSchema(); err != nil {
 		db.Close()
 		return nil, err
@@ -164,6 +173,7 @@ func OpenExisting(dbPath string) (*DB, error) {
 		db.Close()
 		return nil, fmt.Errorf("repair conversation summary triggers: %w", err)
 	}
+	db.watchContactTables()
 	return db, nil
 }
 
@@ -4690,6 +4700,7 @@ func (db *DB) Write() *sql.DB {
 }
 
 func (db *DB) Close() error {
+	unwatchContactChanges(db.path, db.contactWatch)
 	err1 := db.write.Close()
 	err2 := db.read.Close()
 	if err1 != nil {
