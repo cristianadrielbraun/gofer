@@ -786,9 +786,117 @@ func (db *DB) hydrateContactListRows(ctx context.Context, userID string, contact
 		return
 	}
 	db.hydrateContactAvatars(ctx, contacts)
+	if err := db.hydrateContactWorkForList(ctx, userID, contacts); err != nil {
+		return
+	}
+	if err := db.hydrateContactSyncForList(ctx, userID, contacts); err != nil {
+		return
+	}
 	if err := db.hydrateContactAddressBooksForList(ctx, userID, contacts); err != nil {
 		return
 	}
+}
+
+// hydrateContactWorkForList fills the organization, job title and notes the
+// list can show, chosen as the contact's own page chooses them: among its synced
+// values when Gofer Sync is on, the best one (bestContactProfileField).
+func (db *DB) hydrateContactWorkForList(ctx context.Context, userID string, contacts []models.Contact) error {
+	ids := make([]any, 0, len(contacts)+1)
+	ids = append(ids, userID)
+	byID := make(map[string]int, len(contacts))
+	for i := range contacts {
+		byID[contacts[i].ID] = i
+		ids = append(ids, contacts[i].ID)
+	}
+	rows, err := db.Read().QueryContext(ctx, `
+		SELECT f.profile_id, f.kind, f.value, f.source, f.is_primary,
+		       p.sync_enabled = 1 AND EXISTS (
+		           SELECT 1 FROM contact_fields c
+		            WHERE c.user_id = f.user_id AND c.profile_id = f.profile_id AND c.source = 'canonical'
+		       )
+		FROM contact_fields f
+		JOIN contact_profiles p ON p.user_id = f.user_id AND p.id = f.profile_id
+		WHERE f.user_id = ? AND f.profile_id IN (`+sqlPlaceholders(len(contacts))+`)
+		  AND f.kind IN ('organization', 'title', 'notes', 'note')
+		ORDER BY f.profile_id, f.kind, f.ordinal, f.value COLLATE NOCASE`, ids...)
+	if err != nil {
+		return fmt.Errorf("query contact work fields: %w", err)
+	}
+	defer rows.Close()
+	fields := make(map[string][]models.ContactField)
+	for rows.Next() {
+		var profileID string
+		var field models.ContactField
+		var canonicalOnly bool
+		if err := rows.Scan(&profileID, &field.Kind, &field.Value, &field.Source, &field.IsPrimary, &canonicalOnly); err != nil {
+			return err
+		}
+		if canonicalOnly && field.Source != "canonical" {
+			continue
+		}
+		fields[profileID] = append(fields[profileID], field)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for profileID, profileFields := range fields {
+		i, ok := byID[profileID]
+		if !ok {
+			continue
+		}
+		if contacts[i].Organization == "" {
+			contacts[i].Organization = bestContactProfileFieldValue(profileFields, "organization")
+		}
+		if contacts[i].Title == "" {
+			contacts[i].Title = bestContactProfileFieldValue(profileFields, "title")
+		}
+		if contacts[i].Notes == "" {
+			contacts[i].Notes = bestContactProfileFieldValue(profileFields, "notes")
+		}
+		if contacts[i].Notes == "" {
+			contacts[i].Notes = bestContactProfileFieldValue(profileFields, "note")
+		}
+	}
+	return nil
+}
+
+// hydrateContactSyncForList fills whether the list's contacts have Gofer
+// Sync on, and how their last sync went, as the contact's page says it.
+func (db *DB) hydrateContactSyncForList(ctx context.Context, userID string, contacts []models.Contact) error {
+	args := make([]any, 0, len(contacts)+1)
+	args = append(args, userID)
+	byID := make(map[string]int, len(contacts))
+	for i := range contacts {
+		byID[contacts[i].ID] = i
+		args = append(args, contacts[i].ID)
+	}
+	rows, err := db.Read().QueryContext(ctx, `
+		SELECT p.id, p.sync_enabled, COALESCE(op.status, ''), COALESCE(op.last_error, '')
+		FROM contact_profiles p
+		LEFT JOIN (
+			SELECT contact_id, status, last_error,
+			       ROW_NUMBER() OVER (PARTITION BY contact_id ORDER BY created_at DESC, updated_at DESC) AS latest
+			FROM contact_sync_operations
+			WHERE user_id = ?1
+		) op ON op.contact_id = p.id AND op.latest = 1
+		WHERE p.user_id = ?1 AND p.id IN (`+sqlPlaceholders(len(contacts))+`)`, args...)
+	if err != nil {
+		return fmt.Errorf("query contact sync states: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, status, lastError string
+		var enabled bool
+		if err := rows.Scan(&id, &enabled, &status, &lastError); err != nil {
+			return err
+		}
+		if i, ok := byID[id]; ok {
+			contacts[i].GoferSyncEnabled = enabled
+			contacts[i].SyncStatus = status
+			contacts[i].SyncError = lastError
+		}
+	}
+	return rows.Err()
 }
 
 func (db *DB) hydrateContactAvatars(ctx context.Context, contacts []models.Contact) {

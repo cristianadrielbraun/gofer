@@ -32,7 +32,7 @@ var untranslatedTextAllowed = map[string]bool{
 	// Sample addresses and people in examples and previews.
 	"jane@work.example": true, "jane@example.com": true, "lab.example.test": true, "mailhog.local": true,
 	"Ana": true, "Alex Smith": true, "Cristian Braun": true, "CB": true,
-	"cristian@gofer.email": true, "design@gofer.email": true,
+	"cristian@gofer.email": true, "design@gofer.email": true, "AS": true, "alex@work.example": true,
 	// Values for scripts, never shown.
 	"default": true, "continue": true, "sign-in": true,
 }

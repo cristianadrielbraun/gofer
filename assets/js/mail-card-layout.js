@@ -2,51 +2,25 @@
   if (window.__goferMailCardLayoutDialogReady) return
   window.__goferMailCardLayoutDialogReady = true
 
-  function setupMailCardLayoutDialog() {
-    var fieldIds = ["avatar", "thread", "from", "account", "accountMarker", "to", "cc", "date", "subject", "preview", "labels", "attachment", "starred", "unread"]
-    var zones = ["railTop", "header", "meta", "railMiddle", "body", "bodyBottom", "status", "railBottom", "footer", "corner", "hidden"]
-    var visibleZones = ["railTop", "header", "meta", "railMiddle", "body", "bodyBottom", "status", "railBottom", "footer", "corner"]
-    var iconFields = {
-      avatar: true,
-      thread: true,
-      accountMarker: true,
-      attachment: true,
-      starred: true,
-      unread: true,
-    }
-    var sideZones = ["railTop", "railMiddle", "railBottom", "meta", "status", "corner"]
-    var centerZones = ["header", "body", "bodyBottom", "footer"]
-    // Matches MAIL_CARD_SIDE_ZONE_MAX in ui-settings.js.
-    var sideZoneMax = {
-      body: 2,
-      bodyBottom: 2,
-      railTop: 1,
-      railMiddle: 1,
-      railBottom: 1,
-      meta: 3,
-      status: 3,
-      corner: 3,
-    }
-    var fieldLabels = {
-      avatar: goferT("js.mail.card_field.avatar"),
-      thread: goferT("js.mail.card_field.thread"),
-      from: goferT("js.mail.card_field.from"),
-      account: goferT("js.mail.card_field.account"),
-      accountMarker: goferT("js.mail.card_field.accountMarker"),
-      to: goferT("js.mail.card_field.to"),
-      cc: goferT("js.mail.card_field.cc"),
-      date: goferT("js.mail.card_field.date"),
-      subject: goferT("js.mail.card_field.subject"),
-      preview: goferT("js.mail.card_field.preview"),
-      labels: goferT("js.mail.card_field.labels"),
-      attachment: goferT("js.mail.card_field.attachment"),
-      starred: goferT("js.mail.card_field.starred"),
-      unread: goferT("js.mail.card_field.unread"),
-    }
+  // The card layout editor: a preview card whose fields are dragged between
+  // its zones and a tray of the fields left out. One runs for each list with
+  // customizable cards (config at the end), on the field and zone description
+  // ui-settings.js keeps for that list.
+  function setupCardLayoutDialog(config) {
+    var model = window.GoferListLayouts[config.list].card
+    var fieldIds = model.fields
+    var zones = model.zones
+    var visibleZones = model.visibleZones
+    var iconFields = model.iconFields
+    var sideZones = model.sideZones
+    var centerZones = model.centerZones
+    var sideZoneMax = model.zoneMax
+    var fieldLabels = {}
+    Object.keys(config.labels).forEach(function (id) { fieldLabels[id] = goferT(config.labels[id]) })
     // Fields with their own options, opened from a ⚙ on the field's token.
-    var fieldsWithOptions = { date: true, account: true }
+    var fieldsWithOptions = config.fieldsWithOptions || {}
     // Options that are on unless turned off.
-    var optionsOnByDefault = { mail_card_account_marker: true }
+    var optionsOnByDefault = config.optionsOnByDefault || {}
     // Lucide's settings icon, named with data-lucide so themes that replace icons
     // (Express) replace this one too.
     var GEAR_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-lucide="settings"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915" /> <circle cx="12" cy="12" r="3" /></svg>'
@@ -56,56 +30,23 @@
     var layoutTooltipHideTimer = null
 
     function currentLayout() {
-      if (typeof window.getMailCardLayout === "function") return window.getMailCardLayout()
-      return {
-        railTop: ["avatar"],
-        header: ["from", "date"],
-        meta: ["attachment", "unread"],
-        railMiddle: [],
-        body: [],
-        bodyBottom: ["subject"],
-        status: [],
-        railBottom: ["thread"],
-        footer: ["preview", "labels"],
-        corner: ["starred"],
-        hidden: ["account", "accountMarker", "to", "cc"],
-      }
+      return model.current()
     }
 
     function defaultLayout() {
-      if (typeof window.getDefaultMailCardLayout === "function") return window.getDefaultMailCardLayout()
-      return {
-        railTop: ["avatar"],
-        header: ["account", "from", "date"],
-        meta: ["attachment"],
-        railMiddle: [],
-        body: ["to"],
-        bodyBottom: ["subject"],
-        status: [],
-        railBottom: ["thread"],
-        footer: ["preview", "labels"],
-        corner: ["starred"],
-        hidden: ["accountMarker", "unread", "cc"],
-      }
+      return model.defaultLayout()
     }
 
     function visibleIdsFromLayout(layout) {
-      if (typeof window.getMailCardVisibleFieldsFromLayout === "function") return window.getMailCardVisibleFieldsFromLayout(layout)
-      var ids = []
-      for (var i = 0; i < visibleZones.length; i++) {
-        var zoneIds = layout[visibleZones[i]] || []
-        for (var j = 0; j < zoneIds.length; j++) if (ids.indexOf(zoneIds[j]) === -1) ids.push(zoneIds[j])
-      }
-      return ids.length ? ids : ["subject"]
+      return model.visibleIdsFromLayout(layout)
     }
 
     function serializeLayout(layout) {
-      if (typeof window.serializeMailCardLayout === "function") return window.serializeMailCardLayout(layout)
-      return zones.map(function (zone) { return zone + ":" + ((layout[zone] || []).join(",")) }).join("|")
+      return model.serialize(layout)
     }
 
     function dialogRoot(target) {
-      return target && target.closest ? target.closest("#mail-card-layout-dialog") : document.getElementById("mail-card-layout-dialog")
+      return target && target.closest ? target.closest("#" + config.dialogId) : document.getElementById(config.dialogId)
     }
 
     function preview(dialog) {
@@ -283,9 +224,14 @@
     }
 
     function zoneAcceptsField(zone, id) {
-      if (zone === "hidden") return true
-      if (fieldType(id) === "icon") return sideZones.indexOf(zone) !== -1
-      return centerZones.indexOf(zone) !== -1
+      return model.zoneAcceptsField(zone, id)
+    }
+
+    // Moving the list's flipping field (the contact avatar) from its slot to
+    // the icon slots beside the lines flips the card instead (config.flip).
+    function isFlipDrop(id, fromZone, targetZone) {
+      var flip = config.flip
+      return !!flip && id === flip.field && fromZone === flip.zone && flip.sides.indexOf(targetZone) !== -1
     }
 
     function zoneHasRoom(dialog, zone) {
@@ -298,7 +244,7 @@
     function canShowFieldInAnyZone(dialog, id) {
       var allowedZones = fieldType(id) === "icon" ? sideZones : centerZones
       for (var i = 0; i < allowedZones.length; i++) {
-        if (zoneHasRoom(dialog, allowedZones[i])) return true
+        if (zoneAcceptsField(allowedZones[i], id) && zoneHasRoom(dialog, allowedZones[i])) return true
       }
       return false
     }
@@ -354,15 +300,15 @@
         inputs[i].checked = optionsOnByDefault[inputs[i].dataset.mailCardOption] ? value !== "false" : value === "true"
       }
       var previewCard = preview(dialog)
-      if (previewCard) previewCard.toggleAttribute("data-mail-date-time", !!(window.GoferSettings && GoferSettings.get("mail_card_date_time") === "true"))
-      if (previewCard) previewCard.toggleAttribute("data-mail-account-no-marker", !!(window.GoferSettings && GoferSettings.get("mail_card_account_marker") === "false"))
+      if (previewCard && config.syncPreviewOptions) config.syncPreviewOptions(previewCard)
     }
 
     function closeFieldOptions(dialog) {
-      var panel = optionsPanel(dialog || document.getElementById("mail-card-layout-dialog"))
+      dialog = dialog || document.getElementById(config.dialogId)
+      var panel = optionsPanel(dialog)
       if (!panel) return
       if (panel.matches(":popover-open")) panel.hidePopover()
-      var open = document.querySelectorAll('[data-mail-card-layout-token-options][aria-expanded="true"]')
+      var open = dialog.querySelectorAll('[data-mail-card-layout-token-options][aria-expanded="true"]')
       for (var i = 0; i < open.length; i++) open[i].setAttribute("aria-expanded", "false")
     }
 
@@ -545,15 +491,8 @@
 
     function persistLayout(dialog, layout) {
       layout = layout || readEditorLayout(dialog)
-      var visible = visibleIdsFromLayout(layout)
-      if (!visible.length) return
-      var serialized = serializeLayout(layout)
-      if (window.GoferSettings) {
-        GoferSettings.set("mail_card_fields", visible.join(","))
-        GoferSettings.set("mail_card_layout", serialized)
-      } else if (typeof window.applyMailCardLayout === "function") {
-        window.applyMailCardLayout(serialized, visible.join(","), document)
-      }
+      if (!visibleIdsFromLayout(layout).length) return
+      model.save(layout)
       renderEditor(dialog, layout)
     }
 
@@ -573,11 +512,15 @@
     function resetEditorLayout(dialog) {
       if (!dialog) return
       abortActiveDrag()
-      persistLayout(dialog, defaultLayout())
+      animatePreview(dialog, function () {
+        if (config.flip && window.GoferSettings) GoferSettings.set(config.flip.setting, "false")
+        persistLayout(dialog, defaultLayout())
+      })
     }
 
     function canDropFromZone(fromZone, targetZone, dialog, id) {
       if (!fromZone || !targetZone) return false
+      if (isFlipDrop(id, fromZone, targetZone)) return true
       if (targetZone === "hidden") return fromZone === "hidden" || visibleCount(dialog) >= 1
       if (!zoneAcceptsField(targetZone, id)) return false
       if (fromZone === targetZone) return true
@@ -609,6 +552,118 @@
       if (!isFinite(value) || !isFinite(size) || size <= 0) return 0
       if (size <= 12) return size / 2
       return Math.max(6, Math.min(size - 6, value))
+    }
+
+    // Changes to the preview card move its zones and fields smoothly instead
+    // of jumping: a field pushed aside by the drop spot, empty side slots
+    // showing up while dragging (the center lines giving them room), the
+    // card flipping. It measures zones and fields, makes the change, and
+    // animates each from where it was (FLIP). Zones also animate their size,
+    // over grid tracks held at their new widths meanwhile. A change while one
+    // is running starts from where things are on screen.
+    var PREVIEW_MOVE_MS = 200
+
+    function previewZones(card) {
+      // Contact cards group each line's zones (data-contact-card-line).
+      return Array.prototype.filter.call(card.querySelectorAll("[data-mail-card-zone]"), function (zone) {
+        return zone.dataset.mailCardZone !== "hidden"
+      })
+    }
+
+    function previewItems(card) {
+      return Array.prototype.slice.call(card.querySelectorAll('[data-mail-card-zone]:not([data-mail-card-zone="hidden"]) > :is([data-mail-card-field], .mail-card-layout-placeholder)'))
+    }
+
+    function shownRect(node) {
+      var rect = node.getBoundingClientRect()
+      return rect.width || rect.height ? rect : null
+    }
+
+    function stopPreviewMotion(card) {
+      var motion = card._previewMotion
+      if (!motion) return
+      card._previewMotion = null
+      motion.animations.forEach(function (animation) { animation.cancel() })
+      motion.zones.forEach(function (zone) {
+        zone.style.justifySelf = ""
+        zone.style.alignSelf = ""
+        zone.style.flex = ""
+      })
+      card.style.gridTemplateColumns = ""
+      card.style.gridTemplateRows = ""
+    }
+
+    function animatePreview(dialog, change) {
+      var card = preview(dialog)
+      if (!card || !card.animate || reducedMotion()) {
+        change()
+        return
+      }
+      var zones = previewZones(card)
+      var items = previewItems(card)
+      var first = new Map()
+      zones.concat(items).forEach(function (node) { first.set(node, shownRect(node)) })
+      stopPreviewMotion(card)
+      change()
+      zones = previewZones(card)
+      items = previewItems(card)
+      var last = new Map()
+      zones.concat(items).forEach(function (node) { last.set(node, shownRect(node)) })
+      var rtl = getComputedStyle(card).direction === "rtl"
+      var style = getComputedStyle(card)
+      var motion = { animations: [], zones: [] }
+      var columns = style.gridTemplateColumns
+      var rows = style.gridTemplateRows
+      zones.forEach(function (zone) {
+        var from = first.get(zone)
+        var to = last.get(zone)
+        if (!to) return
+        if (!from) {
+          motion.animations.push(zone.animate([{ opacity: 0 }, { opacity: 1 }], { duration: PREVIEW_MOVE_MS, easing: "ease" }))
+          return
+        }
+        var dx = rtl ? from.right - to.right : from.left - to.left
+        var dy = from.top - to.top
+        if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5 && Math.abs(from.width - to.width) < 0.5 && Math.abs(from.height - to.height) < 0.5) return
+        // Held at the start edge, so a size change grows from where the zone
+        // begins and the tracks stay as they will be.
+        zone.style.justifySelf = "start"
+        zone.style.alignSelf = "start"
+        // In a line of zones, its size is the animated one meanwhile.
+        zone.style.flex = "0 0 auto"
+        motion.zones.push(zone)
+        motion.animations.push(zone.animate([
+          { transform: "translate(" + dx + "px, " + dy + "px)", width: from.width + "px", height: from.height + "px" },
+          { transform: "translate(0, 0)", width: to.width + "px", height: to.height + "px" },
+        ], { duration: PREVIEW_MOVE_MS, easing: "ease" }))
+      })
+      if (motion.zones.length) {
+        card.style.gridTemplateColumns = columns
+        card.style.gridTemplateRows = rows
+      }
+      // Fields move with their zone; each also covers the rest of the way
+      // from where it was, measured with the zones at their start.
+      items.forEach(function (item) {
+        var from = first.get(item)
+        var start = shownRect(item)
+        if (!from || !start) return
+        var dx = from.left - start.left
+        var dy = from.top - start.top
+        if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return
+        motion.animations.push(item.animate([
+          { transform: "translate(" + dx + "px, " + dy + "px)" },
+          { transform: "translate(0, 0)" },
+        ], { duration: PREVIEW_MOVE_MS, easing: "ease" }))
+      })
+      if (!motion.animations.length) {
+        card.style.gridTemplateColumns = ""
+        card.style.gridTemplateRows = ""
+        return
+      }
+      card._previewMotion = motion
+      Promise.all(motion.animations.map(function (animation) { return animation.finished })).then(function () {
+        if (card._previewMotion === motion) stopPreviewMotion(card)
+      }, function () {})
     }
 
     function createPlaceholder(rect) {
@@ -678,9 +733,9 @@
       var before = insertionTarget(list, event)
       var currentParent = drag.placeholder.parentElement
       if (before && before !== drag.placeholder && before.parentElement === list) {
-        if (currentParent !== list || drag.placeholder.nextSibling !== before) list.insertBefore(drag.placeholder, before)
+        if (currentParent !== list || drag.placeholder.nextSibling !== before) animatePreview(drag.dialog, function () { list.insertBefore(drag.placeholder, before) })
       } else if (currentParent !== list || drag.placeholder.nextSibling !== null) {
-        list.appendChild(drag.placeholder)
+        animatePreview(drag.dialog, function () { list.appendChild(drag.placeholder) })
       }
       drag.dropZone = zone
       return true
@@ -698,7 +753,9 @@
       activeDrag.dropAllowed = false
       if (!list) return
 
+      if (config.pickDropList) list = config.pickDropList(activeDrag, list, event) || list
       var zone = dropZoneName(list)
+      if (previewFlip(activeDrag, zone)) return
       var allowed = canDropFromZone(activeDrag.fromZone, zone, dialog, activeDrag.id)
       var dropzone = list.closest("[data-mail-card-layout-dropzone]")
       if (dropzone) {
@@ -708,6 +765,43 @@
       if (!allowed) return
 
       activeDrag.dropAllowed = movePlaceholderToList(activeDrag, list, event)
+    }
+
+    // While the flipping field is dragged, the preview card shows the side
+    // the pointer is on: over the icon slots beside the lines it flips, with
+    // the field's own slot, on that side now, to drop it in; over its own
+    // slot it stays or flips back. Flipping moves the slots under the
+    // pointer, so the side decides, not the slot. Says whether it handled the
+    // zone, leaving the drop zone "flip" when the drop flips the card.
+    function previewFlip(drag, zone) {
+      var flip = config.flip
+      if (!flip || drag.id !== flip.field || drag.fromZone !== flip.zone) return false
+      var flipped = !!drag.flipPreview
+      var onSide = flip.sides.indexOf(zone) !== -1
+      if (zone !== flip.zone && !onSide) {
+        // Hiding the field: the card is shown as it is.
+        if (zone === "hidden" && flipped) animatePreview(drag.dialog, function () { setFlipPreview(drag, false) })
+        return false
+      }
+      var wanted = flipped ? zone === flip.zone : onSide
+      if (wanted !== flipped || drag.placeholder.parentElement !== drag.originParent) {
+        animatePreview(drag.dialog, function () {
+          if (wanted !== flipped) setFlipPreview(drag, wanted)
+          if (drag.placeholder.parentElement !== drag.originParent) drag.originParent.insertBefore(drag.placeholder, drag.originNext || null)
+        })
+      }
+      var slot = drag.originParent.closest("[data-mail-card-layout-dropzone]") || drag.originParent
+      slot.classList.add("mail-card-layout-dropzone-active")
+      drag.dropZone = wanted ? "flip" : flip.zone
+      drag.dropAllowed = true
+      return true
+    }
+
+    function setFlipPreview(drag, on) {
+      drag.flipPreview = on
+      var card = preview(drag.dialog)
+      var saved = !!(window.GoferSettings && GoferSettings.get(config.flip.setting) === "true")
+      if (card) card.toggleAttribute(config.flip.attribute, saved !== on)
     }
 
     // Between slots, the closest one that takes the field is the target, so
@@ -782,21 +876,34 @@
       if (!drag) return
       activeDrag = null
       animateVisualTokenToRect(drag, drag.originRect, function () {
-        if (drag.fromTray) {
+        animatePreview(drag.dialog, function () {
           restoreVisualToken(drag)
           if (drag.originParent) drag.originParent.insertBefore(drag.visualToken, drag.originNext || null)
-        } else {
-          restoreVisualToken(drag)
-          if (drag.originParent) drag.originParent.insertBefore(drag.visualToken, drag.originNext || null)
-        }
-        cleanupDragShell(drag)
-        renderEditor(drag.dialog, drag.originLayout)
+          cleanupDragShell(drag)
+          renderEditor(drag.dialog, drag.originLayout)
+        })
       })
     }
 
     function commitDrag(zone) {
       var drag = activeDrag
       if (!drag) return
+      if (zone === "flip") {
+        // The preview already shows the card flipped, the field's slot on
+        // its new side: the field settles there and the flip is saved.
+        activeDrag = null
+        animateVisualTokenToRect(drag, drag.placeholder.getBoundingClientRect(), function () {
+          animatePreview(drag.dialog, function () {
+            restoreVisualToken(drag)
+            if (drag.placeholder.parentElement) drag.placeholder.parentElement.insertBefore(drag.visualToken, drag.placeholder)
+            cleanupDragShell(drag)
+            GoferSettings.set(config.flip.setting, GoferSettings.get(config.flip.setting) === "true" ? "false" : "true")
+            renderEditor(drag.dialog, currentLayout())
+          })
+          markDropSettle(drag.visualToken)
+        })
+        return
+      }
       var targetList = listForDropZone(drag.dialog, zone, drag.id)
       if (!targetList || !drag.placeholder.parentElement) {
         cancelDrag()
@@ -806,38 +913,43 @@
       activeDrag = null
       var finalRect = drag.placeholder.getBoundingClientRect()
       animateVisualTokenToRect(drag, finalRect, function () {
-        var settledToken = null
-
-        if (drag.fromTray && zone === "hidden") {
-          restoreVisualToken(drag)
-          if (drag.placeholder.parentElement) drag.placeholder.parentElement.insertBefore(drag.visualToken, drag.placeholder)
-        } else if (drag.fromTray) {
-          restoreVisualToken(drag)
-          drag.visualToken.remove()
-          if (drag.fieldToken && drag.placeholder.parentElement) {
-            drag.placeholder.parentElement.insertBefore(drag.fieldToken, drag.placeholder)
-            settledToken = drag.fieldToken
-          }
-        } else if (zone === "hidden") {
-          restoreVisualToken(drag)
-          var hidden = previewZone(drag.dialog, "hidden")
-          if (hidden) hidden.appendChild(drag.visualToken)
-        } else {
-          restoreVisualToken(drag)
-          if (drag.placeholder.parentElement) {
-            drag.placeholder.parentElement.insertBefore(drag.visualToken, drag.placeholder)
-            settledToken = drag.visualToken
-          }
-        }
-
-        cleanupDragShell(drag)
-        if (drag.fromTray && zone === "hidden") {
-          renderEditor(drag.dialog, drag.originLayout)
-          return
-        }
-        persistEditorLayout(drag.dialog)
-        markDropSettle(settledToken)
+        animatePreview(drag.dialog, function () { settleDrop(drag, zone) })
       })
+    }
+
+    // Puts the dropped field where its drop spot was and saves the layout.
+    function settleDrop(drag, zone) {
+      var settledToken = null
+
+      if (drag.fromTray && zone === "hidden") {
+        restoreVisualToken(drag)
+        if (drag.placeholder.parentElement) drag.placeholder.parentElement.insertBefore(drag.visualToken, drag.placeholder)
+      } else if (drag.fromTray) {
+        restoreVisualToken(drag)
+        drag.visualToken.remove()
+        if (drag.fieldToken && drag.placeholder.parentElement) {
+          drag.placeholder.parentElement.insertBefore(drag.fieldToken, drag.placeholder)
+          settledToken = drag.fieldToken
+        }
+      } else if (zone === "hidden") {
+        restoreVisualToken(drag)
+        var hidden = previewZone(drag.dialog, "hidden")
+        if (hidden) hidden.appendChild(drag.visualToken)
+      } else {
+        restoreVisualToken(drag)
+        if (drag.placeholder.parentElement) {
+          drag.placeholder.parentElement.insertBefore(drag.visualToken, drag.placeholder)
+          settledToken = drag.visualToken
+        }
+      }
+
+      cleanupDragShell(drag)
+      if (drag.fromTray && zone === "hidden") {
+        renderEditor(drag.dialog, drag.originLayout)
+        return
+      }
+      persistEditorLayout(drag.dialog)
+      markDropSettle(settledToken)
     }
 
     function beginDrag(token, event) {
@@ -896,8 +1008,12 @@
       token.style.pointerEvents = "none"
       token.style.transition = "none"
       layer.appendChild(token)
-      document.body.classList.add("mail-card-layout-drag-active")
-      markSlotStates(activeDrag)
+      // Empty slots that take the field open up; the lines make room.
+      var starting = activeDrag
+      animatePreview(dialog, function () {
+        document.body.classList.add("mail-card-layout-drag-active")
+        markSlotStates(starting)
+      })
       positionVisualToken(activeDrag, event)
       void token.offsetWidth
 
@@ -915,17 +1031,18 @@
     }
 
     document.body.addEventListener("click", function (e) {
-      var open = e.target.closest && e.target.closest("[data-mail-card-layout-dialog-open]")
+      var open = e.target.closest && e.target.closest("[" + config.openAttribute + "]")
       if (open) {
         e.preventDefault()
-        var dialog = document.getElementById("mail-card-layout-dialog")
+        var dialog = document.getElementById(config.dialogId)
+        if (!dialog) return
         renderEditor(dialog, currentLayout())
-        if (window.tui && window.tui.dialog) window.tui.dialog.open("mail-card-layout-dialog")
+        if (window.tui && window.tui.dialog) window.tui.dialog.open(config.dialogId)
         return
       }
 
       var optionsButton = e.target.closest && e.target.closest("[data-mail-card-layout-token-options]")
-      if (optionsButton) {
+      if (optionsButton && dialogRoot(optionsButton)) {
         e.preventDefault()
         e.stopPropagation()
         openFieldOptions(optionsButton)
@@ -933,7 +1050,7 @@
       }
 
       var reset = e.target.closest && e.target.closest("[data-mail-card-layout-reset]")
-      if (reset) {
+      if (reset && dialogRoot(reset)) {
         e.preventDefault()
         resetEditorLayout(dialogRoot(reset))
       }
@@ -963,13 +1080,14 @@
     document.body.addEventListener("pointerdown", function (e) {
       if (e.button !== undefined && e.button !== 0) return
       // The ⚙ on a token opens its options instead of starting a drag.
-      if (e.target.closest && e.target.closest("[data-mail-card-layout-token-options]")) {
+      var gear = e.target.closest && e.target.closest("[data-mail-card-layout-token-options]")
+      if (gear && dialogRoot(gear)) {
         e.preventDefault()
         return
       }
       if (e.target.closest && !e.target.closest("[data-mail-card-layout-options]")) closeFieldOptions()
       var token = e.target.closest && e.target.closest("[data-mail-card-layout-token]")
-      if (!token) return
+      if (!token || !dialogRoot(token)) return
       hideLayoutTooltip(true)
       if (token.getAttribute("aria-disabled") === "true") {
         e.preventDefault()
@@ -1001,25 +1119,30 @@
 
     document.body.addEventListener("change", function (e) {
       var input = e.target.closest && e.target.closest("[data-mail-card-option]")
-      if (!input || !window.GoferSettings) return
-      GoferSettings.set(input.dataset.mailCardOption, input.checked ? "true" : "false")
+      if (!input || !dialogRoot(input) || !window.GoferSettings) return
+      // An option may move fields in the preview (a contact field to the end
+      // of its line): they slide there.
+      animatePreview(dialogRoot(input), function () {
+        GoferSettings.set(input.dataset.mailCardOption, input.checked ? "true" : "false")
+      })
       syncOptionInputs(dialogRoot(input))
     })
 
     document.addEventListener("keydown", function (e) {
       var optionsButton = e.target.closest && e.target.closest("[data-mail-card-layout-token-options]")
-      if (optionsButton && (e.key === "Enter" || e.key === " ")) {
+      if (optionsButton && dialogRoot(optionsButton) && (e.key === "Enter" || e.key === " ")) {
         e.preventDefault()
         e.stopPropagation()
         openFieldOptions(optionsButton)
         return
       }
-      var panel = document.querySelector("[data-mail-card-layout-options]:popover-open")
+      var own = document.getElementById(config.dialogId)
+      var panel = own && own.querySelector("[data-mail-card-layout-options]:popover-open")
       if (panel && e.key === "Escape") {
         // Close only the options, not the whole dialog.
         e.preventDefault()
         e.stopPropagation()
-        var opener = document.querySelector('[data-mail-card-layout-token-options][aria-expanded="true"]')
+        var opener = own.querySelector('[data-mail-card-layout-token-options][aria-expanded="true"]')
         closeFieldOptions()
         if (opener) opener.focus()
         return
@@ -1040,9 +1163,78 @@
     })
   }
 
+  function setupCardLayoutDialogs() {
+    setupCardLayoutDialog({
+      list: "mail",
+      dialogId: "mail-card-layout-dialog",
+      openAttribute: "data-mail-card-layout-dialog-open",
+      labels: {
+        avatar: "js.mail.card_field.avatar",
+        thread: "js.mail.card_field.thread",
+        from: "js.mail.card_field.from",
+        account: "js.mail.card_field.account",
+        accountMarker: "js.mail.card_field.accountMarker",
+        to: "js.mail.card_field.to",
+        cc: "js.mail.card_field.cc",
+        date: "js.mail.card_field.date",
+        subject: "js.mail.card_field.subject",
+        preview: "js.mail.card_field.preview",
+        labels: "js.mail.card_field.labels",
+        attachment: "js.mail.card_field.attachment",
+        starred: "js.mail.card_field.starred",
+        unread: "js.mail.card_field.unread",
+      },
+      fieldsWithOptions: { date: true, account: true },
+      optionsOnByDefault: { mail_card_account_marker: true },
+      syncPreviewOptions: function (previewCard) {
+        previewCard.toggleAttribute("data-mail-date-time", !!(window.GoferSettings && GoferSettings.get("mail_card_date_time") === "true"))
+        previewCard.toggleAttribute("data-mail-account-no-marker", !!(window.GoferSettings && GoferSettings.get("mail_card_account_marker") === "false"))
+      },
+    })
+    setupCardLayoutDialog({
+      list: "contacts",
+      dialogId: "contact-card-layout-dialog",
+      openAttribute: "data-contact-card-layout-dialog-open",
+      labels: {
+        avatar: "js.contacts.card_field.avatar",
+        name: "js.contacts.card_field.name",
+        organization: "js.contacts.card_field.organization",
+        title: "js.contacts.card_field.title",
+        email: "js.contacts.card_field.email",
+        phone: "js.contacts.card_field.phone",
+        home: "js.contacts.card_field.home",
+        date: "js.contacts.card_field.date",
+        messages: "js.contacts.card_field.messages",
+        notes: "js.contacts.card_field.notes",
+        sync: "js.contacts.card_field.sync",
+      },
+      flip: { field: "avatar", zone: "railTop", sides: ["meta", "status"], setting: "contacts_card_mirrored", attribute: "data-contact-card-mirrored" },
+      // A line's text is one box in the editor, holding the line's start and
+      // end zones: the half of it the pointer is over picks the zone. Near
+      // the middle, the side it is on stays, so the drop spot doesn't flicker.
+      pickDropList: function (drag, list) {
+        var box = list && list.closest("[data-contact-card-text]")
+        if (!box) return list
+        var zones = box.querySelectorAll("[data-mail-card-layout-zone-items]")
+        if (zones.length < 2) return list
+        var rect = box.getBoundingClientRect()
+        var x = drag.lastClientX
+        var middle = rect.left + rect.width / 2
+        var rtl = getComputedStyle(box).direction === "rtl"
+        var atEnd = rtl ? x < middle : x > middle
+        var current = drag.placeholder.parentElement
+        if ((current === zones[0] || current === zones[1]) && Math.abs(x - middle) < 24) atEnd = current === zones[1]
+        return atEnd ? zones[1] : zones[0]
+      },
+      syncPreviewOptions: function (previewCard) {
+        previewCard.toggleAttribute("data-contact-card-mirrored", !!(window.GoferSettings && GoferSettings.get("contacts_card_mirrored") === "true"))
+      },
+    })
+  }
+
   if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", setupMailCardLayoutDialog)
+    document.addEventListener("DOMContentLoaded", setupCardLayoutDialogs)
   } else {
-    setupMailCardLayoutDialog()
+    setupCardLayoutDialogs()
   }
 })()

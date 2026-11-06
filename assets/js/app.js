@@ -425,7 +425,7 @@ document.addEventListener("DOMContentLoaded", function () {
   setupMailListViewToggle()
   setupContactsList()
   setupMailFilters()
-  setupMailTableColumnResize()
+  setupTableColumns()
   setupSSE()
   // Leaving the page closes its event stream at once. Otherwise the browser
   // keeps the page it left, stream included, alive for a while in case the
@@ -9962,9 +9962,16 @@ document.addEventListener("DOMContentLoaded", function () {
     '</div>'
   }
 
+  // Every column, as ContactListTableHeader draws it; the list hides the ones
+  // the user leaves out.
   function contactsPendingTableHeaderHTML() {
-    return '<div class="mail-list-table-header mail-list-table-grid grid items-center gap-3 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground bg-card/95 border-b border-border/70 sticky top-0 z-20 backdrop-blur-sm" style="--mail-list-table-columns:minmax(10rem,1.4fr) minmax(8rem,0.9fr) minmax(3.5rem,auto)">' +
-      '<div class="mail-list-table-heading">' + goferT("js.contacts.column.name") + '</div><div class="mail-list-table-heading">' + goferT("js.contacts.column.stored_in") + '</div><div class="mail-list-table-heading min-w-12 text-right">' + goferT("js.contacts.column.messages") + '</div>' +
+    var template = document.querySelector("template[data-contact-table-header-template]")
+    if (template) return template.innerHTML
+    var ids = window.GoferListLayouts ? window.GoferListLayouts.contacts.table.ids : ["name"]
+    return '<div class="mail-list-table-header mail-list-table-grid grid items-center gap-3 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground bg-card/95 border-b border-border/70 sticky top-0 z-20 backdrop-blur-sm">' +
+      ids.map(function (id) {
+        return '<div class="mail-list-table-heading' + (id === "messages" ? " min-w-12 text-right" : "") + '" data-mail-table-column-id="' + id + '" data-mail-table-cell="' + id + '"><span data-contact-column-label>' + goferT("js.contacts.column." + id) + '</span></div>'
+      }).join("") +
     '</div>'
   }
 
@@ -9984,14 +9991,17 @@ document.addEventListener("DOMContentLoaded", function () {
       '<div class="mail-list-card-zone mail-list-card-zone-status" data-mail-card-zone="status"></div><div class="mail-list-card-zone mail-list-card-zone-corner" data-mail-card-zone="corner"><span data-mail-card-field="starred" class="h-3 w-3 rounded bg-muted animate-pulse"></span></div><div class="hidden" data-mail-card-zone="hidden"></div></div></div>'
   }
 
-  // Mirrors ContactListCard: two lines beside the avatar.
+  // Mirrors ContactListCard, its fields in their default zones for the card
+  // layout to move.
   function contactCardPendingRow(i) {
     var nameWidths = ["58%", "72%", "46%", "66%"]
     var emailWidths = ["78%", "64%", "86%", "54%"]
-    return '<div class="mail-list-item" aria-hidden="true"><div class="contact-list-item contact-card mail-list-card h-full px-3.5 rounded-lg envelope">' +
+    return '<div class="mail-list-item" aria-hidden="true"><div class="contact-list-item contact-card mail-list-card h-full px-3.5 rounded-lg envelope" data-contact-card-layout-scope>' +
       '<div class="mail-list-card-zone mail-list-card-zone-rail-top" data-mail-card-zone="railTop"><span data-mail-card-field="avatar" class="size-8 rounded-full bg-muted animate-pulse"></span></div>' +
-      '<div class="mail-list-card-zone mail-list-card-zone-header" data-mail-card-zone="header"><span data-mail-card-field="from" class="flex-1">' + pendingBar(nameWidths[i % nameWidths.length], "block h-3.5") + '</span>' + (i % 3 === 0 ? '<span data-mail-card-field="date">' + pendingBar("2rem", "block h-3") + '</span>' : "") + '</div>' +
-      '<div class="mail-list-card-zone mail-list-card-zone-body" data-mail-card-zone="body"><span data-mail-card-field="subject" class="flex-1">' + pendingBar(emailWidths[i % emailWidths.length], "block h-3") + '</span><span data-mail-card-field="preview">' + pendingBar("3.5rem", "block h-3") + '</span></div>' +
+      '<div class="contact-card-line" data-contact-card-line="1"><div class="mail-list-card-zone mail-list-card-zone-header" data-mail-card-zone="header"><span data-mail-card-field="name" class="flex-1">' + pendingBar(nameWidths[i % nameWidths.length], "block h-3.5") + '</span></div>' +
+      '<div class="mail-list-card-zone mail-list-card-zone-meta" data-mail-card-zone="meta">' + (i % 3 === 0 ? '<span data-mail-card-field="messages">' + pendingBar("2rem", "block h-3") + '</span>' : "") + '</div></div>' +
+      '<div class="contact-card-line" data-contact-card-line="2"><div class="mail-list-card-zone mail-list-card-zone-body" data-mail-card-zone="body"><span data-mail-card-field="email" class="flex-1">' + pendingBar(emailWidths[i % emailWidths.length], "block h-3") + '</span></div><div class="mail-list-card-zone mail-list-card-zone-body-end" data-mail-card-zone="bodyEnd"><span data-mail-card-field="home">' + pendingBar("3.5rem", "block h-3") + '</span></div>' +
+      '<div class="mail-list-card-zone mail-list-card-zone-status" data-mail-card-zone="status"></div></div><div class="hidden" data-mail-card-zone="hidden"></div>' +
       '</div></div>'
   }
 
@@ -10012,13 +10022,14 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 
   function contactTablePendingRow(i) {
-    var nameWidths = ["62%", "48%", "74%", "56%"]
-    var emailWidths = ["86%", "68%", "76%", "58%"]
-    var originWidths = ["6rem", "8rem", "5rem", "7rem"]
-    return '<div class="mail-list-item mail-list-table-row" aria-hidden="true"><a tabindex="-1" class="contact-list-item mail-list-table-grid grid items-center gap-3 px-3.5 py-1.5 rounded-md cursor-default transition-all duration-150 group text-xs envelope" style="--mail-list-table-columns:minmax(10rem,1.4fr) minmax(8rem,0.9fr) minmax(3.5rem,auto)">' +
-      '<div class="flex min-w-0 items-center gap-3"><div class="w-7 flex shrink-0 items-center justify-center"><span class="size-6 rounded-full bg-muted animate-pulse"></span></div><div class="min-w-0 flex-1">' + pendingBar(nameWidths[i % nameWidths.length], "block h-3") + '<div class="mt-1.5">' + pendingBar(emailWidths[i % emailWidths.length], "block h-3") + '</div></div></div>' +
-      '<div class="truncate text-xs text-muted-foreground">' + pendingBar(originWidths[i % originWidths.length], "block h-3") + '</div>' +
-      '<div class="flex justify-end text-right text-xs tabular-nums text-muted-foreground">' + pendingBar(i % 2 === 0 ? "2rem" : "1.25rem", "block h-3") + '</div>' +
+    var widths = ["62%", "48%", "74%", "56%"]
+    var ids = window.GoferListLayouts ? window.GoferListLayouts.contacts.table.ids : ["name"]
+    return '<div class="mail-list-item mail-list-table-row" aria-hidden="true"><a tabindex="-1" class="contact-list-item mail-list-table-grid grid items-center gap-3 px-3.5 py-1.5 rounded-md cursor-default transition-all duration-150 group text-xs envelope">' +
+      ids.map(function (id, column) {
+        if (id === "name") return '<div class="flex min-w-0 items-center gap-2" data-mail-table-cell="name"><div class="w-7 flex shrink-0 items-center justify-center"><span class="size-6 rounded-full bg-muted animate-pulse"></span></div><div class="min-w-0 flex-1">' + pendingBar(widths[i % widths.length], "block h-3") + '</div></div>'
+        if (id === "messages") return '<div class="flex justify-end" data-mail-table-cell="messages">' + pendingBar(i % 2 === 0 ? "2rem" : "1.25rem", "block h-3") + '</div>'
+        return '<div class="min-w-0" data-mail-table-cell="' + id + '">' + pendingBar(widths[(i + column) % widths.length], "block h-3") + '</div>'
+      }).join("") +
     '</a></div>'
   }
 
@@ -10142,6 +10153,13 @@ document.addEventListener("DOMContentLoaded", function () {
       if (mode === "mail" && viewMode === "cards" && typeof window.applyMailCardFieldSettings === "function") {
         window.applyMailCardFieldSettings(list.querySelector("#mail-list-scroll"))
       }
+      var contactsScroll = mode === "contacts" && list.querySelector("#contacts-list-scroll")
+      if (contactsScroll && viewMode === "table" && typeof window.applyContactTableColumnSettings === "function") {
+        window.applyContactTableColumnSettings(contactsScroll)
+      }
+      if (contactsScroll && viewMode !== "table" && typeof window.applyContactCardLayoutSettings === "function") {
+        window.applyContactCardLayoutSettings(contactsScroll)
+      }
     }
     var pane = document.getElementById("mail-view")
     if (pane) {
@@ -10160,104 +10178,93 @@ document.addEventListener("DOMContentLoaded", function () {
     if (!shell.querySelector("#contacts-list-scroll")) virtualContactsList = null
   })
 
-  function setupMailTableColumnResize() {
-    var columnIds = ["accountMarker", "starred", "attachment", "thread", "from", "to", "subject", "date"]
-    var minWidths = [24, 32, 32, 28, 90, 90, 140, 64]
-    var fixedWidths = { accountMarker: 24, starred: 24, attachment: 24, thread: 28 }
-    var defaultRatios = [0.8, 0.8, 0.8, 1, 3, 3, 5, 2]
+  // Table columns of the mail and contacts lists: the column menu turns them
+  // on and off, and the handles between headings resize them. Both work from
+  // the list's column description in ui-settings.js (GoferListLayouts).
+  function setupTableColumns() {
+    var scrollLists = { "mail-list-scroll": "mail", "contacts-list-scroll": "contacts" }
 
-    function clamp(value, index) {
-      return Math.max(minWidths[index], value)
+    function tableModel(list) {
+      return window.GoferListLayouts && window.GoferListLayouts[list] && window.GoferListLayouts[list].table
     }
 
-    function currentRatioSetting() {
-      var raw = window.GoferSettings ? GoferSettings.get("mail_table_column_widths") : null
-      var parts = raw ? String(raw).split(",") : []
-      if (parts.length !== columnIds.length) parts = []
-      var values = []
-      for (var i = 0; i < columnIds.length; i++) {
-        var n = parseFloat(parts[i])
-        values.push(isNaN(n) || n <= 0 ? defaultRatios[i] : n)
-      }
-      return values
+    function columnIndex(model, id) {
+      return model.ids.indexOf(id)
     }
 
-    function widthSetting(widths, ids) {
-      var values = currentRatioSetting()
+    function minWidth(model, index) {
+      var column = model.columns[index]
+      return column.fixed || column.min || 0
+    }
+
+    function widthSetting(model, widths, ids) {
+      var values = model.ratios(window.GoferSettings ? GoferSettings.get(model.widthsKey) : null)
       var total = 0
       for (var i = 0; i < widths.length; i++) {
-        if (!fixedWidths[ids[i]]) total += widths[i]
+        if (!model.columns[columnIndex(model, ids[i])].fixed) total += widths[i]
       }
       if (total <= 0) return values.join(",")
       for (var j = 0; j < ids.length; j++) {
-        var index = columnIds.indexOf(ids[j])
-        if (index !== -1 && !fixedWidths[ids[j]]) values[index] = widths[j] / total
+        var index = columnIndex(model, ids[j])
+        if (index !== -1 && !model.columns[index].fixed) values[index] = widths[j] / total
       }
       return values.map(function (value) { return value.toFixed(5) }).join(",")
     }
 
-    function currentWidths(header) {
+    function currentWidths(model, header) {
       var cells = header.querySelectorAll("[data-mail-table-column-id]")
       var widths = []
       var ids = []
       for (var i = 0; i < cells.length; i++) {
         if (cells[i].offsetParent === null) continue
         var id = cells[i].dataset.mailTableColumnId
-        var index = columnIds.indexOf(id)
+        var index = columnIndex(model, id)
         if (index === -1) continue
-        widths.push(clamp(Math.round(cells[i].getBoundingClientRect().width), index))
+        widths.push(Math.max(minWidth(model, index), Math.round(cells[i].getBoundingClientRect().width)))
         ids.push(id)
       }
       return widths.length > 1 ? { ids: ids, widths: widths } : null
-    }
-
-    function applyWidths(widths, ids, scroll) {
-      var value = widthSetting(widths, ids)
-      if (typeof window.applyMailTableColumnWidths === "function") {
-        window.applyMailTableColumnWidths(value, scroll)
-      } else if (scroll) {
-        scroll.style.setProperty("--mail-list-table-columns", widths.map(function (w) { return w + "px" }).join(" "))
-      }
     }
 
     document.body.addEventListener("pointerdown", function (e) {
       var handle = e.target.closest("[data-mail-table-resize]")
       if (!handle) return
       var header = handle.closest(".mail-list-table-header")
-      var scroll = header && header.closest("#mail-list-scroll")
-      if (!header || !scroll) return
+      var scroll = header && header.closest("#mail-list-scroll, #contacts-list-scroll")
+      var model = scroll && tableModel(scrollLists[scroll.id])
+      if (!header || !model) return
 
       e.preventDefault()
       e.stopPropagation()
 
-      var state = currentWidths(header)
+      var state = currentWidths(model, header)
       if (!state) return
       var cell = handle.closest("[data-mail-table-column-id]")
       var visibleIndex = cell ? state.ids.indexOf(cell.dataset.mailTableColumnId) : -1
       if (visibleIndex < 0 || visibleIndex >= state.widths.length - 1) return
-      if (fixedWidths[state.ids[visibleIndex]] || fixedWidths[state.ids[visibleIndex + 1]]) return
+      var leftIndex = columnIndex(model, state.ids[visibleIndex])
+      var rightIndex = columnIndex(model, state.ids[visibleIndex + 1])
+      if (model.columns[leftIndex].fixed || model.columns[rightIndex].fixed) return
 
       var startX = e.clientX
       var widths = state.widths.slice()
       var startLeft = widths[visibleIndex]
       var startRight = widths[visibleIndex + 1]
-      var leftIndex = columnIds.indexOf(state.ids[visibleIndex])
-      var rightIndex = columnIds.indexOf(state.ids[visibleIndex + 1])
       document.body.classList.add("mail-list-column-resizing")
       handle.setAttribute("data-resizing", "")
       if (handle.setPointerCapture) handle.setPointerCapture(e.pointerId)
 
       function onMove(moveEvent) {
         var delta = moveEvent.clientX - startX
-        var nextLeft = clamp(startLeft + delta, leftIndex)
+        var nextLeft = Math.max(minWidth(model, leftIndex), startLeft + delta)
         var consumed = nextLeft - startLeft
-        var nextRight = clamp(startRight - consumed, rightIndex)
+        var nextRight = Math.max(minWidth(model, rightIndex), startRight - consumed)
         if (nextRight !== startRight - consumed) {
-          nextLeft = clamp(startLeft + (startRight - nextRight), leftIndex)
+          nextLeft = Math.max(minWidth(model, leftIndex), startLeft + (startRight - nextRight))
         }
         widths[visibleIndex] = nextLeft
         widths[visibleIndex + 1] = nextRight
-        applyWidths(widths, state.ids, scroll)
+        model.applyWidths(widthSetting(model, widths, state.ids), scroll)
       }
 
       function onUp() {
@@ -10265,12 +10272,16 @@ document.addEventListener("DOMContentLoaded", function () {
         document.removeEventListener("pointerup", onUp)
         document.body.classList.remove("mail-list-column-resizing")
         handle.removeAttribute("data-resizing")
-        if (window.GoferSettings) GoferSettings.set("mail_table_column_widths", widthSetting(widths, state.ids))
+        if (window.GoferSettings) GoferSettings.set(model.widthsKey, widthSetting(model, widths, state.ids))
       }
 
       document.addEventListener("pointermove", onMove)
       document.addEventListener("pointerup", onUp)
     })
+
+    function menuModel(menu) {
+      return tableModel(menu.dataset.tableColumnsList || "mail")
+    }
 
     document.body.addEventListener("click", function (e) {
       var button = e.target.closest("[data-mail-list-display-menu-button]")
@@ -10284,8 +10295,9 @@ document.addEventListener("DOMContentLoaded", function () {
       var item = e.target.closest("[data-mail-table-column-item]")
       if (item) {
         var menuPanel = item.closest("[data-mail-table-column-menu]")
-        if (!menuPanel) return
-        var selected = typeof window.getMailTableColumns === "function" ? window.getMailTableColumns().slice() : columnIds.slice()
+        var model = menuPanel && menuModel(menuPanel)
+        if (!model) return
+        var selected = model.current().slice()
         var id = item.dataset.mailTableColumnItem
         var index = selected.indexOf(id)
         if (index === -1) {
@@ -10295,8 +10307,8 @@ document.addEventListener("DOMContentLoaded", function () {
         } else {
           return
         }
-        selected.sort(function (a, b) { return columnIds.indexOf(a) - columnIds.indexOf(b) })
-        if (window.GoferSettings) GoferSettings.set("mail_table_columns", selected.join(","))
+        selected.sort(function (a, b) { return columnIndex(model, a) - columnIndex(model, b) })
+        if (window.GoferSettings) GoferSettings.set(model.columnsKey, selected.join(","))
         var parentMenu = item.closest("[data-mail-list-display-menu]")
         if (parentMenu) syncDisplayMenu(parentMenu)
         else syncColumnMenu(menuPanel)
@@ -10309,10 +10321,12 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     function syncColumnMenu(menu) {
-      var selected = typeof window.getMailTableColumns === "function" ? window.getMailTableColumns() : columnIds
-      for (var i = 0; i < columnIds.length; i++) {
-        var check = menu.querySelector('[data-mail-table-column-check="' + columnIds[i] + '"]')
-        if (check) check.classList.toggle("opacity-0", selected.indexOf(columnIds[i]) === -1)
+      var model = menuModel(menu)
+      if (!model) return
+      var selected = model.current()
+      for (var i = 0; i < model.ids.length; i++) {
+        var check = menu.querySelector('[data-mail-table-column-check="' + model.ids[i] + '"]')
+        if (check) check.classList.toggle("opacity-0", selected.indexOf(model.ids[i]) === -1)
       }
     }
 

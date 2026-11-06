@@ -20,10 +20,17 @@ function mailCardRowRem() {
 }
 
 // Contact rows use one 4rem phone layout on small screens, in either view.
-function contactRowRem(viewMode) {
+// Cards are one or two lines beside the avatar, as many as the card layout
+// uses (.contact-card in input.css); two lines, the default, is 3.875rem.
+function contactRowRem(viewMode, lines) {
   if (window.matchMedia("(max-width: 1023.98px)").matches) return 4
-  // Cards are two lines beside the avatar (.contact-card in input.css).
-  return viewMode === "table" ? 2.75 : 3.875
+  if (viewMode === "table") return 2.75
+  return lines === 1 ? 3.125 : 3.875
+}
+
+// How many lines the contact card layout uses (ui-settings.js).
+function contactCardLineCount() {
+  return window.GoferListLayouts ? window.GoferListLayouts.contactCardLines() : 2
 }
 
 // Slides entering rows into place from JavaScript, one whole pixel at a time.
@@ -3111,7 +3118,8 @@ class VirtualContactsList {
   constructor(container, options) {
     this.container = container
     this.viewMode = options.viewMode || container.dataset.viewMode || "cards"
-    this.itemHeight = listRemPx(contactRowRem(this.viewMode))
+    this.contactCardLines = contactCardLineCount()
+    this.itemHeight = listRemPx(contactRowRem(this.viewMode, this.contactCardLines))
     this.overscan = 10
     this.chunkSize = 100
     this.loadingSkeletonMinDuration = 180
@@ -3207,7 +3215,9 @@ class VirtualContactsList {
   // text size differs), so they are worked out again when it crosses the breakpoint.
   refreshRowMetrics() {
     var anchor = Math.floor(this.container.scrollTop / Math.max(1, this.itemHeight))
-    this.itemHeight = listRemPx(contactRowRem(this.viewMode))
+    this.contactCardLines = contactCardLineCount()
+    this.itemHeight = listRemPx(contactRowRem(this.viewMode, this.contactCardLines))
+    if (this.itemsContainer) this.itemsContainer.style.height = this.totalHeight() + "px"
     this.container.scrollTop = anchor * this.itemHeight
     // The visible range may be unchanged; the rows still need placing at the new size.
     this.prevFirst = null
@@ -3217,8 +3227,11 @@ class VirtualContactsList {
 
   setViewMode(viewMode, keepRows) {
     this.viewMode = viewMode === "table" ? "table" : "cards"
-    this.itemHeight = listRemPx(contactRowRem(this.viewMode))
+    this.contactCardLines = contactCardLineCount()
+    this.itemHeight = listRemPx(contactRowRem(this.viewMode, this.contactCardLines))
     this.container.dataset.viewMode = this.viewMode
+    if (typeof window.applyContactCardLayoutSettings === "function") window.applyContactCardLayoutSettings(this.container)
+    if (typeof window.applyContactTableColumnSettings === "function") window.applyContactTableColumnSettings(this.container)
     var shell = document.querySelector("[data-contact-list-shell]") || document.getElementById("mail-list")
     if (shell) shell.dataset.viewMode = this.viewMode
     this.renderTableHeader()
@@ -3252,22 +3265,19 @@ class VirtualContactsList {
     var existing = this.container.querySelector(".mail-list-table-header")
     if (existing) existing.remove()
     if (this.viewMode !== "table") return
-    var header = document.createElement("div")
-    header.className = "mail-list-table-header mail-list-table-grid grid items-center gap-3 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground bg-card/95 border-b border-border/70 sticky top-0 z-20 backdrop-blur-sm"
-    header.style.cssText = this.tableGridStyle()
+    // The server draws the header with every column (ContactListTableHeader);
+    // the list hides the ones the user leaves out.
+    var template = document.querySelector("template[data-contact-table-header-template]")
+    var header = template && template.content.firstElementChild ? template.content.firstElementChild.cloneNode(true) : null
+    if (!header) return
     header.style.opacity = "0"
     header.style.transform = "translateY(-4px)"
     header.style.transition = "opacity 140ms ease-out, transform 140ms ease-out"
-    header.innerHTML = '<div class="mail-list-table-heading">' + goferT("js.contacts.column.name") + '</div><div class="mail-list-table-heading">' + goferT("js.contacts.column.stored_in") + '</div><div class="mail-list-table-heading min-w-12 text-right">' + goferT("js.contacts.column.messages") + '</div>'
     this.container.insertBefore(header, this.spacerTop || this.container.firstChild)
     requestAnimationFrame(function () {
       header.style.opacity = "1"
       header.style.transform = "translateY(0)"
     })
-  }
-
-  tableGridStyle() {
-    return "--mail-list-table-columns:minmax(10rem,1.4fr) minmax(8rem,0.9fr) minmax(3.5rem,auto)"
   }
 
   render() {
@@ -3373,6 +3383,7 @@ class VirtualContactsList {
       return
     }
     shell.innerHTML = item.html
+    if (this.viewMode !== "table" && typeof window.applyContactCardLayoutSettings === "function") window.applyContactCardLayoutSettings(shell)
     if (typeof htmx !== "undefined" && htmx.process) htmx.process(shell)
     // Rows are redrawn from cached HTML; app.js marks the selected ones again.
     if (typeof window.markContactRowsSelected === "function") window.markContactRowsSelected(shell)
@@ -3391,7 +3402,11 @@ class VirtualContactsList {
 
   createSkeleton() {
     if (this.viewMode === "table") {
-      return '<div class="mail-list-skeleton mail-list-table-skeleton"><div class="mail-list-table-grid grid items-center gap-3 w-full px-3 py-1.5" style="' + this.tableGridStyle() + '"><div class="h-3 w-32 rounded bg-muted animate-pulse"></div><div class="h-3 w-24 rounded bg-muted animate-pulse"></div><div class="ml-auto h-3 w-8 rounded bg-muted animate-pulse"></div></div></div>'
+      var ids = window.GoferListLayouts ? window.GoferListLayouts.contacts.table.ids : ["name"]
+      var cells = ids.map(function (id) {
+        return '<div data-mail-table-cell="' + id + '"><div class="h-3 ' + (id === "messages" ? "ml-auto w-8" : "w-3/4") + ' rounded bg-muted animate-pulse"></div></div>'
+      }).join("")
+      return '<div class="mail-list-skeleton mail-list-table-skeleton"><div class="mail-list-table-grid grid items-center gap-3 w-full px-3 py-1.5">' + cells + '</div></div>'
     }
     return '<div class="mail-list-skeleton"><div class="flex items-center gap-3 px-3.5 py-1.5"><div class="size-8 rounded-full bg-muted animate-pulse"></div><div class="flex-1 min-w-0 space-y-1.5"><div class="h-3 w-28 rounded bg-muted animate-pulse"></div><div class="h-3 w-40 rounded bg-muted animate-pulse"></div></div></div></div>'
   }

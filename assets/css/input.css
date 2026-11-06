@@ -1840,12 +1840,18 @@ html[data-theme="classic"] .mail-list-search-input-wrap {
   border-bottom: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
 }
 
-/* Contact cards are two lines (.contact-card); contactRowRem() in
-   virtual-scroll.js spaces the rows the same. */
+/* Contact cards are as many lines as their layout uses, two by default
+   (.contact-card, data-contact-card-lines from ui-settings.js);
+   contactRowRem() in virtual-scroll.js spaces the rows the same. */
 #contacts-list-scroll:not([data-view-mode="table"]) .mail-list-item {
-  height: 3.875rem;
-  min-height: 3.875rem;
-  max-height: 3.875rem;
+  --contact-card-item: 3.875rem;
+  height: var(--contact-card-item);
+  min-height: var(--contact-card-item);
+  max-height: var(--contact-card-item);
+}
+
+#contacts-list-scroll[data-contact-card-lines="1"]:not([data-view-mode="table"]) .mail-list-item {
+  --contact-card-item: 3.125rem;
 }
 
 [data-view-mode="table"] .mail-list-item > a {
@@ -2142,20 +2148,28 @@ html:not([data-theme="express"]) [data-view-mode="table"] .mail-list-item > a {
 }
 
 #mail-list[data-mail-list-view="cards"] [data-mail-table-column-trigger-wrapper],
-#mail-list[data-mail-list-view="table"] [data-mail-card-layout-trigger-wrapper] {
+#mail-list[data-mail-list-view="table"] [data-mail-card-layout-trigger-wrapper],
+#mail-list[data-contact-list-shell]:not([data-view-mode="table"]) [data-mail-table-column-trigger-wrapper],
+#mail-list[data-contact-list-shell][data-view-mode="table"] [data-mail-card-layout-trigger-wrapper] {
   display: none;
 }
 
+/* Each side of the card is a column of icon spots, up to three on the right.
+   A side zone takes one spot per icon it holds, from the outer edge in, and
+   its line ends where they begin, so a line takes back every spot its own
+   zone leaves free. Spots no zone uses take no room: the columns have no gap
+   between them, and zones keep apart with margins (--card-gap) instead. */
 .mail-list-card {
+  --card-gap: 0.75rem;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) repeat(3, auto);
   grid-template-rows: minmax(1.25rem, auto) minmax(1rem, 1fr) minmax(1rem, 1fr) minmax(1.25rem, auto);
   grid-template-areas:
-    "railTop header meta"
-    "railMiddle body status"
-    "railMiddle bodyBottom status"
-    "railBottom footer corner";
-  column-gap: 0.75rem;
+    "railTop header meta meta meta"
+    "railMiddle body status status status"
+    "railMiddle bodyBottom status status status"
+    "railBottom footer corner corner corner";
+  column-gap: 0;
   row-gap: 0.25rem;
   align-items: stretch;
   min-height: 6.6875rem;
@@ -2186,9 +2200,40 @@ html:not([data-theme="express"]) [data-view-mode="table"] .mail-list-item > a {
 .mail-list-card-zone-rail-bottom {
   width: 1.75rem;
   min-width: 1.75rem;
+  margin-inline-end: var(--card-gap);
   justify-content: center;
   align-self: stretch;
   gap: 0;
+}
+
+.mail-list-card > :is(.mail-list-card-zone-meta, .mail-list-card-zone-status, .mail-list-card-zone-corner) {
+  margin-inline-start: var(--card-gap);
+  grid-column-start: -2;
+}
+
+.mail-list-card > :is(.mail-list-card-zone-meta, .mail-list-card-zone-status, .mail-list-card-zone-corner):has(> :nth-child(2)) {
+  grid-column-start: -3;
+}
+
+.mail-list-card > :is(.mail-list-card-zone-meta, .mail-list-card-zone-status, .mail-list-card-zone-corner):has(> :nth-child(3)) {
+  grid-column-start: -4;
+}
+
+/* Each line ends where its side zone's spots begin. */
+.mail-list-card > :is(.mail-list-card-zone-header, .mail-list-card-zone-body, .mail-list-card-zone-body-bottom, .mail-list-card-zone-footer) {
+  grid-column-end: -2;
+}
+
+.mail-list-card:has(> .mail-list-card-zone-meta > :nth-child(2)) > .mail-list-card-zone-header,
+.mail-list-card:has(> .mail-list-card-zone-status > :nth-child(2)) > :is(.mail-list-card-zone-body, .mail-list-card-zone-body-bottom),
+.mail-list-card:has(> .mail-list-card-zone-corner > :nth-child(2)) > .mail-list-card-zone-footer {
+  grid-column-end: -3;
+}
+
+.mail-list-card:has(> .mail-list-card-zone-meta > :nth-child(3)) > .mail-list-card-zone-header,
+.mail-list-card:has(> .mail-list-card-zone-status > :nth-child(3)) > :is(.mail-list-card-zone-body, .mail-list-card-zone-body-bottom),
+.mail-list-card:has(> .mail-list-card-zone-corner > :nth-child(3)) > .mail-list-card-zone-footer {
+  grid-column-end: -4;
 }
 
 .mail-list-card-zone-rail-top {
@@ -2210,7 +2255,7 @@ html:not([data-theme="express"]) [data-view-mode="table"] .mail-list-item > a {
 
 .mail-list-card:not(.mail-card-layout-preview-card, .contact-card):not(:has(> .mail-list-card-zone-meta > :not(.mail-list-card-empty-icon-slot))) .mail-list-card-zone-header,
 .mail-card-layout-preview-card:has(> .mail-list-card-zone-meta:empty:not([data-mail-card-layout-slot-state="accepts"])) .mail-list-card-zone-header {
-  grid-column-end: 4;
+  grid-column-end: -1;
 }
 
 /* Likewise over the left rail's slot on this row when it is empty. */
@@ -2275,7 +2320,7 @@ html:not([data-theme="express"]) [data-view-mode="table"] .mail-list-item > a {
 
 .mail-list-card:not(.mail-card-layout-preview-card, .contact-card):not(:has(> .mail-list-card-zone-status > :not(.mail-list-card-empty-icon-slot))) :is(.mail-list-card-zone-body, .mail-list-card-zone-body-bottom),
 .mail-card-layout-preview-card:has(> .mail-list-card-zone-status:empty:not([data-mail-card-layout-slot-state="accepts"])) :is(.mail-list-card-zone-body, .mail-list-card-zone-body-bottom) {
-  grid-column-end: 4;
+  grid-column-end: -1;
 }
 
 /* Likewise over the left rail's slot on this row when it is empty. */
@@ -2289,19 +2334,153 @@ html:not([data-theme="express"]) [data-view-mode="table"] .mail-list-item > a {
   gap: 0.3125rem;
 }
 
-/* A contact card is two lines beside its avatar: the name, organization and
-   message count, then the address, account markers and date. Its row height
+/* A contact card is one or two lines beside its avatar: by default the name
+   and organization with the message count, then the address, main location
+   and date. Each line is its own row (.contact-card-line): its text, then its
+   icon slot as wide as its own icons, so the text ends right where they
+   start, line by line. A line with nothing in it is left out. The row height
    is contactRowRem() in virtual-scroll.js; phones lay it out on their own. */
 .mail-list-card.contact-card {
   grid-template-columns: auto minmax(0, 1fr);
   grid-template-rows: auto auto;
-  grid-template-areas:
-    "railTop header"
-    "railTop body";
+  grid-template-areas: none;
   align-content: center;
   row-gap: 0.125rem;
-  min-height: 3.5rem;
+  min-height: 2.75rem;
   padding-block: 0.375rem;
+}
+
+.contact-card > .mail-list-card-zone-rail-top {
+  grid-column: 1;
+  grid-row: 1 / span 2;
+}
+
+.contact-card-line {
+  grid-column: 2;
+  display: flex;
+  align-items: center;
+  gap: var(--card-gap);
+  min-width: 0;
+}
+
+.contact-card-line[data-contact-card-line="1"] {
+  grid-row: 1;
+}
+
+.contact-card-line[data-contact-card-line="2"] {
+  grid-row: 2;
+}
+
+.contact-card:not(.mail-card-layout-preview-card) > .contact-card-line:not(:has(> .mail-list-card-zone > *)) {
+  display: none;
+}
+
+/* Without the avatar, the lines take its room too. */
+.contact-card:not(.mail-card-layout-preview-card):not(:has(> .mail-list-card-zone-rail-top > *)) > .contact-card-line,
+.mail-card-layout-preview-card.contact-card:has(> .mail-list-card-zone-rail-top:empty:not([data-mail-card-layout-slot-state="accepts"])) > .contact-card-line {
+  grid-column: 1 / -1;
+}
+
+/* A line's start text takes the room; its end text is as wide as it needs,
+   shrinking only once the start has nothing left to give, and stays at the
+   end when the start is empty. */
+.contact-card-line > :is(.mail-list-card-zone-header, .mail-list-card-zone-body) {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.contact-card-line > :is(.mail-list-card-zone-header-end, .mail-list-card-zone-body-end) {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-inline-start: auto;
+  justify-content: flex-end;
+}
+
+/* In the editor a line's text is one box (.contact-card-text) holding its
+   start and end zones: the box looks like any other zone, the zones in it
+   are plain, and the drop spot shows which end a field will join. */
+.contact-card-text {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+  min-height: 2.125rem;
+  padding: 0.5rem 0.625rem;
+  border-radius: calc(var(--radius) - 2px);
+  outline: 1px dashed transparent;
+  outline-offset: 2px;
+  background: color-mix(in srgb, var(--color-background) 34%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-border) 30%, transparent);
+  transition: background-color 0.15s ease, box-shadow 0.15s ease, outline-color 0.15s ease;
+}
+
+.contact-card-text > :is(.mail-list-card-zone-header, .mail-list-card-zone-body) {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.contact-card-text > :is(.mail-list-card-zone-header-end, .mail-list-card-zone-body-end) {
+  flex: 0 1 auto;
+  min-width: 0;
+  justify-content: flex-end;
+}
+
+.mail-card-layout-preview-card .contact-card-text > [data-mail-card-layout-zone-items].mail-list-card-zone {
+  min-height: 0;
+  padding: 0;
+  outline: none;
+  background: none;
+  box-shadow: none;
+}
+
+.mail-card-layout-preview-card .contact-card-text > [data-mail-card-layout-zone-items]:empty {
+  min-width: 0;
+}
+
+.mail-card-layout-drag-active .mail-card-layout-preview-card .contact-card-text > [data-mail-card-layout-zone-items]:empty::before {
+  content: none;
+}
+
+.mail-card-layout-drag-active .contact-card-text:has(> [data-mail-card-layout-slot-state="accepts"]) {
+  outline: 1.5px dashed color-mix(in srgb, var(--color-primary) 55%, transparent);
+  background: color-mix(in srgb, var(--color-primary) 5%, transparent);
+}
+
+.mail-card-layout-drag-active .contact-card-text:has(> [data-mail-card-layout-slot-state="denied"]) {
+  opacity: 0.35;
+}
+
+.mail-card-layout-drag-active .contact-card-text:has(> .mail-card-layout-dropzone-active) {
+  outline-style: solid;
+  outline-width: 2px;
+  outline-color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+}
+
+.mail-card-layout-drag-active .contact-card-text > [data-mail-card-layout-slot-state="denied"] {
+  opacity: 1;
+}
+
+.contact-card-line > :is(.mail-list-card-zone-meta, .mail-list-card-zone-status) {
+  flex: 0 0 auto;
+}
+
+/* A flipped card puts the avatar on the right and the icon slots on the
+   left: the card and its lines run right to left, each zone left to right. */
+.contact-card[data-contact-card-mirrored],
+.contact-card[data-contact-card-mirrored] > .contact-card-line {
+  direction: rtl;
+}
+
+.contact-card[data-contact-card-mirrored] .mail-list-card-zone {
+  direction: ltr;
+}
+
+/* The editor shows both lines, for fields to be dropped on either, and the
+   avatar's slot as tall as the two, as on the card. */
+.mail-card-layout-preview-card.contact-card > .mail-list-card-zone-rail-top {
+  align-self: stretch;
 }
 
 .contact-card .mail-list-card-zone-rail-top {
@@ -2310,15 +2489,81 @@ html:not([data-theme="express"]) [data-view-mode="table"] .mail-list-item > a {
   align-self: center;
 }
 
-.contact-card .mail-list-card-zone-header {
-  align-items: center;
-}
-
-.contact-card .mail-list-card-zone-body {
+.contact-card :is(.mail-list-card-zone-header, .mail-list-card-zone-header-end, .mail-list-card-zone-body, .mail-list-card-zone-body-end) {
   flex-direction: row;
   align-items: center;
   justify-content: flex-start;
   gap: 0.5rem;
+}
+
+/* Text fields take what they need and cut off with "…"; the main location
+   and date sit at the end of their line. The organization reads as part of
+   the name when it follows it. */
+.contact-card .mail-list-card-zone > :is([data-mail-card-field="name"], [data-mail-card-field="organization"], [data-mail-card-field="title"], [data-mail-card-field="email"], [data-mail-card-field="phone"], [data-mail-card-field="notes"]) {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.contact-card .mail-list-card-zone > :is([data-mail-card-field="home"], [data-mail-card-field="date"]) {
+  flex: 0 0 auto;
+}
+
+.contact-card .mail-list-card-zone > [data-mail-card-field="home"] {
+  flex-shrink: 1;
+  min-width: 0;
+}
+
+.contact-card .mail-list-card-zone > [data-mail-card-field="name"] + [data-mail-card-field="organization"] {
+  margin-left: -0.25rem;
+}
+
+.contact-card .mail-list-card-zone > [data-mail-card-field="name"] + [data-mail-card-field="organization"]::before {
+  content: "· ";
+}
+
+/* In the editor each field is its own token, the organization too. */
+.mail-card-layout-preview-card.contact-card .mail-card-layout-preview-token[data-mail-card-field="name"] + [data-mail-card-field="organization"] {
+  margin-left: 0;
+}
+
+.mail-card-layout-preview-card.contact-card .mail-card-layout-preview-token[data-mail-card-field="name"] + [data-mail-card-field="organization"]::before {
+  content: none;
+}
+
+.mail-card-layout-preview-card .mail-card-layout-preview-token[data-mail-card-field="sync"] {
+  width: 1.75rem;
+  justify-content: center;
+  padding-inline: 0;
+}
+
+.mail-card-layout-preview-card .mail-card-layout-preview-token[data-mail-card-field="messages"] {
+  min-width: 1.75rem;
+  justify-content: center;
+  gap: 0.1875rem;
+}
+
+/* The avatar is as tall as the card's two lines, as in the list, so the
+   editor's taller lines get a larger one. */
+.mail-card-layout-preview-card.contact-card > .mail-list-card-zone-rail-top[data-mail-card-layout-zone-items] {
+  min-width: 4.5rem;
+  padding: 0.25rem;
+}
+
+.mail-card-layout-preview-card.contact-card .mail-card-layout-preview-token[data-mail-card-field="avatar"] {
+  width: 3.875rem;
+  height: 3.875rem;
+  padding: 0.125rem;
+  border-radius: 9999px;
+}
+
+.mail-card-layout-preview-card.contact-card [data-mail-card-field="avatar"] > span,
+.mail-card-layout-drag-layer [data-mail-card-field="avatar"] > span.size-8 {
+  width: 100%;
+  height: 100%;
+  font-size: 1.125rem;
 }
 
 /* Field widths follow one rule wherever a field sits. Every center zone is a
@@ -2330,16 +2575,6 @@ html:not([data-theme="express"]) [data-view-mode="table"] .mail-list-item > a {
 .mail-list-card :is(.mail-list-card-zone-header, .mail-list-card-zone-footer) > :is([data-mail-card-field="from"], [data-mail-card-field="to"], [data-mail-card-field="cc"], [data-mail-card-field="subject"], [data-mail-card-field="preview"]),
 .mail-list-card:not(.contact-card) :is(.mail-list-card-zone-body, .mail-list-card-zone-body-bottom) > :is([data-mail-card-field="from"], [data-mail-card-field="to"], [data-mail-card-field="cc"], [data-mail-card-field="subject"], [data-mail-card-field="preview"]) {
   flex: 1 1 0;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* Contact cards reuse the card zones but lay out their second line themselves:
-   the address takes the space, the source and date sit at the end. */
-.contact-card .mail-list-card-zone-body > :is([data-mail-card-field="from"], [data-mail-card-field="to"], [data-mail-card-field="subject"], [data-mail-card-field="preview"]) {
-  align-self: stretch;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2374,7 +2609,7 @@ html:not([data-theme="express"]) [data-view-mode="table"] .mail-list-item > a {
 
 .mail-list-card:not(.mail-card-layout-preview-card, .contact-card):not(:has(> .mail-list-card-zone-corner > :not(.mail-list-card-empty-icon-slot))) .mail-list-card-zone-footer,
 .mail-card-layout-preview-card:has(> .mail-list-card-zone-corner:empty:not([data-mail-card-layout-slot-state="accepts"])) .mail-list-card-zone-footer {
-  grid-column-end: 4;
+  grid-column-end: -1;
 }
 
 /* Likewise over the left rail's slot on this row when it is empty. */
@@ -2515,8 +2750,9 @@ html:not([data-theme="express"]) [data-view-mode="table"] .mail-list-item > a {
 /* The editor's card is roomier than a list card, so fields and the gaps
    between zones are easy to hit. */
 .mail-card-layout-preview-card.mail-card-layout-preview-card {
+  --card-gap: 0.375rem;
   padding: 1rem 1.125rem;
-  column-gap: 0.375rem;
+  column-gap: 0;
   row-gap: 0.375rem;
 }
 
@@ -2551,7 +2787,9 @@ html:not([data-theme="express"]) [data-view-mode="table"] .mail-list-item > a {
 .mail-card-layout-preview-card .mail-list-card-zone-meta[data-mail-card-layout-zone-items],
 .mail-card-layout-preview-card .mail-list-card-zone-status[data-mail-card-layout-zone-items],
 .mail-card-layout-preview-card .mail-list-card-zone-corner[data-mail-card-layout-zone-items] {
-  min-width: 5.5rem;
+  /* One spot: an icon field and the zone's padding. */
+  min-width: 3rem;
+  justify-content: flex-end;
 }
 
 /* While dragging: zones that take the field show a dashed outline (and a +
@@ -2878,6 +3116,64 @@ html:not([data-theme="express"]) [data-view-mode="table"] .mail-list-item > a {
 
 #mail-list-scroll[data-mail-card-hidden~="from"] .mail-list-card-account {
   max-width: 100%;
+}
+
+/* The contacts list hides the card fields and table columns the user leaves
+   out (ui-settings.js); until it has said which, the ones hidden by default. */
+#contacts-list-scroll:not([data-contact-card-hidden]) :is([data-mail-card-field="title"], [data-mail-card-field="phone"], [data-mail-card-field="notes"], [data-mail-card-field="sync"]),
+#contacts-list-scroll[data-contact-card-hidden~="avatar"] [data-mail-card-field="avatar"],
+#contacts-list-scroll[data-contact-card-hidden~="name"] [data-mail-card-field="name"],
+#contacts-list-scroll[data-contact-card-hidden~="organization"] [data-mail-card-field="organization"],
+#contacts-list-scroll[data-contact-card-hidden~="title"] [data-mail-card-field="title"],
+#contacts-list-scroll[data-contact-card-hidden~="email"] [data-mail-card-field="email"],
+#contacts-list-scroll[data-contact-card-hidden~="phone"] [data-mail-card-field="phone"],
+#contacts-list-scroll[data-contact-card-hidden~="home"] [data-mail-card-field="home"],
+#contacts-list-scroll[data-contact-card-hidden~="date"] [data-mail-card-field="date"],
+#contacts-list-scroll[data-contact-card-hidden~="messages"] [data-mail-card-field="messages"],
+#contacts-list-scroll[data-contact-card-hidden~="notes"] [data-mail-card-field="notes"],
+#contacts-list-scroll[data-contact-card-hidden~="sync"] [data-mail-card-field="sync"] {
+  display: none !important;
+}
+
+#contacts-list-scroll:not([data-mail-table-columns]) :is([data-mail-table-cell="organization"], [data-mail-table-cell="title"], [data-mail-table-cell="phone"], [data-mail-table-cell="date"], [data-mail-table-cell="notes"], [data-mail-table-cell="sync"]),
+#contacts-list-scroll[data-mail-table-hidden~="name"] [data-mail-table-cell="name"],
+#contacts-list-scroll[data-mail-table-hidden~="organization"] [data-mail-table-cell="organization"],
+#contacts-list-scroll[data-mail-table-hidden~="title"] [data-mail-table-cell="title"],
+#contacts-list-scroll[data-mail-table-hidden~="email"] [data-mail-table-cell="email"],
+#contacts-list-scroll[data-mail-table-hidden~="phone"] [data-mail-table-cell="phone"],
+#contacts-list-scroll[data-mail-table-hidden~="home"] [data-mail-table-cell="home"],
+#contacts-list-scroll[data-mail-table-hidden~="messages"] [data-mail-table-cell="messages"],
+#contacts-list-scroll[data-mail-table-hidden~="date"] [data-mail-table-cell="date"],
+#contacts-list-scroll[data-mail-table-hidden~="notes"] [data-mail-table-cell="notes"],
+#contacts-list-scroll[data-mail-table-hidden~="sync"] [data-mail-table-cell="sync"] {
+  display: none;
+}
+
+/* A contact without an address shows its phone in the address's place,
+   unless the phone is shown on its own. */
+#contacts-list-scroll:not([data-view-mode="table"]):not([data-contact-card-hidden~="phone"]) [data-contact-phone-fallback],
+#contacts-list-scroll[data-view-mode="table"]:not([data-mail-table-hidden~="phone"]) [data-contact-phone-fallback] {
+  display: none;
+}
+
+/* The columns before ui-settings.js gives the chosen ones: the default
+   Name, Email, Main location and Messages. */
+#contacts-list-scroll {
+  --mail-list-table-columns: minmax(100px, 0.341fr) minmax(90px, 0.341fr) minmax(64px, 0.227fr) minmax(56px, 0.091fr);
+  /* Columns past the list's width are cut off, the header with the rows,
+     rather than scrolling the header alone sideways. */
+  overflow-x: hidden;
+}
+
+#contacts-list-scroll .mail-list-table-heading {
+  min-width: 0;
+}
+
+#contacts-list-scroll .mail-list-table-heading > [data-contact-column-label] {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .mail-list-column-resize {
@@ -5595,6 +5891,8 @@ body.mail-list-column-resizing {
   }
 
   #mail-list[data-contact-list-shell] .mail-list-item > a.contact-list-item {
+    /* Phones keep their own layout, flipped cards too. */
+    direction: ltr;
     display: grid;
     grid-template-columns: 2.5rem minmax(0, 1fr);
     grid-template-rows: auto auto;
@@ -5619,14 +5917,22 @@ body.mail-list-column-resizing {
     box-shadow: none;
   }
 
-  /* Cards view markup */
-  #mail-list[data-contact-list-shell] a.contact-list-item > .mail-list-card-zone {
+  /* Cards view markup: whatever the card layout, a phone shows the avatar,
+     the name and the address (or the phone, for a contact without one). */
+  #mail-list[data-contact-list-shell] a.contact-list-item > .mail-list-card-zone,
+  #mail-list[data-contact-list-shell] a.contact-list-item > .contact-card-line,
+  #mail-list[data-contact-list-shell] a.contact-list-item > .contact-card-line > .mail-list-card-zone {
     display: contents;
   }
 
-  #mail-list[data-contact-list-shell] a.contact-list-item [data-mail-card-field="date"],
-  #mail-list[data-contact-list-shell] a.contact-list-item [data-mail-card-field="preview"] {
-    display: none;
+  #mail-list[data-contact-list-shell] a.contact-list-item [data-mail-card-field]:not([data-mail-card-field="avatar"], [data-mail-card-field="name"], [data-mail-card-field="email"]) {
+    display: none !important;
+  }
+
+  #mail-list[data-contact-list-shell] a.contact-list-item :is([data-mail-card-field="avatar"], [data-mail-card-field="name"], [data-mail-card-field="email"]),
+  #mail-list[data-contact-list-shell] a.contact-list-item [data-contact-phone-fallback],
+  #mail-list[data-contact-list-shell] a.contact-list-item.mail-list-table-grid :is([data-mail-table-cell="name"], [data-mail-table-cell="email"]) {
+    display: revert !important;
   }
 
   #mail-list[data-contact-list-shell] a.contact-list-item [data-mail-card-field="avatar"] {
@@ -5635,40 +5941,47 @@ body.mail-list-column-resizing {
     align-self: center;
   }
 
-  /* Table view markup: keep the name cell, drop origin and message count. */
-  #mail-list[data-contact-list-shell] a.contact-list-item.mail-list-table-grid > div:first-child {
-    display: contents;
+  /* Table view markup: the name cell's avatar and name, and the address
+     under the name; the other columns are left out. */
+  #mail-list[data-contact-list-shell] a.contact-list-item.mail-list-table-grid > [data-mail-table-cell="name"] {
+    display: contents !important;
   }
 
-  #mail-list[data-contact-list-shell] a.contact-list-item.mail-list-table-grid > div:not(:first-child) {
-    display: none;
+  #mail-list[data-contact-list-shell] a.contact-list-item.mail-list-table-grid > [data-mail-table-cell]:not([data-mail-table-cell="name"], [data-mail-table-cell="email"]) {
+    display: none !important;
   }
 
-  #mail-list[data-contact-list-shell] a.contact-list-item.mail-list-table-grid > div:first-child > div:first-child {
+  #mail-list[data-contact-list-shell] a.contact-list-item.mail-list-table-grid [data-contact-table-avatar] {
     grid-column: 1;
     grid-row: 1 / span 2;
     width: auto;
   }
 
-  #mail-list[data-contact-list-shell] a.contact-list-item.mail-list-table-grid > div:first-child > div:last-child {
+  #mail-list[data-contact-list-shell] a.contact-list-item.mail-list-table-grid > [data-mail-table-cell="name"] > div:last-child {
     grid-column: 2;
-    grid-row: 1 / span 2;
-    align-self: center;
+    grid-row: 1;
+    align-self: end;
+  }
+
+  #mail-list[data-contact-list-shell] a.contact-list-item.mail-list-table-grid > [data-mail-table-cell="email"] {
+    grid-column: 2;
+    grid-row: 2;
+    align-self: start;
   }
 
   #mail-list[data-contact-list-shell] a.contact-list-item [data-mail-card-field="avatar"] > *,
-  #mail-list[data-contact-list-shell] a.contact-list-item.mail-list-table-grid > div:first-child > div:first-child > * {
+  #mail-list[data-contact-list-shell] a.contact-list-item.mail-list-table-grid [data-contact-table-avatar] > * {
     width: 2.5rem;
     height: 2.5rem;
     font-size: 0.875rem;
   }
 
-  #mail-list[data-contact-list-shell] a.contact-list-item [data-mail-card-field="from"] {
+  #mail-list[data-contact-list-shell] a.contact-list-item [data-mail-card-field="name"] {
     grid-column: 2;
     grid-row: 1;
   }
 
-  #mail-list[data-contact-list-shell] a.contact-list-item [data-mail-card-field="subject"] {
+  #mail-list[data-contact-list-shell] a.contact-list-item [data-mail-card-field="email"] {
     grid-column: 2;
     grid-row: 2;
   }

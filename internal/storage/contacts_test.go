@@ -1247,3 +1247,31 @@ func TestFormatContactTimeReadsEveryStoredForm(t *testing.T) {
 		}
 	}
 }
+
+// The list rows carry the organization, job title, notes and whether Gofer
+// Sync is on, for the card layouts and table columns that show them.
+func TestListContactsHaveWorkNotesAndSync(t *testing.T) {
+	ctx := context.Background()
+	db := newContactsTestDB(t)
+	if _, err := db.SaveContact(ctx, "default", models.Contact{Name: "Wren Hale", Email: "wren@example.com", Organization: "Hale Works", Title: "Curator", Notes: "Owes a book", GoferSyncEnabled: true, SaveTargets: []string{"local"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.SaveContact(ctx, "default", models.Contact{Name: "Odo Pike", Email: "odo@example.com"}); err != nil {
+		t.Fatal(err)
+	}
+	contacts, err := db.ListContacts(ctx, "default", models.ContactFilters{SortBy: "name", SortOrder: "asc"}, 10, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string][4]string{}
+	for _, contact := range contacts {
+		synced := "false"
+		if contact.GoferSyncEnabled {
+			synced = "true"
+		}
+		got[contact.Name] = [4]string{contact.Organization, contact.Title, contact.Notes, synced}
+	}
+	if got["Wren Hale"] != [4]string{"Hale Works", "Curator", "Owes a book", "true"} || got["Odo Pike"] != [4]string{"", "", "", "false"} {
+		t.Fatalf("list rows = %v", got)
+	}
+}
