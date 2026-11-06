@@ -2147,6 +2147,14 @@ html:not([data-theme="express"]) [data-view-mode="table"] .mail-list-item > a {
   min-width: 0;
 }
 
+/* The card layout and column buttons sit centered in the view capsule, as
+   the Cards/Table switch does; as plain blocks they were a text line tall,
+   with the button at its top. */
+:is([data-mail-list-view-capsule], [data-contact-list-view-capsule]) > :is([data-mail-card-layout-trigger-wrapper], [data-mail-table-column-trigger-wrapper]) {
+  display: flex;
+  align-items: center;
+}
+
 #mail-list[data-mail-list-view="cards"] [data-mail-table-column-trigger-wrapper],
 #mail-list[data-mail-list-view="table"] [data-mail-card-layout-trigger-wrapper],
 #mail-list[data-contact-list-shell]:not([data-view-mode="table"]) [data-mail-table-column-trigger-wrapper],
