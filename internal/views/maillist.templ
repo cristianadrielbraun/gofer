@@ -1065,7 +1065,7 @@ templ MailCardLayoutDialog() {
 				@mailListDate(i18n.T(ctx, "date.yesterday"), i18n.T(ctx, "date.pattern.date_time", "date", i18n.T(ctx, "date.yesterday"), "time", i18n.Dates(ctx).ClockTime(10, 42)))
 			</span>
 			<span data-mail-card-field="account" class="inline-flex min-w-0">
-				<span class="mail-list-card-account inline-flex min-w-0 items-center gap-1 rounded-full border border-border/70 bg-background/40 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+				<span class="mail-list-card-account inline-flex min-w-0 items-center gap-1 rounded-lg border border-border/70 bg-background/40 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
 					<span class="mail-list-card-account-marker account-color-marker size-2 shrink-0 bg-primary"></span>
 					<span class="truncate">{ i18n.T(ctx, "mail.card_layout.sample_account") }</span>
 				</span>
@@ -1286,7 +1286,7 @@ templ MailListCardItem(accounts []models.Account, email models.Email, position i
 				>
 					@mailListDate(email.Date, email.DateWithTime)
 				</span>
-				<span data-mail-card-field="account" class="mail-list-card-account inline-flex min-w-0 max-w-[42%] items-center gap-1 rounded-full border border-border/70 bg-background/40 px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">
+				<span data-mail-card-field="account" class="mail-list-card-account inline-flex min-w-0 max-w-[42%] items-center gap-1 rounded-lg border border-border/70 bg-background/40 px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">
 					<span class="mail-list-card-account-marker account-color-marker size-2 shrink-0" style={ accountColorStyle(email.AccountColor) }></span>
 					<span class="truncate">{ mailListAccountDisplay(accounts, email.AccountID) }</span>
 				</span>

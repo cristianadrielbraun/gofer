@@ -2439,7 +2439,7 @@ templ ContactListCard(contact models.Contact, filters models.ContactFilters, sel
 				</div>
 				<div class="mail-list-card-zone mail-list-card-zone-body-end" data-mail-card-zone="bodyEnd">
 					{{ origin := contactCardHome(ctx, contact, accounts) }}
-					<span class="inline-flex max-w-[9rem] items-center gap-1 rounded-full border border-border bg-background px-1.5 py-px text-[10px] font-medium text-muted-foreground" title={ origin.Title } data-mail-card-field="home">
+					<span class="inline-flex max-w-[9rem] items-center gap-1 rounded-lg border border-border bg-background px-1.5 py-px text-[10px] font-medium text-muted-foreground" title={ origin.Title } data-mail-card-field="home">
 						if origin.Color != "" {
 							<span class="account-color-marker size-2 shrink-0" style={ accountColorStyle(origin.Color) } aria-hidden="true"></span>
 						}
@@ -2525,7 +2525,7 @@ templ ContactCardLayoutDialog() {
 				<span data-mail-card-field="notes" class="truncate text-xs text-muted-foreground">{ i18n.T(ctx, "contacts.card_layout.sample_notes") }</span>
 			</div>
 			<div class="mail-list-card-zone mail-list-card-zone-body-end" data-mail-card-zone="bodyEnd" data-mail-card-layout-zone-items="bodyEnd" data-mail-card-layout-dropzone="bodyEnd">
-				<span data-mail-card-field="home" class="inline-flex max-w-[9rem] items-center gap-1 rounded-full border border-border bg-background px-1.5 py-px text-[10px] font-medium text-muted-foreground">
+				<span data-mail-card-field="home" class="inline-flex max-w-[9rem] items-center gap-1 rounded-lg border border-border bg-background px-1.5 py-px text-[10px] font-medium text-muted-foreground">
 					<span class="account-color-marker size-2 shrink-0 bg-primary" aria-hidden="true"></span>
 					<span class="truncate">{ i18n.T(ctx, "mail.card_layout.sample_account") }</span>
 				</span>

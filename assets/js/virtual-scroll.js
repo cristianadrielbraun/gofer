@@ -1323,7 +1323,7 @@ class VirtualMailList {
       '<div class="mail-list-card-zone mail-list-card-zone-header" data-mail-card-zone="header">' +
       '<div data-mail-card-field="from" class="h-3.5 w-32 max-w-[42%] rounded bg-muted animate-pulse"></div>' +
       '<div data-mail-card-field="date" class="h-3 w-16 rounded bg-muted animate-pulse"></div>' +
-      '<div data-mail-card-field="account" class="h-4 w-20 rounded-full border border-border bg-background animate-pulse"></div>' +
+      '<div data-mail-card-field="account" class="h-4 w-20 rounded-lg border border-border bg-background animate-pulse"></div>' +
       "</div>" +
       '<div class="mail-list-card-zone mail-list-card-zone-meta" data-mail-card-zone="meta">' +
       '<div data-mail-card-field="attachment" class="mail-list-card-empty-icon-slot"></div>' +
@@ -3396,7 +3396,9 @@ class VirtualContactsList {
     shell.style.transform = "translateY(" + (index * this.itemHeight) + "px)"
     shell.style.height = this.itemHeight + "px"
     if (!item) {
-      shell.innerHTML = this.createSkeleton()
+      shell.innerHTML = this.createSkeleton(index)
+      // The card skeleton is laid out as the cards are.
+      if (this.viewMode !== "table" && typeof window.applyContactCardLayoutSettings === "function") window.applyContactCardLayoutSettings(shell)
       return
     }
     shell.innerHTML = item.html
@@ -3417,7 +3419,7 @@ class VirtualContactsList {
     }
   }
 
-  createSkeleton() {
+  createSkeleton(index) {
     if (this.viewMode === "table") {
       var ids = window.GoferListLayouts ? window.GoferListLayouts.contacts.table.ids : ["name"]
       var cells = ids.map(function (id) {
@@ -3425,7 +3427,7 @@ class VirtualContactsList {
       }).join("")
       return '<div class="mail-list-skeleton mail-list-table-skeleton"><div class="mail-list-table-grid grid items-center gap-3 w-full px-3 py-1.5">' + cells + '</div></div>'
     }
-    return '<div class="mail-list-skeleton"><div class="flex items-center gap-3 px-3.5 py-1.5"><div class="size-8 rounded-full bg-muted animate-pulse"></div><div class="flex-1 min-w-0 space-y-1.5"><div class="h-3 w-28 rounded bg-muted animate-pulse"></div><div class="h-3 w-40 rounded bg-muted animate-pulse"></div></div></div></div>'
+    return contactCardSkeletonHTML(index || 0)
   }
 
   async ensureRangeLoaded(first, last) {
@@ -4153,6 +4155,37 @@ class VirtualContactsList {
     }, duration + 40)
   }
 }
+
+// contactCardSkeletonHTML is a contact card while it loads, as ContactListCard
+// in contacts.templ draws it: every field in its default zone, so the card
+// layout moves and hides them as it does a card's. index varies the widths
+// and which optional fields show, row to row.
+function contactCardSkeletonHTML(index) {
+  var bar = function (field, width, height, extra) {
+    return '<span data-mail-card-field="' + field + '" class="block ' + (height || "h-3") + ' rounded bg-muted animate-pulse' + (extra ? " " + extra : "") + '" style="width:' + width + '"></span>'
+  }
+  var i = index % 4
+  var nameWidths = ["7rem", "9rem", "5.5rem", "8rem"]
+  var emailWidths = ["10rem", "8rem", "11rem", "7rem"]
+  return '<div class="mail-list-item" aria-hidden="true"><div class="contact-list-item contact-card mail-list-card h-full px-3.5 rounded-lg envelope" data-contact-card-layout-scope data-contact-card-skeleton>' +
+    '<div class="mail-list-card-zone mail-list-card-zone-rail-top" data-mail-card-zone="railTop"><span data-mail-card-field="avatar" class="size-8 rounded-full bg-muted animate-pulse"></span></div>' +
+    '<div class="contact-card-line" data-contact-card-line="1">' +
+      '<div class="mail-list-card-zone mail-list-card-zone-header" data-mail-card-zone="header">' + bar("name", nameWidths[i], "h-3.5") +
+        (i % 2 === 0 ? bar("organization", "4.5rem") : "") + (i === 1 ? bar("title", "3.5rem") : "") + '</div>' +
+      '<div class="mail-list-card-zone mail-list-card-zone-header-end" data-mail-card-zone="headerEnd"></div>' +
+      '<div class="mail-list-card-zone mail-list-card-zone-meta" data-mail-card-zone="meta">' + (i % 3 === 0 ? bar("messages", "1.5rem") : "") + '</div>' +
+    '</div>' +
+    '<div class="contact-card-line" data-contact-card-line="2">' +
+      '<div class="mail-list-card-zone mail-list-card-zone-body" data-mail-card-zone="body">' + bar("email", emailWidths[i]) +
+        (i % 2 === 1 ? bar("phone", "5rem") : "") + (i === 2 ? bar("notes", "6rem") : "") + '</div>' +
+      '<div class="mail-list-card-zone mail-list-card-zone-body-end" data-mail-card-zone="bodyEnd">' +
+        '<span data-mail-card-field="home" class="h-4 w-16 rounded-lg border border-border bg-background animate-pulse"></span>' + bar("date", "3rem") + '</div>' +
+      '<div class="mail-list-card-zone mail-list-card-zone-status" data-mail-card-zone="status"><span data-mail-card-field="sync" class="inline-flex size-3.5 shrink-0 rounded bg-muted animate-pulse"></span></div>' +
+    '</div>' +
+    '<div class="hidden" data-mail-card-zone="hidden"></div>' +
+  '</div></div>'
+}
+window.contactCardSkeletonHTML = contactCardSkeletonHTML
 
 Object.assign(VirtualMailList.prototype, otherViewRowsMethods)
 Object.assign(VirtualContactsList.prototype, otherViewRowsMethods)

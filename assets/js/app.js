@@ -10112,9 +10112,15 @@ document.addEventListener("DOMContentLoaded", function () {
     var height = list && list.getBoundingClientRect ? list.getBoundingClientRect().height : 0
     var reserved = mode === "contacts" ? 148 : 160
     var itemHeight = viewMode === "table" ? 44 : 100
+    // Contact rows are as tall as the list makes them (contactRowRem in
+    // virtual-scroll.js), so the skeleton reaches the bottom.
+    if (mode === "contacts" && typeof contactRowRem === "function") {
+      itemHeight = listRemPx(contactRowRem(viewMode, contactCardLineCount()))
+    }
     var count = Math.ceil(Math.max(0, height - reserved) / itemHeight) + 2
     if (!isFinite(count) || count <= 0) count = viewMode === "table" ? 14 : 8
-    return Math.max(viewMode === "table" ? 10 : 6, Math.min(viewMode === "table" ? 28 : 12, count))
+    var most = mode === "contacts" ? 40 : viewMode === "table" ? 28 : 12
+    return Math.max(viewMode === "table" ? 10 : 6, Math.min(most, count))
   }
 
   function pendingBar(width, className) {
@@ -10264,7 +10270,7 @@ document.addEventListener("DOMContentLoaded", function () {
       '<div class="mail-list-card-zone mail-list-card-zone-rail-top" data-mail-card-zone="railTop"><span data-mail-card-field="avatar" class="size-6 rounded-full bg-muted animate-pulse"></span></div>' +
       '<div class="mail-list-card-zone mail-list-card-zone-rail-middle" data-mail-card-zone="railMiddle"><span data-mail-card-field="accountMarker" class="account-color-marker size-2.5 shrink-0 bg-muted animate-pulse"></span></div>' +
       '<div class="mail-list-card-zone mail-list-card-zone-rail-bottom" data-mail-card-zone="railBottom">' + (i % 4 === 0 ? '<span data-mail-card-field="thread">' + pendingBar("60%", "block h-3") + '</span>' : '<span data-mail-card-field="thread" class="mail-list-card-empty-icon-slot"></span>') + '</div>' +
-      '<div class="mail-list-card-zone mail-list-card-zone-header" data-mail-card-zone="header"><span data-mail-card-field="from">' + pendingBar(senderWidths[i % senderWidths.length], "block h-3.5") + '</span><span data-mail-card-field="date">' + pendingBar("3.5rem", "block h-3") + '</span><span data-mail-card-field="account" class="h-4 w-20 rounded-full border border-border bg-background animate-pulse"></span></div>' +
+      '<div class="mail-list-card-zone mail-list-card-zone-header" data-mail-card-zone="header"><span data-mail-card-field="from">' + pendingBar(senderWidths[i % senderWidths.length], "block h-3.5") + '</span><span data-mail-card-field="date">' + pendingBar("3.5rem", "block h-3") + '</span><span data-mail-card-field="account" class="h-4 w-20 rounded-lg border border-border bg-background animate-pulse"></span></div>' +
       '<div class="mail-list-card-zone mail-list-card-zone-meta" data-mail-card-zone="meta">' + (i % 3 === 0 ? '<span data-mail-card-field="attachment">' + pendingIcon("size-3") + '</span><span data-mail-card-field="unread" class="inline-flex size-4 shrink-0 items-center justify-center"><span class="size-2 rounded-full bg-primary/35"></span></span>' : "") + '</div>' +
       '<div class="mail-list-card-zone mail-list-card-zone-body" data-mail-card-zone="body"><span data-mail-card-field="to">' + pendingBar("46%", "block h-3") + '</span></div>' +
       '<div class="mail-list-card-zone mail-list-card-zone-body-bottom" data-mail-card-zone="bodyBottom"><span data-mail-card-field="subject">' + pendingBar(subjectWidths[i % subjectWidths.length], "block h-3.5") + '</span></div>' +
@@ -10272,18 +10278,10 @@ document.addEventListener("DOMContentLoaded", function () {
       '<div class="mail-list-card-zone mail-list-card-zone-status" data-mail-card-zone="status"></div><div class="mail-list-card-zone mail-list-card-zone-corner" data-mail-card-zone="corner"><span data-mail-card-field="starred" class="h-3 w-3 rounded bg-muted animate-pulse"></span></div><div class="hidden" data-mail-card-zone="hidden"></div></div></div>'
   }
 
-  // Mirrors ContactListCard, its fields in their default zones for the card
-  // layout to move.
+  // The contacts list's own card skeleton (contactCardSkeletonHTML in
+  // virtual-scroll.js), for the card layout to move as the list's.
   function contactCardPendingRow(i) {
-    var nameWidths = ["58%", "72%", "46%", "66%"]
-    var emailWidths = ["78%", "64%", "86%", "54%"]
-    return '<div class="mail-list-item" aria-hidden="true"><div class="contact-list-item contact-card mail-list-card h-full px-3.5 rounded-lg envelope" data-contact-card-layout-scope>' +
-      '<div class="mail-list-card-zone mail-list-card-zone-rail-top" data-mail-card-zone="railTop"><span data-mail-card-field="avatar" class="size-8 rounded-full bg-muted animate-pulse"></span></div>' +
-      '<div class="contact-card-line" data-contact-card-line="1"><div class="mail-list-card-zone mail-list-card-zone-header" data-mail-card-zone="header"><span data-mail-card-field="name" class="flex-1">' + pendingBar(nameWidths[i % nameWidths.length], "block h-3.5") + '</span></div>' +
-      '<div class="mail-list-card-zone mail-list-card-zone-meta" data-mail-card-zone="meta">' + (i % 3 === 0 ? '<span data-mail-card-field="messages">' + pendingBar("2rem", "block h-3") + '</span>' : "") + '</div></div>' +
-      '<div class="contact-card-line" data-contact-card-line="2"><div class="mail-list-card-zone mail-list-card-zone-body" data-mail-card-zone="body"><span data-mail-card-field="email" class="flex-1">' + pendingBar(emailWidths[i % emailWidths.length], "block h-3") + '</span></div><div class="mail-list-card-zone mail-list-card-zone-body-end" data-mail-card-zone="bodyEnd"><span data-mail-card-field="home">' + pendingBar("3.5rem", "block h-3") + '</span></div>' +
-      '<div class="mail-list-card-zone mail-list-card-zone-status" data-mail-card-zone="status"></div></div><div class="hidden" data-mail-card-zone="hidden"></div>' +
-      '</div></div>'
+    return window.contactCardSkeletonHTML(i)
   }
 
   function mailTablePendingRow(i) {

@@ -6338,14 +6338,14 @@ func ContactListCard(contact models.Contact, filters models.ContactFilters, sele
 			return templ_7745c5c3_Err
 		}
 		origin := contactCardHome(ctx, contact, accounts)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 250, "<span class=\"inline-flex max-w-[9rem] items-center gap-1 rounded-full border border-border bg-background px-1.5 py-px text-[10px] font-medium text-muted-foreground\" title=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 250, "<span class=\"inline-flex max-w-[9rem] items-center gap-1 rounded-lg border border-border bg-background px-1.5 py-px text-[10px] font-medium text-muted-foreground\" title=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var237 string
 		templ_7745c5c3_Var237, templ_7745c5c3_Err = templ.JoinStringErrs(origin.Title)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 2442, Col: 190}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/contacts.templ`, Line: 2442, Col: 188}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var237))
 		if templ_7745c5c3_Err != nil {
@@ -6697,7 +6697,7 @@ func ContactCardLayoutDialog() templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 275, "</span></div><div class=\"mail-list-card-zone mail-list-card-zone-body-end\" data-mail-card-zone=\"bodyEnd\" data-mail-card-layout-zone-items=\"bodyEnd\" data-mail-card-layout-dropzone=\"bodyEnd\"><span data-mail-card-field=\"home\" class=\"inline-flex max-w-[9rem] items-center gap-1 rounded-full border border-border bg-background px-1.5 py-px text-[10px] font-medium text-muted-foreground\"><span class=\"account-color-marker size-2 shrink-0 bg-primary\" aria-hidden=\"true\"></span> <span class=\"truncate\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 275, "</span></div><div class=\"mail-list-card-zone mail-list-card-zone-body-end\" data-mail-card-zone=\"bodyEnd\" data-mail-card-layout-zone-items=\"bodyEnd\" data-mail-card-layout-dropzone=\"bodyEnd\"><span data-mail-card-field=\"home\" class=\"inline-flex max-w-[9rem] items-center gap-1 rounded-lg border border-border bg-background px-1.5 py-px text-[10px] font-medium text-muted-foreground\"><span class=\"account-color-marker size-2 shrink-0 bg-primary\" aria-hidden=\"true\"></span> <span class=\"truncate\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

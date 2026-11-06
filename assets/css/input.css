@@ -2543,11 +2543,12 @@ html:not([data-theme="express"]) [data-view-mode="table"] .mail-list-item > a {
   min-width: 0;
 }
 
-.contact-card .mail-list-card-zone > [data-mail-card-field="name"] + [data-mail-card-field="organization"] {
+/* A skeleton's bars have no separator between them (contactCardSkeletonHTML). */
+.contact-card:not([data-contact-card-skeleton]) .mail-list-card-zone > [data-mail-card-field="name"] + [data-mail-card-field="organization"] {
   margin-left: -0.25rem;
 }
 
-.contact-card .mail-list-card-zone > [data-mail-card-field="name"] + [data-mail-card-field="organization"]::before {
+.contact-card:not([data-contact-card-skeleton]) .mail-list-card-zone > [data-mail-card-field="name"] + [data-mail-card-field="organization"]::before {
   content: "· ";
 }
 
