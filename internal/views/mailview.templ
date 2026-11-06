@@ -1090,11 +1090,17 @@ templ MailViewBody(email *models.Email) {
 // RemoteContentNotice is the amber bar that says remote content was left
 // out: above a message it was blocked, in compose a quoted message's images
 // were not included. The actions go in children.
-templ RemoteContentNotice(attrs templ.Attributes, class string, text string) {
-	<div { attrs... } class={ "hidden w-full px-3 py-2.5 rounded-lg border border-amber-600/20 bg-amber-50/50 dark:bg-amber-900/10 flex items-center gap-3", class }>
-		<div class="size-7 rounded-md bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center shrink-0">
-			@icon.ImageOff(icon.Props{Class: "size-3.5 text-amber-600 dark:text-amber-400"})
-		</div>
+// RemoteContentNotice says remote content was left out. Compact, as in
+// compose, it is a single line: the icon without its box, and less padding.
+templ RemoteContentNotice(attrs templ.Attributes, class string, text string, compact bool) {
+	<div { attrs... } class={ "hidden w-full rounded-lg border border-amber-600/20 bg-amber-50/50 dark:bg-amber-900/10 flex items-center", templ.KV("px-3 py-2.5 gap-3", !compact), templ.KV("px-2.5 py-1.5 gap-2", compact), class }>
+		if compact {
+			@icon.ImageOff(icon.Props{Class: "size-3.5 shrink-0 text-amber-600 dark:text-amber-400"})
+		} else {
+			<div class="size-7 rounded-md bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center shrink-0">
+				@icon.ImageOff(icon.Props{Class: "size-3.5 text-amber-600 dark:text-amber-400"})
+			</div>
+		}
 		<span class="min-w-0 flex-1 text-xs text-muted-foreground">{ text }</span>
 		{ children... }
 	</div>
@@ -1107,7 +1113,7 @@ templ remoteContentNoticeButton(attrs templ.Attributes, label string) {
 }
 
 templ MailViewBodyByID(emailID string) {
-	@RemoteContentNotice(templ.Attributes{"data-remote-content-banner": emailID}, "mb-3", i18n.T(ctx, "mail.remote.blocked")) {
+	@RemoteContentNotice(templ.Attributes{"data-remote-content-banner": emailID}, "mb-3", i18n.T(ctx, "mail.remote.blocked"), false) {
 			<div class="flex shrink-0 items-center">
 				@remoteContentNoticeButton(templ.Attributes{"data-load-remote": emailID}, i18n.T(ctx, "mail.remote.show"))
 				@dropdown.Dropdown() {

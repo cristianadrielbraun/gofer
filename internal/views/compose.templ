@@ -382,7 +382,7 @@ templ ComposeToolbar() {
 // whose remote content the reader has not loaded: its remote images are left
 // out until they choose to include them.
 templ ComposeRemoteImagesNotice() {
-	@RemoteContentNotice(templ.Attributes{"data-compose-remote-images-notice": true}, "shrink-0", i18n.T(ctx, "compose.remote_images.left_out")) {
+	@RemoteContentNotice(templ.Attributes{"data-compose-remote-images-notice": true}, "shrink-0", i18n.T(ctx, "compose.remote_images.left_out"), true) {
 		@remoteContentNoticeButton(templ.Attributes{"data-on-click": `["includeComposeRemoteImages","$this"]`}, i18n.T(ctx, "compose.remote_images.include"))
 	}
 }

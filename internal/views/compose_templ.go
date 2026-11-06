@@ -2235,7 +2235,7 @@ func ComposeRemoteImagesNotice() templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = RemoteContentNotice(templ.Attributes{"data-compose-remote-images-notice": true}, "shrink-0", i18n.T(ctx, "compose.remote_images.left_out")).Render(templ.WithChildren(ctx, templ_7745c5c3_Var106), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = RemoteContentNotice(templ.Attributes{"data-compose-remote-images-notice": true}, "shrink-0", i18n.T(ctx, "compose.remote_images.left_out"), true).Render(templ.WithChildren(ctx, templ_7745c5c3_Var106), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
