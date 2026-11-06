@@ -2189,6 +2189,18 @@ document.addEventListener("DOMContentLoaded", function () {
       syncMailSelectionControls()
     }, true)
 
+    // A finger on a thread's toggle starts fetching its messages, so they are
+    // often in by the time the tap ends and the thread opens.
+    document.addEventListener("pointerdown", function (e) {
+      if (e.pointerType === "mouse") return
+      var toggle = e.target.closest && e.target.closest("#mail-list-scroll [data-thread-toggle]")
+      if (!toggle) return
+      var scroll = document.getElementById("mail-list-scroll")
+      var list = (scroll && scroll._virtualMailList) || virtualMailList
+      var emailId = toggle.dataset.threadToggle
+      if (list && emailId && !list.expandedThreads.has(emailId)) list.prefetchThreadSubItems(emailId)
+    }, { passive: true })
+
     document.addEventListener("click", function (e) {
       var rowLink = e.target.closest && e.target.closest(".mail-list-item[data-email-id] > a")
       if (rowLink && Date.now() < suppressMailRowClickUntil) {
