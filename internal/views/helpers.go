@@ -42,6 +42,14 @@ func unifiedFolderOptions() []unifiedFolderOption {
 	return options
 }
 
+// unifiedFolderOptionsInOrder lists the unified folders in the order the
+// sidebar shows them.
+func unifiedFolderOptionsInOrder(settings map[string]string) []unifiedFolderOption {
+	options := unifiedFolderOptions()
+	sortByOrderSetting(options, settings, func(o unifiedFolderOption) string { return models.VirtualFolderOrderKey(o.ID) })
+	return options
+}
+
 // virtualFolderAppearance is also used by Settings for hidden views.
 func virtualFolderAppearance(id string, settings map[string]string) models.Folder {
 	folder, _ := models.VirtualFolderAppearance(id, settings)
@@ -545,7 +553,26 @@ func unifiedFolders(accounts []models.Account, settings map[string]string) []mod
 		folder.Unread = unreadByRole[option.ID]
 		folders = append(folders, folder)
 	}
+	sortByOrderSetting(folders, settings, func(f models.Folder) string { return models.VirtualFolderOrderKey(f.ID) })
 	return folders
+}
+
+// sortByOrderSetting puts the items the user put in order first, by their
+// place in settings (storage/folder_order.go), and leaves the rest after
+// them as they came.
+func sortByOrderSetting[T any](items []T, settings map[string]string, key func(T) string) {
+	place := func(item T) (int, bool) {
+		n, err := strconv.Atoi(settings[key(item)])
+		return n, err == nil
+	}
+	sort.SliceStable(items, func(i, j int) bool {
+		a, aok := place(items[i])
+		b, bok := place(items[j])
+		if aok && bok {
+			return a < b
+		}
+		return aok && !bok
+	})
 }
 
 func hasUnifiedFolderAccount(accounts []models.Account, settings map[string]string, folderID string) bool {
@@ -599,6 +626,7 @@ func unifiedSidebarLabels(accounts []models.Account, settings map[string]string)
 	sort.SliceStable(labels, func(i, j int) bool {
 		return strings.ToLower(labels[i].Name) < strings.ToLower(labels[j].Name)
 	})
+	sortByOrderSetting(labels, settings, func(l models.Label) string { return models.UnifiedTagOrderKey(l.ID) })
 	return labels
 }
 

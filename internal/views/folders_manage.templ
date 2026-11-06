@@ -12,9 +12,10 @@ import (
 
 // FoldersDialog lists an account's folders, from its settings, to make,
 // rename and delete them where the sidebar's menu isn't at hand, as on a
-// phone. Gmail has labels instead, which it lists. The buttons run the
-// sidebar's folder actions (app.js), which ask first; after each change the
-// panel loads again.
+// phone, and to put them in order. Gmail has labels instead, which it lists.
+// The buttons run the sidebar's folder actions (app.js), which ask first;
+// after each change the panel loads again. Each folder's handle drags it
+// among the folders next to it (settings.js), each label's among the labels.
 templ FoldersDialog(data models.FoldersData) {
 	@dialog.Dialog(dialog.Props{ID: "folders-dialog"}) {
 		@dialog.Content(dialog.ContentProps{Class: "mobile-page-dialog sm:max-w-xl"}) {
@@ -72,8 +73,10 @@ templ FoldersPanel(data models.FoldersData) {
 				if len(data.Labels) == 0 {
 					<p class="px-3 py-6 text-center text-sm text-muted-foreground">{ i18n.T(ctx, "settings.folders.no_labels") }</p>
 				}
+				<div data-tag-order-list data-account-id={ data.Account.ID }>
 				for _, label := range data.Labels {
-					<div class="flex items-center gap-2 rounded-md px-2.5 py-1.5 hover:bg-accent">
+					<div class="flex items-center gap-2 rounded-md bg-background/60 px-2.5 py-1.5 transition-transform duration-200 ease-out hover:bg-accent" data-tag-order-item data-tag-id={ label.ID }>
+						@OrderHandle("data-tag-order-handle", i18n.T(ctx, "settings.folders.reorder_label", "name", label.Name))
 						<span class="flex size-5 shrink-0 items-center justify-center text-muted-foreground">
 							@TagAppearanceIcon(label)
 						</span>
@@ -87,10 +90,9 @@ templ FoldersPanel(data models.FoldersData) {
 						}
 					</div>
 				}
+				</div>
 			} else {
-				for _, folder := range data.Folders {
-					@foldersPanelRow(data.Account, folder, 0, false)
-				}
+				@foldersOrderList(data.Account, data.Folders, 0, false)
 			}
 		</div>
 	</div>
@@ -103,13 +105,29 @@ func newFolderAction(provider string) string {
 	return "new-folder"
 }
 
-// foldersPanelRow is one folder, then the folders inside it. Only folders
-// without a role can be renamed or deleted; one inside Trash can be moved
-// back out. Local folders' own can move anywhere in the account.
+// foldersOrderList holds folders next to each other, each with the folders
+// inside it, so each can be put in order among them.
+templ foldersOrderList(account models.Account, folders []models.Folder, depth int, inTrash bool) {
+	<div data-folder-order-list data-account-id={ account.ID }>
+		for _, folder := range folders {
+			<div class="transition-transform duration-200 ease-out" data-folder-order-item data-folder-id={ folder.ID }>
+				@foldersPanelRow(account, folder, depth, inTrash)
+				if len(folder.Children) > 0 {
+					@foldersOrderList(account, folder.Children, depth+1, inTrash || folder.Role == "trash")
+				}
+			</div>
+		}
+	</div>
+}
+
+// foldersPanelRow is one folder. Only folders without a role can be renamed
+// or deleted; one inside Trash can be moved back out. Local folders' own can
+// move anywhere in the account.
 templ foldersPanelRow(account models.Account, folder models.Folder, depth int, inTrash bool) {
 	{{ accountID := account.ID }}
 	{{ custom := folder.Role == "custom" }}
-	<div class="flex items-center gap-2 rounded-md py-1.5 pr-1 hover:bg-accent" style={ mailMoveIndent(depth) }>
+	<div class="flex items-center gap-2 rounded-md bg-background/60 py-1.5 pr-1 hover:bg-accent" style={ mailMoveIndent(depth) } data-folder-order-row>
+		@OrderHandle("data-folder-order-handle", i18n.T(ctx, "settings.folders.reorder_label", "name", i18n.FolderName(ctx, folder.Role, folder.Name)))
 		<span class="flex size-5 shrink-0 items-center justify-center text-muted-foreground">
 			@FolderAppearanceIcon(folder)
 		</span>
@@ -141,9 +159,6 @@ templ foldersPanelRow(account models.Account, folder models.Folder, depth int, i
 			}
 		}
 	</div>
-	for _, child := range folder.Children {
-		@foldersPanelRow(account, child, depth+1, inTrash || folder.Role == "trash")
-	}
 }
 
 templ folderRowButton(action, accountID, id, name, label string, destructive bool) {

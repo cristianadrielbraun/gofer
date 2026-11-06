@@ -5447,20 +5447,95 @@ document.addEventListener("DOMContentLoaded", function () {
     var MAIL_DROP_REFUSED_ROLES = { starred: true, sent: true, drafts: true, scheduled: true }
     var MAIL_DROP_EXPAND_DELAY = 600
 
-    // A Local folder dragged in the sidebar moves inside the folder it's
-    // dropped on, or to the top when dropped on its account's name. Other
-    // accounts' folders keep the browser's own link dragging.
+    // Folders and tags dragged in the sidebar are put in order among the ones
+    // next to them: dropped on the top or bottom of one, they go before or
+    // after it, where a line shows. A Local folder dropped on the middle of a
+    // folder moves inside it, or to the top when dropped on its account's
+    // name. An account's folders and tags move among its own, the unified
+    // ones among the unified ones; Scheduled keeps its place.
     function setupFolderDragAndDrop() {
       if (document.body._goferFolderDragBound) return
       document.body._goferFolderDragBound = true
 
       var drag = null
       var activeTarget = null
+      var activeOrder = null
       var expandGroup = null
       var expandTimer = null
 
+      // The grabbed folder or tag floats under the pointer, a copy of its row
+      // lifted off the sidebar, a little below the pointer so the line where
+      // it would go stays in view. Browsers fade their own drag pictures, so
+      // theirs is an empty image. It sits in the sidebar so its styles apply.
+      var FOLDER_DRAG_IMAGE_DROP = 16
+      var emptyFolderDragImage = new Image()
+      emptyFolderDragImage.src = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
+      var floating = null
+
+      function folderDragAnimates() {
+        return typeof Element.prototype.animate === "function" &&
+          !(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches)
+      }
+
+      function liftFolder(link, e) {
+        var rect = link.getBoundingClientRect()
+        var image = document.createElement("div")
+        image.className = "folder-drag-image"
+        image.style.width = rect.width + "px"
+        var copy = link.cloneNode(true)
+        copy.removeAttribute("id")
+        copy.removeAttribute("data-mail-drop-active")
+        copy.removeAttribute("data-folder-drop-position")
+        image.appendChild(copy)
+        ;(link.closest("aside") || document.body).appendChild(image)
+        floating = { image: image, grabX: e.clientX - rect.left, grabY: e.clientY - rect.top, checked: false }
+        moveFolder(e.clientX, e.clientY)
+        if (!folderDragAnimates()) return
+        var left = parseFloat(image.style.left) || 0
+        var top = parseFloat(image.style.top) || 0
+        image.animate(
+          [
+            { transform: "translate(" + (rect.left - left) + "px, " + (rect.top - top) + "px) scale(1)", boxShadow: "none" },
+            { transform: "translate(0, 0) scale(1.03)" },
+          ],
+          { duration: 200, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)", fill: "forwards" }
+        )
+      }
+
+      function moveFolder(x, y) {
+        if (!floating || (!x && !y)) return
+        var left = x - floating.grabX
+        var top = y - floating.grabY + FOLDER_DRAG_IMAGE_DROP
+        floating.image.style.left = left + "px"
+        floating.image.style.top = top + "px"
+        // Something around the sidebar may move fixed elements with it, as
+        // the phone drawer does; the picture then goes to the page itself.
+        if (!floating.checked) {
+          floating.checked = true
+          var rect = floating.image.getBoundingClientRect()
+          if (Math.abs(rect.left - left) > 1 || Math.abs(rect.top - top) > 1) document.body.appendChild(floating.image)
+        }
+      }
+
+      function dropFolder() {
+        if (!floating) return
+        var image = floating.image
+        floating = null
+        if (!folderDragAnimates()) {
+          image.remove()
+          return
+        }
+        var animation = image.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 140, easing: "ease-out", fill: "forwards" })
+        animation.onfinish = function () { image.remove() }
+        animation.oncancel = function () { image.remove() }
+      }
+
       function folderLink(el) {
         return el && el.closest ? el.closest("aside a[data-mail-drop-folder][data-mail-drop-account]") : null
+      }
+
+      function tagLink(el) {
+        return el && el.closest ? el.closest("aside a[data-sidebar-tag-filter]") : null
       }
 
       function linkName(link) {
@@ -5480,11 +5555,45 @@ document.addEventListener("DOMContentLoaded", function () {
         return row ? row.getAttribute("data-mail-drop-folder") || "" : ""
       }
 
-      // Where a drop on el would put the dragged folder, or null when it
-      // can't go there: into itself, a folder inside it, where it is now or
-      // another account.
+      // The folders, or tags, next to the dragged one, it among them.
+      function orderBranches(container) {
+        return Array.prototype.filter.call(container.children, function (el) {
+          return drag.tag ? el.matches("a[data-sidebar-tag-filter]") : el.matches("a[data-mail-drop-folder], [data-sidebar-folder]")
+        })
+      }
+
+      function branchID(el) {
+        if (drag.tag) return el.getAttribute("data-sidebar-tag-id") || ""
+        var link = el.matches("a") ? el : el.querySelector(":scope > a[data-sidebar-folder-row]")
+        return link ? link.getAttribute("data-mail-drop-folder") || "" : ""
+      }
+
+      // Where a drop at clientY on el puts the dragged folder or tag among
+      // the ones next to it, or null when it isn't on one of them or the
+      // drop would leave it where it is. A Local folder keeps the middle of
+      // a folder for moving inside it.
+      function orderPlace(el, clientY) {
+        var link = drag.tag ? tagLink(el) : folderLink(el)
+        if (!link) return null
+        var branch = drag.tag ? link : folderBranch(link)
+        if (branch === drag.branch || branch.parentElement !== drag.branch.parentElement) return null
+        var rect = link.getBoundingClientRect()
+        var edge = drag.canNest ? rect.height / 4 : rect.height / 2
+        var y = clientY - rect.top
+        var position = y < edge ? "before" : y > rect.height - edge ? "after" : ""
+        if (!position) return null
+        var items = orderBranches(branch.parentElement)
+        var at = items.indexOf(drag.branch)
+        var to = items.indexOf(branch)
+        if ((position === "before" && to === at + 1) || (position === "after" && to === at - 1)) return null
+        return { element: branch, position: position }
+      }
+
+      // Where a drop on el would put the dragged Local folder inside, or
+      // null when it can't go there: into itself, a folder inside it, where
+      // it is now or another account.
       function dropPlace(el) {
-        if (!drag || !el || !el.closest) return null
+        if (!drag || !drag.canNest || !el || !el.closest) return null
         var toggle = el.closest("aside [data-sidebar-account-toggle]")
         if (toggle) {
           if (toggle.getAttribute("data-sidebar-account-toggle") !== drag.accountID || drag.parentID === "") return null
@@ -5505,6 +5614,12 @@ document.addEventListener("DOMContentLoaded", function () {
         if (activeTarget) activeTarget.setAttribute("data-mail-drop-active", "")
       }
 
+      function setActiveOrder(place) {
+        if (activeOrder && (!place || activeOrder !== place.element)) activeOrder.removeAttribute("data-folder-drop-position")
+        activeOrder = place ? place.element : null
+        if (activeOrder) activeOrder.setAttribute("data-folder-drop-position", place.position)
+      }
+
       // Hovering a collapsed folder for a moment opens it, as for mail.
       function scheduleExpand(el) {
         var toggle = el && el.closest ? el.closest("aside [data-sidebar-folder-toggle]") : null
@@ -5521,36 +5636,84 @@ document.addEventListener("DOMContentLoaded", function () {
       }
 
       function endDrag() {
+        dropFolder()
         if (drag) {
           drag.branch.removeAttribute("data-folder-dragging")
           if (drag.aside) drag.aside.removeAttribute("data-folder-drag-active")
           if (drag.home) drag.home.removeAttribute("data-folder-drag-home")
         }
         setActiveTarget(null)
+        setActiveOrder(null)
         clearTimeout(expandTimer)
         expandGroup = null
         drag = null
       }
 
+      // saveOrder saves the folders or tags next to the dropped one in their
+      // new order; when that fails, the account, or the whole sidebar for the
+      // unified ones, is drawn again as it was.
+      function saveOrder(done, container) {
+        var body = new URLSearchParams()
+        var field = done.tag ? "tag_id" : done.unified ? "virtual_folder_id" : "folder_id"
+        orderBranches(container).forEach(function (el) {
+          var id = branchID(el)
+          if (id) body.append(field, id)
+        })
+        var url = done.unified
+          ? "/api/unified-" + (done.tag ? "tags" : "folders") + "/order"
+          : "/api/accounts/" + encodeURIComponent(done.accountID) + "/" + (done.tag ? "tags" : "folders") + "/order"
+        function redraw() {
+          if (done.unified) {
+            if (window.goferRefreshMailSidebarBody) window.goferRefreshMailSidebarBody()
+          } else if (window.goferRefreshSidebarAccount) {
+            window.goferRefreshSidebarAccount(done.accountID)
+          }
+        }
+        fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: body.toString(),
+        }).then(function (res) {
+          if (res.ok) return
+          if (res.status === 409 || res.status === 404) {
+            showGoferToast({ title: goferT("js.folders.order.changed"), description: goferT("js.folders.order.reloaded"), variant: "error", icon: "error", duration: 6000 })
+          } else {
+            showGoferToast({ title: goferT("js.folders.order.failed"), description: goferT("js.settings.check_connection"), variant: "error", icon: "error", duration: 6000 })
+          }
+          redraw()
+        }).catch(function () {
+          showGoferToast({ title: goferT("js.folders.order.failed"), description: goferT("js.settings.check_connection"), variant: "error", icon: "error", duration: 6000 })
+          redraw()
+        })
+      }
+
       document.addEventListener("dragstart", function (e) {
-        var link = folderLink(e.target)
-        if (!link || !e.dataTransfer) return
-        var accountID = link.getAttribute("data-mail-drop-account") || ""
-        if (sidebarAccountProvider(accountID) !== "local" || String(link.dataset.folderRole || "").toLowerCase() !== "custom") return
-        var toggle = document.querySelector('aside [data-sidebar-account-toggle="' + cssEscape(accountID) + '"]')
+        if (!e.dataTransfer) return
+        var tag = tagLink(e.target)
+        var link = tag || folderLink(e.target)
+        if (!link) return
+        var accountID = tag ? link.getAttribute("data-sidebar-tag-account") || "" : link.getAttribute("data-mail-drop-account") || ""
+        var unified = !accountID && !!link.closest('[data-sidebar-account="__unified__"]')
+        if (!accountID && !unified) return
+        var toggle = document.querySelector('aside [data-sidebar-account-toggle="' + cssEscape(unified ? "__unified__" : accountID) + '"]')
         drag = {
           link: link,
+          tag: !!tag,
+          unified: unified,
+          canNest: !tag && sidebarAccountProvider(accountID) === "local" && String(link.dataset.folderRole || "").toLowerCase() === "custom",
           accountID: accountID,
           accountName: linkName(toggle),
-          folderID: link.getAttribute("data-mail-drop-folder") || "",
+          folderID: tag ? "" : link.getAttribute("data-mail-drop-folder") || "",
           name: linkName(link),
-          parentID: parentFolderID(link),
-          branch: folderBranch(link),
+          parentID: tag ? "" : parentFolderID(link),
+          branch: tag ? link : folderBranch(link),
           aside: link.closest("aside"),
           home: link.closest("[data-sidebar-account]"),
         }
         e.dataTransfer.effectAllowed = "move"
-        e.dataTransfer.setData("application/x-gofer-folder", drag.folderID)
+        e.dataTransfer.setData(tag ? "application/x-gofer-tag" : "application/x-gofer-folder", tag ? link.getAttribute("data-sidebar-tag-id") || "" : drag.folderID)
+        e.dataTransfer.setDragImage(emptyFolderDragImage, 0, 0)
+        liftFolder(link, e)
         // The folder can only go elsewhere in its own account, so everything
         // else in the sidebar, the unified folders too, greys out meanwhile.
         drag.branch.setAttribute("data-folder-dragging", "")
@@ -5560,22 +5723,32 @@ document.addEventListener("DOMContentLoaded", function () {
 
       document.addEventListener("dragover", function (e) {
         if (!drag) return
-        scheduleExpand(e.target)
-        var place = dropPlace(e.target)
+        moveFolder(e.clientX, e.clientY)
+        if (!drag.tag) scheduleExpand(e.target)
+        var order = orderPlace(e.target, e.clientY)
+        var place = order ? null : dropPlace(e.target)
+        setActiveOrder(order)
         setActiveTarget(place ? place.element : null)
-        if (!place) return
+        if (!order && !place) return
         e.preventDefault()
         e.dataTransfer.dropEffect = "move"
       })
 
       document.addEventListener("drop", function (e) {
         if (!drag) return
-        var place = dropPlace(e.target)
-        if (!place) return
+        var order = orderPlace(e.target, e.clientY)
+        var place = order ? null : dropPlace(e.target)
+        if (!order && !place) return
         e.preventDefault()
-        var target = { folderID: drag.folderID, accountID: drag.accountID, name: drag.name }
+        var done = drag
         endDrag()
-        moveMailFolder(target, place.parentID, place.name)
+        if (order) {
+          var container = order.element.parentElement
+          container.insertBefore(done.branch, order.position === "before" ? order.element : order.element.nextSibling)
+          saveOrder(done, container)
+          return
+        }
+        moveMailFolder({ folderID: done.folderID, accountID: done.accountID, name: done.name }, place.parentID, place.name)
       })
 
       document.addEventListener("dragend", function () {
@@ -8409,6 +8582,7 @@ document.addEventListener("DOMContentLoaded", function () {
     }).catch(function () {})
   }
   window.goferRefreshSidebarAccount = refreshSidebarAccount
+  window.goferRefreshMailSidebarBody = function () { refreshMailSidebarBody() }
 
   function refreshMailSidebarBody() {
     var target = document.getElementById("sidebar-app-body")

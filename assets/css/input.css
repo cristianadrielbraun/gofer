@@ -6838,7 +6838,10 @@ body.mail-list-column-resizing {
 }
 
 [data-account-order-list][data-order-active],
-[data-mail-rule-order-list][data-order-active] {
+[data-mail-rule-order-list][data-order-active],
+[data-folder-order-list][data-order-active],
+[data-tag-order-list][data-order-active],
+[data-unified-order-list][data-order-active] {
   position: relative;
   cursor: grabbing;
   user-select: none;
@@ -6860,7 +6863,10 @@ body.mail-list-column-resizing {
 /* The account card or rule being dragged floats above the others under the
    pointer. */
 [data-settings-account-card][data-order-dragging],
-[data-mail-rule-row][data-order-dragging] {
+[data-mail-rule-row][data-order-dragging],
+[data-folder-order-item][data-order-dragging],
+[data-tag-order-item][data-order-dragging],
+[data-unified-order-item][data-order-dragging] {
   position: relative;
   z-index: 10;
   transition: none;
@@ -6879,7 +6885,10 @@ body.mail-list-column-resizing {
 }
 
 [data-settings-account-card][data-order-dragging] [data-account-order-handle],
-[data-mail-rule-row][data-order-dragging] [data-mail-rule-order-handle] {
+[data-mail-rule-row][data-order-dragging] [data-mail-rule-order-handle],
+[data-folder-order-item][data-order-dragging] > [data-folder-order-row] [data-folder-order-handle],
+[data-tag-order-item][data-order-dragging] [data-tag-order-handle],
+[data-unified-order-item][data-order-dragging] [data-unified-order-handle] {
   color: var(--foreground);
   background-color: var(--accent);
 }
@@ -6926,6 +6935,28 @@ body.mail-list-column-resizing {
   [data-mail-rule-run-state="counting"] [data-mail-rule-run-status] {
     animation-duration: 1ms;
   }
+}
+
+/* A folder or label of the Folders dialog, or a unified folder in Settings,
+   being dragged lifts off the list, a folder without the folders inside it. */
+[data-folder-order-item][data-order-dragging],
+[data-tag-order-item][data-order-dragging],
+[data-unified-order-item][data-order-dragging] {
+  border-radius: var(--radius-md, 0.375rem);
+  background-color: var(--card);
+  box-shadow: 0 14px 28px -14px rgb(0 0 0 / 0.5), 0 4px 10px -6px rgb(0 0 0 / 0.3);
+}
+
+/* A folder grabbed in the Folders dialog leaves the folders inside it
+   behind while it moves, so only its row slides among the others. */
+[data-folder-order-item][data-order-dragging] > [data-folder-order-list] {
+  display: none;
+}
+
+/* A folder alone among its neighbours, or a single label, has nowhere to go. */
+[data-folder-order-list]:not(:has(> [data-folder-order-item] ~ [data-folder-order-item])) > [data-folder-order-item] > [data-folder-order-row] [data-folder-order-handle],
+[data-tag-order-list]:not(:has(> [data-tag-order-item] ~ [data-tag-order-item])) [data-tag-order-handle] {
+  visibility: hidden;
 }
 
 /* With a single rule there is nothing to reorder. */
@@ -7834,15 +7865,62 @@ html[data-app-switching]:not([data-app-switch-slow]) [data-switch-skeleton] {
   text-align: center;
 }
 
-/* A Local folder being dragged to another place in the sidebar, with the
-   folders inside it. It can only go elsewhere in its own account, so every
-   other account and the unified folders grey out until it's dropped. */
+/* A folder or tag being dragged to another place in the sidebar, a folder
+   with the folders inside it. It can only go elsewhere in its own account,
+   so every other account and the unified folders grey out until it's
+   dropped. */
 aside [data-folder-dragging] {
   opacity: 0.5;
 }
 aside[data-folder-drag-active] :is(a[data-mail-drop-folder], [data-sidebar-account-toggle], [data-sidebar-tag-filter]):not([data-folder-drag-home] *) {
   opacity: 0.35;
   filter: grayscale(1);
+}
+
+/* Where a folder or tag dragged among the ones next to it would go: a line
+   above or below the folder it's over, below the folders inside it too. */
+aside [data-folder-drop-position] {
+  position: relative;
+}
+
+aside [data-folder-drop-position]::before {
+  content: "";
+  position: absolute;
+  left: 0.375rem;
+  right: 0.375rem;
+  z-index: 2;
+  height: 2px;
+  border-radius: 1px;
+  background-color: var(--color-sidebar-primary, var(--primary));
+  pointer-events: none;
+}
+
+/* The line is drawn inside the folder's edge: outside it, the first folder's
+   would be cut off by the list around it. */
+aside [data-folder-drop-position="before"]::before {
+  top: 0;
+}
+
+aside [data-folder-drop-position="after"]::before {
+  bottom: 0;
+}
+
+/* The grabbed folder or tag, floating under the pointer (app.js). */
+.folder-drag-image {
+  position: fixed;
+  top: -10000px;
+  left: 0;
+  z-index: 1000;
+  pointer-events: none;
+  border: 1px solid var(--color-sidebar-border, var(--border));
+  border-radius: var(--radius-md, 0.375rem);
+  background: var(--color-sidebar, var(--card));
+  box-shadow: 0 12px 24px -10px rgb(0 0 0 / 0.45), 0 4px 10px -6px rgb(0 0 0 / 0.3);
+  transform-origin: left center;
+}
+
+.folder-drag-image > a {
+  pointer-events: none;
 }
 
 .mail-list-item[data-mail-dragging] {

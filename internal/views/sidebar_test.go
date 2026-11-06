@@ -156,6 +156,39 @@ func TestUnifiedFoldersApplyAccountSettings(t *testing.T) {
 	}
 }
 
+// The unified folders and tags the user put in order show first, in it; the
+// rest keep their own order after them.
+func TestUnifiedFoldersAndTagsFollowTheUsersOrder(t *testing.T) {
+	accounts := []models.Account{{
+		ID:               "acc-a",
+		EmailSyncEnabled: true,
+		Folders: []models.Folder{
+			{ID: "a-inbox", Role: "inbox"}, {ID: "a-sent", Role: "sent"},
+			{ID: "a-archive", Role: "archive"}, {ID: "a-trash", Role: "trash"},
+		},
+		Labels: []models.Label{{ID: "l1", Name: "Art"}, {ID: "l2", Name: "Bills"}, {ID: "l3", Name: "Cats"}},
+	}}
+	settings := map[string]string{
+		models.VirtualFolderOrderKey("trash"):                  "0",
+		models.VirtualFolderOrderKey("archive"):                "1",
+		models.UnifiedTagOrderKey(models.UnifiedTagID("Cats")): "0",
+	}
+	var ids []string
+	for _, folder := range unifiedFolders(accounts, settings) {
+		ids = append(ids, folder.ID)
+	}
+	if want := []string{"trash", "archive", "inbox", "starred", "sent"}; strings.Join(ids, ",") != strings.Join(want, ",") {
+		t.Fatalf("unified folders = %v, want %v", ids, want)
+	}
+	var names []string
+	for _, label := range unifiedSidebarLabels(accounts, settings) {
+		names = append(names, label.Name)
+	}
+	if want := "Cats,Art,Bills"; strings.Join(names, ",") != want {
+		t.Fatalf("unified tags = %v, want %s", names, want)
+	}
+}
+
 func TestSidebarFolderTreeShowsScheduledOnlyWithPendingCount(t *testing.T) {
 	accounts := []models.Account{{
 		ID:               "acc",
@@ -589,3 +622,4 @@ func TestSidebarFolderTreeFolderTagFilterLeavesTagInactive(t *testing.T) {
 		t.Fatalf("a folder filtered by a tag should not mark the tag link active: %s", html)
 	}
 }
+

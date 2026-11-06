@@ -27,6 +27,10 @@ func TagColorKey(id string, unified bool) string {
 	return "tag_color:" + id
 }
 
+// UnifiedTagOrderKey keeps a unified tag's place among the unified tags the
+// user put in order.
+func UnifiedTagOrderKey(id string) string { return "unified_tag_order:" + id }
+
 func TagStyleKey(id string, unified bool) string {
 	if unified {
 		return "unified_tag_style:" + id

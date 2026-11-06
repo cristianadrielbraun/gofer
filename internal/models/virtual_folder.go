@@ -17,6 +17,10 @@ func VirtualFolders() []Folder {
 func VirtualFolderColorKey(id string) string { return "virtual_folder_color:" + id }
 func VirtualFolderStyleKey(id string) string { return "virtual_folder_style:" + id }
 
+// VirtualFolderOrderKey keeps a unified folder's place among the unified
+// folders the user put in order.
+func VirtualFolderOrderKey(id string) string { return "virtual_folder_order:" + id }
+
 // VirtualFolderAppearance resolves only known views and ignores invalid stored values.
 func VirtualFolderAppearance(id string, settings map[string]string) (Folder, bool) {
 	for _, folder := range VirtualFolders() {

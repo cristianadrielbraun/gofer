@@ -118,11 +118,11 @@ func (db *DB) SetTagAppearance(ctx context.Context, owner, id, color string, sty
 // addUnifiedTagAppearances ignores stale full UI snapshots, as virtual views do.
 func (db *DB) addUnifiedTagAppearances(ctx context.Context, owner string, settings map[string]string) {
 	for key := range settings {
-		if strings.HasPrefix(key, "unified_tag_color:") || strings.HasPrefix(key, "unified_tag_style:") {
+		if strings.HasPrefix(key, "unified_tag_color:") || strings.HasPrefix(key, "unified_tag_style:") || strings.HasPrefix(key, "unified_tag_order:") {
 			delete(settings, key)
 		}
 	}
-	rows, err := db.Read().QueryContext(ctx, `SELECT key,value FROM app_settings WHERE user_id=? AND (key LIKE 'unified_tag_color:%' OR key LIKE 'unified_tag_style:%')`, owner)
+	rows, err := db.Read().QueryContext(ctx, `SELECT key,value FROM app_settings WHERE user_id=? AND (key LIKE 'unified_tag_color:%' OR key LIKE 'unified_tag_style:%' OR key LIKE 'unified_tag_order:%')`, owner)
 	if err != nil {
 		return
 	}
@@ -136,6 +136,9 @@ func (db *DB) addUnifiedTagAppearances(ctx context.Context, owner string, settin
 			settings[key] = value
 		}
 		if id, ok := strings.CutPrefix(key, "unified_tag_style:"); ok && models.IsUnifiedTagID(id) && models.ValidFolderIconStyle(value) {
+			settings[key] = value
+		}
+		if id, ok := strings.CutPrefix(key, "unified_tag_order:"); ok && models.IsUnifiedTagID(id) && validOrderPlace(value) {
 			settings[key] = value
 		}
 	}

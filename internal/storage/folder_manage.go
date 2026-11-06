@@ -332,10 +332,11 @@ func (db *DB) DeleteProviderLabels(ctx context.Context, accountID, providerType 
 func (db *DB) ProviderLabels(ctx context.Context, accountID, providerType string) ([]models.Label, error) {
 	rows, err := db.Read().QueryContext(ctx, `
 		SELECT l.id, l.account_id, l.name, l.provider_id, l.provider_type,
-		 COALESCE(tag_color.value,''), COALESCE(tag_style.value,'') FROM labels l
+		 COALESCE(tag_color.value,''), COALESCE(tag_style.value,''), CAST(tag_order.value AS INTEGER) FROM labels l
 		JOIN accounts a ON a.id=l.account_id
 		LEFT JOIN app_settings tag_color ON tag_color.user_id=a.user_id AND tag_color.key='tag_color:' || l.id
 		LEFT JOIN app_settings tag_style ON tag_style.user_id=a.user_id AND tag_style.key='tag_style:' || l.id
+		LEFT JOIN app_settings tag_order ON tag_order.user_id=a.user_id AND tag_order.key='tag_order:' || l.id
 		WHERE l.account_id = ? AND l.provider_type = ? AND l.provider_id != '' AND l.is_system = 0
 		ORDER BY lower(l.name)`, accountID, providerType)
 	if err != nil {
@@ -343,13 +344,17 @@ func (db *DB) ProviderLabels(ctx context.Context, accountID, providerType string
 	}
 	defer rows.Close()
 	var labels []models.Label
+	places := map[string]sql.NullInt64{}
 	for rows.Next() {
 		var label models.Label
-		if err := rows.Scan(&label.ID, &label.AccountID, &label.Name, &label.ProviderID, &label.ProviderType, &label.AppearanceColor, &label.IconStyle); err != nil {
+		var place sql.NullInt64
+		if err := rows.Scan(&label.ID, &label.AccountID, &label.Name, &label.ProviderID, &label.ProviderType, &label.AppearanceColor, &label.IconStyle, &place); err != nil {
 			return nil, err
 		}
+		places[label.ID] = place
 		labels = append(labels, label)
 	}
+	sortByUserOrder(labels, func(l models.Label) sql.NullInt64 { return places[l.ID] })
 	return labels, rows.Err()
 }
 
