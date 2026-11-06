@@ -2906,16 +2906,16 @@ func (db *DB) ClearSuppressedContact(ctx context.Context, userID, contactID stri
 
 func (db *DB) UpsertObservedContact(ctx context.Context, userID, name, email string, seenAt time.Time) error {
 	settings := db.GetContactSettings(ctx, userID)
-	return db.upsertObservedContact(ctx, userID, name, email, seenAt, 1, settings)
+	return db.upsertObservedContact(ctx, userID, name, email, seenAt, settings)
 }
 
-func (db *DB) upsertObservedContact(ctx context.Context, userID, name, email string, seenAt time.Time, count int, settings ContactSettings) error {
+func (db *DB) upsertObservedContact(ctx context.Context, userID, name, email string, seenAt time.Time, settings ContactSettings) error {
 	tx, err := db.Write().BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	created, err := db.upsertObservedContactTx(ctx, tx, userID, name, email, seenAt, count, settings)
+	created, err := db.upsertObservedContactTx(ctx, tx, userID, name, email, seenAt, settings)
 	if err != nil {
 		return err
 	}
@@ -2932,7 +2932,9 @@ func (db *DB) notifyObservedContact(owner, email string) {
 	db.notifyContactActivity(ContactActivityNotification{UserID: owner, EventType: "observed_contact_added", Email: strings.TrimSpace(email), Message: "Observed contact added", Count: 1, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)})
 }
 
-func (db *DB) upsertObservedContactTx(ctx context.Context, tx *sql.Tx, userID, name, email string, seenAt time.Time, count int, settings ContactSettings) (bool, error) {
+// upsertObservedContactTx records a person seen in mail, counting their
+// messages from the mail itself (contact_message_counts.go).
+func (db *DB) upsertObservedContactTx(ctx context.Context, tx *sql.Tx, userID, name, email string, seenAt time.Time, settings ContactSettings) (bool, error) {
 	email = strings.TrimSpace(email)
 	normalized := normalizeContactEmail(email)
 	if userID == "" || normalized == "" {
@@ -2940,9 +2942,6 @@ func (db *DB) upsertObservedContactTx(ctx context.Context, tx *sql.Tx, userID, n
 	}
 	if seenAt.IsZero() {
 		seenAt = time.Now().UTC()
-	}
-	if count <= 0 {
-		count = 1
 	}
 	display := contactDisplayName(name, email)
 
@@ -3009,11 +3008,13 @@ func (db *DB) upsertObservedContactTx(ctx context.Context, tx *sql.Tx, userID, n
 			return false, trashErr
 		}
 		if trashed {
-			_, err := tx.ExecContext(ctx, `
+			if _, err := tx.ExecContext(ctx, `
 				UPDATE contact_observations
-				SET message_count = message_count + ?, last_seen_at = MAX(COALESCE(last_seen_at, ?), ?), updated_at = CURRENT_TIMESTAMP
-				WHERE user_id = ? AND normalized_email = ?`, count, seenAt, seenAt, userID, normalized)
-			return false, err
+				SET last_seen_at = MAX(COALESCE(last_seen_at, ?), ?), updated_at = CURRENT_TIMESTAMP
+				WHERE user_id = ? AND normalized_email = ?`, seenAt, seenAt, userID, normalized); err != nil {
+				return false, err
+			}
+			return false, recountContactObservationTx(ctx, tx, userID, normalized)
 		}
 		// Mail is activity, not an edit: only bringing back a deleted contact
 		// counts as updating it.
@@ -3041,17 +3042,19 @@ func (db *DB) upsertObservedContactTx(ctx context.Context, tx *sql.Tx, userID, n
 	}
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO contact_observations (id, user_id, profile_id, email, normalized_email, observed_name, message_count, last_seen_at, is_suppressed, suppress_auto_create)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0)
+		VALUES (?, ?, ?, ?, ?, ?, 0, ?, 0, 0)
 		ON CONFLICT(user_id, normalized_email) DO UPDATE SET
 			profile_id = excluded.profile_id,
 			email = excluded.email,
 			observed_name = excluded.observed_name,
-			message_count = contact_observations.message_count + excluded.message_count,
 			last_seen_at = MAX(COALESCE(contact_observations.last_seen_at, excluded.last_seen_at), excluded.last_seen_at),
 			is_suppressed = 0,
 			suppress_auto_create = 0,
-			updated_at = CURRENT_TIMESTAMP`, observationID, userID, profileID, email, normalized, strings.TrimSpace(name), count, seenAt)
+			updated_at = CURRENT_TIMESTAMP`, observationID, userID, profileID, email, normalized, strings.TrimSpace(name), seenAt)
 	if err != nil {
+		return false, err
+	}
+	if err := recountContactObservationTx(ctx, tx, userID, normalized); err != nil {
 		return false, err
 	}
 	if observationCreated {
@@ -3098,11 +3101,10 @@ func (db *DB) BackfillObservedContactsWithProgress(ctx context.Context, userID s
 		WITH participants AS (` + strings.Join(parts, " UNION ALL ") + `), ranked AS (
 			SELECT lower(trim(email)) AS normalized_email, email, name, seen_at,
 			       ROW_NUMBER() OVER (PARTITION BY lower(trim(email)) ORDER BY seen_at DESC) AS rn,
-			       COUNT(*) OVER (PARTITION BY lower(trim(email))) AS message_count,
 			       MAX(seen_at) OVER (PARTITION BY lower(trim(email))) AS last_seen_at
 			FROM participants
 		)
-		SELECT name, email, message_count, last_seen_at FROM ranked WHERE rn = 1`
+		SELECT name, email, last_seen_at FROM ranked WHERE rn = 1`
 	rows, err := db.Read().QueryContext(ctx, query, args...)
 	if err != nil {
 		return err
@@ -3124,16 +3126,15 @@ func (db *DB) BackfillObservedContactsWithProgress(ctx context.Context, userID s
 	}
 	for rows.Next() {
 		var name, email string
-		var count int
 		var lastSeenRaw string
-		if err := rows.Scan(&name, &email, &count, &lastSeenRaw); err != nil {
+		if err := rows.Scan(&name, &email, &lastSeenRaw); err != nil {
 			return err
 		}
 		seenAt := time.Now().UTC()
 		if t, ok := parseSQLiteDateTime(lastSeenRaw); ok {
 			seenAt = t
 		}
-		batch.add(name, email, seenAt, count)
+		batch.add(name, email, seenAt)
 		if len(batch) >= observedContactBatchSize {
 			if err := flush(); err != nil {
 				return err
@@ -3226,16 +3227,14 @@ type observedContact struct {
 	name   string
 	email  string
 	seenAt time.Time
-	count  int
 }
 
-func (c observedContacts) add(name, email string, seenAt time.Time, count int) {
+func (c observedContacts) add(name, email string, seenAt time.Time) {
 	normalized := normalizeContactEmail(email)
 	if normalized == "" {
 		return
 	}
 	contact := c[normalized]
-	contact.count += count
 	if contact.email == "" || seenAt.After(contact.seenAt) {
 		contact.name, contact.email, contact.seenAt = name, email, seenAt
 	}
@@ -3244,12 +3243,12 @@ func (c observedContacts) add(name, email string, seenAt time.Time, count int) {
 
 func (c observedContacts) addMessage(settings ContactSettings, fromName, fromEmail string, to, cc, bcc []Recipient, seenAt time.Time) {
 	if settings.ObserveSenders {
-		c.add(fromName, fromEmail, seenAt, 1)
+		c.add(fromName, fromEmail, seenAt)
 	}
 	if settings.ObserveRecipients {
 		for _, recipients := range [][]Recipient{to, cc, bcc} {
 			for _, r := range recipients {
-				c.add(r.Name, r.Email, seenAt, 1)
+				c.add(r.Name, r.Email, seenAt)
 			}
 		}
 	}
@@ -3276,7 +3275,7 @@ func (db *DB) recordObservedContacts(ctx context.Context, userID string, contact
 		var created []string
 		for _, key := range keys {
 			contact := contacts[key]
-			added, err := db.upsertObservedContactTx(ctx, tx, userID, contact.name, contact.email, contact.seenAt, contact.count, settings)
+			added, err := db.upsertObservedContactTx(ctx, tx, userID, contact.name, contact.email, contact.seenAt, settings)
 			if err != nil {
 				return nil, err
 			}
@@ -3298,7 +3297,7 @@ func (db *DB) recordObservedContacts(ctx context.Context, userID string, contact
 	var first error
 	for _, key := range keys {
 		contact := contacts[key]
-		if err := db.upsertObservedContact(ctx, userID, contact.name, contact.email, contact.seenAt, contact.count, settings); err != nil && first == nil {
+		if err := db.upsertObservedContact(ctx, userID, contact.name, contact.email, contact.seenAt, settings); err != nil && first == nil {
 			first = err
 		}
 	}

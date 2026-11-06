@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -24,6 +25,30 @@ func newContactsTestDB(t *testing.T) *DB {
 		t.Fatalf("insert user: %v", err)
 	}
 	return db
+}
+
+// syncContactTestMail syncs one message from the address into the user's
+// mailbox, made on first use, as mail arriving would.
+func syncContactTestMail(t *testing.T, db *DB, userID, name, email string, seenAt time.Time) {
+	t.Helper()
+	account := userID + "-mail"
+	if _, err := db.Write().Exec(`INSERT OR IGNORE INTO accounts (id, user_id, email_address) VALUES (?, ?, ?)`, account, userID, userID+"@example.test"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Write().Exec(`INSERT OR IGNORE INTO folders (id, account_id, remote_id, name, role) VALUES (?, ?, 'INBOX', 'Inbox', 'inbox')`, account+"-inbox", account); err != nil {
+		t.Fatal(err)
+	}
+	var uid uint32
+	if err := db.Read().QueryRow(`SELECT COUNT(*) + 1 FROM messages WHERE account_id = ?`, account).Scan(&uid); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.UpsertSyncMessages(context.Background(), []SyncMessage{{
+		AccountID: account, FolderID: account + "-inbox", RemoteUID: uid,
+		MessageID: fmt.Sprintf("<contact-test-%d@example.test>", uid), Subject: "Hello",
+		FromName: name, FromEmail: email, DateSent: seenAt,
+	}}); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestMigrateV70SeparatesContactSyncMembershipsFromCards(t *testing.T) {
@@ -939,9 +964,7 @@ func TestListContactsFilters(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SaveContact() error = %v", err)
 	}
-	if err := db.UpsertObservedContact(ctx, "default", "Observed", "observed@example.com", time.Now()); err != nil {
-		t.Fatalf("UpsertObservedContact() error = %v", err)
-	}
+	syncContactTestMail(t, db, "default", "Observed", "observed@example.com", time.Now())
 	observedMatches, err := db.SearchContacts(ctx, "default", "observed@example.com", 10)
 	if err != nil || len(observedMatches) != 1 {
 		t.Fatalf("SearchContacts(observed) = %#v, %v", observedMatches, err)

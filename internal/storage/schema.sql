@@ -593,6 +593,13 @@ ON message_recipients(email);
 CREATE INDEX IF NOT EXISTS idx_recipients_message
 ON message_recipients(message_id);
 
+-- Contacts' mail counts look up messages by normalized address.
+CREATE INDEX IF NOT EXISTS idx_recipients_contact_email
+ON message_recipients(lower(trim(email)), message_id);
+
+CREATE INDEX IF NOT EXISTS idx_messages_contact_email
+ON messages(lower(trim(from_email)), account_id);
+
 CREATE INDEX IF NOT EXISTS idx_attachments_message
 ON attachments(message_id);
 CREATE INDEX IF NOT EXISTS idx_attachments_message_provider_remote
@@ -1875,4 +1882,4 @@ CREATE TABLE IF NOT EXISTS mail_rule_runs (
 );
 CREATE INDEX IF NOT EXISTS idx_mail_rule_runs_user ON mail_rule_runs(user_id, id);
 
-INSERT OR REPLACE INTO schema_version (version) VALUES (139);
+INSERT OR REPLACE INTO schema_version (version) VALUES (140);

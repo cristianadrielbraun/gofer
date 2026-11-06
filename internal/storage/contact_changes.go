@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -18,6 +19,10 @@ import (
 //
 // Observations are left out: every synced message updates them, and the
 // counts they feed are read again whenever the list is.
+//
+// The same hook keeps contacts' mail counts exact: it notes the addresses on
+// every message and recipient row written or deleted, and those addresses are
+// recounted once the change is committed.
 var contactChangeTables = map[string]bool{
 	"contact_cards":            true,
 	"contact_fields":           true,
@@ -27,6 +32,12 @@ var contactChangeTables = map[string]bool{
 	"contact_sync_operations":  true,
 	"contact_remote_deletions": true,
 	"contact_conflicts":        true,
+}
+
+// contactMailColumns holds, for the mail tables, the column with an address.
+var contactMailColumns = map[string]string{
+	"messages":           "from_email",
+	"message_recipients": "email",
 }
 
 // contactChangeDelay gathers the changes of a burst, such as a sync writing a
@@ -42,6 +53,12 @@ type contactChangeWatch struct {
 	ready   map[string]struct{} // owners changed in committed transactions, not yet told
 	timer   *time.Timer
 	notify  func(userID string)
+	// mailColumns, pendingMail and readyMail do the same for the addresses
+	// on changed mail, which recount recounts.
+	mailColumns map[string]int
+	pendingMail map[string]struct{}
+	readyMail   map[string]struct{}
+	recount     func(addresses []string)
 }
 
 // contactWatches holds the watch of each open database by path. The driver
@@ -49,7 +66,7 @@ type contactChangeWatch struct {
 var contactWatches sync.Map // string → *contactChangeWatch
 
 func watchContactChanges(path string) *contactChangeWatch {
-	watch := &contactChangeWatch{pending: map[string]struct{}{}, ready: map[string]struct{}{}}
+	watch := &contactChangeWatch{pending: map[string]struct{}{}, ready: map[string]struct{}{}, pendingMail: map[string]struct{}{}, readyMail: map[string]struct{}{}}
 	contactWatches.Store(path, watch)
 	return watch
 }
@@ -65,6 +82,7 @@ func unwatchContactChanges(path string, watch *contactChangeWatch) {
 		watch.timer = nil
 	}
 	watch.notify = nil
+	watch.recount = nil
 	watch.mu.Unlock()
 }
 
@@ -93,7 +111,14 @@ func hookContactChanges(dsn string, conn any) {
 // changed runs inside the statement writing the row, so it only notes the
 // row's owner.
 func (w *contactChangeWatch) changed(data sqlite.SQLitePreUpdateData) {
-	if !contactChangeTables[data.TableName] || data.DatabaseName != "main" {
+	if data.DatabaseName != "main" {
+		return
+	}
+	if _, ok := contactMailColumns[data.TableName]; ok {
+		w.mailChanged(data)
+		return
+	}
+	if !contactChangeTables[data.TableName] {
 		return
 	}
 	w.mu.Lock()
@@ -117,6 +142,40 @@ func (w *contactChangeWatch) changed(data sqlite.SQLitePreUpdateData) {
 	}
 }
 
+// mailChanged notes the address on a mail row. An update notes both the old
+// address and the new one, and nothing when the address stays.
+func (w *contactChangeWatch) mailChanged(data sqlite.SQLitePreUpdateData) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	column, ok := w.mailColumns[data.TableName]
+	if !ok {
+		return
+	}
+	address := func(read func(...any) error) string {
+		row := make([]any, column+1)
+		if read(row...) != nil {
+			return ""
+		}
+		value, _ := row[column].(string)
+		return normalizeContactEmail(value)
+	}
+	var before, after string
+	if data.Op != sqlite3.SQLITE_INSERT {
+		before = address(data.Old)
+	}
+	if data.Op != sqlite3.SQLITE_DELETE {
+		after = address(data.New)
+	}
+	if data.Op == sqlite3.SQLITE_UPDATE && before == after {
+		return
+	}
+	for _, value := range []string{before, after} {
+		if value != "" {
+			w.pendingMail[value] = struct{}{}
+		}
+	}
+}
+
 func (w *contactChangeWatch) committed() int32 {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -124,7 +183,11 @@ func (w *contactChangeWatch) committed() int32 {
 		w.ready[owner] = struct{}{}
 	}
 	clear(w.pending)
-	if len(w.ready) > 0 && w.timer == nil && w.notify != nil {
+	for address := range w.pendingMail {
+		w.readyMail[address] = struct{}{}
+	}
+	clear(w.pendingMail)
+	if ((len(w.ready) > 0 && w.notify != nil) || (len(w.readyMail) > 0 && w.recount != nil)) && w.timer == nil {
 		w.timer = time.AfterFunc(contactChangeDelay, w.flush)
 	}
 	// Zero lets the commit go ahead.
@@ -134,6 +197,7 @@ func (w *contactChangeWatch) committed() int32 {
 func (w *contactChangeWatch) rolledBack() {
 	w.mu.Lock()
 	clear(w.pending)
+	clear(w.pendingMail)
 	w.mu.Unlock()
 }
 
@@ -144,9 +208,18 @@ func (w *contactChangeWatch) flush() {
 		owners = append(owners, owner)
 	}
 	clear(w.ready)
+	addresses := make([]string, 0, len(w.readyMail))
+	for address := range w.readyMail {
+		addresses = append(addresses, address)
+	}
+	clear(w.readyMail)
 	w.timer = nil
-	notify := w.notify
+	notify, recount := w.notify, w.recount
 	w.mu.Unlock()
+	if recount != nil && len(addresses) > 0 {
+		sort.Strings(addresses)
+		recount(addresses)
+	}
 	if notify == nil {
 		return
 	}
@@ -176,10 +249,19 @@ func (db *DB) watchContactTables() {
 		}
 		rows.Close()
 	}
+	mailColumns := make(map[string]int, len(contactMailColumns))
+	for table, column := range contactMailColumns {
+		var cid int
+		if db.read.QueryRow(`SELECT cid FROM pragma_table_info(?) WHERE name = ?`, table, column).Scan(&cid) == nil {
+			mailColumns[table] = cid
+		}
+	}
 	watch := db.contactWatch
 	watch.mu.Lock()
 	watch.columns = columns
 	watch.notify = db.notifyContactChange
+	watch.mailColumns = mailColumns
+	watch.recount = db.recountChangedContactAddresses
 	watch.mu.Unlock()
 }
 

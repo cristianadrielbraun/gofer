@@ -108,9 +108,7 @@ func TestTrashedContactsLeaveTheListAndComeBackRestored(t *testing.T) {
 func TestMailFromATrashedContactLeavesItInTheTrash(t *testing.T) {
 	db := newContactsTestDB(t)
 	ctx := context.Background()
-	if err := db.UpsertObservedContact(ctx, "default", "Ada Moss", "ada@example.com", time.Now().Add(-time.Hour)); err != nil {
-		t.Fatal(err)
-	}
+	syncContactTestMail(t, db, "default", "Ada Moss", "ada@example.com", time.Now().Add(-time.Hour))
 	contacts, err := db.ListContacts(ctx, "default", models.ContactFilters{}, 10, 0)
 	if err != nil || len(contacts) != 1 {
 		t.Fatalf("observed contacts = %v, %v", contacts, err)
@@ -119,9 +117,7 @@ func TestMailFromATrashedContactLeavesItInTheTrash(t *testing.T) {
 	if _, err := db.TrashContacts(ctx, "default", []string{id}); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.UpsertObservedContact(ctx, "default", "Ada Moss", "ada@example.com", time.Now()); err != nil {
-		t.Fatal(err)
-	}
+	syncContactTestMail(t, db, "default", "Ada Moss", "ada@example.com", time.Now())
 	if trashed, err := db.ContactInTrash(ctx, "default", id); err != nil || !trashed {
 		t.Fatalf("still in the trash = %v, %v; want true", trashed, err)
 	}

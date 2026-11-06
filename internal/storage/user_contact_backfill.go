@@ -131,20 +131,19 @@ func (r *AccountRouting) BackfillUserContacts(ctx context.Context, owner string,
 			rows, err := tx.QueryContext(ctx, `WITH participants AS (`+strings.Join(parts, " UNION ALL ")+`),ranked AS (
  SELECT lower(trim(email)) normalized_email,email,name,
  ROW_NUMBER() OVER(PARTITION BY lower(trim(email)) ORDER BY seen_at DESC) rn,
- COUNT(*) OVER(PARTITION BY lower(trim(email))) message_count,MAX(seen_at) OVER(PARTITION BY lower(trim(email))) last_seen
+ MAX(seen_at) OVER(PARTITION BY lower(trim(email))) last_seen
  FROM participants WHERE lower(trim(email))>?)
- SELECT normalized_email,name,email,message_count,last_seen FROM ranked WHERE rn=1 ORDER BY normalized_email LIMIT ?`, args...)
+ SELECT normalized_email,name,email,last_seen FROM ranked WHERE rn=1 ORDER BY normalized_email LIMIT ?`, args...)
 			if err != nil {
 				return err
 			}
 			type candidate struct {
 				key, name, email, seen string
-				n                      int
 			}
 			var batch []candidate
 			for rows.Next() {
 				var c candidate
-				if err := rows.Scan(&c.key, &c.name, &c.email, &c.n, &c.seen); err != nil {
+				if err := rows.Scan(&c.key, &c.name, &c.email, &c.seen); err != nil {
 					rows.Close()
 					return err
 				}
@@ -177,7 +176,7 @@ func (r *AccountRouting) BackfillUserContacts(ctx context.Context, owner string,
 				if parsed, ok := parseSQLiteDateTime(c.seen); ok {
 					seen = parsed
 				}
-				created, err := db.upsertObservedContactTx(ctx, tx, owner, c.name, c.email, seen, c.n, settings)
+				created, err := db.upsertObservedContactTx(ctx, tx, owner, c.name, c.email, seen, settings)
 				if err != nil {
 					return err
 				}
