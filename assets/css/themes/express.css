@@ -2549,19 +2549,20 @@ html:root[data-theme="express"] :is([data-calendar-month-event], [data-calendar-
 
 /* === MESSAGE LIST === */
 
-/* The folder name sits in a title bar above the list. */
-[data-theme="express"] .mail-list-title-row {
+/* The folder name sits in a title bar above the list, and so does Contacts
+   above the contacts list. */
+[data-theme="express"] :is(.mail-list-title-row, .contacts-list-title-row) {
   padding: 0.25rem 0.625rem;
   background: var(--xp-title);
   color: var(--xp-title-foreground);
 }
 
-[data-theme="express"] #mail-folder-name {
+[data-theme="express"] :is(#mail-folder-name, [data-contacts-title]) {
   color: var(--xp-title-foreground);
   letter-spacing: normal;
 }
 
-[data-theme="express"] #mail-folder-count {
+[data-theme="express"] :is(#mail-folder-count, #contacts-count) {
   min-width: 0;
   height: auto;
   padding: 0;
@@ -2573,11 +2574,11 @@ html:root[data-theme="express"] :is([data-calendar-month-event], [data-calendar-
   font-weight: 400;
 }
 
-[data-theme="express"] #mail-folder-count:not(:empty)::before {
+[data-theme="express"] :is(#mail-folder-count, #contacts-count):not(:empty)::before {
   content: "(";
 }
 
-[data-theme="express"] #mail-folder-count:not(:empty)::after {
+[data-theme="express"] :is(#mail-folder-count, #contacts-count):not(:empty)::after {
   content: ")";
 }
 
