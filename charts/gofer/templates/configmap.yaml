@@ -22,6 +22,9 @@ data:
   {{- if .Values.config.allowInsecureLan }}
   GOFER_ALLOW_INSECURE_LAN: "true"
   {{- end }}
+  {{- if .Values.config.googleFonts }}
+  GOFER_GOOGLE_FONTS: "true"
+  {{- end }}
   {{- range $key, $value := .Values.config.extraEnv }}
   {{ $key }}: {{ $value | quote }}
   {{- end }}

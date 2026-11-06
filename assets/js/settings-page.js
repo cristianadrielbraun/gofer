@@ -538,6 +538,8 @@
         sidebar: theme.sidebar === 'light' || theme.sidebar === 'lighter' ? 'lighter' : 'darker',
         depth: theme.depth,
         corners: theme.corners,
+        bodyFont: theme.bodyFont || '',
+        headingFont: theme.headingFont || '',
       };
     }
     var minimal = document.documentElement.getAttribute('data-theme') === 'minimal';
@@ -551,6 +553,8 @@
       sidebar: minimal ? 'lighter' : 'darker',
       depth: minimal ? 'flat' : 'raised',
       corners: minimal ? 'square' : 'medium',
+      bodyFont: '',
+      headingFont: '',
     };
   }
 
@@ -697,6 +701,9 @@
     if (secondaryValue) secondaryValue.textContent = editing.secondary || goferT("js.settings.theme.same_as_primary");
     root.querySelectorAll('[data-custom-theme-field]').forEach(function(input) {
       input.checked = editing[input.getAttribute('data-custom-theme-field')] === input.value;
+    });
+    root.querySelectorAll('[data-custom-theme-font]').forEach(function(input) {
+      if (document.activeElement !== input) input.value = editing[input.getAttribute('data-custom-theme-font')] || '';
     });
     // No tint has no strength to choose, so the choice is greyed out.
     var strength = root.querySelector('[data-custom-theme-choice="strength"]');
@@ -851,6 +858,7 @@
     if (name) name.value = editingId ? savedTheme().name : defaultName();
     watchClose(root);
     render();
+    loadFonts(root);
     loadFrame();
     window.tui.dialog.open(BUILDER_ID);
     // Opening focuses the name field, which scrolls the choices past their
@@ -966,7 +974,7 @@
     var theme = findTheme(id);
     if (!theme) return;
     var choices = {};
-    FIELDS.concat(['seed', 'secondary']).forEach(function(key) { choices[key] = theme[key]; });
+    FIELDS.concat(['seed', 'secondary', 'bodyFont', 'headingFont']).forEach(function(key) { choices[key] = theme[key]; });
     var edits = fetch('/api/settings/theme-colors.css', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -978,6 +986,39 @@
       GoferSettings.set('custom_theme_active', id);
       GoferSettings.set('theme_style', 'custom');
     }).catch(function() {});
+  }
+
+  var fontFamilies = null;
+  function loadFonts(root) {
+    var list = root.querySelector('[data-custom-theme-font-list]');
+    if (!list || fontFamilies) return;
+    fontFamilies = {};
+    fetch('/api/fonts/google', { credentials: 'same-origin' })
+      .then(function(res) { return res.ok ? res.json() : Promise.reject(res.status); })
+      .then(function(families) {
+        var fragment = document.createDocumentFragment();
+        families.forEach(function(family) {
+          fontFamilies[family.family] = true;
+          var option = document.createElement('option');
+          option.value = family.family;
+          option.label = family.category || '';
+          fragment.appendChild(option);
+        });
+        list.appendChild(fragment);
+      })
+      .catch(function() { fontFamilies = null; });
+  }
+
+  function pickFont(input) {
+    var root = builder();
+    var error = root && root.querySelector('[data-custom-theme-font-error]');
+    var name = input.value.replace(/\s+/g, ' ').trim();
+    var known = name === '' || (fontFamilies && fontFamilies[name]);
+    if (error) error.classList.toggle('hidden', !!known);
+    if (!known) return;
+    var change = {};
+    change[input.getAttribute('data-custom-theme-font')] = name;
+    update(change);
   }
 
   function update(change) {
@@ -1050,6 +1091,10 @@
     if (!e.target.matches) return;
     if (e.target.matches('input[name="theme_style"][data-custom-theme-id]')) {
       choose(e.target.getAttribute('data-custom-theme-id'));
+      return;
+    }
+    if (e.target.matches('[data-custom-theme-font]')) {
+      pickFont(e.target);
       return;
     }
     if (!e.target.matches('[data-custom-theme-field]')) return;

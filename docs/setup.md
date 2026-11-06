@@ -33,6 +33,8 @@ In managed mode, the admin panel's Mail security page can also limit the mail se
 
 Gofer looks up sender pictures from Gravatar, Libravatar, BIMI, and the sender domain's website icon. The last two contact servers chosen by whoever sent the mail. To keep Gofer from reaching them, set `GOFER_AVATAR_PROVIDERS=gravatar,libravatar`, or `none` to turn sender picture lookups off.
 
+Set `GOFER_GOOGLE_FONTS=true` to let them pick body and heading fonts from the Google Fonts library as well. Gofer fetches the family list, stylesheets and font files itself, keeps them in `google-fonts/` next to the database, and serves them from its own address.
+
 Runtime data is stored in `data/` by default. Protect the data directory, configuration, and secrets, and back them up together before upgrades. Shared databases apply schema migrations at startup, and managed mode converts them to per-user storage as described in [pre-0.5.0-migration.md](./pre-0.5.0-migration.md). Going back to an older version may require restoring its matching backup, and the retained shared database does not include changes made after conversion. I recommend testing your providers and access setup before relying on Gofer for anything critical.
 
 ## outlook change notifications

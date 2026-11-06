@@ -2751,6 +2751,9 @@ templ CustomThemeDialog() {
 					@customThemeChoice(i18n.T(ctx, "settings.theme.sidebar"), "", "sidebar", []customThemeOption{{"darker", i18n.T(ctx, "settings.theme.sidebar.darker")}, {"lighter", i18n.T(ctx, "settings.theme.sidebar.lighter")}})
 					@customThemeChoice(i18n.T(ctx, "settings.theme.depth"), "", "depth", []customThemeOption{{"raised", i18n.T(ctx, "settings.theme.depth.raised")}, {"flat", i18n.T(ctx, "settings.theme.depth.flat")}})
 					@customThemeChoice(i18n.T(ctx, "settings.theme.corners"), "", "corners", []customThemeOption{{"square", i18n.T(ctx, "settings.theme.corners.square")}, {"small", i18n.T(ctx, "settings.theme.corners.small")}, {"medium", i18n.T(ctx, "settings.theme.corners.medium")}, {"large", i18n.T(ctx, "settings.theme.corners.large")}})
+					if themebuilder.FontStylesheet != nil {
+						@customThemeFonts()
+					}
 					<p class="hidden rounded-md border border-border bg-muted/60 px-3 py-2 text-xs text-muted-foreground" data-custom-theme-reset-warning></p>
 				</div>
 				<div class="flex min-w-0 flex-col gap-2 [justify-content:safe_center] md:min-h-0 md:overflow-y-auto">
@@ -2775,6 +2778,35 @@ templ CustomThemeDialog() {
 			}
 		}
 	}
+}
+
+templ customThemeFonts() {
+	<fieldset class="space-y-3" data-custom-theme-fonts>
+		<legend class="mb-1 text-sm font-semibold text-foreground">{ i18n.T(ctx, "settings.theme.fonts") }</legend>
+		<p class="text-xs text-muted-foreground">{ i18n.T(ctx, "settings.theme.fonts_hint") }</p>
+		@customThemeFontField("bodyFont", i18n.T(ctx, "settings.theme.font.body"), "Nunito Sans")
+		@customThemeFontField("headingFont", i18n.T(ctx, "settings.theme.font.heading"), "Fraunces")
+		<datalist id="custom-theme-font-list" data-custom-theme-font-list></datalist>
+		<p class="hidden text-xs text-destructive" data-custom-theme-font-error>{ i18n.T(ctx, "settings.theme.font.unknown") }</p>
+	</fieldset>
+}
+
+templ customThemeFontField(field, label, builtIn string) {
+	<div class="space-y-1.5">
+		<label for={ "custom-theme-" + field } class="text-xs font-medium text-muted-foreground">{ label }</label>
+		@input.Input(input.Props{
+			ID:          "custom-theme-" + field,
+			Type:        input.TypeText,
+			Placeholder: i18n.T(ctx, "settings.theme.font.default", "font", builtIn),
+			Attributes: templ.Attributes{
+				"list":                    "custom-theme-font-list",
+				"autocomplete":            "off",
+				"spellcheck":              "false",
+				"maxlength":               "60",
+				"data-custom-theme-font":  field,
+			},
+		})
+	</div>
 }
 
 // customThemeSwatches are the suggested colors, each marked with attribute,

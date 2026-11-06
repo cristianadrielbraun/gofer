@@ -17,6 +17,9 @@
         },
         "goEnv": {
           "type": "string"
+        },
+        "googleFonts": {
+          "type": "boolean"
         }
       }
     },
