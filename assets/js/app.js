@@ -10554,128 +10554,68 @@ document.addEventListener("DOMContentLoaded", function () {
     }
   }
 
-  function contactDetailSkeletonField(label, widthClass, className) {
-    return '<div class="min-w-0 border-b border-ink/10 py-3 last:border-b-0 lg:[&:nth-last-child(-n+2)]:border-b-0 xl:last:border-b-0 ' + (className || "") + '">' +
-      '<div class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">' + label + '</div>' +
-      '<div class="mt-1 flex min-h-5 items-center">' +
-        '<div class="h-3 ' + widthClass + ' max-w-full rounded bg-ink/5 animate-pulse"></div>' +
-      '</div>' +
-    '</div>'
+  // contactSkeletonAvatar fills a skeleton's avatar from the list row.
+  function contactSkeletonAvatar(slot, preview) {
+    slot.textContent = preview.initials || ""
+    if (!preview.avatar) return
+    var img = document.createElement("img")
+    img.src = preview.avatar
+    img.alt = ""
+    img.className = "block size-full object-cover"
+    slot.textContent = ""
+    slot.appendChild(img)
   }
 
-  function contactDetailSkeletonSectionHeader(label) {
-    return '<div class="flex items-center gap-2 border-b border-ink/10 px-4 py-3 text-muted-foreground">' +
-      pendingIcon("size-3.5") +
-      '<h2 class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">' + label + '</h2>' +
-    '</div>'
-  }
-
-  function contactDetailRecentActivitySkeleton() {
-    var rows = ""
-    for (var i = 0; i < 4; i++) {
-      rows += '<div class="border-b border-ink/10 px-3 py-2.5 last:border-b-0">' +
-        '<div class="flex items-start justify-between gap-3">' +
-          '<div class="min-w-0 flex flex-1 items-center gap-2">' +
-            '<div class="h-5 w-9 shrink-0 rounded border border-ink/10 bg-ink/[0.04] animate-pulse"></div>' +
-            '<div class="h-3 min-w-0 flex-1 rounded bg-ink/5 animate-pulse"></div>' +
-          '</div>' +
-          '<div class="h-3 w-16 shrink-0 rounded bg-ink/5 animate-pulse"></div>' +
-        '</div>' +
-        '<div class="mt-2 h-3 w-4/5 rounded bg-ink/5 animate-pulse"></div>' +
-      '</div>'
-    }
-    return '<div class="w-full rounded-lg border border-ink/10 bg-ink/[0.025] p-4">' +
-      '<div class="mb-3 flex items-center justify-between gap-3">' +
-        '<div>' +
-          '<h2 class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">' + goferT("js.contacts.recent.title") + '</h2>' +
-          '<p class="mt-1 text-xs text-muted-foreground">' + goferT("js.contacts.recent.detail") + '</p>' +
-        '</div>' +
-        '<div class="flex shrink-0 items-center gap-2">' +
-          '<span class="rounded bg-ink/[0.05] px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">' + goferT("js.contacts.recent.top", { count: goferNumber(10) }) + '</span>' +
-          '<div class="h-7 w-16 rounded-md border border-ink/10 bg-paper/45"></div>' +
-        '</div>' +
-      '</div>' +
-      '<div class="overflow-hidden rounded-md border border-ink/10 bg-paper/35">' + rows + '</div>' +
-    '</div>'
-  }
-
+  // showContactsDetailLoading draws the contact being opened while it loads,
+  // from ContactDetailSkeleton in contacts.templ, with what the list row
+  // knows. As the mail reader does, a contact already open keeps its header
+  // and frame: only its name, avatar and body change, and the body settles in
+  // (see #mail-view[data-contact-switching] in input.css).
   function showContactsDetailLoading(trigger) {
     var detail = document.getElementById("contacts-detail")
-    if (!detail) return
+    var template = document.querySelector("template[data-contact-detail-skeleton]")
+    if (!detail || !template) return
     var preview = getContactRowPreview(trigger) || {}
-    var initials = escapeHTML(preview.initials || "")
-    var avatar = escapeHTML(preview.avatar || "")
-    var name = escapeHTML(preview.name || goferT("js.contacts.loading"))
-    var avatarHTML = avatar
-      ? '<div class="size-14 shrink-0 overflow-hidden rounded-full bg-ink/5 shadow-[0_8px_22px_rgba(0,0,0,0.16)]"><img src="' + avatar + '" alt="" class="block size-full object-cover"/></div>'
-      : '<div class="flex size-14 shrink-0 items-center justify-center rounded-full bg-gradient-to-b from-amber-700/70 to-amber-900/70 text-base font-bold text-amber-100 shadow-[0_8px_22px_rgba(0,0,0,0.16)]">' + initials + '</div>'
+    var skeleton = template.content.firstElementChild.cloneNode(true)
+    var mailView = detail.closest("#mail-view")
     detail.setAttribute("aria-busy", "true")
-    detail.innerHTML =
-      '<div class="surface-paper rounded-md flex flex-col h-full overflow-hidden" data-contact-detail-loading>' +
-        '<span class="sr-only" role="status">' + goferT("js.contacts.loading_details") + '</span>' +
-        '<div class="shrink-0 border-b border-ink/10 bg-paper/70 px-5 py-4 sm:px-7">' +
-          '<div class="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">' +
-            '<div class="flex min-w-0 items-start gap-4">' +
-              avatarHTML +
-              '<div class="min-w-0 pt-0.5">' +
-                '<h1 class="min-w-0 truncate text-2xl font-bold leading-tight tracking-tight text-ink" style="font-family: var(--font-serif)">' + name + '</h1>' +
-                '<div class="mt-1 text-sm text-muted-foreground">' + goferT("js.contacts.entry") + '</div>' +
-              '</div>' +
-            '</div>' +
-            '<div class="flex flex-wrap items-center gap-2 xl:justify-end" aria-hidden="true">' +
-              '<div class="h-9 w-24 rounded-md border border-ink/10 bg-ink/[0.025] animate-pulse"></div>' +
-              '<div class="size-9 rounded-md bg-ink/[0.03] animate-pulse"></div>' +
-              '<div class="size-9 rounded-md bg-ink/[0.03] animate-pulse"></div>' +
-              '<div class="size-9 rounded-md bg-ink/[0.03] animate-pulse"></div>' +
-            '</div>' +
-          '</div>' +
-        '</div>' +
-        '<div class="flex-1 overflow-y-auto">' +
-          '<div class="w-full space-y-5 px-5 py-5 sm:px-7" aria-hidden="true">' +
-            '<section class="rounded-lg border border-ink/10 bg-ink/[0.02]">' +
-              contactDetailSkeletonSectionHeader(goferT("js.contacts.contact")) +
-              '<div class="grid gap-x-6 px-4 lg:grid-cols-2">' +
-                contactDetailSkeletonField(goferT("js.contacts.field.name"), "w-40") +
-                contactDetailSkeletonField(goferT("js.contacts.field.email"), "w-52") +
-                contactDetailSkeletonField(goferT("js.contacts.field.additional_emails"), "w-24") +
-                contactDetailSkeletonField(goferT("js.contacts.field.phone"), "w-28") +
-                contactDetailSkeletonField(goferT("js.contacts.field.additional_phones"), "w-24") +
-                contactDetailSkeletonField(goferT("js.contacts.field.title"), "w-32") +
-                contactDetailSkeletonField(goferT("js.contacts.field.organization"), "w-36") +
-                contactDetailSkeletonField(goferT("js.contacts.field.notes"), "w-48") +
-              '</div>' +
-            '</section>' +
-            '<section class="rounded-lg border border-ink/10 bg-ink/[0.02]">' +
-              '<div class="flex flex-wrap items-center justify-between gap-3 border-b border-ink/10 px-4 py-3">' +
-                '<div class="flex flex-wrap items-center gap-2 text-muted-foreground">' +
-                  pendingIcon("size-3.5") +
-                  '<h2 class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Gofer Sync</h2>' +
-                  '<div class="h-6 w-16 rounded-md border border-ink/10 bg-ink/[0.03] animate-pulse"></div>' +
-                '</div>' +
-                '<div class="h-7 w-24 rounded-md border border-ink/10 bg-ink/[0.025] animate-pulse"></div>' +
-              '</div>' +
-              '<div class="grid gap-x-6 px-4 lg:grid-cols-2">' +
-                contactDetailSkeletonField(goferT("js.contacts.field.sync_locations"), "w-16", "lg:col-span-2") +
-                contactDetailSkeletonField(goferT("js.contacts.field.origin"), "w-24") +
-                contactDetailSkeletonField(goferT("js.contacts.field.sync_status"), "w-20") +
-                contactDetailSkeletonField(goferT("js.contacts.field.sync_updated"), "w-32") +
-                contactDetailSkeletonField(goferT("js.contacts.field.sync_error"), "w-24") +
-              '</div>' +
-            '</section>' +
-            '<section class="rounded-lg border border-ink/10 bg-ink/[0.02]">' +
-              contactDetailSkeletonSectionHeader(goferT("js.contacts.field.activity")) +
-              '<div class="grid gap-x-6 px-4 sm:grid-cols-2 xl:grid-cols-4">' +
-                contactDetailSkeletonField(goferT("js.contacts.field.messages"), "w-10") +
-                contactDetailSkeletonField(goferT("js.contacts.field.last_seen"), "w-28") +
-                contactDetailSkeletonField(goferT("js.contacts.field.added"), "w-24") +
-                contactDetailSkeletonField(goferT("js.contacts.field.updated"), "w-24") +
-              '</div>' +
-            '</section>' +
-            contactDetailRecentActivitySkeleton() +
-          '</div>' +
-        '</div>' +
-      '</div>'
+    if (mailView) mailView.setAttribute("data-contact-switching", "")
+    var open = detail.querySelector(".contact-editor")
+    var scroll = open && open.querySelector(":scope > [data-contact-detail-scroll]")
+    var header = open && open.querySelector(":scope > .contact-editor-header")
+    if (scroll && header) {
+      if (preview.name) {
+        var heading = header.querySelector(".contact-header-identity h1")
+        if (heading) heading.textContent = preview.name
+        var avatar = header.querySelector(".contact-header-identity > :first-child")
+        var slot = skeleton.querySelector("[data-contact-skeleton-avatar]")
+        if (avatar && slot) {
+          contactSkeletonAvatar(slot, preview)
+          avatar.replaceWith(slot)
+        }
+        var line = header.querySelector(".contact-header-identity .mt-1.text-sm")
+        if (line) line.textContent = goferT("js.contacts.entry")
+      }
+      header.querySelectorAll("[data-contact-header-actions]").forEach(function (actions) { actions.inert = true })
+      scroll.replaceChildren(skeleton.querySelector("[data-contact-detail-scroll]").firstElementChild)
+      scroll.scrollTop = 0
+      return
+    }
+    contactSkeletonAvatar(skeleton.querySelector("[data-contact-skeleton-avatar]"), preview)
+    skeleton.querySelector("[data-contact-skeleton-name]").textContent = preview.name || goferT("js.contacts.loading")
+    detail.replaceChildren(skeleton)
   }
+
+  // The contact that loaded settles in; later updates of it don't move.
+  document.body.addEventListener("htmx:afterSettle", function (evt) {
+    var target = evt.detail && evt.detail.target
+    if (!(evt.target && evt.target.id === "contacts-detail") && !(target && target.id === "contacts-detail")) return
+    var mailView = document.querySelector("#mail-view[data-contact-switching]")
+    if (!mailView) return
+    setTimeout(function () {
+      if (!document.querySelector('#contacts-detail[aria-busy="true"]')) mailView.removeAttribute("data-contact-switching")
+    }, 200)
+  })
 
   var MAIL_VIEW_SKELETON_ICONS = {
     "arrow-left": '<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>',

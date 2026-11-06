@@ -2211,7 +2211,157 @@ templ contactsContextItem(action string, label string, class string) {
 templ ContactsViewPane(selected *models.Contact, selectedProfile *models.ContactProfile, showNew bool, syncQueued bool, accounts []models.Account) {
 	<section id="mail-view" class="hidden flex-1 min-w-0 bg-background surface-desk lg:flex lg:flex-col" data-mail-reader>
 		@ContactsDetail(selected, selectedProfile, showNew, syncQueued, accounts)
+		@ContactDetailSkeleton()
 	</section>
+}
+
+// ContactDetailSkeleton is a contact while it loads, as ContactEditor lays it
+// out: the headings, icons and buttons every contact has are drawn as they
+// are, and only what changes from one contact to the next pulses. app.js
+// puts the list row's avatar and name in, and, with a contact already open,
+// keeps its header and swaps in only the body.
+templ ContactDetailSkeleton() {
+	<template data-contact-detail-skeleton>
+		<div class="surface-paper rounded-md flex min-h-0 flex-1 flex-col overflow-hidden" data-contact-detail-loading>
+			<span class="sr-only" role="status">{ i18n.T(ctx, "contacts.loading_details") }</span>
+			<div class="contact-editor flex h-full min-h-0 flex-col">
+				<div class="contact-editor-header shrink-0 border-b border-ink/10 bg-paper/70 px-5 py-4 sm:px-7">
+					<div class="contact-editor-header-inner flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+						<div class="contact-header-identity flex min-w-0 items-start gap-4 xl:max-w-[60%] xl:shrink-0">
+							<div class="flex size-14 shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-b from-amber-700/70 to-amber-900/70 text-base font-bold text-amber-100 shadow-[0_8px_22px_rgba(0,0,0,0.16)]" data-contact-skeleton-avatar></div>
+							<div class="min-w-0 pt-0.5">
+								<h1 class="min-w-0 truncate text-2xl font-bold leading-tight tracking-tight text-ink" style="font-family: var(--font-serif)" data-contact-skeleton-name></h1>
+								<div class="mt-1 text-sm text-muted-foreground">{ i18n.T(ctx, "contacts.view.entry") }</div>
+							</div>
+						</div>
+						<div class="contact-header-actions flex min-w-0 flex-nowrap items-center gap-1 overflow-hidden xl:flex-1" aria-hidden="true">
+							<div class="contact-header-spacer min-w-0 flex-1"></div>
+							for _, action := range []templ.Component{icon.Pencil(icon.Props{Class: "size-4"}), icon.Mail(icon.Props{Class: "size-4"}), icon.FolderInput(icon.Props{Class: "size-4"}), icon.CopyPlus(icon.Props{Class: "size-4"}), icon.Download(icon.Props{Class: "size-4"}), icon.Trash2(icon.Props{Class: "size-4"})} {
+								<span class="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-40">
+									@action
+								</span>
+							}
+						</div>
+					</div>
+				</div>
+				<div class="flex-1 overflow-y-auto" data-contact-detail-scroll>
+					@ContactDetailSkeletonBody()
+				</div>
+			</div>
+		</div>
+	</template>
+}
+
+// ContactDetailSkeletonBody is ContactReadOnlyView while it loads.
+templ ContactDetailSkeletonBody() {
+	<div class="contact-readonly w-full space-y-5 px-5 py-5 sm:px-7" aria-hidden="true" data-contact-skeleton-body>
+		<section class="rounded-lg border border-ink/10 bg-ink/[0.02]">
+			<div class="flex items-center gap-2 border-b border-ink/10 px-4 py-3">
+				@icon.IdCard(icon.Props{Class: "size-3.5 text-muted-foreground"})
+				<h2 class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.view.contact") }</h2>
+			</div>
+			<div class="grid gap-x-6 px-4 lg:grid-cols-2">
+				@contactSkeletonPillsField(i18n.T(ctx, "contacts.stored_in"), "w-28")
+				@contactSkeletonField(i18n.T(ctx, "contacts.field.name"), "w-40")
+				@contactSkeletonField(i18n.T(ctx, "contacts.field.email"), "w-52")
+				@contactSkeletonField(i18n.T(ctx, "contacts.field.additional_emails"), "w-24")
+				@contactSkeletonField(i18n.T(ctx, "contacts.field.phone"), "w-28")
+				@contactSkeletonField(i18n.T(ctx, "contacts.field.additional_phones"), "w-24")
+				@contactSkeletonField(i18n.T(ctx, "contacts.field.title"), "w-32")
+				@contactSkeletonField(i18n.T(ctx, "contacts.field.organization"), "w-36")
+				@contactSkeletonField(i18n.T(ctx, "contacts.field.notes"), "w-48")
+			</div>
+		</section>
+		<section class="rounded-lg border border-ink/10 bg-ink/[0.02]">
+			<div class="flex flex-wrap items-center justify-between gap-3 border-b border-ink/10 px-4 py-3">
+				<div class="flex flex-wrap items-center gap-2">
+					@icon.Route(icon.Props{Class: "size-3.5 text-muted-foreground"})
+					<h2 class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.sync.title") }</h2>
+					@goferSyncInfo()
+					// On or off: it changes with the contact.
+					<span class="h-5 w-14 rounded-md border border-ink/10 bg-ink/[0.03] animate-pulse"></span>
+				</div>
+				@button.Button(button.Props{
+					Variant: button.VariantOutline,
+					Size: button.SizeSm,
+					Disabled: true,
+					Class: "h-7 gap-1.5 border-ink/10 bg-ink/[0.025] px-2.5 text-xs text-muted-foreground shadow-none",
+				}) {
+					@icon.RefreshCw(icon.Props{Class: "size-3.5"})
+					{ i18n.T(ctx, "contacts.sync.now") }
+				}
+			</div>
+			<div class="grid gap-x-6 px-4 lg:grid-cols-2">
+				@contactSkeletonPillsField(i18n.T(ctx, "contacts.sync.locations"), "w-16")
+				@contactSkeletonField(i18n.T(ctx, "contacts.filters.origin"), "w-24")
+				@contactSkeletonField(i18n.T(ctx, "contacts.sync.status_label"), "w-20")
+				@contactSkeletonField(i18n.T(ctx, "contacts.sync.updated"), "w-32")
+				@contactSkeletonField(i18n.T(ctx, "contacts.sync.error"), "w-24")
+			</div>
+		</section>
+		<section class="rounded-lg border border-ink/10 bg-ink/[0.02]">
+			<div class="flex items-center gap-2 border-b border-ink/10 px-4 py-3">
+				@icon.Activity(icon.Props{Class: "size-3.5 text-muted-foreground"})
+				<h2 class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.filters.activity") }</h2>
+			</div>
+			<div class="grid gap-x-6 px-4 sm:grid-cols-2 xl:grid-cols-4">
+				@contactSkeletonField(i18n.T(ctx, "contacts.activity.messages"), "w-10")
+				@contactSkeletonField(i18n.T(ctx, "contacts.activity.last_seen"), "w-28")
+				@contactSkeletonField(i18n.T(ctx, "contacts.activity.added"), "w-24")
+				@contactSkeletonField(i18n.T(ctx, "contacts.activity.updated"), "w-24")
+			</div>
+		</section>
+		<div class="w-full rounded-lg border border-ink/10 bg-ink/[0.025] p-4">
+			<div class="mb-3 flex items-center justify-between gap-3">
+				<div>
+					<h2 class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.activity.recent") }</h2>
+					<p class="mt-1 text-xs text-muted-foreground">{ i18n.T(ctx, "contacts.activity.recent_detail") }</p>
+				</div>
+				<div class="flex shrink-0 items-center gap-2">
+					<span class="rounded bg-ink/[0.05] px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.activity.top") }</span>
+					// See all is there only for contacts with an address.
+					<span class="h-7 w-16 rounded-md border border-ink/10 bg-ink/[0.03] animate-pulse"></span>
+				</div>
+			</div>
+			@contactRecentActivitySkeletonRows()
+		</div>
+	</div>
+}
+
+templ contactSkeletonField(label, width string) {
+	<div class="min-w-0 border-b border-ink/10 py-3 last:border-b-0 lg:[&:nth-last-child(-n+2)]:border-b-0 xl:last:border-b-0">
+		<div class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{ label }</div>
+		<div class="mt-1 flex min-h-5 items-center">
+			<div class={ "h-3 max-w-full rounded bg-ink/5 animate-pulse " + width }></div>
+		</div>
+	</div>
+}
+
+templ contactSkeletonPillsField(label, width string) {
+	<div class="min-w-0 border-b border-ink/10 py-3 last:border-b-0 lg:col-span-2">
+		<div class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{ label }</div>
+		<div class="mt-1 flex min-h-5 items-center">
+			<div class={ "h-[1.125rem] max-w-full rounded border border-ink/10 bg-ink/[0.04] animate-pulse " + width }></div>
+		</div>
+	</div>
+}
+
+// contactRecentActivitySkeletonRows are the recent emails while they load.
+templ contactRecentActivitySkeletonRows() {
+	<div class="overflow-hidden rounded-md border border-ink/10 bg-paper/35">
+		for i := 0; i < 4; i++ {
+			<div class="border-b border-ink/10 px-3 py-2.5 last:border-b-0">
+				<div class="flex items-start justify-between gap-3">
+					<div class="min-w-0 flex flex-1 items-center gap-2">
+						<div class="h-5 w-9 shrink-0 rounded border border-ink/10 bg-ink/[0.04] animate-pulse"></div>
+						<div class="h-3 min-w-0 flex-1 rounded bg-ink/5 animate-pulse"></div>
+					</div>
+					<div class="h-3 w-16 shrink-0 rounded bg-ink/5 animate-pulse"></div>
+				</div>
+				<div class="mt-2 h-3 w-4/5 rounded bg-ink/5 animate-pulse"></div>
+			</div>
+		}
+	</div>
 }
 
 // ContactListCard is a contact in the list's cards view. Each field sits in
@@ -2679,7 +2829,7 @@ templ ContactEditor(contact *models.Contact, profile *models.ContactProfile, syn
 	<div class="contact-editor flex h-full min-h-0 flex-col">
 		@ContactEditorHeader(contact, profile, accounts)
 		if contact != nil {
-			<div class="flex-1 overflow-y-auto">
+			<div class="flex-1 overflow-y-auto" data-contact-detail-scroll>
 				@ContactReadOnlyView(*contact, profile, syncQueued, accounts)
 			</div>
 			if contact.TrashedAt == "" {
@@ -4310,20 +4460,7 @@ templ ContactRecentActivityLoader(contact models.Contact) {
 		data-contact-recent-activity-loading
 	>
 		@ContactRecentActivityHeader(contact)
-		<div class="overflow-hidden rounded-md border border-ink/10 bg-paper/35">
-			for i := 0; i < 4; i++ {
-				<div class="border-b border-ink/10 px-3 py-2.5 last:border-b-0">
-					<div class="flex items-start justify-between gap-3">
-						<div class="min-w-0 flex flex-1 items-center gap-2">
-							<div class="h-5 w-9 shrink-0 rounded border border-ink/10 bg-ink/[0.04] animate-pulse"></div>
-							<div class="h-3 min-w-0 flex-1 rounded bg-ink/5 animate-pulse"></div>
-						</div>
-						<div class="h-3 w-16 shrink-0 rounded bg-ink/5 animate-pulse"></div>
-					</div>
-					<div class="mt-2 h-3 w-4/5 rounded bg-ink/5 animate-pulse"></div>
-				</div>
-			}
-		</div>
+		@contactRecentActivitySkeletonRows()
 	</div>
 }
 
