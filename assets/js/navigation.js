@@ -363,6 +363,9 @@
 
   window.addEventListener("popstate", function (event) {
     if (!route(window.location.href)) return
+    // Back to the open list, or to one of its messages, is the list's to do
+    // in place (mailListPopState in virtual-scroll.js), with no page to load.
+    if (typeof mailListPopState === "function" && mailListPopState(window.location.href)) return
     if (navigate(window.location.href, { history: true })) event.stopImmediatePropagation()
     // The address has changed already and nothing else handles these pages.
     else window.location.reload()

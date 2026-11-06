@@ -2798,6 +2798,10 @@ class VirtualMailList {
     if (window.location.pathname + window.location.search !== path) {
       // fromList lets the small-screen back button return to the list with history.back().
       var fromList = !!this.selectedEmailId && !(history.state && history.state.email)
+      // The list's own address, as it was loaded or last written: going back
+      // to it closes the message in place (see mailListPopState).
+      // A page opened straight on a message has no list address to go to.
+      if (fromList && !/^\/folder\/[^/]+\/[^/]+$/.test(window.location.pathname)) this.listAddress = window.location.pathname + window.location.search
       history.pushState({ folder: this.folderID, email: this.selectedEmailId, fromList: fromList }, "", path)
     }
   }
@@ -2809,6 +2813,7 @@ class VirtualMailList {
     if (this.searchScope && this.selectedEmailId) query.set("selected", this.selectedEmailId)
     if (query.toString()) path += "?" + query.toString()
     history.replaceState({ folder: this.folderID, email: this.selectedEmailId || null }, "", path)
+    if (!this.selectedEmailId) this.listAddress = path
   }
 
   showNewEmailBanner() {
@@ -4267,7 +4272,31 @@ Object.assign(VirtualContactsList.prototype, otherViewRowsMethods)
 window.VirtualMailList = VirtualMailList
 window.VirtualContactsList = VirtualContactsList
 
+// mailListPopState is where the open mail list goes for an address back or
+// forward lands on, when that is the list itself: its own address, or one of
+// its messages under the same filters. The list then closes or opens the
+// message in place; anything else is for the router (navigation.js), which
+// loads the mail page again. Going back from a message used to do that, and
+// waited for the whole page on a phone.
+function mailListPopState(href) {
+  var container = document.getElementById("mail-list-scroll")
+  var vml = container && container.isConnected && container._virtualMailList
+  if (!vml || vml.searchScope) return null
+  var url = new URL(href, window.location.href)
+  if (url.origin !== window.location.origin) return null
+  if (vml.listAddress && url.pathname + url.search === vml.listAddress) return { folder: vml.folderID, email: null }
+  var message = /^\/folder\/([^/]+)\/([^/]+)$/.exec(url.pathname)
+  if (!message || decodeURIComponent(message[1]) !== vml.folderID) return null
+  if (url.search.replace(/^\?/, "") !== vml.filterQueryString()) return null
+  return { folder: vml.folderID, email: decodeURIComponent(message[2]) }
+}
+
 window.addEventListener("popstate", function (e) {
+  var inPlace = mailListPopState(window.location.href)
+  if (inPlace) {
+    moveMailListTo(inPlace)
+    return
+  }
   if (!e.state) return
   // Pages the app's router knows (navigation.js) are its to move between.
   // Listeners on the window run in the order they were added, and this one
@@ -4323,17 +4352,22 @@ window.addEventListener("popstate", function (e) {
   }
 
   if (!e.state.folder) return
+  moveMailListTo(e.state)
+})
 
+// moveMailListTo shows a mail history state: another folder, other filters,
+// or a message opened or closed in the same list.
+function moveMailListTo(state) {
   var container = document.getElementById("mail-list-scroll")
   if (!container || !container._virtualMailList) {
     if (typeof htmx !== "undefined") {
-      htmx.ajax("GET", "/folder/" + e.state.folder + "/full" + window.location.search, {target: "#main-content", swap: "outerHTML"})
+      htmx.ajax("GET", "/folder/" + state.folder + "/full" + window.location.search, {target: "#main-content", swap: "outerHTML"})
     }
     return
   }
 
   var vml = container._virtualMailList
-  var folderID = e.state.folder
+  var folderID = state.folder
   var oldNavigationState = JSON.stringify({ filters: vml.filters || {}, tag: vml.sidebarTag || {} })
   vml.filters = vml.readFiltersFromURL()
   vml.syncFilterInputs()
@@ -4421,20 +4455,20 @@ window.addEventListener("popstate", function (e) {
   } else if (navigationStateChanged) {
     vml.refreshCurrentFolder({ rebase: true }).catch(function () {})
     updateSidebarActive()
-  } else if (!e.state.email && vml.selectedEmailId) {
+  } else if (!state.email && vml.selectedEmailId) {
     var closedEmailId = vml.selectedEmailId
     vml.selectedEmailId = null
     vml.syncSelectionClasses(vml.itemsContainer)
     if (typeof setMailViewEmpty === "function") setMailViewEmpty()
     document.dispatchEvent(new CustomEvent("gofer:mail-view-closed", { detail: { emailId: closedEmailId } }))
-  } else if (e.state.email && e.state.email !== vml.selectedEmailId) {
-    vml.selectedEmailId = e.state.email
+  } else if (state.email && state.email !== vml.selectedEmailId) {
+    vml.selectedEmailId = state.email
     vml.prevFirst = null
     vml.prevLast = null
     vml.render()
     if (typeof htmx !== "undefined") {
       if (typeof showMailViewLoading === "function") showMailViewLoading()
-      htmx.ajax("GET", typeof mailViewRequestURL === "function" ? mailViewRequestURL(e.state.email) : "/email/" + e.state.email, "#mail-view")
+      htmx.ajax("GET", typeof mailViewRequestURL === "function" ? mailViewRequestURL(state.email) : "/email/" + state.email, "#mail-view")
     }
   }
-})
+}
