@@ -1822,6 +1822,7 @@ templ ContactsListPane(contacts []models.Contact, selected *models.Contact, filt
 		</div>
 		<div class="contacts-list-toolbar relative flex items-center gap-1 px-4 py-1.5">
 			@ContactsSelectAllControl()
+			@listSelectionClear(templ.Attributes{"data-contact-selection-clear": ""}, templ.Attributes{"data-contact-selection-summary": ""})
 			// One capsule, as the mail list's: the view switch, then the card
 			// layout or column button.
 			<div class="inline-flex h-7 shrink-0 items-center rounded-lg border border-border bg-background p-0.5 gap-0.5" data-contact-list-view-capsule>
@@ -2123,22 +2124,28 @@ templ contactSelectionAction(action, tip, label, class string) {
 // to extend the selection to every contact the filters match or to clear it.
 // app.js fills and shows it.
 templ ContactsSelectAllBanner() {
-	<div data-contact-select-all-banner class="mail-select-all-banner hidden items-center justify-center gap-x-3 gap-y-0.5 flex-wrap border-t border-border/60 bg-accent/60 px-4 py-1.5 text-center text-xs text-muted-foreground">
-		<span data-contact-select-all-banner-text></span>
-		@button.Button(button.Props{
-			Variant:    button.VariantLink,
-			Size:       button.SizeSm,
-			Class:      "h-auto p-0 text-xs",
-			Attributes: templ.Attributes{"data-contact-select-all-banner-action": ""},
-		})
-		@button.Button(button.Props{
-			Variant:    button.VariantLink,
-			Size:       button.SizeSm,
-			Class:      "h-auto p-0 text-xs",
-			Attributes: templ.Attributes{"data-contact-selection-clear": ""},
-		}) {
-			{ i18n.T(ctx, "shortcuts.clear_selection") }
-		}
+	// It folds open and shut as the mail list's does (MailSelectAllBanner),
+	// so the list slides with it.
+	<div data-contact-select-all-banner class="mail-selection-banner" aria-hidden="true" inert>
+		<div class="mail-selection-banner-inner">
+			<div class="flex items-center justify-center gap-x-3 gap-y-0.5 flex-wrap border-t border-border/60 bg-accent/60 px-4 py-1.5 text-center text-xs text-muted-foreground">
+				<span data-contact-select-all-banner-text></span>
+				@button.Button(button.Props{
+					Variant:    button.VariantLink,
+					Size:       button.SizeSm,
+					Class:      "h-auto p-0 text-xs",
+					Attributes: templ.Attributes{"data-contact-select-all-banner-action": ""},
+				})
+				@button.Button(button.Props{
+					Variant:    button.VariantLink,
+					Size:       button.SizeSm,
+					Class:      "h-auto p-0 text-xs",
+					Attributes: templ.Attributes{"data-contact-selection-clear": ""},
+				}) {
+					{ i18n.T(ctx, "shortcuts.clear_selection") }
+				}
+			</div>
+		</div>
 	</div>
 }
 
@@ -2373,6 +2380,7 @@ templ ContactListCard(contact models.Contact, filters models.ContactFilters, sel
 	{{ contactHref := contactsURL(filters, contact.ID) }}
 	{{ contactDetailHref := contactsDetailURL(filters, contact.ID) }}
 	<div class="mail-list-item" data-contact-id={ contact.ID } data-position={ fmt.Sprintf("%d", position) } data-contact-row-email={ strings.TrimSpace(contact.Email) } data-contact-row-name={ contact.Name } data-contact-row-synced={ fmt.Sprintf("%t", len(contact.SourceBooks) > 0) }>
+		@listRowCheck(i18n.T(ctx, "contacts.select.contact"))
 		<a
 			href={ contactHref }
 			hx-get={ templ.URL(contactDetailHref) }
@@ -2596,6 +2604,7 @@ templ ContactListTableRow(contact models.Contact, filters models.ContactFilters,
 	{{ contactHref := contactsURL(filters, contact.ID) }}
 	{{ contactDetailHref := contactsDetailURL(filters, contact.ID) }}
 	<div class="mail-list-item mail-list-table-row" data-contact-id={ contact.ID } data-position={ fmt.Sprintf("%d", position) } data-contact-row-email={ strings.TrimSpace(contact.Email) } data-contact-row-name={ contact.Name } data-contact-row-synced={ fmt.Sprintf("%t", len(contact.SourceBooks) > 0) }>
+		@listRowCheck(i18n.T(ctx, "contacts.select.contact"))
 		<a
 			href={ contactHref }
 			hx-get={ templ.URL(contactDetailHref) }

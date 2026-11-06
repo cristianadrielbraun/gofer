@@ -766,7 +766,8 @@ document.addEventListener("DOMContentLoaded", function () {
       var list = currentList()
       if (!list || (!list.selectedContactId && selectedContactIds.size === 0)) return
       var target = e.target
-      if (target && target.closest && target.closest("input, textarea, select, [contenteditable='true']")) return
+      // A row's checkbox, focused once clicked, is the list's own.
+      if (target && target.closest && target.closest("input, textarea, select, [contenteditable='true']") && !target.closest("[data-mail-row-check]")) return
       // Leave open dialogs, menus and an unsaved contact editor to handle Escape.
       // The contact page always holds its Edit dialog's form, closed; only the
       // new-contact editor, which fills the page, keeps Escape for itself.
@@ -2784,6 +2785,27 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     function setupMailTouchSelection() {
+      setupRowLongPress("#mail-list-scroll .mail-list-item[data-email-id] > a", ".star-btn, [data-thread-toggle]", function (link) {
+        var row = link.closest(".mail-list-item[data-email-id]")
+        if (!row || !row.isConnected) return false
+        if (!mailSelectionModeActive()) {
+          selectedMailIds.clear()
+          setMailSelectionMode(true)
+        }
+        toggleMailRowSelected(row.dataset.emailId)
+        lastSelectedMailId = row.dataset.emailId
+        syncMailSelectionControls()
+        return true
+      })
+    }
+
+    // setupRowLongPress starts selecting with a long press on a list's rows,
+    // mail's or contacts': on a touch screen, or with a mouse button held on a
+    // row without moving, as rows drag to folders and moving or starting a
+    // drag cancels it. press(link) selects the row, answering whether it did;
+    // the click that ends the press then doesn't open the row
+    // (suppressMailRowClickUntil, which both lists' row clicks check).
+    function setupRowLongPress(linkSelector, ignoreSelector, press) {
       var mobile = mobileMailList
       var timer = 0
       var start = null
@@ -2797,22 +2819,14 @@ document.addEventListener("DOMContentLoaded", function () {
       document.addEventListener("touchstart", function (e) {
         cancel()
         if (!mobile.matches || e.touches.length !== 1) return
-        var link = e.target.closest && e.target.closest("#mail-list-scroll .mail-list-item[data-email-id] > a")
-        if (!link || e.target.closest(".star-btn, [data-thread-toggle]")) return
+        var link = e.target.closest && e.target.closest(linkSelector)
+        if (!link || e.target.closest(ignoreSelector)) return
         start = { x: e.touches[0].clientX, y: e.touches[0].clientY }
         timer = setTimeout(function () {
           timer = 0
-          var row = link.closest(".mail-list-item[data-email-id]")
-          if (!row || !row.isConnected) return
-          if (!mailSelectionModeActive()) {
-            selectedMailIds.clear()
-            setMailSelectionMode(true)
-          }
-          toggleMailRowSelected(row.dataset.emailId)
-          lastSelectedMailId = row.dataset.emailId
+          if (!link.isConnected || !press(link)) return
           suppressMailRowClickUntil = Date.now() + 700
           if (navigator.vibrate) navigator.vibrate(12)
-          syncMailSelectionControls()
         }, 450)
       }, { passive: true })
 
@@ -2826,11 +2840,9 @@ document.addEventListener("DOMContentLoaded", function () {
 
       // A long press on a link would otherwise open the browser's link menu.
       document.addEventListener("contextmenu", function (e) {
-        if (mobile.matches && e.target.closest && e.target.closest("#mail-list-scroll .mail-list-item[data-email-id] > a")) e.preventDefault()
+        if (mobile.matches && e.target.closest && e.target.closest(linkSelector)) e.preventDefault()
       })
 
-      // With a mouse, holding the button down on a row without moving does the
-      // same. Rows drag to folders, so moving or starting a drag cancels it.
       var mouseTimer = 0
       var mouseStart = null
       var mouseFired = false
@@ -2845,23 +2857,15 @@ document.addEventListener("DOMContentLoaded", function () {
         cancelMouse()
         mouseFired = false
         if (mobile.matches || e.button !== 0 || e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return
-        var link = e.target.closest && e.target.closest("#mail-list-scroll .mail-list-item[data-email-id] > a")
-        if (!link || e.target.closest(".star-btn, [data-thread-toggle]")) return
+        var link = e.target.closest && e.target.closest(linkSelector)
+        if (!link || e.target.closest(ignoreSelector)) return
         mouseStart = { x: e.clientX, y: e.clientY }
         mouseTimer = setTimeout(function () {
           mouseTimer = 0
-          var row = link.closest(".mail-list-item[data-email-id]")
-          if (!row || !row.isConnected) return
-          if (!mailSelectionModeActive()) {
-            selectedMailIds.clear()
-            setMailSelectionMode(true)
-          }
-          toggleMailRowSelected(row.dataset.emailId)
-          lastSelectedMailId = row.dataset.emailId
+          if (!link.isConnected || !press(link)) return
           mouseFired = true
           // The click comes when the button is let go, however long that takes.
           suppressMailRowClickUntil = Date.now() + 60000
-          syncMailSelectionControls()
         }, 500)
       })
 
@@ -3172,6 +3176,8 @@ document.addEventListener("DOMContentLoaded", function () {
         row.toggleAttribute("data-mail-selected", selected)
         var anchor = row.querySelector(":scope > a")
         if (anchor) anchor.toggleAttribute("data-mail-selected", selected)
+        var check = row.querySelector(":scope > [data-mail-row-check] input")
+        if (check) check.checked = selected
       })
       // A redraw may follow a new search or filters; check the banner after it.
       if (!contactSelectionSyncQueued) {
@@ -3266,9 +3272,22 @@ document.addEventListener("DOMContentLoaded", function () {
           row.toggleAttribute("data-mail-selected", selected)
           var anchor = row.querySelector(":scope > a")
           if (anchor) anchor.toggleAttribute("data-mail-selected", selected)
+          var check = row.querySelector(":scope > [data-mail-row-check] input")
+          if (check) check.checked = selected
         })
       }
       var count = selectedContactIds.size
+      // Nothing left selected ends selecting, as in the mail list.
+      if (count === 0) setMailSelectionMode(false)
+      // The phone selection bar's ✕ and count, as the mail list's.
+      var summary = shell.querySelector("[data-contact-selection-summary]")
+      if (summary) summary.textContent = formatMailCount(count)
+      var clear = summary && summary.closest("[data-contact-selection-clear]")
+      if (clear) {
+        var showClear = count > 0 || mailSelectionModeActive()
+        clear.classList.toggle("hidden", !showClear)
+        clear.classList.toggle("inline-flex", showClear)
+      }
       shell.toggleAttribute("data-contact-has-selection", count > 0)
       syncContactListOverflow()
       document.querySelectorAll("#mail-list [data-contact-selection-action], [data-contact-list-menu-item]").forEach(function (button) {
@@ -3302,10 +3321,12 @@ document.addEventListener("DOMContentLoaded", function () {
       } else if (counted > 0) {
         text = goferTn("js.contacts.selected.some", counted)
       }
-      banner.classList.toggle("hidden", !text)
-      banner.classList.toggle("flex", !!text)
+      // The banner folds open and shut; while it shuts it keeps its last words.
+      banner.toggleAttribute("data-open", !!text)
+      banner.setAttribute("aria-hidden", text ? "false" : "true")
+      banner.inert = !text
       var label = banner.querySelector("[data-contact-select-all-banner-text]")
-      if (label) label.textContent = text
+      if (label && text) label.textContent = text
       var more = banner.querySelector("[data-contact-select-all-banner-action]")
       if (more) {
         var canSelectAll = counted > 0 && !contactSelectAllMatching && total > counted
@@ -3669,13 +3690,49 @@ document.addEventListener("DOMContentLoaded", function () {
       // The contacts list's own Escape handler clears the selection too.
       window.clearContactSelection = clearContactSelection
 
+      // A long press starts selecting, as in the mail list.
+      setupRowLongPress("#contacts-list-scroll .mail-list-item[data-contact-id] > a", "[data-mail-row-check]", function (link) {
+        var row = link.closest(".mail-list-item[data-contact-id]")
+        if (!row) return false
+        var info = contactRowInfoFromHTML(row.outerHTML)
+        if (!mailSelectionModeActive()) {
+          selectedContactIds.clear()
+          selectedContactInfo.clear()
+          setMailSelectionMode(true)
+        }
+        setContactSelected(info, !selectedContactIds.has(info.id))
+        lastSelectedContactId = info.id
+        syncContactSelection()
+        return true
+      })
+
+      // A row's own checkbox, shown while selecting, toggles just that row;
+      // Shift extends from the last one, as Shift+click on a row does.
+      document.addEventListener("click", function (e) {
+        var check = e.target.closest && e.target.closest("#contacts-list-scroll .mail-list-item[data-contact-id] > [data-mail-row-check]")
+        if (!check) return
+        var info = contactRowInfoFromHTML(check.parentElement.outerHTML)
+        if (!(e.shiftKey && lastSelectedContactId && selectContactRange(lastSelectedContactId, info.id))) {
+          setContactSelected(info, !selectedContactIds.has(info.id))
+        }
+        lastSelectedContactId = info.id
+        syncContactSelection()
+      })
+
       // Capture: a modified click must select before htmx opens the contact.
       document.addEventListener("click", function (e) {
         var link = e.target.closest && e.target.closest("#contacts-list-scroll .mail-list-item[data-contact-id] > a")
         if (!link || e.button !== 0) return
+        if (Date.now() < suppressMailRowClickUntil) {
+          // The click that ends a long press must not also open the contact.
+          e.preventDefault()
+          e.stopPropagation()
+          return
+        }
         var row = link.closest(".mail-list-item[data-contact-id]")
         var info = contactRowInfoFromHTML(row.outerHTML)
-        if (e.shiftKey || e.metaKey || e.ctrlKey) {
+        // While selecting, a click picks the contact instead of opening it.
+        if (e.shiftKey || e.metaKey || e.ctrlKey || mailSelectionModeActive()) {
           e.preventDefault()
           e.stopPropagation()
           if (e.shiftKey && lastSelectedContactId && selectContactRange(lastSelectedContactId, info.id)) {
@@ -3683,6 +3740,9 @@ document.addEventListener("DOMContentLoaded", function () {
           } else {
             setContactSelected(info, !selectedContactIds.has(info.id))
           }
+          // Picking contacts one by one is selecting: the rows show their
+          // checkboxes.
+          if (selectedContactIds.size > 0) setMailSelectionMode(true)
         } else {
           selectedContactIds.clear()
           selectedContactInfo.clear()
@@ -3701,6 +3761,7 @@ document.addEventListener("DOMContentLoaded", function () {
           if (contactSelectionCounts()) clearContactSelection()
           else {
             loadedContactRows().forEach(function (row) { setContactSelected(row, true) })
+            if (selectedContactIds.size > 0) setMailSelectionMode(true)
             syncContactSelection()
           }
           return
@@ -3717,6 +3778,7 @@ document.addEventListener("DOMContentLoaded", function () {
           selectedContactIds.clear()
           selectedContactInfo.clear()
           next.forEach(function (row) { setContactSelected(row, true) })
+          if (selectedContactIds.size > 0) setMailSelectionMode(true)
           syncContactSelection()
           return
         }
@@ -5931,7 +5993,8 @@ document.addEventListener("DOMContentLoaded", function () {
       var target = e.target
       if (!target || !target.closest) return false
 
-      if (target.closest("input, textarea, select, [contenteditable='true'], [data-compose-editor], [data-compose-pane]")) return true
+      // A row's checkbox, focused once clicked, is the list's own.
+      if (target.closest("input, textarea, select, [contenteditable='true'], [data-compose-editor], [data-compose-pane]") && !target.closest("[data-mail-row-check]")) return true
       if (document.querySelector("dialog[open]")) return true
       return false
     }

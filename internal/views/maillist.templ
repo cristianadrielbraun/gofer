@@ -257,17 +257,8 @@ func mailSortLabel(ctx context.Context, filters models.EmailFilters) string {
 templ MailListToolbar(accounts []models.Account, activeFolder string, viewMode string, filters models.EmailFilters) {
 	<div class="mail-list-toolbar flex items-center gap-1 px-4 py-1.5">
 		@MailSelectAllControl()
-		@button.Button(button.Props{
-			Variant:    button.VariantGhost,
-			Size:       button.SizeSm,
-			Class:      "hidden lg:hidden h-7 gap-1 px-2 text-xs font-semibold text-muted-foreground",
-			Attributes: templ.Attributes{"data-mail-selection-clear": "", "aria-label": i18n.T(ctx, "shortcuts.clear_selection")},
-		}) {
-			<span class="mail-selection-clear-icon hidden" aria-hidden="true">
-				@icon.X(icon.Props{Class: "size-5"})
-			</span>
-			<span data-mail-selection-summary>0</span>
-		}
+		@listSelectionClear(templ.Attributes{"data-mail-selection-clear": ""}, templ.Attributes{"data-mail-selection-summary": ""})
+
 		<div class="inline-flex h-7 shrink-0 items-center rounded-lg border border-border bg-background p-0.5 gap-0.5" data-mail-list-view-capsule>
 			<div class="relative inline-grid h-6 grid-cols-2 gap-0.5" data-mail-list-view-toggle>
 				<div
@@ -1645,13 +1636,35 @@ func mailSpamLabel(ctx context.Context, spamFolder bool) string {
 	return i18n.T(ctx, "mail.selection.spam")
 }
 
-// mailRowCheck is a row's checkbox, shown left of the row while the list is
-// selecting. app.js keeps it checked and toggles the row when it is clicked.
+// listSelectionClear is the phone selection bar's ✕ and count, the mail
+// list's and the contacts list's; app.js shows it while selecting.
+templ listSelectionClear(attrs templ.Attributes, summaryAttrs templ.Attributes) {
+	@button.Button(button.Props{
+		Variant:    button.VariantGhost,
+		Size:       button.SizeSm,
+		Class:      "hidden lg:hidden h-7 gap-1 px-2 text-xs font-semibold text-muted-foreground",
+		Attributes: mergeTemplAttrs(templ.Attributes{"aria-label": i18n.T(ctx, "shortcuts.clear_selection")}, attrs),
+	}) {
+		<span class="mail-selection-clear-icon hidden" aria-hidden="true">
+			@icon.X(icon.Props{Class: "size-5"})
+		</span>
+		<span { summaryAttrs... }>0</span>
+	}
+}
+
+// mailRowCheck is a message row's checkbox (listRowCheck).
 templ mailRowCheck() {
+	@listRowCheck(i18n.T(ctx, "mail.select.message"))
+}
+
+// listRowCheck is a row's checkbox, shown left of the row while the list,
+// mail's or contacts', is selecting. app.js keeps it checked and toggles the
+// row when it is clicked.
+templ listRowCheck(label string) {
 	<div class="mail-row-check" data-mail-row-check>
 		@checkbox.Checkbox(checkbox.Props{
 			Class:      "mail-row-check-input",
-			Attributes: templ.Attributes{"tabindex": "-1", "aria-label": i18n.T(ctx, "mail.select.message")},
+			Attributes: templ.Attributes{"tabindex": "-1", "aria-label": label},
 		})
 	</div>
 }

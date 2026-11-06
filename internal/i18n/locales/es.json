@@ -1415,6 +1415,7 @@
   "contacts.placeholder.title": "Responsable de producto",
   "contacts.search": "Buscar contactos",
   "contacts.select.all": "Seleccionar todos los contactos",
+  "contacts.select.contact": "Seleccionar contacto",
   "contacts.select.label": "Seleccionar contactos",
   "contacts.selection.compose": "Escribir a los contactos seleccionados",
   "contacts.selection.delete_forever": "Eliminar definitivamente los contactos seleccionados",

@@ -1415,6 +1415,7 @@
   "contacts.placeholder.title": "Product lead",
   "contacts.search": "Search contacts",
   "contacts.select.all": "Select all contacts",
+  "contacts.select.contact": "Select contact",
   "contacts.select.label": "Select contacts",
   "contacts.selection.compose": "Write to the selected contacts",
   "contacts.selection.delete_forever": "Delete the selected contacts forever",

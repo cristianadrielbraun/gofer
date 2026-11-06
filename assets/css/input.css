@@ -5253,7 +5253,7 @@ body.mail-list-column-resizing {
   }
 
   /* Like search, the selection bar covers the top bar rather than taking list space. */
-  #mail-list[data-mail-selecting] .mail-list-toolbar {
+  #mail-list[data-mail-selecting] :is(.mail-list-toolbar, .contacts-list-toolbar) {
     position: fixed;
     inset: 0 0 auto;
     z-index: 40;
@@ -5270,12 +5270,15 @@ body.mail-list-column-resizing {
   #mail-list[data-mail-selecting] .mail-list-toolbar > [data-mail-list-view-capsule],
   #mail-list[data-mail-selecting] .mail-list-toolbar > :has([data-mail-sort-trigger]),
   #mail-list[data-mail-selecting] .mail-list-toolbar > .mail-list-toolbar-divider,
+  #mail-list[data-mail-selecting] .contacts-list-toolbar > [data-contact-list-view-capsule],
+  #mail-list[data-mail-selecting] .contacts-list-toolbar > :has([data-contact-sort-trigger]),
   #mail-list[data-mail-selecting] .mail-list-toolbar [data-mail-table-column-trigger-wrapper],
   #mail-list[data-mail-selecting] .mail-list-toolbar [data-mail-card-layout-trigger-wrapper] {
     display: none;
   }
 
-  #mail-list[data-mail-selecting] [data-mail-selection-clear] {
+  #mail-list[data-mail-selecting] [data-mail-selection-clear],
+  #mail-list[data-mail-selecting] .contacts-list-toolbar [data-contact-selection-clear] {
     order: -3;
     gap: 0.5rem;
     height: 2.75rem;
@@ -5291,7 +5294,7 @@ body.mail-list-column-resizing {
     pointer-events: none;
   }
 
-  #mail-list[data-mail-selecting] .mail-list-toolbar-spacer {
+  #mail-list[data-mail-selecting] :is(.mail-list-toolbar-spacer, .contacts-list-toolbar-spacer) {
     order: -1;
   }
 
@@ -5316,13 +5319,15 @@ body.mail-list-column-resizing {
   }
 
   #mail-list[data-mail-selecting] .mail-list-toolbar [data-mail-selection-action],
-  #mail-list[data-mail-selecting] .mail-list-toolbar [data-tui-dropdown-trigger] > button {
+  #mail-list[data-mail-selecting] .contacts-list-toolbar [data-contact-selection-action],
+  #mail-list[data-mail-selecting] :is(.mail-list-toolbar, .contacts-list-toolbar) [data-tui-dropdown-trigger] > button {
     width: 2.75rem;
     height: 2.75rem;
   }
 
   #mail-list[data-mail-selecting] .mail-list-toolbar [data-mail-selection-action] svg,
-  #mail-list[data-mail-selecting] .mail-list-toolbar [data-tui-dropdown-trigger] > button svg {
+  #mail-list[data-mail-selecting] .contacts-list-toolbar [data-contact-selection-action] svg,
+  #mail-list[data-mail-selecting] :is(.mail-list-toolbar, .contacts-list-toolbar) [data-tui-dropdown-trigger] > button svg {
     width: 1.25rem;
     height: 1.25rem;
   }
@@ -5896,8 +5901,9 @@ body.mail-list-column-resizing {
   }
 
   /* Hidden visually, not with display: none, so their menus can still open as sheets. */
+  /* The toolbar shows while selecting, as the mail list's selection bar. */
   #mail-list[data-contact-list-shell]:not([data-mail-searching]) .contacts-search-row,
-  #mail-list[data-contact-list-shell] .contacts-list-toolbar {
+  #mail-list[data-contact-list-shell]:not([data-mail-selecting]) .contacts-list-toolbar {
     position: absolute;
     width: 1px;
     height: 1px;
