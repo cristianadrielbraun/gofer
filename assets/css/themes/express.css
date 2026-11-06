@@ -1409,6 +1409,11 @@ html:root[data-theme="express"] :is(.account-wizard-card-footer, .account-wizard
   --xp-icon-paths: hidden;
 }
 
+[data-theme="express"] svg[data-lucide="copy-plus"] {
+  --xp-icon: image-set(url("/assets/icons/express/edit-copy-16.png") 1x, url("/assets/icons/express/edit-copy-32.png") 2x);
+  --xp-icon-paths: hidden;
+}
+
 [data-theme="express"] svg[data-lucide="calendar-days"],
 [data-theme="express"] svg[data-lucide="calendar"] {
   --xp-icon: image-set(url("/assets/icons/express/x-office-calendar-16.png") 1x, url("/assets/icons/express/x-office-calendar-32.png") 2x);
@@ -2647,6 +2652,13 @@ html:root[data-theme="express"] :is([data-calendar-month-event], [data-calendar-
 [data-theme="express"] .mail-list-item[data-mail-selected] > a :is(span, p, div, time, svg),
 [data-theme="express"] .mail-list-item > a[data-mail-selected] :is(span, p, div, time, svg) {
   color: inherit;
+}
+
+/* A contact's location pill keeps its own silver face, so its text stays
+   dark on a selected row instead of turning white with the rest. */
+[data-theme="express"] [data-contact-list-shell] .mail-list-item > a:is(.envelope-active, [data-mail-selected]) [data-mail-card-field="home"],
+[data-theme="express"] [data-contact-list-shell] .mail-list-item[data-mail-selected] > a [data-mail-card-field="home"] {
+  color: var(--muted-foreground);
 }
 
 [data-theme="express"] .mail-list-item > a.mail-list-card {
