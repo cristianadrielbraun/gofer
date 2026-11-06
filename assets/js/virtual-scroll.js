@@ -1,8 +1,14 @@
 // List rows are sized in rem so they grow with the root font size on small screens; this
 // converts those sizes to the pixels the virtual lists position rows with.
+// The root size is read once a frame: a list being set up asks many times,
+// and each read made the browser restyle the page.
+var listRootFontPx = 0
 function listRemPx(rem) {
-  var root = parseFloat(window.getComputedStyle(document.documentElement).fontSize) || 16
-  return Math.round(rem * root)
+  if (!listRootFontPx) {
+    listRootFontPx = parseFloat(window.getComputedStyle(document.documentElement).fontSize) || 16
+    requestAnimationFrame(function () { listRootFontPx = 0 })
+  }
+  return Math.round(rem * listRootFontPx)
 }
 
 // Search results show where they are in a band (data-search-group): along
@@ -1228,24 +1234,33 @@ class VirtualMailList {
     }, duration + 40)
   }
 
+  // Every row is measured first, then every moved row put back where it was,
+  // then the page laid out once before they slide. Measuring and moving each
+  // row in turn laid out the whole list twice per row, which on a phone held
+  // a thread's expansion for over a second, as animateListTransition once did.
   animateLayoutShift(previousLayout) {
     if (!previousLayout || previousLayout.size === 0) return
+    var moving = []
     for (var i = 0; i < this.itemsContainer.children.length; i++) {
       var node = this.itemsContainer.children[i]
       var row = node.classList.contains("mail-list-item") ? node : node.querySelector(".mail-list-item")
       if (!row || !row.dataset.emailId) continue
       var oldRect = previousLayout.get(row.dataset.emailId)
       if (!oldRect) continue
-      var newRect = node.getBoundingClientRect()
-      var dy = oldRect.top - newRect.top
+      var dy = oldRect.top - node.getBoundingClientRect().top
       if (Math.abs(dy) < 1) continue
-      var baseTransform = node.style.transform || ""
-      node.style.transition = "none"
-      node.style.transform = baseTransform + " translateY(" + dy + "px)"
-      node.offsetHeight
-      node.style.transition = "transform 120ms ease-out"
-      node.style.transform = baseTransform
-      this.cleanupTransition(node, 120)
+      moving.push({ node: node, dy: dy, base: node.style.transform || "" })
+    }
+    if (!moving.length) return
+    for (var m = 0; m < moving.length; m++) {
+      moving[m].node.style.transition = "none"
+      moving[m].node.style.transform = moving[m].base + " translateY(" + moving[m].dy + "px)"
+    }
+    this.itemsContainer.offsetHeight
+    for (var n = 0; n < moving.length; n++) {
+      moving[n].node.style.transition = "transform 120ms ease-out"
+      moving[n].node.style.transform = moving[n].base
+      this.cleanupTransition(moving[n].node, 120)
     }
   }
 

@@ -155,15 +155,17 @@ function toolbarFoldWidth(el) {
 
 // toolbarFoldParts gives each folding part with the width it takes now
 // (mid-animation, maybe) and the width it takes when shown, both counting
-// the flex gap beside it.
+// the flex gap beside it. It only measures; toolbarFoldStep writes each
+// part's --collapse-width once the whole toolbar is measured, since writing
+// between measurements laid out the page again for each part, which made
+// coming back to the list on a phone wait.
 function toolbarFoldParts(states) {
   var parts = []
   states.forEach(function (_, el) {
     var gap = parseFloat(getComputedStyle(el.parentElement).columnGap) || 0
     var margin = parseFloat(getComputedStyle(el).marginLeft) || 0
     var width = toolbarFoldWidth(el)
-    if (el.style.getPropertyValue("--collapse-width") !== width + "px") el.style.setProperty("--collapse-width", width + "px")
-    parts.push({ el: el, current: el.offsetWidth + gap + margin, full: width + gap })
+    parts.push({ el: el, current: el.offsetWidth + gap + margin, full: width + gap, width: width })
   })
   return parts
 }
@@ -176,7 +178,12 @@ function toolbarFoldStep(toolbar, spacer, steps, statesAt) {
   var spacerExtra = spacer && spacer.offsetParent ? spacer.offsetWidth - (parseFloat(getComputedStyle(spacer).minWidth) || 0) : 0
   // The width everything but the folding parts needs.
   var fixed = Math.max(toolbar.scrollWidth, toolbar.clientWidth) - spacerExtra
-  for (var i = 0; i < parts.length; i++) fixed -= parts[i].current
+  var room = toolbar.clientWidth
+  for (var i = 0; i < parts.length; i++) {
+    fixed -= parts[i].current
+    var width = parts[i].width + "px"
+    if (parts[i].el.style.getPropertyValue("--collapse-width") !== width) parts[i].el.style.setProperty("--collapse-width", width)
+  }
   var step = 0
   for (; step < steps; step++) {
     var needed = fixed
@@ -184,7 +191,7 @@ function toolbarFoldStep(toolbar, spacer, steps, statesAt) {
     for (var j = 0; j < parts.length; j++) {
       if (!states.get(parts[j].el)) needed += parts[j].full
     }
-    if (needed <= toolbar.clientWidth) break
+    if (needed <= room) break
   }
   return step
 }
@@ -4910,8 +4917,23 @@ document.addEventListener("DOMContentLoaded", function () {
       }
     }
 
+    // The toolbar's folding and its Delete slot follow only the selection,
+    // the folder's Delete button and running actions; a resize refolds it on
+    // its own. The list calls this on every redraw, as when a thread opens,
+    // so with none of those changed the toolbar isn't measured again: that
+    // laid out the whole page each time, which a phone felt on every tap.
+    var syncedMailToolbar = null
+    var syncedMailToolbarState = ""
+
+    function mailToolbarState() {
+      var deleteButton = document.querySelector('.mail-list-toolbar [data-mail-selection-action="delete"]')
+      return [selectedMailIds.size, mailSelectionModeActive(), keepMailSelectionModeWhenEmpty, mailSelectionBusy, deleteButton ? deleteButton.dataset.mailDeleteAllFolder || "" : ""].join("|")
+    }
+
     function syncMailSelectionControls() {
-      var deleteSlotFrom = mailDeleteSlotLeft()
+      var toolbar = document.querySelector(".mail-list-toolbar")
+      var toolbarSynced = !!toolbar && toolbar === syncedMailToolbar && mailToolbarState() === syncedMailToolbarState
+      var deleteSlotFrom = toolbarSynced ? null : mailDeleteSlotLeft()
       syncMailSelectAllControls(selectedMailIds.size)
       syncMailRowSelection()
 
@@ -4936,8 +4958,11 @@ document.addEventListener("DOMContentLoaded", function () {
       if (list) list.toggleAttribute("data-mail-has-selection", count > 0)
       syncMailDeleteAllAction(count)
       syncMailSelectionToggles(count)
+      if (toolbarSynced) return
       syncMailActionOverflow()
       slideMailDeleteSlot(deleteSlotFrom)
+      syncedMailToolbar = toolbar
+      syncedMailToolbarState = mailToolbarState()
     }
 
     // syncMailDeleteActionState, outside this scope, follows a folder switch with this.
@@ -19687,6 +19712,10 @@ function _sanitizeComposeHTML(html, allowDataImages) {
 
 function _composeEditorText(editor) {
   if (!editor) return ""
+  // innerText lays the page out, and leaving the reader asks the hidden
+  // compose window for it; an editor without a visible character has no text
+  // to give, so textContent answers that without any layout.
+  if (!/\S/.test((editor.textContent || "").replace(/\u00a0/g, " "))) return ""
   return (editor.innerText || "").replace(/\u00a0/g, " ").replace(/\n{3,}/g, "\n\n").trim()
 }
 
@@ -24405,10 +24434,13 @@ window.addEventListener("message", function (e) {
     var height = Number(e.data.height)
     if (!isFinite(height) || height < 0) return
     iframe._bodyReported = true
-    iframe.style.height = Math.ceil(height) + "px"
     // A collapsed thread message isn't laid out, so its body reports a height
     // for no width at all. Expanding it waits for a report at its real width.
-    iframe._bodyMeasuredWidth = iframe.clientWidth
+    // The body sends the width it was laid out at; reading the frame's width
+    // here instead laid the page out for every report.
+    var reportedWidth = Number(e.data.width)
+    iframe._bodyMeasuredWidth = isFinite(reportedWidth) && e.data.width !== undefined ? Math.round(reportedWidth) : iframe.clientWidth
+    iframe.style.height = Math.ceil(height) + "px"
     iframe.dispatchEvent(new CustomEvent("gofer:body-measured"))
     iframe.classList.remove("opacity-0")
     var loader = document.querySelector('[data-email-body-loading="' + emailId + '"]')
@@ -24712,8 +24744,27 @@ function oppositeEmailBodyTheme(theme) {
   return theme === "dark" ? "light" : "dark"
 }
 
+// The palette is kept until the next frame: each message of a conversation
+// reads it in turn, and every probe made the browser restyle the whole page.
+var emailBodyPaletteCache = {}
+var emailBodyPaletteCacheFrame = 0
+
 function readEmailBodyPalette(theme) {
   var themeStyle = (window.GoferSettings && GoferSettings.get("theme_style")) || document.documentElement.getAttribute("data-theme") || "classic"
+  var cacheKey = themeStyle + "|" + theme
+  if (emailBodyPaletteCache[cacheKey]) return Object.assign({}, emailBodyPaletteCache[cacheKey])
+  var palette = probeEmailBodyPalette(themeStyle, theme)
+  emailBodyPaletteCache[cacheKey] = palette
+  if (!emailBodyPaletteCacheFrame) {
+    emailBodyPaletteCacheFrame = requestAnimationFrame(function () {
+      emailBodyPaletteCacheFrame = 0
+      emailBodyPaletteCache = {}
+    })
+  }
+  return Object.assign({}, palette)
+}
+
+function probeEmailBodyPalette(themeStyle, theme) {
   var probe = document.createElement("div")
   probe.setAttribute("data-theme", themeStyle)
   // Picks up the style's changed colors, which apply to probes too.

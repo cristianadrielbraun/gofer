@@ -157,11 +157,13 @@ var appPanelsSlideRemaining;
       if (typeof GoferSettings !== "undefined" && !(name === "sidebar" && phoneQuery.matches)) {
         var saved = savedSize(name);
         if (saved) {
-          var b = getBounds(name);
           var panel = getPanel(h);
           if (isSideMailList(name)) {
             setSize(panel, mailListWidthCSS(saved), "x");
           } else {
+            // Only these need the bounds, which measure the page: measuring
+            // them for every handle laid it out each time a list arrived.
+            var b = getBounds(name);
             setSize(panel, clamp(parseInt(saved, 10), b.min, b.max), isStackedMailList(name) ? "y" : "x");
           }
         }

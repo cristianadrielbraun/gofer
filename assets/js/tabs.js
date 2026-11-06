@@ -19,11 +19,41 @@
     );
   }
 
-  function prepareSlidingIndicator(list) {
+  // A list's indicator is placed again whenever the list changes size: when
+  // it is first shown after starting out hidden, its font loads, or the page
+  // narrows. Nothing else needs to measure it.
+  const listResizes =
+    typeof ResizeObserver === "function"
+      ? new ResizeObserver((entries) => {
+          entries.forEach((entry) => {
+            const list = entry.target;
+            const tabsId = list.getAttribute("data-tui-tabs-id");
+            const container = list.closest("[data-tui-tabs]");
+            if (!tabsId || !container || !list.isConnected) return;
+            const active = container.querySelector(
+              `[data-tui-tabs-trigger][data-tui-tabs-id="${tabsId}"][data-tui-tabs-state="active"]`,
+            );
+            if (active) {
+              syncSlidingIndicator(container, tabsId, active.getAttribute("data-tui-tabs-value"), false);
+            }
+          });
+        })
+      : null;
+
+  // Whether lists without an indicator yet are statically positioned, read
+  // for all of them before prepareSlidingIndicator writes to any.
+  function staticLists(lists) {
+    return lists.map(
+      (list) => !list.querySelector("[data-tui-tabs-indicator]") && getComputedStyle(list).position === "static",
+    );
+  }
+
+  function prepareSlidingIndicator(list, isStatic) {
     let indicator = list.querySelector("[data-tui-tabs-indicator]");
     if (indicator) return indicator;
+    if (listResizes) listResizes.observe(list);
 
-    if (getComputedStyle(list).position === "static") {
+    if (isStatic === undefined ? getComputedStyle(list).position === "static" : isStatic) {
       list.style.position = "relative";
     }
 
@@ -46,31 +76,49 @@
     return indicator;
   }
 
+  // Where a list's indicator goes to show value, read from the page.
+  function measureIndicator(container, tabsId, value) {
+    const list = getTabList(container, tabsId);
+    if (!list) return null;
+    const indicator = list.querySelector("[data-tui-tabs-indicator]");
+    const activeTrigger = getActiveTrigger(container, tabsId, value);
+    if (!indicator || !activeTrigger) return null;
+    const listRect = list.getBoundingClientRect();
+    const triggerRect = activeTrigger.getBoundingClientRect();
+    return {
+      indicator,
+      value,
+      left: triggerRect.left - listRect.left,
+      width: triggerRect.width,
+    };
+  }
+
+  // Moves indicators to their measured spots. Without animate they jump
+  // there, all with one layout of the page. A list measured while hidden is
+  // 0 wide and isn't marked placed, so showing it places it again.
+  function placeIndicators(spots, animate) {
+    if (!spots.length) return;
+    const transitions = spots.map((spot) => spot.indicator.style.transition);
+    spots.forEach((spot) => {
+      spot.indicator.dataset.tuiTabsPlaced = spot.width > 0 ? spot.value : "";
+      if (!animate) spot.indicator.style.transition = "none";
+      spot.indicator.style.width = `${spot.width}px`;
+      spot.indicator.style.transform = `translateX(${spot.left}px)`;
+    });
+    if (animate) return;
+    void spots[0].indicator.offsetHeight;
+    spots.forEach((spot, i) => {
+      spot.indicator.style.transition = transitions[i];
+    });
+  }
+
   function syncSlidingIndicator(container, tabsId, value, animate) {
     const list = getTabList(container, tabsId);
     if (!list) return false;
-
-    const indicator = prepareSlidingIndicator(list);
-    const activeTrigger = getActiveTrigger(container, tabsId, value);
-    if (!activeTrigger) return false;
-
-    const listRect = list.getBoundingClientRect();
-    const triggerRect = activeTrigger.getBoundingClientRect();
-    const left = triggerRect.left - listRect.left;
-    const width = triggerRect.width;
-
-    if (!animate) {
-      const previousTransition = indicator.style.transition;
-      indicator.style.transition = "none";
-      indicator.style.width = `${width}px`;
-      indicator.style.transform = `translateX(${left}px)`;
-      void indicator.offsetHeight;
-      indicator.style.transition = previousTransition;
-      return true;
-    }
-
-    indicator.style.width = `${width}px`;
-    indicator.style.transform = `translateX(${left}px)`;
+    prepareSlidingIndicator(list);
+    const spot = measureIndicator(container, tabsId, value);
+    if (!spot) return false;
+    placeIndicators([spot], animate);
     return true;
   }
 
@@ -123,6 +171,47 @@
   function setActiveTab(tabsId, value, animate = true) {
     const container = getTabsContainer(tabsId);
     if (!container) return;
+    applyTabState(container, tabsId, value, animate);
+    // An indicator already on value has nowhere to go, so nothing is
+    // measured; its list's ResizeObserver follows any change of size.
+    const list = getTabList(container, tabsId);
+    const indicator = list && list.querySelector("[data-tui-tabs-indicator]");
+    if (indicator && indicator.dataset.tuiTabsPlaced === value) return;
+    queueIndicator(container, tabsId, value, animate);
+  }
+
+  // Indicators move in the next frame, all measured together and then
+  // placed, so code that sets many tabs in a row, such as each message of a
+  // conversation, never makes the page lay out in between.
+  const queuedIndicators = new Map();
+  let indicatorFrame = 0;
+
+  function queueIndicator(container, tabsId, value, animate) {
+    queuedIndicators.set(container, { tabsId, value, animate });
+    if (indicatorFrame) return;
+    indicatorFrame = requestAnimationFrame(() => {
+      indicatorFrame = 0;
+      const jobs = Array.from(queuedIndicators);
+      queuedIndicators.clear();
+      const lists = jobs
+        .map(([container, job]) => container.isConnected && getTabList(container, job.tabsId))
+        .filter(Boolean);
+      const statics = staticLists(lists);
+      lists.forEach((list, i) => prepareSlidingIndicator(list, statics[i]));
+      const jumps = [];
+      const slides = [];
+      jobs.forEach(([container, job]) => {
+        if (!container.isConnected) return;
+        const spot = measureIndicator(container, job.tabsId, job.value);
+        if (spot) (job.animate ? slides : jumps).push(spot);
+      });
+      placeIndicators(jumps, false);
+      placeIndicators(slides, true);
+    });
+  }
+
+  // Marks value's trigger and content active, without measuring anything.
+  function applyTabState(container, tabsId, value, animate) {
     const animateContent = shouldAnimateContent(container, animate);
 
     // Update all triggers with this tabs-id
@@ -136,8 +225,6 @@
         );
         resetTriggerChrome(trigger, isActive);
       });
-
-    syncSlidingIndicator(container, tabsId, value, animate);
 
     updateContentState(container, tabsId, value, animateContent);
   }
@@ -168,8 +255,11 @@
     }
   });
 
-  // Initialize active states
+  // Initialize active states. Every tabs is set up first, then all are
+  // measured, then their indicators placed, so a conversation whose messages
+  // each have tabs lays out the page once, not once per message.
   function setupInitialStates(force = false) {
+    const fresh = [];
     document.querySelectorAll("[data-tui-tabs]").forEach((container) => {
       const tabsId = container.getAttribute("data-tui-tabs-id");
       if (!tabsId) return;
@@ -182,16 +272,31 @@
         ) || container.querySelector(`[data-tui-tabs-trigger]`);
 
       if (activeTrigger) {
-        setActiveTab(tabsId, activeTrigger.getAttribute("data-tui-tabs-value"), false);
+        const value = activeTrigger.getAttribute("data-tui-tabs-value");
+        applyTabState(container, tabsId, value, false);
+        if (getTabList(container, tabsId)) fresh.push([container, tabsId, value]);
         container.setAttribute("data-tui-tabs-initialized", "true");
       }
     });
+    const lists = fresh.map(([container, tabsId]) => getTabList(container, tabsId));
+    const statics = staticLists(lists);
+    lists.forEach((list, i) => prepareSlidingIndicator(list, statics[i]));
+    const spots = fresh
+      .map(([container, tabsId, value]) => measureIndicator(container, tabsId, value))
+      .filter(Boolean);
+    placeIndicators(spots, false);
   }
 
-  // Setup on load and mutations
+  // Setup on load and mutations. The observer sets up only tabs that are
+  // new: handed straight to MutationObserver, its list of changes came in as
+  // `force`, so every change anywhere on the page measured every tabs again,
+  // and opening a conversation, whose messages each have tabs, took seconds
+  // on a phone.
   document.addEventListener("DOMContentLoaded", () => setupInitialStates(true));
-  document.fonts.ready.then(() => setupInitialStates(false));
-  new MutationObserver(setupInitialStates).observe(document.body, {
+  // Loaded fonts change the triggers' widths, so every indicator is placed
+  // again once.
+  document.fonts.ready.then(() => setupInitialStates(true));
+  new MutationObserver(() => setupInitialStates(false)).observe(document.body, {
     childList: true,
     subtree: true,
   });
