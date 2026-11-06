@@ -518,6 +518,7 @@ document.addEventListener("DOMContentLoaded", function () {
   setupSidebarAccountCollapse()
   setupProcessingStatus()
   setupBodyPrefetch()
+  setupTouchPress()
   setupEmailBodyModeTabs()
   setupEmailTranslation()
   setupMailtoIntent()
@@ -7933,6 +7934,36 @@ document.addEventListener("DOMContentLoaded", function () {
     })
 
     initSearchStateFromInput()
+  }
+
+  // setupTouchPress marks what a finger is on with data-touch-pressed, so it
+  // shows pressed at once (see the pressed styles in input.css). A scroll
+  // cancels the pointer, which lets go of it; a tap keeps it a moment after
+  // the finger lifts, so even a quick one shows.
+  function setupTouchPress() {
+    var selector = "#mail-list-scroll [data-thread-toggle], #mail-list-scroll .mail-list-item[data-email-id] > a, #mail-list-scroll .thread-sub-item[data-sub-email-id] > a, #mail-view .mail-view-actions button, #mail-view .mobile-back-button"
+    var pressed = null
+    var releaseTimer = null
+    function release() {
+      if (releaseTimer) clearTimeout(releaseTimer)
+      releaseTimer = null
+      if (pressed) pressed.removeAttribute("data-touch-pressed")
+      pressed = null
+    }
+    document.addEventListener("pointerdown", function (e) {
+      if (e.pointerType !== "touch" && e.pointerType !== "pen") return
+      release()
+      var target = e.target && e.target.closest && e.target.closest(selector)
+      if (!target) return
+      pressed = target
+      target.setAttribute("data-touch-pressed", "")
+    }, { passive: true })
+    document.addEventListener("pointercancel", release, { passive: true })
+    document.addEventListener("pointerup", function () {
+      if (!pressed) return
+      if (releaseTimer) clearTimeout(releaseTimer)
+      releaseTimer = setTimeout(release, 120)
+    }, { passive: true })
   }
 
   function setupBodyPrefetch() {

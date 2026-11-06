@@ -5350,6 +5350,27 @@ body.mail-list-column-resizing {
     -webkit-tap-highlight-color: transparent;
   }
 
+  /* A finger on a row, a thread's message or a thread toggle shows at once,
+     before the message opens: with the tap highlight off, a tap otherwise
+     showed nothing until the reader came in. Still solid, for the swipe.
+     data-touch-pressed is set by app.js (setupTouchPress): Chrome gives a
+     touch :active only once it has decided the touch is a tap. */
+  #mail-list[data-mail-list-view] .mail-list-item > a.mail-list-card:is(:active, [data-touch-pressed]),
+  #mail-list[data-mail-list-view] .thread-sub-item[data-sub-email-id] > a:is(:active, [data-touch-pressed]) {
+    background: color-mix(in oklab, var(--accent) 70%, var(--color-card));
+    /* On at once; letting go fades it back with the row's own transition. */
+    transition-duration: 0s;
+  }
+
+  #mail-list[data-mail-list-view] [data-thread-toggle]:is(:active, [data-touch-pressed]) {
+    color: var(--foreground);
+  }
+
+  #mail-view[data-mail-reader] .mail-view-actions button:is(:active, [data-touch-pressed]),
+  #mail-view[data-mail-reader] .mobile-back-button:is(:active, [data-touch-pressed]) {
+    background: color-mix(in oklab, var(--accent) 70%, transparent);
+  }
+
   #mail-list[data-mail-list-view] .mail-list-item > a.mail-list-card:active,
   #mail-list[data-mail-list-view] .mail-list-item > a.mail-list-card.envelope-active {
     background: color-mix(in srgb, var(--color-foreground) 5%, var(--color-card));
