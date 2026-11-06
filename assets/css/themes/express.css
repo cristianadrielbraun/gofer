@@ -2651,6 +2651,14 @@ html:root[data-theme="express"] :is([data-calendar-month-event], [data-calendar-
   border-color: transparent;
 }
 
+/* Rows turn blue, and back, almost at once, as in the original; only the
+   slide that makes room for the checkboxes keeps its pace. The second
+   selector outweighs the thread rows' own list of properties (input.css). */
+html[data-theme="express"] #mail-list :is(.mail-list-item, .thread-sub-item) > a,
+html[data-theme="express"] #mail-list .thread-sub-item > .mail-row-check ~ a {
+  transition: background-color 60ms linear, color 60ms linear, border-color 60ms linear, box-shadow 60ms linear, margin-left 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
 [data-theme="express"] .envelope-active,
 [data-theme="express"] .mail-list-item[data-mail-selected] > a,
 [data-theme="express"] .mail-list-item > a[data-mail-selected],
