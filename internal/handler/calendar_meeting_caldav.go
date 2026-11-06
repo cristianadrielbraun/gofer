@@ -299,7 +299,7 @@ func (h *Handler) updateCalDAVMeeting(ctx context.Context, source storage.Calend
 		if field == "DESCRIPTION" {
 			continue
 		}
-		props.Set(edited.Events()[0].Props.Get(field))
+		calendarCopyICSProp(props, edited.Events()[0].Props, field)
 	}
 	calendarUpdateDescriptionProps(props, edited.Events()[0].Props, existing.Description, draft)
 	delete(props, "DURATION")

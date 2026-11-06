@@ -2,7 +2,9 @@ package storage
 
 import (
 	"context"
+	"database/sql"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -106,9 +108,7 @@ func TestTrashedContactsLeaveTheListAndComeBackRestored(t *testing.T) {
 func TestMailFromATrashedContactLeavesItInTheTrash(t *testing.T) {
 	db := newContactsTestDB(t)
 	ctx := context.Background()
-	if err := db.UpsertObservedContact(ctx, "default", "Ada Moss", "ada@example.com", time.Now().Add(-time.Hour)); err != nil {
-		t.Fatal(err)
-	}
+	syncContactTestMail(t, db, "default", "Ada Moss", "ada@example.com", time.Now().Add(-time.Hour))
 	contacts, err := db.ListContacts(ctx, "default", models.ContactFilters{}, 10, 0)
 	if err != nil || len(contacts) != 1 {
 		t.Fatalf("observed contacts = %v, %v", contacts, err)
@@ -117,9 +117,7 @@ func TestMailFromATrashedContactLeavesItInTheTrash(t *testing.T) {
 	if _, err := db.TrashContacts(ctx, "default", []string{id}); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.UpsertObservedContact(ctx, "default", "Ada Moss", "ada@example.com", time.Now()); err != nil {
-		t.Fatal(err)
-	}
+	syncContactTestMail(t, db, "default", "Ada Moss", "ada@example.com", time.Now())
 	if trashed, err := db.ContactInTrash(ctx, "default", id); err != nil || !trashed {
 		t.Fatalf("still in the trash = %v, %v; want true", trashed, err)
 	}
@@ -179,4 +177,129 @@ func TestDeletingATrashedContactForGoodEmptiesItFromTheTrash(t *testing.T) {
 	if restored, err := db.RestoreContacts(ctx, "default", []string{id}); err != nil || restored != 0 {
 		t.Fatalf("restoring a deleted contact = %d, %v; want 0", restored, err)
 	}
+}
+
+// A contact deleted on the account it lives on goes to the Trash when Gofer
+// Sync is off; one with Gofer Sync on, or living elsewhere, only loses that
+// copy.
+func TestContactDeletedAtHomeGoesToTheTrash(t *testing.T) {
+	inTrash := func(t *testing.T, db *DB, id string) bool {
+		t.Helper()
+		trashed, err := db.ContactInTrash(t.Context(), "default", id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return trashed
+	}
+	t.Run("shared", func(t *testing.T) {
+		db := newInboundContactFixture(t)
+		home := publishTestContact(t, db, InboundContact{Contact: models.Contact{Email: "home@example.com"}, RemoteID: "people/home"})
+		synced := publishTestContact(t, db, InboundContact{Contact: models.Contact{Email: "synced@example.com"}, RemoteID: "people/synced"})
+		if _, err := db.Write().Exec(`UPDATE contact_profiles SET sync_enabled=1 WHERE id=?`, synced.ProfileID); err != nil {
+			t.Fatal(err)
+		}
+		local, err := db.SaveContact(t.Context(), "default", models.Contact{Name: "Local Lou", Email: "local@example.com", StoredIn: "local"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := db.UpsertContactSource(t.Context(), ContactSource{UserID: "default", ContactID: local.ID, Provider: "gmail", AccountID: "source", RemoteID: "people/local"}); err != nil {
+			t.Fatal(err)
+		}
+		for _, remote := range []string{"people/home", "people/synced", "people/local"} {
+			if err := db.RemoveDeletedContactSource(t.Context(), "default", "gmail", "source", remote); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if !inTrash(t, db, home.ProfileID) || inTrash(t, db, synced.ProfileID) || inTrash(t, db, local.ID) {
+			t.Fatal("trash", inTrash(t, db, home.ProfileID), inTrash(t, db, synced.ProfileID), inTrash(t, db, local.ID))
+		}
+	})
+	t.Run("book", func(t *testing.T) {
+		db := newInboundContactFixture(t)
+		book := models.ContactAddressBook{ID: "dav-book", URL: "https://dav.test/book/"}
+		results, err := db.PublishInboundContactBook(t.Context(), "default", "dav", book, InboundContactBookPage{
+			Contacts: []InboundContact{
+				{Contact: models.Contact{Email: "home@example.com"}, RemoteID: "https://dav.test/book/home.vcf"},
+				{Contact: models.Contact{Email: "synced@example.com"}, RemoteID: "https://dav.test/book/synced.vcf"},
+			}, SyncToken: "one",
+		}, inboundTestGuard, func(*sql.Tx) error { return nil })
+		if err != nil || len(results) != 2 {
+			t.Fatal(results, err)
+		}
+		if _, err := db.Write().Exec(`UPDATE contact_profiles SET sync_enabled=1 WHERE id=?`, results[1].ProfileID); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.PublishInboundContactBook(t.Context(), "default", "dav", book, InboundContactBookPage{
+			DeletedRemoteIDs: []string{"https://dav.test/book/home.vcf", "https://dav.test/book/synced.vcf"}, SyncToken: "two",
+		}, inboundTestGuard, func(*sql.Tx) error { return nil }); err != nil {
+			t.Fatal(err)
+		}
+		if !inTrash(t, db, results[0].ProfileID) || inTrash(t, db, results[1].ProfileID) {
+			t.Fatal("trash", inTrash(t, db, results[0].ProfileID), inTrash(t, db, results[1].ProfileID))
+		}
+		// The synced one waits to be resolved instead.
+		if deletions, err := db.ContactRemoteDeletions(t.Context(), "default", results[1].ProfileID); err != nil || len(deletions) != 1 || deletions[0].Place != "book:dav-book" {
+			t.Fatal("to resolve", deletions, err)
+		}
+	})
+}
+
+// Restored to another place, a contact lives there: the old home keeps
+// nothing of it, and with Gofer Sync on it syncs with the new home.
+func TestRestoreContactsToAnotherPlace(t *testing.T) {
+	ctx := context.Background()
+	place := func(t *testing.T, db *DB, id string) (string, []string) {
+		t.Helper()
+		contact, err := db.GetContact(ctx, "default", id)
+		if err != nil || contact == nil {
+			t.Fatal(contact, err)
+		}
+		return contact.StoredIn, contact.SaveTargets
+	}
+	t.Run("local to an account", func(t *testing.T) {
+		db := newInboundContactFixture(t)
+		saved, err := db.SaveContact(ctx, "default", models.Contact{Name: "Lena Vos", Email: "lena@example.com", StoredIn: "local"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.TrashContacts(ctx, "default", []string{saved.ID}); err != nil {
+			t.Fatal(err)
+		}
+		if count, err := db.RestoreContactsTo(ctx, "default", []string{saved.ID}, "account:source"); err != nil || count != 1 {
+			t.Fatal(count, err)
+		}
+		if home, targets := place(t, db, saved.ID); home != "account:source" || len(targets) != 0 {
+			t.Fatal("restored", home, targets)
+		}
+	})
+	t.Run("synced to local", func(t *testing.T) {
+		db := newInboundContactFixture(t)
+		id := newUnresolvedTestContact(t, db)
+		if _, err := db.TrashContacts(ctx, "default", []string{id}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.RestoreContactsTo(ctx, "default", []string{id}, "local"); err != nil {
+			t.Fatal(err)
+		}
+		home, targets := place(t, db, id)
+		if home != "local" || !slices.Contains(targets, "local") || slices.Contains(targets, "account:source") || !slices.Contains(targets, "account:target") {
+			t.Fatal("restored", home, targets)
+		}
+	})
+	t.Run("synced to another account", func(t *testing.T) {
+		db := newInboundContactFixture(t)
+		id := newUnresolvedTestContact(t, db)
+		if _, err := db.Write().Exec(`DELETE FROM contact_sync_memberships WHERE account_id='target'`); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.TrashContacts(ctx, "default", []string{id}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.RestoreContactsTo(ctx, "default", []string{id}, "account:target"); err != nil {
+			t.Fatal(err)
+		}
+		if home, targets := place(t, db, id); home != "account:target" || !slices.Contains(targets, "account:target") || slices.Contains(targets, "account:source") {
+			t.Fatal("restored", home, targets)
+		}
+	})
 }

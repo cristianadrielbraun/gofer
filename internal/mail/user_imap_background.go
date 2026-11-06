@@ -476,7 +476,16 @@ func (s *UserIMAP) reconcileWatches(ctx context.Context, scope *userIMAPScope) e
 			}
 		}
 		if jmapAccount {
-			w.watcher = NewJMAPPushWatcher(scope.config, scope.password, onNotify, onStatus)
+			watcher := NewJMAPPushWatcher(scope.config, scope.password, onNotify, onStatus)
+			if change := s.jmapContactsChange; change != nil {
+				account := scope.id
+				watcher.WithContacts(func() {
+					if watchCtx.Err() == nil {
+						change(watchCtx, account)
+					}
+				})
+			}
+			w.watcher = watcher
 		} else {
 			w.watcher = imap.NewIdleWatcher(scope.config, scope.password, folder.RemoteID, onNotify, onStatus)
 		}

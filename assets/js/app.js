@@ -1,5 +1,8 @@
 // Gofer's pages run no inline code, so htmx needn't evaluate any either.
 if (window.htmx) window.htmx.config.allowEval = false
+// Back and Forward are navigation.js's: htmx's copy of the page in
+// localStorage, written on every pushed address, would never be read.
+if (window.htmx) window.htmx.config.historyCacheSize = 0
 
 function setupPageRequestOwnership() {
   if (window._goferPageRequestOwnershipReady) return
@@ -67,13 +70,38 @@ function phoneListLayout() {
   return !window.matchMedia("(min-width: 1024px)").matches
 }
 
+// The layout a list opens in: always cards on a phone; otherwise the one the
+// address asks for (?view=, which the server drew), or else the saved one.
+// Crossing the breakpoint goes back to the saved one.
 function useListLayoutForScreen(list, settingKey, resized) {
   if (!list || typeof list.switchViewMode !== "function") return
   var saved = window.GoferSettings ? GoferSettings.get(settingKey) : ""
-  var mode = phoneListLayout() ? "cards" : (saved === "table" ? "table" : "cards")
+  var asked = resized ? "" : new URLSearchParams(window.location.search).get("view")
+  var wanted = asked === "table" || asked === "cards" ? asked : saved
+  var mode = phoneListLayout() ? "cards" : (wanted === "table" ? "table" : "cards")
+  syncListViewToggle(mode)
   // Crossing the breakpoint swaps the layout directly; the user's own toggle animates.
   if (list.viewMode !== mode) list.switchViewMode(mode, { quiet: !!resized }).catch(function () {})
   else if (resized && typeof list.refreshRowMetrics === "function") list.refreshRowMetrics()
+}
+
+// Shows the Cards/Table switches of the mail and contacts lists on mode.
+function syncListViewToggle(mode) {
+  [["data-mail-list-view-toggle", "data-mail-list-view-button", "data-mail-list-view-indicator"],
+    ["data-contact-list-view-toggle", "data-contact-list-view-button", "data-contact-list-view-indicator"]].forEach(function (attrs) {
+    document.querySelectorAll("[" + attrs[0] + "]").forEach(function (group) {
+      group.querySelectorAll("[" + attrs[1] + "]").forEach(function (button) {
+        var active = button.getAttribute(attrs[1]) === mode
+        button.classList.toggle("text-foreground", active)
+        button.classList.toggle("text-muted-foreground", !active)
+        button.classList.toggle("hover:text-foreground", !active)
+        button.setAttribute("aria-pressed", active ? "true" : "false")
+      })
+      var indicator = group.querySelector("[" + attrs[2] + "]")
+      // As the server places it: one button and the gap between them.
+      if (indicator) indicator.style.transform = mode === "table" ? "translateX(calc(100% + 2px))" : "translateX(0)"
+    })
+  })
 }
 
 window.matchMedia("(min-width: 1024px)").addEventListener("change", function () {
@@ -82,6 +110,179 @@ window.matchMedia("(min-width: 1024px)").addEventListener("change", function () 
   if (mail) useListLayoutForScreen(mail._virtualMailList, "mail_list_view", true)
   if (contacts) useListLayoutForScreen(contacts._virtualContactsList, "contacts_list_view", true)
 })
+
+// A contact form row added or removed grows open or closes itself, its
+// gap above included, and the dialog follows; the dialog's own resize
+// animation waits meanwhile.
+function animateContactRowHeight(row, opening, done) {
+  var form = row && row.closest && row.closest("form")
+  var resize = form && form._calendarDialogResize
+  if (!row || typeof row.animate !== "function" ||
+      (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches)) {
+    if (done) done()
+    return
+  }
+  if (resize) resize.paused = true
+  var style = getComputedStyle(row)
+  var full = { height: row.offsetHeight + "px", paddingTop: style.paddingTop, opacity: 1 }
+  var closed = { height: "0px", paddingTop: "0px", opacity: 0 }
+  row.style.overflow = "hidden"
+  var animation = row.animate(opening ? [closed, full] : [full, closed], { duration: 200, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)", fill: opening ? "none" : "forwards" })
+  animation.onfinish = animation.oncancel = function () {
+    row.style.overflow = ""
+    if (done) done()
+    if (resize && form._calendarDialogResize === resize) resize.sync()
+  }
+}
+
+// Toolbars that fold their parts away as their room runs out: the mail
+// list's, and the contact page's header. Each says which parts are folded
+// at each step; toolbarFoldStep finds the first step that fits, from widths
+// alone: toggling states to measure them would cut short the animation of a
+// step that is still sliding. Folding parts are .mail-toolbar-collapsible,
+// folded with data-mail-collapsed.
+
+// toolbarFoldWidth is a folding part's full width, to the fraction of a
+// pixel. scrollWidth rounds, and a label capped at the rounded width lost
+// part of a pixel, moving everything after it.
+function toolbarFoldWidth(el) {
+  var range = document.createRange()
+  range.selectNodeContents(el)
+  // A range around buttons can measure 0 (no text inside), which capped
+  // the action buttons at max-width 0; scrollWidth still sees them.
+  return Math.max(range.getBoundingClientRect().width, el.scrollWidth)
+}
+
+// toolbarFoldParts gives each folding part with the width it takes now
+// (mid-animation, maybe) and the width it takes when shown, both counting
+// the flex gap beside it.
+function toolbarFoldParts(states) {
+  var parts = []
+  states.forEach(function (_, el) {
+    var gap = parseFloat(getComputedStyle(el.parentElement).columnGap) || 0
+    var margin = parseFloat(getComputedStyle(el).marginLeft) || 0
+    var width = toolbarFoldWidth(el)
+    if (el.style.getPropertyValue("--collapse-width") !== width + "px") el.style.setProperty("--collapse-width", width + "px")
+    parts.push({ el: el, current: el.offsetWidth + gap + margin, full: width + gap })
+  })
+  return parts
+}
+
+// toolbarFoldStep gives the first of steps at which the toolbar fits, or
+// steps when none does. statesAt(step) is a Map of each folding part to
+// whether it's folded then. The spacer only fills what's left over.
+function toolbarFoldStep(toolbar, spacer, steps, statesAt) {
+  var parts = toolbarFoldParts(statesAt(0))
+  var spacerExtra = spacer && spacer.offsetParent ? spacer.offsetWidth - (parseFloat(getComputedStyle(spacer).minWidth) || 0) : 0
+  // The width everything but the folding parts needs.
+  var fixed = Math.max(toolbar.scrollWidth, toolbar.clientWidth) - spacerExtra
+  for (var i = 0; i < parts.length; i++) fixed -= parts[i].current
+  var step = 0
+  for (; step < steps; step++) {
+    var needed = fixed
+    var states = statesAt(step)
+    for (var j = 0; j < parts.length; j++) {
+      if (!states.get(parts[j].el)) needed += parts[j].full
+    }
+    if (needed <= toolbar.clientWidth) break
+  }
+  return step
+}
+
+// The contact page's header folds its actions into a ⋮ menu as its room
+// runs out, as the mail list's toolbar does: Export first, then Duplicate,
+// Move, Email and Trash; Edit stays. Each step is worked out from widths
+// alone, so a step still sliding isn't cut short.
+var CONTACT_OVERFLOW_RANKS = 5
+var contactOverflowObserver = null
+var contactOverflowObserved = null
+
+// contactHeaderFoldStates says which actions are folded at a step: the
+// ranks up to it, with the ⋮ menu shown once one is.
+function contactHeaderFoldStates(actions, step) {
+  var states = new Map()
+  actions.querySelectorAll(":scope > [data-contact-overflow-rank]").forEach(function (button) {
+    states.set(button, parseInt(button.getAttribute("data-contact-overflow-rank"), 10) <= step)
+  })
+  var menu = actions.querySelector(":scope > [data-contact-overflow-menu]")
+  if (menu) states.set(menu, step === 0)
+  return states
+}
+
+function syncContactHeaderOverflow() {
+  var actions = document.querySelector("#contacts-detail [data-contact-header-actions]")
+  if (actions && actions !== contactOverflowObserved && typeof ResizeObserver === "function") {
+    if (!contactOverflowObserver) contactOverflowObserver = new ResizeObserver(function () { syncContactHeaderOverflow() })
+    contactOverflowObserver.disconnect()
+    contactOverflowObserver.observe(actions)
+    contactOverflowObserved = actions
+  }
+  if (!actions || actions.offsetParent === null || !actions.querySelector(":scope > [data-contact-overflow-menu]")) return
+  var spacer = actions.querySelector(":scope > .contact-header-spacer")
+  var step = toolbarFoldStep(actions, spacer, CONTACT_OVERFLOW_RANKS, function (step) {
+    return contactHeaderFoldStates(actions, step)
+  })
+  if (step === actions._contactFolded) return
+  actions._contactFolded = step
+  contactHeaderFoldStates(actions, step).forEach(function (collapsed, el) {
+    el.toggleAttribute("data-mail-collapsed", collapsed)
+  })
+  document.querySelectorAll("#contacts-detail [data-contact-overflow-menu-item]").forEach(function (item) {
+    item.style.display = parseInt(item.getAttribute("data-contact-overflow-rank"), 10) <= step ? "" : "none"
+  })
+}
+
+// A folded Move or Duplicate opens its dialog from the ⋮ menu, and a
+// folded Trash submits the form its button does.
+document.addEventListener("click", function (e) {
+  var item = e.target.closest && e.target.closest("[data-contact-open-dialog], [data-contact-submit-form]")
+  if (!item || item.hasAttribute("disabled") || item.getAttribute("aria-disabled") === "true") return
+  e.preventDefault()
+  var formID = item.getAttribute("data-contact-submit-form")
+  if (formID) {
+    var form = document.getElementById(formID)
+    if (form && typeof form.requestSubmit === "function") form.requestSubmit()
+    return
+  }
+  if (window.tui && window.tui.dialog) window.tui.dialog.open(item.getAttribute("data-contact-open-dialog"))
+})
+
+document.addEventListener("DOMContentLoaded", syncContactHeaderOverflow)
+document.addEventListener("htmx:afterSettle", function () { syncContactHeaderOverflow() })
+
+// collapseContactSection closes part of a contact form, padding and divider
+// included, and hides it once closed; the dialog follows as it shrinks.
+function collapseContactSection(section, done) {
+  var form = section && section.closest && section.closest("form")
+  var resize = form && form._calendarDialogResize
+  if (!section || typeof section.animate !== "function" ||
+      (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches)) {
+    if (done) done()
+    return
+  }
+  if (resize) resize.paused = true
+  var style = getComputedStyle(section)
+  var open = { height: section.offsetHeight + "px", paddingTop: style.paddingTop, paddingBottom: style.paddingBottom, borderTopWidth: style.borderTopWidth, opacity: 1 }
+  var closed = { height: "0px", paddingTop: "0px", paddingBottom: "0px", borderTopWidth: "0px", opacity: 0 }
+  section.style.overflow = "hidden"
+  var animation = section.animate([open, closed], { duration: 200, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)", fill: "forwards" })
+  section._contactCollapse = animation
+  animation.onfinish = function () {
+    if (section._contactCollapse !== animation) return
+    section._contactCollapse = null
+    if (done) done()
+    // Hidden now, it drops the closed frame so it opens at its own size.
+    animation.cancel()
+    section.style.overflow = ""
+    if (resize && form._calendarDialogResize === resize) resize.sync()
+  }
+}
+
+// fadeOutContactRow removes a contact form row once it has closed.
+function fadeOutContactRow(row) {
+  if (!row) return
+  animateContactRowHeight(row, false, function () { row.remove() })
+}
 
 function animateSectionContent(section) {
   if (!section || typeof section.animate !== "function" ||
@@ -119,6 +320,24 @@ document.addEventListener("DOMContentLoaded", function () {
   var preserveMailListSelectionFor = null
   var initialMailReaderLoader = null
   var selectedMailIds = new Set()
+  // Switching sections: when the loading rows show (revealSwitchSkeletonsLater),
+  // and whether the section arrived during the slide and lands as it ends.
+  var APP_SWITCH_MS = 260
+  var switchSkeletonTimer = null
+  var switchResponseHeld = false
+  // How long a list's rows take to drop in: the last row's delay plus the
+  // drop (fanInRows in virtual-scroll.js).
+  var LIST_FAN_IN_MS = 150 + 220
+  // Lists fetched ahead while kept off screen (prefetchKept): how many
+  // changes came, and the fetch under way.
+  var keptPrefetch = {
+    mail: { changes: 0, timer: null, busy: false, again: false },
+    contacts: { changes: 0, timer: null, busy: false, again: false },
+  }
+  // Gathers a burst of contacts-changed events into one refresh.
+  var contactsChangeTimer = null
+  // Mail's and Contacts' sidebars as last left (rememberSectionSidebar).
+  var lastSectionSidebars = {}
   // The tab title shows the unread count: the counts last fetched, and the
   // title Gofer wrote with the count, to tell it from one written since.
   var titleUnreadCounts = null
@@ -184,15 +403,56 @@ document.addEventListener("DOMContentLoaded", function () {
     remember: function () {
       var sidebar = document.getElementById("sidebar-app-body")
       if (sidebar) rememberSectionLocation(sidebar.dataset.sidebarAppBody)
+      rememberSectionSidebar()
     },
     requestURL: sectionRequestURL,
+    placeSidebarEarly: placeSwitchSidebarEarly,
+    // Whether the calendar has a request going that leaving would call off.
+    busy: function () {
+      return !!(_calendarContentRequest || _calendarCacheRequest || _calendarSyncRequest)
+    },
+    // A kept section is back on screen (navigation.js): it takes over as the
+    // live one, and what changed while it was away comes in place.
+    reattached: function (mode, panels, stale) {
+      var mail = document.getElementById("mail-list-scroll")
+      var contacts = document.getElementById("contacts-list-scroll")
+      virtualMailList = mail && mail._virtualMailList
+      virtualContactsList = contacts && contacts._virtualContactsList
+      setSidebarAppNavMode(mode)
+      animateAppSwitch()
+      if (typeof slideAppPanels === "function") slideAppPanels(panels, mode)
+      if (typeof initResizeHandles === "function") initResizeHandles()
+      var locations = sectionLocations()
+      ;["mail", "contacts"].forEach(function (section) { pointSectionButton(section, locations[section]) })
+      rememberSectionLocation(mode)
+      endAppSwitching()
+      stale = stale || {}
+      var list = mode === "mail" ? virtualMailList : mode === "contacts" ? virtualContactsList : null
+      var drops = !!(list && typeof list.fanInRows === "function" && !list.prefersReducedMotion())
+      if (mode === "mail" || mode === "contacts") {
+        stale = applyKeptRows(mode, list, stale)
+        if (mode === "mail") applyActiveFolderSyncState()
+        if (stale.content && list && list.navigationMode !== "pagination") {
+          catchUpKept(mode, list, drops, stale)
+          return
+        }
+        if (mode === "mail") flushPendingSyncEvents()
+      }
+      if (mode === "calendar") initializeCalendarDaySelection()
+      // The rows drop in as they do when the section arrives from the server.
+      // A refresh would replace them mid-drop, so it waits for the drop to end.
+      if (drops) {
+        list.fanInRows()
+        setTimeout(function () { refreshKeptSection(mode, stale) }, LIST_FAN_IN_MS)
+      } else refreshKeptSection(mode, stale)
+    },
     bindSidebar: setupFolderClickInterception,
     loaded: function (mode, address) {
       var locations = sectionLocations()
       ;["mail", "contacts"].forEach(function (section) { pointSectionButton(section, locations[section]) })
       var sidebar = document.getElementById("sidebar-app-body")
       if (sidebar) rememberSectionLocation(mode)
-      document.documentElement.removeAttribute("data-app-switching")
+      endAppSwitching()
       if (mode === "mail") {
         var url = new URL(address, location.href)
         var path = /^\/folder\/[^/]+\/([^/]+)$/.exec(url.pathname)
@@ -218,7 +478,7 @@ document.addEventListener("DOMContentLoaded", function () {
         initVirtualScroll()
       }
       initializeCalendarDaySelection()
-      document.documentElement.removeAttribute("data-app-switching")
+      endAppSwitching()
     },
   }
   initVirtualScroll()
@@ -227,7 +487,7 @@ document.addEventListener("DOMContentLoaded", function () {
   setupMailListViewToggle()
   setupContactsList()
   setupMailFilters()
-  setupMailTableColumnResize()
+  setupTableColumns()
   setupSSE()
   // Leaving the page closes its event stream at once. Otherwise the browser
   // keeps the page it left, stream included, alive for a while in case the
@@ -293,10 +553,12 @@ document.addEventListener("DOMContentLoaded", function () {
         trash: !!(scroll && scroll.dataset.trash === "1"),
         query: search ? search.value || "" : "",
         source: form && form.querySelector('[name="source"]') ? form.querySelector('[name="source"]').value || "" : "",
+        storedIn: form && form.querySelector('[name="stored_in"]') ? form.querySelector('[name="stored_in"]').value || "" : "",
         saveTarget: form && form.querySelector('[name="save_target"]') ? form.querySelector('[name="save_target"]').value || "" : "",
         activity: form && form.querySelector('[name="activity"]') ? form.querySelector('[name="activity"]').value || "" : "",
+        unresolved: !!(form && form.querySelector('[name="unresolved"]') && form.querySelector('[name="unresolved"]').checked),
         sortBy: sortForm && sortForm.querySelector('[name="sort_by"]') ? sortForm.querySelector('[name="sort_by"]').value || "updated" : "updated",
-        sortOrder: sortForm && sortForm.querySelector('[name="sort_order"]') ? sortForm.querySelector('[name="sort_order"]').value || "desc" : "desc",
+        sortOrder: (sortForm && sortForm.querySelector('[name="sort_order"]:checked') || {}).value || "desc",
       }
     }
 
@@ -304,7 +566,7 @@ document.addEventListener("DOMContentLoaded", function () {
     var settingContactFilters = false
 
     function syncFilterUI(filters) {
-      var count = (filters.source ? 1 : 0) + (filters.saveTarget ? 1 : 0) + (filters.activity ? 1 : 0)
+      var count = (filters.source ? 1 : 0) + (filters.storedIn ? 1 : 0) + (filters.saveTarget ? 1 : 0) + (filters.activity ? 1 : 0) + (filters.unresolved ? 1 : 0)
       syncActiveFilterChips(filters)
       var button = document.querySelector("[data-contact-filter-trigger]")
       if (!button) return
@@ -331,20 +593,26 @@ document.addEventListener("DOMContentLoaded", function () {
 
     function activeFilterPills(filters) {
       var pills = []
-      function label(name, value) {
+      // A filter can hold several values, separated by commas, and its pill
+      // names all of them.
+      function label(name, values) {
         var input = document.querySelector('[data-contact-filter-form] input[name="' + name + '"]')
         var container = input && input.closest(".select-container")
         var items = container ? container.querySelectorAll("[data-tui-selectbox-value]") : []
-        for (var i = 0; i < items.length; i++) {
-          if (items[i].getAttribute("data-tui-selectbox-value") !== value) continue
-          var text = items[i].querySelector(".select-item-text")
-          if (text) return text.textContent.trim()
-        }
-        return value
+        return String(values || "").split(",").filter(Boolean).map(function (value) {
+          for (var i = 0; i < items.length; i++) {
+            if (items[i].getAttribute("data-tui-selectbox-value") !== value) continue
+            var text = items[i].querySelector(".select-item-text")
+            if (text) return text.textContent.trim()
+          }
+          return value
+        }).join(", ")
       }
+      if (filters.storedIn) pills.push({ name: "stored_in", text: goferT("js.contacts.filter.stored_in", { place: label("stored_in", filters.storedIn) }) })
       if (filters.source) pills.push({ name: "source", text: goferT("js.contacts.filter.origin", { source: label("source", filters.source) }) })
       if (filters.saveTarget) pills.push({ name: "save_target", text: label("save_target", filters.saveTarget) })
-      if (filters.activity) pills.push({ name: "activity", text: filters.activity === "seen" ? goferT("js.contacts.filter.seen") : goferT("js.contacts.filter.no_messages") })
+      if (filters.activity) pills.push({ name: "activity", text: filters.activity.split(",").filter(Boolean).map(function (value) { return value === "seen" ? goferT("js.contacts.filter.seen") : goferT("js.contacts.filter.no_messages") }).join(", ") })
+      if (filters.unresolved) pills.push({ name: "unresolved", text: goferT("js.contacts.filter.unresolved") })
       return pills
     }
 
@@ -366,23 +634,41 @@ document.addEventListener("DOMContentLoaded", function () {
       strip.querySelectorAll("[data-contact-active-filter-key]").forEach(function (pill) {
         existing[pill.getAttribute("data-contact-active-filter-key")] = true
       })
-      var html = '<div class="mail-active-filter-visible">'
+      // Each pill is the server's own, tooltip included, from its template.
+      var template = document.querySelector("[data-contact-active-filter-pill-template]")
+      var visible = document.createElement("div")
+      visible.className = "mail-active-filter-visible"
       pills.forEach(function (pill) {
         var key = pill.name + ":" + pill.text
-        var text = escapeHTML(pill.text)
-        html += '<button type="button" data-contact-active-filter-remove="' + pill.name + '" data-contact-active-filter-key="' + escapeHTML(key) + '" title="' + text + '" aria-label="' + escapeHTML(goferT("js.contacts.filter.remove", { filter: pill.text })) + '" class="mail-active-filter-pill' + (existing[key] ? " mail-active-filter-pill-stable" : "") + '">' +
-          '<span class="mail-active-filter-pill-label">' + text + '</span><span class="mail-active-filter-pill-remove">x</span></button>'
+        var node = template && template.content.firstElementChild ? template.content.firstElementChild.cloneNode(true) : null
+        var button = node && node.querySelector("[data-contact-active-filter-remove]")
+        if (!button) return
+        button.setAttribute("data-contact-active-filter-remove", pill.name)
+        button.setAttribute("data-contact-active-filter-key", key)
+        button.setAttribute("aria-label", goferT("js.contacts.filter.remove", { filter: pill.text }))
+        button.classList.toggle("mail-active-filter-pill-stable", !!existing[key])
+        var label = button.querySelector(".mail-active-filter-pill-label")
+        if (label) label.textContent = pill.text
+        var tip = node.querySelector("[data-contact-active-filter-tooltip]")
+        if (tip) tip.textContent = pill.text
+        visible.appendChild(node)
       })
-      strip.innerHTML = html + "</div>"
+      strip.replaceChildren(visible)
       strip.classList.remove("hidden")
     }
 
     // The sidebar item that stands for the filters, as the server picks it.
+    // Mirrors contactSidebarActiveTarget in sidebar.templ.
     function sidebarTargetFor(filters) {
       if (filters.trash) return "trash"
-      if (!filters.source) return filters.saveTarget
-      if (filters.saveTarget) return "-"
-      return /^(synced:|book:)/.test(filters.source) ? "source:" + filters.source : "-"
+      // No sidebar item lists only the contacts to resolve.
+      if (filters.unresolved) return "-"
+      var storedIn = filters.storedIn || ""
+      // A sidebar item stands for one place, never several.
+      if (/,/.test(storedIn)) return "-"
+      // No sidebar item filters by origin or sync location.
+      if (filters.source || filters.saveTarget) return "-"
+      return storedIn ? "stored_in:" + storedIn : ""
     }
 
     // Choosing a pill drops that filter, after the pill's exit.
@@ -391,19 +677,20 @@ document.addEventListener("DOMContentLoaded", function () {
       var list = remove && currentList()
       if (!list) return
       e.preventDefault()
-      var field = { source: "source", save_target: "saveTarget", activity: "activity" }[remove.getAttribute("data-contact-active-filter-remove")]
+      var field = { source: "source", stored_in: "storedIn", save_target: "saveTarget", activity: "activity", unresolved: "unresolved" }[remove.getAttribute("data-contact-active-filter-remove")]
       if (!field) return
       var motion = !window.matchMedia("(prefers-reduced-motion: reduce)").matches
       if (motion) remove.classList.add("mail-active-filter-pill-exiting")
       setTimeout(function () {
         var filters = Object.assign({}, list.filters)
-        filters[field] = ""
+        filters[field] = field === "unresolved" ? false : ""
         var form = document.querySelector("[data-contact-filter-form]")
         var input = form && form.querySelector('input[name="' + remove.getAttribute("data-contact-active-filter-remove") + '"]')
         if (input) {
           settingContactFilters = true
           try {
-            input.value = ""
+            if (input.type === "checkbox") input.checked = false
+            else input.value = ""
             input.dispatchEvent(new Event("input", { bubbles: true }))
           } finally {
             settingContactFilters = false
@@ -417,14 +704,14 @@ document.addEventListener("DOMContentLoaded", function () {
 
     function contactSidebarTargetFromURL(url) {
       try {
-        // Mirrors contactSidebarActiveTarget in sidebar.templ.
         var params = new URL(url || window.location.href, window.location.origin).searchParams
-        if (params.get("trash") === "1") return "trash"
-        var saveTarget = params.get("save_target") || ""
-        var source = params.get("source") || ""
-        if (!source) return saveTarget
-        if (saveTarget) return "-"
-        return /^(synced:|book:)/.test(source) ? "source:" + source : "-"
+        return sidebarTargetFor({
+          trash: params.get("trash") === "1",
+          unresolved: params.get("unresolved") === "1",
+          source: params.get("source") || "",
+          storedIn: params.get("stored_in") || "",
+          saveTarget: params.get("save_target") || "",
+        })
       } catch (_) {
         return ""
       }
@@ -468,7 +755,7 @@ document.addEventListener("DOMContentLoaded", function () {
       if (!list) return
       var filters = readFilters()
       syncFilterUI(filters)
-      setContactsSidebarActive(filters.trash ? "trash" : filters.saveTarget)
+      setContactsSidebarActive(sidebarTargetFor(filters))
       list.applyFilters(filters).catch(function () {})
     }
 
@@ -496,8 +783,8 @@ document.addEventListener("DOMContentLoaded", function () {
       if ((target === "trash") !== (scroll.dataset.trash === "1")) return
       e.preventDefault()
       e.stopImmediatePropagation()
-      var source = target.indexOf("source:") === 0 ? target.slice(7) : ""
-      var values = { source: source, save_target: target === "trash" || source ? "" : target, activity: "" }
+      var storedIn = target.indexOf("stored_in:") === 0 ? target.slice(10) : ""
+      var values = { source: "", stored_in: storedIn, save_target: "", activity: "" }
       var form = document.querySelector("[data-contact-filter-form]")
       if (form) {
         // Setting a select's value also moves its selection and the text shown.
@@ -517,10 +804,15 @@ document.addEventListener("DOMContentLoaded", function () {
       // select without a matching entry would drop its value and the pill and
       // list would disagree with the sidebar.
       var filters = readFilters()
-      filters.source = values.source
+      filters.source = ""
+      filters.storedIn = values.stored_in
       filters.saveTarget = values.save_target
       filters.activity = ""
-      filters.trash = false
+      // Only Trash itself stays in the Trash; any other item leaves it.
+      filters.trash = target === "trash"
+      filters.unresolved = false
+      var unresolvedSwitch = form && form.querySelector('input[name="unresolved"]')
+      if (unresolvedSwitch) unresolvedSwitch.checked = false
       syncFilterUI(filters)
       setContactsSidebarActive(target)
       list.applyFilters(filters).catch(function () {})
@@ -533,7 +825,8 @@ document.addEventListener("DOMContentLoaded", function () {
       var list = currentList()
       if (!list || (!list.selectedContactId && selectedContactIds.size === 0)) return
       var target = e.target
-      if (target && target.closest && target.closest("input, textarea, select, [contenteditable='true']")) return
+      // A row's checkbox, focused once clicked, is the list's own.
+      if (target && target.closest && target.closest("input, textarea, select, [contenteditable='true']") && !target.closest("[data-mail-row-check]")) return
       // Leave open dialogs, menus and an unsaved contact editor to handle Escape.
       // The contact page always holds its Edit dialog's form, closed; only the
       // new-contact editor, which fills the page, keeps Escape for itself.
@@ -549,21 +842,7 @@ document.addEventListener("DOMContentLoaded", function () {
         e.preventDefault()
         var mode = viewBtn.getAttribute("data-contact-list-view-button") === "table" ? "table" : "cards"
         if (window.GoferSettings) GoferSettings.set("contacts_list_view", mode)
-        var group = viewBtn.closest("[data-contact-list-view-toggle]")
-        if (group) {
-          var buttons = group.querySelectorAll("[data-contact-list-view-button]")
-          for (var i = 0; i < buttons.length; i++) {
-            var active = buttons[i] === viewBtn
-            buttons[i].classList.toggle("text-foreground", active)
-            buttons[i].classList.toggle("text-muted-foreground", !active)
-            buttons[i].classList.toggle("hover:text-foreground", !active)
-            buttons[i].setAttribute("aria-pressed", active ? "true" : "false")
-          }
-          var indicator = group.querySelector("[data-contact-list-view-indicator]")
-          // As contactViewIndicatorStyle places it: the toggle's padding already
-          // keeps it clear of the border, unlike mail's unpadded one.
-          if (indicator) indicator.style.transform = mode === "table" ? "translateX(100%)" : "translateX(0)"
-        }
+        syncListViewToggle(mode)
         var list = currentList()
         if (list) list.switchViewMode(mode).catch(function () {})
         return
@@ -576,8 +855,10 @@ document.addEventListener("DOMContentLoaded", function () {
         if (search) search.value = ""
         var form = document.querySelector("[data-contact-filter-form]")
         if (form) {
-          var inputs = form.querySelectorAll('input[name="source"], input[name="save_target"], input[name="activity"]')
+          var inputs = form.querySelectorAll('input[name="source"], input[name="stored_in"], input[name="save_target"], input[name="activity"]')
           for (var ci = 0; ci < inputs.length; ci++) inputs[ci].value = ""
+          var unresolvedInput = form.querySelector('input[name="unresolved"]')
+          if (unresolvedInput) unresolvedInput.checked = false
           var selectedItems = form.querySelectorAll("[data-tui-selectbox-selected='true']")
           for (var si = 0; si < selectedItems.length; si++) selectedItems[si].setAttribute("data-tui-selectbox-selected", "false")
           var placeholders = form.querySelectorAll("[data-tui-selectbox-placeholder]")
@@ -597,6 +878,7 @@ document.addEventListener("DOMContentLoaded", function () {
         if (list && template && template.content) {
           var node = template.content.firstElementChild.cloneNode(true)
           list.appendChild(node)
+          animateContactRowHeight(node, true)
           var input = node.querySelector("input")
           if (input) input.focus()
         }
@@ -607,7 +889,7 @@ document.addEventListener("DOMContentLoaded", function () {
       if (removeContactValue) {
         e.preventDefault()
         var valueRow = removeContactValue.closest("[data-contact-value-row]")
-        if (valueRow) valueRow.remove()
+        if (valueRow) fadeOutContactRow(valueRow)
         return
       }
 
@@ -641,8 +923,30 @@ document.addEventListener("DOMContentLoaded", function () {
           var editDialog = editDialogID ? document.getElementById(editDialogID) : null
           var editForm = editDialog && editDialog.querySelector("[data-contact-edit-form]")
           if (editForm) editForm.dataset.initialState = contactEditorState(editForm)
+          // Fields added or removed, and Gofer Sync opened or closed, resize
+          // the dialog smoothly, as the event dialog does.
+          if (editForm) initializeCalendarDialogResize(editForm)
         }, 0)
         return
+      }
+
+      // A click outside a contact's edit or new contact dialog is its
+      // Cancel: it closes, asking first when something was typed. templui's
+      // own click-away is off for them, so nothing is lost by a stray click.
+      if (e.target && e.target.tagName === "DIALOG") {
+        // Showing the Gofer Sync setup, it closes as is: the contact was
+        // saved before it, and Gofer Sync just stays off.
+        var outsideSetup = e.target.querySelector(":scope > [data-contact-sync-setup-morph]")
+        var setupMorph = outsideSetup && outsideSetup._morph
+        if (setupMorph && window.tui && window.tui.dialog) {
+          window.tui.dialog.close(setupMorph.editDialog.id)
+          return
+        }
+        var outsideCancel = e.target.querySelector("[data-contact-edit-form] [data-contact-editor-cancel]")
+        if (outsideCancel) {
+          outsideCancel.click()
+          return
+        }
       }
 
       var cancelContactEdit = e.target.closest && e.target.closest("[data-contact-editor-cancel]")
@@ -655,6 +959,10 @@ document.addEventListener("DOMContentLoaded", function () {
         var closeEditor = function () {
           var cancelDialogID = cancelForm.getAttribute("data-contact-edit-dialog") || ""
           if (cancelDialogID && window.tui && window.tui.dialog) window.tui.dialog.close(cancelDialogID)
+          // The next new contact starts from an empty dialog.
+          if (hasChanges && cancelForm.hasAttribute("data-contact-new-form")) {
+            window.setTimeout(replaceNewContactDialog, 220)
+          }
           if (hasChanges && cancelForm.dataset.contactId) {
             window.setTimeout(function () {
               refreshContactsDetail(cancelForm.dataset.contactId, null, false)
@@ -680,6 +988,13 @@ document.addEventListener("DOMContentLoaded", function () {
       var cancelSyncSetup = e.target.closest && e.target.closest("[data-contact-sync-setup-cancel]")
       if (cancelSyncSetup) {
         e.preventDefault()
+        // Back to the contact's form, Gofer Sync still switched on there and
+        // not saved.
+        var morph = contactSyncSetupMorph()
+        if (morph) {
+          unmorphContactSyncSetup(morph, true)
+          return
+        }
         if (window.tui && window.tui.dialog) window.tui.dialog.close("contact-sync-setup-dialog")
         window.setTimeout(function () {
           var host = document.getElementById("contact-sync-setup-host")
@@ -746,7 +1061,7 @@ document.addEventListener("DOMContentLoaded", function () {
       e.preventDefault()
       if (e.target.matches("[data-contact-sort-form]") && window.GoferSettings) {
         var contactSortBy = e.target.querySelector('[name="sort_by"]')
-        var contactSortOrder = e.target.querySelector('[name="sort_order"]')
+        var contactSortOrder = e.target.querySelector('[name="sort_order"]:checked')
         GoferSettings.set("contacts_list_sort_by", contactSortBy ? contactSortBy.value || "updated" : "updated")
         GoferSettings.set("contacts_list_sort_order", contactSortOrder ? contactSortOrder.value || "desc" : "desc")
       }
@@ -817,7 +1132,88 @@ document.addEventListener("DOMContentLoaded", function () {
       return host
     }
 
+    // Setting up Gofer Sync after saving turns the contact's own dialog into
+    // the setup, resizing it smoothly as the calendar's event dialog grows
+    // into its editor, instead of closing it and opening another; Back to
+    // edit turns it back. The setup's content keeps its id, so its handlers
+    // find it as in its own dialog.
+    function contactSyncSetupMorph() {
+      var wrapper = document.querySelector("[data-contact-sync-setup-morph]")
+      return wrapper && wrapper._morph
+    }
+
+    function morphIntoContactSyncSetup(editDialog, html) {
+      var content = editDialog && editDialog.querySelector("[data-tui-dialog-content]")
+      var editPanel = content && content.querySelector(":scope > [data-tui-dialog-panel]")
+      var setup = new DOMParser().parseFromString(html, "text/html").querySelector("#contact-sync-setup-dialog [data-tui-dialog-content]")
+      var setupPanel = setup && setup.querySelector(":scope > [data-tui-dialog-panel]")
+      if (!content || !editPanel || !setupPanel || !content.open) return false
+      var previous = contactSyncSetupMorph()
+      if (previous && previous.content === content) {
+        // Another step of the same setup replaces the one shown.
+        previous.wrapper.replaceChildren(setupPanel)
+        startContactSyncSetupSearch(previous.wrapper)
+        return true
+      }
+      var form = editPanel.querySelector("form")
+      var resize = form && form._calendarDialogResize
+      if (resize) resize.paused = true
+      var from = content.getBoundingClientRect()
+      var transition = content.style.transitionProperty
+      content.style.transitionProperty = "none"
+      var wrapper = document.createElement("div")
+      wrapper.id = "contact-sync-setup-dialog"
+      wrapper.className = "contents"
+      wrapper.setAttribute("data-contact-sync-setup-morph", "")
+      wrapper.appendChild(setupPanel)
+      // The form leaves the dialog meanwhile, kept as it is: the setup is the
+      // dialog's only panel, which flipDialogResize hides while the frame
+      // resizes and then fades in, as in the calendar's.
+      var morph = { content: content, editPanel: editPanel, wrapper: wrapper, className: content.className, form: form, editDialog: editDialog, slot: document.createComment("contact form") }
+      wrapper._morph = morph
+      editPanel.replaceWith(morph.slot)
+      content.className = setup.className
+      content.setAttribute("data-tui-dialog-open", "true")
+      content.appendChild(wrapper)
+      var to = content.getBoundingClientRect()
+      content.style.transitionProperty = transition
+      morph.shown = contactSyncSetupResize(content, from, to)
+      // Closed while the setup shows, it opens on the contact next time.
+      morph.onClose = function () { window.setTimeout(function () { unmorphContactSyncSetup(morph, false) }, 220) }
+      content.addEventListener("close", morph.onClose, { once: true })
+      startContactSyncSetupSearch(wrapper)
+      return true
+    }
+
+    // Resizes the dialog as flipDialogResize does, answering once its content
+    // shows again: a resize started before then would take the hidden
+    // content for the shown one.
+    function contactSyncSetupResize(content, from, to) {
+      return new Promise(function (resolve) {
+        if (!flipDialogResize(content, from, to, resolve)) resolve()
+      })
+    }
+
+    function unmorphContactSyncSetup(morph, animate) {
+      if (!morph || !morph.wrapper.isConnected) return
+      var content = morph.content
+      var from = animate ? content.getBoundingClientRect() : null
+      var transition = content.style.transitionProperty
+      content.style.transitionProperty = "none"
+      morph.wrapper.remove()
+      content.className = morph.className
+      content.setAttribute("data-tui-dialog-open", content.open ? "true" : "false")
+      morph.slot.replaceWith(morph.editPanel)
+      var to = from ? content.getBoundingClientRect() : null
+      content.style.transitionProperty = transition
+      content.removeEventListener("close", morph.onClose)
+      if (from) flipDialogResize(content, from, to)
+      var resize = morph.form && morph.form._calendarDialogResize
+      if (resize && morph.form._calendarDialogResize === resize) resize.sync()
+    }
+
     function renderContactSyncSetup(html, replaceDialogID) {
+      if (replaceDialogID && morphIntoContactSyncSetup(document.getElementById(replaceDialogID), html)) return
       var host = contactSyncSetupHost()
       if (window.tui && window.tui.dialog && window.tui.dialog.isOpen("contact-sync-setup-dialog")) {
         window.tui.dialog.close("contact-sync-setup-dialog")
@@ -845,8 +1241,28 @@ document.addEventListener("DOMContentLoaded", function () {
         renderContactSyncSetup(html)
         return
       }
-      body.innerHTML = html
-      startContactSyncSetupSearch(body)
+      var morph = contactSyncSetupMorph()
+      if (!morph) {
+        body.innerHTML = html
+        startContactSyncSetupSearch(body)
+        return
+      }
+      // In the contact's dialog, the next step (the copies found, then their
+      // review) resizes it as the first did, once that resize has ended: a
+      // change during one would make it jump.
+      var settled = morph.shown || Promise.resolve()
+      morph.shown = settled.then(function () {
+        if (!body.isConnected) return
+        var content = morph.content
+        var from = content.getBoundingClientRect()
+        var transition = content.style.transitionProperty
+        content.style.transitionProperty = "none"
+        body.innerHTML = html
+        var to = content.getBoundingClientRect()
+        content.style.transitionProperty = transition
+        startContactSyncSetupSearch(body)
+        return contactSyncSetupResize(content, from, to)
+      })
     }
 
     function loadContactSyncSetupBody(url) {
@@ -917,7 +1333,11 @@ document.addEventListener("DOMContentLoaded", function () {
           renderContactSyncSetupBody(data)
           return
         }
-        if (window.tui && window.tui.dialog) window.tui.dialog.close("contact-sync-setup-dialog")
+        var morph = contactSyncSetupMorph()
+        if (morph && window.tui && window.tui.dialog) {
+          // The contact's dialog closes; it opens on the contact next time.
+          window.tui.dialog.close(morph.editDialog.id)
+        } else if (window.tui && window.tui.dialog) window.tui.dialog.close("contact-sync-setup-dialog")
         var host = document.getElementById("contact-sync-setup-host")
         if (host) window.setTimeout(function () { host.remove() }, 220)
         var syncQueued = !!data.contact_sync_queued
@@ -1044,8 +1464,64 @@ document.addEventListener("DOMContentLoaded", function () {
       for (var j = 0; j < emails.length; j++) emails[j].textContent = detail
     }
 
+    // contactRemovedSyncPlaces names the accounts and address books taken
+    // out of a saved contact's Gofer Sync in its form: saving deletes the
+    // contact there.
+    function contactRemovedSyncPlaces(form) {
+      var field = form.querySelector("[data-contact-sync-targets]")
+      var initial = field ? (field.getAttribute("data-contact-sync-initial") || "") : ""
+      if (!initial) return []
+      var input = form.querySelector('input[name="save_targets"]')
+      var current = (input ? input.value : "").split(",").map(function (value) { return value.trim() })
+      var labels = []
+      initial.split(",").forEach(function (place) {
+        place = place.trim()
+        if (!place || current.indexOf(place) !== -1) return
+        var item = field.querySelector('[data-tui-selectbox-value="' + CSS.escape(place) + '"]') || document.querySelector('[data-tui-selectbox-value="' + CSS.escape(place) + '"]')
+        labels.push(item ? item.textContent.replace(/\s+/g, " ").trim() : place)
+      })
+      return labels
+    }
+
+    // Puts an empty new contact dialog in place of the one used.
+    function replaceNewContactDialog() {
+      var current = document.getElementById("contact-new-dialog")
+      if (!current) return
+      fetch("/contacts?partial=new-contact", { headers: { Accept: "text/html", "HX-Request": "true" } })
+        .then(function (response) { return response.ok ? response.text() : "" })
+        .then(function (html) {
+          if (!html) return
+          var holder = document.createElement("div")
+          holder.innerHTML = html
+          var fresh = holder.querySelector("#contact-new-dialog")
+          if (fresh && current.isConnected) {
+            current.replaceWith(fresh)
+            if (typeof htmx !== "undefined") htmx.process(fresh)
+          }
+        })
+        .catch(function () {})
+    }
+
     function saveContactEditor(form, submitter) {
       if (!form || form.dataset.saving === "true") return
+      var removed = contactRemovedSyncPlaces(form)
+      if (removed.length && form.dataset.syncPlacesConfirmed !== "true") {
+        window.goferConfirm({
+          title: goferT("js.contacts.sync.remove_places_title"),
+          message: goferTn("js.contacts.sync.remove_places", removed.length, { places: removed.join(", ") }),
+          confirmLabel: goferT("js.contacts.sync.remove_places_confirm"),
+          destructive: true,
+        }).then(function (confirmed) {
+          if (!confirmed) return
+          form.dataset.syncPlacesConfirmed = "true"
+          try {
+            saveContactEditor(form, submitter)
+          } finally {
+            delete form.dataset.syncPlacesConfirmed
+          }
+        })
+        return
+      }
       form.dataset.saving = "true"
       var submit = submitter && submitter.matches && submitter.matches('button[type="submit"]') ? submitter : form.querySelector('button[type="submit"]')
       if (submit) submit.disabled = true
@@ -1067,6 +1543,18 @@ document.addEventListener("DOMContentLoaded", function () {
         }
         return res.json()
       }).then(function (data) {
+        // A contact made in the new contact dialog opens once it's saved,
+        // with the list showing it and an empty dialog for the next one.
+        if (form.hasAttribute("data-contact-new-form") && data && data.contact_id && !data.contact_sync_setup_url) {
+          if (window.tui && window.tui.dialog) window.tui.dialog.close(form.getAttribute("data-contact-edit-dialog"))
+          var newLocation = data.location || "/contacts?contact=" + encodeURIComponent(data.contact_id)
+          window.setTimeout(function () {
+            if (typeof htmx === "undefined") { window.location.href = newLocation; return }
+            htmx.ajax("GET", newLocation, { target: "#main-content", swap: "outerHTML" }).then(function () {
+              history.pushState({ contacts: true, contact: data.contact_id }, "", newLocation)
+            })
+          }, 220)
+        }
         if (data && data.contact_id) {
           form.action = "/api/contacts?id=" + encodeURIComponent(data.contact_id)
           if (data.location) history.replaceState({ contacts: true, contact: data.contact_id }, "", data.location)
@@ -1076,9 +1564,22 @@ document.addEventListener("DOMContentLoaded", function () {
         if (data && data.avatar_hash) updateVisibleAvatars(data.avatar_hash, data.avatar_url || "")
         if (data && data.contact_id) updateContactListPreview(data.contact_id, form)
         if (data && data.refresh_detail && data.contact_id) {
-          refreshContactsDetail(data.contact_id, form, syncQueued)
+          // The contact's dialog is inside its page: with the Gofer Sync
+          // setup to show in it, the page is drawn again once it closes.
+          var openDialog = syncSetupURL && form.closest("dialog")
+          if (openDialog && openDialog.open) {
+            openDialog.addEventListener("close", function () { refreshContactsDetail(data.contact_id, null, false) }, { once: true })
+          } else {
+            refreshContactsDetail(data.contact_id, form, syncQueued)
+          }
+        }
+        if (data && data.contact_place_remove_failed) {
+          showGoferToast({ id: "contact-place-remove-error", title: goferT("js.contacts.save.place_remove_failed"), description: data.contact_place_remove_failed, variant: "error", icon: "error", position: "bottom-right", duration: 10000, dismissible: true })
         }
         if (syncSetupURL) {
+          // Everything but Gofer Sync is saved: back from the setup, only
+          // Gofer Sync is unsaved, and closing the form doesn't ask.
+          form.dataset.initialState = contactEditorState(form)
           var editDialogID = form.getAttribute("data-contact-edit-dialog") || ""
           loadContactSyncSetup(syncSetupURL, editDialogID)
         } else if (syncQueued) {
@@ -1144,6 +1645,25 @@ document.addEventListener("DOMContentLoaded", function () {
         var targets = form && form.querySelector("[data-contact-sync-targets]")
         var label = form && form.querySelector("[data-contact-sync-state-label]")
         var enabled = e.target.checked
+        var syncBody = e.target.closest("section") && e.target.closest("section").querySelector("[data-contact-sync-body]")
+        if (syncBody) {
+          if (enabled) {
+            // Turned back on while still closing: it stays open.
+            if (syncBody._contactCollapse) {
+              var closing = syncBody._contactCollapse
+              syncBody._contactCollapse = null
+              closing.cancel()
+              syncBody.style.overflow = ""
+              if (form && form._calendarDialogResize) form._calendarDialogResize.sync()
+            }
+            if (syncBody.hidden) {
+              syncBody.hidden = false
+              animateSectionContent(syncBody)
+            }
+          } else if (!syncBody.hidden && !syncBody._contactCollapse) {
+            collapseContactSection(syncBody, function () { syncBody.hidden = true })
+          }
+        }
         if (targets) {
           targets.classList.toggle("pointer-events-none", !enabled)
           targets.classList.toggle("select-none", !enabled)
@@ -1513,7 +2033,7 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     function sectionHasActiveFolder(section) {
-      return section.hasAttribute("data-sidebar-account-active") || !!section.querySelector('a[hx-get^="/folder/"].bg-sidebar-accent')
+      return section.hasAttribute("data-sidebar-account-active") || !!section.querySelector('a[hx-get^="/folder/"].bg-sidebar-accent, a[data-sidebar-tag-filter].bg-sidebar-accent')
     }
 
     function tagGroupHasActiveTag(group) {
@@ -2324,6 +2844,27 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     function setupMailTouchSelection() {
+      setupRowLongPress("#mail-list-scroll .mail-list-item[data-email-id] > a", ".star-btn, [data-thread-toggle]", function (link) {
+        var row = link.closest(".mail-list-item[data-email-id]")
+        if (!row || !row.isConnected) return false
+        if (!mailSelectionModeActive()) {
+          selectedMailIds.clear()
+          setMailSelectionMode(true)
+        }
+        toggleMailRowSelected(row.dataset.emailId)
+        lastSelectedMailId = row.dataset.emailId
+        syncMailSelectionControls()
+        return true
+      })
+    }
+
+    // setupRowLongPress starts selecting with a long press on a list's rows,
+    // mail's or contacts': on a touch screen, or with a mouse button held on a
+    // row without moving, as rows drag to folders and moving or starting a
+    // drag cancels it. press(link) selects the row, answering whether it did;
+    // the click that ends the press then doesn't open the row
+    // (suppressMailRowClickUntil, which both lists' row clicks check).
+    function setupRowLongPress(linkSelector, ignoreSelector, press) {
       var mobile = mobileMailList
       var timer = 0
       var start = null
@@ -2337,22 +2878,14 @@ document.addEventListener("DOMContentLoaded", function () {
       document.addEventListener("touchstart", function (e) {
         cancel()
         if (!mobile.matches || e.touches.length !== 1) return
-        var link = e.target.closest && e.target.closest("#mail-list-scroll .mail-list-item[data-email-id] > a")
-        if (!link || e.target.closest(".star-btn, [data-thread-toggle]")) return
+        var link = e.target.closest && e.target.closest(linkSelector)
+        if (!link || e.target.closest(ignoreSelector)) return
         start = { x: e.touches[0].clientX, y: e.touches[0].clientY }
         timer = setTimeout(function () {
           timer = 0
-          var row = link.closest(".mail-list-item[data-email-id]")
-          if (!row || !row.isConnected) return
-          if (!mailSelectionModeActive()) {
-            selectedMailIds.clear()
-            setMailSelectionMode(true)
-          }
-          toggleMailRowSelected(row.dataset.emailId)
-          lastSelectedMailId = row.dataset.emailId
+          if (!link.isConnected || !press(link)) return
           suppressMailRowClickUntil = Date.now() + 700
           if (navigator.vibrate) navigator.vibrate(12)
-          syncMailSelectionControls()
         }, 450)
       }, { passive: true })
 
@@ -2366,11 +2899,9 @@ document.addEventListener("DOMContentLoaded", function () {
 
       // A long press on a link would otherwise open the browser's link menu.
       document.addEventListener("contextmenu", function (e) {
-        if (mobile.matches && e.target.closest && e.target.closest("#mail-list-scroll .mail-list-item[data-email-id] > a")) e.preventDefault()
+        if (mobile.matches && e.target.closest && e.target.closest(linkSelector)) e.preventDefault()
       })
 
-      // With a mouse, holding the button down on a row without moving does the
-      // same. Rows drag to folders, so moving or starting a drag cancels it.
       var mouseTimer = 0
       var mouseStart = null
       var mouseFired = false
@@ -2385,23 +2916,15 @@ document.addEventListener("DOMContentLoaded", function () {
         cancelMouse()
         mouseFired = false
         if (mobile.matches || e.button !== 0 || e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return
-        var link = e.target.closest && e.target.closest("#mail-list-scroll .mail-list-item[data-email-id] > a")
-        if (!link || e.target.closest(".star-btn, [data-thread-toggle]")) return
+        var link = e.target.closest && e.target.closest(linkSelector)
+        if (!link || e.target.closest(ignoreSelector)) return
         mouseStart = { x: e.clientX, y: e.clientY }
         mouseTimer = setTimeout(function () {
           mouseTimer = 0
-          var row = link.closest(".mail-list-item[data-email-id]")
-          if (!row || !row.isConnected) return
-          if (!mailSelectionModeActive()) {
-            selectedMailIds.clear()
-            setMailSelectionMode(true)
-          }
-          toggleMailRowSelected(row.dataset.emailId)
-          lastSelectedMailId = row.dataset.emailId
+          if (!link.isConnected || !press(link)) return
           mouseFired = true
           // The click comes when the button is let go, however long that takes.
           suppressMailRowClickUntil = Date.now() + 60000
-          syncMailSelectionControls()
         }, 500)
       })
 
@@ -2676,7 +3199,7 @@ document.addEventListener("DOMContentLoaded", function () {
     function contactSelectAllKey(list) {
       if (!list) return ""
       var filters = list.filters || {}
-      return JSON.stringify([!!filters.trash, filters.query || "", filters.source || "", filters.saveTarget || "", filters.activity || "", filters.sortBy || "", filters.sortOrder || ""])
+      return JSON.stringify([!!filters.trash, !!filters.unresolved, filters.query || "", filters.source || "", filters.storedIn || "", filters.saveTarget || "", filters.activity || "", filters.sortBy || "", filters.sortOrder || ""])
     }
 
     function setContactSelected(info, selected) {
@@ -2712,6 +3235,8 @@ document.addEventListener("DOMContentLoaded", function () {
         row.toggleAttribute("data-mail-selected", selected)
         var anchor = row.querySelector(":scope > a")
         if (anchor) anchor.toggleAttribute("data-mail-selected", selected)
+        var check = row.querySelector(":scope > [data-mail-row-check] input")
+        if (check) check.checked = selected
       })
       // A redraw may follow a new search or filters; check the banner after it.
       if (!contactSelectionSyncQueued) {
@@ -2722,6 +3247,71 @@ document.addEventListener("DOMContentLoaded", function () {
         })
       }
     }
+
+    // The contacts list's toolbar folds as the mail list's does, on the same
+    // shared code: the sort label goes first, then Export, Duplicate, Move,
+    // Email and Trash move into the ⋮ menu, and last the Cards/Table words
+    // leave only their icons.
+    var CONTACT_LIST_RANKS = 5
+    var CONTACT_LIST_STEPS = CONTACT_LIST_RANKS + 2
+    var contactListObserver = null
+    var contactListObserved = null
+
+    function contactListFoldStates(toolbar, actions, step) {
+      var states = new Map()
+      var sortLabel = toolbar.querySelector("[data-contact-sort-label]")
+      if (sortLabel) states.set(sortLabel, step >= 1)
+      if (actions) {
+        var folded = Math.min(Math.max(step - 1, 0), CONTACT_LIST_RANKS)
+        actions.querySelectorAll(":scope > [data-contact-list-rank]").forEach(function (part) {
+          states.set(part, parseInt(part.getAttribute("data-contact-list-rank"), 10) <= folded)
+        })
+        var menu = actions.querySelector(":scope > [data-contact-list-menu]")
+        if (menu) states.set(menu, folded === 0)
+      }
+      var hideViewLabels = actions ? step >= CONTACT_LIST_STEPS : step >= 2
+      toolbar.querySelectorAll("[data-contact-view-label]").forEach(function (label) { states.set(label, hideViewLabels) })
+      return states
+    }
+
+    function syncContactListOverflow() {
+      var toolbar = document.querySelector("#mail-list[data-contact-list-shell] .contacts-list-toolbar")
+      if (toolbar && toolbar !== contactListObserved && typeof ResizeObserver === "function") {
+        if (!contactListObserver) contactListObserver = new ResizeObserver(function () { syncContactListOverflow() })
+        contactListObserver.disconnect()
+        contactListObserver.observe(toolbar)
+        contactListObserved = toolbar
+      }
+      if (!toolbar || toolbar.offsetParent === null) return
+      // The actions stay rendered while hidden, so ask the list whether they show.
+      var shell = toolbar.closest("#mail-list")
+      var actions = shell && shell.hasAttribute("data-contact-has-selection") ? toolbar.querySelector("[data-contact-selection-actions]:has([data-contact-list-menu])") : null
+      var spacer = toolbar.querySelector(".contacts-list-toolbar-spacer")
+      var step = toolbarFoldStep(toolbar, spacer, CONTACT_LIST_STEPS, function (step) {
+        return contactListFoldStates(toolbar, actions, step)
+      })
+      toolbar._contactListStep = step
+      contactListFoldStates(toolbar, actions, step).forEach(function (collapsed, el) {
+        el.toggleAttribute("data-mail-collapsed", collapsed)
+      })
+      // Hidden, the actions wait unfolded with ⋮ hidden, so they never show
+      // a fold left from another width.
+      if (!actions) {
+        toolbar.querySelectorAll("[data-contact-list-rank]").forEach(function (part) { part.removeAttribute("data-mail-collapsed") })
+        var hiddenMenu = toolbar.querySelector("[data-contact-list-menu]")
+        if (hiddenMenu) hiddenMenu.setAttribute("data-mail-collapsed", "")
+      }
+      var folded = actions ? Math.min(Math.max(step - 1, 0), CONTACT_LIST_RANKS) : 0
+      document.querySelectorAll("[data-contact-list-menu-item]").forEach(function (item) {
+        item.style.display = parseInt(item.getAttribute("data-contact-list-rank"), 10) <= folded ? "" : "none"
+      })
+    }
+
+    // The toolbar folds when the page shows it, as well as as it resizes, and
+    // again once fonts load, which can change its widths without resizing it.
+    syncContactListOverflow()
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { syncContactListOverflow() })
+    document.body.addEventListener("htmx:afterSettle", function () { syncContactListOverflow() })
 
     function syncContactSelection() {
       var list = contactsListController()
@@ -2741,12 +3331,28 @@ document.addEventListener("DOMContentLoaded", function () {
           row.toggleAttribute("data-mail-selected", selected)
           var anchor = row.querySelector(":scope > a")
           if (anchor) anchor.toggleAttribute("data-mail-selected", selected)
+          var check = row.querySelector(":scope > [data-mail-row-check] input")
+          if (check) check.checked = selected
         })
       }
       var count = selectedContactIds.size
+      // Nothing left selected ends selecting, as in the mail list.
+      if (count === 0) setMailSelectionMode(false)
+      // The phone selection bar's ✕ and count, as the mail list's.
+      var summary = shell.querySelector("[data-contact-selection-summary]")
+      if (summary) summary.textContent = formatMailCount(count)
+      var clear = summary && summary.closest("[data-contact-selection-clear]")
+      if (clear) {
+        var showClear = count > 0 || mailSelectionModeActive()
+        clear.classList.toggle("hidden", !showClear)
+        clear.classList.toggle("inline-flex", showClear)
+      }
       shell.toggleAttribute("data-contact-has-selection", count > 0)
-      shell.querySelectorAll("[data-contact-selection-action]").forEach(function (button) {
-        button.disabled = count === 0 || contactSelectAllLoading || contactDeleteBusy
+      syncContactListOverflow()
+      document.querySelectorAll("#mail-list [data-contact-selection-action], [data-contact-list-menu-item]").forEach(function (button) {
+        // Edit, Move and Duplicate act on one contact.
+        var single = ["edit", "move", "duplicate"].indexOf(button.getAttribute("data-contact-selection-action")) !== -1
+        button.disabled = count === 0 || (single && count !== 1) || contactSelectAllLoading || contactDeleteBusy
       })
 
       var counted = contactSelectionCounts() ? count : 0
@@ -2774,10 +3380,12 @@ document.addEventListener("DOMContentLoaded", function () {
       } else if (counted > 0) {
         text = goferTn("js.contacts.selected.some", counted)
       }
-      banner.classList.toggle("hidden", !text)
-      banner.classList.toggle("flex", !!text)
+      // The banner folds open and shut; while it shuts it keeps its last words.
+      banner.toggleAttribute("data-open", !!text)
+      banner.setAttribute("aria-hidden", text ? "false" : "true")
+      banner.inert = !text
       var label = banner.querySelector("[data-contact-select-all-banner-text]")
-      if (label) label.textContent = text
+      if (label && text) label.textContent = text
       var more = banner.querySelector("[data-contact-select-all-banner-action]")
       if (more) {
         var canSelectAll = counted > 0 && !contactSelectAllMatching && total > counted
@@ -2900,9 +3508,10 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
 
-    function postContactIDs(url, ids) {
+    function postContactIDs(url, ids, extra) {
       var body = new URLSearchParams()
       ids.forEach(function (id) { body.append("id", id) })
+      Object.keys(extra || {}).forEach(function (name) { body.set(name, extra[name]) })
       return fetch(url, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" }, body: body.toString() })
         .then(function (response) {
           if (!response.ok) return response.text().then(function (text) { throw new Error(text.trim() || goferT("js.contacts.request_failed")) })
@@ -2910,31 +3519,72 @@ document.addEventListener("DOMContentLoaded", function () {
         })
     }
 
-    // Moves contacts to the Trash, in Gofer only, without asking: the toast
-    // offers to undo it. who names a single contact.
+    // Moves contacts to the Trash, deleting them where they live: their
+    // copies on accounts go first. When some have copies on accounts the user
+    // is told where and asked; the toast offers to undo it, which writes them
+    // back. who names a single contact.
     function moveContactsToTrash(ids, who) {
       if (!ids.length || contactDeleteBusy) return
       contactDeleteBusy = true
       syncContactSelection()
-      postContactIDs("/api/contacts/bulk-delete", ids)
+      postContactIDs("/api/contacts/trash/places", ids)
+        .then(function (copies) {
+          var places = (copies && copies.places) || []
+          if (!places.length) return true
+          var count = (copies && copies.contacts) || 0
+          return window.goferConfirm({
+            title: ids.length === 1 ? goferT("js.contacts.trash.confirm_title_single") : goferTn("js.contacts.trash.confirm_title", ids.length),
+            message: (count === 1 ? goferT("js.contacts.trash.confirm_places_single", { places: places.join(", ") }) : goferTn("js.contacts.trash.confirm_places", count, { places: places.join(", ") })) + " " + goferT(ids.length === 1 ? "js.contacts.trash.confirm_restore_single" : "js.contacts.trash.confirm_restore"),
+            destructive: true,
+            confirmLabel: goferT("js.contacts.trash.confirm"),
+          })
+        })
+        .then(function (accepted) {
+          if (!accepted) return null
+          var moved = 0
+          var failed = []
+          var batches = []
+          for (var i = 0; i < ids.length; i += CONTACT_DELETE_BATCH) batches.push(ids.slice(i, i + CONTACT_DELETE_BATCH))
+          var progress = function () {
+            if (ids.length <= CONTACT_DELETE_BATCH) return
+            showGoferToast({ id: "contacts-trashed", title: goferT("js.contacts.trash.moving"), description: goferT("js.contacts.forever.progress", { done: formatMailCount(moved + failed.length), total: formatMailCount(ids.length) }), variant: "info", icon: "spinner", position: "bottom-right", duration: 0, dismissible: false })
+          }
+          progress()
+          var run = Promise.resolve()
+          batches.forEach(function (batch) {
+            run = run.then(function () {
+              return postContactIDs("/api/contacts/bulk-delete", batch).then(function (result) {
+                moved += (result && result.trashed) || 0
+                ;((result && result.failed) || []).forEach(function (failure) { failed.push(failure) })
+                progress()
+              })
+            })
+          })
+          return run.then(function () { return { moved: moved, failed: failed } })
+        })
         .then(function (result) {
-          var moved = (result && result.trashed) || 0
+          if (!result) return
+          var moved = result.moved
+          var failed = result.failed
           clearContactSelection()
           refreshContactsAfterTrashChange()
+          var trashedIDs = ids.filter(function (id) { return !failed.some(function (failure) { return failure.id === id }) })
+          var description = moved === 1 && who ? who : ""
+          if (failed.length) description = (description ? description + " " : "") + goferTn("js.contacts.trash.failed_count", failed.length) + " " + (failed[0].error || "")
           showGoferToast({
             id: "contacts-trashed",
             title: moved === 1 && who ? goferT("js.contacts.trash.moved_one") : goferTn("js.contacts.trash.moved", moved),
-            description: moved === 1 && who ? who : "",
-            variant: "success",
-            icon: "success",
+            description: description.trim(),
+            variant: failed.length ? "warning" : "success",
+            icon: failed.length ? "warning" : "success",
             position: "bottom-right",
-            duration: 8000,
+            duration: failed.length ? 12000 : 8000,
             dismissible: true,
-            secondaryActionLabel: goferT("js.contacts.undo"),
-            onSecondaryAction: function () {
+            secondaryActionLabel: moved ? goferT("js.contacts.undo") : "",
+            onSecondaryAction: moved ? function () {
               dismissGoferToast(document.getElementById("contacts-trashed"))
-              restoreContacts(ids, who)
-            },
+              restoreContacts(trashedIDs, who)
+            } : null,
           })
         })
         .catch(function (err) {
@@ -2946,11 +3596,38 @@ document.addEventListener("DOMContentLoaded", function () {
         })
     }
 
-    function restoreContacts(ids, who) {
+    // Restores contacts from the Trash where they lived, or to live in place
+    // when it is given.
+    // Restore to… asks where the contacts go to live, then restores them there.
+    var contactRestorePlace = null
+
+    function openContactRestorePlace(ids, who) {
+      var dialog = document.getElementById("contacts-restore-place-dialog")
+      if (!ids.length || !dialog || !window.tui || !window.tui.dialog) return
+      contactRestorePlace = { ids: ids, who: who }
+      var title = dialog.querySelector("[data-contacts-restore-place-title]")
+      if (title) title.textContent = ids.length === 1 && who ? goferT("js.contacts.trash.restore_to_one", { name: who }) : goferTn("js.contacts.trash.restore_to", ids.length)
+      window.tui.dialog.open("contacts-restore-place-dialog")
+    }
+
+    document.addEventListener("submit", function (e) {
+      var form = e.target.closest && e.target.closest("[data-contacts-restore-place-form]")
+      if (!form) return
+      e.preventDefault()
+      var input = form.querySelector('input[name="place"]')
+      var place = input ? input.value : ""
+      if (!place || !contactRestorePlace) return
+      var pending = contactRestorePlace
+      contactRestorePlace = null
+      if (window.tui && window.tui.dialog) window.tui.dialog.close("contacts-restore-place-dialog")
+      restoreContacts(pending.ids, pending.who, place)
+    })
+
+    function restoreContacts(ids, who, place) {
       if (!ids.length || contactDeleteBusy) return
       contactDeleteBusy = true
       syncContactSelection()
-      postContactIDs("/api/contacts/trash/restore", ids)
+      postContactIDs("/api/contacts/trash/restore", ids, place ? { place: place } : null)
         .then(function (result) {
           var restored = (result && result.restored) || 0
           clearContactSelection()
@@ -3072,13 +3749,49 @@ document.addEventListener("DOMContentLoaded", function () {
       // The contacts list's own Escape handler clears the selection too.
       window.clearContactSelection = clearContactSelection
 
+      // A long press starts selecting, as in the mail list.
+      setupRowLongPress("#contacts-list-scroll .mail-list-item[data-contact-id] > a", "[data-mail-row-check]", function (link) {
+        var row = link.closest(".mail-list-item[data-contact-id]")
+        if (!row) return false
+        var info = contactRowInfoFromHTML(row.outerHTML)
+        if (!mailSelectionModeActive()) {
+          selectedContactIds.clear()
+          selectedContactInfo.clear()
+          setMailSelectionMode(true)
+        }
+        setContactSelected(info, !selectedContactIds.has(info.id))
+        lastSelectedContactId = info.id
+        syncContactSelection()
+        return true
+      })
+
+      // A row's own checkbox, shown while selecting, toggles just that row;
+      // Shift extends from the last one, as Shift+click on a row does.
+      document.addEventListener("click", function (e) {
+        var check = e.target.closest && e.target.closest("#contacts-list-scroll .mail-list-item[data-contact-id] > [data-mail-row-check]")
+        if (!check) return
+        var info = contactRowInfoFromHTML(check.parentElement.outerHTML)
+        if (!(e.shiftKey && lastSelectedContactId && selectContactRange(lastSelectedContactId, info.id))) {
+          setContactSelected(info, !selectedContactIds.has(info.id))
+        }
+        lastSelectedContactId = info.id
+        syncContactSelection()
+      })
+
       // Capture: a modified click must select before htmx opens the contact.
       document.addEventListener("click", function (e) {
         var link = e.target.closest && e.target.closest("#contacts-list-scroll .mail-list-item[data-contact-id] > a")
         if (!link || e.button !== 0) return
+        if (Date.now() < suppressMailRowClickUntil) {
+          // The click that ends a long press must not also open the contact.
+          e.preventDefault()
+          e.stopPropagation()
+          return
+        }
         var row = link.closest(".mail-list-item[data-contact-id]")
         var info = contactRowInfoFromHTML(row.outerHTML)
-        if (e.shiftKey || e.metaKey || e.ctrlKey) {
+        // While selecting, a click picks the contact instead of opening it.
+        if (e.shiftKey || e.metaKey || e.ctrlKey || mailSelectionModeActive()) {
           e.preventDefault()
           e.stopPropagation()
           if (e.shiftKey && lastSelectedContactId && selectContactRange(lastSelectedContactId, info.id)) {
@@ -3086,6 +3799,9 @@ document.addEventListener("DOMContentLoaded", function () {
           } else {
             setContactSelected(info, !selectedContactIds.has(info.id))
           }
+          // Picking contacts one by one is selecting: the rows show their
+          // checkboxes.
+          if (selectedContactIds.size > 0) setMailSelectionMode(true)
         } else {
           selectedContactIds.clear()
           selectedContactInfo.clear()
@@ -3104,6 +3820,7 @@ document.addEventListener("DOMContentLoaded", function () {
           if (contactSelectionCounts()) clearContactSelection()
           else {
             loadedContactRows().forEach(function (row) { setContactSelected(row, true) })
+            if (selectedContactIds.size > 0) setMailSelectionMode(true)
             syncContactSelection()
           }
           return
@@ -3120,6 +3837,7 @@ document.addEventListener("DOMContentLoaded", function () {
           selectedContactIds.clear()
           selectedContactInfo.clear()
           next.forEach(function (row) { setContactSelected(row, true) })
+          if (selectedContactIds.size > 0) setMailSelectionMode(true)
           syncContactSelection()
           return
         }
@@ -3134,10 +3852,15 @@ document.addEventListener("DOMContentLoaded", function () {
         var action = e.target.closest("[data-contact-selection-action]")
         if (action && !action.disabled) {
           var name = action.getAttribute("data-contact-selection-action")
-          if (name === "compose") composeToSelectedContacts()
+          var only = selectedContactIds.size === 1 ? Array.from(selectedContactIds)[0] : ""
+          if (name === "edit" && only) openContactEditor(only)
+          else if (name === "move" && only) openContactPageDialog(only, "contact-move-" + only)
+          else if (name === "duplicate" && only) openContactPageDialog(only, "contact-duplicate-" + only)
+          else if (name === "compose") composeToSelectedContacts()
           else if (name === "export") exportSelectedContacts(Array.from(selectedContactIds))
           else if (name === "delete") moveContactsToTrash(Array.from(selectedContactIds))
           else if (name === "restore") restoreContacts(Array.from(selectedContactIds))
+          else if (name === "restore-to") openContactRestorePlace(Array.from(selectedContactIds), "")
           else if (name === "delete-forever") deleteContactsForever(Array.from(selectedContactIds), selectedContactInfo)
           return
         }
@@ -3147,6 +3870,11 @@ document.addEventListener("DOMContentLoaded", function () {
           return
         }
         // The contact page's own buttons, for a contact in the Trash.
+        var restoreTo = e.target.closest("[data-contact-restore-to]")
+        if (restoreTo) {
+          openContactRestorePlace([restoreTo.getAttribute("data-contact-restore-to")], restoreTo.getAttribute("data-contact-name") || "")
+          return
+        }
         var restore = e.target.closest("[data-contact-restore]")
         if (restore) {
           restoreContacts([restore.getAttribute("data-contact-restore")], restore.getAttribute("data-contact-name") || "")
@@ -3232,6 +3960,157 @@ document.addEventListener("DOMContentLoaded", function () {
         close()
       }, true)
 
+      // Contacts that went to Por resolver leave the list, in place.
+      document.body.addEventListener("contacts-unresolved-changed", function () {
+        var list = contactsListController()
+        if (list && list.container && list.container.isConnected && typeof list.refreshInPlace === "function") refreshLiveContacts(list)
+      })
+
+      // The resolver lists the synced contacts that one of their places
+      // deleted, to keep each without those places or delete it everywhere.
+      function contactResolverHost() {
+        var host = document.getElementById("contacts-resolver-host")
+        if (host) return host
+        host = document.createElement("div")
+        host.id = "contacts-resolver-host"
+        document.body.appendChild(host)
+        return host
+      }
+
+      function openContactResolver() {
+        fetch("/contacts/resolver", { headers: { Accept: "text/html" } })
+          .then(function (response) {
+            if (!response.ok) return response.text().then(function (text) { throw new Error(text.trim() || goferT("js.contacts.request_failed")) })
+            return response.text()
+          })
+          .then(function (html) {
+            var host = contactResolverHost()
+            if (window.tui && window.tui.dialog && window.tui.dialog.isOpen("contacts-resolver-dialog")) window.tui.dialog.close("contacts-resolver-dialog")
+            host.innerHTML = html
+            window.requestAnimationFrame(function () {
+              if (window.tui && window.tui.dialog) window.tui.dialog.open("contacts-resolver-dialog")
+            })
+          })
+          .catch(function (err) {
+            showGoferToast({ id: "contacts-resolver-error", title: goferT("js.contacts.unresolved.load_failed"), description: err.message, variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
+          })
+      }
+
+      function contactResolverChoices(form) {
+        var choices = { keep: [], delete: [] }
+        form.querySelectorAll("[data-contacts-resolver-case]").forEach(function (item) {
+          var checked = item.querySelector('input[type="radio"]:checked')
+          var choice = checked ? checked.value : "later"
+          if (choice !== "keep" && choice !== "delete") return
+          var id = item.getAttribute("data-contacts-resolver-case")
+          // Kept without its home, it moves to the main location chosen here.
+          var home = choice === "keep" ? item.querySelector('[data-contacts-resolver-home] input[type="hidden"]') : null
+          choices[choice].push({ id: id, name: item.getAttribute("data-contact-name") || "", home: home ? home.value : "" })
+        })
+        return choices
+      }
+
+      // A contact kept without its main location shows where it moves,
+      // growing its card open as the new contact dialog grows its rows.
+      function syncContactResolverHomes(form) {
+        form.querySelectorAll("[data-contacts-resolver-case]").forEach(function (item) {
+          var home = item.querySelector("[data-contacts-resolver-home]")
+          if (!home) return
+          var keep = !!item.querySelector('input[type="radio"][value="keep"]:checked')
+          if (keep) {
+            // Chosen again while still closing: it stays open.
+            if (home._contactCollapse) {
+              var closing = home._contactCollapse
+              home._contactCollapse = null
+              closing.cancel()
+              home.style.overflow = ""
+            }
+            if (home.hidden) {
+              home.hidden = false
+              animateContactRowHeight(home, true)
+            }
+          } else if (!home.hidden && !home._contactCollapse) {
+            collapseContactSection(home, function () { home.hidden = true })
+          }
+        })
+      }
+
+      function updateContactResolverApply(form) {
+        var apply = form && form.querySelector("[data-contacts-resolver-apply]")
+        if (!apply) return
+        var choices = contactResolverChoices(form)
+        apply.disabled = !(choices.keep.length || choices.delete.length)
+      }
+
+      document.addEventListener("click", function (e) {
+        var opener = e.target.closest && e.target.closest("[data-contacts-open-resolver]")
+        if (opener) {
+          e.preventDefault()
+          openContactResolver()
+          return
+        }
+        var all = e.target.closest && e.target.closest("[data-contacts-resolver-all]")
+        if (!all) return
+        e.preventDefault()
+        var form = all.closest("[data-contacts-resolver-form]")
+        var choice = all.getAttribute("data-contacts-resolver-all")
+        form.querySelectorAll('input[type="radio"][value="' + choice + '"]').forEach(function (input) { input.checked = true })
+        syncContactResolverHomes(form)
+        updateContactResolverApply(form)
+      })
+
+      document.addEventListener("change", function (e) {
+        var form = e.target.closest && e.target.closest("[data-contacts-resolver-form]")
+        if (!form) return
+        syncContactResolverHomes(form)
+        updateContactResolverApply(form)
+      })
+
+      // Kept ones go first; the ones to delete everywhere then go to the
+      // Trash as from the list, with its warning naming their places.
+      document.addEventListener("submit", function (e) {
+        var form = e.target.closest && e.target.closest("[data-contacts-resolver-form]")
+        if (!form) return
+        e.preventDefault()
+        var choices = contactResolverChoices(form)
+        if (!choices.keep.length && !choices.delete.length) return
+        var apply = form.querySelector("[data-contacts-resolver-apply]")
+        if (apply) apply.disabled = true
+        var ids = function (items) { return items.map(function (item) { return item.id }) }
+        var homes = {}
+        choices.keep.forEach(function (item) { if (item.home) homes["home:" + item.id] = item.home })
+        var kept = choices.keep.length ? postContactIDs("/api/contacts/unresolved/keep", ids(choices.keep), homes) : Promise.resolve({ kept: 0 })
+        kept.then(function (result) {
+          if (window.tui && window.tui.dialog) window.tui.dialog.close("contacts-resolver-dialog")
+          var count = Number(result && result.kept) || 0
+          if (count) {
+            // Their sync goes on now, and its toasts take this one's place.
+            showGoferToast({ id: "contact-sync-toast", title: goferTn("js.contacts.unresolved.kept_count", count), description: goferT("js.contacts.unresolved.kept_detail"), variant: "success", icon: "success", position: "bottom-right", duration: 5000, dismissible: true })
+            refreshContactsAfterTrashChange()
+            choices.keep.forEach(function (item) { refreshOpenContactDetail(item.id) })
+          }
+          var stale = Number(result && result.stale) || 0
+          if (stale) {
+            // Their places changed since the dialog opened; they stay to resolve.
+            showGoferToast({ id: "contact-unresolved-stale", title: goferTn("js.contacts.unresolved.stale_count", stale), description: goferT("js.contacts.unresolved.stale_detail"), variant: "warning", icon: "warning", position: "bottom-right", duration: 8000, dismissible: true })
+          }
+          if (choices.delete.length) moveContactsToTrash(ids(choices.delete), choices.delete.length === 1 ? choices.delete[0].name : "")
+        }).catch(function (err) {
+          if (apply) apply.disabled = false
+          showGoferToast({ id: "contact-unresolved-kept", title: goferT("js.contacts.unresolved.keep_failed"), description: err.message, variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
+        })
+      })
+
+      // The notification about contacts to resolve opens the resolver here,
+      // and from other pages comes here with ?resolve=1.
+      document.body.addEventListener("contacts-open-resolver", openContactResolver)
+      if (new URLSearchParams(window.location.search).get("resolve") === "1" && document.querySelector("[data-contacts-sidebar-unresolved]")) {
+        var resolveURL = new URL(window.location.href)
+        resolveURL.searchParams.delete("resolve")
+        history.replaceState(history.state, "", resolveURL.pathname + resolveURL.search + resolveURL.hash)
+        openContactResolver()
+      }
+
       // The contact page's Delete moves it to the Trash, as the menu does.
       document.addEventListener("submit", function (e) {
         var form = e.target.closest && e.target.closest("form[data-contact-delete-form]")
@@ -3260,6 +4139,8 @@ document.addEventListener("DOMContentLoaded", function () {
         moveContactsToTrash(Array.from(selectedContactIds))
       } else if (target.multiple && action === "restore") {
         restoreContacts(Array.from(selectedContactIds))
+      } else if (target.multiple && action === "restore-to") {
+        openContactRestorePlace(Array.from(selectedContactIds), "")
       } else if (target.multiple && action === "delete-forever") {
         deleteContactsForever(Array.from(selectedContactIds), selectedContactInfo)
       } else if (action === "compose" && target.email) {
@@ -3279,6 +4160,8 @@ document.addEventListener("DOMContentLoaded", function () {
         moveContactsToTrash([target.id], target.name || target.email)
       } else if (action === "restore") {
         restoreContacts([target.id], target.name || target.email)
+      } else if (action === "restore-to") {
+        openContactRestorePlace([target.id], target.name || target.email)
       } else if (action === "delete-forever") {
         deleteContactsForever([target.id], new Map([[target.id, target]]))
       }
@@ -3298,15 +4181,36 @@ document.addEventListener("DOMContentLoaded", function () {
     // The edit dialog belongs to the contact's page, so a contact that isn't
     // open is opened first, as clicking it would, and edited once it shows.
     function openContactEditor(contactID) {
-      var dialogID = "contact-edit-" + contactID
+      openContactPageDialog(contactID, "contact-edit-" + contactID)
+    }
+
+    // Opens one of a contact's page dialogs (edit, move, duplicate), opening
+    // the contact first when it isn't. A Move its page blocks says why.
+    function openContactPageDialog(contactID, dialogID) {
+      var blocked = function () {
+        var item = document.querySelector('#contacts-detail[data-contact-detail-id="' + cssEscape(contactID) + '"] [data-contact-open-dialog="' + cssEscape(dialogID) + '"]')
+        var reason = item && item.getAttribute("title")
+        if (!reason) return false
+        showGoferToast({ id: "contact-dialog-blocked", title: reason, variant: "warning", icon: "warning", position: "bottom-right", duration: 6000, dismissible: true })
+        return true
+      }
       if (document.getElementById(dialogID)) {
         window.tui.dialog.open(dialogID)
         return
       }
+      if (blocked()) return
       var link = document.querySelector('#contacts-list-scroll .mail-list-item[data-contact-id="' + cssEscape(contactID) + '"] [data-contact-list-item]')
       if (!link) return
       var settled = function () {
-        if (!document.getElementById(dialogID)) return
+        if (!document.getElementById(dialogID)) {
+          // The contact opened, without this dialog: it's blocked.
+          if (document.querySelector('#contacts-detail[data-contact-detail-id="' + cssEscape(contactID) + '"]')) {
+            document.body.removeEventListener("htmx:afterSettle", settled)
+            clearTimeout(giveUp)
+            blocked()
+          }
+          return
+        }
         document.body.removeEventListener("htmx:afterSettle", settled)
         clearTimeout(giveUp)
         window.tui.dialog.open(dialogID)
@@ -3321,7 +4225,7 @@ document.addEventListener("DOMContentLoaded", function () {
     function sidebarContextTarget(el) {
       var body = el.closest('[data-sidebar-app-body="mail"]')
       if (!body) return null
-      var link = el.closest('a[hx-get^="/folder/"]')
+      var link = el.closest('a[hx-get^="/folder/"], a[data-sidebar-tag-filter]')
       if (link && body.contains(link) && link.hasAttribute("data-sidebar-tag-filter")) {
         // Appearance is available for account tags and the combined tag filter.
         var tagAccount = link.getAttribute("data-sidebar-tag-account") || ""
@@ -4205,59 +5109,21 @@ document.addEventListener("DOMContentLoaded", function () {
       // The actions stay rendered while hidden, so ask the list whether they show.
       var mailList = document.getElementById("mail-list")
       var actions = mailList && (mailList.hasAttribute("data-mail-has-selection") || mailList.hasAttribute("data-mail-selecting")) ? toolbar.querySelector("[data-mail-selection-actions]") : null
-      // Work out the step from widths alone: toggling states to measure them
-      // would cut short the animation of a step that is still sliding.
-      var parts = mailToolbarCollapsibles(toolbar, actions)
       var spacer = toolbar.querySelector(".mail-list-toolbar-spacer")
-      var spacerExtra = spacer && spacer.offsetParent ? spacer.offsetWidth - (parseFloat(getComputedStyle(spacer).minWidth) || 0) : 0
-      // The width everything but the collapsible parts needs.
-      var fixed = Math.max(toolbar.scrollWidth, toolbar.clientWidth) - spacerExtra
-      for (var i = 0; i < parts.length; i++) fixed -= parts[i].current
-      var step = 0
-      for (; step < MAIL_COMPRESS_STEPS; step++) {
-        var needed = fixed
-        var states = mailToolbarCollapsedStates(toolbar, actions, step)
-        for (var j = 0; j < parts.length; j++) {
-          if (!states.get(parts[j].el)) needed += parts[j].full
-        }
-        if (needed <= toolbar.clientWidth) break
-      }
+      var step = toolbarFoldStep(toolbar, spacer, MAIL_COMPRESS_STEPS, function (step) {
+        return mailToolbarCollapsedStates(toolbar, actions, step)
+      })
       if (step !== toolbar._mailCompressStep) setMailToolbarCompressed(toolbar, actions, step)
       toolbar._mailCompressStep = step
     }
 
-    // mailToolbarLabelWidth is a collapsible label's full width, to the
-    // fraction of a pixel. scrollWidth rounds, and a label capped at the
-    // rounded width lost part of a pixel, moving everything after it.
-    function mailToolbarLabelWidth(el) {
-      var range = document.createRange()
-      range.selectNodeContents(el)
-      // A range around buttons can measure 0 (no text inside), which capped
-      // the action buttons at max-width 0; scrollWidth still sees them.
-      return Math.max(range.getBoundingClientRect().width, el.scrollWidth)
-    }
-
-    // Each collapsible part with the width it takes now (mid-animation, maybe)
-    // and the width it takes when shown, both counting the flex gap beside it.
-    function mailToolbarCollapsibles(toolbar, actions) {
-      var parts = []
-      var states = mailToolbarCollapsedStates(toolbar, actions, 0)
-      states.forEach(function (_, el) {
-        var gap = parseFloat(getComputedStyle(el.parentElement).columnGap) || 0
-        var margin = parseFloat(getComputedStyle(el).marginLeft) || 0
-        var width = mailToolbarLabelWidth(el)
-        if (el.style.getPropertyValue("--collapse-width") !== width + "px") el.style.setProperty("--collapse-width", width + "px")
-        parts.push({ el: el, current: el.offsetWidth + gap + margin, full: width + gap })
-      })
-      return parts
-    }
 
     // Changes the sort label's text while its width slides to the new size.
     function animateMailSortLabel(text) {
       var label = document.querySelector("[data-mail-sort-label]")
       if (!label || label.textContent === text) return
       label.textContent = text
-      label.style.setProperty("--collapse-width", mailToolbarLabelWidth(label) + "px")
+      label.style.setProperty("--collapse-width", toolbarFoldWidth(label) + "px")
       syncMailActionOverflow()
     }
 
@@ -4581,20 +5447,95 @@ document.addEventListener("DOMContentLoaded", function () {
     var MAIL_DROP_REFUSED_ROLES = { starred: true, sent: true, drafts: true, scheduled: true }
     var MAIL_DROP_EXPAND_DELAY = 600
 
-    // A Local folder dragged in the sidebar moves inside the folder it's
-    // dropped on, or to the top when dropped on its account's name. Other
-    // accounts' folders keep the browser's own link dragging.
+    // Folders and tags dragged in the sidebar are put in order among the ones
+    // next to them: dropped on the top or bottom of one, they go before or
+    // after it, where a line shows. A Local folder dropped on the middle of a
+    // folder moves inside it, or to the top when dropped on its account's
+    // name. An account's folders and tags move among its own, the unified
+    // ones among the unified ones; Scheduled keeps its place.
     function setupFolderDragAndDrop() {
       if (document.body._goferFolderDragBound) return
       document.body._goferFolderDragBound = true
 
       var drag = null
       var activeTarget = null
+      var activeOrder = null
       var expandGroup = null
       var expandTimer = null
 
+      // The grabbed folder or tag floats under the pointer, a copy of its row
+      // lifted off the sidebar, a little below the pointer so the line where
+      // it would go stays in view. Browsers fade their own drag pictures, so
+      // theirs is an empty image. It sits in the sidebar so its styles apply.
+      var FOLDER_DRAG_IMAGE_DROP = 16
+      var emptyFolderDragImage = new Image()
+      emptyFolderDragImage.src = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
+      var floating = null
+
+      function folderDragAnimates() {
+        return typeof Element.prototype.animate === "function" &&
+          !(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches)
+      }
+
+      function liftFolder(link, e) {
+        var rect = link.getBoundingClientRect()
+        var image = document.createElement("div")
+        image.className = "folder-drag-image"
+        image.style.width = rect.width + "px"
+        var copy = link.cloneNode(true)
+        copy.removeAttribute("id")
+        copy.removeAttribute("data-mail-drop-active")
+        copy.removeAttribute("data-folder-drop-position")
+        image.appendChild(copy)
+        ;(link.closest("aside") || document.body).appendChild(image)
+        floating = { image: image, grabX: e.clientX - rect.left, grabY: e.clientY - rect.top, checked: false }
+        moveFolder(e.clientX, e.clientY)
+        if (!folderDragAnimates()) return
+        var left = parseFloat(image.style.left) || 0
+        var top = parseFloat(image.style.top) || 0
+        image.animate(
+          [
+            { transform: "translate(" + (rect.left - left) + "px, " + (rect.top - top) + "px) scale(1)", boxShadow: "none" },
+            { transform: "translate(0, 0) scale(1.03)" },
+          ],
+          { duration: 200, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)", fill: "forwards" }
+        )
+      }
+
+      function moveFolder(x, y) {
+        if (!floating || (!x && !y)) return
+        var left = x - floating.grabX
+        var top = y - floating.grabY + FOLDER_DRAG_IMAGE_DROP
+        floating.image.style.left = left + "px"
+        floating.image.style.top = top + "px"
+        // Something around the sidebar may move fixed elements with it, as
+        // the phone drawer does; the picture then goes to the page itself.
+        if (!floating.checked) {
+          floating.checked = true
+          var rect = floating.image.getBoundingClientRect()
+          if (Math.abs(rect.left - left) > 1 || Math.abs(rect.top - top) > 1) document.body.appendChild(floating.image)
+        }
+      }
+
+      function dropFolder() {
+        if (!floating) return
+        var image = floating.image
+        floating = null
+        if (!folderDragAnimates()) {
+          image.remove()
+          return
+        }
+        var animation = image.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 140, easing: "ease-out", fill: "forwards" })
+        animation.onfinish = function () { image.remove() }
+        animation.oncancel = function () { image.remove() }
+      }
+
       function folderLink(el) {
         return el && el.closest ? el.closest("aside a[data-mail-drop-folder][data-mail-drop-account]") : null
+      }
+
+      function tagLink(el) {
+        return el && el.closest ? el.closest("aside a[data-sidebar-tag-filter]") : null
       }
 
       function linkName(link) {
@@ -4614,11 +5555,45 @@ document.addEventListener("DOMContentLoaded", function () {
         return row ? row.getAttribute("data-mail-drop-folder") || "" : ""
       }
 
-      // Where a drop on el would put the dragged folder, or null when it
-      // can't go there: into itself, a folder inside it, where it is now or
-      // another account.
+      // The folders, or tags, next to the dragged one, it among them.
+      function orderBranches(container) {
+        return Array.prototype.filter.call(container.children, function (el) {
+          return drag.tag ? el.matches("a[data-sidebar-tag-filter]") : el.matches("a[data-mail-drop-folder], [data-sidebar-folder]")
+        })
+      }
+
+      function branchID(el) {
+        if (drag.tag) return el.getAttribute("data-sidebar-tag-id") || ""
+        var link = el.matches("a") ? el : el.querySelector(":scope > a[data-sidebar-folder-row]")
+        return link ? link.getAttribute("data-mail-drop-folder") || "" : ""
+      }
+
+      // Where a drop at clientY on el puts the dragged folder or tag among
+      // the ones next to it, or null when it isn't on one of them or the
+      // drop would leave it where it is. A Local folder keeps the middle of
+      // a folder for moving inside it.
+      function orderPlace(el, clientY) {
+        var link = drag.tag ? tagLink(el) : folderLink(el)
+        if (!link) return null
+        var branch = drag.tag ? link : folderBranch(link)
+        if (branch === drag.branch || branch.parentElement !== drag.branch.parentElement) return null
+        var rect = link.getBoundingClientRect()
+        var edge = drag.canNest ? rect.height / 4 : rect.height / 2
+        var y = clientY - rect.top
+        var position = y < edge ? "before" : y > rect.height - edge ? "after" : ""
+        if (!position) return null
+        var items = orderBranches(branch.parentElement)
+        var at = items.indexOf(drag.branch)
+        var to = items.indexOf(branch)
+        if ((position === "before" && to === at + 1) || (position === "after" && to === at - 1)) return null
+        return { element: branch, position: position }
+      }
+
+      // Where a drop on el would put the dragged Local folder inside, or
+      // null when it can't go there: into itself, a folder inside it, where
+      // it is now or another account.
       function dropPlace(el) {
-        if (!drag || !el || !el.closest) return null
+        if (!drag || !drag.canNest || !el || !el.closest) return null
         var toggle = el.closest("aside [data-sidebar-account-toggle]")
         if (toggle) {
           if (toggle.getAttribute("data-sidebar-account-toggle") !== drag.accountID || drag.parentID === "") return null
@@ -4639,6 +5614,12 @@ document.addEventListener("DOMContentLoaded", function () {
         if (activeTarget) activeTarget.setAttribute("data-mail-drop-active", "")
       }
 
+      function setActiveOrder(place) {
+        if (activeOrder && (!place || activeOrder !== place.element)) activeOrder.removeAttribute("data-folder-drop-position")
+        activeOrder = place ? place.element : null
+        if (activeOrder) activeOrder.setAttribute("data-folder-drop-position", place.position)
+      }
+
       // Hovering a collapsed folder for a moment opens it, as for mail.
       function scheduleExpand(el) {
         var toggle = el && el.closest ? el.closest("aside [data-sidebar-folder-toggle]") : null
@@ -4655,36 +5636,84 @@ document.addEventListener("DOMContentLoaded", function () {
       }
 
       function endDrag() {
+        dropFolder()
         if (drag) {
           drag.branch.removeAttribute("data-folder-dragging")
           if (drag.aside) drag.aside.removeAttribute("data-folder-drag-active")
           if (drag.home) drag.home.removeAttribute("data-folder-drag-home")
         }
         setActiveTarget(null)
+        setActiveOrder(null)
         clearTimeout(expandTimer)
         expandGroup = null
         drag = null
       }
 
+      // saveOrder saves the folders or tags next to the dropped one in their
+      // new order; when that fails, the account, or the whole sidebar for the
+      // unified ones, is drawn again as it was.
+      function saveOrder(done, container) {
+        var body = new URLSearchParams()
+        var field = done.tag ? "tag_id" : done.unified ? "virtual_folder_id" : "folder_id"
+        orderBranches(container).forEach(function (el) {
+          var id = branchID(el)
+          if (id) body.append(field, id)
+        })
+        var url = done.unified
+          ? "/api/unified-" + (done.tag ? "tags" : "folders") + "/order"
+          : "/api/accounts/" + encodeURIComponent(done.accountID) + "/" + (done.tag ? "tags" : "folders") + "/order"
+        function redraw() {
+          if (done.unified) {
+            if (window.goferRefreshMailSidebarBody) window.goferRefreshMailSidebarBody()
+          } else if (window.goferRefreshSidebarAccount) {
+            window.goferRefreshSidebarAccount(done.accountID)
+          }
+        }
+        fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: body.toString(),
+        }).then(function (res) {
+          if (res.ok) return
+          if (res.status === 409 || res.status === 404) {
+            showGoferToast({ title: goferT("js.folders.order.changed"), description: goferT("js.folders.order.reloaded"), variant: "error", icon: "error", duration: 6000 })
+          } else {
+            showGoferToast({ title: goferT("js.folders.order.failed"), description: goferT("js.settings.check_connection"), variant: "error", icon: "error", duration: 6000 })
+          }
+          redraw()
+        }).catch(function () {
+          showGoferToast({ title: goferT("js.folders.order.failed"), description: goferT("js.settings.check_connection"), variant: "error", icon: "error", duration: 6000 })
+          redraw()
+        })
+      }
+
       document.addEventListener("dragstart", function (e) {
-        var link = folderLink(e.target)
-        if (!link || !e.dataTransfer) return
-        var accountID = link.getAttribute("data-mail-drop-account") || ""
-        if (sidebarAccountProvider(accountID) !== "local" || String(link.dataset.folderRole || "").toLowerCase() !== "custom") return
-        var toggle = document.querySelector('aside [data-sidebar-account-toggle="' + cssEscape(accountID) + '"]')
+        if (!e.dataTransfer) return
+        var tag = tagLink(e.target)
+        var link = tag || folderLink(e.target)
+        if (!link) return
+        var accountID = tag ? link.getAttribute("data-sidebar-tag-account") || "" : link.getAttribute("data-mail-drop-account") || ""
+        var unified = !accountID && !!link.closest('[data-sidebar-account="__unified__"]')
+        if (!accountID && !unified) return
+        var toggle = document.querySelector('aside [data-sidebar-account-toggle="' + cssEscape(unified ? "__unified__" : accountID) + '"]')
         drag = {
           link: link,
+          tag: !!tag,
+          unified: unified,
+          canNest: !tag && sidebarAccountProvider(accountID) === "local" && String(link.dataset.folderRole || "").toLowerCase() === "custom",
           accountID: accountID,
           accountName: linkName(toggle),
-          folderID: link.getAttribute("data-mail-drop-folder") || "",
+          folderID: tag ? "" : link.getAttribute("data-mail-drop-folder") || "",
           name: linkName(link),
-          parentID: parentFolderID(link),
-          branch: folderBranch(link),
+          parentID: tag ? "" : parentFolderID(link),
+          branch: tag ? link : folderBranch(link),
           aside: link.closest("aside"),
           home: link.closest("[data-sidebar-account]"),
         }
         e.dataTransfer.effectAllowed = "move"
-        e.dataTransfer.setData("application/x-gofer-folder", drag.folderID)
+        e.dataTransfer.setData(tag ? "application/x-gofer-tag" : "application/x-gofer-folder", tag ? link.getAttribute("data-sidebar-tag-id") || "" : drag.folderID)
+        e.dataTransfer.setDragImage(emptyFolderDragImage, 0, 0)
+        liftFolder(link, e)
         // The folder can only go elsewhere in its own account, so everything
         // else in the sidebar, the unified folders too, greys out meanwhile.
         drag.branch.setAttribute("data-folder-dragging", "")
@@ -4694,22 +5723,32 @@ document.addEventListener("DOMContentLoaded", function () {
 
       document.addEventListener("dragover", function (e) {
         if (!drag) return
-        scheduleExpand(e.target)
-        var place = dropPlace(e.target)
+        moveFolder(e.clientX, e.clientY)
+        if (!drag.tag) scheduleExpand(e.target)
+        var order = orderPlace(e.target, e.clientY)
+        var place = order ? null : dropPlace(e.target)
+        setActiveOrder(order)
         setActiveTarget(place ? place.element : null)
-        if (!place) return
+        if (!order && !place) return
         e.preventDefault()
         e.dataTransfer.dropEffect = "move"
       })
 
       document.addEventListener("drop", function (e) {
         if (!drag) return
-        var place = dropPlace(e.target)
-        if (!place) return
+        var order = orderPlace(e.target, e.clientY)
+        var place = order ? null : dropPlace(e.target)
+        if (!order && !place) return
         e.preventDefault()
-        var target = { folderID: drag.folderID, accountID: drag.accountID, name: drag.name }
+        var done = drag
         endDrag()
-        moveMailFolder(target, place.parentID, place.name)
+        if (order) {
+          var container = order.element.parentElement
+          container.insertBefore(done.branch, order.position === "before" ? order.element : order.element.nextSibling)
+          saveOrder(done, container)
+          return
+        }
+        moveMailFolder({ folderID: done.folderID, accountID: done.accountID, name: done.name }, place.parentID, place.name)
       })
 
       document.addEventListener("dragend", function () {
@@ -5186,7 +6225,8 @@ document.addEventListener("DOMContentLoaded", function () {
       var target = e.target
       if (!target || !target.closest) return false
 
-      if (target.closest("input, textarea, select, [contenteditable='true'], [data-compose-editor], [data-compose-pane]")) return true
+      // A row's checkbox, focused once clicked, is the list's own.
+      if (target.closest("input, textarea, select, [contenteditable='true'], [data-compose-editor], [data-compose-pane]") && !target.closest("[data-mail-row-check]")) return true
       if (document.querySelector("dialog[open]")) return true
       return false
     }
@@ -5875,6 +6915,15 @@ document.addEventListener("DOMContentLoaded", function () {
         hadOverflow = hadOverflow || wasShowing
       }
       bar._mailPillsRendered = true
+      // The same pills drawn again stay as they are, so the ones still
+      // dropping in carry on rather than showing at once in a strip that is
+      // still opening.
+      var showing = Array.prototype.map.call(bar.querySelectorAll("[data-mail-active-filter-key]"), function (pill) { return pill.getAttribute("data-mail-active-filter-key") || "" })
+      if (!replacedBar && pills.length && !bar.classList.contains("hidden") && !bar.querySelector(".mail-active-filter-pill-exiting") &&
+        showing.join("\n") === pills.map(activePillKey).join("\n")) {
+        scheduleActivePillOverflow(bar)
+        return
+      }
       shownPillKeys = Object.create(null)
       if (!pills.length) {
         hideActivePillBar(bar, panel)
@@ -6382,10 +7431,15 @@ document.addEventListener("DOMContentLoaded", function () {
       else if (name === "has_tags" || name === "no_tags") setFilterTriState("tags", "")
       else if (name === "threads_only" || name === "no_threads") setFilterTriState("threads", "")
       else clearAdvancedFilter(name)
+      // A tag's search results keep the tag apart too, as the sidebar link
+      // gave it (setSidebarTag), and it would come back with every request.
+      var scoped = !!(window.GoferMailSearch && window.GoferMailSearch.scope())
+      if (name === "tag" && scoped && virtualMailList && typeof virtualMailList.setSidebarTag === "function") virtualMailList.setSidebarTag(null)
       syncAdvancedFilterCount()
       // Clearing the search in search results goes back to the folder it
-      // started from, keeping any other filters.
-      if (name === "q" && window.GoferMailSearch && window.GoferMailSearch.scope()) {
+      // started from, keeping any other filters; so does clearing a tag's
+      // search of its tag, when nothing else is left to search for.
+      if (scoped && (name === "q" || (name === "tag" && activeFilterCount(readFilters()) === 0))) {
         renderActivePills()
         window.GoferMailSearch.navigate(null)
         return
@@ -6409,10 +7463,17 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     function initSearchStateFromInput() {
-      if (virtualMailList && virtualMailList.filters) syncFilterControls(virtualMailList.filters)
+      // Right after a swap the list may still be the one that left, and the
+      // new one, which knows the page's filters, draws the pills as it starts.
+      // Drawing them here first, from the old list or the new page's form,
+      // would drop the pills still showing, and the new list would then drop
+      // them in again.
+      var live = virtualMailList && virtualMailList.container && document.body.contains(virtualMailList.container)
+      var starting = !live && !!document.getElementById("mail-list-scroll")
+      if (live && virtualMailList.filters) syncFilterControls(virtualMailList.filters)
       var search = document.querySelector("[data-mail-search-input]")
       committedQuery = search ? (search.dataset.mailCommittedQuery || search.value || "").trim() : ""
-      committedParticipant = virtualMailList && virtualMailList.filters ? (virtualMailList.filters.participant || "").trim() : committedParticipant
+      committedParticipant = live && virtualMailList.filters ? (virtualMailList.filters.participant || "").trim() : committedParticipant
       if (search) {
         search.dataset.mailCommittedQuery = committedQuery
         search.value = ""
@@ -6421,12 +7482,19 @@ document.addEventListener("DOMContentLoaded", function () {
           ? search.getAttribute("data-mobile-placeholder")
           : goferT("js.mail.search_placeholder")
       }
-      renderActivePills()
+      if (!starting) renderActivePills()
       syncFilterButton(readFilters())
     }
 
     window.readMailFilters = function () {
       return readFilters()
+    }
+    // showMailFilterPills shows the pills of a list about to load, as a
+    // typed search does, so the strip opens on the idle page rather than
+    // while the new list is being built; the pills then stay put across the
+    // swap (see renderActivePills).
+    window.showMailFilterPills = function (filters) {
+      renderActivePills(Object.assign(emptyFilters(), filters))
     }
     window.syncMailFilterControls = syncFilterControls
 
@@ -7255,6 +8323,7 @@ document.addEventListener("DOMContentLoaded", function () {
       try { data = JSON.parse(event.data) } catch (_) { data = null }
       if (data && data.sources) refreshCalendarSidebar()
       scheduleCalendarCacheRefresh()
+      markKeptStale("calendar", data && data.sources ? "all" : "content")
     })
 
     // A rule run by hand reports its progress; settings.js shows it.
@@ -7275,6 +8344,7 @@ document.addEventListener("DOMContentLoaded", function () {
       try { data = JSON.parse(e.data) } catch (_) { return }
       if (!data || !data.folder_id) return
 
+      markKeptStale("mail", "content")
       refreshSidebarUnread()
       showBrowserTabNewMailNotification(data)
       refreshSearchResultsFor(data)
@@ -7297,9 +8367,11 @@ document.addEventListener("DOMContentLoaded", function () {
       var data
       try { data = JSON.parse(e.data) } catch (_) { data = null }
       if (data && data.folder_id === "scheduled") {
+        markKeptStale("mail", "all")
         refreshMailSidebarBody()
         return
       }
+      markKeptStale("mail", "content")
       refreshSidebarUnread()
     })
 
@@ -7317,10 +8389,15 @@ document.addEventListener("DOMContentLoaded", function () {
       processingStatusHandler.render(data)
     })
 
+    source.addEventListener("contacts-changed", function () {
+      handleContactsChanged()
+    })
+
     source.addEventListener("contact-activity", function (e) {
       var data
       try { data = JSON.parse(e.data) } catch (_) { return }
       if (!data || !data.event_type) return
+      if (data.event_type === "contacts_unresolved") markKeptStale("contacts", "sidebar")
       handleContactActivityEvent(data)
     })
 
@@ -7339,6 +8416,7 @@ document.addEventListener("DOMContentLoaded", function () {
     source.addEventListener("manual-sync-complete", function (e) {
       var data
       try { data = JSON.parse(e.data) } catch (_) { return }
+      markKeptStale("mail", "content")
       handleMailManualSyncEvent("complete", data)
     })
 
@@ -7357,12 +8435,14 @@ document.addEventListener("DOMContentLoaded", function () {
     source.addEventListener("scheduled-sync-complete", function (e) {
       var data
       try { data = JSON.parse(e.data) } catch (_) { return }
+      markKeptStale("mail", "content")
       handleMailScheduledSyncEvent("complete", data)
     })
 
     source.addEventListener("account-sync-status", function (e) {
       var data
       try { data = JSON.parse(e.data) } catch (_) { return }
+      markKeptStale("mail", "sidebar")
       handleAccountSyncStatus(data)
     })
 
@@ -7419,6 +8499,7 @@ document.addEventListener("DOMContentLoaded", function () {
         }, false)
         return
       }
+      markKeptStale("mail", "content")
       refreshSearchResultsFor(data)
       if (data.refresh_only) {
         syncStatesByFolder[data.folder_id] = mailFolderSyncStateFromEvent(data, false)
@@ -7439,6 +8520,10 @@ document.addEventListener("DOMContentLoaded", function () {
     })
 
     source.onerror = function () {
+      // Updates sent while reconnecting are lost.
+      markKeptStale("mail", "all")
+      markKeptStale("calendar", "all")
+      markKeptStale("contacts", "sidebar")
       source.close()
       if (appEventSource === source) appEventSource = null
       for (var folderID in syncStatesByFolder) {
@@ -7497,6 +8582,7 @@ document.addEventListener("DOMContentLoaded", function () {
     }).catch(function () {})
   }
   window.goferRefreshSidebarAccount = refreshSidebarAccount
+  window.goferRefreshMailSidebarBody = function () { refreshMailSidebarBody() }
 
   function refreshMailSidebarBody() {
     var target = document.getElementById("sidebar-app-body")
@@ -7887,6 +8973,26 @@ document.addEventListener("DOMContentLoaded", function () {
     })
   }
 
+  // Contacts to resolve show as a browser notification too when that's the
+  // chosen method and the page is out of sight; push comes from the server.
+  function showBrowserTabContactsUnresolved(title) {
+    if (!notificationsEnabled() || _notificationActiveMethod !== "browser_tab") return
+    if (!browserNotificationsSupported() || Notification.permission !== "granted") return
+    if (!document.hidden && document.hasFocus && document.hasFocus()) return
+    var notification = new Notification(title, {
+      body: goferT("js.contacts.unresolved.arrived_detail"),
+      tag: "gofer-contacts-unresolved",
+      icon: "/assets/logo.png",
+      badge: "/assets/logo.png",
+    })
+    notification.onclick = function () {
+      window.focus()
+      if (document.querySelector("[data-contacts-sidebar-unresolved]")) document.body.dispatchEvent(new CustomEvent("contacts-open-resolver"))
+      else window.location.href = "/contacts?resolve=1"
+      notification.close()
+    }
+  }
+
   // An event reminder shows in the open page, and as a browser notification
   // when that's the chosen method (push notifications come from the server).
   function showCalendarReminder(data) {
@@ -8015,6 +9121,32 @@ document.addEventListener("DOMContentLoaded", function () {
     return true
   }
 
+  // Synced contacts that one of their places deleted wait in Por resolver:
+  // say so, and bring the list and the sidebar's count up to date.
+  function handleContactsUnresolvedEvent(data) {
+    var count = Number(data.event_count || 0) || 1
+    var name = String(data.email || "")
+    var title = count === 1 && name ? goferT("js.contacts.unresolved.arrived_one", { name: name }) : goferTn("js.contacts.unresolved.arrived", count)
+    showGoferToast({
+      id: "contacts-unresolved",
+      title: title,
+      description: goferT("js.contacts.unresolved.arrived_detail"),
+      variant: "warning",
+      icon: "warning",
+      position: "bottom-right",
+      duration: 0,
+      dismissible: true,
+      actions: [{ label: goferT("js.contacts.unresolved.open"), onClick: function () {
+        if (document.querySelector("[data-contacts-sidebar-unresolved]")) document.body.dispatchEvent(new CustomEvent("contacts-open-resolver"))
+        else window.location.href = "/contacts?resolve=1"
+      } }],
+    })
+    showBrowserTabContactsUnresolved(title)
+    // The contacts list reloads itself on this; the sidebar's count too.
+    document.body.dispatchEvent(new CustomEvent("contacts-unresolved-changed"))
+    if (data.contact_id) refreshOpenContactDetail(data.contact_id)
+  }
+
   function refreshOpenContactDetail(contactID) {
     var detail = openContactDetail(contactID)
     if (!detail || typeof htmx === "undefined") return
@@ -8026,6 +9158,10 @@ document.addEventListener("DOMContentLoaded", function () {
 
   function handleContactActivityEvent(data) {
     var eventType = String((data && data.event_type) || "")
+    if (eventType === "contacts_unresolved") {
+      handleContactsUnresolvedEvent(data)
+      return
+    }
     if (["contact_sync_queued", "contact_sync_started", "contact_synced", "contact_sync_failed"].indexOf(eventType) === -1) return
     if (!updateContactSyncLiveState(data)) return
     var retryScheduled = eventType === "contact_sync_failed" && data.status === "pending"
@@ -8060,6 +9196,8 @@ document.addEventListener("DOMContentLoaded", function () {
       duration = 8000
       dismissible = true
     }
+    // The server's message can be the title itself.
+    if (description === title) description = ""
     showGoferToast({
       id: "contact-sync-toast",
       title: title,
@@ -8400,35 +9538,43 @@ document.addEventListener("DOMContentLoaded", function () {
     fetch("/api/folders/unread").then(function (r) { return r.json() }).then(function (counts) {
       titleUnreadCounts = counts
       applyTitleUnreadCount()
-      var badges = document.querySelectorAll("[data-folder-unread]")
-      for (var i = 0; i < badges.length; i++) {
-        var badge = badges[i]
-        var id = badge.dataset.folderUnread
-        if (counts[id] !== undefined) {
-          var n = counts[id]
-          badge.textContent = String(n)
-          badge.style.display = n > 0 ? "" : "none"
-        }
+      // Mail's sidebar kept off screen (navigation.js) takes the counts too.
+      var kept = window.GoferNavigation && GoferNavigation.keptPanes ? GoferNavigation.keptPanes("mail") : []
+      ;[document].concat(kept.filter(function (pane) { return pane.id === "sidebar-app-body" })).forEach(function (root) {
+        applySidebarUnread(root, counts)
+      })
+    }).catch(function () {})
+  }
+
+  function applySidebarUnread(root, counts) {
+    var badges = root.querySelectorAll("[data-folder-unread]")
+    for (var i = 0; i < badges.length; i++) {
+      var badge = badges[i]
+      var id = badge.dataset.folderUnread
+      if (counts[id] !== undefined) {
+        var n = counts[id]
+        badge.textContent = String(n)
+        badge.style.display = n > 0 ? "" : "none"
       }
-      for (var id in counts) {
-        if (counts[id] > 0) {
-          var existing = document.querySelector('[data-folder-unread="' + id + '"]')
-          if (!existing) {
-            var link = document.querySelector('aside a[hx-get="/folder/' + id + '"]')
-            if (link) {
-              var span = link.querySelector("span.truncate")
-              if (span) {
-                var badge = document.createElement("span")
-                badge.dataset.folderUnread = id
-                badge.className = "min-w-5 h-5 px-1.5 flex items-center justify-center rounded-full text-[11px] font-semibold tabular-nums bg-sidebar-accent text-sidebar-foreground"
-                badge.textContent = String(counts[id])
-                link.appendChild(badge)
-              }
+    }
+    for (var id in counts) {
+      if (counts[id] > 0) {
+        var existing = root.querySelector('[data-folder-unread="' + id + '"]')
+        if (!existing) {
+          var link = root.querySelector((root === document ? "aside " : "") + 'a[hx-get="/folder/' + id + '"]')
+          if (link) {
+            var span = link.querySelector("span.truncate")
+            if (span) {
+              var badge = document.createElement("span")
+              badge.dataset.folderUnread = id
+              badge.className = "min-w-5 h-5 px-1.5 flex items-center justify-center rounded-full text-[11px] font-semibold tabular-nums bg-sidebar-accent text-sidebar-foreground"
+              badge.textContent = String(counts[id])
+              link.appendChild(badge)
             }
           }
         }
       }
-    }).catch(function () {})
+    }
   }
   window.goferRefreshSidebarUnread = refreshSidebarUnread
 
@@ -8548,7 +9694,7 @@ document.addEventListener("DOMContentLoaded", function () {
     sidebar._goferFolderClicks = true
 
     function clearFolderActiveState() {
-      var sidebarLinks = sidebar.querySelectorAll("a[hx-get^='/folder/']")
+      var sidebarLinks = sidebar.querySelectorAll("a[hx-get^='/folder/'], a[data-sidebar-tag-filter]")
       for (var i = 0; i < sidebarLinks.length; i++) {
         sidebarLinks[i].classList.remove("bg-sidebar-accent", "text-sidebar-primary", "font-medium")
         sidebarLinks[i].classList.add("text-sidebar-foreground", "hover:bg-sidebar-accent/60", "hover:text-sidebar-accent-foreground")
@@ -8679,6 +9825,16 @@ document.addEventListener("DOMContentLoaded", function () {
         return
       }
 
+      var tagLink = e.target.closest("a[data-sidebar-tag-filter]")
+      if (tagLink) {
+        if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
+        e.preventDefault()
+        e.stopPropagation()
+        e.stopImmediatePropagation()
+        openSidebarTag(tagLink)
+        return
+      }
+
       var link = e.target.closest('a[hx-get^="/folder/"]')
       if (!link) return
 
@@ -8754,6 +9910,53 @@ document.addEventListener("DOMContentLoaded", function () {
         }).catch(function () {})
       }
     }, true)
+  }
+
+  // openSidebarTag lists a tag's mail wherever it is, as a search over the
+  // tag's account (or every account) that leaves out Spam and Trash. Ending
+  // the search goes back to the folder it started from.
+  function openSidebarTag(link) {
+    var url = new URL(link.getAttribute("href"), window.location.origin)
+    var origin = ""
+    if (window.location.pathname === "/mail/search") origin = new URLSearchParams(window.location.search).get("search_from") || ""
+    else if (virtualMailList && virtualMailList.folderID && virtualMailList.folderID !== "search") origin = virtualMailList.folderID
+    if (origin) url.searchParams.set("search_from", origin)
+    var address = url.pathname + url.search
+    document.dispatchEvent(new CustomEvent("gofer:mail-folder-clicked", { detail: { folderID: "search" } }))
+    if (document.querySelector("[data-compose-pane]")) {
+      collapseComposeFullWidth()
+      setMailViewEmpty()
+      _updateComposeBtn(false)
+    }
+    syncSidebarTagLinks(address)
+    // The tag's pill shows now, as with a typed search, not after the swap.
+    var tag = url.searchParams.get("tag") || ""
+    if (tag && window.showMailFilterPills) window.showMailFilterPills({ tag: tag })
+
+    var mainContent = document.getElementById("main-content")
+    var isOnSettings = mainContent && mainContent.querySelector("[data-settings-page]")
+    var isOnContacts = !!document.getElementById("contacts-list-scroll")
+    var mailListDetached = !virtualMailList || !virtualMailList.container || !document.body.contains(virtualMailList.container)
+    var loadSearch = function () {
+      if (typeof htmx !== "undefined") htmx.ajax("GET", address, {target: "#main-content", swap: "outerHTML"})
+    }
+    virtualContactsList = null
+    if (!isOnSettings && !isOnContacts && !mailListDetached && window.GoferMailSearch) {
+      // The list becomes the tag's search results in place, as a typed
+      // search changes its rows, rather than the mail pane being replaced;
+      // it moves to the address once they are in.
+      if (window.GoferMailSearch.enter(virtualMailList, address)) return
+      history.pushState({ folder: "search", email: null }, "", address)
+      var leaving = virtualMailList
+      window.GoferMailSearch.replaceList(leaving, address).catch(function () {
+        leaving.cancelTransitionClear()
+        loadSearch()
+      })
+      return
+    }
+    history.pushState({ folder: "search", email: null }, "", address)
+    if (mainContent) showMailContentLoading(mainContent, link)
+    loadSearch()
   }
 
   function showMailContentLoading(mainContent, folderLink) {
@@ -8847,22 +10050,7 @@ document.addEventListener("DOMContentLoaded", function () {
         window.applyMailCardFieldSettings(scroll)
       }
 
-      var group = btn.closest("[data-mail-list-view-toggle]")
-      if (group) {
-        var buttons = group.querySelectorAll("[data-mail-list-view-button]")
-        for (var i = 0; i < buttons.length; i++) {
-          var isActive = buttons[i] === btn
-          buttons[i].classList.toggle("text-foreground", isActive)
-          buttons[i].classList.toggle("text-muted-foreground", !isActive)
-          buttons[i].classList.toggle("hover:text-foreground", !isActive)
-          buttons[i].setAttribute("aria-pressed", isActive ? "true" : "false")
-        }
-        var indicator = group.querySelector("[data-mail-list-view-indicator]")
-        if (indicator) {
-          // As mailListViewIndicatorStyle places it: one button and the gap.
-          indicator.style.transform = mode === "table" ? "translateX(calc(100% + 2px))" : "translateX(0)"
-        }
-      }
+      syncListViewToggle(mode)
 
       var vml = scroll && scroll._virtualMailList
       if (vml && typeof vml.switchViewMode === "function") {
@@ -9013,7 +10201,10 @@ document.addEventListener("DOMContentLoaded", function () {
         queuedSectionButton = btn
         return
       }
-      if (sidebar && !request) rememberSectionLocation(sidebar.dataset.sidebarAppBody)
+      if (sidebar && !request) {
+        rememberSectionLocation(sidebar.dataset.sidebarAppBody)
+        rememberSectionSidebar()
+      }
       setSidebarAppNavMode(mode)
 
       if (!href) return
@@ -9067,6 +10258,7 @@ document.addEventListener("DOMContentLoaded", function () {
       var sliding = typeof appPanelsSlideRemaining === "function" ? appPanelsSlideRemaining() : 0
       if (xhr && xhr === request && event.detail.shouldSwap && sliding > 16) {
         heldSwap = xhr
+        placeSwitchSidebarEarly(event.detail.serverResponse, event.detail.requestConfig && event.detail.requestConfig.elt)
         event.detail.swapOverride = (event.detail.swapOverride || "outerHTML") + " swap:" + Math.ceil(sliding) + "ms"
         setTimeout(function () { if (heldSwap === xhr) releaseHeldSwap() }, sliding + 1000)
       }
@@ -9105,7 +10297,7 @@ document.addEventListener("DOMContentLoaded", function () {
     }
     // Pane changes are observed after the swap's own tasks, so the flag stays until then.
     function endAppSwitch() {
-      setTimeout(function () { document.documentElement.removeAttribute("data-app-switching") }, 0)
+      setTimeout(endAppSwitching, 0)
     }
     function completed(event) {
       if (!event.detail || event.detail.xhr !== request || event.detail.successful) return
@@ -9128,6 +10320,32 @@ document.addEventListener("DOMContentLoaded", function () {
     main.setAttribute("data-mail-pane-layout", layout)
   }
 
+  // Mail and Contacts show a real sidebar while the panels slide, as Calendar
+  // does: the one left there last, or else the copy from the page load
+  // (AppSwitchSidebarTemplates). It stays inert until the live one replaces it.
+  function rememberSectionSidebar() {
+    var sidebar = document.getElementById("sidebar-app-body")
+    var mode = sidebar && sidebar.dataset.sidebarAppBody
+    if ((mode !== "mail" && mode !== "contacts") || sidebar.hasAttribute("inert") || sidebar.hasAttribute("aria-busy") ||
+        sidebar.hasAttribute("data-sidebar-copy") || sidebar.hasAttribute("data-switch-early")) return
+    var nav = sidebar.querySelector("nav")
+    lastSectionSidebars[mode] = { node: sidebar.cloneNode(true), scroll: nav ? nav.scrollTop : 0 }
+  }
+
+  function showSectionSidebarCopy(sidebarBody, mode) {
+    var last = lastSectionSidebars[mode]
+    var template = !last && document.getElementById("sidebar-copy-" + mode)
+    var copy = last ? last.node : template && template.content.querySelector("#sidebar-app-body")
+    if (!copy) return false
+    replaceAppPaneContents(sidebarBody, copy, false)
+    sidebarBody.setAttribute("data-sidebar-copy", "")
+    sidebarBody.setAttribute("inert", "")
+    sidebarBody.setAttribute("aria-busy", "true")
+    var nav = last && last.scroll && sidebarBody.querySelector("nav")
+    if (nav) nav.scrollTop = last.scroll
+    return true
+  }
+
   function sidebarPendingHTML(mode) {
     var rows = mode === "contacts" ? 5 : 7
     // Marked like the real create buttons, which small screens hide.
@@ -9145,7 +10363,7 @@ document.addEventListener("DOMContentLoaded", function () {
     html += '</div>'
     html += '<hr class="divider-etched mx-4"><nav class="flex-1 overflow-y-auto px-3 pt-2 pb-3">'
     for (var i = 0; i < rows; i++) {
-      html += '<div class="mb-1 flex items-center gap-2.5 rounded-md px-2.5 py-1.5" data-sidebar-pending-row><span class="size-5 rounded bg-sidebar-accent"></span><span class="h-3 flex-1 rounded bg-sidebar-accent"></span></div>'
+      html += '<div class="mb-1 flex items-center gap-2.5 rounded-md px-2.5 py-1.5" data-sidebar-pending-row data-switch-skeleton><span class="size-5 rounded bg-sidebar-accent"></span><span class="h-3 flex-1 rounded bg-sidebar-accent"></span></div>'
     }
     html += '</nav>'
     return html
@@ -9182,9 +10400,15 @@ document.addEventListener("DOMContentLoaded", function () {
     var height = list && list.getBoundingClientRect ? list.getBoundingClientRect().height : 0
     var reserved = mode === "contacts" ? 148 : 160
     var itemHeight = viewMode === "table" ? 44 : 100
+    // Contact rows are as tall as the list makes them (contactRowRem in
+    // virtual-scroll.js), so the skeleton reaches the bottom.
+    if (mode === "contacts" && typeof contactRowRem === "function") {
+      itemHeight = listRemPx(contactRowRem(viewMode, contactCardLineCount()))
+    }
     var count = Math.ceil(Math.max(0, height - reserved) / itemHeight) + 2
     if (!isFinite(count) || count <= 0) count = viewMode === "table" ? 14 : 8
-    return Math.max(viewMode === "table" ? 10 : 6, Math.min(viewMode === "table" ? 28 : 12, count))
+    var most = mode === "contacts" ? 40 : viewMode === "table" ? 28 : 12
+    return Math.max(viewMode === "table" ? 10 : 6, Math.min(most, count))
   }
 
   function pendingBar(width, className) {
@@ -9286,7 +10510,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
   function contactsPendingToolbarHTML(viewMode) {
     var sortBy = window.GoferSettings ? GoferSettings.get("contacts_list_sort_by") : "updated"
-    var sortLabel = sortBy === "name" ? goferT("js.contacts.sort.name") : (sortBy === "last_interaction" ? goferT("js.contacts.sort.last_interaction") : goferT("js.contacts.sort.updated"))
+    var sortLabel = sortBy === "name" ? goferT("js.contacts.sort.name") : (sortBy === "created" ? goferT("js.contacts.sort.created") : (sortBy === "last_interaction" ? goferT("js.contacts.sort.last_interaction") : goferT("js.contacts.sort.updated")))
     // Mirrors the contacts toolbar: select-all, the view and sort; filters
     // sit beside the search.
     return '<div class="flex items-center gap-1 px-4 py-1.5">' +
@@ -9313,9 +10537,16 @@ document.addEventListener("DOMContentLoaded", function () {
     '</div>'
   }
 
+  // Every column, as ContactListTableHeader draws it; the list hides the ones
+  // the user leaves out.
   function contactsPendingTableHeaderHTML() {
-    return '<div class="mail-list-table-header mail-list-table-grid grid items-center gap-3 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground bg-card/95 border-b border-border/70 sticky top-0 z-20 backdrop-blur-sm" style="--mail-list-table-columns:minmax(10rem,1.4fr) minmax(8rem,0.9fr) minmax(3.5rem,auto)">' +
-      '<div class="mail-list-table-heading">' + goferT("js.contacts.column.name") + '</div><div class="mail-list-table-heading">' + goferT("js.contacts.column.origin") + '</div><div class="mail-list-table-heading min-w-12 text-right">' + goferT("js.contacts.column.messages") + '</div>' +
+    var template = document.querySelector("template[data-contact-table-header-template]")
+    if (template) return template.innerHTML
+    var ids = window.GoferListLayouts ? window.GoferListLayouts.contacts.table.ids : ["name"]
+    return '<div class="mail-list-table-header mail-list-table-grid grid items-center gap-3 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground bg-card/95 border-b border-border/70 sticky top-0 z-20 backdrop-blur-sm">' +
+      ids.map(function (id) {
+        return '<div class="mail-list-table-heading' + (id === "messages" ? " min-w-12 text-right" : "") + '" data-mail-table-column-id="' + id + '" data-mail-table-cell="' + id + '"><span data-contact-column-label>' + goferT("js.contacts.column." + id) + '</span></div>'
+      }).join("") +
     '</div>'
   }
 
@@ -9327,7 +10558,7 @@ document.addEventListener("DOMContentLoaded", function () {
       '<div class="mail-list-card-zone mail-list-card-zone-rail-top" data-mail-card-zone="railTop"><span data-mail-card-field="avatar" class="size-6 rounded-full bg-muted animate-pulse"></span></div>' +
       '<div class="mail-list-card-zone mail-list-card-zone-rail-middle" data-mail-card-zone="railMiddle"><span data-mail-card-field="accountMarker" class="account-color-marker size-2.5 shrink-0 bg-muted animate-pulse"></span></div>' +
       '<div class="mail-list-card-zone mail-list-card-zone-rail-bottom" data-mail-card-zone="railBottom">' + (i % 4 === 0 ? '<span data-mail-card-field="thread">' + pendingBar("60%", "block h-3") + '</span>' : '<span data-mail-card-field="thread" class="mail-list-card-empty-icon-slot"></span>') + '</div>' +
-      '<div class="mail-list-card-zone mail-list-card-zone-header" data-mail-card-zone="header"><span data-mail-card-field="from">' + pendingBar(senderWidths[i % senderWidths.length], "block h-3.5") + '</span><span data-mail-card-field="date">' + pendingBar("3.5rem", "block h-3") + '</span><span data-mail-card-field="account" class="h-4 w-20 rounded-full border border-border bg-background animate-pulse"></span></div>' +
+      '<div class="mail-list-card-zone mail-list-card-zone-header" data-mail-card-zone="header"><span data-mail-card-field="from">' + pendingBar(senderWidths[i % senderWidths.length], "block h-3.5") + '</span><span data-mail-card-field="date">' + pendingBar("3.5rem", "block h-3") + '</span><span data-mail-card-field="account" class="h-4 w-20 rounded-lg border border-border bg-background animate-pulse"></span></div>' +
       '<div class="mail-list-card-zone mail-list-card-zone-meta" data-mail-card-zone="meta">' + (i % 3 === 0 ? '<span data-mail-card-field="attachment">' + pendingIcon("size-3") + '</span><span data-mail-card-field="unread" class="inline-flex size-4 shrink-0 items-center justify-center"><span class="size-2 rounded-full bg-primary/35"></span></span>' : "") + '</div>' +
       '<div class="mail-list-card-zone mail-list-card-zone-body" data-mail-card-zone="body"><span data-mail-card-field="to">' + pendingBar("46%", "block h-3") + '</span></div>' +
       '<div class="mail-list-card-zone mail-list-card-zone-body-bottom" data-mail-card-zone="bodyBottom"><span data-mail-card-field="subject">' + pendingBar(subjectWidths[i % subjectWidths.length], "block h-3.5") + '</span></div>' +
@@ -9335,15 +10566,10 @@ document.addEventListener("DOMContentLoaded", function () {
       '<div class="mail-list-card-zone mail-list-card-zone-status" data-mail-card-zone="status"></div><div class="mail-list-card-zone mail-list-card-zone-corner" data-mail-card-zone="corner"><span data-mail-card-field="starred" class="h-3 w-3 rounded bg-muted animate-pulse"></span></div><div class="hidden" data-mail-card-zone="hidden"></div></div></div>'
   }
 
-  // Mirrors ContactListCard: two lines beside the avatar.
+  // The contacts list's own card skeleton (contactCardSkeletonHTML in
+  // virtual-scroll.js), for the card layout to move as the list's.
   function contactCardPendingRow(i) {
-    var nameWidths = ["58%", "72%", "46%", "66%"]
-    var emailWidths = ["78%", "64%", "86%", "54%"]
-    return '<div class="mail-list-item" aria-hidden="true"><div class="contact-list-item contact-card mail-list-card h-full px-3.5 rounded-lg envelope">' +
-      '<div class="mail-list-card-zone mail-list-card-zone-rail-top" data-mail-card-zone="railTop"><span data-mail-card-field="avatar" class="size-8 rounded-full bg-muted animate-pulse"></span></div>' +
-      '<div class="mail-list-card-zone mail-list-card-zone-header" data-mail-card-zone="header"><span data-mail-card-field="from" class="flex-1">' + pendingBar(nameWidths[i % nameWidths.length], "block h-3.5") + '</span>' + (i % 3 === 0 ? '<span data-mail-card-field="date">' + pendingBar("2rem", "block h-3") + '</span>' : "") + '</div>' +
-      '<div class="mail-list-card-zone mail-list-card-zone-body" data-mail-card-zone="body"><span data-mail-card-field="subject" class="flex-1">' + pendingBar(emailWidths[i % emailWidths.length], "block h-3") + '</span><span data-mail-card-field="preview">' + pendingBar("3.5rem", "block h-3") + '</span></div>' +
-      '</div></div>'
+    return window.contactCardSkeletonHTML(i)
   }
 
   function mailTablePendingRow(i) {
@@ -9363,13 +10589,14 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 
   function contactTablePendingRow(i) {
-    var nameWidths = ["62%", "48%", "74%", "56%"]
-    var emailWidths = ["86%", "68%", "76%", "58%"]
-    var originWidths = ["6rem", "8rem", "5rem", "7rem"]
-    return '<div class="mail-list-item mail-list-table-row" aria-hidden="true"><a tabindex="-1" class="contact-list-item mail-list-table-grid grid items-center gap-3 px-3.5 py-1.5 rounded-md cursor-default transition-all duration-150 group text-xs envelope" style="--mail-list-table-columns:minmax(10rem,1.4fr) minmax(8rem,0.9fr) minmax(3.5rem,auto)">' +
-      '<div class="flex min-w-0 items-center gap-3"><div class="w-7 flex shrink-0 items-center justify-center"><span class="size-6 rounded-full bg-muted animate-pulse"></span></div><div class="min-w-0 flex-1">' + pendingBar(nameWidths[i % nameWidths.length], "block h-3") + '<div class="mt-1.5">' + pendingBar(emailWidths[i % emailWidths.length], "block h-3") + '</div></div></div>' +
-      '<div class="truncate text-xs text-muted-foreground">' + pendingBar(originWidths[i % originWidths.length], "block h-3") + '</div>' +
-      '<div class="flex justify-end text-right text-xs tabular-nums text-muted-foreground">' + pendingBar(i % 2 === 0 ? "2rem" : "1.25rem", "block h-3") + '</div>' +
+    var widths = ["62%", "48%", "74%", "56%"]
+    var ids = window.GoferListLayouts ? window.GoferListLayouts.contacts.table.ids : ["name"]
+    return '<div class="mail-list-item mail-list-table-row" aria-hidden="true"><a tabindex="-1" class="contact-list-item mail-list-table-grid grid items-center gap-3 px-3.5 py-1.5 rounded-md cursor-default transition-all duration-150 group text-xs envelope">' +
+      ids.map(function (id, column) {
+        if (id === "name") return '<div class="flex min-w-0 items-center gap-2" data-mail-table-cell="name"><div class="w-7 flex shrink-0 items-center justify-center"><span class="size-6 rounded-full bg-muted animate-pulse"></span></div><div class="min-w-0 flex-1">' + pendingBar(widths[i % widths.length], "block h-3") + '</div></div>'
+        if (id === "messages") return '<div class="flex justify-end" data-mail-table-cell="messages">' + pendingBar(i % 2 === 0 ? "2rem" : "1.25rem", "block h-3") + '</div>'
+        return '<div class="min-w-0" data-mail-table-cell="' + id + '">' + pendingBar(widths[(i + column) % widths.length], "block h-3") + '</div>'
+      }).join("") +
     '</a></div>'
   }
 
@@ -9377,8 +10604,8 @@ document.addEventListener("DOMContentLoaded", function () {
     var html = ""
     if (viewMode === "table") html += mode === "contacts" ? contactsPendingTableHeaderHTML() : mailPendingTableHeaderHTML()
     for (var i = 0; i < rowCount; i++) {
-      if (mode === "contacts") html += viewMode === "table" ? contactTablePendingRow(i) : contactCardPendingRow(i)
-      else html += viewMode === "table" ? mailTablePendingRow(i) : mailCardPendingRow(i)
+      var row = mode === "contacts" ? (viewMode === "table" ? contactTablePendingRow(i) : contactCardPendingRow(i)) : (viewMode === "table" ? mailTablePendingRow(i) : mailCardPendingRow(i))
+      html += row.replace(/^<([a-z]+)/, "<$1 data-switch-skeleton")
     }
     return html
   }
@@ -9399,7 +10626,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
   function readPanePendingHTML(mode) {
     var label = mode === "contacts" ? goferT("js.contacts.pending") : goferT("js.mail.view.pending")
-    return '<div class="flex flex-col h-full p-2"><div class="surface-paper rounded-md flex flex-col h-full overflow-hidden"><div class="flex items-center justify-between px-6 py-2.5"><div class="flex items-center gap-1"><div class="size-8 rounded-md bg-ink/[0.03] border border-ink/6"></div><div class="size-8 rounded-md bg-ink/[0.03] border border-ink/6"></div></div><div class="h-4 w-20 rounded bg-ink/5 animate-pulse"></div></div><div class="h-px bg-gradient-to-r from-transparent via-amber-900/10 to-transparent"></div><div class="flex-1 overflow-y-auto"><div class="mx-auto px-8 py-6"><div class="flex items-center gap-2 text-sm text-muted-foreground"><div class="size-4 border-2 border-ink/15 border-t-ink/45 rounded-full animate-spin"></div><span>' + label + '</span></div><div class="space-y-3 mt-5"><div class="h-4 w-full rounded bg-ink/5 animate-pulse"></div><div class="h-4 w-11/12 rounded bg-ink/5 animate-pulse"></div><div class="h-4 w-4/5 rounded bg-ink/5 animate-pulse"></div></div></div></div></div></div>'
+    return '<div class="flex flex-col h-full p-2" data-switch-skeleton><div class="surface-paper rounded-md flex flex-col h-full overflow-hidden"><div class="flex items-center justify-between px-6 py-2.5"><div class="flex items-center gap-1"><div class="size-8 rounded-md bg-ink/[0.03] border border-ink/6"></div><div class="size-8 rounded-md bg-ink/[0.03] border border-ink/6"></div></div><div class="h-4 w-20 rounded bg-ink/5 animate-pulse"></div></div><div class="h-px bg-gradient-to-r from-transparent via-amber-900/10 to-transparent"></div><div class="flex-1 overflow-y-auto"><div class="mx-auto px-8 py-6"><div class="flex items-center gap-2 text-sm text-muted-foreground"><div class="size-4 border-2 border-ink/15 border-t-ink/45 rounded-full animate-spin"></div><span>' + label + '</span></div><div class="space-y-3 mt-5"><div class="h-4 w-full rounded bg-ink/5 animate-pulse"></div><div class="h-4 w-11/12 rounded bg-ink/5 animate-pulse"></div><div class="h-4 w-4/5 rounded bg-ink/5 animate-pulse"></div></div></div></div></div></div>'
   }
 
   // Small screens move between Mail, Contacts and Calendar with one transition: the
@@ -9420,6 +10647,218 @@ document.addEventListener("DOMContentLoaded", function () {
     var panels = typeof measureAppPanels === "function" ? measureAppPanels() : null
     showAppSwitchPendingPanes(mode)
     if (typeof slideAppPanels === "function") slideAppPanels(panels, mode)
+    revealSwitchSkeletonsLater()
+  }
+
+  // The loading rows stay hidden while the switch animates; most sections
+  // arrive before it ends. They show only if the section is still loading
+  // once it has, or after the slide's length when nothing slides.
+  function revealSwitchSkeletonsLater() {
+    var root = document.documentElement
+    root.removeAttribute("data-app-switch-slow")
+    clearTimeout(switchSkeletonTimer)
+    switchResponseHeld = false
+    var sliding = typeof appPanelsSlideRemaining === "function" ? appPanelsSlideRemaining() : 0
+    switchSkeletonTimer = setTimeout(function reveal() {
+      switchSkeletonTimer = null
+      if (!root.hasAttribute("data-app-switching") || switchResponseHeld) return
+      // A slide restarted meanwhile, by a resize for instance.
+      var left = typeof appPanelsSlideRemaining === "function" ? appPanelsSlideRemaining() : 0
+      if (left > 16) { switchSkeletonTimer = setTimeout(reveal, left); return }
+      root.setAttribute("data-app-switch-slow", "")
+    }, Math.max(sliding, APP_SWITCH_MS))
+  }
+
+  function endAppSwitching() {
+    clearTimeout(switchSkeletonTimer)
+    switchSkeletonTimer = null
+    switchResponseHeld = false
+    var root = document.documentElement
+    root.removeAttribute("data-app-switching")
+    root.removeAttribute("data-app-switch-slow")
+    var sidebar = document.getElementById("sidebar-app-body")
+    if (sidebar && sidebar.hasAttribute("data-switch-early")) {
+      sidebar.removeAttribute("inert")
+      sidebar.removeAttribute("aria-busy")
+    }
+    document.querySelectorAll("[data-switch-early]").forEach(function (pane) { pane.removeAttribute("data-switch-early") })
+  }
+
+  // A section response that arrives while the panels slide waits for the
+  // slide to end, with no loading rows meanwhile, but its sidebar goes in at
+  // once: it is light enough not to stall the slide. It stays inert until the
+  // rest lands, so a folder or filter
+  // chosen meanwhile can't race the held list. The partials put the sidebar
+  // before the list, so only that start of the response is parsed here.
+  // Brings a section shown again from memory up to date, quietly, by the same
+  // means its live updates use when it is on screen.
+  function refreshKeptSection(mode, stale) {
+    if (mode === "mail") {
+      if (stale.sidebar) refreshMailSidebarBody()
+      else if (stale.content) refreshSidebarUnread()
+      if (stale.content && virtualMailList) scheduleSyncRefresh(virtualMailList, { noAnimation: true, rebase: mailListNearTop(virtualMailList), immediate: true })
+    } else if (mode === "calendar") {
+      if (stale.content) scheduleCalendarCacheRefresh()
+      if (stale.sidebar) refreshCalendarSidebar()
+    } else if (mode === "contacts") {
+      if (stale.sidebar) refreshContactsSidebarCounts()
+      if (stale.content && virtualContactsList) refreshLiveContacts(virtualContactsList)
+    }
+  }
+
+  // Live updates for a section kept off screen (navigation.js) can't reach
+  // it; it refreshes when shown again.
+  function markKeptStale(mode, part) {
+    if (window.GoferNavigation && GoferNavigation.markStale) GoferNavigation.markStale(mode, part)
+    if ((mode === "mail" || mode === "contacts") && part !== "sidebar") prefetchKept(mode)
+  }
+
+  // The list of Mail or Contacts kept off screen, if any.
+  function keptList(mode) {
+    var id = mode === "mail" ? "mail-list-scroll" : "contacts-list-scroll"
+    var panes = window.GoferNavigation && GoferNavigation.keptPanes ? GoferNavigation.keptPanes(mode) : []
+    for (var i = 0; i < panes.length; i++) {
+      var scroll = panes[i].id === id ? panes[i] : panes[i].querySelector("#" + id)
+      var list = scroll && (mode === "mail" ? scroll._virtualMailList : scroll._virtualContactsList)
+      if (list) return list
+    }
+    return null
+  }
+
+  // Puts rows fetched for a list in, without moving it: Mail's own refresh,
+  // or Contacts' (which says whether the open contact's row changed).
+  function applyListRows(mode, list, html) {
+    if (mode === "contacts") return refreshLiveContacts(list, html)
+    // New mail it would have replayed is in already.
+    pendingSyncEvents = pendingSyncEvents.filter(function (event) { return !matchesActiveFolder(list.folderID, event.folderId, event.folderRole) })
+    return list.refreshCurrentFolder({ noAnimation: true, rebase: mailListNearTop(list), html: html }).catch(function () {})
+  }
+
+  // While Mail or Contacts is kept off screen, what changed in its list is
+  // fetched ahead, a moment after the last change. Coming back applies it
+  // before the rows drop in, laid out against the list's own scroll
+  // (applyKeptRows). Laying the list out while off the page would not work:
+  // it reads as scrolled to the top and as tall as nothing.
+  function prefetchKept(mode) {
+    var state = keptPrefetch[mode]
+    state.changes++
+    clearTimeout(state.timer)
+    state.timer = setTimeout(function run() {
+      state.timer = null
+      var list = keptList(mode)
+      if (!list || list.navigationMode === "pagination") return
+      if (state.busy) { state.again = true; return }
+      state.busy = true
+      var changes = state.changes
+      var url = list.refreshURL()
+      list.fetchHTML(url).then(function (html) {
+        // Shown again meanwhile: it refreshes on screen instead.
+        if (!list.container.isConnected) list.keptRefresh = { url: url, html: html, changes: changes }
+      }).catch(function () {}).then(function () {
+        state.busy = false
+        if (state.again) {
+          state.again = false
+          run()
+        }
+      })
+    }, 200)
+  }
+
+  // Applies the rows fetched while the list was away, if they are for the
+  // list as it stands; returns what is still stale after them.
+  function applyKeptRows(mode, list, stale) {
+    var ahead = list && list.keptRefresh
+    if (list) delete list.keptRefresh
+    if (!stale.content || !ahead || ahead.url !== list.refreshURL()) return stale
+    applyListRows(mode, list, ahead.html)
+    // Counts reached the kept sidebar as they came (refreshSidebarUnread);
+    // Contacts' are fetched on return (refreshKeptSection).
+    return { sidebar: stale.sidebar, content: ahead.changes !== keptPrefetch[mode].changes }
+  }
+
+  // The list came back with changes its rows fetched ahead don't have yet:
+  // they are fetched now and the list drops in with them, as if they had
+  // always been there, rather than dropping in and then taking them in on
+  // top. A slow answer doesn't hold the list past a moment after the slide;
+  // it then drops in as it was and takes the rows quietly when they come.
+  function catchUpKept(mode, list, drops, stale) {
+    if (mode === "mail") pendingSyncEvents = pendingSyncEvents.filter(function (event) { return !matchesActiveFolder(list.folderID, event.folderId, event.folderRole) })
+    var rest = { sidebar: stale.sidebar }
+    var shown = false
+    var show = function () {
+      if (shown) return
+      shown = true
+      document.documentElement.classList.remove("mail-list-entering")
+      if (drops) list.fanInRows()
+      setTimeout(function () { refreshKeptSection(mode, rest) }, drops ? LIST_FAN_IN_MS : 0)
+    }
+    document.documentElement.classList.add("mail-list-entering")
+    var sliding = typeof appPanelsSlideRemaining === "function" ? appPanelsSlideRemaining() : 0
+    setTimeout(show, Math.max(sliding, APP_SWITCH_MS) + 300)
+    list.fetchHTML(list.refreshURL()).then(function (html) {
+      if (list !== (mode === "mail" ? virtualMailList : virtualContactsList)) return
+      applyListRows(mode, list, html)
+      show()
+    }).catch(show)
+  }
+
+  // Contacts changed (contacts-changed): the list and the sidebar's counts
+  // update in place when on screen, and a kept Contacts when it is back.
+  function handleContactsChanged() {
+    var list = virtualContactsList
+    if (!list || !list.container || !list.container.isConnected) {
+      markKeptStale("contacts", "all")
+      return
+    }
+    clearTimeout(contactsChangeTimer)
+    contactsChangeTimer = setTimeout(function () {
+      contactsChangeTimer = null
+      if (list === virtualContactsList && list.container.isConnected) refreshLiveContacts(list)
+      refreshContactsSidebarCounts()
+    }, 150)
+  }
+
+  // Refreshes the contacts list in place, and the open contact when its row
+  // changed, unless it is being edited (refreshOpenContactDetail).
+  function refreshLiveContacts(list, html) {
+    return list.refreshInPlace(typeof html === "string" ? { html: html } : {}).then(function (changed) {
+      if (changed && list.selectedContactId) refreshOpenContactDetail(list.selectedContactId)
+    }).catch(function () {})
+  }
+
+  function refreshContactsSidebarCounts() {
+    if (!window.htmx) return
+    document.querySelectorAll("[data-contacts-trash-count], [data-contacts-unresolved-count]").forEach(function (count) {
+      htmx.ajax("GET", count.getAttribute("hx-get"), { target: count, swap: "innerHTML" })
+    })
+  }
+
+  function placeSwitchSidebarEarly(response, source) {
+    switchResponseHeld = true
+    var current = document.getElementById("sidebar-app-body")
+    var list = typeof response === "string" ? /\sid="mail-list"/.exec(response) : null
+    if (!current || !list || !window.htmx || typeof htmx.swap !== "function") return false
+    var start = document.createElement("template")
+    start.innerHTML = response.slice(0, response.lastIndexOf("<", list.index))
+    var body = start.content.getElementById("sidebar-app-body")
+    if (!body) return false
+    var sync = start.content.getElementById("sidebar-sync-controls")
+    body.setAttribute("data-switch-early", "")
+    body.setAttribute("inert", "")
+    body.setAttribute("aria-busy", "true")
+    if (sync) sync.setAttribute("data-switch-early", "")
+    var oob = source && source.getAttribute("hx-select-oob")
+    htmx.swap(current, body.outerHTML + (sync ? sync.outerHTML : ""), { swapStyle: "outerHTML", swapDelay: 0, settleDelay: 0, ignoreTitle: true },
+      { select: "#sidebar-app-body", selectOOB: sync ? "#sidebar-sync-controls:outerHTML" : "", contextElement: source })
+    // The held swap reads its out-of-band list right after this event, so
+    // it leaves out what is already in. The source's own list comes back after.
+    if (source && oob) {
+      source.setAttribute("hx-select-oob", oob.split(",").filter(function (part) {
+        return !/^#sidebar-(app-body|sync-controls)(:|$)/.test(part.trim())
+      }).join(","))
+      setTimeout(function () { if (source.isConnected) source.setAttribute("hx-select-oob", oob) }, 0)
+    }
+    return true
   }
 
   function showAppSwitchPendingPanes(mode) {
@@ -9447,7 +10886,7 @@ document.addEventListener("DOMContentLoaded", function () {
     }
     var viewMode = appSwitchListViewMode(mode)
     var sidebarBody = document.getElementById("sidebar-app-body")
-    if (sidebarBody) {
+    if (sidebarBody && !showSectionSidebarCopy(sidebarBody, mode)) {
       sidebarBody.removeAttribute("inert")
       sidebarBody.removeAttribute("aria-busy")
       sidebarBody.dataset.sidebarAppBody = mode
@@ -9493,6 +10932,13 @@ document.addEventListener("DOMContentLoaded", function () {
       if (mode === "mail" && viewMode === "cards" && typeof window.applyMailCardFieldSettings === "function") {
         window.applyMailCardFieldSettings(list.querySelector("#mail-list-scroll"))
       }
+      var contactsScroll = mode === "contacts" && list.querySelector("#contacts-list-scroll")
+      if (contactsScroll && viewMode === "table" && typeof window.applyContactTableColumnSettings === "function") {
+        window.applyContactTableColumnSettings(contactsScroll)
+      }
+      if (contactsScroll && viewMode !== "table" && typeof window.applyContactCardLayoutSettings === "function") {
+        window.applyContactCardLayoutSettings(contactsScroll)
+      }
     }
     var pane = document.getElementById("mail-view")
     if (pane) {
@@ -9511,104 +10957,93 @@ document.addEventListener("DOMContentLoaded", function () {
     if (!shell.querySelector("#contacts-list-scroll")) virtualContactsList = null
   })
 
-  function setupMailTableColumnResize() {
-    var columnIds = ["accountMarker", "starred", "attachment", "thread", "from", "to", "subject", "date"]
-    var minWidths = [24, 32, 32, 28, 90, 90, 140, 64]
-    var fixedWidths = { accountMarker: 24, starred: 24, attachment: 24, thread: 28 }
-    var defaultRatios = [0.8, 0.8, 0.8, 1, 3, 3, 5, 2]
+  // Table columns of the mail and contacts lists: the column menu turns them
+  // on and off, and the handles between headings resize them. Both work from
+  // the list's column description in ui-settings.js (GoferListLayouts).
+  function setupTableColumns() {
+    var scrollLists = { "mail-list-scroll": "mail", "contacts-list-scroll": "contacts" }
 
-    function clamp(value, index) {
-      return Math.max(minWidths[index], value)
+    function tableModel(list) {
+      return window.GoferListLayouts && window.GoferListLayouts[list] && window.GoferListLayouts[list].table
     }
 
-    function currentRatioSetting() {
-      var raw = window.GoferSettings ? GoferSettings.get("mail_table_column_widths") : null
-      var parts = raw ? String(raw).split(",") : []
-      if (parts.length !== columnIds.length) parts = []
-      var values = []
-      for (var i = 0; i < columnIds.length; i++) {
-        var n = parseFloat(parts[i])
-        values.push(isNaN(n) || n <= 0 ? defaultRatios[i] : n)
-      }
-      return values
+    function columnIndex(model, id) {
+      return model.ids.indexOf(id)
     }
 
-    function widthSetting(widths, ids) {
-      var values = currentRatioSetting()
+    function minWidth(model, index) {
+      var column = model.columns[index]
+      return column.fixed || column.min || 0
+    }
+
+    function widthSetting(model, widths, ids) {
+      var values = model.ratios(window.GoferSettings ? GoferSettings.get(model.widthsKey) : null)
       var total = 0
       for (var i = 0; i < widths.length; i++) {
-        if (!fixedWidths[ids[i]]) total += widths[i]
+        if (!model.columns[columnIndex(model, ids[i])].fixed) total += widths[i]
       }
       if (total <= 0) return values.join(",")
       for (var j = 0; j < ids.length; j++) {
-        var index = columnIds.indexOf(ids[j])
-        if (index !== -1 && !fixedWidths[ids[j]]) values[index] = widths[j] / total
+        var index = columnIndex(model, ids[j])
+        if (index !== -1 && !model.columns[index].fixed) values[index] = widths[j] / total
       }
       return values.map(function (value) { return value.toFixed(5) }).join(",")
     }
 
-    function currentWidths(header) {
+    function currentWidths(model, header) {
       var cells = header.querySelectorAll("[data-mail-table-column-id]")
       var widths = []
       var ids = []
       for (var i = 0; i < cells.length; i++) {
         if (cells[i].offsetParent === null) continue
         var id = cells[i].dataset.mailTableColumnId
-        var index = columnIds.indexOf(id)
+        var index = columnIndex(model, id)
         if (index === -1) continue
-        widths.push(clamp(Math.round(cells[i].getBoundingClientRect().width), index))
+        widths.push(Math.max(minWidth(model, index), Math.round(cells[i].getBoundingClientRect().width)))
         ids.push(id)
       }
       return widths.length > 1 ? { ids: ids, widths: widths } : null
-    }
-
-    function applyWidths(widths, ids, scroll) {
-      var value = widthSetting(widths, ids)
-      if (typeof window.applyMailTableColumnWidths === "function") {
-        window.applyMailTableColumnWidths(value, scroll)
-      } else if (scroll) {
-        scroll.style.setProperty("--mail-list-table-columns", widths.map(function (w) { return w + "px" }).join(" "))
-      }
     }
 
     document.body.addEventListener("pointerdown", function (e) {
       var handle = e.target.closest("[data-mail-table-resize]")
       if (!handle) return
       var header = handle.closest(".mail-list-table-header")
-      var scroll = header && header.closest("#mail-list-scroll")
-      if (!header || !scroll) return
+      var scroll = header && header.closest("#mail-list-scroll, #contacts-list-scroll")
+      var model = scroll && tableModel(scrollLists[scroll.id])
+      if (!header || !model) return
 
       e.preventDefault()
       e.stopPropagation()
 
-      var state = currentWidths(header)
+      var state = currentWidths(model, header)
       if (!state) return
       var cell = handle.closest("[data-mail-table-column-id]")
       var visibleIndex = cell ? state.ids.indexOf(cell.dataset.mailTableColumnId) : -1
       if (visibleIndex < 0 || visibleIndex >= state.widths.length - 1) return
-      if (fixedWidths[state.ids[visibleIndex]] || fixedWidths[state.ids[visibleIndex + 1]]) return
+      var leftIndex = columnIndex(model, state.ids[visibleIndex])
+      var rightIndex = columnIndex(model, state.ids[visibleIndex + 1])
+      if (model.columns[leftIndex].fixed || model.columns[rightIndex].fixed) return
 
       var startX = e.clientX
       var widths = state.widths.slice()
       var startLeft = widths[visibleIndex]
       var startRight = widths[visibleIndex + 1]
-      var leftIndex = columnIds.indexOf(state.ids[visibleIndex])
-      var rightIndex = columnIds.indexOf(state.ids[visibleIndex + 1])
       document.body.classList.add("mail-list-column-resizing")
       handle.setAttribute("data-resizing", "")
       if (handle.setPointerCapture) handle.setPointerCapture(e.pointerId)
 
       function onMove(moveEvent) {
         var delta = moveEvent.clientX - startX
-        var nextLeft = clamp(startLeft + delta, leftIndex)
+        var nextLeft = Math.max(minWidth(model, leftIndex), startLeft + delta)
         var consumed = nextLeft - startLeft
-        var nextRight = clamp(startRight - consumed, rightIndex)
+        var nextRight = Math.max(minWidth(model, rightIndex), startRight - consumed)
         if (nextRight !== startRight - consumed) {
-          nextLeft = clamp(startLeft + (startRight - nextRight), leftIndex)
+          nextLeft = Math.max(minWidth(model, leftIndex), startLeft + (startRight - nextRight))
         }
         widths[visibleIndex] = nextLeft
         widths[visibleIndex + 1] = nextRight
-        applyWidths(widths, state.ids, scroll)
+        model.applyWidths(widthSetting(model, widths, state.ids), scroll)
       }
 
       function onUp() {
@@ -9616,12 +11051,16 @@ document.addEventListener("DOMContentLoaded", function () {
         document.removeEventListener("pointerup", onUp)
         document.body.classList.remove("mail-list-column-resizing")
         handle.removeAttribute("data-resizing")
-        if (window.GoferSettings) GoferSettings.set("mail_table_column_widths", widthSetting(widths, state.ids))
+        if (window.GoferSettings) GoferSettings.set(model.widthsKey, widthSetting(model, widths, state.ids))
       }
 
       document.addEventListener("pointermove", onMove)
       document.addEventListener("pointerup", onUp)
     })
+
+    function menuModel(menu) {
+      return tableModel(menu.dataset.tableColumnsList || "mail")
+    }
 
     document.body.addEventListener("click", function (e) {
       var button = e.target.closest("[data-mail-list-display-menu-button]")
@@ -9635,8 +11074,9 @@ document.addEventListener("DOMContentLoaded", function () {
       var item = e.target.closest("[data-mail-table-column-item]")
       if (item) {
         var menuPanel = item.closest("[data-mail-table-column-menu]")
-        if (!menuPanel) return
-        var selected = typeof window.getMailTableColumns === "function" ? window.getMailTableColumns().slice() : columnIds.slice()
+        var model = menuPanel && menuModel(menuPanel)
+        if (!model) return
+        var selected = model.current().slice()
         var id = item.dataset.mailTableColumnItem
         var index = selected.indexOf(id)
         if (index === -1) {
@@ -9646,8 +11086,8 @@ document.addEventListener("DOMContentLoaded", function () {
         } else {
           return
         }
-        selected.sort(function (a, b) { return columnIds.indexOf(a) - columnIds.indexOf(b) })
-        if (window.GoferSettings) GoferSettings.set("mail_table_columns", selected.join(","))
+        selected.sort(function (a, b) { return columnIndex(model, a) - columnIndex(model, b) })
+        if (window.GoferSettings) GoferSettings.set(model.columnsKey, selected.join(","))
         var parentMenu = item.closest("[data-mail-list-display-menu]")
         if (parentMenu) syncDisplayMenu(parentMenu)
         else syncColumnMenu(menuPanel)
@@ -9660,10 +11100,12 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     function syncColumnMenu(menu) {
-      var selected = typeof window.getMailTableColumns === "function" ? window.getMailTableColumns() : columnIds
-      for (var i = 0; i < columnIds.length; i++) {
-        var check = menu.querySelector('[data-mail-table-column-check="' + columnIds[i] + '"]')
-        if (check) check.classList.toggle("opacity-0", selected.indexOf(columnIds[i]) === -1)
+      var model = menuModel(menu)
+      if (!model) return
+      var selected = model.current()
+      for (var i = 0; i < model.ids.length; i++) {
+        var check = menu.querySelector('[data-mail-table-column-check="' + model.ids[i] + '"]')
+        if (check) check.classList.toggle("opacity-0", selected.indexOf(model.ids[i]) === -1)
       }
     }
 
@@ -9761,127 +11203,53 @@ document.addEventListener("DOMContentLoaded", function () {
     }
   }
 
-  function contactDetailSkeletonField(label, widthClass, className) {
-    return '<div class="min-w-0 border-b border-ink/10 py-3 last:border-b-0 lg:[&:nth-last-child(-n+2)]:border-b-0 xl:last:border-b-0 ' + (className || "") + '">' +
-      '<div class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">' + label + '</div>' +
-      '<div class="mt-1 flex min-h-5 items-center">' +
-        '<div class="h-3 ' + widthClass + ' max-w-full rounded bg-ink/5 animate-pulse"></div>' +
-      '</div>' +
-    '</div>'
+  // contactSkeletonAvatar fills a skeleton's avatar from the list row.
+  function contactSkeletonAvatar(slot, preview) {
+    slot.textContent = preview.initials || ""
+    if (!preview.avatar) return
+    var img = document.createElement("img")
+    img.src = preview.avatar
+    img.alt = ""
+    img.className = "block size-full object-cover"
+    slot.textContent = ""
+    slot.appendChild(img)
   }
 
-  function contactDetailSkeletonSectionHeader(label) {
-    return '<div class="flex items-center gap-2 border-b border-ink/10 px-4 py-3 text-muted-foreground">' +
-      pendingIcon("size-3.5") +
-      '<h2 class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">' + label + '</h2>' +
-    '</div>'
-  }
-
-  function contactDetailRecentActivitySkeleton() {
-    var rows = ""
-    for (var i = 0; i < 4; i++) {
-      rows += '<div class="border-b border-ink/10 px-3 py-2.5 last:border-b-0">' +
-        '<div class="flex items-start justify-between gap-3">' +
-          '<div class="min-w-0 flex flex-1 items-center gap-2">' +
-            '<div class="h-5 w-9 shrink-0 rounded border border-ink/10 bg-ink/[0.04] animate-pulse"></div>' +
-            '<div class="h-3 min-w-0 flex-1 rounded bg-ink/5 animate-pulse"></div>' +
-          '</div>' +
-          '<div class="h-3 w-16 shrink-0 rounded bg-ink/5 animate-pulse"></div>' +
-        '</div>' +
-        '<div class="mt-2 h-3 w-4/5 rounded bg-ink/5 animate-pulse"></div>' +
-      '</div>'
-    }
-    return '<div class="w-full rounded-lg border border-ink/10 bg-ink/[0.025] p-4">' +
-      '<div class="mb-3 flex items-center justify-between gap-3">' +
-        '<div>' +
-          '<h2 class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">' + goferT("js.contacts.recent.title") + '</h2>' +
-          '<p class="mt-1 text-xs text-muted-foreground">' + goferT("js.contacts.recent.detail") + '</p>' +
-        '</div>' +
-        '<div class="flex shrink-0 items-center gap-2">' +
-          '<span class="rounded bg-ink/[0.05] px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">' + goferT("js.contacts.recent.top", { count: goferNumber(10) }) + '</span>' +
-          '<div class="h-7 w-16 rounded-md border border-ink/10 bg-paper/45"></div>' +
-        '</div>' +
-      '</div>' +
-      '<div class="overflow-hidden rounded-md border border-ink/10 bg-paper/35">' + rows + '</div>' +
-    '</div>'
-  }
-
+  // showContactsDetailLoading draws the contact being opened while it loads,
+  // from ContactDetailSkeleton in contacts.templ, with what the list row
+  // knows. As the mail reader does, a contact already open keeps its header
+  // and frame: only its name, avatar and body change.
   function showContactsDetailLoading(trigger) {
     var detail = document.getElementById("contacts-detail")
-    if (!detail) return
+    var template = document.querySelector("template[data-contact-detail-skeleton]")
+    if (!detail || !template) return
     var preview = getContactRowPreview(trigger) || {}
-    var initials = escapeHTML(preview.initials || "")
-    var avatar = escapeHTML(preview.avatar || "")
-    var name = escapeHTML(preview.name || goferT("js.contacts.loading"))
-    var avatarHTML = avatar
-      ? '<div class="size-14 shrink-0 overflow-hidden rounded-full bg-ink/5 shadow-[0_8px_22px_rgba(0,0,0,0.16)]"><img src="' + avatar + '" alt="" class="block size-full object-cover"/></div>'
-      : '<div class="flex size-14 shrink-0 items-center justify-center rounded-full bg-gradient-to-b from-amber-700/70 to-amber-900/70 text-base font-bold text-amber-100 shadow-[0_8px_22px_rgba(0,0,0,0.16)]">' + initials + '</div>'
+    var skeleton = template.content.firstElementChild.cloneNode(true)
     detail.setAttribute("aria-busy", "true")
-    detail.innerHTML =
-      '<div class="surface-paper rounded-md flex flex-col h-full overflow-hidden" data-contact-detail-loading>' +
-        '<span class="sr-only" role="status">' + goferT("js.contacts.loading_details") + '</span>' +
-        '<div class="shrink-0 border-b border-ink/10 bg-paper/70 px-5 py-4 sm:px-7">' +
-          '<div class="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">' +
-            '<div class="flex min-w-0 items-start gap-4">' +
-              avatarHTML +
-              '<div class="min-w-0 pt-0.5">' +
-                '<h1 class="min-w-0 truncate text-2xl font-bold leading-tight tracking-tight text-ink" style="font-family: var(--font-serif)">' + name + '</h1>' +
-                '<div class="mt-1 text-sm text-muted-foreground">' + goferT("js.contacts.entry") + '</div>' +
-              '</div>' +
-            '</div>' +
-            '<div class="flex flex-wrap items-center gap-2 xl:justify-end" aria-hidden="true">' +
-              '<div class="h-9 w-24 rounded-md border border-ink/10 bg-ink/[0.025] animate-pulse"></div>' +
-              '<div class="size-9 rounded-md bg-ink/[0.03] animate-pulse"></div>' +
-              '<div class="size-9 rounded-md bg-ink/[0.03] animate-pulse"></div>' +
-              '<div class="size-9 rounded-md bg-ink/[0.03] animate-pulse"></div>' +
-            '</div>' +
-          '</div>' +
-        '</div>' +
-        '<div class="flex-1 overflow-y-auto">' +
-          '<div class="w-full space-y-5 px-5 py-5 sm:px-7" aria-hidden="true">' +
-            '<section class="rounded-lg border border-ink/10 bg-ink/[0.02]">' +
-              contactDetailSkeletonSectionHeader(goferT("js.contacts.contact")) +
-              '<div class="grid gap-x-6 px-4 lg:grid-cols-2">' +
-                contactDetailSkeletonField(goferT("js.contacts.field.name"), "w-40") +
-                contactDetailSkeletonField(goferT("js.contacts.field.email"), "w-52") +
-                contactDetailSkeletonField(goferT("js.contacts.field.additional_emails"), "w-24") +
-                contactDetailSkeletonField(goferT("js.contacts.field.phone"), "w-28") +
-                contactDetailSkeletonField(goferT("js.contacts.field.additional_phones"), "w-24") +
-                contactDetailSkeletonField(goferT("js.contacts.field.title"), "w-32") +
-                contactDetailSkeletonField(goferT("js.contacts.field.organization"), "w-36") +
-                contactDetailSkeletonField(goferT("js.contacts.field.notes"), "w-48") +
-              '</div>' +
-            '</section>' +
-            '<section class="rounded-lg border border-ink/10 bg-ink/[0.02]">' +
-              '<div class="flex flex-wrap items-center justify-between gap-3 border-b border-ink/10 px-4 py-3">' +
-                '<div class="flex flex-wrap items-center gap-2 text-muted-foreground">' +
-                  pendingIcon("size-3.5") +
-                  '<h2 class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Gofer Sync</h2>' +
-                  '<div class="h-6 w-16 rounded-md border border-ink/10 bg-ink/[0.03] animate-pulse"></div>' +
-                '</div>' +
-                '<div class="h-7 w-24 rounded-md border border-ink/10 bg-ink/[0.025] animate-pulse"></div>' +
-              '</div>' +
-              '<div class="grid gap-x-6 px-4 lg:grid-cols-2">' +
-                contactDetailSkeletonField(goferT("js.contacts.field.sync_locations"), "w-16", "lg:col-span-2") +
-                contactDetailSkeletonField(goferT("js.contacts.field.origin"), "w-24") +
-                contactDetailSkeletonField(goferT("js.contacts.field.sync_status"), "w-20") +
-                contactDetailSkeletonField(goferT("js.contacts.field.sync_updated"), "w-32") +
-                contactDetailSkeletonField(goferT("js.contacts.field.sync_error"), "w-24") +
-              '</div>' +
-            '</section>' +
-            '<section class="rounded-lg border border-ink/10 bg-ink/[0.02]">' +
-              contactDetailSkeletonSectionHeader(goferT("js.contacts.field.activity")) +
-              '<div class="grid gap-x-6 px-4 sm:grid-cols-2 xl:grid-cols-4">' +
-                contactDetailSkeletonField(goferT("js.contacts.field.messages"), "w-10") +
-                contactDetailSkeletonField(goferT("js.contacts.field.last_seen"), "w-28") +
-                contactDetailSkeletonField(goferT("js.contacts.field.added"), "w-24") +
-                contactDetailSkeletonField(goferT("js.contacts.field.updated"), "w-24") +
-              '</div>' +
-            '</section>' +
-            contactDetailRecentActivitySkeleton() +
-          '</div>' +
-        '</div>' +
-      '</div>'
+    var open = detail.querySelector(".contact-editor")
+    var scroll = open && open.querySelector(":scope > [data-contact-detail-scroll]")
+    var header = open && open.querySelector(":scope > .contact-editor-header")
+    if (scroll && header) {
+      if (preview.name) {
+        var heading = header.querySelector(".contact-header-identity h1")
+        if (heading) heading.textContent = preview.name
+        var avatar = header.querySelector(".contact-header-identity > :first-child")
+        var slot = skeleton.querySelector("[data-contact-skeleton-avatar]")
+        if (avatar && slot) {
+          contactSkeletonAvatar(slot, preview)
+          avatar.replaceWith(slot)
+        }
+        var line = header.querySelector(".contact-header-identity .mt-1.text-sm")
+        if (line) line.textContent = goferT("js.contacts.entry")
+      }
+      header.querySelectorAll("[data-contact-header-actions]").forEach(function (actions) { actions.inert = true })
+      scroll.replaceChildren(skeleton.querySelector("[data-contact-detail-scroll]").firstElementChild)
+      scroll.scrollTop = 0
+      return
+    }
+    contactSkeletonAvatar(skeleton.querySelector("[data-contact-skeleton-avatar]"), preview)
+    skeleton.querySelector("[data-contact-skeleton-name]").textContent = preview.name || goferT("js.contacts.loading")
+    detail.replaceChildren(skeleton)
   }
 
   var MAIL_VIEW_SKELETON_ICONS = {
@@ -11374,6 +12742,61 @@ function _mailSyncAccountEmail(accountID) {
     if (rows.length > 1 && rows[1].textContent.trim()) return rows[1].textContent.trim()
   }
   return ""
+}
+
+// syncSidebarTagLinks marks the sidebar tag whose list is open: a search
+// with the link's own scope and tag. Then no folder is marked; elsewhere no
+// tag is. address is the list's, when the page isn't at it yet.
+function syncSidebarTagLinks(address) {
+  var aside = document.querySelector("aside")
+  if (!aside) return
+  var at = new URL(address || window.location.href, window.location.origin)
+  var onSearch = at.pathname === "/mail/search"
+  var current = at.searchParams
+  var keys = ["scope", "scope_account_id", "exclude_spam_trash", "tag", "tag_account_id"]
+  var links = aside.querySelectorAll("a[data-sidebar-tag-filter]")
+  var active = null
+  for (var i = 0; i < links.length && onSearch; i++) {
+    var params
+    try {
+      params = new URL(links[i].getAttribute("href") || "", window.location.origin).searchParams
+    } catch (_) {
+      continue
+    }
+    var same = true
+    for (var k = 0; k < keys.length && same; k++) same = (params.get(keys[k]) || "") === (current.get(keys[k]) || "")
+    if (same) {
+      active = links[i]
+      break
+    }
+  }
+  var marked = active ? aside.querySelectorAll("a[hx-get^='/folder/'], a[data-sidebar-tag-filter], [data-sidebar-folder-row]") : links
+  for (var m = 0; m < marked.length; m++) {
+    if (marked[m] === active || !marked[m].classList.contains("bg-sidebar-accent")) continue
+    marked[m].classList.remove("bg-sidebar-accent", "text-sidebar-primary", "font-medium")
+    marked[m].classList.add("text-sidebar-foreground", "hover:bg-sidebar-accent/60", "hover:text-sidebar-accent-foreground")
+    var badge = marked[m].querySelector("[data-folder-unread]")
+    if (badge) {
+      badge.classList.remove("bg-sidebar-primary/20", "text-sidebar-primary")
+      badge.classList.add("bg-sidebar-accent", "text-sidebar-foreground")
+    }
+  }
+  var groups = aside.querySelectorAll("[data-sidebar-tag-group]")
+  for (var g = 0; g < groups.length; g++) {
+    if (!active || !groups[g].contains(active)) groups[g].removeAttribute("data-sidebar-tag-active")
+  }
+  if (!active) return
+  var folderGroups = aside.querySelectorAll("[data-sidebar-folder]")
+  for (var f = 0; f < folderGroups.length; f++) folderGroups[f].removeAttribute("data-sidebar-folder-active")
+  active.classList.add("bg-sidebar-accent", "text-sidebar-primary", "font-medium")
+  active.classList.remove("text-sidebar-foreground", "hover:bg-sidebar-accent/60", "hover:text-sidebar-accent-foreground")
+  var group = active.closest("[data-sidebar-tag-group]")
+  if (group) {
+    group.setAttribute("data-sidebar-tag-active", "")
+    group.setAttribute("data-sidebar-tag-collapsed", "false")
+    var toggle = group.querySelector("[data-sidebar-tag-toggle]")
+    if (toggle) toggle.setAttribute("aria-expanded", "true")
+  }
 }
 
 function _mailSyncFolderLabel(folderID, role) {
@@ -12933,6 +14356,8 @@ document.addEventListener("click", function (event) {
 function isAppSwitchSidePaneSwap(event) {
   var detail = event && event.detail
   // The list replaces the request's target, so the two are matched by id.
+  // A sidebar placed while the panels slide is marked instead.
+  if (event && event.target && event.target.hasAttribute && event.target.hasAttribute("data-switch-early")) return true
   return !!(detail && detail.xhr && detail.xhr.goferAppSwitchMode && detail.target && event.target &&
     event.target.id !== detail.target.id)
 }
@@ -14774,7 +16199,8 @@ function initializeCalendarDialogResize(form) {
   if (!form || form._calendarDialogResize || !form.closest || typeof MutationObserver === "undefined") return
   var dialog = form.closest("dialog")
   if (!dialog || !dialog.animate) return
-  var body = form.querySelector("[data-calendar-create-body]")
+  // The calendar event dialog's body, or any dialog's marked to resize.
+  var body = form.querySelector("[data-calendar-create-body], [data-dialog-resize-body]")
   var panel = dialog.querySelector && dialog.querySelector("[data-tui-dialog-panel]")
   var gutter = body && body.style.scrollbarGutter
   // Keep field widths stable as the animated viewport gains/loses scrolling.
@@ -14889,7 +16315,15 @@ function initializeCalendarDialogResize(form) {
     }
   }
   function schedule() {
+    // Paused while a row animates its own height: the dialog follows it.
+    if (state.paused) return
     if (!state.frame) state.frame = requestAnimationFrame(measure)
+  }
+  // After a paused change, takes the dialog and its rows as they are now.
+  state.sync = function () {
+    state.paused = false
+    state.height = dialog.open ? height() : 0
+    state.layout = layout()
   }
   state.mutations = new MutationObserver(schedule)
   state.mutations.observe(form, {subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ["hidden", "class", "style"]})
@@ -16360,6 +17794,287 @@ document.addEventListener("submit", function (event) {
   })
 })
 
+// Import vCard: the contacts go to one place, Store in, and with the Gofer
+// Sync switch on also sync with more places. Choosing the file or the place
+// asks the server how many of the file's contacts are already there, and
+// when some are, the dialog asks whether to update them or leave them as
+// they are. The import then shows its progress as it saves the contacts and
+// writes them to the accounts, and a toast says what it did.
+var contactsImportCheck = 0
+
+function contactsImportResetChoice(form) {
+  var existing = form.querySelector("[data-contacts-import-existing]")
+  var checking = form.querySelector("[data-contacts-import-checking]")
+  if (existing) existing.hidden = true
+  if (checking) checking.hidden = true
+  var skip = form.querySelector("input[name='existing'][value='skip']")
+  if (skip) skip.checked = true
+}
+
+function contactsImportValue(form, name) {
+  var input = form.querySelector("input[name='" + name + "']")
+  return input ? input.value || "" : ""
+}
+
+// The places the import uses, as the server reads them.
+function contactsImportBody(form, file) {
+  var body = new FormData()
+  body.append("vcard", file)
+  body.append("store_in", contactsImportValue(form, "store_in") || "local")
+  var sync = form.querySelector("[data-contacts-import-sync]")
+  if (sync && sync.checked) {
+    body.append("gofer_sync", "1")
+    body.append("sync_with", contactsImportValue(form, "sync_with"))
+  }
+  return body
+}
+
+function contactsImportPreview(form) {
+  var check = ++contactsImportCheck
+  contactsImportResetChoice(form)
+  var fileInput = form.querySelector("[data-contacts-import-file]")
+  var file = fileInput && fileInput.files && fileInput.files[0]
+  if (!file) return
+  var checking = form.querySelector("[data-contacts-import-checking]")
+  if (checking) checking.hidden = false
+  var body = contactsImportBody(form, file)
+  body.append("preview", "1")
+  fetch("/api/contacts/import", { method: "POST", headers: { Accept: "application/json" }, body: body })
+    .then(function (response) {
+      if (!response.ok) return response.text().then(function (text) { throw new Error((text || "").trim() || goferT("js.common.please_try_again")) })
+      return response.json()
+    })
+    .then(function (preview) {
+      if (check !== contactsImportCheck) return
+      if (checking) checking.hidden = true
+      var existing = preview.existing || 0
+      if (!existing) return
+      var summary = form.querySelector("[data-contacts-import-existing-summary]")
+      if (summary) summary.textContent = goferTn("js.contacts.import.existing_summary", existing, { total: goferNumber(preview.total || 0) })
+      var box = form.querySelector("[data-contacts-import-existing]")
+      if (box) box.hidden = false
+    })
+    .catch(function (error) {
+      if (check !== contactsImportCheck) return
+      if (checking) checking.hidden = true
+      showGoferToast({ title: goferT("js.contacts.import.failed"), description: error && error.message ? error.message : goferT("js.common.please_try_again"), variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
+    })
+}
+
+function contactsImportShowSyncPlaces(form) {
+  var sync = form.querySelector("[data-contacts-import-sync]")
+  var places = form.querySelector("[data-contacts-import-sync-places]")
+  if (places) places.hidden = !(sync && sync.checked)
+  contactsImportExcludeStore(form)
+}
+
+// The contacts already live in the Store in place, so syncing them there
+// too means nothing: it leaves the places to sync with, and the selection.
+function contactsImportExcludeStore(form) {
+  excludeContactHomeFromSyncPlaces(form, contactsImportValue(form, "store_in") || "local", "sync_with")
+}
+
+// excludeContactHomeFromSyncPlaces hides home from the sync places select
+// named name, and takes it out of the selection: the import's, and the new
+// contact form's.
+function excludeContactHomeFromSyncPlaces(form, store, name) {
+  var input = form.querySelector("input[name='" + name + "']")
+  var container = input && input.closest(".select-container")
+  if (!container) return
+  container.querySelectorAll(".select-item[data-tui-selectbox-value]").forEach(function (item) {
+    item.style.display = item.getAttribute("data-tui-selectbox-value") === store ? "none" : ""
+  })
+  var chosen = input.value ? input.value.split(",") : []
+  if (chosen.indexOf(store) < 0) return
+  input.value = chosen.filter(function (value) { return value !== store }).join(",")
+  input.dispatchEvent(new Event("input", { bubbles: true }))
+}
+
+document.addEventListener("change", function (event) {
+  var form = event.target.closest && event.target.closest("[data-contacts-import-form]")
+  if (!form) return
+  if (event.target.matches("[data-contacts-import-sync]")) {
+    contactsImportShowSyncPlaces(form)
+    return
+  }
+  if (event.target.matches("input[name='store_in']")) contactsImportExcludeStore(form)
+  // What is already there depends on the file and on the place.
+  if (event.target.matches("[data-contacts-import-file]") || event.target.matches("input[name='store_in']")) contactsImportPreview(form)
+})
+
+// Move and Duplicate send a contact to another place, from its page. A move
+// waits until the contact is written there; both then open the contact.
+document.addEventListener("submit", function (event) {
+  var form = event.target.closest && event.target.closest("[data-contact-place-form]")
+  if (!form) return
+  event.preventDefault()
+  var move = form.getAttribute("data-contact-place-action") === "move"
+  var input = form.querySelector("input[name='place']")
+  var place = input ? input.value : ""
+  var failed = move ? goferT("js.contacts.place.move_failed") : goferT("js.contacts.place.duplicate_failed")
+  if (!place) {
+    showGoferToast({ title: failed, description: goferT("js.contacts.place.no_place"), variant: "error", icon: "error", position: "bottom-right", duration: 5000, dismissible: true })
+    return
+  }
+  var item = form.querySelector('.select-item[data-tui-selectbox-value="' + CSS.escape(place) + '"] .select-item-text')
+  var placeName = item ? item.textContent.trim() : place
+  var submit = form.querySelector("[data-contact-place-submit]")
+  var label = form.querySelector("[data-contact-place-submit-label]")
+  var labelText = label ? label.textContent : ""
+  if (submit) { submit.disabled = true; submit.setAttribute("aria-busy", "true") }
+  if (label) label.textContent = move ? goferT("js.contacts.place.moving") : goferT("js.contacts.place.duplicating")
+  var done = function () {
+    if (submit) { submit.disabled = false; submit.removeAttribute("aria-busy") }
+    if (label) label.textContent = labelText
+  }
+  var body = new URLSearchParams()
+  body.set("place", place)
+  fetch("/api/contacts/" + encodeURIComponent(form.getAttribute("data-contact-id")) + "/" + (move ? "move" : "duplicate"), {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
+    body: body.toString(),
+  }).then(function (response) {
+    if (!response.ok) return response.text().then(function (text) { throw new Error((text || "").trim() || goferT("js.common.please_try_again")) })
+    return response.json()
+  }).then(function (result) {
+    done()
+    var dialogID = form.getAttribute("data-contact-place-dialog")
+    if (dialogID && window.tui && window.tui.dialog) window.tui.dialog.close(dialogID)
+    showGoferToast({
+      title: goferT(move ? "js.contacts.place.moved" : "js.contacts.place.duplicated", { place: placeName }),
+      description: result.writing ? goferT("js.contacts.place.writing") : "",
+      variant: "success", icon: "success", position: "bottom-right", duration: 5000, dismissible: true,
+    })
+    if (result.location) window.location.href = result.location
+  }).catch(function (error) {
+    done()
+    showGoferToast({ title: failed, description: error && error.message ? error.message : goferT("js.common.please_try_again"), variant: "error", icon: "error", position: "bottom-right", duration: 10000, dismissible: true })
+  })
+})
+
+// A new contact's sync places leave out the place it is created in.
+document.addEventListener("change", function (event) {
+  if (!event.target.matches || !event.target.matches("input[name='stored_in']")) return
+  var form = event.target.closest("[data-contact-editor-form]")
+  if (form) excludeContactHomeFromSyncPlaces(form, event.target.value || "local", "save_targets")
+})
+
+document.addEventListener("submit", function (event) {
+  var form = event.target.closest && event.target.closest("[data-contacts-import-form]")
+  if (!form) return
+  event.preventDefault()
+  var fileInput = form.querySelector("[data-contacts-import-file]")
+  var file = fileInput && fileInput.files && fileInput.files[0]
+  if (!file) {
+    showGoferToast({ title: goferT("js.contacts.import.failed"), description: goferT("js.contacts.import.no_file"), variant: "error", icon: "error", position: "bottom-right", duration: 5000, dismissible: true })
+    return
+  }
+  var body = contactsImportBody(form, file)
+  var choice = form.querySelector("input[name='existing']:checked")
+  body.append("existing", choice ? choice.value : "skip")
+  var submit = form.querySelector("[data-contacts-import-submit]")
+  var label = form.querySelector("[data-contacts-import-submit-label]")
+  var submitText = label ? label.textContent : ""
+  var progress = form.querySelector("[data-contacts-import-progress]")
+  var progressLabel = form.querySelector("[data-contacts-import-progress-label]")
+  var progressCount = form.querySelector("[data-contacts-import-progress-count]")
+  var progressBar = form.querySelector("[data-contacts-import-progress-bar]")
+  var showProgress = function (done, total, phase) {
+    if (progress) progress.hidden = false
+    if (progressLabel) progressLabel.textContent = phase === "writing" ? goferT("js.contacts.import.writing") : goferT("js.contacts.import.saving")
+    if (progressCount) progressCount.textContent = total ? goferT("js.contacts.import.progress", { done: goferNumber(done), total: goferNumber(total) }) : ""
+    var percent = total ? Math.round(done / total * 100) : 0
+    if (progressBar) {
+      progressBar.setAttribute("aria-valuenow", String(percent))
+      var indicator = progressBar.querySelector("[data-tui-progress-indicator]")
+      if (indicator) indicator.style.width = percent + "%"
+    }
+  }
+  var finish = function () {
+    if (submit) { submit.disabled = false; submit.removeAttribute("aria-busy") }
+    if (label) label.textContent = submitText
+    showProgress(0, 0)
+    if (progress) progress.hidden = true
+  }
+  if (submit) { submit.disabled = true; submit.setAttribute("aria-busy", "true") }
+  if (label) label.textContent = goferT("js.contacts.import.importing")
+  showProgress(0, 0)
+  // The server answers with JSON lines while it works: progress, as it saves
+  // the contacts and then as it writes them to the accounts, then the result
+  // or an error. An error before it starts is a plain text answer.
+  var readImport = function (response) {
+    if (!response.ok) return response.text().then(function (text) { throw new Error((text || "").trim() || goferT("js.common.please_try_again")) })
+    if ((response.headers.get("Content-Type") || "").indexOf("application/x-ndjson") !== 0 || !response.body) return response.json()
+    var reader = response.body.getReader()
+    var decoder = new TextDecoder()
+    var buffered = ""
+    var last = null
+    var handle = function (text) {
+      if (!text.trim()) return
+      var message = JSON.parse(text)
+      if (message.error) throw new Error(message.error)
+      if (message.phase) {
+        showProgress(message.done, message.total, message.phase)
+        return
+      }
+      last = message
+    }
+    var pump = function () {
+      return reader.read().then(function (chunk) {
+        if (chunk.done) {
+          handle(buffered)
+          if (!last) throw new Error(goferT("js.contacts.import.stopped"))
+          return last
+        }
+        buffered += decoder.decode(chunk.value, { stream: true })
+        var lines = buffered.split("\n")
+        buffered = lines.pop()
+        lines.forEach(handle)
+        return pump()
+      })
+    }
+    return pump()
+  }
+  var refreshList = function () {
+    var scroll = document.getElementById("contacts-list-scroll")
+    var list = scroll && scroll._virtualContactsList
+    if (list && typeof list.applyFilters === "function") list.applyFilters(list.filters).catch(function () {})
+  }
+  fetch("/api/contacts/import", {
+    method: "POST",
+    headers: { Accept: "application/x-ndjson, application/json" },
+    body: body,
+  }).then(readImport).then(function (result) {
+    finish()
+    if (window.tui && window.tui.dialog) window.tui.dialog.close("contacts-import-dialog")
+    // The places stay chosen for the next file.
+    if (fileInput) fileInput.value = ""
+    contactsImportResetChoice(form)
+    var added = result.added || 0
+    var updated = result.updated || 0
+    var skipped = result.skipped || 0
+    var retrying = result.retrying || 0
+    var failed = result.failed || 0
+    var title = added || (!updated && !skipped)
+      ? goferTn("js.contacts.import.done", added)
+      : updated ? goferTn("js.contacts.import.updated_title", updated) : goferT("js.contacts.import.nothing_new")
+    var notes = []
+    if (updated && added) notes.push(goferTn("js.contacts.import.updated", updated))
+    if (skipped) notes.push(goferTn("js.contacts.import.skipped", skipped))
+    // Writes to accounts that failed are counted apart, with why one did.
+    if (failed) notes.push(goferTn("js.contacts.import.write_failed", failed))
+    if (retrying) notes.push(goferTn("js.contacts.import.retrying", retrying))
+    if ((failed || retrying) && result.reason) notes.push(result.reason)
+    var warning = failed > 0 || retrying > 0
+    showGoferToast({ title: title, description: notes.join(" "), variant: warning ? "warning" : "success", icon: warning ? "warning" : "success", position: "bottom-right", duration: warning ? 12000 : notes.length ? 6000 : 4000, dismissible: true })
+    if (added || updated) refreshList()
+  }).catch(function (error) {
+    finish()
+    showGoferToast({ title: goferT("js.contacts.import.failed"), description: error && error.message ? error.message : goferT("js.common.please_try_again"), variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
+    refreshList()
+  })
+})
+
 document.addEventListener("submit", function (event) {
   var form = event.target.closest && event.target.closest("[data-calendar-export-form]")
   if (!form) return
@@ -16964,6 +18679,7 @@ function resetComposeForm(fromPane, skipCleanup) {
   var editor = form.querySelector("[data-compose-editor]")
   if (editor) editor.innerHTML = ""
   syncComposeInlineImageInputs(form)
+  syncComposeRemoteImagesNotice(form)
   var recipientFields = form.querySelectorAll("[data-compose-recipient-field]")
   for (var i = 0; i < recipientFields.length; i++) renderComposeRecipientField(recipientFields[i], "")
   renderComposeAttachments(form, [])
@@ -17912,10 +19628,10 @@ function _sanitizeComposeHTML(html, allowDataImages) {
         continue
       }
       if (tag === "IMG") {
-        var imgAllowed = { src: true, alt: true, title: true, width: true, height: true, style: true, "data-compose-inline-image": true, "data-attachment-id": true, "data-existing-attachment-id": true, "data-content-id": true, "data-filename": true, "data-content-type": true, "data-size": true, "data-preview-url": true, "data-remote-src": true }
+        var imgAllowed = { src: true, alt: true, title: true, width: true, height: true, style: true, "data-compose-inline-image": true, "data-attachment-id": true, "data-existing-attachment-id": true, "data-content-id": true, "data-filename": true, "data-content-type": true, "data-size": true, "data-preview-url": true, "data-remote-src": true, "data-compose-remote-src": true, "data-compose-inline-quoted": true }
         if (!imgAllowed[name]) node.removeAttribute(attr.name)
         if (name === "style") {
-          var safeStyle = node.hasAttribute("data-compose-inline-image") ? _sanitizeComposeImageStyle(attr.value) : _sanitizeComposeStyle(attr.value)
+          var safeStyle = node.hasAttribute("data-compose-inline-image") && !node.hasAttribute("data-compose-inline-quoted") ? _sanitizeComposeImageStyle(attr.value) : _sanitizeComposeStyle(attr.value)
           if (safeStyle) node.setAttribute("style", safeStyle)
           else node.removeAttribute("style")
         }
@@ -17945,6 +19661,12 @@ function _sanitizeComposeHTML(html, allowDataImages) {
       if (!src && /^https?:/i.test(remoteSrc)) {
         src = remoteSrc
         node.setAttribute("src", src)
+      }
+      // A quoted remote image left out until the user includes it.
+      if (!src && /^https?:/i.test(node.getAttribute("data-compose-remote-src") || "")) {
+        node.removeAttribute("src")
+        node.removeAttribute("data-remote-src")
+        continue
       }
       var dataImage = allowDataImages && /^data:image\/(png|jpe?g|gif|webp|bmp|svg\+xml)[;,]/i.test(src)
       if (!dataImage && !/^(cid:|https?:|\/api\/attachments\/|\/api\/inline-content\/|\/compose\/attachments\/|\/api\/remote-assets\/)/i.test(src)) {
@@ -17988,8 +19710,13 @@ function _composeHTMLForSending(editor) {
     imgs[i].removeAttribute("data-content-type")
     imgs[i].removeAttribute("data-size")
     imgs[i].removeAttribute("data-preview-url")
+    imgs[i].removeAttribute("data-compose-inline-quoted")
     imgs[i].classList.remove("compose-inline-image-selected")
   }
+  // Remote images the user did not include, and any image still on a Gofer
+  // address, which the recipient could not load.
+  var leftOut = template.content.querySelectorAll("img[data-compose-remote-src], img[src^='/']")
+  for (var k = 0; k < leftOut.length; k++) leftOut[k].remove()
   return _sanitizeComposeHTML(template.innerHTML).trim()
 }
 
@@ -18034,7 +19761,9 @@ function syncComposeEditor(editor) {
 
 function composeChanged(editor) {
   syncComposeEditor(editor)
-  _markComposeDirty(_composeFormFrom(editor))
+  var form = _composeFormFrom(editor)
+  syncComposeRemoteImagesNotice(form)
+  _markComposeDirty(form)
 }
 
 function _syncComposeFormEditor(form) {
@@ -18254,7 +19983,7 @@ function composeAutosaveEligible(form) {
   for (var r = 0; r < recipientInputs.length; r++) text += " " + (recipientInputs[r].textContent || "")
   var checks = {
     chars: text.replace(/\s+/g, "").length >= composeAutosaveMinChars(),
-    attachment: !!form.querySelector("[data-compose-attachment], [data-compose-editor] img[data-compose-inline-image]"),
+    attachment: !!form.querySelector("[data-compose-attachment], [data-compose-editor] img[data-compose-inline-image]:not([data-compose-inline-quoted])"),
     to: !!String((form.querySelector('input[name="to"]') || {}).value || "").trim() || !!String((form.querySelector('[data-recipient-name="to"] [data-compose-recipient-input]') || {}).textContent || "").trim()
   }
   for (var c = 0; c < conditions.length; c++) {
@@ -20273,10 +22002,73 @@ function composeReplyPlain(source) {
   return "\n\n" + header + "\n" + quotedBody
 }
 
+// composeSourceRemoteAllowed says whether the reader loaded the quoted
+// message's remote content: always for it or its sender, or just now in the
+// reading pane.
+function composeSourceRemoteAllowed(source) {
+  if (source.remote_allowed) return true
+  if (!source.email_id) return false
+  var frame = document.querySelector('[data-email-body-frame][data-email-id="' + CSS.escape(String(source.email_id)) + '"]')
+  return !!(frame && frame.dataset.remoteLoaded === "true")
+}
+
+// _composeHoldRemoteImages keeps a quoted message's remote images out of the
+// editor, so nothing loads from the sender, until the user includes them.
+function _composeHoldRemoteImages(html) {
+  var template = document.createElement("template")
+  template.innerHTML = html || ""
+  var imgs = template.content.querySelectorAll("img")
+  for (var i = 0; i < imgs.length; i++) {
+    var remote = imgs[i].getAttribute("data-remote-src") || ""
+    var src = imgs[i].getAttribute("src") || ""
+    if (!remote && /^https?:/i.test(src)) remote = src
+    if (!/^https?:/i.test(remote)) continue
+    imgs[i].setAttribute("data-compose-remote-src", remote)
+    imgs[i].removeAttribute("data-remote-src")
+    imgs[i].removeAttribute("src")
+  }
+  return template.innerHTML
+}
+
+// _composeQuotedInlineImages marks the quoted message's own inline images.
+// They are sent again as inline parts but keep the message's look, unlike
+// the images the user inserts.
+function _composeQuotedInlineImages(html) {
+  var template = document.createElement("template")
+  template.innerHTML = html || ""
+  var imgs = template.content.querySelectorAll("img[data-compose-inline-image]")
+  for (var i = 0; i < imgs.length; i++) imgs[i].setAttribute("data-compose-inline-quoted", "")
+  return template.innerHTML
+}
+
 function composeSourceBodyHTML(source) {
-  var html = source.html_body ? _sanitizeComposeHTML(source.html_body) : ""
+  var raw = source.html_body || ""
+  if (raw && !composeSourceRemoteAllowed(source)) raw = _composeHoldRemoteImages(raw)
+  var html = raw ? _composeQuotedInlineImages(_composeHTMLForEditor(_sanitizeComposeHTML(raw), source.inline_images || [])) : ""
   if (html && html.trim()) return html
   return _composePlainToHTML(source.body || "")
+}
+
+function syncComposeRemoteImagesNotice(form) {
+  var notice = form && form.querySelector("[data-compose-remote-images-notice]")
+  if (!notice) return
+  var held = !!form.querySelector("[data-compose-editor] img[data-compose-remote-src]")
+  notice.classList.toggle("hidden", !held)
+}
+
+// includeComposeRemoteImages puts back the quoted message's remote images,
+// as plain links to where the sender keeps them.
+function includeComposeRemoteImages(button) {
+  var form = _composeFormFrom(button)
+  if (!form) return
+  var imgs = form.querySelectorAll("[data-compose-editor] img[data-compose-remote-src]")
+  for (var i = 0; i < imgs.length; i++) {
+    imgs[i].setAttribute("src", imgs[i].getAttribute("data-compose-remote-src"))
+    imgs[i].removeAttribute("data-compose-remote-src")
+  }
+  syncComposeRemoteImagesNotice(form)
+  var editor = form.querySelector("[data-compose-editor]")
+  if (editor) composeChanged(editor)
 }
 
 function composeReplyHTML(source) {
@@ -20407,6 +22199,7 @@ function writeComposePrefill(form, vals, prefix, mode) {
   setComposeAccount(form, vals.account_id, vals.identity_id)
   syncComposeOneTimeFrom(form)
   applyDefaultComposeSignature(form, true)
+  syncComposeRemoteImagesNotice(form)
   focusComposePrefill(form, mode)
 }
 
@@ -24649,3 +26442,857 @@ document.addEventListener("scroll", function (event) {
   // exactly 0 left the shadow up after the body had visibly reached the top.
   header.toggleAttribute("data-scrolled", scroll.scrollTop > 8)
 }, true)
+
+// The contacts sidebar's menu: a right-click on Gofer Local, an account, an
+// address book or an account's heading, or the ⋯ shown on hover, opens the
+// items that apply there (ContactsSidebarContextMenu).
+var CONTACTS_SIDEBAR_MENU = "contacts-sidebar-context-menu"
+
+function contactsSidebarRow(el) {
+  var row = el && el.closest && el.closest('[data-sidebar-app-body="contacts"] [data-contact-sidebar-row]')
+  if (!row) return null
+  return {
+    row: row,
+    kind: row.dataset.contactSidebarKind || "",
+    place: row.dataset.contactSidebarPlace || "",
+    accountID: row.dataset.contactSidebarAccount || "",
+    bookID: row.dataset.contactSidebarBook || "",
+    provider: row.dataset.contactSidebarProvider || "",
+    name: row.dataset.contactSidebarName || "",
+  }
+}
+
+function contactsSidebarHasBooks(provider) {
+  return provider === "carddav" || provider === "jmap"
+}
+
+function openContactsSidebarMenu(target, x, y, button) {
+  var root = document.getElementById(CONTACTS_SIDEBAR_MENU)
+  if (!root || !window.tui || !window.tui.popover) return false
+  var place = target.kind === "local" || target.kind === "account" || target.kind === "book"
+  var shown = {
+    "new-here": target.kind === "all" || place,
+    "import-here": target.kind === "all" || place,
+    "export-here": place,
+    "export-all": target.kind === "all",
+    "sync-now": !!target.accountID,
+    "find-books": target.kind === "heading" && contactsSidebarHasBooks(target.provider),
+    "account-settings": !!target.accountID,
+    "stop-syncing": target.kind === "book",
+  }
+  var items = root.querySelectorAll("[data-sidebar-context-action]")
+  for (var i = 0; i < items.length; i++) items[i].hidden = !shown[items[i].getAttribute("data-sidebar-context-action")]
+  var title = root.querySelector("[data-sidebar-context-title]")
+  if (title) title.textContent = target.name
+  root._contactsSidebarTarget = target
+  window.tui.popover.close(CONTACTS_SIDEBAR_MENU)
+  // From the ⋯ it opens to the left of it, under it; from a right-click,
+  // to the right of the pointer.
+  var content = root.querySelector("[data-tui-popover-content]")
+  if (content) content.setAttribute("data-tui-popover-placement", button ? "bottom-end" : "bottom-start")
+  placePointPopover(root, x, y)
+  window.tui.popover.open(CONTACTS_SIDEBAR_MENU)
+  var opened = root._contactsSidebarButton
+  if (opened) opened.setAttribute("aria-expanded", "false")
+  root._contactsSidebarButton = button || null
+  if (button) button.setAttribute("aria-expanded", "true")
+  return true
+}
+
+function closeContactsSidebarMenu() {
+  var root = document.getElementById(CONTACTS_SIDEBAR_MENU)
+  if (!root || !window.tui || !window.tui.popover || !window.tui.popover.isOpen(CONTACTS_SIDEBAR_MENU)) return
+  window.tui.popover.close(CONTACTS_SIDEBAR_MENU)
+  if (root._contactsSidebarButton) root._contactsSidebarButton.setAttribute("aria-expanded", "false")
+  root._contactsSidebarButton = null
+}
+
+document.addEventListener("contextmenu", function (event) {
+  var target = window.matchMedia("(max-width: 1023.98px)").matches ? null : contactsSidebarRow(event.target)
+  if (!target) {
+    if (!(event.target.closest && event.target.closest("#" + CONTACTS_SIDEBAR_MENU))) closeContactsSidebarMenu()
+    return
+  }
+  if (openContactsSidebarMenu(target, event.clientX, event.clientY)) event.preventDefault()
+})
+
+document.addEventListener("click", function (event) {
+  var button = event.target.closest && event.target.closest("[data-contact-sidebar-menu]")
+  if (button) {
+    event.preventDefault()
+    event.stopPropagation()
+    if (button.getAttribute("aria-expanded") === "true") {
+      closeContactsSidebarMenu()
+      return
+    }
+    var rect = button.getBoundingClientRect()
+    openContactsSidebarMenu(contactsSidebarRow(button), rect.right, rect.bottom + 2, button)
+    return
+  }
+  var item = event.target.closest && event.target.closest("#" + CONTACTS_SIDEBAR_MENU + " [data-sidebar-context-action]")
+  if (!item) return
+  event.preventDefault()
+  var root = document.getElementById(CONTACTS_SIDEBAR_MENU)
+  var target = root && root._contactsSidebarTarget
+  closeContactsSidebarMenu()
+  if (target) runContactsSidebarAction(item.getAttribute("data-sidebar-context-action"), target)
+}, true)
+
+document.addEventListener("pointerdown", function (event) {
+  if (event.target.closest && (event.target.closest("#" + CONTACTS_SIDEBAR_MENU) || event.target.closest("[data-contact-sidebar-menu]"))) return
+  closeContactsSidebarMenu()
+}, true)
+
+function runContactsSidebarAction(action, target) {
+  var place = target.place
+  if (action === "new-here") openNewContactIn(place)
+  else if (action === "import-here") openContactImportIn(place)
+  else if (action === "export-here") window.location.assign("/api/contacts/export?stored_in=" + encodeURIComponent(place))
+  else if (action === "export-all") window.location.assign("/api/contacts/export")
+  else if (action === "sync-now") syncContactAccountNow(target)
+  else if (action === "find-books") openContactOtherBooks(target.accountID, true)
+  else if (action === "account-settings") window.location.assign("/settings/accounts?edit=" + encodeURIComponent(target.accountID))
+  else if (action === "stop-syncing") openContactBookStop(target)
+}
+
+// Chooses a place in one of the contact forms' main location selects; the
+// select shows it, and the form follows as when it is picked by hand.
+// The sidebar and the forms list the same places, from the same accounts.
+function chooseContactPlace(input, place) {
+  if (!input || !place) return
+  input.value = place
+  input.dispatchEvent(new Event("change", { bubbles: true }))
+}
+
+// The new contact dialog, with its main location set to the place.
+function openNewContactIn(place) {
+  var trigger = document.querySelector('[data-sidebar-create] [data-contact-edit-trigger]')
+  if (!trigger) return
+  trigger.click()
+  if (!place) return
+  window.setTimeout(function () {
+    var form = document.querySelector("[data-contact-new-form]")
+    chooseContactPlace(form && form.querySelector('input[name="stored_in"]'), place)
+  }, 0)
+}
+
+// The vCard import dialog, importing into the place.
+function openContactImportIn(place) {
+  if (!window.tui || !window.tui.dialog) return
+  window.tui.dialog.open("contacts-import-dialog")
+  if (!place) return
+  window.setTimeout(function () {
+    var dialog = document.getElementById("contacts-import-dialog")
+    chooseContactPlace(dialog && dialog.querySelector('input[name="store_in"]'), place)
+  }, 0)
+}
+
+function syncContactAccountNow(target) {
+  var body = new URLSearchParams()
+  body.set("account_id", target.accountID)
+  fetch("/api/settings/contacts/accounts/sync", { method: "POST", body: body }).then(function (response) {
+    if (!response.ok) return response.text().then(function (text) { throw new Error(text.trim()) })
+    showGoferToast({ id: "contacts-account-sync", title: goferT("js.contacts.sidebar.sync_started", { account: target.name }), variant: "success", icon: "success", position: "bottom-right", duration: 4000, dismissible: true })
+  }).catch(function (err) {
+    showGoferToast({ id: "contacts-account-sync", title: goferT("js.contacts.sidebar.sync_failed"), description: err.message, variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
+  })
+}
+
+// Draws the contacts sidebar again, as the server has it now: after Gofer
+// starts or stops syncing an address book.
+function refreshContactsSidebar() {
+  return fetch(window.location.pathname + window.location.search, { headers: { "HX-Request": "true", "HX-Target": "mail-list" } })
+    .then(function (response) { return response.ok ? response.text() : "" })
+    .then(function (html) {
+      var fresh = html && new DOMParser().parseFromString(html, "text/html").getElementById("sidebar-app-body")
+      var current = document.getElementById("sidebar-app-body")
+      if (!fresh || !current || current.dataset.sidebarAppBody !== "contacts") return
+      current.replaceWith(fresh)
+      if (typeof htmx !== "undefined") htmx.process(fresh)
+    })
+}
+
+// The account's books on its server, as the account's contact sync form
+// saves them: its connection, the books Gofer syncs, and the others.
+function fetchContactAccountBooks(accountID) {
+  return fetch("/api/accounts/" + encodeURIComponent(accountID) + "/contacts/books", { headers: { Accept: "application/json" } }).then(function (response) {
+    return response.json().catch(function () { return {} }).then(function (data) {
+      if (!response.ok) throw new Error(data.error || goferT("js.contacts.other_books.failed"))
+      return data
+    })
+  })
+}
+
+// Saves which books the account syncs, through its contact sync settings:
+// none turns contact sync off for the account.
+function saveContactAccountBooks(accountID, info, books) {
+  var body = new URLSearchParams()
+  if (info.provider === "jmap") body.set("provider", "jmap")
+  if (books.length) {
+    if (info.provider !== "jmap") {
+      body.set("base_url", info.base_url || "")
+      body.set("username", info.username || "")
+    }
+    var defaultBook = books.filter(function (book) { return book.default })[0] || books[0]
+    books.forEach(function (book) {
+      body.append("addressbook_url", book.url)
+      body.append("addressbook_id", book.id || "")
+      body.append("addressbook_name", book.name || "")
+    })
+    body.set("default_addressbook_url", defaultBook.url)
+  }
+  return fetch("/api/accounts/" + encodeURIComponent(accountID) + "/contacts/sync", { method: "POST", body: body }).then(function (response) {
+    return response.text().then(function (text) {
+      if (!response.ok || response.headers.get("X-Gofer-Status") === "error") throw new Error(new DOMParser().parseFromString(text, "text/html").body.textContent.trim())
+    })
+  })
+}
+
+// Other address books: opening the section, or its discovery button, asks
+// the server which books it has besides the synced ones. The section opens
+// and closes as the calendar's Other calendars do (collapsible.js).
+function openContactOtherBooks(accountID, refresh) {
+  var section = document.querySelector('[data-contact-other-books="' + CSS.escape(accountID) + '"]')
+  if (!section) return
+  if (section.getAttribute("data-tui-collapsible-state") !== "open") {
+    var trigger = section.querySelector("[data-contact-other-books-toggle]")
+    if (trigger) trigger.click()
+  }
+  if (section.dataset.contactOtherBooksState === "loaded" && !refresh) return
+  discoverContactOtherBooks(section, accountID)
+}
+
+function contactOtherBooksMessage(section, text) {
+  var list = section.querySelector("[data-contact-other-books-list]")
+  var template = section.querySelector("template[data-contact-other-books-message-template]")
+  list.textContent = ""
+  var message = template.content.firstElementChild.cloneNode(true)
+  message.textContent = text
+  list.appendChild(message)
+}
+
+function discoverContactOtherBooks(section, accountID) {
+  if (section.dataset.contactOtherBooksState === "loading") return
+  section.dataset.contactOtherBooksState = "loading"
+  var icon = section.querySelector("[data-contact-other-books-discover-icon]")
+  if (icon) icon.classList.add("animate-pulse")
+  contactOtherBooksMessage(section, goferT("js.contacts.other_books.loading"))
+  fetchContactAccountBooks(accountID).then(function (info) {
+    section._contactBooks = info
+    section.dataset.contactOtherBooksState = "loaded"
+    var count = section.querySelector("[data-contact-other-books-count]")
+    if (count) count.textContent = info.other.length ? String(info.other.length) : ""
+    if (!info.other.length) {
+      contactOtherBooksMessage(section, goferT("js.contacts.other_books.none"))
+      return
+    }
+    var list = section.querySelector("[data-contact-other-books-list]")
+    var template = section.querySelector("template[data-contact-other-book-template]")
+    list.textContent = ""
+    info.other.forEach(function (book) {
+      var row = template.content.firstElementChild.cloneNode(true)
+      var name = book.name || book.url
+      row.querySelector("[data-contact-other-book-name]").textContent = name
+      row.querySelector("[data-contact-other-book-name]").title = name
+      var button = row.querySelector("[data-contact-other-book-sync]")
+      button.setAttribute("aria-label", goferT("js.contacts.other_books.sync", { book: name }))
+      button.title = goferT("js.contacts.other_books.sync", { book: name })
+      button.addEventListener("click", function () { startSyncingContactBook(section, accountID, book, button) })
+      list.appendChild(row)
+    })
+  }).catch(function (err) {
+    section.dataset.contactOtherBooksState = "idle"
+    contactOtherBooksMessage(section, err.message || goferT("js.contacts.other_books.failed"))
+  }).finally(function () {
+    if (icon) icon.classList.remove("animate-pulse")
+  })
+}
+
+function startSyncingContactBook(section, accountID, book, button) {
+  var info = section._contactBooks
+  if (!info || button.disabled) return
+  button.disabled = true
+  button.classList.add("animate-pulse")
+  var name = book.name || book.url
+  var books = info.synced.concat([{ url: book.url, name: book.name }])
+  saveContactAccountBooks(accountID, info, books).then(function () {
+    showGoferToast({ id: "contacts-book-sync", title: goferT("js.contacts.other_books.started", { book: name }), variant: "success", icon: "success", position: "bottom-right", duration: 4000, dismissible: true })
+    return refreshContactsSidebar()
+  }).catch(function (err) {
+    button.disabled = false
+    button.classList.remove("animate-pulse")
+    showGoferToast({ id: "contacts-book-sync", title: goferT("js.contacts.other_books.start_failed", { book: name }), description: err.message, variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
+  })
+}
+
+document.addEventListener("click", function (event) {
+  var toggle = event.target.closest && event.target.closest("[data-contact-other-books-toggle]")
+  var discover = !toggle && event.target.closest && event.target.closest("[data-contact-other-books-discover]")
+  var section = (toggle || discover) && (toggle || discover).closest("[data-contact-other-books]")
+  if (!section) return
+  var accountID = section.dataset.contactOtherBooks
+  if (discover) {
+    event.preventDefault()
+    openContactOtherBooks(accountID, true)
+    return
+  }
+  // collapsible.js has opened or closed it by now; opened, it fills in.
+  window.setTimeout(function () {
+    if (section.getAttribute("data-tui-collapsible-state") === "open" && section.dataset.contactOtherBooksState === "idle") discoverContactOtherBooks(section, accountID)
+  }, 0)
+})
+
+// Stop syncing: says how many contacts the address book holds and asks what
+// happens to the ones living there. Removing them first needs a new main
+// location for each that also lives in other places: the dialog grows into
+// a sorter of those contacts and back, as the calendar's event dialog grows
+// into its editor. Then the book leaves the account's synced books, and
+// Gofer lets go of its copies as chosen.
+
+// The name the sidebar gives a place: the account and the book, for a book.
+function contactPlaceLabel(place) {
+  if (place === "local") return goferT("js.contacts.book_sort.local")
+  var row = document.querySelector('[data-contact-sidebar-row][data-contact-sidebar-place="' + CSS.escape(place) + '"]')
+  if (!row) return place === "local" ? goferT("js.contacts.book_sort.local") : place
+  var name = row.dataset.contactSidebarName || ""
+  if (row.dataset.contactSidebarKind !== "book") return name
+  var heading = row.closest("[data-sidebar-account]")
+  heading = heading && heading.querySelector('[data-contact-sidebar-kind="heading"]')
+  return heading ? heading.dataset.contactSidebarName + " / " + name : name
+}
+
+function contactBookStopState(dialog) {
+  return dialog && dialog._contactsBookStop
+}
+
+function openContactBookStop(target) {
+  var dialog = document.getElementById("contacts-book-stop-dialog")
+  if (!dialog || !window.tui || !window.tui.dialog) return
+  var state = { target: target, usage: null, movers: [], placed: new Map(), selected: new Set(), anchor: null }
+  dialog._contactsBookStop = state
+  showContactBookStopStep(dialog, "confirm", false)
+  dialog.querySelector("[data-contacts-book-stop-title]").textContent = goferT("js.contacts.book_stop.title", { book: target.name })
+  var living = dialog.querySelector("[data-contacts-book-stop-living]")
+  living.textContent = goferT("js.contacts.loading")
+  dialog.querySelector("[data-contacts-book-stop-choice]").hidden = true
+  dialog.querySelector("[data-contacts-book-stop-copies]").hidden = true
+  dialog.querySelector("[data-contacts-book-stop-last]").hidden = document.querySelectorAll('[data-contact-sidebar-kind="book"][data-contact-sidebar-account="' + CSS.escape(target.accountID) + '"]').length > 1
+  var remove = dialog.querySelector('input[name="release"][value="remove"]')
+  if (remove) remove.checked = true
+  syncContactBookStop(dialog)
+  window.tui.dialog.open("contacts-book-stop-dialog")
+  var bookPath = "/api/contacts/books/" + encodeURIComponent(target.bookID)
+  Promise.all([
+    fetch(bookPath + "/usage", { headers: { Accept: "application/json" } }).then(function (response) { if (!response.ok) throw new Error(); return response.json() }),
+    fetch(bookPath + "/movers", { headers: { Accept: "application/json" } }).then(function (response) { if (!response.ok) throw new Error(); return response.json() }),
+  ]).then(function (results) {
+    if (contactBookStopState(dialog) !== state) return
+    var usage = results[0]
+    state.usage = usage
+    state.movers = results[1] || []
+    living.textContent = usage.living ? goferTn("js.contacts.book_stop.living", usage.living) : goferT("js.contacts.book_stop.living_none")
+    dialog.querySelector("[data-contacts-book-stop-choice]").hidden = !usage.living
+    var copies = dialog.querySelector("[data-contacts-book-stop-copies]")
+    copies.hidden = !usage.copies_only
+    if (usage.copies_only) copies.textContent = goferTn("js.contacts.book_stop.copies", usage.copies_only)
+    syncContactBookStop(dialog)
+  }).catch(function () {
+    if (contactBookStopState(dialog) !== state) return
+    living.textContent = goferT("js.contacts.book_stop.usage_failed")
+  })
+}
+
+// The contacts still to place: listed, in the sorter, until each has a new
+// main location.
+function contactBookPending(state) {
+  return state.movers.filter(function (mover) { return !state.placed.has(mover.id) })
+}
+
+function contactBookRelease(dialog) {
+  var checked = dialog.querySelector('input[name="release"]:checked')
+  return checked ? checked.value : "remove"
+}
+
+// Shows the confirmation as the choice and the sorting stand: removing needs
+// every contact living elsewhere too placed before Stop syncing can be used.
+function syncContactBookStop(dialog) {
+  var state = contactBookStopState(dialog)
+  if (!state) return
+  var confirm = dialog.querySelector("[data-contacts-book-stop-confirm]")
+  var line = dialog.querySelector("[data-contacts-book-stop-movers]")
+  var text = dialog.querySelector("[data-contacts-book-stop-movers-text]")
+  var open = dialog.querySelector("[data-contacts-book-stop-sort-open]")
+  var pending = contactBookPending(state).length
+  var removing = contactBookRelease(dialog) === "remove"
+  line.hidden = !state.movers.length
+  if (state.movers.length) {
+    text.textContent = pending ? goferTn("js.contacts.book_stop.movers_pending", state.movers.length) : goferTn("js.contacts.book_stop.movers_placed", state.movers.length)
+    text.classList.toggle("text-amber-700", !!pending)
+    text.classList.toggle("dark:text-amber-300", !!pending)
+    text.classList.toggle("text-muted-foreground", !pending)
+    open.textContent = pending ? goferT("js.contacts.book_stop.choose") : goferT("js.contacts.book_stop.change")
+  }
+  confirm.disabled = !state.usage || (removing && pending > 0)
+}
+
+// Switches the dialog between its confirmation and its sorter, its frame
+// resizing smoothly (flipDialogResize) while the new view fades in.
+function showContactBookStopStep(dialog, step, animate) {
+  var content = dialog.querySelector("[data-contacts-book-stop-content]")
+  var from = animate && content ? content.getBoundingClientRect() : null
+  var transition = content ? content.style.transitionProperty : ""
+  if (content) content.style.transitionProperty = "none"
+  dialog.querySelectorAll("[data-contacts-book-stop-step]").forEach(function (view) { view.hidden = view.dataset.contactsBookStopStep !== step })
+  if (content) {
+    content.classList.toggle("sm:max-w-xl", step === "confirm")
+    content.classList.toggle("sm:max-w-5xl", step === "sort")
+  }
+  var to = from ? content.getBoundingClientRect() : null
+  if (content) content.style.transitionProperty = transition
+  if (from) flipDialogResize(content, from, to)
+}
+
+function openContactBookSort(dialog) {
+  var state = contactBookStopState(dialog)
+  if (!state || !state.movers.length) return
+  state.selected = new Set()
+  state.anchor = null
+  state.placedSelected = new Map()
+  state.placedAnchor = new Map()
+  state.rows = new Map()
+  dialog.querySelector("[data-contacts-book-sort-search]").value = ""
+  dialog.querySelector("[data-contacts-book-sort-list]").textContent = ""
+  buildContactBookPlaces(dialog)
+  renderContactBookSort(dialog, false)
+  showContactBookStopStep(dialog, "sort", true)
+}
+
+// The places the contacts to sort can go: Gofer Local, which takes anyone,
+// then every other place any of them has a copy in.
+function contactBookPlaces(state) {
+  var places = ["local"]
+  state.movers.forEach(function (mover) {
+    mover.places.forEach(function (place) { if (places.indexOf(place) === -1) places.push(place) })
+  })
+  return places
+}
+
+function contactBookCanGo(mover, place) {
+  return mover.places.indexOf(place) !== -1
+}
+
+function contactBookMover(state, id) {
+  for (var i = 0; i < state.movers.length; i++) if (state.movers[i].id === id) return state.movers[i]
+  return null
+}
+
+// The sorter keeps its rows and place cards while it is open and changes
+// them in place, so what changes animates: rows leave one list and enter
+// another, labels and buttons change smoothly.
+function contactBookSortMotion() {
+  return !(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches)
+}
+
+function setContactBookLabel(el, text, animate) {
+  if (!el || el.textContent === text) return
+  el.textContent = text
+  if (animate && el.animate && contactBookSortMotion()) {
+    el.animate([{ opacity: 0, transform: "translateY(3px)" }, { opacity: 1, transform: "none" }], { duration: 160, easing: "ease-out" })
+  }
+}
+
+function buildContactBookPlaces(dialog) {
+  var state = contactBookStopState(dialog)
+  var container = dialog.querySelector("[data-contacts-book-sort-place-list]")
+  var template = dialog.querySelector("template[data-contacts-book-sort-place-template]")
+  container.textContent = ""
+  state.cards = new Map()
+  contactBookPlaces(state).forEach(function (place) {
+    var card = template.content.firstElementChild.cloneNode(true)
+    card.dataset.place = place
+    card.querySelector("[data-contacts-book-sort-place-name]").textContent = contactPlaceLabel(place)
+    card.querySelector("[data-contacts-book-sort-place-local-note]").hidden = place !== "local"
+    var list = card.querySelector("[data-contacts-book-sort-placed]")
+    list.setAttribute("aria-label", contactPlaceLabel(place))
+    state.cards.set(place, { card: card, list: list, rows: new Map() })
+    state.placedSelected.set(place, new Set())
+    container.appendChild(card)
+  })
+}
+
+function contactBookRow(dialog, mover, place) {
+  var template = dialog.querySelector("template[data-contacts-book-sort-row-template]")
+  var row = template.content.firstElementChild.cloneNode(true)
+  row.dataset.id = mover.id
+  if (place) row.dataset.place = place
+  row.querySelector("[data-contacts-book-sort-row-name]").textContent = mover.name || goferT("js.contacts.no_name")
+  var copies = (mover.copies || []).map(contactPlaceLabel).join(", ")
+  var tip = row.querySelector("[data-contacts-book-sort-row-tip]")
+  if (copies) {
+    row.querySelector("[data-contacts-book-sort-row-copies]").textContent = " · " + copies
+    tip.querySelector("[data-contacts-book-sort-row-tip-text]").textContent = copies
+  } else {
+    tip.remove()
+  }
+  return row
+}
+
+// Makes a list show the given contacts, in order. Rows that arrive drop in
+// where they belong, one after another, as the contacts list fans in its
+// rows; rows already there slide to their new places; rows that leave close
+// up, or, while others arrive, simply go.
+function syncContactBookList(container, movers, cache, make, selected, animate) {
+  var motion = animate && contactBookSortMotion()
+  var wanted = new Set(movers.map(function (mover) { return mover.id }))
+  var arriving = movers.filter(function (mover) { return !cache.has(mover.id) }).length > 0
+  var before = new Map()
+  if (motion) cache.forEach(function (row, id) { if (wanted.has(id)) before.set(id, row.getBoundingClientRect().top) })
+  cache.forEach(function (row, id) {
+    if (wanted.has(id)) return
+    cache.delete(id)
+    if (!motion || arriving || !row.animate) {
+      row.remove()
+      return
+    }
+    row.dataset.leaving = "true"
+    row.setAttribute("aria-hidden", "true")
+    var height = row.offsetHeight
+    var leave = row.animate([
+      { height: height + "px", opacity: 1 },
+      { height: "0px", opacity: 0, paddingTop: "0px", paddingBottom: "0px", marginTop: "0px" },
+    ], { duration: 180, easing: "ease-in", fill: "forwards" })
+    leave.onfinish = function () { row.remove() }
+  })
+  var ref = container.firstElementChild
+  var entered = []
+  movers.forEach(function (mover) {
+    var row = cache.get(mover.id)
+    if (!row) {
+      row = make(mover)
+      cache.set(mover.id, row)
+      entered.push(row)
+    }
+    while (ref && ref.dataset.leaving) ref = ref.nextElementSibling
+    if (ref === row) ref = ref.nextElementSibling
+    else container.insertBefore(row, ref)
+    row.setAttribute("aria-selected", selected.has(mover.id) ? "true" : "false")
+  })
+  if (!motion) return
+  before.forEach(function (top, id) {
+    var row = cache.get(id)
+    var dy = top - row.getBoundingClientRect().top
+    if (row.animate && Math.abs(dy) >= 1) row.animate([{ translate: "0 " + dy + "px" }, { translate: "0 0" }], { duration: 200, easing: "ease-out" })
+  })
+  entered.forEach(function (row, i) {
+    if (!row.animate) return
+    row.animate([
+      { opacity: 0, translate: "0 -18px", scale: "1.01" },
+      { opacity: 1, offset: 0.55 },
+      { opacity: 1, translate: "0 0", scale: "1" },
+    ], { duration: 220, delay: Math.min(150, i * 25), easing: "cubic-bezier(0, 0, 0.6, 1)", fill: "backwards" })
+  })
+}
+
+function renderContactBookSort(dialog, animate) {
+  var state = contactBookStopState(dialog)
+  if (!state) return
+  var query = dialog.querySelector("[data-contacts-book-sort-search]").value.trim().toLowerCase()
+  var pending = contactBookPending(state)
+  var shown = query ? pending.filter(function (mover) { return (mover.name || "").toLowerCase().indexOf(query) !== -1 }) : pending
+  state.shown = shown
+  state.selected.forEach(function (id) { if (state.placed.has(id)) state.selected.delete(id) })
+  var list = dialog.querySelector("[data-contacts-book-sort-list]")
+  syncContactBookList(list, shown, state.rows, function (mover) { return contactBookRow(dialog, mover, "") }, state.selected, animate)
+  dialog.querySelector("[data-contacts-book-sort-empty]").hidden = !!pending.length
+  list.hidden = !pending.length
+  setContactBookLabel(dialog.querySelector("[data-contacts-book-sort-pending-count]"), String(pending.length), animate)
+  setContactBookLabel(dialog.querySelector("[data-contacts-book-sort-selected]"), state.selected.size ? goferTn("js.contacts.book_sort.selected", state.selected.size) : "", animate)
+  setContactBookLabel(dialog.querySelector("[data-contacts-book-sort-select-all]"), shown.length && shown.every(function (mover) { return state.selected.has(mover.id) }) ? goferT("js.contacts.book_sort.select_none") : goferT("js.contacts.book_sort.select_all"), animate)
+  renderContactBookPlaces(dialog, animate)
+  dialog.querySelector("[data-contacts-book-sort-done]").disabled = pending.length > 0
+  dialog.querySelector("[data-contacts-book-sort-rest-local]").disabled = pending.length === 0
+}
+
+// setContactBookHint gives a destination's button the tooltip saying why
+// it can't take the contacts, or, with no text, none at all.
+function setContactBookHint(button, text) {
+  var trigger = button.closest("[data-contacts-book-sort-hint]")
+  if (!trigger) return
+  var root = trigger.closest("[data-tui-popover-root]")
+  root.querySelector("[data-contacts-book-sort-hint-text]").textContent = text
+  trigger.setAttribute("data-tui-popover-type", text ? "hover" : "manual")
+  if (!text && window.tui && window.tui.popover) window.tui.popover.closeElement(root)
+}
+
+function renderContactBookPlaces(dialog, animate) {
+  var state = contactBookStopState(dialog)
+  var pending = contactBookPending(state)
+  var selected = pending.filter(function (mover) { return state.selected.has(mover.id) })
+  state.cards.forEach(function (entry, place) {
+    var card = entry.card
+    var here = state.movers.filter(function (mover) { return state.placed.get(mover.id) === place })
+    var picked = state.placedSelected.get(place)
+    picked.forEach(function (id) { if (state.placed.get(id) !== place) picked.delete(id) })
+    setContactBookLabel(card.querySelector("[data-contacts-book-sort-place-count]"), here.length ? goferTn("js.contacts.book_sort.placed", here.length) : "", animate)
+    var canSelected = selected.filter(function (mover) { return contactBookCanGo(mover, place) }).length
+    var canAll = pending.filter(function (mover) { return contactBookCanGo(mover, place) }).length
+    var move = card.querySelector("[data-contacts-book-sort-move]")
+    setContactBookLabel(move.querySelector("[data-contacts-book-sort-label]"), !selected.length ? goferT("js.contacts.book_sort.move_none") : canSelected < selected.length ? goferT("js.contacts.book_sort.move_some", { count: canSelected, total: selected.length }) : goferTn("js.contacts.book_sort.move", canSelected), animate)
+    move.disabled = !canSelected
+    var name = contactPlaceLabel(place)
+    setContactBookHint(move, canSelected < selected.length ? goferTn("js.contacts.book_sort.no_copy_selected", selected.length - canSelected, { place: name }) : "")
+    var moveAll = card.querySelector("[data-contacts-book-sort-move-all]")
+    setContactBookLabel(moveAll.querySelector("[data-contacts-book-sort-label]"), canAll ? goferTn("js.contacts.book_sort.move_all", canAll) : goferT("js.contacts.book_sort.move_all_none"), animate)
+    moveAll.disabled = !canAll
+    setContactBookHint(moveAll, pending.length && !canAll ? goferT("js.contacts.book_sort.no_copy_pending", { place: name }) : "")
+    var show = card.querySelector("[data-contacts-book-sort-show]")
+    show.disabled = !here.length
+    if (!here.length) setContactBookPlacedOpen(card, false)
+    syncContactBookList(entry.list, here, entry.rows, function (mover) { return contactBookRow(dialog, mover, place) }, picked, animate)
+    setContactBookLabel(card.querySelector("[data-contacts-book-sort-placed-select-all]"), here.length && here.every(function (mover) { return picked.has(mover.id) }) ? goferT("js.contacts.book_sort.select_none") : goferT("js.contacts.book_sort.select_all"), animate)
+    var back = card.querySelector("[data-contacts-book-sort-unplace-selected]")
+    setContactBookLabel(back.querySelector("[data-contacts-book-sort-label]"), picked.size ? goferTn("js.contacts.book_sort.unplace_selected", picked.size) : goferT("js.contacts.book_sort.unplace_none"), animate)
+    back.disabled = !picked.size
+  })
+}
+
+function setContactBookPlacedOpen(card, open) {
+  var show = card.querySelector("[data-contacts-book-sort-show]")
+  var wrap = card.querySelector("[data-contacts-book-sort-placed-wrap]")
+  show.setAttribute("aria-expanded", open ? "true" : "false")
+  wrap.toggleAttribute("data-open", open)
+}
+
+// Places the given contacts that can live in the place; the others stay to
+// sort, still selected.
+function placeContactBookMovers(dialog, movers, place) {
+  var state = contactBookStopState(dialog)
+  movers.forEach(function (mover) {
+    if (!contactBookCanGo(mover, place)) return
+    state.placed.set(mover.id, place)
+    state.selected.delete(mover.id)
+  })
+  renderContactBookSort(dialog, true)
+}
+
+// Selecting as the contacts list does: a click selects one, or clears it
+// when it is the only one selected; Ctrl or Cmd adds or removes one, Shift a
+// range from the last one clicked.
+function selectContactBookRows(selected, ids, anchor, id, event) {
+  if (event.shiftKey && anchor && ids.indexOf(anchor) !== -1) {
+    var from = ids.indexOf(anchor), to = ids.indexOf(id)
+    if (!(event.ctrlKey || event.metaKey)) selected.clear()
+    ids.slice(Math.min(from, to), Math.max(from, to) + 1).forEach(function (each) { selected.add(each) })
+    return anchor
+  }
+  if (event.ctrlKey || event.metaKey) {
+    if (selected.has(id)) selected.delete(id); else selected.add(id)
+    return id
+  }
+  if (selected.size === 1 && selected.has(id)) {
+    selected.clear()
+    return null
+  }
+  selected.clear()
+  selected.add(id)
+  return id
+}
+
+document.addEventListener("click", function (event) {
+  var dialog = event.target.closest && event.target.closest("#contacts-book-stop-dialog")
+  var state = contactBookStopState(dialog)
+  if (!state) return
+  if (event.target.closest("[data-contacts-book-stop-sort-open]")) {
+    event.preventDefault()
+    openContactBookSort(dialog)
+    return
+  }
+  if (event.target.closest("[data-contacts-book-sort-done]")) {
+    showContactBookStopStep(dialog, "confirm", true)
+    syncContactBookStop(dialog)
+    return
+  }
+  if (event.target.closest("[data-contacts-book-sort-rest-local]")) {
+    placeContactBookMovers(dialog, contactBookPending(state), "local")
+    return
+  }
+  if (event.target.closest("[data-contacts-book-sort-select-all]")) {
+    var all = state.shown.every(function (mover) { return state.selected.has(mover.id) })
+    state.shown.forEach(function (mover) { if (all) state.selected.delete(mover.id); else state.selected.add(mover.id) })
+    renderContactBookSort(dialog, true)
+    return
+  }
+  var card = event.target.closest("[data-contacts-book-sort-place]")
+  var place = card && card.dataset.place
+  if (card && event.target.closest("[data-contacts-book-sort-move]")) {
+    placeContactBookMovers(dialog, contactBookPending(state).filter(function (mover) { return state.selected.has(mover.id) }), place)
+    return
+  }
+  if (card && event.target.closest("[data-contacts-book-sort-move-all]")) {
+    placeContactBookMovers(dialog, contactBookPending(state), place)
+    return
+  }
+  if (card && event.target.closest("[data-contacts-book-sort-show]")) {
+    setContactBookPlacedOpen(card, card.querySelector("[data-contacts-book-sort-show]").getAttribute("aria-expanded") !== "true")
+    return
+  }
+  if (card && event.target.closest("[data-contacts-book-sort-placed-select-all]")) {
+    var picked = state.placedSelected.get(place)
+    var here = state.movers.filter(function (mover) { return state.placed.get(mover.id) === place })
+    var every = here.every(function (mover) { return picked.has(mover.id) })
+    here.forEach(function (mover) { if (every) picked.delete(mover.id); else picked.add(mover.id) })
+    renderContactBookSort(dialog, true)
+    return
+  }
+  if (card && event.target.closest("[data-contacts-book-sort-unplace-selected]")) {
+    state.placedSelected.get(place).forEach(function (id) { state.placed.delete(id) })
+    state.placedSelected.get(place).clear()
+    renderContactBookSort(dialog, true)
+    return
+  }
+  var row = event.target.closest("[data-contacts-book-sort-row]")
+  if (!row || row.dataset.leaving) return
+  if (row.dataset.place) {
+    var rowPlace = row.dataset.place
+    var placedIDs = state.movers.filter(function (mover) { return state.placed.get(mover.id) === rowPlace }).map(function (mover) { return mover.id })
+    state.placedAnchor.set(rowPlace, selectContactBookRows(state.placedSelected.get(rowPlace), placedIDs, state.placedAnchor.get(rowPlace), row.dataset.id, event))
+  } else {
+    state.anchor = selectContactBookRows(state.selected, state.shown.map(function (mover) { return mover.id }), state.anchor, row.dataset.id, event)
+  }
+  renderContactBookSort(dialog, true)
+})
+
+document.addEventListener("input", function (event) {
+  if (!event.target.matches || !event.target.matches("#contacts-book-stop-dialog [data-contacts-book-sort-search]")) return
+  renderContactBookSort(event.target.closest("#contacts-book-stop-dialog"), false)
+})
+
+document.addEventListener("change", function (event) {
+  if (!event.target.matches || !event.target.matches('#contacts-book-stop-dialog input[name="release"]')) return
+  syncContactBookStop(event.target.closest("#contacts-book-stop-dialog"))
+})
+
+// Dragging selected contacts onto a place moves the ones it can take; the
+// places that can take none dim meanwhile.
+document.addEventListener("dragstart", function (event) {
+  var row = event.target.closest && event.target.closest("#contacts-book-stop-dialog [data-contacts-book-sort-row]:not([data-place])")
+  if (!row) return
+  var dialog = row.closest("#contacts-book-stop-dialog")
+  var state = contactBookStopState(dialog)
+  if (window.tui && window.tui.popover) window.tui.popover.closeElement(row.querySelector("[data-tui-popover-root]"))
+  if (!state.selected.has(row.dataset.id)) {
+    state.selected.clear()
+    state.selected.add(row.dataset.id)
+    state.anchor = row.dataset.id
+    renderContactBookSort(dialog, true)
+  }
+  state.dragging = Array.from(state.selected)
+  event.dataTransfer.effectAllowed = "move"
+  event.dataTransfer.setData("text/plain", goferTn("js.contacts.book_sort.selected", state.dragging.length))
+  dialog.querySelectorAll("[data-contacts-book-sort-place]").forEach(function (card) {
+    var can = state.dragging.some(function (id) { var mover = contactBookMover(state, id); return mover && contactBookCanGo(mover, card.dataset.place) })
+    card.dataset.drop = can ? "" : "no"
+  })
+})
+
+function contactBookDropCard(event) {
+  var card = event.target.closest && event.target.closest("#contacts-book-stop-dialog [data-contacts-book-sort-place]")
+  var state = card && contactBookStopState(card.closest("#contacts-book-stop-dialog"))
+  return state && state.dragging && card.dataset.drop !== "no" ? card : null
+}
+
+document.addEventListener("dragover", function (event) {
+  var card = contactBookDropCard(event)
+  if (!card) return
+  event.preventDefault()
+  event.dataTransfer.dropEffect = "move"
+  card.closest("[data-contacts-book-sort-place-list]").querySelectorAll('[data-drop="ok"]').forEach(function (other) { if (other !== card) other.dataset.drop = "" })
+  card.dataset.drop = "ok"
+})
+
+document.addEventListener("drop", function (event) {
+  var card = contactBookDropCard(event)
+  if (!card) return
+  event.preventDefault()
+  var dialog = card.closest("#contacts-book-stop-dialog")
+  var state = contactBookStopState(dialog)
+  var movers = state.dragging.map(function (id) { return contactBookMover(state, id) }).filter(Boolean)
+  state.dragging = null
+  placeContactBookMovers(dialog, movers, card.dataset.place)
+})
+
+document.addEventListener("dragend", function (event) {
+  var dialog = event.target.closest && event.target.closest("#contacts-book-stop-dialog")
+  var state = contactBookStopState(dialog)
+  if (!state) return
+  state.dragging = null
+  dialog.querySelectorAll("[data-contacts-book-sort-place]").forEach(function (card) { card.dataset.drop = "" })
+})
+
+document.addEventListener("submit", function (event) {
+  var form = event.target.closest && event.target.closest("[data-contacts-book-stop-form]")
+  if (!form) return
+  event.preventDefault()
+  var dialog = form.closest("#contacts-book-stop-dialog")
+  var state = contactBookStopState(dialog)
+  var confirm = form.querySelector("[data-contacts-book-stop-confirm]")
+  if (!state || confirm.disabled) return
+  var target = state.target
+  var release = contactBookRelease(dialog)
+  confirm.disabled = true
+  fetchContactAccountBooks(target.accountID).then(function (info) {
+    var books = info.synced.filter(function (book) { return book.id !== target.bookID })
+    return saveContactAccountBooks(target.accountID, info, books)
+  }).then(function () {
+    var body = new URLSearchParams()
+    body.set("release", release)
+    if (release === "remove") state.placed.forEach(function (place, id) { body.set("home:" + id, place) })
+    return fetch("/api/contacts/books/" + encodeURIComponent(target.bookID) + "/release", { method: "POST", body: body }).then(function (response) {
+      if (!response.ok) throw new Error(goferT("js.contacts.request_failed"))
+    })
+  }).then(function () {
+    if (window.tui && window.tui.dialog) window.tui.dialog.close("contacts-book-stop-dialog")
+    showGoferToast({ id: "contacts-book-stop", title: goferT("js.contacts.book_stop.done", { book: target.name }), variant: "success", icon: "success", position: "bottom-right", duration: 4000, dismissible: true })
+    refreshContactsSidebar()
+    var scroll = document.getElementById("contacts-list-scroll")
+    var list = scroll && scroll._virtualContactsList
+    // Contacts may have moved, or left Gofer.
+    if (list && typeof list.applyFilters === "function") list.applyFilters(Object.assign({}, list.filters)).catch(function () {})
+    document.body.dispatchEvent(new CustomEvent("contacts-trash-changed", { bubbles: true }))
+  }).catch(function (err) {
+    syncContactBookStop(dialog)
+    showGoferToast({ id: "contacts-book-stop", title: goferT("js.contacts.book_stop.failed", { book: target.name }), description: err.message, variant: "error", icon: "error", position: "bottom-right", duration: 8000, dismissible: true })
+  })
+})
+
+// A contact form's save button says "Set up Gofer Sync" when saving opens
+// its setup, as the server decides (contactSyncSetupRequired): Gofer Sync
+// turned on, or a place other than Gofer Local added to it. Anything else
+// keeps its own label.
+function contactSaveOpensSyncSetup(form) {
+  var toggle = form.querySelector("[data-contact-sync-enabled]")
+  if (!toggle || !toggle.checked) return false
+  if (form.dataset.contactSyncWas !== "true") return true
+  var was = (form.dataset.contactSyncWasPlaces || "").split(",")
+  var input = form.querySelector('input[name="save_targets"]')
+  return (input ? input.value.split(",") : []).some(function (place) {
+    place = place.trim()
+    return place && place !== "local" && was.indexOf(place) === -1
+  })
+}
+
+function syncContactSaveLabel(form) {
+  var setup = contactSaveOpensSyncSetup(form)
+  form.querySelectorAll("[data-contact-save-label]").forEach(function (label) {
+    var shown = (label.dataset.contactSaveLabel === "setup") === setup
+    label.dataset.shown = shown ? "true" : "false"
+    label.setAttribute("aria-hidden", shown ? "false" : "true")
+  })
+}
+
+;["change", "input"].forEach(function (type) {
+  document.addEventListener(type, function (event) {
+    var form = event.target.closest && event.target.closest("[data-contact-edit-form]")
+    if (form && form.querySelector("[data-contact-save-label]")) syncContactSaveLabel(form)
+  })
+})

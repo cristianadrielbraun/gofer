@@ -93,6 +93,7 @@
     "handleMailSidebarSyncResult",
     "handleMailSidebarSyncStart",
     "handleReply",
+    "includeComposeRemoteImages",
     "labelsDialogSearchKeydown",
     "manageFolderAction",
     "markNotSpam",

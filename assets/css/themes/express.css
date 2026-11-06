@@ -3,8 +3,11 @@
    navy selection and title-bar gradients. Light is the original look; dark
    keeps the same materials in charcoal. */
 
-/* Wine's Tahoma replacement (LGPL, see assets/fonts/README.md). Only
-   downloaded when the theme is active and Tahoma isn't installed. */
+/* Wine's Tahoma replacement (LGPL, see assets/fonts/README.md), downloaded
+   when the theme is active. It comes before an installed Tahoma: Linux
+   systems often have this same Wine font installed with its bitmap strikes
+   (8 to 16px), which Chrome draws instead of the outlines and blurs at any
+   display scale but 1. This copy has the strikes removed. */
 @font-face {
   font-family: "Express Tahoma";
   src: url("/assets/fonts/wine-tahoma.woff2") format("woff2");
@@ -72,7 +75,7 @@
   --xp-bevel-out: inset -1px -1px 0 var(--xp-dark), inset 1px 1px 0 var(--xp-light), inset -2px -2px 0 var(--xp-mid), inset 2px 2px 0 var(--xp-face);
   --xp-bevel-in: inset 1px 1px 0 var(--xp-mid), inset -1px -1px 0 var(--xp-light), inset 2px 2px 0 var(--xp-dark), inset -2px -2px 0 var(--xp-face);
   --xp-bevel-pressed: inset 1px 1px 0 var(--xp-dark), inset -1px -1px 0 var(--xp-light), inset 2px 2px 0 var(--xp-mid), inset -2px -2px 0 var(--xp-face);
-  --xp-font: Tahoma, "Express Tahoma", Verdana, "DejaVu Sans", "Segoe UI", sans-serif;
+  --xp-font: "Express Tahoma", Tahoma, Verdana, "DejaVu Sans", "Segoe UI", sans-serif;
 
   --font-sans: var(--xp-font);
   --font-serif: var(--xp-font);
@@ -1409,6 +1412,11 @@ html:root[data-theme="express"] :is(.account-wizard-card-footer, .account-wizard
   --xp-icon-paths: hidden;
 }
 
+[data-theme="express"] svg[data-lucide="copy-plus"] {
+  --xp-icon: image-set(url("/assets/icons/express/edit-copy-16.png") 1x, url("/assets/icons/express/edit-copy-32.png") 2x);
+  --xp-icon-paths: hidden;
+}
+
 [data-theme="express"] svg[data-lucide="calendar-days"],
 [data-theme="express"] svg[data-lucide="calendar"] {
   --xp-icon: image-set(url("/assets/icons/express/x-office-calendar-16.png") 1x, url("/assets/icons/express/x-office-calendar-32.png") 2x);
@@ -1482,7 +1490,7 @@ html:root[data-theme="express"] :is(.account-wizard-card-footer, .account-wizard
   --xp-icon-paths: hidden;
 }
 
-[data-theme="express"] [data-contact-sidebar-target="local"] svg[data-lucide] {
+[data-theme="express"] [data-contact-sidebar-target="stored_in:local"] svg[data-lucide] {
   --xp-icon: image-set(url("/assets/icons/express/computer-16.png") 1x, url("/assets/icons/express/computer-32.png") 2x);
   --xp-icon-paths: hidden;
 }
@@ -1518,6 +1526,17 @@ html:root[data-theme="express"] :is(.account-wizard-card-footer, .account-wizard
 [data-theme="express"] svg[data-lucide="cloud-sync"] {
   --xp-icon: image-set(url("/assets/icons/express/view-refresh-16.png") 1x, url("/assets/icons/express/view-refresh-32.png") 2x);
   --xp-icon-paths: hidden;
+}
+
+/* A contact's Gofer Sync icon in the list: Tango's blue arrows turned green
+   when it is on, grey when off, as the other themes colour it. */
+[data-theme="express"] [data-contact-sync-on="true"] svg[data-lucide="route"] {
+  filter: hue-rotate(-95deg);
+}
+
+[data-theme="express"] [data-contact-sync-on="false"] svg[data-lucide="route"] {
+  filter: grayscale(1);
+  opacity: 0.6;
 }
 
 [data-theme="express"] svg[data-lucide="cloud-upload"] {
@@ -1860,8 +1879,10 @@ html:root[data-theme="express"] :is([data-calendar-month-event], [data-calendar-
   outline-offset: -3px;
 }
 
-/* Filters opens a window, so it is an ordinary raised push button. */
-[data-theme="express"] [data-mail-filter-button] {
+/* Filters opens a window, so it is an ordinary raised push button, and so
+   are the search's scope menu and its help button on either side of the
+   field. */
+[data-theme="express"] :is([data-mail-filter-button], [data-mail-scope-trigger], [data-mail-search-help]) {
   border: none;
   border-radius: 0;
   background: var(--xp-face);
@@ -1871,12 +1892,12 @@ html:root[data-theme="express"] :is([data-calendar-month-event], [data-calendar-
   transition: none;
 }
 
-[data-theme="express"] [data-mail-filter-button]:hover {
+[data-theme="express"] :is([data-mail-filter-button], [data-mail-scope-trigger], [data-mail-search-help]):hover {
   background: color-mix(in srgb, var(--xp-face) 92%, var(--xp-light));
 }
 
-[data-theme="express"] [data-mail-filter-button]:active,
-[data-theme="express"] [data-tui-popover-open="true"]:not([data-tui-popover-type="hover"]) > [data-mail-filter-button] {
+[data-theme="express"] :is([data-mail-filter-button], [data-mail-scope-trigger], [data-mail-search-help]):active,
+[data-theme="express"] [data-tui-popover-open="true"]:not([data-tui-popover-type="hover"]) > :is([data-mail-filter-button], [data-mail-scope-trigger], [data-mail-search-help]) {
   box-shadow: var(--xp-bevel-pressed);
 }
 
@@ -1914,10 +1935,22 @@ html:root[data-theme="express"] :is([data-calendar-month-event], [data-calendar-
 /* Laid out like a contact's Properties window: a silver panel, group boxes,
    and each value in a white read-only field. */
 [data-theme="express"] #contacts-detail > .surface-paper {
+  position: relative;
   border-radius: 0;
   background: var(--background);
   color: var(--foreground);
+  box-shadow: none;
+}
+
+/* The raised edge is drawn over the content: as the panel's own shadow, the
+   buttons and tags scrolled under it covered it. */
+[data-theme="express"] #contacts-detail > .surface-paper::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 40;
   box-shadow: var(--xp-bevel-out);
+  pointer-events: none;
 }
 
 [data-theme="express"] #contacts-detail .contact-editor-header {
@@ -2253,7 +2286,7 @@ html:root[data-theme="express"] :is([data-calendar-month-event], [data-calendar-
 /* The mail list's view capsule (Cards/Table plus the layout button) is not a
    box here: a line on each side sets the group apart, taller than the divider
    inside it so it reads as the main separator. */
-[data-theme="express"] [data-mail-list-view-capsule] {
+[data-theme="express"] :is([data-mail-list-view-capsule], [data-contact-list-view-capsule]) {
   position: relative;
   height: auto;
   margin-inline: 0.375rem;
@@ -2264,8 +2297,8 @@ html:root[data-theme="express"] :is([data-calendar-month-event], [data-calendar-
   box-shadow: none;
 }
 
-[data-theme="express"] [data-mail-list-view-capsule]::before,
-[data-theme="express"] [data-mail-list-view-capsule]::after {
+[data-theme="express"] :is([data-mail-list-view-capsule], [data-contact-list-view-capsule])::before,
+[data-theme="express"] :is([data-mail-list-view-capsule], [data-contact-list-view-capsule])::after {
   content: "";
   position: absolute;
   top: 50%;
@@ -2278,16 +2311,16 @@ html:root[data-theme="express"] :is([data-calendar-month-event], [data-calendar-
   translate: 0 -50%;
 }
 
-[data-theme="express"] [data-mail-list-view-capsule]::before {
+[data-theme="express"] :is([data-mail-list-view-capsule], [data-contact-list-view-capsule])::before {
   left: 0;
 }
 
-[data-theme="express"] [data-mail-list-view-capsule]::after {
+[data-theme="express"] :is([data-mail-list-view-capsule], [data-contact-list-view-capsule])::after {
   right: 0;
 }
 
 /* The short divider inside the group is etched the same way. */
-[data-theme="express"] [data-mail-list-view-divider] {
+[data-theme="express"] :is([data-mail-list-view-divider], [data-contact-list-view-divider]) {
   width: 2px;
   background: none;
   border-left: 1px solid var(--xp-mid);
@@ -2521,19 +2554,20 @@ html:root[data-theme="express"] :is([data-calendar-month-event], [data-calendar-
 
 /* === MESSAGE LIST === */
 
-/* The folder name sits in a title bar above the list. */
-[data-theme="express"] .mail-list-title-row {
+/* The folder name sits in a title bar above the list, and so does Contacts
+   above the contacts list. */
+[data-theme="express"] :is(.mail-list-title-row, .contacts-list-title-row) {
   padding: 0.25rem 0.625rem;
   background: var(--xp-title);
   color: var(--xp-title-foreground);
 }
 
-[data-theme="express"] #mail-folder-name {
+[data-theme="express"] :is(#mail-folder-name, [data-contacts-title]) {
   color: var(--xp-title-foreground);
   letter-spacing: normal;
 }
 
-[data-theme="express"] #mail-folder-count {
+[data-theme="express"] :is(#mail-folder-count, #contacts-count) {
   min-width: 0;
   height: auto;
   padding: 0;
@@ -2545,16 +2579,16 @@ html:root[data-theme="express"] :is([data-calendar-month-event], [data-calendar-
   font-weight: 400;
 }
 
-[data-theme="express"] #mail-folder-count:not(:empty)::before {
+[data-theme="express"] :is(#mail-folder-count, #contacts-count):not(:empty)::before {
   content: "(";
 }
 
-[data-theme="express"] #mail-folder-count:not(:empty)::after {
+[data-theme="express"] :is(#mail-folder-count, #contacts-count):not(:empty)::after {
   content: ")";
 }
 
 /* Toolbar buttons are flat until hovered, then raise; pressed, they sink. */
-[data-theme="express"] :is(.mail-view-toolbar, .mail-list-toolbar) button:not([data-mail-list-view-toggle] *, .mail-select-all *, [data-tui-popover-content] *) {
+[data-theme="express"] :is(.mail-view-toolbar, .mail-list-toolbar, .contacts-list-toolbar) button:not([data-mail-list-view-toggle] *, [data-contact-list-view-toggle] *, .mail-select-all *, [data-tui-popover-content] *) {
   border-color: transparent;
   border-radius: 0;
   background: transparent;
@@ -2563,37 +2597,39 @@ html:root[data-theme="express"] :is([data-calendar-month-event], [data-calendar-
   transition: none;
 }
 
-[data-theme="express"] :is(.mail-view-toolbar, .mail-list-toolbar) button:not([data-mail-list-view-toggle] *, .mail-select-all *, [data-tui-popover-content] *):hover {
+[data-theme="express"] :is(.mail-view-toolbar, .mail-list-toolbar, .contacts-list-toolbar) button:not([data-mail-list-view-toggle] *, [data-contact-list-view-toggle] *, .mail-select-all *, [data-tui-popover-content] *):hover {
   background: transparent;
   box-shadow: inset -1px -1px 0 var(--xp-mid), inset 1px 1px 0 var(--xp-light);
 }
 
-[data-theme="express"] :is(.mail-view-toolbar, .mail-list-toolbar) button:not([data-mail-list-view-toggle] *, .mail-select-all *, [data-tui-popover-content] *):active,
-[data-theme="express"] :is(.mail-view-toolbar, .mail-list-toolbar) [data-tui-popover-trigger][data-tui-popover-open="true"]:not([data-tui-popover-type="hover"]) button:not([data-mail-list-view-toggle] *, .mail-select-all *, [data-tui-popover-content] *) {
+[data-theme="express"] :is(.mail-view-toolbar, .mail-list-toolbar, .contacts-list-toolbar) button:not([data-mail-list-view-toggle] *, [data-contact-list-view-toggle] *, .mail-select-all *, [data-tui-popover-content] *):active,
+[data-theme="express"] :is(.mail-view-toolbar, .mail-list-toolbar, .contacts-list-toolbar) [data-tui-popover-trigger][data-tui-popover-open="true"]:not([data-tui-popover-type="hover"]) button:not([data-mail-list-view-toggle] *, [data-contact-list-view-toggle] *, .mail-select-all *, [data-tui-popover-content] *) {
   box-shadow: inset 1px 1px 0 var(--xp-mid), inset -1px -1px 0 var(--xp-light);
 }
 
-[data-theme="express"] :is(.mail-view-toolbar, .mail-list-toolbar) button:not([data-mail-list-view-toggle] *, .mail-select-all *, [data-tui-popover-content] *):active > * {
+[data-theme="express"] :is(.mail-view-toolbar, .mail-list-toolbar, .contacts-list-toolbar) button:not([data-mail-list-view-toggle] *, [data-contact-list-view-toggle] *, .mail-select-all *, [data-tui-popover-content] *):active > * {
   translate: 1px 1px;
 }
 
 /* Permanent delete (in Trash) keeps its warning colour. */
-[data-theme="express"] :is(.mail-view-toolbar, .mail-list-toolbar) button.text-red-700.text-red-700 {
+[data-theme="express"] :is(.mail-view-toolbar, .mail-list-toolbar, .contacts-list-toolbar) button.text-red-700.text-red-700 {
   color: var(--destructive);
 }
 
-[data-theme="express"] :is(.mail-view-toolbar, .mail-list-toolbar) button:disabled {
+[data-theme="express"] :is(.mail-view-toolbar, .mail-list-toolbar, .contacts-list-toolbar) button:disabled {
   color: var(--xp-mid);
   box-shadow: none;
 }
 
 
 /* The toolbar's own bottom edge already separates it from the list. */
-[data-theme="express"] #mail-list > hr.divider-etched {
+[data-theme="express"] #mail-list > hr.divider-etched,
+[data-theme="express"] .contacts-list-toolbar ~ hr.divider-etched {
   display: none;
 }
 
 [data-theme="express"] .mail-list-toolbar,
+[data-theme="express"] .contacts-list-toolbar,
 [data-theme="express"] .mail-view-toolbar {
   /* Less side padding than the other themes: the pane's frame and the
      buttons' bevels already add room, so 1.5rem pushed the icons inward. */
@@ -2620,6 +2656,14 @@ html:root[data-theme="express"] :is([data-calendar-month-event], [data-calendar-
   border-color: transparent;
 }
 
+/* Rows turn blue, and back, almost at once, as in the original; only the
+   slide that makes room for the checkboxes keeps its pace. The second
+   selector outweighs the thread rows' own list of properties (input.css). */
+html[data-theme="express"] #mail-list :is(.mail-list-item, .thread-sub-item) > a,
+html[data-theme="express"] #mail-list .thread-sub-item > .mail-row-check ~ a {
+  transition: background-color 60ms linear, color 60ms linear, border-color 60ms linear, box-shadow 60ms linear, margin-left 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
 [data-theme="express"] .envelope-active,
 [data-theme="express"] .mail-list-item[data-mail-selected] > a,
 [data-theme="express"] .mail-list-item > a[data-mail-selected],
@@ -2632,10 +2676,26 @@ html:root[data-theme="express"] :is([data-calendar-month-event], [data-calendar-
   box-shadow: none;
 }
 
+/* The contacts list's own open-card tint (input.css) is more specific than
+   the rule above; the open contact is highlighted like the open message. */
+[data-theme="express"] [data-contact-list-shell][data-view-mode="cards"] .mail-list-item > a.envelope-active {
+  background: var(--xp-select);
+  color: var(--xp-select-foreground);
+  border-color: var(--xp-select);
+  box-shadow: none;
+}
+
 [data-theme="express"] .envelope-active :is(span, p, div, time, svg),
 [data-theme="express"] .mail-list-item[data-mail-selected] > a :is(span, p, div, time, svg),
 [data-theme="express"] .mail-list-item > a[data-mail-selected] :is(span, p, div, time, svg) {
   color: inherit;
+}
+
+/* A contact's location pill keeps its own silver face, so its text stays
+   dark on a selected row instead of turning white with the rest. */
+[data-theme="express"] [data-contact-list-shell] .mail-list-item > a:is(.envelope-active, [data-mail-selected]) [data-mail-card-field="home"],
+[data-theme="express"] [data-contact-list-shell] .mail-list-item[data-mail-selected] > a [data-mail-card-field="home"] {
+  color: var(--muted-foreground);
 }
 
 [data-theme="express"] .mail-list-item > a.mail-list-card {

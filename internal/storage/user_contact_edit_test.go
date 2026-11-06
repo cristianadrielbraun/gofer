@@ -150,11 +150,14 @@ func TestUserContactEditRechecksProfileIdentityAndAcceptedTargets(t *testing.T) 
 	if err != nil || !reflect.DeepEqual(snapshot.Contact().SaveTargets, []string{"account:target"}) {
 		t.Fatal("invalid target allowlist", err)
 	}
-	if _, err := db.SaveContact(t.Context(), "default", models.Contact{Email: request.Email, Name: "Concurrent"}); err != nil {
+	// Another contact with the same address may appear meanwhile: contacts
+	// share addresses, so the new one is saved beside it, not over it.
+	concurrent, err := db.SaveContact(t.Context(), "default", models.Contact{Email: request.Email, Name: "Concurrent"})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if result, err := db.SaveUserContactEdit(t.Context(), snapshot, false, inboundTestGuard); !errors.Is(err, ErrContactEditChanged) || result.Contact.ID != "" {
-		t.Fatal("concurrent identity creation overwritten", err)
+	if result, err := db.SaveUserContactEdit(t.Context(), snapshot, false, inboundTestGuard); err != nil || result.Contact.ID == "" || result.Contact.ID == concurrent.ID {
+		t.Fatal("new contact beside one with its address", result.Contact.ID, err)
 	}
 	if _, err := db.SnapshotUserContactEdit(t.Context(), "default", models.Contact{ID: "missing", Email: request.Email}, inboundTestGuard, nil); !errors.Is(err, sql.ErrNoRows) {
 		t.Fatal("missing edit became creation", err)

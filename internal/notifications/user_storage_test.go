@@ -507,3 +507,49 @@ func TestUserStorageNotificationWorkerPushesCalendarReminders(t *testing.T) {
 	default:
 	}
 }
+
+// Contacts waiting to be resolved are pushed to their owner, who has push
+// on; contacts are the user's, not an account's.
+func TestUserStorageNotificationWorkerPushesContactsToResolve(t *testing.T) {
+	f := newUserStorageFixture(t)
+	f.subscribe(t, "alice", "https://push.example/alice")
+	f.subscribe(t, "bob", "https://push.example/bob")
+	if rec := f.request("bob", http.MethodPatch, "/api/settings/ui", `{"desktop_notifications":"false"}`); rec.Code != http.StatusOK {
+		t.Fatal(rec.Body.String())
+	}
+	delivered := make(chan map[string]any, 4)
+	endpoints := make(chan string, 4)
+	f.service.sendNotification = func(_ context.Context, payload []byte, sub *webpush.Subscription, _ *webpush.Options) (*http.Response, error) {
+		var data map[string]any
+		_ = json.Unmarshal(payload, &data)
+		delivered <- data
+		endpoints <- sub.Endpoint
+		return pushResponse(http.StatusCreated), nil
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	f.service.Start(ctx)
+	unresolved := func(owner, eventType string) mail.Event {
+		return mail.Event{Type: mail.EventContactActivity, UserID: owner, Payload: map[string]any{"user_id": owner, "event_type": eventType, "email": "Ines Varga", "event_count": 1}}
+	}
+	// Sync progress is not pushed; contacts to resolve are.
+	f.events.Publish(unresolved("alice", "contact_synced"))
+	f.events.Publish(unresolved("alice", "contacts_unresolved"))
+	select {
+	case got := <-delivered:
+		if endpoint := <-endpoints; endpoint != "https://push.example/alice" || got["url"] != "/contacts?resolve=1" || !strings.Contains(got["title"].(string), "Ines Varga") {
+			t.Fatalf("push %v %+v", endpoint, got)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("contacts to resolve never pushed")
+	}
+	f.service.handleContactsUnresolved(t.Context(), unresolved("bob", "contacts_unresolved"))
+	admin := unresolved("alice", "contacts_unresolved")
+	admin.AdminOnly = true
+	f.service.handleContactsUnresolved(t.Context(), admin)
+	select {
+	case got := <-delivered:
+		t.Fatalf("unexpected push: %+v", got)
+	default:
+	}
+}

@@ -189,7 +189,7 @@ func (h *Handler) handleConfirmContactSyncSetup(w http.ResponseWriter, r *http.R
 }
 
 func (h *Handler) discoverContactSyncSetup(ctx context.Context, userID string, contact models.Contact, mode, customQuery, accountFilter string) models.ContactSyncSetup {
-	setup := models.ContactSyncSetup{Contact: contact, Phase: "discover", SearchMode: mode, SearchQuery: customQuery}
+	setup := models.ContactSyncSetup{Contact: contact, Phase: "discover", SearchMode: mode, SearchQuery: customQuery, HomeLabel: h.contactSetupHomeLabel(ctx, userID, contact)}
 	queries := []string{contact.Email, contact.Phone, contact.Name}
 	switch mode {
 	case "email":
@@ -206,12 +206,16 @@ func (h *Handler) discoverContactSyncSetup(ctx context.Context, userID string, c
 		accountIDs = append(accountIDs, accountID)
 	}
 	sort.Strings(accountIDs)
+	besides := h.contactSetupAccountsBesidesHome(ctx, userID, contact)
 	for _, accountID := range accountIDs {
 		if accountFilter != "" && accountID != accountFilter {
 			continue
 		}
+		if !besides[accountID] {
+			continue
+		}
 		account := accounts[accountID]
-		location := models.ContactSyncSetupLocation{AccountID: account.ID, Label: account.Email, Provider: account.Provider}
+		location := models.ContactSyncSetupLocation{AccountID: account.ID, Label: h.contactSetupLocationLabel(ctx, userID, contact, account.ID, account.Email), Provider: account.Provider}
 		location.Candidates, location.Error = h.searchContactSyncSetupCandidates(ctx, userID, account, contact, queries)
 		setup.Locations = append(setup.Locations, location)
 	}
@@ -235,6 +239,9 @@ func (h *Handler) searchContactSyncSetupCandidates(ctx context.Context, userID s
 			MatchEmail: matchEmail, MatchPhone: matchPhone, MatchName: matchName,
 		})
 	}
+	// Copies count only in the address books the contact is to sync with,
+	// when it names any: another book of the same account is another place.
+	books := contactSetupTargetBooks(contact)
 	switch account.Provider {
 	case providers.ProviderGmail:
 		if h.mailCredentials() == nil {
@@ -283,12 +290,13 @@ func (h *Handler) searchContactSyncSetupCandidates(ctx context.Context, userID s
 				return candidates, err.Error()
 			}
 			for _, candidate := range contacts {
-				if !contactSyncCandidateMatchesQueries(candidate, queries) {
+				// The contact itself is no copy to join.
+				if candidate.ID == contact.ID || !contactSyncCandidateMatchesQueries(candidate, queries) {
 					continue
 				}
 				sources, _ := h.db.GetContactSources(ctx, userID, candidate.ID, account.Provider)
 				for _, source := range sources {
-					if source.AccountID == account.ID {
+					if source.AccountID == account.ID && (len(books) == 0 || books[source.AddressBookID]) {
 						appendCandidate("stored:"+candidate.ID, source.RemoteID, candidate.ID, candidate)
 						break
 					}
@@ -426,4 +434,70 @@ func (h *Handler) loadContactSyncSetupCandidate(ctx context.Context, userID stri
 	default:
 		return models.Contact{}, storage.ContactSource{}, fmt.Errorf("invalid contact selection")
 	}
+}
+
+// contactSetupAccountsBesidesHome gives the accounts holding a Gofer Sync
+// place of the contact other than its main location. Finding the contact
+// in its main location is no news, so setup searches only these.
+func (h *Handler) contactSetupAccountsBesidesHome(ctx context.Context, userID string, contact models.Contact) map[string]bool {
+	home := strings.TrimSpace(contact.StoredIn)
+	accounts := map[string]bool{}
+	_ = h.withUserDB(ctx, userID, func(db *storage.DB) error {
+		for _, target := range contact.SaveTargets {
+			target = strings.TrimSpace(target)
+			if target == "" || target == home {
+				continue
+			}
+			if accountID, ok := strings.CutPrefix(target, "account:"); ok && accountID != "" {
+				accounts[accountID] = true
+			} else if bookID, ok := strings.CutPrefix(target, "book:"); ok && bookID != "" {
+				if book, err := db.GetContactAddressBook(ctx, userID, bookID); err == nil && book.AccountID != "" {
+					accounts[book.AccountID] = true
+				}
+			}
+		}
+		return nil
+	})
+	return accounts
+}
+
+// contactSetupTargetBooks gives the address books among a contact's Gofer
+// Sync places, by id, its main location left out: what is there is its own.
+func contactSetupTargetBooks(contact models.Contact) map[string]bool {
+	books := map[string]bool{}
+	for _, target := range contact.SaveTargets {
+		if bookID, ok := strings.CutPrefix(strings.TrimSpace(target), "book:"); ok && bookID != "" && "book:"+bookID != strings.TrimSpace(contact.StoredIn) {
+			books[bookID] = true
+		}
+	}
+	return books
+}
+
+// contactSetupLocationLabel names a place setup looks in: the account, and
+// the address books of it the contact is to sync with.
+func (h *Handler) contactSetupLocationLabel(ctx context.Context, userID string, contact models.Contact, accountID, accountLabel string) string {
+	var names []string
+	_ = h.withUserDB(ctx, userID, func(db *storage.DB) error {
+		for bookID := range contactSetupTargetBooks(contact) {
+			if book, err := db.GetContactAddressBook(ctx, userID, bookID); err == nil && book.AccountID == accountID && strings.TrimSpace(book.Name) != "" {
+				names = append(names, strings.TrimSpace(book.Name))
+			}
+		}
+		return nil
+	})
+	if len(names) == 0 {
+		return accountLabel
+	}
+	sort.Strings(names)
+	return accountLabel + " / " + strings.Join(names, ", ")
+}
+
+// contactSetupHomeLabel names the contact's main location for its setup.
+func (h *Handler) contactSetupHomeLabel(ctx context.Context, userID string, contact models.Contact) string {
+	var accounts []models.Account
+	_ = h.withUserDB(ctx, userID, func(db *storage.DB) error {
+		accounts, _ = db.GetAccounts(ctx, userID)
+		return nil
+	})
+	return views.ContactHomeLabel(ctx, contact.StoredIn, accounts)
 }

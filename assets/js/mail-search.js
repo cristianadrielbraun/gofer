@@ -65,6 +65,7 @@
   }
 
   function sync() {
+    if (typeof syncSidebarTagLinks === "function") syncSidebarTagLinks()
     var controls = document.querySelector("[data-mail-search-controls]")
     if (!controls) return
     var selected = scope()
@@ -105,13 +106,16 @@
     var link = document.querySelector("[data-mail-scope-navigation]")
     link.setAttribute("href", url)
     document.dispatchEvent(new CustomEvent("gofer:mail-folder-clicked", {detail: {folderID: selected ? "search" : origin}}))
-    history.pushState({ folder: selected ? "search" : origin, email: null }, "", url)
     // With a search or filters on both sides, this is a change within a
     // search: the rows move rather than the list emptying and refilling.
-    var within = !!(window.mailFiltersActive && window.mailFiltersActive())
+    // The list still has the filters it was loaded with, before this change.
+    var before = !!controller.searchScope || (typeof controller.filterCount === "function" && controller.filterCount() > 0)
+    var within = before && !!(window.mailFiltersActive && window.mailFiltersActive())
     // The scope menu stays open while choosing, so it opens again over the
     // new list, which replaces it.
     var menuOpen = !!document.querySelector("#mail-search-scope-menu [data-tui-popover-content]:popover-open")
+    if (selected ? enter(controller, url, { move: within }) : leave(controller, url, { move: within })) return Promise.resolve()
+    history.pushState({ folder: selected ? "search" : origin, email: null }, "", url)
     return replaceList(controller, request, { move: within }).then(function () {
       if (menuOpen && window.tui && window.tui.popover) window.tui.popover.open("mail-search-scope-menu")
     }).catch(function () {
@@ -138,13 +142,147 @@
         if (!response.ok) throw new Error("list unavailable")
         return response.text()
       })
-    return Promise.all([loading, leaving]).then(function (done) {
+    // The pills of the new list are already dropping in (renderActivePills);
+    // the new list keeps them as they end, so it waits for them to end.
+    var strip = document.querySelector("[data-mail-active-filter-pills]")
+    var settling = strip && strip.getAnimations ? Promise.all(strip.getAnimations({ subtree: true }).map(function (animation) {
+      return animation.finished.catch(function () {})
+    })) : Promise.resolve()
+    return Promise.all([loading, leaving, settling]).then(function (done) {
       if (window.location.pathname + window.location.search !== address) return
       if (moving && window.VirtualMailList) window.VirtualMailList.moveFrom = controller.captureListTransition()
       // The new rows arrive hidden and fan in once the list is set up.
       else if (window.VirtualMailList && window.VirtualMailList.fanInNext) document.documentElement.classList.add("mail-list-entering")
       htmx.swap("#main-content", done[0], { swapStyle: "outerHTML" })
     })
+  }
+
+  // scopeFromAddress reads a search scope from an address's query, as
+  // scopeURL writes it.
+  function scopeFromAddress(address) {
+    var params = new URL(address, window.location.origin).searchParams
+    var kind = params.get("scope")
+    if (!kind) return null
+    var selected = { kind: kind }
+    if (params.get("scope_account_id")) selected.account_id = params.get("scope_account_id")
+    var folders = params.getAll("scope_folder_id")
+    if (folders.length) selected.folder_ids = folders
+    if (params.get("include_descendants") === "1") selected.include_descendants = true
+    if (params.get("exclude_spam_trash") === "1") selected.exclude_spam_trash = true
+    if (params.get("include_local") === "1") selected.include_local = true
+    return selected
+  }
+
+  // enter turns the open list into the search results of an address, in
+  // place: the list, header and controls stay, and only the rows are fetched,
+  // as a typed search does, rather than the whole mail pane being replaced.
+  // The page moves to the address once the rows are in, as a typed search's
+  // does (applyFilters with pushUrl). options.move moves the rows instead of
+  // fanning them out and in. It answers false when there's no list to switch,
+  // for the caller to load the page instead.
+  function enter(controller, address, options) {
+    var root = document.getElementById("mail-list")
+    var url = new URL(address, window.location.origin)
+    var selected = scopeFromAddress(url.href)
+    if (!controller || !selected || !root || url.pathname !== "/mail/search" ||
+      !controller.container || !document.body.contains(controller.container) || typeof controller.applyFilters !== "function") return false
+    controller.searchFrom = url.searchParams.get("search_from") || (controller.searchScope ? controller.searchFrom : controller.folderID)
+    controller.searchScope = selected
+    controller.folderID = "search"
+    controller.container.dataset.folderId = "search"
+    controller.sidebarTag = controller.readSidebarTagFromURL(url.search)
+    root.dataset.mailSearchScope = JSON.stringify(selected)
+    root.setAttribute("data-mail-search-results", "")
+    var menu = controls()
+    if (menu) {
+      delete menu.dataset.pendingScope
+      if (controller.searchFrom) menu.dataset.currentFolder = controller.searchFrom
+    }
+    showScope(selected)
+    var heading = document.getElementById("mail-folder-name")
+    if (heading) heading.textContent = goferT("js.mail.search_results")
+    var link = document.querySelector("[data-mail-scope-navigation]")
+    if (link) link.setAttribute("href", url.pathname + url.search)
+    var filters = controller.readFiltersFromURL(url.search)
+    controller.filters = filters
+    controller.syncFilterInputs()
+    if (typeof syncMailArchiveActionState === "function") syncMailArchiveActionState()
+    var before = window.location.pathname + window.location.search
+    controller.applyFilters(filters, { replace: !(options && options.move), pushUrl: true }).catch(function () {
+      // The rows couldn't load: load the whole page, as before.
+      if (window.location.pathname + window.location.search !== before) return
+      history.pushState({ folder: "search", email: null }, "", url.pathname + url.search)
+      htmx.ajax("GET", url.pathname + url.search, { target: "#main-content", swap: "outerHTML" })
+    })
+    return true
+  }
+
+  // markFolder marks a folder in the sidebar as the open one, as the server
+  // draws it, and unmarks the rest.
+  function markFolder(folderID) {
+    var aside = document.querySelector("aside")
+    if (!aside) return
+    var on = ["bg-sidebar-accent", "text-sidebar-primary", "font-medium"]
+    var off = ["text-sidebar-foreground", "hover:bg-sidebar-accent/60", "hover:text-sidebar-accent-foreground"]
+    var target = aside.querySelector('a[hx-get="/folder/' + folderID + '"]')
+    aside.querySelectorAll("a[hx-get^='/folder/'], [data-sidebar-folder-row]").forEach(function (link) {
+      var active = link === target || (target && link.contains(target)) || (target && target.closest("[data-sidebar-folder-row]") === link)
+      on.forEach(function (name) { link.classList.toggle(name, !!active) })
+      off.forEach(function (name) { link.classList.toggle(name, !active) })
+      var badge = link.querySelector("[data-folder-unread]")
+      if (badge) {
+        badge.classList.toggle("bg-sidebar-primary/20", !!active)
+        badge.classList.toggle("text-sidebar-primary", !!active)
+        badge.classList.toggle("bg-sidebar-accent", !active)
+        badge.classList.toggle("text-sidebar-foreground", !active)
+      }
+    })
+  }
+
+  // leave turns search results back into the folder list of an address
+  // (/folder/<id>), in place, as enter does the other way: only the rows are
+  // fetched, and the page moves to the address once they are in.
+  function leave(controller, address, options) {
+    var root = document.getElementById("mail-list")
+    var url = new URL(address, window.location.origin)
+    var match = /^\/folder\/([^/]+)$/.exec(url.pathname)
+    if (!controller || !match || !root || !controller.searchScope ||
+      !controller.container || !document.body.contains(controller.container) || typeof controller.applyFilters !== "function") return false
+    var folderID = decodeURIComponent(match[1])
+    controller.searchScope = null
+    controller.searchFrom = null
+    controller.folderID = folderID
+    controller.container.dataset.folderId = folderID
+    controller.sidebarTag = controller.readSidebarTagFromURL(url.search)
+    root.dataset.mailSearchScope = ""
+    root.removeAttribute("data-mail-search-results")
+    var menu = controls()
+    if (menu) {
+      delete menu.dataset.pendingScope
+      menu.dataset.currentFolder = folderID
+    }
+    showScope(null)
+    var link = document.querySelector("[data-mail-scope-navigation]")
+    if (link) link.setAttribute("href", url.pathname + url.search)
+    var folderLink = document.querySelector('aside a[hx-get="/folder/' + folderID + '"] span.truncate')
+    var heading = document.getElementById("mail-folder-name")
+    if (heading && folderLink) {
+      heading.textContent = folderLink.textContent.trim()
+      heading.setAttribute("data-mail-folder-default-name", folderLink.textContent.trim())
+    }
+    var filters = controller.readFiltersFromURL(url.search)
+    controller.filters = filters
+    controller.syncFilterInputs()
+    if (typeof syncMailArchiveActionState === "function") syncMailArchiveActionState()
+    if (typeof syncSidebarTagLinks === "function") syncSidebarTagLinks(url.pathname + url.search)
+    markFolder(folderID)
+    var before = window.location.pathname + window.location.search
+    controller.applyFilters(filters, { replace: !(options && options.move), pushUrl: true }).catch(function () {
+      if (window.location.pathname + window.location.search !== before) return
+      history.pushState({ folder: folderID, email: null }, "", url.pathname + url.search)
+      htmx.ajax("GET", url.pathname.replace(/^(\/folder\/[^/]+)$/, "$1/full") + url.search, { target: "#main-content", swap: "outerHTML" })
+    })
+    return true
   }
 
   function dialog() { return document.getElementById("mail-search-folders-dialog") }
@@ -321,5 +459,5 @@
 
   window.GoferMailSearch = { scope: scope, scopeURL: scopeURL, payload: payload, folderFor: folderFor, rowData: rowData, sync: sync, touches: touches,
     remember: function (ids) { rememberedFolders.clear(); ids.forEach(function (id) { if (id.folder_id) rememberedFolders.set(String(id.id), id.folder_id) }) },
-    navigate: navigate, replaceList: replaceList, pending: pending }
+    navigate: navigate, replaceList: replaceList, enter: enter, pending: pending }
 })()

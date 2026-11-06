@@ -184,3 +184,19 @@ func TestRemoteImageDownloadsUseDecodedAddresses(t *testing.T) {
 		t.Fatalf("RewriteToLocalAssets = %q", local)
 	}
 }
+
+func TestSanitizeOutgoingHTMLKeepsRemoteImages(t *testing.T) {
+	got := string(SanitizeOutgoingHTML([]byte(`<p>Hi</p><img src="https://example.com/logo.png" alt="Logo"><img src="cid:part1@example.com"><img src="x" onerror="alert(1)"><script>alert(1)</script>`)))
+	if !strings.Contains(got, `src="https://example.com/logo.png"`) {
+		t.Fatalf("remote image src not kept: %s", got)
+	}
+	if strings.Contains(got, "data-remote-src") {
+		t.Fatalf("remote image still blocked: %s", got)
+	}
+	if !strings.Contains(got, `src="cid:part1@example.com"`) {
+		t.Fatalf("inline part reference not kept: %s", got)
+	}
+	if strings.Contains(got, "onerror") || strings.Contains(got, "<script") {
+		t.Fatalf("unsafe markup kept: %s", got)
+	}
+}

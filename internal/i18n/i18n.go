@@ -99,7 +99,10 @@ func Parse(code string) (Locale, bool) {
 // Match picks the best catalog for preferences such as an Accept-Language
 // header, falling back to English.
 func Match(preferences ...string) Locale {
-	tag, _ := language.MatchStrings(matcher, preferences...)
+	tag, index := language.MatchStrings(matcher, preferences...)
+	if index > 0 && index < len(locales) && strings.Contains(string(locales[index]), "-") {
+		return locales[index]
+	}
 	base, _ := tag.Base()
 	if locale, ok := Parse(base.String()); ok {
 		return locale

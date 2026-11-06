@@ -5,7 +5,9 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"fmt"
 	"net/url"
+	"slices"
 	"strings"
+	"time"
 
 	"github.com/cristianadrielbraun/gofer/components/button"
 	"github.com/cristianadrielbraun/gofer/components/checkbox"
@@ -14,6 +16,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/components/icon"
 	"github.com/cristianadrielbraun/gofer/components/input"
 	"github.com/cristianadrielbraun/gofer/components/popover"
+	"github.com/cristianadrielbraun/gofer/components/progress"
 	"github.com/cristianadrielbraun/gofer/components/radio"
 	"github.com/cristianadrielbraun/gofer/components/selectbox"
 	switchcomp "github.com/cristianadrielbraun/gofer/components/switch"
@@ -326,28 +329,156 @@ func contactReadOnlyOriginLabel(ctx context.Context, contact models.Contact, pro
 func contactReadOnlyMirrorLabels(ctx context.Context, contact *models.Contact, profile *models.ContactProfile, accounts []models.Account) []string {
 	labels := []string{}
 	seen := map[string]bool{}
+	// The home is under Stored in; the sync locations are the other places.
+	home := contactHome(contact)
+	if profile != nil && strings.TrimSpace(profile.Home) != "" {
+		home = strings.TrimSpace(profile.Home)
+	}
 	if profile != nil {
-		for _, card := range profile.Cards {
-			if !card.IsDeleted && card.Kind == "local" {
-				labels = appendUniqueContactReadLabel(labels, seen, i18n.T(ctx, "contacts.origin.local"))
-				break
+		if home != "local" {
+			for _, card := range profile.Cards {
+				if !card.IsDeleted && card.Kind == "local" {
+					labels = appendUniqueContactReadLabel(labels, seen, i18n.T(ctx, "contacts.origin.local"))
+					break
+				}
 			}
 		}
 		for _, membership := range profile.SyncMemberships {
-			if membership.Enabled {
+			place := "account:" + membership.AccountID
+			if membership.AddressBookID != "" {
+				place = "book:" + membership.AddressBookID
+			}
+			if membership.Enabled && place != home {
 				labels = appendUniqueContactReadLabel(labels, seen, contactSyncMembershipLabel(ctx, membership, accounts))
 			}
 		}
 	}
 	if contact != nil {
 		for _, target := range contact.SaveTargets {
-			if strings.TrimSpace(target) == "" {
+			if target = strings.TrimSpace(target); target == "" || target == home {
 				continue
 			}
 			labels = appendUniqueContactReadLabel(labels, seen, contactSaveTargetLabel(ctx, target, accounts))
 		}
 	}
 	return labels
+}
+
+// contactHome is where a contact lives, Gofer Local for one not saved yet.
+func contactHome(contact *models.Contact) string {
+	if contact == nil || strings.TrimSpace(contact.StoredIn) == "" {
+		return "local"
+	}
+	return strings.TrimSpace(contact.StoredIn)
+}
+
+// contactHomeIs says whether place is the home of a saved contact. A new
+// contact has every place listed: its form hides the one chosen as home.
+func contactHomeIs(contact *models.Contact, place string) bool {
+	return contact != nil && strings.TrimSpace(contact.ID) != "" && contactHome(contact) == place
+}
+
+// contactNewHomeItemAttributes hides Gofer Local among a new contact's sync
+// places: it is where the contact starts out living.
+func contactNewHomeItemAttributes(contact *models.Contact) templ.Attributes {
+	if contact == nil || strings.TrimSpace(contact.ID) == "" {
+		return templ.Attributes{"style": "display:none"}
+	}
+	return nil
+}
+
+// contactStoredInLabels names where the contact lives: its home, said to be
+// on its way while its copy is still being written, or deleted there when the
+// home is among the places that deleted it (deletedFrom) and the deletion
+// waits to be resolved. Its Gofer Sync places are listed apart.
+func contactStoredInLabels(ctx context.Context, profile *models.ContactProfile, deletedFrom []string, accounts []models.Account) []string {
+	labels := []string{}
+	if profile == nil {
+		return labels
+	}
+	seen := map[string]bool{}
+	home := strings.TrimSpace(profile.Home)
+	if home == "" {
+		home = "local"
+	}
+	var places []string
+	for _, card := range profile.Cards {
+		if card.IsDeleted {
+			continue
+		}
+		switch {
+		case card.Kind == "local":
+			places = append(places, "local")
+		case card.Kind == "provider":
+			place := "account:" + card.AccountID
+			if card.AddressBookID != "" {
+				place = "book:" + card.AddressBookID
+			}
+			places = append(places, place)
+		}
+	}
+	accountOf := func(place string) string {
+		for _, card := range profile.Cards {
+			if card.Kind == "provider" && (place == "account:"+card.AccountID || place == "book:"+card.AddressBookID) {
+				return card.AccountID
+			}
+		}
+		if account, ok := strings.CutPrefix(place, "account:"); ok {
+			return account
+		}
+		if book, ok := strings.CutPrefix(place, "book:"); ok {
+			for _, account := range accounts {
+				for _, candidate := range account.ContactAddressBooks {
+					if candidate.ID == book {
+						return account.ID
+					}
+				}
+			}
+		}
+		return ""
+	}
+	label := func(place string) string {
+		if place == "local" {
+			return i18n.T(ctx, "contacts.origin.local")
+		}
+		return contactStoredInPlaceLabel(ctx, place, accountOf(place), accounts)
+	}
+	if home != "" {
+		text := label(home)
+		switch {
+		case slices.Contains(deletedFrom, home):
+			text = i18n.T(ctx, "contacts.stored_in_deleted", "place", text)
+		case !slices.Contains(places, home):
+			text = i18n.T(ctx, "contacts.stored_in_writing", "place", text)
+		}
+		labels = appendUniqueContactReadLabel(labels, seen, text)
+	}
+	return labels
+}
+
+// ContactPlaceLabel names an account or address book as the contacts list
+// does, for messages the server writes.
+func ContactPlaceLabel(ctx context.Context, place, accountID string, accounts []models.Account) string {
+	return contactStoredInPlaceLabel(ctx, place, accountID, accounts)
+}
+
+// contactStoredInPlaceLabel names an account or address book as the filters
+// do; a book the account no longer lists still names the account.
+func contactStoredInPlaceLabel(ctx context.Context, target, accountID string, accounts []models.Account) string {
+	for _, account := range accounts {
+		if account.ID != accountID {
+			continue
+		}
+		if bookID, ok := strings.CutPrefix(target, "book:"); ok {
+			for _, book := range account.ContactAddressBooks {
+				if book.ID == bookID {
+					return accountContactOriginLabel(ctx, account) + " / " + contactAddressBookDisplayName(ctx, book)
+				}
+			}
+		}
+		return accountContactOriginLabel(ctx, account)
+	}
+	return i18n.T(ctx, "contacts.origin.unavailable_account")
 }
 
 func contactProfileSyncEnabled(profile *models.ContactProfile) bool {
@@ -583,6 +714,28 @@ func contactProfileSyncLabel(ctx context.Context, profile *models.ContactProfile
 	return contactSyncEnabledLabel(ctx, contactProfileSyncEnabled(profile))
 }
 
+// contactSyncPaused says whether a contact's Gofer Sync is on but waits for
+// it to be resolved.
+func contactSyncPaused(contact models.Contact, profile *models.ContactProfile) bool {
+	return contactProfileSyncEnabled(profile) && len(contact.DeletedFrom) > 0
+}
+
+// contactSyncStateLabel is the Gofer Sync section's badge: on, off, or on
+// and paused while the contact waits to be resolved.
+func contactSyncStateLabel(ctx context.Context, contact models.Contact, profile *models.ContactProfile) string {
+	if contactSyncPaused(contact, profile) {
+		return i18n.T(ctx, "contacts.sync.enabled_paused")
+	}
+	return contactProfileSyncLabel(ctx, profile)
+}
+
+func contactSyncStateBadgeClass(contact models.Contact, profile *models.ContactProfile) string {
+	if contactSyncPaused(contact, profile) {
+		return "rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-wider transition-colors border-amber-500/30 bg-amber-500/[0.10] text-amber-800 dark:text-amber-200"
+	}
+	return contactSyncEnabledBadgeClass(contactProfileSyncEnabled(profile))
+}
+
 func contactSyncLabel(ctx context.Context, contact *models.Contact) string {
 	return contactSyncEnabledLabel(ctx, contact != nil && contact.GoferSyncEnabled)
 }
@@ -679,6 +832,8 @@ func contactSourceLabel(ctx context.Context, source string, isManual bool, accou
 		return i18n.T(ctx, "contacts.origin.observed")
 	case "manual":
 		return i18n.T(ctx, "contacts.origin.manual")
+	case models.ContactOriginImported:
+		return i18n.T(ctx, "contacts.origin.imported_file")
 	case "synced":
 		return i18n.T(ctx, "contacts.origin.imported_any")
 	case "provider:gmail":
@@ -705,9 +860,28 @@ func accountContactSyncCapable(account models.Account) bool {
 	return account.ContactSyncEnabled
 }
 
+// contactInitialSyncPlaces lists the accounts and address books a saved
+// contact syncs with, for the editor to warn before one taken out loses its
+// copy.
+func contactInitialSyncPlaces(contact *models.Contact) string {
+	if contact == nil || strings.TrimSpace(contact.ID) == "" {
+		return ""
+	}
+	var places []string
+	for _, target := range contact.SaveTargets {
+		if target != "local" && target != contactHome(contact) {
+			places = append(places, target)
+		}
+	}
+	return strings.Join(places, ",")
+}
+
+// contactSaveTargetSelected says whether target is among a contact's Gofer
+// Sync places. Its home never is: the contact is there already, and a new
+// contact starts with none.
 func contactSaveTargetSelected(contact *models.Contact, target string) bool {
-	if contact == nil || len(contact.SaveTargets) == 0 {
-		return target == "local"
+	if contact == nil || strings.TrimSpace(contact.ID) == "" || target == contactHome(contact) {
+		return false
 	}
 	for _, selected := range contact.SaveTargets {
 		if selected == target {
@@ -749,114 +923,96 @@ func contactViewMode(mode string) string {
 
 func contactViewIndicatorStyle(mode string) string {
 	if contactViewMode(mode) == "table" {
-		return "transform:translateX(100%)"
+		return "transform:translateX(calc(100% + 2px))"
 	}
 	return "transform:translateX(0)"
+}
+
+// contactFiltersActiveExcept says whether a filter other than the contacts
+// to resolve, or a search, narrows the list.
+func contactFiltersActiveExcept(filters models.ContactFilters) bool {
+	return filters.Source != "" || filters.StoredIn != "" || filters.SaveTarget != "" || filters.Activity != "" || strings.TrimSpace(filters.Query) != ""
 }
 
 // contactFiltersActiveCount is how many filters the Filters button counts.
 func contactFiltersActiveCount(filters models.ContactFilters) int {
 	count := 0
-	for _, value := range []string{filters.Source, filters.SaveTarget, filters.Activity} {
+	for _, value := range []string{filters.Source, filters.StoredIn, filters.SaveTarget, filters.Activity} {
 		if value != "" {
 			count++
 		}
 	}
+	if filters.Unresolved {
+		count++
+	}
 	return count
 }
 
-// contactAccountMarker is an account a contact syncs with: its name and
-// color, and a title naming its address books too.
-type contactAccountMarker struct {
-	Name  string
-	Color string
-	Title string
-}
-
-// contactAccountMarkers gives one marker per account a contact syncs with,
-// in the order its address books come, or for a contact imported from an
-// account, that account's.
-func contactAccountMarkers(ctx context.Context, contact models.Contact, accounts []models.Account) []contactAccountMarker {
-	byID := make(map[string]models.Account, len(accounts))
-	for _, account := range accounts {
-		byID[account.ID] = account
-	}
-	var order []string
-	books := make(map[string][]string)
-	for _, book := range contact.SourceBooks {
-		if _, known := byID[book.AccountID]; !known {
-			continue
-		}
-		if _, seen := books[book.AccountID]; !seen {
-			order = append(order, book.AccountID)
-		}
-		books[book.AccountID] = append(books[book.AccountID], contactAddressBookDisplayName(ctx, book))
-	}
-	if accountID, ok := strings.CutPrefix(contact.Source, "synced:"); ok && len(order) == 0 {
-		if _, known := byID[accountID]; known {
-			order = append(order, accountID)
-		}
-	}
-	markers := make([]contactAccountMarker, 0, len(order))
-	for _, id := range order {
-		account := byID[id]
-		title := accountContactOriginLabel(ctx, account)
-		if names := books[id]; len(names) > 0 {
-			title += " / " + strings.Join(names, ", ")
-		}
-		markers = append(markers, contactAccountMarker{Name: accountContactOriginLabel(ctx, account), Color: account.Color, Title: title})
-	}
-	return markers
-}
-
-// contactOrigin is where a contact card says the contact comes from.
+// contactOrigin is how the list shows where a contact lives.
 type contactOrigin struct {
 	Label string
 	Title string
-	// Color is the account's, for a contact one of them holds.
+	// Color is the account's, for a contact living on one.
 	Color string
 }
 
-// contactCardOrigin names the account a contact belongs to, the first and how
-// many more when it is in several, or else how it got into Gofer: observed
-// in mail, added by hand.
-func contactCardOrigin(ctx context.Context, contact models.Contact, accounts []models.Account) contactOrigin {
-	if markers := contactAccountMarkers(ctx, contact, accounts); len(markers) > 0 {
-		origin := contactOrigin{Label: markers[0].Name, Color: markers[0].Color}
-		titles := make([]string, 0, len(markers))
-		for _, marker := range markers {
-			titles = append(titles, marker.Title)
-		}
-		if len(markers) > 1 {
-			origin.Label += fmt.Sprintf(" +%d", len(markers)-1)
-		}
-		origin.Title = strings.Join(titles, "\n")
-		return origin
+// contactCardHome names where a contact lives, its Stored in: Gofer Local,
+// or the account, with its color, and the address book in the title.
+func contactCardHome(ctx context.Context, contact models.Contact, accounts []models.Account) contactOrigin {
+	home := strings.TrimSpace(contact.StoredIn)
+	if home == "" || home == "local" {
+		label := i18n.T(ctx, "contacts.origin.local")
+		return contactOrigin{Label: label, Title: i18n.T(ctx, "contacts.stored_in_title", "place", label)}
 	}
-	label := contactSourceLabel(ctx, contact.Source, contact.IsManual, accounts)
-	title := label
-	switch {
-	case contact.IsManual || contact.Source == "manual":
-		title = i18n.T(ctx, "contacts.origin.manual_title")
-	case contact.Source == "observed":
-		title = i18n.T(ctx, "contacts.origin.observed_title")
+	for _, account := range accounts {
+		if home == "account:"+account.ID {
+			label := accountContactOriginLabel(ctx, account)
+			return contactOrigin{Label: label, Title: i18n.T(ctx, "contacts.stored_in_title", "place", label), Color: account.Color}
+		}
+		for _, book := range account.ContactAddressBooks {
+			if home == "book:"+book.ID {
+				label := accountContactOriginLabel(ctx, account)
+				return contactOrigin{Label: label, Title: i18n.T(ctx, "contacts.stored_in_title", "place", label+" / "+contactAddressBookDisplayName(ctx, book)), Color: account.Color}
+			}
+		}
 	}
-	return contactOrigin{Label: label, Title: title}
+	label := i18n.T(ctx, "contacts.origin.unavailable_account")
+	return contactOrigin{Label: label, Title: label}
 }
 
-// contactCardDate is the date a contact card shows: when the contact was last
-// seen in mail, or else when it was added, with what it means.
-func contactCardDate(ctx context.Context, contact models.Contact) (string, string) {
+// contactListDate is a date a contact's card or row shows: the date alone
+// (Date, for the table, under its column's name), saying what it is (Text,
+// for the card) and in full (Title).
+type contactListDate struct {
+	Date  string
+	Text  string
+	Title string
+}
+
+// contactInteractionDate is the Interaction field: when the contact was last
+// in mail, or, in the Trash, when it was moved there.
+func contactInteractionDate(ctx context.Context, contact models.Contact) contactListDate {
 	if trashed := strings.TrimSpace(contact.TrashedAt); trashed != "" {
-		return trashed, i18n.T(ctx, "contacts.card.trashed", "date", trashed, "purge", contact.TrashPurgeAt)
+		return contactListDate{Date: trashed, Text: i18n.T(ctx, "contacts.card.trashed_on", "date", trashed), Title: i18n.T(ctx, "contacts.card.trashed", "date", trashed, "purge", contact.TrashPurgeAt)}
 	}
-	if seen := strings.TrimSpace(contact.LastSeenAt); seen != "" {
-		return seen, i18n.T(ctx, "contacts.card.last_seen", "date", seen)
+	return contactDatedAs(ctx, "contacts.card.last_mail_on", contact.LastSeenAt)
+}
+
+// contactCardLayoutSampleDate is the layout editor's sample card's date, days
+// from today, as the list writes dates.
+func contactCardLayoutSampleDate(ctx context.Context, days int) string {
+	return i18n.Dates(ctx).Date(time.Now().AddDate(0, 0, days))
+}
+
+// contactDatedAs is date said with key ("Created on {date}"), or nothing
+// without a date.
+func contactDatedAs(ctx context.Context, key, date string) contactListDate {
+	date = strings.TrimSpace(date)
+	if date == "" {
+		return contactListDate{}
 	}
-	if added := strings.TrimSpace(contact.CreatedAt); added != "" {
-		return added, i18n.T(ctx, "contacts.card.added", "date", added)
-	}
-	return "", ""
+	text := i18n.T(ctx, key, "date", date)
+	return contactListDate{Date: date, Text: text, Title: text}
 }
 
 func contactMessageCountTitle(ctx context.Context, count int) string {
@@ -864,7 +1020,7 @@ func contactMessageCountTitle(ctx context.Context, count int) string {
 }
 
 func contactFiltersActive(filters models.ContactFilters) bool {
-	return filters.Source != "" || filters.SaveTarget != "" || filters.Activity != ""
+	return filters.Source != "" || filters.StoredIn != "" || filters.SaveTarget != "" || filters.Activity != "" || filters.Unresolved
 }
 
 func contactFilterCount(filters models.ContactFilters) int {
@@ -872,10 +1028,16 @@ func contactFilterCount(filters models.ContactFilters) int {
 	if filters.Source != "" {
 		count++
 	}
+	if filters.StoredIn != "" {
+		count++
+	}
 	if filters.SaveTarget != "" {
 		count++
 	}
 	if filters.Activity != "" {
+		count++
+	}
+	if filters.Unresolved {
 		count++
 	}
 	return count
@@ -886,11 +1048,17 @@ func contactFilterValues(filters models.ContactFilters) url.Values {
 	if filters.Trash {
 		values.Set("trash", "1")
 	}
+	if filters.Unresolved {
+		values.Set("unresolved", "1")
+	}
 	if strings.TrimSpace(filters.Query) != "" {
 		values.Set("q", strings.TrimSpace(filters.Query))
 	}
 	if filters.Source != "" {
 		values.Set("source", filters.Source)
+	}
+	if filters.StoredIn != "" {
+		values.Set("stored_in", filters.StoredIn)
 	}
 	if filters.SaveTarget != "" {
 		values.Set("save_target", filters.SaveTarget)
@@ -914,6 +1082,8 @@ func contactSortLabel(ctx context.Context, filters models.ContactFilters) string
 	switch filters.SortBy {
 	case "name":
 		return i18n.T(ctx, "contacts.sort.name")
+	case "created":
+		return i18n.T(ctx, "contacts.sort.created")
 	case "last_interaction":
 		return i18n.T(ctx, "contacts.sort.last_interaction")
 	default:
@@ -944,8 +1114,68 @@ func contactsDetailURL(filters models.ContactFilters, contactID string) string {
 	return "/contacts?" + values.Encode()
 }
 
-func contactListTableGridStyle() string {
-	return "--mail-list-table-columns:minmax(10rem,1.4fr) minmax(8rem,0.9fr) minmax(3.5rem,auto)"
+// contactListNotes is a contact's notes on one line, for the list.
+func contactListNotes(contact models.Contact) string {
+	return strings.Join(strings.Fields(contact.Notes), " ")
+}
+
+// contactListSyncLabel says how a contact's Gofer Sync stands, as its page
+// does, or that it is off.
+func contactListSyncLabel(ctx context.Context, contact models.Contact) string {
+	if !contact.GoferSyncEnabled {
+		return i18n.T(ctx, "contacts.list.sync_off")
+	}
+	return contactReadOnlySyncStatus(ctx, contact, false)
+}
+
+func contactListSyncTitle(ctx context.Context, contact models.Contact) string {
+	title := i18n.T(ctx, "contacts.list.sync_title", "state", contactListSyncLabel(ctx, contact))
+	if contact.GoferSyncEnabled && contact.SyncStatus == "error" && strings.TrimSpace(contact.SyncError) != "" {
+		title += ": " + strings.TrimSpace(contact.SyncError)
+	}
+	return title
+}
+
+func contactListSyncClass(contact models.Contact) string {
+	if !contact.GoferSyncEnabled {
+		return "text-muted-foreground"
+	}
+	switch contact.SyncStatus {
+	case "pending", "running":
+		return "text-amber-600 dark:text-amber-400"
+	case "error":
+		return "text-destructive"
+	case "done":
+		return "text-emerald-600 dark:text-emerald-400"
+	default:
+		return "text-muted-foreground"
+	}
+}
+
+// contactListSyncIcon is Gofer Sync's icon, as its section on the contact's
+// page has it. A cloud read as "not synced", even for a contact that is just
+// in its main location; the colour tells on from off.
+templ contactListSyncIcon(contact models.Contact) {
+	@icon.Route(icon.Props{Class: "size-3.5 shrink-0"})
+}
+
+// contactCardSyncClass colours a card's Gofer Sync icon: green when it is on,
+// grey when off. How a sync went is in its title, and in the table.
+func contactCardSyncClass(contact models.Contact) string {
+	if contact.GoferSyncEnabled {
+		return "text-emerald-600 dark:text-emerald-400"
+	}
+	return "text-muted-foreground"
+}
+
+// contactListOrganization is the organization the list shows beside a
+// contact's name, unless it is the name itself.
+func contactListOrganization(contact models.Contact) string {
+	org := strings.TrimSpace(contact.Organization)
+	if org == strings.TrimSpace(contact.Name) {
+		return ""
+	}
+	return org
 }
 
 func contactWindowEnd(start int, count int) int {
@@ -1377,12 +1607,20 @@ templ ContactsPage(contacts []models.Contact, selected *models.Contact, selected
 	<div id="main-content" class={ mailPaneLayoutClass(PaneLayout(uiSettings, "contacts")) + " bg-background" } data-mail-pane-layout={ PaneLayout(uiSettings, "contacts") }>
 		@ContactsListPane(contacts, selected, filters, totalCount, PanelSetting(uiSettings, "contacts", "mail_list_width", "50%"), accounts)
 		@ResizeHandle("maillist")
-		@ContactsViewPane(selected, selectedProfile, showNew, syncQueued, accounts)
+		@ContactsViewPane(selected, selectedProfile, false, syncQueued, accounts)
+		// A new contact is made in a dialog, over the contact being read.
+		@ContactNewDialog(accounts, showNew)
 	</div>
 }
 
 templ ContactsListPane(contacts []models.Contact, selected *models.Contact, filters models.ContactFilters, totalCount int, width string, accounts []models.Account) {
 	<section id="mail-list" class="w-full lg:flex flex-col border-r border-border bg-card h-full overflow-hidden" style={ "width:" + mailListWidthCSS(width) } data-view-mode={ contactViewMode(filters.View) } data-contact-list-shell data-panel-section="contacts">
+		@ContactCardLayoutDialog()
+		// The table's header, for the list to draw again when it switches to
+		// the table (virtual-scroll.js) and while it loads (app.js).
+		<template data-contact-table-header-template>
+			@ContactListTableHeader()
+		</template>
 		<div class="contacts-list-header px-4 py-4 space-y-3">
 			<div class="contacts-list-title-row flex items-center justify-between">
 				<div class="flex items-center gap-2">
@@ -1423,8 +1661,12 @@ templ ContactsListPane(contacts []models.Contact, selected *models.Contact, filt
 						<input type="hidden" name="trash" value="1"/>
 					}
 					<input type="hidden" name="source" value={ filters.Source }/>
+					<input type="hidden" name="stored_in" value={ filters.StoredIn }/>
 					<input type="hidden" name="save_target" value={ filters.SaveTarget }/>
 					<input type="hidden" name="activity" value={ filters.Activity }/>
+					if filters.Unresolved {
+						<input type="hidden" name="unresolved" value="1"/>
+					}
 					<input type="hidden" name="view" value={ contactViewMode(filters.View) }/>
 					<input type="hidden" name="sort_by" value={ filters.SortBy }/>
 					<input type="hidden" name="sort_order" value={ filters.SortOrder }/>
@@ -1450,7 +1692,7 @@ templ ContactsListPane(contacts []models.Contact, selected *models.Contact, filt
 								}
 							}
 						}
-						@dropdown.Content(dropdown.ContentProps{Placement: dropdown.PlacementBottomEnd, Class: "mobile-sheet w-[26rem] max-w-[calc(100vw-2rem)] normal-case tracking-normal p-3"}) {
+						@dropdown.Content(dropdown.ContentProps{Placement: dropdown.PlacementBottomEnd, Class: "mobile-sheet w-[26rem] max-w-[calc(100vw-2rem)] max-h-none normal-case tracking-normal p-3"}) {
 							<form action="/contacts" method="get" class="space-y-3" data-contact-filter-form>
 								if filters.Trash {
 									<input type="hidden" name="trash" value="1"/>
@@ -1459,36 +1701,60 @@ templ ContactsListPane(contacts []models.Contact, selected *models.Contact, filt
 								<input type="hidden" name="view" value={ contactViewMode(filters.View) }/>
 								<input type="hidden" name="sort_by" value={ filters.SortBy }/>
 								<input type="hidden" name="sort_order" value={ filters.SortOrder }/>
-								<div class="flex items-center justify-between gap-2">
-									<div class="text-xs font-semibold text-muted-foreground">{ i18n.T(ctx, "contacts.filters.quick") }</div>
+								<div class="flex items-center justify-end gap-2">
 									<a href={ contactsURL(models.ContactFilters{Trash: filters.Trash, Query: filters.Query, View: filters.View, SortBy: filters.SortBy, SortOrder: filters.SortOrder}, "") } class="text-[11px] font-medium text-muted-foreground hover:text-foreground" data-contact-filter-clear>{ i18n.T(ctx, "common.clear") }</a>
 								</div>
 								<div class="space-y-1 text-[11px] font-medium text-muted-foreground">
-									<span>{ i18n.T(ctx, "contacts.filters.origin") }</span>
-									@selectbox.SelectBox() {
-										@selectbox.Trigger(selectbox.TriggerProps{Name: "source", Class: "h-8 bg-background text-xs", DisableClear: true}) {
-											@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "contacts.filters.any_origin")})
+									<span>{ i18n.T(ctx, "contacts.stored_in") }</span>
+									@selectbox.SelectBox(selectbox.Props{Multiple: true}) {
+										@selectbox.Trigger(selectbox.TriggerProps{Name: "stored_in", Class: "h-8 bg-background text-xs", Multiple: true, ShowPills: true, DisableClear: true, SelectedCountText: i18n.T(ctx, "contacts.filters.selected_count")}) {
+											@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "contacts.filters.anywhere"), Multiple: true, Class: "text-left"})
 										}
 										@selectbox.Content(selectbox.ContentProps{NoSearch: true, DisableExclusive: true}) {
-											@selectbox.Item(selectbox.ItemProps{Value: "", Selected: filters.Source == ""}) {
-												{ i18n.T(ctx, "contacts.filters.any_origin") }
+											@selectbox.Item(selectbox.ItemProps{Value: "local", Selected: models.ContactFilterHas(filters.StoredIn, "local")}) {
+												{ i18n.T(ctx, "contacts.origin.local") }
 											}
-											@selectbox.Item(selectbox.ItemProps{Value: "manual", Selected: filters.Source == "manual"}) {
+											for _, account := range accounts {
+												if !account.IsDeleting && accountContactSyncCapable(account) {
+													@selectbox.Item(selectbox.ItemProps{Value: contactSaveTargetValue(account), Selected: models.ContactFilterHas(filters.StoredIn, contactSaveTargetValue(account))}) {
+														{ accountContactSaveLabel(account) }
+													}
+													for _, book := range account.ContactAddressBooks {
+														@selectbox.Item(selectbox.ItemProps{Value: contactBookTargetValue(book), Selected: models.ContactFilterHas(filters.StoredIn, contactBookTargetValue(book))}) {
+															{ accountContactOriginLabel(ctx, account) } / { contactAddressBookDisplayName(ctx, book) }
+														}
+													}
+												}
+											}
+										}
+									}
+								</div>
+								<div class="space-y-1 text-[11px] font-medium text-muted-foreground">
+									<span>{ i18n.T(ctx, "contacts.filters.origin") }</span>
+									@selectbox.SelectBox(selectbox.Props{Multiple: true}) {
+										@selectbox.Trigger(selectbox.TriggerProps{Name: "source", Class: "h-8 bg-background text-xs", Multiple: true, ShowPills: true, DisableClear: true, SelectedCountText: i18n.T(ctx, "contacts.filters.selected_count")}) {
+											@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "contacts.filters.any_origin"), Multiple: true, Class: "text-left"})
+										}
+										@selectbox.Content(selectbox.ContentProps{NoSearch: true, DisableExclusive: true}) {
+											@selectbox.Item(selectbox.ItemProps{Value: "manual", Selected: models.ContactFilterHas(filters.Source, "manual")}) {
 												{ i18n.T(ctx, "contacts.origin.manual") }
 											}
-											@selectbox.Item(selectbox.ItemProps{Value: "observed", Selected: filters.Source == "observed"}) {
+											@selectbox.Item(selectbox.ItemProps{Value: "observed", Selected: models.ContactFilterHas(filters.Source, "observed")}) {
 												{ i18n.T(ctx, "contacts.origin.observed") }
 											}
-											@selectbox.Item(selectbox.ItemProps{Value: "synced", Selected: filters.Source == "synced"}) {
+											@selectbox.Item(selectbox.ItemProps{Value: models.ContactOriginImported, Selected: models.ContactFilterHas(filters.Source, models.ContactOriginImported)}) {
+												{ i18n.T(ctx, "contacts.origin.imported_file") }
+											}
+											@selectbox.Item(selectbox.ItemProps{Value: "synced", Selected: models.ContactFilterHas(filters.Source, "synced")}) {
 												{ contactOriginFilterLabel(ctx, "synced", accounts) }
 											}
 											for _, account := range accounts {
 												if !account.IsDeleting && accountContactSyncCapable(account) {
-													@selectbox.Item(selectbox.ItemProps{Value: "synced:" + account.ID, Selected: filters.Source == "synced:"+account.ID}) {
+													@selectbox.Item(selectbox.ItemProps{Value: "synced:" + account.ID, Selected: models.ContactFilterHas(filters.Source, "synced:"+account.ID)}) {
 														{ contactOriginFilterLabel(ctx, "synced:"+account.ID, accounts) }
 													}
 													for _, book := range account.ContactAddressBooks {
-														@selectbox.Item(selectbox.ItemProps{Value: "book:" + book.ID, Selected: filters.Source == "book:"+book.ID}) {
+														@selectbox.Item(selectbox.ItemProps{Value: "book:" + book.ID, Selected: models.ContactFilterHas(filters.Source, "book:"+book.ID)}) {
 															{ contactOriginFilterLabel(ctx, "book:"+book.ID, accounts) }
 														}
 													}
@@ -1499,24 +1765,21 @@ templ ContactsListPane(contacts []models.Contact, selected *models.Contact, filt
 								</div>
 								<div class="space-y-1 text-[11px] font-medium text-muted-foreground">
 									<span>{ i18n.T(ctx, "contacts.sync.locations") }</span>
-									@selectbox.SelectBox() {
-										@selectbox.Trigger(selectbox.TriggerProps{Name: "save_target", Class: "h-8 bg-background text-xs", DisableClear: true}) {
-											@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "contacts.filters.any_location")})
+									@selectbox.SelectBox(selectbox.Props{Multiple: true}) {
+										@selectbox.Trigger(selectbox.TriggerProps{Name: "save_target", Class: "h-8 bg-background text-xs", Multiple: true, ShowPills: true, DisableClear: true, SelectedCountText: i18n.T(ctx, "contacts.filters.selected_count")}) {
+											@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "contacts.filters.any_location"), Multiple: true, Class: "text-left"})
 										}
 										@selectbox.Content(selectbox.ContentProps{NoSearch: true, DisableExclusive: true}) {
-											@selectbox.Item(selectbox.ItemProps{Value: "", Selected: filters.SaveTarget == ""}) {
-												{ i18n.T(ctx, "contacts.filters.any_location") }
-											}
-											@selectbox.Item(selectbox.ItemProps{Value: "local", Selected: filters.SaveTarget == "local"}) {
+											@selectbox.Item(selectbox.ItemProps{Value: "local", Selected: models.ContactFilterHas(filters.SaveTarget, "local")}) {
 												{ i18n.T(ctx, "contacts.origin.local") }
 											}
 											for _, account := range accounts {
 												if !account.IsDeleting && accountContactSyncCapable(account) {
-													@selectbox.Item(selectbox.ItemProps{Value: contactSaveTargetValue(account), Selected: filters.SaveTarget == contactSaveTargetValue(account)}) {
+													@selectbox.Item(selectbox.ItemProps{Value: contactSaveTargetValue(account), Selected: models.ContactFilterHas(filters.SaveTarget, contactSaveTargetValue(account))}) {
 														{ accountContactSaveLabel(account) }
 													}
 													for _, book := range account.ContactAddressBooks {
-														@selectbox.Item(selectbox.ItemProps{Value: contactBookTargetValue(book), Selected: filters.SaveTarget == contactBookTargetValue(book)}) {
+														@selectbox.Item(selectbox.ItemProps{Value: contactBookTargetValue(book), Selected: models.ContactFilterHas(filters.SaveTarget, contactBookTargetValue(book))}) {
 															{ accountContactOriginLabel(ctx, account) } / { contactAddressBookDisplayName(ctx, book) }
 														}
 													}
@@ -1527,24 +1790,28 @@ templ ContactsListPane(contacts []models.Contact, selected *models.Contact, filt
 								</div>
 								<div class="space-y-1 text-[11px] font-medium text-muted-foreground">
 									<span>{ i18n.T(ctx, "contacts.filters.activity") }</span>
-									@selectbox.SelectBox() {
-										@selectbox.Trigger(selectbox.TriggerProps{Name: "activity", Class: "h-8 bg-background text-xs", DisableClear: true}) {
-											@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "contacts.filters.any_activity")})
+									@selectbox.SelectBox(selectbox.Props{Multiple: true}) {
+										@selectbox.Trigger(selectbox.TriggerProps{Name: "activity", Class: "h-8 bg-background text-xs", Multiple: true, ShowPills: true, DisableClear: true, SelectedCountText: i18n.T(ctx, "contacts.filters.selected_count")}) {
+											@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "contacts.filters.any_activity"), Multiple: true, Class: "text-left"})
 										}
 										@selectbox.Content(selectbox.ContentProps{NoSearch: true, DisableExclusive: true}) {
-											@selectbox.Item(selectbox.ItemProps{Value: "", Selected: filters.Activity == ""}) {
-												{ i18n.T(ctx, "contacts.filters.any_activity") }
-											}
-											@selectbox.Item(selectbox.ItemProps{Value: "seen", Selected: filters.Activity == "seen"}) {
+											@selectbox.Item(selectbox.ItemProps{Value: "seen", Selected: models.ContactFilterHas(filters.Activity, "seen")}) {
 												{ i18n.T(ctx, "contacts.filters.seen") }
 											}
-											@selectbox.Item(selectbox.ItemProps{Value: "none", Selected: filters.Activity == "none"}) {
+											@selectbox.Item(selectbox.ItemProps{Value: "none", Selected: models.ContactFilterHas(filters.Activity, "none")}) {
 												{ i18n.T(ctx, "contacts.filters.no_messages") }
 											}
 										}
 									}
 								</div>
-								<button type="submit" class="inline-flex h-8 w-full items-center justify-center rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground hover:bg-primary/90">{ i18n.T(ctx, "contacts.filters.apply") }</button>
+								// Contacts to resolve are left out of the list; this shows them
+								// in it instead. The Trash has none.
+								if !filters.Trash {
+									<div class="flex items-center justify-between gap-3 pt-1">
+										<label for="contacts-filter-unresolved" class="text-[11px] font-medium text-muted-foreground">{ i18n.T(ctx, "contacts.filters.unresolved") }</label>
+										@switchcomp.Switch(switchcomp.Props{ID: "contacts-filter-unresolved", Name: "unresolved", Value: "1", Checked: filters.Unresolved, Attributes: templ.Attributes{"data-contact-filter-unresolved": ""}})
+									</div>
+								}
 							</form>
 						}
 					}
@@ -1552,27 +1819,41 @@ templ ContactsListPane(contacts []models.Contact, selected *models.Contact, filt
 			</div>
 			// Under the search, as the mail list's active filter strip. It stays in
 			// the page, collapsed, so the pills open and close it smoothly.
-			<div data-contact-active-filter-pills class={ "mail-active-filter-strip", templ.KV("hidden", !contactFiltersActive(filters)) } aria-label={ i18n.T(ctx, "mail.filters.active") }>
+			<div data-contact-active-filter-pills class={ "mail-active-filter-strip contacts-active-filter-strip", templ.KV("hidden", !contactFiltersActive(filters)) } aria-label={ i18n.T(ctx, "mail.filters.active") }>
 				if contactFiltersActive(filters) {
 					<div class="mail-active-filter-visible">
+						if filters.StoredIn != "" {
+							@contactActiveFilterPill("stored_in", i18n.T(ctx, "contacts.filters.stored_in_pill", "place", contactPlaceFilterLabels(ctx, filters.StoredIn, accounts)))
+						}
 						if filters.Source != "" {
-							@contactActiveFilterPill("source", i18n.T(ctx, "contacts.filters.origin_pill", "origin", contactOriginFilterLabel(ctx, filters.Source, accounts)))
+							@contactActiveFilterPill("source", i18n.T(ctx, "contacts.filters.origin_pill", "origin", contactOriginFilterLabels(ctx, filters.Source, accounts)))
 						}
 						if filters.SaveTarget != "" {
-							@contactActiveFilterPill("save_target", contactSaveTargetLabel(ctx, filters.SaveTarget, accounts))
+							@contactActiveFilterPill("save_target", contactPlaceFilterLabels(ctx, filters.SaveTarget, accounts))
 						}
 						if filters.Activity != "" {
-							@contactActiveFilterPill("activity", contactActivityFilterLabel(ctx, filters.Activity))
+							@contactActiveFilterPill("activity", contactActivityFilterLabels(ctx, filters.Activity))
+						}
+						if filters.Unresolved {
+							@contactActiveFilterPill("unresolved", i18n.T(ctx, "contacts.filters.unresolved_pill"))
 						}
 					</div>
 				}
 			</div>
+			// app.js draws the pills again from this one as the filters change.
+			<template data-contact-active-filter-pill-template>
+				@contactActiveFilterPill("", "")
+			</template>
 			</div>
 		</div>
 		<div class="contacts-list-toolbar relative flex items-center gap-1 px-4 py-1.5">
 			@ContactsSelectAllControl()
-			<div class="relative inline-grid h-7 shrink-0 grid-cols-2 rounded-lg border border-border bg-background p-0.5 gap-0.5" data-contact-list-view-toggle>
-				<div class="absolute top-0.5 bottom-0.5 left-0.5 w-[calc(50%-2px)] rounded-md border border-border bg-card shadow-sm transition-transform duration-200 ease-out" style={ contactViewIndicatorStyle(filters.View) } data-contact-list-view-indicator></div>
+			@listSelectionClear(templ.Attributes{"data-contact-selection-clear": ""}, templ.Attributes{"data-contact-selection-summary": ""})
+			// One capsule, as the mail list's: the view switch, then the card
+			// layout or column button.
+			<div class="inline-flex h-7 shrink-0 items-center rounded-lg border border-border bg-background p-0.5 gap-0.5" data-contact-list-view-capsule>
+			<div class="relative inline-grid h-6 grid-cols-2 gap-0.5" data-contact-list-view-toggle>
+				<div class="absolute inset-y-0 left-0 w-[calc(50%-1px)] rounded-md border border-border bg-card shadow-sm transition-transform duration-200 ease-out" style={ contactViewIndicatorStyle(filters.View) } data-contact-list-view-indicator></div>
 				<button
 					type="button"
 					data-contact-list-view-button="cards"
@@ -1585,7 +1866,7 @@ templ ContactsListPane(contacts []models.Contact, selected *models.Contact, filt
 					}
 				>
 					@icon.LayoutList(icon.Props{Class: "size-3.5"})
-					{ i18n.T(ctx, "mail.view.cards") }
+					<span class="mail-toolbar-collapsible" style="--collapse-gap: 0.25rem" data-contact-view-label>{ i18n.T(ctx, "mail.view.cards") }</span>
 				</button>
 				<button
 					type="button"
@@ -1599,14 +1880,17 @@ templ ContactsListPane(contacts []models.Contact, selected *models.Contact, filt
 					}
 				>
 					@icon.Table2(icon.Props{Class: "size-3.5"})
-					{ i18n.T(ctx, "mail.view.table") }
+					<span class="mail-toolbar-collapsible" style="--collapse-gap: 0.25rem" data-contact-view-label>{ i18n.T(ctx, "mail.view.table") }</span>
 				</button>
+			</div>
+			<div class="mx-0.5 h-4 w-px bg-border" data-contact-list-view-divider aria-hidden="true"></div>
+			@ContactListLayoutSelector()
 			</div>
 			@dropdown.Dropdown() {
 				@dropdown.Trigger() {
 					<button type="button" data-contact-sort-trigger class="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground" aria-label={ i18n.T(ctx, "contacts.sort.label") }>
 						@icon.ArrowUpDown(icon.Props{Class: "size-3.5"})
-						<span class="hidden sm:inline">{ contactSortLabel(ctx, filters) }</span>
+						<span class="mail-toolbar-collapsible" style="--collapse-gap: 0.375rem" data-contact-sort-label>{ contactSortLabel(ctx, filters) }</span>
 					</button>
 				}
 				@dropdown.Content(dropdown.ContentProps{Placement: dropdown.PlacementBottomEnd, Class: "mobile-sheet w-64 normal-case tracking-normal p-3"}) {
@@ -1617,6 +1901,7 @@ templ ContactsListPane(contacts []models.Contact, selected *models.Contact, filt
 								@selectbox.Trigger(selectbox.TriggerProps{Name: "sort_by", Class: "h-8 bg-background text-xs", DisableClear: true}) { @selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "contacts.sort.updated")}) }
 								@selectbox.Content(selectbox.ContentProps{NoSearch: true, DisableExclusive: true}) {
 									@selectbox.Item(selectbox.ItemProps{Value: "updated", Selected: filters.SortBy == "" || filters.SortBy == "updated"}) { { i18n.T(ctx, "contacts.sort.updated") } }
+									@selectbox.Item(selectbox.ItemProps{Value: "created", Selected: filters.SortBy == "created"}) { { i18n.T(ctx, "contacts.sort.created") } }
 									@selectbox.Item(selectbox.ItemProps{Value: "name", Selected: filters.SortBy == "name"}) { { i18n.T(ctx, "contacts.sort.name") } }
 									@selectbox.Item(selectbox.ItemProps{Value: "last_interaction", Selected: filters.SortBy == "last_interaction"}) { { i18n.T(ctx, "contacts.sort.last_interaction") } }
 								}
@@ -1624,21 +1909,23 @@ templ ContactsListPane(contacts []models.Contact, selected *models.Contact, filt
 						</div>
 						<div class="space-y-1 text-[11px] font-medium text-muted-foreground">
 							<span>{ i18n.T(ctx, "mail.sort.order") }</span>
-							@selectbox.SelectBox() {
-								@selectbox.Trigger(selectbox.TriggerProps{Name: "sort_order", Class: "h-8 bg-background text-xs", DisableClear: true}) { @selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "mail.sort.descending")}) }
-								@selectbox.Content(selectbox.ContentProps{NoSearch: true, DisableExclusive: true}) {
-									@selectbox.Item(selectbox.ItemProps{Value: "desc", Selected: filters.SortOrder == "" || filters.SortOrder == "desc"}) { { i18n.T(ctx, "mail.sort.descending") } }
-									@selectbox.Item(selectbox.ItemProps{Value: "asc", Selected: filters.SortOrder == "asc"}) { { i18n.T(ctx, "mail.sort.ascending") } }
-								}
-							}
+							// The mail list's own order switch.
+							<div class="mail-sort-order grid h-8 grid-cols-2 gap-0.5 rounded-lg border border-border bg-background p-0.5" role="radiogroup" aria-label={ i18n.T(ctx, "mail.sort.order") }>
+								<div class="mail-sort-order-indicator rounded-md border border-border bg-card shadow-sm" aria-hidden="true"></div>
+								@mailSortOrderOption("desc", i18n.T(ctx, "mail.sort.descending"), filters.SortOrder != "asc")
+								@mailSortOrderOption("asc", i18n.T(ctx, "mail.sort.ascending"), filters.SortOrder == "asc")
+							</div>
 						</div>
 						<button type="submit" class="inline-flex h-8 w-full items-center justify-center rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground hover:bg-primary/90">{ i18n.T(ctx, "mail.sort.apply") }</button>
 					</form>
 				}
 			}
-			<div class="flex-1"></div>
+			<div class="contacts-list-toolbar-spacer flex-1"></div>
 			@ContactsSelectionActions(filters.Trash)
 		</div>
+		if filters.Trash {
+			@ContactRestorePlaceDialog(accounts)
+		}
 		@ContactsSelectAllBanner()
 		<hr class="divider-etched"/>
 		<div
@@ -1654,14 +1941,26 @@ templ ContactsListPane(contacts []models.Contact, selected *models.Contact, filt
 			data-sort-by={ filters.SortBy }
 			data-sort-order={ filters.SortOrder }
 			data-source={ filters.Source }
+			data-stored-in={ filters.StoredIn }
 			data-save-target={ filters.SaveTarget }
 			data-activity={ filters.Activity }
 			if filters.Trash {
 				data-trash="1"
 			}
+			if filters.Unresolved {
+				data-unresolved="1"
+			}
 		>
 			if totalCount < 0 {
 				@NavigationLoadingContent()
+			} else if len(contacts) == 0 && filters.Unresolved && !contactFiltersActiveExcept(filters) {
+				<div class="flex flex-col items-center justify-center py-20 px-4 text-center">
+					<div class="empty-icon-box size-16 rounded-2xl bg-muted/50 flex items-center justify-center mb-4 raised">
+						@icon.CircleCheck(icon.Props{Class: "size-5"})
+					</div>
+					<h3 class="font-semibold text-sm mb-1">{ i18n.T(ctx, "contacts.unresolved.empty_title") }</h3>
+					<p class="text-xs text-muted-foreground">{ i18n.T(ctx, "contacts.unresolved.empty_detail") }</p>
+				</div>
 			} else if len(contacts) == 0 && filters.Trash {
 				<div class="flex flex-col items-center justify-center py-20 px-4 text-center">
 					<div class="empty-icon-box size-16 rounded-2xl bg-muted/50 flex items-center justify-center mb-4 raised">
@@ -1689,9 +1988,11 @@ templ ContactsListPane(contacts []models.Contact, selected *models.Contact, filt
 				}
 			}
 		</div>
-		<a href="/contacts?new=1" hx-get="/contacts?new=1" hx-target="#main-content" hx-swap="outerHTML" hx-push-url="/contacts?new=1" class="mobile-compose-fab" aria-label={ i18n.T(ctx, "contacts.new") }>
-			@icon.UserPlus(icon.Props{Class: "size-5"})
-		</a>
+		@dialog.Trigger(dialog.TriggerProps{For: contactNewDialogID}) {
+			<button type="button" class="mobile-compose-fab" aria-label={ i18n.T(ctx, "contacts.new") } data-contact-edit-trigger data-contact-edit-dialog={ contactNewDialogID }>
+				@icon.UserPlus(icon.Props{Class: "size-5"})
+			</button>
+		}
 		@ContactsContextMenu(filters.Trash)
 	</section>
 }
@@ -1741,22 +2042,89 @@ templ ContactsSelectionActions(trash bool) {
 			@contactSelectionAction("restore", i18n.T(ctx, "contacts.action.restore"), i18n.T(ctx, "contacts.selection.restore"), "") {
 				@icon.Undo2(icon.Props{Class: "size-3.5"})
 			}
+			@contactSelectionAction("restore-to", i18n.T(ctx, "contacts.action.restore_to"), i18n.T(ctx, "contacts.action.restore_to"), "") {
+				@icon.Redo2(icon.Props{Class: "size-3.5"})
+			}
 			@contactSelectionAction("delete-forever", i18n.T(ctx, "contacts.action.delete_forever"), i18n.T(ctx, "contacts.selection.delete_forever"), "hover:bg-destructive/10 hover:text-destructive") {
 				@icon.Trash2(icon.Props{Class: "size-3.5"})
 			}
 		</div>
 	} else {
+	// The contact page's actions, in its order: Edit, Move and Duplicate
+	// act on one contact at a time. As the toolbar runs out of room they fold
+	// into ⋮ as the mail list's do: Export first, Trash last; Edit stays.
 	<div class="items-center gap-1" data-contact-selection-actions>
-		@contactSelectionAction("compose", i18n.T(ctx, "compose.new_message"), i18n.T(ctx, "contacts.selection.compose"), "") {
-			@icon.Pen(icon.Props{Class: "size-3.5"})
+		@contactSelectionAction("edit", i18n.T(ctx, "contacts.action.edit_label"), i18n.T(ctx, "contacts.action.edit_label"), "") {
+			@icon.Pencil(icon.Props{Class: "size-3.5"})
 		}
-		@contactSelectionAction("export", i18n.T(ctx, "contacts.action.export_many"), i18n.T(ctx, "contacts.selection.export"), "") {
-			@icon.Download(icon.Props{Class: "size-3.5"})
-		}
-		@contactSelectionAction("delete", i18n.T(ctx, "contacts.action.trash"), i18n.T(ctx, "contacts.selection.trash"), "hover:bg-destructive/10 hover:text-destructive") {
-			@icon.Trash2(icon.Props{Class: "size-3.5"})
-		}
+		<div class="mail-toolbar-collapsible" data-contact-list-rank="4">
+			@contactSelectionAction("compose", i18n.T(ctx, "compose.new_message"), i18n.T(ctx, "contacts.selection.compose"), "") {
+				@icon.Mail(icon.Props{Class: "size-3.5"})
+			}
+		</div>
+		<div class="mail-toolbar-collapsible" data-contact-list-rank="3">
+			@contactSelectionAction("move", i18n.T(ctx, "contacts.action.move"), i18n.T(ctx, "contacts.action.move"), "") {
+				@icon.FolderInput(icon.Props{Class: "size-3.5"})
+			}
+		</div>
+		<div class="mail-toolbar-collapsible" data-contact-list-rank="2">
+			@contactSelectionAction("duplicate", i18n.T(ctx, "contacts.action.duplicate"), i18n.T(ctx, "contacts.action.duplicate"), "") {
+				@icon.CopyPlus(icon.Props{Class: "size-3.5"})
+			}
+		</div>
+		<div class="mail-toolbar-collapsible" data-contact-list-rank="1">
+			@contactSelectionAction("export", i18n.T(ctx, "contacts.action.export_many"), i18n.T(ctx, "contacts.selection.export"), "") {
+				@icon.Download(icon.Props{Class: "size-3.5"})
+			}
+		</div>
+		<div class="mail-toolbar-collapsible" data-contact-list-rank="5">
+			@contactSelectionAction("delete", i18n.T(ctx, "contacts.action.trash"), i18n.T(ctx, "contacts.selection.trash"), "hover:bg-destructive/10 hover:text-destructive") {
+				@icon.Trash2(icon.Props{Class: "size-3.5"})
+			}
+		</div>
+		<div class="mail-toolbar-collapsible" data-mail-collapsed data-contact-list-menu>
+			@dropdown.Dropdown() {
+				@dropdown.Trigger() {
+					@button.Button(button.Props{
+						Variant:    button.VariantGhost,
+						Size:       button.SizeIcon,
+						Class:      "h-7 w-7",
+						Attributes: templ.Attributes{"aria-label": i18n.T(ctx, "common.more_actions")},
+					}) {
+						@icon.EllipsisVertical(icon.Props{Class: "size-3.5"})
+					}
+				}
+				@dropdown.Content(dropdown.ContentProps{Class: "mobile-sheet w-48 normal-case tracking-normal", Placement: dropdown.PlacementBottomEnd}) {
+					@contactListMenuItem("compose", "4", i18n.T(ctx, "contacts.selection.compose"), "") {
+						@icon.Mail(icon.Props{Class: "size-4"})
+					}
+					@contactListMenuItem("move", "3", i18n.T(ctx, "contacts.action.move"), "") {
+						@icon.FolderInput(icon.Props{Class: "size-4"})
+					}
+					@contactListMenuItem("duplicate", "2", i18n.T(ctx, "contacts.action.duplicate"), "") {
+						@icon.CopyPlus(icon.Props{Class: "size-4"})
+					}
+					@contactListMenuItem("export", "1", i18n.T(ctx, "contacts.action.export_many"), "") {
+						@icon.Download(icon.Props{Class: "size-4"})
+					}
+					@contactListMenuItem("delete", "5", i18n.T(ctx, "contacts.action.trash"), "text-destructive "+menuDestructiveClass) {
+						@icon.Trash2(icon.Props{Class: "size-4"})
+					}
+				}
+			}
+		</div>
 	</div>
+	}
+}
+
+// contactListMenuItem is a selection action folded into the list's ⋮ menu;
+// it carries the action's name, so the same click handler runs it.
+templ contactListMenuItem(action, rank, label, class string) {
+	@dropdown.Item(dropdown.ItemProps{Class: class, Attributes: templ.Attributes{"data-contact-selection-action": action, "data-contact-list-rank": rank, "data-contact-list-menu-item": ""}}) {
+		<span class="flex items-center gap-2">
+			{ children... }
+			{ label }
+		</span>
 	}
 }
 
@@ -1783,22 +2151,28 @@ templ contactSelectionAction(action, tip, label, class string) {
 // to extend the selection to every contact the filters match or to clear it.
 // app.js fills and shows it.
 templ ContactsSelectAllBanner() {
-	<div data-contact-select-all-banner class="mail-select-all-banner hidden items-center justify-center gap-x-3 gap-y-0.5 flex-wrap border-t border-border/60 bg-accent/60 px-4 py-1.5 text-center text-xs text-muted-foreground">
-		<span data-contact-select-all-banner-text></span>
-		@button.Button(button.Props{
-			Variant:    button.VariantLink,
-			Size:       button.SizeSm,
-			Class:      "h-auto p-0 text-xs",
-			Attributes: templ.Attributes{"data-contact-select-all-banner-action": ""},
-		})
-		@button.Button(button.Props{
-			Variant:    button.VariantLink,
-			Size:       button.SizeSm,
-			Class:      "h-auto p-0 text-xs",
-			Attributes: templ.Attributes{"data-contact-selection-clear": ""},
-		}) {
-			{ i18n.T(ctx, "shortcuts.clear_selection") }
-		}
+	// It folds open and shut as the mail list's does (MailSelectAllBanner),
+	// so the list slides with it.
+	<div data-contact-select-all-banner class="mail-selection-banner" aria-hidden="true" inert>
+		<div class="mail-selection-banner-inner">
+			<div class="flex items-center justify-center gap-x-3 gap-y-0.5 flex-wrap border-t border-border/60 bg-accent/60 px-4 py-1.5 text-center text-xs text-muted-foreground">
+				<span data-contact-select-all-banner-text></span>
+				@button.Button(button.Props{
+					Variant:    button.VariantLink,
+					Size:       button.SizeSm,
+					Class:      "h-auto p-0 text-xs",
+					Attributes: templ.Attributes{"data-contact-select-all-banner-action": ""},
+				})
+				@button.Button(button.Props{
+					Variant:    button.VariantLink,
+					Size:       button.SizeSm,
+					Class:      "h-auto p-0 text-xs",
+					Attributes: templ.Attributes{"data-contact-selection-clear": ""},
+				}) {
+					{ i18n.T(ctx, "shortcuts.clear_selection") }
+				}
+			</div>
+		</div>
 	</div>
 }
 
@@ -1821,6 +2195,9 @@ templ ContactsContextMenu(trash bool) {
 			if trash {
 				@contactsContextItem("restore", i18n.T(ctx, "contacts.action.restore"), "") {
 					@icon.Undo2(icon.Props{Class: "size-4"})
+				}
+				@contactsContextItem("restore-to", i18n.T(ctx, "contacts.action.restore_to"), "") {
+					@icon.Redo2(icon.Props{Class: "size-4"})
 				}
 				@dropdown.Separator()
 				@contactsContextItem("delete-forever", i18n.T(ctx, "contacts.action.delete_forever_menu"), "text-destructive "+menuDestructiveClass) {
@@ -1868,17 +2245,169 @@ templ contactsContextItem(action string, label string, class string) {
 templ ContactsViewPane(selected *models.Contact, selectedProfile *models.ContactProfile, showNew bool, syncQueued bool, accounts []models.Account) {
 	<section id="mail-view" class="hidden flex-1 min-w-0 bg-background surface-desk lg:flex lg:flex-col" data-mail-reader>
 		@ContactsDetail(selected, selectedProfile, showNew, syncQueued, accounts)
+		@ContactDetailSkeleton()
 	</section>
 }
 
-// ContactListCard is a contact in the list's cards view: two lines, the name
-// with its organization and message count, then the address with the
-// accounts it syncs with and when it was last seen. On a phone the list's own
-// CSS lays it out as a 4rem row and leaves the date and preview fields out.
+// ContactDetailSkeleton is a contact while it loads, as ContactEditor lays it
+// out: the headings, icons and buttons every contact has are drawn as they
+// are, and only what changes from one contact to the next pulses. app.js
+// puts the list row's avatar and name in, and, with a contact already open,
+// keeps its header and swaps in only the body.
+templ ContactDetailSkeleton() {
+	<template data-contact-detail-skeleton>
+		<div class="surface-paper rounded-md flex min-h-0 flex-1 flex-col overflow-hidden" data-contact-detail-loading>
+			<span class="sr-only" role="status">{ i18n.T(ctx, "contacts.loading_details") }</span>
+			<div class="contact-editor flex h-full min-h-0 flex-col">
+				<div class="contact-editor-header shrink-0 border-b border-ink/10 bg-paper/70 px-5 py-4 sm:px-7">
+					<div class="contact-editor-header-inner flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+						<div class="contact-header-identity flex min-w-0 items-start gap-4 xl:max-w-[60%] xl:shrink-0">
+							<div class="flex size-14 shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-b from-amber-700/70 to-amber-900/70 text-base font-bold text-amber-100 shadow-[0_8px_22px_rgba(0,0,0,0.16)]" data-contact-skeleton-avatar></div>
+							<div class="min-w-0 pt-0.5">
+								<h1 class="min-w-0 truncate text-2xl font-bold leading-tight tracking-tight text-ink" style="font-family: var(--font-serif)" data-contact-skeleton-name></h1>
+								<div class="mt-1 text-sm text-muted-foreground">{ i18n.T(ctx, "contacts.view.entry") }</div>
+							</div>
+						</div>
+						<div class="contact-header-actions flex min-w-0 flex-nowrap items-center gap-1 overflow-hidden xl:flex-1" aria-hidden="true">
+							<div class="contact-header-spacer min-w-0 flex-1"></div>
+							for _, action := range []templ.Component{icon.Pencil(icon.Props{Class: "size-4"}), icon.Mail(icon.Props{Class: "size-4"}), icon.FolderInput(icon.Props{Class: "size-4"}), icon.CopyPlus(icon.Props{Class: "size-4"}), icon.Download(icon.Props{Class: "size-4"}), icon.Trash2(icon.Props{Class: "size-4"})} {
+								<span class="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-40">
+									@action
+								</span>
+							}
+						</div>
+					</div>
+				</div>
+				<div class="flex-1 overflow-y-auto" data-contact-detail-scroll>
+					@ContactDetailSkeletonBody()
+				</div>
+			</div>
+		</div>
+	</template>
+}
+
+// ContactDetailSkeletonBody is ContactReadOnlyView while it loads.
+templ ContactDetailSkeletonBody() {
+	<div class="contact-readonly w-full space-y-5 px-5 py-5 sm:px-7" aria-hidden="true" data-contact-skeleton-body>
+		<section class="rounded-lg border border-ink/10 bg-ink/[0.02]">
+			<div class="flex items-center gap-2 border-b border-ink/10 px-4 py-3">
+				@icon.IdCard(icon.Props{Class: "size-3.5 text-muted-foreground"})
+				<h2 class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.view.contact") }</h2>
+			</div>
+			<div class="grid gap-x-6 px-4 lg:grid-cols-2">
+				@contactSkeletonPillsField(i18n.T(ctx, "contacts.stored_in"), "w-28")
+				@contactSkeletonField(i18n.T(ctx, "contacts.field.name"), "w-40")
+				@contactSkeletonField(i18n.T(ctx, "contacts.field.email"), "w-52")
+				@contactSkeletonField(i18n.T(ctx, "contacts.field.additional_emails"), "w-24")
+				@contactSkeletonField(i18n.T(ctx, "contacts.field.phone"), "w-28")
+				@contactSkeletonField(i18n.T(ctx, "contacts.field.additional_phones"), "w-24")
+				@contactSkeletonField(i18n.T(ctx, "contacts.field.title"), "w-32")
+				@contactSkeletonField(i18n.T(ctx, "contacts.field.organization"), "w-36")
+				@contactSkeletonField(i18n.T(ctx, "contacts.field.notes"), "w-48")
+			</div>
+		</section>
+		<section class="rounded-lg border border-ink/10 bg-ink/[0.02]">
+			<div class="flex flex-wrap items-center justify-between gap-3 border-b border-ink/10 px-4 py-3">
+				<div class="flex flex-wrap items-center gap-2">
+					@icon.Route(icon.Props{Class: "size-3.5 text-muted-foreground"})
+					<h2 class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.sync.title") }</h2>
+					@goferSyncInfo()
+					// On or off: it changes with the contact.
+					<span class="h-5 w-14 rounded-md border border-ink/10 bg-ink/[0.03] animate-pulse"></span>
+				</div>
+				@button.Button(button.Props{
+					Variant: button.VariantOutline,
+					Size: button.SizeSm,
+					Disabled: true,
+					Class: "h-7 gap-1.5 border-ink/10 bg-ink/[0.025] px-2.5 text-xs text-muted-foreground shadow-none",
+				}) {
+					@icon.RefreshCw(icon.Props{Class: "size-3.5"})
+					{ i18n.T(ctx, "contacts.sync.now") }
+				}
+			</div>
+			<div class="grid gap-x-6 px-4 lg:grid-cols-2">
+				@contactSkeletonPillsField(i18n.T(ctx, "contacts.sync.locations"), "w-16")
+				@contactSkeletonField(i18n.T(ctx, "contacts.filters.origin"), "w-24")
+				@contactSkeletonField(i18n.T(ctx, "contacts.sync.status_label"), "w-20")
+				@contactSkeletonField(i18n.T(ctx, "contacts.sync.updated"), "w-32")
+				@contactSkeletonField(i18n.T(ctx, "contacts.sync.error"), "w-24")
+			</div>
+		</section>
+		<section class="rounded-lg border border-ink/10 bg-ink/[0.02]">
+			<div class="flex items-center gap-2 border-b border-ink/10 px-4 py-3">
+				@icon.Activity(icon.Props{Class: "size-3.5 text-muted-foreground"})
+				<h2 class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.filters.activity") }</h2>
+			</div>
+			<div class="grid gap-x-6 px-4 sm:grid-cols-2 xl:grid-cols-4">
+				@contactSkeletonField(i18n.T(ctx, "contacts.activity.messages"), "w-10")
+				@contactSkeletonField(i18n.T(ctx, "contacts.activity.last_seen"), "w-28")
+				@contactSkeletonField(i18n.T(ctx, "contacts.activity.added"), "w-24")
+				@contactSkeletonField(i18n.T(ctx, "contacts.activity.updated"), "w-24")
+			</div>
+		</section>
+		<div class="w-full rounded-lg border border-ink/10 bg-ink/[0.025] p-4">
+			<div class="mb-3 flex items-center justify-between gap-3">
+				<div>
+					<h2 class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.activity.recent") }</h2>
+					<p class="mt-1 text-xs text-muted-foreground">{ i18n.T(ctx, "contacts.activity.recent_detail") }</p>
+				</div>
+				<div class="flex shrink-0 items-center gap-2">
+					<span class="rounded bg-ink/[0.05] px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.activity.top") }</span>
+					// See all is there only for contacts with an address.
+					<span class="h-7 w-16 rounded-md border border-ink/10 bg-ink/[0.03] animate-pulse"></span>
+				</div>
+			</div>
+			@contactRecentActivitySkeletonRows()
+		</div>
+	</div>
+}
+
+templ contactSkeletonField(label, width string) {
+	<div class="min-w-0 border-b border-ink/10 py-3 last:border-b-0 lg:[&:nth-last-child(-n+2)]:border-b-0 xl:last:border-b-0">
+		<div class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{ label }</div>
+		<div class="mt-1 flex min-h-5 items-center">
+			<div class={ "h-3 max-w-full rounded bg-ink/5 animate-pulse " + width }></div>
+		</div>
+	</div>
+}
+
+templ contactSkeletonPillsField(label, width string) {
+	<div class="min-w-0 border-b border-ink/10 py-3 last:border-b-0 lg:col-span-2">
+		<div class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{ label }</div>
+		<div class="mt-1 flex min-h-5 items-center">
+			<div class={ "h-[1.125rem] max-w-full rounded border border-ink/10 bg-ink/[0.04] animate-pulse " + width }></div>
+		</div>
+	</div>
+}
+
+// contactRecentActivitySkeletonRows are the recent emails while they load.
+templ contactRecentActivitySkeletonRows() {
+	<div class="overflow-hidden rounded-md border border-ink/10 bg-paper/35">
+		for i := 0; i < 4; i++ {
+			<div class="border-b border-ink/10 px-3 py-2.5 last:border-b-0">
+				<div class="flex items-start justify-between gap-3">
+					<div class="min-w-0 flex flex-1 items-center gap-2">
+						<div class="h-5 w-9 shrink-0 rounded border border-ink/10 bg-ink/[0.04] animate-pulse"></div>
+						<div class="h-3 min-w-0 flex-1 rounded bg-ink/5 animate-pulse"></div>
+					</div>
+					<div class="h-3 w-16 shrink-0 rounded bg-ink/5 animate-pulse"></div>
+				</div>
+				<div class="mt-2 h-3 w-4/5 rounded bg-ink/5 animate-pulse"></div>
+			</div>
+		}
+	</div>
+}
+
+// ContactListCard is a contact in the list's cards view. Each field sits in
+// the zone the default layout gives it; ui-settings.js moves them into the
+// zones the user's card layout chooses (data-contact-card-layout-scope), and
+// the list hides the fields it leaves out. On a phone the list's own CSS lays
+// it out as a 4rem row of the avatar, the name and the address.
 templ ContactListCard(contact models.Contact, filters models.ContactFilters, selected *models.Contact, accounts []models.Account, position int) {
 	{{ contactHref := contactsURL(filters, contact.ID) }}
 	{{ contactDetailHref := contactsDetailURL(filters, contact.ID) }}
 	<div class="mail-list-item" data-contact-id={ contact.ID } data-position={ fmt.Sprintf("%d", position) } data-contact-row-email={ strings.TrimSpace(contact.Email) } data-contact-row-name={ contact.Name } data-contact-row-synced={ fmt.Sprintf("%t", len(contact.SourceBooks) > 0) }>
+		@listRowCheck(i18n.T(ctx, "contacts.select.contact"))
 		<a
 			href={ contactHref }
 			hx-get={ templ.URL(contactDetailHref) }
@@ -1892,50 +2421,218 @@ templ ContactListCard(contact models.Contact, filters models.ContactFilters, sel
 				templ.KV("envelope-active", selected != nil && selected.ID == contact.ID),
 				templ.KV("envelope", selected == nil || selected.ID != contact.ID),
 			}
+			data-contact-card-layout-scope
 		>
 			<div class="mail-list-card-zone mail-list-card-zone-rail-top" data-mail-card-zone="railTop">
 				<div data-mail-card-field="avatar">
 					@ContactAvatar(contact, "size-8 rounded-full text-[11px] font-semibold shadow-[0_1px_3px_rgba(0,0,0,0.15)]", "bg-gradient-to-b from-amber-700/70 to-amber-900/70 text-amber-100")
 				</div>
 			</div>
-			<div class="mail-list-card-zone mail-list-card-zone-header" data-mail-card-zone="header">
-				<span class="truncate text-sm text-foreground" data-mail-card-field="from">
-					<span class="font-semibold" data-contact-name>{ contact.Name }</span>
-					if org := strings.TrimSpace(contact.Organization); org != "" && org != strings.TrimSpace(contact.Name) {
-						<span class="text-muted-foreground"> · { org }</span>
-					}
-				</span>
-				if contact.MessageCount > 0 {
-					<span class="ml-auto inline-flex shrink-0 items-center gap-1 text-xs tabular-nums text-muted-foreground" data-mail-card-field="date" title={ contactMessageCountTitle(ctx, contact.MessageCount) }>
-						@icon.Mail(icon.Props{Class: "size-3"})
-						{ fmt.Sprint(contact.MessageCount) }
+			// Each line is its text at the start, its text at the end, and its
+			// icon slot, as wide as its own icons, so the text ends right where
+			// they start.
+			<div class="contact-card-line" data-contact-card-line="1">
+				<div class="mail-list-card-zone mail-list-card-zone-header" data-mail-card-zone="header">
+					<span class="truncate text-sm text-foreground" data-mail-card-field="name">
+						@contactUnresolvedMark(contact, accounts)
+						<span class="font-semibold" data-contact-name>{ contact.Name }</span>
 					</span>
-				}
+					if org := contactListOrganization(contact); org != "" {
+						<span class="truncate text-sm text-muted-foreground" data-mail-card-field="organization">{ org }</span>
+					}
+					if title := strings.TrimSpace(contact.Title); title != "" {
+						<span class="truncate text-xs text-muted-foreground" data-mail-card-field="title">{ title }</span>
+					}
+				</div>
+				<div class="mail-list-card-zone mail-list-card-zone-header-end" data-mail-card-zone="headerEnd"></div>
+				<div class="mail-list-card-zone mail-list-card-zone-meta" data-mail-card-zone="meta">
+					if contact.MessageCount > 0 {
+						<span class="inline-flex shrink-0 items-center gap-1 text-xs tabular-nums text-muted-foreground" data-mail-card-field="messages" title={ contactMessageCountTitle(ctx, contact.MessageCount) }>
+							@icon.Mail(icon.Props{Class: "size-3"})
+							{ fmt.Sprint(contact.MessageCount) }
+						</span>
+					}
+					<span class={ "inline-flex shrink-0 items-center " + contactCardSyncClass(contact) } title={ contactListSyncTitle(ctx, contact) } aria-label={ contactListSyncTitle(ctx, contact) } data-mail-card-field="sync" data-contact-sync-on={ fmt.Sprintf("%t", contact.GoferSyncEnabled) }>
+						@contactListSyncIcon(contact)
+					</span>
+				</div>
 			</div>
-			<div class="mail-list-card-zone mail-list-card-zone-body" data-mail-card-zone="body">
-				<p class="truncate text-[13px] text-muted-foreground" data-contact-email data-mail-card-field="subject">{ contactListDetail(contact) }</p>
-				<span class="ml-auto flex shrink-0 items-center gap-2" data-mail-card-field="preview">
-					{{ origin := contactCardOrigin(ctx, contact, accounts) }}
-					<span class="inline-flex max-w-[9rem] items-center gap-1 rounded-full border border-border bg-background px-1.5 py-px text-[10px] font-medium text-muted-foreground" title={ origin.Title }>
+			<div class="contact-card-line" data-contact-card-line="2">
+				<div class="mail-list-card-zone mail-list-card-zone-body" data-mail-card-zone="body">
+					@contactListEmailField(contact, "truncate text-[13px] text-muted-foreground", "mail-card-field")
+					if phone := strings.TrimSpace(contact.Phone); phone != "" {
+						<span class="truncate text-xs tabular-nums text-muted-foreground" data-mail-card-field="phone">{ phone }</span>
+					}
+					if notes := contactListNotes(contact); notes != "" {
+						<span class="truncate text-xs text-muted-foreground" title={ notes } data-mail-card-field="notes">{ notes }</span>
+					}
+				</div>
+				<div class="mail-list-card-zone mail-list-card-zone-body-end" data-mail-card-zone="bodyEnd">
+					{{ origin := contactCardHome(ctx, contact, accounts) }}
+					<span class="inline-flex max-w-[9rem] items-center gap-1 rounded-lg border border-border bg-background px-1.5 py-px text-[10px] font-medium text-muted-foreground" title={ origin.Title } data-mail-card-field="home">
 						if origin.Color != "" {
 							<span class="account-color-marker size-2 shrink-0" style={ accountColorStyle(origin.Color) } aria-hidden="true"></span>
 						}
 						<span class="truncate">{ origin.Label }</span>
 					</span>
-					if date, label := contactCardDate(ctx, contact); date != "" {
-						<span class="text-xs tabular-nums text-muted-foreground" title={ label }>{ date }</span>
+					for _, field := range []struct {
+						id   string
+						date contactListDate
+					}{
+						{"date", contactInteractionDate(ctx, contact)},
+						{"created", contactDatedAs(ctx, "contacts.card.created_on", contact.CreatedAt)},
+						{"edited", contactDatedAs(ctx, "contacts.card.edited_on", contact.UpdatedAt)},
+					} {
+						if field.date.Text != "" {
+							<span class="truncate text-xs tabular-nums text-muted-foreground" title={ field.date.Title } data-mail-card-field={ field.id }>{ field.date.Text }</span>
+						}
 					}
-				</span>
+				</div>
+				<div class="mail-list-card-zone mail-list-card-zone-status" data-mail-card-zone="status"></div>
 			</div>
+			<div class="hidden" data-mail-card-zone="hidden"></div>
 		</a>
 	</div>
 }
 
+// contactListEmailField is a contact's address in the list. A contact
+// without one shows its phone there instead, unless the list shows the
+// phone on its own (CSS hides data-contact-phone-fallback then). attr names
+// the field: data-mail-card-field on a card, data-mail-table-cell in the
+// table.
+templ contactListEmailField(contact models.Contact, class string, attr string) {
+	<p class={ class } data-contact-email { templ.Attributes{"data-" + attr: "email"}... }>
+		if email := strings.TrimSpace(contact.Email); email != "" {
+			{ email }
+		} else if phone := strings.TrimSpace(contact.Phone); phone != "" && phone != strings.TrimSpace(contact.Name) {
+			<span data-contact-phone-fallback>{ phone }</span>
+		}
+	</p>
+}
+
+// ContactListLayoutSelector opens the contact card layout editor, or the
+// table's column menu, as the mail list's.
+templ ContactListLayoutSelector() {
+	{{ columns := make([]ListColumnOption, 0, len(contactTableColumns)) }}
+	for _, id := range contactTableColumns {
+		{{ columns = append(columns, ListColumnOption{ID: id, Label: contactTableColumnLabel(ctx, id)}) }}
+	}
+	@ListLayoutSelector("data-contact-card-layout-dialog-open", "contacts", columns)
+}
+
+// ContactCardLayoutDialog edits the contact cards' layout, on a sample card
+// with every field in its default zone.
+templ ContactCardLayoutDialog() {
+	@CardLayoutDialog(CardLayoutDialogProps{
+		ID:           "contact-card-layout-dialog",
+		PreviewClass: "contact-card px-3.5",
+		PreviewScope: "data-contact-card-layout-scope",
+		IconRule:     i18n.T(ctx, "contacts.card_layout.icon_fields_rule"),
+		TextRule:     i18n.T(ctx, "contacts.card_layout.text_fields_rule"),
+	}) {
+		<div class="mail-list-card-zone mail-list-card-zone-rail-top" data-mail-card-zone="railTop" data-mail-card-layout-zone-items="railTop" data-mail-card-layout-dropzone="railTop">
+			<span data-mail-card-field="avatar"><span class="inline-flex size-8 items-center justify-center rounded-full bg-primary/15 text-[11px] font-semibold text-primary shadow-[0_1px_3px_rgba(0,0,0,0.15)]">AS</span></span>
+		</div>
+		// A line's text is one box in the editor; where a field is dropped in
+		// it, start or end, picks which of the line's text zones it joins.
+		<div class="contact-card-line" data-contact-card-line="1">
+			<div class="contact-card-text" data-contact-card-text>
+			<div class="mail-list-card-zone mail-list-card-zone-header" data-mail-card-zone="header" data-mail-card-layout-zone-items="header" data-mail-card-layout-dropzone="header">
+				<span data-mail-card-field="name" class="truncate text-sm font-semibold text-foreground">Alex Smith</span>
+				<span data-mail-card-field="organization" class="truncate text-sm text-muted-foreground">{ i18n.T(ctx, "contacts.card_layout.sample_organization") }</span>
+			</div>
+			<div class="mail-list-card-zone mail-list-card-zone-header-end" data-mail-card-zone="headerEnd" data-mail-card-layout-zone-items="headerEnd" data-mail-card-layout-dropzone="headerEnd"></div>
+			</div>
+			<div class="mail-list-card-zone mail-list-card-zone-meta" data-mail-card-zone="meta" data-mail-card-layout-zone-items="meta" data-mail-card-layout-dropzone="meta">
+				<span data-mail-card-field="messages" class="inline-flex shrink-0 items-center gap-1 text-xs tabular-nums text-muted-foreground">
+					@icon.Mail(icon.Props{Class: "size-3"})
+					12
+				</span>
+				<span data-mail-card-field="sync" data-contact-sync-on="true" class="inline-flex shrink-0 items-center text-emerald-600 dark:text-emerald-400">
+					@icon.Route(icon.Props{Class: "size-3.5 shrink-0"})
+				</span>
+			</div>
+		</div>
+		<div class="contact-card-line" data-contact-card-line="2">
+			<div class="contact-card-text" data-contact-card-text>
+			<div class="mail-list-card-zone mail-list-card-zone-body" data-mail-card-zone="body" data-mail-card-layout-zone-items="body" data-mail-card-layout-dropzone="body">
+				<p data-mail-card-field="email" class="truncate text-[13px] text-muted-foreground">alex@work.example</p>
+				// Left out by default: the editor moves these to its tray.
+				<span data-mail-card-field="title" class="truncate text-xs text-muted-foreground">{ i18n.T(ctx, "contacts.card_layout.sample_title") }</span>
+				<span data-mail-card-field="phone" class="truncate text-xs tabular-nums text-muted-foreground">+1 555 0142</span>
+				<span data-mail-card-field="notes" class="truncate text-xs text-muted-foreground">{ i18n.T(ctx, "contacts.card_layout.sample_notes") }</span>
+			</div>
+			<div class="mail-list-card-zone mail-list-card-zone-body-end" data-mail-card-zone="bodyEnd" data-mail-card-layout-zone-items="bodyEnd" data-mail-card-layout-dropzone="bodyEnd">
+				<span data-mail-card-field="home" class="inline-flex max-w-[9rem] items-center gap-1 rounded-lg border border-border bg-background px-1.5 py-px text-[10px] font-medium text-muted-foreground">
+					<span class="account-color-marker size-2 shrink-0 bg-primary" aria-hidden="true"></span>
+					<span class="truncate">{ i18n.T(ctx, "mail.card_layout.sample_account") }</span>
+				</span>
+				<span data-mail-card-field="date" class="truncate text-xs tabular-nums text-muted-foreground">{ i18n.T(ctx, "contacts.card.last_mail_on", "date", contactCardLayoutSampleDate(ctx, -1)) }</span>
+				<span data-mail-card-field="created" class="truncate text-xs tabular-nums text-muted-foreground">{ i18n.T(ctx, "contacts.card.created_on", "date", contactCardLayoutSampleDate(ctx, -400)) }</span>
+				<span data-mail-card-field="edited" class="truncate text-xs tabular-nums text-muted-foreground">{ i18n.T(ctx, "contacts.card.edited_on", "date", contactCardLayoutSampleDate(ctx, -30)) }</span>
+			</div>
+			</div>
+			<div class="mail-list-card-zone mail-list-card-zone-status" data-mail-card-zone="status" data-mail-card-layout-zone-items="status" data-mail-card-layout-dropzone="status"></div>
+		</div>
+	}
+}
+
+// contactSaveLabels is a contact form's save button text: its own, or, once
+// saving would open the Gofer Sync setup (Gofer Sync turned on, or a place
+// added to it), "Set up Gofer Sync". app.js shows the one that applies; the
+// labels share one spot, so the button keeps its width as they change.
+templ contactSaveLabels(label string, newContact bool) {
+	<span class="login-submit-labels">
+		<span class="login-submit-label inline-flex items-center justify-center gap-1.5" data-contact-save-label="save" data-shown="true">
+			if newContact {
+				@icon.UserPlus(icon.Props{Class: "size-4"})
+			} else {
+				@icon.Save(icon.Props{Class: "size-4"})
+			}
+			{ label }
+		</span>
+		<span class="login-submit-label inline-flex items-center justify-center gap-1.5" data-contact-save-label="setup" data-shown="false" aria-hidden="true">
+			@icon.CloudSync(icon.Props{Class: "size-4"})
+			{ i18n.T(ctx, "contacts.edit.setup_sync") }
+		</span>
+	</span>
+}
+
+// contactUnresolvedMark marks a contact in the list that waits to be
+// resolved, saying which places deleted it.
+templ contactUnresolvedMark(contact models.Contact, accounts []models.Account) {
+	if len(contact.DeletedFrom) > 0 {
+		@contactHeaderTooltip(i18n.T(ctx, "contacts.unresolved.mark", "places", strings.Join(contactPlaceNames(ctx, contact.DeletedFrom, accounts), ", "))) {
+			<span class="inline-flex shrink-0 align-[-2px] text-amber-600 dark:text-amber-400" data-contact-unresolved-mark aria-label={ i18n.T(ctx, "contacts.unresolved.title") }>
+				@icon.TriangleAlert(icon.Props{Class: "size-3.5"})
+			</span>
+		}
+	}
+}
+
+// contactTableColumns are the contacts table's columns, in order. Which are
+// shown, and how wide, is the user's (contacts_table_columns and
+// contacts_table_column_widths, through ui-settings.js); the list hides the
+// rest. Every row has every cell.
+var contactTableColumns = []string{"name", "organization", "title", "email", "phone", "home", "messages", "date", "created", "edited", "notes", "sync"}
+
+func contactTableColumnLabel(ctx context.Context, id string) string {
+	return i18n.T(ctx, "contacts.column."+id)
+}
+
 templ ContactListTableHeader() {
-	<div class="mail-list-table-header mail-list-table-grid grid items-center gap-3 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground bg-card/95 border-b border-border/70 sticky top-0 z-20 backdrop-blur-sm" style={ contactListTableGridStyle() }>
-		<div class="mail-list-table-heading">{ i18n.T(ctx, "contacts.field.name") }</div>
-		<div class="mail-list-table-heading">{ i18n.T(ctx, "contacts.filters.origin") }</div>
-		<div class="mail-list-table-heading min-w-12 text-right">{ i18n.T(ctx, "contacts.list.messages_short") }</div>
+	<div class="mail-list-table-header mail-list-table-grid grid items-center gap-3 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground bg-card/95 border-b border-border/70 sticky top-0 z-20 backdrop-blur-sm">
+		for i, id := range contactTableColumns {
+			<div
+				class={ "mail-list-table-heading", templ.KV("pl-1", i == 0), templ.KV("min-w-12 text-right", id == "messages") }
+				data-mail-table-column={ fmt.Sprint(i) }
+				data-mail-table-column-id={ id }
+				data-mail-table-cell={ id }
+			>
+				<span data-contact-column-label title={ contactTableColumnLabel(ctx, id) }>{ contactTableColumnLabel(ctx, id) }</span>
+				<span class="mail-list-column-resize" data-mail-table-resize={ fmt.Sprint(i) }></span>
+			</div>
+		}
 	</div>
 }
 
@@ -1943,6 +2640,7 @@ templ ContactListTableRow(contact models.Contact, filters models.ContactFilters,
 	{{ contactHref := contactsURL(filters, contact.ID) }}
 	{{ contactDetailHref := contactsDetailURL(filters, contact.ID) }}
 	<div class="mail-list-item mail-list-table-row" data-contact-id={ contact.ID } data-position={ fmt.Sprintf("%d", position) } data-contact-row-email={ strings.TrimSpace(contact.Email) } data-contact-row-name={ contact.Name } data-contact-row-synced={ fmt.Sprintf("%t", len(contact.SourceBooks) > 0) }>
+		@listRowCheck(i18n.T(ctx, "contacts.select.contact"))
 		<a
 			href={ contactHref }
 			hx-get={ templ.URL(contactDetailHref) }
@@ -1956,25 +2654,43 @@ templ ContactListTableRow(contact models.Contact, filters models.ContactFilters,
 				templ.KV("envelope-active", selected != nil && selected.ID == contact.ID),
 				templ.KV("envelope", selected == nil || selected.ID != contact.ID),
 			}
-			style={ contactListTableGridStyle() }
 		>
-			<div class="flex min-w-0 items-center gap-3">
-				<div class="w-7 flex shrink-0 items-center justify-center">
+			<div class="flex min-w-0 items-center gap-2" data-mail-table-cell="name">
+				<div class="w-7 flex shrink-0 items-center justify-center" data-contact-table-avatar>
 					@ContactAvatar(contact, "size-6 rounded-full text-[10px] font-semibold", "bg-gradient-to-b from-amber-700/70 to-amber-900/70 text-amber-100")
 				</div>
-				<div class="min-w-0">
+				<div class="flex min-w-0 items-center gap-1">
+					@contactUnresolvedMark(contact, accounts)
 					<div class="truncate font-semibold text-foreground" data-contact-name>{ contact.Name }</div>
-					<div class="truncate text-xs text-muted-foreground" data-contact-email>{ contactListDetail(contact) }</div>
 				</div>
 			</div>
-			<div class="truncate text-xs text-muted-foreground">
-				if len(contact.SourceBooks) > 0 {
-					{ i18n.N(ctx, "contacts.list.books", len(contact.SourceBooks)) }
-				} else {
-					{ contactSourceLabel(ctx, contact.Source, contact.IsManual, accounts) }
+			<div class="truncate text-muted-foreground" data-mail-table-cell="organization">{ contactListOrganization(contact) }</div>
+			<div class="truncate text-muted-foreground" data-mail-table-cell="title">{ strings.TrimSpace(contact.Title) }</div>
+			@contactListEmailField(contact, "truncate text-muted-foreground", "mail-table-cell")
+			<div class="truncate tabular-nums text-muted-foreground" data-mail-table-cell="phone">{ strings.TrimSpace(contact.Phone) }</div>
+			{{ home := contactCardHome(ctx, contact, accounts) }}
+			<div class="flex min-w-0 items-center gap-1.5 text-muted-foreground" title={ home.Title } data-mail-table-cell="home">
+				if home.Color != "" {
+					<span class="account-color-marker size-2 shrink-0" style={ accountColorStyle(home.Color) } aria-hidden="true"></span>
 				}
+				<span class="truncate">{ home.Label }</span>
 			</div>
-			<div class="text-right text-xs tabular-nums text-muted-foreground">{ fmt.Sprintf("%d", contact.MessageCount) }</div>
+			<div class="text-right tabular-nums text-muted-foreground" data-mail-table-cell="messages">{ fmt.Sprintf("%d", contact.MessageCount) }</div>
+			for _, cell := range []struct {
+				id   string
+				date contactListDate
+			}{
+				{"date", contactInteractionDate(ctx, contact)},
+				{"created", contactDatedAs(ctx, "contacts.card.created_on", contact.CreatedAt)},
+				{"edited", contactDatedAs(ctx, "contacts.card.edited_on", contact.UpdatedAt)},
+			} {
+				<div class="truncate tabular-nums text-muted-foreground" title={ cell.date.Title } data-mail-table-cell={ cell.id }>{ cell.date.Date }</div>
+			}
+			<div class="truncate text-muted-foreground" title={ contactListNotes(contact) } data-mail-table-cell="notes">{ contactListNotes(contact) }</div>
+			<div class={ "flex min-w-0 items-center gap-1.5 " + contactListSyncClass(contact) } title={ contactListSyncTitle(ctx, contact) } data-mail-table-cell="sync" data-contact-sync-on={ fmt.Sprintf("%t", contact.GoferSyncEnabled) }>
+				@contactListSyncIcon(contact)
+				<span class="truncate">{ contactListSyncLabel(ctx, contact) }</span>
+			</div>
 		</a>
 	</div>
 }
@@ -1997,6 +2713,25 @@ templ ContactsItemsFragment(contacts []models.Contact, selected *models.Contact,
 	</div>
 }
 
+// contactImportPlaceItems are the accounts and address books an import can
+// store contacts in or sync them with.
+templ contactImportPlaceItems(accounts []models.Account) {
+	for _, account := range accounts {
+		if !account.IsDeleting && accountContactSyncCapable(account) {
+			if len(account.ContactAddressBooks) == 0 {
+				@selectbox.Item(selectbox.ItemProps{Value: contactSaveTargetValue(account)}) {
+					{ accountContactSaveLabel(account) }
+				}
+			}
+			for _, book := range account.ContactAddressBooks {
+				@selectbox.Item(selectbox.ItemProps{Value: contactBookTargetValue(book)}) {
+					{ accountContactOriginLabel(ctx, account) } / { contactAddressBookDisplayName(ctx, book) }
+				}
+			}
+		}
+	}
+}
+
 templ ContactsImportDialog(accounts []models.Account) {
 	@dialog.Dialog(dialog.Props{ID: "contacts-import-dialog"}) {
 		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-xl"}) {
@@ -2008,46 +2743,95 @@ templ ContactsImportDialog(accounts []models.Account) {
 					{ i18n.T(ctx, "contacts.import.description") }
 				}
 			}
-			<form action="/api/contacts/import" method="post" enctype="multipart/form-data" class="space-y-4">
+			<form action="/api/contacts/import" method="post" enctype="multipart/form-data" class="space-y-4" data-contacts-import-form>
 				<div class="space-y-1.5">
 					<label class="block text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.import.file") }</label>
-					<input type="file" name="vcard" accept=".vcf,text/vcard,text/x-vcard" required class="block w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground file:mr-3 file:rounded-md file:border-0 file:bg-primary file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-primary-foreground hover:file:bg-primary/90"/>
+					<input type="file" name="vcard" accept=".vcf,text/vcard,text/x-vcard" required data-contacts-import-file class="block w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground file:mr-3 file:rounded-md file:border-0 file:bg-primary file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-primary-foreground hover:file:bg-primary/90"/>
 					<p class="text-xs text-muted-foreground">{ i18n.T(ctx, "contacts.import.supports") }</p>
 				</div>
 				<div class="space-y-1.5">
-					<label class="block text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.import.sync_with") }</label>
-					@selectbox.SelectBox(selectbox.Props{Multiple: true}) {
-						@selectbox.Trigger(selectbox.TriggerProps{Name: "save_targets", Class: "h-10 bg-background", Multiple: true, ShowPills: true, DisableClear: true, SelectedCountText: i18n.T(ctx, "contacts.import.accounts_selected")}) {
-							@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "contacts.import.gofer_local"), Multiple: true, Class: "text-left"})
+					<label class="block text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.import.store_in") }</label>
+					@selectbox.SelectBox() {
+						@selectbox.Trigger(selectbox.TriggerProps{Name: "store_in", Class: "h-10 bg-background", Required: true, DisableClear: true, Attributes: templ.Attributes{"data-contacts-import-store": ""}}) {
+							@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "contacts.import.gofer_local"), Class: "text-left"})
 						}
 						@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
 							@selectbox.Item(selectbox.ItemProps{Value: "local", Selected: true}) {
 								{ i18n.T(ctx, "contacts.import.gofer_local") }
 							}
-							for _, account := range accounts {
-								if !account.IsDeleting && accountContactSyncCapable(account) {
-									if len(account.ContactAddressBooks) == 0 {
-										@selectbox.Item(selectbox.ItemProps{Value: contactSaveTargetValue(account)}) {
-											{ accountContactSaveLabel(account) }
-										}
-									}
-									for _, book := range account.ContactAddressBooks {
-										@selectbox.Item(selectbox.ItemProps{Value: contactBookTargetValue(book)}) {
-											{ accountContactOriginLabel(ctx, account) } / { contactAddressBookDisplayName(ctx, book) }
-										}
-									}
-								}
-							}
+							@contactImportPlaceItems(accounts)
 						}
 					}
+					<p class="text-xs text-muted-foreground">{ i18n.T(ctx, "contacts.import.store_in_help") }</p>
+				</div>
+				// Once a file is chosen, Gofer counts its contacts already in the
+				// place they go to, and asks what to do with them.
+				<p class="text-xs text-muted-foreground" aria-live="polite" data-contacts-import-checking hidden>{ i18n.T(ctx, "contacts.import.checking") }</p>
+				<div class="space-y-3 rounded-lg border border-border bg-muted/40 p-3" data-contacts-import-existing hidden>
+					<p class="text-sm text-foreground" aria-live="polite" data-contacts-import-existing-summary></p>
+					<div class="space-y-2" role="radiogroup" aria-label={ i18n.T(ctx, "contacts.import.existing_label") }>
+						<label class="flex items-start gap-2.5 text-sm text-foreground">
+							<span class="mt-0.5 flex shrink-0">
+								@radio.Radio(radio.Props{Name: "existing", Value: "skip", Checked: true})
+							</span>
+							<span>
+								<span class="font-medium">{ i18n.T(ctx, "contacts.import.existing_skip") }</span>
+								<span class="block text-xs text-muted-foreground mt-0.5">{ i18n.T(ctx, "contacts.import.existing_skip_detail") }</span>
+							</span>
+						</label>
+						<label class="flex items-start gap-2.5 text-sm text-foreground">
+							<span class="mt-0.5 flex shrink-0">
+								@radio.Radio(radio.Props{Name: "existing", Value: "update"})
+							</span>
+							<span>
+								<span class="font-medium">{ i18n.T(ctx, "contacts.import.existing_update") }</span>
+								<span class="block text-xs text-muted-foreground mt-0.5">{ i18n.T(ctx, "contacts.import.existing_update_detail") }</span>
+							</span>
+						</label>
+					</div>
+				</div>
+				// Gofer Sync replicates the contacts to more places; picking them
+				// only makes sense with it on, so the switch shows them.
+				<div class="space-y-3 rounded-lg border border-border p-3">
+					<div class="flex items-start justify-between gap-3">
+						<div class="min-w-0">
+							<div class="flex items-center gap-1.5">
+								<label for="contacts-import-gofer-sync" class="block text-sm font-medium text-foreground">{ i18n.T(ctx, "contacts.import.gofer_sync") }</label>
+								@goferSyncInfo()
+							</div>
+							<p class="mt-0.5 text-xs text-muted-foreground">{ i18n.T(ctx, "contacts.import.gofer_sync_help") }</p>
+						</div>
+						@switchcomp.Switch(switchcomp.Props{ID: "contacts-import-gofer-sync", Name: "gofer_sync", Value: "1", Attributes: templ.Attributes{"data-contacts-import-sync": ""}})
+					</div>
+					<div class="space-y-1.5" data-contacts-import-sync-places hidden>
+						<label class="block text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.import.sync_with") }</label>
+						@selectbox.SelectBox(selectbox.Props{Multiple: true}) {
+							@selectbox.Trigger(selectbox.TriggerProps{Name: "sync_with", Class: "h-10 bg-background", Multiple: true, ShowPills: true, DisableClear: true, SelectedCountText: i18n.T(ctx, "contacts.import.accounts_selected")}) {
+								@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "contacts.import.sync_with_none"), Multiple: true, Class: "text-left"})
+							}
+							@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+								@selectbox.Item(selectbox.ItemProps{Value: "local"}) {
+									{ i18n.T(ctx, "contacts.import.gofer_local") }
+								}
+								@contactImportPlaceItems(accounts)
+							}
+						}
+					</div>
+				</div>
+				<div class="space-y-1.5" data-contacts-import-progress hidden>
+					<div class="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+						<span data-contacts-import-progress-label aria-live="polite">{ i18n.T(ctx, "contacts.import.saving") }</span>
+						<span class="tabular-nums" data-contacts-import-progress-count></span>
+					</div>
+					@progress.Progress(progress.Props{Max: 100, Value: 0, Size: progress.SizeSm, Attributes: templ.Attributes{"data-contacts-import-progress-bar": "", "aria-label": i18n.T(ctx, "contacts.import.progress")}})
 				</div>
 				@dialog.Footer() {
 					@dialog.Close(dialog.CloseProps{For: "contacts-import-dialog"}) {
 						<button type="button" class="inline-flex h-9 items-center justify-center rounded-md border border-border px-3 text-sm font-semibold text-muted-foreground hover:bg-accent hover:text-foreground">{ i18n.T(ctx, "common.cancel") }</button>
 					}
-					<button type="submit" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-md bg-primary px-3 text-sm font-semibold text-primary-foreground hover:bg-primary/90">
+					<button type="submit" data-contacts-import-submit class="inline-flex h-9 items-center justify-center gap-1.5 rounded-md bg-primary px-3 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-70">
 						@icon.Upload(icon.Props{Class: "size-4"})
-						{ i18n.T(ctx, "contacts.import.submit") }
+						<span data-contacts-import-submit-label>{ i18n.T(ctx, "contacts.import.submit") }</span>
 					</button>
 				}
 			</form>
@@ -2098,17 +2882,21 @@ templ ContactEditor(contact *models.Contact, profile *models.ContactProfile, syn
 	<div class="contact-editor flex h-full min-h-0 flex-col">
 		@ContactEditorHeader(contact, profile, accounts)
 		if contact != nil {
-			<div class="flex-1 overflow-y-auto">
+			<div class="flex-1 overflow-y-auto" data-contact-detail-scroll>
 				@ContactReadOnlyView(*contact, profile, syncQueued, accounts)
 			</div>
 			if contact.TrashedAt == "" {
 				@ContactEditDialog(*contact, profile, accounts)
+				if !contact.GoferSyncEnabled {
+					@ContactPlaceDialog(*contact, accounts, true)
+				}
+				@ContactPlaceDialog(*contact, accounts, false)
 			}
 		} else {
 			<div class="flex-1 overflow-y-auto">
 				<form id="contact-editor-form" action={ contactFormAction(contact) } method="post" class="flex min-h-full flex-col" data-contact-editor-form>
 					<div class="w-full flex-1 space-y-5 px-5 py-5 sm:px-7">
-						@ContactEditorCoreFields(contact)
+						@ContactEditorCoreFields(contact, accounts)
 						@ContactLegacySourcePanel(contact, accounts)
 					</div>
 					@ContactEditorSaveActions()
@@ -2131,20 +2919,167 @@ templ ContactReadOnlyView(contact models.Contact, profile *models.ContactProfile
 				</p>
 			</div>
 		}
-		@ContactReadOnlyContactInfo(contact)
+		if len(contact.DeletedFrom) > 0 && contact.TrashedAt == "" {
+			@ContactUnresolvedNotice(contact, accounts)
+		}
+		@ContactReadOnlyContactInfo(contact, profile, accounts)
 		@ContactReadOnlySyncInfo(contact, profile, syncQueued, accounts)
 		@ContactReadOnlyActivityInfo(contact)
 		@ContactRecentActivityLoader(contact)
 	</div>
 }
 
-templ ContactReadOnlyContactInfo(contact models.Contact) {
+// ContactUnresolvedNotice tells that places a synced contact lives in
+// deleted it, and opens the resolver, where it is resolved with the others.
+templ ContactUnresolvedNotice(contact models.Contact, accounts []models.Account) {
+	<div class={ "flex items-center gap-2 rounded-md border px-3 py-1.5 text-xs " + contactInsightSeverityClass("warning") } data-contact-unresolved-notice={ contact.ID }>
+		@icon.TriangleAlert(icon.Props{Class: "size-3.5 shrink-0"})
+		<p class="min-w-0 flex-1">{ i18n.T(ctx, "contacts.unresolved.banner", "places", strings.Join(contactPlaceNames(ctx, contact.DeletedFrom, accounts), ", ")) }</p>
+		<button type="button" class="shrink-0 font-semibold underline underline-offset-2 hover:opacity-80" data-contacts-open-resolver>{ i18n.T(ctx, "contacts.unresolved.open") }</button>
+	</div>
+}
+
+// ContactResolverDialog lists the synced contacts that one of their places
+// deleted, to choose for each at once: keep it without those places, delete
+// it everywhere, or leave it for later.
+// ContactNewHomeChoice is where a contact to resolve whose home deleted it
+// can live once kept: Places, with Default chosen at first.
+type ContactNewHomeChoice struct {
+	Places  []string
+	Default string
+}
+
+templ ContactResolverDialog(contacts []models.Contact, newHomes map[string]ContactNewHomeChoice, accounts []models.Account) {
+	@dialog.Dialog(dialog.Props{ID: "contacts-resolver-dialog"}) {
+		@dialog.Content(dialog.ContentProps{Class: "data-dialog max-h-[calc(100dvh-2rem)] normal-case tracking-normal sm:max-w-2xl [&>[data-tui-dialog-panel]]:flex [&>[data-tui-dialog-panel]]:max-h-[calc(100dvh-2rem)] [&>[data-tui-dialog-panel]]:min-h-0 [&>[data-tui-dialog-panel]]:flex-col [&>[data-tui-dialog-panel]]:gap-0 [&>[data-tui-dialog-panel]]:p-0"}) {
+			@dialog.Header(dialog.HeaderProps{Class: "shrink-0 px-6 pt-6 pb-4"}) {
+				@dialog.Title() {
+					{ i18n.T(ctx, "contacts.unresolved.title") }
+				}
+				@dialog.Description() {
+					{ i18n.T(ctx, "contacts.unresolved.note") }
+				}
+			}
+			<form class={ dataDialogFormClass } data-contacts-resolver-form>
+				@dataDialogScroll("space-y-3 pb-4") {
+					if len(contacts) == 0 {
+						<div class="flex flex-col items-center justify-center py-10 text-center">
+							@icon.CircleCheck(icon.Props{Class: "mb-3 size-6 text-muted-foreground"})
+							<h3 class="mb-1 text-sm font-semibold">{ i18n.T(ctx, "contacts.unresolved.empty_title") }</h3>
+							<p class="text-xs text-muted-foreground">{ i18n.T(ctx, "contacts.unresolved.empty_detail") }</p>
+						</div>
+					} else {
+						<div class="flex flex-wrap items-center justify-end gap-x-3 gap-y-1 text-xs">
+							<span class="text-muted-foreground">{ i18n.T(ctx, "contacts.unresolved.for_all") }</span>
+							<button type="button" class="font-semibold underline-offset-2 hover:underline" data-contacts-resolver-all="keep">{ i18n.T(ctx, "contacts.unresolved.keep_short") }</button>
+							<button type="button" class="font-semibold text-destructive underline-offset-2 hover:underline" data-contacts-resolver-all="delete">{ i18n.T(ctx, "contacts.unresolved.delete_everywhere") }</button>
+							<button type="button" class="font-semibold text-muted-foreground underline-offset-2 hover:underline" data-contacts-resolver-all="later">{ i18n.T(ctx, "contacts.unresolved.later") }</button>
+						</div>
+						for _, contact := range contacts {
+							{{ places := strings.Join(contactPlaceNames(ctx, contact.DeletedFrom, accounts), ", ") }}
+							<fieldset class="rounded-lg border border-ink/10 bg-ink/[0.02] p-3" data-contacts-resolver-case={ contact.ID } data-contact-name={ contactDisplay(contact) }>
+								<div class="min-w-0">
+									<div class="truncate text-sm font-semibold text-foreground">{ contactDisplay(contact) }</div>
+									if strings.TrimSpace(contact.Email) != "" && strings.TrimSpace(contact.Email) != contactDisplay(contact) {
+										<div class="truncate text-xs text-muted-foreground">{ contact.Email }</div>
+									}
+									<p class="mt-1 text-xs text-amber-800 dark:text-amber-200">{ i18n.T(ctx, "contacts.unresolved.notice_title", "places", places) }</p>
+								</div>
+								<div class="mt-2.5 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:gap-x-5" role="radiogroup" aria-label={ contactDisplay(contact) }>
+									<label class="flex items-center gap-2 text-sm text-foreground">
+										@radio.Radio(radio.Props{Name: "resolve-" + contact.ID, Value: "keep"})
+										<span>{ i18n.T(ctx, "contacts.unresolved.keep") }</span>
+									</label>
+									<label class="flex items-center gap-2 text-sm text-foreground">
+										@radio.Radio(radio.Props{Name: "resolve-" + contact.ID, Value: "delete"})
+										<span>{ i18n.T(ctx, "contacts.unresolved.delete_everywhere") }</span>
+									</label>
+									<label class="flex items-center gap-2 text-sm text-muted-foreground">
+										@radio.Radio(radio.Props{Name: "resolve-" + contact.ID, Value: "later", Checked: true})
+										<span>{ i18n.T(ctx, "contacts.unresolved.later") }</span>
+									</label>
+								</div>
+								// Its home deleted it: kept, it needs another one. Shown
+								// while Keep is chosen, opening and closing smoothly; its
+								// gap above is padding so it closes with it.
+								if newHome, ok := newHomes[contact.ID]; ok {
+									{{ names := contactPlaceNames(ctx, newHome.Places, accounts) }}
+									<div class="space-y-1 pt-2.5" hidden data-contacts-resolver-home>
+										<span class="block text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.unresolved.new_home") }</span>
+										@selectbox.SelectBox() {
+											@selectbox.Trigger(selectbox.TriggerProps{Name: "home:" + contact.ID, Class: "h-9 bg-background text-sm", DisableClear: true}) {
+												@selectbox.Value(selectbox.ValueProps{Class: "text-left"})
+											}
+											@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+												for i, place := range newHome.Places {
+													@selectbox.Item(selectbox.ItemProps{Value: place, Selected: place == newHome.Default}) {
+														{ names[i] }
+													}
+												}
+											}
+										}
+									</div>
+								}
+							</fieldset>
+						}
+					}
+				}
+				@dataDialogFooter() {
+					@dialog.Close(dialog.CloseProps{For: "contacts-resolver-dialog"}) {
+						<button type="button" class="inline-flex h-9 items-center justify-center rounded-md border border-border px-3 text-sm font-semibold text-muted-foreground hover:bg-accent hover:text-foreground">{ i18n.T(ctx, "common.cancel") }</button>
+					}
+					<button type="submit" disabled data-contacts-resolver-apply class="inline-flex h-9 items-center justify-center gap-1.5 rounded-md bg-primary px-3 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50">
+						{ i18n.T(ctx, "contacts.unresolved.apply") }
+					</button>
+				}
+			</form>
+		}
+	}
+}
+
+// contactPlaceNames names Gofer Local, accounts and address books as the
+// contacts list does.
+// ContactHomeLabel names a contact's main location as the contacts list
+// names places; no main location is Gofer Local.
+func ContactHomeLabel(ctx context.Context, place string, accounts []models.Account) string {
+	if strings.TrimSpace(place) == "" {
+		place = "local"
+	}
+	return contactPlaceNames(ctx, []string{place}, accounts)[0]
+}
+
+func contactPlaceNames(ctx context.Context, places []string, accounts []models.Account) []string {
+	names := make([]string, 0, len(places))
+	for _, place := range places {
+		if place == "local" {
+			names = append(names, i18n.T(ctx, "contacts.origin.local"))
+			continue
+		}
+		accountID, _ := strings.CutPrefix(place, "account:")
+		if book, ok := strings.CutPrefix(place, "book:"); ok {
+			accountID = ""
+			for _, account := range accounts {
+				for _, candidate := range account.ContactAddressBooks {
+					if candidate.ID == book {
+						accountID = account.ID
+					}
+				}
+			}
+		}
+		names = append(names, contactStoredInPlaceLabel(ctx, place, accountID, accounts))
+	}
+	return names
+}
+
+templ ContactReadOnlyContactInfo(contact models.Contact, profile *models.ContactProfile, accounts []models.Account) {
 	<section class="rounded-lg border border-ink/10 bg-ink/[0.02]">
 		<div class="flex items-center gap-2 border-b border-ink/10 px-4 py-3">
 			@icon.IdCard(icon.Props{Class: "size-3.5 text-muted-foreground"})
 			<h2 class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.view.contact") }</h2>
 		</div>
 		<div class="grid gap-x-6 px-4 lg:grid-cols-2">
+			// Where the contact exists, its own; Gofer Sync adds more places.
+			@ContactReadOnlyPillListField(i18n.T(ctx, "contacts.stored_in"), contactStoredInLabels(ctx, profile, contact.DeletedFrom, accounts))
 			@ContactReadOnlyTextField(i18n.T(ctx, "contacts.field.name"), contact.Name)
 			@ContactReadOnlyLinkedField(i18n.T(ctx, "contacts.field.email"), contact.Email, contact.EmailLabel, "mailto:")
 			@ContactReadOnlyListField(i18n.T(ctx, "contacts.field.additional_emails"), contact.AdditionalEmails, contact.AdditionalEmailLabels, "alternate", "mailto:")
@@ -2165,12 +3100,13 @@ templ ContactReadOnlySyncInfo(contact models.Contact, profile *models.ContactPro
 			<div class="flex flex-wrap items-center gap-2">
 				@icon.Route(icon.Props{Class: "size-3.5 text-muted-foreground"})
 				<h2 class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.sync.title") }</h2>
-				<span class={ contactSyncEnabledBadgeClass(contactProfileSyncEnabled(profile)) } data-contact-sync-enabled-status>{ contactProfileSyncLabel(ctx, profile) }</span>
+				@goferSyncInfo()
+				<span class={ contactSyncStateBadgeClass(contact, profile) } data-contact-sync-enabled-status>{ contactSyncStateLabel(ctx, contact, profile) }</span>
 			</div>
 			@button.Button(button.Props{
 				Variant: button.VariantOutline,
 				Size: button.SizeSm,
-				Disabled: contact.TrashedAt != "" || !contactProfileSyncEnabled(profile) || contactSyncOperationActive(contact, syncQueued),
+				Disabled: contact.TrashedAt != "" || len(contact.DeletedFrom) > 0 || !contactProfileSyncEnabled(profile) || contactSyncOperationActive(contact, syncQueued),
 				Class: "h-7 gap-1.5 border-ink/10 bg-ink/[0.025] px-2.5 text-xs text-muted-foreground shadow-none",
 				Attributes: templ.Attributes{"data-contact-sync-now": "", "data-contact-id": contact.ID, "aria-label": i18n.T(ctx, "contacts.sync.now_label")},
 			}) {
@@ -2277,7 +3213,7 @@ templ ContactReadOnlySyncStatusField(value string) {
 	</div>
 }
 
-templ ContactEditorCoreFields(contact *models.Contact) {
+templ ContactEditorCoreFields(contact *models.Contact, accounts []models.Account) {
 	{{ hasAvatar := contact != nil && strings.TrimSpace(contact.AvatarURL) != "" }}
 	<section class="rounded-lg border border-ink/10 bg-ink/[0.02]" data-contact-avatar-editor>
 		<input type="hidden" name="avatar_action" value="preserve" data-contact-avatar-action/>
@@ -2303,40 +3239,42 @@ templ ContactEditorCoreFields(contact *models.Contact) {
 					</span>
 				</button>
 				<div class="min-w-0">
-					<h2 class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.view.contact") }</h2>
+					<h2 class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.avatar.title") }</h2>
 					<p class="mt-0.5 text-[11px] text-muted-foreground">{ i18n.T(ctx, "contacts.avatar.change_hint") }</p>
 				</div>
 			</div>
-			<div class="flex shrink-0 items-center gap-2">
+			<div class="flex shrink-0 items-center gap-3">
 				<span class="hidden text-xs font-medium text-emerald-700" data-contact-avatar-status>{ i18n.T(ctx, "contacts.avatar.ready") }</span>
 				<button type="button" class={ "h-7 items-center rounded-md px-2 text-[11px] font-semibold text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive " + contactEditAvatarRemoveClass(hasAvatar) } data-contact-avatar-remove>{ i18n.T(ctx, "contacts.avatar.remove") }</button>
+				// A new contact chooses where it exists here, with its photo.
+				if contact == nil {
+					@contactNewHomePicker(accounts)
+				}
 			</div>
 		</div>
-		<div class="grid gap-6 p-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
-			<div class="min-w-0 space-y-4">
+		// One column, each field the dialog's width; title and organization,
+		// both short, share a row.
+		<div class="space-y-4 p-4">
 				<div>
 					<label class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.field.name") }</label>
-					<input type="text" name="name" value={ contactFormName(contact) } placeholder={ i18n.T(ctx, "contacts.placeholder.name") } class="h-10 w-full rounded-lg border border-ink/10 bg-ink/[0.04] px-3 text-sm text-ink placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ink/10"/>
+					<input type="text" name="name" value={ contactFormName(contact) } placeholder={ i18n.T(ctx, "contacts.placeholder.name") } class="h-8 w-full rounded-md border border-ink/10 bg-ink/[0.04] px-2.5 text-[13px] text-ink placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ink/10"/>
 				</div>
 				@ContactEmailFields(contact)
 				@ContactPhoneFields(contact)
-			</div>
-			<div class="min-w-0 space-y-4">
-				<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+				<div class="grid gap-4 sm:grid-cols-2">
 					<div>
 						<label class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.field.title") }</label>
-						<input type="text" name="title" value={ contactFormTitle(contact) } placeholder={ i18n.T(ctx, "contacts.placeholder.title") } class="h-10 w-full rounded-lg border border-ink/10 bg-ink/[0.04] px-3 text-sm text-ink placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ink/10"/>
+						<input type="text" name="title" value={ contactFormTitle(contact) } placeholder={ i18n.T(ctx, "contacts.placeholder.title") } class="h-8 w-full rounded-md border border-ink/10 bg-ink/[0.04] px-2.5 text-[13px] text-ink placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ink/10"/>
 					</div>
 					<div>
 						<label class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.field.organization") }</label>
-						<input type="text" name="organization" value={ contactFormOrganization(contact) } placeholder={ i18n.T(ctx, "contacts.placeholder.organization") } class="h-10 w-full rounded-lg border border-ink/10 bg-ink/[0.04] px-3 text-sm text-ink placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ink/10"/>
+						<input type="text" name="organization" value={ contactFormOrganization(contact) } placeholder={ i18n.T(ctx, "contacts.placeholder.organization") } class="h-8 w-full rounded-md border border-ink/10 bg-ink/[0.04] px-2.5 text-[13px] text-ink placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ink/10"/>
 					</div>
 				</div>
 				<div>
 					<label class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.field.notes") }</label>
-					<textarea name="notes" rows="7" placeholder={ i18n.T(ctx, "contacts.placeholder.notes") } class="min-h-40 w-full resize-y rounded-lg border border-ink/10 bg-ink/[0.04] px-3 py-2 text-sm text-ink placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ink/10">{ contactFormNotes(contact) }</textarea>
+					<textarea name="notes" rows="5" placeholder={ i18n.T(ctx, "contacts.placeholder.notes") } class="min-h-24 w-full resize-y rounded-md border border-ink/10 bg-ink/[0.04] px-2.5 py-1.5 text-[13px] text-ink placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ink/10">{ contactFormNotes(contact) }</textarea>
 				</div>
-			</div>
 		</div>
 	</section>
 }
@@ -2345,30 +3283,30 @@ templ ContactEmailFields(contact *models.Contact) {
 	<div class="space-y-2">
 		<div class="flex items-center justify-between gap-3">
 			<label class="block text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.field.email") }</label>
-			<button type="button" class="inline-flex h-7 items-center gap-1 rounded-md border border-ink/10 bg-ink/[0.025] px-2 text-[11px] font-medium text-muted-foreground hover:bg-ink/[0.06] hover:text-ink" data-contact-add-value="additional_emails" aria-label={ i18n.T(ctx, "contacts.edit.add_email") }>
+			<button type="button" class="inline-flex h-6 items-center gap-1 rounded-md border border-ink/10 bg-ink/[0.025] px-2 text-[11px] font-medium text-muted-foreground hover:bg-ink/[0.06] hover:text-ink" data-contact-add-value="additional_emails" aria-label={ i18n.T(ctx, "contacts.edit.add_email") }>
 				@icon.Plus(icon.Props{Class: "size-3.5"})
 				{ i18n.T(ctx, "contacts.edit.add") }
 			</button>
 		</div>
 		<template data-contact-value-template="additional_emails">
-			<div class="flex items-center gap-2" data-contact-value-row>
-				<input type="email" name="additional_emails" placeholder="jane@work.example" class="h-10 min-w-0 flex-1 rounded-lg border border-ink/10 bg-ink/[0.04] px-3 text-sm text-ink placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ink/10"/>
+			<div class="flex items-center gap-2 pt-2" data-contact-value-row>
+				<input type="email" name="additional_emails" placeholder="jane@work.example" class="h-8 min-w-0 flex-1 rounded-md border border-ink/10 bg-ink/[0.04] px-2.5 text-[13px] text-ink placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ink/10"/>
 				@ContactLabelSelect("additional_email_labels", "other", contactEmailLabelOptions("other"), i18n.T(ctx, "contacts.edit.email_label"))
-				<button type="button" class="size-8 shrink-0 rounded-md border border-ink/10 bg-ink/[0.025] text-muted-foreground hover:bg-ink/[0.06] hover:text-ink" data-contact-remove-value aria-label={ i18n.T(ctx, "contacts.edit.remove_email") }>
+				<button type="button" class="size-7 shrink-0 rounded-md border border-ink/10 bg-ink/[0.025] text-muted-foreground hover:bg-ink/[0.06] hover:text-ink" data-contact-remove-value aria-label={ i18n.T(ctx, "contacts.edit.remove_email") }>
 					@icon.X(icon.Props{Class: "mx-auto size-4"})
 				</button>
 			</div>
 		</template>
-		<div class="space-y-2" data-contact-value-list="additional_emails">
+		<div data-contact-value-list="additional_emails">
 			<div class="flex items-center gap-2">
-				<input type="email" name="email" value={ contactFormEmail(contact) } placeholder="jane@example.com" class="h-10 min-w-0 flex-1 rounded-lg border border-ink/10 bg-ink/[0.04] px-3 text-sm text-ink placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ink/10"/>
+				<input type="email" name="email" value={ contactFormEmail(contact) } placeholder="jane@example.com" class="h-8 min-w-0 flex-1 rounded-md border border-ink/10 bg-ink/[0.04] px-2.5 text-[13px] text-ink placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ink/10"/>
 				@ContactLabelSelect("email_label", contactFormEmailLabel(contact), contactEmailLabelOptions(contactFormEmailLabel(contact)), i18n.T(ctx, "contacts.edit.email_label"))
 			</div>
 			for i, email := range contactAdditionalEmails(contact) {
-				<div class="flex items-center gap-2" data-contact-value-row>
-					<input type="email" name="additional_emails" value={ email } placeholder="jane@work.example" class="h-10 min-w-0 flex-1 rounded-lg border border-ink/10 bg-ink/[0.04] px-3 text-sm text-ink placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ink/10"/>
+				<div class="flex items-center gap-2 pt-2" data-contact-value-row>
+					<input type="email" name="additional_emails" value={ email } placeholder="jane@work.example" class="h-8 min-w-0 flex-1 rounded-md border border-ink/10 bg-ink/[0.04] px-2.5 text-[13px] text-ink placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ink/10"/>
 					@ContactLabelSelect("additional_email_labels", contactAdditionalEmailLabel(contact, i), contactEmailLabelOptions(contactAdditionalEmailLabel(contact, i)), i18n.T(ctx, "contacts.edit.email_label"))
-					<button type="button" class="size-8 shrink-0 rounded-md border border-ink/10 bg-ink/[0.025] text-muted-foreground hover:bg-ink/[0.06] hover:text-ink" data-contact-remove-value aria-label={ i18n.T(ctx, "contacts.edit.remove_email") }>
+					<button type="button" class="size-7 shrink-0 rounded-md border border-ink/10 bg-ink/[0.025] text-muted-foreground hover:bg-ink/[0.06] hover:text-ink" data-contact-remove-value aria-label={ i18n.T(ctx, "contacts.edit.remove_email") }>
 						@icon.X(icon.Props{Class: "mx-auto size-4"})
 					</button>
 				</div>
@@ -2381,30 +3319,30 @@ templ ContactPhoneFields(contact *models.Contact) {
 	<div class="space-y-2">
 		<div class="flex items-center justify-between gap-3">
 			<label class="block text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.field.phone") }</label>
-			<button type="button" class="inline-flex h-7 items-center gap-1 rounded-md border border-ink/10 bg-ink/[0.025] px-2 text-[11px] font-medium text-muted-foreground hover:bg-ink/[0.06] hover:text-ink" data-contact-add-value="additional_phones" aria-label={ i18n.T(ctx, "contacts.edit.add_phone") }>
+			<button type="button" class="inline-flex h-6 items-center gap-1 rounded-md border border-ink/10 bg-ink/[0.025] px-2 text-[11px] font-medium text-muted-foreground hover:bg-ink/[0.06] hover:text-ink" data-contact-add-value="additional_phones" aria-label={ i18n.T(ctx, "contacts.edit.add_phone") }>
 				@icon.Plus(icon.Props{Class: "size-3.5"})
 				{ i18n.T(ctx, "contacts.edit.add") }
 			</button>
 		</div>
 		<template data-contact-value-template="additional_phones">
-			<div class="flex items-center gap-2" data-contact-value-row>
-				<input type="tel" name="additional_phones" placeholder="+1 555 0101" class="h-10 min-w-0 flex-1 rounded-lg border border-ink/10 bg-ink/[0.04] px-3 text-sm text-ink placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ink/10"/>
+			<div class="flex items-center gap-2 pt-2" data-contact-value-row>
+				<input type="tel" name="additional_phones" placeholder="+1 555 0101" class="h-8 min-w-0 flex-1 rounded-md border border-ink/10 bg-ink/[0.04] px-2.5 text-[13px] text-ink placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ink/10"/>
 				@ContactLabelSelect("additional_phone_labels", "other", contactPhoneLabelOptions("other"), i18n.T(ctx, "contacts.edit.phone_label"))
-				<button type="button" class="size-8 shrink-0 rounded-md border border-ink/10 bg-ink/[0.025] text-muted-foreground hover:bg-ink/[0.06] hover:text-ink" data-contact-remove-value aria-label={ i18n.T(ctx, "contacts.edit.remove_phone") }>
+				<button type="button" class="size-7 shrink-0 rounded-md border border-ink/10 bg-ink/[0.025] text-muted-foreground hover:bg-ink/[0.06] hover:text-ink" data-contact-remove-value aria-label={ i18n.T(ctx, "contacts.edit.remove_phone") }>
 					@icon.X(icon.Props{Class: "mx-auto size-4"})
 				</button>
 			</div>
 		</template>
-		<div class="space-y-2" data-contact-value-list="additional_phones">
+		<div data-contact-value-list="additional_phones">
 			<div class="flex items-center gap-2">
-				<input type="tel" name="phone" value={ contactFormPhone(contact) } placeholder="+1 555 0100" class="h-10 min-w-0 flex-1 rounded-lg border border-ink/10 bg-ink/[0.04] px-3 text-sm text-ink placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ink/10"/>
+				<input type="tel" name="phone" value={ contactFormPhone(contact) } placeholder="+1 555 0100" class="h-8 min-w-0 flex-1 rounded-md border border-ink/10 bg-ink/[0.04] px-2.5 text-[13px] text-ink placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ink/10"/>
 				@ContactLabelSelect("phone_label", contactFormPhoneLabel(contact), contactPhoneLabelOptions(contactFormPhoneLabel(contact)), i18n.T(ctx, "contacts.edit.phone_label"))
 			</div>
 			for i, phone := range contactAdditionalPhones(contact) {
-				<div class="flex items-center gap-2" data-contact-value-row>
-					<input type="tel" name="additional_phones" value={ phone } placeholder="+1 555 0101" class="h-10 min-w-0 flex-1 rounded-lg border border-ink/10 bg-ink/[0.04] px-3 text-sm text-ink placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ink/10"/>
+				<div class="flex items-center gap-2 pt-2" data-contact-value-row>
+					<input type="tel" name="additional_phones" value={ phone } placeholder="+1 555 0101" class="h-8 min-w-0 flex-1 rounded-md border border-ink/10 bg-ink/[0.04] px-2.5 text-[13px] text-ink placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ink/10"/>
 					@ContactLabelSelect("additional_phone_labels", contactAdditionalPhoneLabel(contact, i), contactPhoneLabelOptions(contactAdditionalPhoneLabel(contact, i)), i18n.T(ctx, "contacts.edit.phone_label"))
-					<button type="button" class="size-8 shrink-0 rounded-md border border-ink/10 bg-ink/[0.025] text-muted-foreground hover:bg-ink/[0.06] hover:text-ink" data-contact-remove-value aria-label={ i18n.T(ctx, "contacts.edit.remove_phone") }>
+					<button type="button" class="size-7 shrink-0 rounded-md border border-ink/10 bg-ink/[0.025] text-muted-foreground hover:bg-ink/[0.06] hover:text-ink" data-contact-remove-value aria-label={ i18n.T(ctx, "contacts.edit.remove_phone") }>
 						@icon.X(icon.Props{Class: "mx-auto size-4"})
 					</button>
 				</div>
@@ -2416,7 +3354,7 @@ templ ContactPhoneFields(contact *models.Contact) {
 templ ContactEditorHeader(contact *models.Contact, profile *models.ContactProfile, accounts []models.Account) {
 	<div class="contact-editor-header shrink-0 border-b border-ink/10 bg-paper/70 px-5 py-4 sm:px-7">
 		<div class="contact-editor-header-inner flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-			<div class="contact-header-identity flex min-w-0 items-start gap-4">
+			<div class="contact-header-identity flex min-w-0 items-start gap-4 xl:max-w-[60%] xl:shrink-0">
 				if contact != nil {
 					@ContactHeaderAvatar(*contact)
 				} else {
@@ -2448,20 +3386,42 @@ templ ContactEditorHeader(contact *models.Contact, profile *models.ContactProfil
 					</div>
 				</div>
 			</div>
-			<div class="contact-header-actions flex flex-wrap items-center gap-2 xl:justify-end">
+			// A toolbar like the mail list's: its spacer pushes the actions to
+			// the right, and the actions fold into ⋮ as the room runs out.
+			<div class="contact-header-actions flex min-w-0 flex-nowrap items-center gap-1 xl:flex-1" data-contact-header-actions>
 				<button type="button" class="contact-header-back hidden" data-on-click='["closeMobileContactView"]' aria-label={ i18n.T(ctx, "contacts.view.back") }>
 					@icon.ArrowLeft(icon.Props{Class: "size-5"})
 				</button>
-				<div class="contact-header-spacer hidden"></div>
+				<div class="contact-header-spacer min-w-0 flex-1"></div>
 				if contact != nil && contact.TrashedAt != "" {
 					<div class="flex shrink-0 items-center gap-2">
-					<button type="button" class="inline-flex h-9 items-center gap-1.5 rounded-md border border-ink/10 bg-ink/[0.025] px-3 text-sm font-semibold text-muted-foreground transition-colors hover:bg-ink/[0.06] hover:text-ink" data-contact-restore={ contact.ID } data-contact-name={ contact.Name }>
-						@icon.Undo2(icon.Props{Class: "size-3.5"})
-						{ i18n.T(ctx, "contacts.action.restore") }
-					</button>
-					<a href={ fmt.Sprintf("/api/contacts/%s/export", contact.ID) } class="size-9 rounded-md flex items-center justify-center text-muted-foreground hover:text-ink hover:bg-ink/5 transition-colors" aria-label={ i18n.T(ctx, "contacts.action.export") }>
-						@icon.Download(icon.Props{Class: "size-4"})
-					</a>
+					// Restore, with Restore to… beside it, as New contact has its own.
+					<div class="inline-flex items-stretch">
+						<button type="button" class="inline-flex h-9 items-center gap-1.5 rounded-l-md rounded-r-none border border-ink/10 bg-ink/[0.025] px-3 text-sm font-semibold text-muted-foreground transition-colors hover:bg-ink/[0.06] hover:text-ink" data-contact-restore={ contact.ID } data-contact-name={ contact.Name }>
+							@icon.Undo2(icon.Props{Class: "size-3.5"})
+							{ i18n.T(ctx, "contacts.action.restore") }
+						</button>
+						@dropdown.Dropdown() {
+							@dropdown.Trigger() {
+								<button type="button" class="inline-flex h-9 w-8 items-center justify-center rounded-l-none rounded-r-md border border-l-0 border-ink/10 bg-ink/[0.025] text-muted-foreground transition-colors hover:bg-ink/[0.06] hover:text-ink" aria-label={ i18n.T(ctx, "contacts.actions") }>
+									@icon.EllipsisVertical(icon.Props{Class: "size-4"})
+								</button>
+							}
+							@dropdown.Content(dropdown.ContentProps{Placement: dropdown.PlacementBottomEnd, Class: "w-44 normal-case tracking-normal"}) {
+								@dropdown.Item(dropdown.ItemProps{Attributes: templ.Attributes{"data-contact-restore-to": contact.ID, "data-contact-name": contact.Name}}) {
+									<span class="flex items-center gap-2">
+										@icon.Redo2(icon.Props{Class: "size-4 text-muted-foreground"})
+										{ i18n.T(ctx, "contacts.action.restore_to") }
+									</span>
+								}
+							}
+						}
+					</div>
+					@contactHeaderTooltip(i18n.T(ctx, "contacts.action.export")) {
+						<a href={ fmt.Sprintf("/api/contacts/%s/export", contact.ID) } class="size-8 rounded-md flex items-center justify-center text-muted-foreground hover:text-ink hover:bg-ink/5 transition-colors" aria-label={ i18n.T(ctx, "contacts.action.export") }>
+							@icon.Download(icon.Props{Class: "size-4"})
+						</a>
+					}
 					<button type="button" class="inline-flex h-9 items-center gap-1.5 rounded-md px-3 text-sm font-semibold text-muted-foreground transition-colors hover:text-destructive hover:bg-destructive/10" data-contact-delete-forever={ contact.ID } data-contact-name={ contact.Name } data-contact-email={ strings.TrimSpace(contact.Email) } data-contact-synced={ fmt.Sprintf("%t", len(contact.SourceBooks) > 0) }>
 						@icon.Trash2(icon.Props{Class: "size-4"})
 						{ i18n.T(ctx, "contacts.action.delete_forever") }
@@ -2469,27 +3429,400 @@ templ ContactEditorHeader(contact *models.Contact, profile *models.ContactProfil
 					</div>
 				} else if contact != nil {
 					{{ editDialogID := contactEditDialogID(*contact) }}
-					@dialog.Trigger(dialog.TriggerProps{For: editDialogID}) {
-						<button type="button" class="inline-flex h-9 items-center gap-1.5 rounded-md border border-ink/10 bg-ink/[0.025] px-3 text-sm font-semibold text-muted-foreground transition-colors hover:bg-ink/[0.06] hover:text-ink" aria-label={ i18n.T(ctx, "contacts.action.edit_label") } data-contact-edit-trigger data-contact-edit-dialog={ editDialogID }>
-							@icon.Pencil(icon.Props{Class: "size-3.5"})
-							{ i18n.T(ctx, "contacts.action.edit") }
-						</button>
+					// A contact to resolve waits as it is: it is resolved first.
+					if len(contact.DeletedFrom) > 0 {
+						@contactHeaderTooltip(i18n.T(ctx, "contacts.unresolved.resolve_first")) {
+							<button type="button" disabled class="size-8 rounded-md flex items-center justify-center text-muted-foreground/50 cursor-not-allowed" aria-label={ i18n.T(ctx, "contacts.action.edit_label") }>
+								@icon.Pencil(icon.Props{Class: "size-4"})
+							</button>
+						}
+					} else {
+						// An icon like the others; the tooltip goes right around the
+						// button, the dialog trigger outside it.
+						@dialog.Trigger(dialog.TriggerProps{For: editDialogID}) {
+							@contactHeaderTooltip(i18n.T(ctx, "contacts.action.edit_label")) {
+								<button type="button" class="size-8 rounded-md flex items-center justify-center text-muted-foreground hover:text-ink hover:bg-ink/5 transition-colors" aria-label={ i18n.T(ctx, "contacts.action.edit_label") } data-contact-edit-trigger data-contact-edit-dialog={ editDialogID }>
+									@icon.Pencil(icon.Props{Class: "size-4"})
+								</button>
+							}
+						}
 					}
+					// As space runs out these fold into the ⋮ menu, as the mail
+					// list's toolbar does: Export first, Email last.
 					if strings.TrimSpace(contact.Email) != "" {
-						<a href={ "mailto:" + contact.Email } class="size-9 rounded-md flex items-center justify-center text-muted-foreground hover:text-ink hover:bg-ink/5 transition-colors" aria-label={ i18n.T(ctx, "contacts.action.email") }>
-							@icon.Mail(icon.Props{Class: "size-4"})
-						</a>
+						<div class="mail-toolbar-collapsible" data-contact-overflow-rank="4">
+							@contactHeaderTooltip(i18n.T(ctx, "contacts.action.email")) {
+								<a href={ "mailto:" + contact.Email } class="size-8 rounded-md flex items-center justify-center text-muted-foreground hover:text-ink hover:bg-ink/5 transition-colors" aria-label={ i18n.T(ctx, "contacts.action.email") }>
+									@icon.Mail(icon.Props{Class: "size-4"})
+								</a>
+							}
+						</div>
 					}
-					<a href={ fmt.Sprintf("/api/contacts/%s/export", contact.ID) } class="size-9 rounded-md flex items-center justify-center text-muted-foreground hover:text-ink hover:bg-ink/5 transition-colors" aria-label={ i18n.T(ctx, "contacts.action.export") }>
-						@icon.Download(icon.Props{Class: "size-4"})
-					</a>
-					<button type="submit" form={ "delete-contact-" + contact.ID } class="size-9 rounded-md flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors" aria-label={ i18n.T(ctx, "contacts.action.trash") }>
-						@icon.Trash2(icon.Props{Class: "size-4"})
-					</button>
+					<div class="mail-toolbar-collapsible" data-contact-overflow-rank="3">
+						@contactPlaceActionButton(contactPlaceDialogID(*contact, true), i18n.T(ctx, "contacts.action.move"), contactMoveBlocked(ctx, *contact)) {
+							@icon.FolderInput(icon.Props{Class: "size-4"})
+						}
+					</div>
+					<div class="mail-toolbar-collapsible" data-contact-overflow-rank="2">
+						@contactPlaceActionButton(contactPlaceDialogID(*contact, false), i18n.T(ctx, "contacts.action.duplicate"), contactUnresolvedBlocked(ctx, *contact)) {
+							@icon.CopyPlus(icon.Props{Class: "size-4"})
+						}
+					</div>
+					<div class="mail-toolbar-collapsible" data-contact-overflow-rank="1">
+						@contactHeaderTooltip(i18n.T(ctx, "contacts.action.export")) {
+							<a href={ fmt.Sprintf("/api/contacts/%s/export", contact.ID) } class="size-8 rounded-md flex items-center justify-center text-muted-foreground hover:text-ink hover:bg-ink/5 transition-colors" aria-label={ i18n.T(ctx, "contacts.action.export") }>
+								@icon.Download(icon.Props{Class: "size-4"})
+							</a>
+						}
+					</div>
+					<div class="mail-toolbar-collapsible" data-contact-overflow-rank="5">
+						@contactHeaderTooltip(i18n.T(ctx, "contacts.action.trash")) {
+							<button type="submit" form={ "delete-contact-" + contact.ID } class="size-8 rounded-md flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors" aria-label={ i18n.T(ctx, "contacts.action.trash") }>
+								@icon.Trash2(icon.Props{Class: "size-4"})
+							</button>
+						}
+					</div>
+					// Last, as the mail toolbar's.
+					@contactHeaderOverflowMenu(*contact)
 				}
 			</div>
 		</div>
 	</div>
+}
+
+// contactHeaderOverflowMenu holds the header's actions that no longer fit
+// beside it; app.js shows each one as its button folds away.
+templ contactHeaderOverflowMenu(contact models.Contact) {
+	<div class="mail-toolbar-collapsible" data-mail-collapsed data-contact-overflow-menu>
+		@dropdown.Dropdown() {
+			@dropdown.Trigger() {
+				<button type="button" class="size-8 rounded-md flex items-center justify-center text-muted-foreground hover:text-ink hover:bg-ink/5 transition-colors" aria-label={ i18n.T(ctx, "common.more_actions") }>
+					@icon.EllipsisVertical(icon.Props{Class: "size-4"})
+				</button>
+			}
+			@dropdown.Content(dropdown.ContentProps{Class: "mobile-sheet w-48 normal-case tracking-normal", Placement: dropdown.PlacementBottomEnd}) {
+				if strings.TrimSpace(contact.Email) != "" {
+					@dropdown.Item(dropdown.ItemProps{Href: "mailto:" + contact.Email, Attributes: templ.Attributes{"data-contact-overflow-rank": "4", "data-contact-overflow-menu-item": ""}}) {
+						<span class="flex items-center gap-2">
+							@icon.Mail(icon.Props{Class: "size-4"})
+							{ i18n.T(ctx, "contacts.action.email") }
+						</span>
+					}
+				}
+				@dropdown.Item(dropdown.ItemProps{Disabled: contactMoveBlocked(ctx, contact) != "", Attributes: templ.Attributes{"data-contact-overflow-rank": "3", "data-contact-overflow-menu-item": "", "data-contact-open-dialog": contactPlaceDialogID(contact, true), "title": contactMoveBlocked(ctx, contact)}}) {
+					<span class="flex items-center gap-2">
+						@icon.FolderInput(icon.Props{Class: "size-4"})
+						{ i18n.T(ctx, "contacts.action.move") }
+					</span>
+				}
+				@dropdown.Item(dropdown.ItemProps{Disabled: contactUnresolvedBlocked(ctx, contact) != "", Attributes: templ.Attributes{"data-contact-overflow-rank": "2", "data-contact-overflow-menu-item": "", "data-contact-open-dialog": contactPlaceDialogID(contact, false), "title": contactUnresolvedBlocked(ctx, contact)}}) {
+					<span class="flex items-center gap-2">
+						@icon.CopyPlus(icon.Props{Class: "size-4"})
+						{ i18n.T(ctx, "contacts.action.duplicate") }
+					</span>
+				}
+				@dropdown.Item(dropdown.ItemProps{Href: fmt.Sprintf("/api/contacts/%s/export", contact.ID), Attributes: templ.Attributes{"data-contact-overflow-rank": "1", "data-contact-overflow-menu-item": ""}}) {
+					<span class="flex items-center gap-2">
+						@icon.Download(icon.Props{Class: "size-4"})
+						{ i18n.T(ctx, "contacts.action.export") }
+					</span>
+				}
+				@dropdown.Item(dropdown.ItemProps{Class: "text-destructive " + menuDestructiveClass, Attributes: templ.Attributes{"data-contact-overflow-rank": "5", "data-contact-overflow-menu-item": "", "data-contact-submit-form": "delete-contact-" + contact.ID}}) {
+					<span class="flex items-center gap-2">
+						@icon.Trash2(icon.Props{Class: "size-4"})
+						{ i18n.T(ctx, "contacts.action.trash") }
+					</span>
+				}
+			}
+		}
+	</div>
+}
+
+func contactPlaceAction(move bool) string {
+	if move {
+		return "move"
+	}
+	return "duplicate"
+}
+
+func contactPlaceDialogID(contact models.Contact, move bool) string {
+	if move {
+		return "contact-move-" + contact.ID
+	}
+	return "contact-duplicate-" + contact.ID
+}
+
+// contactUnresolvedBlocked says why an action waits for a contact to be
+// resolved, nothing when it doesn't.
+func contactUnresolvedBlocked(ctx context.Context, contact models.Contact) string {
+	if len(contact.DeletedFrom) > 0 {
+		return i18n.T(ctx, "contacts.unresolved.resolve_first")
+	}
+	return ""
+}
+
+// contactMoveBlocked says why a contact can't move: it waits to be resolved,
+// or it has Gofer Sync on and so is in each of its places.
+func contactMoveBlocked(ctx context.Context, contact models.Contact) string {
+	if reason := contactUnresolvedBlocked(ctx, contact); reason != "" {
+		return reason
+	}
+	if contact.GoferSyncEnabled {
+		return i18n.T(ctx, "contacts.place.move_synced")
+	}
+	return ""
+}
+
+// contactPlaceActionButton opens a contact's Move or Duplicate dialog, or
+// says why it can't, when blocked.
+templ contactPlaceActionButton(dialogID, label string, blocked string) {
+	// The tooltip goes right around the button: it places itself by the
+	// size of what it wraps, and a dialog trigger has none of its own.
+	if blocked != "" {
+		@contactHeaderTooltip(blocked) {
+			<button type="button" disabled class="size-8 rounded-md flex items-center justify-center text-muted-foreground/50 cursor-not-allowed" aria-label={ label }>
+				{ children... }
+			</button>
+		}
+	} else {
+		@dialog.Trigger(dialog.TriggerProps{For: dialogID}) {
+			@contactHeaderTooltip(label) {
+				<button type="button" class="size-8 rounded-md flex items-center justify-center text-muted-foreground hover:text-ink hover:bg-ink/5 transition-colors" aria-label={ label }>
+					{ children... }
+				</button>
+			}
+		}
+	}
+}
+
+// goferSyncInfo explains Gofer Sync beside its name: people don't know it.
+templ goferSyncInfo() {
+	@contactInfoTip(i18n.T(ctx, "contacts.sync.info"))
+}
+
+// contactInfoTip is an info icon with text that explains what's beside it.
+templ contactInfoTip(text string) {
+	@tooltip.Tooltip() {
+		@tooltip.Trigger() {
+			<span class="inline-flex size-4 cursor-help items-center justify-center text-muted-foreground hover:text-ink" tabindex="0" aria-label={ text }>
+				@icon.Info(icon.Props{Class: "size-3.5"})
+			</span>
+		}
+		@tooltip.Content(tooltip.ContentProps{Position: tooltip.PositionBottom, ShowArrow: true, Class: "max-w-[min(20rem,calc(100vw-2rem))] whitespace-normal text-left normal-case tracking-normal font-normal"}) {
+			{ text }
+		}
+	}
+}
+
+// contactHeaderTooltip names an icon button in a contact's header.
+templ contactHeaderTooltip(text string) {
+	@tooltip.Tooltip() {
+		@tooltip.Trigger() {
+			{ children... }
+		}
+		@tooltip.Content(tooltip.ContentProps{Position: tooltip.PositionBottom, ShowArrow: true, Class: "max-w-[min(20rem,calc(100vw-2rem))] whitespace-normal"}) {
+			{ text }
+		}
+	}
+}
+
+// ContactPlaceDialog moves a contact to another place, or makes an
+// independent copy of it there.
+templ ContactPlaceDialog(contact models.Contact, accounts []models.Account, move bool) {
+	{{ dialogID := contactPlaceDialogID(contact, move) }}
+	{{ home := contactHome(&contact) }}
+	@dialog.Dialog(dialog.Props{ID: dialogID}) {
+		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-lg normal-case tracking-normal"}) {
+			@dialog.Header() {
+				@dialog.Title() {
+					if move {
+						{ i18n.T(ctx, "contacts.place.move_title", "name", contactDisplay(contact)) }
+					} else {
+						{ i18n.T(ctx, "contacts.place.duplicate_title", "name", contactDisplay(contact)) }
+					}
+				}
+				@dialog.Description() {
+					if move {
+						{ i18n.T(ctx, "contacts.place.move_description") }
+					} else {
+						{ i18n.T(ctx, "contacts.place.duplicate_description") }
+					}
+				}
+			}
+			<form class="space-y-4" data-contact-place-form data-contact-id={ contact.ID } data-contact-place-action={ contactPlaceAction(move) } data-contact-place-dialog={ dialogID }>
+				<div class="space-y-1.5">
+					<label class="block text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.place.to") }</label>
+					@selectbox.SelectBox() {
+						@selectbox.Trigger(selectbox.TriggerProps{Name: "place", Class: "h-10 bg-background", DisableClear: true}) {
+							@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "contacts.place.choose"), Class: "text-left"})
+						}
+						@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+							if home != "local" {
+								@selectbox.Item(selectbox.ItemProps{Value: "local"}) {
+									{ i18n.T(ctx, "contacts.origin.local") }
+								}
+							}
+							for _, account := range accounts {
+								if !account.IsDeleting && accountContactSyncCapable(account) {
+									if len(account.ContactAddressBooks) == 0 && home != contactSaveTargetValue(account) {
+										@selectbox.Item(selectbox.ItemProps{Value: contactSaveTargetValue(account)}) {
+											{ accountContactSaveLabel(account) }
+										}
+									}
+									for _, book := range account.ContactAddressBooks {
+										if home != contactBookTargetValue(book) {
+											@selectbox.Item(selectbox.ItemProps{Value: contactBookTargetValue(book)}) {
+												{ accountContactOriginLabel(ctx, account) } / { contactAddressBookDisplayName(ctx, book) }
+											}
+										}
+									}
+								}
+							}
+						}
+					}
+				</div>
+				@dialog.Footer() {
+					@dialog.Close(dialog.CloseProps{For: dialogID}) {
+						<button type="button" class="inline-flex h-9 items-center justify-center rounded-md border border-border px-3 text-sm font-semibold text-muted-foreground hover:bg-accent hover:text-foreground">{ i18n.T(ctx, "common.cancel") }</button>
+					}
+					<button type="submit" data-contact-place-submit class="inline-flex h-9 items-center justify-center gap-1.5 rounded-md bg-primary px-3 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-70">
+						if move {
+							@icon.FolderInput(icon.Props{Class: "size-4"})
+							<span data-contact-place-submit-label>{ i18n.T(ctx, "contacts.action.move") }</span>
+						} else {
+							@icon.CopyPlus(icon.Props{Class: "size-4"})
+							<span data-contact-place-submit-label>{ i18n.T(ctx, "contacts.action.duplicate") }</span>
+						}
+					</button>
+				}
+			</form>
+		}
+	}
+}
+
+// ContactRestorePlaceDialog restores contacts from the Trash to another
+// place, which becomes where they live. app.js fills in which contacts.
+templ ContactRestorePlaceDialog(accounts []models.Account) {
+	@dialog.Dialog(dialog.Props{ID: "contacts-restore-place-dialog"}) {
+		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-lg normal-case tracking-normal"}) {
+			@dialog.Header() {
+				@dialog.Title() {
+					<span data-contacts-restore-place-title>{ i18n.T(ctx, "contacts.action.restore_to") }</span>
+				}
+				@dialog.Description() {
+					{ i18n.T(ctx, "contacts.place.restore_description") }
+				}
+			}
+			<form class="space-y-4" data-contacts-restore-place-form>
+				<div>
+					@selectbox.SelectBox() {
+						@selectbox.Trigger(selectbox.TriggerProps{Name: "place", Class: "h-10 bg-background", DisableClear: true}) {
+							@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "contacts.place.choose"), Class: "text-left"})
+						}
+						@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+							@selectbox.Item(selectbox.ItemProps{Value: "local"}) {
+								{ i18n.T(ctx, "contacts.origin.local") }
+							}
+							for _, account := range accounts {
+								if !account.IsDeleting && accountContactSyncCapable(account) {
+									if len(account.ContactAddressBooks) == 0 {
+										@selectbox.Item(selectbox.ItemProps{Value: contactSaveTargetValue(account)}) {
+											{ accountContactSaveLabel(account) }
+										}
+									}
+									for _, book := range account.ContactAddressBooks {
+										@selectbox.Item(selectbox.ItemProps{Value: contactBookTargetValue(book)}) {
+											{ accountContactOriginLabel(ctx, account) } / { contactAddressBookDisplayName(ctx, book) }
+										}
+									}
+								}
+							}
+						}
+					}
+				</div>
+				@dialog.Footer() {
+					@dialog.Close(dialog.CloseProps{For: "contacts-restore-place-dialog"}) {
+						<button type="button" class="inline-flex h-9 items-center justify-center rounded-md border border-border px-3 text-sm font-semibold text-muted-foreground hover:bg-accent hover:text-foreground">{ i18n.T(ctx, "common.cancel") }</button>
+					}
+					<button type="submit" data-contacts-restore-place-submit class="inline-flex h-9 items-center justify-center gap-1.5 rounded-md bg-primary px-3 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-70">
+						@icon.Redo2(icon.Props{Class: "size-4"})
+						{ i18n.T(ctx, "contacts.action.restore") }
+					</button>
+				}
+			</form>
+		}
+	}
+}
+
+// contactNewHomePicker chooses a new contact's main location, where it is
+// created: Gofer Local, or an account it is written to. It sits in the
+// contact's header, apart from Gofer Sync, which adds more places.
+templ contactNewHomePicker(accounts []models.Account) {
+	<div class="w-80 max-w-[55vw]">
+		<div class="mb-1 flex items-center gap-1.5">
+			@icon.MapPin(icon.Props{Class: "size-3.5 text-muted-foreground"})
+			<span class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.stored_in") }</span>
+			@contactInfoTip(i18n.T(ctx, "contacts.stored_in_help"))
+		</div>
+		@selectbox.SelectBox() {
+			@selectbox.Trigger(selectbox.TriggerProps{Name: "stored_in", Class: "h-8 border-ink/10 bg-ink/[0.04] text-[13px] text-ink", Required: true, DisableClear: true, Attributes: templ.Attributes{"data-contact-stored-in": ""}}) {
+				@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "contacts.origin.local"), Class: "text-left"})
+			}
+			@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+				@selectbox.Item(selectbox.ItemProps{Value: "local", Selected: true}) {
+					{ i18n.T(ctx, "contacts.origin.local") }
+				}
+				@contactImportPlaceItems(accounts)
+			}
+		}
+	</div>
+}
+
+// contactNewDialogID is the dialog a new contact is made in.
+const contactNewDialogID = "contact-new-dialog"
+
+// ContactNewDialog makes a new contact, in the dialog an existing one is
+// edited in: its details, where it is stored and its Gofer Sync places. It
+// opens on its own for /contacts?new=1.
+templ ContactNewDialog(accounts []models.Account, open bool) {
+	@dialog.Dialog(dialog.Props{ID: contactNewDialogID, Open: open, DisableClickAway: true, DisableESC: true}) {
+		@dialog.Content(dialog.ContentProps{HideCloseButton: true, Class: "mobile-fullscreen-dialog max-h-[calc(100vh-2rem)] sm:max-w-3xl [&_[data-tui-dialog-panel]]:gap-0 [&_[data-tui-dialog-panel]]:p-0"}) {
+			<form
+				id="contact-new-form"
+				action={ contactFormAction(nil) }
+				method="post"
+				class="grid max-h-[calc(100vh-2rem)] min-h-0 grid-rows-[auto_minmax(0,1fr)_auto]"
+				data-contact-editor-form
+				data-contact-edit-form
+				data-contact-new-form
+				data-contact-edit-dialog={ contactNewDialogID }
+			>
+				<div class="flex items-start justify-between gap-4 border-b border-ink/10 px-5 py-4 sm:px-6">
+					@dialog.Header(dialog.HeaderProps{Class: "min-w-0"}) {
+						@dialog.Title(dialog.TitleProps{Class: "truncate text-xl font-semibold text-ink"}) {
+							{ i18n.T(ctx, "contacts.new") }
+						}
+						@dialog.Description(dialog.DescriptionProps{Class: "text-sm text-muted-foreground"}) {
+							{ i18n.T(ctx, "contacts.new_description") }
+						}
+					}
+					<button type="button" class="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-ink/[0.06] hover:text-ink" aria-label={ i18n.T(ctx, "contacts.edit.close") } data-contact-editor-cancel>
+						@icon.X(icon.Props{Class: "size-4"})
+					</button>
+				</div>
+				<div class="min-h-0 space-y-5 overflow-y-auto px-5 py-5 sm:px-6" data-dialog-resize-body>
+					@ContactEditorCoreFields(nil, accounts)
+					@ContactLegacySourcePanel(nil, accounts)
+				</div>
+				<div class="flex flex-col-reverse gap-2 border-t border-ink/10 bg-paper/90 px-5 py-3 backdrop-blur sm:flex-row sm:items-center sm:justify-end sm:px-6">
+					<button type="button" class="inline-flex h-9 items-center justify-center rounded-lg border border-ink/10 bg-paper px-4 text-sm font-semibold text-muted-foreground transition-colors hover:bg-ink/[0.04] hover:text-ink" data-contact-editor-cancel>{ i18n.T(ctx, "common.cancel") }</button>
+					<button type="submit" class="btn-skeuo inline-flex h-9 items-center justify-center gap-1.5 rounded-lg px-4 text-sm font-semibold">
+						@contactSaveLabels(i18n.T(ctx, "contacts.new_save"), true)
+					</button>
+				</div>
+			</form>
+		}
+	}
 }
 
 templ ContactEditDialog(contact models.Contact, profile *models.ContactProfile, accounts []models.Account) {
@@ -2505,6 +3838,8 @@ templ ContactEditDialog(contact models.Contact, profile *models.ContactProfile, 
 				data-contact-edit-form
 				data-contact-id={ contact.ID }
 				data-contact-edit-dialog={ dialogID }
+				data-contact-sync-was={ fmt.Sprint(contact.GoferSyncEnabled) }
+				data-contact-sync-was-places={ strings.Join(contact.SaveTargets, ",") }
 			>
 				<div class="flex items-start justify-between gap-4 border-b border-ink/10 px-5 py-4 sm:px-6">
 					@dialog.Header(dialog.HeaderProps{Class: "min-w-0"}) {
@@ -2519,15 +3854,14 @@ templ ContactEditDialog(contact models.Contact, profile *models.ContactProfile, 
 						@icon.X(icon.Props{Class: "size-4"})
 					</button>
 				</div>
-				<div class="min-h-0 space-y-5 overflow-y-auto px-5 py-5 sm:px-6">
-					@ContactEditorCoreFields(&contact)
+				<div class="min-h-0 space-y-5 overflow-y-auto px-5 py-5 sm:px-6" data-dialog-resize-body>
+					@ContactEditorCoreFields(&contact, nil)
 					@ContactEditSyncPanel(&contact, profile, accounts)
 				</div>
 				<div class="flex flex-col-reverse gap-2 border-t border-ink/10 bg-paper/90 px-5 py-3 backdrop-blur sm:flex-row sm:items-center sm:justify-end sm:px-6">
 					<button type="button" class="inline-flex h-9 items-center justify-center rounded-lg border border-ink/10 bg-paper px-4 text-sm font-semibold text-muted-foreground transition-colors hover:bg-ink/[0.04] hover:text-ink" data-contact-editor-cancel>{ i18n.T(ctx, "common.cancel") }</button>
 					<button type="submit" class="btn-skeuo inline-flex h-9 items-center justify-center gap-1.5 rounded-lg px-4 text-sm font-semibold">
-						@icon.Save(icon.Props{Class: "size-4"})
-						{ i18n.T(ctx, "contacts.edit.save") }
+						@contactSaveLabels(i18n.T(ctx, "contacts.edit.save"), false)
 					</button>
 				</div>
 			</form>
@@ -2537,10 +3871,11 @@ templ ContactEditDialog(contact models.Contact, profile *models.ContactProfile, 
 
 templ ContactEditSyncPanel(contact *models.Contact, profile *models.ContactProfile, accounts []models.Account) {
 	<section class="rounded-lg border border-ink/10 bg-ink/[0.02]">
-		<div class="flex flex-wrap items-center justify-between gap-3 border-b border-ink/10 px-4 py-3">
+		<div class="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
 			<div class="inline-flex items-center gap-2">
 				@icon.Route(icon.Props{Class: "size-3.5 text-muted-foreground"})
 				<h2 class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.sync.title") }</h2>
+				@goferSyncInfo()
 			</div>
 			<div class="flex items-center gap-2">
 				<span class={ contactSyncEnabledBadgeClass(contactProfileSyncEnabled(profile)) } data-contact-sync-state-label>
@@ -2554,7 +3889,8 @@ templ ContactEditSyncPanel(contact *models.Contact, profile *models.ContactProfi
 				})
 			</div>
 		</div>
-		<div class="space-y-4 p-4">
+		// With Gofer Sync off the panel is its header alone.
+		<div class="space-y-4 border-t border-ink/10 p-4" hidden?={ !contactProfileSyncEnabled(profile) } data-contact-sync-body>
 			<div class="rounded-md border border-ink/10 bg-paper/35 px-3 py-2.5">
 				<div class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.filters.origin") }</div>
 				if profile != nil {
@@ -2640,10 +3976,11 @@ templ ContactEditorSaveActions() {
 
 templ ContactLegacySourcePanel(contact *models.Contact, accounts []models.Account) {
 	<section class="rounded-lg border border-ink/10 bg-ink/[0.02]">
-		<div class="flex flex-wrap items-center justify-between gap-3 border-b border-ink/10 px-4 py-3">
+		<div class="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
 			<div class="inline-flex items-center gap-2">
 				@icon.Route(icon.Props{Class: "size-3.5 text-muted-foreground"})
 				<h2 class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.sync.title") }</h2>
+				@goferSyncInfo()
 			</div>
 			<div class="flex items-center gap-2">
 				<span class={ contactSyncEnabledBadgeClass(contact != nil && contact.GoferSyncEnabled) } data-contact-sync-state-label>
@@ -2657,7 +3994,9 @@ templ ContactLegacySourcePanel(contact *models.Contact, accounts []models.Accoun
 				})
 			</div>
 		</div>
-		<div class="space-y-4 p-4">
+		// With Gofer Sync off the panel is its header alone.
+		<div class="space-y-4 border-t border-ink/10 p-4" hidden?={ contact == nil || !contact.GoferSyncEnabled } data-contact-sync-body>
+			if contact != nil {
 			<div class="rounded-md border border-ink/10 bg-paper/35 px-3 py-2.5">
 				<div class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.sync.source") }</div>
 				if contact != nil && len(contact.SourceBooks) > 0 {
@@ -2671,6 +4010,7 @@ templ ContactLegacySourcePanel(contact *models.Contact, accounts []models.Accoun
 					<div class="mt-0.5 text-xs text-muted-foreground">{ i18n.T(ctx, "contacts.sync.local_editable") }</div>
 				}
 			</div>
+			}
 			<div class="w-full">
 				@ContactSyncTargetsSelect(contact, accounts, contact != nil && contact.GoferSyncEnabled)
 			</div>
@@ -2684,6 +4024,7 @@ templ ContactProfileInsight(profile models.ContactProfile, contact *models.Conta
 			<div class="inline-flex items-center gap-2">
 				@icon.Route(icon.Props{Class: "size-3.5 text-muted-foreground"})
 				<h2 class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.sync.title") }</h2>
+				@goferSyncInfo()
 			</div>
 			<span class={ contactSyncEnabledBadgeClass(profile.SyncEnabled) }>{ contactUnifiedStatusLabel(ctx, profile) }</span>
 		</div>
@@ -2713,26 +4054,34 @@ templ ContactSyncStatusNotice(contact models.Contact) {
 }
 
 templ ContactSyncTargetsSelect(contact *models.Contact, accounts []models.Account, syncEnabled bool) {
-	<div class={ contactSyncTargetsClass(syncEnabled) } data-contact-sync-targets aria-disabled={ fmt.Sprintf("%t", !syncEnabled) }>
+	<div class={ contactSyncTargetsClass(syncEnabled) } data-contact-sync-targets data-contact-sync-initial={ contactInitialSyncPlaces(contact) } aria-disabled={ fmt.Sprintf("%t", !syncEnabled) }>
 		<label class="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.sync.locations") }</label>
 		@selectbox.SelectBox(selectbox.Props{Multiple: true}) {
-			@selectbox.Trigger(selectbox.TriggerProps{Name: "save_targets", Class: "h-10 border-ink/10 bg-ink/[0.04] text-ink", Multiple: true, ShowPills: true, DisableClear: true, SelectedCountText: i18n.T(ctx, "contacts.sync.locations_selected")}) {
+			@selectbox.Trigger(selectbox.TriggerProps{Name: "save_targets", Class: "min-h-8 h-auto border-ink/10 bg-ink/[0.04] py-1 text-[13px] text-ink", Multiple: true, ShowPills: true, DisableClear: true, SelectedCountText: i18n.T(ctx, "contacts.sync.locations_selected")}) {
 				@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "contacts.sync.no_locations"), Multiple: true, Class: "text-left"})
 			}
 			@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
-				@selectbox.Item(selectbox.ItemProps{Value: "local", Selected: contactSaveTargetSelected(contact, "local")}) {
-					{ i18n.T(ctx, "contacts.origin.local") }
+				// The contact already lives in its home: Gofer Sync copies it to
+				// the other places.
+				// A new contact starts out in Gofer Local, so its form hides Local
+				// until another place is chosen for it.
+				if !contactHomeIs(contact, "local") {
+					@selectbox.Item(selectbox.ItemProps{Value: "local", Selected: contactSaveTargetSelected(contact, "local"), Attributes: contactNewHomeItemAttributes(contact)}) {
+						{ i18n.T(ctx, "contacts.origin.local") }
+					}
 				}
 				for _, account := range accounts {
 					if !account.IsDeleting && accountContactSyncCapable(account) {
-						if len(account.ContactAddressBooks) == 0 {
+						if len(account.ContactAddressBooks) == 0 && !contactHomeIs(contact, contactSaveTargetValue(account)) {
 							@selectbox.Item(selectbox.ItemProps{Value: contactSaveTargetValue(account), Selected: contactSaveTargetSelected(contact, contactSaveTargetValue(account))}) {
 								{ accountContactSaveLabel(account) }
 							}
 						}
 						for _, book := range account.ContactAddressBooks {
-							@selectbox.Item(selectbox.ItemProps{Value: contactBookTargetValue(book), Selected: contactSaveTargetSelected(contact, contactBookTargetValue(book))}) {
-								{ accountContactOriginLabel(ctx, account) } / { contactAddressBookDisplayName(ctx, book) }
+							if !contactHomeIs(contact, contactBookTargetValue(book)) {
+								@selectbox.Item(selectbox.ItemProps{Value: contactBookTargetValue(book), Selected: contactSaveTargetSelected(contact, contactBookTargetValue(book))}) {
+									{ accountContactOriginLabel(ctx, account) } / { contactAddressBookDisplayName(ctx, book) }
+								}
 							}
 						}
 					}
@@ -2778,7 +4127,9 @@ templ ContactSyncSetupDialog(setup models.ContactSyncSetup) {
 }
 
 templ ContactSyncSetupSearching(setup models.ContactSyncSetup) {
-	<div class="flex min-h-0 flex-1 items-center justify-center overflow-y-auto px-6 py-10" data-contact-sync-setup-auto-search={ fmt.Sprintf("/api/contacts/%s/sync-setup/findings?mode=automatic", setup.Contact.ID) }>
+	// As tall as the copies found for one place, about the least the next
+	// step shows, so the dialog grows little when they arrive.
+	<div class="flex min-h-[18.5rem] flex-1 items-center justify-center overflow-y-auto px-6 py-10" data-contact-sync-setup-auto-search={ fmt.Sprintf("/api/contacts/%s/sync-setup/findings?mode=automatic", setup.Contact.ID) }>
 		<div class="max-w-sm text-center">
 			<div class="mx-auto flex size-11 items-center justify-center rounded-full bg-ink/[0.04] text-muted-foreground">
 				@icon.LoaderCircle(icon.Props{Class: "size-5 animate-spin"})
@@ -2795,8 +4146,14 @@ templ ContactSyncSetupDiscover(setup models.ContactSyncSetup) {
 		<div class="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-6">
 			<form id={ selectionFormID } method="post" action={ fmt.Sprintf("/api/contacts/%s/sync-setup/preview", setup.Contact.ID) } class="space-y-3" data-contact-sync-setup-form>
 			<div class="rounded-lg border border-ink/10 bg-paper/45 px-4 py-3">
-				<div class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "contacts.origin.local") }</div>
-				<div class="mt-1 text-sm font-semibold text-ink">{ contactDisplay(setup.Contact) }</div>
+				<div class="flex min-w-0 items-center gap-2">
+					<span class="truncate text-sm font-semibold text-ink">{ contactDisplay(setup.Contact) }</span>
+					// Where the contact lives, as the reading pane's Main location
+					// shows it.
+					if setup.HomeLabel != "" {
+						<span class="shrink-0 rounded border border-ink/10 bg-ink/[0.04] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground" title={ i18n.T(ctx, "contacts.stored_in_title", "place", setup.HomeLabel) }>{ setup.HomeLabel }</span>
+					}
+				</div>
 				<div class="text-xs text-muted-foreground">{ contactListDetail(setup.Contact) }</div>
 			</div>
 				for _, location := range setup.Locations {
@@ -2963,12 +4320,12 @@ templ ContactSyncQueuedNotice() {
 }
 
 templ ContactLabelSelect(name string, value string, options []string, ariaLabel string) {
-	<div class="w-24 shrink-0" aria-label={ ariaLabel }>
+	<div class="w-36 shrink-0" aria-label={ ariaLabel }>
 		@selectbox.SelectBox() {
-			@selectbox.Trigger(selectbox.TriggerProps{Name: name, Class: "h-10 border-ink/10 bg-ink/[0.04] px-2 text-xs font-medium uppercase tracking-wide text-muted-foreground", DisableClear: true}) {
+			@selectbox.Trigger(selectbox.TriggerProps{Name: name, Class: "h-8 border-ink/10 bg-ink/[0.04] px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground", DisableClear: true}) {
 				@selectbox.Value(selectbox.ValueProps{Placeholder: contactLabelName(ctx, value), Class: "text-xs font-medium uppercase tracking-wide text-muted-foreground"})
 			}
-			@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "min-w-24"}) {
+			@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "min-w-36"}) {
 				for _, option := range options {
 					@selectbox.Item(selectbox.ItemProps{Value: option, Selected: option == value, Class: "text-xs uppercase tracking-wide"}) {
 						{ contactLabelName(ctx, option) }
@@ -3154,20 +4511,7 @@ templ ContactRecentActivityLoader(contact models.Contact) {
 		data-contact-recent-activity-loading
 	>
 		@ContactRecentActivityHeader(contact)
-		<div class="overflow-hidden rounded-md border border-ink/10 bg-paper/35">
-			for i := 0; i < 4; i++ {
-				<div class="border-b border-ink/10 px-3 py-2.5 last:border-b-0">
-					<div class="flex items-start justify-between gap-3">
-						<div class="min-w-0 flex flex-1 items-center gap-2">
-							<div class="h-5 w-9 shrink-0 rounded border border-ink/10 bg-ink/[0.04] animate-pulse"></div>
-							<div class="h-3 min-w-0 flex-1 rounded bg-ink/5 animate-pulse"></div>
-						</div>
-						<div class="h-3 w-16 shrink-0 rounded bg-ink/5 animate-pulse"></div>
-					</div>
-					<div class="mt-2 h-3 w-4/5 rounded bg-ink/5 animate-pulse"></div>
-				</div>
-			}
-		</div>
+		@contactRecentActivitySkeletonRows()
 	</div>
 }
 
@@ -3201,11 +4545,46 @@ templ ContactRecentActivity(contact models.Contact, emails []models.Email) {
 
 // contactActiveFilterPill is one active filter in the strip under the search,
 // the mail list's pill. Choosing it removes that filter.
+// contactActiveFilterPill is a pill that drops its filter, with a tooltip
+// for the whole text, which a long pill cuts short.
 templ contactActiveFilterPill(name string, text string) {
-	<button type="button" data-contact-active-filter-remove={ name } data-contact-active-filter-key={ name + ":" + text } title={ text } aria-label={ i18n.T(ctx, "contacts.filters.remove_pill", "filter", text) } class="mail-active-filter-pill mail-active-filter-pill-stable">
-		<span class="mail-active-filter-pill-label">{ text }</span>
-		<span class="mail-active-filter-pill-remove">x</span>
-	</button>
+	@tooltip.Tooltip() {
+		@tooltip.Trigger() {
+			<button type="button" data-contact-active-filter-remove={ name } data-contact-active-filter-key={ name + ":" + text } aria-label={ i18n.T(ctx, "contacts.filters.remove_pill", "filter", text) } class="mail-active-filter-pill mail-active-filter-pill-stable">
+				<span class="mail-active-filter-pill-label">{ text }</span>
+				<span class="mail-active-filter-pill-remove">x</span>
+			</button>
+		}
+		// The pill row keeps its text on one line; the tooltip wraps instead.
+		@tooltip.Content(tooltip.ContentProps{Position: tooltip.PositionBottom, ShowArrow: true, Class: "max-w-[min(28rem,calc(100vw-2rem))] whitespace-normal break-words"}) {
+			<span data-contact-active-filter-tooltip>{ text }</span>
+		}
+	}
+}
+
+// The filter pills name every value of their filter.
+func contactPlaceFilterLabels(ctx context.Context, filter string, accounts []models.Account) string {
+	var labels []string
+	for _, value := range models.ContactFilterValues(filter) {
+		labels = append(labels, contactSaveTargetLabel(ctx, value, accounts))
+	}
+	return strings.Join(labels, ", ")
+}
+
+func contactOriginFilterLabels(ctx context.Context, filter string, accounts []models.Account) string {
+	var labels []string
+	for _, value := range models.ContactFilterValues(filter) {
+		labels = append(labels, contactOriginFilterLabel(ctx, value, accounts))
+	}
+	return strings.Join(labels, ", ")
+}
+
+func contactActivityFilterLabels(ctx context.Context, filter string) string {
+	var labels []string
+	for _, value := range models.ContactFilterValues(filter) {
+		labels = append(labels, contactActivityFilterLabel(ctx, value))
+	}
+	return strings.Join(labels, ", ")
 }
 
 func contactActivityFilterLabel(ctx context.Context, activity string) string {

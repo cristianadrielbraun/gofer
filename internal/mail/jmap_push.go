@@ -33,14 +33,17 @@ var (
 )
 
 // JMAPPushWatcher keeps a JMAP account's push connection open and calls
-// onNotify when the server reports changed mail or mailboxes. One connection
-// covers the whole account. It reconnects when the connection drops and
-// reports its state through onStatus, as the IMAP IDLE watcher does.
+// onNotify when the server reports changed mail or mailboxes, and
+// onContacts, when set, for changed contacts or address books. One
+// connection covers the whole account. It reconnects when the connection
+// drops and reports its state through onStatus, as the IMAP IDLE watcher
+// does.
 type JMAPPushWatcher struct {
-	config   *models.AccountConfig
-	password string
-	onNotify func()
-	onStatus func(imap.IdleWatcherStatus)
+	config     *models.AccountConfig
+	password   string
+	onNotify   func()
+	onContacts func()
+	onStatus   func(imap.IdleWatcherStatus)
 
 	mu     sync.Mutex
 	stop   context.CancelFunc
@@ -55,6 +58,14 @@ func NewJMAPPushWatcher(cfg *models.AccountConfig, password string, onNotify fun
 		onStatus = func(imap.IdleWatcherStatus) {}
 	}
 	return &JMAPPushWatcher{config: cfg, password: password, onNotify: onNotify, onStatus: onStatus}
+}
+
+// WithContacts makes the connection also report contact changes, when the
+// server offers JMAP contacts to this login, by calling onContacts. It is
+// called before Run.
+func (w *JMAPPushWatcher) WithContacts(onContacts func()) *JMAPPushWatcher {
+	w.onContacts = onContacts
+	return w
 }
 
 // jmapPushError is why a push connection ended, as shown in the status.
@@ -92,6 +103,9 @@ func (w *JMAPPushWatcher) Run(ctx context.Context) {
 			if reconnecting {
 				// Changes made while disconnected were never pushed.
 				w.onNotify()
+				if w.onContacts != nil {
+					w.onContacts()
+				}
 			}
 		})
 		reconnecting = true
@@ -136,10 +150,26 @@ func (w *JMAPPushWatcher) watch(ctx context.Context, onOpen func()) error {
 		}
 		return &jmapPushError{code: "connection_error", reason: "the JMAP session could not be loaded", err: err}
 	}
-	err = client.WatchEvents(ctx, session, []string{"Email", "Mailbox"}, jmapPushPing, onOpen, func(change jmap.StateChange) {
-		types := change.Changed[account]
-		if types["Email"] != "" || types["Mailbox"] != "" {
+	types := []string{"Email", "Mailbox"}
+	// Contacts may live in another JMAP account of the same login. A server
+	// that doesn't offer them to this login isn't asked for their changes.
+	contactsAccount := ""
+	if w.onContacts != nil {
+		contactsAccount = session.PrimaryAccount(jmap.CapabilityContacts)
+	}
+	if contactsAccount != "" {
+		types = append(types, "ContactCard", "AddressBook")
+	}
+	err = client.WatchEvents(ctx, session, types, jmapPushPing, onOpen, func(change jmap.StateChange) {
+		mail := change.Changed[account]
+		if mail["Email"] != "" || mail["Mailbox"] != "" {
 			w.onNotify()
+		}
+		if contactsAccount != "" {
+			contacts := change.Changed[contactsAccount]
+			if contacts["ContactCard"] != "" || contacts["AddressBook"] != "" {
+				w.onContacts()
+			}
 		}
 	})
 	switch {
@@ -166,4 +196,22 @@ func (w *JMAPPushWatcher) Close() {
 	if w.stop != nil {
 		w.stop()
 	}
+}
+
+// JMAPContactsChange refreshes the contacts of an account whose JMAP server
+// pushed a contact or address book change. The push says only that
+// something changed; the usual contact sync finds what.
+type JMAPContactsChange func(ctx context.Context, accountID string)
+
+// OnJMAPContactsChange sets what refreshes the contacts of the JMAP accounts
+// whose server pushes a contact change. Without it, push covers mail only.
+// It is called before Start.
+func (o *SyncOrchestrator) OnJMAPContactsChange(change JMAPContactsChange) {
+	o.jmapContactsChange = change
+}
+
+// OnJMAPContactsChange is the same for managed mode. It is called before
+// Start.
+func (s *UserIMAP) OnJMAPContactsChange(change JMAPContactsChange) {
+	s.jmapContactsChange = change
 }

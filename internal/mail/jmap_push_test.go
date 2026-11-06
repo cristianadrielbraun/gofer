@@ -1,6 +1,7 @@
 package mail
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -215,7 +216,10 @@ func TestUserIMAPWatchesJMAPAccountsOverPush(t *testing.T) {
 		jmap.Mailbox{ID: "mb-arch", Name: "Archive", Role: "archive", MyRights: readable()},
 	)
 	server.emails = []jmap.Email{testJMAPEmail("e1", "Lunch on Friday?", 2, "mb-in")}
+	server.contactsAccount = "a1"
 	useFakeJMAPAccount(t, f, server)
+	contactPushes := make(chan string, 4)
+	f.worker.OnJMAPContactsChange(func(_ context.Context, accountID string) { contactPushes <- accountID })
 	if err := f.worker.Start(UserIMAPBackgroundOptions{PollInterval: time.Hour, IdleOfflineGrace: 50 * time.Millisecond}); err != nil {
 		t.Fatal(err)
 	}
@@ -232,6 +236,10 @@ func TestUserIMAPWatchesJMAPAccountsOverPush(t *testing.T) {
 	if streams() != 1 {
 		t.Fatalf("%d push connections, want one for the whole account", streams())
 	}
+
+	// The same connection reports contact changes.
+	server.pushes <- `{"@type":"StateChange","changed":{"a1":{"ContactCard":"k1"}}}`
+	waitContactPush(t, contactPushes, f.ids["alice"])
 
 	release()
 	waitJMAP(t, "the push connection to end", func() bool { return streams() == 0 })
@@ -282,6 +290,9 @@ func TestSyncOrchestratorWatchesJMAPAccountsOverPush(t *testing.T) {
 		t.Fatal(err)
 	}
 	orchestrator := NewSyncOrchestrator(db, accounts, nil, nil)
+	server.contactsAccount = "a1"
+	contactPushes := make(chan string, 4)
+	orchestrator.OnJMAPContactsChange(func(_ context.Context, accountID string) { contactPushes <- accountID })
 	orchestrator.StartAccount(ctx, account.ID)
 	t.Cleanup(func() { orchestrator.StopAccount(account.ID) })
 	stored := func(emailID string) bool {
@@ -312,4 +323,81 @@ func TestSyncOrchestratorWatchesJMAPAccountsOverPush(t *testing.T) {
 	}
 	finish()
 	waitJMAP(t, "the email pushed during the other sync", func() bool { return stored("e3") })
+
+	// The same connection reports contact changes.
+	server.pushes <- `{"@type":"StateChange","changed":{"a1":{"AddressBook":"b1"}}}`
+	waitContactPush(t, contactPushes, account.ID)
+}
+
+func waitContactPush(t *testing.T, pushes <-chan string, accountID string) {
+	t.Helper()
+	select {
+	case got := <-pushes:
+		if got != accountID {
+			t.Fatalf("contact push for account %q, want %q", got, accountID)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("timed out waiting for the contact push")
+	}
+}
+
+// With contacts asked for, the push connection also asks for contact and
+// address book changes when the server offers JMAP contacts to the login,
+// which may be in another JMAP account than the mail, and reports those
+// changes apart from mail changes. A server without JMAP contacts is asked
+// for mail changes only.
+func TestJMAPPushWatcherReportsContactChanges(t *testing.T) {
+	for _, offered := range []bool{true, false} {
+		server := newFakeJMAPServer(t)
+		server.pushes = make(chan string, 8)
+		if offered {
+			server.contactsAccount = "c1"
+		}
+		cfg := &models.AccountConfig{AccountID: "acc-push", Provider: "jmap", JMAPSessionURL: server.URL + "/.well-known/jmap",
+			Username: "robin@example.test", JMAPAllowPlaintext: true, JMAPAllowPrivate: true}
+		record := newPushRecorder()
+		contacts := make(chan struct{}, 8)
+		watcher := NewJMAPPushWatcher(cfg, "secret", record.notify, record.status).WithContacts(func() { contacts <- struct{}{} })
+		go watcher.Run(t.Context())
+		record.waitFor(t, "the push connection", func(r *pushRecorder) bool { return len(r.statuses) > 0 && r.statuses[0].Healthy })
+		server.mu.Lock()
+		types := server.eventTypes
+		server.mu.Unlock()
+		want := "Email,Mailbox"
+		if offered {
+			want = "Email,Mailbox,ContactCard,AddressBook"
+		}
+		if types != want {
+			t.Fatalf("offered %v: push asked for %q, want %q", offered, types, want)
+		}
+		if !offered {
+			watcher.Close()
+			continue
+		}
+		server.pushes <- `{"@type":"StateChange","changed":{"a1":{"ContactCard":"x"}}}`
+		server.pushes <- `{"@type":"StateChange","changed":{"c1":{"Email":"y"}}}`
+		server.pushes <- `{"@type":"StateChange","changed":{"c1":{"ContactCard":"z"}}}`
+		server.pushes <- `{"@type":"StateChange","changed":{"c1":{"AddressBook":"q"}}}`
+		server.pushes <- `{"@type":"StateChange","changed":{"a1":{"Email":"e"}}}`
+		record.waitFor(t, "the mail push", func(r *pushRecorder) bool { return r.notified == 1 })
+		for i := 0; i < 2; i++ {
+			select {
+			case <-contacts:
+			case <-time.After(5 * time.Second):
+				t.Fatalf("got %d contact pushes, want 2", i)
+			}
+		}
+		select {
+		case <-contacts:
+			t.Fatal("a push for another account's contacts or for mail was reported as a contact change")
+		case <-time.After(100 * time.Millisecond):
+		}
+		record.mu.Lock()
+		notified := record.notified
+		record.mu.Unlock()
+		if notified != 1 {
+			t.Fatalf("notified %d times, want once, for the mail account's Email change", notified)
+		}
+		watcher.Close()
+	}
 }

@@ -201,3 +201,27 @@ func TestDecodeVCardContactsKeepsPhoneOnlyAndSkipsGroups(t *testing.T) {
 		t.Fatal("parseVCardContacts(group only) succeeded, want an error")
 	}
 }
+
+// CardDAV address books get vCard 3.0, which iCloud requires.
+func TestCardDAVVCardIsVersion3(t *testing.T) {
+	data, err := renderCardDAVVCard(models.Contact{ID: "ada", Name: "Ada Lovelace", Email: "ada@example.com"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	if !strings.Contains(text, "VERSION:3.0\r\n") || strings.Contains(text, "VERSION:4.0") || !strings.Contains(text, "N:Lovelace;Ada") || !strings.Contains(text, "FN:Ada Lovelace") {
+		t.Fatalf("CardDAV vCard = %q", text)
+	}
+}
+
+// A card is named by its path in a multiget: iCloud refuses full URLs.
+func TestCardDAVHrefPath(t *testing.T) {
+	for in, want := range map[string]string{
+		"https://dav.example.test:443/books/card/a%20b.vcf": "/books/card/a%20b.vcf",
+		"/books/card/a.vcf": "/books/card/a.vcf",
+	} {
+		if got := cardDAVHrefPath(in); got != want {
+			t.Fatalf("cardDAVHrefPath(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

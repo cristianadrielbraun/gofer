@@ -134,11 +134,22 @@ func (a *ownedContactPullAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		result := map[string]any{"connections": []any{map[string]any{"resourceName": "people/" + page, "etag": owner + "-" + page, "names": []any{map[string]string{"displayName": owner + " " + page}}, "emailAddresses": []any{map[string]string{"value": owner + "-" + page + "@contacts.test"}}, "phoneNumbers": []any{map[string]string{"value": phone}}}, map[string]any{"resourceName": "people/no-email"}}}
 		if page == "one" {
 			result["nextPageToken"] = "two"
+		} else if r.URL.Query().Get("requestSyncToken") == "true" {
+			result["nextSyncToken"] = owner + "-sync-token"
 		}
 		_ = json.NewEncoder(w).Encode(result)
 		return
 	}
-	if r.URL.Path != "/me/contacts" || !strings.Contains(r.Header.Get("Prefer"), `IdType="ImmutableId"`) {
+	if !strings.Contains(r.Header.Get("Prefer"), `IdType="ImmutableId"`) {
+		http.Error(w, "wrong immutable Graph collection", 400)
+		return
+	}
+	// Graph follows changes per folder: the first contact names the default one.
+	if r.URL.Path == "/me/contacts" && r.URL.Query().Get("$select") == "parentFolderId" {
+		_ = json.NewEncoder(w).Encode(map[string]any{"value": []any{map[string]any{"id": "same-one", "parentFolderId": "folder"}}})
+		return
+	}
+	if r.URL.Path != "/me/contactFolders/folder/contacts/delta" {
 		http.Error(w, "wrong immutable Graph collection", 400)
 		return
 	}
@@ -149,10 +160,12 @@ func (a *ownedContactPullAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		"businessPhones": []string{phone},
 	}}}
 	if page == "one" {
-		result["@odata.nextLink"] = "https://graph.microsoft.com/v1.0/me/contacts?$skiptoken=two"
+		result["@odata.nextLink"] = "https://graph.microsoft.com/v1.0/me/contactFolders/folder/contacts/delta?$skiptoken=two"
 		if badNext != "" {
 			result["@odata.nextLink"] = badNext
 		}
+	} else {
+		result["@odata.deltaLink"] = "https://graph.microsoft.com/v1.0/me/contactFolders/folder/contacts/delta?$deltatoken=" + owner
 	}
 	_ = json.NewEncoder(w).Encode(result)
 }
@@ -372,7 +385,7 @@ func TestUserContactPullHTTPRefreshAndDurableCooldown(t *testing.T) {
 }
 
 func TestUserContactPullHTTPGraphPaginationAndRedirectBoundary(t *testing.T) {
-	for _, target := range []string{"https://foreign.test/v1.0/me/contacts", "https://graph.microsoft.com/v1.0/users/foreign/contacts", "https://graph.microsoft.com/v1.0/me/messages", "https://graph.microsoft.com/v1.0/me/contacts?$skiptoken=two#fragment"} {
+	for _, target := range []string{"https://foreign.test/v1.0/me/contactFolders/folder/contacts/delta", "https://graph.microsoft.com/v1.0/users/foreign/contactFolders/folder/contacts/delta", "https://graph.microsoft.com/v1.0/me/messages", "https://graph.microsoft.com/v1.0/me/contactFolders/folder/contacts/delta?$skiptoken=two#fragment"} {
 		t.Run(target, func(t *testing.T) {
 			f, api, _ := newOwnedContactPullFixture(t, "outlook")
 			api.mu.Lock()
@@ -382,7 +395,7 @@ func TestUserContactPullHTTPGraphPaginationAndRedirectBoundary(t *testing.T) {
 				t.Fatal("invalid page accepted", rec.Body.String())
 			}
 			api.mu.Lock()
-			calls := api.calls["alice|/me/contacts"]
+			calls := api.calls["alice|/me/contactFolders/folder/contacts/delta"]
 			api.mu.Unlock()
 			if calls != 1 {
 				t.Fatal("foreign page followed", calls)

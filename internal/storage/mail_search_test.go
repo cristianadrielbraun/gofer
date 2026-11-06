@@ -311,3 +311,37 @@ func TestMailSearchLeavesOutDisabledLocalFolders(t *testing.T) {
 		t.Fatalf("unified accounts = %q %v", where, args)
 	}
 }
+
+// A sidebar tag lists its mail in every folder of its account, or of every
+// account, but not in Spam or Trash.
+func TestMailSearchTagAcrossFolders(t *testing.T) {
+	db := mailSearchTestDB(t)
+	if _, err := db.Write().Exec(`
+		INSERT INTO labels(id, account_id, name) VALUES ('a-clients', 'a', 'Clients'), ('b-clients', 'b', 'Clients');
+		INSERT INTO message_labels(message_id, label_id) VALUES (1, 'a-clients'), (3, 'a-clients'), (6, 'a-clients'), (4, 'b-clients');`); err != nil {
+		t.Fatal(err)
+	}
+	for _, tt := range []struct {
+		name    string
+		scope   models.MailSearchScope
+		filters models.EmailFilters
+		ids     []string
+	}{
+		{"account tag", models.MailSearchScope{Kind: models.MailSearchAccount, AccountID: "a", ExcludeSpamTrash: true}, models.EmailFilters{Tag: "Clients", TagAccountID: "a", ByMessage: true}, []string{"3", "1"}},
+		{"unified tag", models.MailSearchScope{Kind: models.MailSearchAll, ExcludeSpamTrash: true}, models.EmailFilters{Tag: "Clients", ByMessage: true}, []string{"4", "3", "1"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			page, err := db.GetMailSearchPageForUser(context.Background(), "default", tt.scope, 0, 50, tt.filters)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var ids []string
+			for _, email := range page.Emails {
+				ids = append(ids, email.ID)
+			}
+			if !reflect.DeepEqual(ids, tt.ids) {
+				t.Fatalf("ids = %v, want %v", ids, tt.ids)
+			}
+		})
+	}
+}

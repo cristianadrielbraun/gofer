@@ -135,7 +135,7 @@ func (h *Handler) syncJMAPContacts(ctx context.Context, userID string, account c
 		imported++
 	}
 	for _, remoteID := range page.Removed {
-		if err := h.db.DeleteContactSourceByRemoteID(ctx, userID, providers.ProviderJMAP, account.ID, remoteID); err != nil {
+		if err := h.db.RemoveDeletedContactSource(ctx, userID, providers.ProviderJMAP, account.ID, remoteID); err != nil {
 			return imported, err
 		}
 	}
@@ -150,7 +150,7 @@ func (h *Handler) syncJMAPContacts(ctx context.Context, userID string, account c
 		}
 		for _, source := range sources {
 			if remoteID := strings.TrimSpace(source.RemoteID); remoteID != "" && !seen[remoteID] {
-				if err := h.db.DeleteContactSourceByRemoteID(ctx, userID, providers.ProviderJMAP, account.ID, remoteID); err != nil {
+				if err := h.db.RemoveDeletedContactSource(ctx, userID, providers.ProviderJMAP, account.ID, remoteID); err != nil {
 					return imported, err
 				}
 			}

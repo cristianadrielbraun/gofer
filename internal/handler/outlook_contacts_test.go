@@ -65,45 +65,57 @@ func TestOutlookContactPayloadFromContactMapsExpandedFields(t *testing.T) {
 	}
 }
 
-func TestSyncOutlookContactsImportsGraphContacts(t *testing.T) {
+func TestSyncOutlookContactsFollowsGraphChanges(t *testing.T) {
 	ctx := context.Background()
 	db, err := storage.New(filepath.Join(t.TempDir(), "gofer.db"))
 	if err != nil {
 		t.Fatalf("storage.New() error = %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	if _, err := db.Write().Exec(`INSERT OR IGNORE INTO users (id, username, username_normalized, name) VALUES ('default', 'default', 'default', 'Default')`); err != nil {
+	if _, err := db.Write().Exec(`INSERT OR IGNORE INTO users (id, username, username_normalized, name) VALUES ('default', 'default', 'default', 'Default');
+INSERT INTO accounts (id, user_id, provider, email_address) VALUES ('outlook_acc', 'default', 'outlook', 'jane.owner@example.com')`); err != nil {
 		t.Fatalf("insert user: %v", err)
 	}
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	deltas := 0
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got := r.Header.Get("Authorization"); got != "Bearer token" {
 			t.Fatalf("Authorization = %q, want bearer token", got)
 		}
-		if r.URL.Path == "/me/contacts/remote-1/photo/$value" {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/me/contacts/remote-1/photo/$value":
 			w.Header().Set("Content-Type", "image/png")
 			_, _ = w.Write([]byte("png-bytes"))
-			return
+		case r.URL.Path == "/me/contacts" && r.URL.Query().Get("$select") == "parentFolderId":
+			_, _ = w.Write([]byte(`{"value": [{"id": "remote-1", "parentFolderId": "folder-1"}]}`))
+		case r.URL.Path == "/me/contactFolders/folder-1/contacts/delta" && r.URL.Query().Get("$deltatoken") == "":
+			// Every contact, then where the next sync starts.
+			if !strings.Contains(r.URL.RawQuery, "%24select=") || !strings.Contains(r.Header.Get("Prefer"), "odata.maxpagesize=") {
+				t.Fatalf("delta query = %q prefer %q", r.URL.RawQuery, r.Header.Get("Prefer"))
+			}
+			deltas++
+			_, _ = w.Write([]byte(`{
+				"value": [{
+					"id": "remote-1",
+					"changeKey": "ck-1",
+					"displayName": "Jane Doe",
+					"emailAddresses": [{"name": "Jane Doe", "address": "jane@example.com"}],
+					"businessPhones": ["+1 555 0100"],
+					"companyName": "Example Inc.",
+					"jobTitle": "Product Lead",
+					"personalNotes": "Important contact"
+				}],
+				"@odata.deltaLink": "` + server.URL + `/me/contactFolders/folder-1/contacts/delta?$deltatoken=one"
+			}`))
+		case r.URL.Path == "/me/contactFolders/folder-1/contacts/delta" && r.URL.Query().Get("$deltatoken") == "one":
+			// Jane was deleted in Outlook.
+			deltas++
+			_, _ = w.Write([]byte(`{"value": [{"id": "remote-1", "@removed": {"reason": "deleted"}}], "@odata.deltaLink": "` + server.URL + `/me/contactFolders/folder-1/contacts/delta?$deltatoken=two"}`))
+		default:
+			t.Fatalf("unexpected request %s", r.URL.String())
 		}
-		if r.URL.Path != "/me/contacts" {
-			t.Fatalf("path = %q, want /me/contacts", r.URL.Path)
-		}
-		if !strings.Contains(r.URL.RawQuery, "%24select=") {
-			t.Fatalf("query = %q, want selected fields", r.URL.RawQuery)
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{
-			"value": [{
-				"id": "remote-1",
-				"changeKey": "ck-1",
-				"displayName": "Jane Doe",
-				"emailAddresses": [{"name": "Jane Doe", "address": "jane@example.com"}],
-				"businessPhones": ["+1 555 0100"],
-				"companyName": "Example Inc.",
-				"jobTitle": "Product Lead",
-				"personalNotes": "Important contact"
-			}]
-		}`))
 	}))
 	defer server.Close()
 
@@ -136,5 +148,20 @@ func TestSyncOutlookContactsImportsGraphContacts(t *testing.T) {
 	}
 	if source == nil || source.ContactID != contact[0].ID || source.Etag != "ck-1" {
 		t.Fatalf("source = %#v, want Outlook source with change key", source)
+	}
+
+	// The next sync starts from the delta link, and Outlook says Jane was
+	// deleted: she lived there with Gofer Sync off, so she goes to the Trash.
+	if _, err := h.syncOutlookContacts(ctx, "default", "outlook_acc", "token"); err != nil {
+		t.Fatal(err)
+	}
+	if deltas != 2 {
+		t.Fatalf("delta requests = %d, want 2", deltas)
+	}
+	if trashed, err := db.ContactInTrash(ctx, "default", contact[0].ID); err != nil || !trashed {
+		t.Fatalf("ContactInTrash() = %v, %v; want the deleted contact in the Trash", trashed, err)
+	}
+	if token, _ := db.ContactSyncToken(ctx, "default", "outlook_acc"); !strings.HasSuffix(token, "$deltatoken=two") {
+		t.Fatalf("delta link = %q, want the newest", token)
 	}
 }

@@ -183,11 +183,11 @@ func googleCalendarForwardTimes(cal *ical.Calendar, event *ical.Component, remot
 	zone := googleCalendarForwardZone(remote)
 	if zone == time.UTC {
 		event.Props.SetDateTime("DTSTART", start.UTC())
-		event.Props.SetDateTime("DTEND", end.UTC())
+		calendarSetICSEnd(event.Props, start, end.UTC())
 		return nil
 	}
 	event.Props.SetDateTime("DTSTART", start.In(zone))
-	event.Props.SetDateTime("DTEND", end.In(zone))
+	calendarSetICSEnd(event.Props, start, end.In(zone))
 	// The zone's rules for the next twenty years, or as long as the event.
 	until := end.In(zone)
 	if len(remote.Recurrence) > 0 {

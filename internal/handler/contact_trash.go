@@ -17,9 +17,10 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/views"
 )
 
-// Deleting a contact moves it to the Trash, in Gofer only. It is deleted for
-// good, from its address books too, when the user says so or once it has
-// been in the Trash for storage.ContactTrashRetention.
+// Deleting a contact deletes its copies on accounts and moves it to the
+// Trash (see trashContactsEverywhere); restoring writes it back. It is
+// deleted for good when the user says so or once it has been in the Trash
+// for storage.ContactTrashRetention.
 
 var errContactNotInTrash = errors.New("contact isn't in the Trash")
 
@@ -47,12 +48,14 @@ func (h *Handler) moveContactsToTrash(ctx context.Context, owner string, ids []s
 	return count, err
 }
 
-func (h *Handler) restoreContacts(ctx context.Context, owner string, ids []string) (count int, err error) {
+// restoreContacts brings contacts back from the Trash, to live in place
+// when it is set, else where they lived.
+func (h *Handler) restoreContacts(ctx context.Context, owner string, ids []string, place string) (count int, err error) {
 	if h.userStorage == nil {
-		return h.db.RestoreContacts(ctx, owner, ids)
+		return h.db.RestoreContactsTo(ctx, owner, ids, place)
 	}
 	err = h.userIMAP.RunUserServiceWork(ctx, owner, func(ctx context.Context) error {
-		count, err = h.userAccounts.RestoreContacts(ctx, owner, ids)
+		count, err = h.userAccounts.RestoreContactsTo(ctx, owner, ids, place)
 		return err
 	})
 	return count, err
@@ -95,10 +98,12 @@ func (h *Handler) contactTrashError(w http.ResponseWriter, r *http.Request, err 
 
 // handleDeleteContact moves a contact to the Trash.
 func (h *Handler) handleDeleteContact(w http.ResponseWriter, r *http.Request) {
-	count, err := h.moveContactsToTrash(r.Context(), h.userID(r.Context()), []string{strings.TrimSpace(r.PathValue("id"))})
+	count, failed, err := h.trashContactsEverywhere(r.Context(), h.userID(r.Context()), []string{strings.TrimSpace(r.PathValue("id"))})
 	switch {
 	case err != nil:
 		h.contactTrashError(w, r, err)
+	case len(failed) > 0:
+		http.Error(w, serverText(r.Context(), failed[0].Error), http.StatusBadGateway)
 	case count == 0:
 		http.NotFound(w, r)
 	default:
@@ -157,13 +162,16 @@ func (h *Handler) handleTrashContacts(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	count, err := h.moveContactsToTrash(r.Context(), h.userID(r.Context()), ids)
-	if err != nil {
+	count, failed, err := h.trashContactsEverywhere(r.Context(), h.userID(r.Context()), ids)
+	if err != nil && count == 0 && len(failed) == 0 {
 		h.contactTrashError(w, r, err)
 		return
 	}
+	if failed == nil {
+		failed = []contactDeleteFailure{}
+	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]int{"trashed": count})
+	json.NewEncoder(w).Encode(map[string]any{"trashed": count, "failed": failed})
 }
 
 // handleRestoreContacts brings the posted contacts back from the Trash.
@@ -172,11 +180,22 @@ func (h *Handler) handleRestoreContacts(w http.ResponseWriter, r *http.Request) 
 	if !ok {
 		return
 	}
-	count, err := h.restoreContacts(r.Context(), h.userID(r.Context()), ids)
+	owner := h.userID(r.Context())
+	// A place makes the restored contacts live there instead.
+	place := strings.TrimSpace(r.FormValue("place"))
+	if place != "" {
+		if accepted, err := h.contactPlaceAccepted(r.Context(), owner, place); err != nil || !accepted {
+			http.Error(w, i18n.T(r.Context(), "server.error.choose_another_place_for_the_contact"), http.StatusBadRequest)
+			return
+		}
+	}
+	count, err := h.restoreContacts(r.Context(), owner, ids, place)
 	if err != nil {
 		h.contactTrashError(w, r, err)
 		return
 	}
+	// Restored contacts are written where they live now.
+	h.writeBackRestoredContacts(context.WithoutCancel(r.Context()), owner, ids)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]int{"restored": count})
 }

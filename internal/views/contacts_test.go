@@ -138,7 +138,6 @@ func TestExistingContactRendersFocusedEditDialog(t *testing.T) {
 		`How this contact was first created`,
 		`>Observed<`,
 		`>Sync locations<`,
-		`data-tui-selectbox-value="local"`,
 		`name="sync_enabled"`,
 		`data-contact-sync-enabled`,
 		`data-contact-sync-targets`,
@@ -152,6 +151,11 @@ func TestExistingContactRendersFocusedEditDialog(t *testing.T) {
 		if !strings.Contains(html, expected) {
 			t.Fatalf("rendered editor missing %q: %s", expected, html)
 		}
+	}
+	// The contact lives in Gofer Local, so Local isn't one of the places
+	// Gofer Sync could also copy it to.
+	if strings.Contains(html, `data-tui-selectbox-value="local"`) {
+		t.Fatalf("the home is offered as a sync location: %s", html)
 	}
 	if strings.Contains(html, "Choose a JPEG, PNG, or WebP image") {
 		t.Fatalf("editor should not render the old standalone avatar section: %s", html)

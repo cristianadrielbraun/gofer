@@ -593,6 +593,13 @@ ON message_recipients(email);
 CREATE INDEX IF NOT EXISTS idx_recipients_message
 ON message_recipients(message_id);
 
+-- Contacts' mail counts look up messages by normalized address.
+CREATE INDEX IF NOT EXISTS idx_recipients_contact_email
+ON message_recipients(lower(trim(email)), message_id);
+
+CREATE INDEX IF NOT EXISTS idx_messages_contact_email
+ON messages(lower(trim(from_email)), account_id);
+
 CREATE INDEX IF NOT EXISTS idx_attachments_message
 ON attachments(message_id);
 CREATE INDEX IF NOT EXISTS idx_attachments_message_provider_remote
@@ -1267,7 +1274,8 @@ CREATE TABLE IF NOT EXISTS contact_profiles (
     is_deleted INTEGER NOT NULL DEFAULT 0,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    trashed_at DATETIME
+    trashed_at DATETIME,
+    home TEXT NOT NULL DEFAULT ''
 );
 
 CREATE INDEX IF NOT EXISTS idx_contact_profiles_trash
@@ -1327,6 +1335,20 @@ CREATE TABLE IF NOT EXISTS contact_sync_memberships (
 CREATE INDEX IF NOT EXISTS idx_contact_sync_memberships_profile
 ON contact_sync_memberships(user_id, profile_id, enabled);
 
+-- The places that deleted a contact with Gofer Sync on, while it waits to
+-- be resolved: deleted everywhere, or kept without those places.
+CREATE TABLE IF NOT EXISTS contact_remote_deletions (
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    profile_id TEXT NOT NULL REFERENCES contact_profiles(id) ON DELETE CASCADE,
+    place TEXT NOT NULL,
+    account_id TEXT NOT NULL DEFAULT '',
+    detected_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, profile_id, place)
+);
+
+CREATE INDEX IF NOT EXISTS idx_contact_remote_deletions_account
+ON contact_remote_deletions(account_id);
+
 CREATE INDEX IF NOT EXISTS idx_contact_sync_memberships_account
 ON contact_sync_memberships(account_id, enabled);
 
@@ -1361,7 +1383,7 @@ CREATE TABLE IF NOT EXISTS contact_identities (
     confidence REAL NOT NULL DEFAULT 1.0,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (user_id, kind, normalized_value)
+    PRIMARY KEY (user_id, kind, normalized_value, profile_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_contact_identities_profile
@@ -1860,4 +1882,4 @@ CREATE TABLE IF NOT EXISTS mail_rule_runs (
 );
 CREATE INDEX IF NOT EXISTS idx_mail_rule_runs_user ON mail_rule_runs(user_id, id);
 
-INSERT OR REPLACE INTO schema_version (version) VALUES (136);
+INSERT OR REPLACE INTO schema_version (version) VALUES (140);

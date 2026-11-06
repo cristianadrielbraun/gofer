@@ -64,10 +64,13 @@ func saveContactProfileTx(ctx context.Context, tx *sql.Tx, userID string, profil
 	if profile.Origin == "" {
 		profile.Origin = "manual"
 	}
+	// The home is set when the contact is created; a save keeps the one an
+	// existing contact has.
+	profile.Home = contactHomeForSave(profile.Home, "", profile.Origin)
 
 	result, err := tx.ExecContext(ctx, `
-		INSERT INTO contact_profiles (id, user_id, display_name, sort_name, primary_email, avatar_url, notes, origin, sync_enabled, is_deleted)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO contact_profiles (id, user_id, display_name, sort_name, primary_email, avatar_url, notes, origin, sync_enabled, is_deleted, home)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			display_name = excluded.display_name,
 			sort_name = excluded.sort_name,
@@ -78,7 +81,7 @@ func saveContactProfileTx(ctx context.Context, tx *sql.Tx, userID string, profil
 			is_deleted = excluded.is_deleted,
 			updated_at = CURRENT_TIMESTAMP
 		WHERE contact_profiles.user_id = excluded.user_id AND contact_profiles.trashed_at IS NULL`,
-		profile.ID, profile.UserID, profile.DisplayName, profile.SortName, profile.PrimaryEmail, strings.TrimSpace(profile.AvatarURL), strings.TrimSpace(profile.Notes), profile.Origin, boolInt(profile.SyncEnabled), boolInt(profile.IsDeleted))
+		profile.ID, profile.UserID, profile.DisplayName, profile.SortName, profile.PrimaryEmail, strings.TrimSpace(profile.AvatarURL), strings.TrimSpace(profile.Notes), profile.Origin, boolInt(profile.SyncEnabled), boolInt(profile.IsDeleted), profile.Home)
 	if err != nil {
 		return models.ContactProfile{}, err
 	}
@@ -89,6 +92,9 @@ func saveContactProfileTx(ctx context.Context, tx *sql.Tx, userID string, profil
 	}
 
 	if err := upsertContactCardsTx(ctx, tx, profile); err != nil {
+		return models.ContactProfile{}, err
+	}
+	if profile.Home, err = keepContactHomeCardTx(ctx, tx, userID, profile.ID); err != nil {
 		return models.ContactProfile{}, err
 	}
 	if err := replaceContactFieldsTx(ctx, tx, profile); err != nil {
@@ -179,8 +185,7 @@ func replaceContactFieldsTx(ctx context.Context, tx *sql.Tx, profile models.Cont
 			if _, err := tx.ExecContext(ctx, `
 				INSERT INTO contact_identities (user_id, profile_id, kind, normalized_value, confidence)
 				VALUES (?, ?, ?, ?, ?)
-				ON CONFLICT(user_id, kind, normalized_value) DO UPDATE SET
-					profile_id = excluded.profile_id,
+				ON CONFLICT(user_id, kind, normalized_value, profile_id) DO UPDATE SET
 					confidence = excluded.confidence,
 					updated_at = CURRENT_TIMESTAMP`,
 				profile.UserID, profile.ID, field.Kind, field.NormalizedValue, field.Confidence); err != nil {
@@ -228,9 +233,9 @@ func contactProfileRow(ctx context.Context, query contactProfileQuery, userID, p
 	var profile models.ContactProfile
 	var syncEnabled, isDeleted int
 	err := query.QueryRowContext(ctx, `
-		SELECT id, user_id, display_name, sort_name, primary_email, avatar_url, notes, origin, sync_enabled, is_deleted, created_at, updated_at, COALESCE(trashed_at, '')
+		SELECT id, user_id, display_name, sort_name, primary_email, avatar_url, notes, origin, sync_enabled, is_deleted, created_at, updated_at, COALESCE(trashed_at, ''), home
 		FROM contact_profiles
-		WHERE user_id = ? AND id = ?`, userID, profileID).Scan(&profile.ID, &profile.UserID, &profile.DisplayName, &profile.SortName, &profile.PrimaryEmail, &profile.AvatarURL, &profile.Notes, &profile.Origin, &syncEnabled, &isDeleted, &profile.CreatedAt, &profile.UpdatedAt, &profile.TrashedAt)
+		WHERE user_id = ? AND id = ?`, userID, profileID).Scan(&profile.ID, &profile.UserID, &profile.DisplayName, &profile.SortName, &profile.PrimaryEmail, &profile.AvatarURL, &profile.Notes, &profile.Origin, &syncEnabled, &isDeleted, &profile.CreatedAt, &profile.UpdatedAt, &profile.TrashedAt, &profile.Home)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}

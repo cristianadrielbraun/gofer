@@ -42,6 +42,33 @@ func unifiedFolderOptions() []unifiedFolderOption {
 	return options
 }
 
+// DefaultMailFolder is the folder the mail page opens when none is asked
+// for: the unified Inbox while the sidebar shows it, else the first folder of
+// the first account the sidebar shows.
+func DefaultMailFolder(accounts []models.Account, settings map[string]string) string {
+	if uiSettingGet(settings, "unified_folders_enabled", "true") != "false" {
+		for _, folder := range unifiedFolders(accounts, settings) {
+			if folder.ID == "inbox" {
+				return "inbox"
+			}
+		}
+	}
+	for _, account := range accounts {
+		if account.EmailSyncEnabled && !account.IsDeleting && !account.Hidden && len(account.Folders) > 0 {
+			return account.Folders[0].ID
+		}
+	}
+	return "inbox"
+}
+
+// unifiedFolderOptionsInOrder lists the unified folders in the order the
+// sidebar shows them.
+func unifiedFolderOptionsInOrder(settings map[string]string) []unifiedFolderOption {
+	options := unifiedFolderOptions()
+	sortByOrderSetting(options, settings, func(o unifiedFolderOption) string { return models.VirtualFolderOrderKey(o.ID) })
+	return options
+}
+
 // virtualFolderAppearance is also used by Settings for hidden views.
 func virtualFolderAppearance(id string, settings map[string]string) models.Folder {
 	folder, _ := models.VirtualFolderAppearance(id, settings)
@@ -545,7 +572,26 @@ func unifiedFolders(accounts []models.Account, settings map[string]string) []mod
 		folder.Unread = unreadByRole[option.ID]
 		folders = append(folders, folder)
 	}
+	sortByOrderSetting(folders, settings, func(f models.Folder) string { return models.VirtualFolderOrderKey(f.ID) })
 	return folders
+}
+
+// sortByOrderSetting puts the items the user put in order first, by their
+// place in settings (storage/folder_order.go), and leaves the rest after
+// them as they came.
+func sortByOrderSetting[T any](items []T, settings map[string]string, key func(T) string) {
+	place := func(item T) (int, bool) {
+		n, err := strconv.Atoi(settings[key(item)])
+		return n, err == nil
+	}
+	sort.SliceStable(items, func(i, j int) bool {
+		a, aok := place(items[i])
+		b, bok := place(items[j])
+		if aok && bok {
+			return a < b
+		}
+		return aok && !bok
+	})
 }
 
 func hasUnifiedFolderAccount(accounts []models.Account, settings map[string]string, folderID string) bool {
@@ -599,23 +645,35 @@ func unifiedSidebarLabels(accounts []models.Account, settings map[string]string)
 	sort.SliceStable(labels, func(i, j int) bool {
 		return strings.ToLower(labels[i].Name) < strings.ToLower(labels[j].Name)
 	})
+	sortByOrderSetting(labels, settings, func(l models.Label) string { return models.UnifiedTagOrderKey(l.ID) })
 	return labels
 }
 
 func sidebarTagBaseFolder(activeFolder string) string {
 	folder := strings.TrimSpace(activeFolder)
-	if folder == "" || folder == "scheduled" {
+	if folder == "" || folder == "scheduled" || folder == "search" {
 		return "inbox"
 	}
 	return folder
 }
 
+// sidebarTagFilterURL lists a tag's mail wherever it is: every folder of the
+// tag's account, or of every account for a unified tag, except Spam and
+// Trash. It is a search, which goes back to folderID when it ends.
 func sidebarTagFilterURL(folderID string, label models.Label, accountID string) templ.SafeURL {
-	folderID = sidebarTagBaseFolder(folderID)
 	values := url.Values{}
+	accountID = strings.TrimSpace(accountID)
+	if accountID != "" {
+		values.Set("scope", string(models.MailSearchAccount))
+		values.Set("scope_account_id", accountID)
+	} else {
+		values.Set("scope", string(models.MailSearchAll))
+	}
+	values.Set("exclude_spam_trash", "1")
+	values.Set("search_from", sidebarTagBaseFolder(folderID))
 	values.Set("tag", strings.TrimSpace(label.Name))
-	if strings.TrimSpace(accountID) != "" {
-		values.Set("tag_account_id", strings.TrimSpace(accountID))
+	if accountID != "" {
+		values.Set("tag_account_id", accountID)
 		if providerID := strings.TrimSpace(label.ProviderID); providerID != "" {
 			values.Set("tag_provider_id", providerID)
 			if providerType := strings.TrimSpace(label.ProviderType); providerType != "" {
@@ -623,25 +681,35 @@ func sidebarTagFilterURL(folderID string, label models.Label, accountID string) 
 			}
 		}
 	}
-	return templ.URL("/folder/" + url.PathEscape(folderID) + "?" + values.Encode())
+	return templ.URL("/mail/search?" + values.Encode())
 }
 
-func sidebarTagActive(activeFolder string, folderID string, filters models.EmailFilters, label models.Label, accountID string) bool {
-	if strings.TrimSpace(activeFolder) != sidebarTagBaseFolder(folderID) {
+// sidebarTagActive reports whether the open search is the tag's own list.
+func sidebarTagActive(activeFolder string, filters models.EmailFilters, label models.Label, accountID string) bool {
+	if strings.TrimSpace(activeFolder) != "search" || filters.SearchScope == nil {
 		return false
 	}
 	if !strings.EqualFold(strings.TrimSpace(filters.Tag), strings.TrimSpace(label.Name)) {
 		return false
 	}
-	return strings.TrimSpace(filters.TagAccountID) == strings.TrimSpace(accountID)
+	accountID = strings.TrimSpace(accountID)
+	if strings.TrimSpace(filters.TagAccountID) != accountID {
+		return false
+	}
+	scope := filters.SearchScope
+	if accountID == "" {
+		return scope.Kind == models.MailSearchAll
+	}
+	return scope.Kind == models.MailSearchAccount && scope.AccountID == accountID
 }
 
+// A tag's own list is a search; a folder filtered by a tag is not.
 func sidebarAccountHasActiveTag(accountID string, filters models.EmailFilters) bool {
-	return strings.TrimSpace(filters.Tag) != "" && strings.TrimSpace(filters.TagAccountID) == strings.TrimSpace(accountID)
+	return filters.SearchScope != nil && strings.TrimSpace(filters.Tag) != "" && strings.TrimSpace(filters.TagAccountID) == strings.TrimSpace(accountID)
 }
 
 func sidebarUnifiedHasActiveTag(filters models.EmailFilters) bool {
-	return strings.TrimSpace(filters.Tag) != "" && strings.TrimSpace(filters.TagAccountID) == ""
+	return filters.SearchScope != nil && strings.TrimSpace(filters.Tag) != "" && strings.TrimSpace(filters.TagAccountID) == ""
 }
 
 func sidebarTagGroupActive(filters models.EmailFilters, accountID string) bool {

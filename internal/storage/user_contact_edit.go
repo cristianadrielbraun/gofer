@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -101,6 +102,93 @@ func contactEditIdentityQuery(ctx context.Context, query contactProfileQuery, ow
 	return id, err
 }
 
+// ContactInPlace gives the contact with email that has a copy in place,
+// "local" for Gofer Local, or "account:<id>" or "book:<id>", or "" when none
+// has. Contacts may share an address; each lives in its own place.
+func (db *DB) ContactInPlace(ctx context.Context, owner, email, place string) (string, error) {
+	normalized := normalizeContactEmail(strings.TrimSpace(email))
+	if owner == "" || normalized == "" {
+		return "", nil
+	}
+	var card string
+	var args []any
+	switch {
+	case place == "local":
+		card = `c.kind = 'local'`
+	case strings.HasPrefix(place, "account:"):
+		card, args = `c.kind = 'provider' AND c.account_id = ?`, []any{strings.TrimPrefix(place, "account:")}
+	case strings.HasPrefix(place, "book:"):
+		card, args = `c.kind = 'provider' AND c.address_book_id = ?`, []any{strings.TrimPrefix(place, "book:")}
+	default:
+		return "", nil
+	}
+	var id string
+	err := db.Read().QueryRowContext(ctx, `SELECT p.id FROM contact_identities ci
+		JOIN contact_profiles p ON p.id = ci.profile_id AND p.user_id = ci.user_id
+		JOIN contact_cards c ON c.user_id = p.user_id AND c.profile_id = p.id AND c.is_deleted = 0 AND `+card+`
+		WHERE ci.user_id = ? AND ci.kind = 'email' AND ci.normalized_value = ? AND p.is_deleted = 0
+		ORDER BY p.created_at, p.id LIMIT 1`, append(args, owner, normalized)...).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return id, err
+}
+
+// ContactStoredIn says whether a contact with email has a copy in place.
+func (db *DB) ContactStoredIn(ctx context.Context, owner, email, place string) (bool, error) {
+	id, err := db.ContactInPlace(ctx, owner, email, place)
+	return id != "", err
+}
+
+// ContactPlaceAccepted says whether place is one the contact editor would
+// keep: Gofer Local, or an account or address book that syncs contacts.
+func (db *DB) ContactPlaceAccepted(ctx context.Context, owner, place string) (bool, error) {
+	accepted, _, err := contactEditTargetsQuery(ctx, db.Read(), owner, []string{place})
+	if err != nil {
+		return false, err
+	}
+	return len(accepted) == 1 && accepted[0] == place, nil
+}
+
+// ContactOperationProgress counts the queued contact operations ids that
+// are finished, the ones that failed for good, and the ones that failed
+// once and wait to try again.
+type ContactOperationProgress struct {
+	Done, Failed, Retrying, Waiting int
+	// Reason is the error of one of the failed or retrying ones.
+	Reason string
+}
+
+func (db *DB) ContactOperationProgress(ctx context.Context, owner string, ids []string) (ContactOperationProgress, error) {
+	var progress ContactOperationProgress
+	for _, id := range ids {
+		var status, lastError string
+		var attempts int
+		err := db.Read().QueryRowContext(ctx, `SELECT status, attempt_count, last_error FROM contact_sync_operations WHERE user_id = ? AND id = ?`, owner, id).Scan(&status, &attempts, &lastError)
+		if errors.Is(err, sql.ErrNoRows) {
+			progress.Done++
+			continue
+		}
+		if err != nil {
+			return progress, err
+		}
+		switch {
+		case status == "done":
+			progress.Done++
+		case status == "error":
+			progress.Failed++
+		case status == "pending" && attempts > 0:
+			progress.Retrying++
+		default:
+			progress.Waiting++
+		}
+		if (status == "error" || status == "pending") && lastError != "" {
+			progress.Reason = lastError
+		}
+	}
+	return progress, nil
+}
+
 // Match the editor's allowlist: invalid or disabled destinations are omitted,
 // and an empty selection becomes Local. The writer rechecks accepted locations.
 func contactEditTargetsQuery(ctx context.Context, query contactProfileQuery, owner string, targets []string) ([]string, []string, error) {
@@ -162,14 +250,9 @@ func (db *DB) SnapshotUserContactEdit(ctx context.Context, owner string, request
 	if err := contactSyncOwnerTx(ctx, tx, owner, guard); err != nil {
 		return nil, err
 	}
+	// A contact without an ID is a new one, whatever its address: contacts
+	// may share one, each living in its own place.
 	s := &ContactEditSnapshot{owner: owner, id: request.ID, request: request}
-	if s.id == "" && request.Email != "" {
-		s.lookupEmail = normalizeContactEmail(request.Email)
-		s.id, err = contactEditIdentityQuery(ctx, tx, owner, s.lookupEmail)
-		if err != nil {
-			return nil, err
-		}
-	}
 	if s.id != "" {
 		s.profile, err = contactProfileStateQuery(ctx, tx, owner, s.id)
 		if err != nil {
@@ -192,6 +275,11 @@ func (db *DB) SnapshotUserContactEdit(ctx context.Context, owner string, request
 	s.request.SaveTargets, accounts, err = contactEditTargetsQuery(ctx, tx, owner, request.SaveTargets)
 	if err != nil {
 		return nil, err
+	}
+	// The query makes an empty choice Gofer Local; the home says where a
+	// contact lives now, so Local stays out unless it was chosen.
+	if !slices.ContainsFunc(request.SaveTargets, func(target string) bool { return strings.TrimSpace(target) == "local" }) {
+		s.request.SaveTargets = slices.DeleteFunc(s.request.SaveTargets, func(target string) bool { return target == "local" })
 	}
 	if inspect != nil {
 		if err := inspect(tx, accounts); err != nil {
@@ -247,7 +335,11 @@ func checkContactEditTx(ctx context.Context, tx *sql.Tx, s *ContactEditSnapshot)
 	if err != nil {
 		return err
 	}
-	if !reflect.DeepEqual(targets, s.request.SaveTargets) {
+	// As the snapshot did: Local stays out unless it was chosen.
+	if !slices.Contains(s.request.SaveTargets, "local") {
+		targets = slices.DeleteFunc(targets, func(target string) bool { return target == "local" })
+	}
+	if !reflect.DeepEqual(targets, s.request.SaveTargets) && (len(targets) > 0 || len(s.request.SaveTargets) > 0) {
 		return ErrContactEditChanged
 	}
 	return nil

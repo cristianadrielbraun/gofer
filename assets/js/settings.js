@@ -624,10 +624,12 @@ function saveAccountColor(picker, rawColor, source) {
   })
 }
 
-// Accounts on the Accounts page and rules on the Rules page are put in order
-// by dragging an item's handle, or with the arrow keys on a focused handle.
-// Accounts also move with Move up and Move down in their menu; accounts being
-// deleted keep their place and can't be moved.
+// Accounts on the Accounts page, rules on the Rules page and an account's
+// folders and labels in its Folders dialog are put in order by dragging an
+// item's handle, or with the arrow keys on a focused handle. Accounts also
+// move with Move up and Move down in their menu; accounts being deleted keep
+// their place and can't be moved. A folder moves among the folders next to
+// it, with the folders inside it.
 var accountOrder = {
   list: "[data-account-order-list]",
   item: "[data-settings-account-card]",
@@ -646,7 +648,34 @@ var mailRuleOrder = {
   save: function (list, previous) { saveMailRuleOrder(list, previous) }
 }
 
-var orderKinds = [accountOrder, mailRuleOrder]
+var folderOrder = {
+  list: "[data-folder-order-list]",
+  item: "[data-folder-order-item]",
+  handle: "[data-folder-order-handle]",
+  id: function (item) { return item.getAttribute("data-folder-id") },
+  movable: function () { return true },
+  save: function (list, previous) { saveFolderPanelOrder(folderOrder, list, previous, "folders", "folder_id") }
+}
+
+var tagOrder = {
+  list: "[data-tag-order-list]",
+  item: "[data-tag-order-item]",
+  handle: "[data-tag-order-handle]",
+  id: function (item) { return item.getAttribute("data-tag-id") },
+  movable: function () { return true },
+  save: function (list, previous) { saveFolderPanelOrder(tagOrder, list, previous, "tags", "tag_id") }
+}
+
+var unifiedFolderOrder = {
+  list: "[data-unified-order-list]",
+  item: "[data-unified-order-item]",
+  handle: "[data-unified-order-handle]",
+  id: function (item) { return item.getAttribute("data-folder-id") },
+  movable: function () { return true },
+  save: function (list, previous) { saveOrderList(unifiedFolderOrder, list, previous, "/api/unified-folders/order", "virtual_folder_id", null) }
+}
+
+var orderKinds = [accountOrder, mailRuleOrder, folderOrder, tagOrder, unifiedFolderOrder]
 
 function orderKindOf(el) {
   for (var i = 0; i < orderKinds.length; i++) {
@@ -778,6 +807,42 @@ function saveMailRuleOrder(list, previous) {
   }).catch(function () {
     restoreOrder(mailRuleOrder, list, previous)
     showGoferToast({ title: goferT("js.settings.order.rules_failed"), description: goferT("js.settings.check_connection"), variant: "error", icon: "error", duration: 6000 })
+  })
+}
+
+// saveFolderPanelOrder saves the folders or labels of the Folders dialog in
+// their new order. When they changed meanwhile, the dialog loads them again.
+function saveFolderPanelOrder(kind, list, previous, what, field) {
+  var accountID = list.getAttribute("data-account-id") || ""
+  saveOrderList(kind, list, previous, "/api/accounts/" + encodeURIComponent(accountID) + "/" + what + "/order", field, function () {
+    var panel = list.closest("[data-folders-panel]")
+    if (panel && window.htmx) window.htmx.ajax("GET", panel.getAttribute("data-folders-panel"), { target: "#folders-panel", swap: "outerHTML" })
+  })
+}
+
+// saveOrderList saves a folder list's new order. When the folders changed
+// meanwhile, reloadPanel shows them again; without it, they go back to the
+// order they had.
+function saveOrderList(kind, list, previous, url, field, reloadPanel) {
+  var ids = orderIDs(kind, list)
+  if (ids.join("\n") === previous.join("\n")) return
+  var body = new URLSearchParams()
+  ids.forEach(function (id) { body.append(field, id) })
+  fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: body.toString()
+  }).then(function (res) {
+    if (res.ok) return
+    if ((res.status === 409 || res.status === 404) && reloadPanel) {
+      showGoferToast({ title: goferT("js.folders.order.changed"), description: goferT("js.folders.order.reloaded"), variant: "error", icon: "error", duration: 6000 })
+      reloadPanel()
+      return
+    }
+    throw new Error("save order: " + res.status)
+  }).catch(function () {
+    restoreOrder(kind, list, previous)
+    showGoferToast({ title: goferT("js.folders.order.failed"), description: goferT("js.settings.check_connection"), variant: "error", icon: "error", duration: 6000 })
   })
 }
 
@@ -1987,6 +2052,18 @@ goferOnContent("#edit-account-container", function () {
   var query = params.toString()
   history.replaceState(history.state, "", window.location.pathname + (query ? "?" + query : "") + window.location.hash)
   htmx.ajax("GET", "/api/accounts/" + encodeURIComponent(accountID) + "/folder-roles/manage", { target: "#edit-account-container", swap: "innerHTML" })
+})
+
+// /settings/accounts?edit=<account> opens that account's settings, as the
+// contacts sidebar's menu offers.
+goferOnContent("#edit-account-container", function () {
+  var params = new URLSearchParams(window.location.search)
+  var accountID = params.get("edit")
+  if (!accountID || !window.htmx) return
+  params.delete("edit")
+  var query = params.toString()
+  history.replaceState(history.state, "", window.location.pathname + (query ? "?" + query : "") + window.location.hash)
+  htmx.ajax("GET", "/api/accounts/" + encodeURIComponent(accountID) + "/edit", { target: "#edit-account-container", swap: "innerHTML" })
 })
 
 // Switching the identities dialog between its list and its form resizes the

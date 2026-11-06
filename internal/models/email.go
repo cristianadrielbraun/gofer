@@ -164,17 +164,24 @@ type Contact struct {
 	Notes                 string
 	Initials              string
 	Source                string
-	IsManual              bool
-	IsDeleted             bool
+	// StoredIn is the contact's home: "local", "account:<id>" or
+	// "book:<id>". On a new contact it is where the contact goes to live.
+	StoredIn  string
+	IsManual  bool
+	IsDeleted bool
 	// TrashedAt is when the contact went to the Trash, and TrashPurgeAt when
 	// it is deleted for good from there, formatted for showing.
 	TrashedAt        string
 	TrashPurgeAt     string
+	// DeletedFrom are the places, "account:<id>" or "book:<id>", that
+	// deleted a contact with Gofer Sync on, while it waits to be resolved.
+	DeletedFrom      []string
 	MessageCount     int
 	CreatedAt        string
 	LastSeenAt       string
 	UpdatedAt        string
 	LastSeenSort     string
+	CreatedSort      string
 	UpdatedSort      string
 	SaveTargets      []string
 	AvatarHash       string
@@ -287,17 +294,57 @@ type ContactAddressBook struct {
 // it is deleted for good.
 const ContactTrashRetentionDays = 30
 
+// ContactFilters narrows the contacts list. Source, StoredIn, SaveTarget and
+// Activity each hold one value or several separated by commas: a contact
+// matches a filter when it matches any of its values, and the list when it
+// matches every filter.
 type ContactFilters struct {
 	// Trash lists the contacts in the Trash instead of the others.
-	Trash      bool
+	Trash bool
+	// Unresolved lists the contacts with Gofer Sync on that one of their
+	// places deleted, still to resolve, instead of the others.
+	Unresolved bool
 	Query      string
 	WithEmail  bool // only contacts that can be written to, for address suggestions
 	Source     string
 	SaveTarget string
-	Activity   string
-	View       string
-	SortBy     string
-	SortOrder  string
+	// StoredIn keeps the contacts with a copy in this place: "local" for
+	// Gofer Local, "account:<id>" or "book:<id>" for a copy on the account.
+	StoredIn  string
+	Activity  string
+	View      string
+	SortBy    string
+	SortOrder string
+}
+
+// ContactOriginImported is the origin of a contact a vCard import created.
+// A save sets it from Contact.Source; an existing contact keeps its own.
+const ContactOriginImported = "imported"
+
+// ContactFilterValues splits a contacts filter into its values, without
+// blanks or repeats.
+func ContactFilterValues(filter string) []string {
+	var values []string
+	seen := make(map[string]bool)
+	for _, value := range strings.Split(filter, ",") {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		values = append(values, value)
+	}
+	return values
+}
+
+// ContactFilterHas says whether value is one of the filter's values.
+func ContactFilterHas(filter, value string) bool {
+	for _, have := range ContactFilterValues(filter) {
+		if have == value {
+			return true
+		}
+	}
+	return false
 }
 
 type Label struct {

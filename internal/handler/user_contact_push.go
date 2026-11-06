@@ -424,7 +424,7 @@ func (p *userContactPull) pushDAV(ctx context.Context, contact models.Contact, b
 			etag = latest.etag()
 		}
 	}
-	body, err := renderVCard4([]models.Contact{contact})
+	body, err := renderCardDAVVCard(contact)
 	if err != nil {
 		return "", "", err
 	}

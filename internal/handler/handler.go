@@ -108,6 +108,7 @@ type Handler struct {
 	contactBackfillState       models.ContactBackfillState
 	contactSyncMu              sync.Mutex
 	contactSyncRunning         map[string]struct{}
+	contactPushSyncs           map[string]bool // accounts pulling after a push; true: pull again (contact_push.go)
 	contactSyncQueue           chan struct{}
 	userContactWorkers         *userContactWorkers
 	calendarWorkerOnce         sync.Once
@@ -230,6 +231,12 @@ func New(db *storage.DB, accountStore *config.AccountStore, syncer *mail.SyncOrc
 	if syncer != nil {
 		syncer.SetMutationWake(h.signalMessageMutationWorker)
 	}
+	db.SetContactChangeHook(func(userID string) {
+		if h.syncer == nil {
+			return
+		}
+		h.syncer.Events().Publish(mail.Event{Type: mail.EventContactsChanged, UserID: userID})
+	})
 	db.SetContactActivityHook(func(event storage.ContactActivityNotification) {
 		if h.syncer == nil {
 			return
@@ -505,7 +512,11 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/contacts/export", h.handleExportSelectedContacts)
 	mux.HandleFunc("POST /api/contacts/bulk-delete", h.handleTrashContacts)
 	mux.HandleFunc("POST /api/contacts/trash/restore", h.handleRestoreContacts)
+	mux.HandleFunc("POST /api/contacts/trash/places", h.handleContactTrashPlaces)
 	mux.HandleFunc("GET /contacts/trash-count", h.handleContactTrashCount)
+	mux.HandleFunc("GET /contacts/unresolved-count", h.handleUnresolvedContactCount)
+	mux.HandleFunc("GET /contacts/resolver", h.handleContactResolver)
+	mux.HandleFunc("POST /api/contacts/unresolved/keep", h.handleKeepContactsWithoutDeletedPlaces)
 	mux.HandleFunc("POST /api/contacts/trash/delete", h.handleDeleteContactsForever)
 	mux.HandleFunc("GET /api/contacts/ids", h.handleContactIDs)
 	mux.HandleFunc("GET /api/contacts/{id}/export", h.handleExportContact)
@@ -520,6 +531,8 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/contacts/{id}/unify", h.handleUnifyContact)
 	mux.HandleFunc("POST /api/contacts/{id}/delete", h.handleDeleteContact)
 	mux.HandleFunc("POST /api/contacts/{id}/delete-forever", h.handleDeleteContactForever)
+	mux.HandleFunc("POST /api/contacts/{id}/move", h.handleMoveContact)
+	mux.HandleFunc("POST /api/contacts/{id}/duplicate", h.handleDuplicateContact)
 	mux.HandleFunc("POST /api/accounts/discover", h.handleDiscoverAccount)
 	mux.HandleFunc("POST /api/accounts/order", h.handleAccountOrder)
 	mux.HandleFunc("GET /api/accounts/server-check", h.handleAccountServerCheck)
@@ -536,6 +549,10 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/accounts/{id}/contacts/sync", h.handleSaveAccountContactSync)
 	mux.HandleFunc("POST /api/accounts/{id}/contacts/sync/test", h.handleTestAccountContactSync)
 	mux.HandleFunc("POST /api/accounts/{id}/contacts/sync/discover", h.handleDiscoverAccountContactSync)
+	mux.HandleFunc("GET /api/accounts/{id}/contacts/books", h.handleContactAccountBooks)
+	mux.HandleFunc("GET /api/contacts/books/{id}/usage", h.handleContactBookUsage)
+	mux.HandleFunc("GET /api/contacts/books/{id}/movers", h.handleContactBookMovers)
+	mux.HandleFunc("POST /api/contacts/books/{id}/release", h.handleReleaseContactBook)
 	mux.HandleFunc("POST /api/accounts/dav/find", h.handleFindDAVItems)
 	mux.HandleFunc("POST /api/accounts/dav", h.handleCreateDAVAccount)
 	mux.HandleFunc("POST /api/accounts/{id}/dav/find", h.handleFindDAVItems)
@@ -556,6 +573,10 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/accounts/{id}/folder-roles/create", h.handleCreateFolderRoleFolder)
 	mux.HandleFunc("POST /api/accounts/{id}/folders", h.handleCreateFolder)
 	mux.HandleFunc("GET /api/accounts/{id}/folders/manage", h.handleManageFolders)
+	mux.HandleFunc("POST /api/accounts/{id}/folders/order", h.handleFolderOrder)
+	mux.HandleFunc("POST /api/accounts/{id}/tags/order", h.handleTagOrder)
+	mux.HandleFunc("POST /api/unified-folders/order", h.handleUnifiedFolderOrder)
+	mux.HandleFunc("POST /api/unified-tags/order", h.handleUnifiedTagOrder)
 	mux.HandleFunc("GET /api/folders/{id}/manage", h.handleFolderInfo)
 	mux.HandleFunc("GET /api/virtual-folders/{id}/appearance", h.handleVirtualFolderAppearance)
 	mux.HandleFunc("GET /api/tags/{id}/appearance", h.handleTagAppearance)
@@ -1039,6 +1060,10 @@ func (h *Handler) handleContacts(w http.ResponseWriter, r *http.Request) {
 				return nil, sql.ErrNoRows
 			}
 			return views.ContactRecentActivity(*selected, local.recentContactActivity(ctx, userID, selected)), nil
+		case "new-contact":
+			// A fresh dialog for the next new contact.
+			accounts, _ := local.db.GetAccounts(ctx, userID)
+			return views.ContactNewDialog(accounts, false), nil
 		case "detail":
 			var selected *models.Contact
 			var profile *models.ContactProfile
@@ -1140,26 +1165,39 @@ func (h *Handler) parseContactFilters(r *http.Request) models.ContactFilters {
 	q := r.URL.Query()
 	filters := models.ContactFilters{
 		Query:      strings.TrimSpace(q.Get("q")),
-		Source:     strings.TrimSpace(q.Get("source")),
-		SaveTarget: strings.TrimSpace(q.Get("save_target")),
-		Activity:   strings.TrimSpace(q.Get("activity")),
+		Source:     contactFilterParam(q["source"], contactSourceFilterValid),
+		SaveTarget: contactFilterParam(q["save_target"], contactPlaceFilterValid),
+		StoredIn:   contactFilterParam(q["stored_in"], contactPlaceFilterValid),
+		Activity:   contactFilterParam(q["activity"], func(value string) bool { return value == "seen" || value == "none" }),
 		View:       contactViewMode(q.Get("view")),
 		SortBy:     strings.TrimSpace(q.Get("sort_by")),
 		SortOrder:  strings.TrimSpace(q.Get("sort_order")),
 		Trash:      q.Get("trash") == "1",
 	}
-	if filters.Source != "manual" && filters.Source != "observed" && filters.Source != "synced" && !strings.HasPrefix(filters.Source, "synced:") && !strings.HasPrefix(filters.Source, "book:") {
-		filters.Source = ""
-	}
-	if filters.Activity != "seen" && filters.Activity != "none" {
-		filters.Activity = ""
-	}
-	if filters.SaveTarget != "local" && !strings.HasPrefix(filters.SaveTarget, "account:") && !strings.HasPrefix(filters.SaveTarget, "book:") {
-		filters.SaveTarget = ""
-	}
+	filters.Unresolved = !filters.Trash && q.Get("unresolved") == "1"
 	filters.SortBy = normalizeContactSortBy(filters.SortBy)
 	filters.SortOrder = normalizeSortOrder(filters.SortOrder)
 	return filters
+}
+
+// contactFilterParam keeps the valid values of a contacts filter, given
+// once with commas between them or as the parameter repeated.
+func contactFilterParam(raw []string, valid func(string) bool) string {
+	var kept []string
+	for _, value := range models.ContactFilterValues(strings.Join(raw, ",")) {
+		if valid(value) {
+			kept = append(kept, value)
+		}
+	}
+	return strings.Join(kept, ",")
+}
+
+func contactSourceFilterValid(value string) bool {
+	return value == "manual" || value == "observed" || value == models.ContactOriginImported || value == "synced" || strings.HasPrefix(value, "synced:") || strings.HasPrefix(value, "book:")
+}
+
+func contactPlaceFilterValid(value string) bool {
+	return value == "local" || strings.HasPrefix(value, "account:") || strings.HasPrefix(value, "book:")
 }
 
 func applyContactSortDefaults(filters models.ContactFilters, r *http.Request, settings map[string]string) models.ContactFilters {
@@ -1174,7 +1212,7 @@ func applyContactSortDefaults(filters models.ContactFilters, r *http.Request, se
 }
 
 func normalizeContactSortBy(value string) string {
-	if value == "name" || value == "last_interaction" {
+	if value == "name" || value == "created" || value == "last_interaction" {
 		return value
 	}
 	return "updated"
@@ -1209,6 +1247,19 @@ func (h *Handler) handleSaveContact(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, serverText(r.Context(), err.Error()), http.StatusBadRequest)
 		return
 	}
+	// A new contact lives where it was asked to, when that is a place it can
+	// be saved to; an existing one keeps its home.
+	if contact.ID == "" {
+		if targets := h.contactSaveTargets(ctx, contact.StoredIn); len(targets) != 1 || targets[0] != contact.StoredIn {
+			contact.StoredIn = "local"
+		}
+	} else {
+		contact.StoredIn = ""
+	}
+	if h.contactWaitsToResolve(ctx, userID, contact.ID) {
+		http.Error(w, i18n.T(r.Context(), "server.error.resolve_contact_first"), http.StatusConflict)
+		return
+	}
 	var previous *models.Contact
 	if contact.ID != "" {
 		if trashed, err := h.db.ContactInTrash(ctx, userID, contact.ID); err != nil {
@@ -1219,6 +1270,11 @@ func (h *Handler) handleSaveContact(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		previous, _ = h.db.GetContact(ctx, userID, contact.ID)
+	}
+	syncPlaces, err := h.contactSyncPlaces(ctx, userID, contact.ID)
+	if err != nil {
+		http.Error(w, i18n.T(r.Context(), "server.error.save_failed"), http.StatusInternalServerError)
+		return
 	}
 	setupRequired := contactSyncSetupRequired(contact, previous)
 	if setupRequired {
@@ -1243,6 +1299,25 @@ func (h *Handler) handleSaveContact(w http.ResponseWriter, r *http.Request) {
 	if !setupRequired {
 		syncQueued = h.scheduleContactAccountSync(ctx, userID, saved, previous)
 	}
+	// A contact living on an account is written there: a new one now, and an
+	// edit to one whatever Gofer Sync says. With Gofer Sync on, its sync
+	// writes it there with its other places.
+	if saved.StoredIn != "" && saved.StoredIn != "local" && !saved.GoferSyncEnabled {
+		if _, err := h.db.EnqueueContactStoreOperation(ctx, userID, saved, saved.StoredIn); err != nil {
+			log.Printf("contacts: store new contact %s: %v", saved.ID, err)
+		} else {
+			syncQueued = true
+			h.signalContactSyncOperationWorker()
+		}
+	}
+	// A place taken out of Gofer Sync no longer holds the contact.
+	removeFailed := ""
+	if previous != nil {
+		if err := h.removeDroppedSyncPlaces(ctx, userID, saved.ID, saved.StoredIn, syncPlaces); err != nil {
+			log.Printf("contacts: remove %s from dropped sync places: %v", saved.ID, err)
+			removeFailed = contactDeleteFailureMessage(saved.ID, err)
+		}
+	}
 	if strings.Contains(r.Header.Get("Accept"), "application/json") {
 		w.Header().Set("Content-Type", "application/json")
 		response := map[string]any{
@@ -1256,6 +1331,9 @@ func (h *Handler) handleSaveContact(w http.ResponseWriter, r *http.Request) {
 		}
 		if setupRequired {
 			response["contact_sync_setup_url"] = "/api/contacts/" + url.PathEscape(saved.ID) + "/sync-setup"
+		}
+		if removeFailed != "" {
+			response["contact_place_remove_failed"] = serverText(r.Context(), removeFailed)
 		}
 		_ = json.NewEncoder(w).Encode(response)
 		return
@@ -1290,8 +1368,10 @@ func contactFromForm(r *http.Request, targets []string) (models.Contact, error) 
 		Notes:                 strings.TrimSpace(r.FormValue("notes")),
 		GoferSyncEnabled:      r.FormValue("sync_enabled") == "on",
 		SaveTargets:           targets,
-		AvatarURL:             avatarURL,
-		RemoveAvatar:          removeAvatar,
+		// Where a new contact goes to live; the handlers check it.
+		StoredIn:     strings.TrimSpace(r.FormValue("stored_in")),
+		AvatarURL:    avatarURL,
+		RemoveAvatar: removeAvatar,
 	}
 	// The email address is optional. If only an additional one is filled in,
 	// it becomes the main one.
@@ -1434,19 +1514,32 @@ func (h *Handler) contactSaveTargets(ctx context.Context, raw string) []string {
 			targets = append(targets, target)
 		}
 	}
-	if len(targets) == 0 {
-		targets = []string{"local"}
-	}
+	// Nothing chosen is nothing: a contact's home says where it lives.
 	return targets
 }
 
+// handleExportContacts downloads every contact as one vCard file, or, with
+// ?stored_in, the contacts whose main location is that place.
 func (h *Handler) handleExportContacts(w http.ResponseWriter, r *http.Request) {
 	userID := h.userID(r.Context())
+	place := strings.TrimSpace(r.URL.Query().Get("stored_in"))
 	var contacts []models.Contact
 	err := h.withUserDB(r.Context(), userID, func(db *storage.DB) error {
 		var err error
 		contacts, err = db.ListContactsForExport(r.Context(), userID)
-		return err
+		if err != nil || place == "" {
+			return err
+		}
+		there, _, err := db.ListContactsForSelection(r.Context(), userID, models.ContactFilters{StoredIn: place}, 1<<20)
+		if err != nil {
+			return err
+		}
+		keep := make(map[string]bool, len(there))
+		for _, contact := range there {
+			keep[contact.ID] = true
+		}
+		contacts = slices.DeleteFunc(contacts, func(contact models.Contact) bool { return !keep[contact.ID] })
+		return nil
 	})
 	if err != nil {
 		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_export_contacts"), http.StatusInternalServerError)
@@ -1487,43 +1580,77 @@ func serveVCard(w http.ResponseWriter, r *http.Request, filename string, contact
 }
 
 func (h *Handler) handleImportContacts(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	// ParseMultipartForm only caps what it keeps in memory; the rest of an
-	// unbounded body would go to temporary files.
-	r.Body = http.MaxBytesReader(w, r.Body, contactImportMaxBytes+(128<<10))
-	if err := r.ParseMultipartForm(contactImportMaxBytes); err != nil {
-		http.Error(w, i18n.T(r.Context(), "server.error.invalid_vcard_import_alt"), http.StatusBadRequest)
-		return
-	}
-	file, _, err := r.FormFile("vcard")
-	if err != nil {
-		http.Error(w, i18n.T(r.Context(), "server.error.missing_vcard_file_alt"), http.StatusBadRequest)
-		return
-	}
-	defer file.Close()
-
-	data, err := io.ReadAll(io.LimitReader(file, contactImportMaxBytes+1))
-	if err != nil || int64(len(data)) > contactImportMaxBytes {
-		http.Error(w, i18n.T(r.Context(), "server.error.vcard_file_is_too_large"), http.StatusBadRequest)
-		return
-	}
-
-	contacts, err := parseVCardContacts(bytes.NewReader(data), h.contactSaveTargets(ctx, r.FormValue("save_targets")))
-	if err != nil {
-		http.Error(w, serverText(r.Context(), err.Error()), http.StatusBadRequest)
-		return
-	}
-	imported := 0
-	for _, contact := range contacts {
-		saved, err := h.db.SaveContact(ctx, h.userID(ctx), contact)
-		if err != nil {
+	// Read the owner only once the form is in: an oversized upload is
+	// refused before anything else.
+	owner := func(ctx context.Context) string { return h.userID(ctx) }
+	store := contactImportStore{
+		accepted: func(ctx context.Context, place string) (bool, error) {
+			targets := h.contactSaveTargets(ctx, place)
+			return len(targets) == 1 && targets[0] == place, nil
+		},
+		storedIn: func(ctx context.Context, email, place string) (bool, error) {
+			return h.db.ContactStoredIn(ctx, owner(ctx), email, place)
+		},
+		run: func(ctx context.Context, work func(context.Context) error) error { return work(ctx) },
+		save: func(ctx context.Context, contact models.Contact, request contactImportRequest) (contactImportSaved, error) {
+			var result contactImportSaved
+			owner := owner(ctx)
+			// Only a contact already in the store place is the same contact;
+			// one with the address elsewhere is another, left alone.
+			inPlace, err := h.db.ContactInPlace(ctx, owner, contact.Email, request.storeIn)
+			if err != nil {
+				return result, err
+			}
+			result.existed = inPlace != ""
+			if result.existed && request.skipExisting {
+				return result, nil
+			}
+			var previous *models.Contact
+			if inPlace != "" {
+				if previous, err = h.db.GetContact(ctx, owner, inPlace); err != nil {
+					return result, err
+				}
+				contact.ID = inPlace
+			}
+			contact = importedContact(contact, previous, request)
+			saved, err := h.db.SaveContact(ctx, owner, contact)
+			if err != nil {
+				return result, err
+			}
+			result.saved = true
+			if contactImportNeedsStore(saved, request) {
+				result.operation, err = h.db.EnqueueContactStoreOperation(ctx, owner, saved, request.storeIn)
+			} else if h.contactNeedsAccountSync(ctx, owner, saved, previous) {
+				result.operation, err = h.db.EnqueueContactSyncOperation(ctx, owner, saved, previous)
+			}
+			return result, err
+		},
+		deliver: func(ctx context.Context) bool {
+			ops, err := h.db.ClaimContactSyncOperations(ctx, 1, 5*time.Minute)
+			if err != nil || len(ops) == 0 {
+				return false
+			}
+			h.processContactSyncOperation(ctx, ops[0])
+			return true
+		},
+		progress: func(ctx context.Context, ids []string) (storage.ContactOperationProgress, error) {
+			return h.db.ContactOperationProgress(ctx, owner(ctx), ids)
+		},
+		fail: func(w http.ResponseWriter, r *http.Request, _ error) {
 			http.Error(w, i18n.T(r.Context(), "server.error.failed_to_import_contacts"), http.StatusInternalServerError)
-			return
-		}
-		h.scheduleContactAccountSync(ctx, h.userID(ctx), saved, nil)
-		imported++
+		},
 	}
-	http.Redirect(w, r, fmt.Sprintf("/contacts?imported=%d", imported), http.StatusSeeOther)
+	request, ok := readContactImport(w, r, store)
+	if !ok {
+		return
+	}
+	if request.preview {
+		previewContactImport(w, r, request, store)
+		return
+	}
+	runContactImport(w, r, request, store)
+	// Writes that failed once are tried again by the worker.
+	h.signalContactSyncOperationWorker()
 }
 
 func (h *Handler) handleUnifyContact(w http.ResponseWriter, r *http.Request) {
@@ -2779,9 +2906,19 @@ func emailFiltersActive(filters models.EmailFilters) bool {
 
 func (h *Handler) resolveFolderID(ctx context.Context, userID, requested string) (string, error) {
 	if requested == "" {
-		requested = "inbox"
+		requested = h.defaultMailFolder(ctx, userID)
 	}
 	return h.db.ResolveFolderIDForUser(ctx, userID, requested)
+}
+
+// defaultMailFolder is the folder opened when none is asked for, the first
+// one the sidebar shows (views.DefaultMailFolder).
+func (h *Handler) defaultMailFolder(ctx context.Context, userID string) string {
+	accounts, err := h.db.GetAccounts(ctx, userID)
+	if err != nil {
+		return "inbox"
+	}
+	return views.DefaultMailFolder(accounts, h.db.GetUISettings(ctx, userID))
 }
 
 func (h *Handler) handleThreadSubItems(w http.ResponseWriter, r *http.Request) {
@@ -5380,7 +5517,7 @@ func (h *Handler) saveComposeDraftFromForm(ctx context.Context, r *http.Request)
 	body := r.FormValue("body")
 	htmlBody := strings.TrimSpace(r.FormValue("html_body"))
 	if htmlBody != "" {
-		htmlBody = string(message.SanitizeHTML([]byte(htmlBody)))
+		htmlBody = string(message.SanitizeOutgoingHTML([]byte(htmlBody)))
 	}
 	subject := r.FormValue("subject")
 	snippet := sentSnippet(body, subject)
@@ -5662,6 +5799,16 @@ func formValueAt(values []string, idx int, fallback string) string {
 	return fallback
 }
 
+type composeSourceAttachment struct {
+	ID          int64  `json:"id"`
+	Filename    string `json:"filename"`
+	ContentType string `json:"content_type"`
+	Size        int64  `json:"size"`
+	Existing    bool   `json:"existing"`
+	PreviewURL  string `json:"preview_url"`
+	ContentID   string `json:"content_id,omitempty"`
+}
+
 func (h *Handler) handleComposeSource(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	// The message comes by its local id from the message list, or by its
@@ -5705,17 +5852,23 @@ func (h *Handler) handleComposeSource(w http.ResponseWriter, r *http.Request) {
 			email = fetched
 		}
 	}
-	type composeSourceAttachment struct {
-		ID          int64  `json:"id"`
-		Filename    string `json:"filename"`
-		ContentType string `json:"content_type"`
-		Size        int64  `json:"size"`
-		Existing    bool   `json:"existing"`
-		PreviewURL  string `json:"preview_url"`
-	}
 	attachments := make([]composeSourceAttachment, 0, len(email.Attachments))
+	inlineImages := make([]composeSourceAttachment, 0)
 	for _, att := range email.Attachments {
 		if att.Inline {
+			// The quoted body names these parts by cid:, and compose
+			// sends them along again as the message's own inline parts.
+			if att.ContentID != "" {
+				inlineImages = append(inlineImages, composeSourceAttachment{
+					ID:          att.ID,
+					Filename:    att.Filename,
+					ContentType: att.ContentType,
+					Size:        att.SizeBytes,
+					Existing:    true,
+					PreviewURL:  attachmentPreviewURL(att.ID, att.ContentType, att.Filename),
+					ContentID:   att.ContentID,
+				})
+			}
 			continue
 		}
 		attachments = append(attachments, composeSourceAttachment{
@@ -5734,6 +5887,14 @@ func (h *Handler) handleComposeSource(w http.ResponseWriter, r *http.Request) {
 	if htmlBody == "" {
 		htmlBody = email.HTMLBody
 	}
+	htmlBody = composeSourceCIDReferences(htmlBody, localID, inlineImages)
+	// Remote images in the quoted message are sent only when the reader
+	// already chose to load the message's remote content, as they do it in
+	// the reading pane.
+	remoteAllowed := h.db.IsRemoteContentAllowedForMessageForUser(r.Context(), localID, userID)
+	if !remoteAllowed && email.From.Email != "" {
+		remoteAllowed = h.db.IsRemoteContentAllowedForSenderForUser(r.Context(), email.From.Email, userID)
+	}
 	identityID := ""
 	ownEmails := []string{}
 	if account, err := h.ownedAccount(r.Context(), email.AccountID); err == nil && account != nil {
@@ -5748,21 +5909,36 @@ func (h *Handler) handleComposeSource(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
-		"account_id":  email.AccountID,
-		"identity_id": identityID,
-		"own_emails":  ownEmails,
-		"message_id":  email.InternetMessageID,
-		"references":  email.References,
-		"subject":     email.Subject,
-		"from_name":   email.From.Name,
-		"from_email":  email.From.Email,
-		"date":        email.DateFull,
-		"to":          contactsToAddressList(email.To),
-		"cc":          contactsToAddressList(email.CC),
-		"body":        email.TextBody,
-		"html_body":   htmlBody,
-		"attachments": attachments,
+		"account_id":     email.AccountID,
+		"identity_id":    identityID,
+		"own_emails":     ownEmails,
+		"message_id":     email.InternetMessageID,
+		"references":     email.References,
+		"subject":        email.Subject,
+		"from_name":      email.From.Name,
+		"from_email":     email.From.Email,
+		"date":           email.DateFull,
+		"to":             contactsToAddressList(email.To),
+		"cc":             contactsToAddressList(email.CC),
+		"body":           email.TextBody,
+		"html_body":      htmlBody,
+		"attachments":    attachments,
+		"email_id":       email.ID,
+		"inline_images":  inlineImages,
+		"remote_allowed": remoteAllowed,
 	})
+}
+
+// composeSourceCIDReferences turns the quoted message's inline parts back
+// from their Gofer addresses to cid: references, which compose attaches
+// again. A Gofer address would reach the recipient as a broken link.
+func composeSourceCIDReferences(body string, messageID int64, inlineImages []composeSourceAttachment) string {
+	for _, att := range inlineImages {
+		local := inlineContentURL(messageID, att.ContentID)
+		body = strings.ReplaceAll(body, local, "cid:"+att.ContentID)
+		body = strings.ReplaceAll(body, html.EscapeString(local), "cid:"+html.EscapeString(att.ContentID))
+	}
+	return body
 }
 
 func (h *Handler) handleGetDraft(w http.ResponseWriter, r *http.Request) {
@@ -5946,7 +6122,7 @@ func (h *Handler) handleCompose(w http.ResponseWriter, r *http.Request) {
 	body := r.FormValue("body")
 	htmlBody := strings.TrimSpace(r.FormValue("html_body"))
 	if htmlBody != "" {
-		htmlBody = string(message.SanitizeHTML([]byte(htmlBody)))
+		htmlBody = string(message.SanitizeOutgoingHTML([]byte(htmlBody)))
 		if !strings.Contains(strings.ToLower(htmlBody), "<html") {
 			htmlBody = "<html><body>" + htmlBody + "</body></html>"
 		}

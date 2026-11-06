@@ -543,3 +543,69 @@ func TestScheduledOneTimeFromKeepsItsWayOfSending(t *testing.T) {
 		t.Fatalf("refused drafts = %d, %v", drafts, err)
 	}
 }
+
+func TestComposeSourceQuotesInlineImagesAndRemoteState(t *testing.T) {
+	h, db := newAccountOwnershipTestHandler(t)
+	if _, err := db.Write().Exec(`INSERT INTO folders (id, account_id, remote_id, name, role) VALUES ('victim-inbox', 'victim-account', 'INBOX', 'Inbox', 'inbox')`); err != nil {
+		t.Fatalf("insert folder: %v", err)
+	}
+	dir := t.TempDir()
+	textPath := filepath.Join(dir, "body.txt")
+	htmlPath := filepath.Join(dir, "original.html")
+	if err := os.WriteFile(textPath, []byte("Hello"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	original := `<p>Hello</p><img src="cid:logo@example.com" alt="Logo"><img src="https://images.example.com/banner.png" alt="Banner">`
+	if err := os.WriteFile(htmlPath, []byte(original), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Write().Exec(`INSERT INTO messages (id, account_id, internet_message_id, thread_id, subject, from_email, body_text_path, body_html_original_path) VALUES (7, 'victim-account', '<m7@example.com>', 't7', 'Plans', 'friend@example.com', ?, ?)`, textPath, htmlPath); err != nil {
+		t.Fatalf("insert message: %v", err)
+	}
+	if _, err := db.Write().Exec(`INSERT INTO message_folder_state (message_id, folder_id, remote_uid) VALUES (7, 'victim-inbox', 7)`); err != nil {
+		t.Fatalf("insert folder state: %v", err)
+	}
+	if _, err := db.Write().Exec(`INSERT INTO attachments (message_id, filename, content_type, size_bytes, content_id, inline, storage_path) VALUES (7, 'logo.png', 'image/png', 120, 'logo@example.com', 1, ?)`, filepath.Join(dir, "logo.png")); err != nil {
+		t.Fatalf("insert attachment: %v", err)
+	}
+	source := func() map[string]any {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, "/api/compose/source?email_id=7", nil)
+		rec := httptest.NewRecorder()
+		h.handleComposeSource(rec, ownerRequest(req))
+		var out map[string]any
+		if err := json.NewDecoder(rec.Body).Decode(&out); err != nil {
+			t.Fatalf("decode source: %d %q", rec.Code, rec.Body.String())
+		}
+		return out
+	}
+
+	out := source()
+	body, _ := out["html_body"].(string)
+	if !strings.Contains(body, `src="cid:logo@example.com"`) || strings.Contains(body, "/api/inline-content/") {
+		t.Fatalf("inline image should be quoted by cid:, got %q", body)
+	}
+	inline, _ := out["inline_images"].([]any)
+	if len(inline) != 1 {
+		t.Fatalf("inline_images = %v", out["inline_images"])
+	}
+	if image, _ := inline[0].(map[string]any); image["content_id"] != "logo@example.com" || image["existing"] != true {
+		t.Fatalf("inline image = %v", image)
+	}
+	if attachments, _ := out["attachments"].([]any); len(attachments) != 0 {
+		t.Fatalf("inline image listed as an attachment: %v", attachments)
+	}
+	if out["remote_allowed"] != false {
+		t.Fatalf("remote_allowed = %v before the reader loaded remote content", out["remote_allowed"])
+	}
+	if out["email_id"] != "7" {
+		t.Fatalf("email_id = %v", out["email_id"])
+	}
+
+	if err := db.AllowRemoteContentForMessageForUser(t.Context(), 7, "owner"); err != nil {
+		t.Fatalf("allow remote content: %v", err)
+	}
+	if got := source()["remote_allowed"]; got != true {
+		t.Fatalf("remote_allowed = %v after the reader loaded remote content", got)
+	}
+}

@@ -60,6 +60,10 @@ type fakeJMAPServer struct {
 	// the StateChange JSON sent here. streams counts open connections.
 	pushes  chan string
 	streams int
+	// contactsAccount, when set, offers JMAP contacts in that account;
+	// eventTypes is the types the last push connection asked for.
+	contactsAccount string
+	eventTypes      string
 	// mailboxLog records each change of the mailboxes; Mailbox/changes
 	// answers from it, with states "m1", "m2"... fullMailboxGets counts
 	// Mailbox/get calls for every mailbox. noMailboxChanges makes every
@@ -154,15 +158,20 @@ func newFakeJMAPServer(t *testing.T) *fakeJMAPServer {
 			if f.pushes != nil {
 				events = `"eventSourceUrl": "/jmap/events?types={types}&closeafter={closeafter}&ping={ping}",`
 			}
+			contacts := ""
+			if f.contactsAccount != "" {
+				contacts = fmt.Sprintf(`, "urn:ietf:params:jmap:contacts": %q`, f.contactsAccount)
+			}
 			f.mu.Unlock()
 			fmt.Fprintf(w, `{"capabilities": {"urn:ietf:params:jmap:core": {"maxCallsInRequest": 16, "maxObjectsInGet": %d}, "urn:ietf:params:jmap:mail": {}},
-				"accounts": {"a1": {"name": "robin@example.test"}}, "primaryAccounts": {"urn:ietf:params:jmap:mail": "a1"},
+				"accounts": {"a1": {"name": "robin@example.test"}}, "primaryAccounts": {"urn:ietf:params:jmap:mail": "a1"`+contacts+`},
 				"username": "robin@example.test", "apiUrl": "/jmap/", "state": "s1", %s
 				"downloadUrl": "/jmap/download/{accountId}/{blobId}/{name}?accept={type}"}`, max, events)
 		case "/jmap/events":
 			f.mu.Lock()
 			pushes := f.pushes
 			f.streams++
+			f.eventTypes = r.URL.Query().Get("types")
 			f.mu.Unlock()
 			defer func() { f.mu.Lock(); f.streams--; f.mu.Unlock() }()
 			w.Header().Set("Content-Type", "text/event-stream")

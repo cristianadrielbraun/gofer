@@ -2,8 +2,11 @@ package storage
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"reflect"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -22,6 +25,30 @@ func newContactsTestDB(t *testing.T) *DB {
 		t.Fatalf("insert user: %v", err)
 	}
 	return db
+}
+
+// syncContactTestMail syncs one message from the address into the user's
+// mailbox, made on first use, as mail arriving would.
+func syncContactTestMail(t *testing.T, db *DB, userID, name, email string, seenAt time.Time) {
+	t.Helper()
+	account := userID + "-mail"
+	if _, err := db.Write().Exec(`INSERT OR IGNORE INTO accounts (id, user_id, email_address) VALUES (?, ?, ?)`, account, userID, userID+"@example.test"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Write().Exec(`INSERT OR IGNORE INTO folders (id, account_id, remote_id, name, role) VALUES (?, ?, 'INBOX', 'Inbox', 'inbox')`, account+"-inbox", account); err != nil {
+		t.Fatal(err)
+	}
+	var uid uint32
+	if err := db.Read().QueryRow(`SELECT COUNT(*) + 1 FROM messages WHERE account_id = ?`, account).Scan(&uid); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.UpsertSyncMessages(context.Background(), []SyncMessage{{
+		AccountID: account, FolderID: account + "-inbox", RemoteUID: uid,
+		MessageID: fmt.Sprintf("<contact-test-%d@example.test>", uid), Subject: "Hello",
+		FromName: name, FromEmail: email, DateSent: seenAt,
+	}}); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestMigrateV70SeparatesContactSyncMembershipsFromCards(t *testing.T) {
@@ -218,6 +245,31 @@ func TestObservedContactManualNameWins(t *testing.T) {
 	}
 	if got == nil || got.Name != "Janet Manual" {
 		t.Fatalf("manual name after observed update = %#v, want Janet Manual", got)
+	}
+}
+
+// New mail from a contact is activity, sorted by Interaction; it must not
+// move the contact up the Updated order.
+func TestObservedMailDoesNotTouchContactUpdated(t *testing.T) {
+	ctx := context.Background()
+	db := newContactsTestDB(t)
+
+	if err := db.UpsertObservedContact(ctx, "default", "Nora Pellet", "nora@example.com", time.Now()); err != nil {
+		t.Fatalf("UpsertObservedContact() error = %v", err)
+	}
+	const old = "2020-01-02 03:04:05"
+	if _, err := db.Write().ExecContext(ctx, `UPDATE contact_profiles SET updated_at = ? WHERE user_id = 'default'`, old); err != nil {
+		t.Fatalf("set updated_at: %v", err)
+	}
+	if err := db.UpsertObservedContact(ctx, "default", "Nora Pellet", "nora@example.com", time.Now()); err != nil {
+		t.Fatalf("second UpsertObservedContact() error = %v", err)
+	}
+	var updated string
+	if err := db.Write().QueryRowContext(ctx, `SELECT updated_at FROM contact_profiles WHERE user_id = 'default' AND is_deleted = 0`).Scan(&updated); err != nil {
+		t.Fatalf("read updated_at: %v", err)
+	}
+	if !strings.HasPrefix(strings.ReplaceAll(updated, "T", " "), old) {
+		t.Fatalf("updated_at after new mail = %q, want %q kept", updated, old)
 	}
 }
 
@@ -801,8 +853,16 @@ func TestSyncedProviderChangeBecomesCanonicalOnceAndUnchangedReadbackDoesNotEcho
 	if err != nil {
 		t.Fatalf("first provider upsert: %v", err)
 	}
-	if _, _, err := db.UpsertSyncedContactFromContact(ctx, "default", "acc-b", models.Contact{Name: "Jane", Email: "jane@example.com", Phone: "+1 555 0200"}); err != nil {
-		t.Fatalf("second provider upsert: %v", err)
+	// Gofer Sync links the contact to the second account, so the copy found
+	// there joins it rather than becoming a contact of its own.
+	if err := db.ReplaceContactSyncMemberships(ctx, "default", contactID, []string{"account:acc-a", "account:acc-b"}); err != nil {
+		t.Fatalf("ReplaceContactSyncMemberships() error = %v", err)
+	}
+	if err := db.SetContactProfileSyncEnabled(ctx, "default", contactID, true); err != nil {
+		t.Fatalf("SetContactProfileSyncEnabled() error = %v", err)
+	}
+	if linked, _, err := db.UpsertSyncedContactFromContact(ctx, "default", "acc-b", models.Contact{Name: "Jane", Email: "jane@example.com", Phone: "+1 555 0200"}); err != nil || linked != contactID {
+		t.Fatalf("second provider upsert = %q, %v; want the linked contact", linked, err)
 	}
 	profile, err := db.GetContactProfile(ctx, "default", contactID)
 	if err != nil {
@@ -904,9 +964,7 @@ func TestListContactsFilters(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SaveContact() error = %v", err)
 	}
-	if err := db.UpsertObservedContact(ctx, "default", "Observed", "observed@example.com", time.Now()); err != nil {
-		t.Fatalf("UpsertObservedContact() error = %v", err)
-	}
+	syncContactTestMail(t, db, "default", "Observed", "observed@example.com", time.Now())
 	observedMatches, err := db.SearchContacts(ctx, "default", "observed@example.com", 10)
 	if err != nil || len(observedMatches) != 1 {
 		t.Fatalf("SearchContacts(observed) = %#v, %v", observedMatches, err)
@@ -930,6 +988,24 @@ func TestListContactsFilters(t *testing.T) {
 	if err != nil || len(contacts) != 1 || contacts[0].ID != manual.ID {
 		t.Fatalf("save target filter = %#v, %v; want manual contact", contacts, err)
 	}
+	imported, err := db.SaveContact(ctx, "default", models.Contact{Name: "Imported", Email: "imported@example.com", Source: models.ContactOriginImported})
+	if err != nil {
+		t.Fatalf("SaveContact(imported) error = %v", err)
+	}
+	contacts, err = db.ListContacts(ctx, "default", models.ContactFilters{Source: models.ContactOriginImported}, 10, 0)
+	if err != nil || len(contacts) != 1 || contacts[0].ID != imported.ID || contacts[0].Source != models.ContactOriginImported || contacts[0].IsManual {
+		t.Fatalf("imported filter = %#v, %v; want the imported contact", contacts, err)
+	}
+	// A later save that says imported again leaves the origin it has.
+	if _, err := db.SaveContact(ctx, "default", models.Contact{ID: manual.ID, Name: "Manual", Email: "manual@example.com", Source: models.ContactOriginImported, SaveTargets: []string{"account:acc"}}); err != nil {
+		t.Fatalf("SaveContact(manual again) error = %v", err)
+	}
+	if got, err := db.GetContact(ctx, "default", manual.ID); err != nil || got == nil || !got.IsManual {
+		t.Fatalf("manual contact after an imported save = %#v, %v; want it still manual", got, err)
+	}
+	if err := db.DeleteContact(ctx, "default", imported.ID, false); err != nil {
+		t.Fatalf("DeleteContact(imported) error = %v", err)
+	}
 	contacts, err = db.ListContacts(ctx, "default", models.ContactFilters{Activity: "seen"}, 10, 0)
 	if err != nil || len(contacts) != 1 || contacts[0].Email != "observed@example.com" {
 		t.Fatalf("seen filter = %#v, %v; want observed contact", contacts, err)
@@ -937,6 +1013,86 @@ func TestListContactsFilters(t *testing.T) {
 	contacts, err = db.ListContacts(ctx, "default", models.ContactFilters{Activity: "none"}, 10, 0)
 	if err != nil || len(contacts) != 1 || contacts[0].ID != manual.ID {
 		t.Fatalf("no messages filter = %#v, %v; want manual contact", contacts, err)
+	}
+}
+
+// Stored in follows a contact's home, as the list's main location column
+// shows it, not the copies Gofer Sync writes elsewhere.
+func TestListContactsStoredInFilter(t *testing.T) {
+	ctx := context.Background()
+	db := newContactsTestDB(t)
+	if _, err := db.Write().Exec(`
+		INSERT INTO accounts(id,user_id,provider,email_address) VALUES
+			('acc','default','imap','acc@example.com'),('other','default','imap','other@example.com');
+		INSERT INTO account_contact_address_books(account_id,user_id,id,url) VALUES('acc','default','book-1','https://dav.test/book-1/');`); err != nil {
+		t.Fatal(err)
+	}
+
+	local, err := db.SaveContact(ctx, "default", models.Contact{Name: "Lina Local", Email: "lina@example.com"})
+	if err != nil {
+		t.Fatalf("SaveContact(local) error = %v", err)
+	}
+	inAccount, err := db.SaveContact(ctx, "default", models.Contact{Name: "Arno Account", Email: "arno@example.com", StoredIn: "account:acc"})
+	if err != nil {
+		t.Fatalf("SaveContact(account) error = %v", err)
+	}
+	// No card in the book: its copy may be gone on the provider, waiting to
+	// be resolved, and the contact still lives there.
+	inBook, err := db.SaveContact(ctx, "default", models.Contact{Name: "Bea Book", Email: "bea@example.com", StoredIn: "book:book-1"})
+	if err != nil {
+		t.Fatalf("SaveContact(book) error = %v", err)
+	}
+	// Lives in Local and is copied to another account.
+	copied, err := db.SaveContact(ctx, "default", models.Contact{Name: "Cora Copy", Email: "cora@example.com", StoredIn: "local", GoferSyncEnabled: true, SaveTargets: []string{"local", "account:other"}})
+	if err != nil {
+		t.Fatalf("SaveContact(copied) error = %v", err)
+	}
+	if err := db.UpsertContactSource(ctx, ContactSource{UserID: "default", ContactID: copied.ID, Provider: "carddav", AccountID: "other", RemoteID: "remote-1"}); err != nil {
+		t.Fatalf("UpsertContactSource() error = %v", err)
+	}
+
+	ids := func(filters models.ContactFilters) []string {
+		t.Helper()
+		contacts, err := db.ListContacts(ctx, "default", filters, 10, 0)
+		if err != nil {
+			t.Fatalf("ListContacts(%+v) error = %v", filters, err)
+		}
+		count, err := db.CountContacts(ctx, "default", filters)
+		if err != nil || count != len(contacts) {
+			t.Fatalf("CountContacts(%+v) = %d, %v; list has %d", filters, count, err, len(contacts))
+		}
+		out := make([]string, 0, len(contacts))
+		for _, contact := range contacts {
+			out = append(out, contact.ID)
+		}
+		slices.Sort(out)
+		return out
+	}
+	sorted := func(values ...string) []string {
+		slices.Sort(values)
+		return values
+	}
+	for _, tc := range []struct {
+		filters models.ContactFilters
+		want    []string
+	}{
+		{models.ContactFilters{StoredIn: "local"}, sorted(local.ID, copied.ID)},
+		// An account matches the contacts living in its address books too.
+		{models.ContactFilters{StoredIn: "account:acc"}, sorted(inAccount.ID, inBook.ID)},
+		{models.ContactFilters{StoredIn: "book:book-1"}, sorted(inBook.ID)},
+		// A copy elsewhere is not a home: the sync location filter finds it.
+		{models.ContactFilters{StoredIn: "account:other"}, sorted()},
+		{models.ContactFilters{SaveTarget: "account:other"}, sorted(copied.ID)},
+		// Several values in one filter match a contact in any of them;
+		// filters together match only the contacts in all of them.
+		{models.ContactFilters{StoredIn: "local,book:book-1"}, sorted(local.ID, copied.ID, inBook.ID)},
+		{models.ContactFilters{StoredIn: "local,book:book-1", SaveTarget: "account:other"}, sorted(copied.ID)},
+		{models.ContactFilters{Activity: "seen,none"}, sorted(local.ID, inAccount.ID, inBook.ID, copied.ID)},
+		{models.ContactFilters{Source: "manual,observed"}, sorted(local.ID, inAccount.ID, inBook.ID, copied.ID)},
+	} {
+		if got := ids(tc.filters); !slices.Equal(got, tc.want) {
+			t.Errorf("ListContacts(%+v) = %v, want %v", tc.filters, got, tc.want)
+		}
 	}
 }
 
@@ -993,6 +1149,40 @@ func TestListContactsSortsByNameInBothDirections(t *testing.T) {
 	descending, err := db.ListContacts(ctx, "default", models.ContactFilters{SortBy: "name", SortOrder: "desc"}, 10, 0)
 	if err != nil || len(descending) != 2 || descending[0].Name != "Zulu" || descending[1].Name != "Alpha" {
 		t.Fatalf("descending contacts = %#v, %v", descending, err)
+	}
+}
+
+// Created orders by when a contact was added, whatever happened to it since.
+func TestListContactsSortsByCreated(t *testing.T) {
+	ctx := context.Background()
+	db := newContactsTestDB(t)
+	first, err := db.SaveContact(ctx, "default", models.Contact{Name: "Older Otto", Email: "otto@example.com"})
+	if err != nil {
+		t.Fatalf("SaveContact() error = %v", err)
+	}
+	second, err := db.SaveContact(ctx, "default", models.Contact{Name: "Newer Wanda", Email: "wanda@example.com"})
+	if err != nil {
+		t.Fatalf("SaveContact() error = %v", err)
+	}
+	// Otto was added first but edited last.
+	if _, err := db.Write().ExecContext(ctx, `UPDATE contact_profiles SET created_at = '2021-01-01 00:00:00', updated_at = '2024-01-01 00:00:00' WHERE id = ?`, first.ID); err != nil {
+		t.Fatalf("set Otto dates: %v", err)
+	}
+	if _, err := db.Write().ExecContext(ctx, `UPDATE contact_profiles SET created_at = '2022-01-01 00:00:00', updated_at = '2023-01-01 00:00:00' WHERE id = ?`, second.ID); err != nil {
+		t.Fatalf("set Wanda dates: %v", err)
+	}
+
+	newest, err := db.ListContacts(ctx, "default", models.ContactFilters{SortBy: "created", SortOrder: "desc"}, 10, 0)
+	if err != nil || len(newest) != 2 || newest[0].Name != "Newer Wanda" || newest[1].Name != "Older Otto" {
+		t.Fatalf("created desc = %#v, %v", newest, err)
+	}
+	oldest, err := db.ListContacts(ctx, "default", models.ContactFilters{SortBy: "created", SortOrder: "asc"}, 10, 0)
+	if err != nil || len(oldest) != 2 || oldest[0].Name != "Older Otto" || oldest[1].Name != "Newer Wanda" {
+		t.Fatalf("created asc = %#v, %v", oldest, err)
+	}
+	updated, err := db.ListContacts(ctx, "default", models.ContactFilters{SortBy: "updated", SortOrder: "desc"}, 10, 0)
+	if err != nil || len(updated) != 2 || updated[0].Name != "Older Otto" {
+		t.Fatalf("updated desc = %#v, %v", updated, err)
 	}
 }
 
@@ -1138,5 +1328,33 @@ func TestFormatContactTimeReadsEveryStoredForm(t *testing.T) {
 		if got := formatContactTime(context.Background(), raw, time.UTC); got != "Dec 22, 2014" {
 			t.Errorf("formatContactTime(%q) = %q, want Dec 22, 2014", raw, got)
 		}
+	}
+}
+
+// The list rows carry the organization, job title, notes and whether Gofer
+// Sync is on, for the card layouts and table columns that show them.
+func TestListContactsHaveWorkNotesAndSync(t *testing.T) {
+	ctx := context.Background()
+	db := newContactsTestDB(t)
+	if _, err := db.SaveContact(ctx, "default", models.Contact{Name: "Wren Hale", Email: "wren@example.com", Organization: "Hale Works", Title: "Curator", Notes: "Owes a book", GoferSyncEnabled: true, SaveTargets: []string{"local"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.SaveContact(ctx, "default", models.Contact{Name: "Odo Pike", Email: "odo@example.com"}); err != nil {
+		t.Fatal(err)
+	}
+	contacts, err := db.ListContacts(ctx, "default", models.ContactFilters{SortBy: "name", SortOrder: "asc"}, 10, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string][4]string{}
+	for _, contact := range contacts {
+		synced := "false"
+		if contact.GoferSyncEnabled {
+			synced = "true"
+		}
+		got[contact.Name] = [4]string{contact.Organization, contact.Title, contact.Notes, synced}
+	}
+	if got["Wren Hale"] != [4]string{"Hale Works", "Curator", "Owes a book", "true"} || got["Odo Pike"] != [4]string{"", "", "", "false"} {
+		t.Fatalf("list rows = %v", got)
 	}
 }

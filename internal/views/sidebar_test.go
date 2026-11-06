@@ -156,6 +156,39 @@ func TestUnifiedFoldersApplyAccountSettings(t *testing.T) {
 	}
 }
 
+// The unified folders and tags the user put in order show first, in it; the
+// rest keep their own order after them.
+func TestUnifiedFoldersAndTagsFollowTheUsersOrder(t *testing.T) {
+	accounts := []models.Account{{
+		ID:               "acc-a",
+		EmailSyncEnabled: true,
+		Folders: []models.Folder{
+			{ID: "a-inbox", Role: "inbox"}, {ID: "a-sent", Role: "sent"},
+			{ID: "a-archive", Role: "archive"}, {ID: "a-trash", Role: "trash"},
+		},
+		Labels: []models.Label{{ID: "l1", Name: "Art"}, {ID: "l2", Name: "Bills"}, {ID: "l3", Name: "Cats"}},
+	}}
+	settings := map[string]string{
+		models.VirtualFolderOrderKey("trash"):                  "0",
+		models.VirtualFolderOrderKey("archive"):                "1",
+		models.UnifiedTagOrderKey(models.UnifiedTagID("Cats")): "0",
+	}
+	var ids []string
+	for _, folder := range unifiedFolders(accounts, settings) {
+		ids = append(ids, folder.ID)
+	}
+	if want := []string{"trash", "archive", "inbox", "starred", "sent"}; strings.Join(ids, ",") != strings.Join(want, ",") {
+		t.Fatalf("unified folders = %v, want %v", ids, want)
+	}
+	var names []string
+	for _, label := range unifiedSidebarLabels(accounts, settings) {
+		names = append(names, label.Name)
+	}
+	if want := "Cats,Art,Bills"; strings.Join(names, ",") != want {
+		t.Fatalf("unified tags = %v, want %s", names, want)
+	}
+}
+
 func TestSidebarFolderTreeShowsScheduledOnlyWithPendingCount(t *testing.T) {
 	accounts := []models.Account{{
 		ID:               "acc",
@@ -271,7 +304,8 @@ func TestSidebarFolderTreeRendersUnifiedAndAccountTags(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	if err := SidebarFolderTree(accounts, "inbox", nil, 0, models.EmailFilters{Tag: "Projects"}).Render(context.Background(), &buf); err != nil {
+	filters := models.EmailFilters{Tag: "Projects", SearchScope: &models.MailSearchScope{Kind: models.MailSearchAll, ExcludeSpamTrash: true}}
+	if err := SidebarFolderTree(accounts, "search", nil, 0, filters).Render(context.Background(), &buf); err != nil {
 		t.Fatalf("SidebarFolderTree.Render() error = %v", err)
 	}
 	html := buf.String()
@@ -281,15 +315,15 @@ func TestSidebarFolderTreeRendersUnifiedAndAccountTags(t *testing.T) {
 		`data-sidebar-tag-toggle="__unified__" aria-expanded="true"`,
 		`class="sidebar-tag-children-inner pl-5 space-y-px"`,
 		`data-sidebar-tag-label="Projects"`,
-		`hx-get="/folder/inbox?tag=Projects"`,
-		`hx-get="/folder/inbox?tag=Projects&amp;tag_account_id=acc-a"`,
-		`hx-get="/folder/inbox?tag=Invoices&amp;tag_account_id=acc-a"`,
+		`href="/mail/search?exclude_spam_trash=1&amp;scope=all&amp;search_from=inbox&amp;tag=Projects"`,
+		`href="/mail/search?exclude_spam_trash=1&amp;scope=account&amp;scope_account_id=acc-a&amp;search_from=inbox&amp;tag=Projects&amp;tag_account_id=acc-a"`,
+		`href="/mail/search?exclude_spam_trash=1&amp;scope=account&amp;scope_account_id=acc-a&amp;search_from=inbox&amp;tag=Invoices&amp;tag_account_id=acc-a"`,
 	} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("tag sidebar missing %q: %s", want, html)
 		}
 	}
-	if strings.Count(html, `hx-get="/folder/inbox?tag=Projects"`) != 1 {
+	if strings.Count(html, `href="/mail/search?exclude_spam_trash=1&amp;scope=all&amp;search_from=inbox&amp;tag=Projects"`) != 1 {
 		t.Fatalf("unified tags should dedupe labels by name: %s", html)
 	}
 	if !strings.Contains(html, `data-sidebar-account="__unified__" data-sidebar-account-active`) {
@@ -312,16 +346,16 @@ func TestSidebarFolderTreeMarksAccountTagActive(t *testing.T) {
 	}}
 
 	var buf bytes.Buffer
-	filters := models.EmailFilters{Tag: "Projects", TagAccountID: "acc"}
-	if err := SidebarFolderTree(accounts, "acc-inbox", nil, 0, filters).Render(context.Background(), &buf); err != nil {
+	filters := models.EmailFilters{Tag: "Projects", TagAccountID: "acc", SearchScope: &models.MailSearchScope{Kind: models.MailSearchAccount, AccountID: "acc", ExcludeSpamTrash: true}}
+	if err := SidebarFolderTree(accounts, "search", nil, 0, filters).Render(context.Background(), &buf); err != nil {
 		t.Fatalf("SidebarFolderTree.Render() error = %v", err)
 	}
 	html := buf.String()
 	if !strings.Contains(html, `data-sidebar-account="acc" data-sidebar-account-active`) {
 		t.Fatalf("account tag filter should mark account section active: %s", html)
 	}
-	if !strings.Contains(html, `hx-get="/folder/acc-inbox?tag=Projects&amp;tag_account_id=acc"`) {
-		t.Fatalf("account tag filter should target active account folder: %s", html)
+	if !strings.Contains(html, `href="/mail/search?exclude_spam_trash=1&amp;scope=account&amp;scope_account_id=acc&amp;search_from=inbox&amp;tag=Projects&amp;tag_account_id=acc"`) {
+		t.Fatalf("account tag should list the tag across the account's folders: %s", html)
 	}
 	if !strings.Contains(html, `bg-sidebar-accent text-sidebar-primary font-medium`) {
 		t.Fatalf("active account tag should use active sidebar styling: %s", html)
@@ -352,7 +386,7 @@ func TestSidebarFolderTreeIncludesProviderIdentityForAccountTag(t *testing.T) {
 		t.Fatalf("SidebarFolderTree.Render() error = %v", err)
 	}
 	html := buf.String()
-	want := `hx-get="/folder/acc-inbox?tag=Work&amp;tag_account_id=acc&amp;tag_provider_id=%24label2&amp;tag_provider_type=imap_keyword"`
+	want := `href="/mail/search?exclude_spam_trash=1&amp;scope=account&amp;scope_account_id=acc&amp;search_from=acc-inbox&amp;tag=Work&amp;tag_account_id=acc&amp;tag_provider_id=%24label2&amp;tag_provider_type=imap_keyword"`
 	if !strings.Contains(html, want) {
 		t.Fatalf("account tag link missing provider identity %q: %s", want, html)
 	}
@@ -373,8 +407,8 @@ func TestSidebarFolderTreeMarksTagFilterAsUnifiedTagActive(t *testing.T) {
 	}}
 
 	var buf bytes.Buffer
-	filters := models.EmailFilters{Tag: "Projects", AccountID: "acc"}
-	if err := SidebarFolderTree(accounts, "inbox", nil, 0, filters).Render(context.Background(), &buf); err != nil {
+	filters := models.EmailFilters{Tag: "Projects", AccountID: "acc", SearchScope: &models.MailSearchScope{Kind: models.MailSearchAll, ExcludeSpamTrash: true}}
+	if err := SidebarFolderTree(accounts, "search", nil, 0, filters).Render(context.Background(), &buf); err != nil {
 		t.Fatalf("SidebarFolderTree.Render() error = %v", err)
 	}
 	html := buf.String()
@@ -414,8 +448,8 @@ func TestSidebarFolderTreeCollapsesInactiveTagsFromSettings(t *testing.T) {
 	}
 
 	var active bytes.Buffer
-	filters := models.EmailFilters{Tag: "Projects", TagAccountID: "acc"}
-	if err := SidebarFolderTree(accounts, "inbox", settings, 0, filters).Render(context.Background(), &active); err != nil {
+	filters := models.EmailFilters{Tag: "Projects", TagAccountID: "acc", SearchScope: &models.MailSearchScope{Kind: models.MailSearchAccount, AccountID: "acc", ExcludeSpamTrash: true}}
+	if err := SidebarFolderTree(accounts, "search", settings, 0, filters).Render(context.Background(), &active); err != nil {
 		t.Fatalf("SidebarFolderTree.Render() active error = %v", err)
 	}
 	html = active.String()
@@ -488,7 +522,7 @@ func TestSidebarFolderTreeCollapsesFolderChildrenFromSettings(t *testing.T) {
 		t.Fatalf("SidebarFolderTree.Render() parent active error = %v", err)
 	}
 	html = parentActive.String()
-	if !strings.Contains(html, `class="flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] transition-all duration-150 bg-sidebar-accent text-sidebar-primary font-medium" data-sidebar-folder-row`) {
+	if !strings.Contains(html, `class="flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] transition-colors duration-150 bg-sidebar-accent text-sidebar-primary font-medium" data-sidebar-folder-row`) {
 		t.Fatalf("active parent folder should style the whole row including the toggle: %s", html)
 	}
 }
@@ -550,5 +584,61 @@ func TestVirtualViewAppearancesPreserveVisibilityAndCounts(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), `data-folder-id="scheduled"`) || !strings.Contains(out.String(), `data-folder-id="inbox"`) {
 		t.Fatal("hidden views must remain configurable in Settings")
+	}
+}
+
+// Filtering a folder by a tag narrows that folder; it is not the tag's own
+// list, so the folder stays the marked item.
+func TestSidebarFolderTreeFolderTagFilterLeavesTagInactive(t *testing.T) {
+	accounts := []models.Account{{
+		ID:               "acc",
+		Name:             "Personal",
+		EmailSyncEnabled: true,
+		Folders: []models.Folder{{
+			ID:   "acc-inbox",
+			Name: "Inbox",
+			Icon: "inbox",
+			Role: "inbox",
+		}},
+		Labels: []models.Label{{AccountID: "acc", Name: "Projects"}},
+	}}
+
+	var buf bytes.Buffer
+	filters := models.EmailFilters{Tag: "Projects", TagAccountID: "acc"}
+	if err := SidebarFolderTree(accounts, "acc-inbox", nil, 0, filters).Render(context.Background(), &buf); err != nil {
+		t.Fatalf("SidebarFolderTree.Render() error = %v", err)
+	}
+	html := buf.String()
+	if strings.Contains(html, "data-sidebar-tag-active") {
+		t.Fatalf("a folder filtered by a tag should not mark the tag group active: %s", html)
+	}
+	label := strings.Index(html, `data-sidebar-tag-label="Projects"`)
+	if label < 0 {
+		t.Fatalf("tag link missing: %s", html)
+	}
+	start := strings.LastIndex(html[:label], "<a")
+	end := label + strings.Index(html[label:], ">")
+	if strings.Contains(html[start:end], "bg-sidebar-accent text-sidebar-primary") {
+		t.Fatalf("a folder filtered by a tag should not mark the tag link active: %s", html)
+	}
+}
+
+// With the unified Inbox in the sidebar, the mail page opens it; without it,
+// the first folder of the first account the sidebar shows.
+func TestDefaultMailFolderIsTheFirstFolderShown(t *testing.T) {
+	accounts := []models.Account{
+		{ID: "hidden", EmailSyncEnabled: true, Hidden: true, Folders: []models.Folder{{ID: "hidden-inbox", Role: "inbox"}}},
+		{ID: "acc-a", EmailSyncEnabled: true, Folders: []models.Folder{{ID: "a-archive", Role: "archive"}, {ID: "a-inbox", Role: "inbox"}}},
+	}
+	if got := DefaultMailFolder(accounts, map[string]string{}); got != "inbox" {
+		t.Fatalf("with unified folders = %q, want the unified inbox", got)
+	}
+	for name, settings := range map[string]map[string]string{
+		"unified folders off": {"unified_folders_enabled": "false"},
+		"unified inbox off":   {"unified_folder_inbox_enabled": "false"},
+	} {
+		if got := DefaultMailFolder(accounts, settings); got != "a-archive" {
+			t.Fatalf("%s = %q, want the first account's first folder", name, got)
+		}
 	}
 }

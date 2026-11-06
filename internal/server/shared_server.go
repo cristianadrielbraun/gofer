@@ -166,6 +166,7 @@ func RunShared(rootCtx context.Context) error {
 	mux := http.NewServeMux()
 	h := handler.New(db, accountStore, syncer, blobStore, authManager, vapidPublicKey, mailCredentials)
 	syncer.OnOutlookServiceChange(h.OutlookServiceChanged)
+	syncer.OnJMAPContactsChange(h.JMAPContactsChanged)
 	h.SetTestPushSender(notificationService.SendTestPush)
 
 	go func() {

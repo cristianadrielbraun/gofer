@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -1026,6 +1027,54 @@ func TestIMAPFolderInputsNestFoldersByName(t *testing.T) {
 	}
 	if orphan := byRemote["Work.2024"]; orphan.ParentID != "" || orphan.Name != "Work.2024" {
 		t.Fatalf("Work.2024 = %#v, want its full name at the top, as Work is not listed", orphan)
+	}
+}
+
+// A server may list "INBOX.Projects.Clients" without "INBOX.Projects". The
+// missing parents are added as folders that hold no mail, so the children
+// nest under them as the names say.
+func TestIMAPFoldersWithParentsFillsUnlistedParents(t *testing.T) {
+	folders := imapFoldersWithParents([]imap.FolderInfo{
+		{Name: "INBOX", Delimiter: '.', Role: "inbox", Selectable: true},
+		{Name: "INBOX.Projects.Clients", Delimiter: '.', Role: "custom", Selectable: true},
+		{Name: "INBOX.Projects.Clients.Acme", Delimiter: '.', Role: "custom", Selectable: true},
+		{Name: "INBOX.Projects.Internal", Delimiter: '.', Role: "custom", Selectable: true},
+		{Name: "Work.2024", Delimiter: '.', Role: "custom", Selectable: true},
+	})
+	var names []string
+	for _, f := range folders {
+		names = append(names, f.Name)
+	}
+	want := []string{"INBOX", "INBOX.Projects", "INBOX.Projects.Clients", "INBOX.Projects.Clients.Acme", "INBOX.Projects.Internal", "Work", "Work.2024"}
+	if !reflect.DeepEqual(names, want) {
+		t.Fatalf("folders = %v, want %v", names, want)
+	}
+	for _, f := range folders {
+		if (f.Name == "INBOX.Projects" || f.Name == "Work") && (f.Selectable || f.Role != "custom") {
+			t.Fatalf("added parent %q = %#v, want a custom folder that holds no mail", f.Name, f)
+		}
+	}
+
+	inputs, err := imapFolderInputs("acc", folders, nil, nil)
+	if err != nil {
+		t.Fatalf("imapFolderInputs() error = %v", err)
+	}
+	byRemote := make(map[string]storage.UpsertFolderInput, len(inputs))
+	for _, input := range inputs {
+		byRemote[input.RemoteID] = input
+	}
+	projects := byRemote["INBOX.Projects"]
+	if projects.ParentID != byRemote["INBOX"].ID || projects.Name != "Projects" || projects.Selectable {
+		t.Fatalf("INBOX.Projects = %#v, want Projects under the inbox", projects)
+	}
+	if clients := byRemote["INBOX.Projects.Clients"]; clients.ParentID != projects.ID || clients.Name != "Clients" {
+		t.Fatalf("INBOX.Projects.Clients = %#v, want Clients under Projects", clients)
+	}
+	if acme := byRemote["INBOX.Projects.Clients.Acme"]; acme.ParentID != byRemote["INBOX.Projects.Clients"].ID || acme.Name != "Acme" {
+		t.Fatalf("INBOX.Projects.Clients.Acme = %#v, want Acme under Clients", acme)
+	}
+	if work := byRemote["Work.2024"]; work.ParentID != byRemote["Work"].ID || work.Name != "2024" {
+		t.Fatalf("Work.2024 = %#v, want 2024 under Work", work)
 	}
 }
 

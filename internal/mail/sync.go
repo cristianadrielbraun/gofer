@@ -175,6 +175,9 @@ type SyncOrchestrator struct {
 	// outlookServiceChange refreshes the calendars and contacts Microsoft
 	// announced changes for.
 	outlookServiceChange OutlookServiceChange
+	// jmapContactsChange refreshes the contacts a JMAP server pushed changes
+	// for.
+	jmapContactsChange JMAPContactsChange
 }
 
 func newAccountSyncSlots(limit int) chan struct{} {
@@ -752,9 +755,13 @@ func (o *SyncOrchestrator) startIDLEWatchers(ctx context.Context, accountID stri
 				continue
 			}
 			folderID, remoteName := folder.ID, folder.RemoteID
-			watchers = append(watchers, NewJMAPPushWatcher(cfg, password,
+			watcher := NewJMAPPushWatcher(cfg, password,
 				func() { o.requestPushSync(watcherCtx, accountID) },
-				func(status imap.IdleWatcherStatus) { o.updateIDLEFolderStatus(accountID, folderID, remoteName, status) }))
+				func(status imap.IdleWatcherStatus) { o.updateIDLEFolderStatus(accountID, folderID, remoteName, status) })
+			if change := o.jmapContactsChange; change != nil {
+				watcher.WithContacts(func() { change(watcherCtx, accountID) })
+			}
+			watchers = append(watchers, watcher)
 			folderIDs[folderID] = true
 			continue
 		}
@@ -2382,6 +2389,7 @@ func (o *SyncOrchestrator) syncAccount(ctx context.Context, accountID string, in
 	if err != nil {
 		return err
 	}
+	folders = imapFoldersWithParents(folders)
 
 	choices, err := o.imapRepository().FolderRoleChoices(ctx, accountID)
 	if err != nil {
@@ -2714,6 +2722,42 @@ func (o *SyncOrchestrator) reconcileAndRefresh(ctx context.Context, client *imap
 		expectedUIDValidity = currentUIDValidity
 	}
 	return o.refreshFlags(ctx, client, accountID, folder, expectedUIDValidity)
+}
+
+// imapFoldersWithParents adds the parents a server leaves out of its
+// listing: some list "INBOX.Projects.Clients" but not "INBOX.Projects",
+// which was never created as a folder of its own. Without it the child has
+// nowhere to go and shows at the top under its full name. Each missing
+// parent comes just before its first child, as a folder that holds no mail.
+func imapFoldersWithParents(folders []imap.FolderInfo) []imap.FolderInfo {
+	known := make(map[string]bool, len(folders))
+	for _, f := range folders {
+		known[f.Name] = true
+	}
+	out := make([]imap.FolderInfo, 0, len(folders))
+	for _, f := range folders {
+		if f.Delimiter != 0 {
+			delimiter := string(f.Delimiter)
+			var missing []imap.FolderInfo
+			for parent := f.Name; ; {
+				i := strings.LastIndex(parent, delimiter)
+				if i <= 0 {
+					break
+				}
+				parent = parent[:i]
+				if known[parent] {
+					break
+				}
+				known[parent] = true
+				missing = append(missing, imap.FolderInfo{Name: parent, Delimiter: f.Delimiter, Role: "custom"})
+			}
+			for i := len(missing) - 1; i >= 0; i-- {
+				out = append(out, missing[i])
+			}
+		}
+		out = append(out, f)
+	}
+	return out
 }
 
 // imapFolderInputs turns an IMAP folder listing into the folder rows to save.

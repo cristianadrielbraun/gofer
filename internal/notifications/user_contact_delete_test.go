@@ -173,10 +173,15 @@ func newOwnedContactDeleteFixture(t *testing.T, provider string) (*userStorageFi
 	return f, api, tokens
 }
 
-// requestContactDelete deletes the contact for good: it moves it to the
-// Trash, unless it is there already, then deletes it from there.
+// requestContactDelete deletes the contact for good: it puts it in the
+// Trash, unless it is there already, then deletes it from there. It goes to
+// the Trash directly: moving it there over HTTP deletes its copies on
+// accounts too, which these tests exercise through Delete forever.
 func requestContactDelete(f *userStorageFixture, owner string) *httptest.ResponseRecorder {
-	f.request(owner, http.MethodPost, "/api/contacts/same-delete-profile/delete", "")
+	_ = f.routing.WithUser(context.Background(), owner, func(db *storage.DB) error {
+		_, err := db.TrashContacts(context.Background(), owner, []string{"same-delete-profile"})
+		return err
+	})
 	return f.request(owner, http.MethodPost, "/api/contacts/same-delete-profile/delete-forever", "")
 }
 
@@ -510,5 +515,162 @@ func TestUserContactDeleteHTTPDAVBoundaryRedirectAndPrecondition(t *testing.T) {
 				t.Fatal("foreign binding made provider request")
 			}
 		})
+	}
+}
+
+// Moving a contact to the Trash deletes its copies on accounts first; when an
+// account refuses, the contact stays out of the Trash.
+func TestUserContactTrashHTTPDeletesAccountCopies(t *testing.T) {
+	for _, refuse := range []bool{false, true} {
+		t.Run(map[bool]string{false: "deleted", true: "refused"}[refuse], func(t *testing.T) {
+			f, api, _ := newOwnedContactDeleteFixture(t, "gmail")
+			if refuse {
+				api.mu.Lock()
+				api.statuses["alice|two"] = 500
+				api.mu.Unlock()
+			}
+			response := f.request("alice", http.MethodPost, "/api/contacts/same-delete-profile/delete", "")
+			if err := f.routing.WithUser(t.Context(), "alice", func(db *storage.DB) error {
+				var trashed, cards int
+				if err := db.Read().QueryRow(`SELECT trashed_at IS NOT NULL FROM contact_profiles WHERE id='same-delete-profile'`).Scan(&trashed); err != nil {
+					return err
+				}
+				if err := db.Read().QueryRow(`SELECT COUNT(*) FROM contact_cards WHERE profile_id='same-delete-profile' AND kind='provider'`).Scan(&cards); err != nil {
+					return err
+				}
+				if refuse {
+					if response.Code != http.StatusBadGateway || trashed != 0 || cards != 1 {
+						t.Fatal("refused trash", response.Code, response.Body.String(), trashed, cards)
+					}
+				} else if response.Code != http.StatusSeeOther || trashed != 1 || cards != 0 {
+					t.Fatal("trash", response.Code, response.Body.String(), trashed, cards)
+				}
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if api.count("alice", "one") != 1 || api.count("bob", "one") != 0 {
+				t.Fatal("provider deletes", api.count("alice", "one"), api.count("alice", "two"), api.count("bob", "one"))
+			}
+			assertContactDeleteHTTPState(t, f, "bob", 2, false)
+		})
+	}
+}
+
+// Taking a place out of a contact's Gofer Sync deletes its copy there; the
+// contact stays in its home.
+func TestUserContactDroppedSyncPlaceDeletesItsCopy(t *testing.T) {
+	f, api, _ := newOwnedContactDeleteFixture(t, "gmail")
+	if err := f.routing.WithUser(t.Context(), "alice", func(db *storage.DB) error {
+		for _, query := range []string{
+			`DELETE FROM contact_fields WHERE card_id='same-delete-two'`,
+			`DELETE FROM contact_cards WHERE id='same-delete-two'`,
+			`UPDATE contact_profiles SET home='local' WHERE id='same-delete-profile'`,
+			`DELETE FROM contact_sync_operations`,
+		} {
+			if _, err := db.Write().Exec(query); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	form := url.Values{"name": {"alice deletion"}, "email": {"alice-delete@example.com"}, "sync_enabled": {"on"}, "save_targets": {""}}
+	response := f.request("alice", http.MethodPost, "/api/contacts?id=same-delete-profile", form.Encode())
+	if response.Code != http.StatusSeeOther {
+		t.Fatal("save", response.Code, response.Body.String())
+	}
+	if api.count("alice", "one") != 1 {
+		t.Fatal("the dropped place kept its copy", api.count("alice", "one"))
+	}
+	if err := f.routing.WithUser(t.Context(), "alice", func(db *storage.DB) error {
+		var provider, local int
+		if err := db.Read().QueryRow(`SELECT COUNT(*) FROM contact_cards WHERE profile_id='same-delete-profile' AND kind='provider' AND is_deleted=0`).Scan(&provider); err != nil {
+			return err
+		}
+		if err := db.Read().QueryRow(`SELECT COUNT(*) FROM contact_cards WHERE profile_id='same-delete-profile' AND kind='local' AND is_deleted=0`).Scan(&local); err != nil {
+			return err
+		}
+		if provider != 0 || local != 1 {
+			t.Fatal("cards", provider, local)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// In managed storage a contact to resolve is its owner's alone: the count
+// and keeping it touch only the owner's database.
+func TestUserContactUnresolvedCountAndKeep(t *testing.T) {
+	f, _, _ := newOwnedContactDeleteFixture(t, "gmail")
+	if err := f.routing.WithUser(t.Context(), "alice", func(db *storage.DB) error {
+		_, err := db.Write().Exec(`INSERT INTO contact_remote_deletions (user_id, profile_id, place, account_id) VALUES ('alice', 'same-delete-profile', ?, ?)`, "account:"+f.accounts["alice"].ID, f.accounts["alice"].ID)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	count := func(owner string) string {
+		return strings.TrimSpace(f.request(owner, http.MethodGet, "/contacts/unresolved-count", "").Body.String())
+	}
+	if got := count("alice"); !strings.Contains(got, ">1<") {
+		t.Fatal("alice count", got)
+	}
+	if got := count("bob"); got != "" {
+		t.Fatal("bob count", got)
+	}
+	if response := f.request("bob", http.MethodGet, "/contacts/resolver", ""); response.Code != http.StatusOK || strings.Contains(response.Body.String(), "same-delete-profile") {
+		t.Fatal("bob sees alice's contact to resolve", response.Code)
+	}
+	if response := f.request("alice", http.MethodGet, "/contacts/resolver", ""); response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `data-contacts-resolver-case="same-delete-profile"`) {
+		t.Fatal("alice's resolver", response.Code, response.Body.String())
+	}
+	if response := f.request("bob", http.MethodPost, "/api/contacts/unresolved/keep", "id=same-delete-profile"); response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"kept":0`) {
+		t.Fatal("bob kept alice's contact", response.Code, response.Body.String())
+	}
+	if response := f.request("alice", http.MethodPost, "/api/contacts/unresolved/keep", "id=same-delete-profile"); response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"kept":1`) {
+		t.Fatal("keep", response.Code, response.Body.String())
+	}
+	if got := count("alice"); got != "" {
+		t.Fatal("alice count after keep", got)
+	}
+	if err := f.routing.WithUser(t.Context(), "alice", func(db *storage.DB) error {
+		var enabled int
+		if err := db.Read().QueryRow(`SELECT COUNT(*) FROM contact_sync_memberships WHERE profile_id='same-delete-profile' AND account_id=? AND enabled=1`, f.accounts["alice"].ID).Scan(&enabled); err != nil {
+			return err
+		}
+		if enabled != 0 {
+			t.Fatal("still syncs with the place that deleted it")
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// In managed storage, a contact restored to another place lives there.
+func TestUserContactRestoreToAnotherPlace(t *testing.T) {
+	f, _, _ := newOwnedContactDeleteFixture(t, "gmail")
+	if err := f.routing.WithUser(t.Context(), "alice", func(db *storage.DB) error {
+		_, err := db.TrashContacts(t.Context(), "alice", []string{"same-delete-profile"})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if response := f.request("alice", http.MethodPost, "/api/contacts/trash/restore", "id=same-delete-profile&place=local"); response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"restored":1`) {
+		t.Fatal("restore", response.Code, response.Body.String())
+	}
+	if err := f.routing.WithUser(t.Context(), "alice", func(db *storage.DB) error {
+		var home string
+		if err := db.Read().QueryRow(`SELECT home FROM contact_profiles WHERE id='same-delete-profile'`).Scan(&home); err != nil {
+			return err
+		}
+		if home != "local" {
+			t.Fatal("home", home)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
 	}
 }

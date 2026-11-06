@@ -20,10 +20,17 @@ function mailCardRowRem() {
 }
 
 // Contact rows use one 4rem phone layout on small screens, in either view.
-function contactRowRem(viewMode) {
+// Cards are one or two lines beside the avatar, as many as the card layout
+// uses (.contact-card in input.css); two lines, the default, is 3.875rem.
+function contactRowRem(viewMode, lines) {
   if (window.matchMedia("(max-width: 1023.98px)").matches) return 4
-  // Cards are two lines beside the avatar (.contact-card in input.css).
-  return viewMode === "table" ? 2.75 : 3.875
+  if (viewMode === "table") return 2.75
+  return lines === 1 ? 3.125 : 3.875
+}
+
+// How many lines the contact card layout uses (ui-settings.js).
+function contactCardLineCount() {
+  return window.GoferListLayouts ? window.GoferListLayouts.contactCardLines() : 2
 }
 
 // Slides entering rows into place from JavaScript, one whole pixel at a time.
@@ -80,6 +87,111 @@ function slideRowsInWholePixels(nodes, duration, offsetY, delay, stagger) {
   requestAnimationFrame(frame)
 }
 
+// Rows of the other layout, shared by the mail and contacts lists. Each list
+// fetches the rows it loads again in the other layout while idle, so a switch
+// between cards and table is made from them with no request. A list gives:
+//   otherViewRows (Map), otherViewGeneration, otherViewPending, otherViewTimer
+//   otherViewRowSelector  the rows in a reply, such as ".mail-list-item[data-email-id]"
+//   otherViewRowId(el)    a row's id
+//   otherViewURL(viewMode, start, limit)
+//   otherViewEnabled()    false where the list doesn't fetch ahead
+//   otherViewReplyAttrs() extra attributes for a reply built from stored rows
+// and cache (position to { id, html }) and totalCount, as both lists have.
+var otherViewRowsMethods = {
+  otherViewMode() {
+    return this.viewMode === "table" ? "cards" : "table"
+  },
+
+  // Called when the rows change meaning, such as a new folder or filters.
+  // otherViewGeneration tells a late fetch so.
+  dropOtherViewRows() {
+    this.otherViewRows.clear()
+    this.otherViewGeneration++
+    this.otherViewPending = []
+    if (this.otherViewTimer) clearTimeout(this.otherViewTimer)
+    this.otherViewTimer = null
+  },
+
+  // queueOtherViewRows fetches a range just loaded again in the other layout
+  // once the page is idle, so a switch finds it ready. Ranges loaded close
+  // together go in one quiet batch.
+  queueOtherViewRows(start, end) {
+    if (!this.otherViewEnabled()) return
+    this.otherViewPending.push([start, end])
+    if (this.otherViewTimer) return
+    var list = this
+    this.otherViewTimer = setTimeout(function () {
+      list.otherViewTimer = null
+      var idle = window.requestIdleCallback || function (fn) { return setTimeout(fn, 0) }
+      idle(function () { list.fetchOtherViewRows() })
+    }, 400)
+  },
+
+  async fetchOtherViewRows() {
+    var ranges = this.otherViewPending
+    this.otherViewPending = []
+    var generation = this.otherViewGeneration
+    var mode = this.otherViewMode()
+    for (var i = 0; i < ranges.length; i++) {
+      var start = ranges[i][0]
+      var end = ranges[i][1]
+      try {
+        var html = await this.fetchHTML(this.otherViewURL(mode, start, end - start + 1))
+        if (generation !== this.otherViewGeneration || mode !== this.otherViewMode()) return
+        var template = document.createElement("template")
+        template.innerHTML = html
+        var rows = template.content.querySelectorAll(this.otherViewRowSelector)
+        for (var j = 0; j < rows.length; j++) this.otherViewRows.set(mode + ":" + this.otherViewRowId(rows[j]), rows[j].outerHTML)
+      } catch (_) {
+        // A switch then asks the server, as before.
+      }
+    }
+  },
+
+  // otherViewReply builds, from the other layout's stored rows, the reply the
+  // server would give for the rows from rangeStart to rangeEnd, as one reply
+  // for each run of them stored, or null when the rows on screen, first to
+  // last, aren't all stored. Rows further away load from the server as they
+  // used to, so none shows a state older than the refresh that follows. The
+  // current layout's rows are all kept for switching back.
+  otherViewReply(viewMode, first, last, rangeStart, rangeEnd) {
+    for (var pos = first; pos <= last; pos++) {
+      var item = this.cache.get(pos)
+      if (!item || !item.id || !this.otherViewRows.has(viewMode + ":" + item.id)) return null
+    }
+    var positions = Array.from(this.cache.keys()).sort(function (a, b) { return a - b })
+    var replies = []
+    var run = null
+    var template = document.createElement("template")
+    for (var i = 0; i < positions.length; i++) {
+      var p = positions[i]
+      var cached = this.cache.get(p)
+      var stored = cached && cached.id ? this.otherViewRows.get(viewMode + ":" + cached.id) : null
+      if (cached && cached.id && cached.html) this.otherViewRows.set(this.viewMode + ":" + cached.id, cached.html)
+      if (!stored || p < rangeStart || p > rangeEnd) {
+        run = null
+        continue
+      }
+      template.innerHTML = stored
+      var row = template.content.firstElementChild
+      if (!row) continue
+      row.dataset.position = String(p)
+      if (!run || run.end !== p - 1) {
+        run = { start: p, end: p, rows: [] }
+        replies.push(run)
+      }
+      run.end = p
+      run.rows.push(row.outerHTML)
+    }
+    var list = this
+    return replies.map(function (r) {
+      return '<div data-local-view-switch data-view-mode="' + viewMode + '" data-total-count="' + list.totalCount + '"' +
+        list.otherViewReplyAttrs() + ' data-window-start="' + r.start + '" data-window-end="' + r.end + '">' +
+        r.rows.join("") + "</div>"
+    })
+  },
+}
+
 class VirtualMailList {
   constructor(container, options) {
     this.container = container
@@ -95,9 +207,8 @@ class VirtualMailList {
 
     this.cache = new Map()
     this.indexById = new Map()
-    // Rows of the other layout, by "<view mode>:<email id>", fetched while
-    // idle so switching between cards and table needs no request. Dropped
-    // with the folder or filters; otherViewGeneration tells a late fetch so.
+    // Rows of the other layout, by "<view mode>:<email id>" (otherViewRowsMethods).
+    this.otherViewRowSelector = ".mail-list-item[data-email-id]"
     this.otherViewRows = new Map()
     this.otherViewGeneration = 0
     this.otherViewPending = []
@@ -1212,7 +1323,7 @@ class VirtualMailList {
       '<div class="mail-list-card-zone mail-list-card-zone-header" data-mail-card-zone="header">' +
       '<div data-mail-card-field="from" class="h-3.5 w-32 max-w-[42%] rounded bg-muted animate-pulse"></div>' +
       '<div data-mail-card-field="date" class="h-3 w-16 rounded bg-muted animate-pulse"></div>' +
-      '<div data-mail-card-field="account" class="h-4 w-20 rounded-full border border-border bg-background animate-pulse"></div>' +
+      '<div data-mail-card-field="account" class="h-4 w-20 rounded-lg border border-border bg-background animate-pulse"></div>' +
       "</div>" +
       '<div class="mail-list-card-zone mail-list-card-zone-meta" data-mail-card-zone="meta">' +
       '<div data-mail-card-field="attachment" class="mail-list-card-empty-icon-slot"></div>' +
@@ -1551,95 +1662,20 @@ class VirtualMailList {
     }
   }
 
-  otherViewMode() {
-    return this.viewMode === "table" ? "cards" : "table"
+  otherViewRowId(el) {
+    return el.dataset.emailId
   }
 
-  dropOtherViewRows() {
-    this.otherViewRows.clear()
-    this.otherViewGeneration++
-    this.otherViewPending = []
-    if (this.otherViewTimer) clearTimeout(this.otherViewTimer)
-    this.otherViewTimer = null
+  otherViewURL(viewMode, start, limit) {
+    return this.itemsURLForView(viewMode, start, limit)
   }
 
-  // queueOtherViewRows fetches a range just loaded again in the other layout
-  // once the page is idle, so a switch finds it ready. Ranges loaded close
-  // together go in one quiet batch.
-  queueOtherViewRows(start, end) {
-    if (this.navigationMode === "pagination") return
-    this.otherViewPending.push([start, end])
-    if (this.otherViewTimer) return
-    var list = this
-    this.otherViewTimer = setTimeout(function () {
-      list.otherViewTimer = null
-      var idle = window.requestIdleCallback || function (fn) { return setTimeout(fn, 0) }
-      idle(function () { list.fetchOtherViewRows() })
-    }, 400)
+  otherViewEnabled() {
+    return this.navigationMode !== "pagination"
   }
 
-  async fetchOtherViewRows() {
-    var ranges = this.otherViewPending
-    this.otherViewPending = []
-    var generation = this.otherViewGeneration
-    var mode = this.otherViewMode()
-    for (var i = 0; i < ranges.length; i++) {
-      var start = ranges[i][0]
-      var end = ranges[i][1]
-      try {
-        var html = await this.fetchHTML(this.itemsURLForView(mode, start, end - start + 1))
-        if (generation !== this.otherViewGeneration || mode !== this.otherViewMode()) return
-        var template = document.createElement("template")
-        template.innerHTML = html
-        var rows = template.content.querySelectorAll(".mail-list-item[data-email-id]")
-        for (var j = 0; j < rows.length; j++) this.otherViewRows.set(mode + ":" + rows[j].dataset.emailId, rows[j].outerHTML)
-      } catch (_) {
-        // A switch then asks the server, as before.
-      }
-    }
-  }
-
-  // otherViewReply builds, from the other layout's stored rows, the reply the
-  // server would give for the rows from rangeStart to rangeEnd, as one reply
-  // for each run of them stored, or null when the rows on screen, first to
-  // last, aren't all stored. Rows further away load from the server as they
-  // used to, so none shows a state older than the refresh that follows. The
-  // current layout's rows are all kept for switching back.
-  otherViewReply(viewMode, first, last, rangeStart, rangeEnd) {
-    for (var pos = first; pos <= last; pos++) {
-      var item = this.cache.get(pos)
-      if (!item || !item.id || !this.otherViewRows.has(viewMode + ":" + item.id)) return null
-    }
-    var positions = Array.from(this.cache.keys()).sort(function (a, b) { return a - b })
-    var replies = []
-    var run = null
-    var template = document.createElement("template")
-    for (var i = 0; i < positions.length; i++) {
-      var p = positions[i]
-      var cached = this.cache.get(p)
-      var stored = cached && cached.id ? this.otherViewRows.get(viewMode + ":" + cached.id) : null
-      if (cached && cached.id && cached.html) this.otherViewRows.set(this.viewMode + ":" + cached.id, cached.html)
-      if (!stored || p < rangeStart || p > rangeEnd) {
-        run = null
-        continue
-      }
-      template.innerHTML = stored
-      var row = template.content.firstElementChild
-      if (!row) continue
-      row.dataset.position = String(p)
-      if (!run || run.end !== p - 1) {
-        run = { start: p, end: p, rows: [] }
-        replies.push(run)
-      }
-      run.end = p
-      run.rows.push(row.outerHTML)
-    }
-    var list = this
-    return replies.map(function (r) {
-      return '<div data-local-view-switch data-view-mode="' + viewMode + '" data-total-count="' + list.totalCount +
-        '" data-display-total-count="' + list.displayTotalCount + '" data-window-start="' + r.start + '" data-window-end="' + r.end + '">' +
-        r.rows.join("") + "</div>"
-    })
+  otherViewReplyAttrs() {
+    return ' data-display-total-count="' + this.displayTotalCount + '"'
   }
 
   updateEffectiveCount(options) {
@@ -2079,7 +2115,10 @@ class VirtualMailList {
   }
 
   async switchFolder(folderID, pushState) {
-    if (folderID !== "search") this.searchScope = null
+    if (folderID !== "search") {
+      this.searchScope = null
+      this.searchFrom = null
+    }
     if (window.GoferMailSearch) window.GoferMailSearch.sync()
     if (pushState === undefined) pushState = true
     if (this.navigationMode === "pagination") {
@@ -2131,13 +2170,9 @@ class VirtualMailList {
         return
       }
       var transition = options.noAnimation ? null : self.captureListTransition()
-      var params = "limit=" + self.mailListFetchLimit()
-      if (self.selectedEmailId) {
-        params += "&selected=" + encodeURIComponent(self.selectedEmailId)
-      }
-      var url = "/mail/folder/" + self.folderID + "/items?" + params + "&view=" + encodeURIComponent(self.viewMode)
-      url = self.withFilterParams(url)
-      var html = await self.fetchHTML(url)
+      // Rows fetched ahead for this same request (a list kept off screen,
+      // see app.js) are applied at once, without waiting on the network.
+      var html = typeof options.html === "string" ? options.html : await self.fetchHTML(self.refreshURL())
       var selected = self.selectedEmailId
       var syncState = self.syncState
       var expandedSnapshot = self.captureExpandedThreads()
@@ -2170,6 +2205,15 @@ class VirtualMailList {
         this.refreshCurrentFolder(queuedOptions)
       }
     }
+  }
+
+  // The request refreshCurrentFolder makes for the rows at the top.
+  refreshURL() {
+    var params = "limit=" + this.mailListFetchLimit()
+    if (this.selectedEmailId) {
+      params += "&selected=" + encodeURIComponent(this.selectedEmailId)
+    }
+    return this.withFilterParams("/mail/folder/" + this.folderID + "/items?" + params + "&view=" + encodeURIComponent(this.viewMode))
   }
 
   mergeRefreshOptions(base, next) {
@@ -2482,9 +2526,11 @@ class VirtualMailList {
     }
   }
 
-  readFiltersFromURL() {
+  // readFiltersFromURL reads the filters of an address's query, the page's
+  // own by default.
+  readFiltersFromURL(search) {
     var filters = this.emptyFilters()
-    var params = new URLSearchParams(window.location.search)
+    var params = new URLSearchParams(search === undefined ? window.location.search : search)
     filters.unread = params.get("unread") === "1"
     filters.starred = params.get("starred") === "1"
     filters.attachments = params.get("attachments") === "1"
@@ -2539,8 +2585,8 @@ class VirtualMailList {
     }
   }
 
-  readSidebarTagFromURL() {
-    var params = new URLSearchParams(window.location.search)
+  readSidebarTagFromURL(search) {
+    var params = new URLSearchParams(search === undefined ? window.location.search : search)
     var label = (params.get("tag") || "").trim()
     return {
       label: label,
@@ -2608,7 +2654,9 @@ class VirtualMailList {
     if (tag.label === filterTag && tag.providerId) params.set("tag_provider_id", tag.providerId)
     if (tag.label === filterTag && tag.providerId && tag.providerType) params.set("tag_provider_type", tag.providerType)
     if (this.searchScope && window.GoferMailSearch) {
-      var origin = new URLSearchParams(window.location.search).get("search_from")
+      // A search switched to in place knows the folder it started from before
+      // the address does (GoferMailSearch.enter).
+      var origin = this.searchFrom || new URLSearchParams(window.location.search).get("search_from")
       if (origin) params.set("search_from", origin)
       return window.GoferMailSearch.scopeURL("?" + params.toString(), this.searchScope).slice(1)
     }
@@ -2657,7 +2705,8 @@ class VirtualMailList {
       this.prevLast = null
       this.render()
       this.syncSelectionClasses(this.itemsContainer)
-      this.replaceUrl()
+      if (options && options.pushUrl) this.pushUrl()
+      else this.replaceUrl()
       this.updateFilteredSelection(previousSelectedPaginated)
       if (replacing) this.fanInRows()
       return
@@ -2693,8 +2742,14 @@ class VirtualMailList {
     } else {
       this.animateListTransition(transition)
     }
+    // options.pushUrl, for a search switched to in place, moves to its
+    // address only now that its rows are in, as a typed search's address
+    // changes: an address that changes sooner sets off work elsewhere (a
+    // password manager rescanning the page, say) while the list is moving.
+    // The header follows the address.
+    if (options && options.pushUrl) this.pushUrl()
+    else this.replaceUrl()
     this.updateHeader()
-    this.replaceUrl()
     this.updateFilteredSelection(previousSelected)
   }
 
@@ -2764,7 +2819,10 @@ class VirtualMailList {
   updateHeader() {
     if (window.GoferMailSearch) window.GoferMailSearch.sync()
     var nameEl = document.getElementById("mail-folder-name")
-    if (nameEl) {
+    // Search results are named so, a tag's among them, as the server does.
+    if (nameEl && this.searchScope) {
+      nameEl.textContent = goferT("js.mail.search_results")
+    } else if (nameEl) {
       var link = null
       var tag = this.sidebarTag || this.emptySidebarTag()
       if (tag.label) {
@@ -3082,7 +3140,8 @@ class VirtualContactsList {
   constructor(container, options) {
     this.container = container
     this.viewMode = options.viewMode || container.dataset.viewMode || "cards"
-    this.itemHeight = listRemPx(contactRowRem(this.viewMode))
+    this.contactCardLines = contactCardLineCount()
+    this.itemHeight = listRemPx(contactRowRem(this.viewMode, this.contactCardLines))
     this.overscan = 10
     this.chunkSize = 100
     this.loadingSkeletonMinDuration = 180
@@ -3111,6 +3170,12 @@ class VirtualContactsList {
     this.prevFirst = null
     this.prevLast = null
     this.transitionOverlay = null
+    // Rows of the other layout, by "<view mode>:<contact id>" (otherViewRowsMethods).
+    this.otherViewRowSelector = ".mail-list-item[data-contact-id]"
+    this.otherViewRows = new Map()
+    this.otherViewGeneration = 0
+    this.otherViewPending = []
+    this.otherViewTimer = null
     this.container.style.overflowAnchor = "none"
     this.bindEvents()
   }
@@ -3119,6 +3184,7 @@ class VirtualContactsList {
     var self = this
     var rafId = null
     this.container.addEventListener("scroll", function () {
+      self.lastScrollTop = self.container.scrollTop
       if (rafId) return
       rafId = requestAnimationFrame(function () {
         self.render()
@@ -3127,13 +3193,69 @@ class VirtualContactsList {
     })
   }
 
+  // Where the list is scrolled. Off the page, where it reads 0, it is where
+  // it was last seen.
+  viewTop() {
+    return this.container.isConnected ? this.container.scrollTop : (this.lastScrollTop || 0)
+  }
+
+  // The request refreshInPlace makes: the rows around those in view.
+  refreshURL() {
+    var first = Math.max(0, Math.floor(this.viewTop() / this.itemHeight) - this.overscan)
+    return this.itemsURL(first, this.chunkSize)
+  }
+
+  // Brings the rows around those in view up to date where the list is
+  // scrolled, for live updates, with nothing moving. Rows anywhere else may
+  // have shifted, so they are dropped and load again when scrolled to. Rows
+  // fetched ahead for this same request (a list kept off screen) are applied
+  // at once. Resolves to whether the selected contact's row changed.
+  async refreshInPlace(options) {
+    options = options || {}
+    if (this.refreshInFlight) {
+      this.refreshQueued = true
+      return this.refreshInFlight
+    }
+    var self = this
+    this.refreshInFlight = (async function () {
+      var html = typeof options.html === "string" ? options.html : await self.fetchHTML(self.refreshURL())
+      var selected = self.selectedContactId
+      var selectedPos = selected ? self.indexById.get(selected) : undefined
+      var before = selectedPos !== undefined && self.cache.get(selectedPos)
+      var top = self.container.scrollTop
+      self.dropOtherViewRows()
+      self.resetRows()
+      self.ingestHTML(html)
+      // Scrolled back before the first draw, which would otherwise ask for
+      // the rows at the top.
+      if (self.itemsContainer) self.itemsContainer.style.height = self.totalHeight() + "px"
+      self.container.scrollTop = top
+      self.render()
+      if (!before) return false
+      var afterPos = self.indexById.get(selected)
+      var after = afterPos !== undefined && self.cache.get(afterPos)
+      return !after || after.html !== before.html
+    })()
+    try {
+      return await this.refreshInFlight
+    } finally {
+      this.refreshInFlight = null
+      if (this.refreshQueued) {
+        this.refreshQueued = false
+        this.refreshInPlace().catch(function () {})
+      }
+    }
+  }
+
   readFiltersFromContainer() {
     return {
       query: this.container.dataset.query || "",
       source: this.container.dataset.source || "",
+      storedIn: this.container.dataset.storedIn || "",
       saveTarget: this.container.dataset.saveTarget || "",
       activity: this.container.dataset.activity || "",
       trash: this.container.dataset.trash === "1",
+      unresolved: this.container.dataset.unresolved === "1",
       sortBy: this.container.dataset.sortBy || "updated",
       sortOrder: this.container.dataset.sortOrder || "desc",
     }
@@ -3170,7 +3292,9 @@ class VirtualContactsList {
   // text size differs), so they are worked out again when it crosses the breakpoint.
   refreshRowMetrics() {
     var anchor = Math.floor(this.container.scrollTop / Math.max(1, this.itemHeight))
-    this.itemHeight = listRemPx(contactRowRem(this.viewMode))
+    this.contactCardLines = contactCardLineCount()
+    this.itemHeight = listRemPx(contactRowRem(this.viewMode, this.contactCardLines))
+    if (this.itemsContainer) this.itemsContainer.style.height = this.totalHeight() + "px"
     this.container.scrollTop = anchor * this.itemHeight
     // The visible range may be unchanged; the rows still need placing at the new size.
     this.prevFirst = null
@@ -3180,8 +3304,11 @@ class VirtualContactsList {
 
   setViewMode(viewMode, keepRows) {
     this.viewMode = viewMode === "table" ? "table" : "cards"
-    this.itemHeight = listRemPx(contactRowRem(this.viewMode))
+    this.contactCardLines = contactCardLineCount()
+    this.itemHeight = listRemPx(contactRowRem(this.viewMode, this.contactCardLines))
     this.container.dataset.viewMode = this.viewMode
+    if (typeof window.applyContactCardLayoutSettings === "function") window.applyContactCardLayoutSettings(this.container)
+    if (typeof window.applyContactTableColumnSettings === "function") window.applyContactTableColumnSettings(this.container)
     var shell = document.querySelector("[data-contact-list-shell]") || document.getElementById("mail-list")
     if (shell) shell.dataset.viewMode = this.viewMode
     this.renderTableHeader()
@@ -3215,22 +3342,19 @@ class VirtualContactsList {
     var existing = this.container.querySelector(".mail-list-table-header")
     if (existing) existing.remove()
     if (this.viewMode !== "table") return
-    var header = document.createElement("div")
-    header.className = "mail-list-table-header mail-list-table-grid grid items-center gap-3 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground bg-card/95 border-b border-border/70 sticky top-0 z-20 backdrop-blur-sm"
-    header.style.cssText = this.tableGridStyle()
+    // The server draws the header with every column (ContactListTableHeader);
+    // the list hides the ones the user leaves out.
+    var template = document.querySelector("template[data-contact-table-header-template]")
+    var header = template && template.content.firstElementChild ? template.content.firstElementChild.cloneNode(true) : null
+    if (!header) return
     header.style.opacity = "0"
     header.style.transform = "translateY(-4px)"
     header.style.transition = "opacity 140ms ease-out, transform 140ms ease-out"
-    header.innerHTML = '<div class="mail-list-table-heading">' + goferT("js.contacts.column.name") + '</div><div class="mail-list-table-heading">' + goferT("js.contacts.column.origin") + '</div><div class="mail-list-table-heading min-w-12 text-right">' + goferT("js.contacts.column.messages") + '</div>'
     this.container.insertBefore(header, this.spacerTop || this.container.firstChild)
     requestAnimationFrame(function () {
       header.style.opacity = "1"
       header.style.transform = "translateY(0)"
     })
-  }
-
-  tableGridStyle() {
-    return "--mail-list-table-columns:minmax(10rem,1.4fr) minmax(8rem,0.9fr) minmax(3.5rem,auto)"
   }
 
   render() {
@@ -3332,10 +3456,13 @@ class VirtualContactsList {
     shell.style.transform = "translateY(" + (index * this.itemHeight) + "px)"
     shell.style.height = this.itemHeight + "px"
     if (!item) {
-      shell.innerHTML = this.createSkeleton()
+      shell.innerHTML = this.createSkeleton(index)
+      // The card skeleton is laid out as the cards are.
+      if (this.viewMode !== "table" && typeof window.applyContactCardLayoutSettings === "function") window.applyContactCardLayoutSettings(shell)
       return
     }
     shell.innerHTML = item.html
+    if (this.viewMode !== "table" && typeof window.applyContactCardLayoutSettings === "function") window.applyContactCardLayoutSettings(shell)
     if (typeof htmx !== "undefined" && htmx.process) htmx.process(shell)
     // Rows are redrawn from cached HTML; app.js marks the selected ones again.
     if (typeof window.markContactRowsSelected === "function") window.markContactRowsSelected(shell)
@@ -3352,11 +3479,15 @@ class VirtualContactsList {
     }
   }
 
-  createSkeleton() {
+  createSkeleton(index) {
     if (this.viewMode === "table") {
-      return '<div class="mail-list-skeleton mail-list-table-skeleton"><div class="mail-list-table-grid grid items-center gap-3 w-full px-3 py-1.5" style="' + this.tableGridStyle() + '"><div class="h-3 w-32 rounded bg-muted animate-pulse"></div><div class="h-3 w-24 rounded bg-muted animate-pulse"></div><div class="ml-auto h-3 w-8 rounded bg-muted animate-pulse"></div></div></div>'
+      var ids = window.GoferListLayouts ? window.GoferListLayouts.contacts.table.ids : ["name"]
+      var cells = ids.map(function (id) {
+        return '<div data-mail-table-cell="' + id + '"><div class="h-3 ' + (id === "messages" ? "ml-auto w-8" : "w-3/4") + ' rounded bg-muted animate-pulse"></div></div>'
+      }).join("")
+      return '<div class="mail-list-skeleton mail-list-table-skeleton"><div class="mail-list-table-grid grid items-center gap-3 w-full px-3 py-1.5">' + cells + '</div></div>'
     }
-    return '<div class="mail-list-skeleton"><div class="flex items-center gap-3 px-3.5 py-1.5"><div class="size-8 rounded-full bg-muted animate-pulse"></div><div class="flex-1 min-w-0 space-y-1.5"><div class="h-3 w-28 rounded bg-muted animate-pulse"></div><div class="h-3 w-40 rounded bg-muted animate-pulse"></div></div></div></div>'
+    return contactCardSkeletonHTML(index || 0)
   }
 
   async ensureRangeLoaded(first, last) {
@@ -3517,9 +3648,11 @@ class VirtualContactsList {
     filters = filters || this.filters
     if (filters.query) params.set("q", filters.query)
     if (filters.source) params.set("source", filters.source)
+    if (filters.storedIn) params.set("stored_in", filters.storedIn)
     if (filters.saveTarget) params.set("save_target", filters.saveTarget)
     if (filters.activity) params.set("activity", filters.activity)
     if (filters.trash) params.set("trash", "1")
+    if (filters.unresolved) params.set("unresolved", "1")
     params.set("sort_by", filters.sortBy || "updated")
     params.set("sort_order", filters.sortOrder || "desc")
     return "/contacts/items?" + params.toString()
@@ -3549,10 +3682,14 @@ class VirtualContactsList {
     }
     var start = parseInt(root.dataset.windowStart)
     var end = parseInt(root.dataset.windowEnd)
-    if (!isNaN(start) && !isNaN(end) && end >= start) this.addLoadedRange(start, end)
     if (fromDOM && this.cache.size > 0 && (isNaN(start) || isNaN(end))) {
       var positions = Array.from(this.cache.keys())
-      this.addLoadedRange(Math.min.apply(null, positions), Math.max.apply(null, positions))
+      start = Math.min.apply(null, positions)
+      end = Math.max.apply(null, positions)
+    }
+    if (!isNaN(start) && !isNaN(end) && end >= start) {
+      this.addLoadedRange(start, end)
+      if (!root.hasAttribute("data-local-view-switch")) this.queueOtherViewRows(start, end)
     }
     this.updateFrontiers()
     this.updateEffectiveCount()
@@ -3621,6 +3758,22 @@ class VirtualContactsList {
     return String(value).replace(/"/g, '\\"')
   }
 
+  otherViewRowId(el) {
+    return el.dataset.contactId
+  }
+
+  otherViewURL(viewMode, start, limit) {
+    return this.itemsURLFor(viewMode, this.filters, start, limit)
+  }
+
+  otherViewEnabled() {
+    return true
+  }
+
+  otherViewReplyAttrs() {
+    return ""
+  }
+
   onContactSelected(contactId) {
     this.selectedContactId = contactId
     this.syncSelectionClasses(this.itemsContainer)
@@ -3645,6 +3798,29 @@ class VirtualContactsList {
     var anchorRatio = oldItemHeight > 0 ? Math.min(1, anchorOffset / oldItemHeight) : 0
     var rangeStart = Math.max(0, anchorIndex - this.overscan)
     var rangeEnd = Math.min(this.totalCount - 1, rangeStart + this.chunkSize - 1)
+    // With the rows on screen fetched in this layout already, the switch is
+    // made here, and the server is asked afterwards only to catch rows that
+    // changed meanwhile. A quiet switch asks the server, as the mail list does.
+    var firstShown = anchorIndex
+    var lastShown = Math.min(this.totalCount - 1, Math.floor((this.container.scrollTop + this.container.clientHeight) / Math.max(1, oldItemHeight)))
+    var local = !quiet && lastShown >= firstShown ? this.otherViewReply(viewMode, firstShown, lastShown, rangeStart, rangeEnd) : null
+    if (local && local.length) {
+      this.setViewMode(viewMode, false)
+      for (var r = 0; r < local.length; r++) this.ingestHTML(local[r])
+      this.container.scrollTop = anchorIndex * this.itemHeight + Math.round(anchorRatio * this.itemHeight)
+      this.render()
+      this.animateListTransition(transition, { enterFrom: -8, exitTo: 14, animateHeight: true })
+      this.updateURLForState()
+      var list = this
+      this.fetchHTML(this.itemsURLFor(viewMode, this.filters, rangeStart, rangeEnd - rangeStart + 1)).then(function (html) {
+        if (list.viewMode !== viewMode) return
+        list.ingestHTML(html)
+        list.prevFirst = null
+        list.prevLast = null
+        list.render()
+      }).catch(function () {})
+      return
+    }
     try {
       var html = await this.fetchHTML(this.itemsURLFor(viewMode, this.filters, rangeStart, rangeEnd - rangeStart + 1))
       this.setViewMode(viewMode, false)
@@ -3667,9 +3843,11 @@ class VirtualContactsList {
     var nextFilters = {
       query: (filters.query || "").trim(),
       source: (filters.source || "").trim(),
+      storedIn: (filters.storedIn || "").trim(),
       saveTarget: (filters.saveTarget || "").trim(),
       activity: (filters.activity || "").trim(),
       trash: !!filters.trash,
+      unresolved: !!filters.unresolved,
       sortBy: (filters.sortBy || "updated").trim(),
       sortOrder: (filters.sortOrder || "desc").trim(),
     }
@@ -3677,6 +3855,7 @@ class VirtualContactsList {
     var previousSelected = this.selectedContactId
     var html = await this.fetchHTML(this.itemsURLFor(this.viewMode, nextFilters, 0, this.chunkSize))
     this.filters = nextFilters
+    this.dropOtherViewRows()
     this.resetRows()
     this.ingestHTML(html)
     if (previousSelected && this.indexById.has(previousSelected)) this.selectedContactId = previousSelected
@@ -3712,9 +3891,11 @@ class VirtualContactsList {
     var params = new URLSearchParams()
     if (this.filters.query) params.set("q", this.filters.query)
     if (this.filters.source) params.set("source", this.filters.source)
+    if (this.filters.storedIn) params.set("stored_in", this.filters.storedIn)
     if (this.filters.saveTarget) params.set("save_target", this.filters.saveTarget)
     if (this.filters.activity) params.set("activity", this.filters.activity)
     if (this.filters.trash) params.set("trash", "1")
+    if (this.filters.unresolved) params.set("unresolved", "1")
     params.set("sort_by", this.filters.sortBy || "updated")
     params.set("sort_order", this.filters.sortOrder || "desc")
     if (this.viewMode !== "cards") params.set("view", this.viewMode)
@@ -4035,11 +4216,48 @@ class VirtualContactsList {
   }
 }
 
+// contactCardSkeletonHTML is a contact card while it loads, as ContactListCard
+// in contacts.templ draws it: every field in its default zone, so the card
+// layout moves and hides them as it does a card's. index varies the widths
+// and which optional fields show, row to row.
+function contactCardSkeletonHTML(index) {
+  var bar = function (field, width, height, extra) {
+    return '<span data-mail-card-field="' + field + '" class="block ' + (height || "h-3") + ' rounded bg-muted animate-pulse' + (extra ? " " + extra : "") + '" style="width:' + width + '"></span>'
+  }
+  var i = index % 4
+  var nameWidths = ["7rem", "9rem", "5.5rem", "8rem"]
+  var emailWidths = ["10rem", "8rem", "11rem", "7rem"]
+  return '<div class="mail-list-item" aria-hidden="true"><div class="contact-list-item contact-card mail-list-card h-full px-3.5 rounded-lg envelope" data-contact-card-layout-scope data-contact-card-skeleton>' +
+    '<div class="mail-list-card-zone mail-list-card-zone-rail-top" data-mail-card-zone="railTop"><span data-mail-card-field="avatar" class="size-8 rounded-full bg-muted animate-pulse"></span></div>' +
+    '<div class="contact-card-line" data-contact-card-line="1">' +
+      '<div class="mail-list-card-zone mail-list-card-zone-header" data-mail-card-zone="header">' + bar("name", nameWidths[i], "h-3.5") +
+        (i % 2 === 0 ? bar("organization", "4.5rem") : "") + (i === 1 ? bar("title", "3.5rem") : "") + '</div>' +
+      '<div class="mail-list-card-zone mail-list-card-zone-header-end" data-mail-card-zone="headerEnd"></div>' +
+      '<div class="mail-list-card-zone mail-list-card-zone-meta" data-mail-card-zone="meta">' + (i % 3 === 0 ? bar("messages", "1.5rem") : "") + '<span data-mail-card-field="sync" class="inline-flex size-3.5 shrink-0 rounded bg-muted animate-pulse"></span></div>' +
+    '</div>' +
+    '<div class="contact-card-line" data-contact-card-line="2">' +
+      '<div class="mail-list-card-zone mail-list-card-zone-body" data-mail-card-zone="body">' + bar("email", emailWidths[i]) +
+        (i % 2 === 1 ? bar("phone", "5rem") : "") + (i === 2 ? bar("notes", "6rem") : "") + '</div>' +
+      '<div class="mail-list-card-zone mail-list-card-zone-body-end" data-mail-card-zone="bodyEnd">' +
+        '<span data-mail-card-field="home" class="h-4 w-16 rounded-lg border border-border bg-background animate-pulse"></span>' + bar("date", "3rem") + bar("created", "3rem") + bar("edited", "3rem") + '</div>' +
+      '<div class="mail-list-card-zone mail-list-card-zone-status" data-mail-card-zone="status"></div>' +
+    '</div>' +
+    '<div class="hidden" data-mail-card-zone="hidden"></div>' +
+  '</div></div>'
+}
+window.contactCardSkeletonHTML = contactCardSkeletonHTML
+
+Object.assign(VirtualMailList.prototype, otherViewRowsMethods)
+Object.assign(VirtualContactsList.prototype, otherViewRowsMethods)
 window.VirtualMailList = VirtualMailList
 window.VirtualContactsList = VirtualContactsList
 
 window.addEventListener("popstate", function (e) {
   if (!e.state) return
+  // Pages the app's router knows (navigation.js) are its to move between.
+  // Listeners on the window run in the order they were added, and this one
+  // comes first, so it can't wait for the router to stop it.
+  if (window.GoferNavigation && window.GoferNavigation.route(window.location.href)) return
 
   if (e.state.settingsTab) {
     if (typeof htmx !== "undefined") {
@@ -4054,6 +4272,7 @@ window.addEventListener("popstate", function (e) {
     var target = window.location.pathname
     if (/^\/folder\//.test(target)) target = "/folder/" + target.split("/")[2] + "/full"
     var search = window.location.search
+    if (typeof syncSidebarTagLinks === "function") syncSidebarTagLinks()
     // Let all history listeners advance request ownership before starting
     // this navigation, so its own response isn't mistaken for a stale page.
     // Moving into or out of search clears the old list first.
@@ -4076,7 +4295,7 @@ window.addEventListener("popstate", function (e) {
       htmx.ajax("GET", window.location.pathname + window.location.search, {target: "#main-content", swap: "outerHTML"})
     }
     var contactsLink = document.querySelector("[data-sidebar-contacts-link]")
-    var folderLinks = document.querySelectorAll("aside a[hx-get^='/folder/']")
+    var folderLinks = document.querySelectorAll("aside a[hx-get^='/folder/'], aside a[data-sidebar-tag-filter]")
     for (var c = 0; c < folderLinks.length; c++) {
       folderLinks[c].classList.remove("bg-sidebar-accent", "text-sidebar-primary", "font-medium")
       folderLinks[c].classList.add("text-sidebar-foreground", "hover:bg-sidebar-accent/60", "hover:text-sidebar-accent-foreground")
@@ -4109,7 +4328,7 @@ window.addEventListener("popstate", function (e) {
   var updateSidebarActive = function () {
     var sidebar = document.querySelector("aside")
     if (!sidebar) return
-    var sidebarLinks = sidebar.querySelectorAll("a[hx-get^='/folder/']")
+    var sidebarLinks = sidebar.querySelectorAll("a[hx-get^='/folder/'], a[data-sidebar-tag-filter]")
     for (var i = 0; i < sidebarLinks.length; i++) {
       sidebarLinks[i].classList.remove(
         "bg-sidebar-accent",

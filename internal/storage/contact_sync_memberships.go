@@ -100,5 +100,8 @@ func replaceContactSyncMembershipsTx(ctx context.Context, tx *sql.Tx, userID, pr
 			return err
 		}
 	}
-	return nil
+	// Leaving Gofer Local out of the targets never moves a contact out of
+	// its home: one living there keeps its Local card.
+	_, err := keepContactHomeCardTx(ctx, tx, userID, profileID)
+	return err
 }

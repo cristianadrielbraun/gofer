@@ -103,6 +103,7 @@ templ ComposeDialog(accounts []models.Account) {
 					Class:       "compose-input h-8 font-semibold placeholder:font-normal",
 				})
 			</div>
+			@ComposeRemoteImagesNotice()
 			@ComposeToolbar()
 			@ComposeRichEditor()
 			@ComposeAttachments()
@@ -375,6 +376,15 @@ templ ComposeToolbar() {
 			}
 		}
 	</div>
+}
+
+// ComposeRemoteImagesNotice shows when a reply or forward quotes a message
+// whose remote content the reader has not loaded: its remote images are left
+// out until they choose to include them.
+templ ComposeRemoteImagesNotice() {
+	@RemoteContentNotice(templ.Attributes{"data-compose-remote-images-notice": true}, "shrink-0", i18n.T(ctx, "compose.remote_images.left_out"), true) {
+		@remoteContentNoticeButton(templ.Attributes{"data-on-click": `["includeComposeRemoteImages","$this"]`}, i18n.T(ctx, "compose.remote_images.include"))
+	}
 }
 
 templ ComposeRichEditor() {
@@ -757,6 +767,7 @@ templ ComposePane(accounts []models.Account) {
 							Class:       "compose-input h-8 font-semibold placeholder:font-normal",
 						})
 					</div>
+					@ComposeRemoteImagesNotice()
 					@ComposeToolbar()
 					@ComposeRichEditor()
 					@ComposeAttachments()

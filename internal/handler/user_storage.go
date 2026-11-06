@@ -89,6 +89,9 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 		if err := option.IMAP.SetMailQueue(&userMailDelivery{h: routed}); err != nil {
 			return err
 		}
+		// Provider pushes reach the handler that routes to the owners' stores.
+		option.IMAP.OnOutlookServiceChange(routed.OutlookServiceChanged)
+		option.IMAP.OnJMAPContactsChange(routed.JMAPContactsChanged)
 		created, updated := routed.userAccountHooks.Created, routed.userAccountHooks.Updated
 		routed.userAccountHooks.Created = func(ctx context.Context, id string) error {
 			return errors.Join(created(ctx, id), routed.wakeUserContactAccountID(ctx, id), routed.wakeUserCalendarAccountID(ctx, id))
@@ -206,6 +209,8 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 	private("GET /api/unified-tags/{id}/appearance", routed.handleUnifiedTagAppearance)
 	private("POST /api/unified-tags/{id}/appearance", routed.handleSaveUnifiedTagAppearance)
 	private("POST /api/virtual-folders/{id}/appearance", routed.handleSaveVirtualFolderAppearance)
+	private("POST /api/unified-folders/order", routed.handleUnifiedFolderOrder)
+	private("POST /api/unified-tags/order", routed.handleUnifiedTagOrder)
 	private("POST /api/settings/theme-colors.css", routed.handleThemeColorsCSS)
 	private("POST /api/settings/custom-theme.css", routed.handleCustomThemeCSS)
 	private("GET /api/push/vapid-public-key", routed.handlePushVAPIDPublicKey)
@@ -216,9 +221,13 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 	private("POST /api/push/test", routed.handleTestPush)
 	private("GET /api/contacts/search", routed.handleContactSearch)
 	private("GET /api/contacts/export", routed.handleExportContacts)
+	private("GET /api/contacts/books/{id}/usage", routed.handleContactBookUsage)
+	private("GET /api/contacts/books/{id}/movers", routed.handleContactBookMovers)
+	private("POST /api/contacts/books/{id}/release", routed.handleReleaseContactBook)
 	private("POST /api/contacts/export", routed.handleExportSelectedContacts)
 	private("POST /api/contacts/bulk-delete", routed.handleTrashContacts)
 	private("POST /api/contacts/trash/restore", routed.handleRestoreContacts)
+	private("POST /api/contacts/trash/places", routed.handleContactTrashPlaces)
 	private("POST /api/contacts/trash/delete", routed.handleDeleteContactsForever)
 	private("GET /api/contacts/ids", routed.handleContactIDs)
 	private("GET /api/contacts/{id}/export", routed.handleExportContact)
@@ -227,6 +236,9 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 	private("GET /contacts", routed.handleContacts)
 	private("GET /contacts/items", routed.handleContactItems)
 	private("GET /contacts/trash-count", routed.handleContactTrashCount)
+	private("GET /contacts/unresolved-count", routed.handleUnresolvedContactCount)
+	private("GET /contacts/resolver", routed.handleContactResolver)
+	private("POST /api/contacts/unresolved/keep", routed.handleKeepContactsWithoutDeletedPlaces)
 	private("GET /{$}", routed.handleIndex)
 	private("GET /folder/{id}", routed.handleFolderPartial)
 	private("GET /folder/{id}/full", routed.handleFolderFull)
@@ -394,6 +406,7 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 		private("POST /api/accounts/{id}/contacts/sync", routed.handleUserSaveAccountContactSync)
 		private("POST /api/accounts/{id}/contacts/sync/test", routed.handleUserTestAccountContactSync)
 		private("POST /api/accounts/{id}/contacts/sync/discover", routed.handleUserDiscoverAccountContactSync)
+		private("GET /api/accounts/{id}/contacts/books", routed.handleContactAccountBooks)
 		if option.Accounts != nil {
 			private("POST /api/accounts/dav/find", routed.handleFindDAVItems)
 			private("POST /api/accounts/dav", routed.handleCreateDAVAccount)
@@ -409,6 +422,8 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 		private("POST /api/contacts/{id}/unify", routed.handleUserUnifyContact)
 		private("POST /api/contacts/{id}/delete", routed.handleDeleteContact)
 		private("POST /api/contacts/{id}/delete-forever", routed.handleDeleteContactForever)
+		private("POST /api/contacts/{id}/move", routed.handleMoveContact)
+		private("POST /api/contacts/{id}/duplicate", routed.handleDuplicateContact)
 		private("POST /api/settings/contacts/suppressed/clear", routed.handleUserClearSuppressedContacts)
 		private("POST /api/settings/contacts/suppressed/{id}/clear", routed.handleUserClearSuppressedContact)
 		private("POST /api/settings/contacts/delete-observed", routed.handleUserDeleteObservedContacts)
@@ -429,6 +444,8 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 		private("POST /api/accounts/{id}/folder-roles/create", routed.handleCreateFolderRoleFolder)
 		private("POST /api/accounts/{id}/folders", routed.handleCreateFolder)
 		private("GET /api/accounts/{id}/folders/manage", routed.handleManageFolders)
+		private("POST /api/accounts/{id}/folders/order", routed.handleFolderOrder)
+		private("POST /api/accounts/{id}/tags/order", routed.handleTagOrder)
 		private("GET /api/folders/{id}/manage", routed.handleFolderInfo)
 		private("GET /api/folders/{id}/appearance", routed.handleFolderAppearance)
 		private("POST /api/folders/{id}/appearance", routed.handleSaveFolderAppearance)

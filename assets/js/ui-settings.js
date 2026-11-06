@@ -164,140 +164,330 @@ var GoferSettings;
     }).catch(function () {});
   }
 
-  var MAIL_TABLE_COLUMNS = [
-    { id: "accountMarker", fixed: 24 },
-    { id: "starred", fixed: 24 },
-    { id: "attachment", fixed: 24 },
-    { id: "thread", fixed: 28 },
-    { id: "from", min: 90 },
-    { id: "to", min: 90 },
-    { id: "subject", min: 140 },
-    { id: "date", min: 64 },
-  ];
-  var MAIL_CARD_FIELDS = [
-    { id: "avatar" },
-    { id: "thread" },
-    { id: "from" },
-    { id: "account" },
-    { id: "accountMarker" },
-    { id: "to" },
-    { id: "cc" },
-    { id: "date" },
-    { id: "subject" },
-    { id: "preview" },
-    { id: "labels" },
-    { id: "attachment" },
-    { id: "starred" },
-    { id: "unread" },
-  ];
-  var DEFAULT_MAIL_CARD_FIELDS = "avatar,thread,from,account,to,attachment,date,subject,preview,labels,starred";
-  var MAIL_CARD_LAYOUT_ZONES = ["railTop", "header", "meta", "railMiddle", "body", "bodyBottom", "status", "railBottom", "footer", "corner", "hidden"];
-  var MAIL_CARD_VISIBLE_LAYOUT_ZONES = ["railTop", "header", "meta", "railMiddle", "body", "bodyBottom", "status", "railBottom", "footer", "corner"];
-  var DEFAULT_MAIL_CARD_LAYOUT = "railTop:avatar|header:account,from,date|meta:attachment|railMiddle:|body:to|bodyBottom:subject|status:|railBottom:thread|footer:preview,labels|corner:starred|hidden:accountMarker,unread,cc";
-  var LEGACY_DEFAULT_MAIL_CARD_LAYOUTS = [
-    "rail:avatar,thread|header:from,account|meta:attachment,date|body:subject,to,preview|footer:labels,starred|status:unread|hidden:",
-    "rail:avatar,thread|header:from|meta:attachment,date|body:subject,preview|footer:labels,starred|status:unread|hidden:account,to",
-    "rail:avatar,thread|header:from|meta:attachment,date|body:subject|footer:preview,labels,starred|status:unread|hidden:account,to",
-    "rail:avatar,thread|header:from|meta:attachment,date,unread|body:subject|footer:preview,labels|status:|corner:starred|hidden:account,accountMarker,to",
-    "rail:avatar,thread|header:from,date|meta:attachment,unread|body:subject|footer:preview,labels|status:|corner:starred|hidden:account,accountMarker,to",
-    "railTop:avatar|header:from,date|meta:attachment,unread|railMiddle:|body:subject|status:|railBottom:thread|footer:preview,labels|corner:starred|hidden:account,accountMarker,to",
-  ];
-  var MAIL_CARD_ICON_FIELD_MAP = {
-    avatar: true,
-    thread: true,
-    accountMarker: true,
-    attachment: true,
-    starred: true,
-    unread: true,
-  };
-  var MAIL_CARD_SIDE_ZONES = ["railTop", "railMiddle", "railBottom", "meta", "status", "corner"];
-  var MAIL_CARD_CENTER_ZONES = ["header", "body", "bodyBottom", "footer"];
-  // How many fields a zone holds. The middle is two lines, body and
-  // bodyBottom, of two fields each: more would not fit in the card.
-  var MAIL_CARD_SIDE_ZONE_MAX = {
-    body: 2,
-    bodyBottom: 2,
-    railTop: 1,
-    railMiddle: 1,
-    railBottom: 1,
-    meta: 3,
-    status: 3,
-    corner: 3,
-  };
-  var MAIL_CARD_DEFAULT_ZONE_BY_ID = {
-    avatar: "railTop",
-    accountMarker: "railMiddle",
-    thread: "railBottom",
-    from: "header",
-    account: "header",
-    attachment: "meta",
-    date: "header",
-    unread: "meta",
-    subject: "bodyBottom",
-    to: "body",
-    cc: "body",
-    preview: "footer",
-    labels: "footer",
-    starred: "corner",
-  };
+  // Card layouts and table columns of the mail and contacts lists. Each list
+  // describes its fields and zones once (cardLayoutModel, tableColumnsModel);
+  // the layout editor (mail-card-layout.js) and the column menu and resizing
+  // (app.js) work from the same descriptions, through GoferListLayouts.
 
-  function normalizeMailTableColumnIds(value) {
+  function cardLayoutModel(spec) {
+    var fieldIds = spec.fields.slice();
+    var zones = spec.zones.slice();
+    var visibleZones = zones.filter(function (zone) { return zone !== "hidden"; });
     var allowed = {};
-    var ids = [];
-    for (var i = 0; i < MAIL_TABLE_COLUMNS.length; i++) allowed[MAIL_TABLE_COLUMNS[i].id] = true;
+    for (var i = 0; i < fieldIds.length; i++) allowed[fieldIds[i]] = true;
 
-    var parts = value ? String(value).split(",") : MAIL_TABLE_COLUMNS.map(function (column) { return column.id; });
-    for (var j = 0; j < parts.length; j++) {
-      var id = parts[j].trim();
-      if (allowed[id] && ids.indexOf(id) === -1) ids.push(id);
+    function emptyLayout() {
+      var layout = {};
+      for (var i = 0; i < zones.length; i++) layout[zones[i]] = [];
+      return layout;
     }
-    if (ids.length === 0) ids.push("subject");
-    return ids;
-  }
 
-  function normalizeMailCardFieldIds(value) {
-    var allowed = {};
-    var ids = [];
-    for (var i = 0; i < MAIL_CARD_FIELDS.length; i++) allowed[MAIL_CARD_FIELDS[i].id] = true;
-
-    var raw = value ? String(value) : DEFAULT_MAIL_CARD_FIELDS;
-    var parts = raw.split(",");
-    for (var j = 0; j < parts.length; j++) {
-      var id = parts[j].trim();
-      if (allowed[id] && ids.indexOf(id) === -1) ids.push(id);
+    function zoneAllowed(zone) {
+      return zones.indexOf(zone) !== -1;
     }
-    if (ids.length === 0) ids.push("subject");
-    return ids;
+
+    function defaultZone(id) {
+      return spec.defaultZoneById[id] || spec.fallbackZone;
+    }
+
+    function fieldType(id) {
+      return spec.iconFields[id] ? "icon" : "text";
+    }
+
+    function zoneAcceptsField(zone, id) {
+      if (zone === "hidden") return true;
+      // A field kept to some zones, as the contact avatar is to its own.
+      if (spec.fieldZones && spec.fieldZones[id]) return spec.fieldZones[id].indexOf(zone) !== -1;
+      if (fieldType(id) === "icon") return spec.sideZones.indexOf(zone) !== -1;
+      return spec.centerZones.indexOf(zone) !== -1;
+    }
+
+    function zoneHasRoom(layout, zone) {
+      var max = spec.zoneMax[zone];
+      return !max || ((layout[zone] || []).length < max);
+    }
+
+    function compatibleZone(layout, id, preferredZone) {
+      var candidates = fieldType(id) === "icon" ? spec.sideZones : spec.centerZones;
+      var fallbackZone = defaultZone(id);
+
+      if (zoneAcceptsField(preferredZone, id) && zoneHasRoom(layout, preferredZone)) return preferredZone;
+      if (zoneAcceptsField(fallbackZone, id) && zoneHasRoom(layout, fallbackZone)) return fallbackZone;
+
+      for (var i = 0; i < candidates.length; i++) {
+        if (zoneAcceptsField(candidates[i], id) && zoneHasRoom(layout, candidates[i])) return candidates[i];
+      }
+      return candidates[0] || spec.fallbackZone;
+    }
+
+    function normalizeFieldIds(value) {
+      var ids = [];
+      var parts = (value ? String(value) : spec.defaultFields).split(",");
+      for (var j = 0; j < parts.length; j++) {
+        var id = parts[j].trim();
+        if (allowed[id] && ids.indexOf(id) === -1) ids.push(id);
+      }
+      if (ids.length === 0) ids.push(spec.fallbackField);
+      return ids;
+    }
+
+    function parse(value) {
+      var layout = emptyLayout();
+      var seen = {};
+      var raw = value ? String(value) : spec.defaultLayout;
+      if (spec.legacyDefaults.indexOf(raw) !== -1) raw = spec.defaultLayout;
+      // Mail layouts saved before the middle had two lines stacked their body
+      // fields; the first stays on the upper line and the next go to the lower one.
+      var splitBody = !!spec.legacySplitBody && raw.indexOf("bodyBottom:") === -1;
+      var groups = raw.split("|");
+
+      for (var i = 0; i < groups.length; i++) {
+        var group = groups[i];
+        var sep = group.indexOf(":");
+        if (sep === -1) continue;
+        var zone = group.slice(0, sep).trim();
+        var ids = group.slice(sep + 1).split(",");
+        if (zone === "rail" && spec.legacyRail) {
+          var railIds = [];
+          for (var r = 0; r < ids.length; r++) {
+            var railID = ids[r].trim();
+            if (allowed[railID] && !seen[railID]) railIds.push(railID);
+          }
+          for (var n = 0; n < railIds.length; n++) {
+            var railZone = spec.legacyRail(n, railIds.length);
+            layout[railZone].push(railIds[n]);
+            seen[railIds[n]] = true;
+          }
+          continue;
+        }
+        if (!zoneAllowed(zone)) continue;
+        for (var j = 0; j < ids.length; j++) {
+          var id = ids[j].trim();
+          if (!allowed[id] || seen[id]) continue;
+          var target = splitBody && zone === "body" && layout.body.length ? "bodyBottom" : zone;
+          // A saved layout over a zone's limit moves the extra fields elsewhere.
+          layout[zoneHasRoom(layout, target) ? target : compatibleZone(layout, id, target)].push(id);
+          seen[id] = true;
+        }
+      }
+
+      if (spec.upgrade && value) spec.upgrade(layout, raw);
+
+      for (var k = 0; k < fieldIds.length; k++) {
+        if (!seen[fieldIds[k]]) layout[defaultZone(fieldIds[k])].push(fieldIds[k]);
+      }
+
+      return layout;
+    }
+
+    function normalize(value, fieldsValue) {
+      // An untouched old default also saved the old default fields, which would
+      // keep fields hidden that the current default shows.
+      if (value && spec.legacyDefaults.indexOf(String(value)) !== -1) fieldsValue = spec.defaultFields;
+      var parsed = parse(value);
+      var visibleIds = normalizeFieldIds(fieldsValue);
+      var visible = {};
+      var layout = emptyLayout();
+
+      for (var i = 0; i < visibleIds.length; i++) visible[visibleIds[i]] = true;
+
+      for (var z = 0; z < zones.length; z++) {
+        var zone = zones[z];
+        var ids = parsed[zone] || [];
+        for (var j = 0; j < ids.length; j++) {
+          var id = ids[j];
+          if (visible[id]) {
+            var targetZone = zone === "hidden" ? defaultZone(id) : zone;
+            layout[compatibleZone(layout, id, targetZone)].push(id);
+          } else {
+            layout.hidden.push(id);
+          }
+        }
+      }
+
+      return layout;
+    }
+
+    function visibleIdsFromLayout(layout) {
+      var ids = [];
+      for (var i = 0; i < visibleZones.length; i++) {
+        var zoneIds = layout[visibleZones[i]] || [];
+        for (var j = 0; j < zoneIds.length; j++) {
+          if (ids.indexOf(zoneIds[j]) === -1) ids.push(zoneIds[j]);
+        }
+      }
+      if (ids.length === 0) ids.push(spec.fallbackField);
+      return ids;
+    }
+
+    function serialize(layout) {
+      var normalized = layout || emptyLayout();
+      var parts = [];
+      for (var i = 0; i < zones.length; i++) {
+        var zone = zones[i];
+        parts.push(zone + ":" + ((normalized[zone] || []).join(",")));
+      }
+      return parts.join("|");
+    }
+
+    // Moves each card's fields into the zones the layout gives them.
+    function applyToScopes(root, layout) {
+      var scope = root || document;
+      var scopes = [];
+      if (scope.matches && scope.matches(spec.scopeSelector)) scopes.push(scope);
+      if (scope.querySelectorAll) {
+        var found = scope.querySelectorAll(spec.scopeSelector);
+        for (var i = 0; i < found.length; i++) scopes.push(found[i]);
+      }
+
+      for (var s = 0; s < scopes.length; s++) {
+        var card = scopes[s];
+        for (var z = 0; z < zones.length; z++) {
+          var zone = zones[z];
+          var target = card.querySelector('[data-mail-card-zone="' + zone + '"]');
+          if (!target) continue;
+          var ids = layout[zone] || [];
+          for (var j = 0; j < ids.length; j++) {
+            var fields = card.querySelectorAll('[data-mail-card-field="' + cssEscape(ids[j]) + '"]');
+            for (var k = 0; k < fields.length; k++) target.appendChild(fields[k]);
+          }
+        }
+      }
+    }
+
+    function current() {
+      return normalize(_cache[spec.layoutKey], _cache[spec.fieldsKey]);
+    }
+
+    // Saves a layout, with the fields it shows.
+    function save(layout) {
+      var visible = visibleIdsFromLayout(layout);
+      GoferSettings.set(spec.fieldsKey, visible.join(","));
+      GoferSettings.set(spec.layoutKey, serialize(layout));
+    }
+
+    return {
+      fields: fieldIds,
+      zones: zones,
+      visibleZones: visibleZones,
+      iconFields: spec.iconFields,
+      zoneAcceptsField: zoneAcceptsField,
+      sideZones: spec.sideZones,
+      centerZones: spec.centerZones,
+      zoneMax: spec.zoneMax,
+      layoutKey: spec.layoutKey,
+      fieldsKey: spec.fieldsKey,
+      normalizeFieldIds: normalizeFieldIds,
+      normalize: normalize,
+      visibleIdsFromLayout: visibleIdsFromLayout,
+      serialize: serialize,
+      applyToScopes: applyToScopes,
+      current: current,
+      defaultLayout: function () { return normalize(spec.defaultLayout, spec.defaultFields); },
+      save: save,
+    };
   }
 
-  function mailCardAllowedFieldMap() {
-    var allowed = {};
-    for (var i = 0; i < MAIL_CARD_FIELDS.length; i++) allowed[MAIL_CARD_FIELDS[i].id] = true;
-    return allowed;
+  function tableColumnsModel(spec) {
+    var ids = spec.columns.map(function (column) { return column.id; });
+
+    function normalizeIds(value) {
+      var allowed = {};
+      var result = [];
+      for (var i = 0; i < ids.length; i++) allowed[ids[i]] = true;
+      var parts = value ? String(value).split(",") : spec.defaultIds;
+      for (var j = 0; j < parts.length; j++) {
+        var id = parts[j].trim();
+        if (allowed[id] && result.indexOf(id) === -1) result.push(id);
+      }
+      if (result.length === 0) result.push(spec.fallbackId);
+      return result;
+    }
+
+    function ratios(value) {
+      var parts = value ? String(value).split(",") : [];
+      if (spec.legacyColumnIds && parts.length === spec.legacyColumnIds.length && parts.length !== spec.columns.length) {
+        // Each saved width goes to its column; the new ones get their default.
+        var defaults = spec.defaultWidths.split(",");
+        parts = ids.map(function (id, i) {
+          var old = spec.legacyColumnIds.indexOf(id);
+          return old === -1 ? defaults[i] : parts[old];
+        });
+      }
+      if (parts.length !== spec.columns.length) parts = spec.defaultWidths.split(",");
+      var values = [];
+      for (var i = 0; i < parts.length; i++) {
+        var n = parseFloat(parts[i]);
+        if (isNaN(n)) n = 1;
+        values.push(Math.max(0.01, n));
+      }
+      return values;
+    }
+
+    function widthsCSS(value, visibleIds) {
+      var values = ratios(value);
+      var visible = {};
+      var total = 0;
+      for (var j = 0; j < visibleIds.length; j++) visible[visibleIds[j]] = true;
+      for (var k = 0; k < spec.columns.length; k++) {
+        if (visible[spec.columns[k].id] && !spec.columns[k].fixed) total += values[k];
+      }
+      if (total <= 0) return null;
+
+      var columns = [];
+      for (var l = 0; l < spec.columns.length; l++) {
+        if (!visible[spec.columns[l].id]) continue;
+        if (spec.columns[l].fixed) {
+          columns.push(spec.columns[l].fixed + "px");
+          continue;
+        }
+        columns.push("minmax(" + spec.columns[l].min + "px, " + (values[l] / total).toFixed(5) + "fr)");
+      }
+      return columns.join(" ");
+    }
+
+    function scrollIn(root) {
+      var scope = root || document;
+      if (scope.id === spec.scrollId) return scope;
+      return (scope.querySelector && scope.querySelector("#" + spec.scrollId)) || document.getElementById(spec.scrollId);
+    }
+
+    // Shows the chosen columns at their saved widths.
+    function apply(root) {
+      var visibleIds = normalizeIds(_cache[spec.columnsKey]);
+      var columns = widthsCSS(_cache[spec.widthsKey], visibleIds);
+      if (!columns) return;
+      var hidden = ids.filter(function (id) { return visibleIds.indexOf(id) === -1; }).join(" ");
+      if (spec.rootVariable) document.documentElement.style.setProperty("--mail-list-table-columns", columns);
+      var scroll = scrollIn(root);
+      if (scroll) {
+        scroll.style.setProperty("--mail-list-table-columns", columns);
+        scroll.dataset.mailTableHidden = hidden;
+        scroll.dataset.mailTableColumns = visibleIds.join(",");
+      }
+    }
+
+    return {
+      columns: spec.columns,
+      ids: ids,
+      scrollId: spec.scrollId,
+      columnsKey: spec.columnsKey,
+      widthsKey: spec.widthsKey,
+      normalizeIds: normalizeIds,
+      ratios: ratios,
+      current: function () { return normalizeIds(_cache[spec.columnsKey]); },
+      apply: apply,
+      // Shows widths while a column is being resized, before they are saved.
+      applyWidths: function (value, root) {
+        _cache[spec.widthsKey] = value;
+        apply(root);
+      },
+    };
   }
 
-  function emptyMailCardLayout() {
-    var layout = {};
-    for (var i = 0; i < MAIL_CARD_LAYOUT_ZONES.length; i++) layout[MAIL_CARD_LAYOUT_ZONES[i]] = [];
-    return layout;
-  }
-
-  function mailCardZoneAllowed(zone) {
-    return MAIL_CARD_LAYOUT_ZONES.indexOf(zone) !== -1;
-  }
-
-  function defaultMailCardZone(id) {
-    return MAIL_CARD_DEFAULT_ZONE_BY_ID[id] || "body";
-  }
-
-  function mailCardFieldType(id) {
-    return MAIL_CARD_ICON_FIELD_MAP[id] ? "icon" : "text";
-  }
-
-  function mailCardZoneAcceptsField(zone, id) {
-    if (zone === "hidden") return true;
-    if (mailCardFieldType(id) === "icon") return MAIL_CARD_SIDE_ZONES.indexOf(zone) !== -1;
-    return MAIL_CARD_CENTER_ZONES.indexOf(zone) !== -1;
+  function cssEscape(value) {
+    if (window.CSS && CSS.escape) return CSS.escape(value);
+    return String(value).replace(/["\\]/g, "\\$&");
   }
 
   function legacyRailZone(index, count) {
@@ -308,205 +498,170 @@ var GoferSettings;
     return "railBottom";
   }
 
-  function mailCardZoneHasRoom(layout, zone) {
-    var max = MAIL_CARD_SIDE_ZONE_MAX[zone];
-    return !max || ((layout[zone] || []).length < max);
-  }
+  var MAIL_CARD = cardLayoutModel({
+    fields: ["avatar", "thread", "from", "account", "accountMarker", "to", "cc", "date", "subject", "preview", "labels", "attachment", "starred", "unread"],
+    defaultFields: "avatar,thread,from,account,to,attachment,date,subject,preview,labels,starred",
+    zones: ["railTop", "header", "meta", "railMiddle", "body", "bodyBottom", "status", "railBottom", "footer", "corner", "hidden"],
+    defaultLayout: "railTop:avatar|header:account,from,date|meta:attachment|railMiddle:|body:to|bodyBottom:subject|status:|railBottom:thread|footer:preview,labels|corner:starred|hidden:accountMarker,unread,cc",
+    legacyDefaults: [
+      "rail:avatar,thread|header:from,account|meta:attachment,date|body:subject,to,preview|footer:labels,starred|status:unread|hidden:",
+      "rail:avatar,thread|header:from|meta:attachment,date|body:subject,preview|footer:labels,starred|status:unread|hidden:account,to",
+      "rail:avatar,thread|header:from|meta:attachment,date|body:subject|footer:preview,labels,starred|status:unread|hidden:account,to",
+      "rail:avatar,thread|header:from|meta:attachment,date,unread|body:subject|footer:preview,labels|status:|corner:starred|hidden:account,accountMarker,to",
+      "rail:avatar,thread|header:from,date|meta:attachment,unread|body:subject|footer:preview,labels|status:|corner:starred|hidden:account,accountMarker,to",
+      "railTop:avatar|header:from,date|meta:attachment,unread|railMiddle:|body:subject|status:|railBottom:thread|footer:preview,labels|corner:starred|hidden:account,accountMarker,to",
+    ],
+    legacySplitBody: true,
+    legacyRail: legacyRailZone,
+    iconFields: { avatar: true, thread: true, accountMarker: true, attachment: true, starred: true, unread: true },
+    sideZones: ["railTop", "railMiddle", "railBottom", "meta", "status", "corner"],
+    centerZones: ["header", "body", "bodyBottom", "footer"],
+    // How many fields a zone holds. The middle is two lines, body and
+    // bodyBottom, of two fields each: more would not fit in the card.
+    zoneMax: { body: 2, bodyBottom: 2, railTop: 1, railMiddle: 1, railBottom: 1, meta: 3, status: 3, corner: 3 },
+    defaultZoneById: {
+      avatar: "railTop",
+      accountMarker: "railMiddle",
+      thread: "railBottom",
+      from: "header",
+      account: "header",
+      attachment: "meta",
+      date: "header",
+      unread: "meta",
+      subject: "bodyBottom",
+      to: "body",
+      cc: "body",
+      preview: "footer",
+      labels: "footer",
+      starred: "corner",
+    },
+    fallbackZone: "body",
+    fallbackField: "subject",
+    scopeSelector: "[data-mail-card-layout-scope]",
+    layoutKey: "mail_card_layout",
+    fieldsKey: "mail_card_fields",
+  });
 
-  function compatibleMailCardZone(layout, id, preferredZone) {
-    var candidates = mailCardFieldType(id) === "icon" ? MAIL_CARD_SIDE_ZONES : MAIL_CARD_CENTER_ZONES;
-    var fallbackZone = defaultMailCardZone(id);
+  // A contact card is one or two lines beside the avatar. Each line has text
+  // at its start (header, body), text at its end (headerEnd, bodyEnd) and a
+  // slot for icons after it. By default: the name and organization with the
+  // message count and Gofer Sync, then the address, with the main location
+  // and the date it was created at the end.
+  var CONTACT_CARD = cardLayoutModel({
+    // "date" is the Interaction field (last mail); it kept its id when Created
+    // and Edited joined it, so saved layouts keep it where it was.
+    fields: ["avatar", "name", "organization", "title", "email", "phone", "home", "date", "created", "edited", "notes", "messages", "sync"],
+    defaultFields: "avatar,name,organization,messages,sync,email,home,created",
+    zones: ["railTop", "header", "headerEnd", "meta", "body", "bodyEnd", "status", "hidden"],
+    defaultLayout: "railTop:avatar|header:name,organization|headerEnd:|meta:messages,sync|body:email|bodyEnd:home,created|status:|hidden:title,phone,date,edited,notes",
+    // Layouts saved before lines had an end kept the main location and date
+    // at the start of the line, where the card showed them at its end: they
+    // move to the end, so the card looks the same.
+    upgrade: function (layout, raw) {
+      if (raw.indexOf("headerEnd:") !== -1 || raw.indexOf("bodyEnd:") !== -1) return;
+      [["header", "headerEnd"], ["body", "bodyEnd"]].forEach(function (line) {
+        layout[line[0]] = layout[line[0]].filter(function (id) {
+          if (id !== "home" && id !== "date") return true;
+          layout[line[1]].push(id);
+          return false;
+        });
+      });
+    },
+    // The default before Created was a field, saved as it came.
+    legacyDefaults: ["railTop:avatar|header:name,organization|headerEnd:|meta:messages|body:email|bodyEnd:home,date|status:|hidden:title,phone,notes,sync"],
+    iconFields: { avatar: true, messages: true, sync: true },
+    // The avatar is as tall as the card, so it only fits its own slot; moved
+    // to the other side, it flips the card (contacts_card_mirrored).
+    fieldZones: { avatar: ["railTop"] },
+    sideZones: ["railTop", "meta", "status"],
+    centerZones: ["header", "headerEnd", "body", "bodyEnd"],
+    zoneMax: { railTop: 1, header: 3, headerEnd: 3, body: 3, bodyEnd: 3, meta: 2, status: 2 },
+    defaultZoneById: {
+      avatar: "railTop",
+      name: "header",
+      organization: "header",
+      messages: "meta",
+      email: "body",
+      home: "bodyEnd",
+      date: "bodyEnd",
+      created: "bodyEnd",
+      edited: "bodyEnd",
+      title: "header",
+      phone: "body",
+      notes: "body",
+      sync: "meta",
+    },
+    fallbackZone: "body",
+    fallbackField: "name",
+    scopeSelector: "[data-contact-card-layout-scope]",
+    layoutKey: "contacts_card_layout",
+    fieldsKey: "contacts_card_fields",
+  });
 
-    if (mailCardZoneAcceptsField(preferredZone, id) && mailCardZoneHasRoom(layout, preferredZone)) return preferredZone;
-    if (mailCardZoneAcceptsField(fallbackZone, id) && mailCardZoneHasRoom(layout, fallbackZone)) return fallbackZone;
+  var MAIL_TABLE = tableColumnsModel({
+    columns: [
+      { id: "accountMarker", fixed: 24 },
+      { id: "starred", fixed: 24 },
+      { id: "attachment", fixed: 24 },
+      { id: "thread", fixed: 28 },
+      { id: "from", min: 90 },
+      { id: "to", min: 90 },
+      { id: "subject", min: 140 },
+      { id: "date", min: 64 },
+    ],
+    defaultIds: ["accountMarker", "starred", "attachment", "thread", "from", "to", "subject", "date"],
+    defaultWidths: "0.8,0.8,0.8,1,3,3,5,2",
+    fallbackId: "subject",
+    scrollId: "mail-list-scroll",
+    // Mail's widths also reach rows drawn outside the list (the move preview).
+    rootVariable: true,
+    columnsKey: "mail_table_columns",
+    widthsKey: "mail_table_column_widths",
+  });
 
-    for (var i = 0; i < candidates.length; i++) {
-      if (mailCardZoneHasRoom(layout, candidates[i])) return candidates[i];
-    }
-    return candidates[0] || "body";
-  }
+  var CONTACT_TABLE = tableColumnsModel({
+    columns: [
+      { id: "name", min: 100 },
+      { id: "organization", min: 60 },
+      { id: "title", min: 60 },
+      { id: "email", min: 90 },
+      { id: "phone", min: 64 },
+      { id: "home", min: 64 },
+      { id: "messages", min: 56 },
+      { id: "date", min: 56 },
+      { id: "created", min: 56 },
+      { id: "edited", min: 56 },
+      { id: "notes", min: 80 },
+      { id: "sync", min: 72 },
+    ],
+    defaultIds: ["name", "email", "home", "messages"],
+    defaultWidths: "3,2,2,3,2,2,0.8,1.4,1.4,1.4,3,1.4",
+    // Widths saved before Created and Edited were columns.
+    legacyColumnIds: ["name", "organization", "title", "email", "phone", "home", "messages", "date", "notes", "sync"],
+    fallbackId: "name",
+    scrollId: "contacts-list-scroll",
+    columnsKey: "contacts_table_columns",
+    widthsKey: "contacts_table_column_widths",
+  });
 
-  function parseMailCardLayout(value) {
-    var allowed = mailCardAllowedFieldMap();
-    var layout = emptyMailCardLayout();
-    var seen = {};
-    var raw = value ? String(value) : DEFAULT_MAIL_CARD_LAYOUT;
-    if (LEGACY_DEFAULT_MAIL_CARD_LAYOUTS.indexOf(raw) !== -1) raw = DEFAULT_MAIL_CARD_LAYOUT;
-    // Layouts saved before the middle had two lines stacked their body fields;
-    // the first stays on the upper line and the next go to the lower one.
-    var splitBody = raw.indexOf("bodyBottom:") === -1;
-    var groups = raw.split("|");
+  // The lines of a contact card the layout uses, each with its center zone
+  // and its icon slot, top to bottom.
+  var CONTACT_CARD_LINES = [["header", "headerEnd", "meta"], ["body", "bodyEnd", "status"]];
 
-    for (var i = 0; i < groups.length; i++) {
-      var group = groups[i];
-      var sep = group.indexOf(":");
-      if (sep === -1) continue;
-      var zone = group.slice(0, sep).trim();
-      var ids = group.slice(sep + 1).split(",");
-      if (zone === "rail") {
-        var railIds = [];
-        for (var r = 0; r < ids.length; r++) {
-          var railID = ids[r].trim();
-          if (allowed[railID] && !seen[railID]) railIds.push(railID);
-        }
-        for (var n = 0; n < railIds.length; n++) {
-          var railZone = legacyRailZone(n, railIds.length);
-          layout[railZone].push(railIds[n]);
-          seen[railIds[n]] = true;
-        }
-        continue;
-      }
-      if (!mailCardZoneAllowed(zone)) continue;
-      for (var j = 0; j < ids.length; j++) {
-        var id = ids[j].trim();
-        if (!allowed[id] || seen[id]) continue;
-        var target = splitBody && zone === "body" && layout.body.length ? "bodyBottom" : zone;
-        // A saved layout over a zone's limit moves the extra fields elsewhere.
-        layout[mailCardZoneHasRoom(layout, target) ? target : compatibleMailCardZone(layout, id, target)].push(id);
-        seen[id] = true;
-      }
-    }
-
-    for (var k = 0; k < MAIL_CARD_FIELDS.length; k++) {
-      var fieldID = MAIL_CARD_FIELDS[k].id;
-      if (!seen[fieldID]) layout[defaultMailCardZone(fieldID)].push(fieldID);
-    }
-
-    return layout;
-  }
-
-  function normalizeMailCardLayout(value, fieldsValue) {
-    // An untouched old default also saved the old default fields, which would
-    // keep fields hidden that the current default shows.
-    if (value && LEGACY_DEFAULT_MAIL_CARD_LAYOUTS.indexOf(String(value)) !== -1) fieldsValue = DEFAULT_MAIL_CARD_FIELDS;
-    var parsed = parseMailCardLayout(value);
-    var visibleIds = normalizeMailCardFieldIds(fieldsValue);
-    var visible = {};
-    var layout = emptyMailCardLayout();
-
-    for (var i = 0; i < visibleIds.length; i++) visible[visibleIds[i]] = true;
-
-    for (var z = 0; z < MAIL_CARD_LAYOUT_ZONES.length; z++) {
-      var zone = MAIL_CARD_LAYOUT_ZONES[z];
-      var ids = parsed[zone] || [];
-      for (var j = 0; j < ids.length; j++) {
-        var id = ids[j];
-        if (visible[id]) {
-          var targetZone = zone === "hidden" ? defaultMailCardZone(id) : zone;
-          layout[compatibleMailCardZone(layout, id, targetZone)].push(id);
-        } else {
-          layout.hidden.push(id);
-        }
-      }
-    }
-
-    return layout;
-  }
-
-  function mailCardVisibleIdsFromLayout(layout) {
-    var ids = [];
-    for (var i = 0; i < MAIL_CARD_VISIBLE_LAYOUT_ZONES.length; i++) {
-      var zoneIds = layout[MAIL_CARD_VISIBLE_LAYOUT_ZONES[i]] || [];
-      for (var j = 0; j < zoneIds.length; j++) {
-        if (ids.indexOf(zoneIds[j]) === -1) ids.push(zoneIds[j]);
-      }
-    }
-    if (ids.length === 0) ids.push("subject");
-    return ids;
-  }
-
-  function serializeMailCardLayout(layout) {
-    var normalized = layout || emptyMailCardLayout();
-    var parts = [];
-    for (var i = 0; i < MAIL_CARD_LAYOUT_ZONES.length; i++) {
-      var zone = MAIL_CARD_LAYOUT_ZONES[i];
-      parts.push(zone + ":" + ((normalized[zone] || []).join(",")));
-    }
-    return parts.join("|");
-  }
-
-  function cssEscape(value) {
-    if (window.CSS && CSS.escape) return CSS.escape(value);
-    return String(value).replace(/["\\]/g, "\\$&");
-  }
-
-  function applyMailCardLayoutToScopes(root, layout) {
-    var scope = root || document;
-    var scopes = [];
-    if (scope.matches && scope.matches("[data-mail-card-layout-scope]")) scopes.push(scope);
-    if (scope.querySelectorAll) {
-      var found = scope.querySelectorAll("[data-mail-card-layout-scope]");
-      for (var i = 0; i < found.length; i++) scopes.push(found[i]);
-    }
-
-    for (var s = 0; s < scopes.length; s++) {
-      var card = scopes[s];
-      for (var z = 0; z < MAIL_CARD_LAYOUT_ZONES.length; z++) {
-        var zone = MAIL_CARD_LAYOUT_ZONES[z];
-        var target = card.querySelector('[data-mail-card-zone="' + zone + '"]');
-        if (!target) continue;
-        var ids = layout[zone] || [];
-        for (var j = 0; j < ids.length; j++) {
-          var fields = card.querySelectorAll('[data-mail-card-field="' + cssEscape(ids[j]) + '"]');
-          for (var k = 0; k < fields.length; k++) target.appendChild(fields[k]);
-        }
-      }
-    }
-  }
-
-  function normalizeMailTableColumnWidths(value, visibleIds) {
-    var parts = String(value).split(",");
-    if (!value || parts.length !== MAIL_TABLE_COLUMNS.length) parts = ["0.8", "0.8", "0.8", "1", "3", "3", "5", "2"];
-    var values = [];
-    for (var i = 0; i < parts.length; i++) {
-      var n = parseFloat(parts[i]);
-      if (isNaN(n)) n = 1;
-      values.push(Math.max(0.01, n));
-    }
-
-    var visible = {};
-    var total = 0;
-    for (var j = 0; j < visibleIds.length; j++) visible[visibleIds[j]] = true;
-    for (var k = 0; k < MAIL_TABLE_COLUMNS.length; k++) {
-      if (visible[MAIL_TABLE_COLUMNS[k].id] && !MAIL_TABLE_COLUMNS[k].fixed) total += values[k];
-    }
-    if (total <= 0) return null;
-
-    var columns = [];
-    for (var l = 0; l < MAIL_TABLE_COLUMNS.length; l++) {
-      if (!visible[MAIL_TABLE_COLUMNS[l].id]) continue;
-      if (MAIL_TABLE_COLUMNS[l].fixed) {
-        columns.push(MAIL_TABLE_COLUMNS[l].fixed + "px");
-        continue;
-      }
-      columns.push("minmax(" + MAIL_TABLE_COLUMNS[l].min + "px, " + (values[l] / total).toFixed(5) + "fr)");
-    }
-    return columns.join(" ");
+  function contactCardLines(layout) {
+    return CONTACT_CARD_LINES.filter(function (line) {
+      return line.some(function (zone) { return (layout[zone] || []).length; });
+    });
   }
 
   function applyMailTableColumnSettings(root) {
-    var visibleIds = normalizeMailTableColumnIds(_cache.mail_table_columns);
-    var columns = normalizeMailTableColumnWidths(_cache.mail_table_column_widths, visibleIds);
-    if (!columns) return;
-
-    var hidden = MAIL_TABLE_COLUMNS.map(function (column) { return column.id; }).filter(function (id) {
-      return visibleIds.indexOf(id) === -1;
-    }).join(" ");
-
-    document.documentElement.style.setProperty("--mail-list-table-columns", columns);
-    var scope = root || document;
-    var scroll = scope.id === "mail-list-scroll" ? scope : scope.querySelector && scope.querySelector("#mail-list-scroll");
-    if (scroll) {
-      scroll.style.setProperty("--mail-list-table-columns", columns);
-      scroll.dataset.mailTableHidden = hidden;
-      scroll.dataset.mailTableColumns = visibleIds.join(",");
-    }
+    MAIL_TABLE.apply(root);
   }
 
   function applyMailCardSettings(root) {
-    var layout = normalizeMailCardLayout(_cache.mail_card_layout, _cache.mail_card_fields);
-    var visibleIds = mailCardVisibleIdsFromLayout(layout);
-    var hidden = MAIL_CARD_FIELDS.map(function (field) { return field.id; }).filter(function (id) {
+    var layout = MAIL_CARD.current();
+    var visibleIds = MAIL_CARD.visibleIdsFromLayout(layout);
+    var hidden = MAIL_CARD.fields.filter(function (id) {
       return visibleIds.indexOf(id) === -1;
     }).join(" ");
 
@@ -515,13 +670,53 @@ var GoferSettings;
     if (scroll) {
       scroll.dataset.mailCardHidden = hidden;
       scroll.dataset.mailCardFields = visibleIds.join(",");
-      scroll.dataset.mailCardLayout = serializeMailCardLayout(layout);
+      scroll.dataset.mailCardLayout = MAIL_CARD.serialize(layout);
       scroll.toggleAttribute("data-mail-date-time", _cache.mail_card_date_time === "true");
       // On unless turned off, so settings saved before the option keep it.
       scroll.toggleAttribute("data-mail-account-no-marker", _cache.mail_card_account_marker === "false");
     }
-    applyMailCardLayoutToScopes(scope, layout);
+    MAIL_CARD.applyToScopes(scope, layout);
   }
+
+  // Lays the contact cards out: their fields in their zones, and the card as
+  // tall as the lines it uses, which the list spaces its rows by.
+  function applyContactCardSettings(root) {
+    var layout = CONTACT_CARD.current();
+    var visibleIds = CONTACT_CARD.visibleIdsFromLayout(layout);
+    var hidden = CONTACT_CARD.fields.filter(function (id) {
+      return visibleIds.indexOf(id) === -1;
+    }).join(" ");
+    var lines = contactCardLines(layout);
+    if (!lines.length) lines = [CONTACT_CARD_LINES[0]];
+
+    var scope = root || document;
+    var mirrored = _cache.contacts_card_mirrored === "true";
+    var scroll = scope.id === "contacts-list-scroll" ? scope : (scope.querySelector && scope.querySelector("#contacts-list-scroll")) || document.getElementById("contacts-list-scroll");
+    if (scroll) {
+      scroll.dataset.contactCardHidden = hidden;
+      scroll.dataset.contactCardLines = String(lines.length);
+      var list = scroll._virtualContactsList;
+      if (list && list.contactCardLines !== lines.length && typeof list.refreshRowMetrics === "function") list.refreshRowMetrics();
+    }
+    CONTACT_CARD.applyToScopes(scope, layout);
+    // A flipped card has the avatar on the right and the icon slots on the
+    // left (input.css lays it out right to left).
+    var cards = scope.querySelectorAll ? Array.prototype.slice.call(scope.querySelectorAll("[data-contact-card-layout-scope]")) : [];
+    if (scope.matches && scope.matches("[data-contact-card-layout-scope]")) cards.push(scope);
+    for (var i = 0; i < cards.length; i++) cards[i].toggleAttribute("data-contact-card-mirrored", mirrored);
+  }
+
+  window.GoferListLayouts = {
+    mail: { card: MAIL_CARD, table: MAIL_TABLE, applyCard: applyMailCardSettings },
+    contacts: { card: CONTACT_CARD, table: CONTACT_TABLE, applyCard: applyContactCardSettings },
+    // How many lines the contact cards use, one or two.
+    contactCardLines: function () {
+      return Math.max(1, contactCardLines(CONTACT_CARD.current()).length);
+    },
+  };
+
+  window.applyContactCardLayoutSettings = applyContactCardSettings;
+  window.applyContactTableColumnSettings = CONTACT_TABLE.apply;
 
   function mailPaneLayout(value) {
     return value === "stacked" || value === "list" ? value : "side";
@@ -592,31 +787,30 @@ var GoferSettings;
   }
 
   window.applyMailTableColumnWidths = function (value, root) {
-    _cache.mail_table_column_widths = value;
-    applyMailTableColumnSettings(root);
+    MAIL_TABLE.applyWidths(value, root);
   };
 
   window.applyMailTableColumnSettings = applyMailTableColumnSettings;
 
   window.applyMailTableColumns = function (value, root) {
-    _cache.mail_table_columns = normalizeMailTableColumnIds(value).join(",");
+    _cache.mail_table_columns = MAIL_TABLE.normalizeIds(value).join(",");
     applyMailTableColumnSettings(root);
   };
 
   window.getMailTableColumns = function () {
-    return normalizeMailTableColumnIds(_cache.mail_table_columns);
+    return MAIL_TABLE.current();
   };
 
   window.applyMailCardFields = function (value, root) {
-    _cache.mail_card_fields = normalizeMailCardFieldIds(value).join(",");
-    _cache.mail_card_layout = serializeMailCardLayout(normalizeMailCardLayout(_cache.mail_card_layout, _cache.mail_card_fields));
+    _cache.mail_card_fields = MAIL_CARD.normalizeFieldIds(value).join(",");
+    _cache.mail_card_layout = MAIL_CARD.serialize(MAIL_CARD.normalize(_cache.mail_card_layout, _cache.mail_card_fields));
     applyMailCardSettings(root);
   };
 
   window.applyMailCardLayout = function (value, fieldsValue, root) {
-    var layout = normalizeMailCardLayout(value, fieldsValue || _cache.mail_card_fields);
-    _cache.mail_card_layout = serializeMailCardLayout(layout);
-    _cache.mail_card_fields = mailCardVisibleIdsFromLayout(layout).join(",");
+    var layout = MAIL_CARD.normalize(value, fieldsValue || _cache.mail_card_fields);
+    _cache.mail_card_layout = MAIL_CARD.serialize(layout);
+    _cache.mail_card_fields = MAIL_CARD.visibleIdsFromLayout(layout).join(",");
     applyMailCardSettings(root);
   };
 
@@ -624,27 +818,27 @@ var GoferSettings;
   window.applyMailCardLayoutSettings = applyMailCardSettings;
 
   window.getMailCardFields = function () {
-    return normalizeMailCardFieldIds(_cache.mail_card_fields);
+    return MAIL_CARD.normalizeFieldIds(_cache.mail_card_fields);
   };
 
   window.getMailCardLayout = function () {
-    return normalizeMailCardLayout(_cache.mail_card_layout, _cache.mail_card_fields);
+    return MAIL_CARD.current();
   };
 
   window.getDefaultMailCardLayout = function () {
-    return normalizeMailCardLayout(DEFAULT_MAIL_CARD_LAYOUT, DEFAULT_MAIL_CARD_FIELDS);
+    return MAIL_CARD.defaultLayout();
   };
 
   window.getDefaultMailCardFields = function () {
-    return normalizeMailCardFieldIds(DEFAULT_MAIL_CARD_FIELDS);
+    return MAIL_CARD.normalizeFieldIds("");
   };
 
   window.getMailCardLayoutZones = function () {
-    return MAIL_CARD_LAYOUT_ZONES.slice();
+    return MAIL_CARD.zones.slice();
   };
 
-  window.getMailCardVisibleFieldsFromLayout = mailCardVisibleIdsFromLayout;
-  window.serializeMailCardLayout = serializeMailCardLayout;
+  window.getMailCardVisibleFieldsFromLayout = MAIL_CARD.visibleIdsFromLayout;
+  window.serializeMailCardLayout = MAIL_CARD.serialize;
 
   function applySetting(key, value) {
     if (key === "theme") {
@@ -684,20 +878,40 @@ var GoferSettings;
       applyMailTableColumnSettings();
     }
     if (key === "mail_table_columns") {
-      _cache.mail_table_columns = normalizeMailTableColumnIds(value).join(",");
+      _cache.mail_table_columns = MAIL_TABLE.normalizeIds(value).join(",");
       applyMailTableColumnSettings();
     }
     if (key === "mail_card_fields") {
-      _cache.mail_card_fields = normalizeMailCardFieldIds(value).join(",");
-      _cache.mail_card_layout = serializeMailCardLayout(normalizeMailCardLayout(_cache.mail_card_layout, _cache.mail_card_fields));
+      _cache.mail_card_fields = MAIL_CARD.normalizeFieldIds(value).join(",");
+      _cache.mail_card_layout = MAIL_CARD.serialize(MAIL_CARD.normalize(_cache.mail_card_layout, _cache.mail_card_fields));
       applyMailCardSettings();
     }
     if (key === "mail_card_date_time" || key === "mail_card_account_marker") {
       applyMailCardSettings();
     }
     if (key === "mail_card_layout") {
-      _cache.mail_card_layout = serializeMailCardLayout(normalizeMailCardLayout(value, _cache.mail_card_fields));
+      _cache.mail_card_layout = MAIL_CARD.serialize(MAIL_CARD.normalize(value, _cache.mail_card_fields));
       applyMailCardSettings();
+    }
+    if (key === "contacts_table_column_widths") {
+      _cache.contacts_table_column_widths = value;
+      CONTACT_TABLE.apply();
+    }
+    if (key === "contacts_table_columns") {
+      _cache.contacts_table_columns = CONTACT_TABLE.normalizeIds(value).join(",");
+      CONTACT_TABLE.apply();
+    }
+    if (key === "contacts_card_fields") {
+      _cache.contacts_card_fields = CONTACT_CARD.normalizeFieldIds(value).join(",");
+      _cache.contacts_card_layout = CONTACT_CARD.serialize(CONTACT_CARD.normalize(_cache.contacts_card_layout, _cache.contacts_card_fields));
+      applyContactCardSettings();
+    }
+    if (key === "contacts_card_mirrored") {
+      applyContactCardSettings();
+    }
+    if (key === "contacts_card_layout") {
+      _cache.contacts_card_layout = CONTACT_CARD.serialize(CONTACT_CARD.normalize(value, _cache.contacts_card_fields));
+      applyContactCardSettings();
     }
     if (key === "timezone") {
       document.documentElement.setAttribute("data-timezone", value || browserTimezone());

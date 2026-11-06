@@ -442,6 +442,32 @@ func (s *UserAccountStore) PublishInboundJMAPContacts(ctx context.Context, snaps
 	return results, next, nil
 }
 
+// PublishInboundContactChanges commits a page of the changes Gmail or
+// Outlook report and returns the snapshot holding its sync token, as
+// PublishInboundJMAPContacts does for JMAP.
+func (s *UserAccountStore) PublishInboundContactChanges(ctx context.Context, snapshot *AccountServiceSnapshot, page storage.InboundContactChangePage) (results []storage.InboundContactResult, next *AccountServiceSnapshot, err error) {
+	if err := s.checkServiceSnapshot(snapshot); err != nil {
+		return nil, nil, err
+	}
+	cfg := snapshot.ContactConfig()
+	if !cfg.Enabled || (cfg.Provider != providers.ProviderGmail && cfg.Provider != providers.ProviderOutlook) {
+		return nil, nil, storage.ErrContactPublication
+	}
+	err = s.WithAccountForUser(ctx, snapshot.owner, snapshot.id, func(_ *AccountStore, db *storage.DB) error {
+		var publishErr error
+		results, publishErr = db.PublishInboundContactChanges(ctx, snapshot.owner, snapshot.id, cfg.Provider, page, s.serviceGuard(ctx, snapshot, true), func(tx *sql.Tx) error {
+			var snapshotErr error
+			next, snapshotErr = s.serviceSnapshot(ctx, tx, snapshot.owner, snapshot.id)
+			return snapshotErr
+		})
+		return publishErr
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return results, next, nil
+}
+
 // SaveContactServices checks the snapshot in the same local writer transaction
 // that replaces configuration/address books. Network testing precedes this call.
 func (s *UserAccountStore) SaveContactServices(ctx context.Context, snapshot *AccountServiceSnapshot, cfg models.ContactSyncConfig, password string) error {

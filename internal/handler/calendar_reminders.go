@@ -74,7 +74,7 @@ func calendarReminderEvent(owner string, due storage.CalendarReminderDue, locati
 		when = i18n.T(ctx, "push.reminder.in", "span", views.CalendarReminderSpan(ctx, minutes))
 	}
 	clock := dates.Time(start)
-	if event.EndAt != nil {
+	if event.EndAt != nil && !event.EndAt.Equal(*event.StartAt) {
 		clock = dates.TimeRange(start, event.EndAt.In(location))
 	}
 	body := i18n.T(ctx, "push.reminder.body", "when", when, "time", clock)

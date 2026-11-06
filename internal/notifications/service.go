@@ -60,9 +60,10 @@ func (s *Service) Start(ctx context.Context) {
 	}
 
 	s.workers.Add(1)
-	// Only new mail and event reminders, so other events cannot fill the queue
-	// ahead of them.
-	events := s.events.SubscribeFor(mail.SubscribeOptions{All: true, Types: []mail.EventType{mail.EventNewMail, mail.EventCalendarReminder}})
+	// Only new mail, event reminders and contact activity, which is mostly
+	// sync progress and is dropped here unless contacts wait to be resolved,
+	// so other events cannot fill the queue ahead of them.
+	events := s.events.SubscribeFor(mail.SubscribeOptions{All: true, Types: []mail.EventType{mail.EventNewMail, mail.EventCalendarReminder, mail.EventContactActivity}})
 	go func() {
 		defer s.workers.Done()
 		defer events.Close()
@@ -74,6 +75,8 @@ func (s *Service) Start(ctx context.Context) {
 				for _, event := range events.Take() {
 					if event.Type == mail.EventCalendarReminder {
 						s.handleCalendarReminder(ctx, event)
+					} else if event.Type == mail.EventContactActivity {
+						s.handleContactsUnresolved(ctx, event)
 					} else {
 						s.handleNewMail(ctx, event)
 					}
@@ -190,6 +193,44 @@ func (s *Service) handleCalendarReminder(ctx context.Context, event mail.Event) 
 	s.sendWebPush(ctx, event.UserID, event.AccountID, payload, "gofer-calendar-reminder", webpush.UrgencyHigh)
 }
 
+// handleContactsUnresolved pushes that synced contacts were deleted in one
+// of their places and wait to be resolved, with the owner's notification
+// settings for new mail. Contacts belong to the user, not to an account.
+func (s *Service) handleContactsUnresolved(ctx context.Context, event mail.Event) {
+	if event.AdminOnly || event.UserID == "" || stringPayload(event.Payload, "event_type") != "contacts_unresolved" {
+		return
+	}
+	var settings map[string]string
+	if s.userStorage != nil {
+		if err := s.userStorage.WithUser(ctx, event.UserID, func(db *storage.DB) error {
+			settings = db.GetUISettings(ctx, event.UserID)
+			return nil
+		}); err != nil {
+			return
+		}
+	} else {
+		settings = s.db.GetUISettings(ctx, event.UserID)
+	}
+	if settings["desktop_notifications"] != "true" {
+		return
+	}
+	if mode := notificationMode(settings["notification_mode"]); mode != "web_push" && mode != "auto" {
+		return
+	}
+	userCtx := i18n.ForUser(ctx, event.UserID)
+	count := intPayload(event.Payload, "event_count")
+	if count < 1 {
+		count = 1
+	}
+	// The same words as the toast an open page shows.
+	title := i18n.N(userCtx, "js.contacts.unresolved.arrived", count)
+	if name := stringPayload(event.Payload, "email"); count == 1 && name != "" {
+		title = i18n.T(userCtx, "js.contacts.unresolved.arrived_one", "name", name)
+	}
+	payload := map[string]any{"title": title, "body": i18n.T(userCtx, "js.contacts.unresolved.arrived_detail"), "tag": "gofer-contacts-unresolved", "url": "/contacts?resolve=1"}
+	s.sendWebPush(ctx, event.UserID, "", payload, "gofer-contacts-unresolved", webpush.UrgencyNormal)
+}
+
 func notificationMode(mode string) string {
 	switch strings.TrimSpace(mode) {
 	case "web_push", "browser_tab", "off":
@@ -219,7 +260,7 @@ func (s *Service) sendWebPush(ctx context.Context, userID, accountID string, pay
 
 	for _, sub := range subs {
 		if s.userStorage != nil {
-			if err := s.userStorage.WithAccountForUser(ctx, userID, accountID, func(*storage.DB) error { return nil }); err != nil {
+			if err := s.withOwner(ctx, userID, accountID, func(*storage.DB) error { return nil }); err != nil {
 				return
 			}
 		}
@@ -265,9 +306,18 @@ func (s *Service) recordDelivery(ctx context.Context, userID, accountID string, 
 		return s.db.SetWebPushSubscriptionErrorIfCurrent(ctx, sub, message)
 	}
 	if s.userStorage != nil {
-		return s.userStorage.WithAccountForUser(ctx, userID, accountID, update)
+		return s.withOwner(ctx, userID, accountID, update)
 	}
 	return update(nil)
+}
+
+// withOwner checks the user still owns the account a push is about, or
+// is still a user, for a push about no account.
+func (s *Service) withOwner(ctx context.Context, userID, accountID string, fn func(*storage.DB) error) error {
+	if accountID == "" {
+		return s.userStorage.WithUser(ctx, userID, fn)
+	}
+	return s.userStorage.WithAccountForUser(ctx, userID, accountID, fn)
 }
 
 func roleSuppressesNotification(role string) bool {

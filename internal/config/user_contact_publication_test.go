@@ -266,14 +266,15 @@ func TestUserContactBookPublicationDeltaFullPruningAndSnapshotChain(t *testing.T
 				t.Fatal("wrong book pruning", check.remote, source)
 			}
 		}
-		// Remote deletion removes provider cards, retaining local canonical/manual history.
-		for _, result := range results {
-			profile, err := db.GetContactProfile(t.Context(), "alice", result.ProfileID)
+		// A contact deleted in the book it lives in, with Gofer Sync off,
+		// goes to the Trash; the one still there stays.
+		for i, result := range results {
+			trashed, err := db.ContactInTrash(t.Context(), "alice", result.ProfileID)
 			if err != nil {
 				return err
 			}
-			if profile == nil || profile.IsDeleted {
-				t.Fatal("provider deletion removed profile", profile)
+			if trashed != (i < 2) {
+				t.Fatal("deleted contact in the Trash", i, trashed)
 			}
 		}
 		return nil

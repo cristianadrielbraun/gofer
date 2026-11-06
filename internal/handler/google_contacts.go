@@ -23,6 +23,9 @@ import (
 type googlePeopleResponse struct {
 	Connections   []googlePerson `json:"connections"`
 	NextPageToken string         `json:"nextPageToken"`
+	// NextSyncToken, on the last page of a listing asked for one, is where
+	// the next sync of changes starts.
+	NextSyncToken string `json:"nextSyncToken,omitempty"`
 }
 
 type googleSearchContactsResponse struct {
@@ -42,6 +45,12 @@ type googlePerson struct {
 	Organizations  []googleOrganization `json:"organizations,omitempty"`
 	Biographies    []googleBiography    `json:"biographies,omitempty"`
 	Photos         []googlePhoto        `json:"photos,omitempty"`
+	// Metadata.Deleted marks a person deleted since the sync token.
+	Metadata *googlePersonMetadata `json:"metadata,omitempty"`
+}
+
+type googlePersonMetadata struct {
+	Deleted bool `json:"deleted,omitempty"`
 }
 
 type googleName struct {
@@ -245,49 +254,42 @@ func (h *Handler) pullContactAccount(ctx context.Context, userID string, account
 	}
 }
 
+// syncGooglePeopleConnections pulls the contacts that changed in Gmail
+// since the last sync, and settles the ones deleted there, for the shared
+// store.
 func (h *Handler) syncGooglePeopleConnections(ctx context.Context, userID, accountID, accessToken string) (int, error) {
+	syncToken, err := h.db.ContactSyncToken(ctx, userID, accountID)
+	if err != nil {
+		return 0, err
+	}
 	client := &http.Client{Timeout: 30 * time.Second}
-	pageToken := ""
-	imported := 0
-
-	for {
-		values := url.Values{}
-		values.Set("personFields", googleContactPersonFields())
-		values.Set("pageSize", "1000")
-		if pageToken != "" {
-			values.Set("pageToken", pageToken)
-		}
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, googlePeopleAPIBaseURL+"/people/me/connections?"+values.Encode(), nil)
+	get := func(endpoint string, out any) error {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 		if err != nil {
-			return imported, err
+			return err
 		}
 		req.Header.Set("Authorization", "Bearer "+accessToken)
-
 		resp, err := client.Do(req)
 		if err != nil {
-			return imported, err
+			return err
 		}
+		defer resp.Body.Close()
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			body, _ := io.ReadAll(resp.Body)
-			resp.Body.Close()
-			return imported, fmt.Errorf("people api returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+			return newGoogleAPIError(resp, body)
 		}
-
-		var people googlePeopleResponse
-		decodeErr := json.NewDecoder(resp.Body).Decode(&people)
-		resp.Body.Close()
-		if decodeErr != nil {
-			return imported, decodeErr
-		}
-
-		for _, person := range people.Connections {
+		return json.NewDecoder(resp.Body).Decode(out)
+	}
+	imported := 0
+	err = googleContactChanges(ctx, get, syncToken, func(people []googlePerson, deleted []string, next string) error {
+		for _, person := range people {
 			contact := googleContactFromPerson(person)
 			if !contact.HasDetails() {
 				continue
 			}
 			contactID, canonicalChanged, err := h.upsertInboundSyncedContact(ctx, userID, providers.ProviderGmail, accountID, person.ResourceName, contact)
 			if err != nil {
-				return imported, err
+				return err
 			}
 			if contactID != "" && strings.TrimSpace(person.ResourceName) != "" {
 				if err := h.db.UpsertContactSource(ctx, storage.ContactSource{
@@ -298,23 +300,27 @@ func (h *Handler) syncGooglePeopleConnections(ctx context.Context, userID, accou
 					RemoteID:  person.ResourceName,
 					Etag:      person.Etag,
 				}); err != nil {
-					return imported, err
+					return err
 				}
 			}
 			if canonicalChanged {
 				if err := h.scheduleInboundContactFanout(ctx, userID, contactID, accountID); err != nil {
-					return imported, err
+					return err
 				}
 			}
 			imported++
 		}
-
-		pageToken = people.NextPageToken
-		if pageToken == "" {
-			break
+		for _, remoteID := range deleted {
+			if err := h.db.RemoveDeletedContactSource(ctx, userID, providers.ProviderGmail, accountID, remoteID); err != nil {
+				return err
+			}
 		}
-	}
-	return imported, nil
+		if next != "" {
+			return h.db.SaveContactSyncToken(ctx, userID, accountID, providers.ProviderGmail, next)
+		}
+		return nil
+	})
+	return imported, err
 }
 
 func (h *Handler) scheduleInboundContactFanout(ctx context.Context, userID, contactID, sourceAccountID string) error {
@@ -360,6 +366,8 @@ func (h *Handler) upsertInboundSyncedContact(ctx context.Context, userID, provid
 		}
 		if source != nil {
 			profileID = source.ContactID
+		} else if profileID, err = h.db.ContactOfRemovedCard(ctx, userID, provider, accountID, remoteID); err != nil {
+			return "", false, err
 		}
 		// A contact in the Trash still has its address-book copy; leave it
 		// alone rather than bring it back as a new contact.
@@ -499,7 +507,15 @@ func (h *Handler) syncContactToAccountTargets(ctx context.Context, userID string
 	if !contact.GoferSyncEnabled || contact.ID == "" || !contact.HasDetails() {
 		return nil
 	}
+	return h.pushContactToTargets(ctx, userID, contact, excludedAccountID)
+}
 
+// pushContactToTargets writes contact to every account its SaveTargets
+// name, Gofer Sync on or off; callers decide whether it should go.
+func (h *Handler) pushContactToTargets(ctx context.Context, userID string, contact models.Contact, excludedAccountID string) error {
+	if contact.ID == "" || !contact.HasDetails() {
+		return nil
+	}
 	desired, err := h.contactTargetAccountSet(ctx, userID, contact.SaveTargets)
 	if err != nil {
 		return err
@@ -721,6 +737,10 @@ func (h *Handler) processContactSyncOperation(parent context.Context, op storage
 		return
 	}
 	contact = *current
+	if store := strings.TrimSpace(op.Payload.StoreTarget); store != "" {
+		h.processContactStoreOperation(ctx, op, contact, store)
+		return
+	}
 	if !contact.GoferSyncEnabled {
 		if err := h.db.MarkContactSyncOperationSuccess(context.Background(), op.ID); err != nil {
 			log.Printf("contacts sync operation %s: cancel disabled sync: %v", op.ID, err)
@@ -752,6 +772,25 @@ func (h *Handler) processContactSyncOperation(parent context.Context, op storage
 		log.Printf("contacts sync operation %s: mark success: %v", op.ID, err)
 	}
 	logSyncResult("contact_synced", "done", "Gofer Sync complete", "")
+}
+
+// processContactStoreOperation writes an imported contact once to the one
+// place it is stored in, whether or not Gofer Sync is on for it.
+func (h *Handler) processContactStoreOperation(ctx context.Context, op storage.ContactSyncOperation, contact models.Contact, store string) {
+	contact.SaveTargets = []string{store}
+	if err := h.pushContactToTargets(ctx, op.UserID, contact, ""); err != nil {
+		retry := op.AttemptCount < 3
+		if markErr := h.db.MarkContactSyncOperationError(context.Background(), op.ID, err.Error(), retry); markErr != nil {
+			log.Printf("contacts store operation %s: mark error: %v", op.ID, markErr)
+		}
+		if retry {
+			h.signalContactSyncOperationWorker()
+		}
+		return
+	}
+	if err := h.db.MarkContactSyncOperationSuccess(context.Background(), op.ID); err != nil {
+		log.Printf("contacts store operation %s: mark success: %v", op.ID, err)
+	}
 }
 
 func (h *Handler) contactNeedsAccountSync(ctx context.Context, userID string, contact models.Contact, previous *models.Contact) bool {
@@ -813,27 +852,32 @@ func (h *Handler) gmailTargetAccountSet(ctx context.Context, userID string, targ
 }
 
 func (h *Handler) deleteContactFromAccounts(ctx context.Context, userID string, contact models.Contact) error {
+	return h.deleteContactFromAccountsIn(ctx, userID, contact, nil)
+}
+
+// deleteContactFromAccountsIn deletes the contact's copies that only
+// accepts, every copy when it is nil.
+func (h *Handler) deleteContactFromAccountsIn(ctx context.Context, userID string, contact models.Contact, only func(storage.ContactSource) bool) error {
 	if contact.ID == "" {
 		return nil
 	}
-	if err := h.deleteContactSourcesFromProvider(ctx, userID, contact, providers.ProviderGmail); err != nil {
-		return err
+	for _, provider := range []string{providers.ProviderGmail, providers.ProviderOutlook, providers.ProviderCardDAV, providers.ProviderJMAP} {
+		if err := h.deleteContactSourcesFromProvider(ctx, userID, contact, provider, only); err != nil {
+			return err
+		}
 	}
-	if err := h.deleteContactSourcesFromProvider(ctx, userID, contact, providers.ProviderOutlook); err != nil {
-		return err
-	}
-	if err := h.deleteContactSourcesFromProvider(ctx, userID, contact, providers.ProviderCardDAV); err != nil {
-		return err
-	}
-	return h.deleteContactSourcesFromProvider(ctx, userID, contact, providers.ProviderJMAP)
+	return nil
 }
 
-func (h *Handler) deleteContactSourcesFromProvider(ctx context.Context, userID string, contact models.Contact, provider string) error {
+func (h *Handler) deleteContactSourcesFromProvider(ctx context.Context, userID string, contact models.Contact, provider string, only func(storage.ContactSource) bool) error {
 	sources, err := h.db.GetContactSources(ctx, userID, contact.ID, provider)
 	if err != nil {
 		return err
 	}
 	for _, source := range sources {
+		if only != nil && !only(source) {
+			continue
+		}
 		if strings.TrimSpace(source.RemoteID) == "" {
 			if err := h.db.DeleteContactSource(ctx, userID, contact.ID, provider, source.AccountID); err != nil {
 				return err

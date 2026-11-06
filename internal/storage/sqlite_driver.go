@@ -78,6 +78,7 @@ func (d wrappedDriver) Open(name string) (driver.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
+	hookContactChanges(name, conn)
 	return &wrappedConn{base: conn, cache: make(map[string]*list.Element), order: list.New()}, nil
 }
 

@@ -29,6 +29,9 @@ const (
 	EventCalendarReminder      EventType = "calendar-reminder"
 	// EventMailRuleRun tells how a rule run by hand is going.
 	EventMailRuleRun EventType = "mail-rule-run"
+	// EventContactsChanged tells a person's pages that their contacts changed,
+	// from any source, so an open list updates in place.
+	EventContactsChanged EventType = "contacts-changed"
 )
 
 type Event struct {

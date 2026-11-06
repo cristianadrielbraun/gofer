@@ -21,8 +21,11 @@ var ErrContactSyncUnavailable = errors.New("contact has no enabled sync location
 // and survives cache eviction; another claim cannot finalize this attempt.
 type ContactSyncClaim struct {
 	owner, id, profile, payload, excluded, locked string
-	attempt                                       int
-	expires                                       time.Time
+	// store is the one place a store operation writes to, its memberships
+	// and Gofer Sync aside.
+	store   *ContactSyncTarget
+	attempt int
+	expires time.Time
 }
 
 func (c *ContactSyncClaim) OwnerID() string     { return c.owner }
@@ -130,7 +133,7 @@ func (db *DB) ClaimUserContactSyncOperations(ctx context.Context, owner string, 
 	cutoff := now.Add(-lockTimeout).Format(time.RFC3339Nano)
 	rows, err := tx.QueryContext(ctx, `SELECT id FROM contact_sync_operations
  WHERE user_id=? AND (status='pending' OR (status='running' AND julianday(replace(locked_at,' +0000 UTC',''))<=julianday(?)))
- AND julianday(replace(next_attempt_at,' +0000 UTC',''))<=julianday('now')
+ AND julianday(replace(next_attempt_at,' +0000 UTC',''))<=julianday('now') AND `+contactOperationNotPausedSQL+`
  ORDER BY created_at,id LIMIT ?`, owner, cutoff, limit)
 	if err != nil {
 		return nil, err
@@ -162,15 +165,45 @@ func (db *DB) ClaimUserContactSyncOperations(ctx context.Context, owner string, 
 		if err := json.Unmarshal([]byte(c.payload), &payload); err != nil {
 			return nil, err
 		}
-		// Only the durable exclusion is used. Profile values and targets in the
-		// queued payload are intentionally never replayed over the current data.
+		// Only the durable exclusion and store place are used. Profile values
+		// and targets in the queued payload are never replayed over the
+		// current data.
 		c.excluded = strings.TrimSpace(payload.ExcludedAccountID)
+		if target := strings.TrimSpace(payload.StoreTarget); target != "" {
+			store, err := contactStoreTargetTx(ctx, tx, owner, target)
+			if err != nil {
+				return nil, err
+			}
+			c.store = &store
+		}
 		claims = append(claims, c)
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 	return claims, nil
+}
+
+// contactStoreTargetTx resolves a store place to its account and book. A
+// place that is gone resolves to a target no destination accepts, so the
+// operation fails rather than writing elsewhere.
+func contactStoreTargetTx(ctx context.Context, tx *sql.Tx, owner, target string) (ContactSyncTarget, error) {
+	if account, ok := strings.CutPrefix(target, "account:"); ok {
+		return ContactSyncTarget{AccountID: account}, nil
+	}
+	book, ok := strings.CutPrefix(target, "book:")
+	if !ok || book == "" {
+		return ContactSyncTarget{}, ErrContactPublication
+	}
+	var account string
+	err := tx.QueryRowContext(ctx, `SELECT account_id FROM account_contact_address_books WHERE user_id=? AND id=?`, owner, book).Scan(&account)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ContactSyncTarget{AddressBookID: book}, nil
+	}
+	if err != nil {
+		return ContactSyncTarget{}, err
+	}
+	return ContactSyncTarget{AccountID: account, AddressBookID: book}, nil
 }
 
 func checkContactSyncClaimTx(ctx context.Context, tx *sql.Tx, c *ContactSyncClaim) error {
@@ -199,7 +232,8 @@ func contactSyncProfileStateTx(ctx context.Context, tx *sql.Tx, c *ContactSyncCl
 	if err != nil || profile == nil {
 		return nil, err
 	}
-	if profile.IsDeleted || !profile.SyncEnabled {
+	// A store operation writes once whether or not Gofer Sync is on.
+	if profile.IsDeleted || (!profile.SyncEnabled && c.store == nil) {
 		return nil, nil
 	}
 	profile.Fields, err = contactFieldsQuery(ctx, tx, c.owner, c.profile)
@@ -221,28 +255,34 @@ func contactSyncProfileStateTx(ctx context.Context, tx *sql.Tx, c *ContactSyncCl
 	if !p.contact.HasDetails() {
 		return nil, nil
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT account_id,address_book_id FROM contact_sync_memberships WHERE user_id=? AND profile_id=? AND enabled=1 ORDER BY account_id,address_book_id`, c.owner, c.profile)
-	if err != nil {
-		return nil, err
-	}
 	var all []ContactSyncTarget
-	for rows.Next() {
-		var target ContactSyncTarget
-		if err := rows.Scan(&target.AccountID, &target.AddressBookID); err != nil {
-			rows.Close()
+	if c.store != nil {
+		all = []ContactSyncTarget{*c.store}
+	} else {
+		rows, err := tx.QueryContext(ctx, `SELECT account_id,address_book_id FROM contact_sync_memberships WHERE user_id=? AND profile_id=? AND enabled=1 ORDER BY account_id,address_book_id`, c.owner, c.profile)
+		if err != nil {
 			return nil, err
 		}
-		all = append(all, target)
+		for rows.Next() {
+			var target ContactSyncTarget
+			if err := rows.Scan(&target.AccountID, &target.AddressBookID); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			all = append(all, target)
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return nil, err
+		}
+	}
+	for _, target := range all {
 		if target.AddressBookID != "" {
 			p.contact.SaveTargets = append(p.contact.SaveTargets, "book:"+target.AddressBookID)
 		} else {
 			p.contact.SaveTargets = append(p.contact.SaveTargets, "account:"+target.AccountID)
 		}
-	}
-	err = rows.Err()
-	rows.Close()
-	if err != nil {
-		return nil, err
 	}
 	for _, target := range all {
 		if target.AccountID == c.excluded {
@@ -312,6 +352,38 @@ func (db *DB) EnqueueUserContactSync(ctx context.Context, owner, profile string,
 	return id, nil
 }
 
+// EnqueueUserContactStore queues the one write that stores an imported
+// contact in target, an account or address book of the owner's.
+func (db *DB) EnqueueUserContactStore(ctx context.Context, owner, profile, target string, guard func(*sql.Tx) error) (string, error) {
+	if !contactStoreTargetValid(target) {
+		return "", ErrContactPublication
+	}
+	tx, err := db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback()
+	if err := contactSyncOwnerTx(ctx, tx, owner, guard); err != nil {
+		return "", err
+	}
+	stored, err := contactProfileRow(ctx, tx, owner, profile)
+	if err != nil {
+		return "", err
+	}
+	if stored == nil || stored.IsDeleted {
+		return "", ErrContactSyncUnavailable
+	}
+	contact := models.Contact{ID: profile, Name: stored.DisplayName, Email: stored.PrimaryEmail}
+	id, err := enqueueContactOperation(ctx, tx, owner, contact, ContactSyncOperationPayload{Contact: contact, StoreTarget: strings.TrimSpace(target)})
+	if err != nil {
+		return "", err
+	}
+	if err := tx.Commit(); err != nil {
+		return "", err
+	}
+	return id, nil
+}
+
 func checkContactSyncProfileTx(ctx context.Context, tx *sql.Tx, p *ContactSyncProfile) error {
 	if p == nil {
 		return ErrContactSyncSuperseded
@@ -365,6 +437,10 @@ func (db *DB) StartUserContactSyncOperation(ctx context.Context, p *ContactSyncP
 	if err := checkContactSyncProfileTx(ctx, tx, p); err != nil {
 		return err
 	}
+	// Storing an imported contact is not Gofer Sync, and says nothing.
+	if p.claim.store != nil {
+		return tx.Commit()
+	}
 	event := ContactActivityNotification{UserID: p.claim.owner, ContactID: p.claim.profile, Email: p.contact.Email,
 		EventType: "contact_sync_started", Status: "running", Message: "Gofer Sync started", Count: 1}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO contact_activity_events(user_id,event_type,email,message,event_count) VALUES(?,?,?,?,?)`, event.UserID, event.EventType, event.Email, event.Message, event.Count); err != nil {
@@ -406,6 +482,15 @@ func (db *DB) CancelUserContactSyncOperation(ctx context.Context, c *ContactSync
 	return tx.Commit()
 }
 
+// contactStoreDestination says whether a store operation writes to this
+// account and book: its one place, which needs no membership.
+func contactStoreDestination(c *ContactSyncClaim, account, book string) bool {
+	if c == nil || c.store == nil || c.store.AccountID != account {
+		return false
+	}
+	return c.store.AddressBookID == "" || c.store.AddressBookID == book
+}
+
 func contactSyncDestinationTx(ctx context.Context, tx *sql.Tx, p *ContactSyncProfile, account, provider, book string) (*ContactSyncDestination, error) {
 	if err := checkContactSyncProfileTx(ctx, tx, p); err != nil {
 		return nil, err
@@ -421,7 +506,7 @@ func contactSyncDestinationTx(ctx context.Context, tx *sql.Tx, p *ContactSyncPro
  WHERE a.id=? AND a.user_id=? AND COALESCE(a.is_deleting,0)=0
  AND ((a.provider IN ('gmail','outlook') AND a.provider=? AND COALESCE(c.enabled,1)=1)
  OR (a.provider NOT IN ('gmail','outlook') AND ? IN ('carddav','jmap') AND c.provider=? AND c.enabled=1))
- AND EXISTS(SELECT 1 FROM contact_sync_memberships m WHERE m.user_id=a.user_id AND m.profile_id=? AND m.account_id=a.id AND m.enabled=1 AND (m.address_book_id='' OR m.address_book_id=?)))`, account, owner, provider, provider, provider, p.claim.profile, book).Scan(&valid); err != nil {
+ AND (? OR EXISTS(SELECT 1 FROM contact_sync_memberships m WHERE m.user_id=a.user_id AND m.profile_id=? AND m.account_id=a.id AND m.enabled=1 AND (m.address_book_id='' OR m.address_book_id=?))))`, account, owner, provider, provider, provider, contactStoreDestination(p.claim, account, book), p.claim.profile, book).Scan(&valid); err != nil {
 		return nil, err
 	}
 	if valid != 1 {
@@ -675,6 +760,9 @@ func (db *DB) FinishUserContactSyncOperation(ctx context.Context, c *ContactSync
 	if _, err := tx.ExecContext(ctx, `UPDATE contact_sync_operations SET status=?,locked_at=NULL,last_error=?,next_attempt_at=?,updated_at=CURRENT_TIMESTAMP WHERE user_id=? AND id=?`, status, message, retryAt.UTC().Format(time.RFC3339Nano), c.owner, c.id); err != nil {
 		return err
 	}
+	if c.store != nil {
+		return tx.Commit()
+	}
 	event := ContactActivityNotification{UserID: c.owner, ContactID: c.profile, EventType: "contact_synced", Status: status, Message: "Gofer Sync complete", Count: 1}
 	if status != "done" {
 		event.EventType, event.Message, event.Error = "contact_sync_failed", "Gofer Sync failed: "+message, message
@@ -702,7 +790,7 @@ func (db *DB) NextUserContactSyncAttempt(ctx context.Context, owner string, lock
 	}
 	var next, locked sqliteNullTime
 	var status string
-	err := db.Read().QueryRowContext(ctx, `SELECT next_attempt_at,locked_at,status FROM contact_sync_operations WHERE user_id=? AND status IN ('pending','running')
+	err := db.Read().QueryRowContext(ctx, `SELECT next_attempt_at,locked_at,status FROM contact_sync_operations WHERE user_id=? AND status IN ('pending','running') AND `+contactOperationNotPausedSQL+`
  ORDER BY CASE WHEN status='running' THEN max(julianday(replace(next_attempt_at,' +0000 UTC','')),julianday(replace(locked_at,' +0000 UTC',''))+?)
  ELSE julianday(replace(next_attempt_at,' +0000 UTC','')) END LIMIT 1`, owner, lockTimeout.Hours()/24).Scan(&next, &locked, &status)
 	if errors.Is(err, sql.ErrNoRows) {

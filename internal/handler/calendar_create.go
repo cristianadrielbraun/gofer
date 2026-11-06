@@ -315,8 +315,9 @@ func parseCalendarEventDraft(r *http.Request) (calendar.EventDraft, error) {
 	if err != nil {
 		return draft, err
 	}
-	if !end.After(start) {
-		return draft, fmt.Errorf("the end must be after the start")
+	// An event may end when it starts, as a reminder of a moment.
+	if end.Before(start) {
+		return draft, fmt.Errorf("the end can't be before the start")
 	}
 	draft.StartAt, draft.EndAt = &start, &end
 	return parseCalendarRecurrenceDraft(r, draft)

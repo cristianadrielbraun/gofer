@@ -24,6 +24,9 @@ const outlookContactPhotoMaxBytes = 1024 * 1024
 type outlookContactsResponse struct {
 	Contacts []outlookContact `json:"value"`
 	NextLink string           `json:"@odata.nextLink"`
+	// DeltaLink, on the last page of contact changes, is where the next
+	// sync of changes starts.
+	DeltaLink string `json:"@odata.deltaLink,omitempty"`
 }
 
 type outlookContact struct {
@@ -40,6 +43,11 @@ type outlookContact struct {
 	CompanyName    string                `json:"companyName,omitempty"`
 	JobTitle       string                `json:"jobTitle,omitempty"`
 	PersonalNotes  string                `json:"personalNotes,omitempty"`
+	ParentFolderID string                `json:"parentFolderId,omitempty"`
+	// Removed marks a contact deleted since the delta link.
+	Removed *struct {
+		Reason string `json:"reason,omitempty"`
+	} `json:"@removed,omitempty"`
 }
 
 type outlookContactPayload struct {
@@ -76,16 +84,19 @@ func (e outlookAPIError) RetryAfter() (time.Time, bool) {
 	return e.RetryAt, true
 }
 
+// syncOutlookContacts pulls the contacts that changed in Outlook since the
+// last sync, and settles the ones deleted there, for the shared store.
 func (h *Handler) syncOutlookContacts(ctx context.Context, userID, accountID, accessToken string) (int, error) {
-	endpoint := outlookGraphBaseURL + "/me/contacts?" + outlookContactListQuery().Encode()
+	deltaLink, err := h.db.ContactSyncToken(ctx, userID, accountID)
+	if err != nil {
+		return 0, err
+	}
+	get := func(endpoint string, out any) error {
+		return h.doOutlookJSON(ctx, http.MethodGet, endpoint, accessToken, nil, out)
+	}
 	imported := 0
-
-	for endpoint != "" {
-		var page outlookContactsResponse
-		if err := h.doOutlookJSON(ctx, http.MethodGet, endpoint, accessToken, nil, &page); err != nil {
-			return imported, err
-		}
-		for _, remote := range page.Contacts {
+	err = outlookContactChanges(ctx, get, deltaLink, func(contacts []outlookContact, deleted []string, next string) error {
+		for _, remote := range contacts {
 			contact := outlookContactFromGraph(remote)
 			if photoURL, err := h.fetchOutlookContactPhotoDataURL(ctx, accessToken, remote.ID); err == nil {
 				contact.AvatarURL = photoURL
@@ -95,7 +106,7 @@ func (h *Handler) syncOutlookContacts(ctx context.Context, userID, accountID, ac
 			}
 			contactID, canonicalChanged, err := h.upsertInboundSyncedContact(ctx, userID, providers.ProviderOutlook, accountID, remote.ID, contact)
 			if err != nil {
-				return imported, err
+				return err
 			}
 			if contactID != "" && strings.TrimSpace(remote.ID) != "" {
 				if err := h.db.UpsertContactSource(ctx, storage.ContactSource{
@@ -106,19 +117,27 @@ func (h *Handler) syncOutlookContacts(ctx context.Context, userID, accountID, ac
 					RemoteID:  remote.ID,
 					Etag:      outlookContactVersion(remote),
 				}); err != nil {
-					return imported, err
+					return err
 				}
 			}
 			if canonicalChanged {
 				if err := h.scheduleInboundContactFanout(ctx, userID, contactID, accountID); err != nil {
-					return imported, err
+					return err
 				}
 			}
 			imported++
 		}
-		endpoint = page.NextLink
-	}
-	return imported, nil
+		for _, remoteID := range deleted {
+			if err := h.db.RemoveDeletedContactSource(ctx, userID, providers.ProviderOutlook, accountID, remoteID); err != nil {
+				return err
+			}
+		}
+		if next != "" {
+			return h.db.SaveContactSyncToken(ctx, userID, accountID, providers.ProviderOutlook, next)
+		}
+		return nil
+	})
+	return imported, err
 }
 
 func (h *Handler) fetchOutlookContactPhotoDataURL(ctx context.Context, accessToken, remoteID string) (string, error) {
@@ -516,7 +535,7 @@ func (h *Handler) doOutlookJSON(ctx context.Context, method, endpoint, accessTok
 		return err
 	}
 	req.Header.Set("Authorization", "Bearer "+accessToken)
-	req.Header.Set("Prefer", `IdType="ImmutableId"`)
+	req.Header.Set("Prefer", outlookGraphPrefer(endpoint))
 	if payload != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}

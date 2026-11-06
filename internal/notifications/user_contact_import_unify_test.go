@@ -102,10 +102,13 @@ func TestUserContactUnifyHTTPAtomicQueueAndOwnerIsolation(t *testing.T) {
 	}
 }
 
-func requestContactImport(ctx context.Context, f *userStorageFixture, owner, targets, wire string) *httptest.ResponseRecorder {
+// requestContactImport imports wire into storeIn, with Gofer Sync off and,
+// for a request that tried anyway, more places it must not sync with.
+func requestContactImport(ctx context.Context, f *userStorageFixture, owner, storeIn, wire string) *httptest.ResponseRecorder {
 	var body bytes.Buffer
 	form := multipart.NewWriter(&body)
-	_ = form.WriteField("save_targets", targets)
+	_ = form.WriteField("store_in", storeIn)
+	_ = form.WriteField("sync_with", "book:"+owner+"-owned-book")
 	file, err := form.CreateFormFile("vcard", "contacts.vcf")
 	if err != nil {
 		panic(err)
@@ -131,7 +134,13 @@ func TestUserContactImportHTTPOwnedDestinationsAndDisabledSync(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	response := requestContactImport(t.Context(), f, "alice", "local,book:alice-owned-book,book:bob-owned-book,account:"+f.accounts["bob"].ID, contactImportOne+contactImportTwo)
+	// Another owner's place is refused before anything is saved.
+	for _, foreign := range []string{"book:bob-owned-book", "account:" + f.accounts["bob"].ID} {
+		if response := requestContactImport(t.Context(), f, "alice", foreign, contactImportOne); response.Code != 400 {
+			t.Fatal("foreign store place", foreign, response.Code, response.Body.String())
+		}
+	}
+	response := requestContactImport(t.Context(), f, "alice", "local", contactImportOne+contactImportTwo)
 	if response.Code != 303 || response.Header().Get("Location") != "/contacts?imported=2" {
 		t.Fatal("import response", response.Code, response.Body.String())
 	}
@@ -148,8 +157,9 @@ func TestUserContactImportHTTPOwnedDestinationsAndDisabledSync(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			if contact.ID == "same-contact-id" || contact.ID == "same-imported-id" || contact.GoferSyncEnabled || len(contact.SaveTargets) != 2 || contact.SaveTargets[1] != "book:alice-owned-book" {
-				t.Fatal("import trusted UID/foreign target or enabled sync", contact)
+			// Without Gofer Sync the places to sync with are left out.
+			if contact.ID == "same-contact-id" || contact.ID == "same-imported-id" || contact.GoferSyncEnabled || len(contact.SaveTargets) != 1 || contact.SaveTargets[0] != "local" || contact.Source != models.ContactOriginImported {
+				t.Fatal("import trusted UID/foreign target, enabled sync or lost its origin", contact)
 			}
 		}
 		original, err := db.GetContact(t.Context(), "alice", "same-contact-id")
@@ -192,7 +202,7 @@ func TestUserContactImportHTTPOwnedDestinationsAndDisabledSync(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	response = requestContactImport(t.Context(), f, "alice", "local,book:alice-owned-book", contactImportOne+strings.ReplaceAll(contactImportOne, "Imported one", "Updated one"))
+	response = requestContactImport(t.Context(), f, "alice", "local", contactImportOne+strings.ReplaceAll(contactImportOne, "Imported one", "Updated one"))
 	if response.Code != 303 || response.Header().Get("Location") != "/contacts?imported=2" {
 		t.Fatal("repeated import", response.Code, response.Body.String())
 	}

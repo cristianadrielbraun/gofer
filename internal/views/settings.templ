@@ -1445,8 +1445,8 @@ templ SettingsSyncTab(settings models.SyncSettings, uiSettings map[string]string
 						</div>
 					</div>
 				</div>
-				<div class="settings-item overflow-hidden rounded-lg border border-border/60 bg-background/40" data-unified-folder-list>
-					for _, folder := range unifiedFolderOptions() {
+				<div class="settings-item overflow-hidden rounded-lg border border-border/60 bg-background/40" data-unified-folder-list data-unified-order-list>
+					for _, folder := range unifiedFolderOptionsInOrder(uiSettings) {
 						@UnifiedFolderSettingRow(folder, settings.UnifiedAccounts, uiSettings)
 					}
 				</div>
@@ -1474,12 +1474,15 @@ templ UnifiedFolderSettingRow(folder unifiedFolderOption, accounts []models.Acco
 	{{ masterEnabled := uiSettingGet(uiSettings, "unified_folders_enabled", "true") != "false" }}
 	<div
 		class={
-			"flex min-h-12 items-center justify-between gap-3 border-b border-border/60 px-3 py-2.5 transition-colors last:border-b-0 hover:bg-muted/30",
+			"flex min-h-12 items-center justify-between gap-3 border-b border-border/60 bg-background px-3 py-2.5 transition-[background-color,transform] duration-200 ease-out last:border-b-0 hover:bg-muted/30",
 			templ.KV("opacity-50", !masterEnabled),
 		}
 		data-unified-folder-dependent
+		data-unified-order-item
+		data-folder-id={ folder.ID }
 	>
 		<div class="flex min-w-0 items-center gap-3">
+			@OrderHandle("data-unified-order-handle", i18n.T(ctx, "settings.folders.reorder_label", "name", folder.Name))
 			<span class="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground">
 				@FolderAppearanceIcon(virtualFolderAppearance(folder.ID, uiSettings))
 			</span>
@@ -2118,11 +2121,17 @@ templ SettingsAccountConnectionTestDialog(account models.Account) {
 // SettingsAccountOrderHandle drags the account's card to a new place in the
 // list. Focused, the arrow keys move it up and down.
 templ SettingsAccountOrderHandle(account models.Account) {
+	@OrderHandle("data-account-order-handle", i18n.T(ctx, "settings.account.reorder_label", "account", account.Name))
+}
+
+// OrderHandle drags its item to a new place in a list that settings.js puts
+// in order; attribute names the list's kind of handle.
+templ OrderHandle(attribute, label string) {
 	<button
 		type="button"
-		data-account-order-handle
+		{ templ.Attributes{attribute: ""}... }
 		class="-ml-1.5 flex h-5 shrink-0 cursor-grab touch-none items-center rounded px-0.5 text-muted-foreground/70 transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing"
-		aria-label={ i18n.T(ctx, "settings.account.reorder_label", "account", account.Name) }
+		aria-label={ label }
 		title={ i18n.T(ctx, "settings.account.drag") }
 	>
 		@icon.GripVertical(icon.Props{Class: "size-4"})
