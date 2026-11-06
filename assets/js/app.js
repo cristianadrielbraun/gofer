@@ -328,6 +328,12 @@ document.addEventListener("DOMContentLoaded", function () {
   // How long a list's rows take to drop in: the last row's delay plus the
   // drop (fanInRows in virtual-scroll.js).
   var LIST_FAN_IN_MS = 150 + 220
+  // Mail's list fetched ahead while it is kept off screen (prefetchKeptMail):
+  // how many changes came, and the fetch under way.
+  var keptMailChanges = 0
+  var keptMailPrefetchTimer = null
+  var keptMailPrefetching = false
+  var keptMailPrefetchAgain = false
   // Mail's and Contacts' sidebars as last left (rememberSectionSidebar).
   var lastSectionSidebars = {}
   // The tab title shows the unread count: the counts last fetched, and the
@@ -418,18 +424,25 @@ document.addEventListener("DOMContentLoaded", function () {
       ;["mail", "contacts"].forEach(function (section) { pointSectionButton(section, locations[section]) })
       rememberSectionLocation(mode)
       endAppSwitching()
+      stale = stale || {}
+      var list = mode === "mail" ? virtualMailList : mode === "contacts" ? virtualContactsList : null
+      var drops = !!(list && typeof list.fanInRows === "function" && !list.prefersReducedMotion())
       if (mode === "mail") {
-        flushPendingSyncEvents()
+        stale = keptMailRefresh(virtualMailList, stale)
         applyActiveFolderSyncState()
+        if (stale.content && virtualMailList && virtualMailList.navigationMode !== "pagination") {
+          catchUpKeptMail(virtualMailList, drops, stale)
+          return
+        }
+        flushPendingSyncEvents()
       }
       if (mode === "calendar") initializeCalendarDaySelection()
       // The rows drop in as they do when the section arrives from the server.
       // A refresh would replace them mid-drop, so it waits for the drop to end.
-      var list = mode === "mail" ? virtualMailList : mode === "contacts" ? virtualContactsList : null
-      if (list && typeof list.fanInRows === "function" && !list.prefersReducedMotion()) {
+      if (drops) {
         list.fanInRows()
-        setTimeout(function () { refreshKeptSection(mode, stale || {}) }, LIST_FAN_IN_MS)
-      } else refreshKeptSection(mode, stale || {})
+        setTimeout(function () { refreshKeptSection(mode, stale) }, LIST_FAN_IN_MS)
+      } else refreshKeptSection(mode, stale)
     },
     bindSidebar: setupFolderClickInterception,
     loaded: function (mode, address) {
@@ -9345,35 +9358,43 @@ document.addEventListener("DOMContentLoaded", function () {
     fetch("/api/folders/unread").then(function (r) { return r.json() }).then(function (counts) {
       titleUnreadCounts = counts
       applyTitleUnreadCount()
-      var badges = document.querySelectorAll("[data-folder-unread]")
-      for (var i = 0; i < badges.length; i++) {
-        var badge = badges[i]
-        var id = badge.dataset.folderUnread
-        if (counts[id] !== undefined) {
-          var n = counts[id]
-          badge.textContent = String(n)
-          badge.style.display = n > 0 ? "" : "none"
-        }
+      // Mail's sidebar kept off screen (navigation.js) takes the counts too.
+      var kept = window.GoferNavigation && GoferNavigation.keptPanes ? GoferNavigation.keptPanes("mail") : []
+      ;[document].concat(kept.filter(function (pane) { return pane.id === "sidebar-app-body" })).forEach(function (root) {
+        applySidebarUnread(root, counts)
+      })
+    }).catch(function () {})
+  }
+
+  function applySidebarUnread(root, counts) {
+    var badges = root.querySelectorAll("[data-folder-unread]")
+    for (var i = 0; i < badges.length; i++) {
+      var badge = badges[i]
+      var id = badge.dataset.folderUnread
+      if (counts[id] !== undefined) {
+        var n = counts[id]
+        badge.textContent = String(n)
+        badge.style.display = n > 0 ? "" : "none"
       }
-      for (var id in counts) {
-        if (counts[id] > 0) {
-          var existing = document.querySelector('[data-folder-unread="' + id + '"]')
-          if (!existing) {
-            var link = document.querySelector('aside a[hx-get="/folder/' + id + '"]')
-            if (link) {
-              var span = link.querySelector("span.truncate")
-              if (span) {
-                var badge = document.createElement("span")
-                badge.dataset.folderUnread = id
-                badge.className = "min-w-5 h-5 px-1.5 flex items-center justify-center rounded-full text-[11px] font-semibold tabular-nums bg-sidebar-accent text-sidebar-foreground"
-                badge.textContent = String(counts[id])
-                link.appendChild(badge)
-              }
+    }
+    for (var id in counts) {
+      if (counts[id] > 0) {
+        var existing = root.querySelector('[data-folder-unread="' + id + '"]')
+        if (!existing) {
+          var link = root.querySelector((root === document ? "aside " : "") + 'a[hx-get="/folder/' + id + '"]')
+          if (link) {
+            var span = link.querySelector("span.truncate")
+            if (span) {
+              var badge = document.createElement("span")
+              badge.dataset.folderUnread = id
+              badge.className = "min-w-5 h-5 px-1.5 flex items-center justify-center rounded-full text-[11px] font-semibold tabular-nums bg-sidebar-accent text-sidebar-foreground"
+              badge.textContent = String(counts[id])
+              link.appendChild(badge)
             }
           }
         }
       }
-    }).catch(function () {})
+    }
   }
   window.goferRefreshSidebarUnread = refreshSidebarUnread
 
@@ -10511,6 +10532,85 @@ document.addEventListener("DOMContentLoaded", function () {
   // it; it refreshes when shown again.
   function markKeptStale(mode, part) {
     if (window.GoferNavigation && GoferNavigation.markStale) GoferNavigation.markStale(mode, part)
+    if (mode === "mail" && part !== "sidebar") prefetchKeptMail()
+  }
+
+  // Mail's list kept off screen, if any.
+  function keptMailList() {
+    var panes = window.GoferNavigation && GoferNavigation.keptPanes ? GoferNavigation.keptPanes("mail") : []
+    for (var i = 0; i < panes.length; i++) {
+      var scroll = panes[i].id === "mail-list-scroll" ? panes[i] : panes[i].querySelector("#mail-list-scroll")
+      if (scroll && scroll._virtualMailList) return scroll._virtualMailList
+    }
+    return null
+  }
+
+  // While Mail is kept off screen, what changed in its list is fetched
+  // ahead, a moment after the last change. Coming back applies it before the rows drop in, laid out
+  // against the list's own scroll (keptMailRefresh). Laying the list out
+  // while off the page would not work: it reads as scrolled to the top and
+  // as tall as nothing.
+  function prefetchKeptMail() {
+    keptMailChanges++
+    clearTimeout(keptMailPrefetchTimer)
+    keptMailPrefetchTimer = setTimeout(function run() {
+      keptMailPrefetchTimer = null
+      var vml = keptMailList()
+      if (!vml || vml.navigationMode === "pagination") return
+      if (keptMailPrefetching) { keptMailPrefetchAgain = true; return }
+      keptMailPrefetching = true
+      var changes = keptMailChanges
+      var url = vml.refreshURL()
+      vml.fetchHTML(url).then(function (html) {
+        // Shown again meanwhile: it refreshes on screen instead.
+        if (!vml.container.isConnected) vml.keptRefresh = { url: url, html: html, changes: changes }
+      }).catch(function () {}).then(function () {
+        keptMailPrefetching = false
+        if (keptMailPrefetchAgain) {
+          keptMailPrefetchAgain = false
+          run()
+        }
+      })
+    }, 200)
+  }
+
+  // Mail came back with changes its rows fetched ahead don't have yet: they
+  // are fetched now and the list drops in with them, as if they had always
+  // been there, rather than dropping in and then taking new mail in on top.
+  // A slow answer doesn't hold the list past a moment after the slide; it
+  // then drops in as it was and takes the rows quietly when they come.
+  function catchUpKeptMail(vml, drops, stale) {
+    pendingSyncEvents = pendingSyncEvents.filter(function (event) { return !matchesActiveFolder(vml.folderID, event.folderId, event.folderRole) })
+    var rest = { sidebar: stale.sidebar }
+    var shown = false
+    var show = function () {
+      if (shown) return
+      shown = true
+      if (drops) vml.fanInRows()
+      else document.documentElement.classList.remove("mail-list-entering")
+      setTimeout(function () { refreshKeptSection("mail", rest) }, drops ? LIST_FAN_IN_MS : 0)
+    }
+    document.documentElement.classList.add("mail-list-entering")
+    var sliding = typeof appPanelsSlideRemaining === "function" ? appPanelsSlideRemaining() : 0
+    setTimeout(show, Math.max(sliding, APP_SWITCH_MS) + 300)
+    vml.fetchHTML(vml.refreshURL()).then(function (html) {
+      if (vml !== virtualMailList) return
+      vml.refreshCurrentFolder({ noAnimation: true, rebase: mailListNearTop(vml), html: html }).catch(function () {})
+      show()
+    }).catch(show)
+  }
+
+  // Applies the rows fetched while Mail was away, if they are for the list
+  // as it stands; returns what is still stale after them.
+  function keptMailRefresh(vml, stale) {
+    var ahead = vml && vml.keptRefresh
+    if (vml) delete vml.keptRefresh
+    if (!stale.content || !ahead || ahead.url !== vml.refreshURL()) return stale
+    vml.refreshCurrentFolder({ noAnimation: true, rebase: mailListNearTop(vml), html: ahead.html }).catch(function () {})
+    // New mail it would have replayed is in already.
+    pendingSyncEvents = pendingSyncEvents.filter(function (event) { return !matchesActiveFolder(vml.folderID, event.folderId, event.folderRole) })
+    // The counts reached the kept sidebar as they came (refreshSidebarUnread).
+    return { sidebar: stale.sidebar, content: ahead.changes !== keptMailChanges }
   }
 
   function placeSwitchSidebarEarly(response, source) {

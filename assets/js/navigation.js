@@ -371,5 +371,12 @@
     Object.keys(kept).forEach(function (mode) { if (mode !== here) delete kept[mode] })
   })
 
-  window.GoferNavigation = { navigate: navigate, route: route, markStale: markStale }
+  // A kept section's panes, off the page, for live updates to reach.
+  function keptPanes(mode) {
+    var entry = kept[mode]
+    if (!entry) return []
+    return entry.panes.concat(entry.main.children.filter(function (child) { return child.nodeType === 1 }))
+  }
+
+  window.GoferNavigation = { navigate: navigate, route: route, markStale: markStale, keptPanes: keptPanes }
 })()

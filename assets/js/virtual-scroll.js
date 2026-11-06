@@ -2170,13 +2170,9 @@ class VirtualMailList {
         return
       }
       var transition = options.noAnimation ? null : self.captureListTransition()
-      var params = "limit=" + self.mailListFetchLimit()
-      if (self.selectedEmailId) {
-        params += "&selected=" + encodeURIComponent(self.selectedEmailId)
-      }
-      var url = "/mail/folder/" + self.folderID + "/items?" + params + "&view=" + encodeURIComponent(self.viewMode)
-      url = self.withFilterParams(url)
-      var html = await self.fetchHTML(url)
+      // Rows fetched ahead for this same request (a list kept off screen,
+      // see app.js) are applied at once, without waiting on the network.
+      var html = typeof options.html === "string" ? options.html : await self.fetchHTML(self.refreshURL())
       var selected = self.selectedEmailId
       var syncState = self.syncState
       var expandedSnapshot = self.captureExpandedThreads()
@@ -2209,6 +2205,15 @@ class VirtualMailList {
         this.refreshCurrentFolder(queuedOptions)
       }
     }
+  }
+
+  // The request refreshCurrentFolder makes for the rows at the top.
+  refreshURL() {
+    var params = "limit=" + this.mailListFetchLimit()
+    if (this.selectedEmailId) {
+      params += "&selected=" + encodeURIComponent(this.selectedEmailId)
+    }
+    return this.withFilterParams("/mail/folder/" + this.folderID + "/items?" + params + "&view=" + encodeURIComponent(this.viewMode))
   }
 
   mergeRefreshOptions(base, next) {
