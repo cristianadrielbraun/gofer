@@ -180,7 +180,7 @@ func calendarCalDAVReadOccurrence(ctx context.Context, source storage.CalendarSo
 	} else if existing.StartAt != nil && existing.EndAt != nil {
 		start, end = *existing.StartAt, *existing.EndAt
 	}
-	if start.IsZero() || !end.After(start) {
+	if start.IsZero() || end.Before(start) || existing.AllDay && !end.After(start) {
 		return nil, errCalendarUpdateConflict
 	}
 	resource, _ := url.Parse(existing.SeriesRemoteID)
@@ -359,7 +359,7 @@ func updateCalDAVCalendarOccurrence(ctx context.Context, source storage.Calendar
 			if name == "DESCRIPTION" {
 				continue
 			}
-			override.Props.Set(edited.Events()[0].Props.Get(name))
+			calendarCopyICSProp(override.Props, edited.Events()[0].Props, name)
 		}
 		calendarUpdateDescriptionProps(override.Props, edited.Events()[0].Props, existing.Description, *draft)
 		delete(override.Props, "DURATION")

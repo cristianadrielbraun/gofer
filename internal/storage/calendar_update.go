@@ -82,7 +82,7 @@ func calendarUpdateValues(expectedETag string, event CalendarEvent, series, occu
 		}
 		startDate, endDate = event.StartDate, event.EndDate
 	} else {
-		if event.StartAt == nil || event.EndAt == nil || !event.EndAt.After(*event.StartAt) {
+		if event.StartAt == nil || event.EndAt == nil || event.EndAt.Before(*event.StartAt) {
 			return calendarMutationValues{}, fmt.Errorf("invalid timed event")
 		}
 		startAt, endAt = calendarEventTimeValue(event.StartAt), calendarEventTimeValue(event.EndAt)

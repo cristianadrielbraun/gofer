@@ -281,6 +281,27 @@ func createOutlookCalendarEvent(ctx context.Context, token, remoteCalendarID str
 	return event, nil
 }
 
+// calendarSetICSEnd writes a timed event's DTEND. iCalendar requires DTEND
+// to be after DTSTART; an event that ends when it starts has none.
+func calendarSetICSEnd(props ical.Props, start, end time.Time) {
+	if end.Equal(start) {
+		delete(props, "DTEND")
+		return
+	}
+	props.SetDateTime("DTEND", end)
+}
+
+// calendarCopyICSProp copies one property of an edited event, or removes it
+// when the edited event has none, as DTEND for an event that ends when it
+// starts.
+func calendarCopyICSProp(dst, src ical.Props, name string) {
+	if prop := src.Get(name); prop != nil {
+		dst.Set(prop)
+		return
+	}
+	delete(dst, name)
+}
+
 func calendarCreateICS(draft calendar.EventDraft) (string, error) {
 	cal := ical.NewCalendar()
 	cal.Props.SetText("PRODID", "-//Gofer//Calendar//EN")
@@ -348,7 +369,7 @@ func calendarCreateICS(draft calendar.EventDraft) (string, error) {
 			return "", err
 		}
 		event.Props.SetDateTime("DTSTART", draft.StartAt.In(zone))
-		event.Props.SetDateTime("DTEND", draft.EndAt.In(zone))
+		calendarSetICSEnd(event.Props, *draft.StartAt, draft.EndAt.In(zone))
 		if zone != time.UTC {
 			timezone, err := calendarRecurrenceTimezone(draft, zone)
 			if err != nil {
@@ -358,7 +379,7 @@ func calendarCreateICS(draft calendar.EventDraft) (string, error) {
 		}
 	} else {
 		event.Props.SetDateTime("DTSTART", draft.StartAt.UTC())
-		event.Props.SetDateTime("DTEND", draft.EndAt.UTC())
+		calendarSetICSEnd(event.Props, *draft.StartAt, draft.EndAt.UTC())
 	}
 	if draft.Recurrence != nil {
 		event.Props.Set(&ical.Prop{Name: "RRULE", Value: calendarRecurrenceRule(draft)})

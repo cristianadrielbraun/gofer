@@ -483,7 +483,7 @@ var serverTextKeys = map[string]string{
 	"repeat every 1 to 99 days, weeks, months, or years":                            "server.error.repeat_every_1_to_99_days_weeks_months",
 	"choose a valid repeat frequency":                                               "server.error.choose_a_valid_repeat_frequency",
 	"choose a repeat frequency before configuring a series":                         "server.error.choose_a_repeat_frequency_before_configuring_a_series",
-	"the end must be after the start":                                               "server.error.the_end_must_be_after_the_start",
+	"the end can't be before the start":                                             "server.error.the_end_cannot_be_before_the_start",
 	"the last day must be on or after the first day":                                "server.error.the_last_day_must_be_on_or_after",
 	"enter a valid end date":                                                        "server.error.enter_a_valid_end_date",
 	"enter a valid start date":                                                      "server.error.enter_a_valid_start_date",

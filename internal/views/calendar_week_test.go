@@ -239,3 +239,20 @@ func TestCalendarMoveAttributesAndResize(t *testing.T) {
 		t.Fatal("an event ending the next day can be resized on its first day")
 	}
 }
+
+// A point event shows only its time, not a range from it to itself.
+func TestCalendarWeekPointEventShowsOnlyItsTime(t *testing.T) {
+	ctx := context.Background()
+	day := CalendarDay{Date: time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)}
+	blocks := calendarTimedBlocks(day, []CalendarEvent{calendarTestTimedEvent("point", day.Date, 14*60, 14*60)})
+	if len(blocks) != 1 {
+		t.Fatalf("blocks = %#v", blocks)
+	}
+	if got, want := calendarTimedBlockRange(ctx, blocks[0]), calendarMinuteLabel(ctx, 14*60); got != want {
+		t.Fatalf("point event label = %q, want %q", got, want)
+	}
+	ranged := calendarTimedBlocks(day, []CalendarEvent{calendarTestTimedEvent("meeting", day.Date, 14*60, 15*60)})
+	if got := calendarTimedBlockRange(ctx, ranged[0]); got == calendarMinuteLabel(ctx, 14*60) {
+		t.Fatalf("event with a length lost its end: %q", got)
+	}
+}

@@ -95,7 +95,7 @@ func calendarResponseValues(existing, event CalendarEvent, organizer bool) (cale
 		}
 		startDate, endDate = event.StartDate, event.EndDate
 	} else {
-		if event.StartAt == nil || event.EndAt == nil || !event.EndAt.After(*event.StartAt) {
+		if event.StartAt == nil || event.EndAt == nil || event.EndAt.Before(*event.StartAt) {
 			return calendarMutationValues{}, ErrCalendarUpdateConflict
 		}
 		startAt, endAt = calendarEventTimeValue(event.StartAt), calendarEventTimeValue(event.EndAt)

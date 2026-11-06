@@ -4475,7 +4475,7 @@
   "server.error.the_email_is_too_large": "el correo es demasiado grande",
   "server.error.the_email_isnt_in_this_account_any_more": "el correo ya no está en esta cuenta",
   "server.error.the_emails_could_not_be_sent_to": "No se pudieron enviar los correos a la otra cuenta.",
-  "server.error.the_end_must_be_after_the_start": "el fin debe ser posterior al inicio",
+  "server.error.the_end_cannot_be_before_the_start": "el fin no puede ser anterior al inicio",
   "server.error.the_event_in_your_calendar_isnt_this_invitations": "el evento de tu calendario no es el de esta invitación",
   "server.error.the_file_is_larger_than_10_mb": "El archivo supera los 10 MB. Divídelo en archivos más pequeños.",
   "server.error.the_folder_has_no_name": "la carpeta no tiene nombre",

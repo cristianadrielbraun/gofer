@@ -4475,7 +4475,7 @@
   "server.error.the_email_is_too_large": "o e-mail é grande demais",
   "server.error.the_email_isnt_in_this_account_any_more": "o e-mail não está mais nesta conta",
   "server.error.the_emails_could_not_be_sent_to": "Não foi possível enviar os e-mails para a outra conta.",
-  "server.error.the_end_must_be_after_the_start": "o término precisa ser depois do início",
+  "server.error.the_end_cannot_be_before_the_start": "o término não pode ser antes do início",
   "server.error.the_event_in_your_calendar_isnt_this_invitations": "o evento na sua agenda não é o deste convite",
   "server.error.the_file_is_larger_than_10_mb": "O arquivo tem mais de 10 MB. Divida-o em arquivos menores.",
   "server.error.the_folder_has_no_name": "a pasta não tem nome",

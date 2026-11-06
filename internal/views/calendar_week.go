@@ -231,7 +231,11 @@ func calendarTimedBlockShort(block CalendarTimedBlock) bool {
 // calendarTimedBlockRange is a block's times, with its zone on days that
 // change offset.
 func calendarTimedBlockRange(ctx context.Context, block CalendarTimedBlock) string {
-	label := i18n.T(ctx, "date.pattern.time_range", "start", calendarMinuteLabel(ctx, block.StartMinute), "end", calendarMinuteLabel(ctx, block.EndMinute))
+	// An event that ends when it starts shows only its time.
+	label := calendarMinuteLabel(ctx, block.StartMinute)
+	if event := block.Event; event.StartAt == nil || event.EndAt == nil || !event.EndAt.Equal(*event.StartAt) {
+		label = i18n.T(ctx, "date.pattern.time_range", "start", label, "end", calendarMinuteLabel(ctx, block.EndMinute))
+	}
 	if block.Zone != "" {
 		label += " " + block.Zone
 	}

@@ -176,7 +176,7 @@ func calendarUpdateDraftLocation(draft calendar.EventDraft) (*time.Location, err
 		if startErr != nil || endErr != nil || !end.After(start) {
 			return nil, fmt.Errorf("calendar update requires a valid date range")
 		}
-	} else if draft.StartAt == nil || draft.EndAt == nil || draft.StartAt.IsZero() || !draft.EndAt.After(*draft.StartAt) {
+	} else if draft.StartAt == nil || draft.EndAt == nil || draft.StartAt.IsZero() || draft.EndAt.Before(*draft.StartAt) {
 		return nil, fmt.Errorf("calendar update requires a valid time range")
 	}
 	return location, nil
@@ -808,7 +808,7 @@ func updateCalDAVCalendarEventScope(ctx context.Context, source storage.Calendar
 		if name == "DESCRIPTION" {
 			continue
 		}
-		props.Set(edited.Events()[0].Props.Get(name))
+		calendarCopyICSProp(props, edited.Events()[0].Props, name)
 	}
 	calendarUpdateDescriptionProps(props, edited.Events()[0].Props, existing.Description, draft)
 	delete(props, "DURATION") // DTEND and DURATION are mutually exclusive.

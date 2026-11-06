@@ -363,7 +363,7 @@ func (h *Handler) updateCalDAVMeetingOccurrence(ctx context.Context, source stor
 			return fail(err)
 		}
 		for _, field := range []string{"SUMMARY", "LOCATION", "DTSTART", "DTEND", "X-GOFER-TIMEZONE"} {
-			override.Props.Set(edited.Events()[0].Props.Get(field))
+			calendarCopyICSProp(override.Props, edited.Events()[0].Props, field)
 		}
 		calendarUpdateDescriptionProps(override.Props, edited.Events()[0].Props, existing.Description, *draft)
 		delete(override.Props, "DURATION")

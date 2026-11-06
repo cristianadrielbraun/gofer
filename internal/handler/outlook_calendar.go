@@ -354,7 +354,8 @@ func normalizeOutlookCalendarEvent(remote outlookCalendarEvent) (calendar.Remote
 	if err != nil {
 		return calendar.RemoteEvent{}, fmt.Errorf("parse Microsoft Calendar end for %q: %w", event.RemoteID, err)
 	}
-	if !event.Deleted && (event.StartAt == nil || event.EndAt == nil || !event.EndAt.After(*event.StartAt)) {
+	// An event may end when it starts, as a reminder of a moment.
+	if !event.Deleted && (event.StartAt == nil || event.EndAt == nil || event.EndAt.Before(*event.StartAt)) {
 		return calendar.RemoteEvent{}, fmt.Errorf("Microsoft Calendar timed event %q has an invalid time range", event.RemoteID)
 	}
 	return event, nil

@@ -46,7 +46,7 @@ func calendarCreatedRemote(draft calendar.EventDraft) calendar.RemoteEvent {
 func TestCalendarCreateValidationAndAllDayDateSemantics(t *testing.T) {
 	for _, tc := range []struct{ name, key, value string }{
 		{"missing title", "summary", " "}, {"invalid request", "request_id", "invalid"}, {"unknown timezone", "timezone", "Not/AZone"},
-		{"invalid date", "start_date", "2026-02-30"}, {"end before start", "end_time", "08:00"}, {"same start end", "end_time", "09:00"},
+		{"invalid date", "start_date", "2026-02-30"}, {"end before start", "end_time", "08:00"},
 		{"missing time", "start_time", ""}, {"oversized location", "location", strings.Repeat("a", 1025)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

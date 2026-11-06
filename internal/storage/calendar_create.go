@@ -103,7 +103,7 @@ func validateCalendarCreateEvent(event CalendarEvent) error {
 		if event.StartDate == "" || event.EndDate <= event.StartDate {
 			return fmt.Errorf("invalid all-day event")
 		}
-	} else if event.StartAt == nil || event.EndAt == nil || !event.EndAt.After(*event.StartAt) {
+	} else if event.StartAt == nil || event.EndAt == nil || event.EndAt.Before(*event.StartAt) {
 		return fmt.Errorf("invalid timed event")
 	}
 	return nil
