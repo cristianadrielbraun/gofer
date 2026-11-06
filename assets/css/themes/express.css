@@ -1879,8 +1879,10 @@ html:root[data-theme="express"] :is([data-calendar-month-event], [data-calendar-
   outline-offset: -3px;
 }
 
-/* Filters opens a window, so it is an ordinary raised push button. */
-[data-theme="express"] [data-mail-filter-button] {
+/* Filters opens a window, so it is an ordinary raised push button, and so
+   are the search's scope menu and its help button on either side of the
+   field. */
+[data-theme="express"] :is([data-mail-filter-button], [data-mail-scope-trigger], [data-mail-search-help]) {
   border: none;
   border-radius: 0;
   background: var(--xp-face);
@@ -1890,12 +1892,12 @@ html:root[data-theme="express"] :is([data-calendar-month-event], [data-calendar-
   transition: none;
 }
 
-[data-theme="express"] [data-mail-filter-button]:hover {
+[data-theme="express"] :is([data-mail-filter-button], [data-mail-scope-trigger], [data-mail-search-help]):hover {
   background: color-mix(in srgb, var(--xp-face) 92%, var(--xp-light));
 }
 
-[data-theme="express"] [data-mail-filter-button]:active,
-[data-theme="express"] [data-tui-popover-open="true"]:not([data-tui-popover-type="hover"]) > [data-mail-filter-button] {
+[data-theme="express"] :is([data-mail-filter-button], [data-mail-scope-trigger], [data-mail-search-help]):active,
+[data-theme="express"] [data-tui-popover-open="true"]:not([data-tui-popover-type="hover"]) > :is([data-mail-filter-button], [data-mail-scope-trigger], [data-mail-search-help]) {
   box-shadow: var(--xp-bevel-pressed);
 }
 
