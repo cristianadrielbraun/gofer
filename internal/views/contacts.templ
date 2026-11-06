@@ -1061,6 +1061,8 @@ func contactSortLabel(ctx context.Context, filters models.ContactFilters) string
 	switch filters.SortBy {
 	case "name":
 		return i18n.T(ctx, "contacts.sort.name")
+	case "created":
+		return i18n.T(ctx, "contacts.sort.created")
 	case "last_interaction":
 		return i18n.T(ctx, "contacts.sort.last_interaction")
 	default:
@@ -1875,6 +1877,7 @@ templ ContactsListPane(contacts []models.Contact, selected *models.Contact, filt
 								@selectbox.Trigger(selectbox.TriggerProps{Name: "sort_by", Class: "h-8 bg-background text-xs", DisableClear: true}) { @selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "contacts.sort.updated")}) }
 								@selectbox.Content(selectbox.ContentProps{NoSearch: true, DisableExclusive: true}) {
 									@selectbox.Item(selectbox.ItemProps{Value: "updated", Selected: filters.SortBy == "" || filters.SortBy == "updated"}) { { i18n.T(ctx, "contacts.sort.updated") } }
+									@selectbox.Item(selectbox.ItemProps{Value: "created", Selected: filters.SortBy == "created"}) { { i18n.T(ctx, "contacts.sort.created") } }
 									@selectbox.Item(selectbox.ItemProps{Value: "name", Selected: filters.SortBy == "name"}) { { i18n.T(ctx, "contacts.sort.name") } }
 									@selectbox.Item(selectbox.ItemProps{Value: "last_interaction", Selected: filters.SortBy == "last_interaction"}) { { i18n.T(ctx, "contacts.sort.last_interaction") } }
 								}

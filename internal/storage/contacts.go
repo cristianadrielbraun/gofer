@@ -686,6 +686,7 @@ func scanProfileContactRow(ctx context.Context, scanner interface{ Scan(dest ...
 		c.LastSeenAt = formatContactTime(ctx, lastSeen.String, loc)
 	}
 	if createdAt.Valid {
+		c.CreatedSort = createdAt.String
 		c.CreatedAt = formatContactTime(ctx, createdAt.String, loc)
 	}
 	if updatedAt.Valid {
@@ -702,15 +703,19 @@ func contactListOrderSQL(filters models.ContactFilters, profile bool) string {
 	}
 	nameColumn := "c.display_name"
 	updatedColumn := "c.updated_at"
+	createdColumn := "c.created_at"
 	lastSeenColumn := "ce.last_seen_at"
 	if profile {
 		nameColumn = "p.display_name"
 		updatedColumn = "p.updated_at"
+		createdColumn = "p.created_at"
 		lastSeenColumn = "(SELECT MAX(co.last_seen_at) FROM contact_identities ci INDEXED BY idx_contact_identities_profile JOIN contact_observations co ON co.user_id = ci.user_id AND co.normalized_email = ci.normalized_value AND co.is_suppressed = 0 WHERE ci.user_id = p.user_id AND ci.profile_id = p.id AND ci.kind = 'email')"
 	}
 	switch filters.SortBy {
 	case "name":
 		return nameColumn + " COLLATE NOCASE " + direction + ", " + updatedColumn + " DESC"
+	case "created":
+		return createdColumn + " " + direction + ", " + nameColumn + " COLLATE NOCASE ASC"
 	case "last_interaction":
 		return "(" + lastSeenColumn + " IS NULL) ASC, " + lastSeenColumn + " " + direction + ", " + nameColumn + " COLLATE NOCASE ASC"
 	default:
@@ -725,6 +730,8 @@ func sortContactsForList(contacts []models.Contact, filters models.ContactFilter
 		switch filters.SortBy {
 		case "name":
 			leftValue, rightValue = strings.ToLower(left.Name), strings.ToLower(right.Name)
+		case "created":
+			leftValue, rightValue = left.CreatedSort, right.CreatedSort
 		case "last_interaction":
 			leftValue, rightValue = left.LastSeenSort, right.LastSeenSort
 		default:
@@ -1132,6 +1139,7 @@ func contactValuesFromProfile(ctx context.Context, profile models.ContactProfile
 		IsDeleted:        profile.IsDeleted,
 	}
 	loc := timezoneLocationFromContext(ctx)
+	contact.CreatedSort = profile.CreatedAt
 	contact.CreatedAt = formatContactTime(ctx, profile.CreatedAt, loc)
 	contact.UpdatedSort = profile.UpdatedAt
 	contact.UpdatedAt = formatContactTime(ctx, profile.UpdatedAt, loc)
@@ -1911,6 +1919,7 @@ func scanContactRow(ctx context.Context, scanner interface{ Scan(dest ...any) er
 		c.LastSeenAt = formatContactTime(ctx, lastSeen.String, loc)
 	}
 	if createdAt.Valid {
+		c.CreatedSort = createdAt.String
 		c.CreatedAt = formatContactTime(ctx, createdAt.String, loc)
 	}
 	if updatedAt.Valid {

@@ -10336,7 +10336,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
   function contactsPendingToolbarHTML(viewMode) {
     var sortBy = window.GoferSettings ? GoferSettings.get("contacts_list_sort_by") : "updated"
-    var sortLabel = sortBy === "name" ? goferT("js.contacts.sort.name") : (sortBy === "last_interaction" ? goferT("js.contacts.sort.last_interaction") : goferT("js.contacts.sort.updated"))
+    var sortLabel = sortBy === "name" ? goferT("js.contacts.sort.name") : (sortBy === "created" ? goferT("js.contacts.sort.created") : (sortBy === "last_interaction" ? goferT("js.contacts.sort.last_interaction") : goferT("js.contacts.sort.updated")))
     // Mirrors the contacts toolbar: select-all, the view and sort; filters
     // sit beside the search.
     return '<div class="flex items-center gap-1 px-4 py-1.5">' +

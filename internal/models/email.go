@@ -181,6 +181,7 @@ type Contact struct {
 	LastSeenAt       string
 	UpdatedAt        string
 	LastSeenSort     string
+	CreatedSort      string
 	UpdatedSort      string
 	SaveTargets      []string
 	AvatarHash       string

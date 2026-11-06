@@ -1129,6 +1129,40 @@ func TestListContactsSortsByNameInBothDirections(t *testing.T) {
 	}
 }
 
+// Created orders by when a contact was added, whatever happened to it since.
+func TestListContactsSortsByCreated(t *testing.T) {
+	ctx := context.Background()
+	db := newContactsTestDB(t)
+	first, err := db.SaveContact(ctx, "default", models.Contact{Name: "Older Otto", Email: "otto@example.com"})
+	if err != nil {
+		t.Fatalf("SaveContact() error = %v", err)
+	}
+	second, err := db.SaveContact(ctx, "default", models.Contact{Name: "Newer Wanda", Email: "wanda@example.com"})
+	if err != nil {
+		t.Fatalf("SaveContact() error = %v", err)
+	}
+	// Otto was added first but edited last.
+	if _, err := db.Write().ExecContext(ctx, `UPDATE contact_profiles SET created_at = '2021-01-01 00:00:00', updated_at = '2024-01-01 00:00:00' WHERE id = ?`, first.ID); err != nil {
+		t.Fatalf("set Otto dates: %v", err)
+	}
+	if _, err := db.Write().ExecContext(ctx, `UPDATE contact_profiles SET created_at = '2022-01-01 00:00:00', updated_at = '2023-01-01 00:00:00' WHERE id = ?`, second.ID); err != nil {
+		t.Fatalf("set Wanda dates: %v", err)
+	}
+
+	newest, err := db.ListContacts(ctx, "default", models.ContactFilters{SortBy: "created", SortOrder: "desc"}, 10, 0)
+	if err != nil || len(newest) != 2 || newest[0].Name != "Newer Wanda" || newest[1].Name != "Older Otto" {
+		t.Fatalf("created desc = %#v, %v", newest, err)
+	}
+	oldest, err := db.ListContacts(ctx, "default", models.ContactFilters{SortBy: "created", SortOrder: "asc"}, 10, 0)
+	if err != nil || len(oldest) != 2 || oldest[0].Name != "Older Otto" || oldest[1].Name != "Newer Wanda" {
+		t.Fatalf("created asc = %#v, %v", oldest, err)
+	}
+	updated, err := db.ListContacts(ctx, "default", models.ContactFilters{SortBy: "updated", SortOrder: "desc"}, 10, 0)
+	if err != nil || len(updated) != 2 || updated[0].Name != "Older Otto" {
+		t.Fatalf("updated desc = %#v, %v", updated, err)
+	}
+}
+
 func TestSuppressedContactsCanBeCleared(t *testing.T) {
 	ctx := context.Background()
 	db := newContactsTestDB(t)

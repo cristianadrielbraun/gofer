@@ -1207,7 +1207,7 @@ func applyContactSortDefaults(filters models.ContactFilters, r *http.Request, se
 }
 
 func normalizeContactSortBy(value string) string {
-	if value == "name" || value == "last_interaction" {
+	if value == "name" || value == "created" || value == "last_interaction" {
 		return value
 	}
 	return "updated"
