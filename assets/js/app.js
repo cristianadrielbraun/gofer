@@ -320,6 +320,16 @@ document.addEventListener("DOMContentLoaded", function () {
   var preserveMailListSelectionFor = null
   var initialMailReaderLoader = null
   var selectedMailIds = new Set()
+  // Switching sections: when the loading rows show (revealSwitchSkeletonsLater),
+  // and whether the section arrived during the slide and lands as it ends.
+  var APP_SWITCH_MS = 260
+  var switchSkeletonTimer = null
+  var switchResponseHeld = false
+  // How long a list's rows take to drop in: the last row's delay plus the
+  // drop (fanInRows in virtual-scroll.js).
+  var LIST_FAN_IN_MS = 150 + 220
+  // Mail's and Contacts' sidebars as last left (rememberSectionSidebar).
+  var lastSectionSidebars = {}
   // The tab title shows the unread count: the counts last fetched, and the
   // title Gofer wrote with the count, to tell it from one written since.
   var titleUnreadCounts = null
@@ -385,15 +395,49 @@ document.addEventListener("DOMContentLoaded", function () {
     remember: function () {
       var sidebar = document.getElementById("sidebar-app-body")
       if (sidebar) rememberSectionLocation(sidebar.dataset.sidebarAppBody)
+      rememberSectionSidebar()
     },
     requestURL: sectionRequestURL,
+    placeSidebarEarly: placeSwitchSidebarEarly,
+    // Whether the calendar has a request going that leaving would call off.
+    busy: function () {
+      return !!(_calendarContentRequest || _calendarCacheRequest || _calendarSyncRequest)
+    },
+    // A kept section is back on screen (navigation.js): it takes over as the
+    // live one, and what changed while it was away comes in place.
+    reattached: function (mode, panels, stale) {
+      var mail = document.getElementById("mail-list-scroll")
+      var contacts = document.getElementById("contacts-list-scroll")
+      virtualMailList = mail && mail._virtualMailList
+      virtualContactsList = contacts && contacts._virtualContactsList
+      setSidebarAppNavMode(mode)
+      animateAppSwitch()
+      if (typeof slideAppPanels === "function") slideAppPanels(panels, mode)
+      if (typeof initResizeHandles === "function") initResizeHandles()
+      var locations = sectionLocations()
+      ;["mail", "contacts"].forEach(function (section) { pointSectionButton(section, locations[section]) })
+      rememberSectionLocation(mode)
+      endAppSwitching()
+      if (mode === "mail") {
+        flushPendingSyncEvents()
+        applyActiveFolderSyncState()
+      }
+      if (mode === "calendar") initializeCalendarDaySelection()
+      // The rows drop in as they do when the section arrives from the server.
+      // A refresh would replace them mid-drop, so it waits for the drop to end.
+      var list = mode === "mail" ? virtualMailList : mode === "contacts" ? virtualContactsList : null
+      if (list && typeof list.fanInRows === "function" && !list.prefersReducedMotion()) {
+        list.fanInRows()
+        setTimeout(function () { refreshKeptSection(mode, stale || {}) }, LIST_FAN_IN_MS)
+      } else refreshKeptSection(mode, stale || {})
+    },
     bindSidebar: setupFolderClickInterception,
     loaded: function (mode, address) {
       var locations = sectionLocations()
       ;["mail", "contacts"].forEach(function (section) { pointSectionButton(section, locations[section]) })
       var sidebar = document.getElementById("sidebar-app-body")
       if (sidebar) rememberSectionLocation(mode)
-      document.documentElement.removeAttribute("data-app-switching")
+      endAppSwitching()
       if (mode === "mail") {
         var url = new URL(address, location.href)
         var path = /^\/folder\/[^/]+\/([^/]+)$/.exec(url.pathname)
@@ -419,7 +463,7 @@ document.addEventListener("DOMContentLoaded", function () {
         initVirtualScroll()
       }
       initializeCalendarDaySelection()
-      document.documentElement.removeAttribute("data-app-switching")
+      endAppSwitching()
     },
   }
   initVirtualScroll()
@@ -8091,6 +8135,7 @@ document.addEventListener("DOMContentLoaded", function () {
       try { data = JSON.parse(event.data) } catch (_) { data = null }
       if (data && data.sources) refreshCalendarSidebar()
       scheduleCalendarCacheRefresh()
+      markKeptStale("calendar", data && data.sources ? "all" : "content")
     })
 
     // A rule run by hand reports its progress; settings.js shows it.
@@ -8111,6 +8156,7 @@ document.addEventListener("DOMContentLoaded", function () {
       try { data = JSON.parse(e.data) } catch (_) { return }
       if (!data || !data.folder_id) return
 
+      markKeptStale("mail", "content")
       refreshSidebarUnread()
       showBrowserTabNewMailNotification(data)
       refreshSearchResultsFor(data)
@@ -8133,9 +8179,11 @@ document.addEventListener("DOMContentLoaded", function () {
       var data
       try { data = JSON.parse(e.data) } catch (_) { data = null }
       if (data && data.folder_id === "scheduled") {
+        markKeptStale("mail", "all")
         refreshMailSidebarBody()
         return
       }
+      markKeptStale("mail", "content")
       refreshSidebarUnread()
     })
 
@@ -8157,6 +8205,7 @@ document.addEventListener("DOMContentLoaded", function () {
       var data
       try { data = JSON.parse(e.data) } catch (_) { return }
       if (!data || !data.event_type) return
+      if (data.event_type === "contacts_unresolved") markKeptStale("contacts", "sidebar")
       handleContactActivityEvent(data)
     })
 
@@ -8175,6 +8224,7 @@ document.addEventListener("DOMContentLoaded", function () {
     source.addEventListener("manual-sync-complete", function (e) {
       var data
       try { data = JSON.parse(e.data) } catch (_) { return }
+      markKeptStale("mail", "content")
       handleMailManualSyncEvent("complete", data)
     })
 
@@ -8193,12 +8243,14 @@ document.addEventListener("DOMContentLoaded", function () {
     source.addEventListener("scheduled-sync-complete", function (e) {
       var data
       try { data = JSON.parse(e.data) } catch (_) { return }
+      markKeptStale("mail", "content")
       handleMailScheduledSyncEvent("complete", data)
     })
 
     source.addEventListener("account-sync-status", function (e) {
       var data
       try { data = JSON.parse(e.data) } catch (_) { return }
+      markKeptStale("mail", "sidebar")
       handleAccountSyncStatus(data)
     })
 
@@ -8255,6 +8307,7 @@ document.addEventListener("DOMContentLoaded", function () {
         }, false)
         return
       }
+      markKeptStale("mail", "content")
       refreshSearchResultsFor(data)
       if (data.refresh_only) {
         syncStatesByFolder[data.folder_id] = mailFolderSyncStateFromEvent(data, false)
@@ -8275,6 +8328,10 @@ document.addEventListener("DOMContentLoaded", function () {
     })
 
     source.onerror = function () {
+      // Updates sent while reconnecting are lost.
+      markKeptStale("mail", "all")
+      markKeptStale("calendar", "all")
+      markKeptStale("contacts", "sidebar")
       source.close()
       if (appEventSource === source) appEventSource = null
       for (var folderID in syncStatesByFolder) {
@@ -9943,7 +10000,10 @@ document.addEventListener("DOMContentLoaded", function () {
         queuedSectionButton = btn
         return
       }
-      if (sidebar && !request) rememberSectionLocation(sidebar.dataset.sidebarAppBody)
+      if (sidebar && !request) {
+        rememberSectionLocation(sidebar.dataset.sidebarAppBody)
+        rememberSectionSidebar()
+      }
       setSidebarAppNavMode(mode)
 
       if (!href) return
@@ -9997,6 +10057,7 @@ document.addEventListener("DOMContentLoaded", function () {
       var sliding = typeof appPanelsSlideRemaining === "function" ? appPanelsSlideRemaining() : 0
       if (xhr && xhr === request && event.detail.shouldSwap && sliding > 16) {
         heldSwap = xhr
+        placeSwitchSidebarEarly(event.detail.serverResponse, event.detail.requestConfig && event.detail.requestConfig.elt)
         event.detail.swapOverride = (event.detail.swapOverride || "outerHTML") + " swap:" + Math.ceil(sliding) + "ms"
         setTimeout(function () { if (heldSwap === xhr) releaseHeldSwap() }, sliding + 1000)
       }
@@ -10035,7 +10096,7 @@ document.addEventListener("DOMContentLoaded", function () {
     }
     // Pane changes are observed after the swap's own tasks, so the flag stays until then.
     function endAppSwitch() {
-      setTimeout(function () { document.documentElement.removeAttribute("data-app-switching") }, 0)
+      setTimeout(endAppSwitching, 0)
     }
     function completed(event) {
       if (!event.detail || event.detail.xhr !== request || event.detail.successful) return
@@ -10058,6 +10119,32 @@ document.addEventListener("DOMContentLoaded", function () {
     main.setAttribute("data-mail-pane-layout", layout)
   }
 
+  // Mail and Contacts show a real sidebar while the panels slide, as Calendar
+  // does: the one left there last, or else the copy from the page load
+  // (AppSwitchSidebarTemplates). It stays inert until the live one replaces it.
+  function rememberSectionSidebar() {
+    var sidebar = document.getElementById("sidebar-app-body")
+    var mode = sidebar && sidebar.dataset.sidebarAppBody
+    if ((mode !== "mail" && mode !== "contacts") || sidebar.hasAttribute("inert") || sidebar.hasAttribute("aria-busy") ||
+        sidebar.hasAttribute("data-sidebar-copy") || sidebar.hasAttribute("data-switch-early")) return
+    var nav = sidebar.querySelector("nav")
+    lastSectionSidebars[mode] = { node: sidebar.cloneNode(true), scroll: nav ? nav.scrollTop : 0 }
+  }
+
+  function showSectionSidebarCopy(sidebarBody, mode) {
+    var last = lastSectionSidebars[mode]
+    var template = !last && document.getElementById("sidebar-copy-" + mode)
+    var copy = last ? last.node : template && template.content.querySelector("#sidebar-app-body")
+    if (!copy) return false
+    replaceAppPaneContents(sidebarBody, copy, false)
+    sidebarBody.setAttribute("data-sidebar-copy", "")
+    sidebarBody.setAttribute("inert", "")
+    sidebarBody.setAttribute("aria-busy", "true")
+    var nav = last && last.scroll && sidebarBody.querySelector("nav")
+    if (nav) nav.scrollTop = last.scroll
+    return true
+  }
+
   function sidebarPendingHTML(mode) {
     var rows = mode === "contacts" ? 5 : 7
     // Marked like the real create buttons, which small screens hide.
@@ -10075,7 +10162,7 @@ document.addEventListener("DOMContentLoaded", function () {
     html += '</div>'
     html += '<hr class="divider-etched mx-4"><nav class="flex-1 overflow-y-auto px-3 pt-2 pb-3">'
     for (var i = 0; i < rows; i++) {
-      html += '<div class="mb-1 flex items-center gap-2.5 rounded-md px-2.5 py-1.5" data-sidebar-pending-row><span class="size-5 rounded bg-sidebar-accent"></span><span class="h-3 flex-1 rounded bg-sidebar-accent"></span></div>'
+      html += '<div class="mb-1 flex items-center gap-2.5 rounded-md px-2.5 py-1.5" data-sidebar-pending-row data-switch-skeleton><span class="size-5 rounded bg-sidebar-accent"></span><span class="h-3 flex-1 rounded bg-sidebar-accent"></span></div>'
     }
     html += '</nav>'
     return html
@@ -10316,8 +10403,8 @@ document.addEventListener("DOMContentLoaded", function () {
     var html = ""
     if (viewMode === "table") html += mode === "contacts" ? contactsPendingTableHeaderHTML() : mailPendingTableHeaderHTML()
     for (var i = 0; i < rowCount; i++) {
-      if (mode === "contacts") html += viewMode === "table" ? contactTablePendingRow(i) : contactCardPendingRow(i)
-      else html += viewMode === "table" ? mailTablePendingRow(i) : mailCardPendingRow(i)
+      var row = mode === "contacts" ? (viewMode === "table" ? contactTablePendingRow(i) : contactCardPendingRow(i)) : (viewMode === "table" ? mailTablePendingRow(i) : mailCardPendingRow(i))
+      html += row.replace(/^<([a-z]+)/, "<$1 data-switch-skeleton")
     }
     return html
   }
@@ -10338,7 +10425,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
   function readPanePendingHTML(mode) {
     var label = mode === "contacts" ? goferT("js.contacts.pending") : goferT("js.mail.view.pending")
-    return '<div class="flex flex-col h-full p-2"><div class="surface-paper rounded-md flex flex-col h-full overflow-hidden"><div class="flex items-center justify-between px-6 py-2.5"><div class="flex items-center gap-1"><div class="size-8 rounded-md bg-ink/[0.03] border border-ink/6"></div><div class="size-8 rounded-md bg-ink/[0.03] border border-ink/6"></div></div><div class="h-4 w-20 rounded bg-ink/5 animate-pulse"></div></div><div class="h-px bg-gradient-to-r from-transparent via-amber-900/10 to-transparent"></div><div class="flex-1 overflow-y-auto"><div class="mx-auto px-8 py-6"><div class="flex items-center gap-2 text-sm text-muted-foreground"><div class="size-4 border-2 border-ink/15 border-t-ink/45 rounded-full animate-spin"></div><span>' + label + '</span></div><div class="space-y-3 mt-5"><div class="h-4 w-full rounded bg-ink/5 animate-pulse"></div><div class="h-4 w-11/12 rounded bg-ink/5 animate-pulse"></div><div class="h-4 w-4/5 rounded bg-ink/5 animate-pulse"></div></div></div></div></div></div>'
+    return '<div class="flex flex-col h-full p-2" data-switch-skeleton><div class="surface-paper rounded-md flex flex-col h-full overflow-hidden"><div class="flex items-center justify-between px-6 py-2.5"><div class="flex items-center gap-1"><div class="size-8 rounded-md bg-ink/[0.03] border border-ink/6"></div><div class="size-8 rounded-md bg-ink/[0.03] border border-ink/6"></div></div><div class="h-4 w-20 rounded bg-ink/5 animate-pulse"></div></div><div class="h-px bg-gradient-to-r from-transparent via-amber-900/10 to-transparent"></div><div class="flex-1 overflow-y-auto"><div class="mx-auto px-8 py-6"><div class="flex items-center gap-2 text-sm text-muted-foreground"><div class="size-4 border-2 border-ink/15 border-t-ink/45 rounded-full animate-spin"></div><span>' + label + '</span></div><div class="space-y-3 mt-5"><div class="h-4 w-full rounded bg-ink/5 animate-pulse"></div><div class="h-4 w-11/12 rounded bg-ink/5 animate-pulse"></div><div class="h-4 w-4/5 rounded bg-ink/5 animate-pulse"></div></div></div></div></div></div>'
   }
 
   // Small screens move between Mail, Contacts and Calendar with one transition: the
@@ -10359,6 +10446,99 @@ document.addEventListener("DOMContentLoaded", function () {
     var panels = typeof measureAppPanels === "function" ? measureAppPanels() : null
     showAppSwitchPendingPanes(mode)
     if (typeof slideAppPanels === "function") slideAppPanels(panels, mode)
+    revealSwitchSkeletonsLater()
+  }
+
+  // The loading rows stay hidden while the switch animates; most sections
+  // arrive before it ends. They show only if the section is still loading
+  // once it has, or after the slide's length when nothing slides.
+  function revealSwitchSkeletonsLater() {
+    var root = document.documentElement
+    root.removeAttribute("data-app-switch-slow")
+    clearTimeout(switchSkeletonTimer)
+    switchResponseHeld = false
+    var sliding = typeof appPanelsSlideRemaining === "function" ? appPanelsSlideRemaining() : 0
+    switchSkeletonTimer = setTimeout(function reveal() {
+      switchSkeletonTimer = null
+      if (!root.hasAttribute("data-app-switching") || switchResponseHeld) return
+      // A slide restarted meanwhile, by a resize for instance.
+      var left = typeof appPanelsSlideRemaining === "function" ? appPanelsSlideRemaining() : 0
+      if (left > 16) { switchSkeletonTimer = setTimeout(reveal, left); return }
+      root.setAttribute("data-app-switch-slow", "")
+    }, Math.max(sliding, APP_SWITCH_MS))
+  }
+
+  function endAppSwitching() {
+    clearTimeout(switchSkeletonTimer)
+    switchSkeletonTimer = null
+    switchResponseHeld = false
+    var root = document.documentElement
+    root.removeAttribute("data-app-switching")
+    root.removeAttribute("data-app-switch-slow")
+    var sidebar = document.getElementById("sidebar-app-body")
+    if (sidebar && sidebar.hasAttribute("data-switch-early")) {
+      sidebar.removeAttribute("inert")
+      sidebar.removeAttribute("aria-busy")
+    }
+    document.querySelectorAll("[data-switch-early]").forEach(function (pane) { pane.removeAttribute("data-switch-early") })
+  }
+
+  // A section response that arrives while the panels slide waits for the
+  // slide to end, with no loading rows meanwhile, but its sidebar goes in at
+  // once: it is light enough not to stall the slide. It stays inert until the
+  // rest lands, so a folder or filter
+  // chosen meanwhile can't race the held list. The partials put the sidebar
+  // before the list, so only that start of the response is parsed here.
+  // Brings a section shown again from memory up to date, quietly, by the same
+  // means its live updates use when it is on screen.
+  function refreshKeptSection(mode, stale) {
+    if (mode === "mail") {
+      if (stale.sidebar) refreshMailSidebarBody()
+      else if (stale.content) refreshSidebarUnread()
+      if (stale.content && virtualMailList) scheduleSyncRefresh(virtualMailList, { noAnimation: true, rebase: mailListNearTop(virtualMailList), immediate: true })
+    } else if (mode === "calendar") {
+      if (stale.content) scheduleCalendarCacheRefresh()
+      if (stale.sidebar) refreshCalendarSidebar()
+    } else if (mode === "contacts") {
+      // Contacts have no live updates yet, so the list is reloaded once; only
+      // near its top, where reloading (which starts from the top) moves nothing.
+      var list = virtualContactsList
+      if (list && list.container && list.container.scrollTop < (list.itemHeight || 100) * 2) list.applyFilters(list.filters).catch(function () {})
+    }
+  }
+
+  // Live updates for a section kept off screen (navigation.js) can't reach
+  // it; it refreshes when shown again.
+  function markKeptStale(mode, part) {
+    if (window.GoferNavigation && GoferNavigation.markStale) GoferNavigation.markStale(mode, part)
+  }
+
+  function placeSwitchSidebarEarly(response, source) {
+    switchResponseHeld = true
+    var current = document.getElementById("sidebar-app-body")
+    var list = typeof response === "string" ? /\sid="mail-list"/.exec(response) : null
+    if (!current || !list || !window.htmx || typeof htmx.swap !== "function") return false
+    var start = document.createElement("template")
+    start.innerHTML = response.slice(0, response.lastIndexOf("<", list.index))
+    var body = start.content.getElementById("sidebar-app-body")
+    if (!body) return false
+    var sync = start.content.getElementById("sidebar-sync-controls")
+    body.setAttribute("data-switch-early", "")
+    body.setAttribute("inert", "")
+    body.setAttribute("aria-busy", "true")
+    if (sync) sync.setAttribute("data-switch-early", "")
+    var oob = source && source.getAttribute("hx-select-oob")
+    htmx.swap(current, body.outerHTML + (sync ? sync.outerHTML : ""), { swapStyle: "outerHTML", swapDelay: 0, settleDelay: 0, ignoreTitle: true },
+      { select: "#sidebar-app-body", selectOOB: sync ? "#sidebar-sync-controls:outerHTML" : "", contextElement: source })
+    // The held swap reads its out-of-band list right after this event, so
+    // it leaves out what is already in. The source's own list comes back after.
+    if (source && oob) {
+      source.setAttribute("hx-select-oob", oob.split(",").filter(function (part) {
+        return !/^#sidebar-(app-body|sync-controls)(:|$)/.test(part.trim())
+      }).join(","))
+      setTimeout(function () { if (source.isConnected) source.setAttribute("hx-select-oob", oob) }, 0)
+    }
+    return true
   }
 
   function showAppSwitchPendingPanes(mode) {
@@ -10386,7 +10566,7 @@ document.addEventListener("DOMContentLoaded", function () {
     }
     var viewMode = appSwitchListViewMode(mode)
     var sidebarBody = document.getElementById("sidebar-app-body")
-    if (sidebarBody) {
+    if (sidebarBody && !showSectionSidebarCopy(sidebarBody, mode)) {
       sidebarBody.removeAttribute("inert")
       sidebarBody.removeAttribute("aria-busy")
       sidebarBody.dataset.sidebarAppBody = mode
@@ -13870,6 +14050,8 @@ document.addEventListener("click", function (event) {
 function isAppSwitchSidePaneSwap(event) {
   var detail = event && event.detail
   // The list replaces the request's target, so the two are matched by id.
+  // A sidebar placed while the panels slide is marked instead.
+  if (event && event.target && event.target.hasAttribute && event.target.hasAttribute("data-switch-early")) return true
   return !!(detail && detail.xhr && detail.xhr.goferAppSwitchMode && detail.target && event.target &&
     event.target.id !== detail.target.id)
 }

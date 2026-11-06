@@ -7782,6 +7782,25 @@ html:not([data-theme="express"]) [data-mode-dark-tip] {
   }
 }
 
+/* Switching between Mail, Contacts and Calendar: the loading rows stay hidden
+   while the switch animates, and fade in only if the section is still loading
+   once it has (data-app-switch-slow, set by app.js). */
+html[data-app-switching]:not([data-app-switch-slow]) [data-switch-skeleton] {
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html[data-app-switch-slow] [data-switch-skeleton] {
+    animation: switch-skeleton-in 160ms ease-out;
+  }
+}
+
+@keyframes switch-skeleton-in {
+  from {
+    opacity: 0;
+  }
+}
+
 /* Dragging mail onto a sidebar folder: the picture under the pointer, the rows
    being dragged, and the folder that will take them. */
 .mail-drag-image {

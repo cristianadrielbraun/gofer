@@ -20,6 +20,23 @@ templ AppSwitchEmptyPaneTemplates() {
 	</template>
 }
 
+// AppSwitchSidebarTemplates hold Mail's and Contacts' sidebars as of the page
+// load. Switching to a section not opened since shows this copy, inert, while
+// the panels slide, as Calendar's loading template does; one opened since
+// shows the sidebar as it was left (app.js). The live sidebar replaces it as
+// soon as it arrives. A page without accounts has none, and the switch shows
+// the sidebar's loading shape instead.
+templ AppSwitchSidebarTemplates(accounts []models.Account, uiSettings map[string]string) {
+	if accounts != nil {
+		<template id="sidebar-copy-mail">
+			@MailSidebarBody(accounts, "inbox", uiSettings, 0, models.EmailFilters{})
+		</template>
+		<template id="sidebar-copy-contacts">
+			@ContactsSidebarBody(accounts, "contacts", uiSettings, models.ContactFilters{})
+		</template>
+	}
+}
+
 templ CalendarLoadingTemplates(accounts []models.Account, uiSettings map[string]string) {
 	<template id="calendar-event-loading">
 		@CalendarEventLoadingDialog()

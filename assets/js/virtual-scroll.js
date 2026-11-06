@@ -4194,6 +4194,10 @@ window.VirtualContactsList = VirtualContactsList
 
 window.addEventListener("popstate", function (e) {
   if (!e.state) return
+  // Pages the app's router knows (navigation.js) are its to move between.
+  // Listeners on the window run in the order they were added, and this one
+  // comes first, so it can't wait for the router to stop it.
+  if (window.GoferNavigation && window.GoferNavigation.route(window.location.href)) return
 
   if (e.state.settingsTab) {
     if (typeof htmx !== "undefined") {

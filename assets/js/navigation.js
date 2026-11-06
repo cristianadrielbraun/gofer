@@ -12,6 +12,14 @@
   var held = null
   var queued = null
   var committed = { address: window.location.pathname + window.location.search, state: history.state }
+  // Mail, Contacts and Calendar as last left, kept whole: their panes, with
+  // their lists' state, scroll and the open item. Going back to one shows it
+  // again with no request; what changed meanwhile comes in place afterwards.
+  var kept = {}
+  // What changed in a kept section while it was away: its sidebar, its
+  // content, or both. Live updates report it (markStale). Opening Settings
+  // lets them all go.
+  var stale = {}
 
   function route(address) {
     var url = new URL(address, window.location.href)
@@ -67,8 +75,99 @@
     })
     history.replaceState(previous.state, "", previous.address)
     document.title = previous.title
+    // A section kept as the switch began comes back whole: its panes may sit
+    // deeper than the saved roots, as the sync controls do in the header.
+    var back = route(previous.address)
+    if (back && kept[back.mode]) {
+      kept[back.mode].panes.forEach(function (pane) {
+        var current = document.getElementById(pane.id)
+        if (current && current !== pane) current.replaceWith(pane)
+      })
+      delete kept[back.mode]
+    }
     previous = null
     window.GoferAppNavigation.restored()
+  }
+
+  function liveSection() {
+    var body = document.getElementById("sidebar-app-body")
+    var main = document.getElementById("main-content")
+    var mode = body && body.dataset.sidebarAppBody
+    if (pending || held || !main || main.hasAttribute("data-navigation-pending") || document.documentElement.hasAttribute("data-app-switching")) return null
+    if (mode !== "mail" && mode !== "contacts" && mode !== "calendar") return null
+    var here = route(window.location.href)
+    return here && here.mode === mode ? mode : null
+  }
+
+  // A section is kept only once it has settled. One still loading a part,
+  // or polling for one (which stops for good off the page), loads again.
+  function keepSection(busy) {
+    var mode = liveSection()
+    if (!mode) return
+    var main = document.getElementById("main-content")
+    var dialogs = document.getElementById("app-pane-dialogs")
+    var panes = [document.getElementById("sidebar-app-body"), document.getElementById("sidebar-sync-controls")].filter(Boolean)
+    var roots = panes.concat([main], dialogs ? [dialogs] : [])
+    if (roots.some(function (root) { return root.hasAttribute("inert") || root.querySelector('[aria-busy="true"], [hx-trigger*="every"]') })) {
+      delete kept[mode]
+      return
+    }
+    var children = Array.from(main.childNodes)
+    var entry = {
+      address: window.location.pathname + window.location.search,
+      state: history.state,
+      title: document.title,
+      day: new Date().toDateString(),
+      panes: panes,
+      main: { attributes: main.cloneNode(false), children: children },
+      dialogs: dialogs ? Array.from(dialogs.childNodes) : [],
+      scroll: roots.reduce(function (all, root) {
+        return all.concat([root].concat(Array.from(root.querySelectorAll("*"))).filter(function (node) { return node.scrollTop || node.scrollLeft }).map(function (node) { return { node: node, top: node.scrollTop, left: node.scrollLeft } }))
+      }, []),
+    }
+    // The next section fills these same panes in place, so the kept ones
+    // leave the page and empty copies of them take their place.
+    panes.forEach(function (pane) { pane.replaceWith(pane.cloneNode(false)) })
+    main.replaceChildren.apply(main, children.map(function (child) { return child.cloneNode(false) }))
+    if (dialogs) dialogs.replaceChildren()
+    kept[mode] = entry
+    // Requests the section had going were just called off.
+    stale[mode] = busy ? { content: true } : {}
+  }
+
+  function markStale(mode, part) {
+    if (!kept[mode]) return
+    var marks = stale[mode] || (stale[mode] = {})
+    if (part === "sidebar" || part === "all") marks.sidebar = true
+    if (part !== "sidebar") marks.content = true
+  }
+
+  // Puts a kept section back as it was left, sliding the panels to its sizes.
+  function reattach(destination, entry, options) {
+    var main = document.getElementById("main-content")
+    var sidebar = document.querySelector("#app-shell > aside")
+    var dialogs = document.getElementById("app-pane-dialogs")
+    if (!main || !sidebar || !sidebar.hasAttribute("data-app-sidebar")) return false
+    var panels = typeof measureAppPanels === "function" ? measureAppPanels() : null
+    entry.panes.forEach(function (pane) {
+      var current = document.getElementById(pane.id)
+      if (current) current.replaceWith(pane)
+    })
+    replaceAppPaneContents(main, entry.main.attributes, false)
+    main.replaceChildren.apply(main, entry.main.children)
+    if (dialogs) dialogs.replaceChildren.apply(dialogs, entry.dialogs)
+    entry.scroll.forEach(function (scroll) { scroll.node.scrollTop = scroll.top; scroll.node.scrollLeft = scroll.left })
+    var marks = stale[destination.mode] || {}
+    delete stale[destination.mode]
+    // A new day moves the calendar's today.
+    if (destination.mode === "calendar" && entry.day !== new Date().toDateString()) marks.content = true
+    var state = entry.state || { goferClientPage: true }
+    if (!options || !options.history) history.pushState(state, "", destination.address)
+    else history.replaceState(state, "", destination.address)
+    committed = { address: destination.address, state: history.state }
+    window.GoferAppNavigation.reattached(destination.mode, panels, marks)
+    document.title = entry.title
+    return true
   }
 
   function mount(destination) {
@@ -140,6 +239,7 @@
       return true
     }
     var id = ++serial
+    var busy = window.GoferAppNavigation.busy()
     // Abort first, before installing the new skeleton. The previous request's
     // completion handlers must not roll back a newer navigation.
     pending = null
@@ -152,7 +252,26 @@
       scheduleComposeAutosave(document.getElementById("compose-form"))
     }
     window.GoferAppNavigation.remember()
-    if (!previous) previous = snapshot()
+    var entry = kept[destination.mode]
+    // The contacts sidebar has no refresh of its own yet.
+    var reusable = entry && entry.address === destination.address && !(destination.mode === "contacts" && stale.contacts && stale.contacts.sidebar)
+    // Taken before the section leaves the page, so a failed switch puts
+    // back the section itself.
+    if (!reusable && !previous) previous = snapshot()
+    // Settings can change accounts, folders and anything else a section
+    // shows, so the sections load again after it.
+    if (destination.mode === "settings") {
+      kept = {}
+      stale = {}
+    } else if (liveSection() !== destination.mode) keepSection(busy)
+    if (reusable) {
+      delete kept[destination.mode]
+      // Anything the cancelled switch held for a rollback is on screen again.
+      previous = null
+      if (reattach(destination, entry, options)) return true
+      // Without the panes to put it in, it loads as any other section.
+      previous = snapshot()
+    }
     if (!mount(destination)) { previous = null; return false }
     if (!options || !options.history) history.pushState({ goferClientPage: true }, "", destination.address)
     pending = { serial: id, destination: destination }
@@ -193,6 +312,8 @@
   window.addEventListener("popstate", function (event) {
     if (!route(window.location.href)) return
     if (navigate(window.location.href, { history: true })) event.stopImmediatePropagation()
+    // The address has changed already and nothing else handles these pages.
+    else window.location.reload()
   }, true)
 
   document.addEventListener("htmx:afterSettle", function () {
@@ -201,7 +322,7 @@
 
   // The new page waits for the panels to finish sliding. Its first render takes
   // long enough to stall a slide it lands in the middle of, and the slide's
-  // fastest frames are the first ones.
+  // fastest frames are the first ones. Its sidebar goes in at once.
   function release() {
     held = null
     var next = queued
@@ -215,6 +336,7 @@
     var sliding = typeof appPanelsSlideRemaining === "function" ? appPanelsSlideRemaining() : 0
     if (sliding <= 16) return
     held = xhr
+    if (pending.destination.mode !== "settings") window.GoferAppNavigation.placeSidebarEarly(event.detail.serverResponse, requestSource())
     event.detail.swapOverride = (event.detail.swapOverride || "outerHTML") + " swap:" + Math.ceil(sliding) + "ms"
     setTimeout(function () { if (held === xhr) release() }, sliding + 1000)
   })
@@ -240,5 +362,14 @@
     window.GoferAppNavigation.loaded(destination.mode, destination.address)
   })
 
-  window.GoferNavigation = { navigate: navigate, route: route }
+  // A setting changed (other than a panel's size) may change how a section
+  // is drawn, so the ones kept away load again.
+  document.body.addEventListener("gofer:settings-changed", function (event) {
+    var key = event.detail && event.detail.key
+    if (/_(width|height)$/.test(key || "")) return
+    var here = liveSection()
+    Object.keys(kept).forEach(function (mode) { if (mode !== here) delete kept[mode] })
+  })
+
+  window.GoferNavigation = { navigate: navigate, route: route, markStale: markStale }
 })()
