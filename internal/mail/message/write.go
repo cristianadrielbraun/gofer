@@ -8,6 +8,7 @@ import (
 	"net/mail"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -395,16 +396,74 @@ func cloneStringMap(values map[string]string) map[string]string {
 	return cloned
 }
 
+// ParseAddressList reads a list of addresses. An entry whose name was not
+// quoted although it needs to be, such as "Banco: Avisos <a@example.com>",
+// is still read when its address is in angle brackets: the name is
+// everything before them. Any other entry that is not an address fails the
+// whole list.
 func ParseAddressList(s string) ([]*mail.Address, error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return nil, nil
 	}
 	addrs, err := mail.ParseAddressList(s)
-	if err != nil {
-		return nil, fmt.Errorf("parse addresses: %w", err)
+	if err == nil {
+		return addrs, nil
+	}
+	addrs = nil
+	for _, entry := range splitAddressEntries(s) {
+		parsed, entryErr := mail.ParseAddressList(entry)
+		if entryErr == nil {
+			addrs = append(addrs, parsed...)
+			continue
+		}
+		addr, ok := parseLooseAddress(entry)
+		if !ok {
+			return nil, fmt.Errorf("parse addresses: %w", err)
+		}
+		addrs = append(addrs, addr)
 	}
 	return addrs, nil
+}
+
+// parseLooseAddress reads "name <address>" where the name holds characters
+// that should have been quoted.
+func parseLooseAddress(entry string) (*mail.Address, bool) {
+	entry = strings.TrimSpace(entry)
+	open := strings.LastIndex(entry, "<")
+	if open < 0 || !strings.HasSuffix(entry, ">") {
+		return nil, false
+	}
+	addr, err := mail.ParseAddress("<" + strings.TrimSpace(entry[open+1:len(entry)-1]) + ">")
+	if err != nil {
+		return nil, false
+	}
+	name := strings.TrimSpace(entry[:open])
+	if unquoted, err := strconv.Unquote(name); err == nil && strings.HasPrefix(name, `"`) {
+		name = unquoted
+	}
+	addr.Name = name
+	return addr, true
+}
+
+// FormatAddress writes an address for a recipient field: the name, quoted
+// when it holds a comma, an "@" or another character an address list gives
+// a meaning to, then the address in angle brackets. A name that is just the
+// address is left out. Unlike mail.Address.String, the name stays readable
+// rather than encoded. Mirrors composeRecipientAddress in app.js.
+func FormatAddress(name, address string) string {
+	name = strings.TrimSpace(name)
+	address = strings.TrimSpace(address)
+	if address == "" {
+		return ""
+	}
+	if name == "" || strings.EqualFold(name, address) {
+		return address
+	}
+	if strings.ContainsAny(name, `()<>[]:;@\,."`) {
+		name = `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(name) + `"`
+	}
+	return name + " <" + address + ">"
 }
 
 // ParseDraftAddressList reads the addresses of a draft, which may still hold

@@ -5,6 +5,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"fmt"
 	"strings"
+	"github.com/cristianadrielbraun/gofer/internal/mail/message"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 
 	"github.com/cristianadrielbraun/gofer/components/button"
@@ -125,13 +126,13 @@ func mailViewStarred(email *models.Email, thread []models.ThreadItem) bool {
 	return false
 }
 
+// formatContacts writes contacts as an address list compose can read back,
+// with names quoted where they need to be (message.FormatAddress).
 func formatContacts(contacts []models.Contact) string {
-	parts := make([]string, len(contacts))
-	for i, c := range contacts {
-		if c.Name != "" {
-			parts[i] = fmt.Sprintf("%s <%s>", c.Name, c.Email)
-		} else {
-			parts[i] = c.Email
+	parts := make([]string, 0, len(contacts))
+	for _, c := range contacts {
+		if part := message.FormatAddress(c.Name, c.Email); part != "" {
+			parts = append(parts, part)
 		}
 	}
 	return strings.Join(parts, ", ")

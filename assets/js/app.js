@@ -19137,11 +19137,53 @@ function _isComposeRecipientValid(value) {
   return /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(_composeRecipientEmail(value))
 }
 
+// _scanComposeRecipients walks an address list and calls cut(i) at each
+// separator (comma, semicolon or newline) between entries, skipping those
+// inside a quoted name, a comment or an angle address, so a name such as
+// "Pérez, Juan" stays one entry. It answers whether a quote, comment or angle
+// address was left open at the end.
+function _scanComposeRecipients(text, cut) {
+  var quoted = false, escaped = false, depth = 0, angle = false
+  for (var i = 0; i < text.length; i++) {
+    var c = text.charAt(i)
+    if (escaped) { escaped = false; continue }
+    if (c === "\\" && (quoted || depth > 0)) { escaped = true; continue }
+    if (quoted) { if (c === '"') quoted = false; continue }
+    if (c === '"') quoted = true
+    else if (c === "(") depth++
+    else if (c === ")" && depth > 0) depth--
+    else if (depth > 0) continue
+    else if (c === "<") angle = true
+    else if (c === ">") angle = false
+    else if (!angle && (c === "," || c === ";" || c === "\n")) cut(i)
+  }
+  return quoted || depth > 0 || angle
+}
+
 function _splitComposeRecipients(value) {
-  return String(value || "")
-    .split(/[;,\n]+/) 
-    .map(function (part) { return part.trim() })
-    .filter(Boolean)
+  var text = String(value || "")
+  var parts = []
+  var start = 0
+  _scanComposeRecipients(text, function (i) {
+    parts.push(text.slice(start, i))
+    start = i + 1
+  })
+  parts.push(text.slice(start))
+  return parts.map(function (part) { return part.trim() }).filter(Boolean)
+}
+
+// _composeRecipientHasSeparator says whether typed text holds a separator
+// between entries; one inside a quoted name doesn't end the entry.
+function _composeRecipientHasSeparator(text) {
+  var found = false
+  _scanComposeRecipients(String(text || ""), function () { found = true })
+  return found
+}
+
+// _composeRecipientOpen says whether typed text ends inside a quoted name,
+// a comment or an angle address, where a comma is part of the entry.
+function _composeRecipientOpen(text) {
+  return _scanComposeRecipients(String(text || ""), function () {})
 }
 
 var _composeRecipientSuggestTimer = null
@@ -19568,6 +19610,7 @@ function handleComposeRecipientKeydown(event) {
     return
   }
   if (event.key === "Enter" || event.key === "Tab" || event.key === "," || event.key === ";") {
+    if ((event.key === "," || event.key === ";") && _composeRecipientOpen(input.textContent || "")) return
     if ((input.textContent || "").trim()) {
       event.preventDefault()
       finalizeComposeRecipientInput(input)
@@ -19584,7 +19627,7 @@ function handleComposeRecipientKeydown(event) {
 
 function handleComposeRecipientInput(input) {
   var text = input.textContent || ""
-  if (/[;,\n]/.test(text)) finalizeComposeRecipientInput(input)
+  if (_composeRecipientHasSeparator(text)) finalizeComposeRecipientInput(input)
   else {
     _scheduleComposeRecipientSuggestions(input)
     // Typing can wrap the input onto a new line.
@@ -22059,6 +22102,22 @@ function composeAddress(name, email) {
   return name ? name + " <" + email + ">" : email
 }
 
+// composeRecipientAddress is an address for a recipient field: like
+// composeAddress, but a name with a comma, an "@" or another character an
+// address list gives a meaning to is quoted, and a name that is just the
+// address is left out, so the list reads back as the same people. Mirrors
+// message.FormatAddress on the server.
+function composeRecipientAddress(name, email) {
+  email = String(email || "").trim()
+  name = String(name || "").trim()
+  if (!email) return ""
+  if (!name || name.toLowerCase() === email.toLowerCase()) return email
+  if (/[()<>\[\]:;@\\,."]/.test(name) && !/^"(?:[^"\\]|\\.)*"$/.test(name)) {
+    name = '"' + name.replace(/[\\"]/g, "\\$&") + '"'
+  }
+  return name + " <" + email + ">"
+}
+
 function composeNormalizeMessageID(messageId) {
   messageId = String(messageId || "").trim()
   if (!messageId) return ""
@@ -22286,7 +22345,8 @@ function composeValuesFromSource(source, mode) {
     _composeDirty: "true"
   }
   if (mode === "reply" || mode === "reply-all") {
-    vals.to = mode === "reply-all" ? composeDedupeAddresses([fromLine, source.to || ""], exclude) : composeDedupeAddresses([fromLine], exclude)
+    var replyTo = composeRecipientAddress(source.from_name, source.from_email)
+    vals.to = mode === "reply-all" ? composeDedupeAddresses([replyTo, source.to || ""], exclude) : composeDedupeAddresses([replyTo], exclude)
     vals.cc = mode === "reply-all" ? composeDedupeAddresses([source.cc || ""], exclude) : ""
     vals.subject = /^Re:/i.test(source.subject || "") ? source.subject : "Re: " + (source.subject || "")
     vals.body = composeReplyPlain(source)

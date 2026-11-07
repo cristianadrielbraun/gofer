@@ -1751,11 +1751,7 @@ func (h *Handler) handleContactSearch(w http.ResponseWriter, r *http.Request) {
 	}
 	items := make([]result, 0, len(contacts))
 	for _, c := range contacts {
-		value := c.Email
-		if c.Name != "" && c.Name != c.Email {
-			value = fmt.Sprintf("%s <%s>", c.Name, c.Email)
-		}
-		items = append(items, result{ID: c.ID, Name: c.Name, Email: c.Email, Value: value})
+		items = append(items, result{ID: c.ID, Name: c.Name, Email: c.Email, Value: message.FormatAddress(c.Name, c.Email)})
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{"results": items})
@@ -6093,11 +6089,7 @@ func contactsToAddressList(contacts []models.Contact) string {
 		if c.Email == "" {
 			continue
 		}
-		if c.Name != "" && c.Name != c.Email {
-			parts = append(parts, fmt.Sprintf("%s <%s>", c.Name, c.Email))
-		} else {
-			parts = append(parts, c.Email)
-		}
+		parts = append(parts, message.FormatAddress(c.Name, c.Email))
 	}
 	return strings.Join(parts, ", ")
 }
