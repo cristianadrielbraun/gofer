@@ -163,7 +163,20 @@ func settingsJoinAnd(ctx context.Context, items []string) string {
 	if len(items) < 2 {
 		return strings.Join(items, "")
 	}
-	return i18n.T(ctx, "settings.list_and", "first", strings.Join(items[:len(items)-1], ", "), "last", items[len(items)-1])
+	return i18n.T(ctx, "settings.list_and", "first", settingsJoinComma(ctx, items[:len(items)-1]), "last", items[len(items)-1])
+}
+
+// settingsJoinComma joins names as the "A, B" of "A, B and C", with the
+// page language's comma: Chinese writes "A、B".
+func settingsJoinComma(ctx context.Context, items []string) string {
+	if len(items) == 0 {
+		return ""
+	}
+	joined := items[0]
+	for _, item := range items[1:] {
+		joined = i18n.T(ctx, "settings.list_comma", "first", joined, "next", item)
+	}
+	return joined
 }
 
 // folderRoleName names a special folder role, such as "junk", in the page's

@@ -60,5 +60,14 @@ assert.match(zh.composeValuesFromSource({...message, date: ''}, 'reply').body, /
 forward = zh.composeValuesFromSource(message, 'forward')
 assert.equal(forward.subject, 'Fwd: Plans')
 assert.match(forward.body, /---------- 转发的邮件 ----------\n发件人: Ana <ana@example\.test>\n日期: D\n主题: Plans\n收件人: me@example\.test\n\nHi$/)
+// Replies and forwards already marked by Chinese mail programs, with an ASCII
+// or a full-width colon, get no second prefix.
+const subjectOf = (subject, mode) => zh.composeValuesFromSource({...message, subject}, mode).subject
+assert.equal(subjectOf('答复: Plans', 'reply'), '答复: Plans')
+assert.equal(subjectOf('回复：Plans', 'reply'), '回复：Plans')
+assert.equal(subjectOf('转发：Plans', 'forward'), '转发：Plans')
+assert.equal(subjectOf('转发: Plans', 'reply'), 'Re: 转发: Plans')
+assert.equal(subjectOf('答复: Plans', 'forward'), 'Fwd: 答复: Plans')
+assert.equal(subjectOf('回复率：本周', 'reply'), 'Re: 回复率：本周')
 
 console.log('compose quote language: ok')

@@ -119,7 +119,7 @@ func mailToAccountSources(ctx context.Context, sources []string) string {
 	if len(sources) < 2 {
 		return strings.Join(sources, "")
 	}
-	return i18n.T(ctx, "mail.to_account.and", "first", strings.Join(sources[:len(sources)-1], ", "), "last", sources[len(sources)-1])
+	return i18n.T(ctx, "mail.to_account.and", "first", settingsJoinComma(ctx, sources[:len(sources)-1]), "last", sources[len(sources)-1])
 }
 
 func mailToAccountSummary(ctx context.Context, data MailToAccountDialogData) string {

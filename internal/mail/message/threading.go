@@ -151,6 +151,8 @@ func BaseSubject(subject string) string {
 			s = strings.TrimSpace(s[3:])
 		} else if strings.HasPrefix(lower, "fwd:") {
 			s = strings.TrimSpace(s[4:])
+		} else if rest, ok := cutChineseSubjectPrefix(s); ok {
+			s = strings.TrimSpace(rest)
 		} else {
 			idx := strings.Index(lower, ":")
 			if idx > 2 && (strings.HasPrefix(lower, "re[") || strings.HasPrefix(lower, "fw[")) {
@@ -166,7 +168,21 @@ func BaseSubject(subject string) string {
 
 func IsReplyOrForwardSubject(subject string) bool {
 	s := strings.ToLower(strings.TrimSpace(subject))
-	return strings.HasPrefix(s, "re:") || strings.HasPrefix(s, "fw:") || strings.HasPrefix(s, "rv:") || strings.HasPrefix(s, "fwd:") || strings.HasSuffix(s, "(fwd)") || strings.HasPrefix(s, "[fwd:") || strings.HasPrefix(s, "re[") || strings.HasPrefix(s, "fw[")
+	_, chinese := cutChineseSubjectPrefix(s)
+	return strings.HasPrefix(s, "re:") || strings.HasPrefix(s, "fw:") || strings.HasPrefix(s, "rv:") || strings.HasPrefix(s, "fwd:") || strings.HasSuffix(s, "(fwd)") || strings.HasPrefix(s, "[fwd:") || strings.HasPrefix(s, "re[") || strings.HasPrefix(s, "fw[") || chinese
+}
+
+// Chinese mail programs mark a reply with 回复 or 答复 and a forward with
+// 转发, followed by an ASCII or a full-width colon.
+var chineseSubjectPrefixes = []string{"回复:", "回复：", "答复:", "答复：", "转发:", "转发："}
+
+func cutChineseSubjectPrefix(s string) (string, bool) {
+	for _, prefix := range chineseSubjectPrefixes {
+		if rest, ok := strings.CutPrefix(s, prefix); ok {
+			return rest, true
+		}
+	}
+	return s, false
 }
 
 func collapseSpaces(s string) string {

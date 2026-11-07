@@ -45,3 +45,28 @@ func TestPageLangFollowsTheRequest(t *testing.T) {
 		t.Fatalf("default pageLang = %q", got)
 	}
 }
+
+// Lists of names use the page language's comma: Chinese writes "A、B 和 C".
+func TestListsUseTheLanguagesComma(t *testing.T) {
+	cases := []struct {
+		locale i18n.Locale
+		want   string
+	}{
+		{i18n.English, "Inbox, Sent and Trash"},
+		{"es", "Inbox, Sent y Trash"},
+		{"zh-cn", "Inbox、Sent 和 Trash"},
+	}
+	for _, c := range cases {
+		ctx := i18n.WithLocale(context.Background(), c.locale)
+		if got := settingsJoinAnd(ctx, []string{"Inbox", "Sent", "Trash"}); got != c.want {
+			t.Errorf("%s: settingsJoinAnd = %q, want %q", c.locale, got, c.want)
+		}
+	}
+	zh := i18n.WithLocale(context.Background(), "zh-cn")
+	if got := settingsJoinAnd(zh, []string{"a", "b"}); got != "a 和 b" {
+		t.Errorf("two names = %q", got)
+	}
+	if got := mailToAccountSources(zh, []string{"a", "b", "c", "d"}); got != "a、b、c 和 d" {
+		t.Errorf("mailToAccountSources = %q", got)
+	}
+}
