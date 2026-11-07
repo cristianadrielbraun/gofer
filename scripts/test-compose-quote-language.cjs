@@ -52,4 +52,13 @@ assert.match(forward.html_body, /Mensaje reenviado/)
 // A forward already marked by Outlook in Spanish gets no second prefix.
 assert.equal(es.composeValuesFromSource({...message, subject: 'RV: Plans'}, 'forward').subject, 'RV: Plans')
 
+const zh = run('zh-cn')
+reply = zh.composeValuesFromSource(message, 'reply')
+assert.equal(reply.subject, 'Re: Plans')
+assert.match(reply.body, /\nAna <ana@example\.test> 于 D 写道：\n> Hi$/)
+assert.match(zh.composeValuesFromSource({...message, date: ''}, 'reply').body, /\nAna <ana@example\.test> 写道：\n/)
+forward = zh.composeValuesFromSource(message, 'forward')
+assert.equal(forward.subject, 'Fwd: Plans')
+assert.match(forward.body, /---------- 转发的邮件 ----------\n发件人: Ana <ana@example\.test>\n日期: D\n主题: Plans\n收件人: me@example\.test\n\nHi$/)
+
 console.log('compose quote language: ok')

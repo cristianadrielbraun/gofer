@@ -1,5 +1,7 @@
 # Setting up Gofer
 
+**English** · [简体中文](./setup.zh-CN.md)
+
 Everything about configuring, upgrading, and deploying Gofer. For a quick start, see the [README](../README.md).
 
 ## auth modes and storage
