@@ -26522,6 +26522,50 @@ function cancelCalendarHold() {
   _calendarHold = null
 }
 
+// On a touch screen, a quick sideways swipe on the calendar goes to the next
+// or previous month or week, as the arrows do (and with their slide). A
+// surface that scrolls sideways scrolls first: the swipe only turns the page
+// once it was already at that edge. Holds, drags and range picks don't count.
+var _calendarSwipe = null
+var CALENDAR_SWIPE_MIN_PX = 60
+
+document.addEventListener("touchstart", function (event) {
+  _calendarSwipe = null
+  if (event.touches.length !== 1) return
+  var surface = event.target.closest && event.target.closest("#calendar-main [data-calendar-surface]")
+  if (!surface || surface.hasAttribute("inert")) return
+  var touch = event.touches[0]
+  _calendarSwipe = {
+    x: touch.clientX,
+    y: touch.clientY,
+    time: Date.now(),
+    atStart: surface.scrollLeft <= 0,
+    atEnd: surface.scrollLeft + surface.clientWidth >= surface.scrollWidth - 1,
+  }
+}, {passive: true})
+
+document.addEventListener("touchmove", function (event) {
+  if (_calendarSwipe && event.touches.length !== 1) _calendarSwipe = null
+}, {passive: true})
+
+document.addEventListener("touchend", function (event) {
+  var swipe = _calendarSwipe
+  _calendarSwipe = null
+  if (!swipe || event.changedTouches.length !== 1) return
+  if ((_calendarDrag && _calendarDrag.started) || (_calendarPick && _calendarPick.started)) return
+  var touch = event.changedTouches[0]
+  var dx = touch.clientX - swipe.x
+  var dy = touch.clientY - swipe.y
+  if (Math.abs(dx) < CALENDAR_SWIPE_MIN_PX || Math.abs(dx) < Math.abs(dy) * 1.5 || Date.now() - swipe.time > 800) return
+  // A swipe to the left brings in what comes after.
+  var step = dx < 0 ? 1 : -1
+  if (step === 1 ? !swipe.atEnd : !swipe.atStart) return
+  var arrow = document.querySelector('#calendar-main [data-calendar-navigate="' + step + '"]')
+  if (arrow) arrow.click()
+}, {passive: true})
+
+document.addEventListener("touchcancel", function () { _calendarSwipe = null }, {passive: true})
+
 // Once a touch drag has started, the finger moves it instead of scrolling,
 // and holding doesn't open the browser's menu.
 document.addEventListener("touchmove", function (event) {
