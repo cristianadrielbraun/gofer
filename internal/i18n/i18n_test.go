@@ -14,11 +14,14 @@ import (
 
 func TestLocalesStartWithEnglish(t *testing.T) {
 	got := Locales()
-	if len(got) < 3 || got[0] != English || !slices.Contains(got, Locale("es")) || !slices.Contains(got, Locale("pt-br")) {
-		t.Fatalf("Locales() = %v, want English first and Spanish and Brazilian Portuguese present", got)
+	if len(got) < 4 || got[0] != English || !slices.Contains(got, Locale("es")) || !slices.Contains(got, Locale("pt-br")) || !slices.Contains(got, Locale("zh-cn")) {
+		t.Fatalf("Locales() = %v, want English first and Spanish, Brazilian Portuguese and Simplified Chinese present", got)
 	}
 	if locale, ok := Parse("pt-BR"); !ok || locale != "pt-br" {
 		t.Fatalf("Parse(pt-BR) = %q, %v", locale, ok)
+	}
+	if locale, ok := Parse("zh-CN"); !ok || locale != "zh-cn" {
+		t.Fatalf("Parse(zh-CN) = %q, %v", locale, ok)
 	}
 }
 
@@ -35,6 +38,9 @@ func TestMatchPicksTheBestCatalog(t *testing.T) {
 		"pt":                       "pt-br",
 		"pt-PT":                    "pt-br",
 		"fr-FR,pt;q=0.5,en;q=0.4":  "pt-br",
+		"zh-CN,zh;q=0.9,en;q=0.8":  "zh-cn",
+		"zh":                       "zh-cn",
+		"fr-FR,zh;q=0.5,en;q=0.4":  "zh-cn",
 	}
 	for header, want := range cases {
 		if got := Match(header); got != want {
@@ -228,13 +234,15 @@ func TestScriptHasOnlyBrowserMessagesWithEnglishFilledIn(t *testing.T) {
 }
 
 func TestLanguageNames(t *testing.T) {
-	en, es := WithLocale(context.Background(), English), WithLocale(context.Background(), "es")
+	en, es, zh := WithLocale(context.Background(), English), WithLocale(context.Background(), "es"), WithLocale(context.Background(), "zh-cn")
 	cases := []struct{ got, want string }{
 		{LanguageName(en, "de"), "German"},
 		{LanguageName(en, "zh-CN"), "Chinese"},
 		{LanguageName(es, "de"), "Alemán"},
 		{LanguageName(es, "en"), "Inglés"},
 		{LanguageName(es, "zh-CN"), "Chino"},
+		{LanguageName(zh, "de"), "德语"},
+		{LanguageName(zh, "zh-CN"), "中文"},
 	}
 	for _, c := range cases {
 		if c.got != c.want {

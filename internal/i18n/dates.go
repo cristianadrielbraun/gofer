@@ -13,7 +13,8 @@ import (
 //
 // Two settings shape them, each "auto" by default:
 //   - date_format: one of DateFormats(), such as "dd-mm-yyyy". Automatic uses
-//     the language's own text style ("Nov 2, 2026", "2 nov 2026").
+//     the language's own text style ("Nov 2, 2026", "2 nov 2026",
+//     "2026年11月2日").
 //   - time_format: "12h" or "24h". Automatic uses the language's clock.
 //
 // Long dates ("Monday, November 2, 2026") and month titles always follow the
@@ -175,11 +176,19 @@ func (f DateFormatter) compact(t time.Time, year bool) string {
 		}
 	}
 	name := f.MonthShortName(month)
-	if f.order == "mdy" {
+	switch f.order {
+	case "mdy":
 		if year {
 			return name + " " + strconv.Itoa(day) + ", " + y
 		}
 		return name + " " + strconv.Itoa(day)
+	case "ymd":
+		// Languages that write the year first mark each part their own
+		// way, as in 2026年11月2日, so their catalogs give the layout.
+		if year {
+			return f.message("date.pattern.year_month_day", "year", y, "month", name, "day", day)
+		}
+		return f.message("date.pattern.month_day", "month", name, "day", day)
 	}
 	if year {
 		return strconv.Itoa(day) + " " + name + " " + y
@@ -191,12 +200,14 @@ func (f DateFormatter) withWeekday(t time.Time, date string) string {
 	return f.message("date.pattern.weekday_date", "weekday", f.WeekdayShortName(t.Weekday()), "date", date)
 }
 
-// Date writes a date with its year: "Nov 2, 2026", "2 nov 2026", "02-11-2026".
+// Date writes a date with its year: "Nov 2, 2026", "2 nov 2026",
+// "2026年11月2日", "02-11-2026".
 func (f DateFormatter) Date(t time.Time) string {
 	return f.compact(t, true)
 }
 
-// ShortDate writes a date without its year: "Nov 2", "2 nov", "02-11".
+// ShortDate writes a date without its year: "Nov 2", "2 nov", "11月2日",
+// "02-11".
 func (f DateFormatter) ShortDate(t time.Time) string {
 	return f.compact(t, false)
 }
@@ -243,20 +254,22 @@ func (f DateFormatter) Time(t time.Time) string {
 }
 
 // ClockTime writes a wall-clock time from its hour and minute. Hour 24, the
-// end of a day, reads "24:00" or "12:00 AM".
+// end of a day, reads "24:00" or "12:00 AM". The language puts AM or PM
+// before or after the time: "3:04 PM", "下午3:04".
 func (f DateFormatter) ClockTime(hour, minute int) string {
 	if !f.Uses12HourClock() {
 		return twoDigits(hour) + ":" + twoDigits(minute)
 	}
-	return f.twelveHour(hour) + ":" + twoDigits(minute) + " " + f.marker(hour)
+	return f.message("date.pattern.time_12h", "time", f.twelveHour(hour)+":"+twoDigits(minute), "marker", f.marker(hour))
 }
 
-// HourLabel writes a whole hour for a time axis: "3 PM" or "15:00".
+// HourLabel writes a whole hour for a time axis: "3 PM", "下午3点" or
+// "15:00".
 func (f DateFormatter) HourLabel(hour int) string {
 	if !f.Uses12HourClock() {
 		return twoDigits(hour) + ":00"
 	}
-	return f.twelveHour(hour) + " " + f.marker(hour)
+	return f.message("date.pattern.hour_12h", "hour", f.twelveHour(hour), "marker", f.marker(hour))
 }
 
 func (f DateFormatter) twelveHour(hour int) string {
@@ -310,12 +323,19 @@ func (f DateFormatter) DateRange(start, end time.Time) string {
 		return f.Range(f.Date(start), f.Date(end))
 	}
 	if start.Month() != end.Month() || f.format.Numeric {
+		// Year-first formats write the shared year on the first date.
+		if f.order == "ymd" {
+			return f.Range(f.Date(start), f.ShortDate(end))
+		}
 		return f.Range(f.ShortDate(start), f.Date(end))
 	}
 	month, year := f.MonthShortName(start.Month()), strconv.Itoa(start.Year())
 	days := f.message("date.pattern.day_range", "start", start.Day(), "end", end.Day())
-	if f.order == "mdy" {
+	switch f.order {
+	case "mdy":
 		return month + " " + days + ", " + year
+	case "ymd":
+		return f.message("date.pattern.year_month_day", "year", year, "month", month, "day", days)
 	}
 	return days + " " + month + " " + year
 }

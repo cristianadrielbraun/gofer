@@ -6432,10 +6432,13 @@ func (h *Handler) validComposeThreadHeaders(ctx context.Context, accountID, subj
 	}
 	parentID := ids[0]
 
+	// The parent's own subject, not its stored normalized_subject: mail
+	// saved before Gofer knew a prefix, such as 答复:, still has it there.
 	var parentSubject string
 	err := h.db.Read().QueryRowContext(ctx,
-		`SELECT normalized_subject FROM messages WHERE account_id = ? AND message_id_normalized = ? LIMIT 1`, accountID, parentID,
+		`SELECT subject FROM messages WHERE account_id = ? AND message_id_normalized = ? LIMIT 1`, accountID, parentID,
 	).Scan(&parentSubject)
+	parentSubject = message.BaseSubject(parentSubject)
 	if err != nil || parentSubject == "" || parentSubject != message.BaseSubject(subject) {
 		return "", ""
 	}

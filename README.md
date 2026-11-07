@@ -1,4 +1,8 @@
 <p align="center">
+  <b>English</b> · <a href="./README.zh-CN.md">简体中文</a>
+</p>
+
+<p align="center">
   <img src="./assets/logo.svg" width="96" alt="Gofer logo" />
 </p>
 
@@ -28,7 +32,7 @@ Gofer does mail, contacts and calendar. All your accounts land in one inbox. Con
 
 ### features
 
-Rules, signatures, identities, a one-time From, scheduled send, translation, labels, threads (or no threads), cards or a table, multiple layouts (side by side, stacked, no reading pane at all), single-click open, drag and drop, right-click menus, a selection mode, search in one folder or one account or everywhere, search commands, Local folders, creating and renaming folders, folder roles, folder icons and colors, mbox import and export, moving mail between accounts, profile export, push notifications, the unread count in the tab title, printing, empty Trash in one click, sender pictures, blocked remote images, passkeys, 2FA, three themes, a theme builder, a card layout editor, account ordering, English, Spanish and Brazilian Portuguese (with more languages to come), date and time formats, an installable Android app, a contacts Trash, creating calendars and address books, `.ics` import and export, calendar subscriptions, RSVP from the email, Meet and Teams links, dragging events around, month and week views, an update check on the About page, and probably a few more I'm forgetting.
+Rules, signatures, identities, a one-time From, scheduled send, translation, labels, threads (or no threads), cards or a table, multiple layouts (side by side, stacked, no reading pane at all), single-click open, drag and drop, right-click menus, a selection mode, search in one folder or one account or everywhere, search commands, Local folders, creating and renaming folders, folder roles, folder icons and colors, mbox import and export, moving mail between accounts, profile export, push notifications, the unread count in the tab title, printing, empty Trash in one click, sender pictures, blocked remote images, passkeys, 2FA, three themes, a theme builder, a card layout editor, account ordering, English, Spanish, Brazilian Portuguese and Simplified Chinese (简体中文, with more languages to come), date and time formats, an installable Android app, a contacts Trash, creating calendars and address books, `.ics` import and export, calendar subscriptions, RSVP from the email, Meet and Teams links, dragging events around, month and week views, an update check on the About page, and probably a few more I'm forgetting.
 
 ### supported accounts
 
@@ -47,7 +51,7 @@ Outlook webhooks are off until you set `GOFER_OUTLOOK_WEBHOOKS=true`, and they n
 
 ### make it yours
 
-Gofer has three looks. Classic and Minimal are the sensible ones. Express is retro and my favorite. If none of them fit, the theme builder makes a new one to fit your taste, choosing primary and secondary colors, elements radius, and more. Folders can get their own icons and colors, and the mail cards can be rearranged. Gofer is in English, Spanish and Brazilian Portuguese, and more languages are on the way.
+Gofer has three looks. Classic and Minimal are the sensible ones. Express is retro and my favorite. If none of them fit, the theme builder makes a new one to fit your taste, choosing primary and secondary colors, elements radius, and more. Folders can get their own icons and colors, and the mail cards can be rearranged. Gofer is in English, Spanish, Brazilian Portuguese and Simplified Chinese, and more languages are on the way.
 
 On Android you can install it as an app.
 
