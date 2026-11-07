@@ -1073,6 +1073,10 @@ document.addEventListener("DOMContentLoaded", function () {
         GoferSettings.set("contacts_list_sort_by", contactSortBy ? contactSortBy.value || "updated" : "updated")
         GoferSettings.set("contacts_list_sort_order", contactSortOrder ? contactSortOrder.value || "desc" : "desc")
       }
+      if (e.target.matches("[data-contact-sort-form]") && window.animateContactSortLabel) {
+        var sortByInput = e.target.querySelector('[name="sort_by"]')
+        window.animateContactSortLabel(contactSortLabelText(sortByInput ? sortByInput.value : ""))
+      }
       applyFilters()
     }, true)
 
@@ -3316,6 +3320,16 @@ document.addEventListener("DOMContentLoaded", function () {
       var hideViewLabels = actions ? step >= CONTACT_LIST_STEPS : step >= 2
       toolbar.querySelectorAll("[data-contact-view-label]").forEach(function (label) { states.set(label, hideViewLabels) })
       return states
+    }
+
+    // Changes the sort label's text while its width slides to the new size,
+    // as animateMailSortLabel does for the mail list.
+    window.animateContactSortLabel = function (text) {
+      var label = document.querySelector("[data-contact-sort-label]")
+      if (!label || label.textContent === text) return
+      label.textContent = text
+      label.style.setProperty("--collapse-width", toolbarFoldWidth(label) + "px")
+      syncContactListOverflow()
     }
 
     function syncContactListOverflow() {
@@ -10610,6 +10624,12 @@ document.addEventListener("DOMContentLoaded", function () {
     '</div>'
   }
 
+  // Mirrors contactSortLabel in contacts.templ.
+  function contactSortLabelText(sortBy) {
+    var known = { name: true, created: true, last_interaction: true }
+    return goferT("js.contacts.sort." + (known[sortBy] ? sortBy : "updated"))
+  }
+
   // Mirrors mailSortLabel in maillist.templ.
   function mailSortLabelText(sortBy) {
     var known = { sender: true, subject: true, size: true, unread: true, starred: true, attachments: true }
@@ -10633,8 +10653,7 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 
   function contactsPendingToolbarHTML(viewMode) {
-    var sortBy = window.GoferSettings ? GoferSettings.get("contacts_list_sort_by") : "updated"
-    var sortLabel = sortBy === "name" ? goferT("js.contacts.sort.name") : (sortBy === "created" ? goferT("js.contacts.sort.created") : (sortBy === "last_interaction" ? goferT("js.contacts.sort.last_interaction") : goferT("js.contacts.sort.updated")))
+    var sortLabel = contactSortLabelText(window.GoferSettings ? GoferSettings.get("contacts_list_sort_by") : "updated")
     // Mirrors the contacts toolbar: select-all, the view and sort; filters
     // sit beside the search.
     return '<div class="flex items-center gap-1 px-4 py-1.5">' +
