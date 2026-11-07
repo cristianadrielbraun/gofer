@@ -22348,14 +22348,14 @@ function composeValuesFromSource(source, mode) {
     var replyTo = composeRecipientAddress(source.from_name, source.from_email)
     vals.to = mode === "reply-all" ? composeDedupeAddresses([replyTo, source.to || ""], exclude) : composeDedupeAddresses([replyTo], exclude)
     vals.cc = mode === "reply-all" ? composeDedupeAddresses([source.cc || ""], exclude) : ""
-    vals.subject = /^Re:/i.test(source.subject || "") ? source.subject : "Re: " + (source.subject || "")
+    vals.subject = /^(Re:|(回复|答复)[:：])/i.test(source.subject || "") ? source.subject : "Re: " + (source.subject || "")
     vals.body = composeReplyPlain(source)
     vals.html_body = composeReplyHTML(source)
     vals.in_reply_to = composeNormalizeMessageID(source.message_id)
     vals.references = composeReferencesForReply(source)
     vals._ccVisible = !!vals.cc
   } else {
-    vals.subject = /^(Fwd?|RV):/i.test(source.subject || "") ? source.subject : "Fwd: " + (source.subject || "")
+    vals.subject = /^((Fwd?|RV):|转发[:：])/i.test(source.subject || "") ? source.subject : "Fwd: " + (source.subject || "")
     vals.body = composeForwardPlain(source)
     vals.html_body = composeForwardHTML(source)
     vals.attachments = source.attachments || []

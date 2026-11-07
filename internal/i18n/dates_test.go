@@ -52,6 +52,38 @@ func TestDatesFollowTheLanguageByDefault(t *testing.T) {
 	}
 }
 
+func TestChineseDatesPutTheYearFirst(t *testing.T) {
+	zh := NewDateFormatter("zh-cn", "", "")
+	twelve := NewDateFormatter("zh-cn", "", "12h")
+	monthEnd := time.Date(2026, time.November, 30, 9, 0, 0, 0, time.UTC)
+	nextMonth := time.Date(2026, time.December, 6, 9, 0, 0, 0, time.UTC)
+	cases := []struct{ name, got, want string }{
+		{"Date", zh.Date(sample), "2026年11月2日"},
+		{"ShortDate", zh.ShortDate(sample), "11月2日"},
+		{"WeekdayDate", zh.WeekdayDate(sample), "2026年11月2日 周一"},
+		{"WeekdayShortDate", zh.WeekdayShortDate(sample), "11月2日 周一"},
+		{"LongDate", zh.LongDate(sample), "2026年11月2日星期一"},
+		{"LongDateNoYear", zh.LongDateNoYear(sample), "11月2日星期一"},
+		{"LongMonthDate", zh.LongMonthDate(sample), "2026年11月2日"},
+		{"MonthYear", zh.MonthYear(sample), "2026年11月"},
+		{"Time", zh.Time(sample), "15:04"},
+		{"DateTime", zh.DateTime(sample), "2026年11月2日 15:04"},
+		{"DateRange", zh.DateRange(sample, sampleEnd), "2026年11月2–9日"},
+		{"DateRange across months", zh.DateRange(monthEnd, nextMonth), "2026年11月30日 – 12月6日"},
+		{"numeric DateRange across months", NewDateFormatter("zh-cn", "yyyy-mm-dd", "").DateRange(monthEnd, nextMonth), "2026-11-30 – 12-06"},
+		{"12h Time", twelve.Time(sample), "下午3:04"},
+		{"12h Time midnight", twelve.Time(sampleAM), "上午12:05"},
+		{"12h ClockTime", twelve.ClockTime(24, 0), "上午12:00"},
+		{"12h HourLabel", twelve.HourLabel(15), "下午3点"},
+		{"24h HourLabel", zh.HourLabel(7), "07:00"},
+	}
+	for _, c := range cases {
+		if c.got != c.want {
+			t.Errorf("zh-cn %s = %q, want %q", c.name, c.got, c.want)
+		}
+	}
+}
+
 func TestDateFormatsOverrideTheLanguage(t *testing.T) {
 	cases := []struct {
 		locale              Locale
@@ -90,6 +122,7 @@ func TestRelativeDates(t *testing.T) {
 	now := time.Date(2026, time.November, 2, 18, 0, 0, 0, time.UTC)
 	en := NewDateFormatter(English, "", "")
 	es := NewDateFormatter("es", "", "")
+	zh := NewDateFormatter("zh-cn", "", "")
 	numeric := NewDateFormatter(English, "dd-mm-yyyy", "24h")
 	yesterday := sample.AddDate(0, 0, -1)
 	earlier := time.Date(2026, time.March, 5, 9, 0, 0, 0, time.UTC)
@@ -103,6 +136,10 @@ func TestRelativeDates(t *testing.T) {
 		{en.RelativeWithTime(yesterday, now), "Yesterday, 3:04 PM"},
 		{es.Relative(yesterday, now), "Ayer"},
 		{es.RelativeWithTime(earlier, now), "5 mar, 09:00"},
+		{zh.Relative(yesterday, now), "昨天"},
+		{zh.Relative(earlier, now), "3月5日"},
+		{zh.RelativeWithTime(earlier, now), "3月5日 09:00"},
+		{zh.Relative(lastYear, now), "2025年12月31日"},
 		{numeric.Relative(earlier, now), "05-03"},
 		{numeric.Relative(lastYear, now), "31-12-2025"},
 	}
@@ -129,6 +166,7 @@ func TestDatesReadTheContext(t *testing.T) {
 func TestNumbers(t *testing.T) {
 	en := WithLocale(context.Background(), English)
 	es := WithLocale(context.Background(), "es")
+	zh := WithLocale(context.Background(), "zh-cn")
 	cases := []struct{ got, want string }{
 		{Number(en, 999), "999"},
 		{Number(en, 1234), "1,234"},
@@ -145,6 +183,9 @@ func TestNumbers(t *testing.T) {
 		{Bytes(es, 1500), "1,5 kB"},
 		{Bytes(en, 9960), "10 kB"},
 		{Bytes(es, 23_400_000), "23 MB"},
+		{Number(zh, 1234), "1,234"},
+		{Decimal(zh, 1.5), "1.5"},
+		{Bytes(zh, 1500), "1.5 kB"},
 	}
 	for i, c := range cases {
 		if c.got != c.want {

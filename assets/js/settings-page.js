@@ -3194,7 +3194,9 @@ document.addEventListener('htmx:afterRequest', function(event) {
   } else if (note) {
     var labels = remaining.map(function(item) { return goferT("js.settings.reconnect.item." + item); });
     var text = note.querySelector('[data-reconnect-note]');
-    var list = labels.length > 1 ? goferT("js.common.and", { first: labels.slice(0, -1).join(', '), second: labels[labels.length - 1] }) : labels[0];
+    var list = labels[0];
+    for (var i = 1; i < labels.length - 1; i++) list = goferT("js.common.list_comma", { first: list, next: labels[i] });
+    if (labels.length > 1) list = goferT("js.common.and", { first: list, second: labels[labels.length - 1] });
     if (text) text.textContent = goferTn("js.settings.reconnect.saved", labels.length, { list: list });
   }
   updateReconnectGates();

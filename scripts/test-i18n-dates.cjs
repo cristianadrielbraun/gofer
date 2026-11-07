@@ -49,6 +49,34 @@ assert.equal(w.goferDates.hourRange(3, 7), '03–07')
 assert.equal(w.goferDates.relative(new Date(Date.UTC(2026, 10, 1, 9)), now, 'UTC'), 'Ayer')
 assert.equal(w.goferNumber(12345), '12.345')
 
+const monthEnd = new Date(Date.UTC(2026, 10, 30, 9))
+const nextMonth = new Date(Date.UTC(2026, 11, 6, 9))
+w = load('zh-cn', 'auto', 'auto')
+assert.equal(w.goferDates.date(sample, 'UTC'), '2026年11月2日')
+assert.equal(w.goferDates.shortDate(sample, 'UTC'), '11月2日')
+assert.equal(w.goferDates.weekdayDate(sample, 'UTC'), '2026年11月2日 周一')
+assert.equal(w.goferDates.longDate(sample, 'UTC'), '2026年11月2日星期一')
+assert.equal(w.goferDates.longDateNoYear(sample, 'UTC'), '11月2日星期一')
+assert.equal(w.goferDates.monthYear(sample, 'UTC'), '2026年11月')
+assert.equal(w.goferDates.time(sample, 'UTC'), '15:04')
+assert.equal(w.goferDates.dateTime(sample, 'UTC'), '2026年11月2日 15:04')
+assert.equal(w.goferDates.dateRange(sample, end, 'UTC'), '2026年11月2–9日')
+assert.equal(w.goferDates.dateRange(monthEnd, nextMonth, 'UTC'), '2026年11月30日 – 12月6日')
+assert.equal(w.goferDates.hourRange(3, 7), '03–07')
+assert.equal(w.goferDates.relative(new Date(Date.UTC(2026, 10, 1, 9)), now, 'UTC'), '昨天')
+assert.equal(w.goferDates.relative(new Date(Date.UTC(2026, 2, 5, 9)), now, 'UTC'), '3月5日')
+assert.equal(w.goferNumber(12345), '12,345')
+
+w = load('zh-cn', 'auto', '12h')
+assert.equal(w.goferDates.time(sample, 'UTC'), '下午3:04')
+assert.equal(w.goferDates.clockTime(24, 0), '上午12:00')
+assert.equal(w.goferDates.hourLabel(15), '下午3点')
+assert.equal(w.goferDates.hourRange(3, 7), '上午3–7点')
+assert.equal(w.goferDates.hourRange(11, 13), '上午11点–下午1点')
+
+w = load('zh-cn', 'yyyy-mm-dd', 'auto')
+assert.equal(w.goferDates.dateRange(monthEnd, nextMonth, 'UTC'), '2026-11-30 – 12-06')
+
 const formats = [
   ['dd-mm-yyyy', '24h', '02-11-2026', '02-11', '02-11-2026, 15:04'],
   ['mm/dd/yyyy', 'auto', '11/02/2026', '11/02', '11/02/2026, 3:04 PM'],

@@ -4,7 +4,7 @@
 //
 //   goferT("js.mail.moved", { folder: "Archive" })
 //   goferTn("js.mail.selected", 3)   // picks js.mail.selected.one or .other
-//   goferDates.date(new Date())      // "Nov 2, 2026", "2 nov 2026", "02-11-2026"
+//   goferDates.date(new Date())      // "Nov 2, 2026", "2 nov 2026", "2026年11月2日", "02-11-2026"
 //
 // goferDates writes dates exactly as the server's i18n.DateFormatter does,
 // using the user's date_format and time_format from this script's tag.
@@ -96,6 +96,11 @@
       return withYear ? d + sep + m + sep + p.year : d + sep + m
     }
     if (order === "mdy") return monthShort(p) + " " + p.day + (withYear ? ", " + p.year : "")
+    if (order === "ymd") {
+      return withYear
+        ? t("date.pattern.year_month_day", { year: p.year, month: monthShort(p), day: p.day })
+        : t("date.pattern.month_day", { month: monthShort(p), day: p.day })
+    }
     return p.day + " " + monthShort(p) + (withYear ? " " + p.year : "")
   }
 
@@ -107,12 +112,12 @@
 
   function clockTime(hour, minute) {
     if (clock !== "12h") return two(hour) + ":" + two(minute)
-    return (hour % 12 || 12) + ":" + two(minute) + " " + marker(hour)
+    return t("date.pattern.time_12h", { time: (hour % 12 || 12) + ":" + two(minute), marker: marker(hour) })
   }
 
   function hourLabel(hour) {
     if (clock !== "12h") return two(hour) + ":00"
-    return (hour % 12 || 12) + " " + marker(hour)
+    return t("date.pattern.hour_12h", { hour: hour % 12 || 12, marker: marker(hour) })
   }
 
   function time(p) { return clockTime(p.hour, p.minute) }
@@ -168,15 +173,22 @@
     dateRange: function (start, end, zone) {
       var a = parts(start, zone), b = parts(end, zone), d = window.goferDates
       if (a.year !== b.year) return d.range(d.date(start, zone), d.date(end, zone))
-      if (a.month !== b.month || format.numeric) return d.range(d.shortDate(start, zone), d.date(end, zone))
+      if (a.month !== b.month || format.numeric) {
+        if (order === "ymd") return d.range(d.date(start, zone), d.shortDate(end, zone))
+        return d.range(d.shortDate(start, zone), d.date(end, zone))
+      }
       var days = t("date.pattern.day_range", { start: a.day, end: b.day })
       if (order === "mdy") return monthShort(a) + " " + days + ", " + a.year
+      if (order === "ymd") return t("date.pattern.year_month_day", { year: a.year, month: monthShort(a), day: days })
       return days + " " + monthShort(a) + " " + a.year
     },
-    // A run of whole hours on a condensed time axis: "03–07", "3–7 AM".
+    // A run of whole hours on a condensed time axis: "03–07", "3–7 AM", "上午3–7点".
     hourRange: function (start, end) {
       if (clock !== "12h") return t("date.pattern.day_range", { start: two(start), end: two(end) })
-      if (marker(start) === marker(end)) return t("date.pattern.day_range", { start: start % 12 || 12, end: end % 12 || 12 }) + " " + marker(end)
+      if (marker(start) === marker(end)) {
+        var hours = t("date.pattern.day_range", { start: start % 12 || 12, end: end % 12 || 12 })
+        return t("date.pattern.hour_12h", { hour: hours, marker: marker(end) })
+      }
       return t("date.pattern.time_range", { start: hourLabel(start), end: hourLabel(end) })
     },
     relative: function (date, now, zone) {
