@@ -90,7 +90,7 @@ func connectWithContext(ctx context.Context, cfg *models.AccountConfig, password
 	default:
 		return nil, fmt.Errorf("unsupported IMAP TLS mode %q", tlsMode)
 	}
-	conn, err := netguard.Dial(ctx, options.Dialer, "imap", cfg.IMAPHost, cfg.IMAPPort, cfg.IMAPAllowPrivate)
+	conn, err := netguard.Dial(netguard.WithProxy(ctx, cfg.Proxy), options.Dialer, "imap", cfg.IMAPHost, cfg.IMAPPort, cfg.IMAPAllowPrivate)
 	if err == nil && tlsMode == mailtransport.TLSModeImplicit {
 		tlsOptions := options.TLSConfig.Clone()
 		if tlsOptions.NextProtos == nil {

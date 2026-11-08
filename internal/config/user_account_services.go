@@ -10,6 +10,7 @@ import (
 
 	mailtransport "github.com/cristianadrielbraun/gofer/internal/mail/transport"
 	"github.com/cristianadrielbraun/gofer/internal/models"
+	"github.com/cristianadrielbraun/gofer/internal/netguard"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
@@ -92,6 +93,10 @@ func (s *AccountServiceSnapshot) JMAPConfig(ctx context.Context) (*models.Accoun
 	if err := s.repository.base.applyJMAPTransportPolicy(ctx, cfg); err != nil {
 		return nil, err
 	}
+	var err error
+	if cfg.Proxy, err = s.Proxy(ctx); err != nil {
+		return nil, err
+	}
 	return cfg, nil
 }
 
@@ -109,6 +114,9 @@ func (s *AccountServiceSnapshot) SMTPConfig(ctx context.Context) (*models.Accoun
 		SMTPHost: d.SMTPHost, SMTPPort: d.SMTPPort, SMTPTLSMode: d.SMTPTLSMode,
 		Username: d.Username, AuthMethod: d.AuthMethod, SmtpUsername: d.SmtpUsername}
 	var err error
+	if cfg.Proxy, err = s.Proxy(ctx); err != nil {
+		return nil, err
+	}
 	cfg.SMTPAllowPlaintext, err = s.repository.routing.System().IsPlaintextTransportAllowed(ctx, "smtp", cfg.SMTPHost, cfg.SMTPPort)
 	if err != nil {
 		return nil, err
@@ -125,6 +133,12 @@ func (s *AccountServiceSnapshot) SMTPConfig(ctx context.Context) (*models.Accoun
 		return nil, err
 	}
 	return cfg, nil
+}
+
+// Proxy is the proxy the account's connections go through, or nil for direct
+// connections, from the copied choice and the central saved proxies.
+func (s *AccountServiceSnapshot) Proxy(ctx context.Context) (*netguard.Proxy, error) {
+	return s.repository.base.ResolveProxyChoice(ctx, s.data.ProxyID)
 }
 
 func (s *AccountServiceSnapshot) SMTPPassword() (string, error) {
@@ -217,13 +231,13 @@ func (s *UserAccountStore) serviceSnapshot(ctx context.Context, tx *sql.Tx, owne
 	var emailEnabled int
 	err := tx.QueryRowContext(ctx, `SELECT a.provider,a.provider_account_id,a.email_address,a.display_name,
  a.username,a.auth_method,a.imap_host,a.smtp_host,a.smtp_port,a.encrypted_password,COALESCE(a.email_sync_enabled,1),
- a.smtp_tls_mode,COALESCE(a.smtp_username,''),a.encrypted_smtp_password,COALESCE(a.jmap_session_url,'')
+ a.smtp_tls_mode,COALESCE(a.smtp_username,''),a.encrypted_smtp_password,COALESCE(a.jmap_session_url,''),a.proxy_id
  FROM accounts a JOIN users u ON u.id=a.user_id
  WHERE a.id=? AND a.user_id=? AND COALESCE(a.is_deleting,0)=0
  AND u.status='active' AND u.deletion_pending=0`, id, owner).Scan(
 		&data.Provider, &data.ProviderAccountID, &data.EmailAddress, &data.DisplayName,
 		&data.Username, &data.AuthMethod, &data.IMAPHost, &data.SMTPHost, &data.SMTPPort, &snapshot.password, &emailEnabled,
-		&data.SMTPTLSMode, &data.SmtpUsername, &snapshot.smtpPassword, &data.JMAPSessionURL)
+		&data.SMTPTLSMode, &data.SmtpUsername, &snapshot.smtpPassword, &data.JMAPSessionURL, &data.ProxyID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, storage.ErrAccountRoute
 	}
@@ -233,7 +247,7 @@ func (s *UserAccountStore) serviceSnapshot(ctx context.Context, tx *sql.Tx, owne
 	data.EmailSyncEnabled = emailEnabled == 1
 	// Display metadata and mail-only sync controls are not service identity.
 	snapshot.connection, err = serviceStateHash([]any{data.Provider, data.ProviderAccountID, data.EmailAddress,
-		data.Username, data.AuthMethod, data.IMAPHost, data.SMTPHost, data.SMTPPort, snapshot.password, data.JMAPSessionURL})
+		data.Username, data.AuthMethod, data.IMAPHost, data.SMTPHost, data.SMTPPort, snapshot.password, data.JMAPSessionURL, data.ProxyID})
 	if err != nil {
 		return nil, err
 	}

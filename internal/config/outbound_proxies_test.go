@@ -6,6 +6,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/netguard"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
@@ -199,5 +200,86 @@ func TestAccountProxyNeverFallsBackToDirectOnErrors(t *testing.T) {
 		if p, err := store.ResolveProxyChoice(ctx, choice); err == nil {
 			t.Fatalf("ResolveProxyChoice(%q) = %v with an unreadable password, want an error", choice, p)
 		}
+	}
+}
+
+// Loading an account to connect fills in its proxy, as does sending through
+// one of its identities' own servers; loading it for settings works even when
+// the proxy can't be read, so the choice can still be changed.
+func TestAccountConfigsCarryTheAccountProxy(t *testing.T) {
+	ctx := context.Background()
+	db, store := newAccountStoreTestStore(t)
+	seedAccountStoreTestUser(t, ctx, db)
+	account, err := store.CreateAccount(ctx, "default", secureAccountStoreTestRequest("ana@example.com"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := store.GetConfig(ctx, account.ID)
+	if err != nil || cfg.Proxy != nil {
+		t.Fatalf("GetConfig without proxies = %+v, %v; want a direct connection", cfg, err)
+	}
+	id, err := store.SaveOutboundProxy(ctx, OutboundProxyInput{Name: "Office", Type: "socks5", Host: "proxy.example.test", Port: 1080,
+		Username: "ana", Password: stringPointer("pw")}, "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetAccountProxy(ctx, "default", account.ID, id); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err = store.GetConfig(ctx, account.ID)
+	if err != nil || cfg.Proxy == nil || cfg.Proxy.Host != "proxy.example.test" || cfg.Proxy.Password != "pw" {
+		t.Fatalf("GetConfig = %+v, %v; want the Office proxy", cfg, err)
+	}
+	identity, err := store.IdentitySMTPConfig(ctx, models.Identity{AccountID: account.ID, Email: "ana@example.com", SMTPHost: "smtp.example.com", SMTPPort: 465, SMTPTLSMode: "tls"})
+	if err != nil || identity.Proxy == nil || identity.Proxy.Host != "proxy.example.test" {
+		t.Fatalf("IdentitySMTPConfig = %+v, %v; want the account's proxy", identity, err)
+	}
+	edit, err := store.GetEditData(ctx, account.ID)
+	if err != nil || edit.ProxyID != id {
+		t.Fatalf("GetEditData proxy = %q, %v; want %q", edit.ProxyID, err, id)
+	}
+
+	if _, err := db.Write().ExecContext(ctx, `UPDATE outbound_proxies SET encrypted_password = X'0102' WHERE id = ?`, id); err != nil {
+		t.Fatal(err)
+	}
+	if cfg, err := store.GetConfig(ctx, account.ID); err == nil {
+		t.Fatalf("GetConfig with an unreadable proxy = %+v, want an error", cfg)
+	}
+	if _, err := store.GetSettingsConfig(ctx, account.ID); err != nil {
+		t.Fatalf("GetSettingsConfig with an unreadable proxy: %v", err)
+	}
+}
+
+// Accounts in a person's own database use the central saved proxies.
+func TestUserAccountSnapshotsCarryTheAccountProxy(t *testing.T) {
+	_, _, accounts, owners := newServiceAccountFixture(t)
+	id, err := accounts.base.SaveOutboundProxy(t.Context(), OutboundProxyInput{Name: "Office", Type: "http", Host: "proxy.example.test", Port: 3128}, "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	alice := owners["alice"].ID
+	if err := accounts.WithAccountForUser(t.Context(), "alice", alice, func(local *AccountStore, _ *storage.DB) error {
+		return local.SetAccountProxy(t.Context(), "alice", alice, id)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := serviceSnapshotFor(t, accounts, "alice", alice).SMTPConfig(t.Context())
+	if err != nil || cfg.Proxy == nil || cfg.Proxy.Host != "proxy.example.test" {
+		t.Fatalf("alice's SMTPConfig = %+v, %v; want the Office proxy", cfg, err)
+	}
+	cfg, err = serviceSnapshotFor(t, accounts, "bob", owners["bob"].ID).SMTPConfig(t.Context())
+	if err != nil || cfg.Proxy != nil {
+		t.Fatalf("bob's SMTPConfig = %+v, %v; want a direct connection", cfg, err)
+	}
+	var loaded *models.AccountConfig
+	if err := accounts.WithAccountForUser(t.Context(), "alice", alice, func(local *AccountStore, _ *storage.DB) error {
+		var err error
+		loaded, err = local.GetConfig(t.Context(), alice)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Proxy == nil || loaded.Proxy.Host != "proxy.example.test" {
+		t.Fatalf("alice's GetConfig proxy = %v", loaded.Proxy)
 	}
 }

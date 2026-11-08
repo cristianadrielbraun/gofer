@@ -28,6 +28,10 @@ func (s *AccountStore) IdentitySMTPConfig(ctx context.Context, identity models.I
 		AuthMethod:   "plain",
 	}
 	var err error
+	// An identity's own server is reached the way its account's are.
+	if cfg.Proxy, err = s.AccountProxy(ctx, identity.AccountID); err != nil {
+		return nil, err
+	}
 	cfg.SMTPAllowPlaintext, err = s.policyDB.IsPlaintextTransportAllowed(ctx, "smtp", cfg.SMTPHost, cfg.SMTPPort)
 	if err != nil {
 		return nil, fmt.Errorf("check SMTP security exception: %w", err)

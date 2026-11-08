@@ -212,7 +212,7 @@ func NewClient(ctx context.Context, cfg *models.AccountConfig, password string) 
 // dialSMTP opens the connection through netguard. A refused private server
 // won't start working on a retry, so that failure is final.
 func dialSMTP(ctx context.Context, dialer *net.Dialer, cfg *models.AccountConfig, addr string) (net.Conn, error) {
-	conn, err := netguard.Dial(ctx, dialer, "smtp", cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPAllowPrivate)
+	conn, err := netguard.Dial(netguard.WithProxy(ctx, cfg.Proxy), dialer, "smtp", cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPAllowPrivate)
 	if err != nil {
 		return nil, markDeliveryError(fmt.Errorf("connect to %s: %w", addr, contextError(ctx, err)), !netguard.IsBlocked(err))
 	}

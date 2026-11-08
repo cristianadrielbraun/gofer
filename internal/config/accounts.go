@@ -93,24 +93,29 @@ func (s *AccountStore) getConfig(ctx context.Context, accountID string, checkAll
 	var cfg models.AccountConfig
 	cfg.AccountID = accountID
 	var owner sql.NullString
-	var email string
+	var email, proxyID string
 	err := s.db.Read().QueryRowContext(ctx,
 		`SELECT provider, provider_account_id,
 		        imap_host, imap_port, imap_tls_mode,
 		        smtp_host, smtp_port, smtp_tls_mode,
 		        username, auth_method, smtp_username, jmap_session_url,
-		        user_id, email_address
+		        user_id, email_address, proxy_id
 		 FROM accounts WHERE id = ? AND COALESCE(is_deleting, 0) = 0`, accountID,
 	).Scan(&cfg.Provider, &cfg.ProviderAccountID,
 		&cfg.IMAPHost, &cfg.IMAPPort, &cfg.IMAPTLSMode,
 		&cfg.SMTPHost, &cfg.SMTPPort, &cfg.SMTPTLSMode,
 		&cfg.Username, &cfg.AuthMethod, &cfg.SmtpUsername, &cfg.JMAPSessionURL,
-		&owner, &email)
+		&owner, &email, &proxyID)
 	if err != nil {
 		return nil, fmt.Errorf("query account config: %w", err)
 	}
-	// A mailbox the allowed mail lists stopped letting in doesn't connect.
+	// A mailbox the allowed mail lists stopped letting in doesn't connect,
+	// and only a connection needs its proxy: settings can still be read
+	// when the proxy can't.
 	if checkAllowlist {
+		if cfg.Proxy, err = s.ResolveProxyChoice(ctx, proxyID); err != nil {
+			return nil, fmt.Errorf("account %s: %w", accountID, err)
+		}
 		if err := s.checkMailAllowlist(ctx, owner.String, storage.MailAllowlistMailbox{Provider: cfg.Provider, Email: email, Username: cfg.Username,
 			IMAPHost: cfg.IMAPHost, SMTPHost: cfg.SMTPHost, JMAPSessionURL: cfg.JMAPSessionURL}); err != nil {
 			return nil, err
@@ -181,12 +186,12 @@ func (s *AccountStore) GetEditData(ctx context.Context, accountID string) (*mode
 		`SELECT provider, provider_account_id, email_address, display_name,
 		        imap_host, imap_port, imap_tls_mode,
 		        smtp_host, smtp_port, smtp_tls_mode, COALESCE(email_sync_enabled, 1),
-		        username, auth_method, COALESCE(smtp_username, ''), jmap_session_url
+		        username, auth_method, COALESCE(smtp_username, ''), jmap_session_url, proxy_id
 		 FROM accounts WHERE id = ? AND COALESCE(is_deleting, 0) = 0`, accountID,
 	).Scan(&data.Provider, &data.ProviderAccountID, &data.EmailAddress, &data.DisplayName,
 		&data.IMAPHost, &data.IMAPPort, &data.IMAPTLSMode,
 		&data.SMTPHost, &data.SMTPPort, &data.SMTPTLSMode, &emailSyncEnabled,
-		&data.Username, &data.AuthMethod, &data.SmtpUsername, &data.JMAPSessionURL)
+		&data.Username, &data.AuthMethod, &data.SmtpUsername, &data.JMAPSessionURL, &data.ProxyID)
 	if err != nil {
 		return nil, fmt.Errorf("query account edit data: %w", err)
 	}

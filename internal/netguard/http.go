@@ -120,3 +120,26 @@ func newGuardedHTTPTransport(allowPrivate PrivatePolicy, proxy *Proxy) *http.Tra
 		MaxResponseHeaderBytes: 64 << 10,
 	}
 }
+
+// ProxyTransport sends every request through proxy, whatever proxy its
+// context carries; a nil proxy means direct connections. next must connect
+// with Dial, as transports from NewHTTPTransport do.
+func ProxyTransport(next http.RoundTripper, proxy *Proxy) http.RoundTripper {
+	return proxyTransport{next: next, proxy: proxy}
+}
+
+type proxyTransport struct {
+	next  http.RoundTripper
+	proxy *Proxy
+}
+
+func (t proxyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	return t.next.RoundTrip(req.WithContext(WithProxy(req.Context(), t.proxy)))
+}
+
+// CloseIdleConnections closes the idle connections of next.
+func (t proxyTransport) CloseIdleConnections() {
+	if closer, ok := t.next.(interface{ CloseIdleConnections() }); ok {
+		closer.CloseIdleConnections()
+	}
+}

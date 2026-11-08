@@ -12,6 +12,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/mail/jmap"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/netguard"
+	"github.com/cristianadrielbraun/gofer/internal/netguard/netguardtest"
 )
 
 // jmapTestServer serves a minimal session whose apiUrl is apiURL, or its own
@@ -150,5 +151,37 @@ func TestJMAPSendingWarning(t *testing.T) {
 		if got := JMAPSendingWarning(session); (got != "") != tc.wantWarning {
 			t.Errorf("%s: warning = %q, want warning %v", tc.name, got, tc.wantWarning)
 		}
+	}
+}
+
+// Every request of an account with a proxy goes through it: the session and
+// the API calls it points to.
+func TestJMAPAccountClientGoesThroughTheAccountProxy(t *testing.T) {
+	server := jmapTestServer(t, "")
+	proxy := netguardtest.StartHTTPProxy(t)
+	cfg := jmapTestConfig(server.URL+"/.well-known/jmap", true, true)
+	cfg.Proxy = proxy.Config
+	client, err := newJMAPAccountClient(cfg, "secret")
+	if err != nil {
+		t.Fatalf("newJMAPAccountClient: %v", err)
+	}
+	if _, err := client.Session(context.Background(), server.URL+"/.well-known/jmap"); err != nil {
+		t.Fatalf("Session: %v", err)
+	}
+	if got := proxy.Targets(); len(got) == 0 || got[0] != strings.TrimPrefix(server.URL, "http://") {
+		t.Fatalf("proxy was asked for %v, want %s", got, server.URL)
+	}
+
+	before := len(proxy.Targets())
+	cfg.Proxy = nil
+	direct, err := newJMAPAccountClient(cfg, "secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := direct.Session(context.Background(), server.URL+"/.well-known/jmap"); err != nil {
+		t.Fatalf("Session: %v", err)
+	}
+	if got := proxy.Targets(); len(got) != before {
+		t.Fatalf("a direct client went through the proxy: %v", got)
 	}
 }
