@@ -2,10 +2,12 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -142,4 +144,34 @@ func useNetguardForLocalDAV(t *testing.T) {
 	previous := davPrivateTargetPolicy.Load()
 	setDAVPrivateTargetPolicy(func(context.Context, string, string, int) bool { return true })
 	t.Cleanup(func() { davPrivateTargetPolicy.Store(previous) })
+}
+
+// A calendar subscription belongs to no account, so its feed is fetched
+// through the default proxy, and not at all when that can't be read.
+func TestCalendarFeedsGoThroughTheDefaultProxy(t *testing.T) {
+	var hits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		_, _ = w.Write([]byte("BEGIN:VCALENDAR\r\nVERSION:2.0\r\nEND:VCALENDAR\r\n"))
+	}))
+	defer server.Close()
+	allowLocalDAVServers(t)
+	useNetguardForLocalDAV(t)
+	proxy := netguardtest.StartHTTPProxy(t)
+	previous := calendarFeedProxySource.Load()
+	t.Cleanup(func() { calendarFeedProxySource.Store(previous) })
+
+	setCalendarFeedProxySource(func(context.Context) (*netguard.Proxy, error) { return proxy.Config, nil })
+	if _, err := fetchCalendarFeed(t.Context(), server.URL+"/team.ics"); err != nil {
+		t.Fatal(err)
+	}
+	if got := proxy.Targets(); len(got) != 1 || got[0] != strings.TrimPrefix(server.URL, "http://") {
+		t.Fatalf("feed fetched through %v", got)
+	}
+
+	setCalendarFeedProxySource(func(context.Context) (*netguard.Proxy, error) { return nil, errors.New("proxy password can't be read") })
+	before := hits.Load()
+	if _, err := fetchCalendarFeed(t.Context(), server.URL+"/team.ics"); err == nil || hits.Load() != before {
+		t.Fatalf("feed fetched without its proxy: err=%v", err)
+	}
 }

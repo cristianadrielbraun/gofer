@@ -214,12 +214,17 @@ func New(db *storage.DB, accountStore *config.AccountStore, syncer *mail.SyncOrc
 		messageMutationIMAPFactory: func(ctx context.Context, cfg *models.AccountConfig, password string) (messageMutationIMAPClient, error) {
 			return imap.NewClient(ctx, cfg, password)
 		},
-		remoteResourceDownloader: newRemoteResourceDownloader(privateTargetAllowed(db)),
-		messageFileKey:           newMessageFileKey(),
+		messageFileKey: newMessageFileKey(),
 		// Provider avatar addresses come from provider responses; they never
 		// need a private address.
 		providerAvatarHTTPClient: &http.Client{Timeout: 15 * time.Second, Transport: netguard.NewHTTPTransport(nil)},
 	}
+	// Avatars, calendar subscriptions and remote images in mail belong to no
+	// account, so they go through the default proxy.
+	h.avatar.SetProxySource(h.defaultProxy)
+	h.remoteResourceDownloader = newRemoteResourceDownloader(privateTargetAllowed(db), h.defaultProxy)
+	h.providerAvatarHTTPClient.Transport = netguard.ProxySourceTransport(h.providerAvatarHTTPClient.Transport, h.defaultProxy)
+	setCalendarFeedProxySource(h.defaultProxy)
 	setDAVPrivateTargetPolicy(privateTargetAllowed(db))
 	setDAVServerPolicy(davServerAllowed(db))
 	setDAVPlaintextPolicy(func(ctx context.Context, host string, port int) bool {
@@ -4869,7 +4874,7 @@ func (h *Handler) handleAllowRemoteContent(w http.ResponseWriter, r *http.Reques
 	for _, remoteURL := range remoteURLs {
 		download := h.remoteResourceDownloader
 		if download == nil {
-			download = newRemoteResourceDownloader(privateTargetAllowed(h.db))
+			download = newRemoteResourceDownloader(privateTargetAllowed(h.db), h.defaultProxy)
 		}
 		data, err := download(ctx, remoteURL)
 		if err != nil || len(data) == 0 {
@@ -4927,11 +4932,17 @@ func (h *Handler) handleAllowRemoteContent(w http.ResponseWriter, r *http.Reques
 // load. Their addresses come from the sender, so every connection goes
 // through netguard: private addresses only when an administrator approved
 // them, no proxy from the environment, and each redirect is checked again
-// when it connects.
-func newRemoteResourceDownloader(allowPrivate netguard.PrivatePolicy) func(context.Context, string) ([]byte, error) {
+// when it connects. They are loaded for whoever reads the message rather than
+// for one account, so they go through the proxy pick returns, the default
+// proxy, or directly when pick is nil.
+func newRemoteResourceDownloader(allowPrivate netguard.PrivatePolicy, pick ...func(context.Context) (*netguard.Proxy, error)) func(context.Context, string) ([]byte, error) {
+	transport := netguard.NewHTTPTransport(allowPrivate)
+	if len(pick) > 0 && pick[0] != nil {
+		transport = netguard.ProxySourceTransport(transport, pick[0])
+	}
 	client := &http.Client{
 		Timeout:   10 * time.Second,
-		Transport: netguard.NewHTTPTransport(allowPrivate),
+		Transport: transport,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) >= 5 {
 				return errors.New("remote resource redirected too many times")

@@ -11,9 +11,11 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/calendar"
+	"github.com/cristianadrielbraun/gofer/internal/netguard"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 	ical "github.com/emersion/go-ical"
 )
@@ -77,7 +79,23 @@ func (calendarFeedTransport) RoundTrip(req *http.Request) (*http.Response, error
 	default:
 		return nil, fmt.Errorf("calendar subscriptions don't support %q addresses", req.URL.Scheme)
 	}
+	// A subscription belongs to no account: it takes the default proxy.
+	if pick := calendarFeedProxySource.Load(); pick != nil && *pick != nil {
+		proxy, err := (*pick)(req.Context())
+		if err != nil {
+			return nil, &netguard.ProxyError{Proxy: "default", Err: err}
+		}
+		req = req.WithContext(netguard.WithProxy(req.Context(), proxy))
+	}
 	return davHTTPTransport.RoundTrip(req)
+}
+
+var calendarFeedProxySource atomic.Pointer[func(context.Context) (*netguard.Proxy, error)]
+
+// setCalendarFeedProxySource points calendar subscriptions at the default
+// proxy, once, when the handler is built.
+func setCalendarFeedProxySource(pick func(context.Context) (*netguard.Proxy, error)) {
+	calendarFeedProxySource.Store(&pick)
 }
 
 var calendarFeedClient = &http.Client{

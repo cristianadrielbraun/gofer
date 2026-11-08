@@ -2,6 +2,7 @@ package netguard
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -68,5 +69,34 @@ func TestUseTransportForTestsRestoresTheGuard(t *testing.T) {
 	restore()
 	if _, err := client.Get(server.URL); !IsBlocked(err) {
 		t.Fatalf("after restore error = %v, want the guard back", err)
+	}
+}
+
+// Requests for no account in particular take the proxy their source picks,
+// and a source that fails stops them before they connect.
+func TestProxySourceTransport(t *testing.T) {
+	server, hits, _ := localServer(t, func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("ok")) })
+	allowAll := func(context.Context, string, string, int) bool { return true }
+	proxy := startTestProxy(t, ProxyHTTP, "", "")
+	var pick func(context.Context) (*Proxy, error)
+	client := &http.Client{Transport: ProxySourceTransport(NewHTTPTransport(allowAll), func(ctx context.Context) (*Proxy, error) { return pick(ctx) })}
+
+	pick = func(context.Context) (*Proxy, error) { return proxy.config("", ""), nil }
+	resp, err := client.Get(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if accepted, _ := proxy.seen(); accepted != 1 {
+		t.Fatalf("proxy accepted %d connections, want 1", accepted)
+	}
+
+	pick = func(context.Context) (*Proxy, error) { return nil, errors.New("proxy password can't be read") }
+	before := hits.Load()
+	if _, err := client.Get(server.URL + "/again"); err == nil {
+		t.Fatal("a request whose proxy can't be read was sent")
+	}
+	if hits.Load() != before {
+		t.Fatal("the server was contacted without the proxy")
 	}
 }

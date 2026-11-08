@@ -34,3 +34,16 @@ func (h *Handler) accountProxyContext(ctx context.Context, owner, id string) (co
 	}
 	return netguard.WithProxy(ctx, proxy), nil
 }
+
+// defaultProxy is the proxy work for no account in particular goes through,
+// such as avatar lookups and calendar subscriptions: the default proxy, or
+// none.
+func (h *Handler) defaultProxy(ctx context.Context) (*netguard.Proxy, error) {
+	switch {
+	case h.accountStore != nil:
+		return h.accountStore.ResolveProxyChoice(ctx, storage.AccountProxyDefault)
+	case h.userAccounts != nil:
+		return h.userAccounts.ResolveProxyChoice(ctx, storage.AccountProxyDefault)
+	}
+	return nil, nil
+}

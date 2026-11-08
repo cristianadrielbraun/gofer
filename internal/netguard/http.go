@@ -144,3 +144,35 @@ func (t proxyTransport) CloseIdleConnections() {
 		closer.CloseIdleConnections()
 	}
 }
+
+// ProxySourceTransport sends every request through the proxy pick returns for
+// it, or directly when pick returns nil. It is for requests made for nobody's
+// account in particular, which take the default proxy. A pick that fails
+// fails the request rather than connecting directly. next must connect with
+// Dial, as transports from NewHTTPTransport do.
+func ProxySourceTransport(next http.RoundTripper, pick func(context.Context) (*Proxy, error)) http.RoundTripper {
+	return proxySourceTransport{next: next, pick: pick}
+}
+
+type proxySourceTransport struct {
+	next http.RoundTripper
+	pick func(context.Context) (*Proxy, error)
+}
+
+func (t proxySourceTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	proxy, err := t.pick(req.Context())
+	if err != nil {
+		if req.Body != nil {
+			_ = req.Body.Close()
+		}
+		return nil, &ProxyError{Proxy: "default", Err: err}
+	}
+	return t.next.RoundTrip(req.WithContext(WithProxy(req.Context(), proxy)))
+}
+
+// CloseIdleConnections closes the idle connections of next.
+func (t proxySourceTransport) CloseIdleConnections() {
+	if closer, ok := t.next.(interface{ CloseIdleConnections() }); ok {
+		closer.CloseIdleConnections()
+	}
+}
