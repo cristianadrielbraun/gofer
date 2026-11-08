@@ -77,11 +77,33 @@ func davServerCheck(ctx context.Context, host string) error {
 	return (*policy)(ctx, host)
 }
 
+// davRequireProxyChoice makes DAV requests that neither carry bound
+// credentials nor a proxy choice on their context fail, so tests find the
+// account work that forgot its account's proxy. Without it such a request
+// connects directly.
+var davRequireProxyChoice atomic.Bool
+
+// RequireDAVProxyChoiceForTests turns on davRequireProxyChoice. Production
+// code never calls it.
+func RequireDAVProxyChoiceForTests() { davRequireProxyChoice.Store(true) }
+
 // davPlaintextGuard refuses plain HTTP to a DAV server nobody approved, and
 // any request to a server the allowed mail servers leave out.
 type davPlaintextGuard struct{ service string }
 
 func (g davPlaintextGuard) RoundTrip(req *http.Request) (*http.Response, error) {
+	// Work for a known account, such as signing in with a login typed into
+	// its settings or into a new account, says so on its context. Other
+	// requests take the proxy of the account their login belongs to; a login
+	// someone types may be another account's too, so it doesn't override.
+	if !netguard.ProxyChosen(req.Context()) {
+		if proxy, ok := netguard.CredentialProxy(req); ok {
+			req = req.WithContext(netguard.WithProxy(req.Context(), proxy))
+		}
+	}
+	if davRequireProxyChoice.Load() && !netguard.ProxyChosen(req.Context()) {
+		return nil, fmt.Errorf("%s request to %s was not given its account's proxy", g.service, req.URL.Host)
+	}
 	if err := davServerCheck(req.Context(), req.URL.Hostname()); err != nil {
 		return nil, err
 	}

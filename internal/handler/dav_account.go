@@ -185,6 +185,13 @@ func davNewChoices(found davAccountDiscovery) func(string) (bool, bool) {
 func (h *Handler) handleFindDAVItems(w http.ResponseWriter, r *http.Request) {
 	var saved *models.EditAccountData
 	owner, id := h.userID(r.Context()), r.PathValue("id")
+	// Signing in with the typed login goes through the account's proxy.
+	ctx, err := h.accountProxyContext(r.Context(), owner, id)
+	if err != nil {
+		userAccountError(w, r, err)
+		return
+	}
+	r = r.WithContext(ctx)
 	if id != "" {
 		var err error
 		if saved, err = h.davAccountEditData(r.Context(), owner, id); err != nil {
@@ -263,6 +270,12 @@ func davCreatedChoices(form davAccountForm, created string) func(string) (bool, 
 // CardDAV server. It signs in first, so nothing is saved for a server or login
 // that doesn't work, then saves the calendars or address books ticked.
 func (h *Handler) handleCreateDAVAccount(w http.ResponseWriter, r *http.Request) {
+	ctx, err := h.accountProxyContext(r.Context(), h.userID(r.Context()), "")
+	if err != nil {
+		userAccountError(w, r, err)
+		return
+	}
+	r = r.WithContext(ctx)
 	form, problem := parseDAVAccountForm(w, r, nil)
 	if problem == "" && len(form.items) == 0 {
 		problem = davChooseOne(form.service)
@@ -321,6 +334,12 @@ func (h *Handler) handleCreateDAVAccount(w http.ResponseWriter, r *http.Request)
 // first, and the calendars or address books ticked.
 func (h *Handler) handleUpdateDAVAccount(w http.ResponseWriter, r *http.Request) {
 	owner, id := h.userID(r.Context()), r.PathValue("id")
+	ctx, err := h.accountProxyContext(r.Context(), owner, id)
+	if err != nil {
+		userAccountError(w, r, err)
+		return
+	}
+	r = r.WithContext(ctx)
 	saved, err := h.davAccountEditData(r.Context(), owner, id)
 	if err != nil {
 		userAccountError(w, r, err)
@@ -428,13 +447,21 @@ func (h *Handler) accountEditData(ctx context.Context, owner, id string) (*model
 
 func (h *Handler) davAccountPassword(ctx context.Context, owner, id string) (string, error) {
 	if h.userAccounts == nil {
-		return h.accountStore.DecryptPassword(ctx, id)
+		password, err := h.accountStore.DecryptPassword(ctx, id)
+		if err != nil {
+			return "", err
+		}
+		return password, h.accountStore.BindDAVLogin(ctx, id, password)
 	}
 	snapshot, err := h.userAccounts.SnapshotServices(ctx, owner, id)
 	if err != nil {
 		return "", err
 	}
-	return snapshot.MailboxPassword()
+	password, err := snapshot.MailboxPassword()
+	if err != nil {
+		return "", err
+	}
+	return password, snapshot.BindDAVLogin(password)
 }
 
 // saveDAVAccountServices saves what signing in found, using the account's

@@ -297,6 +297,9 @@ func (s *AccountStore) CalDAVPassword(ctx context.Context, userID, accountID str
 	if err != nil {
 		return "", fmt.Errorf("decrypt CalDAV password: %w", err)
 	}
+	if err := s.BindDAVLogin(ctx, accountID, password); err != nil {
+		return "", err
+	}
 	return password, nil
 }
 
@@ -575,7 +578,14 @@ func (s *AccountStore) DecryptContactSyncPassword(ctx context.Context, userID, a
 	if encrypted == nil {
 		return "", nil
 	}
-	return s.decryptPassword(userID, accountID, passwordKindCardDAV, encrypted)
+	password, err := s.decryptPassword(userID, accountID, passwordKindCardDAV, encrypted)
+	if err != nil {
+		return "", err
+	}
+	if err := s.BindDAVLogin(ctx, accountID, password); err != nil {
+		return "", err
+	}
+	return password, nil
 }
 
 func (s *AccountStore) MarkContactSyncSuccess(ctx context.Context, userID, accountID, syncToken string) error {

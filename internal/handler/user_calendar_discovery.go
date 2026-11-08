@@ -366,6 +366,9 @@ func (p *userCalendarRequest) calDAVLogin(form url.Values) (baseURL, username, p
 	if username == "" || strings.TrimSpace(password) == "" {
 		return "", "", "", false, errors.New("Enter the CalDAV username and password or use the incoming-mail credentials.")
 	}
+	if err := service.BindDAVLogin(password, username); err != nil {
+		return "", "", "", false, err
+	}
 	return baseURL, username, password, useAccount, nil
 }
 

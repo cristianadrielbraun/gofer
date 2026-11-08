@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -217,12 +216,12 @@ func TestCalendarJSONProviderUpdateConditionalAndPreserving(t *testing.T) {
 					old := outlookGraphBaseURL
 					outlookGraphBaseURL = server.URL
 					defer func() { outlookGraphBaseURL = old }()
-					remote, err = updateOutlookCalendarEventScope(t.Context(), "test-token", "work", existing, draft, series)
+					remote, err = updateOutlookCalendarEventScope(davTestContext(t), "test-token", "work", existing, draft, series)
 				} else {
 					old := googleCalendarAPIBaseURL
 					googleCalendarAPIBaseURL = server.URL
 					defer func() { googleCalendarAPIBaseURL = old }()
-					remote, err = updateGoogleCalendarEventScope(t.Context(), "test-token", "work", existing, draft, series)
+					remote, err = updateGoogleCalendarEventScope(davTestContext(t), "test-token", "work", existing, draft, series)
 				}
 				switch mode {
 				case "stale", "race", "series-stale", "series-race":
@@ -375,7 +374,7 @@ func TestCalendarCalDAVUpdatePreservesResourceAndConfirmsSave(t *testing.T) {
 				original.Recurrence, _ = json.Marshal([]string{"RRULE:" + calendarRecurrenceRule(before)})
 				existing = calendarStorageEvent("one", "source", original)
 			}
-			remote, err := updateCalDAVCalendarEventScope(context.Background(), source, "calendar-user", "calendar-password", existing, draft, series)
+			remote, err := updateCalDAVCalendarEventScope(davTestContext(t), source, "calendar-user", "calendar-password", existing, draft, series)
 			switch mode {
 			case "race", "series-race":
 				if !errors.Is(err, errCalendarUpdateConflict) {

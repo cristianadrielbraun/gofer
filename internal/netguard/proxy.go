@@ -120,6 +120,13 @@ func ProxyFrom(ctx context.Context) *Proxy {
 	return p
 }
 
+// ProxyChosen reports whether ctx was marked with WithProxy at all, a direct
+// connection included.
+func ProxyChosen(ctx context.Context) bool {
+	_, ok := ctx.Value(proxyKey{}).(*Proxy)
+	return ok
+}
+
 // ProxyError reports a failure connecting through a proxy, as opposed to a
 // failure of the server behind it.
 type ProxyError struct {

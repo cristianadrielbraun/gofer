@@ -81,7 +81,7 @@ func TestCalDAVSyncExpandsItselfWhenTheServerCannot(t *testing.T) {
 	source := storage.CalendarSource{ID: "source", Provider: "caldav", RemoteID: server.URL + "/cal/", TimeZone: "Europe/Zurich"}
 	query := calendar.EventQuery{WindowStart: time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC), WindowEnd: time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)}
 
-	page, err := listCalDAVCalendarEvents(t.Context(), source, "user", "pass", query)
+	page, err := listCalDAVCalendarEvents(davTestContext(t), source, "user", "pass", query)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +103,7 @@ func TestCalDAVSyncExpandsItselfWhenTheServerCannot(t *testing.T) {
 	}
 
 	// The calendar is remembered, so the next sync doesn't fail on the server first.
-	if _, err := listCalDAVCalendarEvents(t.Context(), source, "user", "pass", query); err != nil {
+	if _, err := listCalDAVCalendarEvents(davTestContext(t), source, "user", "pass", query); err != nil {
 		t.Fatal(err)
 	}
 	if expanded, plain := fake.counts(); expanded != 1 || plain != 2 {
@@ -119,7 +119,7 @@ func TestCalDAVSyncExpandsItselfWhenTheServerCannot(t *testing.T) {
 		}
 	}
 	existing := storage.CalendarEvent{RemoteID: last.RemoteID, SeriesRemoteID: last.SeriesRemoteID, ETag: last.ETag, ICalUID: last.ICalUID, StartAt: last.StartAt, EndAt: last.EndAt}
-	component, err := calendarCalDAVReadOccurrence(t.Context(), source, "user", "pass", existing)
+	component, err := calendarCalDAVReadOccurrence(davTestContext(t), source, "user", "pass", existing)
 	if err != nil {
 		t.Fatalf("read occurrence %s: %v", existing.RemoteID, err)
 	}
@@ -141,7 +141,7 @@ func TestCalDAVSyncLeavesOtherServerFailuresToTheRetry(t *testing.T) {
 	defer func() { davHTTPTransport = prior }()
 	source := storage.CalendarSource{ID: "source", Provider: "caldav", RemoteID: server.URL + "/cal/"}
 	query := calendar.EventQuery{WindowStart: time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC), WindowEnd: time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)}
-	if _, err := listCalDAVCalendarEvents(t.Context(), source, "user", "pass", query); err == nil || requests != 1 {
+	if _, err := listCalDAVCalendarEvents(davTestContext(t), source, "user", "pass", query); err == nil || requests != 1 {
 		t.Fatalf("err = %v after %d requests, want a failure after 1", err, requests)
 	}
 }

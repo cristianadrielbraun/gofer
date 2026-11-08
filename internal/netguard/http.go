@@ -34,7 +34,7 @@ type guardedTransport struct {
 }
 
 func (t *guardedTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	if override := testTransport.Load(); override != nil {
+	if override := testTransport.Load(); override != nil && *override != nil {
 		return (*override).RoundTrip(req)
 	}
 	return t.transportFor(ProxyFrom(req.Context())).RoundTrip(req)
@@ -70,8 +70,9 @@ func (t *guardedTransport) CloseIdleConnections() {
 
 var testTransport atomic.Pointer[http.RoundTripper]
 
-// UseTransportForTests sends every guarded transport's requests through rt
-// until the returned function restores the previous one. It is for tests in
+// UseTransportForTests sends every guarded transport's requests through rt,
+// or through the guarded transports themselves when rt is nil, until the
+// returned function restores the previous one. It is for tests in
 // other packages that serve outbound requests from local servers; production
 // code never calls it.
 func UseTransportForTests(rt http.RoundTripper) (restore func()) {

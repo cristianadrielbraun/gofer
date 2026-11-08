@@ -178,3 +178,9 @@ func (s *UserAccountStore) AccountProxyForUser(ctx context.Context, owner, accou
 	})
 	return proxy, err
 }
+
+// ResolveProxyChoice is AccountStore.ResolveProxyChoice with the central
+// saved proxies, for an account that doesn't exist yet.
+func (s *UserAccountStore) ResolveProxyChoice(ctx context.Context, choice string) (*netguard.Proxy, error) {
+	return s.base.ResolveProxyChoice(ctx, choice)
+}

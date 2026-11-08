@@ -246,6 +246,9 @@ func (h *Handler) calendarCredentialsForSource(ctx context.Context, userID strin
 		if result.err == nil && (strings.TrimSpace(result.username) == "" || result.password == "") {
 			result.err = fmt.Errorf("complete Calendar authentication in account setup")
 		}
+		if result.err == nil {
+			result.err = h.accountStore.BindDAVLogin(ctx, source.AccountID, result.password, result.username)
+		}
 	case storage.CalendarSourceProviderJMAP:
 		result.jmap, result.password, result.err = h.jmapAccountConnection(ctx, source.AccountID)
 		result.baseURL, result.username = jmapCalendarDAVOrigin, "jmap"

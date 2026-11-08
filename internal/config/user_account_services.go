@@ -27,6 +27,10 @@ type AccountServiceSnapshot struct {
 	data                                                      models.EditAccountData
 	password, contactPassword, calendarPassword, smtpPassword []byte
 	connection, contacts, calendar, smtp                      [32]byte
+	// proxy is the account's proxy, read when the snapshot was taken, or
+	// proxyErr why it couldn't be.
+	proxy    *netguard.Proxy
+	proxyErr error
 }
 
 func (s *AccountServiceSnapshot) OwnerID() string   { return s.owner }
@@ -141,6 +145,12 @@ func (s *AccountServiceSnapshot) Proxy(ctx context.Context) (*netguard.Proxy, er
 	return s.repository.base.ResolveProxyChoice(ctx, s.data.ProxyID)
 }
 
+// DAVProxy is the account's proxy as read when the snapshot was taken, for
+// CalDAV and CardDAV work done with it.
+func (s *AccountServiceSnapshot) DAVProxy() (*netguard.Proxy, error) {
+	return s.proxy, s.proxyErr
+}
+
 func (s *AccountServiceSnapshot) SMTPPassword() (string, error) {
 	if s.data.SmtpUsername != "" && len(s.smtpPassword) > 0 {
 		password, err := s.repository.base.decryptPassword(s.owner, s.id, passwordKindSMTP, s.smtpPassword)
@@ -166,7 +176,17 @@ func (s *AccountServiceSnapshot) CalDAVSettings() (baseURL, username string, use
 
 // ContactSyncPassword preserves the saved CardDAV-then-mailbox fallback. It
 // decrypts a copied ciphertext only; no local store is opened during HTTP.
+//
+// The password is bound to the account's proxy (see BindDAVLogin).
 func (s *AccountServiceSnapshot) ContactSyncPassword(submitted string) (string, error) {
+	password, err := s.contactSyncPassword(submitted)
+	if err != nil {
+		return "", err
+	}
+	return password, s.BindDAVLogin(password)
+}
+
+func (s *AccountServiceSnapshot) contactSyncPassword(submitted string) (string, error) {
 	if strings.TrimSpace(submitted) != "" {
 		return submitted, nil
 	}
@@ -184,7 +204,18 @@ func (s *AccountServiceSnapshot) MailboxPassword() (string, error) {
 	}
 	return s.repository.base.decryptPassword(s.owner, s.id, passwordKindIMAP, s.password)
 }
+
+// CalDAVPassword is the password CalDAV signs in with, bound to the
+// account's proxy (see BindDAVLogin).
 func (s *AccountServiceSnapshot) CalDAVPassword(submitted string, useAccountCredentials bool) (string, error) {
+	password, err := s.calDAVPassword(submitted, useAccountCredentials)
+	if err != nil {
+		return "", err
+	}
+	return password, s.BindDAVLogin(password)
+}
+
+func (s *AccountServiceSnapshot) calDAVPassword(submitted string, useAccountCredentials bool) (string, error) {
 	if useAccountCredentials {
 		return s.MailboxPassword()
 	}
@@ -335,6 +366,10 @@ func (s *UserAccountStore) serviceSnapshot(ctx context.Context, tx *sql.Tx, owne
 	if err != nil {
 		return nil, err
 	}
+	// Read now for the CalDAV and CardDAV work done with the snapshot, which
+	// mustn't open databases while it talks to a server. A proxy that can't
+	// be read fails that work, not the snapshot.
+	snapshot.proxy, snapshot.proxyErr = s.base.ResolveProxyChoice(ctx, data.ProxyID)
 	return snapshot, nil
 }
 

@@ -100,20 +100,20 @@ func newAPIHTTPTransport(proxy *Proxy) *http.Transport {
 	}
 }
 
-// Access tokens are bound for a while longer than providers keep them valid,
-// and bound again each time they are handed out, so a changed proxy applies
-// from the next request on.
-const bearerBindingTTL = 3 * time.Hour
+// Credentials are bound for a while longer than providers keep access tokens
+// valid, and bound again each time they are handed out, so a changed proxy
+// applies from the next request on.
+const credentialBindingTTL = 3 * time.Hour
 
-type bearerBinding struct {
+type credentialBinding struct {
 	proxy   *Proxy
 	expires time.Time
 }
 
-var bearerBindings = struct {
+var credentialBindings = struct {
 	sync.Mutex
-	tokens map[[32]byte]bearerBinding
-}{tokens: map[[32]byte]bearerBinding{}}
+	tokens map[[32]byte]credentialBinding
+}{tokens: map[[32]byte]credentialBinding{}}
 
 // BindBearerProxy records that requests carrying the access token go through
 // proxy, or directly when it is nil. Gofer binds every account token it hands
@@ -124,22 +124,52 @@ func BindBearerProxy(token string, proxy *Proxy) {
 	if token == "" {
 		return
 	}
+	bindCredential(bearerKey(token), proxy)
+}
+
+// BindBasicProxy records that requests signing in with username and password
+// go through proxy, or directly when it is nil, as BindBearerProxy does for
+// tokens. CalDAV and CardDAV requests sign in this way.
+func BindBasicProxy(username, password string, proxy *Proxy) {
+	if password == "" {
+		return
+	}
+	bindCredential(basicKey(username, password), proxy)
+}
+
+// CredentialProxy returns the proxy bound to the credentials req carries, a
+// bearer token or a username and password, and whether any is bound.
+func CredentialProxy(req *http.Request) (*Proxy, bool) {
+	if username, password, ok := req.BasicAuth(); ok {
+		return boundProxy(basicKey(username, password))
+	}
+	return bearerProxy(req.Header.Get("Authorization"))
+}
+
+func bearerKey(token string) [32]byte {
+	return sha256.Sum256([]byte("bearer\x00" + strings.TrimSpace(token)))
+}
+
+func basicKey(username, password string) [32]byte {
+	return sha256.Sum256([]byte("basic\x00" + username + "\x00" + password))
+}
+
+func bindCredential(key [32]byte, proxy *Proxy) {
 	if proxy != nil {
 		pinned := *proxy
 		proxy = &pinned
 	}
 	now := time.Now()
-	key := sha256.Sum256([]byte(token))
-	bearerBindings.Lock()
-	defer bearerBindings.Unlock()
-	if len(bearerBindings.tokens) > 1024 {
-		for k, binding := range bearerBindings.tokens {
+	credentialBindings.Lock()
+	defer credentialBindings.Unlock()
+	if len(credentialBindings.tokens) > 1024 {
+		for k, binding := range credentialBindings.tokens {
 			if now.After(binding.expires) {
-				delete(bearerBindings.tokens, k)
+				delete(credentialBindings.tokens, k)
 			}
 		}
 	}
-	bearerBindings.tokens[key] = bearerBinding{proxy: proxy, expires: now.Add(bearerBindingTTL)}
+	credentialBindings.tokens[key] = credentialBinding{proxy: proxy, expires: now.Add(credentialBindingTTL)}
 }
 
 // bearerProxy returns the proxy bound to the bearer token in an Authorization
@@ -149,10 +179,13 @@ func bearerProxy(authorization string) (*Proxy, bool) {
 	if !ok || !strings.EqualFold(scheme, "Bearer") {
 		return nil, false
 	}
-	key := sha256.Sum256([]byte(strings.TrimSpace(token)))
-	bearerBindings.Lock()
-	defer bearerBindings.Unlock()
-	binding, ok := bearerBindings.tokens[key]
+	return boundProxy(bearerKey(token))
+}
+
+func boundProxy(key [32]byte) (*Proxy, bool) {
+	credentialBindings.Lock()
+	defer credentialBindings.Unlock()
+	binding, ok := credentialBindings.tokens[key]
 	if !ok || time.Now().After(binding.expires) {
 		return nil, false
 	}

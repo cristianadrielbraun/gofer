@@ -4,6 +4,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/cristianadrielbraun/gofer/internal/handler"
 	"github.com/cristianadrielbraun/gofer/internal/netguard/netguardtest"
 )
 
@@ -12,5 +13,6 @@ import (
 // routing is tested in netguard and mailauth.
 func TestMain(m *testing.M) {
 	netguardtest.FollowDefaultTransport()
+	handler.RequireDAVProxyChoiceForTests()
 	os.Exit(m.Run())
 }

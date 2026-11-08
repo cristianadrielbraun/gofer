@@ -64,7 +64,7 @@ func TestDiscoverCardDAVAddressBooks(t *testing.T) {
 	}))
 	defer server.Close()
 
-	books, err := discoverCardDAVAddressBooks(context.Background(), server.URL, "user", "pass")
+	books, err := discoverCardDAVAddressBooks(davTestContext(t), server.URL, "user", "pass")
 	if err != nil {
 		t.Fatalf("discoverCardDAVAddressBooks() error = %v", err)
 	}
@@ -138,7 +138,7 @@ func TestCardDAVSyncCollectionFetchesChangedAndDeleted(t *testing.T) {
 	}))
 	defer server.Close()
 
-	result, err := cardDAVSync(context.Background(), models.ContactSyncConfig{
+	result, err := cardDAVSync(davTestContext(t), models.ContactSyncConfig{
 		AddressBookURL: server.URL + "/addressbooks/user/default/",
 		Username:       "user",
 		LastSyncToken:  "token-1",
@@ -187,7 +187,7 @@ func TestCardDAVSyncFallsBackToFullQuery(t *testing.T) {
 	}))
 	defer server.Close()
 
-	result, err := cardDAVSync(context.Background(), models.ContactSyncConfig{
+	result, err := cardDAVSync(davTestContext(t), models.ContactSyncConfig{
 		AddressBookURL: server.URL + "/addressbooks/user/default/",
 		Username:       "user",
 		LastSyncToken:  "bad-token",
@@ -204,7 +204,7 @@ func TestCardDAVSyncFallsBackToFullQuery(t *testing.T) {
 }
 
 func TestPruneMissingCardDAVSourcesTrashesContactLivingThere(t *testing.T) {
-	ctx := context.Background()
+	ctx := davTestContext(t)
 	db, err := storage.New(filepath.Join(t.TempDir(), "gofer.db"))
 	if err != nil {
 		t.Fatalf("storage.New() error = %v", err)
@@ -269,14 +269,14 @@ func TestCardDAVPutUsesPreconditionHeaders(t *testing.T) {
 	defer server.Close()
 
 	cfg := models.ContactSyncConfig{AddressBookURL: server.URL + "/", Username: "user"}
-	etag, err := cardDAVPut(context.Background(), cfg, "pass", server.URL+"/new.vcf", "", []byte("BEGIN:VCARD\nEND:VCARD\n"))
+	etag, err := cardDAVPut(davTestContext(t), cfg, "pass", server.URL+"/new.vcf", "", []byte("BEGIN:VCARD\nEND:VCARD\n"))
 	if err != nil {
 		t.Fatalf("create cardDAVPut() error = %v", err)
 	}
 	if etag != `"new"` {
 		t.Fatalf("create etag = %q, want new", etag)
 	}
-	etag, err = cardDAVPut(context.Background(), cfg, "pass", server.URL+"/existing.vcf", `"old"`, []byte("BEGIN:VCARD\nEND:VCARD\n"))
+	etag, err = cardDAVPut(davTestContext(t), cfg, "pass", server.URL+"/existing.vcf", `"old"`, []byte("BEGIN:VCARD\nEND:VCARD\n"))
 	if err != nil {
 		t.Fatalf("update cardDAVPut() error = %v", err)
 	}
@@ -295,7 +295,7 @@ func TestCardDAVPutConflictReturnsTypedError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	_, err := cardDAVPut(context.Background(), models.ContactSyncConfig{AddressBookURL: server.URL + "/"}, "", server.URL+"/contact.vcf", `"stale"`, []byte("BEGIN:VCARD\nEND:VCARD\n"))
+	_, err := cardDAVPut(davTestContext(t), models.ContactSyncConfig{AddressBookURL: server.URL + "/"}, "", server.URL+"/contact.vcf", `"stale"`, []byte("BEGIN:VCARD\nEND:VCARD\n"))
 	if !isCardDAVStatus(err, http.StatusPreconditionFailed) {
 		t.Fatalf("cardDAVPut() error = %T %v, want precondition status", err, err)
 	}
@@ -311,14 +311,14 @@ func TestCardDAVDeleteNotFoundIsSuccess(t *testing.T) {
 	}))
 	defer server.Close()
 
-	if err := cardDAVDelete(context.Background(), models.ContactSyncConfig{}, "", server.URL+"/missing.vcf", `"old"`); err != nil {
+	if err := cardDAVDelete(davTestContext(t), models.ContactSyncConfig{}, "", server.URL+"/missing.vcf", `"old"`); err != nil {
 		t.Fatalf("cardDAVDelete() error = %v, want nil", err)
 	}
 }
 
 func TestDeleteCardDAVContactsByEmailDeletesTrackedSource(t *testing.T) {
 	allowLocalDAVServers(t)
-	ctx := context.Background()
+	ctx := davTestContext(t)
 	var deletedPath, ifMatch string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodDelete {
@@ -383,7 +383,7 @@ func TestDeleteCardDAVContactsByEmailDeletesTrackedSource(t *testing.T) {
 
 func TestDeleteCardDAVContactsByEmailSearchFallbackExactMatch(t *testing.T) {
 	allowLocalDAVServers(t)
-	ctx := context.Background()
+	ctx := davTestContext(t)
 	deleted := make(map[string]bool)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {

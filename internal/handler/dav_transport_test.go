@@ -32,14 +32,14 @@ func TestDAVRequestsRefuseUnapprovedPrivateServers(t *testing.T) {
 	// Plain HTTP needs its own approval, whatever the address.
 	setDAVPrivateTargetPolicy(func(context.Context, string, string, int) bool { return true })
 	setDAVPlaintextPolicy(nil)
-	err := testCardDAVAddressBook(t.Context(), cfg, "secret")
+	err := testCardDAVAddressBook(davTestContext(t), cfg, "secret")
 	if err == nil || !strings.Contains(err.Error(), "HTTP plaintext exception") || hits.Load() != 0 {
 		t.Fatalf("unapproved plain HTTP DAV server: err=%v hits=%d", err, hits.Load())
 	}
 
 	setDAVPlaintextPolicy(func(_ context.Context, host string, p int) bool { return host == "127.0.0.1" && p == port })
 	setDAVPrivateTargetPolicy(nil)
-	err = testCardDAVAddressBook(t.Context(), cfg, "secret")
+	err = testCardDAVAddressBook(davTestContext(t), cfg, "secret")
 	if err == nil || !strings.Contains(err.Error(), "private network") || hits.Load() != 0 {
 		t.Fatalf("unapproved private DAV server: err=%v hits=%d", err, hits.Load())
 	}
@@ -47,7 +47,7 @@ func TestDAVRequestsRefuseUnapprovedPrivateServers(t *testing.T) {
 	setDAVPrivateTargetPolicy(func(_ context.Context, protocol, host string, p int) bool {
 		return protocol == "http" && host == "127.0.0.1" && p == port
 	})
-	_ = testCardDAVAddressBook(t.Context(), cfg, "secret")
+	_ = testCardDAVAddressBook(davTestContext(t), cfg, "secret")
 	if hits.Load() == 0 {
 		t.Fatal("an approved private DAV server was not contacted")
 	}
