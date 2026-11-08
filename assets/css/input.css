@@ -1977,12 +1977,31 @@ html #mail-list .thread-sub-item > .mail-row-check ~ a {
   background: color-mix(in srgb, var(--color-primary) 6%, transparent);
 }
 
+/* Cards keep their place: the checkbox comes in inside the card's left edge,
+   a size up from the table's, and the card's content moves over for it. The
+   card layout is the user's, so the box can't take the avatar's spot. */
 .mail-list-item:not(.mail-list-table-row) > .mail-row-check {
-  width: 1.75rem;
+  left: 0.875rem;
+  width: 1.25rem;
+  /* Level with the card's first line: the row's 3px gap, the card's 1px
+     border and its 0.5rem top padding. */
+  align-items: flex-start;
+  padding-top: calc(4px + 0.5rem);
+}
+
+.mail-list-item:not(.mail-list-table-row) .mail-row-check-input {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+.mail-list-item:not(.mail-list-table-row) .mail-row-check-input ~ div svg {
+  width: 1rem;
+  height: 1rem;
 }
 
 #mail-list[data-mail-selecting] .mail-list-item:not(.mail-list-table-row) > .mail-row-check ~ a {
-  margin-left: 1.25rem;
+  margin-left: 0;
+  padding-left: 2.875rem;
 }
 
 /* The selection banner folds open above the list, so the list slides down
@@ -2021,7 +2040,7 @@ html #mail-list .thread-sub-item > .mail-row-check ~ a {
   cursor: pointer;
 }
 
-/* Unchecked, the box covers the card edge it sits on; checked, it keeps the
+/* Unchecked, the box is filled with the card color; checked, it keeps the
    checkbox's own fill. */
 .mail-row-check-input:not(:checked, :indeterminate) {
   background: var(--color-card);
