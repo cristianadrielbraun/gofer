@@ -8960,7 +8960,7 @@ document.addEventListener("DOMContentLoaded", function () {
         return Promise.reject(new Error(goferT("js.notify.permission_denied")))
       }
       var appearance = newMailNotificationAppearance(notificationAppearanceExample(), 1)
-      return window.GoferNotificationAvatar.render(appearance.icon).then(function (circularIcon) {
+      return window.GoferNotificationAvatar.render(appearance.icon, appearance.initials).then(function (circularIcon) {
         var notification = new Notification(appearance.title, {
           body: appearance.body,
           tag: "gofer-test-notification",
@@ -9171,8 +9171,11 @@ document.addEventListener("DOMContentLoaded", function () {
       if (chars.length > 180) preview = chars.slice(0, 180).join("") + "…"
       if (preview) body += "\n" + preview
     }
-    var icon = setting("notification_icon") === "gofer" ? "/assets/logo.png" : String(data.avatar_url || data.icon || "/assets/logo.png")
-    return { title: title, body: body, icon: icon }
+    var avatar = setting("notification_icon") !== "gofer"
+    var icon = avatar ? String(data.avatar_url || data.icon || "/assets/logo.png") : "/assets/logo.png"
+    // Without a picture the sender's avatar is their initials.
+    var initials = avatar && (data.from_name || data.from_email) ? _composeRecipientInitials(data.from_name, data.from_email) : ""
+    return { title: title, body: body, icon: icon, initials: initials }
   }
 
   function notificationAppearanceExample() {
@@ -9206,7 +9209,7 @@ document.addEventListener("DOMContentLoaded", function () {
     var appearance = newMailNotificationAppearance(data, unreadCount)
     var folderName = String(data.folder_name || goferT("js.mail.inbox"))
 
-    return window.GoferNotificationAvatar.render(appearance.icon).then(function (circularIcon) {
+    return window.GoferNotificationAvatar.render(appearance.icon, appearance.initials).then(function (circularIcon) {
       var notification = new Notification(appearance.title, {
         body: appearance.body,
         tag: "gofer-new-mail-" + (data.account_id || "") + "-" + (data.folder_id || folderName),

@@ -1498,11 +1498,23 @@ func (o *SyncOrchestrator) senderAvatarURL(ctx context.Context, email string) st
 	if o == nil || o.db == nil {
 		return ""
 	}
+	return senderAvatarURLFrom(ctx, o.db, email, "")
+}
+
+// senderAvatarURLFrom returns the cached avatar address for email, checked
+// against userID's mail when one is given.
+func senderAvatarURLFrom(ctx context.Context, db *storage.DB, email, userID string) string {
 	hash := avatarresolver.GravatarHash(email)
 	if hash == "" {
 		return ""
 	}
-	rec, err := o.db.GetSenderAvatarByHash(ctx, hash)
+	var rec *storage.SenderAvatarRecord
+	var err error
+	if userID != "" {
+		rec, err = db.GetSenderAvatarByHashForUser(ctx, hash, userID)
+	} else {
+		rec, err = db.GetSenderAvatarByHash(ctx, hash)
+	}
 	if err != nil || rec == nil || rec.Status != "found" {
 		return ""
 	}

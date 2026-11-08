@@ -25,7 +25,7 @@ self.addEventListener("push", function (event) {
     },
   }
 
-  event.waitUntil(self.GoferNotificationAvatar.render(icon).then(function (circularIcon) {
+  event.waitUntil(self.GoferNotificationAvatar.render(icon, typeof data.initials === "string" ? data.initials : "").then(function (circularIcon) {
     options.icon = circularIcon
     return self.registration.showNotification(title, options)
   }))

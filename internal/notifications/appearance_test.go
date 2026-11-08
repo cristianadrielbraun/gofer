@@ -31,3 +31,23 @@ func TestNewMailNotificationAppearance(t *testing.T) {
 		})
 	}
 }
+
+func TestNewMailNotificationInitials(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		payload  map[string]any
+		settings map[string]string
+		want     string
+	}{
+		{"sender name", map[string]any{"from_name": "Dana Rivers", "from_email": "dana@example.test"}, map[string]string{"notification_icon": "avatar"}, "DR"},
+		{"address only", map[string]any{"from_email": "kit@example.test"}, map[string]string{}, "KI"},
+		{"gofer logo chosen", map[string]any{"from_name": "Dana Rivers"}, map[string]string{"notification_icon": "gofer"}, ""},
+		{"no sender", map[string]any{}, map[string]string{"notification_icon": "avatar"}, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := newMailNotificationInitials(tc.payload, tc.settings); got != tc.want {
+				t.Fatalf("initials = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

@@ -58,12 +58,17 @@ func (o *SyncOrchestrator) imapAccount(ctx context.Context, id string) (*models.
 	return o.accountStore.GetAccountByID(ctx, id)
 }
 func (o *SyncOrchestrator) imapSenderAvatarURL(ctx context.Context, email string) string {
-	// User avatar cache routing is a separate conversion; do not consult shared
-	// private data from a routed IMAP event.
-	if o.imapScope != nil {
-		return ""
+	if o.imapScope == nil {
+		return o.senderAvatarURL(ctx, email)
 	}
-	return o.senderAvatarURL(ctx, email)
+	// A routed store reads the shared avatar cache, so only hand out an
+	// avatar the owner may see, as /api/avatar does.
+	var url string
+	_ = o.imapScope.call(ctx, func(db *storage.DB) error {
+		url = senderAvatarURLFrom(ctx, db, email, o.imapScope.owner)
+		return nil
+	})
+	return url
 }
 func (r *userIMAPScope) GetFolderRole(ctx context.Context, folderID string) (string, error) {
 	var result string

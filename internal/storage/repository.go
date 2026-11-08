@@ -75,6 +75,9 @@ func previewFromBodyPaths(textPath, htmlPath string) string {
 	return ""
 }
 
+// Initials are the letters an avatar shows when there is no picture.
+func Initials(name string) string { return initials(name) }
+
 func initials(name string) string {
 	parts := strings.Fields(name)
 	if len(parts) >= 2 {

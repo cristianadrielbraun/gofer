@@ -154,6 +154,9 @@ func (s *Service) handleNewMail(ctx context.Context, event mail.Event) {
 			"url":       "/folder/" + event.FolderID,
 		}
 		payload["icon"] = icon
+		if initials := newMailNotificationInitials(event.Payload, settings); initials != "" {
+			payload["initials"] = initials
+		}
 		s.sendWebPush(ctx, userID, event.AccountID, payload, "gofer-new-mail", webpush.UrgencyNormal)
 	}
 }
@@ -437,11 +440,13 @@ func (s *Service) SendTestPush(ctx context.Context, userID, endpoint string) err
 		return err
 	}
 	userCtx := i18n.ForUser(ctx, userID)
-	title, body, icon := newMailNotificationAppearance(userCtx, notificationAppearanceExample(userCtx), 1, settings)
+	example := notificationAppearanceExample(userCtx)
+	title, body, icon := newMailNotificationAppearance(userCtx, example, 1, settings)
 	payload, err := json.Marshal(map[string]any{
-		"title": title,
-		"body":  body,
-		"icon":  icon,
+		"title":    title,
+		"body":     body,
+		"icon":     icon,
+		"initials": newMailNotificationInitials(example, settings),
 		"tag":   "gofer-test-notification",
 		"url":   "/settings/advanced",
 	})

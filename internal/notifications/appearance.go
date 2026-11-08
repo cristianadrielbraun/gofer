@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
+	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
 
 // Keep this formatter in sync with newMailNotificationAppearance in app.js.
@@ -44,6 +45,22 @@ func newMailNotificationAppearance(ctx context.Context, payload map[string]any, 
 		}
 	}
 	return title, body, icon
+}
+
+// newMailNotificationInitials are what the notification avatar shows when
+// the sender has no picture; none when the Gofer logo is chosen.
+func newMailNotificationInitials(payload map[string]any, settings map[string]string) string {
+	if settings["notification_icon"] == "gofer" {
+		return ""
+	}
+	sender := strings.TrimSpace(stringPayload(payload, "from_name"))
+	if sender == "" {
+		sender = strings.TrimSpace(stringPayload(payload, "from_email"))
+	}
+	if sender == "" {
+		return ""
+	}
+	return storage.Initials(sender)
 }
 
 func notificationAppearanceExample(ctx context.Context) map[string]any {
