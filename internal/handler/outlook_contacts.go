@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/models"
+	"github.com/cristianadrielbraun/gofer/internal/netguard"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
@@ -151,7 +152,7 @@ func (h *Handler) fetchOutlookContactPhotoDataURL(ctx context.Context, accessTok
 		return "", err
 	}
 	req.Header.Set("Authorization", "Bearer "+accessToken)
-	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+	resp, err := (&http.Client{Transport: netguard.APITransport, Timeout: 30 * time.Second}).Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -540,7 +541,7 @@ func (h *Handler) doOutlookJSON(ctx context.Context, method, endpoint, accessTok
 		req.Header.Set("Content-Type", "application/json")
 	}
 
-	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+	resp, err := (&http.Client{Transport: netguard.APITransport, Timeout: 30 * time.Second}).Do(req)
 	if err != nil {
 		return err
 	}

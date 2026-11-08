@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/models"
+	"github.com/cristianadrielbraun/gofer/internal/netguard"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
@@ -262,7 +263,7 @@ func (h *Handler) syncGooglePeopleConnections(ctx context.Context, userID, accou
 	if err != nil {
 		return 0, err
 	}
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := &http.Client{Transport: netguard.APITransport, Timeout: 30 * time.Second}
 	get := func(endpoint string, out any) error {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 		if err != nil {
@@ -1041,7 +1042,7 @@ func (h *Handler) getGoogleContact(ctx context.Context, accessToken, remoteID st
 		return googlePerson{}, err
 	}
 	req.Header.Set("Authorization", "Bearer "+accessToken)
-	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+	resp, err := (&http.Client{Transport: netguard.APITransport, Timeout: 30 * time.Second}).Do(req)
 	if err != nil {
 		return googlePerson{}, err
 	}
@@ -1063,7 +1064,7 @@ func (h *Handler) deleteGoogleContact(ctx context.Context, accessToken, remoteID
 		return err
 	}
 	req.Header.Set("Authorization", "Bearer "+accessToken)
-	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+	resp, err := (&http.Client{Transport: netguard.APITransport, Timeout: 30 * time.Second}).Do(req)
 	if err != nil {
 		return err
 	}
@@ -1141,7 +1142,7 @@ func (h *Handler) searchGoogleContacts(ctx context.Context, accessToken, query s
 		return nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+accessToken)
-	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+	resp, err := (&http.Client{Transport: netguard.APITransport, Timeout: 30 * time.Second}).Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -1172,7 +1173,7 @@ func (h *Handler) writeGoogleContact(ctx context.Context, method, endpoint, acce
 	}
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+	resp, err := (&http.Client{Transport: netguard.APITransport, Timeout: 30 * time.Second}).Do(req)
 	if err != nil {
 		return googlePerson{}, err
 	}

@@ -18,6 +18,7 @@ import (
 	gomail "github.com/emersion/go-message/mail"
 
 	mailmessage "github.com/cristianadrielbraun/gofer/internal/mail/message"
+	"github.com/cristianadrielbraun/gofer/internal/netguard"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
@@ -207,7 +208,7 @@ func outlookUploadRange(ctx context.Context, uploadURL string, piece []byte, sta
 	req.ContentLength = int64(len(piece))
 	req.Header.Set("Content-Type", "application/octet-stream")
 	req.Header.Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, start+len(piece)-1, total))
-	resp, err := (&http.Client{Timeout: 5 * time.Minute}).Do(req)
+	resp, err := (&http.Client{Transport: netguard.APITransport, Timeout: 5 * time.Minute}).Do(req)
 	if err != nil {
 		return err
 	}

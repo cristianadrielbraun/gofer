@@ -166,3 +166,15 @@ func (s *AccountStore) SetAccountProxy(ctx context.Context, userID, accountID, c
 	}
 	return s.db.SetAccountProxyChoice(ctx, userID, accountID, choice)
 }
+
+// AccountProxyForUser is AccountProxy for an account in its owner's own
+// database.
+func (s *UserAccountStore) AccountProxyForUser(ctx context.Context, owner, accountID string) (*netguard.Proxy, error) {
+	var proxy *netguard.Proxy
+	err := s.WithAccountForUser(ctx, owner, accountID, func(local *AccountStore, _ *storage.DB) error {
+		var err error
+		proxy, err = local.AccountProxy(ctx, accountID)
+		return err
+	})
+	return proxy, err
+}

@@ -15,6 +15,7 @@ import (
 
 	"github.com/cristianadrielbraun/gofer/internal/mail/message"
 	"github.com/cristianadrielbraun/gofer/internal/models"
+	"github.com/cristianadrielbraun/gofer/internal/netguard"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
@@ -170,7 +171,7 @@ func (h *Handler) doOutlookRaw(ctx context.Context, method, endpoint, accessToke
 		req.Header.Set("Accept", "application/json")
 	}
 
-	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+	resp, err := (&http.Client{Transport: netguard.APITransport, Timeout: 30 * time.Second}).Do(req)
 	if err != nil {
 		return err
 	}

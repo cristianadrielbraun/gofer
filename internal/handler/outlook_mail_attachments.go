@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cristianadrielbraun/gofer/internal/netguard"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
@@ -125,7 +126,7 @@ func (h *Handler) fetchOutlookGraphAttachmentContent(ctx context.Context, token,
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Prefer", `IdType="ImmutableId"`)
 
-	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+	resp, err := (&http.Client{Transport: netguard.APITransport, Timeout: 30 * time.Second}).Do(req)
 	if err != nil {
 		return nil, err
 	}

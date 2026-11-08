@@ -26,6 +26,7 @@ import (
 	imapclient "github.com/cristianadrielbraun/gofer/internal/mail/imap"
 	"github.com/cristianadrielbraun/gofer/internal/mail/jmap"
 	"github.com/cristianadrielbraun/gofer/internal/models"
+	"github.com/cristianadrielbraun/gofer/internal/netguard"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 	goimap "github.com/emersion/go-imap/v2"
@@ -960,7 +961,7 @@ func (w mailImportCaller) call(ctx context.Context, method, endpoint, contentTyp
 		if contentType != "" {
 			req.Header.Set("Content-Type", contentType)
 		}
-		resp, err := (&http.Client{Timeout: 5 * time.Minute}).Do(req)
+		resp, err := (&http.Client{Transport: netguard.APITransport, Timeout: 5 * time.Minute}).Do(req)
 		if err != nil {
 			return err
 		}

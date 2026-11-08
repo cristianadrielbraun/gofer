@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/mail/message"
+	"github.com/cristianadrielbraun/gofer/internal/netguard"
 	"github.com/cristianadrielbraun/gofer/internal/retry"
 )
 
@@ -51,7 +52,7 @@ func getUserOutlookRaw(ctx context.Context, token, providerID string) ([]byte, e
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Prefer", `IdType="ImmutableId"`)
-	response, err := http.DefaultClient.Do(req)
+	response, err := netguard.APIClient(0).Do(req)
 	if err != nil {
 		return nil, err
 	}

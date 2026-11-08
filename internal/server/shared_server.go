@@ -128,6 +128,7 @@ func RunShared(rootCtx context.Context) error {
 		log.Fatalf("failed to provision authentication setup token: %v", err)
 	}
 	mailCredentials := mailauth.New(mailboxOAuthConfig, db, secretKey)
+	mailCredentials.SetAccountProxyResolver(accountStore.AccountProxy)
 	if err := mailCredentials.SecureOAuthCredentials(context.Background()); err != nil {
 		log.Fatalf("failed to secure mailbox OAuth credentials: %v", err)
 	}

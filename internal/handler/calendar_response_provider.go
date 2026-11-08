@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/calendar"
+	"github.com/cristianadrielbraun/gofer/internal/netguard"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
@@ -205,7 +206,7 @@ func sendCalendarResponse(ctx context.Context, source storage.CalendarSource, ca
 		// guarantee PATCH-style concurrency. Never retry an ambiguous response
 		// action; owned dispatch may refresh a definitively rejected 401 once.
 		req.Header.Set("If-Match", target.HTTPETag)
-		client := &http.Client{Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+		client := &http.Client{Transport: netguard.APITransport, Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 		result, err := calendarProviderDo(client, req)
 		if err != nil {
 			return calendarResponseResult{}, err

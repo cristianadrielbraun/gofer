@@ -76,3 +76,21 @@ func (p *Proxy) serve(conn net.Conn) {
 	go func() { _, _ = io.Copy(conn, upstream); done <- struct{}{} }()
 	<-done
 }
+
+// FollowDefaultTransport sends provider API requests (netguard.APITransport)
+// the way http.DefaultClient would send them when each is made: through its
+// transport when a test set one, else through http.DefaultTransport. It is
+// for packages whose tests serve provider APIs by replacing either. Call it
+// from TestMain.
+func FollowDefaultTransport() (restore func()) {
+	return netguard.UseAPITransportForTests(currentDefaultTransport{})
+}
+
+type currentDefaultTransport struct{}
+
+func (currentDefaultTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if transport := http.DefaultClient.Transport; transport != nil {
+		return transport.RoundTrip(req)
+	}
+	return http.DefaultTransport.RoundTrip(req)
+}

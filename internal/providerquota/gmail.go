@@ -20,6 +20,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cristianadrielbraun/gofer/internal/netguard"
 	"github.com/cristianadrielbraun/gofer/internal/retry"
 )
 
@@ -273,11 +274,14 @@ func gmailRefusal(resp *http.Response, now time.Time) (bool, time.Time) {
 		strings.Contains(text, "quota exceeded"), retryAt
 }
 
-// Do sends a request with http.DefaultClient, first waiting until a Gmail
-// request fits its mailbox's quota. Requests to other hosts go straight out.
+// Do sends a request over netguard.APITransport, so it takes its account's
+// proxy, first waiting until a Gmail request fits its mailbox's quota.
+// Requests to other hosts go straight out.
 func Do(req *http.Request) (*http.Response, error) {
-	return gmail.do(req, http.DefaultClient.Do)
+	return gmail.do(req, apiClient.Do)
 }
+
+var apiClient = netguard.APIClient(0)
 
 func (b *budget) do(req *http.Request, send func(*http.Request) (*http.Response, error)) (*http.Response, error) {
 	if req.URL == nil || req.URL.Host != GmailHost {
