@@ -104,7 +104,7 @@ func TestMigrateV139ToV140RecountsContactMail(t *testing.T) {
 	}
 	if _, err := db.Write().Exec(`UPDATE contact_observations SET message_count = 20502;
 		DROP INDEX idx_messages_contact_email; DROP INDEX idx_recipients_contact_email;
-		DELETE FROM schema_version WHERE version = 140`); err != nil {
+		DELETE FROM schema_version WHERE version >= 140`); err != nil {
 		t.Fatal(err)
 	}
 	if err := migrateV139ToV140(db.Write()); err != nil {

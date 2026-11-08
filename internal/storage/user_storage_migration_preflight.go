@@ -131,7 +131,7 @@ func InspectUserStorageMigration(ctx context.Context, sourcePath string) (UserSt
 }
 
 func migrationSharedVersionSupported(version int) bool {
-	return version >= 105 && version <= 140
+	return version >= 105 && version <= 141
 }
 
 // These recognized shared schemas differ only in the explicitly handled push
@@ -417,11 +417,11 @@ func migrationSourceColumns(ctx context.Context, tx *sql.Tx, table *UserStorageM
 	} else if table.Name == "calendar_events" && version < 112 {
 		missing = []string{"event_type"}
 	} else if table.Name == "accounts" && version < 114 {
-		missing = []string{"jmap_session_url", "provider_push_enabled", "sort_order", "hidden"}
+		missing = []string{"jmap_session_url", "provider_push_enabled", "sort_order", "hidden", "proxy_id"}
 	} else if table.Name == "accounts" && version < 122 {
-		missing = []string{"provider_push_enabled", "sort_order", "hidden"}
+		missing = []string{"provider_push_enabled", "sort_order", "hidden", "proxy_id"}
 	} else if table.Name == "accounts" && version < 124 {
-		missing = []string{"sort_order", "hidden"}
+		missing = []string{"sort_order", "hidden", "proxy_id"}
 	} else if table.Name == "message_folder_state" && version < 118 {
 		missing = []string{"remote_message_id", "message_date", "message_has_attachments", "deleted_at"}
 	} else if table.Name == "message_folder_state" && version < 125 {
@@ -443,7 +443,9 @@ func migrationSourceColumns(ctx context.Context, tx *sql.Tx, table *UserStorageM
 	} else if table.Name == "calendar_sources" && version < 136 {
 		missing = []string{"refresh_minutes"}
 	} else if table.Name == "accounts" && version < 134 {
-		missing = []string{"hidden"}
+		missing = []string{"hidden", "proxy_id"}
+	} else if table.Name == "accounts" && version < 141 {
+		missing = []string{"proxy_id"}
 	} else if table.Name == "mail_rules" && version < 135 {
 		missing = []string{"accounts_chosen"}
 	}
@@ -527,6 +529,9 @@ func requireSharedMigrationTables(ctx context.Context, present map[string]bool, 
 			}
 			if name == contactRemoteDeletionsTable && version < 139 {
 				continue // Added empty by migrateV138ToV139.
+			}
+			if name == "outbound_proxies" && version < 141 {
+				continue // Added empty by migrateV140ToV141.
 			}
 			return migrationSourceError(name, "required shared table is missing")
 		}

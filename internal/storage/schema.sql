@@ -37,7 +37,9 @@ CREATE TABLE IF NOT EXISTS accounts (
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     sort_order INTEGER NOT NULL DEFAULT 0,
     -- 1 when the user hid the account from the sidebar and move targets.
-    hidden INTEGER NOT NULL DEFAULT 0
+    hidden INTEGER NOT NULL DEFAULT 0,
+    -- '' uses the default proxy, 'direct' none, else an outbound_proxies id.
+    proxy_id TEXT NOT NULL DEFAULT ''
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_accounts_local_folders ON accounts(COALESCE(user_id, '')) WHERE provider = 'local';
 
@@ -1882,4 +1884,21 @@ CREATE TABLE IF NOT EXISTS mail_rule_runs (
 );
 CREATE INDEX IF NOT EXISTS idx_mail_rule_runs_user ON mail_rule_runs(user_id, id);
 
-INSERT OR REPLACE INTO schema_version (version) VALUES (140);
+-- Outbound proxies an administrator saved for accounts to connect through.
+CREATE TABLE IF NOT EXISTS outbound_proxies (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE CHECK (name <> ''),
+    type TEXT NOT NULL CHECK (type IN ('http', 'socks5')),
+    host TEXT NOT NULL CHECK (host <> ''),
+    port INTEGER NOT NULL CHECK (port BETWEEN 1 AND 65535),
+    username TEXT NOT NULL DEFAULT '',
+    encrypted_password BLOB,
+    is_default INTEGER NOT NULL DEFAULT 0 CHECK (is_default IN (0, 1)),
+    created_by TEXT NOT NULL DEFAULT '',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_outbound_proxies_default
+    ON outbound_proxies(is_default) WHERE is_default = 1;
+
+INSERT OR REPLACE INTO schema_version (version) VALUES (141);
