@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -18,17 +19,53 @@ type PrivatePolicy func(ctx context.Context, protocol, host string, port int) bo
 // through Dial: private addresses only when allowPrivate approves them, no
 // proxy from the environment, and each redirect checked again as it connects.
 // A nil policy approves no private target.
+//
+// A request whose context carries a proxy (WithProxy) goes through it. Each
+// proxy gets its own pool of connections, so a connection opened through one
+// proxy, or directly, is never reused for another.
 func NewHTTPTransport(allowPrivate PrivatePolicy) http.RoundTripper {
-	return guardedTransport{inner: newGuardedHTTPTransport(allowPrivate)}
+	return &guardedTransport{allowPrivate: allowPrivate, byProxy: map[string]*http.Transport{}}
 }
 
-type guardedTransport struct{ inner *http.Transport }
+type guardedTransport struct {
+	allowPrivate PrivatePolicy
+	mu           sync.Mutex
+	byProxy      map[string]*http.Transport
+}
 
-func (t guardedTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+func (t *guardedTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if override := testTransport.Load(); override != nil {
 		return (*override).RoundTrip(req)
 	}
-	return t.inner.RoundTrip(req)
+	return t.transportFor(ProxyFrom(req.Context())).RoundTrip(req)
+}
+
+// transportFor returns the pool for proxy, creating it on first use. Pools of
+// proxies nobody uses any more only hold idle connections, which close by
+// themselves after IdleConnTimeout.
+func (t *guardedTransport) transportFor(proxy *Proxy) *http.Transport {
+	key := proxy.key()
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	inner := t.byProxy[key]
+	if inner == nil {
+		if proxy != nil {
+			pinned := *proxy // the caller may change its copy later
+			proxy = &pinned
+		}
+		inner = newGuardedHTTPTransport(t.allowPrivate, proxy)
+		t.byProxy[key] = inner
+	}
+	return inner
+}
+
+// CloseIdleConnections closes idle connections of every proxy's pool.
+func (t *guardedTransport) CloseIdleConnections() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for _, inner := range t.byProxy {
+		inner.CloseIdleConnections()
+	}
 }
 
 var testTransport atomic.Pointer[http.RoundTripper]
@@ -42,9 +79,12 @@ func UseTransportForTests(rt http.RoundTripper) (restore func()) {
 	return func() { testTransport.Store(previous) }
 }
 
-func newGuardedHTTPTransport(allowPrivate PrivatePolicy) *http.Transport {
+// newGuardedHTTPTransport connects through proxy, or directly when it is nil,
+// whatever proxy the dial context carries: the pool it belongs to decides.
+func newGuardedHTTPTransport(allowPrivate PrivatePolicy, proxy *Proxy) *http.Transport {
 	dialer := &Dialer{Dialer: &net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}}
 	dial := func(ctx context.Context, protocol, address string) (net.Conn, error) {
+		ctx = WithProxy(ctx, proxy)
 		host, portText, err := net.SplitHostPort(address)
 		if err != nil {
 			return nil, err
