@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cristianadrielbraun/gofer/internal/netguard"
 	"golang.org/x/oauth2"
 )
 
@@ -48,6 +49,9 @@ type microsoftDeviceFlow struct {
 	sessionHash string
 	polling     bool
 	nextPoll    time.Time
+	// proxy is the one of the account being connected, which the polls go
+	// through too.
+	proxy *netguard.Proxy
 }
 
 func (m *Service) UsesMicrosoftDeviceCode() bool {
@@ -64,7 +68,9 @@ func (m *Service) StartMicrosoftDeviceSignIn(ctx context.Context, state, userID,
 		return nil, errors.New("microsoft device sign-in requires a flow state and user")
 	}
 	cfg := m.config.MicrosoftClient
-	response, err := (&oauth2.Config{ClientID: cfg.ClientID, Scopes: cfg.Scopes, Endpoint: cfg.Endpoint}).DeviceAuth(ctx)
+	// Through the proxy of the account being connected, which ctx carries.
+	proxy := netguard.ProxyFrom(ctx)
+	response, err := (&oauth2.Config{ClientID: cfg.ClientID, Scopes: cfg.Scopes, Endpoint: cfg.Endpoint}).DeviceAuth(withOAuthProxy(ctx, proxy))
 	if err != nil {
 		return nil, fmt.Errorf("start microsoft device sign-in: %w", err)
 	}
@@ -89,6 +95,7 @@ func (m *Service) StartMicrosoftDeviceSignIn(ctx context.Context, state, userID,
 		deviceCode:  response.DeviceCode,
 		userID:      userID,
 		sessionHash: accountOAuthFlowSecretHash(sessionToken),
+		proxy:       proxy,
 	}
 	m.deviceMu.Lock()
 	defer m.deviceMu.Unlock()
@@ -135,7 +142,10 @@ func (m *Service) PollMicrosoftDeviceSignIn(ctx context.Context, state, userID, 
 	flow.polling = true
 	m.deviceMu.Unlock()
 
-	token, err := m.redeemMicrosoftDeviceCode(ctx, flow.deviceCode)
+	token, err := m.redeemMicrosoftDeviceCode(withOAuthProxy(ctx, flow.proxy), flow.deviceCode)
+	if err == nil && token != nil {
+		netguard.BindBearerProxy(token.AccessToken, flow.proxy)
+	}
 
 	m.deviceMu.Lock()
 	defer m.deviceMu.Unlock()
@@ -185,11 +195,7 @@ func (m *Service) redeemMicrosoftDeviceCode(ctx context.Context, deviceCode stri
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	client := http.DefaultClient
-	if contextClient, ok := ctx.Value(oauth2.HTTPClient).(*http.Client); ok && contextClient != nil {
-		client = contextClient
-	}
-	resp, err := client.Do(req)
+	resp, err := oauthHTTPClient(ctx).Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("poll microsoft device sign-in: %w", err)
 	}

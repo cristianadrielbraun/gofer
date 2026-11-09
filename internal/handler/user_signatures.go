@@ -32,6 +32,8 @@ func (h *Handler) registerUserSignatures(private func(string, http.HandlerFunc))
 		{"DELETE /api/accounts/{id}/identities/{identity}", func(h *Handler) http.HandlerFunc { return h.handleDeleteAccountIdentity }},
 		{"POST /api/accounts/{id}/identities/{identity}/move", func(h *Handler) http.HandlerFunc { return h.handleMoveAccountIdentity }},
 		{"GET /api/accounts/{id}/proxy/manage", func(h *Handler) http.HandlerFunc { return h.handleManageAccountProxy }},
+		{"GET /api/accounts/proxy-choice", func(h *Handler) http.HandlerFunc { return h.handleAccountProxyChoice }},
+		{"GET /api/accounts/proxy-dialog", func(h *Handler) http.HandlerFunc { return h.handleAccountProxyAddDialog }},
 		{"GET /api/accounts/{id}/folder-roles/manage", func(h *Handler) http.HandlerFunc { return h.handleManageFolderRoles }},
 		{"POST /api/accounts/{id}/folder-roles", func(h *Handler) http.HandlerFunc { return h.handleSaveFolderRoles }},
 	} {

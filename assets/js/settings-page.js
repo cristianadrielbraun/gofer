@@ -2508,6 +2508,9 @@ function discoverMailSettings(button) {
   status.innerHTML = '<div class="rounded-lg border border-border bg-background/60 p-3 text-xs text-muted-foreground"><div class="flex items-center gap-2"><span class="size-3.5 rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground animate-spin"></span><span>' + mailDiscoveryEscape(goferT("js.settings.discovery.checking")) + '</span></div></div>';
   var body = new URLSearchParams();
   body.append('email_address', email.value.trim());
+  // Discovery connects through the proxy the account will use.
+  var proxy = form ? form.elements.namedItem('proxy') : null;
+  if (proxy && proxy.value !== undefined) body.append('proxy', proxy.value);
   fetch('/api/accounts/discover', {
     method: 'POST',
     credentials: 'same-origin',

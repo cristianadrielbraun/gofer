@@ -280,3 +280,16 @@ func contextError(ctx context.Context, err error) error {
 	}
 	return err
 }
+
+// DialAddress connects to an address its caller already resolved and
+// checked, through the proxy ctx carries, or directly when it carries none.
+// It is for callers that check targets themselves, as autodiscovery does.
+func DialAddress(ctx context.Context, dialer *net.Dialer, target netip.AddrPort) (net.Conn, error) {
+	if dialer == nil {
+		dialer = &net.Dialer{}
+	}
+	if proxy := ProxyFrom(ctx); proxy != nil {
+		return dialThroughProxy(ctx, dialer, proxy, target)
+	}
+	return dialer.DialContext(ctx, "tcp", target.String())
+}

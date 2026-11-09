@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"strings"
 
 	"github.com/cristianadrielbraun/gofer/internal/config"
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
@@ -206,6 +207,11 @@ func (h *Handler) renderAccountProxySave(w http.ResponseWriter, r *http.Request,
 		data.Saved = true
 	}
 	w.Header().Set("Content-Type", "text/html")
+	if r.FormValue("inline") == "1" {
+		// The Connect through field of the account's own dialog.
+		_ = views.AccountProxyChoiceStatus(*data).Render(r.Context(), w)
+		return
+	}
 	_ = views.AccountProxyPanel(*data).Render(r.Context(), w)
 }
 
@@ -218,4 +224,151 @@ func (h *Handler) defaultProxyContext(ctx context.Context, owner string) (contex
 		return nil, &netguard.ProxyError{Proxy: "default", Err: err}
 	}
 	return netguard.WithProxy(ctx, proxy), nil
+}
+
+// proxyChoiceContext marks ctx with the proxy chosen in a form for an account
+// being added, refusing one the owner may not use.
+func (h *Handler) proxyChoiceContext(ctx context.Context, owner, choice string) (context.Context, error) {
+	store := h.proxyStore()
+	if store == nil {
+		return netguard.WithProxy(ctx, nil), nil
+	}
+	proxy, err := store.ProxyChoice(ctx, owner, choice)
+	if err != nil {
+		return nil, err
+	}
+	return netguard.WithProxy(ctx, proxy), nil
+}
+
+// withProxyChoice runs the rest of a request for an account being added
+// through the proxy its form chose, and answers it when the choice is
+// refused.
+func (h *Handler) withProxyChoice(w http.ResponseWriter, r *http.Request) (*http.Request, bool) {
+	ctx, err := h.proxyChoiceContext(r.Context(), h.userID(r.Context()), r.FormValue("proxy"))
+	if err != nil {
+		if errors.Is(err, storage.ErrOutboundProxyNotFound) {
+			http.Error(w, i18n.T(r.Context(), "account_proxy.gone"), http.StatusBadRequest)
+		} else {
+			log.Printf("account proxy choice: %v", err)
+			http.Error(w, i18n.T(r.Context(), "account_proxy.failed"), http.StatusServiceUnavailable)
+		}
+		return nil, false
+	}
+	return r.WithContext(ctx), true
+}
+
+// withAccountProxyFor runs the rest of a request about the owner's existing
+// account through that account's proxy.
+func (h *Handler) withAccountProxyFor(w http.ResponseWriter, r *http.Request, id string) (*http.Request, bool) {
+	ctx, err := h.accountProxyContext(r.Context(), h.userID(r.Context()), id)
+	if err != nil {
+		userAccountError(w, r, err)
+		return nil, false
+	}
+	return r.WithContext(ctx), true
+}
+
+// addProxyChoiceToFlow keeps the proxy chosen in an OAuth sign-in form for
+// the account it connects. Reconnect forms have no choice, so their account
+// keeps its own.
+func addProxyChoiceToFlow(r *http.Request, form map[string]string) {
+	if _, chosen := r.Form["proxy"]; chosen {
+		form["proxy"] = strings.TrimSpace(r.FormValue("proxy"))
+	}
+}
+
+// oauthFlowProxyContext marks ctx with the proxy an OAuth sign-in goes
+// through: the one its form chose, or, reconnecting an account it names, the
+// account's own, or else the owner's default.
+func (h *Handler) oauthFlowProxyContext(ctx context.Context, owner string, form map[string]string) (context.Context, error) {
+	if choice, chosen := form["proxy"]; chosen {
+		return h.proxyChoiceContext(ctx, owner, choice)
+	}
+	if id := form["account_id"]; id != "" {
+		return h.accountProxyContext(ctx, owner, id)
+	}
+	return h.proxyChoiceContext(ctx, owner, storage.AccountProxyDefault)
+}
+
+// handleAccountProxyChoice renders the proxy setting of an account dialog:
+// the Proxy row of a wizard's sidebar, or the Connect through field of the
+// other dialogs. It is for the account named, with its choice, or for one
+// being added, with the choice made so far. It is empty when the person has
+// no proxy to choose.
+func (h *Handler) handleAccountProxyChoice(w http.ResponseWriter, r *http.Request) {
+	data, ok := h.newAccountProxyData(w, r)
+	if !ok {
+		return
+	}
+	data.Sidebar = r.URL.Query().Get("sidebar") == "1"
+	if data.AccountID == "" && r.URL.Query().Get("form") == "account-form" {
+		// The add wizard's setting sits in its sidebar, outside its form.
+		data.Form = "account-form"
+	}
+	w.Header().Set("Content-Type", "text/html")
+	w.Header().Set("Cache-Control", "no-store")
+	if data.Sidebar {
+		_ = views.AccountProxySidebarRow(*data).Render(r.Context(), w)
+		return
+	}
+	_ = views.AccountProxyChoiceField(*data).Render(r.Context(), w)
+}
+
+// handleAccountProxyAddDialog renders the Proxy dialog for an account being
+// added, which hands the choice back to the wizard instead of saving it.
+func (h *Handler) handleAccountProxyAddDialog(w http.ResponseWriter, r *http.Request) {
+	data, ok := h.newAccountProxyData(w, r)
+	if !ok {
+		return
+	}
+	if h.ownerManagesMailSecurity() {
+		data.ManageURL = "/settings/security#outbound-proxies"
+	} else if store := h.proxyStore(); store != nil {
+		if own, err := store.PeopleMayAddOutboundProxies(r.Context()); err == nil && own {
+			data.ManageURL = "/settings/security#outbound-proxies"
+		}
+	}
+	w.Header().Set("Content-Type", "text/html")
+	w.Header().Set("Cache-Control", "no-store")
+	_ = views.AccountProxyDialog(*data).Render(r.Context(), w)
+}
+
+// newAccountProxyData loads the proxies an account dialog offers: the
+// account named and its choice, or, for one being added, the choice query
+// value. It answers the request itself when it can't.
+func (h *Handler) newAccountProxyData(w http.ResponseWriter, r *http.Request) (*models.AccountProxyData, bool) {
+	ctx, owner := r.Context(), h.userID(r.Context())
+	data := &models.AccountProxyData{Choice: strings.TrimSpace(r.URL.Query().Get("choice"))}
+	if id := strings.TrimSpace(r.URL.Query().Get("account")); id != "" {
+		var err error
+		if data, err = h.accountProxyData(ctx, id); err != nil {
+			log.Printf("account proxy choice account=%s: %v", id, err)
+			http.Error(w, i18n.T(ctx, "server.error.failed_to_load_account"), http.StatusInternalServerError)
+			return nil, false
+		}
+		if data == nil {
+			// Nothing to choose for this account, such as Local folders.
+			data = &models.AccountProxyData{}
+		}
+		return data, true
+	}
+	store := h.proxyStore()
+	if store == nil {
+		return data, true
+	}
+	saved, err := store.OutboundProxiesForUser(ctx, owner)
+	if err != nil {
+		log.Printf("account proxy choice: %v", err)
+		http.Error(w, i18n.T(ctx, "account_proxy.failed"), http.StatusInternalServerError)
+		return nil, false
+	}
+	for _, p := range saved {
+		data.Proxies = append(data.Proxies, models.OutboundProxyView{ID: p.ID, Name: p.Name, Type: p.Type, Host: p.Host, Port: p.Port, IsDefault: p.IsDefault})
+	}
+	if data.Default, err = store.DefaultOutboundProxyName(ctx, owner); err != nil {
+		log.Printf("account proxy choice: %v", err)
+		http.Error(w, i18n.T(ctx, "account_proxy.failed"), http.StatusInternalServerError)
+		return nil, false
+	}
+	return data, true
 }

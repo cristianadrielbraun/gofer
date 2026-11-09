@@ -27,7 +27,7 @@ func accountRequestFromForm(r *http.Request) models.CreateAccountRequest {
 		SMTPHost: r.FormValue("smtp_host"), SMTPPort: atoiDefault(r.FormValue("smtp_port"), 465), SMTPTLSMode: r.FormValue("smtp_tls_mode"),
 		Username: r.FormValue("username"), Password: r.FormValue("password"), AuthMethod: r.FormValue("auth_method"),
 		SmtpUsername: r.FormValue("smtp_username"), SmtpPassword: r.FormValue("smtp_password"),
-		JMAPSessionURL: r.FormValue("jmap_session_url"),
+		JMAPSessionURL: r.FormValue("jmap_session_url"), ProxyID: strings.TrimSpace(r.FormValue("proxy")),
 	}
 	switch r.FormValue("mail_service") {
 	case providers.MailServiceICloud:
@@ -134,6 +134,10 @@ func (h *Handler) handleUserCreateAccount(w http.ResponseWriter, r *http.Request
 		return
 	}
 	req := accountRequestFromForm(r)
+	var ok bool
+	if r, ok = h.withProxyChoice(w, r); !ok {
+		return
+	}
 	if req.Provider == providers.ProviderJMAP {
 		if err := h.prepareJMAPAccount(r, &req); err != nil {
 			http.Error(w, serverText(r.Context(), err.Error()), http.StatusBadRequest)

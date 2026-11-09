@@ -117,4 +117,9 @@ type AccountProxyData struct {
 	ManageURL string
 	Saved     bool
 	Error     string
+	// Form is the form a Connect through field being added with belongs to,
+	// when it sits outside it; Sidebar is set when it sits in a wizard's
+	// sidebar, as a setting of the whole account.
+	Form    string
+	Sidebar bool
 }

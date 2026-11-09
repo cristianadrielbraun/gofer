@@ -169,6 +169,7 @@ templ DAVAccountDialog(data DAVAccountDialogData) {
 						<label class="mb-1.5 block text-xs font-medium text-muted-foreground">{ i18n.T(ctx, "contacts.field.name") } <span class="font-normal">{ i18n.T(ctx, "identities.optional") }</span></label>
 						@input.Input(input.Props{Name: "display_name", Type: input.TypeText, Value: data.Name, Placeholder: i18n.T(ctx, "dav.name_placeholder")})
 					</div>
+					@AccountProxyChoiceLoader(data.AccountID)
 					<div>
 						<label class="mb-1.5 block text-xs font-medium text-muted-foreground">{ i18n.T(ctx, "dav.server_url") }</label>
 						@input.Input(input.Props{Name: "server_url", Type: input.TypeURL, Value: data.ServerURL, Placeholder: "https://dav.example.com/", Required: true, Attributes: templ.Attributes{"data-dav-login": ""}})

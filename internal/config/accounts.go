@@ -794,6 +794,10 @@ func (s *AccountStore) createAccountWithID(ctx context.Context, userID, id strin
 	if err := s.checkMailAllowlist(ctx, userID, requestMailbox(req)); err != nil {
 		return nil, err
 	}
+	req.ProxyID = strings.TrimSpace(req.ProxyID)
+	if err := s.checkProxyChoice(ctx, userID, req.ProxyID); err != nil {
+		return nil, err
+	}
 	if purgeDeleting {
 		if err := s.purgeDeletingAccountForCreate(ctx, userID, id); err != nil {
 			return nil, fmt.Errorf("purge deleting account: %w", err)
@@ -820,15 +824,15 @@ func (s *AccountStore) createAccountWithID(ctx context.Context, userID, id strin
 		  imap_host, imap_port, imap_tls_mode,
 		  smtp_host, smtp_port, smtp_tls_mode,
 		  username, encrypted_password, auth_method,
-		  smtp_username, encrypted_smtp_password, jmap_session_url, email_sync_enabled, sort_order)
-		 SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+		  smtp_username, encrypted_smtp_password, jmap_session_url, email_sync_enabled, proxy_id, sort_order)
+		 SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
 		        (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM accounts WHERE user_id = ?)`
 	args := []any{
 		id, userID, req.Provider, req.ProviderAccountID, req.EmailAddress, req.DisplayName, color, initials,
 		req.IMAPHost, req.IMAPPort, req.IMAPTLSMode,
 		req.SMTPHost, req.SMTPPort, req.SMTPTLSMode,
 		req.Username, encrypted, req.AuthMethod,
-		req.SmtpUsername, encryptedSmtpPw, req.JMAPSessionURL, boolInt(!req.EmailSyncDisabled),
+		req.SmtpUsername, encryptedSmtpPw, req.JMAPSessionURL, boolInt(!req.EmailSyncDisabled), req.ProxyID,
 		userID}
 	if !purgeDeleting {
 		// The single local writer makes this check/insert atomic for concurrent

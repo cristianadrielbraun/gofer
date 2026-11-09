@@ -105,6 +105,9 @@ type CreateAccountRequest struct {
 	SmtpUsername      string `json:"smtp_username"`
 	SmtpPassword      string `json:"smtp_password"`
 	JMAPSessionURL    string `json:"jmap_session_url"`
+	// ProxyID is the proxy the account connects through: "" for the default,
+	// "direct", or a saved proxy's id.
+	ProxyID string `json:"-"`
 	// EmailSyncDisabled creates the account with mail sync off, for accounts
 	// imported without their credentials.
 	EmailSyncDisabled bool `json:"-"`

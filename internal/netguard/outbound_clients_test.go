@@ -15,13 +15,11 @@ import (
 // with why. Everything else Gofer sends goes through a netguard transport, so
 // it takes the right account's proxy, or the default one.
 var outboundClientExceptions = map[string]string{
-	"auth/generic_oidc.go":              "signing in to Gofer itself, not mail",
-	"googlefonts/googlefonts.go":        "Google Fonts for the interface, not mail",
-	"translation/google_web.go":         "translation the reader asks for, not mail",
-	"server/health.go":                  "health check against Gofer itself",
-	"mail/jmap/session.go":              "fallback for a client without HTTP; accounts always set it",
-	"mail/autodiscover/autodiscover.go": "finding servers for an account being added; step 5 gives it the chosen proxy",
-	"mailauth/microsoft_device.go":      "Outlook sign-in for an account being added; step 5 gives it the chosen proxy",
+	"auth/generic_oidc.go":       "signing in to Gofer itself, not mail",
+	"googlefonts/googlefonts.go": "Google Fonts for the interface, not mail",
+	"translation/google_web.go":  "translation the reader asks for, not mail",
+	"server/health.go":           "health check against Gofer itself",
+	"mail/jmap/session.go":       "fallback for a client without HTTP; accounts always set it",
 }
 
 // A new HTTP client in mail code that leaves out netguard would connect

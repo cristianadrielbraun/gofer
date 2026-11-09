@@ -78,6 +78,8 @@ func DiscoverJMAPSession(ctx context.Context, candidates []string, username, pas
 			Username:           username,
 			JMAPAllowPlaintext: allowPlaintext,
 			JMAPAllowPrivate:   allowPrivate,
+			// The proxy of the account being found, if any.
+			Proxy: netguard.ProxyFrom(ctx),
 		}, password)
 		if err != nil {
 			failed.Attempts = append(failed.Attempts, JMAPAttempt{candidate, err.Error()})

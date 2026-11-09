@@ -134,3 +134,35 @@ func TestUserCredentialTokensGoThroughTheAccountProxy(t *testing.T) {
 		t.Fatalf("token endpoint saw %d refreshes, want 2", refreshes.Load())
 	}
 }
+
+// Signing in an account being added redeems the code through its proxy and
+// binds the token to it, so the profile lookup that follows goes there too.
+func TestAccountCodeExchangeGoesThroughTheChosenProxy(t *testing.T) {
+	tokens := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"access_token":"new-account-token","token_type":"Bearer","expires_in":3600}`))
+	}))
+	defer tokens.Close()
+	proxy := netguardtest.StartHTTPProxy(t)
+	manager := New(&Config{BaseURL: "https://gofer.example.test", GoogleClient: &oauth2.Config{ClientID: "client", ClientSecret: "secret",
+		Endpoint: oauth2.Endpoint{TokenURL: tokens.URL}}}, nil, testMailboxCredentialKey)
+	token, err := manager.ExchangeAccountCode(netguard.WithProxy(t.Context(), proxy.Config), "code")
+	if err != nil || token.AccessToken != "new-account-token" {
+		t.Fatalf("ExchangeAccountCode() = %v, %v", token, err)
+	}
+	if got := proxy.Targets(); len(got) != 1 || got[0] != strings.TrimPrefix(tokens.URL, "http://") {
+		t.Fatalf("code exchange went through %v", got)
+	}
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = io.WriteString(w, "{}") }))
+	defer api.Close()
+	req, _ := http.NewRequest(http.MethodGet, api.URL, nil)
+	req.Header.Set("Authorization", "Bearer new-account-token")
+	resp, err := netguard.APIClient(0).Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if got := proxy.Targets(); len(got) != 2 {
+		t.Fatalf("a request with the new token went through %v, want the proxy", got)
+	}
+}

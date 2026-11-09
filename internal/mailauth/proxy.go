@@ -64,9 +64,14 @@ func (s *UserCredentials) accountProxy(ctx context.Context, owner, id string) (*
 
 // withOAuthProxy makes the oauth2 package, and refreshTokenForScopes, reach
 // token endpoints through proxy, or directly when it is nil, never through a
-// proxy from the environment.
+// proxy from the environment. A client a caller already gave the oauth2
+// package, as tests do, is kept.
 func withOAuthProxy(ctx context.Context, proxy *netguard.Proxy) context.Context {
-	return context.WithValue(netguard.WithProxy(ctx, proxy), oauth2.HTTPClient, netguard.APIClient(0))
+	ctx = netguard.WithProxy(ctx, proxy)
+	if client, ok := ctx.Value(oauth2.HTTPClient).(*http.Client); ok && client != nil {
+		return ctx
+	}
+	return context.WithValue(ctx, oauth2.HTTPClient, netguard.APIClient(0))
 }
 
 // oauthHTTPClient is the client the oauth2 package would use with ctx.

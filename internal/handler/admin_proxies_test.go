@@ -1,14 +1,20 @@
 package handler
 
 import (
+	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/auth"
+	"github.com/cristianadrielbraun/gofer/internal/config"
+	"github.com/cristianadrielbraun/gofer/internal/models"
+	"github.com/cristianadrielbraun/gofer/internal/netguard/netguardtest"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
 
@@ -145,4 +151,118 @@ func TestPersonalOwnerManagesOutboundProxies(t *testing.T) {
 func withPath(r *http.Request, key, value string) *http.Request {
 	r.SetPathValue(key, value)
 	return r
+}
+
+// The add and edit dialogs' Connect through field: nothing to show without a
+// proxy to choose; adding, it goes with the form; editing, it saves on its
+// own, outside the account's form.
+func TestAccountProxyChoiceField(t *testing.T) {
+	handler, db := newAccountOwnershipTestHandler(t)
+	choice := func(account string) string {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, "/api/accounts/proxy-choice?account="+account, nil)
+		req = req.WithContext(auth.ContextWithUser(req.Context(), &auth.User{ID: "owner", Username: "owner"}))
+		rec := httptest.NewRecorder()
+		handler.handleAccountProxyChoice(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("proxy choice = %d %q", rec.Code, rec.Body.String())
+		}
+		return rec.Body.String()
+	}
+	if body := strings.TrimSpace(choice("")); body != "" {
+		t.Fatalf("with no proxies the field shows %q", body)
+	}
+	if _, err := handler.accountStore.SaveOutboundProxy(t.Context(), configProxyInput("Office", "proxy.example.test", 3128), "admin"); err != nil {
+		t.Fatal(err)
+	}
+	adding := choice("")
+	if !strings.Contains(adding, `name="proxy"`) || strings.Contains(adding, "hx-post") || !strings.Contains(adding, "Office") {
+		t.Fatalf("adding field = %q", adding)
+	}
+	// In the add wizard's sidebar it is a Proxy row whose choice belongs to
+	// the wizard's form; the choice made so far comes back in it.
+	sidebar := choice("&sidebar=1&form=account-form&choice=direct")
+	if !strings.Contains(sidebar, "data-account-proxy-row") || !strings.Contains(sidebar, `form="account-form"`) ||
+		!strings.Contains(sidebar, `value="direct"`) || !strings.Contains(sidebar, "data-account-proxy-switch") {
+		t.Fatalf("add wizard sidebar row = %q", sidebar)
+	}
+	editing := choice("victim-account")
+	if !strings.Contains(editing, `hx-post="/api/accounts/victim-account/proxy"`) || !strings.Contains(editing, `form="account-proxy-choice-victim-account"`) {
+		t.Fatalf("editing field = %q", editing)
+	}
+	// Someone else's account has no field.
+	if body := strings.TrimSpace(choice("attacker-account")); body != "" {
+		t.Fatalf("another person's account field = %q", body)
+	}
+	_ = db
+}
+
+// Testing a new account's servers goes through the proxy chosen for it, and
+// the account is created with the choice; a choice the person may not make is
+// refused.
+func TestNewAccountUsesTheChosenProxy(t *testing.T) {
+	handler, db := newAccountOwnershipTestHandler(t)
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			_, _ = conn.Write([]byte("* BYE not today\r\n"))
+			conn.Close()
+		}
+	}()
+	port := listener.Addr().(*net.TCPAddr).Port
+	if err := db.AddPrivateTargetException(t.Context(), "imap", "127.0.0.1", port, "admin"); err != nil {
+		t.Fatal(err)
+	}
+	proxy := netguardtest.StartHTTPProxy(t)
+	id, err := handler.accountStore.SaveOutboundProxy(t.Context(), configProxyInput("Office", proxy.Config.Host, proxy.Config.Port), "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	post := func(path string, form url.Values, serve http.HandlerFunc) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req = req.WithContext(auth.ContextWithUser(req.Context(), &auth.User{ID: "owner", Username: "owner"}))
+		rec := httptest.NewRecorder()
+		serve(rec, req)
+		return rec
+	}
+	form := url.Values{"email_address": {"robin@example.test"}, "username": {"robin@example.test"}, "password": {"secret"},
+		"imap_host": {"127.0.0.1"}, "imap_port": {strconv.Itoa(port)}, "imap_tls_mode": {"tls"},
+		"smtp_host": {"smtp.example.test"}, "smtp_port": {"465"}, "smtp_tls_mode": {"tls"}, "proxy": {id}}
+	post("/api/accounts/test", form, handler.handleTestNewAccount)
+	if got := proxy.Targets(); len(got) == 0 || got[0] != "127.0.0.1:"+strconv.Itoa(port) {
+		t.Fatalf("new account test went through %v, want the IMAP server through the chosen proxy", got)
+	}
+
+	form.Set("proxy", "no-such-proxy")
+	if rec := post("/api/accounts/test", form, handler.handleTestNewAccount); rec.Code != http.StatusBadRequest {
+		t.Fatalf("test with a proxy that doesn't exist = %d", rec.Code)
+	}
+	created, err := handler.accountStore.CreateAccount(t.Context(), "owner", &models.CreateAccountRequest{Provider: "imap", EmailAddress: "robin@example.test",
+		IMAPHost: "imap.example.test", IMAPPort: 993, IMAPTLSMode: "tls", SMTPHost: "smtp.example.test", SMTPPort: 465, SMTPTLSMode: "tls",
+		Username: "robin@example.test", Password: "secret", AuthMethod: "plain", ProxyID: id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if choice, err := db.GetAccountProxyChoice(t.Context(), created.ID); err != nil || choice != id {
+		t.Fatalf("new account's proxy = %q, %v; want %q", choice, err, id)
+	}
+	if _, err := handler.accountStore.CreateAccount(t.Context(), "owner", &models.CreateAccountRequest{Provider: "imap", EmailAddress: "other@example.test",
+		IMAPHost: "imap.example.test", IMAPPort: 993, IMAPTLSMode: "tls", SMTPHost: "smtp.example.test", SMTPPort: 465, SMTPTLSMode: "tls",
+		Username: "other@example.test", Password: "secret", AuthMethod: "plain", ProxyID: "no-such-proxy"}); !errors.Is(err, storage.ErrOutboundProxyNotFound) {
+		t.Fatalf("account with a proxy that doesn't exist: %v", err)
+	}
+}
+
+func configProxyInput(name, host string, port int) config.OutboundProxyInput {
+	return config.OutboundProxyInput{Name: name, Type: "http", Host: host, Port: port}
 }

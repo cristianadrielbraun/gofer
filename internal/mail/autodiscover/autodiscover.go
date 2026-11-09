@@ -180,9 +180,11 @@ func newDiscoveryHTTPClient() *http.Client {
 }
 
 func newDiscoveryHTTPClientWithPolicy(policy securityPolicy) *http.Client {
-	client := &http.Client{}
+	// Without a resolver to check targets with, as only tests have, the
+	// default transport connects.
+	var transport http.RoundTripper
 	if policy.resolveIP != nil {
-		client.Transport = &http.Transport{
+		transport = &http.Transport{
 			Proxy: nil,
 			DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
 				host, portText, err := net.SplitHostPort(address)
@@ -202,6 +204,7 @@ func newDiscoveryHTTPClientWithPolicy(policy securityPolicy) *http.Client {
 			TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: policy.rootCAs},
 		}
 	}
+	client := &http.Client{Transport: transport}
 	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 		if len(via) >= 5 {
 			return fmt.Errorf("autodiscovery stopped after too many redirects")
@@ -559,11 +562,21 @@ func dialResolvedTarget(ctx context.Context, host string, port int, timeout time
 	}
 	dialer := &net.Dialer{Timeout: timeout}
 	if len(addresses) == 0 {
+		if netguard.ProxyFrom(ctx) != nil {
+			// A proxy is asked for a checked address, never a name.
+			return nil, fmt.Errorf("autodiscovery found no checked address for %s", host)
+		}
 		return dialer.DialContext(ctx, "tcp", net.JoinHostPort(host, strconv.Itoa(port)))
 	}
 	var lastErr error
 	for _, address := range addresses {
-		conn, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort(address.IP.String(), strconv.Itoa(port)))
+		addr, ok := netip.AddrFromSlice(address.IP)
+		if !ok || port < 1 || port > 65535 {
+			lastErr = fmt.Errorf("invalid address %s:%d", address.IP, port)
+			continue
+		}
+		// Through the proxy of the account being found, when it has one.
+		conn, err := netguard.DialAddress(ctx, dialer, netip.AddrPortFrom(addr.Unmap(), uint16(port)))
 		if err == nil {
 			return conn, nil
 		}

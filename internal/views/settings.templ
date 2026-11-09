@@ -3664,6 +3664,7 @@ templ GmailAccountDialog() {
 						Placeholder: i18n.T(ctx, "settings.add_account.your_name"),
 					})
 				</div>
+				@AccountProxyChoiceLoader("")
 				<input type="hidden" name="imap_host" value="imap.gmail.com"/>
 				<input type="hidden" name="imap_port" value="993"/>
 				<input type="hidden" name="imap_tls_mode" value="tls"/>
@@ -3720,6 +3721,7 @@ templ OutlookAccountDialog() {
 						Placeholder: i18n.T(ctx, "settings.add_account.your_name"),
 					})
 				</div>
+				@AccountProxyChoiceLoader("")
 				<input type="hidden" name="provider" value="outlook"/>
 				<hr class="border-border"/>
 				<div class="rounded-lg bg-accent/50 border border-border p-3">
@@ -4123,6 +4125,7 @@ templ AccountWizardAddSidebar() {
 		@AccountWizardAddEmailSection()
 		@AccountWizardTopStep("wizardGo", 4, "2", i18n.T(ctx, "settings.wizard.contacts"), i18n.T(ctx, "settings.wizard.contacts_description"), true, true, "", "contacts", false, false, templ.Attributes{"data-add-contact-sync-switch": ""})
 		@AccountWizardTopStep("wizardGo", 5, "3", i18n.T(ctx, "settings.wizard.calendar"), i18n.T(ctx, "settings.wizard.calendar_description"), true, true, "", "calendar", false, false, nil)
+		@AccountProxyChoiceSidebarLoader("", "account-form")
 	</aside>
 }
 
@@ -4144,6 +4147,7 @@ templ AccountWizardEditSidebar(data models.EditAccountData) {
 		}
 		@AccountWizardTopStep("editWizardGo", 4, "2", i18n.T(ctx, "settings.wizard.contacts"), i18n.T(ctx, "settings.wizard.contacts_description"), false, true, data.AccountID, "contacts", data.ContactSync.Enabled || data.ReconnectContacts, false, nil)
 		@AccountWizardTopStep("editWizardGo", 5, "3", i18n.T(ctx, "settings.wizard.calendar"), i18n.T(ctx, "settings.wizard.calendar_description"), false, true, data.AccountID, "calendar", data.CalendarSync.Enabled || data.ReconnectCalendar, false, nil)
+		@AccountProxyChoiceSidebarLoader(data.AccountID, "")
 	</aside>
 }
 
@@ -4823,7 +4827,7 @@ templ EditAccountDialog(data models.EditAccountData) {
 								<p class="text-xs leading-relaxed text-muted-foreground">{ editAccountTestDescription(ctx, data) }</p>
 								<div data-edit-account-unsaved hidden role="status" class="mt-3 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-900 dark:text-amber-100">{ i18n.T(ctx, "settings.edit_account.unsaved") }</div>
 								<div id="edit-account-test-results" data-test-url={ editAccountTestURL(data) } data-test-typed={ strconv.FormatBool(editAccountTestsTypedSettings(data)) } aria-live="polite" class="mt-4 space-y-3"></div>
-								<div id="edit-account-save-status" class="mt-3"></div>
+								<div id="edit-account-save-status" class="mt-5"></div>
 							</div>
 							</div>
 						</div>

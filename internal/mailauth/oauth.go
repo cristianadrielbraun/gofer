@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/cristianadrielbraun/gofer/internal/netguard"
 	"golang.org/x/oauth2"
 )
 
@@ -36,19 +37,27 @@ func (m *Service) MicrosoftAccountOAuthURL(state string) string {
 	return m.microsoftAccountOAuthConfig().AuthCodeURL(state, oauth2.SetAuthURLParam("prompt", "consent"))
 }
 
+// ExchangeAccountCode redeems a Google sign-in for an account. It goes
+// through the proxy ctx carries, the one of the account being connected, and
+// binds the token to it, so the requests that follow take the same route.
 func (m *Service) ExchangeAccountCode(ctx context.Context, code string) (*oauth2.Token, error) {
-	token, err := m.accountOAuthConfig().Exchange(ctx, code)
+	proxy := netguard.ProxyFrom(ctx)
+	token, err := m.accountOAuthConfig().Exchange(withOAuthProxy(ctx, proxy), code)
 	if err != nil {
 		return nil, fmt.Errorf("oauth exchange: %w", err)
 	}
+	netguard.BindBearerProxy(token.AccessToken, proxy)
 	return token, nil
 }
 
+// ExchangeMicrosoftAccountCode is ExchangeAccountCode for Microsoft.
 func (m *Service) ExchangeMicrosoftAccountCode(ctx context.Context, code string) (*oauth2.Token, error) {
-	token, err := m.microsoftAccountOAuthConfig().Exchange(ctx, code, oauth2.SetAuthURLParam("scope", strings.Join(microsoftAccountTokenExchangeScopes(), " ")))
+	proxy := netguard.ProxyFrom(ctx)
+	token, err := m.microsoftAccountOAuthConfig().Exchange(withOAuthProxy(ctx, proxy), code, oauth2.SetAuthURLParam("scope", strings.Join(microsoftAccountTokenExchangeScopes(), " ")))
 	if err != nil {
 		return nil, fmt.Errorf("oauth exchange: %w", err)
 	}
+	netguard.BindBearerProxy(token.AccessToken, proxy)
 	return token, nil
 }
 

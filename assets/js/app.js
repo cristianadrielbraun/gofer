@@ -8190,9 +8190,16 @@ document.addEventListener("DOMContentLoaded", function () {
       cards.forEach(function (card) { trackAccountDeletion(card.dataset.accountId) })
     }
 
+    // Only deleting an account answers DELETE /api/accounts/<id>; other
+    // requests there, such as GET /api/accounts/proxy-choice, are not deletes.
+    function isAccountDelete(evt) {
+      var verb = evt.detail.requestConfig && evt.detail.requestConfig.verb
+      return String(verb || "").toLowerCase() === "delete"
+    }
+
     document.body.addEventListener("htmx:beforeRequest", function (evt) {
       var path = evt.detail.pathInfo && evt.detail.pathInfo.requestPath
-      if (!path || !path.match(/^\/api\/accounts\/[^/]+$/)) return
+      if (!isAccountDelete(evt) || !path || !path.match(/^\/api\/accounts\/[^/]+$/)) return
       var button = evt.detail.elt && evt.detail.elt.closest ? evt.detail.elt.closest("[data-account-delete-submit]") : null
       if (!button) return
       button.dataset.originalContent = button.innerHTML
@@ -8202,7 +8209,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
     document.body.addEventListener("htmx:afterRequest", function (evt) {
       var path = evt.detail.pathInfo && evt.detail.pathInfo.requestPath
-      var match = path && path.match(/^\/api\/accounts\/([^/]+)$/)
+      var match = isAccountDelete(evt) && path && path.match(/^\/api\/accounts\/([^/]+)$/)
       if (!match || !evt.detail.xhr) return
       var accountId = decodeURIComponent(match[1])
       var button = evt.detail.elt && evt.detail.elt.closest ? evt.detail.elt.closest("[data-account-delete-submit]") : null
@@ -8253,6 +8260,7 @@ document.addEventListener("DOMContentLoaded", function () {
       oauth_metadata_failed: goferT("js.accounts.connect_error.oauth_metadata_failed"),
       oauth_sync_failed: goferT("js.accounts.connect_error.oauth_sync_failed"),
       create_failed: goferT("js.accounts.connect_error.create_failed"),
+      proxy_unavailable: goferT("js.accounts.connect_error.proxy_unavailable"),
       mail_allowlist_provider: goferT("js.accounts.connect_error.mail_allowlist_provider"),
       mail_allowlist_domain: goferT("js.accounts.connect_error.mail_allowlist_domain"),
     }

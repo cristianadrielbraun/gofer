@@ -244,20 +244,40 @@ func (s *AccountStore) openOutboundProxy(ctx context.Context, saved storage.Outb
 // proxy the owner may use.
 func (s *AccountStore) SetAccountProxy(ctx context.Context, userID, accountID, choice string) error {
 	choice = strings.TrimSpace(choice)
-	if choice != storage.AccountProxyDefault && choice != storage.AccountProxyDirect {
-		saved, err := s.policyDB.GetOutboundProxy(ctx, choice)
-		if err != nil {
-			return err
-		}
-		available, err := s.policyDB.OutboundProxyAvailableTo(ctx, saved, userID)
-		if err != nil {
-			return err
-		}
-		if !available {
-			return storage.ErrOutboundProxyNotFound
-		}
+	if err := s.checkProxyChoice(ctx, userID, choice); err != nil {
+		return err
 	}
 	return s.db.SetAccountProxyChoice(ctx, userID, accountID, choice)
+}
+
+// checkProxyChoice refuses a proxy choice the owner may not make: the id of a
+// proxy that doesn't exist or isn't available to them.
+func (s *AccountStore) checkProxyChoice(ctx context.Context, owner, choice string) error {
+	if choice == storage.AccountProxyDefault || choice == storage.AccountProxyDirect {
+		return nil
+	}
+	saved, err := s.policyDB.GetOutboundProxy(ctx, choice)
+	if err != nil {
+		return err
+	}
+	available, err := s.policyDB.OutboundProxyAvailableTo(ctx, saved, owner)
+	if err != nil {
+		return err
+	}
+	if !available {
+		return storage.ErrOutboundProxyNotFound
+	}
+	return nil
+}
+
+// ProxyChoice returns the proxy a choice of owner's means, refusing one they
+// may not make, for work done before their account exists.
+func (s *AccountStore) ProxyChoice(ctx context.Context, owner, choice string) (*netguard.Proxy, error) {
+	choice = strings.TrimSpace(choice)
+	if err := s.checkProxyChoice(ctx, owner, choice); err != nil {
+		return nil, err
+	}
+	return s.ResolveProxyChoice(ctx, owner, choice)
 }
 
 // AccountProxyForUser is AccountProxy for an account in its owner's own
