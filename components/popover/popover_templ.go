@@ -469,7 +469,7 @@ func Content(props ...ContentProps) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		if p.ShowArrow {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 31, "<div data-tui-popover-arrow class=\"absolute h-2.5 w-2.5 rotate-45 bg-popover border border-border\"></div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 31, "<div data-tui-popover-arrow class=\"absolute h-2.5 w-2.5 rotate-45 bg-popover bg-clip-padding border border-border\"></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
