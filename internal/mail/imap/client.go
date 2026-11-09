@@ -14,6 +14,7 @@ import (
 	"github.com/emersion/go-imap/v2/imapclient"
 	"github.com/emersion/go-sasl"
 
+	"github.com/cristianadrielbraun/gofer/internal/buildinfo"
 	"github.com/cristianadrielbraun/gofer/internal/mail/oauth2sasl"
 	mailtransport "github.com/cristianadrielbraun/gofer/internal/mail/transport"
 	"github.com/cristianadrielbraun/gofer/internal/models"
@@ -125,6 +126,12 @@ func connectWithContext(ctx context.Context, cfg *models.AccountConfig, password
 	if err != nil {
 		c.Close()
 		return nil, fmt.Errorf("authenticate: %w", err)
+	}
+
+	// Some servers, such as 163.com, refuse SELECT with "Unsafe Login" until
+	// the client identifies itself (RFC 2971). Their answer doesn't matter.
+	if c.Caps().Has(imap.CapID) {
+		_, _ = c.ID(&imap.IDData{Name: "Gofer", Version: buildinfo.Version}).Wait()
 	}
 
 	return c, nil

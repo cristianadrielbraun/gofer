@@ -91,3 +91,26 @@ func TestClientUsesLOGINWhenServerOffersNoAuthPlain(t *testing.T) {
 		})
 	}
 }
+
+func TestClientIdentifiesItselfWhenServerSupportsID(t *testing.T) {
+	for _, tt := range []struct {
+		caps string
+		want bool
+	}{
+		{caps: "IMAP4rev1 ID", want: true},
+		{caps: "IMAP4rev1", want: false},
+	} {
+		t.Run(tt.caps, func(t *testing.T) {
+			cfg, recorder := startScriptedIMAPServer(t, tt.caps)
+			client, err := NewClient(context.Background(), cfg, "secret")
+			if err != nil {
+				t.Fatalf("NewClient() error = %v", err)
+			}
+			client.Close()
+
+			if got := strings.Contains(recorder.String(), ` ID ("name" "Gofer"`); got != tt.want {
+				t.Fatalf("sent ID = %v, want %v; client sent:\n%s", got, tt.want, recorder.String())
+			}
+		})
+	}
+}
