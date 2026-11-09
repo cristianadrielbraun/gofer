@@ -121,25 +121,26 @@ func connectWithContext(ctx context.Context, cfg *models.AccountConfig, password
 		return nil, fmt.Errorf("wait for greeting: %w", err)
 	}
 
-	switch cfg.AuthMethod {
-	case "plain":
-		saslClient := sasl.NewPlainClient("", cfg.Username, password)
-		err = c.Authenticate(saslClient)
-	case "oauth2":
-		saslClient := oauth2sasl.NewClient(cfg.Username, password)
-		err = c.Authenticate(saslClient)
-	default:
-		saslClient := sasl.NewPlainClient("", cfg.Username, password)
-		err = c.Authenticate(saslClient)
-	}
-
-	err = defaultLoginCooldowns.record(cfg, err)
+	err = defaultLoginCooldowns.record(cfg, authenticate(c, cfg, password))
 	if err != nil {
 		c.Close()
 		return nil, fmt.Errorf("authenticate: %w", err)
 	}
 
 	return c, nil
+}
+
+func authenticate(c *imapclient.Client, cfg *models.AccountConfig, password string) error {
+	if cfg.AuthMethod == "oauth2" {
+		return c.Authenticate(oauth2sasl.NewClient(cfg.Username, password))
+	}
+	// IMAP4rev1 servers don't have to offer AUTHENTICATE PLAIN: 163.com
+	// advertises only AUTH=XOAUTH2 and 139.com no mechanism at all. Both
+	// accept LOGIN.
+	if caps := c.Caps(); caps != nil && !caps.Has(imap.AuthCap(sasl.Plain)) && !caps.Has(imap.CapLoginDisabled) {
+		return c.Login(cfg.Username, password).Wait()
+	}
+	return c.Authenticate(sasl.NewPlainClient("", cfg.Username, password))
 }
 
 // tlsHandshake starts TLS on a connection opened by netguard. The timeout
