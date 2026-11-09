@@ -36,6 +36,11 @@ type Proxy struct {
 	Port     int
 	Username string
 	Password string
+	// PublicOnly refuses to reach the proxy itself on a private address. It
+	// is set for proxies people saved for their own accounts, which must not
+	// lead into the Gofer server's network. It is checked on every
+	// connection, so a changed DNS answer can't get around it.
+	PublicOnly bool
 }
 
 // Validate reports why p can't be used, if it can't.
@@ -98,7 +103,11 @@ func (p *Proxy) key() string {
 		return ""
 	}
 	sum := sha256.Sum256([]byte(p.Username + "\x00" + p.Password))
-	return p.Type + "://" + p.Address() + "#" + hex.EncodeToString(sum[:8])
+	key := p.Type + "://" + p.Address() + "#" + hex.EncodeToString(sum[:8])
+	if p.PublicOnly {
+		key += "+public"
+	}
+	return key
 }
 
 // Key is a stable identity for p, suitable for pooling connections by proxy.
@@ -176,8 +185,26 @@ func handshakeDeadline(ctx context.Context, dialer *net.Dialer) time.Time {
 	return deadline
 }
 
+// proxyServerDialer connects to a proxy itself, refusing a private address
+// when the proxy is PublicOnly.
+type proxyServerDialer struct {
+	dialer *net.Dialer
+	proxy  *Proxy
+}
+
+func (d proxyServerDialer) Dial(network, address string) (net.Conn, error) {
+	return d.DialContext(context.Background(), network, address)
+}
+
+func (d proxyServerDialer) DialContext(ctx context.Context, _, _ string) (net.Conn, error) {
+	if !d.proxy.PublicOnly {
+		return d.dialer.DialContext(ctx, "tcp", d.proxy.Address())
+	}
+	return (&Dialer{Dialer: d.dialer}).Dial(WithProxy(ctx, nil), "proxy", strings.Trim(d.proxy.Host, "[]"), d.proxy.Port, false)
+}
+
 func dialHTTPConnect(ctx context.Context, dialer *net.Dialer, p *Proxy, target netip.AddrPort) (net.Conn, error) {
-	conn, err := dialer.DialContext(ctx, "tcp", p.Address())
+	conn, err := proxyServerDialer{dialer: dialer, proxy: p}.DialContext(ctx, "tcp", p.Address())
 	if err != nil {
 		return nil, err
 	}
@@ -230,7 +257,7 @@ func dialSOCKS5(ctx context.Context, dialer *net.Dialer, p *Proxy, target netip.
 	if p.Username != "" {
 		auth = &xproxy.Auth{User: p.Username, Password: p.Password}
 	}
-	socks, err := xproxy.SOCKS5("tcp", p.Address(), auth, dialer)
+	socks, err := xproxy.SOCKS5("tcp", p.Address(), auth, proxyServerDialer{dialer: dialer, proxy: p})
 	if err != nil {
 		return nil, err
 	}

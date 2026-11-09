@@ -82,6 +82,10 @@ func (p *userCalendarRequest) fetchEvents(ctx context.Context, query calendar.Ev
 		ctx = context.WithValue(ctx, calendarDiscoveryDAVGuardKey{}, calendarDiscoveryDAVCallbacks{ready: p.ready, failure: p.recordRetry})
 		return listCalDAVCalendarEvents(ctx, source, username, password, query)
 	case storage.CalendarSourceProviderICS:
+		ctx, err := p.h.defaultProxyContext(ctx, source.UserID)
+		if err != nil {
+			return calendar.EventPage{}, err
+		}
 		return listCalendarFeedEvents(ctx, source, query)
 	case storage.CalendarSourceProviderJMAP:
 		cfg, password, err := p.jmapConnection(ctx)

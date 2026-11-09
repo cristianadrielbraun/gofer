@@ -494,8 +494,9 @@ func TestAdminSecurityPageRequiresRecentVerificationForMutations(t *testing.T) {
 			t.Fatalf("step-up-required admin security page missing %q: %s", want, html)
 		}
 	}
-	if got := strings.Count(html, ` disabled>`); got != 4 {
-		t.Fatalf("admin security disabled submit button count = %d, want 4", got)
+	// Adding a proxy is one more than the exceptions and allowed lists have.
+	if got := strings.Count(html, ` disabled>`); got != 5 {
+		t.Fatalf("admin security disabled submit button count = %d, want 5", got)
 	}
 	if strings.Contains(html, `href="/settings/security"`) {
 		t.Fatal("stale mail-security view still sends verification to webmail settings")

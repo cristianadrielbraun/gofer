@@ -131,7 +131,7 @@ func InspectUserStorageMigration(ctx context.Context, sourcePath string) (UserSt
 }
 
 func migrationSharedVersionSupported(version int) bool {
-	return version >= 105 && version <= 141
+	return version >= 105 && version <= 143
 }
 
 // These recognized shared schemas differ only in the explicitly handled push
@@ -268,6 +268,9 @@ func inspectUserStorageMigration(ctx context.Context, source *DB) (report UserSt
 	for _, link := range userStorageMigrationLinks {
 		if !present[link.child] {
 			continue
+		}
+		if link.child == "outbound_proxies" && report.SchemaVersion < 142 {
+			continue // Proxies had no owners before migrateV141ToV142.
 		}
 		if err := migrationCheckLink(ctx, tx, link, present, true); err != nil {
 			return report, err
@@ -446,6 +449,8 @@ func migrationSourceColumns(ctx context.Context, tx *sql.Tx, table *UserStorageM
 		missing = []string{"hidden", "proxy_id"}
 	} else if table.Name == "accounts" && version < 141 {
 		missing = []string{"proxy_id"}
+	} else if table.Name == "outbound_proxies" && version < 142 {
+		missing = []string{"owner_user_id", "everyone"}
 	} else if table.Name == "mail_rules" && version < 135 {
 		missing = []string{"accounts_chosen"}
 	}
@@ -532,6 +537,9 @@ func requireSharedMigrationTables(ctx context.Context, present map[string]bool, 
 			}
 			if name == "outbound_proxies" && version < 141 {
 				continue // Added empty by migrateV140ToV141.
+			}
+			if (name == "outbound_proxy_users" || name == "outbound_proxy_policy") && version < 142 {
+				continue // Added empty by migrateV141ToV142.
 			}
 			return migrationSourceError(name, "required shared table is missing")
 		}

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/cristianadrielbraun/gofer/internal/models"
@@ -53,7 +54,7 @@ func TestSaveOutboundProxyValidatesAndEncryptsThePassword(t *testing.T) {
 	if _, err := db.Write().ExecContext(ctx, `UPDATE outbound_proxies SET username = 'ana', encrypted_password = ? WHERE id = ?`, saved.EncryptedPassword, other); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.ResolveProxyChoice(ctx, other); err == nil {
+	if _, err := store.ResolveProxyChoice(ctx, "", other); err == nil {
 		t.Fatal("a password copied from another proxy decrypted")
 	}
 
@@ -72,7 +73,7 @@ func TestSaveOutboundProxyKeepsOrReplacesThePassword(t *testing.T) {
 	}
 	password := func() string {
 		t.Helper()
-		p, err := store.ResolveProxyChoice(ctx, id)
+		p, err := store.ResolveProxyChoice(ctx, "", id)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -163,7 +164,7 @@ func TestAccountProxyFollowsTheChoiceAndTheDefault(t *testing.T) {
 	if err := store.SetAccountProxy(ctx, "default", account.ID, home); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.DeleteOutboundProxy(ctx, home); err != nil {
+	if err := store.DeleteOutboundProxy(ctx, "", home); err != nil {
 		t.Fatal(err)
 	}
 	if p := resolve(); p == nil || p.Host != "office.example.test" {
@@ -197,7 +198,7 @@ func TestAccountProxyNeverFallsBackToDirectOnErrors(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, choice := range []string{id, storage.AccountProxyDefault} {
-		if p, err := store.ResolveProxyChoice(ctx, choice); err == nil {
+		if p, err := store.ResolveProxyChoice(ctx, "", choice); err == nil {
 			t.Fatalf("ResolveProxyChoice(%q) = %v with an unreadable password, want an error", choice, p)
 		}
 	}
@@ -281,5 +282,135 @@ func TestUserAccountSnapshotsCarryTheAccountProxy(t *testing.T) {
 	}
 	if loaded.Proxy == nil || loaded.Proxy.Host != "proxy.example.test" {
 		t.Fatalf("alice's GetConfig proxy = %v", loaded.Proxy)
+	}
+}
+
+// A person's own proxies need the administrator's leave, a public address,
+// and are theirs alone; an administrator's proxy can be for chosen people,
+// and a default for chosen people means a direct connection for the others.
+func TestOutboundProxiesForPeople(t *testing.T) {
+	ctx := context.Background()
+	db, store := newAccountStoreTestStore(t)
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO users (id, username, username_normalized, name) VALUES
+		('ana', 'ana', 'ana', 'Ana'), ('ben', 'ben', 'ben', 'Ben')`); err != nil {
+		t.Fatal(err)
+	}
+	own := OutboundProxyInput{Name: "Mine", Type: "socks5", Host: "8.8.8.8", Port: 1080, OwnerUserID: "ana"}
+	if _, err := store.SaveOutboundProxy(ctx, own, "ana"); !errors.Is(err, ErrOwnOutboundProxiesOff) {
+		t.Fatalf("own proxy while not allowed: %v", err)
+	}
+	if err := db.SetPeopleMayAddOutboundProxies(ctx, true); err != nil {
+		t.Fatal(err)
+	}
+	private := own
+	private.Host = "127.0.0.1"
+	if _, err := store.SaveOutboundProxy(ctx, private, "ana"); err == nil || !strings.Contains(err.Error(), "public address") {
+		t.Fatalf("own proxy on a private address: %v", err)
+	}
+	mine, err := store.SaveOutboundProxy(ctx, OutboundProxyInput{Name: "Mine", Type: "socks5", Host: "8.8.8.8", Port: 1080, OwnerUserID: "ana", IsDefault: true}, "ana")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proxy, err := store.ResolveProxyChoice(ctx, "ana", mine); err != nil || proxy == nil || !proxy.PublicOnly {
+		t.Fatalf("ana's own proxy = %+v, %v; want it, public only", proxy, err)
+	}
+	if proxy, err := store.ResolveProxyChoice(ctx, "ben", mine); err != nil || proxy != nil {
+		t.Fatalf("ben through ana's proxy = %+v, %v; want direct", proxy, err)
+	}
+	if name, _ := store.DefaultOutboundProxyName(ctx, "ana"); name != "" {
+		t.Fatalf("ana's own proxy became the default %q", name)
+	}
+
+	office, err := store.SaveOutboundProxy(ctx, OutboundProxyInput{Name: "Office", Type: "http", Host: "10.0.0.2", Port: 3128, IsDefault: true}, "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetOutboundProxyEveryone(ctx, office, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetOutboundProxyUser(ctx, office, "ana", true); err != nil {
+		t.Fatal(err)
+	}
+	if proxy, err := store.ResolveProxyChoice(ctx, "ana", ""); err != nil || proxy == nil || proxy.Host != "10.0.0.2" || proxy.PublicOnly {
+		t.Fatalf("ana on the default = %+v, %v; want Office", proxy, err)
+	}
+	if proxy, err := store.ResolveProxyChoice(ctx, "ben", ""); err != nil || proxy != nil {
+		t.Fatalf("ben on a default that isn't his = %+v, %v; want direct", proxy, err)
+	}
+	if proxy, err := store.ResolveProxyChoice(ctx, "ben", office); err != nil || proxy != nil {
+		t.Fatalf("ben choosing Office = %+v, %v; want direct", proxy, err)
+	}
+	if proxy, err := store.ResolveProxyChoice(ctx, "", ""); err != nil || proxy == nil {
+		t.Fatalf("shared work on the default = %+v, %v; want Office", proxy, err)
+	}
+	listed, err := store.OutboundProxiesForUser(ctx, "ben")
+	if err != nil || len(listed) != 0 {
+		t.Fatalf("ben is offered %+v, %v", listed, err)
+	}
+	listed, err = store.OutboundProxiesForUser(ctx, "ana")
+	if err != nil || len(listed) != 2 {
+		t.Fatalf("ana is offered %+v, %v; want Office and her own", listed, err)
+	}
+
+	// Choosing a proxy someone may not use is refused.
+	seedAccountStoreTestUser(t, ctx, db)
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO accounts (id, user_id, provider, email_address) VALUES ('ben-mail', 'ben', 'imap', 'ben@example.test')`); err != nil {
+		t.Fatal(err)
+	}
+	for _, choice := range []string{office, mine} {
+		if err := store.SetAccountProxy(ctx, "ben", "ben-mail", choice); !errors.Is(err, storage.ErrOutboundProxyNotFound) {
+			t.Fatalf("ben chose %s: %v", choice, err)
+		}
+	}
+
+	// Stopping people from adding their own leaves them unused.
+	if err := db.SetPeopleMayAddOutboundProxies(ctx, false); err != nil {
+		t.Fatal(err)
+	}
+	if proxy, err := store.ResolveProxyChoice(ctx, "ana", mine); err != nil || proxy == nil || proxy.Host != "10.0.0.2" {
+		t.Fatalf("ana's own proxy after people were stopped = %+v, %v; want her default", proxy, err)
+	}
+}
+
+// A person's own proxy on the local network needs an administrator's Proxy
+// private target exception for that exact host and port, and stops being
+// reachable when the exception is revoked.
+func TestOwnOutboundProxiesOnTheLocalNetwork(t *testing.T) {
+	ctx := context.Background()
+	db, store := newAccountStoreTestStore(t)
+	if _, err := db.Write().ExecContext(ctx, `INSERT INTO users (id, username, username_normalized, name) VALUES ('ana', 'ana', 'ana', 'Ana')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetPeopleMayAddOutboundProxies(ctx, true); err != nil {
+		t.Fatal(err)
+	}
+	lan := OutboundProxyInput{Name: "Home", Type: "http", Host: "192.168.1.5", Port: 3128, OwnerUserID: "ana"}
+	if _, err := store.SaveOutboundProxy(ctx, lan, "ana"); err == nil || !strings.Contains(err.Error(), "Proxy private target exception") {
+		t.Fatalf("unapproved LAN proxy: %v", err)
+	}
+	if err := db.AddPrivateTargetException(ctx, "proxy", "192.168.1.5", 3128, "admin"); err != nil {
+		t.Fatal(err)
+	}
+	other := lan
+	other.Port = 8080
+	if _, err := store.SaveOutboundProxy(ctx, other, "ana"); err == nil {
+		t.Fatal("an exception for port 3128 approved port 8080")
+	}
+	id, err := store.SaveOutboundProxy(ctx, lan, "ana")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proxy, err := store.ResolveProxyChoice(ctx, "ana", id); err != nil || proxy == nil || proxy.PublicOnly {
+		t.Fatalf("approved LAN proxy = %+v, %v; want it reachable", proxy, err)
+	}
+	exceptions, err := db.ListMailSecurityExceptions(ctx)
+	if err != nil || len(exceptions) != 1 {
+		t.Fatalf("exceptions = %+v, %v", exceptions, err)
+	}
+	if err := db.DeleteMailSecurityException(ctx, exceptions[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	if proxy, err := store.ResolveProxyChoice(ctx, "ana", id); err != nil || proxy == nil || !proxy.PublicOnly {
+		t.Fatalf("LAN proxy after its exception was revoked = %+v, %v; want it public only", proxy, err)
 	}
 }

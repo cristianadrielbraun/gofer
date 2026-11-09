@@ -14,7 +14,11 @@ import (
 // are bound to the account, so it doesn't decrypt in another proxy's row.
 const passwordKindProxy = "proxy"
 
-// OutboundProxyInput is a proxy as an administrator entered it.
+// ErrOwnOutboundProxiesOff means the administrator doesn't let people save
+// proxies for their own accounts.
+var ErrOwnOutboundProxiesOff = errors.New("your Gofer administrator doesn't let people add their own proxies")
+
+// OutboundProxyInput is a proxy as someone entered it.
 type OutboundProxyInput struct {
 	// ID is empty for a new proxy.
 	ID       string
@@ -27,10 +31,15 @@ type OutboundProxyInput struct {
 	// value replaces it, and "" removes it.
 	Password  *string
 	IsDefault bool
+	// OwnerUserID is the person saving a proxy for their own accounts, or ""
+	// for an administrator's proxy. A person's proxy can't be the default
+	// and must have a public address.
+	OwnerUserID string
 }
 
 // SaveOutboundProxy validates and saves a proxy, and returns its id. Only
-// "http" and "socks5" proxies are accepted.
+// "http" and "socks5" proxies are accepted. A new administrator's proxy is
+// for everyone.
 func (s *AccountStore) SaveOutboundProxy(ctx context.Context, input OutboundProxyInput, createdBy string) (string, error) {
 	name := strings.TrimSpace(input.Name)
 	if name == "" {
@@ -39,12 +48,25 @@ func (s *AccountStore) SaveOutboundProxy(ctx context.Context, input OutboundProx
 	if len(name) > 100 {
 		return "", errors.New("proxy name can be at most 100 characters")
 	}
+	owner := strings.TrimSpace(input.OwnerUserID)
+	if owner != "" {
+		allowed, err := s.policyDB.PeopleMayAddOutboundProxies(ctx)
+		if err != nil {
+			return "", err
+		}
+		if !allowed {
+			return "", ErrOwnOutboundProxiesOff
+		}
+	}
 	id := strings.TrimSpace(input.ID)
-	var existing storage.OutboundProxy
+	existing := storage.OutboundProxy{Everyone: true}
 	if id != "" {
 		var err error
 		if existing, err = s.policyDB.GetOutboundProxy(ctx, id); err != nil {
 			return "", err
+		}
+		if existing.OwnerUserID != owner {
+			return "", storage.ErrOutboundProxyNotFound
 		}
 	} else {
 		id = storage.NewOutboundProxyID()
@@ -70,9 +92,25 @@ func (s *AccountStore) SaveOutboundProxy(ctx context.Context, input OutboundProx
 	if err := proxy.Validate(); err != nil {
 		return "", err
 	}
+	if owner != "" {
+		// Checked again on every connection; this tells the person now.
+		approved, err := s.policyDB.IsPrivateTargetAllowed(ctx, "proxy", proxy.Host, proxy.Port)
+		if err != nil {
+			return "", fmt.Errorf("check proxy private target exception: %w", err)
+		}
+		if !approved {
+			private, err := netguard.IsPrivateHost(ctx, proxy.Host)
+			if err != nil {
+				return "", fmt.Errorf("look up proxy host %s: %w", proxy.Host, err)
+			}
+			if private {
+				return "", fmt.Errorf("proxy %s:%d is on a private network; a proxy for your own accounts needs a public address, or an administrator's Proxy private target exception for that host and port", proxy.Host, proxy.Port)
+			}
+		}
+	}
 
 	row := storage.OutboundProxy{ID: id, Name: name, Type: proxy.Type, Host: proxy.Host, Port: proxy.Port,
-		Username: proxy.Username, IsDefault: input.IsDefault}
+		Username: proxy.Username, IsDefault: input.IsDefault && owner == "", OwnerUserID: owner, Everyone: existing.Everyone}
 	if password != "" {
 		encrypted, err := s.encryptPassword("", id, passwordKindProxy, password)
 		if err != nil {
@@ -86,16 +124,34 @@ func (s *AccountStore) SaveOutboundProxy(ctx context.Context, input OutboundProx
 	return id, nil
 }
 
-// ListOutboundProxies returns the saved proxies. Their passwords stay
-// encrypted.
+// ListOutboundProxies returns the administrator's proxies. Their passwords
+// stay encrypted.
 func (s *AccountStore) ListOutboundProxies(ctx context.Context) ([]storage.OutboundProxy, error) {
 	return s.policyDB.ListOutboundProxies(ctx)
 }
 
-// DeleteOutboundProxy removes a saved proxy. Accounts that chose it connect
-// as on the default afterwards.
-func (s *AccountStore) DeleteOutboundProxy(ctx context.Context, id string) error {
-	return s.policyDB.DeleteOutboundProxy(ctx, id)
+// ListOwnOutboundProxies returns the proxies a person saved for their own
+// accounts.
+func (s *AccountStore) ListOwnOutboundProxies(ctx context.Context, userID string) ([]storage.OutboundProxy, error) {
+	return s.policyDB.ListOwnOutboundProxies(ctx, userID)
+}
+
+// OutboundProxiesForUser returns the proxies a person's accounts may use.
+func (s *AccountStore) OutboundProxiesForUser(ctx context.Context, userID string) ([]storage.OutboundProxy, error) {
+	return s.policyDB.OutboundProxiesForUser(ctx, userID)
+}
+
+// PeopleMayAddOutboundProxies reports whether people may save proxies for
+// their own accounts.
+func (s *AccountStore) PeopleMayAddOutboundProxies(ctx context.Context) (bool, error) {
+	return s.policyDB.PeopleMayAddOutboundProxies(ctx)
+}
+
+// DeleteOutboundProxy removes a proxy of ownerUserID's, or of the
+// administrator's when it is "". Accounts that chose it connect as on the
+// default afterwards.
+func (s *AccountStore) DeleteOutboundProxy(ctx context.Context, ownerUserID, id string) error {
+	return s.policyDB.DeleteOutboundProxy(ctx, ownerUserID, id)
 }
 
 // AccountProxy returns the proxy the account connects through, or nil for a
@@ -105,28 +161,40 @@ func (s *AccountStore) AccountProxy(ctx context.Context, accountID string) (*net
 	if err != nil {
 		return nil, fmt.Errorf("read account proxy: %w", err)
 	}
-	return s.ResolveProxyChoice(ctx, choice)
+	owner, err := s.db.GetAccountUserID(ctx, accountID)
+	if err != nil {
+		return nil, fmt.Errorf("read account owner: %w", err)
+	}
+	return s.ResolveProxyChoice(ctx, owner, choice)
 }
 
-// ResolveProxyChoice returns the proxy a choice means: none for
-// storage.AccountProxyDirect, the saved proxy for its id, and the default
-// proxy, or none when there is no default, for storage.AccountProxyDefault
-// and for the id of a proxy that was deleted.
+// ResolveProxyChoice returns the proxy a choice of owner's means: none for
+// storage.AccountProxyDirect, the saved proxy for its id, and otherwise the
+// default proxy, or none when there is no default. A proxy that was deleted,
+// or that owner may no longer use, falls back to the default, and a default
+// owner may not use means none. An empty owner is work for nobody in
+// particular, which may use any of the administrator's proxies.
 //
 // A proxy that can't be read is an error, never a direct connection: an
 // account set to use a proxy must not quietly connect without it.
-func (s *AccountStore) ResolveProxyChoice(ctx context.Context, choice string) (*netguard.Proxy, error) {
+func (s *AccountStore) ResolveProxyChoice(ctx context.Context, owner, choice string) (*netguard.Proxy, error) {
 	choice = strings.TrimSpace(choice)
 	if choice == storage.AccountProxyDirect {
 		return nil, nil
 	}
 	if choice != storage.AccountProxyDefault {
 		saved, err := s.policyDB.GetOutboundProxy(ctx, choice)
-		if err == nil {
-			return s.openOutboundProxy(saved)
-		}
-		if !errors.Is(err, storage.ErrOutboundProxyNotFound) {
+		if err != nil && !errors.Is(err, storage.ErrOutboundProxyNotFound) {
 			return nil, fmt.Errorf("read proxy: %w", err)
+		}
+		if err == nil {
+			available, err := s.policyDB.OutboundProxyAvailableTo(ctx, saved, owner)
+			if err != nil {
+				return nil, fmt.Errorf("check proxy: %w", err)
+			}
+			if available {
+				return s.openOutboundProxy(ctx, saved)
+			}
 		}
 	}
 	saved, ok, err := s.policyDB.DefaultOutboundProxy(ctx)
@@ -136,11 +204,28 @@ func (s *AccountStore) ResolveProxyChoice(ctx context.Context, choice string) (*
 	if !ok {
 		return nil, nil
 	}
-	return s.openOutboundProxy(saved)
+	available, err := s.policyDB.OutboundProxyAvailableTo(ctx, saved, owner)
+	if err != nil {
+		return nil, fmt.Errorf("check default proxy: %w", err)
+	}
+	if !available {
+		return nil, nil
+	}
+	return s.openOutboundProxy(ctx, saved)
 }
 
-func (s *AccountStore) openOutboundProxy(saved storage.OutboundProxy) (*netguard.Proxy, error) {
+// openOutboundProxy reads a saved proxy to connect through. A person's own
+// proxy may only be reached on a private address that an administrator
+// approved with a Proxy private target exception.
+func (s *AccountStore) openOutboundProxy(ctx context.Context, saved storage.OutboundProxy) (*netguard.Proxy, error) {
 	proxy := &netguard.Proxy{Type: saved.Type, Host: saved.Host, Port: saved.Port, Username: saved.Username}
+	if saved.OwnerUserID != "" {
+		approved, err := s.policyDB.IsPrivateTargetAllowed(ctx, "proxy", saved.Host, saved.Port)
+		if err != nil {
+			return nil, fmt.Errorf("proxy %q: check private target exception: %w", saved.Name, err)
+		}
+		proxy.PublicOnly = !approved
+	}
 	if len(saved.EncryptedPassword) > 0 {
 		password, err := s.decryptPassword("", saved.ID, passwordKindProxy, saved.EncryptedPassword)
 		if err != nil {
@@ -155,13 +240,21 @@ func (s *AccountStore) openOutboundProxy(saved storage.OutboundProxy) (*netguard
 }
 
 // SetAccountProxy records the proxy choice of the owner's account:
-// storage.AccountProxyDefault, storage.AccountProxyDirect, or a saved
-// proxy's id.
+// storage.AccountProxyDefault, storage.AccountProxyDirect, or the id of a
+// proxy the owner may use.
 func (s *AccountStore) SetAccountProxy(ctx context.Context, userID, accountID, choice string) error {
 	choice = strings.TrimSpace(choice)
 	if choice != storage.AccountProxyDefault && choice != storage.AccountProxyDirect {
-		if _, err := s.policyDB.GetOutboundProxy(ctx, choice); err != nil {
+		saved, err := s.policyDB.GetOutboundProxy(ctx, choice)
+		if err != nil {
 			return err
+		}
+		available, err := s.policyDB.OutboundProxyAvailableTo(ctx, saved, userID)
+		if err != nil {
+			return err
+		}
+		if !available {
+			return storage.ErrOutboundProxyNotFound
 		}
 	}
 	return s.db.SetAccountProxyChoice(ctx, userID, accountID, choice)
@@ -181,6 +274,26 @@ func (s *UserAccountStore) AccountProxyForUser(ctx context.Context, owner, accou
 
 // ResolveProxyChoice is AccountStore.ResolveProxyChoice with the central
 // saved proxies, for an account that doesn't exist yet.
-func (s *UserAccountStore) ResolveProxyChoice(ctx context.Context, choice string) (*netguard.Proxy, error) {
-	return s.base.ResolveProxyChoice(ctx, choice)
+func (s *UserAccountStore) ResolveProxyChoice(ctx context.Context, owner, choice string) (*netguard.Proxy, error) {
+	return s.base.ResolveProxyChoice(ctx, owner, choice)
+}
+
+// DefaultOutboundProxyName is the name of the default proxy as it applies to
+// owner, or "" when their accounts on the default connect directly.
+func (s *AccountStore) DefaultOutboundProxyName(ctx context.Context, owner string) (string, error) {
+	saved, ok, err := s.policyDB.DefaultOutboundProxy(ctx)
+	if err != nil || !ok {
+		return "", err
+	}
+	available, err := s.policyDB.OutboundProxyAvailableTo(ctx, saved, owner)
+	if err != nil || !available {
+		return "", err
+	}
+	return saved.Name, nil
+}
+
+// Proxies is the account store of the central saved proxies, for work on
+// them that belongs to no one account.
+func (s *UserAccountStore) Proxies() *AccountStore {
+	return s.base
 }

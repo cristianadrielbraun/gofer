@@ -2,7 +2,6 @@ package handler
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -149,29 +148,35 @@ func useNetguardForLocalDAV(t *testing.T) {
 // A calendar subscription belongs to no account, so its feed is fetched
 // through the default proxy, and not at all when that can't be read.
 func TestCalendarFeedsGoThroughTheDefaultProxy(t *testing.T) {
+	h, _ := newSharedDAVAccountHandler(t)
 	var hits atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hits.Add(1)
 		_, _ = w.Write([]byte("BEGIN:VCALENDAR\r\nVERSION:2.0\r\nEND:VCALENDAR\r\n"))
 	}))
 	defer server.Close()
-	allowLocalDAVServers(t)
 	useNetguardForLocalDAV(t)
 	proxy := netguardtest.StartHTTPProxy(t)
-	previous := calendarFeedProxySource.Load()
-	t.Cleanup(func() { calendarFeedProxySource.Store(previous) })
-
-	setCalendarFeedProxySource(func(context.Context) (*netguard.Proxy, error) { return proxy.Config, nil })
-	if _, err := fetchCalendarFeed(t.Context(), server.URL+"/team.ics"); err != nil {
+	id, err := h.accountStore.SaveOutboundProxy(t.Context(), config.OutboundProxyInput{Name: "Default", Type: "http",
+		Host: proxy.Config.Host, Port: proxy.Config.Port, Username: "feeds", Password: stringPointer("pw"), IsDefault: true}, "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	subscription := &storage.CalendarSubscription{URL: server.URL + "/team.ics"}
+	if err := h.testCalendarSubscription(t.Context(), "alice", subscription); err != nil {
 		t.Fatal(err)
 	}
 	if got := proxy.Targets(); len(got) != 1 || got[0] != strings.TrimPrefix(server.URL, "http://") {
 		t.Fatalf("feed fetched through %v", got)
 	}
 
-	setCalendarFeedProxySource(func(context.Context) (*netguard.Proxy, error) { return nil, errors.New("proxy password can't be read") })
+	if _, err := h.db.Write().ExecContext(t.Context(), `UPDATE outbound_proxies SET encrypted_password = X'0102' WHERE id = ?`, id); err != nil {
+		t.Fatal(err)
+	}
 	before := hits.Load()
-	if _, err := fetchCalendarFeed(t.Context(), server.URL+"/team.ics"); err == nil || hits.Load() != before {
+	if err := h.testCalendarSubscription(t.Context(), "alice", subscription); err == nil || hits.Load() != before {
 		t.Fatalf("feed fetched without its proxy: err=%v", err)
 	}
 }
+
+func stringPointer(s string) *string { return &s }

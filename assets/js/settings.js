@@ -1994,6 +1994,14 @@ document.addEventListener("gofer:folders-changed", function (e) {
   htmx.ajax("GET", panel.getAttribute("data-folders-panel"), { target: "#folders-panel", swap: "outerHTML" })
 })
 
+// Opens an account's proxy dialog once it has been loaded. Saving swaps only
+// its panel, so it stays open.
+document.addEventListener("htmx:afterSettle", function (e) {
+  if (e.target && e.target.querySelector && e.target.querySelector("#account-proxy-dialog") && window.tui && window.tui.dialog) {
+    setTimeout(function () { window.tui.dialog.open("account-proxy-dialog") }, 20)
+  }
+})
+
 // Opens an IMAP account's folder roles dialog once it has been loaded. Saving
 // swaps only its panel, so it stays open.
 document.addEventListener("htmx:afterSettle", function (e) {

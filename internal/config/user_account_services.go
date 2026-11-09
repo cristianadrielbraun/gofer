@@ -142,7 +142,7 @@ func (s *AccountServiceSnapshot) SMTPConfig(ctx context.Context) (*models.Accoun
 // Proxy is the proxy the account's connections go through, or nil for direct
 // connections, from the copied choice and the central saved proxies.
 func (s *AccountServiceSnapshot) Proxy(ctx context.Context) (*netguard.Proxy, error) {
-	return s.repository.base.ResolveProxyChoice(ctx, s.data.ProxyID)
+	return s.repository.base.ResolveProxyChoice(ctx, s.owner, s.data.ProxyID)
 }
 
 // DAVProxy is the account's proxy as read when the snapshot was taken, for
@@ -369,7 +369,7 @@ func (s *UserAccountStore) serviceSnapshot(ctx context.Context, tx *sql.Tx, owne
 	// Read now for the CalDAV and CardDAV work done with the snapshot, which
 	// mustn't open databases while it talks to a server. A proxy that can't
 	// be read fails that work, not the snapshot.
-	snapshot.proxy, snapshot.proxyErr = s.base.ResolveProxyChoice(ctx, data.ProxyID)
+	snapshot.proxy, snapshot.proxyErr = s.base.ResolveProxyChoice(ctx, owner, data.ProxyID)
 	return snapshot, nil
 }
 

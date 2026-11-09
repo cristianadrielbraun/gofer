@@ -75,7 +75,7 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 		providerAvatarHTTPClient: h.providerAvatarHTTPClient,
 		avatarWarmupOwner:        h,
 		userBackfills:            make(map[string]struct{}), contactSyncRunning: make(map[string]struct{}),
-		mailRuleRuns:             newMailRuleRuns()}
+		mailRuleRuns: newMailRuleRuns()}
 	if option.IMAP != nil {
 		if h.blobStore != nil && h.blobStore != option.IMAP.Blobs() {
 			return errors.New("routed compose must use the IMAP blob store")
@@ -346,6 +346,7 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 		private("GET /api/accounts/{id}/edit", routed.handleUserEditAccount)
 		private("POST /api/accounts/{id}/edit", routed.handleUserUpdateAccount)
 		private("POST /api/accounts/{id}/color", routed.handleUserAccountColor)
+		private("POST /api/accounts/{id}/proxy", routed.handleUserSaveAccountProxy)
 		private("POST /api/accounts/{id}/shown", routed.handleUserLocalFoldersShown)
 		private("DELETE /api/accounts/{id}", routed.handleUserDeleteAccount)
 		if option.Credentials != nil {

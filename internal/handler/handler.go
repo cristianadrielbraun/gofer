@@ -221,10 +221,9 @@ func New(db *storage.DB, accountStore *config.AccountStore, syncer *mail.SyncOrc
 	}
 	// Avatars, calendar subscriptions and remote images in mail belong to no
 	// account, so they go through the default proxy.
-	h.avatar.SetProxySource(h.defaultProxy)
-	h.remoteResourceDownloader = newRemoteResourceDownloader(privateTargetAllowed(db), h.defaultProxy)
-	h.providerAvatarHTTPClient.Transport = netguard.ProxySourceTransport(h.providerAvatarHTTPClient.Transport, h.defaultProxy)
-	setCalendarFeedProxySource(h.defaultProxy)
+	h.avatar.SetProxySource(h.sharedDefaultProxy)
+	h.remoteResourceDownloader = newRemoteResourceDownloader(privateTargetAllowed(db), h.readerDefaultProxy)
+	h.providerAvatarHTTPClient.Transport = netguard.ProxySourceTransport(h.providerAvatarHTTPClient.Transport, h.sharedDefaultProxy)
 	setDAVPrivateTargetPolicy(privateTargetAllowed(db))
 	setDAVServerPolicy(davServerAllowed(db))
 	setDAVPlaintextPolicy(func(ctx context.Context, host string, port int) bool {
@@ -549,6 +548,8 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/accounts/{id}/edit", h.handleUpdateAccount)
 	mux.HandleFunc("POST /api/accounts/{id}/services", h.handleUpdateAccountService)
 	mux.HandleFunc("POST /api/accounts/{id}/color", h.handleUpdateAccountColor)
+	mux.HandleFunc("GET /api/accounts/{id}/proxy/manage", h.handleManageAccountProxy)
+	mux.HandleFunc("POST /api/accounts/{id}/proxy", h.handleSaveAccountProxy)
 	mux.HandleFunc("POST /api/accounts/{id}/shown", h.handleLocalFoldersShown)
 	mux.HandleFunc("POST /api/accounts/{id}/calendar/discover", h.handleDiscoverAccountCalendars)
 	mux.HandleFunc("POST /api/accounts/{id}/calendar/sources", h.handleSaveAccountCalendarSources)
@@ -3887,6 +3888,11 @@ func (h *Handler) renderPasswordSecurityTab(w http.ResponseWriter, r *http.Reque
 		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_load_security_settings"), http.StatusInternalServerError)
 		return
 	}
+	if data.OwnProxies, err = h.ownProxiesData(r); err != nil {
+		log.Printf("load own proxies: %v", err)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_load_security_settings"), http.StatusInternalServerError)
+		return
+	}
 	data.Passkeys = passkeySecurityViewData(ctx, summary.Passkeys)
 	data.FederatedIdentities = federatedIdentityViewData(ctx, identities)
 	data.Sessions, data.SessionsTruncated = securitySessionViewData(ctx, sessions, data.OIDCLoginName)
@@ -4874,7 +4880,7 @@ func (h *Handler) handleAllowRemoteContent(w http.ResponseWriter, r *http.Reques
 	for _, remoteURL := range remoteURLs {
 		download := h.remoteResourceDownloader
 		if download == nil {
-			download = newRemoteResourceDownloader(privateTargetAllowed(h.db), h.defaultProxy)
+			download = newRemoteResourceDownloader(privateTargetAllowed(h.db), h.readerDefaultProxy)
 		}
 		data, err := download(ctx, remoteURL)
 		if err != nil || len(data) == 0 {

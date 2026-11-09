@@ -24,6 +24,10 @@ type BlockedError struct {
 }
 
 func (e *BlockedError) Error() string {
+	if e.Protocol == "proxy" {
+		return fmt.Sprintf("proxy %s is on a private network; a proxy added for your own accounts needs a public address, or an administrator's Proxy private target exception under Mail security",
+			net.JoinHostPort(e.Host, strconv.Itoa(e.Port)))
+	}
 	return fmt.Sprintf("%s server %s is on a private network; it needs a private target exception under Mail security",
 		strings.ToUpper(e.Protocol), net.JoinHostPort(e.Host, strconv.Itoa(e.Port)))
 }

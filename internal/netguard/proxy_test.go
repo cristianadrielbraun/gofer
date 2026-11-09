@@ -380,3 +380,32 @@ func TestProxyStringHidesThePassword(t *testing.T) {
 		t.Fatalf("Key() = %q, want it to change with the password without showing it", p.Key())
 	}
 }
+
+// A proxy someone saved for their own accounts is refused on a private
+// address, so it can't lead into the Gofer server's network; an
+// administrator's proxy may be there.
+func TestPublicOnlyProxyRefusesPrivateAddresses(t *testing.T) {
+	for _, kind := range []string{ProxyHTTP, ProxySOCKS5} {
+		t.Run(kind, func(t *testing.T) {
+			target := echoServer(t)
+			proxy := startTestProxy(t, kind, "", "")
+			own := proxy.config("", "")
+			own.PublicOnly = true
+			_, err := Dial(WithProxy(t.Context(), own), &net.Dialer{Timeout: time.Second}, "imap", "127.0.0.1", target, true)
+			if !IsBlocked(err) || !strings.Contains(err.Error(), "public address") {
+				t.Fatalf("error = %v, want the private proxy refused", err)
+			}
+			if accepted, _ := proxy.seen(); accepted != 0 {
+				t.Fatal("a private proxy was contacted")
+			}
+			conn, err := Dial(WithProxy(t.Context(), proxy.config("", "")), &net.Dialer{Timeout: time.Second}, "imap", "127.0.0.1", target, true)
+			if err != nil {
+				t.Fatalf("administrator's local proxy: %v", err)
+			}
+			conn.Close()
+			if own.Key() == proxy.config("", "").Key() {
+				t.Fatal("a public-only proxy shares connections with the same proxy unchecked")
+			}
+		})
+	}
+}

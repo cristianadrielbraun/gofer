@@ -2,9 +2,17 @@ package handler
 
 import (
 	"context"
+	"errors"
+	"log"
+	"net/http"
 
+	"github.com/cristianadrielbraun/gofer/internal/config"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
+	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/netguard"
+	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
+	"github.com/cristianadrielbraun/gofer/internal/views"
 )
 
 // accountProxyContext marks ctx so connections made with it go through the
@@ -20,10 +28,8 @@ func (h *Handler) accountProxyContext(ctx context.Context, owner, id string) (co
 		err   error
 	)
 	switch {
-	case id == "" && h.userAccounts != nil:
-		proxy, err = h.userAccounts.ResolveProxyChoice(ctx, storage.AccountProxyDefault)
-	case id == "" && h.accountStore != nil:
-		proxy, err = h.accountStore.ResolveProxyChoice(ctx, storage.AccountProxyDefault)
+	case id == "":
+		proxy, err = h.defaultProxyFor(ctx, owner)
 	case h.userAccounts != nil:
 		proxy, err = h.userAccounts.AccountProxyForUser(ctx, owner, id)
 	case h.accountStore != nil:
@@ -35,15 +41,181 @@ func (h *Handler) accountProxyContext(ctx context.Context, owner, id string) (co
 	return netguard.WithProxy(ctx, proxy), nil
 }
 
-// defaultProxy is the proxy work for no account in particular goes through,
-// such as avatar lookups and calendar subscriptions: the default proxy, or
-// none.
-func (h *Handler) defaultProxy(ctx context.Context) (*netguard.Proxy, error) {
+// sharedDefaultProxy is the proxy work shared by everyone goes through, such
+// as avatar lookups: the default proxy, whoever it is for, or none.
+func (h *Handler) sharedDefaultProxy(ctx context.Context) (*netguard.Proxy, error) {
+	return h.defaultProxyFor(ctx, "")
+}
+
+// readerDefaultProxy is the default proxy as it applies to the person a
+// request or job is for, such as the reader loading a message's remote
+// images.
+func (h *Handler) readerDefaultProxy(ctx context.Context) (*netguard.Proxy, error) {
+	return h.defaultProxyFor(ctx, mailAllowlistOwner(ctx))
+}
+
+// defaultProxyFor is the default proxy as it applies to owner, for their work
+// that belongs to no account, such as calendar subscriptions: none when the
+// default isn't for them. An empty owner means everyone's.
+func (h *Handler) defaultProxyFor(ctx context.Context, owner string) (*netguard.Proxy, error) {
 	switch {
 	case h.accountStore != nil:
-		return h.accountStore.ResolveProxyChoice(ctx, storage.AccountProxyDefault)
+		return h.accountStore.ResolveProxyChoice(ctx, owner, storage.AccountProxyDefault)
 	case h.userAccounts != nil:
-		return h.userAccounts.ResolveProxyChoice(ctx, storage.AccountProxyDefault)
+		return h.userAccounts.ResolveProxyChoice(ctx, owner, storage.AccountProxyDefault)
 	}
 	return nil, nil
+}
+
+// accountProxyData loads the proxy dialog of the signed-in person's account.
+// It returns nil for an account that isn't theirs, and for Local folders,
+// which connect nowhere.
+func (h *Handler) accountProxyData(ctx context.Context, accountID string) (*models.AccountProxyData, error) {
+	account, err := h.accountStore.GetAccountByIDForUser(ctx, h.userID(ctx), accountID)
+	if err != nil || account == nil || account.Provider == providers.ProviderLocal {
+		return nil, err
+	}
+	choice, err := h.db.GetAccountProxyChoice(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	owner := h.userID(ctx)
+	saved, err := h.accountStore.OutboundProxiesForUser(ctx, owner)
+	if err != nil {
+		return nil, err
+	}
+	data := &models.AccountProxyData{AccountID: account.ID, Name: account.Name, Email: account.Email, Color: account.Color, Choice: choice}
+	for _, p := range saved {
+		data.Proxies = append(data.Proxies, models.OutboundProxyView{ID: p.ID, Name: p.Name, Type: p.Type, Host: p.Host, Port: p.Port, IsDefault: p.IsDefault})
+	}
+	if data.Default, err = h.accountStore.DefaultOutboundProxyName(ctx, owner); err != nil {
+		return nil, err
+	}
+	// Where the person can add proxies themselves: with the exceptions in
+	// personal and open mode, or as their own when a managed installation's
+	// administrator lets them.
+	if h.ownerManagesMailSecurity() {
+		data.ManageURL = "/settings/security#outbound-proxies"
+	} else if own, err := h.accountStore.PeopleMayAddOutboundProxies(ctx); err != nil {
+		return nil, err
+	} else if own {
+		data.ManageURL = "/settings/security#outbound-proxies"
+	}
+	return data, nil
+}
+
+func (h *Handler) handleManageAccountProxy(w http.ResponseWriter, r *http.Request) {
+	data, err := h.accountProxyData(r.Context(), r.PathValue("id"))
+	if err != nil {
+		log.Printf("account proxy account=%s: %v", r.PathValue("id"), err)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_load_account"), http.StatusInternalServerError)
+		return
+	}
+	if data == nil {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html")
+	_ = views.AccountProxyDialog(*data).Render(r.Context(), w)
+}
+
+// handleSaveAccountProxy records the account's proxy choice in open and
+// personal mode, and reconnects the account so it takes the new route.
+func (h *Handler) handleSaveAccountProxy(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_form_data"), http.StatusBadRequest)
+		return
+	}
+	ctx, id := r.Context(), r.PathValue("id")
+	data, err := h.accountProxyData(ctx, id)
+	if err != nil || data == nil {
+		h.handleManageAccountProxy(w, r)
+		return
+	}
+	saveErr := h.accountStore.SetAccountProxy(ctx, h.userID(ctx), id, r.FormValue("proxy"))
+	h.renderAccountProxySave(w, r, data, saveErr, func(updated *models.AccountProxyData) error {
+		next, err := h.accountProxyData(ctx, id)
+		if err == nil && next != nil {
+			*updated = *next
+		}
+		return err
+	})
+	if saveErr == nil {
+		h.reconnectAccount(id)
+	}
+}
+
+// handleUserSaveAccountProxy is handleSaveAccountProxy for an account in its
+// owner's own database.
+func (h *Handler) handleUserSaveAccountProxy(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_form_data"), http.StatusBadRequest)
+		return
+	}
+	ctx, owner, id := r.Context(), h.userID(r.Context()), r.PathValue("id")
+	var (
+		data    *models.AccountProxyData
+		saveErr error
+	)
+	err := h.userAccounts.WithAccountForUser(ctx, owner, id, func(local *config.AccountStore, db *storage.DB) error {
+		scoped := &Handler{db: db, accountStore: local, auth: h.auth}
+		var err error
+		if data, err = scoped.accountProxyData(ctx, id); err != nil || data == nil {
+			return err
+		}
+		if saveErr = local.SetAccountProxy(ctx, owner, id, r.FormValue("proxy")); saveErr != nil {
+			return nil
+		}
+		next, err := scoped.accountProxyData(ctx, id)
+		if next != nil {
+			data = next
+		}
+		return err
+	})
+	if err != nil {
+		userAccountError(w, r, err)
+		return
+	}
+	if data == nil {
+		http.NotFound(w, r)
+		return
+	}
+	h.renderAccountProxySave(w, r, data, saveErr, nil)
+	if saveErr == nil && h.userIMAP != nil {
+		if err := h.userIMAP.RestartAccount(ctx, id); err != nil && !errors.Is(err, storage.ErrAccountRoute) {
+			log.Printf("account proxy: reconnect account %s: %v", id, err)
+		}
+	}
+}
+
+// renderAccountProxySave shows the dialog again after a save, saying how it
+// went. reload, when given, reads the saved choice back first.
+func (h *Handler) renderAccountProxySave(w http.ResponseWriter, r *http.Request, data *models.AccountProxyData, saveErr error, reload func(*models.AccountProxyData) error) {
+	switch {
+	case errors.Is(saveErr, storage.ErrOutboundProxyNotFound):
+		data.Error = i18n.T(r.Context(), "account_proxy.gone")
+	case saveErr != nil:
+		log.Printf("account proxy account=%s: save: %v", data.AccountID, saveErr)
+		data.Error = i18n.T(r.Context(), "account_proxy.failed")
+	default:
+		if reload != nil {
+			if err := reload(data); err != nil {
+				log.Printf("account proxy account=%s: reload: %v", data.AccountID, err)
+			}
+		}
+		data.Saved = true
+	}
+	w.Header().Set("Content-Type", "text/html")
+	_ = views.AccountProxyPanel(*data).Render(r.Context(), w)
+}
+
+// defaultProxyContext marks ctx so connections made with it go through the
+// default proxy as it applies to owner, for their work that belongs to no
+// account.
+func (h *Handler) defaultProxyContext(ctx context.Context, owner string) (context.Context, error) {
+	proxy, err := h.defaultProxyFor(ctx, owner)
+	if err != nil {
+		return nil, &netguard.ProxyError{Proxy: "default", Err: err}
+	}
+	return netguard.WithProxy(ctx, proxy), nil
 }

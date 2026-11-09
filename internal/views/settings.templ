@@ -2282,6 +2282,20 @@ templ SettingsAccountActionsMenu(account models.Account) {
 					}
 				}
 			}
+			if account.Provider != "local" {
+				@dropdown.Item(dropdown.ItemProps{
+					Class: "justify-start gap-2",
+					Attributes: templ.Attributes{
+						"type":      "button",
+						"hx-get":    fmt.Sprintf("/api/accounts/%s/proxy/manage", account.ID),
+						"hx-target": "#edit-account-container",
+						"hx-swap":   "innerHTML",
+					},
+				}) {
+					@icon.Network(icon.Props{Class: "size-3.5"})
+					{ i18n.T(ctx, "settings.account.proxy") }
+				}
+			}
 			if account.Provider == "imap" {
 				@dropdown.Item(dropdown.ItemProps{
 					Class: "justify-start gap-2",

@@ -113,7 +113,7 @@ func (s *AccountStore) getConfig(ctx context.Context, accountID string, checkAll
 	// and only a connection needs its proxy: settings can still be read
 	// when the proxy can't.
 	if checkAllowlist {
-		if cfg.Proxy, err = s.ResolveProxyChoice(ctx, proxyID); err != nil {
+		if cfg.Proxy, err = s.ResolveProxyChoice(ctx, owner.String, proxyID); err != nil {
 			return nil, fmt.Errorf("account %s: %w", accountID, err)
 		}
 		if err := s.checkMailAllowlist(ctx, owner.String, storage.MailAllowlistMailbox{Provider: cfg.Provider, Email: email, Username: cfg.Username,

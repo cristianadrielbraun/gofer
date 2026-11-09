@@ -134,6 +134,10 @@ func (h *Handler) fetchCalendarSource(ctx context.Context, source storage.Calend
 	case storage.CalendarSourceProviderJMAP:
 		return listJMAPCalendarEvents(ctx, source, credential.jmap, credential.password, query)
 	case storage.CalendarSourceProviderICS:
+		ctx, err := h.defaultProxyContext(ctx, source.UserID)
+		if err != nil {
+			return calendar.EventPage{}, err
+		}
 		return listCalendarFeedEvents(ctx, source, query)
 	default:
 		return calendar.EventPage{}, fmt.Errorf("this calendar provider is not supported")

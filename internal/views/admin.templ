@@ -1466,7 +1466,7 @@ templ AdminSecurityPage(data models.MailSecurityAdminData, verification ...Admin
 				if data.Allowlist != nil {
 					@tabs.Tabs(tabs.Props{ID: "mail-security-tabs"}) {
 						@tabs.List(tabs.ListProps{Class: "bg-card"}) {
-							@tabs.Trigger(tabs.TriggerProps{Value: "allowlist", IsActive: data.Tab != "exceptions"}) {
+							@tabs.Trigger(tabs.TriggerProps{Value: "allowlist", IsActive: data.Tab != "exceptions" && data.Tab != "proxies"}) {
 								{ i18n.T(ctx, "admin.allowlist.tab") }
 								if len(data.Allowlist.Refused) > 0 {
 									<span class="rounded-full bg-red-500/12 px-1.5 text-[11px] font-semibold tabular-nums text-red-700 dark:text-red-300">{ i18n.T(ctx, "admin.allowlist.refused_count", "count", i18n.Number(ctx, len(data.Allowlist.Refused))) }</span>
@@ -1478,8 +1478,14 @@ templ AdminSecurityPage(data models.MailSecurityAdminData, verification ...Admin
 									<span class="rounded-full bg-muted px-1.5 text-[11px] font-semibold tabular-nums text-muted-foreground">{ i18n.Number(ctx, len(data.Exceptions)) }</span>
 								}
 							}
+							@tabs.Trigger(tabs.TriggerProps{Value: "proxies", IsActive: data.Tab == "proxies"}) {
+								{ i18n.T(ctx, "admin.proxies.tab") }
+								if len(data.Proxies) > 0 {
+									<span class="rounded-full bg-muted px-1.5 text-[11px] font-semibold tabular-nums text-muted-foreground">{ i18n.Number(ctx, len(data.Proxies)) }</span>
+								}
+							}
 						}
-						@tabs.Content(tabs.ContentProps{Value: "allowlist", IsActive: data.Tab != "exceptions", Class: "mt-6"}) {
+						@tabs.Content(tabs.ContentProps{Value: "allowlist", IsActive: data.Tab != "exceptions" && data.Tab != "proxies", Class: "mt-6"}) {
 							@MailAllowlistPanel(data, *data.Allowlist)
 						}
 						@tabs.Content(tabs.ContentProps{Value: "exceptions", IsActive: data.Tab == "exceptions", Class: "mt-6"}) {
@@ -1492,9 +1498,15 @@ templ AdminSecurityPage(data models.MailSecurityAdminData, verification ...Admin
 							}
 							@MailSecurityExceptionsPanel(data)
 						}
+						@tabs.Content(tabs.ContentProps{Value: "proxies", IsActive: data.Tab == "proxies", Class: "mt-6"}) {
+							@OutboundProxiesPanel(data)
+						}
 					}
 				} else {
 					@MailSecurityExceptionsPanel(data)
+					<div class="mt-6">
+						@OutboundProxiesPanel(data)
+					</div>
 				}
 			</div>
 		</div>
@@ -1508,6 +1520,81 @@ func mailAllowlistServersLimited(list models.MailAllowlistAdminData) bool {
 
 func mailAllowlistLimited(list models.MailAllowlistAdminData) bool {
 	return mailAllowlistServersLimited(list) || len(list.Domains) > 0
+}
+
+// adminPeoplePickerProps describes a list of chosen people, each with a
+// button that takes them off it, and a picker that adds one. Each change
+// posts to Action with user_id and Field set to "true" (added) or "false"
+// (taken off), and Hidden's fields.
+type adminPeoplePickerProps struct {
+	Title       string
+	Detail      string
+	Empty       string
+	Chosen      []models.AdminWebmailUserOption
+	Candidates  []models.AdminWebmailUserOption
+	Action      string
+	CSRFToken   string
+	Field       string
+	Hidden      map[string]string
+	AddLabel    string
+	RemoveLabel string
+	Disabled    bool
+}
+
+templ adminPeoplePickerHidden(props adminPeoplePickerProps, value string) {
+	if props.CSRFToken != "" {
+		<input type="hidden" name="_csrf" value={ props.CSRFToken }/>
+	}
+	for name, hidden := range props.Hidden {
+		<input type="hidden" name={ name } value={ hidden }/>
+	}
+	<input type="hidden" name={ props.Field } value={ value }/>
+}
+
+// adminPeoplePicker is the list of people a rule or proxy is chosen for.
+templ adminPeoplePicker(props adminPeoplePickerProps) {
+	if props.Title != "" {
+		<div class="text-sm font-semibold text-foreground">{ props.Title }</div>
+	}
+	if props.Detail != "" {
+		<p class="mt-1 text-xs leading-relaxed text-muted-foreground">{ props.Detail }</p>
+	}
+	if len(props.Chosen) == 0 {
+		<div class="mt-3 rounded-md border border-dashed border-border px-3 py-4 text-center text-xs text-muted-foreground">{ props.Empty }</div>
+	} else {
+		<div class="mt-3 space-y-2">
+			for _, user := range props.Chosen {
+				<div class="flex items-center justify-between gap-3 rounded-md border border-border bg-card px-3 py-2">
+					<span class="min-w-0 truncate text-sm font-semibold text-foreground">{ user.Username }</span>
+					<form method="post" action={ templ.URL(props.Action) }>
+						@adminPeoplePickerHidden(props, "false")
+						<input type="hidden" name="user_id" value={ user.ID }/>
+						<button type="submit" class={ mailAllowlistRemoveButtonClass() } disabled?={ props.Disabled }>{ props.RemoveLabel }</button>
+					</form>
+				</div>
+			}
+		</div>
+	}
+	if len(props.Candidates) > 0 {
+		<form method="post" action={ templ.URL(props.Action) } class="mt-3 flex flex-col gap-2 sm:flex-row">
+			@adminPeoplePickerHidden(props, "true")
+			<div class="min-w-0 sm:flex-1">
+				@selectbox.SelectBox() {
+					@selectbox.Trigger(selectbox.TriggerProps{Name: "user_id", Class: "h-9 bg-background", DisableClear: true, Required: true, Attributes: templ.Attributes{"aria-label": i18n.T(ctx, "admin.allowlist.user")}}) {
+						@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "admin.allowlist.choose_user")})
+					}
+					@selectbox.Content(selectbox.ContentProps{SearchPlaceholder: i18n.T(ctx, "admin.allowlist.search_users")}) {
+						for _, user := range props.Candidates {
+							@selectbox.Item(selectbox.ItemProps{Value: user.ID}) {
+								{ user.Username }
+							}
+						}
+					}
+				}
+			</div>
+			<button type="submit" class={ mailAllowlistAddButtonClass() } disabled?={ props.Disabled }>{ props.AddLabel }</button>
+		</form>
+	}
 }
 
 // MailAllowlistPanel limits the mail servers mailboxes connect to and the
@@ -1540,46 +1627,19 @@ templ MailAllowlistPanel(data models.MailSecurityAdminData, list models.MailAllo
 		</div>
 		<div class="mt-5 grid gap-5 lg:grid-cols-2">
 			<div class="min-w-0 rounded-lg border border-border bg-background/45 p-4">
-				<div class="text-sm font-semibold text-foreground">{ i18n.T(ctx, "admin.allowlist.exempt") }</div>
-				<p class="mt-1 text-xs leading-relaxed text-muted-foreground">{ i18n.T(ctx, "admin.allowlist.exempt_detail") }</p>
-				if len(list.Exempt) == 0 {
-					<div class="mt-3 rounded-md border border-dashed border-border px-3 py-4 text-center text-xs text-muted-foreground">{ i18n.T(ctx, "admin.allowlist.exempt_empty") }</div>
-				} else {
-					<div class="mt-3 space-y-2">
-						for _, user := range list.Exempt {
-							<div class="flex items-center justify-between gap-3 rounded-md border border-border bg-card px-3 py-2">
-								<span class="min-w-0 truncate text-sm font-semibold text-foreground">{ user.Username }</span>
-								<form method="post" action={ templ.URL(adminMailAllowlistBase + "/exempt") }>
-									<input type="hidden" name="_csrf" value={ data.CSRFTokens[adminMailAllowlistBase+"/exempt"] }/>
-									<input type="hidden" name="user_id" value={ user.ID }/>
-									<input type="hidden" name="exempt" value="false"/>
-									<button type="submit" class={ mailAllowlistRemoveButtonClass() } disabled?={ data.StepUpRequired }>{ i18n.T(ctx, "admin.allowlist.apply") }</button>
-								</form>
-							</div>
-						}
-					</div>
-				}
-				if len(list.Candidates) > 0 {
-					<form method="post" action={ templ.URL(adminMailAllowlistBase + "/exempt") } class="mt-3 flex flex-col gap-2 sm:flex-row">
-						<input type="hidden" name="_csrf" value={ data.CSRFTokens[adminMailAllowlistBase+"/exempt"] }/>
-						<input type="hidden" name="exempt" value="true"/>
-						<div class="min-w-0 sm:flex-1">
-							@selectbox.SelectBox() {
-								@selectbox.Trigger(selectbox.TriggerProps{Name: "user_id", Class: "h-9 bg-background", DisableClear: true, Required: true, Attributes: templ.Attributes{"aria-label": i18n.T(ctx, "admin.allowlist.user")}}) {
-									@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "admin.allowlist.choose_user")})
-								}
-								@selectbox.Content(selectbox.ContentProps{SearchPlaceholder: i18n.T(ctx, "admin.allowlist.search_users")}) {
-									for _, user := range list.Candidates {
-										@selectbox.Item(selectbox.ItemProps{Value: user.ID}) {
-											{ user.Username }
-										}
-									}
-								}
-							}
-						</div>
-						<button type="submit" class={ mailAllowlistAddButtonClass() } disabled?={ data.StepUpRequired }>{ i18n.T(ctx, "admin.allowlist.dont_apply") }</button>
-					</form>
-				}
+				@adminPeoplePicker(adminPeoplePickerProps{
+					Title:        i18n.T(ctx, "admin.allowlist.exempt"),
+					Detail:       i18n.T(ctx, "admin.allowlist.exempt_detail"),
+					Empty:        i18n.T(ctx, "admin.allowlist.exempt_empty"),
+					Chosen:       list.Exempt,
+					Candidates:   list.Candidates,
+					Action:       adminMailAllowlistBase + "/exempt",
+					CSRFToken:    data.CSRFTokens[adminMailAllowlistBase+"/exempt"],
+					Field:        "exempt",
+					AddLabel:     i18n.T(ctx, "admin.allowlist.dont_apply"),
+					RemoveLabel:  i18n.T(ctx, "admin.allowlist.apply"),
+					Disabled:     data.StepUpRequired,
+				})
 			</div>
 			<div class="min-w-0 rounded-lg border border-border bg-background/45 p-4">
 				<div class="flex items-center justify-between gap-3">
@@ -1744,7 +1804,7 @@ templ MailSecurityExceptionsPanel(data models.MailSecurityAdminData) {
 			<div class="grid gap-3 sm:grid-cols-[8rem_minmax(0,1fr)_7rem]">
 				<div>
 					<label class="mb-1.5 block text-xs font-semibold text-muted-foreground">{ i18n.T(ctx, "admin.security.protocol") }</label>
-					@adminSecurityProtocolSelect([]string{"http", "https", "imap", "smtp"})
+					@adminSecurityProtocolSelect([]string{"http", "https", "imap", "smtp", "proxy"})
 				</div>
 				<div>
 					<label class="mb-1.5 block text-xs font-semibold text-muted-foreground">{ i18n.T(ctx, "admin.security.host") }</label>
@@ -3402,6 +3462,15 @@ templ AdminUserRequiredPasswordChangeAction(user AdminUserData, stepUpRequired b
 
 // adminSecurityProtocolSelect picks the protocol of a mail security exception;
 // the first one starts selected.
+// adminSecurityProtocolLabel names a protocol of an exception: its letters,
+// or, for the proxy people add for their own accounts, the word.
+func adminSecurityProtocolLabel(ctx context.Context, protocol string) string {
+	if protocol == "proxy" {
+		return i18n.T(ctx, "admin.security.protocol_proxy")
+	}
+	return strings.ToUpper(protocol)
+}
+
 templ adminSecurityProtocolSelect(protocols []string) {
 	@selectbox.SelectBox() {
 		@selectbox.Trigger(selectbox.TriggerProps{Name: "protocol", Class: "h-9 bg-background", DisableClear: true, Required: true, Attributes: templ.Attributes{"value": protocols[0], "aria-label": i18n.T(ctx, "admin.security.protocol")}}) {
@@ -3410,7 +3479,7 @@ templ adminSecurityProtocolSelect(protocols []string) {
 		@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
 			for i, protocol := range protocols {
 				@selectbox.Item(selectbox.ItemProps{Value: protocol, Selected: i == 0}) {
-					{ strings.ToUpper(protocol) }
+					{ adminSecurityProtocolLabel(ctx, protocol) }
 				}
 			}
 		}
