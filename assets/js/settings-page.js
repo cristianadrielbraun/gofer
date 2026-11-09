@@ -2054,6 +2054,10 @@ function wizardServiceNext(button, service, step) {
   var contactForm = service === 'contacts' ? root.querySelector('[data-wizard-contact-form]') : null;
   var calendarForm = service === 'calendar' && enabled ? root.querySelector('[data-calendar-source-form]') : null;
   if (enabled && contactForm) {
+    // Done finishes the wizard once the contacts are saved (see the
+    // contact form's afterRequest below); Next goes on to its next step.
+    if (step === 'done') contactForm.dataset.wizardFinish = 'true';
+    else delete contactForm.dataset.wizardFinish;
     if (contactForm.requestSubmit) contactForm.requestSubmit(); else contactForm.submit();
     return;
   }
@@ -3022,6 +3026,8 @@ document.body.addEventListener('htmx:afterRequest', function(event) {
   if (!form) return;
     var xhr = event.detail && event.detail.xhr ? event.detail.xhr : null;
     var ok = !!(event.detail && event.detail.successful) && (!xhr || xhr.getResponseHeader('X-Gofer-Status') !== 'error');
+    var finish = form.dataset.wizardFinish === 'true';
+    delete form.dataset.wizardFinish;
     if (!ok) return;
     var root = form.closest('#add-account-dialog,#edit-account-dialog');
     var toggle = root && root.querySelector('[data-wizard-service-switch="contacts"]');
@@ -3032,7 +3038,7 @@ document.body.addEventListener('htmx:afterRequest', function(event) {
       syncWizardServiceContent(root);
       if (root.id === 'add-account-dialog') syncAddContactStep();
     }
-    if (root) wizardServiceAdvance(root, Number(form.dataset.wizardNextStep || 0));
+    if (root) wizardServiceAdvance(root, finish ? 'done' : Number(form.dataset.wizardNextStep || 0));
   });
 function refreshCardDAVBaseURLActions(root) {
   (root || document).querySelectorAll('[data-carddav-base-url-action]').forEach(function(group) {

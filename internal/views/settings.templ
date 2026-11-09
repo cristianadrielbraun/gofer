@@ -4372,7 +4372,10 @@ templ AddAccountWizardFooter() {
 					<span data-add-mail-only>{ i18n.T(ctx, "settings.wizard.add_email_button") }</span>
 					@icon.ChevronRight(icon.Props{Class: "size-4"})
 				</button>
-				<button type="button" data-on-click='["goferNavigate","/settings/accounts?account_added=1"]' data-account-test-close hidden class="inline-flex items-center gap-1.5 text-sm font-medium px-3 py-2 rounded-lg border border-border text-foreground hover:bg-accent transition-colors disabled:pointer-events-none disabled:opacity-50">{ i18n.T(ctx, "common.close") }</button>
+				<button type="button" data-on-click='["goferNavigate","/settings/accounts?account_added=1"]' data-account-test-close hidden class="inline-flex items-center gap-1.5 rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent disabled:pointer-events-none disabled:opacity-50">
+					@icon.Check(icon.Props{Class: "size-4"})
+					{ i18n.T(ctx, "common.done") }
+				</button>
 				<button type="button" data-on-click='["wizardGo",4]' data-account-test-continue hidden class="inline-flex items-center gap-1.5 text-sm font-medium px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:pointer-events-none disabled:opacity-50">
 					{ i18n.T(ctx, "settings.wizard.continue_contacts") }
 					@icon.ChevronRight(icon.Props{Class: "size-4"})
@@ -4877,7 +4880,10 @@ templ EditAccountWizardFooter(data models.EditAccountData) {
 	<div id="edit-wizard-footer" class="account-wizard-card-footer">
 		<div data-wizard-footer-step="email-off" data-active="false" class="hidden flex justify-end gap-2">
 			<div class="flex justify-end gap-2">
-				<button type="button" data-on-click='["goferNavigate","/settings/accounts"]' class="inline-flex items-center gap-1.5 text-sm font-medium px-3 py-2 rounded-lg border border-border text-foreground hover:bg-accent transition-colors disabled:pointer-events-none disabled:opacity-50">{ i18n.T(ctx, "common.close") }</button>
+				<button type="button" data-on-click='["goferNavigate","/settings/accounts"]' class="inline-flex items-center gap-1.5 rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent disabled:pointer-events-none disabled:opacity-50">
+					@icon.Check(icon.Props{Class: "size-4"})
+					{ i18n.T(ctx, "common.done") }
+				</button>
 				<button type="button" data-on-click='["editWizardGo",4,true]' class="inline-flex items-center gap-1.5 text-sm font-medium px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:pointer-events-none disabled:opacity-50">{ i18n.T(ctx, "settings.wizard.continue_contacts") }</button>
 			</div>
 		</div>
@@ -4922,7 +4928,10 @@ templ EditAccountWizardFooter(data models.EditAccountData) {
 					<span data-edit-account-save-label>{ i18n.T(ctx, "settings.edit_account.save") }</span>
 					@icon.ChevronRight(icon.Props{Class: "size-4"})
 				</button>
-				<button type="button" data-on-click='["goferNavigate","/settings/accounts"]' data-account-test-close hidden class="inline-flex items-center gap-1.5 text-sm font-medium px-3 py-2 rounded-lg border border-border text-foreground hover:bg-accent transition-colors disabled:pointer-events-none disabled:opacity-50">{ i18n.T(ctx, "common.close") }</button>
+				<button type="button" data-on-click='["goferNavigate","/settings/accounts"]' data-account-test-close hidden class="inline-flex items-center gap-1.5 rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent disabled:pointer-events-none disabled:opacity-50">
+					@icon.Check(icon.Props{Class: "size-4"})
+					{ i18n.T(ctx, "common.done") }
+				</button>
 				<button type="button" data-on-click='["editWizardGo",4,true]' data-account-test-continue hidden class="inline-flex items-center gap-1.5 text-sm font-medium px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:pointer-events-none disabled:opacity-50">
 					{ i18n.T(ctx, "settings.wizard.continue_contacts") }
 					@icon.ChevronRight(icon.Props{Class: "size-4"})
@@ -4934,10 +4943,18 @@ templ EditAccountWizardFooter(data models.EditAccountData) {
 				@icon.ArrowLeft(icon.Props{Class: "size-4"})
 				{ i18n.T(ctx, "settings.wizard.back") }
 			</button>
-			<button type="button" data-on-click='["wizardServiceNext","$this","contacts",5]' { reconnectGateAttrs(fmt.Sprintf("account-contact-sync-form-%s", data.AccountID), "contacts", editAccountNeeds(data, reconnectContacts))... } class="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90">
-				{ i18n.T(ctx, "common.next") }
-				@icon.ChevronRight(icon.Props{Class: "size-4"})
-			</button>
+			// Done saves the contacts and finishes, without going on to the
+			// calendar.
+			<div class="flex gap-2">
+				<button type="button" data-on-click='["wizardServiceNext","$this","contacts","done"]' { reconnectGateAttrs(fmt.Sprintf("account-contact-sync-form-%s", data.AccountID), "contacts", editAccountNeeds(data, reconnectContacts))... } class="inline-flex items-center gap-1.5 rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent">
+					@icon.Check(icon.Props{Class: "size-4"})
+					{ i18n.T(ctx, "common.done") }
+				</button>
+				<button type="button" data-on-click='["wizardServiceNext","$this","contacts",5]' { reconnectGateAttrs(fmt.Sprintf("account-contact-sync-form-%s", data.AccountID), "contacts", editAccountNeeds(data, reconnectContacts))... } class="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90">
+					{ i18n.T(ctx, "common.next") }
+					@icon.ChevronRight(icon.Props{Class: "size-4"})
+				</button>
+			</div>
 		</div>
 		<div data-wizard-footer-step="5" data-active="false" class="hidden flex justify-between gap-2">
 			<button type="button" data-on-click='["editWizardGo",4]' class="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors px-3 py-2 rounded-md border border-border hover:bg-accent disabled:pointer-events-none disabled:opacity-50">
@@ -5676,6 +5693,12 @@ templ AddAccountPostCreateStep(data models.EditAccountData) {
 	{{ accountID := data.AccountID }}
 	{{ isJMAP := data.Provider == providers.ProviderJMAP && !editAccountIsICloud(data) }}
 	<div id="add-wizard-footer-step-4" data-wizard-footer-step="4" data-active="false" hx-swap-oob="outerHTML" class="hidden flex-wrap justify-end gap-2">
+		// Done saves the contacts and finishes, without going on to the
+		// calendar.
+		<button type="button" data-on-click='["wizardServiceNext","$this","contacts","done"]' class="inline-flex items-center gap-1.5 rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent">
+			@icon.Check(icon.Props{Class: "size-4"})
+			{ i18n.T(ctx, "common.done") }
+		</button>
 		if data.ContactSync.Enabled {
 			<button type="button" data-on-click='["wizardGo",5]' class="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors">
 				{ i18n.T(ctx, "common.next") }
