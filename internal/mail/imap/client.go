@@ -14,6 +14,7 @@ import (
 	"github.com/emersion/go-imap/v2/imapclient"
 	"github.com/emersion/go-sasl"
 
+	"github.com/cristianadrielbraun/gofer/internal/buildinfo"
 	"github.com/cristianadrielbraun/gofer/internal/mail/oauth2sasl"
 	mailtransport "github.com/cristianadrielbraun/gofer/internal/mail/transport"
 	"github.com/cristianadrielbraun/gofer/internal/models"
@@ -121,25 +122,32 @@ func connectWithContext(ctx context.Context, cfg *models.AccountConfig, password
 		return nil, fmt.Errorf("wait for greeting: %w", err)
 	}
 
-	switch cfg.AuthMethod {
-	case "plain":
-		saslClient := sasl.NewPlainClient("", cfg.Username, password)
-		err = c.Authenticate(saslClient)
-	case "oauth2":
-		saslClient := oauth2sasl.NewClient(cfg.Username, password)
-		err = c.Authenticate(saslClient)
-	default:
-		saslClient := sasl.NewPlainClient("", cfg.Username, password)
-		err = c.Authenticate(saslClient)
-	}
-
-	err = defaultLoginCooldowns.record(cfg, err)
+	err = defaultLoginCooldowns.record(cfg, authenticate(c, cfg, password))
 	if err != nil {
 		c.Close()
 		return nil, fmt.Errorf("authenticate: %w", err)
 	}
 
+	// Some servers, such as 163.com, refuse SELECT with "Unsafe Login" until
+	// the client identifies itself (RFC 2971). Their answer doesn't matter.
+	if c.Caps().Has(imap.CapID) {
+		_, _ = c.ID(&imap.IDData{Name: "Gofer", Version: buildinfo.Version}).Wait()
+	}
+
 	return c, nil
+}
+
+func authenticate(c *imapclient.Client, cfg *models.AccountConfig, password string) error {
+	if cfg.AuthMethod == "oauth2" {
+		return c.Authenticate(oauth2sasl.NewClient(cfg.Username, password))
+	}
+	// IMAP4rev1 servers don't have to offer AUTHENTICATE PLAIN: 163.com
+	// advertises only AUTH=XOAUTH2 and 139.com no mechanism at all. Both
+	// accept LOGIN.
+	if caps := c.Caps(); caps != nil && !caps.Has(imap.AuthCap(sasl.Plain)) && !caps.Has(imap.CapLoginDisabled) {
+		return c.Login(cfg.Username, password).Wait()
+	}
+	return c.Authenticate(sasl.NewPlainClient("", cfg.Username, password))
 }
 
 // tlsHandshake starts TLS on a connection opened by netguard. The timeout
@@ -158,6 +166,18 @@ func tlsHandshake(ctx context.Context, conn net.Conn, config *tls.Config, timeou
 	return tlsConn, nil
 }
 
+// imapCipherSuites are Go's defaults followed by RSA key exchange with
+// AES-GCM. Go no longer offers RSA key exchange as it has no forward secrecy,
+// but imap.139.com accepts nothing else. A server only gets it by choosing it
+// over every default suite, and TLS 1.3 never uses this list.
+var imapCipherSuites = func() []uint16 {
+	var suites []uint16
+	for _, suite := range tls.CipherSuites() {
+		suites = append(suites, suite.ID)
+	}
+	return append(suites, tls.TLS_RSA_WITH_AES_128_GCM_SHA256, tls.TLS_RSA_WITH_AES_256_GCM_SHA384)
+}()
+
 func secureClientOptions(host string, options *imapclient.Options) *imapclient.Options {
 	if options == nil {
 		options = &imapclient.Options{}
@@ -171,6 +191,9 @@ func secureClientOptions(host string, options *imapclient.Options) *imapclient.O
 	tlsConfig.InsecureSkipVerify = false
 	if tlsConfig.MinVersion < tls.VersionTLS12 {
 		tlsConfig.MinVersion = tls.VersionTLS12
+	}
+	if tlsConfig.CipherSuites == nil {
+		tlsConfig.CipherSuites = imapCipherSuites
 	}
 	clientOptions.TLSConfig = tlsConfig
 	options = &clientOptions
