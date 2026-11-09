@@ -166,6 +166,18 @@ func tlsHandshake(ctx context.Context, conn net.Conn, config *tls.Config, timeou
 	return tlsConn, nil
 }
 
+// imapCipherSuites are Go's defaults followed by RSA key exchange with
+// AES-GCM. Go no longer offers RSA key exchange as it has no forward secrecy,
+// but imap.139.com accepts nothing else. A server only gets it by choosing it
+// over every default suite, and TLS 1.3 never uses this list.
+var imapCipherSuites = func() []uint16 {
+	var suites []uint16
+	for _, suite := range tls.CipherSuites() {
+		suites = append(suites, suite.ID)
+	}
+	return append(suites, tls.TLS_RSA_WITH_AES_128_GCM_SHA256, tls.TLS_RSA_WITH_AES_256_GCM_SHA384)
+}()
+
 func secureClientOptions(host string, options *imapclient.Options) *imapclient.Options {
 	if options == nil {
 		options = &imapclient.Options{}
@@ -179,6 +191,9 @@ func secureClientOptions(host string, options *imapclient.Options) *imapclient.O
 	tlsConfig.InsecureSkipVerify = false
 	if tlsConfig.MinVersion < tls.VersionTLS12 {
 		tlsConfig.MinVersion = tls.VersionTLS12
+	}
+	if tlsConfig.CipherSuites == nil {
+		tlsConfig.CipherSuites = imapCipherSuites
 	}
 	clientOptions.TLSConfig = tlsConfig
 	options = &clientOptions

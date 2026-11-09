@@ -2,7 +2,11 @@ package imap
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
 	"crypto/tls"
+	"crypto/x509"
+	"math/big"
 	"net"
 	"strconv"
 	"strings"
@@ -124,6 +128,56 @@ func TestSecureClientOptionsEnforcesCertificateChecksAndTLS12(t *testing.T) {
 	if originalTLS.ServerName != "wrong.example.com" || originalTLS.MinVersion != tls.VersionTLS10 || !originalTLS.InsecureSkipVerify {
 		t.Fatal("secureClientOptions modified the caller's TLS config")
 	}
+}
+
+func TestSecureClientOptionsReachServerWithOnlyRSAKeyExchange(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	template := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(time.Hour),
+		IPAddresses:           []net.IP{net.IPv4(127, 0, 0, 1)},
+		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageCertSign,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		IsCA:                  true,
+		BasicConstraintsValid: true,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, template, template, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatal(err)
+	}
+	roots := x509.NewCertPool()
+	roots.AddCert(cert)
+	// Like imap.139.com: TLS 1.2 with RSA key exchange and nothing else.
+	listener, err := tls.Listen("tcp", "127.0.0.1:0", &tls.Config{
+		Certificates: []tls.Certificate{{Certificate: [][]byte{der}, PrivateKey: key}},
+		MaxVersion:   tls.VersionTLS12,
+		CipherSuites: []uint16{tls.TLS_RSA_WITH_AES_128_GCM_SHA256},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	go func() {
+		if conn, err := listener.Accept(); err == nil {
+			_ = conn.(*tls.Conn).Handshake()
+			_ = conn.Close()
+		}
+	}()
+
+	options := secureClientOptions("127.0.0.1", &imapclient.Options{TLSConfig: &tls.Config{RootCAs: roots}})
+	conn, err := tls.Dial("tcp", listener.Addr().String(), options.TLSConfig)
+	if err != nil {
+		t.Fatalf("TLS handshake error = %v", err)
+	}
+	_ = conn.Close()
 }
 
 func TestContextClientCancellationInterruptsConnectionSetup(t *testing.T) {
