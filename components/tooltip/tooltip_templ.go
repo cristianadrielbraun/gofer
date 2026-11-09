@@ -219,7 +219,7 @@ func Content(props ...ContentProps) templ.Component {
 		})
 		templ_7745c5c3_Err = popover.Content(popover.ContentProps{
 			ID:            p.ID,
-			Class:         utils.TwMerge("px-4 py-1 bg-foreground text-background [&_[data-tui-popover-arrow]]:!bg-foreground [&_[data-tui-popover-arrow]]:!border-0", p.Class),
+			Class:         utils.TwMerge("px-4 py-1 bg-foreground text-background [&_[data-tui-popover-arrow]]:!bg-foreground", p.Class),
 			Attributes:    p.Attributes,
 			Placement:     mapTooltipPositionToPopover(p.Position),
 			ShowArrow:     p.ShowArrow,

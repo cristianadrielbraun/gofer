@@ -15,6 +15,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/mail"
 	"github.com/cristianadrielbraun/gofer/internal/mailauth"
 	"github.com/cristianadrielbraun/gofer/internal/models"
+	"github.com/cristianadrielbraun/gofer/internal/netguard"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
@@ -212,7 +213,7 @@ func userContactProviderJSON(ctx context.Context, provider, method, endpoint, to
 	if provider == providers.ProviderOutlook {
 		req.Header.Set("Prefer", outlookGraphPrefer(endpoint))
 	}
-	client := &http.Client{Timeout: 30 * time.Second, CheckRedirect: func(next *http.Request, via []*http.Request) error {
+	client := &http.Client{Transport: netguard.APITransport, Timeout: 30 * time.Second, CheckRedirect: func(next *http.Request, via []*http.Request) error {
 		// A redirect of POST/PATCH can silently turn an intended write into
 		// a GET. A successful response must acknowledge the original write.
 		if method != http.MethodGet {

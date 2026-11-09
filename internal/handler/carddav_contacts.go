@@ -197,6 +197,10 @@ func (h *Handler) handleSaveAccountContactSync(w http.ResponseWriter, r *http.Re
 				return
 			}
 		}
+		if err := h.accountStore.BindDAVLogin(ctx, accountID, password, cfg.Username); err != nil {
+			htmlStatus(w, r, http.StatusBadGateway, err.Error())
+			return
+		}
 		for _, book := range cfg.AddressBooks {
 			bookCfg := cfg
 			bookCfg.AddressBookURL = book.URL
@@ -339,6 +343,10 @@ func (h *Handler) handleTestAccountContactSync(w http.ResponseWriter, r *http.Re
 			return
 		}
 	}
+	if err := h.accountStore.BindDAVLogin(ctx, accountID, password, cfg.Username); err != nil {
+		htmlStatus(w, r, http.StatusBadGateway, err.Error())
+		return
+	}
 	if len(cfg.AddressBooks) == 0 {
 		htmlStatus(w, r, http.StatusBadRequest, "Choose at least one CardDAV address book before testing.")
 		return
@@ -454,6 +462,10 @@ func (h *Handler) handleDiscoverAccountContactSync(w http.ResponseWriter, r *htt
 			return
 		}
 	}
+	if err := h.accountStore.BindDAVLogin(ctx, accountID, password, username); err != nil {
+		writeJSONError(w, r, http.StatusBadGateway, err.Error())
+		return
+	}
 	create, err := davChangeFromForm(r)
 	if err != nil {
 		writeJSONError(w, r, http.StatusBadRequest, err.Error())
@@ -544,7 +556,21 @@ func contactSyncDiscoveryCandidates(values ...string) []string {
 	return candidates
 }
 
-func (h *Handler) contactSyncPasswordOrAccount(ctx context.Context, userID, accountID, submitted string) (string, error) {
+// contactSyncPasswordOrAccount is the password CardDAV signs in with: the
+// one submitted, the saved CardDAV one, or the mailbox's. It is bound to the
+// account's proxy.
+func (h *Handler) contactSyncPasswordOrAccount(ctx context.Context, userID, accountID, submitted string, usernames ...string) (string, error) {
+	password, err := h.contactSyncPassword(ctx, userID, accountID, submitted)
+	if err != nil || password == "" {
+		return password, err
+	}
+	if err := h.accountStore.BindDAVLogin(ctx, accountID, password, usernames...); err != nil {
+		return "", err
+	}
+	return password, nil
+}
+
+func (h *Handler) contactSyncPassword(ctx context.Context, userID, accountID, submitted string) (string, error) {
 	if strings.TrimSpace(submitted) != "" {
 		return submitted, nil
 	}

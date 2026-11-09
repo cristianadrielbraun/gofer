@@ -90,13 +90,14 @@ func dialPooled(ctx context.Context, cfg *models.AccountConfig, password string)
 
 // sessionKey identifies who a session is logged in as. A changed password
 // or token yields a new key, so a session never outlives the credentials it
-// was opened with in a reused form.
+// was opened with in a reused form; nor one opened through another proxy, or
+// directly, the proxy it now has to go through.
 func sessionKey(cfg *models.AccountConfig, password string) string {
 	secret := sha256.Sum256([]byte(password))
 	return strings.Join([]string{
 		cfg.AccountID, strings.ToLower(cfg.IMAPHost), strconv.Itoa(cfg.IMAPPort), cfg.IMAPTLSMode,
 		cfg.Username, cfg.AuthMethod, strconv.FormatBool(cfg.IMAPAllowPlaintext),
-		strconv.FormatBool(cfg.IMAPAllowPrivate), hex.EncodeToString(secret[:]),
+		strconv.FormatBool(cfg.IMAPAllowPrivate), hex.EncodeToString(secret[:]), cfg.Proxy.Key(),
 	}, "\x00")
 }
 

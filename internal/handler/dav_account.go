@@ -185,6 +185,17 @@ func davNewChoices(found davAccountDiscovery) func(string) (bool, bool) {
 func (h *Handler) handleFindDAVItems(w http.ResponseWriter, r *http.Request) {
 	var saved *models.EditAccountData
 	owner, id := h.userID(r.Context()), r.PathValue("id")
+	// Signing in with the typed login goes through the account's proxy, or,
+	// for one being added, the proxy its form chose.
+	var ok bool
+	if id == "" {
+		r, ok = h.withProxyChoice(w, r)
+	} else {
+		r, ok = h.withAccountProxyFor(w, r, id)
+	}
+	if !ok {
+		return
+	}
 	if id != "" {
 		var err error
 		if saved, err = h.davAccountEditData(r.Context(), owner, id); err != nil {
@@ -263,6 +274,10 @@ func davCreatedChoices(form davAccountForm, created string) func(string) (bool, 
 // CardDAV server. It signs in first, so nothing is saved for a server or login
 // that doesn't work, then saves the calendars or address books ticked.
 func (h *Handler) handleCreateDAVAccount(w http.ResponseWriter, r *http.Request) {
+	r, ok := h.withProxyChoice(w, r)
+	if !ok {
+		return
+	}
 	form, problem := parseDAVAccountForm(w, r, nil)
 	if problem == "" && len(form.items) == 0 {
 		problem = davChooseOne(form.service)
@@ -282,6 +297,7 @@ func (h *Handler) handleCreateDAVAccount(w http.ResponseWriter, r *http.Request)
 	owner := h.userID(r.Context())
 	req := &models.CreateAccountRequest{
 		Provider: providers.ProviderDAV, DisplayName: form.name, Username: form.username, Password: form.password,
+		ProxyID: strings.TrimSpace(r.FormValue("proxy")),
 	}
 	var account *models.Account
 	if h.userAccounts == nil {
@@ -321,6 +337,10 @@ func (h *Handler) handleCreateDAVAccount(w http.ResponseWriter, r *http.Request)
 // first, and the calendars or address books ticked.
 func (h *Handler) handleUpdateDAVAccount(w http.ResponseWriter, r *http.Request) {
 	owner, id := h.userID(r.Context()), r.PathValue("id")
+	r, ok := h.withAccountProxyFor(w, r, id)
+	if !ok {
+		return
+	}
 	saved, err := h.davAccountEditData(r.Context(), owner, id)
 	if err != nil {
 		userAccountError(w, r, err)
@@ -351,6 +371,7 @@ func (h *Handler) handleUpdateDAVAccount(w http.ResponseWriter, r *http.Request)
 	}
 	req := &models.CreateAccountRequest{
 		Provider: providers.ProviderDAV, DisplayName: form.name, Username: form.username, Password: form.password,
+		ProxyID: strings.TrimSpace(r.FormValue("proxy")),
 	}
 	if h.userAccounts == nil {
 		err = h.accountStore.UpdateAccount(r.Context(), id, req)
@@ -428,13 +449,21 @@ func (h *Handler) accountEditData(ctx context.Context, owner, id string) (*model
 
 func (h *Handler) davAccountPassword(ctx context.Context, owner, id string) (string, error) {
 	if h.userAccounts == nil {
-		return h.accountStore.DecryptPassword(ctx, id)
+		password, err := h.accountStore.DecryptPassword(ctx, id)
+		if err != nil {
+			return "", err
+		}
+		return password, h.accountStore.BindDAVLogin(ctx, id, password)
 	}
 	snapshot, err := h.userAccounts.SnapshotServices(ctx, owner, id)
 	if err != nil {
 		return "", err
 	}
-	return snapshot.MailboxPassword()
+	password, err := snapshot.MailboxPassword()
+	if err != nil {
+		return "", err
+	}
+	return password, snapshot.BindDAVLogin(password)
 }
 
 // saveDAVAccountServices saves what signing in found, using the account's
@@ -591,6 +620,11 @@ func (h *Handler) handleAddAccountMail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req := accountRequestFromForm(r)
+	// The account exists already, with its proxy.
+	r, ok := h.withAccountProxyFor(w, r, id)
+	if !ok {
+		return
+	}
 	if req.Provider == providers.ProviderJMAP {
 		if err := h.prepareJMAPAccount(r, &req); err != nil {
 			http.Error(w, serverText(r.Context(), err.Error()), http.StatusBadRequest)

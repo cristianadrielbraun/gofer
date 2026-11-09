@@ -166,6 +166,11 @@ func (h *Handler) handleAdminSecurity(w http.ResponseWriter, r *http.Request) {
 		action := "/admin/security/exceptions/" + item.ID + "/delete"
 		data.CSRFTokens[action] = auth.CSRFToken(ctx, http.MethodPost, action)
 	}
+	if err := h.addOutboundProxyData(ctx, &data, "/admin/security"); err != nil {
+		log.Printf("admin mail security: load proxies: %v", err)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_load_mail_security_exceptions"), http.StatusInternalServerError)
+		return
+	}
 	if data.Allowlist, err = h.mailAllowlistAdminData(ctx, data.CSRFTokens); err != nil {
 		log.Printf("admin mail security: load allowed mail lists: %v", err)
 		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_load_the_allowed_mail_lists"), http.StatusInternalServerError)
@@ -173,8 +178,9 @@ func (h *Handler) handleAdminSecurity(w http.ResponseWriter, r *http.Request) {
 	}
 	if data.Allowlist != nil {
 		data.Tab = "allowlist"
-		if r.URL.Query().Get("tab") == "exceptions" {
-			data.Tab = "exceptions"
+		switch r.URL.Query().Get("tab") {
+		case "exceptions", "proxies":
+			data.Tab = r.URL.Query().Get("tab")
 		}
 		if err := h.markExceptionsOutsideAllowlist(ctx, data.Exceptions); err != nil {
 			log.Printf("admin mail security: compare exceptions with allowed servers: %v", err)
@@ -279,7 +285,7 @@ func (h *Handler) handleAddPrivateTargetException(w http.ResponseWriter, r *http
 	protocol := strings.ToLower(strings.TrimSpace(r.FormValue("protocol")))
 	host := normalizePrivateTargetHost(r.FormValue("host"))
 	port, err := strconv.Atoi(strings.TrimSpace(r.FormValue("port")))
-	if (protocol != "http" && protocol != "https" && protocol != "imap" && protocol != "smtp") || !validPrivateTargetHost(host) || err != nil || port < 1 || port > 65535 {
+	if (protocol != "http" && protocol != "https" && protocol != "imap" && protocol != "smtp" && protocol != "proxy") || !validPrivateTargetHost(host) || err != nil || port < 1 || port > 65535 {
 		h.redirectAdminSecurity(w, r, "", i18n.T(r.Context(), "auth.admin.exception.private_invalid"))
 		return
 	}
@@ -291,7 +297,12 @@ func (h *Handler) handleAddPrivateTargetException(w http.ResponseWriter, r *http
 		h.redirectAdminSecurity(w, r, "", i18n.T(r.Context(), "auth.admin.exception.private_failed"))
 		return
 	}
-	h.restartAccountsUsingException(r.Context(), models.MailSecurityExceptionPrivateTarget, protocol, host, port)
+	if protocol == "proxy" {
+		// People's own proxies at this address may now be used.
+		h.reconnectAllAccounts(r.Context())
+	} else {
+		h.restartAccountsUsingException(r.Context(), models.MailSecurityExceptionPrivateTarget, protocol, host, port)
+	}
 	h.redirectAdminSecurity(w, r, i18n.T(r.Context(), "auth.admin.exception.private_added", "protocol", strings.ToUpper(protocol), "target", host+":"+strconv.Itoa(port)), "")
 }
 
@@ -383,6 +394,10 @@ func (h *Handler) handleDeleteMailSecurityException(w http.ResponseWriter, r *ht
 	for _, account := range item.Accounts {
 		h.stopMailSecurityAccount(account.ID)
 	}
+	if item.Kind == models.MailSecurityExceptionPrivateTarget && item.Protocol == "proxy" {
+		// Accounts using a proxy at this address stop connecting through it.
+		h.reconnectAllAccounts(r.Context())
+	}
 	if stopAll && h.ownedMailbox.userIMAP != nil {
 		h.ownedMailbox.userIMAP.StopMailSecuritySessions()
 	}
@@ -437,7 +452,9 @@ func (h *Handler) redirectAdminSecurity(w http.ResponseWriter, r *http.Request, 
 		values.Set("error", message)
 	}
 	// Return to the tab the change was made on, when the page has tabs.
-	if h.ownedMailbox != nil && !strings.HasPrefix(r.URL.Path, adminMailAllowlistBase+"/") {
+	if h.ownedMailbox != nil && strings.HasPrefix(r.URL.Path, "/admin/security/proxies") {
+		values.Set("tab", "proxies")
+	} else if h.ownedMailbox != nil && !strings.HasPrefix(r.URL.Path, adminMailAllowlistBase+"/") {
 		values.Set("tab", "exceptions")
 	}
 	target := "/admin/security"

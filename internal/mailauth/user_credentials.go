@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cristianadrielbraun/gofer/internal/netguard"
 	"github.com/cristianadrielbraun/gofer/internal/providerquota"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/retry"
@@ -30,6 +31,7 @@ type UserCredentials struct {
 	gates      map[string]*userCredentialGate
 	operations sync.WaitGroup
 	closing    bool
+	proxyFor   UserAccountProxyResolver
 }
 type userCredentialGate struct {
 	token chan struct{}
@@ -340,7 +342,11 @@ func (s *UserCredentials) token(ctx context.Context, owner, id string, force, gr
 	return authorization.Token(), nil
 }
 func (s *UserCredentials) mailboxAuthorizationFrom(ctx context.Context, owner, id string, force, graphOnly bool, expected *UserServiceAuthorization) (authorization *UserServiceAuthorization, err error) {
-	err = s.operation(ctx, owner, id, true, func(ctx context.Context) error {
+	proxy, err := s.accountProxy(ctx, owner, id)
+	if err != nil {
+		return nil, err
+	}
+	err = s.operation(withOAuthProxy(ctx, proxy), owner, id, true, func(ctx context.Context) error {
 		record, err := s.load(ctx, owner, id)
 		if err != nil {
 			return err
@@ -393,8 +399,10 @@ func (s *UserCredentials) mailboxAuthorizationFrom(ctx context.Context, owner, i
 	if err != nil {
 		return nil, err
 	}
-	// All of this mailbox's Gmail requests share one quota budget.
+	// All of this mailbox's Gmail requests share one quota budget, and go
+	// through its proxy.
 	providerquota.BindGmailToken(authorization.Token(), owner+"/"+id)
+	netguard.BindBearerProxy(authorization.Token(), proxy)
 	return authorization, nil
 }
 

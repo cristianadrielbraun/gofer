@@ -86,7 +86,7 @@ func TestGoogleCalendarCreationUsesStableIDAndRecoversConflict(t *testing.T) {
 			googleCalendarAPIBaseURL = server.URL
 			defer func() { googleCalendarAPIBaseURL = prior }()
 			for range 2 {
-				remote, err := createGoogleCalendarEvent(t.Context(), "test-token", "work@example.com", draft)
+				remote, err := createGoogleCalendarEvent(davTestContext(t), "test-token", "work@example.com", draft)
 				if err != nil || remote.AllDay != allDay || remote.Summary != "Planning" || calendarUpdateHasDetails(remote.Recurrence) != recurring {
 					t.Fatalf("created=%#v, err=%v", remote, err)
 				}
@@ -95,7 +95,7 @@ func TestGoogleCalendarCreationUsesStableIDAndRecoversConflict(t *testing.T) {
 				t.Fatalf("posts=%d gets=%d", posts, gets)
 			}
 			stored["extendedProperties"] = map[string]any{"private": map[string]string{"goferCreateHash": "foreign"}}
-			if _, err := createGoogleCalendarEvent(t.Context(), "test-token", "work@example.com", draft); err == nil {
+			if _, err := createGoogleCalendarEvent(davTestContext(t), "test-token", "work@example.com", draft); err == nil {
 				t.Fatal("foreign conflicting event accepted")
 			}
 		})
@@ -150,7 +150,7 @@ func TestOutlookCalendarCreationUsesTransactionIDAndPreservesDates(t *testing.T)
 			prior := outlookGraphBaseURL
 			outlookGraphBaseURL = server.URL
 			defer func() { outlookGraphBaseURL = prior }()
-			remote, err := createOutlookCalendarEvent(t.Context(), "test-token", "primary", draft)
+			remote, err := createOutlookCalendarEvent(davTestContext(t), "test-token", "primary", draft)
 			if err != nil || remote.RemoteID != "graph-event" || remote.AllDay != allDay || calendarUpdateHasDetails(remote.Recurrence) != recurring {
 				t.Fatalf("created=%#v, err=%v", remote, err)
 			}
@@ -216,7 +216,7 @@ func TestCalDAVCreationIsConditionalEscapedAndRetryable(t *testing.T) {
 			defer func() { davHTTPTransport = prior }()
 			source := storage.CalendarSource{RemoteID: server.URL + "/calendar/"}
 			for range 2 {
-				remote, err := createCalDAVCalendarEvent(t.Context(), source, "calendar-user", "calendar-password", draft)
+				remote, err := createCalDAVCalendarEvent(davTestContext(t), source, "calendar-user", "calendar-password", draft)
 				if err != nil || remote.AllDay != allDay || remote.ICalUID != draft.RequestID+"@gofer" || remote.Summary != "Planning" || calendarUpdateHasDetails(remote.Recurrence) != recurring {
 					t.Fatalf("created=%#v, err=%v", remote, err)
 				}
@@ -235,7 +235,7 @@ func TestCalendarCreationRejectsRedirectsAndMissingProviderIdentity(t *testing.T
 	redirect := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, foreign.URL, 307) }))
 	defer redirect.Close()
 	var output map[string]any
-	if err := calendarCreateJSON(t.Context(), http.MethodPost, redirect.URL, "secret", map[string]string{"title": "Private"}, &output); err == nil || leaked != 0 {
+	if err := calendarCreateJSON(davTestContext(t), http.MethodPost, redirect.URL, "secret", map[string]string{"title": "Private"}, &output); err == nil || leaked != 0 {
 		t.Fatal("provider creation followed a redirect with private data")
 	}
 	for _, err := range []error{calendarCreateProviderError{400}, calendarCreateProviderError{403}, calendarCreateProviderError{409}, calendarCreateAuthError{context.Canceled}} {

@@ -7,7 +7,7 @@ import "./floating_ui_dom.js";
   const floatingCleanups = new WeakMap();
   const hoverTimeouts = new WeakMap();
   const arrowBaseClass =
-    "absolute h-2.5 w-2.5 rotate-45 bg-popover border border-border";
+    "absolute h-2.5 w-2.5 rotate-45 bg-popover bg-clip-padding border border-border";
   const exitAnimationDuration = 150;
 
   function getRootById(id) {

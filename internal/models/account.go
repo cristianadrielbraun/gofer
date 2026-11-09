@@ -1,6 +1,10 @@
 package models
 
-import "time"
+import (
+	"time"
+
+	"github.com/cristianadrielbraun/gofer/internal/netguard"
+)
 
 type AccountConfig struct {
 	AccountID          string
@@ -28,6 +32,9 @@ type AccountConfig struct {
 	// approved plain HTTP or a private address for the session URL's server.
 	JMAPAllowPlaintext bool
 	JMAPAllowPrivate   bool
+	// Proxy is the proxy the account's connections go through, or nil for
+	// direct connections.
+	Proxy *netguard.Proxy
 }
 
 type ConnectionTestResult struct {
@@ -56,8 +63,11 @@ type EditAccountData struct {
 	AuthMethod        string
 	SmtpUsername      string
 	JMAPSessionURL    string
-	SameSmtpAuth      bool
-	EmailSyncEnabled  bool
+	// ProxyID is the account's proxy choice: "" for the default, "direct",
+	// or a saved proxy's id.
+	ProxyID          string
+	SameSmtpAuth     bool
+	EmailSyncEnabled bool
 	// ReconnectPending is set for an account imported from a profile that
 	// still needs its password or sign-in.
 	ReconnectPending bool
@@ -72,10 +82,10 @@ type EditAccountData struct {
 	// ReconnectCalendars are the calendars the profile had selected, which
 	// come back on with it.
 	ReconnectCalendars []string
-	Signatures        []Signature
-	SignatureSettings AccountSignatureSettings
-	ContactSync       ContactSyncConfig
-	CalendarSync      CalendarSyncConfig
+	Signatures         []Signature
+	SignatureSettings  AccountSignatureSettings
+	ContactSync        ContactSyncConfig
+	CalendarSync       CalendarSyncConfig
 }
 
 type CreateAccountRequest struct {
@@ -95,6 +105,9 @@ type CreateAccountRequest struct {
 	SmtpUsername      string `json:"smtp_username"`
 	SmtpPassword      string `json:"smtp_password"`
 	JMAPSessionURL    string `json:"jmap_session_url"`
+	// ProxyID is the proxy the account connects through: "" for the default,
+	// "direct", or a saved proxy's id.
+	ProxyID string `json:"-"`
 	// EmailSyncDisabled creates the account with mail sync off, for accounts
 	// imported without their credentials.
 	EmailSyncDisabled bool `json:"-"`

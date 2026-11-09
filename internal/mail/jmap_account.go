@@ -38,7 +38,7 @@ func newJMAPAccountClient(cfg *models.AccountConfig, password string) (*jmap.Cli
 		return cfg.JMAPAllowPrivate && protocol == approved.Scheme && jmap.NormalizeHost(host) == approved.Host && port == approved.Port
 	}
 	transport := jmapPlaintextGuard{
-		next:           netguard.NewHTTPTransport(allowPrivate),
+		next:           netguard.ProxyTransport(netguard.NewHTTPTransport(allowPrivate), cfg.Proxy),
 		approved:       approved,
 		allowPlaintext: cfg.JMAPAllowPlaintext,
 	}

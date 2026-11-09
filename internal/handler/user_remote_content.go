@@ -80,7 +80,7 @@ func (h *Handler) handleUserAllowRemoteContent(w http.ResponseWriter, r *http.Re
 			local := make(map[string]string)
 			download := h.remoteResourceDownloader
 			if download == nil {
-				download = newRemoteResourceDownloader(privateTargetAllowed(h.db))
+				download = newRemoteResourceDownloader(privateTargetAllowed(h.db), h.readerDefaultProxy)
 			}
 			for _, url := range urls {
 				if err := ctx.Err(); err != nil {

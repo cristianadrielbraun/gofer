@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"github.com/cristianadrielbraun/gofer/internal/auth"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -24,6 +25,8 @@ func newAccountTestForm(host string, port int, tls string) url.Values {
 func postNewAccountTest(h *Handler, form url.Values) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(http.MethodPost, "/api/accounts/test", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	// The sign-in middleware names the person adding the account.
+	req = req.WithContext(auth.ContextWithUser(req.Context(), &auth.User{ID: "owner", Username: "owner"}))
 	rec := httptest.NewRecorder()
 	h.handleTestNewAccount(rec, req)
 	return rec

@@ -22,6 +22,7 @@ import (
 	avatarresolver "github.com/cristianadrielbraun/gofer/internal/avatar"
 	mail "github.com/cristianadrielbraun/gofer/internal/mail"
 	"github.com/cristianadrielbraun/gofer/internal/models"
+	"github.com/cristianadrielbraun/gofer/internal/netguard"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 	"github.com/cristianadrielbraun/gofer/internal/views"
 )
@@ -1273,7 +1274,7 @@ func (h *Handler) handleProviderAvatarImage(w http.ResponseWriter, r *http.Reque
 	req.Header.Set("Accept", "image/avif,image/webp,image/png,image/jpeg,image/gif,*/*;q=0.8")
 	client := h.providerAvatarHTTPClient
 	if client == nil {
-		client = &http.Client{Timeout: 15 * time.Second}
+		client = &http.Client{Timeout: 15 * time.Second, Transport: netguard.ProxySourceTransport(netguard.NewHTTPTransport(nil), h.sharedDefaultProxy)}
 	}
 	resp, err := client.Do(req)
 	if err != nil {

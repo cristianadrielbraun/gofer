@@ -282,163 +282,181 @@ func TestUserStorageMigrationPreflightHonorsRuntimeLockCancellationAndMissingFil
 }
 
 func TestUserStorageMigrationPreflightAcceptsMainSchemaAndKeepsHistoricalClaimsUnchanged(t *testing.T) {
-	for _, mode := range []string{"main-105", "main-105-no-push-table", "partial-105-claim", "shared-106", "shared-107", "shared-108", "shared-109", "shared-110", "shared-111", "shared-112", "shared-113", "shared-114", "shared-115", "shared-116", "shared-117", "shared-118", "shared-119", "shared-120", "shared-121", "shared-122", "shared-123", "shared-124", "shared-125", "shared-126", "shared-127", "shared-128", "shared-129", "shared-130", "shared-131", "shared-132", "shared-133", "shared-134", "shared-135", "shared-136", "shared-137", "shared-138", "shared-139", "shared-140"} {
+	for _, mode := range []string{"main-105", "main-105-no-push-table", "partial-105-claim", "shared-106", "shared-107", "shared-108", "shared-109", "shared-110", "shared-111", "shared-112", "shared-113", "shared-114", "shared-115", "shared-116", "shared-117", "shared-118", "shared-119", "shared-120", "shared-121", "shared-122", "shared-123", "shared-124", "shared-125", "shared-126", "shared-127", "shared-128", "shared-129", "shared-130", "shared-131", "shared-132", "shared-133", "shared-134", "shared-135", "shared-136", "shared-137", "shared-138", "shared-139", "shared-140", "shared-141", "shared-142", "shared-143"} {
 		t.Run(mode, func(t *testing.T) {
 			db := sharedMigrationFixture(t)
-			version := 140
-			if mode != "shared-140" {
+			version := 143
+			if mode != "shared-143" {
+				// Before private target exceptions could approve proxies; the
+				// columns are the same.
+				migrationFixtureSQL(t, db, `DELETE FROM schema_version; INSERT INTO schema_version(version) VALUES(142)`)
+				version = 142
+			}
+			if mode != "shared-142" && mode != "shared-143" {
+				// Before proxies had owners and people.
+				migrationFixtureSQL(t, db, `DROP TABLE outbound_proxy_users; DROP TABLE outbound_proxy_policy; DROP INDEX idx_outbound_proxies_name; DROP INDEX idx_outbound_proxies_default; DROP TABLE outbound_proxies; `+
+					`CREATE TABLE outbound_proxies (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE CHECK (name <> ''), type TEXT NOT NULL CHECK (type IN ('http', 'socks5')), host TEXT NOT NULL CHECK (host <> ''), port INTEGER NOT NULL CHECK (port BETWEEN 1 AND 65535), username TEXT NOT NULL DEFAULT '', encrypted_password BLOB, is_default INTEGER NOT NULL DEFAULT 0 CHECK (is_default IN (0, 1)), created_by TEXT NOT NULL DEFAULT '', created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP); `+
+					`CREATE UNIQUE INDEX idx_outbound_proxies_default ON outbound_proxies(is_default) WHERE is_default = 1; DELETE FROM schema_version; INSERT INTO schema_version(version) VALUES(141)`)
+				version = 141
+			}
+			if mode != "shared-141" && mode != "shared-142" && mode != "shared-143" {
+				// Before accounts could connect through a proxy.
+				migrationFixtureSQL(t, db, `DROP INDEX idx_outbound_proxies_default; DROP TABLE outbound_proxies; ALTER TABLE accounts DROP COLUMN proxy_id; DELETE FROM schema_version; INSERT INTO schema_version(version) VALUES(140)`)
+				version = 140
+			}
+			if mode != "shared-140" && mode != "shared-141" && mode != "shared-142" && mode != "shared-143" {
 				// Before contacts' mail was indexed by normalized address.
 				migrationFixtureSQL(t, db, `DROP INDEX idx_recipients_contact_email; DROP INDEX idx_messages_contact_email; DELETE FROM schema_version; INSERT INTO schema_version(version) VALUES(139)`)
 				version = 139
 			}
-			if mode != "shared-139" && mode != "shared-140" {
+			if mode != "shared-139" && mode != "shared-140" && mode != "shared-141" && mode != "shared-142" && mode != "shared-143" {
 				// Before contacts could wait to be resolved.
 				migrationFixtureSQL(t, db, `DROP TABLE contact_remote_deletions; DELETE FROM schema_version; INSERT INTO schema_version(version) VALUES(138)`)
 				version = 138
 			}
-			if mode != "shared-138" && mode != "shared-139" && mode != "shared-140" {
+			if mode != "shared-138" && mode != "shared-139" && mode != "shared-140" && mode != "shared-141" && mode != "shared-142" && mode != "shared-143" {
 				// Before contacts could share an address, which changed only a
 				// key, not the columns copied.
 				migrationFixtureSQL(t, db, `DELETE FROM schema_version; INSERT INTO schema_version(version) VALUES(137)`)
 				version = 137
 			}
-			if mode != "shared-137" && mode != "shared-138" && mode != "shared-139" && mode != "shared-140" {
+			if mode != "shared-137" && mode != "shared-138" && mode != "shared-139" && mode != "shared-140" && mode != "shared-141" && mode != "shared-142" && mode != "shared-143" {
 				// Before contacts had a home.
 				migrationFixtureSQL(t, db, `ALTER TABLE contact_profiles DROP COLUMN home; DELETE FROM schema_version; INSERT INTO schema_version(version) VALUES(136)`)
 				version = 136
 			}
-			if mode != "shared-136" && mode != "shared-137" && mode != "shared-138" && mode != "shared-139" && mode != "shared-140" {
+			if mode != "shared-136" && mode != "shared-137" && mode != "shared-138" && mode != "shared-139" && mode != "shared-140" && mode != "shared-141" && mode != "shared-142" && mode != "shared-143" {
 				// Before calendar subscriptions.
 				migrationFixtureSQL(t, db, `ALTER TABLE calendar_sources DROP COLUMN refresh_minutes; DELETE FROM schema_version; INSERT INTO schema_version(version) VALUES(135)`)
 				version = 135
 			}
-			if mode != "shared-135" && mode != "shared-136" && mode != "shared-137" && mode != "shared-138" && mode != "shared-139" && mode != "shared-140" {
+			if mode != "shared-135" && mode != "shared-136" && mode != "shared-137" && mode != "shared-138" && mode != "shared-139" && mode != "shared-140" && mode != "shared-141" && mode != "shared-142" && mode != "shared-143" {
 				// Before rules could be for several accounts.
 				migrationFixtureSQL(t, db, `DROP TABLE mail_rule_transfers; DROP TABLE mail_rule_accounts; ALTER TABLE mail_rules DROP COLUMN accounts_chosen; DELETE FROM schema_version; INSERT INTO schema_version(version) VALUES(134)`)
 				version = 134
 			}
-			if mode != "shared-134" && mode != "shared-135" && mode != "shared-136" && mode != "shared-137" && mode != "shared-138" && mode != "shared-139" && mode != "shared-140" {
+			if mode != "shared-134" && mode != "shared-135" && mode != "shared-136" && mode != "shared-137" && mode != "shared-138" && mode != "shared-139" && mode != "shared-140" && mode != "shared-141" && mode != "shared-142" && mode != "shared-143" {
 				// Before accounts could be hidden.
 				migrationFixtureSQL(t, db, `ALTER TABLE accounts DROP COLUMN hidden; DELETE FROM schema_version; INSERT INTO schema_version(version) VALUES(133)`)
 				version = 133
 			}
-			if mode != "shared-133" && mode != "shared-134" && mode != "shared-135" && mode != "shared-136" && mode != "shared-137" && mode != "shared-138" && mode != "shared-139" && mode != "shared-140" {
+			if mode != "shared-133" && mode != "shared-134" && mode != "shared-135" && mode != "shared-136" && mode != "shared-137" && mode != "shared-138" && mode != "shared-139" && mode != "shared-140" && mode != "shared-141" && mode != "shared-142" && mode != "shared-143" {
 				// Before Gofer remembered the calendars it created.
 				migrationFixtureSQL(t, db, `ALTER TABLE calendar_sources DROP COLUMN created_in_gofer; DELETE FROM schema_version; INSERT INTO schema_version(version) VALUES(132)`)
 				version = 132
 			}
-			if mode != "shared-132" && mode != "shared-133" && mode != "shared-134" && mode != "shared-135" && mode != "shared-136" && mode != "shared-137" && mode != "shared-138" && mode != "shared-139" && mode != "shared-140" {
+			if mode != "shared-132" && mode != "shared-133" && mode != "shared-134" && mode != "shared-135" && mode != "shared-136" && mode != "shared-137" && mode != "shared-138" && mode != "shared-139" && mode != "shared-140" && mode != "shared-141" && mode != "shared-142" && mode != "shared-143" {
 				// Before mail rules.
 				migrationFixtureSQL(t, db, `DROP TABLE mail_rule_runs; DROP TABLE mail_rule_pending; DROP TABLE mail_rules; ALTER TABLE messages DROP COLUMN list_id; DELETE FROM schema_version; INSERT INTO schema_version(version) VALUES(131)`)
 				version = 131
 			}
-			if mode != "shared-131" && mode != "shared-132" && mode != "shared-133" && mode != "shared-134" && mode != "shared-135" && mode != "shared-136" && mode != "shared-137" && mode != "shared-138" && mode != "shared-139" && mode != "shared-140" {
+			if mode != "shared-131" && mode != "shared-132" && mode != "shared-133" && mode != "shared-134" && mode != "shared-135" && mode != "shared-136" && mode != "shared-137" && mode != "shared-138" && mode != "shared-139" && mode != "shared-140" && mode != "shared-141" && mode != "shared-142" && mode != "shared-143" {
 				// Before the allowed mail server and domain lists.
 				migrationFixtureSQL(t, db, `DROP TABLE mail_allowlist_exempt_users; DROP TABLE mail_allowlist_entries; DELETE FROM schema_version; INSERT INTO schema_version(version) VALUES(130)`)
 				version = 130
 			}
-			if mode != "shared-130" && mode != "shared-131" && mode != "shared-132" && mode != "shared-133" && mode != "shared-134" && mode != "shared-135" && mode != "shared-136" && mode != "shared-137" && mode != "shared-138" && mode != "shared-139" && mode != "shared-140" {
+			if mode != "shared-130" && mode != "shared-131" && mode != "shared-132" && mode != "shared-133" && mode != "shared-134" && mode != "shared-135" && mode != "shared-136" && mode != "shared-137" && mode != "shared-138" && mode != "shared-139" && mode != "shared-140" && mode != "shared-141" && mode != "shared-142" && mode != "shared-143" {
 				// Before folders could be given a role by hand.
 				migrationFixtureSQL(t, db, `ALTER TABLE folders DROP COLUMN role_choice; DELETE FROM schema_version; INSERT INTO schema_version(version) VALUES(129)`)
 				version = 129
 			}
-			if mode != "shared-129" && mode != "shared-130" && mode != "shared-131" && mode != "shared-132" && mode != "shared-133" && mode != "shared-134" && mode != "shared-135" && mode != "shared-136" && mode != "shared-137" && mode != "shared-138" && mode != "shared-139" && mode != "shared-140" {
+			if mode != "shared-129" && mode != "shared-130" && mode != "shared-131" && mode != "shared-132" && mode != "shared-133" && mode != "shared-134" && mode != "shared-135" && mode != "shared-136" && mode != "shared-137" && mode != "shared-138" && mode != "shared-139" && mode != "shared-140" && mode != "shared-141" && mode != "shared-142" && mode != "shared-143" {
 				// Before identities could send through their own server.
 				migrationFixtureSQL(t, db, `ALTER TABLE account_identities DROP COLUMN smtp_host; ALTER TABLE account_identities DROP COLUMN smtp_port; ALTER TABLE account_identities DROP COLUMN smtp_tls_mode; ALTER TABLE account_identities DROP COLUMN smtp_username; ALTER TABLE account_identities DROP COLUMN encrypted_smtp_password; DELETE FROM schema_version; INSERT INTO schema_version(version) VALUES(128)`)
 				version = 128
 			}
-			if mode != "shared-128" && mode != "shared-129" && mode != "shared-130" && mode != "shared-131" && mode != "shared-132" && mode != "shared-133" && mode != "shared-134" && mode != "shared-135" && mode != "shared-136" && mode != "shared-137" && mode != "shared-138" && mode != "shared-139" && mode != "shared-140" {
+			if mode != "shared-128" && mode != "shared-129" && mode != "shared-130" && mode != "shared-131" && mode != "shared-132" && mode != "shared-133" && mode != "shared-134" && mode != "shared-135" && mode != "shared-136" && mode != "shared-137" && mode != "shared-138" && mode != "shared-139" && mode != "shared-140" && mode != "shared-141" && mode != "shared-142" && mode != "shared-143" {
 				// Before accounts had further identities.
 				migrationFixtureSQL(t, db, `DROP TABLE account_identities; DELETE FROM schema_version; INSERT INTO schema_version(version) VALUES(127)`)
 				version = 127
 			}
-			if mode != "shared-127" && mode != "shared-128" && mode != "shared-129" && mode != "shared-130" && mode != "shared-131" && mode != "shared-132" && mode != "shared-133" && mode != "shared-134" && mode != "shared-135" && mode != "shared-136" && mode != "shared-137" && mode != "shared-138" && mode != "shared-139" && mode != "shared-140" {
+			if mode != "shared-127" && mode != "shared-128" && mode != "shared-129" && mode != "shared-130" && mode != "shared-131" && mode != "shared-132" && mode != "shared-133" && mode != "shared-134" && mode != "shared-135" && mode != "shared-136" && mode != "shared-137" && mode != "shared-138" && mode != "shared-139" && mode != "shared-140" && mode != "shared-141" && mode != "shared-142" && mode != "shared-143" {
 				// Before calendars could be JMAP calendars, which changed only a
 				// CHECK, not the columns copied.
 				migrationFixtureSQL(t, db, `DELETE FROM schema_version; INSERT INTO schema_version(version) VALUES(126)`)
 				version = 126
 			}
-			if mode != "shared-126" && mode != "shared-127" && mode != "shared-128" && mode != "shared-129" && mode != "shared-130" && mode != "shared-131" && mode != "shared-132" && mode != "shared-133" && mode != "shared-134" && mode != "shared-135" && mode != "shared-136" && mode != "shared-137" && mode != "shared-138" && mode != "shared-139" && mode != "shared-140" {
+			if mode != "shared-126" && mode != "shared-127" && mode != "shared-128" && mode != "shared-129" && mode != "shared-130" && mode != "shared-131" && mode != "shared-132" && mode != "shared-133" && mode != "shared-134" && mode != "shared-135" && mode != "shared-136" && mode != "shared-137" && mode != "shared-138" && mode != "shared-139" && mode != "shared-140" && mode != "shared-141" && mode != "shared-142" && mode != "shared-143" {
 				// Before folder states recorded when they were marked deleted.
 				migrationFixtureSQL(t, db, `DROP TRIGGER message_folder_state_deleted_at_insert; DROP TRIGGER message_folder_state_deleted_at_update; DROP INDEX idx_message_folder_state_deleted_at; ALTER TABLE message_folder_state DROP COLUMN deleted_at; DELETE FROM schema_version; INSERT INTO schema_version(version) VALUES(125)`)
 				version = 125
 			}
-			if mode != "shared-125" && mode != "shared-126" && mode != "shared-127" && mode != "shared-128" && mode != "shared-129" && mode != "shared-130" && mode != "shared-131" && mode != "shared-132" && mode != "shared-133" && mode != "shared-134" && mode != "shared-135" && mode != "shared-136" && mode != "shared-137" && mode != "shared-138" && mode != "shared-139" && mode != "shared-140" {
+			if mode != "shared-125" && mode != "shared-126" && mode != "shared-127" && mode != "shared-128" && mode != "shared-129" && mode != "shared-130" && mode != "shared-131" && mode != "shared-132" && mode != "shared-133" && mode != "shared-134" && mode != "shared-135" && mode != "shared-136" && mode != "shared-137" && mode != "shared-138" && mode != "shared-139" && mode != "shared-140" && mode != "shared-141" && mode != "shared-142" && mode != "shared-143" {
 				// Before folder states kept their message's date.
 				migrationFixtureSQL(t, db, `DROP TRIGGER message_folder_state_copy_message_insert; DROP TRIGGER message_folder_state_copy_message_update; DROP TRIGGER message_folder_state_follow_message; DROP INDEX idx_message_folder_state_list; DROP INDEX idx_message_folder_state_flags; CREATE INDEX idx_folder_state_folder_unread ON message_folder_state(folder_id, is_deleted, is_read); ALTER TABLE message_folder_state DROP COLUMN message_date; ALTER TABLE message_folder_state DROP COLUMN message_has_attachments; DELETE FROM schema_version; INSERT INTO schema_version(version) VALUES(124)`)
 				version = 124
 			}
-			if mode != "shared-124" && mode != "shared-125" && mode != "shared-126" && mode != "shared-127" && mode != "shared-128" && mode != "shared-129" && mode != "shared-130" && mode != "shared-131" && mode != "shared-132" && mode != "shared-133" && mode != "shared-134" && mode != "shared-135" && mode != "shared-136" && mode != "shared-137" && mode != "shared-138" && mode != "shared-139" && mode != "shared-140" {
+			if mode != "shared-124" && mode != "shared-125" && mode != "shared-126" && mode != "shared-127" && mode != "shared-128" && mode != "shared-129" && mode != "shared-130" && mode != "shared-131" && mode != "shared-132" && mode != "shared-133" && mode != "shared-134" && mode != "shared-135" && mode != "shared-136" && mode != "shared-137" && mode != "shared-138" && mode != "shared-139" && mode != "shared-140" && mode != "shared-141" && mode != "shared-142" && mode != "shared-143" {
 				// Before people chose the order of their accounts.
 				migrationFixtureSQL(t, db, `ALTER TABLE accounts DROP COLUMN sort_order; DELETE FROM schema_version; INSERT INTO schema_version(version) VALUES(123)`)
 				version = 123
 			}
-			if mode != "shared-123" && mode != "shared-124" && mode != "shared-125" && mode != "shared-126" && mode != "shared-127" && mode != "shared-128" && mode != "shared-129" && mode != "shared-130" && mode != "shared-131" && mode != "shared-132" && mode != "shared-133" && mode != "shared-134" && mode != "shared-135" && mode != "shared-136" && mode != "shared-137" && mode != "shared-138" && mode != "shared-139" && mode != "shared-140" {
+			if mode != "shared-123" && mode != "shared-124" && mode != "shared-125" && mode != "shared-126" && mode != "shared-127" && mode != "shared-128" && mode != "shared-129" && mode != "shared-130" && mode != "shared-131" && mode != "shared-132" && mode != "shared-133" && mode != "shared-134" && mode != "shared-135" && mode != "shared-136" && mode != "shared-137" && mode != "shared-138" && mode != "shared-139" && mode != "shared-140" && mode != "shared-141" && mode != "shared-142" && mode != "shared-143" {
 				// Before contacts could go to a Trash.
 				migrationFixtureSQL(t, db, `DROP INDEX idx_contact_profiles_trash; ALTER TABLE contact_profiles DROP COLUMN trashed_at; DELETE FROM schema_version; INSERT INTO schema_version(version) VALUES(122)`)
 				version = 122
 			}
-			if mode != "shared-122" && mode != "shared-123" && mode != "shared-124" && mode != "shared-125" && mode != "shared-126" && mode != "shared-127" && mode != "shared-128" && mode != "shared-129" && mode != "shared-130" && mode != "shared-131" && mode != "shared-132" && mode != "shared-133" && mode != "shared-134" && mode != "shared-135" && mode != "shared-136" && mode != "shared-137" && mode != "shared-138" && mode != "shared-139" && mode != "shared-140" {
+			if mode != "shared-122" && mode != "shared-123" && mode != "shared-124" && mode != "shared-125" && mode != "shared-126" && mode != "shared-127" && mode != "shared-128" && mode != "shared-129" && mode != "shared-130" && mode != "shared-131" && mode != "shared-132" && mode != "shared-133" && mode != "shared-134" && mode != "shared-135" && mode != "shared-136" && mode != "shared-137" && mode != "shared-138" && mode != "shared-139" && mode != "shared-140" && mode != "shared-141" && mode != "shared-142" && mode != "shared-143" {
 				// Before accounts chose between provider notifications and checks.
 				migrationFixtureSQL(t, db, `ALTER TABLE accounts DROP COLUMN provider_push_enabled; DELETE FROM schema_version; INSERT INTO schema_version(version) VALUES(121)`)
 				version = 121
 			}
-			if mode != "shared-121" && mode != "shared-122" && mode != "shared-123" && mode != "shared-124" && mode != "shared-125" && mode != "shared-126" && mode != "shared-127" && mode != "shared-128" && mode != "shared-129" && mode != "shared-130" && mode != "shared-131" && mode != "shared-132" && mode != "shared-133" && mode != "shared-134" && mode != "shared-135" && mode != "shared-136" && mode != "shared-137" && mode != "shared-138" && mode != "shared-139" && mode != "shared-140" {
+			if mode != "shared-121" && mode != "shared-122" && mode != "shared-123" && mode != "shared-124" && mode != "shared-125" && mode != "shared-126" && mode != "shared-127" && mode != "shared-128" && mode != "shared-129" && mode != "shared-130" && mode != "shared-131" && mode != "shared-132" && mode != "shared-133" && mode != "shared-134" && mode != "shared-135" && mode != "shared-136" && mode != "shared-137" && mode != "shared-138" && mode != "shared-139" && mode != "shared-140" && mode != "shared-141" && mode != "shared-142" && mode != "shared-143" {
 				// Before messages recorded the copies carrying each label.
 				migrationFixtureSQL(t, db, `DROP TABLE message_label_copies; DELETE FROM schema_version; INSERT INTO schema_version(version) VALUES(120)`)
 				version = 120
 			}
-			if mode != "shared-120" && mode != "shared-121" && mode != "shared-122" && mode != "shared-123" && mode != "shared-124" && mode != "shared-125" && mode != "shared-126" && mode != "shared-127" && mode != "shared-128" && mode != "shared-129" && mode != "shared-130" && mode != "shared-131" && mode != "shared-132" && mode != "shared-133" && mode != "shared-134" && mode != "shared-135" && mode != "shared-136" && mode != "shared-137" && mode != "shared-138" && mode != "shared-139" && mode != "shared-140" {
+			if mode != "shared-120" && mode != "shared-121" && mode != "shared-122" && mode != "shared-123" && mode != "shared-124" && mode != "shared-125" && mode != "shared-126" && mode != "shared-127" && mode != "shared-128" && mode != "shared-129" && mode != "shared-130" && mode != "shared-131" && mode != "shared-132" && mode != "shared-133" && mode != "shared-134" && mode != "shared-135" && mode != "shared-136" && mode != "shared-137" && mode != "shared-138" && mode != "shared-139" && mode != "shared-140" && mode != "shared-141" && mode != "shared-142" && mode != "shared-143" {
 				// Before folders recorded further copies of a message.
 				migrationFixtureSQL(t, db, `DROP TABLE message_folder_copies; DELETE FROM schema_version; INSERT INTO schema_version(version) VALUES(119)`)
 				version = 119
 			}
-			if mode != "shared-119" && mode != "shared-120" && mode != "shared-121" && mode != "shared-122" && mode != "shared-123" && mode != "shared-124" && mode != "shared-125" && mode != "shared-126" && mode != "shared-127" && mode != "shared-128" && mode != "shared-129" && mode != "shared-130" && mode != "shared-131" && mode != "shared-132" && mode != "shared-133" && mode != "shared-134" && mode != "shared-135" && mode != "shared-136" && mode != "shared-137" && mode != "shared-138" && mode != "shared-139" && mode != "shared-140" {
+			if mode != "shared-119" && mode != "shared-120" && mode != "shared-121" && mode != "shared-122" && mode != "shared-123" && mode != "shared-124" && mode != "shared-125" && mode != "shared-126" && mode != "shared-127" && mode != "shared-128" && mode != "shared-129" && mode != "shared-130" && mode != "shared-131" && mode != "shared-132" && mode != "shared-133" && mode != "shared-134" && mode != "shared-135" && mode != "shared-136" && mode != "shared-137" && mode != "shared-138" && mode != "shared-139" && mode != "shared-140" && mode != "shared-141" && mode != "shared-142" && mode != "shared-143" {
 				// Before message rows lost their provider id.
 				migrationFixtureSQL(t, db, `ALTER TABLE messages ADD COLUMN remote_message_id TEXT; CREATE UNIQUE INDEX idx_messages_remote_id ON messages(account_id, remote_message_id); DELETE FROM schema_version; INSERT INTO schema_version(version) VALUES(118)`)
 				version = 118
 			}
-			if mode != "shared-118" && mode != "shared-119" && mode != "shared-120" && mode != "shared-121" && mode != "shared-122" && mode != "shared-123" && mode != "shared-124" && mode != "shared-125" && mode != "shared-126" && mode != "shared-127" && mode != "shared-128" && mode != "shared-129" && mode != "shared-130" && mode != "shared-131" && mode != "shared-132" && mode != "shared-133" && mode != "shared-134" && mode != "shared-135" && mode != "shared-136" && mode != "shared-137" && mode != "shared-138" && mode != "shared-139" && mode != "shared-140" {
+			if mode != "shared-118" && mode != "shared-119" && mode != "shared-120" && mode != "shared-121" && mode != "shared-122" && mode != "shared-123" && mode != "shared-124" && mode != "shared-125" && mode != "shared-126" && mode != "shared-127" && mode != "shared-128" && mode != "shared-129" && mode != "shared-130" && mode != "shared-131" && mode != "shared-132" && mode != "shared-133" && mode != "shared-134" && mode != "shared-135" && mode != "shared-136" && mode != "shared-137" && mode != "shared-138" && mode != "shared-139" && mode != "shared-140" && mode != "shared-141" && mode != "shared-142" && mode != "shared-143" {
 				// Before folder states kept the provider id of their copy.
 				migrationFixtureSQL(t, db, `DROP INDEX idx_message_folder_state_remote_message; ALTER TABLE message_folder_state DROP COLUMN remote_message_id; DELETE FROM schema_version; INSERT INTO schema_version(version) VALUES(117)`)
 				version = 117
 			}
-			if mode != "shared-117" && mode != "shared-118" && mode != "shared-119" && mode != "shared-120" && mode != "shared-121" && mode != "shared-122" && mode != "shared-123" && mode != "shared-124" && mode != "shared-125" && mode != "shared-126" && mode != "shared-127" && mode != "shared-128" && mode != "shared-129" && mode != "shared-130" && mode != "shared-131" && mode != "shared-132" && mode != "shared-133" && mode != "shared-134" && mode != "shared-135" && mode != "shared-136" && mode != "shared-137" && mode != "shared-138" && mode != "shared-139" && mode != "shared-140" {
+			if mode != "shared-117" && mode != "shared-118" && mode != "shared-119" && mode != "shared-120" && mode != "shared-121" && mode != "shared-122" && mode != "shared-123" && mode != "shared-124" && mode != "shared-125" && mode != "shared-126" && mode != "shared-127" && mode != "shared-128" && mode != "shared-129" && mode != "shared-130" && mode != "shared-131" && mode != "shared-132" && mode != "shared-133" && mode != "shared-134" && mode != "shared-135" && mode != "shared-136" && mode != "shared-137" && mode != "shared-138" && mode != "shared-139" && mode != "shared-140" && mode != "shared-141" && mode != "shared-142" && mode != "shared-143" {
 				// Before outgoing mail could go over JMAP; the rows are the same.
 				migrationFixtureSQL(t, db, `DELETE FROM schema_version; INSERT INTO schema_version(version) VALUES(116)`)
 				version = 116
 			}
-			if mode != "shared-116" && mode != "shared-117" && mode != "shared-118" && mode != "shared-119" && mode != "shared-120" && mode != "shared-121" && mode != "shared-122" && mode != "shared-123" && mode != "shared-124" && mode != "shared-125" && mode != "shared-126" && mode != "shared-127" && mode != "shared-128" && mode != "shared-129" && mode != "shared-130" && mode != "shared-131" && mode != "shared-132" && mode != "shared-133" && mode != "shared-134" && mode != "shared-135" && mode != "shared-136" && mode != "shared-137" && mode != "shared-138" && mode != "shared-139" && mode != "shared-140" {
+			if mode != "shared-116" && mode != "shared-117" && mode != "shared-118" && mode != "shared-119" && mode != "shared-120" && mode != "shared-121" && mode != "shared-122" && mode != "shared-123" && mode != "shared-124" && mode != "shared-125" && mode != "shared-126" && mode != "shared-127" && mode != "shared-128" && mode != "shared-129" && mode != "shared-130" && mode != "shared-131" && mode != "shared-132" && mode != "shared-133" && mode != "shared-134" && mode != "shared-135" && mode != "shared-136" && mode != "shared-137" && mode != "shared-138" && mode != "shared-139" && mode != "shared-140" && mode != "shared-141" && mode != "shared-142" && mode != "shared-143" {
 				// Before queued changes could belong to JMAP accounts; the rows are the same.
 				migrationFixtureSQL(t, db, `DELETE FROM schema_version; INSERT INTO schema_version(version) VALUES(115)`)
 				version = 115
 			}
-			if mode != "shared-115" && mode != "shared-116" && mode != "shared-117" && mode != "shared-118" && mode != "shared-119" && mode != "shared-120" && mode != "shared-121" && mode != "shared-122" && mode != "shared-123" && mode != "shared-124" && mode != "shared-125" && mode != "shared-126" && mode != "shared-127" && mode != "shared-128" && mode != "shared-129" && mode != "shared-130" && mode != "shared-131" && mode != "shared-132" && mode != "shared-133" && mode != "shared-134" && mode != "shared-135" && mode != "shared-136" && mode != "shared-137" && mode != "shared-138" && mode != "shared-139" && mode != "shared-140" {
+			if mode != "shared-115" && mode != "shared-116" && mode != "shared-117" && mode != "shared-118" && mode != "shared-119" && mode != "shared-120" && mode != "shared-121" && mode != "shared-122" && mode != "shared-123" && mode != "shared-124" && mode != "shared-125" && mode != "shared-126" && mode != "shared-127" && mode != "shared-128" && mode != "shared-129" && mode != "shared-130" && mode != "shared-131" && mode != "shared-132" && mode != "shared-133" && mode != "shared-134" && mode != "shared-135" && mode != "shared-136" && mode != "shared-137" && mode != "shared-138" && mode != "shared-139" && mode != "shared-140" && mode != "shared-141" && mode != "shared-142" && mode != "shared-143" {
 				// Before plaintext exceptions could name HTTP; the rows are the same.
 				migrationFixtureSQL(t, db, `DELETE FROM schema_version; INSERT INTO schema_version(version) VALUES(114)`)
 				version = 114
 			}
-			if mode != "shared-114" && mode != "shared-115" && mode != "shared-116" && mode != "shared-117" && mode != "shared-118" && mode != "shared-119" && mode != "shared-120" && mode != "shared-121" && mode != "shared-122" && mode != "shared-123" && mode != "shared-124" && mode != "shared-125" && mode != "shared-126" && mode != "shared-127" && mode != "shared-128" && mode != "shared-129" && mode != "shared-130" && mode != "shared-131" && mode != "shared-132" && mode != "shared-133" && mode != "shared-134" && mode != "shared-135" && mode != "shared-136" && mode != "shared-137" && mode != "shared-138" && mode != "shared-139" && mode != "shared-140" {
+			if mode != "shared-114" && mode != "shared-115" && mode != "shared-116" && mode != "shared-117" && mode != "shared-118" && mode != "shared-119" && mode != "shared-120" && mode != "shared-121" && mode != "shared-122" && mode != "shared-123" && mode != "shared-124" && mode != "shared-125" && mode != "shared-126" && mode != "shared-127" && mode != "shared-128" && mode != "shared-129" && mode != "shared-130" && mode != "shared-131" && mode != "shared-132" && mode != "shared-133" && mode != "shared-134" && mode != "shared-135" && mode != "shared-136" && mode != "shared-137" && mode != "shared-138" && mode != "shared-139" && mode != "shared-140" && mode != "shared-141" && mode != "shared-142" && mode != "shared-143" {
 				// Before accounts kept a JMAP session URL.
 				migrationFixtureSQL(t, db, `ALTER TABLE accounts DROP COLUMN jmap_session_url; DELETE FROM schema_version; INSERT INTO schema_version(version) VALUES(113)`)
 				version = 113
 			}
-			if mode != "shared-113" && mode != "shared-114" && mode != "shared-115" && mode != "shared-116" && mode != "shared-117" && mode != "shared-118" && mode != "shared-119" && mode != "shared-120" && mode != "shared-121" && mode != "shared-122" && mode != "shared-123" && mode != "shared-124" && mode != "shared-125" && mode != "shared-126" && mode != "shared-127" && mode != "shared-128" && mode != "shared-129" && mode != "shared-130" && mode != "shared-131" && mode != "shared-132" && mode != "shared-133" && mode != "shared-134" && mode != "shared-135" && mode != "shared-136" && mode != "shared-137" && mode != "shared-138" && mode != "shared-139" && mode != "shared-140" {
+			if mode != "shared-113" && mode != "shared-114" && mode != "shared-115" && mode != "shared-116" && mode != "shared-117" && mode != "shared-118" && mode != "shared-119" && mode != "shared-120" && mode != "shared-121" && mode != "shared-122" && mode != "shared-123" && mode != "shared-124" && mode != "shared-125" && mode != "shared-126" && mode != "shared-127" && mode != "shared-128" && mode != "shared-129" && mode != "shared-130" && mode != "shared-131" && mode != "shared-132" && mode != "shared-133" && mode != "shared-134" && mode != "shared-135" && mode != "shared-136" && mode != "shared-137" && mode != "shared-138" && mode != "shared-139" && mode != "shared-140" && mode != "shared-141" && mode != "shared-142" && mode != "shared-143" {
 				// Before Gofer read mail for invitations.
 				migrationFixtureSQL(t, db, `DROP TABLE calendar_invitation_messages; DELETE FROM schema_version; INSERT INTO schema_version(version) VALUES(112)`)
 				version = 112
 			}
-			if mode != "shared-112" && mode != "shared-113" && mode != "shared-114" && mode != "shared-115" && mode != "shared-116" && mode != "shared-117" && mode != "shared-118" && mode != "shared-119" && mode != "shared-120" && mode != "shared-121" && mode != "shared-122" && mode != "shared-123" && mode != "shared-124" && mode != "shared-125" && mode != "shared-126" && mode != "shared-127" && mode != "shared-128" && mode != "shared-129" && mode != "shared-130" && mode != "shared-131" && mode != "shared-132" && mode != "shared-133" && mode != "shared-134" && mode != "shared-135" && mode != "shared-136" && mode != "shared-137" && mode != "shared-138" && mode != "shared-139" && mode != "shared-140" {
+			if mode != "shared-112" && mode != "shared-113" && mode != "shared-114" && mode != "shared-115" && mode != "shared-116" && mode != "shared-117" && mode != "shared-118" && mode != "shared-119" && mode != "shared-120" && mode != "shared-121" && mode != "shared-122" && mode != "shared-123" && mode != "shared-124" && mode != "shared-125" && mode != "shared-126" && mode != "shared-127" && mode != "shared-128" && mode != "shared-129" && mode != "shared-130" && mode != "shared-131" && mode != "shared-132" && mode != "shared-133" && mode != "shared-134" && mode != "shared-135" && mode != "shared-136" && mode != "shared-137" && mode != "shared-138" && mode != "shared-139" && mode != "shared-140" && mode != "shared-141" && mode != "shared-142" && mode != "shared-143" {
 				// Before events kept the provider's kind of event.
 				migrationFixtureSQL(t, db, `ALTER TABLE calendar_events DROP COLUMN event_type; DELETE FROM schema_version; INSERT INTO schema_version(version) VALUES(111)`)
 				version = 111
 			}
-			if mode != "shared-111" && mode != "shared-112" && mode != "shared-113" && mode != "shared-114" && mode != "shared-115" && mode != "shared-116" && mode != "shared-117" && mode != "shared-118" && mode != "shared-119" && mode != "shared-120" && mode != "shared-121" && mode != "shared-122" && mode != "shared-123" && mode != "shared-124" && mode != "shared-125" && mode != "shared-126" && mode != "shared-127" && mode != "shared-128" && mode != "shared-129" && mode != "shared-130" && mode != "shared-131" && mode != "shared-132" && mode != "shared-133" && mode != "shared-134" && mode != "shared-135" && mode != "shared-136" && mode != "shared-137" && mode != "shared-138" && mode != "shared-139" && mode != "shared-140" {
+			if mode != "shared-111" && mode != "shared-112" && mode != "shared-113" && mode != "shared-114" && mode != "shared-115" && mode != "shared-116" && mode != "shared-117" && mode != "shared-118" && mode != "shared-119" && mode != "shared-120" && mode != "shared-121" && mode != "shared-122" && mode != "shared-123" && mode != "shared-124" && mode != "shared-125" && mode != "shared-126" && mode != "shared-127" && mode != "shared-128" && mode != "shared-129" && mode != "shared-130" && mode != "shared-131" && mode != "shared-132" && mode != "shared-133" && mode != "shared-134" && mode != "shared-135" && mode != "shared-136" && mode != "shared-137" && mode != "shared-138" && mode != "shared-139" && mode != "shared-140" && mode != "shared-141" && mode != "shared-142" && mode != "shared-143" {
 				// Before events kept whether they are private.
 				migrationFixtureSQL(t, db, `ALTER TABLE calendar_events DROP COLUMN is_private; DELETE FROM schema_version; INSERT INTO schema_version(version) VALUES(110)`)
 				version = 110
 			}
-			if mode != "shared-110" && mode != "shared-111" && mode != "shared-112" && mode != "shared-113" && mode != "shared-114" && mode != "shared-115" && mode != "shared-116" && mode != "shared-117" && mode != "shared-118" && mode != "shared-119" && mode != "shared-120" && mode != "shared-121" && mode != "shared-122" && mode != "shared-123" && mode != "shared-124" && mode != "shared-125" && mode != "shared-126" && mode != "shared-127" && mode != "shared-128" && mode != "shared-129" && mode != "shared-130" && mode != "shared-131" && mode != "shared-132" && mode != "shared-133" && mode != "shared-134" && mode != "shared-135" && mode != "shared-136" && mode != "shared-137" && mode != "shared-138" && mode != "shared-139" && mode != "shared-140" {
+			if mode != "shared-110" && mode != "shared-111" && mode != "shared-112" && mode != "shared-113" && mode != "shared-114" && mode != "shared-115" && mode != "shared-116" && mode != "shared-117" && mode != "shared-118" && mode != "shared-119" && mode != "shared-120" && mode != "shared-121" && mode != "shared-122" && mode != "shared-123" && mode != "shared-124" && mode != "shared-125" && mode != "shared-126" && mode != "shared-127" && mode != "shared-128" && mode != "shared-129" && mode != "shared-130" && mode != "shared-131" && mode != "shared-132" && mode != "shared-133" && mode != "shared-134" && mode != "shared-135" && mode != "shared-136" && mode != "shared-137" && mode != "shared-138" && mode != "shared-139" && mode != "shared-140" && mode != "shared-141" && mode != "shared-142" && mode != "shared-143" {
 				// Before events kept how they mark their time.
 				migrationFixtureSQL(t, db, `ALTER TABLE calendar_events DROP COLUMN show_as; DELETE FROM schema_version; INSERT INTO schema_version(version) VALUES(109)`)
 				version = 109
@@ -448,12 +466,12 @@ func TestUserStorageMigrationPreflightAcceptsMainSchemaAndKeepsHistoricalClaimsU
 				migrationFixtureSQL(t, db, `ALTER TABLE calendar_events DROP COLUMN reminder_minutes; DELETE FROM schema_version; INSERT INTO schema_version(version) VALUES(108)`)
 				version = 108
 			}
-			if mode != "shared-108" && mode != "shared-109" && mode != "shared-110" && mode != "shared-111" && mode != "shared-112" && mode != "shared-113" && mode != "shared-114" && mode != "shared-115" && mode != "shared-116" && mode != "shared-117" && mode != "shared-118" && mode != "shared-119" && mode != "shared-120" && mode != "shared-121" && mode != "shared-122" && mode != "shared-123" && mode != "shared-124" && mode != "shared-125" && mode != "shared-126" && mode != "shared-127" && mode != "shared-128" && mode != "shared-129" && mode != "shared-130" && mode != "shared-131" && mode != "shared-132" && mode != "shared-133" && mode != "shared-134" && mode != "shared-135" && mode != "shared-136" && mode != "shared-137" && mode != "shared-138" && mode != "shared-139" && mode != "shared-140" {
+			if mode != "shared-108" && mode != "shared-109" && mode != "shared-110" && mode != "shared-111" && mode != "shared-112" && mode != "shared-113" && mode != "shared-114" && mode != "shared-115" && mode != "shared-116" && mode != "shared-117" && mode != "shared-118" && mode != "shared-119" && mode != "shared-120" && mode != "shared-121" && mode != "shared-122" && mode != "shared-123" && mode != "shared-124" && mode != "shared-125" && mode != "shared-126" && mode != "shared-127" && mode != "shared-128" && mode != "shared-129" && mode != "shared-130" && mode != "shared-131" && mode != "shared-132" && mode != "shared-133" && mode != "shared-134" && mode != "shared-135" && mode != "shared-136" && mode != "shared-137" && mode != "shared-138" && mode != "shared-139" && mode != "shared-140" && mode != "shared-141" && mode != "shared-142" && mode != "shared-143" {
 				migrationFixtureSQL(t, db, withoutFolderThreadTracking+`;
 DELETE FROM schema_version; INSERT INTO schema_version(version) VALUES(107)`)
 				version = 107
 			}
-			if mode != "shared-107" && mode != "shared-108" && mode != "shared-109" && mode != "shared-110" && mode != "shared-111" && mode != "shared-112" && mode != "shared-113" && mode != "shared-114" && mode != "shared-115" && mode != "shared-116" && mode != "shared-117" && mode != "shared-118" && mode != "shared-119" && mode != "shared-120" && mode != "shared-121" && mode != "shared-122" && mode != "shared-123" && mode != "shared-124" && mode != "shared-125" && mode != "shared-126" && mode != "shared-127" && mode != "shared-128" && mode != "shared-129" && mode != "shared-130" && mode != "shared-131" && mode != "shared-132" && mode != "shared-133" && mode != "shared-134" && mode != "shared-135" && mode != "shared-136" && mode != "shared-137" && mode != "shared-138" && mode != "shared-139" && mode != "shared-140" {
+			if mode != "shared-107" && mode != "shared-108" && mode != "shared-109" && mode != "shared-110" && mode != "shared-111" && mode != "shared-112" && mode != "shared-113" && mode != "shared-114" && mode != "shared-115" && mode != "shared-116" && mode != "shared-117" && mode != "shared-118" && mode != "shared-119" && mode != "shared-120" && mode != "shared-121" && mode != "shared-122" && mode != "shared-123" && mode != "shared-124" && mode != "shared-125" && mode != "shared-126" && mode != "shared-127" && mode != "shared-128" && mode != "shared-129" && mode != "shared-130" && mode != "shared-131" && mode != "shared-132" && mode != "shared-133" && mode != "shared-134" && mode != "shared-135" && mode != "shared-136" && mode != "shared-137" && mode != "shared-138" && mode != "shared-139" && mode != "shared-140" && mode != "shared-141" && mode != "shared-142" && mode != "shared-143" {
 				version = 106
 				if mode != "shared-106" {
 					version = 105
@@ -486,7 +504,7 @@ DELETE FROM schema_version; INSERT INTO schema_version(version) VALUES(107)`)
 			if err != nil || report.SchemaVersion != version || report.TargetSchemaVersion != CurrentSchemaVersion {
 				t.Fatal("supported shared schema rejected", report, err)
 			}
-			wantClaim := mode == "partial-105-claim" || mode == "shared-107" || mode == "shared-108" || mode == "shared-109" || mode == "shared-110" || mode == "shared-111" || mode == "shared-112" || mode == "shared-113" || mode == "shared-114" || mode == "shared-115" || mode == "shared-116" || mode == "shared-117" || mode == "shared-118" || mode == "shared-119" || mode == "shared-120" || mode == "shared-121" || mode == "shared-122" || mode == "shared-123" || mode == "shared-124" || mode == "shared-125" || mode == "shared-126" || mode == "shared-127" || mode == "shared-128" || mode == "shared-129" || mode == "shared-130" || mode == "shared-131" || mode == "shared-132" || mode == "shared-133" || mode == "shared-134" || mode == "shared-135" || mode == "shared-136" || mode == "shared-137" || mode == "shared-138" || mode == "shared-139" || mode == "shared-140"
+			wantClaim := mode == "partial-105-claim" || mode == "shared-107" || mode == "shared-108" || mode == "shared-109" || mode == "shared-110" || mode == "shared-111" || mode == "shared-112" || mode == "shared-113" || mode == "shared-114" || mode == "shared-115" || mode == "shared-116" || mode == "shared-117" || mode == "shared-118" || mode == "shared-119" || mode == "shared-120" || mode == "shared-121" || mode == "shared-122" || mode == "shared-123" || mode == "shared-124" || mode == "shared-125" || mode == "shared-126" || mode == "shared-127" || mode == "shared-128" || mode == "shared-129" || mode == "shared-130" || mode == "shared-131" || mode == "shared-132" || mode == "shared-133" || mode == "shared-134" || mode == "shared-135" || mode == "shared-136" || mode == "shared-137" || mode == "shared-138" || mode == "shared-139" || mode == "shared-140" || mode == "shared-141" || mode == "shared-142" || mode == "shared-143"
 			foundResponse := false
 			for _, table := range report.Tables {
 				if table.Name == "calendar_response_requests" {
@@ -530,7 +548,7 @@ DELETE FROM schema_version; INSERT INTO schema_version(version) VALUES(107)`)
 func TestUserStorageMigrationPreflightRejectsUnknownVersionsAndFalseUpgradeMarkers(t *testing.T) {
 	for _, query := range []string{
 		`DELETE FROM schema_version; INSERT INTO schema_version(version) VALUES(104)`,
-		`DELETE FROM schema_version; INSERT INTO schema_version(version) VALUES(141)`,
+		`DELETE FROM schema_version; INSERT INTO schema_version(version) VALUES(144)`,
 		`DROP TABLE folder_thread_dirty`,
 		`ALTER TABLE calendar_response_requests DROP COLUMN claim_id`,
 		`DELETE FROM schema_version; INSERT INTO schema_version(version) VALUES(106); ALTER TABLE web_push_subscriptions DROP COLUMN revision`,

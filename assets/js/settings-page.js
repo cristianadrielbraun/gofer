@@ -2054,6 +2054,10 @@ function wizardServiceNext(button, service, step) {
   var contactForm = service === 'contacts' ? root.querySelector('[data-wizard-contact-form]') : null;
   var calendarForm = service === 'calendar' && enabled ? root.querySelector('[data-calendar-source-form]') : null;
   if (enabled && contactForm) {
+    // Done finishes the wizard once the contacts are saved (see the
+    // contact form's afterRequest below); Next goes on to its next step.
+    if (step === 'done') contactForm.dataset.wizardFinish = 'true';
+    else delete contactForm.dataset.wizardFinish;
     if (contactForm.requestSubmit) contactForm.requestSubmit(); else contactForm.submit();
     return;
   }
@@ -2315,7 +2319,19 @@ function openAddAccountWizard(service) {
   setAddAccountMailService(service);
   var root = document.getElementById('add-account-dialog');
   if (root) delete root.dataset.addMail;
+  setAddAccountProxyRow('');
   goferSwitchDialog('choose-account-type-dialog', 'add-account-dialog');
+}
+// The add wizard's Proxy row is for the account being added, or, adding mail
+// to an account, that account's own: its choice is the one finding and
+// testing the servers go through, and changing it saves it to the account.
+function setAddAccountProxyRow(accountID) {
+  var slot = document.getElementById('add-account-proxy-row');
+  if (!slot || !window.htmx) return;
+  accountID = accountID || '';
+  if ((slot.dataset.account || '') === accountID) return;
+  slot.dataset.account = accountID;
+  htmx.ajax('GET', '/api/accounts/proxy-choice?sidebar=1&form=account-form&account=' + encodeURIComponent(accountID), { target: slot, swap: 'innerHTML' });
 }
 // An account with only calendars or contacts gets its mail through the add
 // wizard, which then saves the mailbox to that account instead of creating
@@ -2338,6 +2354,7 @@ function startAddMail(service) {
   if (!_addMailAccount || !root || !form) return;
   setAddAccountMailService(service);
   root.dataset.addMail = _addMailAccount.id;
+  setAddAccountProxyRow(_addMailAccount.id);
   var name = form.querySelector('input[name="display_name"]');
   if (name && !name.value) name.value = _addMailAccount.name;
   goferSwitchDialog('choose-mail-type-dialog', 'add-account-dialog');
@@ -2508,6 +2525,9 @@ function discoverMailSettings(button) {
   status.innerHTML = '<div class="rounded-lg border border-border bg-background/60 p-3 text-xs text-muted-foreground"><div class="flex items-center gap-2"><span class="size-3.5 rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground animate-spin"></span><span>' + mailDiscoveryEscape(goferT("js.settings.discovery.checking")) + '</span></div></div>';
   var body = new URLSearchParams();
   body.append('email_address', email.value.trim());
+  // Discovery connects through the proxy the account will use.
+  var proxy = form ? form.elements.namedItem('proxy') : null;
+  if (proxy && proxy.value !== undefined) body.append('proxy', proxy.value);
   fetch('/api/accounts/discover', {
     method: 'POST',
     credentials: 'same-origin',
@@ -3006,6 +3026,8 @@ document.body.addEventListener('htmx:afterRequest', function(event) {
   if (!form) return;
     var xhr = event.detail && event.detail.xhr ? event.detail.xhr : null;
     var ok = !!(event.detail && event.detail.successful) && (!xhr || xhr.getResponseHeader('X-Gofer-Status') !== 'error');
+    var finish = form.dataset.wizardFinish === 'true';
+    delete form.dataset.wizardFinish;
     if (!ok) return;
     var root = form.closest('#add-account-dialog,#edit-account-dialog');
     var toggle = root && root.querySelector('[data-wizard-service-switch="contacts"]');
@@ -3016,7 +3038,7 @@ document.body.addEventListener('htmx:afterRequest', function(event) {
       syncWizardServiceContent(root);
       if (root.id === 'add-account-dialog') syncAddContactStep();
     }
-    if (root) wizardServiceAdvance(root, Number(form.dataset.wizardNextStep || 0));
+    if (root) wizardServiceAdvance(root, finish ? 'done' : Number(form.dataset.wizardNextStep || 0));
   });
 function refreshCardDAVBaseURLActions(root) {
   (root || document).querySelectorAll('[data-carddav-base-url-action]').forEach(function(group) {

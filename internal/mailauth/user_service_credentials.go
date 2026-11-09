@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cristianadrielbraun/gofer/internal/netguard"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/retry"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
@@ -220,7 +221,11 @@ func (s *UserCredentials) serviceAuthorization(ctx context.Context, owner, id st
 }
 
 func (s *UserCredentials) serviceAuthorizationFrom(ctx context.Context, owner, id string, purpose userCredentialPurpose, expectedProvider string, force bool, expected *UserServiceAuthorization) (authorization *UserServiceAuthorization, err error) {
-	err = s.operation(ctx, owner, id, true, func(ctx context.Context) error {
+	proxy, err := s.accountProxy(ctx, owner, id)
+	if err != nil {
+		return nil, err
+	}
+	err = s.operation(withOAuthProxy(ctx, proxy), owner, id, true, func(ctx context.Context) error {
 		record, err := s.load(ctx, owner, id)
 		if err != nil {
 			return err
@@ -331,6 +336,7 @@ func (s *UserCredentials) serviceAuthorizationFrom(ctx context.Context, owner, i
 	if err != nil {
 		return nil, err
 	}
+	netguard.BindBearerProxy(authorization.Token(), proxy)
 	return authorization, nil
 }
 

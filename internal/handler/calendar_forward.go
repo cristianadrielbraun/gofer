@@ -14,6 +14,7 @@ import (
 
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"github.com/cristianadrielbraun/gofer/internal/mail/message"
+	"github.com/cristianadrielbraun/gofer/internal/netguard"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 	ical "github.com/emersion/go-ical"
@@ -192,7 +193,7 @@ func forwardOutlookInvitation(ctx context.Context, target calendarResponseTarget
 	}
 	req.Header.Set("Authorization", "Bearer "+target.Token)
 	req.Header.Set("Content-Type", "application/json")
-	client := &http.Client{Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	client := &http.Client{Transport: netguard.APITransport, Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	response, err := calendarProviderDo(client, req)
 	if err != nil {
 		return err

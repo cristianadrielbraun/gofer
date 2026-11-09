@@ -68,6 +68,10 @@ func readCalendarSubscription(w http.ResponseWriter, r *http.Request) (storage.C
 func (h *Handler) testCalendarSubscription(ctx context.Context, owner string, subscription *storage.CalendarSubscription) error {
 	ctx, cancel := context.WithTimeout(ctx, calendarSubscriptionTestTimeout)
 	defer cancel()
+	ctx, err := h.defaultProxyContext(ctx, owner)
+	if err != nil {
+		return err
+	}
 	data, err := fetchCalendarFeed(ctx, subscription.URL)
 	if err != nil {
 		return err

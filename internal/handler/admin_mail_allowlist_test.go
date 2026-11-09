@@ -23,7 +23,7 @@ func TestOwnedAdminMailAllowlist(t *testing.T) {
 	}
 	hosts := map[string][2]string{"alice": {"alice@example.com", "imap.mail.example.com"}, "bob": {"bob@example.com", "imap.elsewhere.test"}}
 	for owner, mailbox := range hosts {
-		if err := f.h.withUserDB(t.Context(), owner, func(db *storage.DB) error {
+		if err := f.h.withUserDB(davTestContext(t), owner, func(db *storage.DB) error {
 			_, err := db.Write().Exec(`UPDATE accounts SET provider='imap',email_address=?,imap_host=?,imap_port=993,imap_tls_mode='tls',smtp_host=?,smtp_port=465,smtp_tls_mode='tls'`, mailbox[0], mailbox[1], mailbox[1])
 			return err
 		}); err != nil {
@@ -32,8 +32,8 @@ func TestOwnedAdminMailAllowlist(t *testing.T) {
 	}
 	connects := func(owner string) error {
 		t.Helper()
-		return f.h.userAccounts.WithAccountForUser(t.Context(), owner, f.accounts[owner].ID, func(local *config.AccountStore, _ *storage.DB) error {
-			_, err := local.GetConfig(t.Context(), f.accounts[owner].ID)
+		return f.h.userAccounts.WithAccountForUser(davTestContext(t), owner, f.accounts[owner].ID, func(local *config.AccountStore, _ *storage.DB) error {
+			_, err := local.GetConfig(davTestContext(t), f.accounts[owner].ID)
 			return err
 		})
 	}
@@ -87,7 +87,7 @@ func TestOwnedAdminMailAllowlist(t *testing.T) {
 	if response.Code != 303 || !strings.Contains(response.Header().Get("Location"), "error=") {
 		t.Fatal("server with a port accepted", response.Code, response.Header())
 	}
-	entries, err := f.system.ListMailAllowlistEntries(t.Context())
+	entries, err := f.system.ListMailAllowlistEntries(davTestContext(t))
 	if err != nil || len(entries) != 3 {
 		t.Fatal(entries, err)
 	}
@@ -110,10 +110,10 @@ func TestDAVRequestsKeepToTheAllowedServers(t *testing.T) {
 	if _, err := db.Write().Exec(`INSERT INTO users(id,username,username_normalized) VALUES('ana','ana','ana'),('ben','ben','ben')`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.AddMailAllowlistEntry(t.Context(), storage.MailAllowlistServer, "dav.example.test", "admin"); err != nil {
+	if _, err := db.AddMailAllowlistEntry(davTestContext(t), storage.MailAllowlistServer, "dav.example.test", "admin"); err != nil {
 		t.Fatal(err)
 	}
-	if err := db.SetMailAllowlistExempt(t.Context(), "ben", true, "admin"); err != nil {
+	if err := db.SetMailAllowlistExempt(davTestContext(t), "ben", true, "admin"); err != nil {
 		t.Fatal(err)
 	}
 	previousTransport, previousPolicy := davHTTPTransport, davServerPolicy.Load()
@@ -136,17 +136,17 @@ func TestDAVRequestsKeepToTheAllowedServers(t *testing.T) {
 		}
 		return err
 	}
-	ana := withMailAllowlistOwner(t.Context(), "ana")
+	ana := withMailAllowlistOwner(davTestContext(t), "ana")
 	if err := get(ana, "https://dav.example.test/carddav/"); err != nil {
 		t.Fatal("allowed server refused:", err)
 	}
 	if err := get(ana, "https://dav.example.test/moved"); err == nil || !strings.Contains(err.Error(), "other.example.test") {
 		t.Fatal("redirect to a server outside the list followed:", err)
 	}
-	if err := get(t.Context(), "https://other.example.test/dav/"); err == nil {
+	if err := get(davTestContext(t), "https://other.example.test/dav/"); err == nil {
 		t.Fatal("request made for nobody reached a server outside the list")
 	}
-	if err := get(withMailAllowlistOwner(t.Context(), "ben"), "https://other.example.test/dav/"); err != nil {
+	if err := get(withMailAllowlistOwner(davTestContext(t), "ben"), "https://other.example.test/dav/"); err != nil {
 		t.Fatal("exempt person refused:", err)
 	}
 }

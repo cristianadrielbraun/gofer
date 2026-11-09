@@ -1994,6 +1994,107 @@ document.addEventListener("gofer:folders-changed", function (e) {
   htmx.ajax("GET", panel.getAttribute("data-folders-panel"), { target: "#folders-panel", swap: "outerHTML" })
 })
 
+// Opens an account's proxy dialog once it has been loaded. Saving swaps only
+// its panel, so it stays open.
+document.addEventListener("htmx:afterSettle", function (e) {
+  if (e.target && e.target.querySelector && e.target.querySelector("#account-proxy-dialog") && window.tui && window.tui.dialog) {
+    setTimeout(function () { window.tui.dialog.open("account-proxy-dialog") }, 20)
+  }
+})
+
+// The Proxy row of an account's wizard: the switch connects through the
+// default proxy, or directly when off; the gear opens the Proxy dialog. A
+// saved account saves each change; one being added keeps the choice in a
+// hidden field of the wizard's form.
+;(function () {
+  var activeRow = null
+
+  function proxyRow(element) {
+    return element && element.closest ? element.closest("[data-account-proxy-row]") : null
+  }
+
+  function rowChoice(row) {
+    var value = row.querySelector("[data-account-proxy-value]")
+    return value ? value.value : ""
+  }
+
+  function reloadProxyRow(row, choice) {
+    if (!row || !window.htmx) return
+    var id = row.getAttribute("data-account-id") || ""
+    var url = "/api/accounts/proxy-choice?sidebar=1&account=" + encodeURIComponent(id) +
+      "&form=" + encodeURIComponent(row.getAttribute("data-account-proxy-form") || "")
+    if (!id) url += "&choice=" + encodeURIComponent(choice === undefined ? rowChoice(row) : choice)
+    htmx.ajax("GET", url, { target: row, swap: "outerHTML" })
+  }
+
+  function setProxyChoice(row, choice) {
+    var id = row.getAttribute("data-account-id") || ""
+    if (!id) {
+      reloadProxyRow(row, choice)
+      return
+    }
+    // The row reloads when the save answers (see below).
+    htmx.ajax("POST", "/api/accounts/" + encodeURIComponent(id) + "/proxy", {
+      values: { proxy: choice, inline: "1" },
+      swap: "none",
+    })
+  }
+
+  function openProxyDialog(row) {
+    if (!row || !window.htmx) return
+    activeRow = row
+    var id = row.getAttribute("data-account-id") || ""
+    var url = id
+      ? "/api/accounts/" + encodeURIComponent(id) + "/proxy/manage"
+      : "/api/accounts/proxy-dialog?choice=" + encodeURIComponent(rowChoice(row))
+    htmx.ajax("GET", url, { target: "#account-proxy-dialog-container", swap: "innerHTML" })
+  }
+
+  document.addEventListener("change", function (e) {
+    var toggle = e.target
+    if (!toggle || !toggle.matches || !toggle.matches("[data-account-proxy-switch]")) return
+    var row = proxyRow(toggle)
+    if (!row) return
+    if (!toggle.checked) {
+      setProxyChoice(row, "direct")
+    } else if (row.getAttribute("data-default-name")) {
+      setProxyChoice(row, "")
+    } else {
+      // No default to turn on: pick one first.
+      toggle.checked = false
+      openProxyDialog(row)
+    }
+  })
+
+  document.addEventListener("click", function (e) {
+    var settings = e.target.closest && e.target.closest("[data-account-proxy-settings]")
+    if (settings) {
+      e.preventDefault()
+      openProxyDialog(proxyRow(settings))
+      return
+    }
+    var apply = e.target.closest && e.target.closest("[data-account-proxy-apply]")
+    if (apply) {
+      e.preventDefault()
+      var panel = apply.closest("#account-proxy-panel")
+      var input = panel ? panel.querySelector('input[name="proxy"]') : null
+      if (activeRow && input) reloadProxyRow(activeRow, input.value)
+      if (window.tui && window.tui.dialog) window.tui.dialog.close("account-proxy-dialog")
+    }
+  })
+
+  // A saved account's choice changed, from the row or the dialog: show it.
+  document.body.addEventListener("htmx:afterRequest", function (e) {
+    var path = e.detail.pathInfo && e.detail.pathInfo.requestPath
+    var match = path && path.match(/^\/api\/accounts\/([^/?]+)\/proxy$/)
+    if (!match || !e.detail.successful) return
+    var id = decodeURIComponent(match[1])
+    document.querySelectorAll("[data-account-proxy-row]").forEach(function (row) {
+      if (row.getAttribute("data-account-id") === id) reloadProxyRow(row)
+    })
+  })
+})()
+
 // Opens an IMAP account's folder roles dialog once it has been loaded. Saving
 // swaps only its panel, so it stays open.
 document.addEventListener("htmx:afterSettle", function (e) {

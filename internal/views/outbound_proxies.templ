@@ -1,0 +1,584 @@
+package views
+
+import (
+	"context"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
+	"net"
+	"strconv"
+
+	"github.com/cristianadrielbraun/gofer/components/dialog"
+	"github.com/cristianadrielbraun/gofer/components/icon"
+	"github.com/cristianadrielbraun/gofer/components/selectbox"
+	switchcomp "github.com/cristianadrielbraun/gofer/components/switch"
+	"github.com/cristianadrielbraun/gofer/components/tooltip"
+	"github.com/cristianadrielbraun/gofer/internal/models"
+)
+
+// outboundProxyAddress is how a saved proxy is written: its type, host and
+// port, as in socks5://proxy.example.com:1080.
+func outboundProxyAddress(p models.OutboundProxyView) string {
+	return p.Type + "://" + net.JoinHostPort(p.Host, strconv.Itoa(p.Port))
+}
+
+func outboundProxyTypeLabel(kind string) string {
+	if kind == "socks5" {
+		return "SOCKS5"
+	}
+	return "HTTP"
+}
+
+const outboundProxyInputClass = "h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/30"
+
+// OutboundProxiesPanel lists the proxies accounts can connect through and
+// adds, changes and deletes them. Its forms post under data.ActionBase.
+templ OutboundProxiesPanel(data models.MailSecurityAdminData) {
+	<section id="outbound-proxies" class="rounded-lg border border-border bg-card p-5">
+		<div class="flex items-end justify-between gap-4">
+			<div>
+				if data.OwnProxies {
+					<div class={ adminPanelTitleClass() }>{ i18n.T(ctx, "own_proxies.title") }</div>
+					<p class="mt-1 max-w-3xl text-sm text-muted-foreground">{ i18n.T(ctx, "own_proxies.detail") }</p>
+				} else {
+					<div class={ adminPanelTitleClass() }>{ i18n.T(ctx, "admin.proxies.title") }</div>
+					<p class="mt-1 max-w-3xl text-sm text-muted-foreground">{ i18n.T(ctx, "admin.proxies.detail") }</p>
+				}
+			</div>
+			if data.OwnProxies {
+				<span class="shrink-0 whitespace-nowrap rounded-full border border-border bg-muted px-2.5 py-1 text-xs font-semibold tabular-nums text-muted-foreground">{ i18n.T(ctx, "admin.proxies.total", "count", i18n.Number(ctx, len(data.Proxies))) }</span>
+			} else {
+				<div class="text-xs font-semibold tabular-nums text-muted-foreground">{ i18n.T(ctx, "admin.proxies.total", "count", i18n.Number(ctx, len(data.Proxies))) }</div>
+			}
+		</div>
+		if data.ProxyPeople {
+			@outboundProxyPolicy(data)
+		}
+		if len(data.Proxies) == 0 {
+			<div class="mt-4 rounded-lg border border-dashed border-border bg-background/35 px-4 py-8 text-center text-sm text-muted-foreground">
+				if data.OwnProxies {
+					{ i18n.T(ctx, "own_proxies.none") }
+				} else {
+					{ i18n.T(ctx, "admin.proxies.none") }
+				}
+			</div>
+		} else {
+			<div class="mt-4 space-y-3">
+				for _, proxy := range data.Proxies {
+					<div class="rounded-lg border border-border bg-background/45 p-4" data-outbound-proxy={ proxy.ID }>
+					<div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+						<div class="min-w-0">
+							<div class="flex flex-wrap items-center gap-2">
+								<span class="text-sm font-bold text-foreground">{ proxy.Name }</span>
+								if proxy.IsDefault {
+									<span class="rounded-md bg-primary/12 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-primary">{ i18n.T(ctx, "admin.proxies.default_badge") }</span>
+								}
+							</div>
+							<div class="mt-1 font-mono text-xs text-muted-foreground">{ outboundProxyAddress(proxy) }</div>
+							if proxy.Username != "" {
+								<div class="mt-1 text-xs text-muted-foreground">{ i18n.T(ctx, "admin.proxies.signs_in_as", "username", proxy.Username) }</div>
+							}
+						</div>
+						<div class="flex shrink-0 items-center gap-2">
+							@dialog.Trigger(dialog.TriggerProps{For: "outbound-proxy-edit-" + proxy.ID}) {
+								<button type="button" class="rounded-md border border-border bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50" disabled?={ data.StepUpRequired }>{ i18n.T(ctx, "admin.proxies.edit") }</button>
+							}
+							<form method="post" action={ templ.URL(data.ActionBase + "/proxies/" + proxy.ID + "/delete") } data-confirm-action={ i18n.T(ctx, "admin.proxies.delete") } data-confirm-destructive data-confirm={ i18n.T(ctx, "admin.proxies.delete_confirm", "name", proxy.Name) }>
+								if action := data.ActionBase + "/proxies/" + proxy.ID + "/delete"; data.CSRFTokens[action] != "" {
+									<input type="hidden" name="_csrf" value={ data.CSRFTokens[action] }/>
+								}
+								<button type="submit" class="rounded-md border border-border bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:text-red-300" disabled?={ data.StepUpRequired }>{ i18n.T(ctx, "admin.proxies.delete") }</button>
+							</form>
+						</div>
+					</div>
+					if data.ProxyPeople {
+						@outboundProxyPeople(data, proxy)
+					}
+					</div>
+					@outboundProxyEditDialog(data, proxy)
+				}
+			</div>
+		}
+		<div class="mt-6 border-t border-border pt-5">
+			<div class="text-sm font-semibold text-foreground">{ i18n.T(ctx, "admin.proxies.add_title") }</div>
+			<form method="post" action={ templ.URL(data.ActionBase + "/proxies") } class="mt-4 space-y-4">
+				if data.CSRFTokens[data.ActionBase+"/proxies"] != "" {
+					<input type="hidden" name="_csrf" value={ data.CSRFTokens[data.ActionBase+"/proxies"] }/>
+				}
+				@outboundProxyFields("outbound-proxy-new", models.OutboundProxyView{Type: "http"}, false, !data.OwnProxies)
+				<button type="submit" class="rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50" disabled?={ data.StepUpRequired }>{ i18n.T(ctx, "admin.proxies.add") }</button>
+			</form>
+		</div>
+	</section>
+}
+
+templ outboundProxyEditDialog(data models.MailSecurityAdminData, proxy models.OutboundProxyView) {
+	@dialog.Dialog(dialog.Props{ID: "outbound-proxy-edit-" + proxy.ID}) {
+		@dialog.Content(dialog.ContentProps{Class: "mobile-page-dialog sm:max-w-xl"}) {
+			@dialog.Header() {
+				@dialog.Title() {
+					{ i18n.T(ctx, "admin.proxies.edit_title", "name", proxy.Name) }
+				}
+				@dialog.Description() {
+					{ i18n.T(ctx, "admin.proxies.edit_detail") }
+				}
+			}
+			<form id={ "outbound-proxy-edit-form-" + proxy.ID } method="post" action={ templ.URL(data.ActionBase + "/proxies") } class="min-h-0 flex-1 space-y-4 overflow-y-auto">
+				if data.CSRFTokens[data.ActionBase+"/proxies"] != "" {
+					<input type="hidden" name="_csrf" value={ data.CSRFTokens[data.ActionBase+"/proxies"] }/>
+				}
+				<input type="hidden" name="id" value={ proxy.ID }/>
+				@outboundProxyFields("outbound-proxy-"+proxy.ID, proxy, proxy.IsDefault, !data.OwnProxies)
+				if proxy.HasPassword {
+					<label class="flex items-start gap-2.5 text-xs leading-relaxed text-muted-foreground">
+						<input type="checkbox" name="clear_password" value="yes" class="mt-0.5 size-4 shrink-0"/>
+						<span>{ i18n.T(ctx, "admin.proxies.clear_password") }</span>
+					</label>
+				}
+			</form>
+			@dialog.Footer() {
+				@dialog.Close() {
+					<button type="button" class="inline-flex h-9 items-center justify-center rounded-md border border-border bg-background px-3 text-sm font-medium text-foreground hover:bg-accent">{ i18n.T(ctx, "common.cancel") }</button>
+				}
+				<button type="submit" form={ "outbound-proxy-edit-form-" + proxy.ID } class="inline-flex h-9 items-center justify-center rounded-md bg-primary px-3 text-sm font-semibold text-primary-foreground hover:bg-primary/90">{ i18n.T(ctx, "admin.proxies.save") }</button>
+			}
+		}
+	}
+}
+
+// outboundProxyFields are the fields of a proxy, filled in from proxy. The
+// password is never shown: one left empty keeps the saved password.
+templ outboundProxyFields(id string, proxy models.OutboundProxyView, isDefault bool, offerDefault bool) {
+	<div>
+		<label for={ id + "-name" } class="mb-1.5 block text-xs font-semibold text-muted-foreground">{ i18n.T(ctx, "admin.proxies.name") }</label>
+		<input id={ id + "-name" } name="name" type="text" required maxlength="100" value={ proxy.Name } placeholder={ i18n.T(ctx, "admin.proxies.name_placeholder") } class={ outboundProxyInputClass }/>
+	</div>
+	<div class="grid gap-3 sm:grid-cols-[8rem_minmax(0,1fr)_7rem]">
+		<div>
+			<label class="mb-1.5 block text-xs font-semibold text-muted-foreground">{ i18n.T(ctx, "admin.proxies.type") }</label>
+			@selectbox.SelectBox() {
+				@selectbox.Trigger(selectbox.TriggerProps{Name: "type", Class: "h-9 bg-background", DisableClear: true, Required: true, Attributes: templ.Attributes{"value": proxy.Type, "aria-label": i18n.T(ctx, "admin.proxies.type")}}) {
+					@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "admin.proxies.type")})
+				}
+				@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+					for _, kind := range []string{"http", "socks5"} {
+						@selectbox.Item(selectbox.ItemProps{Value: kind, Selected: kind == proxy.Type}) {
+							{ outboundProxyTypeLabel(kind) }
+						}
+					}
+				}
+			}
+		</div>
+		<div>
+			<label for={ id + "-host" } class="mb-1.5 block text-xs font-semibold text-muted-foreground">{ i18n.T(ctx, "admin.security.host") }</label>
+			<input id={ id + "-host" } name="host" type="text" required value={ proxy.Host } placeholder={ "proxy.example.com" } class={ outboundProxyInputClass }/>
+		</div>
+		<div>
+			<label for={ id + "-port" } class="mb-1.5 block text-xs font-semibold text-muted-foreground">{ i18n.T(ctx, "admin.security.port") }</label>
+			<input
+				id={ id + "-port" }
+				name="port"
+				type="number"
+				min="1"
+				max="65535"
+				required
+				if proxy.Port > 0 {
+					value={ strconv.Itoa(proxy.Port) }
+				}
+				placeholder="1080"
+				class={ outboundProxyInputClass }
+			/>
+		</div>
+	</div>
+	<div class="grid gap-3 sm:grid-cols-2">
+		<div>
+			<label for={ id + "-username" } class="mb-1.5 block text-xs font-semibold text-muted-foreground">{ i18n.T(ctx, "admin.proxies.username") }</label>
+			<input id={ id + "-username" } name="username" type="text" autocomplete="off" value={ proxy.Username } placeholder={ i18n.T(ctx, "admin.proxies.optional") } class={ outboundProxyInputClass }/>
+		</div>
+		<div>
+			<label for={ id + "-password" } class="mb-1.5 block text-xs font-semibold text-muted-foreground">{ i18n.T(ctx, "admin.proxies.password") }</label>
+			<input
+				id={ id + "-password" }
+				name="password"
+				type="password"
+				autocomplete="new-password"
+				if proxy.HasPassword {
+					placeholder={ i18n.T(ctx, "admin.proxies.password_kept") }
+				} else {
+					placeholder={ i18n.T(ctx, "admin.proxies.optional") }
+				}
+				class={ outboundProxyInputClass }
+			/>
+		</div>
+	</div>
+	if offerDefault {
+		<label class="flex items-start gap-2.5 rounded-md border border-border bg-background/45 p-3 text-xs leading-relaxed text-muted-foreground">
+			<input type="checkbox" name="default" value="yes" checked?={ isDefault } class="mt-0.5 size-4 shrink-0"/>
+			<span>
+				<span class="block font-semibold text-foreground">{ i18n.T(ctx, "admin.proxies.make_default") }</span>
+				<span class="block">{ i18n.T(ctx, "admin.proxies.make_default_detail") }</span>
+			</span>
+		</label>
+	}
+}
+
+// outboundProxyPolicy lets an administrator let people add proxies for their
+// own accounts.
+templ outboundProxyPolicy(data models.MailSecurityAdminData) {
+	<div class="mt-4 rounded-lg border border-border bg-background/45 p-4">
+		<div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+			<div class="min-w-0">
+				<div class="text-sm font-semibold text-foreground">{ i18n.T(ctx, "admin.proxies.policy_title") }</div>
+				<p class="mt-1 text-xs leading-relaxed text-muted-foreground">
+					if data.PeopleMayAddProxies {
+						{ i18n.T(ctx, "admin.proxies.policy_on_detail") }
+					} else {
+						{ i18n.T(ctx, "admin.proxies.policy_off_detail") }
+					}
+				</p>
+			</div>
+			<form method="post" action={ templ.URL(data.ActionBase + "/proxies/policy") } class="shrink-0">
+				if action := data.ActionBase + "/proxies/policy"; data.CSRFTokens[action] != "" {
+					<input type="hidden" name="_csrf" value={ data.CSRFTokens[action] }/>
+				}
+				if data.PeopleMayAddProxies {
+					<input type="hidden" name="people_add" value="no"/>
+					<button type="submit" class={ mailAllowlistRemoveButtonClass() } disabled?={ data.StepUpRequired }>{ i18n.T(ctx, "admin.proxies.policy_disable") }</button>
+				} else {
+					<input type="hidden" name="people_add" value="yes"/>
+					<button type="submit" class={ mailAllowlistAddButtonClass() } disabled?={ data.StepUpRequired }>{ i18n.T(ctx, "admin.proxies.policy_enable") }</button>
+				}
+			</form>
+		</div>
+	</div>
+}
+
+// outboundProxyPeople says who an administrator's proxy is for, and changes
+// it.
+templ outboundProxyPeople(data models.MailSecurityAdminData, proxy models.OutboundProxyView) {
+	{{ everyoneAction := data.ActionBase + "/proxies/" + proxy.ID + "/everyone" }}
+	<div class="mt-4 border-t border-border/60 pt-4">
+		<div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+			<div class="text-xs font-semibold text-muted-foreground">
+				if proxy.Everyone {
+					{ i18n.T(ctx, "admin.proxies.for_everyone") }
+				} else if proxy.IsDefault {
+					{ i18n.T(ctx, "admin.proxies.for_chosen_default") }
+				} else {
+					{ i18n.T(ctx, "admin.proxies.for_chosen") }
+				}
+			</div>
+			<form method="post" action={ templ.URL(everyoneAction) }>
+				if data.CSRFTokens[everyoneAction] != "" {
+					<input type="hidden" name="_csrf" value={ data.CSRFTokens[everyoneAction] }/>
+				}
+				if proxy.Everyone {
+					<input type="hidden" name="everyone" value="false"/>
+					<button type="submit" class={ mailAllowlistRemoveButtonClass() } disabled?={ data.StepUpRequired }>{ i18n.T(ctx, "admin.proxies.limit_people") }</button>
+				} else {
+					<input type="hidden" name="everyone" value="true"/>
+					<button type="submit" class={ mailAllowlistAddButtonClass() } disabled?={ data.StepUpRequired }>{ i18n.T(ctx, "admin.proxies.everyone") }</button>
+				}
+			</form>
+		</div>
+		if !proxy.Everyone {
+			<div class="mt-3">
+				@adminPeoplePicker(adminPeoplePickerProps{
+					Empty:       i18n.T(ctx, "admin.proxies.people_empty"),
+					Chosen:      proxy.People,
+					Candidates:  proxy.Candidates,
+					Action:      data.ActionBase + "/proxies/" + proxy.ID + "/people",
+					CSRFToken:   data.CSRFTokens[data.ActionBase+"/proxies/"+proxy.ID+"/people"],
+					Field:       "chosen",
+					AddLabel:    i18n.T(ctx, "admin.proxies.people_add"),
+					RemoveLabel: i18n.T(ctx, "admin.proxies.people_remove"),
+					Disabled:    data.StepUpRequired,
+				})
+			</div>
+		}
+	</div>
+}
+
+// AccountProxyDialog is where a person picks the proxy one of their accounts
+// connects through, opened from the gear of a wizard's Proxy row.
+templ AccountProxyDialog(data models.AccountProxyData) {
+	@dialog.Dialog(dialog.Props{ID: "account-proxy-dialog"}) {
+		@dialog.Content(dialog.ContentProps{Class: "mobile-page-dialog sm:max-w-lg"}) {
+			@dialog.Header() {
+				@dialog.Title() {
+					{ i18n.T(ctx, "account_proxy.title") }
+				}
+				@dialog.Description() {
+					if data.AccountID == "" {
+						{ i18n.T(ctx, "account_proxy.description_new") }
+					} else {
+						{ i18n.T(ctx, "account_proxy.description", "email", data.Email) }
+					}
+				}
+			}
+			@AccountProxyPanel(data)
+		}
+	}
+}
+
+func accountProxyDefaultLabel(ctx context.Context, data models.AccountProxyData) string {
+	if data.Default == "" {
+		return i18n.T(ctx, "account_proxy.default_direct")
+	}
+	return i18n.T(ctx, "account_proxy.default_named", "name", data.Default)
+}
+
+// accountProxyChoiceKnown is false when the account's proxy was deleted: it
+// uses the default then, and the dialog shows that.
+func accountProxyChoiceKnown(data models.AccountProxyData) bool {
+	if data.Choice == "" || data.Choice == "direct" {
+		return true
+	}
+	for _, p := range data.Proxies {
+		if p.ID == data.Choice {
+			return true
+		}
+	}
+	return false
+}
+
+// AccountProxyPanel is the inside of the account proxy dialog, which saving
+// swaps.
+templ AccountProxyPanel(data models.AccountProxyData) {
+	<form
+		id="account-proxy-panel"
+		class="min-h-0 flex-1 space-y-4"
+		if data.AccountID != "" {
+			hx-post={ "/api/accounts/" + data.AccountID + "/proxy" }
+			hx-target="#account-proxy-panel"
+			hx-swap="outerHTML"
+		}
+	>
+		if data.AccountID != "" {
+			<div class="flex items-center gap-3 rounded-lg border border-border bg-background/60 p-3">
+				<div class="account-color-marker size-4 shrink-0" style={ accountColorStyle(data.Color) } data-account-marker={ data.AccountID }></div>
+				<div class="min-w-0 flex-1">
+					<p class="truncate text-sm font-medium">{ data.Name }</p>
+					<p class="truncate text-xs text-muted-foreground">{ data.Email }</p>
+				</div>
+			</div>
+		}
+		<div>
+			<label class="mb-1.5 block text-xs font-medium text-muted-foreground">{ i18n.T(ctx, "account_proxy.label") }</label>
+			{{ choice := data.Choice }}
+			if !accountProxyChoiceKnown(data) {
+				{{ choice = "" }}
+			}
+			@selectbox.SelectBox() {
+				@selectbox.Trigger(selectbox.TriggerProps{Name: "proxy", Class: "w-full", DisableClear: true, Attributes: templ.Attributes{"value": choice, "aria-label": i18n.T(ctx, "account_proxy.label")}}) {
+					@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "account_proxy.label")})
+				}
+				@selectbox.Content(selectbox.ContentProps{NoSearch: len(data.Proxies) < 8}) {
+					@selectbox.Item(selectbox.ItemProps{Value: "", Selected: choice == ""}) {
+						{ accountProxyDefaultLabel(ctx, data) }
+					}
+					@selectbox.Item(selectbox.ItemProps{Value: "direct", Selected: choice == "direct"}) {
+						{ i18n.T(ctx, "account_proxy.direct") }
+					}
+					for _, proxy := range data.Proxies {
+						@selectbox.Item(selectbox.ItemProps{Value: proxy.ID, Selected: choice == proxy.ID}) {
+							{ proxy.Name }
+							<span class="ml-1 font-mono text-[11px] text-muted-foreground">{ outboundProxyAddress(proxy) }</span>
+						}
+					}
+				}
+			}
+			<p class="mt-2 text-xs text-muted-foreground">{ i18n.T(ctx, "account_proxy.help") }</p>
+			if len(data.Proxies) == 0 {
+				<p class="mt-2 flex items-start gap-2 text-xs text-muted-foreground">
+					@icon.Info(icon.Props{Class: "mt-0.5 size-3.5 shrink-0"})
+					if data.ManageURL != "" {
+						<span>
+							{ i18n.T(ctx, "account_proxy.none_owner") }
+							<a href={ templ.URL(data.ManageURL) } class="font-medium text-foreground underline underline-offset-2">{ i18n.T(ctx, "account_proxy.manage") }</a>
+						</span>
+					} else {
+						<span>{ i18n.T(ctx, "account_proxy.none_admin") }</span>
+					}
+				</p>
+			} else if data.ManageURL != "" {
+				<a href={ templ.URL(data.ManageURL) } class="mt-2 inline-block text-xs font-medium text-foreground underline underline-offset-2">{ i18n.T(ctx, "account_proxy.manage") }</a>
+			}
+		</div>
+		if data.Saved {
+			<p role="status" class="text-sm text-emerald-800 dark:text-emerald-200">{ i18n.T(ctx, "account_proxy.saved") }</p>
+		}
+		if data.Error != "" {
+			<p role="alert" class="text-sm text-destructive">{ data.Error }</p>
+		}
+		@dialog.Footer() {
+			@dialog.Close() {
+				<button type="button" class="inline-flex h-9 items-center justify-center rounded-md border border-border bg-background px-3 text-sm font-medium text-foreground hover:bg-accent">{ i18n.T(ctx, "common.close") }</button>
+			}
+			if data.AccountID == "" {
+				// Adding an account: the choice goes back to the wizard.
+				<button type="button" data-account-proxy-apply class="inline-flex h-9 items-center justify-center rounded-md bg-primary px-3 text-sm font-semibold text-primary-foreground hover:bg-primary/90">{ i18n.T(ctx, "account_proxy.apply") }</button>
+			} else {
+				<button type="submit" class="inline-flex h-9 items-center justify-center rounded-md bg-primary px-3 text-sm font-semibold text-primary-foreground hover:bg-primary/90">{ i18n.T(ctx, "account_proxy.save") }</button>
+			}
+		}
+	</form>
+}
+
+// accountProxyChoiceOffered reports whether a person has any choice to make:
+// a default proxy, or proxies of their own or for them.
+func accountProxyChoiceOffered(data models.AccountProxyData) bool {
+	return len(data.Proxies) > 0 || data.Default != ""
+}
+
+// AccountProxyChoiceSidebarLoader loads the Proxy row into an account
+// wizard's sidebar: it is a setting of the whole account, its mail, contacts
+// and calendars, not of one step. In the add wizard, its choice goes with
+// the wizard's form, form: for the account being added, or, adding mail to
+// an account, that account's own, which the row also saves.
+templ AccountProxyChoiceSidebarLoader(accountID, form string) {
+	<div hx-get={ "/api/accounts/proxy-choice?sidebar=1&account=" + accountID + "&form=" + form } hx-trigger="intersect once" hx-swap="outerHTML" data-account-proxy-choice-loader></div>
+}
+
+// AccountProxyChoiceLoader loads the Connect through field of an account
+// dialog when it opens, for the account named, or for one being added.
+templ AccountProxyChoiceLoader(accountID string) {
+	<div hx-get={ "/api/accounts/proxy-choice?account=" + accountID } hx-trigger="intersect once" hx-swap="outerHTML" data-account-proxy-choice-loader></div>
+}
+
+// AccountProxyChoiceField is the Connect through field of the account
+// dialogs. Adding an account, it goes with the dialog's form, and finding the
+// server, testing and signing in go through the proxy chosen. Editing one, it
+// saves on its own when changed, as the Proxy dialog does.
+templ AccountProxyChoiceField(data models.AccountProxyData) {
+	if accountProxyChoiceOffered(data) {
+		{{ choice := data.Choice }}
+		if !accountProxyChoiceKnown(data) {
+			{{ choice = "" }}
+		}
+		{{ attributes := templ.Attributes{"value": choice, "aria-label": i18n.T(ctx, "account_proxy.label")} }}
+		{{ form := data.Form }}
+		if data.AccountID != "" {
+			{{ form = "account-proxy-choice-" + data.AccountID }}
+			{{ attributes["hx-post"] = "/api/accounts/" + data.AccountID + "/proxy" }}
+			{{ attributes["hx-trigger"] = "change" }}
+			{{ attributes["hx-params"] = "proxy,inline" }}
+			{{ attributes["hx-vals"] = `{"inline":"1"}` }}
+			{{ attributes["hx-target"] = "#account-proxy-choice-status-" + data.AccountID }}
+			{{ attributes["hx-swap"] = "innerHTML" }}
+		}
+		<div data-account-proxy-choice>
+			<label class="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+				@icon.Network(icon.Props{Class: "size-3.5"})
+				{ i18n.T(ctx, "account_proxy.label") }
+			</label>
+			@selectbox.SelectBox() {
+				@selectbox.Trigger(selectbox.TriggerProps{Name: "proxy", Form: form, Class: "w-full", DisableClear: true, Attributes: attributes}) {
+					@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "account_proxy.label")})
+				}
+				@selectbox.Content(selectbox.ContentProps{NoSearch: len(data.Proxies) < 8}) {
+					@selectbox.Item(selectbox.ItemProps{Value: "", Selected: choice == ""}) {
+						{ accountProxyDefaultLabel(ctx, data) }
+					}
+					@selectbox.Item(selectbox.ItemProps{Value: "direct", Selected: choice == "direct"}) {
+						{ i18n.T(ctx, "account_proxy.direct") }
+					}
+					for _, proxy := range data.Proxies {
+						@selectbox.Item(selectbox.ItemProps{Value: proxy.ID, Selected: choice == proxy.ID}) {
+							{ proxy.Name }
+							<span class="ml-1 font-mono text-[11px] text-muted-foreground">{ outboundProxyAddress(proxy) }</span>
+						}
+					}
+				}
+			}
+			if data.AccountID == "" {
+				<p class="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">{ i18n.T(ctx, "account_proxy.adding_help") }</p>
+			} else {
+				<p id={ "account-proxy-choice-status-" + data.AccountID } class="mt-1.5 text-[11px] leading-relaxed text-muted-foreground" aria-live="polite">{ i18n.T(ctx, "account_proxy.editing_help") }</p>
+			}
+		</div>
+	}
+}
+
+// AccountProxyChoiceStatus says how saving the Connect through field of an
+// account's dialog went.
+templ AccountProxyChoiceStatus(data models.AccountProxyData) {
+	if data.Error != "" {
+		<span role="alert" class="text-destructive">{ data.Error }</span>
+	} else {
+		<span class="text-emerald-700 dark:text-emerald-300">{ i18n.T(ctx, "account_proxy.saved") }</span>
+	}
+}
+
+// accountProxyRowState says whether an account connects through a proxy,
+// and through which, for its wizard's Proxy row.
+func accountProxyRowState(ctx context.Context, data models.AccountProxyData) (bool, string) {
+	choice := data.Choice
+	if !accountProxyChoiceKnown(data) {
+		choice = ""
+	}
+	switch choice {
+	case "direct":
+		return false, i18n.T(ctx, "account_proxy.direct")
+	case "":
+		if data.Default == "" {
+			return false, i18n.T(ctx, "account_proxy.direct")
+		}
+		return true, i18n.T(ctx, "account_proxy.default_named", "name", data.Default)
+	}
+	for _, p := range data.Proxies {
+		if p.ID == choice {
+			return true, p.Name
+		}
+	}
+	return false, i18n.T(ctx, "account_proxy.direct")
+}
+
+// AccountProxySidebarRow is the Proxy setting of an account's wizard, in its
+// sidebar: it is the whole account's, its mail, contacts and calendars. The
+// switch turns the proxy on, the default one, or off for a direct
+// connection; the gear opens the Proxy dialog to pick one. Adding an
+// account, the choice goes with the wizard's form.
+templ AccountProxySidebarRow(data models.AccountProxyData) {
+	if accountProxyChoiceOffered(data) {
+		{{ on, state := accountProxyRowState(ctx, data) }}
+		<div class="account-wizard-section" data-account-proxy-row data-account-id={ data.AccountID } data-default-name={ data.Default } data-account-proxy-form={ data.Form }>
+			<div class="account-wizard-section-heading">
+				<div class="account-wizard-section-title cursor-default">
+					<span class="account-wizard-index">
+						@icon.Network(icon.Props{Class: "size-3.5"})
+					</span>
+					// Two lines: the title with the gear and the switch, centred on
+					// the index, then the proxy's name, which they don't cut short.
+					<span class="block min-w-0 flex-1">
+						<span class="flex h-6 items-center gap-2">
+							<span class="block min-w-0 flex-1 truncate text-sm font-semibold">{ i18n.T(ctx, "account_proxy.title") }</span>
+							<span class="flex shrink-0 items-center gap-1">
+								<button type="button" data-account-proxy-settings class="inline-flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground" aria-label={ i18n.T(ctx, "account_proxy.settings") } title={ i18n.T(ctx, "account_proxy.settings") }>
+									@icon.Settings(icon.Props{Class: "size-3.5"})
+								</button>
+								@switchcomp.Switch(switchcomp.Props{
+									ID:         "account-proxy-switch-" + data.AccountID,
+									Checked:    on,
+									Attributes: templ.Attributes{"data-account-proxy-switch": "", "aria-label": i18n.T(ctx, "account_proxy.switch")},
+								})
+							</span>
+						</span>
+						@tooltip.Tooltip(tooltip.Props{Class: "block w-full min-w-0"}) {
+							@tooltip.Trigger(tooltip.TriggerProps{Class: "block min-w-0"}) {
+								<span class="block truncate text-xs text-muted-foreground" data-account-proxy-state>{ state }</span>
+							}
+							@tooltip.Content(tooltip.ContentProps{Position: tooltip.PositionRight, ShowArrow: true, Class: "px-3 py-1.5 text-xs"}) {
+								{ state }
+							}
+						}
+					</span>
+				</div>
+			</div>
+			// In the add wizard, finding and testing the servers go through
+			// this choice: the one for the account being added, or, adding
+			// mail to an account, that account's own.
+			if data.Form != "" {
+				<input type="hidden" name="proxy" form={ data.Form } value={ data.Choice } data-account-proxy-value/>
+			}
+		</div>
+	}
+}

@@ -59,8 +59,8 @@ func (db *DB) AddPlaintextTransportException(ctx context.Context, protocol, host
 func (db *DB) AddPrivateTargetException(ctx context.Context, protocol, host string, port int, createdBy string) error {
 	protocol = strings.ToLower(strings.TrimSpace(protocol))
 	host = normalizePrivateTargetHost(host)
-	if protocol != "http" && protocol != "https" && protocol != "imap" && protocol != "smtp" {
-		return fmt.Errorf("protocol must be HTTP, HTTPS, IMAP, or SMTP")
+	if protocol != "http" && protocol != "https" && protocol != "imap" && protocol != "smtp" && protocol != "proxy" {
+		return fmt.Errorf("protocol must be HTTP, HTTPS, IMAP, SMTP, or proxy")
 	}
 	if host == "" {
 		return fmt.Errorf("target host is required")

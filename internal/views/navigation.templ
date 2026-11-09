@@ -100,5 +100,8 @@ templ AccountSetupDialogs() {
 	@DAVAccountDialog(DAVAccountDialogData{Service: "calendar"})
 	@ChooseMailTypeDialog()
 	<div id="edit-account-container"></div>
+	// The Proxy dialog opens over an account's wizard, so it has a place of
+	// its own.
+	<div id="account-proxy-dialog-container"></div>
 }
 

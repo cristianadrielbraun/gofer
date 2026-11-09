@@ -17,6 +17,7 @@ import (
 	smtpclient "github.com/cristianadrielbraun/gofer/internal/mail/smtp"
 	mailtransport "github.com/cristianadrielbraun/gofer/internal/mail/transport"
 	"github.com/cristianadrielbraun/gofer/internal/models"
+	"github.com/cristianadrielbraun/gofer/internal/netguard"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 	"github.com/cristianadrielbraun/gofer/internal/views"
@@ -37,6 +38,10 @@ func (h *Handler) handleTestNewAccount(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Password == "" {
 		http.Error(w, i18n.T(r.Context(), "server.error.all_required_fields_must_be_filled_in"), http.StatusBadRequest)
+		return
+	}
+	r, ok = h.withProxyChoice(w, r)
+	if !ok {
 		return
 	}
 	h.writeTypedAccountTest(w, r, req)
@@ -64,6 +69,11 @@ func (h *Handler) handleTestAccountChanges(w http.ResponseWriter, r *http.Reques
 	}
 	if req.SmtpUsername != "" && req.SmtpPassword == "" {
 		req.SmtpPassword = smtpPassword
+	}
+	// The changes are tested the way the account connects.
+	r, ok = h.withAccountProxyFor(w, r, r.PathValue("id"))
+	if !ok {
+		return
 	}
 	h.writeTypedAccountTest(w, r, req)
 }
@@ -144,6 +154,7 @@ func (h *Handler) writeTypedAccountTest(w http.ResponseWriter, r *http.Request, 
 		Provider: "imap", AuthMethod: "plain", Username: req.Username, SmtpUsername: req.SmtpUsername,
 		IMAPHost: req.IMAPHost, IMAPPort: req.IMAPPort,
 		SMTPHost: req.SMTPHost, SMTPPort: req.SMTPPort,
+		Proxy: netguard.ProxyFrom(ctx),
 	}
 	smtpPassword := req.Password
 	if req.SmtpUsername != "" {
@@ -253,7 +264,11 @@ func (h *Handler) resolveJMAPAccountChanges(r *http.Request, accountID string, r
 		}
 		password = saved
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
+	ctx, err := h.accountProxyContext(r.Context(), h.userID(r.Context()), accountID)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	candidates, err := mailautodiscover.JMAPSessionCandidates(ctx, req.EmailAddress, server, nil)
 	if err != nil {

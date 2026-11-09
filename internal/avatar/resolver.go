@@ -77,6 +77,13 @@ func NewResolver() *Resolver {
 	}
 }
 
+// SetProxySource sends avatar requests through the proxy pick returns, the
+// default proxy: avatars are looked up for whoever's mail shows them, not
+// for one account.
+func (r *Resolver) SetProxySource(pick func(context.Context) (*netguard.Proxy, error)) {
+	r.client.Transport = netguard.ProxySourceTransport(r.client.Transport, pick)
+}
+
 func (r *Resolver) ClearCache() {
 	if r == nil {
 		return

@@ -10,6 +10,7 @@ import (
 
 	mailtransport "github.com/cristianadrielbraun/gofer/internal/mail/transport"
 	"github.com/cristianadrielbraun/gofer/internal/models"
+	"github.com/cristianadrielbraun/gofer/internal/netguard"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
@@ -26,6 +27,10 @@ type AccountServiceSnapshot struct {
 	data                                                      models.EditAccountData
 	password, contactPassword, calendarPassword, smtpPassword []byte
 	connection, contacts, calendar, smtp                      [32]byte
+	// proxy is the account's proxy, read when the snapshot was taken, or
+	// proxyErr why it couldn't be.
+	proxy    *netguard.Proxy
+	proxyErr error
 }
 
 func (s *AccountServiceSnapshot) OwnerID() string   { return s.owner }
@@ -92,6 +97,10 @@ func (s *AccountServiceSnapshot) JMAPConfig(ctx context.Context) (*models.Accoun
 	if err := s.repository.base.applyJMAPTransportPolicy(ctx, cfg); err != nil {
 		return nil, err
 	}
+	var err error
+	if cfg.Proxy, err = s.Proxy(ctx); err != nil {
+		return nil, err
+	}
 	return cfg, nil
 }
 
@@ -109,6 +118,9 @@ func (s *AccountServiceSnapshot) SMTPConfig(ctx context.Context) (*models.Accoun
 		SMTPHost: d.SMTPHost, SMTPPort: d.SMTPPort, SMTPTLSMode: d.SMTPTLSMode,
 		Username: d.Username, AuthMethod: d.AuthMethod, SmtpUsername: d.SmtpUsername}
 	var err error
+	if cfg.Proxy, err = s.Proxy(ctx); err != nil {
+		return nil, err
+	}
 	cfg.SMTPAllowPlaintext, err = s.repository.routing.System().IsPlaintextTransportAllowed(ctx, "smtp", cfg.SMTPHost, cfg.SMTPPort)
 	if err != nil {
 		return nil, err
@@ -125,6 +137,18 @@ func (s *AccountServiceSnapshot) SMTPConfig(ctx context.Context) (*models.Accoun
 		return nil, err
 	}
 	return cfg, nil
+}
+
+// Proxy is the proxy the account's connections go through, or nil for direct
+// connections, from the copied choice and the central saved proxies.
+func (s *AccountServiceSnapshot) Proxy(ctx context.Context) (*netguard.Proxy, error) {
+	return s.repository.base.ResolveProxyChoice(ctx, s.owner, s.data.ProxyID)
+}
+
+// DAVProxy is the account's proxy as read when the snapshot was taken, for
+// CalDAV and CardDAV work done with it.
+func (s *AccountServiceSnapshot) DAVProxy() (*netguard.Proxy, error) {
+	return s.proxy, s.proxyErr
 }
 
 func (s *AccountServiceSnapshot) SMTPPassword() (string, error) {
@@ -152,7 +176,17 @@ func (s *AccountServiceSnapshot) CalDAVSettings() (baseURL, username string, use
 
 // ContactSyncPassword preserves the saved CardDAV-then-mailbox fallback. It
 // decrypts a copied ciphertext only; no local store is opened during HTTP.
+//
+// The password is bound to the account's proxy (see BindDAVLogin).
 func (s *AccountServiceSnapshot) ContactSyncPassword(submitted string) (string, error) {
+	password, err := s.contactSyncPassword(submitted)
+	if err != nil {
+		return "", err
+	}
+	return password, s.BindDAVLogin(password)
+}
+
+func (s *AccountServiceSnapshot) contactSyncPassword(submitted string) (string, error) {
 	if strings.TrimSpace(submitted) != "" {
 		return submitted, nil
 	}
@@ -170,7 +204,18 @@ func (s *AccountServiceSnapshot) MailboxPassword() (string, error) {
 	}
 	return s.repository.base.decryptPassword(s.owner, s.id, passwordKindIMAP, s.password)
 }
+
+// CalDAVPassword is the password CalDAV signs in with, bound to the
+// account's proxy (see BindDAVLogin).
 func (s *AccountServiceSnapshot) CalDAVPassword(submitted string, useAccountCredentials bool) (string, error) {
+	password, err := s.calDAVPassword(submitted, useAccountCredentials)
+	if err != nil {
+		return "", err
+	}
+	return password, s.BindDAVLogin(password)
+}
+
+func (s *AccountServiceSnapshot) calDAVPassword(submitted string, useAccountCredentials bool) (string, error) {
 	if useAccountCredentials {
 		return s.MailboxPassword()
 	}
@@ -217,13 +262,13 @@ func (s *UserAccountStore) serviceSnapshot(ctx context.Context, tx *sql.Tx, owne
 	var emailEnabled int
 	err := tx.QueryRowContext(ctx, `SELECT a.provider,a.provider_account_id,a.email_address,a.display_name,
  a.username,a.auth_method,a.imap_host,a.smtp_host,a.smtp_port,a.encrypted_password,COALESCE(a.email_sync_enabled,1),
- a.smtp_tls_mode,COALESCE(a.smtp_username,''),a.encrypted_smtp_password,COALESCE(a.jmap_session_url,'')
+ a.smtp_tls_mode,COALESCE(a.smtp_username,''),a.encrypted_smtp_password,COALESCE(a.jmap_session_url,''),a.proxy_id
  FROM accounts a JOIN users u ON u.id=a.user_id
  WHERE a.id=? AND a.user_id=? AND COALESCE(a.is_deleting,0)=0
  AND u.status='active' AND u.deletion_pending=0`, id, owner).Scan(
 		&data.Provider, &data.ProviderAccountID, &data.EmailAddress, &data.DisplayName,
 		&data.Username, &data.AuthMethod, &data.IMAPHost, &data.SMTPHost, &data.SMTPPort, &snapshot.password, &emailEnabled,
-		&data.SMTPTLSMode, &data.SmtpUsername, &snapshot.smtpPassword, &data.JMAPSessionURL)
+		&data.SMTPTLSMode, &data.SmtpUsername, &snapshot.smtpPassword, &data.JMAPSessionURL, &data.ProxyID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, storage.ErrAccountRoute
 	}
@@ -233,7 +278,7 @@ func (s *UserAccountStore) serviceSnapshot(ctx context.Context, tx *sql.Tx, owne
 	data.EmailSyncEnabled = emailEnabled == 1
 	// Display metadata and mail-only sync controls are not service identity.
 	snapshot.connection, err = serviceStateHash([]any{data.Provider, data.ProviderAccountID, data.EmailAddress,
-		data.Username, data.AuthMethod, data.IMAPHost, data.SMTPHost, data.SMTPPort, snapshot.password, data.JMAPSessionURL})
+		data.Username, data.AuthMethod, data.IMAPHost, data.SMTPHost, data.SMTPPort, snapshot.password, data.JMAPSessionURL, data.ProxyID})
 	if err != nil {
 		return nil, err
 	}
@@ -321,6 +366,10 @@ func (s *UserAccountStore) serviceSnapshot(ctx context.Context, tx *sql.Tx, owne
 	if err != nil {
 		return nil, err
 	}
+	// Read now for the CalDAV and CardDAV work done with the snapshot, which
+	// mustn't open databases while it talks to a server. A proxy that can't
+	// be read fails that work, not the snapshot.
+	snapshot.proxy, snapshot.proxyErr = s.base.ResolveProxyChoice(ctx, owner, data.ProxyID)
 	return snapshot, nil
 }
 

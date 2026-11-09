@@ -913,7 +913,7 @@ func TestEditAccountEmailSwitchSavesIndependentlyOfMailSetup(t *testing.T) {
 			if !strings.Contains(switchHTML, `data-on-change="["saveWizardEmailService","$this"]"`) {
 				t.Fatalf("Email switch must use the explicit boolean save action: %s", switchHTML)
 			}
-			for _, want := range []string{`data-wizard-footer-step="email-off"`, "Close", "Continue to Contacts"} {
+			for _, want := range []string{`data-wizard-footer-step="email-off"`, "Done", "Continue to Contacts"} {
 				if !strings.Contains(markup, want) {
 					t.Errorf("missing Email-off control %q", want)
 				}

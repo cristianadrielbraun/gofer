@@ -596,6 +596,12 @@ func (h *Handler) discoverAccountCalendars(ctx context.Context, w http.ResponseW
 				break
 			}
 		}
+		// Discovery signs in as the account, through its proxy.
+		if err := h.accountStore.BindDAVLogin(ctx, accountID, password, username); err != nil {
+			statusMessage = "Calendar discovery failed: " + err.Error()
+			statusError = true
+			break
+		}
 		normalizedBaseURL := ""
 		if !autodiscover {
 			var normalizeErr error

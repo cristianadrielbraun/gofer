@@ -146,12 +146,12 @@ func TestCalendarDeleteJSONProvidersConditionalAndSafe(t *testing.T) {
 					old := outlookGraphBaseURL
 					outlookGraphBaseURL = server.URL
 					defer func() { outlookGraphBaseURL = old }()
-					err = deleteOutlookCalendarEventScope(t.Context(), "test-token", "work", existing, series)
+					err = deleteOutlookCalendarEventScope(davTestContext(t), "test-token", "work", existing, series)
 				} else {
 					old := googleCalendarAPIBaseURL
 					googleCalendarAPIBaseURL = server.URL
 					defer func() { googleCalendarAPIBaseURL = old }()
-					err = deleteGoogleCalendarEventScope(t.Context(), "test-token", "work", existing, series)
+					err = deleteGoogleCalendarEventScope(davTestContext(t), "test-token", "work", existing, series)
 				}
 				if redirects != 0 || deletes > 1 {
 					t.Fatal("delete followed a redirect or retried")
@@ -296,7 +296,7 @@ func TestCalendarDeleteCalDAVSingleResourceOnly(t *testing.T) {
 			case "traversal":
 				existing.RemoteID = server.URL + "/calendar/%2e%2e/event.ics"
 			}
-			err = deleteCalDAVCalendarEventScope(t.Context(), source, "cal-user", "cal-password", existing, series)
+			err = deleteCalDAVCalendarEventScope(davTestContext(t), source, "cal-user", "cal-password", existing, series)
 			if redirects != 0 || deletes > 1 {
 				t.Fatal("DAV deletion retried or followed redirect")
 			}

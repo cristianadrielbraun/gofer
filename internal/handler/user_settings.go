@@ -35,6 +35,7 @@ func (h *Handler) registerSecuritySettingsRoutes(register func(string, http.Hand
 	register("POST /settings/security/sessions/{reference}/revoke", h.handleSecuritySessionRevoke)
 	register("POST /settings/security/passkeys/{id}/remove", h.handleSecurityPasskeyRemove)
 	h.registerOwnerMailSecurityRoutes(register)
+	h.registerOwnProxiesRoutes(register)
 }
 
 // Copy display preferences without retaining a user-store lease across central

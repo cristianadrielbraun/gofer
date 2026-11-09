@@ -35,7 +35,19 @@ type MailSecurityAdminData struct {
 	// Allowlist is the allowed mail servers and domains, which only an
 	// administrator of a managed installation sets; nil elsewhere.
 	Allowlist *MailAllowlistAdminData
-	// Tab is the administrator page's open tab: "allowlist" or "exceptions".
+	// Proxies are the saved outbound proxies accounts can connect through.
+	Proxies []OutboundProxyView
+	// ProxyPeople is set on the administrator's page of a managed
+	// installation, where a proxy can be for chosen people and people can be
+	// let to add their own.
+	ProxyPeople bool
+	// PeopleMayAddProxies is whether people may add proxies of their own.
+	PeopleMayAddProxies bool
+	// OwnProxies is set when the panel lists the proxies a person saved for
+	// their own accounts, rather than an administrator's.
+	OwnProxies bool
+	// Tab is the administrator page's open tab: "allowlist", "exceptions"
+	// or "proxies".
 	Tab            string
 	Notice         string
 	Error          string
@@ -68,4 +80,46 @@ type MailAllowlistRefusedAccount struct {
 	Email    string
 	Username string
 	Reason   string
+}
+
+// OutboundProxyView is a saved outbound proxy as the Mail security page shows
+// it. Its password is never shown, only whether it has one.
+type OutboundProxyView struct {
+	ID          string
+	Name        string
+	Type        string
+	Host        string
+	Port        int
+	Username    string
+	HasPassword bool
+	IsDefault   bool
+	// Everyone is whether an administrator's proxy is for everyone; People
+	// are those chosen for it when it isn't, and Candidates the others.
+	Everyone   bool
+	People     []AdminWebmailUserOption
+	Candidates []AdminWebmailUserOption
+}
+
+// AccountProxyData is the dialog where a person picks the proxy one of their
+// accounts connects through.
+type AccountProxyData struct {
+	AccountID string
+	Name      string
+	Email     string
+	Color     string
+	// Choice is "" for the default, "direct", or a proxy's id.
+	Choice  string
+	Proxies []OutboundProxyView
+	// Default is the default proxy's name, or "" for direct connections.
+	Default string
+	// ManageURL is where this person adds and changes proxies, or "" when
+	// only an administrator can.
+	ManageURL string
+	Saved     bool
+	Error     string
+	// Form is the form a Connect through field being added with belongs to,
+	// when it sits outside it; Sidebar is set when it sits in a wizard's
+	// sidebar, as a setting of the whole account.
+	Form    string
+	Sidebar bool
 }

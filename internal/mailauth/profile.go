@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cristianadrielbraun/gofer/internal/netguard"
 	"golang.org/x/oauth2"
 )
 
@@ -50,8 +51,12 @@ func (i MicrosoftAccountInfo) ProviderAccountID() string {
 }
 
 func (m *Service) GetGoogleAccountInfo(ctx context.Context, token *oauth2.Token) (*GoogleAccountInfo, error) {
-	client := m.config.GoogleClient.Client(ctx, token)
-	resp, err := client.Get("https://openidconnect.googleapis.com/v1/userinfo")
+	client := m.config.GoogleClient.Client(withOAuthProxy(ctx, netguard.ProxyFrom(ctx)), token)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://openidconnect.googleapis.com/v1/userinfo", nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("fetch userinfo: %w", err)
 	}

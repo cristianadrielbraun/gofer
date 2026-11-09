@@ -93,24 +93,29 @@ func (s *AccountStore) getConfig(ctx context.Context, accountID string, checkAll
 	var cfg models.AccountConfig
 	cfg.AccountID = accountID
 	var owner sql.NullString
-	var email string
+	var email, proxyID string
 	err := s.db.Read().QueryRowContext(ctx,
 		`SELECT provider, provider_account_id,
 		        imap_host, imap_port, imap_tls_mode,
 		        smtp_host, smtp_port, smtp_tls_mode,
 		        username, auth_method, smtp_username, jmap_session_url,
-		        user_id, email_address
+		        user_id, email_address, proxy_id
 		 FROM accounts WHERE id = ? AND COALESCE(is_deleting, 0) = 0`, accountID,
 	).Scan(&cfg.Provider, &cfg.ProviderAccountID,
 		&cfg.IMAPHost, &cfg.IMAPPort, &cfg.IMAPTLSMode,
 		&cfg.SMTPHost, &cfg.SMTPPort, &cfg.SMTPTLSMode,
 		&cfg.Username, &cfg.AuthMethod, &cfg.SmtpUsername, &cfg.JMAPSessionURL,
-		&owner, &email)
+		&owner, &email, &proxyID)
 	if err != nil {
 		return nil, fmt.Errorf("query account config: %w", err)
 	}
-	// A mailbox the allowed mail lists stopped letting in doesn't connect.
+	// A mailbox the allowed mail lists stopped letting in doesn't connect,
+	// and only a connection needs its proxy: settings can still be read
+	// when the proxy can't.
 	if checkAllowlist {
+		if cfg.Proxy, err = s.ResolveProxyChoice(ctx, owner.String, proxyID); err != nil {
+			return nil, fmt.Errorf("account %s: %w", accountID, err)
+		}
 		if err := s.checkMailAllowlist(ctx, owner.String, storage.MailAllowlistMailbox{Provider: cfg.Provider, Email: email, Username: cfg.Username,
 			IMAPHost: cfg.IMAPHost, SMTPHost: cfg.SMTPHost, JMAPSessionURL: cfg.JMAPSessionURL}); err != nil {
 			return nil, err
@@ -181,12 +186,12 @@ func (s *AccountStore) GetEditData(ctx context.Context, accountID string) (*mode
 		`SELECT provider, provider_account_id, email_address, display_name,
 		        imap_host, imap_port, imap_tls_mode,
 		        smtp_host, smtp_port, smtp_tls_mode, COALESCE(email_sync_enabled, 1),
-		        username, auth_method, COALESCE(smtp_username, ''), jmap_session_url
+		        username, auth_method, COALESCE(smtp_username, ''), jmap_session_url, proxy_id
 		 FROM accounts WHERE id = ? AND COALESCE(is_deleting, 0) = 0`, accountID,
 	).Scan(&data.Provider, &data.ProviderAccountID, &data.EmailAddress, &data.DisplayName,
 		&data.IMAPHost, &data.IMAPPort, &data.IMAPTLSMode,
 		&data.SMTPHost, &data.SMTPPort, &data.SMTPTLSMode, &emailSyncEnabled,
-		&data.Username, &data.AuthMethod, &data.SmtpUsername, &data.JMAPSessionURL)
+		&data.Username, &data.AuthMethod, &data.SmtpUsername, &data.JMAPSessionURL, &data.ProxyID)
 	if err != nil {
 		return nil, fmt.Errorf("query account edit data: %w", err)
 	}
@@ -291,6 +296,9 @@ func (s *AccountStore) CalDAVPassword(ctx context.Context, userID, accountID str
 	password, err := s.decryptPassword(userID, accountID, passwordKindCalDAV, encrypted)
 	if err != nil {
 		return "", fmt.Errorf("decrypt CalDAV password: %w", err)
+	}
+	if err := s.BindDAVLogin(ctx, accountID, password); err != nil {
+		return "", err
 	}
 	return password, nil
 }
@@ -570,7 +578,14 @@ func (s *AccountStore) DecryptContactSyncPassword(ctx context.Context, userID, a
 	if encrypted == nil {
 		return "", nil
 	}
-	return s.decryptPassword(userID, accountID, passwordKindCardDAV, encrypted)
+	password, err := s.decryptPassword(userID, accountID, passwordKindCardDAV, encrypted)
+	if err != nil {
+		return "", err
+	}
+	if err := s.BindDAVLogin(ctx, accountID, password); err != nil {
+		return "", err
+	}
+	return password, nil
 }
 
 func (s *AccountStore) MarkContactSyncSuccess(ctx context.Context, userID, accountID, syncToken string) error {
@@ -779,6 +794,10 @@ func (s *AccountStore) createAccountWithID(ctx context.Context, userID, id strin
 	if err := s.checkMailAllowlist(ctx, userID, requestMailbox(req)); err != nil {
 		return nil, err
 	}
+	req.ProxyID = strings.TrimSpace(req.ProxyID)
+	if err := s.checkProxyChoice(ctx, userID, req.ProxyID); err != nil {
+		return nil, err
+	}
 	if purgeDeleting {
 		if err := s.purgeDeletingAccountForCreate(ctx, userID, id); err != nil {
 			return nil, fmt.Errorf("purge deleting account: %w", err)
@@ -805,15 +824,15 @@ func (s *AccountStore) createAccountWithID(ctx context.Context, userID, id strin
 		  imap_host, imap_port, imap_tls_mode,
 		  smtp_host, smtp_port, smtp_tls_mode,
 		  username, encrypted_password, auth_method,
-		  smtp_username, encrypted_smtp_password, jmap_session_url, email_sync_enabled, sort_order)
-		 SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+		  smtp_username, encrypted_smtp_password, jmap_session_url, email_sync_enabled, proxy_id, sort_order)
+		 SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
 		        (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM accounts WHERE user_id = ?)`
 	args := []any{
 		id, userID, req.Provider, req.ProviderAccountID, req.EmailAddress, req.DisplayName, color, initials,
 		req.IMAPHost, req.IMAPPort, req.IMAPTLSMode,
 		req.SMTPHost, req.SMTPPort, req.SMTPTLSMode,
 		req.Username, encrypted, req.AuthMethod,
-		req.SmtpUsername, encryptedSmtpPw, req.JMAPSessionURL, boolInt(!req.EmailSyncDisabled),
+		req.SmtpUsername, encryptedSmtpPw, req.JMAPSessionURL, boolInt(!req.EmailSyncDisabled), req.ProxyID,
 		userID}
 	if !purgeDeleting {
 		// The single local writer makes this check/insert atomic for concurrent

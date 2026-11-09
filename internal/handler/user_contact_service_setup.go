@@ -82,6 +82,9 @@ func (h *Handler) handleUserSaveAccountContactSync(w http.ResponseWriter, r *htt
 				inputMessage = i18n.T(ctx, "server.msg.carddav_password_is_required")
 				return nil
 			}
+			if err := snapshot.BindDAVLogin(password, cfg.Username); err != nil {
+				return err
+			}
 			for _, book := range cfg.AddressBooks {
 				bookCfg := cfg
 				bookCfg.AddressBookURL = book.URL
@@ -139,6 +142,9 @@ func (h *Handler) handleUserTestAccountContactSync(w http.ResponseWriter, r *htt
 			inputStatus = http.StatusBadRequest
 			result = "Enter the CardDAV password before testing."
 			return nil
+		}
+		if err := snapshot.BindDAVLogin(password, cfg.Username); err != nil {
+			return err
 		}
 		if len(cfg.AddressBooks) == 0 {
 			inputStatus = http.StatusBadRequest
@@ -208,6 +214,9 @@ func (h *Handler) handleUserDiscoverAccountContactSync(w http.ResponseWriter, r 
 		if err != nil || password == "" {
 			writeJSONError(w, r, http.StatusBadRequest, "enter the CardDAV password before discovery")
 			return nil
+		}
+		if err := snapshot.BindDAVLogin(password, username); err != nil {
+			return err
 		}
 		create, err := davChangeFromForm(r)
 		if err != nil {

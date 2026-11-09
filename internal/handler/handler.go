@@ -214,12 +214,16 @@ func New(db *storage.DB, accountStore *config.AccountStore, syncer *mail.SyncOrc
 		messageMutationIMAPFactory: func(ctx context.Context, cfg *models.AccountConfig, password string) (messageMutationIMAPClient, error) {
 			return imap.NewClient(ctx, cfg, password)
 		},
-		remoteResourceDownloader: newRemoteResourceDownloader(privateTargetAllowed(db)),
-		messageFileKey:           newMessageFileKey(),
+		messageFileKey: newMessageFileKey(),
 		// Provider avatar addresses come from provider responses; they never
 		// need a private address.
 		providerAvatarHTTPClient: &http.Client{Timeout: 15 * time.Second, Transport: netguard.NewHTTPTransport(nil)},
 	}
+	// Avatars, calendar subscriptions and remote images in mail belong to no
+	// account, so they go through the default proxy.
+	h.avatar.SetProxySource(h.sharedDefaultProxy)
+	h.remoteResourceDownloader = newRemoteResourceDownloader(privateTargetAllowed(db), h.readerDefaultProxy)
+	h.providerAvatarHTTPClient.Transport = netguard.ProxySourceTransport(h.providerAvatarHTTPClient.Transport, h.sharedDefaultProxy)
 	setDAVPrivateTargetPolicy(privateTargetAllowed(db))
 	setDAVServerPolicy(davServerAllowed(db))
 	setDAVPlaintextPolicy(func(ctx context.Context, host string, port int) bool {
@@ -544,6 +548,10 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/accounts/{id}/edit", h.handleUpdateAccount)
 	mux.HandleFunc("POST /api/accounts/{id}/services", h.handleUpdateAccountService)
 	mux.HandleFunc("POST /api/accounts/{id}/color", h.handleUpdateAccountColor)
+	mux.HandleFunc("GET /api/accounts/proxy-choice", h.handleAccountProxyChoice)
+	mux.HandleFunc("GET /api/accounts/proxy-dialog", h.handleAccountProxyAddDialog)
+	mux.HandleFunc("GET /api/accounts/{id}/proxy/manage", h.handleManageAccountProxy)
+	mux.HandleFunc("POST /api/accounts/{id}/proxy", h.handleSaveAccountProxy)
 	mux.HandleFunc("POST /api/accounts/{id}/shown", h.handleLocalFoldersShown)
 	mux.HandleFunc("POST /api/accounts/{id}/calendar/discover", h.handleDiscoverAccountCalendars)
 	mux.HandleFunc("POST /api/accounts/{id}/calendar/sources", h.handleSaveAccountCalendarSources)
@@ -2964,8 +2972,14 @@ func (h *Handler) handleDiscoverAccount(w http.ResponseWriter, r *http.Request) 
 		writeJSONError(w, r, http.StatusBadRequest, "Enter an email address first.")
 		return
 	}
+	// Discovery connects through the proxy the new account will use.
+	proxyCtx, err := h.proxyChoiceContext(r.Context(), h.userID(r.Context()), r.FormValue("proxy"))
+	if err != nil {
+		writeJSONError(w, r, http.StatusBadRequest, i18n.T(r.Context(), "account_proxy.gone"))
+		return
+	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 18*time.Second)
+	ctx, cancel := context.WithTimeout(proxyCtx, 18*time.Second)
 	defer cancel()
 	allowlist, err := h.mailAllowlist(ctx)
 	if err != nil {
@@ -3035,6 +3049,13 @@ func (h *Handler) handleCreateAccount(w http.ResponseWriter, r *http.Request) {
 	}
 
 	req := accountRequestFromForm(r)
+	proxyCtx, err := h.proxyChoiceContext(r.Context(), h.userID(r.Context()), req.ProxyID)
+	if err != nil {
+		w.Header().Set("Content-Type", "text/html")
+		views.AccountFormError(i18n.T(r.Context(), "account_proxy.gone")).Render(r.Context(), w)
+		return
+	}
+	r = r.WithContext(proxyCtx)
 
 	if req.Provider == providers.ProviderJMAP {
 		if err := h.prepareJMAPAccount(r, &req); err != nil {
@@ -3879,6 +3900,11 @@ func (h *Handler) renderPasswordSecurityTab(w http.ResponseWriter, r *http.Reque
 	data.MailSecurity, err = h.ownerMailSecurityData(r)
 	if err != nil {
 		log.Printf("load personal mail security exceptions: %v", err)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_load_security_settings"), http.StatusInternalServerError)
+		return
+	}
+	if data.OwnProxies, err = h.ownProxiesData(r); err != nil {
+		log.Printf("load own proxies: %v", err)
 		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_load_security_settings"), http.StatusInternalServerError)
 		return
 	}
@@ -4869,7 +4895,7 @@ func (h *Handler) handleAllowRemoteContent(w http.ResponseWriter, r *http.Reques
 	for _, remoteURL := range remoteURLs {
 		download := h.remoteResourceDownloader
 		if download == nil {
-			download = newRemoteResourceDownloader(privateTargetAllowed(h.db))
+			download = newRemoteResourceDownloader(privateTargetAllowed(h.db), h.readerDefaultProxy)
 		}
 		data, err := download(ctx, remoteURL)
 		if err != nil || len(data) == 0 {
@@ -4927,11 +4953,17 @@ func (h *Handler) handleAllowRemoteContent(w http.ResponseWriter, r *http.Reques
 // load. Their addresses come from the sender, so every connection goes
 // through netguard: private addresses only when an administrator approved
 // them, no proxy from the environment, and each redirect is checked again
-// when it connects.
-func newRemoteResourceDownloader(allowPrivate netguard.PrivatePolicy) func(context.Context, string) ([]byte, error) {
+// when it connects. They are loaded for whoever reads the message rather than
+// for one account, so they go through the proxy pick returns, the default
+// proxy, or directly when pick is nil.
+func newRemoteResourceDownloader(allowPrivate netguard.PrivatePolicy, pick ...func(context.Context) (*netguard.Proxy, error)) func(context.Context, string) ([]byte, error) {
+	transport := netguard.NewHTTPTransport(allowPrivate)
+	if len(pick) > 0 && pick[0] != nil {
+		transport = netguard.ProxySourceTransport(transport, pick[0])
+	}
 	client := &http.Client{
 		Timeout:   10 * time.Second,
-		Transport: netguard.NewHTTPTransport(allowPrivate),
+		Transport: transport,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) >= 5 {
 				return errors.New("remote resource redirected too many times")
@@ -7652,10 +7684,17 @@ func (h *Handler) handleAccountOAuthAuthorize(w http.ResponseWriter, r *http.Req
 		"flow_action":   accountOAuthFlowAction(r.FormValue("flow_action")),
 		"return_to":     accountOAuthReturnPath(r.FormValue("return_to")),
 	}
+	addProxyChoiceToFlow(r, formData)
 
 	user := auth.GetCurrentUser(r.Context())
 	if user == nil || strings.TrimSpace(user.ID) == "" {
 		http.Error(w, i18n.T(r.Context(), "server.error.authenticated_user_required"), http.StatusUnauthorized)
+		return
+	}
+	// Signing in goes through the proxy the account will use.
+	proxyCtx, err := h.oauthFlowProxyContext(r.Context(), user.ID, formData)
+	if err != nil {
+		http.Redirect(w, r, "/settings/accounts?error=proxy_unavailable", http.StatusSeeOther)
 		return
 	}
 	state, err := h.mailCredentials().CreateAccountOAuthFlow(r.Context(), user.ID, auth.GetSessionToken(r), provider, formData)
@@ -7670,7 +7709,7 @@ func (h *Handler) handleAccountOAuthAuthorize(w http.ResponseWriter, r *http.Req
 		authorizeURL = h.mailCredentials().GoogleAccountOAuthURL(state, r.FormValue("calendar_access") == "full")
 	case providers.ProviderOutlook:
 		if h.mailCredentials().UsesMicrosoftDeviceCode() {
-			if _, err := h.mailCredentials().StartMicrosoftDeviceSignIn(r.Context(), state, user.ID, auth.GetSessionToken(r)); err != nil {
+			if _, err := h.mailCredentials().StartMicrosoftDeviceSignIn(proxyCtx, state, user.ID, auth.GetSessionToken(r)); err != nil {
 				log.Printf("account oauth authorize: %v", err)
 				http.Redirect(w, r, "/settings/accounts?error=oauth_device_failed", http.StatusSeeOther)
 				return
@@ -7695,15 +7734,20 @@ func (h *Handler) handleGoogleAccountCallback(w http.ResponseWriter, r *http.Req
 		return
 	}
 	formData := flow.FormData
+	ctx, err := h.oauthFlowProxyContext(r.Context(), flow.UserID, formData)
+	if err != nil {
+		http.Redirect(w, r, "/settings/accounts?error=proxy_unavailable", http.StatusSeeOther)
+		return
+	}
 
-	token, err := h.mailCredentials().ExchangeAccountCode(r.Context(), code)
+	token, err := h.mailCredentials().ExchangeAccountCode(ctx, code)
 	if err != nil {
 		log.Printf("gmail callback: token exchange failed: %v", err)
 		http.Redirect(w, r, "/settings/accounts?error=oauth_exchange_failed", http.StatusSeeOther)
 		return
 	}
 
-	info, err := h.mailCredentials().GetGoogleAccountInfo(r.Context(), token)
+	info, err := h.mailCredentials().GetGoogleAccountInfo(ctx, token)
 	if err != nil {
 		log.Printf("gmail callback: userinfo failed: %v", err)
 		http.Redirect(w, r, "/settings/accounts?error=oauth_userinfo_failed", http.StatusSeeOther)
@@ -7724,6 +7768,7 @@ func (h *Handler) handleGoogleAccountCallback(w http.ResponseWriter, r *http.Req
 
 	req := providers.GmailAccountRequest(info.Email, displayName, info.Sub)
 	req.Password = "_oauth2_"
+	req.ProxyID = formData["proxy"]
 
 	userID := flow.UserID
 	accountID, err := h.createOrUpdateOAuthMailAccount(r.Context(), userID, req)
@@ -7779,13 +7824,18 @@ func (h *Handler) handleMicrosoftAccountCallback(w http.ResponseWriter, r *http.
 		return
 	}
 
-	token, err := h.mailCredentials().ExchangeMicrosoftAccountCode(r.Context(), code)
+	ctx, err := h.oauthFlowProxyContext(r.Context(), flow.UserID, flow.FormData)
+	if err != nil {
+		http.Redirect(w, r, "/settings/accounts?error=proxy_unavailable", http.StatusSeeOther)
+		return
+	}
+	token, err := h.mailCredentials().ExchangeMicrosoftAccountCode(ctx, code)
 	if err != nil {
 		log.Printf("microsoft callback: token exchange failed: %v", err)
 		http.Redirect(w, r, "/settings/accounts?error=oauth_exchange_failed", http.StatusSeeOther)
 		return
 	}
-	http.Redirect(w, r, h.finishMicrosoftAccount(r.Context(), flow, token), http.StatusSeeOther)
+	http.Redirect(w, r, h.finishMicrosoftAccount(ctx, flow, token), http.StatusSeeOther)
 }
 
 // finishMicrosoftAccount saves the Outlook mailbox a consumed flow authorized
@@ -7816,6 +7866,7 @@ func (h *Handler) finishMicrosoftAccount(ctx context.Context, flow *mailauth.Acc
 	providerAccountID := info.ProviderAccountID()
 	req := providers.OutlookAccountRequest(outlookEmail, displayName, providerAccountID)
 	req.Password = "_oauth2_"
+	req.ProxyID = formData["proxy"]
 
 	userID := flow.UserID
 	accountID, err := h.createOrUpdateOAuthMailAccount(ctx, userID, req)

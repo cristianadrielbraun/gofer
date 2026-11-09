@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/mail"
+	"github.com/cristianadrielbraun/gofer/internal/netguard"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 	ical "github.com/emersion/go-ical"
@@ -183,7 +184,7 @@ func calendarProviderJSON(ctx context.Context, method, endpoint, token string, p
 	for _, value := range prefer {
 		req.Header.Add("Prefer", value)
 	}
-	client := &http.Client{Timeout: 2 * time.Minute, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	client := &http.Client{Transport: netguard.APITransport, Timeout: 2 * time.Minute, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	response, err := calendarProviderDo(client, req)
 	if err != nil {
 		return err

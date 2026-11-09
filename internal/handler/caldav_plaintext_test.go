@@ -34,7 +34,7 @@ func TestCalDAVPlainHTTPNeedsAnApprovedException(t *testing.T) {
 	client := &http.Client{Transport: calDAVHTTPTransport}
 	get := func(url string) error {
 		t.Helper()
-		req, _ := http.NewRequest(http.MethodGet, url, nil)
+		req, _ := http.NewRequestWithContext(davTestContext(t), http.MethodGet, url, nil)
 		resp, err := client.Do(req)
 		if err == nil {
 			resp.Body.Close()
@@ -87,7 +87,7 @@ func TestDAVDiscoveryTriesTheJMAPServer(t *testing.T) {
 	}
 	// A cancelled context stops before any domain guesses, leaving the
 	// server addresses in the order given.
-	ctx, cancel := context.WithCancel(t.Context())
+	ctx, cancel := context.WithCancel(davTestContext(t))
 	cancel()
 	got := calDAVAutodiscoveryCandidates(ctx, []string{"https://dav.example.test/cal/", "", jmapServerAddress("http://192.168.0.10:8687/.well-known/jmap")}, "robin@example.test")
 	if strings.Join(got, " ") != "https://dav.example.test/cal/ http://192.168.0.10:8687" {

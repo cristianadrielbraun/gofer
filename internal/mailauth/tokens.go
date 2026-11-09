@@ -105,6 +105,10 @@ func (m *Manager) GetOAuthTokenForAccount(ctx context.Context, accountID string)
 // mailbox grants must be reconnected once before Calendar discovery can use
 // them.
 func (m *Manager) GetGoogleCalendarTokenForAccount(ctx context.Context, accountID string) (string, error) {
+	return m.routeAccountToken(ctx, accountID, func(ctx context.Context) (string, error) { return m.googleCalendarToken(ctx, accountID) })
+}
+
+func (m *Manager) googleCalendarToken(ctx context.Context, accountID string) (string, error) {
 	record, err := m.oauthTokenForAccount(ctx, accountID, providers.OAuthGoogle)
 	if err != nil {
 		return "", err
@@ -189,6 +193,10 @@ func (m *Manager) GetMicrosoftGraphCalendarWriteTokenForAccount(ctx context.Cont
 }
 
 func (m *Manager) RefreshOAuthTokenForAccount(ctx context.Context, accountID string) (string, error) {
+	return m.routeAccountToken(ctx, accountID, func(ctx context.Context) (string, error) { return m.refreshOAuthToken(ctx, accountID) })
+}
+
+func (m *Manager) refreshOAuthToken(ctx context.Context, accountID string) (string, error) {
 	var accountProvider string
 	if err := m.db.Read().QueryRowContext(ctx, `SELECT provider FROM accounts WHERE id = ?`, accountID).Scan(&accountProvider); err != nil {
 		return "", fmt.Errorf("query account oauth identity: %w", err)
@@ -222,6 +230,12 @@ func (m *Manager) GetMicrosoftGraphMailTokenForAccount(ctx context.Context, acco
 }
 
 func (m *Manager) getMicrosoftGraphTokenForAccount(ctx context.Context, accountID, label string, scopes ...string) (string, error) {
+	return m.routeAccountToken(ctx, accountID, func(ctx context.Context) (string, error) {
+		return m.microsoftGraphToken(ctx, accountID, label, scopes...)
+	})
+}
+
+func (m *Manager) microsoftGraphToken(ctx context.Context, accountID, label string, scopes ...string) (string, error) {
 	var accountProvider string
 	if err := m.db.Read().QueryRowContext(ctx, `SELECT provider FROM accounts WHERE id = ?`, accountID).Scan(&accountProvider); err != nil {
 		return "", fmt.Errorf("query account oauth identity: %w", err)
@@ -293,6 +307,10 @@ func oauthProviderForAccountProvider(provider string) (string, error) {
 }
 
 func (m *Manager) getOAuthTokenForAccount(ctx context.Context, accountID, oauthProvider string) (string, error) {
+	return m.routeAccountToken(ctx, accountID, func(ctx context.Context) (string, error) { return m.oauthToken(ctx, accountID, oauthProvider) })
+}
+
+func (m *Manager) oauthToken(ctx context.Context, accountID, oauthProvider string) (string, error) {
 	record, err := m.oauthTokenForAccount(ctx, accountID, oauthProvider)
 	if err != nil {
 		return "", err
@@ -394,7 +412,7 @@ func refreshTokenForScopes(ctx context.Context, cfg *oauth2.Config, refreshToken
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := oauthHTTPClient(ctx).Do(req)
 	if err != nil {
 		return nil, err
 	}

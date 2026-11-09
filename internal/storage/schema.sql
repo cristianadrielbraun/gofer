@@ -37,7 +37,9 @@ CREATE TABLE IF NOT EXISTS accounts (
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     sort_order INTEGER NOT NULL DEFAULT 0,
     -- 1 when the user hid the account from the sidebar and move targets.
-    hidden INTEGER NOT NULL DEFAULT 0
+    hidden INTEGER NOT NULL DEFAULT 0,
+    -- '' uses the default proxy, 'direct' none, else an outbound_proxies id.
+    proxy_id TEXT NOT NULL DEFAULT ''
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_accounts_local_folders ON accounts(COALESCE(user_id, '')) WHERE provider = 'local';
 
@@ -1722,7 +1724,7 @@ CREATE TABLE IF NOT EXISTS mail_security_exceptions (
         OR
         (kind = 'plaintext_transport' AND protocol IN ('http', 'imap', 'smtp') AND port BETWEEN 1 AND 65535)
         OR
-        (kind = 'private_target' AND protocol IN ('http', 'https', 'imap', 'smtp') AND port BETWEEN 1 AND 65535)
+        (kind = 'private_target' AND protocol IN ('http', 'https', 'imap', 'smtp', 'proxy') AND port BETWEEN 1 AND 65535)
     ),
     UNIQUE(kind, protocol, host, port)
 );
@@ -1882,4 +1884,39 @@ CREATE TABLE IF NOT EXISTS mail_rule_runs (
 );
 CREATE INDEX IF NOT EXISTS idx_mail_rule_runs_user ON mail_rule_runs(user_id, id);
 
-INSERT OR REPLACE INTO schema_version (version) VALUES (140);
+-- Outbound proxies accounts connect through: an administrator's, for
+-- everyone or for chosen people, or a person's own (owner_user_id).
+CREATE TABLE IF NOT EXISTS outbound_proxies (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL CHECK (name <> ''),
+    type TEXT NOT NULL CHECK (type IN ('http', 'socks5')),
+    host TEXT NOT NULL CHECK (host <> ''),
+    port INTEGER NOT NULL CHECK (port BETWEEN 1 AND 65535),
+    username TEXT NOT NULL DEFAULT '',
+    encrypted_password BLOB,
+    is_default INTEGER NOT NULL DEFAULT 0 CHECK (is_default IN (0, 1)),
+    owner_user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+    everyone INTEGER NOT NULL DEFAULT 1 CHECK (everyone IN (0, 1)),
+    created_by TEXT NOT NULL DEFAULT '',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CHECK (owner_user_id IS NULL OR is_default = 0)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_outbound_proxies_name
+    ON outbound_proxies(COALESCE(owner_user_id, ''), name);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_outbound_proxies_default
+    ON outbound_proxies(is_default) WHERE is_default = 1;
+
+CREATE TABLE IF NOT EXISTS outbound_proxy_users (
+    proxy_id TEXT NOT NULL REFERENCES outbound_proxies(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (proxy_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS outbound_proxy_policy (
+    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+    people_add INTEGER NOT NULL DEFAULT 0 CHECK (people_add IN (0, 1))
+);
+
+INSERT OR REPLACE INTO schema_version (version) VALUES (143);

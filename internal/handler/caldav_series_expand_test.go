@@ -52,7 +52,7 @@ func TestCalDAVSyncExpandsSeriesWithMovedDatesItself(t *testing.T) {
 	defer func() { davHTTPTransport = prior }()
 	source := storage.CalendarSource{ID: "source", Provider: "caldav", RemoteID: server.URL + "/cal/"}
 	query := calendar.EventQuery{WindowStart: time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC), WindowEnd: time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)}
-	page, err := listCalDAVCalendarEvents(t.Context(), source, "user", "pass", query)
+	page, err := listCalDAVCalendarEvents(davTestContext(t), source, "user", "pass", query)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -214,7 +214,7 @@ func (h *Handler) handleSignedMessageFile(w http.ResponseWriter, r *http.Request
 func (h *Handler) relayRemoteContent(w http.ResponseWriter, r *http.Request) {
 	download := h.remoteResourceDownloader
 	if download == nil {
-		download = newRemoteResourceDownloader(privateTargetAllowed(h.db))
+		download = newRemoteResourceDownloader(privateTargetAllowed(h.db), h.readerDefaultProxy)
 	}
 	data, err := download(r.Context(), r.URL.Query().Get("r"))
 	if err != nil || len(data) == 0 {

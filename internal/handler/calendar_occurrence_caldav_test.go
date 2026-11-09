@@ -189,7 +189,7 @@ func TestCalendarCalDAVOccurrencePreservesResource(t *testing.T) {
 				if !deleting {
 					edit = &draft
 				}
-				remote, err := updateCalDAVCalendarOccurrence(t.Context(), source, "user", "password", existing, edit)
+				remote, err := updateCalDAVCalendarOccurrence(davTestContext(t), source, "user", "password", existing, edit)
 				switch mode {
 				case "timed", "first", "all-day", "dst", "existing-override":
 					if err != nil || writes != 1 || reads != 2 || remote.RemoteID != existing.RemoteID || remote.SeriesRemoteID != existing.SeriesRemoteID {
@@ -270,7 +270,7 @@ func TestCalendarCalDAVSeriesDeletionAfterOneOffChanges(t *testing.T) {
 	if _, err := calendarCalDAVSeriesEvent(cal, headers, endpoint, time.UTC); err != nil {
 		t.Fatal(err)
 	}
-	if err := deleteCalDAVCalendarEventScope(t.Context(), storage.CalendarSource{RemoteID: server.URL + "/cal/"}, "user", "pass", calendarStorageEvent("owner", "source", remote), true); err != nil || writes != 1 {
+	if err := deleteCalDAVCalendarEventScope(davTestContext(t), storage.CalendarSource{RemoteID: server.URL + "/cal/"}, "user", "pass", calendarStorageEvent("owner", "source", remote), true); err != nil || writes != 1 {
 		t.Fatalf("delete after one-off changes: writes=%d err=%v", writes, err)
 	}
 }

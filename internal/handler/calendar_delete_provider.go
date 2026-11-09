@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cristianadrielbraun/gofer/internal/netguard"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
 
@@ -19,7 +20,12 @@ type calendarDeletePreflightError struct{ err error }
 func (e calendarDeletePreflightError) Error() string { return e.err.Error() }
 func (e calendarDeletePreflightError) Unwrap() error { return e.err }
 
+// calendarDeleteClient is a client over transport, or over the provider API
+// transport when it is nil.
 func calendarDeleteClient(transport http.RoundTripper) *http.Client {
+	if transport == nil {
+		transport = netguard.APITransport
+	}
 	return &http.Client{Transport: transport, Timeout: 30 * time.Second,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 }

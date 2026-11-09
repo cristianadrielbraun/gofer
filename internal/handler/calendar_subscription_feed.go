@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/calendar"
+	"github.com/cristianadrielbraun/gofer/internal/netguard"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 	ical "github.com/emersion/go-ical"
 )
@@ -76,6 +77,11 @@ func (calendarFeedTransport) RoundTrip(req *http.Request) (*http.Response, error
 		}
 	default:
 		return nil, fmt.Errorf("calendar subscriptions don't support %q addresses", req.URL.Scheme)
+	}
+	// A subscription belongs to no account: its callers mark the request
+	// with the default proxy (defaultProxyContext).
+	if davRequireProxyChoice.Load() && !netguard.ProxyChosen(req.Context()) {
+		return nil, fmt.Errorf("calendar feed request to %s was not given the default proxy", req.URL.Host)
 	}
 	return davHTTPTransport.RoundTrip(req)
 }

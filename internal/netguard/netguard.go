@@ -24,6 +24,10 @@ type BlockedError struct {
 }
 
 func (e *BlockedError) Error() string {
+	if e.Protocol == "proxy" {
+		return fmt.Sprintf("proxy %s is on a private network; a proxy added for your own accounts needs a public address, or an administrator's Proxy private target exception under Mail security",
+			net.JoinHostPort(e.Host, strconv.Itoa(e.Port)))
+	}
 	return fmt.Sprintf("%s server %s is on a private network; it needs a private target exception under Mail security",
 		strings.ToUpper(e.Protocol), net.JoinHostPort(e.Host, strconv.Itoa(e.Port)))
 }
@@ -98,7 +102,8 @@ type Dialer struct {
 
 // Dial connects to host:port for protocol. Private addresses are refused
 // unless allowPrivate is set. It connects to the address it checked, so a DNS
-// answer can't change between the check and the connection.
+// answer can't change between the check and the connection. When ctx carries
+// a proxy (WithProxy), the connection goes through it, still to that address.
 func (d *Dialer) Dial(ctx context.Context, protocol, host string, port int, allowPrivate bool) (net.Conn, error) {
 	addrs, err := d.resolve(ctx, host)
 	if err != nil {
@@ -117,9 +122,21 @@ func (d *Dialer) Dial(ctx context.Context, protocol, host string, port int, allo
 	if dialer == nil {
 		dialer = &net.Dialer{}
 	}
+	proxy := ProxyFrom(ctx)
+	if proxy != nil && (port < 1 || port > 65535) {
+		return nil, fmt.Errorf("server port %d is out of range", port)
+	}
 	var lastErr error
 	for _, addr := range addrs {
-		conn, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort(addr.Unmap().String(), strconv.Itoa(port)))
+		var (
+			conn net.Conn
+			err  error
+		)
+		if proxy != nil {
+			conn, err = dialThroughProxy(ctx, dialer, proxy, netip.AddrPortFrom(addr.Unmap(), uint16(port)))
+		} else {
+			conn, err = dialer.DialContext(ctx, "tcp", net.JoinHostPort(addr.Unmap().String(), strconv.Itoa(port)))
+		}
 		if err == nil {
 			return conn, nil
 		}

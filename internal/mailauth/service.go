@@ -93,6 +93,7 @@ type Service struct {
 	credentialKey  []byte
 	deviceMu       sync.Mutex
 	deviceFlows    map[string]*microsoftDeviceFlow
+	proxyFor       AccountProxyResolver
 }
 
 // Manager remains an alias while callers migrate to the service terminology.
