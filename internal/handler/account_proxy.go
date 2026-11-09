@@ -301,8 +301,9 @@ func (h *Handler) handleAccountProxyChoice(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	data.Sidebar = r.URL.Query().Get("sidebar") == "1"
-	if data.AccountID == "" && r.URL.Query().Get("form") == "account-form" {
-		// The add wizard's setting sits in its sidebar, outside its form.
+	if r.URL.Query().Get("form") == "account-form" {
+		// The add wizard's setting sits in its sidebar, outside its form,
+		// and goes with it, also when it adds mail to an existing account.
 		data.Form = "account-form"
 	}
 	w.Header().Set("Content-Type", "text/html")

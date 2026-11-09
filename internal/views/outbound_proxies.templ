@@ -298,7 +298,7 @@ templ outboundProxyPeople(data models.MailSecurityAdminData, proxy models.Outbou
 }
 
 // AccountProxyDialog is where a person picks the proxy one of their accounts
-// connects through.
+// connects through, opened from the gear of a wizard's Proxy row.
 templ AccountProxyDialog(data models.AccountProxyData) {
 	@dialog.Dialog(dialog.Props{ID: "account-proxy-dialog"}) {
 		@dialog.Content(dialog.ContentProps{Class: "mobile-page-dialog sm:max-w-lg"}) {
@@ -431,8 +431,9 @@ func accountProxyChoiceOffered(data models.AccountProxyData) bool {
 
 // AccountProxyChoiceSidebarLoader loads the Proxy row into an account
 // wizard's sidebar: it is a setting of the whole account, its mail, contacts
-// and calendars, not of one step. Adding an account, its choice belongs to
-// the wizard's form, form.
+// and calendars, not of one step. In the add wizard, its choice goes with
+// the wizard's form, form: for the account being added, or, adding mail to
+// an account, that account's own, which the row also saves.
 templ AccountProxyChoiceSidebarLoader(accountID, form string) {
 	<div hx-get={ "/api/accounts/proxy-choice?sidebar=1&account=" + accountID + "&form=" + form } hx-trigger="intersect once" hx-swap="outerHTML" data-account-proxy-choice-loader></div>
 }
@@ -446,7 +447,7 @@ templ AccountProxyChoiceLoader(accountID string) {
 // AccountProxyChoiceField is the Connect through field of the account
 // dialogs. Adding an account, it goes with the dialog's form, and finding the
 // server, testing and signing in go through the proxy chosen. Editing one, it
-// saves on its own when changed, as the account menu's Proxy dialog does.
+// saves on its own when changed, as the Proxy dialog does.
 templ AccountProxyChoiceField(data models.AccountProxyData) {
 	if accountProxyChoiceOffered(data) {
 		{{ choice := data.Choice }}
@@ -465,7 +466,10 @@ templ AccountProxyChoiceField(data models.AccountProxyData) {
 			{{ attributes["hx-swap"] = "innerHTML" }}
 		}
 		<div data-account-proxy-choice>
-			<label class="mb-1.5 block text-xs font-medium text-muted-foreground">{ i18n.T(ctx, "account_proxy.label") }</label>
+			<label class="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+				@icon.Network(icon.Props{Class: "size-3.5"})
+				{ i18n.T(ctx, "account_proxy.label") }
+			</label>
 			@selectbox.SelectBox() {
 				@selectbox.Trigger(selectbox.TriggerProps{Name: "proxy", Form: form, Class: "w-full", DisableClear: true, Attributes: attributes}) {
 					@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "account_proxy.label")})
@@ -531,43 +535,48 @@ func accountProxyRowState(ctx context.Context, data models.AccountProxyData) (bo
 // AccountProxySidebarRow is the Proxy setting of an account's wizard, in its
 // sidebar: it is the whole account's, its mail, contacts and calendars. The
 // switch turns the proxy on, the default one, or off for a direct
-// connection; the gear opens the Proxy dialog of the account's menu to pick
-// one. Adding an account, the choice goes with the wizard's form.
+// connection; the gear opens the Proxy dialog to pick one. Adding an
+// account, the choice goes with the wizard's form.
 templ AccountProxySidebarRow(data models.AccountProxyData) {
 	if accountProxyChoiceOffered(data) {
 		{{ on, state := accountProxyRowState(ctx, data) }}
 		<div class="account-wizard-section" data-account-proxy-row data-account-id={ data.AccountID } data-default-name={ data.Default } data-account-proxy-form={ data.Form }>
-			<div class="account-wizard-section-heading flex-wrap">
-				<div class="account-wizard-section-title cursor-default items-center">
+			<div class="account-wizard-section-heading">
+				<div class="account-wizard-section-title cursor-default">
 					<span class="account-wizard-index">
 						@icon.Network(icon.Props{Class: "size-3.5"})
 					</span>
-					<span class="min-w-0">
-						<span class="block text-sm font-semibold">{ i18n.T(ctx, "account_proxy.title") }</span>
+					// Two lines: the title with the gear and the switch, centred on
+					// the index, then the proxy's name, which they don't cut short.
+					<span class="block min-w-0 flex-1">
+						<span class="flex h-6 items-center gap-2">
+							<span class="block min-w-0 flex-1 truncate text-sm font-semibold">{ i18n.T(ctx, "account_proxy.title") }</span>
+							<span class="flex shrink-0 items-center gap-1">
+								<button type="button" data-account-proxy-settings class="inline-flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground" aria-label={ i18n.T(ctx, "account_proxy.settings") } title={ i18n.T(ctx, "account_proxy.settings") }>
+									@icon.Settings(icon.Props{Class: "size-3.5"})
+								</button>
+								@switchcomp.Switch(switchcomp.Props{
+									ID:         "account-proxy-switch-" + data.AccountID,
+									Checked:    on,
+									Attributes: templ.Attributes{"data-account-proxy-switch": "", "aria-label": i18n.T(ctx, "account_proxy.switch")},
+								})
+							</span>
+						</span>
+						@tooltip.Tooltip(tooltip.Props{Class: "block w-full min-w-0"}) {
+							@tooltip.Trigger(tooltip.TriggerProps{Class: "block min-w-0"}) {
+								<span class="block truncate text-xs text-muted-foreground" data-account-proxy-state>{ state }</span>
+							}
+							@tooltip.Content(tooltip.ContentProps{Position: tooltip.PositionRight, ShowArrow: true, Class: "px-3 py-1.5 text-xs"}) {
+								{ state }
+							}
+						}
 					</span>
 				</div>
-				<div class="flex shrink-0 items-center gap-1.5 pt-0.5">
-					<button type="button" data-account-proxy-settings class="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground" aria-label={ i18n.T(ctx, "account_proxy.settings") } title={ i18n.T(ctx, "account_proxy.settings") }>
-						@icon.Settings(icon.Props{Class: "size-4"})
-					</button>
-					@switchcomp.Switch(switchcomp.Props{
-						ID:         "account-proxy-switch-" + data.AccountID,
-						Checked:    on,
-						Attributes: templ.Attributes{"data-account-proxy-switch": "", "aria-label": i18n.T(ctx, "account_proxy.switch")},
-					})
-				</div>
-				// The proxy's name has a line of its own, under the title, so the
-				// gear and the switch don't cut it short.
-				@tooltip.Tooltip(tooltip.Props{Class: "-mt-1.5 block w-full min-w-0 basis-full pl-[2.25rem]"}) {
-					@tooltip.Trigger(tooltip.TriggerProps{Class: "block min-w-0"}) {
-						<span class="block truncate text-xs text-muted-foreground" data-account-proxy-state>{ state }</span>
-					}
-					@tooltip.Content(tooltip.ContentProps{Position: tooltip.PositionRight, ShowArrow: true, Class: "px-3 py-1.5 text-xs"}) {
-						{ state }
-					}
-				}
 			</div>
-			if data.AccountID == "" {
+			// In the add wizard, finding and testing the servers go through
+			// this choice: the one for the account being added, or, adding
+			// mail to an account, that account's own.
+			if data.Form != "" {
 				<input type="hidden" name="proxy" form={ data.Form } value={ data.Choice } data-account-proxy-value/>
 			}
 		</div>

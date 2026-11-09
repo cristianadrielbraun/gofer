@@ -2003,9 +2003,9 @@ document.addEventListener("htmx:afterSettle", function (e) {
 })
 
 // The Proxy row of an account's wizard: the switch connects through the
-// default proxy, or directly when off; the gear opens the Proxy dialog of the
-// account's menu. A saved account saves each change; one being added keeps
-// the choice in a hidden field of the wizard's form.
+// default proxy, or directly when off; the gear opens the Proxy dialog. A
+// saved account saves each change; one being added keeps the choice in a
+// hidden field of the wizard's form.
 ;(function () {
   var activeRow = null
 

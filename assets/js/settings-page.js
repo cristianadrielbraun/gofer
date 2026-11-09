@@ -2315,7 +2315,19 @@ function openAddAccountWizard(service) {
   setAddAccountMailService(service);
   var root = document.getElementById('add-account-dialog');
   if (root) delete root.dataset.addMail;
+  setAddAccountProxyRow('');
   goferSwitchDialog('choose-account-type-dialog', 'add-account-dialog');
+}
+// The add wizard's Proxy row is for the account being added, or, adding mail
+// to an account, that account's own: its choice is the one finding and
+// testing the servers go through, and changing it saves it to the account.
+function setAddAccountProxyRow(accountID) {
+  var slot = document.getElementById('add-account-proxy-row');
+  if (!slot || !window.htmx) return;
+  accountID = accountID || '';
+  if ((slot.dataset.account || '') === accountID) return;
+  slot.dataset.account = accountID;
+  htmx.ajax('GET', '/api/accounts/proxy-choice?sidebar=1&form=account-form&account=' + encodeURIComponent(accountID), { target: slot, swap: 'innerHTML' });
 }
 // An account with only calendars or contacts gets its mail through the add
 // wizard, which then saves the mailbox to that account instead of creating
@@ -2338,6 +2350,7 @@ function startAddMail(service) {
   if (!_addMailAccount || !root || !form) return;
   setAddAccountMailService(service);
   root.dataset.addMail = _addMailAccount.id;
+  setAddAccountProxyRow(_addMailAccount.id);
   var name = form.querySelector('input[name="display_name"]');
   if (name && !name.value) name.value = _addMailAccount.name;
   goferSwitchDialog('choose-mail-type-dialog', 'add-account-dialog');

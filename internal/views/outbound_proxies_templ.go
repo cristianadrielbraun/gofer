@@ -1957,7 +1957,7 @@ func outboundProxyPeople(data models.MailSecurityAdminData, proxy models.Outboun
 }
 
 // AccountProxyDialog is where a person picks the proxy one of their accounts
-// connects through.
+// connects through, opened from the gear of a wizard's Proxy row.
 func AccountProxyDialog(data models.AccountProxyData) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -2708,8 +2708,9 @@ func accountProxyChoiceOffered(data models.AccountProxyData) bool {
 
 // AccountProxyChoiceSidebarLoader loads the Proxy row into an account
 // wizard's sidebar: it is a setting of the whole account, its mail, contacts
-// and calendars, not of one step. Adding an account, its choice belongs to
-// the wizard's form, form.
+// and calendars, not of one step. In the add wizard, its choice goes with
+// the wizard's form, form: for the account being added, or, adding mail to
+// an account, that account's own, which the row also saves.
 func AccountProxyChoiceSidebarLoader(accountID, form string) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -2738,7 +2739,7 @@ func AccountProxyChoiceSidebarLoader(accountID, form string) templ.Component {
 		var templ_7745c5c3_Var156 string
 		templ_7745c5c3_Var156, templ_7745c5c3_Err = templ.JoinStringErrs("/api/accounts/proxy-choice?sidebar=1&account=" + accountID + "&form=" + form)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 437, Col: 92}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 438, Col: 92}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var156))
 		if templ_7745c5c3_Err != nil {
@@ -2782,7 +2783,7 @@ func AccountProxyChoiceLoader(accountID string) templ.Component {
 		var templ_7745c5c3_Var158 string
 		templ_7745c5c3_Var158, templ_7745c5c3_Err = templ.JoinStringErrs("/api/accounts/proxy-choice?account=" + accountID)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 443, Col: 64}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 444, Col: 64}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var158))
 		if templ_7745c5c3_Err != nil {
@@ -2799,7 +2800,7 @@ func AccountProxyChoiceLoader(accountID string) templ.Component {
 // AccountProxyChoiceField is the Connect through field of the account
 // dialogs. Adding an account, it goes with the dialog's form, and finding the
 // server, testing and signing in go through the proxy chosen. Editing one, it
-// saves on its own when changed, as the account menu's Proxy dialog does.
+// saves on its own when changed, as the Proxy dialog does.
 func AccountProxyChoiceField(data models.AccountProxyData) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -2841,14 +2842,18 @@ func AccountProxyChoiceField(data models.AccountProxyData) templ.Component {
 				attributes["hx-target"] = "#account-proxy-choice-status-" + data.AccountID
 				attributes["hx-swap"] = "innerHTML"
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 206, " <div data-account-proxy-choice><label class=\"mb-1.5 block text-xs font-medium text-muted-foreground\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 206, " <div data-account-proxy-choice><label class=\"mb-1.5 flex items-center gap-1.5 text-xs font-medium text-muted-foreground\">")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = icon.Network(icon.Props{Class: "size-3.5"}).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var160 string
 			templ_7745c5c3_Var160, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "account_proxy.label"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 468, Col: 109}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 471, Col: 40}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var160))
 			if templ_7745c5c3_Err != nil {
@@ -2923,7 +2928,7 @@ func AccountProxyChoiceField(data models.AccountProxyData) templ.Component {
 						var templ_7745c5c3_Var165 string
 						templ_7745c5c3_Var165, templ_7745c5c3_Err = templ.JoinStringErrs(accountProxyDefaultLabel(ctx, data))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 475, Col: 43}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 479, Col: 43}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var165))
 						if templ_7745c5c3_Err != nil {
@@ -2954,7 +2959,7 @@ func AccountProxyChoiceField(data models.AccountProxyData) templ.Component {
 						var templ_7745c5c3_Var167 string
 						templ_7745c5c3_Var167, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "account_proxy.direct"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 478, Col: 43}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 482, Col: 43}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var167))
 						if templ_7745c5c3_Err != nil {
@@ -2982,7 +2987,7 @@ func AccountProxyChoiceField(data models.AccountProxyData) templ.Component {
 							var templ_7745c5c3_Var169 string
 							templ_7745c5c3_Var169, templ_7745c5c3_Err = templ.JoinStringErrs(proxy.Name)
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 482, Col: 19}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 486, Col: 19}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var169))
 							if templ_7745c5c3_Err != nil {
@@ -2995,7 +3000,7 @@ func AccountProxyChoiceField(data models.AccountProxyData) templ.Component {
 							var templ_7745c5c3_Var170 string
 							templ_7745c5c3_Var170, templ_7745c5c3_Err = templ.JoinStringErrs(outboundProxyAddress(proxy))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 483, Col: 99}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 487, Col: 99}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var170))
 							if templ_7745c5c3_Err != nil {
@@ -3032,7 +3037,7 @@ func AccountProxyChoiceField(data models.AccountProxyData) templ.Component {
 				var templ_7745c5c3_Var171 string
 				templ_7745c5c3_Var171, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "account_proxy.adding_help"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 489, Col: 114}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 493, Col: 114}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var171))
 				if templ_7745c5c3_Err != nil {
@@ -3050,7 +3055,7 @@ func AccountProxyChoiceField(data models.AccountProxyData) templ.Component {
 				var templ_7745c5c3_Var172 string
 				templ_7745c5c3_Var172, templ_7745c5c3_Err = templ.JoinStringErrs("account-proxy-choice-status-" + data.AccountID)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 491, Col: 59}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 495, Col: 59}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var172))
 				if templ_7745c5c3_Err != nil {
@@ -3063,7 +3068,7 @@ func AccountProxyChoiceField(data models.AccountProxyData) templ.Component {
 				var templ_7745c5c3_Var173 string
 				templ_7745c5c3_Var173, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "account_proxy.editing_help"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 491, Col: 189}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 495, Col: 189}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var173))
 				if templ_7745c5c3_Err != nil {
@@ -3114,7 +3119,7 @@ func AccountProxyChoiceStatus(data models.AccountProxyData) templ.Component {
 			var templ_7745c5c3_Var175 string
 			templ_7745c5c3_Var175, templ_7745c5c3_Err = templ.JoinStringErrs(data.Error)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 501, Col: 58}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 505, Col: 58}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var175))
 			if templ_7745c5c3_Err != nil {
@@ -3132,7 +3137,7 @@ func AccountProxyChoiceStatus(data models.AccountProxyData) templ.Component {
 			var templ_7745c5c3_Var176 string
 			templ_7745c5c3_Var176, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "account_proxy.saved"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 503, Col: 91}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 507, Col: 91}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var176))
 			if templ_7745c5c3_Err != nil {
@@ -3174,8 +3179,8 @@ func accountProxyRowState(ctx context.Context, data models.AccountProxyData) (bo
 // AccountProxySidebarRow is the Proxy setting of an account's wizard, in its
 // sidebar: it is the whole account's, its mail, contacts and calendars. The
 // switch turns the proxy on, the default one, or off for a direct
-// connection; the gear opens the Proxy dialog of the account's menu to pick
-// one. Adding an account, the choice goes with the wizard's form.
+// connection; the gear opens the Proxy dialog to pick one. Adding an
+// account, the choice goes with the wizard's form.
 func AccountProxySidebarRow(data models.AccountProxyData) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -3206,7 +3211,7 @@ func AccountProxySidebarRow(data models.AccountProxyData) templ.Component {
 			var templ_7745c5c3_Var178 string
 			templ_7745c5c3_Var178, templ_7745c5c3_Err = templ.JoinStringErrs(data.AccountID)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 539, Col: 93}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 543, Col: 93}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var178))
 			if templ_7745c5c3_Err != nil {
@@ -3219,7 +3224,7 @@ func AccountProxySidebarRow(data models.AccountProxyData) templ.Component {
 			var templ_7745c5c3_Var179 string
 			templ_7745c5c3_Var179, templ_7745c5c3_Err = templ.JoinStringErrs(data.Default)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 539, Col: 128}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 543, Col: 128}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var179))
 			if templ_7745c5c3_Err != nil {
@@ -3232,13 +3237,13 @@ func AccountProxySidebarRow(data models.AccountProxyData) templ.Component {
 			var templ_7745c5c3_Var180 string
 			templ_7745c5c3_Var180, templ_7745c5c3_Err = templ.JoinStringErrs(data.Form)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 539, Col: 166}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 543, Col: 166}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var180))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 225, "\"><div class=\"account-wizard-section-heading flex-wrap\"><div class=\"account-wizard-section-title cursor-default items-center\"><span class=\"account-wizard-index\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 225, "\"><div class=\"account-wizard-section-heading\"><div class=\"account-wizard-section-title cursor-default\"><span class=\"account-wizard-index\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -3246,27 +3251,27 @@ func AccountProxySidebarRow(data models.AccountProxyData) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 226, "</span> <span class=\"min-w-0\"><span class=\"block text-sm font-semibold\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 226, "</span><span class=\"block min-w-0 flex-1\"><span class=\"flex h-6 items-center gap-2\"><span class=\"block min-w-0 flex-1 truncate text-sm font-semibold\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var181 string
 			templ_7745c5c3_Var181, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "account_proxy.title"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 546, Col: 84}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 553, Col: 109}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var181))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 227, "</span></span></div><div class=\"flex shrink-0 items-center gap-1.5 pt-0.5\"><button type=\"button\" data-account-proxy-settings class=\"inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground\" aria-label=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 227, "</span> <span class=\"flex shrink-0 items-center gap-1\"><button type=\"button\" data-account-proxy-settings class=\"inline-flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground\" aria-label=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var182 string
 			templ_7745c5c3_Var182, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "account_proxy.settings"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 550, Col: 249}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 555, Col: 252}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var182))
 			if templ_7745c5c3_Err != nil {
@@ -3279,7 +3284,7 @@ func AccountProxySidebarRow(data models.AccountProxyData) templ.Component {
 			var templ_7745c5c3_Var183 string
 			templ_7745c5c3_Var183, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "account_proxy.settings"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 550, Col: 297}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 555, Col: 300}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var183))
 			if templ_7745c5c3_Err != nil {
@@ -3289,7 +3294,7 @@ func AccountProxySidebarRow(data models.AccountProxyData) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = icon.Settings(icon.Props{Class: "size-4"}).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = icon.Settings(icon.Props{Class: "size-3.5"}).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -3305,7 +3310,7 @@ func AccountProxySidebarRow(data models.AccountProxyData) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 231, "</div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 231, "</span></span>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -3340,7 +3345,7 @@ func AccountProxySidebarRow(data models.AccountProxyData) templ.Component {
 					var templ_7745c5c3_Var186 string
 					templ_7745c5c3_Var186, templ_7745c5c3_Err = templ.JoinStringErrs(state)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 563, Col: 97}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 567, Col: 99}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var186))
 					if templ_7745c5c3_Err != nil {
@@ -3375,7 +3380,7 @@ func AccountProxySidebarRow(data models.AccountProxyData) templ.Component {
 					var templ_7745c5c3_Var188 string
 					templ_7745c5c3_Var188, templ_7745c5c3_Err = templ.JoinStringErrs(state)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 566, Col: 13}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 570, Col: 15}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var188))
 					if templ_7745c5c3_Err != nil {
@@ -3389,15 +3394,15 @@ func AccountProxySidebarRow(data models.AccountProxyData) templ.Component {
 				}
 				return nil
 			})
-			templ_7745c5c3_Err = tooltip.Tooltip(tooltip.Props{Class: "-mt-1.5 block w-full min-w-0 basis-full pl-[2.25rem]"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var184), templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = tooltip.Tooltip(tooltip.Props{Class: "block w-full min-w-0"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var184), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 235, "</div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 235, "</span></div></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			if data.AccountID == "" {
+			if data.Form != "" {
 				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 236, "<input type=\"hidden\" name=\"proxy\" form=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
@@ -3405,7 +3410,7 @@ func AccountProxySidebarRow(data models.AccountProxyData) templ.Component {
 				var templ_7745c5c3_Var189 string
 				templ_7745c5c3_Var189, templ_7745c5c3_Err = templ.JoinStringErrs(data.Form)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 571, Col: 54}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 580, Col: 54}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var189))
 				if templ_7745c5c3_Err != nil {
@@ -3418,7 +3423,7 @@ func AccountProxySidebarRow(data models.AccountProxyData) templ.Component {
 				var templ_7745c5c3_Var190 string
 				templ_7745c5c3_Var190, templ_7745c5c3_Err = templ.JoinStringErrs(data.Choice)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 571, Col: 76}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 580, Col: 76}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var190))
 				if templ_7745c5c3_Err != nil {

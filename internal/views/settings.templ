@@ -2282,20 +2282,6 @@ templ SettingsAccountActionsMenu(account models.Account) {
 					}
 				}
 			}
-			if account.Provider != "local" {
-				@dropdown.Item(dropdown.ItemProps{
-					Class: "justify-start gap-2",
-					Attributes: templ.Attributes{
-						"type":      "button",
-						"hx-get":    fmt.Sprintf("/api/accounts/%s/proxy/manage", account.ID),
-						"hx-target": "#edit-account-container",
-						"hx-swap":   "innerHTML",
-					},
-				}) {
-					@icon.Network(icon.Props{Class: "size-3.5"})
-					{ i18n.T(ctx, "settings.account.proxy") }
-				}
-			}
 			if account.Provider == "imap" {
 				@dropdown.Item(dropdown.ItemProps{
 					Class: "justify-start gap-2",
@@ -4125,7 +4111,11 @@ templ AccountWizardAddSidebar() {
 		@AccountWizardAddEmailSection()
 		@AccountWizardTopStep("wizardGo", 4, "2", i18n.T(ctx, "settings.wizard.contacts"), i18n.T(ctx, "settings.wizard.contacts_description"), true, true, "", "contacts", false, false, templ.Attributes{"data-add-contact-sync-switch": ""})
 		@AccountWizardTopStep("wizardGo", 5, "3", i18n.T(ctx, "settings.wizard.calendar"), i18n.T(ctx, "settings.wizard.calendar_description"), true, true, "", "calendar", false, false, nil)
-		@AccountProxyChoiceSidebarLoader("", "account-form")
+		// Adding mail to an account, the row is that account's own (see
+		// startAddMail), so it stays in a container of its own to swap.
+		<div id="add-account-proxy-row">
+			@AccountProxyChoiceSidebarLoader("", "account-form")
+		</div>
 	</aside>
 }
 

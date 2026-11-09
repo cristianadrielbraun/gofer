@@ -190,11 +190,25 @@ func TestAccountProxyChoiceField(t *testing.T) {
 	if !strings.Contains(editing, `hx-post="/api/accounts/victim-account/proxy"`) || !strings.Contains(editing, `form="account-proxy-choice-victim-account"`) {
 		t.Fatalf("editing field = %q", editing)
 	}
+	// Adding mail to an account, the add wizard's row is that account's own:
+	// it saves to the account, and its choice still goes with the form, so
+	// finding and testing the servers go through the account's proxy.
+	if err := db.SetAccountProxyChoice(t.Context(), "owner", "victim-account", "direct"); err != nil {
+		t.Fatal(err)
+	}
+	addingMail := choice("victim-account&sidebar=1&form=account-form")
+	if !strings.Contains(addingMail, `data-account-id="victim-account"`) || !strings.Contains(addingMail, `form="account-form"`) ||
+		!strings.Contains(addingMail, `value="direct"`) {
+		t.Fatalf("add mail sidebar row = %q", addingMail)
+	}
+	// The edit wizard's row has no form: it only saves.
+	if editRow := choice("victim-account&sidebar=1"); strings.Contains(editRow, `name="proxy"`) {
+		t.Fatalf("edit wizard sidebar row = %q", editRow)
+	}
 	// Someone else's account has no field.
 	if body := strings.TrimSpace(choice("attacker-account")); body != "" {
 		t.Fatalf("another person's account field = %q", body)
 	}
-	_ = db
 }
 
 // Testing a new account's servers goes through the proxy chosen for it, and
