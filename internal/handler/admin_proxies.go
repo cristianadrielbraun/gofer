@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/cristianadrielbraun/gofer/internal/audit"
 	"github.com/cristianadrielbraun/gofer/internal/auth"
 	"github.com/cristianadrielbraun/gofer/internal/config"
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
@@ -99,7 +100,13 @@ func (h *Handler) handleSetOutboundProxyEveryone(w http.ResponseWriter, r *http.
 	if !h.prepareMailSecurityChange(w, r) {
 		return
 	}
-	if err := h.db.SetOutboundProxyEveryone(ctx, r.PathValue("id"), r.FormValue("everyone") == "true"); err != nil {
+	everyone := r.FormValue("everyone") == "true"
+	recorded := h.withAdminAudit(ctx, r, audit.Event{
+		Action:   "security.proxy_everyone_changed",
+		Target:   proxyAuditTarget(ctx, h, r.PathValue("id")),
+		Metadata: map[string]any{"everyone": everyone},
+	})
+	if err := h.db.SetOutboundProxyEveryone(recorded, r.PathValue("id"), everyone); err != nil {
 		h.redirectOutboundProxyError(w, r, err)
 		return
 	}
@@ -126,7 +133,13 @@ func (h *Handler) handleSetOutboundProxyPerson(w http.ResponseWriter, r *http.Re
 		h.redirectAdminSecurity(w, r, "", i18n.T(ctx, "auth.admin.form_invalid"))
 		return
 	}
-	if err := h.db.SetOutboundProxyUser(ctx, r.PathValue("id"), userID, r.FormValue("chosen") == "true"); err != nil {
+	chosen := r.FormValue("chosen") == "true"
+	recorded := h.withAdminAudit(ctx, r, audit.Event{
+		Action:   "security.proxy_person_changed",
+		Target:   proxyAuditTarget(ctx, h, r.PathValue("id")),
+		Metadata: map[string]any{"user_id": userID, "chosen": chosen},
+	})
+	if err := h.db.SetOutboundProxyUser(recorded, r.PathValue("id"), userID, chosen); err != nil {
 		h.redirectOutboundProxyError(w, r, err)
 		return
 	}
@@ -149,7 +162,12 @@ func (h *Handler) handleSetOwnOutboundProxiesPolicy(w http.ResponseWriter, r *ht
 		return
 	}
 	allowed := r.FormValue("people_add") == "yes"
-	if err := h.db.SetPeopleMayAddOutboundProxies(ctx, allowed); err != nil {
+	recorded := h.withAdminAudit(ctx, r, audit.Event{
+		Action:   "security.proxy_policy_changed",
+		Target:   audit.Target{Kind: auditTargetInstance},
+		Metadata: map[string]any{"people_may_add_proxies": allowed},
+	})
+	if err := h.db.SetPeopleMayAddOutboundProxies(recorded, allowed); err != nil {
 		log.Printf("mail security: set own proxies policy: %v", err)
 		h.redirectAdminSecurity(w, r, "", i18n.T(ctx, "admin.proxies.policy_failed"))
 		return
@@ -186,7 +204,20 @@ func (h *Handler) handleSaveOutboundProxy(w http.ResponseWriter, r *http.Request
 		return
 	}
 	input := outboundProxyInputFromForm(r)
-	if _, err := h.accountStore.SaveOutboundProxy(r.Context(), input, h.userID(r.Context())); err != nil {
+	action := "security.proxy_changed"
+	if input.ID == "" {
+		action = "security.proxy_added"
+	}
+	// The record never carries the password.
+	recorded := h.withAdminAudit(r.Context(), r, audit.Event{
+		Action: action,
+		Target: audit.Target{Kind: auditTargetProxy, ID: input.ID, Label: strings.TrimSpace(input.Name)},
+		Metadata: map[string]any{
+			"type": input.Type, "host": strings.TrimSpace(input.Host), "port": input.Port,
+			"default": input.IsDefault, "password_changed": input.Password != nil,
+		},
+	})
+	if _, err := h.accountStore.SaveOutboundProxy(recorded, input, h.userID(r.Context())); err != nil {
 		switch {
 		case errors.Is(err, storage.ErrOutboundProxyNameTaken):
 			h.redirectAdminSecurity(w, r, "", i18n.T(r.Context(), "admin.proxies.name_taken"))
@@ -210,7 +241,11 @@ func (h *Handler) handleDeleteOutboundProxy(w http.ResponseWriter, r *http.Reque
 	if !h.prepareMailSecurityChange(w, r) {
 		return
 	}
-	if err := h.accountStore.DeleteOutboundProxy(r.Context(), "", r.PathValue("id")); err != nil {
+	recorded := h.withAdminAudit(r.Context(), r, audit.Event{
+		Action: "security.proxy_deleted",
+		Target: proxyAuditTarget(r.Context(), h, r.PathValue("id")),
+	})
+	if err := h.accountStore.DeleteOutboundProxy(recorded, "", r.PathValue("id")); err != nil {
 		if errors.Is(err, storage.ErrOutboundProxyNotFound) {
 			h.redirectAdminSecurity(w, r, "", i18n.T(r.Context(), "admin.proxies.not_found"))
 			return

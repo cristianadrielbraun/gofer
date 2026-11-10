@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/cristianadrielbraun/gofer/internal/audit"
 	"github.com/cristianadrielbraun/gofer/internal/authz"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
@@ -134,6 +135,14 @@ func (m *Manager) PrepareAdministratorUserDeletion(
 			); err != nil {
 				return fmt.Errorf("record user deletion start: %w", err)
 			}
+			if err := m.auditAdministratorChange(ctx, tx, actorUserID, actorSessionID, audit.Event{
+				Action:        "user.deletion_started",
+				Target:        audit.Target{Kind: auditTargetUser, ID: targetUserID, Label: result.Username},
+				Changes:       map[string]audit.Change{"deletion_pending": {From: false, To: true}},
+				CorrelationID: eventID,
+			}); err != nil {
+				return err
+			}
 		}
 
 		if owned != nil {
@@ -252,6 +261,16 @@ func (m *Manager) CompleteAdministratorUserDeletion(ctx context.Context, targetU
 			AuthEventUserDeleted, AuthEventReasonAdministratorAction, string(metadata),
 		); err != nil {
 			return fmt.Errorf("record user deletion completion: %w", err)
+		}
+		// Gofer finishes the deletion on its own; the record keeps who began it.
+		if err := m.auditChange(ctx, tx, audit.Event{
+			Action:        "user.deleted",
+			Actor:         audit.Actor{Kind: audit.ActorSystem},
+			Target:        audit.Target{Kind: auditTargetUser, ID: targetUserID, Label: username},
+			Metadata:      map[string]any{"started_by": actorUserID.String},
+			CorrelationID: eventID,
+		}); err != nil {
+			return err
 		}
 		result, err := tx.ExecContext(ctx, `DELETE FROM users WHERE id = ? AND deletion_pending = 1`, targetUserID)
 		if err != nil {

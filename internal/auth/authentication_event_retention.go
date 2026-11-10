@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cristianadrielbraun/gofer/internal/audit"
 	"github.com/cristianadrielbraun/gofer/internal/authz"
 )
 
@@ -185,6 +186,14 @@ func (m *Manager) SetAuthenticationEventRetention(
 			AuthEventReasonAdministratorAction, string(metadata),
 		); err != nil {
 			return fmt.Errorf("record authentication event retention change: %w", err)
+		}
+		if err := m.auditAdministratorChange(ctx, tx, actorUserID, actorSessionID, audit.Event{
+			Action:        "instance.security_retention_changed",
+			Target:        audit.Target{Kind: auditTargetInstance},
+			Changes:       map[string]audit.Change{"security_event_retention_days": {From: currentDays, To: options.Days}},
+			CorrelationID: eventID,
+		}); err != nil {
+			return err
 		}
 
 		result.Policy = AuthenticationEventRetentionPolicy{

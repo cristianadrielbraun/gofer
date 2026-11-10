@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"errors"
+	"github.com/cristianadrielbraun/gofer/internal/audit"
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"log"
 	"net/http"
@@ -226,7 +227,13 @@ func (h *Handler) handleAddMailAllowlistDomain(w http.ResponseWriter, r *http.Re
 
 func (h *Handler) addMailAllowlistEntry(w http.ResponseWriter, r *http.Request, kind string) {
 	h.changeMailAllowlist(w, r, func(ctx context.Context, admin string) (string, error) {
-		value, err := h.db.AddMailAllowlistEntry(ctx, kind, r.FormValue("value"), admin)
+		normalized, _ := storage.NormalizeMailAllowlistEntry(kind, r.FormValue("value"))
+		recorded := h.withAdminAudit(ctx, r, audit.Event{
+			Action:   "security.allowlist_entry_added",
+			Target:   audit.Target{Kind: auditTargetAllowlist, Label: normalized},
+			Metadata: map[string]any{"list": kind, "value": normalized},
+		})
+		value, err := h.db.AddMailAllowlistEntry(recorded, kind, r.FormValue("value"), admin)
 		if errors.Is(err, storage.ErrMailAllowlistEntry) {
 			if kind == storage.MailAllowlistDomain {
 				return "", errors.New(i18n.T(r.Context(), "auth.allowlist.domain_invalid"))
@@ -246,7 +253,11 @@ func (h *Handler) addMailAllowlistEntry(w http.ResponseWriter, r *http.Request, 
 
 func (h *Handler) handleDeleteMailAllowlistEntry(w http.ResponseWriter, r *http.Request) {
 	h.changeMailAllowlist(w, r, func(ctx context.Context, _ string) (string, error) {
-		if err := h.db.DeleteMailAllowlistEntry(ctx, r.PathValue("id")); err != nil {
+		recorded := h.withAdminAudit(ctx, r, audit.Event{
+			Action: "security.allowlist_entry_removed",
+			Target: audit.Target{Kind: auditTargetAllowlist, ID: r.PathValue("id")},
+		})
+		if err := h.db.DeleteMailAllowlistEntry(recorded, r.PathValue("id")); err != nil {
 			log.Printf("allowed mail lists: remove entry: %v", err)
 			return "", errors.New(i18n.T(r.Context(), "auth.allowlist.remove_failed"))
 		}
@@ -261,7 +272,12 @@ func (h *Handler) handleSetMailAllowlistProvider(w http.ResponseWriter, r *http.
 		if provider != providers.ProviderGmail && provider != providers.ProviderOutlook {
 			return "", errors.New(i18n.T(r.Context(), "auth.allowlist.choose_provider"))
 		}
-		if err := h.db.SetMailAllowlistProvider(ctx, provider, allowed, admin); err != nil {
+		recorded := h.withAdminAudit(ctx, r, audit.Event{
+			Action:   "security.allowlist_provider_changed",
+			Target:   audit.Target{Kind: auditTargetAllowlist, Label: provider},
+			Metadata: map[string]any{"provider": provider, "allowed": allowed},
+		})
+		if err := h.db.SetMailAllowlistProvider(recorded, provider, allowed, admin); err != nil {
 			log.Printf("allowed mail lists: set %s: %v", provider, err)
 			return "", errors.New(i18n.T(r.Context(), "auth.allowlist.change_failed"))
 		}
@@ -294,7 +310,12 @@ func (h *Handler) handleSetMailAllowlistExempt(w http.ResponseWriter, r *http.Re
 		if username == "" {
 			return "", errors.New(i18n.T(r.Context(), "auth.allowlist.choose_user"))
 		}
-		if err := h.db.SetMailAllowlistExempt(ctx, userID, exempt, admin); err != nil {
+		recorded := h.withAdminAudit(ctx, r, audit.Event{
+			Action:   "security.allowlist_exemption_changed",
+			Target:   audit.Target{Kind: auditTargetUser, ID: userID, Label: username},
+			Metadata: map[string]any{"exempt": exempt},
+		})
+		if err := h.db.SetMailAllowlistExempt(recorded, userID, exempt, admin); err != nil {
 			log.Printf("allowed mail lists: exempt %s: %v", userID, err)
 			return "", errors.New(i18n.T(r.Context(), "auth.allowlist.change_failed"))
 		}

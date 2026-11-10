@@ -205,7 +205,8 @@ func (h *Handler) handleAddHTTPDiscoveryException(w http.ResponseWriter, r *http
 		h.redirectAdminSecurity(w, r, "", i18n.T(r.Context(), "auth.admin.access_lost"))
 		return
 	}
-	if err := h.db.AddHTTPDiscoveryException(r.Context(), domain, user); err != nil {
+	recorded := h.withAdminAudit(r.Context(), r, exceptionAuditEvent("security.exception_added", "", string(models.MailSecurityExceptionHTTPDiscovery), "", domain, 0))
+	if err := h.db.AddHTTPDiscoveryException(recorded, domain, user); err != nil {
 		h.redirectAdminSecurity(w, r, "", i18n.T(r.Context(), "auth.admin.exception.http_failed"))
 		return
 	}
@@ -240,7 +241,8 @@ func (h *Handler) handleAddPlaintextTransportException(w http.ResponseWriter, r 
 		h.redirectAdminSecurity(w, r, "", i18n.T(r.Context(), "auth.admin.access_lost"))
 		return
 	}
-	if err := h.db.AddPlaintextTransportException(r.Context(), protocol, host, port, h.userID(r.Context())); err != nil {
+	recorded := h.withAdminAudit(r.Context(), r, exceptionAuditEvent("security.exception_added", "", string(models.MailSecurityExceptionPlaintextTransport), protocol, host, port))
+	if err := h.db.AddPlaintextTransportException(recorded, protocol, host, port, h.userID(r.Context())); err != nil {
 		h.redirectAdminSecurity(w, r, "", i18n.T(r.Context(), "auth.admin.exception.plaintext_failed"))
 		return
 	}
@@ -276,7 +278,8 @@ func (h *Handler) handleAddPrivateTargetException(w http.ResponseWriter, r *http
 		h.redirectAdminSecurity(w, r, "", i18n.T(r.Context(), "auth.admin.access_lost"))
 		return
 	}
-	if err := h.db.AddPrivateTargetException(r.Context(), protocol, host, port, h.userID(r.Context())); err != nil {
+	recorded := h.withAdminAudit(r.Context(), r, exceptionAuditEvent("security.exception_added", "", string(models.MailSecurityExceptionPrivateTarget), protocol, host, port))
+	if err := h.db.AddPrivateTargetException(recorded, protocol, host, port, h.userID(r.Context())); err != nil {
 		h.redirectAdminSecurity(w, r, "", i18n.T(r.Context(), "auth.admin.exception.private_failed"))
 		return
 	}
@@ -370,7 +373,8 @@ func (h *Handler) handleDeleteMailSecurityException(w http.ResponseWriter, r *ht
 		h.redirectAdminSecurity(w, r, "", i18n.T(r.Context(), "auth.admin.access_lost"))
 		return
 	}
-	if err := h.db.DeleteMailSecurityException(r.Context(), id); err != nil {
+	recorded := h.withAdminAudit(r.Context(), r, exceptionAuditEvent("security.exception_removed", id, string(item.Kind), item.Protocol, item.Host, item.Port))
+	if err := h.db.DeleteMailSecurityException(recorded, id); err != nil {
 		h.redirectAdminSecurity(w, r, "", i18n.T(r.Context(), "auth.admin.exception.revoke_failed"))
 		return
 	}

@@ -331,15 +331,17 @@ func (db *DB) SetOutboundProxyEveryone(ctx context.Context, proxyID string, ever
 	if everyone {
 		value = 1
 	}
-	result, err := db.write.ExecContext(ctx, `UPDATE outbound_proxies SET everyone = ?, updated_at = CURRENT_TIMESTAMP
-		WHERE id = ? AND owner_user_id IS NULL`, value, proxyID)
-	if err != nil {
-		return err
-	}
-	if n, _ := result.RowsAffected(); n == 0 {
-		return ErrOutboundProxyNotFound
-	}
-	return nil
+	return db.inChangeTx(ctx, func(tx *sql.Tx) (bool, error) {
+		result, err := tx.ExecContext(ctx, `UPDATE outbound_proxies SET everyone = ?, updated_at = CURRENT_TIMESTAMP
+			WHERE id = ? AND owner_user_id IS NULL`, value, proxyID)
+		if err != nil {
+			return false, err
+		}
+		if n, _ := result.RowsAffected(); n == 0 {
+			return false, ErrOutboundProxyNotFound
+		}
+		return true, nil
+	})
 }
 
 // SetOutboundProxyUser chooses a person for an administrator's proxy, or
@@ -348,14 +350,21 @@ func (db *DB) SetOutboundProxyUser(ctx context.Context, proxyID, userID string, 
 	if _, err := db.GetOutboundProxy(ctx, proxyID); err != nil {
 		return err
 	}
-	if !chosen {
-		_, err := db.write.ExecContext(ctx, `DELETE FROM outbound_proxy_users WHERE proxy_id = ? AND user_id = ?`, proxyID, userID)
-		return err
-	}
-	_, err := db.write.ExecContext(ctx, `INSERT INTO outbound_proxy_users (proxy_id, user_id)
-		SELECT id, ? FROM outbound_proxies WHERE id = ? AND owner_user_id IS NULL
-		ON CONFLICT(proxy_id, user_id) DO NOTHING`, userID, proxyID)
-	return err
+	return db.inChangeTx(ctx, func(tx *sql.Tx) (bool, error) {
+		var result sql.Result
+		var err error
+		if chosen {
+			result, err = tx.ExecContext(ctx, `INSERT INTO outbound_proxy_users (proxy_id, user_id)
+				SELECT id, ? FROM outbound_proxies WHERE id = ? AND owner_user_id IS NULL
+				ON CONFLICT(proxy_id, user_id) DO NOTHING`, userID, proxyID)
+		} else {
+			result, err = tx.ExecContext(ctx, `DELETE FROM outbound_proxy_users WHERE proxy_id = ? AND user_id = ?`, proxyID, userID)
+		}
+		if err != nil {
+			return false, err
+		}
+		return rowsChanged(result)
+	})
 }
 
 // PeopleMayAddOutboundProxies reports whether the administrator lets people
@@ -374,9 +383,15 @@ func (db *DB) SetPeopleMayAddOutboundProxies(ctx context.Context, allowed bool) 
 	if allowed {
 		value = 1
 	}
-	_, err := db.write.ExecContext(ctx, `INSERT INTO outbound_proxy_policy (singleton, people_add) VALUES (1, ?)
-		ON CONFLICT(singleton) DO UPDATE SET people_add = excluded.people_add`, value)
-	return err
+	return db.inChangeTx(ctx, func(tx *sql.Tx) (bool, error) {
+		result, err := tx.ExecContext(ctx, `INSERT INTO outbound_proxy_policy (singleton, people_add) VALUES (1, ?)
+			ON CONFLICT(singleton) DO UPDATE SET people_add = excluded.people_add
+			WHERE people_add != excluded.people_add`, value)
+		if err != nil {
+			return false, err
+		}
+		return rowsChanged(result)
+	})
 }
 
 // NewOutboundProxyID returns an id for a proxy about to be created, so its
@@ -439,6 +454,9 @@ func (db *DB) SaveOutboundProxy(ctx context.Context, p OutboundProxy, createdBy 
 		p.ID, p.Name, p.Type, p.Host, p.Port, p.Username, p.EncryptedPassword, isDefault, ownerValue, everyone, strings.TrimSpace(createdBy)); err != nil {
 		return err
 	}
+	if err := recordChangeTx(ctx, tx); err != nil {
+		return err
+	}
 	return tx.Commit()
 }
 
@@ -447,14 +465,16 @@ func (db *DB) SaveOutboundProxy(ctx context.Context, p OutboundProxy, createdBy 
 // databases and keep its id; they connect as on the default until someone
 // picks another.
 func (db *DB) DeleteOutboundProxy(ctx context.Context, ownerUserID, id string) error {
-	result, err := db.write.ExecContext(ctx, `DELETE FROM outbound_proxies WHERE id = ? AND COALESCE(owner_user_id, '') = ?`, id, ownerUserID)
-	if err != nil {
-		return err
-	}
-	if n, _ := result.RowsAffected(); n == 0 {
-		return ErrOutboundProxyNotFound
-	}
-	return nil
+	return db.inChangeTx(ctx, func(tx *sql.Tx) (bool, error) {
+		result, err := tx.ExecContext(ctx, `DELETE FROM outbound_proxies WHERE id = ? AND COALESCE(owner_user_id, '') = ?`, id, ownerUserID)
+		if err != nil {
+			return false, err
+		}
+		if n, _ := result.RowsAffected(); n == 0 {
+			return false, ErrOutboundProxyNotFound
+		}
+		return true, nil
+	})
 }
 
 // GetAccountProxyChoice returns the proxy the account chose: a proxy's id,

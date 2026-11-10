@@ -28,12 +28,17 @@ func (db *DB) AddHTTPDiscoveryException(ctx context.Context, domain, createdBy s
 	if domain == "" {
 		return fmt.Errorf("discovery domain is required")
 	}
-	_, err := db.write.ExecContext(ctx, `
-		INSERT INTO mail_security_exceptions (id, kind, host, created_by)
-		VALUES (?, ?, ?, ?)
-		ON CONFLICT(kind, protocol, host, port) DO NOTHING`,
-		uuid.NewString(), models.MailSecurityExceptionHTTPDiscovery, domain, strings.TrimSpace(createdBy))
-	return err
+	return db.inChangeTx(ctx, func(tx *sql.Tx) (bool, error) {
+		result, err := tx.ExecContext(ctx, `
+			INSERT INTO mail_security_exceptions (id, kind, host, created_by)
+			VALUES (?, ?, ?, ?)
+			ON CONFLICT(kind, protocol, host, port) DO NOTHING`,
+			uuid.NewString(), models.MailSecurityExceptionHTTPDiscovery, domain, strings.TrimSpace(createdBy))
+		if err != nil {
+			return false, err
+		}
+		return rowsChanged(result)
+	})
 }
 
 func (db *DB) AddPlaintextTransportException(ctx context.Context, protocol, host string, port int, createdBy string) error {
@@ -48,12 +53,17 @@ func (db *DB) AddPlaintextTransportException(ctx context.Context, protocol, host
 	if port < 1 || port > 65535 {
 		return fmt.Errorf("server port must be between 1 and 65535")
 	}
-	_, err := db.write.ExecContext(ctx, `
-		INSERT INTO mail_security_exceptions (id, kind, protocol, host, port, created_by)
-		VALUES (?, ?, ?, ?, ?, ?)
-		ON CONFLICT(kind, protocol, host, port) DO NOTHING`,
-		uuid.NewString(), models.MailSecurityExceptionPlaintextTransport, protocol, host, port, strings.TrimSpace(createdBy))
-	return err
+	return db.inChangeTx(ctx, func(tx *sql.Tx) (bool, error) {
+		result, err := tx.ExecContext(ctx, `
+			INSERT INTO mail_security_exceptions (id, kind, protocol, host, port, created_by)
+			VALUES (?, ?, ?, ?, ?, ?)
+			ON CONFLICT(kind, protocol, host, port) DO NOTHING`,
+			uuid.NewString(), models.MailSecurityExceptionPlaintextTransport, protocol, host, port, strings.TrimSpace(createdBy))
+		if err != nil {
+			return false, err
+		}
+		return rowsChanged(result)
+	})
 }
 
 func (db *DB) AddPrivateTargetException(ctx context.Context, protocol, host string, port int, createdBy string) error {
@@ -68,17 +78,27 @@ func (db *DB) AddPrivateTargetException(ctx context.Context, protocol, host stri
 	if port < 1 || port > 65535 {
 		return fmt.Errorf("target port must be between 1 and 65535")
 	}
-	_, err := db.write.ExecContext(ctx, `
-		INSERT INTO mail_security_exceptions (id, kind, protocol, host, port, created_by)
-		VALUES (?, ?, ?, ?, ?, ?)
-		ON CONFLICT(kind, protocol, host, port) DO NOTHING`,
-		uuid.NewString(), models.MailSecurityExceptionPrivateTarget, protocol, host, port, strings.TrimSpace(createdBy))
-	return err
+	return db.inChangeTx(ctx, func(tx *sql.Tx) (bool, error) {
+		result, err := tx.ExecContext(ctx, `
+			INSERT INTO mail_security_exceptions (id, kind, protocol, host, port, created_by)
+			VALUES (?, ?, ?, ?, ?, ?)
+			ON CONFLICT(kind, protocol, host, port) DO NOTHING`,
+			uuid.NewString(), models.MailSecurityExceptionPrivateTarget, protocol, host, port, strings.TrimSpace(createdBy))
+		if err != nil {
+			return false, err
+		}
+		return rowsChanged(result)
+	})
 }
 
 func (db *DB) DeleteMailSecurityException(ctx context.Context, id string) error {
-	_, err := db.write.ExecContext(ctx, `DELETE FROM mail_security_exceptions WHERE id = ?`, strings.TrimSpace(id))
-	return err
+	return db.inChangeTx(ctx, func(tx *sql.Tx) (bool, error) {
+		result, err := tx.ExecContext(ctx, `DELETE FROM mail_security_exceptions WHERE id = ?`, strings.TrimSpace(id))
+		if err != nil {
+			return false, err
+		}
+		return rowsChanged(result)
+	})
 }
 
 func (db *DB) IsHTTPDiscoveryAllowed(ctx context.Context, domain string) (bool, error) {

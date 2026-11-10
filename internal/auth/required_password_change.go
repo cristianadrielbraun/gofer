@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 
+	"github.com/cristianadrielbraun/gofer/internal/audit"
 	"github.com/cristianadrielbraun/gofer/internal/authz"
 )
 
@@ -44,6 +45,13 @@ func (m *Manager) RequirePasswordChange(ctx context.Context, options RequirePass
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, `UPDATE sessions SET revoked_at = ?, revoked_by = ?, revocation_reason = ? WHERE user_id = ? AND revoked_at IS NULL`, now, options.CreatedBy, SessionRevocationCredentialReset, options.UserID); err != nil {
+			return err
+		}
+		if err := m.auditAdministratorChange(ctx, tx, options.CreatedBy, options.ActorSessionID, audit.Event{
+			Action:  "user.password_change_required",
+			Target:  audit.Target{Kind: auditTargetUser, ID: options.UserID},
+			Changes: map[string]audit.Change{"must_change_password": {From: false, To: true}},
+		}); err != nil {
 			return err
 		}
 		return m.appendTransitionEvent(ctx, tx, options.CreatedBy, options.UserID, options.ActorSessionID, AuthEventPasswordChangeRequired, true, AuthEventReasonAdministratorAction, transitionEventMetadata{})

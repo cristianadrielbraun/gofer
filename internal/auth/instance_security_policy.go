@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cristianadrielbraun/gofer/internal/audit"
 	"github.com/cristianadrielbraun/gofer/internal/authz"
 )
 
@@ -271,6 +272,15 @@ func (m *Manager) SetInstanceMFAPolicy(ctx context.Context, options SetInstanceM
 			AuthEventReasonAdministratorAction, string(metadata),
 		); err != nil {
 			return fmt.Errorf("record instance MFA policy change: %w", err)
+		}
+		if err := m.auditAdministratorChange(ctx, tx, actorUserID, actorSessionID, audit.Event{
+			Action:        "instance.mfa_policy_changed",
+			Target:        audit.Target{Kind: auditTargetInstance},
+			Changes:       map[string]audit.Change{"mfa_policy": {From: current, To: options.Policy}},
+			Metadata:      map[string]any{"revoked_sessions": result.RevokedSessions},
+			CorrelationID: eventID,
+		}); err != nil {
+			return err
 		}
 
 		result.Policy = InstanceSecurityPolicy{

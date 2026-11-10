@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/cristianadrielbraun/gofer/internal/audit"
 	"github.com/cristianadrielbraun/gofer/internal/authz"
 )
 
@@ -111,6 +112,19 @@ func (m *Manager) SetAdministratorUserStatus(
 			eventType, AuthEventReasonAdministratorAction, string(metadata),
 		); err != nil {
 			return fmt.Errorf("record user status change: %w", err)
+		}
+		action := "user.disabled"
+		if options.Status == UserStatusActive {
+			action = "user.enabled"
+		}
+		if err := m.auditAdministratorChange(ctx, tx, actorUserID, actorSessionID, audit.Event{
+			Action:        action,
+			Target:        audit.Target{Kind: auditTargetUser, ID: targetUserID},
+			Changes:       map[string]audit.Change{"status": {From: transition.From, To: transition.To}},
+			Metadata:      map[string]any{"revoked_sessions": transition.RevokedSessions},
+			CorrelationID: eventID,
+		}); err != nil {
+			return err
 		}
 		result.Changed = transition.Changed
 		result.RevokedSessions = transition.RevokedSessions

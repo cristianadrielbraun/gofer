@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/cristianadrielbraun/gofer/internal/audit"
 	"github.com/cristianadrielbraun/gofer/internal/authz"
 )
 
@@ -113,6 +114,18 @@ func (m *Manager) SetAdministratorUserMFAPolicy(
 			AuthEventSecurityPolicyChanged, AuthEventReasonAdministratorAction, string(metadata),
 		); err != nil {
 			return fmt.Errorf("record user MFA policy change: %w", err)
+		}
+		action := "user.mfa_cleared"
+		if options.Required {
+			action = "user.mfa_required"
+		}
+		if err := m.auditAdministratorChange(ctx, tx, actorUserID, actorSessionID, audit.Event{
+			Action:        action,
+			Target:        audit.Target{Kind: auditTargetUser, ID: targetUserID},
+			Changes:       map[string]audit.Change{"mfa_required": {From: current, To: options.Required}},
+			CorrelationID: eventID,
+		}); err != nil {
+			return err
 		}
 		result.Changed = true
 		return nil

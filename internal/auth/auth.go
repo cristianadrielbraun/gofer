@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/cristianadrielbraun/gofer/internal/audit"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
@@ -317,6 +318,9 @@ type Manager struct {
 	oidcEndpoint               *oauth2.Endpoint
 	passkeyRegistrationFactory passkeyRegistrationFactory
 	passkeyAssertionFactory    passkeyAssertionFactory
+	// audit records administrative changes, chained with a key derived
+	// from the same instance secret as bucketHashKey.
+	audit *audit.Writer
 }
 
 func NewManager(config *Config, db *storage.DB, dependencies ...Dependencies) *Manager {
@@ -368,6 +372,9 @@ func NewManager(config *Config, db *storage.DB, dependencies ...Dependencies) *M
 		oidcIDTokenVerifier:        deps.OIDCIDTokenVerifier,
 		passkeyRegistrationFactory: newPasskeyRegistrationCeremony,
 		passkeyAssertionFactory:    newPasskeyAssertionCeremony,
+		// Audit events name themselves, so the token generator's sequence
+		// (deterministic in tests) is the same with or without them.
+		audit: audit.NewWriter(audit.DeriveKey(deps.BucketHashKey), audit.WithClock(deps.Clock.Now)),
 	}
 }
 

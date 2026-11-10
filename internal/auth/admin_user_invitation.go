@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cristianadrielbraun/gofer/internal/audit"
 	"github.com/cristianadrielbraun/gofer/internal/authz"
 )
 
@@ -112,6 +113,19 @@ func (m *Manager) CreateAdministratorUserInvitation(ctx context.Context, options
 			AuthEventEnrollmentIssued, AuthEventReasonAdministratorAction, metadata,
 		); err != nil {
 			return fmt.Errorf("record invited user enrollment issuance: %w", err)
+		}
+		if err := m.auditAdministratorChange(ctx, tx, actorUserID, actorSessionID, audit.Event{
+			Action: "user.invited",
+			Target: audit.Target{Kind: auditTargetUser, ID: invitation.result.User.ID, Label: invitation.result.User.Username},
+			Changes: map[string]audit.Change{
+				"name":     {To: invitation.result.Name},
+				"username": {To: invitation.result.User.Username},
+				"status":   {To: UserStatusPending},
+			},
+			Metadata:      map[string]any{"invitation_expires_at": invitation.result.Token.ExpiresAt.UTC()},
+			CorrelationID: eventID,
+		}); err != nil {
+			return err
 		}
 		return nil
 	})
@@ -368,6 +382,14 @@ func (m *Manager) RevokeAdministratorUserInvitation(
 		); err != nil {
 			return fmt.Errorf("record administrator invitation revocation: %w", err)
 		}
+		if err := m.auditAdministratorChange(ctx, tx, actorUserID, actorSessionID, audit.Event{
+			Action:        "invitation.revoked",
+			Target:        audit.Target{Kind: auditTargetUser, ID: target.ID, Label: target.Username},
+			Metadata:      map[string]any{"revoked_count": revokedCount},
+			CorrelationID: eventID,
+		}); err != nil {
+			return err
+		}
 		return nil
 	})
 }
@@ -416,6 +438,16 @@ func (m *Manager) RotateAdministratorUserInvitation(
 		if err != nil {
 			return err
 		}
+		// Replacing a working invitation is a rotation; one that expired or
+		// was revoked gets a new one issued.
+		var working int
+		if err := tx.QueryRowContext(ctx, `
+			SELECT COUNT(*) FROM user_enrollment_tokens
+			WHERE user_id = ? AND purpose = 'enrollment'
+			  AND used_at IS NULL AND revoked_at IS NULL AND expires_at > ?`, target.ID, now,
+		).Scan(&working); err != nil {
+			return fmt.Errorf("check working administrator invitations: %w", err)
+		}
 		replaced, err := tx.ExecContext(ctx, `
 			UPDATE user_enrollment_tokens SET revoked_at = ?
 			WHERE user_id = ? AND purpose = 'enrollment'
@@ -453,6 +485,18 @@ func (m *Manager) RotateAdministratorUserInvitation(
 			AuthEventEnrollmentIssued, AuthEventReasonAdministratorAction, metadata,
 		); err != nil {
 			return fmt.Errorf("record rotated administrator invitation: %w", err)
+		}
+		action := "invitation.issued"
+		if working > 0 {
+			action = "invitation.rotated"
+		}
+		if err := m.auditAdministratorChange(ctx, tx, actorUserID, actorSessionID, audit.Event{
+			Action:        action,
+			Target:        audit.Target{Kind: auditTargetUser, ID: target.ID, Label: target.Username},
+			Metadata:      map[string]any{"replaced_count": replacedCount, "invitation_expires_at": token.ExpiresAt.UTC()},
+			CorrelationID: eventID,
+		}); err != nil {
+			return err
 		}
 		invitation = &AdministratorUserInvitation{
 			Name: target.Name,

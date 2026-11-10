@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cristianadrielbraun/gofer/internal/audit"
 	"github.com/cristianadrielbraun/gofer/internal/authz"
 )
 
@@ -182,6 +183,14 @@ func (m *Manager) IssueEnrollmentToken(ctx context.Context, options IssueEnrollm
 		); err != nil {
 			return fmt.Errorf("record enrollment token issuance: %w", err)
 		}
+		if err := m.auditAdministratorChange(ctx, tx, createdBy, actorSessionID, audit.Event{
+			Action:        enrollmentTokenAuditAction(token.Purpose, "issued"),
+			Target:        audit.Target{Kind: auditTargetUser, ID: userID},
+			Metadata:      map[string]any{"replaced_count": replacedCount, "expires_at": token.ExpiresAt.UTC()},
+			CorrelationID: eventID,
+		}); err != nil {
+			return err
+		}
 		return nil
 	})
 	if err != nil {
@@ -272,6 +281,13 @@ func (m *Manager) RevokeEnrollmentToken(ctx context.Context, actorID, actorSessi
 			AuthEventReasonAdministratorAction, metadata,
 		); err != nil {
 			return fmt.Errorf("record enrollment token revocation: %w", err)
+		}
+		if err := m.auditAdministratorChange(ctx, tx, actorID, actorSessionID, audit.Event{
+			Action:        enrollmentTokenAuditAction(purpose, "revoked"),
+			Target:        audit.Target{Kind: auditTargetUser, ID: userID},
+			CorrelationID: eventID,
+		}); err != nil {
+			return err
 		}
 		revoked = true
 		return nil
