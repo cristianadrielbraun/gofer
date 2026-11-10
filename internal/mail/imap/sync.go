@@ -282,13 +282,21 @@ func (c *Client) SyncFolderIncremental(ctx context.Context, folderID, remoteName
 	}
 	result.HighestUID = highestUID
 
-	uidNext := uint32(selectData.UIDNext)
-	if highestUID+1 >= uidNext {
-		return result, nil
-	}
-
+	// UIDNEXT bounds the new mail. Some servers, such as imap.139.com and
+	// imap.163.com, leave it out of the SELECT reply, so there the range runs
+	// to the last message instead. "n:*" includes the last message even when
+	// n is past it, but go-imap drops that reply as outside the UID set.
 	var uidSet imap.UIDSet
-	uidSet.AddRange(imap.UID(highestUID+1), imap.UID(uidNext-1))
+	if uidNext := uint32(selectData.UIDNext); uidNext > 0 {
+		if highestUID+1 >= uidNext {
+			return result, nil
+		}
+		uidSet.AddRange(imap.UID(highestUID+1), imap.UID(uidNext-1))
+	} else if selectData.NumMessages == 0 {
+		return result, nil
+	} else {
+		uidSet = imap.UIDSet{{Start: imap.UID(highestUID + 1), Stop: 0}}
+	}
 
 	fetchOpts := &imap.FetchOptions{
 		UID:          true,
