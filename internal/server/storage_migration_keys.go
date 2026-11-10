@@ -14,6 +14,13 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
 
+// LoadExistingSecretKey reads the instance secret of the database at path,
+// for tools that verify what it protects, such as the audit log's chain. It
+// never creates one.
+func LoadExistingSecretKey(path string) ([]byte, error) {
+	return loadExistingMigrationKey(path)
+}
+
 // Migration must never fall back to generating/replacing an application secret.
 // Retain the ordinary runtime's environment-over-file precedence.
 func loadExistingMigrationKey(sourcePath string) ([]byte, error) {

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/cristianadrielbraun/gofer/internal/auditoperator"
 	"github.com/cristianadrielbraun/gofer/internal/auth"
 	"github.com/cristianadrielbraun/gofer/internal/authoperator"
 	"github.com/cristianadrielbraun/gofer/internal/server"
@@ -52,6 +53,10 @@ Authentication:
   gofer auth recover (--user-id <id> | --username <name>) --confirm <same value>
   gofer auth sessions revoke (--user-id <id> | --username <name>) --confirm <same value>
 
+Administration:
+  gofer admin audit verify
+  gofer admin audit export [--format csv|jsonl] [--since <time>] [--until <time>] [--action <action>]
+
 Storage:
   gofer storage inspect [--db PATH]
   gofer storage migrate [--db PATH] --to PATH [--working-dir PATH] [--retry]
@@ -65,6 +70,12 @@ func runApplication(ctx context.Context, args []string, stdout, stderr io.Writer
 	}
 	if handled, exitCode := runAuthCommand(ctx, args, stdout, stderr); handled {
 		return exitCode
+	}
+	if len(args) > 0 && args[0] == "admin" {
+		databasePath := server.ConfiguredDatabasePath()
+		return auditoperator.Run(ctx, args[1:], databasePath, func() ([]byte, error) {
+			return server.LoadExistingSecretKey(databasePath)
+		}, stdout, stderr)
 	}
 	if handled, exitCode := server.RunStorageCommand(ctx, args, stdout, stderr); handled {
 		return exitCode
