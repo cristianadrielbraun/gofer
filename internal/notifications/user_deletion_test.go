@@ -3,6 +3,8 @@ package notifications
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -71,6 +73,30 @@ func (b *userDeletionBrowser) delete(t *testing.T, owner, confirmation string, c
 	w := httptest.NewRecorder()
 	b.http.ServeHTTP(w, req)
 	return w
+}
+
+// adminFlashText is the message the admin console shows as a toast after
+// w's redirect. The handler signs the cookie; this only reads its text.
+func adminFlashText(t *testing.T, w *httptest.ResponseRecorder) string {
+	t.Helper()
+	for _, cookie := range w.Result().Cookies() {
+		if cookie.Name != "gofer_admin_flash" || cookie.MaxAge < 0 {
+			continue
+		}
+		encoded, _, _ := strings.Cut(cookie.Value, ".")
+		payload, err := base64.RawURLEncoding.DecodeString(encoded)
+		if err != nil {
+			t.Fatalf("admin flash cookie %q: %v", cookie.Value, err)
+		}
+		var flash struct {
+			Message string `json:"m"`
+		}
+		if err := json.Unmarshal(payload, &flash); err != nil {
+			t.Fatalf("admin flash cookie %q: %v", cookie.Value, err)
+		}
+		return flash.Message
+	}
+	return ""
 }
 
 func deletionSQLInt(t *testing.T, f *userStorageFixture, query string, args ...any) int {
@@ -246,11 +272,8 @@ func TestOwnedUserDeletionHTTPDrainsNativeWorkAndUploads(t *testing.T) {
 		if w.Code != http.StatusSeeOther {
 			t.Fatal("queued deletion", i, w.Code, w.Body.String())
 		}
-		if i == 32 {
-			location, err := url.Parse(w.Header().Get("Location"))
-			if err != nil || !strings.Contains(location.Query().Get("notice"), "pending") {
-				t.Fatal("queue overflow lost its pending notice", w.Header(), err)
-			}
+		if i == 32 && !strings.Contains(adminFlashText(t, w), "pending") {
+			t.Fatal("queue overflow lost its pending notice", w.Header())
 		}
 	}
 	if w := b.delete(t, "queue-000", "queue-000", true); w.Code != http.StatusSeeOther {
