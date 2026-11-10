@@ -27,15 +27,15 @@ func TestActionsFor(t *testing.T) {
 		policy auth.InstanceMFAPolicy
 		want   UserActions
 	}{
-		{"active webmail user", active, auth.InstanceMFAPolicyAdministrators, UserActions{SetStatus: true, IssueCredentialReset: true, RequirePasswordChange: true, SetMFARequirement: true}},
-		{"no password to change", noPassword, auth.InstanceMFAPolicyAdministrators, UserActions{SetStatus: true, IssueCredentialReset: true, SetMFARequirement: true}},
+		{"active webmail user", active, auth.InstanceMFAPolicyAdministrators, UserActions{SetStatus: true, IssueCredentialReset: true, RequirePasswordChange: true, SetMFARequirement: true, SignOut: true}},
+		{"no password to change", noPassword, auth.InstanceMFAPolicyAdministrators, UserActions{SetStatus: true, IssueCredentialReset: true, SetMFARequirement: true, SignOut: true}},
 		{"disabled can be deleted", disabled, auth.InstanceMFAPolicyAdministrators, UserActions{SetStatus: true, IssueCredentialReset: true, RequirePasswordChange: true, Delete: true, SetMFARequirement: true}},
 		{"a stopped deletion resumes", deleting, auth.InstanceMFAPolicyAdministrators, UserActions{Delete: true}},
 		{"the instance owner stays", protected, auth.InstanceMFAPolicyAdministrators, UserActions{SetStatus: true, IssueCredentialReset: true, RequirePasswordChange: true, SetMFARequirement: true}},
 		{"pending has an invitation", pending, auth.InstanceMFAPolicyAdministrators, UserActions{ManageInvitation: true, SetMFARequirement: true}},
-		{"everyone needs 2FA already", active, auth.InstanceMFAPolicyAllUsers, UserActions{SetStatus: true, IssueCredentialReset: true, RequirePasswordChange: true}},
-		{"a requirement can be cleared under any policy", required, auth.InstanceMFAPolicyAllUsers, UserActions{SetStatus: true, IssueCredentialReset: true, RequirePasswordChange: true, SetMFARequirement: true}},
-		{"another administrator", administrator, auth.InstanceMFAPolicyAdministrators, UserActions{SetStatus: true}},
+		{"everyone needs 2FA already", active, auth.InstanceMFAPolicyAllUsers, UserActions{SetStatus: true, IssueCredentialReset: true, RequirePasswordChange: true, SignOut: true}},
+		{"a requirement can be cleared under any policy", required, auth.InstanceMFAPolicyAllUsers, UserActions{SetStatus: true, IssueCredentialReset: true, RequirePasswordChange: true, SetMFARequirement: true, SignOut: true}},
+		{"another administrator", administrator, auth.InstanceMFAPolicyAdministrators, UserActions{SetStatus: true, SignOut: true}},
 		{"oneself", auth.AdministratorUserSummary{ID: "head-admin", Status: auth.UserStatusActive, UserType: auth.UserTypeManagement, IsAdmin: true}, auth.InstanceMFAPolicyAdministrators, UserActions{}},
 	} {
 		if got := ActionsFor("head-admin", test.user, test.policy); got != test.want {

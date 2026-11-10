@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/cristianadrielbraun/gofer/internal/admin"
 	"github.com/cristianadrielbraun/gofer/internal/auth"
 	"github.com/cristianadrielbraun/gofer/internal/views"
 )
@@ -110,6 +111,13 @@ func (h *Handler) registerAdministrationRoutes(mux *http.ServeMux) {
 	adminRoute("POST /admin/users/{userID}/credential-reset", h.handleIssueAdminUserCredentialReset)
 	adminRoute("POST /admin/users/{userID}/require-password-change", h.handleRequireUserPasswordChange)
 	adminRoute("POST /admin/users/{userID}/delete", h.handleDeleteAdminUser)
+	adminRoute("POST /admin/users/{userID}/sign-out", h.handleSignOutAdminUser)
+	// Each change to many people has an address of its own: a pattern with
+	// the change as a wildcard would overlap /admin/users/{userID}/….
+	for _, action := range admin.BulkActions {
+		adminRoute("GET "+adminUsersBulkPath(action), h.handleAdminUsersBulkDialog(action))
+		adminRoute("POST "+adminUsersBulkPath(action), h.handleAdminUsersBulk(action))
+	}
 	adminRoute("GET /admin/security", h.handleAdminSecurity)
 	adminRoute("POST /admin/security/http-discovery", h.handleAddHTTPDiscoveryException)
 	adminRoute("POST /admin/security/plaintext", h.handleAddPlaintextTransportException)

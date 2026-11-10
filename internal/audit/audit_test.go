@@ -369,3 +369,35 @@ func disabledWithoutClient(target string) audit.Event {
 	event.Client = audit.Client{}
 	return event
 }
+
+func TestWithCorrelationTiesChangesTogether(t *testing.T) {
+	f := newFixture(t)
+	tx, err := f.db.Write().BeginTx(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	own := disabled("milo.rivers")
+	own.CorrelationID = "change-of-one"
+	alone, err := f.writer.WriteTx(context.Background(), tx, own)
+	if err != nil || alone.CorrelationID != "change-of-one" {
+		t.Fatalf("change on its own = %q, %v", alone.CorrelationID, err)
+	}
+	// Changes made as one larger change share its ID, whatever each would
+	// have used.
+	ctx := audit.WithCorrelation(context.Background(), " bulk-change ")
+	for _, target := range []string{"nora.vale", "otto.lind"} {
+		event := disabled(target)
+		event.CorrelationID = "change-of-" + target
+		record, err := f.writer.WriteTx(ctx, tx, event)
+		if err != nil || record.CorrelationID != "bulk-change" {
+			t.Fatalf("%s in a larger change = %q, %v", target, record.CorrelationID, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if result := f.verify(t); !result.OK() {
+		t.Fatalf("chain after correlated changes = %+v", result)
+	}
+}

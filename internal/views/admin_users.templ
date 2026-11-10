@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/cristianadrielbraun/gofer/components/button"
+	"github.com/cristianadrielbraun/gofer/components/checkbox"
 	"github.com/cristianadrielbraun/gofer/components/copybutton"
 	"github.com/cristianadrielbraun/gofer/components/dialog"
 	"github.com/cristianadrielbraun/gofer/components/dropdown"
@@ -50,6 +51,7 @@ type AdminUserData struct {
 	DeletionPath             string
 	InvitationRevokePath     string
 	InvitationRotatePath     string
+	SignOutPath              string
 }
 
 type AdminUsersData struct {
@@ -76,6 +78,12 @@ type AdminUsersData struct {
 	// Dialog opens with the page, when the page was asked for at an
 	// action's address.
 	Dialog *AdminUserDialog
+	// BulkActions are the changes the page makes to many people at once,
+	// up to BulkLimit people a change. Bulk opens with the page: a change's
+	// dialog asked for at its address, or what a change did.
+	BulkActions []string
+	BulkLimit   int
+	Bulk        *AdminUsersBulkData
 }
 
 type AdminUserInvitationFormData struct {
@@ -111,6 +119,7 @@ const (
 	AdminUserActionDeletion         AdminUserAction = "delete"
 	AdminUserActionInvitationRevoke AdminUserAction = "invitation-revoke"
 	AdminUserActionInvitationRotate AdminUserAction = "invitation-rotate"
+	AdminUserActionSignOut          AdminUserAction = "sign-out"
 )
 
 // Path is the address of action for this person, or "" when it doesn't
@@ -133,6 +142,8 @@ func (user AdminUserData) Path(action AdminUserAction) string {
 		}
 	case AdminUserActionInvitationRotate:
 		return user.InvitationRotatePath
+	case AdminUserActionSignOut:
+		return user.SignOutPath
 	}
 	return ""
 }
@@ -149,6 +160,10 @@ type AdminUserDialog struct {
 // adminUserDialogSlotID is where the Users page puts the dialog of the
 // action picked from a person's menu.
 const adminUserDialogSlotID = "admin-user-dialog"
+
+// adminUsersSelectionGroup ties the list's checkboxes to the one that
+// selects the whole page (templui's checkbox groups).
+const adminUsersSelectionGroup = "admin-users"
 
 // AdminVerificationOnPageHeader is the header htmx sends from a page that
 // already has the verification dialog, so the dialogs it fetches don't bring
@@ -214,6 +229,9 @@ func adminUserActionEntries(ctx context.Context, user AdminUserData) []adminUser
 		} else {
 			entries = append(entries, adminUserMenuEntry{Path: path, Label: i18n.T(ctx, "admin.mfa.require"), Icon: icon.ShieldCheck})
 		}
+	}
+	if path := user.Path(AdminUserActionSignOut); path != "" {
+		entries = append(entries, adminUserMenuEntry{Path: path, Label: i18n.T(ctx, "admin.users.sign_out"), Icon: icon.LogOut})
 	}
 	if path := user.Path(AdminUserActionStatus); path != "" {
 		if user.Status == "disabled" {
@@ -321,6 +339,9 @@ templ AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificat
 					if data.Dialog != nil {
 						@AdminUserActionDialog(*data.Dialog)
 					}
+					if data.Bulk != nil {
+						@AdminUsersBulkDialog(*data.Bulk)
+					}
 				</div>
 				<div class="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4" aria-label={ i18n.T(ctx, "admin.users.summary") }>
 					@adminStatCard(i18n.T(ctx, "admin.users.stat.active"), data.Active)
@@ -339,10 +360,18 @@ templ AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificat
 					} else if len(data.Users) == 0 {
 						@adminEmptyState(i18n.T(ctx, "admin.users.empty"))
 					} else {
+						if len(data.BulkActions) > 0 {
+							@adminUsersBulkBar(data)
+						}
 						<div class="overflow-x-auto">
 							<table class="w-full min-w-[70rem] text-left text-sm">
 								<thead class="bg-muted/45 text-xs font-semibold text-muted-foreground">
 									<tr>
+										if len(data.BulkActions) > 0 {
+											<th scope="col" class="w-10 py-3 pl-4 pr-0">
+												@checkbox.Checkbox(checkbox.Props{Group: adminUsersSelectionGroup, GroupParent: true, Class: "align-middle", Attributes: templ.Attributes{"aria-label": i18n.T(ctx, "admin.users.select_page"), "data-admin-users-select-page": ""}})
+											</th>
+										}
 										<th scope="col" class="px-4 py-3">{ i18n.T(ctx, "admin.col.user") }</th>
 										<th scope="col" class="px-4 py-3">{ i18n.T(ctx, "admin.col.status") }</th>
 										<th scope="col" class="px-4 py-3">{ i18n.T(ctx, "admin.col.role") }</th>
@@ -356,6 +385,11 @@ templ AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificat
 								<tbody class="divide-y divide-border">
 									for _, user := range data.Users {
 										<tr class="bg-background/35 align-top hover:bg-accent/35">
+											if len(data.BulkActions) > 0 {
+												<td class="w-10 py-3 pl-4 pr-0">
+													@checkbox.Checkbox(checkbox.Props{Name: "user", Value: user.ID, Group: adminUsersSelectionGroup, Class: "align-middle", Attributes: templ.Attributes{"aria-label": i18n.T(ctx, "admin.users.select_person", "user", adminUserUsername(ctx, user.Username)), "data-admin-users-select": ""}})
+												</td>
+											}
 											<td class="px-4 py-3">
 												<div class="flex flex-wrap items-center gap-2">
 													<span class="whitespace-nowrap font-semibold text-foreground">{ adminUserUsername(ctx, user.Username) }</span>
@@ -520,6 +554,8 @@ templ AdminUserActionDialog(d AdminUserDialog, verification ...AdminSecurityVeri
 			@adminUserInvitationRevokeDialog(d.User, d.CSRFToken)
 		case AdminUserActionInvitationRotate:
 			@adminUserInvitationRotateDialog(d.User, d.CSRFToken)
+		case AdminUserActionSignOut:
+			@adminUserSignOutDialog(d.User, d.CSRFToken)
 	}
 	@AdminSecurityVerificationDialog(adminSecurityVerificationValue(verification))
 }
@@ -702,6 +738,41 @@ templ adminUserStatusDialog(user AdminUserData, csrfToken string) {
 						@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantDestructive}) {
 							{ i18n.T(ctx, "admin.users.disable_button") }
 						}
+					}
+				}
+			</form>
+		}
+	}
+}
+
+func adminUserSignOutDialogID(user AdminUserData) string {
+	return "admin-user-sign-out-" + strings.NewReplacer("/", "-", " ", "-").Replace(user.ID)
+}
+
+templ adminUserSignOutDialog(user AdminUserData, csrfToken string) {
+	@dialog.Dialog(dialog.Props{ID: adminUserSignOutDialogID(user), Open: true}) {
+		@dialog.Content() {
+			@dialog.Header() {
+				@dialog.Title() {
+					{ i18n.T(ctx, "admin.users.sign_out_title", "user", adminUserUsername(ctx, user.Username)) }
+				}
+				@dialog.Description() {
+					{ i18n.T(ctx, "admin.users.sign_out_detail") }
+				}
+			}
+			<form method="post" action={ user.SignOutPath } data-step-up>
+				<input type="hidden" name="_csrf" value={ csrfToken }/>
+				if user.ListPath != "" {
+					<input type="hidden" name="list" value={ user.ListPath }/>
+				}
+				@dialog.Footer() {
+					@dialog.Close() {
+						@button.Button(button.Props{Variant: button.VariantOutline}) {
+							{ i18n.T(ctx, "common.cancel") }
+						}
+					}
+					@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantDestructive}) {
+						{ i18n.T(ctx, "admin.users.sign_out") }
 					}
 				}
 			</form>

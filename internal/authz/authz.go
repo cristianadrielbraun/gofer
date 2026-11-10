@@ -24,7 +24,7 @@ const (
 	UsersRead Permission = "users.read"
 	// UsersInvite creates, rotates and revokes invitations.
 	UsersInvite Permission = "users.invite"
-	// UsersAccess enables and disables people.
+	// UsersAccess enables and disables people, and signs them out.
 	UsersAccess Permission = "users.access"
 	// UsersCredentials issues password-reset tokens and requires password
 	// changes.

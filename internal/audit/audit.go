@@ -104,6 +104,16 @@ type Record struct {
 
 type clientKey struct{}
 
+type correlationKey struct{}
+
+// WithCorrelation returns ctx under which every change recorded is part of
+// one larger change, such as one administrator changing many people at
+// once: their records share id as their correlation ID instead of each
+// carrying its own.
+func WithCorrelation(ctx context.Context, id string) context.Context {
+	return context.WithValue(ctx, correlationKey{}, strings.TrimSpace(id))
+}
+
 // maxUserAgent bounds the browser description a record keeps.
 const maxUserAgent = 512
 
@@ -187,6 +197,9 @@ func (w *Writer) WriteTx(ctx context.Context, tx *sql.Tx, event Event) (Record, 
 	}
 	if client, ok := ctx.Value(clientKey{}).(Client); ok && event.Client == (Client{}) {
 		event.Client = client
+	}
+	if correlation, ok := ctx.Value(correlationKey{}).(string); ok && correlation != "" {
+		event.CorrelationID = correlation
 	}
 	id, err := w.newID()
 	if err != nil {

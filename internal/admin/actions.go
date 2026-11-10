@@ -19,6 +19,8 @@ type UserActions struct {
 	SetMFARequirement bool
 	// ManageInvitation revokes or replaces their invitation.
 	ManageInvitation bool
+	// SignOut ends every session they have.
+	SignOut bool
 }
 
 // ActionsFor says which changes the administrator actorUserID may start on
@@ -32,6 +34,7 @@ func ActionsFor(actorUserID string, user auth.AdministratorUserSummary, policy a
 		IssueCredentialReset: webmail && settled && !user.DeletionPending,
 		Delete:               webmail && !self && !user.DeletionProtected && user.Status == auth.UserStatusDisabled,
 		ManageInvitation:     user.InvitationActionReference != "",
+		SignOut:              user.Status == auth.UserStatusActive && !self && !user.DeletionPending,
 	}
 	actions.RequirePasswordChange = actions.IssueCredentialReset && user.HasPassword
 	switch {

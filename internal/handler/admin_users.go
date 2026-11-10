@@ -49,6 +49,10 @@ func adminUserRequiredChangePath(userID string) string {
 	return "/admin/users/" + url.PathEscape(userID) + "/require-password-change"
 }
 
+func adminUserSignOutPath(userID string) string {
+	return "/admin/users/" + url.PathEscape(userID) + "/sign-out"
+}
+
 // adminUserActionDialogRoutes are the addresses of the Users page's actions.
 // Each shows its action's dialog (GET) and is where that dialog's form posts.
 var adminUserActionDialogRoutes = []struct {
@@ -62,6 +66,7 @@ var adminUserActionDialogRoutes = []struct {
 	{"/admin/users/{userID}/credential-reset", views.AdminUserActionCredentialReset},
 	{"/admin/users/{userID}/require-password-change", views.AdminUserActionRequiredChange},
 	{"/admin/users/{userID}/delete", views.AdminUserActionDeletion},
+	{"/admin/users/{userID}/sign-out", views.AdminUserActionSignOut},
 }
 
 // adminUserActionAddress reports whether path is one of those addresses, with
@@ -159,6 +164,9 @@ func adminUsersViewData(users []auth.AdministratorUserSummary, currentUserID str
 		}
 		if actions.SetMFARequirement {
 			view.MFAPolicyPath = adminUserMFAPolicyPath(user.ID)
+		}
+		if actions.SignOut {
+			view.SignOutPath = adminUserSignOutPath(user.ID)
 		}
 		if user.IsAdmin {
 			view.Role = "management_admin"
@@ -432,6 +440,23 @@ func (h *Handler) handleSetAdminUserStatus(w http.ResponseWriter, r *http.Reques
 	h.redirectAdminUsers(w, r, i18n.T(r.Context(), "auth.admin.users.enabled"))
 }
 
+func (h *Handler) handleSignOutAdminUser(w http.ResponseWriter, r *http.Request) {
+	actor, ok := h.adminActor(w, r)
+	if !ok {
+		return
+	}
+	result, err := h.adminService().SignOut(r.Context(), actor, r.PathValue("userID"))
+	if err != nil {
+		h.adminUserChangeFailed(w, r, err, adminUserSignOutChange, views.AdminUserInvitationFormData{})
+		return
+	}
+	if result.RevokedSessions == 0 {
+		h.redirectAdminUsers(w, r, i18n.T(r.Context(), "auth.admin.users.not_signed_in"))
+		return
+	}
+	h.redirectAdminUsers(w, r, i18n.N(r.Context(), "auth.admin.users.signed_out", int(result.RevokedSessions), "count", i18n.Number(r.Context(), int(result.RevokedSessions))))
+}
+
 func (h *Handler) handleIssueAdminUserCredentialReset(w http.ResponseWriter, r *http.Request) {
 	actor, ok := h.adminActor(w, r)
 	if !ok {
@@ -682,6 +707,10 @@ func (h *Handler) loadAdminUserList(w http.ResponseWriter, r *http.Request, quer
 		state.data.Users[i].ListPath = query.Path(pageNumber)
 	}
 	state.data.Matching = page.Matching
+	if h.auth.IsEnabled() {
+		state.data.BulkActions = adminUsersBulkActionNames()
+		state.data.BulkLimit = admin.MaxBulkPeople
+	}
 	offset := (pageNumber - 1) * size
 	if len(page.Users) > 0 {
 		state.data.From, state.data.To = offset+1, offset+len(page.Users)

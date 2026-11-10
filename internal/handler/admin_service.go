@@ -89,6 +89,11 @@ var (
 		name: "require webmail password change", verify: "auth.admin.verify.require_password",
 		failed: "auth.admin.require_password_unavailable",
 	}
+	adminUserSignOutChange = adminUserChange{
+		name: "sign administrator user out", verify: "auth.admin.verify.user_access",
+		refused: map[admin.Code]string{admin.CodeUnavailable: "auth.admin.users.user_unavailable"},
+		failed:  "auth.admin.users.sign_out_failed",
+	}
 	adminUserDeleteChange = adminUserChange{
 		name: "prepare administrator user deletion", verify: "auth.admin.verify.delete_user",
 		refused: map[admin.Code]string{

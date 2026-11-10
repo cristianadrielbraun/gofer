@@ -54,6 +54,8 @@ const (
 	// CodeNeedsAuthenticator: the change needs an authenticator app set
 	// up first.
 	CodeNeedsAuthenticator Code = "needs_authenticator"
+	// CodeTooMany: a bulk change names more people than it takes at once.
+	CodeTooMany Code = "too_many"
 	// CodeInternal: something broke; the error says what.
 	CodeInternal Code = "internal"
 )
@@ -68,8 +70,11 @@ func CodeOf(err error) Code {
 		return CodeForbidden
 	case errors.Is(err, auth.ErrRecentStepUpRequired):
 		return CodeVerificationRequired
-	case errors.As(err, &validation), errors.Is(err, auth.ErrAdministratorUserStatusInvalid):
+	case errors.As(err, &validation), errors.Is(err, auth.ErrAdministratorUserStatusInvalid),
+		errors.Is(err, errBulkActionInvalid), errors.Is(err, errBulkNobody):
 		return CodeInvalid
+	case errors.Is(err, errBulkTooMany):
+		return CodeTooMany
 	case errors.Is(err, auth.ErrAdministratorUserDeletionConfirmationInvalid):
 		return CodeConfirmation
 	case errors.Is(err, auth.ErrAdministratorUserInvitationNotActive):
@@ -83,6 +88,7 @@ func CodeOf(err error) Code {
 		errors.Is(err, auth.ErrAdministratorUserStatusTargetInvalid),
 		errors.Is(err, auth.ErrEnrollmentTokenTargetInvalid),
 		errors.Is(err, auth.ErrAdministratorUserDeletionTargetInvalid),
+		errors.Is(err, auth.ErrAdministratorUserSignOutTargetInvalid),
 		errors.Is(err, errCredentialResetTarget):
 		return CodeUnavailable
 	}

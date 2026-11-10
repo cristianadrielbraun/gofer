@@ -50,6 +50,11 @@ func adminSecurityVerificationReturnTo(value string) string {
 	if err != nil || parsed.IsAbs() || parsed.Host != "" || parsed.Fragment != "" {
 		return ""
 	}
+	// A change to many people names them in its form, which the address
+	// can't bring back: verification leads to the list.
+	if strings.HasPrefix(parsed.Path, auth.AdminUsersBulkPath) {
+		return adminUsersPath
+	}
 	// An action's address opens its dialog, so verification can lead back
 	// to the action it interrupted.
 	if adminUserActionAddress(parsed.Path) {

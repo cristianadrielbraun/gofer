@@ -104,6 +104,14 @@ func (s *Service) RequirePasswordChange(ctx context.Context, actor Actor, userID
 	})
 }
 
+// SignOut ends every session someone else has. They can sign in again
+// straight away: nothing else about them changes.
+func (s *Service) SignOut(ctx context.Context, actor Actor, userID string) (*auth.SignOutAdministratorUserResult, error) {
+	return s.auth.SignOutAdministratorUser(ctx, auth.SignOutAdministratorUserOptions{
+		ActorUserID: actor.UserID, ActorSessionID: actor.SessionID, TargetUserID: userID,
+	})
+}
+
 // PrepareDeletion marks a disabled person for deletion. Removing their
 // data is the caller's to start, since it runs beside the mail it stops.
 func (s *Service) PrepareDeletion(ctx context.Context, actor Actor, userID, confirmation string) (*auth.PrepareAdministratorUserDeletionResult, error) {

@@ -99,7 +99,7 @@ templ dataJobList(load string) {
 // dataDialogFormClass form, so the footer stays at the bottom.
 templ dataActionDialog(id, bodyID, title, class string) {
 	@dialog.Dialog(dialog.Props{ID: id}) {
-		@dialog.Content(dialog.ContentProps{Class: "data-dialog max-h-[calc(100dvh-2rem)] [&>[data-tui-dialog-panel]]:flex [&>[data-tui-dialog-panel]]:max-h-[calc(100dvh-2rem)] [&>[data-tui-dialog-panel]]:min-h-0 [&>[data-tui-dialog-panel]]:flex-col [&>[data-tui-dialog-panel]]:gap-0 [&>[data-tui-dialog-panel]]:p-0 " + class}) {
+		@dialog.Content(dialog.ContentProps{Class: dataDialogContentClass + class}) {
 			@dialog.Header(dialog.HeaderProps{Class: "shrink-0 px-6 pt-6 pb-4"}) {
 				@dialog.Title() {
 					{ title }
@@ -111,6 +111,11 @@ templ dataActionDialog(id, bodyID, title, class string) {
 		}
 	}
 }
+
+// dataDialogContentClass lays a dialog's content out as a column: the
+// header at the top, the footer at the bottom, and only what's between them
+// scrolling. Classes of its own go after it.
+const dataDialogContentClass = "data-dialog max-h-[calc(100dvh-2rem)] [&>[data-tui-dialog-panel]]:flex [&>[data-tui-dialog-panel]]:max-h-[calc(100dvh-2rem)] [&>[data-tui-dialog-panel]]:min-h-0 [&>[data-tui-dialog-panel]]:flex-col [&>[data-tui-dialog-panel]]:gap-0 [&>[data-tui-dialog-panel]]:p-0 "
 
 // dataDialogFormClass makes a form hold a dialog's scrolling content and its
 // footer.

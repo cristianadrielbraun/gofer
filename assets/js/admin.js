@@ -203,3 +203,79 @@
   }
   document.addEventListener("htmx:afterSwap", function (event) { bindWebmailScope(event.target) })
 })();
+
+(function () {
+  "use strict"
+
+  // The Users page's selection: the people checked on the page or, once the
+  // whole page is checked and the administrator asks for it, everyone the
+  // list matches. The bar above the list says how many and offers the
+  // changes; a change's dialog reads the selection from the list's inputs.
+  function barOf(root) {
+    return root ? root.querySelector("[data-admin-users-bulk]") : null
+  }
+
+  function show(element, shown) {
+    if (element) element.hidden = !shown
+  }
+
+  function update(root) {
+    var bar = barOf(root)
+    if (!bar) return
+    var boxes = Array.prototype.slice.call(root.querySelectorAll("[data-admin-users-select]"))
+    var checked = boxes.filter(function (box) { return box.checked }).length
+    var whole = boxes.length > 0 && checked === boxes.length
+    var all = whole && bar.getAttribute("data-admin-users-bulk-all-selected") === "true"
+    if (!all) bar.removeAttribute("data-admin-users-bulk-all-selected")
+    bar.hidden = checked === 0
+    var count = bar.querySelector("[data-admin-users-bulk-count]")
+    if (count) count.textContent = goferTn("js.admin.users.selected", all ? parseInt(bar.getAttribute("data-matching"), 10) || checked : checked)
+    show(bar.querySelector("[data-admin-users-bulk-select-matching]"), whole && !all)
+    show(bar.querySelector("[data-admin-users-bulk-all-note]"), all)
+    show(bar.querySelector("[data-admin-users-bulk-limit-note]"), whole)
+    bar.querySelectorAll("[data-admin-users-bulk-all] input").forEach(function (input) { input.disabled = !all })
+  }
+
+  document.addEventListener("change", function (event) {
+    var box = event.target
+    if (!box || !box.matches || !box.matches("[data-admin-users-select], [data-admin-users-select-page]")) return
+    var root = box.closest("[data-admin-users-results]")
+    // templui's checkbox script checks the rest of the page on this same
+    // event; count once it has.
+    setTimeout(function () { update(root) }, 0)
+  })
+
+  document.addEventListener("click", function (event) {
+    var target = event.target && event.target.closest ? event.target : null
+    var root = target ? target.closest("[data-admin-users-results]") : null
+    if (!root) return
+    if (target.closest("[data-admin-users-bulk-select-matching]")) {
+      barOf(root).setAttribute("data-admin-users-bulk-all-selected", "true")
+      update(root)
+    } else if (target.closest("[data-admin-users-bulk-clear]")) {
+      root.querySelectorAll("[data-admin-users-select], [data-admin-users-select-page]").forEach(function (box) {
+        box.checked = false
+        box.indeterminate = false
+      })
+      barOf(root).removeAttribute("data-admin-users-bulk-all-selected")
+      update(root)
+    }
+  })
+
+  // What a change to many people did shows over the list it was made from.
+  // The address goes back to that list, so reloading shows the list rather
+  // than sending the change again.
+  function showList() {
+    var result = document.querySelector("[data-admin-users-bulk-result]")
+    var list = result ? result.getAttribute("data-admin-users-list") : ""
+    if (list && list.charAt(0) === "/" && window.location.pathname.indexOf("/admin/users/bulk/") === 0) {
+      window.history.replaceState(null, "", list)
+    }
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", showList)
+  } else {
+    showList()
+  }
+})();

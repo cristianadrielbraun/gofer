@@ -117,7 +117,7 @@ func (m *Manager) Middleware(next http.Handler) http.Handler {
 			return
 		}
 		if requiresSessionCSRF(r) {
-			r.Body = http.MaxBytesReader(w, r.Body, sessionCSRFFormMaximumBytes)
+			r.Body = http.MaxBytesReader(w, r.Body, sessionCSRFFormLimit(r.URL.Path))
 			if !validSessionCSRF(r) {
 				http.Error(w, "invalid CSRF token", http.StatusForbidden)
 				return

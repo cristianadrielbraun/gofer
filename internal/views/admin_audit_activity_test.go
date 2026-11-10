@@ -95,6 +95,7 @@ func TestEveryRecordedActionHasASentence(t *testing.T) {
 		{Event: audit.Event{Action: "user.credential_reset_issued"}},
 		{Event: audit.Event{Action: "user.credential_reset_revoked"}},
 		{Event: audit.Event{Action: "user.password_change_required"}},
+		{Event: audit.Event{Action: "user.signed_out", Metadata: map[string]any{"revoked_sessions": 2}}},
 		{Event: audit.Event{Action: "user.deletion_started"}},
 		{Event: audit.Event{Action: "user.deleted"}},
 		{Event: audit.Event{Action: "instance.security_retention_changed"}},

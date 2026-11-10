@@ -1,0 +1,318 @@
+package views
+
+import (
+	"context"
+	"strconv"
+
+	"github.com/cristianadrielbraun/gofer/components/button"
+	"github.com/cristianadrielbraun/gofer/components/dialog"
+	"github.com/cristianadrielbraun/gofer/components/dropdown"
+	"github.com/cristianadrielbraun/gofer/components/icon"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
+)
+
+// AdminUsersBulkPerson is someone a change to many people at once is about.
+type AdminUsersBulkPerson struct {
+	ID       string
+	Username string
+	// Reason says why the change leaves them out, or what went wrong with
+	// them; empty when it changes them without a problem.
+	Reason string
+	// Sessions is how many of their sessions the change ended.
+	Sessions int64
+}
+
+// AdminUsersBulkData is a change to many people at once. Before it's made,
+// it says whom it would change and whom it leaves out, and why; once made
+// (Done), what it did to each.
+type AdminUsersBulkData struct {
+	// Action is the change, such as "disable"; Path is where it's sent.
+	Action    string
+	Path      string
+	CSRFToken string
+	// ListPath is the list the people were chosen from.
+	ListPath string
+	// Limit is how many people one change takes; TooMany says the
+	// selection was larger.
+	Limit   int
+	TooMany bool
+	Change  []AdminUsersBulkPerson
+	LeftOut []AdminUsersBulkPerson
+	Done    bool
+}
+
+// adminUsersBulkDialogID is the dialog of a change to many people.
+const adminUsersBulkDialogID = "admin-users-bulk-dialog"
+
+// adminUsersBulkActionIcon is the icon beside a change in the selection's
+// menu, the same as the change's entry in a person's menu.
+func adminUsersBulkActionIcon(action string) func(...icon.Props) templ.Component {
+	switch action {
+	case "disable":
+		return icon.UserX
+	case "enable":
+		return icon.UserCheck
+	case "require-mfa":
+		return icon.ShieldCheck
+	case "clear-mfa":
+		return icon.ShieldOff
+	case "require-password-change":
+		return icon.RectangleEllipsis
+	default:
+		return icon.LogOut
+	}
+}
+
+// adminUsersBulkActionAttributes make a change in the selection's menu
+// fetch its dialog for the people selected: the checked boxes, or the
+// list's query when everyone it matches is selected.
+func adminUsersBulkActionAttributes(action string) templ.Attributes {
+	return templ.Attributes{
+		"hx-get": "/admin/users/bulk/" + action, "hx-include": "[data-admin-users-results] input",
+		"hx-target": "#" + adminUserDialogSlotID, "hx-swap": "innerHTML",
+		"data-admin-users-bulk-action": action,
+	}
+}
+
+// adminUsersBulkDestructive reports whether action takes something away
+// from people, which its button says by its color.
+func adminUsersBulkDestructive(action string) bool {
+	return action == "disable" || action == "sign-out" || action == "clear-mfa"
+}
+
+func adminUsersBulkTitle(ctx context.Context, data AdminUsersBulkData) string {
+	count := len(data.Change)
+	switch {
+	case data.TooMany:
+		return i18n.T(ctx, "admin.users.bulk.title_too_many")
+	case data.Done && count == 0:
+		return i18n.T(ctx, "admin.users.bulk.done_nothing")
+	case data.Done:
+		return i18n.N(ctx, "admin.users.bulk.done."+data.Action, count, "count", i18n.Number(ctx, count))
+	case count == 0:
+		return i18n.T(ctx, "admin.users.bulk.title_nothing")
+	default:
+		return i18n.N(ctx, "admin.users.bulk.title."+data.Action, count, "count", i18n.Number(ctx, count))
+	}
+}
+
+// adminUsersBulkReason says in words why a change left someone out, or
+// what went wrong with them.
+func adminUsersBulkReason(ctx context.Context, action, reason string) string {
+	if reason == "" {
+		return ""
+	}
+	if reason == "unchanged" {
+		return i18n.T(ctx, "admin.users.bulk.unchanged."+action)
+	}
+	if key := "admin.users.bulk.reason." + reason; i18n.Has(key) {
+		return i18n.T(ctx, key)
+	}
+	return i18n.T(ctx, "admin.users.bulk.reason.internal")
+}
+
+// adminUsersBulkDetail is what a person's line in the dialog says beside
+// their name.
+func adminUsersBulkDetail(ctx context.Context, action string, person AdminUsersBulkPerson) string {
+	if person.Reason != "" {
+		return adminUsersBulkReason(ctx, action, person.Reason)
+	}
+	if person.Sessions > 0 {
+		return i18n.N(ctx, "admin.users.bulk.sessions", int(person.Sessions), "count", i18n.Number(ctx, int(person.Sessions)))
+	}
+	return ""
+}
+
+// adminUsersBulkName is how the dialog names someone: their username, or
+// their ID when nobody has it any more.
+func adminUsersBulkName(ctx context.Context, person AdminUsersBulkPerson) string {
+	if person.Username == "" && person.Reason == "gone" {
+		return person.ID
+	}
+	return adminUserUsername(ctx, person.Username)
+}
+
+// adminUsersBulkResultAttributes mark the dialog of a change that was
+// made, so the address can go back to the list it was made from.
+func adminUsersBulkResultAttributes(data AdminUsersBulkData) templ.Attributes {
+	if !data.Done {
+		return nil
+	}
+	list := data.ListPath
+	if list == "" {
+		list = "/admin/users"
+	}
+	return templ.Attributes{"data-admin-users-bulk-result": "", "data-admin-users-list": list}
+}
+
+// adminUsersBulkBar is what the administrator can do to the people they
+// selected, shown once they select someone (admin.js). On a list longer
+// than its page, selecting the whole page offers everyone who matches, up
+// to the limit.
+templ adminUsersBulkBar(data AdminUsersData) {
+	<div
+		class="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-border bg-accent/40 px-4 py-2.5"
+		role="region"
+		aria-label={ i18n.T(ctx, "admin.users.bulk.region") }
+		data-admin-users-bulk
+		data-matching={ strconv.Itoa(data.Matching) }
+		hidden
+	>
+		<p class="text-sm font-semibold text-foreground" aria-live="polite" data-admin-users-bulk-count></p>
+		if data.Matching > len(data.Users) {
+			if data.Matching <= data.BulkLimit {
+				<button type="button" class="text-sm font-semibold text-primary hover:underline" data-admin-users-bulk-select-matching hidden>
+					{ i18n.T(ctx, "admin.users.bulk.select_matching", "count", i18n.Number(ctx, data.Matching)) }
+				</button>
+				<p class="text-sm text-muted-foreground" data-admin-users-bulk-all-note hidden>{ i18n.T(ctx, "admin.users.bulk.all_matching", "count", i18n.Number(ctx, data.Matching)) }</p>
+			} else {
+				<p class="text-xs text-muted-foreground" data-admin-users-bulk-limit-note hidden>{ i18n.T(ctx, "admin.users.bulk.limit_note", "limit", i18n.Number(ctx, data.BulkLimit)) }</p>
+			}
+		}
+		<button type="button" class="text-sm text-muted-foreground hover:text-foreground hover:underline" data-admin-users-bulk-clear>{ i18n.T(ctx, "admin.users.bulk.clear") }</button>
+		<div class="ml-auto">
+			@dropdown.Dropdown() {
+				@dropdown.Trigger() {
+					@button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeSm, Attributes: templ.Attributes{"data-admin-users-bulk-menu": ""}}) {
+						{ i18n.T(ctx, "admin.users.bulk.change") }
+						@icon.ChevronDown(icon.Props{Class: "size-4"})
+					}
+				}
+				@dropdown.Content(dropdown.ContentProps{Placement: dropdown.PlacementBottomEnd, Class: "w-max min-w-48 whitespace-nowrap"}) {
+					for _, action := range data.BulkActions {
+						{{ actionIcon := adminUsersBulkActionIcon(action) }}
+						@dropdown.Item(dropdown.ItemProps{Class: adminUserMenuItemClass(false), Attributes: adminUsersBulkActionAttributes(action)}) {
+							<span class="inline-flex text-muted-foreground" aria-hidden="true">
+								@actionIcon(icon.Props{Class: "size-4"})
+							</span>
+							{ i18n.T(ctx, "admin.users.bulk.action."+action) }
+						}
+					}
+				}
+			}
+		</div>
+		<input type="hidden" name="list" value={ data.Query.Path(max(data.Query.Page, 1)) }/>
+		// Everyone the list matches: sent only once they're selected.
+		<div hidden data-admin-users-bulk-all>
+			<input type="hidden" name="all" value="1" disabled/>
+			if data.Query.Search != "" {
+				<input type="hidden" name="q" value={ data.Query.Search } disabled/>
+			}
+			if data.Query.Status != "" {
+				<input type="hidden" name="status" value={ data.Query.Status } disabled/>
+			}
+			if data.Query.Attention != "" {
+				<input type="hidden" name="attention" value={ data.Query.Attention } disabled/>
+			}
+			if data.Query.Sort != "" {
+				<input type="hidden" name="sort" value={ data.Query.Sort } disabled/>
+			}
+		</div>
+	</div>
+}
+
+// AdminUsersBulkDialog is a change to many people, before it's made (whom
+// it would change, whom it leaves out and why, and the button that makes
+// it), or after (what it did). The verification, when given, is the one
+// making the change will ask for.
+templ AdminUsersBulkDialog(data AdminUsersBulkData, verification ...AdminSecurityVerificationData) {
+	@dialog.Dialog(dialog.Props{ID: adminUsersBulkDialogID, Open: true, Attributes: adminUsersBulkResultAttributes(data)}) {
+		@dialog.Content(dialog.ContentProps{Class: dataDialogContentClass + "sm:max-w-lg"}) {
+			@dialog.Header(dialog.HeaderProps{Class: "shrink-0 px-6 pt-6 pb-4"}) {
+				@dialog.Title() {
+					{ adminUsersBulkTitle(ctx, data) }
+				}
+				if !data.Done && !data.TooMany && len(data.Change) > 0 {
+					@dialog.Description() {
+						{ i18n.T(ctx, "admin.users.bulk.detail."+data.Action) }
+					}
+				}
+			}
+			if !data.Done && !data.TooMany && len(data.Change) > 0 {
+				<form method="post" action={ data.Path } class={ dataDialogFormClass } data-step-up data-admin-users-bulk-form>
+					<input type="hidden" name="_csrf" value={ data.CSRFToken }/>
+					if data.ListPath != "" {
+						<input type="hidden" name="list" value={ data.ListPath }/>
+					}
+					for _, person := range data.Change {
+						<input type="hidden" name="user" value={ person.ID }/>
+					}
+					@dataDialogScroll("space-y-5 pb-4") {
+						@adminUsersBulkPeople(data)
+					}
+					@dataDialogFooter() {
+						@dialog.Close() {
+							@button.Button(button.Props{Variant: button.VariantOutline}) {
+								{ i18n.T(ctx, "common.cancel") }
+							}
+						}
+						if adminUsersBulkDestructive(data.Action) {
+							@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantDestructive}) {
+								{ i18n.N(ctx, "admin.users.bulk.button."+data.Action, len(data.Change), "count", i18n.Number(ctx, len(data.Change))) }
+							}
+						} else {
+							@button.Button(button.Props{Type: button.TypeSubmit}) {
+								{ i18n.N(ctx, "admin.users.bulk.button."+data.Action, len(data.Change), "count", i18n.Number(ctx, len(data.Change))) }
+							}
+						}
+					}
+				</form>
+			} else {
+				<div class={ dataDialogFormClass }>
+					@dataDialogScroll("space-y-5 pb-4") {
+						@adminUsersBulkPeople(data)
+					}
+					@dataDialogFooter() {
+						@dialog.Close() {
+							@button.Button(button.Props{Variant: button.VariantOutline}) {
+								{ i18n.T(ctx, "common.close") }
+							}
+						}
+					}
+				</div>
+			}
+		}
+	}
+	@AdminSecurityVerificationDialog(adminSecurityVerificationValue(verification))
+}
+
+// adminUsersBulkPeople lists whom a change is about: those it changes (or
+// changed) and those it leaves out, each with what to know about them.
+templ adminUsersBulkPeople(data AdminUsersBulkData) {
+	if data.TooMany {
+		<p class="text-sm text-muted-foreground">{ i18n.T(ctx, "admin.users.bulk.too_many", "limit", i18n.Number(ctx, data.Limit)) }</p>
+	} else {
+		if len(data.Change) == 0 && !data.Done {
+			<p class="text-sm text-muted-foreground">{ i18n.T(ctx, "admin.users.bulk.nothing") }</p>
+		}
+		if len(data.Change) > 0 {
+			if data.Done {
+				@adminUsersBulkList(i18n.T(ctx, "admin.users.bulk.changed"), data.Action, data.Change, "data-admin-users-bulk-changed")
+			} else {
+				@adminUsersBulkList(i18n.T(ctx, "admin.users.bulk.will_change"), data.Action, data.Change, "data-admin-users-bulk-change")
+			}
+		}
+		if len(data.LeftOut) > 0 {
+			@adminUsersBulkList(i18n.T(ctx, "admin.users.bulk.left_out"), data.Action, data.LeftOut, "data-admin-users-bulk-left-out")
+		}
+	}
+}
+
+templ adminUsersBulkList(title, action string, people []AdminUsersBulkPerson, marker string) {
+	<section { templ.Attributes{marker: ""}... }>
+		<h3 class="flex items-baseline gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+			{ title }
+			<span class="tabular-nums">{ i18n.Number(ctx, len(people)) }</span>
+		</h3>
+		<ul class="mt-2 divide-y divide-border rounded-md border border-border">
+			for _, person := range people {
+				<li class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 px-3 py-2 text-sm">
+					<span class="min-w-0 break-all font-medium text-foreground">{ adminUsersBulkName(ctx, person) }</span>
+					if detail := adminUsersBulkDetail(ctx, action, person); detail != "" {
+						<span class="text-xs text-muted-foreground">{ detail }</span>
+					}
+				</li>
+			}
+		</ul>
+	</section>
+}
