@@ -9,13 +9,19 @@ import (
 	"github.com/cristianadrielbraun/gofer/components/popover"
 )
 
-// AppDialogs are the dialogs the app asks questions with instead of the
-// browser's own popups. window.goferConfirm and window.goferPrompt
-// (actions.js) fill in their text and open them. The mailbox size dialog is
-// here too, so every page can open it.
+// AppDialogs are the dialogs every webmail page shares: the questions, and
+// the mailbox size and folder appearance dialogs, so any page can open them.
 templ AppDialogs() {
 	@MailboxSizeDialog()
 	@FolderAppearanceDialog()
+	@AppQuestionDialogs()
+}
+
+// AppQuestionDialogs are the dialogs the app asks questions with instead of
+// the browser's own popups. window.goferConfirm and window.goferPrompt
+// (actions.js) fill in their text and open them, and so do forms marked
+// data-confirm.
+templ AppQuestionDialogs() {
 	@dialog.Dialog(dialog.Props{ID: "app-confirm-dialog"}) {
 		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-md", Attributes: templ.Attributes{"data-app-confirm": ""}}) {
 			@dialog.Header() {

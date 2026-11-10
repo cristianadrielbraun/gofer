@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/a-h/templ"
 	"github.com/cristianadrielbraun/gofer/internal/auth"
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"github.com/cristianadrielbraun/gofer/internal/models"
@@ -157,6 +158,30 @@ func TestAdminShellCarriesWebmailScopeAcrossDiagnostics(t *testing.T) {
 	}
 	if strings.Contains(html, `/admin/security?user_id=`) || strings.Contains(html, `/admin/users?user_id=`) {
 		t.Fatal("webmail scope leaked into non-operational administration routes")
+	}
+}
+
+// Both kinds of admin page ask before destructive changes: forms marked
+// data-confirm need actions.js and the question dialogs it fills in.
+func TestAdminPagesAskBeforeDestructiveChanges(t *testing.T) {
+	pages := map[string]templ.Component{
+		"panel":   AdminShell(AdminShellPage{Section: AdminSectionUsers, Content: AdminUsersPage(AdminUsersData{})}),
+		"account": AdminAccountShell(nil, PasswordSecuritySettings(PasswordSecurityData{})),
+	}
+	for name, page := range pages {
+		var out strings.Builder
+		if err := page.Render(context.Background(), &out); err != nil {
+			t.Fatal(err)
+		}
+		html := out.String()
+		if strings.Count(html, "/assets/js/actions.js") != 1 {
+			t.Errorf("%s page must load actions.js once", name)
+		}
+		for _, id := range []string{`id="app-confirm-dialog"`, `id="app-prompt-dialog"`} {
+			if strings.Count(html, id) != 1 {
+				t.Errorf("%s page must carry %s once", name, id)
+			}
+		}
 	}
 }
 

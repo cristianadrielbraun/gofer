@@ -45,6 +45,9 @@ templ adminDocument(uiSettings map[string]string, title string, style string, se
 			<link rel="stylesheet" href={ assetver.URL("/assets/css/output.css") }/>
 			@I18nScripts()
 			@SettingsComponentScripts()
+			// Questions before a change (data-confirm, goferConfirm) and the
+			// app's small shared behaviors.
+			<script src={ assetver.URL("/assets/js/actions.js") }></script>
 			@templ.Raw(style)
 		</head>
 		<body class="h-screen overflow-hidden bg-background text-foreground antialiased surface-desk" data-management-shell>
@@ -55,6 +58,7 @@ templ adminDocument(uiSettings map[string]string, title string, style string, se
 					@main
 				</div>
 			</div>
+			@AppQuestionDialogs()
 			@scripts
 		</body>
 	</html>
