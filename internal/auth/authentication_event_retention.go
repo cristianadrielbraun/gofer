@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/cristianadrielbraun/gofer/internal/authz"
 )
 
 const (
@@ -110,10 +112,7 @@ func (m *Manager) SetAuthenticationEventRetention(
 	now := m.clock.Now().UTC()
 	result := &SetAuthenticationEventRetentionResult{}
 	err := m.runSecurityTransition(ctx, SecurityTransitionPolicyChange, func(tx *sql.Tx) error {
-		if err := requireActiveManagementAdministrator(ctx, tx, actorUserID); err != nil {
-			return err
-		}
-		if err := requireRecentAdministratorStepUp(ctx, tx, actorUserID, actorSessionID, now); err != nil {
+		if err := requireAdministratorPermission(ctx, tx, actorUserID, actorSessionID, authz.ActivityRetention, now); err != nil {
 			return err
 		}
 

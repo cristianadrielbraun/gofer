@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+
+	"github.com/cristianadrielbraun/gofer/internal/authz"
 )
 
 // ListAdministratorUsers returns application-login profile metadata without
@@ -26,7 +28,7 @@ func (m *Manager) listAdministratorUsers(ctx context.Context, actorUserID, actor
 		return nil, fmt.Errorf("begin administrator user list: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	if err := requireActiveManagementAdministrator(ctx, tx, actorUserID); err != nil {
+	if err := authz.Require(ctx, tx, actorUserID, authz.UsersRead); err != nil {
 		return nil, err
 	}
 	now := m.clock.Now().UTC()

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/cristianadrielbraun/gofer/internal/authz"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
 
@@ -61,10 +62,7 @@ func (m *Manager) PrepareAdministratorUserDeletion(
 	result := &PrepareAdministratorUserDeletionResult{TargetUserID: targetUserID}
 	owned := m.userStorage.Load()
 	err := m.runSecurityTransition(ctx, SecurityTransitionUserDeletion, func(tx *sql.Tx) error {
-		if err := requireActiveManagementAdministrator(ctx, tx, actorUserID); err != nil {
-			return err
-		}
-		if err := requireRecentAdministratorStepUp(ctx, tx, actorUserID, actorSessionID, now); err != nil {
+		if err := requireAdministratorPermission(ctx, tx, actorUserID, actorSessionID, authz.UsersDelete, now); err != nil {
 			return err
 		}
 

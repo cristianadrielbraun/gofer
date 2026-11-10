@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+
+	"github.com/cristianadrielbraun/gofer/internal/authz"
 )
 
 const RequiredPasswordChangePath = "/account/change-password"
@@ -19,10 +21,7 @@ type RequirePasswordChangeOptions struct {
 func (m *Manager) RequirePasswordChange(ctx context.Context, options RequirePasswordChangeOptions) error {
 	now := m.clock.Now().UTC()
 	return m.runSecurityTransition(ctx, SecurityTransitionCredentialChange, func(tx *sql.Tx) error {
-		if err := requireActiveManagementAdministrator(ctx, tx, options.CreatedBy); err != nil {
-			return err
-		}
-		if err := requireRecentAdministratorStepUp(ctx, tx, options.CreatedBy, options.ActorSessionID, now); err != nil {
+		if err := requireAdministratorPermission(ctx, tx, options.CreatedBy, options.ActorSessionID, authz.UsersCredentials, now); err != nil {
 			return err
 		}
 		if err := requireEnrollmentTokenTarget(ctx, tx, options.UserID, EnrollmentTokenPurposeCredentialReset); err != nil {

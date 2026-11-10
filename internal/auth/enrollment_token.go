@@ -8,10 +8,12 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/cristianadrielbraun/gofer/internal/authz"
 )
 
 var (
-	ErrAdministratorRequired        = errors.New("active administrator required")
+	ErrAdministratorRequired        = authz.ErrForbidden
 	ErrRecentStepUpRequired         = errors.New("recent verification required")
 	ErrEnrollmentTokenTargetInvalid = errors.New("user is not eligible for this token purpose")
 )
@@ -125,10 +127,7 @@ func (m *Manager) IssueEnrollmentToken(ctx context.Context, options IssueEnrollm
 		ExpiresAt: now.Add(lifetime),
 	}
 	err = m.runSecurityTransition(ctx, SecurityTransitionEnrollment, func(tx *sql.Tx) error {
-		if err := requireActiveManagementAdministrator(ctx, tx, createdBy); err != nil {
-			return err
-		}
-		if err := requireRecentAdministratorStepUp(ctx, tx, createdBy, actorSessionID, now); err != nil {
+		if err := requireAdministratorPermission(ctx, tx, createdBy, actorSessionID, enrollmentTokenPermission(options.Purpose), now); err != nil {
 			return err
 		}
 		if err := requireEnrollmentTokenTarget(ctx, tx, userID, options.Purpose); err != nil {
@@ -196,7 +195,7 @@ func (m *Manager) IssueEnrollmentToken(ctx context.Context, options IssueEnrollm
 func (m *Manager) ListEnrollmentTokens(ctx context.Context, actorID, userID string) ([]EnrollmentToken, error) {
 	actorID = strings.TrimSpace(actorID)
 	userID = strings.TrimSpace(userID)
-	if err := m.requireActiveManagementAdministrator(ctx, actorID); err != nil {
+	if err := authz.Require(ctx, m.db.Read(), actorID, authz.UsersRead); err != nil {
 		return nil, err
 	}
 	rows, err := m.db.Read().QueryContext(ctx, enrollmentTokenSelect+`
@@ -242,10 +241,7 @@ func (m *Manager) RevokeEnrollmentToken(ctx context.Context, actorID, actorSessi
 	now := m.clock.Now().UTC()
 	revoked := false
 	err = m.runSecurityTransition(ctx, SecurityTransitionEnrollment, func(tx *sql.Tx) error {
-		if err := requireActiveManagementAdministrator(ctx, tx, actorID); err != nil {
-			return err
-		}
-		if err := requireRecentAdministratorStepUp(ctx, tx, actorID, actorSessionID, now); err != nil {
+		if err := requireAdministratorPermission(ctx, tx, actorID, actorSessionID, authz.UsersCredentials, now); err != nil {
 			return err
 		}
 		var purpose EnrollmentTokenPurpose
@@ -318,35 +314,6 @@ func enrollmentTokenLifetime(purpose EnrollmentTokenPurpose, requested time.Dura
 	return requested, nil
 }
 
-func requireActiveAdministrator(ctx context.Context, tx *sql.Tx, userID string) error {
-	var authorized int
-	if err := tx.QueryRowContext(ctx, `
-		SELECT EXISTS(
-			SELECT 1 FROM users WHERE id = ? AND status = 'active' AND is_admin = 1
-		)`, userID).Scan(&authorized); err != nil {
-		return fmt.Errorf("check active administrator: %w", err)
-	}
-	if authorized != 1 {
-		return ErrAdministratorRequired
-	}
-	return nil
-}
-
-func requireActiveManagementAdministrator(ctx context.Context, tx *sql.Tx, userID string) error {
-	var authorized int
-	if err := tx.QueryRowContext(ctx, `
-		SELECT EXISTS(
-			SELECT 1 FROM users
-			WHERE id = ? AND status = 'active' AND user_type = 'management' AND is_admin = 1
-		)`, userID).Scan(&authorized); err != nil {
-		return fmt.Errorf("check active management administrator: %w", err)
-	}
-	if authorized != 1 {
-		return ErrAdministratorRequired
-	}
-	return nil
-}
-
 func requireRecentAdministratorStepUp(ctx context.Context, tx *sql.Tx, userID, sessionID string, now time.Time) error {
 	session, err := scanSession(tx.QueryRowContext(ctx, sessionSelect+`
 		WHERE id = ? AND user_id = ? AND revoked_at IS NULL
@@ -374,35 +341,6 @@ func requireRecentAdministratorStepUp(ctx context.Context, tx *sql.Tx, userID, s
 	}
 	if isAdmin != 1 || !hasRecentSecurityStepUp(session, policy, now) {
 		return ErrRecentStepUpRequired
-	}
-	return nil
-}
-
-func (m *Manager) requireActiveAdministrator(ctx context.Context, userID string) error {
-	var authorized int
-	if err := m.db.Read().QueryRowContext(ctx, `
-		SELECT EXISTS(
-			SELECT 1 FROM users WHERE id = ? AND status = 'active' AND is_admin = 1
-		)`, strings.TrimSpace(userID)).Scan(&authorized); err != nil {
-		return fmt.Errorf("check active administrator: %w", err)
-	}
-	if authorized != 1 {
-		return ErrAdministratorRequired
-	}
-	return nil
-}
-
-func (m *Manager) requireActiveManagementAdministrator(ctx context.Context, userID string) error {
-	var authorized int
-	if err := m.db.Read().QueryRowContext(ctx, `
-		SELECT EXISTS(
-			SELECT 1 FROM users
-			WHERE id = ? AND status = 'active' AND user_type = 'management' AND is_admin = 1
-		)`, strings.TrimSpace(userID)).Scan(&authorized); err != nil {
-		return fmt.Errorf("check active management administrator: %w", err)
-	}
-	if authorized != 1 {
-		return ErrAdministratorRequired
 	}
 	return nil
 }

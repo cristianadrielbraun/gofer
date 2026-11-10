@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/auth"
+	"github.com/cristianadrielbraun/gofer/internal/authz"
 	"github.com/cristianadrielbraun/gofer/internal/mail"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
@@ -391,10 +392,22 @@ func (h *Handler) requireRecentAdminSecurityStepUp(w http.ResponseWriter, r *htt
 		return true
 	}
 	personal := mailSecuritySurfaceIsOwner(r.Context())
-	err := h.auth.RequireRecentSecurityStepUp(r.Context(), auth.GetSessionToken(r))
+	var err error
+	if personal {
+		err = h.auth.RequireRecentSecurityStepUp(r.Context(), auth.GetSessionToken(r))
+	} else {
+		// The admin console: the same rule as every administrative change.
+		user, session := auth.GetCurrentUser(r.Context()), auth.GetCurrentSession(r.Context())
+		err = auth.ErrAdministratorRequired
+		if user != nil && session != nil {
+			err = h.auth.RequireAdministratorPermission(r.Context(), user.ID, session.ID, authz.SecurityChange)
+		}
+	}
 	switch {
 	case err == nil:
 		return true
+	case errors.Is(err, auth.ErrAdministratorRequired):
+		http.Error(w, i18n.T(r.Context(), "server.error.admin_access_required"), http.StatusForbidden)
 	case errors.Is(err, auth.ErrRecentStepUpRequired) && personal:
 		// The security settings page asks the owner to verify first.
 		http.Redirect(w, r, "/settings/security", http.StatusSeeOther)

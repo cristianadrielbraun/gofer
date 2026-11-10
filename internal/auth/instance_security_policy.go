@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/cristianadrielbraun/gofer/internal/authz"
 )
 
 type InstanceMFAPolicy string
@@ -160,10 +162,7 @@ func (m *Manager) SetInstanceMFAPolicy(ctx context.Context, options SetInstanceM
 	now := m.clock.Now().UTC()
 	result := &SetInstanceMFAPolicyResult{}
 	err := m.runSecurityTransition(ctx, SecurityTransitionPolicyChange, func(tx *sql.Tx) error {
-		if err := requireActiveManagementAdministrator(ctx, tx, actorUserID); err != nil {
-			return err
-		}
-		if err := requireRecentAdministratorStepUp(ctx, tx, actorUserID, actorSessionID, now); err != nil {
+		if err := requireAdministratorPermission(ctx, tx, actorUserID, actorSessionID, authz.InstancePolicy, now); err != nil {
 			return err
 		}
 

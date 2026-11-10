@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/cristianadrielbraun/gofer/internal/authz"
 )
 
 const administratorUserInvitationActionReferenceContext = "gofer/auth/administrator-user-invitation-action-reference/v1"
@@ -90,10 +92,7 @@ func (m *Manager) CreateAdministratorUserInvitation(ctx context.Context, options
 	now := invitation.result.Token.CreatedAt
 
 	err = m.runSecurityTransition(ctx, SecurityTransitionEnrollment, func(tx *sql.Tx) error {
-		if err := requireActiveManagementAdministrator(ctx, tx, actorUserID); err != nil {
-			return err
-		}
-		if err := requireRecentAdministratorStepUp(ctx, tx, actorUserID, actorSessionID, now); err != nil {
+		if err := requireAdministratorPermission(ctx, tx, actorUserID, actorSessionID, authz.UsersInvite, now); err != nil {
 			return err
 		}
 		if err := insertUserInvitation(ctx, tx, invitation); err != nil {
@@ -317,10 +316,7 @@ func (m *Manager) RevokeAdministratorUserInvitation(
 	}
 	now := m.clock.Now().UTC()
 	return m.runSecurityTransition(ctx, SecurityTransitionEnrollment, func(tx *sql.Tx) error {
-		if err := requireActiveManagementAdministrator(ctx, tx, actorUserID); err != nil {
-			return err
-		}
-		if err := requireRecentAdministratorStepUp(ctx, tx, actorUserID, actorSessionID, now); err != nil {
+		if err := requireAdministratorPermission(ctx, tx, actorUserID, actorSessionID, authz.UsersInvite, now); err != nil {
 			return err
 		}
 		target, err := m.administratorUserInvitationTarget(ctx, tx, actorSessionID, actionReference)
@@ -413,10 +409,7 @@ func (m *Manager) RotateAdministratorUserInvitation(
 	now := m.clock.Now().UTC()
 	var invitation *AdministratorUserInvitation
 	err = m.runSecurityTransition(ctx, SecurityTransitionEnrollment, func(tx *sql.Tx) error {
-		if err := requireActiveManagementAdministrator(ctx, tx, actorUserID); err != nil {
-			return err
-		}
-		if err := requireRecentAdministratorStepUp(ctx, tx, actorUserID, actorSessionID, now); err != nil {
+		if err := requireAdministratorPermission(ctx, tx, actorUserID, actorSessionID, authz.UsersInvite, now); err != nil {
 			return err
 		}
 		target, err := m.administratorUserInvitationTarget(ctx, tx, actorSessionID, actionReference)

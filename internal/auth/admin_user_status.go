@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/cristianadrielbraun/gofer/internal/authz"
 )
 
 var (
@@ -52,10 +54,7 @@ func (m *Manager) SetAdministratorUserStatus(
 	now := m.clock.Now().UTC()
 	result := &SetAdministratorUserStatusResult{Status: options.Status}
 	err := m.runSecurityTransition(ctx, SecurityTransitionUserStatus, func(tx *sql.Tx) error {
-		if err := requireActiveManagementAdministrator(ctx, tx, actorUserID); err != nil {
-			return err
-		}
-		if err := requireRecentAdministratorStepUp(ctx, tx, actorUserID, actorSessionID, now); err != nil {
+		if err := requireAdministratorPermission(ctx, tx, actorUserID, actorSessionID, authz.UsersAccess, now); err != nil {
 			return err
 		}
 		if targetUserID == actorUserID {

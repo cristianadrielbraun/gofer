@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/cristianadrielbraun/gofer/internal/authz"
 )
 
 const administratorSecurityEventPageSize int64 = 50
@@ -87,12 +89,7 @@ func (m *Manager) ListAdministratorSecurityEventPage(
 		return nil, fmt.Errorf("begin administrator security event page: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	if err := requireActiveManagementAdministrator(ctx, tx, actorUserID); err != nil {
-		return nil, err
-	}
-	if err := requireRecentAdministratorStepUp(
-		ctx, tx, actorUserID, actorSessionID, m.clock.Now().UTC(),
-	); err != nil {
+	if err := requireAdministratorPermission(ctx, tx, actorUserID, actorSessionID, authz.ActivityRead, m.clock.Now().UTC()); err != nil {
 		return nil, err
 	}
 
