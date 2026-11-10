@@ -2,11 +2,12 @@ package handler
 
 import (
 	"errors"
-	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"log"
 	"net/http"
 
+	"github.com/cristianadrielbraun/gofer/internal/admin"
 	"github.com/cristianadrielbraun/gofer/internal/auth"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"github.com/cristianadrielbraun/gofer/internal/views"
 )
 
@@ -81,24 +82,16 @@ func (h *Handler) handleRequiredPasswordChangeSubmit(w http.ResponseWriter, r *h
 }
 
 func (h *Handler) handleRequireUserPasswordChange(w http.ResponseWriter, r *http.Request) {
-	user, session := auth.GetCurrentUser(r.Context()), auth.GetCurrentSession(r.Context())
-	if user == nil || session == nil || h.auth == nil || !h.auth.IsEnabled() {
-		http.Error(w, i18n.T(r.Context(), "server.error.admin_access_required"), http.StatusForbidden)
+	actor, ok := h.adminActor(w, r)
+	if !ok {
 		return
 	}
-	err := h.auth.RequirePasswordChange(r.Context(), auth.RequirePasswordChangeOptions{UserID: r.PathValue("userID"), CreatedBy: user.ID, ActorSessionID: session.ID})
-	if err != nil {
-		switch {
-		case errors.Is(err, auth.ErrRecentStepUpRequired):
-			h.renderAdminUsers(w, r, http.StatusForbidden, views.AdminUserInvitationFormData{}, nil, i18n.T(r.Context(), "auth.admin.verify.require_password"))
-		case errors.Is(err, auth.ErrAdministratorRequired):
-			http.Error(w, i18n.T(r.Context(), "server.error.admin_access_required"), http.StatusForbidden)
-		case errors.Is(err, auth.ErrEnrollmentTokenTargetInvalid):
+	if err := h.adminService().RequirePasswordChange(r.Context(), actor, r.PathValue("userID")); err != nil {
+		if admin.CodeOf(err) == admin.CodeUnavailable {
 			http.NotFound(w, r)
-		default:
-			log.Printf("require webmail password change: %v", err)
-			h.renderAdminUsers(w, r, http.StatusInternalServerError, views.AdminUserInvitationFormData{}, nil, i18n.T(r.Context(), "auth.admin.require_password_unavailable"))
+			return
 		}
+		h.adminUserChangeFailed(w, r, err, adminUserRequiredChange, views.AdminUserInvitationFormData{})
 		return
 	}
 	h.redirectAdminUsers(w, r, i18n.T(r.Context(), "auth.admin.password_change_required"))
