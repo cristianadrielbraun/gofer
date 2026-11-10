@@ -5,6 +5,9 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/cristianadrielbraun/gofer/components/button"
+	"github.com/cristianadrielbraun/gofer/components/input"
+	"github.com/cristianadrielbraun/gofer/components/label"
 	"github.com/cristianadrielbraun/gofer/components/dialog"
 	"github.com/cristianadrielbraun/gofer/components/icon"
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
@@ -218,41 +221,70 @@ templ AdminSecurityActivityPage(data AdminSecurityActivityData, verification ...
 }
 
 templ AdminSecurityRetentionDialog(data AdminSecurityActivityData) {
-	@dialog.Dialog(dialog.Props{ID: "admin-security-retention-dialog", Open: data.RetentionOpen}) {
+	@adminRetentionDialog(adminRetentionSetting{
+		ID: "admin-security-retention-dialog", InputID: "admin-security-retention-days", FormAttribute: "data-admin-security-retention",
+		Action: "/admin/activity/retention", CSRFToken: data.RetentionCSRFToken,
+		Days: data.RetentionDays, Minimum: data.RetentionMinimumDays, Maximum: data.RetentionMaximumDays, Open: data.RetentionOpen,
+		Title: i18n.T(ctx, "admin.retention.title"), Current: i18n.N(ctx, "admin.retention.current", data.RetentionDays), Note: i18n.T(ctx, "admin.retention.note"),
+	})
+}
+
+// adminRetentionSetting is one of the Activity page's retention dialogs:
+// how long sign-in and security events, or administrative changes, are kept.
+type adminRetentionSetting struct {
+	ID            string
+	InputID       string
+	FormAttribute string
+	Action        string
+	CSRFToken     string
+	Days          int
+	Minimum       int
+	Maximum       int
+	Open          bool
+	Title         string
+	Current       string
+	Note          string
+}
+
+templ adminRetentionDialog(setting adminRetentionSetting) {
+	@dialog.Dialog(dialog.Props{ID: setting.ID, Open: setting.Open}) {
 		@dialog.Content(dialog.ContentProps{Class: "max-h-[calc(100vh-2rem)] overflow-y-auto"}) {
 			@dialog.Header() {
 				@dialog.Title() {
-					{ i18n.T(ctx, "admin.retention.title") }
+					{ setting.Title }
 				}
 				@dialog.Description() {
-					{ i18n.N(ctx, "admin.retention.current", data.RetentionDays) }
+					{ setting.Current }
 				}
 			}
-			<form method="post" action="/admin/activity/retention" class="space-y-4" data-admin-security-retention>
-				if data.RetentionCSRFToken != "" {
-					<input type="hidden" name="_csrf" value={ data.RetentionCSRFToken }/>
+			<form method="post" action={ templ.SafeURL(setting.Action) } class="space-y-4" data-step-up { templ.Attributes{setting.FormAttribute: ""}... }>
+				if setting.CSRFToken != "" {
+					<input type="hidden" name="_csrf" value={ setting.CSRFToken }/>
 				}
 				<div>
-					<label for="admin-security-retention-days" class="mb-1.5 block text-sm font-medium text-foreground">{ i18n.T(ctx, "admin.retention.label") }</label>
-					<input
-						id="admin-security-retention-days"
-						name="days"
-						type="number"
-						min={ fmt.Sprintf("%d", data.RetentionMinimumDays) }
-						max={ fmt.Sprintf("%d", data.RetentionMaximumDays) }
-						value={ fmt.Sprintf("%d", data.RetentionDays) }
-						aria-describedby="admin-security-retention-help"
-						required
-						class="h-9 w-full rounded-md border border-input bg-background px-3 text-sm tabular-nums text-foreground shadow-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/30"
-					/>
-					<p id="admin-security-retention-help" class="mt-2 text-xs text-muted-foreground">{ i18n.T(ctx, "admin.retention.help", "min", data.RetentionMinimumDays, "max", data.RetentionMaximumDays) }</p>
+					@label.Label(label.Props{For: setting.InputID, Class: "mb-1.5 block"}) {
+						{ i18n.T(ctx, "admin.retention.label") }
+					}
+					@input.Input(input.Props{
+						ID: setting.InputID, Name: "days", Type: input.TypeNumber, Value: fmt.Sprintf("%d", setting.Days), Required: true,
+						Class: "tabular-nums",
+						Attributes: templ.Attributes{
+							"min": fmt.Sprintf("%d", setting.Minimum), "max": fmt.Sprintf("%d", setting.Maximum),
+							"aria-describedby": setting.InputID + "-help",
+						},
+					})
+					<p id={ setting.InputID + "-help" } class="mt-2 text-xs text-muted-foreground">{ i18n.T(ctx, "admin.retention.help", "min", setting.Minimum, "max", setting.Maximum) }</p>
 				</div>
-				<p class="text-sm text-muted-foreground">{ i18n.T(ctx, "admin.retention.note") }</p>
+				<p class="text-sm text-muted-foreground">{ setting.Note }</p>
 				@dialog.Footer() {
 					@dialog.Close() {
-						<button type="button" class="inline-flex h-9 items-center justify-center rounded-md border border-border bg-background px-3 text-sm font-medium text-foreground hover:bg-accent">{ i18n.T(ctx, "common.cancel") }</button>
+						@button.Button(button.Props{Variant: button.VariantOutline}) {
+							{ i18n.T(ctx, "common.cancel") }
+						}
 					}
-					<button type="submit" class="inline-flex h-9 items-center justify-center rounded-md bg-primary px-3 text-sm font-semibold text-primary-foreground hover:bg-primary/90">{ i18n.T(ctx, "admin.retention.save") }</button>
+					@button.Button(button.Props{Type: button.TypeSubmit}) {
+						{ i18n.T(ctx, "admin.retention.save") }
+					}
 				}
 			</form>
 		}

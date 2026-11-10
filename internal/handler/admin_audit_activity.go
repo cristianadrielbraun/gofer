@@ -59,6 +59,17 @@ func (h *Handler) handleAdminAuditActivity(w http.ResponseWriter, r *http.Reques
 			case err == nil:
 				data.Records = page.Records
 				data.Next = page.Next
+				days, retentionErr := h.auth.AdminAuditRetention(ctx)
+				if retentionErr != nil {
+					log.Printf("load administration event retention: %v", retentionErr)
+					http.Error(w, i18n.T(ctx, "server.error.failed_to_load_administrator_security_activity"), http.StatusInternalServerError)
+					return
+				}
+				data.RetentionDays = days
+				data.RetentionMinimum = auth.MinimumAdminAuditRetentionDays
+				data.RetentionMaximum = auth.MaximumAdminAuditRetentionDays
+				data.RetentionCSRFToken = auth.CSRFToken(ctx, http.MethodPost, views.AdminAuditActivityPath+"/retention")
+				data.RetentionOpen = r.URL.Query().Get("retention") == "1"
 			case errors.Is(err, auth.ErrRecentStepUpRequired):
 				data.StepUpRequired = true
 				access.StepUpFresh = false

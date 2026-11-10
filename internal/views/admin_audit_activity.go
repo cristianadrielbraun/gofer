@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/a-h/templ"
@@ -30,6 +31,22 @@ type AdminAuditActivityData struct {
 	// the following one does, or 0.
 	Before int64
 	Next   int64
+	// RetentionDays is how long administrative changes are kept, and
+	// RetentionOpen reopens its dialog after a refused value.
+	RetentionDays      int
+	RetentionMinimum   int
+	RetentionMaximum   int
+	RetentionCSRFToken string
+	RetentionOpen      bool
+}
+
+// adminAuditExportPath downloads the tab's changes in format.
+func adminAuditExportPath(kind, format string) templ.SafeURL {
+	values := url.Values{"format": {format}}
+	if kind != "" {
+		values.Set("kind", kind)
+	}
+	return templ.URL(AdminAuditActivityPath + "/export?" + values.Encode())
 }
 
 func adminAuditActivityPagePath(kind string, before int64) templ.SafeURL {
@@ -59,6 +76,11 @@ func adminAuditSentence(ctx context.Context, record audit.Record) string {
 	case "instance.security_retention_changed":
 		change := record.Changes["security_event_retention_days"]
 		args = append(args, "from", adminAuditValue(ctx, change.From), "to", adminAuditValue(ctx, change.To))
+	case "instance.audit_retention_changed":
+		change := record.Changes["admin_event_retention_days"]
+		args = append(args, "from", adminAuditValue(ctx, change.From), "to", adminAuditValue(ctx, change.To))
+	case "audit.exported":
+		args = append(args, "format", strings.ToUpper(fmt.Sprint(record.Metadata["format"])))
 	case "instance.mfa_policy_changed":
 		change := record.Changes["mfa_policy"]
 		args = append(args, "from", adminAuditMFAPolicy(ctx, change.From), "to", adminAuditMFAPolicy(ctx, change.To))

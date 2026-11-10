@@ -44,6 +44,8 @@ const (
 	ActivityRead Permission = "activity.read"
 	// ActivityRetention sets how long activity is kept.
 	ActivityRetention Permission = "activity.retention"
+	// ActivityExport downloads the administration audit log.
+	ActivityExport Permission = "activity.export"
 	// DiagnosticsRead shows the system diagnostics pages.
 	DiagnosticsRead Permission = "diagnostics.read"
 )
@@ -67,6 +69,7 @@ var catalog = map[Permission]Spec{
 	SecurityChange:    {StepUp: true},
 	ActivityRead:      {StepUp: true},
 	ActivityRetention: {StepUp: true},
+	ActivityExport:    {StepUp: true},
 	DiagnosticsRead:   {},
 }
 

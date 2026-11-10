@@ -1,6 +1,9 @@
 package views
 
 import (
+	"github.com/cristianadrielbraun/gofer/components/button"
+	"github.com/cristianadrielbraun/gofer/components/dialog"
+	"github.com/cristianadrielbraun/gofer/components/icon"
 	"github.com/cristianadrielbraun/gofer/internal/audit"
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
 )
@@ -39,9 +42,29 @@ templ AdminAuditActivityPage(data AdminAuditActivityData, verification ...AdminS
 	<div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden" data-admin-audit-activity>
 		<div class="min-h-0 flex-1 overflow-y-auto">
 			<div class="max-w-7xl px-6 py-8 lg:px-8 lg:py-10">
-				<div>
-					<h2 class="text-2xl font-bold text-foreground" style="font-family: var(--font-serif)">{ i18n.T(ctx, "admin.nav.activity_short") }</h2>
-					<p class="mt-1 max-w-3xl text-sm text-muted-foreground">{ i18n.T(ctx, "admin.audit.description") }</p>
+				<div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+					<div>
+						<h2 class="text-2xl font-bold text-foreground" style="font-family: var(--font-serif)">{ i18n.T(ctx, "admin.nav.activity_short") }</h2>
+						<p class="mt-1 max-w-3xl text-sm text-muted-foreground">{ i18n.T(ctx, "admin.audit.description") }</p>
+					</div>
+					if data.ManagedMode && !data.StepUpRequired {
+						<div class="flex shrink-0 flex-wrap items-center gap-2">
+							@button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeSm, Href: string(adminAuditExportPath(data.Kind, "csv")), Attributes: templ.Attributes{"download": ""}}) {
+								@icon.Download(icon.Props{Class: "size-4"})
+								{ i18n.T(ctx, "admin.audit.export_csv") }
+							}
+							@button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeSm, Href: string(adminAuditExportPath(data.Kind, "jsonl")), Attributes: templ.Attributes{"download": ""}}) {
+								@icon.Download(icon.Props{Class: "size-4"})
+								{ i18n.T(ctx, "admin.audit.export_jsonl") }
+							}
+							@dialog.Trigger(dialog.TriggerProps{For: "admin-audit-retention-dialog"}) {
+								@button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeSm, Attributes: templ.Attributes{"aria-haspopup": "dialog"}}) {
+									@icon.Settings(icon.Props{Class: "size-4"})
+									{ i18n.T(ctx, "admin.activity.settings") }
+								}
+							}
+						</div>
+					}
 				</div>
 				if data.ManagedMode {
 					@adminActivityTabs("administration")
@@ -60,6 +83,12 @@ templ AdminAuditActivityPage(data AdminAuditActivityData, verification ...AdminS
 						</div>
 					</div>
 				} else {
+					@adminRetentionDialog(adminRetentionSetting{
+						ID: "admin-audit-retention-dialog", InputID: "admin-audit-retention-days", FormAttribute: "data-admin-audit-retention",
+						Action: AdminAuditActivityPath + "/retention", CSRFToken: data.RetentionCSRFToken,
+						Days: data.RetentionDays, Minimum: data.RetentionMinimum, Maximum: data.RetentionMaximum, Open: data.RetentionOpen,
+						Title: i18n.T(ctx, "admin.audit.retention.title"), Current: i18n.N(ctx, "admin.audit.retention.current", data.RetentionDays), Note: i18n.T(ctx, "admin.audit.retention.note"),
+					})
 					<nav class="mt-6 flex flex-wrap gap-2" aria-label={ i18n.T(ctx, "admin.audit.filter_label") }>
 						@adminAuditKindLink(data, "", i18n.T(ctx, "admin.audit.filter.all"))
 						for _, kind := range AdminAuditKinds {

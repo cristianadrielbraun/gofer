@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
@@ -119,5 +120,57 @@ func TestAdminAuditActivityShowsAdministrativeChanges(t *testing.T) {
 		strings.Contains(staleHTML, "mail.sample.test") ||
 		!strings.Contains(staleHTML, `name="return_to" value="/admin/activity/administration?kind=security"`) {
 		t.Fatalf("stale administration tab = %d %q", stale.Code, staleHTML)
+	}
+}
+
+func TestAdminAuditExportAndRetention(t *testing.T) {
+	manager, db, stack, cookie, _ := completedSecuritySettingsStack(t)
+	tab := getSecuritySettingsPath(t, stack, "/admin/activity/administration", cookie).Body.String()
+
+	// Keep administrative changes for a year.
+	retentionPath := "/admin/activity/administration/retention"
+	if refused := postSecuritySettings(t, stack, retentionPath, url.Values{
+		"days": {"30"}, auth.CSRFFormFieldName: {csrfProofFromForm(t, tab, retentionPath)},
+	}, cookie); refused.Code != http.StatusSeeOther || refused.Header().Get("Location") != "/admin/activity/administration?retention=1" || !adminFlashFailed(t, refused) {
+		t.Fatalf("too short a retention = %d %q", refused.Code, refused.Header().Get("Location"))
+	}
+	saved := postSecuritySettings(t, stack, retentionPath, url.Values{
+		"days": {"365"}, auth.CSRFFormFieldName: {csrfProofFromForm(t, tab, retentionPath)},
+	}, cookie)
+	if saved.Code != http.StatusSeeOther || !strings.Contains(adminFlashMessage(t, saved), "365 days") {
+		t.Fatalf("save retention = %d %q", saved.Code, adminFlashMessage(t, saved))
+	}
+	if days, err := manager.AdminAuditRetention(t.Context()); err != nil || days != 365 {
+		t.Fatalf("retention = %d, %v", days, err)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/admin/activity/administration/export?format=csv&kind=instance", nil)
+	request.AddCookie(cookie)
+	response := httptest.NewRecorder()
+	stack.ServeHTTP(response, request)
+	body := response.Body.String()
+	if response.Code != http.StatusOK || !strings.HasPrefix(response.Header().Get("Content-Type"), "text/csv") ||
+		!strings.Contains(response.Header().Get("Content-Disposition"), "attachment") ||
+		!strings.HasPrefix(body, "seq,id,occurred_at") || !strings.Contains(body, "instance.audit_retention_changed") {
+		t.Fatalf("export = %d %v %q", response.Code, response.Header(), body)
+	}
+	exported, err := audit.List(t.Context(), db.Read(), audit.Filter{Action: "audit.exported"}, 0, 10)
+	if err != nil || len(exported.Records) != 1 || exported.Records[0].Metadata["action_filter"] != "instance." {
+		t.Fatalf("export record = %+v, %v", exported.Records, err)
+	}
+
+	session, err := manager.GetSessionByToken(t.Context(), cookie.Value)
+	if err != nil || session == nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Write().ExecContext(t.Context(), `UPDATE sessions SET step_up_at = ? WHERE id = ?`, time.Now().UTC().Add(-11*time.Minute), session.ID); err != nil {
+		t.Fatal(err)
+	}
+	stale := httptest.NewRecorder()
+	staleRequest := httptest.NewRequest(http.MethodGet, "/admin/activity/administration/export?format=jsonl", nil)
+	staleRequest.AddCookie(cookie)
+	stack.ServeHTTP(stale, staleRequest)
+	if stale.Code != http.StatusSeeOther || stale.Header().Get("Location") != "/admin/activity/administration?verification_required=1" || stale.Body.Len() > 200 {
+		t.Fatalf("stale export = %d %q", stale.Code, stale.Header().Get("Location"))
 	}
 }

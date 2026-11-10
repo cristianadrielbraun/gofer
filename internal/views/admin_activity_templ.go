@@ -13,8 +13,11 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/cristianadrielbraun/gofer/components/button"
 	"github.com/cristianadrielbraun/gofer/components/dialog"
 	"github.com/cristianadrielbraun/gofer/components/icon"
+	"github.com/cristianadrielbraun/gofer/components/input"
+	"github.com/cristianadrielbraun/gofer/components/label"
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
 )
 
@@ -132,7 +135,7 @@ func adminActivityPill(href templ.SafeURL, label string, active bool) templ.Comp
 		var templ_7745c5c3_Var4 templ.SafeURL
 		templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinURLErrs(href)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 68, Col: 13}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 71, Col: 13}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 		if templ_7745c5c3_Err != nil {
@@ -145,7 +148,7 @@ func adminActivityPill(href templ.SafeURL, label string, active bool) templ.Comp
 		var templ_7745c5c3_Var5 string
 		templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.activity.filter_nav", "filter", strings.ToLower(label)))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 70, Col: 106}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 73, Col: 106}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 		if templ_7745c5c3_Err != nil {
@@ -181,7 +184,7 @@ func adminActivityPill(href templ.SafeURL, label string, active bool) templ.Comp
 		var templ_7745c5c3_Var7 string
 		templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 79, Col: 9}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 82, Col: 9}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 		if templ_7745c5c3_Err != nil {
@@ -223,7 +226,7 @@ func AdminSecurityActivityPage(data AdminSecurityActivityData, verification ...A
 		var templ_7745c5c3_Var9 string
 		templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.nav.activity_short"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 88, Col: 133}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 91, Col: 133}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 		if templ_7745c5c3_Err != nil {
@@ -236,7 +239,7 @@ func AdminSecurityActivityPage(data AdminSecurityActivityData, verification ...A
 		var templ_7745c5c3_Var10 string
 		templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.activity.description"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 89, Col: 105}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 92, Col: 105}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var10))
 		if templ_7745c5c3_Err != nil {
@@ -250,7 +253,7 @@ func AdminSecurityActivityPage(data AdminSecurityActivityData, verification ...A
 			var templ_7745c5c3_Var11 string
 			templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.N(ctx, "admin.activity.events", int(data.TotalEvents), "count", i18n.Number(ctx, int(data.TotalEvents))))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 94, Col: 119}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 97, Col: 119}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
 			if templ_7745c5c3_Err != nil {
@@ -260,7 +263,7 @@ func AdminSecurityActivityPage(data AdminSecurityActivityData, verification ...A
 			var templ_7745c5c3_Var12 string
 			templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.N(ctx, "admin.activity.matching", int(data.TotalEvents), "count", i18n.Number(ctx, int(data.TotalEvents))))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 96, Col: 121}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 99, Col: 121}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
 			if templ_7745c5c3_Err != nil {
@@ -295,7 +298,7 @@ func AdminSecurityActivityPage(data AdminSecurityActivityData, verification ...A
 				var templ_7745c5c3_Var14 string
 				templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.activity.settings"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 103, Col: 49}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 106, Col: 49}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var14))
 				if templ_7745c5c3_Err != nil {
@@ -330,7 +333,7 @@ func AdminSecurityActivityPage(data AdminSecurityActivityData, verification ...A
 			var templ_7745c5c3_Var15 string
 			templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.activity.unmanaged_title"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 114, Col: 102}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 117, Col: 102}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var15))
 			if templ_7745c5c3_Err != nil {
@@ -343,7 +346,7 @@ func AdminSecurityActivityPage(data AdminSecurityActivityData, verification ...A
 			var templ_7745c5c3_Var16 string
 			templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.activity.unmanaged"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 115, Col: 93}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 118, Col: 93}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
 			if templ_7745c5c3_Err != nil {
@@ -361,7 +364,7 @@ func AdminSecurityActivityPage(data AdminSecurityActivityData, verification ...A
 			var templ_7745c5c3_Var17 string
 			templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.verify.required"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 119, Col: 69}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 122, Col: 69}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var17))
 			if templ_7745c5c3_Err != nil {
@@ -374,7 +377,7 @@ func AdminSecurityActivityPage(data AdminSecurityActivityData, verification ...A
 			var templ_7745c5c3_Var18 string
 			templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.activity.verify"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 120, Col: 68}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 123, Col: 68}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var18))
 			if templ_7745c5c3_Err != nil {
@@ -404,7 +407,7 @@ func AdminSecurityActivityPage(data AdminSecurityActivityData, verification ...A
 			var templ_7745c5c3_Var19 string
 			templ_7745c5c3_Var19, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.activity.filter_label"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 127, Col: 99}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 130, Col: 99}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var19))
 			if templ_7745c5c3_Err != nil {
@@ -445,7 +448,7 @@ func AdminSecurityActivityPage(data AdminSecurityActivityData, verification ...A
 			var templ_7745c5c3_Var20 string
 			templ_7745c5c3_Var20, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.activity.events_heading"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 137, Col: 138}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 140, Col: 138}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var20))
 			if templ_7745c5c3_Err != nil {
@@ -463,7 +466,7 @@ func AdminSecurityActivityPage(data AdminSecurityActivityData, verification ...A
 				var templ_7745c5c3_Var21 string
 				templ_7745c5c3_Var21, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.activity.showing", "first", i18n.Number(ctx, int(data.FirstEvent)), "last", i18n.Number(ctx, int(data.LastEvent)), "total", i18n.Number(ctx, int(data.TotalEvents))))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 139, Col: 237}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 142, Col: 237}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var21))
 				if templ_7745c5c3_Err != nil {
@@ -487,7 +490,7 @@ func AdminSecurityActivityPage(data AdminSecurityActivityData, verification ...A
 					var templ_7745c5c3_Var22 string
 					templ_7745c5c3_Var22, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.activity.empty"))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 145, Col: 46}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 148, Col: 46}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var22))
 					if templ_7745c5c3_Err != nil {
@@ -497,7 +500,7 @@ func AdminSecurityActivityPage(data AdminSecurityActivityData, verification ...A
 					var templ_7745c5c3_Var23 string
 					templ_7745c5c3_Var23, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.activity.empty_filter"))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 147, Col: 53}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 150, Col: 53}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var23))
 					if templ_7745c5c3_Err != nil {
@@ -516,7 +519,7 @@ func AdminSecurityActivityPage(data AdminSecurityActivityData, verification ...A
 				var templ_7745c5c3_Var24 string
 				templ_7745c5c3_Var24, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.activity.table_label"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 152, Col: 116}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 155, Col: 116}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var24))
 				if templ_7745c5c3_Err != nil {
@@ -529,7 +532,7 @@ func AdminSecurityActivityPage(data AdminSecurityActivityData, verification ...A
 				var templ_7745c5c3_Var25 string
 				templ_7745c5c3_Var25, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.col.time"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 155, Col: 76}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 158, Col: 76}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var25))
 				if templ_7745c5c3_Err != nil {
@@ -542,7 +545,7 @@ func AdminSecurityActivityPage(data AdminSecurityActivityData, verification ...A
 				var templ_7745c5c3_Var26 string
 				templ_7745c5c3_Var26, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.col.event"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 156, Col: 77}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 159, Col: 77}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var26))
 				if templ_7745c5c3_Err != nil {
@@ -555,7 +558,7 @@ func AdminSecurityActivityPage(data AdminSecurityActivityData, verification ...A
 				var templ_7745c5c3_Var27 string
 				templ_7745c5c3_Var27, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.col.status"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 157, Col: 78}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 160, Col: 78}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var27))
 				if templ_7745c5c3_Err != nil {
@@ -568,7 +571,7 @@ func AdminSecurityActivityPage(data AdminSecurityActivityData, verification ...A
 				var templ_7745c5c3_Var28 string
 				templ_7745c5c3_Var28, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.col.actor"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 158, Col: 77}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 161, Col: 77}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var28))
 				if templ_7745c5c3_Err != nil {
@@ -581,7 +584,7 @@ func AdminSecurityActivityPage(data AdminSecurityActivityData, verification ...A
 				var templ_7745c5c3_Var29 string
 				templ_7745c5c3_Var29, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.col.subject"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 159, Col: 79}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 162, Col: 79}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var29))
 				if templ_7745c5c3_Err != nil {
@@ -594,7 +597,7 @@ func AdminSecurityActivityPage(data AdminSecurityActivityData, verification ...A
 				var templ_7745c5c3_Var30 string
 				templ_7745c5c3_Var30, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.col.client"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 160, Col: 78}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 163, Col: 78}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var30))
 				if templ_7745c5c3_Err != nil {
@@ -612,7 +615,7 @@ func AdminSecurityActivityPage(data AdminSecurityActivityData, verification ...A
 					var templ_7745c5c3_Var31 string
 					templ_7745c5c3_Var31, templ_7745c5c3_Err = templ.JoinStringErrs(event.OccurredAt)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 166, Col: 100}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 169, Col: 100}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var31))
 					if templ_7745c5c3_Err != nil {
@@ -625,7 +628,7 @@ func AdminSecurityActivityPage(data AdminSecurityActivityData, verification ...A
 					var templ_7745c5c3_Var32 string
 					templ_7745c5c3_Var32, templ_7745c5c3_Err = templ.JoinStringErrs(event.Title)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 168, Col: 67}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 171, Col: 67}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var32))
 					if templ_7745c5c3_Err != nil {
@@ -638,7 +641,7 @@ func AdminSecurityActivityPage(data AdminSecurityActivityData, verification ...A
 					var templ_7745c5c3_Var33 string
 					templ_7745c5c3_Var33, templ_7745c5c3_Err = templ.JoinStringErrs(event.Detail)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 169, Col: 73}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 172, Col: 73}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var33))
 					if templ_7745c5c3_Err != nil {
@@ -676,7 +679,7 @@ func AdminSecurityActivityPage(data AdminSecurityActivityData, verification ...A
 					var templ_7745c5c3_Var36 string
 					templ_7745c5c3_Var36, templ_7745c5c3_Err = templ.JoinStringErrs(event.Status)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 178, Col: 28}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 181, Col: 28}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var36))
 					if templ_7745c5c3_Err != nil {
@@ -689,7 +692,7 @@ func AdminSecurityActivityPage(data AdminSecurityActivityData, verification ...A
 					var templ_7745c5c3_Var37 string
 					templ_7745c5c3_Var37, templ_7745c5c3_Err = templ.JoinStringErrs(event.Actor)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 180, Col: 75}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 183, Col: 75}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var37))
 					if templ_7745c5c3_Err != nil {
@@ -702,7 +705,7 @@ func AdminSecurityActivityPage(data AdminSecurityActivityData, verification ...A
 					var templ_7745c5c3_Var38 string
 					templ_7745c5c3_Var38, templ_7745c5c3_Err = templ.JoinStringErrs(event.Subject)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 182, Col: 70}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 185, Col: 70}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var38))
 					if templ_7745c5c3_Err != nil {
@@ -720,7 +723,7 @@ func AdminSecurityActivityPage(data AdminSecurityActivityData, verification ...A
 						var templ_7745c5c3_Var39 string
 						templ_7745c5c3_Var39, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.activity.deleted"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 184, Col: 201}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 187, Col: 201}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var39))
 						if templ_7745c5c3_Err != nil {
@@ -738,7 +741,7 @@ func AdminSecurityActivityPage(data AdminSecurityActivityData, verification ...A
 					var templ_7745c5c3_Var40 string
 					templ_7745c5c3_Var40, templ_7745c5c3_Err = templ.JoinStringErrs(event.Client)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 187, Col: 99}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 190, Col: 99}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var40))
 					if templ_7745c5c3_Err != nil {
@@ -766,7 +769,7 @@ func AdminSecurityActivityPage(data AdminSecurityActivityData, verification ...A
 				var templ_7745c5c3_Var41 string
 				templ_7745c5c3_Var41, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.activity.pagination"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 196, Col: 144}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 199, Col: 144}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var41))
 				if templ_7745c5c3_Err != nil {
@@ -779,7 +782,7 @@ func AdminSecurityActivityPage(data AdminSecurityActivityData, verification ...A
 				var templ_7745c5c3_Var42 string
 				templ_7745c5c3_Var42, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.page_of", "page", i18n.Number(ctx, int(data.Page)), "total", i18n.Number(ctx, int(data.TotalPages))))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 197, Col: 169}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 200, Col: 169}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var42))
 				if templ_7745c5c3_Err != nil {
@@ -797,7 +800,7 @@ func AdminSecurityActivityPage(data AdminSecurityActivityData, verification ...A
 					var templ_7745c5c3_Var43 templ.SafeURL
 					templ_7745c5c3_Var43, templ_7745c5c3_Err = templ.JoinURLErrs(adminSecurityActivityPagePath(data.Filter, data.PreviousPage))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 200, Col: 80}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 203, Col: 80}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var43))
 					if templ_7745c5c3_Err != nil {
@@ -810,7 +813,7 @@ func AdminSecurityActivityPage(data AdminSecurityActivityData, verification ...A
 					var templ_7745c5c3_Var44 string
 					templ_7745c5c3_Var44, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.activity.previous_nav"))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 200, Col: 182}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 203, Col: 182}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var44))
 					if templ_7745c5c3_Err != nil {
@@ -823,7 +826,7 @@ func AdminSecurityActivityPage(data AdminSecurityActivityData, verification ...A
 					var templ_7745c5c3_Var45 string
 					templ_7745c5c3_Var45, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "common.previous"))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 200, Col: 374}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 203, Col: 374}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var45))
 					if templ_7745c5c3_Err != nil {
@@ -841,7 +844,7 @@ func AdminSecurityActivityPage(data AdminSecurityActivityData, verification ...A
 					var templ_7745c5c3_Var46 string
 					templ_7745c5c3_Var46, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "common.previous"))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 202, Col: 221}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 205, Col: 221}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var46))
 					if templ_7745c5c3_Err != nil {
@@ -860,7 +863,7 @@ func AdminSecurityActivityPage(data AdminSecurityActivityData, verification ...A
 					var templ_7745c5c3_Var47 templ.SafeURL
 					templ_7745c5c3_Var47, templ_7745c5c3_Err = templ.JoinURLErrs(adminSecurityActivityPagePath(data.Filter, data.NextPage))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 205, Col: 76}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 208, Col: 76}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var47))
 					if templ_7745c5c3_Err != nil {
@@ -873,7 +876,7 @@ func AdminSecurityActivityPage(data AdminSecurityActivityData, verification ...A
 					var templ_7745c5c3_Var48 string
 					templ_7745c5c3_Var48, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.activity.next_nav"))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 205, Col: 174}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 208, Col: 174}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var48))
 					if templ_7745c5c3_Err != nil {
@@ -886,7 +889,7 @@ func AdminSecurityActivityPage(data AdminSecurityActivityData, verification ...A
 					var templ_7745c5c3_Var49 string
 					templ_7745c5c3_Var49, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "common.next"))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 205, Col: 362}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 208, Col: 362}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var49))
 					if templ_7745c5c3_Err != nil {
@@ -904,7 +907,7 @@ func AdminSecurityActivityPage(data AdminSecurityActivityData, verification ...A
 					var templ_7745c5c3_Var50 string
 					templ_7745c5c3_Var50, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "common.next"))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 207, Col: 217}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 210, Col: 217}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var50))
 					if templ_7745c5c3_Err != nil {
@@ -927,7 +930,7 @@ func AdminSecurityActivityPage(data AdminSecurityActivityData, verification ...A
 			var templ_7745c5c3_Var51 string
 			templ_7745c5c3_Var51, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.activity.privacy"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 212, Col: 90}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 215, Col: 90}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var51))
 			if templ_7745c5c3_Err != nil {
@@ -971,7 +974,58 @@ func AdminSecurityRetentionDialog(data AdminSecurityActivityData) templ.Componen
 			templ_7745c5c3_Var52 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Var53 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_Err = adminRetentionDialog(adminRetentionSetting{
+			ID: "admin-security-retention-dialog", InputID: "admin-security-retention-days", FormAttribute: "data-admin-security-retention",
+			Action: "/admin/activity/retention", CSRFToken: data.RetentionCSRFToken,
+			Days: data.RetentionDays, Minimum: data.RetentionMinimumDays, Maximum: data.RetentionMaximumDays, Open: data.RetentionOpen,
+			Title: i18n.T(ctx, "admin.retention.title"), Current: i18n.N(ctx, "admin.retention.current", data.RetentionDays), Note: i18n.T(ctx, "admin.retention.note"),
+		}).Render(ctx, templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		return nil
+	})
+}
+
+// adminRetentionSetting is one of the Activity page's retention dialogs:
+// how long sign-in and security events, or administrative changes, are kept.
+type adminRetentionSetting struct {
+	ID            string
+	InputID       string
+	FormAttribute string
+	Action        string
+	CSRFToken     string
+	Days          int
+	Minimum       int
+	Maximum       int
+	Open          bool
+	Title         string
+	Current       string
+	Note          string
+}
+
+func adminRetentionDialog(setting adminRetentionSetting) templ.Component {
+	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
+			return templ_7745c5c3_CtxErr
+		}
+		templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+		if !templ_7745c5c3_IsBuffer {
+			defer func() {
+				templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err == nil {
+					templ_7745c5c3_Err = templ_7745c5c3_BufErr
+				}
+			}()
+		}
+		ctx = templ.InitializeContext(ctx)
+		templ_7745c5c3_Var53 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var53 == nil {
+			templ_7745c5c3_Var53 = templ.NopComponent
+		}
+		ctx = templ.ClearChildren(ctx)
+		templ_7745c5c3_Var54 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 			if !templ_7745c5c3_IsBuffer {
@@ -983,7 +1037,7 @@ func AdminSecurityRetentionDialog(data AdminSecurityActivityData) templ.Componen
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Var54 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+			templ_7745c5c3_Var55 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 				templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 				templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 				if !templ_7745c5c3_IsBuffer {
@@ -995,7 +1049,7 @@ func AdminSecurityRetentionDialog(data AdminSecurityActivityData) templ.Componen
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Var55 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+				templ_7745c5c3_Var56 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 					templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 					templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 					if !templ_7745c5c3_IsBuffer {
@@ -1007,7 +1061,7 @@ func AdminSecurityRetentionDialog(data AdminSecurityActivityData) templ.Componen
 						}()
 					}
 					ctx = templ.InitializeContext(ctx)
-					templ_7745c5c3_Var56 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+					templ_7745c5c3_Var57 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 						templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 						templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 						if !templ_7745c5c3_IsBuffer {
@@ -1019,18 +1073,18 @@ func AdminSecurityRetentionDialog(data AdminSecurityActivityData) templ.Componen
 							}()
 						}
 						ctx = templ.InitializeContext(ctx)
-						var templ_7745c5c3_Var57 string
-						templ_7745c5c3_Var57, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.retention.title"))
+						var templ_7745c5c3_Var58 string
+						templ_7745c5c3_Var58, templ_7745c5c3_Err = templ.JoinStringErrs(setting.Title)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 225, Col: 43}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 254, Col: 20}
 						}
-						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var57))
+						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var58))
 						if templ_7745c5c3_Err != nil {
 							return templ_7745c5c3_Err
 						}
 						return nil
 					})
-					templ_7745c5c3_Err = dialog.Title().Render(templ.WithChildren(ctx, templ_7745c5c3_Var56), templ_7745c5c3_Buffer)
+					templ_7745c5c3_Err = dialog.Title().Render(templ.WithChildren(ctx, templ_7745c5c3_Var57), templ_7745c5c3_Buffer)
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -1038,7 +1092,7 @@ func AdminSecurityRetentionDialog(data AdminSecurityActivityData) templ.Componen
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Var58 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+					templ_7745c5c3_Var59 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 						templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 						templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 						if !templ_7745c5c3_IsBuffer {
@@ -1050,133 +1104,76 @@ func AdminSecurityRetentionDialog(data AdminSecurityActivityData) templ.Componen
 							}()
 						}
 						ctx = templ.InitializeContext(ctx)
-						var templ_7745c5c3_Var59 string
-						templ_7745c5c3_Var59, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.N(ctx, "admin.retention.current", data.RetentionDays))
+						var templ_7745c5c3_Var60 string
+						templ_7745c5c3_Var60, templ_7745c5c3_Err = templ.JoinStringErrs(setting.Current)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 228, Col: 65}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 257, Col: 22}
 						}
-						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var59))
+						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var60))
 						if templ_7745c5c3_Err != nil {
 							return templ_7745c5c3_Err
 						}
 						return nil
 					})
-					templ_7745c5c3_Err = dialog.Description().Render(templ.WithChildren(ctx, templ_7745c5c3_Var58), templ_7745c5c3_Buffer)
+					templ_7745c5c3_Err = dialog.Description().Render(templ.WithChildren(ctx, templ_7745c5c3_Var59), templ_7745c5c3_Buffer)
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 					return nil
 				})
-				templ_7745c5c3_Err = dialog.Header().Render(templ.WithChildren(ctx, templ_7745c5c3_Var55), templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = dialog.Header().Render(templ.WithChildren(ctx, templ_7745c5c3_Var56), templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 74, " <form method=\"post\" action=\"/admin/activity/retention\" class=\"space-y-4\" data-admin-security-retention>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 74, " <form method=\"post\" action=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				if data.RetentionCSRFToken != "" {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 75, "<input type=\"hidden\" name=\"_csrf\" value=\"")
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
-					var templ_7745c5c3_Var60 string
-					templ_7745c5c3_Var60, templ_7745c5c3_Err = templ.JoinStringErrs(data.RetentionCSRFToken)
-					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 233, Col: 70}
-					}
-					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var60))
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 76, "\">")
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
-				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 77, "<div><label for=\"admin-security-retention-days\" class=\"mb-1.5 block text-sm font-medium text-foreground\">")
+				var templ_7745c5c3_Var61 templ.SafeURL
+				templ_7745c5c3_Var61, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(setting.Action))
 				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				var templ_7745c5c3_Var61 string
-				templ_7745c5c3_Var61, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.retention.label"))
-				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 236, Col: 143}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 260, Col: 61}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var61))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 78, "</label> <input id=\"admin-security-retention-days\" name=\"days\" type=\"number\" min=\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 75, "\" class=\"space-y-4\" data-step-up")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				var templ_7745c5c3_Var62 string
-				templ_7745c5c3_Var62, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", data.RetentionMinimumDays))
-				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 241, Col: 56}
-				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var62))
+				templ_7745c5c3_Err = templ.RenderAttributes(ctx, templ_7745c5c3_Buffer, templ.Attributes{setting.FormAttribute: ""})
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 79, "\" max=\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 76, ">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				var templ_7745c5c3_Var63 string
-				templ_7745c5c3_Var63, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", data.RetentionMaximumDays))
-				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 242, Col: 56}
+				if setting.CSRFToken != "" {
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 77, "<input type=\"hidden\" name=\"_csrf\" value=\"")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					var templ_7745c5c3_Var62 string
+					templ_7745c5c3_Var62, templ_7745c5c3_Err = templ.JoinStringErrs(setting.CSRFToken)
+					if templ_7745c5c3_Err != nil {
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 262, Col: 64}
+					}
+					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var62))
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 78, "\">")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
 				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var63))
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 80, "\" value=\"")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				var templ_7745c5c3_Var64 string
-				templ_7745c5c3_Var64, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", data.RetentionDays))
-				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 243, Col: 51}
-				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var64))
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 81, "\" aria-describedby=\"admin-security-retention-help\" required class=\"h-9 w-full rounded-md border border-input bg-background px-3 text-sm tabular-nums text-foreground shadow-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/30\"><p id=\"admin-security-retention-help\" class=\"mt-2 text-xs text-muted-foreground\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 79, "<div>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				var templ_7745c5c3_Var65 string
-				templ_7745c5c3_Var65, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.retention.help", "min", data.RetentionMinimumDays, "max", data.RetentionMaximumDays))
-				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 248, Col: 191}
-				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var65))
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 82, "</p></div><p class=\"text-sm text-muted-foreground\">")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				var templ_7745c5c3_Var66 string
-				templ_7745c5c3_Var66, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.retention.note"))
-				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 250, Col: 82}
-				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var66))
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 83, "</p>")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				templ_7745c5c3_Var67 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+				templ_7745c5c3_Var63 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 					templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 					templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 					if !templ_7745c5c3_IsBuffer {
@@ -1188,7 +1185,88 @@ func AdminSecurityRetentionDialog(data AdminSecurityActivityData) templ.Componen
 						}()
 					}
 					ctx = templ.InitializeContext(ctx)
-					templ_7745c5c3_Var68 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+					var templ_7745c5c3_Var64 string
+					templ_7745c5c3_Var64, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.retention.label"))
+					if templ_7745c5c3_Err != nil {
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 266, Col: 44}
+					}
+					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var64))
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					return nil
+				})
+				templ_7745c5c3_Err = label.Label(label.Props{For: setting.InputID, Class: "mb-1.5 block"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var63), templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = input.Input(input.Props{
+					ID: setting.InputID, Name: "days", Type: input.TypeNumber, Value: fmt.Sprintf("%d", setting.Days), Required: true,
+					Class: "tabular-nums",
+					Attributes: templ.Attributes{
+						"min": fmt.Sprintf("%d", setting.Minimum), "max": fmt.Sprintf("%d", setting.Maximum),
+						"aria-describedby": setting.InputID + "-help",
+					},
+				}).Render(ctx, templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 80, "<p id=\"")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				var templ_7745c5c3_Var65 string
+				templ_7745c5c3_Var65, templ_7745c5c3_Err = templ.JoinStringErrs(setting.InputID + "-help")
+				if templ_7745c5c3_Err != nil {
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 276, Col: 38}
+				}
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var65))
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 81, "\" class=\"mt-2 text-xs text-muted-foreground\">")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				var templ_7745c5c3_Var66 string
+				templ_7745c5c3_Var66, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.retention.help", "min", setting.Minimum, "max", setting.Maximum))
+				if templ_7745c5c3_Err != nil {
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 276, Col: 169}
+				}
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var66))
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 82, "</p></div><p class=\"text-sm text-muted-foreground\">")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				var templ_7745c5c3_Var67 string
+				templ_7745c5c3_Var67, templ_7745c5c3_Err = templ.JoinStringErrs(setting.Note)
+				if templ_7745c5c3_Err != nil {
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 278, Col: 59}
+				}
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var67))
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 83, "</p>")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Var68 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+					templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+					templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+					if !templ_7745c5c3_IsBuffer {
+						defer func() {
+							templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+							if templ_7745c5c3_Err == nil {
+								templ_7745c5c3_Err = templ_7745c5c3_BufErr
+							}
+						}()
+					}
+					ctx = templ.InitializeContext(ctx)
+					templ_7745c5c3_Var69 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 						templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 						templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 						if !templ_7745c5c3_IsBuffer {
@@ -1200,65 +1278,89 @@ func AdminSecurityRetentionDialog(data AdminSecurityActivityData) templ.Componen
 							}()
 						}
 						ctx = templ.InitializeContext(ctx)
-						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 84, "<button type=\"button\" class=\"inline-flex h-9 items-center justify-center rounded-md border border-border bg-background px-3 text-sm font-medium text-foreground hover:bg-accent\">")
-						if templ_7745c5c3_Err != nil {
-							return templ_7745c5c3_Err
-						}
-						var templ_7745c5c3_Var69 string
-						templ_7745c5c3_Var69, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "common.cancel"))
-						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 253, Col: 213}
-						}
-						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var69))
-						if templ_7745c5c3_Err != nil {
-							return templ_7745c5c3_Err
-						}
-						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 85, "</button>")
+						templ_7745c5c3_Var70 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+							templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+							templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+							if !templ_7745c5c3_IsBuffer {
+								defer func() {
+									templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+									if templ_7745c5c3_Err == nil {
+										templ_7745c5c3_Err = templ_7745c5c3_BufErr
+									}
+								}()
+							}
+							ctx = templ.InitializeContext(ctx)
+							var templ_7745c5c3_Var71 string
+							templ_7745c5c3_Var71, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "common.cancel"))
+							if templ_7745c5c3_Err != nil {
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 282, Col: 37}
+							}
+							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var71))
+							if templ_7745c5c3_Err != nil {
+								return templ_7745c5c3_Err
+							}
+							return nil
+						})
+						templ_7745c5c3_Err = button.Button(button.Props{Variant: button.VariantOutline}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var70), templ_7745c5c3_Buffer)
 						if templ_7745c5c3_Err != nil {
 							return templ_7745c5c3_Err
 						}
 						return nil
 					})
-					templ_7745c5c3_Err = dialog.Close().Render(templ.WithChildren(ctx, templ_7745c5c3_Var68), templ_7745c5c3_Buffer)
+					templ_7745c5c3_Err = dialog.Close().Render(templ.WithChildren(ctx, templ_7745c5c3_Var69), templ_7745c5c3_Buffer)
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 86, " <button type=\"submit\" class=\"inline-flex h-9 items-center justify-center rounded-md bg-primary px-3 text-sm font-semibold text-primary-foreground hover:bg-primary/90\">")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 84, " ")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					var templ_7745c5c3_Var70 string
-					templ_7745c5c3_Var70, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.retention.save"))
-					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 255, Col: 209}
-					}
-					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var70))
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 87, "</button>")
+					templ_7745c5c3_Var72 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+						templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+						templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+						if !templ_7745c5c3_IsBuffer {
+							defer func() {
+								templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+								if templ_7745c5c3_Err == nil {
+									templ_7745c5c3_Err = templ_7745c5c3_BufErr
+								}
+							}()
+						}
+						ctx = templ.InitializeContext(ctx)
+						var templ_7745c5c3_Var73 string
+						templ_7745c5c3_Var73, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.retention.save"))
+						if templ_7745c5c3_Err != nil {
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_activity.templ`, Line: 286, Col: 43}
+						}
+						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var73))
+						if templ_7745c5c3_Err != nil {
+							return templ_7745c5c3_Err
+						}
+						return nil
+					})
+					templ_7745c5c3_Err = button.Button(button.Props{Type: button.TypeSubmit}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var72), templ_7745c5c3_Buffer)
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 					return nil
 				})
-				templ_7745c5c3_Err = dialog.Footer().Render(templ.WithChildren(ctx, templ_7745c5c3_Var67), templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = dialog.Footer().Render(templ.WithChildren(ctx, templ_7745c5c3_Var68), templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 88, "</form>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 85, "</form>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				return nil
 			})
-			templ_7745c5c3_Err = dialog.Content(dialog.ContentProps{Class: "max-h-[calc(100vh-2rem)] overflow-y-auto"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var54), templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = dialog.Content(dialog.ContentProps{Class: "max-h-[calc(100vh-2rem)] overflow-y-auto"}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var55), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = dialog.Dialog(dialog.Props{ID: "admin-security-retention-dialog", Open: data.RetentionOpen}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var53), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = dialog.Dialog(dialog.Props{ID: setting.ID, Open: setting.Open}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var54), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

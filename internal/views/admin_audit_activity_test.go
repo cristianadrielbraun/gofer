@@ -95,6 +95,8 @@ func TestEveryRecordedActionHasASentence(t *testing.T) {
 		{Event: audit.Event{Action: "instance.security_retention_changed"}},
 		{Event: audit.Event{Action: "instance.mfa_policy_changed", Changes: map[string]audit.Change{"mfa_policy": {From: "administrators", To: "all_users"}}}},
 		{Event: audit.Event{Action: "audit.pruned"}},
+		{Event: audit.Event{Action: "audit.exported", Metadata: map[string]any{"format": "csv"}}},
+		{Event: audit.Event{Action: "instance.audit_retention_changed"}},
 		{Event: audit.Event{Action: "security.exception_added", Metadata: map[string]any{"kind": "http_discovery"}}},
 		{Event: audit.Event{Action: "security.exception_removed", Metadata: map[string]any{"kind": "private_target"}}},
 		{Event: audit.Event{Action: "security.allowlist_entry_added"}},
@@ -120,5 +122,27 @@ func TestEveryRecordedActionHasASentence(t *testing.T) {
 	}
 	if got := adminAuditSentence(ctx, audit.Record{Event: audit.Event{Action: "instance.mfa_policy_changed", Changes: map[string]audit.Change{"mfa_policy": {From: "administrators", To: "all_users"}}}}); got != "Required 2FA for everyone instead of administrators" {
 		t.Errorf("policy sentence = %q", got)
+	}
+}
+
+func TestAdminAuditActivityOffersExportAndRetention(t *testing.T) {
+	html := renderAdminAuditActivity(t, AdminAuditActivityData{
+		ManagedMode: true, Kind: "security", RetentionDays: 730, RetentionMinimum: 90, RetentionMaximum: 3650,
+		RetentionCSRFToken: strings.Repeat("r", 64), RetentionOpen: true,
+	})
+	requireAdminUsersHTML(t, "administration tab", html,
+		`href="/admin/activity/administration/export?format=csv&amp;kind=security"`, "Export CSV",
+		`href="/admin/activity/administration/export?format=jsonl&amp;kind=security"`, "Export JSON Lines",
+		`data-tui-dialog-target="admin-audit-retention-dialog"`, `data-admin-audit-retention`,
+		`action="/admin/activity/administration/retention"`, strings.Repeat("r", 64),
+		`id="admin-audit-retention-days"`, `min="90"`, `max="3650"`, `value="730"`,
+		"Administrative changes are kept for 730 days.",
+	)
+	if !strings.Contains(html, `id="admin-audit-retention-dialog" data-tui-dialog data-tui-dialog-open="true"`) {
+		t.Fatal("a refused retention didn't reopen its dialog")
+	}
+	locked := renderAdminAuditActivity(t, AdminAuditActivityData{ManagedMode: true, StepUpRequired: true})
+	if strings.Contains(locked, "/export?") || strings.Contains(locked, "admin-audit-retention-dialog") {
+		t.Fatal("a stale session was offered the export or the settings")
 	}
 }
