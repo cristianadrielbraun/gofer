@@ -23,9 +23,9 @@ const (
 // withAdminAudit returns ctx with a recorder that writes event to the
 // administration audit log inside the change's own transaction, so the
 // change and its record stand or fall together. Storage's administrative
-// writes run it when they change something. r names the administrator and
-// their browser.
-func (h *Handler) withAdminAudit(ctx context.Context, r *http.Request, event audit.Event) context.Context {
+// writes run it when they change something. ctx names the administrator,
+// and their browser (withAuditClient).
+func (h *Handler) withAdminAudit(ctx context.Context, event audit.Event) context.Context {
 	if h.auth == nil {
 		return ctx
 	}
@@ -36,9 +36,6 @@ func (h *Handler) withAdminAudit(ctx context.Context, r *http.Request, event aud
 	sessionID := ""
 	if session := auth.GetCurrentSession(ctx); session != nil {
 		sessionID = session.ID
-	}
-	if event.Client.UserAgent == "" {
-		event.Client.UserAgent = r.UserAgent()
 	}
 	return storage.WithChangeRecorder(ctx, func(ctx context.Context, tx *sql.Tx) error {
 		return h.auth.RecordAdministratorChangeTx(ctx, tx, user.ID, sessionID, event)
@@ -73,4 +70,12 @@ func proxyAuditTarget(ctx context.Context, h *Handler, id string) audit.Target {
 		target.Label = proxy.Name
 	}
 	return target
+}
+
+// withAuditClient tells the audit log which browser the admin console's
+// changes come from.
+func withAuditClient(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		next.ServeHTTP(w, r.WithContext(audit.WithClient(r.Context(), audit.Client{UserAgent: r.UserAgent()})))
+	})
 }

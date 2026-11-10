@@ -64,6 +64,18 @@ func adminSecurityVerificationReturnTo(value string) string {
 			return ""
 		}
 		return parsed.Path
+	case views.AdminAuditActivityPath:
+		values := parsed.Query()
+		kind, before := adminAuditActivityQuery(values)
+		for key := range values {
+			if key != "kind" && key != "before" {
+				return ""
+			}
+		}
+		if values.Get("kind") != kind || (values.Has("before") && values.Get("before") != strconv.FormatInt(before, 10)) || len(values["kind"]) > 1 || len(values["before"]) > 1 {
+			return ""
+		}
+		return adminAuditActivityReturnTo(kind, before)
 	case adminSecurityActivityPath:
 		values := parsed.Query()
 		if len(values) == 0 {

@@ -184,6 +184,13 @@ func TranslateCount(locale Locale, key string, count int, args ...any) string {
 	return format(lookup(locale, form), append(append([]any{}, args...), "count", count))
 }
 
+// Has reports whether key names a message, for text built from data, such
+// as an audit event's action, that may name one Gofer has no words for.
+func Has(key string) bool {
+	_, ok := catalogs[English][key]
+	return ok
+}
+
 func lookup(locale Locale, key string) string {
 	if message, ok := catalogs[locale][key]; ok && message != "" {
 		return message

@@ -59,17 +59,22 @@ func adminSecurityActivityPagePath(filter string, page int64) templ.SafeURL {
 }
 
 templ adminSecurityActivityFilterLink(data AdminSecurityActivityData, value string, label string) {
+	@adminActivityPill(adminSecurityActivityPagePath(value, 1), label, data.Filter == value)
+}
+
+// adminActivityPill is one of the Activity page's filters.
+templ adminActivityPill(href templ.SafeURL, label string, active bool) {
 	<a
-		href={ adminSecurityActivityPagePath(value, 1) }
+		href={ href }
 		data-admin-navigation-link
 		data-admin-navigation-label={ i18n.T(ctx, "admin.activity.filter_nav", "filter", strings.ToLower(label)) }
-		if data.Filter == value {
+		if active {
 			aria-current="page"
 		}
 		class={
 			"inline-flex h-9 items-center justify-center rounded-full border px-3 text-xs font-semibold transition-colors",
-			templ.KV("border-primary/30 bg-primary/10 text-primary", data.Filter == value),
-			templ.KV("border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground", data.Filter != value),
+			templ.KV("border-primary/30 bg-primary/10 text-primary", active),
+			templ.KV("border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground", !active),
 		}
 	>{ label }</a>
 }
@@ -80,7 +85,7 @@ templ AdminSecurityActivityPage(data AdminSecurityActivityData, verification ...
 			<div class="max-w-7xl px-6 py-8 lg:px-8 lg:py-10">
 				<div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
 					<div>
-						<h2 class="text-2xl font-bold text-foreground" style="font-family: var(--font-serif)">{ i18n.T(ctx, "admin.nav.activity") }</h2>
+						<h2 class="text-2xl font-bold text-foreground" style="font-family: var(--font-serif)">{ i18n.T(ctx, "admin.nav.activity_short") }</h2>
 						<p class="mt-1 max-w-3xl text-sm text-muted-foreground">{ i18n.T(ctx, "admin.activity.description") }</p>
 					</div>
 					<div class="flex shrink-0 items-center gap-3">
@@ -101,6 +106,9 @@ templ AdminSecurityActivityPage(data AdminSecurityActivityData, verification ...
 						}
 					</div>
 				</div>
+				if data.ManagedMode {
+					@adminActivityTabs("security")
+				}
 				if !data.ManagedMode {
 					<div role="status" class="mt-6 rounded-lg border border-border bg-card px-5 py-8 text-center">
 						<p class="text-sm font-semibold text-foreground">{ i18n.T(ctx, "admin.activity.unmanaged_title") }</p>

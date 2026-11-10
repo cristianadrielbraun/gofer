@@ -70,7 +70,7 @@ func (h *Handler) RegisterAuthenticationRoutes(mux *http.ServeMux) {
 
 func (h *Handler) registerAdministrationRoutes(mux *http.ServeMux) {
 	adminRoute := func(pattern string, handler http.HandlerFunc) {
-		mux.Handle(pattern, h.adminOnly(handler))
+		mux.Handle(pattern, h.adminOnly(withAuditClient(handler)))
 	}
 	mux.Handle("GET "+auth.ManagementAccountPath, h.managementAccountOnly(http.HandlerFunc(h.handleManagementAccountSecurity)))
 	mux.Handle("GET /admin/account/security", h.managementAccountOnly(redirectAdminPage(auth.ManagementAccountPath)))
@@ -94,6 +94,7 @@ func (h *Handler) registerAdministrationRoutes(mux *http.ServeMux) {
 	adminRoute("GET /admin/users", h.handleAdminUsers)
 	adminRoute("GET /admin/users/{$}", h.handleAdminUsers)
 	adminRoute("GET /admin/activity", h.handleAdminSecurityActivity)
+	adminRoute("GET "+views.AdminAuditActivityPath, h.handleAdminAuditActivity)
 	adminRoute("POST /admin/activity/retention", h.handleSetAuthenticationEventRetention)
 	for _, route := range adminUserActionDialogRoutes {
 		adminRoute("GET "+route.pattern, h.handleAdminUserActionDialog(route.action))

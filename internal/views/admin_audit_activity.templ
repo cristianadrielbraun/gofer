@@ -1,0 +1,142 @@
+package views
+
+import (
+	"github.com/cristianadrielbraun/gofer/internal/audit"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
+)
+
+// AdminActivityPath is the Activity page's first tab, sign-in and security.
+const AdminActivityPath = "/admin/activity"
+
+// adminActivityTabs switches between the Activity page's two records. They
+// are pages of their own, so the tabs are links, drawn like templui's tabs.
+templ adminActivityTabs(active string) {
+	<nav class="mt-6 inline-flex h-9 w-fit items-center justify-center rounded-lg bg-muted p-[3px] text-muted-foreground" aria-label={ i18n.T(ctx, "admin.activity.records") }>
+		@adminActivityTab(templ.URL(AdminActivityPath), i18n.T(ctx, "admin.activity.tab.security"), active == "security")
+		@adminActivityTab(templ.URL(AdminAuditActivityPath), i18n.T(ctx, "admin.activity.tab.administration"), active == "administration")
+	</nav>
+}
+
+templ adminActivityTab(href templ.SafeURL, label string, active bool) {
+	<a
+		href={ href }
+		data-admin-navigation-link
+		data-admin-navigation-label={ label }
+		if active {
+			aria-current="page"
+		}
+		class="inline-flex h-[calc(100%-1px)] items-center justify-center rounded-md border border-transparent px-3 py-1 text-sm font-medium whitespace-nowrap text-foreground transition-[color,box-shadow] dark:text-muted-foreground aria-[current=page]:bg-background aria-[current=page]:shadow-sm dark:aria-[current=page]:border-input dark:aria-[current=page]:bg-input/30 dark:aria-[current=page]:text-foreground"
+	>{ label }</a>
+}
+
+templ adminAuditKindLink(data AdminAuditActivityData, kind string, label string) {
+	@adminActivityPill(adminAuditActivityPagePath(kind, 0), label, data.Kind == kind)
+}
+
+// AdminAuditActivityPage is the Activity page's administration tab: every
+// administrative change, newest first.
+templ AdminAuditActivityPage(data AdminAuditActivityData, verification ...AdminSecurityVerificationData) {
+	<div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden" data-admin-audit-activity>
+		<div class="min-h-0 flex-1 overflow-y-auto">
+			<div class="max-w-7xl px-6 py-8 lg:px-8 lg:py-10">
+				<div>
+					<h2 class="text-2xl font-bold text-foreground" style="font-family: var(--font-serif)">{ i18n.T(ctx, "admin.nav.activity_short") }</h2>
+					<p class="mt-1 max-w-3xl text-sm text-muted-foreground">{ i18n.T(ctx, "admin.audit.description") }</p>
+				</div>
+				if data.ManagedMode {
+					@adminActivityTabs("administration")
+				}
+				if !data.ManagedMode {
+					<div role="status" class="mt-6 rounded-lg border border-border bg-card px-5 py-8 text-center">
+						<p class="text-sm font-semibold text-foreground">{ i18n.T(ctx, "admin.activity.unmanaged_title") }</p>
+						<p class="mt-1 text-sm text-muted-foreground">{ i18n.T(ctx, "admin.activity.unmanaged") }</p>
+					</div>
+				} else if data.StepUpRequired {
+					<div role="alert" class="mt-6 rounded-lg border border-amber-500/30 bg-amber-500/10 px-5 py-5 text-amber-900 dark:text-amber-100" data-admin-audit-activity-locked>
+						<p class="font-semibold">{ i18n.T(ctx, "admin.verify.required") }</p>
+						<p class="mt-1 text-sm">{ i18n.T(ctx, "admin.audit.verify") }</p>
+						<div class="mt-4">
+							@AdminSecurityVerificationTrigger(adminSecurityVerificationValue(verification), i18n.T(ctx, "admin.verify.now"))
+						</div>
+					</div>
+				} else {
+					<nav class="mt-6 flex flex-wrap gap-2" aria-label={ i18n.T(ctx, "admin.audit.filter_label") }>
+						@adminAuditKindLink(data, "", i18n.T(ctx, "admin.audit.filter.all"))
+						for _, kind := range AdminAuditKinds {
+							@adminAuditKindLink(data, kind, i18n.T(ctx, "admin.audit.filter."+kind))
+						}
+					</nav>
+					<section class="mt-6 overflow-hidden rounded-lg border border-border bg-card" aria-labelledby="admin-audit-heading">
+						<div class="border-b border-border px-4 py-3">
+							<h3 id="admin-audit-heading" class="text-sm font-semibold text-foreground">{ i18n.T(ctx, "admin.audit.heading") }</h3>
+						</div>
+						if len(data.Records) == 0 {
+							<div class="px-4 py-10 text-center text-sm text-muted-foreground">
+								if data.Kind == "" && data.Before == 0 {
+									{ i18n.T(ctx, "admin.audit.empty") }
+								} else {
+									{ i18n.T(ctx, "admin.audit.empty_filter") }
+								}
+							</div>
+						} else {
+							<div class="overflow-x-auto">
+								<table class="w-full min-w-[60rem] text-left text-sm" aria-label={ i18n.T(ctx, "admin.audit.heading") }>
+									<thead class="bg-muted/45 text-xs font-semibold text-muted-foreground">
+										<tr>
+											<th scope="col" class="px-4 py-3">{ i18n.T(ctx, "admin.col.time") }</th>
+											<th scope="col" class="px-4 py-3">{ i18n.T(ctx, "admin.col.event") }</th>
+											<th scope="col" class="px-4 py-3">{ i18n.T(ctx, "admin.col.status") }</th>
+											<th scope="col" class="px-4 py-3">{ i18n.T(ctx, "admin.col.actor") }</th>
+											<th scope="col" class="px-4 py-3">{ i18n.T(ctx, "admin.col.client") }</th>
+										</tr>
+									</thead>
+									<tbody class="divide-y divide-border">
+										for _, record := range data.Records {
+											@adminAuditRow(record)
+										}
+									</tbody>
+								</table>
+							</div>
+						}
+					</section>
+					if data.Before > 0 || data.Next > 0 {
+						<nav class="mt-4 flex items-center justify-end gap-2" aria-label={ i18n.T(ctx, "admin.activity.pagination") }>
+							if data.Before > 0 {
+								<a href={ adminAuditActivityPagePath(data.Kind, 0) } data-admin-navigation-link class="inline-flex h-9 items-center justify-center rounded-md border border-border bg-background px-3 text-xs font-semibold text-foreground hover:bg-accent">{ i18n.T(ctx, "admin.audit.newest") }</a>
+							}
+							if data.Next > 0 {
+								<a href={ adminAuditActivityPagePath(data.Kind, data.Next) } data-admin-navigation-link class="inline-flex h-9 items-center justify-center rounded-md border border-border bg-background px-3 text-xs font-semibold text-foreground hover:bg-accent">{ i18n.T(ctx, "admin.audit.older") }</a>
+							}
+						</nav>
+					}
+					<p class="mt-5 text-xs text-muted-foreground">{ i18n.T(ctx, "admin.audit.privacy") }</p>
+				}
+			</div>
+		</div>
+	</div>
+	@AdminSecurityVerificationDialog(adminSecurityVerificationValue(verification))
+}
+
+templ adminAuditRow(record audit.Record) {
+	<tr class="bg-background/35 align-top hover:bg-accent/35" data-audit-action={ record.Action }>
+		<td class="whitespace-nowrap px-4 py-3 text-xs text-muted-foreground">{ adminAuditTime(ctx, record.OccurredAt) }</td>
+		<td class="px-4 py-3 font-medium text-foreground">{ adminAuditSentence(ctx, record) }</td>
+		<td class="px-4 py-3">
+			<span
+				class={
+					"inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold",
+					templ.KV("border-emerald-500/30 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200", record.Outcome != audit.OutcomeDenied),
+					templ.KV("border-destructive/30 bg-destructive/10 text-destructive", record.Outcome == audit.OutcomeDenied),
+				}
+			>
+				if record.Outcome == audit.OutcomeDenied {
+					{ i18n.T(ctx, "admin.audit.denied") }
+				} else {
+					{ i18n.T(ctx, "admin.audit.done") }
+				}
+			</span>
+		</td>
+		<td class="px-4 py-3 text-foreground">{ adminAuditActor(ctx, record) }</td>
+		<td class="max-w-xs break-words px-4 py-3 text-xs text-muted-foreground">{ record.Client.UserAgent }</td>
+	</tr>
+}

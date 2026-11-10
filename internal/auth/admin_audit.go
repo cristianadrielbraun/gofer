@@ -5,9 +5,11 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/audit"
+	"github.com/cristianadrielbraun/gofer/internal/authz"
 )
 
 const (
@@ -126,6 +128,21 @@ func (m *Manager) RecordAuditPruning(ctx context.Context, deleted int64, cutoff 
 		return err
 	}
 	return tx.Commit()
+}
+
+// ListAdministrationEvents returns a page of the administration audit log,
+// newest first, to an administrator who may read activity: like sign-in
+// activity, that needs a recent verification.
+func (m *Manager) ListAdministrationEvents(ctx context.Context, actorUserID, actorSessionID string, filter audit.Filter, cursor int64, limit int) (audit.Page, error) {
+	tx, err := m.db.Read().BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return audit.Page{}, fmt.Errorf("begin administration event listing: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := requireAdministratorPermission(ctx, tx, strings.TrimSpace(actorUserID), strings.TrimSpace(actorSessionID), authz.ActivityRead, m.clock.Now().UTC()); err != nil {
+		return audit.Page{}, err
+	}
+	return audit.List(ctx, tx, filter, cursor, limit)
 }
 
 // AuditKey is the key that chains the administration audit log, for

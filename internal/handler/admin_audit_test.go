@@ -3,7 +3,9 @@ package handler
 import (
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/audit"
 	"github.com/cristianadrielbraun/gofer/internal/auth"
@@ -76,5 +78,46 @@ func TestAdminMailSecurityChangesAreAudited(t *testing.T) {
 	verified, err := audit.Verify(t.Context(), db.Read(), manager.AuditKey())
 	if err != nil || !verified.OK() {
 		t.Fatalf("audit chain = %+v, %v", verified, err)
+	}
+}
+
+func TestAdminAuditActivityShowsAdministrativeChanges(t *testing.T) {
+	manager, db, stack, cookie, _ := completedSecuritySettingsStack(t)
+	page := getSecuritySettingsPath(t, stack, "/admin/security", cookie)
+	form := url.Values{"domain": {"mail.sample.test"}, "acknowledge": {"yes"}}
+	form.Set(auth.CSRFFormFieldName, csrfProofFromForm(t, page.Body.String(), "/admin/security/http-discovery"))
+	if response := postSecuritySettings(t, stack, "/admin/security/http-discovery", form, cookie); response.Code != http.StatusSeeOther {
+		t.Fatalf("add exception = %d", response.Code)
+	}
+
+	tab := getSecuritySettingsPath(t, stack, "/admin/activity/administration", cookie)
+	html := tab.Body.String()
+	if tab.Code != http.StatusOK || !strings.Contains(html, "Allowed HTTP discovery for mail.sample.test") ||
+		!strings.Contains(html, "Security Settings Handler/1.0") ||
+		!strings.Contains(html, `aria-current="page"`) || !strings.Contains(html, "Sign-in and security") {
+		t.Fatalf("administration tab = %d %q", tab.Code, html)
+	}
+	people := getSecuritySettingsPath(t, stack, "/admin/activity/administration?kind=user", cookie)
+	if people.Code != http.StatusOK || strings.Contains(people.Body.String(), "mail.sample.test") {
+		t.Fatalf("people filter showed a mail security change: %d", people.Code)
+	}
+	if unknown := getSecuritySettingsPath(t, stack, "/admin/activity/administration?kind=everything&before=-3", cookie); unknown.Code != http.StatusOK ||
+		!strings.Contains(unknown.Body.String(), "mail.sample.test") {
+		t.Fatalf("unknown filter values aren't ignored: %d", unknown.Code)
+	}
+
+	session, err := manager.GetSessionByToken(t.Context(), cookie.Value)
+	if err != nil || session == nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Write().ExecContext(t.Context(), `UPDATE sessions SET step_up_at = ? WHERE id = ?`, time.Now().UTC().Add(-11*time.Minute), session.ID); err != nil {
+		t.Fatal(err)
+	}
+	stale := getSecuritySettingsPath(t, stack, "/admin/activity/administration?kind=security", cookie)
+	staleHTML := stale.Body.String()
+	if stale.Code != http.StatusOK || !strings.Contains(staleHTML, "data-admin-audit-activity-locked") ||
+		strings.Contains(staleHTML, "mail.sample.test") ||
+		!strings.Contains(staleHTML, `name="return_to" value="/admin/activity/administration?kind=security"`) {
+		t.Fatalf("stale administration tab = %d %q", stale.Code, staleHTML)
 	}
 }

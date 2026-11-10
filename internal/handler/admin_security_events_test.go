@@ -101,7 +101,7 @@ func TestAdministratorSecurityActivityRendersSanitizedPaginatedInstanceEvents(t 
 	}
 	html := page.Body.String()
 	for _, want := range []string{
-		`data-admin-security-activity`, "Admin security activity", fmt.Sprintf("%d events", totalEvents),
+		`data-admin-security-activity`, "Sign-in and security", `href="/admin/activity/administration"`, fmt.Sprintf("%d events", totalEvents),
 		`href="/admin/activity"`, `aria-current="page"`, "Instance events",
 		`data-admin-security-retention`, "Security activity settings", "180 days",
 		`action="/admin/activity/retention"`, `name="days"`, `min="1"`, `max="365"`,

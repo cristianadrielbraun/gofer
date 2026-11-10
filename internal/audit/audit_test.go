@@ -339,3 +339,33 @@ func TestChangesEncodeTheSameWayEveryTime(t *testing.T) {
 }
 
 var _ = sql.ErrNoRows
+
+func TestWithClientKeepsTheBrowserPrintableAndShort(t *testing.T) {
+	f := newFixture(t)
+	ctx := audit.WithClient(context.Background(), audit.Client{UserAgent: "Sample\x00Browser\n" + strings.Repeat("é", 400)})
+	tx, err := f.db.Write().BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	record, err := f.writer.WriteTx(ctx, tx, disabledWithoutClient("milo.rivers"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent := record.Client.UserAgent
+	if !strings.HasPrefix(agent, "Sample Browser ") || len(agent) > 512 || strings.ContainsAny(agent, "\x00\n") {
+		t.Fatalf("stored browser = %q (%d bytes)", agent, len(agent))
+	}
+	// An event that names its own client keeps it.
+	event := disabled("nora.vale")
+	own, err := f.writer.WriteTx(ctx, tx, event)
+	if err != nil || own.Client.UserAgent != "Sample Browser 1.0" {
+		t.Fatalf("event's own client = %+v, %v", own.Client, err)
+	}
+}
+
+func disabledWithoutClient(target string) audit.Event {
+	event := disabled(target)
+	event.Client = audit.Client{}
+	return event
+}

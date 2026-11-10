@@ -101,7 +101,7 @@ func (h *Handler) handleSetOutboundProxyEveryone(w http.ResponseWriter, r *http.
 		return
 	}
 	everyone := r.FormValue("everyone") == "true"
-	recorded := h.withAdminAudit(ctx, r, audit.Event{
+	recorded := h.withAdminAudit(ctx, audit.Event{
 		Action:   "security.proxy_everyone_changed",
 		Target:   proxyAuditTarget(ctx, h, r.PathValue("id")),
 		Metadata: map[string]any{"everyone": everyone},
@@ -134,7 +134,7 @@ func (h *Handler) handleSetOutboundProxyPerson(w http.ResponseWriter, r *http.Re
 		return
 	}
 	chosen := r.FormValue("chosen") == "true"
-	recorded := h.withAdminAudit(ctx, r, audit.Event{
+	recorded := h.withAdminAudit(ctx, audit.Event{
 		Action:   "security.proxy_person_changed",
 		Target:   proxyAuditTarget(ctx, h, r.PathValue("id")),
 		Metadata: map[string]any{"user_id": userID, "chosen": chosen},
@@ -162,7 +162,7 @@ func (h *Handler) handleSetOwnOutboundProxiesPolicy(w http.ResponseWriter, r *ht
 		return
 	}
 	allowed := r.FormValue("people_add") == "yes"
-	recorded := h.withAdminAudit(ctx, r, audit.Event{
+	recorded := h.withAdminAudit(ctx, audit.Event{
 		Action:   "security.proxy_policy_changed",
 		Target:   audit.Target{Kind: auditTargetInstance},
 		Metadata: map[string]any{"people_may_add_proxies": allowed},
@@ -209,7 +209,7 @@ func (h *Handler) handleSaveOutboundProxy(w http.ResponseWriter, r *http.Request
 		action = "security.proxy_added"
 	}
 	// The record never carries the password.
-	recorded := h.withAdminAudit(r.Context(), r, audit.Event{
+	recorded := h.withAdminAudit(r.Context(), audit.Event{
 		Action: action,
 		Target: audit.Target{Kind: auditTargetProxy, ID: input.ID, Label: strings.TrimSpace(input.Name)},
 		Metadata: map[string]any{
@@ -241,7 +241,7 @@ func (h *Handler) handleDeleteOutboundProxy(w http.ResponseWriter, r *http.Reque
 	if !h.prepareMailSecurityChange(w, r) {
 		return
 	}
-	recorded := h.withAdminAudit(r.Context(), r, audit.Event{
+	recorded := h.withAdminAudit(r.Context(), audit.Event{
 		Action: "security.proxy_deleted",
 		Target: proxyAuditTarget(r.Context(), h, r.PathValue("id")),
 	})

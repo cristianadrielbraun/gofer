@@ -20,6 +20,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 )
 
 // ActorKind says who made a change.
@@ -100,6 +102,30 @@ type Record struct {
 	ChainMAC string
 }
 
+type clientKey struct{}
+
+// maxUserAgent bounds the browser description a record keeps.
+const maxUserAgent = 512
+
+// WithClient returns ctx carrying where the changes made under it come
+// from, for events that don't say. The description is kept printable and
+// short.
+func WithClient(ctx context.Context, client Client) context.Context {
+	agent := strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return ' '
+		}
+		return r
+	}, strings.ToValidUTF8(client.UserAgent, ""))
+	agent = strings.TrimSpace(agent)
+	for len(agent) > maxUserAgent {
+		_, size := utf8.DecodeLastRuneInString(agent)
+		agent = agent[:len(agent)-size]
+	}
+	client.UserAgent = agent
+	return context.WithValue(ctx, clientKey{}, client)
+}
+
 // ErrInvalidEvent is an event without an action or an actor.
 var ErrInvalidEvent = errors.New("audit: event needs an action and an actor")
 
@@ -158,6 +184,9 @@ func (w *Writer) WriteTx(ctx context.Context, tx *sql.Tx, event Event) (Record, 
 	}
 	if event.Outcome == "" {
 		event.Outcome = OutcomeSuccess
+	}
+	if client, ok := ctx.Value(clientKey{}).(Client); ok && event.Client == (Client{}) {
+		event.Client = client
 	}
 	id, err := w.newID()
 	if err != nil {
