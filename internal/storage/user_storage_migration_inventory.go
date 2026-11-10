@@ -14,10 +14,12 @@ var userStorageMigrationTables = map[string]migrationTableRule{
 	"accounts":                        {migrationLocal, `r.user_id`, "id,user_id,provider,provider_account_id,email_address,display_name,color,initials,imap_host,imap_port,imap_tls_mode,smtp_host,smtp_port,smtp_tls_mode,username,encrypted_password,auth_method,smtp_username,encrypted_smtp_password,jmap_session_url,email_sync_enabled,provider_push_enabled,email_sync_error,email_sync_error_at,is_deleting,created_at,updated_at,sort_order,hidden,proxy_id"},
 	"app_settings":                    {migrationPreferences, `r.user_id`, "user_id,key,value,updated_at"},
 	"attachments":                     {migrationLocal, `(SELECT a.user_id FROM @messages m JOIN @accounts a ON a.id=m.account_id WHERE m.id=r.message_id)`, "id,message_id,filename,content_type,size_bytes,content_id,inline,storage_path,sha256,provider_remote_id"},
+	"audit_checkpoints":               {migrationCentral, ``, "seq,chain_mac,created_at,reason"},
+	"audit_events":                    {migrationCentral, ``, "seq,id,occurred_at,actor_kind,actor_id,actor_label,session_id,token_id,action,target_kind,target_id,target_label,outcome,changes_json,metadata_json,client_json,correlation_id,chain_mac"},
 	"auth_challenges":                 {migrationCentral, ``, "id,user_id,session_id,challenge_hash,nonce_hash,purpose,origin,attempts,max_attempts,payload_ciphertext,created_at,expires_at,consumed_at"},
 	"auth_events":                     {migrationCentral, ``, "id,occurred_at,actor_user_id,subject_user_id,session_id,request_id,event_type,success,reason,user_agent,source_hash,metadata_json"},
 	"auth_identities":                 {migrationCentral, ``, "id,user_id,provider,issuer,subject,email,email_verified,created_at,linked_at,last_used_at"},
-	"auth_system_state":               {migrationCentral, ``, "id,initialized,owner_user_id,initialized_at,setup_token_hash,setup_expires_at,setup_attempts,setup_rotated_at,cutover_version,mfa_policy,security_policy_updated_at,security_policy_updated_by,auth_event_retention_days,auth_event_retention_updated_at,auth_event_retention_updated_by"},
+	"auth_system_state":               {migrationCentral, ``, "id,initialized,owner_user_id,initialized_at,setup_token_hash,setup_expires_at,setup_attempts,setup_rotated_at,cutover_version,mfa_policy,security_policy_updated_at,security_policy_updated_by,auth_event_retention_days,auth_event_retention_updated_at,auth_event_retention_updated_by,admin_audit_retention_days"},
 	"auth_throttle":                   {migrationCentral, ``, "bucket_hash,action,failure_count,first_attempt_at,last_attempt_at,blocked_until,expires_at"},
 	"avatar_attempt_logs":             {migrationCentral, ``, "id,email_hash,email,provider,status,message,created_at"},
 	"avatar_provider_states":          {migrationCentral, ``, "email_hash,email,provider,status,message,checked_at,created_at,updated_at"},
@@ -285,6 +287,7 @@ var userStorageMigrationLinks = []migrationLink{
 // including gaps left by deleted rows. Never infer it from one owner partition.
 var userStorageMigrationSequences = map[string]string{
 	"attachments":                     "id",
+	"audit_events":                    "seq",
 	"avatar_attempt_logs":             "id",
 	"contact_activity_events":         "id",
 	"gofer_provider_draft_operations": "id",

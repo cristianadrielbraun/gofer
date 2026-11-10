@@ -1055,7 +1055,41 @@ CREATE TABLE IF NOT EXISTS auth_system_state (
     security_policy_updated_by TEXT REFERENCES users(id) ON DELETE SET NULL,
     auth_event_retention_days INTEGER NOT NULL DEFAULT 180 CHECK (auth_event_retention_days BETWEEN 1 AND 365),
     auth_event_retention_updated_at DATETIME,
-    auth_event_retention_updated_by TEXT REFERENCES users(id) ON DELETE SET NULL
+    auth_event_retention_updated_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+    admin_audit_retention_days INTEGER NOT NULL DEFAULT 730 CHECK (admin_audit_retention_days BETWEEN 90 AND 3650)
+);
+
+-- The administration audit log (internal/audit): one row per administrative
+-- change, chained by an HMAC, and the checkpoints retention pruning leaves.
+CREATE TABLE IF NOT EXISTS audit_events (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    id TEXT NOT NULL UNIQUE,
+    occurred_at DATETIME NOT NULL,
+    actor_kind TEXT NOT NULL,
+    actor_id TEXT NOT NULL DEFAULT '',
+    actor_label TEXT NOT NULL DEFAULT '',
+    session_id TEXT NOT NULL DEFAULT '',
+    token_id TEXT NOT NULL DEFAULT '',
+    action TEXT NOT NULL,
+    target_kind TEXT NOT NULL DEFAULT '',
+    target_id TEXT NOT NULL DEFAULT '',
+    target_label TEXT NOT NULL DEFAULT '',
+    outcome TEXT NOT NULL DEFAULT 'success' CHECK (outcome IN ('success', 'denied')),
+    changes_json TEXT NOT NULL DEFAULT '{}',
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    client_json TEXT NOT NULL DEFAULT '{}',
+    correlation_id TEXT NOT NULL DEFAULT '',
+    chain_mac TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS audit_events_time ON audit_events(occurred_at);
+CREATE INDEX IF NOT EXISTS audit_events_target ON audit_events(target_kind, target_id, seq);
+CREATE INDEX IF NOT EXISTS audit_events_actor ON audit_events(actor_id, seq);
+CREATE INDEX IF NOT EXISTS audit_events_action ON audit_events(action, seq);
+CREATE TABLE IF NOT EXISTS audit_checkpoints (
+    seq INTEGER PRIMARY KEY,
+    chain_mac TEXT NOT NULL,
+    created_at DATETIME NOT NULL,
+    reason TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS oauth_account_flows (
@@ -1919,4 +1953,4 @@ CREATE TABLE IF NOT EXISTS outbound_proxy_policy (
     people_add INTEGER NOT NULL DEFAULT 0 CHECK (people_add IN (0, 1))
 );
 
-INSERT OR REPLACE INTO schema_version (version) VALUES (143);
+INSERT OR REPLACE INTO schema_version (version) VALUES (144);
