@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
@@ -12,7 +11,6 @@ import (
 	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/auth"
-	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/views"
 )
 
@@ -610,22 +608,8 @@ func (h *Handler) renderAdminUsersPage(w http.ResponseWriter, r *http.Request, s
 			data.Users[index].InvitationRotateCSRFToken = auth.CSRFToken(ctx, http.MethodPost, data.Users[index].InvitationRotatePath)
 		}
 	}
-	uiSettings := h.db.GetUISettings(ctx, currentUser.ID)
-	var output bytes.Buffer
-	if r.Header.Get("HX-Request") == "true" {
-		err = views.AdminPartial(data, models.AvatarStatus{}, models.ContactAdminStatus{}, models.LabelAdminStatus{}, models.MailSecurityAdminData{}, models.MailOperationsAdminStatus{}, "users", "", verification).Render(ctx, &output)
-	} else {
-		err = views.ManagementAdminLayout(uiSettings, data, models.AvatarStatus{}, models.ContactAdminStatus{}, models.LabelAdminStatus{}, models.MailSecurityAdminData{}, models.MailOperationsAdminStatus{}, "users", "", verification).Render(ctx, &output)
-	}
-	if err != nil {
-		log.Printf("render administrator users: %v", err)
-		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_render_administrator_users"), http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("Referrer-Policy", "no-referrer")
-	w.Header().Set("X-Robots-Tag", "noindex, nofollow")
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(status)
-	_, _ = output.WriteTo(w)
+	h.renderAdminPage(w, r, status, views.AdminShellPage{
+		Section: views.AdminSectionUsers,
+		Content: views.AdminUsersPage(data, verification),
+	})
 }

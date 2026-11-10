@@ -3809,7 +3809,7 @@ func (h *Handler) renderPasswordSecurityTab(w http.ResponseWriter, r *http.Reque
 		}
 		var page bytes.Buffer
 		if managementSurface {
-			err = views.ManagementSecurityLayout(uiSettings, views.PasswordSecurityVerification(data)).Render(ctx, &page)
+			err = views.AdminAccountShell(uiSettings, views.PasswordSecurityVerification(data)).Render(ctx, &page)
 		} else if r.Header.Get("HX-Request") == "true" {
 			if err := views.PasswordSecurityVerificationPartial(data).Render(ctx, &page); err != nil {
 				log.Printf("render security verification partial: %v", err)
@@ -4037,7 +4037,7 @@ func (h *Handler) renderPasswordSecurityTab(w http.ResponseWriter, r *http.Reque
 	}
 	var page bytes.Buffer
 	if managementSurface {
-		err = views.ManagementSecurityLayout(uiSettings, views.PasswordSecuritySettings(data)).Render(ctx, &page)
+		err = views.AdminAccountShell(uiSettings, views.PasswordSecuritySettings(data)).Render(ctx, &page)
 	} else if r.Header.Get("HX-Request") == "true" {
 		if err := views.PasswordSecurityPartial(data).Render(ctx, &page); err != nil {
 			log.Printf("render password security partial: %v", err)

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/cristianadrielbraun/gofer/internal/auth"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 )
 
@@ -33,60 +34,79 @@ func TestManagementLoginUsesDedicatedLocalOnlySurface(t *testing.T) {
 	}
 }
 
-func TestManagementAdminLayoutOwnsItsNavigationShell(t *testing.T) {
+func TestAdminShellOwnsItsNavigation(t *testing.T) {
 	var out strings.Builder
-	if err := ManagementAdminLayout(
-		nil,
-		AdminUsersData{},
-		models.AvatarStatus{},
-		models.ContactAdminStatus{},
-		models.LabelAdminStatus{},
-		models.MailSecurityAdminData{},
-		models.MailOperationsAdminStatus{},
-		"users",
-		"",
-	).Render(context.Background(), &out); err != nil {
+	page := AdminShellPage{Section: AdminSectionUsers, Content: AdminUsersPage(AdminUsersData{})}
+	if err := AdminShell(page).Render(context.Background(), &out); err != nil {
 		t.Fatal(err)
 	}
 	html := out.String()
 	for _, want := range []string{
 		"Dedicated management workspace.",
 		"Sign out of Admin",
-		`href="/admin/users"`,
+		`href="/admin/users" data-admin-navigation-link data-admin-navigation-label="Users" aria-current="page"`,
 		`href="/admin/activity"`,
 		`href="/admin/account/security"`,
-		`aria-current="page"`,
+		">People</p>", ">Security</p>", ">System</p>",
 		`data-management-shell`,
-		`src="/assets/js/passkey-authentication.js"`,
+		`src="/assets/js/passkey-authentication.js`,
 		`id="main-content" class="relative flex min-h-0 min-w-0 flex-1"`,
 		`body class="h-screen overflow-hidden`,
 		`class="flex h-full min-h-0 overflow-hidden bg-background"`,
 	} {
 		if !strings.Contains(html, want) {
-			t.Fatalf("management shell omitted %q", want)
+			t.Fatalf("admin shell omitted %q", want)
 		}
 	}
 	if strings.Contains(html, "Back to mail") {
-		t.Fatal("management shell exposed the legacy Back to mail action")
+		t.Fatal("admin shell exposed the legacy Back to mail action")
 	}
 }
 
-func TestLocalAdminLayoutShowsOnlyOperationalNavigation(t *testing.T) {
+func TestAdminShellDoesNotNameTheAdministrator(t *testing.T) {
+	ctx := auth.ContextWithUser(context.Background(), &auth.User{
+		ID: "admin-1", Name: "Ada Example", Username: "ada.admin",
+		UserType: auth.UserTypeManagement, IsAdmin: true,
+	})
+	var out strings.Builder
+	if err := AdminAccountShell(nil, PasswordSecurityVerification(PasswordSecurityVerificationData{})).Render(ctx, &out); err != nil {
+		t.Fatal(err)
+	}
+	// A stale session sees the shell before it verifies again; the account
+	// page keeps the username hidden until then, so the shell must too.
+	for _, forbidden := range []string{"Ada Example", "ada.admin"} {
+		if strings.Contains(out.String(), forbidden) {
+			t.Fatalf("admin shell named the administrator: %q", forbidden)
+		}
+	}
+}
+
+func TestAdminNavigationLabelsAreTranslated(t *testing.T) {
+	ctx := context.Background()
+	keys := []string{adminAccountNavItem.label}
+	for _, group := range adminNavigation {
+		keys = append(keys, group.label)
+		for _, item := range group.items {
+			keys = append(keys, item.label)
+			if item.short != "" {
+				keys = append(keys, item.short)
+			}
+		}
+	}
+	for _, key := range keys {
+		if i18n.T(ctx, key) == key {
+			t.Errorf("navigation label %s is not in the catalog", key)
+		}
+	}
+}
+
+func TestLocalAdminShellShowsOnlyOperationalNavigation(t *testing.T) {
 	ctx := auth.ContextWithUser(context.Background(), &auth.User{
 		ID: "default", UserType: auth.UserTypeWebmail, IsAdmin: true,
 	})
 	var out strings.Builder
-	if err := ManagementAdminLayout(
-		nil,
-		AdminUsersData{},
-		models.AvatarStatus{},
-		models.ContactAdminStatus{},
-		models.LabelAdminStatus{},
-		models.MailSecurityAdminData{},
-		models.MailOperationsAdminStatus{},
-		"avatars",
-		"",
-	).Render(ctx, &out); err != nil {
+	page := AdminShellPage{Section: AdminSectionAvatars, Content: AdminPage(models.AvatarStatus{}, "")}
+	if err := AdminShell(page).Render(ctx, &out); err != nil {
 		t.Fatal(err)
 	}
 	html := out.String()
@@ -101,7 +121,7 @@ func TestLocalAdminLayoutShowsOnlyOperationalNavigation(t *testing.T) {
 	}
 	for _, forbidden := range []string{
 		`href="/admin/users"`, `href="/admin/activity"`, `href="/admin/account/security"`,
-		`action="/auth/logout"`, "Sign out of Admin",
+		`action="/auth/logout"`, "Sign out of Admin", ">People</p>",
 	} {
 		if strings.Contains(html, forbidden) {
 			t.Fatalf("local admin shell exposed managed-only control %q", forbidden)
@@ -109,19 +129,14 @@ func TestLocalAdminLayoutShowsOnlyOperationalNavigation(t *testing.T) {
 	}
 }
 
-func TestManagementAdminLayoutCarriesWebmailScopeAcrossOperationalNavigation(t *testing.T) {
+func TestAdminShellCarriesWebmailScopeAcrossDiagnostics(t *testing.T) {
 	var out strings.Builder
-	if err := ManagementAdminLayout(
-		nil,
-		AdminUsersData{},
-		models.AvatarStatus{Scope: models.AdminWebmailScope{SelectedUserID: "mail user"}},
-		models.ContactAdminStatus{},
-		models.LabelAdminStatus{},
-		models.MailSecurityAdminData{},
-		models.MailOperationsAdminStatus{},
-		"avatars",
-		"overview",
-	).Render(context.Background(), &out); err != nil {
+	scope := models.AdminWebmailScope{SelectedUserID: "mail user"}
+	page := AdminShellPage{
+		Section: AdminSectionAvatars, Scope: scope,
+		Content: AdminPage(models.AvatarStatus{Scope: scope}, "overview"),
+	}
+	if err := AdminShell(page).Render(context.Background(), &out); err != nil {
 		t.Fatal(err)
 	}
 	html := out.String()
@@ -140,9 +155,9 @@ func TestManagementAdminLayoutCarriesWebmailScopeAcrossOperationalNavigation(t *
 	}
 }
 
-func TestManagementSecurityLayoutSuppressesExternalSignInSettings(t *testing.T) {
+func TestAdminAccountShellSuppressesExternalSignInSettings(t *testing.T) {
 	var out strings.Builder
-	if err := ManagementSecurityLayout(nil, PasswordSecuritySettings(PasswordSecurityData{})).Render(context.Background(), &out); err != nil {
+	if err := AdminAccountShell(nil, PasswordSecuritySettings(PasswordSecurityData{})).Render(context.Background(), &out); err != nil {
 		t.Fatal(err)
 	}
 	html := out.String()
@@ -151,7 +166,8 @@ func TestManagementSecurityLayoutSuppressesExternalSignInSettings(t *testing.T) 
 	}
 	for _, want := range []string{
 		`body class="h-screen overflow-hidden`,
-		`src="/assets/js/htmx.min.js"`,
+		`href="/admin/account/security" data-admin-navigation-link data-admin-navigation-label="Account security" aria-current="page"`,
+		`src="/assets/js/htmx.min.js`,
 		`hx-get="/settings/security/activity?page=1"`,
 		`id="security-activity-dialog-body"`,
 		`class="flex h-full min-h-0 overflow-hidden bg-background"`,

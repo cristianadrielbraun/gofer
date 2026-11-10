@@ -95,13 +95,6 @@ templ AdminInlineMetric(key string, label string, value int) {
 	</div>
 }
 
-templ AdminInlineDetail(key string, label string, value string) {
-	<div class="inline-flex min-w-0 items-center gap-1.5 text-xs" data-admin-detail={ key }>
-		<span class="text-muted-foreground">{ label }</span>
-		<span class="max-w-40 truncate font-semibold text-foreground" data-admin-detail-value>{ value }</span>
-	</div>
-}
-
 templ AdminDetail(key string, label string, value string) {
 	<div class="rounded-lg border border-border bg-background/35 px-3 py-3 min-w-0" data-admin-detail={ key }>
 		<div class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{ label }</div>

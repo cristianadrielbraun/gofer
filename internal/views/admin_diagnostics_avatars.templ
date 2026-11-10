@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/cristianadrielbraun/gofer/components/input"
 	"github.com/cristianadrielbraun/gofer/components/selectbox"
@@ -401,34 +400,6 @@ func adminAvatarRunDescription(ctx context.Context, state models.AvatarBackfillS
 	return i18n.T(ctx, "admin.avatars.run.idle")
 }
 
-func adminAttemptEmail(ctx context.Context, email string) string {
-	if email == "" {
-		return i18n.T(ctx, "admin.unknown_sender")
-	}
-	return email
-}
-
-func adminAttemptMessage(ctx context.Context, message string) string {
-	return i18n.ServerText(ctx, message)
-}
-
-func adminHasMore(attempts []models.AvatarAttemptLog) string {
-	if len(attempts) >= 50 {
-		return "true"
-	}
-	return "false"
-}
-
-func adminAttemptID(attempt models.AvatarAttemptLog) string {
-	return fmt.Sprintf("%s|%s|%s|%s|%d", attempt.CreatedAt.UTC().Format(time.RFC3339Nano), attempt.Provider, attempt.Status, attempt.Email, len(attempt.Message))
-}
-
-type adminMetricData struct {
-	Key   string
-	Label string
-	Value int
-}
-
 func adminProviderLabel(ctx context.Context, provider string) string {
 	switch strings.ToLower(strings.TrimSpace(provider)) {
 	case "bimi":
@@ -490,55 +461,6 @@ func adminProviderAttemptTotal(stat models.AvatarProviderStats) int {
 
 func adminProviderPercent(part, total int) int {
 	return adminPercent(part, total)
-}
-
-// adminAttemptStatusLabel names a provider attempt's outcome, as admin.js
-// does for the rows it draws.
-func adminAttemptStatusLabel(ctx context.Context, status string) string {
-	switch status {
-	case "found":
-		return i18n.T(ctx, "admin.avatars.status.found")
-	case "missing":
-		return i18n.T(ctx, "admin.avatars.status.missing")
-	case "skipped":
-		return i18n.T(ctx, "admin.avatars.status.skipped")
-	case "error":
-		return i18n.T(ctx, "admin.avatars.status.error")
-	}
-	return status
-}
-
-func adminAttemptStatusClass(status string) string {
-	switch status {
-	case "found":
-		return "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300"
-	case "missing":
-		return "bg-slate-500/12 text-slate-700 dark:text-slate-300"
-	case "skipped":
-		return "bg-blue-500/12 text-blue-700 dark:text-blue-300"
-	case "error":
-		return "bg-red-500/12 text-red-700 dark:text-red-300"
-	default:
-		return "bg-muted text-muted-foreground"
-	}
-}
-
-templ AdminAttemptRow(attempt models.AvatarAttemptLog, errorMode bool) {
-	<div class="grid gap-2 px-4 py-3 text-sm lg:grid-cols-[10rem_1fr_12rem] lg:items-start" data-log-row data-log-id={ adminAttemptID(attempt) }>
-		<div class="flex items-center gap-2">
-			<span class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ attempt.Provider }</span>
-			<span class={ "inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold", adminAttemptStatusClass(attempt.Status) }>{ adminAttemptStatusLabel(ctx, attempt.Status) }</span>
-		</div>
-		<div class="min-w-0">
-			<div class="truncate font-medium text-foreground">{ adminAttemptEmail(ctx, attempt.Email) }</div>
-			if errorMode {
-				<div class="mt-0.5 whitespace-pre-wrap break-words text-xs text-muted-foreground">{ adminAttemptMessage(ctx, attempt.Message) }</div>
-			} else if attempt.Message != "" {
-				<div class="mt-0.5 truncate text-xs text-muted-foreground">{ adminAttemptMessage(ctx, attempt.Message) }</div>
-			}
-		</div>
-		<div class="text-xs font-medium text-muted-foreground lg:text-right">{ adminTime(ctx, attempt.CreatedAt) }</div>
-	</div>
 }
 
 templ AdminProviderUsageRow(provider models.AvatarProviderStats, totalFound int) {

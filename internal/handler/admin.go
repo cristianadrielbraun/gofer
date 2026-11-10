@@ -38,7 +38,6 @@ func (h *Handler) handleAdmin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	uiSettings := h.db.GetUISettings(ctx, h.userID(ctx))
 	scope, err := h.adminWebmailScope(ctx, r.URL.Query().Get("user_id"))
 	if errors.Is(err, errAdminWebmailScopeNotFound) {
 		http.NotFound(w, r)
@@ -53,19 +52,14 @@ func (h *Handler) handleAdmin(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_get_admin_status"), http.StatusInternalServerError)
 		return
 	}
-
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("Content-Type", "text/html")
-		views.AdminPartial(views.AdminUsersData{}, avatarStatus, models.ContactAdminStatus{}, models.LabelAdminStatus{}, models.MailSecurityAdminData{}, models.MailOperationsAdminStatus{}, "avatars", activeTab).Render(ctx, w)
-		return
-	}
-
-	views.ManagementAdminLayout(uiSettings, views.AdminUsersData{}, avatarStatus, models.ContactAdminStatus{}, models.LabelAdminStatus{}, models.MailSecurityAdminData{}, models.MailOperationsAdminStatus{}, "avatars", activeTab).Render(ctx, w)
+	h.renderAdminPage(w, r, http.StatusOK, views.AdminShellPage{
+		Section: views.AdminSectionAvatars, Scope: avatarStatus.Scope,
+		Content: views.AdminPage(avatarStatus, activeTab),
+	})
 }
 
 func (h *Handler) handleAdminContacts(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	uiSettings := h.db.GetUISettings(ctx, h.userID(ctx))
 	scope, err := h.adminWebmailScope(ctx, r.URL.Query().Get("user_id"))
 	if errors.Is(err, errAdminWebmailScopeNotFound) {
 		http.NotFound(w, r)
@@ -80,19 +74,14 @@ func (h *Handler) handleAdminContacts(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_get_contact_admin_status"), http.StatusInternalServerError)
 		return
 	}
-
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("Content-Type", "text/html")
-		views.AdminPartial(views.AdminUsersData{}, models.AvatarStatus{}, contactStatus, models.LabelAdminStatus{}, models.MailSecurityAdminData{}, models.MailOperationsAdminStatus{}, "contacts", "").Render(ctx, w)
-		return
-	}
-
-	views.ManagementAdminLayout(uiSettings, views.AdminUsersData{}, models.AvatarStatus{}, contactStatus, models.LabelAdminStatus{}, models.MailSecurityAdminData{}, models.MailOperationsAdminStatus{}, "contacts", "").Render(ctx, w)
+	h.renderAdminPage(w, r, http.StatusOK, views.AdminShellPage{
+		Section: views.AdminSectionContacts, Scope: contactStatus.Scope,
+		Content: views.AdminContactsPage(contactStatus),
+	})
 }
 
 func (h *Handler) handleAdminLabels(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	uiSettings := h.db.GetUISettings(ctx, h.userID(ctx))
 	scope, err := h.adminWebmailScope(ctx, r.URL.Query().Get("user_id"))
 	if errors.Is(err, errAdminWebmailScopeNotFound) {
 		http.NotFound(w, r)
@@ -107,14 +96,10 @@ func (h *Handler) handleAdminLabels(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_get_label_admin_status"), http.StatusInternalServerError)
 		return
 	}
-
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("Content-Type", "text/html")
-		views.AdminPartial(views.AdminUsersData{}, models.AvatarStatus{}, models.ContactAdminStatus{}, labelStatus, models.MailSecurityAdminData{}, models.MailOperationsAdminStatus{}, "labels", "").Render(ctx, w)
-		return
-	}
-
-	views.ManagementAdminLayout(uiSettings, views.AdminUsersData{}, models.AvatarStatus{}, models.ContactAdminStatus{}, labelStatus, models.MailSecurityAdminData{}, models.MailOperationsAdminStatus{}, "labels", "").Render(ctx, w)
+	h.renderAdminPage(w, r, http.StatusOK, views.AdminShellPage{
+		Section: views.AdminSectionLabels, Scope: labelStatus.Scope,
+		Content: views.AdminLabelsPage(labelStatus),
+	})
 }
 
 func (h *Handler) handleAdminSecurity(w http.ResponseWriter, r *http.Request) {
@@ -186,13 +171,10 @@ func (h *Handler) handleAdminSecurity(w http.ResponseWriter, r *http.Request) {
 			log.Printf("admin mail security: compare exceptions with allowed servers: %v", err)
 		}
 	}
-	uiSettings := h.db.GetUISettings(ctx, h.userID(ctx))
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("Content-Type", "text/html")
-		views.AdminPartial(views.AdminUsersData{}, models.AvatarStatus{}, models.ContactAdminStatus{}, models.LabelAdminStatus{}, data, models.MailOperationsAdminStatus{}, "security", "", verification).Render(ctx, w)
-		return
-	}
-	views.ManagementAdminLayout(uiSettings, views.AdminUsersData{}, models.AvatarStatus{}, models.ContactAdminStatus{}, models.LabelAdminStatus{}, data, models.MailOperationsAdminStatus{}, "security", "", verification).Render(ctx, w)
+	h.renderAdminPage(w, r, http.StatusOK, views.AdminShellPage{
+		Section: views.AdminSectionMailSecurity,
+		Content: views.AdminSecurityPage(data, verification),
+	})
 }
 
 func (h *Handler) handleAddHTTPDiscoveryException(w http.ResponseWriter, r *http.Request) {

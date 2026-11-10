@@ -198,13 +198,10 @@ func (h *Handler) handleAdminOperations(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_get_mail_operation_status"), http.StatusInternalServerError)
 		return
 	}
-	uiSettings := h.db.GetUISettings(r.Context(), h.userID(r.Context()))
-	if r.Header.Get("HX-Request") == "true" {
-		w.Header().Set("Content-Type", "text/html")
-		_ = views.AdminPartial(views.AdminUsersData{}, models.AvatarStatus{}, models.ContactAdminStatus{}, models.LabelAdminStatus{}, models.MailSecurityAdminData{}, status, "operations", "").Render(r.Context(), w)
-		return
-	}
-	_ = views.ManagementAdminLayout(uiSettings, views.AdminUsersData{}, models.AvatarStatus{}, models.ContactAdminStatus{}, models.LabelAdminStatus{}, models.MailSecurityAdminData{}, status, "operations", "").Render(r.Context(), w)
+	h.renderAdminPage(w, r, http.StatusOK, views.AdminShellPage{
+		Section: views.AdminSectionOperations, Scope: status.Scope,
+		Content: views.AdminMailOperationsPage(status),
+	})
 }
 
 func (h *Handler) mailOperationsAdminStatus(ctx context.Context, scope models.AdminWebmailScope) (models.MailOperationsAdminStatus, error) {

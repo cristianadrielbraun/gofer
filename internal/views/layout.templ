@@ -337,62 +337,6 @@ templ ContactsShell(accounts []models.Account, contacts []models.Contact, select
 	</div>
 }
 
-templ AdminLayout(uiSettings map[string]string, userData AdminUsersData, avatarStatus models.AvatarStatus, contactStatus models.ContactAdminStatus, labelStatus models.LabelAdminStatus, securityData models.MailSecurityAdminData, operationStatus models.MailOperationsAdminStatus, activeSection string, activeTab string) {
-	<!DOCTYPE html>
-	<html lang={ pageLang(ctx) } class={ themeClass(uiSettings) } data-theme={ themeStyle(uiSettings) } { themeLookAttributes(uiSettings)... }>
-		<head>
-			<meta charset="UTF-8"/>
-			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-			@I18nScripts()
-			<title>{ i18n.T(ctx, "page.title", "page", i18n.T(ctx, "admin.title")) }</title>
-			@AppIcon()
-			@FontFaces()
-			@SavedPanelSizeStyle()
-			<link rel="stylesheet" href={ assetver.URL("/assets/css/output.css") }/>
-			@ThemeColorsStyle(uiSettings)
-			@dialog.Script()
-			@dropdown.Script()
-			@checkbox.Script()
-			@calendar.Script()
-			@datepicker.Script()
-			@timepicker.Script()
-			@input.Script()
-			@selectbox.Script()
-			@tabs.Script()
-			@tooltip.Script()
-			@popover.Script()
-			@copybutton.Script()
-			@toast.Script()
-			@collapsible.Script()
-			<script src={ assetver.URL("/assets/js/actions.js") }></script>
-		</head>
-		<body class="bg-background text-foreground antialiased surface-desk" data-ui-settings={ uiSettingsJSON(uiSettings) }>
-			<div class="flex h-screen overflow-hidden bg-background">
-				@AdminSidebar(activeSection)
-				<div id="main-content" class="relative flex min-h-0 min-w-0 flex-1">
-					@AdminNavigationLoading()
-					if activeSection == "users" {
-						@AdminUsersPage(userData)
-					} else if activeSection == "contacts" {
-						@AdminContactsPage(contactStatus)
-					} else if activeSection == "labels" {
-						@AdminLabelsPage(labelStatus)
-					} else if activeSection == "security" {
-						@AdminSecurityPage(securityData)
-					} else if activeSection == "operations" {
-						@AdminMailOperationsPage(operationStatus)
-					} else {
-						@AdminPage(avatarStatus, activeTab)
-					}
-				</div>
-			</div>
-			<script src={ assetver.URL("/assets/js/ui-settings.js") }></script>
-			<script src={ assetver.URL("/assets/js/admin.js") }></script>
-			@AppDialogs()
-		</body>
-	</html>
-}
-
 templ ResizeHandle(panel string) {
 	<div
 		class="resize-handle"
@@ -448,31 +392,5 @@ templ MailCardLayoutScript() {
 templ SettingsPartial(accounts []models.Account, syncSettings models.SyncSettings, activeTab string, uiSettings map[string]string, signatureData []models.AccountSignatureData) {
 	<div id="main-content" class="flex flex-1 min-w-0">
 		@SettingsPage(accounts, syncSettings, activeTab, uiSettings, signatureData)
-	</div>
-}
-
-templ AdminPartial(userData AdminUsersData, avatarStatus models.AvatarStatus, contactStatus models.ContactAdminStatus, labelStatus models.LabelAdminStatus, securityData models.MailSecurityAdminData, operationStatus models.MailOperationsAdminStatus, activeSection string, activeTab string, verification ...AdminSecurityVerificationData) {
-	<div id="main-content" class="relative flex min-h-0 min-w-0 flex-1">
-		@AdminNavigationLoading()
-		if activeSection == "users" {
-			@AdminUsersPage(userData, adminSecurityVerificationValue(verification))
-		} else if activeSection == "contacts" {
-			@AdminContactsPage(contactStatus)
-		} else if activeSection == "labels" {
-			@AdminLabelsPage(labelStatus)
-		} else if activeSection == "security" {
-			@AdminSecurityPage(securityData, adminSecurityVerificationValue(verification))
-		} else if activeSection == "operations" {
-			@AdminMailOperationsPage(operationStatus)
-		} else {
-			@AdminPage(avatarStatus, activeTab)
-		}
-	</div>
-}
-
-templ AdminSecurityActivityPartial(data AdminSecurityActivityData, verification ...AdminSecurityVerificationData) {
-	<div id="main-content" class="relative flex min-h-0 min-w-0 flex-1">
-		@AdminNavigationLoading()
-		@AdminSecurityActivityPage(data, adminSecurityVerificationValue(verification))
 	</div>
 }

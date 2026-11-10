@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
@@ -173,25 +172,10 @@ func (h *Handler) handleAdminSecurityActivity(w http.ResponseWriter, r *http.Req
 	data.Notice = strings.TrimSpace(r.URL.Query().Get("notice"))
 	data.Error = strings.TrimSpace(r.URL.Query().Get("error"))
 
-	uiSettings := map[string]string(nil)
-	if h.db != nil {
-		if currentUser := auth.GetCurrentUser(r.Context()); currentUser != nil {
-			uiSettings = h.db.GetUISettings(r.Context(), currentUser.ID)
-		}
-	}
-	var output bytes.Buffer
-	if r.Header.Get("HX-Request") == "true" {
-		err = views.AdminSecurityActivityPartial(data, verification).Render(r.Context(), &output)
-	} else {
-		err = views.ManagementAdminActivityLayout(uiSettings, data, verification).Render(r.Context(), &output)
-	}
-	if err != nil {
-		log.Printf("render administrator security activity: %v", err)
-		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_render_administrator_security_activity"), http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = output.WriteTo(w)
+	h.renderAdminPage(w, r, http.StatusOK, views.AdminShellPage{
+		Section: views.AdminSectionActivity,
+		Content: views.AdminSecurityActivityPage(data, verification),
+	})
 }
 
 func (h *Handler) handleSetAuthenticationEventRetention(w http.ResponseWriter, r *http.Request) {

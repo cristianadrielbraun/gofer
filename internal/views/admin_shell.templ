@@ -1,0 +1,187 @@
+package views
+
+import (
+	"github.com/cristianadrielbraun/gofer/components/icon"
+	"github.com/cristianadrielbraun/gofer/internal/assetver"
+	"github.com/cristianadrielbraun/gofer/internal/auth"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
+	"github.com/cristianadrielbraun/gofer/internal/models"
+)
+
+// AdminShell is a whole admin console page: the sidebar, the phone
+// navigation, and the page's content in #main-content.
+templ AdminShell(page AdminShellPage) {
+	@adminDocument(page.UISettings, i18n.T(ctx, "admin.page_title"), adminPanelStyle, page.Section, page.Scope, AdminMain(page.Content), adminPanelScripts())
+}
+
+// AdminMain is the console's main area on its own, for requests that only
+// replace it.
+templ AdminMain(content templ.Component) {
+	<div id="main-content" class="relative flex min-h-0 min-w-0 flex-1">
+		@AdminNavigationLoading()
+		@content
+	</div>
+}
+
+// AdminAccountShell shows the administrator's own sign-in methods and
+// sessions inside the console, as one scrolling page.
+templ AdminAccountShell(uiSettings map[string]string, content templ.Component) {
+	@adminDocument(uiSettings, i18n.T(ctx, "admin.security_page_title"), adminAccountStyle, AdminSectionAccountSecurity, models.AdminWebmailScope{}, adminAccountMain(content), adminAccountScripts())
+}
+
+templ adminDocument(uiSettings map[string]string, title string, style string, section string, scope models.AdminWebmailScope, main templ.Component, scripts templ.Component) {
+	<!DOCTYPE html>
+	<html lang={ pageLang(ctx) } class={ themeClass(uiSettings) } data-theme={ themeStyle(uiSettings) }>
+		<head>
+			<meta charset="UTF-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+			<title>{ title }</title>
+			<link rel="icon" type="image/svg+xml" href={ assetver.URL("/assets/logo.svg") }/>
+			<link rel="stylesheet" href={ assetver.URL("/assets/css/output.css") }/>
+			@I18nScripts()
+			@SettingsComponentScripts()
+			@templ.Raw(style)
+		</head>
+		<body class="h-screen overflow-hidden bg-background text-foreground antialiased surface-desk" data-management-shell>
+			<div class="flex h-full min-h-0 overflow-hidden bg-background">
+				@adminSidebar(section, scope)
+				<div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+					@adminMobileNav(section, scope)
+					@main
+				</div>
+			</div>
+			@scripts
+		</body>
+	</html>
+}
+
+templ adminSidebar(section string, scope models.AdminWebmailScope) {
+	<aside class="hidden lg:flex w-64 shrink-0 flex-col border-r border-border bg-card/75 backdrop-blur-sm">
+		<div class="border-b border-border px-5 py-5">
+			<a href="/admin" class="inline-flex items-center gap-2.5 text-foreground hover:text-primary">
+				<img src={ assetver.URL("/assets/logo.svg") } alt="Gofer" class="h-8 w-8 shrink-0"/>
+				<span class="text-lg font-bold tracking-tight" style="font-family:var(--font-serif)">Gofer Admin</span>
+			</a>
+			<p class="mt-2 text-xs leading-relaxed text-muted-foreground">
+				if managedAuthenticationNavigation(ctx) {
+					{ i18n.T(ctx, "admin.workspace.managed") }
+				} else {
+					{ i18n.T(ctx, "admin.workspace.local") }
+				}
+			</p>
+		</div>
+		<nav class="min-h-0 flex-1 space-y-5 overflow-y-auto px-3 py-4" aria-label={ i18n.T(ctx, "admin.sections") }>
+			for _, group := range adminNavigationGroups(ctx, section, scope) {
+				<div>
+					<p class="px-3 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{ group.Label }</p>
+					<div class="space-y-1">
+						for _, link := range group.Items {
+							@adminNavigationLink(link)
+						}
+					</div>
+				</div>
+			}
+		</nav>
+		@adminSidebarFooter(section)
+	</aside>
+}
+
+// adminSidebarFooter holds the administrator's own account and sign-out.
+// It doesn't name them: the account page keeps the username hidden until a
+// stale session verifies again. Open mode's local workspace leads back to
+// the webmail instead.
+templ adminSidebarFooter(section string) {
+	<div class="border-t border-border px-3 py-3">
+		if managedAuthenticationNavigation(ctx) {
+			<div class="space-y-1">
+				@adminNavigationLink(adminNavLinkFor(ctx, adminAccountNavItem, section, models.AdminWebmailScope{}))
+				<form method="post" action="/auth/logout">
+					<input type="hidden" name="_csrf" value={ auth.CSRFToken(ctx, "POST", "/auth/logout") }/>
+					<button type="submit" class={ adminNavLinkClass(false) }>
+						@icon.LogOut(icon.Props{Class: "size-4 shrink-0"})
+						<span class="min-w-0 truncate">{ i18n.T(ctx, "admin.sign_out") }</span>
+					</button>
+				</form>
+			</div>
+		} else {
+			<div class="px-2 py-1">
+				<a href="/" class="inline-flex h-9 w-full items-center justify-center rounded-md border border-border bg-background px-3 text-xs font-semibold text-muted-foreground hover:bg-accent hover:text-foreground">{ i18n.T(ctx, "admin.back_to_webmail") }</a>
+			</div>
+		}
+	</div>
+}
+
+templ adminNavigationLink(link adminNavLinkView) {
+	<a
+		href={ templ.URL(link.Href) }
+		data-admin-navigation-link
+		data-admin-navigation-label={ link.Label }
+		if link.Active {
+			aria-current="page"
+		}
+		class={ adminNavLinkClass(link.Active) }
+	>
+		@link.Icon(icon.Props{Class: "size-4 shrink-0"})
+		<span class="min-w-0 truncate">{ link.Label }</span>
+	</a>
+}
+
+// adminMobileNav replaces the sidebar on small screens: one scrolling row
+// of sections, with sign-out next to the name.
+templ adminMobileNav(section string, scope models.AdminWebmailScope) {
+	<header class="lg:hidden shrink-0 border-b border-border bg-card">
+		<div class="flex items-center justify-between gap-3 px-4 py-3">
+			<a href="/admin" class="font-bold text-foreground" style="font-family:var(--font-serif)">Gofer Admin</a>
+			if managedAuthenticationNavigation(ctx) {
+				<form method="post" action="/auth/logout">
+					<input type="hidden" name="_csrf" value={ auth.CSRFToken(ctx, "POST", "/auth/logout") }/>
+					<button type="submit" class="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground" aria-label={ i18n.T(ctx, "admin.sign_out") } title={ i18n.T(ctx, "admin.sign_out") }>
+						@icon.LogOut(icon.Props{Class: "size-4"})
+					</button>
+				</form>
+			} else {
+				<span class="text-xs font-semibold uppercase tracking-wider text-primary">{ i18n.T(ctx, "admin.mode_local") }</span>
+			}
+		</div>
+		<nav class="flex gap-1 overflow-x-auto px-3 pb-3" aria-label={ i18n.T(ctx, "admin.sections") }>
+			for _, link := range adminMobileNavigation(ctx, section, scope) {
+				<a
+					href={ templ.URL(link.Href) }
+					data-admin-navigation-link
+					data-admin-navigation-label={ link.Short }
+					if link.Active {
+						aria-current="page"
+					}
+					class={ adminMobileNavLinkClass(link.Active) }
+				>{ link.Short }</a>
+			}
+		</nav>
+	</header>
+}
+
+templ adminAccountMain(content templ.Component) {
+	<main id="main-content" class="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain">
+		<div class="w-full max-w-3xl px-8 pt-10 pb-6">
+			<div class="mb-6">
+				<p class="text-xs font-semibold uppercase tracking-[0.18em] text-primary">{ i18n.T(ctx, "admin.account.eyebrow") }</p>
+				<h1 class="mt-2 text-2xl font-bold" style="font-family:var(--font-serif)">{ i18n.T(ctx, "admin.nav.account_security") }</h1>
+				<p class="mt-1 text-sm text-muted-foreground">{ i18n.T(ctx, "admin.account.description") }</p>
+			</div>
+			@content
+		</div>
+	</main>
+}
+
+templ adminPanelScripts() {
+	<script src={ assetver.URL("/assets/js/ui-settings.js") }></script>
+	<script src={ assetver.URL("/assets/js/passkey-authentication.js") }></script>
+	<script src={ assetver.URL("/assets/js/admin.js") }></script>
+}
+
+templ adminAccountScripts() {
+	<script src={ assetver.URL("/assets/js/htmx.min.js") }></script>
+	<script src={ assetver.URL("/assets/js/ui-settings.js") }></script>
+	<script src={ assetver.URL("/assets/js/passkey-registration.js") }></script>
+	<script src={ assetver.URL("/assets/js/passkey-authentication.js") }></script>
+	<script src={ assetver.URL("/assets/js/settings.js") }></script>
+}
