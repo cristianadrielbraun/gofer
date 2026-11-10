@@ -71,13 +71,7 @@ templ adminSidebar(section string, scope models.AdminWebmailScope) {
 				<img src={ assetver.URL("/assets/logo.svg") } alt="Gofer" class="h-8 w-8 shrink-0"/>
 				<span class="text-lg font-bold tracking-tight" style="font-family:var(--font-serif)">Gofer Admin</span>
 			</a>
-			<p class="mt-2 text-xs leading-relaxed text-muted-foreground">
-				if managedAuthenticationNavigation(ctx) {
-					{ i18n.T(ctx, "admin.workspace.managed") }
-				} else {
-					{ i18n.T(ctx, "admin.workspace.local") }
-				}
-			</p>
+			<p class="mt-2 text-xs leading-relaxed text-muted-foreground">{ i18n.T(ctx, "admin.workspace.managed") }</p>
 		</div>
 		<nav class="min-h-0 flex-1 space-y-5 overflow-y-auto px-3 py-4" aria-label={ i18n.T(ctx, "admin.sections") }>
 			for _, group := range adminNavigationGroups(ctx, section, scope) {
@@ -99,26 +93,19 @@ templ adminSidebar(section string, scope models.AdminWebmailScope) {
 
 // adminSidebarFooter holds the administrator's own account and sign-out.
 // It doesn't name them: the account page keeps the username hidden until a
-// stale session verifies again. Open mode's local workspace leads back to
-// the webmail instead.
+// stale session verifies again.
 templ adminSidebarFooter(section string) {
 	<div class="border-t border-border px-3 py-3">
-		if managedAuthenticationNavigation(ctx) {
-			<div class="space-y-1">
-				@adminNavigationLink(adminNavLinkFor(ctx, adminAccountNavItem, section, models.AdminWebmailScope{}))
-				<form method="post" action="/auth/logout">
-					<input type="hidden" name="_csrf" value={ auth.CSRFToken(ctx, "POST", "/auth/logout") }/>
-					<button type="submit" class={ adminNavLinkClass(false) }>
-						@icon.LogOut(icon.Props{Class: "size-4 shrink-0"})
-						<span class="min-w-0 truncate">{ i18n.T(ctx, "admin.sign_out") }</span>
-					</button>
-				</form>
-			</div>
-		} else {
-			<div class="px-2 py-1">
-				<a href="/" class="inline-flex h-9 w-full items-center justify-center rounded-md border border-border bg-background px-3 text-xs font-semibold text-muted-foreground hover:bg-accent hover:text-foreground">{ i18n.T(ctx, "admin.back_to_webmail") }</a>
-			</div>
-		}
+		<div class="space-y-1">
+			@adminNavigationLink(adminNavLinkFor(ctx, adminAccountNavItem, section, models.AdminWebmailScope{}))
+			<form method="post" action="/auth/logout">
+				<input type="hidden" name="_csrf" value={ auth.CSRFToken(ctx, "POST", "/auth/logout") }/>
+				<button type="submit" class={ adminNavLinkClass(false) }>
+					@icon.LogOut(icon.Props{Class: "size-4 shrink-0"})
+					<span class="min-w-0 truncate">{ i18n.T(ctx, "admin.sign_out") }</span>
+				</button>
+			</form>
+		</div>
 	</div>
 }
 
@@ -143,16 +130,12 @@ templ adminMobileNav(section string, scope models.AdminWebmailScope) {
 	<header class="lg:hidden shrink-0 border-b border-border bg-card">
 		<div class="flex items-center justify-between gap-3 px-4 py-3">
 			<a href="/admin" class="font-bold text-foreground" style="font-family:var(--font-serif)">Gofer Admin</a>
-			if managedAuthenticationNavigation(ctx) {
-				<form method="post" action="/auth/logout">
-					<input type="hidden" name="_csrf" value={ auth.CSRFToken(ctx, "POST", "/auth/logout") }/>
-					<button type="submit" class="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground" aria-label={ i18n.T(ctx, "admin.sign_out") } title={ i18n.T(ctx, "admin.sign_out") }>
-						@icon.LogOut(icon.Props{Class: "size-4"})
-					</button>
-				</form>
-			} else {
-				<span class="text-xs font-semibold uppercase tracking-wider text-primary">{ i18n.T(ctx, "admin.mode_local") }</span>
-			}
+			<form method="post" action="/auth/logout">
+				<input type="hidden" name="_csrf" value={ auth.CSRFToken(ctx, "POST", "/auth/logout") }/>
+				<button type="submit" class="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground" aria-label={ i18n.T(ctx, "admin.sign_out") } title={ i18n.T(ctx, "admin.sign_out") }>
+					@icon.LogOut(icon.Props{Class: "size-4"})
+				</button>
+			</form>
 		</div>
 		<nav class="flex gap-1 overflow-x-auto px-3 pb-3" aria-label={ i18n.T(ctx, "admin.sections") }>
 			for _, link := range adminMobileNavigation(ctx, section, scope) {
@@ -188,6 +171,7 @@ templ adminPanelScripts() {
 	<script src={ assetver.URL("/assets/js/ui-settings.js") }></script>
 	<script src={ assetver.URL("/assets/js/passkey-authentication.js") }></script>
 	<script src={ assetver.URL("/assets/js/admin.js") }></script>
+	<script src={ assetver.URL("/assets/js/diagnostics.js") }></script>
 }
 
 templ adminAccountScripts() {

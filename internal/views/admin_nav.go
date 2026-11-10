@@ -83,7 +83,6 @@ type adminNavItem struct {
 	short   string // translation key for the phone navigation, when it needs a shorter name
 	icon    func(...icon.Props) templ.Component
 	scoped  bool // diagnostics: the link keeps the webmail user they are narrowed to
-	managed bool // only with managed sign-in, not in open mode's local workspace
 }
 
 type adminNavGroup struct {
@@ -95,14 +94,14 @@ type adminNavGroup struct {
 // the phone navigation alike.
 var adminNavigation = []adminNavGroup{
 	{items: []adminNavItem{
-		{section: AdminSectionOverview, path: AdminOverviewPath, label: "admin.nav.overview", icon: icon.LayoutDashboard, managed: true},
+		{section: AdminSectionOverview, path: AdminOverviewPath, label: "admin.nav.overview", icon: icon.LayoutDashboard},
 	}},
 	{label: "admin.nav.group.people", items: []adminNavItem{
-		{section: AdminSectionUsers, path: "/admin/users", label: "admin.nav.users", icon: icon.Users, managed: true},
+		{section: AdminSectionUsers, path: "/admin/users", label: "admin.nav.users", icon: icon.Users},
 	}},
 	{label: "admin.nav.group.security", items: []adminNavItem{
 		{section: AdminSectionMailSecurity, path: "/admin/security", label: "admin.nav.security", icon: icon.ShieldAlert},
-		{section: AdminSectionActivity, path: "/admin/activity", label: "admin.nav.activity_short", icon: icon.History, managed: true},
+		{section: AdminSectionActivity, path: "/admin/activity", label: "admin.nav.activity_short", icon: icon.History},
 	}},
 	{label: "admin.nav.group.system", items: []adminNavItem{
 		{section: AdminSectionAvatars, path: AdminAvatarsPath, label: "admin.nav.avatars", short: "admin.nav.avatars_short", icon: icon.CircleUserRound, scoped: true},
@@ -116,7 +115,7 @@ var adminNavigation = []adminNavGroup{
 // sidebar keeps it in its footer; the phone navigation lists it last.
 var adminAccountNavItem = adminNavItem{
 	section: AdminSectionAccountSecurity, path: auth.ManagementAccountPath,
-	label: "admin.nav.account_security", icon: icon.ShieldCheck, managed: true,
+	label: "admin.nav.account_security", icon: icon.ShieldCheck,
 }
 
 type adminNavLinkView struct {
@@ -132,18 +131,9 @@ type adminNavGroupView struct {
 	Items []adminNavLinkView
 }
 
-// managedAuthenticationNavigation reports whether the console shows its
-// managed navigation: to management identities, and when nobody is signed
-// in. Open mode's local profile gets the local workspace instead.
-func managedAuthenticationNavigation(ctx context.Context) bool {
-	user := auth.GetCurrentUser(ctx)
-	return user == nil || user.IsManagement()
-}
-
 // adminNavigationGroups resolves the navigation for the person viewing the
 // console, leaving out groups that end up empty.
 func adminNavigationGroups(ctx context.Context, active string, scope models.AdminWebmailScope) []adminNavGroupView {
-	managed := managedAuthenticationNavigation(ctx)
 	groups := make([]adminNavGroupView, 0, len(adminNavigation))
 	for _, group := range adminNavigation {
 		var view adminNavGroupView
@@ -151,9 +141,6 @@ func adminNavigationGroups(ctx context.Context, active string, scope models.Admi
 			view.Label = i18n.T(ctx, group.label)
 		}
 		for _, item := range group.items {
-			if item.managed && !managed {
-				continue
-			}
 			view.Items = append(view.Items, adminNavLinkFor(ctx, item, active, scope))
 		}
 		if len(view.Items) > 0 {
@@ -170,9 +157,7 @@ func adminMobileNavigation(ctx context.Context, active string, scope models.Admi
 	for _, group := range adminNavigationGroups(ctx, active, scope) {
 		links = append(links, group.Items...)
 	}
-	if managedAuthenticationNavigation(ctx) {
-		links = append(links, adminNavLinkFor(ctx, adminAccountNavItem, active, scope))
-	}
+	links = append(links, adminNavLinkFor(ctx, adminAccountNavItem, active, scope))
 	return links
 }
 

@@ -14,21 +14,34 @@ const AdminActivityPath = "/admin/activity"
 // adminActivityTabs switches between the Activity page's two records. They
 // are pages of their own, so the tabs are links, drawn like templui's tabs.
 templ adminActivityTabs(active string) {
-	<nav class="mt-6 inline-flex h-9 w-fit items-center justify-center rounded-lg bg-muted p-[3px] text-muted-foreground" aria-label={ i18n.T(ctx, "admin.activity.records") }>
+	@linkTabs(i18n.T(ctx, "admin.activity.records")) {
 		@adminActivityTab(templ.URL(AdminActivityPath), i18n.T(ctx, "admin.activity.tab.security"), active == "security")
 		@adminActivityTab(templ.URL(AdminAuditActivityPath), i18n.T(ctx, "admin.activity.tab.administration"), active == "administration")
-	</nav>
+	}
 }
 
 templ adminActivityTab(href templ.SafeURL, label string, active bool) {
+	@linkTab(href, label, active, templ.Attributes{"data-admin-navigation-link": "", "data-admin-navigation-label": label})
+}
+
+// linkTabs holds tabs that are pages of their own, drawn like templui's
+// tabs.
+templ linkTabs(label string) {
+	<nav class="mt-6 inline-flex h-9 w-fit max-w-full items-center justify-center overflow-x-auto rounded-lg bg-muted p-[3px] text-muted-foreground" aria-label={ label }>
+		{ children... }
+	</nav>
+}
+
+// linkTab is one of linkTabs: a link marked as the current page when
+// active.
+templ linkTab(href templ.SafeURL, label string, active bool, attributes templ.Attributes) {
 	<a
 		href={ href }
-		data-admin-navigation-link
-		data-admin-navigation-label={ label }
 		if active {
 			aria-current="page"
 		}
 		class="inline-flex h-[calc(100%-1px)] items-center justify-center rounded-md border border-transparent px-3 py-1 text-sm font-medium whitespace-nowrap text-foreground transition-[color,box-shadow] dark:text-muted-foreground aria-[current=page]:bg-background aria-[current=page]:shadow-sm dark:aria-[current=page]:border-input dark:aria-[current=page]:bg-input/30 dark:aria-[current=page]:text-foreground"
+		{ attributes... }
 	>{ label }</a>
 }
 

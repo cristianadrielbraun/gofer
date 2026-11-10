@@ -143,7 +143,7 @@ func SettingsPage(accounts []models.Account, syncSettings models.SyncSettings, a
 // The open-mode Security page has its own description.
 func settingsSectionHeading(ctx context.Context, section string) (string, string) {
 	switch section {
-	case "accounts", "sync", "rules", "operations", "contacts", "appearance", "regional", "compose-display", "security", "advanced", "export-import", "about":
+	case "accounts", "sync", "rules", "operations", "contacts", "appearance", "regional", "compose-display", "security", "advanced", "export-import", "about", "diagnostics":
 		return i18n.T(ctx, "settings.section."+section+".title"), i18n.T(ctx, "settings.section."+section+".description")
 	case "security-open":
 		return i18n.T(ctx, "settings.section.security.title"), i18n.T(ctx, "settings.section.security-open.description")

@@ -495,6 +495,9 @@ templ SettingsSidebar(activeTab string, width string) {
 			@SettingsSidebarItem(activeTab, "sync", i18n.T(ctx, "settings.sidebar.sync"))
 			@SettingsSidebarItem(activeTab, "rules", i18n.T(ctx, "settings.section.rules.title"))
 			@SettingsSidebarItem(activeTab, "operations", i18n.T(ctx, "settings.section.operations.title"))
+			if auth.OwnerInstance(ctx) {
+				@SettingsSidebarItem(activeTab, "diagnostics", i18n.T(ctx, "settings.section.diagnostics.title"))
+			}
 			@SettingsSidebarItem(activeTab, "contacts", i18n.T(ctx, "settings.section.contacts.title"))
 			@SettingsSidebarItem(activeTab, "appearance", i18n.T(ctx, "settings.section.appearance.title"))
 			@SettingsSidebarItem(activeTab, "regional", i18n.T(ctx, "settings.section.regional.title"))
@@ -512,12 +515,12 @@ templ SettingsSidebar(activeTab string, width string) {
 
 templ SettingsSidebarItem(activeTab string, value string, label string) {
 	<a
-		href={ templ.URL(fmt.Sprintf("/settings/%s", value)) }
-		hx-get={ templ.URL(fmt.Sprintf("/settings/%s", value)) }
+		href={ templ.URL(settingsSectionHref(value)) }
+		hx-get={ templ.URL(settingsSectionHref(value)) }
 		hx-target="#settings-content"
 		hx-select="#settings-content"
 		hx-swap="outerHTML"
-		hx-push-url={ templ.URL(fmt.Sprintf("/settings/%s", value)) }
+		hx-push-url={ templ.URL(settingsSectionHref(value)) }
 		data-settings-sidebar-link
 		data-settings-sidebar-value={ value }
 		aria-current?={ activeTab == value }
@@ -544,6 +547,8 @@ templ SettingsSidebarItemIcon(value string) {
 			@icon.ListFilter(icon.Props{Class: "size-4"})
 		case "operations":
 			@icon.ClipboardList(icon.Props{Class: "size-4"})
+		case "diagnostics":
+			@icon.Activity(icon.Props{Class: "size-4"})
 		case "contacts":
 			@icon.BookUser(icon.Props{Class: "size-4"})
 		case "appearance":

@@ -1747,6 +1747,7 @@ var settingsTabs = [
   "advanced",
   "export-import",
   "about",
+  "diagnostics",
 ]
 
 function normalizeSettingsTab(tab) {

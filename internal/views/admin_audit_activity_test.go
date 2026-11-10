@@ -39,8 +39,11 @@ func TestAdminAuditActivityReadsEachChangeAsASentence(t *testing.T) {
 		},
 	}
 	html := renderAdminAuditActivity(t, data)
+	if tab := openingTag(html, `href="/admin/activity/administration"`); !strings.Contains(tab, `aria-current="page"`) || !strings.Contains(tab, "data-admin-navigation-link") {
+		t.Fatalf("the Administration tab isn't the current one: %q", tab)
+	}
 	requireAdminUsersHTML(t, "administration tab", html,
-		`data-admin-audit-activity`, "Sign-in and security", `href="/admin/activity/administration" data-admin-navigation-link data-admin-navigation-label="Administration" aria-current="page"`,
+		`data-admin-audit-activity`, "Sign-in and security",
 		"Disabled milo.rivers", "ada.admin", "Sample Browser 1.0",
 		"Kept sign-in and security events for 90 days instead of 180",
 		"Removed 12 administrative changes from before", ">Gofer<",
@@ -172,4 +175,18 @@ func TestAdminAuditRowNamesTheBrowser(t *testing.T) {
 		{Seq: 1, Event: audit.Event{Action: "audit.pruned", Actor: audit.Actor{Kind: audit.ActorSystem}}},
 	}})
 	requireAdminUsersHTML(t, "browser", html, ">Chrome on Linux<", `title="`+agent+`"`, "—")
+}
+
+// openingTag is the opening tag in html that holds attribute.
+func openingTag(html, attribute string) string {
+	at := strings.Index(html, attribute)
+	if at < 0 {
+		return ""
+	}
+	start := strings.LastIndex(html[:at], "<")
+	end := strings.Index(html[at:], ">")
+	if start < 0 || end < 0 {
+		return ""
+	}
+	return html[start : at+end+1]
 }

@@ -11,6 +11,7 @@ import (
 
 func (m *Manager) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r = r.WithContext(ContextWithMode(r.Context(), m.config.AuthenticationMode()))
 		path := r.URL.Path
 		if m.IsPersonal() {
 			if path == "/admin" || strings.HasPrefix(path, "/admin/") || strings.HasPrefix(path, "/api/admin/") || path == "/account/enroll" || strings.HasPrefix(path, "/account/enroll/") || path == "/account/recover" || (strings.HasPrefix(path, "/setup/") && path != "/setup/owner") {

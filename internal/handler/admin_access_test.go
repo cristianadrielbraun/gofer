@@ -122,7 +122,9 @@ func TestOldAdminAddressesRedirectWithTheirQuery(t *testing.T) {
 	}
 }
 
-func TestLocalModeAdminUsesOperationalHomeAndNavigation(t *testing.T) {
+// Open mode has no console: its owner finds the diagnostics in Settings,
+// and the console's addresses lead there.
+func TestOpenModeConsoleMovedToSettings(t *testing.T) {
 	db, err := storage.New(filepath.Join(t.TempDir(), "gofer.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -133,55 +135,73 @@ func TestLocalModeAdminUsesOperationalHomeAndNavigation(t *testing.T) {
 	mux := http.NewServeMux()
 	h.RegisterRoutes(mux)
 	stack := manager.Middleware(mux)
-
-	request := httptest.NewRequest(http.MethodGet, "/admin", nil)
-	response := httptest.NewRecorder()
-	stack.ServeHTTP(response, request)
-	if response.Code != http.StatusFound || response.Header().Get("Location") != "/admin/system/diagnostics/avatars/" {
-		t.Fatalf("local admin root = %d %q", response.Code, response.Header().Get("Location"))
+	do := func(method, path string, header ...string) *httptest.ResponseRecorder {
+		t.Helper()
+		request := httptest.NewRequest(method, path, nil)
+		for i := 0; i+1 < len(header); i += 2 {
+			request.Header.Set(header[i], header[i+1])
+		}
+		response := httptest.NewRecorder()
+		stack.ServeHTTP(response, request)
+		return response
 	}
 
-	var avatarHTML string
+	for path, want := range map[string]string{
+		"/admin":                             "/settings/diagnostics/avatars/",
+		"/admin/":                            "/settings/diagnostics/avatars/",
+		"/admin/overview":                    "/settings/diagnostics/avatars/",
+		"/admin/users":                       "/settings/diagnostics/avatars/",
+		"/admin/system/diagnostics/avatars/": "/settings/diagnostics/avatars/",
+		"/admin/system/diagnostics/avatars/senders": "/settings/diagnostics/avatars/senders",
+		"/admin/avatars/providers":                  "/settings/diagnostics/avatars/providers",
+		"/admin/system/diagnostics/contacts":        "/settings/diagnostics/contacts",
+		"/admin/labels":                             "/settings/diagnostics/labels",
+		"/admin/system/diagnostics/operations":      "/settings/operations",
+		"/admin/security":                           "/settings/security",
+		"/admin/account":                            "/settings/security",
+		"/settings/diagnostics":                     "/settings/diagnostics/avatars/",
+	} {
+		if response := do(http.MethodGet, path); response.Code != http.StatusFound || response.Header().Get("Location") != want {
+			t.Errorf("GET %s = %d %q, want %q", path, response.Code, response.Header().Get("Location"), want)
+		}
+	}
+	for _, path := range []string{"/api/admin/avatars/status", "/api/admin/events"} {
+		if response := do(http.MethodGet, path); response.Code != http.StatusNotFound {
+			t.Errorf("GET %s = %d, want 404", path, response.Code)
+		}
+	}
+	if response := do(http.MethodPost, "/admin/avatar-backfill/recheck"); response.Code != http.StatusNotFound {
+		t.Errorf("POST to the console = %d, want 404", response.Code)
+	}
+
 	for _, path := range []string{
-		"/admin/system/diagnostics/avatars/", "/admin/system/diagnostics/contacts", "/admin/system/diagnostics/labels", "/admin/system/diagnostics/operations", "/admin/security",
+		"/settings/diagnostics/avatars/", "/settings/diagnostics/avatars/senders", "/settings/diagnostics/contacts", "/settings/diagnostics/labels",
 	} {
-		request = httptest.NewRequest(http.MethodGet, path, nil)
-		response = httptest.NewRecorder()
-		stack.ServeHTTP(response, request)
-		if response.Code != http.StatusOK {
-			t.Fatalf("local admin section %q = %d %q", path, response.Code, response.Body.String())
-		}
-		if path == "/admin/system/diagnostics/avatars/" {
-			avatarHTML = response.Body.String()
+		response := do(http.MethodGet, path)
+		html := response.Body.String()
+		if response.Code != http.StatusOK || !strings.Contains(html, "<html") || !strings.Contains(html, `data-settings-sidebar-value="diagnostics"`) ||
+			strings.Contains(html, "data-admin-webmail-scope-form") || strings.Contains(html, `"/api/admin`) {
+			t.Fatalf("GET %s = %d %q", path, response.Code, html)
 		}
 	}
-	for _, want := range []string{
-		`href="/admin/system/diagnostics/avatars/"`, `href="/admin/system/diagnostics/contacts"`, `href="/admin/system/diagnostics/labels"`,
-		`href="/admin/system/diagnostics/operations"`, `href="/admin/security"`, `href="/"`, "Back to webmail",
-	} {
-		if !strings.Contains(avatarHTML, want) {
-			t.Fatalf("local admin navigation omitted %q", want)
+	if response := do(http.MethodGet, "/settings/diagnostics/avatars/nowhere"); response.Code != http.StatusNotFound {
+		t.Errorf("unknown avatar tab = %d", response.Code)
+	}
+	partial := do(http.MethodGet, "/settings/diagnostics/labels", "HX-Request", "true")
+	if partial.Code != http.StatusOK || strings.Contains(partial.Body.String(), "<html") || !strings.Contains(partial.Body.String(), `id="settings-content"`) {
+		t.Fatalf("labels in place = %d %q", partial.Code, partial.Body.String())
+	}
+	for _, path := range []string{"/api/diagnostics/avatars/status", "/api/diagnostics/contacts/status", "/api/diagnostics/labels/status"} {
+		response := do(http.MethodGet, path)
+		if response.Code != http.StatusOK || !strings.HasPrefix(response.Header().Get("Content-Type"), "application/json") {
+			t.Errorf("GET %s = %d %q", path, response.Code, response.Header().Get("Content-Type"))
 		}
 	}
-	for _, forbidden := range []string{
-		`href="/admin/overview"`, `href="/admin/users"`, `href="/admin/activity"`, `href="/admin/account"`,
-		`action="/auth/logout"`, "Sign out of Admin",
-	} {
-		if strings.Contains(avatarHTML, forbidden) {
-			t.Fatalf("local admin navigation exposed managed-only control %q", forbidden)
-		}
-	}
-
-	for _, path := range []string{"/admin/overview", "/admin/users", "/admin/account"} {
-		request = httptest.NewRequest(http.MethodGet, path, nil)
-		response = httptest.NewRecorder()
-		stack.ServeHTTP(response, request)
-		if response.Code != http.StatusFound || response.Header().Get("Location") != "/admin/system/diagnostics/avatars/" {
-			t.Fatalf("local managed-only section %q = %d %q", path, response.Code, response.Header().Get("Location"))
-		}
+	settings := do(http.MethodGet, "/settings/accounts").Body.String()
+	if !strings.Contains(settings, `href="/settings/diagnostics/avatars/"`) {
+		t.Fatal("Settings doesn't offer the diagnostics")
 	}
 }
-
 func TestAdminContactAndLabelStatusAggregateWebmailUsers(t *testing.T) {
 	ctx := context.Background()
 	db, err := storage.New(filepath.Join(t.TempDir(), "gofer.db"))

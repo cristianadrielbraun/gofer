@@ -322,7 +322,10 @@ func TestAdministratorSecurityActivityExplainsLocalModeWithoutQueryingAuthentica
 	mux := http.NewServeMux()
 	h.RegisterRoutes(mux)
 	request := httptest.NewRequest(http.MethodGet, adminSecurityActivityPath, nil)
-	request = request.WithContext(auth.ContextWithUser(request.Context(), &auth.User{ID: "default"}))
+	// Open mode's owner no longer reaches the console (its pages moved to
+	// Settings); an administrator without managed sign-in still gets the
+	// explanation instead of the events.
+	request = request.WithContext(auth.ContextWithUser(request.Context(), &auth.User{ID: "local-admin", IsAdmin: true, UserType: auth.UserTypeManagement}))
 	page := httptest.NewRecorder()
 	mux.ServeHTTP(page, request)
 	if page.Code != http.StatusOK {

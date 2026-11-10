@@ -658,7 +658,9 @@ func (h *Handler) handleForceContactBackfill(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	target := views.AdminContactsPath
-	if scope.SelectedUserID != "" {
+	if ownerDiagnosticsRequest(r) {
+		target = views.OwnerDiagnosticsPath + "/contacts"
+	} else if scope.SelectedUserID != "" {
 		target += "?user_id=" + url.QueryEscape(scope.SelectedUserID)
 	}
 	http.Redirect(w, r, target, http.StatusSeeOther)

@@ -195,6 +195,7 @@ templ SettingsRuntime(accounts []models.Account) {
 	<script src={ assetver.URL("/assets/js/settings-page.js") }></script>
 	<script src={ assetver.URL("/assets/js/ui-settings.js") }></script>
 	<script src={ assetver.URL("/assets/js/resize.js") }></script>
+	<script src={ assetver.URL("/assets/js/diagnostics.js") }></script>
 }
 
 templ MailShell(accounts []models.Account, activeFolder string, emails []models.Email, selectedEmail *models.Email, totalCount int, scrollCount int, uiSettings map[string]string, selectedThread []models.ThreadItem, initialEmailID string, scheduledCount int, filters models.EmailFilters) {

@@ -12,6 +12,10 @@ type AdminWebmailScope struct {
 	SelectedUserID   string                   `json:"selected_user_id,omitempty"`
 	SelectedUsername string                   `json:"selected_username,omitempty"`
 	Users            []AdminWebmailUserOption `json:"users"`
+	// Owner: the page is the instance owner's own diagnostics in Settings
+	// (open and personal mode), at the owner's addresses and with no
+	// choice of whose data to show.
+	Owner bool `json:"-"`
 }
 
 type AvatarBackfillState struct {

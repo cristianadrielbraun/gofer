@@ -176,3 +176,53 @@ func TestOpenModeSecurityTabManagesMailSecurity(t *testing.T) {
 		t.Fatalf("exception after add = %t, %v", allowed, err)
 	}
 }
+
+// Personal mode's owner finds the diagnostics in Settings too, and their
+// event stream carries what they follow; a managed instance's people have
+// no diagnostics of their own.
+func TestOwnerDiagnosticsInPersonalModeOnly(t *testing.T) {
+	handler, db := newAccountOwnershipTestHandler(t)
+	now := time.Now().UTC()
+	if _, err := db.Write().ExecContext(t.Context(), `
+		INSERT INTO users (id, username, username_normalized, name, status, auth_version, user_type, is_admin, created_at, updated_at)
+		VALUES ('default', 'owner-profile', 'owner-profile', 'Owner', 'active', 1, 'webmail', 0, ?, ?)`, now, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Write().ExecContext(t.Context(), `
+		INSERT INTO auth_system_state (id, initialized, owner_user_id, initialized_at) VALUES (1, 1, 'default', ?)
+		ON CONFLICT(id) DO UPDATE SET initialized = 1, owner_user_id = 'default', initialized_at = excluded.initialized_at`, now); err != nil {
+		t.Fatal(err)
+	}
+	for _, mode := range []auth.Mode{auth.ModePersonal, auth.ModeManaged} {
+		manager := auth.NewManager(&auth.Config{Enabled: true, Mode: mode, BaseURL: "https://gofer.example"}, db,
+			auth.Dependencies{BucketHashKey: []byte("personal-mail-security-test-key!")})
+		handler.auth = manager
+		mux := http.NewServeMux()
+		handler.RegisterRoutes(mux)
+		stack := manager.Middleware(mux)
+		session, err := manager.CreateAuthenticatedSession(t.Context(), "default", "owner browser", auth.AuthenticationMethodPassword, auth.AssuranceLevelMultiFactor)
+		if err != nil {
+			t.Fatal(err)
+		}
+		get := func(path string) *httptest.ResponseRecorder {
+			request := httptest.NewRequest(http.MethodGet, path, nil)
+			request.AddCookie(&http.Cookie{Name: "gofer_session", Value: session.Token})
+			response := httptest.NewRecorder()
+			stack.ServeHTTP(response, request)
+			return response
+		}
+		page, data := get("/settings/diagnostics/contacts"), get("/api/diagnostics/labels/status")
+		if mode == auth.ModePersonal {
+			if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), `data-diagnostics-api="/api/diagnostics"`) || data.Code != http.StatusOK {
+				t.Fatalf("personal owner's diagnostics = %d, %d %q", page.Code, data.Code, page.Body.String())
+			}
+			if !strings.Contains(get("/settings/accounts").Body.String(), `data-settings-sidebar-value="diagnostics"`) {
+				t.Fatal("personal mode's Settings doesn't offer the diagnostics")
+			}
+			continue
+		}
+		if page.Code != http.StatusNotFound || data.Code != http.StatusNotFound {
+			t.Fatalf("managed webmail user's diagnostics = %d, %d", page.Code, data.Code)
+		}
+	}
+}

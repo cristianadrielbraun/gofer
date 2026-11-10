@@ -406,9 +406,6 @@ func (h *Handler) adminOnly(next http.Handler) http.Handler {
 		user := auth.GetCurrentUser(r.Context())
 		authEnabled := h.auth != nil && h.auth.IsEnabled()
 		allowed := user != nil && user.IsAdmin
-		if !authEnabled && user != nil && user.ID == "default" {
-			allowed = true
-		}
 		if !allowed || (authEnabled && !user.IsManagement()) {
 			http.Error(w, i18n.T(r.Context(), "server.error.admin_access_required"), http.StatusForbidden)
 			return
@@ -421,7 +418,7 @@ func (h *Handler) managementAccountOnly(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		user := auth.GetCurrentUser(r.Context())
 		if h.auth != nil && !h.auth.IsEnabled() && user != nil && user.ID == "default" {
-			http.Redirect(w, r, views.AdminAvatarsPath, http.StatusFound)
+			http.Redirect(w, r, "/settings/security", http.StatusFound)
 			return
 		}
 		if user == nil || !user.IsManagement() || !user.IsAdmin {
@@ -449,6 +446,7 @@ func (h *Handler) resolvePassword(ctx context.Context, cfg *models.AccountConfig
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	h.RegisterAuthenticationRoutes(mux)
 	h.registerAdministrationRoutes(mux)
+	h.registerOwnerDiagnosticsRoutes(mux)
 
 	mux.HandleFunc("GET /auth/google/mailbox/callback", h.handleGoogleAccountCallback)
 	mux.HandleFunc("GET /auth/microsoft/mailbox/callback", h.handleMicrosoftAccountCallback)
@@ -5083,7 +5081,9 @@ func (h *Handler) handleSSE(w http.ResponseWriter, r *http.Request) {
 	userID := h.userID(r.Context())
 	currentUser := auth.GetCurrentUser(r.Context())
 	isAdmin := currentUser != nil && currentUser.IsAdmin
-	if h.auth != nil && !h.auth.IsEnabled() && currentUser != nil && currentUser.ID == "default" {
+	// The owner of an open or personal instance follows its diagnostics in
+	// Settings, so they see what the console's administrators see.
+	if h.auth != nil && h.ownerInstance() && currentUser != nil && currentUser.ID == "default" {
 		isAdmin = true
 	}
 	if h.syncer != nil {

@@ -34,6 +34,29 @@ func (c *Config) ValidateMode() error {
 }
 func (m *Manager) IsPersonal() bool { return m.config.AuthenticationMode() == ModePersonal }
 
+type modeContextKey struct{}
+
+// ContextWithMode returns ctx saying which mode the instance runs in. The
+// middleware sets it on every request.
+func ContextWithMode(ctx context.Context, mode Mode) context.Context {
+	return context.WithValue(ctx, modeContextKey{}, mode)
+}
+
+// InstanceMode is the mode the instance runs in, as the request's context
+// says, or "" outside a request.
+func InstanceMode(ctx context.Context) Mode {
+	mode, _ := ctx.Value(modeContextKey{}).(Mode)
+	return mode
+}
+
+// OwnerInstance reports whether the instance belongs to its one owner:
+// open and personal mode, where the owner looks after it from Settings
+// instead of an admin console.
+func OwnerInstance(ctx context.Context) bool {
+	mode := InstanceMode(ctx)
+	return mode == ModeOpen || mode == ModePersonal
+}
+
 // ValidateRuntimeMode never selects a user from a multi-user database. A personal
 // installation reuses only the explicit local profile, preserving its ownership.
 func (m *Manager) ValidateRuntimeMode(ctx context.Context) error {

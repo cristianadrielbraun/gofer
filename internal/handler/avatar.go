@@ -1653,7 +1653,7 @@ func (h *Handler) handleAvatarSenders(w http.ResponseWriter, r *http.Request) {
 			item.InUse.AvatarURL = providerContactAvatarURL
 			item.AvatarURL = providerContactAvatarURL
 		} else if row.Status == "found" && (row.StoragePath != "" || len(row.ImageData) > 0) {
-			item.AvatarURL = adminSenderAvatarURL(row.EmailHash, row.ExpiresAt)
+			item.AvatarURL = adminSenderAvatarURL(diagnosticsAPIBase(r), row.EmailHash, row.ExpiresAt)
 			item.InUse.AvatarURL = item.AvatarURL
 		}
 		if row.FetchedAtValid {
@@ -1691,8 +1691,10 @@ func (h *Handler) handleAvatarSenders(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func adminSenderAvatarURL(hash string, expiresAt time.Time) string {
-	path := "/api/admin/avatars/" + strings.ToLower(strings.TrimSpace(hash))
+// adminSenderAvatarURL is where a sender's avatar is read from, under the
+// diagnostics data the list came from (base).
+func adminSenderAvatarURL(base, hash string, expiresAt time.Time) string {
+	path := base + "/avatars/" + strings.ToLower(strings.TrimSpace(hash))
 	if expiresAt.IsZero() {
 		return path
 	}
@@ -1758,7 +1760,11 @@ func (h *Handler) handleForceAvatarBackfill(w http.ResponseWriter, r *http.Reque
 		_ = json.NewEncoder(w).Encode(map[string]bool{"started": started})
 		return
 	}
-	http.Redirect(w, r, "/admin", http.StatusSeeOther)
+	target := "/admin"
+	if ownerDiagnosticsRequest(r) {
+		target = views.OwnerAvatarDiagnosticsPath
+	}
+	http.Redirect(w, r, target, http.StatusSeeOther)
 }
 
 func (h *Handler) handleCancelAvatarBackfill(w http.ResponseWriter, r *http.Request) {
@@ -1771,7 +1777,11 @@ func (h *Handler) handleCancelAvatarBackfill(w http.ResponseWriter, r *http.Requ
 		_ = json.NewEncoder(w).Encode(map[string]bool{"canceled": canceled})
 		return
 	}
-	http.Redirect(w, r, views.AdminAvatarsPath, http.StatusSeeOther)
+	target := views.AdminAvatarsPath
+	if ownerDiagnosticsRequest(r) {
+		target = views.OwnerAvatarDiagnosticsPath
+	}
+	http.Redirect(w, r, target, http.StatusSeeOther)
 }
 
 func (h *Handler) avatarStatus(ctx context.Context, scope models.AdminWebmailScope) (models.AvatarStatus, error) {

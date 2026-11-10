@@ -8472,6 +8472,14 @@ document.addEventListener("DOMContentLoaded", function () {
       markKeptStale("calendar", data && data.sources ? "all" : "content")
     })
 
+    // Settings → Diagnostics follows Gofer's work from these; diagnostics.js
+    // listens.
+    ;["avatar-backfill", "avatar-updated", "contact-backfill", "contact-activity"].forEach(function (type) {
+      source.addEventListener(type, function (e) {
+        document.dispatchEvent(new CustomEvent("gofer:diagnostics-event", { detail: { type: type, data: e.data } }))
+      })
+    })
+
     // A rule run by hand reports its progress; settings.js shows it.
     source.addEventListener("mail-rule-run", function (e) {
       var data

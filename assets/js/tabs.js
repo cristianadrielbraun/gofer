@@ -241,15 +241,19 @@
       const isLocalTabs = container && container.hasAttribute("data-tui-tabs-local");
       setActiveTab(tabsId, value, true);
 
-      if (!isLocalTabs && window.location.pathname.startsWith("/settings")) {
+      // Tabs with a path follow the address: the first tab is the path
+      // itself, each other one the path and its name.
+      const basePath = container && container.getAttribute("data-tui-tabs-path");
+      if (!isLocalTabs && basePath) {
+        const first = container.querySelector("[data-tui-tabs-trigger]");
+        const tabPath = first && first.getAttribute("data-tui-tabs-value") === value ? basePath : basePath + value;
+        if (window.location.pathname !== tabPath) {
+          history.pushState({ pathTab: value }, "", tabPath + window.location.search);
+        }
+      } else if (!isLocalTabs && window.location.pathname.startsWith("/settings")) {
         var url = "/settings/" + value;
         if (window.location.pathname !== url) {
           history.pushState({ settingsTab: value }, "", url);
-        }
-      } else if (!isLocalTabs && window.location.pathname.startsWith("/admin/system/diagnostics/avatars")) {
-        var adminPath = value === "overview" ? "/admin/system/diagnostics/avatars/" : "/admin/system/diagnostics/avatars/" + value;
-        if (window.location.pathname !== adminPath) {
-          history.pushState({ adminAvatarTab: value }, "", adminPath + window.location.search);
         }
       }
     }
@@ -308,16 +312,17 @@
   };
 
   window.addEventListener("popstate", (e) => {
-    if (window.location.pathname.startsWith("/admin/system/diagnostics/avatars")) {
-      var adminTab = e.state && e.state.adminAvatarTab;
-      if (!adminTab) {
-        var suffix = window.location.pathname.replace(/^\/admin\/system\/diagnostics\/avatars\/?/, "").replace(/\/$/, "");
-        adminTab = suffix || "overview";
-      }
-      var adminContainer = document.querySelector('[data-tui-tabs][data-tui-tabs-id="avatar-admin-tabs"]');
-      var adminTabsId = adminContainer && adminContainer.getAttribute("data-tui-tabs-id");
-      if (adminTabsId && adminTab) {
-        setActiveTab(adminTabsId, adminTab, true);
+    const pathTabs = Array.from(document.querySelectorAll("[data-tui-tabs][data-tui-tabs-path]")).find((container) =>
+      window.location.pathname.startsWith(container.getAttribute("data-tui-tabs-path").replace(/\/$/, "")),
+    );
+    if (pathTabs) {
+      const basePath = pathTabs.getAttribute("data-tui-tabs-path");
+      const first = pathTabs.querySelector("[data-tui-tabs-trigger]");
+      const suffix = window.location.pathname.slice(basePath.length).replace(/\/$/, "");
+      const pathValue = suffix || (first && first.getAttribute("data-tui-tabs-value"));
+      const pathTabsId = pathTabs.getAttribute("data-tui-tabs-id");
+      if (pathTabsId && pathValue) {
+        setActiveTab(pathTabsId, pathValue, true);
       }
       return;
     }

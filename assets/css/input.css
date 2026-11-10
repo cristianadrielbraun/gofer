@@ -6833,6 +6833,17 @@ body.mail-list-column-resizing {
     min-width: 0;
   }
 
+  /* Diagnostics: longer tab names stay whole, and the tabs scroll. */
+  #settings-content [data-owner-diagnostics] [data-tui-tabs-list] {
+    width: auto;
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
+  #settings-content [data-owner-diagnostics] [data-tui-tabs-trigger] {
+    min-width: fit-content;
+  }
+
   #settings-content [data-sync-account-card] .rounded-md.p-3 {
     padding: 0.625rem;
   }

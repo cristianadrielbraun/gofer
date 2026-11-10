@@ -70,7 +70,7 @@ func (h *Handler) RegisterAuthenticationRoutes(mux *http.ServeMux) {
 
 func (h *Handler) registerAdministrationRoutes(mux *http.ServeMux) {
 	adminRoute := func(pattern string, handler http.HandlerFunc) {
-		mux.Handle(pattern, h.adminOnly(withAuditClient(h.recordDeniedAttempts(handler))))
+		mux.Handle(pattern, h.consoleMovedToSettings(h.adminOnly(withAuditClient(h.recordDeniedAttempts(handler)))))
 	}
 	mux.Handle("GET "+auth.ManagementAccountPath, h.managementAccountOnly(http.HandlerFunc(h.handleManagementAccountSecurity)))
 	mux.Handle("GET /admin/account/security", h.managementAccountOnly(redirectAdminPage(auth.ManagementAccountPath)))
@@ -171,4 +171,53 @@ func redirectAdminPage(target string) http.HandlerFunc {
 		}
 		http.Redirect(w, r, destination, http.StatusFound)
 	}
+}
+
+// consoleMovedToSettings sends an open instance's owner, whose console
+// moved to Settings, from a console page to the same thing there. The
+// console's data and changes aren't theirs any more.
+func (h *Handler) consoleMovedToSettings(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if h.auth == nil || h.auth.IsEnabled() {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if (r.Method != http.MethodGet && r.Method != http.MethodHead) || strings.HasPrefix(r.URL.Path, "/api/") {
+			http.NotFound(w, r)
+			return
+		}
+		http.Redirect(w, r, ownerSettingsFor(r.URL.Path), http.StatusFound)
+	})
+}
+
+// ownerSettingsFor is where a console page went in an owner's Settings.
+func ownerSettingsFor(path string) string {
+	under := func(prefixes ...string) bool {
+		for _, prefix := range prefixes {
+			if path == prefix || strings.HasPrefix(path, strings.TrimSuffix(prefix, "/")+"/") {
+				return true
+			}
+		}
+		return false
+	}
+	switch {
+	case under(views.AdminContactsPath, "/admin/contacts"):
+		return views.OwnerDiagnosticsPath + "/contacts"
+	case under(views.AdminLabelsPath, "/admin/labels"):
+		return views.OwnerDiagnosticsPath + "/labels"
+	case under(views.AdminOperationsPath, "/admin/operations"):
+		return "/settings/operations"
+	case under("/admin/security", auth.ManagementAccountPath):
+		return "/settings/security"
+	case under(views.AdminAvatarsPath, "/admin/avatars"):
+		tab := path
+		for _, prefix := range []string{views.AdminAvatarsPath, "/admin/avatars/"} {
+			tab = strings.TrimPrefix(tab, prefix)
+		}
+		if tab == path || strings.Contains(strings.Trim(tab, "/"), "/") {
+			tab = ""
+		}
+		return views.OwnerAvatarDiagnosticsPath + url.PathEscape(strings.Trim(tab, "/"))
+	}
+	return views.OwnerAvatarDiagnosticsPath
 }

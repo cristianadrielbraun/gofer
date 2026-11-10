@@ -109,35 +109,32 @@ func TestAdminNavigationLabelsAreTranslated(t *testing.T) {
 	}
 }
 
-func TestLocalAdminShellShowsOnlyOperationalNavigation(t *testing.T) {
-	ctx := auth.ContextWithUser(context.Background(), &auth.User{
-		ID: "default", UserType: auth.UserTypeWebmail, IsAdmin: true,
-	})
-	var out strings.Builder
-	page := AdminShellPage{Section: AdminSectionAvatars, Content: AdminPage(models.AvatarStatus{}, "")}
-	if err := AdminShell(page).Render(ctx, &out); err != nil {
-		t.Fatal(err)
-	}
-	html := out.String()
-	for _, want := range []string{
-		`href="/admin/system/diagnostics/avatars/"`, `href="/admin/system/diagnostics/contacts"`, `href="/admin/system/diagnostics/labels"`,
-		`href="/admin/system/diagnostics/operations"`, `href="/admin/security"`, "Back to webmail",
-		"Local administration workspace.", ">Local</span>",
+// An open or personal instance's owner finds the diagnostics in Settings;
+// a managed instance's people don't, since its administrators have the
+// console.
+func TestSettingsOffersDiagnosticsToOwnersOnly(t *testing.T) {
+	user := &auth.User{ID: "default", UserType: auth.UserTypeWebmail}
+	for _, test := range []struct {
+		mode auth.Mode
+		want bool
+	}{
+		{auth.ModeOpen, true}, {auth.ModePersonal, true}, {auth.ModeManaged, false}, {"", false},
 	} {
-		if !strings.Contains(html, want) {
-			t.Fatalf("local admin shell omitted %q", want)
+		ctx := auth.ContextWithUser(auth.ContextWithMode(context.Background(), test.mode), user)
+		var out strings.Builder
+		if err := SettingsSidebar("diagnostics", "256px").Render(ctx, &out); err != nil {
+			t.Fatal(err)
 		}
-	}
-	for _, forbidden := range []string{
-		`href="/admin/users"`, `href="/admin/activity"`, `href="/admin/account"`,
-		`action="/auth/logout"`, "Sign out of Admin", ">People</p>",
-	} {
-		if strings.Contains(html, forbidden) {
-			t.Fatalf("local admin shell exposed managed-only control %q", forbidden)
+		html := out.String()
+		offered := strings.Contains(html, `data-settings-sidebar-value="diagnostics"`)
+		if offered != test.want {
+			t.Fatalf("mode %q: Diagnostics offered = %v", test.mode, offered)
+		}
+		if offered && (!strings.Contains(html, `href="/settings/diagnostics/avatars/"`) || !strings.Contains(openingTag(html, `data-settings-sidebar-value="diagnostics"`), "aria-current")) {
+			t.Fatalf("mode %q: Diagnostics item = %q", test.mode, openingTag(html, `data-settings-sidebar-value="diagnostics"`))
 		}
 	}
 }
-
 func TestAdminShellCarriesWebmailScopeAcrossDiagnostics(t *testing.T) {
 	var out strings.Builder
 	scope := models.AdminWebmailScope{SelectedUserID: "mail user"}
