@@ -44,6 +44,9 @@ func startScriptedIMAPServer(t *testing.T, caps string) (*models.AccountConfig, 
 				reply = "* CAPABILITY " + caps + "\r\n" + reply
 			case "ID":
 				reply = "* ID NIL\r\n" + reply
+			case "STATUS":
+				// With the space before the paren that 139.com sends.
+				reply = "* STATUS \"INBOX\" (MESSAGES 11 UIDNEXT 12 UIDVALIDITY 1 UNSEEN 7 )\r\n" + reply
 			}
 			if _, err := io.WriteString(conn, reply); err != nil {
 				return
