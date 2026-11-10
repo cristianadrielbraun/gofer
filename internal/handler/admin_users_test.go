@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -1129,5 +1130,111 @@ func TestAdministratorUserInvitationReturnsSafeFieldErrorsWithoutMutation(t *tes
 	}
 	if users != 1 || tokens != 0 {
 		t.Fatalf("colliding invitation mutated state = users:%d tokens:%d", users, tokens)
+	}
+}
+
+// The Users page lists people a page at a time, narrowed and ordered as
+// its address says; a person's dialogs work wherever they are in the list.
+func TestAdminUsersPageSearchesFiltersAndPages(t *testing.T) {
+	_, db, stack, sessionCookie, _ := completedSecuritySettingsStack(t)
+	now := time.Now().UTC()
+	for i := 0; i < 60; i++ {
+		status := "active"
+		if i%10 == 0 {
+			status = "pending"
+		}
+		id := fmt.Sprintf("sample-%02d", i)
+		if _, err := db.Write().ExecContext(t.Context(), `INSERT INTO users (id, username, username_normalized, name, status, auth_version, user_type, is_admin, created_at, updated_at)
+			VALUES (?, ?, ?, '', ?, 1, 'webmail', 0, ?, ?)`, id, id, id, status, now, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	get := func(path string) string {
+		t.Helper()
+		response := getSecuritySettingsPath(t, stack, path, sessionCookie)
+		if response.Code != http.StatusOK {
+			t.Fatalf("GET %s = %d %q", path, response.Code, response.Body.String())
+		}
+		return response.Body.String()
+	}
+
+	first := get("/admin/users")
+	if !strings.Contains(first, "1–50 of 61") || !strings.Contains(first, `href="/admin/users?page=2"`) || strings.Contains(first, ">sample-59<") ||
+		!strings.Contains(first, `data-admin-users-filters`) || !strings.Contains(first, `id="admin-users-results"`) {
+		t.Fatalf("first page = %q", first)
+	}
+	second := get("/admin/users?page=2")
+	if !strings.Contains(second, "51–61 of 61") || !strings.Contains(second, ">sample-59<") || !strings.Contains(second, `href="/admin/users"`) {
+		t.Fatalf("second page = %q", second)
+	}
+	if past := get("/admin/users?page=9"); !strings.Contains(past, "51–61 of 61") {
+		t.Fatal("a page past the end didn't show the last one")
+	}
+	narrowed := get("/admin/users?q=SAMPLE-1&status=pending")
+	if !strings.Contains(narrowed, ">sample-10<") || strings.Contains(narrowed, ">sample-11<") || !strings.Contains(narrowed, "1–1 of 1") ||
+		!strings.Contains(narrowed, `value="SAMPLE-1"`) {
+		t.Fatalf("narrowed page = %q", narrowed)
+	}
+	if none := get("/admin/users?q=nobody-here"); !strings.Contains(none, "No one matches.") || !strings.Contains(none, "Clear the search and filters") {
+		t.Fatalf("no match = %q", none)
+	}
+	if junk := get("/admin/users?status=everyone&attention=all&sort=random&page=-3"); !strings.Contains(junk, "1–50 of 61") {
+		t.Fatal("unknown values weren't ignored")
+	}
+	if newest := get("/admin/users?sort=newest&attention=mfa_setup"); !strings.Contains(newest, "No one matches.") {
+		t.Fatal("a needs-attention filter showed people who don't need it")
+	}
+
+	// sample-59 is on the second page; its dialog doesn't care.
+	request := httptest.NewRequest(http.MethodGet, "/admin/users/sample-59/status", nil)
+	request.AddCookie(sessionCookie)
+	request.Header.Set("HX-Request", "true")
+	dialog := httptest.NewRecorder()
+	stack.ServeHTTP(dialog, request)
+	if dialog.Code != http.StatusOK || !strings.Contains(dialog.Body.String(), "sample-59") || !strings.Contains(dialog.Body.String(), `action="/admin/users/sample-59/status"`) {
+		t.Fatalf("dialog for someone on page two = %d %q", dialog.Code, dialog.Body.String())
+	}
+	full := get("/admin/users/sample-59/status")
+	if !strings.Contains(full, `action="/admin/users/sample-59/status"`) {
+		t.Fatal("the dialog's address doesn't open it with the page")
+	}
+}
+
+// A change made from a narrowed list returns to that list; an address that
+// isn't the Users page's own is ignored.
+func TestAdminUserChangeReturnsToItsList(t *testing.T) {
+	_, db, stack, sessionCookie, _ := completedSecuritySettingsStack(t)
+	now := time.Now().UTC()
+	for _, id := range []string{"kept-alpha", "kept-bravo"} {
+		if _, err := db.Write().ExecContext(t.Context(), `INSERT INTO users (id, username, username_normalized, name, status, auth_version, user_type, is_admin, created_at, updated_at)
+			VALUES (?, ?, ?, '', 'active', 1, 'webmail', 0, ?, ?)`, id, id, id, now, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	list := getSecuritySettingsPath(t, stack, "/admin/users?q=kept&sort=newest", sessionCookie).Body.String()
+	if !strings.Contains(list, `/admin/users/kept-alpha/status?list=`+url.QueryEscape("/admin/users?q=kept&amp;sort=newest")) &&
+		!strings.Contains(list, `/admin/users/kept-alpha/status?list=`+url.QueryEscape("/admin/users?q=kept&sort=newest")) {
+		t.Fatalf("the menu doesn't say which list it's in: %q", list)
+	}
+	path := "/admin/users/kept-alpha/status"
+	dialog := getSecuritySettingsPath(t, stack, path+"?list="+url.QueryEscape("/admin/users?q=kept&sort=newest"), sessionCookie).Body.String()
+	if !strings.Contains(dialog, `name="list" value="/admin/users?q=kept&amp;sort=newest"`) {
+		t.Fatalf("the dialog doesn't carry its list: %q", dialog)
+	}
+	for _, test := range []struct{ list, want string }{
+		{"/admin/users?q=kept&sort=newest", "/admin/users?q=kept&sort=newest"},
+		{"https://elsewhere.example/admin/users", "/admin/users"},
+		{"/admin/overview", "/admin/users"},
+	} {
+		status := "disabled"
+		if test.want != "/admin/users?q=kept&sort=newest" {
+			status = "active"
+		}
+		response := postSecuritySettings(t, stack, path, url.Values{
+			"status": {status}, "list": {test.list}, auth.CSRFFormFieldName: {csrfProofFromForm(t, dialog, path)},
+		}, sessionCookie)
+		if response.Code != http.StatusSeeOther || response.Header().Get("Location") != test.want {
+			t.Errorf("list %q: %d %q, want %q", test.list, response.Code, response.Header().Get("Location"), test.want)
+		}
 	}
 }

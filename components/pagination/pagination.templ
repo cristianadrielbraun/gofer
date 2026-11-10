@@ -12,6 +12,9 @@ type Props struct {
 	ID         string
 	Class      string
 	Attributes templ.Attributes
+	// Label names the navigation for screen readers, in the page's
+	// language.
+	Label string
 }
 
 type ContentProps struct {
@@ -63,7 +66,9 @@ templ Pagination(props ...Props) {
 			id={ p.ID }
 		}
 		role="navigation"
-		aria-label="pagination"
+		if p.Label != "" {
+			aria-label={ p.Label }
+		}
 		class={ utils.TwMerge("flex flex-wrap justify-center", p.Class) }
 		{ p.Attributes... }
 	>

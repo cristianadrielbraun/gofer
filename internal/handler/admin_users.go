@@ -3,15 +3,16 @@ package handler
 import (
 	"context"
 	"errors"
-	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"log"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/admin"
 	"github.com/cristianadrielbraun/gofer/internal/auth"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"github.com/cristianadrielbraun/gofer/internal/views"
 )
 
@@ -117,6 +118,7 @@ func adminUsersViewData(users []auth.AdministratorUserSummary, currentUserID str
 			PasswordChangeRequired:   user.PasswordChangeRequired,
 			ID:                       user.ID,
 			Username:                 user.Username,
+			LastSignInAt:             user.LastLoginAt,
 			Status:                   "disabled",
 			Role:                     "webmail_user",
 			Current:                  user.ID == currentUserID,
@@ -194,7 +196,7 @@ func (h *Handler) handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, destination, http.StatusFound)
 		return
 	}
-	h.renderAdminUsers(w, r, http.StatusOK, views.AdminUserInvitationFormData{}, nil, "")
+	h.renderAdminUsersPage(w, r, http.StatusOK, adminUsersQueryFrom(r.URL.Query()), views.AdminUserInvitationFormData{}, nil, nil, "")
 }
 
 // adminUsersOldDialogAddress is the new address for /admin/users?reset_user=
@@ -222,11 +224,17 @@ func (h *Handler) handleAdminUserActionDialog(action views.AdminUserAction) http
 			http.Redirect(w, r, views.AdminAvatarsPath, http.StatusFound)
 			return
 		}
-		state, ok := h.loadAdminUsers(w, r)
+		// The page behind a dialog opened at its address is the list it came
+		// from.
+		listQuery := views.AdminUsersQuery{}
+		if list, err := url.Parse(adminUsersListFrom(r.URL.Query().Get("list"))); err == nil {
+			listQuery = adminUsersQueryFrom(list.Query())
+		}
+		state, ok := h.loadAdminUsers(w, r, listQuery)
 		if !ok {
 			return
 		}
-		user, found := adminUserAt(state.data.Users, action, r.URL.EscapedPath())
+		user, found := h.adminUserFor(r, action, state.policy)
 		if !found {
 			h.setAdminFlashError(w, adminUserActionUnavailable(r.Context(), action))
 			redirectAdmin(w, r, adminUsersPath)
@@ -514,7 +522,23 @@ func (h *Handler) handleDeleteAdminUser(w http.ResponseWriter, r *http.Request) 
 func (h *Handler) redirectAdminUsers(w http.ResponseWriter, r *http.Request, notice string) {
 	h.setAdminFlashSuccess(w, notice)
 	w.Header().Set("Cache-Control", "no-store")
-	http.Redirect(w, r, adminUsersPath, http.StatusSeeOther)
+	target := adminUsersPath
+	if list := adminUsersListFrom(r.PostFormValue("list")); list != "" {
+		target = list
+	}
+	http.Redirect(w, r, target, http.StatusSeeOther)
+}
+
+// adminUsersListFrom is the list a change was made from, when value is one
+// of the Users page's own addresses, rebuilt from what it understands;
+// anything else is "".
+func adminUsersListFrom(value string) string {
+	parsed, err := url.Parse(value)
+	if value == "" || err != nil || parsed.Scheme != "" || parsed.Host != "" || parsed.Path != adminUsersPath {
+		return ""
+	}
+	query := adminUsersQueryFrom(parsed.Query())
+	return query.Path(max(query.Page, 1))
 }
 
 // redirectAdmin sends the browser to location: htmx goes there with a whole
@@ -530,17 +554,22 @@ func redirectAdmin(w http.ResponseWriter, r *http.Request, location string) {
 }
 
 func (h *Handler) renderAdminUsers(w http.ResponseWriter, r *http.Request, status int, form views.AdminUserInvitationFormData, invitation *views.AdminUserInvitationData, pageError string) {
-	h.renderAdminUsersPage(w, r, status, form, invitation, nil, pageError)
+	h.renderAdminUsersPage(w, r, status, views.AdminUsersQuery{}, form, invitation, nil, pageError)
 }
 
 func (h *Handler) renderAdminUsersWithCredentialReset(w http.ResponseWriter, r *http.Request, status int, reset *views.AdminUserCredentialResetData, pageError string) {
-	h.renderAdminUsersPage(w, r, status, views.AdminUserInvitationFormData{}, nil, reset, pageError)
+	h.renderAdminUsersPage(w, r, status, views.AdminUsersQuery{}, views.AdminUserInvitationFormData{}, nil, reset, pageError)
 }
 
-func (h *Handler) renderAdminUsersPage(w http.ResponseWriter, r *http.Request, status int, form views.AdminUserInvitationFormData, invitation *views.AdminUserInvitationData, reset *views.AdminUserCredentialResetData, pageError string) {
-	state, ok := h.loadAdminUsers(w, r)
+func (h *Handler) renderAdminUsersPage(w http.ResponseWriter, r *http.Request, status int, query views.AdminUsersQuery, form views.AdminUserInvitationFormData, invitation *views.AdminUserInvitationData, reset *views.AdminUserCredentialResetData, pageError string) {
+	state, ok := h.loadAdminUsers(w, r, query)
 	if !ok {
 		return
+	}
+	// A list changed in place puts its own address in the browser's,
+	// without the choices left at their defaults.
+	if r.Method == http.MethodGet && r.Header.Get("HX-Request") == "true" {
+		w.Header().Set("HX-Push-Url", state.data.Query.Path(max(state.data.Query.Page, 1)))
 	}
 	state.data.InvitationForm = form
 	state.data.Invitation = invitation
@@ -557,15 +586,51 @@ func (h *Handler) renderAdminUsersPage(w http.ResponseWriter, r *http.Request, s
 }
 
 // adminUsersState is what every answer about the Users page starts from:
-// the people it lists, and the session's verification state.
+// one page of its list, everyone's counts, the instance's 2FA policy, and
+// the session's verification state.
 type adminUsersState struct {
 	data   views.AdminUsersData
+	counts auth.AdministratorUserCounts
+	policy auth.InstanceMFAPolicy
 	access *auth.SecuritySettingsAccess
 }
 
-// loadAdminUsers reads the Users page's people and whether the session must
-// verify again. When it fails it has answered already, and ok is false.
-func (h *Handler) loadAdminUsers(w http.ResponseWriter, r *http.Request) (state adminUsersState, ok bool) {
+// adminUsersQueryFrom reads the list's search, filters, order and page from
+// an address, keeping only what it understands.
+func adminUsersQueryFrom(values url.Values) views.AdminUsersQuery {
+	query := views.AdminUsersQuery{Search: strings.TrimSpace(values.Get("q"))}
+	if search := []rune(query.Search); len(search) > adminUsersSearchLength {
+		query.Search = string(search[:adminUsersSearchLength])
+	}
+	switch status := auth.UserStatus(values.Get("status")); status {
+	case auth.UserStatusActive, auth.UserStatusPending, auth.UserStatusDisabled:
+		query.Status = string(status)
+	}
+	if attention := auth.AdministratorUserAttention(values.Get("attention")); attention.Valid() {
+		query.Attention = string(attention)
+	}
+	if sort := auth.AdministratorUserSort(values.Get("sort")); sort.Valid() && sort != auth.AdministratorUserSortUsername {
+		query.Sort = string(sort)
+	}
+	if page, err := strconv.Atoi(values.Get("page")); err == nil && page > 1 {
+		query.Page = page
+	}
+	return query
+}
+
+// adminUsersSearchLength bounds a search.
+const adminUsersSearchLength = 100
+
+// loadAdminUsers reads a page of the Users page's list, as query asks, and
+// whether the session must verify again. When it fails it has answered
+// already, and ok is false.
+func (h *Handler) loadAdminUsers(w http.ResponseWriter, r *http.Request, query views.AdminUsersQuery) (state adminUsersState, ok bool) {
+	return h.loadAdminUserList(w, r, query, auth.DefaultAdministratorUserPageSize)
+}
+
+// loadAdminUserList is loadAdminUsers with pages of size people; a page of
+// one is enough for the counts.
+func (h *Handler) loadAdminUserList(w http.ResponseWriter, r *http.Request, query views.AdminUsersQuery, size int) (state adminUsersState, ok bool) {
 	ctx := r.Context()
 	currentUser := auth.GetCurrentUser(ctx)
 	currentSession := auth.GetCurrentSession(ctx)
@@ -573,7 +638,19 @@ func (h *Handler) loadAdminUsers(w http.ResponseWriter, r *http.Request) (state 
 		http.Error(w, i18n.T(ctx, "server.error.admin_access_required"), http.StatusForbidden)
 		return state, false
 	}
-	users, err := h.auth.ListAdministratorUsersForSession(ctx, currentUser.ID, currentSession.ID)
+	pageNumber := max(query.Page, 1)
+	list := func() (*auth.AdministratorUserPage, error) {
+		return h.auth.ListAdministratorUserPage(ctx, currentUser.ID, currentSession.ID, auth.AdministratorUserQuery{
+			Search: query.Search, Status: auth.UserStatus(query.Status), Attention: auth.AdministratorUserAttention(query.Attention),
+			Sort: auth.AdministratorUserSort(query.Sort), Offset: (pageNumber - 1) * size, Limit: size,
+		})
+	}
+	page, err := list()
+	// An address past the last page shows the last one.
+	if err == nil && len(page.Users) == 0 && pageNumber > 1 && page.Matching > 0 {
+		pageNumber = (page.Matching + size - 1) / size
+		page, err = list()
+	}
 	if errors.Is(err, auth.ErrAdministratorRequired) {
 		http.Error(w, i18n.T(ctx, "server.error.admin_access_required"), http.StatusForbidden)
 		return state, false
@@ -589,7 +666,32 @@ func (h *Handler) loadAdminUsers(w http.ResponseWriter, r *http.Request) (state 
 		http.Error(w, i18n.T(ctx, "server.error.failed_to_load_administrator_users"), http.StatusInternalServerError)
 		return state, false
 	}
-	state.data = adminUsersViewData(users, currentUser.ID, policy.MFA)
+	state.policy = policy.MFA
+	state.counts = page.Counts
+	state.data = adminUsersViewData(page.Users, currentUser.ID, policy.MFA)
+	state.data.Total = page.Counts.Total
+	state.data.Active, state.data.Pending, state.data.Disabled = page.Counts.Active, page.Counts.Pending, page.Counts.Disabled
+	state.data.Administrators = page.Counts.Administrators
+	if pageNumber > 1 {
+		query.Page = pageNumber
+	} else {
+		query.Page = 0
+	}
+	state.data.Query = query
+	for i := range state.data.Users {
+		state.data.Users[i].ListPath = query.Path(pageNumber)
+	}
+	state.data.Matching = page.Matching
+	offset := (pageNumber - 1) * size
+	if len(page.Users) > 0 {
+		state.data.From, state.data.To = offset+1, offset+len(page.Users)
+	}
+	if pageNumber > 1 {
+		state.data.PreviousPath = query.Path(pageNumber - 1)
+	}
+	if offset+len(page.Users) < page.Matching {
+		state.data.NextPath = query.Path(pageNumber + 1)
+	}
 	if !h.auth.IsEnabled() {
 		return state, true
 	}
@@ -608,6 +710,35 @@ func (h *Handler) loadAdminUsers(w http.ResponseWriter, r *http.Request) (state 
 		return state, false
 	}
 	return state, true
+}
+
+// adminUserFor is the person an action's address names, as the Users page
+// shows them, when the action is one they can take.
+func (h *Handler) adminUserFor(r *http.Request, action views.AdminUserAction, policy auth.InstanceMFAPolicy) (views.AdminUserData, bool) {
+	ctx := r.Context()
+	actor, ok := admin.ActorFromContext(ctx)
+	if !ok {
+		return views.AdminUserData{}, false
+	}
+	userID := r.PathValue("userID")
+	if reference := r.PathValue("reference"); reference != "" {
+		id, err := h.auth.AdministratorInvitationUserID(ctx, actor.UserID, actor.SessionID, reference)
+		if err != nil {
+			return views.AdminUserData{}, false
+		}
+		userID = id
+	}
+	if userID == "" {
+		return views.AdminUserData{}, false
+	}
+	page, err := h.auth.ListAdministratorUserPage(ctx, actor.UserID, actor.SessionID, auth.AdministratorUserQuery{UserIDs: []string{userID}, Limit: 1})
+	if err != nil {
+		log.Printf("load administrator user %q: %v", userID, err)
+		return views.AdminUserData{}, false
+	}
+	user, found := adminUserAt(adminUsersViewData(page.Users, actor.UserID, policy).Users, action, r.URL.EscapedPath())
+	user.ListPath = adminUsersListFrom(r.URL.Query().Get("list"))
+	return user, found
 }
 
 // writeAdminUsersPage renders the Users page from state. returnTo is where

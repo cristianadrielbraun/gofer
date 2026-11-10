@@ -271,6 +271,29 @@ func canonicalAdministratorUserInvitationActionReference(reference string) bool 
 		base64.RawURLEncoding.EncodeToString(decoded) == reference
 }
 
+// AdministratorInvitationUserID is the pending person whose invitation the
+// opaque reference names, as the administrator's session sees it, for
+// showing a change before it's made. The change resolves the reference
+// again.
+func (m *Manager) AdministratorInvitationUserID(ctx context.Context, actorUserID, actorSessionID, actionReference string) (string, error) {
+	if !canonicalAdministratorUserInvitationActionReference(actionReference) {
+		return "", ErrAdministratorUserInvitationTargetInvalid
+	}
+	tx, err := m.db.Read().BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return "", fmt.Errorf("begin administrator invitation lookup: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := authz.Require(ctx, tx, strings.TrimSpace(actorUserID), authz.UsersRead); err != nil {
+		return "", err
+	}
+	target, err := m.administratorUserInvitationTarget(ctx, tx, strings.TrimSpace(actorSessionID), actionReference)
+	if err != nil {
+		return "", err
+	}
+	return target.ID, nil
+}
+
 func (m *Manager) administratorUserInvitationTarget(
 	ctx context.Context, tx *sql.Tx, actorSessionID, actionReference string,
 ) (*administratorUserInvitationTarget, error) {

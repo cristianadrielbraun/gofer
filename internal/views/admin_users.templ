@@ -2,6 +2,7 @@ package views
 
 import (
 	"context"
+	"net/url"
 	"fmt"
 	"strings"
 	"time"
@@ -11,6 +12,9 @@ import (
 	"github.com/cristianadrielbraun/gofer/components/dialog"
 	"github.com/cristianadrielbraun/gofer/components/dropdown"
 	"github.com/cristianadrielbraun/gofer/components/icon"
+	"github.com/cristianadrielbraun/gofer/components/input"
+	"github.com/cristianadrielbraun/gofer/components/pagination"
+	"github.com/cristianadrielbraun/gofer/components/selectbox"
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
 )
 
@@ -20,6 +24,10 @@ import (
 type AdminUserData struct {
 	ID                       string
 	Username                 string
+	LastSignInAt             *time.Time
+	// ListPath is the list the person was shown in, which a change made
+	// from their menu returns to.
+	ListPath string
 	Status                   string
 	Role                     string
 	Current                  bool
@@ -45,7 +53,16 @@ type AdminUserData struct {
 }
 
 type AdminUsersData struct {
-	Users               []AdminUserData
+	Users []AdminUserData
+	// Query is what the list shows: its search, filters, order and page.
+	// Matching people match it, and the page shows From to To of them.
+	Query        AdminUsersQuery
+	Matching     int
+	From         int
+	To           int
+	PreviousPath string
+	NextPath     string
+	// Total and the counts below count everyone, whatever the list shows.
 	Total               int
 	Active              int
 	Pending             int
@@ -154,6 +171,23 @@ type adminUserMenuEntry struct {
 // adminUserMenuEntries are the entries of user's action menu, in order:
 // invitation, sign-in, two-step sign-in, access, and deletion last.
 func adminUserMenuEntries(ctx context.Context, user AdminUserData) []adminUserMenuEntry {
+	entries := adminUserActionEntries(ctx, user)
+	for i := range entries {
+		entries[i].Path = adminUserActionFromList(entries[i].Path, user.ListPath)
+	}
+	return entries
+}
+
+// adminUserActionFromList is an action's address, saying which list it was
+// picked from when that isn't the whole list's first page.
+func adminUserActionFromList(path, list string) string {
+	if list == "" || list == "/admin/users" {
+		return path
+	}
+	return path + "?list=" + url.QueryEscape(list)
+}
+
+func adminUserActionEntries(ctx context.Context, user AdminUserData) []adminUserMenuEntry {
 	var entries []adminUserMenuEntry
 	if path := user.Path(AdminUserActionInvitationRevoke); path != "" {
 		entries = append(entries, adminUserMenuEntry{Path: path, Label: i18n.T(ctx, "admin.invite.revoke_button"), Icon: icon.MailX})
@@ -295,7 +329,14 @@ templ AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificat
 					@adminStatCard(i18n.T(ctx, "admin.users.stat.admins"), data.Administrators)
 				</div>
 				@adminSection(adminSectionProps{ID: "admin-users-heading", Title: i18n.T(ctx, "admin.users.heading"), Aside: adminSectionNote(i18n.T(ctx, "admin.users.heading_detail"))}) {
-					if len(data.Users) == 0 {
+					@adminUsersFilters(data.Query)
+					<div id="admin-users-results" data-admin-users-results>
+					if len(data.Users) == 0 && data.Query.Narrowed() {
+						@adminEmptyState(i18n.T(ctx, "admin.users.no_match"))
+						<div class="-mt-6 pb-8 text-center">
+							<a href="/admin/users" data-admin-users-page-link class="text-sm font-semibold text-primary hover:underline">{ i18n.T(ctx, "admin.users.clear_filters") }</a>
+						</div>
+					} else if len(data.Users) == 0 {
 						@adminEmptyState(i18n.T(ctx, "admin.users.empty"))
 					} else {
 						<div class="overflow-x-auto">
@@ -307,6 +348,7 @@ templ AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificat
 										<th scope="col" class="px-4 py-3">{ i18n.T(ctx, "admin.col.role") }</th>
 										<th scope="col" class="px-4 py-3">{ i18n.T(ctx, "admin.col.mfa") }</th>
 										<th scope="col" class="px-4 py-3">{ i18n.T(ctx, "admin.col.invitation") }</th>
+										<th scope="col" class="px-4 py-3">{ i18n.T(ctx, "admin.col.last_sign_in") }</th>
 										<th scope="col" class="px-4 py-3 text-right">{ i18n.T(ctx, "admin.col.actions") }</th>
 										<th scope="col" class="px-4 py-3">{ i18n.T(ctx, "admin.col.user_id") }</th>
 									</tr>
@@ -384,6 +426,13 @@ templ AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificat
 													}
 												}
 											</td>
+											<td class="whitespace-nowrap px-4 py-3 text-xs text-muted-foreground">
+												if user.LastSignInAt != nil {
+													{ i18n.Dates(ctx).ShortDateTime(user.LastSignInAt.Local()) }
+												} else {
+													{ i18n.T(ctx, "admin.users.never_signed_in") }
+												}
+											</td>
 											<td class="px-4 py-3 text-right">
 												if entries := adminUserMenuEntries(ctx, user); len(entries) == 0 {
 													<span class="text-xs text-muted-foreground">—</span>
@@ -397,7 +446,9 @@ templ AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificat
 								</tbody>
 							</table>
 						</div>
+						@adminUsersPaging(data)
 					}
+					</div>
 				}
 				<p class="mt-4 text-xs leading-relaxed text-muted-foreground">{ i18n.T(ctx, "admin.users.privacy") }</p>
 			</div>
@@ -505,6 +556,9 @@ templ adminUserMFAPolicyDialog(user AdminUserData, csrfToken string) {
 			}
 			<form method="post" action={ user.MFAPolicyPath } data-step-up>
 				<input type="hidden" name="_csrf" value={ csrfToken }/>
+				if user.ListPath != "" {
+					<input type="hidden" name="list" value={ user.ListPath }/>
+				}
 				<input type="hidden" name="required" value={ fmt.Sprintf("%t", !user.MFARequired) }/>
 				@dialog.Footer() {
 					@dialog.Close() {
@@ -538,6 +592,9 @@ templ adminUserInvitationRevokeDialog(user AdminUserData, csrfToken string) {
 			}
 			<form method="post" action={ user.InvitationRevokePath } data-step-up>
 				<input type="hidden" name="_csrf" value={ csrfToken }/>
+				if user.ListPath != "" {
+					<input type="hidden" name="list" value={ user.ListPath }/>
+				}
 				@dialog.Footer() {
 					@dialog.Close() {
 						@button.Button(button.Props{Variant: button.VariantOutline}) {
@@ -576,6 +633,9 @@ templ adminUserInvitationRotateDialog(user AdminUserData, csrfToken string) {
 			}
 			<form method="post" action={ user.InvitationRotatePath } data-step-up>
 				<input type="hidden" name="_csrf" value={ csrfToken }/>
+				if user.ListPath != "" {
+					<input type="hidden" name="list" value={ user.ListPath }/>
+				}
 				@dialog.Footer() {
 					@dialog.Close() {
 						@button.Button(button.Props{Variant: button.VariantOutline}) {
@@ -620,6 +680,9 @@ templ adminUserStatusDialog(user AdminUserData, csrfToken string) {
 			}
 			<form method="post" action={ user.StatusPath } data-step-up>
 				<input type="hidden" name="_csrf" value={ csrfToken }/>
+				if user.ListPath != "" {
+					<input type="hidden" name="list" value={ user.ListPath }/>
+				}
 				if user.Status == "disabled" {
 					<input type="hidden" name="status" value="active"/>
 				} else {
@@ -682,6 +745,9 @@ templ adminUserDeletionDialog(user AdminUserData, csrfToken string) {
 			</div>
 			<form method="post" action={ user.DeletionPath } data-step-up class="mt-5">
 				<input type="hidden" name="_csrf" value={ csrfToken }/>
+				if user.ListPath != "" {
+					<input type="hidden" name="list" value={ user.ListPath }/>
+				}
 				<label for={ deletionDialogID + "-confirmation" } class="text-sm font-semibold text-foreground">{ i18n.T(ctx, "admin.delete.confirm_before") } <code class="font-mono">{ user.Username }</code> { i18n.T(ctx, "admin.delete.confirm_after") }</label>
 				<input
 					id={ deletionDialogID + "-confirmation" }
@@ -733,6 +799,9 @@ templ adminUserCredentialResetDialog(user AdminUserData, csrfToken string) {
 			}
 			<form method="post" action={ user.CredentialResetPath } data-step-up>
 				<input type="hidden" name="_csrf" value={ csrfToken }/>
+				if user.ListPath != "" {
+					<input type="hidden" name="list" value={ user.ListPath }/>
+				}
 				@dialog.Footer() {
 					@dialog.Close() {
 						@button.Button(button.Props{Variant: button.VariantOutline}) {
@@ -761,6 +830,9 @@ templ adminUserRequiredChangeDialog(user AdminUserData, csrfToken string) {
 			}
 			<form method="post" action={ user.RequiredChangePath } data-step-up>
 				<input type="hidden" name="_csrf" value={ csrfToken }/>
+				if user.ListPath != "" {
+					<input type="hidden" name="list" value={ user.ListPath }/>
+				}
 				@dialog.Footer() {
 					@dialog.Close() {
 						@button.Button(button.Props{Variant: button.VariantOutline}) {
@@ -1004,4 +1076,75 @@ func adminUserInvitationTone(state string) adminTone {
 		return adminToneDanger
 	}
 	return adminToneNeutral
+}
+
+// adminUsersFilters narrows and orders the list. A change shows the new
+// list in place, keeping the search box as it is, and puts the list's
+// address in the browser's.
+templ adminUsersFilters(query AdminUsersQuery) {
+	<form
+		method="get"
+		action="/admin/users"
+		class="flex flex-col gap-2 border-b border-border px-4 py-3 lg:flex-row lg:items-center"
+		role="search"
+		hx-get="/admin/users"
+		hx-target="#admin-users-results"
+		hx-select="#admin-users-results"
+		hx-swap="outerHTML"
+		hx-push-url="true"
+		hx-trigger="submit, change, input changed delay:300ms from:find input[name='q']"
+		data-admin-users-filters
+	>
+		<div class="relative min-w-0 flex-1">
+			@icon.Search(icon.Props{Class: "pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"})
+			@input.Input(input.Props{
+				Type: input.TypeSearch, Name: "q", Value: query.Search, Placeholder: i18n.T(ctx, "admin.users.search"), Class: "pl-9",
+				Attributes: templ.Attributes{"aria-label": i18n.T(ctx, "admin.users.search"), "autocomplete": "off"},
+			})
+		</div>
+		<div class="grid grid-cols-1 gap-2 sm:grid-cols-3 lg:flex lg:shrink-0">
+			@adminUsersChoice("status", i18n.T(ctx, "admin.users.filter.status"), query.Status, adminUsersStatusChoices(ctx))
+			@adminUsersChoice("attention", i18n.T(ctx, "admin.users.filter.attention"), query.Attention, adminUsersAttentionChoices(ctx))
+			@adminUsersChoice("sort", i18n.T(ctx, "admin.users.filter.sort"), query.Sort, adminUsersSortChoices(ctx))
+		</div>
+	</form>
+}
+
+// adminUsersChoice is one of the list's choices, as a templui selectbox
+// whose first choice is the default.
+templ adminUsersChoice(name, label, value string, choices []adminUsersChoiceOption) {
+	<div class="min-w-0 lg:w-48" data-admin-users-choice={ name }>
+		@selectbox.SelectBox() {
+			@selectbox.Trigger(selectbox.TriggerProps{Name: name, Class: "bg-background", DisableClear: true, Attributes: templ.Attributes{"aria-label": label}}) {
+				@selectbox.Value(selectbox.ValueProps{Placeholder: choices[0].Label})
+			}
+			@selectbox.Content(selectbox.ContentProps{NoSearch: true}) {
+				for _, choice := range choices {
+					@selectbox.Item(selectbox.ItemProps{Value: choice.Value, Selected: choice.Value == value}) {
+						{ choice.Label }
+					}
+				}
+			}
+		}
+	</div>
+}
+
+// adminUsersPaging says which of the matching people the page shows, and
+// moves between pages in place.
+templ adminUsersPaging(data AdminUsersData) {
+	<div class="flex flex-col gap-2 border-t border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between" data-admin-users-paging>
+		<p class="text-xs text-muted-foreground">{ i18n.T(ctx, "admin.users.showing", "from", i18n.Number(ctx, data.From), "to", i18n.Number(ctx, data.To), "total", i18n.Number(ctx, data.Matching)) }</p>
+		if data.PreviousPath != "" || data.NextPath != "" {
+			@pagination.Pagination(pagination.Props{Class: "mx-0 w-auto justify-end", Label: i18n.T(ctx, "admin.users.pages")}) {
+				@pagination.Content() {
+					@pagination.Item() {
+						@pagination.Previous(pagination.PreviousProps{Href: data.PreviousPath, Disabled: data.PreviousPath == "", Label: i18n.T(ctx, "admin.users.previous"), Attributes: adminUsersPageLink(data.PreviousPath)})
+					}
+					@pagination.Item() {
+						@pagination.Next(pagination.NextProps{Href: data.NextPath, Disabled: data.NextPath == "", Label: i18n.T(ctx, "admin.users.next"), Attributes: adminUsersPageLink(data.NextPath)})
+					}
+				}
+			}
+		}
+	</div>
 }

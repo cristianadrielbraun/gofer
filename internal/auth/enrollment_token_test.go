@@ -32,7 +32,7 @@ func insertEnrollmentTokenUser(t *testing.T, manager *Manager, id string, status
 	}
 }
 
-func insertEnrollmentStepUpSession(t *testing.T, manager *Manager, userID string, stepUpAt, now time.Time) string {
+func insertEnrollmentStepUpSession(t testing.TB, manager *Manager, userID string, stepUpAt, now time.Time) string {
 	t.Helper()
 	sessionID := userID + "-step-up-session"
 	if _, err := manager.db.Write().ExecContext(t.Context(), `

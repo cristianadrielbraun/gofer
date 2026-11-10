@@ -68,7 +68,7 @@ func (generator *deterministicTokenGenerator) Token(byteCount int) (string, erro
 	return token, nil
 }
 
-func newDeterministicManager(t *testing.T, clock Clock, tokens TokenGenerator) *Manager {
+func newDeterministicManager(t testing.TB, clock Clock, tokens TokenGenerator) *Manager {
 	t.Helper()
 	db, err := storage.New(filepath.Join(t.TempDir(), "gofer.db"))
 	if err != nil {
@@ -82,7 +82,7 @@ func newDeterministicManager(t *testing.T, clock Clock, tokens TokenGenerator) *
 	})
 }
 
-func insertActiveUser(t *testing.T, manager *Manager, id string, isAdmin bool, now time.Time) {
+func insertActiveUser(t testing.TB, manager *Manager, id string, isAdmin bool, now time.Time) {
 	t.Helper()
 	admin := 0
 	userType := UserTypeWebmail

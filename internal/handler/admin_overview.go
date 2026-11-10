@@ -29,34 +29,22 @@ func (h *Handler) handleAdminOverview(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, views.AdminAvatarsPath, http.StatusFound)
 		return
 	}
-	state, ok := h.loadAdminUsers(w, r)
+	// The counts are everyone's; a page of one is all the list it takes.
+	state, ok := h.loadAdminUserList(w, r, views.AdminUsersQuery{}, 1)
 	if !ok {
 		return
 	}
+	counts := state.counts
 	data := views.AdminOverviewData{
-		Total: state.data.Total, Active: state.data.Active, Pending: state.data.Pending,
-		Disabled: state.data.Disabled, Administrators: state.data.Administrators,
+		Total: counts.Total, Active: counts.Active, Pending: counts.Pending,
+		Disabled: counts.Disabled, Administrators: counts.Administrators,
 	}
-	var resets, mfaSetup, expired, deleting int
-	for _, user := range state.data.Users {
-		if user.PasswordResetRequestedAt != nil {
-			resets++
-		}
-		if user.MFASetupPending {
-			mfaSetup++
-		}
-		if user.InvitationState == string(auth.AdministratorUserInvitationExpired) {
-			expired++
-		}
-		if user.DeletionPending {
-			deleting++
-		}
-	}
+	// Each item leads to the people it counts.
 	for _, item := range []views.AdminOverviewItem{
-		{Key: "reset_requests", Count: resets, Href: adminUsersPath},
-		{Key: "mfa_setup", Count: mfaSetup, Href: adminUsersPath},
-		{Key: "expired_invitations", Count: expired, Href: adminUsersPath},
-		{Key: "deletions", Count: deleting, Href: adminUsersPath},
+		{Key: "reset_requests", Count: counts.ResetRequested, Href: views.AdminUsersQuery{Attention: string(auth.AdministratorUserAttentionResetRequested)}.Path(1)},
+		{Key: "mfa_setup", Count: counts.MFASetup, Href: views.AdminUsersQuery{Attention: string(auth.AdministratorUserAttentionMFASetup)}.Path(1)},
+		{Key: "expired_invitations", Count: counts.InvitationExpired, Href: views.AdminUsersQuery{Attention: string(auth.AdministratorUserAttentionInvitationExpired)}.Path(1)},
+		{Key: "deletions", Count: counts.Deleting, Href: views.AdminUsersQuery{Attention: string(auth.AdministratorUserAttentionDeleting)}.Path(1)},
 	} {
 		if item.Count > 0 {
 			data.Attention = append(data.Attention, item)

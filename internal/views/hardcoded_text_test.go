@@ -39,7 +39,7 @@ var untranslatedTextAllowed = map[string]bool{
 
 // Components Gofer has but doesn't use; their English never reaches a page.
 var untranslatedTextUnusedComponents = map[string]bool{
-	"breadcrumb": true, "carousel": true, "pagination": true, "sidebar": true, "slider": true, "tabs": true,
+	"breadcrumb": true, "carousel": true, "sidebar": true, "slider": true, "tabs": true,
 }
 
 var (

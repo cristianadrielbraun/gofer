@@ -741,3 +741,28 @@ func TestAdminSecurityRetentionDialogVisibility(t *testing.T) {
 		})
 	}
 }
+
+func TestAdminUsersQueryAddresses(t *testing.T) {
+	for _, test := range []struct {
+		query AdminUsersQuery
+		page  int
+		want  string
+	}{
+		{AdminUsersQuery{}, 1, "/admin/users"},
+		{AdminUsersQuery{}, 3, "/admin/users?page=3"},
+		{AdminUsersQuery{Search: "a b&c", Status: "pending", Attention: "mfa_setup", Sort: "newest"}, 2, "/admin/users?attention=mfa_setup&page=2&q=a+b%26c&sort=newest&status=pending"},
+	} {
+		if got := test.query.Path(test.page); got != test.want {
+			t.Errorf("Path(%d) of %+v = %q, want %q", test.page, test.query, got, test.want)
+		}
+	}
+	if (AdminUsersQuery{Sort: "newest", Page: 2}).Narrowed() || !(AdminUsersQuery{Status: "active"}).Narrowed() {
+		t.Fatal("Narrowed counts order or paging as narrowing")
+	}
+	if got := adminUserActionFromList("/admin/users/sample/status", "/admin/users?q=x"); got != "/admin/users/sample/status?list=%2Fadmin%2Fusers%3Fq%3Dx" {
+		t.Fatalf("action from a list = %q", got)
+	}
+	if got := adminUserActionFromList("/admin/users/sample/status", "/admin/users"); got != "/admin/users/sample/status" {
+		t.Fatalf("action from the whole list = %q", got)
+	}
+}

@@ -65,6 +65,8 @@ type AdministratorUserSummary struct {
 	InvitationState           AdministratorUserInvitationState
 	InvitationExpiresAt       *time.Time
 	InvitationActionReference string
+	CreatedAt                 time.Time
+	LastLoginAt               *time.Time
 }
 
 type UserStatus string
