@@ -1,0 +1,264 @@
+package views
+
+import (
+	"fmt"
+	"net/url"
+	"strings"
+
+	"github.com/cristianadrielbraun/gofer/components/dialog"
+	"github.com/cristianadrielbraun/gofer/components/icon"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
+)
+
+type AdminSecurityActivityEventData struct {
+	Title          string
+	Detail         string
+	OccurredAt     string
+	Client         string
+	Status         string
+	Actor          string
+	Subject        string
+	SubjectDeleted bool
+	Successful     bool
+}
+
+type AdminSecurityActivityData struct {
+	Events               []AdminSecurityActivityEventData
+	Filter               string
+	TotalEvents          int64
+	Page                 int64
+	TotalPages           int64
+	FirstEvent           int64
+	LastEvent            int64
+	PreviousPage         int64
+	NextPage             int64
+	HasPrevious          bool
+	HasNext              bool
+	StepUpRequired       bool
+	ManagedMode          bool
+	RetentionDays        int
+	RetentionMinimumDays int
+	RetentionMaximumDays int
+	RetentionCSRFToken   string
+	Notice               string
+	Error                string
+}
+
+func adminSecurityActivityPagePath(filter string, page int64) templ.SafeURL {
+	values := url.Values{}
+	if filter != "" {
+		values.Set("filter", filter)
+	}
+	if page > 1 {
+		values.Set("page", fmt.Sprintf("%d", page))
+	}
+	if len(values) == 0 {
+		return templ.URL("/admin/activity")
+	}
+	return templ.URL("/admin/activity?" + values.Encode())
+}
+
+templ adminSecurityActivityFilterLink(data AdminSecurityActivityData, value string, label string) {
+	<a
+		href={ adminSecurityActivityPagePath(value, 1) }
+		data-admin-navigation-link
+		data-admin-navigation-label={ i18n.T(ctx, "admin.activity.filter_nav", "filter", strings.ToLower(label)) }
+		if data.Filter == value {
+			aria-current="page"
+		}
+		class={
+			"inline-flex h-9 items-center justify-center rounded-full border px-3 text-xs font-semibold transition-colors",
+			templ.KV("border-primary/30 bg-primary/10 text-primary", data.Filter == value),
+			templ.KV("border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground", data.Filter != value),
+		}
+	>{ label }</a>
+}
+
+templ AdminSecurityActivityPage(data AdminSecurityActivityData, verification ...AdminSecurityVerificationData) {
+	<div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden" data-admin-security-activity>
+		<div class="min-h-0 flex-1 overflow-y-auto" data-admin-security-activity-scroll>
+			<div class="max-w-7xl px-6 py-8 lg:px-8 lg:py-10">
+				<div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+					<div>
+						<h2 class="text-2xl font-bold text-foreground" style="font-family: var(--font-serif)">{ i18n.T(ctx, "admin.nav.activity") }</h2>
+						<p class="mt-1 max-w-3xl text-sm text-muted-foreground">{ i18n.T(ctx, "admin.activity.description") }</p>
+					</div>
+					<div class="flex shrink-0 items-center gap-3">
+						<span class="w-fit shrink-0 rounded-full border border-border bg-muted px-2.5 py-1 text-xs font-semibold text-muted-foreground">
+							if data.Filter == "" {
+								{ i18n.N(ctx, "admin.activity.events", int(data.TotalEvents), "count", i18n.Number(ctx, int(data.TotalEvents))) }
+							} else {
+								{ i18n.N(ctx, "admin.activity.matching", int(data.TotalEvents), "count", i18n.Number(ctx, int(data.TotalEvents))) }
+							}
+						</span>
+						if data.ManagedMode && !data.StepUpRequired {
+							@dialog.Trigger(dialog.TriggerProps{For: "admin-security-retention-dialog"}) {
+								<button type="button" aria-haspopup="dialog" class="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-border bg-background px-3 text-sm font-medium text-foreground transition-colors hover:bg-accent">
+									@icon.Settings(icon.Props{Class: "size-4"})
+									{ i18n.T(ctx, "admin.activity.settings") }
+								</button>
+							}
+						}
+					</div>
+				</div>
+				if data.Notice != "" && (!data.ManagedMode || data.StepUpRequired) {
+					<div class="mt-5 rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-sm font-medium text-emerald-800 dark:text-emerald-200">{ data.Notice }</div>
+				}
+				if data.Error != "" && (!data.ManagedMode || data.StepUpRequired) {
+					<div class="mt-5 rounded-lg border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm font-medium text-red-800 dark:text-red-200">{ data.Error }</div>
+				}
+				if !data.ManagedMode {
+					<div role="status" class="mt-6 rounded-lg border border-border bg-card px-5 py-8 text-center">
+						<p class="text-sm font-semibold text-foreground">{ i18n.T(ctx, "admin.activity.unmanaged_title") }</p>
+						<p class="mt-1 text-sm text-muted-foreground">{ i18n.T(ctx, "admin.activity.unmanaged") }</p>
+					</div>
+				} else if data.StepUpRequired {
+					<div role="alert" class="mt-6 rounded-lg border border-amber-500/30 bg-amber-500/10 px-5 py-5 text-amber-900 dark:text-amber-100" data-admin-security-activity-locked>
+						<p class="font-semibold">{ i18n.T(ctx, "admin.verify.required") }</p>
+						<p class="mt-1 text-sm">{ i18n.T(ctx, "admin.activity.verify") }</p>
+						<div class="mt-4">
+							@AdminSecurityVerificationTrigger(adminSecurityVerificationValue(verification), i18n.T(ctx, "admin.verify.now"))
+						</div>
+					</div>
+				} else {
+					@AdminSecurityRetentionDialog(data)
+					<nav class="mt-6 flex flex-wrap gap-2" aria-label={ i18n.T(ctx, "admin.activity.filter_label") }>
+						@adminSecurityActivityFilterLink(data, "", i18n.T(ctx, "admin.activity.filter.all"))
+						@adminSecurityActivityFilterLink(data, "failures", i18n.T(ctx, "admin.activity.filter.failures"))
+						@adminSecurityActivityFilterLink(data, "recovery", i18n.T(ctx, "admin.activity.filter.recovery"))
+						@adminSecurityActivityFilterLink(data, "policy", i18n.T(ctx, "admin.activity.filter.policy"))
+						@adminSecurityActivityFilterLink(data, "identities", i18n.T(ctx, "admin.activity.filter.identities"))
+						@adminSecurityActivityFilterLink(data, "sessions", i18n.T(ctx, "admin.activity.filter.sessions"))
+					</nav>
+					<section class="mt-6 overflow-hidden rounded-lg border border-border bg-card" aria-labelledby="admin-security-events-heading">
+						<div class="flex flex-col gap-1 border-b border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+							<h3 id="admin-security-events-heading" class="text-sm font-semibold text-foreground">{ i18n.T(ctx, "admin.activity.events_heading") }</h3>
+							if len(data.Events) > 0 {
+								<span class="text-xs text-muted-foreground">{ i18n.T(ctx, "admin.activity.showing", "first", i18n.Number(ctx, int(data.FirstEvent)), "last", i18n.Number(ctx, int(data.LastEvent)), "total", i18n.Number(ctx, int(data.TotalEvents))) }</span>
+							}
+						</div>
+						if len(data.Events) == 0 {
+							<div class="px-4 py-10 text-center text-sm text-muted-foreground">
+								if data.Filter == "" {
+									{ i18n.T(ctx, "admin.activity.empty") }
+								} else {
+									{ i18n.T(ctx, "admin.activity.empty_filter") }
+								}
+							</div>
+						} else {
+							<div class="overflow-x-auto">
+								<table class="w-full min-w-[72rem] text-left text-sm" aria-label={ i18n.T(ctx, "admin.activity.table_label") }>
+									<thead class="bg-muted/45 text-xs font-semibold text-muted-foreground">
+										<tr>
+											<th scope="col" class="px-4 py-3">{ i18n.T(ctx, "admin.col.time") }</th>
+											<th scope="col" class="px-4 py-3">{ i18n.T(ctx, "admin.col.event") }</th>
+											<th scope="col" class="px-4 py-3">{ i18n.T(ctx, "admin.col.status") }</th>
+											<th scope="col" class="px-4 py-3">{ i18n.T(ctx, "admin.col.actor") }</th>
+											<th scope="col" class="px-4 py-3">{ i18n.T(ctx, "admin.col.subject") }</th>
+											<th scope="col" class="px-4 py-3">{ i18n.T(ctx, "admin.col.client") }</th>
+										</tr>
+									</thead>
+									<tbody class="divide-y divide-border">
+										for _, event := range data.Events {
+											<tr class="bg-background/35 align-top hover:bg-accent/35">
+												<td class="whitespace-nowrap px-4 py-3 text-xs text-muted-foreground">{ event.OccurredAt }</td>
+												<td class="px-4 py-3">
+													<p class="font-semibold text-foreground">{ event.Title }</p>
+													<p class="mt-1 text-xs text-muted-foreground">{ event.Detail }</p>
+												</td>
+												<td class="px-4 py-3">
+													<span
+														class={
+															"inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold",
+															templ.KV("border-emerald-500/30 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200", event.Successful),
+															templ.KV("border-destructive/30 bg-destructive/10 text-destructive", !event.Successful),
+														}
+													>{ event.Status }</span>
+												</td>
+												<td class="px-4 py-3 font-medium text-foreground">{ event.Actor }</td>
+												<td class="px-4 py-3">
+													<span class="font-medium text-foreground">{ event.Subject }</span>
+													if event.SubjectDeleted {
+														<span class="ml-1.5 rounded-full border border-border bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{ i18n.T(ctx, "admin.activity.deleted") }</span>
+													}
+												</td>
+												<td class="max-w-xs break-words px-4 py-3 text-xs text-muted-foreground">{ event.Client }</td>
+											</tr>
+										}
+									</tbody>
+								</table>
+							</div>
+						}
+					</section>
+					if data.TotalPages > 1 {
+						<nav class="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between" aria-label={ i18n.T(ctx, "admin.activity.pagination") }>
+							<p class="text-xs text-muted-foreground">{ i18n.T(ctx, "admin.page_of", "page", i18n.Number(ctx, int(data.Page)), "total", i18n.Number(ctx, int(data.TotalPages))) }</p>
+							<div class="flex items-center gap-2">
+								if data.HasPrevious {
+									<a href={ adminSecurityActivityPagePath(data.Filter, data.PreviousPage) } data-admin-navigation-link data-admin-navigation-label={ i18n.T(ctx, "admin.activity.previous_nav") } class="inline-flex h-9 items-center justify-center rounded-md border border-border bg-background px-3 text-xs font-semibold text-foreground hover:bg-accent">{ i18n.T(ctx, "common.previous") }</a>
+								} else {
+									<span class="inline-flex h-9 items-center justify-center rounded-md border border-border bg-muted px-3 text-xs font-semibold text-muted-foreground opacity-60" aria-disabled="true">{ i18n.T(ctx, "common.previous") }</span>
+								}
+								if data.HasNext {
+									<a href={ adminSecurityActivityPagePath(data.Filter, data.NextPage) } data-admin-navigation-link data-admin-navigation-label={ i18n.T(ctx, "admin.activity.next_nav") } class="inline-flex h-9 items-center justify-center rounded-md border border-border bg-background px-3 text-xs font-semibold text-foreground hover:bg-accent">{ i18n.T(ctx, "common.next") }</a>
+								} else {
+									<span class="inline-flex h-9 items-center justify-center rounded-md border border-border bg-muted px-3 text-xs font-semibold text-muted-foreground opacity-60" aria-disabled="true">{ i18n.T(ctx, "common.next") }</span>
+								}
+							</div>
+						</nav>
+					}
+					<p class="mt-5 text-xs text-muted-foreground">{ i18n.T(ctx, "admin.activity.privacy") }</p>
+				}
+			</div>
+		</div>
+	</div>
+	@AdminSecurityVerificationDialog(adminSecurityVerificationValue(verification))
+}
+
+templ AdminSecurityRetentionDialog(data AdminSecurityActivityData) {
+	@dialog.Dialog(dialog.Props{ID: "admin-security-retention-dialog", Open: data.Notice != "" || data.Error != ""}) {
+		@dialog.Content(dialog.ContentProps{Class: "max-h-[calc(100vh-2rem)] overflow-y-auto"}) {
+			@dialog.Header() {
+				@dialog.Title() {
+					{ i18n.T(ctx, "admin.retention.title") }
+				}
+				@dialog.Description() {
+					{ i18n.N(ctx, "admin.retention.current", data.RetentionDays) }
+				}
+			}
+			<form method="post" action="/admin/activity/retention" class="space-y-4" data-admin-security-retention>
+				if data.RetentionCSRFToken != "" {
+					<input type="hidden" name="_csrf" value={ data.RetentionCSRFToken }/>
+				}
+				if data.Notice != "" {
+					<p role="status" class="text-sm text-emerald-800 dark:text-emerald-200">{ data.Notice }</p>
+				}
+				if data.Error != "" {
+					<p role="alert" class="text-sm text-destructive">{ data.Error }</p>
+				}
+				<div>
+					<label for="admin-security-retention-days" class="mb-1.5 block text-sm font-medium text-foreground">{ i18n.T(ctx, "admin.retention.label") }</label>
+					<input
+						id="admin-security-retention-days"
+						name="days"
+						type="number"
+						min={ fmt.Sprintf("%d", data.RetentionMinimumDays) }
+						max={ fmt.Sprintf("%d", data.RetentionMaximumDays) }
+						value={ fmt.Sprintf("%d", data.RetentionDays) }
+						aria-describedby="admin-security-retention-help"
+						required
+						class="h-9 w-full rounded-md border border-input bg-background px-3 text-sm tabular-nums text-foreground shadow-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/30"
+					/>
+					<p id="admin-security-retention-help" class="mt-2 text-xs text-muted-foreground">{ i18n.T(ctx, "admin.retention.help", "min", data.RetentionMinimumDays, "max", data.RetentionMaximumDays) }</p>
+				</div>
+				<p class="text-sm text-muted-foreground">{ i18n.T(ctx, "admin.retention.note") }</p>
+				@dialog.Footer() {
+					@dialog.Close() {
+						<button type="button" class="inline-flex h-9 items-center justify-center rounded-md border border-border bg-background px-3 text-sm font-medium text-foreground hover:bg-accent">{ i18n.T(ctx, "common.cancel") }</button>
+					}
+					<button type="submit" class="inline-flex h-9 items-center justify-center rounded-md bg-primary px-3 text-sm font-semibold text-primary-foreground hover:bg-primary/90">{ i18n.T(ctx, "admin.retention.save") }</button>
+				}
+			</form>
+		}
+	}
+}

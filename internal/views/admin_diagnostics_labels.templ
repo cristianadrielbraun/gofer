@@ -1,0 +1,255 @@
+package views
+
+import (
+	"context"
+	"fmt"
+	"strings"
+
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
+	"github.com/cristianadrielbraun/gofer/internal/models"
+)
+
+func adminLabelProviderLabel(ctx context.Context, provider string) string {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "gmail":
+		return i18n.T(ctx, "admin.labels.provider.gmail")
+	case "outlook":
+		return i18n.T(ctx, "admin.labels.provider.outlook")
+	case "imap_keyword":
+		return i18n.T(ctx, "admin.labels.provider.keywords")
+	case "local":
+		return i18n.T(ctx, "admin.labels.provider.local")
+	case "":
+		return i18n.T(ctx, "admin.unknown")
+	default:
+		return strings.Title(strings.ReplaceAll(provider, "_", " "))
+	}
+}
+
+func adminLabelSyncLabel(ctx context.Context, account models.LabelAccountSyncStatus) string {
+	if account.Sync.LastError != "" {
+		return i18n.T(ctx, "admin.avatars.error")
+	}
+	if !account.Sync.LastRunFinishedAt.IsZero() {
+		return i18n.T(ctx, "admin.sync.synced")
+	}
+	return i18n.T(ctx, "admin.sync.waiting")
+}
+
+func adminLabelSyncClass(account models.LabelAccountSyncStatus) string {
+	if account.Sync.LastError != "" || account.MutationErrors > 0 {
+		return "bg-red-500/12 text-red-700 dark:text-red-300"
+	}
+	if account.PendingMutations > 0 {
+		return "bg-amber-500/12 text-amber-700 dark:text-amber-300"
+	}
+	if !account.Sync.LastRunFinishedAt.IsZero() {
+		return "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300"
+	}
+	return "bg-muted text-muted-foreground"
+}
+
+func adminLabelCoverageText(withLabels int, total int) string {
+	return fmt.Sprintf("%d%%", adminPercent(withLabels, total))
+}
+
+func adminOutlookGraphParityStatus(ctx context.Context, status *models.OutlookGraphDiagnostics) string {
+	if status != nil && status.GraphParityReady {
+		return i18n.T(ctx, "admin.parity.ready")
+	}
+	return i18n.T(ctx, "admin.parity.repair")
+}
+
+func adminGmailAPIParityStatus(ctx context.Context, status *models.GmailAPIDiagnostics) string {
+	if status != nil && status.APIParityReady {
+		return i18n.T(ctx, "admin.parity.ready")
+	}
+	return i18n.T(ctx, "admin.parity.repair")
+}
+
+templ AdminLabelsPage(status models.LabelAdminStatus) {
+	<div class="flex-1 flex flex-col min-w-0 overflow-hidden">
+		<div class="flex-1 overflow-y-auto">
+			<div class="max-w-6xl px-6 py-8 lg:px-8 lg:py-10">
+				<div class="mb-7 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+					<div>
+						<h2 class="text-2xl font-bold text-foreground" style="font-family: var(--font-serif)">{ i18n.T(ctx, "admin.nav.labels") }</h2>
+						<p class="mt-1 max-w-2xl text-sm text-muted-foreground">{ i18n.T(ctx, "admin.labels.description") }</p>
+					</div>
+					<div class="flex w-full flex-col items-end gap-3 lg:w-auto">
+						@AdminWebmailScopeFilter(status.Scope, "/admin/labels")
+						<a href={ adminScopeURL("/api/admin/labels/status", status.Scope) } class="w-fit whitespace-nowrap rounded-md border border-border bg-background px-3 py-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">{ i18n.T(ctx, "admin.raw_json") }</a>
+					</div>
+				</div>
+				<div class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+					@AdminMetric("labels_total_messages", i18n.T(ctx, "admin.labels.visible"), status.Totals.TotalMessages)
+					@AdminMetric("labels_with_labels", i18n.T(ctx, "admin.labels.with"), status.Totals.MessagesWithLabels)
+					@AdminMetric("labels_without_labels", i18n.T(ctx, "admin.labels.without"), status.Totals.MessagesWithoutLabels)
+					@AdminMetric("labels_known", i18n.T(ctx, "admin.labels.known"), status.Totals.KnownLabels)
+					@AdminMetric("labels_provider_backed", i18n.T(ctx, "admin.labels.provider_backed"), status.Totals.ProviderBackedMessages)
+					@AdminMetric("labels_local_only", i18n.T(ctx, "admin.labels.local_only"), status.Totals.LocalOnlyMessages)
+					@AdminMetric("labels_missing_provider", i18n.T(ctx, "admin.labels.missing_provider"), status.Totals.MissingProviderMessages)
+					@AdminMetric("labels_pending_mutations", i18n.T(ctx, "admin.labels.queued"), status.Totals.PendingMutations)
+				</div>
+				<div class="mt-5 grid gap-4 lg:grid-cols-3">
+					<div class="rounded-lg border border-border bg-card p-4">
+						<div class={ adminPanelTitleClass() }>{ i18n.T(ctx, "admin.labels.coverage") }</div>
+						<div class="mt-3 flex items-center justify-between gap-3">
+							<div class="text-sm font-medium text-muted-foreground">{ i18n.T(ctx, "admin.labels.any_label") }</div>
+							<div class="text-sm font-bold tabular-nums text-foreground">{ adminLabelCoverageText(status.Totals.MessagesWithLabels, status.Totals.TotalMessages) }</div>
+						</div>
+						<div class="mt-3 h-2 overflow-hidden rounded-md bg-muted shadow-inner">
+							<div class="h-full rounded-md bg-primary" style={ fmt.Sprintf("width:%d%%", adminPercent(status.Totals.MessagesWithLabels, status.Totals.TotalMessages)) }></div>
+						</div>
+					</div>
+					<div class="rounded-lg border border-border bg-card p-4">
+						<div class={ adminPanelTitleClass() }>{ i18n.T(ctx, "admin.labels.last_run") }</div>
+						<div class="mt-3 space-y-2">
+							@AdminCompactMetric("labels_last_run_missing", i18n.T(ctx, "admin.labels.not_found_remote"), status.Totals.LastRunMissingProvider)
+							@AdminCompactMetric("labels_last_run_skipped", i18n.T(ctx, "admin.labels.skipped_identity"), status.Totals.LastRunSkipped)
+							@AdminCompactMetric("labels_last_run_failed", i18n.T(ctx, "admin.labels.failed_imports"), status.Totals.LastRunFailed)
+						</div>
+					</div>
+					<div class="rounded-lg border border-border bg-card p-4">
+						<div class={ adminPanelTitleClass() }>{ i18n.T(ctx, "admin.labels.queue") }</div>
+						<div class="mt-3 space-y-2">
+							@AdminCompactMetric("labels_queue_pending", i18n.T(ctx, "admin.pending"), status.Totals.PendingMutations)
+							@AdminCompactMetric("labels_queue_errors", i18n.T(ctx, "admin.labels.with_errors"), status.Totals.MutationErrors)
+							@AdminCompactMetric("labels_identity_missing", i18n.T(ctx, "admin.labels.missing_message_id"), status.Totals.MissingIdentityMessages)
+						</div>
+					</div>
+				</div>
+				<div class="mt-6 space-y-4">
+					<div class="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+						<div>
+							<div class={ adminPanelTitleClass() }>{ i18n.T(ctx, "admin.accounts") }</div>
+							<p class="mt-1 text-sm text-muted-foreground">{ i18n.T(ctx, "admin.labels.accounts_detail") }</p>
+						</div>
+						<div class="text-xs font-semibold text-muted-foreground tabular-nums">{ i18n.N(ctx, "admin.accounts_count", len(status.Accounts), "count", i18n.Number(ctx, len(status.Accounts))) }</div>
+					</div>
+					if len(status.Accounts) == 0 {
+						<div class="rounded-lg border border-dashed border-border bg-background/35 px-4 py-8 text-center text-sm text-muted-foreground">{ i18n.T(ctx, "admin.no_accounts") }</div>
+					} else {
+						<div class="grid gap-4 xl:grid-cols-2">
+							for _, account := range status.Accounts {
+								@AdminLabelAccountCard(account)
+							}
+						</div>
+					}
+				</div>
+			</div>
+		</div>
+	</div>
+}
+
+templ AdminLabelAccountCard(account models.LabelAccountSyncStatus) {
+	<div class="rounded-lg border border-border bg-card p-4">
+		<div class="mb-4 flex items-start justify-between gap-3">
+			<div class="min-w-0">
+				<div class="truncate text-sm font-bold text-foreground">{ account.AccountName }</div>
+				<div class="mt-0.5 truncate text-xs font-medium text-muted-foreground">{ account.AccountEmail }</div>
+				if account.OwnerUsername != "" {
+					<div class="mt-1 truncate text-[11px] font-medium text-muted-foreground">{ i18n.T(ctx, "admin.owned_by", "username", account.OwnerUsername) }</div>
+				}
+				<div class="mt-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{ adminLabelProviderLabel(ctx, account.LabelProvider) }</div>
+			</div>
+			<span class={ "inline-flex shrink-0 rounded-md px-2.5 py-1 text-[11px] font-semibold", adminLabelSyncClass(account) }>{ adminLabelSyncLabel(ctx, account) }</span>
+		</div>
+		<div class="mb-4">
+			<div class="flex items-center justify-between gap-3">
+				<div class="text-xs font-medium text-muted-foreground">{ i18n.T(ctx, "admin.labels.label_coverage") }</div>
+				<div class="text-xs font-bold tabular-nums text-foreground">{ adminLabelCoverageText(account.MessagesWithLabels, account.TotalMessages) }</div>
+			</div>
+			<div class="mt-2 h-2 overflow-hidden rounded-md bg-muted shadow-inner">
+				<div class="h-full rounded-md bg-primary" style={ fmt.Sprintf("width:%d%%", adminPercent(account.MessagesWithLabels, account.TotalMessages)) }></div>
+			</div>
+		</div>
+		<div class="grid gap-2 sm:grid-cols-2">
+			@AdminDetail("labels_total_"+account.AccountID, i18n.T(ctx, "admin.labels.visible"), i18n.Number(ctx, account.TotalMessages))
+			@AdminDetail("labels_any_"+account.AccountID, i18n.T(ctx, "admin.labels.with"), i18n.Number(ctx, account.MessagesWithLabels))
+			@AdminDetail("labels_provider_"+account.AccountID, i18n.T(ctx, "admin.labels.provider_backed"), i18n.Number(ctx, account.ProviderBackedMessages))
+			@AdminDetail("labels_local_only_"+account.AccountID, i18n.T(ctx, "admin.labels.local_only"), i18n.Number(ctx, account.LocalOnlyMessages))
+			@AdminDetail("labels_missing_provider_"+account.AccountID, i18n.T(ctx, "admin.labels.missing_provider"), i18n.Number(ctx, account.MissingProviderMessages))
+			@AdminDetail("labels_missing_identity_"+account.AccountID, i18n.T(ctx, "admin.labels.missing_message_id"), i18n.Number(ctx, account.MissingIdentityMessages))
+			@AdminDetail("labels_catalog_"+account.AccountID, i18n.T(ctx, "admin.labels.known"), i18n.Number(ctx, account.KnownLabels))
+			@AdminDetail("labels_queue_"+account.AccountID, i18n.T(ctx, "admin.labels.queued"), i18n.Number(ctx, account.PendingMutations))
+		</div>
+		if account.OutlookGraph != nil {
+			<div class="mt-4 rounded-lg border border-border bg-background/35 p-3">
+				<div class="mb-2 flex items-center justify-between gap-3">
+					<div class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "admin.labels.graph_parity") }</div>
+					<div class="text-[11px] font-bold tabular-nums text-foreground">{ i18n.T(ctx, "admin.labels.folders_ratio", "done", i18n.Number(ctx, account.OutlookGraph.GraphBackedFolders), "total", i18n.Number(ctx, account.OutlookGraph.LocalFolders)) }</div>
+				</div>
+				<div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+					@AdminCompactMetric("labels_graph_messages_"+account.AccountID, i18n.T(ctx, "admin.labels.graph_ids"), account.OutlookGraph.GraphBackedMessages)
+					@AdminCompactMetric("labels_imap_messages_"+account.AccountID, i18n.T(ctx, "admin.labels.imap_rows"), account.OutlookGraph.IMAPBackedMessages)
+					@AdminCompactMetric("labels_graph_delta_"+account.AccountID, i18n.T(ctx, "admin.labels.parity_delta"), account.OutlookGraph.MessageParityDelta)
+					@AdminCompactDetail("labels_graph_ready_"+account.AccountID, i18n.T(ctx, "admin.labels.parity_status"), adminOutlookGraphParityStatus(ctx, account.OutlookGraph))
+					@AdminCompactMetric("labels_missing_graph_"+account.AccountID, i18n.T(ctx, "admin.labels.missing_graph"), account.OutlookGraph.MessagesMissingGraphID)
+					@AdminCompactMetric("labels_backfillable_"+account.AccountID, i18n.T(ctx, "admin.labels.backfillable"), account.OutlookGraph.MissingGraphIDWithInternetID)
+					@AdminCompactMetric("labels_unresolvable_"+account.AccountID, i18n.T(ctx, "admin.labels.no_message_id"), account.OutlookGraph.MissingGraphIDWithoutInternetID)
+					@AdminCompactMetric("labels_missing_graph_folder_"+account.AccountID, i18n.T(ctx, "admin.labels.no_graph_folder"), account.OutlookGraph.MissingGraphIDWithoutGraphFolder)
+				</div>
+			</div>
+		}
+		if account.GmailAPI != nil {
+			<div class="mt-4 rounded-lg border border-border bg-background/35 p-3">
+				<div class="mb-2 flex items-center justify-between gap-3">
+					<div class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "admin.labels.gmail_parity") }</div>
+					<div class="text-[11px] font-bold tabular-nums text-foreground">{ i18n.T(ctx, "admin.labels.folders_ratio", "done", i18n.Number(ctx, account.GmailAPI.GmailBackedFolders), "total", i18n.Number(ctx, account.GmailAPI.LocalFolders)) }</div>
+				</div>
+				<div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+					@AdminCompactMetric("labels_gmail_messages_"+account.AccountID, i18n.T(ctx, "admin.labels.gmail_ids"), account.GmailAPI.APIBackedMessages)
+					@AdminCompactMetric("labels_gmail_imap_messages_"+account.AccountID, i18n.T(ctx, "admin.labels.imap_rows"), account.GmailAPI.IMAPBackedMessages)
+					@AdminCompactMetric("labels_gmail_delta_"+account.AccountID, i18n.T(ctx, "admin.labels.parity_delta"), account.GmailAPI.MessageParityDelta)
+					@AdminCompactDetail("labels_gmail_ready_"+account.AccountID, i18n.T(ctx, "admin.labels.parity_status"), adminGmailAPIParityStatus(ctx, account.GmailAPI))
+					@AdminCompactMetric("labels_missing_gmail_"+account.AccountID, i18n.T(ctx, "admin.labels.missing_gmail"), account.GmailAPI.MessagesMissingGmailID)
+					@AdminCompactMetric("labels_gmail_backfillable_"+account.AccountID, i18n.T(ctx, "admin.labels.backfillable"), account.GmailAPI.MissingGmailIDWithInternetID)
+					@AdminCompactMetric("labels_gmail_unresolvable_"+account.AccountID, i18n.T(ctx, "admin.labels.no_message_id"), account.GmailAPI.MissingGmailIDWithoutInternetID)
+					@AdminCompactMetric("labels_missing_gmail_folder_"+account.AccountID, i18n.T(ctx, "admin.labels.no_gmail_label"), account.GmailAPI.MissingGmailIDWithoutGmailLabel)
+					@AdminCompactDetail("labels_gmail_cursor_"+account.AccountID, i18n.T(ctx, "admin.labels.history_cursor"), account.GmailAPI.HistoryCursor)
+				</div>
+			</div>
+		}
+		<div class="mt-4 grid gap-3 lg:grid-cols-2">
+			<div class="rounded-lg border border-border bg-background/35 p-3">
+				<div class="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "admin.labels.last_sync") }</div>
+				<div class="space-y-2">
+					@AdminCompactDetail("labels_sync_finished_"+account.AccountID, i18n.T(ctx, "admin.finished"), adminTime(ctx, account.Sync.LastRunFinishedAt))
+					@AdminCompactMetric("labels_sync_total_"+account.AccountID, i18n.T(ctx, "admin.labels.scanned"), account.Sync.LastTotalMessages)
+					@AdminCompactMetric("labels_sync_synced_"+account.AccountID, i18n.T(ctx, "admin.labels.synced"), account.Sync.LastSyncedMessages)
+					@AdminCompactMetric("labels_sync_missing_"+account.AccountID, i18n.T(ctx, "admin.labels.not_found"), account.Sync.LastMissingProviderMessages)
+					@AdminCompactMetric("labels_sync_skipped_"+account.AccountID, i18n.T(ctx, "admin.skipped"), account.Sync.LastSkippedMessages)
+					@AdminCompactMetric("labels_sync_failed_"+account.AccountID, i18n.T(ctx, "admin.failed"), account.Sync.LastFailedMessages)
+				</div>
+			</div>
+			<div class="rounded-lg border border-border bg-background/35 p-3">
+				<div class="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "admin.labels.top") }</div>
+				if len(account.TopLabels) == 0 {
+					<div class="rounded-md border border-dashed border-border px-3 py-5 text-center text-xs text-muted-foreground">{ i18n.T(ctx, "admin.labels.top_empty") }</div>
+				} else {
+					<div class="space-y-2">
+						for _, label := range account.TopLabels {
+							<div>
+								<div class="flex items-center justify-between gap-3 text-xs">
+									<div class="min-w-0 truncate font-semibold text-foreground">{ label.Name }</div>
+									<div class="shrink-0 tabular-nums text-muted-foreground">{ i18n.Number(ctx, label.Count) }</div>
+								</div>
+								<div class="mt-1 h-1.5 overflow-hidden rounded-md bg-muted">
+									<div class="h-full rounded-md bg-primary/80" style={ fmt.Sprintf("width:%d%%", adminPercent(label.Count, account.MessagesWithLabels)) }></div>
+								</div>
+								<div class="mt-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{ adminLabelProviderLabel(ctx, label.ProviderType) }</div>
+							</div>
+						}
+					</div>
+				}
+			</div>
+		</div>
+		if account.Sync.LastError != "" {
+			<div class="mt-3 rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs font-medium text-red-700 dark:text-red-300">{ account.Sync.LastError }</div>
+		}
+		if account.LatestMutationError != "" {
+			<div class="mt-3 rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs font-medium text-amber-800 dark:text-amber-200">{ account.LatestMutationError }</div>
+		}
+	</div>
+}

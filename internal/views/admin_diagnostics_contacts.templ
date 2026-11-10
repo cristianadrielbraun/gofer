@@ -1,0 +1,313 @@
+package views
+
+import (
+	"context"
+	"fmt"
+	"strings"
+
+	"github.com/cristianadrielbraun/gofer/components/tabs"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
+	"github.com/cristianadrielbraun/gofer/internal/models"
+)
+
+func adminContactEventLabel(ctx context.Context, eventType string) string {
+	switch eventType {
+	case "backfill_forced":
+		return i18n.T(ctx, "admin.contacts.event.backfill_forced")
+	case "backfill_started":
+		return i18n.T(ctx, "admin.contacts.event.backfill_started")
+	case "backfill_completed":
+		return i18n.T(ctx, "admin.contacts.event.backfill_completed")
+	case "manual_contact_added":
+		return i18n.T(ctx, "admin.contacts.event.manual_contact_added")
+	case "observed_contact_added":
+		return i18n.T(ctx, "admin.contacts.event.observed_contact_added")
+	case "contact_deleted":
+		return i18n.T(ctx, "admin.contacts.event.contact_deleted")
+	case "observed_contacts_deleted":
+		return i18n.T(ctx, "admin.contacts.event.observed_contacts_deleted")
+	case "contacts_trashed":
+		return i18n.T(ctx, "admin.contacts.event.contacts_trashed")
+	case "contacts_restored":
+		return i18n.T(ctx, "admin.contacts.event.contacts_restored")
+	case "contacts_unresolved":
+		return i18n.T(ctx, "admin.contacts.event.contacts_unresolved")
+	case "contact_sync_queued":
+		return i18n.T(ctx, "admin.contacts.event.contact_sync_queued")
+	case "contact_sync_started":
+		return i18n.T(ctx, "admin.contacts.event.contact_sync_started")
+	case "contact_synced":
+		return i18n.T(ctx, "admin.contacts.event.contact_synced")
+	case "contact_sync_failed":
+		return i18n.T(ctx, "admin.contacts.event.contact_sync_failed")
+	case "provider_contacts_synced":
+		return i18n.T(ctx, "admin.contacts.event.provider_contacts_synced")
+	default:
+		return strings.Title(strings.ReplaceAll(eventType, "_", " "))
+	}
+}
+
+func adminContactEventClass(eventType string) string {
+	switch eventType {
+	case "backfill_forced", "backfill_started", "contacts_unresolved":
+		return "bg-amber-500/12 text-amber-700 dark:text-amber-300"
+	case "backfill_completed", "manual_contact_added", "observed_contact_added", "contacts_restored":
+		return "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300"
+	case "contact_deleted", "observed_contacts_deleted", "contacts_trashed":
+		return "bg-red-500/12 text-red-700 dark:text-red-300"
+	default:
+		return "bg-muted text-muted-foreground"
+	}
+}
+
+func adminContactRunDescription(ctx context.Context, state models.ContactBackfillState) string {
+	if state.InProgress {
+		return i18n.T(ctx, "admin.contacts.run.running")
+	}
+	if state.LastError != "" {
+		return i18n.T(ctx, "admin.contacts.run.failed")
+	}
+	return i18n.T(ctx, "admin.contacts.run.idle")
+}
+
+func adminContactRunLabel(ctx context.Context, state models.ContactBackfillState) string {
+	if state.InProgress {
+		return i18n.T(ctx, "admin.contacts.state.running")
+	}
+	if state.LastError != "" {
+		return i18n.T(ctx, "admin.avatars.error")
+	}
+	return i18n.T(ctx, "admin.state.idle")
+}
+
+func adminContactSyncProviderLabel(ctx context.Context, provider string) string {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "gmail":
+		return "Gmail"
+	case "outlook":
+		return "Outlook"
+	case "carddav":
+		return "CardDAV"
+	case "jmap":
+		return "JMAP"
+	case "":
+		return i18n.T(ctx, "admin.unknown")
+	default:
+		return strings.Title(strings.ReplaceAll(provider, "_", " "))
+	}
+}
+
+func adminContactSyncLabel(ctx context.Context, sync models.ContactSyncStatus) string {
+	if sync.Running {
+		return i18n.T(ctx, "admin.sync.syncing")
+	}
+	if sync.LastError != "" {
+		return i18n.T(ctx, "admin.avatars.error")
+	}
+	if sync.Enabled {
+		return i18n.T(ctx, "admin.sync.enabled")
+	}
+	if sync.Capable {
+		return i18n.T(ctx, "admin.sync.configured")
+	}
+	return i18n.T(ctx, "admin.sync.disabled")
+}
+
+func adminContactSyncClass(sync models.ContactSyncStatus) string {
+	if sync.Running {
+		return "bg-amber-500/12 text-amber-700 dark:text-amber-300"
+	}
+	if sync.LastError != "" {
+		return "bg-red-500/12 text-red-700 dark:text-red-300"
+	}
+	if sync.Enabled {
+		return "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300"
+	}
+	return "bg-muted text-muted-foreground"
+}
+
+templ AdminContactsPage(status models.ContactAdminStatus) {
+	<div class="flex-1 flex flex-col min-w-0 overflow-hidden">
+		<div class="flex-1 overflow-y-auto">
+			<div class="max-w-6xl px-6 py-8 lg:px-8 lg:py-10">
+				<div class="mb-7 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+					<div>
+						<h2 class="text-2xl font-bold text-foreground" style="font-family: var(--font-serif)">{ i18n.T(ctx, "admin.nav.contacts") }</h2>
+						<p class="mt-1 max-w-2xl text-sm text-muted-foreground">{ i18n.T(ctx, "admin.contacts.description") }</p>
+					</div>
+					<div class="flex w-full shrink-0 flex-col items-end gap-3 lg:w-auto">
+						@AdminWebmailScopeFilter(status.Scope, "/admin/contacts")
+						<form method="post" action={ adminScopeURL("/admin/contacts/backfill", status.Scope) } data-contact-backfill-form>
+							<button type="submit" class="rounded-md border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-800 transition-colors hover:bg-amber-500/20 disabled:cursor-not-allowed disabled:opacity-50 dark:text-amber-200" disabled?={ status.Backfill.InProgress }>
+								if status.Scope.SelectedUserID == "" {
+									{ i18n.T(ctx, "admin.contacts.force") }
+								} else {
+									{ i18n.T(ctx, "admin.contacts.backfill_selected") }
+								}
+							</button>
+						</form>
+					</div>
+				</div>
+				@tabs.Tabs(tabs.Props{ID: "contact-admin-tabs", Attributes: templ.Attributes{"data-contact-admin": ""}}) {
+					@tabs.List(tabs.ListProps{Class: "bg-card"}) {
+						@tabs.Trigger(tabs.TriggerProps{Value: "overview", IsActive: true}) {
+							{ i18n.T(ctx, "admin.tab.overview") }
+						}
+						@tabs.Trigger(tabs.TriggerProps{Value: "events"}) {
+							{ i18n.T(ctx, "admin.tab.events") }
+						}
+					}
+					@tabs.Content(tabs.ContentProps{Value: "overview", IsActive: true, Class: "mt-6 space-y-5"}) {
+						<div class="rounded-lg border border-border bg-card p-4">
+							<div class="flex items-start justify-between gap-4">
+								<div class="min-w-0">
+									<div class={ adminPanelTitleClass() }>{ i18n.T(ctx, "admin.contacts.run_title") }</div>
+									<p class="mt-1 text-sm text-muted-foreground" data-contact-run-description>{ adminContactRunDescription(ctx, status.Backfill) }</p>
+								</div>
+								<span
+									class={
+										"inline-flex w-fit shrink-0 items-center rounded-md px-2.5 py-1 text-[11px] font-semibold",
+										templ.KV("bg-amber-500/12 text-amber-700 dark:text-amber-300", status.Backfill.InProgress),
+										templ.KV("bg-red-500/12 text-red-700 dark:text-red-300", !status.Backfill.InProgress && status.Backfill.LastError != ""),
+										templ.KV("bg-emerald-500/12 text-emerald-700 dark:text-emerald-300", !status.Backfill.InProgress && status.Backfill.LastError == ""),
+									}
+									data-contact-state
+								>
+									{ adminContactRunLabel(ctx, status.Backfill) }
+								</span>
+							</div>
+							<div class="mt-2 flex items-center justify-between gap-4">
+								<div class="text-sm font-medium text-foreground" data-contact-progress-text>{ i18n.T(ctx, "admin.progress", "done", i18n.Number(ctx, status.Backfill.Processed), "total", i18n.Number(ctx, status.Backfill.Total)) }</div>
+								<div class="text-sm font-semibold tabular-nums text-foreground" data-contact-progress-percent>{ fmt.Sprintf("%d%%", adminPercent(status.Backfill.Processed, status.Backfill.Total)) }</div>
+							</div>
+							<div class="mt-4 h-2 overflow-hidden rounded-md bg-muted shadow-inner">
+								<div class="h-full rounded-md bg-primary transition-all duration-500" style={ fmt.Sprintf("width:%d%%", adminPercent(status.Backfill.Processed, status.Backfill.Total)) } data-contact-progress-bar></div>
+							</div>
+						</div>
+						<div class="grid gap-4 lg:grid-cols-2">
+							<div class="rounded-lg border border-border bg-card p-4">
+								<div class="mb-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "admin.contacts.registry") }</div>
+								<div class="flex min-h-[10.75rem] flex-col justify-between gap-3">
+									@AdminCompactMetric("contacts_total", i18n.T(ctx, "admin.contacts.metric.active"), status.Total)
+									@AdminCompactMetric("contacts_observed", i18n.T(ctx, "admin.contacts.metric.observed"), status.Observed)
+									@AdminCompactMetric("contacts_manual", i18n.T(ctx, "admin.contacts.metric.manual"), status.Manual)
+									@AdminCompactMetric("contacts_synced", i18n.T(ctx, "admin.contacts.metric.provider"), status.Synced)
+									@AdminCompactMetric("contacts_suppressed", i18n.T(ctx, "admin.contacts.metric.suppressed"), status.Suppressed)
+								</div>
+							</div>
+							<div class="rounded-lg border border-border bg-card p-4">
+								<div class="mb-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "admin.run_status") }</div>
+								<div class="space-y-3">
+									@AdminCompactDetail("contacts_started", i18n.T(ctx, "admin.started"), adminTime(ctx, status.Backfill.StartedAt))
+									@AdminCompactDetail("contacts_finished", i18n.T(ctx, "admin.finished"), adminTime(ctx, status.Backfill.FinishedAt))
+									@AdminCompactDetail("contacts_last_backfill", i18n.T(ctx, "admin.contacts.last_backfill"), adminTime(ctx, status.LastBackfill))
+									@AdminCompactMetric("contacts_added_today", i18n.T(ctx, "admin.contacts.metric.added_24h"), status.AddedToday)
+									@AdminCompactMetric("contacts_deleted_today", i18n.T(ctx, "admin.contacts.metric.deleted_24h"), status.DeletedToday)
+									@AdminErrorDetail("contacts_last_error", i18n.T(ctx, "admin.latest_error"), adminError(ctx, status.Backfill.LastError))
+								</div>
+							</div>
+						</div>
+						<div class="rounded-lg border border-border bg-card p-4">
+							<div class="mb-4 flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+								<div>
+									<div class={ adminPanelTitleClass() }>{ i18n.T(ctx, "admin.contacts.account_sync") }</div>
+									<p class="mt-1 text-sm text-muted-foreground">{ i18n.T(ctx, "admin.contacts.account_sync_detail") }</p>
+								</div>
+								<a href="/api/admin/contacts/status" class="w-fit whitespace-nowrap rounded-md border border-border bg-background px-3 py-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">{ i18n.T(ctx, "admin.raw_json") }</a>
+							</div>
+							if len(status.AccountSync) == 0 {
+								<div class="rounded-lg border border-dashed border-border bg-background/35 px-4 py-8 text-center text-sm text-muted-foreground">{ i18n.T(ctx, "admin.contacts.no_sync") }</div>
+							} else {
+								<div class="grid gap-3 xl:grid-cols-2">
+									for _, sync := range status.AccountSync {
+										@AdminContactSyncCard(sync)
+									}
+								</div>
+							}
+						</div>
+					}
+					@tabs.Content(tabs.ContentProps{Value: "events", Class: "mt-6 space-y-4"}) {
+						<div class="rounded-lg border border-border bg-card p-4">
+							<div class="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+								<div>
+									<div class={ adminPanelTitleClass() }>{ i18n.T(ctx, "admin.tab.events") }</div>
+									<p class="mt-1 text-sm text-muted-foreground">{ i18n.T(ctx, "admin.contacts.events_detail") }</p>
+								</div>
+							</div>
+							<div class="mt-3 text-xs font-medium text-muted-foreground" data-contact-event-count>{ i18n.N(ctx, "admin.contacts.recent_events", len(status.RecentEvents), "count", i18n.Number(ctx, len(status.RecentEvents))) }</div>
+							<div class="mt-4 overflow-x-auto rounded-lg border border-border bg-muted/25 shadow-inner">
+								<div class="min-w-[58rem]">
+									<div class="grid grid-cols-[10rem_minmax(15rem,1fr)_12rem_8rem_minmax(18rem,1.3fr)] gap-3 border-b border-border bg-muted/70 px-4 py-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+										<div>{ i18n.T(ctx, "admin.col.time") }</div>
+										<div>{ i18n.T(ctx, "admin.contacts.col.user") }</div>
+										<div>{ i18n.T(ctx, "admin.col.event") }</div>
+										<div>{ i18n.T(ctx, "admin.contacts.col.count") }</div>
+										<div>{ i18n.T(ctx, "admin.avatars.col.details") }</div>
+									</div>
+									<div class="h-[34rem] overflow-y-auto" data-contact-event-viewport>
+										if len(status.RecentEvents) == 0 {
+											<div class="px-4 py-8 text-center text-sm text-muted-foreground">{ i18n.T(ctx, "admin.contacts.no_activity") }</div>
+										} else {
+											for _, event := range status.RecentEvents {
+												@AdminContactEventRow(event)
+											}
+										}
+									</div>
+								</div>
+							</div>
+						</div>
+					}
+				}
+			</div>
+		</div>
+	</div>
+}
+
+templ AdminContactSyncCard(sync models.ContactSyncStatus) {
+	<div class="rounded-lg border border-border bg-background/45 p-4">
+		<div class="mb-4 flex items-start justify-between gap-3">
+			<div class="min-w-0">
+				<div class="truncate text-sm font-bold text-foreground">{ sync.AccountName }</div>
+				<div class="mt-0.5 truncate text-xs font-medium text-muted-foreground">{ sync.AccountEmail }</div>
+				if sync.OwnerUsername != "" {
+					<div class="mt-1 truncate text-[11px] font-medium text-muted-foreground">{ i18n.T(ctx, "admin.owned_by", "username", sync.OwnerUsername) }</div>
+				}
+			</div>
+			<span class={ "inline-flex shrink-0 rounded-md px-2.5 py-1 text-[11px] font-semibold", adminContactSyncClass(sync) }>{ adminContactSyncLabel(ctx, sync) }</span>
+		</div>
+		<div class="grid gap-2 sm:grid-cols-2">
+			@AdminDetail("contact_sync_provider_"+sync.AccountID, i18n.T(ctx, "admin.avatars.provider"), adminContactSyncProviderLabel(ctx, sync.Provider))
+			@AdminDetail("contact_sync_imported_"+sync.AccountID, i18n.T(ctx, "admin.last_import"), i18n.Number(ctx, sync.LastImportCount))
+			@AdminDetail("contact_sync_started_"+sync.AccountID, i18n.T(ctx, "admin.started"), adminTime(ctx, sync.LastStartedAt))
+			@AdminDetail("contact_sync_success_"+sync.AccountID, i18n.T(ctx, "admin.last_success"), adminTime(ctx, sync.LastSuccessAt))
+		</div>
+		if sync.LastError != "" {
+			<div class="mt-3 rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs font-medium text-red-700 dark:text-red-300">{ sync.LastError }</div>
+		}
+	</div>
+}
+
+templ AdminContactEventRow(event models.ContactActivityEvent) {
+	<div class="grid grid-cols-[10rem_minmax(15rem,1fr)_12rem_8rem_minmax(18rem,1.3fr)] gap-3 border-b border-border/70 bg-background/55 px-4 py-3 text-sm odd:bg-background/70 hover:bg-accent/35">
+		<div class="text-xs font-medium text-muted-foreground">{ adminTime(ctx, event.CreatedAt) }</div>
+		<div class="min-w-0">
+			<div class="truncate font-medium text-foreground">
+				if event.Username != "" {
+					{ event.Username }
+				} else {
+					{ i18n.T(ctx, "admin.unknown_user") }
+				}
+			</div>
+			<div class="truncate text-xs text-muted-foreground">
+				if event.Email != "" {
+					{ event.Email }
+				} else {
+					{ i18n.T(ctx, "admin.system_event") }
+				}
+			</div>
+		</div>
+		<div><span class={ "inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold", adminContactEventClass(event.Type) }>{ adminContactEventLabel(ctx, event.Type) }</span></div>
+		<div class="text-sm font-semibold tabular-nums text-foreground">{ i18n.Number(ctx, event.Count) }</div>
+		<div class="min-w-0 truncate text-sm text-muted-foreground">{ i18n.Stored(ctx, "admin.contacts.message.", event.Message) }</div>
+	</div>
+}

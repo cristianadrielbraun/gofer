@@ -1,0 +1,886 @@
+package views
+
+import (
+	"context"
+	"fmt"
+	"net/url"
+	"strings"
+	"time"
+
+	"github.com/cristianadrielbraun/gofer/components/button"
+	"github.com/cristianadrielbraun/gofer/components/copybutton"
+	"github.com/cristianadrielbraun/gofer/components/dialog"
+	"github.com/cristianadrielbraun/gofer/components/icon"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
+)
+
+type AdminUserData struct {
+	RequiredChangePath string
+	RequiredChangeCSRFToken string
+	RequiredChangeOpen bool
+	HasPassword bool
+	PasswordChangeRequired bool
+	ID                        string
+	Username                  string
+	Status                    string
+	Role                      string
+	Current                   bool
+	MFALabel                  string
+	MFADetail                 string
+	MFARequired               bool
+	MFAPolicyPath             string
+	MFAPolicyCSRFToken        string
+	StatusPath                string
+	StatusCSRFToken           string
+	CredentialResetPath       string
+	CredentialResetCSRFToken  string
+	CredentialResetOpen       bool
+	DeletionPending           bool
+	DeletionPath              string
+	DeletionCSRFToken         string
+	PasswordResetRequestedAt  *time.Time
+	InvitationState           string
+	InvitationExpiresAt       *time.Time
+	InvitationRevokePath      string
+	InvitationRevokeCSRFToken string
+	InvitationRotatePath      string
+	InvitationRotateCSRFToken string
+}
+
+type AdminUsersData struct {
+	Users               []AdminUserData
+	Total               int
+	Active              int
+	Pending             int
+	Disabled            int
+	Administrators      int
+	StepUpRequired      bool
+	InvitationCSRFToken string
+	InvitationForm      AdminUserInvitationFormData
+	Invitation          *AdminUserInvitationData
+	CredentialReset     *AdminUserCredentialResetData
+	Notice              string
+	Error               string
+}
+
+type AdminUserInvitationFormData struct {
+	Name        string
+	Username    string
+	FieldErrors map[string]string
+}
+
+type AdminUserInvitationData struct {
+	Name          string
+	Username      string
+	RedemptionURL string
+	Token         string
+	ExpiresAt     time.Time
+	Rotated       bool
+}
+
+type AdminUserCredentialResetData struct {
+	Username      string
+	RedemptionURL string
+	Token         string
+	ExpiresAt     time.Time
+}
+
+func adminUserUsername(ctx context.Context, username string) string {
+	if strings.TrimSpace(username) == "" {
+		return i18n.T(ctx, "admin.users.no_username")
+	}
+	return username
+}
+
+func adminUserInvitationFieldError(data AdminUserInvitationFormData, field string) string {
+	if data.FieldErrors == nil {
+		return ""
+	}
+	return data.FieldErrors[field]
+}
+
+func adminUserInvitationFormOpen(data AdminUserInvitationFormData) bool {
+	return len(data.FieldErrors) != 0 || strings.TrimSpace(data.Name) != "" ||
+		strings.TrimSpace(data.Username) != ""
+}
+
+func adminUserInvitationCopyText(ctx context.Context, data *AdminUserInvitationData) string {
+	if data == nil {
+		return ""
+	}
+	return i18n.T(ctx, "admin.invite.copy_text", "username", data.Username, "url", data.RedemptionURL, "token", data.Token, "expires", adminDateTimeZone(ctx, data.ExpiresAt))
+}
+
+func adminUserCredentialResetCopyText(ctx context.Context, data *AdminUserCredentialResetData) string {
+	if data == nil {
+		return ""
+	}
+	return i18n.T(ctx, "admin.reset.copy_text", "username", data.Username, "url", data.RedemptionURL, "token", data.Token, "expires", adminDateTimeZone(ctx, data.ExpiresAt))
+}
+
+func adminUserInvitationStateLabel(ctx context.Context, state string) string {
+	switch state {
+	case "active":
+		return i18n.T(ctx, "admin.invite.state.active")
+	case "expired":
+		return i18n.T(ctx, "admin.invite.state.expired")
+	case "revoked":
+		return i18n.T(ctx, "admin.invite.state.revoked")
+	default:
+		return i18n.T(ctx, "admin.invite.state.none")
+	}
+}
+
+func adminUserInvitationDialogID(prefix string, user AdminUserData) string {
+	reference := strings.TrimSuffix(
+		strings.TrimPrefix(user.InvitationRotatePath, "/admin/users/invitations/"),
+		"/rotate",
+	)
+	return prefix + "-" + user.InvitationState + "-" + reference
+}
+
+templ AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificationData) {
+	<div class="flex-1 flex flex-col min-w-0 overflow-hidden" data-admin-users>
+		<div class="flex-1 overflow-y-auto">
+			<div class="max-w-6xl px-6 py-8 lg:px-8 lg:py-10">
+				<div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+					<div>
+						<h2 class="text-2xl font-bold text-foreground" style="font-family: var(--font-serif)">{ i18n.T(ctx, "admin.nav.users") }</h2>
+						<p class="mt-1 max-w-3xl text-sm text-muted-foreground">{ i18n.T(ctx, "admin.users.description") }</p>
+					</div>
+					<div class="flex flex-wrap items-center gap-2">
+						@dialog.Trigger(dialog.TriggerProps{For: "admin-user-invitation-dialog"}) {
+							@button.Button(button.Props{Disabled: data.StepUpRequired}) {
+								@icon.UserPlus(icon.Props{Class: "size-4"})
+								{ i18n.T(ctx, "admin.users.invite") }
+							}
+						}
+						<span class="w-fit shrink-0 rounded-full border border-border bg-muted px-2.5 py-1 text-xs font-semibold text-muted-foreground">{ i18n.N(ctx, "admin.users.count", data.Total, "count", i18n.Number(ctx, data.Total)) }</span>
+					</div>
+				</div>
+				if data.Error != "" {
+					<div role="alert" class="mt-5 rounded-lg border border-destructive/25 bg-destructive/10 px-4 py-3 text-sm font-medium text-destructive">{ data.Error }</div>
+				}
+				if data.Notice != "" {
+					<div role="status" class="mt-5 rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-sm font-medium text-emerald-800 dark:text-emerald-200">{ data.Notice }</div>
+				}
+				if data.StepUpRequired {
+					<div role="alert" class="mt-5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-900 dark:text-amber-100">
+						<p class="font-semibold">{ i18n.T(ctx, "admin.verify.required") }</p>
+						<p class="mt-1">{ i18n.T(ctx, "admin.users.verify") }</p>
+						<div class="mt-3">
+							@AdminSecurityVerificationTrigger(adminSecurityVerificationValue(verification), i18n.T(ctx, "admin.verify.now"))
+						</div>
+					</div>
+				}
+				@AdminUserInvitationDialog(data)
+				if data.Invitation != nil {
+					@AdminUserInvitationResultDialog(data.Invitation)
+				}
+				if data.CredentialReset != nil {
+					@AdminUserCredentialResetResultDialog(data.CredentialReset)
+				}
+				<div class="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4" aria-label={ i18n.T(ctx, "admin.users.summary") }>
+					<div class="rounded-lg border border-border bg-card px-4 py-3">
+						<p class="text-xs font-medium text-muted-foreground">{ i18n.T(ctx, "admin.users.stat.active") }</p>
+						<p class="mt-1 text-xl font-bold tabular-nums text-foreground">{ i18n.Number(ctx, data.Active) }</p>
+					</div>
+					<div class="rounded-lg border border-border bg-card px-4 py-3">
+						<p class="text-xs font-medium text-muted-foreground">{ i18n.T(ctx, "admin.users.stat.pending") }</p>
+						<p class="mt-1 text-xl font-bold tabular-nums text-foreground">{ i18n.Number(ctx, data.Pending) }</p>
+					</div>
+					<div class="rounded-lg border border-border bg-card px-4 py-3">
+						<p class="text-xs font-medium text-muted-foreground">{ i18n.T(ctx, "admin.users.stat.disabled") }</p>
+						<p class="mt-1 text-xl font-bold tabular-nums text-foreground">{ i18n.Number(ctx, data.Disabled) }</p>
+					</div>
+					<div class="rounded-lg border border-border bg-card px-4 py-3">
+						<p class="text-xs font-medium text-muted-foreground">{ i18n.T(ctx, "admin.users.stat.admins") }</p>
+						<p class="mt-1 text-xl font-bold tabular-nums text-foreground">{ i18n.Number(ctx, data.Administrators) }</p>
+					</div>
+				</div>
+				<section class="mt-6 overflow-hidden rounded-lg border border-border bg-card" aria-labelledby="admin-users-heading">
+					<div class="flex items-center justify-between gap-4 border-b border-border px-4 py-3">
+						<h3 id="admin-users-heading" class="text-sm font-semibold text-foreground">{ i18n.T(ctx, "admin.users.heading") }</h3>
+						<span class="text-xs text-muted-foreground">{ i18n.T(ctx, "admin.users.heading_detail") }</span>
+					</div>
+					if len(data.Users) == 0 {
+						<div class="px-4 py-10 text-center text-sm text-muted-foreground">{ i18n.T(ctx, "admin.users.empty") }</div>
+					} else {
+						<div class="overflow-x-auto">
+							<table class="w-full min-w-[70rem] text-left text-sm">
+								<thead class="bg-muted/45 text-xs font-semibold text-muted-foreground">
+									<tr>
+										<th scope="col" class="px-4 py-3">{ i18n.T(ctx, "admin.col.user") }</th>
+										<th scope="col" class="px-4 py-3">{ i18n.T(ctx, "admin.col.status") }</th>
+										<th scope="col" class="px-4 py-3">{ i18n.T(ctx, "admin.col.role") }</th>
+										<th scope="col" class="px-4 py-3">{ i18n.T(ctx, "admin.col.mfa") }</th>
+										<th scope="col" class="px-4 py-3">{ i18n.T(ctx, "admin.col.invitation") }</th>
+										<th scope="col" class="px-4 py-3 text-right">{ i18n.T(ctx, "admin.col.actions") }</th>
+										<th scope="col" class="px-4 py-3">{ i18n.T(ctx, "admin.col.user_id") }</th>
+									</tr>
+								</thead>
+								<tbody class="divide-y divide-border">
+									for _, user := range data.Users {
+										<tr class="bg-background/35 align-top hover:bg-accent/35">
+											<td class="px-4 py-3">
+												<div class="flex flex-wrap items-center gap-2">
+													<span class="font-semibold text-foreground">{ adminUserUsername(ctx, user.Username) }</span>
+													if user.Current {
+														<span class="rounded-full border border-primary/25 bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">{ i18n.T(ctx, "admin.users.you") }</span>
+													}
+												</div>
+											</td>
+											<td class="px-4 py-3">
+												<span
+													class={
+														"inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold",
+														templ.KV("border-emerald-500/30 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200", user.Status == "active"),
+														templ.KV("border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-200", user.Status == "pending"),
+														templ.KV("border-destructive/30 bg-destructive/10 text-destructive", user.Status == "disabled"),
+													}
+												>
+													if user.DeletionPending {
+														{ i18n.T(ctx, "admin.users.deleting") }
+													} else {
+														{ adminValueLabel(ctx, user.Status) }
+													}
+												</span>
+											</td>
+											<td class="px-4 py-3">
+												<span
+													class={
+														"inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold",
+														templ.KV("border-primary/30 bg-primary/10 text-primary", user.Role == "management_admin"),
+														templ.KV("border-border bg-muted text-muted-foreground", user.Role == "management_user"),
+													}
+												>{ adminValueLabel(ctx, user.Role) }</span>
+											</td>
+											<td class="px-4 py-3">
+												<span
+													class={
+														"inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold",
+														templ.KV("border-primary/30 bg-primary/10 text-primary", user.MFALabel == "required"),
+														templ.KV("border-border bg-muted text-muted-foreground", user.MFALabel != "required"),
+													}
+												>{ adminValueLabel(ctx, user.MFALabel) }</span>
+												<p class="mt-1 whitespace-nowrap text-xs text-muted-foreground">{ adminValueLabel(ctx, user.MFADetail) }</p>
+												@AdminUserMFAPolicyAction(user, data.StepUpRequired)
+											</td>
+											<td class="px-4 py-3">
+												if user.InvitationRotatePath == "" {
+													<span class="text-xs text-muted-foreground">—</span>
+												} else {
+													<span
+														class={
+															"inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold",
+															templ.KV("border-emerald-500/30 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200", user.InvitationState == "active"),
+															templ.KV("border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-200", user.InvitationState == "expired"),
+															templ.KV("border-destructive/30 bg-destructive/10 text-destructive", user.InvitationState == "revoked"),
+															templ.KV("border-border bg-muted text-muted-foreground", user.InvitationState == "not_issued"),
+														}
+													>{ adminUserInvitationStateLabel(ctx, user.InvitationState) }</span>
+													if user.InvitationExpiresAt != nil {
+														<p class="mt-1 whitespace-nowrap text-xs text-muted-foreground">
+															if user.InvitationState == "active" {
+																{ i18n.T(ctx, "admin.invite.expires", "date", i18n.Dates(ctx).ShortDateTime(user.InvitationExpiresAt.Local())) }
+															} else {
+																{ i18n.T(ctx, "admin.invite.expired_at", "date", i18n.Dates(ctx).ShortDateTime(user.InvitationExpiresAt.Local())) }
+															}
+														</p>
+													}
+												}
+											</td>
+											<td class="px-4 py-3 text-right">
+												if user.InvitationRotatePath == "" && user.CredentialResetPath == "" && user.StatusPath == "" && user.DeletionPath == "" {
+													<span class="text-xs text-muted-foreground">—</span>
+												} else {
+													<div class="flex flex-col items-end gap-2">
+														if user.PasswordChangeRequired {
+															<span class="inline-flex rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-800 dark:text-amber-200">{ i18n.T(ctx, "admin.users.password_change_required") }</span>
+														}
+														if user.PasswordResetRequestedAt != nil {
+															<div>
+																<span class="inline-flex rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-800 dark:text-amber-200">{ i18n.T(ctx, "admin.users.reset_requested") }</span>
+																<p class="mt-1 text-xs text-muted-foreground">{ i18n.T(ctx, "admin.users.requested_at", "date", i18n.Dates(ctx).ShortDateTime(user.PasswordResetRequestedAt.Local())) }</p>
+															</div>
+														}
+														<div class="flex items-center justify-end gap-2">
+															@AdminUserInvitationActions(user, data.StepUpRequired)
+															@AdminUserCredentialResetAction(user, data.StepUpRequired)
+															@AdminUserStatusAction(user, data.StepUpRequired)
+															@AdminUserDeletionAction(user, data.StepUpRequired)
+														</div>
+													</div>
+												}
+											</td>
+											<td class="px-4 py-3"><code class="break-all font-mono text-xs text-muted-foreground">{ user.ID }</code></td>
+										</tr>
+									}
+								</tbody>
+							</table>
+						</div>
+					}
+				</section>
+				<p class="mt-4 text-xs leading-relaxed text-muted-foreground">{ i18n.T(ctx, "admin.users.privacy") }</p>
+			</div>
+		</div>
+	</div>
+	@AdminSecurityVerificationDialog(adminSecurityVerificationValue(verification))
+}
+
+func adminUserMFAPolicyDialogID(user AdminUserData) string {
+	return "admin-user-mfa-policy-" + strings.NewReplacer("/", "-", " ", "-").Replace(user.ID)
+}
+
+func adminUserMFAPolicyButtonVariant(user AdminUserData) button.Variant {
+	if user.MFARequired {
+		return button.VariantDestructive
+	}
+	return button.VariantDefault
+}
+
+templ AdminUserMFAPolicyAction(user AdminUserData, stepUpRequired bool) {
+	if user.MFAPolicyPath != "" {
+		{{ policyDialogID := adminUserMFAPolicyDialogID(user) }}
+		<div class="mt-2">
+			@dialog.Trigger(dialog.TriggerProps{For: policyDialogID}) {
+				@button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeSm, Disabled: stepUpRequired || user.MFAPolicyCSRFToken == ""}) {
+					if user.MFARequired {
+						{ i18n.T(ctx, "admin.mfa.clear") }
+					} else {
+						{ i18n.T(ctx, "admin.mfa.require") }
+					}
+				}
+			}
+			@dialog.Dialog(dialog.Props{ID: policyDialogID}) {
+				@dialog.Content() {
+					@dialog.Header() {
+						@dialog.Title() {
+							if user.MFARequired {
+								{ i18n.T(ctx, "admin.mfa.clear_title") }
+							} else {
+								{ i18n.T(ctx, "admin.mfa.require_title", "user", adminUserUsername(ctx, user.Username)) }
+							}
+						}
+						@dialog.Description() {
+							if user.MFARequired {
+								{ i18n.T(ctx, "admin.mfa.clear_detail") }
+							} else {
+								{ i18n.T(ctx, "admin.mfa.require_detail") }
+							}
+						}
+					}
+					<form method="post" action={ user.MFAPolicyPath }>
+						<input type="hidden" name="_csrf" value={ user.MFAPolicyCSRFToken }/>
+						<input type="hidden" name="required" value={ fmt.Sprintf("%t", !user.MFARequired) }/>
+						@dialog.Footer() {
+							@dialog.Close() {
+								@button.Button(button.Props{Variant: button.VariantOutline}) {
+									{ i18n.T(ctx, "common.cancel") }
+								}
+							}
+							@button.Button(button.Props{Type: button.TypeSubmit, Variant: adminUserMFAPolicyButtonVariant(user)}) {
+								if user.MFARequired {
+									{ i18n.T(ctx, "admin.mfa.clear") }
+								} else {
+									{ i18n.T(ctx, "admin.mfa.require") }
+								}
+							}
+						}
+					</form>
+				}
+			}
+		</div>
+	}
+}
+
+templ AdminUserInvitationActions(user AdminUserData, stepUpRequired bool) {
+	if user.InvitationRotatePath != "" {
+		<div class="contents">
+			if user.InvitationState == "active" {
+				{{ revokeDialogID := adminUserInvitationDialogID("admin-invitation-revoke", user) }}
+				@dialog.Trigger(dialog.TriggerProps{For: revokeDialogID}) {
+					@button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeSm, Disabled: stepUpRequired || user.InvitationRevokeCSRFToken == ""}) {
+						{ i18n.T(ctx, "admin.invite.revoke") }
+					}
+				}
+				@dialog.Dialog(dialog.Props{ID: revokeDialogID}) {
+					@dialog.Content() {
+						@dialog.Header() {
+							@dialog.Title() {
+								{ i18n.T(ctx, "admin.invite.revoke_title") }
+							}
+							@dialog.Description() {
+								{ i18n.T(ctx, "admin.invite.revoke_detail", "user", adminUserUsername(ctx, user.Username)) }
+							}
+						}
+						<form method="post" action={ user.InvitationRevokePath }>
+							<input type="hidden" name="_csrf" value={ user.InvitationRevokeCSRFToken }/>
+							@dialog.Footer() {
+								@dialog.Close() {
+									@button.Button(button.Props{Variant: button.VariantOutline}) {
+										{ i18n.T(ctx, "common.cancel") }
+									}
+								}
+								@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantDestructive}) {
+									{ i18n.T(ctx, "admin.invite.revoke_button") }
+								}
+							}
+						</form>
+					}
+				}
+				{{ rotateDialogID := adminUserInvitationDialogID("admin-invitation-rotate", user) }}
+				@dialog.Trigger(dialog.TriggerProps{For: rotateDialogID}) {
+					@button.Button(button.Props{Size: button.SizeSm, Disabled: stepUpRequired || user.InvitationRotateCSRFToken == ""}) {
+						{ i18n.T(ctx, "admin.invite.rotate") }
+					}
+				}
+				@dialog.Dialog(dialog.Props{ID: rotateDialogID}) {
+					@dialog.Content() {
+						@dialog.Header() {
+							@dialog.Title() {
+								{ i18n.T(ctx, "admin.invite.rotate_title") }
+							}
+							@dialog.Description() {
+								{ i18n.T(ctx, "admin.invite.rotate_detail", "user", adminUserUsername(ctx, user.Username)) }
+							}
+						}
+						<form method="post" action={ user.InvitationRotatePath }>
+							<input type="hidden" name="_csrf" value={ user.InvitationRotateCSRFToken }/>
+							@dialog.Footer() {
+								@dialog.Close() {
+									@button.Button(button.Props{Variant: button.VariantOutline}) {
+										{ i18n.T(ctx, "common.cancel") }
+									}
+								}
+								@button.Button(button.Props{Type: button.TypeSubmit}) {
+									{ i18n.T(ctx, "admin.invite.rotate_button") }
+								}
+							}
+						</form>
+					}
+				}
+			} else {
+				<form method="post" action={ user.InvitationRotatePath }>
+					<input type="hidden" name="_csrf" value={ user.InvitationRotateCSRFToken }/>
+					@button.Button(button.Props{Type: button.TypeSubmit, Size: button.SizeSm, Disabled: stepUpRequired || user.InvitationRotateCSRFToken == ""}) {
+						{ i18n.T(ctx, "admin.invite.issue") }
+					}
+				</form>
+			}
+		</div>
+	}
+}
+
+func adminUserStatusDialogID(user AdminUserData) string {
+	return "admin-user-status-" + strings.NewReplacer("/", "-", " ", "-").Replace(user.ID)
+}
+
+templ AdminUserStatusAction(user AdminUserData, stepUpRequired bool) {
+	if user.StatusPath != "" {
+		{{ statusDialogID := adminUserStatusDialogID(user) }}
+		@dialog.Trigger(dialog.TriggerProps{For: statusDialogID}) {
+			@button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeSm, Disabled: stepUpRequired || user.StatusCSRFToken == ""}) {
+				if user.Status == "disabled" {
+					{ i18n.T(ctx, "admin.users.enable") }
+				} else {
+					{ i18n.T(ctx, "admin.users.disable") }
+				}
+			}
+		}
+		@dialog.Dialog(dialog.Props{ID: statusDialogID}) {
+			@dialog.Content() {
+				@dialog.Header() {
+					@dialog.Title() {
+						if user.Status == "disabled" {
+							{ i18n.T(ctx, "admin.users.enable_title", "user", adminUserUsername(ctx, user.Username)) }
+						} else {
+							{ i18n.T(ctx, "admin.users.disable_title", "user", adminUserUsername(ctx, user.Username)) }
+						}
+					}
+					@dialog.Description() {
+						if user.Status == "disabled" {
+							{ i18n.T(ctx, "admin.users.enable_detail") }
+						} else {
+							{ i18n.T(ctx, "admin.users.disable_detail") }
+						}
+					}
+				}
+				<form method="post" action={ user.StatusPath }>
+					<input type="hidden" name="_csrf" value={ user.StatusCSRFToken }/>
+					if user.Status == "disabled" {
+						<input type="hidden" name="status" value="active"/>
+					} else {
+						<input type="hidden" name="status" value="disabled"/>
+					}
+					@dialog.Footer() {
+						@dialog.Close() {
+							@button.Button(button.Props{Variant: button.VariantOutline}) {
+								{ i18n.T(ctx, "common.cancel") }
+							}
+						}
+						if user.Status == "disabled" {
+							@button.Button(button.Props{Type: button.TypeSubmit}) {
+								{ i18n.T(ctx, "admin.users.enable_button") }
+							}
+						} else {
+							@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantDestructive}) {
+								{ i18n.T(ctx, "admin.users.disable_button") }
+							}
+						}
+					}
+				</form>
+			}
+		}
+	}
+}
+
+func adminUserDeletionDialogID(user AdminUserData) string {
+	return "admin-user-delete-" + strings.NewReplacer("/", "-", " ", "-").Replace(user.ID)
+}
+
+templ AdminUserDeletionAction(user AdminUserData, stepUpRequired bool) {
+	if user.DeletionPath != "" {
+		{{ deletionDialogID := adminUserDeletionDialogID(user) }}
+		@dialog.Trigger(dialog.TriggerProps{For: deletionDialogID}) {
+			@button.Button(button.Props{Variant: button.VariantDestructive, Size: button.SizeSm, Disabled: stepUpRequired || user.DeletionCSRFToken == ""}) {
+				if user.DeletionPending {
+					{ i18n.T(ctx, "admin.delete.retry") }
+				} else {
+					{ i18n.T(ctx, "admin.delete.button") }
+				}
+			}
+		}
+		@dialog.Dialog(dialog.Props{ID: deletionDialogID}) {
+			@dialog.Content() {
+				@dialog.Header() {
+					@dialog.Title() {
+						{ i18n.T(ctx, "admin.delete.title", "user", adminUserUsername(ctx, user.Username)) }
+					}
+					@dialog.Description() {
+						{ i18n.T(ctx, "admin.delete.description") }
+					}
+				}
+				<div class="space-y-4 text-sm text-foreground">
+					<div class="rounded-lg border border-destructive/25 bg-destructive/5 px-4 py-3">
+						<p class="font-semibold text-destructive">{ i18n.T(ctx, "admin.delete.removes") }</p>
+						<ul class="mt-2 list-disc space-y-1 pl-5 text-muted-foreground">
+							<li>{ i18n.T(ctx, "admin.delete.removes_signin") }</li>
+							<li>{ i18n.T(ctx, "admin.delete.removes_mailboxes") }</li>
+							<li>{ i18n.T(ctx, "admin.delete.removes_data") }</li>
+						</ul>
+					</div>
+					<div class="rounded-lg border border-border bg-muted/35 px-4 py-3 text-muted-foreground">
+						<p><span class="font-semibold text-foreground">{ i18n.T(ctx, "admin.delete.remote_title") }</span> { i18n.T(ctx, "admin.delete.remote") }</p>
+						<p class="mt-2">{ i18n.T(ctx, "admin.delete.audit") }</p>
+					</div>
+					<div class="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-amber-900 dark:text-amber-100">
+						<p class="font-semibold">{ i18n.T(ctx, "admin.delete.backup_title") }</p>
+						<p class="mt-1">{ i18n.T(ctx, "admin.delete.backup") }</p>
+					</div>
+				</div>
+				<form method="post" action={ user.DeletionPath } class="mt-5">
+					<input type="hidden" name="_csrf" value={ user.DeletionCSRFToken }/>
+					<label for={ deletionDialogID + "-confirmation" } class="text-sm font-semibold text-foreground">{ i18n.T(ctx, "admin.delete.confirm_before") } <code class="font-mono">{ user.Username }</code> { i18n.T(ctx, "admin.delete.confirm_after") }</label>
+					<input
+						id={ deletionDialogID + "-confirmation" }
+						name="confirmation"
+						type="text"
+						autocomplete="off"
+						autocapitalize="none"
+						spellcheck="false"
+						required
+						class="mt-2 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+					/>
+					@dialog.Footer() {
+						@dialog.Close() {
+							@button.Button(button.Props{Variant: button.VariantOutline}) {
+								{ i18n.T(ctx, "common.cancel") }
+							}
+						}
+						@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantDestructive}) {
+							if user.DeletionPending {
+								{ i18n.T(ctx, "admin.delete.retry_button") }
+							} else {
+								{ i18n.T(ctx, "admin.delete.submit") }
+							}
+						}
+					}
+				</form>
+			}
+		}
+	}
+}
+
+func adminUserCredentialResetDialogID(user AdminUserData) string {
+	return "admin-user-credential-reset-" + strings.NewReplacer("/", "-", " ", "-").Replace(user.ID)
+}
+
+templ AdminUserCredentialResetAction(user AdminUserData, stepUpRequired bool) {
+	if user.CredentialResetPath != "" {
+		{{ resetDialogID := adminUserCredentialResetDialogID(user) }}
+		if stepUpRequired {
+			@button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeSm, Href: "/admin/users?" + url.Values{"reset_user": {user.ID}}.Encode()}) {
+				{ i18n.T(ctx, "admin.reset.generate") }
+			}
+		} else {
+			@dialog.Trigger(dialog.TriggerProps{For: resetDialogID}) {
+				@button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeSm, Disabled: stepUpRequired || user.CredentialResetCSRFToken == ""}) {
+					if user.PasswordResetRequestedAt != nil {
+						{ i18n.T(ctx, "admin.reset.generate") }
+					} else {
+						{ i18n.T(ctx, "admin.reset.generate") }
+					}
+				}
+			}
+		}
+		@dialog.Dialog(dialog.Props{ID: resetDialogID, Open: user.CredentialResetOpen && !stepUpRequired}) {
+			@dialog.Content() {
+				@dialog.Header() {
+					@dialog.Title() {
+						if user.PasswordResetRequestedAt != nil {
+							{ i18n.T(ctx, "admin.reset.issue_title", "user", adminUserUsername(ctx, user.Username)) }
+						} else {
+							{ i18n.T(ctx, "admin.reset.generate_title", "user", adminUserUsername(ctx, user.Username)) }
+						}
+					}
+					@dialog.Description() {
+						{ i18n.T(ctx, "admin.reset.detail") }
+					}
+				}
+				<form method="post" action={ user.CredentialResetPath }>
+					<input type="hidden" name="_csrf" value={ user.CredentialResetCSRFToken }/>
+					@dialog.Footer() {
+						@dialog.Close() {
+							@button.Button(button.Props{Variant: button.VariantOutline}) {
+								{ i18n.T(ctx, "common.cancel") }
+							}
+						}
+						@button.Button(button.Props{Type: button.TypeSubmit}) {
+							{ i18n.T(ctx, "admin.reset.submit") }
+						}
+					}
+				</form>
+			}
+		}
+		@AdminUserRequiredPasswordChangeAction(user, stepUpRequired)
+	}
+}
+
+templ AdminUserInvitationDialog(data AdminUsersData) {
+	@dialog.Dialog(dialog.Props{ID: "admin-user-invitation-dialog", Open: !data.StepUpRequired && adminUserInvitationFormOpen(data.InvitationForm)}) {
+		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-xl max-h-[calc(100vh-2rem)]"}) {
+			@dialog.Header() {
+				@dialog.Title() {
+					{ i18n.T(ctx, "admin.invite.title") }
+				}
+				@dialog.Description() {
+					{ i18n.T(ctx, "admin.invite.description") }
+				}
+			}
+			<form method="post" action="/admin/users/invitations" class="space-y-4">
+				if data.InvitationCSRFToken != "" {
+					<input type="hidden" name="_csrf" value={ data.InvitationCSRFToken }/>
+				}
+				<div class="space-y-1.5">
+					<label for="admin-invitation-name" class="block text-sm font-semibold text-foreground">{ i18n.T(ctx, "compose.from.display_name") }</label>
+					<input
+						id="admin-invitation-name"
+						name="name"
+						type="text"
+						value={ data.InvitationForm.Name }
+						maxlength="100"
+						required
+						autocomplete="off"
+						if adminUserInvitationFieldError(data.InvitationForm, "name") != "" {
+							aria-invalid="true"
+							aria-describedby="admin-invitation-name-error"
+						}
+						class="h-10 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/30 aria-[invalid=true]:border-destructive"
+					/>
+					if fieldError := adminUserInvitationFieldError(data.InvitationForm, "name"); fieldError != "" {
+						<p id="admin-invitation-name-error" class="text-xs font-medium text-destructive">{ fieldError }</p>
+					}
+				</div>
+				<div class="space-y-1.5">
+					<div class="space-y-1.5">
+						<label for="admin-invitation-username" class="block text-sm font-semibold text-foreground">{ i18n.T(ctx, "admin.invite.username") }</label>
+						<input
+							id="admin-invitation-username"
+							name="username"
+							type="text"
+							value={ data.InvitationForm.Username }
+							minlength="3"
+							maxlength="32"
+							required
+							autocomplete="off"
+							autocapitalize="none"
+							spellcheck="false"
+							if adminUserInvitationFieldError(data.InvitationForm, "username") != "" {
+								aria-invalid="true"
+								aria-describedby="admin-invitation-username-help admin-invitation-username-error"
+							} else {
+								aria-describedby="admin-invitation-username-help"
+							}
+							class="h-10 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/30 aria-[invalid=true]:border-destructive"
+						/>
+						<p id="admin-invitation-username-help" class="text-xs text-muted-foreground">{ i18n.T(ctx, "admin.invite.username_help") }</p>
+						if fieldError := adminUserInvitationFieldError(data.InvitationForm, "username"); fieldError != "" {
+							<p id="admin-invitation-username-error" class="text-xs font-medium text-destructive">{ fieldError }</p>
+						}
+					</div>
+				</div>
+				<div class="rounded-md border border-border bg-muted/35 px-3 py-2.5 text-xs leading-relaxed text-muted-foreground">
+					{ i18n.T(ctx, "admin.invite.note") }
+				</div>
+				@dialog.Footer() {
+					@dialog.Close(dialog.CloseProps{For: "admin-user-invitation-dialog"}) {
+						@button.Button(button.Props{Variant: button.VariantOutline}) {
+							{ i18n.T(ctx, "common.cancel") }
+						}
+					}
+					@button.Button(button.Props{Type: button.TypeSubmit, Disabled: data.StepUpRequired || data.InvitationCSRFToken == ""}) {
+						@icon.UserPlus(icon.Props{Class: "size-4"})
+						{ i18n.T(ctx, "admin.invite.create") }
+					}
+				}
+			</form>
+		}
+	}
+}
+
+templ AdminUserInvitationResultDialog(data *AdminUserInvitationData) {
+	@dialog.Dialog(dialog.Props{ID: "admin-user-invitation-result-dialog", Open: true, DisableClickAway: true, DisableESC: true}) {
+		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-xl max-h-[calc(100vh-2rem)]"}) {
+			@dialog.Header() {
+				@dialog.Title() {
+					if data.Rotated {
+						{ i18n.T(ctx, "admin.invite.rotated") }
+					} else {
+						{ i18n.T(ctx, "admin.invite.created") }
+					}
+				}
+				@dialog.Description() {
+					{ i18n.T(ctx, "admin.token.copy_now") }
+				}
+			}
+			<div role="status" class="rounded-md border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-800 dark:text-emerald-200">
+				<p class="font-semibold">
+					if data.Rotated {
+						{ i18n.T(ctx, "admin.invite.ready", "username", data.Username) }
+					} else {
+						{ i18n.T(ctx, "admin.invite.pending", "username", data.Username) }
+					}
+				</p>
+				<p class="mt-1 text-xs">{ i18n.T(ctx, "admin.invite.name_expires", "name", data.Name, "date", adminDateTimeZone(ctx, data.ExpiresAt)) }</p>
+			</div>
+			<div class="space-y-2">
+				<div class="flex items-center justify-between gap-3">
+					<label for="admin-user-invitation-details" class="text-sm font-semibold text-foreground">{ i18n.T(ctx, "admin.invite.details") }</label>
+					<div class="flex items-center gap-1 text-xs text-muted-foreground">
+						<span data-copy-tooltip-text>{ i18n.T(ctx, "admin.token.copy_details") }</span>
+						@copybutton.CopyButton(copybutton.Props{
+							TargetID: "admin-user-invitation-details",
+							Attrs:    templ.Attributes{"aria-label": i18n.T(ctx, "admin.invite.copy_label")},
+						})
+					</div>
+				</div>
+				<textarea id="admin-user-invitation-details" readonly rows="6" class="w-full resize-none rounded-md border border-border bg-background px-3 py-2 font-mono text-xs leading-relaxed text-foreground outline-none">{ adminUserInvitationCopyText(ctx, data) }</textarea>
+			</div>
+			<div class="rounded-md border border-amber-500/25 bg-amber-500/10 px-3 py-2.5 text-xs leading-relaxed text-amber-900 dark:text-amber-100">
+				{ i18n.T(ctx, "admin.invite.send_note") }
+			</div>
+			@dialog.Footer() {
+				@dialog.Close(dialog.CloseProps{For: "admin-user-invitation-result-dialog"}) {
+					@button.Button() {
+						{ i18n.T(ctx, "admin.invite.saved") }
+					}
+				}
+			}
+		}
+	}
+}
+
+templ AdminUserCredentialResetResultDialog(data *AdminUserCredentialResetData) {
+	@dialog.Dialog(dialog.Props{ID: "admin-user-credential-reset-result-dialog", Open: true, DisableClickAway: true, DisableESC: true}) {
+		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-xl max-h-[calc(100vh-2rem)]"}) {
+			@dialog.Header() {
+				@dialog.Title() {
+					{ i18n.T(ctx, "admin.reset.created") }
+				}
+				@dialog.Description() {
+					{ i18n.T(ctx, "admin.token.copy_now") }
+				}
+			}
+			<div role="status" class="rounded-md border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-800 dark:text-emerald-200">
+				<p class="font-semibold">{ i18n.T(ctx, "admin.reset.ready", "username", data.Username) }</p>
+				<p class="mt-1 text-xs">{ i18n.T(ctx, "admin.invite.expires", "date", adminDateTimeZone(ctx, data.ExpiresAt)) }</p>
+			</div>
+			<div class="space-y-2">
+				<div class="flex items-center justify-between gap-3">
+					<label for="admin-user-credential-reset-details" class="text-sm font-semibold text-foreground">{ i18n.T(ctx, "admin.reset.details") }</label>
+					<div class="flex items-center gap-1 text-xs text-muted-foreground">
+						<span data-copy-tooltip-text>{ i18n.T(ctx, "admin.token.copy_details") }</span>
+						@copybutton.CopyButton(copybutton.Props{
+							TargetID: "admin-user-credential-reset-details",
+							Attrs:    templ.Attributes{"aria-label": i18n.T(ctx, "admin.reset.copy_label")},
+						})
+					</div>
+				</div>
+				<textarea id="admin-user-credential-reset-details" readonly rows="6" class="w-full resize-none rounded-md border border-border bg-background px-3 py-2 font-mono text-xs leading-relaxed text-foreground outline-none">{ adminUserCredentialResetCopyText(ctx, data) }</textarea>
+			</div>
+			<div class="rounded-md border border-amber-500/25 bg-amber-500/10 px-3 py-2.5 text-xs leading-relaxed text-amber-900 dark:text-amber-100">
+				{ i18n.T(ctx, "admin.reset.send_note") }
+			</div>
+			@dialog.Footer() {
+				@dialog.Close(dialog.CloseProps{For: "admin-user-credential-reset-result-dialog"}) {
+					@button.Button() {
+						{ i18n.T(ctx, "admin.reset.saved") }
+					}
+				}
+			}
+		}
+	}
+}
+
+templ AdminUserRequiredPasswordChangeAction(user AdminUserData, stepUpRequired bool) {
+ if user.RequiredChangePath != "" {
+  {{ id := "admin-user-required-change-" + user.ID }}
+  if stepUpRequired {
+   @button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeSm, Href: "/admin/users?" + url.Values{"change_user": {user.ID}}.Encode()}) {
+    { i18n.T(ctx, "admin.required_change.button") }
+   }
+  } else {
+   @dialog.Trigger(dialog.TriggerProps{For: id}) {
+    @button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeSm, Disabled: user.PasswordChangeRequired}) {
+     { i18n.T(ctx, "admin.required_change.button") }
+    }
+   }
+  }
+  @dialog.Dialog(dialog.Props{ID: id, Open: user.RequiredChangeOpen && !stepUpRequired}) {
+   @dialog.Content() {
+    @dialog.Header() {
+     @dialog.Title() {
+      { i18n.T(ctx, "admin.required_change.title", "user", adminUserUsername(ctx, user.Username)) }
+     }
+     @dialog.Description() {
+      { i18n.T(ctx, "admin.required_change.detail") }
+     }
+    }
+    <form method="post" action={ user.RequiredChangePath }>
+     <input type="hidden" name="_csrf" value={ user.RequiredChangeCSRFToken }/>
+     @dialog.Footer() {
+      @dialog.Close() {
+       @button.Button(button.Props{Variant: button.VariantOutline}) {
+        { i18n.T(ctx, "common.cancel") }
+       }
+      }
+      @button.Button(button.Props{Type: button.TypeSubmit, Disabled: user.PasswordChangeRequired}) {
+       { i18n.T(ctx, "admin.required_change.submit") }
+      }
+     }
+    </form>
+   }
+  }
+ }
+}

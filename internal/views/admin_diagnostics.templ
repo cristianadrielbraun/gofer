@@ -1,0 +1,110 @@
+package views
+
+import (
+	"context"
+	"net/url"
+	"strings"
+
+	"github.com/cristianadrielbraun/gofer/components/selectbox"
+	switchcomp "github.com/cristianadrielbraun/gofer/components/switch"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
+	"github.com/cristianadrielbraun/gofer/internal/models"
+)
+
+func adminScopeURL(path string, scope models.AdminWebmailScope) string {
+	if strings.TrimSpace(scope.SelectedUserID) == "" {
+		return path
+	}
+	return path + "?user_id=" + url.QueryEscape(scope.SelectedUserID)
+}
+
+func adminScopeDescription(ctx context.Context, scope models.AdminWebmailScope) string {
+	if scope.SelectedUsername == "" {
+		return i18n.T(ctx, "admin.scope.all")
+	}
+	return i18n.T(ctx, "admin.scope.user", "username", scope.SelectedUsername)
+}
+
+templ AdminWebmailScopeFilter(scope models.AdminWebmailScope, path string) {
+	<form method="get" action={ path } class="w-full sm:w-72" data-admin-webmail-scope-form>
+		<label class="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "admin.scope.label") }</label>
+		@selectbox.SelectBox() {
+			@selectbox.Trigger(selectbox.TriggerProps{Name: "user_id", Class: "bg-background", DisableClear: true, Attributes: templ.Attributes{"data-admin-webmail-scope": ""}}) {
+				@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "admin.scope.all_accounts")})
+			}
+			@selectbox.Content(selectbox.ContentProps{SearchPlaceholder: i18n.T(ctx, "admin.scope.search")}) {
+				@selectbox.Item(selectbox.ItemProps{Value: "", Selected: scope.SelectedUserID == ""}) {
+					{ i18n.T(ctx, "admin.scope.all_accounts") }
+				}
+				for _, user := range scope.Users {
+					@selectbox.Item(selectbox.ItemProps{Value: user.ID, Selected: user.ID == scope.SelectedUserID}) {
+						{ user.Username }
+						if user.Status != "active" {
+							<span class="ml-1 text-xs text-muted-foreground">({ adminValueLabel(ctx, user.Status) })</span>
+						}
+					}
+				}
+			}
+		}
+		<p class="mt-1.5 text-xs leading-relaxed text-muted-foreground">{ adminScopeDescription(ctx, scope) }</p>
+	</form>
+}
+
+templ AdminTableUpdateControls() {
+	<div class="flex shrink-0 items-center gap-2">
+		<span class="text-xs font-semibold text-muted-foreground">{ i18n.T(ctx, "admin.live_updates") }</span>
+		@switchcomp.Switch(switchcomp.Props{Checked: true, Class: "avatar-live-switch", Attributes: templ.Attributes{"data-avatar-table-live": ""}})
+		<button type="button" class="avatar-table-refresh rounded-md border border-border bg-background px-3 py-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50" data-avatar-table-refresh disabled>
+			{ i18n.T(ctx, "admin.manual_refresh") }
+		</button>
+	</div>
+}
+
+templ AdminMetric(key string, label string, value int) {
+	<div class="rounded-lg border border-border bg-background/45 px-3 py-3 transition-colors duration-300" data-admin-metric={ key }>
+		<div class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{ label }</div>
+		<div class="mt-1 text-xl font-bold tabular-nums text-foreground" data-admin-metric-value>{ i18n.Number(ctx, value) }</div>
+	</div>
+}
+
+templ AdminCompactMetric(key string, label string, value int) {
+	<div class="flex items-center justify-between gap-3 rounded-lg px-2 py-1 transition-colors duration-300" data-admin-metric={ key }>
+		<div class="text-sm text-muted-foreground">{ label }</div>
+		<div class="text-sm font-semibold tabular-nums text-foreground" data-admin-metric-value>{ i18n.Number(ctx, value) }</div>
+	</div>
+}
+
+templ AdminCompactDetail(key string, label string, value string) {
+	<div class="flex items-center justify-between gap-3 rounded-lg px-2 py-1 transition-colors duration-300" data-admin-detail={ key }>
+		<div class="text-sm text-muted-foreground">{ label }</div>
+		<div class="max-w-40 truncate text-right text-sm font-semibold text-foreground" data-admin-detail-value>{ value }</div>
+	</div>
+}
+
+templ AdminErrorDetail(key string, label string, value string) {
+	<div class="space-y-1" data-admin-detail={ key }>
+		<div class="text-sm text-muted-foreground">{ label }</div>
+		<div class="line-clamp-3 break-words text-sm font-semibold text-foreground" data-admin-detail-value>{ value }</div>
+	</div>
+}
+
+templ AdminInlineMetric(key string, label string, value int) {
+	<div class="rounded-md border border-border bg-card px-2.5 py-1.5 transition-colors duration-300" data-admin-metric={ key }>
+		<div class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{ label }</div>
+		<div class="text-sm font-bold tabular-nums text-foreground" data-admin-metric-value>{ i18n.Number(ctx, value) }</div>
+	</div>
+}
+
+templ AdminInlineDetail(key string, label string, value string) {
+	<div class="inline-flex min-w-0 items-center gap-1.5 text-xs" data-admin-detail={ key }>
+		<span class="text-muted-foreground">{ label }</span>
+		<span class="max-w-40 truncate font-semibold text-foreground" data-admin-detail-value>{ value }</span>
+	</div>
+}
+
+templ AdminDetail(key string, label string, value string) {
+	<div class="rounded-lg border border-border bg-background/35 px-3 py-3 min-w-0" data-admin-detail={ key }>
+		<div class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{ label }</div>
+		<div class="mt-1 truncate text-sm font-medium text-foreground" data-admin-detail-value>{ value }</div>
+	</div>
+}
