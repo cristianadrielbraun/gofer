@@ -1771,7 +1771,7 @@ func (h *Handler) handleCancelAvatarBackfill(w http.ResponseWriter, r *http.Requ
 		_ = json.NewEncoder(w).Encode(map[string]bool{"canceled": canceled})
 		return
 	}
-	http.Redirect(w, r, "/admin/avatars/", http.StatusSeeOther)
+	http.Redirect(w, r, views.AdminAvatarsPath, http.StatusSeeOther)
 }
 
 func (h *Handler) avatarStatus(ctx context.Context, scope models.AdminWebmailScope) (models.AvatarStatus, error) {

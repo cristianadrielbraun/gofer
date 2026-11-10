@@ -134,6 +134,11 @@ func (m *Manager) isManagementRoute(path string) bool {
 		(m.config.AuthenticationMode() == ModeManaged && path == "/api/system/processing")
 }
 
+// ManagementAccountPath is the administrator's own sign-in methods and
+// sessions, inside the admin console. Security actions return to the shared
+// /settings/security address, which sends administrators here.
+const ManagementAccountPath = "/admin/account"
+
 func (m *Manager) enforceUserSurface(w http.ResponseWriter, r *http.Request, user *User) bool {
 	path := r.URL.Path
 	managementRoute := m.isManagementRoute(path)
@@ -146,7 +151,7 @@ func (m *Manager) enforceUserSurface(w http.ResponseWriter, r *http.Request, use
 			return true
 		}
 		if path == "/settings/security" && r.Method == http.MethodGet {
-			destination := "/admin/account/security"
+			destination := ManagementAccountPath
 			if r.URL.RawQuery != "" {
 				destination += "?" + r.URL.RawQuery
 			}

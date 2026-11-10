@@ -421,7 +421,7 @@ func (h *Handler) managementAccountOnly(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		user := auth.GetCurrentUser(r.Context())
 		if h.auth != nil && !h.auth.IsEnabled() && user != nil && user.ID == "default" {
-			http.Redirect(w, r, "/admin/avatars/", http.StatusFound)
+			http.Redirect(w, r, views.AdminAvatarsPath, http.StatusFound)
 			return
 		}
 		if user == nil || !user.IsManagement() || !user.IsAdmin {
@@ -3761,7 +3761,7 @@ func (h *Handler) renderPasswordSecurityTab(w http.ResponseWriter, r *http.Reque
 		http.Error(w, i18n.T(r.Context(), "server.error.authentication_required"), http.StatusUnauthorized)
 		return
 	}
-	managementSurface := r.URL.Path == "/admin/account/security" && user.IsManagement()
+	managementSurface := r.URL.Path == auth.ManagementAccountPath && user.IsManagement()
 	loginPath := "/login"
 	if managementSurface {
 		loginPath = "/admin/login"

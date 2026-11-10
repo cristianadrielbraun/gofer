@@ -23,7 +23,7 @@ func csrfProofForSession(t *testing.T, manager *auth.Manager, sessionToken, acti
 	probePath := "/settings/security"
 	if session, err := manager.GetSessionByToken(t.Context(), sessionToken); err == nil && session != nil {
 		if user, err := manager.GetUserByID(t.Context(), session.UserID); err == nil && user != nil && user.IsManagement() {
-			probePath = "/admin/account/security"
+			probePath = "/admin/account"
 		}
 	}
 	request := httptest.NewRequest(http.MethodGet, probePath, nil)

@@ -66,7 +66,7 @@ func TestOwnedAdminAvatarVisibilityUsesMailboxStores(t *testing.T) {
 		if response.Code != 200 || json.Unmarshal(response.Body.Bytes(), &status) != nil || status.Cache.Total != want || len(status.Recent) != want {
 			t.Fatal("status", selected, response.Code, response.Body.String())
 		}
-		if page := f.request("/admin/avatars/?user_id=" + selected); page.Code != 200 {
+		if page := f.request("/admin/system/diagnostics/avatars/?user_id=" + selected); page.Code != 200 {
 			t.Fatal("page", page.Code, page.Body.String())
 		}
 	}

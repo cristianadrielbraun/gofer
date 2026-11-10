@@ -27,7 +27,7 @@ for (const [address, expected] of [
 for (const tab of ['accounts', 'sync', 'rules', 'operations', 'contacts', 'appearance', 'regional', 'compose-display', 'security', 'advanced', 'export-import', 'about']) {
   assert.equal(route('/settings/' + tab).tab, tab)
 }
-for (const address of ['https://other.test/settings/accounts', '//other.test/contacts', '/settings/not-a-section', '/settings/security/verify', '/admin/account/security', '/api/calendar/events/one', '/mail/search?q=one', '/contacts#one', '/folder/inbox/one/extra']) {
+for (const address of ['https://other.test/settings/accounts', '//other.test/contacts', '/settings/not-a-section', '/settings/security/verify', '/admin/account', '/api/calendar/events/one', '/mail/search?q=one', '/contacts#one', '/folder/inbox/one/extra']) {
   assert.equal(route(address), null, 'Leave unsupported routes, verification flows, downloads and external navigation to the browser: ' + address)
   assert.equal(window.GoferNavigation.navigate(address), false)
 }

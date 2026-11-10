@@ -13,6 +13,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/auth"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
+	"github.com/cristianadrielbraun/gofer/internal/views"
 )
 
 func TestAdminRoutesRejectNonAdminUsers(t *testing.T) {
@@ -62,7 +63,48 @@ func TestAdminRootRedirectsToFirstSidebarSection(t *testing.T) {
 	}{
 		{path: "/admin", location: "/admin/users"},
 		{path: "/admin/", location: "/admin/users"},
-		{path: "/admin/avatars", location: "/admin/avatars/"},
+		{path: "/admin/avatars", location: "/admin/system/diagnostics/avatars/"},
+	} {
+		t.Run(test.path, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, test.path, nil)
+			req = req.WithContext(auth.ContextWithUser(req.Context(), &auth.User{
+				ID: "admin", UserType: auth.UserTypeManagement, IsAdmin: true,
+			}))
+			rec := httptest.NewRecorder()
+
+			mux.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusFound || rec.Header().Get("Location") != test.location {
+				t.Fatalf("redirect = %d %q, want 302 %q", rec.Code, rec.Header().Get("Location"), test.location)
+			}
+		})
+	}
+}
+
+func TestOldAdminAddressesRedirectWithTheirQuery(t *testing.T) {
+	h := &Handler{}
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	for _, test := range []struct {
+		path     string
+		location string
+	}{
+		{path: "/admin/avatars", location: views.AdminAvatarsPath},
+		{path: "/admin/avatars/", location: views.AdminAvatarsPath},
+		{path: "/admin/avatars/senders?user_id=mail+user", location: views.AdminAvatarsPath + "senders?user_id=mail+user"},
+		{path: "/admin/contacts?user_id=mail+user", location: views.AdminContactsPath + "?user_id=mail+user"},
+		{path: "/admin/contacts/", location: views.AdminContactsPath},
+		{path: "/admin/labels", location: views.AdminLabelsPath},
+		{path: "/admin/labels/?user_id=mail+user", location: views.AdminLabelsPath + "?user_id=mail+user"},
+		{path: "/admin/operations", location: views.AdminOperationsPath},
+		{path: "/admin/operations/", location: views.AdminOperationsPath},
+		{path: "/admin/account/security", location: auth.ManagementAccountPath},
+		{path: "/admin/account/security?session_revoked=1", location: auth.ManagementAccountPath + "?session_revoked=1"},
+		{path: "/admin/system", location: views.AdminAvatarsPath},
+		{path: "/admin/system/", location: views.AdminAvatarsPath},
+		{path: "/admin/system/diagnostics", location: views.AdminAvatarsPath},
+		{path: "/admin/system/diagnostics/avatars", location: views.AdminAvatarsPath},
 	} {
 		t.Run(test.path, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, test.path, nil)
@@ -95,13 +137,13 @@ func TestLocalModeAdminUsesOperationalHomeAndNavigation(t *testing.T) {
 	request := httptest.NewRequest(http.MethodGet, "/admin", nil)
 	response := httptest.NewRecorder()
 	stack.ServeHTTP(response, request)
-	if response.Code != http.StatusFound || response.Header().Get("Location") != "/admin/avatars/" {
+	if response.Code != http.StatusFound || response.Header().Get("Location") != "/admin/system/diagnostics/avatars/" {
 		t.Fatalf("local admin root = %d %q", response.Code, response.Header().Get("Location"))
 	}
 
 	var avatarHTML string
 	for _, path := range []string{
-		"/admin/avatars/", "/admin/contacts", "/admin/labels", "/admin/operations", "/admin/security",
+		"/admin/system/diagnostics/avatars/", "/admin/system/diagnostics/contacts", "/admin/system/diagnostics/labels", "/admin/system/diagnostics/operations", "/admin/security",
 	} {
 		request = httptest.NewRequest(http.MethodGet, path, nil)
 		response = httptest.NewRecorder()
@@ -109,20 +151,20 @@ func TestLocalModeAdminUsesOperationalHomeAndNavigation(t *testing.T) {
 		if response.Code != http.StatusOK {
 			t.Fatalf("local admin section %q = %d %q", path, response.Code, response.Body.String())
 		}
-		if path == "/admin/avatars/" {
+		if path == "/admin/system/diagnostics/avatars/" {
 			avatarHTML = response.Body.String()
 		}
 	}
 	for _, want := range []string{
-		`href="/admin/avatars/"`, `href="/admin/contacts"`, `href="/admin/labels"`,
-		`href="/admin/operations"`, `href="/admin/security"`, `href="/"`, "Back to webmail",
+		`href="/admin/system/diagnostics/avatars/"`, `href="/admin/system/diagnostics/contacts"`, `href="/admin/system/diagnostics/labels"`,
+		`href="/admin/system/diagnostics/operations"`, `href="/admin/security"`, `href="/"`, "Back to webmail",
 	} {
 		if !strings.Contains(avatarHTML, want) {
 			t.Fatalf("local admin navigation omitted %q", want)
 		}
 	}
 	for _, forbidden := range []string{
-		`href="/admin/users"`, `href="/admin/activity"`, `href="/admin/account/security"`,
+		`href="/admin/users"`, `href="/admin/activity"`, `href="/admin/account"`,
 		`action="/auth/logout"`, "Sign out of Admin",
 	} {
 		if strings.Contains(avatarHTML, forbidden) {
@@ -130,11 +172,11 @@ func TestLocalModeAdminUsesOperationalHomeAndNavigation(t *testing.T) {
 		}
 	}
 
-	for _, path := range []string{"/admin/users", "/admin/account/security"} {
+	for _, path := range []string{"/admin/users", "/admin/account"} {
 		request = httptest.NewRequest(http.MethodGet, path, nil)
 		response = httptest.NewRecorder()
 		stack.ServeHTTP(response, request)
-		if response.Code != http.StatusFound || response.Header().Get("Location") != "/admin/avatars/" {
+		if response.Code != http.StatusFound || response.Header().Get("Location") != "/admin/system/diagnostics/avatars/" {
 			t.Fatalf("local managed-only section %q = %d %q", path, response.Code, response.Header().Get("Location"))
 		}
 	}

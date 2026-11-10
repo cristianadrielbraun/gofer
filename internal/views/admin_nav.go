@@ -24,6 +24,17 @@ const (
 	AdminSectionAccountSecurity = "account-security"
 )
 
+// Where the System section's diagnostics live. AdminAvatarsPath ends in a
+// slash: its tabs follow it (overview has none).
+const (
+	AdminSystemPath      = "/admin/system"
+	AdminDiagnosticsPath = AdminSystemPath + "/diagnostics"
+	AdminAvatarsPath     = AdminDiagnosticsPath + "/avatars/"
+	AdminContactsPath    = AdminDiagnosticsPath + "/contacts"
+	AdminLabelsPath      = AdminDiagnosticsPath + "/labels"
+	AdminOperationsPath  = AdminDiagnosticsPath + "/operations"
+)
+
 // AdminShellPage is one page of the admin console: the section it belongs
 // to, the webmail user its diagnostics are narrowed to, and its content.
 type AdminShellPage struct {
@@ -59,17 +70,17 @@ var adminNavigation = []adminNavGroup{
 		{section: AdminSectionActivity, path: "/admin/activity", label: "admin.nav.activity_short", icon: icon.History, managed: true},
 	}},
 	{label: "admin.nav.group.system", items: []adminNavItem{
-		{section: AdminSectionAvatars, path: "/admin/avatars/", label: "admin.nav.avatars", short: "admin.nav.avatars_short", icon: icon.CircleUserRound, scoped: true},
-		{section: AdminSectionContacts, path: "/admin/contacts", label: "admin.nav.contacts", icon: icon.BookUser, scoped: true},
-		{section: AdminSectionLabels, path: "/admin/labels", label: "admin.nav.labels", icon: icon.Tags, scoped: true},
-		{section: AdminSectionOperations, path: "/admin/operations", label: "admin.nav.operations", short: "admin.nav.operations_short", icon: icon.ClipboardList, scoped: true},
+		{section: AdminSectionAvatars, path: AdminAvatarsPath, label: "admin.nav.avatars", short: "admin.nav.avatars_short", icon: icon.CircleUserRound, scoped: true},
+		{section: AdminSectionContacts, path: AdminContactsPath, label: "admin.nav.contacts", icon: icon.BookUser, scoped: true},
+		{section: AdminSectionLabels, path: AdminLabelsPath, label: "admin.nav.labels", icon: icon.Tags, scoped: true},
+		{section: AdminSectionOperations, path: AdminOperationsPath, label: "admin.nav.operations", short: "admin.nav.operations_short", icon: icon.ClipboardList, scoped: true},
 	}},
 }
 
 // adminAccountNavItem is the administrator's own sign-in and sessions. The
 // sidebar keeps it in its footer; the phone navigation lists it last.
 var adminAccountNavItem = adminNavItem{
-	section: AdminSectionAccountSecurity, path: "/admin/account/security",
+	section: AdminSectionAccountSecurity, path: auth.ManagementAccountPath,
 	label: "admin.nav.account_security", icon: icon.ShieldCheck, managed: true,
 }
 

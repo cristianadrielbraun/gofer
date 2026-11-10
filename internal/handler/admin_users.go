@@ -122,7 +122,7 @@ func adminUsersViewData(users []auth.AdministratorUserSummary, currentUserID str
 
 func (h *Handler) handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 	if h.auth != nil && !h.auth.IsEnabled() {
-		http.Redirect(w, r, "/admin/avatars/", http.StatusFound)
+		http.Redirect(w, r, views.AdminAvatarsPath, http.StatusFound)
 		return
 	}
 	h.renderAdminUsers(w, r, http.StatusOK, views.AdminUserInvitationFormData{}, nil, "")

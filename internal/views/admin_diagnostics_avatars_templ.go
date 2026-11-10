@@ -88,7 +88,7 @@ func AdminPage(status models.AvatarStatus, activeTab string) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = AdminWebmailScopeFilter(status.Scope, "/admin/avatars/"+activeTab).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = AdminWebmailScopeFilter(status.Scope, AdminAvatarsPath+activeTab).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

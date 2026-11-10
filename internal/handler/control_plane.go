@@ -2,8 +2,11 @@ package handler
 
 import (
 	"net/http"
+	"net/url"
+	"strings"
 
 	"github.com/cristianadrielbraun/gofer/internal/auth"
+	"github.com/cristianadrielbraun/gofer/internal/views"
 )
 
 // RegisterAuthenticationRoutes mounts installation-wide assets and application
@@ -69,14 +72,25 @@ func (h *Handler) registerAdministrationRoutes(mux *http.ServeMux) {
 	adminRoute := func(pattern string, handler http.HandlerFunc) {
 		mux.Handle(pattern, h.adminOnly(handler))
 	}
-	mux.Handle("GET /admin/account/security", h.managementAccountOnly(http.HandlerFunc(h.handleManagementAccountSecurity)))
+	mux.Handle("GET "+auth.ManagementAccountPath, h.managementAccountOnly(http.HandlerFunc(h.handleManagementAccountSecurity)))
+	mux.Handle("GET /admin/account/security", h.managementAccountOnly(redirectAdminPage(auth.ManagementAccountPath)))
 	adminRoute("GET /admin", h.handleAdminRedirect)
 	adminRoute("GET /admin/{$}", h.handleAdminRedirect)
-	adminRoute("GET /admin/avatars", h.handleAdminRedirect)
-	adminRoute("GET /admin/avatars/{$}", h.handleAdmin)
-	adminRoute("GET /admin/avatars/{tab}", h.handleAdmin)
-	adminRoute("GET /admin/contacts", h.handleAdminContacts)
-	adminRoute("GET /admin/contacts/{$}", h.handleAdminContacts)
+	// System has only its diagnostics until its health page arrives.
+	for _, path := range []string{views.AdminSystemPath, views.AdminDiagnosticsPath} {
+		adminRoute("GET "+path, redirectAdminPage(views.AdminAvatarsPath))
+		adminRoute("GET "+path+"/{$}", redirectAdminPage(views.AdminAvatarsPath))
+	}
+	adminRoute("GET "+strings.TrimSuffix(views.AdminAvatarsPath, "/"), redirectAdminPage(views.AdminAvatarsPath))
+	adminRoute("GET "+views.AdminAvatarsPath+"{$}", h.handleAdmin)
+	adminRoute("GET "+views.AdminAvatarsPath+"{tab}", h.handleAdmin)
+	adminRoute("GET "+views.AdminContactsPath, h.handleAdminContacts)
+	adminRoute("GET "+views.AdminContactsPath+"/{$}", h.handleAdminContacts)
+	adminRoute("GET "+views.AdminLabelsPath, h.handleAdminLabels)
+	adminRoute("GET "+views.AdminLabelsPath+"/{$}", h.handleAdminLabels)
+	adminRoute("GET "+views.AdminOperationsPath, h.handleAdminOperations)
+	adminRoute("GET "+views.AdminOperationsPath+"/{$}", h.handleAdminOperations)
+	h.registerOldAdminAddresses(adminRoute)
 	adminRoute("GET /admin/users", h.handleAdminUsers)
 	adminRoute("GET /admin/users/{$}", h.handleAdminUsers)
 	adminRoute("GET /admin/activity", h.handleAdminSecurityActivity)
@@ -89,10 +103,6 @@ func (h *Handler) registerAdministrationRoutes(mux *http.ServeMux) {
 	adminRoute("POST /admin/users/{userID}/credential-reset", h.handleIssueAdminUserCredentialReset)
 	adminRoute("POST /admin/users/{userID}/require-password-change", h.handleRequireUserPasswordChange)
 	adminRoute("POST /admin/users/{userID}/delete", h.handleDeleteAdminUser)
-	adminRoute("GET /admin/labels", h.handleAdminLabels)
-	adminRoute("GET /admin/labels/{$}", h.handleAdminLabels)
-	adminRoute("GET /admin/operations", h.handleAdminOperations)
-	adminRoute("GET /admin/operations/{$}", h.handleAdminOperations)
 	adminRoute("GET /admin/security", h.handleAdminSecurity)
 	adminRoute("POST /admin/security/http-discovery", h.handleAddHTTPDiscoveryException)
 	adminRoute("POST /admin/security/plaintext", h.handleAddPlaintextTransportException)
@@ -124,4 +134,34 @@ func (h *Handler) registerAdministrationRoutes(mux *http.ServeMux) {
 // a partial router without the runtime refuses owned user deletion.
 func (h *Handler) RegisterAdministrationRoutes(mux *http.ServeMux) {
 	h.registerAdministrationRoutes(mux)
+}
+
+// registerOldAdminAddresses keeps the addresses the admin pages had before
+// they moved, so bookmarks and links still arrive. Each sends its query
+// along: the chosen webmail user, and notices after a security change.
+func (h *Handler) registerOldAdminAddresses(adminRoute func(string, http.HandlerFunc)) {
+	adminRoute("GET /admin/avatars", redirectAdminPage(views.AdminAvatarsPath))
+	adminRoute("GET /admin/avatars/{$}", redirectAdminPage(views.AdminAvatarsPath))
+	adminRoute("GET /admin/avatars/{tab}", func(w http.ResponseWriter, r *http.Request) {
+		redirectAdminPage(views.AdminAvatarsPath+url.PathEscape(r.PathValue("tab")))(w, r)
+	})
+	for old, page := range map[string]string{
+		"/admin/contacts":   views.AdminContactsPath,
+		"/admin/labels":     views.AdminLabelsPath,
+		"/admin/operations": views.AdminOperationsPath,
+	} {
+		adminRoute("GET "+old, redirectAdminPage(page))
+		adminRoute("GET "+old+"/{$}", redirectAdminPage(page))
+	}
+}
+
+// redirectAdminPage sends a request on to target, keeping its query.
+func redirectAdminPage(target string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		destination := target
+		if r.URL.RawQuery != "" {
+			destination += "?" + r.URL.RawQuery
+		}
+		http.Redirect(w, r, destination, http.StatusFound)
+	}
 }

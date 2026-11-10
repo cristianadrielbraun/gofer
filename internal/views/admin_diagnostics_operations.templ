@@ -102,7 +102,7 @@ templ AdminMailOperationsPage(status models.MailOperationsAdminStatus) {
 						<h2 class="text-2xl font-bold text-foreground" style="font-family: var(--font-serif)">{ i18n.T(ctx, "admin.nav.operations") }</h2>
 						<p class="mt-1 max-w-3xl text-sm text-muted-foreground">{ i18n.T(ctx, "admin.ops.description") }</p>
 					</div>
-					@AdminWebmailScopeFilter(status.Scope, "/admin/operations")
+					@AdminWebmailScopeFilter(status.Scope, AdminOperationsPath)
 				</div>
 				<div class="grid gap-3 sm:grid-cols-2">
 					<div class="rounded-lg border border-border bg-card p-4">

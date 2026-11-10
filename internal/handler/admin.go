@@ -21,10 +21,11 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/views"
 )
 
+// handleAdminRedirect opens the console on its first section: Users for an
+// administrator, the diagnostics in open mode's local workspace.
 func (h *Handler) handleAdminRedirect(w http.ResponseWriter, r *http.Request) {
-	target := "/admin/avatars/"
-	if user := auth.GetCurrentUser(r.Context()); user != nil && user.IsManagement() &&
-		!strings.HasPrefix(r.URL.Path, "/admin/avatars") {
+	target := views.AdminAvatarsPath
+	if user := auth.GetCurrentUser(r.Context()); user != nil && user.IsManagement() {
 		target = "/admin/users"
 	}
 	http.Redirect(w, r, target, http.StatusFound)
@@ -631,7 +632,7 @@ func (h *Handler) handleForceContactBackfill(w http.ResponseWriter, r *http.Requ
 		_ = json.NewEncoder(w).Encode(map[string]bool{"started": started})
 		return
 	}
-	target := "/admin/contacts"
+	target := views.AdminContactsPath
 	if scope.SelectedUserID != "" {
 		target += "?user_id=" + url.QueryEscape(scope.SelectedUserID)
 	}

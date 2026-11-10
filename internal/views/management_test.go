@@ -46,7 +46,7 @@ func TestAdminShellOwnsItsNavigation(t *testing.T) {
 		"Sign out of Admin",
 		`href="/admin/users" data-admin-navigation-link data-admin-navigation-label="Users" aria-current="page"`,
 		`href="/admin/activity"`,
-		`href="/admin/account/security"`,
+		`href="/admin/account"`,
 		">People</p>", ">Security</p>", ">System</p>",
 		`data-management-shell`,
 		`src="/assets/js/passkey-authentication.js`,
@@ -111,8 +111,8 @@ func TestLocalAdminShellShowsOnlyOperationalNavigation(t *testing.T) {
 	}
 	html := out.String()
 	for _, want := range []string{
-		`href="/admin/avatars/"`, `href="/admin/contacts"`, `href="/admin/labels"`,
-		`href="/admin/operations"`, `href="/admin/security"`, "Back to webmail",
+		`href="/admin/system/diagnostics/avatars/"`, `href="/admin/system/diagnostics/contacts"`, `href="/admin/system/diagnostics/labels"`,
+		`href="/admin/system/diagnostics/operations"`, `href="/admin/security"`, "Back to webmail",
 		"Local administration workspace.", ">Local</span>",
 	} {
 		if !strings.Contains(html, want) {
@@ -120,7 +120,7 @@ func TestLocalAdminShellShowsOnlyOperationalNavigation(t *testing.T) {
 		}
 	}
 	for _, forbidden := range []string{
-		`href="/admin/users"`, `href="/admin/activity"`, `href="/admin/account/security"`,
+		`href="/admin/users"`, `href="/admin/activity"`, `href="/admin/account"`,
 		`action="/auth/logout"`, "Sign out of Admin", ">People</p>",
 	} {
 		if strings.Contains(html, forbidden) {
@@ -141,10 +141,10 @@ func TestAdminShellCarriesWebmailScopeAcrossDiagnostics(t *testing.T) {
 	}
 	html := out.String()
 	for _, want := range []string{
-		`href="/admin/avatars/?user_id=mail+user"`,
-		`href="/admin/contacts?user_id=mail+user"`,
-		`href="/admin/labels?user_id=mail+user"`,
-		`href="/admin/operations?user_id=mail+user"`,
+		`href="/admin/system/diagnostics/avatars/?user_id=mail+user"`,
+		`href="/admin/system/diagnostics/contacts?user_id=mail+user"`,
+		`href="/admin/system/diagnostics/labels?user_id=mail+user"`,
+		`href="/admin/system/diagnostics/operations?user_id=mail+user"`,
 	} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("scoped management navigation omitted %q", want)
@@ -166,7 +166,7 @@ func TestAdminAccountShellSuppressesExternalSignInSettings(t *testing.T) {
 	}
 	for _, want := range []string{
 		`body class="h-screen overflow-hidden`,
-		`href="/admin/account/security" data-admin-navigation-link data-admin-navigation-label="Account security" aria-current="page"`,
+		`href="/admin/account" data-admin-navigation-link data-admin-navigation-label="Account security" aria-current="page"`,
 		`src="/assets/js/htmx.min.js`,
 		`hx-get="/settings/security/activity?page=1"`,
 		`id="security-activity-dialog-body"`,

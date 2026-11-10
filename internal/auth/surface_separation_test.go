@@ -72,6 +72,8 @@ func TestMiddlewareSeparatesWebmailAndManagementSurfaces(t *testing.T) {
 		assertSurfaceResponse(t, manager, "management-token", http.MethodGet, "/", http.StatusSeeOther, "/admin", "<a href=\"/admin\">See Other</a>.\n\n")
 		assertSurfaceResponse(t, manager, "management-token", http.MethodGet, "/api/folders/unread", http.StatusForbidden, "", "{\"error\":\"account_surface_forbidden\"}\n")
 		assertSurfaceResponse(t, manager, "management-token", http.MethodGet, "/api/avatars/status", http.StatusForbidden, "", "{\"error\":\"account_surface_forbidden\"}\n")
+		// Security actions return to the shared address; administrators land on their own page.
+		assertSurfaceResponse(t, manager, "management-token", http.MethodGet, "/settings/security?session_revoked=1", http.StatusSeeOther, ManagementAccountPath+"?session_revoked=1", "<a href=\"/admin/account?session_revoked=1\">See Other</a>.\n\n")
 	})
 
 	t.Run("non-administrator management identity cannot authenticate", func(t *testing.T) {
@@ -89,7 +91,7 @@ func TestMiddlewareSeparatesWebmailAndManagementSurfaces(t *testing.T) {
 		}
 		insertSurfaceSession(t, manager, "pending-session", "pending-management", "pending-token", now)
 
-		assertSurfaceResponse(t, manager, "pending-token", http.MethodGet, "/admin/account/security", http.StatusSeeOther, "/admin/login", "<a href=\"/admin/login\">See Other</a>.\n\n")
+		assertSurfaceResponse(t, manager, "pending-token", http.MethodGet, "/admin/account", http.StatusSeeOther, "/admin/login", "<a href=\"/admin/login\">See Other</a>.\n\n")
 		assertSurfaceResponse(t, manager, "pending-token", http.MethodGet, "/admin/users", http.StatusSeeOther, "/admin/login", "<a href=\"/admin/login\">See Other</a>.\n\n")
 		assertSurfaceResponse(t, manager, "pending-token", http.MethodGet, "/", http.StatusSeeOther, "/login", "<a href=\"/login\">See Other</a>.\n\n")
 	})

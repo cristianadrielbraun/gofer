@@ -163,7 +163,7 @@ func TestSecuritySessionHistoryBoundsPagesAndRequiresFreshVerification(t *testin
 			t.Fatal("missing revocation action")
 		}
 	}
-	settings := request("/admin/account/security", false)
+	settings := request("/admin/account", false)
 	if settings.Code != http.StatusOK || !strings.Contains(settings.Body.String(), "Show older") || strings.Count(settings.Body.String(), "<dd>Signed in ") != 5 {
 		t.Fatalf("main sessions not bounded: %d", settings.Code)
 	}

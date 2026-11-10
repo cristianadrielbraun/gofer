@@ -45,7 +45,7 @@ func completedSecuritySettingsStack(t *testing.T) (*auth.Manager, *storage.DB, h
 
 func getSecuritySettings(t *testing.T, stack http.Handler, cookies ...*http.Cookie) *httptest.ResponseRecorder {
 	t.Helper()
-	return getSecuritySettingsPath(t, stack, "/admin/account/security", cookies...)
+	return getSecuritySettingsPath(t, stack, "/admin/account", cookies...)
 }
 
 func getSecuritySettingsPath(t *testing.T, stack http.Handler, path string, cookies ...*http.Cookie) *httptest.ResponseRecorder {
@@ -194,7 +194,7 @@ func TestSecuritySettingsListsOnlyCurrentUsersActiveAndRecentSessions(t *testing
 			t.Fatalf("%s session after targeted revocation = %#v, %v", label, found, err)
 		}
 	}
-	confirmation := getSecuritySettingsPath(t, stack, "/admin/account/security?session_revoked=1", sessionCookie)
+	confirmation := getSecuritySettingsPath(t, stack, "/admin/account?session_revoked=1", sessionCookie)
 	if confirmation.Code != http.StatusOK || !strings.Contains(confirmation.Body.String(), "Session signed out.") ||
 		!strings.Contains(confirmation.Body.String(), "Other Browser") ||
 		!strings.Contains(confirmation.Body.String(), "Signed out") {
@@ -525,7 +525,7 @@ func TestSecuritySettingsRecoveryBatchIsDisplayedOnceThenAcknowledged(t *testing
 	if complete.Code != http.StatusSeeOther || complete.Header().Get("Location") != "/settings/security?recovery_replaced=1" {
 		t.Fatalf("complete recovery batch = %d location:%q body:%q", complete.Code, complete.Header().Get("Location"), complete.Body.String())
 	}
-	confirmation := getSecuritySettingsPath(t, stack, "/admin/account/security?recovery_replaced=1", sessionCookie)
+	confirmation := getSecuritySettingsPath(t, stack, "/admin/account?recovery_replaced=1", sessionCookie)
 	if confirmation.Code != http.StatusOK || !strings.Contains(confirmation.Body.String(), "previous unused codes no longer work") ||
 		!strings.Contains(confirmation.Body.String(), "10 remaining") {
 		t.Fatalf("recovery replacement confirmation = %d %q", confirmation.Code, confirmation.Body.String())
@@ -601,7 +601,7 @@ func TestSecuritySettingsStaleSessionRequiresTOTPVerification(t *testing.T) {
 	if stepUp.Code != http.StatusSeeOther || stepUp.Header().Get("Location") != "/settings/security?verified=1" {
 		t.Fatalf("security step-up = %d location:%q body:%q", stepUp.Code, stepUp.Header().Get("Location"), stepUp.Body.String())
 	}
-	verified := getSecuritySettingsPath(t, stack, "/admin/account/security?verified=1", sessionCookie)
+	verified := getSecuritySettingsPath(t, stack, "/admin/account?verified=1", sessionCookie)
 	if verified.Code != http.StatusOK || !strings.Contains(verified.Body.String(), "Sensitive actions are available for ten minutes") ||
 		!strings.Contains(verified.Body.String(), `data-password-security-settings`) ||
 		!strings.Contains(verified.Body.String(), `data-local-login-identifiers`) ||

@@ -417,7 +417,7 @@ func TestLocalLoginTOTPContinuationCreatesMultiFactorSession(t *testing.T) {
 	}
 
 	returnCookieRecorder := httptest.NewRecorder()
-	auth.SetReturnToCookie(returnCookieRecorder, "/admin/account/security?from=mfa", true)
+	auth.SetReturnToCookie(returnCookieRecorder, "/admin/account?from=mfa", true)
 	returnCookie := responseCookie(returnCookieRecorder, "gofer_auth_return_to", true)
 	loginForm := url.Values{
 		"identifier": {"owner"},
@@ -477,7 +477,7 @@ func TestLocalLoginTOTPContinuationCreatesMultiFactorSession(t *testing.T) {
 	request.AddCookie(returnCookie)
 	verified := httptest.NewRecorder()
 	stack.ServeHTTP(verified, request)
-	if verified.Code != http.StatusSeeOther || verified.Header().Get("Location") != "/admin/account/security?from=mfa" || strings.Contains(verified.Body.String(), validCode) {
+	if verified.Code != http.StatusSeeOther || verified.Header().Get("Location") != "/admin/account?from=mfa" || strings.Contains(verified.Body.String(), validCode) {
 		t.Fatalf("verified TOTP continuation = %d location:%q body:%q", verified.Code, verified.Header().Get("Location"), verified.Body.String())
 	}
 	sessionCookie := responseCookie(verified, "gofer_session", true)

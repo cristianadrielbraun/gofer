@@ -373,7 +373,7 @@ func TestAdminUsersPageDisablesInvitationUntilRecentVerification(t *testing.T) {
 			t.Fatalf("stale administrator invitation view missing %q: %s", want, html)
 		}
 	}
-	if strings.Contains(html, `href="/admin/account/security"`) {
+	if strings.Contains(html, `href="/admin/account"`) {
 		t.Fatal("stale administrator invitation view still sends verification to account security")
 	}
 }

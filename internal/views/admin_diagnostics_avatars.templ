@@ -39,7 +39,7 @@ templ AdminPage(status models.AvatarStatus, activeTab string) {
 						<p class="mt-1 max-w-2xl text-sm text-muted-foreground">{ i18n.T(ctx, "admin.avatars.description") }</p>
 					</div>
 					<div class="flex w-full shrink-0 flex-col items-end gap-3 lg:w-auto">
-						@AdminWebmailScopeFilter(status.Scope, "/admin/avatars/"+activeTab)
+						@AdminWebmailScopeFilter(status.Scope, AdminAvatarsPath+activeTab)
 						<div class="flex flex-wrap items-center justify-end gap-2">
 							<form method="post" action="/admin/avatar-backfill/recheck">
 								<button

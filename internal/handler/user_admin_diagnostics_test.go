@@ -133,7 +133,7 @@ func TestOwnedAdminDiagnosticsAggregateAndSelectOwners(t *testing.T) {
 				}
 			}
 		}
-		for _, path := range []string{"/admin/contacts", "/admin/labels", "/admin/operations"} {
+		for _, path := range []string{"/admin/system/diagnostics/contacts", "/admin/system/diagnostics/labels", "/admin/system/diagnostics/operations"} {
 			response := f.request(path + query)
 			if response.Code != 200 {
 				t.Fatal("admin page", path, response.Code, response.Body.String())
