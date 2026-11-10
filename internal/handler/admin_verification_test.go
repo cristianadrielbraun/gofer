@@ -17,11 +17,21 @@ func TestAdminSecurityVerificationReturnToAllowsOnlyKnownAdminPages(t *testing.T
 		want  string
 	}{
 		{value: "/admin/users", want: "/admin/users"},
-		{value: "/admin/users?reset_user=reset-target", want: "/admin/users?reset_user=reset-target"},
-		{value: "/admin/users?reset_user="},
-		{value: "/admin/users?reset_user=a&reset_user=b"},
-		{value: "/admin/users?reset_user=a&next=/admin"},
-		{value: "/admin/users?reset_user=%3Cscript%3E"},
+		{value: "/admin/users/reset-target/credential-reset", want: "/admin/users/reset-target/credential-reset"},
+		{value: "/admin/users/reset-target/require-password-change", want: "/admin/users/reset-target/require-password-change"},
+		{value: "/admin/users/target_2/mfa-policy", want: "/admin/users/target_2/mfa-policy"},
+		{value: "/admin/users/target/status", want: "/admin/users/target/status"},
+		{value: "/admin/users/target/delete", want: "/admin/users/target/delete"},
+		{value: "/admin/users/invitations/AAAAAAAAAAAAAAAAAAAAA-bbbbbbbbbbbbbbbbbbbb_/revoke", want: "/admin/users/invitations/AAAAAAAAAAAAAAAAAAAAA-bbbbbbbbbbbbbbbbbbbb_/revoke"},
+		{value: "/admin/users/invitations/AAAAAAAAAAAAAAAAAAAAA-bbbbbbbbbbbbbbbbbbbb_/rotate", want: "/admin/users/invitations/AAAAAAAAAAAAAAAAAAAAA-bbbbbbbbbbbbbbbbbbbb_/rotate"},
+		{value: "/admin/users/invitations/short/rotate"},
+		{value: "/admin/users/invitations/AAAAAAAAAAAAAAAAAAAAA-bbbbbbbbbbbbbbbbbbbb_/delete"},
+		{value: "/admin/users/target/credential-reset?next=/admin"},
+		{value: "/admin/users/target/unknown"},
+		{value: "/admin/users/a/b/status"},
+		{value: "/admin/users/%3Cscript%3E/status"},
+		{value: "/admin/users//status"},
+		{value: "/admin/users?reset_user=reset-target"},
 		{value: "/admin/security", want: "/admin/security"},
 		{value: "/admin/activity", want: "/admin/activity"},
 		{value: "/admin/activity?page=2", want: "/admin/activity?page=2"},
@@ -152,41 +162,53 @@ func TestAdminPasswordResetResumesConfirmationAfterVerification(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			// A dialog opened while the session was fresh.
+			proof := csrfProofFromForm(t, adminUserActionDialog(t, stack, cookie, action.path), action.path)
 			if _, err := db.Write().ExecContext(t.Context(), `UPDATE sessions SET step_up_at = ? WHERE id = ?`, now.Add(-11*time.Minute), session.ID); err != nil {
 				t.Fatal(err)
 			}
 			if _, err := db.Write().ExecContext(t.Context(), `UPDATE totp_credentials SET last_accepted_step = ? WHERE user_id = ?`, now.Unix()/30-1, session.UserID); err != nil {
 				t.Fatal(err)
 			}
-			get := func(path string) *httptest.ResponseRecorder {
+			get := func(path string, htmx bool) *httptest.ResponseRecorder {
 				r := httptest.NewRequest(http.MethodGet, path, nil)
+				if htmx {
+					r.Header.Set("HX-Request", "true")
+				}
 				r.AddCookie(cookie)
 				w := httptest.NewRecorder()
 				stack.ServeHTTP(w, r)
 				return w
 			}
-			continuation := "/admin/users?" + action.key + "=resume-target"
-			page := get(continuation)
-			if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), `name="return_to" value="`+continuation+`"`) {
-				t.Fatalf("missing reset continuation: %d %s", page.Code, page.Body.String())
+			old := get("/admin/users?"+action.key+"=resume-target", false)
+			if old.Code != http.StatusFound || old.Header().Get("Location") != action.path {
+				t.Fatalf("old continuation address = %d %q", old.Code, old.Header().Get("Location"))
 			}
-			stalePost := postSecuritySettings(t, stack, action.path, url.Values{
-				auth.CSRFFormFieldName: {csrfProofFromForm(t, page.Body.String(), action.path)},
-			}, cookie)
-			if stalePost.Code != http.StatusForbidden || !strings.Contains(stalePost.Body.String(), `name="return_to" value="`+continuation+`"`) {
+			// From the menu, a stale session leaves the page for verification.
+			fetched := get(action.path, true)
+			if fetched.Code != http.StatusNoContent || fetched.Header().Get("HX-Redirect") != action.path {
+				t.Fatalf("stale dialog fetch = %d %q", fetched.Code, fetched.Header().Get("HX-Redirect"))
+			}
+			page := get(action.path, false)
+			if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), `name="return_to" value="`+action.path+`"`) ||
+				strings.Contains(page.Body.String(), `id="`+action.dialog+`resume-target"`) {
+				t.Fatalf("stale action address did not ask for verification first: %d %s", page.Code, page.Body.String())
+			}
+			stalePost := postSecuritySettings(t, stack, action.path, url.Values{auth.CSRFFormFieldName: {proof}}, cookie)
+			if stalePost.Code != http.StatusForbidden || !strings.Contains(stalePost.Body.String(), `name="return_to" value="`+action.path+`"`) {
 				t.Fatal("expired reset submission lost its target during verification")
 			}
-			values := url.Values{"code": {setupHandlerTOTPCodeAt(t, secret, now)}, "return_to": {continuation}, auth.CSRFFormFieldName: {csrfProofFromForm(t, page.Body.String(), securityStepUpPath)}}
+			values := url.Values{"code": {setupHandlerTOTPCodeAt(t, secret, now)}, "return_to": {action.path}, auth.CSRFFormFieldName: {csrfProofFromForm(t, page.Body.String(), securityStepUpPath)}}
 			r := httptest.NewRequest(http.MethodPost, securityStepUpPath, strings.NewReader(values.Encode()))
 			r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 			r.Header.Set("Accept", "application/json")
 			r.AddCookie(cookie)
 			verified := httptest.NewRecorder()
 			stack.ServeHTTP(verified, r)
-			if verified.Code != http.StatusOK || !strings.Contains(verified.Body.String(), `"redirect":"`+continuation+`"`) {
+			if verified.Code != http.StatusOK || !strings.Contains(verified.Body.String(), `"redirect":"`+action.path+`"`) {
 				t.Fatalf("verification lost continuation: %d %s", verified.Code, verified.Body.String())
 			}
-			resumed := get(continuation)
+			resumed := get(action.path, false)
 			html := resumed.Body.String()
 			start := strings.Index(html, `id="`+action.dialog+`resume-target"`)
 			if resumed.Code != http.StatusOK || start < 0 {
@@ -205,9 +227,11 @@ func TestAdminPasswordResetResumesConfirmationAfterVerification(t *testing.T) {
 				t.Fatal("verification required a password change before confirmation")
 			}
 			for _, target := range []string{"missing-target", session.UserID} {
-				unavailable := get("/admin/users?" + action.key + "=" + target)
-				if strings.Contains(unavailable.Body.String(), `id="`+action.dialog+target+`"`) {
-					t.Fatal("unavailable target received a reset dialog")
+				path := strings.Replace(action.path, "resume-target", target, 1)
+				unavailable := get(path, false)
+				if unavailable.Code != http.StatusSeeOther || unavailable.Header().Get("Location") != "/admin/users" ||
+					strings.Contains(unavailable.Body.String(), `id="`+action.dialog+target+`"`) || !adminFlashFailed(t, unavailable) {
+					t.Fatalf("unavailable target %q = %d %q", target, unavailable.Code, unavailable.Body.String())
 				}
 			}
 		})

@@ -3,48 +3,42 @@ package views
 import (
 	"context"
 	"fmt"
-	"net/url"
 	"strings"
 	"time"
 
 	"github.com/cristianadrielbraun/gofer/components/button"
 	"github.com/cristianadrielbraun/gofer/components/copybutton"
 	"github.com/cristianadrielbraun/gofer/components/dialog"
+	"github.com/cristianadrielbraun/gofer/components/dropdown"
 	"github.com/cristianadrielbraun/gofer/components/icon"
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
 )
 
+// AdminUserData is one person as the Users page lists them. Each action's
+// path is its address, or empty when the action doesn't apply to them: the
+// address shows the action's dialog (GET) and makes the change (POST).
 type AdminUserData struct {
-	RequiredChangePath string
-	RequiredChangeCSRFToken string
-	RequiredChangeOpen bool
-	HasPassword bool
-	PasswordChangeRequired bool
-	ID                        string
-	Username                  string
-	Status                    string
-	Role                      string
-	Current                   bool
-	MFALabel                  string
-	MFADetail                 string
-	MFARequired               bool
-	MFAPolicyPath             string
-	MFAPolicyCSRFToken        string
-	StatusPath                string
-	StatusCSRFToken           string
-	CredentialResetPath       string
-	CredentialResetCSRFToken  string
-	CredentialResetOpen       bool
-	DeletionPending           bool
-	DeletionPath              string
-	DeletionCSRFToken         string
-	PasswordResetRequestedAt  *time.Time
-	InvitationState           string
-	InvitationExpiresAt       *time.Time
-	InvitationRevokePath      string
-	InvitationRevokeCSRFToken string
-	InvitationRotatePath      string
-	InvitationRotateCSRFToken string
+	ID                       string
+	Username                 string
+	Status                   string
+	Role                     string
+	Current                  bool
+	HasPassword              bool
+	PasswordChangeRequired   bool
+	MFALabel                 string
+	MFADetail                string
+	MFARequired              bool
+	DeletionPending          bool
+	PasswordResetRequestedAt *time.Time
+	InvitationState          string
+	InvitationExpiresAt      *time.Time
+	MFAPolicyPath            string
+	StatusPath               string
+	CredentialResetPath      string
+	RequiredChangePath       string
+	DeletionPath             string
+	InvitationRevokePath     string
+	InvitationRotatePath     string
 }
 
 type AdminUsersData struct {
@@ -59,6 +53,9 @@ type AdminUsersData struct {
 	InvitationForm      AdminUserInvitationFormData
 	Invitation          *AdminUserInvitationData
 	CredentialReset     *AdminUserCredentialResetData
+	// Dialog opens with the page, when the page was asked for at an
+	// action's address.
+	Dialog *AdminUserDialog
 }
 
 type AdminUserInvitationFormData struct {
@@ -81,6 +78,129 @@ type AdminUserCredentialResetData struct {
 	RedemptionURL string
 	Token         string
 	ExpiresAt     time.Time
+}
+
+// AdminUserAction is one thing the Users page can do to a person.
+type AdminUserAction string
+
+const (
+	AdminUserActionMFAPolicy        AdminUserAction = "mfa-policy"
+	AdminUserActionStatus           AdminUserAction = "status"
+	AdminUserActionCredentialReset  AdminUserAction = "credential-reset"
+	AdminUserActionRequiredChange   AdminUserAction = "require-password-change"
+	AdminUserActionDeletion         AdminUserAction = "delete"
+	AdminUserActionInvitationRevoke AdminUserAction = "invitation-revoke"
+	AdminUserActionInvitationRotate AdminUserAction = "invitation-rotate"
+)
+
+// Path is the address of action for this person, or "" when it doesn't
+// apply to them. Revoking needs an invitation that still works.
+func (user AdminUserData) Path(action AdminUserAction) string {
+	switch action {
+	case AdminUserActionMFAPolicy:
+		return user.MFAPolicyPath
+	case AdminUserActionStatus:
+		return user.StatusPath
+	case AdminUserActionCredentialReset:
+		return user.CredentialResetPath
+	case AdminUserActionRequiredChange:
+		return user.RequiredChangePath
+	case AdminUserActionDeletion:
+		return user.DeletionPath
+	case AdminUserActionInvitationRevoke:
+		if user.InvitationState == "active" {
+			return user.InvitationRevokePath
+		}
+	case AdminUserActionInvitationRotate:
+		return user.InvitationRotatePath
+	}
+	return ""
+}
+
+// AdminUserDialog is one action's dialog for one person. The page asks for
+// it when the administrator picks the action, so a form's CSRF proof is
+// made only for the dialog that opens.
+type AdminUserDialog struct {
+	Action    AdminUserAction
+	User      AdminUserData
+	CSRFToken string
+}
+
+// adminUserDialogSlotID is where the Users page puts the dialog of the
+// action picked from a person's menu.
+const adminUserDialogSlotID = "admin-user-dialog"
+
+// adminUserMenuEntry is one entry of a person's action menu.
+type adminUserMenuEntry struct {
+	Path        string
+	Label       string
+	Icon        func(...icon.Props) templ.Component
+	Destructive bool
+	Disabled    bool
+}
+
+// adminUserMenuEntries are the entries of user's action menu, in order:
+// invitation, sign-in, two-step sign-in, access, and deletion last.
+func adminUserMenuEntries(ctx context.Context, user AdminUserData) []adminUserMenuEntry {
+	var entries []adminUserMenuEntry
+	if path := user.Path(AdminUserActionInvitationRevoke); path != "" {
+		entries = append(entries, adminUserMenuEntry{Path: path, Label: i18n.T(ctx, "admin.invite.revoke_button"), Icon: icon.MailX})
+	}
+	if path := user.Path(AdminUserActionInvitationRotate); path != "" {
+		if user.InvitationState == "active" {
+			entries = append(entries, adminUserMenuEntry{Path: path, Label: i18n.T(ctx, "admin.invite.rotate_menu"), Icon: icon.RefreshCw})
+		} else {
+			entries = append(entries, adminUserMenuEntry{Path: path, Label: i18n.T(ctx, "admin.invite.issue"), Icon: icon.MailPlus})
+		}
+	}
+	if path := user.Path(AdminUserActionCredentialReset); path != "" {
+		entries = append(entries, adminUserMenuEntry{Path: path, Label: i18n.T(ctx, "admin.reset.generate"), Icon: icon.KeyRound})
+	}
+	if path := user.Path(AdminUserActionRequiredChange); path != "" {
+		entries = append(entries, adminUserMenuEntry{
+			Path: path, Label: i18n.T(ctx, "admin.required_change.button"), Icon: icon.RectangleEllipsis,
+			Disabled: user.PasswordChangeRequired,
+		})
+	}
+	if path := user.Path(AdminUserActionMFAPolicy); path != "" {
+		if user.MFARequired {
+			entries = append(entries, adminUserMenuEntry{Path: path, Label: i18n.T(ctx, "admin.mfa.clear_menu"), Icon: icon.ShieldOff})
+		} else {
+			entries = append(entries, adminUserMenuEntry{Path: path, Label: i18n.T(ctx, "admin.mfa.require"), Icon: icon.ShieldCheck})
+		}
+	}
+	if path := user.Path(AdminUserActionStatus); path != "" {
+		if user.Status == "disabled" {
+			entries = append(entries, adminUserMenuEntry{Path: path, Label: i18n.T(ctx, "admin.users.enable"), Icon: icon.UserCheck})
+		} else {
+			entries = append(entries, adminUserMenuEntry{Path: path, Label: i18n.T(ctx, "admin.users.disable"), Icon: icon.UserX})
+		}
+	}
+	if path := user.Path(AdminUserActionDeletion); path != "" {
+		label := i18n.T(ctx, "admin.delete.button")
+		if user.DeletionPending {
+			label = i18n.T(ctx, "admin.delete.retry")
+		}
+		entries = append(entries, adminUserMenuEntry{Path: path, Label: label, Icon: icon.Trash2, Destructive: true})
+	}
+	return entries
+}
+
+// adminUserMenuItemAttributes make a menu entry fetch its dialog with htmx.
+// A session that must verify again follows the link instead: the page then
+// asks for verification and comes back to the dialog.
+func adminUserMenuItemAttributes(path string, stepUpRequired bool) templ.Attributes {
+	if stepUpRequired {
+		return templ.Attributes{"data-admin-navigation-link": ""}
+	}
+	return templ.Attributes{"hx-get": path, "hx-target": "#" + adminUserDialogSlotID, "hx-swap": "innerHTML"}
+}
+
+func adminUserMenuItemClass(destructive bool) string {
+	if destructive {
+		return "justify-start gap-2 text-destructive hover:text-destructive focus:text-destructive"
+	}
+	return "justify-start gap-2"
 }
 
 func adminUserUsername(ctx context.Context, username string) string {
@@ -172,6 +292,11 @@ templ AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificat
 				if data.CredentialReset != nil {
 					@AdminUserCredentialResetResultDialog(data.CredentialReset)
 				}
+				<div id={ adminUserDialogSlotID }>
+					if data.Dialog != nil {
+						@AdminUserActionDialog(*data.Dialog)
+					}
+				</div>
 				<div class="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4" aria-label={ i18n.T(ctx, "admin.users.summary") }>
 					<div class="rounded-lg border border-border bg-card px-4 py-3">
 						<p class="text-xs font-medium text-muted-foreground">{ i18n.T(ctx, "admin.users.stat.active") }</p>
@@ -216,7 +341,7 @@ templ AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificat
 										<tr class="bg-background/35 align-top hover:bg-accent/35">
 											<td class="px-4 py-3">
 												<div class="flex flex-wrap items-center gap-2">
-													<span class="font-semibold text-foreground">{ adminUserUsername(ctx, user.Username) }</span>
+													<span class="whitespace-nowrap font-semibold text-foreground">{ adminUserUsername(ctx, user.Username) }</span>
 													if user.Current {
 														<span class="rounded-full border border-primary/25 bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">{ i18n.T(ctx, "admin.users.you") }</span>
 													}
@@ -237,6 +362,17 @@ templ AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificat
 														{ adminValueLabel(ctx, user.Status) }
 													}
 												</span>
+												if user.PasswordChangeRequired {
+													<p class="mt-2">
+														<span class="inline-flex whitespace-nowrap rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-800 dark:text-amber-200">{ i18n.T(ctx, "admin.users.password_change_required") }</span>
+													</p>
+												}
+												if user.PasswordResetRequestedAt != nil {
+													<p class="mt-2">
+														<span class="inline-flex whitespace-nowrap rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-800 dark:text-amber-200">{ i18n.T(ctx, "admin.users.reset_requested") }</span>
+													</p>
+													<p class="mt-1 whitespace-nowrap text-xs text-muted-foreground">{ i18n.T(ctx, "admin.users.requested_at", "date", i18n.Dates(ctx).ShortDateTime(user.PasswordResetRequestedAt.Local())) }</p>
+												}
 											</td>
 											<td class="px-4 py-3">
 												<span
@@ -256,7 +392,6 @@ templ AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificat
 													}
 												>{ adminValueLabel(ctx, user.MFALabel) }</span>
 												<p class="mt-1 whitespace-nowrap text-xs text-muted-foreground">{ adminValueLabel(ctx, user.MFADetail) }</p>
-												@AdminUserMFAPolicyAction(user, data.StepUpRequired)
 											</td>
 											<td class="px-4 py-3">
 												if user.InvitationRotatePath == "" {
@@ -283,26 +418,10 @@ templ AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificat
 												}
 											</td>
 											<td class="px-4 py-3 text-right">
-												if user.InvitationRotatePath == "" && user.CredentialResetPath == "" && user.StatusPath == "" && user.DeletionPath == "" {
+												if entries := adminUserMenuEntries(ctx, user); len(entries) == 0 {
 													<span class="text-xs text-muted-foreground">—</span>
 												} else {
-													<div class="flex flex-col items-end gap-2">
-														if user.PasswordChangeRequired {
-															<span class="inline-flex rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-800 dark:text-amber-200">{ i18n.T(ctx, "admin.users.password_change_required") }</span>
-														}
-														if user.PasswordResetRequestedAt != nil {
-															<div>
-																<span class="inline-flex rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-800 dark:text-amber-200">{ i18n.T(ctx, "admin.users.reset_requested") }</span>
-																<p class="mt-1 text-xs text-muted-foreground">{ i18n.T(ctx, "admin.users.requested_at", "date", i18n.Dates(ctx).ShortDateTime(user.PasswordResetRequestedAt.Local())) }</p>
-															</div>
-														}
-														<div class="flex items-center justify-end gap-2">
-															@AdminUserInvitationActions(user, data.StepUpRequired)
-															@AdminUserCredentialResetAction(user, data.StepUpRequired)
-															@AdminUserStatusAction(user, data.StepUpRequired)
-															@AdminUserDeletionAction(user, data.StepUpRequired)
-														</div>
-													</div>
+													@adminUserActionsMenu(user, entries, data.StepUpRequired)
 												}
 											</td>
 											<td class="px-4 py-3"><code class="break-all font-mono text-xs text-muted-foreground">{ user.ID }</code></td>
@@ -320,6 +439,71 @@ templ AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificat
 	@AdminSecurityVerificationDialog(adminSecurityVerificationValue(verification))
 }
 
+// adminUserActionsMenu is the ⋮ menu of what the administrator can do to
+// user, each entry leading to its action's dialog.
+templ adminUserActionsMenu(user AdminUserData, entries []adminUserMenuEntry, stepUpRequired bool) {
+	@dropdown.Dropdown() {
+		@dropdown.Trigger() {
+			@button.Button(button.Props{
+				Variant:    button.VariantGhost,
+				Size:       button.SizeIcon,
+				Attributes: templ.Attributes{"aria-label": i18n.T(ctx, "admin.users.actions_for", "user", adminUserUsername(ctx, user.Username))},
+			}) {
+				@icon.EllipsisVertical(icon.Props{Class: "size-4"})
+			}
+		}
+		@dropdown.Content(dropdown.ContentProps{Placement: dropdown.PlacementBottomEnd, Class: "w-max min-w-48 whitespace-nowrap"}) {
+			for index, entry := range entries {
+				if entry.Destructive && index > 0 {
+					@dropdown.Separator()
+				}
+				if entry.Disabled {
+					@dropdown.Item(dropdown.ItemProps{Disabled: true, Class: adminUserMenuItemClass(entry.Destructive)}) {
+						@adminUserMenuItemLabel(entry)
+					}
+				} else {
+					@dropdown.Item(dropdown.ItemProps{
+						Href:       entry.Path,
+						Class:      adminUserMenuItemClass(entry.Destructive),
+						Attributes: adminUserMenuItemAttributes(entry.Path, stepUpRequired),
+					}) {
+						@adminUserMenuItemLabel(entry)
+					}
+				}
+			}
+		}
+	}
+}
+
+templ adminUserMenuItemLabel(entry adminUserMenuEntry) {
+	<span class={ "inline-flex", templ.KV("text-muted-foreground", !entry.Destructive) } aria-hidden="true">
+		@entry.Icon(icon.Props{Class: "size-4"})
+	</span>
+	{ entry.Label }
+}
+
+// AdminUserActionDialog is one action's dialog for one person, open. htmx
+// puts it in the page's dialog slot when the administrator picks the
+// action, and the page renders it there when asked for at its address.
+templ AdminUserActionDialog(d AdminUserDialog) {
+	switch d.Action {
+		case AdminUserActionMFAPolicy:
+			@adminUserMFAPolicyDialog(d.User, d.CSRFToken)
+		case AdminUserActionStatus:
+			@adminUserStatusDialog(d.User, d.CSRFToken)
+		case AdminUserActionCredentialReset:
+			@adminUserCredentialResetDialog(d.User, d.CSRFToken)
+		case AdminUserActionRequiredChange:
+			@adminUserRequiredChangeDialog(d.User, d.CSRFToken)
+		case AdminUserActionDeletion:
+			@adminUserDeletionDialog(d.User, d.CSRFToken)
+		case AdminUserActionInvitationRevoke:
+			@adminUserInvitationRevokeDialog(d.User, d.CSRFToken)
+		case AdminUserActionInvitationRotate:
+			@adminUserInvitationRotateDialog(d.User, d.CSRFToken)
+	}
+}
+
 func adminUserMFAPolicyDialogID(user AdminUserData) string {
 	return "admin-user-mfa-policy-" + strings.NewReplacer("/", "-", " ", "-").Replace(user.ID)
 }
@@ -331,136 +515,114 @@ func adminUserMFAPolicyButtonVariant(user AdminUserData) button.Variant {
 	return button.VariantDefault
 }
 
-templ AdminUserMFAPolicyAction(user AdminUserData, stepUpRequired bool) {
-	if user.MFAPolicyPath != "" {
-		{{ policyDialogID := adminUserMFAPolicyDialogID(user) }}
-		<div class="mt-2">
-			@dialog.Trigger(dialog.TriggerProps{For: policyDialogID}) {
-				@button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeSm, Disabled: stepUpRequired || user.MFAPolicyCSRFToken == ""}) {
+templ adminUserMFAPolicyDialog(user AdminUserData, csrfToken string) {
+	@dialog.Dialog(dialog.Props{ID: adminUserMFAPolicyDialogID(user), Open: true}) {
+		@dialog.Content() {
+			@dialog.Header() {
+				@dialog.Title() {
 					if user.MFARequired {
-						{ i18n.T(ctx, "admin.mfa.clear") }
+						{ i18n.T(ctx, "admin.mfa.clear_title") }
 					} else {
-						{ i18n.T(ctx, "admin.mfa.require") }
+						{ i18n.T(ctx, "admin.mfa.require_title", "user", adminUserUsername(ctx, user.Username)) }
+					}
+				}
+				@dialog.Description() {
+					if user.MFARequired {
+						{ i18n.T(ctx, "admin.mfa.clear_detail") }
+					} else {
+						{ i18n.T(ctx, "admin.mfa.require_detail") }
 					}
 				}
 			}
-			@dialog.Dialog(dialog.Props{ID: policyDialogID}) {
-				@dialog.Content() {
-					@dialog.Header() {
-						@dialog.Title() {
-							if user.MFARequired {
-								{ i18n.T(ctx, "admin.mfa.clear_title") }
-							} else {
-								{ i18n.T(ctx, "admin.mfa.require_title", "user", adminUserUsername(ctx, user.Username)) }
-							}
-						}
-						@dialog.Description() {
-							if user.MFARequired {
-								{ i18n.T(ctx, "admin.mfa.clear_detail") }
-							} else {
-								{ i18n.T(ctx, "admin.mfa.require_detail") }
-							}
+			<form method="post" action={ user.MFAPolicyPath }>
+				<input type="hidden" name="_csrf" value={ csrfToken }/>
+				<input type="hidden" name="required" value={ fmt.Sprintf("%t", !user.MFARequired) }/>
+				@dialog.Footer() {
+					@dialog.Close() {
+						@button.Button(button.Props{Variant: button.VariantOutline}) {
+							{ i18n.T(ctx, "common.cancel") }
 						}
 					}
-					<form method="post" action={ user.MFAPolicyPath }>
-						<input type="hidden" name="_csrf" value={ user.MFAPolicyCSRFToken }/>
-						<input type="hidden" name="required" value={ fmt.Sprintf("%t", !user.MFARequired) }/>
-						@dialog.Footer() {
-							@dialog.Close() {
-								@button.Button(button.Props{Variant: button.VariantOutline}) {
-									{ i18n.T(ctx, "common.cancel") }
-								}
-							}
-							@button.Button(button.Props{Type: button.TypeSubmit, Variant: adminUserMFAPolicyButtonVariant(user)}) {
-								if user.MFARequired {
-									{ i18n.T(ctx, "admin.mfa.clear") }
-								} else {
-									{ i18n.T(ctx, "admin.mfa.require") }
-								}
-							}
+					@button.Button(button.Props{Type: button.TypeSubmit, Variant: adminUserMFAPolicyButtonVariant(user)}) {
+						if user.MFARequired {
+							{ i18n.T(ctx, "admin.mfa.clear") }
+						} else {
+							{ i18n.T(ctx, "admin.mfa.require") }
 						}
-					</form>
+					}
 				}
-			}
-		</div>
+			</form>
+		}
 	}
 }
 
-templ AdminUserInvitationActions(user AdminUserData, stepUpRequired bool) {
-	if user.InvitationRotatePath != "" {
-		<div class="contents">
-			if user.InvitationState == "active" {
-				{{ revokeDialogID := adminUserInvitationDialogID("admin-invitation-revoke", user) }}
-				@dialog.Trigger(dialog.TriggerProps{For: revokeDialogID}) {
-					@button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeSm, Disabled: stepUpRequired || user.InvitationRevokeCSRFToken == ""}) {
-						{ i18n.T(ctx, "admin.invite.revoke") }
-					}
+templ adminUserInvitationRevokeDialog(user AdminUserData, csrfToken string) {
+	@dialog.Dialog(dialog.Props{ID: adminUserInvitationDialogID("admin-invitation-revoke", user), Open: true}) {
+		@dialog.Content() {
+			@dialog.Header() {
+				@dialog.Title() {
+					{ i18n.T(ctx, "admin.invite.revoke_title") }
 				}
-				@dialog.Dialog(dialog.Props{ID: revokeDialogID}) {
-					@dialog.Content() {
-						@dialog.Header() {
-							@dialog.Title() {
-								{ i18n.T(ctx, "admin.invite.revoke_title") }
-							}
-							@dialog.Description() {
-								{ i18n.T(ctx, "admin.invite.revoke_detail", "user", adminUserUsername(ctx, user.Username)) }
-							}
-						}
-						<form method="post" action={ user.InvitationRevokePath }>
-							<input type="hidden" name="_csrf" value={ user.InvitationRevokeCSRFToken }/>
-							@dialog.Footer() {
-								@dialog.Close() {
-									@button.Button(button.Props{Variant: button.VariantOutline}) {
-										{ i18n.T(ctx, "common.cancel") }
-									}
-								}
-								@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantDestructive}) {
-									{ i18n.T(ctx, "admin.invite.revoke_button") }
-								}
-							}
-						</form>
-					}
+				@dialog.Description() {
+					{ i18n.T(ctx, "admin.invite.revoke_detail", "user", adminUserUsername(ctx, user.Username)) }
 				}
-				{{ rotateDialogID := adminUserInvitationDialogID("admin-invitation-rotate", user) }}
-				@dialog.Trigger(dialog.TriggerProps{For: rotateDialogID}) {
-					@button.Button(button.Props{Size: button.SizeSm, Disabled: stepUpRequired || user.InvitationRotateCSRFToken == ""}) {
-						{ i18n.T(ctx, "admin.invite.rotate") }
-					}
-				}
-				@dialog.Dialog(dialog.Props{ID: rotateDialogID}) {
-					@dialog.Content() {
-						@dialog.Header() {
-							@dialog.Title() {
-								{ i18n.T(ctx, "admin.invite.rotate_title") }
-							}
-							@dialog.Description() {
-								{ i18n.T(ctx, "admin.invite.rotate_detail", "user", adminUserUsername(ctx, user.Username)) }
-							}
-						}
-						<form method="post" action={ user.InvitationRotatePath }>
-							<input type="hidden" name="_csrf" value={ user.InvitationRotateCSRFToken }/>
-							@dialog.Footer() {
-								@dialog.Close() {
-									@button.Button(button.Props{Variant: button.VariantOutline}) {
-										{ i18n.T(ctx, "common.cancel") }
-									}
-								}
-								@button.Button(button.Props{Type: button.TypeSubmit}) {
-									{ i18n.T(ctx, "admin.invite.rotate_button") }
-								}
-							}
-						</form>
-					}
-				}
-			} else {
-				<form method="post" action={ user.InvitationRotatePath }>
-					<input type="hidden" name="_csrf" value={ user.InvitationRotateCSRFToken }/>
-					@button.Button(button.Props{Type: button.TypeSubmit, Size: button.SizeSm, Disabled: stepUpRequired || user.InvitationRotateCSRFToken == ""}) {
-						{ i18n.T(ctx, "admin.invite.issue") }
-					}
-				</form>
 			}
-		</div>
+			<form method="post" action={ user.InvitationRevokePath }>
+				<input type="hidden" name="_csrf" value={ csrfToken }/>
+				@dialog.Footer() {
+					@dialog.Close() {
+						@button.Button(button.Props{Variant: button.VariantOutline}) {
+							{ i18n.T(ctx, "common.cancel") }
+						}
+					}
+					@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantDestructive}) {
+						{ i18n.T(ctx, "admin.invite.revoke_button") }
+					}
+				}
+			</form>
+		}
+	}
+}
+
+// adminUserInvitationRotateDialog replaces a working invitation, or issues
+// a new one when the last expired or was revoked.
+templ adminUserInvitationRotateDialog(user AdminUserData, csrfToken string) {
+	@dialog.Dialog(dialog.Props{ID: adminUserInvitationDialogID("admin-invitation-rotate", user), Open: true}) {
+		@dialog.Content() {
+			@dialog.Header() {
+				@dialog.Title() {
+					if user.InvitationState == "active" {
+						{ i18n.T(ctx, "admin.invite.rotate_title") }
+					} else {
+						{ i18n.T(ctx, "admin.invite.issue_title", "user", adminUserUsername(ctx, user.Username)) }
+					}
+				}
+				@dialog.Description() {
+					if user.InvitationState == "active" {
+						{ i18n.T(ctx, "admin.invite.rotate_detail", "user", adminUserUsername(ctx, user.Username)) }
+					} else {
+						{ i18n.T(ctx, "admin.invite.issue_detail", "user", adminUserUsername(ctx, user.Username)) }
+					}
+				}
+			}
+			<form method="post" action={ user.InvitationRotatePath }>
+				<input type="hidden" name="_csrf" value={ csrfToken }/>
+				@dialog.Footer() {
+					@dialog.Close() {
+						@button.Button(button.Props{Variant: button.VariantOutline}) {
+							{ i18n.T(ctx, "common.cancel") }
+						}
+					}
+					@button.Button(button.Props{Type: button.TypeSubmit}) {
+						if user.InvitationState == "active" {
+							{ i18n.T(ctx, "admin.invite.rotate_button") }
+						} else {
+							{ i18n.T(ctx, "admin.invite.issue_button") }
+						}
+					}
+				}
+			</form>
+		}
 	}
 }
 
@@ -468,61 +630,49 @@ func adminUserStatusDialogID(user AdminUserData) string {
 	return "admin-user-status-" + strings.NewReplacer("/", "-", " ", "-").Replace(user.ID)
 }
 
-templ AdminUserStatusAction(user AdminUserData, stepUpRequired bool) {
-	if user.StatusPath != "" {
-		{{ statusDialogID := adminUserStatusDialogID(user) }}
-		@dialog.Trigger(dialog.TriggerProps{For: statusDialogID}) {
-			@button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeSm, Disabled: stepUpRequired || user.StatusCSRFToken == ""}) {
-				if user.Status == "disabled" {
-					{ i18n.T(ctx, "admin.users.enable") }
-				} else {
-					{ i18n.T(ctx, "admin.users.disable") }
-				}
-			}
-		}
-		@dialog.Dialog(dialog.Props{ID: statusDialogID}) {
-			@dialog.Content() {
-				@dialog.Header() {
-					@dialog.Title() {
-						if user.Status == "disabled" {
-							{ i18n.T(ctx, "admin.users.enable_title", "user", adminUserUsername(ctx, user.Username)) }
-						} else {
-							{ i18n.T(ctx, "admin.users.disable_title", "user", adminUserUsername(ctx, user.Username)) }
-						}
-					}
-					@dialog.Description() {
-						if user.Status == "disabled" {
-							{ i18n.T(ctx, "admin.users.enable_detail") }
-						} else {
-							{ i18n.T(ctx, "admin.users.disable_detail") }
-						}
-					}
-				}
-				<form method="post" action={ user.StatusPath }>
-					<input type="hidden" name="_csrf" value={ user.StatusCSRFToken }/>
+templ adminUserStatusDialog(user AdminUserData, csrfToken string) {
+	@dialog.Dialog(dialog.Props{ID: adminUserStatusDialogID(user), Open: true}) {
+		@dialog.Content() {
+			@dialog.Header() {
+				@dialog.Title() {
 					if user.Status == "disabled" {
-						<input type="hidden" name="status" value="active"/>
+						{ i18n.T(ctx, "admin.users.enable_title", "user", adminUserUsername(ctx, user.Username)) }
 					} else {
-						<input type="hidden" name="status" value="disabled"/>
+						{ i18n.T(ctx, "admin.users.disable_title", "user", adminUserUsername(ctx, user.Username)) }
 					}
-					@dialog.Footer() {
-						@dialog.Close() {
-							@button.Button(button.Props{Variant: button.VariantOutline}) {
-								{ i18n.T(ctx, "common.cancel") }
-							}
-						}
-						if user.Status == "disabled" {
-							@button.Button(button.Props{Type: button.TypeSubmit}) {
-								{ i18n.T(ctx, "admin.users.enable_button") }
-							}
-						} else {
-							@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantDestructive}) {
-								{ i18n.T(ctx, "admin.users.disable_button") }
-							}
-						}
+				}
+				@dialog.Description() {
+					if user.Status == "disabled" {
+						{ i18n.T(ctx, "admin.users.enable_detail") }
+					} else {
+						{ i18n.T(ctx, "admin.users.disable_detail") }
 					}
-				</form>
+				}
 			}
+			<form method="post" action={ user.StatusPath }>
+				<input type="hidden" name="_csrf" value={ csrfToken }/>
+				if user.Status == "disabled" {
+					<input type="hidden" name="status" value="active"/>
+				} else {
+					<input type="hidden" name="status" value="disabled"/>
+				}
+				@dialog.Footer() {
+					@dialog.Close() {
+						@button.Button(button.Props{Variant: button.VariantOutline}) {
+							{ i18n.T(ctx, "common.cancel") }
+						}
+					}
+					if user.Status == "disabled" {
+						@button.Button(button.Props{Type: button.TypeSubmit}) {
+							{ i18n.T(ctx, "admin.users.enable_button") }
+						}
+					} else {
+						@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantDestructive}) {
+							{ i18n.T(ctx, "admin.users.disable_button") }
+						}
+					}
+				}
+			</form>
 		}
 	}
 }
@@ -531,75 +681,64 @@ func adminUserDeletionDialogID(user AdminUserData) string {
 	return "admin-user-delete-" + strings.NewReplacer("/", "-", " ", "-").Replace(user.ID)
 }
 
-templ AdminUserDeletionAction(user AdminUserData, stepUpRequired bool) {
-	if user.DeletionPath != "" {
-		{{ deletionDialogID := adminUserDeletionDialogID(user) }}
-		@dialog.Trigger(dialog.TriggerProps{For: deletionDialogID}) {
-			@button.Button(button.Props{Variant: button.VariantDestructive, Size: button.SizeSm, Disabled: stepUpRequired || user.DeletionCSRFToken == ""}) {
-				if user.DeletionPending {
-					{ i18n.T(ctx, "admin.delete.retry") }
-				} else {
-					{ i18n.T(ctx, "admin.delete.button") }
+templ adminUserDeletionDialog(user AdminUserData, csrfToken string) {
+	{{ deletionDialogID := adminUserDeletionDialogID(user) }}
+	@dialog.Dialog(dialog.Props{ID: deletionDialogID, Open: true}) {
+		@dialog.Content() {
+			@dialog.Header() {
+				@dialog.Title() {
+					{ i18n.T(ctx, "admin.delete.title", "user", adminUserUsername(ctx, user.Username)) }
+				}
+				@dialog.Description() {
+					{ i18n.T(ctx, "admin.delete.description") }
 				}
 			}
-		}
-		@dialog.Dialog(dialog.Props{ID: deletionDialogID}) {
-			@dialog.Content() {
-				@dialog.Header() {
-					@dialog.Title() {
-						{ i18n.T(ctx, "admin.delete.title", "user", adminUserUsername(ctx, user.Username)) }
-					}
-					@dialog.Description() {
-						{ i18n.T(ctx, "admin.delete.description") }
-					}
-				}
-				<div class="space-y-4 text-sm text-foreground">
-					<div class="rounded-lg border border-destructive/25 bg-destructive/5 px-4 py-3">
-						<p class="font-semibold text-destructive">{ i18n.T(ctx, "admin.delete.removes") }</p>
-						<ul class="mt-2 list-disc space-y-1 pl-5 text-muted-foreground">
-							<li>{ i18n.T(ctx, "admin.delete.removes_signin") }</li>
-							<li>{ i18n.T(ctx, "admin.delete.removes_mailboxes") }</li>
-							<li>{ i18n.T(ctx, "admin.delete.removes_data") }</li>
-						</ul>
-					</div>
-					<div class="rounded-lg border border-border bg-muted/35 px-4 py-3 text-muted-foreground">
-						<p><span class="font-semibold text-foreground">{ i18n.T(ctx, "admin.delete.remote_title") }</span> { i18n.T(ctx, "admin.delete.remote") }</p>
-						<p class="mt-2">{ i18n.T(ctx, "admin.delete.audit") }</p>
-					</div>
-					<div class="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-amber-900 dark:text-amber-100">
-						<p class="font-semibold">{ i18n.T(ctx, "admin.delete.backup_title") }</p>
-						<p class="mt-1">{ i18n.T(ctx, "admin.delete.backup") }</p>
-					</div>
+			<div class="space-y-4 text-sm text-foreground">
+				<div class="rounded-lg border border-destructive/25 bg-destructive/5 px-4 py-3">
+					<p class="font-semibold text-destructive">{ i18n.T(ctx, "admin.delete.removes") }</p>
+					<ul class="mt-2 list-disc space-y-1 pl-5 text-muted-foreground">
+						<li>{ i18n.T(ctx, "admin.delete.removes_signin") }</li>
+						<li>{ i18n.T(ctx, "admin.delete.removes_mailboxes") }</li>
+						<li>{ i18n.T(ctx, "admin.delete.removes_data") }</li>
+					</ul>
 				</div>
-				<form method="post" action={ user.DeletionPath } class="mt-5">
-					<input type="hidden" name="_csrf" value={ user.DeletionCSRFToken }/>
-					<label for={ deletionDialogID + "-confirmation" } class="text-sm font-semibold text-foreground">{ i18n.T(ctx, "admin.delete.confirm_before") } <code class="font-mono">{ user.Username }</code> { i18n.T(ctx, "admin.delete.confirm_after") }</label>
-					<input
-						id={ deletionDialogID + "-confirmation" }
-						name="confirmation"
-						type="text"
-						autocomplete="off"
-						autocapitalize="none"
-						spellcheck="false"
-						required
-						class="mt-2 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-					/>
-					@dialog.Footer() {
-						@dialog.Close() {
-							@button.Button(button.Props{Variant: button.VariantOutline}) {
-								{ i18n.T(ctx, "common.cancel") }
-							}
-						}
-						@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantDestructive}) {
-							if user.DeletionPending {
-								{ i18n.T(ctx, "admin.delete.retry_button") }
-							} else {
-								{ i18n.T(ctx, "admin.delete.submit") }
-							}
+				<div class="rounded-lg border border-border bg-muted/35 px-4 py-3 text-muted-foreground">
+					<p><span class="font-semibold text-foreground">{ i18n.T(ctx, "admin.delete.remote_title") }</span> { i18n.T(ctx, "admin.delete.remote") }</p>
+					<p class="mt-2">{ i18n.T(ctx, "admin.delete.audit") }</p>
+				</div>
+				<div class="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-amber-900 dark:text-amber-100">
+					<p class="font-semibold">{ i18n.T(ctx, "admin.delete.backup_title") }</p>
+					<p class="mt-1">{ i18n.T(ctx, "admin.delete.backup") }</p>
+				</div>
+			</div>
+			<form method="post" action={ user.DeletionPath } class="mt-5">
+				<input type="hidden" name="_csrf" value={ csrfToken }/>
+				<label for={ deletionDialogID + "-confirmation" } class="text-sm font-semibold text-foreground">{ i18n.T(ctx, "admin.delete.confirm_before") } <code class="font-mono">{ user.Username }</code> { i18n.T(ctx, "admin.delete.confirm_after") }</label>
+				<input
+					id={ deletionDialogID + "-confirmation" }
+					name="confirmation"
+					type="text"
+					autocomplete="off"
+					autocapitalize="none"
+					spellcheck="false"
+					required
+					class="mt-2 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+				/>
+				@dialog.Footer() {
+					@dialog.Close() {
+						@button.Button(button.Props{Variant: button.VariantOutline}) {
+							{ i18n.T(ctx, "common.cancel") }
 						}
 					}
-				</form>
-			}
+					@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantDestructive}) {
+						if user.DeletionPending {
+							{ i18n.T(ctx, "admin.delete.retry_button") }
+						} else {
+							{ i18n.T(ctx, "admin.delete.submit") }
+						}
+					}
+				}
+			</form>
 		}
 	}
 }
@@ -608,54 +747,63 @@ func adminUserCredentialResetDialogID(user AdminUserData) string {
 	return "admin-user-credential-reset-" + strings.NewReplacer("/", "-", " ", "-").Replace(user.ID)
 }
 
-templ AdminUserCredentialResetAction(user AdminUserData, stepUpRequired bool) {
-	if user.CredentialResetPath != "" {
-		{{ resetDialogID := adminUserCredentialResetDialogID(user) }}
-		if stepUpRequired {
-			@button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeSm, Href: "/admin/users?" + url.Values{"reset_user": {user.ID}}.Encode()}) {
-				{ i18n.T(ctx, "admin.reset.generate") }
-			}
-		} else {
-			@dialog.Trigger(dialog.TriggerProps{For: resetDialogID}) {
-				@button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeSm, Disabled: stepUpRequired || user.CredentialResetCSRFToken == ""}) {
+templ adminUserCredentialResetDialog(user AdminUserData, csrfToken string) {
+	@dialog.Dialog(dialog.Props{ID: adminUserCredentialResetDialogID(user), Open: true}) {
+		@dialog.Content() {
+			@dialog.Header() {
+				@dialog.Title() {
 					if user.PasswordResetRequestedAt != nil {
-						{ i18n.T(ctx, "admin.reset.generate") }
+						{ i18n.T(ctx, "admin.reset.issue_title", "user", adminUserUsername(ctx, user.Username)) }
 					} else {
-						{ i18n.T(ctx, "admin.reset.generate") }
+						{ i18n.T(ctx, "admin.reset.generate_title", "user", adminUserUsername(ctx, user.Username)) }
 					}
 				}
+				@dialog.Description() {
+					{ i18n.T(ctx, "admin.reset.detail") }
+				}
 			}
-		}
-		@dialog.Dialog(dialog.Props{ID: resetDialogID, Open: user.CredentialResetOpen && !stepUpRequired}) {
-			@dialog.Content() {
-				@dialog.Header() {
-					@dialog.Title() {
-						if user.PasswordResetRequestedAt != nil {
-							{ i18n.T(ctx, "admin.reset.issue_title", "user", adminUserUsername(ctx, user.Username)) }
-						} else {
-							{ i18n.T(ctx, "admin.reset.generate_title", "user", adminUserUsername(ctx, user.Username)) }
+			<form method="post" action={ user.CredentialResetPath }>
+				<input type="hidden" name="_csrf" value={ csrfToken }/>
+				@dialog.Footer() {
+					@dialog.Close() {
+						@button.Button(button.Props{Variant: button.VariantOutline}) {
+							{ i18n.T(ctx, "common.cancel") }
 						}
 					}
-					@dialog.Description() {
-						{ i18n.T(ctx, "admin.reset.detail") }
+					@button.Button(button.Props{Type: button.TypeSubmit}) {
+						{ i18n.T(ctx, "admin.reset.submit") }
 					}
 				}
-				<form method="post" action={ user.CredentialResetPath }>
-					<input type="hidden" name="_csrf" value={ user.CredentialResetCSRFToken }/>
-					@dialog.Footer() {
-						@dialog.Close() {
-							@button.Button(button.Props{Variant: button.VariantOutline}) {
-								{ i18n.T(ctx, "common.cancel") }
-							}
-						}
-						@button.Button(button.Props{Type: button.TypeSubmit}) {
-							{ i18n.T(ctx, "admin.reset.submit") }
+			</form>
+		}
+	}
+}
+
+templ adminUserRequiredChangeDialog(user AdminUserData, csrfToken string) {
+	@dialog.Dialog(dialog.Props{ID: "admin-user-required-change-" + user.ID, Open: true}) {
+		@dialog.Content() {
+			@dialog.Header() {
+				@dialog.Title() {
+					{ i18n.T(ctx, "admin.required_change.title", "user", adminUserUsername(ctx, user.Username)) }
+				}
+				@dialog.Description() {
+					{ i18n.T(ctx, "admin.required_change.detail") }
+				}
+			}
+			<form method="post" action={ user.RequiredChangePath }>
+				<input type="hidden" name="_csrf" value={ csrfToken }/>
+				@dialog.Footer() {
+					@dialog.Close() {
+						@button.Button(button.Props{Variant: button.VariantOutline}) {
+							{ i18n.T(ctx, "common.cancel") }
 						}
 					}
-				</form>
-			}
+					@button.Button(button.Props{Type: button.TypeSubmit, Disabled: user.PasswordChangeRequired}) {
+						{ i18n.T(ctx, "admin.required_change.submit") }
+					}
+				}
+			</form>
 		}
-		@AdminUserRequiredPasswordChangeAction(user, stepUpRequired)
 	}
 }
 
@@ -833,46 +981,4 @@ templ AdminUserCredentialResetResultDialog(data *AdminUserCredentialResetData) {
 			}
 		}
 	}
-}
-
-templ AdminUserRequiredPasswordChangeAction(user AdminUserData, stepUpRequired bool) {
- if user.RequiredChangePath != "" {
-  {{ id := "admin-user-required-change-" + user.ID }}
-  if stepUpRequired {
-   @button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeSm, Href: "/admin/users?" + url.Values{"change_user": {user.ID}}.Encode()}) {
-    { i18n.T(ctx, "admin.required_change.button") }
-   }
-  } else {
-   @dialog.Trigger(dialog.TriggerProps{For: id}) {
-    @button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeSm, Disabled: user.PasswordChangeRequired}) {
-     { i18n.T(ctx, "admin.required_change.button") }
-    }
-   }
-  }
-  @dialog.Dialog(dialog.Props{ID: id, Open: user.RequiredChangeOpen && !stepUpRequired}) {
-   @dialog.Content() {
-    @dialog.Header() {
-     @dialog.Title() {
-      { i18n.T(ctx, "admin.required_change.title", "user", adminUserUsername(ctx, user.Username)) }
-     }
-     @dialog.Description() {
-      { i18n.T(ctx, "admin.required_change.detail") }
-     }
-    }
-    <form method="post" action={ user.RequiredChangePath }>
-     <input type="hidden" name="_csrf" value={ user.RequiredChangeCSRFToken }/>
-     @dialog.Footer() {
-      @dialog.Close() {
-       @button.Button(button.Props{Variant: button.VariantOutline}) {
-        { i18n.T(ctx, "common.cancel") }
-       }
-      }
-      @button.Button(button.Props{Type: button.TypeSubmit, Disabled: user.PasswordChangeRequired}) {
-       { i18n.T(ctx, "admin.required_change.submit") }
-      }
-     }
-    </form>
-   }
-  }
- }
 }

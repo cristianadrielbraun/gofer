@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 
+	"github.com/a-h/templ"
 	"github.com/cristianadrielbraun/gofer/internal/auth"
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"github.com/cristianadrielbraun/gofer/internal/views"
@@ -36,6 +37,20 @@ func (h *Handler) renderAdminPage(w http.ResponseWriter, r *http.Request, status
 	}
 	setAdminPageHeaders(w)
 	w.WriteHeader(status)
+	_, _ = output.WriteTo(w)
+}
+
+// writeAdminFragment answers htmx with one piece of an admin page, such as
+// a dialog, with the same headers as whole pages.
+func (h *Handler) writeAdminFragment(w http.ResponseWriter, r *http.Request, component templ.Component) {
+	var output bytes.Buffer
+	if err := component.Render(r.Context(), &output); err != nil {
+		log.Printf("render admin fragment %q: %v", r.URL.Path, err)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_render_admin_page"), http.StatusInternalServerError)
+		return
+	}
+	setAdminPageHeaders(w)
+	w.WriteHeader(http.StatusOK)
 	_, _ = output.WriteTo(w)
 }
 

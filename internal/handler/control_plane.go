@@ -95,6 +95,9 @@ func (h *Handler) registerAdministrationRoutes(mux *http.ServeMux) {
 	adminRoute("GET /admin/users/{$}", h.handleAdminUsers)
 	adminRoute("GET /admin/activity", h.handleAdminSecurityActivity)
 	adminRoute("POST /admin/activity/retention", h.handleSetAuthenticationEventRetention)
+	for _, route := range adminUserActionDialogRoutes {
+		adminRoute("GET "+route.pattern, h.handleAdminUserActionDialog(route.action))
+	}
 	adminRoute("POST /admin/users/invitations", h.handleCreateAdminUserInvitation)
 	adminRoute("POST /admin/users/invitations/{reference}/revoke", h.handleRevokeAdminUserInvitation)
 	adminRoute("POST /admin/users/invitations/{reference}/rotate", h.handleRotateAdminUserInvitation)

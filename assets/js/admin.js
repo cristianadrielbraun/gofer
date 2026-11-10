@@ -62,6 +62,21 @@
 (function () {
   "use strict"
 
+  // A person's row actions fetch their dialog with htmx. It arrives rendered
+  // open, but templui's dialog script opens such dialogs only at page load.
+  document.addEventListener("htmx:afterSwap", function (event) {
+    var target = (event.detail && event.detail.target) || event.target
+    if (!target || !target.querySelectorAll || !window.tui || !window.tui.dialog) return
+    target.querySelectorAll("[data-tui-dialog]").forEach(function (root) {
+      var content = root.querySelector("[data-tui-dialog-content]")
+      if (content && content.getAttribute("data-tui-dialog-initial-open") === "true") window.tui.dialog.open(root)
+    })
+  })
+})();
+
+(function () {
+  "use strict"
+
   function clearNavigationLoading() {
     var main = document.getElementById("main-content")
     if (main) main.removeAttribute("aria-busy")

@@ -35,7 +35,7 @@ func TestForcedPasswordChangeRestrictsAccessUntilCompleted(t *testing.T) {
 	if !strings.Contains(adminPage.Body.String(), "Require password change at next login") || strings.Contains(adminPage.Body.String(), `name="require_password_change"`) {
 		t.Fatal("missing separate password-change action or retained combined control")
 	}
-	proof := csrfProofFromForm(t, adminPage.Body.String(), path)
+	proof := csrfProofFromForm(t, adminUserActionDialog(t, stack, adminCookie, path), path)
 	withoutProof := postSecuritySettings(t, stack, path, url.Values{}, adminCookie)
 	if withoutProof.Code != http.StatusForbidden {
 		t.Fatal("required-change action accepted missing CSRF")

@@ -22,8 +22,24 @@ import (
 
 var administratorInvitationTokenPattern = regexp.MustCompile(`Invitation token: ([0-9a-f]{64})`)
 var administratorCredentialResetTokenPattern = regexp.MustCompile(`Reset token: ([0-9a-f]{64})`)
-var administratorInvitationRotateActionPattern = regexp.MustCompile(`action="(/admin/users/invitations/[A-Za-z0-9_-]{43}/rotate)"`)
-var administratorInvitationRevokeActionPattern = regexp.MustCompile(`action="(/admin/users/invitations/[A-Za-z0-9_-]{43}/revoke)"`)
+var administratorInvitationRotateActionPattern = regexp.MustCompile(`href="(/admin/users/invitations/[A-Za-z0-9_-]{43}/rotate)"`)
+var administratorInvitationRevokeActionPattern = regexp.MustCompile(`href="(/admin/users/invitations/[A-Za-z0-9_-]{43}/revoke)"`)
+
+// adminUserActionDialog fetches an action's dialog the way the Users page's
+// menu does, with htmx, and returns it.
+func adminUserActionDialog(t *testing.T, stack http.Handler, cookie *http.Cookie, path string) string {
+	t.Helper()
+	request := httptest.NewRequest(http.MethodGet, path, nil)
+	request.Header.Set("HX-Request", "true")
+	request.AddCookie(cookie)
+	response := httptest.NewRecorder()
+	stack.ServeHTTP(response, request)
+	html := response.Body.String()
+	if response.Code != http.StatusOK || !strings.Contains(html, `action="`+path+`"`) || strings.Contains(html, "<html") {
+		t.Fatalf("dialog at %s = %d %q", path, response.Code, html)
+	}
+	return html
+}
 
 func TestAdminUsersViewDataSummarizesStateRoleAndCurrentUser(t *testing.T) {
 	data := adminUsersViewData([]auth.AdministratorUserSummary{
@@ -92,7 +108,7 @@ func TestAdministratorCanPermanentlyDeleteDisabledWebmailUserAndLocalData(t *tes
 	}
 
 	path := adminUserDeletionPath("delete-target")
-	pageRequest := httptest.NewRequest(http.MethodGet, "/admin/users", nil)
+	pageRequest := httptest.NewRequest(http.MethodGet, path, nil)
 	pageRequest.AddCookie(sessionCookie)
 	page := httptest.NewRecorder()
 	stack.ServeHTTP(page, pageRequest)
@@ -361,16 +377,10 @@ func TestAdministratorCanRequireAndClearIndividualUserMFA(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := adminUserMFAPolicyPath("policy-target")
-	pageRequest := httptest.NewRequest(http.MethodGet, "/admin/users", nil)
-	pageRequest.AddCookie(sessionCookie)
-	page := httptest.NewRecorder()
-	stack.ServeHTTP(page, pageRequest)
-	if page.Code != http.StatusOK {
-		t.Fatalf("administrator users page = %d %q", page.Code, page.Body.String())
-	}
-	for _, want := range []string{"Require 2FA", "Require 2FA", `action="` + path + `"`, `name="required" value="true"`} {
-		if !strings.Contains(page.Body.String(), want) {
-			t.Fatalf("administrator user MFA control missing %q: %q", want, page.Body.String())
+	page := adminUserActionDialog(t, stack, sessionCookie, path)
+	for _, want := range []string{"Require 2FA for policy-target?", `name="required" value="true"`} {
+		if !strings.Contains(page, want) {
+			t.Fatalf("administrator user MFA dialog missing %q: %q", want, page)
 		}
 	}
 	withoutCSRF := postSecuritySettings(t, stack, path, url.Values{"required": {"true"}}, sessionCookie)
@@ -380,7 +390,7 @@ func TestAdministratorCanRequireAndClearIndividualUserMFA(t *testing.T) {
 
 	requireForm := url.Values{
 		"required":             {"true"},
-		auth.CSRFFormFieldName: {csrfProofFromForm(t, page.Body.String(), path)},
+		auth.CSRFFormFieldName: {csrfProofFromForm(t, page, path)},
 	}
 	required := postSecuritySettings(t, stack, path, requireForm, sessionCookie)
 	if required.Code != http.StatusSeeOther || required.Header().Get("Location") != "/admin/users" {
@@ -401,17 +411,13 @@ func TestAdministratorCanRequireAndClearIndividualUserMFA(t *testing.T) {
 		t.Fatalf("individual MFA policy events = %d, %v", events, err)
 	}
 
-	clearPageRequest := httptest.NewRequest(http.MethodGet, "/admin/users", nil)
-	clearPageRequest.AddCookie(sessionCookie)
-	clearPage := httptest.NewRecorder()
-	stack.ServeHTTP(clearPage, clearPageRequest)
-	if clearPage.Code != http.StatusOK || !strings.Contains(clearPage.Body.String(), "Clear individual policy") ||
-		!strings.Contains(clearPage.Body.String(), `name="required" value="false"`) {
-		t.Fatalf("clear individual MFA control = %d %q", clearPage.Code, clearPage.Body.String())
+	clearPage := adminUserActionDialog(t, stack, sessionCookie, path)
+	if !strings.Contains(clearPage, "Clear individual policy") || !strings.Contains(clearPage, `name="required" value="false"`) {
+		t.Fatalf("clear individual MFA dialog = %q", clearPage)
 	}
 	clearForm := url.Values{
 		"required":             {"false"},
-		auth.CSRFFormFieldName: {csrfProofFromForm(t, clearPage.Body.String(), path)},
+		auth.CSRFFormFieldName: {csrfProofFromForm(t, clearPage, path)},
 	}
 	cleared := postSecuritySettings(t, stack, path, clearForm, sessionCookie)
 	if cleared.Code != http.StatusSeeOther {
@@ -438,16 +444,10 @@ func TestAdministratorCanRequireMFAForFactorlessUser(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := adminUserMFAPolicyPath("factorless-target")
-	pageRequest := httptest.NewRequest(http.MethodGet, "/admin/users", nil)
-	pageRequest.AddCookie(sessionCookie)
-	page := httptest.NewRecorder()
-	stack.ServeHTTP(page, pageRequest)
-	if page.Code != http.StatusOK {
-		t.Fatalf("administrator users page = %d %q", page.Code, page.Body.String())
-	}
+	page := adminUserActionDialog(t, stack, sessionCookie, path)
 	form := url.Values{
 		"required":             {"true"},
-		auth.CSRFFormFieldName: {csrfProofFromForm(t, page.Body.String(), path)},
+		auth.CSRFFormFieldName: {csrfProofFromForm(t, page, path)},
 	}
 	response := postSecuritySettings(t, stack, path, form, sessionCookie)
 	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/admin/users" {
@@ -497,7 +497,7 @@ func TestAdministratorCanDisableAndEnableUserWithoutChangingCredentials(t *testi
 		t.Fatal(err)
 	}
 	path := adminUserStatusPath("status-target")
-	pageRequest := httptest.NewRequest(http.MethodGet, "/admin/users", nil)
+	pageRequest := httptest.NewRequest(http.MethodGet, path, nil)
 	pageRequest.AddCookie(sessionCookie)
 	page := httptest.NewRecorder()
 	stack.ServeHTTP(page, pageRequest)
@@ -548,24 +548,18 @@ func TestAdministratorCanDisableAndEnableUserWithoutChangingCredentials(t *testi
 		t.Fatalf("disabled user state = status:%q version:%d passwords:%d events:%d", status, authVersion, passwords, disabledEvents)
 	}
 
-	enablePageRequest := httptest.NewRequest(http.MethodGet, "/admin/users", nil)
-	enablePageRequest.AddCookie(sessionCookie)
-	enablePage := httptest.NewRecorder()
-	stack.ServeHTTP(enablePage, enablePageRequest)
-	if enablePage.Code != http.StatusOK {
-		t.Fatalf("administrator users enable page = %d %q", enablePage.Code, enablePage.Body.String())
-	}
+	enablePage := adminUserActionDialog(t, stack, sessionCookie, path)
 	for _, want := range []string{
 		"Enable status-target?", `name="status" value="active"`,
 		"revoked sessions stay revoked and the user must sign in again",
 	} {
-		if !strings.Contains(enablePage.Body.String(), want) {
-			t.Fatalf("administrator enable control missing %q: %q", want, enablePage.Body.String())
+		if !strings.Contains(enablePage, want) {
+			t.Fatalf("administrator enable dialog missing %q: %q", want, enablePage)
 		}
 	}
 	enabled := postSecuritySettings(t, stack, path, url.Values{
 		"status":               {"active"},
-		auth.CSRFFormFieldName: {csrfProofFromForm(t, enablePage.Body.String(), path)},
+		auth.CSRFFormFieldName: {csrfProofFromForm(t, enablePage, path)},
 	}, sessionCookie)
 	if enabled.Code != http.StatusSeeOther || enabled.Header().Get("Location") != "/admin/users" {
 		t.Fatalf("enable user = %d location:%q body:%q", enabled.Code, enabled.Header().Get("Location"), enabled.Body.String())
@@ -613,7 +607,7 @@ func TestAdministratorCanIssueAndRedeemWebmailUserCredentialReset(t *testing.T) 
 	}
 
 	path := adminUserCredentialResetPath("reset-target")
-	pageRequest := httptest.NewRequest(http.MethodGet, "/admin/users", nil)
+	pageRequest := httptest.NewRequest(http.MethodGet, path, nil)
 	pageRequest.AddCookie(sessionCookie)
 	page := httptest.NewRecorder()
 	stack.ServeHTTP(page, pageRequest)
@@ -909,7 +903,7 @@ func TestAdministratorCanRotateAndRevokeInvitationWithoutExposingInternalTargets
 		t.Fatalf("invitation rotation without CSRF = %d %q", withoutCSRF.Code, withoutCSRF.Body.String())
 	}
 	rotateForm := url.Values{
-		auth.CSRFFormFieldName: {csrfProofFromForm(t, created.Body.String(), rotatePath)},
+		auth.CSRFFormFieldName: {csrfProofFromForm(t, adminUserActionDialog(t, stack, sessionCookie, rotatePath), rotatePath)},
 	}
 	rotated := postSecuritySettings(t, stack, rotatePath, rotateForm, sessionCookie)
 	if rotated.Code != http.StatusCreated {
@@ -953,7 +947,7 @@ func TestAdministratorCanRotateAndRevokeInvitationWithoutExposingInternalTargets
 	}
 	revokePath := revokeMatch[1]
 	revokeForm := url.Values{
-		auth.CSRFFormFieldName: {csrfProofFromForm(t, refreshed.Body.String(), revokePath)},
+		auth.CSRFFormFieldName: {csrfProofFromForm(t, adminUserActionDialog(t, stack, sessionCookie, revokePath), revokePath)},
 	}
 	revoked := postSecuritySettings(t, stack, revokePath, revokeForm, sessionCookie)
 	if revoked.Code != http.StatusSeeOther || revoked.Header().Get("Location") != "/admin/users" ||
@@ -999,10 +993,6 @@ func TestAdministratorUserInvitationRequiresRecentStrongVerification(t *testing.
 	if err != nil || currentSession == nil {
 		t.Fatalf("load administrator session = %#v, %v", currentSession, err)
 	}
-	if _, err := db.Write().ExecContext(t.Context(), `UPDATE sessions SET step_up_at = ? WHERE id = ?`,
-		time.Now().UTC().Add(-11*time.Minute), currentSession.ID); err != nil {
-		t.Fatal(err)
-	}
 	now := time.Now().UTC()
 	if _, err := db.Write().ExecContext(t.Context(), `
 		INSERT INTO users (
@@ -1010,6 +1000,16 @@ func TestAdministratorUserInvitationRequiresRecentStrongVerification(t *testing.
 		) VALUES ('stale-status-target', 'stale-status-target', 'stale-status-target',
 			'Stale Status Target', 'active', 'webmail', 0, ?, ?)`, now, now,
 	); err != nil {
+		t.Fatal(err)
+	}
+	// Dialogs opened while the session was fresh, then submitted after it
+	// went stale.
+	statusPath := adminUserStatusPath("stale-status-target")
+	statusDialog := adminUserActionDialog(t, stack, sessionCookie, statusPath)
+	resetPath := adminUserCredentialResetPath("stale-status-target")
+	resetDialog := adminUserActionDialog(t, stack, sessionCookie, resetPath)
+	if _, err := db.Write().ExecContext(t.Context(), `UPDATE sessions SET step_up_at = ? WHERE id = ?`,
+		time.Now().UTC().Add(-11*time.Minute), currentSession.ID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1042,12 +1042,12 @@ func TestAdministratorUserInvitationRequiresRecentStrongVerification(t *testing.
 	if users != 0 || tokens != 0 {
 		t.Fatalf("stale administrator invitation mutated state = users:%d tokens:%d", users, tokens)
 	}
-	statusPath := adminUserStatusPath("stale-status-target")
 	statusBlocked := postSecuritySettings(t, stack, statusPath, url.Values{
 		"status":               {"disabled"},
-		auth.CSRFFormFieldName: {csrfProofFromForm(t, page.Body.String(), statusPath)},
+		auth.CSRFFormFieldName: {csrfProofFromForm(t, statusDialog, statusPath)},
 	}, sessionCookie)
-	if statusBlocked.Code != http.StatusForbidden || !strings.Contains(statusBlocked.Body.String(), "Verify this administrator session") {
+	if statusBlocked.Code != http.StatusForbidden || !strings.Contains(statusBlocked.Body.String(), "Verify this administrator session") ||
+		!strings.Contains(statusBlocked.Body.String(), `name="return_to" value="`+statusPath+`"`) {
 		t.Fatalf("stale administrator status change = %d %q", statusBlocked.Code, statusBlocked.Body.String())
 	}
 	var status string
@@ -1064,9 +1064,8 @@ func TestAdministratorUserInvitationRequiresRecentStrongVerification(t *testing.
 	if status != string(auth.UserStatusActive) || statusEvents != 0 {
 		t.Fatalf("stale status mutation = status:%q events:%d", status, statusEvents)
 	}
-	resetPath := adminUserCredentialResetPath("stale-status-target")
 	resetBlocked := postSecuritySettings(t, stack, resetPath, url.Values{
-		auth.CSRFFormFieldName: {csrfProofFromForm(t, page.Body.String(), resetPath)},
+		auth.CSRFFormFieldName: {csrfProofFromForm(t, resetDialog, resetPath)},
 	}, sessionCookie)
 	if resetBlocked.Code != http.StatusForbidden || !strings.Contains(resetBlocked.Body.String(), "Verify this administrator session") {
 		t.Fatalf("stale administrator credential reset = %d %q", resetBlocked.Code, resetBlocked.Body.String())

@@ -116,186 +116,257 @@ func TestAdminUsersPageRendersStatesRolesAndEscapesProfileMetadata(t *testing.T)
 	}
 }
 
-func TestAdminUsersPageRendersProtectedInvitationLifecycleActions(t *testing.T) {
-	expiresAt := time.Date(2026, time.August, 21, 12, 30, 0, 0, time.Local)
-	reference := strings.Repeat("a", 43)
-	rotatePath := "/admin/users/invitations/" + reference + "/rotate"
-	revokePath := "/admin/users/invitations/" + reference + "/revoke"
-	data := AdminUsersData{Users: []AdminUserData{{
-		ID: "pending-internal-id", Username: "pending.user",
-		Status: "pending", Role: "webmail_user", InvitationState: "active",
-		InvitationExpiresAt:  &expiresAt,
-		InvitationRevokePath: revokePath, InvitationRevokeCSRFToken: strings.Repeat("b", 64),
-		InvitationRotatePath: rotatePath, InvitationRotateCSRFToken: strings.Repeat("c", 64),
-	}}}
+// renderAdminUsersTestPage renders the Users page for data.
+func renderAdminUsersTestPage(t *testing.T, data AdminUsersData) string {
+	t.Helper()
 	var out bytes.Buffer
 	if err := AdminUsersPage(data).Render(context.Background(), &out); err != nil {
 		t.Fatalf("AdminUsersPage.Render() error = %v", err)
 	}
-	html := out.String()
-	for _, want := range []string{
-		"Invitation", "Active", "Expires Aug 21, 12:30", "Revoke", "Rotate",
-		`action="` + revokePath + `"`, `action="` + rotatePath + `"`,
-		strings.Repeat("b", 64), strings.Repeat("c", 64),
-		"will stop working immediately", "Gofer will show the replacement token only once",
-	} {
-		if !strings.Contains(html, want) {
-			t.Fatalf("administrator invitation lifecycle view missing %q: %s", want, html)
-		}
+	return out.String()
+}
+
+// renderAdminUserTestDialog renders one action's dialog for user, as htmx
+// receives it when the action is picked.
+func renderAdminUserTestDialog(t *testing.T, action AdminUserAction, user AdminUserData, csrf string) string {
+	t.Helper()
+	var out bytes.Buffer
+	if err := AdminUserActionDialog(AdminUserDialog{Action: action, User: user, CSRFToken: csrf}).Render(context.Background(), &out); err != nil {
+		t.Fatalf("AdminUserActionDialog(%s).Render() error = %v", action, err)
 	}
-	if strings.Contains(html, "private-token-hash") {
-		t.Fatal("administrator invitation lifecycle view exposed a token hash")
+	html := out.String()
+	if !strings.Contains(html, `data-tui-dialog-initial-open="true"`) {
+		t.Fatalf("%s dialog does not open when it arrives: %s", action, html)
+	}
+	return html
+}
+
+func requireAdminUsersHTML(t *testing.T, what, html string, wants ...string) {
+	t.Helper()
+	for _, want := range wants {
+		if !strings.Contains(html, want) {
+			t.Fatalf("%s missing %q: %s", what, want, html)
+		}
 	}
 }
 
-func TestAdminUsersPageRendersProtectedIndividualMFAPolicyActions(t *testing.T) {
-	csrf := strings.Repeat("d", 64)
-	data := AdminUsersData{Users: []AdminUserData{
-		{
-			ID: "optional-user", Username: "optional.user", Status: "active", Role: "webmail_user",
-			MFALabel: "optional", MFADetail: "user_choice",
-			MFAPolicyPath: "/admin/users/optional-user/mfa-policy", MFAPolicyCSRFToken: csrf,
-		},
-		{
-			ID: "required-user", Username: "required.user", Status: "active", Role: "webmail_user",
-			MFALabel: "required", MFADetail: "individual_policy", MFARequired: true,
-			MFAPolicyPath: "/admin/users/required-user/mfa-policy", MFAPolicyCSRFToken: csrf,
-		},
-	}}
-	var out bytes.Buffer
-	if err := AdminUsersPage(data).Render(context.Background(), &out); err != nil {
-		t.Fatalf("AdminUsersPage.Render() error = %v", err)
+func TestAdminUsersPageMenusFetchEachDialogWhenPicked(t *testing.T) {
+	expiresAt := time.Date(2026, time.August, 21, 12, 30, 0, 0, time.Local)
+	reference := strings.Repeat("a", 43)
+	pending := AdminUserData{
+		ID: "pending-internal-id", Username: "pending.user", Status: "pending", Role: "webmail_user",
+		InvitationState: "active", InvitationExpiresAt: &expiresAt,
+		InvitationRevokePath: "/admin/users/invitations/" + reference + "/revoke",
+		InvitationRotatePath: "/admin/users/invitations/" + reference + "/rotate",
 	}
-	html := out.String()
-	for _, want := range []string{
-		"Require 2FA", "Require 2FA for optional.user?", "Clear the individual 2FA requirement?",
+	active := AdminUserData{
+		ID: "active-user", Username: "active.user", Status: "active", Role: "webmail_user",
+		HasPassword: true, MFALabel: "optional", MFADetail: "user_choice",
+		MFAPolicyPath: "/admin/users/active-user/mfa-policy", StatusPath: "/admin/users/active-user/status",
+		CredentialResetPath: "/admin/users/active-user/credential-reset",
+		RequiredChangePath:  "/admin/users/active-user/require-password-change",
+	}
+	html := renderAdminUsersTestPage(t, AdminUsersData{InvitationCSRFToken: strings.Repeat("a", 64), Users: []AdminUserData{pending, active}})
+	requireAdminUsersHTML(t, "users page", html,
+		`id="admin-user-dialog"`, `aria-label="Actions for pending.user"`, `aria-label="Actions for active.user"`,
+		"Revoke invitation", "Rotate invitation", "Generate password-reset token",
+		"Require password change at next login", "Require 2FA", "Expires Aug 21, 12:30",
+		`hx-target="#admin-user-dialog"`, `hx-swap="innerHTML"`,
+	)
+	for _, path := range []string{
+		pending.InvitationRevokePath, pending.InvitationRotatePath, active.MFAPolicyPath,
+		active.StatusPath, active.CredentialResetPath, active.RequiredChangePath,
+	} {
+		requireAdminUsersHTML(t, "users page", html, `href="`+path+`"`, `hx-get="`+path+`"`)
+		if strings.Contains(html, `action="`+path+`"`) {
+			t.Fatalf("users page rendered the form for %s before it was picked", path)
+		}
+	}
+	if count := strings.Count(html, `name="_csrf"`); count != 1 {
+		t.Fatalf("users page made %d CSRF proofs; only the invitation form needs one", count)
+	}
+	if strings.Contains(html, "private-token-hash") {
+		t.Fatal("users page exposed a token hash")
+	}
+}
+
+func TestAdminUserInvitationDialogsCarryTheirOwnProof(t *testing.T) {
+	reference := strings.Repeat("a", 43)
+	user := AdminUserData{
+		ID: "pending-internal-id", Username: "pending.user", Status: "pending", Role: "webmail_user",
+		InvitationState:      "active",
+		InvitationRevokePath: "/admin/users/invitations/" + reference + "/revoke",
+		InvitationRotatePath: "/admin/users/invitations/" + reference + "/rotate",
+	}
+	revoke := renderAdminUserTestDialog(t, AdminUserActionInvitationRevoke, user, strings.Repeat("b", 64))
+	requireAdminUsersHTML(t, "revoke dialog", revoke,
+		`action="`+user.InvitationRevokePath+`"`, strings.Repeat("b", 64), "Revoke invitation?", "will stop working immediately",
+	)
+	rotate := renderAdminUserTestDialog(t, AdminUserActionInvitationRotate, user, strings.Repeat("c", 64))
+	requireAdminUsersHTML(t, "rotate dialog", rotate,
+		`action="`+user.InvitationRotatePath+`"`, strings.Repeat("c", 64), "Rotate invitation?",
+		"Gofer will show the replacement token only once", "Rotate and show token",
+	)
+
+	user.InvitationState = "expired"
+	if user.Path(AdminUserActionInvitationRevoke) != "" {
+		t.Fatal("an expired invitation offered revocation")
+	}
+	page := renderAdminUsersTestPage(t, AdminUsersData{Users: []AdminUserData{user}})
+	if strings.Contains(page, "Revoke invitation") || !strings.Contains(page, "Issue invitation") {
+		t.Fatalf("expired invitation menu = %s", page)
+	}
+	issue := renderAdminUserTestDialog(t, AdminUserActionInvitationRotate, user, strings.Repeat("d", 64))
+	requireAdminUsersHTML(t, "issue dialog", issue,
+		`action="`+user.InvitationRotatePath+`"`, strings.Repeat("d", 64),
+		"Issue a new invitation for pending.user?", "Gofer will show it only once", "Issue and show token",
+	)
+}
+
+func TestAdminUserMFAPolicyDialogsRequireOrClear(t *testing.T) {
+	csrf := strings.Repeat("d", 64)
+	optional := AdminUserData{
+		ID: "optional-user", Username: "optional.user", Status: "active", Role: "webmail_user",
+		MFALabel: "optional", MFADetail: "user_choice", MFAPolicyPath: "/admin/users/optional-user/mfa-policy",
+	}
+	required := AdminUserData{
+		ID: "required-user", Username: "required.user", Status: "active", Role: "webmail_user",
+		MFALabel: "required", MFADetail: "individual_policy", MFARequired: true,
+		MFAPolicyPath: "/admin/users/required-user/mfa-policy",
+	}
+	page := renderAdminUsersTestPage(t, AdminUsersData{Users: []AdminUserData{optional, required}})
+	requireAdminUsersHTML(t, "users page", page, "Require 2FA", "Clear 2FA requirement")
+	html := renderAdminUserTestDialog(t, AdminUserActionMFAPolicy, optional, csrf) +
+		renderAdminUserTestDialog(t, AdminUserActionMFAPolicy, required, csrf)
+	requireAdminUsersHTML(t, "MFA dialogs", html,
+		"Require 2FA for optional.user?", "Clear the individual 2FA requirement?",
 		`action="/admin/users/optional-user/mfa-policy"`, `action="/admin/users/required-user/mfa-policy"`,
 		`name="required" value="true"`, `name="required" value="false"`, csrf,
 		"Existing sessions and authenticators are unchanged", "setup is required at the next sign-in",
-	} {
-		if !strings.Contains(html, want) {
-			t.Fatalf("administrator individual MFA view missing %q: %s", want, html)
-		}
-	}
-	for _, forbidden := range []string{"totp-secret", "passkey-credential", "recovery-code"} {
-		if strings.Contains(html, forbidden) {
-			t.Fatalf("administrator individual MFA view exposed forbidden value %q", forbidden)
-		}
-	}
+	)
 }
 
-func TestAdminUsersPageRendersProtectedUserStatusActions(t *testing.T) {
+func TestAdminUserStatusDialogsDisableOrEnable(t *testing.T) {
 	activeCSRF := strings.Repeat("e", 64)
 	disabledCSRF := strings.Repeat("f", 64)
-	data := AdminUsersData{Users: []AdminUserData{
-		{
-			ID: "active-user", Username: "active.user", Status: "active", Role: "webmail_user",
-			StatusPath: "/admin/users/active-user/status", StatusCSRFToken: activeCSRF,
-		},
-		{
-			ID: "disabled-user", Username: "disabled.user", Status: "disabled", Role: "webmail_user",
-			StatusPath: "/admin/users/disabled-user/status", StatusCSRFToken: disabledCSRF,
-		},
-	}}
-	var out bytes.Buffer
-	if err := AdminUsersPage(data).Render(context.Background(), &out); err != nil {
-		t.Fatalf("AdminUsersPage.Render() error = %v", err)
-	}
-	html := out.String()
-	for _, want := range []string{
+	active := AdminUserData{ID: "active-user", Username: "active.user", Status: "active", Role: "webmail_user", StatusPath: "/admin/users/active-user/status"}
+	disabled := AdminUserData{ID: "disabled-user", Username: "disabled.user", Status: "disabled", Role: "webmail_user", StatusPath: "/admin/users/disabled-user/status"}
+	page := renderAdminUsersTestPage(t, AdminUsersData{Users: []AdminUserData{active, disabled}})
+	requireAdminUsersHTML(t, "users page", page, `href="/admin/users/active-user/status"`, `href="/admin/users/disabled-user/status"`)
+	html := renderAdminUserTestDialog(t, AdminUserActionStatus, active, activeCSRF) +
+		renderAdminUserTestDialog(t, AdminUserActionStatus, disabled, disabledCSRF)
+	requireAdminUsersHTML(t, "status dialogs", html,
 		"Disable active.user?", "Enable disabled.user?", "Disable user", "Enable user",
 		`action="/admin/users/active-user/status"`, `action="/admin/users/disabled-user/status"`,
 		`name="status" value="disabled"`, `name="status" value="active"`, activeCSRF, disabledCSRF,
 		"signed out everywhere immediately", "mail, accounts, credentials, and settings remain stored",
 		"revoked sessions stay revoked and the user must sign in again",
-	} {
-		if !strings.Contains(html, want) {
-			t.Fatalf("administrator user status view missing %q: %s", want, html)
-		}
+	)
+}
+
+func TestAdminUsersPageSendsStaleSessionsThroughVerification(t *testing.T) {
+	user := AdminUserData{
+		ID: "active-user", Username: "active.user", Status: "active", Role: "webmail_user",
+		StatusPath: "/admin/users/active-user/status", CredentialResetPath: "/admin/users/active-user/credential-reset",
+	}
+	html := renderAdminUsersTestPage(t, AdminUsersData{StepUpRequired: true, Users: []AdminUserData{user}})
+	// The action's address, loaded as a page, asks for verification and then
+	// opens the dialog, so the menu follows links instead of fetching.
+	requireAdminUsersHTML(t, "stale users page", html,
+		`href="/admin/users/active-user/status"`, `href="/admin/users/active-user/credential-reset"`, "data-admin-navigation-link",
+	)
+	if strings.Contains(html, "hx-get") {
+		t.Fatalf("stale users page fetches dialogs it cannot use: %s", html)
 	}
 }
 
-func TestAdminUsersPageDisablesUserStatusActionsUntilRecentVerification(t *testing.T) {
-	data := AdminUsersData{StepUpRequired: true, Users: []AdminUserData{{
-		ID: "active-user", Username: "active.user", Status: "active", Role: "webmail_user",
-		StatusPath: "/admin/users/active-user/status", StatusCSRFToken: strings.Repeat("a", 64),
-	}}}
-	var out bytes.Buffer
-	if err := AdminUsersPage(data).Render(context.Background(), &out); err != nil {
-		t.Fatalf("AdminUsersPage.Render() error = %v", err)
+func TestAdminUsersPageOpensTheDialogItWasAskedFor(t *testing.T) {
+	user := AdminUserData{ID: "active-user", Username: "active.user", Status: "active", Role: "webmail_user", StatusPath: "/admin/users/active-user/status"}
+	page := renderAdminUsersTestPage(t, AdminUsersData{
+		Users:  []AdminUserData{user},
+		Dialog: &AdminUserDialog{Action: AdminUserActionStatus, User: user, CSRFToken: strings.Repeat("s", 64)},
+	})
+	slot := strings.Index(page, `id="admin-user-dialog"`)
+	dialog := strings.Index(page, `id="admin-user-status-active-user"`)
+	if slot < 0 || dialog < slot {
+		t.Fatalf("asked-for dialog is not in the dialog slot: %s", page)
 	}
-	html := out.String()
-	trigger := `data-tui-dialog-target="admin-user-status-active-user"`
-	index := strings.Index(html, trigger)
-	if index < 0 {
-		t.Fatalf("administrator user status trigger missing: %s", html)
-	}
-	end := index + 1200
-	if end > len(html) {
-		end = len(html)
-	}
-	if !strings.Contains(html[index:end], " disabled") {
-		t.Fatalf("stale administrator status action was enabled: %s", html[index:end])
-	}
+	requireAdminUsersHTML(t, "page with dialog", page, `data-tui-dialog-initial-open="true"`, strings.Repeat("s", 64), `action="/admin/users/active-user/status"`)
 }
 
 func TestAdminUsersPageRendersProtectedCredentialResetActionAndOneTimeResult(t *testing.T) {
 	csrfToken := strings.Repeat("c", 64)
 	expiresAt := time.Date(2026, time.August, 29, 14, 30, 0, 0, time.Local)
-	data := AdminUsersData{
-		Users: []AdminUserData{{
-			ID: "webmail-user", Username: "webmail.user", Status: "active", Role: "webmail_user",
-			CredentialResetPath: "/admin/users/webmail-user/credential-reset", CredentialResetCSRFToken: csrfToken,
-		}},
+	user := AdminUserData{
+		ID: "webmail-user", Username: "webmail.user", Status: "active", Role: "webmail_user",
+		CredentialResetPath: "/admin/users/webmail-user/credential-reset",
+	}
+	html := renderAdminUsersTestPage(t, AdminUsersData{
+		Users: []AdminUserData{user},
 		CredentialReset: &AdminUserCredentialResetData{
 			Username: "webmail.user", RedemptionURL: "https://gofer.example/account/redeem",
 			Token: "private-reset-token", ExpiresAt: expiresAt,
 		},
-	}
-	var out bytes.Buffer
-	if err := AdminUsersPage(data).Render(context.Background(), &out); err != nil {
-		t.Fatalf("AdminUsersPage.Render() error = %v", err)
-	}
-	html := out.String()
-	for _, want := range []string{
-		"Generate password-reset token", "Generate a password-reset token for webmail.user?",
-		`action="/admin/users/webmail-user/credential-reset"`, csrfToken,
-		"does not change the password or sign the user out yet", "Generate reset token",
-		"Password-reset token created", "Reset token ready for webmail.user",
+	})
+	requireAdminUsersHTML(t, "credential-reset result", html,
+		"Generate password-reset token", "Password-reset token created", "Reset token ready for webmail.user",
 		"Gofer password reset for webmail.user", "https://gofer.example/account/redeem",
 		"Reset token: private-reset-token", "Gofer stores only a hash of the token",
 		"Successful redemption signs the user out everywhere, keeps two-factor authentication, and does not enable a disabled account",
 		"I saved the reset token",
-	} {
-		if !strings.Contains(html, want) {
-			t.Fatalf("administrator credential-reset view missing %q: %s", want, html)
-		}
-	}
+	)
 	if strings.Contains(html, `https://gofer.example/account/redeem?token=`) {
 		t.Fatalf("administrator credential-reset result put token in URL: %s", html)
 	}
+	dialog := renderAdminUserTestDialog(t, AdminUserActionCredentialReset, user, csrfToken)
+	requireAdminUsersHTML(t, "credential-reset dialog", dialog,
+		"Generate a password-reset token for webmail.user?", `action="/admin/users/webmail-user/credential-reset"`, csrfToken,
+		"does not change the password or sign the user out yet", "Generate reset token",
+	)
 }
 
 func TestAdminUsersPageHighlightsRequestedPasswordReset(t *testing.T) {
 	requestedAt := time.Date(2026, time.August, 29, 14, 15, 0, 0, time.Local)
-	data := AdminUsersData{Users: []AdminUserData{{
+	user := AdminUserData{
 		ID: "requested-user", Username: "requested.user", Status: "disabled", Role: "webmail_user",
-		CredentialResetPath:      "/admin/users/requested-user/credential-reset",
-		CredentialResetCSRFToken: strings.Repeat("r", 64), PasswordResetRequestedAt: &requestedAt,
-	}}}
-	var out bytes.Buffer
-	if err := AdminUsersPage(data).Render(context.Background(), &out); err != nil {
-		t.Fatal(err)
+		CredentialResetPath: "/admin/users/requested-user/credential-reset", PasswordResetRequestedAt: &requestedAt,
 	}
-	html := out.String()
-	for _, want := range []string{
-		"Password reset requested", "Requested Aug 29, 2:15 PM", "Generate password-reset token",
-		"Issue a password-reset token for requested.user?",
-	} {
-		if !strings.Contains(html, want) {
-			t.Fatalf("requested password reset view missing %q: %s", want, html)
-		}
+	page := renderAdminUsersTestPage(t, AdminUsersData{Users: []AdminUserData{user}})
+	requireAdminUsersHTML(t, "requested password reset", page, "Password reset requested", "Requested Aug 29, 2:15 PM", "Generate password-reset token")
+	dialog := renderAdminUserTestDialog(t, AdminUserActionCredentialReset, user, strings.Repeat("r", 64))
+	requireAdminUsersHTML(t, "requested password reset dialog", dialog, "Issue a password-reset token for requested.user?")
+}
+
+func TestAdminUsersPageOffersPasswordChangeOnlyWhileNotRequired(t *testing.T) {
+	user := AdminUserData{
+		ID: "forced-user", Username: "forced.user", Status: "active", Role: "webmail_user",
+		HasPassword: true, PasswordChangeRequired: true,
+		CredentialResetPath: "/admin/users/forced-user/credential-reset",
+		RequiredChangePath:  "/admin/users/forced-user/require-password-change",
 	}
+	page := renderAdminUsersTestPage(t, AdminUsersData{Users: []AdminUserData{user}})
+	requireAdminUsersHTML(t, "users page", page, "Password change required", "Require password change at next login")
+	if strings.Contains(page, `href="/admin/users/forced-user/require-password-change"`) {
+		t.Fatal("a password change that is already required was offered again")
+	}
+	dialog := renderAdminUserTestDialog(t, AdminUserActionRequiredChange, user, strings.Repeat("p", 64))
+	requireAdminUsersHTML(t, "required change dialog", dialog,
+		"Require a password change for forced.user?", `action="/admin/users/forced-user/require-password-change"`, strings.Repeat("p", 64),
+	)
+}
+
+func TestAdminUserDeletionDialogAsksForTheUsername(t *testing.T) {
+	user := AdminUserData{
+		ID: "gone-user", Username: "gone.user", Status: "disabled", Role: "webmail_user",
+		StatusPath: "/admin/users/gone-user/status", DeletionPath: "/admin/users/gone-user/delete",
+	}
+	page := renderAdminUsersTestPage(t, AdminUsersData{Users: []AdminUserData{user}})
+	requireAdminUsersHTML(t, "users page", page, "Delete permanently", `role="separator"`, `href="/admin/users/gone-user/delete"`)
+	dialog := renderAdminUserTestDialog(t, AdminUserActionDeletion, user, strings.Repeat("g", 64))
+	requireAdminUsersHTML(t, "deletion dialog", dialog,
+		"Permanently delete gone.user?", `name="confirmation"`, `action="/admin/users/gone-user/delete"`,
+		strings.Repeat("g", 64), "Delete user and local data",
+	)
 }
 
 func TestAdminUsersPageRendersProtectedInvitationFormAndOneTimeResult(t *testing.T) {

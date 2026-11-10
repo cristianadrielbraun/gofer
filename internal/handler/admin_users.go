@@ -14,7 +14,10 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/views"
 )
 
-const adminUserInvitationPath = "/admin/users/invitations"
+const (
+	adminUsersPath          = "/admin/users"
+	adminUserInvitationPath = "/admin/users/invitations"
+)
 
 func adminUserMFAPolicyPath(userID string) string {
 	return "/admin/users/" + url.PathEscape(userID) + "/mfa-policy"
@@ -38,6 +41,69 @@ func adminUserInvitationRevokePath(reference string) string {
 
 func adminUserInvitationRotatePath(reference string) string {
 	return adminUserInvitationPath + "/" + reference + "/rotate"
+}
+
+func adminUserRequiredChangePath(userID string) string {
+	return "/admin/users/" + url.PathEscape(userID) + "/require-password-change"
+}
+
+// adminUserActionDialogRoutes are the addresses of the Users page's actions.
+// Each shows its action's dialog (GET) and is where that dialog's form posts.
+var adminUserActionDialogRoutes = []struct {
+	pattern string
+	action  views.AdminUserAction
+}{
+	{adminUserInvitationPath + "/{reference}/revoke", views.AdminUserActionInvitationRevoke},
+	{adminUserInvitationPath + "/{reference}/rotate", views.AdminUserActionInvitationRotate},
+	{"/admin/users/{userID}/mfa-policy", views.AdminUserActionMFAPolicy},
+	{"/admin/users/{userID}/status", views.AdminUserActionStatus},
+	{"/admin/users/{userID}/credential-reset", views.AdminUserActionCredentialReset},
+	{"/admin/users/{userID}/require-password-change", views.AdminUserActionRequiredChange},
+	{"/admin/users/{userID}/delete", views.AdminUserActionDeletion},
+}
+
+// adminUserActionAddress reports whether path is one of those addresses, with
+// a plausible user ID or invitation reference in it.
+func adminUserActionAddress(path string) bool {
+	segments := strings.Split(path, "/")
+	for _, route := range adminUserActionDialogRoutes {
+		parts := strings.Split(route.pattern, "/")
+		if len(parts) != len(segments) {
+			continue
+		}
+		matches := true
+		for index, part := range parts {
+			switch part {
+			case "{userID}":
+				matches = adminUserActionTargetID(segments[index])
+			case "{reference}":
+				matches = adminUserInvitationReference(segments[index])
+			default:
+				matches = part == segments[index]
+			}
+			if !matches {
+				break
+			}
+		}
+		if matches {
+			return true
+		}
+	}
+	return false
+}
+
+// adminUserActionTargetID reports whether value can be the user ID in an
+// action address: letters, digits, hyphens and underscores.
+func adminUserActionTargetID(value string) bool {
+	return value != "" && len(value) <= 128 && strings.IndexFunc(value, func(r rune) bool {
+		return !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_')
+	}) < 0
+}
+
+// adminUserInvitationReference reports whether value has the shape of an
+// invitation's action reference: 43 characters of unpadded base64url.
+func adminUserInvitationReference(value string) bool {
+	return len(value) == 43 && adminUserActionTargetID(value)
 }
 
 // adminUsersViewData lists the users for the admin page. Status, role and
@@ -84,6 +150,9 @@ func adminUsersViewData(users []auth.AdministratorUserSummary, currentUserID str
 		if user.UserType == auth.UserTypeWebmail && !user.IsAdmin &&
 			!user.DeletionPending && (user.Status == auth.UserStatusActive || user.Status == auth.UserStatusDisabled) {
 			view.CredentialResetPath = adminUserCredentialResetPath(user.ID)
+			if user.HasPassword {
+				view.RequiredChangePath = adminUserRequiredChangePath(user.ID)
+			}
 		}
 		if user.UserType == auth.UserTypeWebmail && !user.IsAdmin && !view.Current &&
 			!user.DeletionProtected && user.Status == auth.UserStatusDisabled {
@@ -125,7 +194,94 @@ func (h *Handler) handleAdminUsers(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, views.AdminAvatarsPath, http.StatusFound)
 		return
 	}
+	if destination := adminUsersOldDialogAddress(r.URL.Query()); destination != "" {
+		http.Redirect(w, r, destination, http.StatusFound)
+		return
+	}
 	h.renderAdminUsers(w, r, http.StatusOK, views.AdminUserInvitationFormData{}, nil, "")
+}
+
+// adminUsersOldDialogAddress is the new address for /admin/users?reset_user=
+// and ?change_user=, which opened the reset and password-change dialogs
+// before each action had an address of its own.
+func adminUsersOldDialogAddress(query url.Values) string {
+	for _, old := range []struct{ key, action string }{
+		{"reset_user", "credential-reset"},
+		{"change_user", "require-password-change"},
+	} {
+		if values := query[old.key]; len(values) == 1 && adminUserActionTargetID(values[0]) {
+			return "/admin/users/" + values[0] + "/" + old.action
+		}
+	}
+	return ""
+}
+
+// handleAdminUserActionDialog answers an action's address with that action's
+// dialog for the person the address names. htmx, asking from the person's
+// menu, gets the dialog alone; any other request gets the Users page with
+// the dialog open. A session that must verify again gets the page with
+// verification first, which then comes back to this address.
+func (h *Handler) handleAdminUserActionDialog(action views.AdminUserAction) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if h.auth != nil && !h.auth.IsEnabled() {
+			http.Redirect(w, r, views.AdminAvatarsPath, http.StatusFound)
+			return
+		}
+		state, ok := h.loadAdminUsers(w, r)
+		if !ok {
+			return
+		}
+		user, found := adminUserAt(state.data.Users, action, r.URL.EscapedPath())
+		if !found {
+			h.setAdminFlashError(w, adminUserActionUnavailable(r.Context(), action))
+			redirectAdmin(w, r, adminUsersPath)
+			return
+		}
+		fragment := r.Header.Get("HX-Request") == "true"
+		if state.data.StepUpRequired {
+			if fragment {
+				redirectAdmin(w, r, user.Path(action))
+				return
+			}
+			h.writeAdminUsersPage(w, r, http.StatusOK, state, user.Path(action), true, "")
+			return
+		}
+		dialog := views.AdminUserDialog{
+			Action: action, User: user,
+			CSRFToken: auth.CSRFToken(r.Context(), http.MethodPost, user.Path(action)),
+		}
+		if fragment {
+			h.writeAdminFragment(w, r, views.AdminUserActionDialog(dialog))
+			return
+		}
+		state.data.Dialog = &dialog
+		h.writeAdminUsersPage(w, r, http.StatusOK, state, adminUsersPath, false, "")
+	}
+}
+
+// adminUserAt finds the person whose address for action is path.
+func adminUserAt(users []views.AdminUserData, action views.AdminUserAction, path string) (views.AdminUserData, bool) {
+	for _, user := range users {
+		if address := user.Path(action); address != "" && address == path {
+			return user, true
+		}
+	}
+	return views.AdminUserData{}, false
+}
+
+// adminUserActionUnavailable explains an action address whose person, or
+// the action itself, is gone, for instance after another change.
+func adminUserActionUnavailable(ctx context.Context, action views.AdminUserAction) string {
+	switch action {
+	case views.AdminUserActionInvitationRevoke:
+		return i18n.T(ctx, "auth.admin.users.invitation_inactive")
+	case views.AdminUserActionInvitationRotate:
+		return i18n.T(ctx, "auth.admin.users.invitation_target_gone")
+	case views.AdminUserActionCredentialReset:
+		return i18n.T(ctx, "auth.admin.users.reset_user_gone")
+	default:
+		return i18n.T(ctx, "auth.admin.users.user_unavailable")
+	}
 }
 
 func (h *Handler) handleCreateAdminUserInvitation(w http.ResponseWriter, r *http.Request) {
@@ -490,7 +646,19 @@ func (h *Handler) handleDeleteAdminUser(w http.ResponseWriter, r *http.Request) 
 func (h *Handler) redirectAdminUsers(w http.ResponseWriter, r *http.Request, notice string) {
 	h.setAdminFlashSuccess(w, notice)
 	w.Header().Set("Cache-Control", "no-store")
-	http.Redirect(w, r, "/admin/users", http.StatusSeeOther)
+	http.Redirect(w, r, adminUsersPath, http.StatusSeeOther)
+}
+
+// redirectAdmin sends the browser to location: htmx goes there with a whole
+// page through HX-Redirect, other requests with a See Other.
+func redirectAdmin(w http.ResponseWriter, r *http.Request, location string) {
+	w.Header().Set("Cache-Control", "no-store")
+	if r.Header.Get("HX-Request") == "true" {
+		w.Header().Set("HX-Redirect", location)
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	http.Redirect(w, r, location, http.StatusSeeOther)
 }
 
 func (h *Handler) renderAdminUsers(w http.ResponseWriter, r *http.Request, status int, form views.AdminUserInvitationFormData, invitation *views.AdminUserInvitationData, pageError string) {
@@ -502,105 +670,90 @@ func (h *Handler) renderAdminUsersWithCredentialReset(w http.ResponseWriter, r *
 }
 
 func (h *Handler) renderAdminUsersPage(w http.ResponseWriter, r *http.Request, status int, form views.AdminUserInvitationFormData, invitation *views.AdminUserInvitationData, reset *views.AdminUserCredentialResetData, pageError string) {
+	state, ok := h.loadAdminUsers(w, r)
+	if !ok {
+		return
+	}
+	state.data.InvitationForm = form
+	state.data.Invitation = invitation
+	state.data.CredentialReset = reset
+	// A refused change comes back to its own dialog once the session verifies.
+	returnTo := adminUsersPath
+	if r.Method == http.MethodPost && pageError != "" {
+		if address := adminSecurityVerificationReturnTo(r.URL.EscapedPath()); address != "" {
+			returnTo = address
+		}
+	}
+	openVerification := pageError != "" || r.URL.Query().Get("verification_required") == "1"
+	h.writeAdminUsersPage(w, r, status, state, returnTo, openVerification, pageError)
+}
+
+// adminUsersState is what every answer about the Users page starts from:
+// the people it lists, and the session's verification state.
+type adminUsersState struct {
+	data   views.AdminUsersData
+	access *auth.SecuritySettingsAccess
+}
+
+// loadAdminUsers reads the Users page's people and whether the session must
+// verify again. When it fails it has answered already, and ok is false.
+func (h *Handler) loadAdminUsers(w http.ResponseWriter, r *http.Request) (state adminUsersState, ok bool) {
 	ctx := r.Context()
 	currentUser := auth.GetCurrentUser(ctx)
 	currentSession := auth.GetCurrentSession(ctx)
 	if currentUser == nil || currentSession == nil || h.auth == nil {
-		http.Error(w, i18n.T(r.Context(), "server.error.admin_access_required"), http.StatusForbidden)
-		return
+		http.Error(w, i18n.T(ctx, "server.error.admin_access_required"), http.StatusForbidden)
+		return state, false
 	}
 	users, err := h.auth.ListAdministratorUsersForSession(ctx, currentUser.ID, currentSession.ID)
 	if errors.Is(err, auth.ErrAdministratorRequired) {
-		http.Error(w, i18n.T(r.Context(), "server.error.admin_access_required"), http.StatusForbidden)
-		return
+		http.Error(w, i18n.T(ctx, "server.error.admin_access_required"), http.StatusForbidden)
+		return state, false
 	}
 	if err != nil {
 		log.Printf("load administrator users: %v", err)
-		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_load_administrator_users"), http.StatusInternalServerError)
-		return
+		http.Error(w, i18n.T(ctx, "server.error.failed_to_load_administrator_users"), http.StatusInternalServerError)
+		return state, false
 	}
 	policy, err := h.auth.InstanceSecurityPolicy(ctx)
 	if err != nil {
 		log.Printf("load administrator user MFA policy: %v", err)
-		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_load_administrator_users"), http.StatusInternalServerError)
-		return
+		http.Error(w, i18n.T(ctx, "server.error.failed_to_load_administrator_users"), http.StatusInternalServerError)
+		return state, false
 	}
-	data := adminUsersViewData(users, currentUser.ID, policy.MFA)
-	data.InvitationForm = form
-	data.Invitation = invitation
-	data.CredentialReset = reset
-	// A continuation only opens a confirmation; issuance still requires its POST.
-	continuationKey := "reset_user"
-	if r.URL.Query().Get("change_user") != "" || strings.HasSuffix(r.URL.Path, "/require-password-change") {
-		continuationKey = "change_user"
+	state.data = adminUsersViewData(users, currentUser.ID, policy.MFA)
+	if !h.auth.IsEnabled() {
+		return state, true
 	}
-	resetUserID := r.URL.Query().Get(continuationKey)
-	if r.Method == http.MethodPost && (strings.HasSuffix(r.URL.Path, "/credential-reset") || strings.HasSuffix(r.URL.Path, "/require-password-change")) && pageError != "" {
-		resetUserID = r.PathValue("userID")
+	access, err := h.auth.GetSecuritySettingsAccess(ctx, auth.GetSessionToken(r))
+	switch {
+	case err == nil:
+		state.access = access
+		state.data.StepUpRequired = !access.StepUpFresh
+	case errors.Is(err, auth.ErrSecuritySessionInvalid):
+		auth.ClearSessionCookie(w, h.auth.Config().SecureCookies)
+		redirectAdmin(w, r, "/admin/login")
+		return state, false
+	default:
+		log.Printf("load administrator invitation verification state: %v", err)
+		http.Error(w, i18n.T(ctx, "server.error.failed_to_verify_administrator_session"), http.StatusInternalServerError)
+		return state, false
 	}
-	resetReturnTo := adminSecurityVerificationReturnTo("/admin/users?" + url.Values{continuationKey: {resetUserID}}.Encode())
-	if resetReturnTo == "" {
-		resetUserID = ""
-	}
-	returnTo := "/admin/users"
-	for _, user := range data.Users {
-		if user.ID == resetUserID && user.CredentialResetPath != "" && (continuationKey == "reset_user" || user.HasPassword) {
-			returnTo = resetReturnTo
-			break
-		}
-	}
+	return state, true
+}
+
+// writeAdminUsersPage renders the Users page from state. returnTo is where
+// verification leads back to, and openVerification opens it with the page.
+func (h *Handler) writeAdminUsersPage(w http.ResponseWriter, r *http.Request, status int, state adminUsersState, returnTo string, openVerification bool, pageError string) {
+	ctx := r.Context()
 	verification := views.AdminSecurityVerificationData{}
-	if h.auth.IsEnabled() {
-		access, accessErr := h.auth.GetSecuritySettingsAccess(ctx, auth.GetSessionToken(r))
-		switch {
-		case accessErr == nil:
-			data.StepUpRequired = !access.StepUpFresh
-			if data.StepUpRequired {
-				verification = adminSecurityVerificationViewData(
-					ctx, access, returnTo,
-					pageError != "" || r.URL.Query().Get("verification_required") == "1" || returnTo != "/admin/users",
-				)
-			}
-		case errors.Is(accessErr, auth.ErrSecuritySessionInvalid):
-			auth.ClearSessionCookie(w, h.auth.Config().SecureCookies)
-			http.Redirect(w, r, "/admin/login", http.StatusSeeOther)
-			return
-		default:
-			log.Printf("load administrator invitation verification state: %v", accessErr)
-			http.Error(w, i18n.T(r.Context(), "server.error.failed_to_verify_administrator_session"), http.StatusInternalServerError)
-			return
-		}
+	if state.data.StepUpRequired {
+		verification = adminSecurityVerificationViewData(ctx, state.access, returnTo, openVerification)
 	}
-	data.InvitationCSRFToken = auth.CSRFToken(ctx, http.MethodPost, adminUserInvitationPath)
-	for index := range data.Users {
-		if data.Users[index].MFAPolicyPath != "" {
-			data.Users[index].MFAPolicyCSRFToken = auth.CSRFToken(ctx, http.MethodPost, data.Users[index].MFAPolicyPath)
-		}
-		if data.Users[index].StatusPath != "" {
-			data.Users[index].StatusCSRFToken = auth.CSRFToken(ctx, http.MethodPost, data.Users[index].StatusPath)
-		}
-		if data.Users[index].CredentialResetPath != "" {
-			data.Users[index].CredentialResetCSRFToken = auth.CSRFToken(ctx, http.MethodPost, data.Users[index].CredentialResetPath)
-			data.Users[index].CredentialResetOpen = continuationKey == "reset_user" && !data.StepUpRequired && reset == nil && data.Users[index].ID == resetUserID
-			if data.Users[index].HasPassword {
-				data.Users[index].RequiredChangePath = "/admin/users/" + url.PathEscape(data.Users[index].ID) + "/require-password-change"
-				data.Users[index].RequiredChangeCSRFToken = auth.CSRFToken(ctx, http.MethodPost, data.Users[index].RequiredChangePath)
-				data.Users[index].RequiredChangeOpen = continuationKey == "change_user" && !data.StepUpRequired && data.Users[index].ID == resetUserID
-			}
-		}
-		if data.Users[index].DeletionPath != "" {
-			data.Users[index].DeletionCSRFToken = auth.CSRFToken(ctx, http.MethodPost, data.Users[index].DeletionPath)
-		}
-		if data.Users[index].InvitationRevokePath != "" {
-			data.Users[index].InvitationRevokeCSRFToken = auth.CSRFToken(ctx, http.MethodPost, data.Users[index].InvitationRevokePath)
-		}
-		if data.Users[index].InvitationRotatePath != "" {
-			data.Users[index].InvitationRotateCSRFToken = auth.CSRFToken(ctx, http.MethodPost, data.Users[index].InvitationRotatePath)
-		}
-	}
+	state.data.InvitationCSRFToken = auth.CSRFToken(ctx, http.MethodPost, adminUserInvitationPath)
 	h.renderAdminPage(w, r, status, views.AdminShellPage{
 		Section: views.AdminSectionUsers,
-		Content: views.AdminUsersPage(data, verification),
+		Content: views.AdminUsersPage(state.data, verification),
 		Toasts:  adminErrorToasts(pageError),
 	})
 }
