@@ -70,7 +70,7 @@ func (h *Handler) RegisterAuthenticationRoutes(mux *http.ServeMux) {
 
 func (h *Handler) registerAdministrationRoutes(mux *http.ServeMux) {
 	adminRoute := func(pattern string, handler http.HandlerFunc) {
-		mux.Handle(pattern, h.adminOnly(withAuditClient(handler)))
+		mux.Handle(pattern, h.adminOnly(withAuditClient(h.recordDeniedAttempts(handler))))
 	}
 	mux.Handle("GET "+auth.ManagementAccountPath, h.managementAccountOnly(http.HandlerFunc(h.handleManagementAccountSecurity)))
 	mux.Handle("GET /admin/account/security", h.managementAccountOnly(redirectAdminPage(auth.ManagementAccountPath)))

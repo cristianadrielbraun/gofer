@@ -18,7 +18,7 @@ const AdminAuditActivityPath = "/admin/activity/administration"
 
 // AdminAuditKinds are the administration tab's filters: each keeps the
 // actions that start with it and a dot.
-var AdminAuditKinds = []string{"user", "invitation", "security", "instance", "audit"}
+var AdminAuditKinds = []string{"user", "invitation", "security", "instance", "audit", "access"}
 
 // AdminAuditActivityData is the administration tab of the Activity page.
 type AdminAuditActivityData struct {
@@ -109,6 +109,16 @@ func adminAuditSentence(ctx context.Context, record audit.Record) string {
 		if record.Metadata["chosen"] == true {
 			key = "admin.audit.action.security.proxy_person_added"
 		}
+	case "access.denied":
+		key = "admin.audit.action.access.denied_forbidden"
+		if record.Metadata["reason"] == "verification_required" {
+			key = "admin.audit.action.access.denied_verification"
+		}
+		permission := record.Target.ID
+		if i18n.Has("admin.audit.permission." + permission) {
+			permission = i18n.T(ctx, "admin.audit.permission."+permission)
+		}
+		args = append(args, "permission", permission)
 	case "security.proxy_policy_changed":
 		key = "admin.audit.action.security.proxy_policy_stopped"
 		if record.Metadata["people_may_add_proxies"] == true {

@@ -322,6 +322,8 @@ type Manager struct {
 	// audit records administrative changes, chained with a key derived
 	// from the same instance secret as bucketHashKey.
 	audit *audit.Writer
+	// deniedAttemptLimits keeps refused attempts from flooding the log.
+	deniedAttemptLimits deniedAttemptLimits
 }
 
 func NewManager(config *Config, db *storage.DB, dependencies ...Dependencies) *Manager {

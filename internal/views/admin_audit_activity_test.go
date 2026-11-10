@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/audit"
+	"github.com/cristianadrielbraun/gofer/internal/authz"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
 )
 
 func renderAdminAuditActivity(t *testing.T, data AdminAuditActivityData, verification ...AdminSecurityVerificationData) string {
@@ -114,6 +116,8 @@ func TestEveryRecordedActionHasASentence(t *testing.T) {
 		{Event: audit.Event{Action: "security.proxy_person_changed", Metadata: map[string]any{"chosen": false}}},
 		{Event: audit.Event{Action: "security.proxy_policy_changed", Metadata: map[string]any{"people_may_add_proxies": true}}},
 		{Event: audit.Event{Action: "security.proxy_policy_changed", Metadata: map[string]any{"people_may_add_proxies": false}}},
+		{Event: audit.Event{Action: "access.denied", Target: audit.Target{Kind: "permission", ID: "users.delete"}, Metadata: map[string]any{"reason": "verification_required"}}},
+		{Event: audit.Event{Action: "access.denied", Target: audit.Target{Kind: "permission", ID: "users.delete"}, Metadata: map[string]any{"reason": "forbidden"}}},
 	} {
 		sentence := adminAuditSentence(ctx, record)
 		if sentence == record.Action || strings.Contains(sentence, "admin.audit.") || strings.Contains(sentence, "{") {
@@ -122,6 +126,18 @@ func TestEveryRecordedActionHasASentence(t *testing.T) {
 	}
 	if got := adminAuditSentence(ctx, audit.Record{Event: audit.Event{Action: "instance.mfa_policy_changed", Changes: map[string]audit.Change{"mfa_policy": {From: "administrators", To: "all_users"}}}}); got != "Required 2FA for everyone instead of administrators" {
 		t.Errorf("policy sentence = %q", got)
+	}
+	if got := adminAuditSentence(ctx, audit.Record{Event: audit.Event{Action: "access.denied", Target: audit.Target{ID: "users.delete"}, Metadata: map[string]any{"reason": "verification_required"}}}); got != "Refused without a recent verification: deleting people" {
+		t.Errorf("refusal sentence = %q", got)
+	}
+}
+
+// A refusal names the permission it refused, so each has words.
+func TestEveryPermissionHasWords(t *testing.T) {
+	for _, permission := range authz.All() {
+		if !i18n.Has("admin.audit.permission." + string(permission)) {
+			t.Errorf("permission %s has no words for refusals", permission)
+		}
 	}
 }
 

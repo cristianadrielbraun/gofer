@@ -74,6 +74,21 @@ func proxyAuditTarget(ctx context.Context, h *Handler, id string) audit.Target {
 
 // withAuditClient tells the audit log which browser the admin console's
 // changes come from.
+// recordDeniedAttempts records the administrative attempts auth refused
+// while handling the request, once it's done: the refused change's
+// transaction has rolled back by then, so each gets one of its own.
+func (h *Handler) recordDeniedAttempts(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if h.auth == nil {
+			next.ServeHTTP(w, r)
+			return
+		}
+		ctx, record := h.auth.WithDeniedAttempts(r.Context())
+		next.ServeHTTP(w, r.WithContext(ctx))
+		record()
+	})
+}
+
 func withAuditClient(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		next.ServeHTTP(w, r.WithContext(audit.WithClient(r.Context(), audit.Client{UserAgent: r.UserAgent()})))

@@ -174,3 +174,54 @@ func TestAdminAuditExportAndRetention(t *testing.T) {
 		t.Fatalf("stale export = %d %q", stale.Code, stale.Header().Get("Location"))
 	}
 }
+
+func TestRefusedAdministrativeChangesAreRecorded(t *testing.T) {
+	manager, db, stack, cookie, _ := completedSecuritySettingsStack(t)
+	now := time.Now().UTC()
+	if _, err := db.Write().ExecContext(t.Context(), `
+		INSERT INTO users (id, username, username_normalized, name, status, auth_version, user_type, is_admin, created_at, updated_at)
+		VALUES ('kept-user', 'kept-user', 'kept-user', 'Kept User', 'active', 1, 'webmail', 0, ?, ?)`, now, now); err != nil {
+		t.Fatal(err)
+	}
+	path := "/admin/users/kept-user/status"
+	proof := csrfProofFromForm(t, getSecuritySettingsPath(t, stack, path, cookie).Body.String(), path)
+	session, err := manager.GetSessionByToken(t.Context(), cookie.Value)
+	if err != nil || session == nil {
+		t.Fatal(err)
+	}
+	setStepUp := func(at time.Time) {
+		t.Helper()
+		if _, err := db.Write().ExecContext(t.Context(), `UPDATE sessions SET step_up_at = ? WHERE id = ?`, at, session.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	setStepUp(now.Add(-11 * time.Minute))
+	for range 2 {
+		postSecuritySettings(t, stack, path, url.Values{"status": {"disabled"}, auth.CSRFFormFieldName: {proof}}, cookie)
+	}
+	var status string
+	if err := db.Read().QueryRow(`SELECT status FROM users WHERE id = 'kept-user'`).Scan(&status); err != nil || status != "active" {
+		t.Fatalf("a stale session disabled someone: %q, %v", status, err)
+	}
+	refused, err := audit.List(t.Context(), db.Read(), audit.Filter{Action: auth.AuditActionAccessDenied}, 0, 10)
+	if err != nil || len(refused.Records) != 1 {
+		t.Fatalf("refused attempts = %+v, %v", refused.Records, err)
+	}
+	record := refused.Records[0]
+	if record.Outcome != audit.OutcomeDenied || record.Target.ID != "users.access" ||
+		record.Metadata["reason"] != auth.DeniedReasonVerificationRequired || record.Actor.SessionID != session.ID ||
+		!strings.Contains(record.Client.UserAgent, "Security Settings Handler") {
+		t.Fatalf("refused attempt = %+v", record)
+	}
+
+	setStepUp(time.Now().UTC())
+	overview := getSecuritySettingsPath(t, stack, "/admin/overview", cookie).Body.String()
+	if !strings.Contains(overview, "1 refused attempt in the last 7 days") ||
+		!strings.Contains(overview, `href="/admin/activity/administration?kind=access"`) {
+		t.Fatalf("the overview doesn't point at the refused attempt: %q", overview)
+	}
+	tab := getSecuritySettingsPath(t, stack, "/admin/activity/administration?kind=access", cookie).Body.String()
+	if !strings.Contains(tab, "Refused without a recent verification: enabling or disabling people") || !strings.Contains(tab, "Refused attempts") {
+		t.Fatalf("the administration tab doesn't show the refused attempt: %q", tab)
+	}
+}

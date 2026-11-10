@@ -13,16 +13,19 @@ import (
 // requireAdministratorPermission checks, inside the change's transaction,
 // that the actor may use permission (internal/authz decides), and that
 // their session verified recently when the permission needs it.
+//
+// A refusal is noted for the audit log (see WithDeniedAttempts).
 func requireAdministratorPermission(
 	ctx context.Context, tx *sql.Tx, actorUserID, actorSessionID string, permission authz.Permission, now time.Time,
 ) error {
-	if err := authz.Require(ctx, tx, actorUserID, permission); err != nil {
-		return err
+	err := authz.Require(ctx, tx, actorUserID, permission)
+	if err == nil && authz.NeedsStepUp(permission) {
+		err = requireRecentAdministratorStepUp(ctx, tx, actorUserID, actorSessionID, now)
 	}
-	if !authz.NeedsStepUp(permission) {
-		return nil
+	if err != nil {
+		noteDeniedAttempt(ctx, actorUserID, actorSessionID, permission, err)
 	}
-	return requireRecentAdministratorStepUp(ctx, tx, actorUserID, actorSessionID, now)
+	return err
 }
 
 // RequireAdministratorPermission checks that the actor may use permission
