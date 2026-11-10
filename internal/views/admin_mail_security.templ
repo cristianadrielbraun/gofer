@@ -42,14 +42,7 @@ templ AdminSecurityPage(data models.MailSecurityAdminData, verification ...Admin
 		<div class="flex-1 overflow-y-auto">
 			<div class="max-w-6xl px-6 py-8 lg:px-8 lg:py-10">
 				<div class="mb-7">
-					<h2 class="text-2xl font-bold text-foreground" style="font-family: var(--font-serif)">{ i18n.T(ctx, "admin.nav.security") }</h2>
-					<p class="mt-1 max-w-3xl text-sm text-muted-foreground">
-						if data.Allowlist != nil {
-							{ i18n.T(ctx, "admin.security.description_allowlist") }
-						} else {
-							{ i18n.T(ctx, "admin.security.description") }
-						}
-					</p>
+					@adminPageHeader(adminPageHeaderProps{Title: i18n.T(ctx, "admin.nav.security"), Description: adminSecurityDescription(ctx, data)})
 				</div>
 				if data.Allowlist != nil {
 					@tabs.Tabs(tabs.Props{ID: "mail-security-tabs"}) {
@@ -485,4 +478,12 @@ templ adminSecurityProtocolSelect(protocols []string) {
 			}
 		}
 	}
+}
+
+// adminSecurityDescription says what the mail security page covers.
+func adminSecurityDescription(ctx context.Context, data models.MailSecurityAdminData) string {
+	if data.Allowlist != nil {
+		return i18n.T(ctx, "admin.security.description_allowlist")
+	}
+	return i18n.T(ctx, "admin.security.description")
 }

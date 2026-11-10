@@ -275,21 +275,7 @@ templ AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificat
 	>
 		<div class="flex-1 overflow-y-auto">
 			<div class="max-w-6xl px-6 py-8 lg:px-8 lg:py-10">
-				<div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-					<div>
-						<h2 class="text-2xl font-bold text-foreground" style="font-family: var(--font-serif)">{ i18n.T(ctx, "admin.nav.users") }</h2>
-						<p class="mt-1 max-w-3xl text-sm text-muted-foreground">{ i18n.T(ctx, "admin.users.description") }</p>
-					</div>
-					<div class="flex flex-wrap items-center gap-2">
-						@dialog.Trigger(dialog.TriggerProps{For: "admin-user-invitation-dialog"}) {
-							@button.Button() {
-								@icon.UserPlus(icon.Props{Class: "size-4"})
-								{ i18n.T(ctx, "admin.users.invite") }
-							}
-						}
-						<span class="w-fit shrink-0 rounded-full border border-border bg-muted px-2.5 py-1 text-xs font-semibold text-muted-foreground">{ i18n.N(ctx, "admin.users.count", data.Total, "count", i18n.Number(ctx, data.Total)) }</span>
-					</div>
-				</div>
+				@adminPageHeader(adminPageHeaderProps{Title: i18n.T(ctx, "admin.nav.users"), Description: i18n.T(ctx, "admin.users.description"), Actions: adminUsersHeaderActions(data)})
 				@AdminUserInvitationDialog(data)
 				if data.Invitation != nil {
 					@AdminUserInvitationResultDialog(data.Invitation)
@@ -308,13 +294,9 @@ templ AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificat
 					@adminStatCard(i18n.T(ctx, "admin.users.stat.disabled"), data.Disabled)
 					@adminStatCard(i18n.T(ctx, "admin.users.stat.admins"), data.Administrators)
 				</div>
-				<section class="mt-6 overflow-hidden rounded-lg border border-border bg-card" aria-labelledby="admin-users-heading">
-					<div class="flex items-center justify-between gap-4 border-b border-border px-4 py-3">
-						<h3 id="admin-users-heading" class="text-sm font-semibold text-foreground">{ i18n.T(ctx, "admin.users.heading") }</h3>
-						<span class="text-xs text-muted-foreground">{ i18n.T(ctx, "admin.users.heading_detail") }</span>
-					</div>
+				@adminSection(adminSectionProps{ID: "admin-users-heading", Title: i18n.T(ctx, "admin.users.heading"), Aside: adminSectionNote(i18n.T(ctx, "admin.users.heading_detail"))}) {
 					if len(data.Users) == 0 {
-						<div class="px-4 py-10 text-center text-sm text-muted-foreground">{ i18n.T(ctx, "admin.users.empty") }</div>
+						@adminEmptyState(i18n.T(ctx, "admin.users.empty"))
 					} else {
 						<div class="overflow-x-auto">
 							<table class="w-full min-w-[70rem] text-left text-sm">
@@ -336,58 +318,51 @@ templ AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificat
 												<div class="flex flex-wrap items-center gap-2">
 													<span class="whitespace-nowrap font-semibold text-foreground">{ adminUserUsername(ctx, user.Username) }</span>
 													if user.Current {
-														<span class="rounded-full border border-primary/25 bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">{ i18n.T(ctx, "admin.users.you") }</span>
+														@adminTag(adminToneInfo) {
+															{ i18n.T(ctx, "admin.users.you") }
+														}
 													}
 												</div>
 											</td>
 											<td class="px-4 py-3">
-												<span
-													class={
-														"inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold",
-														templ.KV("border-emerald-500/30 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200", user.Status == "active"),
-														templ.KV("border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-200", user.Status == "pending"),
-														templ.KV("border-destructive/30 bg-destructive/10 text-destructive", user.Status == "disabled"),
-													}
-												>
+												@adminBadge(adminUserStatusTone(user.Status)) {
 													if user.DeletionPending {
 														{ i18n.T(ctx, "admin.users.deleting") }
 													} else {
 														{ adminValueLabel(ctx, user.Status) }
 													}
-												</span>
+												}
 												if user.PasswordChangeRequired {
 													<p class="mt-2">
-														<span class="inline-flex whitespace-nowrap rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-800 dark:text-amber-200">{ i18n.T(ctx, "admin.users.password_change_required") }</span>
+														@adminBadge(adminToneWarning) {
+															{ i18n.T(ctx, "admin.users.password_change_required") }
+														}
 													</p>
 												}
 												if user.PasswordResetRequestedAt != nil {
 													<p class="mt-2">
-														<span class="inline-flex whitespace-nowrap rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-800 dark:text-amber-200">{ i18n.T(ctx, "admin.users.reset_requested") }</span>
+														@adminBadge(adminToneWarning) {
+															{ i18n.T(ctx, "admin.users.reset_requested") }
+														}
 													</p>
 													<p class="mt-1 whitespace-nowrap text-xs text-muted-foreground">{ i18n.T(ctx, "admin.users.requested_at", "date", i18n.Dates(ctx).ShortDateTime(user.PasswordResetRequestedAt.Local())) }</p>
 												}
 											</td>
 											<td class="px-4 py-3">
-												<span
-													class={
-														"inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold",
-														templ.KV("border-primary/30 bg-primary/10 text-primary", user.Role == "management_admin"),
-														templ.KV("border-border bg-muted text-muted-foreground", user.Role == "management_user"),
-													}
-												>{ adminValueLabel(ctx, user.Role) }</span>
+												@adminBadge(adminUserRoleTone(user.Role)) {
+													{ adminValueLabel(ctx, user.Role) }
+												}
 											</td>
 											<td class="px-4 py-3">
-												<span
-													class={
-														"inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold",
-														templ.KV("border-primary/30 bg-primary/10 text-primary", user.MFALabel == "required"),
-														templ.KV("border-border bg-muted text-muted-foreground", user.MFALabel != "required"),
-													}
-												>{ adminValueLabel(ctx, user.MFALabel) }</span>
+												@adminBadge(adminUserMFATone(user.MFALabel)) {
+													{ adminValueLabel(ctx, user.MFALabel) }
+												}
 												<p class="mt-1 whitespace-nowrap text-xs text-muted-foreground">{ adminValueLabel(ctx, user.MFADetail) }</p>
 												if user.MFASetupPending {
 													<p class="mt-2">
-														<span class="inline-flex whitespace-nowrap rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-800 dark:text-amber-200" data-admin-user-mfa-setup-pending>{ i18n.T(ctx, "admin.users.mfa_not_set_up") }</span>
+														@adminBadge(adminToneWarning, templ.Attributes{"data-admin-user-mfa-setup-pending": ""}) {
+															{ i18n.T(ctx, "admin.users.mfa_not_set_up") }
+														}
 													</p>
 												}
 											</td>
@@ -395,15 +370,9 @@ templ AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificat
 												if user.InvitationRotatePath == "" {
 													<span class="text-xs text-muted-foreground">—</span>
 												} else {
-													<span
-														class={
-															"inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold",
-															templ.KV("border-emerald-500/30 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200", user.InvitationState == "active"),
-															templ.KV("border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-200", user.InvitationState == "expired"),
-															templ.KV("border-destructive/30 bg-destructive/10 text-destructive", user.InvitationState == "revoked"),
-															templ.KV("border-border bg-muted text-muted-foreground", user.InvitationState == "not_issued"),
-														}
-													>{ adminUserInvitationStateLabel(ctx, user.InvitationState) }</span>
+													@adminBadge(adminUserInvitationTone(user.InvitationState)) {
+														{ adminUserInvitationStateLabel(ctx, user.InvitationState) }
+													}
 													if user.InvitationExpiresAt != nil {
 														<p class="mt-1 whitespace-nowrap text-xs text-muted-foreground">
 															if user.InvitationState == "active" {
@@ -429,7 +398,7 @@ templ AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificat
 							</table>
 						</div>
 					}
-				</section>
+				}
 				<p class="mt-4 text-xs leading-relaxed text-muted-foreground">{ i18n.T(ctx, "admin.users.privacy") }</p>
 			</div>
 		</div>
@@ -981,4 +950,58 @@ templ AdminUserCredentialResetResultDialog(data *AdminUserCredentialResetData) {
 			}
 		}
 	}
+}
+
+// adminUsersHeaderActions invites someone, beside how many people there are.
+templ adminUsersHeaderActions(data AdminUsersData) {
+	@dialog.Trigger(dialog.TriggerProps{For: "admin-user-invitation-dialog"}) {
+		@button.Button() {
+			@icon.UserPlus(icon.Props{Class: "size-4"})
+			{ i18n.T(ctx, "admin.users.invite") }
+		}
+	}
+	@adminBadge(adminToneNeutral) {
+		{ i18n.N(ctx, "admin.users.count", data.Total, "count", i18n.Number(ctx, data.Total)) }
+	}
+}
+
+func adminUserStatusTone(status string) adminTone {
+	switch status {
+	case "active":
+		return adminToneSuccess
+	case "pending":
+		return adminToneWarning
+	case "disabled":
+		return adminToneDanger
+	}
+	return adminToneNeutral
+}
+
+func adminUserRoleTone(role string) adminTone {
+	switch role {
+	case "management_admin":
+		return adminToneInfo
+	case "management_user":
+		return adminToneNeutral
+	}
+	return adminTonePlain
+}
+
+func adminUserMFATone(label string) adminTone {
+	if label == "required" {
+		return adminToneInfo
+	}
+	return adminToneNeutral
+}
+
+func adminUserInvitationTone(state string) adminTone {
+	switch state {
+	case "active":
+		return adminToneSuccess
+	case "expired":
+		return adminToneWarning
+	case "revoked":
+		return adminToneDanger
+	}
+	return adminToneNeutral
 }
