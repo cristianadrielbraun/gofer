@@ -16,10 +16,15 @@ import (
 // buffer first, so a failure answers with an error instead of half a page.
 func (h *Handler) renderAdminPage(w http.ResponseWriter, r *http.Request, status int, page views.AdminShellPage) {
 	ctx := r.Context()
+	// A result the page shows itself, such as a refused form, wins over one
+	// left by the change that redirected here; either way the flash goes.
+	if flash := h.takeAdminFlash(w, r); len(page.Toasts) == 0 {
+		page.Toasts = flash
+	}
 	var output bytes.Buffer
 	var err error
 	if r.Header.Get("HX-Request") == "true" {
-		err = views.AdminMain(page.Content).Render(ctx, &output)
+		err = views.AdminMain(page).Render(ctx, &output)
 	} else {
 		page.UISettings = h.adminUISettings(ctx)
 		err = views.AdminShell(page).Render(ctx, &output)

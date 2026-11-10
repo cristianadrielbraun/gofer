@@ -17,6 +17,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/auth"
 	"github.com/cristianadrielbraun/gofer/internal/config"
 	"github.com/cristianadrielbraun/gofer/internal/store"
+	"github.com/cristianadrielbraun/gofer/internal/views"
 )
 
 var administratorInvitationTokenPattern = regexp.MustCompile(`Invitation token: ([0-9a-f]{64})`)
@@ -128,8 +129,8 @@ func TestAdministratorCanPermanentlyDeleteDisabledWebmailUserAndLocalData(t *tes
 		"confirmation":         {"Delete.Target"},
 		auth.CSRFFormFieldName: {csrfProofFromForm(t, page.Body.String(), path)},
 	}, sessionCookie)
-	if accepted.Code != http.StatusSeeOther || !strings.HasPrefix(accepted.Header().Get("Location"), "/admin/users?") ||
-		!strings.Contains(accepted.Header().Get("Location"), "deletion+started") {
+	if accepted.Code != http.StatusSeeOther || accepted.Header().Get("Location") != "/admin/users" ||
+		!strings.Contains(adminFlashMessage(t, accepted), "deletion started") {
 		t.Fatalf("start user deletion = %d location:%q body:%q", accepted.Code, accepted.Header().Get("Location"), accepted.Body.String())
 	}
 	deadline := time.Now().Add(3 * time.Second)
@@ -382,7 +383,7 @@ func TestAdministratorCanRequireAndClearIndividualUserMFA(t *testing.T) {
 		auth.CSRFFormFieldName: {csrfProofFromForm(t, page.Body.String(), path)},
 	}
 	required := postSecuritySettings(t, stack, path, requireForm, sessionCookie)
-	if required.Code != http.StatusSeeOther || !strings.HasPrefix(required.Header().Get("Location"), "/admin/users?") {
+	if required.Code != http.StatusSeeOther || required.Header().Get("Location") != "/admin/users" {
 		t.Fatalf("require individual MFA = %d location:%q body:%q", required.Code, required.Header().Get("Location"), required.Body.String())
 	}
 	var storedRequired int
@@ -449,7 +450,7 @@ func TestAdministratorCanRequireMFAForFactorlessUser(t *testing.T) {
 		auth.CSRFFormFieldName: {csrfProofFromForm(t, page.Body.String(), path)},
 	}
 	response := postSecuritySettings(t, stack, path, form, sessionCookie)
-	if response.Code != http.StatusSeeOther || !strings.HasPrefix(response.Header().Get("Location"), "/admin/users?") {
+	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/admin/users" {
 		t.Fatalf("factorless individual MFA = %d %q", response.Code, response.Body.String())
 	}
 	var required, events int
@@ -519,11 +520,11 @@ func TestAdministratorCanDisableAndEnableUserWithoutChangingCredentials(t *testi
 		"status":               {"disabled"},
 		auth.CSRFFormFieldName: {csrfProofFromForm(t, page.Body.String(), path)},
 	}, sessionCookie)
-	if disabled.Code != http.StatusSeeOther || !strings.HasPrefix(disabled.Header().Get("Location"), "/admin/users?") {
+	if disabled.Code != http.StatusSeeOther || disabled.Header().Get("Location") != "/admin/users" {
 		t.Fatalf("disable user = %d location:%q body:%q", disabled.Code, disabled.Header().Get("Location"), disabled.Body.String())
 	}
-	if location := disabled.Header().Get("Location"); !strings.Contains(location, "2+active+sessions+revoked") {
-		t.Fatalf("disable user notice = %q", location)
+	if message := adminFlashMessage(t, disabled); !strings.Contains(message, "2 active sessions revoked") {
+		t.Fatalf("disable user notice = %q", message)
 	}
 	for _, session := range []*auth.Session{first, second} {
 		if stored, err := manager.GetSessionByToken(t.Context(), session.Token); err != nil || stored != nil {
@@ -566,7 +567,7 @@ func TestAdministratorCanDisableAndEnableUserWithoutChangingCredentials(t *testi
 		"status":               {"active"},
 		auth.CSRFFormFieldName: {csrfProofFromForm(t, enablePage.Body.String(), path)},
 	}, sessionCookie)
-	if enabled.Code != http.StatusSeeOther || !strings.HasPrefix(enabled.Header().Get("Location"), "/admin/users?") {
+	if enabled.Code != http.StatusSeeOther || enabled.Header().Get("Location") != "/admin/users" {
 		t.Fatalf("enable user = %d location:%q body:%q", enabled.Code, enabled.Header().Get("Location"), enabled.Body.String())
 	}
 	var activeSessions, enabledEvents int
@@ -955,16 +956,25 @@ func TestAdministratorCanRotateAndRevokeInvitationWithoutExposingInternalTargets
 		auth.CSRFFormFieldName: {csrfProofFromForm(t, refreshed.Body.String(), revokePath)},
 	}
 	revoked := postSecuritySettings(t, stack, revokePath, revokeForm, sessionCookie)
-	if revoked.Code != http.StatusSeeOther || revoked.Header().Get("Location") != "/admin/users?notice=Invitation+revoked." ||
+	if revoked.Code != http.StatusSeeOther || revoked.Header().Get("Location") != "/admin/users" ||
 		revoked.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("revoke invitation = %d location:%q headers:%#v body:%q",
 			revoked.Code, revoked.Header().Get("Location"), revoked.Header(), revoked.Body.String())
 	}
+	if flash, ok := adminFlashOf(t, revoked); !ok || flash.Variant != views.AdminToastSuccess || flash.Message != "Invitation revoked." {
+		t.Fatalf("revoke invitation result = %+v %v", flash, ok)
+	}
 	resultRequest := httptest.NewRequest(http.MethodGet, revoked.Header().Get("Location"), nil)
 	resultRequest.AddCookie(sessionCookie)
+	for _, cookie := range revoked.Result().Cookies() {
+		resultRequest.AddCookie(cookie)
+	}
 	result := httptest.NewRecorder()
 	stack.ServeHTTP(result, resultRequest)
-	if result.Code != http.StatusOK || !strings.Contains(result.Body.String(), "Invitation revoked.") ||
+	if toasts := pageToasts(t, result.Body.String()); len(toasts) != 1 || toasts[0].Message != "Invitation revoked." {
+		t.Fatalf("revoked invitation page toasts = %+v", toasts)
+	}
+	if result.Code != http.StatusOK ||
 		!strings.Contains(result.Body.String(), "Revoked") || !strings.Contains(result.Body.String(), "Issue invitation") ||
 		strings.Contains(result.Body.String(), replacementToken) {
 		t.Fatalf("revoked invitation page = %d %q", result.Code, result.Body.String())

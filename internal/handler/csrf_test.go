@@ -210,7 +210,7 @@ func TestAdminMailSecurityMutationsRequireRecentStrongStepUp(t *testing.T) {
 	staleRedirect := ""
 	for index, test := range tests {
 		recorder := post(test)
-		if recorder.Code != http.StatusSeeOther || !strings.HasPrefix(recorder.Header().Get("Location"), "/admin/security?error=") {
+		if recorder.Code != http.StatusSeeOther || (recorder.Header().Get("Location") != "/admin/security?verification_required=1" || !adminFlashFailed(t, recorder)) {
 			t.Fatalf("stale mutation %q = %d %q", test.path, recorder.Code, recorder.Header().Get("Location"))
 		}
 		if index == 0 {
@@ -239,7 +239,7 @@ func TestAdminMailSecurityMutationsRequireRecentStrongStepUp(t *testing.T) {
 	); err != nil || !steppedUp {
 		t.Fatalf("RecordSessionStepUp(password) = %t, %v", steppedUp, err)
 	}
-	if recorder := post(tests[2]); recorder.Code != http.StatusSeeOther || !strings.HasPrefix(recorder.Header().Get("Location"), "/admin/security?error=") {
+	if recorder := post(tests[2]); recorder.Code != http.StatusSeeOther || (recorder.Header().Get("Location") != "/admin/security?verification_required=1" || !adminFlashFailed(t, recorder)) {
 		t.Fatalf("weak admin step-up mutation = %d %q", recorder.Code, recorder.Header().Get("Location"))
 	}
 	assertOnlySeeded(t)
@@ -250,8 +250,9 @@ func TestAdminMailSecurityMutationsRequireRecentStrongStepUp(t *testing.T) {
 		t.Fatalf("RecordSessionStepUp(TOTP) = %t, %v", steppedUp, err)
 	}
 	recorder := post(tests[2])
-	if recorder.Code != http.StatusSeeOther || recorder.Header().Get("Location") != "/admin/security?notice=HTTP+private+target+is+now+allowed+for+127.0.0.1%3A8080." {
-		t.Fatalf("strong admin step-up mutation = %d %q body=%q", recorder.Code, recorder.Header().Get("Location"), recorder.Body.String())
+	if recorder.Code != http.StatusSeeOther || recorder.Header().Get("Location") != "/admin/security" ||
+		adminFlashMessage(t, recorder) != "HTTP private target is now allowed for 127.0.0.1:8080." {
+		t.Fatalf("strong admin step-up mutation = %d %q flash=%q", recorder.Code, recorder.Header().Get("Location"), adminFlashMessage(t, recorder))
 	}
 	if allowed, err := db.IsPrivateTargetAllowed(t.Context(), "http", "127.0.0.1", 8080); err != nil || !allowed {
 		t.Fatalf("private target after strong step-up = %t, %v", allowed, err)

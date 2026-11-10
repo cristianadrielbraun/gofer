@@ -22,7 +22,6 @@ func TestAdminSecurityActivityPageRendersSanitizedProjectionAndLockState(t *test
 		TotalEvents: 51, Page: 1, TotalPages: 2, FirstEvent: 1, LastEvent: 50,
 		NextPage: 2, HasNext: true, RetentionDays: 180,
 		RetentionMinimumDays: 1, RetentionMaximumDays: 365, RetentionCSRFToken: "csrf-proof",
-		Notice: "Retention saved.", Error: "Example error.",
 	}
 	if err := AdminSecurityActivityPage(data).Render(context.Background(), &out); err != nil {
 		t.Fatal(err)
@@ -35,7 +34,6 @@ func TestAdminSecurityActivityPageRendersSanitizedProjectionAndLockState(t *test
 		`data-admin-security-retention`, "Security activity settings", "180 days",
 		`action="/admin/activity/retention"`, `name="_csrf" value="csrf-proof"`,
 		`min="1"`, `max="365"`, `value="180"`, "Reducing this period permanently removes audit history",
-		"Retention saved.", "Example error.",
 	} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("administrator security activity view omitted %q", want)
@@ -573,18 +571,18 @@ func TestAdminOperationalPagesRenderSelectedWebmailScope(t *testing.T) {
 	}
 }
 
-func TestAdminSecurityRetentionDialogVisibilityAndFeedback(t *testing.T) {
+func TestAdminSecurityRetentionDialogVisibility(t *testing.T) {
+	// Results show as toasts; the dialog reopens only to correct a refused value.
 	for _, test := range []struct {
-		name, notice, message string
-		open                  bool
+		name string
+		open bool
 	}{
 		{name: "closed by default"},
-		{name: "saved", notice: "Retention saved.", open: true},
-		{name: "invalid", message: "Enter a valid retention period.", open: true},
+		{name: "reopened after a refused value", open: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			var out strings.Builder
-			data := AdminSecurityActivityData{ManagedMode: true, RetentionDays: 180, RetentionMinimumDays: 1, RetentionMaximumDays: 365, Notice: test.notice, Error: test.message}
+			data := AdminSecurityActivityData{ManagedMode: true, RetentionDays: 180, RetentionMinimumDays: 1, RetentionMaximumDays: 365, RetentionOpen: test.open}
 			if err := AdminSecurityActivityPage(data).Render(context.Background(), &out); err != nil {
 				t.Fatal(err)
 			}
@@ -604,11 +602,8 @@ func TestAdminSecurityRetentionDialogVisibilityAndFeedback(t *testing.T) {
 			if start < 0 || end < start {
 				t.Fatal("retention dialog is missing")
 			}
-			body := html[start:end]
-			for _, value := range []string{`action="/admin/activity/retention"`, test.notice, test.message} {
-				if value != "" && !strings.Contains(body, value) {
-					t.Fatalf("dialog omitted %q", value)
-				}
+			if !strings.Contains(html[start:end], `action="/admin/activity/retention"`) {
+				t.Fatal("dialog omitted the retention form")
 			}
 			if strings.Contains(html[:start]+html[end:], `action="/admin/activity/retention"`) || strings.Contains(html, `onsubmit="return confirm`) {
 				t.Fatal("retention form is not confined to the dialog")

@@ -51,12 +51,6 @@ templ AdminSecurityPage(data models.MailSecurityAdminData, verification ...Admin
 						}
 					</p>
 				</div>
-				if data.Notice != "" {
-					<div class="mb-5 rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-sm font-medium text-emerald-800 dark:text-emerald-200">{ data.Notice }</div>
-				}
-				if data.Error != "" {
-					<div class="mb-5 rounded-lg border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm font-medium text-red-800 dark:text-red-200">{ data.Error }</div>
-				}
 				if data.StepUpRequired {
 					<div role="alert" class="mb-5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-900 dark:text-amber-100">
 						<p class="font-semibold">{ i18n.T(ctx, "admin.verify.required") }</p>

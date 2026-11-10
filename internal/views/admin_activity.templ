@@ -40,8 +40,8 @@ type AdminSecurityActivityData struct {
 	RetentionMinimumDays int
 	RetentionMaximumDays int
 	RetentionCSRFToken   string
-	Notice               string
-	Error                string
+	// RetentionOpen reopens the settings after a refused value, to correct it.
+	RetentionOpen        bool
 }
 
 func adminSecurityActivityPagePath(filter string, page int64) templ.SafeURL {
@@ -101,12 +101,6 @@ templ AdminSecurityActivityPage(data AdminSecurityActivityData, verification ...
 						}
 					</div>
 				</div>
-				if data.Notice != "" && (!data.ManagedMode || data.StepUpRequired) {
-					<div class="mt-5 rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-sm font-medium text-emerald-800 dark:text-emerald-200">{ data.Notice }</div>
-				}
-				if data.Error != "" && (!data.ManagedMode || data.StepUpRequired) {
-					<div class="mt-5 rounded-lg border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm font-medium text-red-800 dark:text-red-200">{ data.Error }</div>
-				}
 				if !data.ManagedMode {
 					<div role="status" class="mt-6 rounded-lg border border-border bg-card px-5 py-8 text-center">
 						<p class="text-sm font-semibold text-foreground">{ i18n.T(ctx, "admin.activity.unmanaged_title") }</p>
@@ -216,7 +210,7 @@ templ AdminSecurityActivityPage(data AdminSecurityActivityData, verification ...
 }
 
 templ AdminSecurityRetentionDialog(data AdminSecurityActivityData) {
-	@dialog.Dialog(dialog.Props{ID: "admin-security-retention-dialog", Open: data.Notice != "" || data.Error != ""}) {
+	@dialog.Dialog(dialog.Props{ID: "admin-security-retention-dialog", Open: data.RetentionOpen}) {
 		@dialog.Content(dialog.ContentProps{Class: "max-h-[calc(100vh-2rem)] overflow-y-auto"}) {
 			@dialog.Header() {
 				@dialog.Title() {
@@ -229,12 +223,6 @@ templ AdminSecurityRetentionDialog(data AdminSecurityActivityData) {
 			<form method="post" action="/admin/activity/retention" class="space-y-4" data-admin-security-retention>
 				if data.RetentionCSRFToken != "" {
 					<input type="hidden" name="_csrf" value={ data.RetentionCSRFToken }/>
-				}
-				if data.Notice != "" {
-					<p role="status" class="text-sm text-emerald-800 dark:text-emerald-200">{ data.Notice }</p>
-				}
-				if data.Error != "" {
-					<p role="alert" class="text-sm text-destructive">{ data.Error }</p>
 				}
 				<div>
 					<label for="admin-security-retention-days" class="mb-1.5 block text-sm font-medium text-foreground">{ i18n.T(ctx, "admin.retention.label") }</label>

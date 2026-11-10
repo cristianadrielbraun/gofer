@@ -59,8 +59,6 @@ type AdminUsersData struct {
 	InvitationForm      AdminUserInvitationFormData
 	Invitation          *AdminUserInvitationData
 	CredentialReset     *AdminUserCredentialResetData
-	Notice              string
-	Error               string
 }
 
 type AdminUserInvitationFormData struct {
@@ -158,12 +156,6 @@ templ AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificat
 						<span class="w-fit shrink-0 rounded-full border border-border bg-muted px-2.5 py-1 text-xs font-semibold text-muted-foreground">{ i18n.N(ctx, "admin.users.count", data.Total, "count", i18n.Number(ctx, data.Total)) }</span>
 					</div>
 				</div>
-				if data.Error != "" {
-					<div role="alert" class="mt-5 rounded-lg border border-destructive/25 bg-destructive/10 px-4 py-3 text-sm font-medium text-destructive">{ data.Error }</div>
-				}
-				if data.Notice != "" {
-					<div role="status" class="mt-5 rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-sm font-medium text-emerald-800 dark:text-emerald-200">{ data.Notice }</div>
-				}
 				if data.StepUpRequired {
 					<div role="alert" class="mt-5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-900 dark:text-amber-100">
 						<p class="font-semibold">{ i18n.T(ctx, "admin.verify.required") }</p>

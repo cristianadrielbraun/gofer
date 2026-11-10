@@ -115,7 +115,7 @@ func (h *Handler) handleAdminSecurity(w http.ResponseWriter, r *http.Request) {
 			if stepUpRequired {
 				verification = adminSecurityVerificationViewData(
 					ctx, access, "/admin/security",
-					strings.TrimSpace(r.URL.Query().Get("error")) != "" || r.URL.Query().Get("verification_required") == "1",
+					r.URL.Query().Get("verification_required") == "1",
 				)
 			}
 		case errors.Is(accessErr, auth.ErrSecuritySessionInvalid):
@@ -136,8 +136,6 @@ func (h *Handler) handleAdminSecurity(w http.ResponseWriter, r *http.Request) {
 	data := models.MailSecurityAdminData{
 		ActionBase:     "/admin/security",
 		Exceptions:     exceptions,
-		Notice:         strings.TrimSpace(r.URL.Query().Get("notice")),
-		Error:          strings.TrimSpace(r.URL.Query().Get("error")),
 		StepUpRequired: stepUpRequired,
 		CSRFTokens:     map[string]string{},
 	}
@@ -400,7 +398,7 @@ func (h *Handler) requireRecentAdminSecurityStepUp(w http.ResponseWriter, r *htt
 		// The security settings page asks the owner to verify first.
 		http.Redirect(w, r, "/settings/security", http.StatusSeeOther)
 	case errors.Is(err, auth.ErrRecentStepUpRequired):
-		h.redirectAdminSecurity(w, r, "", i18n.T(r.Context(), "auth.admin.verify.exceptions"))
+		h.redirectAdminSecurityToVerify(w, r)
 	case errors.Is(err, auth.ErrSecuritySessionInvalid):
 		auth.ClearSessionCookie(w, h.auth.Config().SecureCookies)
 		if personal {
@@ -427,14 +425,22 @@ func (h *Handler) redirectAdminSecurity(w http.ResponseWriter, r *http.Request, 
 		http.Redirect(w, r, "/settings/security?"+values.Encode()+"#mail-security", http.StatusSeeOther)
 		return
 	}
-	values := url.Values{}
-	if notice != "" {
-		values.Set("notice", notice)
-	}
-	if message != "" {
-		values.Set("error", message)
-	}
-	// Return to the tab the change was made on, when the page has tabs.
+	// The admin page shows the result as a toast.
+	h.setAdminFlashSuccess(w, notice)
+	h.setAdminFlashError(w, message)
+	http.Redirect(w, r, h.adminSecurityTarget(r, url.Values{}), http.StatusSeeOther)
+}
+
+// redirectAdminSecurityToVerify returns to the admin page with its
+// verification open, saying why the change waits for it.
+func (h *Handler) redirectAdminSecurityToVerify(w http.ResponseWriter, r *http.Request) {
+	h.setAdminFlashError(w, i18n.T(r.Context(), "auth.admin.verify.exceptions"))
+	http.Redirect(w, r, h.adminSecurityTarget(r, url.Values{"verification_required": {"1"}}), http.StatusSeeOther)
+}
+
+// adminSecurityTarget is the admin Mail security page on the tab a change
+// was made on, when the page has tabs.
+func (h *Handler) adminSecurityTarget(r *http.Request, values url.Values) string {
 	if h.ownedMailbox != nil && strings.HasPrefix(r.URL.Path, "/admin/security/proxies") {
 		values.Set("tab", "proxies")
 	} else if h.ownedMailbox != nil && !strings.HasPrefix(r.URL.Path, adminMailAllowlistBase+"/") {
@@ -444,7 +450,7 @@ func (h *Handler) redirectAdminSecurity(w http.ResponseWriter, r *http.Request, 
 	if query := values.Encode(); query != "" {
 		target += "?" + query
 	}
-	http.Redirect(w, r, target, http.StatusSeeOther)
+	return target
 }
 
 func normalizeDiscoveryExceptionDomain(value string) string {

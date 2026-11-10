@@ -6,6 +6,7 @@ import (
 
 	"github.com/a-h/templ"
 	"github.com/cristianadrielbraun/gofer/components/icon"
+	"github.com/cristianadrielbraun/gofer/components/toast"
 	"github.com/cristianadrielbraun/gofer/internal/auth"
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"github.com/cristianadrielbraun/gofer/internal/models"
@@ -36,12 +37,42 @@ const (
 )
 
 // AdminShellPage is one page of the admin console: the section it belongs
-// to, the webmail user its diagnostics are narrowed to, and its content.
+// to, the webmail user its diagnostics are narrowed to, its content, and
+// the results to show as toasts when it opens.
 type AdminShellPage struct {
 	UISettings map[string]string
 	Section    string
 	Scope      models.AdminWebmailScope
 	Content    templ.Component
+	Toasts     []AdminToast
+}
+
+// AdminToast is the result of a change, shown as a toast: a success that
+// goes away by itself, or an error that stays until it's closed.
+type AdminToast struct {
+	Variant string
+	Message string
+}
+
+const (
+	AdminToastSuccess = "success"
+	AdminToastError   = "error"
+)
+
+// adminToastProps shows a result with templui's toast. Results are
+// sentences, so they go in the description; a title would be cut to one
+// line. An error has a negative duration, which keeps toast.js from
+// dismissing it on a timer.
+func adminToastProps(item AdminToast) toast.Props {
+	props := toast.Props{
+		Description: item.Message, Variant: toast.VariantSuccess,
+		Duration: 5000, Dismissible: true, Icon: true,
+	}
+	if item.Variant == AdminToastError {
+		props.Variant = toast.VariantError
+		props.Duration = -1
+	}
+	return props
 }
 
 type adminNavItem struct {

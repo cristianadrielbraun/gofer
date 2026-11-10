@@ -145,7 +145,7 @@ func TestOwnedAdminSecurityRestartAndNativeRevocation(t *testing.T) {
 				t.Fatal("owned service did not start")
 			}
 			post := ownedSecurityPost(t, f, page.Body.String(), "/admin/security/plaintext", url.Values{"protocol": {"imap"}, "host": {host}, "port": {portText}, "acknowledge": {"yes"}})
-			if post.Code != 303 || strings.Contains(post.Header().Get("Location"), "error=") {
+			if post.Code != 303 || adminFlashFailed(t, post) {
 				t.Fatal("add permission", post.Code, post.Header())
 			}
 			select {
@@ -240,7 +240,7 @@ func TestOwnedAdminSecurityRestartAndNativeRevocation(t *testing.T) {
 				}
 			}
 			post = ownedSecurityPost(t, f, page.Body.String(), deletePath, url.Values{})
-			if post.Code != 303 || strings.Contains(post.Header().Get("Location"), "error=") {
+			if post.Code != 303 || adminFlashFailed(t, post) {
 				t.Fatal("revocation", post.Code, post.Header())
 			}
 			if allowed, err := f.system.IsPlaintextTransportAllowed(t.Context(), "imap", host, port); err != nil || allowed {
@@ -320,7 +320,7 @@ func TestOwnedAdminSecurityShutdownPreventsPolicyMutation(t *testing.T) {
 	cancel()
 	path := "/admin/security/exceptions/" + policies[0].ID + "/delete"
 	response := ownedSecurityPost(t, f, page.Body.String(), path, url.Values{})
-	if response.Code == 303 && !strings.Contains(response.Header().Get("Location"), "error=") {
+	if response.Code == 303 && !adminFlashFailed(t, response) {
 		t.Fatal("shutdown accepted revocation", response.Header())
 	}
 	if allowed, err := f.system.IsPlaintextTransportAllowed(t.Context(), "imap", "mail.lab.test", 143); err != nil || !allowed {
@@ -338,7 +338,7 @@ func TestOwnedAdminSecurityAddsHTTPPlaintextException(t *testing.T) {
 		t.Fatal(page.Code, page.Body.String())
 	}
 	post := ownedSecurityPost(t, f, page.Body.String(), "/admin/security/plaintext", url.Values{"protocol": {"http"}, "host": {"jmap.lab.test"}, "port": {"8080"}, "acknowledge": {"yes"}})
-	if post.Code != 303 || strings.Contains(post.Header().Get("Location"), "error=") {
+	if post.Code != 303 || adminFlashFailed(t, post) {
 		t.Fatal("add HTTP plaintext exception", post.Code, post.Header())
 	}
 	if allowed, err := f.system.IsPlaintextTransportAllowed(t.Context(), "http", "jmap.lab.test", 8080); err != nil || !allowed {
@@ -347,7 +347,7 @@ func TestOwnedAdminSecurityAddsHTTPPlaintextException(t *testing.T) {
 
 	page = f.request("/admin/security")
 	post = ownedSecurityPost(t, f, page.Body.String(), "/admin/security/plaintext", url.Values{"protocol": {"ftp"}, "host": {"jmap.lab.test"}, "port": {"21"}, "acknowledge": {"yes"}})
-	if post.Code != 303 || !strings.Contains(post.Header().Get("Location"), "error=") {
+	if post.Code != 303 || !adminFlashFailed(t, post) {
 		t.Fatal("unknown protocol accepted", post.Code, post.Header())
 	}
 }

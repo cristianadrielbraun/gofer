@@ -101,5 +101,5 @@ func (h *Handler) handleRequireUserPasswordChange(w http.ResponseWriter, r *http
 		}
 		return
 	}
-	redirectAdminUsers(w, r, i18n.T(r.Context(), "auth.admin.password_change_required"))
+	h.redirectAdminUsers(w, r, i18n.T(r.Context(), "auth.admin.password_change_required"))
 }

@@ -197,7 +197,7 @@ func (h *Handler) handleRevokeAdminUserInvitation(w http.ResponseWriter, r *http
 		}
 		return
 	}
-	redirectAdminUsers(w, r, i18n.T(r.Context(), "auth.admin.users.invitation_revoked"))
+	h.redirectAdminUsers(w, r, i18n.T(r.Context(), "auth.admin.users.invitation_revoked"))
 }
 
 func (h *Handler) handleRotateAdminUserInvitation(w http.ResponseWriter, r *http.Request) {
@@ -275,14 +275,14 @@ func (h *Handler) handleSetAdminUserMFAPolicy(w http.ResponseWriter, r *http.Req
 		return
 	}
 	if !result.Changed {
-		redirectAdminUsers(w, r, i18n.T(r.Context(), "auth.admin.users.mfa_unchanged"))
+		h.redirectAdminUsers(w, r, i18n.T(r.Context(), "auth.admin.users.mfa_unchanged"))
 		return
 	}
 	if result.Required {
-		redirectAdminUsers(w, r, i18n.T(r.Context(), "auth.admin.users.mfa_required"))
+		h.redirectAdminUsers(w, r, i18n.T(r.Context(), "auth.admin.users.mfa_required"))
 		return
 	}
-	redirectAdminUsers(w, r, i18n.T(r.Context(), "auth.admin.users.mfa_cleared"))
+	h.redirectAdminUsers(w, r, i18n.T(r.Context(), "auth.admin.users.mfa_cleared"))
 }
 
 func (h *Handler) handleSetAdminUserStatus(w http.ResponseWriter, r *http.Request) {
@@ -342,7 +342,7 @@ func (h *Handler) handleSetAdminUserStatus(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if !result.Changed {
-		redirectAdminUsers(w, r, i18n.T(r.Context(), "auth.admin.users.access_unchanged"))
+		h.redirectAdminUsers(w, r, i18n.T(r.Context(), "auth.admin.users.access_unchanged"))
 		return
 	}
 	if result.Status == auth.UserStatusDisabled {
@@ -350,10 +350,10 @@ func (h *Handler) handleSetAdminUserStatus(w http.ResponseWriter, r *http.Reques
 		if result.RevokedSessions > 0 {
 			notice = i18n.N(r.Context(), "auth.admin.users.disabled_sessions", int(result.RevokedSessions), "count", i18n.Number(r.Context(), int(result.RevokedSessions)))
 		}
-		redirectAdminUsers(w, r, notice)
+		h.redirectAdminUsers(w, r, notice)
 		return
 	}
-	redirectAdminUsers(w, r, i18n.T(r.Context(), "auth.admin.users.enabled"))
+	h.redirectAdminUsers(w, r, i18n.T(r.Context(), "auth.admin.users.enabled"))
 }
 
 func (h *Handler) handleIssueAdminUserCredentialReset(w http.ResponseWriter, r *http.Request) {
@@ -453,14 +453,14 @@ func (h *Handler) handleDeleteAdminUser(w http.ResponseWriter, r *http.Request) 
 		owned.h.userIMAP.StopUser(result.TargetUserID)
 		err := owned.enqueue(userRemovalJob{owner: result.TargetUserID, actorSession: currentSession.ID})
 		if errors.Is(err, errUserRemovalBusy) {
-			redirectAdminUsers(w, r, i18n.T(r.Context(), "auth.admin.users.delete_pending"))
+			h.redirectAdminUsers(w, r, i18n.T(r.Context(), "auth.admin.users.delete_pending"))
 			return
 		}
 		if err != nil {
 			http.Error(w, i18n.T(r.Context(), "auth.admin.users.delete_stopped"), http.StatusServiceUnavailable)
 			return
 		}
-		redirectAdminUsers(w, r, i18n.T(r.Context(), "auth.admin.users.delete_started"))
+		h.redirectAdminUsers(w, r, i18n.T(r.Context(), "auth.admin.users.delete_started"))
 		return
 	}
 	for _, accountID := range result.AccountIDs {
@@ -479,23 +479,18 @@ func (h *Handler) handleDeleteAdminUser(w http.ResponseWriter, r *http.Request) 
 	}(result.TargetUserID, currentSession.ID)
 
 	if result.Resumed {
-		redirectAdminUsers(w, r, i18n.T(r.Context(), "auth.admin.users.delete_resumed"))
+		h.redirectAdminUsers(w, r, i18n.T(r.Context(), "auth.admin.users.delete_resumed"))
 		return
 	}
-	redirectAdminUsers(w, r, i18n.T(r.Context(), "auth.admin.users.delete_started"))
+	h.redirectAdminUsers(w, r, i18n.T(r.Context(), "auth.admin.users.delete_started"))
 }
 
-func redirectAdminUsers(w http.ResponseWriter, r *http.Request, notice string) {
-	values := url.Values{}
-	if notice != "" {
-		values.Set("notice", notice)
-	}
-	target := "/admin/users"
-	if encoded := values.Encode(); encoded != "" {
-		target += "?" + encoded
-	}
+// redirectAdminUsers returns to the Users page, which shows notice as a
+// toast.
+func (h *Handler) redirectAdminUsers(w http.ResponseWriter, r *http.Request, notice string) {
+	h.setAdminFlashSuccess(w, notice)
 	w.Header().Set("Cache-Control", "no-store")
-	http.Redirect(w, r, target, http.StatusSeeOther)
+	http.Redirect(w, r, "/admin/users", http.StatusSeeOther)
 }
 
 func (h *Handler) renderAdminUsers(w http.ResponseWriter, r *http.Request, status int, form views.AdminUserInvitationFormData, invitation *views.AdminUserInvitationData, pageError string) {
@@ -534,11 +529,6 @@ func (h *Handler) renderAdminUsersPage(w http.ResponseWriter, r *http.Request, s
 	data.InvitationForm = form
 	data.Invitation = invitation
 	data.CredentialReset = reset
-	data.Error = pageError
-	data.Notice = strings.TrimSpace(r.URL.Query().Get("notice"))
-	if queryError := strings.TrimSpace(r.URL.Query().Get("error")); data.Error == "" && queryError != "" {
-		data.Error = queryError
-	}
 	// A continuation only opens a confirmation; issuance still requires its POST.
 	continuationKey := "reset_user"
 	if r.URL.Query().Get("change_user") != "" || strings.HasSuffix(r.URL.Path, "/require-password-change") {
@@ -568,7 +558,7 @@ func (h *Handler) renderAdminUsersPage(w http.ResponseWriter, r *http.Request, s
 			if data.StepUpRequired {
 				verification = adminSecurityVerificationViewData(
 					ctx, access, returnTo,
-					data.Error != "" || r.URL.Query().Get("verification_required") == "1" || returnTo != "/admin/users",
+					pageError != "" || r.URL.Query().Get("verification_required") == "1" || returnTo != "/admin/users",
 				)
 			}
 		case errors.Is(accessErr, auth.ErrSecuritySessionInvalid):
@@ -611,5 +601,6 @@ func (h *Handler) renderAdminUsersPage(w http.ResponseWriter, r *http.Request, s
 	h.renderAdminPage(w, r, status, views.AdminShellPage{
 		Section: views.AdminSectionUsers,
 		Content: views.AdminUsersPage(data, verification),
+		Toasts:  adminErrorToasts(pageError),
 	})
 }

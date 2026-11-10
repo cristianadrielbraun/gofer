@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/auth"
+	"github.com/cristianadrielbraun/gofer/internal/views"
 )
 
 func TestAdministratorSecurityActivityRendersSanitizedPaginatedInstanceEvents(t *testing.T) {
@@ -263,8 +264,11 @@ func TestAdministratorSecurityActivityRetentionSettingRequiresCSRFAndRecentVerif
 		t.Fatalf("retention change without CSRF = %d %q", response.Code, response.Body.String())
 	}
 	if response := post("366", true); response.Code != http.StatusSeeOther ||
-		!strings.Contains(response.Header().Get("Location"), "error=Enter+a+retention+period+between+1+and+365+days") {
+		response.Header().Get("Location") != "/admin/activity?retention=1" {
 		t.Fatalf("invalid retention change = %d %q", response.Code, response.Header().Get("Location"))
+	} else if flash, ok := adminFlashOf(t, response); !ok || flash.Variant != views.AdminToastError ||
+		!strings.Contains(flash.Message, "Enter a retention period between 1 and 365 days") {
+		t.Fatalf("invalid retention change result = %+v %v", flash, ok)
 	}
 	policy, err := manager.AuthenticationEventRetention(t.Context())
 	if err != nil || policy.Days != auth.DefaultAuthenticationEventRetentionDays {
@@ -272,9 +276,12 @@ func TestAdministratorSecurityActivityRetentionSettingRequiresCSRFAndRecentVerif
 	}
 
 	changed := post("365", true)
-	if changed.Code != http.StatusSeeOther ||
-		changed.Header().Get("Location") != "/admin/activity?notice=Security+activity+will+now+be+retained+for+365+days." {
+	if changed.Code != http.StatusSeeOther || changed.Header().Get("Location") != "/admin/activity" {
 		t.Fatalf("valid retention change = %d %q", changed.Code, changed.Header().Get("Location"))
+	}
+	if flash, ok := adminFlashOf(t, changed); !ok || flash.Variant != views.AdminToastSuccess ||
+		flash.Message != "Security activity will now be retained for 365 days." {
+		t.Fatalf("valid retention change result = %+v %v", flash, ok)
 	}
 	policy, err = manager.AuthenticationEventRetention(t.Context())
 	if err != nil || policy.Days != 365 {

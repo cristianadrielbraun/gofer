@@ -117,8 +117,7 @@ func (h *Handler) handleAdminSecurityActivity(w http.ResponseWriter, r *http.Req
 			data.StepUpRequired = true
 			verification = adminSecurityVerificationViewData(
 				r.Context(), access, adminSecurityActivityReturnTo(requestedPage, filter),
-				r.URL.Query().Get("verification_required") == "1" ||
-					strings.TrimSpace(r.URL.Query().Get("error")) != "",
+				r.URL.Query().Get("verification_required") == "1",
 			)
 		}
 
@@ -169,8 +168,7 @@ func (h *Handler) handleAdminSecurityActivity(w http.ResponseWriter, r *http.Req
 			}
 		}
 	}
-	data.Notice = strings.TrimSpace(r.URL.Query().Get("notice"))
-	data.Error = strings.TrimSpace(r.URL.Query().Get("error"))
+	data.RetentionOpen = r.URL.Query().Get("retention") == "1"
 
 	h.renderAdminPage(w, r, http.StatusOK, views.AdminShellPage{
 		Section: views.AdminSectionActivity,
@@ -184,13 +182,13 @@ func (h *Handler) handleSetAuthenticationEventRetention(w http.ResponseWriter, r
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		redirectAdminSecurityActivity(w, r, "", i18n.T(r.Context(), "auth.admin.form_invalid"), false)
+		h.redirectAdminSecurityActivity(w, r, "", i18n.T(r.Context(), "auth.admin.form_invalid"), false)
 		return
 	}
 	days, err := strconv.Atoi(strings.TrimSpace(r.FormValue("days")))
 	if err != nil || days < auth.MinimumAuthenticationEventRetentionDays ||
 		days > auth.MaximumAuthenticationEventRetentionDays {
-		redirectAdminSecurityActivity(
+		h.redirectAdminSecurityActivity(
 			w, r, "",
 			i18n.T(r.Context(), "auth.admin.retention.invalid", "min", i18n.Number(r.Context(), auth.MinimumAuthenticationEventRetentionDays), "max", i18n.Number(r.Context(), auth.MaximumAuthenticationEventRetentionDays)),
 			false,
@@ -212,20 +210,20 @@ func (h *Handler) handleSetAuthenticationEventRetention(w http.ResponseWriter, r
 	case err == nil:
 		if result.Changed {
 			h.wakeAuthenticationEventRetention()
-			redirectAdminSecurityActivity(
+			h.redirectAdminSecurityActivity(
 				w, r, i18n.N(r.Context(), "auth.admin.retention.changed", days, "count", i18n.Number(r.Context(), days)), "", false,
 			)
 			return
 		}
-		redirectAdminSecurityActivity(
+		h.redirectAdminSecurityActivity(
 			w, r, i18n.N(r.Context(), "auth.admin.retention.unchanged", days, "count", i18n.Number(r.Context(), days)), "", false,
 		)
 	case errors.Is(err, auth.ErrRecentStepUpRequired):
-		redirectAdminSecurityActivity(w, r, "", "", true)
+		h.redirectAdminSecurityActivity(w, r, "", "", true)
 	case errors.Is(err, auth.ErrAdministratorRequired):
 		http.Error(w, i18n.T(r.Context(), "server.error.admin_access_required"), http.StatusForbidden)
 	case errors.Is(err, auth.ErrAuthenticationEventRetentionInvalid):
-		redirectAdminSecurityActivity(
+		h.redirectAdminSecurityActivity(
 			w, r, "",
 			i18n.T(r.Context(), "auth.admin.retention.invalid", "min", i18n.Number(r.Context(), auth.MinimumAuthenticationEventRetentionDays), "max", i18n.Number(r.Context(), auth.MaximumAuthenticationEventRetentionDays)),
 			false,
@@ -236,19 +234,20 @@ func (h *Handler) handleSetAuthenticationEventRetention(w http.ResponseWriter, r
 	}
 }
 
-func redirectAdminSecurityActivity(
+// redirectAdminSecurityActivity returns to the Activity page, which shows the
+// result as a toast. A refused value reopens the settings to correct it.
+func (h *Handler) redirectAdminSecurityActivity(
 	w http.ResponseWriter,
 	r *http.Request,
 	notice string,
 	message string,
 	verificationRequired bool,
 ) {
+	h.setAdminFlashSuccess(w, notice)
+	h.setAdminFlashError(w, message)
 	values := url.Values{}
-	if notice != "" {
-		values.Set("notice", notice)
-	}
 	if message != "" {
-		values.Set("error", message)
+		values.Set("retention", "1")
 	}
 	if verificationRequired {
 		values.Set("verification_required", "1")

@@ -44,7 +44,7 @@ func TestOwnedAdminMailAllowlist(t *testing.T) {
 			t.Fatal(page.Code, page.Body.String())
 		}
 		response := ownedSecurityPost(t, f, page.Body.String(), path, form)
-		if response.Code != 303 || strings.Contains(response.Header().Get("Location"), "error=") {
+		if response.Code != 303 || adminFlashFailed(t, response) {
 			t.Fatal(path, response.Code, response.Header())
 		}
 	}
@@ -84,7 +84,7 @@ func TestOwnedAdminMailAllowlist(t *testing.T) {
 
 	page = f.request("/admin/security")
 	response := ownedSecurityPost(t, f, page.Body.String(), "/admin/security/allowlist/servers", url.Values{"value": {"imap.example.com:993"}})
-	if response.Code != 303 || !strings.Contains(response.Header().Get("Location"), "error=") {
+	if response.Code != 303 || !adminFlashFailed(t, response) {
 		t.Fatal("server with a port accepted", response.Code, response.Header())
 	}
 	entries, err := f.system.ListMailAllowlistEntries(davTestContext(t))
