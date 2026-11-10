@@ -84,7 +84,7 @@ templ LoginPage(data LoginPageData) {
 										aria-invalid="true"
 										aria-describedby="login-error"
 									}
-									class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none transition-shadow placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 aria-[invalid=true]:border-destructive aria-[invalid=true]:ring-destructive/20"
+									class={ signInFieldClass }
 								/>
 							</div>
 							<div class="login-reveal" data-login-reveal="password" data-open={ fmt.Sprint(data.MethodsShown) }>
@@ -108,7 +108,7 @@ templ LoginPage(data LoginPageData) {
 												aria-invalid="true"
 												aria-describedby="login-error"
 											}
-											class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none transition-shadow placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 aria-[invalid=true]:border-destructive aria-[invalid=true]:ring-destructive/20"
+											class={ signInFieldClass }
 										/>
 									</div>
 								</div>
@@ -263,7 +263,7 @@ templ LoginMFAContinuationPage(errorMessage string, factors LoginMFAFactors) {
 										aria-invalid="true"
 										aria-describedby="login-mfa-error"
 									}
-									class="flex h-12 w-full rounded-md border border-input bg-background px-3 py-2 text-center font-mono text-xl tracking-[0.35em] outline-none transition-shadow placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 aria-[invalid=true]:border-destructive aria-[invalid=true]:ring-destructive/20"
+									class={ signInCodeFieldClass }
 								/>
 							</div>
 							@button.Button(button.Props{Type: button.TypeSubmit, FullWidth: true}) {

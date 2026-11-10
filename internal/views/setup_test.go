@@ -31,31 +31,33 @@ func TestSetupTokenPageIsAccessibleLocalAndEscapesErrors(t *testing.T) {
 func TestSetupOwnerPageIsAccessibleAndLocal(t *testing.T) {
 	var output bytes.Buffer
 	if err := SetupOwnerPage(SetupOwnerData{
-		Kind: "existing", DraftSaved: true,
-		Candidates: []SetupOwnerCandidateData{{
-			ID: "person-id", Name: "Person <Owner>", Username: "person",
-			Status: "active", MailboxCount: 2, LegacySessions: 1,
-		}},
+		DraftSaved: true,
 		Form: SetupOwnerFormData{
-			Target: "existing:person-id", Name: "Person <Owner>", Username: "person",
-			Errors: map[string]string{"username": `<script>alert("owner")</script>`},
+			Target: "create", Name: "Person <Owner>", Username: "person",
+			Errors: map[string]string{"username": `<script>alert("owner")</script>`, "form": "The form expired."},
 		},
 	}).Render(t.Context(), &output); err != nil {
 		t.Fatalf("SetupOwnerPage.Render() error = %v", err)
 	}
 	html := output.String()
 	for _, want := range []string{
-		"Setup access verified", "Choose the Gofer owner", `action="/setup/owner"`,
-		`name="owner_target"`, `value="existing:person-id"`, "2 mail accounts", "1 legacy session",
-		`autocomplete="username"`, `role="alert"`, `&lt;script&gt;alert`,
-		"No user, role, credential, or owned data has been changed yet", `href="/setup/password"`,
+		"Setup access verified", "Create the management owner", "Management owner profile ready",
+		`action="/setup/owner"`, `name="owner_target" value="create"`,
+		`id="setup-owner-name"`, `value="Person &lt;Owner&gt;"`, `autocomplete="name"`, `maxlength="100"`,
+		`id="setup-owner-username"`, `autocomplete="username"`, `minlength="3"`, `maxlength="32"`,
+		`aria-invalid="true"`, `aria-describedby="setup-owner-username-help setup-owner-username-error"`,
+		`id="setup-owner-username-error" role="alert"`, `&lt;script&gt;alert`, "The form expired.",
 	} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("setup owner page missing %q", want)
 		}
 	}
 	if strings.Contains(html, `<script>alert("owner")</script>`) || strings.Contains(html, "fonts.googleapis.com") || strings.Contains(html, "fonts.gstatic.com") {
-		t.Fatal("setup owner page requested a remote font")
+		t.Fatal("setup owner page rendered unsafe or remote content")
+	}
+	// Only the username has an error, so the name field doesn't point at one.
+	if strings.Contains(html, `aria-describedby="setup-owner-name-error"`) {
+		t.Fatal("setup owner page marked the valid name as invalid")
 	}
 }
 
@@ -301,23 +303,6 @@ func TestSetupReviewFreshAndBlockedImpactAreExplicit(t *testing.T) {
 	if !strings.Contains(failed.String(), "Setup was not completed") || !strings.Contains(failed.String(), `&lt;script&gt;retry&lt;/script&gt;`) ||
 		strings.Contains(failed.String(), `<script>retry</script>`) {
 		t.Fatalf("completion error rendering = %q", failed.String())
-	}
-}
-
-func TestSetupOwnerLegacyPageExplainsInPlaceClaim(t *testing.T) {
-	var output bytes.Buffer
-	if err := SetupOwnerPage(SetupOwnerData{
-		Kind: "legacy_default", Form: SetupOwnerFormData{Target: "existing:default"},
-	}).Render(t.Context(), &output); err != nil {
-		t.Fatal(err)
-	}
-	html := output.String()
-	for _, want := range []string{
-		"Claim your existing Gofer data", `value="existing:default"`, "keep using user ID", "Nothing is copied or reassigned",
-	} {
-		if !strings.Contains(html, want) {
-			t.Fatalf("legacy owner page missing %q", want)
-		}
 	}
 }
 

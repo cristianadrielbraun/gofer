@@ -59,7 +59,7 @@ templ InvitationEnrollmentPage(data InvitationEnrollmentData) {
 								} else {
 									aria-describedby="enrollment-token-help"
 								}
-								class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none transition-shadow placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 aria-[invalid=true]:border-destructive aria-[invalid=true]:ring-destructive/20"
+								class={ signInFieldClass }
 							/>
 							<p id="enrollment-token-help" class="text-xs leading-relaxed text-muted-foreground"><span class="font-semibold text-foreground">{ i18n.T(ctx, "signin.enroll_invite.token_required") }</span> { i18n.T(ctx, "signin.enroll_invite.token_help") }</p>
 						</div>
@@ -165,7 +165,7 @@ templ CredentialRedemptionPage(data CredentialRedemptionData) {
 									aria-invalid="true"
 									aria-describedby="redemption-error"
 								}
-								class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none transition-shadow placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 aria-[invalid=true]:border-destructive aria-[invalid=true]:ring-destructive/20"
+								class={ signInFieldClass }
 							/>
 						</div>
 						<div class="space-y-2">

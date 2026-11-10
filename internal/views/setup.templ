@@ -12,16 +12,6 @@ type SetupTokenData struct {
 	Message string
 }
 
-type SetupOwnerCandidateData struct {
-	ID             string
-	Name           string
-	Username       string
-	Status         string
-	IsAdmin        bool
-	MailboxCount   int64
-	LegacySessions int64
-}
-
 type SetupOwnerFormData struct {
 	Target   string
 	Name     string
@@ -30,8 +20,6 @@ type SetupOwnerFormData struct {
 }
 
 type SetupOwnerData struct {
-	Kind       string
-	Candidates []SetupOwnerCandidateData
 	Form       SetupOwnerFormData
 	DraftSaved bool
 	DraftStale bool
@@ -141,7 +129,7 @@ templ SetupTokenPage(data SetupTokenData) {
 									aria-invalid="true"
 									aria-describedby="setup-token-error"
 								}
-								class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none transition-shadow placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 aria-[invalid=true]:border-destructive aria-[invalid=true]:ring-destructive/20"
+								class={ signInFieldClass }
 							/>
 						</div>
 						@button.Button(button.Props{Type: button.TypeSubmit, FullWidth: true}) {
@@ -155,144 +143,96 @@ templ SetupTokenPage(data SetupTokenData) {
 	</html>
 }
 
+// SetupOwnerPage creates the management owner during first-run setup: a new
+// identity used only for administration. Existing webmail users stay as they
+// are; none of them can become the owner.
 templ SetupOwnerPage(data SetupOwnerData) {
-	<!DOCTYPE html>
-	<html lang={ pageLang(ctx) } class="dark" data-theme="classic">
-		<head>
-			<meta charset="UTF-8"/>
-			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-			@I18nScripts()
-			<title>{ i18n.T(ctx, "setup.title.owner") }</title>
-			@AppIcon()
-			<link rel="stylesheet" href={ assetver.URL("/assets/css/output.css") }/>
-			<script src={ assetver.URL("/assets/js/actions.js") }></script>
-		</head>
-		<body class="bg-background text-foreground antialiased surface-desk">
-			@PublicPageCorners()
-			<main class="min-h-screen flex items-center justify-center p-4 py-10">
-				<div class="w-full max-w-2xl">
-					<div class="text-center mb-8">
-						<img src={ assetver.URL("/assets/logo.svg") } alt="Gofer" class="h-12 w-auto mx-auto"/>
-						<p class="mt-5 text-xs font-medium uppercase tracking-widest text-success">{ i18n.T(ctx, "setup.owner.verified") }</p>
-						if data.Kind == "fresh" {
-							<h1 class="mt-2 text-2xl font-semibold">{ i18n.T(ctx, "setup.owner.fresh_title") }</h1>
-							<p class="mt-2 text-sm text-muted-foreground">{ i18n.T(ctx, "setup.owner.fresh_description") }</p>
-						} else if data.Kind == "legacy_default" {
-							<h1 class="mt-2 text-2xl font-semibold">{ i18n.T(ctx, "setup.owner.legacy_title") }</h1>
-							<p class="mt-2 text-sm text-muted-foreground">{ i18n.T(ctx, "setup.owner.legacy_description") }</p>
-						} else {
-							<h1 class="mt-2 text-2xl font-semibold">{ i18n.T(ctx, "setup.owner.choose_title") }</h1>
-							<p class="mt-2 text-sm text-muted-foreground">{ i18n.T(ctx, "setup.owner.choose_description") }</p>
-						}
+	@adminPublicPage(i18n.T(ctx, "admin.owner.page_title")) {
+		<main class="min-h-screen flex items-center justify-center p-4 py-10">
+			<div class="w-full max-w-2xl">
+				<div class="text-center mb-8">
+					<img src={ assetver.URL("/assets/logo.svg") } alt="Gofer" class="h-12 w-auto mx-auto"/>
+					<p class="mt-5 text-xs font-medium uppercase tracking-widest text-success">{ i18n.T(ctx, "admin.owner.verified") }</p>
+					<h1 class="mt-2 text-2xl font-semibold">{ i18n.T(ctx, "admin.owner.title") }</h1>
+					<p class="mt-2 text-sm text-muted-foreground">{ i18n.T(ctx, "admin.owner.description") }</p>
+				</div>
+				if data.DraftSaved {
+					<div role="status" class="mb-6 rounded-lg border border-success/25 bg-success/10 px-4 py-3">
+						<p class="text-sm font-medium text-success">{ i18n.T(ctx, "admin.owner.ready") }</p>
+						<p class="mt-1 text-xs text-muted-foreground">{ i18n.T(ctx, "admin.owner.ready_detail") }</p>
 					</div>
-					if data.DraftSaved {
-						<div role="status" aria-live="polite" class="mb-6 rounded-lg border border-success/25 bg-success/10 px-4 py-3">
-							<p class="text-sm font-medium text-success">{ i18n.T(ctx, "setup.owner.draft_saved") }</p>
-							<p class="mt-1 text-xs text-muted-foreground">{ i18n.T(ctx, "setup.owner.draft_note") }</p>
-						</div>
-					}
-					if data.DraftStale {
-						<div role="alert" class="mb-6 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm">
-							{ i18n.T(ctx, "setup.owner.draft_stale") }
-						</div>
-					}
-					if data.BlockedMessage != "" {
-						<div role="alert" class="rounded-xl border border-destructive/25 bg-destructive/10 p-6">
-							<h2 class="text-lg font-semibold">{ i18n.T(ctx, "setup.owner.blocked_title") }</h2>
-							<p class="mt-2 text-sm text-muted-foreground">{ data.BlockedMessage }</p>
-							<p class="mt-3 text-sm text-muted-foreground">{ i18n.T(ctx, "setup.owner.repair_before") } <code class="font-mono">gofer auth users list</code> { i18n.T(ctx, "setup.owner.repair_after") }</p>
-						</div>
-					}
-					if data.BlockedMessage == "" {
-						<form method="post" action="/setup/owner" class="space-y-6 rounded-xl border border-border bg-card p-6">
-							if data.Form.Errors["form"] != "" {
-								<p role="alert" class="rounded-lg border border-destructive/25 bg-destructive/10 px-4 py-3 text-sm text-destructive">{ data.Form.Errors["form"] }</p>
-							}
-						if data.Kind == "fresh" {
-							<input type="hidden" name="owner_target" value="create"/>
-						} else if data.Kind == "legacy_default" {
-							<input type="hidden" name="owner_target" value="existing:default"/>
-							<div class="rounded-lg border border-border bg-muted/30 p-4">
-								<p class="text-sm font-medium">{ i18n.T(ctx, "setup.owner.legacy_kept_title") }</p>
-								<p class="mt-1 text-xs text-muted-foreground">{ i18n.T(ctx, "setup.owner.legacy_kept_before") } <code class="font-mono">default</code>{ i18n.T(ctx, "setup.owner.legacy_kept_after") }</p>
-							</div>
-						} else {
-							<fieldset class="space-y-3" aria-describedby="owner-target-help">
-								<legend class="text-sm font-medium">{ i18n.T(ctx, "setup.owner.target") }</legend>
-								<p id="owner-target-help" class="text-xs text-muted-foreground">{ i18n.T(ctx, "setup.owner.target_help") }</p>
-								<label class="flex cursor-pointer gap-3 rounded-lg border border-border p-4">
-									<input type="radio" name="owner_target" value="create" checked?={ data.Form.Target == "create" } required class="mt-1"/>
-									<span><span class="block text-sm font-medium">{ i18n.T(ctx, "setup.owner.create_new") }</span><span class="mt-1 block text-xs text-muted-foreground">{ i18n.T(ctx, "setup.owner.create_new_note") }</span></span>
-								</label>
-								for _, candidate := range data.Candidates {
-									<label class="flex cursor-pointer gap-3 rounded-lg border border-border p-4">
-										<input type="radio" name="owner_target" value={ "existing:" + candidate.ID } checked?={ data.Form.Target == "existing:" + candidate.ID } required class="mt-1"/>
-										<span class="min-w-0">
-											if candidate.Name != "" {
-												<span class="block text-sm font-medium">{ candidate.Name }</span>
-											} else {
-												<span class="block text-sm font-medium">{ i18n.T(ctx, "setup.owner.unnamed") }</span>
-											}
-											<span class="mt-1 block break-all text-xs text-muted-foreground">{ "@" + candidate.Username } · { i18n.T(ctx, "setup.owner.id") } <code class="font-mono">{ candidate.ID }</code></span>
-											<span class="mt-1 block text-xs text-muted-foreground">
-												{ i18n.N(ctx, "setup.owner.mail_accounts", int(candidate.MailboxCount)) } · { i18n.N(ctx, "setup.owner.legacy_sessions", int(candidate.LegacySessions)) } · { candidate.Status }
-												if candidate.IsAdmin {
-													· { i18n.T(ctx, "setup.role.admin") }
-												} else {
-													· { i18n.T(ctx, "setup.role.standard") }
-												}
-											</span>
-										</span>
-									</label>
-								}
-								if data.Form.Errors["target"] != "" {
-									<p role="alert" class="text-sm text-destructive">{ data.Form.Errors["target"] }</p>
-								}
-							</fieldset>
+				}
+				if data.DraftStale {
+					<div role="alert" class="mb-6 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm">{ i18n.T(ctx, "admin.owner.stale") }</div>
+				}
+				if data.BlockedMessage != "" {
+					<div role="alert" class="rounded-xl border border-destructive/25 bg-destructive/10 p-6">
+						<h2 class="text-lg font-semibold">{ i18n.T(ctx, "admin.owner.blocked") }</h2>
+						<p class="mt-2 text-sm text-muted-foreground">{ data.BlockedMessage }</p>
+						<p class="mt-3 text-sm text-muted-foreground">{ i18n.T(ctx, "setup.owner.repair_before") } <code class="font-mono">gofer auth users list</code> { i18n.T(ctx, "setup.owner.repair_after") }</p>
+					</div>
+				} else {
+					<form method="post" action="/setup/owner" class="space-y-6 rounded-xl border border-border bg-card p-6">
+						<input type="hidden" name="owner_target" value="create"/>
+						if data.Form.Errors["form"] != "" {
+							<p role="alert" class="rounded-lg border border-destructive/25 bg-destructive/10 px-4 py-3 text-sm text-destructive">{ data.Form.Errors["form"] }</p>
 						}
-						<div>
-							<h2 class="text-sm font-medium">{ i18n.T(ctx, "setup.owner.profile_title") }</h2>
-							if data.Kind == "fresh" {
-								<p class="mt-1 text-xs text-muted-foreground">{ i18n.T(ctx, "setup.owner.profile_fresh") }</p>
-							} else {
-								<p class="mt-1 text-xs text-muted-foreground">{ i18n.T(ctx, "setup.owner.profile_existing") }</p>
+						<div class="rounded-lg border border-border bg-muted/30 p-4">
+							<p class="text-sm font-medium">{ i18n.T(ctx, "admin.owner.new_identity") }</p>
+							<p class="mt-1 text-xs text-muted-foreground">{ i18n.T(ctx, "admin.owner.new_identity_detail") }</p>
+						</div>
+						<div class="space-y-2">
+							<label for="setup-owner-name" class="text-sm font-medium">{ i18n.T(ctx, "compose.from.display_name") }</label>
+							<input
+								id="setup-owner-name"
+								name="name"
+								type="text"
+								value={ data.Form.Name }
+								autocomplete="name"
+								maxlength="100"
+								required
+								if data.Form.Errors["name"] != "" {
+									aria-invalid="true"
+									aria-describedby="setup-owner-name-error"
+								}
+								class={ signInFieldClass }
+							/>
+							if data.Form.Errors["name"] != "" {
+								<p id="setup-owner-name-error" role="alert" class="text-sm text-destructive">{ data.Form.Errors["name"] }</p>
 							}
 						</div>
-						<div class="space-y-4">
-							<div class="space-y-2">
-								<label for="owner-name" class="text-sm font-medium">{ i18n.T(ctx, "setup.owner.display_name") }</label>
-								<input id="owner-name" name="name" type="text" value={ data.Form.Name } autocomplete="name" maxlength="100" required aria-invalid={ fmt.Sprintf("%t", data.Form.Errors["name"] != "") } aria-describedby={ setupOwnerDescription("", "owner-name-error", data.Form.Errors["name"] != "") } class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50 aria-[invalid=true]:border-destructive"/>
-								if data.Form.Errors["name"] != "" {
-									<p id="owner-name-error" role="alert" class="text-sm text-destructive">{ data.Form.Errors["name"] }</p>
-								}
-							</div>
-							<div class="space-y-2">
-								<label for="owner-username" class="text-sm font-medium">{ i18n.T(ctx, "signin.username") }</label>
-								<input id="owner-username" name="username" type="text" value={ data.Form.Username } autocomplete="username" autocapitalize="none" spellcheck="false" minlength="3" maxlength="32" required aria-invalid={ fmt.Sprintf("%t", data.Form.Errors["username"] != "") } aria-describedby={ setupOwnerDescription("owner-username-help", "owner-username-error", data.Form.Errors["username"] != "") } class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50 aria-[invalid=true]:border-destructive"/>
-								<p id="owner-username-help" class="text-xs text-muted-foreground">{ i18n.T(ctx, "setup.owner.username_help") }</p>
+						<div class="space-y-2">
+							<label for="setup-owner-username" class="text-sm font-medium">{ i18n.T(ctx, "identities.username") }</label>
+							<input
+								id="setup-owner-username"
+								name="username"
+								type="text"
+								value={ data.Form.Username }
+								autocomplete="username"
+								autocapitalize="none"
+								spellcheck="false"
+								minlength="3"
+								maxlength="32"
+								required
 								if data.Form.Errors["username"] != "" {
-									<p id="owner-username-error" role="alert" class="text-sm text-destructive">{ data.Form.Errors["username"] }</p>
+									aria-invalid="true"
 								}
-							</div>
+								aria-describedby={ setupOwnerDescription("setup-owner-username-help", "setup-owner-username-error", data.Form.Errors["username"] != "") }
+								class={ signInFieldClass }
+							/>
+							<p id="setup-owner-username-help" class="text-xs text-muted-foreground">{ i18n.T(ctx, "admin.owner.username_help") }</p>
+							if data.Form.Errors["username"] != "" {
+								<p id="setup-owner-username-error" role="alert" class="text-sm text-destructive">{ data.Form.Errors["username"] }</p>
+							}
 						</div>
 						@button.Button(button.Props{Type: button.TypeSubmit, FullWidth: true}) {
-							if data.DraftSaved {
-								{ i18n.T(ctx, "setup.owner.save_changes") }
-							} else {
-								{ i18n.T(ctx, "setup.owner.save") }
-							}
+							{ i18n.T(ctx, "admin.owner.submit") }
 						}
-						if data.DraftSaved {
-							<a href="/setup/password" class="flex h-9 w-full items-center justify-center rounded-md border border-border px-4 text-sm font-medium transition-colors hover:bg-accent">{ i18n.T(ctx, "setup.owner.continue") }</a>
-						}
-						<p class="text-center text-xs text-muted-foreground">{ i18n.T(ctx, "setup.owner.next") }</p>
 					</form>
-					}
-					<p class="mt-6 text-center text-xs text-muted-foreground">{ i18n.T(ctx, "setup.owner.expiry") }</p>
-				</div>
-			</main>
-		</body>
-	</html>
+				}
+			</div>
+		</main>
+	}
 }
 
 templ SetupPasswordPage(data SetupPasswordData) {

@@ -601,7 +601,7 @@ func (h *Handler) renderSubmittedSetupOwner(w http.ResponseWriter, r *http.Reque
 func (h *Handler) renderSetupOwnerPage(w http.ResponseWriter, r *http.Request, status int, data views.SetupOwnerData) {
 	data.Form.Errors = authFields(r.Context(), data.Form.Errors)
 	var page bytes.Buffer
-	if err := views.SeparatedSetupOwnerPage(data).Render(r.Context(), &page); err != nil {
+	if err := views.SetupOwnerPage(data).Render(r.Context(), &page); err != nil {
 		log.Printf("render protected setup owner page: %v", err)
 		h.writeSetupServiceFailure(w, r)
 		return
@@ -751,17 +751,7 @@ func (h *Handler) renderSubmittedSetupPassword(w http.ResponseWriter, r *http.Re
 }
 
 func setupOwnerViewData(state *auth.SetupOwnerState, submitted views.SetupOwnerFormData) views.SetupOwnerData {
-	data := views.SetupOwnerData{
-		Kind: string(state.Topology.Kind), DraftStale: state.DraftStale,
-		Candidates: make([]views.SetupOwnerCandidateData, 0, len(state.Topology.Candidates)),
-	}
-	for _, candidate := range state.Topology.Candidates {
-		data.Candidates = append(data.Candidates, views.SetupOwnerCandidateData{
-			ID: candidate.ID, Name: candidate.Name, Username: candidate.Username,
-			Status: string(candidate.Status), IsAdmin: candidate.IsAdmin,
-			MailboxCount: candidate.MailboxCount, LegacySessions: candidate.LegacySessions,
-		})
-	}
+	data := views.SetupOwnerData{DraftStale: state.DraftStale}
 	data.Form.Target = "create"
 	if state.Draft != nil {
 		data.DraftSaved = !state.DraftStale

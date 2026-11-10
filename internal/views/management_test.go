@@ -22,6 +22,11 @@ func TestManagementLoginUsesDedicatedLocalOnlySurface(t *testing.T) {
 		`action="/admin/login"`,
 		`href="/login"`,
 		"Unable to sign in",
+		// Password managers find the fields by these.
+		`id="admin-login-identifier" name="identifier" type="text" value="owner@example.com" autocomplete="username"`,
+		`id="admin-login-password" name="password" type="password" autocomplete="current-password"`,
+		`aria-describedby="admin-login-error"`,
+		`id="admin-login-error" role="alert"`,
 	} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("management login omitted %q", want)
@@ -184,9 +189,27 @@ func TestAdminAccountShellSuppressesExternalSignInSettings(t *testing.T) {
 	}
 }
 
-func TestSeparatedSetupOwnerExplainsManagementOnlyAccount(t *testing.T) {
+func TestManagementMFAPageAsksForTheAuthenticatorCode(t *testing.T) {
 	var out strings.Builder
-	if err := SeparatedSetupOwnerPage(SetupOwnerData{}).Render(context.Background(), &out); err != nil {
+	if err := ManagementMFAContinuationPage("That code didn't work.").Render(context.Background(), &out); err != nil {
+		t.Fatal(err)
+	}
+	html := out.String()
+	for _, want := range []string{
+		"Verify your authenticator", `action="/login/mfa"`,
+		`id="admin-login-mfa-code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}"`,
+		`aria-describedby="admin-login-mfa-error"`, "That code didn&#39;t work.",
+		`href="/admin/login"`, `href="/login/mfa/recovery"`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("management MFA page omitted %q", want)
+		}
+	}
+}
+
+func TestSetupOwnerExplainsManagementOnlyAccount(t *testing.T) {
+	var out strings.Builder
+	if err := SetupOwnerPage(SetupOwnerData{}).Render(context.Background(), &out); err != nil {
 		t.Fatal(err)
 	}
 	html := out.String()
