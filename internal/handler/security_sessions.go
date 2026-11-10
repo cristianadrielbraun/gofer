@@ -10,7 +10,6 @@ import (
 	"net/url"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/cristianadrielbraun/gofer/internal/auth"
 	"github.com/cristianadrielbraun/gofer/internal/views"
@@ -83,7 +82,7 @@ func securitySessionViewData(ctx context.Context, list *auth.SecuritySessionList
 	result := make([]views.SecuritySessionData, 0, len(list.Sessions))
 	for _, session := range list.Sessions {
 		view := views.SecuritySessionData{
-			Client:         securitySessionClientLabel(ctx, session.UserAgent),
+			Client:         views.ClientLabel(ctx, session.UserAgent),
 			Authentication: securitySessionAuthenticationLabel(ctx, session.AuthenticationMethod, oidcName),
 			Assurance:      securitySessionAssuranceLabel(ctx, session.AssuranceLevel),
 			SignedInAt:     formatSecuritySessionTime(ctx, session.AuthenticatedAt),
@@ -136,69 +135,6 @@ func securitySessionAssuranceLabel(ctx context.Context, level auth.AssuranceLeve
 	default:
 		return i18n.T(ctx, "server.session.legacy_assurance")
 	}
-}
-
-func securitySessionClientLabel(ctx context.Context, userAgent string) string {
-	normalized := strings.Map(func(value rune) rune {
-		if unicode.IsControl(value) {
-			return ' '
-		}
-		return value
-	}, strings.ToValidUTF8(userAgent, ""))
-	normalized = strings.Join(strings.Fields(normalized), " ")
-	if normalized == "" {
-		return i18n.T(ctx, "server.session.unknown_client")
-	}
-	lower := strings.ToLower(normalized)
-	browser := ""
-	switch {
-	case strings.Contains(lower, "edg/") || strings.Contains(lower, "edga/") || strings.Contains(lower, "edgios/"):
-		browser = "Microsoft Edge"
-	case strings.Contains(lower, "opr/"):
-		browser = "Opera"
-	case strings.Contains(lower, "firefox/") || strings.Contains(lower, "fxios/"):
-		browser = "Firefox"
-	case strings.Contains(lower, "chrome/") || strings.Contains(lower, "crios/"):
-		browser = "Chrome"
-	case strings.Contains(lower, "safari/") && strings.Contains(lower, "version/"):
-		browser = "Safari"
-	case strings.Contains(lower, "curl/"):
-		browser = "curl"
-	case strings.Contains(lower, "wget/"):
-		browser = "Wget"
-	case strings.Contains(lower, "go-http-client/"):
-		browser = i18n.T(ctx, "server.session.go_http_client")
-	case strings.Contains(lower, "postmanruntime/"):
-		browser = "Postman"
-	}
-	platform := ""
-	switch {
-	case strings.Contains(lower, "iphone"):
-		platform = "iPhone"
-	case strings.Contains(lower, "ipad"):
-		platform = "iPad"
-	case strings.Contains(lower, "android"):
-		platform = "Android"
-	case strings.Contains(lower, "windows"):
-		platform = "Windows"
-	case strings.Contains(lower, "cros"):
-		platform = "ChromeOS"
-	case strings.Contains(lower, "macintosh") || strings.Contains(lower, "mac os x"):
-		platform = "macOS"
-	case strings.Contains(lower, "linux"):
-		platform = "Linux"
-	}
-	if browser != "" && platform != "" {
-		return i18n.T(ctx, "server.session.browser_on_platform", "browser", browser, "platform", platform)
-	}
-	if browser != "" {
-		return browser
-	}
-	runes := []rune(normalized)
-	if len(runes) > 96 {
-		return string(runes[:95]) + "…"
-	}
-	return normalized
 }
 
 func formatSecuritySessionTime(ctx context.Context, value time.Time) string {

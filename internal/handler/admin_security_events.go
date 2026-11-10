@@ -47,7 +47,7 @@ func adminSecurityActivityViewData(ctx context.Context, page *auth.Administrator
 			Title:          securityEventTitle(ctx, event.EventType, event.Success),
 			Detail:         securityEventDetail(ctx, event.Reason, event.Success),
 			OccurredAt:     formatSecuritySessionTime(ctx, event.OccurredAt),
-			Client:         securitySessionClientLabel(ctx, event.UserAgent),
+			Client:         views.ClientLabel(ctx, event.UserAgent),
 			Status:         status,
 			Actor:          actor,
 			Subject:        subject,

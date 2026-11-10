@@ -132,7 +132,13 @@ templ adminAuditRow(record audit.Record) {
 			}
 		</td>
 		<td class="px-4 py-3 text-foreground">{ adminAuditActor(ctx, record) }</td>
-		<td class="max-w-xs break-words px-4 py-3 text-xs text-muted-foreground">{ record.Client.UserAgent }</td>
+		<td class="max-w-xs break-words px-4 py-3 text-xs text-muted-foreground">
+			if record.Client.UserAgent == "" {
+				—
+			} else {
+				<span title={ record.Client.UserAgent }>{ ClientLabel(ctx, record.Client.UserAgent) }</span>
+			}
+		</td>
 	</tr>
 }
 

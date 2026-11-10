@@ -162,3 +162,14 @@ func TestAdminAuditActivityOffersExportAndRetention(t *testing.T) {
 		t.Fatal("a stale session was offered the export or the settings")
 	}
 }
+
+// Records name the browser as the sign-in tab does, keeping the whole
+// user agent in a tooltip; Gofer's own changes have none.
+func TestAdminAuditRowNamesTheBrowser(t *testing.T) {
+	agent := "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Safari/537.36"
+	html := renderAdminAuditActivity(t, AdminAuditActivityData{ManagedMode: true, Records: []audit.Record{
+		{Seq: 2, Event: audit.Event{Action: "user.disabled", Actor: audit.Actor{Kind: audit.ActorAdmin, Label: "ada.admin"}, Client: audit.Client{UserAgent: agent}}},
+		{Seq: 1, Event: audit.Event{Action: "audit.pruned", Actor: audit.Actor{Kind: audit.ActorSystem}}},
+	}})
+	requireAdminUsersHTML(t, "browser", html, ">Chrome on Linux<", `title="`+agent+`"`, "—")
+}
