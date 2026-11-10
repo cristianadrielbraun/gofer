@@ -219,8 +219,7 @@ func adminUsersOldDialogAddress(query url.Values) string {
 // handleAdminUserActionDialog answers an action's address with that action's
 // dialog for the person the address names. htmx, asking from the person's
 // menu, gets the dialog alone; any other request gets the Users page with
-// the dialog open. A session that must verify again gets the page with
-// verification first, which then comes back to this address.
+// the dialog open.
 func (h *Handler) handleAdminUserActionDialog(action views.AdminUserAction) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if h.auth != nil && !h.auth.IsEnabled() {
@@ -237,25 +236,23 @@ func (h *Handler) handleAdminUserActionDialog(action views.AdminUserAction) http
 			redirectAdmin(w, r, adminUsersPath)
 			return
 		}
-		fragment := r.Header.Get("HX-Request") == "true"
-		if state.data.StepUpRequired {
-			if fragment {
-				redirectAdmin(w, r, user.Path(action))
-				return
-			}
-			h.writeAdminUsersPage(w, r, http.StatusOK, state, user.Path(action), true, "")
-			return
-		}
 		dialog := views.AdminUserDialog{
 			Action: action, User: user,
 			CSRFToken: auth.CSRFToken(r.Context(), http.MethodPost, user.Path(action)),
 		}
-		if fragment {
-			h.writeAdminFragment(w, r, views.AdminUserActionDialog(dialog))
+		// A session that must verify again is asked when the change is sent
+		// (admin.js). A page drawn while the session was fresh has nothing to
+		// ask with, so the dialog brings the verification along.
+		if r.Header.Get("HX-Request") == "true" {
+			var verification views.AdminSecurityVerificationData
+			if state.data.StepUpRequired && r.Header.Get(views.AdminVerificationOnPageHeader) == "" {
+				verification = adminSecurityVerificationViewData(r.Context(), state.access, user.Path(action), false)
+			}
+			h.writeAdminFragment(w, r, views.AdminUserActionDialog(dialog, verification))
 			return
 		}
 		state.data.Dialog = &dialog
-		h.writeAdminUsersPage(w, r, http.StatusOK, state, adminUsersPath, false, "")
+		h.writeAdminUsersPage(w, r, http.StatusOK, state, user.Path(action), false, "")
 	}
 }
 

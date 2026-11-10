@@ -48,11 +48,22 @@ type MailSecurityAdminData struct {
 	OwnProxies bool
 	// Tab is the administrator page's open tab: "allowlist", "exceptions"
 	// or "proxies".
-	Tab            string
-	Notice         string
-	Error          string
-	StepUpRequired bool
-	CSRFTokens     map[string]string
+	Tab    string
+	Notice string
+	Error  string
+	// StepUpRequired is set when the session must verify again before a
+	// change. VerifiesOnSubmit says the page asks for that verification when
+	// a change is sent, as the admin console does, instead of disabling the
+	// changes until then.
+	StepUpRequired   bool
+	VerifiesOnSubmit bool
+	CSRFTokens       map[string]string
+}
+
+// ChangesDisabled reports whether the page's changes are disabled until the
+// session verifies again.
+func (data MailSecurityAdminData) ChangesDisabled() bool {
+	return data.StepUpRequired && !data.VerifiesOnSubmit
 }
 
 // MailAllowlistAdminData is the allowed mail lists on the administrator's

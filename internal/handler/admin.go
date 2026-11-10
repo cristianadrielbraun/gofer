@@ -134,10 +134,11 @@ func (h *Handler) handleAdminSecurity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	data := models.MailSecurityAdminData{
-		ActionBase:     "/admin/security",
-		Exceptions:     exceptions,
-		StepUpRequired: stepUpRequired,
-		CSRFTokens:     map[string]string{},
+		ActionBase:       "/admin/security",
+		Exceptions:       exceptions,
+		StepUpRequired:   stepUpRequired,
+		VerifiesOnSubmit: true,
+		CSRFTokens:       map[string]string{},
 	}
 	for _, action := range []string{
 		"/admin/security/http-discovery",

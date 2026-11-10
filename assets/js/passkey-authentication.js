@@ -117,6 +117,8 @@
           throw new Error(await readError(finish, goferT("js.signin.passkey.verify_failed")));
         }
         const result = await finish.json();
+        // A page with a change waiting for this verification sends it instead.
+        if (!form.dispatchEvent(new CustomEvent("gofer:verified", { bubbles: true, cancelable: true }))) return;
         window.location.assign(form.dataset.successRedirect || result.redirect || "/");
       } catch (error) {
         if (error?.name === "NotAllowedError") {

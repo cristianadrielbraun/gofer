@@ -23,6 +23,8 @@
       }).then(function (response) {
         return response.json().catch(function () { return {} }).then(function (result) {
           if (!response.ok) throw new Error(result.error || goferT("js.admin.verify.failed"))
+          // A change waiting for this verification is sent instead.
+          if (!form.dispatchEvent(new CustomEvent("gofer:verified", { bubbles: true, cancelable: true }))) return
           window.location.assign(result.redirect || form.dataset.successRedirect || window.location.href)
         })
       }).catch(function (error) {
@@ -61,6 +63,58 @@
 
 (function () {
   "use strict"
+
+  // Changes that need a recently verified session carry data-step-up. When
+  // the page has the verification dialog, the session must verify again:
+  // sending such a change opens verification first, and the change goes out
+  // once it succeeds, with nothing typed into it lost. The server still
+  // checks, so a page that missed the session going stale is refused there.
+  var waiting = null
+
+  function verificationDialog() {
+    return document.getElementById("admin-security-verification-dialog")
+  }
+
+  document.addEventListener("submit", function (event) {
+    var form = event.target
+    if (!form || !form.matches || !form.matches("form[data-step-up]")) return
+    var verification = verificationDialog()
+    if (!verification || !window.tui || !window.tui.dialog) return
+    event.preventDefault()
+    var holder = form.closest("[data-tui-dialog]")
+    if (holder === verification) holder = null
+    waiting = { form: form, submitter: event.submitter && event.submitter.form === form ? event.submitter : null, holder: holder }
+    // Verification can't be used under another modal dialog.
+    if (holder) window.tui.dialog.close(holder)
+    window.tui.dialog.open(verification)
+  })
+
+  // The verification forms announce success before leaving the page. The
+  // change is sent as it was, without its submit handlers running again: a
+  // form that asked a question first (data-confirm) doesn't ask twice.
+  document.addEventListener("gofer:verified", function (event) {
+    if (!waiting) return
+    event.preventDefault()
+    var change = waiting
+    waiting = null
+    if (change.submitter && change.submitter.name) {
+      var pressed = document.createElement("input")
+      pressed.type = "hidden"
+      pressed.name = change.submitter.name
+      pressed.value = change.submitter.value
+      change.form.appendChild(pressed)
+    }
+    HTMLFormElement.prototype.submit.call(change.form)
+  })
+
+  // Closing verification without verifying returns to the change.
+  document.addEventListener("close", function (event) {
+    var verification = verificationDialog()
+    if (!waiting || !verification || !verification.contains(event.target)) return
+    var change = waiting
+    waiting = null
+    if (change.holder && window.tui && window.tui.dialog) window.tui.dialog.open(change.holder)
+  }, true)
 
   // A person's row actions fetch their dialog with htmx. It arrives rendered
   // open, but templui's dialog script opens such dialogs only at page load.

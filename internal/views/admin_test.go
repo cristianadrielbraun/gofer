@@ -3,6 +3,7 @@ package views
 import (
 	"bytes"
 	"context"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -115,6 +116,10 @@ func TestAdminUsersPageRendersStatesRolesAndEscapesProfileMetadata(t *testing.T)
 		}
 	}
 }
+
+// disabledAttribute finds a disabled attribute, not Tailwind's disabled:
+// variants in class names.
+var disabledAttribute = regexp.MustCompile(`\sdisabled[\s>]`)
 
 // renderAdminUsersTestPage renders the Users page for data.
 func renderAdminUsersTestPage(t *testing.T, data AdminUsersData) string {
@@ -264,20 +269,49 @@ func TestAdminUserStatusDialogsDisableOrEnable(t *testing.T) {
 	)
 }
 
-func TestAdminUsersPageSendsStaleSessionsThroughVerification(t *testing.T) {
+func TestAdminUsersPageAsksForVerificationWhenAChangeIsSent(t *testing.T) {
 	user := AdminUserData{
 		ID: "active-user", Username: "active.user", Status: "active", Role: "webmail_user",
 		StatusPath: "/admin/users/active-user/status", CredentialResetPath: "/admin/users/active-user/credential-reset",
 	}
-	html := renderAdminUsersTestPage(t, AdminUsersData{StepUpRequired: true, Users: []AdminUserData{user}})
-	// The action's address, loaded as a page, asks for verification and then
-	// opens the dialog, so the menu follows links instead of fetching.
-	requireAdminUsersHTML(t, "stale users page", html,
-		`href="/admin/users/active-user/status"`, `href="/admin/users/active-user/credential-reset"`, "data-admin-navigation-link",
-	)
-	if strings.Contains(html, "hx-get") {
-		t.Fatalf("stale users page fetches dialogs it cannot use: %s", html)
+	verification := AdminSecurityVerificationData{
+		Required: true, HasTOTP: true, ReturnTo: "/admin/users",
+		TOTPPath: "/settings/security/step-up", TOTPCSRFToken: strings.Repeat("c", 64),
 	}
+	var out bytes.Buffer
+	if err := AdminUsersPage(AdminUsersData{StepUpRequired: true, InvitationCSRFToken: strings.Repeat("b", 64), Users: []AdminUserData{user}}, verification).Render(context.Background(), &out); err != nil {
+		t.Fatal(err)
+	}
+	html := out.String()
+	requireAdminUsersHTML(t, "stale users page", html,
+		`hx-get="/admin/users/active-user/status"`, `id="admin-security-verification-dialog"`,
+		`data-tui-dialog-open="false"`, `action="/settings/security/step-up"`,
+		// Fetched dialogs don't bring a second verification to this page.
+		`hx-headers="{&#34;Gofer-Verification-On-Page&#34;:&#34;true&#34;}"`,
+		`action="/admin/users/invitations" class="space-y-4" data-step-up`,
+	)
+	for _, unwanted := range []string{"Recent administrator verification required", "Verify now"} {
+		if strings.Contains(html, unwanted) {
+			t.Fatalf("stale users page still waits for verification up front (%q): %s", unwanted, html)
+		}
+	}
+	if disabledAttribute.MatchString(html) {
+		t.Fatalf("stale users page disabled a change: %s", html)
+	}
+	for _, action := range []AdminUserAction{AdminUserActionStatus, AdminUserActionCredentialReset} {
+		dialog := renderAdminUserTestDialog(t, action, user, strings.Repeat("d", 64))
+		requireAdminUsersHTML(t, string(action)+" dialog", dialog, `action="`+user.Path(action)+`" data-step-up`)
+		if strings.Contains(dialog, "admin-security-verification-dialog") {
+			t.Fatalf("%s dialog brought verification nobody asked for", action)
+		}
+	}
+	var fetched bytes.Buffer
+	if err := AdminUserActionDialog(AdminUserDialog{Action: AdminUserActionStatus, User: user, CSRFToken: strings.Repeat("e", 64)}, verification).Render(context.Background(), &fetched); err != nil {
+		t.Fatal(err)
+	}
+	requireAdminUsersHTML(t, "dialog fetched by a page without verification", fetched.String(),
+		`id="admin-user-status-active-user"`, `id="admin-security-verification-dialog"`, `data-admin-security-totp`,
+	)
 }
 
 func TestAdminUsersPageOpensTheDialogItWasAskedFor(t *testing.T) {
@@ -416,7 +450,7 @@ func TestAdminUsersPageRendersProtectedInvitationFormAndOneTimeResult(t *testing
 	}
 }
 
-func TestAdminUsersPageDisablesInvitationUntilRecentVerification(t *testing.T) {
+func TestAdminUsersPageKeepsTheInvitationOpenToAStaleSession(t *testing.T) {
 	data := AdminUsersData{StepUpRequired: true, InvitationCSRFToken: strings.Repeat("b", 64)}
 	verification := AdminSecurityVerificationData{
 		Required:      true,
@@ -431,16 +465,17 @@ func TestAdminUsersPageDisablesInvitationUntilRecentVerification(t *testing.T) {
 	}
 	html := out.String()
 	for _, want := range []string{
-		"Recent administrator verification required", `data-admin-security-verification`,
-		`data-tui-dialog-target="admin-security-verification-dialog"`,
-		`data-tui-dialog-show-modal="false"`, `id="admin-security-totp-code"`,
+		`data-admin-security-verification`, `data-tui-dialog-show-modal="false"`, `id="admin-security-totp-code"`,
 		`autocomplete="one-time-code"`, `aria-label="Authenticator app code"`,
 		`action="/settings/security/step-up"`, `name="return_to" value="/admin/users"`,
-		"manage invitations, password resets, user access, deletion, and individual two-factor authentication requirements for the next ten minutes", " disabled",
+		`data-tui-dialog-target="admin-user-invitation-dialog"`, `data-step-up`,
 	} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("stale administrator invitation view missing %q: %s", want, html)
 		}
+	}
+	if disabledAttribute.MatchString(html) {
+		t.Fatal("stale administrator invitation view disabled the invitation")
 	}
 	if strings.Contains(html, `href="/admin/account"`) {
 		t.Fatal("stale administrator invitation view still sends verification to account security")
@@ -528,9 +563,9 @@ func TestAdminSecurityPageShowsExceptionsAndWarnings(t *testing.T) {
 	}
 }
 
-func TestAdminSecurityPageRequiresRecentVerificationForMutations(t *testing.T) {
+func TestAdminSecurityPageAsksForVerificationWhenAChangeIsSent(t *testing.T) {
 	data := models.MailSecurityAdminData{
-		StepUpRequired: true,
+		StepUpRequired: true, VerifiesOnSubmit: true,
 		Exceptions: []models.MailSecurityException{{
 			ID: "private", Kind: models.MailSecurityExceptionPrivateTarget,
 			Protocol: "http", Host: "127.0.0.1", Port: 8080,
@@ -552,23 +587,38 @@ func TestAdminSecurityPageRequiresRecentVerificationForMutations(t *testing.T) {
 	}
 	html := out.String()
 	for _, want := range []string{
-		`role="alert"`,
-		"Recent administrator verification required",
+		`id="admin-security-verification-dialog"`,
 		`data-passkey-authentication`,
 		`data-success-redirect="/admin/security"`,
 		`data-start-csrf="` + strings.Repeat("d", 64) + `"`,
-		"unlock these changes for ten minutes",
 	} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("step-up-required admin security page missing %q: %s", want, html)
 		}
 	}
-	// Adding a proxy is one more than the exceptions and allowed lists have.
-	if got := strings.Count(html, ` disabled>`); got != 5 {
-		t.Fatalf("admin security disabled submit button count = %d, want 5", got)
+	if strings.Contains(html, `role="alert"`) || strings.Contains(html, "Recent administrator verification required") {
+		t.Fatal("admin security page still asks for verification up front")
+	}
+	if got := strings.Count(html, ` disabled>`); got != 0 {
+		t.Fatalf("admin security page disabled %d changes; it asks when one is sent", got)
+	}
+	// The exception forms and the proxy form each ask for verification.
+	if got := strings.Count(html, `method="post" data-step-up`); got < 4 {
+		t.Fatalf("admin security page marked %d changes as needing verification", got)
 	}
 	if strings.Contains(html, `href="/settings/security"`) {
 		t.Fatal("stale mail-security view still sends verification to webmail settings")
+	}
+
+	// The webmail's own settings page has no such script: its changes wait,
+	// disabled, until the owner verifies.
+	data.VerifiesOnSubmit = false
+	out.Reset()
+	if err := MailSecuritySettingsCard(data).Render(context.Background(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Count(out.String(), ` disabled>`); got == 0 {
+		t.Fatal("webmail mail security settings enabled changes before verification")
 	}
 }
 

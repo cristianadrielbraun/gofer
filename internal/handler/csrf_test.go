@@ -178,10 +178,12 @@ func TestAdminMailSecurityMutationsRequireRecentStrongStepUp(t *testing.T) {
 	pageRequest.AddCookie(&http.Cookie{Name: "gofer_session", Value: session.Token})
 	page := httptest.NewRecorder()
 	stack.ServeHTTP(page, pageRequest)
-	if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), "Recent administrator verification required") ||
-		!strings.Contains(page.Body.String(), `data-admin-security-verification`) ||
+	// The page asks for verification when a change is sent (admin.js); the
+	// server still refuses changes from the stale session below.
+	if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), `data-admin-security-verification`) ||
 		!strings.Contains(page.Body.String(), `href="/admin/login"`) ||
-		!strings.Contains(page.Body.String(), " disabled") {
+		!strings.Contains(page.Body.String(), `method="post" data-step-up`) ||
+		strings.Contains(page.Body.String(), "Recent administrator verification required") {
 		t.Fatalf("stale admin security page = %d %q", page.Code, page.Body.String())
 	}
 

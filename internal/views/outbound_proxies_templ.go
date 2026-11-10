@@ -355,7 +355,7 @@ func OutboundProxiesPanel(data models.MailSecurityAdminData) templ.Component {
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					if data.StepUpRequired {
+					if data.ChangesDisabled() {
 						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 30, " disabled")
 						if templ_7745c5c3_Err != nil {
 							return templ_7745c5c3_Err
@@ -368,7 +368,7 @@ func OutboundProxiesPanel(data models.MailSecurityAdminData) templ.Component {
 					var templ_7745c5c3_Var20 string
 					templ_7745c5c3_Var20, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.proxies.edit"))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 82, Col: 307}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 82, Col: 310}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var20))
 					if templ_7745c5c3_Err != nil {
@@ -384,14 +384,14 @@ func OutboundProxiesPanel(data models.MailSecurityAdminData) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 33, "<form method=\"post\" action=\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 33, "<form method=\"post\" data-step-up action=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var21 templ.SafeURL
 				templ_7745c5c3_Var21, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(data.ActionBase + "/proxies/" + proxy.ID + "/delete"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 84, Col: 99}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 84, Col: 112}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var21))
 				if templ_7745c5c3_Err != nil {
@@ -404,7 +404,7 @@ func OutboundProxiesPanel(data models.MailSecurityAdminData) templ.Component {
 				var templ_7745c5c3_Var22 string
 				templ_7745c5c3_Var22, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.proxies.delete"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 84, Col: 159}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 84, Col: 172}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var22))
 				if templ_7745c5c3_Err != nil {
@@ -417,7 +417,7 @@ func OutboundProxiesPanel(data models.MailSecurityAdminData) templ.Component {
 				var templ_7745c5c3_Var23 string
 				templ_7745c5c3_Var23, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.proxies.delete_confirm", "name", proxy.Name))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 84, Col: 265}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 84, Col: 278}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var23))
 				if templ_7745c5c3_Err != nil {
@@ -450,7 +450,7 @@ func OutboundProxiesPanel(data models.MailSecurityAdminData) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				if data.StepUpRequired {
+				if data.ChangesDisabled() {
 					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 40, " disabled")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
@@ -463,7 +463,7 @@ func OutboundProxiesPanel(data models.MailSecurityAdminData) templ.Component {
 				var templ_7745c5c3_Var25 string
 				templ_7745c5c3_Var25, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.proxies.delete"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 88, Col: 358}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 88, Col: 361}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var25))
 				if templ_7745c5c3_Err != nil {
@@ -506,14 +506,14 @@ func OutboundProxiesPanel(data models.MailSecurityAdminData) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 46, "</div><form method=\"post\" action=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 46, "</div><form method=\"post\" data-step-up action=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var27 templ.SafeURL
 		templ_7745c5c3_Var27, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(data.ActionBase + "/proxies"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 102, Col: 71}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 102, Col: 84}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var27))
 		if templ_7745c5c3_Err != nil {
@@ -550,7 +550,7 @@ func OutboundProxiesPanel(data models.MailSecurityAdminData) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		if data.StepUpRequired {
+		if data.ChangesDisabled() {
 			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 51, " disabled")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
@@ -563,7 +563,7 @@ func OutboundProxiesPanel(data models.MailSecurityAdminData) templ.Component {
 		var templ_7745c5c3_Var29 string
 		templ_7745c5c3_Var29, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.proxies.add"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 107, Col: 266}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 107, Col: 269}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var29))
 		if templ_7745c5c3_Err != nil {
@@ -711,14 +711,14 @@ func outboundProxyEditDialog(data models.MailSecurityAdminData, proxy models.Out
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 56, "\" method=\"post\" action=\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 56, "\" method=\"post\" data-step-up action=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var39 templ.SafeURL
 				templ_7745c5c3_Var39, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(data.ActionBase + "/proxies"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 124, Col: 117}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 124, Col: 130}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var39))
 				if templ_7745c5c3_Err != nil {
@@ -1579,14 +1579,14 @@ func outboundProxyPolicy(data models.MailSecurityAdminData) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 120, "</p></div><form method=\"post\" action=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 120, "</p></div><form method=\"post\" data-step-up action=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var95 templ.SafeURL
 		templ_7745c5c3_Var95, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(data.ActionBase + "/proxies/policy"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 238, Col: 78}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 238, Col: 91}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var95))
 		if templ_7745c5c3_Err != nil {
@@ -1642,7 +1642,7 @@ func outboundProxyPolicy(data models.MailSecurityAdminData) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			if data.StepUpRequired {
+			if data.ChangesDisabled() {
 				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 127, " disabled")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
@@ -1655,7 +1655,7 @@ func outboundProxyPolicy(data models.MailSecurityAdminData) templ.Component {
 			var templ_7745c5c3_Var99 string
 			templ_7745c5c3_Var99, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.proxies.policy_disable"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 244, Col: 149}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 244, Col: 152}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var99))
 			if templ_7745c5c3_Err != nil {
@@ -1692,7 +1692,7 @@ func outboundProxyPolicy(data models.MailSecurityAdminData) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			if data.StepUpRequired {
+			if data.ChangesDisabled() {
 				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 133, " disabled")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
@@ -1705,7 +1705,7 @@ func outboundProxyPolicy(data models.MailSecurityAdminData) templ.Component {
 			var templ_7745c5c3_Var102 string
 			templ_7745c5c3_Var102, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.proxies.policy_enable"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 247, Col: 145}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 247, Col: 148}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var102))
 			if templ_7745c5c3_Err != nil {
@@ -1783,14 +1783,14 @@ func outboundProxyPeople(data models.MailSecurityAdminData, proxy models.Outboun
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 138, "</div><form method=\"post\" action=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 138, "</div><form method=\"post\" data-step-up action=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var107 templ.SafeURL
 		templ_7745c5c3_Var107, templ_7745c5c3_Err = templ.JoinURLErrs(templ.URL(everyoneAction))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 269, Col: 57}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 269, Col: 70}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var107))
 		if templ_7745c5c3_Err != nil {
@@ -1846,7 +1846,7 @@ func outboundProxyPeople(data models.MailSecurityAdminData, proxy models.Outboun
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			if data.StepUpRequired {
+			if data.ChangesDisabled() {
 				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 145, " disabled")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
@@ -1859,7 +1859,7 @@ func outboundProxyPeople(data models.MailSecurityAdminData, proxy models.Outboun
 			var templ_7745c5c3_Var111 string
 			templ_7745c5c3_Var111, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.proxies.limit_people"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 275, Col: 147}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 275, Col: 150}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var111))
 			if templ_7745c5c3_Err != nil {
@@ -1896,7 +1896,7 @@ func outboundProxyPeople(data models.MailSecurityAdminData, proxy models.Outboun
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			if data.StepUpRequired {
+			if data.ChangesDisabled() {
 				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 151, " disabled")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
@@ -1909,7 +1909,7 @@ func outboundProxyPeople(data models.MailSecurityAdminData, proxy models.Outboun
 			var templ_7745c5c3_Var114 string
 			templ_7745c5c3_Var114, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.proxies.everyone"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 278, Col: 140}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/outbound_proxies.templ`, Line: 278, Col: 143}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var114))
 			if templ_7745c5c3_Err != nil {
@@ -1938,7 +1938,7 @@ func outboundProxyPeople(data models.MailSecurityAdminData, proxy models.Outboun
 				Field:       "chosen",
 				AddLabel:    i18n.T(ctx, "admin.proxies.people_add"),
 				RemoveLabel: i18n.T(ctx, "admin.proxies.people_remove"),
-				Disabled:    data.StepUpRequired,
+				Disabled:    data.ChangesDisabled(),
 			}).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err

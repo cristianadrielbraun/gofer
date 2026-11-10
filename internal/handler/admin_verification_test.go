@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/auth"
+	"github.com/cristianadrielbraun/gofer/internal/views"
 )
 
 func TestAdminSecurityVerificationReturnToAllowsOnlyKnownAdminPages(t *testing.T) {
@@ -184,15 +185,31 @@ func TestAdminPasswordResetResumesConfirmationAfterVerification(t *testing.T) {
 			if old.Code != http.StatusFound || old.Header().Get("Location") != action.path {
 				t.Fatalf("old continuation address = %d %q", old.Code, old.Header().Get("Location"))
 			}
-			// From the menu, a stale session leaves the page for verification.
+			// From the menu, a stale session gets the dialog, and verification
+			// to send it with when the page has none.
 			fetched := get(action.path, true)
-			if fetched.Code != http.StatusNoContent || fetched.Header().Get("HX-Redirect") != action.path {
-				t.Fatalf("stale dialog fetch = %d %q", fetched.Code, fetched.Header().Get("HX-Redirect"))
+			if fetched.Code != http.StatusOK || !strings.Contains(fetched.Body.String(), `id="`+action.dialog+`resume-target"`) ||
+				!strings.Contains(fetched.Body.String(), `action="`+action.path+`" data-step-up`) ||
+				!strings.Contains(fetched.Body.String(), `id="admin-security-verification-dialog"`) ||
+				!strings.Contains(fetched.Body.String(), `name="return_to" value="`+action.path+`"`) {
+				t.Fatalf("stale dialog fetch = %d %q", fetched.Code, fetched.Body.String())
 			}
+			withVerification := httptest.NewRequest(http.MethodGet, action.path, nil)
+			withVerification.Header.Set("HX-Request", "true")
+			withVerification.Header.Set(views.AdminVerificationOnPageHeader, "true")
+			withVerification.AddCookie(cookie)
+			onPage := httptest.NewRecorder()
+			stack.ServeHTTP(onPage, withVerification)
+			if onPage.Code != http.StatusOK || strings.Contains(onPage.Body.String(), `id="admin-security-verification-dialog"`) {
+				t.Fatalf("dialog fetched by a page with verification = %d %q", onPage.Code, onPage.Body.String())
+			}
+			// Opened at its address, the page shows the dialog, and its form
+			// asks for verification when sent.
 			page := get(action.path, false)
 			if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), `name="return_to" value="`+action.path+`"`) ||
-				strings.Contains(page.Body.String(), `id="`+action.dialog+`resume-target"`) {
-				t.Fatalf("stale action address did not ask for verification first: %d %s", page.Code, page.Body.String())
+				!strings.Contains(page.Body.String(), `id="`+action.dialog+`resume-target" data-tui-dialog data-tui-dialog-open="true"`) ||
+				strings.Contains(page.Body.String(), `id="admin-security-verification-dialog" data-tui-dialog data-tui-dialog-open="true"`) {
+				t.Fatalf("stale action address = %d %s", page.Code, page.Body.String())
 			}
 			stalePost := postSecuritySettings(t, stack, action.path, url.Values{auth.CSRFFormFieldName: {proof}}, cookie)
 			if stalePost.Code != http.StatusForbidden || !strings.Contains(stalePost.Body.String(), `name="return_to" value="`+action.path+`"`) {

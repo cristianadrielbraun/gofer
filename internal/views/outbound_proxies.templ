@@ -79,13 +79,13 @@ templ OutboundProxiesPanel(data models.MailSecurityAdminData) {
 						</div>
 						<div class="flex shrink-0 items-center gap-2">
 							@dialog.Trigger(dialog.TriggerProps{For: "outbound-proxy-edit-" + proxy.ID}) {
-								<button type="button" class="rounded-md border border-border bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50" disabled?={ data.StepUpRequired }>{ i18n.T(ctx, "admin.proxies.edit") }</button>
+								<button type="button" class="rounded-md border border-border bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50" disabled?={ data.ChangesDisabled() }>{ i18n.T(ctx, "admin.proxies.edit") }</button>
 							}
-							<form method="post" action={ templ.URL(data.ActionBase + "/proxies/" + proxy.ID + "/delete") } data-confirm-action={ i18n.T(ctx, "admin.proxies.delete") } data-confirm-destructive data-confirm={ i18n.T(ctx, "admin.proxies.delete_confirm", "name", proxy.Name) }>
+							<form method="post" data-step-up action={ templ.URL(data.ActionBase + "/proxies/" + proxy.ID + "/delete") } data-confirm-action={ i18n.T(ctx, "admin.proxies.delete") } data-confirm-destructive data-confirm={ i18n.T(ctx, "admin.proxies.delete_confirm", "name", proxy.Name) }>
 								if action := data.ActionBase + "/proxies/" + proxy.ID + "/delete"; data.CSRFTokens[action] != "" {
 									<input type="hidden" name="_csrf" value={ data.CSRFTokens[action] }/>
 								}
-								<button type="submit" class="rounded-md border border-border bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:text-red-300" disabled?={ data.StepUpRequired }>{ i18n.T(ctx, "admin.proxies.delete") }</button>
+								<button type="submit" class="rounded-md border border-border bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:text-red-300" disabled?={ data.ChangesDisabled() }>{ i18n.T(ctx, "admin.proxies.delete") }</button>
 							</form>
 						</div>
 					</div>
@@ -99,12 +99,12 @@ templ OutboundProxiesPanel(data models.MailSecurityAdminData) {
 		}
 		<div class="mt-6 border-t border-border pt-5">
 			<div class="text-sm font-semibold text-foreground">{ i18n.T(ctx, "admin.proxies.add_title") }</div>
-			<form method="post" action={ templ.URL(data.ActionBase + "/proxies") } class="mt-4 space-y-4">
+			<form method="post" data-step-up action={ templ.URL(data.ActionBase + "/proxies") } class="mt-4 space-y-4">
 				if data.CSRFTokens[data.ActionBase+"/proxies"] != "" {
 					<input type="hidden" name="_csrf" value={ data.CSRFTokens[data.ActionBase+"/proxies"] }/>
 				}
 				@outboundProxyFields("outbound-proxy-new", models.OutboundProxyView{Type: "http"}, false, !data.OwnProxies)
-				<button type="submit" class="rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50" disabled?={ data.StepUpRequired }>{ i18n.T(ctx, "admin.proxies.add") }</button>
+				<button type="submit" class="rounded-md bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50" disabled?={ data.ChangesDisabled() }>{ i18n.T(ctx, "admin.proxies.add") }</button>
 			</form>
 		</div>
 	</section>
@@ -121,7 +121,7 @@ templ outboundProxyEditDialog(data models.MailSecurityAdminData, proxy models.Ou
 					{ i18n.T(ctx, "admin.proxies.edit_detail") }
 				}
 			}
-			<form id={ "outbound-proxy-edit-form-" + proxy.ID } method="post" action={ templ.URL(data.ActionBase + "/proxies") } class="min-h-0 flex-1 space-y-4 overflow-y-auto">
+			<form id={ "outbound-proxy-edit-form-" + proxy.ID } method="post" data-step-up action={ templ.URL(data.ActionBase + "/proxies") } class="min-h-0 flex-1 space-y-4 overflow-y-auto">
 				if data.CSRFTokens[data.ActionBase+"/proxies"] != "" {
 					<input type="hidden" name="_csrf" value={ data.CSRFTokens[data.ActionBase+"/proxies"] }/>
 				}
@@ -235,16 +235,16 @@ templ outboundProxyPolicy(data models.MailSecurityAdminData) {
 					}
 				</p>
 			</div>
-			<form method="post" action={ templ.URL(data.ActionBase + "/proxies/policy") } class="shrink-0">
+			<form method="post" data-step-up action={ templ.URL(data.ActionBase + "/proxies/policy") } class="shrink-0">
 				if action := data.ActionBase + "/proxies/policy"; data.CSRFTokens[action] != "" {
 					<input type="hidden" name="_csrf" value={ data.CSRFTokens[action] }/>
 				}
 				if data.PeopleMayAddProxies {
 					<input type="hidden" name="people_add" value="no"/>
-					<button type="submit" class={ mailAllowlistRemoveButtonClass() } disabled?={ data.StepUpRequired }>{ i18n.T(ctx, "admin.proxies.policy_disable") }</button>
+					<button type="submit" class={ mailAllowlistRemoveButtonClass() } disabled?={ data.ChangesDisabled() }>{ i18n.T(ctx, "admin.proxies.policy_disable") }</button>
 				} else {
 					<input type="hidden" name="people_add" value="yes"/>
-					<button type="submit" class={ mailAllowlistAddButtonClass() } disabled?={ data.StepUpRequired }>{ i18n.T(ctx, "admin.proxies.policy_enable") }</button>
+					<button type="submit" class={ mailAllowlistAddButtonClass() } disabled?={ data.ChangesDisabled() }>{ i18n.T(ctx, "admin.proxies.policy_enable") }</button>
 				}
 			</form>
 		</div>
@@ -266,16 +266,16 @@ templ outboundProxyPeople(data models.MailSecurityAdminData, proxy models.Outbou
 					{ i18n.T(ctx, "admin.proxies.for_chosen") }
 				}
 			</div>
-			<form method="post" action={ templ.URL(everyoneAction) }>
+			<form method="post" data-step-up action={ templ.URL(everyoneAction) }>
 				if data.CSRFTokens[everyoneAction] != "" {
 					<input type="hidden" name="_csrf" value={ data.CSRFTokens[everyoneAction] }/>
 				}
 				if proxy.Everyone {
 					<input type="hidden" name="everyone" value="false"/>
-					<button type="submit" class={ mailAllowlistRemoveButtonClass() } disabled?={ data.StepUpRequired }>{ i18n.T(ctx, "admin.proxies.limit_people") }</button>
+					<button type="submit" class={ mailAllowlistRemoveButtonClass() } disabled?={ data.ChangesDisabled() }>{ i18n.T(ctx, "admin.proxies.limit_people") }</button>
 				} else {
 					<input type="hidden" name="everyone" value="true"/>
-					<button type="submit" class={ mailAllowlistAddButtonClass() } disabled?={ data.StepUpRequired }>{ i18n.T(ctx, "admin.proxies.everyone") }</button>
+					<button type="submit" class={ mailAllowlistAddButtonClass() } disabled?={ data.ChangesDisabled() }>{ i18n.T(ctx, "admin.proxies.everyone") }</button>
 				}
 			</form>
 		</div>
@@ -290,7 +290,7 @@ templ outboundProxyPeople(data models.MailSecurityAdminData, proxy models.Outbou
 					Field:       "chosen",
 					AddLabel:    i18n.T(ctx, "admin.proxies.people_add"),
 					RemoveLabel: i18n.T(ctx, "admin.proxies.people_remove"),
-					Disabled:    data.StepUpRequired,
+					Disabled:    data.ChangesDisabled(),
 				})
 			</div>
 		}
