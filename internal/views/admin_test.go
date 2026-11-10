@@ -371,6 +371,15 @@ func TestAdminUsersPageHighlightsRequestedPasswordReset(t *testing.T) {
 	requireAdminUsersHTML(t, "requested password reset dialog", dialog, "Issue a password-reset token for requested.user?")
 }
 
+func TestAdminUsersPageShowsWhoStillHasToSetUpTwoFactor(t *testing.T) {
+	waiting := AdminUserData{ID: "waiting-user", Username: "waiting.user", Status: "active", Role: "webmail_user", MFALabel: "required", MFADetail: "individual_policy", MFASetupPending: true}
+	ready := AdminUserData{ID: "ready-user", Username: "ready.user", Status: "active", Role: "webmail_user", MFALabel: "required", MFADetail: "individual_policy"}
+	page := renderAdminUsersTestPage(t, AdminUsersData{Users: []AdminUserData{waiting, ready}})
+	if strings.Count(page, "data-admin-user-mfa-setup-pending") != 1 || !strings.Contains(page, "Not set up yet") {
+		t.Fatalf("the 2FA column doesn't single out who still has to set it up: %q", page)
+	}
+}
+
 func TestAdminUsersPageOffersPasswordChangeOnlyWhileNotRequired(t *testing.T) {
 	user := AdminUserData{
 		ID: "forced-user", Username: "forced.user", Status: "active", Role: "webmail_user",

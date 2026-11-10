@@ -92,6 +92,7 @@ func (h *Handler) registerAdministrationRoutes(mux *http.ServeMux) {
 	adminRoute("GET "+views.AdminOperationsPath+"/{$}", h.handleAdminOperations)
 	h.registerOldAdminAddresses(adminRoute)
 	adminRoute("GET /admin/users", h.handleAdminUsers)
+	adminRoute("GET "+views.AdminOverviewPath, h.handleAdminOverview)
 	adminRoute("GET /admin/users/{$}", h.handleAdminUsers)
 	adminRoute("GET /admin/activity", h.handleAdminSecurityActivity)
 	adminRoute("GET "+views.AdminAuditActivityPath, h.handleAdminAuditActivity)

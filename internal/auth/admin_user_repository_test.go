@@ -25,6 +25,13 @@ func TestListAdministratorUsersRequiresActiveAdministratorAndReturnsOnlySafeMeta
 		UPDATE users SET mfa_required = 1, password_reset_requested_at = ? WHERE id = 'ordinary'`, now); err != nil {
 		t.Fatal(err)
 	}
+	// An app that was set up and later revoked is no second factor.
+	if _, err := manager.db.Write().ExecContext(t.Context(), `
+		INSERT INTO totp_credentials (id, user_id, encrypted_seed, key_version, algorithm, digits, period, issuer, enabled, created_at, revoked_at)
+		VALUES ('administrator-app', 'administrator', x'01', 1, 'SHA1', 6, 30, 'Gofer', 1, ?, NULL),
+		       ('ordinary-old-app', 'ordinary', x'01', 1, 'SHA1', 6, 30, 'Gofer', 0, ?, ?)`, now, now, now); err != nil {
+		t.Fatal(err)
+	}
 
 	users, err := manager.ListAdministratorUsers(t.Context(), "administrator")
 	if err != nil {
@@ -41,7 +48,8 @@ func TestListAdministratorUsersRequiresActiveAdministratorAndReturnsOnlySafeMeta
 	if users[0].Status != UserStatusActive || !users[0].IsAdmin ||
 		users[1].Username != "Alpha" || users[1].Status != UserStatusPending || users[1].IsAdmin ||
 		users[2].Username != "Bravo" || users[2].IsAdmin || !users[2].MFARequired || users[2].PasswordResetRequestedAt == nil || !users[2].PasswordResetRequestedAt.Equal(now) ||
-		users[3].Username != "Zulu" || users[3].Status != UserStatusDisabled || !users[3].IsAdmin || !users[3].MFARequired {
+		users[3].Username != "Zulu" || users[3].Status != UserStatusDisabled || !users[3].IsAdmin || !users[3].MFARequired ||
+		!users[0].HasSecondFactor || users[2].HasSecondFactor || users[3].HasSecondFactor {
 		t.Fatalf("administrator user projection = %#v", users)
 	}
 	if users[1].InvitationState != AdministratorUserInvitationNotIssued || users[1].InvitationActionReference != "" {

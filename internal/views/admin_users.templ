@@ -28,6 +28,9 @@ type AdminUserData struct {
 	MFALabel                 string
 	MFADetail                string
 	MFARequired              bool
+	// MFASetupPending: two-factor authentication is required, but the
+	// person hasn't set it up yet; they will be asked to.
+	MFASetupPending          bool
 	DeletionPending          bool
 	PasswordResetRequestedAt *time.Time
 	InvitationState          string
@@ -300,22 +303,10 @@ templ AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificat
 					}
 				</div>
 				<div class="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4" aria-label={ i18n.T(ctx, "admin.users.summary") }>
-					<div class="rounded-lg border border-border bg-card px-4 py-3">
-						<p class="text-xs font-medium text-muted-foreground">{ i18n.T(ctx, "admin.users.stat.active") }</p>
-						<p class="mt-1 text-xl font-bold tabular-nums text-foreground">{ i18n.Number(ctx, data.Active) }</p>
-					</div>
-					<div class="rounded-lg border border-border bg-card px-4 py-3">
-						<p class="text-xs font-medium text-muted-foreground">{ i18n.T(ctx, "admin.users.stat.pending") }</p>
-						<p class="mt-1 text-xl font-bold tabular-nums text-foreground">{ i18n.Number(ctx, data.Pending) }</p>
-					</div>
-					<div class="rounded-lg border border-border bg-card px-4 py-3">
-						<p class="text-xs font-medium text-muted-foreground">{ i18n.T(ctx, "admin.users.stat.disabled") }</p>
-						<p class="mt-1 text-xl font-bold tabular-nums text-foreground">{ i18n.Number(ctx, data.Disabled) }</p>
-					</div>
-					<div class="rounded-lg border border-border bg-card px-4 py-3">
-						<p class="text-xs font-medium text-muted-foreground">{ i18n.T(ctx, "admin.users.stat.admins") }</p>
-						<p class="mt-1 text-xl font-bold tabular-nums text-foreground">{ i18n.Number(ctx, data.Administrators) }</p>
-					</div>
+					@adminStatCard(i18n.T(ctx, "admin.users.stat.active"), data.Active)
+					@adminStatCard(i18n.T(ctx, "admin.users.stat.pending"), data.Pending)
+					@adminStatCard(i18n.T(ctx, "admin.users.stat.disabled"), data.Disabled)
+					@adminStatCard(i18n.T(ctx, "admin.users.stat.admins"), data.Administrators)
 				</div>
 				<section class="mt-6 overflow-hidden rounded-lg border border-border bg-card" aria-labelledby="admin-users-heading">
 					<div class="flex items-center justify-between gap-4 border-b border-border px-4 py-3">
@@ -394,6 +385,11 @@ templ AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificat
 													}
 												>{ adminValueLabel(ctx, user.MFALabel) }</span>
 												<p class="mt-1 whitespace-nowrap text-xs text-muted-foreground">{ adminValueLabel(ctx, user.MFADetail) }</p>
+												if user.MFASetupPending {
+													<p class="mt-2">
+														<span class="inline-flex whitespace-nowrap rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-800 dark:text-amber-200" data-admin-user-mfa-setup-pending>{ i18n.T(ctx, "admin.users.mfa_not_set_up") }</span>
+													</p>
+												}
 											</td>
 											<td class="px-4 py-3">
 												if user.InvitationRotatePath == "" {

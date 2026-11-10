@@ -91,7 +91,10 @@ func TestAdminNavigationLabelsAreTranslated(t *testing.T) {
 	ctx := context.Background()
 	keys := []string{adminAccountNavItem.label}
 	for _, group := range adminNavigation {
-		keys = append(keys, group.label)
+		// The group at the top has no name.
+		if group.label != "" {
+			keys = append(keys, group.label)
+		}
 		for _, item := range group.items {
 			keys = append(keys, item.label)
 			if item.short != "" {

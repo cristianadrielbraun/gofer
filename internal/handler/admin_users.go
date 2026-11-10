@@ -184,6 +184,8 @@ func adminUsersViewData(users []auth.AdministratorUserSummary, currentUserID str
 		if user.DeletionPending {
 			view.MFAPolicyPath = ""
 		}
+		view.MFASetupPending = view.MFALabel == "required" && !user.HasSecondFactor &&
+			user.Status == auth.UserStatusActive && !user.DeletionPending
 		data.Users = append(data.Users, view)
 	}
 	return data

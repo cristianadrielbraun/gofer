@@ -22,12 +22,13 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/views"
 )
 
-// handleAdminRedirect opens the console on its first section: Users for an
-// administrator, the diagnostics in open mode's local workspace.
+// handleAdminRedirect opens the console on its first section: the
+// Overview for an administrator, the diagnostics in open mode's local
+// workspace.
 func (h *Handler) handleAdminRedirect(w http.ResponseWriter, r *http.Request) {
 	target := views.AdminAvatarsPath
 	if user := auth.GetCurrentUser(r.Context()); user != nil && user.IsManagement() {
-		target = "/admin/users"
+		target = views.AdminOverviewPath
 	}
 	http.Redirect(w, r, target, http.StatusFound)
 }

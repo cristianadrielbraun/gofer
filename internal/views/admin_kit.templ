@@ -1,0 +1,15 @@
+package views
+
+import "github.com/cristianadrielbraun/gofer/internal/i18n"
+
+// The admin console's shared pieces (the plan's UI kit): one markup for
+// each, used by every page that shows one.
+
+// adminStatCard is a count with its label, as the Users page and the
+// Overview show them.
+templ adminStatCard(label string, value int) {
+	<div class="rounded-lg border border-border bg-card px-4 py-3">
+		<p class="text-xs font-medium text-muted-foreground">{ label }</p>
+		<p class="mt-1 text-xl font-bold tabular-nums text-foreground">{ i18n.Number(ctx, value) }</p>
+	</div>
+}

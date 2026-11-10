@@ -15,6 +15,7 @@ import (
 // The admin console's sections. A handler names the one its page belongs
 // to, and the navigation marks it.
 const (
+	AdminSectionOverview        = "overview"
 	AdminSectionUsers           = "users"
 	AdminSectionMailSecurity    = "security"
 	AdminSectionActivity        = "activity"
@@ -86,13 +87,16 @@ type adminNavItem struct {
 }
 
 type adminNavGroup struct {
-	label string // translation key
+	label string // translation key, or "" for the group at the top that needs no name
 	items []adminNavItem
 }
 
 // adminNavigation lists the console's sections once, for the sidebar and
 // the phone navigation alike.
 var adminNavigation = []adminNavGroup{
+	{items: []adminNavItem{
+		{section: AdminSectionOverview, path: AdminOverviewPath, label: "admin.nav.overview", icon: icon.LayoutDashboard, managed: true},
+	}},
 	{label: "admin.nav.group.people", items: []adminNavItem{
 		{section: AdminSectionUsers, path: "/admin/users", label: "admin.nav.users", icon: icon.Users, managed: true},
 	}},
@@ -142,7 +146,10 @@ func adminNavigationGroups(ctx context.Context, active string, scope models.Admi
 	managed := managedAuthenticationNavigation(ctx)
 	groups := make([]adminNavGroupView, 0, len(adminNavigation))
 	for _, group := range adminNavigation {
-		view := adminNavGroupView{Label: i18n.T(ctx, group.label)}
+		var view adminNavGroupView
+		if group.label != "" {
+			view.Label = i18n.T(ctx, group.label)
+		}
 		for _, item := range group.items {
 			if item.managed && !managed {
 				continue

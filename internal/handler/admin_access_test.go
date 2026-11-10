@@ -61,8 +61,8 @@ func TestAdminRootRedirectsToFirstSidebarSection(t *testing.T) {
 		path     string
 		location string
 	}{
-		{path: "/admin", location: "/admin/users"},
-		{path: "/admin/", location: "/admin/users"},
+		{path: "/admin", location: "/admin/overview"},
+		{path: "/admin/", location: "/admin/overview"},
 		{path: "/admin/avatars", location: "/admin/system/diagnostics/avatars/"},
 	} {
 		t.Run(test.path, func(t *testing.T) {
@@ -164,7 +164,7 @@ func TestLocalModeAdminUsesOperationalHomeAndNavigation(t *testing.T) {
 		}
 	}
 	for _, forbidden := range []string{
-		`href="/admin/users"`, `href="/admin/activity"`, `href="/admin/account"`,
+		`href="/admin/overview"`, `href="/admin/users"`, `href="/admin/activity"`, `href="/admin/account"`,
 		`action="/auth/logout"`, "Sign out of Admin",
 	} {
 		if strings.Contains(avatarHTML, forbidden) {
@@ -172,7 +172,7 @@ func TestLocalModeAdminUsesOperationalHomeAndNavigation(t *testing.T) {
 		}
 	}
 
-	for _, path := range []string{"/admin/users", "/admin/account"} {
+	for _, path := range []string{"/admin/overview", "/admin/users", "/admin/account"} {
 		request = httptest.NewRequest(http.MethodGet, path, nil)
 		response = httptest.NewRecorder()
 		stack.ServeHTTP(response, request)

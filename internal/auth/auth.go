@@ -58,6 +58,7 @@ type AdministratorUserSummary struct {
 	UserType                  UserType
 	IsAdmin                   bool
 	MFARequired               bool
+	HasSecondFactor           bool // an authenticator app, the factor a two-factor requirement asks for
 	PasswordResetRequestedAt  *time.Time
 	DeletionPending           bool
 	DeletionProtected         bool
