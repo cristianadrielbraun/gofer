@@ -24,7 +24,7 @@ func (r Role) Variable() string { return "--weight-" + r.Name }
 
 // Roles are the kinds of text whose weight can be changed, in the order
 // Settings lists them.
-var Roles = []Role{{Name: "navigation"}, {Name: "lists"}}
+var Roles = []Role{{Name: "navigation"}, {Name: "lists"}, {Name: "details"}, {Name: "headings"}, {Name: "controls"}}
 
 // Steps are the allowed shifts, lightest first. 0 is Gofer's default, saved
 // as "".
