@@ -2,7 +2,6 @@ package views
 
 import (
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
-	"strings"
 	"github.com/cristianadrielbraun/gofer/components/button"
 	"github.com/cristianadrielbraun/gofer/components/checkbox"
 	"github.com/cristianadrielbraun/gofer/components/dialog"
@@ -248,7 +247,7 @@ templ MailSearchControls(accounts []models.Account) {
 	{{ accounts = mailAccounts(accounts) }}
 	<a href="/mail/search" class="hidden" data-mail-scope-navigation aria-hidden="true" tabindex="-1"></a>
 	@dialog.Dialog(dialog.Props{ID: "mail-search-folders-dialog"}) {
-		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-lg max-h-[calc(100dvh-2rem)] [&>[data-tui-dialog-panel]]:flex [&>[data-tui-dialog-panel]]:max-h-[calc(100dvh-2rem)] [&>[data-tui-dialog-panel]]:min-h-0 [&>[data-tui-dialog-panel]]:flex-col [&>[data-tui-dialog-panel]]:gap-0 [&>[data-tui-dialog-panel]]:p-0", Attributes: templ.Attributes{"aria-label": i18n.T(ctx, "mail.search.folders.title")}}) {
+		@dialog.Content(dialog.ContentProps{Class: folderPickerContentClass, Attributes: templ.Attributes{"aria-label": i18n.T(ctx, "mail.search.folders.title")}}) {
 			@dialog.Header(dialog.HeaderProps{Class: "shrink-0 px-6 pt-6 pb-4"}) {
 				@dialog.Title() {
 					{ i18n.T(ctx, "mail.search.folders.title") }
@@ -256,25 +255,17 @@ templ MailSearchControls(accounts []models.Account) {
 				@dialog.Description() {
 					{ i18n.T(ctx, "mail.search.folders.help") }
 				}
-				<div class="relative">
-					@icon.Search(icon.Props{Class: "absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground"})
-					<input type="search" placeholder={ i18n.T(ctx, "mail.search.folders.find") } aria-label={ i18n.T(ctx, "mail.search.folders.find") } autocomplete="off" class="h-9 w-full rounded-md border border-input bg-background pl-9 pr-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring" data-mail-scope-folder-search/>
-				</div>
+				@folderPickerSearch(i18n.T(ctx, "mail.search.folders.find"), templ.Attributes{"data-mail-scope-folder-search": ""})
 			}
-			<div class="min-h-0 flex-1 overflow-y-auto overscroll-contain border-y border-border" data-mail-scope-folder-list>
+			@folderPickerList(i18n.T(ctx, "mail.search.folders.none"), nil) {
 				for _, account := range moveTargetAccounts(accounts, "") {
-					<section data-mail-scope-account>
-						<div class="sticky top-0 z-10 flex items-center gap-2 bg-muted px-6 py-2">
-							<div class="account-color-marker size-2.5 shrink-0" style={ accountColorStyle(account.Color) }></div>
-							<span class="truncate text-xs font-semibold text-foreground">{ accountTitle(account) }</span>
-						</div>
-						for _, folder := range account.Folders {
-							@MailSearchFolderChoice(folder, account.ID, account.Email, "", "", 0)
+					@folderPickerAccount(account, "") {
+						for _, entry := range folderPickerEntries(ctx, account, true) {
+							@mailSearchFolderChoice(entry, account.ID)
 						}
-					</section>
+					}
 				}
-				<p class="hidden px-6 py-4 text-sm text-muted-foreground" data-mail-scope-folder-empty>{ i18n.T(ctx, "mail.search.folders.none") }</p>
-			</div>
+			}
 			@dialog.Footer(dialog.FooterProps{Class: "shrink-0 flex-col items-stretch px-6 py-4 sm:items-center sm:justify-between"}) {
 				<div class="min-w-0 space-y-1">
 					<label class="flex items-center gap-2 text-sm">
@@ -296,21 +287,11 @@ templ MailSearchControls(accounts []models.Account) {
 	}
 }
 
-// MailSearchFolderChoice is one folder in the picker. Its account and parent
+// mailSearchFolderChoice is one folder in the picker. Its account and parent
 // also tell an open search which folders' sync events reach it.
-templ MailSearchFolderChoice(folder models.Folder, accountID string, accountEmail string, parent string, parentID string, depth int) {
-	{{ path := folder.Name; if parent != "" { path = parent + " / " + folder.Name } }}
-	<label class="flex cursor-pointer items-center gap-2.5 py-1.5 pr-6 hover:bg-accent/50" style={ mailSearchFolderIndent(depth) } title={ path } data-mail-scope-folder-row data-search-text={ strings.ToLower(accountEmail + " " + path) }>
-		@checkbox.Checkbox(checkbox.Props{Value: folder.ID, Attributes: templ.Attributes{"data-mail-scope-folder": "", "data-account-id": accountID, "data-parent-id": parentID}})
-		@icon.Folder(icon.Props{Class: "size-3.5 shrink-0 text-muted-foreground"})
-		<span class="min-w-0 text-sm">
-			<span class="block truncate">{ folder.Name }</span>
-			if parent != "" {
-				<span class="block truncate text-[11px] text-muted-foreground">{ parent }</span>
-			}
-		</span>
+templ mailSearchFolderChoice(entry folderPickerEntry, accountID string) {
+	<label class="flex cursor-pointer items-center gap-2.5 py-1.5 pr-6 hover:bg-accent/50" style={ folderPickerIndent(entry.Depth) } data-folder-picker-row data-search-text={ entry.Search }>
+		@checkbox.Checkbox(checkbox.Props{Value: entry.Folder.ID, Attributes: templ.Attributes{"data-mail-scope-folder": "", "data-account-id": accountID, "data-parent-id": entry.ParentID}})
+		@folderPickerName(entry)
 	</label>
-	for _, child := range folder.Children {
-		@MailSearchFolderChoice(child, accountID, accountEmail, path, folder.ID, depth+1)
-	}
 }

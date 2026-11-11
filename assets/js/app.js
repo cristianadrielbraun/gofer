@@ -24071,8 +24071,8 @@ function startMoveFolderCreate(button) {
 
   var form = document.createElement("form")
   form.setAttribute("data-mail-move-create-form", "")
-  form.className = "py-1 pr-1"
-  form.style.paddingLeft = (0.625 + depth * 1.25) + "rem"
+  form.className = "py-1 pr-6"
+  form.style.paddingLeft = (24 + Math.min(depth, 8) * 16) + "px"
   var line = document.createElement("div")
   line.className = "flex items-center gap-1.5"
   var input = document.createElement("input")
@@ -24093,7 +24093,7 @@ function startMoveFolderCreate(button) {
   form.appendChild(line)
   form.appendChild(problem)
 
-  var row = button.closest("[data-mail-move-row]") || button
+  var row = button.closest("[data-folder-picker-row]") || button
   row.insertAdjacentElement("afterend", form)
   input.focus()
   input.select()
@@ -24489,39 +24489,24 @@ function showMailTransferResult(toastID, sum, info) {
   })
 }
 
-// Search hides folders whose name doesn't match. An account left with none
-// still shows its new folder row, named for the search, so a folder that
-// isn't there yet can be made; an account without one is hidden. A hidden
-// selection is dropped so Move never acts on a folder out of sight.
+// Search shows the folders whose account or path match (folder-picker.js).
+// An account's New folder row stays, named for the search, so a folder that
+// isn't there yet can be made. A hidden selection is dropped so Move never
+// acts on a folder out of sight.
 function filterMoveFolders(input) {
   var dialog = document.getElementById("mail-move-dialog")
   if (!dialog) return
-  var typed = String(input && input.value || "").trim()
-  var query = typed.toLowerCase()
-  var anyVisible = false
   dialog.querySelectorAll("[data-mail-move-create-form]").forEach(function (form) { form.remove() })
-  dialog.querySelectorAll("[data-mail-move-account]").forEach(function (account) {
-    var accountVisible = false
-    account.querySelectorAll("[data-mail-move-folder]").forEach(function (folder) {
-      var match = !query || (folder.getAttribute("data-mail-move-name") || "").indexOf(query) !== -1
-      ;(folder.closest("[data-mail-move-row]") || folder).classList.toggle("hidden", !match)
-      if (!match && folder.getAttribute("aria-selected") === "true") {
-        folder.setAttribute("aria-selected", "false")
-        var confirm = dialog.querySelector("[data-mail-move-confirm]")
-        if (confirm) confirm.disabled = true
-      }
-      if (match) accountVisible = true
-    })
-    if (accountVisible) anyVisible = true
-    var newRow = account.querySelector("[data-mail-move-new-row][data-mail-move-create-account]")
-    if (newRow) {
-      var label = newRow.querySelector(".flex-1")
-      if (label) label.textContent = typed ? goferT("js.mail.move.new_folder_named", { name: typed }) : goferT("js.mail.move.new_folder")
-    }
-    account.classList.toggle("hidden", !accountVisible && !newRow)
+  var typed = window.goferFolderPicker.filter(dialog)
+  var selected = dialog.querySelector('[data-mail-move-folder][aria-selected="true"]')
+  if (selected && selected.closest("[data-folder-picker-row]").hidden) {
+    selected.setAttribute("aria-selected", "false")
+    var confirm = dialog.querySelector("[data-mail-move-confirm]")
+    if (confirm) confirm.disabled = true
+  }
+  dialog.querySelectorAll("[data-mail-move-new-label]").forEach(function (label) {
+    label.textContent = typed ? goferT("js.mail.move.new_folder_named", { name: typed }) : goferT("js.mail.move.new_folder")
   })
-  var empty = dialog.querySelector("[data-mail-move-empty]")
-  if (empty) empty.classList.toggle("hidden", anyVisible)
 }
 
 function closeMoveDialog() {

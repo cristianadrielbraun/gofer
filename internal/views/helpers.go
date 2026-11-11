@@ -195,6 +195,21 @@ func mailMoveAccountProblem(ctx context.Context, account models.Account, own boo
 	return ""
 }
 
+// mailMoveAccountNote is what the Move dialog says beside an account's name:
+// why it can't be picked, that it keeps mail on this device only, or that
+// it is another account than the email's.
+func mailMoveAccountNote(ctx context.Context, account models.Account, own bool, problem string) string {
+	switch {
+	case problem != "":
+		return problem
+	case accountIsLocalFolders(account):
+		return i18n.T(ctx, "mail.move.local_only")
+	case !own:
+		return i18n.T(ctx, "mail.move.other_account")
+	}
+	return ""
+}
+
 // mailMoveIndent indents a Move dialog row by its depth in the folder tree.
 func mailMoveIndent(depth int) string {
 	return fmt.Sprintf("padding-left: %.2frem", 0.625+float64(depth)*1.25)
