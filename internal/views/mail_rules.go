@@ -245,7 +245,7 @@ func mailRuleAccountColor(rule models.MailRule, accounts []models.MailRuleAccoun
 
 // mailRuleRunScopes are the folders every account has that a rule can be
 // run on, in each account it is for.
-func mailRuleRunScopes(ctx context.Context, rule models.MailRule, accounts []models.MailRuleAccount) []mailRuleRoleChoice {
+func mailRuleRunScopes(ctx context.Context, rule models.MailRule, accounts []models.MailRuleAccount) []folderFieldExtra {
 	watched := 0
 	for _, account := range accounts {
 		if mailRuleWatchable(account) && rule.WatchesAccount(account.ID) {

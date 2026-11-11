@@ -252,7 +252,7 @@ templ MailSearchControls(accounts []models.Account) {
 				@dialog.Title() {
 					{ i18n.T(ctx, "mail.search.folders.title") }
 				}
-				@dialog.Description() {
+				@dialog.Description(dialog.DescriptionProps{Class: folderPickerDescriptionClass}) {
 					{ i18n.T(ctx, "mail.search.folders.help") }
 				}
 				@folderPickerSearch(i18n.T(ctx, "mail.search.folders.find"), templ.Attributes{"data-mail-scope-folder-search": ""})

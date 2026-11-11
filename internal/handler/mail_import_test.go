@@ -138,8 +138,8 @@ func TestMailImportOfAGoferExport(t *testing.T) {
 	f.h.handleReviewMailImport(review, req)
 	body := review.Body.String()
 	for _, want := range []string{
-		`data-tui-selectbox-value="` + f.folders["inbox"] + `" data-tui-selectbox-selected="true"`,
-		`data-tui-selectbox-value="` + f.folders["archive-2024"] + `" data-tui-selectbox-selected="true"`,
+		`value="` + f.folders["inbox"] + `" data-folder-field-value`,
+		`value="` + f.folders["archive-2024"] + `" data-folder-field-value`,
 		"Exported from robin@example.test by Gofer.",
 	} {
 		if !strings.Contains(body, want) {

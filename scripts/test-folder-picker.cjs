@@ -18,8 +18,10 @@ const local = account([row('local folders archive')], true)
 const other = account([row('sam@example.test notes')])
 const search = {value: ''}
 const empty = {hidden: true, classList: {toggle(name, on) { empty.hidden = on }}}
+const box = {open: true, offsetWidth: 512, style: {width: ''}}
 const root = {
-  querySelector(selector) { return selector === '[data-folder-picker-search]' ? search : selector === '[data-folder-picker-empty]' ? empty : null },
+  closest() { return null },
+  querySelector(selector) { return selector === '[data-folder-picker-search]' ? search : selector === '[data-folder-picker-empty]' ? empty : selector === '[data-tui-dialog-content]' ? box : null },
   querySelectorAll(selector) { return selector === '[data-folder-picker-account]' ? [work, local, other] : [] },
 }
 const shown = list => list.rows.filter(r => !r.hidden).length
@@ -31,6 +33,10 @@ assert.equal(work.hidden, false)
 assert.equal(local.hidden, false, 'an account with a row that stays is kept')
 assert.equal(other.hidden, true, 'an account with no match is hidden')
 assert.equal(empty.hidden, true)
+assert.equal(box.style.width, '512px', 'an open dialog keeps its width while searching')
+box.offsetWidth = 300
+picker.filter(root)
+assert.equal(box.style.width, '512px', 'and keeps it as folders hide')
 
 search.value = 'nothing like it'
 picker.filter(root)

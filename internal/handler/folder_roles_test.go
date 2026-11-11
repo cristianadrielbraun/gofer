@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -29,7 +30,8 @@ func TestFolderRoleRoutes(t *testing.T) {
 		t.Fatalf("manage = %d %q", rec.Code, body)
 	}
 	// The inbox is shown but cannot be given to another folder.
-	if strings.Contains(body, `value="f-inbox"`) || !strings.Contains(body, `value="f-bin"`) || strings.Contains(body, "data-folder-roles-sync") {
+	if !regexp.MustCompile(`disabled [^>]*data-folder-field-choice="f-inbox"`).MatchString(body) || regexp.MustCompile(`disabled [^>]*data-folder-field-choice="f-bin"`).MatchString(body) ||
+		!strings.Contains(body, `data-folder-field-choice="f-bin"`) || strings.Contains(body, "data-folder-roles-sync") {
 		t.Fatalf("manage folders = %q", body)
 	}
 

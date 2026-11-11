@@ -2,6 +2,7 @@ package views
 
 import (
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
+	"github.com/cristianadrielbraun/gofer/internal/models"
 	"context"
 	"fmt"
 	"strings"
@@ -32,7 +33,11 @@ type MailTransferFormData struct {
 	// SourceEmail names the account moved messages are deleted from.
 	SourceEmail string
 	Folders     []MailTransferFolder
-	Destination []MailImportFolder
+	// Destination are the folders messages can go in; DestinationAccount
+	// is their account, with all its folders as the folder picker shows
+	// them.
+	Destination        []MailImportFolder
+	DestinationAccount models.Account
 	Message     string
 }
 
@@ -185,7 +190,7 @@ templ MailTransferForm(data MailTransferFormData) {
 							</label>
 							<div class="divide-y divide-border/60 rounded-md border border-border/60 bg-background">
 								for _, folder := range data.Folders {
-									@mailTransferFolderRow(folder, data.Destination)
+									@mailTransferFolderRow(folder, data.Destination, data.DestinationAccount)
 								}
 							</div>
 							<p class="text-xs text-muted-foreground">{ i18n.T(ctx, "transfer.move.spam_trash") }</p>
@@ -206,7 +211,7 @@ func mailTransferCanStart(data MailTransferFormData) bool {
 	return len(data.Sources) >= 2 && data.SourceID != "" && data.TargetID != "" && data.SourceID != data.TargetID && len(data.Folders) > 0
 }
 
-templ mailTransferFolderRow(folder MailTransferFolder, destination []MailImportFolder) {
+templ mailTransferFolderRow(folder MailTransferFolder, destination []MailImportFolder, account models.Account) {
 	<div class="flex flex-col gap-2 p-2.5 sm:flex-row sm:items-center sm:gap-3" data-mail-transfer-folder={ folder.Path }>
 		<label class="flex min-w-0 flex-1 items-center gap-2.5">
 			@checkbox.Checkbox(checkbox.Props{Name: "folder", Value: folder.ID, Group: "mail-transfer-folders", Checked: mailExportFolderChecked(MailExportFolder{Role: folder.Role})})
@@ -216,7 +221,7 @@ templ mailTransferFolderRow(folder MailTransferFolder, destination []MailImportF
 			</span>
 		</label>
 		<span class="flex min-w-0 flex-col gap-1.5 sm:w-64 sm:shrink-0">
-			@mailFolderTargetSelect("target:"+folder.ID, i18n.T(ctx, "transfer.move.destination_for", "name", folder.Path), destination, folder.Target, false)
+			@folderFieldView(mailFolderTargetField(ctx, "mail-transfer-target-"+folder.ID, "target:"+folder.ID, i18n.T(ctx, "transfer.move.destination_for", "name", folder.Path), account, destination, folder.Target, false))
 			<input
 				type="text"
 				name={ "new:" + folder.ID }

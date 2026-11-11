@@ -202,6 +202,17 @@ func (h *Handler) mailExportFolders(ctx context.Context, owner, accountID string
 	return folders, err
 }
 
+// mailFolderPickerAccount is an account with its folder tree, as the
+// folder picker shows it.
+func (h *Handler) mailFolderPickerAccount(ctx context.Context, owner string, account models.Account) (models.Account, error) {
+	err := h.withMailExportAccount(ctx, owner, account.ID, func(db *storage.DB) error {
+		var err error
+		account.Folders, err = db.AccountFolderTree(ctx, account.ID)
+		return err
+	})
+	return account, err
+}
+
 // createMailExport records a new export of the chosen folders and starts it.
 func (h *Handler) createMailExport(ctx context.Context, owner string, account models.Account, folderIDs []string, localOnly bool) (*mailExportJob, error) {
 	folders, err := h.mailExportFolders(ctx, owner, account.ID)

@@ -3,11 +3,14 @@ package views
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 
+	"github.com/cristianadrielbraun/gofer/components/button"
+	"github.com/cristianadrielbraun/gofer/components/dialog"
 	"github.com/cristianadrielbraun/gofer/components/icon"
 	"github.com/cristianadrielbraun/gofer/components/tooltip"
 )
@@ -21,9 +24,15 @@ import (
 // checkboxes to choose several folders, or buttons to choose one.
 
 // folderPickerContentClass makes a dialog's header and footer fixed bars
-// with only the folder list between them scrolling. It is wide enough for
-// deeply nested folders' names and at most 80% of the window's height.
-const folderPickerContentClass = "sm:max-w-2xl max-h-[80dvh] [&>[data-tui-dialog-panel]]:flex [&>[data-tui-dialog-panel]]:max-h-[80dvh] [&>[data-tui-dialog-panel]]:min-h-0 [&>[data-tui-dialog-panel]]:flex-col [&>[data-tui-dialog-panel]]:gap-0 [&>[data-tui-dialog-panel]]:p-0"
+// with only the folder list between them scrolling. It is as wide as its
+// widest folder needs, between 28rem and 42rem for deeply nested ones, and
+// at most 80% of the window's height. A search keeps the width it had
+// (folder-picker.js), so the dialog doesn't jump while typing.
+const folderPickerContentClass = "sm:w-fit sm:min-w-[28rem] sm:max-w-2xl max-h-[80dvh] [&>[data-tui-dialog-panel]]:flex [&>[data-tui-dialog-panel]]:max-h-[80dvh] [&>[data-tui-dialog-panel]]:min-h-0 [&>[data-tui-dialog-panel]]:flex-col [&>[data-tui-dialog-panel]]:gap-0 [&>[data-tui-dialog-panel]]:p-0"
+
+// folderPickerDescriptionClass lets a dialog's description wrap to the
+// width the folders give it rather than widen the dialog itself.
+const folderPickerDescriptionClass = "w-0 min-w-full"
 
 // folderPickerSearch is the search field, for the dialog's header.
 templ folderPickerSearch(label string, attrs templ.Attributes) {
@@ -189,4 +198,143 @@ func folderPickerEntries(ctx context.Context, account models.Account, withStarre
 // folderPickerIndent indents a row by its depth in the tree.
 func folderPickerIndent(depth int) string {
 	return fmt.Sprintf("padding-left: %dpx", 24+min(depth, 8)*16)
+}
+
+// folderFieldView is a folderField: its button, and the picker it opens.
+templ folderFieldView(f folderField) {
+	<div class="min-w-0" data-folder-field data-folder-field-id-prefix={ f.IDPrefix }>
+		<input type="hidden" name={ f.Name } value={ f.Value } data-folder-field-value { f.Attrs... }/>
+		@button.Button(button.Props{
+			Variant:  button.VariantOutline,
+			Class:    folderFieldButtonClass(f),
+			Disabled: f.Disabled,
+			Attributes: templ.Attributes{
+				"aria-haspopup":          "dialog",
+				"aria-label":             f.Label,
+				"data-folder-field-open": f.ID,
+			},
+		}) {
+			<span class="flex min-w-0 flex-1 items-center gap-2" data-folder-field-shown>
+				if f.Chosen.Name != "" {
+					@folderFieldShown(f.Chosen)
+				} else {
+					<span class="truncate text-muted-foreground">{ i18n.T(ctx, "transfer.choose_folder") }</span>
+				}
+			</span>
+			// Not a dropdown's arrow: this opens the folder picker's dialog.
+			@icon.FolderSearch(icon.Props{Class: "size-4 shrink-0 text-muted-foreground"})
+		}
+		@dialog.Dialog(dialog.Props{ID: f.ID}) {
+			@dialog.Content(dialog.ContentProps{Class: folderPickerContentClass, Attributes: templ.Attributes{"data-folder-field-dialog": ""}}) {
+				@dialog.Header(dialog.HeaderProps{Class: "shrink-0 px-6 pt-6 pb-4"}) {
+					@dialog.Title() {
+						{ f.Title }
+					}
+					@folderPickerSearch(i18n.T(ctx, "mail.move.search"), nil)
+				}
+				@folderPickerList(i18n.T(ctx, "mail.move.no_match"), templ.Attributes{"role": "listbox", "aria-label": i18n.T(ctx, "mail.move.folders")}) {
+					if len(f.Extras) > 0 && f.ExtrasTitle != "" {
+						@folderPickerGroup(f.ExtrasTitle) {
+							for _, extra := range f.Extras {
+								<div data-folder-picker-row data-search-text={ strings.ToLower(extra.Label) }>
+									@folderFieldExtraChoice(f, extra)
+								</div>
+							}
+						}
+					} else if len(f.Extras) > 0 {
+						// Not folders: they show whatever the search.
+						<div class="py-1">
+							for _, extra := range f.Extras {
+								@folderFieldExtraChoice(f, extra)
+							}
+						</div>
+					}
+					for _, account := range f.Accounts {
+						{{ makes := f.Makes && account.Provider != "gmail" }}
+						@folderPickerAccount(account, "") {
+							if makes {
+								@folderPickerNewRow(account, templ.Attributes{"data-folder-field-create": ""})
+							}
+							for _, entry := range folderPickerEntries(ctx, account, false) {
+								{{ usable := f.usable(entry.Folder) }}
+								{{ value := f.IDPrefix + entry.Folder.ID }}
+								<div class="group relative" data-folder-picker-row data-search-text={ entry.Search }>
+									@folderFieldChoice(value, value == f.Value, !usable, makes && usable, entry.Depth, f.entryChosen(ctx, account, entry)) {
+										@folderPickerName(entry)
+									}
+									if makes && usable {
+										@folderPickerSubfolderButton(account.ID, entry, templ.Attributes{"data-folder-field-create": ""})
+									}
+								</div>
+							}
+						}
+					}
+				}
+				@dialog.Footer(dialog.FooterProps{Class: "shrink-0 px-6 py-4"}) {
+					@dialog.Close() {
+						@button.Button(button.Props{Variant: button.VariantOutline}) {
+							{ i18n.T(ctx, "common.cancel") }
+						}
+					}
+				}
+			}
+		}
+	</div>
+}
+
+templ folderFieldExtraChoice(f folderField, extra folderFieldExtra) {
+	@folderFieldChoice(extra.Value, extra.Value == f.Value, false, false, 0, f.extraChosen(extra)) {
+		<span class="flex size-5 shrink-0 items-center justify-center text-muted-foreground">
+			@extra.Icon
+		</span>
+		<span class="min-w-0 flex-1 truncate text-sm">{ extra.Label }</span>
+	}
+}
+
+// folderFieldChoice is one choice in a field's picker. Its template is
+// what the field shows once it's chosen.
+templ folderFieldChoice(value string, selected, disabled, roomForButton bool, depth int, shown folderFieldChosen) {
+	<button
+		type="button"
+		role="option"
+		aria-selected={ strconv.FormatBool(selected) }
+		disabled?={ disabled }
+		class={ "flex w-full min-w-0 items-center gap-2.5 py-1.5 text-left enabled:hover:bg-accent/50 aria-selected:bg-primary/10 aria-selected:text-primary disabled:cursor-default disabled:opacity-50", templ.KV("pr-14", roomForButton), templ.KV("pr-6", !roomForButton) }
+		style={ folderPickerIndent(depth) }
+		data-folder-field-choice={ value }
+	>
+		{ children... }
+		<template data-folder-field-shown-template>
+			@folderFieldShown(shown)
+		</template>
+	</button>
+}
+
+// folderFieldShown is the chosen folder in its field: its icon, name and
+// the folders above it, then at the right its account with its color, or
+// a note. Cut short, a tooltip shows the whole place (folder-picker.js
+// switches it off when all of it fits).
+templ folderFieldShown(chosen folderFieldChosen) {
+	@tooltip.Tooltip() {
+		@tooltip.Trigger(tooltip.TriggerProps{Attributes: templ.Attributes{"data-folder-picker-tip": ""}}) {
+			<span class="flex min-w-0 flex-1 items-center gap-2">
+				<span class="flex size-4 shrink-0 items-center justify-center text-muted-foreground">
+					@chosen.Icon
+				</span>
+				<span class="min-w-0 max-w-[60%] shrink-0 truncate">{ chosen.Name }</span>
+				<span class="min-w-0 flex-1 truncate text-muted-foreground">{ chosen.Parent }</span>
+				if chosen.Account != "" {
+					<span class="flex min-w-0 max-w-[45%] items-center gap-1.5 text-muted-foreground">
+						<span class="account-color-marker size-2 shrink-0" style={ accountColorStyle(chosen.AccountColor) }></span>
+						<span class="min-w-0 truncate">{ chosen.Account }</span>
+					</span>
+				} else if chosen.Note != "" {
+					<span class="min-w-0 max-w-[45%] truncate text-muted-foreground">{ chosen.Note }</span>
+				}
+			</span>
+		}
+		@tooltip.Content(tooltip.ContentProps{Position: tooltip.PositionTop, ShowArrow: true, Class: "pointer-events-none px-3 py-1.5 text-xs"}) {
+			{ chosen.Full() }
+		}
+	}
 }

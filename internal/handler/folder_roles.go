@@ -68,6 +68,10 @@ func folderRolesData(ctx context.Context, accounts *config.AccountStore, db *sto
 		return models.FolderRolesData{}, err
 	}
 	data := models.FolderRolesData{Account: *account}
+	// The folder picker shows the account's folders as a tree.
+	if data.Account.Folders, err = db.AccountFolderTree(ctx, accountID); err != nil {
+		return models.FolderRolesData{}, err
+	}
 	for _, folder := range folders {
 		if folder.Selectable && folder.Role != "inbox" {
 			data.Folders = append(data.Folders, models.FolderOption{ID: folder.ID, Name: folder.RemoteID})

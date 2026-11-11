@@ -24,7 +24,7 @@ templ FolderMoveDialog(data models.FolderMoveData) {
 				@dialog.Title() {
 					{ i18n.T(ctx, "folders.move.title", "name", data.FolderName) }
 				}
-				@dialog.Description() {
+				@dialog.Description(dialog.DescriptionProps{Class: folderPickerDescriptionClass}) {
 					{ i18n.T(ctx, "folders.move.description") }
 				}
 				@folderPickerSearch(i18n.T(ctx, "mail.move.search"), templ.Attributes{
