@@ -39,7 +39,13 @@ CREATE TABLE IF NOT EXISTS accounts (
     -- 1 when the user hid the account from the sidebar and move targets.
     hidden INTEGER NOT NULL DEFAULT 0,
     -- '' uses the default proxy, 'direct' none, else an outbound_proxies id.
-    proxy_id TEXT NOT NULL DEFAULT ''
+    proxy_id TEXT NOT NULL DEFAULT '',
+    -- The name the account's own address sends under; '' uses display_name,
+    -- which otherwise only labels the account in Gofer.
+    sender_name TEXT NOT NULL DEFAULT '',
+    -- The account_identities id new messages start from; '' is the account's
+    -- own address.
+    default_identity_id TEXT NOT NULL DEFAULT ''
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_accounts_local_folders ON accounts(COALESCE(user_id, '')) WHERE provider = 'local';
 
@@ -1919,4 +1925,4 @@ CREATE TABLE IF NOT EXISTS outbound_proxy_policy (
     people_add INTEGER NOT NULL DEFAULT 0 CHECK (people_add IN (0, 1))
 );
 
-INSERT OR REPLACE INTO schema_version (version) VALUES (143);
+INSERT OR REPLACE INTO schema_version (version) VALUES (144);

@@ -578,6 +578,8 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/accounts/{id}/identities/{identity}/move", h.handleMoveAccountIdentity)
 	mux.HandleFunc("POST /api/accounts/{id}/identities/refresh", h.handleRefreshAccountIdentities)
 	mux.HandleFunc("POST /api/accounts/{id}/identities/smtp-test", h.handleTestIdentitySMTP)
+	mux.HandleFunc("POST /api/accounts/{id}/identities/sender-name", h.handleSaveAccountSenderName)
+	mux.HandleFunc("POST /api/accounts/{id}/identities/default", h.handleSetAccountDefaultIdentity)
 	mux.HandleFunc("GET /api/accounts/{id}/folder-roles/manage", h.handleManageFolderRoles)
 	mux.HandleFunc("POST /api/accounts/{id}/folder-roles", h.handleSaveFolderRoles)
 	mux.HandleFunc("POST /api/accounts/{id}/folder-roles/create", h.handleCreateFolderRoleFolder)

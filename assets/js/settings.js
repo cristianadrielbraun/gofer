@@ -2166,7 +2166,7 @@ document.body.addEventListener("htmx:afterSwap", function (e) {
   var to = content.getBoundingClientRect()
   content.style.transitionProperty = transition
   flipDialogResize(content, from, to, function () {
-    var field = content.querySelector("[data-account-identity-form] input:not([type=hidden]):not([readonly])")
+    var field = content.querySelector("[data-account-identity-form] input:not([type=hidden]):not([readonly]), [data-account-sender-name-form] input:not([type=hidden])")
     if (field) field.focus({ preventScroll: true })
   })
 })

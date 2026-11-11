@@ -18866,7 +18866,10 @@ function refreshComposeAccountData(reset) {
   form.querySelector('[name="account_id"]').value = data.dataset.composeDefaultAccount
   form.querySelector('[name="identity_id"]').value = ""
   var display = document.getElementById("compose-from-display")
-  if (display) display.textContent = data.dataset.composeDefaultName + " <" + data.dataset.composeDefaultEmail + ">"
+  var defaultName = data.dataset.composeDefaultName || ""
+  if (display) display.textContent = defaultName ? defaultName + " <" + data.dataset.composeDefaultEmail + ">" : data.dataset.composeDefaultEmail
+  // A new message starts from the account's default identity, if it has one.
+  if (data.dataset.composeDefaultAccount) setComposeAccount(form, data.dataset.composeDefaultAccount, data.dataset.composeDefaultIdentity || "")
   updateComposeSendState(form)
 }
 

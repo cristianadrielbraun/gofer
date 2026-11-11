@@ -102,6 +102,9 @@ func Input(props ...Props) templ.Component {
 			"focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]",
 			// Disabled styles
 			"disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50",
+			// Read-only styles: look like disabled, so a field that can't
+			// be changed doesn't invite typing; it can still be selected.
+			"[&[readonly]]:cursor-not-allowed [&[readonly]]:opacity-50 [&[readonly]]:focus-visible:border-input [&[readonly]]:focus-visible:ring-0",
 			// Error/Invalid styles
 			"aria-invalid:ring-destructive/20 aria-invalid:border-destructive dark:aria-invalid:ring-destructive/40",
 			utils.If(p.HasError, "border-destructive ring-destructive/20 dark:ring-destructive/40"),

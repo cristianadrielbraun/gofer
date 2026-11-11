@@ -64,7 +64,7 @@ templ ComposeDialog(accounts []models.Account) {
 				@ComposeDropChoice("compose-drop-choice")
 				@ComposeMobileBar()
 				<input type="hidden" name="account_id" id="compose-account-id" value={ composeDefaultAccountID(accounts) }/>
-				<input type="hidden" name="identity_id" id="compose-identity-id" value=""/>
+				<input type="hidden" name="identity_id" id="compose-identity-id" value={ composeDefaultIdentityID(accounts) }/>
 				<input type="hidden" name="draft_id" id="compose-draft-id" value=""/>
 				<input type="hidden" name="compose_mode" id="compose-mode" value="new"/>
 				<input type="hidden" name="in_reply_to" id="compose-in-reply-to" value=""/>
@@ -75,7 +75,7 @@ templ ComposeDialog(accounts []models.Account) {
 						@dropdown.Dropdown() {
 							@dropdown.Trigger() {
 								<button type="button" id="compose-from-trigger" class="compose-from-trigger flex items-center gap-1 text-sm text-foreground transition-colors px-1.5 py-0.5 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background">
-									<span id="compose-from-display">{ composeDefaultName(accounts) } &lt;{ composeDefaultEmail(accounts) }&gt;</span>
+									<span id="compose-from-display">{ composeDefaultFrom(accounts) }</span>
 									@icon.ChevronDown(icon.Props{Class: "size-3 text-muted-foreground"})
 								</button>
 							}
@@ -743,14 +743,15 @@ templ composeFromMenuItems(accounts []models.Account, scope string) {
 				Attributes: templ.Attributes{
 					"data-compose-account-item":     "",
 					"data-compose-account-scope":    scope,
-					"data-compose-account-selected": fmt.Sprintf("%t", acc.ID == composeDefaultAccountID(accounts)),
+					"data-compose-account-selected": fmt.Sprintf("%t", acc.ID == composeDefaultAccountID(accounts) && composeDefaultIdentityID(accounts) == ""),
 					"data-account-id":               acc.ID,
 					"data-account-email":            acc.Email,
-					"data-account-name":             acc.Name,
+					"data-account-name":             acc.FromName(),
+					"data-account-default-identity": composeAccountDefaultIdentityID(acc),
 					"data-on-click":                 onAction("selectComposeAccount", actionElement, scope == "pane"),
 				},
 			}) {
-				@composeFromAddressText(acc.Name, acc.Email)
+				@composeFromAddressText(acc.FromName(), acc.Email)
 				@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: "shrink-0 px-1.5 py-0 text-[10px] font-medium leading-4 opacity-80"}) {
 					{ i18n.T(ctx, "compose.from.main") }
 				}
@@ -761,7 +762,7 @@ templ composeFromMenuItems(accounts []models.Account, scope string) {
 					Attributes: templ.Attributes{
 						"data-compose-account-item":     "",
 						"data-compose-account-scope":    scope,
-						"data-compose-account-selected": "false",
+						"data-compose-account-selected": fmt.Sprintf("%t", acc.ID == composeDefaultAccountID(accounts) && identity.ID == composeDefaultIdentityID(accounts)),
 						"data-account-id":               acc.ID,
 						"data-identity-id":              identity.ID,
 						"data-identity-email":           identity.Email,
@@ -934,7 +935,7 @@ templ ComposePane(accounts []models.Account) {
 					<div id="compose-pane-form" class="flex flex-1 min-h-0 flex-col gap-3">
 						@ComposeDropChoice("compose-pane-drop-choice")
 						<input type="hidden" name="account_id" id="compose-pane-account-id" value={ composeDefaultAccountID(accounts) }/>
-						<input type="hidden" name="identity_id" id="compose-pane-identity-id" value=""/>
+						<input type="hidden" name="identity_id" id="compose-pane-identity-id" value={ composeDefaultIdentityID(accounts) }/>
 						<input type="hidden" name="draft_id" id="compose-pane-draft-id" value=""/>
 						<input type="hidden" name="compose_mode" id="compose-pane-mode" value="new"/>
 						<input type="hidden" name="in_reply_to" id="compose-pane-in-reply-to" value=""/>
@@ -945,7 +946,7 @@ templ ComposePane(accounts []models.Account) {
 							@dropdown.Dropdown() {
 								@dropdown.Trigger() {
 									<button type="button" id="compose-pane-from-trigger" class="compose-from-trigger flex items-center gap-1 text-sm text-foreground transition-colors px-1.5 py-0.5 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ring-offset-background">
-										<span id="compose-pane-from-display">{ composeDefaultName(accounts) } &lt;{ composeDefaultEmail(accounts) }&gt;</span>
+										<span id="compose-pane-from-display">{ composeDefaultFrom(accounts) }</span>
 										@icon.ChevronDown(icon.Props{Class: "size-3 text-muted-foreground"})
 									</button>
 								}

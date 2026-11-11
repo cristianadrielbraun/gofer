@@ -336,8 +336,22 @@ func composeDefaultAccountID(accounts []models.Account) string {
 	return ""
 }
 
+// composeDefaultIdentityID is the identity a new message starts from: the
+// first account's default identity, or empty for its own address.
+func composeDefaultIdentityID(accounts []models.Account) string {
+	if len(accounts) > 0 {
+		if identity, ok := accounts[0].DefaultIdentity(); ok {
+			return identity.ID
+		}
+	}
+	return ""
+}
+
 func composeDefaultEmail(accounts []models.Account) string {
 	if len(accounts) > 0 {
+		if identity, ok := accounts[0].DefaultIdentity(); ok {
+			return identity.Email
+		}
 		return accounts[0].Email
 	}
 	return ""
@@ -345,7 +359,29 @@ func composeDefaultEmail(accounts []models.Account) string {
 
 func composeDefaultName(accounts []models.Account) string {
 	if len(accounts) > 0 {
-		return accounts[0].Name
+		if identity, ok := accounts[0].DefaultIdentity(); ok {
+			return identity.Name
+		}
+		return accounts[0].FromName()
+	}
+	return ""
+}
+
+// composeDefaultFrom is how the From field first reads: "Name <address>", or
+// the address alone when it sends under no name.
+func composeDefaultFrom(accounts []models.Account) string {
+	email := composeDefaultEmail(accounts)
+	if name := composeDefaultName(accounts); name != "" {
+		return name + " <" + email + ">"
+	}
+	return email
+}
+
+// composeAccountDefaultIdentityID is the identity new messages of acc start
+// from, or empty for its own address.
+func composeAccountDefaultIdentityID(acc models.Account) string {
+	if identity, ok := acc.DefaultIdentity(); ok {
+		return identity.ID
 	}
 	return ""
 }

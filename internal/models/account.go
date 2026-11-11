@@ -53,16 +53,19 @@ type EditAccountData struct {
 	ProviderAccountID string
 	EmailAddress      string
 	DisplayName       string
-	IMAPHost          string
-	IMAPPort          int
-	IMAPTLSMode       string
-	SMTPHost          string
-	SMTPPort          int
-	SMTPTLSMode       string
-	Username          string
-	AuthMethod        string
-	SmtpUsername      string
-	JMAPSessionURL    string
+	// SenderName is the name the account's own address sends under, empty
+	// for DisplayName.
+	SenderName     string
+	IMAPHost       string
+	IMAPPort       int
+	IMAPTLSMode    string
+	SMTPHost       string
+	SMTPPort       int
+	SMTPTLSMode    string
+	Username       string
+	AuthMethod     string
+	SmtpUsername   string
+	JMAPSessionURL string
 	// ProxyID is the account's proxy choice: "" for the default, "direct",
 	// or a saved proxy's id.
 	ProxyID          string
@@ -318,6 +321,9 @@ type AccountIdentitiesData struct {
 	SMTPTest *ConnectionTestResult
 	// Adding shows the form for a new identity in place of the list.
 	Adding bool
+	// EditingSender shows the form for the account's sender name in place
+	// of the list.
+	EditingSender bool
 }
 
 type AccountSignatureData struct {

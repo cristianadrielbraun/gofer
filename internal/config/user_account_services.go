@@ -39,11 +39,21 @@ func (s *AccountServiceSnapshot) AccountID() string { return s.id }
 type AccountServiceIdentity struct {
 	Provider, ProviderAccountID, EmailAddress, DisplayName, Username, AuthMethod, IMAPHost, SMTPHost string
 	JMAPSessionURL                                                                                   string
+	// SenderName is the name the address sends under, empty for DisplayName.
+	SenderName string
+}
+
+// FromName is the name the account's address sends under.
+func (i AccountServiceIdentity) FromName() string {
+	if name := strings.TrimSpace(i.SenderName); name != "" {
+		return name
+	}
+	return i.DisplayName
 }
 
 func (s *AccountServiceSnapshot) Identity() AccountServiceIdentity {
 	d := s.data
-	return AccountServiceIdentity{d.Provider, d.ProviderAccountID, d.EmailAddress, d.DisplayName, d.Username, d.AuthMethod, d.IMAPHost, d.SMTPHost, d.JMAPSessionURL}
+	return AccountServiceIdentity{d.Provider, d.ProviderAccountID, d.EmailAddress, d.DisplayName, d.Username, d.AuthMethod, d.IMAPHost, d.SMTPHost, d.JMAPSessionURL, d.SenderName}
 }
 
 // SMTP readiness is copied with the Calendar authority so DAV email preflight
@@ -260,13 +270,13 @@ func (s *UserAccountStore) serviceSnapshot(ctx context.Context, tx *sql.Tx, owne
 	data := &snapshot.data
 	data.AccountID = id
 	var emailEnabled int
-	err := tx.QueryRowContext(ctx, `SELECT a.provider,a.provider_account_id,a.email_address,a.display_name,
+	err := tx.QueryRowContext(ctx, `SELECT a.provider,a.provider_account_id,a.email_address,a.display_name,a.sender_name,
  a.username,a.auth_method,a.imap_host,a.smtp_host,a.smtp_port,a.encrypted_password,COALESCE(a.email_sync_enabled,1),
  a.smtp_tls_mode,COALESCE(a.smtp_username,''),a.encrypted_smtp_password,COALESCE(a.jmap_session_url,''),a.proxy_id
  FROM accounts a JOIN users u ON u.id=a.user_id
  WHERE a.id=? AND a.user_id=? AND COALESCE(a.is_deleting,0)=0
  AND u.status='active' AND u.deletion_pending=0`, id, owner).Scan(
-		&data.Provider, &data.ProviderAccountID, &data.EmailAddress, &data.DisplayName,
+		&data.Provider, &data.ProviderAccountID, &data.EmailAddress, &data.DisplayName, &data.SenderName,
 		&data.Username, &data.AuthMethod, &data.IMAPHost, &data.SMTPHost, &data.SMTPPort, &snapshot.password, &emailEnabled,
 		&data.SMTPTLSMode, &data.SmtpUsername, &snapshot.smtpPassword, &data.JMAPSessionURL, &data.ProxyID)
 	if errors.Is(err, sql.ErrNoRows) {

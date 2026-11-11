@@ -131,7 +131,7 @@ func InspectUserStorageMigration(ctx context.Context, sourcePath string) (UserSt
 }
 
 func migrationSharedVersionSupported(version int) bool {
-	return version >= 105 && version <= 143
+	return version >= 105 && version <= 144
 }
 
 // These recognized shared schemas differ only in the explicitly handled push
@@ -420,11 +420,11 @@ func migrationSourceColumns(ctx context.Context, tx *sql.Tx, table *UserStorageM
 	} else if table.Name == "calendar_events" && version < 112 {
 		missing = []string{"event_type"}
 	} else if table.Name == "accounts" && version < 114 {
-		missing = []string{"jmap_session_url", "provider_push_enabled", "sort_order", "hidden", "proxy_id"}
+		missing = []string{"jmap_session_url", "provider_push_enabled", "sort_order", "hidden", "proxy_id", "sender_name", "default_identity_id"}
 	} else if table.Name == "accounts" && version < 122 {
-		missing = []string{"provider_push_enabled", "sort_order", "hidden", "proxy_id"}
+		missing = []string{"provider_push_enabled", "sort_order", "hidden", "proxy_id", "sender_name", "default_identity_id"}
 	} else if table.Name == "accounts" && version < 124 {
-		missing = []string{"sort_order", "hidden", "proxy_id"}
+		missing = []string{"sort_order", "hidden", "proxy_id", "sender_name", "default_identity_id"}
 	} else if table.Name == "message_folder_state" && version < 118 {
 		missing = []string{"remote_message_id", "message_date", "message_has_attachments", "deleted_at"}
 	} else if table.Name == "message_folder_state" && version < 125 {
@@ -446,9 +446,11 @@ func migrationSourceColumns(ctx context.Context, tx *sql.Tx, table *UserStorageM
 	} else if table.Name == "calendar_sources" && version < 136 {
 		missing = []string{"refresh_minutes"}
 	} else if table.Name == "accounts" && version < 134 {
-		missing = []string{"hidden", "proxy_id"}
+		missing = []string{"hidden", "proxy_id", "sender_name", "default_identity_id"}
 	} else if table.Name == "accounts" && version < 141 {
-		missing = []string{"proxy_id"}
+		missing = []string{"proxy_id", "sender_name", "default_identity_id"}
+	} else if table.Name == "accounts" && version < 144 {
+		missing = []string{"sender_name", "default_identity_id"}
 	} else if table.Name == "outbound_proxies" && version < 142 {
 		missing = []string{"owner_user_id", "everyone"}
 	} else if table.Name == "mail_rules" && version < 135 {

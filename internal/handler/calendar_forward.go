@@ -150,7 +150,7 @@ func (h *Handler) emailCalendarForward(ctx context.Context, source storage.Calen
 	if err != nil {
 		return err
 	}
-	msg := calendarForwardMessage(i18n.ForUser(ctx, source.UserID), account.Name, account.Email, summary, comment, body, recipients)
+	msg := calendarForwardMessage(i18n.ForUser(ctx, source.UserID), account.FromName(), account.Email, summary, comment, body, recipients)
 	raw, err := buildOutgoingMIME(transport, msg)
 	if err != nil {
 		return err
