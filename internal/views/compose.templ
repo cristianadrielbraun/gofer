@@ -247,6 +247,9 @@ templ ComposeToolbar() {
 			@composeToolButton(i18n.T(ctx, "compose.format.bullets"), icon.List(icon.Props{Class: "size-3.5"}), templ.Attributes{"data-compose-command": "insertUnorderedList", "data-on-click": `["composeExec","$this","insertUnorderedList"]`})
 			@composeToolButton(i18n.T(ctx, "compose.format.numbers"), icon.ListOrdered(icon.Props{Class: "size-3.5"}), templ.Attributes{"data-compose-command": "insertOrderedList", "data-on-click": `["composeExec","$this","insertOrderedList"]`})
 		</div>
+		@composeFoldPart("11", true) {
+			@composeTableMenu()
+		}
 		@composeFoldPart("4", true) {
 			@composeToolButton(i18n.T(ctx, "compose.format.outdent"), icon.ListIndentDecrease(icon.Props{Class: "size-3.5"}), templ.Attributes{"data-on-click": `["composeExec","$this","outdent"]`})
 			@composeToolButton(i18n.T(ctx, "compose.format.indent"), icon.ListIndentIncrease(icon.Props{Class: "size-3.5"}), templ.Attributes{"data-on-click": `["composeExec","$this","indent"]`})
@@ -324,7 +327,9 @@ templ composeTooltipContent(label string) {
 // CSS hides the tooltip while the menu is open.
 templ composeMenuTooltip(label string) {
 	@tooltip.Tooltip(tooltip.Props{Class: "compose-menu-tooltip"}) {
-		@tooltip.Trigger() {
+		// A box of its own, not "contents": the menu inside has no box
+		// either, so the tooltip would have nothing to point at.
+		@tooltip.Trigger(tooltip.TriggerProps{Class: "flex shrink-0"}) {
 			{ children... }
 		}
 		@composeTooltipContent(label)
@@ -456,7 +461,7 @@ templ composeColorMenu(command, label, noneLabel string, colors []composeColor) 
 // composeColorGrid is the swatches of a color menu; the first takes the
 // color off.
 templ composeColorGrid(command, noneLabel string, colors []composeColor) {
-	<div class="grid grid-cols-5 gap-1">
+	<div class="grid grid-cols-5 gap-1" data-compose-color-grid>
 		@dropdown.Item(dropdown.ItemProps{Class: "size-8 p-0 justify-center", Attributes: templ.Attributes{"aria-label": noneLabel, "title": noneLabel, "data-on-click": `["composeSetColor","$this","` + command + `",""]`}}) {
 			@icon.Ban(icon.Props{Class: "size-4 text-muted-foreground"})
 		}
@@ -465,6 +470,35 @@ templ composeColorGrid(command, noneLabel string, colors []composeColor) {
 				<span class="size-5 rounded-sm border border-border" style={ "background-color: " + c.Value }></span>
 			}
 		}
+	</div>
+}
+
+// composeTableMenu inserts a table of the size picked in its grid.
+templ composeTableMenu() {
+	@composeMenuTooltip(i18n.T(ctx, "compose.format.table")) {
+		@dropdown.Dropdown() {
+			@dropdown.Trigger() {
+				@composeMenuButton(i18n.T(ctx, "compose.format.table"), icon.Table(icon.Props{Class: "size-3.5"}), nil)
+			}
+			@dropdown.Content(dropdown.ContentProps{Class: "min-w-0 normal-case tracking-normal"}) {
+				@composeTableGrid()
+			}
+		}
+	}
+}
+
+// composeTableGrid picks a new table's size: pointing at a square marks
+// the rows and columns up to it, and app.js names the size below.
+templ composeTableGrid() {
+	<div class="p-1" data-compose-table-grid>
+		<div class="grid grid-cols-8 w-max overflow-hidden rounded-md border border-border [&>*:nth-child(8n)]:border-r-0 [&>*:nth-child(n+57)]:border-b-0">
+			for r := 1; r <= 8; r++ {
+				for c := 1; c <= 8; c++ {
+					@dropdown.Item(dropdown.ItemProps{Class: "size-5 p-0 rounded-none border-r border-b border-border", Attributes: templ.Attributes{"data-compose-table-cell": fmt.Sprintf("%d,%d", r, c), "aria-label": fmt.Sprintf("%d × %d", r, c), "data-on-click": fmt.Sprintf(`["composeInsertTable","$this",%d,%d]`, r, c)}})
+				}
+			}
+		</div>
+		<p class="pt-1 text-center text-xs text-muted-foreground" data-compose-table-size data-compose-table-name={ i18n.T(ctx, "compose.format.table") }>{ i18n.T(ctx, "compose.format.table") }</p>
 	</div>
 }
 
@@ -508,6 +542,19 @@ templ composeOverflowMenu() {
 					}
 					@composeOverflowSection("3", true) {
 						@composeMenuItem(i18n.T(ctx, "compose.format.clear"), icon.RemoveFormatting(icon.Props{Class: "size-4"}), templ.Attributes{"data-on-click": `["composeExec","$this","removeFormat"]`})
+					}
+					@composeOverflowSection("11", true) {
+						@dropdown.Sub() {
+							@dropdown.SubTrigger() {
+								<span class="flex items-center gap-2">
+									@icon.Table(icon.Props{Class: "size-4"})
+									{ i18n.T(ctx, "compose.format.table") }
+								</span>
+							}
+							@dropdown.SubContent(dropdown.SubContentProps{Class: "min-w-0 normal-case tracking-normal"}) {
+								@composeTableGrid()
+							}
+						}
 					}
 					@composeOverflowSection("4", true) {
 						@composeMenuItem(i18n.T(ctx, "compose.format.outdent"), icon.ListIndentDecrease(icon.Props{Class: "size-4"}), templ.Attributes{"data-on-click": `["composeExec","$this","outdent"]`})

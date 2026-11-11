@@ -37,6 +37,7 @@
     "composeChanged",
     "composeCreateLink",
     "composeExec",
+    "composeInsertTable",
     "composeSetColor",
     "composeSetTextSize",
     "configureCalendarCacheRequest",

@@ -963,6 +963,25 @@
   box-shadow: var(--shadow-raised);
 }
 
+/* A narrow window wraps a floating bar's buttons rather than cut them off. */
+.compose-float-toolbar {
+  flex-wrap: wrap;
+  max-width: calc(100vw - 1rem);
+}
+
+/* The squares of the table and color grids sit in rows, without the gap
+   menus put between items (that rule is in the menus' section, so this one
+   needs to be the stronger). */
+[data-tui-popover-content] :is([data-compose-table-grid], [data-compose-color-grid]) [data-tui-dropdown-item]:not(:first-child) {
+  margin-top: 0;
+}
+
+/* The table size grid marks the size pointed at. */
+[data-compose-table-cell][data-active] {
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 35%, transparent);
+}
+
 /* A link's address in its floating bar. */
 .compose-link-address {
   max-width: 16rem;

@@ -18835,6 +18835,7 @@ function resetComposeForm(fromPane, skipCleanup) {
   var editor = form.querySelector("[data-compose-editor]")
   if (editor) editor.innerHTML = ""
   hideComposeLinkToolbar()
+  hideComposeTableToolbar()
   syncComposeInlineImageInputs(form)
   syncComposeRemoteImagesNotice(form)
   var recipientFields = form.querySelectorAll("[data-compose-recipient-field]")
@@ -20198,7 +20199,7 @@ function toggleComposeFormat(el) {
 // as the mail list's toolbar and the contact header do: undo first, then
 // quote and code, and so on (the ranks in ComposeToolbar). Bold to lists,
 // attach and the format switch stay.
-var COMPOSE_OVERFLOW_RANKS = 10
+var COMPOSE_OVERFLOW_RANKS = 11
 var composeToolbarObserver = null
 
 function composeToolbarFoldStates(toolbar, step) {
@@ -20290,6 +20291,7 @@ function _setComposeEditorValue(form, plain, html, inlineImages) {
   var plainField = form.querySelector('textarea[name="body"]')
   var htmlField = form.querySelector('textarea[name="html_body"]')
   hideComposeLinkToolbar()
+  hideComposeTableToolbar()
   var plainMode = composeFormat(form) === "plain"
   if (plainMode && !plain && html) plain = _composeHTMLText(html)
   if (plainField) plainField.value = plain || ""
@@ -20580,6 +20582,12 @@ document.addEventListener("keydown", function (event) {
       composeExec(editor, event.shiftKey ? "outdent" : "indent")
       return
     }
+    var tabCell = _composeCellAtSelection(editor)
+    if (tabCell) {
+      event.preventDefault()
+      _composeTableTab(editor, tabCell, event.shiftKey)
+      return
+    }
   }
   if (!editor || (!event.ctrlKey && !event.metaKey)) return
   var key = event.key.toLowerCase()
@@ -20624,7 +20632,10 @@ document.addEventListener("click", function (event) {
   }
   if (event.target.closest(".compose-float-toolbar")) return
   hideComposeInlineImageToolbar()
-  if (!event.target.closest("[data-compose-editor]")) hideComposeLinkToolbar()
+  if (!event.target.closest("[data-compose-editor]")) {
+    hideComposeLinkToolbar()
+    hideComposeTableToolbar()
+  }
 })
 
 window.addEventListener("resize", positionComposeInlineImageToolbar)
@@ -21707,6 +21718,280 @@ function applyComposeLinkAction(action) {
 document.addEventListener("selectionchange", syncComposeLinkToolbar)
 window.addEventListener("resize", positionComposeLinkToolbar)
 window.addEventListener("scroll", positionComposeLinkToolbar, true)
+
+// Tables. A new one's cells carry their border and padding inline, so the
+// recipient sees them too. With the caret in a cell, a floating bar like a
+// link's adds and deletes rows and columns.
+var COMPOSE_TABLE_CELL_STYLE = "border: 1px solid #d1d5db; padding: 4px 8px; min-width: 3em; vertical-align: top;"
+var _composeTableToolbar = null
+var _selectedComposeCell = null
+
+function _placeComposeCaret(editor, node) {
+  var selection = window.getSelection && window.getSelection()
+  if (!selection || !node) return
+  var range = document.createRange()
+  range.selectNodeContents(node)
+  range.collapse(true)
+  selection.removeAllRanges()
+  selection.addRange(range)
+  _saveComposeSelection(editor)
+}
+
+function composeInsertTable(el, rows, cols) {
+  var editor = _composeEditorFrom(el)
+  if (!editor) return
+  editor.focus()
+  _restoreComposeSelection(editor)
+  var cell = '<td style="' + COMPOSE_TABLE_CELL_STYLE + '"><br></td>'
+  var row = "<tr>" + new Array(cols + 1).join(cell) + "</tr>"
+  // A line after the table, to go on writing below it.
+  document.execCommand("insertHTML", false, '<table data-compose-new-table style="border-collapse: collapse;"><tbody>' + new Array(rows + 1).join(row) + "</tbody></table><div><br></div>")
+  var table = editor.querySelector("table[data-compose-new-table]")
+  if (table) {
+    table.removeAttribute("data-compose-new-table")
+    _placeComposeCaret(editor, table.rows[0] && table.rows[0].cells[0])
+  }
+  syncComposeEditor(editor)
+  _markComposeDirty(_composeFormFrom(editor))
+  updateComposeToolbar(editor)
+}
+
+// A toolbar menu sits inside its tooltip's trigger, and popover.js only
+// answers the trigger nearest the pointer, the menu's, so the menus'
+// tooltips (compose.templ composeMenuTooltip) are opened here.
+var composeMenuTooltipTimer = null
+var composeMenuTooltipCount = 0
+
+function _composeMenuTooltipAt(target, related) {
+  var trigger = target && target.closest ? target.closest("[data-tui-popover-trigger]") : null
+  var tip = trigger && trigger.closest(".compose-menu-tooltip")
+  // The menu's own items are inside the tooltip too, but aren't its button.
+  if (!tip || trigger.parentElement.closest("[data-tui-popover-content]") !== tip.parentElement.closest("[data-tui-popover-content]")) return null
+  if (trigger.closest(".compose-menu-tooltip") !== tip || (related && trigger.contains(related))) return null
+  if (!tip.id) tip.id = "compose-menu-tooltip-" + (++composeMenuTooltipCount)
+  return tip
+}
+
+document.addEventListener("pointerover", function (event) {
+  if (event.pointerType !== "mouse" || !window.tui || !window.tui.popover) return
+  var tip = _composeMenuTooltipAt(event.target, event.relatedTarget)
+  if (!tip) return
+  clearTimeout(composeMenuTooltipTimer)
+  composeMenuTooltipTimer = setTimeout(function () { window.tui.popover.open(tip.id) }, 100)
+})
+
+document.addEventListener("pointerout", function (event) {
+  if (event.pointerType !== "mouse" || !window.tui || !window.tui.popover) return
+  var tip = _composeMenuTooltipAt(event.target, event.relatedTarget)
+  if (!tip) return
+  clearTimeout(composeMenuTooltipTimer)
+  window.tui.popover.close(tip.id)
+})
+
+// Opening the menu puts its tooltip away.
+document.addEventListener("pointerdown", function (event) {
+  var tip = _composeMenuTooltipAt(event.target, null)
+  if (!tip || !window.tui || !window.tui.popover) return
+  clearTimeout(composeMenuTooltipTimer)
+  window.tui.popover.close(tip.id)
+}, true)
+
+// The size grid marks the rows and columns up to the square pointed at.
+function _markComposeTableGrid(square) {
+  var grid = square && square.closest("[data-compose-table-grid]")
+  if (!grid) return
+  var size = square.dataset.composeTableCell.split(",")
+  var rows = Number(size[0])
+  var cols = Number(size[1])
+  grid.querySelectorAll("[data-compose-table-cell]").forEach(function (cell) {
+    var at = cell.dataset.composeTableCell.split(",")
+    cell.toggleAttribute("data-active", Number(at[0]) <= rows && Number(at[1]) <= cols)
+  })
+  var label = grid.querySelector("[data-compose-table-size]")
+  if (label) label.textContent = goferT("js.compose.table.size", { rows: rows, cols: cols })
+}
+
+;["mouseover", "focusin"].forEach(function (type) {
+  document.addEventListener(type, function (event) {
+    var square = event.target && event.target.closest ? event.target.closest("[data-compose-table-cell]") : null
+    if (square) _markComposeTableGrid(square)
+  })
+})
+
+// Leaving the grid clears the marks and puts its name back.
+function _clearComposeTableGrid(grid) {
+  grid.querySelectorAll("[data-compose-table-cell][data-active]").forEach(function (cell) {
+    cell.removeAttribute("data-active")
+  })
+  var label = grid.querySelector("[data-compose-table-size]")
+  if (label && label.dataset.composeTableName) label.textContent = label.dataset.composeTableName
+}
+
+;["mouseout", "focusout"].forEach(function (type) {
+  document.addEventListener(type, function (event) {
+    var grid = event.target && event.target.closest ? event.target.closest("[data-compose-table-grid]") : null
+    if (grid && !grid.contains(event.relatedTarget)) _clearComposeTableGrid(grid)
+  })
+})
+
+function _composeCellAtSelection(editor) {
+  var selection = window.getSelection && window.getSelection()
+  var node = selection && selection.rangeCount ? selection.anchorNode : null
+  var el = node && (node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement)
+  var cell = el && el.closest ? el.closest("td, th") : null
+  return cell && editor && editor.contains(cell) ? cell : null
+}
+
+function _ensureComposeTableToolbar() {
+  if (_composeTableToolbar) return _composeTableToolbar
+  var toolbar = document.createElement("div")
+  toolbar.className = "compose-float-toolbar hidden"
+  toolbar.setAttribute("contenteditable", "false")
+  toolbar.setAttribute("popover", "manual")
+  toolbar.appendChild(_composeFloatToolbarButton("row-above", goferT("js.compose.table.row_above"), "M5 3h14M18 13l-6-6-6 6M12 7v14"))
+  toolbar.appendChild(_composeFloatToolbarButton("row-below", goferT("js.compose.table.row_below"), "M12 17V3M6 11l6 6 6-6M19 21H5"))
+  toolbar.appendChild(_composeFloatToolbarButton("col-left", goferT("js.compose.table.col_left"), "M3 19V5M13 6l-6 6 6 6M7 12h14"))
+  toolbar.appendChild(_composeFloatToolbarButton("col-right", goferT("js.compose.table.col_right"), "M17 12H3M11 18l6-6-6-6M21 5v14"))
+  toolbar.appendChild(_composeFloatToolbarButton("delete-row", goferT("js.compose.table.delete_row"), "M5 12h14"))
+  toolbar.appendChild(_composeFloatToolbarButton("delete-col", goferT("js.compose.table.delete_col"), "M12 5v14"))
+  toolbar.appendChild(_composeFloatToolbarButton("delete", goferT("js.compose.table.delete"), "M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"))
+  toolbar.addEventListener("mousedown", function (event) { event.preventDefault() })
+  toolbar.addEventListener("click", function (event) {
+    var button = event.target && event.target.closest ? event.target.closest("[data-compose-inline-action]") : null
+    if (!button) return
+    event.preventDefault()
+    applyComposeTableAction(button.dataset.composeInlineAction)
+  })
+  _composeTableToolbar = toolbar
+  return toolbar
+}
+
+function positionComposeTableToolbar() {
+  var cell = _selectedComposeCell
+  if (!cell) return
+  if (!cell.isConnected || !cell.getClientRects().length) return hideComposeTableToolbar()
+  var toolbar = _ensureComposeTableToolbar()
+  var row = cell.parentNode.getBoundingClientRect()
+  var table = cell.closest("table").getBoundingClientRect()
+  // Above the caret's row, or below it when there is no room above.
+  var top = row.top - toolbar.offsetHeight - 6
+  if (top < 8) top = row.bottom + 6
+  toolbar.style.top = top + "px"
+  toolbar.style.left = Math.max(8, Math.min(table.left, window.innerWidth - toolbar.offsetWidth - 8)) + "px"
+}
+
+function hideComposeTableToolbar() {
+  _selectedComposeCell = null
+  _hideComposeFloatToolbar(_composeTableToolbar)
+}
+
+function syncComposeTableToolbar() {
+  var selection = window.getSelection && window.getSelection()
+  var node = selection && selection.rangeCount ? selection.anchorNode : null
+  var el = node && (node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement)
+  var editor = el && el.closest ? el.closest("[data-compose-editor]") : null
+  var plain = !editor || composeFormat(_composeFormFrom(editor)) === "plain"
+  // On a link in a cell, the link's bar shows instead.
+  var cell = !plain && !_composeLinkAtSelection(editor) ? _composeCellAtSelection(editor) : null
+  if (!cell) {
+    if (_selectedComposeCell) hideComposeTableToolbar()
+    return
+  }
+  if (cell !== _selectedComposeCell) {
+    _selectedComposeCell = cell
+    _showComposeFloatToolbar(_ensureComposeTableToolbar(), cell)
+  }
+  positionComposeTableToolbar()
+}
+
+function _composeNewCellLike(cell) {
+  var fresh = document.createElement(cell.tagName === "TH" ? "th" : "td")
+  var style = cell.getAttribute("style")
+  if (style) fresh.setAttribute("style", style)
+  fresh.innerHTML = "<br>"
+  return fresh
+}
+
+function _composeNewRowLike(row) {
+  var fresh = document.createElement("tr")
+  Array.prototype.forEach.call(row.cells, function (cell) { fresh.appendChild(_composeNewCellLike(cell)) })
+  return fresh
+}
+
+function _composeAddRowBelow(row) {
+  var fresh = _composeNewRowLike(row)
+  row.parentNode.insertBefore(fresh, row.nextSibling)
+  return fresh
+}
+
+function applyComposeTableAction(action) {
+  var cell = _selectedComposeCell
+  if (!cell || !cell.isConnected) return hideComposeTableToolbar()
+  var editor = cell.closest("[data-compose-editor]")
+  var row = cell.parentNode
+  var table = cell.closest("table")
+  var index = cell.cellIndex
+  var target = cell
+  if (action === "delete-row" && table.rows.length <= 1) action = "delete"
+  if (action === "delete-col" && row.cells.length <= 1) action = "delete"
+  if (action === "row-above" || action === "row-below") {
+    var fresh = action === "row-above" ? _composeNewRowLike(row) : _composeAddRowBelow(row)
+    if (action === "row-above") row.parentNode.insertBefore(fresh, row)
+    target = fresh.cells[Math.min(index, fresh.cells.length - 1)]
+  } else if (action === "col-left" || action === "col-right") {
+    Array.prototype.forEach.call(table.rows, function (tr) {
+      var ref = tr.cells[Math.min(index, tr.cells.length - 1)]
+      if (!ref) return
+      var added = _composeNewCellLike(ref)
+      tr.insertBefore(added, action === "col-left" ? ref : ref.nextSibling)
+      if (tr === row) target = added
+    })
+  } else if (action === "delete-row") {
+    var rowIndex = row.rowIndex
+    row.remove()
+    var next = table.rows[Math.min(rowIndex, table.rows.length - 1)]
+    target = next.cells[Math.min(index, next.cells.length - 1)]
+  } else if (action === "delete-col") {
+    Array.prototype.forEach.call(table.rows, function (tr) {
+      if (tr.cells[index]) tr.cells[index].remove()
+    })
+    target = row.cells[Math.min(index, row.cells.length - 1)]
+  }
+  if (action === "delete") {
+    var after = table.nextElementSibling
+    table.remove()
+    hideComposeTableToolbar()
+    editor.focus()
+    if (after) _placeComposeCaret(editor, after)
+  } else {
+    editor.focus()
+    _placeComposeCaret(editor, target)
+  }
+  syncComposeEditor(editor)
+  _markComposeDirty(_composeFormFrom(editor))
+  syncComposeTableToolbar()
+}
+
+// Tab moves to the next cell and Shift+Tab to the one before; Tab in the
+// last cell adds a row.
+function _composeTableTab(editor, cell, back) {
+  var table = cell.closest("table")
+  var cells = []
+  Array.prototype.forEach.call(table.rows, function (tr) {
+    Array.prototype.forEach.call(tr.cells, function (c) { cells.push(c) })
+  })
+  var at = cells.indexOf(cell)
+  var next = cells[at + (back ? -1 : 1)]
+  if (!next && !back) next = _composeAddRowBelow(cell.parentNode).cells[0]
+  if (!next) return
+  _placeComposeCaret(editor, next)
+  syncComposeEditor(editor)
+  _markComposeDirty(_composeFormFrom(editor))
+}
+
+document.addEventListener("selectionchange", syncComposeTableToolbar)
+window.addEventListener("resize", positionComposeTableToolbar)
+window.addEventListener("scroll", positionComposeTableToolbar, true)
 
 function composeAttachmentKind(att) {
   var filename = (att && att.filename ? att.filename : "").toLowerCase()
