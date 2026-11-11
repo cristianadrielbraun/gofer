@@ -31,6 +31,10 @@ type Theme struct {
 	Seed string `json:"seed"`
 	// Secondary is empty to follow Seed.
 	Secondary string `json:"secondary,omitempty"`
+	// Logo is the color of the Gofer logo: empty to follow the primary color
+	// as the sidebar shows it, "secondary" to follow the secondary color the
+	// same way, or a color.
+	Logo string `json:"logo,omitempty"`
 	// Tint is "primary", "secondary" or "none".
 	Tint string `json:"tint"`
 	// Strength is "subtle", "strong" or "strongest".
@@ -84,6 +88,10 @@ func Parse(raw string) (Theme, bool) {
 	}
 	t.Secondary = strings.ToLower(strings.TrimSpace(t.Secondary))
 	if _, ok := parseHex(t.Secondary); t.Secondary != "" && !ok {
+		return Theme{}, false
+	}
+	t.Logo = strings.ToLower(strings.TrimSpace(t.Logo))
+	if _, ok := parseHex(t.Logo); t.Logo != "" && t.Logo != LogoSecondary && !ok {
 		return Theme{}, false
 	}
 	// Themes saved before the tint existed took a subtle one from the
@@ -185,10 +193,13 @@ func (t Theme) CSS() string {
 	return b.String()
 }
 
+// LogoSecondary is the Logo that follows the secondary color.
+const LogoSecondary = "secondary"
+
 // palette is the theme's palette for both modes; the theme itself uses only
 // its own.
 func (t Theme) palette() (Palette, bool) {
-	return Generate(Options{Seed: t.Seed, Secondary: t.Secondary, Tint: t.Tint, Strength: t.Strength, Contrast: t.Contrast, Sidebar: t.Sidebar})
+	return Generate(Options{Seed: t.Seed, Secondary: t.Secondary, Tint: t.Tint, Strength: t.Strength, Contrast: t.Contrast, Sidebar: t.Sidebar, Logo: t.Logo})
 }
 
 // colors is the palette for the theme's mode.

@@ -62,6 +62,9 @@ var secondarySuggestions = []secondarySuggestion{
 
 // secondarySuggestionName names a secondary color suggestion in the page's
 // language.
+// goferLogoCopper is the logo's own color, the fill in assets/logo.svg.
+const goferLogoCopper = "#c2702f"
+
 func secondarySuggestionName(ctx context.Context, name string) string {
 	return i18n.T(ctx, "settings.theme.suggestion."+strings.ReplaceAll(strings.ToLower(name), " ", "_"))
 }

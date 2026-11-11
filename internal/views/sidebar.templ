@@ -480,7 +480,7 @@ templ SettingsSidebar(activeTab string, width string) {
 	<aside class="app-drawer flex flex-col surface-leather text-sidebar-foreground h-full overflow-hidden" style={ "width:" + width }>
 		<div class="px-4 pt-5 pb-4">
 			<div class="flex items-center gap-2.5 mb-5">
-				<img src={ assetver.URL("/assets/logo.svg") } alt="Gofer" class="h-8 w-8 shrink-0"/>
+				@GoferLogo("h-8 w-8 shrink-0", "Gofer")
 				<span class="text-lg font-bold tracking-tight text-sidebar-accent-foreground" style="font-family: var(--font-serif)">{ i18n.T(ctx, "settings.section.default.title") }</span>
 			</div>
 			<a href="/" class="flex items-center justify-center gap-2 w-full h-10 rounded-lg border border-sidebar-border bg-sidebar-accent/35 text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-colors font-semibold text-sm">
@@ -565,11 +565,22 @@ templ SettingsSidebarItemIcon(value string) {
 	}
 }
 
+// GoferLogo is the logo, drawn in --gofer-logo so a Custom theme can color it
+// (see .gofer-logo in input.css). An empty label leaves it to the text next
+// to it.
+templ GoferLogo(class string, label string) {
+	if label == "" {
+		<span class={ "gofer-logo", class } aria-hidden="true"></span>
+	} else {
+		<span class={ "gofer-logo", class } role="img" aria-label={ label }></span>
+	}
+}
+
 templ SidebarHeader(accounts []models.Account, activeApp string) {
 	<div class="px-4 pt-5 pb-4">
 		<div class="flex items-center justify-between mb-5">
 			<div class="flex items-center gap-2.5">
-				<img src={ assetver.URL("/assets/logo.svg") } alt="Gofer" class="h-8 w-8 shrink-0"/>
+				@GoferLogo("h-8 w-8 shrink-0", "Gofer")
 				<span class="text-lg font-bold tracking-tight text-sidebar-accent-foreground" style="font-family: var(--font-serif)">Gofer</span>
 			</div>
 			<div id="sidebar-sync-controls">
@@ -1341,7 +1352,7 @@ templ MobileTopBar() {
 			@icon.Menu(icon.Props{Class: "size-5"})
 		</button>
 		<a href="/" class="mobile-topbar-brand flex min-w-0 items-center gap-2">
-			<img src={ assetver.URL("/assets/logo.svg") } alt="" class="h-7 w-7 shrink-0"/>
+			@GoferLogo("h-7 w-7 shrink-0", "")
 			<span class="truncate text-base font-bold tracking-tight text-sidebar-accent-foreground" style="font-family: var(--font-serif)">Gofer</span>
 		</a>
 		<div class="mobile-topbar-title hidden min-w-0 items-baseline gap-2" data-mobile-topbar-title>

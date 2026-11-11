@@ -2857,6 +2857,14 @@ templ CustomThemeDialog() {
 						@customThemeSecondarySwatches()
 						<p class="text-xs text-muted-foreground">{ i18n.T(ctx, "settings.theme.secondary_hint") }</p>
 					</fieldset>
+					<fieldset class="space-y-2">
+						<legend class="mb-2 flex w-full items-center gap-2 text-sm font-semibold text-foreground">
+							{ i18n.T(ctx, "settings.theme.logo") }
+							<span class="ml-auto font-mono text-xs font-normal text-muted-foreground" data-custom-theme-logo-value></span>
+						</legend>
+						@customThemeLogoSwatches()
+						<p class="text-xs text-muted-foreground">{ i18n.T(ctx, "settings.theme.logo_hint") }</p>
+					</fieldset>
 					<div class="space-y-3">
 						@customThemeChoice(i18n.T(ctx, "settings.theme.tint"), i18n.T(ctx, "settings.theme.tint_info"), "tint", []customThemeOption{{"primary", i18n.T(ctx, "settings.theme.tint.primary")}, {"secondary", i18n.T(ctx, "settings.theme.tint.secondary")}, {"none", i18n.T(ctx, "settings.theme.tint.none")}})
 						@customThemeSubChoice(i18n.T(ctx, "settings.theme.strength"), "strength", []customThemeOption{{"subtle", i18n.T(ctx, "settings.theme.strength.subtle")}, {"strong", i18n.T(ctx, "settings.theme.strength.strong")}, {"strongest", i18n.T(ctx, "settings.theme.strength.strongest")}})
@@ -2939,6 +2947,39 @@ templ customThemeSecondarySwatches() {
 	</div>
 }
 
+// customThemeLogoSwatches are the logo's colors: the first two follow the
+// primary and secondary colors, which settings-page.js paints them, then the
+// logo's own copper, then the color picker tile.
+templ customThemeLogoSwatches() {
+	<div class="flex flex-wrap gap-2">
+		@customThemeLogoSwatch("", i18n.T(ctx, "settings.theme.suggestion.same_as_primary"))
+		@customThemeLogoSwatch(themebuilder.LogoSecondary, i18n.T(ctx, "settings.theme.logo.same_as_secondary"))
+		@customThemeLogoSwatch(goferLogoCopper, i18n.T(ctx, "settings.theme.logo.copper"))
+		@customThemePickerTile("data-custom-theme-logo")
+	</div>
+}
+
+templ customThemeLogoSwatch(color string, name string) {
+	@tooltip.Tooltip() {
+		@tooltip.Trigger() {
+			<button
+				type="button"
+				class="account-color-swatch size-7 rounded-full transition-transform hover:scale-110 focus-visible:outline-none"
+				if strings.HasPrefix(color, "#") {
+					style={ accountColorStyle(color) }
+				}
+				data-custom-theme-logo-option={ color }
+				data-account-color-active="false"
+				aria-label={ name }
+				aria-pressed="false"
+			></button>
+		}
+		@tooltip.Content(tooltip.ContentProps{Position: tooltip.PositionTop, ShowArrow: true}) {
+			{ name }
+		}
+	}
+}
+
 // customThemePickerTile opens a color picker, marked with pickerAttribute.
 templ customThemePickerTile(pickerAttribute string) {
 	<label class="account-color-swatch custom-theme-picker-tile relative flex size-7 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-transform hover:scale-110" data-account-color-active="false" data-custom-theme-picker-tile>
@@ -2983,6 +3024,10 @@ templ CustomThemePreview() {
 templ customThemePreviewSidebar() {
 	<div class="flex w-max shrink-0 flex-col surface-leather text-sidebar-foreground h-full overflow-hidden">
 		<div class="px-4 pt-5 pb-4">
+			<div class="flex items-center gap-2.5 mb-5">
+				@GoferLogo("h-8 w-8 shrink-0", "")
+				<span class="text-lg font-bold tracking-tight text-sidebar-accent-foreground" style="font-family: var(--font-serif)">Gofer</span>
+			</div>
 			<div class="sidebar-app-nav relative grid h-8 w-full grid-cols-3 gap-0.5 rounded-lg border border-sidebar-border bg-sidebar-accent/35 p-0.5">
 				<div class="absolute top-0.5 bottom-0.5 left-0.5 rounded-md border border-sidebar-border bg-sidebar-accent shadow-sm" style={ sidebarAppIndicatorStyle("mail") }></div>
 				@customThemePreviewAppTab(icon.Mail(icon.Props{Class: "size-3.5"}), i18n.T(ctx, "app.mail"), true)

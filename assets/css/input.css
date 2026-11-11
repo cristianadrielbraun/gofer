@@ -8393,3 +8393,12 @@ aside [data-sidebar-account-toggle][data-mail-drop-active] {
 :is([data-folder-appearance-icon], [data-folder-icon-options])[data-folder-icon-style="filled"] [data-folder-symbol-filled] {
   display: inline-flex;
 }
+
+/* The Gofer logo, cut out of the color a Custom theme gives it (see
+   themebuilder.Theme.Logo); other themes keep the logo's own copper. */
+.gofer-logo {
+  display: inline-block;
+  background-color: var(--gofer-logo, #c2702f);
+  -webkit-mask: url("/assets/logo.svg") center / contain no-repeat;
+  mask: url("/assets/logo.svg") center / contain no-repeat;
+}

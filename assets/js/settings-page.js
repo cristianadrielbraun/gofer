@@ -658,6 +658,7 @@
         mode: theme.mode === 'dark' ? 'dark' : 'light',
         seed: theme.seed,
         secondary: theme.secondary || '',
+        logo: theme.logo || '',
         tint: theme.tint || 'primary',
         strength: theme.strength || 'subtle',
         contrast: theme.contrast || 'normal',
@@ -672,6 +673,7 @@
       mode: document.documentElement.classList.contains('dark') ? 'dark' : 'light',
       seed: '#2563eb',
       secondary: '',
+      logo: '',
       tint: 'primary',
       strength: 'subtle',
       contrast: 'normal',
@@ -822,6 +824,24 @@
     }
     var secondaryValue = root.querySelector('[data-custom-theme-secondary-value]');
     if (secondaryValue) secondaryValue.textContent = editing.secondary || goferT("js.settings.theme.same_as_primary");
+    // The logo follows the primary color when empty, or the secondary when
+    // "secondary"; their swatches show them.
+    var followsSecondary = editing.logo === 'secondary';
+    var secondaryColor = editing.secondary || editing.seed;
+    var followPrimary = root.querySelector('[data-custom-theme-logo-option=""]');
+    if (followPrimary) followPrimary.style.backgroundColor = editing.seed;
+    var followSecondary = root.querySelector('[data-custom-theme-logo-option="secondary"]');
+    if (followSecondary) followSecondary.style.backgroundColor = secondaryColor;
+    renderSwatches(root, 'data-custom-theme-logo-option', 'data-custom-theme-logo', editing.logo);
+    if (!editing.logo || followsSecondary) {
+      var logoPicker = root.querySelector('[data-custom-theme-logo]');
+      if (logoPicker) logoPicker.value = followsSecondary ? secondaryColor : editing.seed;
+    }
+    var logoValue = root.querySelector('[data-custom-theme-logo-value]');
+    if (logoValue) {
+      logoValue.textContent = followsSecondary ? goferT("js.settings.theme.same_as_secondary")
+        : editing.logo || goferT("js.settings.theme.same_as_primary");
+    }
     root.querySelectorAll('[data-custom-theme-field]').forEach(function(input) {
       input.checked = editing[input.getAttribute('data-custom-theme-field')] === input.value;
     });
@@ -1093,7 +1113,7 @@
     var theme = findTheme(id);
     if (!theme) return;
     var choices = {};
-    FIELDS.concat(['seed', 'secondary']).forEach(function(key) { choices[key] = theme[key]; });
+    FIELDS.concat(['seed', 'secondary', 'logo']).forEach(function(key) { choices[key] = theme[key]; });
     var edits = fetch('/api/settings/theme-colors.css', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1160,7 +1180,12 @@
       return;
     }
     var secondarySwatch = e.target.closest('[data-custom-theme-secondary-option]');
-    if (secondarySwatch) update({ secondary: secondarySwatch.getAttribute('data-custom-theme-secondary-option') });
+    if (secondarySwatch) {
+      update({ secondary: secondarySwatch.getAttribute('data-custom-theme-secondary-option') });
+      return;
+    }
+    var logoSwatch = e.target.closest('[data-custom-theme-logo-option]');
+    if (logoSwatch) update({ logo: logoSwatch.getAttribute('data-custom-theme-logo-option') });
   });
 
   document.addEventListener('input', function(e) {
@@ -1169,6 +1194,7 @@
     if (!color) return;
     if (e.target.matches('[data-custom-theme-seed]')) update({ seed: color });
     else if (e.target.matches('[data-custom-theme-secondary]')) update({ secondary: color });
+    else if (e.target.matches('[data-custom-theme-logo]')) update({ logo: color });
   });
 
   document.addEventListener('gofer:custom-themes-changed', redrawAppearance);

@@ -274,6 +274,26 @@ func TestParseTheme(t *testing.T) {
 	}
 }
 
+func TestThemeLogoColor(t *testing.T) {
+	theme, ok := Parse(`{"seed":"#16a34a","logo":" #C2702F ","sidebar":"darker","depth":"flat","corners":"small"}`)
+	if !ok || theme.Logo != "#c2702f" {
+		t.Fatalf("Parse logo = %q, %v", theme.Logo, ok)
+	}
+	if css := theme.CSS(); !strings.Contains(css, "--gofer-logo:#c2702f;") {
+		t.Errorf("CSS lacks the chosen logo color:\n%s", css)
+	}
+	if !strings.Contains(theme.Encode(), `"logo":"#c2702f"`) {
+		t.Errorf("Encode drops the logo: %s", theme.Encode())
+	}
+	follows, _ := Parse(`{"seed":"#16a34a","sidebar":"darker","depth":"flat","corners":"small"}`)
+	if values, _ := follows.colors(); values["gofer-logo"] == "" || values["gofer-logo"] != values["sidebar-primary"] {
+		t.Errorf("logo %q doesn't follow the sidebar primary %q", values["gofer-logo"], values["sidebar-primary"])
+	}
+	if _, ok := Parse(`{"seed":"#16a34a","logo":"red;}","sidebar":"darker","depth":"flat","corners":"small"}`); ok {
+		t.Error("Parse accepted a logo color that isn't a hex color")
+	}
+}
+
 func TestThemeCSS(t *testing.T) {
 	theme, _ := Parse(`{"seed":"#16a34a","sidebar":"light","depth":"raised","corners":"large"}`)
 	if attrs := theme.LookAttributes(); len(attrs) != 0 {
@@ -327,6 +347,34 @@ func TestSidebarAgainstPanes(t *testing.T) {
 	for _, mode := range []string{"light", "dark"} {
 		if l := lightness(lighter[mode]["sidebar"]); l <= lightness(lighter[mode]["background"]) {
 			t.Errorf("%s: lighter sidebar %.2f is not lighter than the background", mode, l)
+		}
+	}
+}
+
+func TestThemeLogoFollowsSecondary(t *testing.T) {
+	for _, raw := range []string{
+		`{"seed":"#16a34a","secondary":"#1e3a8a","logo":"secondary","sidebar":"darker","depth":"flat","corners":"small"}`,
+		`{"mode":"dark","seed":"#16a34a","secondary":"#1e3a8a","logo":"secondary","sidebar":"darker","depth":"flat","corners":"small"}`,
+		`{"seed":"#16a34a","secondary":"#1e3a8a","logo":"secondary","sidebar":"lighter","depth":"flat","corners":"small"}`,
+	} {
+		theme, ok := Parse(raw)
+		if !ok || theme.Logo != LogoSecondary {
+			t.Fatalf("Parse(%s) logo = %q, %v", raw, theme.Logo, ok)
+		}
+		values, _ := theme.colors()
+		color := values["gofer-logo"]
+		logo, ok := parseHex(color)
+		if !ok {
+			t.Fatalf("logo color %q for %s isn't a color", color, raw)
+		}
+		if hue := toLCH(logo).h - toLCH(rgb{0x1e / 255.0, 0x3a / 255.0, 0x8a / 255.0}).h; hue > 0.05 || hue < -0.05 {
+			t.Errorf("logo %s for %s isn't the secondary's hue", color, raw)
+		}
+		sidebar, _ := parseHex(values["sidebar"])
+		if theme.Dark() || theme.Sidebar == "darker" {
+			if got := contrast(logo, sidebar); got < minUIContrast {
+				t.Errorf("logo %s on sidebar %s has contrast %.2f for %s", color, values["sidebar"], got, raw)
+			}
 		}
 	}
 }
