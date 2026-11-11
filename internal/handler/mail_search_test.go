@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -324,4 +326,98 @@ func TestUserStorageRoutesServeMailSearch(t *testing.T) {
 		{http.MethodGet, "/mail/search/ids"},
 		{http.MethodGet, "/mail/search/thread/{id}/subitems"},
 	})
+}
+
+var subItemID = regexp.MustCompile(`data-sub-email-id="(\d+)"`)
+
+// An expanded conversation in the list, and in search results, keeps the
+// order the reading pane uses for it.
+func TestThreadSubItemsFollowReadingPaneOrder(t *testing.T) {
+	h, db := newMailSearchHandler(t)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+	for _, tt := range []struct {
+		order string
+		want  []string
+	}{
+		{"", []string{"2", "1"}},
+		{"newest", []string{"2", "1"}},
+		{"oldest", []string{"1", "2"}},
+	} {
+		if err := db.MergeUISettings(t.Context(), "owner", map[string]string{"thread_order": tt.order}); err != nil {
+			t.Fatal(err)
+		}
+		for _, path := range []string{
+			"/mail/thread/conversation/subitems",
+			"/mail/search/thread/2/subitems?scope=folders&scope_folder_id=root&include_descendants=1",
+		} {
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, ownerRequest(httptest.NewRequest("GET", path, nil)))
+			if rec.Code != http.StatusOK {
+				t.Fatalf("%s %q: status=%d body=%s", path, tt.order, rec.Code, rec.Body.String())
+			}
+			var ids []string
+			for _, match := range subItemID.FindAllStringSubmatch(rec.Body.String(), -1) {
+				ids = append(ids, match[1])
+			}
+			want := tt.want
+			if strings.HasPrefix(path, "/mail/thread/") {
+				// Outside a search the whole conversation shows, Trash too.
+				want = map[string][]string{"oldest": {"1", "2", "4"}}[tt.order]
+				if want == nil {
+					want = []string{"4", "2", "1"}
+				}
+			}
+			if !slices.Equal(ids, want) {
+				t.Fatalf("%s %q: order %v, want %v", path, tt.order, ids, want)
+			}
+		}
+	}
+}
+
+var threadItemFolderTag = regexp.MustCompile(`data-thread-item-folder[^>]*>\s*([^<]*?)\s*<`)
+
+// threadItemFolders maps each expanded message to the folder it is tagged
+// with, "" when it is filed where the list is.
+func threadItemFolders(body string) map[string]string {
+	out := map[string]string{}
+	for _, chunk := range strings.Split(body, `data-sub-email-id="`)[1:] {
+		id := chunk[:strings.Index(chunk, `"`)]
+		out[id] = ""
+		if match := threadItemFolderTag.FindStringSubmatch(chunk); match != nil {
+			out[id] = match[1]
+		}
+	}
+	return out
+}
+
+// An expanded conversation names the folder of each message the list's
+// folder doesn't hold, like a reply filed in Sent.
+func TestThreadSubItemsNameFoldersElsewhere(t *testing.T) {
+	h, _ := newMailSearchHandler(t)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+	for _, tt := range []struct {
+		path string
+		want map[string]string
+	}{
+		{"/mail/thread/conversation/subitems?folder=root", map[string]string{"1": "", "2": "Client", "4": "Trash"}},
+		// In a unified list, any folder of its role is where the list is.
+		{"/mail/thread/conversation/subitems?folder=trash", map[string]string{"1": "Projects", "2": "Client", "4": ""}},
+		// Lists that aren't a folder, and unknown folders, name none.
+		{"/mail/thread/conversation/subitems?folder=starred", map[string]string{"1": "", "2": "", "4": ""}},
+		{"/mail/thread/conversation/subitems", map[string]string{"1": "", "2": "", "4": ""}},
+		{"/mail/thread/conversation/subitems?folder=foreign", map[string]string{"1": "", "2": "", "4": ""}},
+		// A search's rows sit under their folder's heading.
+		{"/mail/search/thread/2/subitems?scope=folders&scope_folder_id=root&include_descendants=1&folder=child", map[string]string{"1": "Projects", "2": ""}},
+	} {
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, ownerRequest(httptest.NewRequest("GET", tt.path, nil)))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: status=%d body=%s", tt.path, rec.Code, rec.Body.String())
+		}
+		if got := threadItemFolders(rec.Body.String()); !reflect.DeepEqual(got, tt.want) {
+			t.Fatalf("%s: folders %v, want %v", tt.path, got, tt.want)
+		}
+	}
 }

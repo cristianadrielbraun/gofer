@@ -6,8 +6,11 @@ import (
 	"math/rand"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/cristianadrielbraun/gofer/internal/models"
 )
 
 func newFolderThreadTestDB(t *testing.T) *DB {
@@ -252,4 +255,139 @@ func TestSchemaFileHasFolderThreadTracking(t *testing.T) {
 	if !strings.Contains(string(schema), strings.TrimSpace(folderThreadTrackingSchema)) {
 		t.Fatal("schema.sql and folderThreadTrackingSchema differ; new databases and upgraded ones must match")
 	}
+}
+
+// A conversation counts all of its messages wherever they are filed, as the
+// reading pane shows it: a received message and the reply in Sent are two in
+// the Inbox list, and the Conversations filter agrees.
+func TestConversationCountIncludesMessagesInOtherFolders(t *testing.T) {
+	db := newFolderThreadTestDB(t)
+	ctx := context.Background()
+	exec := func(query string) {
+		t.Helper()
+		if _, err := db.Write().Exec(query); err != nil {
+			t.Fatalf("%s: %v", query, err)
+		}
+	}
+	exec(`INSERT INTO folders(id, account_id, remote_id, name, role) VALUES ('box-sent', 'acct', 'Sent', 'Sent', 'sent');
+		INSERT INTO messages(id, account_id, thread_id, subject, date_received) VALUES
+			(1, 'acct', 'thread-a', 'Plans', '2024-01-01 10:00:00'),
+			(3, 'acct', NULL, 'Alone', '2024-01-03 10:00:00');
+		INSERT INTO message_folder_state(message_id, folder_id) VALUES (1, 'box-inbox'), (3, 'box-inbox');`)
+
+	// Lists answered from summaries, and from the general query that a size
+	// sort needs.
+	lists := []models.EmailFilters{{}, {SortBy: "size", SortOrder: "desc"}}
+	check := func(step string, want int) {
+		t.Helper()
+		for _, filters := range lists {
+			page, err := db.GetEmailsRangeFiltered(ctx, "box-inbox", 0, 50, filters)
+			if err != nil {
+				t.Fatal(err)
+			}
+			counts := map[string]int{}
+			for _, email := range page.Emails {
+				counts[email.ID] = max(email.ThreadCount, 1)
+			}
+			if counts["1"] != want || counts["3"] != 1 {
+				t.Fatalf("%s, %+v: inbox conversation counts %v, want 1:%d 3:1", step, filters, counts, want)
+			}
+			filters.ThreadsOnly = true
+			conversations, err := db.GetFolderEmailCountFiltered(ctx, "box-inbox", filters)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if wantConversations := map[bool]int{true: 1, false: 0}[want > 1]; conversations != wantConversations {
+				t.Fatalf("%s, %+v: Conversations filter counts %d, want %d", step, filters, conversations, wantConversations)
+			}
+		}
+		email, err := db.GetEmailByIDForFolder(ctx, "1", "box-inbox")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := max(email.ThreadCount, 1); got != want {
+			t.Fatalf("%s: reading pane counts %d, want %d like the list", step, got, want)
+		}
+	}
+
+	check("before the reply", 1)
+	exec(`INSERT INTO messages(id, account_id, thread_id, subject, date_received) VALUES (2, 'acct', 'thread-a', 'Re: Plans', '2024-01-02 10:00:00');
+		INSERT INTO message_folder_state(message_id, folder_id) VALUES (2, 'box-sent');`)
+	check("after the reply in Sent", 2)
+	exec(`UPDATE message_folder_state SET is_deleted = 1 WHERE message_id = 2`)
+	check("after the reply is removed", 1)
+	// The reading pane leaves it out too, as the count does.
+	if thread, err := db.GetThreadMessages(ctx, "acct", "thread-a"); err != nil || len(thread) != 1 {
+		t.Fatalf("thread with the reply removed = %d messages, %v; want 1", len(thread), err)
+	}
+	exec(`UPDATE message_folder_state SET is_deleted = 0 WHERE message_id = 2`)
+	check("after the reply is back", 2)
+	exec(`UPDATE messages SET thread_id = 'thread-b' WHERE id = 2`)
+	check("after the reply leaves the conversation", 1)
+	exec(`UPDATE messages SET thread_id = 'thread-a' WHERE id = 2`)
+	check("after the reply rejoins the conversation", 2)
+	exec(`DELETE FROM messages WHERE id = 2`)
+	check("after the reply is deleted", 1)
+}
+
+// Summaries from schema 144 counted only the folder's messages; after the
+// upgrade each folder is rebuilt on first use with whole conversations.
+func TestFolderThreadStateUpgradeCountsWholeConversations(t *testing.T) {
+	db := newFolderThreadTestDB(t)
+	ctx := context.Background()
+	if _, err := db.Write().Exec(`INSERT INTO messages(id, account_id, thread_id, date_received) VALUES
+			(1, 'acct', 'thread-a', '2024-01-01 10:00:00'),
+			(2, 'acct', 'thread-a', '2024-01-02 10:00:00');
+		INSERT INTO message_folder_state(message_id, folder_id) VALUES (1, 'box-inbox'), (2, 'box-archive');`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.GetEmailsRange(ctx, "box-inbox", 0, 50); err != nil {
+		t.Fatal(err)
+	}
+	// What schema 144 left: the inbox counted only its own message.
+	if _, err := db.Write().Exec(withoutConversationTracking() + `;
+		UPDATE folder_thread_state SET thread_count = 1;
+		DELETE FROM schema_version; INSERT INTO schema_version(version) VALUES (144);`); err != nil {
+		t.Fatal(err)
+	}
+	path := db.Path()
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	db, err := New(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+
+	page, err := db.GetEmailsRange(ctx, "box-inbox", 0, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Emails) != 1 || page.Emails[0].ThreadCount != 2 {
+		t.Fatalf("inbox after upgrade = %+v, want one conversation of 2", page.Emails)
+	}
+	if _, err := db.GetEmailsRange(ctx, "box-archive", 0, 50); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := folderThreadRows(t, db), rebuiltFolderThreadRows(t, db); !reflect.DeepEqual(got, want) {
+		t.Fatalf("upgraded summaries differ from a rebuild\n got: %+v\nwant: %+v", got, want)
+	}
+}
+
+// folderThreadTrackingV144 is folderThreadTrackingSchema as schema 144 had
+// it: folder changes only, without the changed conversations.
+func folderThreadTrackingV144() string {
+	schema := regexp.MustCompile(`(?s)-- Conversations whose set.*?WITHOUT ROWID;\n\n`).ReplaceAllString(folderThreadTrackingSchema, "")
+	return regexp.MustCompile(`(?s)    INSERT INTO folder_conversation_dirty.*?ON CONFLICT DO NOTHING;\n`).ReplaceAllString(schema, "")
+}
+
+// withoutConversationTracking turns a current database into the schema 144
+// shape of its conversation summaries.
+func withoutConversationTracking() string {
+	drops := ""
+	for _, name := range folderThreadTriggers {
+		drops += "DROP TRIGGER " + name + ";\n"
+	}
+	return drops + "DROP TABLE folder_conversation_dirty;\n" + folderThreadTrackingV144()
 }

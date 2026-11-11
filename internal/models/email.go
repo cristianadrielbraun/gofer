@@ -472,6 +472,9 @@ type ThreadItem struct {
 	FolderName        string
 	FolderID          string
 	FolderRole        string
+	// ElsewhereFolder names the folder the message is filed in when an
+	// expanded conversation's list isn't that folder, like Sent in Inbox.
+	ElsewhereFolder   string
 	Labels            []Label
 	Attachments       []Attachment
 	InternetMessageID string

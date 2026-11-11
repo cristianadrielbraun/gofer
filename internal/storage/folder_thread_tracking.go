@@ -24,6 +24,15 @@ CREATE TABLE IF NOT EXISTS folder_thread_dirty (
     PRIMARY KEY (folder_id, thread_key)
 ) WITHOUT ROWID;
 
+-- Conversations whose set of messages changed. A summary counts its whole
+-- conversation, so a flush refreshes such a conversation in every folder
+-- that lists it, not only in the folder that changed.
+CREATE TABLE IF NOT EXISTS folder_conversation_dirty (
+    account_id TEXT NOT NULL,
+    thread_id TEXT NOT NULL,
+    PRIMARY KEY (account_id, thread_id)
+) WITHOUT ROWID;
+
 -- Covers the filters answered from summaries (unread, starred, attachments,
 -- conversations, account), so their counts read only this index.
 CREATE INDEX IF NOT EXISTS idx_folder_thread_state_flags
@@ -36,6 +45,10 @@ BEGIN
     SELECT NEW.folder_id, COALESCE(NULLIF(m.thread_id, ''), printf('msg:%d', m.id))
     FROM messages m WHERE m.id = NEW.message_id
       AND NOT EXISTS(SELECT 1 FROM folder_thread_dirty w WHERE w.folder_id = NEW.folder_id AND w.thread_key = '*')
+    ON CONFLICT DO NOTHING;
+    INSERT INTO folder_conversation_dirty(account_id, thread_id)
+    SELECT m.account_id, m.thread_id FROM messages m
+    WHERE m.id = NEW.message_id AND NEW.is_deleted = 0 AND COALESCE(m.thread_id, '') <> ''
     ON CONFLICT DO NOTHING;
 END;
 
@@ -55,6 +68,11 @@ BEGIN
     FROM messages m WHERE m.id = NEW.message_id
       AND NOT EXISTS(SELECT 1 FROM folder_thread_dirty w WHERE w.folder_id = NEW.folder_id AND w.thread_key = '*')
     ON CONFLICT DO NOTHING;
+    INSERT INTO folder_conversation_dirty(account_id, thread_id)
+    SELECT m.account_id, m.thread_id FROM messages m
+    WHERE m.id IN (OLD.message_id, NEW.message_id) AND COALESCE(m.thread_id, '') <> ''
+      AND (OLD.is_deleted IS NOT NEW.is_deleted OR OLD.message_id IS NOT NEW.message_id)
+    ON CONFLICT DO NOTHING;
 END;
 
 CREATE TRIGGER IF NOT EXISTS folder_thread_track_state_delete
@@ -64,6 +82,10 @@ BEGIN
     SELECT OLD.folder_id, COALESCE(NULLIF(m.thread_id, ''), printf('msg:%d', m.id))
     FROM messages m WHERE m.id = OLD.message_id
       AND NOT EXISTS(SELECT 1 FROM folder_thread_dirty w WHERE w.folder_id = OLD.folder_id AND w.thread_key = '*')
+    ON CONFLICT DO NOTHING;
+    INSERT INTO folder_conversation_dirty(account_id, thread_id)
+    SELECT m.account_id, m.thread_id FROM messages m
+    WHERE m.id = OLD.message_id AND OLD.is_deleted = 0 AND COALESCE(m.thread_id, '') <> ''
     ON CONFLICT DO NOTHING;
 END;
 
@@ -82,6 +104,13 @@ BEGIN
     FROM message_folder_state mfs WHERE mfs.message_id = NEW.id
       AND NOT EXISTS(SELECT 1 FROM folder_thread_dirty w WHERE w.folder_id = mfs.folder_id AND w.thread_key = '*')
     ON CONFLICT DO NOTHING;
+    INSERT INTO folder_conversation_dirty(account_id, thread_id)
+    SELECT OLD.account_id, OLD.thread_id
+    WHERE OLD.thread_id IS NOT NEW.thread_id AND COALESCE(OLD.thread_id, '') <> ''
+    UNION ALL
+    SELECT NEW.account_id, NEW.thread_id
+    WHERE OLD.thread_id IS NOT NEW.thread_id AND COALESCE(NEW.thread_id, '') <> ''
+    ON CONFLICT DO NOTHING;
 END;
 
 -- Runs before the cascade removes the message's folder states, while its
@@ -93,6 +122,9 @@ BEGIN
     SELECT mfs.folder_id, COALESCE(NULLIF(OLD.thread_id, ''), printf('msg:%d', OLD.id))
     FROM message_folder_state mfs WHERE mfs.message_id = OLD.id
       AND NOT EXISTS(SELECT 1 FROM folder_thread_dirty w WHERE w.folder_id = mfs.folder_id AND w.thread_key = '*')
+    ON CONFLICT DO NOTHING;
+    INSERT INTO folder_conversation_dirty(account_id, thread_id)
+    SELECT OLD.account_id, OLD.thread_id WHERE COALESCE(OLD.thread_id, '') <> ''
     ON CONFLICT DO NOTHING;
 END;
 `
@@ -178,6 +210,53 @@ func repairFolderThreadTriggers(db *sql.DB) error {
 	return tx.Commit()
 }
 
+// migrateV144ToV145 makes each conversation summary count the whole
+// conversation, as the reading pane does, instead of only its messages in
+// that folder: a received message and the reply in Sent are two. The
+// triggers now also record which conversations changed, so a reply refreshes
+// the conversation in every folder that lists it. Existing summaries hold
+// folder counts, so every folder is rebuilt once on first use.
+func migrateV144ToV145(db *sql.DB) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var version int
+	if err := tx.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM schema_version`).Scan(&version); err != nil {
+		return err
+	}
+	if version >= 145 {
+		return nil
+	}
+	mail := true
+	for _, table := range []string{"folders", "messages", "message_folder_state", "folder_thread_state", "folder_thread_dirty"} {
+		exists, err := tableExistsTx(tx, table)
+		if err != nil {
+			return err
+		}
+		mail = mail && exists
+	}
+	if mail {
+		for _, name := range folderThreadTriggers {
+			if _, err := tx.Exec(`DROP TRIGGER IF EXISTS ` + name); err != nil {
+				return err
+			}
+		}
+		if _, err := tx.Exec(folderThreadTrackingSchema); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`INSERT OR IGNORE INTO folder_thread_dirty(folder_id, thread_key)
+			SELECT id, ? FROM folders`, folderThreadRebuildKey); err != nil {
+			return err
+		}
+	}
+	if err := markSchemaVersion(tx, 145); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 // flushFolderThreadState brings folder_thread_state up to date with every
 // recorded change. Folders waiting for their first build are rebuilt in full
 // when listed in rebuild; otherwise they wait for first use.
@@ -202,7 +281,8 @@ func (db *DB) flushFolderThreadState(ctx context.Context, rebuild ...string) err
 // up-to-date folder never take the writer.
 func (db *DB) folderThreadStatePending(ctx context.Context, rebuild []string) (bool, error) {
 	var pending bool
-	if err := db.Read().QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM folder_thread_dirty WHERE thread_key <> '*')`).Scan(&pending); err != nil || pending {
+	if err := db.Read().QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM folder_thread_dirty WHERE thread_key <> '*')
+		OR EXISTS(SELECT 1 FROM folder_conversation_dirty)`).Scan(&pending); err != nil || pending {
 		return pending, err
 	}
 	for _, folderID := range rebuild {
@@ -227,6 +307,20 @@ func flushFolderThreadStateTx(ctx context.Context, tx *sql.Tx, rebuild []string)
 			}
 		}
 	}
+	// A changed conversation is changed in every built folder that lists
+	// it, since each of them counts all of its messages.
+	if _, err := tx.ExecContext(ctx, `INSERT INTO folder_thread_dirty(folder_id, thread_key)
+		SELECT DISTINCT mfs.folder_id, c.thread_id
+		FROM folder_conversation_dirty c
+		CROSS JOIN messages m ON m.account_id = c.account_id AND m.thread_id = c.thread_id
+		CROSS JOIN message_folder_state mfs ON mfs.message_id = m.id AND mfs.is_deleted = 0
+		WHERE NOT EXISTS(SELECT 1 FROM folder_thread_dirty w WHERE w.folder_id = mfs.folder_id AND w.thread_key = '*')
+		ON CONFLICT DO NOTHING`); err != nil {
+		return fmt.Errorf("record changed conversations: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM folder_conversation_dirty`); err != nil {
+		return fmt.Errorf("clear changed conversations: %w", err)
+	}
 	// Pairs in folders still waiting for a full build stay recorded; the
 	// build covers them.
 	const pending = `SELECT d.folder_id, d.thread_key FROM folder_thread_dirty d
@@ -240,7 +334,7 @@ func flushFolderThreadStateTx(ctx context.Context, tx *sql.Tx, rebuild []string)
 	// messages by index, never by scanning the folder.
 	if _, err := tx.ExecContext(ctx, `WITH changed AS (`+pending+`),
 		members AS (
-			SELECT c.folder_id, c.thread_key, m.id, m.account_id, m.date_received, m.has_attachments,
+			SELECT c.folder_id, c.thread_key, m.id, m.account_id, m.thread_id, m.date_received, m.has_attachments,
 			       mfs.is_read, mfs.is_starred
 			FROM changed c
 			JOIN folders f ON f.id = c.folder_id
@@ -248,7 +342,7 @@ func flushFolderThreadStateTx(ctx context.Context, tx *sql.Tx, rebuild []string)
 			CROSS JOIN message_folder_state mfs ON mfs.message_id = m.id AND mfs.folder_id = c.folder_id AND mfs.is_deleted = 0
 			WHERE substr(c.thread_key, 1, 4) <> 'msg:'
 			UNION ALL
-			SELECT c.folder_id, c.thread_key, m.id, m.account_id, m.date_received, m.has_attachments,
+			SELECT c.folder_id, c.thread_key, m.id, m.account_id, m.thread_id, m.date_received, m.has_attachments,
 			       mfs.is_read, mfs.is_starred
 			FROM changed c
 			CROSS JOIN messages m ON m.id = CAST(substr(c.thread_key, 5) AS INTEGER)
@@ -258,7 +352,6 @@ func flushFolderThreadStateTx(ctx context.Context, tx *sql.Tx, rebuild []string)
 		ranked AS (
 			SELECT *,
 			       ROW_NUMBER() OVER thread_order AS rn,
-			       COUNT(*) OVER conversation AS thread_count,
 			       MIN(is_read) OVER conversation AS thread_is_read,
 			       MAX(is_starred) OVER conversation AS thread_is_starred,
 			       MAX(has_attachments) OVER conversation AS thread_has_attachments
@@ -272,7 +365,7 @@ func flushFolderThreadStateTx(ctx context.Context, tx *sql.Tx, rebuild []string)
 			thread_count, thread_is_read, thread_is_starred, thread_has_attachments, updated_at
 		)
 		SELECT folder_id, thread_key, id, account_id, date_received,
-		       thread_count, thread_is_read, thread_is_starred, thread_has_attachments, CURRENT_TIMESTAMP
+		       `+conversationCountSQL("ranked.account_id", "ranked.thread_id")+`, thread_is_read, thread_is_starred, thread_has_attachments, CURRENT_TIMESTAMP
 		FROM ranked WHERE rn = 1`); err != nil {
 		return fmt.Errorf("summarize changed conversations: %w", err)
 	}
@@ -281,6 +374,22 @@ func flushFolderThreadStateTx(ctx context.Context, tx *sql.Tx, rebuild []string)
 		return fmt.Errorf("clear recorded changes: %w", err)
 	}
 	return nil
+}
+
+// conversationCountSQL counts a conversation the way the reading pane does:
+// every message of the account in that thread that some folder still lists,
+// wherever it is filed. A message without a thread is a conversation of its
+// own. The arguments are SQL expressions for the account and thread ids of a
+// message that is listed; qualify columns with their table, since a bare
+// account_id would name the subquery's own message.
+func conversationCountSQL(accountID, threadID string) string {
+	return `CASE WHEN COALESCE(` + threadID + `, '') = '' THEN 1 ELSE (
+		SELECT COUNT(*) FROM messages conversation_message
+		WHERE conversation_message.account_id = ` + accountID + `
+		  AND conversation_message.thread_id = ` + threadID + `
+		  AND EXISTS(SELECT 1 FROM message_folder_state conversation_state
+		             WHERE conversation_state.message_id = conversation_message.id AND conversation_state.is_deleted = 0)
+	) END`
 }
 
 func compactStrings(values []string) []string {

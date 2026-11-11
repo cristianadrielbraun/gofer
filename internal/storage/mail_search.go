@@ -103,11 +103,7 @@ func (db *DB) mailSearchStatesSQL(ctx context.Context, userID string, scope mode
 		SELECT s.message_id, s.folder_id,
 			MIN(s.is_read) OVER (PARTITION BY s.message_id) AS is_read,
 			MAX(s.is_starred) OVER (PARTITION BY s.message_id) AS is_starred,
-			ROW_NUMBER() OVER (PARTITION BY s.message_id ORDER BY CASE f.role
-				WHEN 'inbox' THEN 0 WHEN 'sent' THEN 1 WHEN 'archive' THEN 2
-				WHEN 'custom' THEN 3 WHEN 'drafts' THEN 4 WHEN 'spam' THEN 5
-				WHEN 'junk' THEN 5 WHEN 'trash' THEN 6 ELSE 7 END,
-				f.sort_order, f.name, f.id) AS copy_rank
+			ROW_NUMBER() OVER (PARTITION BY s.message_id ORDER BY `+folderPlaceOrderSQL("f")+`) AS copy_rank
 		FROM message_folder_state s JOIN search_folders sf ON sf.id=s.folder_id
 		JOIN folders f ON f.id=sf.id JOIN accounts owner ON owner.id=f.account_id
 		JOIN messages original ON original.id=s.message_id AND original.account_id=f.account_id

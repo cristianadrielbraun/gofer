@@ -2955,9 +2955,36 @@ func (h *Handler) handleThreadSubItems(w http.ResponseWriter, r *http.Request) {
 		if len(items) == 0 {
 			return nil, sql.ErrNoRows
 		}
+		if err := h.nameThreadItemsElsewhere(ctx, userID, r.URL.Query().Get("folder"), items); err != nil {
+			return nil, err
+		}
 		settings := h.db.GetUISettings(ctx, userID)
+		// Expanded in the list, a conversation keeps the reading pane's order.
+		if views.ThreadNewestFirst(settings) {
+			slices.Reverse(items)
+		}
 		return views.MailListThreadSubItems(items, settings["sender_display"]), nil
 	})
+}
+
+// nameThreadItemsElsewhere names, on each message of an expanded
+// conversation, the folder it is filed in when the list's folder, here,
+// doesn't hold it.
+func (h *Handler) nameThreadItemsElsewhere(ctx context.Context, userID, here string, items []models.ThreadItem) error {
+	ids := make([]string, 0, len(items))
+	for _, item := range items {
+		ids = append(ids, item.ID)
+	}
+	folders, err := h.db.ThreadItemFoldersElsewhere(ctx, userID, here, ids)
+	if err != nil {
+		return err
+	}
+	for i := range items {
+		if folder, ok := folders[items[i].ID]; ok {
+			items[i].ElsewhereFolder = i18n.FolderName(ctx, folder.Role, folder.Name)
+		}
+	}
+	return nil
 }
 
 func (h *Handler) handleSearch(w http.ResponseWriter, r *http.Request) {

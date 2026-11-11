@@ -2146,6 +2146,116 @@ html #mail-list .thread-sub-item > .mail-row-check ~ a {
   background: color-mix(in srgb, var(--color-primary) 6%, transparent);
 }
 
+/* The row's own message, in its place in the expanded thread, framed in
+   the selected row's color, and linked to it by the thread's rail, which
+   takes the frame's color down to it and bends into the frame. The colors
+   are the selected card's (see .mail-list-card). */
+.thread-sub-items {
+  --thread-link-color: var(--mail-card-pick-edge);
+  /* From a message's left edge back to the rail, and the gap above the
+     first message; the narrow list sets its own. */
+  --thread-rail-inset: 1rem;
+  --thread-rail-gap: 0.25rem;
+}
+
+.thread-sub-item[data-thread-self] > a {
+  border-radius: var(--radius-md);
+  box-shadow: inset 0 0 0 1px var(--mail-card-pick-edge);
+}
+
+/* A thread message's folder tag sits by the date in cards, and at the start
+   of the preview in tables, whose date column is narrow. */
+[data-thread-item-folder="subject"],
+[data-view-mode="table"] [data-thread-item-folder="date"] {
+  display: none;
+}
+
+[data-view-mode="table"] [data-thread-item-folder="subject"] {
+  display: inline-flex;
+  margin-right: 0.375rem;
+}
+
+/* An expanded message that is open gets the selected card's bar too. */
+:is([data-view-mode="cards"], [data-mail-list-view]) .thread-sub-item > a.envelope-active {
+  border-color: transparent;
+  border-radius: var(--radius-md);
+  box-shadow: inset 3px 0 0 var(--mail-card-pick-bar), inset 0 0 0 1px var(--mail-card-pick-edge);
+}
+
+/* The rail is the list's left border, outside what the list shows; the
+   thread's slot still clips it while it opens and closes. */
+:is([data-view-mode="cards"], [data-mail-list-view]) .thread-sub-items:has(> [data-thread-self]) {
+  overflow: visible;
+}
+
+:is([data-view-mode="cards"], [data-mail-list-view]) .thread-sub-item:is(:has(~ [data-thread-self]), [data-thread-self]) {
+  position: relative;
+}
+
+/* Above the row's own message the rail is the link's color, from the row
+   down. Drawn as a border, like the rail under it and the bend below, so
+   all three snap to the same pixels at any zoom. */
+:is([data-view-mode="cards"], [data-mail-list-view]) .thread-sub-item:has(~ [data-thread-self])::after {
+  content: "";
+  position: absolute;
+  left: calc(-1 * var(--thread-rail-inset) - 2px);
+  top: 0;
+  bottom: 0;
+  width: 0;
+  border-left: 2px solid var(--thread-link-color);
+  pointer-events: none;
+}
+
+/* At the row's own message it bends into the frame. */
+:is([data-view-mode="cards"], [data-mail-list-view]) .thread-sub-item[data-thread-self]::after {
+  content: "";
+  position: absolute;
+  left: calc(-1 * var(--thread-rail-inset) - 2px);
+  top: 0;
+  width: calc(var(--thread-rail-inset) + 2px);
+  height: 50%;
+  border-left: 2px solid var(--thread-link-color);
+  border-bottom: 2px solid var(--thread-link-color);
+  border-bottom-left-radius: var(--radius-md);
+  pointer-events: none;
+}
+
+:is([data-view-mode="cards"], [data-mail-list-view]) .thread-sub-item:first-child:is(:has(~ [data-thread-self]), [data-thread-self])::after {
+  top: calc(-1 * var(--thread-rail-gap));
+}
+
+/* Tables draw the thread as a tree; the branch to the row's own message is
+   thicker, in the selection's color. */
+[data-view-mode="table"] .thread-sub-item:has(~ [data-thread-self]) [data-mail-table-cell="thread"]::before {
+  left: calc(50% - 1px);
+  border-left: 2px solid var(--mail-card-pick-bar);
+}
+
+/* At the row's own message it turns in, in one piece; the trunk goes on
+   down thin to the messages below. */
+[data-view-mode="table"] .thread-sub-item[data-thread-self] [data-mail-table-cell="thread"]::before {
+  left: calc(50% - 1px);
+  bottom: calc(50% - 1px);
+  /* With its 2px side, it ends where the other rows' branches end. */
+  width: calc(50% - 1px);
+  border-left: 2px solid var(--mail-card-pick-bar);
+  border-bottom: 2px solid var(--mail-card-pick-bar);
+}
+
+[data-view-mode="table"] .thread-sub-item[data-thread-self] [data-mail-table-cell="thread"]::after {
+  left: calc(50% - 0.5px);
+  top: 50%;
+  bottom: -0.25rem;
+  width: 0;
+  height: auto;
+  border-top: 0;
+  border-left: 1px solid var(--thread-tree-color);
+}
+
+[data-view-mode="table"] .thread-sub-item[data-thread-self]:last-child [data-mail-table-cell="thread"]::after {
+  display: none;
+}
+
 /* Cards keep their place: the checkbox comes in inside the card's left edge,
    a size up from the table's, and the card's content moves over for it. The
    card layout is the user's, so the box can't take the avatar's spot. */
@@ -2233,12 +2343,13 @@ html #mail-list .thread-sub-item > .mail-row-check ~ a {
 /* The open card and multi-selected cards get a 2px edge, 4px on the left. The
    inner line is opaque and matches the border, so the two read as one crisp
    line; a translucent one beside the border made the edge look blurred. */
-.mail-list-item > a.mail-list-card {
+.mail-list-item > a.mail-list-card,
+.thread-sub-items {
   --mail-card-pick-edge: color-mix(in srgb, var(--color-primary) 55%, var(--color-card));
   --mail-card-pick-bar: var(--color-primary);
 }
 
-[data-theme="minimal"]:not(.dark) .mail-list-item > a.mail-list-card {
+[data-theme="minimal"]:not(.dark) :is(.mail-list-item > a.mail-list-card, .thread-sub-items) {
   --mail-card-pick-edge: #000000;
   --mail-card-pick-bar: #000000;
 }
@@ -3453,9 +3564,11 @@ body.mail-list-column-resizing {
   padding-bottom: 0;
 }
 
+/* Below its thread a row keeps its usual 3px, so the thread's bottom line
+   is as far from the next card as two cards are from each other. */
 .mail-list-thread-slot {
   overflow: hidden;
-  padding-bottom: 0.625rem;
+  padding-bottom: 3px;
   box-sizing: border-box;
 }
 
@@ -3503,7 +3616,7 @@ body.mail-list-column-resizing {
 }
 
 .thread-sub-items {
-  margin: 0.25rem 0.875rem 0.25rem;
+  margin: 0.25rem 0.875rem 0;
   padding-left: 1rem;
   padding-bottom: 0.375rem;
   border-left: 2px solid color-mix(in srgb, var(--color-foreground) 12%, transparent);
@@ -3538,24 +3651,32 @@ body.mail-list-column-resizing {
   display: none;
 }
 
+/* The thread's tree: 1px lines, so the 2px branch to the row's own message
+   (see data-thread-self) stands out. */
+[data-view-mode="table"] .thread-sub-items {
+  --thread-tree-color: color-mix(in srgb, var(--color-primary) 42%, var(--color-border));
+}
+
+/* Lines are borders, which snap to whole pixels at any zoom; a filled
+   block in a column of fractional width blurs over two. */
 [data-view-mode="table"] .thread-sub-item [data-mail-table-cell="thread"]::before {
   content: "";
   position: absolute;
-  left: 50%;
+  left: calc(50% - 0.5px);
   top: -0.25rem;
   bottom: -0.25rem;
-  width: 2px;
-  background: color-mix(in srgb, var(--color-primary) 42%, var(--color-border));
+  width: 0;
+  border-left: 1px solid var(--thread-tree-color);
 }
 
 [data-view-mode="table"] .thread-sub-item [data-mail-table-cell="thread"]::after {
   content: "";
   position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 50%;
-  height: 2px;
-  background: color-mix(in srgb, var(--color-primary) 42%, var(--color-border));
+  left: calc(50% - 0.5px);
+  top: calc(50% - 0.5px);
+  width: calc(50% + 0.5px);
+  height: 0;
+  border-top: 1px solid var(--thread-tree-color);
 }
 
 [data-view-mode="table"] .thread-sub-item:last-child [data-mail-table-cell="thread"]::before {
@@ -5802,6 +5923,8 @@ body.mail-list-column-resizing {
   }
 
   #mail-list[data-mail-list-view] .thread-sub-items {
+    --thread-rail-inset: 0.25rem;
+    --thread-rail-gap: 0rem;
     margin: 0 0 0.5rem 2.25rem;
     padding: 0 0 0 0.25rem;
     border-bottom: 0;

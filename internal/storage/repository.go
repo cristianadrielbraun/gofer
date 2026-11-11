@@ -4651,7 +4651,7 @@ func rebuildFolderThreadStateTx(ctx context.Context, tx *sql.Tx, folderID string
 		return err
 	}
 	_, err := tx.ExecContext(ctx, `WITH base AS (
-			SELECT m.id, m.account_id, m.date_received, m.has_attachments,
+			SELECT m.id, m.account_id, m.thread_id, m.date_received, m.has_attachments,
 			       mfs.is_read, mfs.is_starred,
 			       COALESCE(NULLIF(m.thread_id, ''), printf('msg:%d', m.id)) AS thread_key,
 			       COALESCE(m.date_received, '') || ':' || printf('%020d', m.id) AS row_key
@@ -4659,7 +4659,7 @@ func rebuildFolderThreadStateTx(ctx context.Context, tx *sql.Tx, folderID string
 			JOIN messages m ON mfs.message_id = m.id
 			WHERE mfs.folder_id = ? AND mfs.is_deleted = 0
 		), grouped AS (
-			SELECT thread_key, MAX(row_key) AS row_key, COUNT(*) AS thread_count,
+			SELECT thread_key, MAX(row_key) AS row_key,
 			       MIN(is_read) AS thread_is_read, MAX(is_starred) AS thread_is_starred,
 			       MAX(has_attachments) AS thread_has_attachments
 			FROM base
@@ -4670,7 +4670,7 @@ func rebuildFolderThreadStateTx(ctx context.Context, tx *sql.Tx, folderID string
 			thread_count, thread_is_read, thread_is_starred, thread_has_attachments, updated_at
 		)
 		SELECT ?, b.thread_key, b.id, b.account_id, b.date_received,
-		       g.thread_count, g.thread_is_read, g.thread_is_starred, g.thread_has_attachments, CURRENT_TIMESTAMP
+		       `+conversationCountSQL("b.account_id", "b.thread_id")+`, g.thread_is_read, g.thread_is_starred, g.thread_has_attachments, CURRENT_TIMESTAMP
 		FROM grouped g
 		JOIN base b ON b.thread_key = g.thread_key AND b.row_key = g.row_key`, folderID, folderID)
 	return err
@@ -5221,58 +5221,7 @@ func (db *DB) GetFolderEmailCountFilteredForUser(ctx context.Context, userID, fo
 	if emailFiltersEmpty(filters) {
 		return db.GetFolderEmailCountUnfilteredForUser(ctx, userID, folderID, filters)
 	}
-
-	filterSQL := emailFilterSQL(filters)
-	key := listRowKeySQL(filters)
-	var where string
-	var args []any
-	if filters.Participant != "" {
-		where = participantMailScopeWhere()
-		args = []any{userID}
-	} else if folderID == "starred" {
-		accountFilter, accountArgs, err := db.unifiedFolderAccountFilter(ctx, userID, folderID, "a")
-		if err != nil {
-			return 0, err
-		}
-		where = `JOIN accounts a ON m.account_id = a.id
-			 WHERE a.user_id = ? AND mfs.is_starred = 1 AND mfs.is_deleted = 0` + accountFilter
-		args = append([]any{userID}, accountArgs...)
-	} else if folderID == "scheduled" {
-		where = `JOIN outgoing_sends os ON os.message_id = m.id
-			 JOIN accounts a ON m.account_id = a.id
-			 WHERE a.user_id = ? AND os.is_scheduled = 1 AND os.status = ? AND mfs.is_deleted = 0`
-		args = []any{userID, OutgoingSendPending}
-	} else {
-		accountFilter, accountArgs, err := db.unifiedFolderAccountFilter(ctx, userID, folderID, "a")
-		if err != nil {
-			return 0, err
-		}
-		rolePredicate, roleArgs := unifiedFolderRolePredicate("f", folderID)
-		where = `JOIN folders f ON mfs.folder_id = f.id
-			 JOIN accounts a ON f.account_id = a.id
-			 WHERE a.user_id = ? AND ` + rolePredicate + ` AND mfs.is_deleted = 0` + accountFilter
-		args = append([]any{userID}, roleArgs...)
-		args = append(args, accountArgs...)
-	}
-	args = append(append([]any{}, filterSQL.withArgs...), args...)
-	args = append(args, filterSQL.args...)
-
-	var count int
-	err := db.Read().QueryRowContext(ctx,
-		`WITH `+filterSQL.withClause+`visible AS (
-		 SELECT ROW_NUMBER() OVER (PARTITION BY ` + key + ` ORDER BY m.date_received DESC, m.id DESC) AS rn,
-		        MIN(mfs.is_read) OVER (PARTITION BY ` + key + `) AS thread_is_read,
-		        MAX(mfs.is_starred) OVER (PARTITION BY ` + key + `) AS thread_is_starred,		        
-		        MAX(m.has_attachments) OVER (PARTITION BY ` + key + `) AS thread_has_attachments,
-		        SUM(COALESCE(m.size_bytes, 0)) OVER (PARTITION BY ` + key + `) AS thread_size_bytes,
-		        COUNT(*) OVER (PARTITION BY ` + key + `) AS thread_count
-		 FROM message_folder_state mfs
-		 JOIN messages m ON mfs.message_id = m.id
-		 `+filterSQL.joinClause+`
-		 `+where+filterSQL.cteClause+`
-	)
-	SELECT COUNT(*) FROM visible WHERE rn = 1`+filterSQL.outerClause, args...).Scan(&count)
-	return count, err
+	return db.countFilteredRows(ctx, userID, folderID, filters)
 }
 
 func (db *DB) GetFolderEmailCountFiltered(ctx context.Context, folderID string, filters models.EmailFilters) (int, error) {
@@ -5285,44 +5234,18 @@ func (db *DB) GetFolderEmailCountFiltered(ctx context.Context, folderID string, 
 	if emailFiltersEmpty(filters) {
 		return db.GetFolderEmailCountUnfiltered(ctx, folderID, filters)
 	}
+	return db.countFilteredRows(ctx, "", folderID, filters)
+}
 
-	filterSQL := emailFilterSQL(filters)
-	key := listRowKeySQL(filters)
-	if isStarredFolder(folderID) {
-		var count int
-		err := db.Read().QueryRowContext(ctx,
-			`WITH `+filterSQL.withClause+`visible AS (
-			 SELECT ROW_NUMBER() OVER (PARTITION BY ` + key + ` ORDER BY m.date_received DESC, m.id DESC) AS rn,
-			        MIN(mfs.is_read) OVER (PARTITION BY ` + key + `) AS thread_is_read,
-			        MAX(mfs.is_starred) OVER (PARTITION BY ` + key + `) AS thread_is_starred,			        
-			        MAX(m.has_attachments) OVER (PARTITION BY ` + key + `) AS thread_has_attachments,
-			        SUM(COALESCE(m.size_bytes, 0)) OVER (PARTITION BY ` + key + `) AS thread_size_bytes,
-			        COUNT(*) OVER (PARTITION BY ` + key + `) AS thread_count
-			 FROM messages m
-			 JOIN message_folder_state mfs ON m.id = mfs.message_id
-			 JOIN folders f ON mfs.folder_id = f.id
-			 `+filterSQL.joinClause+`
-			 WHERE f.account_id = (SELECT account_id FROM folders WHERE id = ?)
-			 AND mfs.is_starred = 1 AND mfs.is_deleted = 0`+filterSQL.cteClause+`
-			)
-			SELECT COUNT(*) FROM visible WHERE rn = 1`+filterSQL.outerClause, append(append(append([]any{}, filterSQL.withArgs...), folderID), filterSQL.args...)...).Scan(&count)
-		return count, err
+// countFilteredRows counts the rows of a filtered or sorted list with the
+// query that lists them.
+func (db *DB) countFilteredRows(ctx context.Context, userID, folderID string, filters models.EmailFilters) (int, error) {
+	visible, args, filterSQL, err := db.filteredListSQL(ctx, userID, folderID, filters)
+	if err != nil {
+		return 0, err
 	}
-
 	var count int
-	err := db.Read().QueryRowContext(ctx,
-		`WITH `+filterSQL.withClause+`visible AS (
-		 SELECT ROW_NUMBER() OVER (PARTITION BY ` + key + ` ORDER BY m.date_received DESC, m.id DESC) AS rn,
-		        MIN(mfs.is_read) OVER (PARTITION BY ` + key + `) AS thread_is_read,
-		        MAX(mfs.is_starred) OVER (PARTITION BY ` + key + `) AS thread_is_starred,		        
-		        MAX(m.has_attachments) OVER (PARTITION BY ` + key + `) AS thread_has_attachments,
-		        SUM(COALESCE(m.size_bytes, 0)) OVER (PARTITION BY ` + key + `) AS thread_size_bytes,
-		        COUNT(*) OVER (PARTITION BY ` + key + `) AS thread_count
-		 FROM message_folder_state mfs JOIN messages m ON mfs.message_id = m.id
-		 `+filterSQL.joinClause+`
-		 WHERE mfs.folder_id = ? AND mfs.is_deleted = 0`+filterSQL.cteClause+`
-		)
-		SELECT COUNT(*) FROM visible WHERE rn = 1`+filterSQL.outerClause, append(append(append([]any{}, filterSQL.withArgs...), folderID), filterSQL.args...)...).Scan(&count)
+	err = db.Read().QueryRowContext(ctx, visible+`SELECT COUNT(*) FROM visible WHERE rn = 1`+filterSQL.outerClause, args...).Scan(&count)
 	return count, err
 }
 
@@ -5847,7 +5770,9 @@ func (db *DB) getThreadMessages(ctx context.Context, accountID, threadID, userID
 		        m.internet_message_id, m."references", m.body_text_path
 		 FROM messages m
 		 JOIN accounts a ON m.account_id = a.id
-		 WHERE m.account_id = ? AND m.thread_id = ?`
+		 WHERE m.account_id = ? AND m.thread_id = ?
+		   -- As the conversation is counted: messages some folder still lists.
+		   AND EXISTS(SELECT 1 FROM message_folder_state listed WHERE listed.message_id = m.id AND listed.is_deleted = 0)`
 	args := []any{accountID, threadID}
 	if userID != "" {
 		query += ` AND a.user_id = ? AND COALESCE(a.is_deleting, 0) = 0`
@@ -6319,7 +6244,7 @@ func (db *DB) listEmailsUnfilteredFrom(ctx context.Context, fromWhere string, ar
 		SELECT b.id, b.account_id, b.account_color, b.subject, b.from_name, b.from_email,
 		       b.date_received, b.snippet, b.has_attachments, b.body_text_path, b.body_html_path,
 		       g.thread_has_attachments, b.folder_id, g.thread_is_read, g.thread_is_starred,
-		       b.thread_id, g.thread_count
+		       b.thread_id, ` + listThreadCountSQL(filters, "b", "g.thread_count") + `
 		FROM grouped g
 		JOIN base b ON b.thread_key = g.thread_key AND b.row_key = g.row_key
 		ORDER BY b.date_received DESC, b.id DESC
@@ -6331,6 +6256,16 @@ func (db *DB) listEmailsUnfilteredFrom(ctx context.Context, fromWhere string, ar
 	}
 	defer rows.Close()
 	return db.scanEmailRows(ctx, rows)
+}
+
+// listThreadCountSQL is a list row's thread_count: its whole conversation,
+// as the reading pane counts it, for the newest message of the row in
+// alias. A list of single messages keeps rowCount, the messages in its row.
+func listThreadCountSQL(filters models.EmailFilters, alias, rowCount string) string {
+	if filters.ByMessage {
+		return rowCount
+	}
+	return conversationCountSQL(alias+".account_id", alias+".thread_id")
 }
 
 // filteredListSQL is the general query behind filtered and sorted lists, up
@@ -6387,12 +6322,14 @@ func (db *DB) filteredListSQL(ctx context.Context, userID, folderID string, filt
 		args = append([]any{userID}, roleArgs...)
 		args = append(args, accountArgs...)
 	}
-	query := `WITH ` + filterSQL.withClause + `visible AS (
+	// The conversation count is worked out only for each row's newest
+	// message, the one lists read.
+	query := `WITH ` + filterSQL.withClause + `visible_messages AS (
 			  SELECT m.id, m.account_id, a.color AS account_color, m.subject, m.from_name, m.from_email,
 			         m.date_received, m.snippet, m.has_attachments, m.body_text_path, m.body_html_path,
 			         mfs.folder_id, mfs.is_read, mfs.is_starred, m.thread_id,
 			         ROW_NUMBER() OVER (PARTITION BY ` + key + ` ORDER BY m.date_received DESC, m.id DESC) AS rn,
-			         COUNT(*) OVER (PARTITION BY ` + key + `) AS thread_count,
+			         COUNT(*) OVER (PARTITION BY ` + key + `) AS row_message_count,
 			         MIN(mfs.is_read) OVER (PARTITION BY ` + key + `) AS thread_is_read,
 			         MAX(mfs.is_starred) OVER (PARTITION BY ` + key + `) AS thread_is_starred,
 			         MAX(m.has_attachments) OVER (PARTITION BY ` + key + `) AS thread_has_attachments,
@@ -6400,6 +6337,9 @@ func (db *DB) filteredListSQL(ctx context.Context, userID, folderID string, filt
 			  FROM messages m
 			  JOIN message_folder_state mfs ON m.id = mfs.message_id
 			  ` + from + filterSQL.cteClause + `
+			), visible AS (
+			  SELECT v.*, CASE WHEN v.rn = 1 THEN ` + listThreadCountSQL(filters, "v", "v.row_message_count") + ` END AS thread_count
+			  FROM visible_messages v
 			)
 			`
 	args = append(append([]any{}, filterSQL.withArgs...), args...)

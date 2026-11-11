@@ -77,6 +77,9 @@ func copyUserStorageMigrationRows(ctx context.Context, sourcePath string, destin
 		if _, err := tx.ExecContext(ctx, `DELETE FROM main.folder_thread_dirty`); err != nil {
 			return err
 		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM main.folder_conversation_dirty`); err != nil {
+			return err
+		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO main.folder_thread_dirty(folder_id, thread_key) SELECT id, ? FROM main.folders`, folderThreadRebuildKey); err != nil {
 			return err
 		}

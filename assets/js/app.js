@@ -2502,18 +2502,23 @@ document.addEventListener("DOMContentLoaded", function () {
       return row ? row.dataset.emailId : ""
     }
 
+    // rememberMailThreadSubs keeps the thread's other messages: the row's own
+    // is in the expanded list too, in its place, but the row stands for it.
     function rememberMailThreadSubs(slot) {
       var row = slot.querySelector(".mail-list-item[data-email-id]")
       if (!row) return
       var ids = []
       var subs = slot.querySelectorAll(".thread-sub-item[data-sub-email-id]")
-      for (var i = 0; i < subs.length; i++) ids.push(subs[i].dataset.subEmailId)
+      for (var i = 0; i < subs.length; i++) {
+        if (subs[i].dataset.subEmailId !== row.dataset.emailId) ids.push(subs[i].dataset.subEmailId)
+      }
       mailThreadSubIds.set(row.dataset.emailId, ids)
     }
 
     // Picking one message of an expanded thread splits the thread's selection
-    // into its messages: the row then stands for its own message alone. With
-    // every message picked again, the row takes the whole thread back.
+    // into its messages: the row then stands for its own message alone, which
+    // the expanded list shows in its place. With every message picked again,
+    // the row takes the whole thread back.
     function toggleMailThreadSubSelected(sub) {
       var subId = sub.dataset.subEmailId
       var rowId = mailThreadSubRowId(sub)
@@ -2544,10 +2549,6 @@ document.addEventListener("DOMContentLoaded", function () {
       if (selectedMailIds.has(rowId) && allSubs) {
         dropMailThreadSubs(rowId)
         selectedMailThreads.delete(rowId)
-      } else if (!selectedMailIds.has(rowId) && allSubs && subs.length) {
-        // Every other message is picked: the row's own message joins them.
-        selectedMailIds.add(rowId)
-        selectedMailThreads.set(rowId, false)
       }
       if (selectedMailIds.size > 0) setMailSelectionMode(true)
       syncMailSelectionControls()
@@ -10164,6 +10165,7 @@ document.addEventListener("DOMContentLoaded", function () {
 		evt.detail.pathInfo.requestPath.startsWith("/email/")
 	  ) {
 		var emailId = evt.detail.pathInfo.requestPath.replace("/email/", "").split("?")[0]
+		var inThread = !!(evt.detail.elt && evt.detail.elt.closest && evt.detail.elt.closest(".thread-sub-item"))
 		if (virtualMailList) {
 		  if (preserveMailListSelectionFor === emailId) {
 		    preserveMailListSelectionFor = null
@@ -10171,9 +10173,10 @@ document.addEventListener("DOMContentLoaded", function () {
 		  } else if (suppressEmailUrlPushFor === emailId) {
 		    suppressEmailUrlPushFor = null
 		    virtualMailList.selectedEmailId = emailId
+		    virtualMailList.selectedInThread = inThread
 		    virtualMailList.syncSelectionClasses(virtualMailList.itemsContainer)
 		  } else {
-		    virtualMailList.onEmailSelected(emailId)
+		    virtualMailList.onEmailSelected(emailId, { inThread: inThread })
 		  }
 		}
 		scheduleAutoMarkRead(emailId, evt.detail.elt)

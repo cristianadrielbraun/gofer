@@ -212,7 +212,8 @@ class VirtualMailList {
     this.navigationMode = (options.navigationMode || container.dataset.navigationMode) === "pagination" ? "pagination" : "infinite"
     this.itemHeight = listRemPx(this.viewMode === "table" ? 2.75 : mailCardRowRem())
     this.subItemHeight = listRemPx(this.viewMode === "table" ? 2 : 3)
-    this.expandedThreadGap = 26
+    // The thread's margins, padding and bottom line, until it is measured.
+    this.expandedThreadGap = 15
     // Thread messages being fetched, by the row's email id.
     this.threadFetches = new Map()
     this.overscan = 10
@@ -464,6 +465,13 @@ class VirtualMailList {
     }, this)
     this.expandedThreads = restored
     this.invalidateOffsets()
+  }
+
+  // forgetThreadHeights drops the heights open threads were measured at, for
+  // a new layout: cards and table rows differ, so a thread keeps none of them.
+  forgetThreadHeights() {
+    if (!this.expandedThreads) return
+    this.expandedThreads.forEach(function (thread) { thread.measuredHeight = 0 })
   }
 
   updateExpandedThreadMeasuredHeight(emailId, shell) {
@@ -1306,13 +1314,14 @@ class VirtualMailList {
 
     if (!this.selectedEmailId) return
     var main = root.querySelector('[data-email-id="' + this.selectedEmailId + '"] > a')
-    if (main) {
+    var sub = root.querySelector('[data-sub-email-id="' + this.selectedEmailId + '"] > a')
+    // A row's own message, opened from its place in the expanded thread, is
+    // selected there, like the thread's other messages.
+    if (main && !(this.selectedInThread && sub)) {
       main.classList.remove("envelope")
       main.classList.add("envelope-active")
       return
     }
-
-    var sub = root.querySelector('[data-sub-email-id="' + this.selectedEmailId + '"] > a')
     if (sub) sub.classList.add("envelope-active")
   }
 
@@ -2310,6 +2319,7 @@ class VirtualMailList {
     var anchor = this.positionAtOffset(this.container.scrollTop)
     this.itemHeight = listRemPx(this.viewMode === "table" ? 2.75 : mailCardRowRem())
     this.subItemHeight = listRemPx(this.viewMode === "table" ? 2 : 3)
+    this.forgetThreadHeights()
     this.invalidateOffsets()
     this.container.scrollTop = this.offsetAtPosition(anchor)
     // The visible range may be unchanged; the rows still need placing at the new size.
@@ -2322,6 +2332,7 @@ class VirtualMailList {
     this.viewMode = viewMode === "table" ? "table" : "cards"
     this.itemHeight = listRemPx(this.viewMode === "table" ? 2.75 : mailCardRowRem())
     this.subItemHeight = listRemPx(this.viewMode === "table" ? 2 : 3)
+    this.forgetThreadHeights()
     this.container.dataset.viewMode = this.viewMode
     var mailList = document.getElementById("mail-list")
     if (mailList) mailList.dataset.mailListView = this.viewMode
@@ -2803,8 +2814,11 @@ class VirtualMailList {
     }
   }
 
-  onEmailSelected(emailId) {
+  // onEmailSelected marks the open message; inThread when it was opened
+  // from an expanded thread rather than its row.
+  onEmailSelected(emailId, options) {
     this.selectedEmailId = emailId
+    this.selectedInThread = !!(options && options.inThread)
     this.syncSelectionClasses(this.itemsContainer)
     this.pushUrl()
   }
@@ -3131,21 +3145,23 @@ class VirtualMailList {
     this.redrawThreads(arrivedLayout)
   }
 
-  // threadSubItemsHTML is a thread's messages, other than the row's own, from
-  // the server's answer, or null when there are none.
+  // threadSubItemsHTML is the whole thread from the server's answer, in the
+  // reading pane's order, or null when the row's message is all there is.
+  // The row's own message keeps its place and is marked, so the list reads
+  // in order around it.
   threadSubItemsHTML(html, emailId) {
     var tmp = document.createElement("template")
     tmp.innerHTML = html
     var wrapper = tmp.content.firstElementChild
     var subItems = wrapper ? wrapper.querySelectorAll("[data-sub-email-id]") : []
     var out = ""
-    var count = 0
+    var others = 0
     for (var i = 0; i < subItems.length; i++) {
-      if (subItems[i].dataset.subEmailId === emailId) continue
+      if (subItems[i].dataset.subEmailId === emailId) subItems[i].setAttribute("data-thread-self", "")
+      else others++
       out += subItems[i].outerHTML
-      count++
     }
-    return count ? { html: out, count: count } : null
+    return others ? { html: out, count: subItems.length } : null
   }
 
   // redrawThreads draws the list after a thread opened, closed or filled in,
@@ -3167,19 +3183,29 @@ class VirtualMailList {
     var threadId = this.getThreadDataAttr(emailId)
     if (!threadId) return null
     var threadURL = this.searchScope ? this.withFilterParams("/mail/search/thread/" + encodeURIComponent(emailId) + "/subitems") : "/mail/thread/" + encodeURIComponent(threadId) + "/subitems"
+    // Messages filed outside the list's folder are named: a search's folder
+    // is the row's, under its location heading. A contact's mail is no folder.
+    var here = ""
+    if (this.searchScope) {
+      var row = this.container.querySelector('[data-email-id="' + emailId + '"]')
+      here = row ? row.dataset.folderId || "" : ""
+    } else if (!(this.filters && this.filters.participant)) {
+      here = this.folderID
+    }
+    if (here) threadURL += (threadURL.indexOf("?") === -1 ? "?" : "&") + "folder=" + encodeURIComponent(here)
     var request = this.fetchHTML(threadURL)
     request.catch(function () {})
     this.threadFetches.set(emailId, { at: Date.now(), request: request })
     return request
   }
 
-  // threadPlaceholderCount is how many messages the thread shows besides the
-  // row's own, from its count, kept to a screenful.
+  // threadPlaceholderCount is how many messages the thread shows, from its
+  // count, kept to a screenful.
   threadPlaceholderCount(emailId) {
     var el = this.container.querySelector('[data-email-id="' + emailId + '"]')
     var count = el ? parseInt(el.dataset.threadCount, 10) : NaN
     if (isNaN(count) || count < 2) return 1
-    return Math.min(count - 1, 8)
+    return Math.min(count, 8)
   }
 
   threadPlaceholderHTML(count) {

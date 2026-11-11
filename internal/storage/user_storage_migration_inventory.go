@@ -44,6 +44,7 @@ var userStorageMigrationTables = map[string]migrationTableRule{
 	"contact_profiles":                {migrationLocal, `r.user_id`, "id,user_id,display_name,sort_name,primary_email,avatar_url,notes,origin,sync_enabled,is_deleted,created_at,updated_at,trashed_at,home"},
 	"contact_sync_memberships":        {migrationLocal, `r.user_id`, "id,user_id,profile_id,account_id,address_book_id,enabled,status,last_error,created_at,updated_at"},
 	"contact_sync_operations":         {migrationLocal, `r.user_id`, "id,user_id,contact_id,email,payload_json,status,attempt_count,last_error,locked_at,next_attempt_at,created_at,updated_at"},
+	"folder_conversation_dirty":       {migrationDerived, ``, "account_id,thread_id"},
 	"folder_id_aliases":               {migrationLocal, `(SELECT a.user_id FROM @folders f JOIN @accounts a ON a.id=f.account_id WHERE f.id=r.new_id)`, "old_id,new_id,created_at"},
 	"folder_thread_dirty":             {migrationDerived, ``, "folder_id,thread_key"},
 	"folder_thread_state":             {migrationLocal, `(SELECT a.user_id FROM @accounts a WHERE a.id=r.account_id)`, "folder_id,thread_key,head_message_id,account_id,last_message_at,thread_count,thread_is_read,thread_is_starred,thread_has_attachments,updated_at"},
