@@ -27,6 +27,8 @@ served by Gofer itself so pages never contact a font service.
   directory.
 
 The files are the variable WOFF2 files Google Fonts served on 2026-10-14 for
-Fraunces (optical size 9–144, weight 400–800, italic 400) and Nunito Sans
-(weight 400–700, italic 400), one file per script, unchanged. The browser
-downloads only the scripts a page uses; `internal/views/fonts.go` lists them.
+Fraunces (optical size 9–144, italic 400) and Nunito Sans (italic 400), one
+file per script, unchanged. The upright files carry each font's whole weight
+range, Fraunces 100–900 and Nunito Sans 200–1000, which the text weight
+setting uses. The browser downloads only the scripts a page uses;
+`internal/views/fonts.go` lists them.

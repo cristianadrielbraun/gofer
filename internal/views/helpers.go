@@ -768,6 +768,21 @@ func fontPickerValue(value string) string {
 	return value
 }
 
+// textWeightStepLabel names a text weight step in its menu.
+func textWeightStepLabel(ctx context.Context, step int) string {
+	switch step {
+	case -200:
+		return i18n.T(ctx, "settings.appearance.weights.much_lighter")
+	case -100:
+		return i18n.T(ctx, "settings.appearance.weights.lighter")
+	case 100:
+		return i18n.T(ctx, "settings.appearance.weights.bolder")
+	case 200:
+		return i18n.T(ctx, "settings.appearance.weights.much_bolder")
+	}
+	return i18n.T(ctx, "settings.appearance.weights.default")
+}
+
 // customThemeSaved reports whether a Custom theme exists to choose.
 func customThemeSaved(settings map[string]string) bool {
 	_, ok := themebuilder.FromSettings(settings)

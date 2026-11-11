@@ -6,6 +6,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/googlefonts"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/themecolors"
+	"github.com/cristianadrielbraun/gofer/internal/textweight"
 
 	"github.com/cristianadrielbraun/gofer/components/copybutton"
 	"github.com/cristianadrielbraun/gofer/components/dialog"
@@ -412,6 +413,8 @@ templ ThemeColorsStyle(uiSettings map[string]string) {
 	@templ.Raw(`<style data-custom-theme>` + customThemeCSS(uiSettings) + `</style>`)
 	// The chosen fonts follow, for every style but Express.
 	@templ.Raw(`<style data-font-choice>` + googlefonts.ChoiceCSS(uiSettingGet(uiSettings, googlefonts.BodySetting, ""), uiSettingGet(uiSettings, googlefonts.HeadingSetting, "")) + `</style>`)
+	// The text weights' steps, which input.css adds to each role's weights.
+	@templ.Raw(`<style data-text-weights>` + textweight.CSS(func(key string) string { return uiSettingGet(uiSettings, key, "") }) + `</style>`)
 	for _, style := range themecolors.Styles {
 		@templ.Raw(`<style data-theme-colors="` + style + `">` + themeColorsCSS(uiSettings, style) + `</style>`)
 	}

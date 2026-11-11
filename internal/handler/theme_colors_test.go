@@ -153,3 +153,22 @@ func TestNormalizeFontSettings(t *testing.T) {
 		t.Errorf("clearing the body font = %q, %v; want it kept empty", got, ok)
 	}
 }
+
+func TestNormalizeTextWeightSettings(t *testing.T) {
+	updates := map[string]string{
+		"weight_navigation": " 100",
+		"weight_lists":      "-100;}body{color:red",
+	}
+	normalizeTextWeightSettings(updates)
+	if got := updates["weight_navigation"]; got != "100" {
+		t.Errorf("navigation weight = %q, want 100", got)
+	}
+	if _, ok := updates["weight_lists"]; ok {
+		t.Errorf("unsafe lists weight kept: %q", updates["weight_lists"])
+	}
+	reset := map[string]string{"weight_lists": "0"}
+	normalizeTextWeightSettings(reset)
+	if got, ok := reset["weight_lists"]; !ok || got != "" {
+		t.Errorf("resetting the lists weight = %q, %v; want it kept empty", got, ok)
+	}
+}

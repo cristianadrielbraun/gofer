@@ -99,6 +99,26 @@
   * {
     @apply border-border;
   }
+  /* Text weight (Settings, Appearance). Each kind of text is a role, listed
+     here by its containers. The page head sets a role's step, such as
+     --weight-lists: 100, and the containers move Tailwind's weights and
+     their own text by it, keeping the gap between e.g. read and unread.
+     Express keeps its own font, which has only regular and bold. Add a role
+     to internal/textweight too. */
+  html:not([data-theme="express"]) .app-drawer {
+    --weight-shift: var(--weight-navigation, 0);
+  }
+  html:not([data-theme="express"]) :is(#mail-list-scroll, #contacts-list-scroll, #calendar-main [data-calendar-event-trigger]) {
+    --weight-shift: var(--weight-lists, 0);
+  }
+  :is(.app-drawer, #mail-list-scroll, #contacts-list-scroll, #calendar-main [data-calendar-event-trigger]) {
+    --font-weight-light: calc(300 + var(--weight-shift, 0));
+    --font-weight-normal: calc(400 + var(--weight-shift, 0));
+    --font-weight-medium: calc(500 + var(--weight-shift, 0));
+    --font-weight-semibold: calc(600 + var(--weight-shift, 0));
+    --font-weight-bold: calc(700 + var(--weight-shift, 0));
+    font-weight: var(--font-weight-normal);
+  }
   /* Scrollbars are always shown, and their thumb widens when hovered or
      dragged. Themes and panes recolor them through these variables. */
   :root {
@@ -432,7 +452,7 @@
   background: color-mix(in srgb, var(--primary) 18%, transparent);
   color: var(--primary);
   font-size: 0.68rem;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 0.02em;
 }
 
@@ -497,7 +517,7 @@
   background: color-mix(in srgb, var(--ink) 6%, transparent);
   color: color-mix(in srgb, var(--ink) 72%, var(--foreground));
   font-size: 0.58rem;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 0.04em;
   line-height: 1;
 }
@@ -669,7 +689,7 @@
 .compose-close-choice h2 {
   margin: 0;
   font-size: 1rem;
-  font-weight: 750;
+  font-weight: 700;
 }
 
 /* The choice is as wide as its buttons; the text wraps within that width
@@ -2015,7 +2035,7 @@ html[data-theme="classic"] .mail-list-search-input-wrap {
 [data-view-mode="table"] .mail-list-table-row[data-is-read="false"] [data-mail-table-cell="subject"] > div > span,
 [data-view-mode="table"] .mail-list-table-row[data-is-read="false"] [data-mail-table-cell="thread"] [data-thread-toggle] {
   color: var(--color-primary);
-  font-weight: 700;
+  font-weight: var(--font-weight-bold);
 }
 
 [data-contact-list-shell][data-view-mode="cards"] .mail-list-item > a.envelope-active {
@@ -2271,7 +2291,7 @@ html:not([data-theme="express"]) [data-view-mode="table"] .mail-list-item > a {
 
 .mail-list-item[data-mail-read-optimistic] .font-semibold,
 .mail-list-item > a[data-mail-read-optimistic] .font-semibold {
-  font-weight: 500;
+  font-weight: var(--font-weight-medium);
 }
 
 .mail-list-item[data-mail-read-optimistic] .text-primary,
@@ -2282,7 +2302,7 @@ html:not([data-theme="express"]) [data-view-mode="table"] .mail-list-item > a {
 /* Read card text is black (the theme's text color in dark mode), so the
    sender, date and subject of a card just opened turn that, not muted. */
 .mail-list-item[data-mail-read-optimistic] > a.mail-list-card :is([data-mail-card-field="from"], [data-mail-card-field="date"], [data-mail-card-field="subject"]) {
-  font-weight: 400;
+  font-weight: var(--font-weight-normal);
   color: #000000;
 }
 
@@ -3933,7 +3953,7 @@ body.mail-list-column-resizing {
 
 [data-calendar-event-trigger][data-calendar-response-state="declined"] [data-calendar-event-summary] {
   color: var(--color-muted-foreground);
-  font-weight: 400;
+  font-weight: var(--font-weight-normal);
   text-decoration: line-through;
   text-decoration-thickness: 1px;
 }
@@ -6207,7 +6227,7 @@ body.mail-list-column-resizing {
   #mail-list[data-contact-list-shell] a.contact-list-item [data-contact-email] {
     font-size: 0.875rem;
     line-height: 1.25rem;
-    font-weight: 400;
+    font-weight: var(--font-weight-normal);
     color: var(--color-muted-foreground);
   }
 }

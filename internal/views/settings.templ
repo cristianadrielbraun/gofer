@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"github.com/cristianadrielbraun/gofer/internal/googlefonts"
+	"github.com/cristianadrielbraun/gofer/internal/textweight"
 	"github.com/cristianadrielbraun/gofer/internal/buildinfo"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
@@ -554,6 +555,7 @@ templ SettingsAppearanceTab(uiSettings map[string]string) {
 			if googlefonts.Enabled() {
 				@fontSettingsCard(uiSettings)
 			}
+			@textWeightSettingsCard(uiSettings)
 			<div class="settings-card bg-card rounded-lg border p-6 space-y-5">
 				<div>
 					<h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-1">{ i18n.T(ctx, "settings.messages.title") }</h3>
@@ -639,6 +641,45 @@ templ fontSettingRow(setting, title, description, builtIn, value string, disable
 						if value != "" {
 							@selectbox.Item(selectbox.ItemProps{Value: value, Selected: true}) { { value } }
 						}
+					}
+				}
+			}
+		</div>
+	</div>
+}
+
+// textWeightSettingsCard makes each kind of text heavier or lighter, for every
+// style but Express, whose font has only regular and bold.
+templ textWeightSettingsCard(uiSettings map[string]string) {
+	{{ express := themeStyle(uiSettings) == "express" }}
+	<div class="settings-card bg-card rounded-lg border p-6 space-y-5" data-text-weight-settings>
+		<div>
+			<h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-1">{ i18n.T(ctx, "settings.appearance.weights.title") }</h3>
+			<p class="text-xs text-muted-foreground">{ i18n.T(ctx, "settings.appearance.weights.description") }</p>
+			<p class={ "mt-2 text-xs text-muted-foreground", templ.KV("hidden", !express) } data-text-weight-express>{ i18n.T(ctx, "settings.appearance.weights.express") }</p>
+		</div>
+		for _, role := range textweight.Roles {
+			@textWeightSettingRow(role, textweight.Parse(uiSettingGet(uiSettings, role.Setting(), "")), express)
+		}
+	</div>
+}
+
+templ textWeightSettingRow(role textweight.Role, step int, disabled bool) {
+	<div class={ "settings-row border-t border-border/60 pt-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between", templ.KV("opacity-50", disabled) } data-text-weight-row>
+		<div class="min-w-0">
+			<h4 class="text-sm font-medium text-foreground">{ i18n.T(ctx, "settings.appearance.weights."+role.Name) }</h4>
+			<p class="text-xs text-muted-foreground mt-1">{ i18n.T(ctx, "settings.appearance.weights."+role.Name+"_description") }</p>
+		</div>
+		<div class="w-full shrink-0 sm:w-44">
+			@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
+				@selectbox.Trigger(selectbox.TriggerProps{Name: role.Setting(), Class: "bg-background", DisableClear: true, Required: true, Disabled: disabled, Attributes: templ.Attributes{"data-text-weight-setting": role.Setting(), "value": strconv.Itoa(step)}}) {
+					@selectbox.Value(selectbox.ValueProps{Placeholder: textWeightStepLabel(ctx, 0)}) {
+						{ textWeightStepLabel(ctx, step) }
+					}
+				}
+				@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
+					for _, option := range textweight.Steps {
+						@selectbox.Item(selectbox.ItemProps{Value: strconv.Itoa(option), Selected: option == step}) { { textWeightStepLabel(ctx, option) } }
 					}
 				}
 			}

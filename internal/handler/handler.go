@@ -28,6 +28,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/providerquota"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
+	"github.com/cristianadrielbraun/gofer/internal/textweight"
 	"github.com/cristianadrielbraun/gofer/internal/store"
 	"github.com/cristianadrielbraun/gofer/internal/themebuilder"
 	"github.com/cristianadrielbraun/gofer/internal/themecolors"
@@ -4288,6 +4289,7 @@ func (h *Handler) handleSaveUISettings(w http.ResponseWriter, r *http.Request) {
 	normalizeCustomThemeSetting(updates)
 	normalizeCustomThemesSetting(updates)
 	normalizeFontSettings(updates)
+	normalizeTextWeightSettings(updates)
 
 	userID := h.userID(r.Context())
 	if err := h.withUserDB(r.Context(), userID, func(db *storage.DB) error {
@@ -4369,6 +4371,22 @@ func normalizeFontSettings(updates map[string]string) {
 			continue
 		}
 		updates[key] = name
+	}
+}
+
+// normalizeTextWeightSettings saves each text weight as its step, "" for the
+// default, and drops a value that isn't one of the steps.
+func normalizeTextWeightSettings(updates map[string]string) {
+	for _, role := range textweight.Roles {
+		raw, ok := updates[role.Setting()]
+		if !ok {
+			continue
+		}
+		if !textweight.Valid(raw) {
+			delete(updates, role.Setting())
+			continue
+		}
+		updates[role.Setting()] = textweight.Normalize(raw)
 	}
 }
 

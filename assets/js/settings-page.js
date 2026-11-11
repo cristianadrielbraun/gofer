@@ -177,6 +177,31 @@
   });
 })();
 
+// Text weight. Each kind of text has a menu of steps; "0" is the default,
+// saved as "". Express keeps its own font, so the menus are greyed out while
+// it is the style.
+(function() {
+  document.addEventListener('change', function(e) {
+    var input = e.target.closest && e.target.closest('input[data-text-weight-setting]');
+    if (!input || !input.value || typeof GoferSettings === 'undefined') return;
+    GoferSettings.set(input.getAttribute('data-text-weight-setting'), input.value === '0' ? '' : input.value);
+  });
+  document.body.addEventListener('gofer:settings-changed', function(e) {
+    if (!e.detail || e.detail.key !== 'theme_style') return;
+    var card = document.querySelector('[data-text-weight-settings]');
+    if (!card) return;
+    var express = e.detail.value === 'express';
+    var note = card.querySelector('[data-text-weight-express]');
+    if (note) note.classList.toggle('hidden', !express);
+    card.querySelectorAll('[data-text-weight-row]').forEach(function(row) {
+      row.classList.toggle('opacity-50', express);
+    });
+    card.querySelectorAll('button.select-trigger').forEach(function(trigger) {
+      trigger.disabled = express;
+    });
+  });
+})();
+
 // Fonts. The text and heading fonts come from the Google Fonts library. Each
 // picker arrives with the built-in font and the chosen one; the rest of the
 // library is added once the server has listed it. "default" is the built-in

@@ -854,6 +854,20 @@ var GoferSettings;
       .catch(function () {});
   }
 
+  // Each text weight's step is a CSS variable that input.css adds to the
+  // weights of that kind of text (see internal/textweight).
+  var TEXT_WEIGHT_STEPS = ["-200", "-100", "100", "200"];
+  function applyTextWeights() {
+    var style = document.querySelector("style[data-text-weights]");
+    if (!style) return;
+    var css = "";
+    Object.keys(_cache).forEach(function (key) {
+      var match = /^weight_([a-z]+)$/.exec(key);
+      if (match && TEXT_WEIGHT_STEPS.indexOf(_cache[key]) >= 0) css += "--weight-" + match[1] + ":" + _cache[key] + ";";
+    });
+    style.textContent = css ? ":root{" + css + "}" : "";
+  }
+
   function applySetting(key, value) {
     if (key === "theme") {
       applyTheme(value);
@@ -869,6 +883,7 @@ var GoferSettings;
       if (typeof applyEmailBodyTheme === "function") applyEmailBodyTheme();
     }
     if (key === "body_font" || key === "heading_font") applyFontChoice();
+    if (/^weight_[a-z]+$/.test(key)) applyTextWeights();
     if (isPanelSizeKey(key)) {
       var sidebarWidth = parseInt(panelSetting("sidebar_width"), 10);
       var sidebar = document.querySelector("aside");
