@@ -1527,6 +1527,9 @@ templ SettingsSyncTab(settings models.SyncSettings, uiSettings map[string]string
 												</div>
 											</div>
 										</div>
+										if account.IdleLimit != nil {
+											@syncIdleLimitNote(*account.IdleLimit)
+										}
 									}
 								</div>
 							}
@@ -1682,6 +1685,47 @@ templ syncFolderPillToggle(f models.FolderSyncStatus) {
 	</button>
 }
 
+// syncIdleLimitNote explains, once more folders are chosen for real time than
+// the account's server allows, which ones are checked on the schedule
+// instead. The settings script shows it and names those folders.
+templ syncIdleLimitNote(limit models.IdleLimitStatus) {
+	<div
+		data-idle-limit-note
+		data-idle-limit={ strconv.Itoa(limit.Limit) }
+		class="hidden mt-3 rounded-md border border-amber-700/20 bg-amber-800/5 p-3 dark:border-amber-300/20 dark:bg-amber-300/5"
+		role="note"
+	>
+		<div class="flex items-start gap-2.5">
+			@icon.TriangleAlert(icon.Props{Class: "size-3.5 mt-0.5 shrink-0 text-amber-700 dark:text-amber-300"})
+			<div class="min-w-0 space-y-1 text-xs leading-relaxed text-muted-foreground">
+				if limit.Learned {
+					<p>{ i18n.T(ctx, "settings.sync.idle_limit.learned", "count", limit.Limit) }</p>
+				} else {
+					<p>{ i18n.T(ctx, "settings.sync.idle_limit.start", "count", limit.Limit) }</p>
+				}
+				if history := syncIdleLimitHistory(ctx, limit); history != "" {
+					<p>{ history }</p>
+				}
+				<p data-idle-limit-polled></p>
+			</div>
+		</div>
+	</div>
+}
+
+// syncIdleLimitHistory says when the server last refused a connection and
+// since when the limit has held.
+func syncIdleLimitHistory(ctx context.Context, limit models.IdleLimitStatus) string {
+	var parts []string
+	dates := i18n.Dates(ctx)
+	if limit.FailedAt > 0 && !limit.FailedTime.IsZero() {
+		parts = append(parts, i18n.T(ctx, "settings.sync.idle_limit.refused", "count", limit.FailedAt, "date", dates.LongMonthDate(limit.FailedTime.Local())))
+	}
+	if limit.StableAt > 0 && !limit.StableSince.IsZero() {
+		parts = append(parts, i18n.N(ctx, "settings.sync.idle_limit.stable", limit.StableAt, "count", limit.StableAt, "date", dates.LongMonthDate(limit.StableSince.Local())))
+	}
+	return strings.Join(parts, " ")
+}
+
 templ syncFolderPill(f models.FolderSyncStatus, interval int, accountID string) {
 		<div
 			data-sync-pill
@@ -1694,6 +1738,7 @@ templ syncFolderPill(f models.FolderSyncStatus, interval int, accountID string) 
 			data-effective-idle={ strconv.FormatBool(syncFolderUsesEffectiveIDLE(f)) }
 			data-idle-fallback-reason={ f.IDLEFallbackReason }
 			data-idle-retry-at={ f.IDLERetryAt }
+			data-idle-rank={ strconv.Itoa(f.IdleRank) }
 			class={
 				"inline-flex max-w-full items-center gap-1.5 px-2.5 rounded-md border text-xs font-medium cursor-pointer transition-transform hover:scale-[1.02] will-change-transform backface-hidden",
 				templ.KV("bg-amber-800/10 border-amber-700/20 text-amber-800 dark:bg-amber-300/10 dark:border-amber-300/20 dark:text-amber-200", syncFolderUsesEffectiveIDLE(f)),

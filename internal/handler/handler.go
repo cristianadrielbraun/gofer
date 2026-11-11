@@ -4140,6 +4140,16 @@ func (h *Handler) buildSyncSettings(ctx context.Context, accounts []models.Accou
 		status.Color = account.Color
 		status.Initials = account.Initials
 
+		var ranks map[string]int
+		if account.Provider == providers.ProviderIMAP {
+			ranks, _ = h.db.IdleFolderRanks(ctx, h.userID(ctx), account.ID)
+			limit := &models.IdleLimitStatus{IdleConnectionLimit: models.IdleConnectionLimit{Limit: imap.IdleMailboxStart()}}
+			if learned, found, err := h.db.GetIdleConnectionLimit(ctx, account.ID); err == nil && found {
+				limit.IdleConnectionLimit, limit.Learned = learned, true
+			}
+			status.IdleLimit = limit
+		}
+
 		folderStatuses := make([]models.FolderSyncStatus, 0, len(folders))
 		for _, f := range folders {
 			lastSynced := ""
@@ -4175,6 +4185,7 @@ func (h *Handler) buildSyncSettings(ctx context.Context, accounts []models.Accou
 				EffectiveIDLE:      effectiveIDLE,
 				IDLEFallbackReason: fallbackReason,
 				IDLERetryAt:        retryAt,
+				IdleRank:           idleFolderRank(ranks, f.ID),
 			})
 		}
 		status.Folders = folderStatuses
@@ -4203,6 +4214,15 @@ func effectiveIDLEFolderStatus(configured bool, runtime mail.IDLEFolderRuntimeSt
 		retryAt = runtime.RetryAt.UTC().Format(time.RFC3339)
 	}
 	return false, runtime.Reason, retryAt
+}
+
+// idleFolderRank is the folder's place in line for real-time watching;
+// folders the ranks don't know come last.
+func idleFolderRank(ranks map[string]int, folderID string) int {
+	if rank, ok := ranks[folderID]; ok {
+		return rank
+	}
+	return 1 << 30
 }
 
 func formatSyncTime(ctx context.Context, t time.Time) string {

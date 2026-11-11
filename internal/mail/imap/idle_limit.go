@@ -72,6 +72,13 @@ func idleMailboxBounds() (start, ceiling int) {
 	return idleBoundsStart, idleBoundsCeiling
 }
 
+// IdleMailboxStart is how many folders a mailbox may watch in real time
+// before Gofer learned anything about its server.
+func IdleMailboxStart() int {
+	start, _ := idleMailboxBounds()
+	return start
+}
+
 var (
 	idleBoundsOnce                     sync.Once
 	idleBoundsStart, idleBoundsCeiling int

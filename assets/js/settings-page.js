@@ -1411,6 +1411,7 @@
     setPillFallback(pill, '', '');
     movePill(pill, toIdle, true, function() {
       updateHiddenInputs();
+      updateIdleLimitNotes();
       scheduleAutoSave(80);
     });
   }
@@ -1424,6 +1425,29 @@
     var effectiveIDLE = data.effective_mode === 'idle';
     setPillFallback(pill, effectiveIDLE ? '' : (data.reason || ''), effectiveIDLE ? '' : (data.retry_at || ''));
     movePill(pill, effectiveIDLE, true);
+  }
+
+  // An IMAP account's note shows once more of its folders are chosen for
+  // real time than its server allows, and names the ones that wait: Inbox
+  // and then the folder order come first.
+  function updateIdleLimitNotes() {
+    document.querySelectorAll('[data-sync-account-card]').forEach(function(card) {
+      var note = card.querySelector('[data-idle-limit-note]');
+      if (!note) return;
+      var limit = parseInt(note.dataset.idleLimit || '', 10);
+      var chosen = Array.prototype.filter.call(card.querySelectorAll('[data-sync-pill]'), function(pill) {
+        return pill.dataset.configuredIdle === 'true';
+      });
+      var over = !isNaN(limit) && limit > 0 && chosen.length > limit;
+      note.classList.toggle('hidden', !over);
+      var polled = note.querySelector('[data-idle-limit-polled]');
+      if (!over || !polled) return;
+      chosen.sort(function(a, b) {
+        return (parseInt(a.dataset.idleRank, 10) || 0) - (parseInt(b.dataset.idleRank, 10) || 0);
+      });
+      var names = chosen.slice(limit).map(function(pill) { return pill.dataset.folderName || ''; });
+      polled.textContent = goferT("js.settings.sync.idle_limit.polled", { folders: names.join(', ') });
+    });
   }
 
   function updateEmptyStates(container) {
@@ -1645,6 +1669,7 @@
 
     updateHiddenInputs();
     updateEmptyStates();
+    updateIdleLimitNotes();
     syncUnifiedFolderControls();
   });
 })();

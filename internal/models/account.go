@@ -134,6 +134,16 @@ type AccountSyncStatus struct {
 	Folders      []FolderSyncStatus
 	// OutlookPush is set for Outlook accounts.
 	OutlookPush *OutlookPushSettings
+	// IdleLimit is set for IMAP accounts: how many of their folders may be
+	// watched in real time.
+	IdleLimit *IdleLimitStatus
+}
+
+// IdleLimitStatus is an IMAP account's real-time folder limit and, when Gofer
+// learned it from the server, how.
+type IdleLimitStatus struct {
+	IdleConnectionLimit
+	Learned bool
 }
 
 // OutlookPushSettings is an Outlook account's choice between Microsoft's
@@ -188,6 +198,9 @@ type FolderSyncStatus struct {
 	EffectiveIDLE      bool
 	IDLEFallbackReason string
 	IDLERetryAt        string
+	// IdleRank is the folder's place in line for real-time watching, when
+	// its account allows fewer than were chosen; lower comes first.
+	IdleRank int
 }
 
 type Signature struct {
