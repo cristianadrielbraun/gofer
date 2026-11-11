@@ -5566,6 +5566,9 @@ func (h *Handler) saveComposeDraftFromForm(ctx context.Context, r *http.Request)
 	}
 	body := r.FormValue("body")
 	htmlBody := strings.TrimSpace(r.FormValue("html_body"))
+	if composePlainText(r) {
+		htmlBody = ""
+	}
 	if htmlBody != "" {
 		htmlBody = string(message.SanitizeOutgoingHTML([]byte(htmlBody)))
 	}
@@ -5722,6 +5725,12 @@ func draftRecipients(addrs []*netmail.Address) []storage.Recipient {
 		recipients = append(recipients, storage.Recipient{Name: addr.Name, Email: addr.Address})
 	}
 	return recipients
+}
+
+// composePlainText says whether the message was written in plain text mode,
+// which sends and saves the text alone, with no HTML part.
+func composePlainText(r *http.Request) bool {
+	return r.FormValue("compose_format") == "plain"
 }
 
 func validateComposeMessageSize(attachments []message.OutgoingAttachment, body, htmlBody string) error {
@@ -6167,7 +6176,10 @@ func (h *Handler) handleCompose(w http.ResponseWriter, r *http.Request) {
 
 	body := r.FormValue("body")
 	htmlBody := strings.TrimSpace(r.FormValue("html_body"))
-	if htmlBody != "" {
+	if composePlainText(r) {
+		// Plain text mode sends the text alone, with no HTML part.
+		htmlBody = ""
+	} else if htmlBody != "" {
 		htmlBody = string(message.SanitizeOutgoingHTML([]byte(htmlBody)))
 		if !strings.Contains(strings.ToLower(htmlBody), "<html") {
 			htmlBody = "<html><body>" + htmlBody + "</body></html>"

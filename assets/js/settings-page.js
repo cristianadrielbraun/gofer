@@ -49,7 +49,7 @@
     syncComposeAutosaveControls();
   });
   document.addEventListener('change', function(e) {
-    var defaultComposeView = e.target.closest('input[name="default_new_compose_view"], input[name="default_reply_compose_view"]');
+    var defaultComposeView = e.target.closest('input[name="default_new_compose_view"], input[name="default_reply_compose_view"], input[name="compose_format"]');
     if (defaultComposeView && typeof GoferSettings !== 'undefined') {
       GoferSettings.set(defaultComposeView.name, defaultComposeView.value);
     }

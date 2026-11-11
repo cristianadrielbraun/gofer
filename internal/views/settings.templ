@@ -141,6 +141,25 @@ templ SettingsComposeDisplayTab(uiSettings map[string]string, signatureData []mo
 					}
 				</div>
 			</div>
+			<div class="settings-row border-t border-border/60 pt-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+				<div class="min-w-0">
+					<h4 class="text-sm font-medium text-foreground">{ i18n.T(ctx, "settings.compose.format_title") }</h4>
+					<p class="text-xs text-muted-foreground mt-1">{ i18n.T(ctx, "settings.compose.format_description") }</p>
+				</div>
+				<div class="w-full sm:w-44 shrink-0">
+					@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
+						@selectbox.Trigger(selectbox.TriggerProps{Name: "compose_format", Class: "bg-background", DisableClear: true}) {
+							@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "settings.compose.format.html")}) {
+								{ composeFormatOptionLabel(ctx, uiSettingGet(uiSettings, "compose_format", "html")) }
+							}
+						}
+						@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
+							@selectbox.Item(selectbox.ItemProps{Value: "html", Selected: uiSettingGet(uiSettings, "compose_format", "html") != "plain"}) { { i18n.T(ctx, "settings.compose.format.html") } }
+							@selectbox.Item(selectbox.ItemProps{Value: "plain", Selected: uiSettingGet(uiSettings, "compose_format", "html") == "plain"}) { { i18n.T(ctx, "settings.compose.format.plain") } }
+						}
+					}
+				</div>
+			</div>
 			<div class="settings-row border-t border-border/60 pt-5 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
 				<div class="min-w-0">
 					<span id="compose-autosave-enabled-label" class="text-sm font-medium text-foreground">{ i18n.T(ctx, "settings.compose.autosave.title") }</span>

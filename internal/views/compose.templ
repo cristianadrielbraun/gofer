@@ -216,86 +216,90 @@ templ ComposeMobileBar() {
 
 templ ComposeToolbar() {
 	<div class="flex items-center gap-0.5 border-t border-b py-1 -mx-1" data-compose-toolbar>
-		@tooltip.Tooltip() {
-			@tooltip.Trigger() {
-				<button type="button" class="flex items-center justify-center size-7 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors" data-compose-command="bold" data-on-click='["composeExec","$this","bold"]'>
-					@icon.Bold(icon.Props{Class: "size-3.5"})
-				</button>
+		<div class="contents" data-compose-rich-only>
+			@tooltip.Tooltip() {
+				@tooltip.Trigger() {
+					<button type="button" class="flex items-center justify-center size-7 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors" data-compose-command="bold" data-on-click='["composeExec","$this","bold"]'>
+						@icon.Bold(icon.Props{Class: "size-3.5"})
+					</button>
+				}
+				@tooltip.Content(tooltip.ContentProps{
+					Position:  tooltip.PositionBottom,
+					ShowArrow: true,
+				}) {
+					{ i18n.T(ctx, "compose.format.bold") }
+				}
 			}
-			@tooltip.Content(tooltip.ContentProps{
-				Position:  tooltip.PositionBottom,
-				ShowArrow: true,
-			}) {
-				{ i18n.T(ctx, "compose.format.bold") }
+			@tooltip.Tooltip() {
+				@tooltip.Trigger() {
+					<button type="button" class="flex items-center justify-center size-7 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors" data-compose-command="italic" data-on-click='["composeExec","$this","italic"]'>
+						@icon.Italic(icon.Props{Class: "size-3.5"})
+					</button>
+				}
+				@tooltip.Content(tooltip.ContentProps{
+					Position:  tooltip.PositionBottom,
+					ShowArrow: true,
+				}) {
+					{ i18n.T(ctx, "compose.format.italic") }
+				}
 			}
-		}
-		@tooltip.Tooltip() {
-			@tooltip.Trigger() {
-				<button type="button" class="flex items-center justify-center size-7 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors" data-compose-command="italic" data-on-click='["composeExec","$this","italic"]'>
-					@icon.Italic(icon.Props{Class: "size-3.5"})
-				</button>
+			@tooltip.Tooltip() {
+				@tooltip.Trigger() {
+					<button type="button" class="flex items-center justify-center size-7 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors" data-compose-command="underline" data-on-click='["composeExec","$this","underline"]'>
+						@icon.Underline(icon.Props{Class: "size-3.5"})
+					</button>
+				}
+				@tooltip.Content(tooltip.ContentProps{
+					Position:  tooltip.PositionBottom,
+					ShowArrow: true,
+				}) {
+					{ i18n.T(ctx, "compose.format.underline") }
+				}
 			}
-			@tooltip.Content(tooltip.ContentProps{
-				Position:  tooltip.PositionBottom,
-				ShowArrow: true,
-			}) {
-				{ i18n.T(ctx, "compose.format.italic") }
+			@tooltip.Tooltip() {
+				@tooltip.Trigger() {
+					<button type="button" class="flex items-center justify-center size-7 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors" data-compose-command="strikeThrough" data-on-click='["composeExec","$this","strikeThrough"]'>
+						@icon.Strikethrough(icon.Props{Class: "size-3.5"})
+					</button>
+				}
+				@tooltip.Content(tooltip.ContentProps{
+					Position:  tooltip.PositionBottom,
+					ShowArrow: true,
+				}) {
+					{ i18n.T(ctx, "compose.format.strike") }
+				}
 			}
-		}
-		@tooltip.Tooltip() {
-			@tooltip.Trigger() {
-				<button type="button" class="flex items-center justify-center size-7 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors" data-compose-command="underline" data-on-click='["composeExec","$this","underline"]'>
-					@icon.Underline(icon.Props{Class: "size-3.5"})
-				</button>
+			<div class="w-px h-4 bg-border mx-0.5"></div>
+		</div>
+		<div class="contents" data-compose-rich-only>
+			@tooltip.Tooltip() {
+				@tooltip.Trigger() {
+					<button type="button" class="flex items-center justify-center size-7 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors" data-compose-command="insertUnorderedList" data-on-click='["composeExec","$this","insertUnorderedList"]'>
+						@icon.List(icon.Props{Class: "size-3.5"})
+					</button>
+				}
+				@tooltip.Content(tooltip.ContentProps{
+					Position:  tooltip.PositionBottom,
+					ShowArrow: true,
+				}) {
+					{ i18n.T(ctx, "compose.format.bullets") }
+				}
 			}
-			@tooltip.Content(tooltip.ContentProps{
-				Position:  tooltip.PositionBottom,
-				ShowArrow: true,
-			}) {
-				{ i18n.T(ctx, "compose.format.underline") }
+			@tooltip.Tooltip() {
+				@tooltip.Trigger() {
+					<button type="button" class="flex items-center justify-center size-7 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors" data-compose-command="insertOrderedList" data-on-click='["composeExec","$this","insertOrderedList"]'>
+						@icon.ListOrdered(icon.Props{Class: "size-3.5"})
+					</button>
+				}
+				@tooltip.Content(tooltip.ContentProps{
+					Position:  tooltip.PositionBottom,
+					ShowArrow: true,
+				}) {
+					{ i18n.T(ctx, "compose.format.numbers") }
+				}
 			}
-		}
-		@tooltip.Tooltip() {
-			@tooltip.Trigger() {
-				<button type="button" class="flex items-center justify-center size-7 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors" data-compose-command="strikeThrough" data-on-click='["composeExec","$this","strikeThrough"]'>
-					@icon.Strikethrough(icon.Props{Class: "size-3.5"})
-				</button>
-			}
-			@tooltip.Content(tooltip.ContentProps{
-				Position:  tooltip.PositionBottom,
-				ShowArrow: true,
-			}) {
-				{ i18n.T(ctx, "compose.format.strike") }
-			}
-		}
-		<div class="w-px h-4 bg-border mx-0.5"></div>
-		@tooltip.Tooltip() {
-			@tooltip.Trigger() {
-				<button type="button" class="flex items-center justify-center size-7 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors" data-compose-command="insertUnorderedList" data-on-click='["composeExec","$this","insertUnorderedList"]'>
-					@icon.List(icon.Props{Class: "size-3.5"})
-				</button>
-			}
-			@tooltip.Content(tooltip.ContentProps{
-				Position:  tooltip.PositionBottom,
-				ShowArrow: true,
-			}) {
-				{ i18n.T(ctx, "compose.format.bullets") }
-			}
-		}
-		@tooltip.Tooltip() {
-			@tooltip.Trigger() {
-				<button type="button" class="flex items-center justify-center size-7 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors" data-compose-command="insertOrderedList" data-on-click='["composeExec","$this","insertOrderedList"]'>
-					@icon.ListOrdered(icon.Props{Class: "size-3.5"})
-				</button>
-			}
-			@tooltip.Content(tooltip.ContentProps{
-				Position:  tooltip.PositionBottom,
-				ShowArrow: true,
-			}) {
-				{ i18n.T(ctx, "compose.format.numbers") }
-			}
-		}
-		<div class="w-px h-4 bg-border mx-0.5"></div>
+			<div class="w-px h-4 bg-border mx-0.5"></div>
+		</div>
 		@tooltip.Tooltip() {
 			@tooltip.Trigger() {
 				<button type="button" class="flex items-center justify-center size-7 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors" data-on-click='["triggerComposeAttachmentUpload","$this"]' data-compose-toolbar-attach>
@@ -309,32 +313,34 @@ templ ComposeToolbar() {
 				{ i18n.T(ctx, "compose.attach_tip") }
 			}
 		}
-		@tooltip.Tooltip() {
-			@tooltip.Trigger() {
-				<button type="button" class="flex items-center justify-center size-7 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors" data-on-click='["triggerComposeInlineImageUpload","$this"]'>
-					@icon.Image(icon.Props{Class: "size-3.5"})
-				</button>
+		<div class="contents" data-compose-rich-only>
+			@tooltip.Tooltip() {
+				@tooltip.Trigger() {
+					<button type="button" class="flex items-center justify-center size-7 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors" data-on-click='["triggerComposeInlineImageUpload","$this"]'>
+						@icon.Image(icon.Props{Class: "size-3.5"})
+					</button>
+				}
+				@tooltip.Content(tooltip.ContentProps{
+					Position:  tooltip.PositionBottom,
+					ShowArrow: true,
+				}) {
+					{ i18n.T(ctx, "compose.format.image") }
+				}
 			}
-			@tooltip.Content(tooltip.ContentProps{
-				Position:  tooltip.PositionBottom,
-				ShowArrow: true,
-			}) {
-				{ i18n.T(ctx, "compose.format.image") }
+			@tooltip.Tooltip() {
+				@tooltip.Trigger() {
+					<button type="button" class="flex items-center justify-center size-7 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors" data-on-click='["composeCreateLink","$this"]'>
+						@icon.Link(icon.Props{Class: "size-3.5"})
+					</button>
+				}
+				@tooltip.Content(tooltip.ContentProps{
+					Position:  tooltip.PositionBottom,
+					ShowArrow: true,
+				}) {
+					{ i18n.T(ctx, "compose.format.link") }
+				}
 			}
-		}
-		@tooltip.Tooltip() {
-			@tooltip.Trigger() {
-				<button type="button" class="flex items-center justify-center size-7 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors" data-on-click='["composeCreateLink","$this"]'>
-					@icon.Link(icon.Props{Class: "size-3.5"})
-				</button>
-			}
-			@tooltip.Content(tooltip.ContentProps{
-				Position:  tooltip.PositionBottom,
-				ShowArrow: true,
-			}) {
-				{ i18n.T(ctx, "compose.format.link") }
-			}
-		}
+		</div>
 		@tooltip.Tooltip() {
 			@tooltip.Trigger() {
 				<button type="button" class="flex items-center justify-center size-7 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors" data-on-click='["showComposeSignaturePicker","$this"]'>
@@ -348,33 +354,45 @@ templ ComposeToolbar() {
 				{ i18n.T(ctx, "compose.format.signature") }
 			}
 		}
-		<div class="w-px h-4 bg-border mx-0.5"></div>
-		@tooltip.Tooltip() {
-			@tooltip.Trigger() {
-				<button type="button" class="flex items-center justify-center size-7 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors" data-on-click='["composeExec","$this","formatBlock","blockquote"]' aria-label={ i18n.T(ctx, "compose.format.quote") }>
-					@icon.Quote(icon.Props{Class: "size-3.5"})
-				</button>
+		<div class="contents" data-compose-rich-only>
+			<div class="w-px h-4 bg-border mx-0.5"></div>
+			@tooltip.Tooltip() {
+				@tooltip.Trigger() {
+					<button type="button" class="flex items-center justify-center size-7 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors" data-on-click='["composeExec","$this","formatBlock","blockquote"]' aria-label={ i18n.T(ctx, "compose.format.quote") }>
+						@icon.Quote(icon.Props{Class: "size-3.5"})
+					</button>
+				}
+				@tooltip.Content(tooltip.ContentProps{
+					Position:  tooltip.PositionBottom,
+					ShowArrow: true,
+				}) {
+					{ i18n.T(ctx, "compose.format.quote") }
+				}
 			}
-			@tooltip.Content(tooltip.ContentProps{
-				Position:  tooltip.PositionBottom,
-				ShowArrow: true,
-			}) {
-				{ i18n.T(ctx, "compose.format.quote") }
+			@tooltip.Tooltip() {
+				@tooltip.Trigger() {
+					<button type="button" class="flex items-center justify-center size-7 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors" data-on-click='["composeExec","$this","formatBlock","pre"]' aria-label={ i18n.T(ctx, "compose.format.code") }>
+						@icon.Code(icon.Props{Class: "size-3.5"})
+					</button>
+				}
+				@tooltip.Content(tooltip.ContentProps{
+					Position:  tooltip.PositionBottom,
+					ShowArrow: true,
+				}) {
+					{ i18n.T(ctx, "compose.format.code") }
+				}
 			}
-		}
-		@tooltip.Tooltip() {
-			@tooltip.Trigger() {
-				<button type="button" class="flex items-center justify-center size-7 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors" data-on-click='["composeExec","$this","formatBlock","pre"]' aria-label={ i18n.T(ctx, "compose.format.code") }>
-					@icon.Code(icon.Props{Class: "size-3.5"})
-				</button>
-			}
-			@tooltip.Content(tooltip.ContentProps{
-				Position:  tooltip.PositionBottom,
-				ShowArrow: true,
-			}) {
-				{ i18n.T(ctx, "compose.format.code") }
-			}
-		}
+		</div>
+		<button type="button" class="ml-auto flex items-center gap-1.5 h-7 px-2 rounded text-xs text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed" data-compose-format-toggle data-on-click='["toggleComposeFormat","$this"]'>
+			<span class="contents" data-compose-format-to-plain>
+				@icon.RemoveFormatting(icon.Props{Class: "size-3.5"})
+				<span>{ i18n.T(ctx, "compose.format.to_plain") }</span>
+			</span>
+			<span data-compose-format-to-html>
+				@icon.Type(icon.Props{Class: "size-3.5"})
+				<span>{ i18n.T(ctx, "compose.format.to_html") }</span>
+			</span>
+		</button>
 	</div>
 }
 
@@ -391,6 +409,7 @@ templ ComposeRichEditor() {
 	<div class="flex-1 min-h-0 overflow-y-auto rounded-md border border-border/60 bg-background/40">
 		<textarea name="body" class="hidden" data-compose-plain></textarea>
 		<textarea name="html_body" class="hidden" data-compose-html></textarea>
+		<input type="hidden" name="compose_format" value="html" data-compose-format-field/>
 		<div
 			class="compose-rich-editor min-h-[190px] h-full px-3 py-2 text-sm leading-6 outline-none"
 			contenteditable="true"

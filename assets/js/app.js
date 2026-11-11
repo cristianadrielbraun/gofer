@@ -834,7 +834,7 @@ document.addEventListener("DOMContentLoaded", function () {
       if (!list || (!list.selectedContactId && selectedContactIds.size === 0)) return
       var target = e.target
       // A row's checkbox, focused once clicked, is the list's own.
-      if (target && target.closest && target.closest("input, textarea, select, [contenteditable='true']") && !target.closest("[data-mail-row-check]")) return
+      if (target && target.closest && target.closest("input, textarea, select, [contenteditable='true'], [contenteditable='plaintext-only']") && !target.closest("[data-mail-row-check]")) return
       // Leave open dialogs, menus and an unsaved contact editor to handle Escape.
       // The contact page always holds its Edit dialog's form, closed; only the
       // new-contact editor, which fills the page, keeps Escape for itself.
@@ -18825,6 +18825,7 @@ function resetComposeForm(fromPane, skipCleanup) {
   for (var i = 0; i < fields.length; i++) fields[i].value = ""
   var modeField = form.querySelector('input[name="compose_mode"]')
   if (modeField) modeField.value = "new"
+  _applyComposeFormat(form, composeDefaultFormat())
   deactivateComposeOneTimeFrom(form, false)
   setComposeKind(form, "new")
   var editor = form.querySelector("[data-compose-editor]")
@@ -18911,8 +18912,10 @@ function loadComposeSignatures(form, refresh) {
     .catch(function () { return null })
 }
 
-function composeSignatureHTML(sig, source) {
-  var html = sig && sig.html_body ? _sanitizeComposeHTML(sig.html_body, true) : _composePlainToHTML((sig && sig.text_body) || "")
+function composeSignatureHTML(sig, source, plain) {
+  var html = ""
+  if (plain) html = _composePlainToHTML((sig && sig.text_body) || _composeHTMLText((sig && sig.html_body) || ""))
+  else html = sig && sig.html_body ? _sanitizeComposeHTML(sig.html_body, true) : _composePlainToHTML((sig && sig.text_body) || "")
   return '<div data-gofer-signature="' + source + '" data-signature-id="' + _escapeComposeHTML(sig.id || "") + '" data-signature-html="' + _escapeComposeHTML(html) + '">' + html + '</div>'
 }
 
@@ -18962,7 +18965,8 @@ function insertComposeSignatureWithPlacement(form, sig, source, placement) {
   var editor = form && form.querySelector("[data-compose-editor]")
   if (!editor || !sig) return false
   var existing = existingComposeSignature(editor)
-  var html = composeSignatureHTML(sig, source)
+  var plain = composeFormat(form) === "plain"
+  var html = composeSignatureHTML(sig, source, plain)
   if (existing) {
     if (source === "auto" && autoComposeSignatureWasEdited(existing)) return false
     if (source === "auto") {
@@ -18987,7 +18991,8 @@ function insertComposeSignatureWithPlacement(form, sig, source, placement) {
   } else {
     editor.focus()
     _restoreComposeSelection(editor)
-    document.execCommand("insertHTML", false, html)
+    if (plain) _composeInsertHTMLAtSelection(editor, html)
+    else document.execCommand("insertHTML", false, html)
   }
   if (source === "auto") placeComposeCursorBeforeSignature(editor, existingComposeSignature(editor))
   syncComposeEditor(editor)
@@ -19952,9 +19957,249 @@ function syncComposeEditor(editor) {
   if (!form) return
   var plain = form.querySelector('textarea[name="body"]')
   var html = form.querySelector('textarea[name="html_body"]')
-  if (plain) plain.value = _composeEditorText(editor)
-  if (html) html.value = _composeHTMLForSending(editor)
+  if (composeFormat(form) === "plain") {
+    if (plain) plain.value = _composePlainBody(editor)
+    if (html) html.value = ""
+  } else {
+    if (plain) plain.value = _composeEditorText(editor)
+    if (html) html.value = _composeHTMLForSending(editor)
+  }
   syncComposeInlineImageInputs(form)
+}
+
+// Plain text mode writes the message as text alone: the editor takes only
+// text, and sending or saving leaves out the HTML part.
+function composeFormat(form) {
+  var field = form && form.querySelector("[data-compose-format-field]")
+  return field && field.value === "plain" ? "plain" : "html"
+}
+
+function composeDefaultFormat() {
+  return window.GoferSettings && GoferSettings.get("compose_format") === "plain" ? "plain" : "html"
+}
+
+function _applyComposeFormat(form, format) {
+  if (!form) return
+  var plain = format === "plain"
+  var field = form.querySelector("[data-compose-format-field]")
+  if (field) field.value = plain ? "plain" : "html"
+  form.dataset.composeFormat = plain ? "plain" : "html"
+  var editor = form.querySelector("[data-compose-editor]")
+  if (editor) {
+    editor.toggleAttribute("data-compose-plain-mode", plain)
+    editor.setAttribute("contenteditable", plain ? "plaintext-only" : "true")
+    // A browser without plaintext-only would stop editing; it keeps the rich
+    // editor, and paste, drop and the shortcuts still keep to plain text.
+    if (plain && editor.contentEditable !== "plaintext-only") editor.setAttribute("contenteditable", "true")
+  }
+}
+
+var _COMPOSE_TEXT_BLOCK = /^(ADDRESS|ARTICLE|ASIDE|BLOCKQUOTE|CENTER|DD|DIV|DL|DT|FIELDSET|FIGCAPTION|FIGURE|FOOTER|FORM|H[1-6]|HEADER|HR|LI|MAIN|NAV|OL|P|PRE|SECTION|TABLE|TBODY|TFOOT|THEAD|TR|UL)$/
+
+// _composeNodeText turns compose markup into plain text: lists keep their
+// bullets and numbers, quotes get "> " and links their address. It reads
+// the markup, not the layout, so a hidden editor gives its text too. With
+// signatureMark, the signature is left out and the mark put in its place.
+function _composeNodeText(node, signatureMark) {
+  var out = ""
+  var ordinal = 0
+  var start = node.tagName === "OL" ? (parseInt(node.getAttribute("start"), 10) || 1) : 1
+  function lineBreak() {
+    if (out && out.charAt(out.length - 1) !== "\n") out += "\n"
+  }
+  for (var child = node.firstChild; child; child = child.nextSibling) {
+    if (child.nodeType === Node.TEXT_NODE) {
+      out += child.nodeValue.replace(/ /g, " ")
+      continue
+    }
+    if (child.nodeType !== Node.ELEMENT_NODE) continue
+    var tag = child.tagName
+    if (tag === "BR") {
+      out += "\n"
+      continue
+    }
+    if (/^(IMG|STYLE|SCRIPT|TEMPLATE|HEAD|TITLE|META|LINK)$/.test(tag)) continue
+    if (signatureMark && child.hasAttribute("data-gofer-signature")) {
+      lineBreak()
+      out += signatureMark + "\n"
+      continue
+    }
+    var inner = _composeNodeText(child, signatureMark)
+    if (tag === "A") {
+      var href = child.getAttribute("href") || ""
+      var address = href.replace(/^mailto:/i, "")
+      var label = inner.trim()
+      if (href && !/^(javascript|data):/i.test(href)) {
+        if (!label) inner = address
+        else if (label !== href && label !== address) inner += " <" + address + ">"
+      }
+      out += inner
+      continue
+    }
+    if (tag === "TD" || tag === "TH") {
+      if (out && !/\s$/.test(out)) out += "  "
+      out += inner.replace(/\s*\n\s*/g, " ").trim()
+      continue
+    }
+    if (!_COMPOSE_TEXT_BLOCK.test(tag)) {
+      out += inner
+      continue
+    }
+    lineBreak()
+    // A block's own last line break is the one after it; an empty line
+    // keeps its break.
+    if (/[^\n]\n$/.test(inner)) inner = inner.slice(0, -1)
+    if (tag === "HR") {
+      inner = "----------"
+    } else if (tag === "BLOCKQUOTE") {
+      inner = inner.replace(/\n$/, "").split("\n").map(function (line) {
+        if (!line) return ">"
+        return line.charAt(0) === ">" ? ">" + line : "> " + line
+      }).join("\n")
+    } else if (tag === "LI") {
+      var marker = node.tagName === "OL" ? (start + ordinal) + ". " : "- "
+      ordinal++
+      inner = marker + inner.split("\n").join("\n" + new Array(marker.length + 1).join(" "))
+    }
+    out += inner
+    lineBreak()
+  }
+  return out
+}
+
+function _composeHTMLText(html) {
+  if (!html) return ""
+  var template = document.createElement("template")
+  template.innerHTML = html
+  return _composeNodeText(template.content).replace(/^\n+/, "").replace(/\s+$/, "")
+}
+
+function _composePlainBody(editor) {
+  if (!editor) return ""
+  return _composeNodeText(editor).replace(/^\n+/, "").replace(/\s+$/, "")
+}
+
+// _composeEditorLosesFormatting says whether plain text would drop
+// something: formatting, links or images. A signature nobody edited comes
+// back in its own plain text version, so it loses nothing.
+function _composeEditorLosesFormatting(editor) {
+  var clone = editor.cloneNode(true)
+  var signature = clone.querySelector("[data-gofer-signature]")
+  if (signature && signature.getAttribute("data-signature-html") === signature.innerHTML) signature.remove()
+  return !!clone.querySelector("b,strong,i,em,u,s,strike,del,ins,mark,sub,sup,font,ul,ol,a[href],img,pre,code,h1,h2,h3,h4,h5,h6,table,hr,[style]")
+}
+
+function _composeCachedSignature(form, id) {
+  var data = _composeSignatureCache[composeSignatureCacheKey(form)]
+  if (!data || !id) return null
+  var list = (data.signatures || []).concat(data.default_signature ? [data.default_signature] : [])
+  for (var i = 0; i < list.length; i++) {
+    if (list[i] && String(list[i].id) === String(id)) return list[i]
+  }
+  return null
+}
+
+// _composeSignatureInFormat gives the signature's markup for the other
+// format: an unedited one is rendered again from the saved signature,
+// an edited one keeps its text.
+function _composeSignatureInFormat(form, node, format) {
+  var source = node.getAttribute("data-gofer-signature") || "manual"
+  var id = node.getAttribute("data-signature-id") || ""
+  var unedited = node.getAttribute("data-signature-html") === node.innerHTML
+  var sig = unedited ? _composeCachedSignature(form, id) : null
+  if (sig) return composeSignatureHTML(sig, source, format === "plain")
+  var inner = _composePlainToHTML(_composeNodeText(node).replace(/\s+$/, ""))
+  var saved = unedited ? inner : (node.getAttribute("data-signature-html") || "")
+  return '<div data-gofer-signature="' + _escapeComposeHTML(source) + '" data-signature-id="' + _escapeComposeHTML(id) + '" data-signature-html="' + _escapeComposeHTML(saved) + '">' + inner + '</div>'
+}
+
+// Images the user inserted stay with the message as attachments when it
+// turns plain text. Quoted images and the signature's are left out, as a
+// plain text reply or signature has none.
+function _composeInlineImagesToAttachments(form, editor) {
+  var have = {}
+  readComposeAttachments(form).forEach(function (att) { have[(att.existing ? "existing:" : "new:") + att.id] = true })
+  var imgs = editor.querySelectorAll("img[data-compose-inline-image]:not([data-compose-inline-quoted])")
+  for (var i = 0; i < imgs.length; i++) {
+    if (imgs[i].closest("[data-gofer-signature]")) continue
+    var existing = !!imgs[i].dataset.existingAttachmentId
+    var id = imgs[i].dataset.existingAttachmentId || imgs[i].dataset.attachmentId || ""
+    var key = (existing ? "existing:" : "new:") + id
+    if (!id || have[key]) continue
+    have[key] = true
+    addComposeAttachment(form, {
+      id: id,
+      existing: existing,
+      filename: imgs[i].dataset.filename || imgs[i].alt || "image",
+      content_type: imgs[i].dataset.contentType || "image/png",
+      size: Number(imgs[i].dataset.size || 0),
+      preview_url: imgs[i].dataset.previewUrl || ""
+    })
+  }
+}
+
+function _switchComposeFormat(form, format) {
+  var editor = form && form.querySelector("[data-compose-editor]")
+  if (!editor) return
+  var mark = "\u0000gofer-signature\u0000"
+  var signature = existingComposeSignature(editor)
+  var signatureHTML = signature ? _composeSignatureInFormat(form, signature, format) : ""
+  if (format === "plain") _composeInlineImagesToAttachments(form, editor)
+  var parts = _composeNodeText(editor, signature ? mark : "").split(mark + "\n")
+  var html = _composePlainToHTML(parts[0])
+  if (signature) html += signatureHTML + _composePlainToHTML(parts.slice(1).join(""))
+  _applyComposeFormat(form, format)
+  editor.innerHTML = html
+  if (format === "html") uploadComposeSignatureImages(form)
+  syncComposeEditor(editor)
+  syncComposeRemoteImagesNotice(form)
+  _markComposeDirty(form)
+  editor.focus()
+  updateComposeToolbar(editor)
+}
+
+function toggleComposeFormat(el) {
+  var form = _composeFormFrom(el)
+  var editor = form && form.querySelector("[data-compose-editor]")
+  if (!editor || _composePendingUploads(form) > 0) return
+  if (composeFormat(form) === "plain") {
+    _switchComposeFormat(form, "html")
+    return
+  }
+  if (!_composeEditorLosesFormatting(editor)) {
+    _switchComposeFormat(form, "plain")
+    return
+  }
+  window.goferConfirm({
+    title: goferT("js.compose.plain.title"),
+    message: goferT("js.compose.plain.message"),
+    confirmLabel: goferT("js.compose.plain.confirm"),
+    cancelLabel: goferT("js.compose.plain.cancel"),
+  }).then(function (ok) {
+    if (ok) _switchComposeFormat(form, "plain")
+  })
+}
+
+// _composeInsertHTMLAtSelection puts markup at the caret without
+// execCommand, which a plain text editor would insert as text.
+function _composeInsertHTMLAtSelection(editor, html) {
+  var selection = window.getSelection && window.getSelection()
+  var range = selection && selection.rangeCount ? selection.getRangeAt(0) : null
+  if (!range || !editor.contains(range.commonAncestorContainer)) {
+    range = document.createRange()
+    range.selectNodeContents(editor)
+    range.collapse(false)
+  }
+  range.deleteContents()
+  var fragment = range.createContextualFragment(html)
+  var last = fragment.lastChild
+  range.insertNode(fragment)
+  if (last && selection) {
+    range.setStartAfter(last)
+    range.collapse(true)
+    selection.removeAllRanges()
+    selection.addRange(range)
+  }
 }
 
 function composeChanged(editor) {
@@ -19975,10 +20220,12 @@ function _setComposeEditorValue(form, plain, html, inlineImages) {
   var editor = form.querySelector("[data-compose-editor]")
   var plainField = form.querySelector('textarea[name="body"]')
   var htmlField = form.querySelector('textarea[name="html_body"]')
+  var plainMode = composeFormat(form) === "plain"
+  if (plainMode && !plain && html) plain = _composeHTMLText(html)
   if (plainField) plainField.value = plain || ""
-  if (htmlField) htmlField.value = html || ""
+  if (htmlField) htmlField.value = plainMode ? "" : (html || "")
   if (editor) {
-    editor.innerHTML = html ? _sanitizeComposeHTML(_composeHTMLForEditor(html, inlineImages || [])) : _composePlainToHTML(plain || "")
+    editor.innerHTML = html && !plainMode ? _sanitizeComposeHTML(_composeHTMLForEditor(html, inlineImages || [])) : _composePlainToHTML(plain || "")
   }
   syncComposeInlineImageInputs(form)
 }
@@ -20037,7 +20284,11 @@ function handleComposePaste(event) {
   event.preventDefault()
   var html = clipboard.getData("text/html")
   var text = clipboard.getData("text/plain")
-  document.execCommand("insertHTML", false, html ? _sanitizeComposeHTML(html) : _composePlainToHTML(text))
+  if (composeFormat(_composeFormFrom(editor)) === "plain") {
+    document.execCommand("insertText", false, text || _composeHTMLText(html))
+  } else {
+    document.execCommand("insertHTML", false, html ? _sanitizeComposeHTML(html) : _composePlainToHTML(text))
+  }
   syncComposeEditor(editor)
 }
 
@@ -20058,6 +20309,12 @@ document.addEventListener("keydown", function (event) {
   }
   if (!editor || (!event.ctrlKey && !event.metaKey)) return
   var key = event.key.toLowerCase()
+  if (composeFormat(form) === "plain") {
+    // Plain text has no formatting; the keys do nothing rather than the
+    // browser's own action.
+    if (key === "b" || key === "i" || key === "u" || key === "k") event.preventDefault()
+    return
+  }
   if (key === "b") {
     event.preventDefault()
     composeExec(editor, "bold")
@@ -20247,6 +20504,9 @@ function updateComposeSendState(form) {
   var pending = _composePendingUploads(form)
   var sending = form.dataset.composeSending === "true"
   var disabled = pending > 0 || sending
+  // Switching format while an image uploads would lose it.
+  var formatToggle = form.querySelector("[data-compose-format-toggle]")
+  if (formatToggle) formatToggle.disabled = disabled
   var root = _composeRootForForm(form)
   var mobileSend = root && root.querySelector("[data-compose-mobile-send]")
   if (mobileSend) {
@@ -20718,6 +20978,11 @@ function placePointPopover(root, x, y) {
 function _showComposeImageDropChoice(form, images, event) {
   _closeComposeDropChoice()
   if (!form || !images || !images.length) return
+  // Plain text has no inline images, so they are attached.
+  if (composeFormat(form) === "plain") {
+    uploadComposeAttachments(images, form)
+    return
+  }
   var root = form.querySelector("[data-compose-drop-choice]")
   var content = root && root.querySelector("[data-tui-popover-content]")
   if (!content || !window.tui || !window.tui.popover) {
@@ -21440,6 +21705,8 @@ function _composeValsFromDraft(draft) {
     subject: draft.subject || "",
     body: draft.body || "",
     html_body: draft.html_body || "",
+    // A draft keeps its format: one saved with text alone reopens as plain text.
+    compose_format: String(draft.html_body || "").trim() ? "html" : (String(draft.body || "").trim() ? "plain" : ""),
     compose_mode: draft.compose_mode || "new",
     in_reply_to: draft.in_reply_to || "",
     references: draft.references || "",
@@ -22212,7 +22479,7 @@ function composeQuoteAttribution(source, fromLine) {
 function composeReplyPlain(source) {
   var fromLine = composeAddress(source.from_name, source.from_email)
   var header = composeQuoteAttribution(source, fromLine)
-  var quotedBody = String(source.body || "").split("\n").map(function (line) { return "> " + line }).join("\n")
+  var quotedBody = composeSourcePlainBody(source).split("\n").map(function (line) { return "> " + line }).join("\n")
   return "\n\n" + header + "\n" + quotedBody
 }
 
@@ -22305,7 +22572,14 @@ function composeForwardLines(source, fromLine) {
 
 function composeForwardPlain(source) {
   var fromLine = composeAddress(source.from_name, source.from_email)
-  return "\n\n" + composeForwardLines(source, fromLine).join("\n") + "\n\n" + (source.body || "")
+  return "\n\n" + composeForwardLines(source, fromLine).join("\n") + "\n\n" + composeSourcePlainBody(source)
+}
+
+// composeSourcePlainBody is the quoted message's text, made from its HTML
+// when it came without a text part.
+function composeSourcePlainBody(source) {
+  if (String(source.body || "").trim()) return String(source.body)
+  return _composeHTMLText(source.html_body || "")
 }
 
 function composeForwardHTML(source) {
@@ -22343,6 +22617,8 @@ function composeValuesFromSource(source, mode) {
     subject: "",
     body: "",
     html_body: "",
+    // Plain text messages get plain text replies and forwards.
+    compose_format: composeDefaultFormat() === "plain" || (!String(source.html_body || "").trim() && String(source.body || "").trim()) ? "plain" : "html",
     compose_mode: mode === "forward" ? "forward" : "reply",
     in_reply_to: "",
     references: "",
@@ -25121,6 +25397,7 @@ function _writeComposeFormValues(form, vals, prefix) {
   }
   if (vals.account_id) syncComposeAccountItems(form.id === "compose-pane-form" ? "pane" : "dialog", vals.account_id, vals.identity_id)
   syncComposeOneTimeFrom(form)
+  _applyComposeFormat(form, vals.compose_format === "plain" || vals.compose_format === "html" ? vals.compose_format : composeDefaultFormat())
   _setComposeEditorValue(form, vals.body || "", vals.html_body || "", vals.inline_images || [])
   renderComposeAttachments(form, vals.attachments || [])
   form.dataset.composeUploadsPending = "0"

@@ -24,6 +24,13 @@ func composeViewOptionLabel(ctx context.Context, view string) string {
 	}
 }
 
+func composeFormatOptionLabel(ctx context.Context, format string) string {
+	if format == "plain" {
+		return i18n.T(ctx, "settings.compose.format.plain")
+	}
+	return i18n.T(ctx, "settings.compose.format.html")
+}
+
 func autosaveConditionsLabel(ctx context.Context, settings map[string]string) string {
 	value := uiSettingGet(settings, "compose_autosave_conditions", "chars,attachment")
 	count := 0

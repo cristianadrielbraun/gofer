@@ -762,7 +762,8 @@ html:root[data-theme="express"] :is(.account-wizard-card-footer, .account-wizard
 [data-theme="express"] .compose-subject-input,
 [data-theme="express"] .compose-body-input,
 [data-theme="express"] .compose-rich-editor,
-[data-theme="express"] [contenteditable="true"] {
+[data-theme="express"] [contenteditable="true"],
+[data-theme="express"] [contenteditable="plaintext-only"] {
   box-shadow: none;
 }
 

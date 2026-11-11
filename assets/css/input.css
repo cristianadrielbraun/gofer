@@ -1008,6 +1008,28 @@
   list-style: square;
 }
 
+/* Plain text mode: the editor takes text only, keeps the spaces and line
+   breaks as typed, and the formatting tools hide. */
+[data-compose-format="plain"] [data-compose-rich-only],
+[data-compose-format="plain"] .compose-attachment-actions {
+  display: none;
+}
+
+/* The format button names the format it switches to. */
+[data-compose-format-to-html],
+[data-compose-format="plain"] [data-compose-format-to-plain] {
+  display: none;
+}
+
+[data-compose-format="plain"] [data-compose-format-to-html] {
+  display: contents;
+}
+
+.compose-rich-editor[data-compose-plain-mode] {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .compose-rich-editor a {
   color: var(--primary);
   text-decoration: underline;
@@ -5139,7 +5161,8 @@ body.mail-list-column-resizing {
   input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
   textarea,
   select,
-  [contenteditable="true"] {
+  [contenteditable="true"],
+  [contenteditable="plaintext-only"] {
     font-size: max(16px, 0.9375rem) !important;
   }
 }
@@ -6696,6 +6719,12 @@ body.mail-list-column-resizing {
     width: 2.75rem;
     height: 2.75rem;
     flex: none;
+  }
+
+  /* The format button has a label, so it keeps its width. */
+  .compose-dialog-content [data-compose-toolbar] button[data-compose-format-toggle] {
+    width: auto;
+    padding-inline: 0.75rem;
   }
 
   .compose-dialog-content [data-compose-toolbar] svg {

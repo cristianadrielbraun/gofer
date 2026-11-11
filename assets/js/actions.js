@@ -131,6 +131,7 @@
     "setActiveComposeEditor",
     "setProfileConflictChoices",
     "showComposeSignaturePicker",
+    "toggleComposeFormat",
     "syncAddContactStepAfterSwap",
     "syncCalendarDescription",
     "syncCalendarGuestDropdownState",
