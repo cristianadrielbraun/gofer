@@ -325,6 +325,10 @@
     })
   }
 
+  // goferPrompt asks for one text and resolves it, or null when cancelled.
+  // With fields (up to two, each { label, value, placeholder }) it resolves
+  // their texts as an array, focusing fields[focus]. With extraLabel, a
+  // button beside the answer resolves { extra: true }.
   window.goferPrompt = function (options) {
     options = options || {}
     return new Promise(function (resolve) {
@@ -334,27 +338,45 @@
         return
       }
       var form = root.querySelector("[data-app-prompt-form]")
-      var input = root.querySelector("[data-app-prompt-input]")
+      var fields = options.fields || [{ label: options.label, value: options.value, placeholder: options.placeholder }]
+      var groups = root.querySelectorAll("[data-app-prompt-field]")
+      var inputs = []
+      for (var i = 0; i < groups.length; i++) {
+        var field = fields[i]
+        groups[i].hidden = !field
+        if (!field) continue
+        var input = groups[i].querySelector("[data-app-prompt-input]")
+        groups[i].querySelector("[data-app-prompt-label]").textContent = field.label || ""
+        input.value = field.value || ""
+        input.placeholder = field.placeholder || ""
+        inputs.push(input)
+      }
       root.querySelector("[data-app-prompt-title]").textContent = options.title || ""
       var message = root.querySelector("[data-app-prompt-message]")
       message.textContent = options.message || ""
       message.hidden = !options.message
-      root.querySelector("[data-app-prompt-label]").textContent = options.label || ""
       root.querySelector("[data-app-prompt-accept]").textContent = options.confirmLabel || goferT("js.common.ok")
-      input.value = options.value || ""
-      input.placeholder = options.placeholder || ""
+      var extra = root.querySelector("[data-app-prompt-extra]")
+      extra.textContent = options.extraLabel || ""
+      extra.hidden = !options.extraLabel
       var value = null
+      extra.onclick = function () {
+        value = { extra: true }
+        window.tui.dialog.close("app-prompt-dialog")
+      }
       form.onsubmit = function (event) {
         event.preventDefault()
-        value = input.value
+        value = options.fields ? inputs.map(function (input) { return input.value }) : inputs[0].value
         window.tui.dialog.close("app-prompt-dialog")
       }
       var opened = openAppDialog("app-prompt-dialog", function () {
         form.onsubmit = null
+        extra.onclick = null
         resolve(value)
       })
+      var focused = inputs[options.focus || 0] || inputs[0]
       if (!opened) resolve(null)
-      else setTimeout(function () { input.focus(); input.select() }, 0)
+      else setTimeout(function () { focused.focus(); focused.select() }, 0)
     })
   }
 

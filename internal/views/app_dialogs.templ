@@ -46,11 +46,18 @@ templ AppDialogs() {
 					@dialog.Title(dialog.TitleProps{Attributes: templ.Attributes{"data-app-prompt-title": ""}})
 					@dialog.Description(dialog.DescriptionProps{Attributes: templ.Attributes{"data-app-prompt-message": "", "hidden": ""}})
 				}
-				<div class="grid gap-2">
+				<div class="grid gap-2" data-app-prompt-field>
 					@label.Label(label.Props{For: "app-prompt-input", Attributes: templ.Attributes{"data-app-prompt-label": ""}})
 					@input.Input(input.Props{ID: "app-prompt-input", Attributes: templ.Attributes{"autocomplete": "off", "data-app-prompt-input": ""}})
 				</div>
+				// A second field, for prompts that ask two things.
+				<div class="grid gap-2" data-app-prompt-field hidden>
+					@label.Label(label.Props{For: "app-prompt-input-2", Attributes: templ.Attributes{"data-app-prompt-label": ""}})
+					@input.Input(input.Props{ID: "app-prompt-input-2", Attributes: templ.Attributes{"autocomplete": "off", "data-app-prompt-input": ""}})
+				</div>
 				@dialog.Footer() {
+					// An extra choice beside the answer, such as removing what is edited.
+					@button.Button(button.Props{Variant: button.VariantOutline, Class: "sm:mr-auto", Attributes: templ.Attributes{"data-app-prompt-extra": "", "hidden": ""}})
 					@dialog.Close() {
 						@button.Button(button.Props{Variant: button.VariantOutline}) {
 							{ i18n.T(ctx, "common.cancel") }

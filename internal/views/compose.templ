@@ -260,7 +260,7 @@ templ ComposeToolbar() {
 		@composeToolButton(i18n.T(ctx, "compose.attach_tip"), icon.Paperclip(icon.Props{Class: "size-3.5"}), templ.Attributes{"data-compose-toolbar-attach": "", "data-on-click": `["triggerComposeAttachmentUpload","$this"]`})
 		@composeFoldPart("9", true) {
 			@composeToolButton(i18n.T(ctx, "compose.format.image"), icon.Image(icon.Props{Class: "size-3.5"}), templ.Attributes{"data-on-click": `["triggerComposeInlineImageUpload","$this"]`})
-			@composeToolButton(i18n.T(ctx, "compose.format.link"), icon.Link(icon.Props{Class: "size-3.5"}), templ.Attributes{"data-on-click": `["composeCreateLink","$this"]`})
+			@composeLinkButton()
 		}
 		@composeFoldPart("10", false) {
 			@composeToolButton(i18n.T(ctx, "compose.format.signature"), icon.Signature(icon.Props{Class: "size-3.5"}), templ.Attributes{"data-on-click": `["showComposeSignaturePicker","$this"]`})
@@ -329,6 +329,29 @@ templ composeMenuTooltip(label string) {
 		}
 		@composeTooltipContent(label)
 	}
+}
+
+// composeLinkButton adds a link, or edits the one the caret is in; app.js
+// shows which in its tooltip.
+templ composeLinkButton() {
+	@tooltip.Tooltip() {
+		@tooltip.Trigger() {
+			<button type="button" class="flex items-center justify-center size-7 shrink-0 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors" aria-label={ i18n.T(ctx, "compose.format.link") } data-compose-link-button data-on-click='["composeCreateLink","$this"]'>
+				@icon.Link(icon.Props{Class: "size-3.5"})
+			</button>
+		}
+		@tooltip.Content(tooltip.ContentProps{
+			Position:  tooltip.PositionTop,
+			ShowArrow: true,
+		}) {
+			@composeLinkLabels()
+		}
+	}
+}
+
+templ composeLinkLabels() {
+	<span data-compose-link-insert>{ i18n.T(ctx, "compose.format.link") }</span>
+	<span data-compose-link-edit hidden>{ i18n.T(ctx, "compose.format.link_edit") }</span>
 }
 
 // composeMenuButton is the trigger of a toolbar menu: an icon and a chevron.
@@ -495,7 +518,12 @@ templ composeOverflowMenu() {
 					}
 					@composeOverflowSection("9", true) {
 						@composeMenuItem(i18n.T(ctx, "compose.format.image"), icon.Image(icon.Props{Class: "size-4"}), templ.Attributes{"data-on-click": `["triggerComposeInlineImageUpload","$this"]`})
-						@composeMenuItem(i18n.T(ctx, "compose.format.link"), icon.Link(icon.Props{Class: "size-4"}), templ.Attributes{"data-on-click": `["composeCreateLink","$this"]`})
+						@dropdown.Item(dropdown.ItemProps{Attributes: templ.Attributes{"data-on-click": `["composeCreateLink","$this"]`}}) {
+							<span class="flex items-center gap-2">
+								@icon.Link(icon.Props{Class: "size-4"})
+								@composeLinkLabels()
+							</span>
+						}
 					}
 					@composeOverflowSection("10", false) {
 						@composeMenuItem(i18n.T(ctx, "compose.format.signature"), icon.Signature(icon.Props{Class: "size-4"}), templ.Attributes{"data-on-click": `["showComposeSignaturePicker","$this"]`})

@@ -15758,13 +15758,17 @@ function promptForLink() {
     label: goferT("js.compose.link.label"),
     placeholder: goferT("js.compose.link.placeholder"),
     confirmLabel: goferT("js.compose.link.confirm"),
-  }).then(function (value) {
-    value = String(value || "").trim()
-    if (!value) return ""
-    if (value.indexOf("@") > 0 && !/^[a-z][a-z0-9+.-]*:/i.test(value)) value = "mailto:" + value
-    if (!/^[a-z][a-z0-9+.-]*:/i.test(value)) value = "https://" + value
-    return /^(https?:|mailto:)/i.test(value) ? value : ""
-  })
+  }).then(_normalizeLinkAddress)
+}
+
+// _normalizeLinkAddress turns what was typed as an address into a web or
+// mail link, or nothing.
+function _normalizeLinkAddress(value) {
+  value = String(value || "").trim()
+  if (!value) return ""
+  if (value.indexOf("@") > 0 && !/^[a-z][a-z0-9+.-]*:/i.test(value)) value = "mailto:" + value
+  if (!/^[a-z][a-z0-9+.-]*:/i.test(value)) value = "https://" + value
+  return /^(https?:|mailto:)/i.test(value) ? value : ""
 }
 
 function pasteCalendarDescription(event) {
@@ -18830,6 +18834,7 @@ function resetComposeForm(fromPane, skipCleanup) {
   setComposeKind(form, "new")
   var editor = form.querySelector("[data-compose-editor]")
   if (editor) editor.innerHTML = ""
+  hideComposeLinkToolbar()
   syncComposeInlineImageInputs(form)
   syncComposeRemoteImagesNotice(form)
   var recipientFields = form.querySelectorAll("[data-compose-recipient-field]")
@@ -20284,6 +20289,7 @@ function _setComposeEditorValue(form, plain, html, inlineImages) {
   var editor = form.querySelector("[data-compose-editor]")
   var plainField = form.querySelector('textarea[name="body"]')
   var htmlField = form.querySelector('textarea[name="html_body"]')
+  hideComposeLinkToolbar()
   var plainMode = composeFormat(form) === "plain"
   if (plainMode && !plain && html) plain = _composeHTMLText(html)
   if (plainField) plainField.value = plain || ""
@@ -20422,18 +20428,74 @@ function composeSetColor(el, command, value) {
   _composeFinishFormat(editor)
 }
 
+// _composeLinkAtSelection is the editor link the caret or selection is in.
+function _composeLinkAtSelection(editor) {
+  var selection = window.getSelection && window.getSelection()
+  var node = selection && selection.rangeCount ? selection.anchorNode : null
+  var el = node && (node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement)
+  var link = el && el.closest ? el.closest("a[href]") : null
+  return link && editor && editor.contains(link) ? link : null
+}
+
+// _unlinkComposeLink takes a whole link off, keeping its text; undo brings
+// it back.
+function _unlinkComposeLink(editor, link) {
+  var selection = window.getSelection()
+  var range = document.createRange()
+  range.selectNodeContents(link)
+  selection.removeAllRanges()
+  selection.addRange(range)
+  document.execCommand("unlink")
+  selection.collapseToEnd()
+  _saveComposeSelection(editor)
+}
+
+// composeCreateLink adds a link, or on a link edits it: the dialog asks for
+// the text to show and the address, and editing can remove the link.
 function composeCreateLink(el) {
   var editor = _composeEditorFrom(el)
   if (!editor) return
   editor.focus()
   _restoreComposeSelection(editor)
   _saveComposeSelection(editor)
-  promptForLink().then(function (url) {
-    if (!url) return
+  var link = _composeLinkAtSelection(editor)
+  var selection = window.getSelection()
+  var selected = !link && selection && selection.rangeCount ? selection.toString() : ""
+  var text = link ? link.textContent : selected
+  var address = link ? (link.getAttribute("href") || "").replace(/^mailto:/i, "") : ""
+  window.goferPrompt({
+    title: goferT(link ? "js.compose.link.edit_title" : "js.compose.link.title"),
+    confirmLabel: goferT(link ? "js.compose.link.save" : "js.compose.link.confirm"),
+    fields: [
+      { label: goferT("js.compose.link.text_label"), value: text },
+      { label: goferT("js.compose.link.label"), value: address, placeholder: goferT("js.compose.link.placeholder") },
+    ],
+    focus: text ? 1 : 0,
+    extraLabel: link ? goferT("js.compose.link.remove") : "",
+  }).then(function (result) {
     editor.focus()
     _restoreComposeSelection(editor)
-    document.execCommand("createLink", false, url)
+    if (!result) return
+    if (result.extra) {
+      if (link && link.isConnected) _unlinkComposeLink(editor, link)
+    } else {
+      var url = _normalizeLinkAddress(result[1])
+      if (!url) return
+      var shown = String(result[0] || "").trim() || url.replace(/^mailto:/i, "")
+      if (link && link.isConnected) {
+        link.setAttribute("href", url)
+        // Retyping the text drops the link's own formatting, so only a
+        // changed text is put in.
+        if (shown !== link.textContent) link.textContent = shown
+      } else if (selected && shown === selected) {
+        // The selection becomes the link, keeping its formatting.
+        document.execCommand("createLink", false, url)
+      } else {
+        document.execCommand("insertHTML", false, '<a href="' + _escapeComposeHTML(url) + '">' + _escapeComposeHTML(shown) + "</a>")
+      }
+    }
     syncComposeEditor(editor)
+    _markComposeDirty(_composeFormFrom(editor))
     updateComposeToolbar(editor)
   })
 }
@@ -20455,6 +20517,13 @@ function updateComposeToolbar(editor) {
     if (document.queryCommandState("justifyCenter")) align = "center"
     else if (document.queryCommandState("justifyRight")) align = "right"
   } catch (e) {}
+  // The link button and its ⋯ menu copy say Edit link on a link.
+  var onLink = !!_composeLinkAtSelection(editor)
+  form.querySelectorAll("[data-compose-link-insert]").forEach(function (el) { el.hidden = onLink })
+  form.querySelectorAll("[data-compose-link-edit]").forEach(function (el) { el.hidden = !onLink })
+  form.querySelectorAll("[data-compose-link-button]").forEach(function (button) {
+    button.setAttribute("aria-label", goferT(onLink ? "js.compose.link.edit_title" : "js.compose.link.insert"))
+  })
   var alignIcons = form.querySelectorAll("[data-compose-align-icon]")
   for (var a = 0; a < alignIcons.length; a++) {
     var current = alignIcons[a].dataset.composeAlignIcon === align
@@ -20540,7 +20609,7 @@ document.addEventListener("selectionchange", function () {
 })
 
 document.addEventListener("mousedown", function (event) {
-  if (event.target && event.target.closest && (event.target.closest("[data-compose-toolbar] button") || event.target.closest(".compose-inline-image-toolbar"))) {
+  if (event.target && event.target.closest && (event.target.closest("[data-compose-toolbar] button") || event.target.closest(".compose-float-toolbar"))) {
     event.preventDefault()
   }
 })
@@ -20553,8 +20622,9 @@ document.addEventListener("click", function (event) {
     selectComposeInlineImage(img)
     return
   }
-  if (event.target.closest(".compose-inline-image-toolbar")) return
+  if (event.target.closest(".compose-float-toolbar")) return
   hideComposeInlineImageToolbar()
+  if (!event.target.closest("[data-compose-editor]")) hideComposeLinkToolbar()
 })
 
 window.addEventListener("resize", positionComposeInlineImageToolbar)
@@ -21385,7 +21455,26 @@ function _composeInlineImageFlipped(img) {
   return /scaleX\(\s*-1\s*\)/i.test(String((img && img.style && img.style.transform) || ""))
 }
 
-function _composeInlineImageToolbarButton(action, label, path) {
+// The floating bars over an inline image or a link open as popovers inside
+// the compose window: the compose dialog is modal, so a bar outside it would
+// sit under it and take no clicks.
+function _showComposeFloatToolbar(toolbar, target) {
+  var host = (target && target.closest("dialog")) || document.body
+  if (toolbar.parentNode !== host) {
+    _hideComposeFloatToolbar(toolbar)
+    host.appendChild(toolbar)
+  }
+  toolbar.classList.remove("hidden")
+  if (toolbar.showPopover && !toolbar.matches(":popover-open")) toolbar.showPopover()
+}
+
+function _hideComposeFloatToolbar(toolbar) {
+  if (!toolbar) return
+  toolbar.classList.add("hidden")
+  if (toolbar.hidePopover && toolbar.matches(":popover-open")) toolbar.hidePopover()
+}
+
+function _composeFloatToolbarButton(action, label, path) {
   var button = document.createElement("button")
   button.type = "button"
   button.dataset.composeInlineAction = action
@@ -21406,14 +21495,15 @@ function _composeInlineImageToolbarButton(action, label, path) {
 function _ensureComposeInlineImageToolbar() {
   if (_composeInlineImageToolbar) return _composeInlineImageToolbar
   var toolbar = document.createElement("div")
-  toolbar.className = "compose-inline-image-toolbar hidden"
+  toolbar.className = "compose-float-toolbar hidden"
   toolbar.setAttribute("contenteditable", "false")
-  toolbar.appendChild(_composeInlineImageToolbarButton("smaller", goferT("js.compose.image.smaller"), "M5 12h14"))
-  toolbar.appendChild(_composeInlineImageToolbarButton("larger", goferT("js.compose.image.larger"), "M12 5v14M5 12h14"))
-  toolbar.appendChild(_composeInlineImageToolbarButton("rotate", goferT("js.compose.image.rotate"), "M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6"))
-  toolbar.appendChild(_composeInlineImageToolbarButton("flip", goferT("js.compose.image.flip"), "M12 3v18M5 7l5 5-5 5V7Zm14 0l-5 5 5 5V7Z"))
-  toolbar.appendChild(_composeInlineImageToolbarButton("attach", goferT("js.compose.image.attach"), "M21.44 11.05 12 20.5a6 6 0 0 1-8.49-8.49l9.9-9.9a4 4 0 0 1 5.66 5.66l-9.9 9.9a2 2 0 1 1-2.83-2.83l8.49-8.49"))
-  toolbar.appendChild(_composeInlineImageToolbarButton("remove", goferT("js.compose.image.remove"), "M18 6 6 18M6 6l12 12"))
+  toolbar.setAttribute("popover", "manual")
+  toolbar.appendChild(_composeFloatToolbarButton("smaller", goferT("js.compose.image.smaller"), "M5 12h14"))
+  toolbar.appendChild(_composeFloatToolbarButton("larger", goferT("js.compose.image.larger"), "M12 5v14M5 12h14"))
+  toolbar.appendChild(_composeFloatToolbarButton("rotate", goferT("js.compose.image.rotate"), "M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6"))
+  toolbar.appendChild(_composeFloatToolbarButton("flip", goferT("js.compose.image.flip"), "M12 3v18M5 7l5 5-5 5V7Zm14 0l-5 5 5 5V7Z"))
+  toolbar.appendChild(_composeFloatToolbarButton("attach", goferT("js.compose.image.attach"), "M21.44 11.05 12 20.5a6 6 0 0 1-8.49-8.49l9.9-9.9a4 4 0 0 1 5.66 5.66l-9.9 9.9a2 2 0 1 1-2.83-2.83l8.49-8.49"))
+  toolbar.appendChild(_composeFloatToolbarButton("remove", goferT("js.compose.image.remove"), "M18 6 6 18M6 6l12 12"))
   toolbar.addEventListener("mousedown", function (event) { event.preventDefault() })
   toolbar.addEventListener("click", function (event) {
     var button = event.target && event.target.closest ? event.target.closest("[data-compose-inline-action]") : null
@@ -21453,8 +21543,7 @@ function selectComposeInlineImage(img) {
   }
   _selectedComposeInlineImage = img
   img.classList.add("compose-inline-image-selected")
-  var toolbar = _ensureComposeInlineImageToolbar()
-  toolbar.classList.remove("hidden")
+  _showComposeFloatToolbar(_ensureComposeInlineImageToolbar(), img)
   positionComposeInlineImageToolbar()
   updateComposeInlineImageToolbarState()
 }
@@ -21462,7 +21551,7 @@ function selectComposeInlineImage(img) {
 function hideComposeInlineImageToolbar() {
   if (_selectedComposeInlineImage) _selectedComposeInlineImage.classList.remove("compose-inline-image-selected")
   _selectedComposeInlineImage = null
-  if (_composeInlineImageToolbar) _composeInlineImageToolbar.classList.add("hidden")
+  _hideComposeFloatToolbar(_composeInlineImageToolbar)
 }
 
 function _syncSelectedComposeInlineImage() {
@@ -21524,6 +21613,100 @@ function convertComposeInlineImageToAttachment(img) {
   syncComposeEditor(editor)
   _markComposeDirty(form)
 }
+
+// A link in the editor shows a floating bar like an inline image's, with
+// its address and ways to open, edit or remove it. It follows the caret, so
+// clicking a link or moving into it with the keys both show it.
+var _composeLinkToolbar = null
+var _selectedComposeLink = null
+
+function _ensureComposeLinkToolbar() {
+  if (_composeLinkToolbar) return _composeLinkToolbar
+  var toolbar = document.createElement("div")
+  toolbar.className = "compose-float-toolbar hidden"
+  toolbar.setAttribute("contenteditable", "false")
+  toolbar.setAttribute("popover", "manual")
+  var address = document.createElement("span")
+  address.className = "compose-link-address"
+  address.dataset.composeLinkAddress = ""
+  toolbar.appendChild(address)
+  toolbar.appendChild(_composeFloatToolbarButton("open", goferT("js.compose.link.open"), "M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"))
+  toolbar.appendChild(_composeFloatToolbarButton("edit", goferT("js.compose.link.edit"), "M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497zM15 5l4 4"))
+  toolbar.appendChild(_composeFloatToolbarButton("remove", goferT("js.compose.link.remove"), "m18.84 12.25 1.72-1.71h-.02a5.004 5.004 0 0 0-.12-7.07 5.006 5.006 0 0 0-6.95 0l-1.72 1.71M5.17 11.75l-1.71 1.71a5.004 5.004 0 0 0 .12 7.07 5.006 5.006 0 0 0 6.95 0l1.71-1.71M8 2v3M2 8h3M16 19v3M19 16h3"))
+  toolbar.addEventListener("mousedown", function (event) { event.preventDefault() })
+  toolbar.addEventListener("click", function (event) {
+    var button = event.target && event.target.closest ? event.target.closest("[data-compose-inline-action]") : null
+    if (!button) return
+    event.preventDefault()
+    applyComposeLinkAction(button.dataset.composeInlineAction)
+  })
+  _composeLinkToolbar = toolbar
+  return toolbar
+}
+
+function positionComposeLinkToolbar() {
+  if (!_selectedComposeLink) return
+  // Gone, or hidden with its compose window.
+  if (!_selectedComposeLink.isConnected || !_selectedComposeLink.getClientRects().length) return hideComposeLinkToolbar()
+  var toolbar = _ensureComposeLinkToolbar()
+  var rect = _selectedComposeLink.getBoundingClientRect()
+  // Above the link, or below it when there is no room above.
+  var top = rect.top - toolbar.offsetHeight - 6
+  if (top < 8) top = rect.bottom + 6
+  toolbar.style.top = top + "px"
+  toolbar.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - toolbar.offsetWidth - 8)) + "px"
+}
+
+function selectComposeLink(link) {
+  _selectedComposeLink = link
+  var toolbar = _ensureComposeLinkToolbar()
+  var href = link.getAttribute("href") || ""
+  var address = toolbar.querySelector("[data-compose-link-address]")
+  address.textContent = href.replace(/^mailto:/i, "")
+  address.title = href
+  _showComposeFloatToolbar(toolbar, link)
+  positionComposeLinkToolbar()
+}
+
+function hideComposeLinkToolbar() {
+  _selectedComposeLink = null
+  _hideComposeFloatToolbar(_composeLinkToolbar)
+}
+
+function syncComposeLinkToolbar() {
+  var selection = window.getSelection && window.getSelection()
+  var node = selection && selection.rangeCount ? selection.anchorNode : null
+  var el = node && (node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement)
+  var editor = el && el.closest ? el.closest("[data-compose-editor]") : null
+  var link = editor && composeFormat(_composeFormFrom(editor)) !== "plain" ? _composeLinkAtSelection(editor) : null
+  if (link) {
+    if (link !== _selectedComposeLink) selectComposeLink(link)
+    else positionComposeLinkToolbar()
+  } else if (_selectedComposeLink) {
+    hideComposeLinkToolbar()
+  }
+}
+
+function applyComposeLinkAction(action) {
+  var link = _selectedComposeLink
+  if (!link || !link.isConnected) return hideComposeLinkToolbar()
+  var editor = link.closest("[data-compose-editor]")
+  if (action === "open") {
+    window.open(link.getAttribute("href"), "_blank", "noopener")
+  } else if (action === "edit") {
+    composeCreateLink(editor)
+  } else if (action === "remove" && editor) {
+    _unlinkComposeLink(editor, link)
+    hideComposeLinkToolbar()
+    syncComposeEditor(editor)
+    _markComposeDirty(_composeFormFrom(editor))
+    updateComposeToolbar(editor)
+  }
+}
+
+document.addEventListener("selectionchange", syncComposeLinkToolbar)
+window.addEventListener("resize", positionComposeLinkToolbar)
+window.addEventListener("scroll", positionComposeLinkToolbar, true)
 
 function composeAttachmentKind(att) {
   var filename = (att && att.filename ? att.filename : "").toLowerCase()

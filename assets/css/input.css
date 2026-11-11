@@ -945,8 +945,12 @@
   display: none;
 }
 
-.compose-inline-image-toolbar {
+.compose-float-toolbar {
   position: fixed;
+  /* It opens as a popover: undo the browser's centring of one. */
+  inset: auto;
+  margin: 0;
+  overflow: visible;
   z-index: 80;
   display: inline-flex;
   gap: 0.2rem;
@@ -959,11 +963,22 @@
   box-shadow: var(--shadow-raised);
 }
 
-.compose-inline-image-toolbar.hidden {
+/* A link's address in its floating bar. */
+.compose-link-address {
+  max-width: 16rem;
+  overflow: hidden;
+  padding: 0 0.4rem;
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.compose-float-toolbar.hidden {
   display: none;
 }
 
-.compose-inline-image-toolbar button {
+.compose-float-toolbar button {
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
@@ -975,7 +990,7 @@
   transition: background-color 150ms ease, color 150ms ease;
 }
 
-.compose-inline-image-toolbar svg {
+.compose-float-toolbar svg {
   width: 0.8rem;
   height: 0.8rem;
   flex: 0 0 auto;
@@ -986,17 +1001,17 @@
   stroke-linejoin: round;
 }
 
-.compose-inline-image-toolbar button:hover {
+.compose-float-toolbar button:hover {
   background: var(--accent);
   color: var(--foreground);
 }
 
-.compose-inline-image-toolbar button:disabled {
+.compose-float-toolbar button:disabled {
   cursor: not-allowed;
   opacity: 0.38;
 }
 
-.compose-inline-image-toolbar button:disabled:hover {
+.compose-float-toolbar button:disabled:hover {
   background: transparent;
   color: color-mix(in srgb, var(--ink) 70%, var(--foreground));
 }
