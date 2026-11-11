@@ -6639,6 +6639,7 @@
   "sync.fallback_reason.idle_select": "no se pudo seleccionar la carpeta para IDLE",
   "sync.fallback_reason.idle_unsupported": "el servidor no anuncia IMAP IDLE",
   "sync.fallback_reason.jmap_session": "no se pudo cargar la sesión JMAP",
+  "sync.fallback_reason.login_limited": "el servidor está limitando los inicios de sesión de esta cuenta; Gofer espera unos minutos antes de volver a intentarlo",
   "sync.fallback_reason.login_refused": "el servidor rechazó el inicio de sesión",
   "sync.fallback_reason.push_closed": "se cerró la conexión push",
   "sync.fallback_reason.push_failed": "falló la conexión push",

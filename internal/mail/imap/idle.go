@@ -2,6 +2,7 @@ package imap
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"sync"
@@ -99,8 +100,14 @@ func (w *IdleWatcher) Run(ctx context.Context) {
 		}
 		retryIn := backoff
 		status := idleStatusForError(err)
+		var cooldown *LoginCooldownError
 		if runErr, ok := err.(*idleRunError); ok && runErr.permanent {
 			retryIn = idleUnsupportedRetry
+		} else if errors.As(err, &cooldown) {
+			// Logins to this mailbox are on hold: retrying sooner would only
+			// be refused here, so wake when the hold ends.
+			retryIn = max(time.Until(cooldown.Until), idleInitialReconnectBackoff)
+			status.RetryAt = time.Now().Add(retryIn)
 		} else {
 			status.RetryAt = time.Now().Add(retryIn)
 		}
@@ -134,6 +141,10 @@ func idleStatusForError(err error) IdleWatcherStatus {
 	if runErr, ok := err.(*idleRunError); ok {
 		status.ReasonCode = runErr.code
 		status.Reason = runErr.reason
+	}
+	if errors.Is(err, ErrLoginRateLimited) {
+		status.ReasonCode = "login_limited"
+		status.Reason = LoginCooldownMessage
 	}
 	return status
 }

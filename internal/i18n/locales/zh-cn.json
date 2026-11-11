@@ -6639,6 +6639,7 @@
   "sync.fallback_reason.idle_select": "无法为 IDLE 选择该文件夹",
   "sync.fallback_reason.idle_unsupported": "服务器未声明支持 IMAP IDLE",
   "sync.fallback_reason.jmap_session": "无法加载 JMAP 会话",
+  "sync.fallback_reason.login_limited": "服务器正在限制此账户的登录；Gofer 会等待几分钟后再重试",
   "sync.fallback_reason.login_refused": "服务器拒绝了登录",
   "sync.fallback_reason.push_closed": "推送连接已关闭",
   "sync.fallback_reason.push_failed": "推送连接失败",

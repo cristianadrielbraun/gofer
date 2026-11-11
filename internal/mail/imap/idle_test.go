@@ -184,6 +184,28 @@ func TestIdleWatcherReportsTemporaryFailureAndRetryTime(t *testing.T) {
 	}
 }
 
+func TestIdleWatcherWaitsOutLoginCooldown(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var got IdleWatcherStatus
+	watcher := NewIdleWatcher(nil, "", "INBOX", nil, func(status IdleWatcherStatus) {
+		got = status
+		cancel()
+	})
+	until := time.Now().Add(20 * time.Minute)
+	watcher.connect = func(*models.AccountConfig, string, *imapclient.Options) (*imapclient.Client, error) {
+		return nil, &LoginCooldownError{Until: until}
+	}
+	watcher.Run(ctx)
+	if got.Healthy || got.ReasonCode != "login_limited" || got.Reason != LoginCooldownMessage {
+		t.Fatalf("cooldown status = %#v, want the login limit as the reason", got)
+	}
+	// The first retry would be a second away; a hold on logins pushes it back.
+	if got.RetryAt.Before(until.Add(-time.Second)) {
+		t.Fatalf("retry at %s, want it no earlier than the cooldown end %s", got.RetryAt, until)
+	}
+}
+
 func TestIdleWatcherRefreshesLongRunningSession(t *testing.T) {
 	raw := newIdleTestClient(t, "IMAP4rev1 IDLE")
 	watcher := NewIdleWatcher(nil, "", "INBOX", nil, nil)
