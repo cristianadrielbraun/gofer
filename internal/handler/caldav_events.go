@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -175,6 +176,9 @@ func listCalDAVCalendarEvents(ctx context.Context, source storage.CalendarSource
 				events = append(events, occurrence.remote)
 			}
 		}
+		if errors.Is(err, errCalDAVNoEvents) {
+			continue
+		}
 		if err != nil {
 			return calendar.EventPage{}, fmt.Errorf("read CalDAV event: %w", err)
 		}
@@ -218,6 +222,10 @@ func listCalDAVCalendarEvents(ctx context.Context, source storage.CalendarSource
 	return page, nil
 }
 
+// errCalDAVNoEvents is a resource with no VEVENT, such as a task some
+// servers return although the query asked for events only.
+var errCalDAVNoEvents = errors.New("CalDAV calendar data contains no events")
+
 func parseCalDAVEvents(href, etag, data string, location *time.Location) ([]calendar.RemoteEvent, error) {
 	decoder := ical.NewDecoder(strings.NewReader(data))
 	cal, err := decoder.Decode()
@@ -229,7 +237,7 @@ func parseCalDAVEvents(href, etag, data string, location *time.Location) ([]cale
 	}
 	components := cal.Events()
 	if len(components) == 0 {
-		return nil, fmt.Errorf("CalDAV calendar data contains no events")
+		return nil, errCalDAVNoEvents
 	}
 	events := make([]calendar.RemoteEvent, 0, len(components))
 	for _, component := range components {

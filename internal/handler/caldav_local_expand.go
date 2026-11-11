@@ -67,7 +67,7 @@ func expandCalDAVResource(data, href, etag string, start, end time.Time, locatio
 		return expandCalendarSeries(append([]ical.Event{*master}, changed...), href, etag, start, end, location)
 	}
 	if len(changed) == 0 {
-		return nil, fmt.Errorf("CalDAV calendar data contains no events")
+		return nil, errCalDAVNoEvents
 	}
 	var out []jmapOccurrence
 	for _, component := range changed {

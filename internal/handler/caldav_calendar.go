@@ -327,7 +327,7 @@ func calDAVCalendarHome(ctx context.Context, principalURL, username, password st
 }
 
 func listCalDAVCalendars(ctx context.Context, homeURL, username, password, userID, accountID string) ([]storage.CalendarSource, error) {
-	body := `<?xml version="1.0" encoding="utf-8"?><d:propfind xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav" xmlns:a="http://apple.com/ns/ical/"><d:prop><d:displayname/><d:resourcetype/><d:current-user-privilege-set/><c:calendar-description/><c:calendar-timezone/><a:calendar-color/></d:prop></d:propfind>`
+	body := `<?xml version="1.0" encoding="utf-8"?><d:propfind xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav" xmlns:a="http://apple.com/ns/ical/"><d:prop><d:displayname/><d:resourcetype/><d:current-user-privilege-set/><c:calendar-description/><c:calendar-timezone/><c:supported-calendar-component-set/><a:calendar-color/></d:prop></d:propfind>`
 	multi, err := calDAVPropfind(ctx, homeURL, username, password, "1", body)
 	if err != nil {
 		return nil, err
@@ -336,7 +336,7 @@ func listCalDAVCalendars(ctx context.Context, homeURL, username, password, userI
 	seen := make(map[string]bool)
 	for _, response := range multi.Responses {
 		prop := response.okProp()
-		if !prop.ResourceType.Calendar {
+		if !prop.ResourceType.Calendar || !calDAVHoldsEvents(prop) {
 			continue
 		}
 		if strings.TrimSpace(response.Href) == "" {
@@ -387,6 +387,21 @@ func listCalDAVCalendars(ctx context.Context, homeURL, username, password, userI
 		})
 	}
 	return calendars, nil
+}
+
+// calDAVHoldsEvents reports whether a calendar collection can hold events.
+// Task lists (VTODO only) and journals are calendar collections too, but
+// Gofer's calendar has nothing to show from them.
+func calDAVHoldsEvents(prop davProp) bool {
+	if prop.SupportedComponents == nil || len(prop.SupportedComponents.Comps) == 0 {
+		return true
+	}
+	for _, comp := range prop.SupportedComponents.Comps {
+		if strings.EqualFold(strings.TrimSpace(comp.Name), "VEVENT") {
+			return true
+		}
+	}
+	return false
 }
 
 func calDAVCalendarName(calendarURL string) string {
