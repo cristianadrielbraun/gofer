@@ -37,6 +37,8 @@
     "composeChanged",
     "composeCreateLink",
     "composeExec",
+    "composeSetColor",
+    "composeSetTextSize",
     "configureCalendarCacheRequest",
     "configureCalendarSyncRequest",
     "confirmFolderMove",

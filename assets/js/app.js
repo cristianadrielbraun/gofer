@@ -19121,7 +19121,10 @@ function showComposeSignaturePicker(el) {
     }
     document.body.appendChild(menu)
     _composeSignatureMenu = menu
-    var rect = el.getBoundingClientRect()
+    // From the ⋯ menu, which closes, the picker opens by the ⋯ button.
+    var overflow = el.closest && el.closest("[data-compose-overflow-menu]")
+    var anchor = (overflow && overflow.querySelector("[data-compose-overflow-trigger]")) || el
+    var rect = anchor.getBoundingClientRect()
     menu.style.top = Math.min(window.innerHeight - menu.offsetHeight - 8, rect.bottom + 6) + "px"
     menu.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - menu.offsetWidth - 8)) + "px"
     setTimeout(function () { document.addEventListener("mousedown", closeComposeSignatureMenu, { once: true }) }, 0)
@@ -19992,6 +19995,9 @@ function _applyComposeFormat(form, format) {
     // editor, and paste, drop and the shortcuts still keep to plain text.
     if (plain && editor.contentEditable !== "plaintext-only") editor.setAttribute("contenteditable", "true")
   }
+  // The tools shown change with the format, so the toolbar folds again.
+  observeComposeToolbars()
+  syncComposeToolbarOverflow(form.querySelector("[data-compose-toolbar]"), true)
 }
 
 var _COMPOSE_TEXT_BLOCK = /^(ADDRESS|ARTICLE|ASIDE|BLOCKQUOTE|CENTER|DD|DIV|DL|DT|FIELDSET|FIGCAPTION|FIGURE|FOOTER|FORM|H[1-6]|HEADER|HR|LI|MAIN|NAV|OL|P|PRE|SECTION|TABLE|TBODY|TFOOT|THEAD|TR|UL)$/
@@ -20183,6 +20189,61 @@ function toggleComposeFormat(el) {
   })
 }
 
+// The compose toolbar folds its tools into a ⋯ menu as its room runs out,
+// as the mail list's toolbar and the contact header do: undo first, then
+// quote and code, and so on (the ranks in ComposeToolbar). Bold to lists,
+// attach and the format switch stay.
+var COMPOSE_OVERFLOW_RANKS = 10
+var composeToolbarObserver = null
+
+function composeToolbarFoldStates(toolbar, step) {
+  var states = new Map()
+  toolbar.querySelectorAll(":scope > [data-compose-overflow-rank]").forEach(function (part) {
+    states.set(part, parseInt(part.getAttribute("data-compose-overflow-rank"), 10) <= step)
+  })
+  var menu = toolbar.querySelector(":scope > [data-compose-overflow-menu]")
+  if (menu) states.set(menu, step === 0)
+  return states
+}
+
+function syncComposeToolbarOverflow(toolbar, force) {
+  if (!toolbar || toolbar.offsetParent === null) return
+  var spacer = toolbar.querySelector(":scope > [data-compose-toolbar-spacer]")
+  var step = toolbarFoldStep(toolbar, spacer, COMPOSE_OVERFLOW_RANKS, function (step) {
+    return composeToolbarFoldStates(toolbar, step)
+  })
+  if (!force && step === toolbar._composeFolded) return
+  toolbar._composeFolded = step
+  composeToolbarFoldStates(toolbar, step).forEach(function (collapsed, el) {
+    el.toggleAttribute("data-mail-collapsed", collapsed)
+  })
+  toolbar.querySelectorAll("[data-compose-overflow-menu-item]").forEach(function (item) {
+    item.style.display = parseInt(item.getAttribute("data-compose-overflow-menu-item"), 10) <= step ? "" : "none"
+  })
+}
+
+// observeComposeToolbars watches each compose toolbar's width; the dialog's
+// is there from the start, the pane's comes with the pane.
+function observeComposeToolbars() {
+  if (typeof ResizeObserver !== "function") return
+  if (!composeToolbarObserver) {
+    composeToolbarObserver = new ResizeObserver(function (entries) {
+      entries.forEach(function (entry) {
+        // A pane's toolbar goes when the pane is replaced.
+        if (!entry.target.isConnected) composeToolbarObserver.unobserve(entry.target)
+        else syncComposeToolbarOverflow(entry.target)
+      })
+    })
+  }
+  document.querySelectorAll("[data-compose-toolbar]").forEach(function (toolbar) {
+    if (toolbar._composeFoldObserved) return
+    toolbar._composeFoldObserved = true
+    composeToolbarObserver.observe(toolbar)
+  })
+}
+
+document.addEventListener("DOMContentLoaded", observeComposeToolbars)
+
 // _composeInsertHTMLAtSelection puts markup at the caret without
 // execCommand, which a plain text editor would insert as text.
 function _composeInsertHTMLAtSelection(editor, html) {
@@ -20241,6 +20302,124 @@ function composeExec(el, command, value) {
   document.execCommand(command, false, value || null)
   syncComposeEditor(editor)
   updateComposeToolbar(editor)
+}
+
+// The size menu's sizes are the browser's font sizes, as other mail apps
+// send them: 1 is small, 4 large and 6 huge.
+var COMPOSE_FONT_SIZES = { small: "1", large: "4", huge: "6" }
+// A value no menu offers, put on the selection to find it afterwards.
+var COMPOSE_MARK_COLOR = "#010203"
+
+function _composeEditorSelection(el) {
+  var editor = _composeEditorFrom(el)
+  if (!editor) return null
+  editor.focus()
+  _restoreComposeSelection(editor)
+  document.execCommand("styleWithCSS", false, false)
+  var selection = window.getSelection && window.getSelection()
+  return { editor: editor, collapsed: !selection || !selection.rangeCount || selection.isCollapsed }
+}
+
+function _composeCSSColor(value) {
+  var probe = document.createElement("span")
+  probe.style.color = value
+  return probe.style.color
+}
+
+// _composeClearMarked takes a property off the marked parts of the editor:
+// the marks are unwrapped and nothing inside keeps the property. The text
+// stays selected.
+function _composeClearMarked(editor, marked, prop, attr) {
+  var first = null
+  var last = null
+  marked.forEach(function (node) {
+    node.querySelectorAll("[style]").forEach(function (el) {
+      el.style.removeProperty(prop)
+      if (!el.getAttribute("style")) el.removeAttribute("style")
+    })
+    if (attr) node.querySelectorAll("font[" + attr + "]").forEach(function (el) { el.removeAttribute(attr) })
+    if (!first) first = node.firstChild
+    if (node.lastChild) last = node.lastChild
+    var parent = node.parentNode
+    while (node.firstChild) parent.insertBefore(node.firstChild, node)
+    parent.removeChild(node)
+  })
+  var selection = window.getSelection && window.getSelection()
+  if (first && last && selection) {
+    var range = document.createRange()
+    range.setStartBefore(first)
+    range.setEndAfter(last)
+    selection.removeAllRanges()
+    selection.addRange(range)
+  }
+}
+
+function _composeFinishFormat(editor) {
+  _saveComposeSelection(editor)
+  syncComposeEditor(editor)
+  updateComposeToolbar(editor)
+  _markComposeDirty(_composeFormFrom(editor))
+}
+
+// composeSetTextSize makes headings, or sets the text size; Normal turns
+// a heading back into text and takes the size off.
+function composeSetTextSize(el, size) {
+  var state = _composeEditorSelection(el)
+  if (!state) return
+  var editor = state.editor
+  if (size === "h2" || size === "h3") {
+    document.execCommand("formatBlock", false, size)
+  } else if (COMPOSE_FONT_SIZES[size]) {
+    document.execCommand("fontSize", false, COMPOSE_FONT_SIZES[size])
+  } else {
+    var block = String(document.queryCommandValue("formatBlock") || "").toLowerCase()
+    if (/^h[1-6]$/.test(block)) document.execCommand("formatBlock", false, "div")
+    // A caret has nothing to mark; the size would stay on what is typed next.
+    if (!state.collapsed) {
+      document.execCommand("fontSize", false, "7")
+      var marked = Array.prototype.filter.call(editor.querySelectorAll("font[size='7'], span"), function (node) {
+        return node.tagName === "FONT" ? true : node.style.fontSize === "xxx-large"
+      })
+      _composeClearMarked(editor, marked, "font-size", "size")
+    }
+  }
+  _composeFinishFormat(editor)
+}
+
+// composeSetColor sets the text or highlight color, or with no value takes
+// it off. Highlighted text is made dark, so it reads on a light highlight.
+function composeSetColor(el, command, value) {
+  var state = _composeEditorSelection(el)
+  if (!state) return
+  var editor = state.editor
+  var isText = command === "foreColor"
+  if (value) {
+    document.execCommand(command, false, value)
+    if (!isText) {
+      var background = _composeCSSColor(value)
+      editor.querySelectorAll("[style]").forEach(function (node) {
+        if (node.style.backgroundColor === background && !node.style.color) node.style.color = "#111827"
+      })
+    }
+  } else if (!state.collapsed) {
+    document.execCommand(command, false, COMPOSE_MARK_COLOR)
+    var mark = _composeCSSColor(COMPOSE_MARK_COLOR)
+    var marked = Array.prototype.filter.call(editor.querySelectorAll("font, span"), function (node) {
+      if (isText) return (node.tagName === "FONT" && _composeCSSColor(node.getAttribute("color") || "") === mark) || node.style.color === mark
+      return node.style.backgroundColor === mark
+    })
+    if (!isText) {
+      // The dark text a highlight brought goes with it.
+      var dark = _composeCSSColor("#111827")
+      marked.forEach(function (node) {
+        node.querySelectorAll("[style]").forEach(function (inner) {
+          if (inner.style.backgroundColor && inner.style.color === dark) inner.style.removeProperty("color")
+        })
+      })
+    }
+    _composeClearMarked(editor, marked, isText ? "color" : "background-color", isText ? "color" : "")
+  }
+  _composeFinishFormat(editor)
 }
 
 function composeCreateLink(el) {

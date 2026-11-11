@@ -215,183 +215,65 @@ templ ComposeMobileBar() {
 }
 
 templ ComposeToolbar() {
-	<div class="flex flex-wrap items-center gap-0.5 border-t border-b py-1 -mx-1" data-compose-toolbar>
-		@composeToolButton(i18n.T(ctx, "compose.format.undo"), icon.Undo2(icon.Props{Class: "size-3.5"}), templ.Attributes{"data-on-click": `["composeExec","$this","undo"]`})
-		@composeToolButton(i18n.T(ctx, "compose.format.redo"), icon.Redo2(icon.Props{Class: "size-3.5"}), templ.Attributes{"data-on-click": `["composeExec","$this","redo"]`})
-		<div class="w-px h-4 bg-border mx-0.5"></div>
+	// As room runs out, app.js folds the ranked parts into the ⋯ menu, lowest
+	// rank first, as the mail list's toolbar does. Bold to lists, attach and
+	// the format switch stay.
+	<div class="flex flex-nowrap items-center gap-0.5 border-t border-b py-1 -mx-1 min-w-0 [--collapse-gap:0.125rem]" data-compose-toolbar>
+		@composeFoldPart("1", false) {
+			@composeToolButton(i18n.T(ctx, "compose.format.undo"), icon.Undo2(icon.Props{Class: "size-3.5"}), templ.Attributes{"data-on-click": `["composeExec","$this","undo"]`})
+			@composeToolButton(i18n.T(ctx, "compose.format.redo"), icon.Redo2(icon.Props{Class: "size-3.5"}), templ.Attributes{"data-on-click": `["composeExec","$this","redo"]`})
+			@composeToolbarSeparator()
+		}
+		@composeFoldPart("8", true) {
+			@composeSizeMenu()
+		}
 		<div class="contents" data-compose-rich-only>
-			@tooltip.Tooltip() {
-				@tooltip.Trigger() {
-					<button type="button" class="flex items-center justify-center size-7 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors" data-compose-command="bold" data-on-click='["composeExec","$this","bold"]'>
-						@icon.Bold(icon.Props{Class: "size-3.5"})
-					</button>
-				}
-				@tooltip.Content(tooltip.ContentProps{
-					Position:  tooltip.PositionBottom,
-					ShowArrow: true,
-				}) {
-					{ i18n.T(ctx, "compose.format.bold") }
-				}
-			}
-			@tooltip.Tooltip() {
-				@tooltip.Trigger() {
-					<button type="button" class="flex items-center justify-center size-7 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors" data-compose-command="italic" data-on-click='["composeExec","$this","italic"]'>
-						@icon.Italic(icon.Props{Class: "size-3.5"})
-					</button>
-				}
-				@tooltip.Content(tooltip.ContentProps{
-					Position:  tooltip.PositionBottom,
-					ShowArrow: true,
-				}) {
-					{ i18n.T(ctx, "compose.format.italic") }
-				}
-			}
-			@tooltip.Tooltip() {
-				@tooltip.Trigger() {
-					<button type="button" class="flex items-center justify-center size-7 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors" data-compose-command="underline" data-on-click='["composeExec","$this","underline"]'>
-						@icon.Underline(icon.Props{Class: "size-3.5"})
-					</button>
-				}
-				@tooltip.Content(tooltip.ContentProps{
-					Position:  tooltip.PositionBottom,
-					ShowArrow: true,
-				}) {
-					{ i18n.T(ctx, "compose.format.underline") }
-				}
-			}
-			@tooltip.Tooltip() {
-				@tooltip.Trigger() {
-					<button type="button" class="flex items-center justify-center size-7 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors" data-compose-command="strikeThrough" data-on-click='["composeExec","$this","strikeThrough"]'>
-						@icon.Strikethrough(icon.Props{Class: "size-3.5"})
-					</button>
-				}
-				@tooltip.Content(tooltip.ContentProps{
-					Position:  tooltip.PositionBottom,
-					ShowArrow: true,
-				}) {
-					{ i18n.T(ctx, "compose.format.strike") }
-				}
-			}
-			@composeToolButton(i18n.T(ctx, "compose.format.clear"), icon.RemoveFormatting(icon.Props{Class: "size-3.5"}), templ.Attributes{"data-on-click": `["composeExec","$this","removeFormat"]`})
-			<div class="w-px h-4 bg-border mx-0.5"></div>
+			@composeToolButton(i18n.T(ctx, "compose.format.bold"), icon.Bold(icon.Props{Class: "size-3.5"}), templ.Attributes{"data-compose-command": "bold", "data-on-click": `["composeExec","$this","bold"]`})
+			@composeToolButton(i18n.T(ctx, "compose.format.italic"), icon.Italic(icon.Props{Class: "size-3.5"}), templ.Attributes{"data-compose-command": "italic", "data-on-click": `["composeExec","$this","italic"]`})
+			@composeToolButton(i18n.T(ctx, "compose.format.underline"), icon.Underline(icon.Props{Class: "size-3.5"}), templ.Attributes{"data-compose-command": "underline", "data-on-click": `["composeExec","$this","underline"]`})
+			@composeToolButton(i18n.T(ctx, "compose.format.strike"), icon.Strikethrough(icon.Props{Class: "size-3.5"}), templ.Attributes{"data-compose-command": "strikeThrough", "data-on-click": `["composeExec","$this","strikeThrough"]`})
 		</div>
+		@composeFoldPart("7", true) {
+			@composeColorMenu("foreColor", i18n.T(ctx, "compose.color.text"), i18n.T(ctx, "compose.color.default"), composeTextColors)
+		}
+		@composeFoldPart("6", true) {
+			@composeColorMenu("hiliteColor", i18n.T(ctx, "compose.color.highlight"), i18n.T(ctx, "compose.color.no_highlight"), composeHighlightColors)
+		}
+		@composeFoldPart("3", true) {
+			@composeToolButton(i18n.T(ctx, "compose.format.clear"), icon.RemoveFormatting(icon.Props{Class: "size-3.5"}), templ.Attributes{"data-on-click": `["composeExec","$this","removeFormat"]`})
+		}
 		<div class="contents" data-compose-rich-only>
-			@tooltip.Tooltip() {
-				@tooltip.Trigger() {
-					<button type="button" class="flex items-center justify-center size-7 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors" data-compose-command="insertUnorderedList" data-on-click='["composeExec","$this","insertUnorderedList"]'>
-						@icon.List(icon.Props{Class: "size-3.5"})
-					</button>
-				}
-				@tooltip.Content(tooltip.ContentProps{
-					Position:  tooltip.PositionBottom,
-					ShowArrow: true,
-				}) {
-					{ i18n.T(ctx, "compose.format.bullets") }
-				}
-			}
-			@tooltip.Tooltip() {
-				@tooltip.Trigger() {
-					<button type="button" class="flex items-center justify-center size-7 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors" data-compose-command="insertOrderedList" data-on-click='["composeExec","$this","insertOrderedList"]'>
-						@icon.ListOrdered(icon.Props{Class: "size-3.5"})
-					</button>
-				}
-				@tooltip.Content(tooltip.ContentProps{
-					Position:  tooltip.PositionBottom,
-					ShowArrow: true,
-				}) {
-					{ i18n.T(ctx, "compose.format.numbers") }
-				}
-			}
+			@composeToolbarSeparator()
+			@composeToolButton(i18n.T(ctx, "compose.format.bullets"), icon.List(icon.Props{Class: "size-3.5"}), templ.Attributes{"data-compose-command": "insertUnorderedList", "data-on-click": `["composeExec","$this","insertUnorderedList"]`})
+			@composeToolButton(i18n.T(ctx, "compose.format.numbers"), icon.ListOrdered(icon.Props{Class: "size-3.5"}), templ.Attributes{"data-compose-command": "insertOrderedList", "data-on-click": `["composeExec","$this","insertOrderedList"]`})
+		</div>
+		@composeFoldPart("4", true) {
 			@composeToolButton(i18n.T(ctx, "compose.format.outdent"), icon.ListIndentDecrease(icon.Props{Class: "size-3.5"}), templ.Attributes{"data-on-click": `["composeExec","$this","outdent"]`})
 			@composeToolButton(i18n.T(ctx, "compose.format.indent"), icon.ListIndentIncrease(icon.Props{Class: "size-3.5"}), templ.Attributes{"data-on-click": `["composeExec","$this","indent"]`})
+		}
+		@composeFoldPart("5", true) {
 			@composeAlignMenu()
-			<div class="w-px h-4 bg-border mx-0.5"></div>
-		</div>
-		@tooltip.Tooltip() {
-			@tooltip.Trigger() {
-				<button type="button" class="flex items-center justify-center size-7 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors" data-on-click='["triggerComposeAttachmentUpload","$this"]' data-compose-toolbar-attach>
-					@icon.Paperclip(icon.Props{Class: "size-3.5"})
-				</button>
-			}
-		@tooltip.Content(tooltip.ContentProps{
-				Position:  tooltip.PositionBottom,
-				ShowArrow: true,
-			}) {
-				{ i18n.T(ctx, "compose.attach_tip") }
-			}
 		}
 		<div class="contents" data-compose-rich-only>
-			@tooltip.Tooltip() {
-				@tooltip.Trigger() {
-					<button type="button" class="flex items-center justify-center size-7 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors" data-on-click='["triggerComposeInlineImageUpload","$this"]'>
-						@icon.Image(icon.Props{Class: "size-3.5"})
-					</button>
-				}
-				@tooltip.Content(tooltip.ContentProps{
-					Position:  tooltip.PositionBottom,
-					ShowArrow: true,
-				}) {
-					{ i18n.T(ctx, "compose.format.image") }
-				}
-			}
-			@tooltip.Tooltip() {
-				@tooltip.Trigger() {
-					<button type="button" class="flex items-center justify-center size-7 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors" data-on-click='["composeCreateLink","$this"]'>
-						@icon.Link(icon.Props{Class: "size-3.5"})
-					</button>
-				}
-				@tooltip.Content(tooltip.ContentProps{
-					Position:  tooltip.PositionBottom,
-					ShowArrow: true,
-				}) {
-					{ i18n.T(ctx, "compose.format.link") }
-				}
-			}
+			@composeToolbarSeparator()
 		</div>
-		@tooltip.Tooltip() {
-			@tooltip.Trigger() {
-				<button type="button" class="flex items-center justify-center size-7 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors" data-on-click='["showComposeSignaturePicker","$this"]'>
-					@icon.Signature(icon.Props{Class: "size-3.5"})
-				</button>
-			}
-			@tooltip.Content(tooltip.ContentProps{
-				Position:  tooltip.PositionBottom,
-				ShowArrow: true,
-			}) {
-				{ i18n.T(ctx, "compose.format.signature") }
-			}
+		@composeToolButton(i18n.T(ctx, "compose.attach_tip"), icon.Paperclip(icon.Props{Class: "size-3.5"}), templ.Attributes{"data-compose-toolbar-attach": "", "data-on-click": `["triggerComposeAttachmentUpload","$this"]`})
+		@composeFoldPart("9", true) {
+			@composeToolButton(i18n.T(ctx, "compose.format.image"), icon.Image(icon.Props{Class: "size-3.5"}), templ.Attributes{"data-on-click": `["triggerComposeInlineImageUpload","$this"]`})
+			@composeToolButton(i18n.T(ctx, "compose.format.link"), icon.Link(icon.Props{Class: "size-3.5"}), templ.Attributes{"data-on-click": `["composeCreateLink","$this"]`})
 		}
-		<div class="contents" data-compose-rich-only>
-			<div class="w-px h-4 bg-border mx-0.5"></div>
-			@tooltip.Tooltip() {
-				@tooltip.Trigger() {
-					<button type="button" class="flex items-center justify-center size-7 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors" data-on-click='["composeExec","$this","formatBlock","blockquote"]' aria-label={ i18n.T(ctx, "compose.format.quote") }>
-						@icon.Quote(icon.Props{Class: "size-3.5"})
-					</button>
-				}
-				@tooltip.Content(tooltip.ContentProps{
-					Position:  tooltip.PositionBottom,
-					ShowArrow: true,
-				}) {
-					{ i18n.T(ctx, "compose.format.quote") }
-				}
-			}
-			@tooltip.Tooltip() {
-				@tooltip.Trigger() {
-					<button type="button" class="flex items-center justify-center size-7 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors" data-on-click='["composeExec","$this","formatBlock","pre"]' aria-label={ i18n.T(ctx, "compose.format.code") }>
-						@icon.Code(icon.Props{Class: "size-3.5"})
-					</button>
-				}
-				@tooltip.Content(tooltip.ContentProps{
-					Position:  tooltip.PositionBottom,
-					ShowArrow: true,
-				}) {
-					{ i18n.T(ctx, "compose.format.code") }
-				}
-			}
+		@composeFoldPart("10", false) {
+			@composeToolButton(i18n.T(ctx, "compose.format.signature"), icon.Signature(icon.Props{Class: "size-3.5"}), templ.Attributes{"data-on-click": `["showComposeSignaturePicker","$this"]`})
+		}
+		@composeFoldPart("2", true) {
+			@composeToolbarSeparator()
+			@composeToolButton(i18n.T(ctx, "compose.format.quote"), icon.Quote(icon.Props{Class: "size-3.5"}), templ.Attributes{"data-on-click": `["composeExec","$this","formatBlock","blockquote"]`})
+			@composeToolButton(i18n.T(ctx, "compose.format.code"), icon.Code(icon.Props{Class: "size-3.5"}), templ.Attributes{"data-on-click": `["composeExec","$this","formatBlock","pre"]`})
 			@composeToolButton(i18n.T(ctx, "compose.format.hr"), icon.Minus(icon.Props{Class: "size-3.5"}), templ.Attributes{"data-on-click": `["composeExec","$this","insertHorizontalRule"]`})
-		</div>
-		<button type="button" class="ml-auto flex items-center gap-1.5 h-7 px-2 rounded text-xs text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed" data-compose-format-toggle data-on-click='["toggleComposeFormat","$this"]'>
+		}
+		@composeOverflowMenu()
+		<div class="min-w-0 flex-1" data-compose-toolbar-spacer></div>
+		<button type="button" class="flex items-center gap-1.5 h-7 px-2 rounded text-xs text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed" data-compose-format-toggle data-on-click='["toggleComposeFormat","$this"]'>
 			<span class="contents" data-compose-format-to-plain>
 				@icon.RemoveFormatting(icon.Props{Class: "size-3.5"})
 				<span>{ i18n.T(ctx, "compose.format.to_plain") }</span>
@@ -404,62 +286,237 @@ templ ComposeToolbar() {
 	</div>
 }
 
+templ composeToolbarSeparator() {
+	<div class="w-px h-4 bg-border mx-0.5 shrink-0"></div>
+}
+
+// composeFoldPart is a part of the toolbar that folds into the ⋯ menu,
+// rank 1 first. A rich-only part hides in plain text mode.
+templ composeFoldPart(rank string, richOnly bool) {
+	<div class="mail-toolbar-collapsible items-center gap-0.5" data-compose-overflow-rank={ rank } data-compose-rich-only?={ richOnly }>
+		{ children... }
+	</div>
+}
+
 // composeToolButton is a formatting toolbar button with its tooltip.
 templ composeToolButton(label string, ic templ.Component, attrs templ.Attributes) {
 	@tooltip.Tooltip() {
 		@tooltip.Trigger() {
-			<button type="button" class="flex items-center justify-center size-7 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors" aria-label={ label } { attrs... }>
+			<button type="button" class="flex items-center justify-center size-7 shrink-0 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors" aria-label={ label } { attrs... }>
 				@ic
 			</button>
 		}
-		@tooltip.Content(tooltip.ContentProps{
-			Position:  tooltip.PositionBottom,
-			ShowArrow: true,
-		}) {
-			{ label }
+		@composeTooltipContent(label)
+	}
+}
+
+templ composeTooltipContent(label string) {
+	@tooltip.Content(tooltip.ContentProps{
+		Position:  tooltip.PositionTop,
+		ShowArrow: true,
+	}) {
+		{ label }
+	}
+}
+
+// composeMenuTooltip puts a tooltip around a toolbar menu. The menu sits
+// inside the tooltip's trigger, so a click reaches the menu's own trigger;
+// CSS hides the tooltip while the menu is open.
+templ composeMenuTooltip(label string) {
+	@tooltip.Tooltip(tooltip.Props{Class: "compose-menu-tooltip"}) {
+		@tooltip.Trigger() {
+			{ children... }
 		}
+		@composeTooltipContent(label)
+	}
+}
+
+// composeMenuButton is the trigger of a toolbar menu: an icon and a chevron.
+templ composeMenuButton(label string, ic templ.Component, attrs templ.Attributes) {
+	<button type="button" class="flex items-center justify-center gap-0.5 h-7 px-1 shrink-0 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors" aria-label={ label } { attrs... }>
+		@ic
+		@icon.ChevronDown(icon.Props{Class: "size-3"})
+	</button>
+}
+
+// composeMenuItem is an item in a toolbar menu, its icon beside its label.
+templ composeMenuItem(label string, ic templ.Component, attrs templ.Attributes) {
+	@dropdown.Item(dropdown.ItemProps{Attributes: attrs}) {
+		<span class="flex items-center gap-2">
+			@ic
+			{ label }
+		</span>
 	}
 }
 
 // composeAlignMenu sets the paragraph's alignment; its button shows the
 // current one.
 templ composeAlignMenu() {
-	@dropdown.Dropdown() {
-		@dropdown.Trigger() {
-			<button type="button" class="flex items-center justify-center gap-0.5 h-7 px-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors" aria-label={ i18n.T(ctx, "compose.format.align") } title={ i18n.T(ctx, "compose.format.align") } data-compose-align-trigger>
-				<span class="contents" data-compose-align-icon="left">
-					@icon.TextAlignStart(icon.Props{Class: "size-3.5"})
-				</span>
-				<span class="hidden" data-compose-align-icon="center">
-					@icon.TextAlignCenter(icon.Props{Class: "size-3.5"})
-				</span>
-				<span class="hidden" data-compose-align-icon="right">
-					@icon.TextAlignEnd(icon.Props{Class: "size-3.5"})
-				</span>
-				@icon.ChevronDown(icon.Props{Class: "size-3"})
-			</button>
-		}
-		@dropdown.Content(dropdown.ContentProps{Class: "min-w-36 normal-case tracking-normal"}) {
-			@dropdown.Item(dropdown.ItemProps{Attributes: templ.Attributes{"data-on-click": `["composeExec","$this","justifyLeft"]`}}) {
-				<span class="flex items-center gap-2">
-					@icon.TextAlignStart(icon.Props{Class: "size-4"})
-					{ i18n.T(ctx, "compose.format.align_left") }
-				</span>
+	@composeMenuTooltip(i18n.T(ctx, "compose.format.align")) {
+		@dropdown.Dropdown() {
+			@dropdown.Trigger() {
+				<button type="button" class="flex items-center justify-center gap-0.5 h-7 px-1 shrink-0 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors" aria-label={ i18n.T(ctx, "compose.format.align") } data-compose-align-trigger>
+					<span class="contents" data-compose-align-icon="left">
+						@icon.TextAlignStart(icon.Props{Class: "size-3.5"})
+					</span>
+					<span class="hidden" data-compose-align-icon="center">
+						@icon.TextAlignCenter(icon.Props{Class: "size-3.5"})
+					</span>
+					<span class="hidden" data-compose-align-icon="right">
+						@icon.TextAlignEnd(icon.Props{Class: "size-3.5"})
+					</span>
+					@icon.ChevronDown(icon.Props{Class: "size-3"})
+				</button>
 			}
-			@dropdown.Item(dropdown.ItemProps{Attributes: templ.Attributes{"data-on-click": `["composeExec","$this","justifyCenter"]`}}) {
-				<span class="flex items-center gap-2">
-					@icon.TextAlignCenter(icon.Props{Class: "size-4"})
-					{ i18n.T(ctx, "compose.format.align_center") }
-				</span>
-			}
-			@dropdown.Item(dropdown.ItemProps{Attributes: templ.Attributes{"data-on-click": `["composeExec","$this","justifyRight"]`}}) {
-				<span class="flex items-center gap-2">
-					@icon.TextAlignEnd(icon.Props{Class: "size-4"})
-					{ i18n.T(ctx, "compose.format.align_right") }
-				</span>
+			@dropdown.Content(dropdown.ContentProps{Class: "min-w-36 normal-case tracking-normal"}) {
+				@composeAlignItems()
 			}
 		}
 	}
+}
+
+templ composeAlignItems() {
+	@composeMenuItem(i18n.T(ctx, "compose.format.align_left"), icon.TextAlignStart(icon.Props{Class: "size-4"}), templ.Attributes{"data-on-click": `["composeExec","$this","justifyLeft"]`})
+	@composeMenuItem(i18n.T(ctx, "compose.format.align_center"), icon.TextAlignCenter(icon.Props{Class: "size-4"}), templ.Attributes{"data-on-click": `["composeExec","$this","justifyCenter"]`})
+	@composeMenuItem(i18n.T(ctx, "compose.format.align_right"), icon.TextAlignEnd(icon.Props{Class: "size-4"}), templ.Attributes{"data-on-click": `["composeExec","$this","justifyRight"]`})
+}
+
+// composeSizeMenu makes headings and sets the text size. Each choice is
+// shown in its own size.
+templ composeSizeMenu() {
+	@composeMenuTooltip(i18n.T(ctx, "compose.size.menu")) {
+		@dropdown.Dropdown() {
+			@dropdown.Trigger() {
+				@composeMenuButton(i18n.T(ctx, "compose.size.menu"), icon.ALargeSmall(icon.Props{Class: "size-3.5"}), nil)
+			}
+			@dropdown.Content(dropdown.ContentProps{Class: "min-w-40 normal-case tracking-normal"}) {
+				@composeSizeItems()
+			}
+		}
+	}
+}
+
+templ composeSizeItems() {
+	@composeSizeItem("h2", i18n.T(ctx, "compose.size.heading"), "text-lg font-semibold")
+	@composeSizeItem("h3", i18n.T(ctx, "compose.size.subheading"), "text-base font-semibold")
+	@dropdown.Separator()
+	@composeSizeItem("huge", i18n.T(ctx, "compose.size.huge"), "text-xl")
+	@composeSizeItem("large", i18n.T(ctx, "compose.size.large"), "text-base")
+	@composeSizeItem("normal", i18n.T(ctx, "compose.size.normal"), "text-sm")
+	@composeSizeItem("small", i18n.T(ctx, "compose.size.small"), "text-xs")
+}
+
+templ composeSizeItem(size, label, class string) {
+	@dropdown.Item(dropdown.ItemProps{Attributes: templ.Attributes{"data-on-click": `["composeSetTextSize","$this","` + size + `"]`}}) {
+		<span class={ class }>{ label }</span>
+	}
+}
+
+// composeColorMenu sets the selection's text or highlight color.
+templ composeColorMenu(command, label, noneLabel string, colors []composeColor) {
+	@composeMenuTooltip(label) {
+		@dropdown.Dropdown() {
+			@dropdown.Trigger() {
+				if command == "foreColor" {
+					@composeMenuButton(label, icon.Baseline(icon.Props{Class: "size-3.5"}), nil)
+				} else {
+					@composeMenuButton(label, icon.Highlighter(icon.Props{Class: "size-3.5"}), nil)
+				}
+			}
+			@dropdown.Content(dropdown.ContentProps{Class: "min-w-0 normal-case tracking-normal"}) {
+				@composeColorGrid(command, noneLabel, colors)
+			}
+		}
+	}
+}
+
+// composeColorGrid is the swatches of a color menu; the first takes the
+// color off.
+templ composeColorGrid(command, noneLabel string, colors []composeColor) {
+	<div class="grid grid-cols-5 gap-1">
+		@dropdown.Item(dropdown.ItemProps{Class: "size-8 p-0 justify-center", Attributes: templ.Attributes{"aria-label": noneLabel, "title": noneLabel, "data-on-click": `["composeSetColor","$this","` + command + `",""]`}}) {
+			@icon.Ban(icon.Props{Class: "size-4 text-muted-foreground"})
+		}
+		for _, c := range colors {
+			@dropdown.Item(dropdown.ItemProps{Class: "size-8 p-0 justify-center", Attributes: templ.Attributes{"aria-label": i18n.T(ctx, "compose.color."+c.Name), "title": i18n.T(ctx, "compose.color."+c.Name), "data-on-click": `["composeSetColor","$this","` + command + `","` + c.Value + `"]`}}) {
+				<span class="size-5 rounded-sm border border-border" style={ "background-color: " + c.Value }></span>
+			}
+		}
+	</div>
+}
+
+// composeOverflowMenu holds the tools that no longer fit in the toolbar;
+// app.js shows each section as its part folds away.
+templ composeOverflowMenu() {
+	<div class="mail-toolbar-collapsible" data-mail-collapsed data-compose-overflow-menu>
+		@composeMenuTooltip(i18n.T(ctx, "common.more_actions")) {
+			@dropdown.Dropdown() {
+				@dropdown.Trigger() {
+					<button type="button" class="flex items-center justify-center size-7 shrink-0 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors" aria-label={ i18n.T(ctx, "common.more_actions") } data-compose-overflow-trigger>
+						@icon.Ellipsis(icon.Props{Class: "size-3.5"})
+					</button>
+				}
+				@dropdown.Content(dropdown.ContentProps{Class: "w-56 max-h-[60vh] normal-case tracking-normal", Placement: dropdown.PlacementBottomEnd}) {
+					@composeOverflowSection("1", false) {
+						@composeMenuItem(i18n.T(ctx, "compose.format.undo"), icon.Undo2(icon.Props{Class: "size-4"}), templ.Attributes{"data-on-click": `["composeExec","$this","undo"]`})
+						@composeMenuItem(i18n.T(ctx, "compose.format.redo"), icon.Redo2(icon.Props{Class: "size-4"}), templ.Attributes{"data-on-click": `["composeExec","$this","redo"]`})
+					}
+					@composeOverflowSection("8", true) {
+						@dropdown.Label(dropdown.LabelProps{Class: "text-xs text-muted-foreground"}) {
+							{ i18n.T(ctx, "compose.size.menu") }
+						}
+						@composeSizeItems()
+					}
+					@composeOverflowSection("7", true) {
+						@dropdown.Label(dropdown.LabelProps{Class: "text-xs text-muted-foreground"}) {
+							{ i18n.T(ctx, "compose.color.text") }
+						}
+						<div class="px-1 pb-1">
+							@composeColorGrid("foreColor", i18n.T(ctx, "compose.color.default"), composeTextColors)
+						</div>
+					}
+					@composeOverflowSection("6", true) {
+						@dropdown.Label(dropdown.LabelProps{Class: "text-xs text-muted-foreground"}) {
+							{ i18n.T(ctx, "compose.color.highlight") }
+						}
+						<div class="px-1 pb-1">
+							@composeColorGrid("hiliteColor", i18n.T(ctx, "compose.color.no_highlight"), composeHighlightColors)
+						</div>
+					}
+					@composeOverflowSection("3", true) {
+						@composeMenuItem(i18n.T(ctx, "compose.format.clear"), icon.RemoveFormatting(icon.Props{Class: "size-4"}), templ.Attributes{"data-on-click": `["composeExec","$this","removeFormat"]`})
+					}
+					@composeOverflowSection("4", true) {
+						@composeMenuItem(i18n.T(ctx, "compose.format.outdent"), icon.ListIndentDecrease(icon.Props{Class: "size-4"}), templ.Attributes{"data-on-click": `["composeExec","$this","outdent"]`})
+						@composeMenuItem(i18n.T(ctx, "compose.format.indent"), icon.ListIndentIncrease(icon.Props{Class: "size-4"}), templ.Attributes{"data-on-click": `["composeExec","$this","indent"]`})
+					}
+					@composeOverflowSection("5", true) {
+						@composeAlignItems()
+					}
+					@composeOverflowSection("9", true) {
+						@composeMenuItem(i18n.T(ctx, "compose.format.image"), icon.Image(icon.Props{Class: "size-4"}), templ.Attributes{"data-on-click": `["triggerComposeInlineImageUpload","$this"]`})
+						@composeMenuItem(i18n.T(ctx, "compose.format.link"), icon.Link(icon.Props{Class: "size-4"}), templ.Attributes{"data-on-click": `["composeCreateLink","$this"]`})
+					}
+					@composeOverflowSection("10", false) {
+						@composeMenuItem(i18n.T(ctx, "compose.format.signature"), icon.Signature(icon.Props{Class: "size-4"}), templ.Attributes{"data-on-click": `["showComposeSignaturePicker","$this"]`})
+					}
+					@composeOverflowSection("2", true) {
+						@composeMenuItem(i18n.T(ctx, "compose.format.quote"), icon.Quote(icon.Props{Class: "size-4"}), templ.Attributes{"data-on-click": `["composeExec","$this","formatBlock","blockquote"]`})
+						@composeMenuItem(i18n.T(ctx, "compose.format.code"), icon.Code(icon.Props{Class: "size-4"}), templ.Attributes{"data-on-click": `["composeExec","$this","formatBlock","pre"]`})
+						@composeMenuItem(i18n.T(ctx, "compose.format.hr"), icon.Minus(icon.Props{Class: "size-4"}), templ.Attributes{"data-on-click": `["composeExec","$this","insertHorizontalRule"]`})
+					}
+				}
+			}
+		}
+	</div>
+}
+
+// composeOverflowSection is the ⋯ menu's copy of a toolbar part, shown
+// while that part is folded.
+templ composeOverflowSection(rank string, richOnly bool) {
+	<div data-compose-overflow-menu-item={ rank } data-compose-rich-only?={ richOnly } style="display: none">
+		{ children... }
+	</div>
 }
 
 // ComposeRemoteImagesNotice shows when a reply or forward quotes a message
