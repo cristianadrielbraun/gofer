@@ -10,58 +10,67 @@ import (
 )
 
 // FolderMoveDialog picks where a folder moves to inside its account: the
-// top, or another folder. The folder itself and the folders inside it
-// can't be picked, nor the place it's in now. Clicking a row selects it;
-// Move does the move (app.js).
+// top, or another folder, in the folder picker the Move dialog uses. The
+// folder itself and the folders inside it can't be picked, nor the place
+// it's in now. Clicking a row selects it; Move does the move (app.js).
 templ FolderMoveDialog(data models.FolderMoveData) {
 	{{ inside := folderMoveSubtree(data.Folders, data.FolderID) }}
+	{{ account := data.Account }}
+	{{ account.Folders = data.Folders }}
+	{{ accountName := i18n.AccountName(ctx, data.Account.Provider, data.Account.Name) }}
 	@dialog.Dialog(dialog.Props{ID: "folder-move-dialog"}) {
-		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-md"}) {
-			@dialog.Header() {
+		@dialog.Content(dialog.ContentProps{Class: folderPickerContentClass}) {
+			@dialog.Header(dialog.HeaderProps{Class: "shrink-0 px-6 pt-6 pb-4"}) {
 				@dialog.Title() {
 					{ i18n.T(ctx, "folders.move.title", "name", data.FolderName) }
 				}
 				@dialog.Description() {
 					{ i18n.T(ctx, "folders.move.description") }
 				}
+				@folderPickerSearch(i18n.T(ctx, "mail.move.search"), templ.Attributes{
+					"data-folder-move-search": "",
+					"data-on-input":           onAction("filterFolderMoveTargets", actionElement),
+				})
 			}
-			<div
-				class="h-[50vh] max-h-96 overflow-y-auto rounded-md border border-border bg-muted/50 p-1"
-				role="listbox"
-				aria-label={ i18n.T(ctx, "mail.move.folders") }
-				data-folder-move-list
-				data-folder-move-id={ data.FolderID }
-				data-folder-move-account={ data.Account.ID }
-				data-folder-move-name={ data.FolderName }
-				data-folder-move-account-name={ i18n.AccountName(ctx, data.Account.Provider, data.Account.Name) }
-			>
-				@folderMoveRow("", 0, data.ParentID == "", false) {
-					<span class="flex size-5 shrink-0 items-center justify-center">
-						<span class="account-color-marker size-2.5" style={ accountColorStyle(data.Account.Color) }></span>
-					</span>
-					<span class="flex-1 truncate font-medium">{ i18n.AccountName(ctx, data.Account.Provider, data.Account.Name) }</span>
-				}
-				for _, target := range mailMoveTargets(data.Folders) {
-					@folderMoveRow(target.Folder.ID, target.Depth+1, target.Folder.ID == data.ParentID, inside[target.Folder.ID]) {
+			@folderPickerList(i18n.T(ctx, "mail.move.no_match"), templ.Attributes{
+				"role":                         "listbox",
+				"aria-label":                   i18n.T(ctx, "mail.move.folders"),
+				"data-folder-move-list":        "",
+				"data-folder-move-id":          data.FolderID,
+				"data-folder-move-account":     data.Account.ID,
+				"data-folder-move-name":        data.FolderName,
+				"data-folder-move-account-name": accountName,
+			}) {
+				@folderPickerAccount(account, "") {
+					// The top of the account isn't a folder, so it stays while
+					// searching.
+					@folderMoveRow("", accountName, 0, data.ParentID == "", false, templ.Attributes{"data-folder-picker-keep": ""}) {
 						<span class="flex size-5 shrink-0 items-center justify-center text-muted-foreground">
-							@FolderAppearanceIcon(target.Folder)
+							@icon.FolderRoot(icon.Props{Class: "size-4"})
 						</span>
-						<span class="flex-1 truncate">{ i18n.FolderName(ctx, target.Folder.Role, target.Folder.Name) }</span>
+						<span class="min-w-0 flex-1 truncate text-sm">{ i18n.T(ctx, "folders.move.top") }</span>
+					}
+					for _, entry := range folderPickerEntries(ctx, account, false) {
+						<div data-folder-picker-row data-search-text={ entry.Search }>
+							@folderMoveRow(entry.Folder.ID, i18n.FolderName(ctx, entry.Folder.Role, entry.Folder.Name), entry.Depth, entry.Folder.ID == data.ParentID, inside[entry.Folder.ID], nil) {
+								@folderPickerName(entry)
+							}
+						</div>
 					}
 				}
-			</div>
-			@dialog.Footer() {
+			}
+			@dialog.Footer(dialog.FooterProps{Class: "shrink-0 px-6 py-4"}) {
 				@dialog.Close() {
-					@button.Button(button.Props{Variant: button.VariantOutline, Class: "h-8 px-3 text-xs"}) {
+					@button.Button(button.Props{Variant: button.VariantOutline}) {
 						{ i18n.T(ctx, "common.cancel") }
 					}
 				}
 				@button.Button(button.Props{
-					Class:      "h-8 gap-1.5 px-3 text-xs",
+					Class:      "gap-1.5",
 					Disabled:   true,
 					Attributes: templ.Attributes{"data-folder-move-confirm": "", "data-on-click": onAction("confirmFolderMove")},
 				}) {
-					@icon.FolderInput(icon.Props{Class: "size-3.5"})
+					@icon.FolderInput(icon.Props{Class: "size-4"})
 					{ i18n.T(ctx, "mail.move.confirm") }
 				}
 			}
@@ -70,18 +79,21 @@ templ FolderMoveDialog(data models.FolderMoveData) {
 }
 
 // folderMoveRow is one place the folder can move to; parentID "" is the
-// top of the account. The current place says so, and neither it nor the
-// folder's own branch can be picked.
-templ folderMoveRow(parentID string, depth int, current, inside bool) {
+// top of the account, and name is what the moved toast calls it. The
+// current place says so, and neither it nor the folder's own branch can be
+// picked.
+templ folderMoveRow(parentID, name string, depth int, current, inside bool, attrs templ.Attributes) {
 	<button
 		type="button"
 		role="option"
 		aria-selected="false"
 		disabled?={ current || inside }
-		class="flex w-full min-w-0 items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-sm enabled:hover:bg-accent enabled:hover:text-accent-foreground aria-selected:bg-primary/10 aria-selected:text-primary disabled:cursor-default disabled:opacity-50"
-		style={ mailMoveIndent(depth) }
+		class="flex w-full min-w-0 items-center gap-2.5 py-1.5 pr-6 text-left enabled:hover:bg-accent/50 aria-selected:bg-primary/10 aria-selected:text-primary disabled:cursor-default disabled:opacity-50"
+		style={ folderPickerIndent(depth) }
 		data-folder-move-parent={ parentID }
+		data-folder-move-place={ name }
 		data-on-click={ onAction("selectFolderMoveTarget", actionElement) }
+		{ attrs... }
 	>
 		{ children... }
 		if current {

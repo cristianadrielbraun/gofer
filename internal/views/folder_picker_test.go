@@ -61,3 +61,34 @@ func TestMailMoveDialogUsesTheFolderPicker(t *testing.T) {
 		}
 	}
 }
+
+func TestFolderMoveDialogUsesTheFolderPicker(t *testing.T) {
+	ctx := i18n.WithLocale(context.Background(), "es")
+	data := models.FolderMoveData{
+		Account:    models.Account{ID: "acct", Email: "robin@example.test", Name: "Robin", Provider: "imap"},
+		FolderID:   "trips",
+		FolderName: "Trips",
+		ParentID:   "in",
+		Folders: []models.Folder{
+			{ID: "in", Name: "Inbox", Role: "inbox", Children: []models.Folder{{ID: "trips", Name: "Trips", Children: []models.Folder{{ID: "lisbon", Name: "Lisbon"}}}}},
+			{ID: "notes", Name: "Notes"},
+		},
+	}
+	var out bytes.Buffer
+	if err := FolderMoveDialog(data).Render(ctx, &out); err != nil {
+		t.Fatal(err)
+	}
+	html := out.String()
+	for _, want := range []string{
+		"data-folder-picker-search",
+		`data-search-text="robin@example.test recibidos / trips / lisbon"`,
+		"Primer nivel de la cuenta",
+		`data-folder-move-parent="" data-folder-move-place="Robin"`,
+		`data-folder-move-parent="in" data-folder-move-place="Recibidos"`,
+		`data-folder-picker-keep`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("Move folder dialog lacks %s", want)
+		}
+	}
+}

@@ -3515,6 +3515,7 @@
   "mail.move.confirm": "Mover",
   "folders.move.title": "Mover «{name}»",
   "folders.move.description": "Elige adónde va. Las carpetas y el correo que contiene van con ella.",
+  "folders.move.top": "Primer nivel de la cuenta",
   "mail.move.current": "Carpeta actual",
   "mail.move.folders": "Carpetas",
   "mail.move.local_only": "Solo en este servidor",

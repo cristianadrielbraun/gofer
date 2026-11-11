@@ -24005,13 +24005,28 @@ function confirmFolderMove() {
   var selected = list && list.querySelector('[data-folder-move-parent][aria-selected="true"]')
   if (!selected || !window.goferMoveMailFolder) return
   var parentID = selected.getAttribute("data-folder-move-parent") || ""
-  var name = selected.querySelector(".flex-1")
   if (window.tui && window.tui.dialog) window.tui.dialog.close("folder-move-dialog")
   window.goferMoveMailFolder(
     { folderID: list.getAttribute("data-folder-move-id"), accountID: list.getAttribute("data-folder-move-account"), name: list.getAttribute("data-folder-move-name") },
     parentID,
-    parentID ? (name ? name.textContent.trim() : "") : list.getAttribute("data-folder-move-account-name") || ""
+    selected.getAttribute("data-folder-move-place") || ""
   )
+}
+
+// Search in the Move folder dialog shows the folders whose path matches
+// (folder-picker.js); the top of the account always shows. A hidden
+// selection is dropped so Move never acts on a place out of sight.
+function filterFolderMoveTargets() {
+  var dialog = document.getElementById("folder-move-dialog")
+  if (!dialog) return
+  window.goferFolderPicker.filter(dialog)
+  var selected = dialog.querySelector('[data-folder-move-parent][aria-selected="true"]')
+  var row = selected && selected.closest("[data-folder-picker-row]")
+  if (row && row.hidden) {
+    selected.setAttribute("aria-selected", "false")
+    var confirm = dialog.querySelector("[data-folder-move-confirm]")
+    if (confirm) confirm.disabled = true
+  }
 }
 
 // New label in the Move dialog of a Gmail email adds a new label to it:

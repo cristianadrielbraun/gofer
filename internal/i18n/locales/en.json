@@ -3515,6 +3515,7 @@
   "mail.move.confirm": "Move",
   "folders.move.title": "Move “{name}”",
   "folders.move.description": "Pick where it goes. The folders and mail inside it go with it.",
+  "folders.move.top": "Top of the account",
   "mail.move.current": "Current folder",
   "mail.move.folders": "Folders",
   "mail.move.local_only": "On this server only",

@@ -3515,6 +3515,7 @@
   "mail.move.confirm": "移动",
   "folders.move.title": "移动“{name}”",
   "folders.move.description": "选择它的去处。其中的文件夹和邮件会一起移动。",
+  "folders.move.top": "账户顶层",
   "mail.move.current": "当前文件夹",
   "mail.move.folders": "文件夹",
   "mail.move.local_only": "仅在此服务器上",

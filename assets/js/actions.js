@@ -60,6 +60,7 @@
     "editWizardGo",
     "expandComposeFullWidth",
     "expandToPane",
+    "filterFolderMoveTargets",
     "filterLabelsDialog",
     "filterMoveFolders",
     "findDAVItems",
