@@ -980,9 +980,32 @@
 }
 
 .compose-rich-editor ul,
-.compose-rich-editor ol {
+.compose-rich-editor ol,
+[data-signature-editor] ul,
+[data-signature-editor] ol {
   margin: 0.35rem 0;
   padding-left: 1.35rem;
+}
+
+/* Tailwind's reset removes list markers; bring them back in the editors. */
+.compose-rich-editor ul,
+[data-signature-editor] ul {
+  list-style: disc;
+}
+
+.compose-rich-editor ol,
+[data-signature-editor] ol {
+  list-style: decimal;
+}
+
+.compose-rich-editor ul ul,
+[data-signature-editor] ul ul {
+  list-style: circle;
+}
+
+.compose-rich-editor ul ul ul,
+[data-signature-editor] ul ul ul {
+  list-style: square;
 }
 
 .compose-rich-editor a {
