@@ -3,6 +3,7 @@ package views
 import (
 	"bytes"
 	"context"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -55,7 +56,7 @@ func TestMailMoveDialogUsesTheFolderPicker(t *testing.T) {
 		t.Fatal(err)
 	}
 	html := out.String()
-	for _, want := range []string{"data-folder-picker-search", "data-folder-picker-account", `data-search-text="robin@example.test recibidos / trips"`, ">Recibidos<", `data-mail-move-create-parent="trips"`, "data-folder-picker-keep"} {
+	for _, want := range []string{"data-folder-picker-search", "data-folder-picker-account", `data-search-text="robin@example.test recibidos / trips"`, ">Recibidos<", `data-folder-picker-create-parent="trips"`, "data-folder-picker-keep"} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("Move dialog lacks %s", want)
 		}
@@ -90,5 +91,57 @@ func TestFolderMoveDialogUsesTheFolderPicker(t *testing.T) {
 		if !strings.Contains(html, want) {
 			t.Fatalf("Move folder dialog lacks %s", want)
 		}
+	}
+}
+
+func TestMailRuleFolderPickers(t *testing.T) {
+	ctx := context.Background()
+	accounts := []models.MailRuleAccount{
+		{ID: "work", Email: "robin@example.test", Provider: "imap", Tree: []models.Folder{
+			{ID: "w-in", Name: "Inbox", Role: "inbox", Children: []models.Folder{{ID: "w-trips", Name: "Trips"}}},
+			{ID: "w-sent", Name: "Sent", Role: "sent"},
+		}},
+		{ID: "old", Email: "sam@example.test", Provider: "imap", Hidden: true, Tree: []models.Folder{{ID: "o-notes", Name: "Notes"}}},
+		{ID: "local", Name: "Local folders", Provider: "local", Tree: []models.Folder{{ID: "l-keep", Name: "Keep"}}},
+	}
+	render := func(p mailRuleFolderPicker) string {
+		var out bytes.Buffer
+		if err := mailRuleFolderField(p).Render(ctx, &out); err != nil {
+			t.Fatal(err)
+		}
+		return out.String()
+	}
+
+	cond := mailRuleConditionFolders(ctx, 0, &models.MailRuleFolderTarget{FolderID: "w-trips"}, accounts)
+	if cond.Value != "id:w-trips" || cond.Chosen.Name != "Trips" || cond.Chosen.Parent != "Inbox" || cond.Chosen.Account != "robin@example.test" || cond.Chosen.Full() != "robin@example.test · Inbox / Trips" {
+		t.Fatalf("condition chosen = %q %+v", cond.Value, cond.Chosen)
+	}
+	html := render(cond)
+	if strings.Contains(html, `data-mail-rule-folder-choice="id:l-keep"`) || !strings.Contains(html, `data-mail-rule-folder-choice="role:sent"`) || strings.Contains(html, "data-mail-rule-folder-create") {
+		t.Fatal("a condition tests mail accounts' folders, Sent included, and makes no folders")
+	}
+	if !regexp.MustCompile(`aria-selected="true"[^>]*data-mail-rule-folder-choice="id:w-trips"`).MatchString(html) {
+		t.Fatal("the chosen folder isn't selected in the picker")
+	}
+
+	move := mailRuleMoveFolders(ctx, 0, &models.MailRuleFolderTarget{Role: "archive"}, accounts)
+	html = render(move)
+	if move.Value != "role:archive" || !strings.Contains(html, `data-mail-rule-folder-choice="id:l-keep"`) || strings.Contains(html, `data-mail-rule-folder-choice="id:o-notes"`) {
+		t.Fatalf("move offers Local folders but not a hidden account: %q", move.Value)
+	}
+	if !regexp.MustCompile(`disabled[^>]*data-mail-rule-folder-choice="id:w-sent"`).MatchString(html) || !strings.Contains(html, "data-mail-rule-rerender") || !strings.Contains(html, `data-folder-picker-create-parent="w-trips"`) {
+		t.Fatal("move can't pick Sent, draws the form again and makes folders")
+	}
+	if got := mailRuleMoveFolders(ctx, 0, &models.MailRuleFolderTarget{FolderID: "o-notes", AccountID: "old"}, accounts); got.Value != "id:o-notes" {
+		t.Fatalf("a hidden account the rule moves to = %q", got.Value)
+	}
+	if got := mailRuleMoveFolders(ctx, 0, &models.MailRuleFolderTarget{FolderID: "gone"}, accounts); got.Value != "" || got.Chosen.Name != "" {
+		t.Fatalf("a folder no longer there = %q %+v", got.Value, got.Chosen)
+	}
+
+	run := mailRuleRunFolders(ctx, &models.MailRuleRunData{Rule: models.MailRule{}, Scope: "id:w-in"}, accounts)
+	html = render(run)
+	if run.Chosen.Name != "Inbox" || !strings.Contains(html, `name="scope"`) || strings.Contains(html, `data-mail-rule-folder-choice="id:l-keep"`) {
+		t.Fatalf("run picker = %+v", run.Chosen)
 	}
 }

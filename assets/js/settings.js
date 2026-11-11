@@ -1208,29 +1208,70 @@ document.addEventListener("click", function (e) {
   })
 })
 
-// New folder… in a rule's Move to folder, or the button beside a folder,
-// creates a folder in the rule's account, at the top or inside that folder,
-// as the account's Folders dialog does, then chooses it. It is caught before
-// the folder picker would take the click as choosing the folder beside it.
-document.addEventListener("click", function (e) {
-  var button = e.target.closest && e.target.closest("[data-mail-rule-new-folder]")
-  if (!button || typeof window.goferCreateMailFolder !== "function") return
-  e.preventDefault()
-  e.stopPropagation()
-  var row = button.closest("[data-mail-rule-action]")
-  var input = row && row.querySelector('input[name="act_folder"]')
-  var body = button.closest("[data-mail-rule-form-body]")
-  var content = button.closest("[popover]")
-  if (content && window.tui && window.tui.popover && window.tui.popover.closeElement) window.tui.popover.closeElement(content)
-  var parent = button.getAttribute("data-mail-rule-new-folder-parent") || ""
-  var parentName = button.getAttribute("data-mail-rule-new-folder-parent-name") || ""
-  var title = parent ? goferT("js.settings.rules.new_subfolder", { folder: parentName }) : goferT("js.folders.new")
-  window.goferCreateMailFolder(button.getAttribute("data-mail-rule-new-folder"), parent, parentName, { title: title }).then(function (folder) {
-    if (!folder || !input || !body || !body.isConnected || !window.htmx) return
-    input.value = "id:" + folder.id
-    window.htmx.trigger(body, "mail-rule-rerender")
+// A rule's folder field opens the folder picker in its dialog
+// (mailRuleFolderField). Picking a folder fills the field and closes the
+// picker; a field others depend on, such as Move to's, draws the form
+// again, and the run dialog's counts again in the folder chosen. A new
+// folder, made in the picker, is chosen once made.
+function mailRuleFolderPicker(element) {
+  var field = element && element.closest("[data-mail-rule-folder-field]")
+  var opener = field && field.querySelector("[data-mail-rule-folder-open]")
+  return field && opener ? { field: field, id: opener.getAttribute("data-mail-rule-folder-open") } : null
+}
+
+function chooseMailRuleFolder(picker, value, template) {
+  var input = picker.field.querySelector("[data-mail-rule-folder-value]")
+  var shown = picker.field.querySelector("[data-mail-rule-folder-shown]")
+  if (!input) return
+  if (shown && template) shown.replaceChildren(template.content.cloneNode(true))
+  picker.field.querySelectorAll("[data-mail-rule-folder-choice]").forEach(function (choice) {
+    choice.setAttribute("aria-selected", choice.getAttribute("data-mail-rule-folder-choice") === value ? "true" : "false")
   })
-}, true)
+  if (window.tui && window.tui.dialog) window.tui.dialog.close(picker.id)
+  if (input.value === value) return
+  input.value = value
+  input.dispatchEvent(new Event("change", { bubbles: true }))
+}
+
+document.addEventListener("click", function (e) {
+  var target = e.target.closest && e.target
+  if (!target) return
+  var open = target.closest("[data-mail-rule-folder-open]")
+  if (open) {
+    var opening = mailRuleFolderPicker(open)
+    var root = opening && document.getElementById(opening.id)
+    if (!root || !window.tui || !window.tui.dialog) return
+    var search = root.querySelector("[data-folder-picker-search]")
+    if (search) search.value = ""
+    window.goferFolderPicker.filter(root)
+    window.tui.dialog.open(opening.id)
+    var selected = root.querySelector('[data-mail-rule-folder-choice][aria-selected="true"]')
+    if (selected) selected.scrollIntoView({ block: "center" })
+    if (search && window.matchMedia("(pointer: fine)").matches) search.focus()
+    return
+  }
+  var create = target.closest("[data-mail-rule-folder-create]")
+  if (create) {
+    var making = mailRuleFolderPicker(create)
+    if (!making) return
+    window.goferFolderPicker.startCreate(create, function (folder) {
+      chooseMailRuleFolder(making, "id:" + folder.id, null)
+    })
+    return
+  }
+  var choice = target.closest("[data-mail-rule-folder-choice]")
+  if (choice && !choice.disabled) {
+    var picker = mailRuleFolderPicker(choice)
+    if (picker) chooseMailRuleFolder(picker, choice.getAttribute("data-mail-rule-folder-choice"), choice.querySelector("template[data-mail-rule-folder-shown-template]"))
+  }
+})
+
+document.addEventListener("input", function (e) {
+  var search = e.target
+  if (!search.matches || !search.matches("[data-folder-picker-search]")) return
+  var root = search.closest("[data-mail-rule-folder-dialog]")
+  if (root) window.goferFolderPicker.filter(root)
+})
 
 // A rule's form is shown again when a choice that others depend on changes,
 // such as the account its folders come from.

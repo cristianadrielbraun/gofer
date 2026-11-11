@@ -53,9 +53,7 @@ templ folderPickerList(empty string, attrs templ.Attributes) {
 // hides it, unless it has a row marked data-folder-picker-keep.
 templ folderPickerAccount(account models.Account, note string) {
 	<section data-folder-picker-account>
-		// One pixel above the top, so a dialog centered on a half pixel
-		// shows no sliver of the scrolled rows above the header.
-		<div class="sticky -top-px z-10 flex items-center gap-2 bg-muted px-6 py-2">
+		<div class={ folderPickerHeaderClass }>
 			<div class="account-color-marker size-2.5 shrink-0" style={ accountColorStyle(account.Color) }></div>
 			<span class="min-w-0 truncate text-xs font-semibold text-foreground">{ accountTitle(account) }</span>
 			if note != "" {
@@ -65,6 +63,22 @@ templ folderPickerAccount(account models.Account, note string) {
 		{ children... }
 	</section>
 }
+
+// folderPickerGroup is a section of rows that aren't one account's, under
+// a header like an account's. A search hides it as it does an account.
+templ folderPickerGroup(title string) {
+	<section data-folder-picker-account>
+		<div class={ folderPickerHeaderClass }>
+			<span class="min-w-0 truncate text-xs font-semibold text-foreground">{ title }</span>
+		</div>
+		{ children... }
+	</section>
+}
+
+// folderPickerHeaderClass is a section's header. It sticks one pixel above
+// the top, so a dialog centered on a half pixel shows no sliver of the
+// scrolled rows above it.
+const folderPickerHeaderClass = "sticky -top-px z-10 flex items-center gap-2 bg-muted px-6 py-2"
 
 // folderPickerName is a row's folder: its icon and name, as the sidebar
 // shows them, and the folders above it. When the name or the path is cut
@@ -89,6 +103,47 @@ templ folderPickerName(entry folderPickerEntry) {
 			{ entry.Path }
 		}
 	}
+}
+
+// folderPickerNewRow starts a new folder at the top of an account
+// (folder-picker.js startCreate; attrs say what runs it). A search that
+// matches none of the account's folders keeps it, named for the search, so
+// a folder that isn't there yet can be made.
+templ folderPickerNewRow(account models.Account, attrs templ.Attributes) {
+	<button
+		type="button"
+		class="flex w-full items-center gap-2.5 py-1.5 pr-6 text-left text-sm text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground"
+		style={ folderPickerIndent(0) }
+		aria-label={ i18n.T(ctx, "mail.move.new_folder_in", "folder", accountTitle(account)) }
+		data-folder-picker-keep
+		data-folder-picker-create-account={ account.ID }
+		data-folder-picker-create-parent=""
+		data-folder-picker-create-depth="0"
+		{ attrs... }
+	>
+		<span class="flex size-5 shrink-0 items-center justify-center">
+			@icon.FolderPlus(icon.Props{Class: "size-4"})
+		</span>
+		<span class="flex-1 truncate" data-folder-picker-new-label>{ i18n.T(ctx, "mail.folder_menu.new_folder") }</span>
+	</button>
+}
+
+// folderPickerSubfolderButton starts a new folder inside a row's folder. It
+// sits at the row's right, over the row's padding, and shows on hover.
+templ folderPickerSubfolderButton(accountID string, entry folderPickerEntry, attrs templ.Attributes) {
+	{{ label := i18n.T(ctx, "mail.move.new_folder_in", "folder", i18n.FolderName(ctx, entry.Folder.Role, entry.Folder.Name)) }}
+	<button
+		type="button"
+		class="absolute right-4 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground focus-visible:opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
+		title={ label }
+		aria-label={ label }
+		data-folder-picker-create-account={ accountID }
+		data-folder-picker-create-parent={ entry.Folder.ID }
+		data-folder-picker-create-depth={ fmt.Sprintf("%d", entry.Depth+1) }
+		{ attrs... }
+	>
+		@icon.FolderPlus(icon.Props{Class: "size-3.5"})
+	</button>
 }
 
 // folderPickerEntry is one folder of an account's tree, flattened.

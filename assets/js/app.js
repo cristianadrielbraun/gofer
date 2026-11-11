@@ -4436,9 +4436,6 @@ document.addEventListener("DOMContentLoaded", function () {
       showGoferToast({ id: id, title: title, variant: "success", icon: "success", position: "bottom-right", duration: 3000, dismissible: true })
     }
 
-    // A rule's Move to folder offers a new folder too.
-    window.goferCreateMailFolder = createMailFolder
-
     // The account settings' folders dialog runs these too.
     window.goferFolderActions = {
       "new-folder": function (t) { createMailFolder(t.accountID, "", "") },
@@ -24070,85 +24067,12 @@ function createMoveLabel(emailId, thread) {
   })
 }
 
-// A new folder in the Move dialog is named in the list, where it will be:
-// at the top of an account or inside the folder whose button was pressed.
-// Once made, the list shows it chosen, and Move moves there as to any
-// folder, another account's included.
+// A new folder in the Move dialog is named in the list, where it will be
+// (folder-picker.js). Once made, the list shows it chosen, and Move moves
+// there as to any folder, another account's included.
 function startMoveFolderCreate(button) {
-  var dialog = document.getElementById("mail-move-dialog")
-  if (!dialog || !button) return
-  dialog.querySelectorAll("[data-mail-move-create-form]").forEach(function (form) { form.remove() })
-  var account = button.getAttribute("data-mail-move-create-account") || ""
-  var parent = button.getAttribute("data-mail-move-create-parent") || ""
-  var depth = Number(button.getAttribute("data-mail-move-create-depth") || 0)
-  if (!account) return
-  var search = dialog.querySelector("[data-mail-move-search]")
-
-  var form = document.createElement("form")
-  form.setAttribute("data-mail-move-create-form", "")
-  form.className = "py-1 pr-6"
-  form.style.paddingLeft = (24 + Math.min(depth, 8) * 16) + "px"
-  var line = document.createElement("div")
-  line.className = "flex items-center gap-1.5"
-  var input = document.createElement("input")
-  input.type = "text"
-  input.autocomplete = "off"
-  input.placeholder = goferT("js.folders.name")
-  input.setAttribute("aria-label", goferT("js.mail.move.new_folder_name"))
-  input.className = "h-7 min-w-0 flex-1 rounded-md border border-input bg-background px-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-  input.value = search ? search.value.trim() : ""
-  var create = document.createElement("button")
-  create.type = "submit"
-  create.className = "h-7 shrink-0 rounded-md bg-primary px-2.5 text-xs font-medium text-primary-foreground disabled:opacity-50"
-  create.textContent = goferT("js.mail.move.create")
-  var problem = document.createElement("p")
-  problem.className = "mt-1 hidden text-xs text-destructive"
-  line.appendChild(input)
-  line.appendChild(create)
-  form.appendChild(line)
-  form.appendChild(problem)
-
-  var row = button.closest("[data-folder-picker-row]") || button
-  row.insertAdjacentElement("afterend", form)
-  input.focus()
-  input.select()
-
-  input.addEventListener("keydown", function (event) {
-    // Escape closes only the new folder's field, not the dialog.
-    if (event.key !== "Escape") return
-    event.preventDefault()
-    event.stopPropagation()
-    form.remove()
-  })
-  form.addEventListener("submit", function (event) {
-    event.preventDefault()
-    var name = input.value.trim()
-    if (!name || create.disabled) return
-    create.disabled = true
-    input.disabled = true
-    problem.classList.add("hidden")
-    var body = new URLSearchParams()
-    body.set("name", name)
-    body.set("parent", parent)
-    fetch("/api/accounts/" + encodeURIComponent(account) + "/folders", { method: "POST", headers: { Accept: "application/json" }, body: body })
-      .then(function (response) {
-        if (response.ok) return response.json()
-        return response.text().then(function (text) {
-          throw new Error(response.status >= 500 && response.status !== 502 ? goferT("js.mail.move.create_failed") : String(text || "").trim())
-        })
-      })
-      .then(function (made) {
-        if (!made || !made.id) throw new Error(goferT("js.mail.move.create_failed"))
-        if (window.goferRefreshSidebarAccount) window.goferRefreshSidebarAccount(account)
-        return reloadMoveDialogList(made.id)
-      })
-      .catch(function (err) {
-        create.disabled = false
-        input.disabled = false
-        problem.textContent = err && err.message ? err.message : goferT("js.mail.move.create_failed")
-        problem.classList.remove("hidden")
-        input.focus()
-      })
+  window.goferFolderPicker.startCreate(button, function (folder) {
+    return reloadMoveDialogList(folder.id)
   })
 }
 
@@ -24505,23 +24429,17 @@ function showMailTransferResult(toastID, sum, info) {
 }
 
 // Search shows the folders whose account or path match (folder-picker.js).
-// An account's New folder row stays, named for the search, so a folder that
-// isn't there yet can be made. A hidden selection is dropped so Move never
-// acts on a folder out of sight.
+// A hidden selection is dropped so Move never acts on a folder out of sight.
 function filterMoveFolders(input) {
   var dialog = document.getElementById("mail-move-dialog")
   if (!dialog) return
-  dialog.querySelectorAll("[data-mail-move-create-form]").forEach(function (form) { form.remove() })
-  var typed = window.goferFolderPicker.filter(dialog)
+  window.goferFolderPicker.filter(dialog)
   var selected = dialog.querySelector('[data-mail-move-folder][aria-selected="true"]')
   if (selected && selected.closest("[data-folder-picker-row]").hidden) {
     selected.setAttribute("aria-selected", "false")
     var confirm = dialog.querySelector("[data-mail-move-confirm]")
     if (confirm) confirm.disabled = true
   }
-  dialog.querySelectorAll("[data-mail-move-new-label]").forEach(function (label) {
-    label.textContent = typed ? goferT("js.mail.move.new_folder_named", { name: typed }) : goferT("js.mail.move.new_folder")
-  })
 }
 
 function closeMoveDialog() {
