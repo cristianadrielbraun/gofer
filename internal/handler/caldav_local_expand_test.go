@@ -28,11 +28,14 @@ const calDAVLunchStored = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Example//
 	"END:VCALENDAR\r\n"
 
 // cannotExpandServer answers like Baïkal with a calendar whose timezone its
-// admin pages stored: every request that asks to expand fails.
+// admin pages stored: every request that asks to expand fails. With
+// ignoresExpand it accepts those requests instead and answers them with the
+// events as stored, as some servers do.
 type cannotExpandServer struct {
-	mu       sync.Mutex
-	expanded int // expanding requests, all refused
-	plain    int // requests for the events as stored
+	ignoresExpand bool
+	mu            sync.Mutex
+	expanded      int // expanding requests, all refused or left unexpanded
+	plain         int // requests for the events as stored
 }
 
 func (s *cannotExpandServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -41,10 +44,13 @@ func (s *cannotExpandServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer s.mu.Unlock()
 	if strings.Contains(string(body), "expand") {
 		s.expanded++
-		w.WriteHeader(http.StatusInternalServerError)
-		return
+		if !s.ignoresExpand {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+	} else {
+		s.plain++
 	}
-	s.plain++
 	resources := map[string]string{"/cal/review.ics": calDAVReviewStored, "/cal/lunch.ics": calDAVLunchStored}
 	if strings.Contains(string(body), "calendar-multiget") {
 		resources = map[string]string{"/cal/review.ics": calDAVReviewStored}
@@ -72,7 +78,11 @@ func (s *cannotExpandServer) counts() (expanded, plain int) {
 }
 
 func TestCalDAVSyncExpandsItselfWhenTheServerCannot(t *testing.T) {
-	fake := &cannotExpandServer{}
+	t.Run("server fails", func(t *testing.T) { testCalDAVSyncExpandsItself(t, &cannotExpandServer{}) })
+	t.Run("server answers unexpanded", func(t *testing.T) { testCalDAVSyncExpandsItself(t, &cannotExpandServer{ignoresExpand: true}) })
+}
+
+func testCalDAVSyncExpandsItself(t *testing.T, fake *cannotExpandServer) {
 	server := httptest.NewTLSServer(fake)
 	defer server.Close()
 	prior := davHTTPTransport

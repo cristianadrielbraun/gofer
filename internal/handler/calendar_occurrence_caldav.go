@@ -190,22 +190,7 @@ func calendarCalDAVReadOccurrence(ctx context.Context, source storage.CalendarSo
 	multiget := func(data string) string {
 		return `<c:calendar-multiget xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav"><d:prop><d:getetag/>` + data + `</d:prop><d:href>` + href.String() + `</d:href></c:calendar-multiget>`
 	}
-	expandedByServer := !calDAVExpandRefusedFor(source.RemoteID)
-	var multi davMultiStatus
-	var err error
-	if expandedByServer {
-		multi, err = calDAVRequest(ctx, "REPORT", source.RemoteID, username, password, "1",
-			multiget(fmt.Sprintf(`<c:calendar-data><c:expand start="%s" end="%s"/></c:calendar-data>`, windowStart.UTC().Format("20060102T150405Z"), windowEnd.UTC().Format("20060102T150405Z"))), 30*time.Second)
-		if calDAVServerCannotExpand(err) {
-			expandedByServer = false
-		}
-	}
-	if !expandedByServer {
-		multi, err = calDAVRequest(ctx, "REPORT", source.RemoteID, username, password, "1", multiget(`<c:calendar-data/>`), 30*time.Second)
-		if err == nil {
-			rememberCalDAVExpandRefused(source.RemoteID)
-		}
-	}
+	multi, expandedByServer, err := calDAVExpandingReport(ctx, source.RemoteID, username, password, multiget, windowStart, windowEnd)
 	if err != nil {
 		return nil, err
 	}

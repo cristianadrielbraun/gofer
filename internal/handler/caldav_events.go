@@ -102,8 +102,8 @@ func listCalDAVCalendarEvents(ctx context.Context, source storage.CalendarSource
 	end := query.WindowEnd.UTC().Format("20060102T150405Z")
 	// RFC 4791 section 9.6.5 expands recurrence sets, including exceptions,
 	// into individual instances in this bounded window, with zoned times in UTC.
-	// A server that can't do that is asked for the events as stored, and
-	// Gofer expands them itself.
+	// A server that can't, or answers with the series unexpanded, is asked
+	// for the events as stored, and Gofer expands them itself.
 	calendarQuery := func(data string) string {
 		return fmt.Sprintf(`<?xml version="1.0" encoding="utf-8"?>
 <c:calendar-query xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
@@ -111,22 +111,7 @@ func listCalDAVCalendarEvents(ctx context.Context, source storage.CalendarSource
  <c:filter><c:comp-filter name="VCALENDAR"><c:comp-filter name="VEVENT"><c:time-range start="%s" end="%s"/></c:comp-filter></c:comp-filter></c:filter>
 </c:calendar-query>`, data, start, end)
 	}
-	expandedByServer := !calDAVExpandRefusedFor(source.RemoteID)
-	var multi davMultiStatus
-	var err error
-	if expandedByServer {
-		multi, err = calDAVRequest(ctx, "REPORT", source.RemoteID, username, password, "1",
-			calendarQuery(fmt.Sprintf(`<c:calendar-data><c:expand start="%s" end="%s"/></c:calendar-data>`, start, end)), 30*time.Second)
-		if calDAVServerCannotExpand(err) {
-			expandedByServer = false
-		}
-	}
-	if !expandedByServer {
-		multi, err = calDAVRequest(ctx, "REPORT", source.RemoteID, username, password, "1", calendarQuery(`<c:calendar-data/>`), 30*time.Second)
-		if err == nil {
-			rememberCalDAVExpandRefused(source.RemoteID)
-		}
-	}
+	multi, expandedByServer, err := calDAVExpandingReport(ctx, source.RemoteID, username, password, calendarQuery, query.WindowStart, query.WindowEnd)
 	if err != nil {
 		return calendar.EventPage{}, err
 	}
