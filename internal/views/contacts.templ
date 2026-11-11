@@ -1631,7 +1631,12 @@ templ ContactsListPane(contacts []models.Contact, selected *models.Contact, filt
 							{ i18n.T(ctx, "contacts.title") }
 						}
 					</h2>
-					<span id="contacts-count" class="inline-flex h-5 min-w-10 items-center justify-center rounded-md bg-muted px-2 text-xs font-medium text-muted-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)]">{ fmt.Sprintf("%d", totalCount) }</span>
+					// A negative count is still loading, as in the mail list's header.
+					if totalCount >= 0 {
+						<span id="contacts-count" class="inline-flex h-5 min-w-10 items-center justify-center rounded-md bg-muted px-2 text-xs font-medium text-muted-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)]">{ fmt.Sprintf("%d", totalCount) }</span>
+					} else {
+						<span id="contacts-count" class="inline-flex h-5 min-w-10 items-center justify-center rounded-md bg-muted px-2 text-xs font-medium text-muted-foreground shadow-[0_1px_2px_rgba(0,0,0,0.06)] animate-pulse"></span>
+					}
 				</div>
 				if filters.Trash {
 					@button.Button(button.Props{

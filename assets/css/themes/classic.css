@@ -77,6 +77,12 @@
   --ink: #d8ccb4;
 }
 
+/* Dark muted is the card's own color, so the list headers' count pills,
+   which sit on cards, get a lighter tint of it to stand out. */
+[data-theme="classic"].dark :is(#mail-folder-count, #contacts-count) {
+  background: color-mix(in srgb, var(--foreground) 9%, var(--card));
+}
+
 [data-theme="classic"].dark .empty-icon-box {
   background: color-mix(in srgb, var(--paper), var(--card) 70%);
   box-shadow: 0 2px 6px rgba(0,0,0,0.3), 0 4px 12px rgba(0,0,0,0.2);
