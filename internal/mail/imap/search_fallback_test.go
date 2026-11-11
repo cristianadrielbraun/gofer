@@ -38,6 +38,13 @@ func startInboxServer(t *testing.T, count int, emptySearch bool) (*models.Accoun
 // command intercept handles instead of passing it through.
 func startInboxServerWith(t *testing.T, count int, intercept func(tag, command string) (string, bool)) (*models.AccountConfig, []uint32, *commandRecorder) {
 	t.Helper()
+	return startInboxProxy(t, count, intercept, nil)
+}
+
+// startInboxProxy is startInboxServerWith with the proxy also leaving out
+// every line of the server's replies that drop matches.
+func startInboxProxy(t *testing.T, count int, intercept func(tag, command string) (string, bool), drop func(line string) bool) (*models.AccountConfig, []uint32, *commandRecorder) {
+	t.Helper()
 	mem := imapmemserver.New()
 	user := imapmemserver.NewUser("user@example.com", "secret")
 	if err := user.Create("INBOX", nil); err != nil {
@@ -109,9 +116,12 @@ func startInboxServerWith(t *testing.T, count int, intercept func(tag, command s
 				reader := bufio.NewReader(up)
 				for {
 					line, err := reader.ReadString('\n')
-					writeMu.Lock()
-					_, writeErr := io.WriteString(down, line)
-					writeMu.Unlock()
+					var writeErr error
+					if drop == nil || !drop(line) {
+						writeMu.Lock()
+						_, writeErr = io.WriteString(down, line)
+						writeMu.Unlock()
+					}
 					if err != nil || writeErr != nil {
 						return
 					}
