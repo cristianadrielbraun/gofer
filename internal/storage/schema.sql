@@ -1957,4 +1957,16 @@ CREATE TABLE IF NOT EXISTS outbound_proxy_policy (
     people_add INTEGER NOT NULL DEFAULT 0 CHECK (people_add IN (0, 1))
 );
 
-INSERT OR REPLACE INTO schema_version (version) VALUES (145);
+-- What Gofer learned about how many folders each IMAP account's server lets
+-- it watch in real time (IMAP IDLE), one connection each.
+CREATE TABLE IF NOT EXISTS account_idle_limits (
+    account_id TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+    connection_limit INTEGER NOT NULL CHECK (connection_limit >= 1),
+    failed_at INTEGER NOT NULL DEFAULT 0,
+    failed_time DATETIME,
+    stable_at INTEGER NOT NULL DEFAULT 0,
+    stable_since DATETIME,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+INSERT OR REPLACE INTO schema_version (version) VALUES (146);

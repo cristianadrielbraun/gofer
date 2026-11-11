@@ -6641,6 +6641,7 @@
   "sync.fallback_reason.jmap_session": "the JMAP session could not be loaded",
   "sync.fallback_reason.login_limited": "the server is limiting logins for this account; Gofer waits a few minutes before trying again",
   "sync.fallback_reason.login_refused": "the server refused the login",
+  "sync.fallback_reason.mailbox_limit": "this account already has as many folders in real time as its mail server has allowed ({count})",
   "sync.fallback_reason.push_closed": "the push connection was closed",
   "sync.fallback_reason.push_failed": "the push connection failed",
   "sync.fallback_reason.push_refused": "the server refused the push connection",

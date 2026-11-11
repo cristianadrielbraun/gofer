@@ -157,7 +157,7 @@ func TestIdleWatcherRejectsServerWithoutIDLECapability(t *testing.T) {
 		return raw, nil
 	}
 
-	err := watcher.run(context.Background(), func() {
+	err := watcher.run(context.Background(), nil, nil, func() {
 		t.Fatal("watcher reported healthy without IDLE support")
 	})
 	runErr, ok := err.(*idleRunError)
@@ -217,7 +217,7 @@ func TestIdleWatcherRefreshesLongRunningSession(t *testing.T) {
 	healthy := make(chan struct{}, 3)
 	done := make(chan error, 1)
 	go func() {
-		done <- watcher.run(ctx, func() { healthy <- struct{}{} })
+		done <- watcher.run(ctx, nil, nil, func() { healthy <- struct{}{} })
 	}()
 	for i := 0; i < 2; i++ {
 		select {

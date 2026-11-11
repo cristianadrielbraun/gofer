@@ -6641,6 +6641,7 @@
   "sync.fallback_reason.jmap_session": "não foi possível carregar a sessão JMAP",
   "sync.fallback_reason.login_limited": "o servidor está limitando os logins desta conta; o Gofer espera alguns minutos antes de tentar de novo",
   "sync.fallback_reason.login_refused": "o servidor recusou o login",
+  "sync.fallback_reason.mailbox_limit": "esta conta já tem em tempo real tantas pastas quanto o servidor de e-mail dela permitiu ({count})",
   "sync.fallback_reason.push_closed": "a conexão push foi encerrada",
   "sync.fallback_reason.push_failed": "a conexão push falhou",
   "sync.fallback_reason.push_refused": "o servidor recusou a conexão push",

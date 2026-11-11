@@ -6641,6 +6641,7 @@
   "sync.fallback_reason.jmap_session": "无法加载 JMAP 会话",
   "sync.fallback_reason.login_limited": "服务器正在限制此账户的登录；Gofer 会等待几分钟后再重试",
   "sync.fallback_reason.login_refused": "服务器拒绝了登录",
+  "sync.fallback_reason.mailbox_limit": "此账户的实时文件夹数量已达到其邮件服务器允许的上限（{count}）",
   "sync.fallback_reason.push_closed": "推送连接已关闭",
   "sync.fallback_reason.push_failed": "推送连接失败",
   "sync.fallback_reason.push_refused": "服务器拒绝了推送连接",

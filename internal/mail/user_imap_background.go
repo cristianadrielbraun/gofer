@@ -380,6 +380,7 @@ func (s *UserIMAP) reconcileWatches(ctx context.Context, scope *userIMAPScope) e
 	}
 	var folders []storage.FolderSyncInfo
 	var selected map[string]bool
+	var ranks map[string]int
 	if err := scope.call(ctx, func(db *storage.DB) error {
 		var err error
 		folders, err = db.GetFoldersForAccount(ctx, scope.id)
@@ -387,7 +388,10 @@ func (s *UserIMAP) reconcileWatches(ctx context.Context, scope *userIMAPScope) e
 			return err
 		}
 		selected = db.GetIdleFolderIDsForAccount(ctx, scope.owner, scope.id)
-		return nil
+		if !jmapAccount {
+			ranks, err = db.IdleFolderRanks(ctx, scope.owner, scope.id)
+		}
+		return err
 	}); err != nil {
 		return err
 	}
@@ -487,7 +491,8 @@ func (s *UserIMAP) reconcileWatches(ctx context.Context, scope *userIMAPScope) e
 			}
 			w.watcher = watcher
 		} else {
-			w.watcher = imap.NewIdleWatcher(scope.config, scope.password, folder.RemoteID, onNotify, onStatus)
+			w.watcher = imap.NewIdleWatcher(scope.config, scope.password, folder.RemoteID, onNotify, onStatus).
+				WithMailboxLimit(idleFolderRank(ranks, folder.ID), userIdleLimitStore{accounts: scope.accounts, owner: scope.owner, accountID: scope.id})
 		}
 		s.watches[key] = w
 		s.idleCount++
