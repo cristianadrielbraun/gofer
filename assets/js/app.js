@@ -18941,7 +18941,12 @@ function autoComposeSignatureWasEdited(node) {
 }
 
 function autoComposeSignatureSpacerHTML() {
-  return '<p data-gofer-signature-cursor="true"><br></p><p><br></p><p><br></p><p><br></p>'
+  return '<p data-gofer-signature-cursor="true"><br></p>' + autoComposeSignatureGapHTML()
+}
+
+// One blank line between where you type and the signature.
+function autoComposeSignatureGapHTML() {
+  return '<p><br></p>'
 }
 
 function placeComposeCursorBeforeSignature(editor, signatureNode) {
@@ -18996,7 +19001,10 @@ function insertComposeSignatureWithPlacement(form, sig, source, placement) {
   } else if (source === "auto") {
     var first = editor.firstElementChild
     if (first && first.tagName === "P" && !first.textContent.trim() && !first.querySelector("img")) {
-      first.insertAdjacentHTML("afterend", autoComposeSignatureSpacerHTML() + html)
+      // A reply already starts with an empty line: type there instead of
+      // adding another one above it.
+      first.setAttribute("data-gofer-signature-cursor", "true")
+      first.insertAdjacentHTML("afterend", autoComposeSignatureGapHTML() + html)
     } else {
       editor.insertAdjacentHTML(editor.textContent.trim() ? "afterbegin" : "beforeend", autoComposeSignatureSpacerHTML() + html)
     }
