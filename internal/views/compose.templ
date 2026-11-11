@@ -215,7 +215,10 @@ templ ComposeMobileBar() {
 }
 
 templ ComposeToolbar() {
-	<div class="flex items-center gap-0.5 border-t border-b py-1 -mx-1" data-compose-toolbar>
+	<div class="flex flex-wrap items-center gap-0.5 border-t border-b py-1 -mx-1" data-compose-toolbar>
+		@composeToolButton(i18n.T(ctx, "compose.format.undo"), icon.Undo2(icon.Props{Class: "size-3.5"}), templ.Attributes{"data-on-click": `["composeExec","$this","undo"]`})
+		@composeToolButton(i18n.T(ctx, "compose.format.redo"), icon.Redo2(icon.Props{Class: "size-3.5"}), templ.Attributes{"data-on-click": `["composeExec","$this","redo"]`})
+		<div class="w-px h-4 bg-border mx-0.5"></div>
 		<div class="contents" data-compose-rich-only>
 			@tooltip.Tooltip() {
 				@tooltip.Trigger() {
@@ -269,6 +272,7 @@ templ ComposeToolbar() {
 					{ i18n.T(ctx, "compose.format.strike") }
 				}
 			}
+			@composeToolButton(i18n.T(ctx, "compose.format.clear"), icon.RemoveFormatting(icon.Props{Class: "size-3.5"}), templ.Attributes{"data-on-click": `["composeExec","$this","removeFormat"]`})
 			<div class="w-px h-4 bg-border mx-0.5"></div>
 		</div>
 		<div class="contents" data-compose-rich-only>
@@ -298,6 +302,9 @@ templ ComposeToolbar() {
 					{ i18n.T(ctx, "compose.format.numbers") }
 				}
 			}
+			@composeToolButton(i18n.T(ctx, "compose.format.outdent"), icon.ListIndentDecrease(icon.Props{Class: "size-3.5"}), templ.Attributes{"data-on-click": `["composeExec","$this","outdent"]`})
+			@composeToolButton(i18n.T(ctx, "compose.format.indent"), icon.ListIndentIncrease(icon.Props{Class: "size-3.5"}), templ.Attributes{"data-on-click": `["composeExec","$this","indent"]`})
+			@composeAlignMenu()
 			<div class="w-px h-4 bg-border mx-0.5"></div>
 		</div>
 		@tooltip.Tooltip() {
@@ -382,6 +389,7 @@ templ ComposeToolbar() {
 					{ i18n.T(ctx, "compose.format.code") }
 				}
 			}
+			@composeToolButton(i18n.T(ctx, "compose.format.hr"), icon.Minus(icon.Props{Class: "size-3.5"}), templ.Attributes{"data-on-click": `["composeExec","$this","insertHorizontalRule"]`})
 		</div>
 		<button type="button" class="ml-auto flex items-center gap-1.5 h-7 px-2 rounded text-xs text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed" data-compose-format-toggle data-on-click='["toggleComposeFormat","$this"]'>
 			<span class="contents" data-compose-format-to-plain>
@@ -394,6 +402,64 @@ templ ComposeToolbar() {
 			</span>
 		</button>
 	</div>
+}
+
+// composeToolButton is a formatting toolbar button with its tooltip.
+templ composeToolButton(label string, ic templ.Component, attrs templ.Attributes) {
+	@tooltip.Tooltip() {
+		@tooltip.Trigger() {
+			<button type="button" class="flex items-center justify-center size-7 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors" aria-label={ label } { attrs... }>
+				@ic
+			</button>
+		}
+		@tooltip.Content(tooltip.ContentProps{
+			Position:  tooltip.PositionBottom,
+			ShowArrow: true,
+		}) {
+			{ label }
+		}
+	}
+}
+
+// composeAlignMenu sets the paragraph's alignment; its button shows the
+// current one.
+templ composeAlignMenu() {
+	@dropdown.Dropdown() {
+		@dropdown.Trigger() {
+			<button type="button" class="flex items-center justify-center gap-0.5 h-7 px-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors" aria-label={ i18n.T(ctx, "compose.format.align") } title={ i18n.T(ctx, "compose.format.align") } data-compose-align-trigger>
+				<span class="contents" data-compose-align-icon="left">
+					@icon.TextAlignStart(icon.Props{Class: "size-3.5"})
+				</span>
+				<span class="hidden" data-compose-align-icon="center">
+					@icon.TextAlignCenter(icon.Props{Class: "size-3.5"})
+				</span>
+				<span class="hidden" data-compose-align-icon="right">
+					@icon.TextAlignEnd(icon.Props{Class: "size-3.5"})
+				</span>
+				@icon.ChevronDown(icon.Props{Class: "size-3"})
+			</button>
+		}
+		@dropdown.Content(dropdown.ContentProps{Class: "min-w-36 normal-case tracking-normal"}) {
+			@dropdown.Item(dropdown.ItemProps{Attributes: templ.Attributes{"data-on-click": `["composeExec","$this","justifyLeft"]`}}) {
+				<span class="flex items-center gap-2">
+					@icon.TextAlignStart(icon.Props{Class: "size-4"})
+					{ i18n.T(ctx, "compose.format.align_left") }
+				</span>
+			}
+			@dropdown.Item(dropdown.ItemProps{Attributes: templ.Attributes{"data-on-click": `["composeExec","$this","justifyCenter"]`}}) {
+				<span class="flex items-center gap-2">
+					@icon.TextAlignCenter(icon.Props{Class: "size-4"})
+					{ i18n.T(ctx, "compose.format.align_center") }
+				</span>
+			}
+			@dropdown.Item(dropdown.ItemProps{Attributes: templ.Attributes{"data-on-click": `["composeExec","$this","justifyRight"]`}}) {
+				<span class="flex items-center gap-2">
+					@icon.TextAlignEnd(icon.Props{Class: "size-4"})
+					{ i18n.T(ctx, "compose.format.align_right") }
+				</span>
+			}
+		}
+	}
 }
 
 // ComposeRemoteImagesNotice shows when a reply or forward quotes a message

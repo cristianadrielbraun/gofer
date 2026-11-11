@@ -20051,6 +20051,9 @@ function _composeNodeText(node, signatureMark) {
     if (/[^\n]\n$/.test(inner)) inner = inner.slice(0, -1)
     if (tag === "HR") {
       inner = "----------"
+    } else if (tag === "BLOCKQUOTE" && /border\s*:\s*none/i.test(child.getAttribute("style") || "")) {
+      // An indent, which the editor makes as a borderless blockquote.
+      inner = inner.replace(/\n$/, "").split("\n").map(function (line) { return line ? "    " + line : "" }).join("\n")
     } else if (tag === "BLOCKQUOTE") {
       inner = inner.replace(/\n$/, "").split("\n").map(function (line) {
         if (!line) return ">"
@@ -20268,6 +20271,17 @@ function updateComposeToolbar(editor) {
     buttons[i].classList.toggle("bg-accent", active)
     buttons[i].classList.toggle("text-foreground", active)
   }
+  var align = "left"
+  try {
+    if (document.queryCommandState("justifyCenter")) align = "center"
+    else if (document.queryCommandState("justifyRight")) align = "right"
+  } catch (e) {}
+  var alignIcons = form.querySelectorAll("[data-compose-align-icon]")
+  for (var a = 0; a < alignIcons.length; a++) {
+    var current = alignIcons[a].dataset.composeAlignIcon === align
+    alignIcons[a].classList.toggle("hidden", !current)
+    alignIcons[a].classList.toggle("contents", current)
+  }
 }
 
 function handleComposePaste(event) {
@@ -20304,6 +20318,18 @@ document.addEventListener("keydown", function (event) {
     if (event.key.toLowerCase() === "s") {
       event.preventDefault()
       saveComposeDraft(form.id === "compose-pane-form", false)
+      return
+    }
+  }
+  // Tab and Shift+Tab nest list items; elsewhere Tab still leaves the editor.
+  if (editor && event.key === "Tab" && !event.ctrlKey && !event.metaKey && !event.altKey && composeFormat(form) !== "plain") {
+    var tabSelection = window.getSelection && window.getSelection()
+    var anchor = tabSelection && tabSelection.anchorNode
+    var item = anchor && (anchor.nodeType === Node.ELEMENT_NODE ? anchor : anchor.parentElement)
+    item = item && item.closest("li")
+    if (item && editor.contains(item)) {
+      event.preventDefault()
+      composeExec(editor, event.shiftKey ? "outdent" : "indent")
       return
     }
   }

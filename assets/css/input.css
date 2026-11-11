@@ -893,6 +893,16 @@
   color: color-mix(in srgb, var(--ink) 70%, transparent);
 }
 
+/* An indent is a borderless blockquote: it keeps the text's own color. */
+.compose-rich-editor blockquote[style*="border: none"] {
+  color: inherit;
+}
+
+.compose-rich-editor hr {
+  margin: 0.75rem 0;
+  border-color: var(--border);
+}
+
 .compose-rich-editor pre {
   margin: 0.5rem 0;
   padding: 0.75rem;
