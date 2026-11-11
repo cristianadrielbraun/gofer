@@ -21744,8 +21744,10 @@ function composeInsertTable(el, rows, cols) {
   _restoreComposeSelection(editor)
   var cell = '<td style="' + COMPOSE_TABLE_CELL_STYLE + '"><br></td>'
   var row = "<tr>" + new Array(cols + 1).join(cell) + "</tr>"
-  // A line after the table, to go on writing below it.
-  document.execCommand("insertHTML", false, '<table data-compose-new-table style="border-collapse: collapse;"><tbody>' + new Array(rows + 1).join(row) + "</tbody></table><div><br></div>")
+  // A line after the table, to go on writing below it. The table sits in a
+  // block of its own: Chrome then replaces it in place when the table bar
+  // edits it (_replaceComposeTable), rather than swallowing the line.
+  document.execCommand("insertHTML", false, '<div><table data-compose-new-table style="border-collapse: collapse;"><tbody>' + new Array(rows + 1).join(row) + "</tbody></table></div><div><br></div>")
   var table = editor.querySelector("table[data-compose-new-table]")
   if (table) {
     table.removeAttribute("data-compose-new-table")
@@ -21918,58 +21920,64 @@ function _composeNewRowLike(row) {
   return fresh
 }
 
-function _composeAddRowBelow(row) {
-  var fresh = _composeNewRowLike(row)
-  row.parentNode.insertBefore(fresh, row.nextSibling)
-  return fresh
+// Table edits go through execCommand, so Ctrl+Z and the undo button take
+// them back: the edit is made on a copy of the table, and the copy replaces
+// it. The caret then goes to the cell at row, col of the new table.
+function _replaceComposeTable(editor, table, copy, row, col) {
+  var index = Array.prototype.indexOf.call(editor.querySelectorAll("table"), table)
+  editor.focus()
+  var range = document.createRange()
+  range.selectNode(table)
+  var selection = window.getSelection()
+  selection.removeAllRanges()
+  selection.addRange(range)
+  if (!copy) {
+    document.execCommand("delete")
+    hideComposeTableToolbar()
+  } else {
+    document.execCommand("insertHTML", false, copy.outerHTML)
+    var fresh = editor.querySelectorAll("table")[index]
+    var tr = fresh && fresh.rows[Math.min(row, fresh.rows.length - 1)]
+    if (tr) _placeComposeCaret(editor, tr.cells[Math.min(col, tr.cells.length - 1)])
+  }
+  _saveComposeSelection(editor)
+  syncComposeEditor(editor)
+  _markComposeDirty(_composeFormFrom(editor))
+  syncComposeTableToolbar()
 }
 
 function applyComposeTableAction(action) {
   var cell = _selectedComposeCell
   if (!cell || !cell.isConnected) return hideComposeTableToolbar()
   var editor = cell.closest("[data-compose-editor]")
-  var row = cell.parentNode
   var table = cell.closest("table")
+  var rowIndex = cell.parentNode.rowIndex
   var index = cell.cellIndex
-  var target = cell
-  if (action === "delete-row" && table.rows.length <= 1) action = "delete"
+  var copy = table.cloneNode(true)
+  var row = copy.rows[rowIndex]
+  var targetRow = rowIndex
+  var targetCol = index
+  if (action === "delete-row" && copy.rows.length <= 1) action = "delete"
   if (action === "delete-col" && row.cells.length <= 1) action = "delete"
   if (action === "row-above" || action === "row-below") {
-    var fresh = action === "row-above" ? _composeNewRowLike(row) : _composeAddRowBelow(row)
-    if (action === "row-above") row.parentNode.insertBefore(fresh, row)
-    target = fresh.cells[Math.min(index, fresh.cells.length - 1)]
+    row.parentNode.insertBefore(_composeNewRowLike(row), action === "row-above" ? row : row.nextSibling)
+    if (action === "row-below") targetRow = rowIndex + 1
   } else if (action === "col-left" || action === "col-right") {
-    Array.prototype.forEach.call(table.rows, function (tr) {
+    Array.prototype.forEach.call(copy.rows, function (tr) {
       var ref = tr.cells[Math.min(index, tr.cells.length - 1)]
-      if (!ref) return
-      var added = _composeNewCellLike(ref)
-      tr.insertBefore(added, action === "col-left" ? ref : ref.nextSibling)
-      if (tr === row) target = added
+      if (ref) tr.insertBefore(_composeNewCellLike(ref), action === "col-left" ? ref : ref.nextSibling)
     })
+    if (action === "col-right") targetCol = index + 1
   } else if (action === "delete-row") {
-    var rowIndex = row.rowIndex
     row.remove()
-    var next = table.rows[Math.min(rowIndex, table.rows.length - 1)]
-    target = next.cells[Math.min(index, next.cells.length - 1)]
   } else if (action === "delete-col") {
-    Array.prototype.forEach.call(table.rows, function (tr) {
+    Array.prototype.forEach.call(copy.rows, function (tr) {
       if (tr.cells[index]) tr.cells[index].remove()
     })
-    target = row.cells[Math.min(index, row.cells.length - 1)]
+  } else if (action !== "delete") {
+    return
   }
-  if (action === "delete") {
-    var after = table.nextElementSibling
-    table.remove()
-    hideComposeTableToolbar()
-    editor.focus()
-    if (after) _placeComposeCaret(editor, after)
-  } else {
-    editor.focus()
-    _placeComposeCaret(editor, target)
-  }
-  syncComposeEditor(editor)
-  _markComposeDirty(_composeFormFrom(editor))
-  syncComposeTableToolbar()
+  _replaceComposeTable(editor, table, action === "delete" ? null : copy, targetRow, targetCol)
 }
 
 // Tab moves to the next cell and Shift+Tab to the one before; Tab in the
@@ -21980,13 +21988,16 @@ function _composeTableTab(editor, cell, back) {
   Array.prototype.forEach.call(table.rows, function (tr) {
     Array.prototype.forEach.call(tr.cells, function (c) { cells.push(c) })
   })
-  var at = cells.indexOf(cell)
-  var next = cells[at + (back ? -1 : 1)]
-  if (!next && !back) next = _composeAddRowBelow(cell.parentNode).cells[0]
-  if (!next) return
-  _placeComposeCaret(editor, next)
-  syncComposeEditor(editor)
-  _markComposeDirty(_composeFormFrom(editor))
+  var next = cells[cells.indexOf(cell) + (back ? -1 : 1)]
+  if (next) {
+    _placeComposeCaret(editor, next)
+    return
+  }
+  if (back) return
+  var copy = table.cloneNode(true)
+  var last = copy.rows[copy.rows.length - 1]
+  last.parentNode.insertBefore(_composeNewRowLike(last), last.nextSibling)
+  _replaceComposeTable(editor, table, copy, copy.rows.length - 1, 0)
 }
 
 document.addEventListener("selectionchange", syncComposeTableToolbar)

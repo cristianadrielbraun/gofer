@@ -915,6 +915,18 @@
   border-color: var(--border);
 }
 
+/* Tables in the editor start from the browser's own defaults, not
+   Tailwind's. Chrome drops an inserted table's inline styles that match what
+   the page already gives it, so with Tailwind's solid borders and collapsed
+   tables the cells would reach recipients with no border style at all. */
+.compose-rich-editor table {
+  border-collapse: separate;
+}
+
+.compose-rich-editor :is(td, th) {
+  border-style: none;
+}
+
 .compose-rich-editor pre {
   margin: 0.5rem 0;
   padding: 0.75rem;
