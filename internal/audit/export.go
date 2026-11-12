@@ -81,9 +81,9 @@ func Export(ctx context.Context, q Querier, filter Filter, format Format, out io
 			line := exportOf(record)
 			return writer.Write([]string{
 				fmt.Sprint(line.Seq), line.ID, line.OccurredAt, string(line.ActorKind), line.ActorID,
-				csvSafe(line.ActorLabel), line.SessionID, line.TokenID, line.Action, line.TargetKind,
-				line.TargetID, csvSafe(line.TargetLabel), string(line.Outcome), changes, metadata,
-				csvSafe(line.Client.UserAgent), line.CorrelationID, line.ChainMAC,
+				CSVSafe(line.ActorLabel), line.SessionID, line.TokenID, line.Action, line.TargetKind,
+				line.TargetID, CSVSafe(line.TargetLabel), string(line.Outcome), changes, metadata,
+				CSVSafe(line.Client.UserAgent), line.CorrelationID, line.ChainMAC,
 			})
 		}
 		finish = func() error {
@@ -122,9 +122,9 @@ func Export(ctx context.Context, q Querier, filter Filter, format Format, out io
 	return written, nil
 }
 
-// csvSafe keeps a name that starts like a formula from running as one when
+// CSVSafe keeps a name that starts like a formula from running as one when
 // the export is opened in a spreadsheet.
-func csvSafe(value string) string {
+func CSVSafe(value string) string {
 	if value != "" && (value[0] == '=' || value[0] == '+' || value[0] == '-' || value[0] == '@' || value[0] == '\t' || value[0] == '\r') {
 		return "'" + value
 	}

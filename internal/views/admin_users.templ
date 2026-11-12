@@ -84,6 +84,8 @@ type AdminUsersData struct {
 	BulkActions []string
 	BulkLimit   int
 	Bulk        *AdminUsersBulkData
+	// Exportable shows the button that downloads the list as CSV.
+	Exportable bool
 }
 
 type AdminUserInvitationFormData struct {
@@ -1204,7 +1206,17 @@ templ adminUsersChoice(name, label, value string, choices []adminUsersChoiceOpti
 // moves between pages in place.
 templ adminUsersPaging(data AdminUsersData) {
 	<div class="flex flex-col gap-2 border-t border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between" data-admin-users-paging>
-		<p class="text-xs text-muted-foreground">{ i18n.T(ctx, "admin.users.showing", "from", i18n.Number(ctx, data.From), "to", i18n.Number(ctx, data.To), "total", i18n.Number(ctx, data.Matching)) }</p>
+		<div class="flex flex-wrap items-center gap-3">
+			<p class="text-xs text-muted-foreground">{ i18n.T(ctx, "admin.users.showing", "from", i18n.Number(ctx, data.From), "to", i18n.Number(ctx, data.To), "total", i18n.Number(ctx, data.Matching)) }</p>
+			if data.Exportable {
+				// A plain link: the download leaves the page as it is, and a
+				// session that must verify again lands back on the list.
+				@button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeSm, Href: data.Query.ExportPath(), Attributes: templ.Attributes{"hx-boost": "false", "data-admin-users-export": ""}}) {
+					@icon.Download(icon.Props{Class: "size-4"})
+					{ i18n.T(ctx, "admin.users.export_csv") }
+				}
+			}
+		</div>
 		if data.PreviousPath != "" || data.NextPath != "" {
 			@pagination.Pagination(pagination.Props{Class: "mx-0 w-auto justify-end", Label: i18n.T(ctx, "admin.users.pages")}) {
 				@pagination.Content() {

@@ -29,7 +29,7 @@ func TestCatalogDescribesEveryPermission(t *testing.T) {
 	for permission, stepUp := range map[authz.Permission]bool{
 		authz.UsersRead: false, authz.SecurityRead: false, authz.DiagnosticsRead: false,
 		authz.UsersInvite: true, authz.UsersAccess: true, authz.UsersCredentials: true,
-		authz.UsersMFAPolicy: true, authz.UsersDelete: true, authz.InstancePolicy: true,
+		authz.UsersMFAPolicy: true, authz.UsersDelete: true, authz.UsersExport: true, authz.InstancePolicy: true,
 		authz.SecurityChange: true, authz.ActivityRead: true, authz.ActivityRetention: true, authz.ActivityExport: true,
 	} {
 		if got := authz.NeedsStepUp(permission); got != stepUp {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/url"
 	"strconv"
+	"strings"
 
 	"github.com/a-h/templ"
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
@@ -47,6 +48,18 @@ func (query AdminUsersQuery) Path(page int) string {
 		return "/admin/users"
 	}
 	return "/admin/users?" + values.Encode()
+}
+
+// AdminUsersExportPath downloads the Users list.
+const AdminUsersExportPath = "/admin/users/export"
+
+// ExportPath downloads everyone query's list holds, in its order, as CSV.
+func (query AdminUsersQuery) ExportPath() string {
+	path := query.Path(1)
+	if rest, ok := strings.CutPrefix(path, "/admin/users?"); ok {
+		return AdminUsersExportPath + "?" + rest
+	}
+	return AdminUsersExportPath
 }
 
 // adminUsersPageLink moves the list to path in place, as its filters do.

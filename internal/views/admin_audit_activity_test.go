@@ -102,6 +102,7 @@ func TestEveryRecordedActionHasASentence(t *testing.T) {
 		{Event: audit.Event{Action: "instance.mfa_policy_changed", Changes: map[string]audit.Change{"mfa_policy": {From: "administrators", To: "all_users"}}}},
 		{Event: audit.Event{Action: "audit.pruned"}},
 		{Event: audit.Event{Action: "audit.exported", Metadata: map[string]any{"format": "csv"}}},
+		{Event: audit.Event{Action: "user.list_exported", Metadata: map[string]any{"format": "csv", "count": float64(12)}}},
 		{Event: audit.Event{Action: "instance.audit_retention_changed"}},
 		{Event: audit.Event{Action: "security.exception_added", Metadata: map[string]any{"kind": "http_discovery"}}},
 		{Event: audit.Event{Action: "security.exception_removed", Metadata: map[string]any{"kind": "private_target"}}},
@@ -130,6 +131,9 @@ func TestEveryRecordedActionHasASentence(t *testing.T) {
 	}
 	if got := adminAuditSentence(ctx, audit.Record{Event: audit.Event{Action: "instance.mfa_policy_changed", Changes: map[string]audit.Change{"mfa_policy": {From: "administrators", To: "all_users"}}}}); got != "Required 2FA for everyone instead of administrators" {
 		t.Errorf("policy sentence = %q", got)
+	}
+	if got := adminAuditSentence(ctx, audit.Record{Event: audit.Event{Action: "user.list_exported", Metadata: map[string]any{"count": float64(1)}}}); got != "Exported the Users list as CSV, 1 person" {
+		t.Errorf("export sentence = %q", got)
 	}
 	if got := adminAuditSentence(ctx, audit.Record{Event: audit.Event{Action: "access.denied", Target: audit.Target{ID: "users.delete"}, Metadata: map[string]any{"reason": "verification_required"}}}); got != "Refused without a recent verification: deleting people" {
 		t.Errorf("refusal sentence = %q", got)

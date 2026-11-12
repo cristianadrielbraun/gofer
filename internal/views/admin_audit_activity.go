@@ -79,6 +79,9 @@ func adminAuditSentence(ctx context.Context, record audit.Record) string {
 	case "instance.audit_retention_changed":
 		change := record.Changes["admin_event_retention_days"]
 		args = append(args, "from", adminAuditValue(ctx, change.From), "to", adminAuditValue(ctx, change.To))
+	case "user.list_exported":
+		count, _ := adminAuditCount(record.Metadata["count"])
+		return i18n.N(ctx, key, count, "count", i18n.Number(ctx, count))
 	case "audit.exported":
 		args = append(args, "format", strings.ToUpper(fmt.Sprint(record.Metadata["format"])))
 	case "instance.mfa_policy_changed":
@@ -179,4 +182,18 @@ func adminAuditDate(ctx context.Context, value any) string {
 
 func adminAuditTime(ctx context.Context, at time.Time) string {
 	return i18n.Dates(ctx).ShortDateTime(at.Local())
+}
+
+// adminAuditCount reads a count a record keeps, which comes back from the
+// database's JSON as a float.
+func adminAuditCount(value any) (int, bool) {
+	switch number := value.(type) {
+	case int:
+		return number, true
+	case int64:
+		return int(number), true
+	case float64:
+		return int(number), true
+	}
+	return 0, false
 }

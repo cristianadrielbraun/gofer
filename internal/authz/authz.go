@@ -33,6 +33,8 @@ const (
 	UsersMFAPolicy Permission = "users.mfa_policy"
 	// UsersDelete deletes people and their local data.
 	UsersDelete Permission = "users.delete"
+	// UsersExport downloads the people list.
+	UsersExport Permission = "users.export"
 	// InstancePolicy changes instance-wide sign-in rules.
 	InstancePolicy Permission = "instance.policy"
 	// SecurityRead shows mail security settings.
@@ -64,6 +66,7 @@ var catalog = map[Permission]Spec{
 	UsersCredentials:  {StepUp: true},
 	UsersMFAPolicy:    {StepUp: true},
 	UsersDelete:       {StepUp: true},
+	UsersExport:       {StepUp: true},
 	InstancePolicy:    {StepUp: true},
 	SecurityRead:      {},
 	SecurityChange:    {StepUp: true},

@@ -64,7 +64,25 @@ func adminSecurityVerificationReturnTo(value string) string {
 		return parsed.Path
 	}
 	switch parsed.Path {
-	case "/admin/users", "/admin/security":
+	case "/admin/users":
+		// A list, such as the one an export came from, rebuilt from its
+		// parameters; anything else it would drop refuses the address.
+		values := parsed.Query()
+		query := adminUsersQueryFrom(values)
+		path := query.Path(max(query.Page, 1))
+		rebuilt, _ := url.Parse(path)
+		for key, given := range values {
+			switch {
+			case len(given) != 1:
+				return ""
+			case key == "page" || (key == "sort" && given[0] == string(auth.AdministratorUserSortUsername)):
+			case key != "q" && key != "status" && key != "attention" && key != "sort",
+				rebuilt.Query().Get(key) != given[0]:
+				return ""
+			}
+		}
+		return path
+	case "/admin/security":
 		if parsed.RawQuery != "" {
 			return ""
 		}

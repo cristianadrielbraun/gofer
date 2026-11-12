@@ -601,6 +601,10 @@ func (h *Handler) renderAdminUsersPage(w http.ResponseWriter, r *http.Request, s
 	state.data.CredentialReset = reset
 	// A refused change comes back to its own dialog once the session verifies.
 	returnTo := adminUsersPath
+	if r.Method == http.MethodGet && r.URL.Query().Get("verification_required") == "1" {
+		// Back to the list asked for, such as the one an export came from.
+		returnTo = state.data.Query.Path(max(state.data.Query.Page, 1))
+	}
 	if r.Method == http.MethodPost && pageError != "" {
 		if address := adminSecurityVerificationReturnTo(r.URL.EscapedPath()); address != "" {
 			returnTo = address
@@ -710,6 +714,7 @@ func (h *Handler) loadAdminUserList(w http.ResponseWriter, r *http.Request, quer
 	if h.auth.IsEnabled() {
 		state.data.BulkActions = adminUsersBulkActionNames()
 		state.data.BulkLimit = admin.MaxBulkPeople
+		state.data.Exportable = true
 	}
 	offset := (pageNumber - 1) * size
 	if len(page.Users) > 0 {

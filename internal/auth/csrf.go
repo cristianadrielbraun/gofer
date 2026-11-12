@@ -20,8 +20,8 @@ const (
 	// AdminUsersBulkPath is where the admin console's changes to many
 	// people at once go, each change at its own address below it.
 	AdminUsersBulkPath = "/admin/users/bulk/"
-	csrfKeyContext              = "gofer-csrf-session-key-v1"
-	csrfActionContext           = "gofer-csrf-action-v1"
+	csrfKeyContext     = "gofer-csrf-session-key-v1"
+	csrfActionContext  = "gofer-csrf-action-v1"
 )
 
 type csrfContextKey struct{}
