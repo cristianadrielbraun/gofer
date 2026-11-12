@@ -1208,30 +1208,6 @@ document.addEventListener("click", function (e) {
   })
 })
 
-// New folder… in a rule's Move to folder, or the button beside a folder,
-// creates a folder in the rule's account, at the top or inside that folder,
-// as the account's Folders dialog does, then chooses it. It is caught before
-// the folder picker would take the click as choosing the folder beside it.
-document.addEventListener("click", function (e) {
-  var button = e.target.closest && e.target.closest("[data-mail-rule-new-folder]")
-  if (!button || typeof window.goferCreateMailFolder !== "function") return
-  e.preventDefault()
-  e.stopPropagation()
-  var row = button.closest("[data-mail-rule-action]")
-  var input = row && row.querySelector('input[name="act_folder"]')
-  var body = button.closest("[data-mail-rule-form-body]")
-  var content = button.closest("[popover]")
-  if (content && window.tui && window.tui.popover && window.tui.popover.closeElement) window.tui.popover.closeElement(content)
-  var parent = button.getAttribute("data-mail-rule-new-folder-parent") || ""
-  var parentName = button.getAttribute("data-mail-rule-new-folder-parent-name") || ""
-  var title = parent ? goferT("js.settings.rules.new_subfolder", { folder: parentName }) : goferT("js.folders.new")
-  window.goferCreateMailFolder(button.getAttribute("data-mail-rule-new-folder"), parent, parentName, { title: title }).then(function (folder) {
-    if (!folder || !input || !body || !body.isConnected || !window.htmx) return
-    input.value = "id:" + folder.id
-    window.htmx.trigger(body, "mail-rule-rerender")
-  })
-}, true)
-
 // A rule's form is shown again when a choice that others depend on changes,
 // such as the account its folders come from.
 function setupMailRuleForm() {
@@ -2191,7 +2167,7 @@ document.body.addEventListener("htmx:afterSwap", function (e) {
   var to = content.getBoundingClientRect()
   content.style.transitionProperty = transition
   flipDialogResize(content, from, to, function () {
-    var field = content.querySelector("[data-account-identity-form] input:not([type=hidden]):not([readonly])")
+    var field = content.querySelector("[data-account-identity-form] input:not([type=hidden]):not([readonly]), [data-account-sender-name-form] input:not([type=hidden])")
     if (field) field.focus({ preventScroll: true })
   })
 })

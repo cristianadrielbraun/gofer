@@ -200,3 +200,25 @@ func TestSanitizeOutgoingHTMLKeepsRemoteImages(t *testing.T) {
 		t.Fatalf("unsafe markup kept: %s", got)
 	}
 }
+
+// The compose editor's formatting reaches the recipient: alignment, indents,
+// lines, colors, sizes, headings and tables.
+func TestSanitizeOutgoingHTMLKeepsComposeFormatting(t *testing.T) {
+	parts := []string{
+		`<div style="text-align: center;">Centered</div>`,
+		`<blockquote style="margin: 0 0 0 40px; border: none; padding: 0px;">Indented</blockquote>`,
+		`<span style="color: rgb(220, 38, 38); background-color: rgb(254, 240, 138); font-size: 18px">Marked</span>`,
+		`<font color="#ff0000" size="5">Large</font>`,
+		`<h2>Heading</h2>`,
+		`<td style="border: 1px solid #ccc; padding: 4px">Cell</td>`,
+	}
+	out := string(SanitizeOutgoingHTML([]byte(strings.Join(parts[:5], "") + `<hr><table><tr>` + parts[5] + `</tr></table>`)))
+	for _, part := range parts {
+		if !strings.Contains(out, part) {
+			t.Errorf("sanitized HTML lost %s:\n%s", part, out)
+		}
+	}
+	if !strings.Contains(out, "<hr/>") {
+		t.Errorf("sanitized HTML lost the line:\n%s", out)
+	}
+}

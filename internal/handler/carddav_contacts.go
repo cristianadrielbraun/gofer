@@ -69,6 +69,13 @@ type davProp struct {
 	} `xml:"urn:ietf:params:xml:ns:caldav calendar-user-address-set"`
 	ResourceType          davResourceType  `xml:"resourcetype"`
 	CurrentUserPrivileges *davPrivilegeSet `xml:"current-user-privilege-set"`
+	// SupportedComponents is nil when the server didn't send the property,
+	// which RFC 4791 section 5.2.3 reads as any component.
+	SupportedComponents *struct {
+		Comps []struct {
+			Name string `xml:"name,attr"`
+		} `xml:"urn:ietf:params:xml:ns:caldav comp"`
+	} `xml:"urn:ietf:params:xml:ns:caldav supported-calendar-component-set"`
 }
 
 type davPrivilegeSet struct {

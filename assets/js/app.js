@@ -834,7 +834,7 @@ document.addEventListener("DOMContentLoaded", function () {
       if (!list || (!list.selectedContactId && selectedContactIds.size === 0)) return
       var target = e.target
       // A row's checkbox, focused once clicked, is the list's own.
-      if (target && target.closest && target.closest("input, textarea, select, [contenteditable='true']") && !target.closest("[data-mail-row-check]")) return
+      if (target && target.closest && target.closest("input, textarea, select, [contenteditable='true'], [contenteditable='plaintext-only']") && !target.closest("[data-mail-row-check]")) return
       // Leave open dialogs, menus and an unsaved contact editor to handle Escape.
       // The contact page always holds its Edit dialog's form, closed; only the
       // new-contact editor, which fills the page, keeps Escape for itself.
@@ -2502,18 +2502,23 @@ document.addEventListener("DOMContentLoaded", function () {
       return row ? row.dataset.emailId : ""
     }
 
+    // rememberMailThreadSubs keeps the thread's other messages: the row's own
+    // is in the expanded list too, in its place, but the row stands for it.
     function rememberMailThreadSubs(slot) {
       var row = slot.querySelector(".mail-list-item[data-email-id]")
       if (!row) return
       var ids = []
       var subs = slot.querySelectorAll(".thread-sub-item[data-sub-email-id]")
-      for (var i = 0; i < subs.length; i++) ids.push(subs[i].dataset.subEmailId)
+      for (var i = 0; i < subs.length; i++) {
+        if (subs[i].dataset.subEmailId !== row.dataset.emailId) ids.push(subs[i].dataset.subEmailId)
+      }
       mailThreadSubIds.set(row.dataset.emailId, ids)
     }
 
     // Picking one message of an expanded thread splits the thread's selection
-    // into its messages: the row then stands for its own message alone. With
-    // every message picked again, the row takes the whole thread back.
+    // into its messages: the row then stands for its own message alone, which
+    // the expanded list shows in its place. With every message picked again,
+    // the row takes the whole thread back.
     function toggleMailThreadSubSelected(sub) {
       var subId = sub.dataset.subEmailId
       var rowId = mailThreadSubRowId(sub)
@@ -2544,10 +2549,6 @@ document.addEventListener("DOMContentLoaded", function () {
       if (selectedMailIds.has(rowId) && allSubs) {
         dropMailThreadSubs(rowId)
         selectedMailThreads.delete(rowId)
-      } else if (!selectedMailIds.has(rowId) && allSubs && subs.length) {
-        // Every other message is picked: the row's own message joins them.
-        selectedMailIds.add(rowId)
-        selectedMailThreads.set(rowId, false)
       }
       if (selectedMailIds.size > 0) setMailSelectionMode(true)
       syncMailSelectionControls()
@@ -4435,9 +4436,6 @@ document.addEventListener("DOMContentLoaded", function () {
       }
       showGoferToast({ id: id, title: title, variant: "success", icon: "success", position: "bottom-right", duration: 3000, dismissible: true })
     }
-
-    // A rule's Move to folder offers a new folder too.
-    window.goferCreateMailFolder = createMailFolder
 
     // The account settings' folders dialog runs these too.
     window.goferFolderActions = {
@@ -10175,6 +10173,7 @@ document.addEventListener("DOMContentLoaded", function () {
 		evt.detail.pathInfo.requestPath.startsWith("/email/")
 	  ) {
 		var emailId = evt.detail.pathInfo.requestPath.replace("/email/", "").split("?")[0]
+		var inThread = !!(evt.detail.elt && evt.detail.elt.closest && evt.detail.elt.closest(".thread-sub-item"))
 		if (virtualMailList) {
 		  if (preserveMailListSelectionFor === emailId) {
 		    preserveMailListSelectionFor = null
@@ -10182,9 +10181,10 @@ document.addEventListener("DOMContentLoaded", function () {
 		  } else if (suppressEmailUrlPushFor === emailId) {
 		    suppressEmailUrlPushFor = null
 		    virtualMailList.selectedEmailId = emailId
+		    virtualMailList.selectedInThread = inThread
 		    virtualMailList.syncSelectionClasses(virtualMailList.itemsContainer)
 		  } else {
-		    virtualMailList.onEmailSelected(emailId)
+		    virtualMailList.onEmailSelected(emailId, { inThread: inThread })
 		  }
 		}
 		scheduleAutoMarkRead(emailId, evt.detail.elt)
@@ -15769,13 +15769,17 @@ function promptForLink() {
     label: goferT("js.compose.link.label"),
     placeholder: goferT("js.compose.link.placeholder"),
     confirmLabel: goferT("js.compose.link.confirm"),
-  }).then(function (value) {
-    value = String(value || "").trim()
-    if (!value) return ""
-    if (value.indexOf("@") > 0 && !/^[a-z][a-z0-9+.-]*:/i.test(value)) value = "mailto:" + value
-    if (!/^[a-z][a-z0-9+.-]*:/i.test(value)) value = "https://" + value
-    return /^(https?:|mailto:)/i.test(value) ? value : ""
-  })
+  }).then(_normalizeLinkAddress)
+}
+
+// _normalizeLinkAddress turns what was typed as an address into a web or
+// mail link, or nothing.
+function _normalizeLinkAddress(value) {
+  value = String(value || "").trim()
+  if (!value) return ""
+  if (value.indexOf("@") > 0 && !/^[a-z][a-z0-9+.-]*:/i.test(value)) value = "mailto:" + value
+  if (!/^[a-z][a-z0-9+.-]*:/i.test(value)) value = "https://" + value
+  return /^(https?:|mailto:)/i.test(value) ? value : ""
 }
 
 function pasteCalendarDescription(event) {
@@ -18836,10 +18840,13 @@ function resetComposeForm(fromPane, skipCleanup) {
   for (var i = 0; i < fields.length; i++) fields[i].value = ""
   var modeField = form.querySelector('input[name="compose_mode"]')
   if (modeField) modeField.value = "new"
+  _applyComposeFormat(form, composeDefaultFormat())
   deactivateComposeOneTimeFrom(form, false)
   setComposeKind(form, "new")
   var editor = form.querySelector("[data-compose-editor]")
   if (editor) editor.innerHTML = ""
+  hideComposeLinkToolbar()
+  hideComposeTableToolbar()
   syncComposeInlineImageInputs(form)
   syncComposeRemoteImagesNotice(form)
   var recipientFields = form.querySelectorAll("[data-compose-recipient-field]")
@@ -18870,7 +18877,10 @@ function refreshComposeAccountData(reset) {
   form.querySelector('[name="account_id"]').value = data.dataset.composeDefaultAccount
   form.querySelector('[name="identity_id"]').value = ""
   var display = document.getElementById("compose-from-display")
-  if (display) display.textContent = data.dataset.composeDefaultName + " <" + data.dataset.composeDefaultEmail + ">"
+  var defaultName = data.dataset.composeDefaultName || ""
+  if (display) display.textContent = defaultName ? defaultName + " <" + data.dataset.composeDefaultEmail + ">" : data.dataset.composeDefaultEmail
+  // A new message starts from the account's default identity, if it has one.
+  if (data.dataset.composeDefaultAccount) setComposeAccount(form, data.dataset.composeDefaultAccount, data.dataset.composeDefaultIdentity || "")
   updateComposeSendState(form)
 }
 
@@ -18922,8 +18932,10 @@ function loadComposeSignatures(form, refresh) {
     .catch(function () { return null })
 }
 
-function composeSignatureHTML(sig, source) {
-  var html = sig && sig.html_body ? _sanitizeComposeHTML(sig.html_body, true) : _composePlainToHTML((sig && sig.text_body) || "")
+function composeSignatureHTML(sig, source, plain) {
+  var html = ""
+  if (plain) html = _composePlainToHTML((sig && sig.text_body) || _composeHTMLText((sig && sig.html_body) || ""))
+  else html = sig && sig.html_body ? _sanitizeComposeHTML(sig.html_body, true) : _composePlainToHTML((sig && sig.text_body) || "")
   return '<div data-gofer-signature="' + source + '" data-signature-id="' + _escapeComposeHTML(sig.id || "") + '" data-signature-html="' + _escapeComposeHTML(html) + '">' + html + '</div>'
 }
 
@@ -18937,7 +18949,12 @@ function autoComposeSignatureWasEdited(node) {
 }
 
 function autoComposeSignatureSpacerHTML() {
-  return '<p data-gofer-signature-cursor="true"><br></p><p><br></p><p><br></p><p><br></p>'
+  return '<p data-gofer-signature-cursor="true"><br></p>' + autoComposeSignatureGapHTML()
+}
+
+// One blank line between where you type and the signature.
+function autoComposeSignatureGapHTML() {
+  return '<p><br></p>'
 }
 
 function placeComposeCursorBeforeSignature(editor, signatureNode) {
@@ -18973,7 +18990,8 @@ function insertComposeSignatureWithPlacement(form, sig, source, placement) {
   var editor = form && form.querySelector("[data-compose-editor]")
   if (!editor || !sig) return false
   var existing = existingComposeSignature(editor)
-  var html = composeSignatureHTML(sig, source)
+  var plain = composeFormat(form) === "plain"
+  var html = composeSignatureHTML(sig, source, plain)
   if (existing) {
     if (source === "auto" && autoComposeSignatureWasEdited(existing)) return false
     if (source === "auto") {
@@ -18991,14 +19009,18 @@ function insertComposeSignatureWithPlacement(form, sig, source, placement) {
   } else if (source === "auto") {
     var first = editor.firstElementChild
     if (first && first.tagName === "P" && !first.textContent.trim() && !first.querySelector("img")) {
-      first.insertAdjacentHTML("afterend", autoComposeSignatureSpacerHTML() + html)
+      // A reply already starts with an empty line: type there instead of
+      // adding another one above it.
+      first.setAttribute("data-gofer-signature-cursor", "true")
+      first.insertAdjacentHTML("afterend", autoComposeSignatureGapHTML() + html)
     } else {
       editor.insertAdjacentHTML(editor.textContent.trim() ? "afterbegin" : "beforeend", autoComposeSignatureSpacerHTML() + html)
     }
   } else {
     editor.focus()
     _restoreComposeSelection(editor)
-    document.execCommand("insertHTML", false, html)
+    if (plain) _composeInsertHTMLAtSelection(editor, html)
+    else document.execCommand("insertHTML", false, html)
   }
   if (source === "auto") placeComposeCursorBeforeSignature(editor, existingComposeSignature(editor))
   syncComposeEditor(editor)
@@ -19127,7 +19149,10 @@ function showComposeSignaturePicker(el) {
     }
     document.body.appendChild(menu)
     _composeSignatureMenu = menu
-    var rect = el.getBoundingClientRect()
+    // From the ⋯ menu, which closes, the picker opens by the ⋯ button.
+    var overflow = el.closest && el.closest("[data-compose-overflow-menu]")
+    var anchor = (overflow && overflow.querySelector("[data-compose-overflow-trigger]")) || el
+    var rect = anchor.getBoundingClientRect()
     menu.style.top = Math.min(window.innerHeight - menu.offsetHeight - 8, rect.bottom + 6) + "px"
     menu.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - menu.offsetWidth - 8)) + "px"
     setTimeout(function () { document.addEventListener("mousedown", closeComposeSignatureMenu, { once: true }) }, 0)
@@ -19963,9 +19988,310 @@ function syncComposeEditor(editor) {
   if (!form) return
   var plain = form.querySelector('textarea[name="body"]')
   var html = form.querySelector('textarea[name="html_body"]')
-  if (plain) plain.value = _composeEditorText(editor)
-  if (html) html.value = _composeHTMLForSending(editor)
+  if (composeFormat(form) === "plain") {
+    if (plain) plain.value = _composePlainBody(editor)
+    if (html) html.value = ""
+  } else {
+    if (plain) plain.value = _composeEditorText(editor)
+    if (html) html.value = _composeHTMLForSending(editor)
+  }
   syncComposeInlineImageInputs(form)
+}
+
+// Plain text mode writes the message as text alone: the editor takes only
+// text, and sending or saving leaves out the HTML part.
+function composeFormat(form) {
+  var field = form && form.querySelector("[data-compose-format-field]")
+  return field && field.value === "plain" ? "plain" : "html"
+}
+
+function composeDefaultFormat() {
+  return window.GoferSettings && GoferSettings.get("compose_format") === "plain" ? "plain" : "html"
+}
+
+function _applyComposeFormat(form, format) {
+  if (!form) return
+  var plain = format === "plain"
+  var field = form.querySelector("[data-compose-format-field]")
+  if (field) field.value = plain ? "plain" : "html"
+  form.dataset.composeFormat = plain ? "plain" : "html"
+  var editor = form.querySelector("[data-compose-editor]")
+  if (editor) {
+    editor.toggleAttribute("data-compose-plain-mode", plain)
+    editor.setAttribute("contenteditable", plain ? "plaintext-only" : "true")
+    // A browser without plaintext-only would stop editing; it keeps the rich
+    // editor, and paste, drop and the shortcuts still keep to plain text.
+    if (plain && editor.contentEditable !== "plaintext-only") editor.setAttribute("contenteditable", "true")
+  }
+  // The tools shown change with the format, so the toolbar folds again.
+  observeComposeToolbars()
+  syncComposeToolbarOverflow(form.querySelector("[data-compose-toolbar]"), true)
+}
+
+var _COMPOSE_TEXT_BLOCK = /^(ADDRESS|ARTICLE|ASIDE|BLOCKQUOTE|CENTER|DD|DIV|DL|DT|FIELDSET|FIGCAPTION|FIGURE|FOOTER|FORM|H[1-6]|HEADER|HR|LI|MAIN|NAV|OL|P|PRE|SECTION|TABLE|TBODY|TFOOT|THEAD|TR|UL)$/
+
+// _composeNodeText turns compose markup into plain text: lists keep their
+// bullets and numbers, quotes get "> " and links their address. It reads
+// the markup, not the layout, so a hidden editor gives its text too. With
+// signatureMark, the signature is left out and the mark put in its place.
+function _composeNodeText(node, signatureMark) {
+  var out = ""
+  var ordinal = 0
+  var start = node.tagName === "OL" ? (parseInt(node.getAttribute("start"), 10) || 1) : 1
+  function lineBreak() {
+    if (out && out.charAt(out.length - 1) !== "\n") out += "\n"
+  }
+  for (var child = node.firstChild; child; child = child.nextSibling) {
+    if (child.nodeType === Node.TEXT_NODE) {
+      out += child.nodeValue.replace(/ /g, " ")
+      continue
+    }
+    if (child.nodeType !== Node.ELEMENT_NODE) continue
+    var tag = child.tagName
+    if (tag === "BR") {
+      out += "\n"
+      continue
+    }
+    if (/^(IMG|STYLE|SCRIPT|TEMPLATE|HEAD|TITLE|META|LINK)$/.test(tag)) continue
+    if (signatureMark && child.hasAttribute("data-gofer-signature")) {
+      lineBreak()
+      out += signatureMark + "\n"
+      continue
+    }
+    var inner = _composeNodeText(child, signatureMark)
+    if (tag === "A") {
+      var href = child.getAttribute("href") || ""
+      var address = href.replace(/^mailto:/i, "")
+      var label = inner.trim()
+      if (href && !/^(javascript|data):/i.test(href)) {
+        if (!label) inner = address
+        else if (label !== href && label !== address) inner += " <" + address + ">"
+      }
+      out += inner
+      continue
+    }
+    if (tag === "TD" || tag === "TH") {
+      if (out && !/\s$/.test(out)) out += "  "
+      out += inner.replace(/\s*\n\s*/g, " ").trim()
+      continue
+    }
+    if (!_COMPOSE_TEXT_BLOCK.test(tag)) {
+      out += inner
+      continue
+    }
+    lineBreak()
+    // A block's own last line break is the one after it; an empty line
+    // keeps its break.
+    if (/[^\n]\n$/.test(inner)) inner = inner.slice(0, -1)
+    if (tag === "HR") {
+      inner = "----------"
+    } else if (tag === "BLOCKQUOTE" && /border\s*:\s*none/i.test(child.getAttribute("style") || "")) {
+      // An indent, which the editor makes as a borderless blockquote.
+      inner = inner.replace(/\n$/, "").split("\n").map(function (line) { return line ? "    " + line : "" }).join("\n")
+    } else if (tag === "BLOCKQUOTE") {
+      inner = inner.replace(/\n$/, "").split("\n").map(function (line) {
+        if (!line) return ">"
+        return line.charAt(0) === ">" ? ">" + line : "> " + line
+      }).join("\n")
+    } else if (tag === "LI") {
+      var marker = node.tagName === "OL" ? (start + ordinal) + ". " : "- "
+      ordinal++
+      inner = marker + inner.split("\n").join("\n" + new Array(marker.length + 1).join(" "))
+    }
+    out += inner
+    lineBreak()
+  }
+  return out
+}
+
+function _composeHTMLText(html) {
+  if (!html) return ""
+  var template = document.createElement("template")
+  template.innerHTML = html
+  return _composeNodeText(template.content).replace(/^\n+/, "").replace(/\s+$/, "")
+}
+
+function _composePlainBody(editor) {
+  if (!editor) return ""
+  return _composeNodeText(editor).replace(/^\n+/, "").replace(/\s+$/, "")
+}
+
+// _composeEditorLosesFormatting says whether plain text would drop
+// something: formatting, links or images. A signature nobody edited comes
+// back in its own plain text version, so it loses nothing.
+function _composeEditorLosesFormatting(editor) {
+  var clone = editor.cloneNode(true)
+  var signature = clone.querySelector("[data-gofer-signature]")
+  if (signature && signature.getAttribute("data-signature-html") === signature.innerHTML) signature.remove()
+  return !!clone.querySelector("b,strong,i,em,u,s,strike,del,ins,mark,sub,sup,font,ul,ol,a[href],img,pre,code,h1,h2,h3,h4,h5,h6,table,hr,[style]")
+}
+
+function _composeCachedSignature(form, id) {
+  var data = _composeSignatureCache[composeSignatureCacheKey(form)]
+  if (!data || !id) return null
+  var list = (data.signatures || []).concat(data.default_signature ? [data.default_signature] : [])
+  for (var i = 0; i < list.length; i++) {
+    if (list[i] && String(list[i].id) === String(id)) return list[i]
+  }
+  return null
+}
+
+// _composeSignatureInFormat gives the signature's markup for the other
+// format: an unedited one is rendered again from the saved signature,
+// an edited one keeps its text.
+function _composeSignatureInFormat(form, node, format) {
+  var source = node.getAttribute("data-gofer-signature") || "manual"
+  var id = node.getAttribute("data-signature-id") || ""
+  var unedited = node.getAttribute("data-signature-html") === node.innerHTML
+  var sig = unedited ? _composeCachedSignature(form, id) : null
+  if (sig) return composeSignatureHTML(sig, source, format === "plain")
+  var inner = _composePlainToHTML(_composeNodeText(node).replace(/\s+$/, ""))
+  var saved = unedited ? inner : (node.getAttribute("data-signature-html") || "")
+  return '<div data-gofer-signature="' + _escapeComposeHTML(source) + '" data-signature-id="' + _escapeComposeHTML(id) + '" data-signature-html="' + _escapeComposeHTML(saved) + '">' + inner + '</div>'
+}
+
+// Images the user inserted stay with the message as attachments when it
+// turns plain text. Quoted images and the signature's are left out, as a
+// plain text reply or signature has none.
+function _composeInlineImagesToAttachments(form, editor) {
+  var have = {}
+  readComposeAttachments(form).forEach(function (att) { have[(att.existing ? "existing:" : "new:") + att.id] = true })
+  var imgs = editor.querySelectorAll("img[data-compose-inline-image]:not([data-compose-inline-quoted])")
+  for (var i = 0; i < imgs.length; i++) {
+    if (imgs[i].closest("[data-gofer-signature]")) continue
+    var existing = !!imgs[i].dataset.existingAttachmentId
+    var id = imgs[i].dataset.existingAttachmentId || imgs[i].dataset.attachmentId || ""
+    var key = (existing ? "existing:" : "new:") + id
+    if (!id || have[key]) continue
+    have[key] = true
+    addComposeAttachment(form, {
+      id: id,
+      existing: existing,
+      filename: imgs[i].dataset.filename || imgs[i].alt || "image",
+      content_type: imgs[i].dataset.contentType || "image/png",
+      size: Number(imgs[i].dataset.size || 0),
+      preview_url: imgs[i].dataset.previewUrl || ""
+    })
+  }
+}
+
+function _switchComposeFormat(form, format) {
+  var editor = form && form.querySelector("[data-compose-editor]")
+  if (!editor) return
+  var mark = "\u0000gofer-signature\u0000"
+  var signature = existingComposeSignature(editor)
+  var signatureHTML = signature ? _composeSignatureInFormat(form, signature, format) : ""
+  if (format === "plain") _composeInlineImagesToAttachments(form, editor)
+  var parts = _composeNodeText(editor, signature ? mark : "").split(mark + "\n")
+  var html = _composePlainToHTML(parts[0])
+  if (signature) html += signatureHTML + _composePlainToHTML(parts.slice(1).join(""))
+  _applyComposeFormat(form, format)
+  editor.innerHTML = html
+  if (format === "html") uploadComposeSignatureImages(form)
+  syncComposeEditor(editor)
+  syncComposeRemoteImagesNotice(form)
+  _markComposeDirty(form)
+  editor.focus()
+  updateComposeToolbar(editor)
+}
+
+function toggleComposeFormat(el) {
+  var form = _composeFormFrom(el)
+  var editor = form && form.querySelector("[data-compose-editor]")
+  if (!editor || _composePendingUploads(form) > 0) return
+  if (composeFormat(form) === "plain") {
+    _switchComposeFormat(form, "html")
+    return
+  }
+  if (!_composeEditorLosesFormatting(editor)) {
+    _switchComposeFormat(form, "plain")
+    return
+  }
+  window.goferConfirm({
+    title: goferT("js.compose.plain.title"),
+    message: goferT("js.compose.plain.message"),
+    confirmLabel: goferT("js.compose.plain.confirm"),
+    cancelLabel: goferT("js.compose.plain.cancel"),
+  }).then(function (ok) {
+    if (ok) _switchComposeFormat(form, "plain")
+  })
+}
+
+// The compose toolbar folds its tools into a ⋯ menu as its room runs out,
+// as the mail list's toolbar and the contact header do: undo first, then
+// quote and code, and so on (the ranks in ComposeToolbar). Bold to lists,
+// attach and the format switch stay.
+var COMPOSE_OVERFLOW_RANKS = 11
+var composeToolbarObserver = null
+
+function composeToolbarFoldStates(toolbar, step) {
+  var states = new Map()
+  toolbar.querySelectorAll(":scope > [data-compose-overflow-rank]").forEach(function (part) {
+    states.set(part, parseInt(part.getAttribute("data-compose-overflow-rank"), 10) <= step)
+  })
+  var menu = toolbar.querySelector(":scope > [data-compose-overflow-menu]")
+  if (menu) states.set(menu, step === 0)
+  return states
+}
+
+function syncComposeToolbarOverflow(toolbar, force) {
+  if (!toolbar || toolbar.offsetParent === null) return
+  var spacer = toolbar.querySelector(":scope > [data-compose-toolbar-spacer]")
+  var step = toolbarFoldStep(toolbar, spacer, COMPOSE_OVERFLOW_RANKS, function (step) {
+    return composeToolbarFoldStates(toolbar, step)
+  })
+  if (!force && step === toolbar._composeFolded) return
+  toolbar._composeFolded = step
+  composeToolbarFoldStates(toolbar, step).forEach(function (collapsed, el) {
+    el.toggleAttribute("data-mail-collapsed", collapsed)
+  })
+  toolbar.querySelectorAll("[data-compose-overflow-menu-item]").forEach(function (item) {
+    item.style.display = parseInt(item.getAttribute("data-compose-overflow-menu-item"), 10) <= step ? "" : "none"
+  })
+}
+
+// observeComposeToolbars watches each compose toolbar's width; the dialog's
+// is there from the start, the pane's comes with the pane.
+function observeComposeToolbars() {
+  if (typeof ResizeObserver !== "function") return
+  if (!composeToolbarObserver) {
+    composeToolbarObserver = new ResizeObserver(function (entries) {
+      entries.forEach(function (entry) {
+        // A pane's toolbar goes when the pane is replaced.
+        if (!entry.target.isConnected) composeToolbarObserver.unobserve(entry.target)
+        else syncComposeToolbarOverflow(entry.target)
+      })
+    })
+  }
+  document.querySelectorAll("[data-compose-toolbar]").forEach(function (toolbar) {
+    if (toolbar._composeFoldObserved) return
+    toolbar._composeFoldObserved = true
+    composeToolbarObserver.observe(toolbar)
+  })
+}
+
+document.addEventListener("DOMContentLoaded", observeComposeToolbars)
+
+// _composeInsertHTMLAtSelection puts markup at the caret without
+// execCommand, which a plain text editor would insert as text.
+function _composeInsertHTMLAtSelection(editor, html) {
+  var selection = window.getSelection && window.getSelection()
+  var range = selection && selection.rangeCount ? selection.getRangeAt(0) : null
+  if (!range || !editor.contains(range.commonAncestorContainer)) {
+    range = document.createRange()
+    range.selectNodeContents(editor)
+    range.collapse(false)
+  }
+  range.deleteContents()
+  var fragment = range.createContextualFragment(html)
+  var last = fragment.lastChild
+  range.insertNode(fragment)
+  if (last && selection) {
+    range.setStartAfter(last)
+    range.collapse(true)
+    selection.removeAllRanges()
+    selection.addRange(range)
+  }
 }
 
 function composeChanged(editor) {
@@ -19986,10 +20312,14 @@ function _setComposeEditorValue(form, plain, html, inlineImages) {
   var editor = form.querySelector("[data-compose-editor]")
   var plainField = form.querySelector('textarea[name="body"]')
   var htmlField = form.querySelector('textarea[name="html_body"]')
+  hideComposeLinkToolbar()
+  hideComposeTableToolbar()
+  var plainMode = composeFormat(form) === "plain"
+  if (plainMode && !plain && html) plain = _composeHTMLText(html)
   if (plainField) plainField.value = plain || ""
-  if (htmlField) htmlField.value = html || ""
+  if (htmlField) htmlField.value = plainMode ? "" : (html || "")
   if (editor) {
-    editor.innerHTML = html ? _sanitizeComposeHTML(_composeHTMLForEditor(html, inlineImages || [])) : _composePlainToHTML(plain || "")
+    editor.innerHTML = html && !plainMode ? _sanitizeComposeHTML(_composeHTMLForEditor(html, inlineImages || [])) : _composePlainToHTML(plain || "")
   }
   syncComposeInlineImageInputs(form)
 }
@@ -20004,18 +20334,192 @@ function composeExec(el, command, value) {
   updateComposeToolbar(editor)
 }
 
+// The size menu's sizes are the browser's font sizes, as other mail apps
+// send them: 1 is small, 4 large and 6 huge.
+var COMPOSE_FONT_SIZES = { small: "1", large: "4", huge: "6" }
+// A value no menu offers, put on the selection to find it afterwards.
+var COMPOSE_MARK_COLOR = "#010203"
+
+function _composeEditorSelection(el) {
+  var editor = _composeEditorFrom(el)
+  if (!editor) return null
+  editor.focus()
+  _restoreComposeSelection(editor)
+  document.execCommand("styleWithCSS", false, false)
+  var selection = window.getSelection && window.getSelection()
+  return { editor: editor, collapsed: !selection || !selection.rangeCount || selection.isCollapsed }
+}
+
+function _composeCSSColor(value) {
+  var probe = document.createElement("span")
+  probe.style.color = value
+  return probe.style.color
+}
+
+// _composeClearMarked takes a property off the marked parts of the editor:
+// the marks are unwrapped and nothing inside keeps the property. The text
+// stays selected.
+function _composeClearMarked(editor, marked, prop, attr) {
+  var first = null
+  var last = null
+  marked.forEach(function (node) {
+    node.querySelectorAll("[style]").forEach(function (el) {
+      el.style.removeProperty(prop)
+      if (!el.getAttribute("style")) el.removeAttribute("style")
+    })
+    if (attr) node.querySelectorAll("font[" + attr + "]").forEach(function (el) { el.removeAttribute(attr) })
+    if (!first) first = node.firstChild
+    if (node.lastChild) last = node.lastChild
+    var parent = node.parentNode
+    while (node.firstChild) parent.insertBefore(node.firstChild, node)
+    parent.removeChild(node)
+  })
+  var selection = window.getSelection && window.getSelection()
+  if (first && last && selection) {
+    var range = document.createRange()
+    range.setStartBefore(first)
+    range.setEndAfter(last)
+    selection.removeAllRanges()
+    selection.addRange(range)
+  }
+}
+
+function _composeFinishFormat(editor) {
+  _saveComposeSelection(editor)
+  syncComposeEditor(editor)
+  updateComposeToolbar(editor)
+  _markComposeDirty(_composeFormFrom(editor))
+}
+
+// composeSetTextSize makes headings, or sets the text size; Normal turns
+// a heading back into text and takes the size off.
+function composeSetTextSize(el, size) {
+  var state = _composeEditorSelection(el)
+  if (!state) return
+  var editor = state.editor
+  if (size === "h2" || size === "h3") {
+    document.execCommand("formatBlock", false, size)
+  } else if (COMPOSE_FONT_SIZES[size]) {
+    document.execCommand("fontSize", false, COMPOSE_FONT_SIZES[size])
+  } else {
+    var block = String(document.queryCommandValue("formatBlock") || "").toLowerCase()
+    if (/^h[1-6]$/.test(block)) document.execCommand("formatBlock", false, "div")
+    // A caret has nothing to mark; the size would stay on what is typed next.
+    if (!state.collapsed) {
+      document.execCommand("fontSize", false, "7")
+      var marked = Array.prototype.filter.call(editor.querySelectorAll("font[size='7'], span"), function (node) {
+        return node.tagName === "FONT" ? true : node.style.fontSize === "xxx-large"
+      })
+      _composeClearMarked(editor, marked, "font-size", "size")
+    }
+  }
+  _composeFinishFormat(editor)
+}
+
+// composeSetColor sets the text or highlight color, or with no value takes
+// it off. Highlighted text is made dark, so it reads on a light highlight.
+function composeSetColor(el, command, value) {
+  var state = _composeEditorSelection(el)
+  if (!state) return
+  var editor = state.editor
+  var isText = command === "foreColor"
+  if (value) {
+    document.execCommand(command, false, value)
+    if (!isText) {
+      var background = _composeCSSColor(value)
+      editor.querySelectorAll("[style]").forEach(function (node) {
+        if (node.style.backgroundColor === background && !node.style.color) node.style.color = "#111827"
+      })
+    }
+  } else if (!state.collapsed) {
+    document.execCommand(command, false, COMPOSE_MARK_COLOR)
+    var mark = _composeCSSColor(COMPOSE_MARK_COLOR)
+    var marked = Array.prototype.filter.call(editor.querySelectorAll("font, span"), function (node) {
+      if (isText) return (node.tagName === "FONT" && _composeCSSColor(node.getAttribute("color") || "") === mark) || node.style.color === mark
+      return node.style.backgroundColor === mark
+    })
+    if (!isText) {
+      // The dark text a highlight brought goes with it.
+      var dark = _composeCSSColor("#111827")
+      marked.forEach(function (node) {
+        node.querySelectorAll("[style]").forEach(function (inner) {
+          if (inner.style.backgroundColor && inner.style.color === dark) inner.style.removeProperty("color")
+        })
+      })
+    }
+    _composeClearMarked(editor, marked, isText ? "color" : "background-color", isText ? "color" : "")
+  }
+  _composeFinishFormat(editor)
+}
+
+// _composeLinkAtSelection is the editor link the caret or selection is in.
+function _composeLinkAtSelection(editor) {
+  var selection = window.getSelection && window.getSelection()
+  var node = selection && selection.rangeCount ? selection.anchorNode : null
+  var el = node && (node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement)
+  var link = el && el.closest ? el.closest("a[href]") : null
+  return link && editor && editor.contains(link) ? link : null
+}
+
+// _unlinkComposeLink takes a whole link off, keeping its text; undo brings
+// it back.
+function _unlinkComposeLink(editor, link) {
+  var selection = window.getSelection()
+  var range = document.createRange()
+  range.selectNodeContents(link)
+  selection.removeAllRanges()
+  selection.addRange(range)
+  document.execCommand("unlink")
+  selection.collapseToEnd()
+  _saveComposeSelection(editor)
+}
+
+// composeCreateLink adds a link, or on a link edits it: the dialog asks for
+// the text to show and the address, and editing can remove the link.
 function composeCreateLink(el) {
   var editor = _composeEditorFrom(el)
   if (!editor) return
   editor.focus()
   _restoreComposeSelection(editor)
   _saveComposeSelection(editor)
-  promptForLink().then(function (url) {
-    if (!url) return
+  var link = _composeLinkAtSelection(editor)
+  var selection = window.getSelection()
+  var selected = !link && selection && selection.rangeCount ? selection.toString() : ""
+  var text = link ? link.textContent : selected
+  var address = link ? (link.getAttribute("href") || "").replace(/^mailto:/i, "") : ""
+  window.goferPrompt({
+    title: goferT(link ? "js.compose.link.edit_title" : "js.compose.link.title"),
+    confirmLabel: goferT(link ? "js.compose.link.save" : "js.compose.link.confirm"),
+    fields: [
+      { label: goferT("js.compose.link.text_label"), value: text },
+      { label: goferT("js.compose.link.label"), value: address, placeholder: goferT("js.compose.link.placeholder") },
+    ],
+    focus: text ? 1 : 0,
+    extraLabel: link ? goferT("js.compose.link.remove") : "",
+  }).then(function (result) {
     editor.focus()
     _restoreComposeSelection(editor)
-    document.execCommand("createLink", false, url)
+    if (!result) return
+    if (result.extra) {
+      if (link && link.isConnected) _unlinkComposeLink(editor, link)
+    } else {
+      var url = _normalizeLinkAddress(result[1])
+      if (!url) return
+      var shown = String(result[0] || "").trim() || url.replace(/^mailto:/i, "")
+      if (link && link.isConnected) {
+        link.setAttribute("href", url)
+        // Retyping the text drops the link's own formatting, so only a
+        // changed text is put in.
+        if (shown !== link.textContent) link.textContent = shown
+      } else if (selected && shown === selected) {
+        // The selection becomes the link, keeping its formatting.
+        document.execCommand("createLink", false, url)
+      } else {
+        document.execCommand("insertHTML", false, '<a href="' + _escapeComposeHTML(url) + '">' + _escapeComposeHTML(shown) + "</a>")
+      }
+    }
     syncComposeEditor(editor)
+    _markComposeDirty(_composeFormFrom(editor))
     updateComposeToolbar(editor)
   })
 }
@@ -20031,6 +20535,24 @@ function updateComposeToolbar(editor) {
     try { active = document.queryCommandState(command) } catch (e) {}
     buttons[i].classList.toggle("bg-accent", active)
     buttons[i].classList.toggle("text-foreground", active)
+  }
+  var align = "left"
+  try {
+    if (document.queryCommandState("justifyCenter")) align = "center"
+    else if (document.queryCommandState("justifyRight")) align = "right"
+  } catch (e) {}
+  // The link button and its ⋯ menu copy say Edit link on a link.
+  var onLink = !!_composeLinkAtSelection(editor)
+  form.querySelectorAll("[data-compose-link-insert]").forEach(function (el) { el.hidden = onLink })
+  form.querySelectorAll("[data-compose-link-edit]").forEach(function (el) { el.hidden = !onLink })
+  form.querySelectorAll("[data-compose-link-button]").forEach(function (button) {
+    button.setAttribute("aria-label", goferT(onLink ? "js.compose.link.edit_title" : "js.compose.link.insert"))
+  })
+  var alignIcons = form.querySelectorAll("[data-compose-align-icon]")
+  for (var a = 0; a < alignIcons.length; a++) {
+    var current = alignIcons[a].dataset.composeAlignIcon === align
+    alignIcons[a].classList.toggle("hidden", !current)
+    alignIcons[a].classList.toggle("contents", current)
   }
 }
 
@@ -20048,7 +20570,11 @@ function handleComposePaste(event) {
   event.preventDefault()
   var html = clipboard.getData("text/html")
   var text = clipboard.getData("text/plain")
-  document.execCommand("insertHTML", false, html ? _sanitizeComposeHTML(html) : _composePlainToHTML(text))
+  if (composeFormat(_composeFormFrom(editor)) === "plain") {
+    document.execCommand("insertText", false, text || _composeHTMLText(html))
+  } else {
+    document.execCommand("insertHTML", false, html ? _sanitizeComposeHTML(html) : _composePlainToHTML(text))
+  }
   syncComposeEditor(editor)
 }
 
@@ -20067,8 +20593,32 @@ document.addEventListener("keydown", function (event) {
       return
     }
   }
+  // Tab and Shift+Tab nest list items; elsewhere Tab still leaves the editor.
+  if (editor && event.key === "Tab" && !event.ctrlKey && !event.metaKey && !event.altKey && composeFormat(form) !== "plain") {
+    var tabSelection = window.getSelection && window.getSelection()
+    var anchor = tabSelection && tabSelection.anchorNode
+    var item = anchor && (anchor.nodeType === Node.ELEMENT_NODE ? anchor : anchor.parentElement)
+    item = item && item.closest("li")
+    if (item && editor.contains(item)) {
+      event.preventDefault()
+      composeExec(editor, event.shiftKey ? "outdent" : "indent")
+      return
+    }
+    var tabCell = _composeCellAtSelection(editor)
+    if (tabCell) {
+      event.preventDefault()
+      _composeTableTab(editor, tabCell, event.shiftKey)
+      return
+    }
+  }
   if (!editor || (!event.ctrlKey && !event.metaKey)) return
   var key = event.key.toLowerCase()
+  if (composeFormat(form) === "plain") {
+    // Plain text has no formatting; the keys do nothing rather than the
+    // browser's own action.
+    if (key === "b" || key === "i" || key === "u" || key === "k") event.preventDefault()
+    return
+  }
   if (key === "b") {
     event.preventDefault()
     composeExec(editor, "bold")
@@ -20089,7 +20639,7 @@ document.addEventListener("selectionchange", function () {
 })
 
 document.addEventListener("mousedown", function (event) {
-  if (event.target && event.target.closest && (event.target.closest("[data-compose-toolbar] button") || event.target.closest(".compose-inline-image-toolbar"))) {
+  if (event.target && event.target.closest && (event.target.closest("[data-compose-toolbar] button") || event.target.closest(".compose-float-toolbar"))) {
     event.preventDefault()
   }
 })
@@ -20102,8 +20652,12 @@ document.addEventListener("click", function (event) {
     selectComposeInlineImage(img)
     return
   }
-  if (event.target.closest(".compose-inline-image-toolbar")) return
+  if (event.target.closest(".compose-float-toolbar")) return
   hideComposeInlineImageToolbar()
+  if (!event.target.closest("[data-compose-editor]")) {
+    hideComposeLinkToolbar()
+    hideComposeTableToolbar()
+  }
 })
 
 window.addEventListener("resize", positionComposeInlineImageToolbar)
@@ -20258,6 +20812,9 @@ function updateComposeSendState(form) {
   var pending = _composePendingUploads(form)
   var sending = form.dataset.composeSending === "true"
   var disabled = pending > 0 || sending
+  // Switching format while an image uploads would lose it.
+  var formatToggle = form.querySelector("[data-compose-format-toggle]")
+  if (formatToggle) formatToggle.disabled = disabled
   var root = _composeRootForForm(form)
   var mobileSend = root && root.querySelector("[data-compose-mobile-send]")
   if (mobileSend) {
@@ -20729,6 +21286,11 @@ function placePointPopover(root, x, y) {
 function _showComposeImageDropChoice(form, images, event) {
   _closeComposeDropChoice()
   if (!form || !images || !images.length) return
+  // Plain text has no inline images, so they are attached.
+  if (composeFormat(form) === "plain") {
+    uploadComposeAttachments(images, form)
+    return
+  }
   var root = form.querySelector("[data-compose-drop-choice]")
   var content = root && root.querySelector("[data-tui-popover-content]")
   if (!content || !window.tui || !window.tui.popover) {
@@ -20926,7 +21488,26 @@ function _composeInlineImageFlipped(img) {
   return /scaleX\(\s*-1\s*\)/i.test(String((img && img.style && img.style.transform) || ""))
 }
 
-function _composeInlineImageToolbarButton(action, label, path) {
+// The floating bars over an inline image or a link open as popovers inside
+// the compose window: the compose dialog is modal, so a bar outside it would
+// sit under it and take no clicks.
+function _showComposeFloatToolbar(toolbar, target) {
+  var host = (target && target.closest("dialog")) || document.body
+  if (toolbar.parentNode !== host) {
+    _hideComposeFloatToolbar(toolbar)
+    host.appendChild(toolbar)
+  }
+  toolbar.classList.remove("hidden")
+  if (toolbar.showPopover && !toolbar.matches(":popover-open")) toolbar.showPopover()
+}
+
+function _hideComposeFloatToolbar(toolbar) {
+  if (!toolbar) return
+  toolbar.classList.add("hidden")
+  if (toolbar.hidePopover && toolbar.matches(":popover-open")) toolbar.hidePopover()
+}
+
+function _composeFloatToolbarButton(action, label, path) {
   var button = document.createElement("button")
   button.type = "button"
   button.dataset.composeInlineAction = action
@@ -20947,14 +21528,15 @@ function _composeInlineImageToolbarButton(action, label, path) {
 function _ensureComposeInlineImageToolbar() {
   if (_composeInlineImageToolbar) return _composeInlineImageToolbar
   var toolbar = document.createElement("div")
-  toolbar.className = "compose-inline-image-toolbar hidden"
+  toolbar.className = "compose-float-toolbar hidden"
   toolbar.setAttribute("contenteditable", "false")
-  toolbar.appendChild(_composeInlineImageToolbarButton("smaller", goferT("js.compose.image.smaller"), "M5 12h14"))
-  toolbar.appendChild(_composeInlineImageToolbarButton("larger", goferT("js.compose.image.larger"), "M12 5v14M5 12h14"))
-  toolbar.appendChild(_composeInlineImageToolbarButton("rotate", goferT("js.compose.image.rotate"), "M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6"))
-  toolbar.appendChild(_composeInlineImageToolbarButton("flip", goferT("js.compose.image.flip"), "M12 3v18M5 7l5 5-5 5V7Zm14 0l-5 5 5 5V7Z"))
-  toolbar.appendChild(_composeInlineImageToolbarButton("attach", goferT("js.compose.image.attach"), "M21.44 11.05 12 20.5a6 6 0 0 1-8.49-8.49l9.9-9.9a4 4 0 0 1 5.66 5.66l-9.9 9.9a2 2 0 1 1-2.83-2.83l8.49-8.49"))
-  toolbar.appendChild(_composeInlineImageToolbarButton("remove", goferT("js.compose.image.remove"), "M18 6 6 18M6 6l12 12"))
+  toolbar.setAttribute("popover", "manual")
+  toolbar.appendChild(_composeFloatToolbarButton("smaller", goferT("js.compose.image.smaller"), "M5 12h14"))
+  toolbar.appendChild(_composeFloatToolbarButton("larger", goferT("js.compose.image.larger"), "M12 5v14M5 12h14"))
+  toolbar.appendChild(_composeFloatToolbarButton("rotate", goferT("js.compose.image.rotate"), "M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6"))
+  toolbar.appendChild(_composeFloatToolbarButton("flip", goferT("js.compose.image.flip"), "M12 3v18M5 7l5 5-5 5V7Zm14 0l-5 5 5 5V7Z"))
+  toolbar.appendChild(_composeFloatToolbarButton("attach", goferT("js.compose.image.attach"), "M21.44 11.05 12 20.5a6 6 0 0 1-8.49-8.49l9.9-9.9a4 4 0 0 1 5.66 5.66l-9.9 9.9a2 2 0 1 1-2.83-2.83l8.49-8.49"))
+  toolbar.appendChild(_composeFloatToolbarButton("remove", goferT("js.compose.image.remove"), "M18 6 6 18M6 6l12 12"))
   toolbar.addEventListener("mousedown", function (event) { event.preventDefault() })
   toolbar.addEventListener("click", function (event) {
     var button = event.target && event.target.closest ? event.target.closest("[data-compose-inline-action]") : null
@@ -20994,8 +21576,7 @@ function selectComposeInlineImage(img) {
   }
   _selectedComposeInlineImage = img
   img.classList.add("compose-inline-image-selected")
-  var toolbar = _ensureComposeInlineImageToolbar()
-  toolbar.classList.remove("hidden")
+  _showComposeFloatToolbar(_ensureComposeInlineImageToolbar(), img)
   positionComposeInlineImageToolbar()
   updateComposeInlineImageToolbarState()
 }
@@ -21003,7 +21584,7 @@ function selectComposeInlineImage(img) {
 function hideComposeInlineImageToolbar() {
   if (_selectedComposeInlineImage) _selectedComposeInlineImage.classList.remove("compose-inline-image-selected")
   _selectedComposeInlineImage = null
-  if (_composeInlineImageToolbar) _composeInlineImageToolbar.classList.add("hidden")
+  _hideComposeFloatToolbar(_composeInlineImageToolbar)
 }
 
 function _syncSelectedComposeInlineImage() {
@@ -21065,6 +21646,385 @@ function convertComposeInlineImageToAttachment(img) {
   syncComposeEditor(editor)
   _markComposeDirty(form)
 }
+
+// A link in the editor shows a floating bar like an inline image's, with
+// its address and ways to open, edit or remove it. It follows the caret, so
+// clicking a link or moving into it with the keys both show it.
+var _composeLinkToolbar = null
+var _selectedComposeLink = null
+
+function _ensureComposeLinkToolbar() {
+  if (_composeLinkToolbar) return _composeLinkToolbar
+  var toolbar = document.createElement("div")
+  toolbar.className = "compose-float-toolbar hidden"
+  toolbar.setAttribute("contenteditable", "false")
+  toolbar.setAttribute("popover", "manual")
+  var address = document.createElement("span")
+  address.className = "compose-link-address"
+  address.dataset.composeLinkAddress = ""
+  toolbar.appendChild(address)
+  toolbar.appendChild(_composeFloatToolbarButton("open", goferT("js.compose.link.open"), "M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"))
+  toolbar.appendChild(_composeFloatToolbarButton("edit", goferT("js.compose.link.edit"), "M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497zM15 5l4 4"))
+  toolbar.appendChild(_composeFloatToolbarButton("remove", goferT("js.compose.link.remove"), "m18.84 12.25 1.72-1.71h-.02a5.004 5.004 0 0 0-.12-7.07 5.006 5.006 0 0 0-6.95 0l-1.72 1.71M5.17 11.75l-1.71 1.71a5.004 5.004 0 0 0 .12 7.07 5.006 5.006 0 0 0 6.95 0l1.71-1.71M8 2v3M2 8h3M16 19v3M19 16h3"))
+  toolbar.addEventListener("mousedown", function (event) { event.preventDefault() })
+  toolbar.addEventListener("click", function (event) {
+    var button = event.target && event.target.closest ? event.target.closest("[data-compose-inline-action]") : null
+    if (!button) return
+    event.preventDefault()
+    applyComposeLinkAction(button.dataset.composeInlineAction)
+  })
+  _composeLinkToolbar = toolbar
+  return toolbar
+}
+
+function positionComposeLinkToolbar() {
+  if (!_selectedComposeLink) return
+  // Gone, or hidden with its compose window.
+  if (!_selectedComposeLink.isConnected || !_selectedComposeLink.getClientRects().length) return hideComposeLinkToolbar()
+  var toolbar = _ensureComposeLinkToolbar()
+  var rect = _selectedComposeLink.getBoundingClientRect()
+  // Above the link, or below it when there is no room above.
+  var top = rect.top - toolbar.offsetHeight - 6
+  if (top < 8) top = rect.bottom + 6
+  toolbar.style.top = top + "px"
+  toolbar.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - toolbar.offsetWidth - 8)) + "px"
+}
+
+function selectComposeLink(link) {
+  _selectedComposeLink = link
+  var toolbar = _ensureComposeLinkToolbar()
+  var href = link.getAttribute("href") || ""
+  var address = toolbar.querySelector("[data-compose-link-address]")
+  address.textContent = href.replace(/^mailto:/i, "")
+  address.title = href
+  _showComposeFloatToolbar(toolbar, link)
+  positionComposeLinkToolbar()
+}
+
+function hideComposeLinkToolbar() {
+  _selectedComposeLink = null
+  _hideComposeFloatToolbar(_composeLinkToolbar)
+}
+
+function syncComposeLinkToolbar() {
+  var selection = window.getSelection && window.getSelection()
+  var node = selection && selection.rangeCount ? selection.anchorNode : null
+  var el = node && (node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement)
+  var editor = el && el.closest ? el.closest("[data-compose-editor]") : null
+  var link = editor && composeFormat(_composeFormFrom(editor)) !== "plain" ? _composeLinkAtSelection(editor) : null
+  if (link) {
+    if (link !== _selectedComposeLink) selectComposeLink(link)
+    else positionComposeLinkToolbar()
+  } else if (_selectedComposeLink) {
+    hideComposeLinkToolbar()
+  }
+}
+
+function applyComposeLinkAction(action) {
+  var link = _selectedComposeLink
+  if (!link || !link.isConnected) return hideComposeLinkToolbar()
+  var editor = link.closest("[data-compose-editor]")
+  if (action === "open") {
+    window.open(link.getAttribute("href"), "_blank", "noopener")
+  } else if (action === "edit") {
+    composeCreateLink(editor)
+  } else if (action === "remove" && editor) {
+    _unlinkComposeLink(editor, link)
+    hideComposeLinkToolbar()
+    syncComposeEditor(editor)
+    _markComposeDirty(_composeFormFrom(editor))
+    updateComposeToolbar(editor)
+  }
+}
+
+document.addEventListener("selectionchange", syncComposeLinkToolbar)
+window.addEventListener("resize", positionComposeLinkToolbar)
+window.addEventListener("scroll", positionComposeLinkToolbar, true)
+
+// Tables. A new one's cells carry their border and padding inline, so the
+// recipient sees them too. With the caret in a cell, a floating bar like a
+// link's adds and deletes rows and columns.
+var COMPOSE_TABLE_CELL_STYLE = "border: 1px solid #d1d5db; padding: 4px 8px; min-width: 3em; vertical-align: top;"
+var _composeTableToolbar = null
+var _selectedComposeCell = null
+
+function _placeComposeCaret(editor, node) {
+  var selection = window.getSelection && window.getSelection()
+  if (!selection || !node) return
+  var range = document.createRange()
+  range.selectNodeContents(node)
+  range.collapse(true)
+  selection.removeAllRanges()
+  selection.addRange(range)
+  _saveComposeSelection(editor)
+}
+
+function composeInsertTable(el, rows, cols) {
+  var editor = _composeEditorFrom(el)
+  if (!editor) return
+  editor.focus()
+  _restoreComposeSelection(editor)
+  var cell = '<td style="' + COMPOSE_TABLE_CELL_STYLE + '"><br></td>'
+  var row = "<tr>" + new Array(cols + 1).join(cell) + "</tr>"
+  // A line after the table, to go on writing below it. The table sits in a
+  // block of its own: Chrome then replaces it in place when the table bar
+  // edits it (_replaceComposeTable), rather than swallowing the line.
+  document.execCommand("insertHTML", false, '<div><table data-compose-new-table style="border-collapse: collapse;"><tbody>' + new Array(rows + 1).join(row) + "</tbody></table></div><div><br></div>")
+  var table = editor.querySelector("table[data-compose-new-table]")
+  if (table) {
+    table.removeAttribute("data-compose-new-table")
+    _placeComposeCaret(editor, table.rows[0] && table.rows[0].cells[0])
+  }
+  syncComposeEditor(editor)
+  _markComposeDirty(_composeFormFrom(editor))
+  updateComposeToolbar(editor)
+}
+
+// A toolbar menu sits inside its tooltip's trigger, and popover.js only
+// answers the trigger nearest the pointer, the menu's, so the menus'
+// tooltips (compose.templ composeMenuTooltip) are opened here.
+var composeMenuTooltipTimer = null
+var composeMenuTooltipCount = 0
+
+function _composeMenuTooltipAt(target, related) {
+  var trigger = target && target.closest ? target.closest("[data-tui-popover-trigger]") : null
+  var tip = trigger && trigger.closest(".compose-menu-tooltip")
+  // The menu's own items are inside the tooltip too, but aren't its button.
+  if (!tip || trigger.parentElement.closest("[data-tui-popover-content]") !== tip.parentElement.closest("[data-tui-popover-content]")) return null
+  if (trigger.closest(".compose-menu-tooltip") !== tip || (related && trigger.contains(related))) return null
+  if (!tip.id) tip.id = "compose-menu-tooltip-" + (++composeMenuTooltipCount)
+  return tip
+}
+
+document.addEventListener("pointerover", function (event) {
+  if (event.pointerType !== "mouse" || !window.tui || !window.tui.popover) return
+  var tip = _composeMenuTooltipAt(event.target, event.relatedTarget)
+  if (!tip) return
+  clearTimeout(composeMenuTooltipTimer)
+  composeMenuTooltipTimer = setTimeout(function () { window.tui.popover.open(tip.id) }, 100)
+})
+
+document.addEventListener("pointerout", function (event) {
+  if (event.pointerType !== "mouse" || !window.tui || !window.tui.popover) return
+  var tip = _composeMenuTooltipAt(event.target, event.relatedTarget)
+  if (!tip) return
+  clearTimeout(composeMenuTooltipTimer)
+  window.tui.popover.close(tip.id)
+})
+
+// Opening the menu puts its tooltip away.
+document.addEventListener("pointerdown", function (event) {
+  var tip = _composeMenuTooltipAt(event.target, null)
+  if (!tip || !window.tui || !window.tui.popover) return
+  clearTimeout(composeMenuTooltipTimer)
+  window.tui.popover.close(tip.id)
+}, true)
+
+// The size grid marks the rows and columns up to the square pointed at.
+function _markComposeTableGrid(square) {
+  var grid = square && square.closest("[data-compose-table-grid]")
+  if (!grid) return
+  var size = square.dataset.composeTableCell.split(",")
+  var rows = Number(size[0])
+  var cols = Number(size[1])
+  grid.querySelectorAll("[data-compose-table-cell]").forEach(function (cell) {
+    var at = cell.dataset.composeTableCell.split(",")
+    cell.toggleAttribute("data-active", Number(at[0]) <= rows && Number(at[1]) <= cols)
+  })
+  var label = grid.querySelector("[data-compose-table-size]")
+  if (label) label.textContent = goferT("js.compose.table.size", { rows: rows, cols: cols })
+}
+
+;["mouseover", "focusin"].forEach(function (type) {
+  document.addEventListener(type, function (event) {
+    var square = event.target && event.target.closest ? event.target.closest("[data-compose-table-cell]") : null
+    if (square) _markComposeTableGrid(square)
+  })
+})
+
+// Leaving the grid clears the marks and puts its name back.
+function _clearComposeTableGrid(grid) {
+  grid.querySelectorAll("[data-compose-table-cell][data-active]").forEach(function (cell) {
+    cell.removeAttribute("data-active")
+  })
+  var label = grid.querySelector("[data-compose-table-size]")
+  if (label && label.dataset.composeTableName) label.textContent = label.dataset.composeTableName
+}
+
+;["mouseout", "focusout"].forEach(function (type) {
+  document.addEventListener(type, function (event) {
+    var grid = event.target && event.target.closest ? event.target.closest("[data-compose-table-grid]") : null
+    if (grid && !grid.contains(event.relatedTarget)) _clearComposeTableGrid(grid)
+  })
+})
+
+function _composeCellAtSelection(editor) {
+  var selection = window.getSelection && window.getSelection()
+  var node = selection && selection.rangeCount ? selection.anchorNode : null
+  var el = node && (node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement)
+  var cell = el && el.closest ? el.closest("td, th") : null
+  return cell && editor && editor.contains(cell) ? cell : null
+}
+
+function _ensureComposeTableToolbar() {
+  if (_composeTableToolbar) return _composeTableToolbar
+  var toolbar = document.createElement("div")
+  toolbar.className = "compose-float-toolbar hidden"
+  toolbar.setAttribute("contenteditable", "false")
+  toolbar.setAttribute("popover", "manual")
+  toolbar.appendChild(_composeFloatToolbarButton("row-above", goferT("js.compose.table.row_above"), "M5 3h14M18 13l-6-6-6 6M12 7v14"))
+  toolbar.appendChild(_composeFloatToolbarButton("row-below", goferT("js.compose.table.row_below"), "M12 17V3M6 11l6 6 6-6M19 21H5"))
+  toolbar.appendChild(_composeFloatToolbarButton("col-left", goferT("js.compose.table.col_left"), "M3 19V5M13 6l-6 6 6 6M7 12h14"))
+  toolbar.appendChild(_composeFloatToolbarButton("col-right", goferT("js.compose.table.col_right"), "M17 12H3M11 18l6-6-6-6M21 5v14"))
+  toolbar.appendChild(_composeFloatToolbarButton("delete-row", goferT("js.compose.table.delete_row"), "M5 12h14"))
+  toolbar.appendChild(_composeFloatToolbarButton("delete-col", goferT("js.compose.table.delete_col"), "M12 5v14"))
+  toolbar.appendChild(_composeFloatToolbarButton("delete", goferT("js.compose.table.delete"), "M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"))
+  toolbar.addEventListener("mousedown", function (event) { event.preventDefault() })
+  toolbar.addEventListener("click", function (event) {
+    var button = event.target && event.target.closest ? event.target.closest("[data-compose-inline-action]") : null
+    if (!button) return
+    event.preventDefault()
+    applyComposeTableAction(button.dataset.composeInlineAction)
+  })
+  _composeTableToolbar = toolbar
+  return toolbar
+}
+
+function positionComposeTableToolbar() {
+  var cell = _selectedComposeCell
+  if (!cell) return
+  if (!cell.isConnected || !cell.getClientRects().length) return hideComposeTableToolbar()
+  var toolbar = _ensureComposeTableToolbar()
+  var row = cell.parentNode.getBoundingClientRect()
+  var table = cell.closest("table").getBoundingClientRect()
+  // Above the caret's row, or below it when there is no room above.
+  var top = row.top - toolbar.offsetHeight - 6
+  if (top < 8) top = row.bottom + 6
+  toolbar.style.top = top + "px"
+  toolbar.style.left = Math.max(8, Math.min(table.left, window.innerWidth - toolbar.offsetWidth - 8)) + "px"
+}
+
+function hideComposeTableToolbar() {
+  _selectedComposeCell = null
+  _hideComposeFloatToolbar(_composeTableToolbar)
+}
+
+function syncComposeTableToolbar() {
+  var selection = window.getSelection && window.getSelection()
+  var node = selection && selection.rangeCount ? selection.anchorNode : null
+  var el = node && (node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement)
+  var editor = el && el.closest ? el.closest("[data-compose-editor]") : null
+  var plain = !editor || composeFormat(_composeFormFrom(editor)) === "plain"
+  // On a link in a cell, the link's bar shows instead.
+  var cell = !plain && !_composeLinkAtSelection(editor) ? _composeCellAtSelection(editor) : null
+  if (!cell) {
+    if (_selectedComposeCell) hideComposeTableToolbar()
+    return
+  }
+  if (cell !== _selectedComposeCell) {
+    _selectedComposeCell = cell
+    _showComposeFloatToolbar(_ensureComposeTableToolbar(), cell)
+  }
+  positionComposeTableToolbar()
+}
+
+function _composeNewCellLike(cell) {
+  var fresh = document.createElement(cell.tagName === "TH" ? "th" : "td")
+  var style = cell.getAttribute("style")
+  if (style) fresh.setAttribute("style", style)
+  fresh.innerHTML = "<br>"
+  return fresh
+}
+
+function _composeNewRowLike(row) {
+  var fresh = document.createElement("tr")
+  Array.prototype.forEach.call(row.cells, function (cell) { fresh.appendChild(_composeNewCellLike(cell)) })
+  return fresh
+}
+
+// Table edits go through execCommand, so Ctrl+Z and the undo button take
+// them back: the edit is made on a copy of the table, and the copy replaces
+// it. The caret then goes to the cell at row, col of the new table.
+function _replaceComposeTable(editor, table, copy, row, col) {
+  var index = Array.prototype.indexOf.call(editor.querySelectorAll("table"), table)
+  editor.focus()
+  var range = document.createRange()
+  range.selectNode(table)
+  var selection = window.getSelection()
+  selection.removeAllRanges()
+  selection.addRange(range)
+  if (!copy) {
+    document.execCommand("delete")
+    hideComposeTableToolbar()
+  } else {
+    document.execCommand("insertHTML", false, copy.outerHTML)
+    var fresh = editor.querySelectorAll("table")[index]
+    var tr = fresh && fresh.rows[Math.min(row, fresh.rows.length - 1)]
+    if (tr) _placeComposeCaret(editor, tr.cells[Math.min(col, tr.cells.length - 1)])
+  }
+  _saveComposeSelection(editor)
+  syncComposeEditor(editor)
+  _markComposeDirty(_composeFormFrom(editor))
+  syncComposeTableToolbar()
+}
+
+function applyComposeTableAction(action) {
+  var cell = _selectedComposeCell
+  if (!cell || !cell.isConnected) return hideComposeTableToolbar()
+  var editor = cell.closest("[data-compose-editor]")
+  var table = cell.closest("table")
+  var rowIndex = cell.parentNode.rowIndex
+  var index = cell.cellIndex
+  var copy = table.cloneNode(true)
+  var row = copy.rows[rowIndex]
+  var targetRow = rowIndex
+  var targetCol = index
+  if (action === "delete-row" && copy.rows.length <= 1) action = "delete"
+  if (action === "delete-col" && row.cells.length <= 1) action = "delete"
+  if (action === "row-above" || action === "row-below") {
+    row.parentNode.insertBefore(_composeNewRowLike(row), action === "row-above" ? row : row.nextSibling)
+    if (action === "row-below") targetRow = rowIndex + 1
+  } else if (action === "col-left" || action === "col-right") {
+    Array.prototype.forEach.call(copy.rows, function (tr) {
+      var ref = tr.cells[Math.min(index, tr.cells.length - 1)]
+      if (ref) tr.insertBefore(_composeNewCellLike(ref), action === "col-left" ? ref : ref.nextSibling)
+    })
+    if (action === "col-right") targetCol = index + 1
+  } else if (action === "delete-row") {
+    row.remove()
+  } else if (action === "delete-col") {
+    Array.prototype.forEach.call(copy.rows, function (tr) {
+      if (tr.cells[index]) tr.cells[index].remove()
+    })
+  } else if (action !== "delete") {
+    return
+  }
+  _replaceComposeTable(editor, table, action === "delete" ? null : copy, targetRow, targetCol)
+}
+
+// Tab moves to the next cell and Shift+Tab to the one before; Tab in the
+// last cell adds a row.
+function _composeTableTab(editor, cell, back) {
+  var table = cell.closest("table")
+  var cells = []
+  Array.prototype.forEach.call(table.rows, function (tr) {
+    Array.prototype.forEach.call(tr.cells, function (c) { cells.push(c) })
+  })
+  var next = cells[cells.indexOf(cell) + (back ? -1 : 1)]
+  if (next) {
+    _placeComposeCaret(editor, next)
+    return
+  }
+  if (back) return
+  var copy = table.cloneNode(true)
+  var last = copy.rows[copy.rows.length - 1]
+  last.parentNode.insertBefore(_composeNewRowLike(last), last.nextSibling)
+  _replaceComposeTable(editor, table, copy, copy.rows.length - 1, 0)
+}
+
+document.addEventListener("selectionchange", syncComposeTableToolbar)
+window.addEventListener("resize", positionComposeTableToolbar)
+window.addEventListener("scroll", positionComposeTableToolbar, true)
 
 function composeAttachmentKind(att) {
   var filename = (att && att.filename ? att.filename : "").toLowerCase()
@@ -21451,6 +22411,8 @@ function _composeValsFromDraft(draft) {
     subject: draft.subject || "",
     body: draft.body || "",
     html_body: draft.html_body || "",
+    // A draft keeps its format: one saved with text alone reopens as plain text.
+    compose_format: String(draft.html_body || "").trim() ? "html" : (String(draft.body || "").trim() ? "plain" : ""),
     compose_mode: draft.compose_mode || "new",
     in_reply_to: draft.in_reply_to || "",
     references: draft.references || "",
@@ -22223,7 +23185,7 @@ function composeQuoteAttribution(source, fromLine) {
 function composeReplyPlain(source) {
   var fromLine = composeAddress(source.from_name, source.from_email)
   var header = composeQuoteAttribution(source, fromLine)
-  var quotedBody = String(source.body || "").split("\n").map(function (line) { return "> " + line }).join("\n")
+  var quotedBody = composeSourcePlainBody(source).split("\n").map(function (line) { return "> " + line }).join("\n")
   return "\n\n" + header + "\n" + quotedBody
 }
 
@@ -22316,7 +23278,14 @@ function composeForwardLines(source, fromLine) {
 
 function composeForwardPlain(source) {
   var fromLine = composeAddress(source.from_name, source.from_email)
-  return "\n\n" + composeForwardLines(source, fromLine).join("\n") + "\n\n" + (source.body || "")
+  return "\n\n" + composeForwardLines(source, fromLine).join("\n") + "\n\n" + composeSourcePlainBody(source)
+}
+
+// composeSourcePlainBody is the quoted message's text, made from its HTML
+// when it came without a text part.
+function composeSourcePlainBody(source) {
+  if (String(source.body || "").trim()) return String(source.body)
+  return _composeHTMLText(source.html_body || "")
 }
 
 function composeForwardHTML(source) {
@@ -22354,6 +23323,8 @@ function composeValuesFromSource(source, mode) {
     subject: "",
     body: "",
     html_body: "",
+    // Plain text messages get plain text replies and forwards.
+    compose_format: composeDefaultFormat() === "plain" || (!String(source.html_body || "").trim() && String(source.body || "").trim()) ? "plain" : "html",
     compose_mode: mode === "forward" ? "forward" : "reply",
     in_reply_to: "",
     references: "",
@@ -24013,13 +24984,28 @@ function confirmFolderMove() {
   var selected = list && list.querySelector('[data-folder-move-parent][aria-selected="true"]')
   if (!selected || !window.goferMoveMailFolder) return
   var parentID = selected.getAttribute("data-folder-move-parent") || ""
-  var name = selected.querySelector(".flex-1")
   if (window.tui && window.tui.dialog) window.tui.dialog.close("folder-move-dialog")
   window.goferMoveMailFolder(
     { folderID: list.getAttribute("data-folder-move-id"), accountID: list.getAttribute("data-folder-move-account"), name: list.getAttribute("data-folder-move-name") },
     parentID,
-    parentID ? (name ? name.textContent.trim() : "") : list.getAttribute("data-folder-move-account-name") || ""
+    selected.getAttribute("data-folder-move-place") || ""
   )
+}
+
+// Search in the Move folder dialog shows the folders whose path matches
+// (folder-picker.js); the top of the account always shows. A hidden
+// selection is dropped so Move never acts on a place out of sight.
+function filterFolderMoveTargets() {
+  var dialog = document.getElementById("folder-move-dialog")
+  if (!dialog) return
+  window.goferFolderPicker.filter(dialog)
+  var selected = dialog.querySelector('[data-folder-move-parent][aria-selected="true"]')
+  var row = selected && selected.closest("[data-folder-picker-row]")
+  if (row && row.hidden) {
+    selected.setAttribute("aria-selected", "false")
+    var confirm = dialog.querySelector("[data-folder-move-confirm]")
+    if (confirm) confirm.disabled = true
+  }
 }
 
 // New label in the Move dialog of a Gmail email adds a new label to it:
@@ -24063,85 +25049,12 @@ function createMoveLabel(emailId, thread) {
   })
 }
 
-// A new folder in the Move dialog is named in the list, where it will be:
-// at the top of an account or inside the folder whose button was pressed.
-// Once made, the list shows it chosen, and Move moves there as to any
-// folder, another account's included.
+// A new folder in the Move dialog is named in the list, where it will be
+// (folder-picker.js). Once made, the list shows it chosen, and Move moves
+// there as to any folder, another account's included.
 function startMoveFolderCreate(button) {
-  var dialog = document.getElementById("mail-move-dialog")
-  if (!dialog || !button) return
-  dialog.querySelectorAll("[data-mail-move-create-form]").forEach(function (form) { form.remove() })
-  var account = button.getAttribute("data-mail-move-create-account") || ""
-  var parent = button.getAttribute("data-mail-move-create-parent") || ""
-  var depth = Number(button.getAttribute("data-mail-move-create-depth") || 0)
-  if (!account) return
-  var search = dialog.querySelector("[data-mail-move-search]")
-
-  var form = document.createElement("form")
-  form.setAttribute("data-mail-move-create-form", "")
-  form.className = "py-1 pr-1"
-  form.style.paddingLeft = (0.625 + depth * 1.25) + "rem"
-  var line = document.createElement("div")
-  line.className = "flex items-center gap-1.5"
-  var input = document.createElement("input")
-  input.type = "text"
-  input.autocomplete = "off"
-  input.placeholder = goferT("js.folders.name")
-  input.setAttribute("aria-label", goferT("js.mail.move.new_folder_name"))
-  input.className = "h-7 min-w-0 flex-1 rounded-md border border-input bg-background px-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-  input.value = search ? search.value.trim() : ""
-  var create = document.createElement("button")
-  create.type = "submit"
-  create.className = "h-7 shrink-0 rounded-md bg-primary px-2.5 text-xs font-medium text-primary-foreground disabled:opacity-50"
-  create.textContent = goferT("js.mail.move.create")
-  var problem = document.createElement("p")
-  problem.className = "mt-1 hidden text-xs text-destructive"
-  line.appendChild(input)
-  line.appendChild(create)
-  form.appendChild(line)
-  form.appendChild(problem)
-
-  var row = button.closest("[data-mail-move-row]") || button
-  row.insertAdjacentElement("afterend", form)
-  input.focus()
-  input.select()
-
-  input.addEventListener("keydown", function (event) {
-    // Escape closes only the new folder's field, not the dialog.
-    if (event.key !== "Escape") return
-    event.preventDefault()
-    event.stopPropagation()
-    form.remove()
-  })
-  form.addEventListener("submit", function (event) {
-    event.preventDefault()
-    var name = input.value.trim()
-    if (!name || create.disabled) return
-    create.disabled = true
-    input.disabled = true
-    problem.classList.add("hidden")
-    var body = new URLSearchParams()
-    body.set("name", name)
-    body.set("parent", parent)
-    fetch("/api/accounts/" + encodeURIComponent(account) + "/folders", { method: "POST", headers: { Accept: "application/json" }, body: body })
-      .then(function (response) {
-        if (response.ok) return response.json()
-        return response.text().then(function (text) {
-          throw new Error(response.status >= 500 && response.status !== 502 ? goferT("js.mail.move.create_failed") : String(text || "").trim())
-        })
-      })
-      .then(function (made) {
-        if (!made || !made.id) throw new Error(goferT("js.mail.move.create_failed"))
-        if (window.goferRefreshSidebarAccount) window.goferRefreshSidebarAccount(account)
-        return reloadMoveDialogList(made.id)
-      })
-      .catch(function (err) {
-        create.disabled = false
-        input.disabled = false
-        problem.textContent = err && err.message ? err.message : goferT("js.mail.move.create_failed")
-        problem.classList.remove("hidden")
-        input.focus()
-      })
+  window.goferFolderPicker.startCreate(button, function (folder) {
+    return reloadMoveDialogList(folder.id)
   })
 }
 
@@ -24497,39 +25410,18 @@ function showMailTransferResult(toastID, sum, info) {
   })
 }
 
-// Search hides folders whose name doesn't match. An account left with none
-// still shows its new folder row, named for the search, so a folder that
-// isn't there yet can be made; an account without one is hidden. A hidden
-// selection is dropped so Move never acts on a folder out of sight.
+// Search shows the folders whose account or path match (folder-picker.js).
+// A hidden selection is dropped so Move never acts on a folder out of sight.
 function filterMoveFolders(input) {
   var dialog = document.getElementById("mail-move-dialog")
   if (!dialog) return
-  var typed = String(input && input.value || "").trim()
-  var query = typed.toLowerCase()
-  var anyVisible = false
-  dialog.querySelectorAll("[data-mail-move-create-form]").forEach(function (form) { form.remove() })
-  dialog.querySelectorAll("[data-mail-move-account]").forEach(function (account) {
-    var accountVisible = false
-    account.querySelectorAll("[data-mail-move-folder]").forEach(function (folder) {
-      var match = !query || (folder.getAttribute("data-mail-move-name") || "").indexOf(query) !== -1
-      ;(folder.closest("[data-mail-move-row]") || folder).classList.toggle("hidden", !match)
-      if (!match && folder.getAttribute("aria-selected") === "true") {
-        folder.setAttribute("aria-selected", "false")
-        var confirm = dialog.querySelector("[data-mail-move-confirm]")
-        if (confirm) confirm.disabled = true
-      }
-      if (match) accountVisible = true
-    })
-    if (accountVisible) anyVisible = true
-    var newRow = account.querySelector("[data-mail-move-new-row][data-mail-move-create-account]")
-    if (newRow) {
-      var label = newRow.querySelector(".flex-1")
-      if (label) label.textContent = typed ? goferT("js.mail.move.new_folder_named", { name: typed }) : goferT("js.mail.move.new_folder")
-    }
-    account.classList.toggle("hidden", !accountVisible && !newRow)
-  })
-  var empty = dialog.querySelector("[data-mail-move-empty]")
-  if (empty) empty.classList.toggle("hidden", anyVisible)
+  window.goferFolderPicker.filter(dialog)
+  var selected = dialog.querySelector('[data-mail-move-folder][aria-selected="true"]')
+  if (selected && selected.closest("[data-folder-picker-row]").hidden) {
+    selected.setAttribute("aria-selected", "false")
+    var confirm = dialog.querySelector("[data-mail-move-confirm]")
+    if (confirm) confirm.disabled = true
+  }
 }
 
 function closeMoveDialog() {
@@ -25211,6 +26103,7 @@ function _writeComposeFormValues(form, vals, prefix) {
   }
   if (vals.account_id) syncComposeAccountItems(form.id === "compose-pane-form" ? "pane" : "dialog", vals.account_id, vals.identity_id)
   syncComposeOneTimeFrom(form)
+  _applyComposeFormat(form, vals.compose_format === "plain" || vals.compose_format === "html" ? vals.compose_format : composeDefaultFormat())
   _setComposeEditorValue(form, vals.body || "", vals.html_body || "", vals.inline_images || [])
   renderComposeAttachments(form, vals.attachments || [])
   form.dataset.composeUploadsPending = "0"

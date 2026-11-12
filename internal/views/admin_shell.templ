@@ -68,7 +68,7 @@ templ adminSidebar(section string, scope models.AdminWebmailScope) {
 	<aside class="hidden lg:flex w-64 shrink-0 flex-col border-r border-border bg-card/75 backdrop-blur-sm">
 		<div class="border-b border-border px-5 py-5">
 			<a href="/admin" class="inline-flex items-center gap-2.5 text-foreground hover:text-primary">
-				<img src={ assetver.URL("/assets/logo.svg") } alt="Gofer" class="h-8 w-8 shrink-0"/>
+				@GoferLogo("h-8 w-8 shrink-0", "Gofer")
 				<span class="text-lg font-bold tracking-tight" style="font-family:var(--font-serif)">Gofer Admin</span>
 			</a>
 			<p class="mt-2 text-xs leading-relaxed text-muted-foreground">{ i18n.T(ctx, "admin.workspace.managed") }</p>

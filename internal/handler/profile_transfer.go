@@ -73,18 +73,21 @@ type profileAccount struct {
 	ProviderAccountID string `json:"provider_account_id,omitempty"`
 	EmailAddress      string `json:"email_address"`
 	DisplayName       string `json:"display_name,omitempty"`
-	Color             string `json:"color,omitempty"`
-	AuthMethod        string `json:"auth_method,omitempty"`
-	IMAPHost          string `json:"imap_host,omitempty"`
-	IMAPPort          int    `json:"imap_port,omitempty"`
-	IMAPTLSMode       string `json:"imap_tls_mode,omitempty"`
-	SMTPHost          string `json:"smtp_host,omitempty"`
-	SMTPPort          int    `json:"smtp_port,omitempty"`
-	SMTPTLSMode       string `json:"smtp_tls_mode,omitempty"`
-	Username          string `json:"username,omitempty"`
-	SMTPUsername      string `json:"smtp_username,omitempty"`
-	JMAPSessionURL    string `json:"jmap_session_url,omitempty"`
-	EmailSync         bool   `json:"email_sync"`
+	// SenderName is the name the account's own address sends under, when
+	// it differs from DisplayName.
+	SenderName     string `json:"sender_name,omitempty"`
+	Color          string `json:"color,omitempty"`
+	AuthMethod     string `json:"auth_method,omitempty"`
+	IMAPHost       string `json:"imap_host,omitempty"`
+	IMAPPort       int    `json:"imap_port,omitempty"`
+	IMAPTLSMode    string `json:"imap_tls_mode,omitempty"`
+	SMTPHost       string `json:"smtp_host,omitempty"`
+	SMTPPort       int    `json:"smtp_port,omitempty"`
+	SMTPTLSMode    string `json:"smtp_tls_mode,omitempty"`
+	Username       string `json:"username,omitempty"`
+	SMTPUsername   string `json:"smtp_username,omitempty"`
+	JMAPSessionURL string `json:"jmap_session_url,omitempty"`
+	EmailSync      bool   `json:"email_sync"`
 	// ScheduledChecks is set when the account chose scheduled checks over
 	// its provider's notifications; older exports leave notifications on.
 	ScheduledChecks bool                      `json:"scheduled_checks,omitempty"`
@@ -101,6 +104,8 @@ type profileIdentity struct {
 	Email     string `json:"email"`
 	ReplyTo   string `json:"reply_to,omitempty"`
 	Signature string `json:"signature,omitempty"`
+	// Default is set on the identity new messages start from.
+	Default bool `json:"default,omitempty"`
 	// SMTP is the identity's own server, without its password: an imported
 	// identity needs the password entered again.
 	SMTP *profileIdentitySMTP `json:"smtp,omitempty"`
@@ -291,6 +296,7 @@ func exportProfileAccount(ctx context.Context, store *config.AccountStore, db *s
 		ProviderAccountID: data.ProviderAccountID,
 		EmailAddress:      data.EmailAddress,
 		DisplayName:       data.DisplayName,
+		SenderName:        data.SenderName,
 		Color:             account.Color,
 		AuthMethod:        data.AuthMethod,
 		IMAPHost:          data.IMAPHost,
@@ -345,7 +351,7 @@ func exportProfileAccount(ctx context.Context, store *config.AccountStore, db *s
 	}
 	for _, identity := range identities {
 		if identity.Source == models.IdentitySourceManual {
-			item := profileIdentity{Name: identity.Name, Email: identity.Email, ReplyTo: identity.ReplyTo, Signature: signatureRefs[identity.SignatureID]}
+			item := profileIdentity{Name: identity.Name, Email: identity.Email, ReplyTo: identity.ReplyTo, Signature: signatureRefs[identity.SignatureID], Default: identity.ID == account.DefaultIdentityID}
 			if identity.HasOwnSMTP() {
 				item.SMTP = &profileIdentitySMTP{Host: identity.SMTPHost, Port: identity.SMTPPort, TLSMode: identity.SMTPTLSMode, Username: identity.SMTPUsername}
 			}
@@ -855,6 +861,9 @@ func (h *Handler) importProfileAccount(ctx context.Context, owner string, accoun
 				return err
 			}
 		}
+		if err := db.SetAccountSenderNameGuarded(ctx, owner, id, account.SenderName, nil); err != nil {
+			return err
+		}
 		if err := importProfileIdentities(ctx, db, owner, id, account.Identities, signatureIDs); err != nil {
 			return err
 		}
@@ -1337,6 +1346,9 @@ func (h *Handler) replaceProfileAccount(ctx context.Context, owner, id string, a
 		if err := db.SaveAccountSignatureSettings(ctx, owner, profileSignatureSettings(id, account.Signatures, signatureIDs)); err != nil {
 			return err
 		}
+		if err := db.SetAccountSenderNameGuarded(ctx, owner, id, account.SenderName, nil); err != nil {
+			return err
+		}
 		if err := importProfileIdentities(ctx, db, owner, id, account.Identities, signatureIDs); err != nil {
 			return err
 		}
@@ -1379,7 +1391,8 @@ func (h *Handler) replaceProfileAccount(ctx context.Context, owner, id string, a
 // importProfileIdentities adds a profile's identities to an account. Ones the
 // account already has with the same name and address are left as they are,
 // and ones that are not valid addresses, or that the account's provider
-// would not send as, are skipped.
+// would not send as, are skipped. The one marked Default becomes the one new
+// messages start from.
 func importProfileIdentities(ctx context.Context, db *storage.DB, owner, accountID string, identities []profileIdentity, signatureIDs map[string]string) error {
 	if len(identities) == 0 {
 		return nil
@@ -1389,9 +1402,14 @@ func importProfileIdentities(ctx context.Context, db *storage.DB, owner, account
 		return err
 	}
 	for _, imported := range identities {
-		if slices.ContainsFunc(existing, func(identity models.Identity) bool {
+		if index := slices.IndexFunc(existing, func(identity models.Identity) bool {
 			return strings.EqualFold(identity.Email, strings.TrimSpace(imported.Email)) && identity.Name == strings.TrimSpace(imported.Name)
-		}) {
+		}); index >= 0 {
+			if imported.Default {
+				if err := db.SetAccountDefaultIdentityGuarded(ctx, owner, accountID, existing[index].ID, nil); err != nil {
+					return fmt.Errorf("import default identity: %w", err)
+				}
+			}
 			continue
 		}
 		if _, _, err := storage.NormalizeIdentityAddresses(imported.Email, imported.ReplyTo); err != nil {
@@ -1413,6 +1431,11 @@ func importProfileIdentities(ctx context.Context, db *storage.DB, owner, account
 		}
 		if err != nil {
 			return fmt.Errorf("import identity: %w", err)
+		}
+		if imported.Default {
+			if err := db.SetAccountDefaultIdentityGuarded(ctx, owner, accountID, saved.ID, nil); err != nil {
+				return fmt.Errorf("import default identity: %w", err)
+			}
 		}
 		existing = append(existing, saved)
 	}

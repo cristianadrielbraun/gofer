@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestMigrateV143ToV144AddsTheAuditLog(t *testing.T) {
+func TestMigrateV146ToV147AddsTheAuditLog(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "gofer.db")
 	db, err := New(path)
 	if err != nil {
@@ -19,7 +19,7 @@ func TestMigrateV143ToV144AddsTheAuditLog(t *testing.T) {
 		ALTER TABLE auth_system_state DROP COLUMN admin_audit_retention_days;
 		INSERT INTO auth_system_state (id, initialized) VALUES (1, 1);
 		DELETE FROM schema_version;
-		INSERT INTO schema_version (version) VALUES (143);`); err != nil {
+		INSERT INTO schema_version (version) VALUES (146);`); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Close(); err != nil {
@@ -32,7 +32,7 @@ func TestMigrateV143ToV144AddsTheAuditLog(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	var version, retention, tables int
-	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil || version != 144 {
+	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil || version != 147 {
 		t.Fatalf("schema version = %d, %v", version, err)
 	}
 	if err := db.Read().QueryRow(`SELECT admin_audit_retention_days FROM auth_system_state WHERE id = 1`).Scan(&retention); err != nil || retention != 730 {

@@ -29,6 +29,8 @@
   --sidebar-accent-foreground: #0a0a0a;
   --sidebar-border: #d9d9d9;
   --sidebar-ring: #0a0a0a;
+  /* The logo keeps its own copper; see .gofer-logo in input.css. */
+  --gofer-logo: #c2702f;
   --paper: #ffffff;
   --paper-foreground: #0a0a0a;
   --copper: #0a0a0a;
@@ -78,6 +80,8 @@
   --sidebar-accent-foreground: #fafafa;
   --sidebar-border: #2e2e2e;
   --sidebar-ring: #fafafa;
+  /* The logo keeps its own copper; see .gofer-logo in input.css. */
+  --gofer-logo: #c2702f;
   --paper: #0a0a0a;
   --paper-foreground: #fafafa;
   --copper: #fafafa;

@@ -39,7 +39,13 @@ CREATE TABLE IF NOT EXISTS accounts (
     -- 1 when the user hid the account from the sidebar and move targets.
     hidden INTEGER NOT NULL DEFAULT 0,
     -- '' uses the default proxy, 'direct' none, else an outbound_proxies id.
-    proxy_id TEXT NOT NULL DEFAULT ''
+    proxy_id TEXT NOT NULL DEFAULT '',
+    -- The name the account's own address sends under; '' uses display_name,
+    -- which otherwise only labels the account in Gofer.
+    sender_name TEXT NOT NULL DEFAULT '',
+    -- The account_identities id new messages start from; '' is the account's
+    -- own address.
+    default_identity_id TEXT NOT NULL DEFAULT ''
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_accounts_local_folders ON accounts(COALESCE(user_id, '')) WHERE provider = 'local';
 
@@ -448,6 +454,15 @@ CREATE TABLE IF NOT EXISTS folder_thread_dirty (
     PRIMARY KEY (folder_id, thread_key)
 ) WITHOUT ROWID;
 
+-- Conversations whose set of messages changed. A summary counts its whole
+-- conversation, so a flush refreshes such a conversation in every folder
+-- that lists it, not only in the folder that changed.
+CREATE TABLE IF NOT EXISTS folder_conversation_dirty (
+    account_id TEXT NOT NULL,
+    thread_id TEXT NOT NULL,
+    PRIMARY KEY (account_id, thread_id)
+) WITHOUT ROWID;
+
 -- Covers the filters answered from summaries (unread, starred, attachments,
 -- conversations, account), so their counts read only this index.
 CREATE INDEX IF NOT EXISTS idx_folder_thread_state_flags
@@ -460,6 +475,10 @@ BEGIN
     SELECT NEW.folder_id, COALESCE(NULLIF(m.thread_id, ''), printf('msg:%d', m.id))
     FROM messages m WHERE m.id = NEW.message_id
       AND NOT EXISTS(SELECT 1 FROM folder_thread_dirty w WHERE w.folder_id = NEW.folder_id AND w.thread_key = '*')
+    ON CONFLICT DO NOTHING;
+    INSERT INTO folder_conversation_dirty(account_id, thread_id)
+    SELECT m.account_id, m.thread_id FROM messages m
+    WHERE m.id = NEW.message_id AND NEW.is_deleted = 0 AND COALESCE(m.thread_id, '') <> ''
     ON CONFLICT DO NOTHING;
 END;
 
@@ -479,6 +498,11 @@ BEGIN
     FROM messages m WHERE m.id = NEW.message_id
       AND NOT EXISTS(SELECT 1 FROM folder_thread_dirty w WHERE w.folder_id = NEW.folder_id AND w.thread_key = '*')
     ON CONFLICT DO NOTHING;
+    INSERT INTO folder_conversation_dirty(account_id, thread_id)
+    SELECT m.account_id, m.thread_id FROM messages m
+    WHERE m.id IN (OLD.message_id, NEW.message_id) AND COALESCE(m.thread_id, '') <> ''
+      AND (OLD.is_deleted IS NOT NEW.is_deleted OR OLD.message_id IS NOT NEW.message_id)
+    ON CONFLICT DO NOTHING;
 END;
 
 CREATE TRIGGER IF NOT EXISTS folder_thread_track_state_delete
@@ -488,6 +512,10 @@ BEGIN
     SELECT OLD.folder_id, COALESCE(NULLIF(m.thread_id, ''), printf('msg:%d', m.id))
     FROM messages m WHERE m.id = OLD.message_id
       AND NOT EXISTS(SELECT 1 FROM folder_thread_dirty w WHERE w.folder_id = OLD.folder_id AND w.thread_key = '*')
+    ON CONFLICT DO NOTHING;
+    INSERT INTO folder_conversation_dirty(account_id, thread_id)
+    SELECT m.account_id, m.thread_id FROM messages m
+    WHERE m.id = OLD.message_id AND OLD.is_deleted = 0 AND COALESCE(m.thread_id, '') <> ''
     ON CONFLICT DO NOTHING;
 END;
 
@@ -506,6 +534,13 @@ BEGIN
     FROM message_folder_state mfs WHERE mfs.message_id = NEW.id
       AND NOT EXISTS(SELECT 1 FROM folder_thread_dirty w WHERE w.folder_id = mfs.folder_id AND w.thread_key = '*')
     ON CONFLICT DO NOTHING;
+    INSERT INTO folder_conversation_dirty(account_id, thread_id)
+    SELECT OLD.account_id, OLD.thread_id
+    WHERE OLD.thread_id IS NOT NEW.thread_id AND COALESCE(OLD.thread_id, '') <> ''
+    UNION ALL
+    SELECT NEW.account_id, NEW.thread_id
+    WHERE OLD.thread_id IS NOT NEW.thread_id AND COALESCE(NEW.thread_id, '') <> ''
+    ON CONFLICT DO NOTHING;
 END;
 
 -- Runs before the cascade removes the message's folder states, while its
@@ -517,6 +552,9 @@ BEGIN
     SELECT mfs.folder_id, COALESCE(NULLIF(OLD.thread_id, ''), printf('msg:%d', OLD.id))
     FROM message_folder_state mfs WHERE mfs.message_id = OLD.id
       AND NOT EXISTS(SELECT 1 FROM folder_thread_dirty w WHERE w.folder_id = mfs.folder_id AND w.thread_key = '*')
+    ON CONFLICT DO NOTHING;
+    INSERT INTO folder_conversation_dirty(account_id, thread_id)
+    SELECT OLD.account_id, OLD.thread_id WHERE COALESCE(OLD.thread_id, '') <> ''
     ON CONFLICT DO NOTHING;
 END;
 
@@ -1953,4 +1991,16 @@ CREATE TABLE IF NOT EXISTS outbound_proxy_policy (
     people_add INTEGER NOT NULL DEFAULT 0 CHECK (people_add IN (0, 1))
 );
 
-INSERT OR REPLACE INTO schema_version (version) VALUES (144);
+-- What Gofer learned about how many folders each IMAP account's server lets
+-- it watch in real time (IMAP IDLE), one connection each.
+CREATE TABLE IF NOT EXISTS account_idle_limits (
+    account_id TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+    connection_limit INTEGER NOT NULL CHECK (connection_limit >= 1),
+    failed_at INTEGER NOT NULL DEFAULT 0,
+    failed_time DATETIME,
+    stable_at INTEGER NOT NULL DEFAULT 0,
+    stable_since DATETIME,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+INSERT OR REPLACE INTO schema_version (version) VALUES (147);

@@ -35,7 +35,7 @@ func (h *Handler) calendarMeetingAgent(ctx context.Context, source storage.Calen
 	if auto && oldAgent != "CLIENT" {
 		for _, address := range addresses {
 			if strings.EqualFold(address, organizer) {
-				return "SERVER", organizer, account.Name, nil
+				return "SERVER", organizer, account.FromName(), nil
 			}
 		}
 		return "", "", "", calendarUpdateUnsupported("The calendar server's scheduling identity does not match this account's email address.")
@@ -47,7 +47,7 @@ func (h *Handler) calendarMeetingAgent(ctx context.Context, source storage.Calen
 		if !p.service().SendsEmail() {
 			return "", "", "", calendarReplyConfigurationError("This calendar server needs invitations by email. Configure SMTP for this account first.")
 		}
-		return "CLIENT", organizer, account.Name, nil
+		return "CLIENT", organizer, account.FromName(), nil
 	}
 	if h.accountStore == nil {
 		return "", "", "", fmt.Errorf("configure SMTP before inviting guests")
@@ -56,7 +56,7 @@ func (h *Handler) calendarMeetingAgent(ctx context.Context, source storage.Calen
 	if err != nil || !accountSendsEmail(cfg) {
 		return "", "", "", calendarReplyConfigurationError("This calendar server needs invitations by email. Configure SMTP for this account first.")
 	}
-	return "CLIENT", organizer, account.Name, nil
+	return "CLIENT", organizer, account.FromName(), nil
 }
 
 // A meeting is one event, or a series with events for dates changed on their

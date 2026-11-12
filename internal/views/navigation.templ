@@ -26,7 +26,7 @@ templ AppNavigationDialogs() {
 templ ComposeAccountData(accounts []models.Account) {
 	{{ accounts = sendingAccounts(accounts) }}
 	<template id="compose-account-data">
-		<div data-compose-default-account={ composeDefaultAccountID(accounts) } data-compose-default-name={ composeDefaultName(accounts) } data-compose-default-email={ composeDefaultEmail(accounts) }>
+		<div data-compose-default-account={ composeDefaultAccountID(accounts) } data-compose-default-name={ composeDefaultName(accounts) } data-compose-default-email={ composeDefaultEmail(accounts) } data-compose-default-identity={ composeDefaultIdentityID(accounts) }>
 			<div data-compose-from-options>
 				@composeFromMenuItems(accounts, "dialog")
 			</div>

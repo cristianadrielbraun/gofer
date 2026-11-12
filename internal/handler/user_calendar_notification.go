@@ -104,7 +104,7 @@ func (p *userCalendarRequest) queueNotification(ctx context.Context, source stor
 		subjectKey = "mail.outgoing.calendar.canceled"
 	}
 	textCtx := i18n.ForUser(ctx, source.UserID)
-	msg := &message.OutgoingMessage{FromName: identity.DisplayName, FromEmail: identity.EmailAddress, Subject: i18n.T(textCtx, subjectKey, "summary", strings.NewReplacer("\r", " ", "\n", " ").Replace(summary)), TextBody: i18n.T(textCtx, subjectKey, "summary", summary), MessageID: message.NewMessageID(), Date: time.Now().UTC(), CalendarNotification: &message.CalendarNotification{UserID: source.UserID, SourceID: source.ID, ResourceID: endpoint, Method: method, Calendar: body, ExpectedCalendar: desired, Deleted: deleted}}
+	msg := &message.OutgoingMessage{FromName: identity.FromName(), FromEmail: identity.EmailAddress, Subject: i18n.T(textCtx, subjectKey, "summary", strings.NewReplacer("\r", " ", "\n", " ").Replace(summary)), TextBody: i18n.T(textCtx, subjectKey, "summary", summary), MessageID: message.NewMessageID(), Date: time.Now().UTC(), CalendarNotification: &message.CalendarNotification{UserID: source.UserID, SourceID: source.ID, ResourceID: endpoint, Method: method, Calendar: body, ExpectedCalendar: desired, Deleted: deleted}}
 	for _, guest := range guests {
 		msg.To = append(msg.To, &netmail.Address{Name: guest.Name, Address: guest.Email})
 	}

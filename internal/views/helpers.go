@@ -195,6 +195,21 @@ func mailMoveAccountProblem(ctx context.Context, account models.Account, own boo
 	return ""
 }
 
+// mailMoveAccountNote is what the Move dialog says beside an account's name:
+// why it can't be picked, that it keeps mail on this device only, or that
+// it is another account than the email's.
+func mailMoveAccountNote(ctx context.Context, account models.Account, own bool, problem string) string {
+	switch {
+	case problem != "":
+		return problem
+	case accountIsLocalFolders(account):
+		return i18n.T(ctx, "mail.move.local_only")
+	case !own:
+		return i18n.T(ctx, "mail.move.other_account")
+	}
+	return ""
+}
+
 // mailMoveIndent indents a Move dialog row by its depth in the folder tree.
 func mailMoveIndent(depth int) string {
 	return fmt.Sprintf("padding-left: %.2frem", 0.625+float64(depth)*1.25)
@@ -321,8 +336,22 @@ func composeDefaultAccountID(accounts []models.Account) string {
 	return ""
 }
 
+// composeDefaultIdentityID is the identity a new message starts from: the
+// first account's default identity, or empty for its own address.
+func composeDefaultIdentityID(accounts []models.Account) string {
+	if len(accounts) > 0 {
+		if identity, ok := accounts[0].DefaultIdentity(); ok {
+			return identity.ID
+		}
+	}
+	return ""
+}
+
 func composeDefaultEmail(accounts []models.Account) string {
 	if len(accounts) > 0 {
+		if identity, ok := accounts[0].DefaultIdentity(); ok {
+			return identity.Email
+		}
 		return accounts[0].Email
 	}
 	return ""
@@ -330,7 +359,29 @@ func composeDefaultEmail(accounts []models.Account) string {
 
 func composeDefaultName(accounts []models.Account) string {
 	if len(accounts) > 0 {
-		return accounts[0].Name
+		if identity, ok := accounts[0].DefaultIdentity(); ok {
+			return identity.Name
+		}
+		return accounts[0].FromName()
+	}
+	return ""
+}
+
+// composeDefaultFrom is how the From field first reads: "Name <address>", or
+// the address alone when it sends under no name.
+func composeDefaultFrom(accounts []models.Account) string {
+	email := composeDefaultEmail(accounts)
+	if name := composeDefaultName(accounts); name != "" {
+		return name + " <" + email + ">"
+	}
+	return email
+}
+
+// composeAccountDefaultIdentityID is the identity new messages of acc start
+// from, or empty for its own address.
+func composeAccountDefaultIdentityID(acc models.Account) string {
+	if identity, ok := acc.DefaultIdentity(); ok {
+		return identity.ID
 	}
 	return ""
 }
@@ -751,6 +802,21 @@ func fontPickerValue(value string) string {
 		return "default"
 	}
 	return value
+}
+
+// textWeightStepLabel names a text weight step in its menu.
+func textWeightStepLabel(ctx context.Context, step int) string {
+	switch step {
+	case -200:
+		return i18n.T(ctx, "settings.appearance.weights.much_lighter")
+	case -100:
+		return i18n.T(ctx, "settings.appearance.weights.lighter")
+	case 100:
+		return i18n.T(ctx, "settings.appearance.weights.bolder")
+	case 200:
+		return i18n.T(ctx, "settings.appearance.weights.much_bolder")
+	}
+	return i18n.T(ctx, "settings.appearance.weights.default")
 }
 
 // customThemeSaved reports whether a Custom theme exists to choose.

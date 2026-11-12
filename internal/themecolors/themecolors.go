@@ -81,6 +81,7 @@ var Groups = []Group{
 		{"sidebar-accent-foreground", "Text on sidebar accent", ""},
 		{"sidebar-border", "Sidebar border", ""},
 		{"sidebar-ring", "Sidebar focus ring", ""},
+		{"gofer-logo", "Logo", "The Gofer logo"},
 	}},
 	{"Reading pane", []Variable{
 		{"paper", "Message background", "Behind message bodies"},

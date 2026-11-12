@@ -99,6 +99,51 @@
   * {
     @apply border-border;
   }
+  /* Text weight (Settings, Appearance). Each kind of text is a role, listed
+     here by its elements. The page head sets a role's step, such as
+     --weight-lists: 100, and each element moves Tailwind's weights and
+     the weights below (written as calc(N + var(--weight-shift, 0))) by it,
+     for itself and everything inside, keeping the gap between e.g. read and
+     unread. An element inside another role's follows its own role. Express
+     keeps its own font, which has only regular and bold. Add a role to
+     internal/textweight too. */
+  html:not([data-theme="express"]) .app-drawer {
+    --weight-shift: var(--weight-navigation, 0);
+  }
+  html:not([data-theme="express"]) :is(#mail-list-scroll, #contacts-list-scroll, #calendar-main [data-calendar-event-trigger]) {
+    --weight-shift: var(--weight-lists, 0);
+  }
+  html:not([data-theme="express"]) :is([data-mail-reader], #calendar-event-details-content) {
+    --weight-shift: var(--weight-details, 0);
+  }
+  /* Headings: everything in the heading font. */
+  html:not([data-theme="express"]) :is([style*="--font-serif"], .compose-titlebar-text, .compose-subject-input) {
+    --weight-shift: var(--weight-headings, 0);
+  }
+  /* Controls: buttons and labels, except in the sidebar and the lists,
+     whose rows are made of them; menus, options and tabs anywhere. */
+  html:not([data-theme="express"]) :is(:is(button, [role="button"], label, .btn-skeuo):not([data-calendar-event-trigger], :is(.app-drawer, #mail-list-scroll, #contacts-list-scroll, [data-calendar-event-trigger]) *), [data-tui-dropdown-item], .select-item, [data-tui-tabs-trigger]) {
+    --weight-shift: var(--weight-controls, 0);
+  }
+  /* What people write keeps its weight: compose shows it as it will be
+     sent, and an event's description as its organizer wrote it. Compose's
+     own controls and title still follow their roles. */
+  :is([data-compose-pane], .calendar-rich-description) {
+    --weight-shift: 0;
+  }
+  :is(.app-drawer, #mail-list-scroll, #contacts-list-scroll, #calendar-main [data-calendar-event-trigger], [data-mail-reader], #calendar-event-details-content, [style*="--font-serif"], .compose-titlebar-text, .compose-subject-input, button, [role="button"], label, .btn-skeuo, [data-tui-dropdown-item], .select-item, [data-tui-tabs-trigger], [data-compose-pane], .calendar-rich-description) {
+    --font-weight-light: calc(300 + var(--weight-shift, 0));
+    --font-weight-normal: calc(400 + var(--weight-shift, 0));
+    --font-weight-medium: calc(500 + var(--weight-shift, 0));
+    --font-weight-semibold: calc(600 + var(--weight-shift, 0));
+    --font-weight-bold: calc(700 + var(--weight-shift, 0));
+  }
+  /* Containers set their own text to the role's regular weight. Buttons,
+     labels and headings keep the weight they inherit unless a class sets
+     one, as before. */
+  :is(.app-drawer, #mail-list-scroll, #contacts-list-scroll, #calendar-main [data-calendar-event-trigger], [data-mail-reader], #calendar-event-details-content, [data-compose-pane], .calendar-rich-description) {
+    font-weight: var(--font-weight-normal);
+  }
   /* Scrollbars are always shown, and their thumb widens when hovered or
      dragged. Themes and panes recolor them through these variables. */
   :root {
@@ -273,7 +318,7 @@
   color: var(--foreground);
   padding: 0 0.375rem 0 0.5rem;
   font-size: 0.75rem;
-  font-weight: 600;
+  font-weight: calc(600 + var(--weight-shift, 0));
   line-height: 1;
   transition: color 150ms ease, border-color 150ms ease, background-color 150ms ease;
   animation: compose-recipient-chip-in 140ms ease-out;
@@ -327,7 +372,7 @@
   color: var(--muted-foreground);
   padding: 0 0.5rem;
   font-size: 0.75rem;
-  font-weight: 600;
+  font-weight: calc(600 + var(--weight-shift, 0));
   line-height: 1;
   white-space: nowrap;
   opacity: 0;
@@ -432,7 +477,7 @@
   background: color-mix(in srgb, var(--primary) 18%, transparent);
   color: var(--primary);
   font-size: 0.68rem;
-  font-weight: 800;
+  font-weight: calc(700 + var(--weight-shift, 0));
   letter-spacing: 0.02em;
 }
 
@@ -451,7 +496,7 @@
 
 .compose-recipient-suggestion-name {
   font-size: 0.8125rem;
-  font-weight: 700;
+  font-weight: calc(700 + var(--weight-shift, 0));
 }
 
 .compose-recipient-suggestion-email {
@@ -497,7 +542,7 @@
   background: color-mix(in srgb, var(--ink) 6%, transparent);
   color: color-mix(in srgb, var(--ink) 72%, var(--foreground));
   font-size: 0.58rem;
-  font-weight: 800;
+  font-weight: calc(700 + var(--weight-shift, 0));
   letter-spacing: 0.04em;
   line-height: 1;
 }
@@ -537,7 +582,7 @@
   width: auto;
   padding: 0 0.4rem 0.0625rem;
   font-size: 0.68rem;
-  font-weight: 700;
+  font-weight: calc(700 + var(--weight-shift, 0));
 }
 
 .compose-attachment-remove:hover,
@@ -564,7 +609,7 @@
   border-radius: calc(var(--radius) * 0.75);
   padding: 0.4rem 0.65rem;
   font-size: 0.78rem;
-  font-weight: 650;
+  font-weight: calc(650 + var(--weight-shift, 0));
   text-align: left;
 }
 
@@ -607,7 +652,7 @@
   flex: 0 0 auto;
   color: var(--muted-foreground);
   font-size: 0.68rem;
-  font-weight: 700;
+  font-weight: calc(700 + var(--weight-shift, 0));
   letter-spacing: 0.02em;
 }
 
@@ -638,7 +683,7 @@
   background: color-mix(in srgb, var(--background) 84%, var(--primary));
   color: var(--foreground);
   font-size: 0.85rem;
-  font-weight: 650;
+  font-weight: calc(650 + var(--weight-shift, 0));
   letter-spacing: 0.01em;
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary) 18%, transparent);
   pointer-events: none;
@@ -669,7 +714,7 @@
 .compose-close-choice h2 {
   margin: 0;
   font-size: 1rem;
-  font-weight: 750;
+  font-weight: calc(700 + var(--weight-shift, 0));
 }
 
 /* The choice is as wide as its buttons; the text wraps within that width
@@ -705,7 +750,7 @@
   border-radius: var(--radius);
   padding: 0.5rem 0.75rem;
   font-size: 0.82rem;
-  font-weight: 700;
+  font-weight: calc(700 + var(--weight-shift, 0));
 }
 
 .compose-close-choice-actions button:hover {
@@ -749,7 +794,7 @@
 .archive-unavailable h2 {
   margin: 0;
   font-size: 0.92rem;
-  font-weight: 700;
+  font-weight: calc(700 + var(--weight-shift, 0));
 }
 
 .archive-unavailable p {
@@ -771,7 +816,7 @@
   border-radius: var(--radius);
   padding: 0.4rem 0.7rem;
   font-size: 0.8rem;
-  font-weight: 650;
+  font-weight: calc(650 + var(--weight-shift, 0));
 }
 
 .archive-unavailable-actions button:hover {
@@ -893,6 +938,40 @@
   color: color-mix(in srgb, var(--ink) 70%, transparent);
 }
 
+/* An indent is a borderless blockquote: it keeps the text's own color. */
+.compose-rich-editor blockquote[style*="border: none"] {
+  color: inherit;
+}
+
+/* Headings, which Tailwind's reset makes look like text. */
+.compose-rich-editor :is(h1, h2, h3, h4, h5, h6) {
+  margin: 0.5rem 0;
+  font-weight: calc(600 + var(--weight-shift, 0));
+  line-height: 1.3;
+}
+
+.compose-rich-editor h1 { font-size: 1.6em; }
+.compose-rich-editor h2 { font-size: 1.4em; }
+.compose-rich-editor h3 { font-size: 1.2em; }
+.compose-rich-editor :is(h4, h5, h6) { font-size: 1.05em; }
+
+.compose-rich-editor hr {
+  margin: 0.75rem 0;
+  border-color: var(--border);
+}
+
+/* Tables in the editor start from the browser's own defaults, not
+   Tailwind's. Chrome drops an inserted table's inline styles that match what
+   the page already gives it, so with Tailwind's solid borders and collapsed
+   tables the cells would reach recipients with no border style at all. */
+.compose-rich-editor table {
+  border-collapse: separate;
+}
+
+.compose-rich-editor :is(td, th) {
+  border-style: none;
+}
+
 .compose-rich-editor pre {
   margin: 0.5rem 0;
   padding: 0.75rem;
@@ -923,8 +1002,12 @@
   display: none;
 }
 
-.compose-inline-image-toolbar {
+.compose-float-toolbar {
   position: fixed;
+  /* It opens as a popover: undo the browser's centring of one. */
+  inset: auto;
+  margin: 0;
+  overflow: visible;
   z-index: 80;
   display: inline-flex;
   gap: 0.2rem;
@@ -937,23 +1020,53 @@
   box-shadow: var(--shadow-raised);
 }
 
-.compose-inline-image-toolbar.hidden {
+/* A narrow window wraps a floating bar's buttons rather than cut them off. */
+.compose-float-toolbar {
+  flex-wrap: wrap;
+  max-width: calc(100vw - 1rem);
+}
+
+/* The squares of the table and color grids sit in rows, without the gap
+   menus put between items (that rule is in the menus' section, so this one
+   needs to be the stronger). */
+[data-tui-popover-content] :is([data-compose-table-grid], [data-compose-color-grid]) [data-tui-dropdown-item]:not(:first-child) {
+  margin-top: 0;
+}
+
+/* The table size grid marks the size pointed at. */
+[data-compose-table-cell][data-active] {
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 35%, transparent);
+}
+
+/* A link's address in its floating bar. */
+.compose-link-address {
+  max-width: 16rem;
+  overflow: hidden;
+  padding: 0 0.4rem;
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.compose-float-toolbar.hidden {
   display: none;
 }
 
-.compose-inline-image-toolbar button {
+.compose-float-toolbar button {
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
   border-radius: calc(var(--radius) * 0.75);
   padding: 0.25rem 0.45rem;
   font-size: 0.7rem;
-  font-weight: 700;
+  font-weight: calc(700 + var(--weight-shift, 0));
   color: color-mix(in srgb, var(--ink) 70%, var(--foreground));
   transition: background-color 150ms ease, color 150ms ease;
 }
 
-.compose-inline-image-toolbar svg {
+.compose-float-toolbar svg {
   width: 0.8rem;
   height: 0.8rem;
   flex: 0 0 auto;
@@ -964,25 +1077,81 @@
   stroke-linejoin: round;
 }
 
-.compose-inline-image-toolbar button:hover {
+.compose-float-toolbar button:hover {
   background: var(--accent);
   color: var(--foreground);
 }
 
-.compose-inline-image-toolbar button:disabled {
+.compose-float-toolbar button:disabled {
   cursor: not-allowed;
   opacity: 0.38;
 }
 
-.compose-inline-image-toolbar button:disabled:hover {
+.compose-float-toolbar button:disabled:hover {
   background: transparent;
   color: color-mix(in srgb, var(--ink) 70%, var(--foreground));
 }
 
 .compose-rich-editor ul,
-.compose-rich-editor ol {
+.compose-rich-editor ol,
+[data-signature-editor] ul,
+[data-signature-editor] ol {
   margin: 0.35rem 0;
   padding-left: 1.35rem;
+}
+
+/* Tailwind's reset removes list markers; bring them back in the editors. */
+.compose-rich-editor ul,
+[data-signature-editor] ul {
+  list-style: disc;
+}
+
+.compose-rich-editor ol,
+[data-signature-editor] ol {
+  list-style: decimal;
+}
+
+.compose-rich-editor ul ul,
+[data-signature-editor] ul ul {
+  list-style: circle;
+}
+
+.compose-rich-editor ul ul ul,
+[data-signature-editor] ul ul ul {
+  list-style: square;
+}
+
+/* Plain text mode: the editor takes text only, keeps the spaces and line
+   breaks as typed, and the formatting tools hide. */
+[data-compose-format="plain"] [data-compose-rich-only],
+[data-compose-format="plain"] .compose-attachment-actions {
+  display: none;
+}
+
+/* The toolbar's parts keep their size; a lack of room folds them into the
+   ⋯ menu instead (see ComposeToolbar). */
+[data-compose-toolbar] > :not([data-compose-toolbar-spacer]) {
+  flex-shrink: 0;
+}
+
+/* A toolbar menu's tooltip hides while the menu is open. */
+.compose-menu-tooltip:has([data-tui-popover-trigger] [data-tui-popover-content][data-tui-popover-open="true"]) > [data-tui-popover-content] {
+  display: none;
+}
+
+/* The format button names the format it switches to. */
+[data-compose-format-to-html],
+[data-compose-format="plain"] [data-compose-format-to-plain] {
+  display: none;
+}
+
+[data-compose-format="plain"] [data-compose-format-to-html] {
+  display: contents;
+}
+
+.compose-rich-editor[data-compose-plain-mode] {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .compose-rich-editor a {
@@ -1460,7 +1629,7 @@ input[role="switch"] + .gofer-switch-track::after {
   color: var(--foreground);
   padding: 0 0.5rem;
   font-size: 0.6875rem;
-  font-weight: 600;
+  font-weight: calc(600 + var(--weight-shift, 0));
   line-height: 1;
   box-shadow: 0 1px 2px rgba(0,0,0,0.06);
   /* It fades in where it stays, once the strip has mostly opened, so it
@@ -1543,7 +1712,7 @@ input[role="switch"] + .gofer-switch-track::after {
   padding: 0.375rem 0.5rem;
   color: var(--foreground);
   font-size: 0.75rem;
-  font-weight: 600;
+  font-weight: calc(600 + var(--weight-shift, 0));
   text-align: left;
 }
 
@@ -1891,7 +2060,7 @@ html[data-theme="classic"] .mail-list-search-input-wrap {
 [data-view-mode="table"] .mail-list-table-row[data-is-read="false"] [data-mail-table-cell="subject"] > div > span,
 [data-view-mode="table"] .mail-list-table-row[data-is-read="false"] [data-mail-table-cell="thread"] [data-thread-toggle] {
   color: var(--color-primary);
-  font-weight: 700;
+  font-weight: var(--font-weight-bold);
 }
 
 [data-contact-list-shell][data-view-mode="cards"] .mail-list-item > a.envelope-active {
@@ -1975,6 +2144,116 @@ html #mail-list .thread-sub-item > .mail-row-check ~ a {
 /* Expanded messages picked one by one get the selected row's tint. */
 .thread-sub-item > a[data-mail-selected] {
   background: color-mix(in srgb, var(--color-primary) 6%, transparent);
+}
+
+/* The row's own message, in its place in the expanded thread, framed in
+   the selected row's color, and linked to it by the thread's rail, which
+   takes the frame's color down to it and bends into the frame. The colors
+   are the selected card's (see .mail-list-card). */
+.thread-sub-items {
+  --thread-link-color: var(--mail-card-pick-edge);
+  /* From a message's left edge back to the rail, and the gap above the
+     first message; the narrow list sets its own. */
+  --thread-rail-inset: 1rem;
+  --thread-rail-gap: 0.25rem;
+}
+
+.thread-sub-item[data-thread-self] > a {
+  border-radius: var(--radius-md);
+  box-shadow: inset 0 0 0 1px var(--mail-card-pick-edge);
+}
+
+/* A thread message's folder tag sits by the date in cards, and at the start
+   of the preview in tables, whose date column is narrow. */
+[data-thread-item-folder="subject"],
+[data-view-mode="table"] [data-thread-item-folder="date"] {
+  display: none;
+}
+
+[data-view-mode="table"] [data-thread-item-folder="subject"] {
+  display: inline-flex;
+  margin-right: 0.375rem;
+}
+
+/* An expanded message that is open gets the selected card's bar too. */
+:is([data-view-mode="cards"], [data-mail-list-view]) .thread-sub-item > a.envelope-active {
+  border-color: transparent;
+  border-radius: var(--radius-md);
+  box-shadow: inset 3px 0 0 var(--mail-card-pick-bar), inset 0 0 0 1px var(--mail-card-pick-edge);
+}
+
+/* The rail is the list's left border, outside what the list shows; the
+   thread's slot still clips it while it opens and closes. */
+:is([data-view-mode="cards"], [data-mail-list-view]) .thread-sub-items:has(> [data-thread-self]) {
+  overflow: visible;
+}
+
+:is([data-view-mode="cards"], [data-mail-list-view]) .thread-sub-item:is(:has(~ [data-thread-self]), [data-thread-self]) {
+  position: relative;
+}
+
+/* Above the row's own message the rail is the link's color, from the row
+   down. Drawn as a border, like the rail under it and the bend below, so
+   all three snap to the same pixels at any zoom. */
+:is([data-view-mode="cards"], [data-mail-list-view]) .thread-sub-item:has(~ [data-thread-self])::after {
+  content: "";
+  position: absolute;
+  left: calc(-1 * var(--thread-rail-inset) - 2px);
+  top: 0;
+  bottom: 0;
+  width: 0;
+  border-left: 2px solid var(--thread-link-color);
+  pointer-events: none;
+}
+
+/* At the row's own message it bends into the frame. */
+:is([data-view-mode="cards"], [data-mail-list-view]) .thread-sub-item[data-thread-self]::after {
+  content: "";
+  position: absolute;
+  left: calc(-1 * var(--thread-rail-inset) - 2px);
+  top: 0;
+  width: calc(var(--thread-rail-inset) + 2px);
+  height: 50%;
+  border-left: 2px solid var(--thread-link-color);
+  border-bottom: 2px solid var(--thread-link-color);
+  border-bottom-left-radius: var(--radius-md);
+  pointer-events: none;
+}
+
+:is([data-view-mode="cards"], [data-mail-list-view]) .thread-sub-item:first-child:is(:has(~ [data-thread-self]), [data-thread-self])::after {
+  top: calc(-1 * var(--thread-rail-gap));
+}
+
+/* Tables draw the thread as a tree; the branch to the row's own message is
+   thicker, in the selection's color. */
+[data-view-mode="table"] .thread-sub-item:has(~ [data-thread-self]) [data-mail-table-cell="thread"]::before {
+  left: calc(50% - 1px);
+  border-left: 2px solid var(--mail-card-pick-bar);
+}
+
+/* At the row's own message it turns in, in one piece; the trunk goes on
+   down thin to the messages below. */
+[data-view-mode="table"] .thread-sub-item[data-thread-self] [data-mail-table-cell="thread"]::before {
+  left: calc(50% - 1px);
+  bottom: calc(50% - 1px);
+  /* With its 2px side, it ends where the other rows' branches end. */
+  width: calc(50% - 1px);
+  border-left: 2px solid var(--mail-card-pick-bar);
+  border-bottom: 2px solid var(--mail-card-pick-bar);
+}
+
+[data-view-mode="table"] .thread-sub-item[data-thread-self] [data-mail-table-cell="thread"]::after {
+  left: calc(50% - 0.5px);
+  top: 50%;
+  bottom: -0.25rem;
+  width: 0;
+  height: auto;
+  border-top: 0;
+  border-left: 1px solid var(--thread-tree-color);
+}
+
+[data-view-mode="table"] .thread-sub-item[data-thread-self]:last-child [data-mail-table-cell="thread"]::after {
+  display: none;
 }
 
 /* Cards keep their place: the checkbox comes in inside the card's left edge,
@@ -2064,12 +2343,13 @@ html #mail-list .thread-sub-item > .mail-row-check ~ a {
 /* The open card and multi-selected cards get a 2px edge, 4px on the left. The
    inner line is opaque and matches the border, so the two read as one crisp
    line; a translucent one beside the border made the edge look blurred. */
-.mail-list-item > a.mail-list-card {
+.mail-list-item > a.mail-list-card,
+.thread-sub-items {
   --mail-card-pick-edge: color-mix(in srgb, var(--color-primary) 55%, var(--color-card));
   --mail-card-pick-bar: var(--color-primary);
 }
 
-[data-theme="minimal"]:not(.dark) .mail-list-item > a.mail-list-card {
+[data-theme="minimal"]:not(.dark) :is(.mail-list-item > a.mail-list-card, .thread-sub-items) {
   --mail-card-pick-edge: #000000;
   --mail-card-pick-bar: #000000;
 }
@@ -2147,7 +2427,7 @@ html:not([data-theme="express"]) [data-view-mode="table"] .mail-list-item > a {
 
 .mail-list-item[data-mail-read-optimistic] .font-semibold,
 .mail-list-item > a[data-mail-read-optimistic] .font-semibold {
-  font-weight: 500;
+  font-weight: var(--font-weight-medium);
 }
 
 .mail-list-item[data-mail-read-optimistic] .text-primary,
@@ -2158,7 +2438,7 @@ html:not([data-theme="express"]) [data-view-mode="table"] .mail-list-item > a {
 /* Read card text is black (the theme's text color in dark mode), so the
    sender, date and subject of a card just opened turn that, not muted. */
 .mail-list-item[data-mail-read-optimistic] > a.mail-list-card :is([data-mail-card-field="from"], [data-mail-card-field="date"], [data-mail-card-field="subject"]) {
-  font-weight: 400;
+  font-weight: var(--font-weight-normal);
   color: #000000;
 }
 
@@ -2851,7 +3131,7 @@ html:not([data-theme="express"]) [data-view-mode="table"] .mail-list-item > a {
   margin: auto;
   color: color-mix(in srgb, var(--color-primary) 70%, transparent);
   font-size: 0.875rem;
-  font-weight: 600;
+  font-weight: calc(600 + var(--weight-shift, 0));
   line-height: 1;
 }
 
@@ -2967,7 +3247,7 @@ html:not([data-theme="express"]) [data-view-mode="table"] .mail-list-item > a {
   color: var(--color-muted-foreground);
   font-size: 0.625rem;
   line-height: 0.875rem;
-  font-weight: 700;
+  font-weight: calc(700 + var(--weight-shift, 0));
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
@@ -2992,7 +3272,7 @@ html:not([data-theme="express"]) [data-view-mode="table"] .mail-list-item > a {
   color: var(--color-foreground);
   font-size: 0.75rem;
   line-height: 1rem;
-  font-weight: 600;
+  font-weight: calc(600 + var(--weight-shift, 0));
   cursor: grab;
   box-shadow: 0 1px 2px rgba(0,0,0,0.06);
   touch-action: none;
@@ -3284,9 +3564,11 @@ body.mail-list-column-resizing {
   padding-bottom: 0;
 }
 
+/* Below its thread a row keeps its usual 3px, so the thread's bottom line
+   is as far from the next card as two cards are from each other. */
 .mail-list-thread-slot {
   overflow: hidden;
-  padding-bottom: 0.625rem;
+  padding-bottom: 3px;
   box-sizing: border-box;
 }
 
@@ -3334,7 +3616,7 @@ body.mail-list-column-resizing {
 }
 
 .thread-sub-items {
-  margin: 0.25rem 0.875rem 0.25rem;
+  margin: 0.25rem 0.875rem 0;
   padding-left: 1rem;
   padding-bottom: 0.375rem;
   border-left: 2px solid color-mix(in srgb, var(--color-foreground) 12%, transparent);
@@ -3369,24 +3651,32 @@ body.mail-list-column-resizing {
   display: none;
 }
 
+/* The thread's tree: 1px lines, so the 2px branch to the row's own message
+   (see data-thread-self) stands out. */
+[data-view-mode="table"] .thread-sub-items {
+  --thread-tree-color: color-mix(in srgb, var(--color-primary) 42%, var(--color-border));
+}
+
+/* Lines are borders, which snap to whole pixels at any zoom; a filled
+   block in a column of fractional width blurs over two. */
 [data-view-mode="table"] .thread-sub-item [data-mail-table-cell="thread"]::before {
   content: "";
   position: absolute;
-  left: 50%;
+  left: calc(50% - 0.5px);
   top: -0.25rem;
   bottom: -0.25rem;
-  width: 2px;
-  background: color-mix(in srgb, var(--color-primary) 42%, var(--color-border));
+  width: 0;
+  border-left: 1px solid var(--thread-tree-color);
 }
 
 [data-view-mode="table"] .thread-sub-item [data-mail-table-cell="thread"]::after {
   content: "";
   position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 50%;
-  height: 2px;
-  background: color-mix(in srgb, var(--color-primary) 42%, var(--color-border));
+  left: calc(50% - 0.5px);
+  top: calc(50% - 0.5px);
+  width: calc(50% + 0.5px);
+  height: 0;
+  border-top: 1px solid var(--thread-tree-color);
 }
 
 [data-view-mode="table"] .thread-sub-item:last-child [data-mail-table-cell="thread"]::before {
@@ -3809,7 +4099,7 @@ body.mail-list-column-resizing {
 
 [data-calendar-event-trigger][data-calendar-response-state="declined"] [data-calendar-event-summary] {
   color: var(--color-muted-foreground);
-  font-weight: 400;
+  font-weight: var(--font-weight-normal);
   text-decoration: line-through;
   text-decoration-thickness: 1px;
 }
@@ -3848,7 +4138,7 @@ body.mail-list-column-resizing {
   margin: 0 0.5rem;
   border-radius: 0.5rem;
   font-size: 0.8rem;
-  font-weight: 500;
+  font-weight: calc(500 + var(--weight-shift, 0));
   cursor: pointer;
   background: var(--color-primary);
   color: var(--color-primary-foreground);
@@ -3923,7 +4213,7 @@ body.mail-list-column-resizing {
 }
 
 .prose strong {
-  font-weight: 600;
+  font-weight: calc(600 + var(--weight-shift, 0));
 }
 
 .prose code {
@@ -3936,7 +4226,7 @@ body.mail-list-column-resizing {
 
 .prose h3 {
   font-family: var(--font-serif);
-  font-weight: 600;
+  font-weight: calc(600 + var(--weight-shift, 0));
   font-size: 1.05em;
   margin-top: 1.5em;
   margin-bottom: 0.5em;
@@ -4350,7 +4640,7 @@ body.mail-list-column-resizing {
 .compose-titlebar-text {
   font-family: var(--font-serif);
   font-size: 0.8125remNone;
-  font-weight: 700;
+  font-weight: calc(700 + var(--weight-shift, 0));
   color: var(--sidebar-primary);
   letter-spacing: 0.01em;
 }
@@ -4408,7 +4698,7 @@ body.mail-list-column-resizing {
 
 .compose-field-label {
   font-size: 0.6875remNone;
-  font-weight: 600;
+  font-weight: calc(600 + var(--weight-shift, 0));
   color: color-mix(in srgb, var(--copper) 60%, var(--ink));
   width: 32px;
   flex-shrink: 0;
@@ -4441,7 +4731,7 @@ body.mail-list-column-resizing {
   padding: 2px 6px;
   border-radius: 4px;
   transition: all 0.15s ease;
-  font-weight: 500;
+  font-weight: calc(500 + var(--weight-shift, 0));
   letter-spacing: 0.02em;
 }
 
@@ -4462,13 +4752,13 @@ body.mail-list-column-resizing {
   height: 38px !important;
   font-size: 0.9375rem !important;
   font-family: var(--font-serif) !important;
-  font-weight: 600 !important;
+  font-weight: calc(600 + var(--weight-shift, 0)) !important;
   color: var(--ink) !important;
   letter-spacing: -0.01em;
 }
 
 .compose-subject-input::placeholder {
-  font-weight: 400 !important;
+  font-weight: calc(400 + var(--weight-shift, 0)) !important;
   color: color-mix(in srgb, var(--ink) 22%, transparent) !important;
   font-style: italic;
 }
@@ -4578,7 +4868,7 @@ body.mail-list-column-resizing {
   padding: 0 14px;
   border-radius: 6px;
   font-size: 0.8125remNone;
-  font-weight: 500;
+  font-weight: calc(500 + var(--weight-shift, 0));
   color: color-mix(in srgb, var(--ink) 50%, transparent);
   background: color-mix(in srgb, var(--ink) 4%, transparent);
   box-shadow:
@@ -4610,7 +4900,7 @@ body.mail-list-column-resizing {
   padding: 0 18px;
   border-radius: 6px;
   font-size: 0.8125remNone;
-  font-weight: 600;
+  font-weight: calc(600 + var(--weight-shift, 0));
   color: var(--primary-foreground);
   background: linear-gradient(180deg, color-mix(in srgb, var(--copper) 100%, #fff) 0%, var(--copper) 100%);
   box-shadow:
@@ -4675,7 +4965,7 @@ body.mail-list-column-resizing {
 .calendar-rich-description h1,
 .calendar-rich-description h2,
 .calendar-rich-description h3,
-.calendar-rich-description h4 { font-weight: 600; font-size: 1.1em; margin: 0.6rem 0; }
+.calendar-rich-description h4 { font-weight: calc(600 + var(--weight-shift, 0)); font-size: 1.1em; margin: 0.6rem 0; }
 .calendar-rich-description table { max-width: 100%; border-collapse: collapse; }
 .calendar-rich-description td,
 .calendar-rich-description th { padding: 0.2rem 0.5rem; vertical-align: top; }
@@ -5116,7 +5406,8 @@ body.mail-list-column-resizing {
   input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
   textarea,
   select,
-  [contenteditable="true"] {
+  [contenteditable="true"],
+  [contenteditable="plaintext-only"] {
     font-size: max(16px, 0.9375rem) !important;
   }
 }
@@ -5632,6 +5923,8 @@ body.mail-list-column-resizing {
   }
 
   #mail-list[data-mail-list-view] .thread-sub-items {
+    --thread-rail-inset: 0.25rem;
+    --thread-rail-gap: 0rem;
     margin: 0 0 0.5rem 2.25rem;
     padding: 0 0 0 0.25rem;
     border-bottom: 0;
@@ -5713,7 +6006,7 @@ body.mail-list-column-resizing {
     gap: 0.5rem;
     padding: 0 1.5rem;
     font-size: 0.875rem;
-    font-weight: 600;
+    font-weight: calc(600 + var(--weight-shift, 0));
     color: var(--color-muted-foreground);
     background: var(--color-muted);
     transition: background-color 0.15s ease, color 0.15s ease;
@@ -5809,7 +6102,7 @@ body.mail-list-column-resizing {
     border-radius: var(--radius-lg);
     background: var(--color-background);
     font-size: 0.875rem;
-    font-weight: 600;
+    font-weight: calc(600 + var(--weight-shift, 0));
     color: var(--color-foreground);
   }
 
@@ -6082,7 +6375,7 @@ body.mail-list-column-resizing {
   #mail-list[data-contact-list-shell] a.contact-list-item [data-contact-email] {
     font-size: 0.875rem;
     line-height: 1.25rem;
-    font-weight: 400;
+    font-weight: var(--font-weight-normal);
     color: var(--color-muted-foreground);
   }
 }
@@ -6489,7 +6782,7 @@ body.mail-list-column-resizing {
 
   .compose-mobile-bar-title {
     font-size: 1.0625rem;
-    font-weight: 600;
+    font-weight: calc(600 + var(--weight-shift, 0));
     line-height: 1.3;
   }
 
@@ -6567,7 +6860,7 @@ body.mail-list-column-resizing {
   .compose-dialog-content .compose-dialog-fields label {
     width: 3.25rem;
     font-size: 0.9375rem;
-    font-weight: 400;
+    font-weight: calc(400 + var(--weight-shift, 0));
   }
 
   .compose-dialog-content #compose-from-trigger {
@@ -6669,13 +6962,19 @@ body.mail-list-column-resizing {
     display: none;
   }
 
-  .compose-dialog-content [data-compose-toolbar] button {
+  .compose-dialog-content [data-compose-toolbar] button:not([data-tui-dropdown-item]) {
     width: 2.75rem;
     height: 2.75rem;
     flex: none;
   }
 
-  .compose-dialog-content [data-compose-toolbar] svg {
+  /* The format button has a label, so it keeps its width. */
+  .compose-dialog-content [data-compose-toolbar] button[data-compose-format-toggle] {
+    width: auto;
+    padding-inline: 0.75rem;
+  }
+
+  .compose-dialog-content [data-compose-toolbar] button:not([data-tui-dropdown-item]) svg {
     width: 1.25rem;
     height: 1.25rem;
   }
@@ -7918,7 +8217,7 @@ html[data-app-switching]:not([data-app-switch-slow]) [data-switch-skeleton] {
   background: var(--primary);
   color: var(--primary-foreground);
   font-size: 0.75rem;
-  font-weight: 700;
+  font-weight: calc(700 + var(--weight-shift, 0));
   line-height: 1.375rem;
   text-align: center;
 }
@@ -8022,7 +8321,7 @@ aside [data-folder-drop-position="after"]::before {
   display: flex;
   align-items: center;
   gap: 0.375rem;
-  font-weight: 700;
+  font-weight: calc(700 + var(--weight-shift, 0));
   white-space: nowrap;
 }
 
@@ -8035,7 +8334,7 @@ aside [data-folder-drop-position="after"]::before {
 .calendar-drag-card-time {
   margin-top: 0.125rem;
   color: var(--primary);
-  font-weight: 600;
+  font-weight: calc(600 + var(--weight-shift, 0));
   white-space: nowrap;
 }
 
@@ -8059,7 +8358,7 @@ aside [data-folder-drop-position="after"]::before {
   padding: 0.125rem 0.375rem;
   color: var(--primary);
   font-size: 10px;
-  font-weight: 600;
+  font-weight: calc(600 + var(--weight-shift, 0));
   line-height: 1.25;
   transition: none;
 }
@@ -8227,4 +8526,13 @@ aside [data-sidebar-account-toggle][data-mail-drop-active] {
 
 :is([data-folder-appearance-icon], [data-folder-icon-options])[data-folder-icon-style="filled"] [data-folder-symbol-filled] {
   display: inline-flex;
+}
+
+/* The Gofer logo, cut out of the color a Custom theme gives it (see
+   themebuilder.Theme.Logo); other themes keep the logo's own copper. */
+.gofer-logo {
+  display: inline-block;
+  background-color: var(--gofer-logo, #c2702f);
+  -webkit-mask: url("/assets/logo.svg") center / contain no-repeat;
+  mask: url("/assets/logo.svg") center / contain no-repeat;
 }

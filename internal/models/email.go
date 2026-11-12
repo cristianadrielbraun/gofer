@@ -9,8 +9,16 @@ type Account struct {
 	ID                  string
 	Provider            string
 	MailService         string // "icloud" for an IMAP account on iCloud Mail
+	// Name labels the account in Gofer. It is also the name the account's
+	// own address sends under unless SenderName is set; see FromName.
 	Name                string
 	Email               string
+	// SenderName is the name the account's own address sends under, when
+	// it should differ from Name.
+	SenderName string
+	// DefaultIdentityID is the identity new messages start from; empty
+	// starts them from the account's own address.
+	DefaultIdentityID   string
 	Color               string
 	Initials            string
 	IsActive            bool
@@ -58,6 +66,28 @@ type Account struct {
 	// CalendarCreateNeedsReconnect is set for a Google or Microsoft account
 	// whose sign-in is from before Gofer asked to make calendars.
 	CalendarCreateNeedsReconnect bool
+}
+
+// FromName is the name the account's own address sends under.
+func (a Account) FromName() string {
+	if name := strings.TrimSpace(a.SenderName); name != "" {
+		return name
+	}
+	return a.Name
+}
+
+// DefaultIdentity is the identity new messages start from, or false for the
+// account's own address, also when the chosen identity is gone.
+func (a Account) DefaultIdentity() (Identity, bool) {
+	if a.DefaultIdentityID == "" {
+		return Identity{}, false
+	}
+	for _, identity := range a.Identities {
+		if identity.ID == a.DefaultIdentityID {
+			return identity, true
+		}
+	}
+	return Identity{}, false
 }
 
 // AccountCalendarSource is sidebar metadata, not account sync configuration.
@@ -442,6 +472,9 @@ type ThreadItem struct {
 	FolderName        string
 	FolderID          string
 	FolderRole        string
+	// ElsewhereFolder names the folder the message is filed in when an
+	// expanded conversation's list isn't that folder, like Sent in Inbox.
+	ElsewhereFolder   string
 	Labels            []Label
 	Attachments       []Attachment
 	InternetMessageID string

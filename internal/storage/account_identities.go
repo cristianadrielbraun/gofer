@@ -369,6 +369,9 @@ func (db *DB) DeleteAccountIdentityGuarded(ctx context.Context, userID, accountI
 	if _, err := tx.ExecContext(ctx, `DELETE FROM account_identities WHERE id = ? AND account_id = ?`, identityID, accountID); err != nil {
 		return err
 	}
+	if err := clearMissingDefaultIdentity(ctx, tx, accountID); err != nil {
+		return err
+	}
 	if guard != nil {
 		if err := guard(tx); err != nil {
 			return err
@@ -515,6 +518,9 @@ func (db *DB) ReplaceProviderIdentities(ctx context.Context, accountID string, r
 		query += ` AND provider_identity_id NOT IN (` + strings.Join(placeholders, ",") + `)`
 	}
 	if _, err := tx.ExecContext(ctx, query, keep...); err != nil {
+		return err
+	}
+	if err := clearMissingDefaultIdentity(ctx, tx, accountID); err != nil {
 		return err
 	}
 	return tx.Commit()

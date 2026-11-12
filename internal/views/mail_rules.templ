@@ -20,7 +20,6 @@ import (
 	"github.com/cristianadrielbraun/gofer/components/selectbox"
 	"github.com/cristianadrielbraun/gofer/components/skeleton"
 	switchcomp "github.com/cristianadrielbraun/gofer/components/switch"
-	"github.com/cristianadrielbraun/gofer/components/tooltip"
 )
 
 // SettingsRulesTab loads the rules once the tab shows.
@@ -303,7 +302,7 @@ templ mailRuleForm(data models.MailRulesData, rule models.MailRule) {
 						}
 					</div>
 				</div>
-				<fieldset class="space-y-3" data-mail-rule-conditions>
+				<fieldset class="min-w-0 space-y-3" data-mail-rule-conditions>
 					<legend class="space-y-1">
 						<span class="block text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "rules.when") }</span>
 						<span class="block text-xs text-muted-foreground">{ i18n.T(ctx, "rules.groups_note") }</span>
@@ -331,7 +330,7 @@ templ mailRuleForm(data models.MailRulesData, rule models.MailRule) {
 						@mailRuleAddConditionButton(-1, i18n.T(ctx, "rules.or_condition"))
 					}
 				</fieldset>
-				<fieldset class="space-y-3" data-mail-rule-actions>
+				<fieldset class="min-w-0 space-y-3" data-mail-rule-actions>
 					<legend class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "rules.do_this") }</legend>
 					<div class="space-y-2">
 						for i, action := range rule.Actions {
@@ -493,7 +492,7 @@ templ mailRuleConditionRow(data models.MailRulesData, rule models.MailRule, inde
 		<div class="min-w-0 flex-1">
 			if condition.Field == models.MailRuleFieldFolder {
 				<input type="hidden" name="cond_value" value=""/>
-				@mailRuleFolderSelect("cond_folder", condition.Folder, data.Accounts, true, false)
+				@folderFieldView(mailRuleConditionFolders(ctx, index, condition.Folder, data.Accounts))
 			} else {
 				<input type="hidden" name="cond_folder" value=""/>
 				@input.Input(input.Props{Name: "cond_value", Type: input.TypeText, Class: mailRuleCompactControl, Value: condition.Value, Placeholder: mailRuleValuePlaceholder(ctx, condition), Attributes: templ.Attributes{"maxlength": "500", "autocomplete": "off", "aria-label": i18n.T(ctx, "rules.compare_with")}})
@@ -521,113 +520,11 @@ func mailRuleValuePlaceholder(ctx context.Context, condition models.MailRuleCond
 	return i18n.T(ctx, "rules.value_placeholder")
 }
 
-// mailRuleFolderSelect picks a folder: first the ones every account has,
-// which stand for that folder of the account the message is in, then each
-// account's own folders, as its Folders dialog shows them. A folder of
-// another account than the message's moves it there. withOwnMail offers
-// Sent and Drafts too; forMove lists Local folders and offers new folders.
-templ mailRuleFolderSelect(name string, target *models.MailRuleFolderTarget, accounts []models.MailRuleAccount, withOwnMail bool, forMove bool) {
-	@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
-		@selectbox.Trigger(selectbox.TriggerProps{Name: name, Class: mailRuleCompactControl, DisableClear: true, Attributes: mailRuleFolderTriggerAttributes(ctx, forMove)}) {
-			@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "transfer.choose_folder")})
-		}
-		@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet max-h-80 overflow-y-auto"}) {
-			@selectbox.Group() {
-				@selectbox.Label(selectbox.LabelProps{Class: "text-xs text-muted-foreground"}) {
-					{ i18n.T(ctx, "rules.in_message_account") }
-				}
-				for _, role := range []string{"inbox", "archive", "trash", "junk", "sent", "drafts"} {
-					if withOwnMail || (role != "sent" && role != "drafts") {
-						@selectbox.Item(selectbox.ItemProps{Value: "role:" + role, Selected: target != nil && target.Role == role}) {
-							{ mailRuleRoleLabel(ctx, role) }
-						}
-					}
-				}
-			}
-			for _, account := range accounts {
-				if (forMove && (!account.Hidden || mailRuleTargetIn(target, account))) || (!forMove && mailRuleWatchable(account)) {
-					{{ makes := forMove && account.Provider != "gmail" }}
-					@selectbox.Group() {
-						@selectbox.Label(selectbox.LabelProps{Class: "mt-1 flex items-center gap-2 border-t border-border/60 pt-2 text-xs text-muted-foreground"}) {
-							<span class="account-color-marker size-2 shrink-0" style={ accountColorStyle(account.Color) }></span>
-							<span class="truncate">{ mailRuleAccountTitle(account) }</span>
-						}
-						if makes {
-							<button
-								type="button"
-								class="mb-1 flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-muted-foreground outline-none hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground"
-								data-mail-rule-new-folder={ account.ID }
-							>
-								@icon.FolderPlus(icon.Props{Class: "size-4 shrink-0"})
-								<span class="flex-1 truncate">{ i18n.T(ctx, "mail.folder_menu.new_folder") }</span>
-							</button>
-						}
-						for _, folder := range account.Tree {
-							@mailRuleFolderTreeItem(folder, 0, target, account.ID, withOwnMail, makes)
-						}
-					}
-				}
-			}
-		}
-	}
-}
-
-// mailRuleFolderTreeItem is one folder of the folder picker, then the
-// folders inside it. Starred is a view, not a folder, so it isn't offered.
-// The new subfolder button sits beside the row, at its right, rather than in
-// it: the picker shows a chosen row's text as the field's value.
-templ mailRuleFolderTreeItem(folder models.Folder, depth int, target *models.MailRuleFolderTarget, accountID string, withOwnMail bool, makes bool) {
-	if folder.Role != "starred" {
-		{{ ownMail := folder.Role == "sent" || folder.Role == "drafts" }}
-		{{ subfolder := makes && !(ownMail && !withOwnMail) }}
-		<div class="relative">
-			@selectbox.Item(selectbox.ItemProps{
-				Value:      "id:" + folder.ID,
-				Selected:   target != nil && target.Role == "" && target.FolderID == folder.ID,
-				Disabled:   ownMail && !withOwnMail,
-				Class:      mailRuleTreeItemPadding(subfolder),
-				Attributes: templ.Attributes{"style": mailMoveIndent(depth)},
-			}) {
-				<span class="inline-flex min-w-0 items-center gap-2 align-middle">
-					<span class="flex size-4 shrink-0 items-center justify-center text-muted-foreground">
-						@FolderAppearanceIcon(folder)
-					</span>
-					<span class="min-w-0 truncate">{ folder.Name }</span>
-				</span>
-			}
-			if subfolder {
-				<div class="absolute right-7 top-1/2 -translate-y-1/2">
-					@tooltip.Tooltip() {
-						@tooltip.Trigger(tooltip.TriggerProps{Class: "inline-flex"}) {
-							<button
-								type="button"
-								class="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-								aria-label={ i18n.T(ctx, "rules.new_subfolder", "folder", folder.Name) }
-								data-mail-rule-new-folder={ accountID }
-								data-mail-rule-new-folder-parent={ folder.ID }
-								data-mail-rule-new-folder-parent-name={ folder.Name }
-							>
-								@icon.FolderPlus(icon.Props{Class: "size-3.5"})
-							</button>
-						}
-						@tooltip.Content(tooltip.ContentProps{Position: tooltip.PositionLeft, ShowArrow: true, Class: "px-3 py-1.5 text-xs"}) {
-							{ i18n.T(ctx, "rules.new_subfolder", "folder", folder.Name) }
-						}
-					}
-				</div>
-			}
-		</div>
-	}
-	for _, child := range folder.Children {
-		@mailRuleFolderTreeItem(child, depth+1, target, accountID, withOwnMail, makes)
-	}
-}
-
 templ mailRuleActionRow(data models.MailRulesData, rule models.MailRule, index int, action models.MailRuleAction) {
 	<div class="flex flex-col gap-2 rounded-md border border-border/60 bg-background/40 p-2 sm:flex-row sm:items-center" data-mail-rule-action>
 		<div class="w-full sm:w-44 sm:shrink-0">
 			@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
-				@selectbox.Trigger(selectbox.TriggerProps{Name: "act_kind", Class: "bg-background", DisableClear: true, Attributes: templ.Attributes{"data-mail-rule-rerender": "", "aria-label": i18n.T(ctx, "rules.action_label")}}) {
+				@selectbox.Trigger(selectbox.TriggerProps{Name: "act_kind", Class: mailRuleCompactControl, DisableClear: true, Attributes: templ.Attributes{"data-mail-rule-rerender": "", "aria-label": i18n.T(ctx, "rules.action_label")}}) {
 					@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "rules.action.archive")})
 				}
 				@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
@@ -645,7 +542,7 @@ templ mailRuleActionRow(data models.MailRulesData, rule models.MailRule, index i
 			switch action.Kind {
 				case models.MailRuleActionMove:
 					<input type="hidden" name="act_label" value=""/>
-					@mailRuleFolderSelect("act_folder", action.Folder, data.Accounts, false, true)
+					@folderFieldView(mailRuleMoveFolders(ctx, index, action.Folder, data.Accounts))
 					if action.Folder != nil && action.Folder.FolderID != "" {
 						<div class="mt-2">
 							@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
@@ -668,7 +565,7 @@ templ mailRuleActionRow(data models.MailRulesData, rule models.MailRule, index i
 				case models.MailRuleActionLabel:
 					<input type="hidden" name="act_folder" value=""/>
 					<input type="hidden" name="act_for_good" value=""/>
-					@input.Input(input.Props{Name: "act_label", Type: input.TypeText, Value: action.Label, Placeholder: i18n.T(ctx, "rules.label_placeholder"), Attributes: templ.Attributes{"maxlength": "500", "autocomplete": "off", "aria-label": i18n.T(ctx, "rules.label")}})
+					@input.Input(input.Props{Name: "act_label", Type: input.TypeText, Class: mailRuleCompactControl, Value: action.Label, Placeholder: i18n.T(ctx, "rules.label_placeholder"), Attributes: templ.Attributes{"maxlength": "500", "autocomplete": "off", "aria-label": i18n.T(ctx, "rules.label")}})
 				default:
 					<input type="hidden" name="act_folder" value=""/>
 					<input type="hidden" name="act_label" value=""/>
@@ -706,7 +603,6 @@ func mailRuleActionHint(ctx context.Context, kind string) string {
 // changes.
 templ mailRuleRunView(data models.MailRulesData) {
 	{{ run := data.Run }}
-	{{ roles, own := mailRuleRunScopes(ctx, run.Rule, data.Accounts) }}
 	<div class={ dataDialogFormClass } data-mail-rule-run={ run.JobID } data-mail-rule-run-state={ run.State } data-mail-rule-run-seq={ strconv.Itoa(run.Seq) }>
 		@dataDialogScroll("space-y-5 pb-5") {
 			<form
@@ -718,33 +614,8 @@ templ mailRuleRunView(data models.MailRulesData) {
 				data-mail-rule-run-scope
 			>
 				<label class="text-sm text-muted-foreground sm:shrink-0">{ i18n.T(ctx, "rules.run.on_mail_in") }</label>
-				<div class="w-full sm:flex-1">
-					@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
-						@selectbox.Trigger(selectbox.TriggerProps{Name: "scope", Class: "bg-background", DisableClear: true, Disabled: !mailRuleRunScopeOpen(run), Attributes: templ.Attributes{"aria-label": i18n.T(ctx, "rules.run.scope_label")}}) {
-							@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "folder.inbox")})
-						}
-						@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
-							@selectbox.Group() {
-								for _, role := range roles {
-									@selectbox.Item(selectbox.ItemProps{Value: role.value, Selected: role.value == run.Scope}) {
-										{ role.label }
-									}
-								}
-							}
-							for _, account := range own {
-								@selectbox.Group() {
-									@selectbox.Label(selectbox.LabelProps{Class: "text-xs text-muted-foreground"}) {
-										{ account.Email }
-									}
-									for _, folder := range account.Folders {
-										@selectbox.Item(selectbox.ItemProps{Value: "id:" + folder.ID, Selected: "id:"+folder.ID == run.Scope}) {
-											{ mailRuleFolderChoiceName(folder) }
-										}
-									}
-								}
-							}
-						}
-					}
+				<div class="w-full min-w-0 sm:flex-1">
+					@folderFieldView(mailRuleRunFolders(ctx, run, data.Accounts))
 				</div>
 			</form>
 			<div class="space-y-2" aria-live="polite" data-mail-rule-run-status>

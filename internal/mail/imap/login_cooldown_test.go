@@ -56,10 +56,35 @@ func TestLoginCooldownsDoubleUntilCapAndClearOnSuccess(t *testing.T) {
 	}
 }
 
+func TestLoginCooldownsTreatUnavailableAsLimit(t *testing.T) {
+	now := time.Date(2026, 11, 4, 9, 0, 0, 0, time.UTC)
+	cooldowns := &loginCooldowns{now: func() time.Time { return now }, entries: make(map[string]loginCooldown)}
+	cfg := &models.AccountConfig{IMAPHost: "imap.example.com", IMAPPort: 993, Username: "someone@example.com"}
+	unavailable := &goimap.Error{Type: goimap.StatusResponseTypeNo, Code: goimap.ResponseCodeUnavailable, Text: "AUTHENTICATE Server error - Please try again later"}
+
+	err := cooldowns.record(cfg, unavailable)
+	var cooldown *LoginCooldownError
+	if !errors.As(err, &cooldown) || !strings.Contains(err.Error(), "[UNAVAILABLE]") {
+		t.Fatalf("record([UNAVAILABLE]) = %v, want a cooldown error keeping the server's words", err)
+	}
+	if got := cooldown.Until.Sub(now); got != 5*time.Minute {
+		t.Fatalf("cooldown = %s, want 5m", got)
+	}
+	if !errors.Is(cooldowns.check(cfg), ErrLoginRateLimited) {
+		t.Fatalf("check() after [UNAVAILABLE] = nil, want refusal")
+	}
+}
+
 func TestClientStopsLoggingInAfterLoginLimit(t *testing.T) {
+	for _, reply := range []string{"NO [LIMIT] AUTHENTICATE Rate limit hit.", "NO [UNAVAILABLE] AUTHENTICATE Server error - Please try again later"} {
+		t.Run(reply, func(t *testing.T) { testClientStopsLoggingInAfter(t, reply) })
+	}
+}
+
+func testClientStopsLoggingInAfter(t *testing.T, reply string) {
 	cfg, _, recorder := startInboxServerWith(t, 0, func(tag, command string) (string, bool) {
 		if strings.HasPrefix(strings.ToUpper(command), "AUTHENTICATE") {
-			return tag + " NO [LIMIT] AUTHENTICATE Rate limit hit.\r\n", true
+			return tag + " " + reply + "\r\n", true
 		}
 		return "", false
 	})

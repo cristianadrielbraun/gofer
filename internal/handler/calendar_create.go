@@ -457,7 +457,7 @@ func (h *Handler) handleCreateCalendarEvent(w http.ResponseWriter, r *http.Reque
 			calendarCreateFailure(w, r, 400, "A valid account sending address is required to invite guests.", false)
 			return
 		}
-		draft.OrganizerEmail, draft.OrganizerName = strings.ToLower(account.Email), account.Name
+		draft.OrganizerEmail, draft.OrganizerName = strings.ToLower(account.Email), account.FromName()
 		for _, guest := range draft.Guests {
 			if strings.EqualFold(guest.Email, account.Email) {
 				calendarCreateFailure(w, r, 400, "You are already the organizer; add other people as guests.", false)

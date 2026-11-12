@@ -762,7 +762,8 @@ html:root[data-theme="express"] :is(.account-wizard-card-footer, .account-wizard
 [data-theme="express"] .compose-subject-input,
 [data-theme="express"] .compose-body-input,
 [data-theme="express"] .compose-rich-editor,
-[data-theme="express"] [contenteditable="true"] {
+[data-theme="express"] [contenteditable="true"],
+[data-theme="express"] [contenteditable="plaintext-only"] {
   box-shadow: none;
 }
 
@@ -2817,4 +2818,22 @@ html[data-theme="express"] #mail-list .thread-sub-item > .mail-row-check ~ a {
 
 [data-theme="express"] [data-tag-appearance-settings] {
   display: none;
+}
+
+/* The compose table grid keeps its lines, which menu items otherwise lose. */
+[data-theme="express"] [data-compose-table-grid] [data-compose-table-cell] {
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+[data-theme="express"] [data-compose-table-grid] [data-compose-table-cell]:nth-child(8n) {
+  border-right: none;
+}
+
+[data-theme="express"] [data-compose-table-grid] [data-compose-table-cell]:nth-child(n+57) {
+  border-bottom: none;
+}
+
+[data-theme="express"] [data-compose-table-grid] [data-compose-table-cell][data-active] {
+  border-color: var(--primary);
 }

@@ -49,7 +49,7 @@
     syncComposeAutosaveControls();
   });
   document.addEventListener('change', function(e) {
-    var defaultComposeView = e.target.closest('input[name="default_new_compose_view"], input[name="default_reply_compose_view"]');
+    var defaultComposeView = e.target.closest('input[name="default_new_compose_view"], input[name="default_reply_compose_view"], input[name="compose_format"]');
     if (defaultComposeView && typeof GoferSettings !== 'undefined') {
       GoferSettings.set(defaultComposeView.name, defaultComposeView.value);
     }
@@ -174,6 +174,31 @@
     if (themeStyle && !themeStyle.hasAttribute('data-custom-theme-id') && typeof GoferSettings !== 'undefined') {
       GoferSettings.set('theme_style', themeStyle.value);
     }
+  });
+})();
+
+// Text weight. Each kind of text has a menu of steps; "0" is the default,
+// saved as "". Express keeps its own font, so the menus are greyed out while
+// it is the style.
+(function() {
+  document.addEventListener('change', function(e) {
+    var input = e.target.closest && e.target.closest('input[data-text-weight-setting]');
+    if (!input || !input.value || typeof GoferSettings === 'undefined') return;
+    GoferSettings.set(input.getAttribute('data-text-weight-setting'), input.value === '0' ? '' : input.value);
+  });
+  document.body.addEventListener('gofer:settings-changed', function(e) {
+    if (!e.detail || e.detail.key !== 'theme_style') return;
+    var card = document.querySelector('[data-text-weight-settings]');
+    if (!card) return;
+    var express = e.detail.value === 'express';
+    var note = card.querySelector('[data-text-weight-express]');
+    if (note) note.classList.toggle('hidden', !express);
+    card.querySelectorAll('[data-text-weight-row]').forEach(function(row) {
+      row.classList.toggle('opacity-50', express);
+    });
+    card.querySelectorAll('button.select-trigger').forEach(function(trigger) {
+      trigger.disabled = express;
+    });
   });
 })();
 
@@ -633,6 +658,7 @@
         mode: theme.mode === 'dark' ? 'dark' : 'light',
         seed: theme.seed,
         secondary: theme.secondary || '',
+        logo: theme.logo || '',
         tint: theme.tint || 'primary',
         strength: theme.strength || 'subtle',
         contrast: theme.contrast || 'normal',
@@ -647,6 +673,7 @@
       mode: document.documentElement.classList.contains('dark') ? 'dark' : 'light',
       seed: '#2563eb',
       secondary: '',
+      logo: '',
       tint: 'primary',
       strength: 'subtle',
       contrast: 'normal',
@@ -797,6 +824,24 @@
     }
     var secondaryValue = root.querySelector('[data-custom-theme-secondary-value]');
     if (secondaryValue) secondaryValue.textContent = editing.secondary || goferT("js.settings.theme.same_as_primary");
+    // The logo follows the primary color when empty, or the secondary when
+    // "secondary"; their swatches show them.
+    var followsSecondary = editing.logo === 'secondary';
+    var secondaryColor = editing.secondary || editing.seed;
+    var followPrimary = root.querySelector('[data-custom-theme-logo-option=""]');
+    if (followPrimary) followPrimary.style.backgroundColor = editing.seed;
+    var followSecondary = root.querySelector('[data-custom-theme-logo-option="secondary"]');
+    if (followSecondary) followSecondary.style.backgroundColor = secondaryColor;
+    renderSwatches(root, 'data-custom-theme-logo-option', 'data-custom-theme-logo', editing.logo);
+    if (!editing.logo || followsSecondary) {
+      var logoPicker = root.querySelector('[data-custom-theme-logo]');
+      if (logoPicker) logoPicker.value = followsSecondary ? secondaryColor : editing.seed;
+    }
+    var logoValue = root.querySelector('[data-custom-theme-logo-value]');
+    if (logoValue) {
+      logoValue.textContent = followsSecondary ? goferT("js.settings.theme.same_as_secondary")
+        : editing.logo || goferT("js.settings.theme.same_as_primary");
+    }
     root.querySelectorAll('[data-custom-theme-field]').forEach(function(input) {
       input.checked = editing[input.getAttribute('data-custom-theme-field')] === input.value;
     });
@@ -1068,7 +1113,7 @@
     var theme = findTheme(id);
     if (!theme) return;
     var choices = {};
-    FIELDS.concat(['seed', 'secondary']).forEach(function(key) { choices[key] = theme[key]; });
+    FIELDS.concat(['seed', 'secondary', 'logo']).forEach(function(key) { choices[key] = theme[key]; });
     var edits = fetch('/api/settings/theme-colors.css', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1135,7 +1180,12 @@
       return;
     }
     var secondarySwatch = e.target.closest('[data-custom-theme-secondary-option]');
-    if (secondarySwatch) update({ secondary: secondarySwatch.getAttribute('data-custom-theme-secondary-option') });
+    if (secondarySwatch) {
+      update({ secondary: secondarySwatch.getAttribute('data-custom-theme-secondary-option') });
+      return;
+    }
+    var logoSwatch = e.target.closest('[data-custom-theme-logo-option]');
+    if (logoSwatch) update({ logo: logoSwatch.getAttribute('data-custom-theme-logo-option') });
   });
 
   document.addEventListener('input', function(e) {
@@ -1144,6 +1194,7 @@
     if (!color) return;
     if (e.target.matches('[data-custom-theme-seed]')) update({ seed: color });
     else if (e.target.matches('[data-custom-theme-secondary]')) update({ secondary: color });
+    else if (e.target.matches('[data-custom-theme-logo]')) update({ logo: color });
   });
 
   document.addEventListener('gofer:custom-themes-changed', redrawAppearance);
@@ -1360,6 +1411,7 @@
     setPillFallback(pill, '', '');
     movePill(pill, toIdle, true, function() {
       updateHiddenInputs();
+      updateIdleLimitNotes();
       scheduleAutoSave(80);
     });
   }
@@ -1373,6 +1425,29 @@
     var effectiveIDLE = data.effective_mode === 'idle';
     setPillFallback(pill, effectiveIDLE ? '' : (data.reason || ''), effectiveIDLE ? '' : (data.retry_at || ''));
     movePill(pill, effectiveIDLE, true);
+  }
+
+  // An IMAP account's note shows once more of its folders are chosen for
+  // real time than its server allows, and names the ones that wait: Inbox
+  // and then the folder order come first.
+  function updateIdleLimitNotes() {
+    document.querySelectorAll('[data-sync-account-card]').forEach(function(card) {
+      var note = card.querySelector('[data-idle-limit-note]');
+      if (!note) return;
+      var limit = parseInt(note.dataset.idleLimit || '', 10);
+      var chosen = Array.prototype.filter.call(card.querySelectorAll('[data-sync-pill]'), function(pill) {
+        return pill.dataset.configuredIdle === 'true';
+      });
+      var over = !isNaN(limit) && limit > 0 && chosen.length > limit;
+      note.classList.toggle('hidden', !over);
+      var polled = note.querySelector('[data-idle-limit-polled]');
+      if (!over || !polled) return;
+      chosen.sort(function(a, b) {
+        return (parseInt(a.dataset.idleRank, 10) || 0) - (parseInt(b.dataset.idleRank, 10) || 0);
+      });
+      var names = chosen.slice(limit).map(function(pill) { return pill.dataset.folderName || ''; });
+      polled.textContent = goferT("js.settings.sync.idle_limit.polled", { folders: names.join(', ') });
+    });
   }
 
   function updateEmptyStates(container) {
@@ -1594,6 +1669,7 @@
 
     updateHiddenInputs();
     updateEmptyStates();
+    updateIdleLimitNotes();
     syncUnifiedFolderControls();
   });
 })();

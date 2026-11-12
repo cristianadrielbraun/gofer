@@ -8,7 +8,6 @@ import (
 
 	"github.com/cristianadrielbraun/gofer/components/dialog"
 	"github.com/cristianadrielbraun/gofer/components/icon"
-	"github.com/cristianadrielbraun/gofer/components/selectbox"
 )
 
 // FolderRolesDialog shows which folder an IMAP account uses for each role,
@@ -155,16 +154,8 @@ templ folderRoleRow(data models.FolderRolesData, role models.FolderRole) {
 				}
 			}
 		</div>
-		@selectbox.SelectBox(selectbox.Props{Class: "settings-select w-48 shrink-0 sm:w-56"}) {
-			@selectbox.Trigger(selectbox.TriggerProps{Name: "role_" + role.Role, Class: "bg-background", DisableClear: true}) {
-				@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "settings.folder_roles.automatic")})
-			}
-			@selectbox.Content(selectbox.ContentProps{NoSearch: len(data.Folders) < 10, Class: "mobile-sheet"}) {
-				@selectbox.Item(selectbox.ItemProps{Value: "", Selected: role.Chosen == ""}) { { i18n.T(ctx, "settings.folder_roles.automatic") } }
-				for _, folder := range data.Folders {
-					@selectbox.Item(selectbox.ItemProps{Value: folder.ID, Selected: folder.ID == role.Chosen}) { { folder.Name } }
-				}
-			}
-		}
+		<div class="w-48 shrink-0 sm:w-56">
+			@folderFieldView(folderRoleField(ctx, data, role))
+		</div>
 	</li>
 }

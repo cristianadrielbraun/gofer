@@ -13,8 +13,8 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/models"
 )
 
-// ErrLoginRateLimited means the server answered a login with [LIMIT] and
-// Gofer is holding off further logins to it for a while.
+// ErrLoginRateLimited means the server answered a login with [LIMIT] or
+// [UNAVAILABLE] and Gofer is holding off further logins to it for a while.
 var ErrLoginRateLimited = errors.New("IMAP server is limiting logins")
 
 const (
@@ -36,8 +36,10 @@ func (e *LoginCooldownError) Error() string { return LoginCooldownMessage }
 func (e *LoginCooldownError) Unwrap() error { return ErrLoginRateLimited }
 
 // loginCooldowns remembers mailboxes whose server refused a login with
-// [LIMIT]. Every attempt during the limit counts against it on servers like
-// Yahoo, so Gofer stops trying until the cooldown ends. Each limit in a row
+// [LIMIT] or [UNAVAILABLE]. Yahoo has been seen answering [UNAVAILABLE] while
+// a mailbox holds many connections, and attempts during the refusal keep it going,
+// so Gofer stops trying until the cooldown ends. A real outage is waited out
+// the same way. Each limit in a row
 // doubles the wait; a successful login forgets it.
 type loginCooldowns struct {
 	mu      sync.Mutex
@@ -69,7 +71,7 @@ func (l *loginCooldowns) check(cfg *models.AccountConfig) error {
 	return &LoginCooldownError{Until: entry.until}
 }
 
-// record notes the outcome of a login. A [LIMIT] refusal starts or extends
+// record notes the outcome of a login. A limiting refusal starts or extends
 // the cooldown and returns the error to report; any other outcome returns
 // err unchanged, and success clears the mailbox's history.
 func (l *loginCooldowns) record(cfg *models.AccountConfig, err error) error {
@@ -92,5 +94,8 @@ func (l *loginCooldowns) record(cfg *models.AccountConfig, err error) error {
 
 func isLoginLimit(err error) bool {
 	var statusErr *imap.Error
-	return errors.As(err, &statusErr) && statusErr.Code == imap.ResponseCodeLimit
+	if !errors.As(err, &statusErr) {
+		return false
+	}
+	return statusErr.Code == imap.ResponseCodeLimit || statusErr.Code == imap.ResponseCodeUnavailable
 }

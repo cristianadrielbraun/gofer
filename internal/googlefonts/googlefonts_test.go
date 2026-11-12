@@ -47,15 +47,15 @@ func TestStylesheetRefusesUnknownFamilies(t *testing.T) {
 	}
 }
 
-func TestFamilyQueryAsksForInterfaceWeights(t *testing.T) {
+func TestFamilyQueryAsksForEveryWeight(t *testing.T) {
 	families, err := parseMetadata([]byte(metadataFixture))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := families["Inter"].query(); got != "Inter:wght@400;500;700" {
+	if got := families["Inter"].query(); got != "Inter:wght@300;400;500;700" {
 		t.Fatalf("Inter query = %q", got)
 	}
-	if got := families["Lora"].query(); got != "Lora" {
+	if got := families["Lora"].query(); got != "Lora:wght@300" {
 		t.Fatalf("Lora query = %q", got)
 	}
 }

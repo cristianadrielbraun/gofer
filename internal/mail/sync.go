@@ -747,6 +747,16 @@ func (o *SyncOrchestrator) startIDLEWatchers(ctx context.Context, accountID stri
 		}
 	}
 
+	var ranks map[string]int
+	if cfg.Provider != providers.ProviderJMAP {
+		if userID, err := o.db.GetAccountUserID(ctx, accountID); err == nil && userID != "" {
+			if ranks, err = o.db.IdleFolderRanks(ctx, userID, accountID); err != nil {
+				log.Printf("idle %s: folder order: %v", accountID, err)
+			}
+		}
+	}
+	limitStore := dbIdleLimitStore{db: o.db, accountID: accountID}
+
 	for _, folder := range folders {
 		if cfg.Provider == providers.ProviderJMAP {
 			// One push connection covers the whole JMAP account; its status
@@ -778,6 +788,9 @@ func (o *SyncOrchestrator) startIDLEWatchers(ctx context.Context, accountID stri
 			func() { o.markIMAPFolderDirty(watcherCtx, accountID, folderID, remoteName) },
 			func(status imap.IdleWatcherStatus) { o.updateIDLEFolderStatus(accountID, folderID, remoteName, status) },
 		)
+		if limited, ok := watcher.(*imap.IdleWatcher); ok {
+			limited.WithMailboxLimit(idleFolderRank(ranks, folderID), limitStore)
+		}
 		watchers = append(watchers, watcher)
 		folderIDs[folderID] = true
 	}

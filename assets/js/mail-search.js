@@ -293,18 +293,7 @@
     var count = root.querySelectorAll("[data-mail-scope-folder]:checked").length
     root.querySelector("[data-mail-scope-apply]").disabled = count === 0 || count > 200
     root.querySelector("[data-mail-scope-folder-status]").textContent = count > 200 ? goferT("js.mail.search.too_many") : count ? goferTn("js.mail.search.selected", count) : goferT("js.mail.search.folders_status")
-    var query = root.querySelector("[data-mail-scope-folder-search]").value.trim().toLowerCase()
-    var visible = 0
-    root.querySelectorAll("[data-mail-scope-account]").forEach(function (account) {
-      var matches = 0
-      account.querySelectorAll("[data-mail-scope-folder-row]").forEach(function (row) {
-        row.hidden = query !== "" && row.dataset.searchText.indexOf(query) === -1
-        if (!row.hidden) matches++
-      })
-      account.hidden = matches === 0
-      visible += matches
-    })
-    root.querySelector("[data-mail-scope-folder-empty]").classList.toggle("hidden", visible !== 0)
+    window.goferFolderPicker.filter(root)
   }
 
   function controls() { return document.querySelector("[data-mail-search-controls]") }

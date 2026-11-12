@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cristianadrielbraun/gofer/components/badge"
 	"github.com/cristianadrielbraun/gofer/components/button"
 	"github.com/cristianadrielbraun/gofer/components/calendar"
 	"github.com/cristianadrielbraun/gofer/components/checkbox"
@@ -1551,12 +1552,16 @@ templ MailListThreadSubItems(items []models.ThreadItem, senderDisplayMode string
 								}
 							</div>
 							<div class="flex items-center gap-1.5 shrink-0" data-mail-table-cell="date">
+								@threadItemFolderBadge(item, "date")
 								<span class="text-[11px] text-muted-foreground tabular-nums">
 									@mailListDate(item.Date, item.DateWithTime)
 								</span>
 							</div>
 						</div>
-						<p class="text-[11px] text-muted-foreground truncate leading-relaxed" data-mail-table-cell="subject">{ i18n.Preview(ctx, item.Preview) }</p>
+						<p class="text-[11px] text-muted-foreground truncate leading-relaxed" data-mail-table-cell="subject">
+							@threadItemFolderBadge(item, "subject")
+							{ i18n.Preview(ctx, item.Preview) }
+						</p>
 					</div>
 					if !item.IsRead {
 						<div class="w-1.5 h-1.5 rounded-full bg-primary shrink-0"></div>
@@ -1565,6 +1570,17 @@ templ MailListThreadSubItems(items []models.ThreadItem, senderDisplayMode string
 			</div>
 		}
 	</div>
+}
+
+// threadItemFolderBadge names the folder a thread's message is filed in when
+// the list isn't that folder. Cards show it by the date; tables, whose date
+// column is narrow, at the start of the preview (see input.css).
+templ threadItemFolderBadge(item models.ThreadItem, place string) {
+	if item.ElsewhereFolder != "" {
+		@badge.Badge(badge.Props{Variant: badge.VariantOutline, Class: "shrink-0 max-w-32 truncate px-1.5 py-0 text-[10px] font-medium leading-4 text-muted-foreground align-middle", Attributes: templ.Attributes{"data-thread-item-folder": place}}) {
+			{ item.ElsewhereFolder }
+		}
+	}
 }
 
 // mailNotSpamButtonClass marks the toolbar's spam button as Not spam in a Spam

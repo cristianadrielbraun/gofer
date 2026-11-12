@@ -2,6 +2,7 @@ package imap
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"sync"
@@ -51,6 +52,13 @@ type IdleWatcher struct {
 	refreshIn  time.Duration
 	connect    func(*models.AccountConfig, string, *imapclient.Options) (*imapclient.Client, error)
 
+	// A watch with a mailbox limit shares the folders its mailbox may watch
+	// with the other watches of that mailbox, by rank.
+	limited    bool
+	limitRank  int
+	limitStore IdleLimitStore
+	limits     *idleLimits
+
 	mu     sync.Mutex
 	client *imapclient.Client
 	closed bool
@@ -73,8 +81,23 @@ func NewIdleWatcher(cfg *models.AccountConfig, password, remoteName string, onNo
 	}
 }
 
+// WithMailboxLimit makes the watch one of its mailbox's, which may watch only
+// as many folders as Gofer learned its server allows. A lower rank is watched
+// first; the store keeps what was learned.
+func (w *IdleWatcher) WithMailboxLimit(rank int, store IdleLimitStore) *IdleWatcher {
+	w.limited = true
+	w.limitRank = rank
+	w.limitStore = store
+	return w
+}
+
 func (w *IdleWatcher) Run(ctx context.Context) {
 	backoff := idleInitialReconnectBackoff
+
+	limits, member := w.joinMailbox(ctx)
+	if member != nil {
+		defer limits.leave(member)
+	}
 
 	for {
 		if w.isClosed() {
@@ -85,22 +108,39 @@ func (w *IdleWatcher) Run(ctx context.Context) {
 			return
 		default:
 		}
+		if member != nil && !w.waitForRoom(ctx, limits, member) {
+			return
+		}
 
 		becameHealthy := false
-		err := w.run(ctx, func() {
+		err := w.run(ctx, limits, member, func() {
 			becameHealthy = true
 			w.onStatus(IdleWatcherStatus{Healthy: true})
 		})
 		if ctx.Err() != nil || w.isClosed() {
 			return
 		}
+		if errors.Is(err, errIdleSlotLost) {
+			log.Printf("idle %s: %v", w.remoteName, err)
+			w.closeConnection()
+			continue
+		}
+		if member != nil && isConnectionRefusal(err) {
+			limits.refused(member)
+		}
 		if becameHealthy {
 			backoff = idleInitialReconnectBackoff
 		}
 		retryIn := backoff
 		status := idleStatusForError(err)
+		var cooldown *LoginCooldownError
 		if runErr, ok := err.(*idleRunError); ok && runErr.permanent {
 			retryIn = idleUnsupportedRetry
+		} else if errors.As(err, &cooldown) {
+			// Logins to this mailbox are on hold: retrying sooner would only
+			// be refused here, so wake when the hold ends.
+			retryIn = max(time.Until(cooldown.Until), idleInitialReconnectBackoff)
+			status.RetryAt = time.Now().Add(retryIn)
 		} else {
 			status.RetryAt = time.Now().Add(retryIn)
 		}
@@ -126,6 +166,62 @@ func (w *IdleWatcher) Run(ctx context.Context) {
 	}
 }
 
+// joinMailbox adds a limited watch to its mailbox, with what the store
+// learned before.
+func (w *IdleWatcher) joinMailbox(ctx context.Context) (*idleLimits, *idleMember) {
+	if !w.limited || w.config == nil {
+		return nil, nil
+	}
+	limits := w.limits
+	if limits == nil {
+		limits = defaultIdleLimits
+	}
+	var learned models.IdleConnectionLimit
+	var found bool
+	if w.limitStore != nil {
+		loadCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		var err error
+		learned, found, err = w.limitStore.LoadIdleLimit(loadCtx)
+		cancel()
+		if err != nil {
+			log.Printf("idle %s: load learned real-time limit: %v", w.remoteName, err)
+		}
+	}
+	return limits, limits.join(loginCooldownKey(w.config), w.limitRank, w.limitStore, learned, found)
+}
+
+// IdleMailboxLimitReason explains a folder waiting for its mailbox's
+// real-time limit; %d is the limit.
+const IdleMailboxLimitReason = "this account already has as many folders in real time as its mail server has allowed (%d)"
+
+// waitForRoom waits until the watch may hold a connection. It reports false
+// when the watch ended meanwhile.
+func (w *IdleWatcher) waitForRoom(ctx context.Context, limits *idleLimits, member *idleMember) bool {
+	reported := 0
+	for {
+		admitted, limit, changed := limits.admit(member)
+		if admitted {
+			return true
+		}
+		if limit != reported {
+			reported = limit
+			w.onStatus(IdleWatcherStatus{ReasonCode: "mailbox_limit", Reason: fmt.Sprintf(IdleMailboxLimitReason, limit)})
+		}
+		timer := time.NewTimer(idleWaitRecheck)
+		select {
+		case <-ctx.Done():
+			stopIdleTimer(timer)
+			return false
+		case <-changed:
+		case <-timer.C:
+		}
+		stopIdleTimer(timer)
+		if w.isClosed() {
+			return false
+		}
+	}
+}
+
 func idleStatusForError(err error) IdleWatcherStatus {
 	status := IdleWatcherStatus{
 		ReasonCode: "connection_error",
@@ -135,10 +231,32 @@ func idleStatusForError(err error) IdleWatcherStatus {
 		status.ReasonCode = runErr.code
 		status.Reason = runErr.reason
 	}
+	if errors.Is(err, ErrLoginRateLimited) {
+		status.ReasonCode = "login_limited"
+		status.Reason = LoginCooldownMessage
+	}
 	return status
 }
 
-func (w *IdleWatcher) run(ctx context.Context, onHealthy func()) error {
+func (w *IdleWatcher) run(ctx context.Context, limits *idleLimits, member *idleMember, onHealthy func()) error {
+	// lost is closed when another folder of the mailbox takes this watch's
+	// place; it never is for a watch without a mailbox limit.
+	var lost <-chan struct{}
+	if member != nil {
+		admitted, _, changed := limits.admit(member)
+		if !admitted {
+			return errIdleSlotLost
+		}
+		lost = changed
+		limits.activate(member, true)
+		defer limits.activate(member, false)
+		defer limits.connected(member, false)
+		healthy := onHealthy
+		onHealthy = func() {
+			limits.connected(member, true)
+			healthy()
+		}
+	}
 	notifyCh := make(chan struct{}, 1)
 	notify := func() {
 		select {
@@ -217,6 +335,10 @@ func (w *IdleWatcher) run(ctx context.Context, onHealthy func()) error {
 			stopIdleTimer(refresh)
 			idleCmd.Close()
 			return &idleRunError{code: "connection_lost", reason: "the IDLE connection was closed", err: fmt.Errorf("connection closed")}
+		case <-lost:
+			stopIdleTimer(refresh)
+			idleCmd.Close()
+			return errIdleSlotLost
 		}
 	}
 }

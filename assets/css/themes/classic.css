@@ -30,6 +30,8 @@
   --sidebar-accent-foreground: #e0d4c0;
   --sidebar-border: #544838;
   --sidebar-ring: #c77b30;
+  /* The logo keeps its own copper; see .gofer-logo in input.css. */
+  --gofer-logo: #c2702f;
   --paper: #f8f2e6;
   --paper-foreground: #2c2418;
   --copper: #c77b30;
@@ -66,11 +68,19 @@
   --sidebar-accent-foreground: #d8ccb4;
   --sidebar-border: #3a3228;
   --sidebar-ring: #d49040;
+  /* The logo keeps its own copper; see .gofer-logo in input.css. */
+  --gofer-logo: #c2702f;
   --paper: #2a2520;
   --paper-foreground: #d8ccb4;
   --copper: #d49040;
   --brass: #b8a060;
   --ink: #d8ccb4;
+}
+
+/* Dark muted is the card's own color, so the list headers' count pills,
+   which sit on cards, get a lighter tint of it to stand out. */
+[data-theme="classic"].dark :is(#mail-folder-count, #contacts-count) {
+  background: color-mix(in srgb, var(--foreground) 9%, var(--card));
 }
 
 [data-theme="classic"].dark .empty-icon-box {

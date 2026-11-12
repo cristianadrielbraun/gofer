@@ -183,12 +183,12 @@ func (s *AccountStore) GetEditData(ctx context.Context, accountID string) (*mode
 	data.AccountID = accountID
 	var emailSyncEnabled int
 	err := s.db.Read().QueryRowContext(ctx,
-		`SELECT provider, provider_account_id, email_address, display_name,
+		`SELECT provider, provider_account_id, email_address, display_name, sender_name,
 		        imap_host, imap_port, imap_tls_mode,
 		        smtp_host, smtp_port, smtp_tls_mode, COALESCE(email_sync_enabled, 1),
 		        username, auth_method, COALESCE(smtp_username, ''), jmap_session_url, proxy_id
 		 FROM accounts WHERE id = ? AND COALESCE(is_deleting, 0) = 0`, accountID,
-	).Scan(&data.Provider, &data.ProviderAccountID, &data.EmailAddress, &data.DisplayName,
+	).Scan(&data.Provider, &data.ProviderAccountID, &data.EmailAddress, &data.DisplayName, &data.SenderName,
 		&data.IMAPHost, &data.IMAPPort, &data.IMAPTLSMode,
 		&data.SMTPHost, &data.SMTPPort, &data.SMTPTLSMode, &emailSyncEnabled,
 		&data.Username, &data.AuthMethod, &data.SmtpUsername, &data.JMAPSessionURL, &data.ProxyID)
@@ -1665,7 +1665,7 @@ func (s *AccountStore) getAccountByID(ctx context.Context, accountID, userID str
 		args = append(args, userID)
 	}
 	err := s.db.Read().QueryRowContext(ctx,
-		`SELECT a.id, a.provider, a.email_address, a.display_name, a.color, a.initials, COALESCE(a.email_sync_enabled, 1),
+		`SELECT a.id, a.provider, a.email_address, a.display_name, a.sender_name, a.default_identity_id, a.color, a.initials, COALESCE(a.email_sync_enabled, 1),
 		        COALESCE(a.email_sync_error, ''), COALESCE(a.email_sync_error_at, ''),
 		        CASE WHEN a.provider IN ('gmail', 'outlook') THEN COALESCE(acc.enabled, 1) ELSE COALESCE(acc.enabled, 0) END AS contact_sync_enabled,
 		        CASE WHEN a.provider IN ('gmail', 'outlook') THEN a.provider ELSE COALESCE(acc.provider, '') END AS contact_sync_provider,
@@ -1678,7 +1678,7 @@ func (s *AccountStore) getAccountByID(ctx context.Context, accountID, userID str
 		 FROM accounts a
 		 LEFT JOIN account_contact_sync_configs acc ON acc.account_id = a.id AND acc.user_id = a.user_id
 		 WHERE `+where+` AND COALESCE(a.is_deleting, 0) = 0`, args...,
-	).Scan(&a.ID, &a.Provider, &a.Email, &a.Name, &a.Color, &a.Initials, &emailSyncEnabled, &a.EmailSyncError, &a.EmailSyncErrorAt, &contactSyncEnabled, &a.ContactSyncProvider, &calendarSyncEnabled, &a.DAVService, &a.DAVLogin, &a.DAVServer)
+	).Scan(&a.ID, &a.Provider, &a.Email, &a.Name, &a.SenderName, &a.DefaultIdentityID, &a.Color, &a.Initials, &emailSyncEnabled, &a.EmailSyncError, &a.EmailSyncErrorAt, &contactSyncEnabled, &a.ContactSyncProvider, &calendarSyncEnabled, &a.DAVService, &a.DAVLogin, &a.DAVServer)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}

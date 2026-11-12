@@ -130,6 +130,9 @@ func (h *Handler) mailTransferFormData(r *http.Request, values url.Values, messa
 	for _, folder := range destinations {
 		data.Destination = append(data.Destination, views.MailImportFolder{ID: folder.ID, Path: folder.Path})
 	}
+	if data.DestinationAccount, err = h.mailFolderPickerAccount(ctx, owner, target); err != nil {
+		return data, err
+	}
 	for _, folder := range sourceFolders {
 		entry := views.MailTransferFolder{ID: folder.ID, Path: folder.Path, Role: folder.Role, Messages: folder.Messages}
 		entry.Target, entry.NewName = suggestMailImportTarget(&mailImportSource{Path: folder.Path, Role: folder.Role}, destinations)

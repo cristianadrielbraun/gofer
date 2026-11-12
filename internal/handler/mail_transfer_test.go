@@ -142,7 +142,7 @@ func TestMailTransferMovesMessagesBetweenAccounts(t *testing.T) {
 	rec := httptest.NewRecorder()
 	f.h.handleNewMailTransfer(rec, req)
 	body := rec.Body.String()
-	if !strings.Contains(body, `name="target:`+f.folders["inbox"]+`"`) || !strings.Contains(body, `data-tui-selectbox-value="`+targetInbox+`" data-tui-selectbox-selected="true"`) {
+	if !strings.Contains(body, `name="target:`+f.folders["inbox"]+`" value="`+targetInbox+`" data-folder-field-value`) {
 		t.Fatalf("form doesn't suggest the other Inbox:\n%s", body)
 	}
 

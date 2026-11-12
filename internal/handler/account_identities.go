@@ -52,6 +52,8 @@ func (h *Handler) loadAccountIdentitiesData(w http.ResponseWriter, r *http.Reque
 		return models.AccountIdentitiesData{}, false
 	}
 	rule := providers.AccountFromRule(account.Provider, "", domains)
+	// The account is loaded without its identities; its default is one of them.
+	account.Identities = identities
 	data := models.AccountIdentitiesData{
 		Account: *account, Identities: identities, Signatures: signatures,
 		ProviderListsIdentities: mail.ProviderListsIdentities(account.Provider),
@@ -88,6 +90,7 @@ func (h *Handler) handleAccountIdentitiesPanel(w http.ResponseWriter, r *http.Re
 		return
 	}
 	data.Adding = r.URL.Query().Get("add") != "" && data.CanAddIdentities
+	data.EditingSender = r.URL.Query().Get("sender") != ""
 	if id := strings.TrimSpace(r.URL.Query().Get("edit")); id != "" {
 		index := slices.IndexFunc(data.Identities, func(identity models.Identity) bool { return identity.ID == id })
 		if index < 0 {
@@ -170,6 +173,54 @@ func (h *Handler) handleSaveAccountIdentity(w http.ResponseWriter, r *http.Reque
 				data.Editing.Source = data.Identities[index].Source
 			}
 		}
+	}
+	h.renderAccountIdentitiesPanel(w, r, data)
+}
+
+// handleSaveAccountSenderName sets the name the account's own address sends
+// under; an empty one sends it under the account name.
+func (h *Handler) handleSaveAccountSenderName(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_form_data"), http.StatusBadRequest)
+		return
+	}
+	err := h.db.SetAccountSenderNameGuarded(r.Context(), h.userID(r.Context()), r.PathValue("id"), r.PostFormValue("sender_name"), h.signatureGuard)
+	if errors.Is(err, sql.ErrNoRows) {
+		http.NotFound(w, r)
+		return
+	}
+	data, ok := h.loadAccountIdentitiesData(w, r)
+	if !ok {
+		return
+	}
+	if err != nil {
+		log.Printf("save sender name account=%s: %v", r.PathValue("id"), err)
+		data.Error = i18n.T(r.Context(), "server.msg.the_sender_name_could_not_be_saved")
+		data.EditingSender = true
+		data.Account.SenderName = r.PostFormValue("sender_name")
+	}
+	h.renderAccountIdentitiesPanel(w, r, data)
+}
+
+// handleSetAccountDefaultIdentity chooses the identity new messages of the
+// account start from; an empty identity_id starts them from its own address.
+func (h *Handler) handleSetAccountDefaultIdentity(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, i18n.T(r.Context(), "server.error.invalid_form_data"), http.StatusBadRequest)
+		return
+	}
+	err := h.db.SetAccountDefaultIdentityGuarded(r.Context(), h.userID(r.Context()), r.PathValue("id"), r.PostFormValue("identity_id"), h.signatureGuard)
+	if errors.Is(err, sql.ErrNoRows) {
+		http.NotFound(w, r)
+		return
+	}
+	data, ok := h.loadAccountIdentitiesData(w, r)
+	if !ok {
+		return
+	}
+	if err != nil {
+		log.Printf("set default identity account=%s: %v", r.PathValue("id"), err)
+		data.Error = i18n.T(r.Context(), "server.msg.the_default_identity_could_not_be_saved")
 	}
 	h.renderAccountIdentitiesPanel(w, r, data)
 }

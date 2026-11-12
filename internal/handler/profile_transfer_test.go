@@ -104,6 +104,12 @@ func seedProfileSource(t *testing.T, h *Handler) (imapID, outlookID string) {
 	if err := h.accountStore.SetIdentitySMTPPassword(ctx, "default", imap.ID, shop.ID, "shop-smtp-secret", nil); err != nil {
 		t.Fatalf("set identity password: %v", err)
 	}
+	if err := h.db.SetAccountSenderNameGuarded(ctx, "default", imap.ID, "Robin Example", nil); err != nil {
+		t.Fatalf("set sender name: %v", err)
+	}
+	if err := h.db.SetAccountDefaultIdentityGuarded(ctx, "default", imap.ID, shop.ID, nil); err != nil {
+		t.Fatalf("set default identity: %v", err)
+	}
 	if err := h.db.ReplaceProviderIdentities(ctx, imap.ID, []models.Identity{{ProviderIdentityID: "p1", Email: "provider-only@example.test"}}); err != nil {
 		t.Fatalf("save provider identity: %v", err)
 	}
@@ -252,6 +258,19 @@ func TestProfileImportAddsAccountsWaitingForReconnect(t *testing.T) {
 	// The identity's server comes along; its password is entered again.
 	if shop := identities[1]; shop.Email != "shop@example.test" || shop.SMTPHost != "smtp.shop.example.test" || shop.SMTPPort != 587 || shop.SMTPTLSMode != "starttls" || shop.SMTPUsername != "robin-shop" || shop.HasSMTPPassword {
 		t.Fatalf("imported identity with its own server = %+v", shop)
+	}
+	// The sender name and the identity new messages start from come along.
+	if accounts, err := target.db.GetAccounts(ctx, "default"); err != nil {
+		t.Fatal(err)
+	} else {
+		for _, imported := range accounts {
+			if imported.ID != account.ID {
+				continue
+			}
+			if imported.SenderName != "Robin Example" || imported.DefaultIdentityID != identities[1].ID {
+				t.Fatalf("imported sender name %q, default identity %q, want %q", imported.SenderName, imported.DefaultIdentityID, identities[1].ID)
+			}
+		}
 	}
 
 	ui := target.db.GetUISettings(ctx, "default")

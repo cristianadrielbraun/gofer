@@ -31,7 +31,7 @@ type composeSender struct {
 }
 
 func accountComposeSender(account *models.Account) composeSender {
-	return composeSender{Name: account.Name, Email: account.Email}
+	return composeSender{Name: account.FromName(), Email: account.Email}
 }
 
 func identityComposeSender(identity models.Identity) composeSender {

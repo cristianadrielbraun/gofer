@@ -7,6 +7,7 @@ import (
 	"errors"
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -254,7 +255,15 @@ func (h *Handler) handleMailSearchThreadSubItems(w http.ResponseWriter, r *http.
 				visible = append(visible, item)
 			}
 		}
+		// A search groups its rows by folder: here is the row's.
+		if err := local.nameThreadItemsElsewhere(ctx, userID, r.URL.Query().Get("folder"), visible); err != nil {
+			return nil, err
+		}
 		settings := local.db.GetUISettings(ctx, userID)
+		// Expanded in the list, a conversation keeps the reading pane's order.
+		if views.ThreadNewestFirst(settings) {
+			slices.Reverse(visible)
+		}
 		return views.MailListThreadSubItems(visible, settings["sender_display"]), nil
 	})
 }

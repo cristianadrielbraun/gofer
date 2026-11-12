@@ -106,7 +106,7 @@ func (h *Handler) handleUserCreateCalendarEvent(w http.ResponseWriter, r *http.R
 			if calendarReplyAddress("mailto:"+identity.EmailAddress) == "" {
 				return userCalendarFormFailure{400, "A valid account sending address is required to invite guests."}
 			}
-			draft.OrganizerEmail, draft.OrganizerName = strings.ToLower(identity.EmailAddress), identity.DisplayName
+			draft.OrganizerEmail, draft.OrganizerName = strings.ToLower(identity.EmailAddress), identity.FromName()
 			for _, guest := range draft.Guests {
 				if strings.EqualFold(guest.Email, identity.EmailAddress) {
 					return userCalendarFormFailure{400, "You are already the organizer; add other people as guests."}

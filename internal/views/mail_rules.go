@@ -2,7 +2,6 @@ package views
 
 import (
 	"context"
-	"github.com/a-h/templ"
 	"net/url"
 	"slices"
 	"strconv"
@@ -146,23 +145,6 @@ func mailRuleFolderChoiceName(folder models.MailRuleFolderChoice) string {
 	return folder.Name
 }
 
-// mailRuleOwnFolders are the folders of an account a rule can name by
-// itself, beside the ones every account has.
-func mailRuleOwnFolders(accounts []models.MailRuleAccount, accountID string) []models.MailRuleFolderChoice {
-	var folders []models.MailRuleFolderChoice
-	for _, account := range accounts {
-		if account.ID != accountID {
-			continue
-		}
-		for _, folder := range account.Folders {
-			if _, common := mailRuleRoleLabels[folder.Role]; !common && folder.Role != "spam" {
-				folders = append(folders, folder)
-			}
-		}
-	}
-	return folders
-}
-
 // mailRuleRunSummary is the rule's summary in its run dialog.
 func mailRuleRunSummary(ctx context.Context, rule models.MailRule, accounts []models.MailRuleAccount) string {
 	return mailRuleListSummary(ctx, rule, accounts)
@@ -261,31 +243,22 @@ func mailRuleAccountColor(rule models.MailRule, accounts []models.MailRuleAccoun
 	return ""
 }
 
-// mailRuleRunScopes are the folders a rule can be run on: a role in every
-// account it is for, then each account's own folders.
-func mailRuleRunScopes(ctx context.Context, rule models.MailRule, accounts []models.MailRuleAccount) (roles []struct{ value, label string }, own []models.MailRuleAccount) {
+// mailRuleRunScopes are the folders every account has that a rule can be
+// run on, in each account it is for.
+func mailRuleRunScopes(ctx context.Context, rule models.MailRule, accounts []models.MailRuleAccount) []folderFieldExtra {
 	watched := 0
 	for _, account := range accounts {
 		if mailRuleWatchable(account) && rule.WatchesAccount(account.ID) {
 			watched++
 		}
 	}
-	for _, role := range []string{"inbox", "archive", "junk", "trash"} {
-		label := mailRuleRoleLabel(ctx, role)
-		if watched > 1 {
-			label = i18n.T(ctx, "rules.run.each_account", "folder", label)
-		}
-		roles = append(roles, struct{ value, label string }{"role:" + role, label})
-	}
-	for _, account := range accounts {
-		if !mailRuleWatchable(account) || !rule.WatchesAccount(account.ID) {
-			continue
-		}
-		if folders := mailRuleOwnFolders(accounts, account.ID); len(folders) > 0 {
-			own = append(own, models.MailRuleAccount{ID: account.ID, Name: account.Name, Email: account.Email, Folders: folders})
+	roles := mailRuleRoleChoices(ctx, "inbox", "archive", "junk", "trash")
+	if watched > 1 {
+		for i := range roles {
+			roles[i].Label = i18n.T(ctx, "rules.run.each_account", "folder", roles[i].Label)
 		}
 	}
-	return roles, own
+	return roles
 }
 
 // MailRuleRunScopeName names the folder chosen for a run.
@@ -341,15 +314,6 @@ func MailRuleRunDoneNotice(ctx context.Context, run models.MailRuleRunData) stri
 		notice += " " + mailRuleCountOf(ctx, "rules.run.done.failed", run.Failed)
 	}
 	return notice
-}
-
-// mailRuleTreeItemPadding leaves room at a folder row's right for its
-// checkmark, and for the new subfolder button beside it.
-func mailRuleTreeItemPadding(subfolder bool) string {
-	if subfolder {
-		return "pr-16"
-	}
-	return "pr-8"
 }
 
 // MailRuleActionOffered reports whether the action at index may become kind:
@@ -450,17 +414,6 @@ func mailRuleActivityMorePath(data models.MailRuleActivityData) string {
 		query.Set("failed", "1")
 	}
 	return mailRulePath("/activity/list?" + query.Encode())
-}
-
-// mailRuleFolderTriggerAttributes names the folder picker for screen readers.
-// A move's picker draws the form again when it changes, to offer what
-// happens to mail moved from another account.
-func mailRuleFolderTriggerAttributes(ctx context.Context, forMove bool) templ.Attributes {
-	attributes := templ.Attributes{"aria-label": i18n.T(ctx, "rules.field.folder")}
-	if forMove {
-		attributes["data-mail-rule-rerender"] = ""
-	}
-	return attributes
 }
 
 // mailRuleForGoodValue is the form's value for whether mail moved from

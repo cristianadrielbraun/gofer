@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"github.com/cristianadrielbraun/gofer/internal/googlefonts"
+	"github.com/cristianadrielbraun/gofer/internal/textweight"
 	"github.com/cristianadrielbraun/gofer/internal/buildinfo"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
@@ -137,6 +138,25 @@ templ SettingsComposeDisplayTab(uiSettings map[string]string, signatureData []mo
 							@selectbox.Item(selectbox.ItemProps{Value: "dialog", Selected: uiSettingGet(uiSettings, "default_reply_compose_view", uiSettingGet(uiSettings, "default_compose_view", "dialog")) == "dialog"}) { { i18n.T(ctx, "settings.compose.view.dialog") } }
 							@selectbox.Item(selectbox.ItemProps{Value: "pane", Selected: uiSettingGet(uiSettings, "default_reply_compose_view", uiSettingGet(uiSettings, "default_compose_view", "dialog")) == "pane"}) { { i18n.T(ctx, "settings.compose.view.pane") } }
 							@selectbox.Item(selectbox.ItemProps{Value: "full", Selected: uiSettingGet(uiSettings, "default_reply_compose_view", uiSettingGet(uiSettings, "default_compose_view", "dialog")) == "full"}) { { i18n.T(ctx, "settings.compose.view.full") } }
+						}
+					}
+				</div>
+			</div>
+			<div class="settings-row border-t border-border/60 pt-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+				<div class="min-w-0">
+					<h4 class="text-sm font-medium text-foreground">{ i18n.T(ctx, "settings.compose.format_title") }</h4>
+					<p class="text-xs text-muted-foreground mt-1">{ i18n.T(ctx, "settings.compose.format_description") }</p>
+				</div>
+				<div class="w-full sm:w-44 shrink-0">
+					@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
+						@selectbox.Trigger(selectbox.TriggerProps{Name: "compose_format", Class: "bg-background", DisableClear: true}) {
+							@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "settings.compose.format.html")}) {
+								{ composeFormatOptionLabel(ctx, uiSettingGet(uiSettings, "compose_format", "html")) }
+							}
+						}
+						@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
+							@selectbox.Item(selectbox.ItemProps{Value: "html", Selected: uiSettingGet(uiSettings, "compose_format", "html") != "plain"}) { { i18n.T(ctx, "settings.compose.format.html") } }
+							@selectbox.Item(selectbox.ItemProps{Value: "plain", Selected: uiSettingGet(uiSettings, "compose_format", "html") == "plain"}) { { i18n.T(ctx, "settings.compose.format.plain") } }
 						}
 					}
 				</div>
@@ -535,6 +555,7 @@ templ SettingsAppearanceTab(uiSettings map[string]string) {
 			if googlefonts.Enabled() {
 				@fontSettingsCard(uiSettings)
 			}
+			@textWeightSettingsCard(uiSettings)
 			<div class="settings-card bg-card rounded-lg border p-6 space-y-5">
 				<div>
 					<h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-1">{ i18n.T(ctx, "settings.messages.title") }</h3>
@@ -620,6 +641,45 @@ templ fontSettingRow(setting, title, description, builtIn, value string, disable
 						if value != "" {
 							@selectbox.Item(selectbox.ItemProps{Value: value, Selected: true}) { { value } }
 						}
+					}
+				}
+			}
+		</div>
+	</div>
+}
+
+// textWeightSettingsCard makes each kind of text heavier or lighter, for every
+// style but Express, whose font has only regular and bold.
+templ textWeightSettingsCard(uiSettings map[string]string) {
+	{{ express := themeStyle(uiSettings) == "express" }}
+	<div class="settings-card bg-card rounded-lg border p-6 space-y-5" data-text-weight-settings>
+		<div>
+			<h3 class="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-1">{ i18n.T(ctx, "settings.appearance.weights.title") }</h3>
+			<p class="text-xs text-muted-foreground">{ i18n.T(ctx, "settings.appearance.weights.description") }</p>
+			<p class={ "mt-2 text-xs text-muted-foreground", templ.KV("hidden", !express) } data-text-weight-express>{ i18n.T(ctx, "settings.appearance.weights.express") }</p>
+		</div>
+		for _, role := range textweight.Roles {
+			@textWeightSettingRow(role, textweight.Parse(uiSettingGet(uiSettings, role.Setting(), "")), express)
+		}
+	</div>
+}
+
+templ textWeightSettingRow(role textweight.Role, step int, disabled bool) {
+	<div class={ "settings-row border-t border-border/60 pt-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between", templ.KV("opacity-50", disabled) } data-text-weight-row>
+		<div class="min-w-0">
+			<h4 class="text-sm font-medium text-foreground">{ i18n.T(ctx, "settings.appearance.weights."+role.Name) }</h4>
+			<p class="text-xs text-muted-foreground mt-1">{ i18n.T(ctx, "settings.appearance.weights."+role.Name+"_description") }</p>
+		</div>
+		<div class="w-full shrink-0 sm:w-44">
+			@selectbox.SelectBox(selectbox.Props{Class: "settings-select"}) {
+				@selectbox.Trigger(selectbox.TriggerProps{Name: role.Setting(), Class: "bg-background", DisableClear: true, Required: true, Disabled: disabled, Attributes: templ.Attributes{"data-text-weight-setting": role.Setting(), "value": strconv.Itoa(step)}}) {
+					@selectbox.Value(selectbox.ValueProps{Placeholder: textWeightStepLabel(ctx, 0)}) {
+						{ textWeightStepLabel(ctx, step) }
+					}
+				}
+				@selectbox.Content(selectbox.ContentProps{NoSearch: true, Class: "mobile-sheet"}) {
+					for _, option := range textweight.Steps {
+						@selectbox.Item(selectbox.ItemProps{Value: strconv.Itoa(option), Selected: option == step}) { { textWeightStepLabel(ctx, option) } }
 					}
 				}
 			}
@@ -1467,6 +1527,9 @@ templ SettingsSyncTab(settings models.SyncSettings, uiSettings map[string]string
 												</div>
 											</div>
 										</div>
+										if account.IdleLimit != nil {
+											@syncIdleLimitNote(*account.IdleLimit)
+										}
 									}
 								</div>
 							}
@@ -1622,6 +1685,47 @@ templ syncFolderPillToggle(f models.FolderSyncStatus) {
 	</button>
 }
 
+// syncIdleLimitNote explains, once more folders are chosen for real time than
+// the account's server allows, which ones are checked on the schedule
+// instead. The settings script shows it and names those folders.
+templ syncIdleLimitNote(limit models.IdleLimitStatus) {
+	<div
+		data-idle-limit-note
+		data-idle-limit={ strconv.Itoa(limit.Limit) }
+		class="hidden mt-3 rounded-md border border-amber-700/20 bg-amber-800/5 p-3 dark:border-amber-300/20 dark:bg-amber-300/5"
+		role="note"
+	>
+		<div class="flex items-start gap-2.5">
+			@icon.TriangleAlert(icon.Props{Class: "size-3.5 mt-0.5 shrink-0 text-amber-700 dark:text-amber-300"})
+			<div class="min-w-0 space-y-1 text-xs leading-relaxed text-muted-foreground">
+				if limit.Learned {
+					<p>{ i18n.T(ctx, "settings.sync.idle_limit.learned", "count", limit.Limit) }</p>
+				} else {
+					<p>{ i18n.T(ctx, "settings.sync.idle_limit.start", "count", limit.Limit) }</p>
+				}
+				if history := syncIdleLimitHistory(ctx, limit); history != "" {
+					<p>{ history }</p>
+				}
+				<p data-idle-limit-polled></p>
+			</div>
+		</div>
+	</div>
+}
+
+// syncIdleLimitHistory says when the server last refused a connection and
+// since when the limit has held.
+func syncIdleLimitHistory(ctx context.Context, limit models.IdleLimitStatus) string {
+	var parts []string
+	dates := i18n.Dates(ctx)
+	if limit.FailedAt > 0 && !limit.FailedTime.IsZero() {
+		parts = append(parts, i18n.T(ctx, "settings.sync.idle_limit.refused", "count", limit.FailedAt, "date", dates.LongMonthDate(limit.FailedTime.Local())))
+	}
+	if limit.StableAt > 0 && !limit.StableSince.IsZero() {
+		parts = append(parts, i18n.N(ctx, "settings.sync.idle_limit.stable", limit.StableAt, "count", limit.StableAt, "date", dates.LongMonthDate(limit.StableSince.Local())))
+	}
+	return strings.Join(parts, " ")
+}
+
 templ syncFolderPill(f models.FolderSyncStatus, interval int, accountID string) {
 		<div
 			data-sync-pill
@@ -1634,6 +1738,7 @@ templ syncFolderPill(f models.FolderSyncStatus, interval int, accountID string) 
 			data-effective-idle={ strconv.FormatBool(syncFolderUsesEffectiveIDLE(f)) }
 			data-idle-fallback-reason={ f.IDLEFallbackReason }
 			data-idle-retry-at={ f.IDLERetryAt }
+			data-idle-rank={ strconv.Itoa(f.IdleRank) }
 			class={
 				"inline-flex max-w-full items-center gap-1.5 px-2.5 rounded-md border text-xs font-medium cursor-pointer transition-transform hover:scale-[1.02] will-change-transform backface-hidden",
 				templ.KV("bg-amber-800/10 border-amber-700/20 text-amber-800 dark:bg-amber-300/10 dark:border-amber-300/20 dark:text-amber-200", syncFolderUsesEffectiveIDLE(f)),
@@ -2797,6 +2902,14 @@ templ CustomThemeDialog() {
 						@customThemeSecondarySwatches()
 						<p class="text-xs text-muted-foreground">{ i18n.T(ctx, "settings.theme.secondary_hint") }</p>
 					</fieldset>
+					<fieldset class="space-y-2">
+						<legend class="mb-2 flex w-full items-center gap-2 text-sm font-semibold text-foreground">
+							{ i18n.T(ctx, "settings.theme.logo") }
+							<span class="ml-auto font-mono text-xs font-normal text-muted-foreground" data-custom-theme-logo-value></span>
+						</legend>
+						@customThemeLogoSwatches()
+						<p class="text-xs text-muted-foreground">{ i18n.T(ctx, "settings.theme.logo_hint") }</p>
+					</fieldset>
 					<div class="space-y-3">
 						@customThemeChoice(i18n.T(ctx, "settings.theme.tint"), i18n.T(ctx, "settings.theme.tint_info"), "tint", []customThemeOption{{"primary", i18n.T(ctx, "settings.theme.tint.primary")}, {"secondary", i18n.T(ctx, "settings.theme.tint.secondary")}, {"none", i18n.T(ctx, "settings.theme.tint.none")}})
 						@customThemeSubChoice(i18n.T(ctx, "settings.theme.strength"), "strength", []customThemeOption{{"subtle", i18n.T(ctx, "settings.theme.strength.subtle")}, {"strong", i18n.T(ctx, "settings.theme.strength.strong")}, {"strongest", i18n.T(ctx, "settings.theme.strength.strongest")}})
@@ -2879,6 +2992,39 @@ templ customThemeSecondarySwatches() {
 	</div>
 }
 
+// customThemeLogoSwatches are the logo's colors: the first two follow the
+// primary and secondary colors, which settings-page.js paints them, then the
+// logo's own copper, then the color picker tile.
+templ customThemeLogoSwatches() {
+	<div class="flex flex-wrap gap-2">
+		@customThemeLogoSwatch("", i18n.T(ctx, "settings.theme.suggestion.same_as_primary"))
+		@customThemeLogoSwatch(themebuilder.LogoSecondary, i18n.T(ctx, "settings.theme.logo.same_as_secondary"))
+		@customThemeLogoSwatch(goferLogoCopper, i18n.T(ctx, "settings.theme.logo.copper"))
+		@customThemePickerTile("data-custom-theme-logo")
+	</div>
+}
+
+templ customThemeLogoSwatch(color string, name string) {
+	@tooltip.Tooltip() {
+		@tooltip.Trigger() {
+			<button
+				type="button"
+				class="account-color-swatch size-7 rounded-full transition-transform hover:scale-110 focus-visible:outline-none"
+				if strings.HasPrefix(color, "#") {
+					style={ accountColorStyle(color) }
+				}
+				data-custom-theme-logo-option={ color }
+				data-account-color-active="false"
+				aria-label={ name }
+				aria-pressed="false"
+			></button>
+		}
+		@tooltip.Content(tooltip.ContentProps{Position: tooltip.PositionTop, ShowArrow: true}) {
+			{ name }
+		}
+	}
+}
+
 // customThemePickerTile opens a color picker, marked with pickerAttribute.
 templ customThemePickerTile(pickerAttribute string) {
 	<label class="account-color-swatch custom-theme-picker-tile relative flex size-7 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-transform hover:scale-110" data-account-color-active="false" data-custom-theme-picker-tile>
@@ -2923,6 +3069,10 @@ templ CustomThemePreview() {
 templ customThemePreviewSidebar() {
 	<div class="flex w-max shrink-0 flex-col surface-leather text-sidebar-foreground h-full overflow-hidden">
 		<div class="px-4 pt-5 pb-4">
+			<div class="flex items-center gap-2.5 mb-5">
+				@GoferLogo("h-8 w-8 shrink-0", "")
+				<span class="text-lg font-bold tracking-tight text-sidebar-accent-foreground" style="font-family: var(--font-serif)">Gofer</span>
+			</div>
 			<div class="sidebar-app-nav relative grid h-8 w-full grid-cols-3 gap-0.5 rounded-lg border border-sidebar-border bg-sidebar-accent/35 p-0.5">
 				<div class="absolute top-0.5 bottom-0.5 left-0.5 rounded-md border border-sidebar-border bg-sidebar-accent shadow-sm" style={ sidebarAppIndicatorStyle("mail") }></div>
 				@customThemePreviewAppTab(icon.Mail(icon.Props{Class: "size-3.5"}), i18n.T(ctx, "app.mail"), true)

@@ -33,6 +33,10 @@ type Options struct {
 	// sidebar is a dark one; in dark mode a lighter sidebar is a step brighter
 	// than the panes, still dark.
 	Sidebar string
+	// Logo is the Gofer logo's color: empty for the primary color and
+	// LogoSecondary for the secondary, each as the sidebar shows its primary
+	// color, or a #rrggbb color as it is.
+	Logo string
 }
 
 // MinTextContrast is WCAG AA for body text.
@@ -92,10 +96,26 @@ func Generate(opts Options) (Palette, bool) {
 	default:
 		return nil, false
 	}
-	return Palette{
-		"light": b.light(opts.Sidebar == "darker"),
-		"dark":  b.dark(opts.Sidebar == "lighter"),
-	}, true
+	logo := strings.ToLower(strings.TrimSpace(opts.Logo))
+	if _, ok := parseHex(logo); logo != "" && logo != LogoSecondary && !ok {
+		return nil, false
+	}
+	light, dark := b.light(opts.Sidebar == "darker"), b.dark(opts.Sidebar == "lighter")
+	light["gofer-logo"] = b.logo(logo, light, opts.Sidebar == "darker")
+	dark["gofer-logo"] = b.logo(logo, dark, true)
+	return Palette{"light": light, "dark": dark}, true
+}
+
+// logo is the logo's color in palette p, whose sidebar is dark or light.
+func (b builder) logo(choice string, p map[string]string, darkSidebar bool) string {
+	switch choice {
+	case "":
+		return p["sidebar-primary"]
+	case LogoSecondary:
+		sidebar, _ := parseHex(p["sidebar"])
+		return onSidebar(b.secondary, toLCH(sidebar), darkSidebar).hex()
+	}
+	return choice
 }
 
 // strongTint is how many times more colorful a strong tint is than a subtle
@@ -304,6 +324,16 @@ func (b builder) darkSidebar(p map[string]string, sidebar, sidebarAccent, border
 	set(p, "sidebar-primary", sidebarPrimary)
 	p["sidebar-primary-foreground"] = onSidebarPrimary
 	set(p, "sidebar-ring", sidebarPrimary)
+}
+
+// onSidebar is a source color as the sidebar shows its primary color: light
+// enough to read on a dark sidebar, as darkSidebar makes it, or as light makes
+// it on a light one.
+func onSidebar(src source, sidebar lch, darkSidebar bool) lch {
+	if !darkSidebar {
+		return src.fill(0.40, 0.55)
+	}
+	return readable(src.fill(0.70, 0.82), minUIContrast, sidebar)
 }
 
 func set(p map[string]string, name string, c lch) {

@@ -81,12 +81,12 @@ func TestMailRuleSettingsRoutes(t *testing.T) {
 		t.Fatalf("add OR condition = %d %q", rec.Code, body)
 	}
 	rec = identityRequest(t, h, h.handleMailRuleForm, http.MethodPost, "/api/settings/rules/form", nil, mailRuleForm(map[string]string{"cond_field": "folder", "act_kind": "move"}), true)
-	if body := rec.Body.String(); rec.Code != http.StatusOK || !strings.Contains(body, `name="cond_folder"`) || !strings.Contains(body, `data-tui-selectbox-value="id:owner-receipts"`) || !strings.Contains(body, `name="act_folder"`) {
+	if body := rec.Body.String(); rec.Code != http.StatusOK || !strings.Contains(body, `name="cond_folder"`) || !strings.Contains(body, `data-folder-field-choice="id:owner-receipts"`) || !strings.Contains(body, `name="act_folder"`) {
 		t.Fatalf("folder condition = %d %q", rec.Code, body)
 	}
 	// As in the account's Folders dialog: a new folder at the top, or inside
 	// any folder.
-	for _, want := range []string{`data-mail-rule-new-folder="victim-account"`, `data-mail-rule-new-folder-parent="owner-receipts"`, `data-mail-rule-new-folder-parent="owner-inbox"`, `data-tui-selectbox-value="role:inbox"`, "New subfolder in Receipts"} {
+	for _, want := range []string{`data-folder-picker-create-account="victim-account"`, `data-folder-picker-create-parent="owner-receipts"`, `data-folder-picker-create-parent="owner-inbox"`, `data-folder-field-choice="role:inbox"`, "New folder in Receipts", "data-folder-field-create"} {
 		if !strings.Contains(rec.Body.String(), want) {
 			t.Fatalf("move folder picker lacks %s: %q", want, rec.Body.String())
 		}
@@ -109,7 +109,7 @@ func TestMailRuleSettingsRoutes(t *testing.T) {
 	// A rule for every account moves mail to any account's folders, and can
 	// make a folder in one of them.
 	rec = identityRequest(t, h, h.handleMailRuleForm, http.MethodPost, "/api/settings/rules/form", nil, mailRuleForm(map[string]string{"account_ids": "all", "act_kind": "move"}), true)
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `data-mail-rule-new-folder="victim-account"`) || !strings.Contains(rec.Body.String(), "In the message&#39;s account") {
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `data-folder-picker-create-account="victim-account"`) || !strings.Contains(rec.Body.String(), "In the message&#39;s account") {
 		t.Fatalf("move for every account = %d %q", rec.Code, rec.Body.String())
 	}
 	if rules, _ := db.ListMailRules(ctx, "owner"); len(rules) != 0 {

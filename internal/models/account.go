@@ -53,16 +53,19 @@ type EditAccountData struct {
 	ProviderAccountID string
 	EmailAddress      string
 	DisplayName       string
-	IMAPHost          string
-	IMAPPort          int
-	IMAPTLSMode       string
-	SMTPHost          string
-	SMTPPort          int
-	SMTPTLSMode       string
-	Username          string
-	AuthMethod        string
-	SmtpUsername      string
-	JMAPSessionURL    string
+	// SenderName is the name the account's own address sends under, empty
+	// for DisplayName.
+	SenderName     string
+	IMAPHost       string
+	IMAPPort       int
+	IMAPTLSMode    string
+	SMTPHost       string
+	SMTPPort       int
+	SMTPTLSMode    string
+	Username       string
+	AuthMethod     string
+	SmtpUsername   string
+	JMAPSessionURL string
 	// ProxyID is the account's proxy choice: "" for the default, "direct",
 	// or a saved proxy's id.
 	ProxyID          string
@@ -131,6 +134,16 @@ type AccountSyncStatus struct {
 	Folders      []FolderSyncStatus
 	// OutlookPush is set for Outlook accounts.
 	OutlookPush *OutlookPushSettings
+	// IdleLimit is set for IMAP accounts: how many of their folders may be
+	// watched in real time.
+	IdleLimit *IdleLimitStatus
+}
+
+// IdleLimitStatus is an IMAP account's real-time folder limit and, when Gofer
+// learned it from the server, how.
+type IdleLimitStatus struct {
+	IdleConnectionLimit
+	Learned bool
 }
 
 // OutlookPushSettings is an Outlook account's choice between Microsoft's
@@ -185,6 +198,9 @@ type FolderSyncStatus struct {
 	EffectiveIDLE      bool
 	IDLEFallbackReason string
 	IDLERetryAt        string
+	// IdleRank is the folder's place in line for real-time watching, when
+	// its account allows fewer than were chosen; lower comes first.
+	IdleRank int
 }
 
 type Signature struct {
@@ -318,6 +334,9 @@ type AccountIdentitiesData struct {
 	SMTPTest *ConnectionTestResult
 	// Adding shows the form for a new identity in place of the list.
 	Adding bool
+	// EditingSender shows the form for the account's sender name in place
+	// of the list.
+	EditingSender bool
 }
 
 type AccountSignatureData struct {

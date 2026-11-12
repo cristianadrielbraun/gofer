@@ -4,7 +4,6 @@ import (
 	"context"
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"encoding/json"
-	"fmt"
 
 	"github.com/cristianadrielbraun/gofer/internal/models"
 )
@@ -68,10 +67,6 @@ func mailSearchBool(value bool) string {
 		return "true"
 	}
 	return "false"
-}
-
-func mailSearchFolderIndent(depth int) string {
-	return fmt.Sprintf("padding-left: %dpx", 24+min(depth, 8)*16)
 }
 
 // MailSearchLocation names the account and complete folder path for a result.

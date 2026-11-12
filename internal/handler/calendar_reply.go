@@ -80,7 +80,7 @@ func (h *Handler) calendarReplyAccount(ctx context.Context, source storage.Calen
 			return models.Account{}, err
 		}
 		identity := p.service().Identity()
-		return models.Account{ID: p.service().AccountID(), Name: identity.DisplayName, Email: identity.EmailAddress}, nil
+		return models.Account{ID: p.service().AccountID(), Name: identity.DisplayName, SenderName: identity.SenderName, Email: identity.EmailAddress}, nil
 	}
 	accounts, err := h.db.GetAccounts(ctx, source.UserID)
 	if err != nil {
@@ -117,7 +117,7 @@ func (h *Handler) queueCalDAVResponse(ctx context.Context, source storage.Calend
 	}
 	organizer := calendarReplyAddress(target.CalDAV.Selected.Props.Get("ORGANIZER").Value)
 	textCtx := i18n.ForUser(ctx, source.UserID)
-	msg := &message.OutgoingMessage{FromName: account.Name, FromEmail: account.Email, To: []*mail.Address{{Address: organizer}},
+	msg := &message.OutgoingMessage{FromName: account.FromName(), FromEmail: account.Email, To: []*mail.Address{{Address: organizer}},
 		Subject: i18n.T(textCtx, "mail.outgoing.calendar."+response, "summary", strings.NewReplacer("\r", " ", "\n", " ").Replace(target.Event.Summary)), TextBody: i18n.T(textCtx, "mail.outgoing.calendar.response."+response),
 		CalendarReply: reply, MessageID: message.NewMessageID(), Date: time.Now().UTC()}
 	raw, err := buildOutgoingMIME(transport, msg)

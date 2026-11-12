@@ -336,19 +336,16 @@ func parseMetadata(raw []byte) (map[string]Family, error) {
 	return families, nil
 }
 
-var interfaceWeights = []int{400, 500, 600, 700}
-
+// query asks for every upright weight the family has, so text set heavier or
+// lighter (see internal/textweight) has its own weight to show. The browser
+// downloads only the weights a page uses.
 func (f Family) query() string {
-	var weights []string
-	for _, want := range interfaceWeights {
-		for _, have := range f.weights {
-			if have == want {
-				weights = append(weights, strconv.Itoa(want))
-			}
-		}
-	}
-	if len(weights) == 0 {
+	if len(f.weights) == 0 {
 		return f.Name
+	}
+	weights := make([]string, len(f.weights))
+	for i, weight := range f.weights {
+		weights[i] = strconv.Itoa(weight)
 	}
 	return f.Name + ":wght@" + strings.Join(weights, ";")
 }

@@ -133,6 +133,9 @@ func (h *Handler) saveUserComposeDraft(ctx context.Context, r *http.Request) (co
 		draftID = message.NewMessageID()
 	}
 	body, html := r.FormValue("body"), strings.TrimSpace(r.FormValue("html_body"))
+	if composePlainText(r) {
+		html = ""
+	}
 	if html != "" {
 		html = string(message.SanitizeOutgoingHTML([]byte(html)))
 	}

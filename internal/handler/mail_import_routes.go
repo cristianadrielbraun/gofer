@@ -171,6 +171,9 @@ func (h *Handler) renderMailImportReview(w http.ResponseWriter, r *http.Request,
 		for _, folder := range targets {
 			data.Folders = append(data.Folders, views.MailImportFolder{ID: folder.ID, Path: folder.Path})
 		}
+		if data.FolderAccount, err = h.mailFolderPickerAccount(ctx, job.Owner, *chosen); err != nil {
+			log.Printf("mail import: list folder tree: %v", err)
+		}
 		for i, source := range job.Sources {
 			data.Sources[i].Target, data.Sources[i].NewName = suggestMailImportTarget(source, targets)
 			if data.Sources[i].NewName == "" {
