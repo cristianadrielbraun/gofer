@@ -141,7 +141,11 @@ templ AdminUserPage(data AdminUserPageData, verification ...AdminSecurityVerific
 			<div class="max-w-6xl px-6 py-8 lg:px-8 lg:py-10">
 				<a href={ templ.SafeURL(adminUserPageBack(data.ListPath)) } class="mb-4 inline-flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground" data-admin-user-back>
 					@icon.ArrowLeft(icon.Props{Class: "size-4"})
-					{ i18n.T(ctx, "admin.user.back") }
+					if data.ListPath == AdminAdministratorsPath {
+						{ i18n.T(ctx, "admin.nav.administrators") }
+					} else {
+						{ i18n.T(ctx, "admin.user.back") }
+					}
 				</a>
 				@adminPageHeader(adminPageHeaderProps{Title: adminUserUsername(ctx, data.User.Username), Actions: adminUserPageActions(data.User)})
 				<div class="mt-2 flex flex-wrap items-center gap-2">

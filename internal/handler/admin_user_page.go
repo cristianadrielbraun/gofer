@@ -55,8 +55,10 @@ func adminUserPageParts(parsed *url.URL) (userID, tab, list string, ok bool) {
 		if key != "list" || len(given) != 1 {
 			return "", "", "", false
 		}
-		// Only a Users list: a person's page never leads back to another's.
-		if list = adminUsersListFrom(given[0]); list == "" || !strings.HasPrefix(list, adminUsersPath) || strings.HasPrefix(list, adminUsersPath+"/") {
+		// Only a Users list or the Administrators page: a person's page never
+		// leads back to another's.
+		if list = adminUsersListFrom(given[0]); list == "" || strings.HasPrefix(list, adminUsersPath+"/") ||
+			!strings.HasPrefix(list, adminUsersPath) && list != views.AdminAdministratorsPath {
 			return "", "", "", false
 		}
 	}

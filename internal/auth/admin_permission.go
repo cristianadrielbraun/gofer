@@ -51,3 +51,16 @@ func enrollmentTokenPermission(purpose EnrollmentTokenPurpose) authz.Permission 
 	}
 	return authz.UsersCredentials
 }
+
+// requireAdministratorTargetPermission adds admins.manage to a change's own
+// permission when the person it changes is an administrator.
+func requireAdministratorTargetPermission(ctx context.Context, tx *sql.Tx, actorUserID, actorSessionID, targetUserID string, now time.Time) error {
+	var administrator int
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE id = ? AND user_type = 'management')`, targetUserID).Scan(&administrator); err != nil {
+		return fmt.Errorf("check whether the target is an administrator: %w", err)
+	}
+	if administrator == 0 {
+		return nil
+	}
+	return requireAdministratorPermission(ctx, tx, actorUserID, actorSessionID, authz.AdminsManage, now)
+}

@@ -61,6 +61,9 @@ func (m *Manager) SetAdministratorUserStatus(
 		if targetUserID == actorUserID {
 			return ErrAdministratorUserStatusTargetInvalid
 		}
+		if err := requireAdministratorTargetPermission(ctx, tx, actorUserID, actorSessionID, targetUserID, now); err != nil {
+			return err
+		}
 
 		var currentStatus UserStatus
 		var deletionPending int

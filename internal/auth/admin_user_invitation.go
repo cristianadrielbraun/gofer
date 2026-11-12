@@ -67,6 +67,9 @@ type administratorUserInvitationTarget struct {
 	ID       string
 	Name     string
 	Username string
+	// Administrator is a pending administrator, whose invitation only
+	// someone who may manage administrators changes.
+	Administrator bool
 }
 
 // CreateAdministratorUserInvitation creates an ordinary pending Gofer user
@@ -371,9 +374,10 @@ func (m *Manager) administratorUserInvitationTarget(
 	ctx context.Context, tx *sql.Tx, actorSessionID, actionReference string,
 ) (*administratorUserInvitationTarget, error) {
 	rows, err := tx.QueryContext(ctx, `
-		SELECT id, name, username
+		SELECT id, name, username, user_type = 'management'
 		FROM users
-		WHERE status = 'pending' AND user_type = 'webmail' AND is_admin = 0
+		WHERE status = 'pending' AND deletion_pending = 0
+		  AND ((user_type = 'webmail' AND is_admin = 0) OR (user_type = 'management' AND is_admin = 1))
 		ORDER BY id`)
 	if err != nil {
 		return nil, fmt.Errorf("list administrator invitation targets: %w", err)
@@ -382,7 +386,7 @@ func (m *Manager) administratorUserInvitationTarget(
 	var target *administratorUserInvitationTarget
 	for rows.Next() {
 		candidate := &administratorUserInvitationTarget{}
-		if err := rows.Scan(&candidate.ID, &candidate.Name, &candidate.Username); err != nil {
+		if err := rows.Scan(&candidate.ID, &candidate.Name, &candidate.Username, &candidate.Administrator); err != nil {
 			return nil, fmt.Errorf("scan administrator invitation target: %w", err)
 		}
 		candidateReference, err := m.administratorUserInvitationActionReference(actorSessionID, candidate.ID)
@@ -432,6 +436,11 @@ func (m *Manager) RevokeAdministratorUserInvitation(
 		target, err := m.administratorUserInvitationTarget(ctx, tx, actorSessionID, actionReference)
 		if err != nil {
 			return err
+		}
+		if target.Administrator {
+			if err := requireAdministratorPermission(ctx, tx, actorUserID, actorSessionID, authz.AdminsManage, now); err != nil {
+				return err
+			}
 		}
 		var tokenID string
 		if err := tx.QueryRowContext(ctx, `
@@ -534,6 +543,11 @@ func (m *Manager) RotateAdministratorUserInvitation(
 		if err != nil {
 			return err
 		}
+		if target.Administrator {
+			if err := requireAdministratorPermission(ctx, tx, actorUserID, actorSessionID, authz.AdminsManage, now); err != nil {
+				return err
+			}
+		}
 		// Replacing a working invitation is a rotation; one that expired or
 		// was revoked gets a new one issued.
 		var working int
@@ -601,6 +615,9 @@ func (m *Manager) RotateAdministratorUserInvitation(
 				Status: UserStatusPending, UserType: UserTypeWebmail,
 			},
 			Token: token,
+		}
+		if target.Administrator {
+			invitation.User.UserType, invitation.User.IsAdmin = UserTypeManagement, true
 		}
 		return nil
 	})

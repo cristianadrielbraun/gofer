@@ -263,6 +263,10 @@ func (h *Handler) handleAdminUserActionDialog(action views.AdminUserAction) http
 			h.writeAdminFragment(w, r, views.AdminUserActionDialog(dialog, verification))
 			return
 		}
+		if adminUsersListFrom(r.URL.Query().Get("list")) == views.AdminAdministratorsPath {
+			h.renderAdminAdministrators(w, r, adminAdministratorsExtras{dialog: &dialog, returnTo: user.Path(action)})
+			return
+		}
 		// Opened from a person's page, the page is behind it.
 		if userID, tab, list, ok := adminUserPageFrom(r.URL.Query().Get("list")); ok {
 			h.renderAdminUserPage(w, r, userID, tab, list, adminUserPageExtras{dialog: &dialog, returnTo: user.Path(action)})
@@ -326,10 +330,24 @@ func (h *Handler) handleCreateAdminUserInvitation(w http.ResponseWriter, r *http
 		var validationErr *auth.AdministratorUserInvitationValidationError
 		if errors.As(err, &validationErr) {
 			form.FieldErrors = authFields(r.Context(), validationErr.Fields)
+			if form.Administrator {
+				h.renderAdminAdministrators(w, r, adminAdministratorsExtras{status: http.StatusBadRequest, form: form})
+				return
+			}
 			h.renderAdminUsers(w, r, http.StatusBadRequest, form, nil, i18n.T(r.Context(), "auth.admin.users.invitation_fix"))
 			return
 		}
+		if form.Administrator && errors.Is(err, auth.ErrRecentStepUpRequired) {
+			h.renderAdminAdministrators(w, r, adminAdministratorsExtras{status: http.StatusForbidden, form: form, pageError: i18n.T(r.Context(), adminUserInviteChange.verify)})
+			return
+		}
 		h.adminUserChangeFailed(w, r, err, adminUserInviteChange, form)
+		return
+	}
+	// An administrator joins the Administrators page, where the invitation
+	// shows.
+	if form.Administrator {
+		h.renderAdminAdministrators(w, r, adminAdministratorsExtras{status: http.StatusCreated, result: h.adminInvitationResult(invitation, false)})
 		return
 	}
 	h.renderAdminUsers(w, r, http.StatusCreated, views.AdminUserInvitationFormData{}, h.adminInvitationResult(invitation, false), "")
@@ -358,6 +376,10 @@ func (h *Handler) handleRotateAdminUserInvitation(w http.ResponseWriter, r *http
 		return
 	}
 	result := h.adminInvitationResult(invitation, true)
+	if adminUsersListFrom(r.PostFormValue("list")) == views.AdminAdministratorsPath {
+		h.renderAdminAdministrators(w, r, adminAdministratorsExtras{status: http.StatusCreated, result: result})
+		return
+	}
 	// Made from the person's page, the new invitation shows there.
 	if userID, tab, list, ok := adminUserPageFrom(r.PostFormValue("list")); ok {
 		h.renderAdminUserPage(w, r, userID, tab, list, adminUserPageExtras{status: http.StatusCreated, invitation: result})
@@ -593,6 +615,9 @@ func adminUsersListFrom(value string) string {
 	parsed, err := url.Parse(value)
 	if value == "" || err != nil || parsed.Scheme != "" || parsed.Host != "" {
 		return ""
+	}
+	if parsed.Path == views.AdminAdministratorsPath && parsed.RawQuery == "" {
+		return views.AdminAdministratorsPath
 	}
 	if parsed.Path != adminUsersPath {
 		// A person's page, which a change made from it returns to.

@@ -58,6 +58,8 @@ type AdministratorUserQuery struct {
 	Sort AdministratorUserSort
 	// UserIDs keeps only these people, for a page about one of them.
 	UserIDs []string
+	// Administrators keeps only administrators.
+	Administrators bool
 	Offset  int
 	// Limit is the page's size: 0 is DefaultAdministratorUserPageSize, and
 	// it's never more than MaxAdministratorUserPageSize. A negative limit,
@@ -174,6 +176,9 @@ func administratorUserFilter(query AdministratorUserQuery) (string, []any) {
 	if search := strings.ToLower(strings.TrimSpace(query.Search)); search != "" {
 		conditions = append(conditions, `people.username_normalized LIKE :search ESCAPE '\'`)
 		args = append(args, sql.Named("search", "%"+likeEscaper.Replace(search)+"%"))
+	}
+	if query.Administrators {
+		conditions = append(conditions, `people.user_type = 'management'`)
 	}
 	if query.Status != "" {
 		conditions = append(conditions, `people.status = :status`)
@@ -326,7 +331,9 @@ func (m *Manager) listAdministratorUsers(ctx context.Context, actorUserID, actor
 			signedIn := lastLoginAt.Time
 			user.LastLoginAt = &signedIn
 		}
-		if user.Status == UserStatusPending && user.UserType == UserTypeWebmail && !user.IsAdmin {
+		// Pending people, mail users and administrators alike, are waiting on
+		// an invitation.
+		if user.Status == UserStatusPending && (user.UserType == UserTypeWebmail && !user.IsAdmin || user.UserType == UserTypeManagement && user.IsAdmin) {
 			user.InvitationState = AdministratorUserInvitationNotIssued
 			switch {
 			case tokenID.Valid && !usedAt.Valid && !revokedAt.Valid && expiresAt.Valid && expiresAt.Time.After(now):

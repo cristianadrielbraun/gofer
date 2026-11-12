@@ -187,10 +187,13 @@ func (m *Manager) setUserStatusTx(
 		return result, nil
 	}
 	if result.From == UserStatusActive && status != UserStatusActive && isAdmin == 1 {
+		// Only an administrator who can sign in counts: one who hasn't set
+		// up two-factor authentication yet can't.
 		var otherActiveAdmins int
 		if err := tx.QueryRowContext(ctx, `
 			SELECT COUNT(*) FROM users
-			WHERE id != ? AND user_type = 'management' AND is_admin = 1 AND status = 'active'`,
+			WHERE id != ? AND user_type = 'management' AND is_admin = 1 AND status = 'active'
+			  AND EXISTS (SELECT 1 FROM totp_credentials t WHERE t.user_id = users.id AND t.enabled = 1 AND t.revoked_at IS NULL)`,
 			userID,
 		).Scan(&otherActiveAdmins); err != nil {
 			return result, fmt.Errorf("count other active administrators: %w", err)

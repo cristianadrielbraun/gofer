@@ -66,6 +66,9 @@ func adminSecurityVerificationReturnTo(value string) string {
 	if page, ok := adminUserPageAddress(parsed); ok {
 		return page
 	}
+	if parsed.Path == views.AdminAdministratorsPath && parsed.RawQuery == "" {
+		return parsed.Path
+	}
 	switch parsed.Path {
 	case "/admin/users":
 		// A list, such as the one an export came from, rebuilt from its

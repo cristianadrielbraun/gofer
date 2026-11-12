@@ -60,6 +60,9 @@ func (m *Manager) SignOutAdministratorUser(ctx context.Context, options SignOutA
 		if targetUserID == actorUserID {
 			return ErrAdministratorUserSignOutTargetInvalid
 		}
+		if err := requireAdministratorTargetPermission(ctx, tx, actorUserID, actorSessionID, targetUserID, now); err != nil {
+			return err
+		}
 		var status UserStatus
 		var deletionPending int
 		var authVersion int64
@@ -244,6 +247,9 @@ func (m *Manager) SignOutAdministratorUserSession(ctx context.Context, options S
 		}
 		if targetUserID == actorUserID {
 			return ErrAdministratorUserSignOutTargetInvalid
+		}
+		if err := requireAdministratorTargetPermission(ctx, tx, actorUserID, actorSessionID, targetUserID, now); err != nil {
+			return err
 		}
 		var status UserStatus
 		var deletionPending int
