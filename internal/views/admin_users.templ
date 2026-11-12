@@ -394,7 +394,7 @@ templ AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificat
 											}
 											<td class="px-4 py-3">
 												<div class="flex flex-wrap items-center gap-2">
-													<span class="whitespace-nowrap font-semibold text-foreground">{ adminUserUsername(ctx, user.Username) }</span>
+													<a href={ templ.SafeURL(AdminUserPagePath(user.ID, AdminUserTabOverview, user.ListPath)) } class="whitespace-nowrap font-semibold text-foreground hover:underline" data-admin-user-link>{ adminUserUsername(ctx, user.Username) }</a>
 													if user.Current {
 														@adminTag(adminToneInfo) {
 															{ i18n.T(ctx, "admin.users.you") }

@@ -130,3 +130,19 @@ templ adminStatCard(label string, value int) {
 		<p class="mt-1 text-xl font-bold tabular-nums text-foreground">{ i18n.Number(ctx, value) }</p>
 	</div>
 }
+
+// adminFacts lists what the console knows about one thing, as labelled
+// rows inside a card.
+templ adminFacts() {
+	<dl class="divide-y divide-border">
+		{ children... }
+	</dl>
+}
+
+// adminFact is one of adminFacts: a label and what it says.
+templ adminFact(label string) {
+	<div class="grid gap-1 px-4 py-3 text-sm sm:grid-cols-[14rem_1fr] sm:gap-4" data-admin-fact>
+		<dt class="font-medium text-muted-foreground">{ label }</dt>
+		<dd class="min-w-0 text-foreground">{ children... }</dd>
+	</div>
+}

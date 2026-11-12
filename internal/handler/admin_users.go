@@ -559,8 +559,13 @@ func (h *Handler) redirectAdminUsers(w http.ResponseWriter, r *http.Request, not
 // anything else is "".
 func adminUsersListFrom(value string) string {
 	parsed, err := url.Parse(value)
-	if value == "" || err != nil || parsed.Scheme != "" || parsed.Host != "" || parsed.Path != adminUsersPath {
+	if value == "" || err != nil || parsed.Scheme != "" || parsed.Host != "" {
 		return ""
+	}
+	if parsed.Path != adminUsersPath {
+		// A person's page, which a change made from it returns to.
+		page, _ := adminUserPageAddress(parsed)
+		return page
 	}
 	query := adminUsersQueryFrom(parsed.Query())
 	return query.Path(max(query.Page, 1))

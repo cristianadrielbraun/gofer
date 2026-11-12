@@ -63,6 +63,9 @@ func adminSecurityVerificationReturnTo(value string) string {
 		}
 		return parsed.Path
 	}
+	if page, ok := adminUserPageAddress(parsed); ok {
+		return page
+	}
 	switch parsed.Path {
 	case "/admin/users":
 		// A list, such as the one an export came from, rebuilt from its

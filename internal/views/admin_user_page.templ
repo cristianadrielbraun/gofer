@@ -1,0 +1,344 @@
+package views
+
+import (
+	"context"
+	"net/url"
+	"time"
+
+	"github.com/cristianadrielbraun/gofer/components/icon"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
+)
+
+// A person's page has a tab for each part of what the console knows about
+// them; each tab is an address of its own.
+const (
+	AdminUserTabOverview = ""
+	AdminUserTabSignIn   = "sign-in"
+)
+
+// AdminUserPagePath is tab of the person with userID's page. list is the
+// Users list it was opened from, which its way back returns to.
+func AdminUserPagePath(userID, tab, list string) string {
+	path := "/admin/users/" + userID
+	if tab != AdminUserTabOverview {
+		path += "/" + tab
+	}
+	if list != "" && list != "/admin/users" {
+		path += "?list=" + url.QueryEscape(list)
+	}
+	return path
+}
+
+// AdminUserPageData is one person's page: the list's row, which the header
+// and the actions menu are drawn from, and how they sign in.
+type AdminUserPageData struct {
+	User AdminUserData
+	Tab  string
+	// ListPath is the Users list the page was opened from.
+	ListPath string
+	Dialog   *AdminUserDialog
+
+	CreatedAt         time.Time
+	DisabledAt        *time.Time
+	DeletionStartedAt *time.Time
+
+	PasswordChangedAt          *time.Time
+	Passkeys                   int
+	PasskeyLastUsedAt          *time.Time
+	AuthenticatorAppSince      *time.Time
+	AuthenticatorAppLastUsedAt *time.Time
+	RecoveryCodesLeft          int
+	Identities                 []AdminUserIdentityData
+	WorkingSessions            int
+
+	StepUpRequired bool
+}
+
+// AdminUserIdentityData is a sign-in provider account linked to the person.
+type AdminUserIdentityData struct {
+	Provider   string
+	Email      string
+	LinkedAt   time.Time
+	LastUsedAt *time.Time
+}
+
+// AdminUserPage is a person's page in the console.
+templ AdminUserPage(data AdminUserPageData, verification ...AdminSecurityVerificationData) {
+	<div
+		class="flex-1 flex flex-col min-w-0 overflow-hidden"
+		data-admin-user-page
+		if adminSecurityVerificationValue(verification).Required {
+			hx-headers={ adminVerificationOnPageHeaders }
+		}
+	>
+		<div class="flex-1 overflow-y-auto">
+			<div class="max-w-6xl px-6 py-8 lg:px-8 lg:py-10">
+				<a href={ templ.SafeURL(adminUserPageBack(data.ListPath)) } class="mb-4 inline-flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground" data-admin-user-back>
+					@icon.ArrowLeft(icon.Props{Class: "size-4"})
+					{ i18n.T(ctx, "admin.user.back") }
+				</a>
+				@adminPageHeader(adminPageHeaderProps{Title: adminUserUsername(ctx, data.User.Username), Actions: adminUserPageActions(data.User)})
+				<div class="mt-2 flex flex-wrap items-center gap-2">
+					@adminUserStatusBadge(data.User)
+					@adminBadge(adminUserRoleTone(data.User.Role)) {
+						{ adminValueLabel(ctx, data.User.Role) }
+					}
+					if data.User.Current {
+						@adminTag(adminToneInfo) {
+							{ i18n.T(ctx, "admin.users.you") }
+						}
+					}
+				</div>
+				@linkTabs(i18n.T(ctx, "admin.user.tabs")) {
+					@linkTab(templ.SafeURL(AdminUserPagePath(data.User.ID, AdminUserTabOverview, data.ListPath)), i18n.T(ctx, "admin.user.tab.overview"), data.Tab == AdminUserTabOverview, nil)
+					@linkTab(templ.SafeURL(AdminUserPagePath(data.User.ID, AdminUserTabSignIn, data.ListPath)), i18n.T(ctx, "admin.user.tab.sign_in"), data.Tab == AdminUserTabSignIn, nil)
+				}
+				<div id={ adminUserDialogSlotID }>
+					if data.Dialog != nil {
+						@AdminUserActionDialog(*data.Dialog)
+					}
+				</div>
+				switch data.Tab {
+					case AdminUserTabSignIn:
+						@adminUserSignInTab(data)
+					default:
+						@adminUserOverviewTab(data)
+				}
+			</div>
+		</div>
+	</div>
+	@AdminSecurityVerificationDialog(adminSecurityVerificationValue(verification))
+}
+
+func adminUserPageBack(list string) string {
+	if list == "" {
+		return "/admin/users"
+	}
+	return list
+}
+
+// adminUserPageActions is the person's actions menu, as on their row.
+templ adminUserPageActions(user AdminUserData) {
+	if entries := adminUserMenuEntries(ctx, user); len(entries) > 0 {
+		@adminUserActionsMenu(user, entries)
+	}
+}
+
+templ adminUserStatusBadge(user AdminUserData) {
+	@adminBadge(adminUserStatusTone(user.Status)) {
+		if user.DeletionPending {
+			{ i18n.T(ctx, "admin.users.deleting") }
+		} else {
+			{ adminValueLabel(ctx, user.Status) }
+		}
+	}
+}
+
+templ adminUserOverviewTab(data AdminUserPageData) {
+	@adminSection(adminSectionProps{ID: "admin-user-account", Title: i18n.T(ctx, "admin.user.account")}) {
+		@adminFacts() {
+			@adminFact(i18n.T(ctx, "admin.col.status")) {
+				@adminUserStatusBadge(data.User)
+				if data.DeletionStartedAt != nil {
+					<p class="mt-1 text-xs text-muted-foreground">{ i18n.T(ctx, "admin.user.deletion_started", "date", adminUserDate(ctx, data.DeletionStartedAt)) }</p>
+				} else if data.User.Status == "disabled" && data.DisabledAt != nil {
+					<p class="mt-1 text-xs text-muted-foreground">{ i18n.T(ctx, "admin.user.disabled_since", "date", adminUserDate(ctx, data.DisabledAt)) }</p>
+				}
+			}
+			@adminFact(i18n.T(ctx, "admin.col.role")) {
+				{ adminValueLabel(ctx, data.User.Role) }
+			}
+			@adminFact(i18n.T(ctx, "admin.user.created")) {
+				{ adminUserDate(ctx, &data.CreatedAt) }
+			}
+			@adminFact(i18n.T(ctx, "admin.col.last_sign_in")) {
+				if data.User.LastSignInAt != nil {
+					{ adminUserDate(ctx, data.User.LastSignInAt) }
+				} else {
+					{ i18n.T(ctx, "admin.users.never_signed_in") }
+				}
+			}
+			if data.User.Status == "pending" && data.User.InvitationState != "" {
+				@adminFact(i18n.T(ctx, "admin.col.invitation")) {
+					@adminBadge(adminUserInvitationTone(data.User.InvitationState)) {
+						{ adminUserInvitationStateLabel(ctx, data.User.InvitationState) }
+					}
+					if data.User.InvitationExpiresAt != nil {
+						<p class="mt-1 text-xs text-muted-foreground">
+							if data.User.InvitationState == "active" {
+								{ i18n.T(ctx, "admin.invite.expires", "date", adminUserDate(ctx, data.User.InvitationExpiresAt)) }
+							} else {
+								{ i18n.T(ctx, "admin.invite.expired_at", "date", adminUserDate(ctx, data.User.InvitationExpiresAt)) }
+							}
+						</p>
+					}
+				}
+			}
+			@adminFact(i18n.T(ctx, "admin.user.requests")) {
+				if data.User.PasswordResetRequestedAt == nil && !data.User.PasswordChangeRequired && !data.User.MFASetupPending {
+					<span class="text-muted-foreground">{ i18n.T(ctx, "admin.user.no_requests") }</span>
+				} else {
+					<div class="flex flex-col items-start gap-2">
+						if data.User.PasswordResetRequestedAt != nil {
+							<div>
+								@adminBadge(adminToneWarning) {
+									{ i18n.T(ctx, "admin.users.reset_requested") }
+								}
+								<p class="mt-1 text-xs text-muted-foreground">{ i18n.T(ctx, "admin.users.requested_at", "date", adminUserDate(ctx, data.User.PasswordResetRequestedAt)) }</p>
+							</div>
+						}
+						if data.User.PasswordChangeRequired {
+							@adminBadge(adminToneWarning) {
+								{ i18n.T(ctx, "admin.users.password_change_required") }
+							}
+						}
+						if data.User.MFASetupPending {
+							@adminBadge(adminToneWarning) {
+								{ i18n.T(ctx, "admin.user.mfa_setup_pending") }
+							}
+						}
+					</div>
+				}
+			}
+			@adminFact(i18n.T(ctx, "admin.col.user_id")) {
+				<code class="break-all font-mono text-xs text-muted-foreground">{ data.User.ID }</code>
+			}
+		}
+	}
+}
+
+templ adminUserSignInTab(data AdminUserPageData) {
+	@adminSection(adminSectionProps{ID: "admin-user-methods", Title: i18n.T(ctx, "admin.user.methods")}) {
+		@adminFacts() {
+			@adminFact(i18n.T(ctx, "admin.user.password")) {
+				if data.User.HasPassword {
+					{ i18n.T(ctx, "admin.user.password_set") }
+					if data.PasswordChangedAt != nil {
+						<p class="mt-1 text-xs text-muted-foreground">{ i18n.T(ctx, "admin.user.changed_at", "date", adminUserDate(ctx, data.PasswordChangedAt)) }</p>
+					}
+					if data.User.PasswordChangeRequired {
+						<p class="mt-2">
+							@adminBadge(adminToneWarning) {
+								{ i18n.T(ctx, "admin.users.password_change_required") }
+							}
+						</p>
+					}
+				} else {
+					<span class="text-muted-foreground">{ i18n.T(ctx, "admin.user.none") }</span>
+				}
+			}
+			@adminFact(i18n.T(ctx, "admin.user.passkeys")) {
+				if data.Passkeys == 0 {
+					<span class="text-muted-foreground">{ i18n.T(ctx, "admin.user.none") }</span>
+				} else {
+					{ i18n.N(ctx, "admin.user.passkey_count", data.Passkeys, "count", i18n.Number(ctx, data.Passkeys)) }
+					@adminUserLastUsed(data.PasskeyLastUsedAt)
+				}
+			}
+			@adminFact(i18n.T(ctx, "admin.user.authenticator_app")) {
+				if data.AuthenticatorAppSince == nil {
+					<span class="text-muted-foreground">{ i18n.T(ctx, "admin.user.not_set_up") }</span>
+				} else {
+					{ i18n.T(ctx, "admin.user.set_up_at", "date", adminUserDate(ctx, data.AuthenticatorAppSince)) }
+					@adminUserLastUsed(data.AuthenticatorAppLastUsedAt)
+				}
+			}
+			@adminFact(i18n.T(ctx, "admin.user.recovery_codes")) {
+				if data.RecoveryCodesLeft == 0 {
+					<span class="text-muted-foreground">{ i18n.T(ctx, "admin.user.none") }</span>
+				} else {
+					{ i18n.N(ctx, "admin.user.recovery_left", data.RecoveryCodesLeft, "count", i18n.Number(ctx, data.RecoveryCodesLeft)) }
+				}
+			}
+			@adminFact(i18n.T(ctx, "admin.col.mfa")) {
+				@adminBadge(adminUserMFATone(data.User.MFALabel)) {
+					{ adminValueLabel(ctx, data.User.MFALabel) }
+				}
+				<p class="mt-1 text-xs text-muted-foreground">{ adminValueLabel(ctx, data.User.MFADetail) }</p>
+				if data.User.MFASetupPending {
+					<p class="mt-2">
+						@adminBadge(adminToneWarning) {
+							{ i18n.T(ctx, "admin.users.mfa_not_set_up") }
+						}
+					</p>
+				}
+			}
+			@adminFact(i18n.T(ctx, "admin.user.sessions")) {
+				if data.WorkingSessions == 0 {
+					<span class="text-muted-foreground">{ i18n.T(ctx, "admin.user.no_sessions") }</span>
+				} else {
+					{ i18n.N(ctx, "admin.user.session_count", data.WorkingSessions, "count", i18n.Number(ctx, data.WorkingSessions)) }
+				}
+			}
+		}
+	}
+	@adminSection(adminSectionProps{ID: "admin-user-providers", Title: i18n.T(ctx, "admin.user.providers"), Aside: adminSectionNote(i18n.T(ctx, "admin.user.providers_detail"))}) {
+		if len(data.Identities) == 0 {
+			@adminEmptyState(i18n.T(ctx, "admin.user.no_providers"))
+		} else {
+			<div class="overflow-x-auto">
+				<table class="w-full min-w-[40rem] text-left text-sm">
+					<thead class="bg-muted/45 text-xs font-semibold text-muted-foreground">
+						<tr>
+							<th scope="col" class="px-4 py-3">{ i18n.T(ctx, "admin.user.provider") }</th>
+							<th scope="col" class="px-4 py-3">{ i18n.T(ctx, "admin.user.provider_email") }</th>
+							<th scope="col" class="px-4 py-3">{ i18n.T(ctx, "admin.user.linked") }</th>
+							<th scope="col" class="px-4 py-3">{ i18n.T(ctx, "admin.user.last_used") }</th>
+						</tr>
+					</thead>
+					<tbody class="divide-y divide-border">
+						for _, identity := range data.Identities {
+							<tr class="bg-background/35">
+								<td class="px-4 py-3 font-medium text-foreground">{ adminUserProviderLabel(ctx, identity.Provider) }</td>
+								<td class="px-4 py-3 break-all">
+									if identity.Email != "" {
+										{ identity.Email }
+									} else {
+										<span class="text-muted-foreground">—</span>
+									}
+								</td>
+								<td class="whitespace-nowrap px-4 py-3 text-xs text-muted-foreground">{ adminUserDate(ctx, &identity.LinkedAt) }</td>
+								<td class="whitespace-nowrap px-4 py-3 text-xs text-muted-foreground">
+									if identity.LastUsedAt != nil {
+										{ adminUserDate(ctx, identity.LastUsedAt) }
+									} else {
+										{ i18n.T(ctx, "admin.users.never_signed_in") }
+									}
+								</td>
+							</tr>
+						}
+					</tbody>
+				</table>
+			</div>
+		}
+	}
+}
+
+templ adminUserLastUsed(at *time.Time) {
+	<p class="mt-1 text-xs text-muted-foreground">
+		if at != nil {
+			{ i18n.T(ctx, "admin.user.last_used_at", "date", adminUserDate(ctx, at)) }
+		} else {
+			{ i18n.T(ctx, "admin.user.never_used") }
+		}
+	</p>
+}
+
+func adminUserDate(ctx context.Context, at *time.Time) string {
+	if at == nil || at.IsZero() {
+		return ""
+	}
+	return i18n.Dates(ctx).ShortDateTime(at.Local())
+}
+
+func adminUserProviderLabel(ctx context.Context, provider string) string {
+	switch provider {
+	case "google":
+		return "Google"
+	case "microsoft":
+		return "Microsoft"
+	case "oidc":
+		return i18n.T(ctx, "admin.user.provider_oidc")
+	}
+	return provider
+}
