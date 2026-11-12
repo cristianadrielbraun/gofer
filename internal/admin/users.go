@@ -112,6 +112,14 @@ func (s *Service) SignOut(ctx context.Context, actor Actor, userID string) (*aut
 	})
 }
 
+// SignOutSession ends one of someone else's sessions, named by the
+// reference the actor's session was given for it.
+func (s *Service) SignOutSession(ctx context.Context, actor Actor, userID, reference string) (*auth.SignOutAdministratorUserSessionResult, error) {
+	return s.auth.SignOutAdministratorUserSession(ctx, auth.SignOutAdministratorUserSessionOptions{
+		ActorUserID: actor.UserID, ActorSessionID: actor.SessionID, TargetUserID: userID, Reference: reference,
+	})
+}
+
 // PrepareDeletion marks a disabled person for deletion. Removing their
 // data is the caller's to start, since it runs beside the mail it stops.
 func (s *Service) PrepareDeletion(ctx context.Context, actor Actor, userID, confirmation string) (*auth.PrepareAdministratorUserDeletionResult, error) {

@@ -21,13 +21,19 @@ type SecuritySessionRevocationResult struct {
 }
 
 func (m *Manager) securitySessionActionReference(currentSessionID, targetSessionID string) (string, error) {
+	return m.sessionActionReference(securitySessionActionReferenceContext, currentSessionID, targetSessionID)
+}
+
+// sessionActionReference names targetID to the session currentSessionID
+// only, under label.
+func (m *Manager) sessionActionReference(label, currentSessionID, targetID string) (string, error) {
 	if len(m.bucketHashKey) < minimumBucketHashKeyBytes {
 		return "", fmt.Errorf("security session action key must be at least %d bytes", minimumBucketHashKeyBytes)
 	}
 	currentDigest := sha256.Sum256([]byte(currentSessionID))
-	targetDigest := sha256.Sum256([]byte(targetSessionID))
+	targetDigest := sha256.Sum256([]byte(targetID))
 	mac := hmac.New(sha256.New, m.bucketHashKey)
-	_, _ = mac.Write([]byte(securitySessionActionReferenceContext))
+	_, _ = mac.Write([]byte(label))
 	_, _ = mac.Write([]byte{0})
 	_, _ = mac.Write(currentDigest[:])
 	_, _ = mac.Write(targetDigest[:])

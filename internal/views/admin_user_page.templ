@@ -5,6 +5,8 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/cristianadrielbraun/gofer/components/button"
+	"github.com/cristianadrielbraun/gofer/components/dialog"
 	"github.com/cristianadrielbraun/gofer/components/icon"
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
 )
@@ -14,6 +16,7 @@ import (
 const (
 	AdminUserTabOverview = ""
 	AdminUserTabSignIn   = "sign-in"
+	AdminUserTabSessions = "sessions"
 )
 
 // AdminUserPagePath is tab of the person with userID's page. list is the
@@ -37,6 +40,10 @@ type AdminUserPageData struct {
 	// ListPath is the Users list the page was opened from.
 	ListPath string
 	Dialog   *AdminUserDialog
+	// Invitation and CredentialReset are what a change made from the page
+	// issued, shown once.
+	Invitation      *AdminUserInvitationData
+	CredentialReset *AdminUserCredentialResetData
 
 	CreatedAt         time.Time
 	DisabledAt        *time.Time
@@ -51,7 +58,25 @@ type AdminUserPageData struct {
 	Identities                 []AdminUserIdentityData
 	WorkingSessions            int
 
+	// Sessions are the places they're signed in, on the Sessions tab.
+	Sessions []AdminUserSessionData
+
 	StepUpRequired bool
+}
+
+// AdminUserSessionData is one place the person is signed in.
+type AdminUserSessionData struct {
+	UserAgent       string
+	Authentication  string
+	Assurance       string
+	AuthenticatedAt time.Time
+	LastUsedAt      time.Time
+	ExpiresAt       time.Time
+	// SignOutPath ends this session alone; empty when the administrator
+	// can't sign the person out.
+	SignOutPath string
+	CSRFToken   string
+	DialogID    string
 }
 
 // AdminUserIdentityData is a sign-in provider account linked to the person.
@@ -92,15 +117,24 @@ templ AdminUserPage(data AdminUserPageData, verification ...AdminSecurityVerific
 				@linkTabs(i18n.T(ctx, "admin.user.tabs")) {
 					@linkTab(templ.SafeURL(AdminUserPagePath(data.User.ID, AdminUserTabOverview, data.ListPath)), i18n.T(ctx, "admin.user.tab.overview"), data.Tab == AdminUserTabOverview, nil)
 					@linkTab(templ.SafeURL(AdminUserPagePath(data.User.ID, AdminUserTabSignIn, data.ListPath)), i18n.T(ctx, "admin.user.tab.sign_in"), data.Tab == AdminUserTabSignIn, nil)
+					@linkTab(templ.SafeURL(AdminUserPagePath(data.User.ID, AdminUserTabSessions, data.ListPath)), i18n.T(ctx, "admin.user.tab.sessions"), data.Tab == AdminUserTabSessions, nil)
 				}
 				<div id={ adminUserDialogSlotID }>
 					if data.Dialog != nil {
 						@AdminUserActionDialog(*data.Dialog)
 					}
 				</div>
+				if data.Invitation != nil {
+					@AdminUserInvitationResultDialog(data.Invitation)
+				}
+				if data.CredentialReset != nil {
+					@AdminUserCredentialResetResultDialog(data.CredentialReset)
+				}
 				switch data.Tab {
 					case AdminUserTabSignIn:
 						@adminUserSignInTab(data)
+					case AdminUserTabSessions:
+						@adminUserSessionsTab(data)
 					default:
 						@adminUserOverviewTab(data)
 				}
@@ -267,7 +301,9 @@ templ adminUserSignInTab(data AdminUserPageData) {
 				if data.WorkingSessions == 0 {
 					<span class="text-muted-foreground">{ i18n.T(ctx, "admin.user.no_sessions") }</span>
 				} else {
-					{ i18n.N(ctx, "admin.user.session_count", data.WorkingSessions, "count", i18n.Number(ctx, data.WorkingSessions)) }
+					<a href={ templ.SafeURL(AdminUserPagePath(data.User.ID, AdminUserTabSessions, data.ListPath)) } class="font-medium text-primary hover:underline">
+						{ i18n.N(ctx, "admin.user.session_count", data.WorkingSessions, "count", i18n.Number(ctx, data.WorkingSessions)) }
+					</a>
 				}
 			}
 		}
@@ -310,6 +346,99 @@ templ adminUserSignInTab(data AdminUserPageData) {
 					</tbody>
 				</table>
 			</div>
+		}
+	}
+}
+
+templ adminUserSessionsTab(data AdminUserPageData) {
+	@adminSection(adminSectionProps{ID: "admin-user-sessions", Title: i18n.T(ctx, "admin.user.sessions_heading"), Aside: adminUserSignOutEverywhere(data)}) {
+		if len(data.Sessions) == 0 {
+			@adminEmptyState(i18n.T(ctx, "admin.user.no_sessions_detail"))
+		} else {
+			<div class="overflow-x-auto">
+				<table class="w-full min-w-[52rem] text-left text-sm">
+					<thead class="bg-muted/45 text-xs font-semibold text-muted-foreground">
+						<tr>
+							<th scope="col" class="px-4 py-3">{ i18n.T(ctx, "admin.user.session_client") }</th>
+							<th scope="col" class="px-4 py-3">{ i18n.T(ctx, "admin.user.session_method") }</th>
+							<th scope="col" class="px-4 py-3">{ i18n.T(ctx, "admin.user.session_started") }</th>
+							<th scope="col" class="px-4 py-3">{ i18n.T(ctx, "admin.user.last_used") }</th>
+							<th scope="col" class="px-4 py-3">{ i18n.T(ctx, "admin.user.session_ends") }</th>
+							<th scope="col" class="px-4 py-3 text-right"><span class="sr-only">{ i18n.T(ctx, "admin.col.actions") }</span></th>
+						</tr>
+					</thead>
+					<tbody class="divide-y divide-border">
+						for _, session := range data.Sessions {
+							<tr class="bg-background/35 align-top" data-admin-user-session>
+								<td class="px-4 py-3 font-medium text-foreground">
+									if session.UserAgent == "" {
+										{ ClientLabel(ctx, "") }
+									} else {
+										<span title={ session.UserAgent }>{ ClientLabel(ctx, session.UserAgent) }</span>
+									}
+								</td>
+								<td class="px-4 py-3">
+									{ session.Authentication }
+									<p class="mt-1 text-xs text-muted-foreground">{ session.Assurance }</p>
+								</td>
+								<td class="whitespace-nowrap px-4 py-3 text-xs text-muted-foreground">{ adminUserDate(ctx, &session.AuthenticatedAt) }</td>
+								<td class="whitespace-nowrap px-4 py-3 text-xs text-muted-foreground">{ adminUserDate(ctx, &session.LastUsedAt) }</td>
+								<td class="whitespace-nowrap px-4 py-3 text-xs text-muted-foreground">{ adminUserDate(ctx, &session.ExpiresAt) }</td>
+								<td class="px-4 py-3 text-right">
+									if session.SignOutPath != "" {
+										@dialog.Trigger(dialog.TriggerProps{For: session.DialogID}) {
+											@button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeSm, Attributes: templ.Attributes{"aria-haspopup": "dialog", "data-admin-user-session-sign-out": ""}}) {
+												{ i18n.T(ctx, "admin.user.session_sign_out") }
+											}
+										}
+										@adminUserSessionSignOutDialog(data, session)
+									}
+								</td>
+							</tr>
+						}
+					</tbody>
+				</table>
+			</div>
+		}
+	}
+}
+
+// adminUserSignOutEverywhere opens the actions menu's sign-out dialog,
+// when there's more than one place to sign out of.
+templ adminUserSignOutEverywhere(data AdminUserPageData) {
+	if path := data.User.Path(AdminUserActionSignOut); path != "" && len(data.Sessions) > 1 {
+		{{ path = adminUserActionFromList(path, data.User.ListPath) }}
+		@button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeSm, Href: path, Attributes: adminUserMenuItemAttributes(path)}) {
+			{ i18n.T(ctx, "admin.users.sign_out") }
+		}
+	}
+}
+
+templ adminUserSessionSignOutDialog(data AdminUserPageData, session AdminUserSessionData) {
+	@dialog.Dialog(dialog.Props{ID: session.DialogID}) {
+		@dialog.Content() {
+			@dialog.Header() {
+				@dialog.Title() {
+					{ i18n.T(ctx, "admin.user.session_sign_out_title", "user", adminUserUsername(ctx, data.User.Username), "client", ClientLabel(ctx, session.UserAgent)) }
+				}
+				@dialog.Description() {
+					{ i18n.T(ctx, "admin.user.session_sign_out_detail") }
+				}
+			}
+			<form method="post" action={ templ.SafeURL(session.SignOutPath) } data-step-up>
+				<input type="hidden" name="_csrf" value={ session.CSRFToken }/>
+				<input type="hidden" name="list" value={ data.User.ListPath }/>
+				@dialog.Footer() {
+					@dialog.Close() {
+						@button.Button(button.Props{Variant: button.VariantOutline}) {
+							{ i18n.T(ctx, "common.cancel") }
+						}
+					}
+					@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantDestructive}) {
+						{ i18n.T(ctx, "admin.user.session_sign_out") }
+					}
+				}
+			</form>
 		}
 	}
 }

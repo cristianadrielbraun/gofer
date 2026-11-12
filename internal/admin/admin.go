@@ -89,6 +89,7 @@ func CodeOf(err error) Code {
 		errors.Is(err, auth.ErrEnrollmentTokenTargetInvalid),
 		errors.Is(err, auth.ErrAdministratorUserDeletionTargetInvalid),
 		errors.Is(err, auth.ErrAdministratorUserSignOutTargetInvalid),
+		errors.Is(err, auth.ErrAdministratorUserSessionGone),
 		errors.Is(err, errCredentialResetTarget):
 		return CodeUnavailable
 	}

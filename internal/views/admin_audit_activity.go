@@ -79,6 +79,9 @@ func adminAuditSentence(ctx context.Context, record audit.Record) string {
 	case "instance.audit_retention_changed":
 		change := record.Changes["admin_event_retention_days"]
 		args = append(args, "from", adminAuditValue(ctx, change.From), "to", adminAuditValue(ctx, change.To))
+	case "user.session_signed_out":
+		agent, _ := record.Metadata["user_agent"].(string)
+		args = append(args, "client", ClientLabel(ctx, agent))
 	case "user.list_exported":
 		count, _ := adminAuditCount(record.Metadata["count"])
 		return i18n.N(ctx, key, count, "count", i18n.Number(ctx, count))

@@ -263,6 +263,11 @@ func (h *Handler) handleAdminUserActionDialog(action views.AdminUserAction) http
 			h.writeAdminFragment(w, r, views.AdminUserActionDialog(dialog, verification))
 			return
 		}
+		// Opened from a person's page, the page is behind it.
+		if userID, tab, list, ok := adminUserPageFrom(r.URL.Query().Get("list")); ok {
+			h.renderAdminUserPage(w, r, userID, tab, list, adminUserPageExtras{dialog: &dialog, returnTo: user.Path(action)})
+			return
+		}
 		state.data.Dialog = &dialog
 		h.writeAdminUsersPage(w, r, http.StatusOK, state, user.Path(action), false, "")
 	}
@@ -341,7 +346,13 @@ func (h *Handler) handleRotateAdminUserInvitation(w http.ResponseWriter, r *http
 		h.adminUserChangeFailed(w, r, err, adminUserRotateChange, views.AdminUserInvitationFormData{})
 		return
 	}
-	h.renderAdminUsers(w, r, http.StatusCreated, views.AdminUserInvitationFormData{}, h.adminInvitationResult(invitation, true), "")
+	result := h.adminInvitationResult(invitation, true)
+	// Made from the person's page, the new invitation shows there.
+	if userID, tab, list, ok := adminUserPageFrom(r.PostFormValue("list")); ok {
+		h.renderAdminUserPage(w, r, userID, tab, list, adminUserPageExtras{status: http.StatusCreated, invitation: result})
+		return
+	}
+	h.renderAdminUsers(w, r, http.StatusCreated, views.AdminUserInvitationFormData{}, result, "")
 }
 
 // adminInvitationResult shows a new invitation once, with where to use it.
@@ -479,6 +490,11 @@ func (h *Handler) handleIssueAdminUserCredentialReset(w http.ResponseWriter, r *
 		Username:      target.Username,
 		RedemptionURL: strings.TrimRight(h.auth.Config().BaseURL, "/") + credentialRedemptionPath,
 		Token:         token.Token, ExpiresAt: token.ExpiresAt,
+	}
+	// Issued from the person's page, the token shows there.
+	if userID, tab, list, ok := adminUserPageFrom(r.PostFormValue("list")); ok {
+		h.renderAdminUserPage(w, r, userID, tab, list, adminUserPageExtras{status: http.StatusCreated, credentialReset: result})
+		return
 	}
 	h.renderAdminUsersWithCredentialReset(w, r, http.StatusCreated, result, "")
 }

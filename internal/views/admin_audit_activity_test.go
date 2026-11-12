@@ -102,6 +102,7 @@ func TestEveryRecordedActionHasASentence(t *testing.T) {
 		{Event: audit.Event{Action: "instance.mfa_policy_changed", Changes: map[string]audit.Change{"mfa_policy": {From: "administrators", To: "all_users"}}}},
 		{Event: audit.Event{Action: "audit.pruned"}},
 		{Event: audit.Event{Action: "audit.exported", Metadata: map[string]any{"format": "csv"}}},
+		{Event: audit.Event{Action: "user.session_signed_out", Metadata: map[string]any{"user_agent": "Mozilla/5.0 (X11; Linux x86_64) Chrome/140.0"}}},
 		{Event: audit.Event{Action: "user.list_exported", Metadata: map[string]any{"format": "csv", "count": float64(12)}}},
 		{Event: audit.Event{Action: "instance.audit_retention_changed"}},
 		{Event: audit.Event{Action: "security.exception_added", Metadata: map[string]any{"kind": "http_discovery"}}},
