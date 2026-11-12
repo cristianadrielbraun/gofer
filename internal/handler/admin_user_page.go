@@ -17,7 +17,7 @@ import (
 
 // adminUserPageTabs are the tabs of a person's page, each an address below
 // it.
-var adminUserPageTabs = []string{views.AdminUserTabOverview, views.AdminUserTabSignIn, views.AdminUserTabSessions}
+var adminUserPageTabs = []string{views.AdminUserTabOverview, views.AdminUserTabSignIn, views.AdminUserTabSessions, views.AdminUserTabMailboxes}
 
 // adminUserPageAddress is the person's page path names, rebuilt from what it
 // understands: a plausible user ID, one of the tabs, and the Users list it
@@ -157,6 +157,13 @@ func (h *Handler) renderAdminUserPage(w http.ResponseWriter, r *http.Request, us
 			return
 		}
 		data.Sessions = adminUserSessionsViewData(ctx, sessions, row, h.auth.OIDCLoginName())
+	}
+	if tab == views.AdminUserTabMailboxes {
+		if data.Mailboxes, data.HasMailboxes, err = h.adminUserMailboxes(ctx, user, detail.AdministratorUserSummary); err != nil {
+			log.Printf("load administrator user %q mailboxes: %v", detail.ID, err)
+			http.Error(w, i18n.T(ctx, "admin.user.mailboxes_failed"), http.StatusInternalServerError)
+			return
+		}
 	}
 	returnTo := extras.returnTo
 	if returnTo == "" {

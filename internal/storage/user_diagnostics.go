@@ -2,8 +2,10 @@ package storage
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"os"
+	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/models"
 )
@@ -26,6 +28,7 @@ const (
 	UserDiagnosticsMail       UserDiagnosticsKind = "mail"
 	UserDiagnosticsAvatars    UserDiagnosticsKind = "avatars"
 	UserDiagnosticsTransports UserDiagnosticsKind = "transports"
+	UserDiagnosticsMailboxes  UserDiagnosticsKind = "mailboxes"
 )
 
 type DiagnosticTransportAccount struct {
@@ -48,6 +51,23 @@ type UserDiagnostics struct {
 	Idle         []ConfiguredIdleFolder
 	AvatarEmails []string
 	Transports   []DiagnosticTransportAccount
+	Mailboxes    []AdminMailbox
+}
+
+// AdminMailbox is one mail account a person added, as an administrator
+// sees it: how it connects and whether it works, never its credentials or
+// its mail.
+type AdminMailbox struct {
+	DiagnosticTransportAccount
+	DisplayName string
+	SyncEnabled bool
+	SyncError   string
+	SyncErrorAt *time.Time
+	// ProxyID is the account's proxy choice: "" the default, "direct" none,
+	// else an outbound proxy's ID.
+	ProxyID   string
+	Hidden    bool
+	CreatedAt time.Time
 }
 
 func (r *AccountRouting) ValidateDiagnosticsAdministrator(ctx context.Context, actor DiagnosticsActor) error {
@@ -87,7 +107,7 @@ func (r *AccountRouting) ValidateDiagnosticsAccess(ctx context.Context, actor Di
 // It neither creates unused owners' files nor exposes a database capability to
 // administration handlers. A missing file for a known mailbox owner is an error.
 func (r *AccountRouting) ReadUserDiagnostics(ctx context.Context, actor DiagnosticsActor, owner string, kind UserDiagnosticsKind) (result UserDiagnostics, err error) {
-	if kind != UserDiagnosticsContacts && kind != UserDiagnosticsLabels && kind != UserDiagnosticsMail && kind != UserDiagnosticsAvatars && kind != UserDiagnosticsTransports {
+	if kind != UserDiagnosticsContacts && kind != UserDiagnosticsLabels && kind != UserDiagnosticsMail && kind != UserDiagnosticsAvatars && kind != UserDiagnosticsTransports && kind != UserDiagnosticsMailboxes {
 		return result, errors.New("unknown user diagnostics kind")
 	}
 	err = r.withDiagnosticsStore(ctx, actor, owner, func(db *DB) error {
@@ -106,6 +126,8 @@ func (r *AccountRouting) ReadUserDiagnostics(ctx context.Context, actor Diagnost
 			result.AvatarEmails, err = db.listAdminAvatarEmails(ctx, owner)
 		case UserDiagnosticsTransports:
 			result.Transports, err = db.listDiagnosticTransports(ctx, owner)
+		case UserDiagnosticsMailboxes:
+			result.Mailboxes, err = db.ListAdminMailboxes(ctx, owner)
 		}
 		if err != nil {
 			return err
@@ -144,6 +166,48 @@ func (db *DB) listTransportAccounts(ctx context.Context, filter string, args ...
 			return nil, err
 		}
 		result = append(result, account)
+	}
+	return result, rows.Err()
+}
+
+// ListAdminMailboxes reads the mail accounts owner added, Local folders
+// left out, in the order they show in Mail.
+func (db *DB) ListAdminMailboxes(ctx context.Context, owner string) ([]AdminMailbox, error) {
+	transports, err := db.listDiagnosticTransports(ctx, owner)
+	if err != nil {
+		return nil, err
+	}
+	byID := make(map[string]DiagnosticTransportAccount, len(transports))
+	for _, transport := range transports {
+		byID[transport.ID] = transport
+	}
+	rows, err := db.Read().QueryContext(ctx, `SELECT id, COALESCE(display_name,''), COALESCE(email_sync_enabled,1),
+ COALESCE(email_sync_error,''), email_sync_error_at, COALESCE(proxy_id,''), COALESCE(hidden,0), created_at
+ FROM accounts WHERE user_id=? AND COALESCE(is_deleting,0)=0 AND provider != 'local'
+ ORDER BY sort_order, id`, owner)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]AdminMailbox, 0)
+	for rows.Next() {
+		var mailbox AdminMailbox
+		var id string
+		var errorAt sql.NullTime
+		if err := rows.Scan(&id, &mailbox.DisplayName, &mailbox.SyncEnabled, &mailbox.SyncError, &errorAt,
+			&mailbox.ProxyID, &mailbox.Hidden, &mailbox.CreatedAt); err != nil {
+			return nil, err
+		}
+		transport, ok := byID[id]
+		if !ok {
+			continue
+		}
+		mailbox.DiagnosticTransportAccount = transport
+		if errorAt.Valid {
+			at := errorAt.Time
+			mailbox.SyncErrorAt = &at
+		}
+		result = append(result, mailbox)
 	}
 	return result, rows.Err()
 }

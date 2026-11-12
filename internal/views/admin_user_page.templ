@@ -16,7 +16,8 @@ import (
 const (
 	AdminUserTabOverview = ""
 	AdminUserTabSignIn   = "sign-in"
-	AdminUserTabSessions = "sessions"
+	AdminUserTabSessions  = "sessions"
+	AdminUserTabMailboxes = "mailboxes"
 )
 
 // AdminUserPagePath is tab of the person with userID's page. list is the
@@ -60,8 +61,38 @@ type AdminUserPageData struct {
 
 	// Sessions are the places they're signed in, on the Sessions tab.
 	Sessions []AdminUserSessionData
+	// Mailboxes are the mail accounts they added, on the Mailboxes tab.
+	// HasMailboxes is false for someone who has no mail of their own
+	// (administrators) or whose data is being deleted.
+	Mailboxes    []AdminUserMailboxData
+	HasMailboxes bool
 
 	StepUpRequired bool
+}
+
+// AdminUserMailboxData is one mail account the person added.
+type AdminUserMailboxData struct {
+	Provider    string
+	Email       string
+	DisplayName string
+	// Servers are where it connects, one per service: "IMAP", "imap.example.org:993".
+	Servers     []AdminUserMailboxServer
+	SyncEnabled bool
+	SyncError   string
+	SyncErrorAt *time.Time
+	Proxy       string
+	Hidden      bool
+	CreatedAt   time.Time
+	// Refusal says why the allowed servers would refuse it; empty when
+	// they allow it. Unlimited says the lists don't limit this person.
+	Refusal   string
+	Unlimited bool
+}
+
+// AdminUserMailboxServer is one service a mailbox connects to.
+type AdminUserMailboxServer struct {
+	Service string
+	Address string
 }
 
 // AdminUserSessionData is one place the person is signed in.
@@ -118,6 +149,7 @@ templ AdminUserPage(data AdminUserPageData, verification ...AdminSecurityVerific
 					@linkTab(templ.SafeURL(AdminUserPagePath(data.User.ID, AdminUserTabOverview, data.ListPath)), i18n.T(ctx, "admin.user.tab.overview"), data.Tab == AdminUserTabOverview, nil)
 					@linkTab(templ.SafeURL(AdminUserPagePath(data.User.ID, AdminUserTabSignIn, data.ListPath)), i18n.T(ctx, "admin.user.tab.sign_in"), data.Tab == AdminUserTabSignIn, nil)
 					@linkTab(templ.SafeURL(AdminUserPagePath(data.User.ID, AdminUserTabSessions, data.ListPath)), i18n.T(ctx, "admin.user.tab.sessions"), data.Tab == AdminUserTabSessions, nil)
+					@linkTab(templ.SafeURL(AdminUserPagePath(data.User.ID, AdminUserTabMailboxes, data.ListPath)), i18n.T(ctx, "admin.user.tab.mailboxes"), data.Tab == AdminUserTabMailboxes, nil)
 				}
 				<div id={ adminUserDialogSlotID }>
 					if data.Dialog != nil {
@@ -135,6 +167,8 @@ templ AdminUserPage(data AdminUserPageData, verification ...AdminSecurityVerific
 						@adminUserSignInTab(data)
 					case AdminUserTabSessions:
 						@adminUserSessionsTab(data)
+					case AdminUserTabMailboxes:
+						@adminUserMailboxesTab(data)
 					default:
 						@adminUserOverviewTab(data)
 				}
@@ -441,6 +475,108 @@ templ adminUserSessionSignOutDialog(data AdminUserPageData, session AdminUserSes
 			</form>
 		}
 	}
+}
+
+templ adminUserMailboxesTab(data AdminUserPageData) {
+	@adminSection(adminSectionProps{ID: "admin-user-mailboxes", Title: i18n.T(ctx, "admin.user.mailboxes_heading"), Aside: adminSectionNote(i18n.T(ctx, "admin.user.mailboxes_detail"))}) {
+		if !data.HasMailboxes {
+			@adminEmptyState(i18n.T(ctx, "admin.user.no_mailbox_store"))
+		} else if len(data.Mailboxes) == 0 {
+			@adminEmptyState(i18n.T(ctx, "admin.user.no_mailboxes"))
+		} else {
+			<ul class="divide-y divide-border">
+				for _, mailbox := range data.Mailboxes {
+					<li class="px-4 py-4" data-admin-user-mailbox>
+						<div class="flex flex-wrap items-start justify-between gap-2">
+							<div class="min-w-0">
+								<p class="break-all font-semibold text-foreground">
+									if mailbox.Email != "" {
+										{ mailbox.Email }
+									} else {
+										{ mailbox.DisplayName }
+									}
+								</p>
+								<p class="mt-0.5 text-xs text-muted-foreground">
+									{ adminUserMailboxProvider(ctx, mailbox.Provider) }
+									if mailbox.Email != "" && mailbox.DisplayName != "" && mailbox.DisplayName != mailbox.Email {
+										· { mailbox.DisplayName }
+									}
+									· { i18n.T(ctx, "admin.user.mailbox_added", "date", adminUserDate(ctx, &mailbox.CreatedAt)) }
+								</p>
+							</div>
+							<div class="flex flex-wrap items-center gap-2">
+								if mailbox.Hidden {
+									@adminBadge(adminToneNeutral) {
+										{ i18n.T(ctx, "admin.user.mailbox_hidden") }
+									}
+								}
+								switch {
+									case !mailbox.SyncEnabled:
+										@adminBadge(adminToneNeutral) {
+											{ i18n.T(ctx, "admin.user.mailbox_paused") }
+										}
+									case mailbox.SyncError != "":
+										@adminBadge(adminToneDanger) {
+											{ i18n.T(ctx, "admin.user.mailbox_failing") }
+										}
+									default:
+										@adminBadge(adminToneSuccess) {
+											{ i18n.T(ctx, "admin.user.mailbox_working") }
+										}
+								}
+							</div>
+						</div>
+						if mailbox.SyncError != "" {
+							<p class="mt-2 break-words rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive" data-admin-user-mailbox-error>
+								{ mailbox.SyncError }
+								if mailbox.SyncErrorAt != nil {
+									<span class="mt-1 block text-muted-foreground">{ i18n.T(ctx, "admin.user.mailbox_error_at", "date", adminUserDate(ctx, mailbox.SyncErrorAt)) }</span>
+								}
+							</p>
+						}
+						<dl class="mt-3 grid gap-x-6 gap-y-2 text-sm sm:grid-cols-[10rem_1fr]">
+							for _, server := range mailbox.Servers {
+								<dt class="text-muted-foreground">{ server.Service }</dt>
+								<dd class="min-w-0 break-all font-mono text-xs leading-5 text-foreground">{ server.Address }</dd>
+							}
+							<dt class="text-muted-foreground">{ i18n.T(ctx, "admin.user.mailbox_proxy") }</dt>
+							<dd class="min-w-0 text-foreground">{ mailbox.Proxy }</dd>
+							<dt class="text-muted-foreground">{ i18n.T(ctx, "admin.user.mailbox_allowlist") }</dt>
+							<dd class="min-w-0">
+								switch {
+									case mailbox.Refusal != "":
+										@adminBadge(adminToneDanger, templ.Attributes{"data-admin-user-mailbox-refused": ""}) {
+											{ i18n.T(ctx, "admin.user.mailbox_refused") }
+										}
+										<p class="mt-1 text-xs text-muted-foreground">{ mailbox.Refusal }</p>
+									case mailbox.Unlimited:
+										<span class="text-muted-foreground">{ i18n.T(ctx, "admin.user.mailbox_unlimited") }</span>
+									default:
+										{ i18n.T(ctx, "admin.user.mailbox_allowed") }
+								}
+							</dd>
+						</dl>
+					</li>
+				}
+			</ul>
+		}
+	}
+}
+
+func adminUserMailboxProvider(ctx context.Context, provider string) string {
+	switch provider {
+	case "gmail":
+		return "Gmail"
+	case "outlook":
+		return "Outlook"
+	case "jmap":
+		return "JMAP"
+	case "imap":
+		return "IMAP"
+	case "dav":
+		return i18n.T(ctx, "admin.user.mailbox_dav")
+	}
+	return provider
 }
 
 templ adminUserLastUsed(at *time.Time) {

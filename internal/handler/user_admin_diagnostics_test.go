@@ -74,6 +74,11 @@ func newOwnedAdminDiagnosticFixture(t *testing.T) *ownedAdminDiagnosticFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// New installs its database's DAV server check for the whole package;
+	// put the previous one back so later tests don't check against this
+	// fixture's closed database.
+	previousPolicy := davServerPolicy.Load()
+	t.Cleanup(func() { davServerPolicy.Store(previousPolicy) })
 	f.admin = New(f.system, nil, mail.NewSyncOrchestrator(f.system, nil, nil, nil), f.h.blobStore, f.manager, "")
 	f.admin.ownedMailbox = f.h
 	mux := http.NewServeMux()

@@ -55,6 +55,11 @@ func TestAdminUserPageShowsSomeonesAccountAndSignIn(t *testing.T) {
 		}
 	}
 
+	// Without a store per person, accounts are read from the one database.
+	if mailboxes := getSecuritySettingsPath(t, stack, "/admin/users/page-person/mailboxes", sessionCookie).Body.String(); !strings.Contains(mailboxes, "They haven&#39;t added a mail account yet.") {
+		t.Fatalf("mailboxes tab = %q", mailboxes)
+	}
+
 	// A change made from the page returns to it.
 	request := httptest.NewRequest(http.MethodGet, signOut+"?list="+url.QueryEscape(pagePath), nil)
 	request.Header.Set("HX-Request", "true")
@@ -85,7 +90,8 @@ func TestAdminUserPageAddressesAreRebuilt(t *testing.T) {
 		{value: "/admin/users/person-1/sign-in", want: "/admin/users/person-1/sign-in"},
 		{value: "/admin/users/person-1?list=%2Fadmin%2Fusers%3Fq%3Dana", want: "/admin/users/person-1?list=%2Fadmin%2Fusers%3Fq%3Dana"},
 		{value: "/admin/users/person-1/sessions", want: "/admin/users/person-1/sessions"},
-		{value: "/admin/users/person-1/mailboxes"},
+		{value: "/admin/users/person-1/mailboxes", want: "/admin/users/person-1/mailboxes"},
+		{value: "/admin/users/person-1/settings"},
 		{value: "/admin/users/person-1?next=/admin"},
 		{value: "/admin/users/person-1?list=https://attacker.example"},
 		{value: "/admin/users/person-1?list=%2Fadmin%2Fusers%2Fperson-2"},
