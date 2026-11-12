@@ -35,17 +35,17 @@ templ AdminPage(status models.AvatarStatus, activeTab string) {
 		Scope: status.Scope, ScopePath: AdminAvatarsPath + activeTab, Actions: adminAvatarDiagnosticsActions(status),
 	}) {
 		@tabs.Tabs(tabs.Props{ID: "avatar-admin-tabs", Attributes: adminDiagnosticsRootAttributes(status.Scope, "data-avatar-admin", adminAvatarTabsPath(status.Scope))}) {
-			@tabs.List(tabs.ListProps{Class: "bg-card max-w-full justify-start overflow-x-auto"}) {
-				@tabs.Trigger(tabs.TriggerProps{Value: "overview", IsActive: activeTab == "overview", Class: "min-w-fit"}) {
+			@tabs.List(tabs.ListProps{Class: adminTabsListClass}) {
+				@tabs.Trigger(tabs.TriggerProps{Value: "overview", IsActive: activeTab == "overview", Class: adminTabsTriggerClass}) {
 					{ i18n.T(ctx, "admin.tab.overview") }
 				}
-				@tabs.Trigger(tabs.TriggerProps{Value: "senders", IsActive: activeTab == "senders", Class: "min-w-fit"}) {
+				@tabs.Trigger(tabs.TriggerProps{Value: "senders", IsActive: activeTab == "senders", Class: adminTabsTriggerClass}) {
 					{ i18n.T(ctx, "admin.avatars.tab.senders") }
 				}
-				@tabs.Trigger(tabs.TriggerProps{Value: "providers", IsActive: activeTab == "providers", Class: "min-w-fit"}) {
+				@tabs.Trigger(tabs.TriggerProps{Value: "providers", IsActive: activeTab == "providers", Class: adminTabsTriggerClass}) {
 					{ i18n.T(ctx, "admin.avatars.tab.providers") }
 				}
-				@tabs.Trigger(tabs.TriggerProps{Value: "events", IsActive: activeTab == "events", Class: "min-w-fit"}) {
+				@tabs.Trigger(tabs.TriggerProps{Value: "events", IsActive: activeTab == "events", Class: adminTabsTriggerClass}) {
 					{ i18n.T(ctx, "admin.tab.events") }
 				}
 			}

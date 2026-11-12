@@ -134,6 +134,22 @@ func (m *Manager) ListAdministratorSecurityEventPage(
 		TotalPages:  totalPages,
 		PageSize:    administratorSecurityEventPageSize,
 	}
+	if result.Events, err = scanAdministratorSecurityEvents(rows, result.Events); err != nil {
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, fmt.Errorf("close administrator security events: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit administrator security event page: %w", err)
+	}
+	return result, nil
+}
+
+// scanAdministratorSecurityEvents appends the events rows hold to events.
+// The rows are occurred_at, event_type, success, reason, user_agent, the
+// actor's and subject's usernames and metadata_json.
+func scanAdministratorSecurityEvents(rows *sql.Rows, events []AdministratorSecurityEventSummary) ([]AdministratorSecurityEventSummary, error) {
 	for rows.Next() {
 		var event AdministratorSecurityEventSummary
 		var success int
@@ -155,18 +171,57 @@ func (m *Manager) ListAdministratorSecurityEventPage(
 			event.SubjectUsername = username
 			event.SubjectDeleted = true
 		}
-		result.Events = append(result.Events, event)
+		events = append(events, event)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate administrator security events: %w", err)
 	}
+	return events, nil
+}
+
+// ListAdministratorUserSecurityEvents returns the limit newest sign-in and
+// security events about userID, or that they did, to a recently verified
+// administrator, as ListAdministratorSecurityEventPage shows them.
+func (m *Manager) ListAdministratorUserSecurityEvents(ctx context.Context, actorUserID, actorSessionID, userID string, limit int) ([]AdministratorSecurityEventSummary, error) {
+	actorUserID, actorSessionID, userID = strings.TrimSpace(actorUserID), strings.TrimSpace(actorSessionID), strings.TrimSpace(userID)
+	if actorUserID == "" {
+		return nil, ErrAdministratorRequired
+	}
+	if actorSessionID == "" {
+		return nil, ErrRecentStepUpRequired
+	}
+	if limit < 1 || int64(limit) > administratorSecurityEventPageSize {
+		limit = int(administratorSecurityEventPageSize)
+	}
+	tx, err := m.db.Read().BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin administrator user security events: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := requireAdministratorPermission(ctx, tx, actorUserID, actorSessionID, authz.ActivityRead, m.clock.Now().UTC()); err != nil {
+		return nil, err
+	}
+	rows, err := tx.QueryContext(ctx, `
+		SELECT event.occurred_at, event.event_type, event.success, event.reason,
+		       event.user_agent, actor.username, subject.username, event.metadata_json
+		FROM auth_events event
+		LEFT JOIN users actor ON actor.id = event.actor_user_id
+		LEFT JOIN users subject ON subject.id = event.subject_user_id
+		WHERE event.subject_user_id = ? OR event.actor_user_id = ?
+		ORDER BY event.occurred_at DESC, event.id DESC
+		LIMIT ?`, userID, userID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list administrator user security events: %w", err)
+	}
+	defer rows.Close()
+	events, err := scanAdministratorSecurityEvents(rows, make([]AdministratorSecurityEventSummary, 0, limit))
+	if err != nil {
+		return nil, err
+	}
 	if err := rows.Close(); err != nil {
-		return nil, fmt.Errorf("close administrator security events: %w", err)
+		return nil, fmt.Errorf("close administrator user security events: %w", err)
 	}
-	if err := tx.Commit(); err != nil {
-		return nil, fmt.Errorf("commit administrator security event page: %w", err)
-	}
-	return result, nil
+	return events, tx.Commit()
 }
 
 func administratorSecurityEventFilterQuery(filter AdministratorSecurityEventFilter) (string, []any) {

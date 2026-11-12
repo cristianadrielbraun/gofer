@@ -132,11 +132,11 @@ templ AdminContactsPage(status models.ContactAdminStatus) {
 		Scope: status.Scope, ScopePath: AdminContactsPath, Actions: adminContactDiagnosticsActions(status),
 	}) {
 		@tabs.Tabs(tabs.Props{ID: "contact-admin-tabs", Attributes: adminDiagnosticsRootAttributes(status.Scope, "data-contact-admin", "")}) {
-			@tabs.List(tabs.ListProps{Class: "bg-card"}) {
-				@tabs.Trigger(tabs.TriggerProps{Value: "overview", IsActive: true}) {
+			@tabs.List(tabs.ListProps{Class: adminTabsListClass}) {
+				@tabs.Trigger(tabs.TriggerProps{Value: "overview", IsActive: true, Class: adminTabsTriggerClass}) {
 					{ i18n.T(ctx, "admin.tab.overview") }
 				}
-				@tabs.Trigger(tabs.TriggerProps{Value: "events"}) {
+				@tabs.Trigger(tabs.TriggerProps{Value: "events", Class: adminTabsTriggerClass}) {
 					{ i18n.T(ctx, "admin.tab.events") }
 				}
 			}

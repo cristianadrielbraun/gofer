@@ -227,3 +227,42 @@ func TestSignOutAdministratorUserSessionEndsOnlyTheChosenOne(t *testing.T) {
 		t.Fatalf("signing someone disabled out = %+v, %v", result, err)
 	}
 }
+
+func TestListAdministratorUserSecurityEventsKeepsToThatPerson(t *testing.T) {
+	now := time.Date(2026, time.November, 12, 12, 0, 0, 0, time.UTC)
+	manager := newDeterministicManager(t, &fixedClock{now: now}, secureTokenGenerator{})
+	insertActiveUser(t, manager, "administrator", true, now)
+	insertActiveUser(t, manager, "person", false, now)
+	insertActiveUser(t, manager, "bystander", false, now)
+	insertPolicyTestTOTP(t, manager, "administrator", now)
+	adminSession := createPolicyAdministratorSession(t, manager)
+	staleAdmin, err := manager.CreateAuthenticatedSession(t.Context(), "administrator", "Stale admin", AuthenticationMethodPassword, AssuranceLevelMultiFactor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"person", "bystander"} {
+		if _, err := manager.CreateAuthenticatedSession(t.Context(), id, "Browser", AuthenticationMethodPassword, AssuranceLevelSingleFactor); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := manager.SignOutAdministratorUser(t.Context(), SignOutAdministratorUserOptions{ActorUserID: "administrator", ActorSessionID: adminSession.ID, TargetUserID: id}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	events, err := manager.ListAdministratorUserSecurityEvents(t.Context(), "administrator", adminSession.ID, "person", 10)
+	if err != nil || len(events) == 0 {
+		t.Fatalf("person's events = %+v, %v", events, err)
+	}
+	for _, event := range events {
+		if event.SubjectUsername != "person" && event.ActorUsername != "person" {
+			t.Fatalf("an event about someone else: %+v", event)
+		}
+	}
+	// What an administrator did shows on their own page too.
+	mine, err := manager.ListAdministratorUserSecurityEvents(t.Context(), "administrator", adminSession.ID, "administrator", 10)
+	if err != nil || len(mine) < 2 {
+		t.Fatalf("administrator's events = %+v, %v", mine, err)
+	}
+	if events, err := manager.ListAdministratorUserSecurityEvents(t.Context(), "administrator", staleAdmin.ID, "person", 10); events != nil || !errors.Is(err, ErrRecentStepUpRequired) {
+		t.Fatalf("stale reader = %+v, %v", events, err)
+	}
+}

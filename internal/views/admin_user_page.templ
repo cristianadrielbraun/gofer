@@ -8,6 +8,8 @@ import (
 	"github.com/cristianadrielbraun/gofer/components/button"
 	"github.com/cristianadrielbraun/gofer/components/dialog"
 	"github.com/cristianadrielbraun/gofer/components/icon"
+	"github.com/cristianadrielbraun/gofer/components/tabs"
+	"github.com/cristianadrielbraun/gofer/internal/audit"
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
 )
 
@@ -18,6 +20,7 @@ const (
 	AdminUserTabSignIn   = "sign-in"
 	AdminUserTabSessions  = "sessions"
 	AdminUserTabMailboxes = "mailboxes"
+	AdminUserTabActivity  = "activity"
 )
 
 // AdminUserPagePath is tab of the person with userID's page. list is the
@@ -66,6 +69,13 @@ type AdminUserPageData struct {
 	// (administrators) or whose data is being deleted.
 	Mailboxes    []AdminUserMailboxData
 	HasMailboxes bool
+	// On the Activity tab: the newest sign-in and security events about
+	// them, the administrative changes made to them and, for an
+	// administrator, the ones they made.
+	SecurityEvents []AdminSecurityActivityEventData
+	Changes        []audit.Record
+	ChangesMade    []audit.Record
+	ShowChangesMade bool
 
 	StepUpRequired bool
 }
@@ -150,6 +160,7 @@ templ AdminUserPage(data AdminUserPageData, verification ...AdminSecurityVerific
 					@linkTab(templ.SafeURL(AdminUserPagePath(data.User.ID, AdminUserTabSignIn, data.ListPath)), i18n.T(ctx, "admin.user.tab.sign_in"), data.Tab == AdminUserTabSignIn, nil)
 					@linkTab(templ.SafeURL(AdminUserPagePath(data.User.ID, AdminUserTabSessions, data.ListPath)), i18n.T(ctx, "admin.user.tab.sessions"), data.Tab == AdminUserTabSessions, nil)
 					@linkTab(templ.SafeURL(AdminUserPagePath(data.User.ID, AdminUserTabMailboxes, data.ListPath)), i18n.T(ctx, "admin.user.tab.mailboxes"), data.Tab == AdminUserTabMailboxes, nil)
+					@linkTab(templ.SafeURL(AdminUserPagePath(data.User.ID, AdminUserTabActivity, data.ListPath)), i18n.T(ctx, "admin.user.tab.activity"), data.Tab == AdminUserTabActivity, nil)
 				}
 				<div id={ adminUserDialogSlotID }>
 					if data.Dialog != nil {
@@ -169,6 +180,8 @@ templ AdminUserPage(data AdminUserPageData, verification ...AdminSecurityVerific
 						@adminUserSessionsTab(data)
 					case AdminUserTabMailboxes:
 						@adminUserMailboxesTab(data)
+					case AdminUserTabActivity:
+						@adminUserActivityTab(data, adminSecurityVerificationValue(verification))
 					default:
 						@adminUserOverviewTab(data)
 				}
@@ -561,6 +574,90 @@ templ adminUserMailboxesTab(data AdminUserPageData) {
 			</ul>
 		}
 	}
+}
+
+// AdminUserActivityLimit is how many of each kind of activity a person's
+// page shows.
+const AdminUserActivityLimit = 25
+
+templ adminUserActivityTab(data AdminUserPageData, verification AdminSecurityVerificationData) {
+	if data.StepUpRequired {
+		<div role="alert" class="mt-6 rounded-lg border border-amber-500/30 bg-amber-500/10 px-5 py-5 text-amber-900 dark:text-amber-100" data-admin-user-activity-locked>
+			<p class="font-semibold">{ i18n.T(ctx, "admin.verify.required") }</p>
+			<p class="mt-1 text-sm">{ i18n.T(ctx, "admin.user.activity_verify") }</p>
+			<div class="mt-4">
+				@AdminSecurityVerificationTrigger(verification, i18n.T(ctx, "admin.verify.now"))
+			</div>
+		</div>
+	} else {
+		@tabs.Tabs(tabs.Props{ID: "admin-user-activity-tabs", Class: "mt-6"}) {
+			@tabs.List(tabs.ListProps{Class: adminTabsListClass}) {
+				@tabs.Trigger(tabs.TriggerProps{Value: "security", IsActive: true, Class: adminTabsTriggerClass}) {
+					{ i18n.T(ctx, "admin.activity.tab.security") }
+				}
+				@tabs.Trigger(tabs.TriggerProps{Value: "changes", Class: adminTabsTriggerClass}) {
+					{ i18n.T(ctx, "admin.user.changes") }
+				}
+				if data.ShowChangesMade {
+					@tabs.Trigger(tabs.TriggerProps{Value: "changes-made", Class: adminTabsTriggerClass}) {
+						{ i18n.T(ctx, "admin.user.changes_made") }
+					}
+				}
+			}
+			@tabs.Content(tabs.ContentProps{Value: "security", IsActive: true, Class: "mt-4"}) {
+				@adminUserActivityCard(len(data.SecurityEvents), templ.SafeURL(AdminActivityPath)) {
+					if len(data.SecurityEvents) == 0 {
+						@adminEmptyState(i18n.T(ctx, "admin.user.no_security_events"))
+					} else {
+						@adminSecurityEventsTable(data.SecurityEvents)
+					}
+				}
+			}
+			@tabs.Content(tabs.ContentProps{Value: "changes", Class: "mt-4"}) {
+				@adminUserActivityCard(len(data.Changes), templ.SafeURL(AdminAuditActivityPath)) {
+					if len(data.Changes) == 0 {
+						@adminEmptyState(i18n.T(ctx, "admin.user.no_changes"))
+					} else {
+						@adminAuditTable(data.Changes)
+					}
+				}
+			}
+			if data.ShowChangesMade {
+				@tabs.Content(tabs.ContentProps{Value: "changes-made", Class: "mt-4"}) {
+					@adminUserActivityCard(len(data.ChangesMade), templ.SafeURL(AdminAuditActivityPath)) {
+						if len(data.ChangesMade) == 0 {
+							@adminEmptyState(i18n.T(ctx, "admin.user.no_changes_made"))
+						} else {
+							@adminAuditTable(data.ChangesMade)
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+// adminUserActivityCard holds one of the Activity tab's lists, under a bar
+// that says when it shows only the newest entries and leads to the whole
+// record.
+templ adminUserActivityCard(count int, all templ.SafeURL) {
+	<div class="overflow-hidden rounded-lg border border-border bg-card">
+		<div class="flex justify-end border-b border-border px-4 py-3">
+			@adminUserActivityAside(count, all)
+		</div>
+		{ children... }
+	</div>
+}
+
+// adminUserActivityAside says when a list shows only the newest entries,
+// and leads to the whole record.
+templ adminUserActivityAside(count int, all templ.SafeURL) {
+	<span class="flex items-center gap-3 text-xs text-muted-foreground">
+		if count >= AdminUserActivityLimit {
+			{ i18n.T(ctx, "admin.user.activity_newest", "count", i18n.Number(ctx, AdminUserActivityLimit)) }
+		}
+		<a href={ all } class="font-semibold text-primary hover:underline">{ i18n.T(ctx, "admin.user.activity_all") }</a>
+	</span>
 }
 
 func adminUserMailboxProvider(ctx context.Context, provider string) string {

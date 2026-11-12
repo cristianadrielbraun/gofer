@@ -46,20 +46,20 @@ templ AdminSecurityPage(data models.MailSecurityAdminData, verification ...Admin
 				</div>
 				if data.Allowlist != nil {
 					@tabs.Tabs(tabs.Props{ID: "mail-security-tabs"}) {
-						@tabs.List(tabs.ListProps{Class: "bg-card"}) {
-							@tabs.Trigger(tabs.TriggerProps{Value: "allowlist", IsActive: data.Tab != "exceptions" && data.Tab != "proxies"}) {
+						@tabs.List(tabs.ListProps{Class: adminTabsListClass}) {
+							@tabs.Trigger(tabs.TriggerProps{Value: "allowlist", IsActive: data.Tab != "exceptions" && data.Tab != "proxies", Class: adminTabsTriggerClass}) {
 								{ i18n.T(ctx, "admin.allowlist.tab") }
 								if len(data.Allowlist.Refused) > 0 {
 									<span class="rounded-full bg-red-500/12 px-1.5 text-[11px] font-semibold tabular-nums text-red-700 dark:text-red-300">{ i18n.T(ctx, "admin.allowlist.refused_count", "count", i18n.Number(ctx, len(data.Allowlist.Refused))) }</span>
 								}
 							}
-							@tabs.Trigger(tabs.TriggerProps{Value: "exceptions", IsActive: data.Tab == "exceptions"}) {
+							@tabs.Trigger(tabs.TriggerProps{Value: "exceptions", IsActive: data.Tab == "exceptions", Class: adminTabsTriggerClass}) {
 								{ i18n.T(ctx, "admin.security.exceptions_tab") }
 								if len(data.Exceptions) > 0 {
 									<span class="rounded-full bg-muted px-1.5 text-[11px] font-semibold tabular-nums text-muted-foreground">{ i18n.Number(ctx, len(data.Exceptions)) }</span>
 								}
 							}
-							@tabs.Trigger(tabs.TriggerProps{Value: "proxies", IsActive: data.Tab == "proxies"}) {
+							@tabs.Trigger(tabs.TriggerProps{Value: "proxies", IsActive: data.Tab == "proxies", Class: adminTabsTriggerClass}) {
 								{ i18n.T(ctx, "admin.proxies.tab") }
 								if len(data.Proxies) > 0 {
 									<span class="rounded-full bg-muted px-1.5 text-[11px] font-semibold tabular-nums text-muted-foreground">{ i18n.Number(ctx, len(data.Proxies)) }</span>

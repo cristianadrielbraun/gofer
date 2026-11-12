@@ -93,24 +93,7 @@ templ AdminAuditActivityPage(data AdminAuditActivityData, verification ...AdminS
 								@adminEmptyState(i18n.T(ctx, "admin.audit.empty_filter"))
 							}
 						} else {
-							<div class="overflow-x-auto">
-								<table class="w-full min-w-[60rem] text-left text-sm" aria-label={ i18n.T(ctx, "admin.audit.heading") }>
-									<thead class="bg-muted/45 text-xs font-semibold text-muted-foreground">
-										<tr>
-											<th scope="col" class="px-4 py-3">{ i18n.T(ctx, "admin.col.time") }</th>
-											<th scope="col" class="px-4 py-3">{ i18n.T(ctx, "admin.col.event") }</th>
-											<th scope="col" class="px-4 py-3">{ i18n.T(ctx, "admin.col.status") }</th>
-											<th scope="col" class="px-4 py-3">{ i18n.T(ctx, "admin.col.actor") }</th>
-											<th scope="col" class="px-4 py-3">{ i18n.T(ctx, "admin.col.client") }</th>
-										</tr>
-									</thead>
-									<tbody class="divide-y divide-border">
-										for _, record := range data.Records {
-											@adminAuditRow(record)
-										}
-									</tbody>
-								</table>
-							</div>
+							@adminAuditTable(data.Records)
 						}
 					}
 					if data.Before > 0 || data.Next > 0 {
@@ -129,6 +112,29 @@ templ AdminAuditActivityPage(data AdminAuditActivityData, verification ...AdminS
 		</div>
 	</div>
 	@AdminSecurityVerificationDialog(adminSecurityVerificationValue(verification))
+}
+
+// adminAuditTable lists administrative changes, on the Activity page and
+// on a person's page.
+templ adminAuditTable(records []audit.Record) {
+	<div class="overflow-x-auto">
+		<table class="w-full min-w-[60rem] text-left text-sm" aria-label={ i18n.T(ctx, "admin.audit.heading") }>
+			<thead class="bg-muted/45 text-xs font-semibold text-muted-foreground">
+				<tr>
+					<th scope="col" class="px-4 py-3">{ i18n.T(ctx, "admin.col.time") }</th>
+					<th scope="col" class="px-4 py-3">{ i18n.T(ctx, "admin.col.event") }</th>
+					<th scope="col" class="px-4 py-3">{ i18n.T(ctx, "admin.col.status") }</th>
+					<th scope="col" class="px-4 py-3">{ i18n.T(ctx, "admin.col.actor") }</th>
+					<th scope="col" class="px-4 py-3">{ i18n.T(ctx, "admin.col.client") }</th>
+				</tr>
+			</thead>
+			<tbody class="divide-y divide-border">
+				for _, record := range records {
+					@adminAuditRow(record)
+				}
+			</tbody>
+		</table>
+	</div>
 }
 
 templ adminAuditRow(record audit.Record) {

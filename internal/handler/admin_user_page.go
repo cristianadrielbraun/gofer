@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/cristianadrielbraun/gofer/internal/admin"
+	"github.com/cristianadrielbraun/gofer/internal/audit"
 	"github.com/cristianadrielbraun/gofer/internal/auth"
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"github.com/cristianadrielbraun/gofer/internal/views"
@@ -17,7 +18,7 @@ import (
 
 // adminUserPageTabs are the tabs of a person's page, each an address below
 // it.
-var adminUserPageTabs = []string{views.AdminUserTabOverview, views.AdminUserTabSignIn, views.AdminUserTabSessions, views.AdminUserTabMailboxes}
+var adminUserPageTabs = []string{views.AdminUserTabOverview, views.AdminUserTabSignIn, views.AdminUserTabSessions, views.AdminUserTabMailboxes, views.AdminUserTabActivity}
 
 // adminUserPageAddress is the person's page path names, rebuilt from what it
 // understands: a plausible user ID, one of the tabs, and the Users list it
@@ -185,6 +186,21 @@ func (h *Handler) renderAdminUserPage(w http.ResponseWriter, r *http.Request, us
 		http.Error(w, i18n.T(ctx, "server.error.failed_to_verify_administrator_session"), http.StatusInternalServerError)
 		return
 	}
+	// Activity needs a recently verified session; a stale one sees the tab
+	// locked, and nothing is read or refused.
+	if tab == views.AdminUserTabActivity && !data.StepUpRequired {
+		err := h.loadAdminUserActivity(ctx, user.ID, session.ID, detail.AdministratorUserSummary, &data)
+		switch {
+		case err == nil:
+		case errors.Is(err, auth.ErrRecentStepUpRequired):
+			data.StepUpRequired = true
+			verification = adminSecurityVerificationViewData(ctx, access, returnTo, false)
+		default:
+			log.Printf("load administrator user %q activity: %v", detail.ID, err)
+			http.Error(w, i18n.T(ctx, "admin.user.activity_failed"), http.StatusInternalServerError)
+			return
+		}
+	}
 	status := extras.status
 	if status == 0 {
 		status = http.StatusOK
@@ -262,4 +278,27 @@ func (h *Handler) handleSignOutAdminUserSession(w http.ResponseWriter, r *http.R
 		h.setAdminFlashError(w, i18n.T(ctx, "auth.admin.users.sign_out_failed"))
 	}
 	http.Redirect(w, r, back, http.StatusSeeOther)
+}
+
+// loadAdminUserActivity reads the newest activity about person into data.
+func (h *Handler) loadAdminUserActivity(ctx context.Context, actorUserID, actorSessionID string, person auth.AdministratorUserSummary, data *views.AdminUserPageData) error {
+	events, err := h.auth.ListAdministratorUserSecurityEvents(ctx, actorUserID, actorSessionID, person.ID, views.AdminUserActivityLimit)
+	if err != nil {
+		return err
+	}
+	data.SecurityEvents = adminSecurityActivityViewData(ctx, &auth.AdministratorSecurityEventPage{Events: events, Page: 1, TotalPages: 1}).Events
+	changes, err := h.auth.ListAdministrationEvents(ctx, actorUserID, actorSessionID, audit.Filter{TargetKind: "user", TargetID: person.ID}, 0, views.AdminUserActivityLimit)
+	if err != nil {
+		return err
+	}
+	data.Changes = changes.Records
+	if person.IsAdmin {
+		data.ShowChangesMade = true
+		made, err := h.auth.ListAdministrationEvents(ctx, actorUserID, actorSessionID, audit.Filter{ActorID: person.ID}, 0, views.AdminUserActivityLimit)
+		if err != nil {
+			return err
+		}
+		data.ChangesMade = made.Records
+	}
+	return nil
 }

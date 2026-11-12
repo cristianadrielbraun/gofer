@@ -8536,3 +8536,25 @@ aside [data-sidebar-account-toggle][data-mail-drop-active] {
   -webkit-mask: url("/assets/logo.svg") center / contain no-repeat;
   mask: url("/assets/logo.svg") center / contain no-repeat;
 }
+
+/* The admin console's tabs all look like its link tabs (linkTab in
+   admin_audit_activity.templ). templui's tabs mark the chosen tab with a
+   sliding box the tabs script styles inline, so it takes the link tab's
+   chosen look here: the page's background and a small shadow in light mode,
+   the input color at 30% with its border in dark mode. Express draws its
+   own tabs. */
+html:not([data-theme="express"]) [data-management-shell] [data-tui-tabs]:not([data-email-body-style-toggle]) [data-tui-tabs-indicator] {
+  /* Link tabs don't slide between choices, so neither does this. */
+  transition: none !important;
+  /* A link tab is 1px shorter than its list's inside, and centered in it. */
+  top: 3.5px !important;
+  height: calc(100% - 7px) !important;
+  background: var(--background) !important;
+  border-color: transparent !important;
+  box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1) !important;
+}
+
+html.dark:not([data-theme="express"]) [data-management-shell] [data-tui-tabs]:not([data-email-body-style-toggle]) [data-tui-tabs-indicator] {
+  background: color-mix(in oklab, var(--input) 30%, transparent) !important;
+  border-color: var(--input) !important;
+}

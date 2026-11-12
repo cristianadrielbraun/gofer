@@ -8,7 +8,9 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/cristianadrielbraun/gofer/internal/audit"
 	"github.com/cristianadrielbraun/gofer/internal/auth"
 )
 
@@ -91,6 +93,7 @@ func TestAdminUserPageAddressesAreRebuilt(t *testing.T) {
 		{value: "/admin/users/person-1?list=%2Fadmin%2Fusers%3Fq%3Dana", want: "/admin/users/person-1?list=%2Fadmin%2Fusers%3Fq%3Dana"},
 		{value: "/admin/users/person-1/sessions", want: "/admin/users/person-1/sessions"},
 		{value: "/admin/users/person-1/mailboxes", want: "/admin/users/person-1/mailboxes"},
+		{value: "/admin/users/person-1/activity", want: "/admin/users/person-1/activity"},
 		{value: "/admin/users/person-1/settings"},
 		{value: "/admin/users/person-1?next=/admin"},
 		{value: "/admin/users/person-1?list=https://attacker.example"},
@@ -174,5 +177,49 @@ func TestAdminUserPageShowsWhatItsChangesIssue(t *testing.T) {
 	if issued.Code != http.StatusCreated || !strings.Contains(body, "data-admin-user-page") || !strings.Contains(body, "How they sign in") ||
 		!strings.Contains(body, "/account/redeem") {
 		t.Fatalf("reset token from the page = %d %q", issued.Code, body)
+	}
+}
+
+func TestAdminUserActivityTabShowsWhatHappenedToThem(t *testing.T) {
+	manager, db, stack, sessionCookie, _ := completedSecuritySettingsStack(t)
+	addBulkPeople(t, db, "active", "watched-person", "other-person")
+	for _, id := range []string{"watched-person", "other-person"} {
+		if _, err := manager.CreateAuthenticatedSession(t.Context(), id, "Browser", auth.AuthenticationMethodPassword, auth.AssuranceLevelSingleFactor); err != nil {
+			t.Fatal(err)
+		}
+		path := adminUserSignOutPath(id)
+		dialog := adminUserActionDialog(t, stack, sessionCookie, path)
+		if response := postSecuritySettings(t, stack, path, url.Values{auth.CSRFFormFieldName: {csrfProofFromForm(t, dialog, path)}}, sessionCookie); response.Code != http.StatusSeeOther {
+			t.Fatalf("sign %s out = %d", id, response.Code)
+		}
+	}
+	tab := "/admin/users/watched-person/activity"
+	body := getSecuritySettingsPath(t, stack, tab, sessionCookie).Body.String()
+	if !strings.Contains(body, "Signed watched-person out everywhere") || strings.Contains(body, "Signed other-person out everywhere") ||
+		!strings.Contains(body, "Changes made to them") || strings.Contains(body, "Changes they made") ||
+		!strings.Contains(body, `data-audit-action="user.signed_out"`) {
+		t.Fatalf("activity tab = %q", body)
+	}
+	// An administrator's page also lists the changes they made.
+	session, err := manager.GetSessionByToken(t.Context(), sessionCookie.Value)
+	if err != nil || session == nil {
+		t.Fatalf("administrator session = %#v, %v", session, err)
+	}
+	own := getSecuritySettingsPath(t, stack, "/admin/users/"+session.UserID+"/activity", sessionCookie).Body.String()
+	if !strings.Contains(own, "Changes they made") || !strings.Contains(own, "Signed other-person out everywhere") {
+		t.Fatalf("administrator's activity tab = %q", own)
+	}
+
+	// A stale session sees the tab locked; nothing is read, so no refusal
+	// is recorded.
+	if _, err := db.Write().ExecContext(t.Context(), `UPDATE sessions SET step_up_at = ? WHERE id = ?`, time.Now().UTC().Add(-11*time.Minute), session.ID); err != nil {
+		t.Fatal(err)
+	}
+	locked := getSecuritySettingsPath(t, stack, tab, sessionCookie).Body.String()
+	if !strings.Contains(locked, "data-admin-user-activity-locked") || strings.Contains(locked, "Signed watched-person out everywhere") {
+		t.Fatalf("stale activity tab = %q", locked)
+	}
+	if denied, _ := audit.List(t.Context(), db.Read(), audit.Filter{Action: "access.denied"}, 0, 10); len(denied.Records) != 0 {
+		t.Fatalf("viewing a locked tab recorded refusals: %+v", denied.Records)
 	}
 }

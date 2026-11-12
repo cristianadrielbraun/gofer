@@ -594,4 +594,11 @@ func adminFact(label string) templ.Component {
 	})
 }
 
+// The console's tabs all look like linkTabs: templui's tabs, which switch in
+// place, take these classes so the two kinds can't be told apart.
+const (
+	adminTabsListClass    = "max-w-full justify-start overflow-x-auto"
+	adminTabsTriggerClass = "min-w-fit px-3"
+)
+
 var _ = templruntime.GeneratedTemplate
