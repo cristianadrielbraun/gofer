@@ -17,6 +17,9 @@ type RedeemEnrollmentTokenOptions struct {
 	NewPassword string
 	UserAgent   string
 	Purpose     EnrollmentTokenPurpose
+	// Administrator accepts an administrator's invitation, and nothing
+	// else; without it, an administrator's invitation isn't accepted.
+	Administrator bool
 }
 
 type EnrollmentRedemptionResult struct {
@@ -54,7 +57,7 @@ func (m *Manager) RedeemEnrollmentToken(ctx context.Context, options RedeemEnrol
 	if err != nil {
 		return nil, err
 	}
-	if candidate != nil && candidate.purpose != options.Purpose {
+	if candidate != nil && !enrollmentRedemptionMatches(candidate, options) {
 		candidate = nil
 	}
 	if candidate != nil {
@@ -98,11 +101,13 @@ func (m *Manager) RedeemEnrollmentToken(ctx context.Context, options RedeemEnrol
 			return fmt.Errorf("recheck enrollment token: %w", err)
 		}
 		if !sameEnrollmentRedemptionCandidate(current, candidate) ||
-			current.purpose != options.Purpose ||
+			!enrollmentRedemptionMatches(current, options) ||
 			!enrollmentRedemptionStatusEligible(current.purpose, current.status, current.userType) {
 			return ErrEnrollmentTokenInvalid
 		}
-		if current.purpose == EnrollmentTokenPurposeEnrollment {
+		// An administrator sets up two-factor authentication at their first
+		// sign-in, as the management policy asks of every administrator.
+		if current.purpose == EnrollmentTokenPurposeEnrollment && !options.Administrator {
 			if err := m.requireUserReadyForInstanceMFA(ctx, tx, current.userID); err != nil {
 				return err
 			}
@@ -267,8 +272,22 @@ func sameEnrollmentRedemptionCandidate(left, right *enrollmentRedemptionCandidat
 }
 
 func enrollmentRedemptionStatusEligible(purpose EnrollmentTokenPurpose, status UserStatus, userType UserType) bool {
-	return purpose == EnrollmentTokenPurposeEnrollment && status == UserStatusPending && userType == UserTypeWebmail ||
+	return purpose == EnrollmentTokenPurposeEnrollment && status == UserStatusPending && (userType == UserTypeWebmail || userType == UserTypeManagement) ||
 		purpose == EnrollmentTokenPurposeCredentialReset && (status == UserStatusActive || status == UserStatusDisabled)
+}
+
+// enrollmentRedemptionMatches reports whether the sign-up asking accepts
+// candidate: the webmail sign-up a webmail person's invitation and every
+// credential reset, the administrator sign-up only an administrator's
+// invitation.
+func enrollmentRedemptionMatches(candidate *enrollmentRedemptionCandidate, options RedeemEnrollmentTokenOptions) bool {
+	if candidate.purpose != options.Purpose {
+		return false
+	}
+	if options.Administrator {
+		return candidate.purpose == EnrollmentTokenPurposeEnrollment && candidate.userType == UserTypeManagement
+	}
+	return candidate.purpose != EnrollmentTokenPurposeEnrollment || candidate.userType == UserTypeWebmail
 }
 
 func enrollmentRedemptionEventJSON(tokenID string, purpose EnrollmentTokenPurpose, revokedSessions int64) (string, error) {

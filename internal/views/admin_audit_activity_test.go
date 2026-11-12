@@ -85,6 +85,7 @@ func TestEveryRecordedActionHasASentence(t *testing.T) {
 	ctx := context.Background()
 	for _, record := range []audit.Record{
 		{Event: audit.Event{Action: "user.invited"}},
+		{Event: audit.Event{Action: "user.administrator_invited"}},
 		{Event: audit.Event{Action: "invitation.revoked"}},
 		{Event: audit.Event{Action: "invitation.rotated"}},
 		{Event: audit.Event{Action: "invitation.issued"}},

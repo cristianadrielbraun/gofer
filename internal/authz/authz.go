@@ -48,6 +48,9 @@ const (
 	ActivityRetention Permission = "activity.retention"
 	// ActivityExport downloads the administration audit log.
 	ActivityExport Permission = "activity.export"
+	// AdminsManage invites administrators, and later assigns their roles
+	// and disables them.
+	AdminsManage Permission = "admins.manage"
 	// DiagnosticsRead shows the system diagnostics pages.
 	DiagnosticsRead Permission = "diagnostics.read"
 )
@@ -74,6 +77,7 @@ var catalog = map[Permission]Spec{
 	ActivityRetention: {StepUp: true},
 	ActivityExport:    {StepUp: true},
 	DiagnosticsRead:   {},
+	AdminsManage:      {StepUp: true},
 }
 
 // ErrForbidden means the person may not use the permission.

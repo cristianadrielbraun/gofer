@@ -9,6 +9,10 @@ import (
 type InvitationEnrollmentData struct {
 	Message              string
 	GoogleLoginAvailable bool
+	// Administrator is the administrator sign-up: its own address, words
+	// and way back, and only a password (two-factor authentication follows
+	// at the first sign-in).
+	Administrator bool
 }
 
 type CredentialRedemptionData struct {
@@ -33,15 +37,20 @@ templ InvitationEnrollmentPage(data InvitationEnrollmentData) {
 				<div class="w-full max-w-sm">
 					<div class="text-center mb-8">
 						<img src={ assetver.URL("/assets/logo.svg") } alt="Gofer" class="h-12 w-auto mx-auto"/>
-						<h1 class="mt-6 text-2xl font-semibold">{ i18n.T(ctx, "signin.enroll_invite.title") }</h1>
-						<p class="mt-2 text-sm text-muted-foreground">{ i18n.T(ctx, "signin.enroll_invite.description") }</p>
+						if data.Administrator {
+							<h1 class="mt-6 text-2xl font-semibold">{ i18n.T(ctx, "signin.enroll_admin.title") }</h1>
+							<p class="mt-2 text-sm text-muted-foreground">{ i18n.T(ctx, "signin.enroll_admin.description") }</p>
+						} else {
+							<h1 class="mt-6 text-2xl font-semibold">{ i18n.T(ctx, "signin.enroll_invite.title") }</h1>
+							<p class="mt-2 text-sm text-muted-foreground">{ i18n.T(ctx, "signin.enroll_invite.description") }</p>
+						}
 					</div>
 					if data.Message != "" {
 						<div id="enrollment-error" role="alert" aria-live="polite" class="bg-destructive/10 border border-destructive/20 text-destructive rounded-lg px-4 py-3 text-sm mb-6">
 							{ data.Message }
 						</div>
 					}
-					<form method="post" action="/account/enroll" class="space-y-4">
+					<form method="post" action={ templ.SafeURL(invitationEnrollmentAction(data)) } class="space-y-4">
 						<div class="space-y-2">
 							<label for="enrollment-token" class="text-sm font-medium">{ i18n.T(ctx, "signin.enroll_invite.token") }</label>
 							<input
@@ -95,7 +104,7 @@ templ InvitationEnrollmentPage(data InvitationEnrollmentData) {
 						@button.Button(button.Props{Type: button.TypeSubmit, FullWidth: true}) {
 							{ i18n.T(ctx, "signin.enroll_invite.with_password") }
 						}
-						if data.GoogleLoginAvailable {
+						if data.GoogleLoginAvailable && !data.Administrator {
 							<div class="relative py-1" aria-hidden="true">
 								<div class="absolute inset-0 flex items-center"><div class="w-full border-t border-border"></div></div>
 								<div class="relative flex justify-center"><span class="bg-background px-3 text-xs uppercase tracking-wide text-muted-foreground">{ i18n.T(ctx, "signin.or") }</span></div>
@@ -113,7 +122,7 @@ templ InvitationEnrollmentPage(data InvitationEnrollmentData) {
 					</form>
 					<p class="mt-6 text-center text-xs text-muted-foreground">{ i18n.T(ctx, "signin.enroll_invite.note") }</p>
 					<div class="mt-4">
-						@button.Button(button.Props{Href: "/login", Variant: button.VariantOutline, FullWidth: true}) {
+						@button.Button(button.Props{Href: invitationEnrollmentBack(data), Variant: button.VariantOutline, FullWidth: true}) {
 							{ i18n.T(ctx, "signin.back") }
 						}
 					</div>
@@ -121,6 +130,20 @@ templ InvitationEnrollmentPage(data InvitationEnrollmentData) {
 			</main>
 		</body>
 	</html>
+}
+
+func invitationEnrollmentAction(data InvitationEnrollmentData) string {
+	if data.Administrator {
+		return "/admin/enroll"
+	}
+	return "/account/enroll"
+}
+
+func invitationEnrollmentBack(data InvitationEnrollmentData) string {
+	if data.Administrator {
+		return "/admin/login"
+	}
+	return "/login"
 }
 
 templ CredentialRedemptionPage(data CredentialRedemptionData) {
@@ -213,14 +236,20 @@ templ CredentialRedemptionPage(data CredentialRedemptionData) {
 }
 
 templ InvitationEnrollmentCompletePage() {
-	@passwordTokenCompletePage(i18n.T(ctx, "signin.enroll_invite.done_title"), i18n.T(ctx, "signin.enroll_invite.done"))
+	@passwordTokenCompletePage(i18n.T(ctx, "signin.enroll_invite.done_title"), i18n.T(ctx, "signin.enroll_invite.done"), "/login", i18n.T(ctx, "signin.back"))
+}
+
+// AdministratorEnrollmentCompletePage sends a new administrator to sign in,
+// where they set up two-factor authentication.
+templ AdministratorEnrollmentCompletePage() {
+	@passwordTokenCompletePage(i18n.T(ctx, "signin.enroll_invite.done_title"), i18n.T(ctx, "signin.enroll_admin.done"), "/admin/login", i18n.T(ctx, "signin.enroll_admin.sign_in"))
 }
 
 templ CredentialRedemptionCompletePage() {
-	@passwordTokenCompletePage(i18n.T(ctx, "signin.redeem.done_title"), i18n.T(ctx, "signin.redeem.done"))
+	@passwordTokenCompletePage(i18n.T(ctx, "signin.redeem.done_title"), i18n.T(ctx, "signin.redeem.done"), "/login", i18n.T(ctx, "signin.back"))
 }
 
-templ passwordTokenCompletePage(title string, message string) {
+templ passwordTokenCompletePage(title, message, signIn, signInLabel string) {
 	<!DOCTYPE html>
 	<html lang={ pageLang(ctx) } class="dark" data-theme="classic">
 		<head>
@@ -242,8 +271,8 @@ templ passwordTokenCompletePage(title string, message string) {
 						<p class="mt-3 text-sm text-muted-foreground">{ message }</p>
 					</div>
 					<div class="mt-8">
-						@button.Button(button.Props{Href: "/login", FullWidth: true}) {
-							{ i18n.T(ctx, "signin.back") }
+						@button.Button(button.Props{Href: signIn, FullWidth: true}) {
+							{ signInLabel }
 						}
 					</div>
 				</div>

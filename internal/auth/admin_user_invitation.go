@@ -135,11 +135,80 @@ func (m *Manager) CreateAdministratorUserInvitation(ctx context.Context, options
 	return invitation.result, nil
 }
 
+// CreateAdministratorInvitation invites someone to be an administrator: a
+// pending administrator and their invitation, in one security transition.
+// Only the administrator sign-up accepts the invitation, where they choose a
+// password; their first sign-in then has them set up two-factor
+// authentication, which every administrator needs. The raw token is
+// returned only from this call.
+func (m *Manager) CreateAdministratorInvitation(ctx context.Context, options CreateAdministratorUserInvitationOptions) (*AdministratorUserInvitation, error) {
+	actorUserID := strings.TrimSpace(options.ActorUserID)
+	actorSessionID := strings.TrimSpace(options.ActorSessionID)
+	if actorUserID == "" {
+		return nil, ErrAdministratorRequired
+	}
+	if actorSessionID == "" {
+		return nil, ErrRecentStepUpRequired
+	}
+	invitation, err := m.newUserInvitation(options.Name, options.Username, options.Lifetime, actorUserID)
+	if err != nil {
+		return nil, err
+	}
+	invitation.administrator = true
+	invitation.result.User.UserType, invitation.result.User.IsAdmin = UserTypeManagement, true
+	eventID, err := m.tokens.ID()
+	if err != nil {
+		return nil, fmt.Errorf("generate administrator invitation event ID: %w", err)
+	}
+	now := invitation.result.Token.CreatedAt
+	err = m.runSecurityTransition(ctx, SecurityTransitionEnrollment, func(tx *sql.Tx) error {
+		if err := requireAdministratorPermission(ctx, tx, actorUserID, actorSessionID, authz.AdminsManage, now); err != nil {
+			return err
+		}
+		if err := insertUserInvitation(ctx, tx, invitation); err != nil {
+			return err
+		}
+		metadata, err := enrollmentTokenEventJSON(invitation.result.Token.ID, invitation.result.Token.Purpose, 0)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO auth_events (
+				id, occurred_at, actor_user_id, subject_user_id, session_id, event_type,
+				success, reason, metadata_json
+			) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+			eventID, now, actorUserID, invitation.result.User.ID, actorSessionID,
+			AuthEventEnrollmentIssued, AuthEventReasonAdministratorAction, metadata,
+		); err != nil {
+			return fmt.Errorf("record administrator invitation issuance: %w", err)
+		}
+		return m.auditAdministratorChange(ctx, tx, actorUserID, actorSessionID, audit.Event{
+			Action: "user.administrator_invited",
+			Target: audit.Target{Kind: auditTargetUser, ID: invitation.result.User.ID, Label: invitation.result.User.Username},
+			Changes: map[string]audit.Change{
+				"name":     {To: invitation.result.Name},
+				"username": {To: invitation.result.User.Username},
+				"status":   {To: UserStatusPending},
+				"role":     {To: "administrator"},
+			},
+			Metadata:      map[string]any{"invitation_expires_at": invitation.result.Token.ExpiresAt.UTC()},
+			CorrelationID: eventID,
+		})
+	})
+	if err != nil {
+		return nil, err
+	}
+	return invitation.result, nil
+}
+
 // preparedUserInvitation is a validated invitation whose raw token has not
 // been stored yet. usernameNormalized never leaves this package.
 type preparedUserInvitation struct {
 	result             *AdministratorUserInvitation
 	usernameNormalized string
+	// administrator makes the pending person an administrator, whom only
+	// the administrator sign-up accepts.
+	administrator bool
 }
 
 // newUserInvitation validates the invited user's details and generates the
@@ -204,13 +273,17 @@ func insertUserInvitation(ctx context.Context, tx *sql.Tx, invitation *preparedU
 		return &AdministratorUserInvitationValidationError{Fields: collisions}
 	}
 
+	userType, isAdmin := UserTypeWebmail, 0
+	if invitation.administrator {
+		userType, isAdmin = UserTypeManagement, 1
+	}
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO users (
 			id, username, username_normalized, name,
 			status, auth_version, mfa_required, user_type, is_admin, created_at, updated_at
-		) VALUES (?, ?, ?, ?, 'pending', 1, 0, 'webmail', 0, ?, ?)`,
+		) VALUES (?, ?, ?, ?, 'pending', 1, 0, ?, ?, ?, ?)`,
 		result.User.ID, result.User.Username, invitation.usernameNormalized, result.Name,
-		result.Token.CreatedAt, result.Token.CreatedAt,
+		userType, isAdmin, result.Token.CreatedAt, result.Token.CreatedAt,
 	); err != nil {
 		return fmt.Errorf("create pending invited user: %w", err)
 	}

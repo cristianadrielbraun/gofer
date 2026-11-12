@@ -15,6 +15,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/components/icon"
 	"github.com/cristianadrielbraun/gofer/components/input"
 	"github.com/cristianadrielbraun/gofer/components/pagination"
+	"github.com/cristianadrielbraun/gofer/components/radio"
 	"github.com/cristianadrielbraun/gofer/components/selectbox"
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
 )
@@ -89,12 +90,17 @@ type AdminUsersData struct {
 }
 
 type AdminUserInvitationFormData struct {
-	Name        string
-	Username    string
-	FieldErrors map[string]string
+	Name     string
+	Username string
+	// Administrator invites them as an administrator.
+	Administrator bool
+	FieldErrors   map[string]string
 }
 
 type AdminUserInvitationData struct {
+	// Administrator is an administrator's invitation, accepted on the
+	// administrator sign-up.
+	Administrator bool
 	Name          string
 	Username      string
 	RedemptionURL string
@@ -288,7 +294,11 @@ func adminUserInvitationCopyText(ctx context.Context, data *AdminUserInvitationD
 	if data == nil {
 		return ""
 	}
-	return i18n.T(ctx, "admin.invite.copy_text", "username", data.Username, "url", data.RedemptionURL, "token", data.Token, "expires", adminDateTimeZone(ctx, data.ExpiresAt))
+	key := "admin.invite.copy_text"
+	if data.Administrator {
+		key = "admin.invite.copy_text_administrator"
+	}
+	return i18n.T(ctx, key, "username", data.Username, "url", data.RedemptionURL, "token", data.Token, "expires", adminDateTimeZone(ctx, data.ExpiresAt))
 }
 
 func adminUserCredentialResetCopyText(ctx context.Context, data *AdminUserCredentialResetData) string {
@@ -984,6 +994,11 @@ templ AdminUserInvitationDialog(data AdminUsersData) {
 						}
 					</div>
 				</div>
+				<fieldset class="space-y-2" data-admin-invitation-role>
+					<legend class="text-sm font-semibold text-foreground">{ i18n.T(ctx, "admin.invite.role") }</legend>
+					@adminInvitationRole("user", i18n.T(ctx, "admin.invite.role_user"), i18n.T(ctx, "admin.invite.role_user_detail"), !data.InvitationForm.Administrator)
+					@adminInvitationRole("administrator", i18n.T(ctx, "admin.invite.role_administrator"), i18n.T(ctx, "admin.invite.role_administrator_detail"), data.InvitationForm.Administrator)
+				</fieldset>
 				<div class="rounded-md border border-border bg-muted/35 px-3 py-2.5 text-xs leading-relaxed text-muted-foreground">
 					{ i18n.T(ctx, "admin.invite.note") }
 				</div>
@@ -1001,6 +1016,19 @@ templ AdminUserInvitationDialog(data AdminUsersData) {
 			</form>
 		}
 	}
+}
+
+// adminInvitationRole is one of what someone can be invited as.
+templ adminInvitationRole(value, label, detail string, checked bool) {
+	<label class="flex items-start gap-2.5 text-sm text-foreground">
+		<span class="mt-0.5 flex shrink-0">
+			@radio.Radio(radio.Props{Name: "role", Value: value, Checked: checked})
+		</span>
+		<span>
+			<span class="font-medium">{ label }</span>
+			<span class="mt-0.5 block text-xs text-muted-foreground">{ detail }</span>
+		</span>
+	</label>
 }
 
 templ AdminUserInvitationResultDialog(data *AdminUserInvitationData) {
@@ -1041,6 +1069,11 @@ templ AdminUserInvitationResultDialog(data *AdminUserInvitationData) {
 				</div>
 				<textarea id="admin-user-invitation-details" readonly rows="6" class="w-full resize-none rounded-md border border-border bg-background px-3 py-2 font-mono text-xs leading-relaxed text-foreground outline-none">{ adminUserInvitationCopyText(ctx, data) }</textarea>
 			</div>
+			if data.Administrator {
+				<div class="rounded-md border border-border bg-muted/35 px-3 py-2.5 text-xs leading-relaxed text-muted-foreground" data-admin-invitation-administrator>
+					{ i18n.T(ctx, "admin.invite.administrator_next") }
+				</div>
+			}
 			<div class="rounded-md border border-amber-500/25 bg-amber-500/10 px-3 py-2.5 text-xs leading-relaxed text-amber-900 dark:text-amber-100">
 				{ i18n.T(ctx, "admin.invite.send_note") }
 			</div>

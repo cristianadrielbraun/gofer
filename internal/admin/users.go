@@ -36,6 +36,14 @@ func (s *Service) InviteUser(ctx context.Context, actor Actor, name, username st
 	})
 }
 
+// InviteAdministrator creates a pending administrator and the invitation
+// they join with on the administrator sign-up.
+func (s *Service) InviteAdministrator(ctx context.Context, actor Actor, name, username string) (*auth.AdministratorUserInvitation, error) {
+	return s.auth.CreateAdministratorInvitation(ctx, auth.CreateAdministratorUserInvitationOptions{
+		ActorUserID: actor.UserID, ActorSessionID: actor.SessionID, Name: name, Username: username,
+	})
+}
+
 // RevokeInvitation withdraws the invitation that reference names.
 func (s *Service) RevokeInvitation(ctx context.Context, actor Actor, reference string) error {
 	return s.auth.RevokeAdministratorUserInvitation(ctx, actor.UserID, actor.SessionID, reference)

@@ -310,7 +310,18 @@ func (h *Handler) handleCreateAdminUserInvitation(w http.ResponseWriter, r *http
 	form := views.AdminUserInvitationFormData{
 		Name: r.PostFormValue("name"), Username: r.PostFormValue("username"),
 	}
-	invitation, err := h.adminService().InviteUser(r.Context(), actor, form.Name, form.Username)
+	var invitation *auth.AdministratorUserInvitation
+	var err error
+	switch r.PostFormValue("role") {
+	case "", "user":
+		invitation, err = h.adminService().InviteUser(r.Context(), actor, form.Name, form.Username)
+	case "administrator":
+		form.Administrator = true
+		invitation, err = h.adminService().InviteAdministrator(r.Context(), actor, form.Name, form.Username)
+	default:
+		h.renderAdminUsers(w, r, http.StatusBadRequest, form, nil, i18n.T(r.Context(), "auth.admin.users.invitation_form_invalid"))
+		return
+	}
 	if err != nil {
 		var validationErr *auth.AdministratorUserInvitationValidationError
 		if errors.As(err, &validationErr) {
@@ -357,9 +368,14 @@ func (h *Handler) handleRotateAdminUserInvitation(w http.ResponseWriter, r *http
 
 // adminInvitationResult shows a new invitation once, with where to use it.
 func (h *Handler) adminInvitationResult(invitation *auth.AdministratorUserInvitation, rotated bool) *views.AdminUserInvitationData {
+	path := invitationEnrollmentPath
+	administrator := invitation.User.UserType == auth.UserTypeManagement
+	if administrator {
+		path = auth.AdminEnrollmentPath
+	}
 	return &views.AdminUserInvitationData{
-		Name: invitation.Name, Username: invitation.User.Username,
-		RedemptionURL: strings.TrimRight(h.auth.Config().BaseURL, "/") + invitationEnrollmentPath,
+		Administrator: administrator, Name: invitation.Name, Username: invitation.User.Username,
+		RedemptionURL: strings.TrimRight(h.auth.Config().BaseURL, "/") + path,
 		Token:         invitation.Token.Token, ExpiresAt: invitation.Token.ExpiresAt,
 		Rotated: rotated,
 	}

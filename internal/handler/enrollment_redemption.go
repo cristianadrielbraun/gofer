@@ -82,11 +82,45 @@ func (h *Handler) handleInvitationGoogleEnrollment(w http.ResponseWriter, r *htt
 func (h *Handler) handleInvitationEnrollmentSubmit(w http.ResponseWriter, r *http.Request) {
 	h.handlePasswordTokenSubmit(
 		w, r,
-		auth.EnrollmentTokenPurposeEnrollment,
+		auth.EnrollmentTokenPurposeEnrollment, false,
 		invitationEnrollmentCompletePath,
 		i18n.T(r.Context(), "auth.invitation.invalid"),
 		h.renderInvitationEnrollmentPage,
 	)
+}
+
+// handleAdministratorEnrollment is the page an invited administrator
+// accepts their invitation on.
+func (h *Handler) handleAdministratorEnrollment(w http.ResponseWriter, r *http.Request) {
+	if !h.auth.IsEnabled() {
+		http.NotFound(w, r)
+		return
+	}
+	h.renderAdministratorEnrollmentPage(w, r, http.StatusOK, "")
+}
+
+func (h *Handler) handleAdministratorEnrollmentSubmit(w http.ResponseWriter, r *http.Request) {
+	h.handlePasswordTokenSubmit(
+		w, r,
+		auth.EnrollmentTokenPurposeEnrollment, true,
+		auth.AdminEnrollmentPath+"/complete",
+		i18n.T(r.Context(), "auth.invitation.invalid"),
+		h.renderAdministratorEnrollmentPage,
+	)
+}
+
+func (h *Handler) handleAdministratorEnrollmentComplete(w http.ResponseWriter, r *http.Request) {
+	h.renderPasswordTokenCompletion(w, r, views.AdministratorEnrollmentCompletePage())
+}
+
+func (h *Handler) renderAdministratorEnrollmentPage(w http.ResponseWriter, r *http.Request, status int, message string) {
+	var page bytes.Buffer
+	if err := views.InvitationEnrollmentPage(views.InvitationEnrollmentData{Message: message, Administrator: true}).Render(r.Context(), &page); err != nil {
+		log.Printf("render administrator enrollment page: %v", err)
+		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_render_invitation_form"), http.StatusInternalServerError)
+		return
+	}
+	writeEnrollmentRedemptionPage(w, status, &page)
 }
 
 func (h *Handler) handleCredentialRedemption(w http.ResponseWriter, r *http.Request) {
@@ -100,7 +134,7 @@ func (h *Handler) handleCredentialRedemption(w http.ResponseWriter, r *http.Requ
 func (h *Handler) handleCredentialRedemptionSubmit(w http.ResponseWriter, r *http.Request) {
 	h.handlePasswordTokenSubmit(
 		w, r,
-		auth.EnrollmentTokenPurposeCredentialReset,
+		auth.EnrollmentTokenPurposeCredentialReset, false,
 		credentialRedemptionCompletePath,
 		i18n.T(r.Context(), "auth.reset.token_invalid"),
 		h.renderCredentialRedemptionPage,
@@ -113,6 +147,7 @@ func (h *Handler) handlePasswordTokenSubmit(
 	w http.ResponseWriter,
 	r *http.Request,
 	purpose auth.EnrollmentTokenPurpose,
+	administrator bool,
 	completePath string,
 	failureMessage string,
 	render passwordTokenPageRenderer,
@@ -135,8 +170,9 @@ func (h *Handler) handlePasswordTokenSubmit(
 	_, err := h.auth.RedeemEnrollmentToken(r.Context(), auth.RedeemEnrollmentTokenOptions{
 		Token:       r.PostFormValue("token"),
 		NewPassword: newPassword,
-		UserAgent:   r.UserAgent(),
-		Purpose:     purpose,
+		UserAgent:     r.UserAgent(),
+		Purpose:       purpose,
+		Administrator: administrator,
 	})
 	if err != nil {
 		switch {
