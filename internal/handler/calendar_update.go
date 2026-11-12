@@ -585,6 +585,12 @@ func calendarZonesMatch(a, b *time.Location) bool {
 		if next.IsZero() {
 			break
 		}
+		if !next.After(at) {
+			// ZoneBounds can return a stale boundary near the
+			// end of a leap year. Advance and recheck offsets.
+			at = at.Add(time.Second)
+			continue
+		}
 		at = next
 	}
 	return true

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -28,7 +29,8 @@ import (
 // stored instead, and the calendar is remembered so later reads skip the
 // expanding request. body gets the calendar-data element to ask for.
 func calDAVExpandingReport(ctx context.Context, collection, username, password string, body func(calendarData string) string, start, end time.Time) (davMultiStatus, bool, error) {
-	if !calDAVExpandRefusedFor(collection) {
+	// Allow local expansion when a server returns apparently expanded but incomplete results.
+	if os.Getenv("GOFER_CALDAV_FORCE_LOCAL_EXPAND") != "true" && !calDAVExpandRefusedFor(collection) {
 		expand := fmt.Sprintf(`<c:calendar-data><c:expand start="%s" end="%s"/></c:calendar-data>`, start.UTC().Format("20060102T150405Z"), end.UTC().Format("20060102T150405Z"))
 		multi, err := calDAVRequest(ctx, "REPORT", collection, username, password, "1", body(expand), 30*time.Second)
 		if err == nil && !calDAVResponseNotExpanded(multi) {
