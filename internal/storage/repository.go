@@ -387,6 +387,13 @@ func (db *DB) flushThreadTotalsTx(ctx context.Context, tx *sql.Tx, pending pendi
 }
 
 func (db *DB) reconcileMessageThreadTx(ctx context.Context, tx *sql.Tx, msgID int64, accountID, messageID, inReplyTo, refsRaw, subject string, sentAt time.Time, pending pendingThreadTotals) error {
+	return db.relinkMessageThreadTx(ctx, tx, msgID, accountID, messageID, inReplyTo, refsRaw, subject, sentAt, pending, false)
+}
+
+// relinkMessageThreadTx is reconcileMessageThreadTx. With olderOnly, a
+// message without reply headers joins only a conversation of older mail with
+// its subject, as when relinking every message oldest first.
+func (db *DB) relinkMessageThreadTx(ctx context.Context, tx *sql.Tx, msgID int64, accountID, messageID, inReplyTo, refsRaw, subject string, sentAt time.Time, pending pendingThreadTotals, olderOnly bool) error {
 	normalizedSubject := normalizeSubject(subject)
 	refs := mailmessage.ThreadReferences(refsRaw, inReplyTo)
 
@@ -400,7 +407,7 @@ func (db *DB) reconcileMessageThreadTx(ctx context.Context, tx *sql.Tx, msgID in
 	if err := tx.QueryRowContext(ctx, `SELECT thread_id FROM messages WHERE id = ?`, msgID).Scan(&current); err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
-	link := db.findMessageThreadTx(ctx, tx, msgID, accountID, inReplyTo, normalizedSubject, subject, refs, sentAt, func() map[string]bool {
+	link := db.findMessageThreadTx(ctx, tx, msgID, accountID, inReplyTo, normalizedSubject, subject, refs, sentAt, olderOnly, func() messageParties {
 		return db.messageParticipantsTx(ctx, tx, msgID, accountID)
 	})
 	// A message that starts a conversation keeps the thread it started, so
@@ -443,9 +450,10 @@ type messageThreadLink struct {
 
 // findMessageThreadTx finds the conversation of message msgID, or of a
 // message not saved yet when msgID is 0: the nearest referenced message's,
-// or for a reply without references a recent one with the same subject and
-// a shared participant. Otherwise the message starts a new conversation.
-func (db *DB) findMessageThreadTx(ctx context.Context, tx *sql.Tx, msgID int64, accountID, inReplyTo, normalizedSubject, subject string, refs []string, sentAt time.Time, participants func() map[string]bool) messageThreadLink {
+// or for mail without references, when the user groups by subject, one
+// with the same subject as findSubjectThreadTx picks. Otherwise the message
+// starts a new conversation.
+func (db *DB) findMessageThreadTx(ctx context.Context, tx *sql.Tx, msgID int64, accountID, inReplyTo, normalizedSubject, subject string, refs []string, sentAt time.Time, olderOnly bool, participants func() messageParties) messageThreadLink {
 	for i := len(refs) - 1; i >= 0; i-- {
 		var candidateID int64
 		var candidateThread sql.NullString
@@ -461,7 +469,7 @@ func (db *DB) findMessageThreadTx(ctx context.Context, tx *sql.Tx, msgID int64, 
 		}
 	}
 	if len(refs) == 0 {
-		if threadID := db.findSubjectFallbackThreadTx(ctx, tx, msgID, accountID, normalizedSubject, subject, sentAt, participants); threadID != "" {
+		if threadID := db.findSubjectThreadTx(ctx, tx, msgID, accountID, normalizedSubject, subject, sentAt, olderOnly, participants); threadID != "" {
 			return messageThreadLink{threadID: threadID}
 		}
 	}
@@ -520,90 +528,35 @@ func (db *DB) createThreadTx(ctx context.Context, tx *sql.Tx, threadID, accountI
 	return err
 }
 
-func (db *DB) findSubjectFallbackThreadTx(ctx context.Context, tx *sql.Tx, msgID int64, accountID, normalizedSubject, subject string, sentAt time.Time, messageParticipants func() map[string]bool) string {
-	if normalizedSubject == "" || !mailmessage.IsReplyOrForwardSubject(subject) {
-		return ""
-	}
-	if sentAt.IsZero() {
-		sentAt = time.Now().UTC()
-	}
-	participants := messageParticipants()
-	if len(participants) == 0 {
-		return ""
-	}
-
-	rows, err := tx.QueryContext(ctx,
-		`SELECT id, thread_id FROM messages
-		 WHERE account_id = ? AND id != ? AND normalized_subject = ? AND thread_id IS NOT NULL AND thread_id != ''
-		 AND date_received BETWEEN ? AND ?
-		 ORDER BY date_received DESC LIMIT 50`,
-		accountID, msgID, normalizedSubject, sentAt.AddDate(0, 0, -30), sentAt.AddDate(0, 0, 30))
-	if err != nil {
-		return ""
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var candidateID int64
-		var threadID string
-		if rows.Scan(&candidateID, &threadID) != nil {
-			continue
-		}
-		for p := range db.messageParticipantsTx(ctx, tx, candidateID, accountID) {
-			if participants[p] {
-				return threadID
-			}
-		}
-	}
-	return ""
-}
-
-func (db *DB) messageParticipantsTx(ctx context.Context, tx *sql.Tx, msgID int64, accountID string) map[string]bool {
-	participants := make(map[string]bool)
-	add := participantAdder(participants, db.accountEmailTx(ctx, tx, accountID))
-
+func (db *DB) messageParticipantsTx(ctx context.Context, tx *sql.Tx, msgID int64, accountID string) messageParties {
 	var from string
 	_ = tx.QueryRowContext(ctx, `SELECT from_email FROM messages WHERE id = ?`, msgID).Scan(&from)
-	add(from)
+	parties := newMessageParties(db.accountEmailTx(ctx, tx, accountID), from)
 	rows, err := tx.QueryContext(ctx, `SELECT email FROM message_recipients WHERE message_id = ?`, msgID)
 	if err != nil {
-		return participants
+		return parties
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var email string
 		if rows.Scan(&email) == nil {
-			add(email)
+			parties.add(email)
 		}
 	}
-	return participants
-}
-
-// participantAdder adds addresses to participants, other than the account's
-// own, as messageParticipantsTx compares them.
-func participantAdder(participants map[string]bool, accountEmail string) func(string) {
-	return func(email string) {
-		email = strings.ToLower(strings.TrimSpace(email))
-		if email == "" || email == accountEmail {
-			return
-		}
-		participants[email] = true
-	}
+	return parties
 }
 
 // syncMessageParticipantsTx is messageParticipantsTx for a message not saved
 // yet: its sender and the recipients it will be saved with.
-func (db *DB) syncMessageParticipantsTx(ctx context.Context, tx *sql.Tx, m *SyncMessage) map[string]bool {
-	participants := make(map[string]bool)
-	add := participantAdder(participants, db.accountEmailTx(ctx, tx, m.AccountID))
-	add(m.FromEmail)
+func (db *DB) syncMessageParticipantsTx(ctx context.Context, tx *sql.Tx, m *SyncMessage) messageParties {
+	parties := newMessageParties(db.accountEmailTx(ctx, tx, m.AccountID), m.FromEmail)
 	for _, r := range m.ToRecipients {
-		add(r.Email)
+		parties.add(r.Email)
 	}
 	for _, r := range m.CCRecipients {
-		add(r.Email)
+		parties.add(r.Email)
 	}
-	return participants
+	return parties
 }
 
 func (db *DB) accountEmailTx(ctx context.Context, tx *sql.Tx, accountID string) string {
@@ -760,6 +713,10 @@ type threadingRepairMessage struct {
 }
 
 func (db *DB) reconcileThreadingRepairMessageTx(ctx context.Context, tx *sql.Tx, m threadingRepairMessage) error {
+	return db.relinkThreadingRepairMessageTx(ctx, tx, m, false)
+}
+
+func (db *DB) relinkThreadingRepairMessageTx(ctx context.Context, tx *sql.Tx, m threadingRepairMessage, olderOnly bool) error {
 	messageID := mailmessage.NormalizeMessageID(m.msgID)
 	if messageID == "" {
 		messageID = fmt.Sprintf("local-%d@gofer.local", m.id)
@@ -774,7 +731,7 @@ func (db *DB) reconcileThreadingRepairMessageTx(ctx context.Context, tx *sql.Tx,
 			sentAt = parsed
 		}
 	}
-	return db.reconcileMessageThreadTx(ctx, tx, m.id, m.accountID, messageID, inReplyTo, m.refs, m.subject, sentAt, nil)
+	return db.relinkMessageThreadTx(ctx, tx, m.id, m.accountID, messageID, inReplyTo, m.refs, m.subject, sentAt, nil, olderOnly)
 }
 
 func (db *DB) EnsureThreading(ctx context.Context) error {
@@ -1658,7 +1615,7 @@ func (db *DB) UpsertSyncMessages(ctx context.Context, msgs []SyncMessage) error 
 		}
 		if isNew {
 			refs = mailmessage.ThreadReferences(m.References, inReplyTo)
-			thread = db.findMessageThreadTx(ctx, tx, 0, m.AccountID, inReplyTo, normalizedSubject, m.Subject, refs, m.DateSent, func() map[string]bool {
+			thread = db.findMessageThreadTx(ctx, tx, 0, m.AccountID, inReplyTo, normalizedSubject, m.Subject, refs, m.DateSent, false, func() messageParties {
 				return db.syncMessageParticipantsTx(ctx, tx, m)
 			})
 			var parent any
@@ -8739,6 +8696,9 @@ func defaultUISettings() map[string]string {
 		"unified_folder_trash_enabled":      "true",
 		"auto_mark_read_after":              "0",
 		"group_conversations":               "true",
+		"subject_threading":                 "false",
+		"subject_threading_window_days":     "7",
+		"subject_threading_max_messages":    "100",
 		"thread_order":                      "newest",
 		"email_body_style":                  "theme",
 		"translation_button_enabled":        "true",

@@ -32,6 +32,9 @@ const (
 	// EventContactsChanged tells a person's pages that their contacts changed,
 	// from any source, so an open list updates in place.
 	EventContactsChanged EventType = "contacts-changed"
+	// EventConversationRegroup tells how regrouping a person's mail by the
+	// subject grouping settings is going.
+	EventConversationRegroup EventType = "conversation-regroup"
 )
 
 type Event struct {

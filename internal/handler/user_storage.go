@@ -203,6 +203,7 @@ func (h *Handler) RegisterUserStorageRoutes(ctx context.Context, mux *http.Serve
 	private("GET /api/provider-avatar", routed.handleProviderAvatarImage)
 	private("POST /api/avatars/warmup", routed.handleAvatarWarmup)
 	private("PATCH /api/settings/ui", routed.handleSaveUISettings)
+	private("POST /api/settings/conversations/regroup", routed.handleRegroupConversations)
 	private("GET /api/virtual-folders/{id}/appearance", routed.handleVirtualFolderAppearance)
 	private("GET /api/tags/{id}/appearance", routed.handleTagAppearance)
 	private("POST /api/tags/{id}/appearance", routed.handleSaveTagAppearance)

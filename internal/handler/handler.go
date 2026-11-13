@@ -74,6 +74,8 @@ type Handler struct {
 	userBackfillContext        context.Context
 	userBackfillCancel         context.CancelFunc
 	userThreadingMu            sync.Mutex
+	regroupMu                  sync.Mutex
+	regroups                   map[string]regroupProgress
 	userThreadingWorker        *userThreadingWorker
 	accountStore               *config.AccountStore
 	syncer                     *mail.SyncOrchestrator
@@ -646,6 +648,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 		mux.HandleFunc(pattern, handler)
 	})
 	mux.HandleFunc("PATCH /api/settings/ui", h.handleSaveUISettings)
+	mux.HandleFunc("POST /api/settings/conversations/regroup", h.handleRegroupConversations)
 	mux.HandleFunc("POST /api/settings/theme-colors.css", h.handleThemeColorsCSS)
 	mux.HandleFunc("POST /api/settings/custom-theme.css", h.handleCustomThemeCSS)
 	mux.HandleFunc("GET /api/push/vapid-public-key", h.handlePushVAPIDPublicKey)
@@ -4343,6 +4346,7 @@ func (h *Handler) handleSaveUISettings(w http.ResponseWriter, r *http.Request) {
 	normalizeCustomThemesSetting(updates)
 	normalizeFontSettings(updates)
 	normalizeTextWeightSettings(updates)
+	normalizeSubjectThreadingSettings(updates)
 
 	userID := h.userID(r.Context())
 	if err := h.withUserDB(r.Context(), userID, func(db *storage.DB) error {
