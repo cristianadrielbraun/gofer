@@ -1,6 +1,9 @@
 package storage
 
-import "database/sql"
+import (
+	"database/sql"
+	"fmt"
+)
 
 // Retain the current passkey + TOTP behavior for existing users. The new
 // option is deliberately opt-out so an upgrade does not weaken sign-in policy.
@@ -17,13 +20,19 @@ func migrateV146ToV147(db *sql.DB) error {
 	if version >= 147 {
 		return nil
 	}
-	present, err := columnExistsTx(tx, "users", "passkey_totp_required")
+	hasUsers, err := tableExistsTx(tx, "users")
 	if err != nil {
-		return err
+		return fmt.Errorf("inspect users table: %w", err)
 	}
-	if !present {
-		if _, err := tx.Exec(`ALTER TABLE users ADD COLUMN passkey_totp_required INTEGER NOT NULL DEFAULT 1 CHECK (passkey_totp_required IN (0,1))`); err != nil {
-			return err
+	if hasUsers {
+		present, err := columnExistsTx(tx, "users", "passkey_totp_required")
+		if err != nil {
+			return fmt.Errorf("inspect passkey TOTP preference: %w", err)
+		}
+		if !present {
+			if _, err := tx.Exec(`ALTER TABLE users ADD COLUMN passkey_totp_required INTEGER NOT NULL DEFAULT 1 CHECK (passkey_totp_required IN (0, 1))`); err != nil {
+				return fmt.Errorf("add passkey TOTP preference: %w", err)
+			}
 		}
 	}
 	if err := markSchemaVersion(tx, 147); err != nil {
