@@ -1,8 +1,9 @@
 package handler
 
 import (
+	"archive/zip"
 	"encoding/json"
-	"os"
+	"io/fs"
 	"path/filepath"
 	"runtime"
 	"testing"
@@ -113,25 +114,30 @@ func TestCalendarZonesMatch(t *testing.T) {
 	}
 }
 
-// Regression: Go's bundled timezone data can return a non-progressing
-// ZoneBounds boundary near the end of 2028.
+// With Go's own timezone data, ZoneBounds stops moving forward at the end of
+// some leap years, such as 2028. The zones are read straight from the zip,
+// since ZONEINFO only counts before the first zone is loaded.
 func TestCalendarZonesMatchBundledTZData(t *testing.T) {
-	zoneinfo := filepath.Join(runtime.GOROOT(), "lib", "time", "zoneinfo.zip")
-	if _, err := os.Stat(zoneinfo); err != nil {
-		t.Skipf("Go timezone database unavailable: %v", err)
-	}
-	t.Setenv("ZONEINFO", zoneinfo)
-
-	budapest, err := time.LoadLocation("Europe/Budapest")
+	zoneinfo, err := zip.OpenReader(filepath.Join(runtime.GOROOT(), "lib", "time", "zoneinfo.zip"))
 	if err != nil {
-		t.Fatal(err)
+		t.Skipf("Go timezone data unavailable: %v", err)
 	}
-	prague, err := time.LoadLocation("Europe/Prague")
-	if err != nil {
-		t.Fatal(err)
+	defer zoneinfo.Close()
+	load := func(name string) *time.Location {
+		data, err := fs.ReadFile(zoneinfo, name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		location, err := time.LoadLocationFromTZData(name, data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return location
 	}
-
-	if !calendarZonesMatch(budapest, prague) {
-		t.Fatal("Budapest and Prague should have matching timezone offsets")
+	prague := load("Europe/Prague")
+	for name, want := range map[string]bool{"Europe/Budapest": true, "Europe/London": false} {
+		if got := calendarZonesMatch(load(name), prague); got != want {
+			t.Errorf("%s: %v, want %v", name, got, want)
+		}
 	}
 }
