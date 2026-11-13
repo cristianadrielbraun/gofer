@@ -41,6 +41,8 @@ type SecurityFactorSummary struct {
 	HasTOTP                bool
 	HasPasskey             bool
 	RequiresMFA            bool
+	PasskeyTOTPRequired    bool
+	PasskeyTOTPLocked      bool
 	Passkeys               []PasskeyCredentialSummary
 	RecoveryCodesRemaining int
 	StepUpFresh            bool
@@ -201,6 +203,8 @@ func (m *Manager) GetSecurityFactorSummary(ctx context.Context, sessionToken str
 		HasTOTP:                hasTOTP == 1,
 		HasPasskey:             passkeyCount > 0,
 		RequiresMFA:            policy.RequiresMFA,
+		PasskeyTOTPRequired:    policy.PasskeyTOTPRequired,
+		PasskeyTOTPLocked:      policy.MFAEnrollmentRequired,
 		RecoveryCodesRemaining: recoveryCount,
 		StepUpFresh:            hasRecentSecurityStepUp(session, policy, now),
 	}

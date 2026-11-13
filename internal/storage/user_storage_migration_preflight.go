@@ -131,7 +131,7 @@ func InspectUserStorageMigration(ctx context.Context, sourcePath string) (UserSt
 }
 
 func migrationSharedVersionSupported(version int) bool {
-	return version >= 105 && version <= 146
+	return version >= 105 && version <= 147
 }
 
 // These recognized shared schemas differ only in the explicitly handled push
@@ -455,6 +455,8 @@ func migrationSourceColumns(ctx context.Context, tx *sql.Tx, table *UserStorageM
 		missing = []string{"owner_user_id", "everyone"}
 	} else if table.Name == "mail_rules" && version < 135 {
 		missing = []string{"accounts_chosen"}
+	} else if table.Name == "users" && version < 147 {
+		missing = []string{"passkey_totp_required"}
 	}
 	for _, name := range missing {
 		if actual[name] {

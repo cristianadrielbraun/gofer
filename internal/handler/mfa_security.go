@@ -18,6 +18,7 @@ const (
 	securityTOTPStartPath        = "/settings/security/totp/start"
 	securityTOTPConfirmPath      = "/settings/security/totp/confirm"
 	securityTOTPDisablePath      = "/settings/security/totp/disable"
+	securityPasskeyTOTPPath      = "/settings/security/passkeys/totp"
 	securityRecoveryStartPath    = "/settings/security/recovery/start"
 	securityRecoveryCompletePath = "/settings/security/recovery/complete"
 	securityRecoveryRevokePath   = "/settings/security/recovery/revoke"

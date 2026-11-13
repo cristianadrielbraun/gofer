@@ -3918,6 +3918,8 @@ func (h *Handler) renderPasswordSecurityTab(w http.ResponseWriter, r *http.Reque
 		HasPassword:   hasPassword,
 		HasTOTP:       summary.HasTOTP, HasPasskey: summary.HasPasskey,
 		RequiresMFA:            summary.RequiresMFA,
+		PasskeyTOTPRequired:    summary.PasskeyTOTPRequired,
+		PasskeyTOTPLocked:      summary.PasskeyTOTPLocked,
 		RecoveryCodesRemaining: summary.RecoveryCodesRemaining,
 		StepUpFresh:            summary.StepUpFresh, CanDisableTOTP: summary.CanDisableTOTP,
 		DisableTOTPReason:       authText(ctx, summary.DisableTOTPReason),
@@ -3950,7 +3952,7 @@ func (h *Handler) renderPasswordSecurityTab(w http.ResponseWriter, r *http.Reque
 	}
 	for _, path := range []string{
 		passwordChangePath, securityStepUpPath, securityTOTPStartPath, securityTOTPConfirmPath,
-		securityTOTPDisablePath, securityRecoveryStartPath, securityRecoveryCompletePath,
+		securityTOTPDisablePath, securityPasskeyTOTPPath, securityRecoveryStartPath, securityRecoveryCompletePath,
 		securityRecoveryRevokePath, securityManagementCancelPath, securityPasskeyStartPath,
 		securityPasskeyFinishPath, securityPasskeyStepUpStartPath, securityPasskeyStepUpFinishPath,
 		securityGoogleIdentityLinkPath, securityMicrosoftIdentityLinkPath, securityOIDCIdentityLinkPath,

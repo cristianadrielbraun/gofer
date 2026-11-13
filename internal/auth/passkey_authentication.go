@@ -251,9 +251,8 @@ func (m *Manager) createPasskeyAssertionChallenge(ctx context.Context, origin st
 	return &PasskeyAuthenticationOptions{Challenge: challenge, RequestJSON: append(json.RawMessage(nil), requestJSON...)}, nil
 }
 
-// FinishPasskeyLogin verifies a passkey sign-in. A passkey is a first factor,
-// like a password, so with two-factor authentication on, the result is an
-// authenticator-app step instead of a session.
+// FinishPasskeyLogin verifies a passkey sign-in. A verified passkey can
+// satisfy MFA directly; a separate authenticator-app step is optional.
 func (m *Manager) FinishPasskeyLogin(ctx context.Context, challengeToken, origin string, responseJSON []byte, source, userAgent string) (*PrimaryAuthenticationResult, error) {
 	invalidBody := len(responseJSON) == 0 || len(responseJSON) > passkeyAssertionMaxBodyBytes
 	canonicalOrigin, rpID, err := canonicalWebAuthnRelyingParty(origin)
@@ -399,7 +398,7 @@ func (m *Manager) completePasskeyLogin(ctx context.Context, challenge *PreAuthCh
 	}
 	var mfaChallenge *PreAuthChallenge
 	var continuation *mfaContinuationDraft
-	if policy.RequiresMFA {
+	if policy.RequiresMFA && policy.PasskeyTOTPRequired {
 		mfaChallenge, continuation, err = m.preparePrimaryMFAContinuation(
 			ctx, m.db.Read(), user.UserID, user.AuthVersion, AuthenticationMethodPasskey,
 			policy, m.config.BaseURL, now,
