@@ -186,15 +186,11 @@ func NewClient(ctx context.Context, cfg *models.AccountConfig, password string) 
 	}
 
 	switch cfg.AuthMethod {
-	case "plain":
-		saslClient := sasl.NewPlainClient("", smtpUsername, password)
-		err = client.Auth(saslClient)
 	case "oauth2":
 		saslClient := oauth2sasl.NewClient(smtpUsername, password)
 		err = client.Auth(saslClient)
 	default:
-		saslClient := sasl.NewPlainClient("", smtpUsername, password)
-		err = client.Auth(saslClient)
+		err = authenticatePassword(client, smtpUsername, password, tlsMode)
 	}
 
 	if err != nil {
@@ -378,4 +374,15 @@ func SendRawMessageWithTiming(ctx context.Context, cfg *models.AccountConfig, pa
 	timing.Data = sendTiming.Data
 	timing.Total = time.Since(startedAt)
 	return result, err, timing
+}
+
+// authenticatePassword prefers AUTH PLAIN and uses AUTH LOGIN only when the
+// server lists LOGIN but not PLAIN, and only over TLS. Capabilities come from
+// the post-STARTTLS EHLO. A server that lists neither still gets AUTH PLAIN,
+// as before: some leave AUTH out of EHLO or use the old "AUTH=" form.
+func authenticatePassword(c *smtp.Client, username, password, tlsMode string) error {
+	if !c.SupportsAuth("PLAIN") && tlsMode != mailtransport.TLSModePlaintext && c.SupportsAuth("LOGIN") {
+		return c.Auth(sasl.NewLoginClient(username, password))
+	}
+	return c.Auth(sasl.NewPlainClient("", username, password))
 }
