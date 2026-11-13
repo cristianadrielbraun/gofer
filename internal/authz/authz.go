@@ -35,6 +35,11 @@ const (
 	UsersDelete Permission = "users.delete"
 	// UsersExport downloads the people list.
 	UsersExport Permission = "users.export"
+	// GroupsRead lists groups and who is in them.
+	GroupsRead Permission = "groups.read"
+	// GroupsManage creates, renames and deletes groups, and changes who is
+	// in them.
+	GroupsManage Permission = "groups.manage"
 	// InstancePolicy changes instance-wide sign-in rules.
 	InstancePolicy Permission = "instance.policy"
 	// SecurityRead shows mail security settings.
@@ -70,6 +75,8 @@ var catalog = map[Permission]Spec{
 	UsersMFAPolicy:    {StepUp: true},
 	UsersDelete:       {StepUp: true},
 	UsersExport:       {StepUp: true},
+	GroupsRead:        {},
+	GroupsManage:      {StepUp: true},
 	InstancePolicy:    {StepUp: true},
 	SecurityRead:      {},
 	SecurityChange:    {StepUp: true},

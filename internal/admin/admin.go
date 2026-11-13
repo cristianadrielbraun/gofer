@@ -13,6 +13,7 @@ import (
 
 	"github.com/cristianadrielbraun/gofer/internal/auth"
 	"github.com/cristianadrielbraun/gofer/internal/authz"
+	"github.com/cristianadrielbraun/gofer/internal/directory"
 )
 
 // Actor is the administrator asking for a change, and the session they
@@ -54,6 +55,10 @@ const (
 	// CodeNeedsAuthenticator: the change needs an authenticator app set
 	// up first.
 	CodeNeedsAuthenticator Code = "needs_authenticator"
+	// CodeNameTaken: another group already has the name.
+	CodeNameTaken Code = "name_taken"
+	// CodeStale: the change was made from an outdated copy; load it again.
+	CodeStale Code = "stale"
 	// CodeTooMany: a bulk change names more people than it takes at once.
 	CodeTooMany Code = "too_many"
 	// CodeInternal: something broke; the error says what.
@@ -71,8 +76,13 @@ func CodeOf(err error) Code {
 	case errors.Is(err, auth.ErrRecentStepUpRequired):
 		return CodeVerificationRequired
 	case errors.As(err, &validation), errors.Is(err, auth.ErrAdministratorUserStatusInvalid),
-		errors.Is(err, errBulkActionInvalid), errors.Is(err, errBulkNobody):
+		errors.Is(err, errBulkActionInvalid), errors.Is(err, errBulkNobody),
+		errors.Is(err, directory.ErrNameInvalid), errors.Is(err, directory.ErrDescriptionLong):
 		return CodeInvalid
+	case errors.Is(err, directory.ErrNameTaken):
+		return CodeNameTaken
+	case errors.Is(err, directory.ErrStale):
+		return CodeStale
 	case errors.Is(err, errBulkTooMany):
 		return CodeTooMany
 	case errors.Is(err, auth.ErrAdministratorUserDeletionConfirmationInvalid):
@@ -90,7 +100,9 @@ func CodeOf(err error) Code {
 		errors.Is(err, auth.ErrAdministratorUserDeletionTargetInvalid),
 		errors.Is(err, auth.ErrAdministratorUserSignOutTargetInvalid),
 		errors.Is(err, auth.ErrAdministratorUserSessionGone),
-		errors.Is(err, errCredentialResetTarget):
+		errors.Is(err, errCredentialResetTarget),
+		errors.Is(err, directory.ErrNotFound), errors.Is(err, directory.ErrPersonNotFound),
+		errors.Is(err, auth.ErrGroupMemberInvalid):
 		return CodeUnavailable
 	}
 	return CodeInternal

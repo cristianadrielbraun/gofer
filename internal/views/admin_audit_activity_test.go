@@ -125,6 +125,12 @@ func TestEveryRecordedActionHasASentence(t *testing.T) {
 		{Event: audit.Event{Action: "security.proxy_policy_changed", Metadata: map[string]any{"people_may_add_proxies": false}}},
 		{Event: audit.Event{Action: "access.denied", Target: audit.Target{Kind: "permission", ID: "users.delete"}, Metadata: map[string]any{"reason": "verification_required"}}},
 		{Event: audit.Event{Action: "access.denied", Target: audit.Target{Kind: "permission", ID: "users.delete"}, Metadata: map[string]any{"reason": "forbidden"}}},
+		{Event: audit.Event{Action: "group.created"}},
+		{Event: audit.Event{Action: "group.updated"}},
+		{Event: audit.Event{Action: "group.renamed", Changes: map[string]audit.Change{"name": {From: "Field team", To: "Field crew"}}}},
+		{Event: audit.Event{Action: "group.deleted", Metadata: map[string]any{"members": float64(3)}}},
+		{Event: audit.Event{Action: "group.members_added", Metadata: map[string]any{"count": float64(2)}}},
+		{Event: audit.Event{Action: "group.members_removed", Metadata: map[string]any{"count": float64(2)}}},
 	} {
 		sentence := adminAuditSentence(ctx, record)
 		if sentence == record.Action || strings.Contains(sentence, "admin.audit.") || strings.Contains(sentence, "{") {
@@ -133,6 +139,24 @@ func TestEveryRecordedActionHasASentence(t *testing.T) {
 	}
 	if got := adminAuditSentence(ctx, audit.Record{Event: audit.Event{Action: "instance.mfa_policy_changed", Changes: map[string]audit.Change{"mfa_policy": {From: "administrators", To: "all_users"}}}}); got != "Required two-factor sign-in for everyone instead of administrators" {
 		t.Errorf("policy sentence = %q", got)
+	}
+	field := audit.Target{Kind: "group", ID: "g-1", Label: "Field team"}
+	for _, test := range []struct {
+		record audit.Record
+		want   string
+	}{
+		{audit.Record{Event: audit.Event{Action: "group.renamed", Target: field, Changes: map[string]audit.Change{"name": {From: "Field crew", To: "Field team"}}}}, "Renamed the group Field crew to Field team"},
+		{audit.Record{Event: audit.Event{Action: "group.deleted", Target: field, Metadata: map[string]any{"members": float64(1)}}}, "Deleted the group Field team, which had 1 person in it"},
+		{audit.Record{Event: audit.Event{Action: "group.members_added", Target: field, Metadata: map[string]any{
+			"count": float64(1), "people": []any{map[string]any{"id": "u-1", "username": "ines.moreau"}},
+		}}}, "Added ines.moreau to the group Field team"},
+		{audit.Record{Event: audit.Event{Action: "group.members_removed", Target: field, Metadata: map[string]any{
+			"count": float64(3), "people": []any{map[string]any{"username": "a"}, map[string]any{"username": "b"}, map[string]any{"username": "c"}},
+		}}}, "Removed 3 people from the group Field team"},
+	} {
+		if got := adminAuditSentence(ctx, test.record); got != test.want {
+			t.Errorf("%s sentence = %q, want %q", test.record.Action, got, test.want)
+		}
 	}
 	if got := adminAuditSentence(ctx, audit.Record{Event: audit.Event{Action: "user.list_exported", Metadata: map[string]any{"count": float64(1)}}}); got != "Exported the Users list as CSV, 1 person" {
 		t.Errorf("export sentence = %q", got)
