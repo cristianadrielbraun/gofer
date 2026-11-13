@@ -15,9 +15,24 @@ var ErrLocalInvitationSetupIncomplete = errors.New("authentication setup is not 
 // a signed-in administrator. The caller must hold Gofer's exclusive runtime
 // lock. The raw token is returned only here; SQLite stores only its hash.
 func (m *Manager) CreateUserInvitationLocally(ctx context.Context, name, username string, lifetime time.Duration) (*AdministratorUserInvitation, error) {
+	return m.createInvitationLocally(ctx, name, username, lifetime, false)
+}
+
+// CreateAdministratorInvitationLocally invites an administrator from the
+// command line, as CreateAdministratorInvitation does from the console:
+// only the administrator sign-up accepts it.
+func (m *Manager) CreateAdministratorInvitationLocally(ctx context.Context, name, username string, lifetime time.Duration) (*AdministratorUserInvitation, error) {
+	return m.createInvitationLocally(ctx, name, username, lifetime, true)
+}
+
+func (m *Manager) createInvitationLocally(ctx context.Context, name, username string, lifetime time.Duration, administrator bool) (*AdministratorUserInvitation, error) {
 	invitation, err := m.newUserInvitation(name, username, lifetime, "")
 	if err != nil {
 		return nil, err
+	}
+	if administrator {
+		invitation.administrator = true
+		invitation.result.User.UserType, invitation.result.User.IsAdmin = UserTypeManagement, true
 	}
 	eventID, err := m.tokens.ID()
 	if err != nil {

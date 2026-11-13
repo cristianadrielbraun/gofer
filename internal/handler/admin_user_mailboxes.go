@@ -120,9 +120,9 @@ func adminUserAllowlistRefusal(ctx context.Context, refusal *storage.MailAllowli
 // adminUserProxyNames names a person's proxy choices, reading each proxy
 // once.
 type adminUserProxyNames struct {
-	h      *Handler
-	ctx    context.Context
-	owner  string
+	h     *Handler
+	ctx   context.Context
+	owner string
 	cache map[string]string
 }
 

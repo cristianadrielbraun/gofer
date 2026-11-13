@@ -11,14 +11,15 @@ import (
 )
 
 // adminAdministratorsExtras are what the Administrators page shows over its
-// list: the invitation form as it was sent, a new invitation, a change's
-// dialog, or a change that was refused.
+// list: the invitation form as it was sent, a new invitation or sign-in
+// reset, a change's dialog, or a change that was refused.
 type adminAdministratorsExtras struct {
-	status    int
-	form      views.AdminUserInvitationFormData
-	result    *views.AdminUserInvitationData
-	dialog    *views.AdminUserDialog
-	pageError string
+	status          int
+	form            views.AdminUserInvitationFormData
+	result          *views.AdminUserInvitationData
+	credentialReset *views.AdminUserCredentialResetData
+	dialog          *views.AdminUserDialog
+	pageError       string
 	// returnTo is where verification leads back to; the page when empty.
 	returnTo string
 }
@@ -59,7 +60,7 @@ func (h *Handler) renderAdminAdministrators(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	rows := adminUsersViewData(page.Users, user.ID, policy.MFA).Users
-	data := views.AdminAdministratorsData{Dialog: extras.dialog, Result: extras.result}
+	data := views.AdminAdministratorsData{Dialog: extras.dialog, Result: extras.result, CredentialReset: extras.credentialReset}
 	for i, person := range page.Users {
 		row := rows[i]
 		row.ListPath = views.AdminAdministratorsPath

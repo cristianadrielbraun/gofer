@@ -27,7 +27,7 @@ func NewService(manager *auth.Manager, hooks Hooks) *Service {
 	return &Service{auth: manager, hooks: hooks}
 }
 
-var errCredentialResetTarget = errors.New("only an active or disabled webmail user can get a password-reset token")
+var errCredentialResetTarget = errors.New("only an active or disabled webmail user, or another administrator, can get a reset token")
 
 // InviteUser creates a pending person and the invitation they join with.
 func (s *Service) InviteUser(ctx context.Context, actor Actor, name, username string) (*auth.AdministratorUserInvitation, error) {
@@ -83,12 +83,22 @@ func (s *Service) SetStatus(ctx context.Context, actor Actor, userID string, sta
 	return result, nil
 }
 
-// IssueCredentialReset gives a webmail user a password-reset token, which
-// changes nothing until they use it.
+// IssueCredentialReset gives a webmail user a password-reset token, or
+// another administrator a sign-in reset, which changes nothing until they
+// use it.
 func (s *Service) IssueCredentialReset(ctx context.Context, actor Actor, userID string) (*auth.EnrollmentToken, *auth.User, error) {
 	target, err := s.auth.GetUserByID(ctx, userID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("load the person to reset: %w", err)
+	}
+	if target != nil && target.UserType == auth.UserTypeManagement {
+		token, err := s.auth.ResetAdministratorSignIn(ctx, auth.ResetAdministratorSignInOptions{
+			ActorUserID: actor.UserID, ActorSessionID: actor.SessionID, TargetUserID: target.ID,
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		return token, target, nil
 	}
 	if target == nil || target.UserType != auth.UserTypeWebmail || target.IsAdmin ||
 		(target.Status != auth.UserStatusActive && target.Status != auth.UserStatusDisabled) {

@@ -118,6 +118,8 @@ type AdminUserInvitationData struct {
 }
 
 type AdminUserCredentialResetData struct {
+	// Administrator is another administrator's sign-in reset.
+	Administrator bool
 	Username      string
 	RedemptionURL string
 	Token         string
@@ -231,7 +233,7 @@ func adminUserActionEntries(ctx context.Context, user AdminUserData) []adminUser
 		}
 	}
 	if path := user.Path(AdminUserActionCredentialReset); path != "" {
-		entries = append(entries, adminUserMenuEntry{Path: path, Label: i18n.T(ctx, "admin.reset.generate"), Icon: icon.KeyRound})
+		entries = append(entries, adminUserMenuEntry{Path: path, Label: adminResetText(ctx, user.administrator(), "generate"), Icon: icon.KeyRound})
 	}
 	if path := user.Path(AdminUserActionRequiredChange); path != "" {
 		entries = append(entries, adminUserMenuEntry{
@@ -309,11 +311,25 @@ func adminUserInvitationCopyText(ctx context.Context, data *AdminUserInvitationD
 	return i18n.T(ctx, key, "username", data.Username, "url", data.RedemptionURL, "token", data.Token, "expires", adminDateTimeZone(ctx, data.ExpiresAt))
 }
 
+// administrator is someone who runs this Gofer, rather than a mail user.
+func (user AdminUserData) administrator() bool {
+	return user.Role == "management_admin"
+}
+
+// adminResetText is a reset's words: a mail user's password reset, or
+// another administrator's sign-in reset.
+func adminResetText(ctx context.Context, administrator bool, key string, args ...any) string {
+	if administrator {
+		return i18n.T(ctx, "admin.reset_admin."+key, args...)
+	}
+	return i18n.T(ctx, "admin.reset."+key, args...)
+}
+
 func adminUserCredentialResetCopyText(ctx context.Context, data *AdminUserCredentialResetData) string {
 	if data == nil {
 		return ""
 	}
-	return i18n.T(ctx, "admin.reset.copy_text", "username", data.Username, "url", data.RedemptionURL, "token", data.Token, "expires", adminDateTimeZone(ctx, data.ExpiresAt))
+	return adminResetText(ctx, data.Administrator, "copy_text", "username", data.Username, "url", data.RedemptionURL, "token", data.Token, "expires", adminDateTimeZone(ctx, data.ExpiresAt))
 }
 
 func adminUserInvitationStateLabel(ctx context.Context, state string) string {
@@ -370,7 +386,7 @@ func AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificati
 			var templ_7745c5c3_Var2 string
 			templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.JoinStringErrs(adminVerificationOnPageHeaders)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 337, Col: 46}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 353, Col: 46}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var2))
 			if templ_7745c5c3_Err != nil {
@@ -412,7 +428,7 @@ func AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificati
 		var templ_7745c5c3_Var3 string
 		templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(adminUserDialogSlotID)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 350, Col: 35}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 366, Col: 35}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
 		if templ_7745c5c3_Err != nil {
@@ -441,7 +457,7 @@ func AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificati
 		var templ_7745c5c3_Var4 string
 		templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.users.summary"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 358, Col: 107}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 374, Col: 107}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 		if templ_7745c5c3_Err != nil {
@@ -503,7 +519,7 @@ func AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificati
 				var templ_7745c5c3_Var6 string
 				templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.users.clear_filters"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 370, Col: 158}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 386, Col: 158}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
 				if templ_7745c5c3_Err != nil {
@@ -550,7 +566,7 @@ func AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificati
 				var templ_7745c5c3_Var7 string
 				templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.col.user"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 387, Col: 75}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 403, Col: 75}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 				if templ_7745c5c3_Err != nil {
@@ -563,7 +579,7 @@ func AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificati
 				var templ_7745c5c3_Var8 string
 				templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.col.status"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 388, Col: 77}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 404, Col: 77}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 				if templ_7745c5c3_Err != nil {
@@ -576,7 +592,7 @@ func AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificati
 				var templ_7745c5c3_Var9 string
 				templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.col.role"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 389, Col: 75}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 405, Col: 75}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 				if templ_7745c5c3_Err != nil {
@@ -589,7 +605,7 @@ func AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificati
 				var templ_7745c5c3_Var10 string
 				templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.col.mfa"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 390, Col: 74}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 406, Col: 74}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var10))
 				if templ_7745c5c3_Err != nil {
@@ -602,7 +618,7 @@ func AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificati
 				var templ_7745c5c3_Var11 string
 				templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.col.invitation"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 391, Col: 81}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 407, Col: 81}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
 				if templ_7745c5c3_Err != nil {
@@ -615,7 +631,7 @@ func AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificati
 				var templ_7745c5c3_Var12 string
 				templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.col.last_sign_in"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 392, Col: 83}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 408, Col: 83}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
 				if templ_7745c5c3_Err != nil {
@@ -628,7 +644,7 @@ func AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificati
 				var templ_7745c5c3_Var13 string
 				templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.col.actions"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 393, Col: 89}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 409, Col: 89}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
 				if templ_7745c5c3_Err != nil {
@@ -641,7 +657,7 @@ func AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificati
 				var templ_7745c5c3_Var14 string
 				templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.col.user_id"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 394, Col: 78}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 410, Col: 78}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var14))
 				if templ_7745c5c3_Err != nil {
@@ -677,7 +693,7 @@ func AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificati
 					var templ_7745c5c3_Var15 templ.SafeURL
 					templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL(AdminUserPagePath(user.ID, AdminUserTabOverview, user.ListPath)))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 407, Col: 101}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 423, Col: 101}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var15))
 					if templ_7745c5c3_Err != nil {
@@ -690,7 +706,7 @@ func AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificati
 					var templ_7745c5c3_Var16 string
 					templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs(adminUserUsername(ctx, user.Username))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 407, Col: 236}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 423, Col: 236}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
 					if templ_7745c5c3_Err != nil {
@@ -716,7 +732,7 @@ func AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificati
 							var templ_7745c5c3_Var18 string
 							templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.users.you"))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 410, Col: 47}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 426, Col: 47}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var18))
 							if templ_7745c5c3_Err != nil {
@@ -749,7 +765,7 @@ func AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificati
 							var templ_7745c5c3_Var20 string
 							templ_7745c5c3_Var20, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.users.deleting"))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 418, Col: 51}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 434, Col: 51}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var20))
 							if templ_7745c5c3_Err != nil {
@@ -759,7 +775,7 @@ func AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificati
 							var templ_7745c5c3_Var21 string
 							templ_7745c5c3_Var21, templ_7745c5c3_Err = templ.JoinStringErrs(adminValueLabel(ctx, user.Status))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 420, Col: 49}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 436, Col: 49}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var21))
 							if templ_7745c5c3_Err != nil {
@@ -792,7 +808,7 @@ func AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificati
 							var templ_7745c5c3_Var23 string
 							templ_7745c5c3_Var23, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.users.password_change_required"))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 426, Col: 68}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 442, Col: 68}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var23))
 							if templ_7745c5c3_Err != nil {
@@ -829,7 +845,7 @@ func AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificati
 							var templ_7745c5c3_Var25 string
 							templ_7745c5c3_Var25, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.users.reset_requested"))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 433, Col: 59}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 449, Col: 59}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var25))
 							if templ_7745c5c3_Err != nil {
@@ -848,7 +864,7 @@ func AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificati
 						var templ_7745c5c3_Var26 string
 						templ_7745c5c3_Var26, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.users.requested_at", "date", i18n.Dates(ctx).ShortDateTime(user.PasswordResetRequestedAt.Local())))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 436, Col: 196}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 452, Col: 196}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var26))
 						if templ_7745c5c3_Err != nil {
@@ -878,7 +894,7 @@ func AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificati
 						var templ_7745c5c3_Var28 string
 						templ_7745c5c3_Var28, templ_7745c5c3_Err = templ.JoinStringErrs(adminValueLabel(ctx, user.Role))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 441, Col: 46}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 457, Col: 46}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var28))
 						if templ_7745c5c3_Err != nil {
@@ -909,7 +925,7 @@ func AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificati
 						var templ_7745c5c3_Var30 string
 						templ_7745c5c3_Var30, templ_7745c5c3_Err = templ.JoinStringErrs(adminValueLabel(ctx, user.MFALabel))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 446, Col: 50}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 462, Col: 50}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var30))
 						if templ_7745c5c3_Err != nil {
@@ -928,7 +944,7 @@ func AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificati
 					var templ_7745c5c3_Var31 string
 					templ_7745c5c3_Var31, templ_7745c5c3_Err = templ.JoinStringErrs(adminValueLabel(ctx, user.MFADetail))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 448, Col: 114}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 464, Col: 114}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var31))
 					if templ_7745c5c3_Err != nil {
@@ -958,7 +974,7 @@ func AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificati
 							var templ_7745c5c3_Var33 string
 							templ_7745c5c3_Var33, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.users.mfa_not_set_up"))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 452, Col: 58}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 468, Col: 58}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var33))
 							if templ_7745c5c3_Err != nil {
@@ -1000,7 +1016,7 @@ func AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificati
 							var templ_7745c5c3_Var35 string
 							templ_7745c5c3_Var35, templ_7745c5c3_Err = templ.JoinStringErrs(adminUserInvitationStateLabel(ctx, user.InvitationState))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 462, Col: 72}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 478, Col: 72}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var35))
 							if templ_7745c5c3_Err != nil {
@@ -1025,7 +1041,7 @@ func AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificati
 								var templ_7745c5c3_Var36 string
 								templ_7745c5c3_Var36, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.invite.expires", "date", i18n.Dates(ctx).ShortDateTime(user.InvitationExpiresAt.Local())))
 								if templ_7745c5c3_Err != nil {
-									return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 467, Col: 126}
+									return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 483, Col: 126}
 								}
 								_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var36))
 								if templ_7745c5c3_Err != nil {
@@ -1035,7 +1051,7 @@ func AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificati
 								var templ_7745c5c3_Var37 string
 								templ_7745c5c3_Var37, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.invite.expired_at", "date", i18n.Dates(ctx).ShortDateTime(user.InvitationExpiresAt.Local())))
 								if templ_7745c5c3_Err != nil {
-									return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 469, Col: 129}
+									return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 485, Col: 129}
 								}
 								_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var37))
 								if templ_7745c5c3_Err != nil {
@@ -1056,7 +1072,7 @@ func AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificati
 						var templ_7745c5c3_Var38 string
 						templ_7745c5c3_Var38, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.Dates(ctx).ShortDateTime(user.LastSignInAt.Local()))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 477, Col: 71}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 493, Col: 71}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var38))
 						if templ_7745c5c3_Err != nil {
@@ -1066,7 +1082,7 @@ func AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificati
 						var templ_7745c5c3_Var39 string
 						templ_7745c5c3_Var39, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.users.never_signed_in"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 479, Col: 57}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 495, Col: 57}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var39))
 						if templ_7745c5c3_Err != nil {
@@ -1095,7 +1111,7 @@ func AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificati
 					var templ_7745c5c3_Var40 string
 					templ_7745c5c3_Var40, templ_7745c5c3_Err = templ.JoinStringErrs(user.ID)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 489, Col: 106}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 505, Col: 106}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var40))
 					if templ_7745c5c3_Err != nil {
@@ -1132,7 +1148,7 @@ func AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificati
 		var templ_7745c5c3_Var41 string
 		templ_7745c5c3_Var41, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.users.privacy"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 499, Col: 102}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 515, Col: 102}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var41))
 		if templ_7745c5c3_Err != nil {
@@ -1378,7 +1394,7 @@ func adminUserMenuItemLabel(entry adminUserMenuEntry) templ.Component {
 		var templ_7745c5c3_Var52 string
 		templ_7745c5c3_Var52, templ_7745c5c3_Err = templ.JoinStringErrs(entry.Label)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 546, Col: 14}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 562, Col: 14}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var52))
 		if templ_7745c5c3_Err != nil {
@@ -1547,7 +1563,7 @@ func adminUserMFAPolicyDialog(user AdminUserData, csrfToken string) templ.Compon
 							var templ_7745c5c3_Var59 string
 							templ_7745c5c3_Var59, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.mfa.clear_title"))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 592, Col: 44}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 608, Col: 44}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var59))
 							if templ_7745c5c3_Err != nil {
@@ -1557,7 +1573,7 @@ func adminUserMFAPolicyDialog(user AdminUserData, csrfToken string) templ.Compon
 							var templ_7745c5c3_Var60 string
 							templ_7745c5c3_Var60, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.mfa.require_title", "user", adminUserUsername(ctx, user.Username)))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 594, Col: 93}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 610, Col: 93}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var60))
 							if templ_7745c5c3_Err != nil {
@@ -1590,7 +1606,7 @@ func adminUserMFAPolicyDialog(user AdminUserData, csrfToken string) templ.Compon
 							var templ_7745c5c3_Var62 string
 							templ_7745c5c3_Var62, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.mfa.clear_detail"))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 599, Col: 45}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 615, Col: 45}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var62))
 							if templ_7745c5c3_Err != nil {
@@ -1600,7 +1616,7 @@ func adminUserMFAPolicyDialog(user AdminUserData, csrfToken string) templ.Compon
 							var templ_7745c5c3_Var63 string
 							templ_7745c5c3_Var63, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.mfa.require_detail"))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 601, Col: 47}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 617, Col: 47}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var63))
 							if templ_7745c5c3_Err != nil {
@@ -1626,7 +1642,7 @@ func adminUserMFAPolicyDialog(user AdminUserData, csrfToken string) templ.Compon
 				var templ_7745c5c3_Var64 templ.SafeURL
 				templ_7745c5c3_Var64, templ_7745c5c3_Err = templ.JoinURLErrs(user.MFAPolicyPath)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 605, Col: 50}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 621, Col: 50}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var64))
 				if templ_7745c5c3_Err != nil {
@@ -1639,7 +1655,7 @@ func adminUserMFAPolicyDialog(user AdminUserData, csrfToken string) templ.Compon
 				var templ_7745c5c3_Var65 string
 				templ_7745c5c3_Var65, templ_7745c5c3_Err = templ.JoinStringErrs(csrfToken)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 606, Col: 55}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 622, Col: 55}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var65))
 				if templ_7745c5c3_Err != nil {
@@ -1657,7 +1673,7 @@ func adminUserMFAPolicyDialog(user AdminUserData, csrfToken string) templ.Compon
 					var templ_7745c5c3_Var66 string
 					templ_7745c5c3_Var66, templ_7745c5c3_Err = templ.JoinStringErrs(user.ListPath)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 608, Col: 59}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 624, Col: 59}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var66))
 					if templ_7745c5c3_Err != nil {
@@ -1675,7 +1691,7 @@ func adminUserMFAPolicyDialog(user AdminUserData, csrfToken string) templ.Compon
 				var templ_7745c5c3_Var67 string
 				templ_7745c5c3_Var67, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%t", !user.MFARequired))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 610, Col: 85}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 626, Col: 85}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var67))
 				if templ_7745c5c3_Err != nil {
@@ -1724,7 +1740,7 @@ func adminUserMFAPolicyDialog(user AdminUserData, csrfToken string) templ.Compon
 							var templ_7745c5c3_Var71 string
 							templ_7745c5c3_Var71, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "common.cancel"))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 614, Col: 37}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 630, Col: 37}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var71))
 							if templ_7745c5c3_Err != nil {
@@ -1762,7 +1778,7 @@ func adminUserMFAPolicyDialog(user AdminUserData, csrfToken string) templ.Compon
 							var templ_7745c5c3_Var73 string
 							templ_7745c5c3_Var73, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.mfa.clear"))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 619, Col: 39}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 635, Col: 39}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var73))
 							if templ_7745c5c3_Err != nil {
@@ -1772,7 +1788,7 @@ func adminUserMFAPolicyDialog(user AdminUserData, csrfToken string) templ.Compon
 							var templ_7745c5c3_Var74 string
 							templ_7745c5c3_Var74, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.mfa.require"))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 621, Col: 41}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 637, Col: 41}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var74))
 							if templ_7745c5c3_Err != nil {
@@ -1883,7 +1899,7 @@ func adminUserInvitationRevokeDialog(user AdminUserData, csrfToken string) templ
 						var templ_7745c5c3_Var80 string
 						templ_7745c5c3_Var80, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.invite.revoke_title"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 635, Col: 47}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 651, Col: 47}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var80))
 						if templ_7745c5c3_Err != nil {
@@ -1914,7 +1930,7 @@ func adminUserInvitationRevokeDialog(user AdminUserData, csrfToken string) templ
 						var templ_7745c5c3_Var82 string
 						templ_7745c5c3_Var82, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.invite.revoke_detail", "user", adminUserUsername(ctx, user.Username)))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 638, Col: 95}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 654, Col: 95}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var82))
 						if templ_7745c5c3_Err != nil {
@@ -1939,7 +1955,7 @@ func adminUserInvitationRevokeDialog(user AdminUserData, csrfToken string) templ
 				var templ_7745c5c3_Var83 templ.SafeURL
 				templ_7745c5c3_Var83, templ_7745c5c3_Err = templ.JoinURLErrs(user.InvitationRevokePath)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 641, Col: 57}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 657, Col: 57}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var83))
 				if templ_7745c5c3_Err != nil {
@@ -1952,7 +1968,7 @@ func adminUserInvitationRevokeDialog(user AdminUserData, csrfToken string) templ
 				var templ_7745c5c3_Var84 string
 				templ_7745c5c3_Var84, templ_7745c5c3_Err = templ.JoinStringErrs(csrfToken)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 642, Col: 55}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 658, Col: 55}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var84))
 				if templ_7745c5c3_Err != nil {
@@ -1970,7 +1986,7 @@ func adminUserInvitationRevokeDialog(user AdminUserData, csrfToken string) templ
 					var templ_7745c5c3_Var85 string
 					templ_7745c5c3_Var85, templ_7745c5c3_Err = templ.JoinStringErrs(user.ListPath)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 644, Col: 59}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 660, Col: 59}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var85))
 					if templ_7745c5c3_Err != nil {
@@ -2020,7 +2036,7 @@ func adminUserInvitationRevokeDialog(user AdminUserData, csrfToken string) templ
 							var templ_7745c5c3_Var89 string
 							templ_7745c5c3_Var89, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "common.cancel"))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 649, Col: 37}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 665, Col: 37}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var89))
 							if templ_7745c5c3_Err != nil {
@@ -2057,7 +2073,7 @@ func adminUserInvitationRevokeDialog(user AdminUserData, csrfToken string) templ
 						var templ_7745c5c3_Var91 string
 						templ_7745c5c3_Var91, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.invite.revoke_button"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 653, Col: 49}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 669, Col: 49}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var91))
 						if templ_7745c5c3_Err != nil {
@@ -2170,7 +2186,7 @@ func adminUserInvitationRotateDialog(user AdminUserData, csrfToken string) templ
 							var templ_7745c5c3_Var97 string
 							templ_7745c5c3_Var97, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.invite.rotate_title"))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 669, Col: 48}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 685, Col: 48}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var97))
 							if templ_7745c5c3_Err != nil {
@@ -2180,7 +2196,7 @@ func adminUserInvitationRotateDialog(user AdminUserData, csrfToken string) templ
 							var templ_7745c5c3_Var98 string
 							templ_7745c5c3_Var98, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.invite.issue_title", "user", adminUserUsername(ctx, user.Username)))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 671, Col: 94}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 687, Col: 94}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var98))
 							if templ_7745c5c3_Err != nil {
@@ -2213,7 +2229,7 @@ func adminUserInvitationRotateDialog(user AdminUserData, csrfToken string) templ
 							var templ_7745c5c3_Var100 string
 							templ_7745c5c3_Var100, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.invite.rotate_detail", "user", adminUserUsername(ctx, user.Username)))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 676, Col: 96}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 692, Col: 96}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var100))
 							if templ_7745c5c3_Err != nil {
@@ -2223,7 +2239,7 @@ func adminUserInvitationRotateDialog(user AdminUserData, csrfToken string) templ
 							var templ_7745c5c3_Var101 string
 							templ_7745c5c3_Var101, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.invite.issue_detail", "user", adminUserUsername(ctx, user.Username)))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 678, Col: 95}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 694, Col: 95}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var101))
 							if templ_7745c5c3_Err != nil {
@@ -2249,7 +2265,7 @@ func adminUserInvitationRotateDialog(user AdminUserData, csrfToken string) templ
 				var templ_7745c5c3_Var102 templ.SafeURL
 				templ_7745c5c3_Var102, templ_7745c5c3_Err = templ.JoinURLErrs(user.InvitationRotatePath)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 682, Col: 57}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 698, Col: 57}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var102))
 				if templ_7745c5c3_Err != nil {
@@ -2262,7 +2278,7 @@ func adminUserInvitationRotateDialog(user AdminUserData, csrfToken string) templ
 				var templ_7745c5c3_Var103 string
 				templ_7745c5c3_Var103, templ_7745c5c3_Err = templ.JoinStringErrs(csrfToken)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 683, Col: 55}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 699, Col: 55}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var103))
 				if templ_7745c5c3_Err != nil {
@@ -2280,7 +2296,7 @@ func adminUserInvitationRotateDialog(user AdminUserData, csrfToken string) templ
 					var templ_7745c5c3_Var104 string
 					templ_7745c5c3_Var104, templ_7745c5c3_Err = templ.JoinStringErrs(user.ListPath)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 685, Col: 59}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 701, Col: 59}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var104))
 					if templ_7745c5c3_Err != nil {
@@ -2330,7 +2346,7 @@ func adminUserInvitationRotateDialog(user AdminUserData, csrfToken string) templ
 							var templ_7745c5c3_Var108 string
 							templ_7745c5c3_Var108, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "common.cancel"))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 690, Col: 37}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 706, Col: 37}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var108))
 							if templ_7745c5c3_Err != nil {
@@ -2368,7 +2384,7 @@ func adminUserInvitationRotateDialog(user AdminUserData, csrfToken string) templ
 							var templ_7745c5c3_Var110 string
 							templ_7745c5c3_Var110, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.invite.rotate_button"))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 695, Col: 50}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 711, Col: 50}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var110))
 							if templ_7745c5c3_Err != nil {
@@ -2378,7 +2394,7 @@ func adminUserInvitationRotateDialog(user AdminUserData, csrfToken string) templ
 							var templ_7745c5c3_Var111 string
 							templ_7745c5c3_Var111, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.invite.issue_button"))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 697, Col: 49}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 713, Col: 49}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var111))
 							if templ_7745c5c3_Err != nil {
@@ -2494,7 +2510,7 @@ func adminUserStatusDialog(user AdminUserData, csrfToken string) templ.Component
 							var templ_7745c5c3_Var117 string
 							templ_7745c5c3_Var117, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.users.enable_title", "user", adminUserUsername(ctx, user.Username)))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 716, Col: 94}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 732, Col: 94}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var117))
 							if templ_7745c5c3_Err != nil {
@@ -2504,7 +2520,7 @@ func adminUserStatusDialog(user AdminUserData, csrfToken string) templ.Component
 							var templ_7745c5c3_Var118 string
 							templ_7745c5c3_Var118, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.users.disable_title", "user", adminUserUsername(ctx, user.Username)))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 718, Col: 95}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 734, Col: 95}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var118))
 							if templ_7745c5c3_Err != nil {
@@ -2537,7 +2553,7 @@ func adminUserStatusDialog(user AdminUserData, csrfToken string) templ.Component
 							var templ_7745c5c3_Var120 string
 							templ_7745c5c3_Var120, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.users.enable_detail"))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 723, Col: 48}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 739, Col: 48}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var120))
 							if templ_7745c5c3_Err != nil {
@@ -2547,7 +2563,7 @@ func adminUserStatusDialog(user AdminUserData, csrfToken string) templ.Component
 							var templ_7745c5c3_Var121 string
 							templ_7745c5c3_Var121, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.users.disable_detail"))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 725, Col: 49}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 741, Col: 49}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var121))
 							if templ_7745c5c3_Err != nil {
@@ -2573,7 +2589,7 @@ func adminUserStatusDialog(user AdminUserData, csrfToken string) templ.Component
 				var templ_7745c5c3_Var122 templ.SafeURL
 				templ_7745c5c3_Var122, templ_7745c5c3_Err = templ.JoinURLErrs(user.StatusPath)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 729, Col: 47}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 745, Col: 47}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var122))
 				if templ_7745c5c3_Err != nil {
@@ -2586,7 +2602,7 @@ func adminUserStatusDialog(user AdminUserData, csrfToken string) templ.Component
 				var templ_7745c5c3_Var123 string
 				templ_7745c5c3_Var123, templ_7745c5c3_Err = templ.JoinStringErrs(csrfToken)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 730, Col: 55}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 746, Col: 55}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var123))
 				if templ_7745c5c3_Err != nil {
@@ -2604,7 +2620,7 @@ func adminUserStatusDialog(user AdminUserData, csrfToken string) templ.Component
 					var templ_7745c5c3_Var124 string
 					templ_7745c5c3_Var124, templ_7745c5c3_Err = templ.JoinStringErrs(user.ListPath)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 732, Col: 59}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 748, Col: 59}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var124))
 					if templ_7745c5c3_Err != nil {
@@ -2665,7 +2681,7 @@ func adminUserStatusDialog(user AdminUserData, csrfToken string) templ.Component
 							var templ_7745c5c3_Var128 string
 							templ_7745c5c3_Var128, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "common.cancel"))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 742, Col: 37}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 758, Col: 37}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var128))
 							if templ_7745c5c3_Err != nil {
@@ -2703,7 +2719,7 @@ func adminUserStatusDialog(user AdminUserData, csrfToken string) templ.Component
 							var templ_7745c5c3_Var130 string
 							templ_7745c5c3_Var130, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.users.enable_button"))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 747, Col: 49}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 763, Col: 49}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var130))
 							if templ_7745c5c3_Err != nil {
@@ -2731,7 +2747,7 @@ func adminUserStatusDialog(user AdminUserData, csrfToken string) templ.Component
 							var templ_7745c5c3_Var132 string
 							templ_7745c5c3_Var132, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.users.disable_button"))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 751, Col: 50}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 767, Col: 50}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var132))
 							if templ_7745c5c3_Err != nil {
@@ -2846,7 +2862,7 @@ func adminUserSignOutDialog(user AdminUserData, csrfToken string) templ.Componen
 						var templ_7745c5c3_Var138 string
 						templ_7745c5c3_Var138, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.users.sign_out_title", "user", adminUserUsername(ctx, user.Username)))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 769, Col: 95}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 785, Col: 95}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var138))
 						if templ_7745c5c3_Err != nil {
@@ -2877,7 +2893,7 @@ func adminUserSignOutDialog(user AdminUserData, csrfToken string) templ.Componen
 						var templ_7745c5c3_Var140 string
 						templ_7745c5c3_Var140, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.users.sign_out_detail"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 772, Col: 49}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 788, Col: 49}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var140))
 						if templ_7745c5c3_Err != nil {
@@ -2902,7 +2918,7 @@ func adminUserSignOutDialog(user AdminUserData, csrfToken string) templ.Componen
 				var templ_7745c5c3_Var141 templ.SafeURL
 				templ_7745c5c3_Var141, templ_7745c5c3_Err = templ.JoinURLErrs(user.SignOutPath)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 775, Col: 48}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 791, Col: 48}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var141))
 				if templ_7745c5c3_Err != nil {
@@ -2915,7 +2931,7 @@ func adminUserSignOutDialog(user AdminUserData, csrfToken string) templ.Componen
 				var templ_7745c5c3_Var142 string
 				templ_7745c5c3_Var142, templ_7745c5c3_Err = templ.JoinStringErrs(csrfToken)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 776, Col: 55}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 792, Col: 55}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var142))
 				if templ_7745c5c3_Err != nil {
@@ -2933,7 +2949,7 @@ func adminUserSignOutDialog(user AdminUserData, csrfToken string) templ.Componen
 					var templ_7745c5c3_Var143 string
 					templ_7745c5c3_Var143, templ_7745c5c3_Err = templ.JoinStringErrs(user.ListPath)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 778, Col: 59}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 794, Col: 59}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var143))
 					if templ_7745c5c3_Err != nil {
@@ -2983,7 +2999,7 @@ func adminUserSignOutDialog(user AdminUserData, csrfToken string) templ.Componen
 							var templ_7745c5c3_Var147 string
 							templ_7745c5c3_Var147, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "common.cancel"))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 783, Col: 37}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 799, Col: 37}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var147))
 							if templ_7745c5c3_Err != nil {
@@ -3020,7 +3036,7 @@ func adminUserSignOutDialog(user AdminUserData, csrfToken string) templ.Componen
 						var templ_7745c5c3_Var149 string
 						templ_7745c5c3_Var149, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.users.sign_out"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 787, Col: 43}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 803, Col: 43}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var149))
 						if templ_7745c5c3_Err != nil {
@@ -3135,7 +3151,7 @@ func adminUserDeletionDialog(user AdminUserData, csrfToken string) templ.Compone
 						var templ_7745c5c3_Var155 string
 						templ_7745c5c3_Var155, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.delete.title", "user", adminUserUsername(ctx, user.Username)))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 805, Col: 87}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 821, Col: 87}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var155))
 						if templ_7745c5c3_Err != nil {
@@ -3166,7 +3182,7 @@ func adminUserDeletionDialog(user AdminUserData, csrfToken string) templ.Compone
 						var templ_7745c5c3_Var157 string
 						templ_7745c5c3_Var157, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.delete.description"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 808, Col: 46}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 824, Col: 46}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var157))
 						if templ_7745c5c3_Err != nil {
@@ -3191,7 +3207,7 @@ func adminUserDeletionDialog(user AdminUserData, csrfToken string) templ.Compone
 				var templ_7745c5c3_Var158 string
 				templ_7745c5c3_Var158, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.delete.removes"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 813, Col: 84}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 829, Col: 84}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var158))
 				if templ_7745c5c3_Err != nil {
@@ -3204,7 +3220,7 @@ func adminUserDeletionDialog(user AdminUserData, csrfToken string) templ.Compone
 				var templ_7745c5c3_Var159 string
 				templ_7745c5c3_Var159, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.delete.removes_signin"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 815, Col: 54}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 831, Col: 54}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var159))
 				if templ_7745c5c3_Err != nil {
@@ -3217,7 +3233,7 @@ func adminUserDeletionDialog(user AdminUserData, csrfToken string) templ.Compone
 				var templ_7745c5c3_Var160 string
 				templ_7745c5c3_Var160, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.delete.removes_mailboxes"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 816, Col: 57}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 832, Col: 57}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var160))
 				if templ_7745c5c3_Err != nil {
@@ -3230,7 +3246,7 @@ func adminUserDeletionDialog(user AdminUserData, csrfToken string) templ.Compone
 				var templ_7745c5c3_Var161 string
 				templ_7745c5c3_Var161, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.delete.removes_data"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 817, Col: 52}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 833, Col: 52}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var161))
 				if templ_7745c5c3_Err != nil {
@@ -3243,7 +3259,7 @@ func adminUserDeletionDialog(user AdminUserData, csrfToken string) templ.Compone
 				var templ_7745c5c3_Var162 string
 				templ_7745c5c3_Var162, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.delete.remote_title"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 821, Col: 94}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 837, Col: 94}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var162))
 				if templ_7745c5c3_Err != nil {
@@ -3256,7 +3272,7 @@ func adminUserDeletionDialog(user AdminUserData, csrfToken string) templ.Compone
 				var templ_7745c5c3_Var163 string
 				templ_7745c5c3_Var163, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.delete.remote"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 821, Col: 140}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 837, Col: 140}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var163))
 				if templ_7745c5c3_Err != nil {
@@ -3269,7 +3285,7 @@ func adminUserDeletionDialog(user AdminUserData, csrfToken string) templ.Compone
 				var templ_7745c5c3_Var164 string
 				templ_7745c5c3_Var164, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.delete.audit"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 822, Col: 56}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 838, Col: 56}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var164))
 				if templ_7745c5c3_Err != nil {
@@ -3282,7 +3298,7 @@ func adminUserDeletionDialog(user AdminUserData, csrfToken string) templ.Compone
 				var templ_7745c5c3_Var165 string
 				templ_7745c5c3_Var165, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.delete.backup_title"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 825, Col: 72}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 841, Col: 72}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var165))
 				if templ_7745c5c3_Err != nil {
@@ -3295,7 +3311,7 @@ func adminUserDeletionDialog(user AdminUserData, csrfToken string) templ.Compone
 				var templ_7745c5c3_Var166 string
 				templ_7745c5c3_Var166, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.delete.backup"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 826, Col: 57}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 842, Col: 57}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var166))
 				if templ_7745c5c3_Err != nil {
@@ -3308,7 +3324,7 @@ func adminUserDeletionDialog(user AdminUserData, csrfToken string) templ.Compone
 				var templ_7745c5c3_Var167 templ.SafeURL
 				templ_7745c5c3_Var167, templ_7745c5c3_Err = templ.JoinURLErrs(user.DeletionPath)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 829, Col: 49}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 845, Col: 49}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var167))
 				if templ_7745c5c3_Err != nil {
@@ -3321,7 +3337,7 @@ func adminUserDeletionDialog(user AdminUserData, csrfToken string) templ.Compone
 				var templ_7745c5c3_Var168 string
 				templ_7745c5c3_Var168, templ_7745c5c3_Err = templ.JoinStringErrs(csrfToken)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 830, Col: 55}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 846, Col: 55}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var168))
 				if templ_7745c5c3_Err != nil {
@@ -3339,7 +3355,7 @@ func adminUserDeletionDialog(user AdminUserData, csrfToken string) templ.Compone
 					var templ_7745c5c3_Var169 string
 					templ_7745c5c3_Var169, templ_7745c5c3_Err = templ.JoinStringErrs(user.ListPath)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 832, Col: 59}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 848, Col: 59}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var169))
 					if templ_7745c5c3_Err != nil {
@@ -3357,7 +3373,7 @@ func adminUserDeletionDialog(user AdminUserData, csrfToken string) templ.Compone
 				var templ_7745c5c3_Var170 string
 				templ_7745c5c3_Var170, templ_7745c5c3_Err = templ.JoinStringErrs(deletionDialogID + "-confirmation")
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 834, Col: 51}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 850, Col: 51}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var170))
 				if templ_7745c5c3_Err != nil {
@@ -3370,7 +3386,7 @@ func adminUserDeletionDialog(user AdminUserData, csrfToken string) templ.Compone
 				var templ_7745c5c3_Var171 string
 				templ_7745c5c3_Var171, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.delete.confirm_before"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 834, Col: 144}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 850, Col: 144}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var171))
 				if templ_7745c5c3_Err != nil {
@@ -3383,7 +3399,7 @@ func adminUserDeletionDialog(user AdminUserData, csrfToken string) templ.Compone
 				var templ_7745c5c3_Var172 string
 				templ_7745c5c3_Var172, templ_7745c5c3_Err = templ.JoinStringErrs(user.Username)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 834, Col: 186}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 850, Col: 186}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var172))
 				if templ_7745c5c3_Err != nil {
@@ -3396,7 +3412,7 @@ func adminUserDeletionDialog(user AdminUserData, csrfToken string) templ.Compone
 				var templ_7745c5c3_Var173 string
 				templ_7745c5c3_Var173, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.delete.confirm_after"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 834, Col: 239}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 850, Col: 239}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var173))
 				if templ_7745c5c3_Err != nil {
@@ -3409,7 +3425,7 @@ func adminUserDeletionDialog(user AdminUserData, csrfToken string) templ.Compone
 				var templ_7745c5c3_Var174 string
 				templ_7745c5c3_Var174, templ_7745c5c3_Err = templ.JoinStringErrs(deletionDialogID + "-confirmation")
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 836, Col: 44}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 852, Col: 44}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var174))
 				if templ_7745c5c3_Err != nil {
@@ -3458,7 +3474,7 @@ func adminUserDeletionDialog(user AdminUserData, csrfToken string) templ.Compone
 							var templ_7745c5c3_Var178 string
 							templ_7745c5c3_Var178, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "common.cancel"))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 848, Col: 37}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 864, Col: 37}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var178))
 							if templ_7745c5c3_Err != nil {
@@ -3496,7 +3512,7 @@ func adminUserDeletionDialog(user AdminUserData, csrfToken string) templ.Compone
 							var templ_7745c5c3_Var180 string
 							templ_7745c5c3_Var180, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.delete.retry_button"))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 853, Col: 49}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 869, Col: 49}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var180))
 							if templ_7745c5c3_Err != nil {
@@ -3506,7 +3522,7 @@ func adminUserDeletionDialog(user AdminUserData, csrfToken string) templ.Compone
 							var templ_7745c5c3_Var181 string
 							templ_7745c5c3_Var181, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.delete.submit"))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 855, Col: 43}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 871, Col: 43}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var181))
 							if templ_7745c5c3_Err != nil {
@@ -3618,11 +3634,11 @@ func adminUserCredentialResetDialog(user AdminUserData, csrfToken string) templ.
 							}()
 						}
 						ctx = templ.InitializeContext(ctx)
-						if user.PasswordResetRequestedAt != nil {
+						if user.PasswordResetRequestedAt != nil && !user.administrator() {
 							var templ_7745c5c3_Var187 string
 							templ_7745c5c3_Var187, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.reset.issue_title", "user", adminUserUsername(ctx, user.Username)))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 874, Col: 93}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 890, Col: 93}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var187))
 							if templ_7745c5c3_Err != nil {
@@ -3630,9 +3646,9 @@ func adminUserCredentialResetDialog(user AdminUserData, csrfToken string) templ.
 							}
 						} else {
 							var templ_7745c5c3_Var188 string
-							templ_7745c5c3_Var188, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.reset.generate_title", "user", adminUserUsername(ctx, user.Username)))
+							templ_7745c5c3_Var188, templ_7745c5c3_Err = templ.JoinStringErrs(adminResetText(ctx, user.administrator(), "generate_title", "user", adminUserUsername(ctx, user.Username)))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 876, Col: 96}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 892, Col: 114}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var188))
 							if templ_7745c5c3_Err != nil {
@@ -3662,9 +3678,9 @@ func adminUserCredentialResetDialog(user AdminUserData, csrfToken string) templ.
 						}
 						ctx = templ.InitializeContext(ctx)
 						var templ_7745c5c3_Var190 string
-						templ_7745c5c3_Var190, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.reset.detail"))
+						templ_7745c5c3_Var190, templ_7745c5c3_Err = templ.JoinStringErrs(adminResetText(ctx, user.administrator(), "detail"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 880, Col: 40}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 896, Col: 58}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var190))
 						if templ_7745c5c3_Err != nil {
@@ -3689,7 +3705,7 @@ func adminUserCredentialResetDialog(user AdminUserData, csrfToken string) templ.
 				var templ_7745c5c3_Var191 templ.SafeURL
 				templ_7745c5c3_Var191, templ_7745c5c3_Err = templ.JoinURLErrs(user.CredentialResetPath)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 883, Col: 56}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 899, Col: 56}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var191))
 				if templ_7745c5c3_Err != nil {
@@ -3702,7 +3718,7 @@ func adminUserCredentialResetDialog(user AdminUserData, csrfToken string) templ.
 				var templ_7745c5c3_Var192 string
 				templ_7745c5c3_Var192, templ_7745c5c3_Err = templ.JoinStringErrs(csrfToken)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 884, Col: 55}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 900, Col: 55}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var192))
 				if templ_7745c5c3_Err != nil {
@@ -3720,7 +3736,7 @@ func adminUserCredentialResetDialog(user AdminUserData, csrfToken string) templ.
 					var templ_7745c5c3_Var193 string
 					templ_7745c5c3_Var193, templ_7745c5c3_Err = templ.JoinStringErrs(user.ListPath)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 886, Col: 59}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 902, Col: 59}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var193))
 					if templ_7745c5c3_Err != nil {
@@ -3770,7 +3786,7 @@ func adminUserCredentialResetDialog(user AdminUserData, csrfToken string) templ.
 							var templ_7745c5c3_Var197 string
 							templ_7745c5c3_Var197, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "common.cancel"))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 891, Col: 37}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 907, Col: 37}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var197))
 							if templ_7745c5c3_Err != nil {
@@ -3805,9 +3821,9 @@ func adminUserCredentialResetDialog(user AdminUserData, csrfToken string) templ.
 						}
 						ctx = templ.InitializeContext(ctx)
 						var templ_7745c5c3_Var199 string
-						templ_7745c5c3_Var199, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.reset.submit"))
+						templ_7745c5c3_Var199, templ_7745c5c3_Err = templ.JoinStringErrs(adminResetText(ctx, user.administrator(), "submit"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 895, Col: 41}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 911, Col: 59}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var199))
 						if templ_7745c5c3_Err != nil {
@@ -3917,7 +3933,7 @@ func adminUserRequiredChangeDialog(user AdminUserData, csrfToken string) templ.C
 						var templ_7745c5c3_Var205 string
 						templ_7745c5c3_Var205, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.required_change.title", "user", adminUserUsername(ctx, user.Username)))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 908, Col: 96}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 924, Col: 96}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var205))
 						if templ_7745c5c3_Err != nil {
@@ -3948,7 +3964,7 @@ func adminUserRequiredChangeDialog(user AdminUserData, csrfToken string) templ.C
 						var templ_7745c5c3_Var207 string
 						templ_7745c5c3_Var207, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.required_change.detail"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 911, Col: 50}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 927, Col: 50}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var207))
 						if templ_7745c5c3_Err != nil {
@@ -3973,7 +3989,7 @@ func adminUserRequiredChangeDialog(user AdminUserData, csrfToken string) templ.C
 				var templ_7745c5c3_Var208 templ.SafeURL
 				templ_7745c5c3_Var208, templ_7745c5c3_Err = templ.JoinURLErrs(user.RequiredChangePath)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 914, Col: 55}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 930, Col: 55}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var208))
 				if templ_7745c5c3_Err != nil {
@@ -3986,7 +4002,7 @@ func adminUserRequiredChangeDialog(user AdminUserData, csrfToken string) templ.C
 				var templ_7745c5c3_Var209 string
 				templ_7745c5c3_Var209, templ_7745c5c3_Err = templ.JoinStringErrs(csrfToken)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 915, Col: 55}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 931, Col: 55}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var209))
 				if templ_7745c5c3_Err != nil {
@@ -4004,7 +4020,7 @@ func adminUserRequiredChangeDialog(user AdminUserData, csrfToken string) templ.C
 					var templ_7745c5c3_Var210 string
 					templ_7745c5c3_Var210, templ_7745c5c3_Err = templ.JoinStringErrs(user.ListPath)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 917, Col: 59}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 933, Col: 59}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var210))
 					if templ_7745c5c3_Err != nil {
@@ -4054,7 +4070,7 @@ func adminUserRequiredChangeDialog(user AdminUserData, csrfToken string) templ.C
 							var templ_7745c5c3_Var214 string
 							templ_7745c5c3_Var214, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "common.cancel"))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 922, Col: 37}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 938, Col: 37}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var214))
 							if templ_7745c5c3_Err != nil {
@@ -4091,7 +4107,7 @@ func adminUserRequiredChangeDialog(user AdminUserData, csrfToken string) templ.C
 						var templ_7745c5c3_Var216 string
 						templ_7745c5c3_Var216, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.required_change.submit"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 926, Col: 51}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 942, Col: 51}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var216))
 						if templ_7745c5c3_Err != nil {
@@ -4201,7 +4217,7 @@ func AdminUserInvitationDialog(data AdminUsersData) templ.Component {
 						var templ_7745c5c3_Var222 string
 						templ_7745c5c3_Var222, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.invite.title"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 939, Col: 40}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 955, Col: 40}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var222))
 						if templ_7745c5c3_Err != nil {
@@ -4232,7 +4248,7 @@ func AdminUserInvitationDialog(data AdminUsersData) templ.Component {
 						var templ_7745c5c3_Var224 string
 						templ_7745c5c3_Var224, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.invite.description"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 942, Col: 46}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 958, Col: 46}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var224))
 						if templ_7745c5c3_Err != nil {
@@ -4262,7 +4278,7 @@ func AdminUserInvitationDialog(data AdminUsersData) templ.Component {
 					var templ_7745c5c3_Var225 string
 					templ_7745c5c3_Var225, templ_7745c5c3_Err = templ.JoinStringErrs(data.InvitationCSRFToken)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 947, Col: 71}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 963, Col: 71}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var225))
 					if templ_7745c5c3_Err != nil {
@@ -4280,7 +4296,7 @@ func AdminUserInvitationDialog(data AdminUsersData) templ.Component {
 				var templ_7745c5c3_Var226 string
 				templ_7745c5c3_Var226, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "compose.from.display_name"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 950, Col: 134}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 966, Col: 134}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var226))
 				if templ_7745c5c3_Err != nil {
@@ -4293,7 +4309,7 @@ func AdminUserInvitationDialog(data AdminUsersData) templ.Component {
 				var templ_7745c5c3_Var227 string
 				templ_7745c5c3_Var227, templ_7745c5c3_Err = templ.JoinStringErrs(data.InvitationForm.Name)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 955, Col: 38}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 971, Col: 38}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var227))
 				if templ_7745c5c3_Err != nil {
@@ -4321,7 +4337,7 @@ func AdminUserInvitationDialog(data AdminUsersData) templ.Component {
 					var templ_7745c5c3_Var228 string
 					templ_7745c5c3_Var228, templ_7745c5c3_Err = templ.JoinStringErrs(fieldError)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 966, Col: 99}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 982, Col: 99}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var228))
 					if templ_7745c5c3_Err != nil {
@@ -4339,7 +4355,7 @@ func AdminUserInvitationDialog(data AdminUsersData) templ.Component {
 				var templ_7745c5c3_Var229 string
 				templ_7745c5c3_Var229, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.invite.username"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 971, Col: 135}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 987, Col: 135}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var229))
 				if templ_7745c5c3_Err != nil {
@@ -4352,7 +4368,7 @@ func AdminUserInvitationDialog(data AdminUsersData) templ.Component {
 				var templ_7745c5c3_Var230 string
 				templ_7745c5c3_Var230, templ_7745c5c3_Err = templ.JoinStringErrs(data.InvitationForm.Username)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 976, Col: 43}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 992, Col: 43}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var230))
 				if templ_7745c5c3_Err != nil {
@@ -4380,7 +4396,7 @@ func AdminUserInvitationDialog(data AdminUsersData) templ.Component {
 				var templ_7745c5c3_Var231 string
 				templ_7745c5c3_Var231, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.invite.username_help"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 991, Col: 126}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1007, Col: 126}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var231))
 				if templ_7745c5c3_Err != nil {
@@ -4398,7 +4414,7 @@ func AdminUserInvitationDialog(data AdminUsersData) templ.Component {
 					var templ_7745c5c3_Var232 string
 					templ_7745c5c3_Var232, templ_7745c5c3_Err = templ.JoinStringErrs(fieldError)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 993, Col: 104}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1009, Col: 104}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var232))
 					if templ_7745c5c3_Err != nil {
@@ -4416,7 +4432,7 @@ func AdminUserInvitationDialog(data AdminUsersData) templ.Component {
 				var templ_7745c5c3_Var233 string
 				templ_7745c5c3_Var233, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.invite.role"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 998, Col: 93}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1014, Col: 93}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var233))
 				if templ_7745c5c3_Err != nil {
@@ -4441,7 +4457,7 @@ func AdminUserInvitationDialog(data AdminUsersData) templ.Component {
 				var templ_7745c5c3_Var234 string
 				templ_7745c5c3_Var234, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.invite.note"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1003, Col: 39}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1019, Col: 39}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var234))
 				if templ_7745c5c3_Err != nil {
@@ -4490,7 +4506,7 @@ func AdminUserInvitationDialog(data AdminUsersData) templ.Component {
 							var templ_7745c5c3_Var238 string
 							templ_7745c5c3_Var238, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "common.cancel"))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1008, Col: 37}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1024, Col: 37}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var238))
 							if templ_7745c5c3_Err != nil {
@@ -4535,7 +4551,7 @@ func AdminUserInvitationDialog(data AdminUsersData) templ.Component {
 						var templ_7745c5c3_Var240 string
 						templ_7745c5c3_Var240, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.invite.create"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1013, Col: 42}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1029, Col: 42}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var240))
 						if templ_7745c5c3_Err != nil {
@@ -4610,7 +4626,7 @@ func adminInvitationRole(value, label, detail string, checked bool) templ.Compon
 		var templ_7745c5c3_Var242 string
 		templ_7745c5c3_Var242, templ_7745c5c3_Err = templ.JoinStringErrs(label)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1028, Col: 36}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1044, Col: 36}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var242))
 		if templ_7745c5c3_Err != nil {
@@ -4623,7 +4639,7 @@ func adminInvitationRole(value, label, detail string, checked bool) templ.Compon
 		var templ_7745c5c3_Var243 string
 		templ_7745c5c3_Var243, templ_7745c5c3_Err = templ.JoinStringErrs(detail)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1029, Col: 68}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1045, Col: 68}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var243))
 		if templ_7745c5c3_Err != nil {
@@ -4710,7 +4726,7 @@ func AdminUserInvitationResultDialog(data *AdminUserInvitationData) templ.Compon
 							var templ_7745c5c3_Var249 string
 							templ_7745c5c3_Var249, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.invite.rotated"))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1040, Col: 43}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1056, Col: 43}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var249))
 							if templ_7745c5c3_Err != nil {
@@ -4720,7 +4736,7 @@ func AdminUserInvitationResultDialog(data *AdminUserInvitationData) templ.Compon
 							var templ_7745c5c3_Var250 string
 							templ_7745c5c3_Var250, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.invite.created"))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1042, Col: 43}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1058, Col: 43}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var250))
 							if templ_7745c5c3_Err != nil {
@@ -4752,7 +4768,7 @@ func AdminUserInvitationResultDialog(data *AdminUserInvitationData) templ.Compon
 						var templ_7745c5c3_Var252 string
 						templ_7745c5c3_Var252, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.token.copy_now"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1046, Col: 42}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1062, Col: 42}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var252))
 						if templ_7745c5c3_Err != nil {
@@ -4778,7 +4794,7 @@ func AdminUserInvitationResultDialog(data *AdminUserInvitationData) templ.Compon
 					var templ_7745c5c3_Var253 string
 					templ_7745c5c3_Var253, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.invite.ready", "username", data.Username))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1052, Col: 68}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1068, Col: 68}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var253))
 					if templ_7745c5c3_Err != nil {
@@ -4788,7 +4804,7 @@ func AdminUserInvitationResultDialog(data *AdminUserInvitationData) templ.Compon
 					var templ_7745c5c3_Var254 string
 					templ_7745c5c3_Var254, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.invite.pending", "username", data.Username))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1054, Col: 70}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1070, Col: 70}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var254))
 					if templ_7745c5c3_Err != nil {
@@ -4802,7 +4818,7 @@ func AdminUserInvitationResultDialog(data *AdminUserInvitationData) templ.Compon
 				var templ_7745c5c3_Var255 string
 				templ_7745c5c3_Var255, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.invite.name_expires", "name", data.Name, "date", adminDateTimeZone(ctx, data.ExpiresAt)))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1057, Col: 137}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1073, Col: 137}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var255))
 				if templ_7745c5c3_Err != nil {
@@ -4815,7 +4831,7 @@ func AdminUserInvitationResultDialog(data *AdminUserInvitationData) templ.Compon
 				var templ_7745c5c3_Var256 string
 				templ_7745c5c3_Var256, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.invite.details"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1061, Col: 131}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1077, Col: 131}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var256))
 				if templ_7745c5c3_Err != nil {
@@ -4828,7 +4844,7 @@ func AdminUserInvitationResultDialog(data *AdminUserInvitationData) templ.Compon
 				var templ_7745c5c3_Var257 string
 				templ_7745c5c3_Var257, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.token.copy_details"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1063, Col: 76}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1079, Col: 76}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var257))
 				if templ_7745c5c3_Err != nil {
@@ -4852,7 +4868,7 @@ func AdminUserInvitationResultDialog(data *AdminUserInvitationData) templ.Compon
 				var templ_7745c5c3_Var258 string
 				templ_7745c5c3_Var258, templ_7745c5c3_Err = templ.JoinStringErrs(adminUserInvitationCopyText(ctx, data))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1070, Col: 253}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1086, Col: 253}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var258))
 				if templ_7745c5c3_Err != nil {
@@ -4870,7 +4886,7 @@ func AdminUserInvitationResultDialog(data *AdminUserInvitationData) templ.Compon
 					var templ_7745c5c3_Var259 string
 					templ_7745c5c3_Var259, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.invite.administrator_next"))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1074, Col: 53}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1090, Col: 53}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var259))
 					if templ_7745c5c3_Err != nil {
@@ -4888,7 +4904,7 @@ func AdminUserInvitationResultDialog(data *AdminUserInvitationData) templ.Compon
 				var templ_7745c5c3_Var260 string
 				templ_7745c5c3_Var260, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.invite.send_note"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1078, Col: 43}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1094, Col: 43}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var260))
 				if templ_7745c5c3_Err != nil {
@@ -4937,7 +4953,7 @@ func AdminUserInvitationResultDialog(data *AdminUserInvitationData) templ.Compon
 							var templ_7745c5c3_Var264 string
 							templ_7745c5c3_Var264, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.invite.saved"))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1083, Col: 41}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1099, Col: 41}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var264))
 							if templ_7745c5c3_Err != nil {
@@ -5047,9 +5063,9 @@ func AdminUserCredentialResetResultDialog(data *AdminUserCredentialResetData) te
 						}
 						ctx = templ.InitializeContext(ctx)
 						var templ_7745c5c3_Var270 string
-						templ_7745c5c3_Var270, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.reset.created"))
+						templ_7745c5c3_Var270, templ_7745c5c3_Err = templ.JoinStringErrs(adminResetText(ctx, data.Administrator, "created"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1096, Col: 41}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1112, Col: 57}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var270))
 						if templ_7745c5c3_Err != nil {
@@ -5080,7 +5096,7 @@ func AdminUserCredentialResetResultDialog(data *AdminUserCredentialResetData) te
 						var templ_7745c5c3_Var272 string
 						templ_7745c5c3_Var272, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.token.copy_now"))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1099, Col: 42}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1115, Col: 42}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var272))
 						if templ_7745c5c3_Err != nil {
@@ -5103,9 +5119,9 @@ func AdminUserCredentialResetResultDialog(data *AdminUserCredentialResetData) te
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var273 string
-				templ_7745c5c3_Var273, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.reset.ready", "username", data.Username))
+				templ_7745c5c3_Var273, templ_7745c5c3_Err = templ.JoinStringErrs(adminResetText(ctx, data.Administrator, "ready", "username", data.Username))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1103, Col: 90}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1119, Col: 106}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var273))
 				if templ_7745c5c3_Err != nil {
@@ -5118,7 +5134,7 @@ func AdminUserCredentialResetResultDialog(data *AdminUserCredentialResetData) te
 				var templ_7745c5c3_Var274 string
 				templ_7745c5c3_Var274, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.invite.expires", "date", adminDateTimeZone(ctx, data.ExpiresAt)))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1104, Col: 113}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1120, Col: 113}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var274))
 				if templ_7745c5c3_Err != nil {
@@ -5129,9 +5145,9 @@ func AdminUserCredentialResetResultDialog(data *AdminUserCredentialResetData) te
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var275 string
-				templ_7745c5c3_Var275, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.reset.details"))
+				templ_7745c5c3_Var275, templ_7745c5c3_Err = templ.JoinStringErrs(adminResetText(ctx, data.Administrator, "details"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1108, Col: 136}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1124, Col: 152}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var275))
 				if templ_7745c5c3_Err != nil {
@@ -5144,7 +5160,7 @@ func AdminUserCredentialResetResultDialog(data *AdminUserCredentialResetData) te
 				var templ_7745c5c3_Var276 string
 				templ_7745c5c3_Var276, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.token.copy_details"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1110, Col: 76}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1126, Col: 76}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var276))
 				if templ_7745c5c3_Err != nil {
@@ -5156,7 +5172,7 @@ func AdminUserCredentialResetResultDialog(data *AdminUserCredentialResetData) te
 				}
 				templ_7745c5c3_Err = copybutton.CopyButton(copybutton.Props{
 					TargetID: "admin-user-credential-reset-details",
-					Attrs:    templ.Attributes{"aria-label": i18n.T(ctx, "admin.reset.copy_label")},
+					Attrs:    templ.Attributes{"aria-label": adminResetText(ctx, data.Administrator, "copy_label")},
 				}).Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
@@ -5168,7 +5184,7 @@ func AdminUserCredentialResetResultDialog(data *AdminUserCredentialResetData) te
 				var templ_7745c5c3_Var277 string
 				templ_7745c5c3_Var277, templ_7745c5c3_Err = templ.JoinStringErrs(adminUserCredentialResetCopyText(ctx, data))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1117, Col: 264}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1133, Col: 264}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var277))
 				if templ_7745c5c3_Err != nil {
@@ -5179,9 +5195,9 @@ func AdminUserCredentialResetResultDialog(data *AdminUserCredentialResetData) te
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var278 string
-				templ_7745c5c3_Var278, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.reset.send_note"))
+				templ_7745c5c3_Var278, templ_7745c5c3_Err = templ.JoinStringErrs(adminResetText(ctx, data.Administrator, "send_note"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1120, Col: 42}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1136, Col: 58}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var278))
 				if templ_7745c5c3_Err != nil {
@@ -5228,9 +5244,9 @@ func AdminUserCredentialResetResultDialog(data *AdminUserCredentialResetData) te
 							}
 							ctx = templ.InitializeContext(ctx)
 							var templ_7745c5c3_Var282 string
-							templ_7745c5c3_Var282, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.reset.saved"))
+							templ_7745c5c3_Var282, templ_7745c5c3_Err = templ.JoinStringErrs(adminResetText(ctx, data.Administrator, "saved"))
 							if templ_7745c5c3_Err != nil {
-								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1125, Col: 40}
+								return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1141, Col: 56}
 							}
 							_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var282))
 							if templ_7745c5c3_Err != nil {
@@ -5327,7 +5343,7 @@ func adminUsersHeaderActions(data AdminUsersData) templ.Component {
 				var templ_7745c5c3_Var286 string
 				templ_7745c5c3_Var286, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.users.invite"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1138, Col: 38}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1154, Col: 38}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var286))
 				if templ_7745c5c3_Err != nil {
@@ -5360,7 +5376,7 @@ func adminUsersHeaderActions(data AdminUsersData) templ.Component {
 			var templ_7745c5c3_Var288 string
 			templ_7745c5c3_Var288, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.N(ctx, "admin.users.count", data.Total, "count", i18n.Number(ctx, data.Total)))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1142, Col: 87}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1158, Col: 87}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var288))
 			if templ_7745c5c3_Err != nil {
@@ -5510,7 +5526,7 @@ func adminUsersChoice(name, label, value string, choices []adminUsersChoiceOptio
 		var templ_7745c5c3_Var291 string
 		templ_7745c5c3_Var291, templ_7745c5c3_Err = templ.JoinStringErrs(name)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1222, Col: 60}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1238, Col: 60}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var291))
 		if templ_7745c5c3_Err != nil {
@@ -5586,7 +5602,7 @@ func adminUsersChoice(name, label, value string, choices []adminUsersChoiceOptio
 						var templ_7745c5c3_Var296 string
 						templ_7745c5c3_Var296, templ_7745c5c3_Err = templ.JoinStringErrs(choice.Label)
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1230, Col: 20}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1246, Col: 20}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var296))
 						if templ_7745c5c3_Err != nil {
@@ -5649,7 +5665,7 @@ func adminUsersPaging(data AdminUsersData) templ.Component {
 		var templ_7745c5c3_Var298 string
 		templ_7745c5c3_Var298, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.users.showing", "from", i18n.Number(ctx, data.From), "to", i18n.Number(ctx, data.To), "total", i18n.Number(ctx, data.Matching)))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1243, Col: 192}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1259, Col: 192}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var298))
 		if templ_7745c5c3_Err != nil {
@@ -5687,7 +5703,7 @@ func adminUsersPaging(data AdminUsersData) templ.Component {
 				var templ_7745c5c3_Var300 string
 				templ_7745c5c3_Var300, templ_7745c5c3_Err = templ.JoinStringErrs(i18n.T(ctx, "admin.users.export_csv"))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1249, Col: 44}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/admin_users.templ`, Line: 1265, Col: 44}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var300))
 				if templ_7745c5c3_Err != nil {

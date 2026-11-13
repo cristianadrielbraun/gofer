@@ -65,8 +65,11 @@ func TestAdminUsersViewDataSummarizesStateRoleAndCurrentUser(t *testing.T) {
 		data.Users[2].StatusPath != "/admin/users/disabled/status" {
 		t.Fatalf("admin user status rows = %#v", data.Users)
 	}
-	if data.Users[0].CredentialResetPath != "" || data.Users[1].CredentialResetPath != "" || data.Users[2].CredentialResetPath != "" {
-		t.Fatalf("ineligible credential-reset rows = %#v", data.Users)
+	// Nobody resets their own sign-in, nor a pending person's; another
+	// administrator's sign-in can be reset.
+	if data.Users[0].CredentialResetPath != "" || data.Users[1].CredentialResetPath != "" ||
+		data.Users[2].CredentialResetPath != "/admin/users/disabled/credential-reset" || data.Users[2].RequiredChangePath != "" {
+		t.Fatalf("credential-reset rows = %#v", data.Users)
 	}
 }
 

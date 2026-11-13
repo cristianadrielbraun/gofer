@@ -220,8 +220,12 @@ func isHTMXRequest(r *http.Request) bool {
 }
 
 // AdminEnrollmentPath is where an invited administrator accepts their
-// invitation.
-const AdminEnrollmentPath = "/admin/enroll"
+// invitation, and AdminResetPath where an administrator uses the reset
+// another administrator gave them.
+const (
+	AdminEnrollmentPath = "/admin/enroll"
+	AdminResetPath      = "/admin/reset"
+)
 
 func isPublicPath(path string) bool {
 	public := []string{
@@ -230,6 +234,7 @@ func isPublicPath(path string) bool {
 		"/setup", "/setup/owner", "/setup/password", "/setup/mfa", "/setup/recovery", "/setup/review",
 		"/account/enroll", "/account/enroll/google", "/account/enroll/complete",
 		AdminEnrollmentPath, AdminEnrollmentPath + "/complete",
+		AdminResetPath, AdminResetPath + "/complete",
 		"/account/redeem", "/account/redeem/complete", "/account/recover",
 		"/auth/google", "/auth/google/login/callback", "/auth/microsoft", "/auth/microsoft/login/callback", "/auth/oidc", "/auth/oidc/callback", "/sw.js",
 		// Outlook notifications prove themselves with their subscription's secret.

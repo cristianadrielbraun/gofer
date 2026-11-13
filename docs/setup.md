@@ -81,6 +81,6 @@ Invitations can also be created from the command line, for example from a script
 docker compose exec gofer gofer auth invite create --name "Ada Example" --username ada --expires-in 72h
 ```
 
-It prints the enrollment address and a one-time invitation token. `--expires-in` defaults to 24 hours and can be at most 168 hours (7 days).
+It prints the enrollment address and a one-time invitation token. `--expires-in` defaults to 24 hours and can be at most 168 hours (7 days). Add `--administrator` to invite an administrator instead: they sign up at `/admin/enroll` and set up two-factor authentication the first time they sign in.
 
 The `gofer auth` commands that change something (`invite create`, `recover`, `sessions revoke` and `setup-token rotate`) are handed to the running Gofer through a private socket next to the database, `gofer.db.control/socket`. When Gofer is stopped they change the database directly, so `docker compose run --rm gofer auth …` works too. Run them as the same user as Gofer. If the database path is too long for a socket (about 100 characters), Gofer logs that at startup and these commands need it stopped.

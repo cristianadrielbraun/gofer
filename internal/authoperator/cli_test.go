@@ -578,6 +578,7 @@ func TestInvitationRequiresNameAndUsernameBeforeOpeningDatabase(t *testing.T) {
 		{"invite", "create", "--name", "Ada Example", "--username", "ada", "--admin", "yes"},
 		{"invite", "create", "--name", "Ada Example", "--username", "ada", "--expires-in", "2d"},
 		{"invite", "create", "--name", "Ada Example", "--username", "ada", "--expires-in", "-1h"},
+		{"invite", "create", "--name", "Ada Example", "--username", "ada", "--administrator", "--administrator"},
 	}
 	for _, args := range tests {
 		var stdout, stderr bytes.Buffer
@@ -658,6 +659,30 @@ func TestInvitationCreatesPendingUserAndPersistsOnlyTokenHash(t *testing.T) {
 	}
 	if reason != "local_operator" {
 		t.Fatalf("invitation event reason = %q", reason)
+	}
+}
+
+func TestInvitationCanInviteAnAdministrator(t *testing.T) {
+	setManagedInvitationEnvironment(t)
+	databasePath := createOperatorTestDatabase(t)
+	var stdout, stderr bytes.Buffer
+	args := []string{"invite", "create", "--administrator", "--name", "Bram Ostler", "--username", "bram.ostler"}
+	if code := Run(t.Context(), args, databasePath, &stdout, &stderr); code != 0 {
+		t.Fatalf("Run(invite create --administrator) code = %d stderr=%q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "enrollment_url: https://mail.example.test/admin/enroll\n") {
+		t.Fatalf("administrator invitation output = %q", stdout.String())
+	}
+	db, err := storage.OpenReadOnly(databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var status, userType string
+	var isAdmin int
+	if err := db.Read().QueryRow(`SELECT status, user_type, is_admin FROM users WHERE username_normalized = 'bram.ostler'`).Scan(&status, &userType, &isAdmin); err != nil ||
+		status != "pending" || userType != "management" || isAdmin != 1 {
+		t.Fatalf("invited administrator = %s %s %d, %v", status, userType, isAdmin, err)
 	}
 }
 

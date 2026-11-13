@@ -7,7 +7,8 @@ import "github.com/cristianadrielbraun/gofer/internal/auth"
 type UserActions struct {
 	// SetStatus enables or disables them.
 	SetStatus bool
-	// IssueCredentialReset gives them a password-reset token.
+	// IssueCredentialReset gives them a password-reset token; for another
+	// administrator, a reset of their whole sign-in.
 	IssueCredentialReset bool
 	// RequirePasswordChange makes them choose a new password.
 	RequirePasswordChange bool
@@ -28,15 +29,16 @@ type UserActions struct {
 func ActionsFor(actorUserID string, user auth.AdministratorUserSummary, policy auth.InstanceMFAPolicy) UserActions {
 	self := user.ID == actorUserID
 	webmail := user.UserType == auth.UserTypeWebmail && !user.IsAdmin
+	administrator := user.UserType == auth.UserTypeManagement && user.IsAdmin
 	settled := user.Status == auth.UserStatusActive || user.Status == auth.UserStatusDisabled
 	actions := UserActions{
 		SetStatus:            settled && !self && !user.DeletionPending,
-		IssueCredentialReset: webmail && settled && !user.DeletionPending,
+		IssueCredentialReset: (webmail || administrator && !self) && settled && !user.DeletionPending,
 		Delete:               webmail && !self && !user.DeletionProtected && user.Status == auth.UserStatusDisabled,
 		ManageInvitation:     user.InvitationActionReference != "",
 		SignOut:              user.Status == auth.UserStatusActive && !self && !user.DeletionPending,
 	}
-	actions.RequirePasswordChange = actions.IssueCredentialReset && user.HasPassword
+	actions.RequirePasswordChange = webmail && actions.IssueCredentialReset && user.HasPassword
 	switch {
 	case user.UserType == auth.UserTypeManagement, user.DeletionPending:
 		// Administrators always use 2FA; someone being deleted is past

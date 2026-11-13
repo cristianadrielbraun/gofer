@@ -524,14 +524,22 @@ func (h *Handler) handleIssueAdminUserCredentialReset(w http.ResponseWriter, r *
 		h.adminUserChangeFailed(w, r, err, adminUserResetChange, views.AdminUserInvitationFormData{})
 		return
 	}
+	path, administrator := credentialRedemptionPath, target.UserType == auth.UserTypeManagement
+	if administrator {
+		path = auth.AdminResetPath
+	}
 	result := &views.AdminUserCredentialResetData{
-		Username:      target.Username,
-		RedemptionURL: strings.TrimRight(h.auth.Config().BaseURL, "/") + credentialRedemptionPath,
+		Administrator: administrator, Username: target.Username,
+		RedemptionURL: strings.TrimRight(h.auth.Config().BaseURL, "/") + path,
 		Token:         token.Token, ExpiresAt: token.ExpiresAt,
 	}
 	// Issued from the person's page, the token shows there.
 	if userID, tab, list, ok := adminUserPageFrom(r.PostFormValue("list")); ok {
 		h.renderAdminUserPage(w, r, userID, tab, list, adminUserPageExtras{status: http.StatusCreated, credentialReset: result})
+		return
+	}
+	if adminUsersListFrom(r.PostFormValue("list")) == views.AdminAdministratorsPath {
+		h.renderAdminAdministrators(w, r, adminAdministratorsExtras{status: http.StatusCreated, credentialReset: result})
 		return
 	}
 	h.renderAdminUsersWithCredentialReset(w, r, http.StatusCreated, result, "")

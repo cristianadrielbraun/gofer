@@ -81,6 +81,6 @@ docker compose exec gofer gofer auth setup-token rotate
 docker compose exec gofer gofer auth invite create --name "Ada Example" --username ada --expires-in 72h
 ```
 
-它会打印注册地址和一次性邀请令牌。`--expires-in` 默认为 24 小时，最长为 168 小时（7 天）。
+它会打印注册地址和一次性邀请令牌。`--expires-in` 默认为 24 小时，最长为 168 小时（7 天）。加上 `--administrator` 则改为邀请管理员：对方在 `/admin/enroll` 注册，并在首次登录时设置双重验证。
 
 会更改内容的 `gofer auth` 命令（`invite create`、`recover`、`sessions revoke` 和 `setup-token rotate`）会通过数据库旁边的私有套接字 `gofer.db.control/socket` 交给正在运行的 Gofer 执行。Gofer 停止时，这些命令会直接修改数据库，因此 `docker compose run --rm gofer auth …` 也可以使用。请以与 Gofer 相同的用户身份运行它们。如果数据库路径对套接字来说太长（大约 100 个字符），Gofer 会在启动时记录这一情况，此时这些命令需要在 Gofer 停止后运行。

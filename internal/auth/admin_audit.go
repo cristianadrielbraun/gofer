@@ -79,6 +79,15 @@ func (m *Manager) RecordAdministratorChangeTx(ctx context.Context, tx *sql.Tx, a
 // enrollmentTokenAuditAction names issuing or revoking a token of purpose:
 // invitations for people who haven't joined, reset tokens for those who
 // have.
+// issuedTokenAuditAction names issuing a token; resetting an
+// administrator's sign-in has its own name, since it retires their factors.
+func issuedTokenAuditAction(purpose EnrollmentTokenPurpose, administrator bool) string {
+	if administrator {
+		return "user.administrator_sign_in_reset"
+	}
+	return enrollmentTokenAuditAction(purpose, "issued")
+}
+
 func enrollmentTokenAuditAction(purpose EnrollmentTokenPurpose, verb string) string {
 	if purpose == EnrollmentTokenPurposeEnrollment {
 		return "invitation." + verb

@@ -60,3 +60,58 @@ func TestAdministratorsPageListsAndInvitesAdministrators(t *testing.T) {
 		t.Fatalf("administrator's page = %q", personal)
 	}
 }
+
+func TestAdministratorSignInResetFromTheAdministratorsPage(t *testing.T) {
+	_, db, stack, sessionCookie, _ := completedSecuritySettingsStack(t)
+	if _, err := db.Write().Exec(`INSERT INTO users (id, username, username_normalized, name, status, auth_version, user_type, is_admin, created_at, updated_at)
+		VALUES ('keeper-admin', 'keeper.admin', 'keeper.admin', '', 'active', 1, 'management', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Write().Exec(`INSERT INTO totp_credentials (id, user_id, encrypted_seed, key_version, enabled, created_at)
+		VALUES ('keeper-totp', 'keeper-admin', x'01', 1, 1, CURRENT_TIMESTAMP)`); err != nil {
+		t.Fatal(err)
+	}
+
+	// Only the other administrator can be reset; nobody resets themselves.
+	body := getSecuritySettingsPath(t, stack, views.AdminAdministratorsPath, sessionCookie).Body.String()
+	resets := map[string]bool{}
+	for _, match := range regexp.MustCompile(`/admin/users/([^/"?]+)/credential-reset`).FindAllStringSubmatch(body, -1) {
+		resets[match[1]] = true
+	}
+	if len(resets) != 1 || !resets["keeper-admin"] || !strings.Contains(body, "Reset sign-in") {
+		t.Fatalf("sign-in resets offered = %v in %q", resets, body)
+	}
+	resetPath := "/admin/users/keeper-admin/credential-reset"
+	dialog := getSecuritySettingsPath(t, stack, resetPath+"?list="+url.QueryEscape(views.AdminAdministratorsPath), sessionCookie).Body.String()
+	if !strings.Contains(dialog, "data-admin-administrators") || !strings.Contains(dialog, "authenticator app, recovery codes and passkeys stop working") {
+		t.Fatalf("reset dialog = %q", dialog)
+	}
+	issued := postSecuritySettings(t, stack, resetPath, url.Values{
+		auth.CSRFFormFieldName: {csrfProofFromForm(t, dialog, resetPath)}, "list": {views.AdminAdministratorsPath},
+	}, sessionCookie)
+	body = issued.Body.String()
+	token := regexp.MustCompile(`Reset token: ([A-Za-z0-9_-]{20,})`).FindStringSubmatch(body)
+	if issued.Code != http.StatusCreated || token == nil || !strings.Contains(body, "data-admin-administrators") ||
+		!strings.Contains(body, "Gofer administrator sign-in reset for keeper.admin") || !strings.Contains(body, auth.AdminResetPath) {
+		t.Fatalf("issued reset = %d %q", issued.Code, body)
+	}
+
+	// The reset page is open without a session.
+	page := getSecuritySettingsPath(t, stack, auth.AdminResetPath)
+	if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), `action="/admin/reset"`) || !strings.Contains(page.Body.String(), `href="/admin/login"`) {
+		t.Fatalf("reset page = %d %q", page.Code, page.Body.String())
+	}
+	password := "an invented passphrase for the keeper"
+	used := postSecuritySettings(t, stack, auth.AdminResetPath, url.Values{"token": {token[1]}, "new_password": {password}, "confirm_password": {password}})
+	if used.Code != http.StatusSeeOther || used.Header().Get("Location") != auth.AdminResetPath+"/complete" {
+		t.Fatalf("using the reset = %d %q %q", used.Code, used.Header().Get("Location"), used.Body.String())
+	}
+	if done := getSecuritySettingsPath(t, stack, auth.AdminResetPath+"/complete").Body.String(); !strings.Contains(done, `href="/admin/login"`) {
+		t.Fatalf("completion page = %q", done)
+	}
+	// Signing in, they set up two-factor authentication again first.
+	signIn := postSecuritySettings(t, stack, "/admin/login", url.Values{"identifier": {"keeper.admin"}, "password": {password}})
+	if signIn.Code != http.StatusSeeOther || signIn.Header().Get("Location") != "/login/mfa/enroll" {
+		t.Fatalf("sign-in after the reset = %d %q", signIn.Code, signIn.Header().Get("Location"))
+	}
+}

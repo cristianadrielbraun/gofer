@@ -62,7 +62,11 @@ func (service *Service) RevokeSessions(ctx context.Context, target UserTarget) (
 	return service.manager.RevokeUserSessionsLocally(ctx, userID)
 }
 
-func (service *Service) CreateInvitation(ctx context.Context, name, username string, lifetime time.Duration) (*auth.AdministratorUserInvitation, error) {
+// CreateInvitation invites a mail user, or an administrator.
+func (service *Service) CreateInvitation(ctx context.Context, name, username string, lifetime time.Duration, administrator bool) (*auth.AdministratorUserInvitation, error) {
+	if administrator {
+		return service.manager.CreateAdministratorInvitationLocally(ctx, name, username, lifetime)
+	}
 	return service.manager.CreateUserInvitationLocally(ctx, name, username, lifetime)
 }
 

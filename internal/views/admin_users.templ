@@ -110,6 +110,8 @@ type AdminUserInvitationData struct {
 }
 
 type AdminUserCredentialResetData struct {
+	// Administrator is another administrator's sign-in reset.
+	Administrator bool
 	Username      string
 	RedemptionURL string
 	Token         string
@@ -223,7 +225,7 @@ func adminUserActionEntries(ctx context.Context, user AdminUserData) []adminUser
 		}
 	}
 	if path := user.Path(AdminUserActionCredentialReset); path != "" {
-		entries = append(entries, adminUserMenuEntry{Path: path, Label: i18n.T(ctx, "admin.reset.generate"), Icon: icon.KeyRound})
+		entries = append(entries, adminUserMenuEntry{Path: path, Label: adminResetText(ctx, user.administrator(), "generate"), Icon: icon.KeyRound})
 	}
 	if path := user.Path(AdminUserActionRequiredChange); path != "" {
 		entries = append(entries, adminUserMenuEntry{
@@ -301,11 +303,25 @@ func adminUserInvitationCopyText(ctx context.Context, data *AdminUserInvitationD
 	return i18n.T(ctx, key, "username", data.Username, "url", data.RedemptionURL, "token", data.Token, "expires", adminDateTimeZone(ctx, data.ExpiresAt))
 }
 
+// administrator is someone who runs this Gofer, rather than a mail user.
+func (user AdminUserData) administrator() bool {
+	return user.Role == "management_admin"
+}
+
+// adminResetText is a reset's words: a mail user's password reset, or
+// another administrator's sign-in reset.
+func adminResetText(ctx context.Context, administrator bool, key string, args ...any) string {
+	if administrator {
+		return i18n.T(ctx, "admin.reset_admin."+key, args...)
+	}
+	return i18n.T(ctx, "admin.reset."+key, args...)
+}
+
 func adminUserCredentialResetCopyText(ctx context.Context, data *AdminUserCredentialResetData) string {
 	if data == nil {
 		return ""
 	}
-	return i18n.T(ctx, "admin.reset.copy_text", "username", data.Username, "url", data.RedemptionURL, "token", data.Token, "expires", adminDateTimeZone(ctx, data.ExpiresAt))
+	return adminResetText(ctx, data.Administrator, "copy_text", "username", data.Username, "url", data.RedemptionURL, "token", data.Token, "expires", adminDateTimeZone(ctx, data.ExpiresAt))
 }
 
 func adminUserInvitationStateLabel(ctx context.Context, state string) string {
@@ -870,14 +886,14 @@ templ adminUserCredentialResetDialog(user AdminUserData, csrfToken string) {
 		@dialog.Content() {
 			@dialog.Header() {
 				@dialog.Title() {
-					if user.PasswordResetRequestedAt != nil {
+					if user.PasswordResetRequestedAt != nil && !user.administrator() {
 						{ i18n.T(ctx, "admin.reset.issue_title", "user", adminUserUsername(ctx, user.Username)) }
 					} else {
-						{ i18n.T(ctx, "admin.reset.generate_title", "user", adminUserUsername(ctx, user.Username)) }
+						{ adminResetText(ctx, user.administrator(), "generate_title", "user", adminUserUsername(ctx, user.Username)) }
 					}
 				}
 				@dialog.Description() {
-					{ i18n.T(ctx, "admin.reset.detail") }
+					{ adminResetText(ctx, user.administrator(), "detail") }
 				}
 			}
 			<form method="post" action={ user.CredentialResetPath } data-step-up>
@@ -892,7 +908,7 @@ templ adminUserCredentialResetDialog(user AdminUserData, csrfToken string) {
 						}
 					}
 					@button.Button(button.Props{Type: button.TypeSubmit}) {
-						{ i18n.T(ctx, "admin.reset.submit") }
+						{ adminResetText(ctx, user.administrator(), "submit") }
 					}
 				}
 			</form>
@@ -1093,36 +1109,36 @@ templ AdminUserCredentialResetResultDialog(data *AdminUserCredentialResetData) {
 		@dialog.Content(dialog.ContentProps{Class: "sm:max-w-xl max-h-[calc(100vh-2rem)]"}) {
 			@dialog.Header() {
 				@dialog.Title() {
-					{ i18n.T(ctx, "admin.reset.created") }
+					{ adminResetText(ctx, data.Administrator, "created") }
 				}
 				@dialog.Description() {
 					{ i18n.T(ctx, "admin.token.copy_now") }
 				}
 			}
 			<div role="status" class="rounded-md border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-800 dark:text-emerald-200">
-				<p class="font-semibold">{ i18n.T(ctx, "admin.reset.ready", "username", data.Username) }</p>
+				<p class="font-semibold">{ adminResetText(ctx, data.Administrator, "ready", "username", data.Username) }</p>
 				<p class="mt-1 text-xs">{ i18n.T(ctx, "admin.invite.expires", "date", adminDateTimeZone(ctx, data.ExpiresAt)) }</p>
 			</div>
 			<div class="space-y-2">
 				<div class="flex items-center justify-between gap-3">
-					<label for="admin-user-credential-reset-details" class="text-sm font-semibold text-foreground">{ i18n.T(ctx, "admin.reset.details") }</label>
+					<label for="admin-user-credential-reset-details" class="text-sm font-semibold text-foreground">{ adminResetText(ctx, data.Administrator, "details") }</label>
 					<div class="flex items-center gap-1 text-xs text-muted-foreground">
 						<span data-copy-tooltip-text>{ i18n.T(ctx, "admin.token.copy_details") }</span>
 						@copybutton.CopyButton(copybutton.Props{
 							TargetID: "admin-user-credential-reset-details",
-							Attrs:    templ.Attributes{"aria-label": i18n.T(ctx, "admin.reset.copy_label")},
+							Attrs:    templ.Attributes{"aria-label": adminResetText(ctx, data.Administrator, "copy_label")},
 						})
 					</div>
 				</div>
 				<textarea id="admin-user-credential-reset-details" readonly rows="6" class="w-full resize-none rounded-md border border-border bg-background px-3 py-2 font-mono text-xs leading-relaxed text-foreground outline-none">{ adminUserCredentialResetCopyText(ctx, data) }</textarea>
 			</div>
 			<div class="rounded-md border border-amber-500/25 bg-amber-500/10 px-3 py-2.5 text-xs leading-relaxed text-amber-900 dark:text-amber-100">
-				{ i18n.T(ctx, "admin.reset.send_note") }
+				{ adminResetText(ctx, data.Administrator, "send_note") }
 			</div>
 			@dialog.Footer() {
 				@dialog.Close(dialog.CloseProps{For: "admin-user-credential-reset-result-dialog"}) {
 					@button.Button() {
-						{ i18n.T(ctx, "admin.reset.saved") }
+						{ adminResetText(ctx, data.Administrator, "saved") }
 					}
 				}
 			}

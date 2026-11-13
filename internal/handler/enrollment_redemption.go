@@ -123,6 +123,34 @@ func (h *Handler) renderAdministratorEnrollmentPage(w http.ResponseWriter, r *ht
 	writeEnrollmentRedemptionPage(w, status, &page)
 }
 
+// handleAdministratorReset is the page an administrator uses the reset
+// another administrator gave them on.
+func (h *Handler) handleAdministratorReset(w http.ResponseWriter, r *http.Request) {
+	if !h.auth.IsEnabled() {
+		http.NotFound(w, r)
+		return
+	}
+	h.renderAdministratorResetPage(w, r, http.StatusOK, "")
+}
+
+func (h *Handler) handleAdministratorResetSubmit(w http.ResponseWriter, r *http.Request) {
+	h.handlePasswordTokenSubmit(
+		w, r,
+		auth.EnrollmentTokenPurposeCredentialReset, true,
+		auth.AdminResetPath+"/complete",
+		i18n.T(r.Context(), "auth.reset.token_invalid"),
+		h.renderAdministratorResetPage,
+	)
+}
+
+func (h *Handler) handleAdministratorResetComplete(w http.ResponseWriter, r *http.Request) {
+	h.renderPasswordTokenCompletion(w, r, views.AdministratorResetCompletePage())
+}
+
+func (h *Handler) renderAdministratorResetPage(w http.ResponseWriter, r *http.Request, status int, message string) {
+	h.renderCredentialRedemption(w, r, status, views.CredentialRedemptionData{Message: message, Administrator: true})
+}
+
 func (h *Handler) handleCredentialRedemption(w http.ResponseWriter, r *http.Request) {
 	if !h.auth.IsEnabled() {
 		http.Redirect(w, r, "/", http.StatusSeeOther)
@@ -168,8 +196,8 @@ func (h *Handler) handlePasswordTokenSubmit(
 	}
 
 	_, err := h.auth.RedeemEnrollmentToken(r.Context(), auth.RedeemEnrollmentTokenOptions{
-		Token:       r.PostFormValue("token"),
-		NewPassword: newPassword,
+		Token:         r.PostFormValue("token"),
+		NewPassword:   newPassword,
 		UserAgent:     r.UserAgent(),
 		Purpose:       purpose,
 		Administrator: administrator,
@@ -234,8 +262,12 @@ func (h *Handler) renderInvitationEnrollmentPage(w http.ResponseWriter, r *http.
 }
 
 func (h *Handler) renderCredentialRedemptionPage(w http.ResponseWriter, r *http.Request, status int, message string) {
+	h.renderCredentialRedemption(w, r, status, views.CredentialRedemptionData{Message: message})
+}
+
+func (h *Handler) renderCredentialRedemption(w http.ResponseWriter, r *http.Request, status int, data views.CredentialRedemptionData) {
 	var page bytes.Buffer
-	if err := views.CredentialRedemptionPage(views.CredentialRedemptionData{Message: message}).Render(r.Context(), &page); err != nil {
+	if err := views.CredentialRedemptionPage(data).Render(r.Context(), &page); err != nil {
 		log.Printf("render credential redemption page: %v", err)
 		http.Error(w, i18n.T(r.Context(), "server.error.failed_to_render_password_reset_form"), http.StatusInternalServerError)
 		return

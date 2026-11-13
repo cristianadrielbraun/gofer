@@ -60,7 +60,7 @@ type AdministratorUserQuery struct {
 	UserIDs []string
 	// Administrators keeps only administrators.
 	Administrators bool
-	Offset  int
+	Offset         int
 	// Limit is the page's size: 0 is DefaultAdministratorUserPageSize, and
 	// it's never more than MaxAdministratorUserPageSize. A negative limit,
 	// for callers inside auth, lists everyone.

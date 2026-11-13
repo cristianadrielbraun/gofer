@@ -22,7 +22,7 @@ const usage = `Usage:
   gofer auth status
   gofer auth users list
   gofer auth setup-token rotate
-  gofer auth invite create --name <name> --username <username> [--expires-in <duration>]
+  gofer auth invite create --name <name> --username <username> [--expires-in <duration>] [--administrator]
   gofer auth recover (--user-id <id> | --username <name>) --confirm <same value>
   gofer auth sessions revoke (--user-id <id> | --username <name>) --confirm <same value>
 `
@@ -109,6 +109,9 @@ type invitationOptions struct {
 	name     string
 	username string
 	lifetime time.Duration
+	// administrator invites an administrator, who signs up on the
+	// administrator sign-up page.
+	administrator bool
 }
 
 func parseCommand(args []string) (command parsedCommand, help bool, err error) {
@@ -188,6 +191,21 @@ func parseConfirmedUserOptions(args []string, action string) (UserTarget, error)
 }
 
 func parseInvitationOptions(args []string) (invitationOptions, error) {
+	// --administrator takes no value; take it out wherever an option name
+	// goes, and the rest pair up as before.
+	administrator := false
+	valued := make([]string, 0, len(args))
+	for _, arg := range args {
+		if arg == "--administrator" && len(valued)%2 == 0 {
+			if administrator {
+				return invitationOptions{}, fmt.Errorf("invitation option --administrator was provided more than once")
+			}
+			administrator = true
+			continue
+		}
+		valued = append(valued, arg)
+	}
+	args = valued
 	if len(args)%2 != 0 {
 		return invitationOptions{}, fmt.Errorf("invitation options must each have a value")
 	}
@@ -208,7 +226,7 @@ func parseInvitationOptions(args []string) (invitationOptions, error) {
 	if values["--name"] == "" || values["--username"] == "" {
 		return invitationOptions{}, fmt.Errorf("invitation requires --name and --username")
 	}
-	options := invitationOptions{name: values["--name"], username: values["--username"]}
+	options := invitationOptions{name: values["--name"], username: values["--username"], administrator: administrator}
 	if value := values["--expires-in"]; value != "" {
 		lifetime, err := time.ParseDuration(value)
 		if err != nil || lifetime <= 0 {
@@ -232,15 +250,19 @@ func runInvitationCreation(ctx context.Context, options invitationOptions, mutat
 		return 1
 	}
 	err = mutate(func(service *Service) error {
-		invitation, err := service.CreateInvitation(ctx, options.name, options.username, options.lifetime)
+		invitation, err := service.CreateInvitation(ctx, options.name, options.username, options.lifetime, options.administrator)
 		if err != nil {
 			return err
+		}
+		path := invitationEnrollmentPath
+		if options.administrator {
+			path = auth.AdminEnrollmentPath
 		}
 		if _, err := fmt.Fprintf(stdout,
 			"user_id: %s\nusername: %s\nexpires_at: %s\nenrollment_url: %s\ninvitation_token: %s\n",
 			printableField(invitation.User.ID), printableField(invitation.User.Username),
 			invitation.Token.ExpiresAt.UTC().Format(time.RFC3339),
-			strings.TrimRight(httpConfig.BaseURL, "/")+invitationEnrollmentPath, invitation.Token.Token,
+			strings.TrimRight(httpConfig.BaseURL, "/")+path, invitation.Token.Token,
 		); err != nil {
 			return fmt.Errorf("write invitation: %w", err)
 		}

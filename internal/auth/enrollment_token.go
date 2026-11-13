@@ -84,6 +84,32 @@ func scanEnrollmentToken(row rowScanner) (*EnrollmentToken, error) {
 // SQLite stores only its hash. Issuing another token atomically revokes every
 // unused token for the same user and purpose before inserting the replacement.
 func (m *Manager) IssueEnrollmentToken(ctx context.Context, options IssueEnrollmentTokenOptions) (*EnrollmentToken, error) {
+	return m.issueEnrollmentToken(ctx, options, false)
+}
+
+// ResetAdministratorSignInOptions names the administrator whose sign-in
+// another administrator resets.
+type ResetAdministratorSignInOptions struct {
+	ActorUserID    string
+	ActorSessionID string
+	TargetUserID   string
+}
+
+// ResetAdministratorSignIn gives another administrator a reset token. Like a
+// mail user's, it changes nothing until it's used; using it sets a new
+// password, retires their authenticator app, recovery codes and passkeys,
+// and signs them out, so their next sign-in sets up two-factor
+// authentication again. Nobody resets their own sign-in this way.
+func (m *Manager) ResetAdministratorSignIn(ctx context.Context, options ResetAdministratorSignInOptions) (*EnrollmentToken, error) {
+	return m.issueEnrollmentToken(ctx, IssueEnrollmentTokenOptions{
+		UserID: options.TargetUserID, CreatedBy: options.ActorUserID, ActorSessionID: options.ActorSessionID,
+		Purpose: EnrollmentTokenPurposeCredentialReset,
+	}, true)
+}
+
+// issueEnrollmentToken issues a token; administrator is a reset of another
+// administrator's sign-in, which asks for admins.manage.
+func (m *Manager) issueEnrollmentToken(ctx context.Context, options IssueEnrollmentTokenOptions, administrator bool) (*EnrollmentToken, error) {
 	userID := strings.TrimSpace(options.UserID)
 	createdBy := strings.TrimSpace(options.CreatedBy)
 	actorSessionID := strings.TrimSpace(options.ActorSessionID)
@@ -128,10 +154,18 @@ func (m *Manager) IssueEnrollmentToken(ctx context.Context, options IssueEnrollm
 		ExpiresAt: now.Add(lifetime),
 	}
 	err = m.runSecurityTransition(ctx, SecurityTransitionEnrollment, func(tx *sql.Tx) error {
-		if err := requireAdministratorPermission(ctx, tx, createdBy, actorSessionID, enrollmentTokenPermission(options.Purpose), now); err != nil {
+		permission := enrollmentTokenPermission(options.Purpose)
+		if administrator {
+			permission = authz.AdminsManage
+		}
+		if err := requireAdministratorPermission(ctx, tx, createdBy, actorSessionID, permission, now); err != nil {
 			return err
 		}
-		if err := requireEnrollmentTokenTarget(ctx, tx, userID, options.Purpose); err != nil {
+		if administrator {
+			if err := requireAdministratorResetTarget(ctx, tx, userID, createdBy); err != nil {
+				return err
+			}
+		} else if err := requireEnrollmentTokenTarget(ctx, tx, userID, options.Purpose); err != nil {
 			return err
 		}
 		if options.Purpose == EnrollmentTokenPurposeCredentialReset {
@@ -184,7 +218,7 @@ func (m *Manager) IssueEnrollmentToken(ctx context.Context, options IssueEnrollm
 			return fmt.Errorf("record enrollment token issuance: %w", err)
 		}
 		if err := m.auditAdministratorChange(ctx, tx, createdBy, actorSessionID, audit.Event{
-			Action:        enrollmentTokenAuditAction(token.Purpose, "issued"),
+			Action:        issuedTokenAuditAction(token.Purpose, administrator),
 			Target:        audit.Target{Kind: auditTargetUser, ID: userID},
 			Metadata:      map[string]any{"replaced_count": replacedCount, "expires_at": token.ExpiresAt.UTC()},
 			CorrelationID: eventID,
@@ -251,6 +285,9 @@ func (m *Manager) RevokeEnrollmentToken(ctx context.Context, actorID, actorSessi
 	revoked := false
 	err = m.runSecurityTransition(ctx, SecurityTransitionEnrollment, func(tx *sql.Tx) error {
 		if err := requireAdministratorPermission(ctx, tx, actorID, actorSessionID, authz.UsersCredentials, now); err != nil {
+			return err
+		}
+		if err := requireAdministratorTargetPermission(ctx, tx, actorID, actorSessionID, userID, now); err != nil {
 			return err
 		}
 		var purpose EnrollmentTokenPurpose
@@ -378,6 +415,26 @@ func requireEnrollmentTokenTarget(ctx context.Context, tx *sql.Tx, userID string
 	eligible := eligibleWebmailUser && (purpose == EnrollmentTokenPurposeEnrollment && status == UserStatusPending ||
 		purpose == EnrollmentTokenPurposeCredentialReset && (status == UserStatusActive || status == UserStatusDisabled))
 	if !eligible {
+		return ErrEnrollmentTokenTargetInvalid
+	}
+	return nil
+}
+
+// requireAdministratorResetTarget accepts another administrator who has
+// signed up, enabled or disabled, whose sign-in can be reset.
+func requireAdministratorResetTarget(ctx context.Context, tx *sql.Tx, userID, actorUserID string) error {
+	if userID == actorUserID {
+		return ErrEnrollmentTokenTargetInvalid
+	}
+	var eligible int
+	if err := tx.QueryRowContext(ctx, `
+		SELECT EXISTS(SELECT 1 FROM users
+		WHERE id = ? AND user_type = 'management' AND is_admin = 1
+		  AND status IN ('active', 'disabled') AND deletion_pending = 0)`, userID,
+	).Scan(&eligible); err != nil {
+		return fmt.Errorf("read administrator reset target: %w", err)
+	}
+	if eligible == 0 {
 		return ErrEnrollmentTokenTargetInvalid
 	}
 	return nil

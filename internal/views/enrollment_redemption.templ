@@ -17,6 +17,9 @@ type InvitationEnrollmentData struct {
 
 type CredentialRedemptionData struct {
 	Message string
+	// Administrator is the administrator reset page: its own address,
+	// words and way back.
+	Administrator bool
 }
 
 templ InvitationEnrollmentPage(data InvitationEnrollmentData) {
@@ -164,15 +167,20 @@ templ CredentialRedemptionPage(data CredentialRedemptionData) {
 				<div class="w-full max-w-sm">
 					<div class="text-center mb-8">
 						<img src={ assetver.URL("/assets/logo.svg") } alt="Gofer" class="h-12 w-auto mx-auto"/>
-						<h1 class="mt-6 text-2xl font-semibold">{ i18n.T(ctx, "signin.redeem.title") }</h1>
-						<p class="mt-2 text-sm text-muted-foreground">{ i18n.T(ctx, "signin.redeem.description") }</p>
+						if data.Administrator {
+							<h1 class="mt-6 text-2xl font-semibold">{ i18n.T(ctx, "signin.reset_admin.title") }</h1>
+							<p class="mt-2 text-sm text-muted-foreground">{ i18n.T(ctx, "signin.reset_admin.description") }</p>
+						} else {
+							<h1 class="mt-6 text-2xl font-semibold">{ i18n.T(ctx, "signin.redeem.title") }</h1>
+							<p class="mt-2 text-sm text-muted-foreground">{ i18n.T(ctx, "signin.redeem.description") }</p>
+						}
 					</div>
 					if data.Message != "" {
 						<div id="redemption-error" role="alert" aria-live="polite" class="bg-destructive/10 border border-destructive/20 text-destructive rounded-lg px-4 py-3 text-sm mb-6">
 							{ data.Message }
 						</div>
 					}
-					<form method="post" action="/account/redeem" class="space-y-4">
+					<form method="post" action={ templ.SafeURL(credentialRedemptionAction(data)) } class="space-y-4">
 						<div class="space-y-2">
 							<label for="redemption-token" class="text-sm font-medium">{ i18n.T(ctx, "signin.redeem.token") }</label>
 							<input
@@ -225,7 +233,7 @@ templ CredentialRedemptionPage(data CredentialRedemptionData) {
 					</form>
 					<p class="mt-6 text-center text-xs text-muted-foreground">{ i18n.T(ctx, "signin.redeem.note") }</p>
 					<div class="mt-4">
-						@button.Button(button.Props{Href: "/login", Variant: button.VariantOutline, FullWidth: true}) {
+						@button.Button(button.Props{Href: credentialRedemptionBack(data), Variant: button.VariantOutline, FullWidth: true}) {
 							{ i18n.T(ctx, "signin.back") }
 						}
 					</div>
@@ -233,6 +241,20 @@ templ CredentialRedemptionPage(data CredentialRedemptionData) {
 			</main>
 		</body>
 	</html>
+}
+
+func credentialRedemptionAction(data CredentialRedemptionData) string {
+	if data.Administrator {
+		return "/admin/reset"
+	}
+	return "/account/redeem"
+}
+
+func credentialRedemptionBack(data CredentialRedemptionData) string {
+	if data.Administrator {
+		return "/admin/login"
+	}
+	return "/login"
 }
 
 templ InvitationEnrollmentCompletePage() {
@@ -243,6 +265,12 @@ templ InvitationEnrollmentCompletePage() {
 // where they set up two-factor authentication.
 templ AdministratorEnrollmentCompletePage() {
 	@passwordTokenCompletePage(i18n.T(ctx, "signin.enroll_invite.done_title"), i18n.T(ctx, "signin.enroll_admin.done"), "/admin/login", i18n.T(ctx, "signin.enroll_admin.sign_in"))
+}
+
+// AdministratorResetCompletePage sends an administrator whose sign-in was
+// reset to sign in, where they set up two-factor authentication again.
+templ AdministratorResetCompletePage() {
+	@passwordTokenCompletePage(i18n.T(ctx, "signin.redeem.done_title"), i18n.T(ctx, "signin.reset_admin.done"), "/admin/login", i18n.T(ctx, "signin.enroll_admin.sign_in"))
 }
 
 templ CredentialRedemptionCompletePage() {

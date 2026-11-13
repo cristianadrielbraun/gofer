@@ -35,7 +35,7 @@ func TestActionsFor(t *testing.T) {
 		{"pending has an invitation", pending, auth.InstanceMFAPolicyAdministrators, UserActions{ManageInvitation: true, SetMFARequirement: true}},
 		{"everyone needs 2FA already", active, auth.InstanceMFAPolicyAllUsers, UserActions{SetStatus: true, IssueCredentialReset: true, RequirePasswordChange: true, SignOut: true}},
 		{"a requirement can be cleared under any policy", required, auth.InstanceMFAPolicyAllUsers, UserActions{SetStatus: true, IssueCredentialReset: true, RequirePasswordChange: true, SetMFARequirement: true, SignOut: true}},
-		{"another administrator", administrator, auth.InstanceMFAPolicyAdministrators, UserActions{SetStatus: true, SignOut: true}},
+		{"another administrator", administrator, auth.InstanceMFAPolicyAdministrators, UserActions{SetStatus: true, IssueCredentialReset: true, SignOut: true}},
 		{"oneself", auth.AdministratorUserSummary{ID: "head-admin", Status: auth.UserStatusActive, UserType: auth.UserTypeManagement, IsAdmin: true}, auth.InstanceMFAPolicyAdministrators, UserActions{}},
 	} {
 		if got := ActionsFor("head-admin", test.user, test.policy); got != test.want {

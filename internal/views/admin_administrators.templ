@@ -18,8 +18,9 @@ type AdminAdministratorsData struct {
 	// Invitation is the invitation dialog's state; it always invites an
 	// administrator from here.
 	Invitation AdminUsersData
-	Dialog     *AdminUserDialog
-	Result     *AdminUserInvitationData
+	Dialog          *AdminUserDialog
+	Result          *AdminUserInvitationData
+	CredentialReset *AdminUserCredentialResetData
 	// StepUpRequired is a session that must verify again before a change.
 	StepUpRequired bool
 }
@@ -48,6 +49,9 @@ templ AdminAdministratorsPage(data AdminAdministratorsData, verification ...Admi
 				@AdminUserInvitationDialog(data.Invitation)
 				if data.Result != nil {
 					@AdminUserInvitationResultDialog(data.Result)
+				}
+				if data.CredentialReset != nil {
+					@AdminUserCredentialResetResultDialog(data.CredentialReset)
 				}
 				<div id={ adminUserDialogSlotID }>
 					if data.Dialog != nil {

@@ -26,6 +26,10 @@ type EnrollmentRedemptionResult struct {
 	UserID          string
 	Purpose         EnrollmentTokenPurpose
 	RevokedSessions int64
+	// FactorsReset is an administrator's sign-in reset by another
+	// administrator: their authenticator app, recovery codes and passkeys
+	// were retired, and they set up two-factor authentication again.
+	FactorsReset bool
 }
 
 type enrollmentRedemptionCandidate struct {
@@ -35,6 +39,9 @@ type enrollmentRedemptionCandidate struct {
 	status   UserStatus
 	username string
 	userType UserType
+	// issuedBy is the administrator who issued the token; empty for a
+	// token from the command line.
+	issuedBy string
 }
 
 // RedeemEnrollmentToken establishes the subject's password credential and
@@ -86,7 +93,7 @@ func (m *Manager) RedeemEnrollmentToken(ctx context.Context, options RedeemEnrol
 	err = m.runSecurityTransition(ctx, SecurityTransitionEnrollment, func(tx *sql.Tx) error {
 		current, err := scanEnrollmentRedemptionCandidate(tx.QueryRowContext(ctx, `
 			SELECT t.id, t.user_id, t.purpose, u.status,
-			       u.username, u.user_type
+			       u.username, u.user_type, COALESCE(t.created_by, '')
 			FROM user_enrollment_tokens t
 			JOIN users u ON u.id = t.user_id
 			WHERE t.id = ? AND t.token_hash = ?
@@ -177,6 +184,12 @@ func (m *Manager) RedeemEnrollmentToken(ctx context.Context, options RedeemEnrol
 			if err != nil {
 				return fmt.Errorf("count sessions revoked after credential reset: %w", err)
 			}
+			if current.resetsFactors() {
+				if err := retireSignInFactors(ctx, tx, current.userID, now); err != nil {
+					return err
+				}
+				result.FactorsReset = true
+			}
 		}
 
 		consumed, err := tx.ExecContext(ctx, `
@@ -197,7 +210,7 @@ func (m *Manager) RedeemEnrollmentToken(ctx context.Context, options RedeemEnrol
 			return ErrEnrollmentTokenInvalid
 		}
 
-		metadata, err := enrollmentRedemptionEventJSON(current.tokenID, current.purpose, result.RevokedSessions)
+		metadata, err := enrollmentRedemptionEventJSON(current.tokenID, current.purpose, result.RevokedSessions, result.FactorsReset)
 		if err != nil {
 			return err
 		}
@@ -232,7 +245,7 @@ func (m *Manager) findEnrollmentRedemptionCandidate(ctx context.Context, rawToke
 	}
 	candidate, err := scanEnrollmentRedemptionCandidate(m.db.Read().QueryRowContext(ctx, `
 		SELECT t.id, t.user_id, t.purpose, u.status,
-		       u.username, u.user_type
+		       u.username, u.user_type, COALESCE(t.created_by, '')
 		FROM user_enrollment_tokens t
 		JOIN users u ON u.id = t.user_id
 		WHERE t.token_hash = ?
@@ -257,7 +270,7 @@ func scanEnrollmentRedemptionCandidate(row rowScanner) (*enrollmentRedemptionCan
 	candidate := &enrollmentRedemptionCandidate{}
 	if err := row.Scan(
 		&candidate.tokenID, &candidate.userID, &candidate.purpose,
-		&candidate.status, &candidate.username, &candidate.userType,
+		&candidate.status, &candidate.username, &candidate.userType, &candidate.issuedBy,
 	); err != nil {
 		return nil, err
 	}
@@ -268,7 +281,16 @@ func sameEnrollmentRedemptionCandidate(left, right *enrollmentRedemptionCandidat
 	return left != nil && right != nil &&
 		left.tokenID == right.tokenID && left.userID == right.userID &&
 		left.purpose == right.purpose && left.status == right.status &&
-		left.username == right.username && left.userType == right.userType
+		left.username == right.username && left.userType == right.userType &&
+		left.issuedBy == right.issuedBy
+}
+
+// resetsFactors is a reset of an administrator's sign-in that another
+// administrator issued from the console. The command line's recovery keeps
+// the factors: recovery codes stay the way back from a lost authenticator.
+func (candidate *enrollmentRedemptionCandidate) resetsFactors() bool {
+	return candidate.purpose == EnrollmentTokenPurposeCredentialReset &&
+		candidate.userType == UserTypeManagement && candidate.issuedBy != ""
 }
 
 func enrollmentRedemptionStatusEligible(purpose EnrollmentTokenPurpose, status UserStatus, userType UserType) bool {
@@ -276,26 +298,43 @@ func enrollmentRedemptionStatusEligible(purpose EnrollmentTokenPurpose, status U
 		purpose == EnrollmentTokenPurposeCredentialReset && (status == UserStatusActive || status == UserStatusDisabled)
 }
 
-// enrollmentRedemptionMatches reports whether the sign-up asking accepts
-// candidate: the webmail sign-up a webmail person's invitation and every
-// credential reset, the administrator sign-up only an administrator's
-// invitation.
+// enrollmentRedemptionMatches reports whether the page asking accepts
+// candidate: the webmail pages a webmail person's invitation and every
+// credential reset (the command line's recovery of an administrator
+// included), the administrator pages only an administrator's invitation or
+// reset.
 func enrollmentRedemptionMatches(candidate *enrollmentRedemptionCandidate, options RedeemEnrollmentTokenOptions) bool {
 	if candidate.purpose != options.Purpose {
 		return false
 	}
 	if options.Administrator {
-		return candidate.purpose == EnrollmentTokenPurposeEnrollment && candidate.userType == UserTypeManagement
+		return candidate.userType == UserTypeManagement
 	}
 	return candidate.purpose != EnrollmentTokenPurposeEnrollment || candidate.userType == UserTypeWebmail
 }
 
-func enrollmentRedemptionEventJSON(tokenID string, purpose EnrollmentTokenPurpose, revokedSessions int64) (string, error) {
+// retireSignInFactors ends someone's authenticator app, unused recovery
+// codes and passkeys.
+func retireSignInFactors(ctx context.Context, tx *sql.Tx, userID string, now time.Time) error {
+	for _, statement := range []string{
+		`UPDATE totp_credentials SET enabled = 0, revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL`,
+		`UPDATE recovery_codes SET revoked_at = ? WHERE user_id = ? AND used_at IS NULL AND revoked_at IS NULL`,
+		`UPDATE webauthn_credentials SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL`,
+	} {
+		if _, err := tx.ExecContext(ctx, statement, now, userID); err != nil {
+			return fmt.Errorf("retire sign-in factors: %w", err)
+		}
+	}
+	return nil
+}
+
+func enrollmentRedemptionEventJSON(tokenID string, purpose EnrollmentTokenPurpose, revokedSessions int64, factorsReset bool) (string, error) {
 	metadata := struct {
 		TokenID         string                 `json:"token_id"`
 		Purpose         EnrollmentTokenPurpose `json:"purpose"`
 		RevokedSessions int64                  `json:"revoked_sessions,omitempty"`
-	}{TokenID: tokenID, Purpose: purpose, RevokedSessions: revokedSessions}
+		FactorsReset    bool                   `json:"factors_reset,omitempty"`
+	}{TokenID: tokenID, Purpose: purpose, RevokedSessions: revokedSessions, FactorsReset: factorsReset}
 	encoded, err := json.Marshal(metadata)
 	if err != nil {
 		return "", fmt.Errorf("encode enrollment redemption event metadata: %w", err)
