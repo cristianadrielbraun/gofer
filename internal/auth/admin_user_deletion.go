@@ -10,6 +10,7 @@ import (
 
 	"github.com/cristianadrielbraun/gofer/internal/audit"
 	"github.com/cristianadrielbraun/gofer/internal/authz"
+	"github.com/cristianadrielbraun/gofer/internal/directory"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
 
@@ -270,6 +271,11 @@ func (m *Manager) CompleteAdministratorUserDeletion(ctx context.Context, targetU
 			Metadata:      map[string]any{"started_by": actorUserID.String},
 			CorrelationID: eventID,
 		}); err != nil {
+			return err
+		}
+		// Memberships go here, with the person; the foreign key is only a
+		// safety net, and this moves the membership revision on.
+		if _, err := directory.RemovePerson(ctx, tx, targetUserID); err != nil {
 			return err
 		}
 		result, err := tx.ExecContext(ctx, `DELETE FROM users WHERE id = ? AND deletion_pending = 1`, targetUserID)

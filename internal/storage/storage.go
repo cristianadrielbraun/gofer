@@ -64,7 +64,7 @@ type ThreadingState struct {
 	Total      int  `json:"total"`
 }
 
-const CurrentSchemaVersion = 149
+const CurrentSchemaVersion = 150
 
 func New(dbPath string) (*DB, error) {
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
@@ -1212,6 +1212,12 @@ func (db *DB) migrate() error {
 	if currentVersion <= 148 {
 		if err := migrateV148ToV149(db.write); err != nil {
 			return fmt.Errorf("migrate v148 to v149: %w", err)
+		}
+	}
+
+	if currentVersion <= 149 {
+		if err := migrateV149ToV150(db.write); err != nil {
+			return fmt.Errorf("migrate v149 to v150: %w", err)
 		}
 	}
 

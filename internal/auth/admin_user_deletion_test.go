@@ -30,6 +30,15 @@ func TestAdministratorUserDeletionIsConfirmedResumableAndLocalOnly(t *testing.T)
 	); err != nil {
 		t.Fatal(err)
 	}
+	for _, statement := range []string{
+		`INSERT INTO directory_groups (id, name, name_normalized, created_at, updated_at) VALUES ('field', 'Field team', 'field team', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+		`INSERT INTO directory_group_members (group_id, user_id, added_at) VALUES ('field', 'person', CURRENT_TIMESTAMP)`,
+		`INSERT INTO directory_group_members (group_id, user_id, added_at) VALUES ('field', 'administrator', CURRENT_TIMESTAMP)`,
+	} {
+		if _, err := manager.db.Write().Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
 	resetToken, err := manager.IssueEnrollmentToken(t.Context(), IssueEnrollmentTokenOptions{
 		UserID: "person", CreatedBy: "administrator", ActorSessionID: adminSession.ID,
 		Purpose: EnrollmentTokenPurposeCredentialReset,
@@ -132,11 +141,19 @@ func TestAdministratorUserDeletionIsConfirmedResumableAndLocalOnly(t *testing.T)
 		"identities":           `SELECT COUNT(*) FROM auth_identities WHERE user_id = 'person'`,
 		"signatures":           `SELECT COUNT(*) FROM signatures WHERE user_id = 'person'`,
 		"contacts":             `SELECT COUNT(*) FROM contact_profiles WHERE user_id = 'person'`,
+		"group memberships":    `SELECT COUNT(*) FROM directory_group_members WHERE user_id = 'person'`,
 	} {
 		var count int
 		if err := manager.db.Read().QueryRow(query).Scan(&count); err != nil || count != 0 {
 			t.Fatalf("remaining %s = %d, %v", table, count, err)
 		}
+	}
+	var members, membershipRevision int
+	if err := manager.db.Read().QueryRow(`SELECT COUNT(*) FROM directory_group_members WHERE group_id = 'field' AND user_id = 'administrator'`).Scan(&members); err != nil || members != 1 {
+		t.Fatalf("other people's memberships = %d, %v", members, err)
+	}
+	if err := manager.db.Read().QueryRow(`SELECT revision FROM admin_revisions WHERE name = 'membership'`).Scan(&membershipRevision); err != nil || membershipRevision != 1 {
+		t.Fatalf("membership revision after the deletion = %d, %v", membershipRevision, err)
 	}
 	var deletedEvents int
 	var startSubject, deletedSubject, startMetadata, deletedMetadata string
