@@ -170,10 +170,12 @@ func TestAdminUsersPageRendersProtectedIndividualMFAPolicyActions(t *testing.T) 
 	}
 	html := out.String()
 	for _, want := range []string{
-		"Require 2FA", "Require 2FA for optional.user?", "Clear the individual 2FA requirement?",
+		"Require two-factor", "Require two-factor sign-in for optional.user?", "Remove requirement",
 		`action="/admin/users/optional-user/mfa-policy"`, `action="/admin/users/required-user/mfa-policy"`,
 		`name="required" value="true"`, `name="required" value="false"`, csrf,
-		"Existing sessions and authenticators are unchanged", "setup is required at the next sign-in",
+		`name="passkey" value="true"`, `name="passkey" value="false"`,
+		"A passkey is enough", "Always ask for the authenticator app code",
+		"Choose what counts as the second step", "sets up the authenticator app at their next sign-in",
 	} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("administrator individual MFA view missing %q: %s", want, html)
@@ -266,7 +268,7 @@ func TestAdminUsersPageRendersProtectedCredentialResetActionAndOneTimeResult(t *
 		"Password-reset token created", "Reset token ready for webmail.user",
 		"Gofer password reset for webmail.user", "https://gofer.example/account/redeem",
 		"Reset token: private-reset-token", "Gofer stores only a hash of the token",
-		"Successful redemption signs the user out everywhere, keeps two-factor authentication, and does not enable a disabled account",
+		"Successful redemption signs the user out everywhere, keeps their authenticator app (TOTP), and does not enable a disabled account",
 		"I saved the reset token",
 	} {
 		if !strings.Contains(html, want) {
@@ -367,7 +369,7 @@ func TestAdminUsersPageDisablesInvitationUntilRecentVerification(t *testing.T) {
 		`data-tui-dialog-show-modal="false"`, `id="admin-security-totp-code"`,
 		`autocomplete="one-time-code"`, `aria-label="Authenticator app code"`,
 		`action="/settings/security/step-up"`, `name="return_to" value="/admin/users"`,
-		"manage invitations, password resets, user access, deletion, and individual two-factor authentication requirements for the next ten minutes", " disabled",
+		"manage invitations, password resets, user access, deletion, and individual two-factor requirements for the next ten minutes", " disabled",
 	} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("stale administrator invitation view missing %q: %s", want, html)

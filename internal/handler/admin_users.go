@@ -60,6 +60,7 @@ func adminUsersViewData(users []auth.AdministratorUserSummary, currentUserID str
 			MFALabel:                 "optional",
 			MFADetail:                "user_choice",
 			MFARequired:              user.MFARequired,
+			MFAPasskeyCounts:         user.MFAPasskeyCounts,
 			PasswordResetRequestedAt: user.PasswordResetRequestedAt,
 			DeletionPending:          user.DeletionPending,
 		}
@@ -107,6 +108,9 @@ func adminUsersViewData(users []auth.AdministratorUserSummary, currentUserID str
 		case user.MFARequired:
 			view.MFALabel = "required"
 			view.MFADetail = "individual_policy"
+			if user.MFAPasskeyCounts {
+				view.MFADetail = "individual_policy_passkey"
+			}
 			view.MFAPolicyPath = adminUserMFAPolicyPath(user.ID)
 		case instancePolicy.RequiresAllUsers():
 			view.MFALabel = "required"
@@ -258,9 +262,20 @@ func (h *Handler) handleSetAdminUserMFAPolicy(w http.ResponseWriter, r *http.Req
 		h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, i18n.T(r.Context(), "auth.admin.users.mfa_request_invalid"))
 		return
 	}
+	// passkey=true lets a passkey satisfy the requirement; without it the
+	// requirement takes the authenticator app (TOTP), as it always did.
+	var passkeyCounts bool
+	switch r.PostFormValue("passkey") {
+	case "true":
+		passkeyCounts = true
+	case "false", "":
+	default:
+		h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, i18n.T(r.Context(), "auth.admin.users.mfa_request_invalid"))
+		return
+	}
 	result, err := h.auth.SetAdministratorUserMFAPolicy(ctx, auth.SetAdministratorUserMFAPolicyOptions{
 		ActorUserID: currentUser.ID, ActorSessionID: currentSession.ID,
-		TargetUserID: r.PathValue("userID"), Required: required,
+		TargetUserID: r.PathValue("userID"), Required: required, PasskeyCounts: passkeyCounts,
 	})
 	if err != nil {
 		switch {
@@ -278,6 +293,10 @@ func (h *Handler) handleSetAdminUserMFAPolicy(w http.ResponseWriter, r *http.Req
 	}
 	if !result.Changed {
 		redirectAdminUsers(w, r, i18n.T(r.Context(), "auth.admin.users.mfa_unchanged"))
+		return
+	}
+	if result.Required && result.PasskeyCounts {
+		redirectAdminUsers(w, r, i18n.T(r.Context(), "auth.admin.users.mfa_required_passkey"))
 		return
 	}
 	if result.Required {
@@ -567,6 +586,7 @@ func (h *Handler) renderAdminUsersPage(w http.ResponseWriter, r *http.Request, s
 		switch {
 		case accessErr == nil:
 			data.StepUpRequired = !access.StepUpFresh
+			data.ProviderSignIn = h.auth.HasGoogleLogin() || h.auth.HasMicrosoftLogin() || h.auth.HasOIDCLogin()
 			if data.StepUpRequired {
 				verification = adminSecurityVerificationViewData(
 					ctx, access, returnTo,

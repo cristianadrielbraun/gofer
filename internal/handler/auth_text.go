@@ -25,8 +25,10 @@ func authText(ctx context.Context, message string) string {
 		return i18n.T(ctx, "auth.field.recovery_batch_stale")
 	case "That authenticator code is invalid or has already been used.":
 		return i18n.T(ctx, "auth.mfa.code_invalid_used")
-	case "Your administrator requires two-factor authentication, so this authenticator app can't be removed. You can replace it with another one.":
+	case "Your administrator requires an authenticator app (TOTP), so this one can't be removed. You can replace it with another one.":
 		return i18n.T(ctx, "auth.reason.totp_required")
+	case "Your administrator requires a second step at sign-in. Add a passkey before removing this authenticator app.":
+		return i18n.T(ctx, "auth.reason.totp_required_passkey")
 	case "Add another sign-in method before disabling this authenticator.":
 		return i18n.T(ctx, "auth.reason.totp_last")
 	case "Keep at least one sign-in method available. Add another sign-in method before removing this passkey.":

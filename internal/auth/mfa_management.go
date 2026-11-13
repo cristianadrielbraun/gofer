@@ -45,13 +45,16 @@ type SecurityFactorSummary struct {
 	PasskeyTOTPLocked   bool
 	// PasskeyOnlySession is true when this session came from a passkey
 	// without the app code, so asking for the code after a passkey ends it.
-	PasskeyOnlySession     bool
-	Passkeys               []PasskeyCredentialSummary
-	RecoveryCodesRemaining int
-	StepUpFresh            bool
-	StepUpExpiresAt        *time.Time
-	CanDisableTOTP         bool
-	DisableTOTPReason      string
+	PasskeyOnlySession bool
+	// PasskeyCountsAsSecondFactor is true when an administrator requires a
+	// second step for this person and accepts a passkey for it.
+	PasskeyCountsAsSecondFactor bool
+	Passkeys                    []PasskeyCredentialSummary
+	RecoveryCodesRemaining      int
+	StepUpFresh                 bool
+	StepUpExpiresAt             *time.Time
+	CanDisableTOTP              bool
+	DisableTOTPReason           string
 }
 
 // SecuritySettingsAccess contains only the factor availability required to
@@ -203,14 +206,15 @@ func (m *Manager) GetSecurityFactorSummary(ctx context.Context, sessionToken str
 		return nil, fmt.Errorf("load security factor policy: %w", err)
 	}
 	summary := &SecurityFactorSummary{
-		HasTOTP:                hasTOTP == 1,
-		HasPasskey:             passkeyCount > 0,
-		RequiresMFA:            policy.RequiresMFA,
-		PasskeyTOTPRequired:    policy.PasskeyTOTPRequired,
-		PasskeyTOTPLocked:      policy.MFAEnrollmentRequired,
-		PasskeyOnlySession:     session.AssuranceLevel == AssuranceLevelPhishingResistant,
-		RecoveryCodesRemaining: recoveryCount,
-		StepUpFresh:            hasRecentSecurityStepUp(session, policy, now),
+		HasTOTP:                     hasTOTP == 1,
+		HasPasskey:                  passkeyCount > 0,
+		RequiresMFA:                 policy.RequiresMFA,
+		PasskeyTOTPRequired:         policy.PasskeyTOTPRequired,
+		PasskeyTOTPLocked:           policy.MFAEnrollmentRequired && !policy.PasskeyCountsAsSecondFactor,
+		PasskeyCountsAsSecondFactor: policy.PasskeyCountsAsSecondFactor,
+		PasskeyOnlySession:          session.AssuranceLevel == AssuranceLevelPhishingResistant,
+		RecoveryCodesRemaining:      recoveryCount,
+		StepUpFresh:                 hasRecentSecurityStepUp(session, policy, now),
 	}
 	summary.Passkeys, err = m.listPasskeysForUser(ctx, session.UserID)
 	if err != nil {
@@ -225,10 +229,12 @@ func (m *Manager) GetSecurityFactorSummary(ctx context.Context, sessionToken str
 			(m.HasGoogleLogin() && googleIdentityCount > 0) ||
 			(m.HasMicrosoftLogin() && microsoftIdentityCount > 0) ||
 			(m.HasOIDCLogin() && oidcIdentityCount > 0)
-		summary.CanDisableTOTP = hasPrimary && !policy.MFAEnrollmentRequired
+		summary.CanDisableTOTP = hasPrimary && !policy.appMustStay(passkeyCount)
 		if !summary.CanDisableTOTP {
-			if policy.MFAEnrollmentRequired {
-				summary.DisableTOTPReason = "Your administrator requires two-factor authentication, so this authenticator app can't be removed. You can replace it with another one."
+			if policy.appMustStay(passkeyCount) && policy.PasskeyCountsAsSecondFactor {
+				summary.DisableTOTPReason = "Your administrator requires a second step at sign-in. Add a passkey before removing this authenticator app."
+			} else if policy.appMustStay(passkeyCount) {
+				summary.DisableTOTPReason = "Your administrator requires an authenticator app (TOTP), so this one can't be removed. You can replace it with another one."
 			} else {
 				summary.DisableTOTPReason = "Add another sign-in method before disabling this authenticator."
 			}

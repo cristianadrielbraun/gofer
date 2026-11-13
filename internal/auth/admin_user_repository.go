@@ -31,7 +31,7 @@ func (m *Manager) listAdministratorUsers(ctx context.Context, actorUserID, actor
 	}
 	now := m.clock.Now().UTC()
 	rows, err := tx.QueryContext(ctx, `
-		SELECT u.id, u.username, u.status, u.user_type, u.is_admin, u.mfa_required,
+		SELECT u.id, u.username, u.status, u.user_type, u.is_admin, u.mfa_required, u.mfa_passkey_counts,
 		       u.password_reset_requested_at, u.deletion_pending,
 		       EXISTS(SELECT 1 FROM auth_system_state state WHERE state.id = 1 AND state.owner_user_id = u.id),
 		       invitation.id, invitation.expires_at, invitation.used_at, invitation.revoked_at,
@@ -56,11 +56,11 @@ func (m *Manager) listAdministratorUsers(ctx context.Context, actorUserID, actor
 	users := make([]AdministratorUserSummary, 0)
 	for rows.Next() {
 		var user AdministratorUserSummary
-		var isAdmin, mfaRequired, deletionPending, deletionProtected int
+		var isAdmin, mfaRequired, mfaPasskeyCounts, deletionPending, deletionProtected int
 		var tokenID sql.NullString
 		var passwordResetRequestedAt, expiresAt, usedAt, revokedAt sql.NullTime
 		if err := rows.Scan(
-			&user.ID, &user.Username, &user.Status, &user.UserType, &isAdmin, &mfaRequired,
+			&user.ID, &user.Username, &user.Status, &user.UserType, &isAdmin, &mfaRequired, &mfaPasskeyCounts,
 			&passwordResetRequestedAt, &deletionPending, &deletionProtected,
 			&tokenID, &expiresAt, &usedAt, &revokedAt, &user.HasPassword, &user.PasswordChangeRequired,
 		); err != nil {
@@ -86,6 +86,7 @@ func (m *Manager) listAdministratorUsers(ctx context.Context, actorUserID, actor
 		}
 		user.IsAdmin = isAdmin == 1
 		user.MFARequired = mfaRequired == 1
+		user.MFAPasskeyCounts = user.MFARequired && mfaPasskeyCounts == 1
 		user.DeletionPending = deletionPending == 1
 		user.DeletionProtected = deletionProtected == 1
 		if passwordResetRequestedAt.Valid {

@@ -1093,3 +1093,15 @@
   setupSSE()
   refreshStatus()
 })()
+
+// Users page: the two-factor requirement dialog's preview follows the
+// chosen second step, so the administrator sees what each sign-in needs.
+document.addEventListener('change', function(event) {
+  var choice = event.target
+  if (!choice || !choice.matches || !choice.matches('[data-admin-mfa-choice] input[name="passkey"]')) return
+  var form = choice.closest('form')
+  if (!form) return
+  form.querySelectorAll('[data-admin-mfa-when]').forEach(function(line) {
+    line.hidden = line.getAttribute('data-admin-mfa-when') !== choice.value
+  })
+})

@@ -53,7 +53,7 @@ func (m *Manager) SetPasskeyTOTPRequired(ctx context.Context, sessionToken strin
 		if err != nil {
 			return err
 		}
-		if !required && policy.MFAEnrollmentRequired {
+		if !required && policy.MFAEnrollmentRequired && !policy.PasskeyCountsAsSecondFactor {
 			return ErrPasskeyTOTPPolicyEnforced
 		}
 		want := 0

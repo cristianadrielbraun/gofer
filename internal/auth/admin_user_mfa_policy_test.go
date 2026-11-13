@@ -73,7 +73,7 @@ func TestSetAdministratorUserMFAPolicyPreservesSessionsAndAuthenticators(t *test
 		t.Fatal(err)
 	}
 	if actor != adminSession.UserID || subject != "person" || sessionID != adminSession.ID ||
-		metadata != `{"from":false,"to":true}` {
+		metadata != `{"from":false,"to":true,"passkey_from":false,"passkey_to":false}` {
 		t.Fatalf("individual policy event = actor:%q subject:%q session:%q metadata:%q", actor, subject, sessionID, metadata)
 	}
 

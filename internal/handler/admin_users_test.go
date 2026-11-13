@@ -367,7 +367,7 @@ func TestAdministratorCanRequireAndClearIndividualUserMFA(t *testing.T) {
 	if page.Code != http.StatusOK {
 		t.Fatalf("administrator users page = %d %q", page.Code, page.Body.String())
 	}
-	for _, want := range []string{"Require 2FA", "Require 2FA", `action="` + path + `"`, `name="required" value="true"`} {
+	for _, want := range []string{"Require two-factor", "A passkey is enough", `action="` + path + `"`, `name="required" value="true"`, `name="passkey" value="true"`} {
 		if !strings.Contains(page.Body.String(), want) {
 			t.Fatalf("administrator user MFA control missing %q: %q", want, page.Body.String())
 		}
@@ -379,15 +379,16 @@ func TestAdministratorCanRequireAndClearIndividualUserMFA(t *testing.T) {
 
 	requireForm := url.Values{
 		"required":             {"true"},
+		"passkey":              {"true"},
 		auth.CSRFFormFieldName: {csrfProofFromForm(t, page.Body.String(), path)},
 	}
 	required := postSecuritySettings(t, stack, path, requireForm, sessionCookie)
 	if required.Code != http.StatusSeeOther || !strings.HasPrefix(required.Header().Get("Location"), "/admin/users?") {
 		t.Fatalf("require individual MFA = %d location:%q body:%q", required.Code, required.Header().Get("Location"), required.Body.String())
 	}
-	var storedRequired int
-	if err := db.Read().QueryRowContext(t.Context(), `SELECT mfa_required FROM users WHERE id = 'policy-target'`).Scan(&storedRequired); err != nil || storedRequired != 1 {
-		t.Fatalf("required individual MFA = %d, %v", storedRequired, err)
+	var storedRequired, storedPasskey int
+	if err := db.Read().QueryRowContext(t.Context(), `SELECT mfa_required, mfa_passkey_counts FROM users WHERE id = 'policy-target'`).Scan(&storedRequired, &storedPasskey); err != nil || storedRequired != 1 || storedPasskey != 1 {
+		t.Fatalf("required individual MFA = %d (passkey %d), %v", storedRequired, storedPasskey, err)
 	}
 	if stored, err := manager.GetSessionByToken(t.Context(), targetSession.Token); err != nil || stored == nil || stored.ID != targetSession.ID {
 		t.Fatalf("target session after requiring MFA = %#v, %v", stored, err)
@@ -404,7 +405,8 @@ func TestAdministratorCanRequireAndClearIndividualUserMFA(t *testing.T) {
 	clearPageRequest.AddCookie(sessionCookie)
 	clearPage := httptest.NewRecorder()
 	stack.ServeHTTP(clearPage, clearPageRequest)
-	if clearPage.Code != http.StatusOK || !strings.Contains(clearPage.Body.String(), "Clear individual policy") ||
+	if clearPage.Code != http.StatusOK || !strings.Contains(clearPage.Body.String(), "Remove requirement") ||
+		!strings.Contains(clearPage.Body.String(), "Individual policy: passkey is enough") ||
 		!strings.Contains(clearPage.Body.String(), `name="required" value="false"`) {
 		t.Fatalf("clear individual MFA control = %d %q", clearPage.Code, clearPage.Body.String())
 	}
@@ -652,7 +654,7 @@ func TestAdministratorCanIssueAndRedeemWebmailUserCredentialReset(t *testing.T) 
 	for _, want := range []string{
 		"Password-reset token created", "Reset token ready for reset-target",
 		"Gofer stores only a hash of the token", "https://gofer.example/account/redeem",
-		"Successful redemption signs the user out everywhere, keeps two-factor authentication",
+		"Successful redemption signs the user out everywhere, keeps their authenticator app (TOTP)",
 	} {
 		if !strings.Contains(issued.Body.String(), want) {
 			t.Fatalf("credential-reset result missing %q: %q", want, issued.Body.String())

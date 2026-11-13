@@ -47,17 +47,17 @@ func TestSecuritySessionViewDataUsesBoundedHumanReadableMetadata(t *testing.T) {
 		t.Fatalf("securitySessionViewData(context.Background(), ) = %#v, %t", views, truncated)
 	}
 	if views[0].Client != "Chrome on Linux" || views[0].Authentication != "Password" ||
-		views[0].Assurance != "Two-factor" || !views[0].Current || !views[0].Active ||
+		views[0].Assurance != "With authenticator app (TOTP)" || !views[0].Current || !views[0].Active ||
 		views[0].SignedInAt != "Aug 19, 2026, 12:30 PM" || views[0].EndedAt != "" {
 		t.Fatalf("current session view = %#v", views[0])
 	}
 	if views[1].Client != "Safari on macOS" || views[1].Authentication != "Passkey" ||
-		views[1].Assurance != "Single factor" || !views[1].Active || views[1].Current ||
+		views[1].Assurance != "Passkey with PIN or biometrics" || !views[1].Active || views[1].Current ||
 		views[1].RevokePath != "/settings/security/sessions/opaque_action_reference/revoke" {
 		t.Fatalf("active session view = %#v", views[1])
 	}
 	if views[2].Client != "<unrecognized client>" || views[2].Authentication != "Company Login" ||
-		views[2].Assurance != "Single factor" || views[2].Current || views[2].Active ||
+		views[2].Assurance != "Without authenticator app" || views[2].Current || views[2].Active ||
 		views[2].EndedAt != "Aug 19, 2026, 12:45 PM" || views[2].RevokePath != "" {
 		t.Fatalf("signed-out session view = %#v", views[2])
 	}

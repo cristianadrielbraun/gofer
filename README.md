@@ -32,7 +32,7 @@ Gofer does mail, contacts and calendar. All your accounts land in one inbox. Con
 
 ### features
 
-Rules, signatures, identities, a one-time From, scheduled send, translation, labels, threads (or no threads), cards or a table, multiple layouts (side by side, stacked, no reading pane at all), single-click open, drag and drop, right-click menus, a selection mode, search in one folder or one account or everywhere, search commands, Local folders, creating and renaming folders, folder roles, folder icons and colors, mbox import and export, moving mail between accounts, profile export, push notifications, the unread count in the tab title, printing, empty Trash in one click, sender pictures, blocked remote images, passkeys, 2FA, three themes, a theme builder, a card layout editor, account ordering, English, Spanish, Brazilian Portuguese and Simplified Chinese (简体中文, with more languages to come), date and time formats, an installable Android app, a contacts Trash, creating calendars and address books, `.ics` import and export, calendar subscriptions, RSVP from the email, Meet and Teams links, dragging events around, month and week views, an update check on the About page, and probably a few more I'm forgetting.
+Rules, signatures, identities, a one-time From, scheduled send, translation, labels, threads (or no threads), cards or a table, multiple layouts (side by side, stacked, no reading pane at all), single-click open, drag and drop, right-click menus, a selection mode, search in one folder or one account or everywhere, search commands, Local folders, creating and renaming folders, folder roles, folder icons and colors, mbox import and export, moving mail between accounts, profile export, push notifications, the unread count in the tab title, printing, empty Trash in one click, sender pictures, blocked remote images, passkeys, authenticator apps (TOTP), three themes, a theme builder, a card layout editor, account ordering, English, Spanish, Brazilian Portuguese and Simplified Chinese (简体中文, with more languages to come), date and time formats, an installable Android app, a contacts Trash, creating calendars and address books, `.ics` import and export, calendar subscriptions, RSVP from the email, Meet and Teams links, dragging events around, month and week views, an update check on the About page, and probably a few more I'm forgetting.
 
 ### supported accounts
 
@@ -57,7 +57,7 @@ On Android you can install it as an app.
 
 ### your data
 
-Mailboxes export as mbox. You can also move a whole setup to another Gofer with a profile export. Passwords and tokens are encrypted on disk. Remote images stay blocked until you allow them. For sign-in there are passkeys, and 2FA through an authenticator app.
+Mailboxes export as mbox. You can also move a whole setup to another Gofer with a profile export. Passwords and tokens are encrypted on disk. Remote images stay blocked until you allow them. For sign-in there are passkeys and authenticator app codes (TOTP).
 
 ### for more than one person
 

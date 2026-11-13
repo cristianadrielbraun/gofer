@@ -30,7 +30,7 @@ func TestMigrateV146ToV147KeepsTheExtraCodeForExistingUsers(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	var version, required int
-	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil || version != 147 {
+	if err := db.Read().QueryRow(`SELECT MAX(version) FROM schema_version`).Scan(&version); err != nil || version != CurrentSchemaVersion {
 		t.Fatalf("schema version = %d, %v", version, err)
 	}
 	if err := db.Read().QueryRow(`SELECT passkey_totp_required FROM users WHERE id = 'u1'`).Scan(&required); err != nil || required != 1 {

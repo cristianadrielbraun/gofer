@@ -18,11 +18,15 @@ type SetAdministratorUserMFAPolicyOptions struct {
 	ActorSessionID string
 	TargetUserID   string
 	Required       bool
+	// PasskeyCounts lets a verified passkey satisfy the requirement on its
+	// own. It only applies while Required is set.
+	PasskeyCounts bool
 }
 
 type SetAdministratorUserMFAPolicyResult struct {
-	Required bool
-	Changed  bool
+	Required      bool
+	PasskeyCounts bool
+	Changed       bool
 }
 
 // SetAdministratorUserMFAPolicy changes the individual MFA requirement for
@@ -47,7 +51,8 @@ func (m *Manager) SetAdministratorUserMFAPolicy(
 	}
 
 	now := m.clock.Now().UTC()
-	result := &SetAdministratorUserMFAPolicyResult{Required: options.Required}
+	wantPasskey := options.Required && options.PasskeyCounts
+	result := &SetAdministratorUserMFAPolicyResult{Required: options.Required, PasskeyCounts: wantPasskey}
 	err := m.runSecurityTransition(ctx, SecurityTransitionPolicyChange, func(tx *sql.Tx) error {
 		if err := requireActiveManagementAdministrator(ctx, tx, actorUserID); err != nil {
 			return err
@@ -56,13 +61,13 @@ func (m *Manager) SetAdministratorUserMFAPolicy(
 			return err
 		}
 
-		var currentRequired, isAdmin, deletionPending int
+		var currentRequired, currentPasskeyCounts, isAdmin, deletionPending int
 		var status UserStatus
 		var userType UserType
 		err := tx.QueryRowContext(ctx, `
-			SELECT status, user_type, is_admin, mfa_required, deletion_pending
+			SELECT status, user_type, is_admin, mfa_required, mfa_passkey_counts, deletion_pending
 			FROM users WHERE id = ?`, targetUserID,
-		).Scan(&status, &userType, &isAdmin, &currentRequired, &deletionPending)
+		).Scan(&status, &userType, &isAdmin, &currentRequired, &currentPasskeyCounts, &deletionPending)
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrAdministratorUserMFATargetInvalid
 		}
@@ -74,7 +79,8 @@ func (m *Manager) SetAdministratorUserMFAPolicy(
 			return ErrAdministratorUserMFATargetInvalid
 		}
 		current := currentRequired == 1
-		if current == options.Required {
+		currentPasskey := current && currentPasskeyCounts == 1
+		if current == options.Required && currentPasskey == wantPasskey {
 			return nil
 		}
 
@@ -83,9 +89,9 @@ func (m *Manager) SetAdministratorUserMFAPolicy(
 			return fmt.Errorf("generate user MFA policy event ID: %w", err)
 		}
 		updated, err := tx.ExecContext(ctx, `
-			UPDATE users SET mfa_required = ?, updated_at = ?
-			WHERE id = ? AND user_type = 'webmail' AND is_admin = 0 AND mfa_required = ?`,
-			boolInt(options.Required), now, targetUserID, boolInt(current),
+			UPDATE users SET mfa_required = ?, mfa_passkey_counts = ?, updated_at = ?
+			WHERE id = ? AND user_type = 'webmail' AND is_admin = 0 AND mfa_required = ? AND mfa_passkey_counts = ?`,
+			boolInt(options.Required), boolInt(wantPasskey), now, targetUserID, boolInt(current), currentPasskeyCounts,
 		)
 		if err != nil {
 			return fmt.Errorf("update user MFA policy: %w", err)
@@ -99,9 +105,11 @@ func (m *Manager) SetAdministratorUserMFAPolicy(
 		}
 
 		metadata, err := json.Marshal(struct {
-			From bool `json:"from"`
-			To   bool `json:"to"`
-		}{From: current, To: options.Required})
+			From        bool `json:"from"`
+			To          bool `json:"to"`
+			PasskeyFrom bool `json:"passkey_from"`
+			PasskeyTo   bool `json:"passkey_to"`
+		}{From: current, To: options.Required, PasskeyFrom: currentPasskey, PasskeyTo: wantPasskey})
 		if err != nil {
 			return fmt.Errorf("encode user MFA policy event: %w", err)
 		}

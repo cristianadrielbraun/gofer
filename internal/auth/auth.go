@@ -57,6 +57,7 @@ type AdministratorUserSummary struct {
 	UserType                  UserType
 	IsAdmin                   bool
 	MFARequired               bool
+	MFAPasskeyCounts          bool
 	PasswordResetRequestedAt  *time.Time
 	DeletionPending           bool
 	DeletionProtected         bool

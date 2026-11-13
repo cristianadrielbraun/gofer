@@ -128,9 +128,12 @@ func securitySessionAuthenticationLabel(ctx context.Context, method auth.Authent
 
 func securitySessionAssuranceLabel(ctx context.Context, level auth.AssuranceLevel) string {
 	switch level {
-	// A passkey on its own is one factor, like a password.
-	case auth.AssuranceLevelSingleFactor, auth.AssuranceLevelPhishingResistant:
+	// The label says what the second step was: the authenticator app (TOTP),
+	// or a passkey's own PIN or biometrics, which Gofer always asks for.
+	case auth.AssuranceLevelSingleFactor:
 		return i18n.T(ctx, "server.session.single_factor")
+	case auth.AssuranceLevelPhishingResistant:
+		return i18n.T(ctx, "server.session.passkey_verified")
 	case auth.AssuranceLevelMultiFactor:
 		return i18n.T(ctx, "server.session.two_factor")
 	default:
