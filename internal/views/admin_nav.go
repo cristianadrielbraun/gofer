@@ -25,6 +25,7 @@ const (
 	AdminSectionLabels          = "labels"
 	AdminSectionOperations      = "operations"
 	AdminSectionAccountSecurity = "account-security"
+	AdminSectionSignIn          = "sign-in"
 )
 
 // Where the System section's diagnostics live. AdminAvatarsPath ends in a
@@ -102,6 +103,7 @@ var adminNavigation = []adminNavGroup{
 		{section: AdminSectionAdministrators, path: AdminAdministratorsPath, label: "admin.nav.administrators", icon: icon.ShieldUser},
 	}},
 	{label: "admin.nav.group.security", items: []adminNavItem{
+		{section: AdminSectionSignIn, path: AdminSignInPath, label: "admin.nav.sign_in", icon: icon.KeyRound},
 		{section: AdminSectionMailSecurity, path: "/admin/security", label: "admin.nav.security", icon: icon.ShieldAlert},
 		{section: AdminSectionActivity, path: "/admin/activity", label: "admin.nav.activity_short", icon: icon.History},
 	}},

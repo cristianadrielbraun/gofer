@@ -81,11 +81,17 @@ func TestInstanceSecurityPolicyUsesAdministratorDefaultBeforeProvisioning(t *tes
 	}
 }
 
-func TestSetInstanceMFAPolicyRejectsFactorlessActiveUsersWithoutSideEffects(t *testing.T) {
+// Requiring two-factor sign-in of everyone works like an individual
+// requirement: people without an authenticator app set one up at their next
+// sign-in. The preview names them first; a passkey doesn't count, since the
+// requirement for everyone always asks for the app code.
+func TestSetInstanceMFAPolicyLetsPeopleWithoutAnAppSetItUpLater(t *testing.T) {
 	now := time.Date(2026, time.August, 10, 0, 15, 0, 0, time.UTC)
 	manager := newDeterministicManager(t, &fixedClock{now: now}, secureTokenGenerator{})
 	insertActiveUser(t, manager, "administrator", true, now)
 	insertActiveUser(t, manager, "factorless", false, now)
+	insertActiveUser(t, manager, "passkey-only", false, now)
+	insertActiveUser(t, manager, "with-app", false, now)
 	insertActiveUser(t, manager, "disabled-factorless", false, now)
 	if _, err := manager.db.Write().ExecContext(t.Context(), `
 		UPDATE users SET status = 'disabled' WHERE id = 'disabled-factorless'`); err != nil {
@@ -93,21 +99,8 @@ func TestSetInstanceMFAPolicyRejectsFactorlessActiveUsersWithoutSideEffects(t *t
 	}
 	initializePolicyTestInstance(t, manager, "administrator", now)
 	insertPolicyTestTOTP(t, manager, "administrator", now)
-	if _, err := manager.db.Write().ExecContext(t.Context(), `
-		INSERT INTO webauthn_credentials (
-			id, user_id, credential_id, public_key, name, created_at,
-			credential_ciphertext, key_version, rp_id
-		) VALUES ('wrong-rp', 'factorless', x'09', x'02', 'Other site', ?, x'03', 1, 'other.example')`, now,
-	); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := manager.db.Write().ExecContext(t.Context(), `
-		INSERT INTO webauthn_credentials (
-			id, user_id, credential_id, public_key, name, created_at, rp_id
-		) VALUES ('incomplete-passkey', 'factorless', x'0a', x'02', 'Incomplete', ?, 'gofer.example')`, now,
-	); err != nil {
-		t.Fatal(err)
-	}
+	insertPolicyTestTOTP(t, manager, "with-app", now)
+	insertPolicyTestPasskey(t, manager, "passkey-only", now)
 	adminSession := createPolicyAdministratorSession(t, manager)
 	weak, err := manager.CreateAuthenticatedSession(
 		t.Context(), "factorless", "Factorless browser",
@@ -116,27 +109,49 @@ func TestSetInstanceMFAPolicyRejectsFactorlessActiveUsersWithoutSideEffects(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
+	passkeySession, err := manager.CreateAuthenticatedSession(
+		t.Context(), "passkey-only", "Passkey browser",
+		AuthenticationMethodPasskey, AssuranceLevelPhishingResistant,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	strong, err := manager.CreateAuthenticatedSession(
+		t.Context(), "with-app", "App browser",
+		AuthenticationMethodPassword, AssuranceLevelMultiFactor,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	preview, err := manager.PreviewInstanceMFAPolicy(t.Context(), "administrator")
+	if err != nil || preview.Policy.MFA != InstanceMFAPolicyAdministrators || preview.WithoutAppTotal != 2 ||
+		len(preview.WithoutApp) != 2 || preview.WithoutApp[0].Username != "factorless" || preview.WithoutApp[1].Username != "passkey-only" ||
+		preview.SessionsToEnd != 2 {
+		t.Fatalf("PreviewInstanceMFAPolicy() = %+v, %v", preview, err)
+	}
+	if _, err := manager.PreviewInstanceMFAPolicy(t.Context(), "with-app"); err == nil {
+		t.Fatal("a mail user saw the instance policy preview")
+	}
 
 	result, err := manager.SetInstanceMFAPolicy(t.Context(), SetInstanceMFAPolicyOptions{
 		ActorUserID: adminSession.UserID, ActorSessionID: adminSession.ID,
 		Policy: InstanceMFAPolicyAllUsers,
 	})
-	var enrollmentErr *InstanceMFAPolicyEnrollmentError
-	if result != nil || !errors.As(err, &enrollmentErr) || enrollmentErr.ActiveUsersWithoutFactor != 1 {
+	if err != nil || !result.Changed || result.RevokedSessions != 2 || result.Policy.MFA != InstanceMFAPolicyAllUsers {
 		t.Fatalf("SetInstanceMFAPolicy() = %#v, %v", result, err)
 	}
-	policy, err := manager.InstanceSecurityPolicy(t.Context())
-	if err != nil || policy.MFA != InstanceMFAPolicyAdministrators || policy.UpdatedAt != nil {
-		t.Fatalf("policy after rejected activation = %#v, %v", policy, err)
+	for name, token := range map[string]string{"factorless": weak.Token, "passkey-only": passkeySession.Token} {
+		if stored, err := manager.GetSessionByToken(t.Context(), token); err == nil && stored != nil {
+			t.Fatalf("%s's session survived the requirement", name)
+		}
 	}
-	if stored, err := manager.GetSessionByToken(t.Context(), weak.Token); err != nil || stored == nil {
-		t.Fatalf("weak session after rejected activation = %#v, %v", stored, err)
+	if stored, err := manager.GetSessionByToken(t.Context(), strong.Token); err != nil || stored == nil {
+		t.Fatalf("a session that used the app = %#v, %v", stored, err)
 	}
-	var events int
-	if err := manager.db.Read().QueryRowContext(t.Context(), `
-		SELECT COUNT(*) FROM auth_events WHERE event_type = ?`, AuthEventSecurityPolicyChanged,
-	).Scan(&events); err != nil || events != 0 {
-		t.Fatalf("policy events after rejected activation = %d, %v", events, err)
+	preview, err = manager.PreviewInstanceMFAPolicy(t.Context(), "administrator")
+	if err != nil || preview.Policy.MFA != InstanceMFAPolicyAllUsers || preview.UpdatedByUsername != "administrator" || preview.SessionsToEnd != 0 {
+		t.Fatalf("preview after the change = %+v, %v", preview, err)
 	}
 }
 

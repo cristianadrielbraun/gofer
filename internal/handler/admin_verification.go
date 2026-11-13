@@ -66,7 +66,8 @@ func adminSecurityVerificationReturnTo(value string) string {
 	if page, ok := adminUserPageAddress(parsed); ok {
 		return page
 	}
-	if parsed.Path == views.AdminAdministratorsPath && parsed.RawQuery == "" {
+	if (parsed.Path == views.AdminAdministratorsPath || parsed.Path == views.AdminSignInPath ||
+		parsed.Path == views.AdminSignInTwoFactorPath) && parsed.RawQuery == "" {
 		return parsed.Path
 	}
 	switch parsed.Path {

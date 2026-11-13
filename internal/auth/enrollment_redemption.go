@@ -112,13 +112,8 @@ func (m *Manager) RedeemEnrollmentToken(ctx context.Context, options RedeemEnrol
 			!enrollmentRedemptionStatusEligible(current.purpose, current.status, current.userType) {
 			return ErrEnrollmentTokenInvalid
 		}
-		// An administrator sets up two-factor authentication at their first
-		// sign-in, as the management policy asks of every administrator.
-		if current.purpose == EnrollmentTokenPurposeEnrollment && !options.Administrator {
-			if err := m.requireUserReadyForInstanceMFA(ctx, tx, current.userID); err != nil {
-				return err
-			}
-		}
+		// Whoever two-factor sign-in is required of sets up the authenticator
+		// app at their first sign-in, administrators and everyone else alike.
 
 		resetAt := any(nil)
 		if current.purpose == EnrollmentTokenPurposeCredentialReset {

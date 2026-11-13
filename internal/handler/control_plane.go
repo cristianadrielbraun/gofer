@@ -133,6 +133,9 @@ func (h *Handler) registerAdministrationRoutes(mux *http.ServeMux) {
 		adminRoute("GET "+adminUsersBulkPath(action), h.handleAdminUsersBulkDialog(action))
 		adminRoute("POST "+adminUsersBulkPath(action), h.handleAdminUsersBulk(action))
 	}
+	adminRoute("GET "+views.AdminSignInPath, h.handleAdminSignIn)
+	adminRoute("GET "+views.AdminSignInTwoFactorPath, h.handleAdminSignInTwoFactorDialog)
+	adminRoute("POST "+views.AdminSignInTwoFactorPath, h.handleSetAdminSignInTwoFactor)
 	adminRoute("GET /admin/security", h.handleAdminSecurity)
 	adminRoute("POST /admin/security/http-discovery", h.handleAddHTTPDiscoveryException)
 	adminRoute("POST /admin/security/plaintext", h.handleAddPlaintextTransportException)

@@ -23,7 +23,10 @@ const (
 var (
 	ErrInstanceMFAPolicyInvalid     = errors.New("instance MFA policy is invalid")
 	ErrInstanceMFAPolicyUnavailable = errors.New("instance MFA policy is unavailable before setup completes")
-	ErrInstanceMFAEnrollmentNeeded  = errors.New("strong authenticator enrollment is required before instance-wide MFA activation")
+	// ErrInstanceMFAEnrollmentNeeded refuses someone who has to have an
+	// authenticator app first: an administrator being enabled, or a first
+	// administrator created while everyone needs two-factor sign-in.
+	ErrInstanceMFAEnrollmentNeeded = errors.New("an authenticator app is required first")
 )
 
 func (policy InstanceMFAPolicy) Valid() bool {
@@ -38,18 +41,6 @@ type InstanceSecurityPolicy struct {
 	MFA       InstanceMFAPolicy
 	UpdatedAt *time.Time
 	UpdatedBy string
-}
-
-type InstanceMFAPolicyEnrollmentError struct {
-	ActiveUsersWithoutFactor int
-}
-
-func (err *InstanceMFAPolicyEnrollmentError) Error() string {
-	return fmt.Sprintf("%s: %d active user(s) are not ready", ErrInstanceMFAEnrollmentNeeded, err.ActiveUsersWithoutFactor)
-}
-
-func (err *InstanceMFAPolicyEnrollmentError) Unwrap() error {
-	return ErrInstanceMFAEnrollmentNeeded
 }
 
 type SetInstanceMFAPolicyOptions struct {
@@ -117,28 +108,11 @@ func userHasSecondFactor(ctx context.Context, queryer instanceSecurityPolicyQuer
 	return ready == 1, nil
 }
 
-func (m *Manager) requireUserReadyForInstanceMFA(ctx context.Context, queryer instanceSecurityPolicyQueryer, userID string) error {
-	policy, err := readInstanceSecurityPolicy(ctx, queryer)
-	if err != nil {
-		return err
-	}
-	if !policy.MFA.RequiresAllUsers() {
-		return nil
-	}
-	ready, err := userHasSecondFactor(ctx, queryer, userID)
-	if err != nil {
-		return err
-	}
-	if !ready {
-		return ErrInstanceMFAEnrollmentNeeded
-	}
-	return nil
-}
-
 // SetInstanceMFAPolicy applies an administrator-authorized policy transition.
-// Enabling MFA for every user is refused until each active user has an enabled
-// TOTP credential or a complete passkey for this instance. The policy update,
-// weak-session revocation, and audit event commit atomically.
+// Requiring two-factor sign-in of everyone works like an individual
+// requirement: whoever has no authenticator app yet sets one up at their next
+// sign-in, and every session that didn't use the app ends. The policy update,
+// the sessions ending and the audit event commit atomically.
 func (m *Manager) SetInstanceMFAPolicy(ctx context.Context, options SetInstanceMFAPolicyOptions) (*SetInstanceMFAPolicyResult, error) {
 	actorUserID := strings.TrimSpace(options.ActorUserID)
 	actorSessionID := strings.TrimSpace(options.ActorSessionID)
@@ -152,14 +126,6 @@ func (m *Manager) SetInstanceMFAPolicy(ctx context.Context, options SetInstanceM
 		return nil, fmt.Errorf("%w: %q", ErrInstanceMFAPolicyInvalid, options.Policy)
 	}
 
-	rpID := ""
-	if options.Policy.RequiresAllUsers() {
-		resolvedRPID, err := passkeyRelyingPartyID(m.config.BaseURL)
-		if err != nil {
-			return nil, fmt.Errorf("resolve passkey relying party for instance MFA policy: %w", err)
-		}
-		rpID = resolvedRPID
-	}
 	now := m.clock.Now().UTC()
 	result := &SetInstanceMFAPolicyResult{}
 	err := m.runSecurityTransition(ctx, SecurityTransitionPolicyChange, func(tx *sql.Tx) error {
@@ -194,28 +160,6 @@ func (m *Manager) SetInstanceMFAPolicy(ctx context.Context, options SetInstanceM
 			return nil
 		}
 
-		if options.Policy.RequiresAllUsers() {
-			var blockers int
-			if err := tx.QueryRowContext(ctx, `
-				SELECT COUNT(*)
-				FROM users u
-				WHERE u.status = 'active'
-				  AND NOT EXISTS (
-					SELECT 1 FROM totp_credentials t
-					WHERE t.user_id = u.id AND t.enabled = 1 AND t.revoked_at IS NULL
-				  )
-				  AND NOT EXISTS (
-					SELECT 1 FROM webauthn_credentials w
-					WHERE w.user_id = u.id AND w.rp_id = ? AND w.revoked_at IS NULL
-					  AND w.credential_ciphertext IS NOT NULL AND w.key_version IS NOT NULL
-				  )`, rpID,
-			).Scan(&blockers); err != nil {
-				return fmt.Errorf("preflight instance MFA enrollment: %w", err)
-			}
-			if blockers > 0 {
-				return &InstanceMFAPolicyEnrollmentError{ActiveUsersWithoutFactor: blockers}
-			}
-		}
 		eventID, err := m.tokens.ID()
 		if err != nil {
 			return fmt.Errorf("generate instance MFA policy event ID: %w", err)
@@ -293,4 +237,84 @@ func (m *Manager) SetInstanceMFAPolicy(ctx context.Context, options SetInstanceM
 		return nil, err
 	}
 	return result, nil
+}
+
+// InstanceMFAPolicyPreview is what requiring two-factor sign-in of everyone
+// would do now: who has no authenticator app yet (the first few, by
+// username, and how many in all) and how many working sessions would end.
+type InstanceMFAPolicyPreview struct {
+	Policy            InstanceSecurityPolicy
+	UpdatedByUsername string
+	WithoutApp        []InstanceMFAPolicyPerson
+	WithoutAppTotal   int
+	SessionsToEnd     int
+}
+
+// InstanceMFAPolicyPerson is someone the preview names.
+type InstanceMFAPolicyPerson struct {
+	ID       string
+	Username string
+}
+
+// InstanceMFAPolicyPreviewLimit is how many people without an app the
+// preview names.
+const InstanceMFAPolicyPreviewLimit = 20
+
+// PreviewInstanceMFAPolicy reads the instance policy and what requiring
+// two-factor sign-in of everyone would do now. A passkey doesn't count: the
+// requirement for everyone always asks for the authenticator app code.
+func (m *Manager) PreviewInstanceMFAPolicy(ctx context.Context, actorUserID string) (*InstanceMFAPolicyPreview, error) {
+	tx, err := m.db.Read().BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return nil, fmt.Errorf("begin instance MFA policy preview: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := authz.Require(ctx, tx, actorUserID, authz.UsersRead); err != nil {
+		return nil, err
+	}
+	policy, err := readInstanceSecurityPolicy(ctx, tx)
+	if err != nil {
+		return nil, err
+	}
+	preview := &InstanceMFAPolicyPreview{Policy: policy}
+	if policy.UpdatedBy != "" {
+		if err := tx.QueryRowContext(ctx, `SELECT username FROM users WHERE id = ?`, policy.UpdatedBy).Scan(&preview.UpdatedByUsername); err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("read who changed the instance MFA policy: %w", err)
+		}
+	}
+	const withoutApp = `
+		FROM users u
+		WHERE u.status = 'active' AND u.deletion_pending = 0
+		  AND NOT EXISTS (
+			SELECT 1 FROM totp_credentials t
+			WHERE t.user_id = u.id AND t.enabled = 1 AND t.revoked_at IS NULL
+		  )`
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*)`+withoutApp).Scan(&preview.WithoutAppTotal); err != nil {
+		return nil, fmt.Errorf("count people without an authenticator app: %w", err)
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT u.id, u.username`+withoutApp+` ORDER BY u.username_normalized, u.id LIMIT ?`, InstanceMFAPolicyPreviewLimit)
+	if err != nil {
+		return nil, fmt.Errorf("list people without an authenticator app: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var person InstanceMFAPolicyPerson
+		if err := rows.Scan(&person.ID, &person.Username); err != nil {
+			return nil, fmt.Errorf("scan person without an authenticator app: %w", err)
+		}
+		preview.WithoutApp = append(preview.WithoutApp, person)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list people without an authenticator app: %w", err)
+	}
+	now := m.clock.Now().UTC()
+	if err := tx.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM sessions
+		WHERE revoked_at IS NULL AND assurance_level != ?
+		  AND idle_expires_at > ? AND absolute_expires_at > ?`,
+		AssuranceLevelMultiFactor, now, now,
+	).Scan(&preview.SessionsToEnd); err != nil {
+		return nil, fmt.Errorf("count sessions the instance MFA policy would end: %w", err)
+	}
+	return preview, nil
 }

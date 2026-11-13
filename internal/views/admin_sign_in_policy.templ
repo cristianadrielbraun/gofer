@@ -1,0 +1,191 @@
+package views
+
+import (
+	"net/url"
+	"time"
+
+	"github.com/cristianadrielbraun/gofer/components/button"
+	"github.com/cristianadrielbraun/gofer/components/dialog"
+	"github.com/cristianadrielbraun/gofer/internal/i18n"
+)
+
+// AdminSignInPath is how people sign in to this Gofer: today, who has to
+// use two-factor sign-in.
+const AdminSignInPath = "/admin/security/sign-in"
+
+// AdminSignInTwoFactorPath changes who has to use two-factor sign-in.
+const AdminSignInTwoFactorPath = AdminSignInPath + "/two-factor"
+
+// adminSignInTwoFactorDialogID is the dialog that confirms the change.
+const adminSignInTwoFactorDialogID = "admin-sign-in-two-factor"
+
+// AdminSignInData is the Sign-in page: who two-factor sign-in is required
+// of, and what requiring it of everyone would do now.
+type AdminSignInData struct {
+	// Everyone: two-factor sign-in is required of everyone, not only of
+	// administrators and the people it's required of one by one.
+	Everyone          bool
+	UpdatedAt         *time.Time
+	UpdatedByUsername string
+	// WithoutApp names the first people without an authenticator app;
+	// WithoutAppTotal counts them all.
+	WithoutApp      []AdminSignInPerson
+	WithoutAppTotal int
+	// SessionsToEnd counts the working sessions that didn't use the app,
+	// which requiring it of everyone ends.
+	SessionsToEnd  int
+	StepUpRequired bool
+	CSRFToken      string
+	// DialogOpen opens the confirmation, as when it's asked for at its
+	// address.
+	DialogOpen bool
+}
+
+// AdminSignInPerson is someone the preview names.
+type AdminSignInPerson struct {
+	ID       string
+	Username string
+}
+
+func (person AdminSignInPerson) path() string {
+	return AdminUserPagePath(url.PathEscape(person.ID), AdminUserTabSignIn, "")
+}
+
+templ AdminSignInPage(data AdminSignInData, verification ...AdminSecurityVerificationData) {
+	<div
+		class="flex-1 flex flex-col min-w-0 overflow-hidden"
+		data-admin-sign-in
+		if adminSecurityVerificationValue(verification).Required {
+			hx-headers={ adminVerificationOnPageHeaders }
+		}
+	>
+		<div class="flex-1 overflow-y-auto">
+			<div class="max-w-4xl px-6 py-8 lg:px-8 lg:py-10">
+				@adminPageHeader(adminPageHeaderProps{Title: i18n.T(ctx, "admin.nav.sign_in"), Description: i18n.T(ctx, "admin.sign_in.description")})
+				@adminSignInTwoFactorDialog(data)
+				@adminSection(adminSectionProps{ID: "admin-sign-in-two-factor-heading", Title: i18n.T(ctx, "admin.sign_in.two_factor.heading"), Aside: adminSignInTwoFactorAction(data)}) {
+					@adminFacts() {
+						@adminFact(i18n.T(ctx, "admin.sign_in.two_factor.required_of")) {
+							if data.Everyone {
+								@adminBadge(adminToneSuccess, templ.Attributes{"data-admin-two-factor-scope": "all_users"}) {
+									{ i18n.T(ctx, "admin.sign_in.two_factor.everyone") }
+								}
+							} else {
+								@adminBadge(adminToneNeutral, templ.Attributes{"data-admin-two-factor-scope": "administrators"}) {
+									{ i18n.T(ctx, "admin.sign_in.two_factor.administrators") }
+								}
+							}
+							<p class="mt-2 text-xs leading-relaxed text-muted-foreground">
+								if data.Everyone {
+									{ i18n.T(ctx, "admin.sign_in.two_factor.everyone_detail") }
+								} else {
+									{ i18n.T(ctx, "admin.sign_in.two_factor.administrators_detail") }
+								}
+							</p>
+						}
+						@adminFact(i18n.T(ctx, "admin.sign_in.two_factor.without_app")) {
+							if data.WithoutAppTotal == 0 {
+								{ i18n.T(ctx, "admin.sign_in.two_factor.without_app_none") }
+							} else {
+								<a href={ templ.URL("/admin/users?attention=mfa_setup") } class="text-primary underline-offset-4 hover:underline">
+									{ i18n.N(ctx, "admin.sign_in.two_factor.people", data.WithoutAppTotal, "count", i18n.Number(ctx, data.WithoutAppTotal)) }
+								</a>
+							}
+						}
+						@adminFact(i18n.T(ctx, "admin.sign_in.two_factor.changed")) {
+							if data.UpdatedAt == nil {
+								{ i18n.T(ctx, "admin.sign_in.two_factor.never_changed") }
+							} else if data.UpdatedByUsername != "" {
+								{ i18n.T(ctx, "admin.sign_in.two_factor.changed_by", "when", adminTime(ctx, *data.UpdatedAt), "user", data.UpdatedByUsername) }
+							} else {
+								{ adminTime(ctx, *data.UpdatedAt) }
+							}
+						}
+					}
+				}
+			</div>
+		</div>
+	</div>
+	@AdminSecurityVerificationDialog(adminSecurityVerificationValue(verification))
+}
+
+templ adminSignInTwoFactorAction(data AdminSignInData) {
+	@dialog.Trigger(dialog.TriggerProps{For: adminSignInTwoFactorDialogID}) {
+		@button.Button(button.Props{Variant: button.VariantOutline, Size: button.SizeSm, Attributes: templ.Attributes{"data-admin-two-factor-change": ""}}) {
+			if data.Everyone {
+				{ i18n.T(ctx, "admin.sign_in.two_factor.administrators_only") }
+			} else {
+				{ i18n.T(ctx, "admin.sign_in.two_factor.require_everyone") }
+			}
+		}
+	}
+}
+
+// adminSignInTwoFactorDialog confirms the change, saying what it does first:
+// who still has to set up the authenticator app, and the sessions it ends.
+templ adminSignInTwoFactorDialog(data AdminSignInData) {
+	@dialog.Dialog(dialog.Props{ID: adminSignInTwoFactorDialogID, Open: data.DialogOpen}) {
+		@dialog.Content() {
+			@dialog.Header() {
+				@dialog.Title() {
+					if data.Everyone {
+						{ i18n.T(ctx, "admin.sign_in.two_factor.off_title") }
+					} else {
+						{ i18n.T(ctx, "admin.sign_in.two_factor.on_title") }
+					}
+				}
+				@dialog.Description() {
+					if data.Everyone {
+						{ i18n.T(ctx, "admin.sign_in.two_factor.off_detail") }
+					} else {
+						{ i18n.T(ctx, "admin.sign_in.two_factor.on_detail") }
+					}
+				}
+			}
+			<form method="post" action={ templ.SafeURL(AdminSignInTwoFactorPath) } data-step-up>
+				<input type="hidden" name="_csrf" value={ data.CSRFToken }/>
+				if !data.Everyone {
+					<div class="space-y-3 px-1 py-2 text-sm" data-admin-two-factor-preview>
+						if data.WithoutAppTotal == 0 {
+							<p class="text-foreground">{ i18n.T(ctx, "admin.sign_in.two_factor.preview_all_ready") }</p>
+						} else {
+							<p class="text-foreground">{ i18n.N(ctx, "admin.sign_in.two_factor.preview_without_app", data.WithoutAppTotal, "count", i18n.Number(ctx, data.WithoutAppTotal)) }</p>
+							<ul class="flex flex-wrap gap-x-3 gap-y-1">
+								for _, person := range data.WithoutApp {
+									<li><a href={ templ.URL(person.path()) } class="text-primary underline-offset-4 hover:underline">{ person.Username }</a></li>
+								}
+								if data.WithoutAppTotal > len(data.WithoutApp) {
+									<li class="text-muted-foreground">{ i18n.N(ctx, "admin.sign_in.two_factor.preview_more", data.WithoutAppTotal-len(data.WithoutApp), "count", i18n.Number(ctx, data.WithoutAppTotal-len(data.WithoutApp))) }</li>
+								}
+							</ul>
+						}
+						<p class="text-foreground" data-admin-two-factor-sessions={ i18n.Number(ctx, data.SessionsToEnd) }>
+							if data.SessionsToEnd == 0 {
+								{ i18n.T(ctx, "admin.sign_in.two_factor.preview_no_sessions") }
+							} else {
+								{ i18n.N(ctx, "admin.sign_in.two_factor.preview_sessions", data.SessionsToEnd, "count", i18n.Number(ctx, data.SessionsToEnd)) }
+							}
+						</p>
+						<p class="text-xs leading-relaxed text-muted-foreground">{ i18n.T(ctx, "admin.sign_in.two_factor.preview_passkey_note") }</p>
+					</div>
+				}
+				@dialog.Footer() {
+					@dialog.Close() {
+						@button.Button(button.Props{Variant: button.VariantOutline}) {
+							{ i18n.T(ctx, "common.cancel") }
+						}
+					}
+					if data.Everyone {
+						@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantDestructive, Attributes: templ.Attributes{"name": "policy", "value": "administrators"}}) {
+							{ i18n.T(ctx, "admin.sign_in.two_factor.administrators_only") }
+						}
+					} else {
+						@button.Button(button.Props{Type: button.TypeSubmit, Attributes: templ.Attributes{"name": "policy", "value": "all_users"}}) {
+							{ i18n.T(ctx, "admin.sign_in.two_factor.require_everyone") }
+						}
+					}
+				}
+			</form>
+		}
+	}
+}

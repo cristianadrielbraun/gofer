@@ -426,7 +426,9 @@ func (m *Manager) requireUserReadyForAuthenticationPolicy(
 	if !policy.RequiresMFA {
 		return nil
 	}
-	if policy.UserMFARequired && !policy.AdministratorMFARequired && !policy.InstanceMFARequired {
+	// An individual requirement or the one for everyone is met by setting
+	// up the app at sign-in; an administrator has to have it already.
+	if !policy.AdministratorMFARequired {
 		return nil
 	}
 	ready, err := userHasSecondFactor(ctx, queryer, userID)

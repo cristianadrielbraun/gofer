@@ -70,7 +70,9 @@ func TestUserLifecycleProtectsLastActiveAdministrator(t *testing.T) {
 	}
 }
 
-func TestUserLifecycleRequiresStrongFactorBeforeActivationUnderGlobalMFA(t *testing.T) {
+// Under the requirement for everyone, someone without an authenticator app
+// can still be activated: they set it up at their next sign-in.
+func TestUserLifecycleActivatesWithoutAnAppUnderGlobalMFA(t *testing.T) {
 	manager := newUserLifecycleManager(t)
 	admin, err := manager.CreateOrUpdateUser(t.Context(), "admin", "Admin", "")
 	if err != nil {
@@ -88,18 +90,8 @@ func TestUserLifecycleRequiresStrongFactorBeforeActivationUnderGlobalMFA(t *test
 		VALUES (1, 1, ?, 'all_users')`, admin.ID); err != nil {
 		t.Fatal(err)
 	}
-
-	if err := manager.SetUserStatus(t.Context(), user.ID, UserStatusActive, admin.ID); !errors.Is(err, ErrInstanceMFAEnrollmentNeeded) {
-		t.Fatalf("SetUserStatus(factorless active) error = %v", err)
-	}
-	blocked, err := manager.GetUserByID(t.Context(), user.ID)
-	if err != nil || blocked.Status != UserStatusPending {
-		t.Fatalf("blocked user = %#v, %v", blocked, err)
-	}
-
-	insertPolicyTestTOTP(t, manager, user.ID, blocked.UpdatedAt)
 	if err := manager.SetUserStatus(t.Context(), user.ID, UserStatusActive, admin.ID); err != nil {
-		t.Fatalf("SetUserStatus(factor-ready active) error = %v", err)
+		t.Fatalf("SetUserStatus(factorless active) error = %v", err)
 	}
 	active, err := manager.GetUserByID(t.Context(), user.ID)
 	if err != nil || active.Status != UserStatusActive {
