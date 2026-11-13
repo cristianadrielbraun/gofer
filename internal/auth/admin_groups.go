@@ -11,6 +11,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/audit"
 	"github.com/cristianadrielbraun/gofer/internal/authz"
 	"github.com/cristianadrielbraun/gofer/internal/directory"
+	"github.com/cristianadrielbraun/gofer/internal/policy"
 )
 
 // auditTargetGroup is what the administration audit log calls a group.
@@ -273,6 +274,10 @@ func (m *Manager) DeleteGroup(ctx context.Context, actorUserID, actorSessionID, 
 		}
 		members, err = directory.Delete(ctx, tx, groupID, version)
 		if err != nil {
+			return err
+		}
+		// The policies it had stop applying through it, and nothing else.
+		if _, err := policy.RemoveTarget(ctx, tx, policy.Target{Kind: policy.TargetGroup, ID: groupID}); err != nil {
 			return err
 		}
 		return m.auditAdministratorChange(ctx, tx, actorUserID, actorSessionID, audit.Event{

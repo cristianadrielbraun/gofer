@@ -134,8 +134,20 @@ func TestGroupMembersAreWebmailUsersNotBeingDeleted(t *testing.T) {
 	if _, err := manager.DeleteGroup(ctx, "administrator", session.ID, field.ID, 7); !errors.Is(err, directory.ErrStale) {
 		t.Fatalf("delete from an old page = %v", err)
 	}
+	for _, statement := range []string{
+		`INSERT INTO policies (id, name, name_normalized, priority, created_at, updated_at) VALUES ('p-field', 'Field rules', 'field rules', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+		`INSERT INTO policy_assignments (policy_id, target_kind, target_id, created_at) VALUES ('p-field', 'group', '` + field.ID + `', CURRENT_TIMESTAMP)`,
+	} {
+		if _, err := manager.db.Write().Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if members, err := manager.DeleteGroup(ctx, "administrator", session.ID, field.ID, preview.Group.Version); err != nil || members != 1 {
 		t.Fatalf("delete = %d, %v", members, err)
+	}
+	var assignments, policies int
+	if err := manager.db.Read().QueryRow(`SELECT (SELECT COUNT(*) FROM policy_assignments), (SELECT COUNT(*) FROM policies)`).Scan(&assignments, &policies); err != nil || assignments != 0 || policies != 1 {
+		t.Fatalf("after deleting the group: assignments %d, policies %d, %v", assignments, policies, err)
 	}
 	if _, err := manager.GetGroup(ctx, "administrator", field.ID); !errors.Is(err, directory.ErrNotFound) {
 		t.Fatalf("deleted group = %v", err)

@@ -66,8 +66,8 @@ type AdministratorUserQuery struct {
 	// NotInGroup leaves out the people already in the group with this ID.
 	NotInGroup string
 	// Group keeps only the people in the group with this ID.
-	Group string
-	Offset         int
+	Group  string
+	Offset int
 	// Limit is the page's size: 0 is DefaultAdministratorUserPageSize, and
 	// it's never more than MaxAdministratorUserPageSize. A negative limit,
 	// for callers inside auth, lists everyone.

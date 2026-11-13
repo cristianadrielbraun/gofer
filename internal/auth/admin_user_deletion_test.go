@@ -34,6 +34,8 @@ func TestAdministratorUserDeletionIsConfirmedResumableAndLocalOnly(t *testing.T)
 		`INSERT INTO directory_groups (id, name, name_normalized, created_at, updated_at) VALUES ('field', 'Field team', 'field team', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
 		`INSERT INTO directory_group_members (group_id, user_id, added_at) VALUES ('field', 'person', CURRENT_TIMESTAMP)`,
 		`INSERT INTO directory_group_members (group_id, user_id, added_at) VALUES ('field', 'administrator', CURRENT_TIMESTAMP)`,
+		`INSERT INTO policies (id, name, name_normalized, priority, created_at, updated_at) VALUES ('p-1', 'Contractors', 'contractors', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+		`INSERT INTO policy_assignments (policy_id, target_kind, target_id, created_at) VALUES ('p-1', 'user', 'person', CURRENT_TIMESTAMP)`,
 	} {
 		if _, err := manager.db.Write().Exec(statement); err != nil {
 			t.Fatal(err)
@@ -142,6 +144,7 @@ func TestAdministratorUserDeletionIsConfirmedResumableAndLocalOnly(t *testing.T)
 		"signatures":           `SELECT COUNT(*) FROM signatures WHERE user_id = 'person'`,
 		"contacts":             `SELECT COUNT(*) FROM contact_profiles WHERE user_id = 'person'`,
 		"group memberships":    `SELECT COUNT(*) FROM directory_group_members WHERE user_id = 'person'`,
+		"policy assignments":   `SELECT COUNT(*) FROM policy_assignments WHERE target_id = 'person'`,
 	} {
 		var count int
 		if err := manager.db.Read().QueryRow(query).Scan(&count); err != nil || count != 0 {

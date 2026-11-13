@@ -11,6 +11,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/audit"
 	"github.com/cristianadrielbraun/gofer/internal/authz"
 	"github.com/cristianadrielbraun/gofer/internal/directory"
+	"github.com/cristianadrielbraun/gofer/internal/policy"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
 
@@ -273,9 +274,12 @@ func (m *Manager) CompleteAdministratorUserDeletion(ctx context.Context, targetU
 		}); err != nil {
 			return err
 		}
-		// Memberships go here, with the person; the foreign key is only a
-		// safety net, and this moves the membership revision on.
+		// Memberships and policy assignments go here, with the person; the
+		// foreign key is only a safety net, and this moves the revisions on.
 		if _, err := directory.RemovePerson(ctx, tx, targetUserID); err != nil {
+			return err
+		}
+		if _, err := policy.RemoveTarget(ctx, tx, policy.Target{Kind: policy.TargetUser, ID: targetUserID}); err != nil {
 			return err
 		}
 		result, err := tx.ExecContext(ctx, `DELETE FROM users WHERE id = ? AND deletion_pending = 1`, targetUserID)
