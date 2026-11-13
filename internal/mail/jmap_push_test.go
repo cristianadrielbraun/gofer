@@ -260,7 +260,6 @@ func waitJMAP(t *testing.T, what string, ok func() bool) {
 // done. A push that comes while the account is already syncing is not lost:
 // the account syncs again once that sync ends.
 func TestSyncOrchestratorWatchesJMAPAccountsOverPush(t *testing.T) {
-	t.Setenv("GOFER_JMAP_EXPERIMENT", "true")
 	ctx := t.Context()
 	server := newFakeJMAPServer(t)
 	server.pushes = make(chan string, 4)

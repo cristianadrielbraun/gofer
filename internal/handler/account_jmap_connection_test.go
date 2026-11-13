@@ -14,7 +14,6 @@ import (
 
 	"github.com/cristianadrielbraun/gofer/internal/mail"
 	"github.com/cristianadrielbraun/gofer/internal/models"
-	"github.com/cristianadrielbraun/gofer/internal/providers"
 )
 
 // jmapSessionTestServer answers session requests for lena@example.test with
@@ -48,7 +47,6 @@ func jmapAccountTestForm(server, password string) url.Values {
 // reports the session URL to save, and contacts plain HTTP only once an
 // administrator approved it. Nothing is saved.
 func TestNewJMAPAccountConnectionTestDiscoversTheSession(t *testing.T) {
-	t.Setenv("GOFER_JMAP_EXPERIMENT", "true")
 	h, db := newAccountOwnershipTestHandler(t)
 	var hits atomic.Int32
 	server, host, port := jmapSessionTestServer(t, "secret", &hits)
@@ -95,7 +93,6 @@ func TestNewJMAPAccountConnectionTestDiscoversTheSession(t *testing.T) {
 // the account's test button and from the edit wizard with the password left
 // blank.
 func TestSavedJMAPAccountConnectionTests(t *testing.T) {
-	t.Setenv("GOFER_JMAP_EXPERIMENT", "true")
 	h, db := newAccountOwnershipTestHandler(t)
 	var hits atomic.Int32
 	server, host, port := jmapSessionTestServer(t, "saved-secret", &hits)
@@ -144,15 +141,6 @@ func TestSavedJMAPAccountConnectionTests(t *testing.T) {
 	}
 }
 
-func TestJMAPConnectionTestsNeedTheExperimentFlag(t *testing.T) {
-	h, _ := newAccountOwnershipTestHandler(t)
-	t.Setenv("GOFER_JMAP_EXPERIMENT", "")
-	rec := postNewAccountTest(h, jmapAccountTestForm("mail.example.test", "secret"))
-	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "GOFER_JMAP_EXPERIMENT") {
-		t.Fatalf("new account test with the flag off = %d %s", rec.Code, rec.Body.String())
-	}
-}
-
 func jmapCreateRequest(form url.Values) (*http.Request, models.CreateAccountRequest) {
 	req := httptest.NewRequest(http.MethodPost, "/api/accounts", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -163,7 +151,6 @@ func jmapCreateRequest(form url.Values) (*http.Request, models.CreateAccountRequ
 // Creating a JMAP account keeps the session URL the wizard's test found, and
 // discovers it when the test was skipped.
 func TestPrepareJMAPAccountForCreation(t *testing.T) {
-	t.Setenv("GOFER_JMAP_EXPERIMENT", "true")
 	h, db := newAccountOwnershipTestHandler(t)
 	var hits atomic.Int32
 	server, host, port := jmapSessionTestServer(t, "secret", &hits)
@@ -198,20 +185,12 @@ func TestPrepareJMAPAccountForCreation(t *testing.T) {
 	if err := h.prepareJMAPAccount(r, &req); err == nil {
 		t.Fatal("accepted a JMAP account without a password")
 	}
-
-	t.Setenv("GOFER_JMAP_EXPERIMENT", "")
-	form.Set("password", "secret")
-	r, req = jmapCreateRequest(form)
-	if err := h.prepareJMAPAccount(r, &req); !errors.Is(err, providers.ErrJMAPDisabled) {
-		t.Fatalf("with the flag off: %v", err)
-	}
 }
 
 // Saving an edited JMAP account keeps a session URL as entered, and finds it
 // again from a host or the email, using the saved password when the
 // password field was left blank.
 func TestResolveJMAPAccountChanges(t *testing.T) {
-	t.Setenv("GOFER_JMAP_EXPERIMENT", "true")
 	h, db := newAccountOwnershipTestHandler(t)
 	var hits atomic.Int32
 	server, host, port := jmapSessionTestServer(t, "saved-secret", &hits)

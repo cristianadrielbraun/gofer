@@ -73,7 +73,6 @@ func TestGmailSendAsBecomesProviderIdentities(t *testing.T) {
 }
 
 func TestJMAPIdentitiesBecomeProviderIdentities(t *testing.T) {
-	t.Setenv("GOFER_JMAP_EXPERIMENT", "true")
 	var server *httptest.Server
 	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {

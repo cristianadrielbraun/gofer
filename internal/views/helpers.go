@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/models"
-	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 	"github.com/cristianadrielbraun/gofer/internal/themebuilder"
 	"github.com/cristianadrielbraun/gofer/internal/themecolors"
@@ -20,12 +19,6 @@ import (
 	"github.com/a-h/templ"
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
 )
-
-// jmapAccountPaused is a JMAP account while JMAP is turned off: Gofer keeps
-// its mail but doesn't sync it.
-func jmapAccountPaused(account models.Account) bool {
-	return account.Provider == providers.ProviderJMAP && !providers.JMAPEnabled()
-}
 
 type unifiedFolderOption struct {
 	ID   string

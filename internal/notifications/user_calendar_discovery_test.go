@@ -242,7 +242,6 @@ func newOwnedCalendarFixtureServices(t *testing.T, provider string, wrap func(*o
 	// "caldav-jmap" is CalDAV on JMAP mail accounts instead of IMAP ones.
 	jmapAccounts := provider == "caldav-jmap"
 	if jmapAccounts {
-		t.Setenv("GOFER_JMAP_EXPERIMENT", "true")
 		provider = "caldav"
 	}
 	api := &ownedCalendarDiscoveryAPI{provider: provider, calls: map[string]int{}, entered: make(chan struct{}), release: make(chan struct{})}

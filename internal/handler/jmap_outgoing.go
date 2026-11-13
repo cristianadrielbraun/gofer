@@ -11,7 +11,6 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/mail"
 	"github.com/cristianadrielbraun/gofer/internal/mail/message"
 	"github.com/cristianadrielbraun/gofer/internal/models"
-	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
 
@@ -19,9 +18,6 @@ import (
 // the sent email's id. Failures are marked for the outgoing queue: nothing
 // sent and worth retrying, nothing sent for good, or possibly sent.
 func (h *Handler) sendJMAPOutgoingRaw(ctx context.Context, cfg *models.AccountConfig, send storage.OutgoingSend) (string, error) {
-	if !providers.JMAPEnabled() {
-		return "", providers.ErrJMAPDisabled
-	}
 	password, err := h.accountStore.DecryptPassword(ctx, send.AccountID)
 	if err != nil {
 		return "", markOutgoingSendRetryable(fmt.Errorf("failed to get credentials: %w", err))

@@ -820,8 +820,6 @@ templ SidebarSyncControls(accounts []models.Account, activeApp string) {
 								for _, account := range accounts {
 									if accountIsLocalFolders(account) {
 										// Nothing to sync: no mail server.
-									} else if account.EmailSyncEnabled && !account.IsDeleting && jmapAccountPaused(account) {
-										@SidebarPausedAccountSyncRow(account)
 									} else if account.EmailSyncEnabled && !account.IsDeleting {
 										<button
 											type="button"
@@ -981,9 +979,6 @@ templ SidebarAccountSection(account models.Account, activeFolder string, uiSetti
 		>
 			<div class="account-color-marker size-2.5 shrink-0" style={ accountColorStyle(account.Color) } data-account-marker={ account.ID }></div>
 			<span class="flex-1 truncate text-left">{ account.Name }</span>
-			if jmapAccountPaused(account) {
-				@SidebarAccountJMAPPausedTooltip(account)
-			}
 			if strings.TrimSpace(account.EmailSyncError) != "" {
 				@SidebarAccountSyncErrorTooltip(account, uiSettings)
 			}
@@ -1192,59 +1187,6 @@ templ SidebarAccountSyncErrorTooltip(account models.Account, uiSettings map[stri
 			</div>
 		}
 	}
-}
-
-templ SidebarAccountJMAPPausedTooltip(account models.Account) {
-	@tooltip.Tooltip() {
-		@tooltip.Trigger(tooltip.TriggerProps{Class: "inline-flex shrink-0"}) {
-			<span
-				data-account-jmap-paused={ account.ID }
-				class="inline-flex size-5 shrink-0 items-center justify-center rounded-md text-amber-600 dark:text-amber-400"
-				aria-label={ i18n.T(ctx, "mail.jmap_paused.title") }
-			>
-				@icon.TriangleAlert(icon.Props{Class: "size-4"})
-			</span>
-		}
-		@tooltip.Content(tooltip.ContentProps{Position: tooltip.PositionRight, ShowArrow: true, Class: "sidebar-account-error-tooltip w-72 border-sidebar-border bg-sidebar px-3 py-2 text-left text-xs leading-relaxed text-sidebar-foreground shadow-raised [&_[data-tui-popover-arrow]]:!bg-sidebar"}) {
-			@JMAPPausedExplanation()
-		}
-	}
-}
-
-// SidebarPausedAccountSyncRow stands in for a paused JMAP account's sync
-// button: it can't sync, and hovering it says why. It is not a disabled
-// button, which browsers give no hover to.
-templ SidebarPausedAccountSyncRow(account models.Account) {
-	@tooltip.Tooltip() {
-		@tooltip.Trigger(tooltip.TriggerProps{Class: "block w-full"}) {
-			<div
-				data-mail-account-sync-paused={ account.ID }
-				aria-disabled="true"
-				aria-label={ i18n.T(ctx, "mail.jmap_paused.account", "account", account.Name) }
-				class="flex w-full cursor-not-allowed items-center gap-2 rounded-md px-2 py-2 text-left text-xs text-sidebar-foreground/50"
-			>
-				@icon.RefreshCw(icon.Props{Class: "size-3.5 shrink-0"})
-				<span class="min-w-0 flex-1">
-					<span class="block truncate font-medium">{ account.Name }</span>
-					<span class="block truncate text-[11px]">{ account.Email }</span>
-				</span>
-				@icon.TriangleAlert(icon.Props{Class: "size-3.5 shrink-0 text-amber-600 dark:text-amber-400"})
-			</div>
-		}
-		@tooltip.Content(tooltip.ContentProps{Position: tooltip.PositionRight, ShowArrow: true, Class: "sidebar-account-error-tooltip w-72 border-sidebar-border bg-sidebar px-3 py-2 text-left text-xs leading-relaxed text-sidebar-foreground shadow-raised [&_[data-tui-popover-arrow]]:!bg-sidebar"}) {
-			@JMAPPausedExplanation()
-		}
-	}
-}
-
-templ JMAPPausedExplanation() {
-	<div class="space-y-1">
-		<div class="font-semibold">{ i18n.T(ctx, "mail.jmap_paused.title") }</div>
-		<div class="opacity-90">
-			{ i18n.T(ctx, "mail.jmap_paused.body") }
-			{ i18n.T(ctx, "mail.jmap_paused.turn_on") } <code class="font-mono">GOFER_JMAP_EXPERIMENT=true</code>.
-		</div>
-	</div>
 }
 
 templ SidebarFolderIcon(iconName string) {

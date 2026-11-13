@@ -107,9 +107,6 @@ func (s *UserIMAP) EnsureAttachment(ctx context.Context, owner string, id int64)
 			raw, content, localMIME = nil, nil, false
 			if snapshot.NetworkAllowed && scope.config.Provider == providers.ProviderJMAP && providerID != "" {
 				// The attachment is taken from the original message.
-				if !providers.JMAPEnabled() {
-					return providers.ErrJMAPDisabled
-				}
 				raw, err = FetchJMAPRawMessage(ctx, scope.config, scope.password, providerID)
 				if err == nil && len(raw) > userAttachmentMaxBytes {
 					raw, err = nil, errors.New("attachment MIME exceeds the size limit")

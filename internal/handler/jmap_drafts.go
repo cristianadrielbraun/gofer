@@ -6,15 +6,11 @@ import (
 
 	"github.com/cristianadrielbraun/gofer/internal/mail"
 	"github.com/cristianadrielbraun/gofer/internal/mail/message"
-	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/google/uuid"
 )
 
 // jmapDrafts opens a JMAP account's drafts with its stored login.
 func (h *Handler) jmapDrafts(ctx context.Context, accountID string) (*mail.JMAPDrafts, error) {
-	if !providers.JMAPEnabled() {
-		return nil, providers.ErrJMAPDisabled
-	}
 	cfg, err := h.accountStore.GetConfig(ctx, accountID)
 	if err != nil {
 		return nil, err

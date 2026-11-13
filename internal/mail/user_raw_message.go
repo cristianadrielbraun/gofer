@@ -204,9 +204,6 @@ func (s *UserIMAP) readRawMessage(ctx context.Context, owner string, id int64, d
 					}
 				}
 			} else if info.Provider == providers.ProviderJMAP && info.AuthMethod == "plain" {
-				if !providers.JMAPEnabled() {
-					return providers.ErrJMAPDisabled
-				}
 				raw, err = FetchJMAPRawMessage(operation, scope.config, scope.password, info.RemoteID)
 			} else if info.Provider == "imap" && info.AuthMethod == "plain" {
 				if info.RemoteUID == 0 || info.UIDValidity == 0 || info.FolderRemoteID == "" {

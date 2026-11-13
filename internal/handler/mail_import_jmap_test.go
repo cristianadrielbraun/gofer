@@ -21,7 +21,6 @@ import (
 // The JMAP writer uploads into the mailbox id behind a folder, with the
 // message's state as keywords, and a refused message is not tried again.
 func TestJMAPImportWriter(t *testing.T) {
-	t.Setenv("GOFER_JMAP_EXPERIMENT", "true")
 	folder := storage.MailExportFolder{RemoteID: "Archive/2024", ProviderRemoteID: "mb-2024"}
 	if remote := mailImportFolderRemote(providers.ProviderJMAP, folder); remote != "mb-2024" {
 		t.Fatalf("folder remote = %q", remote)

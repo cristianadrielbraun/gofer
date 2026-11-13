@@ -356,7 +356,7 @@ func (s *UserIMAP) stopAllWatches() {
 // Copy folder/configuration data, then start watchers with no retained DB lease.
 func (s *UserIMAP) reconcileWatches(ctx context.Context, scope *userIMAPScope) error {
 	s.mu.Lock()
-	jmapAccount := scope.config.Provider == providers.ProviderJMAP && providers.JMAPEnabled()
+	jmapAccount := scope.config.Provider == providers.ProviderJMAP
 	if (scope.config.Provider != "imap" && !jmapAccount) || scope.config.AuthMethod != "plain" {
 		s.stopWatchesLocked(scope.id)
 		s.mu.Unlock()

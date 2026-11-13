@@ -83,7 +83,7 @@ func (q *userMailDelivery) Run(ctx context.Context, owner, id string, providerMa
 					s.smtpPassword = password
 				}
 			}
-		} else if s.cfg.Provider == providers.ProviderJMAP && s.cfg.AuthMethod == "plain" && providers.JMAPEnabled() {
+		} else if s.cfg.Provider == providers.ProviderJMAP && s.cfg.AuthMethod == "plain" {
 			// JMAP sends with the account's own login; it has no provider token.
 			s.password, err = accounts.DecryptPassword(ctx, id)
 			if err != nil {

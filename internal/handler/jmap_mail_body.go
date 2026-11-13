@@ -15,9 +15,6 @@ func (h *Handler) fetchJMAPMessageMIME(ctx context.Context, messageID int64) ([]
 	if err != nil || info == nil || info.AccountProvider != providers.ProviderJMAP {
 		return nil, false, err
 	}
-	if !providers.JMAPEnabled() {
-		return nil, true, providers.ErrJMAPDisabled
-	}
 	cfg, err := h.accountStore.GetConfig(ctx, info.AccountID)
 	if err != nil {
 		return nil, true, err

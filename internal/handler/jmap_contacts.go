@@ -85,9 +85,6 @@ func (p *userContactPull) jmap(ctx context.Context) (int, error) {
 // syncJMAPContacts pulls a JMAP account's contacts for the shared store, as
 // syncCardDAVContacts does for a CardDAV one.
 func (h *Handler) syncJMAPContacts(ctx context.Context, userID string, account contactSyncAccount) (int, error) {
-	if !providers.JMAPEnabled() {
-		return 0, providers.ErrJMAPDisabled
-	}
 	cfg, err := h.accountStore.GetContactSyncConfig(ctx, userID, account.ID)
 	if err != nil {
 		return 0, err
@@ -225,9 +222,6 @@ func writeJMAPContactBooks(w http.ResponseWriter, r *http.Request, books []jmap.
 // jmapAccountConnection is a shared-store JMAP account's connection and
 // password, which its contacts and calendars use too.
 func (h *Handler) jmapAccountConnection(ctx context.Context, accountID string) (*models.AccountConfig, string, error) {
-	if !providers.JMAPEnabled() {
-		return nil, "", providers.ErrJMAPDisabled
-	}
 	cfg, err := h.accountStore.GetConfig(ctx, accountID)
 	if err != nil {
 		return nil, "", err

@@ -13,7 +13,6 @@ import (
 )
 
 func TestUserJMAPHTTPRefreshAndSyncControls(t *testing.T) {
-	t.Setenv("GOFER_JMAP_EXPERIMENT", "true")
 	f := newUserStorageFixtureMode(t, true)
 	f.useIMAPServer(t, newRoutedIMAPServer(t))
 	server := newJMAPDraftServer(t)
@@ -99,17 +98,6 @@ func TestUserJMAPHTTPRefreshAndSyncControls(t *testing.T) {
 	for _, path := range []string{"/api/mail/sync/accounts/" + account.ID, "/api/accounts/" + account.ID + "/service"} {
 		if response := f.request("bob", http.MethodPost, path, "service=email&enabled=true"); response.Code != http.StatusNotFound {
 			t.Fatalf("foreign JMAP control %s: %d", path, response.Code)
-		}
-	}
-	t.Setenv("GOFER_JMAP_EXPERIMENT", "false")
-	form.Del("idle_folders")
-	for path, body := range map[string]string{
-		"/api/mail/sync/accounts/" + account.ID:    "",
-		"/api/settings/sync":                       form.Encode(),
-		"/api/accounts/" + account.ID + "/service": "service=email&enabled=true",
-	} {
-		if response := f.request("alice", http.MethodPost, path, body); response.Code != http.StatusNotFound {
-			t.Fatalf("JMAP control %s accepted with the experiment disabled: %d", path, response.Code)
 		}
 	}
 }

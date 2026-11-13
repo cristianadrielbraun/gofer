@@ -11,7 +11,6 @@ import (
 
 	"github.com/cristianadrielbraun/gofer/internal/mail/jmap"
 	"github.com/cristianadrielbraun/gofer/internal/mail/message"
-	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
 
@@ -211,7 +210,7 @@ func TestUserJMAPRawMessageRejectsChangesDuringDownload(t *testing.T) {
 	}
 }
 
-func TestUserJMAPRawMessageHonorsLimitsAndExperiment(t *testing.T) {
+func TestUserJMAPRawMessageHonorsLimits(t *testing.T) {
 	f, server, id := newJMAPRawMessageFixture(t)
 	_, err := f.worker.ReadRawMessage(message.WithDownloadLimit(t.Context(), 128), "alice", id)
 	var tooLarge *message.TooLargeError
@@ -225,12 +224,5 @@ func TestUserJMAPRawMessageHonorsLimitsAndExperiment(t *testing.T) {
 	_, err = f.worker.ReadRawMessage(message.WithDownloadLimit(t.Context(), 128), "alice", id)
 	if !errors.As(err, &tooLarge) || tooLarge.Limit != 128 || jmapRawDownloads(server) != 1 {
 		t.Fatalf("oversized stream = %v, downloads %d", err, jmapRawDownloads(server))
-	}
-	t.Setenv("GOFER_JMAP_EXPERIMENT", "false")
-	if _, err := f.worker.ReadRawMessage(t.Context(), "alice", id); !errors.Is(err, providers.ErrJMAPDisabled) {
-		t.Fatalf("disabled experiment = %v", err)
-	}
-	if jmapRawDownloads(server) != 1 {
-		t.Fatal("disabled experiment downloaded a message")
 	}
 }

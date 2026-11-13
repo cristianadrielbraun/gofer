@@ -63,9 +63,6 @@ func gmailRequest(token string) GmailRequest {
 // account's Sent mailbox, seen, and returns its email id. A copy with the
 // same Message-ID already there is used instead.
 func FileJMAPSentCopy(ctx context.Context, cfg *models.AccountConfig, password string, raw []byte, messageID string, date time.Time) (string, error) {
-	if !providers.JMAPEnabled() {
-		return "", providers.ErrJMAPDisabled
-	}
 	id := message.NormalizeMessageID(messageID)
 	if id == "" {
 		return "", errors.New("the message has no Message-ID to file it by")

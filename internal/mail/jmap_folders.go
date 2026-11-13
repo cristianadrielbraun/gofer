@@ -5,7 +5,6 @@ import (
 
 	"github.com/cristianadrielbraun/gofer/internal/mail/jmap"
 	"github.com/cristianadrielbraun/gofer/internal/models"
-	"github.com/cristianadrielbraun/gofer/internal/providers"
 )
 
 // JMAPFolders creates, renames and deletes a JMAP account's mailboxes.
@@ -17,9 +16,6 @@ type JMAPFolders struct {
 
 // OpenJMAPFolders signs in to a JMAP account to change its mailboxes.
 func OpenJMAPFolders(ctx context.Context, cfg *models.AccountConfig, password string) (*JMAPFolders, error) {
-	if !providers.JMAPEnabled() {
-		return nil, providers.ErrJMAPDisabled
-	}
 	client, session, account, err := openJMAPMail(ctx, cfg, password)
 	if err != nil {
 		return nil, err

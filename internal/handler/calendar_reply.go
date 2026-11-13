@@ -39,7 +39,7 @@ func accountSendsEmail(cfg *models.AccountConfig) bool {
 		return false
 	}
 	if cfg.Provider == providers.ProviderJMAP {
-		return cfg.AuthMethod == "plain" && providers.JMAPEnabled()
+		return cfg.AuthMethod == "plain"
 	}
 	return cfg.SMTPHost != "" && cfg.SMTPPort > 0
 }

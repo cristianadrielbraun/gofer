@@ -37,7 +37,6 @@ type fakeJMAPSender struct {
 }
 
 func TestUserJMAPQueuedDraftEditKeepsBcc(t *testing.T) {
-	t.Setenv("GOFER_JMAP_EXPERIMENT", "true")
 	f := newUserContactPushFixture(t, "carddav", http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	id := f.accounts["alice"].ID
 	if err := f.h.userAccounts.UpdateAccount(t.Context(), "alice", id, &models.CreateAccountRequest{
@@ -157,7 +156,6 @@ func newFakeJMAPSender(t *testing.T, mode string) *fakeJMAPSender {
 // mid-send and the server can't say whether it went out, which must never be
 // resent automatically.
 func TestUserJMAPDeliveryOutcomes(t *testing.T) {
-	t.Setenv("GOFER_JMAP_EXPERIMENT", "true")
 	for _, tc := range []struct{ mode, want string }{
 		{"accept", storage.OutgoingSendSent},
 		{"rateLimit", storage.OutgoingSendPending},

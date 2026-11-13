@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/cristianadrielbraun/gofer/internal/mail"
-	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
 
@@ -13,9 +12,6 @@ import (
 // The queue worker records it like other providers' changes: a move advances
 // to its destination here, and a delete the server no longer has is done.
 func (h *Handler) applyJMAPMessageMutation(ctx context.Context, mutation storage.MessageMutation, info storage.MessageMutationInfo) error {
-	if !providers.JMAPEnabled() {
-		return providers.ErrJMAPDisabled
-	}
 	cfg, err := h.accountStore.GetConfig(ctx, info.AccountID)
 	if err != nil {
 		return err
@@ -49,9 +45,6 @@ func (h *Handler) applyJMAPMessageMutation(ctx context.Context, mutation storage
 // label name maps to its keyword as on IMAP: through the account's aliases,
 // or for a removal, the keyword the email's label was synced with.
 func (h *Handler) setJMAPMessageKeyword(ctx context.Context, messageID int64, info storage.MessageMutationInfo, labelName string, add bool) (storage.LabelInput, error) {
-	if !providers.JMAPEnabled() {
-		return storage.LabelInput{}, providers.ErrJMAPDisabled
-	}
 	var keyword string
 	var err error
 	if add {

@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/google/uuid"
 )
 
@@ -322,16 +321,14 @@ func (db *DB) claimDueOutgoingSends(ctx context.Context, accountID string, now t
 	}
 	defer tx.Rollback()
 
-	// JMAP accounts' mail waits, unclaimed, while JMAP is turned off.
 	rows, err := tx.QueryContext(ctx, outgoingSendSelect+`
 		WHERE (? = '' OR account_id = ?) AND status = ? AND send_after <= ? AND next_attempt_at <= ? AND mime_data IS NOT NULL AND length(mime_data) > 0
-		  AND (? OR transport != ?)
 		  AND EXISTS (
 			SELECT 1 FROM accounts a JOIN users u ON u.id = a.user_id
 			WHERE a.id = outgoing_sends.account_id AND COALESCE(a.is_deleting, 0) = 0 AND u.status = 'active'
 		  )
 		ORDER BY next_attempt_at ASC, send_after ASC, created_at ASC
-		LIMIT ?`, accountID, accountID, OutgoingSendPending, now, now, providers.JMAPEnabled(), OutgoingTransportJMAP, limit)
+		LIMIT ?`, accountID, accountID, OutgoingSendPending, now, now, limit)
 	if err != nil {
 		return nil, fmt.Errorf("select due outgoing sends: %w", err)
 	}

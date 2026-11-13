@@ -27,7 +27,7 @@ var untranslatedTextAllowed = map[string]bool{
 	"CC": true, "BCC": true, "PDF": true, "Gofer Admin": true, "Gofer -": true,
 	"IMAP": true, "SMTP": true, "Gmail API": true, "Microsoft Graph": true, "0 MB": true,
 	// Settings, commands and paths an administrator types as shown.
-	"GOFER_OUTLOOK_WEBHOOKS=true": true, "GOFER_JMAP_EXPERIMENT=true": true, "GOFER_BASE_URL": true,
+	"GOFER_OUTLOOK_WEBHOOKS=true": true, "GOFER_BASE_URL": true,
 	"gofer auth users list": true, "/webhooks/outlook": true, "mailto:": true, "etag": true,
 	// Sample addresses and people in examples and previews.
 	"jane@work.example": true, "jane@example.com": true, "lab.example.test": true, "mailhog.local": true,

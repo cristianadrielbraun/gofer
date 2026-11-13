@@ -45,7 +45,6 @@ type jmapImportStored struct {
 
 func newJMAPImportServer(t *testing.T, maxUpload int, mailboxes ...jmap.Mailbox) (*jmapImportServer, *httptest.Server) {
 	t.Helper()
-	t.Setenv("GOFER_JMAP_EXPERIMENT", "true")
 	f := &jmapImportServer{mailboxes: mailboxes, blobs: map[string][]byte{}}
 	var server *httptest.Server
 	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

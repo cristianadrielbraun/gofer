@@ -11,7 +11,6 @@ import (
 )
 
 func TestQueuedMessageBccByTransport(t *testing.T) {
-	t.Setenv("GOFER_JMAP_EXPERIMENT", "true")
 	for _, provider := range []string{"imap", "jmap"} {
 		t.Run(provider, func(t *testing.T) {
 			h, db := newAccountOwnershipTestHandler(t)

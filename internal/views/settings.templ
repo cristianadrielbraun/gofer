@@ -1883,9 +1883,6 @@ templ SettingsAccountCard(account models.Account) {
 					<div class="min-w-0">
 						<div class="flex min-w-0 items-center gap-1.5">
 							<p class="min-w-0 truncate text-sm font-semibold text-foreground">{ account.Name }</p>
-							if jmapAccountPaused(account) {
-								@SettingsAccountJMAPPausedPopover(account)
-							}
 							@SettingsAccountSyncErrorPopover(account, syncError, syncErrorAt)
 							if account.Provider == "imap" && !account.IsDeleting {
 								@SettingsAccountMissingFolderRoles(account, false)
@@ -2191,25 +2188,6 @@ func missingFolderRolesText(ctx context.Context, roles []string) string {
 		return i18n.T(ctx, "settings.folder_roles.missing_one", "folder", labels[0])
 	}
 	return i18n.T(ctx, "settings.folder_roles.missing_many", "folders", settingsJoinAnd(ctx, labels))
-}
-
-templ SettingsAccountJMAPPausedPopover(account models.Account) {
-	<span data-settings-account-jmap-paused={ account.ID } class="inline-flex shrink-0">
-		@popover.Root(popover.RootProps{ID: fmt.Sprintf("account-jmap-paused-%s", account.ID), Class: "shrink-0"}) {
-			@popover.Trigger(popover.TriggerProps{TriggerType: popover.TriggerTypeHover}) {
-				<button
-					type="button"
-					class="inline-flex size-6 items-center justify-center rounded-md text-amber-600 transition-colors hover:bg-amber-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/40 dark:text-amber-400"
-					aria-label={ i18n.T(ctx, "settings.account.jmap_paused_label", "account", account.Name) }
-				>
-					@icon.TriangleAlert(icon.Props{Class: "size-4"})
-				</button>
-			}
-			@popover.Content(popover.ContentProps{Placement: popover.PlacementBottomStart, ShowArrow: true, Class: "mobile-sheet w-80 p-3 text-xs leading-relaxed text-popover-foreground"}) {
-				@JMAPPausedExplanation()
-			}
-		}
-	</span>
 }
 
 type accountConnectionTestService struct {
@@ -3801,18 +3779,16 @@ templ ChooseAccountTypeDialog() {
 					</div>
 					<svg class="size-4 text-muted-foreground group-hover:text-foreground transition-colors" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
 				</button>
-				if providers.JMAPEnabled() {
-					<button type="button" data-on-click='["openAddAccountWizard","jmap"]' class="w-full group flex items-center gap-4 p-4 rounded-lg border border-border hover:border-primary/50 hover:bg-accent/50 transition-all duration-200 text-left">
-						<div class="flex items-center justify-center w-10 h-10 rounded-lg bg-accent text-muted-foreground group-hover:text-foreground transition-colors">
-							@AccountProviderIcon(providers.ProviderJMAP, "size-5")
-						</div>
-						<div class="flex-1 min-w-0">
-							<div class="text-sm font-medium text-foreground">JMAP <span class="ml-1 rounded border border-border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "settings.add_account.experimental") }</span></div>
-							<div class="text-xs text-muted-foreground mt-0.5">{ i18n.T(ctx, "settings.add_account.jmap_description") }</div>
-						</div>
-						<svg class="size-4 text-muted-foreground group-hover:text-foreground transition-colors" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
-					</button>
-				}
+				<button type="button" data-on-click='["openAddAccountWizard","jmap"]' class="w-full group flex items-center gap-4 p-4 rounded-lg border border-border hover:border-primary/50 hover:bg-accent/50 transition-all duration-200 text-left">
+					<div class="flex items-center justify-center w-10 h-10 rounded-lg bg-accent text-muted-foreground group-hover:text-foreground transition-colors">
+						@AccountProviderIcon(providers.ProviderJMAP, "size-5")
+					</div>
+					<div class="flex-1 min-w-0">
+						<div class="text-sm font-medium text-foreground">JMAP</div>
+						<div class="text-xs text-muted-foreground mt-0.5">{ i18n.T(ctx, "settings.add_account.jmap_description") }</div>
+					</div>
+					<svg class="size-4 text-muted-foreground group-hover:text-foreground transition-colors" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+				</button>
 			</div>
 		}
 	}

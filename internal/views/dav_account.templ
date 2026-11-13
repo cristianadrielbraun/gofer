@@ -350,9 +350,7 @@ templ ChooseMailTypeDialog() {
 			<div class="space-y-3 px-1 pt-2 pb-4">
 				@chooseMailTypeOption("", "imap", "IMAP / SMTP", i18n.T(ctx, "dav.type_imap"))
 				@chooseMailTypeOption(providers.MailServiceICloud, providers.MailServiceICloud, "iCloud", i18n.T(ctx, "dav.type_icloud"))
-				if providers.JMAPEnabled() {
-					@chooseMailTypeOption(providers.ProviderJMAP, providers.ProviderJMAP, "JMAP", i18n.T(ctx, "dav.type_jmap"))
-				}
+				@chooseMailTypeOption(providers.ProviderJMAP, providers.ProviderJMAP, "JMAP", i18n.T(ctx, "dav.type_jmap"))
 			</div>
 		}
 	}
