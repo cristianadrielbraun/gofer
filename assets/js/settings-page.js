@@ -3373,3 +3373,22 @@ function editToggleSmtpAuth(checked) {
     if (sp && p) sp.value = p.value;
   }
 }
+
+// Security tab: the passkey app-code switch. "Confirm change" only works
+// once the switch differs from the saved choice, and the dialog explains
+// what that change will sign out.
+(function() {
+  document.addEventListener('change', function(event) {
+    var toggle = event.target;
+    if (!toggle || !toggle.matches || !toggle.matches('[data-passkey-totp-switch]')) return;
+    var option = toggle.closest('[data-passkey-totp-option]');
+    if (!option) return;
+    var changed = String(toggle.checked) !== toggle.getAttribute('data-saved');
+    var confirm = option.querySelector('[data-passkey-totp-confirm]');
+    if (confirm) confirm.disabled = !changed;
+    var when = toggle.checked ? 'on' : 'off';
+    document.querySelectorAll('[data-passkey-totp-when]').forEach(function(text) {
+      text.hidden = text.getAttribute('data-passkey-totp-when') !== when;
+    });
+  });
+})();

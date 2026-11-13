@@ -3920,6 +3920,7 @@ func (h *Handler) renderPasswordSecurityTab(w http.ResponseWriter, r *http.Reque
 		RequiresMFA:            summary.RequiresMFA,
 		PasskeyTOTPRequired:    summary.PasskeyTOTPRequired,
 		PasskeyTOTPLocked:      summary.PasskeyTOTPLocked,
+		PasskeyOnlySession:     summary.PasskeyOnlySession,
 		RecoveryCodesRemaining: summary.RecoveryCodesRemaining,
 		StepUpFresh:            summary.StepUpFresh, CanDisableTOTP: summary.CanDisableTOTP,
 		DisableTOTPReason:       authText(ctx, summary.DisableTOTPReason),

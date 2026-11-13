@@ -38,11 +38,14 @@ var (
 )
 
 type SecurityFactorSummary struct {
-	HasTOTP                bool
-	HasPasskey             bool
-	RequiresMFA            bool
-	PasskeyTOTPRequired    bool
-	PasskeyTOTPLocked      bool
+	HasTOTP             bool
+	HasPasskey          bool
+	RequiresMFA         bool
+	PasskeyTOTPRequired bool
+	PasskeyTOTPLocked   bool
+	// PasskeyOnlySession is true when this session came from a passkey
+	// without the app code, so asking for the code after a passkey ends it.
+	PasskeyOnlySession     bool
 	Passkeys               []PasskeyCredentialSummary
 	RecoveryCodesRemaining int
 	StepUpFresh            bool
@@ -205,6 +208,7 @@ func (m *Manager) GetSecurityFactorSummary(ctx context.Context, sessionToken str
 		RequiresMFA:            policy.RequiresMFA,
 		PasskeyTOTPRequired:    policy.PasskeyTOTPRequired,
 		PasskeyTOTPLocked:      policy.MFAEnrollmentRequired,
+		PasskeyOnlySession:     session.AssuranceLevel == AssuranceLevelPhishingResistant,
 		RecoveryCodesRemaining: recoveryCount,
 		StepUpFresh:            hasRecentSecurityStepUp(session, policy, now),
 	}
