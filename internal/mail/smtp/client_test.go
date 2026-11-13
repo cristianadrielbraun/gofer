@@ -3,6 +3,7 @@ package smtp
 import (
 	"bufio"
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -16,6 +17,7 @@ import (
 	gosmtp "github.com/emersion/go-smtp"
 
 	"github.com/cristianadrielbraun/gofer/internal/mail/message"
+	mailtransport "github.com/cristianadrielbraun/gofer/internal/mail/transport"
 	"github.com/cristianadrielbraun/gofer/internal/models"
 )
 
@@ -737,4 +739,52 @@ func readSMTPData(reader *bufio.Reader, want []byte) error {
 		return fmt.Errorf("message body = %q, want %q", body.String(), want)
 	}
 	return nil
+}
+
+func TestAuthenticatePasswordChoosesMechanism(t *testing.T) {
+	plainLine := "AUTH PLAIN " + base64.StdEncoding.EncodeToString([]byte("\x00ada@example.com\x00secret")) + "\r\n"
+	loginLine := "AUTH LOGIN " + base64.StdEncoding.EncodeToString([]byte("ada@example.com")) + "\r\n"
+	for _, tc := range []struct {
+		name     string
+		ehlo     string
+		tlsMode  string
+		wantLine string
+	}{
+		{"plain listed", "250-test ESMTP\r\n250 AUTH PLAIN LOGIN\r\n", mailtransport.TLSModeStartTLS, plainLine},
+		{"only login over tls", "250-test ESMTP\r\n250 AUTH LOGIN\r\n", mailtransport.TLSModeStartTLS, loginLine},
+		{"only login over plaintext", "250-test ESMTP\r\n250 AUTH LOGIN\r\n", mailtransport.TLSModePlaintext, plainLine},
+		{"no auth listed", "250-test ESMTP\r\n250 SIZE 1024\r\n", mailtransport.TLSModeImplicit, plainLine},
+		{"old auth= form only", "250-test ESMTP\r\n250 AUTH=LOGIN PLAIN\r\n", mailtransport.TLSModeImplicit, plainLine},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			client, serverErr := startSMTPConversation(t, tc.ehlo, func(reader *bufio.Reader, conn net.Conn) error {
+				line, err := reader.ReadString('\n')
+				if err != nil {
+					return fmt.Errorf("read AUTH: %w", err)
+				}
+				if line != tc.wantLine {
+					return fmt.Errorf("AUTH line = %q, want %q", line, tc.wantLine)
+				}
+				if strings.HasPrefix(line, "AUTH LOGIN") {
+					if _, err := fmt.Fprint(conn, "334 "+base64.StdEncoding.EncodeToString([]byte("Password:"))+"\r\n"); err != nil {
+						return err
+					}
+					line, err = reader.ReadString('\n')
+					if err != nil {
+						return fmt.Errorf("read password: %w", err)
+					}
+					if want := base64.StdEncoding.EncodeToString([]byte("secret")) + "\r\n"; line != want {
+						return fmt.Errorf("password line = %q, want %q", line, want)
+					}
+				}
+				_, err = fmt.Fprint(conn, "235 2.7.0 Authentication successful\r\n")
+				return err
+			})
+			if err := authenticatePassword(client.client, "ada@example.com", "secret", tc.tlsMode); err != nil {
+				t.Fatalf("authenticatePassword() = %v", err)
+			}
+			_ = client.Close()
+			waitForSMTPServer(t, serverErr)
+		})
+	}
 }

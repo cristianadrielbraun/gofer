@@ -376,15 +376,13 @@ func SendRawMessageWithTiming(ctx context.Context, cfg *models.AccountConfig, pa
 	return result, err, timing
 }
 
-
-// authenticatePassword uses post-STARTTLS EHLO capabilities. AUTH LOGIN is
-// never attempted on a plaintext SMTP connection.
+// authenticatePassword prefers AUTH PLAIN and uses AUTH LOGIN only when the
+// server lists LOGIN but not PLAIN, and only over TLS. Capabilities come from
+// the post-STARTTLS EHLO. A server that lists neither still gets AUTH PLAIN,
+// as before: some leave AUTH out of EHLO or use the old "AUTH=" form.
 func authenticatePassword(c *smtp.Client, username, password, tlsMode string) error {
-	if c.SupportsAuth("PLAIN") {
-		return c.Auth(sasl.NewPlainClient("", username, password))
-	}
-	if tlsMode != mailtransport.TLSModePlaintext && c.SupportsAuth("LOGIN") {
+	if !c.SupportsAuth("PLAIN") && tlsMode != mailtransport.TLSModePlaintext && c.SupportsAuth("LOGIN") {
 		return c.Auth(sasl.NewLoginClient(username, password))
 	}
-	return fmt.Errorf("SMTP server does not offer a compatible password authentication mechanism")
+	return c.Auth(sasl.NewPlainClient("", username, password))
 }
