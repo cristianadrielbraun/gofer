@@ -2,6 +2,9 @@ package handler
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -107,5 +110,28 @@ func TestCalendarZonesMatch(t *testing.T) {
 		if got := calendarZonesMatch(load(name), prague); got != want {
 			t.Errorf("%s: %v, want %v", name, got, want)
 		}
+	}
+}
+
+// Regression: Go's bundled timezone data can return a non-progressing
+// ZoneBounds boundary near the end of 2028.
+func TestCalendarZonesMatchBundledTZData(t *testing.T) {
+	zoneinfo := filepath.Join(runtime.GOROOT(), "lib", "time", "zoneinfo.zip")
+	if _, err := os.Stat(zoneinfo); err != nil {
+		t.Skipf("Go timezone database unavailable: %v", err)
+	}
+	t.Setenv("ZONEINFO", zoneinfo)
+
+	budapest, err := time.LoadLocation("Europe/Budapest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	prague, err := time.LoadLocation("Europe/Prague")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !calendarZonesMatch(budapest, prague) {
+		t.Fatal("Budapest and Prague should have matching timezone offsets")
 	}
 }
