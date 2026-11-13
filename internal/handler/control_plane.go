@@ -147,6 +147,7 @@ func (h *Handler) registerAdministrationRoutes(mux *http.ServeMux) {
 	adminRoute("POST /admin/security/proxies/{id}/people", h.handleSetOutboundProxyPerson)
 	adminRoute("POST /admin/security/proxies/policy", h.handleSetOwnOutboundProxiesPolicy)
 	h.registerAdminMailAllowlistRoutes(adminRoute)
+	h.registerAdminGroupRoutes(adminRoute)
 	adminRoute("GET /api/admin/events", h.handleSSE)
 	adminRoute("GET /api/admin/mail-operations/status", h.handleAdminMailOperationsStatus)
 	adminRoute("GET /api/system/processing", h.handleProcessingStatus)

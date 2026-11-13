@@ -15,7 +15,7 @@ const (
 	CSRFHeaderName              = "X-CSRF-Token"
 	sessionCSRFFormMaximumBytes = 8 << 10
 	// bulkCSRFFormMaximumBytes fits a change to 200 people at once: each
-	// is named by a 36-character ID.
+	// is named by a 36-character ID and its field name.
 	bulkCSRFFormMaximumBytes = 16 << 10
 	// AdminUsersBulkPath is where the admin console's changes to many
 	// people at once go, each change at its own address below it.
@@ -82,13 +82,15 @@ func requiresSessionCSRF(r *http.Request) bool {
 	return r.URL.Path == "/auth/logout" || r.URL.Path == RequiredPasswordChangePath ||
 		strings.HasPrefix(r.URL.Path, "/settings/security/") ||
 		strings.HasPrefix(r.URL.Path, "/admin/users/") ||
+		r.URL.Path == "/admin/groups" || strings.HasPrefix(r.URL.Path, "/admin/groups/") ||
 		strings.HasPrefix(r.URL.Path, "/admin/activity/") ||
 		strings.HasPrefix(r.URL.Path, "/admin/security/")
 }
 
-// sessionCSRFFormLimit is how large a form sent to path may be.
+// sessionCSRFFormLimit is how large a form sent to path may be. Changes to
+// many people at once, and to a group's members, name each of them.
 func sessionCSRFFormLimit(path string) int64 {
-	if strings.HasPrefix(path, AdminUsersBulkPath) {
+	if strings.HasPrefix(path, AdminUsersBulkPath) || strings.HasPrefix(path, "/admin/groups/") {
 		return bulkCSRFFormMaximumBytes
 	}
 	return sessionCSRFFormMaximumBytes
