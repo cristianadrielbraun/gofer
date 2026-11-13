@@ -54,6 +54,14 @@ type AdminUserData struct {
 	InvitationRevokePath     string
 	InvitationRotatePath     string
 	SignOutPath              string
+	// Groups are the groups they're in.
+	Groups []AdminGroupRef
+}
+
+// AdminGroupRef names a group.
+type AdminGroupRef struct {
+	ID   string
+	Name string
 }
 
 type AdminUsersData struct {
@@ -88,6 +96,10 @@ type AdminUsersData struct {
 	Bulk        *AdminUsersBulkData
 	// Exportable shows the button that downloads the list as CSV.
 	Exportable bool
+	// Groups are every group, for the group filter; Grouped shows the
+	// Groups column.
+	Groups  []AdminGroupRef
+	Grouped bool
 }
 
 type AdminUserInvitationFormData struct {
@@ -312,6 +324,11 @@ func (user AdminUserData) administrator() bool {
 	return user.Role == "management_admin"
 }
 
+// Administrator reports whether user is an administrator of the console.
+func (user AdminUserData) Administrator() bool {
+	return user.administrator()
+}
+
 // adminResetText is a reset's words: a mail user's password reset, or
 // another administrator's sign-in reset.
 func adminResetText(ctx context.Context, administrator bool, key string, args ...any) string {
@@ -382,7 +399,7 @@ templ AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificat
 					@adminStatCard(i18n.T(ctx, "admin.users.stat.admins"), data.Administrators)
 				</div>
 				@adminSection(adminSectionProps{ID: "admin-users-heading", Title: i18n.T(ctx, "admin.users.heading"), Aside: adminSectionNote(i18n.T(ctx, "admin.users.heading_detail"))}) {
-					@adminUsersFilters(data.Query)
+					@adminUsersFilters(data.Query, data.Groups)
 					<div id="admin-users-results" data-admin-users-results>
 					if len(data.Users) == 0 && data.Query.Narrowed() {
 						@adminEmptyState(i18n.T(ctx, "admin.users.no_match"))
@@ -407,6 +424,9 @@ templ AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificat
 										<th scope="col" class="px-4 py-3">{ i18n.T(ctx, "admin.col.user") }</th>
 										<th scope="col" class="px-4 py-3">{ i18n.T(ctx, "admin.col.status") }</th>
 										<th scope="col" class="px-4 py-3">{ i18n.T(ctx, "admin.col.role") }</th>
+										if data.Grouped {
+											<th scope="col" class="px-4 py-3">{ i18n.T(ctx, "admin.col.groups") }</th>
+										}
 										<th scope="col" class="px-4 py-3">{ i18n.T(ctx, "admin.col.mfa") }</th>
 										<th scope="col" class="px-4 py-3">{ i18n.T(ctx, "admin.col.invitation") }</th>
 										<th scope="col" class="px-4 py-3">{ i18n.T(ctx, "admin.col.last_sign_in") }</th>
@@ -461,6 +481,11 @@ templ AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificat
 													{ adminValueLabel(ctx, user.Role) }
 												}
 											</td>
+											if data.Grouped {
+												<td class="px-4 py-3">
+													@adminUserGroupTags(user.Groups, 3)
+												</td>
+											}
 											<td class="px-4 py-3">
 												@adminBadge(adminUserMFATone(user.MFALabel)) {
 													{ adminValueLabel(ctx, user.MFALabel) }
@@ -521,6 +546,33 @@ templ AdminUsersPage(data AdminUsersData, verification ...AdminSecurityVerificat
 		</div>
 	</div>
 	@AdminSecurityVerificationDialog(adminSecurityVerificationValue(verification))
+}
+
+// adminUserGroupTags are the groups someone is in, each linking to its
+// page: the first shown of them, and how many more.
+templ adminUserGroupTags(groups []AdminGroupRef, shown int) {
+	if len(groups) == 0 {
+		<span class="text-xs text-muted-foreground">—</span>
+	} else {
+		<div class="flex max-w-56 flex-wrap items-center gap-1.5" data-admin-user-groups>
+			for i, group := range groups {
+				if i < shown {
+					<a href={ templ.SafeURL(AdminGroupPath(group.ID, AdminGroupTabMembers)) } class="max-w-full truncate rounded-full border border-border bg-muted px-2 py-0.5 text-xs font-medium text-foreground hover:bg-accent" data-admin-user-group>{ group.Name }</a>
+				}
+			}
+			if len(groups) > shown {
+				<span class="text-xs text-muted-foreground" title={ adminGroupNames(groups[shown:]) }>{ i18n.T(ctx, "admin.users.groups_more", "count", i18n.Number(ctx, len(groups)-shown)) }</span>
+			}
+		</div>
+	}
+}
+
+func adminGroupNames(groups []AdminGroupRef) string {
+	names := make([]string, len(groups))
+	for i, group := range groups {
+		names[i] = group.Name
+	}
+	return strings.Join(names, ", ")
 }
 
 // adminUserActionsMenu is the ⋮ menu of what the administrator can do to
@@ -1245,7 +1297,7 @@ func adminUserInvitationTone(state string) adminTone {
 // adminUsersFilters narrows and orders the list. A change shows the new
 // list in place, keeping the search box as it is, and puts the list's
 // address in the browser's.
-templ adminUsersFilters(query AdminUsersQuery) {
+templ adminUsersFilters(query AdminUsersQuery, groups []AdminGroupRef) {
 	<form
 		method="get"
 		action="/admin/users"
@@ -1267,6 +1319,9 @@ templ adminUsersFilters(query AdminUsersQuery) {
 			})
 		</div>
 		<div class="grid grid-cols-1 gap-2 sm:grid-cols-3 lg:flex lg:shrink-0">
+			if len(groups) > 0 {
+				@adminUsersChoice("group", i18n.T(ctx, "admin.users.filter.group"), query.Group, adminUsersGroupChoices(ctx, groups))
+			}
 			@adminUsersChoice("status", i18n.T(ctx, "admin.users.filter.status"), query.Status, adminUsersStatusChoices(ctx))
 			@adminUsersChoice("attention", i18n.T(ctx, "admin.users.filter.attention"), query.Attention, adminUsersAttentionChoices(ctx))
 			@adminUsersChoice("sort", i18n.T(ctx, "admin.users.filter.sort"), query.Sort, adminUsersSortChoices(ctx))

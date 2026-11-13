@@ -8,6 +8,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/components/dialog"
 	"github.com/cristianadrielbraun/gofer/components/dropdown"
 	"github.com/cristianadrielbraun/gofer/components/icon"
+	"github.com/cristianadrielbraun/gofer/components/selectbox"
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
 )
 
@@ -39,6 +40,16 @@ type AdminUsersBulkData struct {
 	Change  []AdminUsersBulkPerson
 	LeftOut []AdminUsersBulkPerson
 	Done    bool
+	// Groups are the groups a change to a group's members can choose
+	// from; Group is the one it was made to, once Done.
+	Groups []AdminGroupRef
+	Group  string
+}
+
+// forGroup reports whether the change adds people to a group or removes
+// them, which the dialog asks for first.
+func (data AdminUsersBulkData) forGroup() bool {
+	return data.Action == "add-to-group" || data.Action == "remove-from-group"
 }
 
 // adminUsersBulkDialogID is the dialog of a change to many people.
@@ -58,6 +69,10 @@ func adminUsersBulkActionIcon(action string) func(...icon.Props) templ.Component
 		return icon.ShieldOff
 	case "require-password-change":
 		return icon.RectangleEllipsis
+	case "add-to-group":
+		return icon.UserPlus
+	case "remove-from-group":
+		return icon.UserMinus
 	default:
 		return icon.LogOut
 	}
@@ -88,7 +103,7 @@ func adminUsersBulkTitle(ctx context.Context, data AdminUsersBulkData) string {
 	case data.Done && count == 0:
 		return i18n.T(ctx, "admin.users.bulk.done_nothing")
 	case data.Done:
-		return i18n.N(ctx, "admin.users.bulk.done."+data.Action, count, "count", i18n.Number(ctx, count))
+		return i18n.N(ctx, "admin.users.bulk.done."+data.Action, count, "count", i18n.Number(ctx, count), "group", data.Group)
 	case count == 0:
 		return i18n.T(ctx, "admin.users.bulk.title_nothing")
 	default:
@@ -207,6 +222,9 @@ templ adminUsersBulkBar(data AdminUsersData) {
 			if data.Query.Sort != "" {
 				<input type="hidden" name="sort" value={ data.Query.Sort } disabled/>
 			}
+			if data.Query.Group != "" {
+				<input type="hidden" name="group" value={ data.Query.Group } disabled/>
+			}
 		</div>
 	</div>
 }
@@ -228,7 +246,23 @@ templ AdminUsersBulkDialog(data AdminUsersBulkData, verification ...AdminSecurit
 					}
 				}
 			}
-			if !data.Done && !data.TooMany && len(data.Change) > 0 {
+			if !data.Done && !data.TooMany && len(data.Change) > 0 && data.forGroup() && len(data.Groups) == 0 {
+				<div class={ dataDialogFormClass }>
+					@dataDialogScroll("space-y-5 pb-4") {
+						<p class="text-sm text-muted-foreground" data-admin-users-bulk-no-groups>
+							{ i18n.T(ctx, "admin.users.bulk.no_groups") }
+							<a href={ templ.SafeURL(AdminGroupsPath) } class="font-semibold text-primary hover:underline">{ i18n.T(ctx, "admin.users.bulk.no_groups_link") }</a>
+						</p>
+					}
+					@dataDialogFooter() {
+						@dialog.Close() {
+							@button.Button(button.Props{Variant: button.VariantOutline}) {
+								{ i18n.T(ctx, "common.close") }
+							}
+						}
+					}
+				</div>
+			} else if !data.Done && !data.TooMany && len(data.Change) > 0 {
 				<form method="post" action={ data.Path } class={ dataDialogFormClass } data-step-up data-admin-users-bulk-form>
 					<input type="hidden" name="_csrf" value={ data.CSRFToken }/>
 					if data.ListPath != "" {
@@ -238,6 +272,9 @@ templ AdminUsersBulkDialog(data AdminUsersBulkData, verification ...AdminSecurit
 						<input type="hidden" name="user" value={ person.ID }/>
 					}
 					@dataDialogScroll("space-y-5 pb-4") {
+						if data.forGroup() {
+							@adminUsersBulkGroupChoice(data.Groups)
+						}
 						@adminUsersBulkPeople(data)
 					}
 					@dataDialogFooter() {
@@ -274,6 +311,26 @@ templ AdminUsersBulkDialog(data AdminUsersBulkData, verification ...AdminSecurit
 		}
 	}
 	@AdminSecurityVerificationDialog(adminSecurityVerificationValue(verification))
+}
+
+// adminUsersBulkGroupChoice asks which group a change to a group's
+// members is for.
+templ adminUsersBulkGroupChoice(groups []AdminGroupRef) {
+	<div class="space-y-1.5" data-admin-users-bulk-group>
+		<label for="admin-users-bulk-group" class="block text-sm font-semibold text-foreground">{ i18n.T(ctx, "admin.users.bulk.group") }</label>
+		@selectbox.SelectBox() {
+			@selectbox.Trigger(selectbox.TriggerProps{ID: "admin-users-bulk-group", Name: "group", Required: true, Class: "bg-background", DisableClear: true}) {
+				@selectbox.Value(selectbox.ValueProps{Placeholder: i18n.T(ctx, "admin.users.bulk.group_placeholder")})
+			}
+			@selectbox.Content(selectbox.ContentProps{NoSearch: len(groups) < 8}) {
+				for _, group := range groups {
+					@selectbox.Item(selectbox.ItemProps{Value: group.ID}) {
+						{ group.Name }
+					}
+				}
+			}
+		}
+	</div>
 }
 
 // adminUsersBulkPeople lists whom a change is about: those it changes (or

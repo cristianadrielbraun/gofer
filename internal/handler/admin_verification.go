@@ -86,7 +86,7 @@ func adminSecurityVerificationReturnTo(value string) string {
 			case len(given) != 1:
 				return ""
 			case key == "page" || (key == "sort" && given[0] == string(auth.AdministratorUserSortUsername)):
-			case key != "q" && key != "status" && key != "attention" && key != "sort",
+			case key != "q" && key != "status" && key != "attention" && key != "sort" && key != "group",
 				rebuilt.Query().Get(key) != given[0]:
 				return ""
 			}

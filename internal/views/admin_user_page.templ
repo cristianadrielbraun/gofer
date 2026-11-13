@@ -78,6 +78,8 @@ type AdminUserPageData struct {
 	ShowChangesMade bool
 
 	StepUpRequired bool
+	// Groups are the groups they're in; administrators can't be in one.
+	Groups []AdminGroupRef
 }
 
 // AdminUserMailboxData is one mail account the person added.
@@ -232,6 +234,15 @@ templ adminUserOverviewTab(data AdminUserPageData) {
 			}
 			@adminFact(i18n.T(ctx, "admin.col.role")) {
 				{ adminValueLabel(ctx, data.User.Role) }
+			}
+			@adminFact(i18n.T(ctx, "admin.col.groups")) {
+				if data.User.administrator() {
+					<span class="text-muted-foreground">{ i18n.T(ctx, "admin.user.groups_administrator") }</span>
+				} else if len(data.Groups) == 0 {
+					<span class="text-muted-foreground" data-admin-user-no-groups>{ i18n.T(ctx, "admin.user.no_groups") }</span>
+				} else {
+					@adminUserGroupTags(data.Groups, len(data.Groups))
+				}
 			}
 			@adminFact(i18n.T(ctx, "admin.user.created")) {
 				{ adminUserDate(ctx, &data.CreatedAt) }

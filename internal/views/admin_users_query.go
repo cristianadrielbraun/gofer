@@ -18,12 +18,14 @@ type AdminUsersQuery struct {
 	Status    string
 	Attention string
 	Sort      string
-	Page      int
+	// Group keeps the members of the group with this ID.
+	Group string
+	Page  int
 }
 
 // Narrowed reports whether the query leaves anyone out.
 func (query AdminUsersQuery) Narrowed() bool {
-	return query.Search != "" || query.Status != "" || query.Attention != ""
+	return query.Search != "" || query.Status != "" || query.Attention != "" || query.Group != ""
 }
 
 // Path is the Users page showing page of query's list.
@@ -40,6 +42,9 @@ func (query AdminUsersQuery) Path(page int) string {
 	}
 	if query.Sort != "" {
 		values.Set("sort", query.Sort)
+	}
+	if query.Group != "" {
+		values.Set("group", query.Group)
 	}
 	if page > 1 {
 		values.Set("page", strconv.Itoa(page))
@@ -76,6 +81,16 @@ func adminUsersPageLink(path string) templ.Attributes {
 type adminUsersChoiceOption struct {
 	Value string
 	Label string
+}
+
+// adminUsersGroupChoices are the group filter's choices: everyone, then
+// each group.
+func adminUsersGroupChoices(ctx context.Context, groups []AdminGroupRef) []adminUsersChoiceOption {
+	choices := []adminUsersChoiceOption{{"", i18n.T(ctx, "admin.users.filter.any_group")}}
+	for _, group := range groups {
+		choices = append(choices, adminUsersChoiceOption{group.ID, group.Name})
+	}
+	return choices
 }
 
 func adminUsersStatusChoices(ctx context.Context) []adminUsersChoiceOption {

@@ -138,3 +138,85 @@ func TestVerificationLeadsBackToGroupPages(t *testing.T) {
 		}
 	}
 }
+
+func TestUsersListShowsFiltersAndChangesGroups(t *testing.T) {
+	manager, db, stack, sessionCookie, _ := completedSecuritySettingsStack(t)
+	session, err := manager.GetSessionByToken(t.Context(), sessionCookie.Value)
+	if err != nil || session == nil {
+		t.Fatalf("administrator session = %#v, %v", session, err)
+	}
+	addBulkPeople(t, db, "active", "ines-moreau", "pavel-arden", "noor-hale")
+
+	// Without groups, the list has no Groups column or filter, and the
+	// change says to make a group first.
+	list := getSecuritySettingsPath(t, stack, "/admin/users", sessionCookie).Body.String()
+	if strings.Contains(list, "data-admin-user-groups") || strings.Contains(list, `data-admin-users-choice="group"`) {
+		t.Fatalf("Users list without groups = %q", list)
+	}
+	if dialog := bulkDialog(t, stack, sessionCookie, "/admin/users/bulk/add-to-group?user=ines-moreau"); !strings.Contains(dialog, "data-admin-users-bulk-no-groups") {
+		t.Fatalf("add to a group with no groups = %q", dialog)
+	}
+
+	created := getSecuritySettingsPath(t, stack, views.AdminGroupsPath, sessionCookie)
+	csrf := csrfProofFromForm(t, created.Body.String(), views.AdminGroupsPath)
+	var groupIDs []string
+	for _, name := range []string{"Field team", "Night shift"} {
+		response := postSecuritySettings(t, stack, views.AdminGroupsPath, url.Values{"name": {name}, auth.CSRFFormFieldName: {csrf}}, sessionCookie)
+		groupIDs = append(groupIDs, strings.TrimPrefix(response.Header().Get("Location"), views.AdminGroupsPath+"/"))
+	}
+	field := groupIDs[0]
+
+	path := "/admin/users/bulk/add-to-group"
+	dialog := bulkDialog(t, stack, sessionCookie, path+"?user=ines-moreau&user=pavel-arden&user="+session.UserID)
+	if !strings.Contains(dialog, `data-admin-users-bulk-group`) || !strings.Contains(dialog, "Night shift") {
+		t.Fatalf("add-to-group dialog = %q", dialog)
+	}
+	if got := bulkList(dialog, "data-admin-users-bulk-left-out"); len(got) != 1 || !strings.HasSuffix(got[0], " — Not for administrators") {
+		t.Fatalf("left out %q", got)
+	}
+	people := url.Values{"user": {"ines-moreau", "pavel-arden"}, auth.CSRFFormFieldName: {csrfProofFromForm(t, dialog, path)}}
+	if missing := postSecuritySettings(t, stack, path, people, sessionCookie); missing.Code != http.StatusBadRequest ||
+		!strings.Contains(missing.Body.String(), "Choose a group, then try again.") {
+		t.Fatalf("add without a group = %d %q", missing.Code, missing.Body.String())
+	}
+	people.Set("group", field)
+	response := postSecuritySettings(t, stack, path, people, sessionCookie)
+	if result := response.Body.String(); response.Code != http.StatusOK || !strings.Contains(result, "Added 2 people to Field team") {
+		t.Fatalf("bulk add = %d %q", response.Code, result)
+	}
+	people.Set("user", "ines-moreau")
+	if result := postSecuritySettings(t, stack, path, people, sessionCookie).Body.String(); !strings.Contains(bulkList(result, "data-admin-users-bulk-left-out")[0], "Already in the group") {
+		t.Fatalf("add again = %q", result)
+	}
+
+	list = getSecuritySettingsPath(t, stack, "/admin/users?group="+field, sessionCookie).Body.String()
+	if !strings.Contains(list, `data-admin-users-choice="group"`) || strings.Count(list, "data-admin-user-link") != 2 ||
+		strings.Count(list, `data-admin-user-group>Field team<`) != 2 || strings.Contains(list, ">noor-hale<") {
+		t.Fatalf("Users list of Field team = %q", list)
+	}
+	if got := adminSecurityVerificationReturnTo("/admin/users?group=" + field); got != "/admin/users?group="+field {
+		t.Fatalf("verification back to a group's list = %q", got)
+	}
+
+	page := getSecuritySettingsPath(t, stack, "/admin/users/ines-moreau", sessionCookie).Body.String()
+	if !strings.Contains(page, `href="/admin/groups/`+field+`"`) {
+		t.Fatalf("person page without their group = %q", page)
+	}
+	page = getSecuritySettingsPath(t, stack, "/admin/users/noor-hale", sessionCookie).Body.String()
+	if !strings.Contains(page, "data-admin-user-no-groups") {
+		t.Fatalf("person page of someone in no group = %q", page)
+	}
+	if page := getSecuritySettingsPath(t, stack, "/admin/users/"+session.UserID, sessionCookie).Body.String(); !strings.Contains(page, "Administrators aren&#39;t in groups.") {
+		t.Fatalf("administrator's page = %q", page)
+	}
+
+	remove := "/admin/users/bulk/remove-from-group"
+	dialog = bulkDialog(t, stack, sessionCookie, remove+"?all=1&group="+field)
+	if got := bulkList(dialog, "data-admin-users-bulk-change"); strings.Join(got, "|") != "ines-moreau|pavel-arden" {
+		t.Fatalf("everyone in Field team = %q", got)
+	}
+	removed := postSecuritySettings(t, stack, remove, url.Values{"user": {"ines-moreau", "pavel-arden", "noor-hale"}, "group": {field}, auth.CSRFFormFieldName: {csrfProofFromForm(t, dialog, remove)}}, sessionCookie)
+	if result := removed.Body.String(); !strings.Contains(result, "Removed 2 people from Field team") || !strings.Contains(result, "Wasn&#39;t in the group") {
+		t.Fatalf("bulk remove = %q", result)
+	}
+}

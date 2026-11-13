@@ -26,6 +26,12 @@ func (s *Service) GroupsOf(ctx context.Context, actor Actor, userID string) ([]d
 	return s.auth.GroupsOfUser(ctx, actor.UserID, userID)
 }
 
+// GroupsOfPeople returns, for each of userIDs who is in a group, the
+// groups they're in.
+func (s *Service) GroupsOfPeople(ctx context.Context, actor Actor, userIDs []string) (map[string][]auth.GroupRef, error) {
+	return s.auth.GroupsOfUsers(ctx, actor.UserID, userIDs)
+}
+
 // CreateGroup adds a group.
 func (s *Service) CreateGroup(ctx context.Context, actor Actor, name, description string) (*directory.Group, error) {
 	return s.auth.CreateGroup(ctx, auth.CreateGroupOptions{

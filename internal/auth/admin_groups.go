@@ -45,9 +45,10 @@ type GroupDeletionPreview struct {
 // GroupMembershipChange is who a change to a group's members affected.
 type GroupMembershipChange struct {
 	Group directory.Group
-	// Changed are the usernames added or removed; people already in, or
-	// already out, aren't.
-	Changed []string
+	// Changed are the usernames added or removed, and ChangedIDs their IDs;
+	// people already in, or already out, aren't.
+	Changed    []string
+	ChangedIDs []string
 }
 
 // CreateGroupOptions names a new group.
@@ -117,6 +118,47 @@ func (m *Manager) GetGroup(ctx context.Context, actorUserID, groupID string) (*G
 		return rows.Err()
 	})
 	return detail, err
+}
+
+// GroupRef names a group.
+type GroupRef struct {
+	ID   string
+	Name string
+}
+
+// GroupsOfUsers returns, for each of userIDs who is in a group, the groups
+// they're in by name.
+func (m *Manager) GroupsOfUsers(ctx context.Context, actorUserID string, userIDs []string) (map[string][]GroupRef, error) {
+	groups := map[string][]GroupRef{}
+	if len(userIDs) == 0 {
+		return groups, nil
+	}
+	err := m.readGroups(ctx, actorUserID, func(tx *sql.Tx) error {
+		placeholders := strings.TrimSuffix(strings.Repeat("?,", len(userIDs)), ",")
+		args := make([]any, len(userIDs))
+		for i, id := range userIDs {
+			args[i] = id
+		}
+		rows, err := tx.QueryContext(ctx, `
+			SELECT m.user_id, g.id, g.name FROM directory_group_members m
+			JOIN directory_groups g ON g.id = m.group_id
+			WHERE m.user_id IN (`+placeholders+`)
+			ORDER BY g.name_normalized, g.id`, args...)
+		if err != nil {
+			return fmt.Errorf("list people's groups: %w", err)
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var userID string
+			var group GroupRef
+			if err := rows.Scan(&userID, &group.ID, &group.Name); err != nil {
+				return fmt.Errorf("read a person's group: %w", err)
+			}
+			groups[userID] = append(groups[userID], group)
+		}
+		return rows.Err()
+	})
+	return groups, err
 }
 
 // GroupsOfUser returns the groups someone is in.
@@ -292,6 +334,7 @@ func (m *Manager) changeGroupMembers(ctx context.Context, options ChangeGroupMem
 			}
 			people = append(people, map[string]string{"id": userID, "username": username})
 			result.Changed = append(result.Changed, username)
+			result.ChangedIDs = append(result.ChangedIDs, userID)
 		}
 		action := "group.members_removed"
 		if add {

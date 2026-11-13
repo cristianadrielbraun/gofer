@@ -76,7 +76,7 @@ func CodeOf(err error) Code {
 	case errors.Is(err, auth.ErrRecentStepUpRequired):
 		return CodeVerificationRequired
 	case errors.As(err, &validation), errors.Is(err, auth.ErrAdministratorUserStatusInvalid),
-		errors.Is(err, errBulkActionInvalid), errors.Is(err, errBulkNobody),
+		errors.Is(err, errBulkActionInvalid), errors.Is(err, errBulkNobody), errors.Is(err, errBulkNeedsGroup),
 		errors.Is(err, directory.ErrNameInvalid), errors.Is(err, directory.ErrDescriptionLong):
 		return CodeInvalid
 	case errors.Is(err, directory.ErrNameTaken):

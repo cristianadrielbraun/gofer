@@ -65,6 +65,8 @@ type AdministratorUserQuery struct {
 	Groupable bool
 	// NotInGroup leaves out the people already in the group with this ID.
 	NotInGroup string
+	// Group keeps only the people in the group with this ID.
+	Group string
 	Offset         int
 	// Limit is the page's size: 0 is DefaultAdministratorUserPageSize, and
 	// it's never more than MaxAdministratorUserPageSize. A negative limit,
@@ -190,6 +192,10 @@ func administratorUserFilter(query AdministratorUserQuery) (string, []any) {
 	}
 	if query.Groupable {
 		conditions = append(conditions, `people.user_type = 'webmail' AND people.deletion_pending = 0`)
+	}
+	if query.Group != "" {
+		conditions = append(conditions, `people.id IN (SELECT user_id FROM directory_group_members WHERE group_id = :in_group)`)
+		args = append(args, sql.Named("in_group", query.Group))
 	}
 	if query.NotInGroup != "" {
 		conditions = append(conditions, `people.id NOT IN (SELECT user_id FROM directory_group_members WHERE group_id = :not_in_group)`)
