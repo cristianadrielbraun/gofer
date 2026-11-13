@@ -86,7 +86,8 @@ func canRemoveAuthenticatorInTransaction(
 	}
 	hasPrimary := hasPassword == 1 || passkeyCount > 0 || googleIdentityCount > 0 || microsoftIdentityCount > 0 || oidcIdentityCount > 0
 	// Only the authenticator app is a second factor, so only it has to stay
-	// while two-factor authentication is required. Anything else can go while
-	// some way to sign in remains.
-	return hasPrimary && !(removal.TOTP && policy.MFAEnrollmentRequired), nil
+	// while two-factor authentication is required, unless the requirement
+	// also accepts a passkey and one remains. Anything else can go while some
+	// way to sign in remains.
+	return hasPrimary && !(removal.TOTP && policy.appMustStay(passkeyCount)), nil
 }

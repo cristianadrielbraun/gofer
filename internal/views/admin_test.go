@@ -175,7 +175,7 @@ func TestAdminUsersPageMenusFetchEachDialogWhenPicked(t *testing.T) {
 	requireAdminUsersHTML(t, "users page", html,
 		`id="admin-user-dialog"`, `aria-label="Actions for pending.user"`, `aria-label="Actions for active.user"`,
 		"Revoke invitation", "Rotate invitation", "Generate password-reset token",
-		"Require password change at next login", "Require 2FA", "Expires Aug 21, 12:30",
+		"Require password change at next login", "Require two-factor", "Expires Aug 21, 12:30",
 		`hx-target="#admin-user-dialog"`, `hx-swap="innerHTML"`,
 	)
 	for _, path := range []string{
@@ -240,14 +240,16 @@ func TestAdminUserMFAPolicyDialogsRequireOrClear(t *testing.T) {
 		MFAPolicyPath: "/admin/users/required-user/mfa-policy",
 	}
 	page := renderAdminUsersTestPage(t, AdminUsersData{Users: []AdminUserData{optional, required}})
-	requireAdminUsersHTML(t, "users page", page, "Require 2FA", "Clear 2FA requirement")
+	requireAdminUsersHTML(t, "users page", page, "Require two-factor", "Change two-factor requirement")
 	html := renderAdminUserTestDialog(t, AdminUserActionMFAPolicy, optional, csrf) +
 		renderAdminUserTestDialog(t, AdminUserActionMFAPolicy, required, csrf)
 	requireAdminUsersHTML(t, "MFA dialogs", html,
-		"Require 2FA for optional.user?", "Clear the individual 2FA requirement?",
+		"Require two-factor sign-in for optional.user?", "Two-factor sign-in for required.user", "Remove requirement",
 		`action="/admin/users/optional-user/mfa-policy"`, `action="/admin/users/required-user/mfa-policy"`,
 		`name="required" value="true"`, `name="required" value="false"`, csrf,
-		"Existing sessions and authenticators are unchanged", "setup is required at the next sign-in",
+		`name="passkey" value="true"`, `name="passkey" value="false"`,
+		"A passkey is enough", "Always ask for the authenticator app code",
+		"Choose what counts as the second step", "sets up the authenticator app at their next sign-in",
 	)
 }
 
@@ -346,7 +348,7 @@ func TestAdminUsersPageRendersProtectedCredentialResetActionAndOneTimeResult(t *
 		"Generate password-reset token", "Password-reset token created", "Reset token ready for webmail.user",
 		"Gofer password reset for webmail.user", "https://gofer.example/account/redeem",
 		"Reset token: private-reset-token", "Gofer stores only a hash of the token",
-		"Successful redemption signs the user out everywhere, keeps two-factor authentication, and does not enable a disabled account",
+		"Successful redemption signs the user out everywhere, keeps their authenticator app (TOTP), and does not enable a disabled account",
 		"I saved the reset token",
 	)
 	if strings.Contains(html, `https://gofer.example/account/redeem?token=`) {

@@ -447,10 +447,8 @@ const (
 
 func (h *Handler) profileProviderAvailable(provider string) bool {
 	switch provider {
-	case providers.ProviderIMAP, providers.ProviderDAV:
+	case providers.ProviderIMAP, providers.ProviderDAV, providers.ProviderJMAP:
 		return true
-	case providers.ProviderJMAP:
-		return providers.JMAPEnabled()
 	case providers.ProviderGmail:
 		if h.userAccounts != nil {
 			return h.userCredentials != nil && h.userCredentials.HasGoogleOAuth()

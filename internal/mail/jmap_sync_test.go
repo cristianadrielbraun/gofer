@@ -481,7 +481,6 @@ func readable() jmap.MailboxRights { return jmap.MailboxRights{MayReadItems: tru
 // account on server, with the exceptions its loopback address needs.
 func useFakeJMAPAccount(t *testing.T, f *userGmailFixture, server *fakeJMAPServer) {
 	t.Helper()
-	t.Setenv("GOFER_JMAP_EXPERIMENT", "true")
 	sessionURL := server.URL + "/.well-known/jmap"
 	endpoint, err := jmap.ParseEndpoint(sessionURL)
 	if err != nil {
@@ -1313,7 +1312,6 @@ func TestSyncSendsJMAPSpamKeywords(t *testing.T) {
 // In single-user mode, the next sync sends the spam keywords the spam action
 // queued, without showing them as labels.
 func TestSharedSyncSendsJMAPSpamKeywords(t *testing.T) {
-	t.Setenv("GOFER_JMAP_EXPERIMENT", "true")
 	ctx := t.Context()
 	server := newFakeJMAPServer(t)
 	server.emailState = "c0"

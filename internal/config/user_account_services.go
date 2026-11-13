@@ -66,7 +66,7 @@ func (s *AccountServiceSnapshot) SMTPConfigured() bool {
 // needs: over SMTP, or over JMAP for a JMAP account signed in with a password.
 func (s *AccountServiceSnapshot) SendsEmail() bool {
 	if s.data.Provider == providers.ProviderJMAP {
-		return s.data.AuthMethod == "plain" && providers.JMAPEnabled()
+		return s.data.AuthMethod == "plain"
 	}
 	return s.SMTPConfigured()
 }
@@ -98,9 +98,6 @@ func (s *AccountServiceSnapshot) JMAPConfig(ctx context.Context) (*models.Accoun
 	d := s.data
 	if d.Provider != providers.ProviderJMAP || d.AuthMethod != "plain" {
 		return nil, errors.New("the account does not send over JMAP")
-	}
-	if !providers.JMAPEnabled() {
-		return nil, providers.ErrJMAPDisabled
 	}
 	cfg := &models.AccountConfig{AccountID: s.id, Provider: d.Provider, ProviderAccountID: d.ProviderAccountID,
 		Username: d.Username, AuthMethod: d.AuthMethod, JMAPSessionURL: d.JMAPSessionURL}

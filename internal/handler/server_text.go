@@ -336,7 +336,6 @@ var serverTextKeys = map[string]string{
 	"This event cannot be deleted in Gofer. Refresh the calendar and reopen the event.":                       "server.text.this_event_cannot_be_deleted_in_gofer_refresh",
 	"Online meetings cannot be deleted in Gofer yet.":                                                         "server.text.online_meetings_cannot_be_deleted_in_gofer_yet",
 	"Events with guests can only be deleted by their organizer.":                                              "server.text.events_with_guests_can_only_be_deleted_by",
-	"JMAP accounts are experimental and turned off; set GOFER_JMAP_EXPERIMENT=true to use them":               "server.text.jmap_accounts_are_experimental_and_turned_off_set",
 	"You can have at most 500 rules.":                                                                         "server.text.you_can_have_at_most_500_rules",
 	"Choose a folder.":                                                                                        "server.text.choose_a_folder",
 	"A label can be at most 500 characters.":                                                                  "server.text.a_label_can_be_at_most_500_characters",

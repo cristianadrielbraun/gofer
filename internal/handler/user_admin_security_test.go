@@ -356,7 +356,6 @@ func TestOwnedAdminSecurityAddsHTTPPlaintextException(t *testing.T) {
 // account is listed under the HTTP exception for its session URL's server,
 // and an HTTPS exception on the same host and port matches no IMAP account.
 func TestOwnedAdminSecurityListsJMAPAccounts(t *testing.T) {
-	t.Setenv("GOFER_JMAP_EXPERIMENT", "true")
 	f := newOwnedAdminDiagnosticFixture(t)
 	if _, err := f.system.Write().Exec(`UPDATE users SET status='active' WHERE id='bob'`); err != nil {
 		t.Fatal(err)

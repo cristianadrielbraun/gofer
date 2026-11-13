@@ -11,13 +11,18 @@ import (
 var ErrAuthenticationPolicyNotSatisfied = errors.New("authentication assurance does not satisfy policy")
 
 type authenticationPolicy struct {
-	AuthVersion              int64
-	RequiresMFA              bool
-	MFAEnrollmentRequired    bool
-	HasEnrolledMFA           bool
-	UserMFARequired          bool
-	AdministratorMFARequired bool
-	InstanceMFARequired      bool
+	AuthVersion         int64
+	PasskeyTOTPRequired bool
+	// PasskeyCountsAsSecondFactor is an administrator's choice for one
+	// person's individual requirement: a verified passkey satisfies it on its
+	// own. Administrator and instance-wide requirements always take the app.
+	PasskeyCountsAsSecondFactor bool
+	RequiresMFA                 bool
+	MFAEnrollmentRequired       bool
+	HasEnrolledMFA              bool
+	UserMFARequired             bool
+	AdministratorMFARequired    bool
+	InstanceMFARequired         bool
 }
 
 type authenticationPolicyQueryer interface {
@@ -27,6 +32,7 @@ type authenticationPolicyQueryer interface {
 func resolveAuthenticationPolicy(authVersion int64, mfaRequired, isAdmin, instanceMFARequired bool) authenticationPolicy {
 	return authenticationPolicy{
 		AuthVersion:              authVersion,
+		PasskeyTOTPRequired:      true,
 		RequiresMFA:              mfaRequired || isAdmin || instanceMFARequired,
 		MFAEnrollmentRequired:    mfaRequired || isAdmin || instanceMFARequired,
 		UserMFARequired:          mfaRequired,
@@ -42,9 +48,20 @@ func (policy authenticationPolicy) allowsAssurance(assurance AssuranceLevel) boo
 	if !policy.RequiresMFA {
 		return true
 	}
-	// A passkey sign-in alone is one factor, like a password; two-factor
-	// authentication also takes the authenticator app.
-	return assurance == AssuranceLevelMultiFactor
+	// Verified passkeys already provide multiple factors. A separate TOTP
+	// challenge is optional for webmail users, while passwords and federated
+	// sign-ins still obtain multi_factor assurance through TOTP. A required
+	// second step accepts a passkey only when the administrator chose that.
+	return assurance == AssuranceLevelMultiFactor ||
+		(assurance == AssuranceLevelPhishingResistant && !policy.PasskeyTOTPRequired &&
+			(!policy.MFAEnrollmentRequired || policy.PasskeyCountsAsSecondFactor))
+}
+
+// appMustStay says whether the authenticator app has to stay: a required
+// second step needs it, unless that requirement also accepts one of the
+// person's passkeys.
+func (policy authenticationPolicy) appMustStay(passkeyCount int) bool {
+	return policy.MFAEnrollmentRequired && !(policy.PasskeyCountsAsSecondFactor && passkeyCount > 0)
 }
 
 // allowsExistingSession preserves sessions that were valid before an
@@ -74,16 +91,17 @@ func (policy authenticationPolicy) allowsStepUpMethod(method AuthenticationMetho
 
 func queryAuthenticationPolicy(ctx context.Context, queryer authenticationPolicyQueryer, userID string, expectedAuthVersion int64) (authenticationPolicy, error) {
 	var authVersion int64
-	var mfaRequired, isAdmin int
+	var mfaRequired, isAdmin, passkeyTOTPRequired, mfaPasskeyCounts int
 	var userType UserType
 	var instanceMFAPolicy InstanceMFAPolicy
 	err := queryer.QueryRowContext(ctx, `
 		SELECT u.auth_version, u.mfa_required, u.is_admin, u.user_type,
+		       u.passkey_totp_required, u.mfa_passkey_counts,
 		       COALESCE((SELECT state.mfa_policy FROM auth_system_state state WHERE state.id = 1), 'administrators')
 		FROM users u
 		WHERE u.id = ? AND u.status = 'active'
 		  AND (? = 0 OR u.auth_version = ?)`, userID, expectedAuthVersion, expectedAuthVersion,
-	).Scan(&authVersion, &mfaRequired, &isAdmin, &userType, &instanceMFAPolicy)
+	).Scan(&authVersion, &mfaRequired, &isAdmin, &userType, &passkeyTOTPRequired, &mfaPasskeyCounts, &instanceMFAPolicy)
 	if errors.Is(err, sql.ErrNoRows) {
 		return authenticationPolicy{}, ErrUserNotActive
 	}
@@ -96,7 +114,16 @@ func queryAuthenticationPolicy(ctx context.Context, queryer authenticationPolicy
 	if userType == UserTypeManagement && isAdmin != 1 {
 		return authenticationPolicy{}, ErrUserNotActive
 	}
-	return resolveAuthenticationPolicy(authVersion, mfaRequired == 1, isAdmin == 1, instanceMFAPolicy.RequiresAllUsers()), nil
+	policy := resolveAuthenticationPolicy(authVersion, mfaRequired == 1, isAdmin == 1, instanceMFAPolicy.RequiresAllUsers())
+	// Only an individual requirement on a webmail user can accept a passkey;
+	// administrators and an instance-wide requirement always take the app.
+	policy.PasskeyCountsAsSecondFactor = userType == UserTypeWebmail && isAdmin != 1 && mfaRequired == 1 &&
+		mfaPasskeyCounts == 1 && !policy.InstanceMFARequired
+	// Management identities are outside this feature; never permit them to
+	// bypass the separate factor based on a webmail-only preference.
+	policy.PasskeyTOTPRequired = userType != UserTypeWebmail || passkeyTOTPRequired == 1 ||
+		(policy.MFAEnrollmentRequired && !policy.PasskeyCountsAsSecondFactor)
+	return policy, nil
 }
 
 func (m *Manager) loadAuthenticationPolicy(ctx context.Context, queryer authenticationPolicyQueryer, userID string, expectedAuthVersion int64) (authenticationPolicy, error) {
@@ -117,6 +144,11 @@ func (m *Manager) withEnrolledMFAPolicy(ctx context.Context, queryer authenticat
 	}
 	policy.HasEnrolledMFA = enrolled
 	policy.RequiresMFA = policy.MFAEnrollmentRequired || enrolled
+	if policy.PasskeyCountsAsSecondFactor && !enrolled {
+		// "Also ask for the app code after a passkey" can only ask for an
+		// app the person has; without one, the passkey is the second step.
+		policy.PasskeyTOTPRequired = false
+	}
 	return policy, nil
 }
 

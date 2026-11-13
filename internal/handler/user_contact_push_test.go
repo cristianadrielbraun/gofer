@@ -235,7 +235,6 @@ func newUserContactPushFixture(t *testing.T, provider string, api http.Handler) 
 		}
 	}
 	if provider == "jmap" {
-		t.Setenv("GOFER_JMAP_EXPERIMENT", "true")
 		host, port, _ := net.SplitHostPort(target.Host)
 		portNumber, _ := strconv.Atoi(port)
 		if err := f.system.AddPlaintextTransportException(t.Context(), "http", host, portNumber, "administrator"); err != nil {

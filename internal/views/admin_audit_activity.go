@@ -87,6 +87,11 @@ func adminAuditSentence(ctx context.Context, record audit.Record) string {
 		return i18n.N(ctx, key, count, "count", i18n.Number(ctx, count))
 	case "audit.exported":
 		args = append(args, "format", strings.ToUpper(fmt.Sprint(record.Metadata["format"])))
+	case "user.mfa_required":
+		// The requirement may accept a passkey on its own.
+		if record.Changes["mfa_passkey_counts"].To == true {
+			key = "admin.audit.action.user.mfa_required_passkey"
+		}
 	case "instance.mfa_policy_changed":
 		change := record.Changes["mfa_policy"]
 		args = append(args, "from", adminAuditMFAPolicy(ctx, change.From), "to", adminAuditMFAPolicy(ctx, change.To))

@@ -48,7 +48,7 @@ func TestAdminAuditActivityReadsEachChangeAsASentence(t *testing.T) {
 		"Kept sign-in and security events for 90 days instead of 180",
 		"Removed 12 administrative changes from before", ">Gofer<",
 		"Let people add proxies of their own",
-		"Required 2FA for nora.vale", "Refused", "Done",
+		"Required two-factor sign-in for nora.vale", "Refused", "Done",
 		// An action Gofer has no words for still shows, as itself.
 		"group.member_added",
 		`href="/admin/activity/administration?kind=user" data-admin-navigation-link`, "People",
@@ -131,7 +131,7 @@ func TestEveryRecordedActionHasASentence(t *testing.T) {
 			t.Errorf("%s (%v) reads %q", record.Action, record.Metadata, sentence)
 		}
 	}
-	if got := adminAuditSentence(ctx, audit.Record{Event: audit.Event{Action: "instance.mfa_policy_changed", Changes: map[string]audit.Change{"mfa_policy": {From: "administrators", To: "all_users"}}}}); got != "Required 2FA for everyone instead of administrators" {
+	if got := adminAuditSentence(ctx, audit.Record{Event: audit.Event{Action: "instance.mfa_policy_changed", Changes: map[string]audit.Change{"mfa_policy": {From: "administrators", To: "all_users"}}}}); got != "Required two-factor sign-in for everyone instead of administrators" {
 		t.Errorf("policy sentence = %q", got)
 	}
 	if got := adminAuditSentence(ctx, audit.Record{Event: audit.Event{Action: "user.list_exported", Metadata: map[string]any{"count": float64(1)}}}); got != "Exported the Users list as CSV, 1 person" {

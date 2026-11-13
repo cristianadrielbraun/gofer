@@ -58,10 +58,10 @@ func (s *Service) RotateInvitation(ctx context.Context, actor Actor, reference s
 }
 
 // SetMFARequirement requires two-factor authentication of one person, or
-// stops requiring it.
-func (s *Service) SetMFARequirement(ctx context.Context, actor Actor, userID string, required bool) (*auth.SetAdministratorUserMFAPolicyResult, error) {
+// stops requiring it. With passkeyCounts, a passkey is enough on its own.
+func (s *Service) SetMFARequirement(ctx context.Context, actor Actor, userID string, required, passkeyCounts bool) (*auth.SetAdministratorUserMFAPolicyResult, error) {
 	return s.auth.SetAdministratorUserMFAPolicy(ctx, auth.SetAdministratorUserMFAPolicyOptions{
-		ActorUserID: actor.UserID, ActorSessionID: actor.SessionID, TargetUserID: userID, Required: required,
+		ActorUserID: actor.UserID, ActorSessionID: actor.SessionID, TargetUserID: userID, Required: required, PasskeyCounts: passkeyCounts,
 	})
 }
 

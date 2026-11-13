@@ -382,7 +382,7 @@ func TestAdministratorCanRequireAndClearIndividualUserMFA(t *testing.T) {
 	}
 	path := adminUserMFAPolicyPath("policy-target")
 	page := adminUserActionDialog(t, stack, sessionCookie, path)
-	for _, want := range []string{"Require 2FA for policy-target?", `name="required" value="true"`} {
+	for _, want := range []string{"Require two-factor sign-in for policy-target?", "A passkey is enough", `name="required" value="true"`, `name="passkey" value="true"`} {
 		if !strings.Contains(page, want) {
 			t.Fatalf("administrator user MFA dialog missing %q: %q", want, page)
 		}
@@ -394,15 +394,16 @@ func TestAdministratorCanRequireAndClearIndividualUserMFA(t *testing.T) {
 
 	requireForm := url.Values{
 		"required":             {"true"},
+		"passkey":              {"true"},
 		auth.CSRFFormFieldName: {csrfProofFromForm(t, page, path)},
 	}
 	required := postSecuritySettings(t, stack, path, requireForm, sessionCookie)
 	if required.Code != http.StatusSeeOther || required.Header().Get("Location") != "/admin/users" {
 		t.Fatalf("require individual MFA = %d location:%q body:%q", required.Code, required.Header().Get("Location"), required.Body.String())
 	}
-	var storedRequired int
-	if err := db.Read().QueryRowContext(t.Context(), `SELECT mfa_required FROM users WHERE id = 'policy-target'`).Scan(&storedRequired); err != nil || storedRequired != 1 {
-		t.Fatalf("required individual MFA = %d, %v", storedRequired, err)
+	var storedRequired, storedPasskey int
+	if err := db.Read().QueryRowContext(t.Context(), `SELECT mfa_required, mfa_passkey_counts FROM users WHERE id = 'policy-target'`).Scan(&storedRequired, &storedPasskey); err != nil || storedRequired != 1 || storedPasskey != 1 {
+		t.Fatalf("required individual MFA = %d (passkey %d), %v", storedRequired, storedPasskey, err)
 	}
 	if stored, err := manager.GetSessionByToken(t.Context(), targetSession.Token); err != nil || stored == nil || stored.ID != targetSession.ID {
 		t.Fatalf("target session after requiring MFA = %#v, %v", stored, err)
@@ -416,7 +417,8 @@ func TestAdministratorCanRequireAndClearIndividualUserMFA(t *testing.T) {
 	}
 
 	clearPage := adminUserActionDialog(t, stack, sessionCookie, path)
-	if !strings.Contains(clearPage, "Clear individual policy") || !strings.Contains(clearPage, `name="required" value="false"`) {
+	if !strings.Contains(clearPage, "Remove requirement") || !strings.Contains(clearPage, `name="required" value="false"`) ||
+		!regexp.MustCompile(`name="passkey" value="true"[^>]*checked`).MatchString(clearPage) {
 		t.Fatalf("clear individual MFA dialog = %q", clearPage)
 	}
 	clearForm := url.Values{
@@ -651,7 +653,7 @@ func TestAdministratorCanIssueAndRedeemWebmailUserCredentialReset(t *testing.T) 
 	for _, want := range []string{
 		"Password-reset token created", "Reset token ready for reset-target",
 		"Gofer stores only a hash of the token", "https://gofer.example/account/redeem",
-		"Successful redemption signs the user out everywhere, keeps two-factor authentication",
+		"Successful redemption signs the user out everywhere, keeps their authenticator app (TOTP)",
 	} {
 		if !strings.Contains(issued.Body.String(), want) {
 			t.Fatalf("credential-reset result missing %q: %q", want, issued.Body.String())

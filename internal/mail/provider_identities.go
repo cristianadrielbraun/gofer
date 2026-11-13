@@ -38,7 +38,7 @@ func ProviderListsIdentities(provider string) bool {
 // of a sync, at most once per providerIdentityInterval. Failing to does not
 // fail the sync.
 func (o *SyncOrchestrator) syncProviderIdentities(ctx context.Context, accountID string, cfg *models.AccountConfig) {
-	if cfg == nil || !ProviderListsIdentities(cfg.Provider) || (cfg.Provider == providers.ProviderJMAP && !providers.JMAPEnabled()) {
+	if cfg == nil || !ProviderListsIdentities(cfg.Provider) {
 		return
 	}
 	if last, ok := providerIdentityChecks.Load(accountID); ok && time.Since(last.(time.Time)) < providerIdentityInterval {
@@ -59,9 +59,6 @@ func (o *SyncOrchestrator) refreshProviderIdentities(ctx context.Context, accoun
 	var err error
 	switch cfg.Provider {
 	case providers.ProviderJMAP:
-		if !providers.JMAPEnabled() {
-			return providers.ErrJMAPDisabled
-		}
 		var password string
 		if password, err = o.resolvePassword(ctx, cfg, accountID); err == nil {
 			reported, err = jmapProviderIdentities(ctx, cfg, password)

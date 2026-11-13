@@ -1537,11 +1537,9 @@ func ChooseMailTypeDialog() templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				if providers.JMAPEnabled() {
-					templ_7745c5c3_Err = chooseMailTypeOption(providers.ProviderJMAP, providers.ProviderJMAP, "JMAP", i18n.T(ctx, "dav.type_jmap")).Render(ctx, templ_7745c5c3_Buffer)
-					if templ_7745c5c3_Err != nil {
-						return templ_7745c5c3_Err
-					}
+				templ_7745c5c3_Err = chooseMailTypeOption(providers.ProviderJMAP, providers.ProviderJMAP, "JMAP", i18n.T(ctx, "dav.type_jmap")).Render(ctx, templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
 				}
 				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 90, "</div>")
 				if templ_7745c5c3_Err != nil {
@@ -1591,7 +1589,7 @@ func chooseMailTypeOption(service string, provider string, title string, descrip
 		var templ_7745c5c3_Var75 string
 		templ_7745c5c3_Var75, templ_7745c5c3_Err = templ.JoinStringErrs(onAction("startAddMail", service))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/dav_account.templ`, Line: 362, Col: 72}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/dav_account.templ`, Line: 360, Col: 72}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var75))
 		if templ_7745c5c3_Err != nil {
@@ -1612,7 +1610,7 @@ func chooseMailTypeOption(service string, provider string, title string, descrip
 		var templ_7745c5c3_Var76 string
 		templ_7745c5c3_Var76, templ_7745c5c3_Err = templ.JoinStringErrs(title)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/dav_account.templ`, Line: 367, Col: 59}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/dav_account.templ`, Line: 365, Col: 59}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var76))
 		if templ_7745c5c3_Err != nil {
@@ -1625,7 +1623,7 @@ func chooseMailTypeOption(service string, provider string, title string, descrip
 		var templ_7745c5c3_Var77 string
 		templ_7745c5c3_Var77, templ_7745c5c3_Err = templ.JoinStringErrs(description)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/dav_account.templ`, Line: 368, Col: 66}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/dav_account.templ`, Line: 366, Col: 66}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var77))
 		if templ_7745c5c3_Err != nil {

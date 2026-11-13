@@ -132,6 +132,7 @@ func adminUsersViewData(users []auth.AdministratorUserSummary, currentUserID str
 			MFALabel:                 "optional",
 			MFADetail:                "user_choice",
 			MFARequired:              user.MFARequired,
+			MFAPasskeyCounts:         user.MFAPasskeyCounts,
 			PasswordResetRequestedAt: user.PasswordResetRequestedAt,
 			DeletionPending:          user.DeletionPending,
 		}
@@ -184,6 +185,9 @@ func adminUsersViewData(users []auth.AdministratorUserSummary, currentUserID str
 		case user.MFARequired:
 			view.MFALabel = "required"
 			view.MFADetail = "individual_policy"
+			if user.MFAPasskeyCounts {
+				view.MFADetail = "individual_policy_passkey"
+			}
 		case instancePolicy.RequiresAllUsers():
 			view.MFALabel = "required"
 			view.MFADetail = "instance_policy"
@@ -250,7 +254,8 @@ func (h *Handler) handleAdminUserActionDialog(action views.AdminUserAction) http
 		}
 		dialog := views.AdminUserDialog{
 			Action: action, User: user,
-			CSRFToken: auth.CSRFToken(r.Context(), http.MethodPost, user.Path(action)),
+			CSRFToken:      auth.CSRFToken(r.Context(), http.MethodPost, user.Path(action)),
+			ProviderSignIn: h.auth.HasGoogleLogin() || h.auth.HasMicrosoftLogin() || h.auth.HasOIDCLogin(),
 		}
 		// A session that must verify again is asked when the change is sent
 		// (admin.js). A page drawn while the session was fresh has nothing to
@@ -421,13 +426,28 @@ func (h *Handler) handleSetAdminUserMFAPolicy(w http.ResponseWriter, r *http.Req
 		h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, i18n.T(r.Context(), "auth.admin.users.mfa_request_invalid"))
 		return
 	}
-	result, err := h.adminService().SetMFARequirement(r.Context(), actor, r.PathValue("userID"), required)
+	// passkey=true lets a passkey satisfy the requirement; without it the
+	// requirement takes the authenticator app (TOTP), as it always did.
+	var passkeyCounts bool
+	switch r.PostFormValue("passkey") {
+	case "true":
+		passkeyCounts = true
+	case "false", "":
+	default:
+		h.renderAdminUsers(w, r, http.StatusBadRequest, views.AdminUserInvitationFormData{}, nil, i18n.T(r.Context(), "auth.admin.users.mfa_request_invalid"))
+		return
+	}
+	result, err := h.adminService().SetMFARequirement(r.Context(), actor, r.PathValue("userID"), required, passkeyCounts)
 	if err != nil {
 		h.adminUserChangeFailed(w, r, err, adminUserMFAChange, views.AdminUserInvitationFormData{})
 		return
 	}
 	if !result.Changed {
 		h.redirectAdminUsers(w, r, i18n.T(r.Context(), "auth.admin.users.mfa_unchanged"))
+		return
+	}
+	if result.Required && result.PasskeyCounts {
+		h.redirectAdminUsers(w, r, i18n.T(r.Context(), "auth.admin.users.mfa_required_passkey"))
 		return
 	}
 	if result.Required {

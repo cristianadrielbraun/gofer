@@ -222,7 +222,7 @@ func TestAdminUsersBulkChangeTakesTwoHundredPeople(t *testing.T) {
 		t.Fatalf("the form is %d bytes; this test needs it past the 8 KB other forms may send", size)
 	}
 	response := postSecuritySettings(t, stack, path, values, sessionCookie)
-	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "2FA required of 200 people") {
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "Two-factor required of 200 people") {
 		t.Fatalf("change to 200 people = %d %q", response.Code, response.Body.String())
 	}
 	values["user"] = ids

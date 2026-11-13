@@ -217,7 +217,6 @@ func (f *jmapContactsTestServer) handler() http.Handler {
 }
 
 func TestJMAPContactSyncSetupAndPull(t *testing.T) {
-	t.Setenv("GOFER_JMAP_EXPERIMENT", "true")
 	h, db := newAccountOwnershipTestHandler(t)
 	fake := &jmapContactsTestServer{password: "saved-secret"}
 	fake.set("s1", map[string]string{
@@ -378,7 +377,6 @@ func TestUserJMAPContactPullPublishesToTheOwnersStore(t *testing.T) {
 }
 
 func TestJMAPContactPushAndDeleteForTheSharedStore(t *testing.T) {
-	t.Setenv("GOFER_JMAP_EXPERIMENT", "true")
 	h, db := newAccountOwnershipTestHandler(t)
 	fake := &jmapContactsTestServer{password: "saved-secret"}
 	fake.set("s1", map[string]string{}, nil)

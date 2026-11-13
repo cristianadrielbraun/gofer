@@ -194,7 +194,6 @@ func newJMAPCalendarLive(t *testing.T) *jmapCalendarLive {
 	if sessionURL == "" || user == "" || password == "" {
 		t.Skip("GOFER_JMAP_TEST_URL, GOFER_JMAP_TEST_USER and GOFER_JMAP_TEST_PASSWORD not set")
 	}
-	t.Setenv("GOFER_JMAP_EXPERIMENT", "true")
 	ctx := context.Background()
 	h, db := newAccountOwnershipTestHandler(t)
 	address, _ := url.Parse(sessionURL)

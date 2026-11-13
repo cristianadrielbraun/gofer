@@ -8485,6 +8485,35 @@ document.addEventListener("DOMContentLoaded", function () {
       if (data && data.job) document.dispatchEvent(new CustomEvent("gofer:mail-rule-run", { detail: data }))
     })
 
+    // Regrouping mail by subject runs in the background; a toast follows it
+    // on every open page and stays once it ends, until dismissed.
+    source.addEventListener("conversation-regroup", function (e) {
+      var data
+      try { data = JSON.parse(e.data) } catch (_) { return }
+      if (!data || !data.state) return
+      var toast = { id: "conversation-regroup", position: "bottom-right", duration: 0 }
+      if (data.state === "running") {
+        toast.title = goferT("js.conversation_regroup.running")
+        toast.description = data.total ? goferT("js.conversation_regroup.progress", { done: goferNumber(data.processed || 0), total: goferNumber(data.total) }) : ""
+        toast.variant = "info"
+        toast.icon = "spinner"
+        toast.dismissible = false
+      } else if (data.state === "done") {
+        toast.title = goferT("js.conversation_regroup.done")
+        toast.description = goferTn("js.conversation_regroup.done_detail", data.total || 0, { count: goferNumber(data.total || 0) })
+        toast.variant = "success"
+        toast.icon = "success"
+        toast.dismissible = true
+      } else {
+        toast.title = goferT("js.conversation_regroup.failed")
+        toast.description = goferT("js.conversation_regroup.failed_detail")
+        toast.variant = "error"
+        toast.icon = "error"
+        toast.dismissible = true
+      }
+      showGoferToast(toast)
+    })
+
     source.addEventListener("calendar-reminder", function (e) {
       var data
       try { data = JSON.parse(e.data) } catch (_) { return }

@@ -11,7 +11,6 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/mail"
 	"github.com/cristianadrielbraun/gofer/internal/mail/imap"
 	"github.com/cristianadrielbraun/gofer/internal/models"
-	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 	goimap "github.com/emersion/go-imap/v2"
 )
@@ -249,9 +248,6 @@ func (h *Handler) sendIMAPBatch(ctx context.Context, lead storage.MessageMutatio
 // had.
 func (h *Handler) sendJMAPBatch(ctx context.Context, lead storage.MessageMutation, infos []storage.MessageMutationInfo) (failures []error, gone []bool) {
 	gone = make([]bool, len(infos))
-	if !providers.JMAPEnabled() {
-		return sameMutationError(len(infos), providers.ErrJMAPDisabled), gone
-	}
 	cfg, err := h.accountStore.GetConfig(ctx, lead.AccountID)
 	if err != nil {
 		return sameMutationError(len(infos), err), gone

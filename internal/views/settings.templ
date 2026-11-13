@@ -323,6 +323,54 @@ templ SettingsComposeDisplayTab(uiSettings map[string]string, signatureData []mo
 					}
 				</div>
 			</div>
+			<div class="settings-row border-t border-border/60 pt-5 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+				<div class="min-w-0">
+					<span id="subject-threading-label" class="text-sm font-medium text-foreground">{ i18n.T(ctx, "settings.list.subject_threading.title") }</span>
+					<p class="text-xs text-muted-foreground mt-1">{ i18n.T(ctx, "settings.list.subject_threading.description") }</p>
+				</div>
+				<div class="w-full sm:w-44 shrink-0">
+					@settingsSwitchBox(i18n.T(ctx, "settings.switch.enabled")) {
+						@switchcomp.Switch(switchcomp.Props{
+							ID:      "subject-threading",
+							Name:    "subject_threading",
+							Checked: SubjectThreadingEnabled(uiSettings),
+							Attributes: templ.Attributes{"aria-labelledby": "subject-threading-label", "data-subject-threading-setting": ""},
+						})
+					}
+				</div>
+			</div>
+			<div data-setting-depends-on="subject-threading" class={ "settings-row flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between transition-opacity", templ.KV("opacity-50", !SubjectThreadingEnabled(uiSettings)) }>
+				<div class="min-w-0">
+					<label for="subject-threading-window-days" class="text-sm font-medium text-foreground">{ i18n.T(ctx, "settings.list.subject_threading.window_title") }</label>
+					<p class="text-xs text-muted-foreground mt-1">{ i18n.T(ctx, "settings.list.subject_threading.window_description") }</p>
+				</div>
+				<div class="w-full sm:w-44 shrink-0 flex items-center gap-2">
+					@input.Input(input.Props{ID: "subject-threading-window-days", Name: "subject_threading_window_days", Type: input.TypeNumber, Class: "bg-background", Value: SubjectThreadingWindowDays(uiSettings), Disabled: !SubjectThreadingEnabled(uiSettings), Attributes: templ.Attributes{"min": "1", "max": "365", "step": "1", "inputmode": "numeric", "data-subject-threading-number": ""}})
+					<span class="text-xs text-muted-foreground shrink-0">{ i18n.T(ctx, "settings.list.subject_threading.window_unit") }</span>
+				</div>
+			</div>
+			<div data-setting-depends-on="subject-threading" class={ "settings-row flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between transition-opacity", templ.KV("opacity-50", !SubjectThreadingEnabled(uiSettings)) }>
+				<div class="min-w-0">
+					<label for="subject-threading-max-messages" class="text-sm font-medium text-foreground">{ i18n.T(ctx, "settings.list.subject_threading.max_title") }</label>
+					<p class="text-xs text-muted-foreground mt-1">{ i18n.T(ctx, "settings.list.subject_threading.max_description") }</p>
+				</div>
+				<div class="w-full sm:w-44 shrink-0 flex items-center gap-2">
+					@input.Input(input.Props{ID: "subject-threading-max-messages", Name: "subject_threading_max_messages", Type: input.TypeNumber, Class: "bg-background", Value: SubjectThreadingMaxMessages(uiSettings), Disabled: !SubjectThreadingEnabled(uiSettings), Attributes: templ.Attributes{"min": "0", "max": "10000", "step": "1", "inputmode": "numeric", "data-subject-threading-number": ""}})
+					<span class="text-xs text-muted-foreground shrink-0">{ i18n.T(ctx, "settings.list.subject_threading.max_unit") }</span>
+				</div>
+			</div>
+			<div class="settings-row flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+				<div class="min-w-0">
+					<h4 class="text-sm font-medium text-foreground">{ i18n.T(ctx, "settings.list.subject_threading.regroup_title") }</h4>
+					<p class="text-xs text-muted-foreground mt-1">{ i18n.T(ctx, "settings.list.subject_threading.regroup_description") }</p>
+				</div>
+				<form class="w-full sm:w-44 shrink-0" hx-post="/api/settings/conversations/regroup" hx-swap="none" hx-disabled-elt="find button">
+					@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantOutline, Class: "w-full h-9 bg-background gap-1.5"}) {
+						@icon.RefreshCw(icon.Props{Class: "size-3.5 [.htmx-request_&]:animate-spin"})
+						{ i18n.T(ctx, "settings.list.subject_threading.regroup_button") }
+					}
+				</form>
+			</div>
 		</div>
 		<div class="settings-card bg-card rounded-lg border p-6 space-y-5">
 			<div>
@@ -1835,9 +1883,6 @@ templ SettingsAccountCard(account models.Account) {
 					<div class="min-w-0">
 						<div class="flex min-w-0 items-center gap-1.5">
 							<p class="min-w-0 truncate text-sm font-semibold text-foreground">{ account.Name }</p>
-							if jmapAccountPaused(account) {
-								@SettingsAccountJMAPPausedPopover(account)
-							}
 							@SettingsAccountSyncErrorPopover(account, syncError, syncErrorAt)
 							if account.Provider == "imap" && !account.IsDeleting {
 								@SettingsAccountMissingFolderRoles(account, false)
@@ -2143,25 +2188,6 @@ func missingFolderRolesText(ctx context.Context, roles []string) string {
 		return i18n.T(ctx, "settings.folder_roles.missing_one", "folder", labels[0])
 	}
 	return i18n.T(ctx, "settings.folder_roles.missing_many", "folders", settingsJoinAnd(ctx, labels))
-}
-
-templ SettingsAccountJMAPPausedPopover(account models.Account) {
-	<span data-settings-account-jmap-paused={ account.ID } class="inline-flex shrink-0">
-		@popover.Root(popover.RootProps{ID: fmt.Sprintf("account-jmap-paused-%s", account.ID), Class: "shrink-0"}) {
-			@popover.Trigger(popover.TriggerProps{TriggerType: popover.TriggerTypeHover}) {
-				<button
-					type="button"
-					class="inline-flex size-6 items-center justify-center rounded-md text-amber-600 transition-colors hover:bg-amber-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/40 dark:text-amber-400"
-					aria-label={ i18n.T(ctx, "settings.account.jmap_paused_label", "account", account.Name) }
-				>
-					@icon.TriangleAlert(icon.Props{Class: "size-4"})
-				</button>
-			}
-			@popover.Content(popover.ContentProps{Placement: popover.PlacementBottomStart, ShowArrow: true, Class: "mobile-sheet w-80 p-3 text-xs leading-relaxed text-popover-foreground"}) {
-				@JMAPPausedExplanation()
-			}
-		}
-	</span>
 }
 
 type accountConnectionTestService struct {
@@ -3753,18 +3779,16 @@ templ ChooseAccountTypeDialog() {
 					</div>
 					<svg class="size-4 text-muted-foreground group-hover:text-foreground transition-colors" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
 				</button>
-				if providers.JMAPEnabled() {
-					<button type="button" data-on-click='["openAddAccountWizard","jmap"]' class="w-full group flex items-center gap-4 p-4 rounded-lg border border-border hover:border-primary/50 hover:bg-accent/50 transition-all duration-200 text-left">
-						<div class="flex items-center justify-center w-10 h-10 rounded-lg bg-accent text-muted-foreground group-hover:text-foreground transition-colors">
-							@AccountProviderIcon(providers.ProviderJMAP, "size-5")
-						</div>
-						<div class="flex-1 min-w-0">
-							<div class="text-sm font-medium text-foreground">JMAP <span class="ml-1 rounded border border-border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{ i18n.T(ctx, "settings.add_account.experimental") }</span></div>
-							<div class="text-xs text-muted-foreground mt-0.5">{ i18n.T(ctx, "settings.add_account.jmap_description") }</div>
-						</div>
-						<svg class="size-4 text-muted-foreground group-hover:text-foreground transition-colors" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
-					</button>
-				}
+				<button type="button" data-on-click='["openAddAccountWizard","jmap"]' class="w-full group flex items-center gap-4 p-4 rounded-lg border border-border hover:border-primary/50 hover:bg-accent/50 transition-all duration-200 text-left">
+					<div class="flex items-center justify-center w-10 h-10 rounded-lg bg-accent text-muted-foreground group-hover:text-foreground transition-colors">
+						@AccountProviderIcon(providers.ProviderJMAP, "size-5")
+					</div>
+					<div class="flex-1 min-w-0">
+						<div class="text-sm font-medium text-foreground">JMAP</div>
+						<div class="text-xs text-muted-foreground mt-0.5">{ i18n.T(ctx, "settings.add_account.jmap_description") }</div>
+					</div>
+					<svg class="size-4 text-muted-foreground group-hover:text-foreground transition-colors" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+				</button>
 			</div>
 		}
 	}

@@ -146,13 +146,16 @@ const administratorPeople = `
 		FROM user_enrollment_tokens candidate
 		WHERE candidate.purpose = 'enrollment'
 	), people AS (
-		SELECT u.id, u.username, u.username_normalized, u.status, u.user_type, u.is_admin, u.mfa_required,
+		SELECT u.id, u.username, u.username_normalized, u.status, u.user_type, u.is_admin, u.mfa_required, u.mfa_passkey_counts,
 		       u.password_reset_requested_at, u.deletion_pending, u.created_at, u.last_login_at,
 		       EXISTS(SELECT 1 FROM auth_system_state state WHERE state.id = 1 AND state.owner_user_id = u.id) AS deletion_protected,
 		       invitation.id AS invitation_id, invitation.expires_at, invitation.used_at, invitation.revoked_at,
 		       EXISTS(SELECT 1 FROM password_credentials p WHERE p.user_id = u.id) AS has_password,
 		       EXISTS(SELECT 1 FROM password_credentials p WHERE p.user_id = u.id AND p.must_change = 1) AS password_change_required,
-		       EXISTS(SELECT 1 FROM totp_credentials t WHERE t.user_id = u.id AND t.enabled = 1 AND t.revoked_at IS NULL) AS has_second_factor
+		       (EXISTS(SELECT 1 FROM totp_credentials t WHERE t.user_id = u.id AND t.enabled = 1 AND t.revoked_at IS NULL)
+		        OR (u.mfa_required = 1 AND u.mfa_passkey_counts = 1 AND u.user_type = 'webmail' AND u.is_admin = 0
+		            AND (SELECT mfa_policy FROM policy) <> 'all_users'
+		            AND EXISTS(SELECT 1 FROM webauthn_credentials w WHERE w.user_id = u.id AND w.revoked_at IS NULL))) AS has_second_factor
 		FROM users u
 		LEFT JOIN invitations invitation ON invitation.user_id = u.id AND invitation.rank = 1
 	)`
@@ -277,7 +280,7 @@ func (m *Manager) listAdministratorUsers(ctx context.Context, actorUserID, actor
 	}
 
 	rows, err := tx.QueryContext(ctx, administratorPeople+`
-		SELECT people.id, people.username, people.status, people.user_type, people.is_admin, people.mfa_required,
+		SELECT people.id, people.username, people.status, people.user_type, people.is_admin, people.mfa_required, people.mfa_passkey_counts,
 		       people.password_reset_requested_at, people.deletion_pending, people.deletion_protected,
 		       people.invitation_id, people.expires_at, people.used_at, people.revoked_at,
 		       people.has_password, people.password_change_required, people.has_second_factor,
@@ -290,11 +293,11 @@ func (m *Manager) listAdministratorUsers(ctx context.Context, actorUserID, actor
 	defer rows.Close()
 	for rows.Next() {
 		var user AdministratorUserSummary
-		var isAdmin, mfaRequired, deletionPending, deletionProtected int
+		var isAdmin, mfaRequired, mfaPasskeyCounts, deletionPending, deletionProtected int
 		var tokenID sql.NullString
 		var passwordResetRequestedAt, expiresAt, usedAt, revokedAt, lastLoginAt sql.NullTime
 		if err := rows.Scan(
-			&user.ID, &user.Username, &user.Status, &user.UserType, &isAdmin, &mfaRequired,
+			&user.ID, &user.Username, &user.Status, &user.UserType, &isAdmin, &mfaRequired, &mfaPasskeyCounts,
 			&passwordResetRequestedAt, &deletionPending, &deletionProtected,
 			&tokenID, &expiresAt, &usedAt, &revokedAt, &user.HasPassword, &user.PasswordChangeRequired,
 			&user.HasSecondFactor, &user.CreatedAt, &lastLoginAt,
@@ -321,6 +324,7 @@ func (m *Manager) listAdministratorUsers(ctx context.Context, actorUserID, actor
 		}
 		user.IsAdmin = isAdmin == 1
 		user.MFARequired = mfaRequired == 1
+		user.MFAPasskeyCounts = user.MFARequired && mfaPasskeyCounts == 1
 		user.DeletionPending = deletionPending == 1
 		user.DeletionProtected = deletionProtected == 1
 		if passwordResetRequestedAt.Valid {

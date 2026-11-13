@@ -271,7 +271,10 @@ func (s *Service) bulkChange(ctx context.Context, actor Actor, action BulkAction
 		}
 	case BulkRequireMFA, BulkClearMFA:
 		var result *auth.SetAdministratorUserMFAPolicyResult
-		if result, err = s.SetMFARequirement(ctx, actor, outcome.UserID, action == BulkRequireMFA); result != nil {
+		// A new requirement takes the dialog's default: a passkey is enough.
+		// Someone already required was left out before.
+		require := action == BulkRequireMFA
+		if result, err = s.SetMFARequirement(ctx, actor, outcome.UserID, require, require); result != nil {
 			changed = result.Changed
 		}
 	case BulkRequirePasswordChange:

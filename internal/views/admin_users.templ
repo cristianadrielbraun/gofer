@@ -3,7 +3,6 @@ package views
 import (
 	"context"
 	"net/url"
-	"fmt"
 	"strings"
 	"time"
 
@@ -38,6 +37,8 @@ type AdminUserData struct {
 	MFALabel                 string
 	MFADetail                string
 	MFARequired              bool
+	// MFAPasskeyCounts: the requirement accepts a passkey on its own.
+	MFAPasskeyCounts         bool
 	// MFASetupPending: two-factor authentication is required, but the
 	// person hasn't set it up yet; they will be asked to.
 	MFASetupPending          bool
@@ -165,6 +166,9 @@ type AdminUserDialog struct {
 	Action    AdminUserAction
 	User      AdminUserData
 	CSRFToken string
+	// ProviderSignIn: Google, Microsoft or an organization's provider can be
+	// used to sign in, so the two-factor preview lists it.
+	ProviderSignIn bool
 }
 
 // adminUserDialogSlotID is where the Users page puts the dialog of the
@@ -235,7 +239,7 @@ func adminUserActionEntries(ctx context.Context, user AdminUserData) []adminUser
 	}
 	if path := user.Path(AdminUserActionMFAPolicy); path != "" {
 		if user.MFARequired {
-			entries = append(entries, adminUserMenuEntry{Path: path, Label: i18n.T(ctx, "admin.mfa.clear_menu"), Icon: icon.ShieldOff})
+			entries = append(entries, adminUserMenuEntry{Path: path, Label: i18n.T(ctx, "admin.mfa.change_menu"), Icon: icon.ShieldEllipsis})
 		} else {
 			entries = append(entries, adminUserMenuEntry{Path: path, Label: i18n.T(ctx, "admin.mfa.require"), Icon: icon.ShieldCheck})
 		}
@@ -569,7 +573,7 @@ templ adminUserMenuItemLabel(entry adminUserMenuEntry) {
 templ AdminUserActionDialog(d AdminUserDialog, verification ...AdminSecurityVerificationData) {
 	switch d.Action {
 		case AdminUserActionMFAPolicy:
-			@adminUserMFAPolicyDialog(d.User, d.CSRFToken)
+			@adminUserMFAPolicyDialog(d.User, d.CSRFToken, d.ProviderSignIn)
 		case AdminUserActionStatus:
 			@adminUserStatusDialog(d.User, d.CSRFToken)
 		case AdminUserActionCredentialReset:
@@ -592,27 +596,43 @@ func adminUserMFAPolicyDialogID(user AdminUserData) string {
 	return "admin-user-mfa-policy-" + strings.NewReplacer("/", "-", " ", "-").Replace(user.ID)
 }
 
-func adminUserMFAPolicyButtonVariant(user AdminUserData) button.Variant {
-	if user.MFARequired {
-		return button.VariantDestructive
-	}
-	return button.VariantDefault
+// adminMFAPreview shows what each way of signing in will need under the
+// chosen second step. admin.js swaps the passkey line when the choice changes.
+templ adminMFAPreview(passkeyCounts, providerSignIn bool) {
+	<div class="mx-1 mb-2 rounded-md border border-border bg-muted/40 px-3 py-2.5 text-sm" data-admin-mfa-preview>
+		<p class="mb-1.5 text-xs font-medium text-muted-foreground">{ i18n.T(ctx, "admin.mfa.preview_title") }</p>
+		<dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
+			<dt class="text-muted-foreground">{ i18n.T(ctx, "admin.mfa.preview_password") }</dt>
+			<dd class="text-foreground">{ i18n.T(ctx, "admin.mfa.preview_password_result") }</dd>
+			<dt class="text-muted-foreground">{ i18n.T(ctx, "admin.mfa.preview_passkey") }</dt>
+			<dd class="text-foreground">
+				<span data-admin-mfa-when="true" hidden?={ !passkeyCounts }>{ i18n.T(ctx, "admin.mfa.preview_passkey_alone") }</span>
+				<span data-admin-mfa-when="false" hidden?={ passkeyCounts }>{ i18n.T(ctx, "admin.mfa.preview_passkey_code") }</span>
+			</dd>
+			if providerSignIn {
+				<dt class="text-muted-foreground">{ i18n.T(ctx, "admin.mfa.preview_provider") }</dt>
+				<dd class="text-foreground">{ i18n.T(ctx, "admin.mfa.preview_provider_result") }</dd>
+			}
+		</dl>
+		<p class="mt-2 text-xs text-muted-foreground">{ i18n.T(ctx, "admin.mfa.preview_note") }</p>
+	</div>
 }
 
-templ adminUserMFAPolicyDialog(user AdminUserData, csrfToken string) {
+templ adminUserMFAPolicyDialog(user AdminUserData, csrfToken string, providerSignIn bool) {
+	{{ passkeyCounts := !user.MFARequired || user.MFAPasskeyCounts }}
 	@dialog.Dialog(dialog.Props{ID: adminUserMFAPolicyDialogID(user), Open: true}) {
 		@dialog.Content() {
 			@dialog.Header() {
 				@dialog.Title() {
 					if user.MFARequired {
-						{ i18n.T(ctx, "admin.mfa.clear_title") }
+						{ i18n.T(ctx, "admin.mfa.change_title", "user", adminUserUsername(ctx, user.Username)) }
 					} else {
 						{ i18n.T(ctx, "admin.mfa.require_title", "user", adminUserUsername(ctx, user.Username)) }
 					}
 				}
 				@dialog.Description() {
 					if user.MFARequired {
-						{ i18n.T(ctx, "admin.mfa.clear_detail") }
+						{ i18n.T(ctx, "admin.mfa.change_detail") }
 					} else {
 						{ i18n.T(ctx, "admin.mfa.require_detail") }
 					}
@@ -623,17 +643,39 @@ templ adminUserMFAPolicyDialog(user AdminUserData, csrfToken string) {
 				if user.ListPath != "" {
 					<input type="hidden" name="list" value={ user.ListPath }/>
 				}
-				<input type="hidden" name="required" value={ fmt.Sprintf("%t", !user.MFARequired) }/>
+				<fieldset class="space-y-3 px-1 py-2" data-admin-mfa-choice>
+					<legend class="sr-only">{ i18n.T(ctx, "admin.mfa.choice") }</legend>
+					<label class="flex items-start gap-3 text-sm">
+						@radio.Radio(radio.Props{Name: "passkey", Value: "true", Checked: passkeyCounts, Class: "mt-0.5 shrink-0"})
+						<span>
+							<span class="font-medium text-foreground">{ i18n.T(ctx, "admin.mfa.option_passkey") }</span>
+							<span class="mt-0.5 block text-xs text-muted-foreground">{ i18n.T(ctx, "admin.mfa.option_passkey_help") }</span>
+						</span>
+					</label>
+					<label class="flex items-start gap-3 text-sm">
+						@radio.Radio(radio.Props{Name: "passkey", Value: "false", Checked: !passkeyCounts, Class: "mt-0.5 shrink-0"})
+						<span>
+							<span class="font-medium text-foreground">{ i18n.T(ctx, "admin.mfa.option_totp") }</span>
+							<span class="mt-0.5 block text-xs text-muted-foreground">{ i18n.T(ctx, "admin.mfa.option_totp_help") }</span>
+						</span>
+					</label>
+				</fieldset>
+				@adminMFAPreview(passkeyCounts, providerSignIn)
 				@dialog.Footer() {
 					@dialog.Close() {
 						@button.Button(button.Props{Variant: button.VariantOutline}) {
 							{ i18n.T(ctx, "common.cancel") }
 						}
 					}
-					@button.Button(button.Props{Type: button.TypeSubmit, Variant: adminUserMFAPolicyButtonVariant(user)}) {
-						if user.MFARequired {
+					if user.MFARequired {
+						@button.Button(button.Props{Type: button.TypeSubmit, Variant: button.VariantDestructive, Attributes: templ.Attributes{"name": "required", "value": "false"}}) {
 							{ i18n.T(ctx, "admin.mfa.clear") }
-						} else {
+						}
+						@button.Button(button.Props{Type: button.TypeSubmit, Attributes: templ.Attributes{"name": "required", "value": "true"}}) {
+							{ i18n.T(ctx, "admin.mfa.save") }
+						}
+					} else {
+						@button.Button(button.Props{Type: button.TypeSubmit, Attributes: templ.Attributes{"name": "required", "value": "true"}}) {
 							{ i18n.T(ctx, "admin.mfa.require") }
 						}
 					}

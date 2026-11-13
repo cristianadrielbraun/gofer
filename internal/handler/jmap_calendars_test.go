@@ -217,7 +217,6 @@ func (f *jmapCalendarsTestServer) handler() http.Handler {
 }
 
 func TestJMAPCalendarDiscoveryAndSyncForTheSharedStore(t *testing.T) {
-	t.Setenv("GOFER_JMAP_EXPERIMENT", "true")
 	h, db := newAccountOwnershipTestHandler(t)
 	fake := &jmapCalendarsTestServer{password: "saved-secret"}
 	fake.set("s1", map[string]string{"s1": jmapTestSeries,
@@ -380,7 +379,6 @@ func TestJMAPCalendarLiveExpansion(t *testing.T) {
 // A JMAP account's Calendar sync makes a calendar with Calendar/set, then
 // lists it selected beside the others.
 func TestJMAPCalendarCreateForTheSharedStore(t *testing.T) {
-	t.Setenv("GOFER_JMAP_EXPERIMENT", "true")
 	h, db := newAccountOwnershipTestHandler(t)
 	fake := &jmapCalendarsTestServer{password: "saved-secret"}
 	server := httptest.NewServer(fake.handler())

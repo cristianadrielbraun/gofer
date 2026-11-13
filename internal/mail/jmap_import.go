@@ -8,7 +8,6 @@ import (
 
 	"github.com/cristianadrielbraun/gofer/internal/mail/jmap"
 	"github.com/cristianadrielbraun/gofer/internal/models"
-	"github.com/cristianadrielbraun/gofer/internal/providers"
 )
 
 // JMAPImport adds messages to a JMAP account's mailboxes, for imports and
@@ -43,9 +42,6 @@ func NewJMAPImport(cfg *models.AccountConfig, password string) *JMAPImport {
 func (j *JMAPImport) open(ctx context.Context) error {
 	if j.session != nil {
 		return nil
-	}
-	if !providers.JMAPEnabled() {
-		return providers.ErrJMAPDisabled
 	}
 	client, session, account, err := openJMAPMail(ctx, j.config, j.password)
 	if err != nil {

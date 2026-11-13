@@ -14,7 +14,7 @@ const (
 	securityTOTPFailureMessage             = loginMFAFailureMessage
 	invitationEnrollmentFailureMessage     = "That invitation token is invalid or no longer active."
 	credentialRedemptionFailureMessage     = "That reset token is invalid or no longer active."
-	enrollmentRedemptionMFARequiredMessage = "This account must set up an authenticator app before it can be activated. Contact an administrator to finish two-factor authentication setup."
+	enrollmentRedemptionMFARequiredMessage = "This account must set up an authenticator app before it can be activated. Contact an administrator to finish setting up the authenticator app (TOTP)."
 	recoveryCodeFailureMessage             = "That recovery code is invalid or has already been used."
 	setupTokenFailureMessage               = "That setup token is invalid or no longer active."
 )
@@ -29,7 +29,7 @@ func TestAuthTextTranslatesKnownAuthMessages(t *testing.T) {
 		"Confirm that you saved the recovery codes before continuing.",
 		"That recovery-code batch is no longer current. Review the latest batch before continuing.",
 		loginMFAFailureMessage,
-		"Your administrator requires two-factor authentication, so this authenticator app can't be removed. You can replace it with another one.",
+		"Your administrator requires an authenticator app (TOTP), so this one can't be removed. You can replace it with another one.",
 		"Add another sign-in method before disabling this authenticator.",
 		"Keep at least one sign-in method available. Add another sign-in method before removing this passkey.",
 		"This sign-in provider cannot be disconnected here yet.",

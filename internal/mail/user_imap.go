@@ -138,7 +138,7 @@ func (s *UserIMAP) SupportsAccount(cfg *models.AccountConfig) bool {
 		return true
 	}
 	if cfg.Provider == providers.ProviderJMAP {
-		return cfg.AuthMethod == "plain" && providers.JMAPEnabled()
+		return cfg.AuthMethod == "plain"
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -427,8 +427,8 @@ func (s *UserIMAP) sync(ctx context.Context, owner, id string, repair, backgroun
 		s.mu.Unlock()
 		var scope *userIMAPScope
 		queueFailed := false
-		// paused is a JMAP account while JMAP is turned off: nothing is sent or
-		// fetched, and its queued work waits for JMAP to be turned on again.
+		// paused is an account with no mail to sync: nothing is sent or
+		// fetched.
 		paused := false
 		var receiveErr error
 		defer func() {
@@ -527,13 +527,6 @@ func (s *UserIMAP) sync(ctx context.Context, owner, id string, repair, backgroun
 			return err
 		}
 		interval = scope.pollInterval
-		if scope.config.Provider == providers.ProviderJMAP && !providers.JMAPEnabled() {
-			paused = true
-			s.mu.Lock()
-			s.stopWatchesLocked(id)
-			s.mu.Unlock()
-			return nil
-		}
 		if background && scope.config.Provider == providers.ProviderIMAP {
 			release, err := s.acquireServer(ctx, scope.config.IMAPHost)
 			if err != nil {
@@ -776,9 +769,6 @@ func (s *UserIMAP) ensureBody(ctx context.Context, owner string, msgID int64, mo
 					return err
 				}
 			} else if scope.config.Provider == providers.ProviderJMAP {
-				if !providers.JMAPEnabled() {
-					return providers.ErrJMAPDisabled
-				}
 				raw, err = FetchJMAPRawMessage(ctx, scope.config, scope.password, providerID)
 				if err != nil {
 					return err

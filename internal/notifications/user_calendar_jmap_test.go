@@ -83,7 +83,6 @@ func ownedJMAPCalendarServer(t *testing.T) *httptest.Server {
 }
 
 func TestUserJMAPCalendarDiscoveryAndSync(t *testing.T) {
-	t.Setenv("GOFER_JMAP_EXPERIMENT", "true")
 	server := ownedJMAPCalendarServer(t)
 	address, _ := url.Parse(server.URL)
 	port, _ := strconv.Atoi(address.Port())
@@ -220,7 +219,6 @@ func newOwnedJMAPCalendarLive(t *testing.T) (*userStorageFixture, storage.Calend
 	if sessionURL == "" || user == "" || password == "" {
 		t.Skip("GOFER_JMAP_TEST_URL, GOFER_JMAP_TEST_USER and GOFER_JMAP_TEST_PASSWORD not set")
 	}
-	t.Setenv("GOFER_JMAP_EXPERIMENT", "true")
 	f := newUserStorageFixtureServices(t, true, &mailauth.Config{}, nil, nil)
 	address, _ := url.Parse(sessionURL)
 	port, _ := strconv.Atoi(address.Port())

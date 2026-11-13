@@ -55,7 +55,6 @@ func TestDiscardJMAPDraftQueuesNoIMAPDelete(t *testing.T) {
 func TestDeleteReadPaneJMAPDraftRemovesRemoteCopy(t *testing.T) {
 	for _, mode := range []string{"draft", "changed", "sent", "gone", "foreign"} {
 		t.Run(mode, func(t *testing.T) {
-			t.Setenv("GOFER_JMAP_EXPERIMENT", "true")
 			h, db := newAccountOwnershipTestHandler(t)
 			h.syncer = mail.NewSyncOrchestrator(db, nil, nil, nil)
 			var exists atomic.Bool

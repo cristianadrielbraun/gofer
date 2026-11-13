@@ -712,6 +712,8 @@ CREATE TABLE IF NOT EXISTS users (
     status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('pending', 'active', 'disabled')),
     auth_version INTEGER NOT NULL DEFAULT 1 CHECK (auth_version > 0),
     mfa_required INTEGER NOT NULL DEFAULT 0 CHECK (mfa_required IN (0, 1)),
+    passkey_totp_required INTEGER NOT NULL DEFAULT 1 CHECK (passkey_totp_required IN (0, 1)),
+    mfa_passkey_counts INTEGER NOT NULL DEFAULT 0 CHECK (mfa_passkey_counts IN (0, 1)),
     last_login_at DATETIME,
     disabled_at DATETIME,
     disabled_by TEXT REFERENCES users(id) ON DELETE SET NULL,
@@ -2003,4 +2005,4 @@ CREATE TABLE IF NOT EXISTS account_idle_limits (
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-INSERT OR REPLACE INTO schema_version (version) VALUES (147);
+INSERT OR REPLACE INTO schema_version (version) VALUES (149);

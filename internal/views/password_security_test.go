@@ -123,7 +123,7 @@ func TestPasswordSecuritySettingsRendersSessionHistoryWithoutInternalValues(t *t
 		CanRevokeOtherSessions: true,
 		Sessions: []SecuritySessionData{
 			{
-				Client: "Firefox on Linux", Authentication: "Password", Assurance: "Two-factor",
+				Client: "Firefox on Linux", Authentication: "Password", Assurance: "With authenticator app (TOTP)",
 				SignedInAt: "Aug 19, 2026 at 10:00 AM", LastActiveAt: "Aug 19, 2026 at 10:05 AM",
 				Current: true, Active: true,
 			},
@@ -133,7 +133,7 @@ func TestPasswordSecuritySettingsRendersSessionHistoryWithoutInternalValues(t *t
 				Active: true, RevokePath: revokePath,
 			},
 			{
-				Client: `<script>signed-out</script>`, Authentication: "Google", Assurance: "Single factor",
+				Client: `<script>signed-out</script>`, Authentication: "Google", Assurance: "Without authenticator app",
 				SignedInAt: "Aug 18, 2026 at 9:00 AM", LastActiveAt: "Aug 18, 2026 at 9:30 AM",
 				EndedAt: "Aug 18, 2026 at 9:31 AM",
 			},
@@ -149,12 +149,12 @@ func TestPasswordSecuritySettingsRendersSessionHistoryWithoutInternalValues(t *t
 		`id="security-sessions-revoke-others"`,
 		`data-tui-dialog-target="security-session-revoke-1"`,
 		`id="security-session-revoke-1"`,
-		"Firefox on Linux", "Password · Two-factor", "Current",
+		"Firefox on Linux", "Password · With authenticator app (TOTP)", "Current",
 		"Chrome on macOS", "Passkey · Phishing-resistant", "Active",
 		`action="` + revokePath + `"`, ">Sign out</button>",
 		`action="` + revokeOthersPath + `"`, "Sign out all other sessions",
 		`name="_csrf" value="` + csrf + `"`,
-		`&lt;script&gt;signed-out&lt;/script&gt;`, "Google · Single factor", "Signed out",
+		`&lt;script&gt;signed-out&lt;/script&gt;`, "Google · Without authenticator app", "Signed out",
 		"Signed in Aug 19, 2026 at 10:00 AM", "Last active Aug 19, 2026 at 10:05 AM",
 		"Signed out Aug 18, 2026 at 9:31 AM", "Show older",
 		"Session tokens and internal identifiers are never shown.",
@@ -338,7 +338,7 @@ func TestPasswordSecuritySettingsRendersFirstTimeTOTPEnrollmentWithoutReplacemen
 		`data-totp-management`, "Verify the new authenticator",
 		`alt="QR code containing the new Gofer authenticator key"`,
 		`aria-label="New authenticator manual setup key"`,
-		"authenticator is not enabled until the code is verified", "Turn on two-factor authentication",
+		"authenticator is not enabled until the code is verified", "Turn on the authenticator app (TOTP)",
 		`&lt;first-authenticator-key&gt;`,
 	} {
 		if !strings.Contains(html, want) {

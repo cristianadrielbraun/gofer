@@ -81,12 +81,12 @@ func TestSecuritySettingsRendersManagedFactorsAndProtectsActionsWithCSRF(t *test
 	}
 	html := page.Body.String()
 	for _, want := range []string{
-		"Two-factor authentication", ">On<", "Recovery codes", "10 remaining",
+		"Authenticator app (TOTP)", ">On<", "Recovery codes", "10 remaining",
 		"Passkeys", "Add passkey", `data-passkey-registration`,
 		`src="/assets/js/passkey-registration.js"`,
 		`action="/settings/security/totp/start"`,
 		`action="/settings/security/recovery/start"`,
-		"Your administrator requires two-factor authentication",
+		"Your administrator requires an authenticator app (TOTP)",
 		`aria-disabled="true"`, `aria-describedby="security-totp-blocked-reason"`,
 		"security-totp-blocked",
 	} {
@@ -155,7 +155,7 @@ func TestSecuritySettingsListsOnlyCurrentUsersActiveAndRecentSessions(t *testing
 	html := page.Body.String()
 	for _, want := range []string{
 		`data-security-sessions`, `aria-label="Current and recent sessions"`, "Current",
-		"Other Browser", "Google", "Two-factor", "Active",
+		"Other Browser", "Google", "With authenticator app (TOTP)", "Active",
 		"Signed-out Browser", "Passkey", "Signed out",
 		"retained for up to 30 days", "internal identifiers are never shown",
 		`action="` + securitySessionRevokeOthersPath + `"`, "Sign out all other sessions",
@@ -405,7 +405,7 @@ func TestSecuritySettingsReplacesTOTPThroughSessionBoundChallenge(t *testing.T) 
 		t.Fatalf("old session after TOTP replacement = %#v, %v", stored, err)
 	}
 	confirmationPage := getSecuritySettings(t, stack, rotatedCookie)
-	if confirmationPage.Code != http.StatusOK || !strings.Contains(confirmationPage.Body.String(), "Two-factor authentication") {
+	if confirmationPage.Code != http.StatusOK || !strings.Contains(confirmationPage.Body.String(), "Authenticator app (TOTP)") {
 		t.Fatalf("security page with rotated session = %d %q", confirmationPage.Code, confirmationPage.Body.String())
 	}
 	if strings.Contains(confirmationPage.Body.String(), oldSecret) || strings.Contains(confirmationPage.Body.String(), newSecret) {
@@ -452,7 +452,7 @@ func TestSecuritySettingsEnrollsFirstAuthenticatorThroughSessionBoundChallenge(t
 	enrollmentPage := getSecuritySettingsPath(t, stack, "/settings/security", sessionCookie, challengeCookie)
 	for _, want := range []string{
 		"Verify the new authenticator", "authenticator is not enabled until the code is verified",
-		`alt="QR code containing the new Gofer authenticator key"`, "Turn on two-factor authentication",
+		`alt="QR code containing the new Gofer authenticator key"`, "Turn on the authenticator app (TOTP)",
 		`action="/settings/security/totp/confirm"`,
 	} {
 		if enrollmentPage.Code != http.StatusOK || !strings.Contains(enrollmentPage.Body.String(), want) {

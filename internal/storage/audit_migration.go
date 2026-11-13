@@ -45,8 +45,8 @@ CREATE TABLE IF NOT EXISTS audit_checkpoints (
 // administrator chooses between 90 and 3,650.
 const auditRetentionColumn = "admin_audit_retention_days INTEGER NOT NULL DEFAULT 730 CHECK (admin_audit_retention_days BETWEEN 90 AND 3650)"
 
-// migrateV146ToV147 adds the administration audit log and its retention.
-func migrateV146ToV147(db *sql.DB) error {
+// migrateV148ToV149 adds the administration audit log and its retention.
+func migrateV148ToV149(db *sql.DB) error {
 	tx, err := db.Begin()
 	if err != nil {
 		return err
@@ -56,7 +56,7 @@ func migrateV146ToV147(db *sql.DB) error {
 	if err := tx.QueryRow(`SELECT COALESCE(MAX(version),0) FROM schema_version`).Scan(&version); err != nil {
 		return err
 	}
-	if version >= 147 {
+	if version >= 149 {
 		return nil
 	}
 	if _, err := tx.Exec(auditTablesSQL); err != nil {
@@ -77,7 +77,7 @@ func migrateV146ToV147(db *sql.DB) error {
 			}
 		}
 	}
-	if err := markSchemaVersion(tx, 147); err != nil {
+	if err := markSchemaVersion(tx, 149); err != nil {
 		return err
 	}
 	return tx.Commit()

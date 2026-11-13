@@ -86,10 +86,6 @@ func parseTypedAccountTest(w http.ResponseWriter, r *http.Request) (models.Creat
 	}
 	req := accountRequestFromForm(r)
 	if req.Provider == providers.ProviderJMAP {
-		if !providers.JMAPEnabled() {
-			http.Error(w, serverText(r.Context(), providers.ErrJMAPDisabled.Error()), http.StatusBadRequest)
-			return req, false
-		}
 		if req.EmailAddress == "" {
 			http.Error(w, i18n.T(r.Context(), "server.error.all_required_fields_must_be_filled_in"), http.StatusBadRequest)
 			return req, false
@@ -210,9 +206,6 @@ func (h *Handler) writeJMAPAccountTest(ctx context.Context, w http.ResponseWrite
 // URL. The wizard sends the URL its connection test found; without one, as
 // when the test was skipped, discovery runs here as it does in the test.
 func (h *Handler) prepareJMAPAccount(r *http.Request, req *models.CreateAccountRequest) error {
-	if !providers.JMAPEnabled() {
-		return providers.ErrJMAPDisabled
-	}
 	if req.Username == "" {
 		req.Username = req.EmailAddress
 	}
@@ -240,9 +233,6 @@ func (h *Handler) prepareJMAPAccount(r *http.Request, req *models.CreateAccountR
 // server field keeps a session URL as entered; a host, or nothing, is looked
 // up with the typed password, or the saved one when it was left blank.
 func (h *Handler) resolveJMAPAccountChanges(r *http.Request, accountID string, req *models.CreateAccountRequest) error {
-	if !providers.JMAPEnabled() {
-		return providers.ErrJMAPDisabled
-	}
 	if req.EmailAddress == "" {
 		return errors.New("Email address is required")
 	}

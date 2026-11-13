@@ -207,7 +207,6 @@ func (s *jmapDraftServer) answer(t *testing.T, w http.ResponseWriter, r *http.Re
 // sync off so only her queued drafts and sends reach it.
 func newJMAPDraftFixture(t *testing.T) (*userStorageFixture, *jmapDraftServer) {
 	t.Helper()
-	t.Setenv("GOFER_JMAP_EXPERIMENT", "true")
 	server := newJMAPDraftServer(t)
 	f := newUserStorageFixtureMode(t, true)
 	endpoint, err := jmap.ParseEndpoint(server.URL)

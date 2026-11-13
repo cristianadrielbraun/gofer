@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	"net/http"
-	"slices"
 	"strconv"
 	"strings"
 
@@ -194,33 +193,15 @@ func (h *Handler) handleUserContactService(w http.ResponseWriter, r *http.Reques
 func (h *Handler) handleUserManualSync(w http.ResponseWriter, r *http.Request) {
 	owner := h.userID(r.Context())
 	var ids []string
-	paused := map[string]bool{}
 	err := h.withUserDB(r.Context(), owner, func(db *storage.DB) error {
 		var err error
 		ids, err = db.GetEmailSyncAccountIDs(r.Context(), owner)
-		if err != nil || providers.JMAPEnabled() {
-			return err
-		}
-		// JMAP accounts are paused while JMAP is turned off; the others
-		// still refresh.
-		accounts, err := db.GetAccounts(r.Context(), owner)
-		for _, account := range accounts {
-			if account.Provider == providers.ProviderJMAP {
-				paused[account.ID] = true
-			}
-		}
 		return err
 	})
 	if err != nil {
 		userAccountError(w, r, err)
 		return
 	}
-	if id := r.PathValue("id"); paused[id] {
-		// Like the account's other controls while JMAP is off.
-		http.NotFound(w, r)
-		return
-	}
-	ids = slices.DeleteFunc(ids, func(id string) bool { return paused[id] })
 	if id := r.PathValue("id"); id != "" {
 		found := false
 		for _, candidate := range ids {
@@ -234,10 +215,6 @@ func (h *Handler) handleUserManualSync(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		ids = []string{id}
-	}
-	if len(ids) == 0 && len(paused) > 0 {
-		htmlStatus(w, r, http.StatusConflict, providers.ErrJMAPDisabled.Error())
-		return
 	}
 	if len(ids) == 0 {
 		htmlStatus(w, r, http.StatusBadRequest, "Connect an email account before syncing mail.")

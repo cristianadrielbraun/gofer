@@ -12,19 +12,13 @@ import (
 	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/models"
-	"github.com/cristianadrielbraun/gofer/internal/providers"
+	"github.com/cristianadrielbraun/gofer/internal/storage"
 	"github.com/cristianadrielbraun/gofer/internal/themebuilder"
 	"github.com/cristianadrielbraun/gofer/internal/themecolors"
 
 	"github.com/a-h/templ"
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
 )
-
-// jmapAccountPaused is a JMAP account while JMAP is turned off: Gofer keeps
-// its mail but doesn't sync it.
-func jmapAccountPaused(account models.Account) bool {
-	return account.Provider == providers.ProviderJMAP && !providers.JMAPEnabled()
-}
 
 type unifiedFolderOption struct {
 	ID   string
@@ -1147,6 +1141,22 @@ func mailListPaginationRangeLabel(ctx context.Context, windowStart int, itemCoun
 		end = totalCount
 	}
 	return i18n.T(ctx, "mail.pagination.range", "start", i18n.Number(ctx, start), "end", i18n.Number(ctx, end), "total", i18n.Number(ctx, totalCount))
+}
+
+// SubjectThreadingEnabled reports whether mail without reply headers is
+// grouped into conversations by subject.
+func SubjectThreadingEnabled(settings map[string]string) bool {
+	return uiSettingGet(settings, "subject_threading", "false") == "true"
+}
+
+// SubjectThreadingWindowDays is the subject grouping window as shown.
+func SubjectThreadingWindowDays(settings map[string]string) string {
+	return strconv.Itoa(storage.SubjectThreadingWindowDays(uiSettingGet(settings, "subject_threading_window_days", "")))
+}
+
+// SubjectThreadingMaxMessages is the subject grouping size limit as shown.
+func SubjectThreadingMaxMessages(settings map[string]string) string {
+	return strconv.Itoa(storage.SubjectThreadingMaxMessages(uiSettingGet(settings, "subject_threading_max_messages", "")))
 }
 
 // GroupConversations reports whether mail lists show each conversation

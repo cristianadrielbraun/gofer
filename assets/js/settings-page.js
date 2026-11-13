@@ -99,6 +99,21 @@
     if (groupConversations && typeof GoferSettings !== 'undefined') {
       GoferSettings.set('group_conversations', groupConversations.checked ? 'true' : 'false');
     }
+    var subjectThreading = e.target.closest('[data-subject-threading-setting]');
+    if (subjectThreading && typeof GoferSettings !== 'undefined') {
+      GoferSettings.set('subject_threading', subjectThreading.checked ? 'true' : 'false');
+    }
+    var subjectThreadingNumber = e.target.closest('[data-subject-threading-number]');
+    if (subjectThreadingNumber && typeof GoferSettings !== 'undefined') {
+      // The same bounds as the server keeps: a window of 1 to 365 days, a
+      // limit of 0 (none) or 2 to 10000 messages.
+      var isWindow = subjectThreadingNumber.name === 'subject_threading_window_days';
+      var n = parseInt(subjectThreadingNumber.value, 10);
+      if (isNaN(n)) n = isWindow ? 7 : 100;
+      n = isWindow ? Math.min(Math.max(n, 1), 365) : (n < 0 ? 100 : n === 1 ? 2 : Math.min(n, 10000));
+      subjectThreadingNumber.value = String(n);
+      GoferSettings.set(subjectThreadingNumber.name, String(n));
+    }
     var threadOrder = e.target.closest('input[name="thread_order"]');
     if (threadOrder && typeof GoferSettings !== 'undefined') {
       GoferSettings.set('thread_order', threadOrder.value);
@@ -3373,3 +3388,22 @@ function editToggleSmtpAuth(checked) {
     if (sp && p) sp.value = p.value;
   }
 }
+
+// Security tab: the passkey app-code switch. "Confirm change" only works
+// once the switch differs from the saved choice, and the dialog explains
+// what that change will sign out.
+(function() {
+  document.addEventListener('change', function(event) {
+    var toggle = event.target;
+    if (!toggle || !toggle.matches || !toggle.matches('[data-passkey-totp-switch]')) return;
+    var option = toggle.closest('[data-passkey-totp-option]');
+    if (!option) return;
+    var changed = String(toggle.checked) !== toggle.getAttribute('data-saved');
+    var confirm = option.querySelector('[data-passkey-totp-confirm]');
+    if (confirm) confirm.disabled = !changed;
+    var when = toggle.checked ? 'on' : 'off';
+    document.querySelectorAll('[data-passkey-totp-when]').forEach(function(text) {
+      text.hidden = text.getAttribute('data-passkey-totp-when') !== when;
+    });
+  });
+})();

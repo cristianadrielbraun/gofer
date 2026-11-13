@@ -180,7 +180,6 @@ func TestDiscoverJMAPSessionLiveServer(t *testing.T) {
 // In managed mode the account's connection test signs in to its saved JMAP
 // session URL, within the instance's exceptions for that server.
 func TestUserTestAccountChecksJMAPSession(t *testing.T) {
-	t.Setenv("GOFER_JMAP_EXPERIMENT", "true")
 	f := newUserGmailFixture(t)
 	server := jmapMailServer(t, true, nil)
 	sessionURL := server.URL + "/.well-known/jmap"

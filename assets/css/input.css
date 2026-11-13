@@ -183,6 +183,12 @@
   html[data-corners="square"] *::-webkit-scrollbar-thumb {
     border-radius: 0;
   }
+  /* The sidebar can be much darker or lighter than the panes, so its thumb
+     comes from its own text color, which is always readable on it. */
+  html:not([data-theme="express"]) .surface-leather {
+    --scrollbar-thumb: color-mix(in srgb, var(--color-sidebar-foreground) 70%, var(--color-sidebar));
+    --scrollbar-thumb-hover: var(--color-sidebar-foreground);
+  }
   html[data-theme="classic"]:not(.dark) #mail-list-scroll {
     --scrollbar-thumb: #a99b88;
     --scrollbar-thumb-hover: #8a7c6a;

@@ -659,7 +659,6 @@ func TestProfileImportGmailWaitsForSignIn(t *testing.T) {
 // back as a JMAP account waiting for its password. A profile from before
 // JMAP support, without the session URL, neither adds nor replaces one.
 func TestProfileJMAPAccountRoundTrip(t *testing.T) {
-	t.Setenv("GOFER_JMAP_EXPERIMENT", "true")
 	ctx := t.Context()
 	const sessionURL = "https://jmap.example.test/.well-known/jmap"
 	source := newProfileTestHandler(t)
@@ -784,7 +783,6 @@ func TestCardDAVConfigFallsBackToTheMailboxPassword(t *testing.T) {
 // Calendars read over JMAP come back as JMAP calendars, selected once the
 // mailbox login is entered, with no CalDAV setup of their own.
 func TestProfileJMAPCalendarsRoundTrip(t *testing.T) {
-	t.Setenv("GOFER_JMAP_EXPERIMENT", "true")
 	ctx := t.Context()
 	source := newProfileTestHandler(t)
 	created, err := source.accountStore.CreateAccount(ctx, "default", &models.CreateAccountRequest{

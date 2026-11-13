@@ -2,12 +2,10 @@ package mail
 
 import (
 	"context"
-	"errors"
 	"os"
 	"testing"
 
 	"github.com/cristianadrielbraun/gofer/internal/mail/jmap"
-	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
 
@@ -103,10 +101,5 @@ func TestEnsureAttachmentRecoversJMAPAttachments(t *testing.T) {
 	}
 	if server.downloads != downloads+1 {
 		t.Fatalf("downloads = %d, want one more than %d", server.downloads, downloads)
-	}
-
-	t.Setenv("GOFER_JMAP_EXPERIMENT", "false")
-	if _, err := recover(); !errors.Is(err, providers.ErrJMAPDisabled) {
-		t.Fatalf("recover with JMAP off = %v", err)
 	}
 }

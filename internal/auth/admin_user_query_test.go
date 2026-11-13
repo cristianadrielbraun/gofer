@@ -104,3 +104,36 @@ func TestAdministratorUserPageFiltersSortsPagesAndCounts(t *testing.T) {
 		t.Fatal("someone who isn't an administrator listed people")
 	}
 }
+
+// A requirement that accepts a passkey is met by one: the list doesn't ask
+// for an authenticator app it won't need.
+func TestAdministratorUserPageCountsAPasskeyTheRequirementAccepts(t *testing.T) {
+	now := time.Date(2026, time.November, 13, 12, 0, 0, 0, time.UTC)
+	manager := newDeterministicManager(t, &fixedClock{now: now}, secureTokenGenerator{})
+	insertActiveUser(t, manager, "head-admin", true, now)
+	insertActiveUser(t, manager, "passkey-enough", false, now)
+	insertActiveUser(t, manager, "app-always", false, now)
+	insertPolicyTestTOTP(t, manager, "head-admin", now)
+	insertPolicyTestPasskey(t, manager, "passkey-enough", now)
+	insertPolicyTestPasskey(t, manager, "app-always", now)
+	for _, statement := range []string{
+		`UPDATE users SET mfa_required = 1, mfa_passkey_counts = 1 WHERE id = 'passkey-enough'`,
+		`UPDATE users SET mfa_required = 1, mfa_passkey_counts = 0 WHERE id = 'app-always'`,
+	} {
+		if _, err := manager.db.Write().ExecContext(t.Context(), statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	session := insertEnrollmentStepUpSession(t, manager, "head-admin", now, now)
+	page, err := manager.ListAdministratorUserPage(t.Context(), "head-admin", session, AdministratorUserQuery{Attention: AdministratorUserAttentionMFASetup})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Users) != 1 || page.Users[0].ID != "app-always" || page.Counts.MFASetup != 1 {
+		t.Fatalf("still to set up = %+v, counts %+v", page.Users, page.Counts)
+	}
+	everyone, err := manager.ListAdministratorUserPage(t.Context(), "head-admin", session, AdministratorUserQuery{UserIDs: []string{"passkey-enough"}, Limit: 1})
+	if err != nil || len(everyone.Users) != 1 || !everyone.Users[0].HasSecondFactor || !everyone.Users[0].MFAPasskeyCounts {
+		t.Fatalf("passkey-enough = %+v, %v", everyone.Users, err)
+	}
+}

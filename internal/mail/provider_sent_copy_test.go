@@ -33,7 +33,6 @@ type jmapSentEmail struct {
 
 func newJMAPSentServer(t *testing.T) (*jmapSentServer, string) {
 	t.Helper()
-	t.Setenv("GOFER_JMAP_EXPERIMENT", "true")
 	f := &jmapSentServer{blobs: map[string][]byte{}}
 	var server *httptest.Server
 	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

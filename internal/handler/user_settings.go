@@ -17,6 +17,7 @@ func (h *Handler) registerSecuritySettingsRoutes(register func(string, http.Hand
 	register("POST "+securityTOTPStartPath, h.handleSecurityTOTPStart)
 	register("POST "+securityTOTPConfirmPath, h.handleSecurityTOTPConfirm)
 	register("POST "+securityTOTPDisablePath, h.handleSecurityTOTPDisable)
+	register("POST "+securityPasskeyTOTPPath, h.handleSecurityPasskeyTOTP)
 	register("POST "+securityRecoveryStartPath, h.handleSecurityRecoveryStart)
 	register("POST "+securityRecoveryCompletePath, h.handleSecurityRecoveryComplete)
 	register("POST "+securityRecoveryRevokePath, h.handleSecurityRecoveryRevoke)

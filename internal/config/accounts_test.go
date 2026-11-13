@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/cristianadrielbraun/gofer/internal/models"
-	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
 
@@ -642,7 +641,6 @@ func TestCreateAccountReportsAnAlreadyConnectedMailbox(t *testing.T) {
 }
 
 func TestJMAPAccountKeepsSessionURLAndPasswordWithoutMailTransports(t *testing.T) {
-	t.Setenv("GOFER_JMAP_EXPERIMENT", "true")
 	ctx := context.Background()
 	db, store := newAccountStoreTestStore(t)
 	seedAccountStoreTestUser(t, ctx, db)
@@ -700,7 +698,6 @@ func TestJMAPAccountKeepsSessionURLAndPasswordWithoutMailTransports(t *testing.T
 }
 
 func TestJMAPAccountRejectsInvalidSessionURLs(t *testing.T) {
-	t.Setenv("GOFER_JMAP_EXPERIMENT", "true")
 	ctx := context.Background()
 	db, store := newAccountStoreTestStore(t)
 	seedAccountStoreTestUser(t, ctx, db)
@@ -743,7 +740,6 @@ func TestNonJMAPAccountDropsSessionURL(t *testing.T) {
 }
 
 func TestJMAPAccountConfigReadsExceptionsForTheSessionServer(t *testing.T) {
-	t.Setenv("GOFER_JMAP_EXPERIMENT", "true")
 	ctx := context.Background()
 	db, store := newAccountStoreTestStore(t)
 	seedAccountStoreTestUser(t, ctx, db)
@@ -782,31 +778,6 @@ func TestJMAPAccountConfigReadsExceptionsForTheSessionServer(t *testing.T) {
 	}
 	if cfg, err = store.GetConfig(ctx, account.ID); err != nil || !cfg.JMAPAllowPlaintext || !cfg.JMAPAllowPrivate {
 		t.Fatalf("with exceptions: plaintext %v private %v err %v", cfg.JMAPAllowPlaintext, cfg.JMAPAllowPrivate, err)
-	}
-}
-
-// While the experiment is off, no JMAP account can be created, and an
-// existing one cannot be switched to JMAP.
-func TestJMAPAccountsNeedTheExperimentFlag(t *testing.T) {
-	ctx := context.Background()
-	db, store := newAccountStoreTestStore(t)
-	seedAccountStoreTestUser(t, ctx, db)
-	t.Setenv("GOFER_JMAP_EXPERIMENT", "")
-
-	_, err := store.CreateAccount(ctx, "default", &models.CreateAccountRequest{
-		Provider: "jmap", EmailAddress: "robin@example.test",
-		JMAPSessionURL: "https://mail.example.test/.well-known/jmap", Username: "robin@example.test", Password: "secret",
-	})
-	if !errors.Is(err, providers.ErrJMAPDisabled) {
-		t.Fatalf("CreateAccount() error = %v, want ErrJMAPDisabled", err)
-	}
-	account, err := store.CreateAccount(ctx, "default", secureAccountStoreTestRequest("sam@example.test"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = store.UpdateAccount(ctx, account.ID, &models.CreateAccountRequest{Provider: "jmap", JMAPSessionURL: "https://mail.example.test/.well-known/jmap"})
-	if !errors.Is(err, providers.ErrJMAPDisabled) {
-		t.Fatalf("UpdateAccount() error = %v, want ErrJMAPDisabled", err)
 	}
 }
 
