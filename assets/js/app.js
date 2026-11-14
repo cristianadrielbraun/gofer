@@ -20663,6 +20663,82 @@ document.addEventListener("keydown", function (event) {
   }
 })
 
+// Tab moves through compose in the order a message is written, not the order
+// of the page: To, Cc, Bcc, Subject, the body, Send, Send later, Save draft,
+// the formatting toolbar, the window's own buttons, and From, which is then a
+// Shift+Tab back from To. Cc and Bcc are their buttons until they are shown.
+// Anything else comes last, in page order.
+var _composeTabOrder = [
+  '[data-recipient-name="to"]',
+  '[data-recipient-name="cc"], #cc-btn, #pane-cc-btn',
+  '[data-recipient-name="bcc"], #bcc-btn, #pane-bcc-btn',
+  'input[name="subject"]',
+  "[data-compose-remote-images-notice], [data-compose-editor], [data-compose-attachments]",
+  "#compose-send-btn, #compose-pane-send-btn, [data-compose-mobile-send]",
+  "[data-compose-schedule-trigger]",
+  "[data-compose-draft-button]",
+  "[data-compose-toolbar]",
+  ".compose-dialog-corner, #compose-pane-size-buttons, [data-compose-mobile-bar]",
+  "[data-compose-from-row], [data-compose-one-time-from]",
+]
+var _composeTabbable = 'a[href], button, input:not([type="hidden"]), select, textarea, [contenteditable="true"], [tabindex]'
+
+function _composeTabRank(el) {
+  for (var i = 0; i < _composeTabOrder.length; i++) {
+    if (el.closest(_composeTabOrder[i])) return i
+  }
+  return _composeTabOrder.length
+}
+
+// _composeCanTab is an element Tab would stop on. What sits in an open menu,
+// popover or list of choices keeps the browser's own order.
+function _composeCanTab(el) {
+  if (!el.matches(_composeTabbable) || el.disabled || Number(el.getAttribute("tabindex")) < 0) return false
+  if (el.closest("[inert], [data-tui-popover-content], [data-tui-selectbox-content]")) return false
+  return el.getClientRects().length > 0
+}
+
+function _composeTabStops(surface) {
+  var stops = Array.prototype.filter.call(surface.querySelectorAll(_composeTabbable), _composeCanTab)
+  var ranks = new Map(stops.map(function (el, i) { return [el, _composeTabRank(el) * 100000 + i] }))
+  return stops.sort(function (a, b) { return ranks.get(a) - ranks.get(b) })
+}
+
+// _composeTabOut is the first place outside the pane Tab reaches going
+// forward, or the last going back. The dialog is modal, so it wraps instead.
+function _composeTabOut(surface, back) {
+  var stops = Array.prototype.filter.call(document.querySelectorAll(_composeTabbable), function (el) {
+    return !surface.contains(el) && _composeCanTab(el)
+  })
+  var after = Node.DOCUMENT_POSITION_FOLLOWING
+  if (back) {
+    for (var i = stops.length - 1; i >= 0; i--) {
+      if (!(surface.compareDocumentPosition(stops[i]) & after)) return stops[i]
+    }
+    return
+  }
+  for (var j = 0; j < stops.length; j++) {
+    if (surface.compareDocumentPosition(stops[j]) & after) return stops[j]
+  }
+}
+
+document.addEventListener("keydown", function (event) {
+  if (event.key !== "Tab" || event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return
+  var target = event.target
+  var surface = target && target.closest ? target.closest("#compose-dialog, [data-compose-pane]") : null
+  if (!surface || !_composeCanTab(target)) return
+  var stops = _composeTabStops(surface)
+  var at = stops.indexOf(target)
+  if (at < 0) return
+  var next = stops[at + (event.shiftKey ? -1 : 1)]
+  if (!next) {
+    next = surface.matches("[data-compose-pane]") ? _composeTabOut(surface, event.shiftKey) : null
+    if (!next) next = stops[event.shiftKey ? stops.length - 1 : 0]
+  }
+  event.preventDefault()
+  next.focus()
+})
+
 document.addEventListener("selectionchange", function () {
   if (_activeComposeEditor) _saveComposeSelection(_activeComposeEditor)
 })
@@ -22525,7 +22601,7 @@ function loadDraftIntoCompose(emailId) {
       var form = document.getElementById("compose-form")
       _writeComposeFormValues(form, vals, "compose-")
       _showComposeOptionalFields(form, vals)
-      if (window.tui && window.tui.dialog) window.tui.dialog.open("compose-dialog")
+      openComposeDialog("new")
     })
     .catch(function (err) {
       showSendStatus("failed", err && err.message ? err.message : goferT("js.compose.draft.load_failed"))
@@ -23452,8 +23528,16 @@ function writeComposeIntoView(vals, mode) {
   }
   var form = document.getElementById("compose-form")
   writeComposePrefill(form, vals, "compose-", mode)
-  if (window.tui && window.tui.dialog) window.tui.dialog.open("compose-dialog")
+  openComposeDialog(mode)
   return true
+}
+
+// openComposeDialog opens the compose dialog and puts the cursor where the
+// message goes on: To while it is empty, else Subject, else the body. Opening
+// a modal dialog focuses its first button, so the cursor is set after.
+function openComposeDialog(mode) {
+  if (window.tui && window.tui.dialog) window.tui.dialog.open("compose-dialog")
+  focusComposePrefill(document.getElementById("compose-form"), mode)
 }
 
 function mailtoDecodedPath(pathname) {
@@ -23600,9 +23684,7 @@ function openNewCompose() {
     openComposeInMain(view === "full", view === "full")
     return
   }
-  if (window.tui && window.tui.dialog) {
-    window.tui.dialog.open("compose-dialog")
-  }
+  openComposeDialog("new")
   applyDefaultComposeSignatureWhenReady(document.getElementById("compose-form"), true)
 }
 
@@ -26186,8 +26268,7 @@ function writeComposePane(html, vals, fullWidth, instantFullWidth) {
     if (bccBtn) bccBtn.classList.add("hidden")
   }
 
-  var bodyField = paneForm && paneForm.querySelector('[data-compose-editor]')
-  if (bodyField) bodyField.focus()
+  focusComposePrefill(paneForm, "new")
 
   if (fullWidth) {
     if (instantFullWidth) {
@@ -26223,9 +26304,7 @@ function collapseToDialog() {
     if (bccBtn) bccBtn.classList.add("hidden")
   }
 
-  if (window.tui && window.tui.dialog) {
-    window.tui.dialog.open("compose-dialog")
-  }
+  openComposeDialog("new")
 }
 
 function discardComposePane(anchor) {
