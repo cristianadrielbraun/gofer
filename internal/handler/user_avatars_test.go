@@ -26,6 +26,7 @@ import (
 
 func TestOwnedAvatarWarmupSharesWorkerAndScopesEvents(t *testing.T) {
 	f := newOwnedMessageContentFixture(t)
+	keepDAVServerPolicy(t)
 	cache := New(f.system, nil, mail.NewSyncOrchestrator(f.system, nil, nil, nil), f.h.blobStore, nil, "")
 	cache.avatarRouting = f.h.userStorage
 	f.h.avatarWarmupOwner = cache
@@ -182,6 +183,7 @@ func TestOwnedAvatarDiscoveryUsesLocalSourcesAndNoEmptyReplacement(t *testing.T)
 
 func TestOwnedAvatarWarmupCancellationJoinsProvider(t *testing.T) {
 	f := newOwnedMessageContentFixture(t)
+	keepDAVServerPolicy(t)
 	cache := New(f.system, nil, mail.NewSyncOrchestrator(f.system, nil, nil, nil), f.h.blobStore, nil, "")
 	cache.avatarRouting = f.h.userStorage
 	f.h.avatarWarmupOwner = cache

@@ -297,56 +297,63 @@ func (m *Manager) ReorderPolicies(ctx context.Context, actorUserID, actorSession
 // setting takes the security permission too.
 func (m *Manager) SetPolicyValues(ctx context.Context, options SetPolicyValuesOptions) (*policy.Policy, error) {
 	var saved policy.Policy
-	err := m.changePolicies(ctx, options.ActorUserID, options.ActorSessionID, func(tx *sql.Tx, actorUserID, actorSessionID string, now time.Time) error {
-		for _, change := range options.Changes {
-			if setting, ok := policy.Lookup(change.Key); ok && setting.Kind == policy.KindSecurity {
-				if err := requireAdministratorPermission(ctx, tx, actorUserID, actorSessionID, authz.PoliciesManageSecurity, now); err != nil {
-					return err
-				}
-				break
-			}
-		}
-		before, err := policy.Values(ctx, tx, options.PolicyID)
-		if err != nil {
-			return err
-		}
-		previous, err := policy.Get(ctx, tx, options.PolicyID)
-		if err != nil {
-			return err
-		}
-		if saved, err = policy.SetValues(ctx, tx, options.PolicyID, options.Version, options.Changes, actorUserID, now); err != nil {
-			return err
-		}
-		if saved.Version == previous.Version {
-			return nil
-		}
-		old := make(map[string]policy.Value, len(before))
-		for _, value := range before {
-			old[value.Key] = value
-		}
-		changes := map[string]audit.Change{}
-		for _, change := range options.Changes {
-			was, had := old[change.Key]
-			from, to := any(nil), any(nil)
-			if had {
-				from = decodeAuditValue(was.JSON)
-			}
-			if change.JSON != nil {
-				to = decodeAuditValue(change.JSON)
-			}
-			if had == (change.JSON != nil) && fmt.Sprint(from) == fmt.Sprint(to) && was.Locked == change.Locked && was.Enforced == change.Enforced {
-				continue
-			}
-			changes[change.Key] = audit.Change{From: from, To: to}
-		}
-		return m.auditAdministratorChange(ctx, tx, actorUserID, actorSessionID, audit.Event{
-			Action: "policy.settings_changed", Target: policyAuditTarget(saved), Changes: changes,
-		})
+	err := m.changePolicies(ctx, options.ActorUserID, options.ActorSessionID, func(tx *sql.Tx, actorUserID, actorSessionID string, now time.Time) (err error) {
+		saved, err = m.setPolicyValuesTx(ctx, tx, actorUserID, actorSessionID, now, options.PolicyID, options.Version, options.Changes)
+		return err
 	})
 	if err != nil {
 		return nil, err
 	}
 	return &saved, nil
+}
+
+// setPolicyValuesTx is SetPolicyValues inside a change's transaction.
+func (m *Manager) setPolicyValuesTx(ctx context.Context, tx *sql.Tx, actorUserID, actorSessionID string, now time.Time, policyID string, version int64, changes []policy.ValueChange) (policy.Policy, error) {
+	for _, change := range changes {
+		if setting, ok := policy.Lookup(change.Key); ok && setting.Kind == policy.KindSecurity {
+			if err := requireAdministratorPermission(ctx, tx, actorUserID, actorSessionID, authz.PoliciesManageSecurity, now); err != nil {
+				return policy.Policy{}, err
+			}
+			break
+		}
+	}
+	before, err := policy.Values(ctx, tx, policyID)
+	if err != nil {
+		return policy.Policy{}, err
+	}
+	previous, err := policy.Get(ctx, tx, policyID)
+	if err != nil {
+		return policy.Policy{}, err
+	}
+	saved, err := policy.SetValues(ctx, tx, policyID, version, changes, actorUserID, now)
+	if err != nil {
+		return policy.Policy{}, err
+	}
+	if saved.Version == previous.Version {
+		return saved, nil
+	}
+	old := make(map[string]policy.Value, len(before))
+	for _, value := range before {
+		old[value.Key] = value
+	}
+	recorded := map[string]audit.Change{}
+	for _, change := range changes {
+		was, had := old[change.Key]
+		from, to := any(nil), any(nil)
+		if had {
+			from = decodeAuditValue(was.JSON)
+		}
+		if change.JSON != nil {
+			to = decodeAuditValue(change.JSON)
+		}
+		if had == (change.JSON != nil) && fmt.Sprint(from) == fmt.Sprint(to) && was.Locked == change.Locked && was.Enforced == change.Enforced {
+			continue
+		}
+		recorded[change.Key] = audit.Change{From: from, To: to}
+	}
+	return saved, m.auditAdministratorChange(ctx, tx, actorUserID, actorSessionID, audit.Event{
+		Action: "policy.settings_changed", Target: policyAuditTarget(saved), Changes: recorded,
+	})
 }
 
 // AssignPolicy gives a policy to groups and people. Assigning one that
@@ -361,56 +368,63 @@ func (m *Manager) UnassignPolicy(ctx context.Context, options ChangePolicyAssign
 }
 
 func (m *Manager) changePolicyAssignments(ctx context.Context, options ChangePolicyAssignmentsOptions, assign bool) (*PolicyAssignmentChange, error) {
-	result := &PolicyAssignmentChange{}
-	err := m.changePolicies(ctx, options.ActorUserID, options.ActorSessionID, func(tx *sql.Tx, actorUserID, actorSessionID string, now time.Time) error {
-		found, err := policy.Get(ctx, tx, options.PolicyID)
-		if err != nil {
-			return err
-		}
-		values, err := policy.Values(ctx, tx, options.PolicyID)
-		if err != nil {
-			return err
-		}
-		if policy.SetsSecurity(values) {
-			if err := requireAdministratorPermission(ctx, tx, actorUserID, actorSessionID, authz.PoliciesManageSecurity, now); err != nil {
-				return err
-			}
-		}
-		var changed []policy.Target
-		if assign {
-			changed, err = policy.Assign(ctx, tx, options.PolicyID, options.Targets, actorUserID, now)
-		} else {
-			changed, err = policy.Unassign(ctx, tx, options.PolicyID, options.Targets)
-		}
-		if err != nil {
-			return err
-		}
-		result.Policy = found
-		if len(changed) == 0 {
-			return nil
-		}
-		targets := make([]map[string]string, 0, len(changed))
-		for _, target := range changed {
-			named, err := namePolicyAssignment(ctx, tx, target)
-			if err != nil {
-				return err
-			}
-			result.Changed = append(result.Changed, named)
-			targets = append(targets, map[string]string{"kind": string(target.Kind), "id": target.ID, "name": named.Name})
-		}
-		action := "policy.unassigned"
-		if assign {
-			action = "policy.assigned"
-		}
-		return m.auditAdministratorChange(ctx, tx, actorUserID, actorSessionID, audit.Event{
-			Action: action, Target: policyAuditTarget(found),
-			Metadata: map[string]any{"count": len(changed), "targets": targets},
-		})
+	var result *PolicyAssignmentChange
+	err := m.changePolicies(ctx, options.ActorUserID, options.ActorSessionID, func(tx *sql.Tx, actorUserID, actorSessionID string, now time.Time) (err error) {
+		result, err = m.changePolicyAssignmentsTx(ctx, tx, actorUserID, actorSessionID, now, options.PolicyID, options.Targets, assign)
+		return err
 	})
 	if err != nil {
 		return nil, err
 	}
 	return result, nil
+}
+
+// changePolicyAssignmentsTx is AssignPolicy or UnassignPolicy inside a
+// change's transaction.
+func (m *Manager) changePolicyAssignmentsTx(ctx context.Context, tx *sql.Tx, actorUserID, actorSessionID string, now time.Time, policyID string, targets []policy.Target, assign bool) (*PolicyAssignmentChange, error) {
+	found, err := policy.Get(ctx, tx, policyID)
+	if err != nil {
+		return nil, err
+	}
+	values, err := policy.Values(ctx, tx, policyID)
+	if err != nil {
+		return nil, err
+	}
+	if policy.SetsSecurity(values) {
+		if err := requireAdministratorPermission(ctx, tx, actorUserID, actorSessionID, authz.PoliciesManageSecurity, now); err != nil {
+			return nil, err
+		}
+	}
+	var changed []policy.Target
+	if assign {
+		changed, err = policy.Assign(ctx, tx, policyID, targets, actorUserID, now)
+	} else {
+		changed, err = policy.Unassign(ctx, tx, policyID, targets)
+	}
+	if err != nil {
+		return nil, err
+	}
+	result := &PolicyAssignmentChange{Policy: found}
+	if len(changed) == 0 {
+		return result, nil
+	}
+	recorded := make([]map[string]string, 0, len(changed))
+	for _, target := range changed {
+		named, err := namePolicyAssignment(ctx, tx, target)
+		if err != nil {
+			return nil, err
+		}
+		result.Changed = append(result.Changed, named)
+		recorded = append(recorded, map[string]string{"kind": string(target.Kind), "id": target.ID, "name": named.Name})
+	}
+	action := "policy.unassigned"
+	if assign {
+		action = "policy.assigned"
+	}
+	return result, m.auditAdministratorChange(ctx, tx, actorUserID, actorSessionID, audit.Event{
+		Action: action, Target: policyAuditTarget(found),
+		Metadata: map[string]any{"count": len(changed), "targets": recorded},
+	})
 }
 
 // changePolicies runs change in a transaction once the actor may manage

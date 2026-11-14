@@ -5,17 +5,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cristianadrielbraun/gofer/internal/policy"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
 
 func TestAdminUserMailboxesTabReadsOnlyThatPersonsAccounts(t *testing.T) {
 	f := newOwnedAdminDiagnosticFixture(t)
-	if _, err := f.system.AddMailAllowlistEntry(t.Context(), storage.MailAllowlistServer, "mail.allowed.test", "administrator"); err != nil {
-		t.Fatal(err)
-	}
-	if err := f.system.SetMailAllowlistExempt(t.Context(), "bob", true, "administrator"); err != nil {
-		t.Fatal(err)
-	}
+	setTestMailList(t, f.system, policy.MailAllowedServers, "mail.allowed.test")
+	exemptFromTestMailLists(t, f.system, "bob")
 	failedAt := time.Date(2026, time.November, 12, 8, 30, 0, 0, time.UTC)
 	if err := f.h.withUserDB(t.Context(), "alice", func(db *storage.DB) error {
 		return db.MarkEmailSyncError(t.Context(), f.accounts["alice"].ID, "authentication failed for the invented server", failedAt)

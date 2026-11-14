@@ -2,16 +2,73 @@ package handler
 
 import (
 	"context"
+	"database/sql"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/url"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cristianadrielbraun/gofer/internal/config"
+	"github.com/cristianadrielbraun/gofer/internal/policy"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
+
+// setTestMailList sets one of the Default policy's allowed mail lists.
+func setTestMailList(t *testing.T, db *storage.DB, setting *policy.Setting, entries ...string) {
+	t.Helper()
+	inTestPolicyTx(t, db, func(ctx context.Context, tx *sql.Tx) error {
+		current, err := policy.Get(ctx, tx, policy.DefaultID)
+		if err != nil {
+			return err
+		}
+		raw, err := json.Marshal(entries)
+		if err != nil {
+			return err
+		}
+		_, err = policy.SetValues(ctx, tx, policy.DefaultID, current.Version, []policy.ValueChange{{Key: setting.Key, JSON: raw}}, "", time.Now())
+		return err
+	})
+}
+
+// exemptFromTestMailLists assigns someone a policy that sets every list to
+// nothing, as exempting them does.
+func exemptFromTestMailLists(t *testing.T, db *storage.DB, userID string) {
+	t.Helper()
+	inTestPolicyTx(t, db, func(ctx context.Context, tx *sql.Tx) error {
+		created, err := policy.Create(ctx, tx, policy.NewPolicy{ID: policy.MailExemptionID, Name: policy.MailExemptionName, At: time.Now()})
+		if err != nil {
+			return err
+		}
+		var none []policy.ValueChange
+		for _, setting := range []*policy.Setting{policy.MailAllowedServers, policy.MailAllowedDomains, policy.MailAllowedProviders} {
+			none = append(none, policy.ValueChange{Key: setting.Key, JSON: json.RawMessage(`[]`)})
+		}
+		if _, err := policy.SetValues(ctx, tx, created.ID, created.Version, none, "", time.Now()); err != nil {
+			return err
+		}
+		_, err = policy.Assign(ctx, tx, created.ID, []policy.Target{{Kind: policy.TargetUser, ID: userID}}, "", time.Now())
+		return err
+	})
+}
+
+func inTestPolicyTx(t *testing.T, db *storage.DB, change func(context.Context, *sql.Tx) error) {
+	t.Helper()
+	tx, err := db.Write().BeginTx(t.Context(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	if err := change(t.Context(), tx); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+}
 
 // The administrator limits the servers and domains mailboxes use: the page
 // lists the mailboxes outside the lists, those stop connecting, and a person
@@ -87,15 +144,28 @@ func TestOwnedAdminMailAllowlist(t *testing.T) {
 	if response.Code != 303 || !adminFlashFailed(t, response) {
 		t.Fatal("server with a port accepted", response.Code, response.Header())
 	}
-	entries, err := f.system.ListMailAllowlistEntries(davTestContext(t))
-	if err != nil || len(entries) != 3 {
-		t.Fatal(entries, err)
+	lists, err := policy.DefaultMailAllowlist(davTestContext(t), f.system.Read())
+	if err != nil || len(lists.Servers) != 2 || len(lists.Domains) != 1 {
+		t.Fatal(lists, err)
 	}
-	for _, entry := range entries {
-		post("/admin/security/allowlist/entries/"+entry.ID+"/delete", url.Values{})
+	for _, server := range lists.Servers {
+		post("/admin/security/allowlist/servers/remove", url.Values{"value": {server}})
 	}
+	post("/admin/security/allowlist/domains/remove", url.Values{"value": {"example.org"}})
 	if err := connects("alice"); err != nil {
 		t.Fatal("refused with empty lists:", err)
+	}
+	// Each change is a policy change: the Default policy's lists, and the
+	// exemption policy made for Bob.
+	var changed, created, assigned int
+	if err := f.system.Read().QueryRow(`SELECT
+		(SELECT COUNT(*) FROM audit_events WHERE action = 'policy.settings_changed' AND target_id = 'default'),
+		(SELECT COUNT(*) FROM audit_events WHERE action = 'policy.created' AND target_id = ?),
+		(SELECT COUNT(*) FROM audit_events WHERE action = 'policy.assigned' AND target_id = ?)`, policy.MailExemptionID, policy.MailExemptionID).Scan(&changed, &created, &assigned); err != nil || changed != 6 || created != 1 || assigned != 1 {
+		t.Fatalf("recorded = %d settings changes, %d created, %d assigned, %v", changed, created, assigned, err)
+	}
+	if exempt, err := policy.Assignments(davTestContext(t), f.system.Read(), policy.MailExemptionID); err != nil || len(exempt) != 1 || exempt[0].ID != "bob" {
+		t.Fatalf("exempt = %#v, %v", exempt, err)
 	}
 }
 
@@ -110,12 +180,8 @@ func TestDAVRequestsKeepToTheAllowedServers(t *testing.T) {
 	if _, err := db.Write().Exec(`INSERT INTO users(id,username,username_normalized) VALUES('ana','ana','ana'),('ben','ben','ben')`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.AddMailAllowlistEntry(davTestContext(t), storage.MailAllowlistServer, "dav.example.test", "admin"); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.SetMailAllowlistExempt(davTestContext(t), "ben", true, "admin"); err != nil {
-		t.Fatal(err)
-	}
+	setTestMailList(t, db, policy.MailAllowedServers, "dav.example.test")
+	exemptFromTestMailLists(t, db, "ben")
 	previousTransport, previousPolicy := davHTTPTransport, davServerPolicy.Load()
 	t.Cleanup(func() { davHTTPTransport = previousTransport; davServerPolicy.Store(previousPolicy) })
 	davHTTPTransport = roundTripFunc(func(req *http.Request) (*http.Response, error) {

@@ -7,6 +7,7 @@ import (
 	"log"
 
 	"github.com/cristianadrielbraun/gofer/internal/auth"
+	"github.com/cristianadrielbraun/gofer/internal/policy"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
 
@@ -22,7 +23,7 @@ func (h *Handler) mailAllowlistDB() *storage.DB {
 // mailAllowlist returns the allowed mail lists as they apply to the person
 // making the request, or in full when nobody is signed in.
 func (h *Handler) mailAllowlist(ctx context.Context) (storage.MailAllowlist, error) {
-	list, err := h.mailAllowlistDB().MailAllowlistForUser(ctx, mailAllowlistOwner(ctx))
+	list, err := policy.MailAllowlistForUser(ctx, h.mailAllowlistDB(), mailAllowlistOwner(ctx))
 	if err != nil {
 		return storage.MailAllowlist{}, fmt.Errorf("check allowed mail lists: %w", err)
 	}
@@ -63,12 +64,8 @@ func mailAllowlistOwner(ctx context.Context) string {
 // CardDAV request go to host. A connection made for nobody in particular is
 // held to the lists in full.
 func davServerAllowed(db *storage.DB) func(context.Context, string) error {
-	// Read the lists now, so connections find them kept in memory.
-	if _, err := db.GetMailAllowlist(context.Background()); err != nil {
-		log.Printf("read allowed mail lists: %v", err)
-	}
 	return func(ctx context.Context, host string) error {
-		list, err := db.MailAllowlistForUser(ctx, mailAllowlistOwner(ctx))
+		list, err := policy.MailAllowlistForUser(ctx, db, mailAllowlistOwner(ctx))
 		if err != nil {
 			log.Printf("check allowed mail lists for DAV server %s: %v", host, err)
 			return errors.New("Gofer could not check the allowed mail servers")

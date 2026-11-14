@@ -52,6 +52,7 @@ func newAccountOwnershipTestHandler(t *testing.T) (*Handler, *storage.DB) {
 		t.Fatalf("config.NewAccountStore() error = %v", err)
 	}
 	blobStore := store.NewBlobStore(filepath.Join(t.TempDir(), "blobs"))
+	keepDAVServerPolicy(t)
 	return New(db, accountStore, nil, blobStore, nil, ""), db
 }
 

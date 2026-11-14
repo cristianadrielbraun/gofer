@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -399,10 +400,21 @@ func SetValues(ctx context.Context, tx *sql.Tx, id string, version int64, change
 			if !json.Valid(change.JSON) {
 				return Policy{}, ErrValueInvalid
 			}
-			if _, err := setting.Decode(change.JSON); err != nil {
-				return Policy{}, err
-			}
 		}
+	}
+	// Values are stored as the setting writes them, so equal ones compare
+	// equal.
+	changes = slices.Clone(changes)
+	for i, change := range changes {
+		if change.JSON == nil {
+			continue
+		}
+		setting, _ := Lookup(change.Key)
+		canonical, err := setting.canonical(change.JSON)
+		if err != nil {
+			return Policy{}, err
+		}
+		changes[i].JSON = canonical
 	}
 	at = at.UTC()
 	if current.Version == 0 {

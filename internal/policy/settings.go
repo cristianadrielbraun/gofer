@@ -7,6 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
+
+	"github.com/cristianadrielbraun/gofer/internal/providers"
+	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
 
 // The settings policies decide. Each is declared once, here; the console,
@@ -65,3 +69,38 @@ var OwnProxies = Bool(Spec{
 	}
 	return json.RawMessage(strconv.FormatBool(allowed)), false, true, nil
 })
+
+// The allowed mail lists, which a mailbox is checked against when it's
+// saved and each time it connects (storage.MailAllowlist). An empty list
+// limits nothing.
+const maxMailListEntries = 5000
+
+// MailAllowedServers are the servers IMAP, SMTP, JMAP, CalDAV and CardDAV
+// connections may go to, each a host, an IP address or "*." and a domain.
+var MailAllowedServers = StringList(Spec{
+	Key: "mail.allowed_servers", Category: CategoryMail, Kind: KindSecurity,
+	Label: "admin.policy.setting.mail_allowed_servers", Help: "admin.policy.setting.mail_allowed_servers.help",
+}, func(entry string) (string, error) {
+	return storage.NormalizeMailAllowlistEntry(storage.MailAllowlistServer, entry)
+}, maxMailListEntries)
+
+// MailAllowedDomains are the domains a mailbox's address may have.
+var MailAllowedDomains = StringList(Spec{
+	Key: "mail.allowed_address_domains", Category: CategoryMail, Kind: KindSecurity,
+	Label: "admin.policy.setting.mail_allowed_address_domains", Help: "admin.policy.setting.mail_allowed_address_domains.help",
+}, func(entry string) (string, error) {
+	return storage.NormalizeMailAllowlistEntry(storage.MailAllowlistDomain, entry)
+}, maxMailListEntries)
+
+// MailAllowedProviders are Gmail and Outlook, when they're let in while
+// connections are limited. Either alone limits connections to itself.
+var MailAllowedProviders = StringList(Spec{
+	Key: "mail.allowed_providers", Category: CategoryMail, Kind: KindSecurity,
+	Label: "admin.policy.setting.mail_allowed_providers", Help: "admin.policy.setting.mail_allowed_providers.help",
+}, func(entry string) (string, error) {
+	switch provider := strings.ToLower(strings.TrimSpace(entry)); provider {
+	case providers.ProviderGmail, providers.ProviderOutlook:
+		return provider, nil
+	}
+	return "", errors.New("not Gmail or Outlook")
+}, 2)

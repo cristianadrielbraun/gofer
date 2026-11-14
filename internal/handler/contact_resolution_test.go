@@ -48,6 +48,7 @@ func TestSyncContactNowQueuesOperationAndPublishesLiveStatus(t *testing.T) {
 	}
 
 	syncer := mailpkg.NewSyncOrchestrator(db, nil, nil, nil)
+	keepDAVServerPolicy(t)
 	h := New(db, nil, syncer, nil, nil, "")
 	events := syncer.Events().Subscribe()
 	defer syncer.Events().Unsubscribe(events)

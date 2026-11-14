@@ -14,7 +14,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"sync/atomic"
 
 	mailmessage "github.com/cristianadrielbraun/gofer/internal/mail/message"
 	"github.com/cristianadrielbraun/gofer/internal/store"
@@ -37,9 +36,9 @@ type DB struct {
 	// contactHookSource is the system database on owned stores: its hook
 	// sends their contact activity to the owner's pages.
 	contactHookSource *DB
-	// mailAllowlist holds the allowed mail lists once read, until this
-	// database changes them.
-	mailAllowlist atomic.Pointer[MailAllowlist]
+	// attached keeps what packages above storage hold with the database,
+	// such as the policies' cache (Attached).
+	attached sync.Map
 	// contactChangeHook and contactWatch tell open pages whose contacts
 	// changed (contact_changes.go).
 	contactChangeHook func(userID string)
@@ -64,7 +63,7 @@ type ThreadingState struct {
 	Total      int  `json:"total"`
 }
 
-const CurrentSchemaVersion = 151
+const CurrentSchemaVersion = 152
 
 func New(dbPath string) (*DB, error) {
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
@@ -105,6 +104,10 @@ func New(dbPath string) (*DB, error) {
 	if err := repairContactHomes(db.write); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("repair contact homes: %w", err)
+	}
+	if err := moveCopiedMailLists(db.write); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("move copied allowed mail lists: %w", err)
 	}
 	db.watchContactTables()
 	log.Printf("storage: schema migration check complete")
@@ -1224,6 +1227,12 @@ func (db *DB) migrate() error {
 	if currentVersion <= 150 {
 		if err := migrateV150ToV151(db.write); err != nil {
 			return fmt.Errorf("migrate v150 to v151: %w", err)
+		}
+	}
+
+	if currentVersion <= 151 {
+		if err := migrateV151ToV152(db.write); err != nil {
+			return fmt.Errorf("migrate v151 to v152: %w", err)
 		}
 	}
 
@@ -4776,4 +4785,14 @@ func (db *DB) Close() error {
 
 func (db *DB) Path() string {
 	return db.path
+}
+
+// Attached returns what a package above storage keeps with this database
+// under key, such as a cache, making it with create the first time.
+func (db *DB) Attached(key any, create func() any) any {
+	if value, ok := db.attached.Load(key); ok {
+		return value
+	}
+	value, _ := db.attached.LoadOrStore(key, create())
+	return value
 }

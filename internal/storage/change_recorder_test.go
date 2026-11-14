@@ -52,20 +52,6 @@ func TestAdministrativeWritesRunTheirRecorderOnlyForChanges(t *testing.T) {
 	expect("delete exception", 1, func(ctx context.Context) error { return db.DeleteMailSecurityException(ctx, exceptions[0].ID) })
 	expect("delete it again", 0, func(ctx context.Context) error { return db.DeleteMailSecurityException(ctx, exceptions[0].ID) })
 
-	expect("allow a server", 1, func(ctx context.Context) error {
-		_, err := db.AddMailAllowlistEntry(ctx, MailAllowlistServer, "imap.sample.test", "admin")
-		return err
-	})
-	expect("allow it again", 0, func(ctx context.Context) error {
-		_, err := db.AddMailAllowlistEntry(ctx, MailAllowlistServer, "imap.sample.test", "admin")
-		return err
-	})
-	expect("allow Gmail", 1, func(ctx context.Context) error { return db.SetMailAllowlistProvider(ctx, "gmail", true, "admin") })
-	expect("stop allowing Gmail", 1, func(ctx context.Context) error { return db.SetMailAllowlistProvider(ctx, "gmail", false, "admin") })
-	expect("stop again", 0, func(ctx context.Context) error { return db.SetMailAllowlistProvider(ctx, "gmail", false, "admin") })
-	expect("exempt a person", 1, func(ctx context.Context) error { return db.SetMailAllowlistExempt(ctx, "pia-lund", true, "admin") })
-	expect("exempt again", 0, func(ctx context.Context) error { return db.SetMailAllowlistExempt(ctx, "pia-lund", true, "admin") })
-
 	proxy := OutboundProxy{ID: NewOutboundProxyID(), Name: "Office", Type: "http", Host: "proxy.sample.test", Port: 3128}
 	expect("save a proxy", 1, func(ctx context.Context) error { return db.SaveOutboundProxy(ctx, proxy, "admin") })
 	expect("offer it to everyone", 1, func(ctx context.Context) error { return db.SetOutboundProxyEveryone(ctx, proxy.ID, true) })

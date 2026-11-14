@@ -2,6 +2,7 @@ package storage
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -97,62 +98,130 @@ func TestNormalizeMailAllowlistEntry(t *testing.T) {
 	}
 }
 
-// The lists are stored once each, providers only through their switch, and
-// an exempted person gets no limits.
-func TestMailAllowlistStorage(t *testing.T) {
-	db, err := New(filepath.Join(t.TempDir(), "allowlist.db"))
+// The old lists move into policies once: the Default policy's values, and
+// an exemption policy first in the order for the people exempted. A
+// database copied from an older one moves them when it's opened.
+func TestTheAllowedMailListsMoveIntoPoliciesOnce(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "allowlist.db")
+	db, err := New(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
-	ctx := t.Context()
-	if _, err := db.Write().Exec(`INSERT INTO users(id,username,username_normalized) VALUES('ana','ana','ana'),('ben','ben','ben')`); err != nil {
-		t.Fatal(err)
-	}
-	for range 2 {
-		if _, err := db.AddMailAllowlistEntry(ctx, MailAllowlistServer, "IMAP.example.test", "admin"); err != nil {
-			t.Fatal(err)
+	for _, statement := range []string{
+		`INSERT INTO users (id, username, username_normalized, user_type, created_at, updated_at) VALUES ('ana', 'ana', 'ana', 'webmail', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+		`INSERT INTO users (id, username, username_normalized, user_type, created_at, updated_at) VALUES ('ben', 'ben', 'ben', 'webmail', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+		`INSERT INTO users (id, username, username_normalized, user_type, deletion_pending, created_at, updated_at) VALUES ('cal', 'cal', 'cal', 'webmail', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+		`INSERT INTO users (id, username, username_normalized, user_type, is_admin, created_at, updated_at) VALUES ('root', 'root', 'root', 'management', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+		// A policy made before the move, which the exemption goes ahead of.
+		`INSERT INTO policies (id, name, name_normalized, is_default, priority, created_at, updated_at) VALUES ('p-field', 'Field', 'field', 0, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+		`INSERT INTO mail_allowlist_entries (id, kind, value, created_by) VALUES ('e1', 'server', 'imap.example.test', 'root')`,
+		`INSERT INTO mail_allowlist_entries (id, kind, value, created_by) VALUES ('e2', 'server', '*.example.test', 'root')`,
+		`INSERT INTO mail_allowlist_entries (id, kind, value, created_by) VALUES ('e3', 'domain', 'example.test', 'root')`,
+		`INSERT INTO mail_allowlist_entries (id, kind, value, created_by) VALUES ('e4', 'provider', 'outlook', 'root')`,
+		`INSERT INTO mail_allowlist_exempt_users (user_id, created_by) VALUES ('ben', 'root')`,
+		`INSERT INTO mail_allowlist_exempt_users (user_id, created_by) VALUES ('cal', 'root')`,
+		`INSERT INTO mail_allowlist_exempt_users (user_id, created_by) VALUES ('root', 'root')`,
+		`DELETE FROM schema_version WHERE version = 152`,
+	} {
+		if _, err := db.Write().Exec(statement); err != nil {
+			t.Fatal(statement, err)
 		}
 	}
-	if _, err := db.AddMailAllowlistEntry(ctx, MailAllowlistDomain, "example.test", "admin"); err != nil {
+	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.AddMailAllowlistEntry(ctx, MailAllowlistProvider, "gmail", "admin"); err == nil {
-		t.Fatal("provider added as an entry")
-	}
-	if err := db.SetMailAllowlistProvider(ctx, "gmail", true, "admin"); err != nil {
-		t.Fatal(err)
-	}
-	list, err := db.GetMailAllowlist(ctx)
-	if err != nil || len(list.Servers) != 1 || list.Servers[0] != "imap.example.test" || len(list.Domains) != 1 || !list.Gmail || list.Outlook {
-		t.Fatalf("lists = %+v, %v", list, err)
-	}
-	if err := db.SetMailAllowlistExempt(ctx, "ben", true, "admin"); err != nil {
-		t.Fatal(err)
-	}
-	if got, err := db.MailAllowlistForUser(ctx, "ben"); err != nil || got.Limited() {
-		t.Fatalf("exempt person limited: %+v, %v", got, err)
-	}
-	if got, err := db.MailAllowlistForUser(ctx, "ana"); err != nil || !got.Limited() {
-		t.Fatalf("person not limited: %+v, %v", got, err)
-	}
-	entries, err := db.ListMailAllowlistEntries(ctx)
-	if err != nil || len(entries) != 3 {
-		t.Fatalf("entries = %+v, %v", entries, err)
-	}
-	for _, entry := range entries {
-		if err := db.DeleteMailAllowlistEntry(ctx, entry.ID); err != nil {
+	reopen := func() *DB {
+		t.Helper()
+		db, err := New(path)
+		if err != nil {
 			t.Fatal(err)
 		}
+		t.Cleanup(func() { _ = db.Close() })
+		return db
 	}
-	// The provider switch is not removed with the entries.
-	if list, err = db.GetMailAllowlist(ctx); err != nil || len(list.Servers) != 0 || len(list.Domains) != 0 || !list.Gmail {
-		t.Fatalf("after deleting entries = %+v, %v", list, err)
+	db = reopen()
+	values := func() string {
+		t.Helper()
+		rows, err := db.Read().Query(`SELECT policy_id, setting_key, value_json FROM policy_values ORDER BY policy_id, setting_key`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+		var lines []string
+		for rows.Next() {
+			var policyID, key, value string
+			if err := rows.Scan(&policyID, &key, &value); err != nil {
+				t.Fatal(err)
+			}
+			lines = append(lines, policyID+" "+key+"="+value)
+		}
+		return strings.Join(lines, "\n")
 	}
-	if err := db.SetMailAllowlistExempt(ctx, "ben", false, "admin"); err != nil {
+	want := strings.Join([]string{
+		`default mail.allowed_address_domains=["example.test"]`,
+		`default mail.allowed_providers=["outlook"]`,
+		`default mail.allowed_servers=["*.example.test","imap.example.test"]`,
+		`mail-exemption mail.allowed_address_domains=[]`,
+		`mail-exemption mail.allowed_providers=[]`,
+		`mail-exemption mail.allowed_servers=[]`,
+	}, "\n")
+	if got := values(); got != want {
+		t.Fatalf("moved values:\n%s\nwant:\n%s", got, want)
+	}
+	var order, assigned string
+	if err := db.Read().QueryRow(`SELECT group_concat(id || ':' || COALESCE(priority, 0), ' ') FROM (SELECT id, priority FROM policies ORDER BY is_default, priority)`).Scan(&order); err != nil || order != "mail-exemption:1 p-field:2 default:0" {
+		t.Fatalf("policies = %q, %v", order, err)
+	}
+	// Only Ben: Cal is being deleted, and an administrator has no mail.
+	if err := db.Read().QueryRow(`SELECT group_concat(target_kind || ':' || target_id || ':' || created_by, ' ') FROM policy_assignments`).Scan(&assigned); err != nil || assigned != "user:ben:root" {
+		t.Fatalf("assignments = %q, %v", assigned, err)
+	}
+	var revision int
+	if err := db.Read().QueryRow(`SELECT revision FROM admin_revisions WHERE name = 'policy'`).Scan(&revision); err != nil || revision < 1 {
+		t.Fatalf("policy revision = %d, %v", revision, err)
+	}
+	// The old rows stay, untouched.
+	var oldRows int
+	if err := db.Read().QueryRow(`SELECT (SELECT COUNT(*) FROM mail_allowlist_entries) + (SELECT COUNT(*) FROM mail_allowlist_exempt_users)`).Scan(&oldRows); err != nil || oldRows != 7 {
+		t.Fatalf("old rows = %d, %v", oldRows, err)
+	}
+
+	// Cleared since, the lists don't come back when the database opens
+	// again.
+	if _, err := db.Write().Exec(`DELETE FROM policy_values WHERE policy_id = 'default'`); err != nil {
 		t.Fatal(err)
 	}
-	if exempt, err := db.IsMailAllowlistExempt(ctx, "ben"); err != nil || exempt {
-		t.Fatal("exemption not removed", err)
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	db = reopen()
+	if got := values(); strings.Contains(got, "default ") {
+		t.Fatalf("the move ran again:\n%s", got)
+	}
+
+	// A database made at 152 that then gets old rows, as a split copies
+	// them from an older one, moves them when it's opened.
+	copied := filepath.Join(t.TempDir(), "copied.db")
+	fresh, err := New(copied)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fresh.Write().Exec(`INSERT INTO mail_allowlist_entries (id, kind, value) VALUES ('e1', 'domain', 'example.test')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := fresh.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if fresh, err = New(copied); err != nil {
+		t.Fatal(err)
+	}
+	defer fresh.Close()
+	var moved string
+	if err := fresh.Read().QueryRow(`SELECT value_json FROM policy_values WHERE policy_id = 'default' AND setting_key = 'mail.allowed_address_domains'`).Scan(&moved); err != nil || moved != `["example.test"]` {
+		t.Fatalf("copied lists = %q, %v", moved, err)
+	}
+	var policies int
+	if err := fresh.Read().QueryRow(`SELECT COUNT(*) FROM policies`).Scan(&policies); err != nil || policies != 1 {
+		t.Fatalf("policies made for a copy with no exemptions = %d, %v", policies, err)
 	}
 }

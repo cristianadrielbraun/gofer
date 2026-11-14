@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/cristianadrielbraun/gofer/internal/models"
+	"github.com/cristianadrielbraun/gofer/internal/policy"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
 
@@ -14,7 +15,7 @@ import (
 // to a person. Accounts from before people had their own sign-in have no
 // owner, and are held to the lists in full.
 func (s *AccountStore) mailAllowlist(ctx context.Context, userID string) (storage.MailAllowlist, error) {
-	list, err := s.policyDB.MailAllowlistForUser(ctx, userID)
+	list, err := policy.MailAllowlistForUser(ctx, s.policyDB, userID)
 	if err != nil {
 		return storage.MailAllowlist{}, fmt.Errorf("check allowed mail lists: %w", err)
 	}
@@ -97,7 +98,7 @@ func (s *AccountStore) checkUpdatedMailbox(ctx context.Context, accountID, userI
 // checkMailAllowlist refuses to connect a copied account the allowed mail
 // lists no longer let its owner use.
 func (s *AccountServiceSnapshot) checkMailAllowlist(ctx context.Context) error {
-	list, err := s.repository.routing.System().MailAllowlistForUser(ctx, s.owner)
+	list, err := policy.MailAllowlistForUser(ctx, s.repository.routing.System(), s.owner)
 	if err != nil {
 		return fmt.Errorf("check allowed mail lists: %w", err)
 	}
@@ -109,7 +110,7 @@ func (s *AccountServiceSnapshot) checkMailAllowlist(ctx context.Context) error {
 // checkServiceURLs refuses contacts or calendar servers the allowed mail
 // lists don't let the account's owner connect to.
 func (s *UserAccountStore) checkServiceURLs(ctx context.Context, owner string, addresses ...string) error {
-	list, err := s.routing.System().MailAllowlistForUser(ctx, owner)
+	list, err := policy.MailAllowlistForUser(ctx, s.routing.System(), owner)
 	if err != nil {
 		return fmt.Errorf("check allowed mail lists: %w", err)
 	}

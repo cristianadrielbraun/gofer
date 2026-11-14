@@ -77,6 +77,7 @@ func TestHandleTestAccountUsesGraphForOutlook(t *testing.T) {
 	previousGraphBase := outlookGraphBaseURL
 	outlookGraphBaseURL = server.URL
 	t.Cleanup(func() { outlookGraphBaseURL = previousGraphBase })
+	keepDAVServerPolicy(t)
 	h := New(db, store, nil, nil, auth.NewManager(&auth.Config{}, db), "", manager)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/accounts/acc/test", nil)

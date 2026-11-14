@@ -174,6 +174,7 @@ func newGmailOutgoingTestHandler(t *testing.T, gmailFrom string) (*Handler, *sto
 	if err != nil {
 		t.Fatalf("NewAccountStore() error = %v", err)
 	}
+	keepDAVServerPolicy(t)
 	h := New(db, accountStore, mailpkg.NewSyncOrchestrator(db, accountStore, nil, nil), store.NewBlobStore(filepath.Join(t.TempDir(), "blobs")), auth.NewManager(&auth.Config{}, db), "", mailCredentials)
 
 	fake := &gmailOutgoingFake{}
@@ -342,6 +343,7 @@ func TestOutgoingWorkerRetriesTemporaryGmailFailureWithSameSnapshot(t *testing.T
 		t.Fatalf("NewAccountStore() error = %v", err)
 	}
 	syncer := mailpkg.NewSyncOrchestrator(db, accountStore, nil, nil)
+	keepDAVServerPolicy(t)
 	h := New(db, accountStore, syncer, store.NewBlobStore(filepath.Join(t.TempDir(), "blobs")), auth.NewManager(&auth.Config{}, db), "", mailCredentials)
 	events := syncer.Events().Subscribe()
 	defer syncer.Events().Unsubscribe(events)

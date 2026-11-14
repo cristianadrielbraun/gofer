@@ -59,7 +59,8 @@ type Setting struct {
 	// adapter reads the Default policy's value from where the setting
 	// lived before policies; nil for a setting policies store themselves.
 	adapter Adapter
-	// Min and Max bound a number; Options are an enum's choices.
+	// Min and Max bound a number, and Max a list's length; Options are an
+	// enum's choices.
 	Min, Max int
 	Options  []string
 }
@@ -89,16 +90,28 @@ func (setting *Setting) Decode(raw json.RawMessage) (any, error) {
 	return setting.decode(raw)
 }
 
-// Encode turns a value into what's stored, checking it the same way.
+// Encode turns a value into what's stored, checking it the same way. A
+// list is stored cleaned, sorted and without repeats.
 func (setting *Setting) Encode(value any) (json.RawMessage, error) {
 	raw, err := json.Marshal(value)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s: %v", ErrValueInvalid, setting.Key, err)
 	}
-	if _, err := setting.decode(raw); err != nil {
+	return setting.canonical(raw)
+}
+
+// canonical is raw as it's stored: checked, then written again from what
+// it says.
+func (setting *Setting) canonical(raw json.RawMessage) (json.RawMessage, error) {
+	decoded, err := setting.decode(raw)
+	if err != nil {
 		return nil, err
 	}
-	return raw, nil
+	canonical, err := json.Marshal(decoded)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s: %v", ErrValueInvalid, setting.Key, err)
+	}
+	return canonical, nil
 }
 
 func invalid(key, format string, args ...any) error {
@@ -116,6 +129,38 @@ func Int(spec Spec, builtin, min, max int) *Setting {
 // Enum declares a choice of one of options.
 func Enum(spec Spec, builtin string, options ...string) *Setting {
 	return register(enumSetting(spec, builtin, options...))
+}
+
+// StringList declares a list of entries, each cleaned by clean, which
+// refuses one it doesn't take, and at most max of them. Nothing is listed
+// by default.
+func StringList(spec Spec, clean func(string) (string, error), max int) *Setting {
+	return register(listSetting(spec, clean, max))
+}
+
+func listSetting(spec Spec, clean func(string) (string, error), max int) *Setting {
+	setting := &Setting{Spec: spec, builtin: []string{}, Max: max}
+	setting.decode = func(raw json.RawMessage) (any, error) {
+		var entries []string
+		if err := json.Unmarshal(raw, &entries); err != nil || entries == nil {
+			return nil, invalid(spec.Key, "not a list")
+		}
+		cleaned := make([]string, 0, len(entries))
+		for _, entry := range entries {
+			value, err := clean(entry)
+			if err != nil {
+				return nil, invalid(spec.Key, "%q: %v", entry, err)
+			}
+			cleaned = append(cleaned, value)
+		}
+		sort.Strings(cleaned)
+		cleaned = slices.Compact(cleaned)
+		if len(cleaned) > max {
+			return nil, invalid(spec.Key, "more than %d entries", max)
+		}
+		return cleaned, nil
+	}
+	return setting
 }
 
 func boolSetting(spec Spec, builtin bool) *Setting {

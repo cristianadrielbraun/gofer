@@ -107,14 +107,28 @@ func (cache *Cache) get(ctx context.Context, userID string, resolveNow func() (*
 	return effective, nil
 }
 
+// readRevisions reads both counters in one query, as every read through
+// the cache does.
 func readRevisions(ctx context.Context, q Querier) (revisions, error) {
 	var current revisions
-	var err error
-	if current.policy, err = directory.Revision(ctx, q, directory.RevisionPolicy); err != nil {
-		return current, fmt.Errorf("read the policy revision: %w", err)
+	rows, err := q.QueryContext(ctx, `SELECT name, revision FROM admin_revisions WHERE name IN (?, ?)`,
+		directory.RevisionPolicy, directory.RevisionMembership)
+	if err != nil {
+		return current, fmt.Errorf("read the policy revisions: %w", err)
 	}
-	if current.membership, err = directory.Revision(ctx, q, directory.RevisionMembership); err != nil {
-		return current, fmt.Errorf("read the membership revision: %w", err)
+	defer rows.Close()
+	for rows.Next() {
+		var name string
+		var revision int64
+		if err := rows.Scan(&name, &revision); err != nil {
+			return current, fmt.Errorf("read a policy revision: %w", err)
+		}
+		switch name {
+		case directory.RevisionPolicy:
+			current.policy = revision
+		case directory.RevisionMembership:
+			current.membership = revision
+		}
 	}
-	return current, nil
+	return current, rows.Err()
 }

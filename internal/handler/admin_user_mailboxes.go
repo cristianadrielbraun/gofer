@@ -8,6 +8,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/auth"
 	"github.com/cristianadrielbraun/gofer/internal/i18n"
 	mailtransport "github.com/cristianadrielbraun/gofer/internal/mail/transport"
+	"github.com/cristianadrielbraun/gofer/internal/policy"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 	"github.com/cristianadrielbraun/gofer/internal/views"
@@ -34,7 +35,7 @@ func (h *Handler) adminUserMailboxes(ctx context.Context, actor *auth.User, pers
 		}
 		stored = data.Mailboxes
 	}
-	allowlist, err := h.db.MailAllowlistForUser(ctx, person.ID)
+	allowlist, err := policy.MailAllowlistForUser(ctx, h.db, person.ID)
 	if err != nil {
 		return nil, false, err
 	}

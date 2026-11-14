@@ -13,6 +13,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/config"
 	"github.com/cristianadrielbraun/gofer/internal/mailauth"
 	"github.com/cristianadrielbraun/gofer/internal/models"
+	"github.com/cristianadrielbraun/gofer/internal/policy"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 	"golang.org/x/oauth2"
@@ -213,7 +214,7 @@ func (h *Handler) finishUserAccountOAuth(w http.ResponseWriter, ctx context.Cont
 // the allowed mail lists refuse, or "" when they let it in. An address not
 // known yet is checked once the provider names it.
 func (h *Handler) oauthMailAllowlistFailure(ctx context.Context, owner, provider, email string) string {
-	list, err := h.mailAllowlistDB().MailAllowlistForUser(ctx, owner)
+	list, err := policy.MailAllowlistForUser(ctx, h.mailAllowlistDB(), owner)
 	if err != nil {
 		log.Printf("routed mailbox OAuth: %v", err)
 		return "create_failed"

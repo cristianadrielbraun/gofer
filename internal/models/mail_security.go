@@ -81,8 +81,8 @@ type MailAllowlistAdminData struct {
 	Refused []MailAllowlistRefusedAccount
 }
 
+// MailAllowlistAdminEntry is a server or domain on a list.
 type MailAllowlistAdminEntry struct {
-	ID    string
 	Value string
 }
 

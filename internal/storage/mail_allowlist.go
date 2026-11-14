@@ -1,17 +1,13 @@
 package storage
 
 import (
-	"context"
 	"database/sql"
 	"errors"
-	"fmt"
 	"net/netip"
 	"net/url"
-	"sort"
 	"strings"
 
 	"github.com/cristianadrielbraun/gofer/internal/providers"
-	"github.com/google/uuid"
 )
 
 // The kinds of allowed mail list entries. A server entry names a host an
@@ -27,14 +23,6 @@ const (
 // ErrMailAllowlistEntry means an entry is not a host or domain, or a
 // "*." pattern of one.
 var ErrMailAllowlistEntry = errors.New("enter a host or domain, or *. followed by one")
-
-// MailAllowlistEntry is one row of the allowed mail lists.
-type MailAllowlistEntry struct {
-	ID        string
-	Kind      string
-	Value     string
-	CreatedBy string
-}
 
 // MailAllowlist limits the mail servers mailboxes connect to and the domains
 // their addresses have. An empty list limits nothing, so a zero value allows
@@ -329,182 +317,3 @@ const mailAllowlistExemptUsersTableSQL = `CREATE TABLE IF NOT EXISTS mail_allowl
     created_by TEXT NOT NULL DEFAULT '',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 )`
-
-// ListMailAllowlistEntries returns every entry, servers and domains in name
-// order.
-func (db *DB) ListMailAllowlistEntries(ctx context.Context) ([]MailAllowlistEntry, error) {
-	rows, err := db.read.QueryContext(ctx, `
-		SELECT id, kind, value, created_by FROM mail_allowlist_entries ORDER BY kind, value`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var entries []MailAllowlistEntry
-	for rows.Next() {
-		var entry MailAllowlistEntry
-		if err := rows.Scan(&entry.ID, &entry.Kind, &entry.Value, &entry.CreatedBy); err != nil {
-			return nil, err
-		}
-		entries = append(entries, entry)
-	}
-	return entries, rows.Err()
-}
-
-// GetMailAllowlist returns the lists as they apply to everyone not exempted.
-// Mailboxes check them on every connection, so they are read once and kept
-// until changed here.
-func (db *DB) GetMailAllowlist(ctx context.Context) (MailAllowlist, error) {
-	if cached := db.mailAllowlist.Load(); cached != nil {
-		return *cached, nil
-	}
-	entries, err := db.ListMailAllowlistEntries(ctx)
-	if err != nil {
-		return MailAllowlist{}, err
-	}
-	var list MailAllowlist
-	for _, entry := range entries {
-		switch entry.Kind {
-		case MailAllowlistServer:
-			list.Servers = append(list.Servers, entry.Value)
-		case MailAllowlistDomain:
-			list.Domains = append(list.Domains, entry.Value)
-		case MailAllowlistProvider:
-			list.Gmail = list.Gmail || entry.Value == providers.ProviderGmail
-			list.Outlook = list.Outlook || entry.Value == providers.ProviderOutlook
-		}
-	}
-	db.mailAllowlist.Store(&list)
-	return list, nil
-}
-
-// MailAllowlistForUser returns the lists as they apply to one person: none
-// at all when the administrator exempted them.
-func (db *DB) MailAllowlistForUser(ctx context.Context, userID string) (MailAllowlist, error) {
-	list, err := db.GetMailAllowlist(ctx)
-	if err != nil || !list.Limited() {
-		return list, err
-	}
-	exempt, err := db.IsMailAllowlistExempt(ctx, userID)
-	if err != nil {
-		return MailAllowlist{}, fmt.Errorf("check allowed mail list exemption: %w", err)
-	}
-	if exempt {
-		return MailAllowlist{}, nil
-	}
-	return list, nil
-}
-
-// AddMailAllowlistEntry adds a server or domain, normalized. Adding one that
-// is already there does nothing.
-func (db *DB) AddMailAllowlistEntry(ctx context.Context, kind, value, createdBy string) (string, error) {
-	if kind != MailAllowlistServer && kind != MailAllowlistDomain {
-		return "", fmt.Errorf("unknown allowed mail list %q", kind)
-	}
-	value, err := NormalizeMailAllowlistEntry(kind, value)
-	if err != nil {
-		return "", err
-	}
-	err = db.inChangeTx(ctx, func(tx *sql.Tx) (bool, error) {
-		result, err := tx.ExecContext(ctx, `
-			INSERT INTO mail_allowlist_entries (id, kind, value, created_by) VALUES (?, ?, ?, ?)
-			ON CONFLICT(kind, value) DO NOTHING`,
-			uuid.NewString(), kind, value, strings.TrimSpace(createdBy))
-		if err != nil {
-			return false, err
-		}
-		return rowsChanged(result)
-	})
-	db.mailAllowlist.Store(nil)
-	return value, err
-}
-
-// DeleteMailAllowlistEntry removes a server or domain entry.
-func (db *DB) DeleteMailAllowlistEntry(ctx context.Context, id string) error {
-	err := db.inChangeTx(ctx, func(tx *sql.Tx) (bool, error) {
-		result, err := tx.ExecContext(ctx, `DELETE FROM mail_allowlist_entries WHERE id = ? AND kind != ?`, strings.TrimSpace(id), MailAllowlistProvider)
-		if err != nil {
-			return false, err
-		}
-		return rowsChanged(result)
-	})
-	db.mailAllowlist.Store(nil)
-	return err
-}
-
-// SetMailAllowlistProvider lets Gmail or Outlook mailboxes in while servers
-// are limited, or stops letting them in.
-func (db *DB) SetMailAllowlistProvider(ctx context.Context, provider string, allowed bool, createdBy string) error {
-	if provider != providers.ProviderGmail && provider != providers.ProviderOutlook {
-		return fmt.Errorf("unknown provider %q", provider)
-	}
-	defer db.mailAllowlist.Store(nil)
-	return db.inChangeTx(ctx, func(tx *sql.Tx) (bool, error) {
-		var result sql.Result
-		var err error
-		if allowed {
-			result, err = tx.ExecContext(ctx, `
-				INSERT INTO mail_allowlist_entries (id, kind, value, created_by) VALUES (?, ?, ?, ?)
-				ON CONFLICT(kind, value) DO NOTHING`,
-				uuid.NewString(), MailAllowlistProvider, provider, strings.TrimSpace(createdBy))
-		} else {
-			result, err = tx.ExecContext(ctx, `DELETE FROM mail_allowlist_entries WHERE kind = ? AND value = ?`, MailAllowlistProvider, provider)
-		}
-		if err != nil {
-			return false, err
-		}
-		return rowsChanged(result)
-	})
-}
-
-// IsMailAllowlistExempt reports whether the allowed mail lists don't apply to
-// a person.
-func (db *DB) IsMailAllowlistExempt(ctx context.Context, userID string) (bool, error) {
-	var exempt int
-	err := db.read.QueryRowContext(ctx, `
-		SELECT EXISTS(SELECT 1 FROM mail_allowlist_exempt_users WHERE user_id = ?)`, strings.TrimSpace(userID)).Scan(&exempt)
-	return exempt == 1, err
-}
-
-// SetMailAllowlistExempt makes the allowed mail lists not apply to a person,
-// or apply again.
-func (db *DB) SetMailAllowlistExempt(ctx context.Context, userID string, exempt bool, createdBy string) error {
-	userID = strings.TrimSpace(userID)
-	if userID == "" {
-		return errors.New("user is required")
-	}
-	return db.inChangeTx(ctx, func(tx *sql.Tx) (bool, error) {
-		var result sql.Result
-		var err error
-		if exempt {
-			result, err = tx.ExecContext(ctx, `
-				INSERT INTO mail_allowlist_exempt_users (user_id, created_by) VALUES (?, ?)
-				ON CONFLICT(user_id) DO NOTHING`, userID, strings.TrimSpace(createdBy))
-		} else {
-			result, err = tx.ExecContext(ctx, `DELETE FROM mail_allowlist_exempt_users WHERE user_id = ?`, userID)
-		}
-		if err != nil {
-			return false, err
-		}
-		return rowsChanged(result)
-	})
-}
-
-// ListMailAllowlistExemptUsers returns the IDs of the people the lists don't
-// apply to, sorted.
-func (db *DB) ListMailAllowlistExemptUsers(ctx context.Context) ([]string, error) {
-	rows, err := db.read.QueryContext(ctx, `SELECT user_id FROM mail_allowlist_exempt_users`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var ids []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
-	return ids, rows.Err()
-}

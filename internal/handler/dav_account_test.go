@@ -12,6 +12,7 @@ import (
 	"github.com/cristianadrielbraun/gofer/internal/auth"
 	"github.com/cristianadrielbraun/gofer/internal/config"
 	"github.com/cristianadrielbraun/gofer/internal/models"
+	"github.com/cristianadrielbraun/gofer/internal/policy"
 	"github.com/cristianadrielbraun/gofer/internal/providers"
 	"github.com/cristianadrielbraun/gofer/internal/storage"
 )
@@ -194,9 +195,7 @@ func TestDAVAccountLoginKeepsToTheAllowedDomains(t *testing.T) {
 		dav.ServeHTTP(w, r)
 	}))
 	f.h.userAccountHooks = UserAccountHooks{Created: func(context.Context, string) error { return nil }}
-	if _, err := f.h.mailAllowlistDB().AddMailAllowlistEntry(t.Context(), storage.MailAllowlistDomain, "example.test", "admin"); err != nil {
-		t.Fatal(err)
-	}
+	setTestMailList(t, f.h.mailAllowlistDB(), policy.MailAllowedDomains, "example.test")
 	book := f.server.URL + "/books/family/"
 	form := func(username string) url.Values {
 		return url.Values{"service": {"contacts"}, "server_url": {f.server.URL}, "username": {username}, "password": {"dav-pass"}, "item": {book}, "default_item": {book}}

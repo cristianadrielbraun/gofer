@@ -31,3 +31,12 @@ func netguardBindForTest(username, password string, proxy *netguardtest.Proxy) {
 	}
 	netguard.BindBasicProxy(username, password, config)
 }
+
+// keepDAVServerPolicy puts the package's DAV server check back when the
+// test ends. New installs its database's check for the whole package, and
+// that database closes with the test, so a later test would check against
+// a closed database.
+func keepDAVServerPolicy(t testing.TB) {
+	previous := davServerPolicy.Load()
+	t.Cleanup(func() { davServerPolicy.Store(previous) })
+}

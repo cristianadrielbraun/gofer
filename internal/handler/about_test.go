@@ -29,6 +29,7 @@ func assertUserStorageRoutes(t *testing.T, routes []struct{ method, path string 
 	if err != nil {
 		t.Fatal(err)
 	}
+	keepDAVServerPolicy(t)
 	h := New(f.system, nil, syncer, f.h.blobStore, f.manager, "")
 	t.Cleanup(func() { cancel(); imap.Wait(); h.WaitAvatarWorkers() })
 	mux := http.NewServeMux()

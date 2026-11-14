@@ -2075,4 +2075,4 @@ CREATE TABLE IF NOT EXISTS account_idle_limits (
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-INSERT OR REPLACE INTO schema_version (version) VALUES (151);
+INSERT OR REPLACE INTO schema_version (version) VALUES (152);

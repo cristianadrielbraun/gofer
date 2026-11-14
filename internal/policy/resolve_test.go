@@ -82,11 +82,12 @@ func TestTheDeclaredSettingsKeepTodaysBehaviour(t *testing.T) {
 			keys = append(keys, setting.Key)
 		}
 	}
-	if got := strings.Join(keys, " "); got != "audit.security_retention_days auth.mfa_required mail.own_proxies" {
+	if got := strings.Join(keys, " "); got != "audit.security_retention_days auth.mfa_required mail.allowed_address_domains mail.allowed_providers mail.allowed_servers mail.own_proxies" {
 		t.Fatalf("declared settings = %s", got)
 	}
 	empty := resolve(resolveInput{policies: []Policy{unsavedDefault()}, settings: Settings()})
-	if empty.Bool(MFARequired) || empty.Int(SecurityRetentionDays) != 180 || empty.Bool(OwnProxies) {
+	if empty.Bool(MFARequired) || empty.Int(SecurityRetentionDays) != 180 || empty.Bool(OwnProxies) ||
+		len(empty.Strings(MailAllowedServers)) != 0 || len(empty.Strings(MailAllowedDomains)) != 0 || len(empty.Strings(MailAllowedProviders)) != 0 {
 		t.Fatalf("with nothing set:\n%s", empty.describe())
 	}
 	if lookedUp, ok := Lookup("mail.own_proxies"); !ok || lookedUp != OwnProxies {

@@ -56,6 +56,7 @@ func TestHandleTestAccountUsesGmailAPIForGmail(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAccountStore() error = %v", err)
 	}
+	keepDAVServerPolicy(t)
 	h := New(db, store, nil, nil, auth.NewManager(&auth.Config{}, db), "", manager)
 	req := httptest.NewRequest(http.MethodPost, "/api/accounts/acc/test", nil)
 	req = req.WithContext(auth.ContextWithUser(req.Context(), &auth.User{ID: "default"}))

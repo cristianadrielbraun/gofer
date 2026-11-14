@@ -88,6 +88,12 @@ func (effective *Effective) String(setting *Setting) string {
 	return value
 }
 
+// Strings returns a list setting's value.
+func (effective *Effective) Strings(setting *Setting) []string {
+	value, _ := effective.Get(setting).Value.([]string)
+	return value
+}
+
 // applied is a policy that applies to the person, and how it reached them.
 type applied struct {
 	direct    bool
